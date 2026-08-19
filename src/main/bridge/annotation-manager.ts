@@ -14,6 +14,7 @@ import {
 
 export interface AnnotationPayload {
   annotationId?: string;
+  workspaceDir?: string;
   url?: string;
   title?: string;
   selector?: string;
@@ -41,6 +42,7 @@ export interface AnnotationPayload {
   resourceFailures?: any[];
   slowResources?: any[];
   captureWarnings?: string[];
+  multiItems?: any[];
 }
 
 export class AnnotationManager {
@@ -53,11 +55,25 @@ export class AnnotationManager {
     return this.instance;
   }
 
-  private getStorageDirectories(): { annotationsDir: string; snapshotsDir: string } {
-    // 1. Check current workspace or home dir
-    const baseDir = path.join(os.homedir(), '.antigravity');
-    const annotationsDir = path.join(baseDir, 'annotations');
-    const snapshotsDir = path.join(baseDir, 'snapshots');
+  private getStorageDirectories(customWsDir?: string): { annotationsDir: string; snapshotsDir: string } {
+    const wsDir = customWsDir && fs.existsSync(customWsDir) ? customWsDir : process.cwd();
+    const candidates = [
+      wsDir,
+      path.join(wsDir, '..'),
+      path.join(wsDir, '..', '..'),
+      'e:\\Work',
+    ];
+
+    let foundBase = path.join(wsDir, '.antigravity');
+    for (const c of candidates) {
+      if (fs.existsSync(path.join(c, '.antigravity'))) {
+        foundBase = path.join(c, '.antigravity');
+        break;
+      }
+    }
+
+    const annotationsDir = path.join(foundBase, 'annotations');
+    const snapshotsDir = path.join(foundBase, 'snapshots');
 
     try {
       fs.mkdirSync(annotationsDir, { recursive: true });
@@ -78,7 +94,7 @@ export class AnnotationManager {
     error?: string;
   }> {
     try {
-      const { annotationsDir, snapshotsDir } = this.getStorageDirectories();
+      const { annotationsDir, snapshotsDir } = this.getStorageDirectories(payload.workspaceDir);
       const timestamp = Date.now();
       const annotationId = payload.annotationId || `annotation_${timestamp}`;
       const safe = (val: unknown, max = 4000) => (typeof val === 'string' ? val.slice(0, max) : '');
@@ -245,6 +261,7 @@ ${stylesList.map(([key, value]) => `${safe(key, 100)}: ${safe(value, 500)};`).jo
 \`\`\`html
 ${safe(payload.outerHTML, 25000)}
 \`\`\`
+${Array.isArray(payload.multiItems) && payload.multiItems.length > 1 ? `\n## Multi-Element Batch Breakdown (${payload.multiItems.length} Elements Selected)\n` + payload.multiItems.map((item, idx) => `### ${idx + 1}. \`${safe(item.selector, 200)}\`\n- Tag: \`${safe(item.tagName || item.tag, 50)}\`\n- Dimensions: ${safe(item.dimensions, 50)}\n${item.userComment ? `- User Comment: **${safe(item.userComment, 500)}**\n` : ''}${item.textContent ? `- Text: "${safe(item.textContent, 200)}"\n` : ''}`).join('\n') : ''}
 `;
 
       const markdownFileName = `element_${timestamp}.md`;

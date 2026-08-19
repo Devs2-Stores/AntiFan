@@ -17,12 +17,16 @@ const SIDEBAR_CHANNELS = {
   RENAME_SESSION: 'antifan:sidebar:rename-session',
   DELETE_SESSION: 'antifan:sidebar:delete-session',
   SESSION_CHANGED: 'antifan:sidebar:session-changed',
+  ABORT_GENERATION: 'antifan:sidebar:abort-generation',
+  GET_AUTOCOMPLETE_ITEMS: 'antifan:sidebar:get-autocomplete-items',
 };
 
 const sidebarApi = {
   getInitialState: () => ipcRenderer.invoke(SIDEBAR_CHANNELS.GET_INITIAL_STATE),
-  sendPrompt: (text: string, attachedElement?: any, attachedImages?: any, deliveryMode?: 'auto' | 'draft') =>
-    ipcRenderer.invoke(SIDEBAR_CHANNELS.SEND_PROMPT, { text, attachedElement, attachedImages, deliveryMode }),
+  sendPrompt: (text: string, attachedElement?: any, attachedImages?: any, deliveryMode?: 'auto' | 'draft', sessionId?: string) =>
+    ipcRenderer.invoke(SIDEBAR_CHANNELS.SEND_PROMPT, { text, attachedElement, attachedImages, deliveryMode, sessionId }),
+  abortGeneration: (sessionId?: string) => ipcRenderer.invoke(SIDEBAR_CHANNELS.ABORT_GENERATION, sessionId),
+  getAutocompleteItems: () => ipcRenderer.invoke(SIDEBAR_CHANNELS.GET_AUTOCOMPLETE_ITEMS),
   clearHistory: () => ipcRenderer.invoke(SIDEBAR_CHANNELS.CLEAR_HISTORY),
   closeSidebar: () => ipcRenderer.invoke(SIDEBAR_CHANNELS.CLOSE_SIDEBAR),
   setWidth: (width: number) => ipcRenderer.invoke(SIDEBAR_CHANNELS.SET_WIDTH, width),

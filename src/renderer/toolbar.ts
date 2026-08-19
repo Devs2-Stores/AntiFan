@@ -323,17 +323,82 @@ function updateControls() {
 const bookmarkBar = document.getElementById('bookmarkBar')!;
 const bookmarkItems = document.getElementById('bookmarkItems')!;
 const btnStarBookmark = document.getElementById('btnStarBookmark') as HTMLButtonElement;
+const btnBookmarksMenu = document.getElementById('btnBookmarksMenu') as HTMLButtonElement | null;
+const bookmarksDropdownMenu = document.getElementById('bookmarksDropdownMenu') as HTMLElement | null;
+const bookmarksCountPill = document.getElementById('bookmarksCountPill') as HTMLElement | null;
+const inputBookmarkSearch = document.getElementById('inputBookmarkSearch') as HTMLInputElement | null;
+const bookmarksDropdownList = document.getElementById('bookmarksDropdownList') as HTMLElement | null;
 
-function renderBookmarks() {
-  if (!bookmarkBar || !bookmarkItems) return;
+let bookmarkSearchQuery = '';
 
-  if (currentBookmarks.length === 0) {
-    bookmarkBar.style.display = 'none';
-  } else {
-    bookmarkBar.style.display = 'flex';
+function renderBookmarksDropdown() {
+  if (!bookmarksDropdownList) return;
+  if (bookmarksCountPill) {
+    bookmarksCountPill.textContent = String(currentBookmarks.length);
   }
 
-  bookmarkItems.innerHTML = '';
+  const query = bookmarkSearchQuery.toLowerCase().trim();
+  const filtered = query
+    ? currentBookmarks.filter((b) => (b.title || '').toLowerCase().includes(query) || (b.url || '').toLowerCase().includes(query))
+    : currentBookmarks;
+
+  bookmarksDropdownList.innerHTML = '';
+
+  if (filtered.length === 0) {
+    bookmarksDropdownList.innerHTML = `<div class="bookmarks-empty-hint">${query ? 'No matching bookmarks' : 'No bookmarks saved yet. Click the ⭐ icon in the address bar to bookmark pages.'}</div>`;
+    return;
+  }
+
+  filtered.forEach((bm) => {
+    const item = document.createElement('div');
+    item.className = 'bookmark-pop-item';
+    item.title = `${bm.title}\n${bm.url}`;
+
+    const icon = document.createElement('img');
+    icon.className = 'bookmark-pop-icon';
+    let domain = '';
+    try { domain = new URL(bm.url).hostname; } catch {}
+    icon.src = `https://www.google.com/s2/favicons?domain=${domain}&sz=32`;
+
+    const info = document.createElement('div');
+    info.className = 'bookmark-pop-info';
+    info.innerHTML = `
+      <span class="bookmark-pop-title">${escapeHtml(bm.title || domain || bm.url)}</span>
+      <span class="bookmark-pop-url">${escapeHtml(bm.url)}</span>
+    `;
+
+    const btnDel = document.createElement('button');
+    btnDel.type = 'button';
+    btnDel.className = 'bookmark-pop-del';
+    btnDel.title = 'Delete Bookmark';
+    btnDel.innerHTML = '✕';
+    btnDel.onclick = (e) => {
+      e.stopPropagation();
+      getApi()?.removeBookmark(bm.url);
+    };
+
+    item.appendChild(icon);
+    item.appendChild(info);
+    item.appendChild(btnDel);
+
+    item.onclick = () => {
+      getApi()?.navigate(bm.url, activeTabId);
+      if (bookmarksDropdownMenu) bookmarksDropdownMenu.style.display = 'none';
+    };
+
+    item.onauxclick = (e) => {
+      if (e.button === 1) {
+        getApi()?.createTab(bm.url);
+        if (bookmarksDropdownMenu) bookmarksDropdownMenu.style.display = 'none';
+      }
+    };
+
+    bookmarksDropdownList.appendChild(item);
+  });
+}
+
+function renderBookmarks() {
+  renderBookmarksDropdown();
 
   const activeTab = currentTabs.find((t) => t.id === activeTabId);
   const isBookmarked = activeTab && currentBookmarks.some((b) => b.url === activeTab.url);
@@ -341,36 +406,42 @@ function renderBookmarks() {
     btnStarBookmark.classList.toggle('active', !!isBookmarked);
   }
 
-  currentBookmarks.forEach((bm) => {
-    const item = document.createElement('div');
-    item.className = 'bookmark-item';
-    item.title = `${bm.title}\n${bm.url}\n(Right-click to remove)`;
+  if (bookmarkBar) {
+    bookmarkBar.style.display = 'none';
+  }
+}
 
-    const icon = document.createElement('img');
-    icon.className = 'bookmark-item-icon';
-    let domain = '';
-    try { domain = new URL(bm.url).hostname; } catch {}
-    icon.src = `https://www.google.com/s2/favicons?domain=${domain}&sz=32`;
+if (btnBookmarksMenu && bookmarksDropdownMenu) {
+  btnBookmarksMenu.onclick = (e) => {
+    e.stopPropagation();
+    const isHidden = bookmarksDropdownMenu.style.display === 'none';
+    bookmarksDropdownMenu.style.display = isHidden ? 'flex' : 'none';
+    if (isHidden) {
+      renderBookmarksDropdown();
+      setTimeout(() => inputBookmarkSearch?.focus(), 50);
+    }
+  };
+}
 
-    const title = document.createElement('span');
-    title.className = 'bookmark-item-title';
-    title.textContent = bm.title || hostname(bm.url);
-
-    item.appendChild(icon);
-    item.appendChild(title);
-
-    item.addEventListener('click', () => {
-      getApi()?.navigate(bm.url, activeTabId);
-    });
-
-    item.addEventListener('contextmenu', (e) => {
-      e.preventDefault();
-      getApi()?.removeBookmark(bm.url);
-    });
-
-    bookmarkItems.appendChild(item);
+if (inputBookmarkSearch) {
+  inputBookmarkSearch.addEventListener('input', (e) => {
+    bookmarkSearchQuery = (e.target as HTMLInputElement).value;
+    renderBookmarksDropdown();
+  });
+  inputBookmarkSearch.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+      if (bookmarksDropdownMenu) bookmarksDropdownMenu.style.display = 'none';
+    }
   });
 }
+
+document.addEventListener('click', (e) => {
+  if (bookmarksDropdownMenu && bookmarksDropdownMenu.style.display !== 'none') {
+    if (!bookmarksDropdownMenu.contains(e.target as Node) && e.target !== btnBookmarksMenu) {
+      bookmarksDropdownMenu.style.display = 'none';
+    }
+  }
+});
 
 // Navigation Listeners
 if (btnNewTab) btnNewTab.addEventListener('click', () => getApi()?.createTab());
@@ -574,6 +645,7 @@ function hideSuggestDropdown() {
   omniboxSuggestDropdown.style.display = 'none';
   selectedSuggestIndex = -1;
   suggestItems = [];
+  getApi()?.setOverlay(false);
 }
 
 async function updateSuggestDropdown(query: string) {
@@ -585,6 +657,7 @@ async function updateSuggestDropdown(query: string) {
       suggestItems = res.suggestions;
       renderSuggestItems(q);
       omniboxSuggestDropdown.style.display = 'block';
+      getApi()?.setOverlay(true);
     } else {
       hideSuggestDropdown();
     }

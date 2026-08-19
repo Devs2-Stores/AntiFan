@@ -144,6 +144,7 @@ export interface SessionInfo {
   status?: 'running' | 'done' | 'idle';
   messageCount?: number;
   projectGroup?: string;
+  workspacePath?: string;
 }
 
 export const SIDEBAR_CHANNELS = {
@@ -159,6 +160,8 @@ export const SIDEBAR_CHANNELS = {
   RENAME_SESSION: 'antifan:sidebar:rename-session',
   DELETE_SESSION: 'antifan:sidebar:delete-session',
   SESSION_CHANGED: 'antifan:sidebar:session-changed',
+  ABORT_GENERATION: 'antifan:sidebar:abort-generation',
+  GET_AUTOCOMPLETE_ITEMS: 'antifan:sidebar:get-autocomplete-items',
 } as const;
 
 export const TERMINAL_CHANNELS = {

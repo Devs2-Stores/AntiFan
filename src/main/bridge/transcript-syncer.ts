@@ -6,6 +6,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
+import * as cp from 'node:child_process';
 import { EventEmitter } from 'node:events';
 import { ChatMessage, SessionInfo } from '../../shared/contracts';
 
@@ -17,6 +18,12 @@ export class TranscriptSyncer extends EventEmitter {
   private lastProcessedLine: number = 0;
   private pollInterval: NodeJS.Timeout | null = null;
   private isAutoFollow: boolean = true;
+  private lastTranscriptMtime: number = 0;
+  private lastTranscriptSize: number = 0;
+  private watchDebounceTimer: NodeJS.Timeout | null = null;
+  private cachedAvailableSessions: SessionInfo[] = [];
+  private lastSessionsFetchTime: number = 0;
+  private lastBrainDirMtime: number = 0;
 
   constructor() {
     super();
@@ -26,56 +33,142 @@ export class TranscriptSyncer extends EventEmitter {
   public start(): void {
     this.findAndBindActiveSession();
 
-    // Check periodically for session updates, new lines, and active steps
+    // High-responsiveness 500ms stat check (0.01ms CPU when idle due to mtime/size guards)
+    let tickCount = 0;
     this.pollInterval = setInterval(() => {
-      if (this.isAutoFollow) {
+      tickCount++;
+      // Only check active session switch every 6 ticks (3 seconds)
+      if (this.isAutoFollow && tickCount % 6 === 0) {
         this.findAndBindActiveSession();
-      } else {
-        this.readNewTranscriptLines();
       }
-    }, 1000);
+      this.readNewTranscriptLines();
+    }, 500);
   }
 
   public getActiveSessionId(): string {
     return this.currentSessionId;
   }
 
-  private resolveTranscriptPath(sessionPath: string): string {
-    const fullLog = path.join(sessionPath, '.system_generated', 'logs', 'transcript_full.jsonl');
-    if (fs.existsSync(fullLog)) return fullLog;
-    return path.join(sessionPath, '.system_generated', 'logs', 'transcript.jsonl');
+  private isArchivedSession(sessionPath: string, name: string, title?: string): boolean {
+    const lowerName = name.toLowerCase();
+    if (
+      lowerName === 'tempmediastorage' ||
+      lowerName === '.system_generated' ||
+      lowerName === 'archive' ||
+      lowerName === '_archive' ||
+      lowerName.startsWith('archive_') ||
+      lowerName.endsWith('_archived') ||
+      lowerName.startsWith('.')
+    ) {
+      return true;
+    }
+
+    if (
+      fs.existsSync(path.join(sessionPath, '.archived')) ||
+      fs.existsSync(path.join(sessionPath, 'archived.json')) ||
+      fs.existsSync(path.join(sessionPath, 'archive.json'))
+    ) {
+      return true;
+    }
+
+    const titleFile = path.join(sessionPath, 'session_title.txt');
+    if (fs.existsSync(titleFile)) {
+      try {
+        const text = fs.readFileSync(titleFile, 'utf8').toLowerCase();
+        if (text.includes('[archived]') || text.includes('(archived)') || text.includes('status: archived')) {
+          return true;
+        }
+      } catch {}
+    }
+
+    if (title) {
+      const lowerTitle = title.toLowerCase();
+      if (lowerTitle.includes('[archived]') || lowerTitle.includes('(archived)') || lowerTitle.includes('status: archived')) {
+        return true;
+      }
+    }
+
+    const metaFile = path.join(sessionPath, 'metadata.json');
+    if (fs.existsSync(metaFile)) {
+      try {
+        const meta = JSON.parse(fs.readFileSync(metaFile, 'utf8'));
+        if (meta.archived === true || meta.status === 'archived' || meta.isArchived === true) {
+          return true;
+        }
+      } catch {}
+    }
+
+    return false;
   }
 
   public getAvailableSessions(): SessionInfo[] {
     if (!fs.existsSync(this.brainDir)) return [];
 
+    const now = Date.now();
     try {
+      const brainStats = fs.statSync(this.brainDir);
+      if (
+        this.cachedAvailableSessions.length > 0 &&
+        brainStats.mtimeMs === this.lastBrainDirMtime &&
+        now - this.lastSessionsFetchTime < 3000
+      ) {
+        return this.cachedAvailableSessions;
+      }
+      this.lastBrainDirMtime = brainStats.mtimeMs;
+      this.lastSessionsFetchTime = now;
+
       const entries = fs.readdirSync(this.brainDir, { withFileTypes: true });
       const sessions: SessionInfo[] = [];
-      const now = Date.now();
 
       for (const e of entries) {
-        if (!e.isDirectory() || e.name === 'tempmediaStorage' || e.name === '.system_generated') continue;
+        if (!e.isDirectory()) continue;
 
         const sessionPath = path.join(this.brainDir, e.name);
-        const transcriptPath = this.resolveTranscriptPath(sessionPath);
+        if (this.isArchivedSession(sessionPath, e.name)) continue;
+
+        const transcriptPath = path.join(sessionPath, '.system_generated', 'logs', 'transcript.jsonl');
         let mtime = 0;
         let title = '';
         let messageCount = 0;
-        let isRecentlyActive = false;
+        let isRunning = false;
 
         if (fs.existsSync(transcriptPath)) {
           const stats = fs.statSync(transcriptPath);
           mtime = stats.mtimeMs;
           title = this.extractSessionTitle(transcriptPath, sessionPath, e.name);
-          isRecentlyActive = (now - mtime) < 25000;
+          if (this.isArchivedSession(sessionPath, e.name, title)) continue;
           try {
-            const raw = fs.readFileSync(transcriptPath, 'utf8');
-            messageCount = raw.split('\n').filter(l => l.trim().length > 0).length;
+            const raw = fs.readFileSync(transcriptPath, 'utf8').trim();
+            const lines = raw.split('\n').filter((l) => l.trim().length > 0);
+            messageCount = lines.length;
+            if (lines.length > 0) {
+              const lastLine = lines[lines.length - 1]!;
+              const lastObj = JSON.parse(lastLine);
+              if (lastObj.type === 'USER_INPUT') {
+                // User input submitted, agent is planning/working
+                isRunning = (now - mtime) < 180000;
+              } else if (lastObj.type === 'PLANNER_RESPONSE') {
+                const hasText = typeof lastObj.content === 'string' && lastObj.content.trim().length > 0;
+                const hasTools = Array.isArray(lastObj.tool_calls) && lastObj.tool_calls.length > 0;
+                if (hasTools) {
+                  // Agent called tools: actively running tools in background!
+                  isRunning = (now - mtime) < 180000;
+                } else if (hasText) {
+                  // Assistant provided final conversational response with NO pending tools -> DONE
+                  isRunning = false;
+                } else {
+                  isRunning = (now - mtime) < 30000;
+                }
+              } else {
+                // Tool result / system message / background task update: agent is in middle of work cycle
+                isRunning = (now - mtime) < 120000;
+              }
+            }
           } catch {}
         } else {
           mtime = fs.statSync(sessionPath).mtimeMs;
           title = `Session (${e.name.slice(0, 8)}...)`;
+          if (this.isArchivedSession(sessionPath, e.name, title)) continue;
         }
 
         // Project Group Extraction
@@ -90,25 +183,121 @@ export class TranscriptSyncer extends EventEmitter {
         else if (lowerTitle.includes('sapo')) projectGroup = 'Sapo Themes';
         else if (lowerTitle.includes('shopify')) projectGroup = 'Shopify Themes';
 
+        const status: 'running' | 'done' | 'idle' = isRunning ? 'running' : 'done';
+
+        const workspacePath = this.getSessionWorkspace(e.name);
+
         sessions.push({
           id: e.name,
-          title,
-          active: e.name === this.currentSessionId,
+          title: title || `Session ${e.name.slice(0, 8)}`,
           mtime,
+          active: e.name === this.currentSessionId,
+          status,
           messageCount,
-          status: isRecentlyActive ? 'running' : 'done',
           projectGroup,
+          workspacePath,
         });
       }
 
       return sessions.sort((a, b) => b.mtime - a.mtime);
-    } catch (err) {
-      console.error('[antifan syncer] Failed to list sessions:', err);
+    } catch {
       return [];
     }
   }
 
   private customTitles: Map<string, string> = new Map();
+  private sessionWorkspaces: Map<string, string> = new Map();
+
+  private findWorkspaceRoot(startPath: string): string {
+    let cur = startPath;
+    if (fs.existsSync(cur) && fs.statSync(cur).isFile()) {
+      cur = path.dirname(cur);
+    }
+    while (cur && cur !== path.dirname(cur)) {
+      if (
+        fs.existsSync(path.join(cur, 'package.json')) ||
+        fs.existsSync(path.join(cur, 'config', 'settings_data.json')) ||
+        fs.existsSync(path.join(cur, '.antigravity')) ||
+        fs.existsSync(path.join(cur, '.git'))
+      ) {
+        return cur;
+      }
+      const parent = path.dirname(cur);
+      const parentBase = path.basename(parent).toLowerCase();
+      if (parentBase === 'customizes' || parentBase === 'themes' || parentBase === 'apps') {
+        return cur;
+      }
+      cur = parent;
+    }
+    return startPath;
+  }
+
+  public getSessionWorkspace(id: string): string | undefined {
+    if (!id || id === 'auto') return undefined;
+    if (this.sessionWorkspaces.has(id)) {
+      return this.sessionWorkspaces.get(id);
+    }
+
+    const sessionPath = path.join(this.brainDir, id);
+    const transcriptPath = path.join(sessionPath, '.system_generated', 'logs', 'transcript.jsonl');
+    if (fs.existsSync(transcriptPath)) {
+      try {
+        const text = fs.readFileSync(transcriptPath, 'utf8');
+        // 1. Check workspace mapping: e:\Work\... -> Devs2-Stores...
+        const matchWs = text.match(/([a-zA-Z]:\\[^\r\n<>"\t]+?)\s*->\s*[^\r\n<>"\t]+/);
+        if (matchWs && matchWs[1]) {
+          const ws = this.findWorkspaceRoot(matchWs[1].trim());
+          if (fs.existsSync(ws)) {
+            this.sessionWorkspaces.set(id, ws);
+            return ws;
+          }
+        }
+
+        // 2. Check Active Document or Cwd
+        const matchDoc = text.match(/(?:Active Document|Cwd):\s*([a-zA-Z]:\\[^\r\n<>"]+)/i);
+        if (matchDoc && matchDoc[1]) {
+          const ws = this.findWorkspaceRoot(matchDoc[1].trim());
+          if (fs.existsSync(ws)) {
+            this.sessionWorkspaces.set(id, ws);
+            return ws;
+          }
+        }
+
+        // 3. Check file:/// URIs in transcript
+        const matchFileUri = text.match(/file:\/\/\/([a-zA-Z]:\/[^\r\n<>'"\t]+)/);
+        if (matchFileUri && matchFileUri[1]) {
+          const p = matchFileUri[1].replace(/\//g, '\\').trim();
+          const ws = this.findWorkspaceRoot(p);
+          if (fs.existsSync(ws)) {
+            this.sessionWorkspaces.set(id, ws);
+            return ws;
+          }
+        }
+      } catch {}
+    }
+
+    // 4. Heuristic based on title / project group
+    const title = this.extractSessionTitle(transcriptPath, sessionPath, id).toLowerCase();
+    const candidates = [
+      'e:\\Work\\apps\\antigravity-browser-desktop',
+      'e:\\Work\\apps\\antigravity-browser',
+      'e:\\Work\\customizes\\Mnbakery',
+      'e:\\Work\\customizes\\Seahorse2',
+      'e:\\Work\\customizes\\Sunriseplus',
+      'e:\\Work\\themes\\mnbakery',
+      'e:\\Work\\themes\\seahorse',
+      'e:\\Work\\themes\\sunriseplus',
+    ];
+    for (const cand of candidates) {
+      const base = path.basename(cand).toLowerCase();
+      if (title.includes(base) && fs.existsSync(cand)) {
+        this.sessionWorkspaces.set(id, cand);
+        return cand;
+      }
+    }
+
+    return undefined;
+  }
 
   public renameSession(sessionId: string, newTitle: string): boolean {
     const trimmed = newTitle.trim();
@@ -128,69 +317,96 @@ export class TranscriptSyncer extends EventEmitter {
   }
 
   public deleteSession(sessionId: string): boolean {
-    if (!sessionId || sessionId === 'auto') return false;
-    const targetSessionPath = path.join(this.brainDir, sessionId);
-    if (!fs.existsSync(targetSessionPath)) return false;
+    const targetId = sessionId === 'auto' ? this.currentSessionId : sessionId;
+    if (!targetId) return false;
 
-    try {
-      if (this.currentSessionId === sessionId) {
-        if (this.fileWatcher) {
-          try {
-            this.fileWatcher.close();
-          } catch {}
-          this.fileWatcher = null;
-        }
-        this.currentSessionId = '';
-        this.currentTranscriptPath = '';
-        this.lastProcessedLine = 0;
+    this.customTitles.delete(targetId);
+
+    // If active session is being deleted, release active file watcher first
+    if (this.currentSessionId === targetId) {
+      if (this.fileWatcher) {
+        try {
+          this.fileWatcher.close();
+        } catch {}
+        this.fileWatcher = null;
       }
-
-      fs.rmSync(targetSessionPath, { recursive: true, force: true });
-
-      if (this.isAutoFollow) {
-        this.findAndBindActiveSession();
-      }
-      return true;
-    } catch (err) {
-      console.error(`[antifan syncer] Failed to delete session ${sessionId}:`, err);
-      return false;
+      this.currentSessionId = '';
+      this.currentTranscriptPath = '';
     }
+
+    const sessionPath = path.join(this.brainDir, targetId);
+    if (fs.existsSync(sessionPath)) {
+      try {
+        fs.rmSync(sessionPath, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+      } catch (err) {
+        try {
+          // Robust fallback for locked files/directories on Windows
+          const cleanPath = sessionPath.replace(/'/g, "''");
+          cp.execFileSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', `Remove-Item -LiteralPath '${cleanPath}' -Recurse -Force`], { stdio: 'ignore' });
+        } catch (psErr) {
+          console.error('[transcript-syncer] Failed to remove session dir:', err);
+        }
+      }
+    }
+
+    if (!this.currentSessionId) {
+      this.isAutoFollow = true;
+      this.findAndBindActiveSession();
+    }
+
+    this.emit('sessions-updated', this.getAvailableSessions());
+    return true;
   }
 
-  private extractSessionTitle(transcriptPath: string, sessionPath: string, dirName: string): string {
-    // 1. Try reading implementation_plan.md first header
-    try {
-      const planFile = path.join(sessionPath, 'implementation_plan.md');
-      if (fs.existsSync(planFile)) {
-        const planContent = fs.readFileSync(planFile, 'utf8');
-        const match = planContent.match(/^#\s+(.+)$/m);
+  private extractSessionTitle(transcriptPath: string, sessionPath: string, id: string): string {
+    // 0. Check custom title first
+    if (this.customTitles.has(id)) {
+      return this.customTitles.get(id)!;
+    }
+    const customTitleFile = path.join(sessionPath, 'session_title.txt');
+    if (fs.existsSync(customTitleFile)) {
+      try {
+        const text = fs.readFileSync(customTitleFile, 'utf8').trim();
+        if (text) {
+          this.customTitles.set(id, text);
+          return text;
+        }
+      } catch {}
+    }
+
+    // 1. Check implementation_plan.md first
+    const planPath = path.join(sessionPath, 'implementation_plan.md');
+    if (fs.existsSync(planPath)) {
+      try {
+        const planText = fs.readFileSync(planPath, 'utf8');
+        const match = planText.match(/^#\s+(.*?)$/m);
         if (match && match[1]) {
           return match[1].trim();
         }
-      }
-    } catch {}
+      } catch {}
+    }
 
-    // 2. Try extracting from first USER_INPUT in transcript
+    // 2. Check first user request in transcript
     try {
-      const content = fs.readFileSync(transcriptPath, 'utf8');
-      const lines = content.split('\n');
-      for (const line of lines) {
-        if (!line.trim()) continue;
+      const text = fs.readFileSync(transcriptPath, 'utf8');
+      const lines = text.split('\n').filter(Boolean);
+      for (const line of lines.slice(0, 15)) {
         try {
-          const parsed = JSON.parse(line);
-          if (parsed.type === 'USER_INPUT' && parsed.content) {
-            const match = parsed.content.match(/<USER_REQUEST>([\s\S]*?)<\/USER_REQUEST>/);
-            const userText = match ? match[1].trim() : parsed.content.trim();
-            if (userText && !userText.startsWith('{{ CHECKPOINT') && !userText.startsWith('The following is a <SYSTEM_MESSAGE>')) {
-              const firstLine = userText.split('\n')[0]!.trim();
-              return firstLine.length > 50 ? firstLine.slice(0, 47) + '...' : firstLine;
+          const p = JSON.parse(line);
+          if (p.type === 'USER_INPUT' && p.content) {
+            let userPrompt = p.content;
+            const reqMatch = userPrompt.match(/<USER_REQUEST>([\s\S]*?)<\/USER_REQUEST>/);
+            if (reqMatch) userPrompt = reqMatch[1];
+            userPrompt = userPrompt.trim().replace(/^\{\{[\s\S]*?\}\}\s*/, '');
+            if (userPrompt && !userPrompt.startsWith('{{ CHECKPOINT')) {
+              return userPrompt.slice(0, 45) + (userPrompt.length > 45 ? '...' : '');
             }
           }
         } catch {}
       }
     } catch {}
 
-    return `Session (${dirName.slice(0, 8)}...)`;
+    return `IDE Session (${id.slice(0, 8)})`;
   }
 
   public switchSession(sessionId: string): boolean {
@@ -202,7 +418,7 @@ export class TranscriptSyncer extends EventEmitter {
 
     this.isAutoFollow = false;
     const targetSessionPath = path.join(this.brainDir, sessionId);
-    const targetTranscript = this.resolveTranscriptPath(targetSessionPath);
+    const targetTranscript = path.join(targetSessionPath, '.system_generated', 'logs', 'transcript.jsonl');
 
     if (fs.existsSync(targetTranscript)) {
       this.bindSession(sessionId, targetTranscript);
@@ -213,18 +429,23 @@ export class TranscriptSyncer extends EventEmitter {
   }
 
   private findAndBindActiveSession(): void {
+    if (!this.isAutoFollow) return;
     if (!fs.existsSync(this.brainDir)) return;
 
     try {
       const entries = fs.readdirSync(this.brainDir, { withFileTypes: true });
       const sessionDirs = entries
-        .filter((e) => e.isDirectory() && e.name !== 'tempmediaStorage' && e.name !== '.system_generated')
+        .filter((e) => e.isDirectory() && !this.isArchivedSession(path.join(this.brainDir, e.name), e.name))
         .map((e) => {
           const fullPath = path.join(this.brainDir, e.name);
-          const transcriptFile = this.resolveTranscriptPath(fullPath);
+          const fullTranscriptFile = path.join(fullPath, '.system_generated', 'logs', 'transcript_full.jsonl');
+          const compactTranscriptFile = path.join(fullPath, '.system_generated', 'logs', 'transcript.jsonl');
+          const transcriptFile = fs.existsSync(fullTranscriptFile) ? fullTranscriptFile : compactTranscriptFile;
           let mtime = 0;
           if (fs.existsSync(transcriptFile)) {
             mtime = fs.statSync(transcriptFile).mtimeMs;
+          } else if (fs.existsSync(compactTranscriptFile)) {
+            mtime = fs.statSync(compactTranscriptFile).mtimeMs;
           } else {
             mtime = fs.statSync(fullPath).mtimeMs;
           }
@@ -235,9 +456,15 @@ export class TranscriptSyncer extends EventEmitter {
       if (sessionDirs.length > 0) {
         const top = sessionDirs[0]!;
         if (top.id !== this.currentSessionId || top.transcriptFile !== this.currentTranscriptPath) {
-          this.bindSession(top.id, top.transcriptFile);
-        } else {
-          this.readNewTranscriptLines();
+          if (!this.currentSessionId || !fs.existsSync(this.currentTranscriptPath)) {
+            this.bindSession(top.id, top.transcriptFile);
+          } else {
+            const currentMtime = fs.existsSync(this.currentTranscriptPath) ? fs.statSync(this.currentTranscriptPath).mtimeMs : 0;
+            // Only switch if top session has new activity and is at least 10000ms newer than current session
+            if (top.mtime > currentMtime + 10000 && (Date.now() - top.mtime) < 30000) {
+              this.bindSession(top.id, top.transcriptFile);
+            }
+          }
         }
       }
     } catch (err) {
@@ -259,27 +486,25 @@ export class TranscriptSyncer extends EventEmitter {
     let initialMessages: ChatMessage[] = [];
     if (fs.existsSync(transcriptPath)) {
       try {
+        const stats = fs.statSync(transcriptPath);
+        this.lastTranscriptMtime = stats.mtimeMs;
+        this.lastTranscriptSize = stats.size;
         const content = fs.readFileSync(transcriptPath, 'utf8');
         const lines = content.split('\n').filter((l) => l.trim().length > 0);
-        this.lastProcessedLine = lines.length; // Set to end so we don't re-emit old lines individually
-
-        for (let i = Math.max(0, lines.length - 40); i < lines.length; i++) {
-          const parsed = this.parseTranscriptLine(lines[i]!, i);
-          if (parsed) initialMessages.push(parsed);
-        }
+        this.lastProcessedLine = lines.length;
+        initialMessages = this.parseTranscriptLines(lines).slice(-40);
       } catch {
         this.lastProcessedLine = 0;
       }
 
       try {
         const logDir = path.dirname(transcriptPath);
-        if (fs.existsSync(logDir)) {
-          this.fileWatcher = fs.watch(logDir, (_eventType, filename) => {
-            if (!filename || filename.includes('transcript')) {
-              this.readNewTranscriptLines();
-            }
-          });
-        }
+        this.fileWatcher = fs.watch(logDir, (_eventType) => {
+          if (this.watchDebounceTimer) clearTimeout(this.watchDebounceTimer);
+          this.watchDebounceTimer = setTimeout(() => {
+            this.readNewTranscriptLines();
+          }, 80);
+        });
       } catch {}
     }
 
@@ -300,110 +525,173 @@ export class TranscriptSyncer extends EventEmitter {
     try {
       const content = fs.readFileSync(this.currentTranscriptPath, 'utf8');
       const lines = content.split('\n').filter((l) => l.trim().length > 0);
-      const messages: ChatMessage[] = [];
-
-      for (let i = 0; i < lines.length; i++) {
-        const parsed = this.parseTranscriptLine(lines[i]!, i);
-        if (parsed) {
-          messages.push(parsed);
-        }
-      }
-
-      return messages.slice(-limit);
+      return this.parseTranscriptLines(lines).slice(-limit);
     } catch {
       return [];
     }
   }
 
   private readNewTranscriptLines(): void {
-    if (this.currentSessionId) {
-      const optimal = this.resolveTranscriptPath(path.join(this.brainDir, this.currentSessionId));
-      if (optimal !== this.currentTranscriptPath && fs.existsSync(optimal)) {
-        this.currentTranscriptPath = optimal;
-      }
-    }
     if (!this.currentTranscriptPath || !fs.existsSync(this.currentTranscriptPath)) return;
 
     try {
+      const stats = fs.statSync(this.currentTranscriptPath);
+      if (stats.mtimeMs === this.lastTranscriptMtime && stats.size === this.lastTranscriptSize) {
+        return; // Zero change on disk, bail out immediately!
+      }
+      this.lastTranscriptMtime = stats.mtimeMs;
+      this.lastTranscriptSize = stats.size;
+
       const content = fs.readFileSync(this.currentTranscriptPath, 'utf8');
       const lines = content.split('\n').filter((l) => l.trim().length > 0);
 
-      if (lines.length > this.lastProcessedLine) {
-        for (let i = this.lastProcessedLine; i < lines.length; i++) {
-          const parsed = this.parseTranscriptLine(lines[i]!, i);
-          if (parsed) {
-            this.emit('message', parsed);
+      this.lastProcessedLine = lines.length;
+      const messages = this.parseTranscriptLines(lines).slice(-40);
+
+      let isRunning = false;
+      if (lines.length > 0) {
+        const lastLine = lines[lines.length - 1]!;
+        try {
+          const lastObj = JSON.parse(lastLine);
+          const timeSinceLastWrite = Date.now() - stats.mtimeMs;
+          if (lastObj.type === 'USER_INPUT') {
+            isRunning = timeSinceLastWrite < 300000;
+          } else if (lastObj.type === 'PLANNER_RESPONSE') {
+            const hasTools = Array.isArray(lastObj.tool_calls) && lastObj.tool_calls.length > 0;
+            const hasText = typeof lastObj.content === 'string' && lastObj.content.trim().length > 0;
+            if (hasTools) {
+              isRunning = timeSinceLastWrite < 300000;
+            } else if (hasText && !hasTools) {
+              isRunning = false;
+            } else {
+              isRunning = timeSinceLastWrite < 45000;
+            }
+          } else {
+            isRunning = timeSinceLastWrite < 120000;
           }
-        }
-        this.lastProcessedLine = lines.length;
+        } catch {}
       }
+
+      this.emit('session-changed', {
+        sessionId: this.currentSessionId,
+        messages,
+        isRunning,
+      });
     } catch {}
   }
 
-  private parseTranscriptLine(lineStr: string, index: number): ChatMessage | null {
-    try {
-      const obj = JSON.parse(lineStr);
-      if (!obj || typeof obj !== 'object') return null;
+  public parseTranscriptLines(lines: string[]): ChatMessage[] {
+    const messages: ChatMessage[] = [];
+    let currentAssistantTurn: ChatMessage | null = null;
 
-      // Extract System Auto-proceed Messages
-      if (obj.type === 'SYSTEM_MESSAGE' || (obj.type === 'USER_INPUT' && typeof obj.content === 'string' && obj.content.includes('<SYSTEM_MESSAGE>'))) {
-        const raw = obj.content || '';
-        if (raw.includes('automatically approved') || raw.includes('Proceed to execution')) {
-          return {
-            id: `msg-${obj.step_index ?? index}`,
-            role: 'system',
-            text: '⚡ **Auto-proceeded with Implementation Plan**',
-            timestamp: Date.now(),
-          };
-        }
-        return null;
+    for (let i = 0; i < lines.length; i++) {
+      const lineStr = lines[i]!;
+      let obj: any;
+      try {
+        obj = JSON.parse(lineStr);
+      } catch {
+        continue;
       }
+      if (!obj || typeof obj !== 'object') continue;
 
       // Extract User Input
       if (obj.type === 'USER_INPUT') {
+        if (currentAssistantTurn) {
+          messages.push(currentAssistantTurn);
+          currentAssistantTurn = null;
+        }
+
         let content = obj.content || '';
         const match = content.match(/<USER_REQUEST>([\s\S]*?)<\/USER_REQUEST>/);
         if (match) {
           content = match[1].trim();
         }
         if (!content || content.startsWith('{{ CHECKPOINT') || content.startsWith('The following is a <SYSTEM_MESSAGE>')) {
-          return null;
+          continue;
         }
 
-        return {
-          id: `msg-${obj.step_index ?? index}`,
-          role: 'user',
-          text: content,
-          timestamp: Date.now(),
-        };
-      }
+        const attachedImages: Array<{ name: string; dataUrl: string }> = [];
 
-      // Extract Assistant Planner Response
-      if (obj.type === 'PLANNER_RESPONSE') {
-        const content = obj.content || '';
+        // Extract and clean @[path:line] or @[path] attachment links
+        const attachRegex = /@\[([^\]]+?)(?::L\d+(?:-\d+)?)?\]/g;
+        const cleanContent = content.replace(attachRegex, (_fullMatch: string, rawPath?: string) => {
+          const filePath = (rawPath || '').trim();
+          const fileName = path.basename(filePath);
+
+          if (/\.(png|jpg|jpeg|gif|webp|svg)$/i.test(filePath)) {
+            if (fs.existsSync(filePath)) {
+              try {
+                const b64 = fs.readFileSync(filePath).toString('base64');
+                const ext = path.extname(filePath).slice(1) || 'png';
+                attachedImages.push({
+                  name: fileName,
+                  dataUrl: `data:image/${ext};base64,${b64}`,
+                });
+              } catch {}
+            } else {
+              attachedImages.push({
+                name: fileName,
+                dataUrl: '',
+              });
+            }
+            return '';
+          }
+
+          return ` \`📄 ${fileName}\` `;
+        }).trim();
+
+        messages.push({
+          id: `msg-user-${obj.step_index || i}`,
+          role: 'user',
+          text: cleanContent || content,
+          attachedImages: attachedImages.length > 0 ? attachedImages : undefined,
+          timestamp: Date.now(),
+        });
+      } else if (obj.type === 'PLANNER_RESPONSE') {
+        const content = (obj.content || '').trim();
         const toolCalls = (obj.tool_calls || []).map((t: any, idx: number) => ({
-          id: `tool-${idx}`,
+          id: `tool-${i}-${idx}`,
           name: t.tool_name || t.name || 'tool',
           args: t.arguments || t.args,
-          status: 'done',
+          status: 'done' as const,
         }));
+        const thought = obj.thought || obj.thinking || undefined;
 
-        if (!content && toolCalls.length === 0) return null;
+        if (!content && toolCalls.length === 0 && !thought) {
+          continue;
+        }
 
-        return {
-          id: `msg-${obj.step_index ?? index}`,
-          role: 'assistant',
-          text: content,
-          thinking: obj.thought || obj.thinking || undefined,
-          toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
-          timestamp: Date.now(),
-        };
+        if (!currentAssistantTurn) {
+          currentAssistantTurn = {
+            id: `msg-asst-${obj.step_index || i}`,
+            role: 'assistant',
+            text: content,
+            thinking: thought,
+            toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
+            timestamp: Date.now(),
+          };
+        } else {
+          // Merge consecutive assistant steps of this turn into ONE single turn message
+          if (content) {
+            currentAssistantTurn.text = content;
+          }
+          if (thought) {
+            currentAssistantTurn.thinking = thought;
+          }
+          if (toolCalls.length > 0) {
+            currentAssistantTurn.toolCalls = currentAssistantTurn.toolCalls
+              ? [...currentAssistantTurn.toolCalls, ...toolCalls]
+              : toolCalls;
+          }
+        }
       }
-
-      return null;
-    } catch {
-      return null;
     }
+
+    if (currentAssistantTurn) {
+      messages.push(currentAssistantTurn);
+    }
+
+    return messages;
   }
 
   public dispose(): void {

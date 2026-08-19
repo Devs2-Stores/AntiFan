@@ -57,9 +57,9 @@ async function relaunchElectron() {
     }
     cleanupZombies();
     log('Starting AntiFan Browser Desktop...');
-    const env = { ...process.env, ELECTRON_RUN_AS_NODE: '' };
+    const env = { ...process.env, NODE_ENV: 'development', ELECTRON_RUN_AS_NODE: '' };
     delete env.ELECTRON_RUN_AS_NODE;
-    electronProc = spawn('node', ['scripts/run-electron.cjs', '.'], { cwd: ROOT, stdio: 'inherit', env });
+    electronProc = spawn('node', ['scripts/run-electron.cjs', '.', '--dev'], { cwd: ROOT, stdio: 'inherit', env });
     electronProc.on('exit', () => {
       electronProc = null;
     });

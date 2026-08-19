@@ -23,8 +23,31 @@
           <span class="wt-tab-title">PowerShell</span>
           <button class="wt-tab-close" id="btnTabClose" title="Close Pane">✕</button>
         </div>
-        <button class="wt-tab-new-btn" id="btnTabNew" title="New Terminal Tab (Ctrl+Shift+T)">+</button>
-        <button class="wt-tab-dropdown-btn" id="btnTabDropdown" title="Shell Selection">˅</button>
+        <button class="wt-tab-new-btn" id="btnTabNew" title="New Terminal (Ctrl+Shift+`)">+</button>
+        <button class="wt-tab-dropdown-btn" id="btnTabDropdown" title="Shell Selection (PowerShell, CMD, Git Bash)">˅</button>
+        <div class="wt-shell-dropdown-menu" id="shellDropdownMenu" style="display:none;">
+          <div class="wt-shell-item" data-shell="powershell">
+            <span class="wt-shell-icon">🔷</span>
+            <span>PowerShell (Default)</span>
+          </div>
+          <div class="wt-shell-item" data-shell="cmd">
+            <span class="wt-shell-icon">⬛</span>
+            <span>Command Prompt (cmd.exe)</span>
+          </div>
+          <div class="wt-shell-item" data-shell="bash">
+            <span class="wt-shell-icon">🟨</span>
+            <span>Git Bash</span>
+          </div>
+          <div class="wt-shell-sep"></div>
+          <div class="wt-shell-item" data-shell="restart">
+            <span class="wt-shell-icon">🔄</span>
+            <span>Restart Terminal</span>
+          </div>
+          <div class="wt-shell-item" data-shell="clear">
+            <span class="wt-shell-icon">🗑️</span>
+            <span>Clear Output (cls)</span>
+          </div>
+        </div>
       </div>
 
       <!-- QUICK CHIP ACTIONS (Antigravity & Haravan Tools) -->

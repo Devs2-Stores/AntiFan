@@ -124,11 +124,48 @@ function initTerminal() {
     });
   }
 
+  const btnTabDropdown = document.getElementById('btnTabDropdown') as HTMLButtonElement | null;
+  const shellDropdownMenu = document.getElementById('shellDropdownMenu') as HTMLDivElement | null;
+
   if (btnTabNew) {
     btnTabNew.addEventListener('click', (e) => {
       e.stopPropagation();
       if (terminalOutput) terminalOutput.innerHTML = '';
       api.restartTerminal();
+      setTimeout(() => terminalCmdInput?.focus(), 50);
+    });
+  }
+
+  if (btnTabDropdown && shellDropdownMenu) {
+    btnTabDropdown.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const isShown = shellDropdownMenu.style.display === 'block';
+      shellDropdownMenu.style.display = isShown ? 'none' : 'block';
+    });
+
+    document.addEventListener('click', (e) => {
+      if (!shellDropdownMenu.contains(e.target as Node) && e.target !== btnTabDropdown) {
+        shellDropdownMenu.style.display = 'none';
+      }
+    });
+
+    shellDropdownMenu.querySelectorAll('.wt-shell-item').forEach((item) => {
+      item.addEventListener('click', (e) => {
+        e.stopPropagation();
+        shellDropdownMenu.style.display = 'none';
+        const shell = (item as HTMLElement).getAttribute('data-shell');
+        if (shell === 'clear') {
+          if (terminalOutput) terminalOutput.innerHTML = '';
+        } else if (shell === 'restart' || shell === 'powershell') {
+          if (terminalOutput) terminalOutput.innerHTML = '';
+          api.restartTerminal();
+        } else if (shell === 'cmd') {
+          api.sendTerminalInput('cmd.exe\r\n');
+        } else if (shell === 'bash') {
+          api.sendTerminalInput('bash\r\n');
+        }
+        setTimeout(() => terminalCmdInput?.focus(), 50);
+      });
     });
   }
 

@@ -198,8 +198,10 @@ export class ChromeProfileSyncManager {
         return true;
       } catch (err: any) {
         if (err && (err.code === 'EBUSY' || err.code === 'EPERM' || err.code === 'EACCES')) {
-          const psScript = `$s = "${src.replace(/\\/g, '/')}"; $d = "${dst.replace(/\\/g, '/')}"; $inStream = [System.IO.File]::Open($s, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read, [System.IO.FileShare]::ReadWrite); $outStream = [System.IO.File]::Create($d); $inStream.CopyTo($outStream); $inStream.Close(); $outStream.Close();`;
-          cp.execSync(`powershell.exe -NoProfile -NonInteractive -Command "${psScript}"`);
+          const cleanSrc = src.replace(/'/g, "''");
+          const cleanDst = dst.replace(/'/g, "''");
+          const psScript = `$s = '${cleanSrc}'; $d = '${cleanDst}'; $inStream = [System.IO.File]::Open($s, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read, [System.IO.FileShare]::ReadWrite); $outStream = [System.IO.File]::Create($d); $inStream.CopyTo($outStream); $inStream.Close(); $outStream.Close();`;
+          cp.execFileSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', psScript], { stdio: 'ignore' });
           return fs.existsSync(dst);
         }
         return false;

@@ -83,6 +83,71 @@ export const ELEMENT_PICKER_SCRIPT = `(() => {
     return '/' + parts.join('/');
   };
 
+  const findOptimalUniqueSelector = (el) => {
+    if (!el || el.nodeType !== 1) return { selector: '', isUnique: false, matchCount: 0 };
+
+    // 1. Check ID uniqueness
+    if (el.id && typeof el.id === 'string' && !/^[0-9]/.test(el.id)) {
+      const idSel = '#' + CSS.escape(el.id);
+      try {
+        if (document.querySelectorAll(idSel).length === 1) return { selector: idSel, isUnique: true, matchCount: 1 };
+      } catch {}
+    }
+
+    const tag = el.tagName.toLowerCase();
+    const classList = Array.from(el.classList || []).filter((c) => typeof c === 'string' && !c.startsWith('antifan-') && !c.includes(':') && !/^[0-9]/.test(c));
+
+    // 2. Check distinct single class
+    if (classList.length > 0) {
+      for (const c of classList) {
+        const sel = tag + '.' + CSS.escape(c);
+        try {
+          if (document.querySelectorAll(sel).length === 1) return { selector: sel, isUnique: true, matchCount: 1 };
+        } catch {}
+      }
+
+      // 3. Check combined classes
+      if (classList.length >= 2) {
+        const sel = tag + '.' + classList.slice(0, 3).map((c) => CSS.escape(c)).join('.');
+        try {
+          if (document.querySelectorAll(sel).length === 1) return { selector: sel, isUnique: true, matchCount: 1 };
+        } catch {}
+      }
+    }
+
+    // 4. Check data attributes & semantics
+    const attrs = ['data-id', 'data-sku', 'data-section-id', 'name', 'aria-label'];
+    for (const a of attrs) {
+      const v = el.getAttribute(a);
+      if (v && v.length < 50) {
+        const sel = tag + '[' + a + '="' + CSS.escape(v) + '"]';
+        try {
+          if (document.querySelectorAll(sel).length === 1) return { selector: sel, isUnique: true, matchCount: 1 };
+        } catch {}
+      }
+    }
+
+    // 5. Check parent-scoped selector
+    if (el.parentElement && el.parentElement !== document.body) {
+      const pTag = el.parentElement.tagName.toLowerCase();
+      const pCls = (el.parentElement.className && typeof el.parentElement.className === 'string')
+        ? el.parentElement.className.trim().split(/\\s+/).filter(Boolean)[0]
+        : '';
+      const pPrefix = pCls ? pTag + '.' + CSS.escape(pCls) : pTag;
+      const childSuffix = classList.length ? tag + '.' + CSS.escape(classList[0]) : tag;
+      const scopedSel = pPrefix + ' > ' + childSuffix;
+      try {
+        if (document.querySelectorAll(scopedSel).length === 1) return { selector: scopedSel, isUnique: true, matchCount: 1 };
+      } catch {}
+    }
+
+    // Fallback: Dom Ancestry
+    const fallback = getDomAncestry(el);
+    let count = 1;
+    try { count = document.querySelectorAll(fallback).length; } catch {}
+    return { selector: fallback, isUnique: count === 1, matchCount: count };
+  };
+
   const overlay = document.createElement('div');
   overlay.id = OVERLAY_ID;
   overlay.style.cssText = 'position:fixed;pointer-events:none;z-index:2147483646;box-sizing:border-box;border:2px solid #087ff5;background-color:rgba(8,127,245,0.15);display:none;transition:none;';
@@ -181,19 +246,38 @@ export const ELEMENT_PICKER_SCRIPT = `(() => {
     textarea.placeholder = 'Add comment (e.g. Change text, fix margin)...';
     textarea.style.cssText = 'width:100%;height:44px;max-height:100px;background:#09090b;border:1px solid #27272a;border-radius:4px;color:#f8fafc;padding:5px 6px;font-size:11.5px;font-family:inherit;outline:none;resize:none;box-sizing:border-box;line-height:1.35;';
 
+    const statusMsg = document.createElement('div');
+    statusMsg.id = 'statusMsg';
+    statusMsg.style.cssText = 'display:none;color:#ef4444;font-size:10.5px;padding-top:2px;line-height:1.2;font-weight:500;';
+
     const footer = document.createElement('div');
     footer.style.cssText = 'display:flex;align-items:center;justify-content:space-between;padding-top:2px;';
     footer.innerHTML = '<label style="font-size:10.5px;color:#a1a1aa;cursor:pointer;display:flex;align-items:center;gap:3px;"><input type="checkbox" id="chkMulti" ' + (isMultiMode ? 'checked' : '') + ' style="cursor:pointer;width:12px;height:12px;margin:0;" /> Multi</label><button id="btnModalSend" style="background:#087ff5;border:none;color:#ffffff;border-radius:4px;padding:3px 10px;font-size:11px;font-weight:600;cursor:pointer;">Send ↑</button>';
 
     modal.appendChild(header);
     modal.appendChild(textarea);
+    modal.appendChild(statusMsg);
     modal.appendChild(footer);
     document.body.appendChild(modal);
 
     textarea.focus();
 
+    textarea.oninput = () => {
+      if (statusMsg.style.display !== 'none') {
+        statusMsg.style.display = 'none';
+      }
+    };
+
     const doSubmit = () => {
       const userComment = textarea.value.trim();
+      if (!userComment) {
+        statusMsg.textContent = 'Add a comment before sending to Chat.';
+        statusMsg.style.display = 'block';
+        textarea.focus();
+        return;
+      }
+      statusMsg.style.display = 'none';
+
       const chk = modal.querySelector('#chkMulti');
       isMultiMode = chk ? chk.checked : false;
 
@@ -222,7 +306,9 @@ export const ELEMENT_PICKER_SCRIPT = `(() => {
         textSnippet: (el.textContent || '').trim().slice(0, 120),
         textContent: (el.textContent || '').trim().slice(0, 1500),
         xpath: getXPath(el),
-        selector: el.id ? '#' + el.id : (el.className && typeof el.className === 'string' ? el.tagName.toLowerCase() + '.' + el.className.trim().split(/\\s+/).filter(Boolean).join('.') : el.tagName.toLowerCase()),
+        selector: findOptimalUniqueSelector(el).selector,
+        isUnique: findOptimalUniqueSelector(el).isUnique,
+        matchCount: findOptimalUniqueSelector(el).matchCount,
         domAncestry: getDomAncestry(el),
         dimensions: Math.round(rect.width) + ' x ' + Math.round(rect.height) + ' px',
         outerHTML: el.outerHTML ? el.outerHTML.slice(0, 15000) : '',

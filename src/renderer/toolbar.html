@@ -115,6 +115,23 @@
         <svg width="15" height="15" viewBox="0 0 16 16" fill="currentColor"><path fill-rule="evenodd" clip-rule="evenodd" d="M4.854 4.146a.5.5 0 0 1 0 .708L1.707 8l3.147 3.146a.5.5 0 0 1-.708.708l-3.5-3.5a.5.5 0 0 1 0-.708l3.5-3.5a.5.5 0 0 1 .708 0zm6.292 0a.5.5 0 0 0 0 .708L14.293 8l-3.147 3.146a.5.5 0 0 0 .708.708l3.5-3.5a.5.5 0 0 0 0-.708l-3.5-3.5a.5.5 0 0 0-.708 0zm-4.79 9.544l3-11 .948.258-3 11-.948-.258z"/></svg>
       </button>
 
+      <!-- Bookmarks Popover Menu -->
+      <div class="bookmarks-menu-wrap">
+        <button class="nav-btn" id="btnBookmarksMenu" title="All Bookmarks (Click to view list)">
+          <svg width="15" height="15" viewBox="0 0 16 16" fill="currentColor"><path d="M2 2a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v13.5a.5.5 0 0 1-.777.416L8 12.114l-5.223 3.802A.5.5 0 0 1 2 15.5V2zm2-1a1 1 0 0 0-1 1v12.566l4.723-3.438a.5.5 0 0 1 .554 0L13 14.566V2a1 1 0 0 0-1-1H4z"/></svg>
+        </button>
+        <div class="bookmarks-dropdown-menu" id="bookmarksDropdownMenu" style="display:none;">
+          <div class="bookmarks-dropdown-header">
+            <span>Bookmarks</span>
+            <span class="bookmarks-count-pill" id="bookmarksCountPill">0</span>
+          </div>
+          <div class="bookmarks-dropdown-search">
+            <input type="text" id="inputBookmarkSearch" placeholder="Search bookmarks..." autocomplete="off" />
+          </div>
+          <div class="bookmarks-dropdown-list" id="bookmarksDropdownList"></div>
+        </div>
+      </div>
+
       <!-- Chrome Profile Chip -->
       <div class="chrome-profile-wrap">
         <button class="chrome-profile-btn" id="btnChromeProfile" title="Chrome Profile Sync (Click to switch)">

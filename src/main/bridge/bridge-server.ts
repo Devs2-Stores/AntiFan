@@ -9,7 +9,6 @@ import * as path from 'node:path';
 import * as os from 'node:os';
 import { randomUUID } from 'node:crypto';
 import { NativeTabHost } from '../browser/native-tab-host';
-import { BrowserActionRegistry } from '../browser/browser-action-registry';
 import {
   AntiFanBridgeStatus,
   BridgeRequestPayload,
@@ -17,6 +16,7 @@ import {
   BridgeEventPayload,
   AntiFanPickedElement,
   AntiFanTab,
+  ChatMessage,
 } from '../../shared/contracts';
 
 export class BridgeServer {
@@ -24,15 +24,15 @@ export class BridgeServer {
   private httpServer: http.Server | null = null;
   private clients: Set<WebSocket> = new Set();
   private tabHost: NativeTabHost;
-  private registry: BrowserActionRegistry;
+  private isDev: boolean = false;
   private port: number = 20129;
   private token: string = randomUUID();
   private bridgeInfoPath: string;
 
-  constructor(tabHost: NativeTabHost, port = 20129, registry?: BrowserActionRegistry) {
+  constructor(tabHost: NativeTabHost, port = 20129, isDev = false) {
     this.tabHost = tabHost;
-    this.registry = registry || new BrowserActionRegistry(tabHost);
-    this.port = port;
+    this.isDev = isDev;
+    this.port = isDev && port === 20129 ? 20130 : port;
 
     const configDir = path.join(os.homedir(), '.antifan');
     if (!fs.existsSync(configDir)) {
@@ -40,7 +40,8 @@ export class BridgeServer {
         fs.mkdirSync(configDir, { recursive: true });
       } catch {}
     }
-    this.bridgeInfoPath = path.join(configDir, 'bridge.json');
+    const bridgeFileName = this.isDev ? 'bridge-dev.json' : 'bridge.json';
+    this.bridgeInfoPath = path.join(configDir, bridgeFileName);
 
     this.wireTabHostEvents();
   }
@@ -149,13 +150,15 @@ export class BridgeServer {
       token: this.token,
       pid: process.pid,
       startedAt: Date.now(),
+      isDev: this.isDev,
     };
     try {
       fs.writeFileSync(this.bridgeInfoPath, JSON.stringify(info, null, 2), 'utf8');
 
       const geminiDir = path.join(os.homedir(), '.gemini');
       if (fs.existsSync(geminiDir)) {
-        fs.writeFileSync(path.join(geminiDir, 'antifan_bridge.json'), JSON.stringify(info, null, 2), 'utf8');
+        const geminiFileName = this.isDev ? 'antifan_bridge_dev.json' : 'antifan_bridge.json';
+        fs.writeFileSync(path.join(geminiDir, geminiFileName), JSON.stringify(info, null, 2), 'utf8');
       }
     } catch {}
   }
@@ -173,7 +176,7 @@ export class BridgeServer {
       this.broadcastEvent('antifan:inspectStateChanged', { active });
     });
 
-    this.tabHost.on('chat-prompt-submitted', (payload: { prompt: string; attachedElement?: AntiFanPickedElement; attachedImages?: Array<{ name: string; dataUrl: string }>; deliveryMode?: 'auto' | 'draft' }) => {
+    this.tabHost.on('chat-prompt-submitted', (payload: { prompt: string; sessionId?: string; attachedElement?: AntiFanPickedElement; attachedImages?: Array<{ name: string; dataUrl: string }>; deliveryMode?: 'auto' | 'draft' }) => {
       this.broadcastEvent('antifan:chatPromptSubmitted', payload);
     });
   }
@@ -190,13 +193,185 @@ export class BridgeServer {
     };
 
     try {
-      if (method === 'getStatus' || method === 'antifan.getStatus') {
-        respond(true, this.getStatus());
-        return;
-      }
+      switch (method) {
+        case 'openTab':
+        case 'antifan.openTab': {
+          const tabId = this.tabHost.createTab(p.url);
+          respond(true, { tabId });
+          break;
+        }
 
-      const data = await this.registry.execute(method, p, true);
-      respond(true, data);
+        case 'switchTab':
+        case 'antifan.switchTab': {
+          const ok = this.tabHost.switchTab(p.tabId);
+          respond(ok, { switched: ok });
+          break;
+        }
+
+        case 'closeTab':
+        case 'antifan.closeTab': {
+          const ok = this.tabHost.closeTab(p.tabId);
+          respond(ok, { closed: ok });
+          break;
+        }
+
+        case 'navigate':
+        case 'antifan.navigate': {
+          const ok = this.tabHost.navigate(p.tabId || this.tabHost.getActiveTabId(), p.url);
+          respond(ok, { navigated: ok });
+          break;
+        }
+
+        case 'reload':
+        case 'antifan.reload': {
+          const ok = this.tabHost.reload(p.tabId || this.tabHost.getActiveTabId());
+          respond(ok, { reloaded: ok });
+          break;
+        }
+
+        case 'goBack':
+        case 'antifan.goBack': {
+          const ok = this.tabHost.goBack(p.tabId || this.tabHost.getActiveTabId());
+          respond(ok, { wentBack: ok });
+          break;
+        }
+
+        case 'goForward':
+        case 'antifan.goForward': {
+          const ok = this.tabHost.goForward(p.tabId || this.tabHost.getActiveTabId());
+          respond(ok, { wentForward: ok });
+          break;
+        }
+
+        case 'toggleInspect':
+        case 'antifan.toggleInspect': {
+          const inspecting = this.tabHost.toggleInspect();
+          respond(true, { inspecting });
+          break;
+        }
+
+        case 'toggleSidebar':
+        case 'antifan.toggleSidebar': {
+          const isOpen = this.tabHost.toggleSidebar();
+          respond(true, { isOpen });
+          break;
+        }
+
+        case 'pushAgentMessage':
+        case 'antifan.pushAgentMessage': {
+          if (p.message) {
+            this.tabHost.pushAgentMessage(p.message as ChatMessage);
+            respond(true, { pushed: true });
+          } else {
+            respond(false, undefined, 'Missing message in payload');
+          }
+          break;
+        }
+
+        case 'getTabs':
+        case 'antifan.getTabs': {
+          respond(true, { tabs: this.tabHost.getTabList(), activeTabId: this.tabHost.getActiveTabId() });
+          break;
+        }
+
+        case 'getDOM':
+        case 'antifan.getDOM': {
+          const dom = await this.tabHost.getDom(p.selector);
+          respond(true, { html: dom });
+          break;
+        }
+
+        case 'captureScreenshot':
+        case 'antifan.captureScreenshot': {
+          const imageBase64 = await this.tabHost.captureScreenshot();
+          respond(true, { imageBase64 });
+          break;
+        }
+
+        case 'evalJS':
+        case 'antifan.evalJS': {
+          const result = await this.tabHost.evalJs(p.expression);
+          respond(true, { result });
+          break;
+        }
+
+        case 'getStatus':
+        case 'antifan.getStatus': {
+          respond(true, this.getStatus());
+          break;
+        }
+
+        // ─── Agent Browser Automation & Visual Cursor ───
+        case 'agentClick':
+        case 'antifan.agentClick': {
+          const ok = await this.tabHost.agentClick({
+            selector: p.selector,
+            x: p.x,
+            y: p.y,
+            label: p.label,
+            tabId: p.tabId,
+          });
+          respond(ok, { clicked: ok });
+          break;
+        }
+
+        case 'agentType':
+        case 'antifan.agentType': {
+          const ok = await this.tabHost.agentType({
+            selector: p.selector,
+            text: p.text,
+            clear: p.clear,
+            tabId: p.tabId,
+          });
+          respond(ok, { typed: ok });
+          break;
+        }
+
+        case 'agentScroll':
+        case 'antifan.agentScroll': {
+          const ok = await this.tabHost.agentScroll({
+            deltaY: p.deltaY,
+            selector: p.selector,
+            tabId: p.tabId,
+          });
+          respond(ok, { scrolled: ok });
+          break;
+        }
+
+        case 'agentHover':
+        case 'antifan.agentHover': {
+          const ok = await this.tabHost.agentHover({
+            selector: p.selector,
+            x: p.x,
+            y: p.y,
+            label: p.label,
+            tabId: p.tabId,
+          });
+          respond(ok, { hovered: ok });
+          break;
+        }
+
+        case 'agentHighlight':
+        case 'antifan.agentHighlight': {
+          const ok = await this.tabHost.agentHighlight({
+            selector: p.selector,
+            label: p.label,
+            tabId: p.tabId,
+          });
+          respond(ok, { highlighted: ok });
+          break;
+        }
+
+        case 'agentClear':
+        case 'antifan.agentClear': {
+          const ok = await this.tabHost.agentClear(p.tabId);
+          respond(ok, { cleared: ok });
+          break;
+        }
+
+        default:
+          respond(false, undefined, `Unknown bridge method: ${method}`);
+      }
     } catch (err: unknown) {
       const errorMsg = err instanceof Error ? err.message : String(err);
       respond(false, undefined, errorMsg);
