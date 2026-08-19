@@ -157,21 +157,11 @@ export class NativeTabHost extends EventEmitter {
     // 1. Toolbar bounds
     this.toolbarView.setBounds({ x: 0, y: 0, width: availableWidth, height: toolbarHeight });
 
-    // 2. Active Tab bounds
+    // 2. Active Tab bounds & Auto-Fit Device Emulation
     if (this.activeTabId) {
       const tab = this.tabs.get(this.activeTabId);
       if (tab) {
-        const preset = DEVICE_PRESETS.find((p) => p.id === tab.state.devicePresetId);
-
-        if (preset && preset.width && preset.height) {
-          const targetW = Math.min(availableWidth, preset.width);
-          const targetH = Math.min(availableHeight, preset.height);
-          const targetX = Math.max(0, Math.floor((availableWidth - targetW) / 2));
-          const targetY = toolbarHeight + Math.max(0, Math.floor((availableHeight - targetH) / 2));
-          tab.view.setBounds({ x: targetX, y: targetY, width: targetW, height: targetH });
-        } else {
-          tab.view.setBounds({ x: 0, y: toolbarHeight, width: availableWidth, height: availableHeight });
-        }
+        this.applyTabDeviceEmulation(tab, availableWidth, availableHeight, toolbarHeight);
       }
     }
 
@@ -1289,12 +1279,82 @@ export class NativeTabHost extends EventEmitter {
     return false;
   }
 
+  private applyTabDeviceEmulation(
+    tab: { view: WebContentsView; state: AntiFanTab },
+    availableWidth: number,
+    availableHeight: number,
+    toolbarHeight: number
+  ): void {
+    const preset = DEVICE_PRESETS.find((p) => p.id === tab.state.devicePresetId);
+
+    if (preset && preset.width && preset.height) {
+      const userZoom = tab.state.zoomFactor || 1.0;
+      const maxW = Math.max(100, availableWidth);
+      const maxH = Math.max(100, availableHeight);
+
+      // Auto-calculate zoom scale to fit available viewport area without horizontal clipping
+      let fitScale = 1.0;
+      if (preset.category === 'desktop') {
+        // Desktop breakpoints (e.g. 1920x1080) fit to width and allow natural vertical scrolling
+        fitScale = Math.min(1.0, maxW / preset.width);
+      } else {
+        // Tablet / Mobile breakpoints fit both width and height to stay cleanly framed
+        fitScale = Math.min(1.0, maxW / preset.width, maxH / preset.height);
+      }
+
+      const effectiveScale = Math.max(0.1, Math.min(5.0, fitScale * userZoom));
+      const renderedW = Math.min(maxW, Math.round(preset.width * effectiveScale));
+      const renderedH = preset.category === 'desktop'
+        ? maxH
+        : Math.min(maxH, Math.round(preset.height * effectiveScale));
+
+      const targetX = Math.max(0, Math.floor((maxW - renderedW) / 2));
+      const targetY = toolbarHeight + (preset.category === 'desktop' ? 0 : Math.max(0, Math.floor((maxH - renderedH) / 2)));
+
+      try {
+        tab.view.webContents.enableDeviceEmulation({
+          screenPosition: preset.mobile ? 'mobile' : 'desktop',
+          screenSize: { width: preset.width, height: preset.height },
+          viewPosition: { x: 0, y: 0 },
+          deviceScaleFactor: preset.deviceScaleFactor || 0,
+          viewSize: { width: preset.width, height: preset.height },
+          scale: effectiveScale,
+        });
+      } catch (err) {
+        console.error('[native-tab-host] Failed enableDeviceEmulation:', err);
+      }
+
+      tab.view.setBounds({
+        x: targetX,
+        y: targetY,
+        width: renderedW,
+        height: renderedH,
+      });
+    } else {
+      try {
+        tab.view.webContents.disableDeviceEmulation();
+      } catch {}
+
+      const userZoom = tab.state.zoomFactor || 1.0;
+      try {
+        tab.view.webContents.setZoomFactor(userZoom);
+      } catch {}
+
+      tab.view.setBounds({
+        x: 0,
+        y: toolbarHeight,
+        width: availableWidth,
+        height: availableHeight,
+      });
+    }
+  }
+
   public setZoom(tabId: string, zoomFactor: number): boolean {
     const tab = this.tabs.get(tabId);
     if (!tab) return false;
     const clamped = Math.max(0.25, Math.min(zoomFactor, 5.0));
     tab.state.zoomFactor = clamped;
-    tab.view.webContents.setZoomFactor(clamped);
+    this.updateLayout();
     this.broadcastState();
     return true;
   }
@@ -1303,19 +1363,6 @@ export class NativeTabHost extends EventEmitter {
     const tab = this.tabs.get(tabId);
     if (!tab) return false;
     tab.state.devicePresetId = presetId;
-    const preset = DEVICE_PRESETS.find((p) => p.id === presetId);
-    if (preset && preset.width && preset.height) {
-      tab.view.webContents.enableDeviceEmulation({
-        screenPosition: preset.mobile ? 'mobile' : 'desktop',
-        screenSize: { width: preset.width, height: preset.height },
-        viewPosition: { x: 0, y: 0 },
-        deviceScaleFactor: preset.deviceScaleFactor || 0,
-        viewSize: { width: preset.width, height: preset.height },
-        scale: 1,
-      });
-    } else {
-      tab.view.webContents.disableDeviceEmulation();
-    }
     this.updateLayout();
     this.broadcastState();
     return true;
