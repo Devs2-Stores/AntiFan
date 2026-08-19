@@ -2,6 +2,7 @@
  * AntiFan Browser Desktop — Tab Preload Script (Stealth & Google Chrome Parity)
  * Completely masks Electron automation properties and injects Haravan JSON Viewer.
  */
+import { ipcRenderer } from 'electron';
 
 // 1. Google Chrome Environment & Stealth Spoofing
 try {
@@ -219,3 +220,18 @@ window.addEventListener('DOMContentLoaded', () => {
     });
   } catch {}
 });
+
+// 3. Google Chrome Parity: Ctrl + Mouse Wheel Zoom
+window.addEventListener(
+  'wheel',
+  (e: WheelEvent) => {
+    if (e.ctrlKey || e.metaKey) {
+      e.preventDefault();
+      const isZoomIn = e.deltaY < 0;
+      try {
+        ipcRenderer.send('antifan:tab-wheel-zoom', { isZoomIn });
+      } catch {}
+    }
+  },
+  { passive: false }
+);

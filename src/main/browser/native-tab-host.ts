@@ -232,6 +232,20 @@ export class NativeTabHost extends EventEmitter {
     ipcMain.handle(TOOLBAR_CHANNELS.TOGGLE_SIDEBAR, () => this.toggleSidebar());
     ipcMain.handle(TOOLBAR_CHANNELS.SET_DEVICE_PRESET, (_event, { tabId, presetId }: { tabId?: string; presetId: string }) => this.setDevicePreset(tabId || this.activeTabId, presetId));
     ipcMain.handle(TOOLBAR_CHANNELS.SET_ZOOM, (_event, { tabId, zoom }: { tabId?: string; zoom: number }) => this.setZoom(tabId || this.activeTabId, zoom));
+    ipcMain.on('antifan:tab-wheel-zoom', (event, { isZoomIn }: { isZoomIn: boolean }) => {
+      const senderWc = event.sender;
+      for (const [id, t] of this.tabs.entries()) {
+        if (t.view.webContents === senderWc) {
+          const current = t.state.zoomFactor || 1.0;
+          const step = 0.1;
+          const nextZoom = isZoomIn
+            ? Math.min(5.0, Number((current + step).toFixed(2)))
+            : Math.max(0.25, Number((current - step).toFixed(2)));
+          this.setZoom(id, nextZoom);
+          break;
+        }
+      }
+    });
     ipcMain.handle(TOOLBAR_CHANNELS.CAPTURE_FULL_PAGE, () => this.captureScreenshot());
     ipcMain.handle(TOOLBAR_CHANNELS.CAPTURE_VIEWPORT, () => this.captureScreenshot());
     ipcMain.handle(TOOLBAR_CHANNELS.OPEN_EXTERNAL, (_event, url?: string) => this.openExternal(url));
@@ -1163,6 +1177,15 @@ export class NativeTabHost extends EventEmitter {
         this.createTab(popupUrl);
       }
       return { action: 'deny' };
+    });
+
+    wc.on('zoom-changed', (_event, zoomDirection) => {
+      const current = state.zoomFactor || 1.0;
+      const step = 0.1;
+      const nextZoom = zoomDirection === 'in'
+        ? Math.min(5.0, Number((current + step).toFixed(2)))
+        : Math.max(0.25, Number((current - step).toFixed(2)));
+      this.setZoom(id, nextZoom);
     });
 
     this.setupGlobalShortcutsOnView(wc);
