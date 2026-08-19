@@ -17,7 +17,9 @@
     "start:prod": "node scripts/run-electron.cjs . --production",
     "typecheck": "tsc -p ./ --noEmit",
     "test": "npm run compile && node --test .compiled/test/main/*.test.js",
-    "verify": "npm run typecheck && npm test"
+    "verify": "npm run typecheck && npm test",
+    "icon": "python scripts/generate-icon.py",
+    "install:shortcut": "node scripts/install-windows-shortcut.mjs"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.30.0",
