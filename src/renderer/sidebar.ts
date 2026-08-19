@@ -783,7 +783,14 @@ if (chatForm) {
     messages.push(userMsg);
     renderMessages();
     messagesContainer.scrollTop = messagesContainer.scrollHeight;
-    getApi()?.sendPrompt(userMsg.text, sentAttached, sentImages, deliveryMode as any);
+    
+    try {
+      getApi()?.sendPrompt(userMsg.text, sentAttached, sentImages, deliveryMode as any)?.catch?.((err: any) => {
+        console.error('[sidebar] sendPrompt error:', err);
+      });
+    } catch (err) {
+      console.error('[sidebar] Failed to call sendPrompt:', err);
+    }
   });
 }
 

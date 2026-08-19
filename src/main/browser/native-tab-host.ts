@@ -1292,44 +1292,62 @@ export class NativeTabHost extends EventEmitter {
       const maxW = Math.max(100, availableWidth);
       const maxH = Math.max(100, availableHeight);
 
-      // Auto-calculate zoom scale to fit available viewport area without horizontal clipping
-      let fitScale = 1.0;
       if (preset.category === 'desktop') {
-        // Desktop breakpoints (e.g. 1920x1080) fit to width and allow natural vertical scrolling
-        fitScale = Math.min(1.0, maxW / preset.width);
-      } else {
-        // Tablet / Mobile breakpoints fit both width and height to stay cleanly framed
-        fitScale = Math.min(1.0, maxW / preset.width, maxH / preset.height);
-      }
+        // Desktop breakpoints (1920x1080, 1728x1117, 1440x900):
+        // Auto-scale zoom factor so page layout is precisely preset.width CSS pixels
+        // (window.innerWidth = availableWidth / zoom = preset.width) and fits 100% horizontally.
+        const fitScale = Math.min(1.0, maxW / preset.width);
+        const effectiveZoom = Math.max(0.1, Math.min(5.0, fitScale * userZoom));
 
-      const effectiveScale = Math.max(0.1, Math.min(5.0, fitScale * userZoom));
-      const renderedW = Math.min(maxW, Math.round(preset.width * effectiveScale));
-      const renderedH = preset.category === 'desktop'
-        ? maxH
-        : Math.min(maxH, Math.round(preset.height * effectiveScale));
+        try {
+          tab.view.webContents.disableDeviceEmulation();
+        } catch {}
 
-      const targetX = Math.max(0, Math.floor((maxW - renderedW) / 2));
-      const targetY = toolbarHeight + (preset.category === 'desktop' ? 0 : Math.max(0, Math.floor((maxH - renderedH) / 2)));
+        try {
+          tab.view.webContents.setZoomFactor(effectiveZoom);
+        } catch (err) {
+          console.error('[native-tab-host] Failed setZoomFactor:', err);
+        }
 
-      try {
-        tab.view.webContents.enableDeviceEmulation({
-          screenPosition: preset.mobile ? 'mobile' : 'desktop',
-          screenSize: { width: preset.width, height: preset.height },
-          viewPosition: { x: 0, y: 0 },
-          deviceScaleFactor: preset.deviceScaleFactor || 0,
-          viewSize: { width: preset.width, height: preset.height },
-          scale: effectiveScale,
+        tab.view.setBounds({
+          x: 0,
+          y: toolbarHeight,
+          width: maxW,
+          height: maxH,
         });
-      } catch (err) {
-        console.error('[native-tab-host] Failed enableDeviceEmulation:', err);
-      }
+      } else {
+        // Tablet / Mobile breakpoints (iPhone, iPad, Samsung Galaxy):
+        const fitScale = Math.min(1.0, maxW / preset.width, maxH / preset.height);
+        const effectiveScale = Math.max(0.1, Math.min(5.0, fitScale * userZoom));
+        const renderedW = Math.min(maxW, Math.round(preset.width * effectiveScale));
+        const renderedH = Math.min(maxH, Math.round(preset.height * effectiveScale));
+        const targetX = Math.max(0, Math.floor((maxW - renderedW) / 2));
+        const targetY = toolbarHeight + Math.max(0, Math.floor((maxH - renderedH) / 2));
 
-      tab.view.setBounds({
-        x: targetX,
-        y: targetY,
-        width: renderedW,
-        height: renderedH,
-      });
+        try {
+          tab.view.webContents.enableDeviceEmulation({
+            screenPosition: preset.mobile ? 'mobile' : 'desktop',
+            screenSize: { width: preset.width, height: preset.height },
+            viewPosition: { x: 0, y: 0 },
+            deviceScaleFactor: preset.deviceScaleFactor || 2,
+            viewSize: { width: preset.width, height: preset.height },
+            scale: effectiveScale,
+          });
+        } catch (err) {
+          console.error('[native-tab-host] Failed enableDeviceEmulation:', err);
+        }
+
+        try {
+          tab.view.webContents.setZoomFactor(effectiveScale);
+        } catch {}
+
+        tab.view.setBounds({
+          x: targetX,
+          y: targetY,
+          width: renderedW,
+          height: renderedH,
+        });
+      }
     } else {
       try {
         tab.view.webContents.disableDeviceEmulation();
