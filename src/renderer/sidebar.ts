@@ -322,34 +322,162 @@ function escapeHtml(text: string): string {
 }
 
 function highlightCode(rawCode: string, lang: string): string {
-  const escaped = escapeHtml(rawCode);
   const l = (lang || '').toLowerCase();
 
   if (['typescript', 'javascript', 'ts', 'js', 'json', 'node'].includes(l)) {
-    let res = escaped;
-    res = res.replace(/(\/\/[^\n]*|\/\*[\s\S]*?\*\/)/g, '<span style="color:#71717a;font-style:italic">$&</span>');
-    res = res.replace(/(["'`])(?:(?=(\\?))\2.)*?\1/g, '<span style="color:#a5f3fc">$&</span>');
-    res = res.replace(/\b(const|let|var|function|return|import|export|from|async|await|if|else|switch|case|break|try|catch|finally|throw|new|this|typeof|instanceof|true|false|null|undefined|interface|type|class|extends|implements|public|private|protected)\b/g, '<span style="color:#f472b6;font-weight:500">$1</span>');
-    res = res.replace(/\b(\d+(\.\d+)?)\b/g, '<span style="color:#fde047">$1</span>');
-    res = res.replace(/\b([a-zA-Z_$][a-zA-Z0-9_$]*)\s*(?=:)/g, '<span style="color:#93c5fd">$1</span>');
-    return res;
+    // Single-pass tokenizer to prevent replacing inside already-generated HTML tags!
+    const tokenRegex = /(\/\/[^\n]*|\/\*[\s\S]*?\*\/)|(["'`])(?:(?=(\\?))\3[\s\S])*?\2|\b(const|let|var|function|return|import|export|from|async|await|if|else|switch|case|break|try|catch|finally|throw|new|this|typeof|instanceof|true|false|null|undefined|interface|type|class|extends|implements|public|private|protected|readonly|enum|as|is)\b|\b(\d+(?:\.\d+)?)\b|\b([A-Z][a-zA-Z0-9_$]*)\b|\b([a-zA-Z_$][a-zA-Z0-9_$]*)\s*(?=:)/g;
+
+    let lastIndex = 0;
+    let result = '';
+    let match: RegExpExecArray | null;
+
+    while ((match = tokenRegex.exec(rawCode)) !== null) {
+      const matchStart = match.index;
+      if (matchStart > lastIndex) {
+        result += escapeHtml(rawCode.slice(lastIndex, matchStart));
+      }
+      const matchedText = match[0];
+      if (match[1]) {
+        result += `<span style="color:#71717a;font-style:italic">${escapeHtml(matchedText)}</span>`;
+      } else if (match[2]) {
+        result += `<span style="color:#a5f3fc">${escapeHtml(matchedText)}</span>`;
+      } else if (match[4]) {
+        result += `<span style="color:#f472b6;font-weight:600">${escapeHtml(matchedText)}</span>`;
+      } else if (match[5]) {
+        result += `<span style="color:#fde047">${escapeHtml(matchedText)}</span>`;
+      } else if (match[6]) {
+        result += `<span style="color:#67e8f9">${escapeHtml(matchedText)}</span>`;
+      } else if (match[7]) {
+        result += `<span style="color:#93c5fd">${escapeHtml(matchedText)}</span>`;
+      } else {
+        result += escapeHtml(matchedText);
+      }
+      lastIndex = tokenRegex.lastIndex;
+    }
+    if (lastIndex < rawCode.length) {
+      result += escapeHtml(rawCode.slice(lastIndex));
+    }
+    return result;
   }
 
   if (['html', 'xml', 'liquid'].includes(l)) {
-    let res = escaped.replace(/(&lt;\/?[a-zA-Z0-9_-]+)/g, '<span style="color:#f472b6">$1</span>');
-    res = res.replace(/(&gt;)/g, '<span style="color:#f472b6">$1</span>');
-    res = res.replace(/(["'])(?:(?=(\\?))\2.)*?\1/g, '<span style="color:#a5f3fc">$&</span>');
-    return res;
+    const tokenRegex = /(<!--[\s\S]*?-->)|(<\/?[a-zA-Z0-9_-]+)|(>)|(["'])(?:(?=(\\?))\5[\s\S])*?\4|({[{%][\s\S]*?[%}]})/g;
+    let lastIndex = 0;
+    let result = '';
+    let match: RegExpExecArray | null;
+    while ((match = tokenRegex.exec(rawCode)) !== null) {
+      const matchStart = match.index;
+      if (matchStart > lastIndex) {
+        result += escapeHtml(rawCode.slice(lastIndex, matchStart));
+      }
+      const matchedText = match[0];
+      if (match[1]) {
+        result += `<span style="color:#71717a;font-style:italic">${escapeHtml(matchedText)}</span>`;
+      } else if (match[2]) {
+        result += `<span style="color:#f472b6;font-weight:600">${escapeHtml(matchedText)}</span>`;
+      } else if (match[3]) {
+        result += `<span style="color:#f472b6;font-weight:600">&gt;</span>`;
+      } else if (match[4]) {
+        result += `<span style="color:#a5f3fc">${escapeHtml(matchedText)}</span>`;
+      } else if (match[6]) {
+        result += `<span style="color:#fbbf24">${escapeHtml(matchedText)}</span>`;
+      } else {
+        result += escapeHtml(matchedText);
+      }
+      lastIndex = tokenRegex.lastIndex;
+    }
+    if (lastIndex < rawCode.length) {
+      result += escapeHtml(rawCode.slice(lastIndex));
+    }
+    return result;
   }
 
   if (['css', 'scss', 'less'].includes(l)) {
-    let res = escaped.replace(/(["'])(?:(?=(\\?))\2.)*?\1/g, '<span style="color:#a5f3fc">$&</span>');
-    res = res.replace(/(\/\*[\s\S]*?\*\/)/g, '<span style="color:#71717a;font-style:italic">$&</span>');
-    res = res.replace(/([a-zA-Z_-]+)\s*(?=:)/g, '<span style="color:#93c5fd">$1</span>');
-    return res;
+    const tokenRegex = /(\/\*[\s\S]*?\*\/)|(["'])(?:(?=(\\?))\3[\s\S])*?\2|([a-zA-Z_-]+)\s*(?=:)|(#[a-fA-F0-9]{3,8}|\b\d+(?:px|rem|em|%|vh|vw|ms|s|deg)?\b)/g;
+    let lastIndex = 0;
+    let result = '';
+    let match: RegExpExecArray | null;
+    while ((match = tokenRegex.exec(rawCode)) !== null) {
+      const matchStart = match.index;
+      if (matchStart > lastIndex) {
+        result += escapeHtml(rawCode.slice(lastIndex, matchStart));
+      }
+      const matchedText = match[0];
+      if (match[1]) {
+        result += `<span style="color:#71717a;font-style:italic">${escapeHtml(matchedText)}</span>`;
+      } else if (match[2]) {
+        result += `<span style="color:#a5f3fc">${escapeHtml(matchedText)}</span>`;
+      } else if (match[4]) {
+        result += `<span style="color:#93c5fd">${escapeHtml(matchedText)}</span>`;
+      } else if (match[5]) {
+        result += `<span style="color:#fde047">${escapeHtml(matchedText)}</span>`;
+      } else {
+        result += escapeHtml(matchedText);
+      }
+      lastIndex = tokenRegex.lastIndex;
+    }
+    if (lastIndex < rawCode.length) {
+      result += escapeHtml(rawCode.slice(lastIndex));
+    }
+    return result;
   }
 
-  return escaped;
+  return escapeHtml(rawCode);
+}
+
+function renderInline(text: string): string {
+  if (!text) return '';
+  let str = text;
+
+  // 1. Inline code `code` (placeholder without underscores or asterisks to prevent collisions)
+  const inlineCodes: string[] = [];
+  str = str.replace(/`([^`\n]+)`/g, (_m, code) => {
+    const ph = `ANTIFANINLINECODE${inlineCodes.length}END`;
+    inlineCodes.push(`<code class="md-inline-code">${code}</code>`);
+    return ph;
+  });
+
+  // 2. Links: [text](url) -> file link badge or normal web link
+  const inlineLinks: string[] = [];
+  str = str.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_m, linkText, url) => {
+    const ph = `ANTIFANINLINELINK${inlineLinks.length}END`;
+    const cleanUrl = url.trim();
+    let cleanText = linkText.trim();
+    if ((cleanText.startsWith("'") && cleanText.endsWith("'")) || (cleanText.startsWith('"') && cleanText.endsWith('"'))) {
+      cleanText = cleanText.slice(1, -1);
+    }
+    if (cleanUrl.startsWith('file:///')) {
+      inlineLinks.push(`<a href="${cleanUrl}" class="md-file-link" title="${cleanUrl}"><span class="md-file-icon">📄</span> ${cleanText}</a>`);
+    } else {
+      inlineLinks.push(`<a href="${cleanUrl}" target="_blank" rel="noopener noreferrer" class="md-link">${cleanText}</a>`);
+    }
+    return ph;
+  });
+
+  // 3. Bold + Italic: ***text*** or ___text___
+  str = str.replace(/\*\*\*([^*]+)\*\*\*/g, '<strong><em>$1</em></strong>');
+  str = str.replace(/___([^_]+)___/g, '<strong><em>$1</em></strong>');
+
+  // 4. Bold: **text** or __text__
+  str = str.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+  str = str.replace(/__([^_]+)__/g, '<strong>$1</strong>');
+
+  // 5. Italic: *text* or _text_
+  str = str.replace(/\*([^*\n]+)\*/g, '<em>$1</em>');
+  str = str.replace(/(?<=^|\s|[(])_([^_]+)_(?=$|\s|[.,:;!?)])/g, '<em>$1</em>');
+
+  // 6. Restore inline links
+  inlineLinks.forEach((linkHtml, idx) => {
+    str = str.split(`ANTIFANINLINELINK${idx}END`).join(linkHtml);
+  });
+
+  // 7. Restore inline codes
+  inlineCodes.forEach((codeHtml, idx) => {
+    str = str.split(`ANTIFANINLINECODE${idx}END`).join(codeHtml);
+  });
+
+  return str;
 }
 
 function parseMarkdownTables(text: string): { html: string; tables: string[] } {
@@ -371,12 +499,15 @@ function parseMarkdownTables(text: string): { html: string; tables: string[] } {
     };
 
     const headers = parseRow(headerLine);
-    const ths = headers.map((h) => `<th>${h}</th>`).join('');
+    const ths = headers.map((h) => `<th>${renderInline(h)}</th>`).join('');
     const thead = `<thead><tr>${ths}</tr></thead>`;
 
     const trs = dataLines.map((line) => {
       const cells = parseRow(line);
-      const tds = headers.map((_, i) => `<td>${cells[i] !== undefined ? cells[i] : ''}</td>`).join('');
+      const tds = headers.map((_, i) => {
+        const val = cells[i] !== undefined ? cells[i] : '';
+        return `<td>${renderInline(val)}</td>`;
+      }).join('');
       return `<tr>${tds}</tr>`;
     }).join('');
     const tbody = `<tbody>${trs}</tbody>`;
@@ -389,7 +520,7 @@ function parseMarkdownTables(text: string): { html: string; tables: string[] } {
 }
 
 /**
- * Rich Markdown Parser with 100% Antigravity Code Block styling
+ * Rich Markdown Parser with 100% Antigravity Code Block, Table & Alert styling
  */
 function renderMarkdown(md: string): string {
   if (!md) return '';
@@ -424,39 +555,94 @@ function renderMarkdown(md: string): string {
   // 2. Escape standard HTML in remaining text
   html = escapeHtml(html);
 
-  // 2b. Markdown Tables
+  // 3. Markdown Tables with rich cell rendering
   const tableResult = parseMarkdownTables(html);
   html = tableResult.html;
-
-  // 2c. Restore safe inline HTML tags (span style, span class, kbd, mark, br)
-  html = html.replace(/&lt;span\s+style=(&quot;|')(.*?)(\1)&gt;(.*?)&lt;\/span&gt;/gi, '<span style="$2">$4</span>');
-  html = html.replace(/&lt;span\s+class=(&quot;|')(.*?)(\1)&gt;(.*?)&lt;\/span&gt;/gi, '<span class="$2">$4</span>');
-  html = html.replace(/&lt;kbd&gt;(.*?)&lt;\/kbd&gt;/gi, '<kbd class="md-kbd">$1</kbd>');
-  html = html.replace(/&lt;mark&gt;(.*?)&lt;\/mark&gt;/gi, '<mark>$1</mark>');
-  // 2d. Normalize list bullets at start of lines before processing bold/italics so bullets don't get eaten
-  html = html.replace(/^([ \t]*)[*•+](?=\s)/gm, '$1-');
-
-  // 3. Inline code & inline styles
-  html = html.replace(/`([^`\n]+)`/g, '<code class="md-inline-code">$1</code>');
-  html = html.replace(/\*\*\*([^*]+)\*\*\*/g, '<strong><em>$1</em></strong>');
-  html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
-  html = html.replace(/(?<!\S)\*([^*\n]+)\*(?!\S)/g, '<em>$1</em>');
-  html = html.replace(/_([^_]+)_/g, '<em>$1</em>');
-  html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" class="md-link">$1</a>');
 
   // 4. Line-by-line block processing
   const lines = html.split('\n');
   const processed: string[] = [];
   let inUl = false;
   let inOl = false;
+  let inAlert = false;
+  let alertType = '';
+  let alertContent: string[] = [];
+  let inQuote = false;
+  let quoteContent: string[] = [];
+
+  const flushAlert = () => {
+    if (inAlert) {
+      const typeIcons: Record<string, string> = {
+        note: 'ℹ',
+        tip: '💡',
+        important: '✦',
+        warning: '⚠️',
+        caution: '🛑',
+      };
+      const icon = typeIcons[alertType] || 'ℹ';
+      const label = alertType.toUpperCase();
+      const body = alertContent.map((l) => `<p>${renderInline(l)}</p>`).join('');
+      processed.push(`
+        <div class="md-alert md-alert-${alertType}">
+          <div class="md-alert-header">
+            <span class="md-alert-icon">${icon}</span>
+            <span class="md-alert-title">${label}</span>
+          </div>
+          <div class="md-alert-content">${body}</div>
+        </div>
+      `);
+      inAlert = false;
+      alertType = '';
+      alertContent = [];
+    }
+  };
+
+  const flushQuote = () => {
+    if (inQuote) {
+      const body = quoteContent.map((l) => `<p>${renderInline(l)}</p>`).join('');
+      processed.push(`<blockquote class="md-quote">${body}</blockquote>`);
+      inQuote = false;
+      quoteContent = [];
+    }
+  };
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i]!;
     const trimmed = line.trim();
 
+    // Check Blockquotes & GitHub Alerts: &gt; [!IMPORTANT]
+    const quoteMatch = trimmed.match(/^&gt;\s?(.*)$/);
+    if (quoteMatch) {
+      if (inUl) { processed.push('</ul>'); inUl = false; }
+      if (inOl) { processed.push('</ol>'); inOl = false; }
+
+      const quoteLine = quoteMatch[1] ? quoteMatch[1].trim() : '';
+      const alertHeaderMatch = quoteLine.match(/^\[!(NOTE|TIP|IMPORTANT|WARNING|CAUTION)\]$/i);
+
+      if (alertHeaderMatch && alertHeaderMatch[1]) {
+        flushQuote();
+        flushAlert();
+        inAlert = true;
+        alertType = alertHeaderMatch[1].toLowerCase();
+        continue;
+      }
+
+      if (inAlert) {
+        alertContent.push(quoteLine);
+        continue;
+      }
+
+      inQuote = true;
+      quoteContent.push(quoteLine);
+      continue;
+    } else {
+      flushAlert();
+      flushQuote();
+    }
+
     // Check unordered list item (- , * , • , + )
     const ulMatch = trimmed.match(/^[-*•+]\s+(.*)$/);
-    if (ulMatch) {
+    if (ulMatch && ulMatch[1]) {
       if (inOl) {
         processed.push('</ol>');
         inOl = false;
@@ -465,13 +651,13 @@ function renderMarkdown(md: string): string {
         processed.push('<ul class="md-list">');
         inUl = true;
       }
-      processed.push(`<li>${ulMatch[1]}</li>`);
+      processed.push(`<li>${renderInline(ulMatch[1])}</li>`);
       continue;
     }
 
     // Check ordered list item (1. , 2. , etc)
     const olMatch = trimmed.match(/^(\d+)\.\s+(.*)$/);
-    if (olMatch) {
+    if (olMatch && olMatch[2]) {
       if (inUl) {
         processed.push('</ul>');
         inUl = false;
@@ -481,7 +667,7 @@ function renderMarkdown(md: string): string {
         processed.push(`<ol class="md-ol"${startNum > 1 ? ` start="${startNum}"` : ''}>`);
         inOl = true;
       }
-      processed.push(`<li>${olMatch[2]}</li>`);
+      processed.push(`<li>${renderInline(olMatch[2])}</li>`);
       continue;
     }
 
@@ -499,22 +685,24 @@ function renderMarkdown(md: string): string {
     }
 
     if (trimmed.startsWith('#### ')) {
-      processed.push(`<h4>${trimmed.substring(5)}</h4>`);
+      processed.push(`<h4>${renderInline(trimmed.substring(5))}</h4>`);
     } else if (trimmed.startsWith('### ')) {
-      processed.push(`<h3>${trimmed.substring(4)}</h3>`);
+      processed.push(`<h3>${renderInline(trimmed.substring(4))}</h3>`);
     } else if (trimmed.startsWith('## ')) {
-      processed.push(`<h2>${trimmed.substring(3)}</h2>`);
+      processed.push(`<h2>${renderInline(trimmed.substring(3))}</h2>`);
     } else if (trimmed.startsWith('# ')) {
-      processed.push(`<h1>${trimmed.substring(2)}</h1>`);
-    } else if (trimmed === '---') {
+      processed.push(`<h1>${renderInline(trimmed.substring(2))}</h1>`);
+    } else if (trimmed === '---' || trimmed === '***') {
       processed.push('<hr class="md-hr"/>');
-    } else if (trimmed.startsWith('ANTIFANBLOCKCODE') || trimmed.startsWith('<table') || trimmed.startsWith('</div>')) {
-      processed.push(line);
+    } else if (trimmed.startsWith('ANTIFANBLOCKCODE') || trimmed.startsWith('ANTIFANTABLEBLOCK')) {
+      processed.push(trimmed);
     } else {
-      processed.push(`<p>${line}</p>`);
+      processed.push(`<p>${renderInline(trimmed)}</p>`);
     }
   }
 
+  flushAlert();
+  flushQuote();
   if (inUl) processed.push('</ul>');
   if (inOl) processed.push('</ol>');
 
