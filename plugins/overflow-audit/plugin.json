@@ -1,0 +1,20 @@
+{
+  "id": "overflow-audit",
+  "version": "1.0.0",
+  "sdkVersion": 1,
+  "sdkRange": [1, 1],
+  "name": "Overflow Audit",
+  "description": "First-party reference plugin: reads DOM for clipped/overflowing elements, enqueues Queue content for QA.",
+  "permissions": ["annotation.read", "annotation.prepareQueue", "capture.request", "ui.toolbar"],
+  "contributions": [
+    { "type": "toolbar-action", "id": "overflow-audit.run", "label": "Audit overflow" },
+    { "type": "annotation-preset", "id": "overflow-evidence", "fidelity": "visible" }
+  ],
+  "integrity": {
+    "adapter.js": "3cb14c85408ba657e101c5b78aa3ad9cbd203bc9e611fc3d30129f1c905d18c6"
+  },
+  "siteAdapters": {
+    "adapter.js": "adapter.js"
+  },
+  "hooks": ["pageReady", "elementSelected", "beforeQueue"]
+}

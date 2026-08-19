@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Windows Terminal (PowerShell)</title>
+  <link rel="stylesheet" href="terminal.css" />
+  <script>var exports = exports || {};</script>
+</head>
+<body>
+  <div class="wt-container">
+    <!-- WINDOWS TERMINAL TAB STRIP -->
+    <div class="wt-tab-strip">
+      <div class="wt-tabs">
+        <div class="wt-tab active" title="PowerShell">
+          <div class="wt-tab-icon">
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+              <rect width="16" height="16" rx="2" fill="#012456"/>
+              <path d="M4 4.5L7.5 8L4 11.5" stroke="#38bdf8" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+              <line x1="8.5" y1="12" x2="12.5" y2="12" stroke="#f8fafc" stroke-width="1.6" stroke-linecap="round"/>
+            </svg>
+          </div>
+          <span class="wt-tab-title">PowerShell</span>
+          <button class="wt-tab-close" id="btnTabClose" title="Close Pane">✕</button>
+        </div>
+        <button class="wt-tab-new-btn" id="btnTabNew" title="New Terminal Tab (Ctrl+Shift+T)">+</button>
+        <button class="wt-tab-dropdown-btn" id="btnTabDropdown" title="Shell Selection">˅</button>
+      </div>
+
+      <!-- QUICK CHIP ACTIONS (Antigravity & Haravan Tools) -->
+      <div class="wt-quick-actions">
+        <button class="wt-chip-btn" data-cmd="hrv theme dev">⚡ hrv theme dev</button>
+        <button class="wt-chip-btn" data-cmd="npm run dev">▶ npm run dev</button>
+        <button class="wt-chip-btn" data-cmd="git status">git status</button>
+        <button class="wt-chip-btn" data-cmd="cls">cls</button>
+      </div>
+
+      <!-- RIGHT WINDOW CONTROLS -->
+      <div class="wt-controls">
+        <button id="btnTerminalRestart" class="wt-ctrl-btn" title="Restart PowerShell">🔄</button>
+        <button id="btnTerminalKill" class="wt-ctrl-btn" title="Stop Current Process (Ctrl+C)">⏹</button>
+        <button id="btnTerminalClear" class="wt-ctrl-btn" title="Clear Screen (cls)">🗑️</button>
+        <button id="btnTerminalClose" class="wt-ctrl-btn wt-close-btn" title="Hide Terminal (Esc / Ctrl+`)">✕</button>
+      </div>
+    </div>
+
+    <!-- TERMINAL SCREEN BODY -->
+    <div id="terminalBody" class="wt-terminal-body">
+      <div id="terminalOutput" class="wt-terminal-output"></div>
+      <div class="wt-prompt-row" id="promptRow">
+        <span class="wt-prompt-prefix" id="promptPrefix">PS&gt;</span>
+        <div class="wt-input-wrapper">
+          <input type="text" id="terminalCmdInput" class="wt-cmd-input" spellcheck="false" autocomplete="off" autofocus />
+          <span class="wt-cursor">█</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="terminal.js"></script>
+</body>
+</html>

@@ -1,0 +1,33 @@
+{
+  "name": "antifan-browser-desktop",
+  "displayName": "AntiFan Browser Desktop",
+  "description": "Ultra-lightweight Chromium companion & Extension Bridge for AntiFan Browser",
+  "version": "1.0.0",
+  "publisher": "antifan",
+  "author": "AntiFan Team",
+  "main": "./.compiled/src/main/index.js",
+  "type": "commonjs",
+  "scripts": {
+    "clean": "node -e \"fs.rmSync('.compiled',{recursive:true,force:true})\"",
+    "compile": "tsc -p ./ && node scripts/copy-static.mjs",
+    "watch": "tsc -p ./ --watch",
+    "start": "node scripts/run-electron.cjs .",
+    "dev": "node scripts/dev.mjs",
+    "start:dev": "node scripts/dev.mjs",
+    "start:prod": "node scripts/run-electron.cjs . --production",
+    "typecheck": "tsc -p ./ --noEmit",
+    "test": "npm run compile && node --test .compiled/test/main/*.test.js",
+    "verify": "npm run typecheck && npm test"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.30.0",
+    "ws": "^8.18.0",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/ws": "^8.5.10",
+    "electron": "^43.4.0",
+    "typescript": "^5.5.0"
+  }
+}

@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Antigravity Chat Sidebar</title>
+  <link rel="stylesheet" href="sidebar.css">
+  <script>var exports = exports || {};</script>
+</head>
+<body>
+  <div id="sidebar-root">
+    <!-- Draggable Edge Resizer -->
+    <div id="sidebarResizer" class="sidebar-resizer" title="Drag to resize sidebar"></div>
+
+    <!-- Sidebar Header -->
+    <div class="sidebar-header">
+      <div class="session-pill-btn" id="btnSessionPill" title="Switch or manage chat session">
+        <span class="session-status-dot done" id="pillStatusDot"></span>
+        <span class="session-pill-text" id="pillTitle">Auto-follow (Active IDE)</span>
+        <span class="session-pill-arrow">▾</span>
+      </div>
+      <div class="sidebar-header-actions">
+        <button id="btnClear" class="header-btn" title="Clear Chat History">
+          <svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor"><path d="M5.5 5.5A.5.5 0 0 1 6 6v6a.5.5 0 0 1-1 0V6a.5.5 0 0 1 .5-.5zm2.5 0a.5.5 0 0 1 .5.5v6a.5.5 0 0 1-1 0V6a.5.5 0 0 1 .5-.5zm3 .5a.5.5 0 0 0-1 0v6a.5.5 0 0 0 1 0V6z"/><path fill-rule="evenodd" d="M14.5 3a1 1 0 0 1-1 1H13v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V4h-.5a1 1 0 0 1-1-1V2a1 1 0 0 1 1-1H6a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1h3.5a1 1 0 0 1 1 1v1zM4.118 4 4 4.059V13a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1V4.059L11.882 4H4.118zM2.5 3V2h11v1h-11z"/></svg>
+        </button>
+        <button id="btnClose" class="header-btn" title="Close Sidebar (Ctrl+Alt+B)">&times;</button>
+      </div>
+    </div>
+
+    <!-- Custom Session Popdown Menu -->
+    <div id="sessionMenuDropdown" class="session-dropdown-menu" style="display:none;">
+      <div class="session-dropdown-search">
+        <input type="text" id="sessionSearchInput" placeholder="🔍 Tìm session hoặc dự án..." spellcheck="false" />
+      </div>
+      <div class="session-filter-chips" id="sessionFilterChips">
+        <span class="filter-chip active" data-group="all">Tất cả</span>
+      </div>
+      <div class="session-list" id="sessionListItems"></div>
+    </div>
+
+    <!-- Inline Rename Dialog -->
+    <div id="renameModal" class="inline-modal" style="display:none;">
+      <div class="inline-modal-card">
+        <div class="inline-modal-title">Đổi tên Dự án / Session</div>
+        <input type="text" id="renameInput" class="inline-modal-input" placeholder="Nhập tên mới..." spellcheck="false" />
+        <div class="inline-modal-actions">
+          <button id="btnCancelRename" class="modal-btn-secondary">Hủy</button>
+          <button id="btnSaveRename" class="modal-btn-primary">Lưu</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Inline Delete Confirm Dialog -->
+    <div id="deleteModal" class="inline-modal" style="display:none;">
+      <div class="inline-modal-card">
+        <div class="inline-modal-title">Xóa phiên làm việc này?</div>
+        <div class="inline-modal-desc">Hành động này sẽ xóa toàn bộ lịch sử transcript của session này.</div>
+        <div class="inline-modal-actions">
+          <button id="btnCancelDelete" class="modal-btn-secondary">Hủy</button>
+          <button id="btnConfirmDelete" class="modal-btn-danger">Xác nhận xóa</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Messages Container -->
+    <div id="messagesContainer" class="messages-container">
+      <div id="emptyState" class="empty-state">
+        <div class="empty-icon">✨</div>
+        <div class="empty-title">Antigravity Copilot</div>
+        <div class="empty-desc">Ask anything about the page, use <code>/</code> for skills, <code>@</code> for agents, or paste images with Ctrl+V.</div>
+        <div class="quick-prompts">
+          <button class="prompt-chip" data-prompt="/debug Kiểm tra lỗi layout trên trang này">🐞 /debug Layout</button>
+          <button class="prompt-chip" data-prompt="/fable-thinking Phân tích kiến trúc và luồng dữ liệu của component này">🧠 /fable-thinking</button>
+          <button class="prompt-chip" data-prompt="Analyze the typography and color palette of this page">🎨 Audit Typography</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Attached Element Preview Card -->
+    <div id="attachedElementCard" class="attached-element-card" style="display:none;">
+      <div class="element-thumb" id="elementThumb"></div>
+      <div class="element-info">
+        <div class="element-tag" id="elementTag">&lt;div&gt;</div>
+        <div class="element-meta" id="elementMeta">120×40 · Inter · #1e1e1e</div>
+      </div>
+      <button id="btnRemoveElement" class="btn-remove-element" title="Remove attachment">&times;</button>
+    </div>
+
+    <!-- Attached Files / Images Row (from Ctrl+V) -->
+    <div id="pastedImagesRow" class="pasted-images-row" style="display:none;"></div>
+
+    <!-- Message Queue Accordion / Bar -->
+    <div id="messageQueueCard" class="message-queue-card" style="display:none;">
+      <div class="queue-header" id="btnToggleQueue">
+        <span class="queue-title"><span class="queue-icon">📥</span> Hàng đợi tin nhắn (<span id="queueCount">0</span>)</span>
+        <button id="btnClearQueue" class="queue-clear-btn" title="Hủy toàn bộ hàng đợi">Hủy hết</button>
+      </div>
+      <div class="queue-list" id="queueList"></div>
+    </div>
+
+    <!-- Autocomplete Popup Menu for /skills and @agents -->
+    <div id="autocompleteMenu" class="autocomplete-menu" style="display:none;"></div>
+
+    <!-- Prompt Composer -->
+    <div class="composer-container">
+      <form id="chatForm" class="chat-form">
+        <textarea
+          id="promptInput"
+          class="prompt-input"
+          placeholder="Ask Antigravity Agent, type / for skills, @ for agents, Ctrl+V to paste images..."
+          rows="2"
+          spellcheck="false"
+        ></textarea>
+        <div class="composer-toolbar">
+          <div class="delivery-mode-wrap">
+            <select id="deliveryModeSelect" class="delivery-mode-select" title="Delivery Mode to Antigravity IDE">
+              <option value="auto">⚡ Auto Send</option>
+              <option value="draft">📝 Draft Mode</option>
+              <option value="queue">📥 Queue Mode</option>
+            </select>
+          </div>
+          <span class="char-hint"><code>/</code> skills · <code>@</code> agents</span>
+          <button type="submit" id="btnSend" class="btn-send" title="Send message (Enter)">
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M15.854.146a.5.5 0 0 1 .11.54l-5.8 14.5a.5.5 0 0 1-.928.008L6.47 9.53 1.806 6.764a.5.5 0 0 1 .008-.928l14.5-5.8a.5.5 0 0 1 .54.11zM6.85 8.94l2.67 4.005L14.07 2.22 6.85 8.94zm-.81-.81L13.78 1.93 1.055 6.48l4.005 2.67.98-.98z"/></svg>
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <script src="sidebar.js"></script>
+</body>
+</html>

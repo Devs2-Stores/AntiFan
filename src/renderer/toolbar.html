@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AntiFan Browser</title>
+  <link rel="stylesheet" href="toolbar.css">
+  <script>var exports = exports || {};</script>
+</head>
+<body>
+  <div id="toolbar-root">
+    <!-- TAB STRIP -->
+    <div class="tab-strip" id="tabStrip">
+      <div class="tab-list" id="tabList"></div>
+      <button class="btn-new-tab" id="btnNewTab" title="New Tab (Ctrl+T)">+</button>
+
+      <!-- Status Badge -->
+      <div class="bridge-status-badge" title="AntiFan Extension Bridge (127.0.0.1:20129)">
+        <span class="bridge-dot"></span>
+        <span>Bridge Ready</span>
+      </div>
+    </div>
+
+    <!-- TOOLBAR & OMNIBOX WRAPPER -->
+    <div class="toolbar">
+      <button class="nav-btn" id="btnBack" title="Back (Alt+Left)" disabled>
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path fill-rule="evenodd" clip-rule="evenodd" d="M9.707 12.707a1 1 0 0 1-1.414 0l-4-4a1 1 0 0 1 0-1.414l4-4a1 1 0 0 1 1.414 1.414L6.414 8l3.293 3.293a1 1 0 0 1 0 1.414z"/></svg>
+      </button>
+      <button class="nav-btn" id="btnForward" title="Forward (Alt+Right)" disabled>
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path fill-rule="evenodd" clip-rule="evenodd" d="M6.293 3.293a1 1 0 0 1 1.414 0l4 4a1 1 0 0 1 0 1.414l-4 4a1 1 0 0 1-1.414-1.414L9.586 8 6.293 4.707a1 1 0 0 1 0-1.414z"/></svg>
+      </button>
+      <button class="nav-btn" id="btnReload" title="Reload (Ctrl+R / F5)">
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path fill-rule="evenodd" clip-rule="evenodd" d="M13.65 2.35C12.2 0.9 10.2 0 8 0 3.58 0 0 3.58 0 8s3.58 8 8 8c3.73 0 6.84-2.55 7.73-6h-2.08c-.82 2.33-3.04 4-5.65 4-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L9 7h7V0l-2.35 2.35z"/></svg>
+      </button>
+
+      <div class="omnibox-wrapper">
+        <div class="omnibox">
+          <span class="omnibox-badge" title="Secure Connection">
+            <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor" style="opacity:0.75; display:block;"><path fill-rule="evenodd" clip-rule="evenodd" d="M4 6V4a4 4 0 0 1 8 0v2h1a1 1 0 0 1 1 1v7a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h1zm2 0h4V4a2 2 0 1 0-4 0v2z"/></svg>
+          </span>
+          <input type="text" id="urlInput" class="omnibox-input" value="" placeholder="Search with Google or enter URL" spellcheck="false" autocomplete="off" />
+          <button type="button" id="btnStarBookmark" class="btn-star-bookmark" title="Bookmark this tab (Ctrl+D)">
+            <svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor"><path d="M3.612 15.443c-.386.198-.824-.149-.746-.592l.83-4.73L.173 6.765c-.329-.314-.158-.888.283-.95l4.898-.696L7.538.792c.197-.39.73-.39.927 0l2.184 4.327 4.898.696c.441.062.612.636.282.95l-3.522 3.356.83 4.73c.078.443-.36.79-.746.592L8 13.187l-4.389 2.256z"/></svg>
+          </button>
+          <button type="button" id="btnClearOmnibox" class="btn-clear-omnibox" style="display:none;">&times;</button>
+        </div>
+
+        <!-- Google Chrome Style Omnibox Suggest Dropdown -->
+        <div id="omniboxSuggestDropdown" class="omnibox-suggest-dropdown" style="display:none;">
+          <div id="omniboxSuggestList" class="omnibox-suggest-list"></div>
+        </div>
+      </div>
+
+      <!-- Device Selector -->
+      <select class="device-select" id="deviceSelect" title="Device Viewport Breakpoints">
+        <option value="responsive" selected>🖥️ Responsive (Auto)</option>
+        <optgroup label="💻 Desktop & Laptop">
+          <option value="desktop-fhd">🖥️ Desktop FHD (1920×1080)</option>
+          <option value="laptop-macbook16">💻 MacBook Pro 16" (1728×1117)</option>
+          <option value="laptop-1440">💻 Laptop 14" (1440×900)</option>
+          <option value="laptop-macbook13">💻 MacBook Air 13" (1280×832)</option>
+        </optgroup>
+        <optgroup label="📟 Tablets">
+          <option value="ipad-pro-12">📟 iPad Pro 12.9" (1024×1366)</option>
+          <option value="surface-pro-9">📟 Surface Pro 9 (912×1368)</option>
+          <option value="ipad-air-11">📟 iPad Air 11" (820×1180)</option>
+          <option value="galaxy-tab-s9">📟 Galaxy Tab S9 (800×1280)</option>
+          <option value="ipad-mini">📟 iPad Mini (768×1024)</option>
+        </optgroup>
+        <optgroup label="📱 Mobile Phones">
+          <option value="iphone-16-promax">📱 iPhone 16 Pro Max (440×956)</option>
+          <option value="iphone-16-pro">📱 iPhone 16 / 15 Pro (393×852)</option>
+          <option value="iphone-14-15">📱 iPhone 14 / 13 (390×844)</option>
+          <option value="galaxy-s24-ultra">📱 Galaxy S24 Ultra (412×915)</option>
+          <option value="pixel-9-pro">📱 Pixel 9 Pro (412×924)</option>
+          <option value="xiaomi-14">📱 Xiaomi 14 / 13 (393×851)</option>
+          <option value="iphone-se">📱 iPhone SE (375×667)</option>
+          <option value="mobile-compact">📱 Compact Phone (360×800)</option>
+        </optgroup>
+      </select>
+
+      <!-- Sleek Inline Zoom Stepper -->
+      <div class="zoom-stepper" title="Page Zoom (Click % to reset)">
+        <button id="btnZoomOutPop" class="zoom-step-btn" title="Zoom Out (Ctrl+-)">−</button>
+        <span id="zoomLabel" class="zoom-val" title="Click to Reset 100%">100%</span>
+        <button id="btnZoomInPop" class="zoom-step-btn" title="Zoom In (Ctrl+=)">+</button>
+      </div>
+
+      <!-- Tools -->
+      <button class="nav-btn" id="btnQuickInspect" title="Quick Annotate (Inspect DOM Element)">
+        <svg width="15" height="15" viewBox="0 0 16 16" fill="currentColor"><path fill-rule="evenodd" clip-rule="evenodd" d="M8 1a.75.75 0 0 1 .75.75v1.285a5.972 5.972 0 0 1 4.215 4.215h1.285a.75.75 0 0 1 0 1.5h-1.285a5.972 5.972 0 0 1-4.215 4.215v1.285a.75.75 0 0 1-1.5 0v-1.285A5.972 5.972 0 0 1 2.035 8.75H.75a.75.75 0 0 1 0-1.5h1.285A5.972 5.972 0 0 1 6.25 3.035V1.75A.75.75 0 0 1 8 1zm0 4.5a2.5 2.5 0 1 0 0 5 2.5 2.5 0 0 0 0-5zM8 6.5a1 1 0 1 1 0 2 1 1 0 0 1 0-2z"/></svg>
+      </button>
+
+      <button class="nav-btn" id="btnFontFinder" title="Font Finder (Hover to inspect typography, click to copy CSS)">
+        <svg width="15" height="15" viewBox="0 0 16 16" fill="currentColor"><path d="M12.4 14.5l-1.35-3.5H4.95L3.6 14.5H1.8L7.1 1.5h1.8l5.3 13h-1.8zM8 3.15L5.6 9.5h4.8L8 3.15z"/></svg>
+      </button>
+
+      <button class="nav-btn" id="btnRuler" title="Pixel Ruler & Layout Grid Overlay">
+        <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.25"><rect x="1.5" y="4" width="13" height="8" rx="1"/><path d="M4 4v3M6.5 4v2M9 4v3M11.5 4v2"/></svg>
+      </button>
+
+      <button class="nav-btn" id="btnCaptureFullPage" title="Capture Viewport Screenshot">
+        <svg width="15" height="15" viewBox="0 0 16 16" fill="currentColor"><path fill-rule="evenodd" clip-rule="evenodd" d="M3 3h10a1 1 0 0 1 1 1v8a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1zm0-1a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2H3zm5 4a2 2 0 1 0 0 4 2 2 0 0 0 0-4z"/></svg>
+      </button>
+
+      <button class="nav-btn" id="btnToggleSidebar" title="Toggle AI Chat Sidebar (Ctrl+Alt+B)">
+        <svg width="15" height="15" viewBox="0 0 16 16" fill="currentColor"><path d="M14 1a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1H2a1 1 0 0 1-1-1V2a1 1 0 0 1 1-1h12zM2 0a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V2a2 2 0 0 0-2-2H2z"/><path d="M10 2v12h4a1 1 0 0 0 1-1V3a1 1 0 0 0-1-1h-4z"/></svg>
+      </button>
+
+      <button class="nav-btn" id="btnToggleTerminal" title="Toggle Terminal (Ctrl+`)">
+        <svg width="15" height="15" viewBox="0 0 16 16" fill="currentColor"><path fill-rule="evenodd" clip-rule="evenodd" d="M1 2.5A1.5 1.5 0 0 1 2.5 1h11A1.5 1.5 0 0 1 15 2.5v11a1.5 1.5 0 0 1-1.5 1.5h-11A1.5 1.5 0 0 1 1 13.5v-11zM2.5 2a.5.5 0 0 0-.5.5v11a.5.5 0 0 0 .5.5h11a.5.5 0 0 0 .5-.5v-11a.5.5 0 0 0-.5-.5h-11zM3.854 4.146a.5.5 0 0 1 .708 0l3 3a.5.5 0 0 1 0 .708l-3 3a.5.5 0 0 1-.708-.708L6.44 7.5 3.854 4.854a.5.5 0 0 1 0-.708zM7.5 10.5a.5.5 0 0 1 .5-.5h4a.5.5 0 0 1 0 1h-4a.5.5 0 0 1-.5-.5z"/></svg>
+      </button>
+
+      <button class="nav-btn" id="btnDevTools" title="Toggle Developer Tools (F12)">
+        <svg width="15" height="15" viewBox="0 0 16 16" fill="currentColor"><path fill-rule="evenodd" clip-rule="evenodd" d="M4.854 4.146a.5.5 0 0 1 0 .708L1.707 8l3.147 3.146a.5.5 0 0 1-.708.708l-3.5-3.5a.5.5 0 0 1 0-.708l3.5-3.5a.5.5 0 0 1 .708 0zm6.292 0a.5.5 0 0 0 0 .708L14.293 8l-3.147 3.146a.5.5 0 0 0 .708.708l3.5-3.5a.5.5 0 0 0 0-.708l-3.5-3.5a.5.5 0 0 0-.708 0zm-4.79 9.544l3-11 .948.258-3 11-.948-.258z"/></svg>
+      </button>
+
+      <!-- Chrome Profile Chip -->
+      <div class="chrome-profile-wrap">
+        <button class="chrome-profile-btn" id="btnChromeProfile" title="Chrome Profile Sync (Click to switch)">
+          <span class="profile-avatar" id="profileAvatar">👤</span>
+          <span class="profile-name" id="profileName">Default</span>
+        </button>
+        <div class="profile-dropdown-menu" id="profileDropdownMenu" style="display:none;">
+          <div class="profile-dropdown-header">Google Chrome Profiles</div>
+          <div class="profile-dropdown-list" id="profileDropdownList"></div>
+        </div>
+      </div>
+
+      <button class="nav-btn" id="btnMenu" title="Browser Settings & Options (⋮)">
+        <svg width="15" height="15" viewBox="0 0 16 16" fill="currentColor"><path d="M8 9.5a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3zm0-5a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3zm0 10a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3z"/></svg>
+      </button>
+    </div>
+
+    <!-- GOOGLE CHROME STYLE BOOKMARK BAR -->
+    <div class="bookmark-bar" id="bookmarkBar">
+      <div class="bookmark-items" id="bookmarkItems"></div>
+    </div>
+
+    <!-- CODEX THREE-DOT MAIN MENU -->
+    <div class="codex-main-menu" id="codexMainMenu">
+      <div class="codex-menu-item" id="menuTerminal">
+        <span>Terminal (PowerShell / Shell)</span>
+        <span class="menu-shortcut">Ctrl+`</span>
+      </div>
+      <div class="codex-menu-item" id="menuFind">
+        <span>Find in page</span>
+        <span class="menu-shortcut">Ctrl+F</span>
+      </div>
+      <div class="codex-menu-separator"></div>
+      <div class="codex-menu-item" id="menuQuickAnnotate">
+        <span>Quick Inspect</span>
+        <span class="menu-shortcut">Ctrl+B</span>
+      </div>
+      <div class="codex-menu-item" id="menuFontFinder">
+        <span>Font Finder</span>
+      </div>
+      <div class="codex-menu-item" id="menuLens">
+        <span>GPU Lens Zoom</span>
+      </div>
+      <div class="codex-menu-separator"></div>
+      <div class="codex-menu-item" id="menuOpenBrowser">
+        <span>Open in system browser</span>
+      </div>
+      <div class="codex-menu-separator"></div>
+      <div class="codex-menu-item" id="menuShortcuts">
+        <span>Keyboard shortcuts</span>
+        <span class="menu-shortcut">?</span>
+      </div>
+    </div>
+
+    <!-- FIND IN PAGE BAR -->
+    <div class="find-bar" id="findBar" style="display:none;">
+      <input id="findInput" type="text" placeholder="Find in page…" />
+      <span id="findCount" class="find-count"></span>
+      <button id="findPrev" title="Previous">▲</button>
+      <button id="findNext" title="Next">▼</button>
+      <button id="findClose" title="Close (Esc)">✕</button>
+    </div>
+
+    <!-- SHORTCUTS OVERLAY -->
+    <div class="shortcuts-overlay" id="shortcutsOverlay" style="display:none;">
+      <div class="shortcuts-panel">
+        <div class="shortcuts-header">
+          <strong>Keyboard shortcuts</strong>
+          <button id="shortcutsClose" title="Close">✕</button>
+        </div>
+        <table class="shortcuts-table">
+          <tr><td><kbd>Ctrl</kbd>+<kbd>T</kbd></td><td>New Tab</td></tr>
+          <tr><td><kbd>Ctrl</kbd>+<kbd>W</kbd></td><td>Close Active Tab</td></tr>
+          <tr><td><kbd>Ctrl</kbd>+<kbd>Tab</kbd></td><td>Next Tab</td></tr>
+          <tr><td><kbd>Ctrl</kbd>+<kbd>L</kbd></td><td>Focus Address Bar</td></tr>
+          <tr><td><kbd>Ctrl</kbd>+<kbd>F</kbd></td><td>Find in page</td></tr>
+          <tr><td><kbd>Ctrl</kbd>+<kbd>R</kbd> / <kbd>F5</kbd></td><td>Reload active tab</td></tr>
+          <tr><td><kbd>F12</kbd></td><td>Toggle DevTools</td></tr>
+          <tr><td><kbd>Ctrl</kbd>+<kbd>+</kbd> / <kbd>-</kbd> / <kbd>0</kbd></td><td>Zoom in / out / reset</td></tr>
+          <tr><td><kbd>Esc</kbd></td><td>Exit Inspect / Find</td></tr>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <script src="toolbar.js"></script>
+</body>
+</html>
