@@ -438,7 +438,7 @@ function renderInline(text: string): string {
     return ph;
   });
 
-  // 2. Links: [text](url) -> file link badge or normal web link
+  // 2. Links: [text](url) -> clean file link or normal web link
   const inlineLinks: string[] = [];
   str = str.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_m, linkText, url) => {
     const ph = `ANTIFANINLINELINK${inlineLinks.length}END`;
@@ -447,8 +447,11 @@ function renderInline(text: string): string {
     if ((cleanText.startsWith("'") && cleanText.endsWith("'")) || (cleanText.startsWith('"') && cleanText.endsWith('"'))) {
       cleanText = cleanText.slice(1, -1);
     }
+    if (cleanText.startsWith('`') && cleanText.endsWith('`')) {
+      cleanText = cleanText.slice(1, -1);
+    }
     if (cleanUrl.startsWith('file:///')) {
-      inlineLinks.push(`<a href="${cleanUrl}" class="md-file-link" title="${cleanUrl}"><span class="md-file-icon">📄</span> ${cleanText}</a>`);
+      inlineLinks.push(`<a href="${cleanUrl}" class="md-file-link" title="${cleanUrl}">${cleanText}</a>`);
     } else {
       inlineLinks.push(`<a href="${cleanUrl}" target="_blank" rel="noopener noreferrer" class="md-link">${cleanText}</a>`);
     }

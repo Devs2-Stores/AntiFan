@@ -2472,7 +2472,7 @@ summary::marker {
 }
 
 /* ==========================================================================
-   Markdown Elements & Rich Typography Styling
+   Markdown Elements & Rich Typography Styling (Flat, Clean, Borderless)
    ========================================================================== */
 
 .message-bubble {
@@ -2519,80 +2519,72 @@ summary::marker {
 .md-hr {
   border: none;
   border-top: 1px solid rgba(255, 255, 255, 0.1);
-  margin: 12px 0;
+  margin: 10px 0;
 }
 
-/* Inline Code & Badges */
+/* Inline Code (Clean, Flat, Borderless) */
 .md-inline-code {
-  background: rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.07);
   color: #f472b6;
-  padding: 1.5px 5.5px;
-  border-radius: 4px;
+  padding: 1px 4px;
+  border-radius: 3px;
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   font-size: 11px;
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  border: none;
   white-space: pre-wrap;
-  word-break: break-all;
+  word-break: break-word;
 }
 
-/* File Links & External Links */
+/* File Links & External Links (Clean, Flat, Borderless) */
 .md-file-link {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  background: rgba(56, 189, 248, 0.1);
+  display: inline;
+  background: transparent;
   color: #38bdf8;
-  padding: 2px 7px;
-  border-radius: 5px;
+  padding: 0;
   font-size: 11px;
   font-weight: 500;
   text-decoration: none;
-  border: 1px solid rgba(56, 189, 248, 0.25);
-  transition: all 0.15s ease;
-  word-break: break-all;
+  border: none;
+  transition: color 0.12s ease;
+  word-break: break-word;
 }
 
 .md-file-link:hover {
-  background: rgba(56, 189, 248, 0.22);
-  border-color: #38bdf8;
-  color: #ffffff;
-  text-decoration: none;
-}
-
-.md-file-icon {
-  font-size: 11px;
-  opacity: 0.85;
+  background: transparent;
+  border: none;
+  color: #7dd3fc;
+  text-decoration: underline;
 }
 
 .md-link {
   color: #38bdf8;
   text-decoration: underline;
   text-underline-offset: 2px;
-  transition: color 0.15s ease;
+  transition: color 0.12s ease;
 }
 
 .md-link:hover {
   color: #7dd3fc;
 }
 
-/* Markdown Tables */
+/* Markdown Tables (Clean, Flat, Borderless Inside Cells) */
 .table-container {
   overflow-x: auto;
-  margin: 10px 0;
-  border-radius: 8px;
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  background: rgba(15, 23, 42, 0.6);
+  margin: 8px 0;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: transparent;
   max-width: 100%;
   scrollbar-width: thin;
 }
 
 .table-container::-webkit-scrollbar {
-  height: 5px;
+  height: 4px;
 }
 
 .table-container::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.2);
-  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 2px;
 }
 
 .md-table {
@@ -2603,22 +2595,40 @@ summary::marker {
 }
 
 .md-table th {
-  background: rgba(30, 41, 59, 0.85);
+  background: rgba(255, 255, 255, 0.03);
   color: #94a3b8;
   font-weight: 600;
-  padding: 6px 9px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+  padding: 6px 8px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
   text-transform: uppercase;
   font-size: 10px;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.03em;
   white-space: nowrap;
 }
 
 .md-table td {
-  padding: 6px 9px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  padding: 6px 8px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
   color: #cbd5e1;
-  line-height: 1.45;
+  line-height: 1.4;
+}
+
+.md-table td .md-inline-code {
+  background: rgba(255, 255, 255, 0.05);
+  border: none;
+  padding: 0 3px;
+  color: #f472b6;
+}
+
+.md-table td .md-file-link {
+  color: #38bdf8;
+  text-decoration: none;
+  font-weight: 500;
+}
+
+.md-table td .md-file-link:hover {
+  color: #7dd3fc;
+  text-decoration: underline;
 }
 
 .md-table tr:last-child td {
@@ -2626,7 +2636,7 @@ summary::marker {
 }
 
 .md-table tr:hover {
-  background: rgba(255, 255, 255, 0.04);
+  background: rgba(255, 255, 255, 0.025);
 }
 
 /* Lists */
