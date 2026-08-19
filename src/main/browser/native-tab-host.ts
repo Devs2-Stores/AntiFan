@@ -443,30 +443,36 @@ export class NativeTabHost extends EventEmitter {
         }
       }
 
-      // 1c. Write bridge command & latest element snapshot to all active workspace .antigravity folders
-      const possibleBridgeDirs = this.getPossibleBridgeDirs();
-      for (const bDir of possibleBridgeDirs) {
-        try {
-          fs.mkdirSync(bDir, { recursive: true });
-          const cmdId = `cmd-${Date.now()}-${Math.floor(Math.random() * 1e4)}`;
-          const cmdPayload = {
-            id: cmdId,
-            action: 'sendToAgentPanel',
-            params: {
-              prompt: text,
-              message: text,
-              autoSend: mode === 'auto',
-              markdownPath: attachedElement?.markdownPath,
-              targetImagePath: attachedElement?.targetImagePath,
-              viewportImagePath: attachedElement?.viewportImagePath,
-              imagePaths: savedImagePaths,
-              files: savedImagePaths.map((p) => ({ uri: p, path: p })),
-            },
-          };
-          const tempPath = path.join(bDir, `${cmdId}.tmp`);
-          fs.writeFileSync(tempPath, JSON.stringify(cmdPayload, null, 2), 'utf8');
-          fs.renameSync(tempPath, path.join(bDir, `${cmdId}.json`));
-        } catch {}
+      // 1c. Write bridge command to the primary shared .antigravity/mcp-bridge directory
+      const primaryBridgeDir = 'e:\\Work\\.antigravity\\mcp-bridge';
+      const fallbackBridgeDir = path.join(process.cwd(), '.antigravity', 'mcp-bridge');
+      const bDir = fs.existsSync(path.dirname(primaryBridgeDir)) ? primaryBridgeDir : fallbackBridgeDir;
+
+      try {
+        fs.mkdirSync(bDir, { recursive: true });
+        const cmdId = `cmd-${Date.now()}-${Math.floor(Math.random() * 1e4)}`;
+        const activeConversationId = this.transcriptSyncer?.getActiveSessionId?.() || undefined;
+        const cmdPayload = {
+          id: cmdId,
+          action: 'sendToAgentPanel',
+          params: {
+            prompt: text,
+            message: text,
+            autoSend: mode === 'auto',
+            markdownPath: attachedElement?.markdownPath,
+            targetImagePath: attachedElement?.targetImagePath,
+            viewportImagePath: attachedElement?.viewportImagePath,
+            imagePaths: savedImagePaths,
+            files: savedImagePaths.map((p) => ({ uri: p, path: p })),
+            conversationId: activeConversationId,
+            sessionId: activeConversationId,
+          },
+        };
+        const tempPath = path.join(bDir, `${cmdId}.tmp`);
+        fs.writeFileSync(tempPath, JSON.stringify(cmdPayload, null, 2), 'utf8');
+        fs.renameSync(tempPath, path.join(bDir, `${cmdId}.json`));
+      } catch (err) {
+        console.error('[native-tab-host] Failed to write bridge cmd:', err);
       }
 
       if (attachedElement) {
