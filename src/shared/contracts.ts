@@ -56,6 +56,77 @@ export interface ChatToolCall {
   status?: 'running' | 'done' | 'failed';
 }
 
+export type BridgeDeliveryState = 'queued' | 'ide-api-accepted' | 'failed' | 'unknown';
+export type BridgeObservationState = 'none' | 'prompt-observed' | 'response-observed';
+
+export interface AntigravityAttachmentDescriptor {
+  name: string;
+  filePath: string;
+  mime: string;
+  byteLength: number;
+  sha256?: string;
+}
+
+export interface AntigravityCommandV2 {
+  protocolVersion: 2;
+  id: string;
+  senderId: string;
+  createdAtEpochMs: number;
+  expiresAtEpochMs: number;
+  targetWorkspace: {
+    folderUri: string;
+    folderName?: string;
+  };
+  action: 'send-prompt' | 'abort';
+  mode: 'draft' | 'auto';
+  promptText: string;
+  promptDigest: string;
+  attachments?: AntigravityAttachmentDescriptor[];
+  clientInstanceId?: string;
+  meta?: Record<string, unknown>;
+}
+
+export interface AntigravityResultV2 {
+  protocolVersion: 2;
+  commandId: string;
+  hostInstanceId: string;
+  hostEpoch: number;
+  targetWorkspace: {
+    folderUri: string;
+  };
+  ok: boolean;
+  deliveryState: BridgeDeliveryState;
+  errorCode?: string;
+  errorMessage?: string;
+  completedAtEpochMs: number;
+  meta?: Record<string, unknown>;
+}
+
+export interface AntigravityHostV2 {
+  protocolVersion: 2;
+  hostInstanceId: string;
+  hostEpoch: number;
+  workspaceUri: string;
+  extensionVersion: string;
+  capabilities: {
+    actions: ('send-prompt' | 'abort')[];
+    modes: ('draft' | 'auto')[];
+    maxAttachments: number;
+    maxPayloadBytes: number;
+  };
+  lastHeartbeatEpochMs: number;
+}
+
+export interface BridgeDeliveryUpdatePayload {
+  messageId: string;
+  commandId: string;
+  deliveryState: BridgeDeliveryState;
+  observationState?: BridgeObservationState;
+  errorCode?: string;
+  errorMessage?: string;
+  updatedAtEpochMs: number;
+}
+
 export interface ChatMessage {
   id: string;
   role: 'user' | 'assistant' | 'system';
@@ -65,6 +136,10 @@ export interface ChatMessage {
   attachedElement?: AntiFanPickedElement;
   attachedImages?: Array<{ name: string; dataUrl: string }>;
   timestamp: number;
+  commandId?: string;
+  deliveryState?: BridgeDeliveryState;
+  observationState?: BridgeObservationState;
+  deliveryError?: string;
 }
 
 export interface AntiFanBridgeStatus {
@@ -162,6 +237,8 @@ export const SIDEBAR_CHANNELS = {
   SESSION_CHANGED: 'antifan:sidebar:session-changed',
   ABORT_GENERATION: 'antifan:sidebar:abort-generation',
   GET_AUTOCOMPLETE_ITEMS: 'antifan:sidebar:get-autocomplete-items',
+  DELIVERY_STATE_CHANGED: 'antifan:sidebar:delivery-state-changed',
+  HOST_STATUS_CHANGED: 'antifan:sidebar:host-status-changed',
 } as const;
 
 export const TERMINAL_CHANNELS = {
