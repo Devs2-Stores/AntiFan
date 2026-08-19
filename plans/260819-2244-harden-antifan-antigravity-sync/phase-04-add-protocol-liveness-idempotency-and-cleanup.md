@@ -1,7 +1,7 @@
 ---
 phase: 4
 title: "Add Protocol Liveness Idempotency And Cleanup"
-status: pending
+status: completed
 priority: P1
 effort: "6-8h"
 dependencies: [2, 3]

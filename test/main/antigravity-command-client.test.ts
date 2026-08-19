@@ -224,4 +224,48 @@ describe('AntigravityCommandClient (Protocol v2)', () => {
     assert.strictEqual(status?.hostInstanceId, 'vscode-1');
     assert.strictEqual(status?.protocolVersion, 2);
   });
+
+  it('probes host liveness correctly detecting fresh and stale heartbeats', () => {
+    const workspace = 'E:\\Work\\apps\\my-test-workspace';
+    const { fsSeam, files } = createMockFs();
+
+    let now = 100000;
+    const client = new AntigravityCommandClient({
+      workspacePath: workspace,
+      clock: () => now,
+      fsSeam,
+    });
+
+    // 1. Missing host.json
+    const probe1 = client.checkHostLiveness();
+    assert.strictEqual(probe1.isLive, false);
+
+    // 2. Fresh host.json
+    const bridgeDir = path.join(workspace, '.antigravity', 'mcp-bridge');
+    const hostFile = path.join(bridgeDir, 'host.json');
+    const mockHost: AntigravityHostV2 = {
+      protocolVersion: 2,
+      hostInstanceId: 'vscode-live',
+      hostEpoch: 1,
+      workspaceUri: workspace,
+      extensionVersion: '2.0.0',
+      capabilities: {
+        actions: ['send-prompt', 'abort'],
+        modes: ['draft', 'auto'],
+        maxAttachments: 8,
+        maxPayloadBytes: 15728640,
+      },
+      lastHeartbeatEpochMs: now - 2000,
+    };
+    files.set(hostFile, JSON.stringify(mockHost));
+
+    const probe2 = client.checkHostLiveness(15000);
+    assert.strictEqual(probe2.isLive, true);
+
+    // 3. Stale host.json (e.g. 20s ago)
+    now += 30000;
+    const probe3 = client.checkHostLiveness(15000);
+    assert.strictEqual(probe3.isLive, false);
+    assert.match(probe3.reason || '', /stale/i);
+  });
 });

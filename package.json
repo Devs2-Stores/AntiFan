@@ -18,6 +18,7 @@
     "typecheck": "tsc -p ./ --noEmit",
     "test": "npm run compile && node --test .compiled/test/main/*.test.js",
     "verify": "npm run typecheck && npm test",
+    "benchmark:artifacts": "node scripts/benchmark-antigravity-artifacts.mjs",
     "icon": "python scripts/generate-icon.py",
     "install:shortcut": "node scripts/install-windows-shortcut.mjs"
   },

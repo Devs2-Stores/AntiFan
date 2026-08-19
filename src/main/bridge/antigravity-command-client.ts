@@ -192,6 +192,47 @@ export class AntigravityCommandClient {
     }
   }
 
+  checkHostLiveness(maxStaleAgeMs = 15000): { isLive: boolean; host: AntigravityHostV2 | null; reason?: string } {
+    const host = this.readHostStatus();
+    if (!host) {
+      return { isLive: false, host: null, reason: 'host.json not found in workspace bridge directory' };
+    }
+    if (host.protocolVersion !== 2) {
+      return { isLive: false, host, reason: `Incompatible host protocol version: ${host.protocolVersion}` };
+    }
+    const ageMs = this.clock() - host.lastHeartbeatEpochMs;
+    if (ageMs > maxStaleAgeMs) {
+      return { isLive: false, host, reason: `Host heartbeat is stale (${Math.round(ageMs / 1000)}s old)` };
+    }
+    return { isLive: true, host };
+  }
+
+  cleanStaleFiles(maxAgeMs = 24 * 60 * 60 * 1000): number {
+    const bridgeDir = this.getBridgeDir();
+    if (!this.fs.existsSync(bridgeDir)) return 0;
+    let cleaned = 0;
+    const now = this.clock();
+    try {
+      const entries = this.fs.readdirSync(bridgeDir);
+      for (const entry of entries) {
+        if (entry === 'host.json') continue;
+        const fullPath = path.join(bridgeDir, entry);
+        try {
+          const st = this.fs.statSync(fullPath);
+          const ageMs = now - st.mtimeMs;
+          if (entry.includes('.tmp-') && ageMs > 5 * 60 * 1000) {
+            this.fs.unlinkSync(fullPath);
+            cleaned++;
+          } else if (ageMs > maxAgeMs) {
+            this.fs.unlinkSync(fullPath);
+            cleaned++;
+          }
+        } catch {}
+      }
+    } catch {}
+    return cleaned;
+  }
+
   dispatchCommand(params: DispatchCommandParams): {
     command: AntigravityCommandV2;
     resultPromise: Promise<AntigravityResultV2>;
