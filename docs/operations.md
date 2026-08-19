@@ -26,20 +26,34 @@ every step.
   disconnect the bridge; existing commands, iframe browser, captures, MCP
   resources, Queue, and the currently supported Chat behavior continue on the
   current Extension path.
-- Disable desktop integration = disconnect the app; nothing auto-removes the
-  iframe browser.
+## Exact Conversation Routing (Sidecar Router)
 
-## Process ownership
+- **Managed Sidecar ID**: `antifan-chat-router`
+- **Sidecar Data Directory**: `~/.gemini/antigravity/sidecar_data/antifan-chat-router/data`
+- **Routing Protocol**:
+  - `Auto Send`: Routed via `sidecar-agentapi` targeting the specific Antigravity conversation ID chosen in the Sidebar session selector.
+  - `Draft`: Populates the active-panel composer via standard Extension Host bridge without auto-submitting.
+  - `Pre-publication Downgrade`: If Sidecar is offline or unmapped before request publication, opens an explicit Draft in active panel labeled `Active tab draft`.
+  - `Post-publication Boundary`: Any timeout or crash after publishing a Sidecar request marks delivery `unknown`; never creates duplicate commands or auto-resends.
 
-- Single-instance lock prevents duplicate services; `before-quit` disposes the
-  tab host and controller. Extension deactivation and app exit leave no orphan
-  Electron processes or ports.
-- Cleanup: close the desktop app first (SIGTERM/taskkill by PID), never match a
-  broad `pkill` that could catch unrelated processes.
+### Installation & Management Commands
 
-## Desktop becomes preferred — only after explicit acceptance
+In `E:/Work/apps/antigravity-browser`:
+```bash
+# Run compatibility probe
+node scripts/probe-agentapi-sidecar.mjs
 
-- Desktop integration is opt-in. Run `antigravityBrowser.desktopStatus` for a
-  status that always reports queued-not-submitted and never claims auto-send.
-- Desktop is considered the preferred entrypoint ONLY after a documented
-  user-acceptance cycle, never automatically.
+# Install or update Sidecar configuration
+node scripts/install-sidecar.mjs --action install
+
+# Remove Sidecar configuration safely
+node scripts/install-sidecar.mjs --action remove
+```
+
+### Diagnostics & Badges
+
+- `🎯 Exact đã nhận`: Verified delivery directly to the selected conversation via Sidecar router.
+- `⚡ IDE đã nhận`: Verified delivery to the active composer panel via Extension bridge.
+- `⏳ Đang gửi...`: Command queued and processing.
+- `❌ Lỗi gửi`: Execution failed with bounded error message.
+- `⚠️ Không rõ biên nhận`: Execution timed out without definitive receipt; safe manual review required.

@@ -58,6 +58,7 @@ export interface ChatToolCall {
 
 export type BridgeDeliveryState = 'queued' | 'ide-api-accepted' | 'failed' | 'unknown';
 export type BridgeObservationState = 'none' | 'prompt-observed' | 'response-observed';
+export type AntigravityDeliveryRoute = 'sidecar-agentapi' | 'active-panel';
 
 export interface AntigravityAttachmentDescriptor {
   name: string;
@@ -81,6 +82,8 @@ export interface AntigravityCommandV2 {
   mode: 'draft' | 'auto';
   promptText: string;
   promptDigest: string;
+  targetConversationId?: string;
+  requestedRoute?: AntigravityDeliveryRoute;
   attachments?: AntigravityAttachmentDescriptor[];
   clientInstanceId?: string;
   meta?: Record<string, unknown>;
@@ -96,6 +99,10 @@ export interface AntigravityResultV2 {
   };
   ok: boolean;
   deliveryState: BridgeDeliveryState;
+  actualRoute?: AntigravityDeliveryRoute;
+  sidecarRequestId?: string;
+  sidecarInstanceId?: string;
+  fallbackReason?: string;
   errorCode?: string;
   errorMessage?: string;
   completedAtEpochMs: number;
@@ -121,6 +128,7 @@ export interface BridgeDeliveryUpdatePayload {
   messageId: string;
   commandId: string;
   deliveryState: BridgeDeliveryState;
+  actualRoute?: AntigravityDeliveryRoute;
   observationState?: BridgeObservationState;
   errorCode?: string;
   errorMessage?: string;
@@ -138,6 +146,7 @@ export interface ChatMessage {
   timestamp: number;
   commandId?: string;
   deliveryState?: BridgeDeliveryState;
+  actualRoute?: AntigravityDeliveryRoute;
   observationState?: BridgeObservationState;
   deliveryError?: string;
 }

@@ -13,6 +13,7 @@ import {
   AntigravityResultV2,
   AntigravityHostV2,
   AntigravityAttachmentDescriptor,
+  AntigravityDeliveryRoute,
   BridgeDeliveryState,
 } from '../../shared/contracts';
 
@@ -39,6 +40,8 @@ export interface DispatchCommandParams {
   action: 'send-prompt' | 'abort';
   mode: 'draft' | 'auto';
   promptText: string;
+  targetConversationId?: string;
+  requestedRoute?: AntigravityDeliveryRoute;
   attachments?: AntigravityAttachmentDescriptor[];
   clientInstanceId?: string;
   timeoutMs?: number;
@@ -259,6 +262,8 @@ export class AntigravityCommandClient {
       mode: params.mode,
       promptText: params.promptText,
       promptDigest: digest,
+      targetConversationId: params.targetConversationId,
+      requestedRoute: params.requestedRoute,
       attachments: params.attachments,
       clientInstanceId: params.clientInstanceId,
       meta: params.meta,

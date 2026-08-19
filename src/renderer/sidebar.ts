@@ -47,6 +47,7 @@ interface ChatMessage {
   timestamp: number;
   commandId?: string;
   deliveryState?: 'queued' | 'ide-api-accepted' | 'failed' | 'unknown';
+  actualRoute?: 'sidecar-agentapi' | 'active-panel';
   observationState?: 'none' | 'prompt-observed' | 'response-observed';
   deliveryError?: string;
 }
@@ -995,10 +996,12 @@ function renderMessages() {
 
     let deliveryBadgeHtml = '';
     if (msg.role === 'user' && msg.deliveryState) {
+      const isExact = msg.actualRoute === 'sidecar-agentapi';
+      const routeLabel = isExact ? '🎯 Exact' : '⚡ IDE';
       if (msg.deliveryState === 'queued') {
         deliveryBadgeHtml = `<span class="ag-delivery-badge queued" title="Đang xếp hàng gửi tới Antigravity IDE">⏳ Đang gửi...</span>`;
       } else if (msg.deliveryState === 'ide-api-accepted') {
-        deliveryBadgeHtml = `<span class="ag-delivery-badge accepted" title="Antigravity IDE Agent đã tiếp nhận prompt">⚡ Đã gửi tới IDE</span>`;
+        deliveryBadgeHtml = `<span class="ag-delivery-badge accepted" title="${isExact ? 'Đã gửi trực tiếp tới phiên này qua Sidecar' : 'Antigravity IDE Agent đã tiếp nhận prompt'}">${routeLabel} đã nhận</span>`;
       } else if (msg.deliveryState === 'failed') {
         deliveryBadgeHtml = `<span class="ag-delivery-badge failed" title="${escapeHtml(msg.deliveryError || 'Gửi thất bại')}">❌ Lỗi gửi</span>`;
       } else if (msg.deliveryState === 'unknown') {
@@ -2103,7 +2106,8 @@ async function initSidebar() {
       );
       if (match) {
         match.deliveryState = data.deliveryState;
-        if (data.error) match.deliveryError = data.error;
+        if (data.actualRoute) match.actualRoute = data.actualRoute;
+        if (data.errorMessage || data.error) match.deliveryError = data.errorMessage || data.error;
         scheduleRender();
       }
     }

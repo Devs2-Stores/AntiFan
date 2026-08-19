@@ -1933,6 +1933,8 @@ export class NativeTabHost extends EventEmitter {
       action: 'send-prompt',
       mode: mode === 'auto' ? 'auto' : 'draft',
       promptText: opts.text,
+      targetConversationId: targetSessionId,
+      requestedRoute: mode === 'auto' ? 'sidecar-agentapi' : 'active-panel',
       attachments,
       meta: {
         sessionId: targetSessionId,
@@ -1949,6 +1951,7 @@ export class NativeTabHost extends EventEmitter {
       timestamp: Date.now(),
       commandId: command.id,
       deliveryState: 'queued',
+      actualRoute: mode === 'auto' ? 'sidecar-agentapi' : 'active-panel',
       observationState: 'none',
     };
     this.chatMessages.push(msg);
@@ -1960,11 +1963,13 @@ export class NativeTabHost extends EventEmitter {
 
     void resultPromise.then((result) => {
       msg.deliveryState = result.deliveryState;
+      msg.actualRoute = result.actualRoute;
       msg.deliveryError = result.errorMessage;
       const updatePayload: BridgeDeliveryUpdatePayload = {
         messageId: msg.id,
         commandId: command.id,
         deliveryState: result.deliveryState,
+        actualRoute: result.actualRoute,
         errorMessage: result.errorMessage,
         errorCode: result.errorCode,
         updatedAtEpochMs: Date.now(),
