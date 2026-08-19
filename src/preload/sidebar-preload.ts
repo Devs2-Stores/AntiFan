@@ -19,6 +19,8 @@ const SIDEBAR_CHANNELS = {
   SESSION_CHANGED: 'antifan:sidebar:session-changed',
   ABORT_GENERATION: 'antifan:sidebar:abort-generation',
   GET_AUTOCOMPLETE_ITEMS: 'antifan:sidebar:get-autocomplete-items',
+  DELIVERY_STATE_CHANGED: 'antifan:sidebar:delivery-state-changed',
+  HOST_STATUS_CHANGED: 'antifan:sidebar:host-status-changed',
 };
 
 const sidebarApi = {
@@ -56,6 +58,22 @@ const sidebarApi = {
     ipcRenderer.on(SIDEBAR_CHANNELS.ATTACH_ELEMENT, handler);
     return () => {
       ipcRenderer.removeListener(SIDEBAR_CHANNELS.ATTACH_ELEMENT, handler);
+    };
+  },
+
+  onDeliveryStateChanged: (callback: (data: any) => void) => {
+    const handler = (_event: unknown, data: any) => callback(data);
+    ipcRenderer.on(SIDEBAR_CHANNELS.DELIVERY_STATE_CHANGED, handler);
+    return () => {
+      ipcRenderer.removeListener(SIDEBAR_CHANNELS.DELIVERY_STATE_CHANGED, handler);
+    };
+  },
+
+  onHostStatusChanged: (callback: (data: any) => void) => {
+    const handler = (_event: unknown, data: any) => callback(data);
+    ipcRenderer.on(SIDEBAR_CHANNELS.HOST_STATUS_CHANGED, handler);
+    return () => {
+      ipcRenderer.removeListener(SIDEBAR_CHANNELS.HOST_STATUS_CHANGED, handler);
     };
   },
 };

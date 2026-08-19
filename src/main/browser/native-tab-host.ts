@@ -10,7 +10,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import { randomUUID } from 'node:crypto';
 import { EventEmitter } from 'node:events';
-import { AntiFanTab, AntiFanPickedElement, ChatMessage, TOOLBAR_CHANNELS, SIDEBAR_CHANNELS, TERMINAL_CHANNELS } from '../../shared/contracts';
+import { AntiFanTab, AntiFanPickedElement, ChatMessage, TOOLBAR_CHANNELS, SIDEBAR_CHANNELS, TERMINAL_CHANNELS, BridgeDeliveryUpdatePayload, AntigravityAttachmentDescriptor } from '../../shared/contracts';
 import { getSecureWebPreferences, sanitizeUrl, isAllowedNavigation, cleanRestoredUrl, isInternalWidgetOrSubframeUrl } from '../security/security-policy';
 import { ELEMENT_PICKER_SCRIPT } from './element-picker';
 import { FONT_FINDER_SCRIPT } from './font-finder';
@@ -25,6 +25,7 @@ import { HaravanUploader } from './haravan-uploader';
 import { TerminalManager } from './terminal-manager';
 import { checkForUpdatesAndRestart } from './app-menu';
 import { SkillScanner } from './skill-scanner';
+import { AntigravityCommandClient, generateCommandId } from '../bridge/antigravity-command-client';
 
 export const TOOLBAR_HEIGHT_WITH_BOOKMARKS = 102;
 export const TOOLBAR_HEIGHT_COMPACT = 74;
@@ -406,27 +407,16 @@ export class NativeTabHost extends EventEmitter {
       const targetSessionId = sessionId || (this.transcriptSyncer.getActiveSessionId() !== 'auto' ? this.transcriptSyncer.getActiveSessionId() : undefined);
       const targetWorkspace = this.resolveTargetWorkspace(targetSessionId, activeTab?.state.url);
 
-      // 1. Write abort command strictly into targeted workspace .antigravity/mcp-bridge/
-      const targetBridgeDir = path.join(targetWorkspace, '.antigravity', 'mcp-bridge');
-
-      try {
-        if (fs.existsSync(path.dirname(targetBridgeDir))) {
-          fs.mkdirSync(targetBridgeDir, { recursive: true });
-          const cmdId = `cmd-abort-${Date.now()}-${Math.floor(Math.random() * 1e4)}`;
-          const cmdPayload = {
-            id: cmdId,
-            action: 'abortTurn',
-            params: {
-              sessionId: targetSessionId,
-              conversationId: targetSessionId,
-              targetWorkspace,
-            },
-          };
-          const tempPath = path.join(targetBridgeDir, `${cmdId}.tmp`);
-          fs.writeFileSync(tempPath, JSON.stringify(cmdPayload, null, 2), 'utf8');
-          fs.renameSync(tempPath, path.join(targetBridgeDir, `${cmdId}.json`));
-        }
-      } catch {}
+      const client = new AntigravityCommandClient({ workspacePath: targetWorkspace, timeoutMs: 10000 });
+      client.dispatchCommand({
+        action: 'abort',
+        mode: 'auto',
+        promptText: 'abort',
+        meta: {
+          sessionId: targetSessionId,
+          conversationId: targetSessionId,
+        },
+      });
 
       // 2. Emit abort event
       this.emit('chat-abort-requested', { sessionId: targetSessionId });
@@ -1822,7 +1812,7 @@ export class NativeTabHost extends EventEmitter {
     attachedImages?: Array<{ name: string; dataUrl: string }>;
     deliveryMode?: 'auto' | 'draft';
     sessionId?: string;
-  }): Promise<{ ok: boolean; messageId: string; notice: string }> {
+  }): Promise<{ ok: boolean; messageId: string; notice: string; commandId?: string }> {
     const mode = opts.deliveryMode || 'auto';
     const activeTab = this.tabs.get(this.activeTabId);
     const targetSessionId = opts.sessionId || (this.transcriptSyncer.getActiveSessionId() !== 'auto' ? this.transcriptSyncer.getActiveSessionId() : undefined);
@@ -1896,39 +1886,33 @@ export class NativeTabHost extends EventEmitter {
       }
     }
 
-    // 1c. Write bridge command & latest element snapshot strictly to target workspace
-    const targetBridgeDir = path.join(targetWorkspace, '.antigravity', 'mcp-bridge');
+    // 1c. Prepare attachments and send command via AntigravityCommandClient
+    const attachments: AntigravityAttachmentDescriptor[] = [];
+    const addAttachment = (filePath: string, mime = 'application/octet-stream') => {
+      try {
+        if (fs.existsSync(filePath)) {
+          const stat = fs.statSync(filePath);
+          attachments.push({
+            name: path.basename(filePath),
+            filePath,
+            mime,
+            byteLength: stat.size,
+          });
+        }
+      } catch {}
+    };
 
-    try {
-      if (fs.existsSync(path.dirname(targetBridgeDir))) {
-        fs.mkdirSync(targetBridgeDir, { recursive: true });
-        const cmdId = `cmd-${Date.now()}-${Math.floor(Math.random() * 1e4)}`;
-        const cmdPayload = {
-          id: cmdId,
-          action: 'sendToAgentPanel',
-          params: {
-            prompt: opts.text,
-            message: opts.text,
-            targetWorkspace,
-            sessionId: targetSessionId,
-            conversationId: targetSessionId,
-            autoSend: mode === 'auto',
-            markdownPath: opts.attachedElement?.markdownPath,
-            targetImagePath: opts.attachedElement?.targetImagePath,
-            viewportImagePath: opts.attachedElement?.viewportImagePath,
-            imagePaths: savedImagePaths,
-            files: [
-              ...(opts.attachedElement?.markdownPath ? [{ uri: opts.attachedElement.markdownPath, path: opts.attachedElement.markdownPath }] : []),
-              ...savedImagePaths.map((p) => ({ uri: p, path: p })),
-            ],
-          },
-        };
-        const tempPath = path.join(targetBridgeDir, `${cmdId}.tmp`);
-        fs.writeFileSync(tempPath, JSON.stringify(cmdPayload, null, 2), 'utf8');
-        fs.renameSync(tempPath, path.join(targetBridgeDir, `${cmdId}.json`));
-      }
-    } catch (err) {
-      console.error('[native-tab-host] Failed to write bridge command:', err);
+    if (opts.attachedElement?.markdownPath) {
+      addAttachment(opts.attachedElement.markdownPath, 'text/markdown');
+    }
+    if (opts.attachedElement?.targetImagePath) {
+      addAttachment(opts.attachedElement.targetImagePath, 'image/png');
+    }
+    if (opts.attachedElement?.viewportImagePath) {
+      addAttachment(opts.attachedElement.viewportImagePath, 'image/png');
+    }
+    for (const p of savedImagePaths) {
+      addAttachment(p, 'image/png');
     }
 
     if (opts.attachedElement) {
@@ -1940,6 +1924,22 @@ export class NativeTabHost extends EventEmitter {
       } catch {}
     }
 
+    const client = new AntigravityCommandClient({
+      workspacePath: targetWorkspace,
+      timeoutMs: 15000,
+    });
+
+    const { command, resultPromise } = client.dispatchCommand({
+      action: 'send-prompt',
+      mode: mode === 'auto' ? 'auto' : 'draft',
+      promptText: opts.text,
+      attachments,
+      meta: {
+        sessionId: targetSessionId,
+        conversationId: targetSessionId,
+      },
+    });
+
     const msg: ChatMessage = {
       id: String(Date.now()),
       role: 'user',
@@ -1947,6 +1947,9 @@ export class NativeTabHost extends EventEmitter {
       attachedElement: opts.attachedElement,
       attachedImages: opts.attachedImages,
       timestamp: Date.now(),
+      commandId: command.id,
+      deliveryState: 'queued',
+      observationState: 'none',
     };
     this.chatMessages.push(msg);
 
@@ -1954,6 +1957,22 @@ export class NativeTabHost extends EventEmitter {
     if (this.sidebarView && !this.sidebarView.webContents.isDestroyed()) {
       this.sidebarView.webContents.send(SIDEBAR_CHANNELS.STREAM_UPDATE, { message: msg });
     }
+
+    void resultPromise.then((result) => {
+      msg.deliveryState = result.deliveryState;
+      msg.deliveryError = result.errorMessage;
+      const updatePayload: BridgeDeliveryUpdatePayload = {
+        messageId: msg.id,
+        commandId: command.id,
+        deliveryState: result.deliveryState,
+        errorMessage: result.errorMessage,
+        errorCode: result.errorCode,
+        updatedAtEpochMs: Date.now(),
+      };
+      if (this.sidebarView && !this.sidebarView.webContents.isDestroyed()) {
+        this.sidebarView.webContents.send(SIDEBAR_CHANNELS.DELIVERY_STATE_CHANGED, updatePayload);
+      }
+    });
 
     // 2. Emit event for bridge server
     this.emit('chat-prompt-submitted', { prompt: opts.text, sessionId: targetSessionId, attachedElement: opts.attachedElement, attachedImages: opts.attachedImages, deliveryMode: mode });
@@ -1963,7 +1982,7 @@ export class NativeTabHost extends EventEmitter {
       ? '⚡ Đã chuyển tiếp tới Antigravity Agent qua Extension Bridge'
       : '📝 Đã lưu prompt dưới dạng Draft';
 
-    return { ok: true, messageId: msg.id, notice };
+    return { ok: true, messageId: msg.id, notice, commandId: command.id };
   }
 
   public findInPage(text: string, forward = true): void {

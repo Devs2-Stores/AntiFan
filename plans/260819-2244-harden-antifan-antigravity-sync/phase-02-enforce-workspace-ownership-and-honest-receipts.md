@@ -1,7 +1,7 @@
 ---
 phase: 2
 title: "Enforce Workspace Ownership And Honest Receipts"
-status: pending
+status: completed
 priority: P0
 effort: "6-8h"
 dependencies: [1]

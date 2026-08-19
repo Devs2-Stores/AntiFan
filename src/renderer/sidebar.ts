@@ -45,6 +45,10 @@ interface ChatMessage {
   attachedElement?: AntiFanPickedElement;
   attachedImages?: Array<{ name: string; dataUrl: string }>;
   timestamp: number;
+  commandId?: string;
+  deliveryState?: 'queued' | 'ide-api-accepted' | 'failed' | 'unknown';
+  observationState?: 'none' | 'prompt-observed' | 'response-observed';
+  deliveryError?: string;
 }
 
 interface AntiFanSidebarApi {
@@ -62,6 +66,8 @@ interface AntiFanSidebarApi {
   onStreamUpdate: (callback: (data: any) => void) => () => void;
   onSessionChanged: (callback: (data: any) => void) => () => void;
   onAttachElement: (callback: (element: any) => void) => () => void;
+  onDeliveryStateChanged: (callback: (data: any) => void) => () => void;
+  onHostStatusChanged: (callback: (data: any) => void) => () => void;
 }
 
 declare global {
@@ -980,15 +986,29 @@ function renderMessages() {
       itemEl.appendChild(bubbleEl);
     }
 
-    // Message Action Toolbar (Hover bar: Timestamp, Copy, Undo)
+    // Message Action Toolbar (Hover bar: Timestamp, Delivery Status, Copy, Undo)
     const actionsBar = document.createElement('div');
     actionsBar.className = 'msg-actions-bar';
 
     const dateObj = msg.timestamp ? new Date(msg.timestamp) : new Date();
     const timeStr = dateObj.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
+    let deliveryBadgeHtml = '';
+    if (msg.role === 'user' && msg.deliveryState) {
+      if (msg.deliveryState === 'queued') {
+        deliveryBadgeHtml = `<span class="ag-delivery-badge queued" title="Đang xếp hàng gửi tới Antigravity IDE">⏳ Đang gửi...</span>`;
+      } else if (msg.deliveryState === 'ide-api-accepted') {
+        deliveryBadgeHtml = `<span class="ag-delivery-badge accepted" title="Antigravity IDE Agent đã tiếp nhận prompt">⚡ Đã gửi tới IDE</span>`;
+      } else if (msg.deliveryState === 'failed') {
+        deliveryBadgeHtml = `<span class="ag-delivery-badge failed" title="${escapeHtml(msg.deliveryError || 'Gửi thất bại')}">❌ Lỗi gửi</span>`;
+      } else if (msg.deliveryState === 'unknown') {
+        deliveryBadgeHtml = `<span class="ag-delivery-badge unknown" title="Không nhận được biên nhận xác nhận từ IDE trong thời hạn">⚠️ Không rõ biên nhận</span>`;
+      }
+    }
+
     actionsBar.innerHTML = `
       <span class="msg-time">${timeStr}</span>
+      ${deliveryBadgeHtml}
       <button type="button" class="msg-btn-action msg-btn-copy" title="Copy message text">
         <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor"><path d="M4 1.5H3a2 2 0 0 0-2 2V14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V3.5a2 2 0 0 0-2-2h-1v1h1a1 1 0 0 1 1 1V14a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V3.5a1 1 0 0 1 1-1h1v-1z"/><path d="M9.5 1a.5.5 0 0 1 .5.5v1a.5.5 0 0 1-.5.5h-3a.5.5 0 0 1-.5-.5v-1a.5.5 0 0 1 .5-.5h3zm-3-1A1.5 1.5 0 0 0 5 1.5v1A1.5 1.5 0 0 0 6.5 4h3A1.5 1.5 0 0 0 11 2.5v-1A1.5 1.5 0 0 0 9.5 0h-3z"/></svg>
       </button>
@@ -2073,6 +2093,19 @@ async function initSidebar() {
   api.onAttachElement((element: AntiFanPickedElement) => {
     if (element) {
       attachElement(element);
+    }
+  });
+
+  api.onDeliveryStateChanged?.((data: any) => {
+    if (data && (data.commandId || data.messageId)) {
+      const match = messages.find(
+        (m) => (data.commandId && m.commandId === data.commandId) || (data.messageId && m.id === data.messageId)
+      );
+      if (match) {
+        match.deliveryState = data.deliveryState;
+        if (data.error) match.deliveryError = data.error;
+        scheduleRender();
+      }
     }
   });
 }

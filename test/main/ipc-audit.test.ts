@@ -137,4 +137,21 @@ describe('Webview & Extension IPC Audit Invariants', () => {
       );
     }
   });
+
+  it('verifies Protocol v2 delivery state and sidebar event bindings', () => {
+    const preloadPath = path.join(root, 'src', 'preload', 'sidebar-preload.ts');
+    const sidebarPath = path.join(root, 'src', 'renderer', 'sidebar.ts');
+    const nativeTabHostPath = path.join(root, 'src', 'main', 'browser', 'native-tab-host.ts');
+
+    const preloadContent = fs.readFileSync(preloadPath, 'utf8');
+    const sidebarContent = fs.readFileSync(sidebarPath, 'utf8');
+    const nativeContent = fs.readFileSync(nativeTabHostPath, 'utf8');
+
+    assert.match(preloadContent, /DELIVERY_STATE_CHANGED/);
+    assert.match(preloadContent, /onDeliveryStateChanged/);
+    assert.match(sidebarContent, /onDeliveryStateChanged/);
+    assert.match(sidebarContent, /ag-delivery-badge/);
+    assert.match(nativeContent, /AntigravityCommandClient/);
+    assert.match(nativeContent, /SIDEBAR_CHANNELS\.DELIVERY_STATE_CHANGED/);
+  });
 });

@@ -62,8 +62,8 @@ an unfilled placeholder; this plan does not mutate or depend on it.
 | # | Phase | Priority | Depends on | Status |
 |---|---|---|---|---|
 | 1 | [Lock protocol and regression contracts](./phase-01-start.md) | P0 | - | Completed |
-| 2 | [Enforce workspace ownership and honest receipts](./phase-02-enforce-workspace-ownership-and-honest-receipts.md) | P0 | 1 | Pending |
-| 3 | [Consume delivery results in Desktop](./phase-03-consume-delivery-results-in-desktop.md) | P0 | 1, 2 | Pending |
+| 2 | [Enforce workspace ownership and honest receipts](./phase-02-enforce-workspace-ownership-and-honest-receipts.md) | P0 | 1 | Completed |
+| 3 | [Consume delivery results in Desktop](./phase-03-consume-delivery-results-in-desktop.md) | P0 | 1, 2 | Completed |
 | 4 | [Add protocol liveness, idempotency, and cleanup](./phase-04-add-protocol-liveness-idempotency-and-cleanup.md) | P1 | 2, 3 | Pending |
 | 5 | [Validate transcript and artifact P2 gates](./phase-05-validate-transcript-and-artifact-p2-gates.md) | P2 | 3, 4 | Pending |
 

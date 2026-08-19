@@ -63,6 +63,15 @@ Làm cho luồng Browser -> Antigravity đáng tin cậy đủ để dùng hàng
 
 Receipt lỗi đang nằm trên đĩa nhưng desktop không đọc, nên người dùng không thấy lỗi đó trong UI.
 
+Kiểm tra bổ sung ngày 2026-08-19 xác nhận raw transcript hiện có các trường
+`created_at`, `source`, `status` và `step_index`. Desktop parser hiện bỏ
+`created_at` rồi gán `Date.now()`, nên correlation phải đọc timestamp gốc thay
+vì dùng timestamp đã render. Không tìm thấy artefact
+`scratch/benchmark-image-payload.js` trong hai repository hoặc dưới `E:\Work`;
+vì vậy các số latency, memory, token cost và ngưỡng ảnh từ báo cáo benchmark
+đính kèm chỉ là giả thuyết cho đến khi có script tái chạy và phép đo trên
+Extension Host thật.
+
 ## Luồng hiện tại
 
 ```text
@@ -170,12 +179,18 @@ Hai contract đang mâu thuẫn:
 Cho công cụ cá nhân, không cần consent phức tạp. Tuy nhiên UI phải dùng từ đúng:
 
 - `queued`: command đã ghi.
-- `extension-accepted`: extension gọi API và Promise resolve.
+- `ide-api-accepted`: extension gọi API nội bộ và Promise resolve; chưa chứng
+  minh composer, queue hay model đã nhận payload.
 - `failed`: extension trả lỗi rõ ràng.
 - `unknown`: timeout, crash hoặc reset khi API vẫn có thể hoàn tất sau đó.
-- `observed-in-transcript`: optional, prompt đã xuất hiện trong đúng raw transcript.
+- `prompt-observed`: optional, một `USER_INPUT` tương quan đã được persist vào
+  đúng raw transcript.
+- `response-observed`: optional, một `PLANNER_RESPONSE` sau prompt đã được
+  persist; không đồng nghĩa token đầu tiên hoặc streaming real-time.
 
 Không dùng từ `submitted` nếu chưa có bằng chứng mạnh hơn Promise resolution.
+Không gắn phần trăm tin cậy cố định nếu chưa có tập benchmark false
+positive/false negative tái lập được.
 
 ### 4. Workspace authority chưa đủ chặt
 
@@ -205,10 +220,17 @@ Vì vậy:
 
 Cho cá nhân, chỉ cần correlation nhẹ:
 
-1. Lưu `promptSha256`, session target và `issuedAt` trong delivery record.
+1. Lưu `promptSha256`, normalized prompt, session target và `issuedAt` trong
+   delivery record.
 2. Sau extension receipt, quan sát raw transcript của đúng session.
-3. Khi có `USER_INPUT` mới sau `issuedAt` và normalized prompt hash khớp, chuyển trạng thái thành `observed-in-transcript`.
-4. Nếu không thấy sau 10-20 giây, giữ `extension-accepted`, không đổi thành failed.
+3. Khi có `USER_INPUT` với `source: USER_EXPLICIT`, `created_at` không trước
+   `issuedAt` và normalized prompt hash khớp, ghi observation
+   `prompt-observed`.
+4. Khi có `PLANNER_RESPONSE` sau record đó, ghi `response-observed`. Đây là
+   bằng chứng response đã được persist, không phải hook token đầu tiên.
+5. Nếu không thấy sau deadline quan sát, giữ delivery state
+   `ide-api-accepted`; observation vẫn là `none`, không đổi thành failed hoặc
+   unknown.
 
 Không auto retry trong trạng thái không xác định vì prompt cũ có thể vẫn xuất hiện sau đó.
 
@@ -244,7 +266,8 @@ TranscriptSyncer hữu ích để hiển thị chat, nhưng trạng thái `runni
 Các điểm yếu:
 
 - Antigravity đổi schema có thể làm parser im lặng bỏ message.
-- Timestamp của message dùng `Date.now()`, không phải timestamp gốc.
+- Raw transcript có `created_at`, nhưng message render hiện dùng `Date.now()` và
+  làm mất timestamp gốc.
 - Tool calls được đánh `done` dù chưa nối đầy đủ tool result.
 - Sequential queue có thể gửi sớm hoặc chờ lâu vì `isRunning` là heuristic.
 - Auto-follow có thể đổi session theo file mới nhất do background activity.
@@ -358,30 +381,36 @@ Desktop chỉ bật Auto/Draft send khi host heartbeat còn mới và workspace 
   "hostEpoch": 1787147000000,
   "workspace": "E:/Work/customizes/Mnbakery",
   "ok": true,
-  "delivery": "extension-accepted",
+  "delivery": "ide-api-accepted",
   "finishedAt": 1787147450200
 }
 ```
 
 Giá trị `delivery`:
 
-- `extension-accepted`.
+- `ide-api-accepted`.
 - `draft-filled` nếu API phân biệt được.
 - `failed`.
 - `unknown`.
-- `observed-in-transcript` do desktop nâng cấp sau correlation.
+
+Observation là trục riêng, không ghi đè delivery:
+
+- `none`.
+- `prompt-observed`.
+- `response-observed`.
 
 ### State machine desktop
 
 ```text
 prepared
   -> queued
-  -> extension-accepted
-  -> observed-in-transcript (optional)
+  -> ide-api-accepted
 
 queued -> failed
 queued -> unknown
-extension-accepted -> unknown (chỉ khi cần xác nhận transcript)
+unknown -> ide-api-accepted (late settle, không tự retry)
+
+observation: none -> prompt-observed -> response-observed
 ```
 
 UI cần hiển thị trạng thái trên chính user bubble. Không thêm system message giả.
@@ -427,24 +456,32 @@ UI cần hiển thị trạng thái trên chính user bubble. Không thêm syste
 
 #### 6. Sửa từ ngữ và semantics
 
-- Promise resolve => `extension-accepted`, không phải submitted.
-- Chỉ ghi `observed-in-transcript` sau correlation.
+- Promise resolve => `ide-api-accepted`, không phải submitted hoặc composer-delivered.
+- Chỉ ghi `prompt-observed` / `response-observed` sau correlation.
 - Draft và Auto có status khác nhau.
 
 ### P2 - Chỉ làm nếu P0/P1 chưa đủ
 
 #### 7. Transcript correlation
 
-- Prompt hash + issuedAt + exact session.
+- Prompt hash + normalized prompt + `issuedAt` + exact session.
+- Dùng `created_at`, `source`, `step_index` từ raw transcript; không dùng
+  timestamp `Date.now()` do parser tạo.
 - Optional marker HTML comment nếu duplicate prompt thường xuyên gây ambiguity.
 - Không dùng transcript làm delivery authority trước extension receipt.
+- Không gọi `PLANNER_RESPONSE` là token đầu tiên hoặc streaming real-time.
 
 #### 8. Artifact integrity/budget
 
-- Target-workspace staging.
-- Size budget.
+- Giữ target-workspace staged file URI; command JSON không chứa inline Base64.
+- Giữ PNG gốc cho pixel-diff. Nếu cần giảm chi phí model, tạo derivative riêng
+  và không thay thế evidence gốc.
+- Dùng soft default ban đầu: tổng 15 MB, tối đa 8 ảnh, tối đa 4 MB/ảnh. Đây là
+  product policy cần telemetry, không phải giới hạn VS Code đã được chứng minh.
 - Hash của bytes đã copy.
-- Chỉ cần nếu attachment stale/sai file xảy ra thực tế.
+- Thêm benchmark tái lập đo command envelope, disk I/O, Extension Host event-loop
+  delay và attachment ingestion trước khi biến soft default thành hard limit.
+- Không ghi token cost theo ảnh nếu model/API không công bố cách tính.
 
 #### 9. Local bridge authentication
 
@@ -468,6 +505,11 @@ UI cần hiển thị trạng thái trên chính user bubble. Không thêm syste
 10. Draft và Auto có status text khác nhau.
 11. Abort chỉ báo accepted sau result.
 12. Stale result/temp được cleanup; result mới không bị xóa.
+13. Promise resolve chỉ tạo `ide-api-accepted`; không test hoặc hiển thị
+    `submitted`/`composer-delivered`.
+14. Correlation dùng raw `created_at`; thiếu transcript không hạ delivery state.
+15. `PLANNER_RESPONSE` chỉ tạo `response-observed`.
+16. Benchmark payload có script tái chạy và tách staged bytes khỏi command JSON.
 
 ### Success metrics
 
@@ -475,6 +517,8 @@ UI cần hiển thị trạng thái trên chính user bubble. Không thêm syste
 - 0 command bị host sai workspace xóa trong test hai Extension Host.
 - Failure receipt hiển thị trong UI dưới 2 giây sau khi extension ghi file.
 - Duplicate command ID tạo tối đa một call tới `sendToAgentPanel`.
+- Không trạng thái nào khẳng định composer delivery, first token hoặc streaming
+  nếu chỉ có Promise/transcript persistence.
 - Không còn `.res.json` đã consume; orphan quá 24 giờ được cleanup.
 - Không mutation nào fallback sang `E:\Work` khi workspace chưa xác định.
 - Typecheck và full tests của hai repo pass.
@@ -519,3 +563,5 @@ UI cần hiển thị trạng thái trên chính user bubble. Không thêm syste
 - Promise của `sendToAgentPanel` resolve ở lúc composer nhận payload, lúc queue nhận, hay sau submit?
 - Raw transcript có giữ nguyên HTML comment/marker để correlation ổn định không?
 - Có thể lấy agent busy/idle state qua API chính thức thay vì mtime heuristic không?
+- Attachment ingestion trong Antigravity có hard limit nào không, và giới hạn
+  thực tế thay đổi thế nào theo số ảnh, tổng bytes, định dạng và phiên bản IDE?

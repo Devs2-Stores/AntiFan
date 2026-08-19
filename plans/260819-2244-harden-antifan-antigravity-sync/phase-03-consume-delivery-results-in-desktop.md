@@ -1,7 +1,7 @@
 ---
 phase: 3
 title: "Consume Delivery Results In Desktop"
-status: pending
+status: completed
 priority: P0
 effort: "8-12h"
 dependencies: [1, 2]
