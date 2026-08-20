@@ -208,12 +208,25 @@ export class TranscriptSyncer extends EventEmitter {
   private customTitles: Map<string, string> = new Map();
   private sessionWorkspaces: Map<string, string> = new Map();
 
+  private isIgnoredPath(p?: string): boolean {
+    if (!p) return true;
+    const norm = p.toLowerCase().replace(/\//g, '\\');
+    const userHome = os.homedir().toLowerCase();
+    if (norm === userHome || norm === userHome + '\\') return true;
+    if (norm.startsWith(path.join(userHome, '.gemini').toLowerCase())) return true;
+    if (norm.startsWith(path.join(userHome, 'appdata').toLowerCase())) return true;
+    if (norm.startsWith('c:\\windows') || norm.startsWith('c:\\program files')) return true;
+    return false;
+  }
+
   private findWorkspaceRoot(startPath: string): string {
+    if (this.isIgnoredPath(startPath)) return '';
     let cur = startPath;
     if (fs.existsSync(cur) && fs.statSync(cur).isFile()) {
       cur = path.dirname(cur);
     }
     while (cur && cur !== path.dirname(cur)) {
+      if (this.isIgnoredPath(cur)) break;
       if (
         fs.existsSync(path.join(cur, 'package.json')) ||
         fs.existsSync(path.join(cur, 'config', 'settings_data.json')) ||
@@ -229,7 +242,7 @@ export class TranscriptSyncer extends EventEmitter {
       }
       cur = parent;
     }
-    return startPath;
+    return this.isIgnoredPath(startPath) ? '' : startPath;
   }
 
   public getSessionWorkspace(id: string): string | undefined {
@@ -243,24 +256,28 @@ export class TranscriptSyncer extends EventEmitter {
     if (fs.existsSync(transcriptPath)) {
       try {
         const text = fs.readFileSync(transcriptPath, 'utf8');
-        // 1. Check workspace mapping: e:\Work\... -> Devs2-Stores...
-        const matchWs = text.match(/([a-zA-Z]:\\[^\r\n<>"\t]+?)\s*->\s*[^\r\n<>"\t]+/);
-        if (matchWs && matchWs[1]) {
-          const ws = this.findWorkspaceRoot(matchWs[1].trim());
-          if (fs.existsSync(ws)) {
+
+        // 1. Check tool call Cwd or SearchPath arguments (most authoritative project working directory)
+        const matchToolCwd = text.match(/"(?:Cwd|SearchPath|workspacePath|TargetFile)"\s*:\s*"\\"?([a-zA-Z]:(?:\\\\|\\)[^"\r\n]+?)\\"?"/i);
+        if (matchToolCwd && matchToolCwd[1]) {
+          const rawP = matchToolCwd[1].replace(/\\\\/g, '\\').trim();
+          const ws = this.findWorkspaceRoot(rawP);
+          if (ws && fs.existsSync(ws) && !this.isIgnoredPath(ws)) {
             this.sessionWorkspaces.set(id, ws);
             return ws;
           }
         }
 
-        // 2. Check tool call Cwd or SearchPath arguments
-        const matchToolCwd = text.match(/"(?:Cwd|SearchPath|workspacePath|workspace)"\s*:\s*"\\"?([a-zA-Z]:(?:\\\\|\\)[^"\r\n]+?)\\"?"/i);
-        if (matchToolCwd && matchToolCwd[1]) {
-          const rawP = matchToolCwd[1].replace(/\\\\/g, '\\').trim();
-          const ws = this.findWorkspaceRoot(rawP);
-          if (fs.existsSync(ws)) {
-            this.sessionWorkspaces.set(id, ws);
-            return ws;
+        // 2. Check file:/// URIs in transcript
+        const fileMatches = text.matchAll(/file:\/\/\/([a-zA-Z]:\/[^\r\n<>'"\t\s]+)/g);
+        for (const m of fileMatches) {
+          if (m && m[1]) {
+            const p = m[1].replace(/\//g, '\\').trim();
+            const ws = this.findWorkspaceRoot(p);
+            if (ws && fs.existsSync(ws) && !this.isIgnoredPath(ws)) {
+              this.sessionWorkspaces.set(id, ws);
+              return ws;
+            }
           }
         }
 
@@ -268,18 +285,17 @@ export class TranscriptSyncer extends EventEmitter {
         const matchDoc = text.match(/(?:Active Document|Cwd|project directory as `?):\s*([a-zA-Z]:\\[^\r\n<>"`]+)/i);
         if (matchDoc && matchDoc[1]) {
           const ws = this.findWorkspaceRoot(matchDoc[1].trim());
-          if (fs.existsSync(ws)) {
+          if (ws && fs.existsSync(ws) && !this.isIgnoredPath(ws)) {
             this.sessionWorkspaces.set(id, ws);
             return ws;
           }
         }
 
-        // 4. Check file:/// URIs in transcript
-        const matchFileUri = text.match(/file:\/\/\/([a-zA-Z]:\/[^\r\n<>'"\t]+)/);
-        if (matchFileUri && matchFileUri[1]) {
-          const p = matchFileUri[1].replace(/\//g, '\\').trim();
-          const ws = this.findWorkspaceRoot(p);
-          if (fs.existsSync(ws)) {
+        // 4. Check workspace mapping: [e:\Work\...] -> [CorpusName]
+        const matchWs = text.match(/\[([a-zA-Z]:\\[^\r\n<>"\t\[\]]+?)\]\s*->/);
+        if (matchWs && matchWs[1]) {
+          const ws = this.findWorkspaceRoot(matchWs[1].trim());
+          if (ws && fs.existsSync(ws) && !this.isIgnoredPath(ws)) {
             this.sessionWorkspaces.set(id, ws);
             return ws;
           }
