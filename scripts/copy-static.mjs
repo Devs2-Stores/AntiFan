@@ -33,4 +33,16 @@ for (const file of filesToCopy) {
   }
 }
 
+// Prepend exports fallback to compiled renderer JS files to avoid inline script requirement
+const jsFiles = ['toolbar.js', 'sidebar.js', 'terminal.js'];
+for (const jsFile of jsFiles) {
+  const dst = path.join(rendererOutDir, jsFile);
+  if (fs.existsSync(dst)) {
+    const original = fs.readFileSync(dst, 'utf8');
+    if (!original.startsWith('var exports = exports || {};')) {
+      fs.writeFileSync(dst, 'var exports = exports || {};\n' + original, 'utf8');
+    }
+  }
+}
+
 console.log('[antifan] Copied static renderer assets.');

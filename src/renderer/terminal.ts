@@ -36,18 +36,58 @@ const btnTabNew = document.getElementById('btnTabNew') as HTMLButtonElement | nu
 let commandHistory: string[] = [];
 let historyIndex = -1;
 
-function formatAnsi(data: string): string {
-  return data
-    .replace(/\u001b\[31m/g, '<span style="color:#f87171">')
-    .replace(/\u001b\[32m/g, '<span style="color:#4ade80">')
-    .replace(/\u001b\[33m/g, '<span style="color:#facc15">')
-    .replace(/\u001b\[34m/g, '<span style="color:#60a5fa">')
-    .replace(/\u001b\[35m/g, '<span style="color:#c084fc">')
-    .replace(/\u001b\[36m/g, '<span style="color:#38bdf8">')
-    .replace(/\u001b\[90m/g, '<span style="color:#94a3b8">')
-    .replace(/\u001b\[0m/g, '</span>')
-    .replace(/\u001b\[[0-9;]*m/g, '')
-    .replace(/\u001b\[\?25[hl]/g, '');
+const COLOR_MAP: Record<string, string> = {
+  '31': '#f87171',
+  '32': '#4ade80',
+  '33': '#facc15',
+  '34': '#60a5fa',
+  '35': '#c084fc',
+  '36': '#38bdf8',
+  '90': '#94a3b8',
+};
+
+function renderAnsiToNode(data: string): DocumentFragment {
+  const fragment = document.createDocumentFragment();
+  const ansiRegex = /\u001b\[([0-9;]*)m|\u001b\[\?25[hl]/g;
+  let currentColor: string | null = null;
+  let lastIndex = 0;
+  let match: RegExpExecArray | null;
+
+  while ((match = ansiRegex.exec(data)) !== null) {
+    if (match.index > lastIndex) {
+      const textChunk = data.slice(lastIndex, match.index);
+      if (currentColor) {
+        const span = document.createElement('span');
+        span.style.color = currentColor;
+        span.textContent = textChunk;
+        fragment.appendChild(span);
+      } else {
+        fragment.appendChild(document.createTextNode(textChunk));
+      }
+    }
+
+    const code = match[1];
+    if (code === '0' || code === '') {
+      currentColor = null;
+    } else if (code && COLOR_MAP[code]) {
+      currentColor = COLOR_MAP[code];
+    }
+    lastIndex = ansiRegex.lastIndex;
+  }
+
+  if (lastIndex < data.length) {
+    const textChunk = data.slice(lastIndex);
+    if (currentColor) {
+      const span = document.createElement('span');
+      span.style.color = currentColor;
+      span.textContent = textChunk;
+      fragment.appendChild(span);
+    } else {
+      fragment.appendChild(document.createTextNode(textChunk));
+    }
+  }
+
+  return fragment;
 }
 
 function appendTerminalData(data: string) {
@@ -59,10 +99,8 @@ function appendTerminalData(data: string) {
     promptPrefix.textContent = `PS ${psMatch[1]}`;
   }
 
-  const formatted = formatAnsi(data);
-  const span = document.createElement('span');
-  span.innerHTML = formatted;
-  terminalOutput.appendChild(span);
+  const nodes = renderAnsiToNode(data);
+  terminalOutput.appendChild(nodes);
 
   if (terminalBody) {
     terminalBody.scrollTop = terminalBody.scrollHeight;
@@ -88,7 +126,7 @@ function initTerminal() {
   if (btnTerminalRestart) {
     btnTerminalRestart.addEventListener('click', (e) => {
       e.stopPropagation();
-      if (terminalOutput) terminalOutput.innerHTML = '';
+      if (terminalOutput) terminalOutput.textContent = '';
       api.restartTerminal();
       setTimeout(() => terminalCmdInput?.focus(), 50);
     });

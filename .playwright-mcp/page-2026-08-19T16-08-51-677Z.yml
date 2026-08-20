@@ -1,0 +1,136 @@
+- generic [active] [ref=f2e1]:
+  - generic:
+    - generic:
+      - link "Bỏ qua để đến phần nội dung chính" [ref=f2e2] [cursor=pointer]
+      - link "Hỗ trợ truy cập" [ref=f2e3] [cursor=pointer]:
+        - /url: https://support.google.com/websearch/answer/181196?hl=vi
+  - generic [ref=f2e8]:
+    - search [ref=f2e9]:
+      - generic [ref=f2e12]:
+        - link [ref=f2e13] [cursor=pointer]:
+          - /url: https://www.google.com/webhp?hl=vi&ictx=0&sa=X&ved=0ahUKEwjUl67-ia2WAxU5gK8BHT-UEucQpYkNCAo
+          - img "Truy cập trang chủ Google" [ref=f2e14]
+        - generic [ref=f2e19]:
+          - combobox "Tìm kiếm" [ref=f2e22]: site:antigravity.google Antigravity sidecar automation send message conversation site:antigravity.google Antigravity sidecar automation send message conversation
+          - generic [ref=f2e23]:
+            - button "Xóa" [ref=f2e25] [cursor=pointer]
+            - generic [ref=f2e30]:
+              - button "Công cụ nhập" [ref=f2e31] [cursor=pointer]
+              - button "Tìm kiếm bằng giọng nói" [ref=f2e35] [cursor=pointer]
+              - button "Tìm kiếm bằng hình ảnh" [ref=f2e38] [cursor=pointer]
+        - button "Tìm kiếm" [ref=f2e41] [cursor=pointer]
+    - generic [ref=f2e46]:
+      - button "Cài đặt" [ref=f2e48] [cursor=pointer]
+      - button "Chia sẻ" [ref=f2e54] [cursor=pointer]
+      - generic [ref=f2e60]:
+        - button "Các ứng dụng của Google" [ref=f2e62] [cursor=pointer]
+        - link "Đăng nhập" [ref=f2e67] [cursor=pointer]:
+          - /url: https://accounts.google.com/ServiceLogin?hl=vi&passive=true&continue=https://www.google.com/search%3Fq%3Dsite%253Aantigravity.google%2BAntigravity%2Bsidecar%2Bautomation%2Bsend%2Bmessage%2Bconversation%26sei%3DKNWFatfWF4vB1e8Pg_rT0AQ&ec=futura_srp_og_si_72236_p
+  - generic [ref=f2e69]:
+    - navigation [ref=f2e75]:
+      - generic [ref=f2e81]:
+        - list [ref=f2e82]:
+          - listitem [ref=f2e83]:
+            - link "Chế độ AI" [ref=f2e86] [cursor=pointer]:
+              - /url: /search?q=site:antigravity.google+Antigravity+sidecar+automation+send+message+conversation&sca_esv=61eecca4a6f58912&sxsrf=APpeQnushr7mCB2s1180Fpv6sE0uRgVJpQ:1787155752663&udm=50&fbs=ABfTbFW4UnGvBVgqDYjq_ksvF_WzL0qSsUjsQCJMDr-_PEHsElEq-XkTNsyVCf0qvOFQ8Ln7dkRjK19mC37dRsKSOIo75fIQs1o03V7oLAOJlCEsuY9yj3a4Jw_FZLLnkKPc5Qimw9iyVq5ZaNUEmmYopzQEfdRTTuGSDJRuiJq0ZzvHl5evyEpaixKznwJu5j-J5qSPcVUi_7Kr8TTzxv_yxZm6JPF5N119Fmgayiq-tvD0V2C74Jib_4gC50BcUPcr7ValDxRm&aep=1&ntc=1&cs=0&sa=X&ved=2ahUKEwjUl67-ia2WAxU5gK8BHT-UEucQ2J8OegQIEBAD
+          - listitem [ref=f2e90]:
+            - link "Tất cả" [disabled] [ref=f2e91]
+          - listitem [ref=f2e94]:
+            - link "Hình ảnh" [ref=f2e95] [cursor=pointer]:
+              - /url: /search?sca_esv=61eecca4a6f58912&sxsrf=APpeQnushr7mCB2s1180Fpv6sE0uRgVJpQ:1787155752663&udm=2&fbs=ABfTbFW4UnGvBVgqDYjq_ksvF_WzL0qSsUjsQCJMDr-_PEHsElEq-XkTNsyVCf0qvOFQ8Ln7dkRjK19mC37dRsKSOIo75fIQs1o03V7oLAOJlCEsuY9yj3a4Jw_FZLLnkKPc5Qimw9iyVq5ZaNUEmmYopzQEfdRTTuGSDJRuiJq0ZzvHl5evyEpaixKznwJu5j-J5qSPcVUi_7Kr8TTzxv_yxZm6JPF5N119Fmgayiq-tvD0V2C74Jib_4gC50BcUPcr7ValDxRm&q=site:antigravity.google+Antigravity+sidecar+automation+send+message+conversation&sa=X&ved=2ahUKEwjUl67-ia2WAxU5gK8BHT-UEucQtKgLegQIFRAB
+          - listitem [ref=f2e98]:
+            - link "Video" [ref=f2e99] [cursor=pointer]:
+              - /url: /search?sca_esv=61eecca4a6f58912&sxsrf=APpeQnushr7mCB2s1180Fpv6sE0uRgVJpQ:1787155752663&udm=7&fbs=ABfTbFW4UnGvBVgqDYjq_ksvF_WzL0qSsUjsQCJMDr-_PEHsElEq-XkTNsyVCf0qvOFQ8Ln7dkRjK19mC37dRsKSOIo75fIQs1o03V7oLAOJlCEsuY9yj3a4Jw_FZLLnkKPc5Qimw9iyVq5ZaNUEmmYopzQEfdRTTuGSDJRuiJq0ZzvHl5evyEpaixKznwJu5j-J5qSPcVUi_7Kr8TTzxv_yxZm6JPF5N119Fmgayiq-tvD0V2C74Jib_4gC50BcUPcr7ValDxRm&q=site:antigravity.google+Antigravity+sidecar+automation+send+message+conversation&sa=X&ved=2ahUKEwjUl67-ia2WAxU5gK8BHT-UEucQtKgLegQIFhAB
+          - listitem [ref=f2e102]:
+            - link "Mua sắm" [ref=f2e103] [cursor=pointer]:
+              - /url: /search?sca_esv=61eecca4a6f58912&sxsrf=APpeQnushr7mCB2s1180Fpv6sE0uRgVJpQ:1787155752663&udm=28&fbs=ABfTbFW4UnGvBVgqDYjq_ksvF_WzL0qSsUjsQCJMDr-_PEHsElEq-XkTNsyVCf0qvOFQ8Ln7dkRjK19mC37dRsKSOIo75fIQs1o03V7oLAOJlCEsuY9yj3a4Jw_FZLLnkKPc5Qimw9iyVq5ZaNUEmmYopzQEfdRTTuGSDJRuiJq0ZzvHl5evyEpaixKznwJu5j-J5qSPcVUi_7Kr8TTzxv_yxZm6JPF5N119Fmgayiq-tvD0V2C74Jib_4gC50BcUPcr7ValDxRm&q=site:antigravity.google+Antigravity+sidecar+automation+send+message+conversation&ved=1t:220175&ictx=111
+          - listitem [ref=f2e106]:
+            - link "Video ngắn" [ref=f2e107] [cursor=pointer]:
+              - /url: /search?sca_esv=61eecca4a6f58912&sxsrf=APpeQnushr7mCB2s1180Fpv6sE0uRgVJpQ:1787155752663&udm=39&fbs=ABfTbFW4UnGvBVgqDYjq_ksvF_WzL0qSsUjsQCJMDr-_PEHsElEq-XkTNsyVCf0qvOFQ8Ln7dkRjK19mC37dRsKSOIo75fIQs1o03V7oLAOJlCEsuY9yj3a4Jw_FZLLnkKPc5Qimw9iyVq5ZaNUEmmYopzQEfdRTTuGSDJRuiJq0ZzvHl5evyEpaixKznwJu5j-J5qSPcVUi_7Kr8TTzxv_yxZm6JPF5N119Fmgayiq-tvD0V2C74Jib_4gC50BcUPcr7ValDxRm&q=site:antigravity.google+Antigravity+sidecar+automation+send+message+conversation&sa=X&ved=2ahUKEwjUl67-ia2WAxU5gK8BHT-UEucQs6gLegQIERAB
+          - listitem [ref=f2e110]:
+            - link "Tin tức" [ref=f2e111] [cursor=pointer]:
+              - /url: /search?sca_esv=61eecca4a6f58912&sxsrf=APpeQnushr7mCB2s1180Fpv6sE0uRgVJpQ:1787155752663&q=site:antigravity.google+Antigravity+sidecar+automation+send+message+conversation&tbm=nws&source=lnms&fbs=ABfTbFW4UnGvBVgqDYjq_ksvF_WzL0qSsUjsQCJMDr-_PEHsElEq-XkTNsyVCf0qvOFQ8Ln7dkRjK19mC37dRsKSOIo75fIQs1o03V7oLAOJlCEsuY9yj3a4Jw_FZLLnkKPc5Qimw9iyVq5ZaNUEmmYopzQEfdRTTuGSDJRuiJq0ZzvHl5evyEpaixKznwJu5j-J5qSPcVUi_7Kr8TTzxv_yxZm6JPF5N119Fmgayiq-tvD0V2C74Jib_4gC50BcUPcr7ValDxRm&sa=X&ved=2ahUKEwjUl67-ia2WAxU5gK8BHT-UEucQ0pQJegQIExAB
+          - listitem [ref=f2e114]:
+            - button [ref=f2e115] [cursor=pointer]:
+              - generic "Các bộ lọc khác" [ref=f2e116]: Thêm
+        - button "Công cụ" [ref=f2e123] [cursor=pointer]
+    - heading "Kết quả tìm kiếm" [level=1] [ref=f2e130]
+    - generic [ref=f2e136]:
+      - generic [ref=f2e137]: Looking for results in English?
+      - link [ref=f2e138] [cursor=pointer]:
+        - /url: "#"
+      - link "Change to English" [ref=f2e142] [cursor=pointer]:
+        - /url: /setprefs?sig=0_b9eYSybzrT-bmtv5ML6zhS9zH5w%3D&source=en_ignored_notification&prev=https://www.google.com/search?q%3Dsite:antigravity.google%2BAntigravity%2Bsidecar%2Bautomation%2Bsend%2Bmessage%2Bconversation%26sei%3DKNWFatfWF4vB1e8Pg_rT0AQ&hl=en&sa=X&ved=2ahUKEwjUl67-ia2WAxU5gK8BHT-UEucQhoQCKAF6BAgLEAQ
+      - link "Tiếp tục sử dụng Tiếng Việt" [ref=f2e143] [cursor=pointer]:
+        - /url: "#"
+      - link "Cài đặt ngôn ngữ" [ref=f2e145] [cursor=pointer]:
+        - /url: /preferences?lang=1&hl=vi&sa=X&ved=2ahUKEwjUl67-ia2WAxU5gK8BHT-UEucQiIQCKAN6BAgLEAY#languages
+    - main [ref=f2e147]:
+      - generic [ref=f2e151]:
+        - generic [ref=f2e154]:
+          - heading "Web results" [level=2] [ref=f2e155]
+          - generic [ref=f2e156]:
+            - generic [ref=f2e159]:
+              - link "Sidecars | Google Antigravity Docs Google Antigravity https://antigravity.google › docs › sid..." [ref=f2e161] [cursor=pointer]:
+                - /url: https://antigravity.google/docs/sidecars/
+                - heading "Sidecars | Google Antigravity Docs" [level=3] [ref=f2e162]
+                - generic [ref=f2e168]:
+                  - generic [ref=f2e169]: Google Antigravity
+                  - generic [ref=f2e171]: https://antigravity.google › docs › sid...
+              - generic [ref=f2e173]:
+                - generic [ref=f2e174]: ·
+                - link "Dịch trang này" [ref=f2e175] [cursor=pointer]:
+                  - /url: https://translate.google.com/translate?u=https://antigravity.google/docs/sidecars/&hl=vi&sl=en&tl=vi&client=search
+              - button "Thông tin về kết quả này" [ref=f2e178] [cursor=pointer]
+            - generic [ref=f2e185]:
+              - emphasis [ref=f2e186]: Sidecars creating conversations must have a projectId set
+              - text: . agentapi send-message <conversation_id> <prompt>. Previous Hooks ...
+        - generic [ref=f2e190]:
+          - generic [ref=f2e193]:
+            - link "Google Antigravity - Changelog Google Antigravity https://antigravity.google › changelog" [ref=f2e195] [cursor=pointer]:
+              - /url: https://antigravity.google/changelog
+              - heading "Google Antigravity - Changelog" [level=3] [ref=f2e196]
+              - generic [ref=f2e202]:
+                - generic [ref=f2e203]: Google Antigravity
+                - generic [ref=f2e205]: https://antigravity.google › changelog
+            - generic [ref=f2e207]:
+              - generic [ref=f2e208]: ·
+              - link "Dịch trang này" [ref=f2e209] [cursor=pointer]:
+                - /url: https://translate.google.com/translate?u=https://antigravity.google/changelog&hl=vi&sl=en&tl=vi&client=search
+            - button "Thông tin về kết quả này" [ref=f2e212] [cursor=pointer]
+          - generic [ref=f2e219]:
+            - emphasis [ref=f2e220]: Improved UI responsiveness for chat interactions
+            - text: ", including creating conversations, sending messages, and reverting changes. Fixes (3). Resolved an issue ..."
+      - generic [ref=f2e222]:
+        - generic [ref=f2e223]:
+          - heading "Thông báo về Kết quả bị lọc" [level=2] [ref=f2e224]
+          - paragraph [ref=f2e226]:
+            - generic [ref=f2e227]:
+              - text: Để hiển thị cho bạn các kết quả có liên quan nhất, chúng tôi đã bỏ đi một số mục nhập rất giống với 2 kết quả đã hiển thị.Nếu muốn, bạn có thể
+              - link "lặp lại tìm kiếm với các kết quả đã bỏ đi được bao gồm" [ref=f2e228] [cursor=pointer]:
+                - /url: /search?q=site:antigravity.google+Antigravity+sidecar+automation+send+message+conversation&sca_esv=61eecca4a6f58912&sxsrf=APpeQnushr7mCB2s1180Fpv6sE0uRgVJpQ:1787155752663&filter=0
+              - text: .
+        - navigation
+      - navigation
+    - contentinfo [ref=f2e229]:
+      - heading "Đường liên kết ở chân trang" [level=1] [ref=f2e230]
+      - generic [ref=f2e234]:
+        - generic [ref=f2e236]:
+          - text: Việt Nam
+          - generic [ref=f2e238]:
+            - button "An Hội Đông, Hồ Chí Minh - Dựa trên địa chỉ IP của bạn" [ref=f2e240] [cursor=pointer]:
+              - generic [ref=f2e241]: An Hội Đông, Hồ Chí Minh
+              - generic [ref=f2e243]:
+                - text: "-"
+                - generic [ref=f2e244]: Dựa trên địa chỉ IP của bạn
+            - text: "-"
+            - button "Cập nhật vị trí" [ref=f2e246] [cursor=pointer]
+        - generic [ref=f2e249]:
+          - link "Trợ giúp" [ref=f2e250] [cursor=pointer]:
+            - /url: https://support.google.com/websearch/?p=ws_results_help&hl=vi&fg=1
+          - link "Gửi phản hồi" [ref=f2e251] [cursor=pointer]:
+            - /url: "#"
+          - link "Quyền riêng tư" [ref=f2e252] [cursor=pointer]:
+            - /url: https://policies.google.com/privacy?hl=vi&fg=1
+          - link "Điều khoản" [ref=f2e253] [cursor=pointer]:
+            - /url: https://policies.google.com/terms?hl=vi&fg=1

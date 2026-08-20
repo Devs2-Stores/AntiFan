@@ -1,0 +1,120 @@
+- generic [active] [ref=f7e1]:
+  - generic:
+    - generic:
+      - link "Bỏ qua để đến phần nội dung chính" [ref=f7e2] [cursor=pointer]
+      - link "Hỗ trợ truy cập" [ref=f7e3] [cursor=pointer]:
+        - /url: https://support.google.com/websearch/answer/181196?hl=vi
+  - generic [ref=f7e8]:
+    - search [ref=f7e9]:
+      - generic [ref=f7e12]:
+        - link [ref=f7e13] [cursor=pointer]:
+          - /url: https://www.google.com/webhp?hl=vi&ictx=0&sa=X&ved=0ahUKEwiz7_efiq2WAxXhka8BHWxJEdkQpYkNCAo
+          - img "Truy cập trang chủ Google" [ref=f7e14]
+        - generic [ref=f7e19]:
+          - combobox "Tìm kiếm" [ref=f7e22]: site:antigravity.google/docs "agentapi send-message" site:antigravity.google/docs "agentapi send-message"
+          - generic [ref=f7e23]:
+            - button "Xóa" [ref=f7e25] [cursor=pointer]
+            - generic [ref=f7e30]:
+              - button "Công cụ nhập" [ref=f7e31] [cursor=pointer]
+              - button "Tìm kiếm bằng giọng nói" [ref=f7e35] [cursor=pointer]
+              - button "Tìm kiếm bằng hình ảnh" [ref=f7e38] [cursor=pointer]
+        - button "Tìm kiếm" [ref=f7e41] [cursor=pointer]
+    - generic [ref=f7e46]:
+      - button "Cài đặt" [ref=f7e48] [cursor=pointer]
+      - button "Chia sẻ" [ref=f7e54] [cursor=pointer]
+      - generic [ref=f7e60]:
+        - button "Các ứng dụng của Google" [ref=f7e62] [cursor=pointer]
+        - link "Đăng nhập" [ref=f7e67] [cursor=pointer]:
+          - /url: https://accounts.google.com/ServiceLogin?hl=vi&passive=true&continue=https://www.google.com/search%3Fq%3Dsite%253Aantigravity.google%252Fdocs%2B%2522agentapi%2Bsend-message%2522&ec=futura_srp_og_si_72236_p
+  - generic [ref=f7e69]:
+    - navigation [ref=f7e75]:
+      - generic [ref=f7e81]:
+        - list [ref=f7e82]:
+          - listitem [ref=f7e83]:
+            - link "Chế độ AI" [ref=f7e86] [cursor=pointer]:
+              - /url: /search?q=site:antigravity.google/docs+%22agentapi+send-message%22&sca_esv=61eecca4a6f58912&sxsrf=APpeQnvKeuZtxySYYXdYka6zqboXgZwApw:1787155823071&udm=50&fbs=ABfTbFW4UnGvBVgqDYjq_ksvF_WzL0qSsUjsQCJMDr-_PEHsElEq-XkTNsyVCf0qvOFQ8Ln7dkRjK19mC37dRsKSOIo7Kl0kLZGYIKifW17Uq1LzfuNgS0MPXmq222ob6hQbXs0oSg0rFY69nzIKsLj4z5aFEJik6Be-jaykX6IDY9yBEkvuFCIx5A5eYCADr5rww6Dqy7rD-T5tz4Ol21lAVmZc32WARdyQAUkFMbRWSmxWJvlLpeybKBTLJBbEVN9OgvSWquLU&aep=1&ntc=1&cs=0&sa=X&ved=2ahUKEwiz7_efiq2WAxXhka8BHWxJEdkQ2J8OegQIEBAD
+          - listitem [ref=f7e90]:
+            - link "Tất cả" [disabled] [ref=f7e91]
+          - listitem [ref=f7e94]:
+            - link "Hình ảnh" [ref=f7e95] [cursor=pointer]:
+              - /url: /search?sca_esv=61eecca4a6f58912&sxsrf=APpeQnvKeuZtxySYYXdYka6zqboXgZwApw:1787155823071&udm=2&fbs=ABfTbFW4UnGvBVgqDYjq_ksvF_WzL0qSsUjsQCJMDr-_PEHsElEq-XkTNsyVCf0qvOFQ8Ln7dkRjK19mC37dRsKSOIo7Kl0kLZGYIKifW17Uq1LzfuNgS0MPXmq222ob6hQbXs0oSg0rFY69nzIKsLj4z5aFEJik6Be-jaykX6IDY9yBEkvuFCIx5A5eYCADr5rww6Dqy7rD-T5tz4Ol21lAVmZc32WARdyQAUkFMbRWSmxWJvlLpeybKBTLJBbEVN9OgvSWquLU&q=site:antigravity.google/docs+%22agentapi+send-message%22&sa=X&ved=2ahUKEwiz7_efiq2WAxXhka8BHWxJEdkQtKgLegQIFBAB
+          - listitem [ref=f7e98]:
+            - link "Video" [ref=f7e99] [cursor=pointer]:
+              - /url: /search?sca_esv=61eecca4a6f58912&sxsrf=APpeQnvKeuZtxySYYXdYka6zqboXgZwApw:1787155823071&udm=7&fbs=ABfTbFW4UnGvBVgqDYjq_ksvF_WzL0qSsUjsQCJMDr-_PEHsElEq-XkTNsyVCf0qvOFQ8Ln7dkRjK19mC37dRsKSOIo7Kl0kLZGYIKifW17Uq1LzfuNgS0MPXmq222ob6hQbXs0oSg0rFY69nzIKsLj4z5aFEJik6Be-jaykX6IDY9yBEkvuFCIx5A5eYCADr5rww6Dqy7rD-T5tz4Ol21lAVmZc32WARdyQAUkFMbRWSmxWJvlLpeybKBTLJBbEVN9OgvSWquLU&q=site:antigravity.google/docs+%22agentapi+send-message%22&sa=X&ved=2ahUKEwiz7_efiq2WAxXhka8BHWxJEdkQtKgLegQIFRAB
+          - listitem [ref=f7e102]:
+            - link "Mua sắm" [ref=f7e103] [cursor=pointer]:
+              - /url: /search?sca_esv=61eecca4a6f58912&sxsrf=APpeQnvKeuZtxySYYXdYka6zqboXgZwApw:1787155823071&udm=28&fbs=ABfTbFW4UnGvBVgqDYjq_ksvF_WzL0qSsUjsQCJMDr-_PEHsElEq-XkTNsyVCf0qvOFQ8Ln7dkRjK19mC37dRsKSOIo7Kl0kLZGYIKifW17Uq1LzfuNgS0MPXmq222ob6hQbXs0oSg0rFY69nzIKsLj4z5aFEJik6Be-jaykX6IDY9yBEkvuFCIx5A5eYCADr5rww6Dqy7rD-T5tz4Ol21lAVmZc32WARdyQAUkFMbRWSmxWJvlLpeybKBTLJBbEVN9OgvSWquLU&q=site:antigravity.google/docs+%22agentapi+send-message%22&ved=1t:220175&ictx=111
+          - listitem [ref=f7e106]:
+            - link "Tin tức" [ref=f7e107] [cursor=pointer]:
+              - /url: /search?sca_esv=61eecca4a6f58912&sxsrf=APpeQnvKeuZtxySYYXdYka6zqboXgZwApw:1787155823071&q=site:antigravity.google/docs+%22agentapi+send-message%22&tbm=nws&source=lnms&fbs=ABfTbFW4UnGvBVgqDYjq_ksvF_WzL0qSsUjsQCJMDr-_PEHsElEq-XkTNsyVCf0qvOFQ8Ln7dkRjK19mC37dRsKSOIo7Kl0kLZGYIKifW17Uq1LzfuNgS0MPXmq222ob6hQbXs0oSg0rFY69nzIKsLj4z5aFEJik6Be-jaykX6IDY9yBEkvuFCIx5A5eYCADr5rww6Dqy7rD-T5tz4Ol21lAVmZc32WARdyQAUkFMbRWSmxWJvlLpeybKBTLJBbEVN9OgvSWquLU&sa=X&ved=2ahUKEwiz7_efiq2WAxXhka8BHWxJEdkQ0pQJegQIFhAB
+          - listitem [ref=f7e110]:
+            - link "Video ngắn" [ref=f7e111] [cursor=pointer]:
+              - /url: /search?sca_esv=61eecca4a6f58912&sxsrf=APpeQnvKeuZtxySYYXdYka6zqboXgZwApw:1787155823071&udm=39&fbs=ABfTbFW4UnGvBVgqDYjq_ksvF_WzL0qSsUjsQCJMDr-_PEHsElEq-XkTNsyVCf0qvOFQ8Ln7dkRjK19mC37dRsKSOIo7Kl0kLZGYIKifW17Uq1LzfuNgS0MPXmq222ob6hQbXs0oSg0rFY69nzIKsLj4z5aFEJik6Be-jaykX6IDY9yBEkvuFCIx5A5eYCADr5rww6Dqy7rD-T5tz4Ol21lAVmZc32WARdyQAUkFMbRWSmxWJvlLpeybKBTLJBbEVN9OgvSWquLU&q=site:antigravity.google/docs+%22agentapi+send-message%22&sa=X&ved=2ahUKEwiz7_efiq2WAxXhka8BHWxJEdkQs6gLegQIEhAB
+          - listitem [ref=f7e114]:
+            - button [ref=f7e115] [cursor=pointer]:
+              - generic "Các bộ lọc khác" [ref=f7e116]: Thêm
+        - button "Công cụ" [ref=f7e123] [cursor=pointer]
+    - heading "Kết quả tìm kiếm" [level=1] [ref=f7e130]
+    - generic [ref=f7e136]:
+      - generic [ref=f7e137]: Looking for results in English?
+      - link [ref=f7e138] [cursor=pointer]:
+        - /url: "#"
+      - link "Change to English" [ref=f7e142] [cursor=pointer]:
+        - /url: /setprefs?sig=0_b9eYSybzrT-bmtv5ML6zhS9zH5w%3D&source=en_ignored_notification&prev=https://www.google.com/search?q%3Dsite:antigravity.google/docs%2B%2522agentapi%2Bsend-message%2522&hl=en&sa=X&ved=2ahUKEwiz7_efiq2WAxXhka8BHWxJEdkQhoQCKAF6BAgNEAQ
+      - link "Tiếp tục sử dụng Tiếng Việt" [ref=f7e143] [cursor=pointer]:
+        - /url: "#"
+      - link "Cài đặt ngôn ngữ" [ref=f7e145] [cursor=pointer]:
+        - /url: /preferences?lang=1&hl=vi&sa=X&ved=2ahUKEwiz7_efiq2WAxXhka8BHWxJEdkQiIQCKAN6BAgNEAY#languages
+    - main [ref=f7e147]:
+      - generic [ref=f7e154]:
+        - heading "Web results" [level=2] [ref=f7e155]
+        - generic [ref=f7e156]:
+          - generic [ref=f7e159]:
+            - link "Sidecars | Google Antigravity Docs Google Antigravity https://antigravity.google › docs › sid..." [ref=f7e161] [cursor=pointer]:
+              - /url: https://antigravity.google/docs/sidecars
+              - heading "Sidecars | Google Antigravity Docs" [level=3] [ref=f7e162]
+              - generic [ref=f7e168]:
+                - generic [ref=f7e169]: Google Antigravity
+                - generic [ref=f7e171]: https://antigravity.google › docs › sid...
+            - generic [ref=f7e173]:
+              - generic [ref=f7e174]: ·
+              - link "Dịch trang này" [ref=f7e175] [cursor=pointer]:
+                - /url: https://antigravity.google/docs/sidecars
+            - button "Thông tin về kết quả này" [ref=f7e178] [cursor=pointer]
+          - generic [ref=f7e185]:
+            - text: Sidecars creating conversations must have a projectId set.
+            - emphasis [ref=f7e186]: agentapi send-message
+            - text: <conversation_id> <prompt>. Previous Hooks ...
+      - generic [ref=f7e188]:
+        - generic [ref=f7e189]:
+          - heading "Thông báo về Kết quả bị lọc" [level=2] [ref=f7e190]
+          - paragraph [ref=f7e192]:
+            - generic [ref=f7e193]:
+              - text: Để hiển thị cho bạn các kết quả có liên quan nhất, chúng tôi đã bỏ đi một số mục nhập rất giống với 1 kết quả đã hiển thị.Nếu muốn, bạn có thể
+              - link "lặp lại tìm kiếm với các kết quả đã bỏ đi được bao gồm" [ref=f7e194] [cursor=pointer]:
+                - /url: /search?q=site:antigravity.google/docs+%22agentapi+send-message%22&sca_esv=61eecca4a6f58912&sxsrf=APpeQnvKeuZtxySYYXdYka6zqboXgZwApw:1787155823071&filter=0
+              - text: .
+        - navigation
+      - navigation
+    - contentinfo [ref=f7e195]:
+      - heading "Đường liên kết ở chân trang" [level=1] [ref=f7e196]
+      - generic [ref=f7e200]:
+        - generic [ref=f7e202]:
+          - text: Việt Nam
+          - generic [ref=f7e204]:
+            - button "An Hội Đông, Hồ Chí Minh - Dựa trên địa chỉ IP của bạn" [ref=f7e206] [cursor=pointer]:
+              - generic [ref=f7e207]: An Hội Đông, Hồ Chí Minh
+              - generic [ref=f7e209]:
+                - text: "-"
+                - generic [ref=f7e210]: Dựa trên địa chỉ IP của bạn
+            - text: "-"
+            - button "Cập nhật vị trí" [ref=f7e212] [cursor=pointer]
+        - generic [ref=f7e215]:
+          - link "Trợ giúp" [ref=f7e216] [cursor=pointer]:
+            - /url: https://support.google.com/websearch/?p=ws_results_help&hl=vi&fg=1
+          - link "Gửi phản hồi" [ref=f7e217] [cursor=pointer]:
+            - /url: "#"
+          - link "Quyền riêng tư" [ref=f7e218] [cursor=pointer]:
+            - /url: https://policies.google.com/privacy?hl=vi&fg=1
+          - link "Điều khoản" [ref=f7e219] [cursor=pointer]:
+            - /url: https://policies.google.com/terms?hl=vi&fg=1

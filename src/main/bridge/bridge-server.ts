@@ -104,15 +104,27 @@ export class BridgeServer {
     });
   }
 
+  public getToken(): string {
+    return this.token;
+  }
+
   private setupWssEvents(): void {
     if (!this.wss) return;
 
     this.wss.on('connection', (ws: WebSocket, req) => {
+      // 1. Origin header check: deny browser-originated WebSocket requests
+      const origin = req.headers.origin;
+      if (origin) {
+        ws.close(4003, 'Forbidden: browser Origin header is not allowed on local bridge');
+        return;
+      }
+
+      // 2. Token authentication: must be provided and must match exactly
       const url = new URL(req.url || '/', `http://${req.headers.host || '127.0.0.1'}`);
       const clientToken = url.searchParams.get('token');
 
-      if (clientToken && clientToken !== this.token) {
-        ws.close(4001, 'Unauthorized token');
+      if (!clientToken || clientToken !== this.token) {
+        ws.close(4001, 'Unauthorized: missing or invalid token');
         return;
       }
 
@@ -126,7 +138,12 @@ export class BridgeServer {
 
       ws.on('message', async (data) => {
         try {
-          const raw = JSON.parse(data.toString()) as BridgeRequestPayload;
+          const str = data.toString();
+          if (str.length > 2 * 1024 * 1024) {
+            ws.send(JSON.stringify({ id: 'unknown', success: false, error: 'Payload exceeds 2MB limit' }));
+            return;
+          }
+          const raw = JSON.parse(str) as BridgeRequestPayload;
           await this.handleMessage(ws, raw);
         } catch (err: unknown) {
           const errorMsg = err instanceof Error ? err.message : String(err);

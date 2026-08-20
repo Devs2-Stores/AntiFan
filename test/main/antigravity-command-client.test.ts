@@ -268,4 +268,51 @@ describe('AntigravityCommandClient (Protocol v2)', () => {
     assert.strictEqual(probe3.isLive, false);
     assert.match(probe3.reason || '', /stale/i);
   });
+
+  it('checks and reconciles late receipts arriving after foreground timeout', () => {
+    const workspace = 'E:\\Work\\apps\\my-reconcile-workspace';
+    const { fsSeam, files } = createMockFs();
+
+    const client = new AntigravityCommandClient({
+      workspacePath: workspace,
+      fsSeam,
+    });
+
+    const bridgeDir = path.join(workspace, '.antigravity', 'mcp-bridge');
+    const cmdId = 'cmd-late-999';
+    const resFile = path.join(bridgeDir, `${cmdId}.res.json`);
+
+    // 1. Before late receipt arrives: null
+    assert.strictEqual(client.checkLateReceipt(cmdId), null);
+
+    // 2. Late receipt arrives on disk
+    const lateReceipt: AntigravityResultV2 = {
+      protocolVersion: 2,
+      commandId: cmdId,
+      hostInstanceId: 'vscode-host',
+      hostEpoch: 1,
+      targetWorkspace: { folderUri: workspace },
+      ok: true,
+      deliveryState: 'ide-api-accepted',
+      actualRoute: 'sidecar-agentapi',
+      completedAtEpochMs: Date.now(),
+    };
+    files.set(resFile, JSON.stringify(lateReceipt));
+
+    // 3. checkLateReceipt returns valid result and unlinks the consumed receipt
+    const found = client.checkLateReceipt(cmdId);
+    assert.notStrictEqual(found, null);
+    assert.strictEqual(found?.deliveryState, 'ide-api-accepted');
+    assert.strictEqual(found?.actualRoute, 'sidecar-agentapi');
+    assert.strictEqual(files.has(resFile), false, 'Consumed late receipt must be unlinked');
+
+    // 4. scanAndReconcileLateReceipts
+    const cmdId2 = 'cmd-late-888';
+    const resFile2 = path.join(bridgeDir, `${cmdId2}.res.json`);
+    files.set(resFile2, JSON.stringify({ ...lateReceipt, commandId: cmdId2, deliveryState: 'ide-api-accepted' }));
+
+    const batch = client.scanAndReconcileLateReceipts([cmdId2, 'cmd-not-exist']);
+    assert.strictEqual(batch.size, 1);
+    assert.strictEqual(batch.get(cmdId2)?.deliveryState, 'ide-api-accepted');
+  });
 });

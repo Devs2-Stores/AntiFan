@@ -445,7 +445,7 @@ function renderInline(text: string): string {
     return ph;
   });
 
-  // 2. Links: [text](url) -> clean file link or normal web link
+  // 2. Links: [text](url) -> clean file link or normal web link (protocol allowlisted)
   const inlineLinks: string[] = [];
   str = str.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_m, linkText, url) => {
     const ph = `ANTIFANINLINELINK${inlineLinks.length}END`;
@@ -457,10 +457,15 @@ function renderInline(text: string): string {
     if (cleanText.startsWith('`') && cleanText.endsWith('`')) {
       cleanText = cleanText.slice(1, -1);
     }
-    if (cleanUrl.startsWith('file:///')) {
-      inlineLinks.push(`<a href="${cleanUrl}" class="md-file-link" title="${cleanUrl}">${cleanText}</a>`);
+
+    // Protocol allowlist: only http, https, and file
+    const isAllowed = /^(https?:|file:\/\/\/)/i.test(cleanUrl);
+    if (!isAllowed) {
+      inlineLinks.push(`<span class="md-unsafe-link">${escapeHtml(cleanText)}</span>`);
+    } else if (cleanUrl.startsWith('file:///')) {
+      inlineLinks.push(`<a href="${escapeHtml(cleanUrl)}" class="md-file-link" title="${escapeHtml(cleanUrl)}">${escapeHtml(cleanText)}</a>`);
     } else {
-      inlineLinks.push(`<a href="${cleanUrl}" target="_blank" rel="noopener noreferrer" class="md-link">${cleanText}</a>`);
+      inlineLinks.push(`<a href="${escapeHtml(cleanUrl)}" target="_blank" rel="noopener noreferrer" class="md-link">${escapeHtml(cleanText)}</a>`);
     }
     return ph;
   });
@@ -489,6 +494,9 @@ function renderInline(text: string): string {
 
   return str;
 }
+
+const codeSnippetStore = new Map<string, string>();
+let snippetCounter = 0;
 
 function parseMarkdownTables(text: string): { html: string; tables: string[] } {
   const tables: string[] = [];
@@ -542,15 +550,17 @@ function renderMarkdown(md: string): string {
   html = html.replace(/```([a-z0-9_-]*)\n([\s\S]*?)```/gi, (_match, lang, code) => {
     const placeholder = `ANTIFANBLOCKCODE${codeBlocks.length}END`;
     const trimmedCode = code.trim();
-    const rawEscaped = escapeHtml(trimmedCode);
     const highlighted = highlightCode(trimmedCode, lang);
     const langLabel = lang ? lang.toLowerCase() : 'code';
+    const snippetId = `code-snip-${Date.now()}-${++snippetCounter}`;
+    codeSnippetStore.set(snippetId, trimmedCode);
+
     codeBlocks.push(`
       <div class="code-block">
         <div class="code-header">
           <span class="code-lang">${langLabel}</span>
           <div class="code-actions">
-            <button class="code-action-btn copy-btn" title="Copy code" onclick="(function(btn){ navigator.clipboard.writeText(\`${rawEscaped.replace(/`/g, '\\`').replace(/\\/g, '\\\\')}\`); btn.innerHTML='<span style=\\'color:#4ade80\\'>✓ Copied</span>'; setTimeout(()=>btn.innerHTML='<svg width=\\'12\\' height=\\'12\\' viewBox=\\'0 0 16 16\\' fill=\\'currentColor\\'><path fill-rule=\\'evenodd\\' d=\\'M4 2a2 2 0 0 1 2-2h6a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V2zm2-1a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1V2a1 1 0 0 0-1-1H6zM2 5a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1v-1h1v1a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h1v1H2z\\'/></svg> Copy', 1500); })(this)">
+            <button class="code-action-btn copy-btn" title="Copy code" data-code-id="${snippetId}">
               <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor"><path fill-rule="evenodd" d="M4 2a2 2 0 0 1 2-2h6a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V2zm2-1a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1V2a1 1 0 0 0-1-1H6zM2 5a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1v-1h1v1a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h1v1H2z"/></svg>
               <span>Copy</span>
             </button>
@@ -1005,7 +1015,11 @@ function renderMessages() {
       } else if (msg.deliveryState === 'failed') {
         deliveryBadgeHtml = `<span class="ag-delivery-badge failed" title="${escapeHtml(msg.deliveryError || 'Gửi thất bại')}">❌ Lỗi gửi</span>`;
       } else if (msg.deliveryState === 'unknown') {
-        deliveryBadgeHtml = `<span class="ag-delivery-badge unknown" title="Không nhận được biên nhận xác nhận từ IDE trong thời hạn">⚠️ Không rõ biên nhận</span>`;
+        if (msg.observationState === 'response-observed') {
+          deliveryBadgeHtml = `<span class="ag-delivery-badge unknown" title="Đã thấy phản hồi trong phiên, biên nhận giao thức chưa xác định">👁️ Đã có phản hồi (Chưa rõ biên nhận)</span>`;
+        } else {
+          deliveryBadgeHtml = `<span class="ag-delivery-badge unknown" title="Không nhận được biên nhận xác nhận từ IDE trong thời hạn">⚠️ Không rõ biên nhận</span>`;
+        }
       }
     }
 
@@ -2110,6 +2124,20 @@ async function initSidebar() {
         if (data.errorMessage || data.error) match.deliveryError = data.errorMessage || data.error;
         scheduleRender();
       }
+    }
+  });
+  document.addEventListener('click', (e) => {
+    const target = (e.target as HTMLElement).closest('.copy-btn') as HTMLElement;
+    if (!target) return;
+    const codeId = target.getAttribute('data-code-id');
+    if (codeId && codeSnippetStore.has(codeId)) {
+      const raw = codeSnippetStore.get(codeId)!;
+      navigator.clipboard.writeText(raw);
+      const span = target.querySelector('span');
+      if (span) span.textContent = '✓ Copied';
+      setTimeout(() => {
+        if (span) span.textContent = 'Copy';
+      }, 1500);
     }
   });
 }

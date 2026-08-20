@@ -147,7 +147,7 @@ export class AntigravityCommandClient {
     }
     this.workspacePath = path.resolve(options.workspacePath);
     this.pollIntervalMs = options.pollIntervalMs ?? 150;
-    this.defaultTimeoutMs = options.timeoutMs ?? 25000;
+    this.defaultTimeoutMs = options.timeoutMs ?? 30000;
     this.clock = options.clock ?? Date.now;
     this.fs = options.fsSeam ?? {
       existsSync: fs.existsSync,
@@ -387,4 +387,36 @@ export class AntigravityCommandClient {
     }
     return cleaned;
   }
+
+  checkLateReceipt(commandId: string): AntigravityResultV2 | null {
+    const bridgeDir = this.getBridgeDir();
+    const resultFile = path.join(bridgeDir, `${commandId}.res.json`);
+    if (!this.fs.existsSync(resultFile)) {
+      return null;
+    }
+    try {
+      const raw = this.fs.readFileSync(resultFile, 'utf8');
+      const parsed = JSON.parse(raw);
+      const val = validateResultV2(parsed);
+      if (val.ok && val.result) {
+        try {
+          this.fs.unlinkSync(resultFile);
+        } catch {}
+        return val.result;
+      }
+    } catch {}
+    return null;
+  }
+
+  scanAndReconcileLateReceipts(pendingCommandIds: string[]): Map<string, AntigravityResultV2> {
+    const reconciled = new Map<string, AntigravityResultV2>();
+    for (const cmdId of pendingCommandIds) {
+      const res = this.checkLateReceipt(cmdId);
+      if (res) {
+        reconciled.set(cmdId, res);
+      }
+    }
+    return reconciled;
+  }
 }
+

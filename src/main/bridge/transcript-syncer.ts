@@ -25,9 +25,9 @@ export class TranscriptSyncer extends EventEmitter {
   private lastSessionsFetchTime: number = 0;
   private lastBrainDirMtime: number = 0;
 
-  constructor() {
+  constructor(customBrainDir?: string) {
     super();
-    this.brainDir = path.join(os.homedir(), '.gemini', 'antigravity-ide', 'brain');
+    this.brainDir = customBrainDir || path.join(os.homedir(), '.gemini', 'antigravity-ide', 'brain');
   }
 
   public start(): void {
@@ -299,26 +299,58 @@ export class TranscriptSyncer extends EventEmitter {
     return undefined;
   }
 
+  private validateSessionPathContainment(targetId: string): { ok: boolean; sessionPath?: string } {
+    if (!targetId || typeof targetId !== 'string') return { ok: false };
+    if (!/^[A-Za-z0-9_-]{4,128}$/.test(targetId)) return { ok: false };
+
+    // Must be a member of discovered available sessions
+    const discovered = this.getAvailableSessions();
+    const isMember = discovered.some((s) => s.id === targetId);
+    if (!isMember) return { ok: false };
+
+    const resolvedBrain = path.resolve(this.brainDir);
+    const resolvedSession = path.resolve(this.brainDir, targetId);
+
+    // Direct child containment proof: parent directory must equal resolvedBrain
+    if (path.dirname(resolvedSession).toLowerCase() !== resolvedBrain.toLowerCase()) {
+      return { ok: false };
+    }
+
+    // If directory exists on disk, check realpath containment to prevent symlink traversal
+    if (fs.existsSync(resolvedSession)) {
+      try {
+        const realBrain = fs.realpathSync(resolvedBrain);
+        const realSession = fs.realpathSync(resolvedSession);
+        if (path.dirname(realSession).toLowerCase() !== realBrain.toLowerCase()) {
+          return { ok: false };
+        }
+      } catch {
+        return { ok: false };
+      }
+    }
+
+    return { ok: true, sessionPath: resolvedSession };
+  }
+
   public renameSession(sessionId: string, newTitle: string): boolean {
     const trimmed = newTitle.trim();
-    if (!trimmed) return false;
+    if (!trimmed || trimmed.length > 256) return false;
     const targetId = sessionId === 'auto' ? this.currentSessionId : sessionId;
-    if (!targetId) return false;
+    const validation = this.validateSessionPathContainment(targetId);
+    if (!validation.ok || !validation.sessionPath) return false;
 
     this.customTitles.set(targetId, trimmed);
-    const sessionPath = path.join(this.brainDir, targetId);
-    if (fs.existsSync(sessionPath)) {
-      try {
-        fs.writeFileSync(path.join(sessionPath, 'session_title.txt'), trimmed, 'utf8');
-      } catch {}
-    }
+    try {
+      fs.writeFileSync(path.join(validation.sessionPath, 'session_title.txt'), trimmed, 'utf8');
+    } catch {}
     this.emit('sessions-updated', this.getAvailableSessions());
     return true;
   }
 
   public deleteSession(sessionId: string): boolean {
     const targetId = sessionId === 'auto' ? this.currentSessionId : sessionId;
-    if (!targetId) return false;
+    const validation = this.validateSessionPathContainment(targetId);
+    if (!validation.ok || !validation.sessionPath) return false;
 
     this.customTitles.delete(targetId);
 
@@ -334,18 +366,13 @@ export class TranscriptSyncer extends EventEmitter {
       this.currentTranscriptPath = '';
     }
 
-    const sessionPath = path.join(this.brainDir, targetId);
+    const sessionPath = validation.sessionPath;
     if (fs.existsSync(sessionPath)) {
       try {
         fs.rmSync(sessionPath, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
       } catch (err) {
-        try {
-          // Robust fallback for locked files/directories on Windows
-          const cleanPath = sessionPath.replace(/'/g, "''");
-          cp.execFileSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', `Remove-Item -LiteralPath '${cleanPath}' -Recurse -Force`], { stdio: 'ignore' });
-        } catch (psErr) {
-          console.error('[transcript-syncer] Failed to remove session dir:', err);
-        }
+        console.error('[transcript-syncer] Failed to remove session dir:', err);
+        return false;
       }
     }
 

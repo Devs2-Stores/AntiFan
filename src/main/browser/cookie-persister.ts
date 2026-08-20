@@ -89,10 +89,8 @@ export class CookiePersister {
       }
     };
 
-    session.defaultSession.cookies.on('changed', (_event, _cookie, _cause, removed) => {
-      if (!removed) {
-        setTimeout(saveAll, 500);
-      }
+    session.defaultSession.cookies.on('changed', () => {
+      setTimeout(saveAll, 500);
     });
 
     setInterval(saveAll, 30000);

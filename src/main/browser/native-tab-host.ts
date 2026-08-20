@@ -55,6 +55,7 @@ export class NativeTabHost extends EventEmitter {
 
   private bookmarks: BookmarkItem[] = [];
   private recentlyClosedTabs: Array<{ url: string; title: string }> = [];
+  private pendingDeliveries: Array<{ message: ChatMessage; commandId: string; targetWorkspace: string; dispatchedAt: number }> = [];
 
   private isInspecting: boolean = false;
   private isFontFinderActive: boolean = false;
@@ -62,6 +63,7 @@ export class NativeTabHost extends EventEmitter {
   private isRulerActive: boolean = false;
   private inspectPollTimer: NodeJS.Timeout | null = null;
   private persistTimer: NodeJS.Timeout | null = null;
+  private reconcilerTimer: NodeJS.Timeout | null = null;
 
   constructor(window: BrowserWindow) {
     super();
@@ -1924,9 +1926,24 @@ export class NativeTabHost extends EventEmitter {
       } catch {}
     }
 
+    // Enforce 8-attachment, 10MiB total budget check
+    const MAX_ATTACHMENTS = 8;
+    const MAX_TOTAL_BYTES = 10 * 1024 * 1024;
+    let totalAttachmentBytes = 0;
+    for (const a of attachments) {
+      totalAttachmentBytes += a.byteLength;
+    }
+    if (attachments.length > MAX_ATTACHMENTS || totalAttachmentBytes > MAX_TOTAL_BYTES) {
+      return {
+        ok: false,
+        messageId: '',
+        notice: `Thất bại: Vượt quá giới hạn đính kèm (tối đa 8 tệp, 10MB; hiện tại: ${attachments.length} tệp, ${Math.round(totalAttachmentBytes / 1024 / 1024)}MB)`,
+      };
+    }
+
     const client = new AntigravityCommandClient({
       workspacePath: targetWorkspace,
-      timeoutMs: 15000,
+      timeoutMs: 30000,
     });
 
     const { command, resultPromise } = client.dispatchCommand({
@@ -1955,6 +1972,13 @@ export class NativeTabHost extends EventEmitter {
       observationState: 'none',
     };
     this.chatMessages.push(msg);
+    this.pendingDeliveries.push({
+      message: msg,
+      commandId: command.id,
+      targetWorkspace,
+      dispatchedAt: Date.now(),
+    });
+    this.startLateReceiptReconciler();
 
     // Notify sidebar UI
     if (this.sidebarView && !this.sidebarView.webContents.isDestroyed()) {
@@ -1988,6 +2012,43 @@ export class NativeTabHost extends EventEmitter {
       : '📝 Đã lưu prompt dưới dạng Draft';
 
     return { ok: true, messageId: msg.id, notice, commandId: command.id };
+  }
+
+  private startLateReceiptReconciler(): void {
+    if (this.reconcilerTimer) return;
+    this.reconcilerTimer = setInterval(() => {
+      if (this.pendingDeliveries.length === 0) return;
+      const now = Date.now();
+      // Only keep items from the last 10 minutes
+      this.pendingDeliveries = this.pendingDeliveries.filter((p) => now - p.dispatchedAt < 600000);
+
+      for (const pending of this.pendingDeliveries) {
+        if (pending.message.deliveryState !== 'unknown' && pending.message.deliveryState !== 'queued') {
+          continue;
+        }
+        try {
+          const client = new AntigravityCommandClient({ workspacePath: pending.targetWorkspace });
+          const lateReceipt = client.checkLateReceipt(pending.commandId);
+          if (lateReceipt) {
+            pending.message.deliveryState = lateReceipt.deliveryState;
+            if (lateReceipt.actualRoute) pending.message.actualRoute = lateReceipt.actualRoute;
+            if (lateReceipt.errorMessage) pending.message.deliveryError = lateReceipt.errorMessage;
+            const updatePayload: BridgeDeliveryUpdatePayload = {
+              messageId: pending.message.id,
+              commandId: pending.commandId,
+              deliveryState: lateReceipt.deliveryState,
+              actualRoute: lateReceipt.actualRoute,
+              errorMessage: lateReceipt.errorMessage,
+              errorCode: lateReceipt.errorCode,
+              updatedAtEpochMs: Date.now(),
+            };
+            if (this.sidebarView && !this.sidebarView.webContents.isDestroyed()) {
+              this.sidebarView.webContents.send(SIDEBAR_CHANNELS.DELIVERY_STATE_CHANGED, updatePayload);
+            }
+          }
+        } catch {}
+      }
+    }, 2500);
   }
 
   public findInPage(text: string, forward = true): void {

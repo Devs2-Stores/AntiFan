@@ -1,0 +1,354 @@
+- generic [active] [ref=f6e1]:
+  - link "Skip to content" [ref=f6e2] [cursor=pointer]:
+    - /url: "#_top"
+  - generic [ref=f6e3]:
+    - banner [ref=f6e4]:
+      - generic [ref=f6e5]:
+        - link "Google Antigravity Docs" [ref=f6e7] [cursor=pointer]:
+          - /url: /
+        - button "Search" [ref=f6e11] [cursor=pointer]
+        - generic [ref=f6e18]:
+          - generic [ref=f6e19]: Select theme
+          - combobox "Select theme" [ref=f6e20] [cursor=pointer]:
+            - option "Dark"
+            - option "Light"
+            - option "Auto" [selected]
+    - navigation "Main":
+      - list [ref=f6e24]:
+        - listitem [ref=f6e25]:
+          - link "Home" [ref=f6e26] [cursor=pointer]:
+            - /url: /docs/home/
+        - listitem [ref=f6e27]:
+          - group [ref=f6e28]:
+            - generic "Antigravity 2.0 v2.8.1" [ref=f6e29] [cursor=pointer]:
+              - generic [ref=f6e30]:
+                - text: Antigravity 2.0
+                - generic [ref=f6e31]: v2.8.1
+            - list [ref=f6e34]:
+              - listitem [ref=f6e35]:
+                - link "Overview" [ref=f6e36] [cursor=pointer]:
+                  - /url: /docs/overview/
+              - listitem [ref=f6e37]:
+                - link "Getting Started" [ref=f6e38] [cursor=pointer]:
+                  - /url: /docs/getting-started/
+              - listitem [ref=f6e39]:
+                - link "Build with Google" [ref=f6e40] [cursor=pointer]:
+                  - /url: /docs/build-with-google/
+              - listitem [ref=f6e41]:
+                - link "Feature Overview" [ref=f6e42] [cursor=pointer]:
+                  - /url: /docs/features/
+              - listitem [ref=f6e43]:
+                - link "Models" [ref=f6e44] [cursor=pointer]:
+                  - /url: /docs/models/
+              - listitem [ref=f6e45]:
+                - link "Projects" [ref=f6e46] [cursor=pointer]:
+                  - /url: /docs/projects/
+              - listitem [ref=f6e47]:
+                - group [ref=f6e48]:
+                  - generic "Settings" [ref=f6e49] [cursor=pointer]
+              - listitem [ref=f6e53]:
+                - group [ref=f6e54]:
+                  - generic "Customizations" [ref=f6e55] [cursor=pointer]
+                  - list [ref=f6e59]:
+                    - listitem [ref=f6e60]:
+                      - link "MCP" [ref=f6e61] [cursor=pointer]:
+                        - /url: /docs/mcp/
+                    - listitem [ref=f6e62]:
+                      - link "Skills" [ref=f6e63] [cursor=pointer]:
+                        - /url: /docs/skills/
+                    - listitem [ref=f6e64]:
+                      - link "Rules" [ref=f6e65] [cursor=pointer]:
+                        - /url: /docs/rules-workflows/
+                    - listitem [ref=f6e66]:
+                      - link "Plugins" [ref=f6e67] [cursor=pointer]:
+                        - /url: /docs/plugins/
+                    - listitem [ref=f6e68]:
+                      - link "Hooks" [ref=f6e69] [cursor=pointer]:
+                        - /url: /docs/hooks/
+                    - listitem [ref=f6e70]:
+                      - link "Sidecars" [ref=f6e71] [cursor=pointer]:
+                        - /url: /docs/sidecars/
+              - listitem [ref=f6e72]:
+                - group [ref=f6e73]:
+                  - generic "Agent Capabilities" [ref=f6e74] [cursor=pointer]
+              - listitem [ref=f6e78]:
+                - group [ref=f6e79]:
+                  - generic "Artifacts" [ref=f6e80] [cursor=pointer]
+        - listitem [ref=f6e84]:
+          - group [ref=f6e85]:
+            - generic "Antigravity CLI v1.1.14" [ref=f6e86] [cursor=pointer]:
+              - generic [ref=f6e87]:
+                - text: Antigravity CLI
+                - generic [ref=f6e88]: v1.1.14
+        - listitem [ref=f6e91]:
+          - group [ref=f6e92]:
+            - generic "Antigravity SDK v0.1.12" [ref=f6e93] [cursor=pointer]:
+              - generic [ref=f6e94]:
+                - text: Antigravity SDK
+                - generic [ref=f6e95]: v0.1.12
+        - listitem [ref=f6e98]:
+          - group [ref=f6e99]:
+            - generic "Antigravity IDE v2.5.5" [ref=f6e100] [cursor=pointer]:
+              - generic [ref=f6e101]:
+                - text: Antigravity IDE
+                - generic [ref=f6e102]: v2.5.5
+        - listitem [ref=f6e105]:
+          - group [ref=f6e106]:
+            - generic "Migration" [ref=f6e107] [cursor=pointer]
+        - listitem [ref=f6e111]:
+          - link "Enterprise" [ref=f6e112] [cursor=pointer]:
+            - /url: /docs/enterprise/
+        - listitem [ref=f6e113]:
+          - link "Plans" [ref=f6e114] [cursor=pointer]:
+            - /url: /docs/plans/
+        - listitem [ref=f6e115]:
+          - link "FAQ" [ref=f6e116] [cursor=pointer]:
+            - /url: /docs/faq/
+    - generic [ref=f6e118]:
+      - complementary:
+        - navigation [ref=f6e119]:
+          - group [ref=f6e120]:
+            - generic "On this page" [ref=f6e121]
+      - main [ref=f6e126]:
+        - generic [ref=f6e129]:
+          - navigation "Breadcrumb" [ref=f6e130]:
+            - generic "Antigravity 2.0" [ref=f6e131]
+            - generic "Sidecars" [ref=f6e134]
+          - button "Markdown Options" [ref=f6e136] [cursor=pointer]:
+            - generic [ref=f6e137]: Markdown
+            - generic [ref=f6e138]: keyboard_arrow_down
+        - generic [ref=f6e140]:
+          - generic [ref=f6e141]:
+            - generic [ref=f6e142]:
+              - heading "Sidecars" [level=1] [ref=f6e143]
+              - link "Section titled “Sidecars”" [ref=f6e144] [cursor=pointer]:
+                - /url: "#sidecars"
+            - paragraph [ref=f6e149]: Sidecars are background processes that run alongside Antigravity. Antigravity manages the lifecycle of sidecars, automatically launching them and restarting them if they crash or error. They are useful for persistent background scripts, scheduled recurring tasks, and reacting to events.
+            - generic [ref=f6e150]:
+              - heading "Configuration" [level=2] [ref=f6e151]
+              - link "Section titled “Configuration”" [ref=f6e152] [cursor=pointer]:
+                - /url: "#configuration"
+            - paragraph [ref=f6e157]:
+              - text: Sidecars are discovered by searching for
+              - code [ref=f6e158]: sidecar.json
+              - text: "configuration files. They can be defined in two locations:"
+            - list [ref=f6e159]:
+              - listitem [ref=f6e160]:
+                - text: "Global sidecars: Under"
+                - code [ref=f6e161]: ~/.gemini/config/sidecars/
+              - listitem [ref=f6e162]:
+                - text: "Plugin sidecars: Under"
+                - code [ref=f6e163]: ~/.gemini/config/plugins/<pluginName>/sidecars/
+            - paragraph [ref=f6e164]:
+              - text: Each sidecar has its own directory and the directory name is used as the sidecar’s ID. Sidecars loaded from plugins have the ID
+              - code [ref=f6e165]: <pluginName>/<sidecarName>
+              - text: .
+            - paragraph [ref=f6e166]:
+              - text: The sidecar’s directory must contain a
+              - code [ref=f6e167]: sidecar.json
+              - text: file and may also contain other helper files like scripts to run. The sidecar’s directory also acts as the current working directory for the sidecar’s command.
+            - paragraph [ref=f6e168]: Example directory structure
+            - generic [ref=f6e169]:
+              - code [ref=f6e170]:
+                - generic [ref=f6e171]: ~/.gemini/config/sidecars/
+                - generic [ref=f6e172]: ├── sidecar1/
+                - generic [ref=f6e173]: │ ├── sidecar.json
+                - generic [ref=f6e174]: │ └── script.py
+                - generic [ref=f6e175]: └── sidecar2/
+                - generic [ref=f6e176]: └── sidecar.json
+                - generic [ref=f6e177]: ~/.gemini/config/plugins/
+                - generic [ref=f6e178]: └── my-plugin/
+                - generic [ref=f6e179]: └── sidecars/
+                - generic [ref=f6e180]: └── plugin-sidecar/
+                - generic [ref=f6e181]: └── sidecar.json
+              - button "Copy code to clipboard" [ref=f6e182] [cursor=pointer]: content_copy
+            - generic [ref=f6e183]:
+              - heading "Config Schema (sidecar.json)" [level=3] [ref=f6e184]
+              - link "Section titled “Config Schema (sidecar.json)”" [ref=f6e185] [cursor=pointer]:
+                - /url: "#config-schema-sidecarjson"
+            - list [ref=f6e190]:
+              - listitem [ref=f6e191]:
+                - strong [ref=f6e192]:
+                  - code [ref=f6e193]: command
+                - text: "(string): Command/executable (e.g.,"
+                - code [ref=f6e194]: python3
+                - text: or
+                - code [ref=f6e195]: /bin/bash
+                - text: ). Mutually exclusive with
+                - code [ref=f6e196]: builtin
+                - text: .
+              - listitem [ref=f6e197]:
+                - strong [ref=f6e198]:
+                  - code [ref=f6e199]: builtin
+                - text: "(string): Builtin command to execute. Currently supports"
+                - code [ref=f6e200]: schedule
+                - text: . Mutually exclusive with
+                - code [ref=f6e201]: command
+                - text: .
+              - listitem [ref=f6e202]:
+                - strong [ref=f6e203]:
+                  - code [ref=f6e204]: args
+                - text: "(string[]): Optional. Arguments passed to the command or builtin function."
+              - listitem [ref=f6e205]:
+                - strong [ref=f6e206]:
+                  - code [ref=f6e207]: restart_policy
+                - text: "(string): Optional. Restart behavior. One of"
+                - code [ref=f6e208]: always
+                - text: ","
+                - code [ref=f6e209]: on-failure
+                - text: ", or"
+                - code [ref=f6e210]: never
+                - text: . Defaults to
+                - code [ref=f6e211]: always
+                - text: .
+              - listitem [ref=f6e212]:
+                - strong [ref=f6e213]:
+                  - code [ref=f6e214]: description
+                - text: "(string): Optional. Human-readable description of what the sidecar does."
+              - listitem [ref=f6e215]:
+                - strong [ref=f6e216]:
+                  - code [ref=f6e217]: env
+                - text: "(object): Optional. Map of environment variables to set for the sidecar process."
+              - listitem [ref=f6e218]:
+                - strong [ref=f6e219]:
+                  - code [ref=f6e220]: display_name
+                - text: "(string): Optional. Display name used in the UI."
+            - paragraph [ref=f6e221]:
+              - text: One of
+              - code [ref=f6e222]: command
+              - text: or
+              - code [ref=f6e223]: builtin
+              - text: must be set.
+            - paragraph [ref=f6e224]: "Examples:"
+            - generic [ref=f6e225]:
+              - code [ref=f6e226]:
+                - generic [ref=f6e227]: "{"
+                - generic [ref=f6e228]: "\"description\": \"Background worker\","
+                - generic [ref=f6e229]: "\"command\": \"python3\","
+                - generic [ref=f6e230]: "\"args\": [\"worker.py\"],"
+                - generic [ref=f6e231]: "\"restart_policy\": \"on-failure\""
+                - generic [ref=f6e232]: "}"
+              - button "Copy code to clipboard" [ref=f6e233] [cursor=pointer]: content_copy
+            - generic [ref=f6e234]:
+              - code [ref=f6e235]:
+                - generic [ref=f6e236]: "{"
+                - generic [ref=f6e237]: "\"description\": \"Hourly agent to triage review requests.\","
+                - generic [ref=f6e238]: "\"builtin\": \"schedule\","
+                - generic [ref=f6e239]: "\"args\": ["
+                - generic [ref=f6e240]: "\"0 * * * *\","
+                - generic [ref=f6e241]: "\"agentapi\","
+                - generic [ref=f6e242]: "\"new-conversation\","
+                - generic [ref=f6e243]: "\"Give me a summary of incoming review requests.\""
+                - generic [ref=f6e244]: "]"
+                - generic [ref=f6e245]: "}"
+              - button "Copy code to clipboard" [ref=f6e246] [cursor=pointer]: content_copy
+            - generic [ref=f6e247]:
+              - heading "User Configuration (config.json)" [level=3] [ref=f6e248]
+              - link "Section titled “User Configuration (config.json)”" [ref=f6e249] [cursor=pointer]:
+                - /url: "#user-configuration-configjson"
+            - paragraph [ref=f6e254]:
+              - text: Sidecars are disabled unless explicitly enabled by the user in the global configuration file, located at
+              - code [ref=f6e255]: ~/.gemini/config/config.json
+              - text: .
+            - list [ref=f6e256]:
+              - listitem [ref=f6e257]:
+                - strong [ref=f6e258]:
+                  - code [ref=f6e259]: enabled
+                - text: "(boolean): Whether the sidecar is enabled."
+              - listitem [ref=f6e260]:
+                - strong [ref=f6e261]:
+                  - code [ref=f6e262]: projectId
+                - text: "(string): Optional. The ID of the project"
+                - code [ref=f6e263]: agentapi
+                - text: will create conversations in.
+            - paragraph [ref=f6e264]: "Example:"
+            - generic [ref=f6e265]:
+              - code [ref=f6e266]:
+                - generic [ref=f6e267]: "{"
+                - generic [ref=f6e268]: "\"sidecars\": {"
+                - generic [ref=f6e269]: "\"sidecar1\": {"
+                - generic [ref=f6e270]: "\"enabled\": true"
+                - generic [ref=f6e271]: "},"
+                - generic [ref=f6e272]: "\"my-plugin/plugin-sidecar\": {"
+                - generic [ref=f6e273]: "\"enabled\": true,"
+                - generic [ref=f6e274]: "\"projectId\": \"<projectId>\""
+                - generic [ref=f6e275]: "}"
+                - generic [ref=f6e276]: "}"
+                - generic [ref=f6e277]: "}"
+              - button "Copy code to clipboard" [ref=f6e278] [cursor=pointer]: content_copy
+            - generic [ref=f6e279]:
+              - heading "Runtime Data" [level=3] [ref=f6e280]
+              - link "Section titled “Runtime Data”" [ref=f6e281] [cursor=pointer]:
+                - /url: "#runtime-data"
+            - paragraph [ref=f6e286]:
+              - text: Runtime data produced by sidecars are stored in
+              - code [ref=f6e287]: ~/.gemini/antigravity/sidecar_data/<sidecarId>/
+              - text: .
+            - paragraph [ref=f6e288]: "This includes:"
+            - list [ref=f6e289]:
+              - listitem [ref=f6e290]:
+                - strong [ref=f6e291]:
+                  - code [ref=f6e292]: data/
+                - text: ": Subdirectory for any persistent data. This path is available via the"
+                - code [ref=f6e293]: ANTIGRAVITY_EXECUTABLE_DATA_DIR
+                - text: environment variable.
+              - listitem [ref=f6e294]:
+                - strong [ref=f6e295]:
+                  - code [ref=f6e296]: logs/
+                - text: ": Auto-generated timestamped logs from stdout and stderr."
+              - listitem [ref=f6e297]:
+                - strong [ref=f6e298]:
+                  - code [ref=f6e299]: events/
+                - text: ": JSON files recorded for"
+                - code [ref=f6e300]: agentapi
+                - text: calls.
+            - generic [ref=f6e301]:
+              - heading [level=3] [ref=f6e302]:
+                - code [ref=f6e303]: schedule
+                - text: builtin
+              - link "Section titled “schedule builtin”" [ref=f6e304] [cursor=pointer]:
+                - /url: "#schedule-builtin"
+            - paragraph [ref=f6e309]:
+              - code [ref=f6e310]: schedule
+              - text: is a simple builtin scheduler for running recurring commands.
+            - generic [ref=f6e311]:
+              - code [ref=f6e312]:
+                - generic [ref=f6e313]: "{"
+                - generic [ref=f6e314]: "\"builtin\": \"schedule\","
+                - generic [ref=f6e315]: "\"args\": ["
+                - generic [ref=f6e316]: "\"* * * * *\","
+                - generic [ref=f6e317]: "\"<command>\","
+                - generic [ref=f6e318]: "\"<arg1>\","
+                - generic [ref=f6e319]: "\"<arg2>\""
+                - generic [ref=f6e320]: "]"
+                - generic [ref=f6e321]: "}"
+              - button "Copy code to clipboard" [ref=f6e322] [cursor=pointer]: content_copy
+            - paragraph [ref=f6e323]: The first argument is a standard 5-field cron expression. The remaining arguments are the command and arguments to run on the specified schedule.
+            - generic [ref=f6e324]:
+              - heading [level=3] [ref=f6e325]:
+                - code [ref=f6e326]: agentapi
+              - link "Section titled “agentapi”" [ref=f6e327] [cursor=pointer]:
+                - /url: "#agentapi"
+            - paragraph [ref=f6e332]:
+              - text: Sidecars can use the
+              - code [ref=f6e333]: agentapi
+              - text: CLI to programmatically interact with Antigravity. The executable is automatically added to the sidecar’s path and available as
+              - code [ref=f6e334]: agentapi
+              - text: .
+            - list [ref=f6e335]:
+              - listitem [ref=f6e336]:
+                - code [ref=f6e337]: agentapi new-conversation <prompt>
+                - text: Sidecars creating conversations must have a
+                - code [ref=f6e338]: projectId
+                - text: set.
+              - listitem [ref=f6e339]:
+                - code [ref=f6e340]: agentapi send-message <conversation_id> <prompt>
+          - generic [ref=f6e342]:
+            - link [ref=f6e343] [cursor=pointer]:
+              - /url: /docs/hooks/
+              - text: keyboard_arrow_left
+              - generic [ref=f6e344]: PreviousHooks
+            - link [ref=f6e345] [cursor=pointer]:
+              - /url: /docs/permissions/
+              - generic [ref=f6e346]: NextPermissions
+              - text: keyboard_arrow_right

@@ -53,13 +53,14 @@ class MockTabHost extends EventEmitter {
 }
 
 describe('AntiFan Bridge Server', () => {
-  it('starts on local port and responds to getStatus and RPC methods', async () => {
+  it('starts on local port and responds to getStatus and RPC methods with valid token', async () => {
     const mockHost = new MockTabHost() as unknown as NativeTabHost;
     const server = new BridgeServer(mockHost, 0); // ephemeral port
     const port = await server.start();
     assert.ok(port > 0);
 
-    const ws = new WebSocket(`ws://127.0.0.1:${port}`);
+    const token = server.getToken();
+    const ws = new WebSocket(`ws://127.0.0.1:${port}?token=${token}`);
 
     await new Promise<void>((resolve, reject) => {
       ws.on('open', () => resolve());
@@ -79,14 +80,6 @@ describe('AntiFan Bridge Server', () => {
     assert.strictEqual(statusResp.success, true);
     assert.strictEqual(statusResp.data.active, true);
 
-    // Test openTab
-    const openTabPromise = new Promise<any>((resolve) => {
-      ws.on('message', (data) => {
-        const parsed = JSON.parse(data.toString());
-        if (parsed.id === 'req-2') resolve(parsed);
-      });
-    });
-
     // Test toggleSidebar
     const sidebarPromise = new Promise<any>((resolve) => {
       ws.on('message', (data) => {
@@ -100,6 +93,55 @@ describe('AntiFan Bridge Server', () => {
     assert.strictEqual(sidebarResp.success, true);
 
     ws.close();
+    server.dispose();
+  });
+
+  it('rejects connection when token is missing', async () => {
+    const mockHost = new MockTabHost() as unknown as NativeTabHost;
+    const server = new BridgeServer(mockHost, 0);
+    const port = await server.start();
+
+    const ws = new WebSocket(`ws://127.0.0.1:${port}`);
+    const closeCode = await new Promise<number>((resolve) => {
+      ws.on('close', (code) => resolve(code));
+      ws.on('error', () => {});
+    });
+
+    assert.strictEqual(closeCode, 4001);
+    server.dispose();
+  });
+
+  it('rejects connection when token is invalid', async () => {
+    const mockHost = new MockTabHost() as unknown as NativeTabHost;
+    const server = new BridgeServer(mockHost, 0);
+    const port = await server.start();
+
+    const ws = new WebSocket(`ws://127.0.0.1:${port}?token=wrong-forged-token`);
+    const closeCode = await new Promise<number>((resolve) => {
+      ws.on('close', (code) => resolve(code));
+      ws.on('error', () => {});
+    });
+
+    assert.strictEqual(closeCode, 4001);
+    server.dispose();
+  });
+
+  it('rejects connection when browser Origin header is present', async () => {
+    const mockHost = new MockTabHost() as unknown as NativeTabHost;
+    const server = new BridgeServer(mockHost, 0);
+    const port = await server.start();
+    const token = server.getToken();
+
+    const ws = new WebSocket(`ws://127.0.0.1:${port}?token=${token}`, {
+      headers: { Origin: 'http://malicious-website.com' },
+    });
+
+    const closeCode = await new Promise<number>((resolve) => {
+      ws.on('close', (code) => resolve(code));
+      ws.on('error', () => {});
+    });
+
+    assert.strictEqual(closeCode, 4003);
     server.dispose();
   });
 });
