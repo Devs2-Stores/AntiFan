@@ -253,8 +253,19 @@ export class TranscriptSyncer extends EventEmitter {
           }
         }
 
-        // 2. Check Active Document or Cwd
-        const matchDoc = text.match(/(?:Active Document|Cwd):\s*([a-zA-Z]:\\[^\r\n<>"]+)/i);
+        // 2. Check tool call Cwd or SearchPath arguments
+        const matchToolCwd = text.match(/"(?:Cwd|SearchPath|workspacePath|workspace)"\s*:\s*"\\"?([a-zA-Z]:(?:\\\\|\\)[^"\r\n]+?)\\"?"/i);
+        if (matchToolCwd && matchToolCwd[1]) {
+          const rawP = matchToolCwd[1].replace(/\\\\/g, '\\').trim();
+          const ws = this.findWorkspaceRoot(rawP);
+          if (fs.existsSync(ws)) {
+            this.sessionWorkspaces.set(id, ws);
+            return ws;
+          }
+        }
+
+        // 3. Check Active Document or Cwd text in prompt metadata
+        const matchDoc = text.match(/(?:Active Document|Cwd|project directory as `?):\s*([a-zA-Z]:\\[^\r\n<>"`]+)/i);
         if (matchDoc && matchDoc[1]) {
           const ws = this.findWorkspaceRoot(matchDoc[1].trim());
           if (fs.existsSync(ws)) {
@@ -263,7 +274,7 @@ export class TranscriptSyncer extends EventEmitter {
           }
         }
 
-        // 3. Check file:/// URIs in transcript
+        // 4. Check file:/// URIs in transcript
         const matchFileUri = text.match(/file:\/\/\/([a-zA-Z]:\/[^\r\n<>'"\t]+)/);
         if (matchFileUri && matchFileUri[1]) {
           const p = matchFileUri[1].replace(/\//g, '\\').trim();
