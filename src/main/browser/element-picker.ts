@@ -478,25 +478,30 @@ export const ELEMENT_PICKER_SCRIPT = `(() => {
             if (blob) {
               processImageFile(blob, 'pasted_image_' + (attachedImages.length + 1) + '.png');
               handled = true;
+              break;
             }
           } else if (item.kind === 'file') {
             const file = item.getAsFile();
             if (file && (file.type.startsWith('image/') || /\\.(png|jpe?g|webp|gif|svg|bmp|ico|avif)$/i.test(file.name))) {
               processImageFile(file, file.name);
               handled = true;
+              break;
             }
           }
         }
       }
 
-      // 2. Check clipboard files (files copied from Windows Explorer / desktop)
-      const files = clipboardData.files;
-      if (files && files.length > 0) {
-        for (let i = 0; i < files.length; i++) {
-          const file = files[i];
-          if (file && (file.type.startsWith('image/') || /\\.(png|jpe?g|webp|gif|svg|bmp|ico|avif)$/i.test(file.name))) {
-            processImageFile(file, file.name);
-            handled = true;
+      // 2. Check clipboard files ONLY if not already handled by items
+      if (!handled) {
+        const files = clipboardData.files;
+        if (files && files.length > 0) {
+          for (let i = 0; i < files.length; i++) {
+            const file = files[i];
+            if (file && (file.type.startsWith('image/') || /\\.(png|jpe?g|webp|gif|svg|bmp|ico|avif)$/i.test(file.name))) {
+              processImageFile(file, file.name);
+              handled = true;
+              break;
+            }
           }
         }
       }
@@ -526,7 +531,7 @@ export const ELEMENT_PICKER_SCRIPT = `(() => {
       handlePasteData(cb, ev);
     };
 
-    // Global keydown handler for modal: Escape dismiss and Ctrl+V paste
+    // Global keydown handler for modal: Escape dismiss
     const onGlobalKeyDown = (ev) => {
       if (!isModalOpen) return;
       if (ev.key === 'Escape') {
@@ -540,31 +545,13 @@ export const ELEMENT_PICKER_SCRIPT = `(() => {
         }
         return;
       }
-      if ((ev.ctrlKey || ev.metaKey) && !ev.altKey && (ev.key === 'v' || ev.key === 'V')) {
-        setTimeout(async () => {
-          if (attachedImages.length === 0 && navigator.clipboard && typeof navigator.clipboard.read === 'function') {
-            try {
-              const clipboardItems = await navigator.clipboard.read();
-              for (const item of clipboardItems) {
-                const imageType = item.types.find((t) => t.startsWith('image/'));
-                if (imageType) {
-                  const blob = await item.getType(imageType);
-                  processImageFile(blob, 'pasted_image_' + (attachedImages.length + 1) + '.png');
-                }
-              }
-            } catch {}
-          }
-        }, 60);
-      }
     };
 
     window.addEventListener('paste', onGlobalPaste, true);
-    document.addEventListener('paste', onGlobalPaste, true);
     window.addEventListener('keydown', onGlobalKeyDown, true);
 
     const cleanupModalListeners = () => {
       window.removeEventListener('paste', onGlobalPaste, true);
-      document.removeEventListener('paste', onGlobalPaste, true);
       window.removeEventListener('keydown', onGlobalKeyDown, true);
     };
 

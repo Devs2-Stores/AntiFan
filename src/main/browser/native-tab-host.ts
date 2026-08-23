@@ -275,6 +275,9 @@ export class NativeTabHost extends EventEmitter {
     ipcMain.handle(TOOLBAR_CHANNELS.SWITCH_TAB, (_event, tabId: string) => this.switchTab(tabId));
     ipcMain.handle(TOOLBAR_CHANNELS.CLOSE_TAB, (_event, tabId: string) => this.closeTab(tabId));
     ipcMain.handle(TOOLBAR_CHANNELS.MOVE_TAB, (_event, { tabId, toIndex }: { tabId: string; toIndex: number }) => this.moveTab(tabId, toIndex));
+    ipcMain.handle(TOOLBAR_CHANNELS.DUPLICATE_TAB, (_event, tabId: string) => this.duplicateTab(tabId));
+    ipcMain.handle(TOOLBAR_CHANNELS.CLOSE_OTHER_TABS, (_event, tabId: string) => this.closeOtherTabs(tabId));
+    ipcMain.handle(TOOLBAR_CHANNELS.CLOSE_TABS_TO_RIGHT, (_event, tabId: string) => this.closeTabsToRight(tabId));
     ipcMain.handle(TOOLBAR_CHANNELS.NAVIGATE, (_event, { tabId, url }: { tabId?: string; url: string }) => this.navigate(tabId || this.activeTabId, url));
     ipcMain.handle(TOOLBAR_CHANNELS.RELOAD, (_event, tabId?: string) => this.reload(tabId || this.activeTabId));
     ipcMain.handle(TOOLBAR_CHANNELS.STOP_LOADING, (_event, tabId?: string) => this.stopLoading(tabId || this.activeTabId));
@@ -311,7 +314,7 @@ export class NativeTabHost extends EventEmitter {
     ipcMain.handle(TOOLBAR_CHANNELS.STOP_FIND_IN_PAGE, () => this.stopFindInPage());
     ipcMain.handle(TOOLBAR_CHANNELS.SHOW_MENU, () => this.showMainMenu());
     ipcMain.handle('antifan:toolbar:check-updates', () => checkForUpdatesAndRestart(this.window));
-    ipcMain.handle(TOOLBAR_CHANNELS.SET_OVERLAY, (_event, active: boolean) => this.setToolbarOverlay(active));
+    ipcMain.handle(TOOLBAR_CHANNELS.SET_OVERLAY, (_event, active: boolean, customHeight?: number) => this.setToolbarOverlay(active, customHeight));
     ipcMain.handle(TOOLBAR_CHANNELS.CLEAR_STORAGE, () => this.clearStorageForActiveTab());
     ipcMain.handle(TOOLBAR_CHANNELS.GET_CHROME_PROFILES, () => ChromeProfileSyncManager.getInstance().getAvailableProfiles());
     ipcMain.handle(TOOLBAR_CHANNELS.SYNC_CHROME_PROFILE, async (_event, profileId: string) => {
@@ -1243,18 +1246,18 @@ export class NativeTabHost extends EventEmitter {
     return this.isBookmarkBarVisible;
   }
 
-  public setToolbarOverlay(active: boolean): void {
+  public setToolbarOverlay(active: boolean, customHeight?: number): void {
     const { width, height } = this.window.getContentBounds();
     const availableWidth = this.isSidebarOpen ? Math.max(200, width - this.sidebarWidth) : width;
     if (active) {
       this.window.contentView.addChildView(this.toolbarView);
-      const overlayHeight = Math.min(height, this.getToolbarHeight() + 380);
+      // Give full window height or custom height so dropdowns, popovers, context menus are NEVER clipped!
+      const overlayHeight = customHeight && customHeight > 0 ? Math.min(height, this.getToolbarHeight() + customHeight) : height;
       this.toolbarView.setBounds({ x: 0, y: 0, width: availableWidth, height: overlayHeight });
     } else {
       this.toolbarView.setBounds({ x: 0, y: 0, width: availableWidth, height: this.getToolbarHeight() });
     }
   }
-
   public async clearStorageForActiveTab(): Promise<void> {
     const activeTab = this.tabs.get(this.activeTabId);
     if (activeTab) {
@@ -1614,6 +1617,34 @@ export class NativeTabHost extends EventEmitter {
     this.tabOrder.splice(toIndex, 0, tabId);
     this.broadcastState();
     return true;
+  }
+  public duplicateTab(tabId: string): string {
+    const tab = this.tabs.get(tabId);
+    if (!tab) return '';
+    const targetUrl = tab.state.url || 'https://www.google.com';
+    const newTabId = this.createTab(targetUrl);
+    const oldIndex = this.tabOrder.indexOf(tabId);
+    if (newTabId && oldIndex !== -1) {
+      // Place the duplicated tab directly to the right of the original tab
+      this.moveTab(newTabId, oldIndex + 1);
+    }
+    return newTabId;
+  }
+
+  public closeOtherTabs(tabId: string): void {
+    const toClose = this.tabOrder.filter((id) => id !== tabId);
+    for (const id of toClose) {
+      this.closeTab(id);
+    }
+  }
+
+  public closeTabsToRight(tabId: string): void {
+    const idx = this.tabOrder.indexOf(tabId);
+    if (idx === -1) return;
+    const toClose = this.tabOrder.slice(idx + 1);
+    for (const id of toClose) {
+      this.closeTab(id);
+    }
   }
 
   public navigate(tabId: string, inputUrl: string): boolean {
@@ -2879,8 +2910,8 @@ export class NativeTabHost extends EventEmitter {
   <title>View Source</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
-    body { background: #0d1117; color: #e6edf3; font-family: ui-monospace, "Cascadia Code", "Fira Code", Consolas, monospace; font-size: 13px; line-height: 1.5; }
-    .src-header { position: sticky; top: 0; z-index: 100; display: flex; align-items: center; justify-content: space-between; padding: 8px 16px; background: #161b22; border-bottom: 1px solid #30363d; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; font-size: 12px; }
+    body { background: #0d1117; color: #e6edf3; font-family: ui-monospace, "Cascadia Code", "Fira Code", Consolas, monospace; font-size: 13px; line-height: 1.5; height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
+    .src-header { flex-shrink: 0; display: flex; align-items: center; justify-content: space-between; padding: 8px 16px; background: #161b22; border-bottom: 1px solid #30363d; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; font-size: 12px; }
     .src-title-wrap { display: flex; align-items: center; gap: 10px; overflow: hidden; }
     .src-badge { background: #238636; color: #fff; font-size: 10px; font-weight: 700; padding: 2px 6px; border-radius: 4px; text-transform: uppercase; }
     .src-url { color: #58a6ff; font-weight: 600; text-decoration: none; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 600px; }
@@ -2889,13 +2920,10 @@ export class NativeTabHost extends EventEmitter {
     .src-actions { display: flex; align-items: center; gap: 8px; }
     .src-btn { background: #21262d; color: #c9d1d9; border: 1px solid #30363d; border-radius: 6px; padding: 4px 10px; font-size: 12px; cursor: pointer; display: flex; align-items: center; gap: 4px; transition: all 0.15s ease; }
     .src-btn:hover { background: #30363d; color: #ffffff; border-color: #8b949e; }
-    .src-table { width: 100%; border-collapse: collapse; table-layout: fixed; }
-    .src-ln { width: 60px; min-width: 60px; text-align: right; padding: 0 12px 0 8px; color: #484f58; user-select: none; border-right: 1px solid #21262d; vertical-align: top; font-size: 12px; }
-    .src-code { padding: 0 12px; white-space: pre-wrap; word-break: break-all; vertical-align: top; }
-    tr:hover { background: rgba(56, 139, 253, 0.08); }
+    .src-container { flex: 1; overflow: auto; padding: 16px 20px; background: #0d1117; }
+    .src-code-pre { margin: 0; font-family: inherit; font-size: 12.5px; line-height: 1.6; white-space: pre-wrap; word-break: break-all; tab-size: 2; color: #e6edf3; }
     .toast { position: fixed; bottom: 20px; right: 20px; background: #238636; color: #fff; padding: 8px 16px; border-radius: 6px; font-size: 12px; font-weight: 600; opacity: 0; transition: opacity 0.2s ease; pointer-events: none; }
     .toast.show { opacity: 1; }
-    .src-loading { padding: 32px 16px; color: #8b949e; font-family: sans-serif; font-size: 14px; text-align: center; }
   </style>
 </head>
 <body>
@@ -2910,11 +2938,9 @@ export class NativeTabHost extends EventEmitter {
       <button class="src-btn" id="btnDownload">💾 Save HTML</button>
     </div>
   </div>
-  <table class="src-table">
-    <tbody id="srcBody">
-      <tr><td colspan="2" class="src-loading">Loading page source...</td></tr>
-    </tbody>
-  </table>
+  <div class="src-container">
+    <pre class="src-code-pre" id="srcCode">Loading page source...</pre>
+  </div>
   <div class="toast" id="toast">Copied to clipboard!</div>
   <script>
     let rawStore = '';
@@ -2928,32 +2954,17 @@ export class NativeTabHost extends EventEmitter {
         urlEl.title = url;
       }
 
-      const lines = rawStore.split(/\\r?\\n/);
+      const linesCount = rawStore.split('\\n').length;
       const sizeKb = (new Blob([rawStore]).size / 1024).toFixed(1);
       const metaEl = document.getElementById('srcMeta');
       if (metaEl) {
-        metaEl.textContent = lines.length + ' lines · ' + sizeKb + ' KB';
+        metaEl.textContent = linesCount.toLocaleString() + ' lines · ' + sizeKb + ' KB';
       }
 
-      const tbody = document.getElementById('srcBody');
-      if (!tbody) return;
-      tbody.innerHTML = '';
-      const frag = document.createDocumentFragment();
-
-      for (let i = 0; i < lines.length; i++) {
-        const tr = document.createElement('tr');
-        tr.id = 'L' + (i + 1);
-        const tdLn = document.createElement('td');
-        tdLn.className = 'src-ln';
-        tdLn.textContent = String(i + 1);
-        const tdCode = document.createElement('td');
-        tdCode.className = 'src-code';
-        tdCode.textContent = lines[i] || ' ';
-        tr.appendChild(tdLn);
-        tr.appendChild(tdCode);
-        frag.appendChild(tr);
+      const codeEl = document.getElementById('srcCode');
+      if (codeEl) {
+        codeEl.textContent = rawStore;
       }
-      tbody.appendChild(frag);
     };
 
     document.getElementById('btnCopy').onclick = () => {
@@ -2977,21 +2988,34 @@ export class NativeTabHost extends EventEmitter {
 </html>`;
   }
 
-  public async fetchAndLoadPageSource(wc: Electron.WebContents, targetUrl: string, tabState?: AntiFanTab): Promise<void> {
-    let rawHtml = '';
+  public async fetchAndLoadPageSource(
+    wc: Electron.WebContents,
+    targetUrl: string,
+    tabState?: AntiFanTab,
+    preloadedHtml?: string
+  ): Promise<void> {
+    let rawHtml = preloadedHtml || '';
 
-    for (const t of this.tabs.values()) {
-      if (t.state.url === targetUrl && !t.view.webContents.isDestroyed()) {
-        try {
-          rawHtml = await t.view.webContents.executeJavaScript('document.documentElement.outerHTML || document.body.outerHTML', true);
-          if (rawHtml) break;
-        } catch {}
+    if (!rawHtml) {
+      for (const t of this.tabs.values()) {
+        if (t.state.url === targetUrl && !t.view.webContents.isDestroyed()) {
+          try {
+            rawHtml = await t.view.webContents.executeJavaScript(
+              'document.documentElement.outerHTML || document.body.outerHTML',
+              true
+            );
+            if (rawHtml) break;
+          } catch {}
+        }
       }
     }
 
     if (!rawHtml && (targetUrl.startsWith('http://') || targetUrl.startsWith('https://'))) {
       try {
-        const res = await net.fetch(targetUrl);
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 6000);
+        const res = await net.fetch(targetUrl, { signal: controller.signal });
+        clearTimeout(timeoutId);
         rawHtml = await res.text();
       } catch (err) {
         rawHtml = `<!-- Failed to fetch page source: ${String(err)} -->`;
@@ -3012,11 +3036,13 @@ export class NativeTabHost extends EventEmitter {
     const dataUrl = 'data:text/html;charset=utf-8,' + encodeURIComponent(skeletonHtml);
 
     try {
-      await wc.loadURL(dataUrl);
       if (!wc.isDestroyed()) {
-        await wc.executeJavaScript(
-          `if (typeof window.__antifanRenderSource === 'function') { window.__antifanRenderSource(${JSON.stringify(targetUrl)}, ${JSON.stringify(rawHtml)}); }`
-        );
+        await wc.loadURL(dataUrl);
+        if (!wc.isDestroyed()) {
+          await wc.executeJavaScript(
+            `if (typeof window.__antifanRenderSource === 'function') { window.__antifanRenderSource(${JSON.stringify(targetUrl)}, ${JSON.stringify(rawHtml)}); }`
+          );
+        }
       }
     } catch (err) {
       console.error('[native-tab-host] Failed to load source viewer:', err);
@@ -3029,7 +3055,24 @@ export class NativeTabHost extends EventEmitter {
     if (!targetTab) return '';
 
     const sourceUrl = targetTab.state.url || 'https://www.google.com';
-    return this.createTab(`view-source:${sourceUrl}`);
+    let initialHtml = '';
+    if (!targetTab.view.webContents.isDestroyed()) {
+      try {
+        initialHtml = await targetTab.view.webContents.executeJavaScript(
+          'document.documentElement.outerHTML || document.body.outerHTML',
+          true
+        );
+      } catch {}
+    }
+
+    const newTabId = this.createTab(`view-source:${sourceUrl}`);
+    if (newTabId && initialHtml) {
+      const newTab = this.tabs.get(newTabId);
+      if (newTab && !newTab.view.webContents.isDestroyed()) {
+        this.fetchAndLoadPageSource(newTab.view.webContents, sourceUrl, newTab.state, initialHtml);
+      }
+    }
+    return newTabId;
   }
 
   public broadcastState(): void {

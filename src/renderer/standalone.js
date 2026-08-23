@@ -804,23 +804,36 @@ function startInlineRename(sessionId, tabWrapEl, titleSpanEl) {
   input.focus();
   input.select();
 
+  // Prevent event bubbling to button container
+  input.addEventListener('click', (e) => e.stopPropagation());
+  input.addEventListener('mousedown', (e) => e.stopPropagation());
+  input.addEventListener('mouseup', (e) => e.stopPropagation());
+  input.addEventListener('dblclick', (e) => e.stopPropagation());
+
   let finished = false;
   const finishRename = async (save) => {
     if (finished) return;
     finished = true;
     const newName = input.value.trim();
-    input.remove();
+    try {
+      input.remove();
+    } catch {}
     titleSpanEl.style.display = '';
     tabWrapEl.classList.remove('renaming');
 
     if (save && newName && newName !== currentName) {
       titleSpanEl.textContent = newName;
-      await api?.renameTerminal(sessionId, newName);
+      try {
+        await api?.renameTerminal(sessionId, newName);
+      } catch (err) {
+        console.error('Failed to rename terminal:', err);
+      }
     }
   };
 
   input.addEventListener('keydown', (e) => {
     e.stopPropagation();
+    e.stopImmediatePropagation();
     if (e.key === 'Enter') {
       e.preventDefault();
       finishRename(true);

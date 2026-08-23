@@ -1043,14 +1043,18 @@ if (btnChromeProfile) {
     e.stopPropagation();
     const isHidden = profileDropdownMenu.style.display === 'none';
     if (isHidden) {
+      if (bookmarksDropdownMenu) bookmarksDropdownMenu.style.display = 'none';
+      if (appDropdownMenu) appDropdownMenu.style.display = 'none';
       const profiles = await getApi()?.getChromeProfiles();
       if (profiles && Array.isArray(profiles)) {
         availableChromeProfiles = profiles;
       }
       renderChromeProfiles();
       profileDropdownMenu.style.display = 'flex';
+      getApi()?.setOverlay(true);
     } else {
       profileDropdownMenu.style.display = 'none';
+      getApi()?.setOverlay(false);
     }
   });
 }
@@ -1059,6 +1063,7 @@ document.addEventListener('click', (e) => {
   if (profileDropdownMenu && profileDropdownMenu.style.display !== 'none') {
     if (!profileDropdownMenu.contains(e.target as Node) && !btnChromeProfile.contains(e.target as Node)) {
       profileDropdownMenu.style.display = 'none';
+      getApi()?.setOverlay(false);
     }
   }
 });
@@ -1315,6 +1320,7 @@ function hideTabContextMenu() {
   tabContextMenu.classList.remove('active');
   tabContextMenu.style.display = 'none';
   contextMenuTargetTabId = null;
+  getApi()?.setOverlay(false);
 }
 
 function showTabContextMenu(x: number, y: number, tabId: string) {
@@ -1340,16 +1346,17 @@ function showTabContextMenu(x: number, y: number, tabId: string) {
     }
   }
 
+  getApi()?.setOverlay(true);
   tabContextMenu.style.display = 'flex';
   tabContextMenu.classList.add('active');
 
   const menuWidth = 210;
-  const menuHeight = 220;
   const maxX = window.innerWidth - menuWidth - 8;
-  const maxY = window.innerHeight - menuHeight - 8;
+  const targetX = Math.max(8, Math.min(x, maxX));
+  const targetY = Math.max(4, y);
 
-  tabContextMenu.style.left = `${Math.max(8, Math.min(x, maxX))}px`;
-  tabContextMenu.style.top = `${Math.max(4, Math.min(y, maxY))}px`;
+  tabContextMenu.style.left = `${targetX}px`;
+  tabContextMenu.style.top = `${targetY}px`;
 }
 
 if (menuItemNewTabRight) {
