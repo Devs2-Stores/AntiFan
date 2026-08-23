@@ -109,6 +109,16 @@ button {
   color: #f1f5f9;
 }
 
+.icon-button.active {
+  background: rgba(56, 189, 248, 0.2);
+  border-color: #38bdf8;
+  color: #38bdf8;
+}
+
+.icon-button:disabled {
+  opacity: .5;
+  cursor: wait;
+}
 
 .brand-subtext {
   font-size: 9.5px;

@@ -246,13 +246,13 @@ export class TerminalManager extends EventEmitter {
       const baseSessions = saved.filter(item => !item.splitOf);
       if (baseSessions.length > 0) {
         for (const item of baseSessions) {
-          const s = this.spawn(item.id, item.cwd || this.currentCwd, item.buffer || '');
+          const s = this.spawn(item.id, item.cwd || this.currentCwd, '');
           s.name = item.name || s.name;
           s.capsuleId = item.capsuleId || this.currentCapsuleId;
         }
         const splitSessions = saved.filter(item => item.splitOf && this.sessions.has(item.splitOf));
         for (const item of splitSessions) {
-          const s = this.spawn(item.id, item.cwd || this.currentCwd, item.buffer || '');
+          const s = this.spawn(item.id, item.cwd || this.currentCwd, '');
           s.name = item.name || s.name;
           s.splitOf = item.splitOf;
           s.capsuleId = item.capsuleId || this.currentCapsuleId;
@@ -331,13 +331,13 @@ export class TerminalManager extends EventEmitter {
       const baseSessions = saved.filter(item => !item.splitOf);
       if (baseSessions.length > 0) {
         for (const item of baseSessions) {
-          const s = this.spawn(item.id, item.cwd || this.currentCwd, item.buffer || '');
+          const s = this.spawn(item.id, item.cwd || this.currentCwd, '');
           s.name = item.name || s.name;
           s.capsuleId = item.capsuleId || this.currentCapsuleId;
         }
         const splitSessions = saved.filter(item => item.splitOf && this.sessions.has(item.splitOf));
         for (const item of splitSessions) {
-          const s = this.spawn(item.id, item.cwd || this.currentCwd, item.buffer || '');
+          const s = this.spawn(item.id, item.cwd || this.currentCwd, '');
           s.name = item.name || s.name;
           s.splitOf = item.splitOf;
           s.capsuleId = item.capsuleId || this.currentCapsuleId;

@@ -26,6 +26,7 @@ export interface TabContextMenuHostDelegate {
   goForward(tabId: string): void;
   reload(tabId: string): boolean;
   createTab(url?: string): string;
+  viewPageSource?(tabId?: string): Promise<string> | void;
   captureScreenshot(): Promise<string>;
   openExternal(): void;
   onProfileSynced?(): void;
@@ -44,35 +45,35 @@ export class TabContextMenuBuilder {
       menu.append(
         new MenuItem({
           label: '🎯 Inspect Element (Attach to AI Chat)',
-          accelerator: 'Ctrl+Alt+A',
+          accelerator: 'Alt+Ctrl+A',
           click: () => this.host.startInspect(),
         })
       );
       menu.append(
         new MenuItem({
           label: '🔤 Font Finder (Typography)',
-          accelerator: 'Ctrl+Alt+F',
+          accelerator: 'Alt+Ctrl+F',
           click: () => this.host.toggleFontFinder(),
         })
       );
       menu.append(
         new MenuItem({
-          label: '📐 Pixel Ruler & Layout Grid',
-          accelerator: 'Ctrl+Alt+R',
+          label: '📐 Pixel Ruler Layout Grid',
+          accelerator: 'Alt+Ctrl+R',
           click: () => this.host.toggleRuler(),
         })
       );
       menu.append(
         new MenuItem({
           label: '🔍 GPU Lens (Pixel Zoom)',
-          accelerator: 'Ctrl+Alt+L',
+          accelerator: 'Alt+Ctrl+L',
           click: () => this.host.toggleLens(),
         })
       );
       menu.append(
         new MenuItem({
           label: '💬 Toggle AI Chat Sidebar',
-          accelerator: 'Ctrl+Alt+B',
+          accelerator: 'Alt+Ctrl+B',
           click: () => this.host.toggleSidebar(),
         })
       );
@@ -144,7 +145,7 @@ export class TabContextMenuBuilder {
         );
         menu.append(
           new MenuItem({
-            label: 'ℹ️ View Image Details',
+            label: 'ℹ️ View Image Info  Dimensions',
             click: () => uploader.showImageInfo(imageUrl, win),
           })
         );
@@ -203,22 +204,6 @@ export class TabContextMenuBuilder {
       }
 
       // 4. Standard Navigation & Developer Tools
-      const activeTabId = this.host.getActiveTabId();
-      menu.append(
-        new MenuItem({
-          label: '⬅️ Back',
-          enabled: (wc as any).navigationHistory?.canGoBack?.() || false,
-          click: () => this.host.goBack(activeTabId),
-        })
-      );
-      menu.append(
-        new MenuItem({
-          label: '➡️ Forward',
-          enabled: (wc as any).navigationHistory?.canGoForward?.() || false,
-          click: () => this.host.goForward(activeTabId),
-        })
-      );
-      // 4. Standard Navigation & Developer Tools
       const targetTabId = this.host.getActiveTabId();
       const navigationHistory = (wc as unknown as { navigationHistory?: { canGoBack?: () => boolean; canGoForward?: () => boolean } }).navigationHistory;
       menu.append(
@@ -242,14 +227,24 @@ export class TabContextMenuBuilder {
           click: () => this.host.reload(targetTabId),
         })
       );
+      menu.append(
+        new MenuItem({
+          label: '↗️ Open in External Browser',
+          click: () => this.host.openExternal(),
+        })
+      );
       menu.append(new MenuItem({ type: 'separator' }));
       menu.append(
         new MenuItem({
           label: '📄 View Page Source',
           accelerator: 'Ctrl+U',
           click: () => {
-            const active = this.host.getActiveTab();
-            if (active?.url) this.host.createTab(`view-source:${active.url}`);
+            if (this.host.viewPageSource) {
+              this.host.viewPageSource(targetTabId);
+            } else {
+              const active = this.host.getActiveTab();
+              if (active?.url) this.host.createTab(`view-source:${active.url}`);
+            }
           },
         })
       );

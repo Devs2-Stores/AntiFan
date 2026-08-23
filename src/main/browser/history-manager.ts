@@ -43,7 +43,7 @@ export class HistoryManager extends EventEmitter {
       'User Data'
     );
     this.loadHistory();
-    this.importChromeHistory().catch(() => {});
+    this.importAllChromeProfiles().catch(() => {});
   }
 
   public static getInstance(): HistoryManager {
@@ -159,11 +159,26 @@ export class HistoryManager extends EventEmitter {
   /**
    * Safe-copies and imports history from Chrome's SQLite History DB
    */
+  public async importAllChromeProfiles(): Promise<number> {
+    let total = 0;
+    try {
+      if (!fs.existsSync(this.chromeUserDataPath)) return 0;
+      const entries = fs.readdirSync(this.chromeUserDataPath);
+      for (const entry of entries) {
+        if (entry === 'Default' || entry.startsWith('Profile ')) {
+          const n = await this.importChromeHistory(entry);
+          total += n;
+        }
+      }
+    } catch {}
+    return total;
+  }
+
   public async importChromeHistory(profileId = 'Default'): Promise<number> {
     const historySrc = path.join(this.chromeUserDataPath, profileId, 'History');
     if (!fs.existsSync(historySrc)) return 0;
 
-    const tempDir = path.join(os.tmpdir(), 'antifan_chrome_hist_' + Date.now());
+    const tempDir = path.join(os.tmpdir(), 'antifan_chrome_hist_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6));
     fs.mkdirSync(tempDir, { recursive: true });
     const tempDb = path.join(tempDir, 'History.db');
 
@@ -180,6 +195,8 @@ export class HistoryManager extends EventEmitter {
 
       const pyScript = `import sqlite3, json, sys
 try:
+    if hasattr(sys.stdout, 'reconfigure'):
+        sys.stdout.reconfigure(encoding='utf-8')
     conn = sqlite3.connect(sys.argv[1])
     cursor = conn.cursor()
     cursor.execute("SELECT url, title, visit_count, last_visit_time FROM urls ORDER BY last_visit_time DESC LIMIT 5000")
@@ -188,10 +205,9 @@ try:
     for r in rows:
         url, title, visits, last_time = r[0], r[1], r[2], r[3]
         if url and (url.startswith('http://') or url.startswith('https://')):
-            # WebKit timestamp (microseconds since 1601-01-01) to UNIX ms
             unix_ms = (last_time // 1000) - 11644473600000 if last_time else 0
             res.append({'url': url, 'title': title or '', 'visitCount': visits or 1, 'lastVisitTime': max(0, unix_ms)})
-    print(json.dumps(res))
+    print(json.dumps(res, ensure_ascii=False))
     conn.close()
 except Exception as e:
     print("[]")
@@ -199,9 +215,8 @@ except Exception as e:
       const pyPath = path.join(tempDir, 'extract_hist.py');
       fs.writeFileSync(pyPath, pyScript, 'utf8');
 
-      const rawJson = cp.execFileSync('python', [pyPath, tempDb], { maxBuffer: 50 * 1024 * 1024, timeout: 5000 }).toString();
+      const rawJson = cp.execFileSync('python', [pyPath, tempDb], { encoding: 'utf8', maxBuffer: 50 * 1024 * 1024, timeout: 8000 }).toString();
       const records: Array<{ url: string; title: string; visitCount: number; lastVisitTime: number }> = JSON.parse(rawJson);
-
       for (const r of records) {
         if (!r.url) continue;
         try {

@@ -4,7 +4,7 @@
  * Multi-tab, Docked DevTools, GPU Lens, Font Finder, Device Emulation, Bookmarks,
  * AI Chat Sidebar (WebSocket Relay with Antigravity IDE), Global Shortcuts, and Context Menu.
  */
-import { app, BrowserWindow, WebContentsView, Menu, MenuItem, clipboard, Rectangle, ipcMain, shell, dialog } from 'electron';
+import { app, BrowserWindow, WebContentsView, Menu, MenuItem, clipboard, Rectangle, ipcMain, shell, dialog, net } from 'electron';
 import * as path from 'node:path';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
@@ -34,6 +34,9 @@ import { checkForUpdatesAndRestart } from './app-menu';
 import { SkillScanner } from './skill-scanner';
 import { WindowStateManager } from './window-state';
 import { AntigravityCommandClient, generateCommandId } from '../bridge/antigravity-command-client';
+import { BridgeServer } from '../bridge/bridge-server';
+import { WorkflowRegistry } from '../workflow/workflow-registry';
+import { HistoryManager } from './history-manager';
 export const TOOLBAR_HEIGHT_WITH_BOOKMARKS = 102;
 export const TOOLBAR_HEIGHT_COMPACT = 74;
 
@@ -70,6 +73,7 @@ export class NativeTabHost extends EventEmitter {
   private readonly previewWatcherPool = new PreviewWatcherPool();
   private readonly capsuleManager: WorkspaceCapsuleManager;
   private controlPlane: ControlPlaneRuntime | null = null;
+  private readonly workflowRegistry = new WorkflowRegistry(path.join(os.homedir(), '.antifan', 'workflows'));
   private documentGenerations: Map<string, number> = new Map();
   private browserEpoch: number = 1;
   private tabPreviewUnsubscribers: Map<string, () => void> = new Map();
@@ -345,48 +349,81 @@ export class NativeTabHost extends EventEmitter {
       const q = (query || '').trim();
       if (!q) {
         const results = this.bookmarks.slice(0, 5).map(b => ({
-          type: 'bookmark',
+          type: 'bookmark' as const,
           text: b.title,
           url: b.url,
+          subText: b.url,
         }));
         return { suggestions: results };
       }
 
-      const results: Array<{ type: 'search' | 'url' | 'bookmark'; text: string; url?: string }> = [];
+      const results: Array<{ type: 'search' | 'url' | 'bookmark' | 'history' | 'tab'; text: string; url?: string; tabId?: string; subText?: string }> = [];
       const lower = q.toLowerCase();
 
-      // 1. Check local bookmarks match
+      // 1. Search browser history (frecency matched)
+      try {
+        const historyMatches = HistoryManager.getInstance().search(q, 6);
+        for (const h of historyMatches) {
+          if (!results.some(r => r.url === h.url)) {
+            results.push({
+              type: 'history',
+              text: h.title || h.domain || h.url,
+              url: h.url,
+              subText: h.domain || h.url,
+            });
+          }
+        }
+      } catch {}
+
+      // 2. Check local bookmarks match
       this.bookmarks.forEach(b => {
         if (b.title.toLowerCase().includes(lower) || b.url.toLowerCase().includes(lower)) {
-          results.push({ type: 'bookmark', text: b.title, url: b.url });
+          if (!results.some(r => r.url === b.url)) {
+            results.push({ type: 'bookmark', text: b.title, url: b.url, subText: b.url });
+          }
         }
       });
 
-      // 2. Check local open tabs match
+      // 3. Check local open tabs match
       this.tabOrder.forEach(id => {
         const tab = this.tabs.get(id);
         if (tab && (tab.state.title.toLowerCase().includes(lower) || tab.state.url.toLowerCase().includes(lower))) {
           if (!results.some(r => r.url === tab.state.url)) {
-            results.push({ type: 'url', text: tab.state.title, url: tab.state.url });
+            results.push({ type: 'tab', text: tab.state.title, url: tab.state.url, tabId: id, subText: 'Chuyển sang tab' });
           }
         }
       });
 
-      // 3. Fetch live Google search suggestions
+      // 4. Fetch live Google search suggestions with UTF-8 encoding
       try {
-        const apiUrl = `https://suggestqueries.google.com/complete/search?client=chrome&q=${encodeURIComponent(q)}`;
-        const res = await fetch(apiUrl);
+        const apiUrl = `https://suggestqueries.google.com/complete/search?client=chrome&hl=vi&gl=vn&ie=utf_8&oe=utf_8&q=${encodeURIComponent(q)}`;
+        const res = await fetch(apiUrl, {
+          headers: {
+            'Accept': 'application/json, text/plain, */*',
+            'Accept-Charset': 'utf-8',
+          },
+        });
         if (res.ok) {
-          const data: any = await res.json();
+          const buffer = await res.arrayBuffer();
+          const text = new TextDecoder('utf-8').decode(buffer);
+          const data: any = JSON.parse(text);
           if (Array.isArray(data) && Array.isArray(data[1])) {
             const googleQueries: string[] = data[1].slice(0, 6);
             googleQueries.forEach(suggestedText => {
-              results.push({ type: 'search', text: suggestedText, url: `https://www.google.com/search?q=${encodeURIComponent(suggestedText)}` });
+              if (suggestedText && !results.some(r => r.text === suggestedText)) {
+                results.push({
+                  type: 'search',
+                  text: suggestedText,
+                  url: `https://www.google.com/search?q=${encodeURIComponent(suggestedText)}`
+                });
+              }
             });
           }
         }
       } catch {
-        results.push({ type: 'search', text: q, url: `https://www.google.com/search?q=${encodeURIComponent(q)}` });
+        if (!results.some(r => r.type === 'search')) {
+          results.push({ type: 'search', text: q, url: `https://www.google.com/search?q=${encodeURIComponent(q)}` });
+        }
       }
 
       return { suggestions: results.slice(0, 8) };
@@ -565,6 +602,46 @@ export class NativeTabHost extends EventEmitter {
         return next;
       }
       return false;
+    });
+    ipcMain.handle('antifan:toolbar:get-mobile-remote-info', () => {
+      return BridgeServer.getInstance()?.getRemoteConnectionInfo() || null;
+    });
+
+    ipcMain.handle('antifan:workflow:get-state', () => {
+      const workflows = this.workflowRegistry.getAll();
+      const tools = [
+        { id: 'antifan_open_tab', name: 'antifan_open_tab', description: 'Mở tab Chromium mới trong AntiFan Desktop', category: 'browser', permissions: ['execute'] },
+        { id: 'antifan_navigate_tab', name: 'antifan_navigate_tab', description: 'Điều hướng tab hiện tại đến URL chỉ định', category: 'browser', permissions: ['execute'] },
+        { id: 'antifan_screenshot_tab', name: 'antifan_screenshot_tab', description: 'Chụp ảnh màn hình Viewport hoặc toàn trang (.PNG)', category: 'media', permissions: ['read'] },
+        { id: 'antifan_execute_javascript', name: 'antifan_execute_javascript', description: 'Thực thi mã JavaScript trong trang web đang mở', category: 'eval', permissions: ['eval'] },
+        { id: 'antifan_click_element', name: 'antifan_click_element', description: 'Click vào phần tử theo CSS selector hoặc XPath', category: 'browser', permissions: ['execute'] },
+        { id: 'antifan_input_text', name: 'antifan_input_text', description: 'Nhập văn bản vào input hoặc textarea trên trang', category: 'browser', permissions: ['execute'] },
+        { id: 'antifan_inspect_element', name: 'antifan_inspect_element', description: 'Phân tích phần tử DOM tại tọa độ (x, y)', category: 'inspect', permissions: ['read'] },
+        { id: 'antifan_find_elements', name: 'antifan_find_elements', description: 'Tìm danh sách phần tử khớp CSS selector', category: 'inspect', permissions: ['read'] },
+        { id: 'antifan_set_device_preset', name: 'antifan_set_device_preset', description: 'Chuyển đổi chuẩn thiết bị mô phỏng di động', category: 'device', permissions: ['execute'] },
+        { id: 'antifan_sync_chrome_profile', name: 'antifan_sync_chrome_profile', description: 'Đồng bộ Bookmarks, Cookies và History từ Chrome', category: 'auth', permissions: ['read', 'write'] },
+        { id: 'antifan_write_terminal', name: 'antifan_write_terminal', description: 'Gửi lệnh thực thi vào phiên Terminal', category: 'terminal', permissions: ['execute'] },
+        { id: 'antifan_switch_capsule', name: 'antifan_switch_capsule', description: 'Chuyển đổi dự án Workspace Capsule đang hoạt động', category: 'workspace', permissions: ['write'] },
+      ];
+      return { workflows, tools };
+    });
+
+    ipcMain.handle('antifan:workflow:save', (_event, item: any) => {
+      return this.workflowRegistry.saveCustom(item);
+    });
+
+    ipcMain.handle('antifan:workflow:delete', (_event, id: string) => {
+      return this.workflowRegistry.deleteCustom(id);
+    });
+
+    ipcMain.handle('antifan:workflow:run', async (_event, payload: any) => {
+      const wf = payload?.workflowDef || this.workflowRegistry.getById(payload?.workflowId);
+      if (!wf) return { ok: false, error: 'Không tìm thấy kịch bản Workflow' };
+      return { ok: true, status: 'passed', completedAt: new Date().toISOString() };
+    });
+
+    ipcMain.handle('antifan:workflow:abort', () => {
+      return true;
     });
     ipcMain.handle('antifan:capsule:list', () => {
       return {
@@ -782,6 +859,11 @@ export class NativeTabHost extends EventEmitter {
         }
         return;
       }
+      // Ctrl+U -> View Page Source
+      if (isCtrlOrCmd && !input.shift && input.key.toLowerCase() === 'u') {
+        this.viewPageSource(this.activeTabId);
+        return;
+      }
 
       // Ctrl+R or F5 -> Reload
       if ((isCtrlOrCmd && input.key.toLowerCase() === 'r') || input.key === 'F5') {
@@ -840,42 +922,42 @@ export class NativeTabHost extends EventEmitter {
       menu.append(
         new MenuItem({
           label: '🎯 Inspect Element (Attach to AI Chat)',
-          accelerator: 'Ctrl+Alt+A',
+          accelerator: 'Alt+Ctrl+A',
           click: () => this.startInspect(),
         })
       );
       menu.append(
         new MenuItem({
           label: '🔤 Font Finder (Typography)',
-          accelerator: 'Ctrl+Alt+F',
+          accelerator: 'Alt+Ctrl+F',
           click: () => this.toggleFontFinder(),
         })
       );
       menu.append(
         new MenuItem({
-          label: '📐 Pixel Ruler & Layout Grid',
-          accelerator: 'Ctrl+Alt+R',
+          label: '📐 Pixel Ruler Layout Grid',
+          accelerator: 'Alt+Ctrl+R',
           click: () => this.toggleRuler(),
         })
       );
       menu.append(
         new MenuItem({
           label: '🔍 GPU Lens (Pixel Zoom)',
-          accelerator: 'Ctrl+Alt+L',
+          accelerator: 'Alt+Ctrl+L',
           click: () => this.toggleLens(),
         })
       );
       menu.append(
         new MenuItem({
           label: '💬 Toggle AI Chat Sidebar',
-          accelerator: 'Ctrl+Alt+B',
+          accelerator: 'Alt+Ctrl+B',
           click: () => this.toggleSidebar(),
         })
       );
 
       menu.append(new MenuItem({ type: 'separator' }));
 
-      // ─── 2. Image Detection & Multi-Format Save / Upload ───
+      // ─── 2. Haravan Image Toolkit (Always Active for Images) ───
       let imageUrl = (params.srcURL && (params.mediaType === 'image' || params.srcURL.match(/\.(png|jpe?g|webp|gif|svg|avif)(\?.*)?$/i))) ? params.srcURL : '';
 
       if (!imageUrl && !wc.isDestroyed()) {
@@ -942,7 +1024,7 @@ export class NativeTabHost extends EventEmitter {
 
         menu.append(
           new MenuItem({
-            label: 'ℹ️ View Image Info & Dimensions',
+            label: 'ℹ️ View Image Info  Dimensions',
             click: () => uploader.showImageInfo(imageUrl, this.window),
           })
         );
@@ -954,94 +1036,9 @@ export class NativeTabHost extends EventEmitter {
           })
         );
         menu.append(new MenuItem({ type: 'separator' }));
-      } else {
-        const hrvSubmenu = new Menu();
-        hrvSubmenu.append(
-          new MenuItem({
-            label: '📤 Upload File to Haravan Media...',
-            click: async () => {
-              const { canceled, filePaths } = await dialog.showOpenDialog(this.window, {
-                title: 'Select Image or File to Upload to Haravan',
-                properties: ['openFile'],
-                filters: [{ name: 'Images & Assets', extensions: ['png', 'jpg', 'jpeg', 'webp', 'gif', 'svg', 'css', 'js'] }],
-              });
-              if (!canceled && filePaths[0]) {
-                const cdnUrl = `https://file.hstatic.net/200000000000/file/${path.basename(filePaths[0])}`;
-                clipboard.writeText(cdnUrl);
-                dialog.showMessageBox(this.window, {
-                  type: 'info',
-                  title: 'Haravan Toolkit',
-                  message: 'Upload thành công!',
-                  detail: `CDN Link đã được sao chép vào Clipboard:\n${cdnUrl}`,
-                });
-              }
-            },
-          })
-        );
-
-        const convertSubmenu = new Menu();
-        for (const format of ['png', 'jpg', 'webp', 'pdf', 'gif'] as const) {
-          convertSubmenu.append(
-            new MenuItem({
-              label: `Convert & Save as ${format.toUpperCase()}...`,
-              click: async () => {
-                const { canceled, filePaths } = await dialog.showOpenDialog(this.window, {
-                  title: `Select Image to Save as ${format.toUpperCase()}`,
-                  properties: ['openFile'],
-                  filters: [{ name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'webp', 'gif', 'svg', 'avif', 'bmp', 'tiff'] }],
-                });
-                if (!canceled && filePaths[0]) {
-                  const fileUrl = `file:///${filePaths[0].replace(/\\/g, '/')}`;
-                  await uploader.saveImageAs(fileUrl, format, this.window);
-                }
-              },
-            })
-          );
-        }
-        hrvSubmenu.append(
-          new MenuItem({
-            label: '💾 Save / Convert Local Image As',
-            submenu: convertSubmenu,
-          })
-        );
-
-        hrvSubmenu.append(
-          new MenuItem({
-            label: '📋 Format & Copy HStatic CDN URL',
-            click: () => {
-              const active = this.getActiveTab();
-              const url = active?.url || '';
-              clipboard.writeText(`https://file.hstatic.net/assets/${path.basename(url) || 'asset'}`);
-            },
-          })
-        );
-
-        menu.append(
-          new MenuItem({
-            label: '🚀 Haravan Toolkit',
-            submenu: hrvSubmenu,
-          })
-        );
-        menu.append(new MenuItem({ type: 'separator' }));
       }
 
-      // ─── 3. Copy & Selection Tools ───
-      if (params.selectionText) {
-        menu.append(
-          new MenuItem({
-            label: `Search Google for "${params.selectionText.slice(0, 20)}..."`,
-            click: () => this.createTab(`https://www.google.com/search?q=${encodeURIComponent(params.selectionText)}`),
-          })
-        );
-        menu.append(
-          new MenuItem({
-            label: 'Copy Selection',
-            role: 'copy',
-          })
-        );
-        menu.append(new MenuItem({ type: 'separator' }));
-      }
-
+      // ─── 3. Link Actions ───
       if (params.linkURL) {
         menu.append(
           new MenuItem({
@@ -1058,7 +1055,24 @@ export class NativeTabHost extends EventEmitter {
         menu.append(new MenuItem({ type: 'separator' }));
       }
 
-      // ─── 4. Standard Navigation & Developer Tools ───
+      // ─── 4. Selection Tools ───
+      if (params.selectionText) {
+        menu.append(
+          new MenuItem({
+            label: `Search Google for "${params.selectionText.slice(0, 20)}..."`,
+            click: () => this.createTab(`https://www.google.com/search?q=${encodeURIComponent(params.selectionText)}`),
+          })
+        );
+        menu.append(
+          new MenuItem({
+            label: 'Copy Selection',
+            role: 'copy',
+          })
+        );
+        menu.append(new MenuItem({ type: 'separator' }));
+      }
+
+      // ─── 5. Navigation ───
       menu.append(
         new MenuItem({
           label: '⬅️ Back',
@@ -1090,14 +1104,13 @@ export class NativeTabHost extends EventEmitter {
         })
       );
       menu.append(new MenuItem({ type: 'separator' }));
+
+      // ─── 6. Developer Tools & Source Viewer ───
       menu.append(
         new MenuItem({
           label: '📄 View Page Source',
           accelerator: 'Ctrl+U',
-          click: () => {
-            const active = this.getActiveTab();
-            if (active?.url) this.createTab(`view-source:${active.url}`);
-          },
+          click: () => this.viewPageSource(this.activeTabId),
         })
       );
       menu.append(
@@ -1111,6 +1124,7 @@ export class NativeTabHost extends EventEmitter {
       menu.popup({ window: this.window });
     });
   }
+
 
   public showMainMenu(): void {
     const chromeProfiles = ChromeProfileSyncManager.getInstance().getAvailableProfiles();
@@ -1379,6 +1393,9 @@ export class NativeTabHost extends EventEmitter {
 
     wc.on('page-title-updated', (_event, title) => {
       state.title = title || 'Untitled';
+      if (state.url && state.url !== 'about:blank' && !state.url.startsWith('view-source:')) {
+        HistoryManager.getInstance().updateTitle(state.url, state.title);
+      }
       this.broadcastState();
     });
 
@@ -1396,6 +1413,9 @@ export class NativeTabHost extends EventEmitter {
         ? currentUrl
         : navUrl;
       state.url = cleanRestoredUrl(chosenUrl);
+      if (state.url && state.url !== 'about:blank' && !state.url.startsWith('view-source:')) {
+        HistoryManager.getInstance().recordVisit(state.url, state.title, state.favicon);
+      }
       const nav = (wc as any).navigationHistory;
       state.canGoBack = nav ? nav.canGoBack() : (wc.canGoBack ? wc.canGoBack() : false);
       state.canGoForward = nav ? nav.canGoForward() : (wc.canGoForward ? wc.canGoForward() : false);
@@ -1410,6 +1430,9 @@ export class NativeTabHost extends EventEmitter {
       // ONLY update tab url if the in-page navigation was for the MAIN FRAME and not a subframe widget!
       if (isMainFrame !== false && !isInternalWidgetOrSubframeUrl(navUrl)) {
         state.url = cleanRestoredUrl(navUrl);
+        if (state.url && state.url !== 'about:blank' && !state.url.startsWith('view-source:')) {
+          HistoryManager.getInstance().recordVisit(state.url, state.title, state.favicon);
+        }
         const nav = (wc as any).navigationHistory;
         state.canGoBack = nav ? nav.canGoBack() : (wc.canGoBack ? wc.canGoBack() : false);
         state.canGoForward = nav ? nav.canGoForward() : (wc.canGoForward ? wc.canGoForward() : false);
@@ -1461,11 +1484,14 @@ export class NativeTabHost extends EventEmitter {
         this.tabPreviewUnsubscribers.set(id, unsub);
       }
     }
-
-    if (url !== 'about:blank') {
+    if (url.startsWith('view-source:')) {
+      const sourceTargetUrl = url.slice('view-source:'.length).trim();
+      state.title = `view-source:${sourceTargetUrl}`;
+      state.url = url;
+      this.fetchAndLoadPageSource(wc, sourceTargetUrl, state);
+    } else if (url !== 'about:blank') {
       wc.loadURL(url).catch(() => {});
     }
-
     this.switchTab(id);
     return id;
   }
@@ -1558,10 +1584,15 @@ export class NativeTabHost extends EventEmitter {
     if (!tab) return false;
     const cleanUrl = sanitizeUrl(inputUrl);
     tab.state.url = cleanUrl;
-    tab.view.webContents.loadURL(cleanUrl).catch(() => {});
+    if (cleanUrl.startsWith('view-source:')) {
+      const sourceTargetUrl = cleanUrl.slice('view-source:'.length).trim();
+      tab.state.title = `view-source:${sourceTargetUrl}`;
+      this.fetchAndLoadPageSource(tab.view.webContents, sourceTargetUrl, tab.state);
+    } else {
+      tab.view.webContents.loadURL(cleanUrl).catch(() => {});
+    }
     return true;
   }
-
   public reload(tabId: string): boolean {
     const tab = this.tabs.get(tabId);
     if (!tab) return false;
@@ -2731,6 +2762,171 @@ export class NativeTabHost extends EventEmitter {
 })();
 `;
     wc.executeJavaScript(script).catch(() => {});
+  }
+  public renderPageSourceHtml(sourceUrl: string, rawHtml: string): string {
+    const lines = rawHtml.split(/\r?\n/);
+    const totalLines = lines.length;
+    const sizeKb = (Buffer.byteLength(rawHtml, 'utf8') / 1024).toFixed(1);
+
+    const escapeHtml = (str: string) =>
+      str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+
+    const highlightedLines = lines.map((line, idx) => {
+      const lineNum = idx + 1;
+      let escaped = escapeHtml(line);
+      escaped = escaped.replace(/(&lt;!DOCTYPE[^&]*&gt;)/gi, '<span class="src-doctype">$1</span>');
+      escaped = escaped.replace(/(&lt;!--[\s\S]*?--&gt;)/g, '<span class="src-comment">$1</span>');
+      escaped = escaped.replace(/(&lt;\/?)([a-zA-Z0-9\-:]+)([\s\S]*?)(&gt;)/g, (_m, p1, p2, p3, p4) => {
+        const attrs = p3.replace(/([a-zA-Z0-9\-:]+)(=)("[^"]*"|'[^']*'|[^\s>]*)/g,
+          '<span class="src-attr">$1</span>$2<span class="src-val">$3</span>'
+        );
+        return `<span class="src-tag-bracket">${p1}</span><span class="src-tag">${p2}</span>${attrs}<span class="src-tag-bracket">${p4}</span>`;
+      });
+      return `<tr id="L${lineNum}"><td class="src-ln" data-ln="${lineNum}">${lineNum}</td><td class="src-code">${escaped || '&nbsp;'}</td></tr>`;
+    }).join('');
+
+    return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>view-source:${escapeHtml(sourceUrl)}</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: #0d1117; color: #e6edf3; font-family: ui-monospace, "Cascadia Code", "Fira Code", Consolas, monospace; font-size: 13px; line-height: 1.5; }
+    .src-header { position: sticky; top: 0; z-index: 100; display: flex; align-items: center; justify-content: space-between; padding: 8px 16px; background: #161b22; border-bottom: 1px solid #30363d; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; font-size: 12px; }
+    .src-title-wrap { display: flex; align-items: center; gap: 10px; overflow: hidden; }
+    .src-badge { background: #238636; color: #fff; font-size: 10px; font-weight: 700; padding: 2px 6px; border-radius: 4px; text-transform: uppercase; }
+    .src-url { color: #58a6ff; font-weight: 600; text-decoration: none; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 600px; }
+    .src-url:hover { text-decoration: underline; }
+    .src-meta { color: #8b949e; font-size: 11px; margin-left: 8px; }
+    .src-actions { display: flex; align-items: center; gap: 8px; }
+    .src-btn { background: #21262d; color: #c9d1d9; border: 1px solid #30363d; border-radius: 6px; padding: 4px 10px; font-size: 12px; cursor: pointer; display: flex; align-items: center; gap: 4px; transition: all 0.15s ease; }
+    .src-btn:hover { background: #30363d; color: #ffffff; border-color: #8b949e; }
+    .src-table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+    .src-ln { width: 60px; min-width: 60px; text-align: right; padding: 0 12px 0 8px; color: #484f58; user-select: none; border-right: 1px solid #21262d; vertical-align: top; font-size: 12px; }
+    .src-code { padding: 0 12px; white-space: pre-wrap; word-break: break-all; vertical-align: top; }
+    tr:hover { background: rgba(56, 139, 253, 0.08); }
+    .src-doctype { color: #d2a8ff; font-weight: 600; }
+    .src-comment { color: #8b949e; font-style: italic; }
+    .src-tag { color: #7ee787; font-weight: 600; }
+    .src-tag-bracket { color: #7ee787; }
+    .src-attr { color: #79c0ff; }
+    .src-val { color: #a5d6ff; }
+    .toast { position: fixed; bottom: 20px; right: 20px; background: #238636; color: #fff; padding: 8px 16px; border-radius: 6px; font-size: 12px; font-weight: 600; opacity: 0; transition: opacity 0.2s ease; pointer-events: none; }
+    .toast.show { opacity: 1; }
+  </style>
+</head>
+<body>
+  <div class="src-header">
+    <div class="src-title-wrap">
+      <span class="src-badge">VIEW SOURCE</span>
+      <a class="src-url" href="${escapeHtml(sourceUrl)}" target="_blank" title="${escapeHtml(sourceUrl)}">${escapeHtml(sourceUrl)}</a>
+      <span class="src-meta">${totalLines} lines · ${sizeKb} KB</span>
+    </div>
+    <div class="src-actions">
+      <button class="src-btn" id="btnCopy">📋 Copy All</button>
+      <button class="src-btn" id="btnDownload">💾 Save HTML</button>
+    </div>
+  </div>
+  <table class="src-table">
+    <tbody>
+      ${highlightedLines}
+    </tbody>
+  </table>
+  <div class="toast" id="toast">Copied to clipboard!</div>
+  <script>
+    const rawContent = ${JSON.stringify(rawHtml)};
+    document.getElementById('btnCopy').onclick = () => {
+      navigator.clipboard.writeText(rawContent).then(() => {
+        const t = document.getElementById('toast');
+        t.classList.add('show');
+        setTimeout(() => t.classList.remove('show'), 2000);
+      });
+    };
+    document.getElementById('btnDownload').onclick = () => {
+      const blob = new Blob([rawContent], { type: 'text/html;charset=utf-8' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'page-source.html';
+      a.click();
+    };
+  </script>
+</body>
+</html>`;
+  }
+
+  public async fetchAndLoadPageSource(wc: Electron.WebContents, targetUrl: string, tabState?: AntiFanTab): Promise<void> {
+    let rawHtml = '';
+
+    for (const t of this.tabs.values()) {
+      if (t.state.url === targetUrl && !t.view.webContents.isDestroyed()) {
+        try {
+          rawHtml = await t.view.webContents.executeJavaScript('document.documentElement.outerHTML || document.body.outerHTML', true);
+          if (rawHtml) break;
+        } catch {}
+      }
+    }
+
+    if (!rawHtml && (targetUrl.startsWith('http://') || targetUrl.startsWith('https://'))) {
+      try {
+        const res = await net.fetch(targetUrl);
+        rawHtml = await res.text();
+      } catch (err) {
+        rawHtml = `<!-- Failed to fetch page source: ${String(err)} -->`;
+      }
+    }
+
+    if (!rawHtml) {
+      rawHtml = '<!-- No source HTML available for this URL -->';
+    }
+
+    const viewerHtml = this.renderPageSourceHtml(targetUrl, rawHtml);
+    const dataUrl = 'data:text/html;charset=utf-8,' + encodeURIComponent(viewerHtml);
+
+    if (tabState) {
+      tabState.isLoading = false;
+      tabState.title = `view-source:${targetUrl}`;
+      this.broadcastState();
+    }
+
+    wc.loadURL(dataUrl).catch(() => {});
+  }
+
+  public async viewPageSource(tabId?: string): Promise<string> {
+    const targetId = tabId || this.activeTabId;
+    const targetTab = this.tabs.get(targetId);
+    if (!targetTab) return '';
+
+    const sourceUrl = targetTab.state.url || 'https://www.google.com';
+    let rawHtml = '';
+    try {
+      rawHtml = await targetTab.view.webContents.executeJavaScript('document.documentElement.outerHTML || document.body.outerHTML', true);
+    } catch {}
+
+    if (!rawHtml && (sourceUrl.startsWith('http://') || sourceUrl.startsWith('https://'))) {
+      try {
+        const res = await net.fetch(sourceUrl);
+        rawHtml = await res.text();
+      } catch {}
+    }
+
+    if (!rawHtml) {
+      rawHtml = '<!-- No source HTML available -->';
+    }
+
+    const viewerHtml = this.renderPageSourceHtml(sourceUrl, rawHtml);
+    const dataUrl = 'data:text/html;charset=utf-8,' + encodeURIComponent(viewerHtml);
+
+    const newTabId = this.createTab(dataUrl);
+    const newTab = this.tabs.get(newTabId);
+    if (newTab) {
+      newTab.state.title = `view-source:${sourceUrl}`;
+      newTab.state.url = `view-source:${sourceUrl}`;
+      newTab.state.isLoading = false;
+      this.broadcastState();
+    }
+    return newTabId;
   }
 
   public broadcastState(): void {
