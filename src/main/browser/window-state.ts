@@ -54,8 +54,16 @@ export class WindowStateManager {
     };
   }
 
-  public getValidBounds(): { x?: number; y?: number; width: number; height: number; isMaximized: boolean } {
-    const { x, y, width, height, isMaximized } = this.state;
+  public static validateBounds(
+    bounds?: Partial<WindowState>,
+    defaultWidth = 900,
+    defaultHeight = 600
+  ): { x?: number; y?: number; width: number; height: number; isMaximized: boolean } {
+    const width = Math.max(500, bounds?.width || defaultWidth);
+    const height = Math.max(350, bounds?.height || defaultHeight);
+    const isMaximized = Boolean(bounds?.isMaximized);
+    const x = bounds?.x;
+    const y = bounds?.y;
 
     if (typeof x === 'number' && typeof y === 'number') {
       try {
@@ -79,6 +87,10 @@ export class WindowStateManager {
     }
 
     return { width, height, isMaximized };
+  }
+
+  public getValidBounds(): { x?: number; y?: number; width: number; height: number; isMaximized: boolean } {
+    return WindowStateManager.validateBounds(this.state, this.state.width, this.state.height);
   }
 
   public manage(window: BrowserWindow): void {

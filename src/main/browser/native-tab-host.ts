@@ -32,7 +32,7 @@ import { HaravanUploader } from './haravan-uploader';
 import { TerminalManager } from './terminal-manager';
 import { checkForUpdatesAndRestart } from './app-menu';
 import { SkillScanner } from './skill-scanner';
-import { WindowStateManager } from './window-state';
+import { WindowStateManager, WindowState } from './window-state';
 import { AntigravityCommandClient, generateCommandId } from '../bridge/antigravity-command-client';
 import { BridgeServer } from '../bridge/bridge-server';
 import { WorkflowRegistry } from '../workflow/workflow-registry';
@@ -55,6 +55,7 @@ export class NativeTabHost extends EventEmitter {
   private terminalView: WebContentsView | null = null;
   private popoutWindow: BrowserWindow | null = null;
   private terminalWindows: Map<number, BrowserWindow> = new Map();
+  private terminalWindowMeta: Map<number, { sessionId?: string; isPopout?: boolean }> = new Map();
   private terminalWindowStateManager: WindowStateManager;
   private isSidebarOpen: boolean = true;
   private wasSidebarOpenBeforePopout: boolean = false;
@@ -534,8 +535,13 @@ export class NativeTabHost extends EventEmitter {
     ipcMain.handle(TERMINAL_CHANNELS.LIST_SESSIONS, () => {
       return TerminalManager.getInstance().listSessions();
     });
-
-    ipcMain.handle(TERMINAL_CHANNELS.SWITCH_SESSION, (_event, id: string) => {
+    ipcMain.handle(TERMINAL_CHANNELS.SWITCH_SESSION, (event, id: string) => {
+      const senderWin = BrowserWindow.fromWebContents(event.sender);
+      if (senderWin && this.terminalWindowMeta.has(senderWin.id)) {
+        const meta = this.terminalWindowMeta.get(senderWin.id);
+        if (meta) meta.sessionId = id;
+        this.schedulePersist();
+      }
       return TerminalManager.getInstance().switchSession(id);
     });
 
@@ -2125,13 +2131,26 @@ export class NativeTabHost extends EventEmitter {
             this.toolbarView.webContents.send(TOOLBAR_CHANNELS.ELEMENT_PICKED, pickedData);
           }
 
+          const formatPath = (p?: string) => {
+            if (!p) return '';
+            if (targetWorkspace) {
+              try {
+                const rel = path.relative(targetWorkspace, p).replace(/\\/g, '/');
+                if (!rel.startsWith('..') && !path.isAbsolute(rel)) {
+                  return rel.startsWith('.') ? rel : `./${rel}`;
+                }
+              } catch {}
+            }
+            return p.replace(/\\/g, '/');
+          };
+
           const promptText = rawResult.userComment?.trim() || 'Inspect the attached browser annotation, report observed evidence, and ask for the intended outcome before editing.';
           let fullPrompt = promptText;
           if (annotationResult.markdownPath) {
-            fullPrompt += ` @[${annotationResult.markdownPath}:L1]`;
+            fullPrompt += ` @${formatPath(annotationResult.markdownPath)}`;
           }
           if (annotationResult.targetImagePath) {
-            fullPrompt += ` @[${annotationResult.targetImagePath}:L1]`;
+            fullPrompt += ` @${formatPath(annotationResult.targetImagePath)}`;
           }
 
           // 1. Direct write to TerminalManager session PTY
@@ -2578,6 +2597,42 @@ export class NativeTabHost extends EventEmitter {
         };
       }).filter(Boolean);
 
+      const openTerminalWindows: Array<{
+        sessionId?: string;
+        bounds: {
+          x?: number;
+          y?: number;
+          width: number;
+          height: number;
+          isMaximized: boolean;
+        };
+        isPopout?: boolean;
+      }> = [];
+
+      for (const [winId, win] of this.terminalWindows.entries()) {
+        if (win && !win.isDestroyed()) {
+          let bounds = win.getBounds();
+          if ('getNormalBounds' in win && typeof (win as any).getNormalBounds === 'function') {
+            try {
+              bounds = (win as any).getNormalBounds();
+            } catch {}
+          }
+          const isMaximized = win.isMaximized();
+          const meta = this.terminalWindowMeta.get(winId);
+          openTerminalWindows.push({
+            sessionId: meta?.sessionId || undefined,
+            isPopout: win === this.popoutWindow,
+            bounds: {
+              x: bounds.x,
+              y: bounds.y,
+              width: bounds.width,
+              height: bounds.height,
+              isMaximized,
+            },
+          });
+        }
+      }
+
       const data = {
         activeTabId: this.activeTabId,
         tabs: tabList,
@@ -2588,6 +2643,7 @@ export class NativeTabHost extends EventEmitter {
         isTerminalPopoutOpen: Boolean(this.popoutWindow && !this.popoutWindow.isDestroyed()),
         wasSidebarOpenBeforePopout: this.wasSidebarOpenBeforePopout,
         popoutSessionId: this.popoutWindow && !this.popoutWindow.isDestroyed() ? TerminalManager.getInstance().getActiveSessionId() : undefined,
+        terminalWindows: openTerminalWindows,
         updatedAt: Date.now(),
       };
       fs.writeFileSync(filePath, JSON.stringify(data, null, 2), 'utf8');
@@ -2609,7 +2665,17 @@ export class NativeTabHost extends EventEmitter {
           if (typeof data.isSidebarOpen === 'boolean') {
             this.isSidebarOpen = data.isSidebarOpen;
           }
-          if (data.isTerminalPopoutOpen) {
+          if (Array.isArray(data.terminalWindows) && data.terminalWindows.length > 0) {
+            TerminalManager.getInstance().startTerminal();
+            const wasOpen = typeof data.wasSidebarOpenBeforePopout === 'boolean' ? data.wasSidebarOpenBeforePopout : true;
+            for (const tw of data.terminalWindows) {
+              if (tw.isPopout) {
+                this.togglePopoutTerminal(tw.sessionId, { wasSidebarOpenBeforePopout: wasOpen, bounds: tw.bounds });
+              } else {
+                this.openNewTerminalWindow(tw.sessionId, tw.bounds);
+              }
+            }
+          } else if (data.isTerminalPopoutOpen) {
             TerminalManager.getInstance().startTerminal();
             const wasOpen = typeof data.wasSidebarOpenBeforePopout === 'boolean' ? data.wasSidebarOpenBeforePopout : true;
             this.togglePopoutTerminal(data.popoutSessionId, { wasSidebarOpenBeforePopout: wasOpen });
@@ -2804,34 +2870,13 @@ export class NativeTabHost extends EventEmitter {
 `;
     wc.executeJavaScript(script).catch(() => {});
   }
-  public renderPageSourceHtml(sourceUrl: string, rawHtml: string): string {
-    const lines = rawHtml.split(/\r?\n/);
-    const totalLines = lines.length;
-    const sizeKb = (Buffer.byteLength(rawHtml, 'utf8') / 1024).toFixed(1);
-
-    const escapeHtml = (str: string) =>
-      str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-
-    const highlightedLines = lines.map((line, idx) => {
-      const lineNum = idx + 1;
-      let escaped = escapeHtml(line);
-      escaped = escaped.replace(/(&lt;!DOCTYPE[^&]*&gt;)/gi, '<span class="src-doctype">$1</span>');
-      escaped = escaped.replace(/(&lt;!--[\s\S]*?--&gt;)/g, '<span class="src-comment">$1</span>');
-      escaped = escaped.replace(/(&lt;\/?)([a-zA-Z0-9\-:]+)([\s\S]*?)(&gt;)/g, (_m, p1, p2, p3, p4) => {
-        const attrs = p3.replace(/([a-zA-Z0-9\-:]+)(=)("[^"]*"|'[^']*'|[^\s>]*)/g,
-          '<span class="src-attr">$1</span>$2<span class="src-val">$3</span>'
-        );
-        return `<span class="src-tag-bracket">${p1}</span><span class="src-tag">${p2}</span>${attrs}<span class="src-tag-bracket">${p4}</span>`;
-      });
-      return `<tr id="L${lineNum}"><td class="src-ln" data-ln="${lineNum}">${lineNum}</td><td class="src-code">${escaped || '&nbsp;'}</td></tr>`;
-    }).join('');
-
+  public renderPageSourceSkeletonHtml(): string {
     return `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>view-source:${escapeHtml(sourceUrl)}</title>
+  <title>View Source</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body { background: #0d1117; color: #e6edf3; font-family: ui-monospace, "Cascadia Code", "Fira Code", Consolas, monospace; font-size: 13px; line-height: 1.5; }
@@ -2848,22 +2893,17 @@ export class NativeTabHost extends EventEmitter {
     .src-ln { width: 60px; min-width: 60px; text-align: right; padding: 0 12px 0 8px; color: #484f58; user-select: none; border-right: 1px solid #21262d; vertical-align: top; font-size: 12px; }
     .src-code { padding: 0 12px; white-space: pre-wrap; word-break: break-all; vertical-align: top; }
     tr:hover { background: rgba(56, 139, 253, 0.08); }
-    .src-doctype { color: #d2a8ff; font-weight: 600; }
-    .src-comment { color: #8b949e; font-style: italic; }
-    .src-tag { color: #7ee787; font-weight: 600; }
-    .src-tag-bracket { color: #7ee787; }
-    .src-attr { color: #79c0ff; }
-    .src-val { color: #a5d6ff; }
     .toast { position: fixed; bottom: 20px; right: 20px; background: #238636; color: #fff; padding: 8px 16px; border-radius: 6px; font-size: 12px; font-weight: 600; opacity: 0; transition: opacity 0.2s ease; pointer-events: none; }
     .toast.show { opacity: 1; }
+    .src-loading { padding: 32px 16px; color: #8b949e; font-family: sans-serif; font-size: 14px; text-align: center; }
   </style>
 </head>
 <body>
   <div class="src-header">
     <div class="src-title-wrap">
       <span class="src-badge">VIEW SOURCE</span>
-      <a class="src-url" href="${escapeHtml(sourceUrl)}" target="_blank" title="${escapeHtml(sourceUrl)}">${escapeHtml(sourceUrl)}</a>
-      <span class="src-meta">${totalLines} lines · ${sizeKb} KB</span>
+      <a class="src-url" id="srcUrl" href="#" target="_blank">Loading source...</a>
+      <span class="src-meta" id="srcMeta"></span>
     </div>
     <div class="src-actions">
       <button class="src-btn" id="btnCopy">📋 Copy All</button>
@@ -2871,22 +2911,62 @@ export class NativeTabHost extends EventEmitter {
     </div>
   </div>
   <table class="src-table">
-    <tbody>
-      ${highlightedLines}
+    <tbody id="srcBody">
+      <tr><td colspan="2" class="src-loading">Loading page source...</td></tr>
     </tbody>
   </table>
   <div class="toast" id="toast">Copied to clipboard!</div>
   <script>
-    const rawContent = ${JSON.stringify(rawHtml)};
+    let rawStore = '';
+    window.__antifanRenderSource = (url, content) => {
+      rawStore = content || '';
+      document.title = 'view-source:' + url;
+      const urlEl = document.getElementById('srcUrl');
+      if (urlEl) {
+        urlEl.textContent = url;
+        urlEl.href = url;
+        urlEl.title = url;
+      }
+
+      const lines = rawStore.split(/\\r?\\n/);
+      const sizeKb = (new Blob([rawStore]).size / 1024).toFixed(1);
+      const metaEl = document.getElementById('srcMeta');
+      if (metaEl) {
+        metaEl.textContent = lines.length + ' lines · ' + sizeKb + ' KB';
+      }
+
+      const tbody = document.getElementById('srcBody');
+      if (!tbody) return;
+      tbody.innerHTML = '';
+      const frag = document.createDocumentFragment();
+
+      for (let i = 0; i < lines.length; i++) {
+        const tr = document.createElement('tr');
+        tr.id = 'L' + (i + 1);
+        const tdLn = document.createElement('td');
+        tdLn.className = 'src-ln';
+        tdLn.textContent = String(i + 1);
+        const tdCode = document.createElement('td');
+        tdCode.className = 'src-code';
+        tdCode.textContent = lines[i] || ' ';
+        tr.appendChild(tdLn);
+        tr.appendChild(tdCode);
+        frag.appendChild(tr);
+      }
+      tbody.appendChild(frag);
+    };
+
     document.getElementById('btnCopy').onclick = () => {
-      navigator.clipboard.writeText(rawContent).then(() => {
+      navigator.clipboard.writeText(rawStore).then(() => {
         const t = document.getElementById('toast');
-        t.classList.add('show');
-        setTimeout(() => t.classList.remove('show'), 2000);
+        if (t) {
+          t.classList.add('show');
+          setTimeout(() => t.classList.remove('show'), 2000);
+        }
       });
     };
     document.getElementById('btnDownload').onclick = () => {
-      const blob = new Blob([rawContent], { type: 'text/html;charset=utf-8' });
+      const blob = new Blob([rawStore], { type: 'text/html;charset=utf-8' });
       const a = document.createElement('a');
       a.href = URL.createObjectURL(blob);
       a.download = 'page-source.html';
@@ -2922,20 +3002,25 @@ export class NativeTabHost extends EventEmitter {
       rawHtml = '<!-- No source HTML available for this URL -->';
     }
 
-    const viewerHtml = this.renderPageSourceHtml(targetUrl, rawHtml);
-    const tempDir = app ? path.join(app.getPath('userData'), 'view-source') : path.join(os.homedir(), '.antifan-browser', 'view-source');
-    try { fs.mkdirSync(tempDir, { recursive: true }); } catch {}
-    const safeHash = createHash('md5').update(targetUrl).digest('hex').slice(0, 12);
-    const filePath = path.join(tempDir, `source_${safeHash}.html`);
-    try { fs.writeFileSync(filePath, viewerHtml, 'utf8'); } catch {}
-
     if (tabState) {
       tabState.isLoading = false;
       tabState.title = `view-source:${targetUrl}`;
       this.broadcastState();
     }
 
-    wc.loadFile(filePath).catch(() => {});
+    const skeletonHtml = this.renderPageSourceSkeletonHtml();
+    const dataUrl = 'data:text/html;charset=utf-8,' + encodeURIComponent(skeletonHtml);
+
+    try {
+      await wc.loadURL(dataUrl);
+      if (!wc.isDestroyed()) {
+        await wc.executeJavaScript(
+          `if (typeof window.__antifanRenderSource === 'function') { window.__antifanRenderSource(${JSON.stringify(targetUrl)}, ${JSON.stringify(rawHtml)}); }`
+        );
+      }
+    } catch (err) {
+      console.error('[native-tab-host] Failed to load source viewer:', err);
+    }
   }
 
   public async viewPageSource(tabId?: string): Promise<string> {
@@ -2944,22 +3029,6 @@ export class NativeTabHost extends EventEmitter {
     if (!targetTab) return '';
 
     const sourceUrl = targetTab.state.url || 'https://www.google.com';
-    let rawHtml = '';
-    try {
-      rawHtml = await targetTab.view.webContents.executeJavaScript('document.documentElement.outerHTML || document.body.outerHTML', true);
-    } catch {}
-
-    if (!rawHtml && (sourceUrl.startsWith('http://') || sourceUrl.startsWith('https://'))) {
-      try {
-        const res = await net.fetch(sourceUrl);
-        rawHtml = await res.text();
-      } catch {}
-    }
-
-    if (!rawHtml) {
-      rawHtml = '<!-- No source HTML available -->';
-    }
-
     return this.createTab(`view-source:${sourceUrl}`);
   }
 
@@ -3270,7 +3339,7 @@ export class NativeTabHost extends EventEmitter {
     }
   }
 
-  public togglePopoutTerminal(sessionId?: string, options?: { wasSidebarOpenBeforePopout?: boolean }): boolean {
+  public togglePopoutTerminal(sessionId?: string, options?: { wasSidebarOpenBeforePopout?: boolean; bounds?: Partial<WindowState> }): boolean {
     if (this.popoutWindow && !this.popoutWindow.isDestroyed()) {
       this.popoutWindow.close();
       this.popoutWindow = null;
@@ -3283,7 +3352,7 @@ export class NativeTabHost extends EventEmitter {
       return false;
     }
 
-    const bounds = this.terminalWindowStateManager.getValidBounds();
+    const bounds = WindowStateManager.validateBounds(options?.bounds || this.terminalWindowStateManager.getState(), 900, 600);
     const win = new BrowserWindow({
       x: bounds.x,
       y: bounds.y,
@@ -3309,6 +3378,16 @@ export class NativeTabHost extends EventEmitter {
     this.terminalWindowStateManager.manage(win);
     this.popoutWindow = win;
     this.terminalWindows.set(win.id, win);
+    const activeSessionId = sessionId || TerminalManager.getInstance().getActiveSessionId();
+    this.terminalWindowMeta.set(win.id, { sessionId: activeSessionId, isPopout: true });
+
+    const onWindowChange = () => {
+      this.schedulePersist();
+    };
+    win.on('resize', onWindowChange);
+    win.on('move', onWindowChange);
+    win.on('maximize', onWindowChange);
+    win.on('unmaximize', onWindowChange);
 
     win.webContents.on('before-input-event', (event, input) => {
       if (input.type === 'keyDown' && input.key === 'F11') {
@@ -3347,6 +3426,7 @@ export class NativeTabHost extends EventEmitter {
     }
     win.on('closed', () => {
       this.terminalWindows.delete(win.id);
+      this.terminalWindowMeta.delete(win.id);
       if (this.popoutWindow === win) {
         this.popoutWindow = null;
         this.broadcastPopoutState(false);
@@ -3355,23 +3435,24 @@ export class NativeTabHost extends EventEmitter {
         }
         this.wasSidebarOpenBeforePopout = false;
       }
+      this.schedulePersist();
     });
     this.broadcastPopoutState(true);
     this.schedulePersist();
     return true;
   }
 
-  public openNewTerminalWindow(sessionId?: string): boolean {
-    const bounds = this.terminalWindowStateManager.getValidBounds();
+  public openNewTerminalWindow(sessionId?: string, customBounds?: Partial<WindowState>): boolean {
+    const baseBounds = customBounds ? WindowStateManager.validateBounds(customBounds, 900, 600) : this.terminalWindowStateManager.getValidBounds();
     const count = this.terminalWindows.size;
-    const offsetX = count > 0 && typeof bounds.x === 'number' ? bounds.x + (count * 25) : bounds.x;
-    const offsetY = count > 0 && typeof bounds.y === 'number' ? bounds.y + (count * 25) : bounds.y;
+    const offsetX = (!customBounds && count > 0 && typeof baseBounds.x === 'number') ? baseBounds.x + (count * 25) : baseBounds.x;
+    const offsetY = (!customBounds && count > 0 && typeof baseBounds.y === 'number') ? baseBounds.y + (count * 25) : baseBounds.y;
 
     const win = new BrowserWindow({
       x: offsetX,
       y: offsetY,
-      width: bounds.width || 900,
-      height: bounds.height || 600,
+      width: baseBounds.width || 900,
+      height: baseBounds.height || 600,
       minWidth: 500,
       minHeight: 350,
       backgroundColor: '#060a11',
@@ -3386,12 +3467,22 @@ export class NativeTabHost extends EventEmitter {
       },
     });
 
-    if (bounds.isMaximized && count === 0) {
+    if (baseBounds.isMaximized) {
       win.maximize();
     }
 
     this.terminalWindowStateManager.manage(win);
     this.terminalWindows.set(win.id, win);
+    const activeSessionId = sessionId || TerminalManager.getInstance().getActiveSessionId();
+    this.terminalWindowMeta.set(win.id, { sessionId: activeSessionId, isPopout: false });
+
+    const onWindowChange = () => {
+      this.schedulePersist();
+    };
+    win.on('resize', onWindowChange);
+    win.on('move', onWindowChange);
+    win.on('maximize', onWindowChange);
+    win.on('unmaximize', onWindowChange);
 
     win.webContents.on('before-input-event', (event, input) => {
       if (input.type === 'keyDown' && input.key === 'F11') {
@@ -3423,7 +3514,10 @@ export class NativeTabHost extends EventEmitter {
 
     win.on('closed', () => {
       this.terminalWindows.delete(win.id);
+      this.terminalWindowMeta.delete(win.id);
+      this.schedulePersist();
     });
+    this.schedulePersist();
     return true;
   }
 
