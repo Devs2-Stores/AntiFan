@@ -673,6 +673,145 @@ body, html {
   font-weight: 600;
 }
 
+
+/* APP MAIN MENU (Three-dot ⋮) GORGEOUS MODERN DROPDOWN */
+.app-menu-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.app-dropdown-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  background: rgba(18, 18, 24, 0.96);
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 10px;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.75), 0 0 1px rgba(255, 255, 255, 0.2);
+  z-index: 999999;
+  min-width: 320px;
+  padding: 6px 0;
+  display: none;
+  flex-direction: column;
+  user-select: none;
+  animation: appMenuFadeIn 0.12s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes appMenuFadeIn {
+  from { opacity: 0; transform: translateY(-4px) scale(0.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.app-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 14px;
+  font-size: 12px;
+  font-weight: 500;
+  color: #e2e8f0;
+  cursor: pointer;
+  transition: all 0.1s ease;
+  position: relative;
+}
+
+.app-menu-item:hover {
+  background: rgba(56, 189, 248, 0.12);
+  color: #ffffff;
+}
+
+.app-menu-item .menu-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  color: #94a3b8;
+  flex-shrink: 0;
+}
+
+.app-menu-item:hover .menu-icon {
+  color: #38bdf8;
+}
+
+.app-menu-item .menu-label {
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.app-menu-item .menu-shortcut {
+  font-family: 'JetBrains Mono', Consolas, monospace;
+  font-size: 10px;
+  color: #64748b;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  padding: 1px 5px;
+  border-radius: 4px;
+  margin-left: 8px;
+  letter-spacing: 0.3px;
+}
+
+.app-menu-item .menu-chevron {
+  font-size: 14px;
+  color: #64748b;
+  margin-left: auto;
+}
+
+.app-menu-divider {
+  height: 1px;
+  background: rgba(255, 255, 255, 0.08);
+  margin: 4px 8px;
+}
+
+/* Submenu for Profile Sync */
+.app-menu-has-sub {
+  position: relative;
+}
+
+.app-menu-submenu {
+  display: none;
+  position: absolute;
+  top: -6px;
+  right: calc(100% + 6px);
+  background: rgba(18, 18, 24, 0.98);
+  backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+  box-shadow: 0 16px 36px rgba(0, 0, 0, 0.75);
+  min-width: 220px;
+  padding: 4px 0;
+  z-index: 1000000;
+}
+
+.app-menu-has-sub:hover .app-menu-submenu {
+  display: flex;
+  flex-direction: column;
+}
+
+.profile-sub-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  font-size: 11.5px;
+  color: #e2e8f0;
+  cursor: pointer;
+}
+
+.profile-sub-item:hover {
+  background: rgba(56, 189, 248, 0.15);
+  color: #38bdf8;
+}
+
+.profile-sub-item.disabled {
+  color: #64748b;
+  cursor: default;
+}
 .nav-btn {
   display: flex;
   align-items: center;

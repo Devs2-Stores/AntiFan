@@ -353,7 +353,8 @@ export const ELEMENT_PICKER_SCRIPT = `(() => {
       termContext.sessions.forEach((s) => {
         const opt = document.createElement('option');
         opt.value = s.id;
-        const folder = s.cwd ? s.cwd.split(/[\\\\/]/).filter(Boolean).pop() : '';
+        const cleanCwd = (s.cwd || '').replace(/\\\\/g, '/');
+        const folder = cleanCwd ? cleanCwd.split('/').filter(Boolean).pop() : '';
         opt.textContent = (s.name || s.id) + (folder ? ' (' + folder + ')' : '');
         if (s.id === termContext.selectedSessionId) {
           opt.selected = true;
@@ -606,131 +607,149 @@ export const ELEMENT_PICKER_SCRIPT = `(() => {
         submitBtn.textContent = 'Đang gửi...';
         submitBtn.style.opacity = '0.7';
       }
+      try {
+        // 1. Re-measure fresh rect on submit to eliminate any scroll/layout drift
+        const freshRect = el.getBoundingClientRect ? el.getBoundingClientRect() : { left: 0, top: 0, width: 0, height: 0 };
+        const computed = window.getComputedStyle ? window.getComputedStyle(el) : {};
 
-      // 1. Re-measure fresh rect on submit to eliminate any scroll/layout drift
-      const freshRect = el.getBoundingClientRect();
-      const computed = window.getComputedStyle(el);
+        const pruneOuterHtml = (html) => {
+          if (!html || typeof html !== 'string') return '';
+          let res = html.replace(/d="[^"]{60,}"/gi, 'd="[svg-path-data]"');
+          res = res.replace(/src="data:image\\/[^;]+;base64,[^"]{60,}"/gi, 'src="data:[image-base64]"');
+          return res.slice(0, 8000);
+        };
 
-      const pruneOuterHtml = (html) => {
-        if (!html || typeof html !== 'string') return '';
-        let res = html.replace(/d="[^"]{60,}"/gi, 'd="[svg-path-data]"');
-        res = res.replace(/src="data:image\\/[^;]+;base64,[^"]{60,}"/gi, 'src="data:[image-base64]"');
-        return res.slice(0, 8000);
-      };
+        let liquidContext = {};
+        try {
+          const closestSec = el.closest ? el.closest('[data-section-id], [data-section-type], section[id^="shopify-section-"], section[id^="haravan-section-"], [id^="shopify-section-"]') : null;
+          liquidContext = {
+            sectionId: closestSec ? (closestSec.getAttribute('data-section-id') || closestSec.id) : undefined,
+            sectionType: closestSec ? closestSec.getAttribute('data-section-type') : undefined,
+            productId: el.getAttribute ? (el.getAttribute('data-product-id') || el.closest('[data-product-id]')?.getAttribute('data-product-id')) : undefined,
+            variantId: el.getAttribute ? (el.getAttribute('data-variant-id') || el.closest('[data-variant-id]')?.getAttribute('data-variant-id')) : undefined,
+            settingId: el.getAttribute ? (el.getAttribute('setting-id') || el.closest('[setting-id]')?.getAttribute('setting-id')) : undefined,
+          };
+        } catch {}
 
-      const closestSec = el.closest ? el.closest('[data-section-id], [data-section-type], section[id^="shopify-section-"], section[id^="haravan-section-"], [id^="shopify-section-"]') : null;
-      const liquidContext = {
-        sectionId: closestSec ? (closestSec.getAttribute('data-section-id') || closestSec.id) : undefined,
-        sectionType: closestSec ? closestSec.getAttribute('data-section-type') : undefined,
-        productId: el.getAttribute ? (el.getAttribute('data-product-id') || el.closest('[data-product-id]')?.getAttribute('data-product-id')) : undefined,
-        variantId: el.getAttribute ? (el.getAttribute('data-variant-id') || el.closest('[data-variant-id]')?.getAttribute('data-variant-id')) : undefined,
-        settingId: el.getAttribute ? (el.getAttribute('setting-id') || el.closest('[setting-id]')?.getAttribute('setting-id')) : undefined,
-      };
+        const styles = {
+          fontFamily: computed.fontFamily || '',
+          fontSize: computed.fontSize || '',
+          fontWeight: computed.fontWeight || '',
+          color: computed.color || '',
+          backgroundColor: computed.backgroundColor || '',
+          display: computed.display || '',
+          position: computed.position || '',
+          padding: computed.padding || '',
+          margin: computed.margin || '',
+          width: computed.width || '',
+          height: computed.height || '',
+        };
 
-      const styles = {
-        fontFamily: computed.fontFamily,
-        fontSize: computed.fontSize,
-        fontWeight: computed.fontWeight,
-        color: computed.color,
-        backgroundColor: computed.backgroundColor,
-        display: computed.display,
-        position: computed.position,
-        padding: computed.padding,
-        margin: computed.margin,
-        width: computed.width,
-        height: computed.height,
-      };
+        const optimal = findOptimalUniqueSelector(el);
+        const pickedItem = {
+          tag: (el.tagName || 'div').toLowerCase(),
+          tagName: (el.tagName || 'div').toLowerCase(),
+          id: el.id || undefined,
+          classes: Array.from(el.classList || []),
+          textSnippet: (el.textContent || '').trim().slice(0, 120),
+          textContent: (el.textContent || '').trim().slice(0, 1500),
+          xpath: getXPath(el),
+          selector: optimal.selector,
+          isUnique: optimal.isUnique,
+          matchCount: optimal.matchCount,
+          domAncestry: getDomAncestry(el),
+          dimensions: Math.round(freshRect.width) + ' x ' + Math.round(freshRect.height) + ' px',
+          outerHTML: pruneOuterHtml(el.outerHTML || ''),
+          liquidContext: liquidContext,
+          computedStyles: styles,
+          userComment: userComment,
+          targetSessionId: termSelect ? termSelect.value : (termContext.selectedSessionId || undefined),
+          attachedImages: attachedImages.slice(0, 6),
+          rect: {
+            x: Math.round(freshRect.left + window.scrollX),
+            y: Math.round(freshRect.top + window.scrollY),
+            width: Math.round(freshRect.width),
+            height: Math.round(freshRect.height),
+          },
+          clientRect: {
+            x: Math.round(freshRect.left),
+            y: Math.round(freshRect.top),
+            width: Math.round(freshRect.width),
+            height: Math.round(freshRect.height),
+          },
+          position: {
+            x: Math.round(freshRect.left),
+            y: Math.round(freshRect.top),
+            width: Math.round(freshRect.width),
+            height: Math.round(freshRect.height),
+            scrollX: Math.round(window.scrollX || window.pageXOffset || 0),
+            scrollY: Math.round(window.scrollY || window.pageYOffset || 0),
+          },
+          viewport: {
+            width: window.innerWidth || document.documentElement.clientWidth || 0,
+            height: window.innerHeight || document.documentElement.clientHeight || 0,
+            devicePixelRatio: window.devicePixelRatio || 1,
+            scrollX: Math.round(window.scrollX || window.pageXOffset || 0),
+            scrollY: Math.round(window.scrollY || window.pageYOffset || 0),
+            screenWidth: window.screen ? window.screen.width : 0,
+            screenHeight: window.screen ? window.screen.height : 0,
+            colorDepth: window.screen ? window.screen.colorDepth : 24,
+            orientation: window.screen?.orientation?.type || (window.innerWidth > window.innerHeight ? 'landscape-primary' : 'portrait-primary'),
+            userAgent: navigator.userAgent,
+          },
+          interactionState: {
+            hovered: false,
+            focused: document.activeElement === el,
+            disabled: !!(el.disabled || (el.getAttribute && el.getAttribute('disabled'))),
+            ariaExpanded: el.getAttribute ? el.getAttribute('aria-expanded') : null,
+            ariaSelected: el.getAttribute ? el.getAttribute('aria-selected') : null,
+            ariaChecked: el.getAttribute ? el.getAttribute('aria-checked') : null,
+            visibility: computed.visibility || '',
+            display: computed.display || '',
+            opacity: computed.opacity || '',
+            zIndex: computed.zIndex || '',
+          },
+          accessibilitySnapshot: {
+            role: (el.getAttribute && el.getAttribute('role')) || (el.tagName || '').toLowerCase(),
+            ariaLabel: (el.getAttribute && (el.getAttribute('aria-label') || el.getAttribute('title'))) || undefined,
+            ariaDescribedBy: (el.getAttribute && el.getAttribute('aria-describedby')) || undefined,
+            tabIndex: el.tabIndex || 0,
+            disabled: !!(el.disabled || (el.getAttribute && el.getAttribute('disabled'))),
+          },
+          timestamp: Date.now(),
+        };
 
-      const pickedItem = {
-        tag: el.tagName.toLowerCase(),
-        tagName: el.tagName.toLowerCase(),
-        id: el.id || undefined,
-        classes: Array.from(el.classList || []),
-        textSnippet: (el.textContent || '').trim().slice(0, 120),
-        textContent: (el.textContent || '').trim().slice(0, 1500),
-        xpath: getXPath(el),
-        selector: findOptimalUniqueSelector(el).selector,
-        isUnique: findOptimalUniqueSelector(el).isUnique,
-        matchCount: findOptimalUniqueSelector(el).matchCount,
-        domAncestry: getDomAncestry(el),
-        dimensions: Math.round(freshRect.width) + ' x ' + Math.round(freshRect.height) + ' px',
-        outerHTML: pruneOuterHtml(el.outerHTML || ''),
-        liquidContext: liquidContext,
-        computedStyles: styles,
-        userComment: userComment,
-        targetSessionId: termSelect ? termSelect.value : (termContext.selectedSessionId || undefined),
-        attachedImages: attachedImages.slice(0, 6),
-        rect: {
-          x: Math.round(freshRect.left + window.scrollX),
-          y: Math.round(freshRect.top + window.scrollY),
-          width: Math.round(freshRect.width),
-          height: Math.round(freshRect.height),
-        },
-        clientRect: {
-          x: Math.round(freshRect.left),
-          y: Math.round(freshRect.top),
-          width: Math.round(freshRect.width),
-          height: Math.round(freshRect.height),
-        },
-        position: {
-          x: Math.round(freshRect.left),
-          y: Math.round(freshRect.top),
-          width: Math.round(freshRect.width),
-          height: Math.round(freshRect.height),
-          scrollX: Math.round(window.scrollX || window.pageXOffset || 0),
-          scrollY: Math.round(window.scrollY || window.pageYOffset || 0),
-        },
-        viewport: {
-          width: window.innerWidth || document.documentElement.clientWidth || 0,
-          height: window.innerHeight || document.documentElement.clientHeight || 0,
-          devicePixelRatio: window.devicePixelRatio || 1,
-          scrollX: Math.round(window.scrollX || window.pageXOffset || 0),
-          scrollY: Math.round(window.scrollY || window.pageYOffset || 0),
-          screenWidth: window.screen ? window.screen.width : 0,
-          screenHeight: window.screen ? window.screen.height : 0,
-          colorDepth: window.screen ? window.screen.colorDepth : 24,
-          orientation: window.screen?.orientation?.type || (window.innerWidth > window.innerHeight ? 'landscape-primary' : 'portrait-primary'),
-          userAgent: navigator.userAgent,
-        },
-        interactionState: {
-          hovered: false,
-          focused: document.activeElement === el,
-          disabled: !!(el.disabled || el.getAttribute('disabled')),
-          ariaExpanded: el.getAttribute('aria-expanded'),
-          ariaSelected: el.getAttribute('aria-selected'),
-          ariaChecked: el.getAttribute('aria-checked'),
-          visibility: computed.visibility,
-          display: computed.display,
-          opacity: computed.opacity,
-          zIndex: computed.zIndex,
-        },
-        accessibilitySnapshot: {
-          role: el.getAttribute('role') || el.tagName.toLowerCase(),
-          ariaLabel: el.getAttribute('aria-label') || el.getAttribute('title') || undefined,
-          ariaDescribedBy: el.getAttribute('aria-describedby') || undefined,
-          tabIndex: el.tabIndex,
-          disabled: !!(el.disabled || el.getAttribute('disabled')),
-        },
-        timestamp: Date.now(),
-      };
-      if (isMultiMode) {
-        pickedList.push(pickedItem);
-        // Add fixed pin badge anchored to root document
-        const pin = document.createElement('div');
-        pin.className = PIN_CLASS;
-        pin.style.cssText = 'position:fixed;z-index:2147483645;background:#087ff5;color:#fff;border-radius:50%;width:20px;height:20px;display:flex;align-items:center;justify-content:center;font:bold 11px sans-serif;box-shadow:0 2px 6px rgba(0,0,0,0.5);pointer-events:none;';
-        pin.textContent = String(pickedList.length);
-        pin.style.top = Math.max(0, freshRect.top - 10) + 'px';
-        pin.style.left = Math.max(0, freshRect.left - 10) + 'px';
-        (document.documentElement || document.body).appendChild(pin);
-        cleanupModalListeners();
-        modal.remove();
-        isModalOpen = false;
-        updateMultiDock();
-      } else {
-        cleanupModalListeners();
-        window.__antifanPick = pickedItem;
-        cleanup();
+        if (isMultiMode) {
+          pickedList.push(pickedItem);
+          const pin = document.createElement('div');
+          pin.className = PIN_CLASS;
+          pin.style.cssText = 'position:fixed;z-index:2147483645;background:#087ff5;color:#fff;border-radius:50%;width:20px;height:20px;display:flex;align-items:center;justify-content:center;font:bold 11px sans-serif;box-shadow:0 2px 6px rgba(0,0,0,0.5);pointer-events:none;';
+          pin.textContent = String(pickedList.length);
+          pin.style.top = Math.max(0, freshRect.top - 10) + 'px';
+          pin.style.left = Math.max(0, freshRect.left - 10) + 'px';
+          (document.documentElement || document.body).appendChild(pin);
+          cleanupModalListeners();
+          modal.remove();
+          isModalOpen = false;
+          updateMultiDock();
+        } else {
+          cleanupModalListeners();
+          window.__antifanPick = pickedItem;
+          cleanup();
+        }
+      } catch (err) {
+        console.error('[antifan-inspect] doSubmit error:', err);
+        try {
+          cleanupModalListeners();
+          window.__antifanPick = {
+            selector: el.tagName ? el.tagName.toLowerCase() : 'div',
+            userComment: userComment,
+            targetSessionId: termSelect ? termSelect.value : undefined,
+            attachedImages: attachedImages.slice(0, 6),
+            timestamp: Date.now(),
+          };
+          cleanup();
+        } catch {}
       }
     };
 

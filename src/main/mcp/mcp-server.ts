@@ -421,7 +421,11 @@ export class AntiFanMcpServer {
     const evidence = () => { const tab = a.tabId ? this.tabHost.getTabList().find((item) => item.id === a.tabId) : this.tabHost.getActiveTab(); return { tabId: tab?.id, url: tab?.url, title: tab?.title, themeError: tab?.themeError || null }; };
     const resultText = (data: unknown) => JSON.stringify({ ...envelope(data, { ...evidence(), timestamp: Date.now() }), requestId: rid });
     const requireTab = () => { if (a.tabId && !this.tabHost.getTabList().some((item) => item.id === a.tabId)) throw new Error(`Unknown tabId: ${a.tabId}`); };
-      try {
+    const activeTabId = a.tabId || this.tabHost.getActiveTabId();
+    if (activeTabId) {
+      this.tabHost.markTabAgentWorking?.(activeTabId, 6000);
+    }
+    try {
         if (this.transport && typeof a.runtimeLease === 'object' && typeof a.projectId === 'string' && typeof a.workspaceId === 'string') {
           const context = a.context as Partial<CapabilityRequestContext> | undefined;
           const result = await this.transport.dispatch(name, a, {

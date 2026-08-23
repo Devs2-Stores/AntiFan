@@ -1063,14 +1063,133 @@ document.addEventListener('click', (e) => {
   }
 });
 
-// Three-dot Menu
-if (btnMenu) {
-  btnMenu.addEventListener('click', (e) => {
-    e.stopPropagation();
-    getApi()?.showMenu();
+// Modern App Dropdown Menu (Three-dot ⋮)
+const appDropdownMenu = document.getElementById('appDropdownMenu') as HTMLElement | null;
+const menuProfileSubList = document.getElementById('menuProfileSubList') as HTMLElement | null;
+
+function renderAppMenuProfiles() {
+  if (!menuProfileSubList) return;
+  if (!availableChromeProfiles || availableChromeProfiles.length === 0) {
+    menuProfileSubList.innerHTML = '<div class="profile-sub-item disabled">Không tìm thấy Chrome Profile</div>';
+    return;
+  }
+  menuProfileSubList.innerHTML = '';
+  availableChromeProfiles.forEach((p) => {
+    const item = document.createElement('div');
+    item.className = 'profile-sub-item';
+    item.innerHTML = `<span>👤</span><span>${escapeHtml(p.name || p.id)}</span>`;
+    item.onclick = async (e) => {
+      e.stopPropagation();
+      closeAppMenu();
+      await getApi()?.syncChromeProfile(p.id);
+      showToolbarToast(`Đã đồng bộ Chrome Profile: ${p.name || p.id}`);
+    };
+    menuProfileSubList.appendChild(item);
   });
 }
 
+function closeAppMenu() {
+  if (appDropdownMenu && appDropdownMenu.style.display !== 'none') {
+    appDropdownMenu.style.display = 'none';
+    getApi()?.setOverlay(false);
+  }
+}
+
+function toggleAppMenu() {
+  if (!appDropdownMenu) return;
+  const isHidden = appDropdownMenu.style.display === 'none';
+  if (isHidden) {
+    if (bookmarksDropdownMenu) bookmarksDropdownMenu.style.display = 'none';
+    if (profileDropdownMenu) profileDropdownMenu.style.display = 'none';
+    renderAppMenuProfiles();
+    appDropdownMenu.style.display = 'flex';
+    getApi()?.setOverlay(true);
+  } else {
+    closeAppMenu();
+  }
+}
+
+if (btnMenu && appDropdownMenu) {
+  btnMenu.addEventListener('click', (e) => {
+    e.stopPropagation();
+    toggleAppMenu();
+  });
+}
+
+// App Menu Items Clicks
+document.getElementById('menuItemCheckUpdates')?.addEventListener('click', (e) => {
+  e.stopPropagation();
+  closeAppMenu();
+  (getApi() as any)?.checkUpdates?.();
+});
+
+document.getElementById('menuItemBookmarkTab')?.addEventListener('click', (e) => {
+  e.stopPropagation();
+  closeAppMenu();
+  const star = document.getElementById('btnStarBookmark');
+  if (star) star.click();
+});
+
+document.getElementById('menuItemToggleBookmarksBar')?.addEventListener('click', (e) => {
+  e.stopPropagation();
+  closeAppMenu();
+  getApi()?.toggleBookmarkBar();
+});
+
+document.getElementById('menuItemFindInPage')?.addEventListener('click', (e) => {
+  e.stopPropagation();
+  closeAppMenu();
+  showFindBar();
+});
+
+document.getElementById('menuItemQuickInspect')?.addEventListener('click', (e) => {
+  e.stopPropagation();
+  closeAppMenu();
+  getApi()?.toggleInspect();
+});
+
+document.getElementById('menuItemFontFinder')?.addEventListener('click', (e) => {
+  e.stopPropagation();
+  closeAppMenu();
+  getApi()?.toggleFontFinder();
+});
+
+document.getElementById('menuItemGpuLens')?.addEventListener('click', (e) => {
+  e.stopPropagation();
+  closeAppMenu();
+  getApi()?.toggleLens();
+});
+
+document.getElementById('menuItemScreenshot')?.addEventListener('click', (e) => {
+  e.stopPropagation();
+  closeAppMenu();
+  getApi()?.captureViewport();
+});
+
+document.getElementById('menuItemOpenSystemBrowser')?.addEventListener('click', (e) => {
+  e.stopPropagation();
+  closeAppMenu();
+  getApi()?.openExternal();
+});
+
+document.getElementById('menuItemDevTools')?.addEventListener('click', (e) => {
+  e.stopPropagation();
+  closeAppMenu();
+  getApi()?.toggleDevTools();
+});
+
+document.getElementById('menuItemClearStorage')?.addEventListener('click', async (e) => {
+  e.stopPropagation();
+  closeAppMenu();
+  await getApi()?.clearStorage();
+  showToolbarToast('Đã xóa Cookies & Cache của trang này');
+});
+
+document.getElementById('menuItemShortcuts')?.addEventListener('click', (e) => {
+  e.stopPropagation();
+  closeAppMenu();
+  openShortcutsOverlay();
+});
 function openShortcutsOverlay() {
   if (!shortcutsOverlay) return;
   getApi()?.setOverlay(true);
@@ -1308,6 +1427,14 @@ if (menuItemCloseTabsToRight) {
 
 // Close menus when clicking outside
 document.addEventListener('click', (e) => {
+  if (appDropdownMenu && appDropdownMenu.style.display !== 'none') {
+    const path = (e.composedPath && typeof e.composedPath === 'function') ? e.composedPath() : [];
+    const isInsideMenu = path.includes(appDropdownMenu) || appDropdownMenu.contains(e.target as Node);
+    const isMenuButton = (btnMenu && path.includes(btnMenu)) || e.target === btnMenu;
+    if (!isInsideMenu && !isMenuButton) {
+      closeAppMenu();
+    }
+  }
   if (codexMainMenu && !codexMainMenu.contains(e.target as Node) && e.target !== btnMenu) {
     codexMainMenu.classList.remove('active');
   }

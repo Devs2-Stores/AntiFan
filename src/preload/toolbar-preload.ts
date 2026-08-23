@@ -86,6 +86,7 @@ const toolbarApi = {
   findInPage: (text: string, forward = true) => ipcRenderer.invoke(CHANNELS.FIND_IN_PAGE, { text, forward }),
   stopFindInPage: () => ipcRenderer.invoke(CHANNELS.STOP_FIND_IN_PAGE),
   showMenu: () => ipcRenderer.invoke(CHANNELS.SHOW_MENU),
+  checkUpdates: () => ipcRenderer.invoke('antifan:toolbar:check-updates'),
   setOverlay: (active: boolean, customHeight?: number) => ipcRenderer.invoke(CHANNELS.SET_OVERLAY, active, customHeight),
   clearStorage: () => ipcRenderer.invoke(CHANNELS.CLEAR_STORAGE),
   getChromeProfiles: () => ipcRenderer.invoke(CHANNELS.GET_CHROME_PROFILES),

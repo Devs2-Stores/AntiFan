@@ -87,6 +87,7 @@ export class NativeTabHost extends EventEmitter {
   private inspectPollTimer: NodeJS.Timeout | null = null;
   private persistTimer: NodeJS.Timeout | null = null;
   private reconcilerTimer: NodeJS.Timeout | null = null;
+  private agentWorkingTimers = new Map<string, NodeJS.Timeout>();
 
   constructor(window: BrowserWindow, capsuleManager?: WorkspaceCapsuleManager) {
     super();
@@ -308,6 +309,7 @@ export class NativeTabHost extends EventEmitter {
     ipcMain.handle(TOOLBAR_CHANNELS.FIND_IN_PAGE, (_event, { text, forward }: { text: string; forward?: boolean }) => this.findInPage(text, forward));
     ipcMain.handle(TOOLBAR_CHANNELS.STOP_FIND_IN_PAGE, () => this.stopFindInPage());
     ipcMain.handle(TOOLBAR_CHANNELS.SHOW_MENU, () => this.showMainMenu());
+    ipcMain.handle('antifan:toolbar:check-updates', () => checkForUpdatesAndRestart(this.window));
     ipcMain.handle(TOOLBAR_CHANNELS.SET_OVERLAY, (_event, active: boolean) => this.setToolbarOverlay(active));
     ipcMain.handle(TOOLBAR_CHANNELS.CLEAR_STORAGE, () => this.clearStorageForActiveTab());
     ipcMain.handle(TOOLBAR_CHANNELS.GET_CHROME_PROFILES, () => ChromeProfileSyncManager.getInstance().getAvailableProfiles());
@@ -1524,6 +1526,35 @@ export class NativeTabHost extends EventEmitter {
     return true;
   }
 
+  public markTabAgentWorking(tabId?: string, durationMs = 5000): void {
+    const targetId = tabId || this.activeTabId;
+    const tab = this.tabs.get(targetId);
+    if (!tab) return;
+
+    tab.state.aiState = 'agent_working';
+    this.broadcastState();
+
+    const existingTimer = this.agentWorkingTimers.get(targetId);
+    clearTimeout(existingTimer);
+
+    const timer = setTimeout(() => {
+      if (tab.state.aiState === 'agent_working') {
+        tab.state.aiState = 'idle';
+        this.broadcastState();
+      }
+      this.agentWorkingTimers.delete(targetId);
+    }, durationMs);
+
+    this.agentWorkingTimers.set(targetId, timer);
+  }
+
+  public setTabAiState(tabId: string, aiState: 'idle' | 'thinking' | 'streaming' | 'completed' | 'agent_working'): void {
+    const tab = this.tabs.get(tabId);
+    if (!tab) return;
+    tab.state.aiState = aiState;
+    this.broadcastState();
+  }
+
   public closeTab(tabId: string): boolean {
     const target = this.tabs.get(tabId);
     if (!target) return false;
@@ -1901,9 +1932,11 @@ export class NativeTabHost extends EventEmitter {
   }
 
   public async agentClick(params: { selector?: string; x?: number; y?: number; label?: string; tabId?: string }): Promise<boolean> {
-    const target = this.tabs.get(params.tabId || this.activeTabId);
+    const targetId = params.tabId || this.activeTabId;
+    const target = this.tabs.get(targetId);
     if (!target) return false;
-    await this.ensureAgentBrowserInjected(params.tabId || this.activeTabId);
+    this.markTabAgentWorking(targetId);
+    await this.ensureAgentBrowserInjected(targetId);
     try {
       await target.view.webContents.executeJavaScript(`(() => {
         if (window.__antifanAgentClick) {
@@ -1918,9 +1951,11 @@ export class NativeTabHost extends EventEmitter {
   }
 
   public async agentType(params: { selector: string; text: string; clear?: boolean; tabId?: string }): Promise<boolean> {
-    const target = this.tabs.get(params.tabId || this.activeTabId);
+    const targetId = params.tabId || this.activeTabId;
+    const target = this.tabs.get(targetId);
     if (!target) return false;
-    await this.ensureAgentBrowserInjected(params.tabId || this.activeTabId);
+    this.markTabAgentWorking(targetId);
+    await this.ensureAgentBrowserInjected(targetId);
     try {
       await target.view.webContents.executeJavaScript(`(() => {
         if (window.__antifanAgentType) {
@@ -1935,9 +1970,11 @@ export class NativeTabHost extends EventEmitter {
   }
 
   public async agentScroll(params: { deltaY?: number; selector?: string; tabId?: string }): Promise<boolean> {
-    const target = this.tabs.get(params.tabId || this.activeTabId);
+    const targetId = params.tabId || this.activeTabId;
+    const target = this.tabs.get(targetId);
     if (!target) return false;
-    await this.ensureAgentBrowserInjected(params.tabId || this.activeTabId);
+    this.markTabAgentWorking(targetId);
+    await this.ensureAgentBrowserInjected(targetId);
     try {
       await target.view.webContents.executeJavaScript(`(() => {
         if (window.__antifanAgentScroll) {
@@ -1952,9 +1989,11 @@ export class NativeTabHost extends EventEmitter {
   }
 
   public async agentHover(params: { selector?: string; x?: number; y?: number; label?: string; tabId?: string }): Promise<boolean> {
-    const target = this.tabs.get(params.tabId || this.activeTabId);
+    const targetId = params.tabId || this.activeTabId;
+    const target = this.tabs.get(targetId);
     if (!target) return false;
-    await this.ensureAgentBrowserInjected(params.tabId || this.activeTabId);
+    this.markTabAgentWorking(targetId);
+    await this.ensureAgentBrowserInjected(targetId);
     try {
       let targetX = params.x;
       let targetY = params.y;
@@ -1985,9 +2024,11 @@ export class NativeTabHost extends EventEmitter {
   }
 
   public async agentHighlight(params: { selector: string; label?: string; tabId?: string }): Promise<boolean> {
-    const target = this.tabs.get(params.tabId || this.activeTabId);
+    const targetId = params.tabId || this.activeTabId;
+    const target = this.tabs.get(targetId);
     if (!target) return false;
-    await this.ensureAgentBrowserInjected(params.tabId || this.activeTabId);
+    this.markTabAgentWorking(targetId);
+    await this.ensureAgentBrowserInjected(targetId);
     try {
       await target.view.webContents.executeJavaScript(`(() => {
         if (window.__antifanAgentHighlight) {
@@ -2029,8 +2070,13 @@ export class NativeTabHost extends EventEmitter {
     const active = this.tabs.get(this.activeTabId);
     if (!active) return;
 
+    const tm = TerminalManager.getInstance();
+    const sessions = tm.listSessions();
+    const activeSessionId = tm.getActiveSessionId();
+    const termContextScript = `window.__antifanTerminalContext = ${JSON.stringify({ sessions, selectedSessionId: activeSessionId })};`;
+
     this.isInspecting = true;
-    active.view.webContents.executeJavaScript(ELEMENT_PICKER_SCRIPT).catch(() => {});
+    active.view.webContents.executeJavaScript(`${termContextScript}\n${ELEMENT_PICKER_SCRIPT}`).catch(() => {});
     this.emit('inspect-toggled', true);
     this.broadcastState();
 
@@ -2069,9 +2115,9 @@ export class NativeTabHost extends EventEmitter {
           } catch {}
 
           const activeTab = this.tabs.get(this.activeTabId);
-          const targetSessionId = this.transcriptSyncer.getActiveSessionId() !== 'auto'
+          const targetSessionId = rawResult.targetSessionId || (this.transcriptSyncer.getActiveSessionId() !== 'auto'
             ? this.transcriptSyncer.getActiveSessionId()
-            : undefined;
+            : undefined);
           const targetWorkspace = this.resolveTargetWorkspace(targetSessionId, activeTab?.state.url);
 
           const annotationResult = await AnnotationManager.getInstance().processAnnotationPayload({
