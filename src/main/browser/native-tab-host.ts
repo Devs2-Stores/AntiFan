@@ -8,7 +8,7 @@ import { app, BrowserWindow, WebContentsView, Menu, MenuItem, clipboard, Rectang
 import * as path from 'node:path';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
-import { randomUUID } from 'node:crypto';
+import { randomUUID, createHash } from 'node:crypto';
 import { EventEmitter } from 'node:events';
 import { AntiFanTab, AntiFanPickedElement, ChatMessage, TOOLBAR_CHANNELS, SIDEBAR_CHANNELS, TERMINAL_CHANNELS, BridgeDeliveryUpdatePayload, AntigravityAttachmentDescriptor } from '../../shared/contracts';
 import { getSecureWebPreferences, sanitizeUrl, isAllowedNavigation, cleanRestoredUrl, isInternalWidgetOrSubframeUrl } from '../security/security-policy';
@@ -1683,62 +1683,40 @@ export class NativeTabHost extends EventEmitter {
       const maxW = Math.max(100, availableWidth);
       const maxH = Math.max(100, availableHeight);
 
-      if (preset.category === 'desktop') {
-        // Desktop breakpoints (1920x1080, 1728x1117, 1440x900):
-        // Auto-scale zoom factor so page layout is precisely preset.width CSS pixels
-        // (window.innerWidth = availableWidth / zoom = preset.width) and fits 100% horizontally.
-        const fitScale = Math.min(1.0, maxW / preset.width);
-        const effectiveZoom = Math.max(0.1, Math.min(5.0, fitScale * userZoom));
+      const fitScale = preset.category === 'desktop'
+        ? Math.min(1.0, maxW / preset.width)
+        : Math.min(1.0, maxW / preset.width, maxH / preset.height);
+      const effectiveScale = Math.max(0.1, Math.min(5.0, fitScale * userZoom));
+      const renderedW = Math.min(maxW, Math.round(preset.width * effectiveScale));
+      const renderedH = preset.category === 'desktop'
+        ? (preset.height && preset.height * effectiveScale <= maxH ? Math.round(preset.height * effectiveScale) : maxH)
+        : Math.min(maxH, Math.round(preset.height * effectiveScale));
+      const targetX = Math.max(0, Math.floor((maxW - renderedW) / 2));
+      const targetY = toolbarHeight + (renderedH < maxH ? Math.max(0, Math.floor((maxH - renderedH) / 2)) : 0);
 
-        try {
-          tab.view.webContents.disableDeviceEmulation();
-        } catch {}
-
-        try {
-          tab.view.webContents.setZoomFactor(effectiveZoom);
-        } catch (err) {
-          console.error('[native-tab-host] Failed setZoomFactor:', err);
-        }
-
-        tab.view.setBounds({
-          x: 0,
-          y: toolbarHeight,
-          width: maxW,
-          height: maxH,
+      try {
+        tab.view.webContents.enableDeviceEmulation({
+          screenPosition: preset.mobile ? 'mobile' : 'desktop',
+          screenSize: { width: preset.width, height: preset.height },
+          viewPosition: { x: 0, y: 0 },
+          deviceScaleFactor: preset.deviceScaleFactor || (preset.category === 'desktop' ? 1 : 2),
+          viewSize: { width: preset.width, height: preset.height },
+          scale: effectiveScale,
         });
-      } else {
-        // Tablet / Mobile breakpoints (iPhone, iPad, Samsung Galaxy):
-        const fitScale = Math.min(1.0, maxW / preset.width, maxH / preset.height);
-        const effectiveScale = Math.max(0.1, Math.min(5.0, fitScale * userZoom));
-        const renderedW = Math.min(maxW, Math.round(preset.width * effectiveScale));
-        const renderedH = Math.min(maxH, Math.round(preset.height * effectiveScale));
-        const targetX = Math.max(0, Math.floor((maxW - renderedW) / 2));
-        const targetY = toolbarHeight + Math.max(0, Math.floor((maxH - renderedH) / 2));
-
-        try {
-          tab.view.webContents.enableDeviceEmulation({
-            screenPosition: preset.mobile ? 'mobile' : 'desktop',
-            screenSize: { width: preset.width, height: preset.height },
-            viewPosition: { x: 0, y: 0 },
-            deviceScaleFactor: preset.deviceScaleFactor || 2,
-            viewSize: { width: preset.width, height: preset.height },
-            scale: effectiveScale,
-          });
-        } catch (err) {
-          console.error('[native-tab-host] Failed enableDeviceEmulation:', err);
-        }
-
-        try {
-          tab.view.webContents.setZoomFactor(effectiveScale);
-        } catch {}
-
-        tab.view.setBounds({
-          x: targetX,
-          y: targetY,
-          width: renderedW,
-          height: renderedH,
-        });
+      } catch (err) {
+        console.error('[native-tab-host] Failed enableDeviceEmulation:', err);
       }
+
+      try {
+        tab.view.webContents.setZoomFactor(effectiveScale);
+      } catch {}
+
+      tab.view.setBounds({
+        x: targetX,
+        y: targetY,
+        width: renderedW,
+        height: renderedH,
+      });
     } else {
       try {
         tab.view.webContents.disableDeviceEmulation();
@@ -2142,29 +2120,46 @@ export class NativeTabHost extends EventEmitter {
 
           this.emit('element-picked', pickedData);
 
-          // Notify Toolbar and Sidebar
+          // Notify Toolbar
           if (!this.toolbarView.webContents.isDestroyed()) {
             this.toolbarView.webContents.send(TOOLBAR_CHANNELS.ELEMENT_PICKED, pickedData);
           }
+
+          const promptText = rawResult.userComment?.trim() || 'Inspect the attached browser annotation, report observed evidence, and ask for the intended outcome before editing.';
+          let fullPrompt = promptText;
+          if (annotationResult.markdownPath) {
+            fullPrompt += ` @[${annotationResult.markdownPath}:L1]`;
+          }
+          if (annotationResult.targetImagePath) {
+            fullPrompt += ` @[${annotationResult.targetImagePath}:L1]`;
+          }
+
+          // 1. Direct write to TerminalManager session PTY
+          const resolvedTerminalId = targetSessionId || tm.getActiveSessionId();
+          if (resolvedTerminalId) {
+            tm.switchSession(resolvedTerminalId);
+            tm.writeTo(resolvedTerminalId, fullPrompt + '\r');
+          } else {
+            tm.write(fullPrompt + '\r');
+          }
+
+          // 2. Also copy to OS clipboard for instant convenience
+          try {
+            clipboard.writeText(fullPrompt);
+          } catch {}
+
+          // 3. Notify sidebar if open
           if (this.sidebarView && !this.sidebarView.webContents.isDestroyed()) {
             this.sidebarView.webContents.send(SIDEBAR_CHANNELS.ATTACH_ELEMENT, pickedData);
-
-            const promptText = rawResult.userComment?.trim() || 'Inspect the attached browser annotation, report observed evidence, and ask for the intended outcome before editing.';
-            let fullPrompt = promptText;
-            if (annotationResult.markdownPath) {
-              fullPrompt += `\n@[${annotationResult.markdownPath}:L1]`;
-            }
-            if (annotationResult.targetImagePath) {
-              fullPrompt += `\n@[${annotationResult.targetImagePath}:L1]`;
-            }
-
-            await this.handleSendPrompt({
-              text: fullPrompt,
-              attachedElement: pickedData,
-              deliveryMode: 'auto',
-              sessionId: targetSessionId,
-            });
           }
+
+          // 4. Dispatch via command client
+          await this.handleSendPrompt({
+            text: fullPrompt,
+            attachedElement: pickedData,
+            deliveryMode: 'auto',
+            sessionId: resolvedTerminalId,
+          }).catch(() => {});
         }
       } catch {}
     }, 200);
@@ -2928,7 +2923,11 @@ export class NativeTabHost extends EventEmitter {
     }
 
     const viewerHtml = this.renderPageSourceHtml(targetUrl, rawHtml);
-    const dataUrl = 'data:text/html;charset=utf-8,' + encodeURIComponent(viewerHtml);
+    const tempDir = app ? path.join(app.getPath('userData'), 'view-source') : path.join(os.homedir(), '.antifan-browser', 'view-source');
+    try { fs.mkdirSync(tempDir, { recursive: true }); } catch {}
+    const safeHash = createHash('md5').update(targetUrl).digest('hex').slice(0, 12);
+    const filePath = path.join(tempDir, `source_${safeHash}.html`);
+    try { fs.writeFileSync(filePath, viewerHtml, 'utf8'); } catch {}
 
     if (tabState) {
       tabState.isLoading = false;
@@ -2936,7 +2935,7 @@ export class NativeTabHost extends EventEmitter {
       this.broadcastState();
     }
 
-    wc.loadURL(dataUrl).catch(() => {});
+    wc.loadFile(filePath).catch(() => {});
   }
 
   public async viewPageSource(tabId?: string): Promise<string> {
@@ -2961,18 +2960,7 @@ export class NativeTabHost extends EventEmitter {
       rawHtml = '<!-- No source HTML available -->';
     }
 
-    const viewerHtml = this.renderPageSourceHtml(sourceUrl, rawHtml);
-    const dataUrl = 'data:text/html;charset=utf-8,' + encodeURIComponent(viewerHtml);
-
-    const newTabId = this.createTab(dataUrl);
-    const newTab = this.tabs.get(newTabId);
-    if (newTab) {
-      newTab.state.title = `view-source:${sourceUrl}`;
-      newTab.state.url = `view-source:${sourceUrl}`;
-      newTab.state.isLoading = false;
-      this.broadcastState();
-    }
-    return newTabId;
+    return this.createTab(`view-source:${sourceUrl}`);
   }
 
   public broadcastState(): void {
@@ -3318,11 +3306,16 @@ export class NativeTabHost extends EventEmitter {
     if (bounds.isMaximized) {
       win.maximize();
     }
-
     this.terminalWindowStateManager.manage(win);
     this.popoutWindow = win;
     this.terminalWindows.set(win.id, win);
 
+    win.webContents.on('before-input-event', (event, input) => {
+      if (input.type === 'keyDown' && input.key === 'F11') {
+        event.preventDefault();
+        win.setFullScreen(!win.isFullScreen());
+      }
+    });
     let standaloneHtml = path.join(__dirname, '..', '..', 'renderer', 'standalone.html');
     if (!fs.existsSync(standaloneHtml)) {
       standaloneHtml = path.join(process.cwd(), 'src', 'renderer', 'standalone.html');
@@ -3400,6 +3393,12 @@ export class NativeTabHost extends EventEmitter {
     this.terminalWindowStateManager.manage(win);
     this.terminalWindows.set(win.id, win);
 
+    win.webContents.on('before-input-event', (event, input) => {
+      if (input.type === 'keyDown' && input.key === 'F11') {
+        event.preventDefault();
+        win.setFullScreen(!win.isFullScreen());
+      }
+    });
     let standaloneHtml = path.join(__dirname, '..', '..', 'renderer', 'standalone.html');
     if (!fs.existsSync(standaloneHtml)) {
       standaloneHtml = path.join(process.cwd(), 'src', 'renderer', 'standalone.html');

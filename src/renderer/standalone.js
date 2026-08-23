@@ -128,6 +128,22 @@ function setupTerminalClipboard(targetTerm, getSessionId) {
       return false;
     }
 
+    // F11: Fullscreen Toggle
+    if (e.key === 'F11') {
+      e.preventDefault();
+      e.stopPropagation();
+      api?.toggleFullScreen?.();
+      return false;
+    }
+
+    // Ctrl+Shift+N: New Window
+    if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === 'n' || e.key === 'N')) {
+      e.preventDefault();
+      e.stopPropagation();
+      api?.openNewTerminalWindow?.(activeId);
+      return false;
+    }
+
     return true;
   });
 
