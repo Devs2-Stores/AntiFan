@@ -28,6 +28,7 @@ export interface AnnotationPayload {
   position?: Record<string, any>;
   viewport?: Record<string, any>;
   attributes?: Record<string, any>;
+  liquidContext?: Record<string, any>;
   computedStyles?: Record<string, any>;
   outerHTML?: string;
   textContent?: string;
@@ -64,10 +65,10 @@ export class AnnotationManager {
       'e:\\Work',
     ];
 
-    let foundBase = path.join(wsDir, '.antigravity');
+    let foundBase = path.join(wsDir, '.antifan');
     for (const c of candidates) {
-      if (fs.existsSync(path.join(c, '.antigravity'))) {
-        foundBase = path.join(c, '.antigravity');
+      if (fs.existsSync(path.join(c, '.antifan'))) {
+        foundBase = path.join(c, '.antifan');
         break;
       }
     }
@@ -187,7 +188,6 @@ ${buildAgentTaskHeader(userComment)}
   "timestamp": ${timestamp}
 }
 \`\`\`
-
 ## Semantic anchor
 \`\`\`json
 {
@@ -196,6 +196,12 @@ ${buildAgentTaskHeader(userComment)}
   "text": "${safe(payload.textContent, 200)}"
 }
 \`\`\`
+${payload.liquidContext && Object.values(payload.liquidContext).some(Boolean) ? `
+## ⚓ Liquid & Theme Semantic Anchors
+\`\`\`json
+${JSON.stringify(payload.liquidContext, null, 2)}
+\`\`\`
+` : ''}
 ${commentSection}
 ## Visual evidence
 Capture method: SnapDOM-rendered PNG produced from the selected element and its computed DOM styles.
@@ -259,7 +265,7 @@ ${stylesList.map(([key, value]) => `${safe(key, 100)}: ${safe(value, 500)};`).jo
 
 ## 🧩 Complete Outer HTML
 \`\`\`html
-${safe(payload.outerHTML, 25000)}
+${safe(payload.outerHTML, 8000)}
 \`\`\`
 ${Array.isArray(payload.multiItems) && payload.multiItems.length > 1 ? `\n## Multi-Element Batch Breakdown (${payload.multiItems.length} Elements Selected)\n` + payload.multiItems.map((item, idx) => `### ${idx + 1}. \`${safe(item.selector, 200)}\`\n- Tag: \`${safe(item.tagName || item.tag, 50)}\`\n- Dimensions: ${safe(item.dimensions, 50)}\n${item.userComment ? `- User Comment: **${safe(item.userComment, 500)}**\n` : ''}${item.textContent ? `- Text: "${safe(item.textContent, 200)}"\n` : ''}`).join('\n') : ''}
 `;

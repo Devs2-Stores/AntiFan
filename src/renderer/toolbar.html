@@ -12,17 +12,16 @@
     <!-- TAB STRIP -->
     <div class="tab-strip" id="tabStrip">
       <div class="tab-list" id="tabList"></div>
-      <button class="btn-new-tab" id="btnNewTab" title="New Tab (Ctrl+T)">+</button>
-
-      <!-- Status Badge -->
-      <div class="bridge-status-badge" title="AntiFan Extension Bridge (127.0.0.1:20129)">
-        <span class="bridge-dot"></span>
-        <span>Bridge Ready</span>
-      </div>
+      <button class="btn-new-tab" id="btnNewTab" title="New Tab (Ctrl+T)" aria-label="New Tab">
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M8 2.5v11M2.5 8h11"/>
+        </svg>
+      </button>
     </div>
 
     <!-- TOOLBAR & OMNIBOX WRAPPER -->
     <div class="toolbar">
+
       <button class="nav-btn" id="btnBack" title="Back (Alt+Left)" disabled>
         <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path fill-rule="evenodd" clip-rule="evenodd" d="M9.707 12.707a1 1 0 0 1-1.414 0l-4-4a1 1 0 0 1 0-1.414l4-4a1 1 0 0 1 1.414 1.414L6.414 8l3.293 3.293a1 1 0 0 1 0 1.414z"/></svg>
       </button>
@@ -38,44 +37,61 @@
           <span class="omnibox-badge" title="Secure Connection">
             <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor" style="opacity:0.75; display:block;"><path fill-rule="evenodd" clip-rule="evenodd" d="M4 6V4a4 4 0 0 1 8 0v2h1a1 1 0 0 1 1 1v7a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h1zm2 0h4V4a2 2 0 1 0-4 0v2z"/></svg>
           </span>
+          <span id="agentActiveBadge" class="agent-active-badge" style="display:none;" title="AI Agent đang trực tiếp điều phối tab này">
+            <span class="agent-badge-pulse"></span>
+            <span class="agent-badge-icon">🤖</span>
+            <span class="agent-badge-text">AI AGENT</span>
+          </span>
           <input type="text" id="urlInput" class="omnibox-input" value="" placeholder="Search with Google or enter URL" spellcheck="false" autocomplete="off" />
           <button type="button" id="btnStarBookmark" class="btn-star-bookmark" title="Bookmark this tab (Ctrl+D)">
-            <svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor"><path d="M3.612 15.443c-.386.198-.824-.149-.746-.592l.83-4.73L.173 6.765c-.329-.314-.158-.888.283-.95l4.898-.696L7.538.792c.197-.39.73-.39.927 0l2.184 4.327 4.898.696c.441.062.612.636.282.95l-3.522 3.356.83 4.73c.078.443-.36.79-.746.592L8 13.187l-4.389 2.256z"/></svg>
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M2.866 14.85c-.078.444.36.791.746.593l4.39-2.256 4.389 2.256c.386.198.824-.149.746-.592l-.83-4.73 3.522-3.356c.33-.314.16-.888-.282-.95l-4.898-.696L8.465.792a.513.513 0 0 0-.927 0L5.354 5.12l-4.898.696c-.441.062-.612.636-.283.95l3.523 3.356-.83 4.73zm4.905-2.767-3.686 1.894.694-3.957a.565.565 0 0 0-.163-.505L1.71 6.745l4.052-.576a.525.525 0 0 0 .393-.288L8 2.223l1.847 3.658a.525.525 0 0 0 .393.288l4.052.575-2.906 2.77a.565.565 0 0 0-.163.506l.694 3.957-3.686-1.895a.5.5 0 0 0-.461 0z"/></svg>
           </button>
           <button type="button" id="btnClearOmnibox" class="btn-clear-omnibox" style="display:none;">&times;</button>
         </div>
 
         <!-- Google Chrome Style Omnibox Suggest Dropdown -->
-        <div id="omniboxSuggestDropdown" class="omnibox-suggest-dropdown" style="display:none;">
-          <div id="omniboxSuggestList" class="omnibox-suggest-list"></div>
+        <div class="omnibox-suggest-dropdown" id="omniboxSuggestDropdown" style="display:none;">
+          <div class="omnibox-suggest-list" id="omniboxSuggestList"></div>
         </div>
       </div>
 
-      <!-- Device Selector -->
+      <!-- Device Viewport Breakpoints -->
       <select class="device-select" id="deviceSelect" title="Device Viewport Breakpoints">
-        <option value="responsive" selected>🖥️ Responsive (Auto)</option>
-        <optgroup label="💻 Desktop & Laptop">
-          <option value="desktop-fhd">🖥️ Desktop FHD (1920×1080)</option>
-          <option value="laptop-macbook16">💻 MacBook Pro 16" (1728×1117)</option>
-          <option value="laptop-1440">💻 Laptop 14" (1440×900)</option>
-          <option value="laptop-macbook13">💻 MacBook Air 13" (1280×832)</option>
+        <option value="responsive">🖥️ Responsive (Fluid)</option>
+        <optgroup label="💻 Desktops & Laptops">
+          <option value="desktop-4k">4K UHD (3840×2160)</option>
+          <option value="desktop-2k">2K QHD (2560×1440)</option>
+          <option value="desktop-fhd">Full HD (1920×1080)</option>
+          <option value="laptop-macbook16">MacBook Pro 16" (1728×1117)</option>
+          <option value="laptop-macbook14">MacBook Pro 14" (1512×982)</option>
+          <option value="laptop-macbook13">MacBook Air 13" (1280×832)</option>
+          <option value="laptop-1440">Laptop 14" (1440×900)</option>
+          <option value="laptop-hd">Laptop Standard (1366×768)</option>
+          <option value="desktop-1280">Desktop 5:4 (1280×1024)</option>
         </optgroup>
         <optgroup label="📟 Tablets">
-          <option value="ipad-pro-12">📟 iPad Pro 12.9" (1024×1366)</option>
-          <option value="surface-pro-9">📟 Surface Pro 9 (912×1368)</option>
-          <option value="ipad-air-11">📟 iPad Air 11" (820×1180)</option>
-          <option value="galaxy-tab-s9">📟 Galaxy Tab S9 (800×1280)</option>
-          <option value="ipad-mini">📟 iPad Mini (768×1024)</option>
+          <option value="tablet-ipad-pro">iPad Pro 12.9" (1024×1366)</option>
+          <option value="tablet-ipad-air">iPad Air / Pro 11" (820×1180)</option>
+          <option value="ipad-10th">iPad 10th Gen (810×1080)</option>
+          <option value="tablet-ipad-mini">iPad Mini (768×1024)</option>
+          <option value="surface-pro-9">Surface Pro 9 (912×1368)</option>
+          <option value="galaxy-tab-s9">Galaxy Tab S9 (800×1280)</option>
         </optgroup>
         <optgroup label="📱 Mobile Phones">
-          <option value="iphone-16-promax">📱 iPhone 16 Pro Max (440×956)</option>
-          <option value="iphone-16-pro">📱 iPhone 16 / 15 Pro (393×852)</option>
-          <option value="iphone-14-15">📱 iPhone 14 / 13 (390×844)</option>
-          <option value="galaxy-s24-ultra">📱 Galaxy S24 Ultra (412×915)</option>
-          <option value="pixel-9-pro">📱 Pixel 9 Pro (412×924)</option>
-          <option value="xiaomi-14">📱 Xiaomi 14 / 13 (393×851)</option>
-          <option value="iphone-se">📱 iPhone SE (375×667)</option>
-          <option value="mobile-compact">📱 Compact Phone (360×800)</option>
+          <option value="phone-iphone16promax">iPhone 16 Pro Max (440×956)</option>
+          <option value="phone-iphone16plus">iPhone 16 Plus / 15 Plus (430×932)</option>
+          <option value="phone-iphone15pro">iPhone 16 / 15 Pro (393×852)</option>
+          <option value="phone-iphone14pro">iPhone 14 / 13 / 12 (390×844)</option>
+          <option value="phone-iphonexr">iPhone XR / 11 (414×896)</option>
+          <option value="phone-iphonese">iPhone SE (375×667)</option>
+          <option value="phone-s24ultra">Samsung Galaxy S24 Ultra (412×915)</option>
+          <option value="phone-zfold5">Samsung Galaxy Z Fold 5 (344×882)</option>
+          <option value="phone-pixel8pro">Google Pixel 8 Pro (448×998)</option>
+          <option value="pixel-9-pro">Google Pixel 9 Pro (412×924)</option>
+          <option value="phone-pixel7">Google Pixel 7 / 6 (412×915)</option>
+          <option value="xiaomi-14">Xiaomi 14 / 13 (393×851)</option>
+          <option value="mobile-compact">Mobile Baseline (360×800)</option>
+          <option value="mobile-small">Mobile Small (360×640)</option>
         </optgroup>
       </select>
 
@@ -87,11 +103,11 @@
       </div>
 
       <!-- Tools -->
-      <button class="nav-btn" id="btnQuickInspect" title="Quick Annotate (Inspect DOM Element)">
+      <button class="nav-btn" id="btnQuickInspect" title="Quick Annotate (Inspect DOM Element - Ctrl+B)">
         <svg width="15" height="15" viewBox="0 0 16 16" fill="currentColor"><path fill-rule="evenodd" clip-rule="evenodd" d="M8 1a.75.75 0 0 1 .75.75v1.285a5.972 5.972 0 0 1 4.215 4.215h1.285a.75.75 0 0 1 0 1.5h-1.285a5.972 5.972 0 0 1-4.215 4.215v1.285a.75.75 0 0 1-1.5 0v-1.285A5.972 5.972 0 0 1 2.035 8.75H.75a.75.75 0 0 1 0-1.5h1.285A5.972 5.972 0 0 1 6.25 3.035V1.75A.75.75 0 0 1 8 1zm0 4.5a2.5 2.5 0 1 0 0 5 2.5 2.5 0 0 0 0-5zM8 6.5a1 1 0 1 1 0 2 1 1 0 0 1 0-2z"/></svg>
       </button>
 
-      <button class="nav-btn" id="btnFontFinder" title="Font Finder (Hover to inspect typography, click to copy CSS)">
+      <button class="nav-btn" id="btnFontFinder" title="Font Finder (Hover typography, click to copy CSS)">
         <svg width="15" height="15" viewBox="0 0 16 16" fill="currentColor"><path d="M12.4 14.5l-1.35-3.5H4.95L3.6 14.5H1.8L7.1 1.5h1.8l5.3 13h-1.8zM8 3.15L5.6 9.5h4.8L8 3.15z"/></svg>
       </button>
 
@@ -99,22 +115,13 @@
         <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.25"><rect x="1.5" y="4" width="13" height="8" rx="1"/><path d="M4 4v3M6.5 4v2M9 4v3M11.5 4v2"/></svg>
       </button>
 
-      <button class="nav-btn" id="btnCaptureFullPage" title="Capture Viewport Screenshot">
+      <button class="nav-btn" id="btnCaptureFullPage" title="Capture Viewport Screenshot (Ctrl+Shift+S)">
         <svg width="15" height="15" viewBox="0 0 16 16" fill="currentColor"><path fill-rule="evenodd" clip-rule="evenodd" d="M3 3h10a1 1 0 0 1 1 1v8a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1zm0-1a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2H3zm5 4a2 2 0 1 0 0 4 2 2 0 0 0 0-4z"/></svg>
       </button>
 
-      <button class="nav-btn" id="btnToggleSidebar" title="Toggle AI Chat Sidebar (Ctrl+Alt+B)">
-        <svg width="15" height="15" viewBox="0 0 16 16" fill="currentColor"><path d="M14 1a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1H2a1 1 0 0 1-1-1V2a1 1 0 0 1 1-1h12zM2 0a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V2a2 2 0 0 0-2-2H2z"/><path d="M10 2v12h4a1 1 0 0 0 1-1V3a1 1 0 0 0-1-1h-4z"/></svg>
+      <button class="nav-btn" id="btnMobileRemote" title="Mobile Remote Control & QR Code (📱)">
+        <svg width="15" height="15" viewBox="0 0 16 16" fill="currentColor"><path d="M11 1H5a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2V3a2 2 0 0 0-2-2zM5 2h6a1 1 0 0 1 1 1v8H4V3a1 1 0 0 1 1-1zm3 12.25a.75.75 0 1 1 0-1.5.75.75 0 0 1 0 1.5z"/></svg>
       </button>
-
-      <button class="nav-btn" id="btnToggleTerminal" title="Toggle Terminal (Ctrl+`)">
-        <svg width="15" height="15" viewBox="0 0 16 16" fill="currentColor"><path fill-rule="evenodd" clip-rule="evenodd" d="M1 2.5A1.5 1.5 0 0 1 2.5 1h11A1.5 1.5 0 0 1 15 2.5v11a1.5 1.5 0 0 1-1.5 1.5h-11A1.5 1.5 0 0 1 1 13.5v-11zM2.5 2a.5.5 0 0 0-.5.5v11a.5.5 0 0 0 .5.5h11a.5.5 0 0 0 .5-.5v-11a.5.5 0 0 0-.5-.5h-11zM3.854 4.146a.5.5 0 0 1 .708 0l3 3a.5.5 0 0 1 0 .708l-3 3a.5.5 0 0 1-.708-.708L6.44 7.5 3.854 4.854a.5.5 0 0 1 0-.708zM7.5 10.5a.5.5 0 0 1 .5-.5h4a.5.5 0 0 1 0 1h-4a.5.5 0 0 1-.5-.5z"/></svg>
-      </button>
-
-      <button class="nav-btn" id="btnDevTools" title="Toggle Developer Tools (F12)">
-        <svg width="15" height="15" viewBox="0 0 16 16" fill="currentColor"><path fill-rule="evenodd" clip-rule="evenodd" d="M4.854 4.146a.5.5 0 0 1 0 .708L1.707 8l3.147 3.146a.5.5 0 0 1-.708.708l-3.5-3.5a.5.5 0 0 1 0-.708l3.5-3.5a.5.5 0 0 1 .708 0zm6.292 0a.5.5 0 0 0 0 .708L14.293 8l-3.147 3.146a.5.5 0 0 0 .708.708l3.5-3.5a.5.5 0 0 0 0-.708l-3.5-3.5a.5.5 0 0 0-.708 0zm-4.79 9.544l3-11 .948.258-3 11-.948-.258z"/></svg>
-      </button>
-
       <!-- Bookmarks Popover Menu -->
       <div class="bookmarks-menu-wrap">
         <button class="nav-btn" id="btnBookmarksMenu" title="All Bookmarks (Click to view list)">
@@ -143,6 +150,27 @@
           <div class="profile-dropdown-list" id="profileDropdownList"></div>
         </div>
       </div>
+      <!-- Workflow & MCP Hub Button -->
+      <button class="nav-btn" id="btnWorkflowHub" title="Workflow & MCP Hub (Ctrl+Shift+W)">
+        <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M8.5 1.5L2.5 9h5l-1 5.5 6-7.5h-5l1-5.5z"/>
+        </svg>
+      </button>
+
+      <!-- Popout Terminal Window -->
+      <button class="nav-btn" id="btnPopoutTerminal" title="Tách Terminal ra cửa sổ riêng (Pop out Terminal Window)">
+        <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M10 2h4v4M14 2L8 8M6 4H3a1 1 0 00-1 1v8a1 1 0 001 1h8a1 1 0 001-1v-3"/>
+        </svg>
+      </button>
+      <!-- Right Sidebar Toggle (Terminal Drawer) -->
+      <button class="nav-btn" id="btnToggleSidebar" title="Toggle Terminal Sidebar (Ctrl+Alt+B)">
+        <svg width="15" height="15" viewBox="0 0 16 16" fill="currentColor"><path d="M14 1a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1H2a1 1 0 0 1-1-1V2a1 1 0 0 1 1-1h12zM2 0a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V2a2 2 0 0 0-2-2H2z"/><path d="M10 2v12h4a1 1 0 0 0 1-1V3a1 1 0 0 0-1-1h-4z"/></svg>
+      </button>
+
+      <button class="nav-btn" id="btnDevTools" title="Toggle Developer Tools (F12)">
+        <svg width="15" height="15" viewBox="0 0 16 16" fill="currentColor"><path fill-rule="evenodd" clip-rule="evenodd" d="M4.854 4.146a.5.5 0 0 1 0 .708L1.707 8l3.147 3.146a.5.5 0 0 1-.708.708l-3.5-3.5a.5.5 0 0 1 0-.708l3.5-3.5a.5.5 0 0 1 .708 0zm6.292 0a.5.5 0 0 0 0 .708L14.293 8l-3.147 3.146a.5.5 0 0 0 .708.708l3.5-3.5a.5.5 0 0 0 0-.708l-3.5-3.5a.5.5 0 0 0-.708 0zm-4.79 9.544l3-11 .948.258-3 11-.948-.258z"/></svg>
+      </button>
 
       <button class="nav-btn" id="btnMenu" title="Browser Settings & Options (⋮)">
         <svg width="15" height="15" viewBox="0 0 16 16" fill="currentColor"><path d="M8 9.5a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3zm0-5a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3zm0 10a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3z"/></svg>
@@ -150,69 +178,217 @@
     </div>
 
     <!-- GOOGLE CHROME STYLE BOOKMARK BAR -->
-    <div class="bookmark-bar" id="bookmarkBar">
+    <div class="bookmark-bar" id="bookmarkBar" style="display:none;">
       <div class="bookmark-items" id="bookmarkItems"></div>
-    </div>
-
-    <!-- CODEX THREE-DOT MAIN MENU -->
-    <div class="codex-main-menu" id="codexMainMenu">
-      <div class="codex-menu-item" id="menuTerminal">
-        <span>Terminal (PowerShell / Shell)</span>
-        <span class="menu-shortcut">Ctrl+`</span>
-      </div>
-      <div class="codex-menu-item" id="menuFind">
-        <span>Find in page</span>
-        <span class="menu-shortcut">Ctrl+F</span>
-      </div>
-      <div class="codex-menu-separator"></div>
-      <div class="codex-menu-item" id="menuQuickAnnotate">
-        <span>Quick Inspect</span>
-        <span class="menu-shortcut">Ctrl+B</span>
-      </div>
-      <div class="codex-menu-item" id="menuFontFinder">
-        <span>Font Finder</span>
-      </div>
-      <div class="codex-menu-item" id="menuLens">
-        <span>GPU Lens Zoom</span>
-      </div>
-      <div class="codex-menu-separator"></div>
-      <div class="codex-menu-item" id="menuOpenBrowser">
-        <span>Open in system browser</span>
-      </div>
-      <div class="codex-menu-separator"></div>
-      <div class="codex-menu-item" id="menuShortcuts">
-        <span>Keyboard shortcuts</span>
-        <span class="menu-shortcut">?</span>
-      </div>
     </div>
 
     <!-- FIND IN PAGE BAR -->
     <div class="find-bar" id="findBar" style="display:none;">
-      <input id="findInput" type="text" placeholder="Find in page…" />
-      <span id="findCount" class="find-count"></span>
-      <button id="findPrev" title="Previous">▲</button>
-      <button id="findNext" title="Next">▼</button>
-      <button id="findClose" title="Close (Esc)">✕</button>
+      <input type="text" id="findInput" class="find-input" placeholder="Find in page..." autocomplete="off" />
+      <span class="find-count" id="findCount">0/0</span>
+      <button class="find-btn" id="btnFindPrev" title="Previous match (Shift+Enter)">▲</button>
+      <button class="find-btn" id="btnFindNext" title="Next match (Enter)">▼</button>
+      <button class="find-btn find-close" id="btnFindClose" title="Close find (Esc)">✕</button>
     </div>
+
+    <!-- TOAST NOTIFICATION -->
+    <div class="toolbar-toast" id="toolbarToast" style="display:none;"></div>
 
     <!-- SHORTCUTS OVERLAY -->
     <div class="shortcuts-overlay" id="shortcutsOverlay" style="display:none;">
-      <div class="shortcuts-panel">
+      <div class="shortcuts-modal">
         <div class="shortcuts-header">
-          <strong>Keyboard shortcuts</strong>
-          <button id="shortcutsClose" title="Close">✕</button>
+          <span>Keyboard Shortcuts</span>
+          <button class="shortcuts-close" id="shortcutsClose">&times;</button>
         </div>
-        <table class="shortcuts-table">
-          <tr><td><kbd>Ctrl</kbd>+<kbd>T</kbd></td><td>New Tab</td></tr>
-          <tr><td><kbd>Ctrl</kbd>+<kbd>W</kbd></td><td>Close Active Tab</td></tr>
-          <tr><td><kbd>Ctrl</kbd>+<kbd>Tab</kbd></td><td>Next Tab</td></tr>
-          <tr><td><kbd>Ctrl</kbd>+<kbd>L</kbd></td><td>Focus Address Bar</td></tr>
-          <tr><td><kbd>Ctrl</kbd>+<kbd>F</kbd></td><td>Find in page</td></tr>
-          <tr><td><kbd>Ctrl</kbd>+<kbd>R</kbd> / <kbd>F5</kbd></td><td>Reload active tab</td></tr>
-          <tr><td><kbd>F12</kbd></td><td>Toggle DevTools</td></tr>
-          <tr><td><kbd>Ctrl</kbd>+<kbd>+</kbd> / <kbd>-</kbd> / <kbd>0</kbd></td><td>Zoom in / out / reset</td></tr>
-          <tr><td><kbd>Esc</kbd></td><td>Exit Inspect / Find</td></tr>
-        </table>
+        <div class="shortcuts-content">
+          <table class="shortcuts-table">
+            <tr><td><kbd>Ctrl</kbd>+<kbd>T</kbd></td><td>New Tab</td></tr>
+            <tr><td><kbd>Ctrl</kbd>+<kbd>W</kbd></td><td>Close Tab</td></tr>
+            <tr><td><kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>T</kbd></td><td>Reopen Closed Tab</td></tr>
+            <tr><td><kbd>Ctrl</kbd>+<kbd>D</kbd></td><td>Bookmark Tab</td></tr>
+            <tr><td><kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>B</kbd></td><td>Toggle Bookmarks Bar</td></tr>
+            <tr><td><kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>S</kbd></td><td>Capture Viewport Screenshot</td></tr>
+            <tr><td><kbd>Ctrl</kbd>+<kbd>B</kbd></td><td>Quick Inspect DOM (Annotate)</td></tr>
+            <tr><td><kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>B</kbd></td><td>Toggle AI Sidebar & Terminal</td></tr>
+            <tr><td><kbd>Ctrl</kbd>+<kbd>`</kbd></td><td>Toggle Terminal Drawer</td></tr>
+            <tr><td><kbd>Ctrl</kbd>+<kbd>L</kbd></td><td>Focus Address Bar</td></tr>
+            <tr><td><kbd>Ctrl</kbd>+<kbd>F</kbd></td><td>Find in page</td></tr>
+            <tr><td><kbd>Ctrl</kbd>+<kbd>R</kbd> / <kbd>F5</kbd></td><td>Reload active tab</td></tr>
+            <tr><td><kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>R</kbd></td><td>Developer: Reload Window (Hot Reload)</td></tr>
+            <tr><td><kbd>F12</kbd></td><td>Toggle Developer Tools</td></tr>
+            <tr><td><kbd>Ctrl</kbd>+<kbd>+</kbd> / <kbd>-</kbd> / <kbd>0</kbd></td><td>Zoom in / out / reset</td></tr>
+            <tr><td><kbd>Esc</kbd></td><td>Exit Inspect / Find</td></tr>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- MOBILE REMOTE QR MODAL -->
+    <div class="mobile-remote-overlay" id="mobileRemoteOverlay" style="display:none;">
+      <div class="mobile-remote-modal">
+        <div class="mobile-remote-header">
+          <div style="display:flex;align-items:center;gap:8px;">
+            <span style="font-size:16px;">📱</span>
+            <span style="font-weight:700;font-size:13px;color:#fff;">AntiFan Mobile Remote</span>
+          </div>
+          <button class="shortcuts-close" id="mobileRemoteClose">&times;</button>
+        </div>
+        <div class="mobile-remote-body">
+          <p style="font-size:12px;color:#94a3b8;margin-bottom:12px;line-height:1.4;">
+            Quét mã QR bằng Camera điện thoại (hoặc bấm sao chép URL) để mở bảng điều khiển từ xa trên cùng mạng Wi-Fi / Tailscale.
+          </p>
+          <div id="mobileRemoteQrContainer" class="mobile-remote-qr-box"></div>
+          <div class="mobile-remote-urls" id="mobileRemoteUrlsList"></div>
+        </div>
+      </div>
+    </div>
+    <!-- WORKFLOW & MCP HUB MODAL -->
+    <div class="workflow-hub-overlay" id="workflowHubOverlay" style="display:none;">
+      <div class="workflow-hub-modal">
+        <!-- Header -->
+        <div class="hub-header">
+          <div class="hub-header-title">
+            <div class="hub-icon-badge">⚡</div>
+            <div>
+              <div class="hub-title-text">AntiFan Workflow &amp; MCP Hub</div>
+              <div class="hub-subtitle-text">Kiểm soát kịch bản tự động hóa, duyệt MCP tools &amp; phân tích các bước thực thi</div>
+            </div>
+          </div>
+          <div class="hub-header-actions">
+            <div class="hub-search-box">
+              <span class="hub-search-icon">🔍</span>
+              <input type="text" id="hubSearchInput" class="hub-search-input" placeholder="Tìm kiếm kịch bản hoặc MCP tool..." autocomplete="off" />
+              <button id="hubSearchClear" class="hub-search-clear" style="display:none;">&times;</button>
+            </div>
+            <button class="hub-btn-new" id="btnHubNewWorkflow" title="Tạo kịch bản mới">+ Tạo Workflow</button>
+            <button class="shortcuts-close" id="btnWorkflowHubClose" title="Đóng (Esc)">&times;</button>
+          </div>
+        </div>
+
+        <!-- Navigation Tabs -->
+        <div class="hub-nav-strip">
+          <button class="hub-nav-tab active" id="tabNavWorkflows">
+            <span class="hub-tab-icon">🔄</span>
+            <span>Workflows Library</span>
+            <span class="hub-tab-badge" id="badgeWorkflowCount">0</span>
+          </button>
+          <button class="hub-nav-tab" id="tabNavMcp">
+            <span class="hub-tab-icon">📦</span>
+            <span>MCP Tools Catalogue</span>
+            <span class="hub-tab-badge" id="badgeMcpCount">0</span>
+          </button>
+        </div>
+
+        <!-- Main Body: Two Panes -->
+        <div class="hub-body">
+          <!-- Left Pane: Item List -->
+          <div class="hub-list-pane" id="hubListPane">
+            <div class="hub-items-list" id="hubItemsList"></div>
+          </div>
+
+          <!-- Right Pane: Detail & Inspector -->
+          <div class="hub-detail-pane" id="hubDetailPane">
+            <div class="hub-detail-empty" id="hubDetailEmpty">
+              <div class="hub-empty-icon">⚡</div>
+              <div class="hub-empty-text">Chọn một kịch bản Workflow hoặc MCP Tool từ danh sách bên trái để xem chi tiết.</div>
+            </div>
+
+            <!-- Workflow Detail Container -->
+            <div class="hub-wf-detail" id="hubWfDetail" style="display:none;">
+              <div class="hub-detail-header">
+                <div class="hub-detail-header-left">
+                  <span class="hub-cat-pill" id="wfDetailCategory">QA</span>
+                  <div class="hub-detail-name" id="wfDetailName">Workflow Name</div>
+                  <div class="hub-detail-desc" id="wfDetailDesc">Workflow Description</div>
+                </div>
+                <div class="hub-detail-header-right">
+                  <button class="hub-btn-run" id="btnRunWorkflow">
+                    <span>▶</span>
+                    <span>Chạy Workflow</span>
+                  </button>
+                  <button class="hub-btn-stop" id="btnStopWorkflow" style="display:none;">
+                    <span>⏹</span>
+                    <span>Dừng Lại</span>
+                  </button>
+                  <button class="hub-btn-secondary" id="btnCopyWorkflowJson" title="Sao chép JSON">📋 Sao chép</button>
+                  <button class="hub-btn-danger" id="btnDeleteCustomWf" style="display:none;" title="Xóa kịch bản custom">🗑️ Xóa</button>
+                </div>
+              </div>
+
+              <!-- Live Execution Status Bar -->
+              <div class="hub-run-status-bar" id="hubRunStatusBar" style="display:none;">
+                <div class="hub-run-status-info">
+                  <span class="hub-status-pill pill-ready" id="runStatusPill">READY</span>
+                  <span class="hub-run-current-step" id="runCurrentStepText">Đang chuẩn bị...</span>
+                  <span class="hub-run-timer" id="runTimerText">0.0s</span>
+                </div>
+                <div class="hub-progress-track">
+                  <div class="hub-progress-bar" id="hubProgressBar" style="width: 0%;"></div>
+                </div>
+              </div>
+
+              <!-- Step Inspector Section -->
+              <div class="hub-section-title">
+                <span>📑 DANH SÁCH CÁC BƯỚC THỰC THI (STEPS INSPECTOR)</span>
+                <span class="hub-steps-count" id="wfStepsCount">0 Bước</span>
+              </div>
+              <div class="hub-steps-container" id="wfStepsContainer"></div>
+
+              <!-- Artifacts Gallery Section -->
+              <div class="hub-artifacts-section" id="wfArtifactsSection" style="display:none;">
+                <div class="hub-section-title">📸 HÌNH ẢNH &amp; BẰNG CHỨNG THU THẬP (ARTIFACTS)</div>
+                <div class="hub-artifacts-grid" id="wfArtifactsGrid"></div>
+              </div>
+            </div>
+
+            <!-- MCP Tool Detail Container -->
+            <div class="hub-mcp-detail" id="hubMcpDetail" style="display:none;">
+              <div class="hub-detail-header">
+                <div class="hub-detail-header-left">
+                  <span class="hub-cat-pill" id="mcpDetailCategory">Browser</span>
+                  <div class="hub-detail-name" id="mcpDetailName">tool.name</div>
+                  <div class="hub-detail-desc" id="mcpDetailDesc">Tool description</div>
+                </div>
+                <div class="hub-detail-header-right">
+                  <span class="hub-perm-badge" id="mcpDetailPermission">Permission: Read</span>
+                </div>
+              </div>
+
+              <div class="hub-section-title">⚙️ THAM SỐ ĐẦU VÀO (INPUT SCHEMA)</div>
+              <div class="hub-schema-view" id="mcpSchemaView">
+                <pre class="hub-schema-code" id="mcpSchemaCode"></pre>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="tab-context-menu" id="tabContextMenu" style="display:none;">
+      <div class="codex-menu-item" id="menuItemNewTabRight">
+        <span>Thêm tab mới bên phải</span>
+      </div>
+      <div class="codex-menu-item" id="menuItemDuplicateTab">
+        <span>Nhân bản tab (Duplicate)</span>
+      </div>
+      <div class="codex-menu-item" id="menuItemReloadTab">
+        <span>Tải lại tab</span>
+        <span class="menu-shortcut">Ctrl+R</span>
+      </div>
+      <div class="codex-menu-item" id="menuItemCopyUrl">
+        <span>Sao chép địa chỉ trang</span>
+      </div>
+      <div class="codex-menu-separator"></div>
+      <div class="codex-menu-item" id="menuItemCloseTab">
+        <span>Đóng tab</span>
+        <span class="menu-shortcut">Ctrl+W</span>
+      </div>
+      <div class="codex-menu-item" id="menuItemCloseOtherTabs">
+        <span>Đóng các tab khác</span>
+      </div>
+      <div class="codex-menu-item" id="menuItemCloseTabsToRight">
+        <span>Đóng các tab bên phải</span>
       </div>
     </div>
   </div>

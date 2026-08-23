@@ -1,0 +1,28 @@
+{
+  "createdAt": "2026-08-20T23:52:49.5941285+07:00",
+  "purpose": "Backup before removal of confirmed legacy Antigravity IDE delivery/sidebar bridge",
+  "retained": "AntiFan WebSocket BridgeServer, MCP server, browser control plane",
+  "files": [
+    "src/main/bridge/annotation-manager.ts",
+    "src/main/bridge/antigravity-command-client.ts",
+    "src/main/bridge/delivery-ledger.ts",
+    "src/main/bridge/transcript-syncer.ts",
+    "src/main/integrations/antigravity/antigravity-execution-backend.ts",
+    "test/main/antigravity-command-client.test.ts",
+    "test/main/delivery-ledger.test.ts",
+    "test/main/transcript-correlation.test.ts",
+    "test/main/transcript-syncer-security.test.ts",
+    "docs/operations.md",
+    "docs/security-model.md",
+    "src/main/browser/native-tab-host.ts",
+    "src/main/index.ts",
+    "src/preload/sidebar-preload.ts",
+    "src/preload/toolbar-preload.ts",
+    "src/preload/standalone-preload.ts",
+    "src/renderer/sidebar.ts",
+    "src/renderer/sidebar.html",
+    "src/shared/contracts.ts",
+    "test/main/contracts.test.ts",
+    "test/main/ipc-audit.test.ts"
+  ]
+}

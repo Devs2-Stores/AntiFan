@@ -43,6 +43,12 @@ npm run typecheck
 npm run verify
 ```
 
+### Zoom giao diện ứng dụng
+- `Ctrl+Alt+=` tăng zoom UI AntiFan.
+- `Ctrl+Alt+-` giảm zoom UI AntiFan.
+- `Ctrl+Alt+0` đưa zoom UI về 100%.
+- `Ctrl+/-/0` vẫn giữ nguyên cho zoom trang Chromium.
+
 ---
 
 ## 🔌 Giao thức Bridge & MCP Tools
@@ -56,6 +62,7 @@ npm run verify
 - `antifan.captureScreenshot()`
 - `antifan.toggleInspect()`
 - `antifan.getStatus()`
+- `antifan.getRuntimeBinding()` trả lease và browser target hiện hành cho OMP client đã xác thực. Client phải lấy lại binding sau navigation hoặc khi lease hết hạn.
 
 ### MCP Stdio Tools:
 - `antifan_open_tab`

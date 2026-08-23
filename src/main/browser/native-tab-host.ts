@@ -17,7 +17,14 @@ import { FONT_FINDER_SCRIPT } from './font-finder';
 import { GPU_LENS_SCRIPT } from './gpu-lens';
 import { RULER_SCRIPT } from './ruler';
 import { AGENT_BROWSER_SCRIPT } from './agent-browser';
-import { DEVICE_PRESETS } from './device-presets';
+import { DEVICE_PRESETS, DevicePreset } from './device-presets';
+import { TabDiagnosticsManager } from './tab-diagnostics';
+import { buildKeyboardInputEvents } from './keyboard-normalizer';
+import { WorkspaceCapsuleManager, type WorkspaceCapsule } from '../project/workspace-capsule';
+import { PreviewWatcherPool, type PreviewChangeEvent } from '../server/preview-watcher-pool';
+import { buildPreviewUrl, parsePreviewUrl } from '../server/preview-url-codec';
+import type { ControlPlaneRuntime } from '../control-plane/control-plane-runtime';
+import type { BrowserTarget } from '../../shared/control-plane-contracts';
 import { TranscriptSyncer } from '../bridge/transcript-syncer';
 import { AnnotationManager } from '../bridge/annotation-manager';
 import { ChromeProfileSyncManager } from './chrome-profile-sync';
@@ -25,8 +32,8 @@ import { HaravanUploader } from './haravan-uploader';
 import { TerminalManager } from './terminal-manager';
 import { checkForUpdatesAndRestart } from './app-menu';
 import { SkillScanner } from './skill-scanner';
+import { WindowStateManager } from './window-state';
 import { AntigravityCommandClient, generateCommandId } from '../bridge/antigravity-command-client';
-
 export const TOOLBAR_HEIGHT_WITH_BOOKMARKS = 102;
 export const TOOLBAR_HEIGHT_COMPACT = 74;
 
@@ -37,12 +44,17 @@ export interface BookmarkItem {
   createdAt: number;
 }
 
+
 export class NativeTabHost extends EventEmitter {
   private window: BrowserWindow;
   private toolbarView: WebContentsView;
   private sidebarView: WebContentsView | null = null;
   private terminalView: WebContentsView | null = null;
+  private popoutWindow: BrowserWindow | null = null;
+  private terminalWindows: Map<number, BrowserWindow> = new Map();
+  private terminalWindowStateManager: WindowStateManager;
   private isSidebarOpen: boolean = true;
+  private wasSidebarOpenBeforePopout: boolean = false;
   private isTerminalOpen: boolean = false;
   private isBookmarkBarVisible: boolean = false;
   private sidebarWidth: number = 380;
@@ -53,7 +65,14 @@ export class NativeTabHost extends EventEmitter {
   private activeTabId: string = '';
   private chatMessages: ChatMessage[] = [];
 
-  private bookmarks: BookmarkItem[] = [];
+  public bookmarks: BookmarkItem[] = [];
+  private readonly diagnosticsManager = new TabDiagnosticsManager();
+  private readonly previewWatcherPool = new PreviewWatcherPool();
+  private readonly capsuleManager: WorkspaceCapsuleManager;
+  private controlPlane: ControlPlaneRuntime | null = null;
+  private documentGenerations: Map<string, number> = new Map();
+  private browserEpoch: number = 1;
+  private tabPreviewUnsubscribers: Map<string, () => void> = new Map();
   private recentlyClosedTabs: Array<{ url: string; title: string }> = [];
   private pendingDeliveries: Array<{ message: ChatMessage; commandId: string; targetWorkspace: string; dispatchedAt: number }> = [];
 
@@ -65,10 +84,19 @@ export class NativeTabHost extends EventEmitter {
   private persistTimer: NodeJS.Timeout | null = null;
   private reconcilerTimer: NodeJS.Timeout | null = null;
 
-  constructor(window: BrowserWindow) {
+  constructor(window: BrowserWindow, capsuleManager?: WorkspaceCapsuleManager) {
     super();
     this.window = window;
-
+    const stateDir = app ? app.getPath('userData') : path.join(os.homedir(), '.antifan-browser');
+    this.terminalWindowStateManager = new WindowStateManager(stateDir, 900, 600, 'terminal-popout-window-state.json');
+    this.capsuleManager = capsuleManager || new WorkspaceCapsuleManager({ filePath: path.join(stateDir, 'workspace-capsules.json') });
+    if (!this.capsuleManager.getActive()) {
+      const defaultDir = fs.existsSync('E:/Work') ? 'E:/Work' : (fs.existsSync('E:\\Work') ? 'E:\\Work' : process.cwd());
+      this.capsuleManager.create('Default Workspace', defaultDir, {
+        sidebarOpen: this.isSidebarOpen,
+        sidebarWidth: this.sidebarWidth,
+      });
+    }
     // 1. Create Toolbar View
     this.toolbarView = new WebContentsView({
       webPreferences: {
@@ -87,23 +115,37 @@ export class NativeTabHost extends EventEmitter {
     }
     this.toolbarView.webContents.loadFile(toolbarHtml);
 
-    // 2. Create AI Chat Sidebar View
+    // 2. Create Terminal Workbench Sidebar View (Standalone)
     this.sidebarView = new WebContentsView({
       webPreferences: {
-        preload: path.join(__dirname, '..', '..', 'preload', 'sidebar-preload.js'),
+        preload: path.join(__dirname, '..', '..', 'preload', 'standalone-preload.js'),
         contextIsolation: true,
         sandbox: false,
         nodeIntegration: false,
       },
     });
+    this.sidebarView.setBackgroundColor('#060a11');
     this.window.contentView.addChildView(this.sidebarView);
 
-    let sidebarHtml = path.join(__dirname, '..', '..', 'renderer', 'sidebar.html');
-    if (!fs.existsSync(sidebarHtml)) {
-      sidebarHtml = path.join(process.cwd(), 'src', 'renderer', 'sidebar.html');
+    let standaloneHtml = path.join(__dirname, '..', '..', 'renderer', 'standalone.html');
+    if (!fs.existsSync(standaloneHtml)) {
+      standaloneHtml = path.join(process.cwd(), 'src', 'renderer', 'standalone.html');
     }
-    this.sidebarView.webContents.loadFile(sidebarHtml);
-
+    this.sidebarView.webContents.on('did-finish-load', () => {
+      if (this.sidebarView && !this.sidebarView.webContents.isDestroyed()) {
+        const tm = TerminalManager.getInstance();
+        const activeId = tm.getActiveSessionId();
+        const s = tm.getSession(activeId);
+        const activeSession = tm.listSessions().find(x => x.id === activeId);
+        this.sidebarView.webContents.send('antifan:terminal:session', {
+          activeSessionId: activeId,
+          sessions: tm.listSessions(),
+          splitSessionId: activeSession?.splitSessionId,
+          snapshot: s?.buffer || '',
+        });
+      }
+    });
+    this.sidebarView.webContents.loadFile(standaloneHtml);
     // 3. Create Bottom Docked Terminal View
     this.terminalView = new WebContentsView({
       webPreferences: {
@@ -295,6 +337,10 @@ export class NativeTabHost extends EventEmitter {
       }
       return { ok: true, bookmarks: this.bookmarks };
     });
+    ipcMain.removeHandler('antifan:preview:open');
+    ipcMain.handle('antifan:preview:open', (_event, { path: filePath, capsuleId }: { path: string; capsuleId?: string }) => {
+      return this.createPreviewTab(filePath, capsuleId);
+    });
     ipcMain.handle(TOOLBAR_CHANNELS.GET_SUGGESTIONS, async (_event, query: string) => {
       const q = (query || '').trim();
       if (!q) {
@@ -358,21 +404,51 @@ export class NativeTabHost extends EventEmitter {
     });
 
     // Terminal IPC Handlers
-    TerminalManager.getInstance().on('data', (data: string) => {
+    TerminalManager.getInstance().on('data', (payload: { sessionId: string; data: string } | string) => {
+      const formatted = typeof payload === 'string'
+        ? { sessionId: TerminalManager.getInstance().getActiveSessionId(), data: payload }
+        : payload;
+      if (this.sidebarView && !this.sidebarView.webContents.isDestroyed()) {
+        this.sidebarView.webContents.send('antifan:terminal:data', formatted);
+      }
       if (this.terminalView && !this.terminalView.webContents.isDestroyed()) {
-        this.terminalView.webContents.send(TERMINAL_CHANNELS.DATA, data);
+        this.terminalView.webContents.send(TERMINAL_CHANNELS.DATA, formatted.data);
       }
       if (this.toolbarView && !this.toolbarView.webContents.isDestroyed()) {
-        this.toolbarView.webContents.send(TERMINAL_CHANNELS.DATA, data);
+        this.toolbarView.webContents.send(TERMINAL_CHANNELS.DATA, formatted.data);
+      }
+      for (const [id, win] of this.terminalWindows.entries()) {
+        if (win && !win.isDestroyed()) {
+          win.webContents.send('antifan:terminal:data', formatted);
+        } else {
+          this.terminalWindows.delete(id);
+        }
       }
     });
 
+    TerminalManager.getInstance().on('session', (state: unknown) => {
+      if (this.sidebarView && !this.sidebarView.webContents.isDestroyed()) {
+        this.sidebarView.webContents.send('antifan:terminal:session', state);
+      }
+      for (const [id, win] of this.terminalWindows.entries()) {
+        if (win && !win.isDestroyed()) {
+          win.webContents.send('antifan:terminal:session', state);
+        } else {
+          this.terminalWindows.delete(id);
+        }
+      }
+    });
     ipcMain.handle(TERMINAL_CHANNELS.START, (_event, cwd?: string) => {
       return TerminalManager.getInstance().startTerminal(cwd);
     });
 
     ipcMain.handle(TERMINAL_CHANNELS.INPUT, (_event, input: string) => {
       TerminalManager.getInstance().write(input);
+      return true;
+    });
+
+    ipcMain.handle('antifan:terminal:input-session', (_event, { id, input }: { id: string; input: string }) => {
+      TerminalManager.getInstance().writeTo(id, input);
       return true;
     });
 
@@ -385,6 +461,171 @@ export class NativeTabHost extends EventEmitter {
       TerminalManager.getInstance().restart(cwd);
       return true;
     });
+
+    ipcMain.handle(TERMINAL_CHANNELS.RESIZE, (_event, { cols, rows }: { cols: number; rows: number }) => {
+      TerminalManager.getInstance().resize(cols, rows);
+      return true;
+    });
+
+    ipcMain.handle('antifan:terminal:resize-session', (_event, { id, cols, rows }: { id: string; cols: number; rows: number }) => {
+      TerminalManager.getInstance().resizeTo(id, cols, rows);
+      return true;
+    });
+
+    ipcMain.handle('antifan:terminal:new-session', (_event, cwd?: string) => {
+      return TerminalManager.getInstance().createSession(cwd);
+    });
+
+    ipcMain.handle('antifan:terminal:split-session', (_event, p: any) => {
+      const parentId = typeof p === 'string' ? p : (p?.parentId || p?.id);
+      const cwd = typeof p === 'object' ? p?.cwd : undefined;
+      const cols = typeof p === 'object' ? p?.cols : undefined;
+      const rows = typeof p === 'object' ? p?.rows : undefined;
+      return TerminalManager.getInstance().createSplitSession(parentId, cwd, cols, rows);
+    });
+
+    ipcMain.handle('antifan:terminal:unsplit-session', (_event, parentId: string) => {
+      return TerminalManager.getInstance().closeSplitSession(parentId);
+    });
+
+    ipcMain.handle('antifan:terminal:close-split', (_event, { id }: { id: string }) => {
+      return TerminalManager.getInstance().closeSplitSession(id);
+    });
+
+    ipcMain.handle(TERMINAL_CHANNELS.LIST_SESSIONS, () => {
+      return TerminalManager.getInstance().listSessions();
+    });
+
+    ipcMain.handle(TERMINAL_CHANNELS.SWITCH_SESSION, (_event, id: string) => {
+      return TerminalManager.getInstance().switchSession(id);
+    });
+
+    ipcMain.handle(TERMINAL_CHANNELS.RENAME_SESSION, (_event, p: any) => {
+      const id = typeof p === 'string' ? '' : (p?.id || p?.sessionId);
+      const name = typeof p === 'string' ? p : (p?.name || p?.newTitle);
+      return TerminalManager.getInstance().renameSession(id || TerminalManager.getInstance().getActiveSessionId(), name || '');
+    });
+
+    ipcMain.handle('antifan:terminal:reorder-sessions', (_event, orderIds: string[]) => {
+      return TerminalManager.getInstance().reorderSessions(orderIds);
+    });
+
+    ipcMain.handle('antifan:terminal:close-session', (_event, id: string) => {
+      return TerminalManager.getInstance().closeSession(id);
+    });
+
+    ipcMain.handle('antifan:terminal:delete-session', (_event, id: string) => {
+      return TerminalManager.getInstance().closeSession(id);
+    });
+
+    ipcMain.handle(TERMINAL_CHANNELS.POPOUT, () => {
+      return this.togglePopoutTerminal();
+    });
+
+    ipcMain.handle(TERMINAL_CHANNELS.NEW_WINDOW, (_event, opts?: { sessionId?: string }) => {
+      return this.openNewTerminalWindow(opts?.sessionId);
+    });
+
+    ipcMain.handle(TERMINAL_CHANNELS.CLOSE_WINDOW, () => {
+      if (this.popoutWindow && !this.popoutWindow.isDestroyed()) {
+        this.popoutWindow.close();
+      }
+      return true;
+    });
+
+    ipcMain.handle(TERMINAL_CHANNELS.SET_ACTIVE_SESSION, (_event, p: any) => {
+      const sessionId = typeof p === 'string' ? p : (p?.sessionId || p?.id);
+      if (sessionId) {
+        TerminalManager.getInstance().switchSession(sessionId);
+      }
+      return true;
+    });
+
+    ipcMain.handle(TERMINAL_CHANNELS.REDOCK, () => {
+      if (this.popoutWindow && !this.popoutWindow.isDestroyed()) {
+        this.popoutWindow.close();
+      } else {
+        if (this.wasSidebarOpenBeforePopout && !this.isSidebarOpen) {
+          this.toggleSidebar();
+        }
+        this.wasSidebarOpenBeforePopout = false;
+      }
+      return true;
+    });
+
+    ipcMain.handle(TERMINAL_CHANNELS.GET_POPOUT_STATE, () => {
+      return Boolean(this.popoutWindow && !this.popoutWindow.isDestroyed());
+    });
+
+    ipcMain.handle('antifan:window:toggle-fullscreen', (event) => {
+      const callingWin = BrowserWindow.fromWebContents(event.sender) || this.window;
+      if (callingWin && !callingWin.isDestroyed()) {
+        const next = !callingWin.isFullScreen();
+        callingWin.setFullScreen(next);
+        return next;
+      }
+      return false;
+    });
+    ipcMain.handle('antifan:capsule:list', () => {
+      return {
+        activeCapsuleId: this.capsuleManager.getActive()?.id || '',
+        capsules: this.capsuleManager.list(),
+      };
+    });
+
+    ipcMain.handle('antifan:capsule:pick-folder', async () => {
+      const defaultDir = fs.existsSync('E:/Work')
+        ? 'E:/Work'
+        : (fs.existsSync('E:\\Work')
+          ? 'E:\\Work'
+          : (fs.existsSync('e:\\Work')
+            ? 'e:\\Work'
+            : (fs.existsSync('e:/Work')
+              ? 'e:/Work'
+              : process.cwd())));
+      const result = await dialog.showOpenDialog(this.window, {
+        defaultPath: defaultDir,
+        properties: ['openDirectory', 'createDirectory'],
+        title: 'Chọn thư mục Workspace (Select Workspace Folder)',
+      });
+      if (result.canceled || !result.filePaths || !result.filePaths.length || !result.filePaths[0]) {
+        return null;
+      }
+      const chosenPath = result.filePaths[0];
+      const folderName = path.basename(chosenPath) || 'Workspace';
+      const created = this.capsuleManager.create(folderName, chosenPath);
+      this.capsuleManager.switchTo(created.id);
+      TerminalManager.getInstance().setCapsule(created.id, chosenPath);
+      return created;
+    });
+
+    ipcMain.handle('antifan:capsule:create', (_event, { name, workspacePath }: { name: string; workspacePath: string }) => {
+      return this.capsuleManager.create(name, workspacePath);
+    });
+
+    ipcMain.handle('antifan:capsule:switch', (_event, { capsuleId, sessionId }: { capsuleId: string; sessionId?: string }) => {
+      this.capsuleManager.switchTo(capsuleId);
+      TerminalManager.getInstance().setCapsule(capsuleId, this.capsuleManager.getActive()?.workspacePath, sessionId);
+      return true;
+    });
+    ipcMain.handle('antifan:standalone:open-workspace', async (_event, opts?: { sessionId?: string }) => {
+      const activeTab = this.tabs.get(this.activeTabId);
+      const targetWorkspace = this.resolveTargetWorkspace(opts?.sessionId, activeTab?.state.url);
+      if (targetWorkspace) {
+        const normalized = path.normalize(targetWorkspace);
+        if (fs.existsSync(normalized)) {
+          const errMsg = await shell.openPath(normalized);
+          if (errMsg) {
+            console.error('[OpenWorkspace] shell.openPath error:', errMsg);
+            return { ok: false, error: errMsg };
+          }
+          return { ok: true, workspacePath: normalized };
+        }
+      }
+      const fallback = fs.existsSync('e:\\Work') ? 'e:\\Work' : process.cwd();
+      await shell.openPath(fallback);
+      return { ok: true, workspacePath: fallback };
+    });
   }
 
   private setupSidebarIpc(): void {
@@ -396,6 +637,8 @@ export class NativeTabHost extends EventEmitter {
         messages: this.chatMessages,
         isOpen: this.isSidebarOpen,
         width: this.sidebarWidth,
+        workspacePath: targetWorkspace,
+        activeWorkspace: targetWorkspace,
         autocompleteItems: SkillScanner.getInstance().getAutocompleteItems(targetWorkspace),
       };
     });
@@ -589,7 +832,7 @@ export class NativeTabHost extends EventEmitter {
   }
 
   private setupContextMenu(wc: Electron.WebContents): void {
-    wc.on('context-menu', (_event, params) => {
+    wc.on('context-menu', async (_event, params) => {
       const menu = new Menu();
       const uploader = HaravanUploader.getInstance();
 
@@ -632,46 +875,63 @@ export class NativeTabHost extends EventEmitter {
 
       menu.append(new MenuItem({ type: 'separator' }));
 
-      // ─── 2. Haravan Upload Toolkit & Image Processing ───
-      if (params.srcURL && (params.mediaType === 'image' || params.srcURL.match(/\.(png|jpe?g|webp|gif|svg|avif)(\?.*)?$/i))) {
+      // ─── 2. Image Detection & Multi-Format Save / Upload ───
+      let imageUrl = (params.srcURL && (params.mediaType === 'image' || params.srcURL.match(/\.(png|jpe?g|webp|gif|svg|avif)(\?.*)?$/i))) ? params.srcURL : '';
+
+      if (!imageUrl && !wc.isDestroyed()) {
+        try {
+          const detected = await wc.executeJavaScript(`
+            (function() {
+              try {
+                var el = document.elementFromPoint(${params.x}, ${params.y});
+                if (!el) return '';
+                if (el.tagName === 'IMG' && (el.currentSrc || el.src)) return el.currentSrc || el.src;
+                var img = el.querySelector('img');
+                if (img && (img.currentSrc || img.src)) return img.currentSrc || img.src;
+                var bg = window.getComputedStyle(el).backgroundImage;
+                if (bg && bg.startsWith('url(')) {
+                  return bg.slice(4, -1).replace(/^["']|["']$/g, '');
+                }
+                var p = el.parentElement;
+                for (var i = 0; i < 6 && p && p !== document.body; i++) {
+                  if (p.tagName === 'IMG' && (p.currentSrc || p.src)) return p.currentSrc || p.src;
+                  var pImg = p.querySelector('img');
+                  if (pImg && (pImg.currentSrc || pImg.src)) return pImg.currentSrc || pImg.src;
+                  var pBg = window.getComputedStyle(p).backgroundImage;
+                  if (pBg && pBg.startsWith('url(')) {
+                    return pBg.slice(4, -1).replace(/^["']|["']$/g, '');
+                  }
+                  p = p.parentElement;
+                }
+                return '';
+              } catch (e) {
+                return '';
+              }
+            })()
+          `, true);
+          if (detected && typeof detected === 'string' && (detected.startsWith('http://') || detected.startsWith('https://') || detected.startsWith('data:image/'))) {
+            imageUrl = detected;
+          }
+        } catch {}
+      }
+
+      if (imageUrl) {
         menu.append(
           new MenuItem({
             label: '⚡ Save PNG + Upload Haravan (Copy CDN)',
-            click: () => uploader.uploadImageToHaravan(params.srcURL, undefined, this.window),
+            click: () => uploader.uploadImageToHaravan(imageUrl, undefined, this.window),
           })
         );
 
         const saveAsSubmenu = new Menu();
-        saveAsSubmenu.append(
-          new MenuItem({
-            label: 'Save as PNG',
-            click: () => uploader.saveImageAs(params.srcURL, 'png', this.window),
-          })
-        );
-        saveAsSubmenu.append(
-          new MenuItem({
-            label: 'Save as JPG',
-            click: () => uploader.saveImageAs(params.srcURL, 'jpg', this.window),
-          })
-        );
-        saveAsSubmenu.append(
-          new MenuItem({
-            label: 'Save as WEBP',
-            click: () => uploader.saveImageAs(params.srcURL, 'webp', this.window),
-          })
-        );
-        saveAsSubmenu.append(
-          new MenuItem({
-            label: 'Save as PDF',
-            click: () => uploader.saveImageAs(params.srcURL, 'pdf', this.window),
-          })
-        );
-        saveAsSubmenu.append(
-          new MenuItem({
-            label: 'Save as GIF',
-            click: () => uploader.saveImageAs(params.srcURL, 'gif', this.window),
-          })
-        );
+        for (const format of ['png', 'jpg', 'webp', 'pdf', 'gif'] as const) {
+          saveAsSubmenu.append(
+            new MenuItem({
+              label: `Save as ${format.toUpperCase()}`,
+              click: () => uploader.saveImageAs(imageUrl, format, this.window),
+            })
+          );
+        }
 
         menu.append(
           new MenuItem({
@@ -683,14 +943,14 @@ export class NativeTabHost extends EventEmitter {
         menu.append(
           new MenuItem({
             label: 'ℹ️ View Image Info & Dimensions',
-            click: () => uploader.showImageInfo(params.srcURL, this.window),
+            click: () => uploader.showImageInfo(imageUrl, this.window),
           })
         );
 
         menu.append(
           new MenuItem({
             label: '📋 Copy Image Address',
-            click: () => clipboard.writeText(params.srcURL),
+            click: () => clipboard.writeText(imageUrl),
           })
         );
         menu.append(new MenuItem({ type: 'separator' }));
@@ -718,6 +978,33 @@ export class NativeTabHost extends EventEmitter {
             },
           })
         );
+
+        const convertSubmenu = new Menu();
+        for (const format of ['png', 'jpg', 'webp', 'pdf', 'gif'] as const) {
+          convertSubmenu.append(
+            new MenuItem({
+              label: `Convert & Save as ${format.toUpperCase()}...`,
+              click: async () => {
+                const { canceled, filePaths } = await dialog.showOpenDialog(this.window, {
+                  title: `Select Image to Save as ${format.toUpperCase()}`,
+                  properties: ['openFile'],
+                  filters: [{ name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'webp', 'gif', 'svg', 'avif', 'bmp', 'tiff'] }],
+                });
+                if (!canceled && filePaths[0]) {
+                  const fileUrl = `file:///${filePaths[0].replace(/\\/g, '/')}`;
+                  await uploader.saveImageAs(fileUrl, format, this.window);
+                }
+              },
+            })
+          );
+        }
+        hrvSubmenu.append(
+          new MenuItem({
+            label: '💾 Save / Convert Local Image As',
+            submenu: convertSubmenu,
+          })
+        );
+
         hrvSubmenu.append(
           new MenuItem({
             label: '📋 Format & Copy HStatic CDN URL',
@@ -986,9 +1273,42 @@ export class NativeTabHost extends EventEmitter {
   }
 
   public createTab(initialUrl = 'https://www.google.com'): string {
+    const trimmed = (initialUrl || '').trim();
+    if (trimmed && (trimmed.startsWith('file://') || /^[a-zA-Z]:[/\\]/.test(trimmed))) {
+      const previewTabId = this.createPreviewTab(trimmed);
+      if (previewTabId) return previewTabId;
+    }
+
     const id = randomUUID();
-    const cleanInitialUrl = cleanRestoredUrl(initialUrl);
-    const url = sanitizeUrl(cleanInitialUrl);
+    let capsuleIdForPreview: string | null = null;
+    let url = initialUrl;
+
+    if (initialUrl.startsWith('antifan-preview://')) {
+      try {
+        const { capsuleId, relativePath } = parsePreviewUrl(initialUrl);
+        const allCapsules = this.capsuleManager.list();
+        const cap = allCapsules.find((c) => c.id.toLowerCase() === capsuleId.toLowerCase());
+        if (!cap || !cap.workspacePath || !fs.existsSync(cap.workspacePath)) {
+          console.warn(`[native-tab-host] Workspace capsule not found: ${capsuleId}`);
+          return '';
+        }
+        const canonicalRoot = fs.realpathSync.native(path.resolve(cap.workspacePath));
+        const resolvedPath = path.resolve(canonicalRoot, relativePath);
+        const rel = path.relative(canonicalRoot, resolvedPath);
+        if (rel.startsWith('..') || path.isAbsolute(rel)) {
+          console.warn(`[native-tab-host] Preview path escapes workspace root: ${relativePath}`);
+          return '';
+        }
+        capsuleIdForPreview = cap.id;
+        url = initialUrl;
+      } catch (err) {
+        console.warn(`[native-tab-host] Failed to parse preview url: ${initialUrl}`, err);
+        return '';
+      }
+    } else {
+      const cleanInitialUrl = cleanRestoredUrl(initialUrl);
+      url = sanitizeUrl(cleanInitialUrl);
+    }
 
     const view = new WebContentsView({
       webPreferences: getSecureWebPreferences(),
@@ -1004,10 +1324,10 @@ export class NativeTabHost extends EventEmitter {
       zoomFactor: 1.0,
       devicePresetId: 'responsive',
       crashed: false,
+      capsuleId: capsuleIdForPreview || undefined,
     };
 
     const wc = view.webContents;
-
     wc.on('did-start-loading', () => {
       state.isLoading = true;
       this.broadcastState();
@@ -1021,7 +1341,29 @@ export class NativeTabHost extends EventEmitter {
       this.broadcastState();
     });
 
+
+    wc.on('console-message', (_event, level, message, line, sourceId) => {
+      this.diagnosticsManager.recordConsole(id, {
+        level,
+        message: String(message || ''),
+        source: String(sourceId || ''),
+        line: Number(line || 0),
+        timestamp: Date.now(),
+      });
+    });
+
+    wc.on('did-fail-load', (_event, errorCode, errorDescription, validatedURL, isMainFrame) => {
+      this.diagnosticsManager.recordFailure(id, {
+        errorCode,
+        errorDescription: String(errorDescription || ''),
+        validatedURL: String(validatedURL || ''),
+        isMainFrame: Boolean(isMainFrame),
+        timestamp: Date.now(),
+      });
+    });
+
     wc.on('did-finish-load', () => {
+      this.documentGenerations.set(id, (this.documentGenerations.get(id) || 0) + 1);
       wc.session.cookies.flushStore().catch(() => {});
       this.injectAutoJsonViewer(wc);
       if (this.isRulerActive && id === this.activeTabId) {
@@ -1110,6 +1452,16 @@ export class NativeTabHost extends EventEmitter {
     this.tabs.set(id, { view, state });
     this.tabOrder.push(id);
 
+    if (capsuleIdForPreview) {
+      const cap = this.capsuleManager.list().find((c) => c.id.toLowerCase() === capsuleIdForPreview!.toLowerCase());
+      if (cap && cap.workspacePath && fs.existsSync(cap.workspacePath)) {
+        const unsub = this.previewWatcherPool.retain(cap.id, cap.workspacePath, (event) => {
+          this.dispatchScopedReload(cap.id, event);
+        });
+        this.tabPreviewUnsubscribers.set(id, unsub);
+      }
+    }
+
     if (url !== 'about:blank') {
       wc.loadURL(url).catch(() => {});
     }
@@ -1143,7 +1495,6 @@ export class NativeTabHost extends EventEmitter {
     if (this.isFontFinderActive) {
       target.view.webContents.executeJavaScript(FONT_FINDER_SCRIPT).catch(() => {});
     }
-
     return true;
   }
 
@@ -1155,6 +1506,14 @@ export class NativeTabHost extends EventEmitter {
       this.recentlyClosedTabs.push({ url: target.state.url, title: target.state.title || 'Tab' });
       if (this.recentlyClosedTabs.length > 20) this.recentlyClosedTabs.shift();
     }
+
+    const unsub = this.tabPreviewUnsubscribers.get(tabId);
+    if (unsub) {
+      try { unsub(); } catch {}
+      this.tabPreviewUnsubscribers.delete(tabId);
+    }
+    this.diagnosticsManager.deleteTab(tabId);
+    this.documentGenerations.delete(tabId);
 
     if (this.activeTabId === tabId) {
       this.window.contentView.removeChildView(target.view);
@@ -1756,15 +2115,36 @@ export class NativeTabHost extends EventEmitter {
   }
 
   public resolveTargetWorkspace(targetSessionId?: string, tabUrl?: string): string {
-    // 1. If explicit session ID is provided and resolved
+    const tm = TerminalManager.getInstance();
+
+    // 1. If explicit terminal session ID is provided and resolved
     if (targetSessionId && targetSessionId !== 'auto') {
+      const session = tm.getSession(targetSessionId);
+      if (session?.cwd && fs.existsSync(path.normalize(session.cwd))) {
+        return path.normalize(session.cwd);
+      }
       const sessionWs = this.transcriptSyncer.getSessionWorkspace(targetSessionId);
-      if (sessionWs && fs.existsSync(sessionWs)) {
-        return sessionWs;
+      if (sessionWs && fs.existsSync(path.normalize(sessionWs))) {
+        return path.normalize(sessionWs);
       }
     }
 
-    // 2. Try to classify based on tab URL (e.g. m-n-bakery -> customizes/Mnbakery)
+    // 2. Active capsule workspace
+    const capsuleWs = this.capsuleManager.getActive()?.workspacePath;
+    if (capsuleWs && fs.existsSync(path.normalize(capsuleWs))) {
+      return path.normalize(capsuleWs);
+    }
+
+    // 3. Check active session from TerminalManager
+    const activeTermId = tm.getActiveSessionId();
+    if (activeTermId) {
+      const activeTerm = tm.getSession(activeTermId);
+      if (activeTerm?.cwd && fs.existsSync(path.normalize(activeTerm.cwd))) {
+        return path.normalize(activeTerm.cwd);
+      }
+    }
+
+    // 4. Try to classify based on tab URL (e.g. m-n-bakery -> customizes/Mnbakery)
     if (tabUrl) {
       try {
         const parsedUrl = new URL(tabUrl);
@@ -1783,7 +2163,7 @@ export class NativeTabHost extends EventEmitter {
                 const cleanSub = sd.name.toLowerCase().replace(/[-_]/g, '');
                 const cleanHost = host.replace(/[-_.]/g, '');
                 if (cleanHost.includes(cleanSub) || (cleanHost.includes('myharavan') && cleanSub.includes(cleanHost.split('myharavan')[0] || '___'))) {
-                  return subPath;
+                  return path.normalize(subPath);
                 }
               }
             }
@@ -1792,16 +2172,22 @@ export class NativeTabHost extends EventEmitter {
       } catch {}
     }
 
-    // 3. Check active session from transcript syncer
+    // 5. Check active session from transcript syncer
     const activeSessionId = this.transcriptSyncer.getActiveSessionId();
     if (activeSessionId && activeSessionId !== 'auto') {
       const activeWs = this.transcriptSyncer.getSessionWorkspace(activeSessionId);
-      if (activeWs && fs.existsSync(activeWs)) {
-        return activeWs;
+      if (activeWs && fs.existsSync(path.normalize(activeWs))) {
+        return path.normalize(activeWs);
       }
     }
 
-    // 4. Default fallback: e:\Work if exists, else process.cwd()
+    // 6. Current CWD from TerminalManager
+    const tmCwd = tm.getCurrentCwd();
+    if (tmCwd && fs.existsSync(path.normalize(tmCwd))) {
+      return path.normalize(tmCwd);
+    }
+
+    // 7. Default fallback: e:\Work if exists, else process.cwd()
     if (fs.existsSync('e:\\Work')) {
       return 'e:\\Work';
     }
@@ -2064,29 +2450,29 @@ export class NativeTabHost extends EventEmitter {
     }
   }
 
-  public async captureScreenshot(rect?: Rectangle): Promise<string> {
-    const active = this.tabs.get(this.activeTabId);
-    if (!active) return '';
-    const img = await active.view.webContents.capturePage(rect);
+  public async captureScreenshot(rect?: Rectangle, tabId?: string): Promise<string> {
+    const target = this.tabs.get(tabId || this.activeTabId);
+    if (!target) return '';
+    const img = await target.view.webContents.capturePage(rect);
     return img.toPNG().toString('base64');
   }
 
-  public async getDom(selector?: string): Promise<string> {
-    const active = this.tabs.get(this.activeTabId);
-    if (!active) return '';
+  public async getDom(selector?: string, tabId?: string): Promise<string> {
+    const target = this.tabs.get(tabId || this.activeTabId);
+    if (!target) return '';
     const script = selector
       ? `(() => {
           const el = document.querySelector(${JSON.stringify(selector)});
           return el ? el.outerHTML : '';
         })()`
       : `(() => document.documentElement ? document.documentElement.outerHTML : '')()`;
-    return active.view.webContents.executeJavaScript(script);
+    return target.view.webContents.executeJavaScript(script);
   }
 
-  public async evalJs(expression: string): Promise<unknown> {
-    const active = this.tabs.get(this.activeTabId);
-    if (!active) return undefined;
-    return active.view.webContents.executeJavaScript(expression);
+  public async evalJs(expression: string, tabId?: string): Promise<unknown> {
+    const target = this.tabs.get(tabId || this.activeTabId);
+    if (!target) return undefined;
+    return target.view.webContents.executeJavaScript(expression);
   }
 
   private getTabsStoragePath(): string {
@@ -2116,6 +2502,7 @@ export class NativeTabHost extends EventEmitter {
           title: tab.state.title,
           devicePresetId: tab.state.devicePresetId,
           zoomFactor: tab.state.zoomFactor,
+          capsuleId: tab.state.capsuleId,
         };
       }).filter(Boolean);
 
@@ -2126,6 +2513,9 @@ export class NativeTabHost extends EventEmitter {
         activeChromeProfileId: ChromeProfileSyncManager.getInstance().activeProfileId,
         sidebarWidth: this.sidebarWidth,
         isSidebarOpen: this.isSidebarOpen,
+        isTerminalPopoutOpen: Boolean(this.popoutWindow && !this.popoutWindow.isDestroyed()),
+        wasSidebarOpenBeforePopout: this.wasSidebarOpenBeforePopout,
+        popoutSessionId: this.popoutWindow && !this.popoutWindow.isDestroyed() ? TerminalManager.getInstance().getActiveSessionId() : undefined,
         updatedAt: Date.now(),
       };
       fs.writeFileSync(filePath, JSON.stringify(data, null, 2), 'utf8');
@@ -2147,6 +2537,11 @@ export class NativeTabHost extends EventEmitter {
           if (typeof data.isSidebarOpen === 'boolean') {
             this.isSidebarOpen = data.isSidebarOpen;
           }
+          if (data.isTerminalPopoutOpen) {
+            TerminalManager.getInstance().startTerminal();
+            const wasOpen = typeof data.wasSidebarOpenBeforePopout === 'boolean' ? data.wasSidebarOpenBeforePopout : true;
+            this.togglePopoutTerminal(data.popoutSessionId, { wasSidebarOpenBeforePopout: wasOpen });
+          }
           if (data.activeChromeProfileId) {
             ChromeProfileSyncManager.getInstance().activeProfileId = data.activeChromeProfileId;
             ChromeProfileSyncManager.getInstance().syncProfile(data.activeChromeProfileId).catch(() => {});
@@ -2163,6 +2558,17 @@ export class NativeTabHost extends EventEmitter {
               if (tab) {
                 if (t.title) tab.state.title = t.title;
                 if (t.devicePresetId) this.setDevicePreset(id, t.devicePresetId);
+                if (t.capsuleId && typeof t.capsuleId === 'string' && !tab.state.capsuleId) {
+                  tab.state.capsuleId = t.capsuleId;
+                  const targetCapsuleId = t.capsuleId;
+                  const capsule = this.capsuleManager.list().find((c) => c.id.toLowerCase() === targetCapsuleId.toLowerCase());
+                  if (capsule && fs.existsSync(capsule.workspacePath) && !this.tabPreviewUnsubscribers.has(id)) {
+                    const unsub = this.previewWatcherPool.retain(capsule.id, capsule.workspacePath, (event) => {
+                      this.dispatchScopedReload(capsule.id, event);
+                    });
+                    this.tabPreviewUnsubscribers.set(id, unsub);
+                  }
+                }
               }
               if (t.id === data.activeTabId) {
                 restoredActiveId = id;
@@ -2327,7 +2733,7 @@ export class NativeTabHost extends EventEmitter {
     wc.executeJavaScript(script).catch(() => {});
   }
 
-  private broadcastState(): void {
+  public broadcastState(): void {
     const payload = {
       tabs: this.getTabList(),
       activeTabId: this.activeTabId,
@@ -2338,6 +2744,7 @@ export class NativeTabHost extends EventEmitter {
       isSidebarOpen: this.isSidebarOpen,
       isTerminalOpen: this.isTerminalOpen,
       bookmarks: this.bookmarks,
+      devicePresets: DEVICE_PRESETS,
       activeChromeProfile: ChromeProfileSyncManager.getInstance().getActiveProfile(),
       chromeProfiles: ChromeProfileSyncManager.getInstance().getAvailableProfiles(),
     };
@@ -2348,11 +2755,461 @@ export class NativeTabHost extends EventEmitter {
     this.schedulePersist();
   }
 
+  public setControlPlane(cp: ControlPlaneRuntime): void {
+    this.controlPlane = cp;
+  }
+
+  public getDiagnostics(tabId?: string, level?: number | string): { console: any[]; failures: any[] } {
+    const targetId = tabId || this.activeTabId;
+    return this.diagnosticsManager.getDiagnostics(targetId, level);
+  }
+
+  public async runResponsiveCheck(tabId?: string): Promise<Record<string, unknown>> {
+    const targetId = tabId || this.activeTabId;
+    const tab = this.tabs.get(targetId);
+    if (!tab || tab.view.webContents.isDestroyed()) return { ok: false, error: 'Tab not found or destroyed' };
+
+    const wc = tab.view.webContents;
+    const previousPreset = tab.state.devicePresetId;
+    const testBreakpoints = [
+      { id: 'mobile-iphone15', name: 'Mobile iPhone 15', width: 393, height: 852, deviceScaleFactor: 3, mobile: true },
+      { id: 'tablet-ipad-air', name: 'Tablet iPad Air', width: 820, height: 1180, deviceScaleFactor: 2, mobile: true },
+      { id: 'desktop-laptop', name: 'Desktop Laptop 14"', width: 1440, height: 900, deviceScaleFactor: 1, mobile: false },
+    ];
+
+    const results: Record<string, unknown> = {};
+
+    try {
+      for (const bp of testBreakpoints) {
+        wc.enableDeviceEmulation({
+          screenPosition: bp.mobile ? 'mobile' : 'desktop',
+          screenSize: { width: bp.width, height: bp.height },
+          viewPosition: { x: 0, y: 0 },
+          deviceScaleFactor: bp.deviceScaleFactor,
+          viewSize: { width: bp.width, height: bp.height },
+          scale: 1,
+        });
+
+        await new Promise((resolve) => setTimeout(resolve, 60));
+
+        const evaluation = await wc.executeJavaScript(`(() => {
+          const docEl = document.documentElement;
+          const body = document.body;
+          const scrollW = Math.max(docEl ? docEl.scrollWidth : 0, body ? body.scrollWidth : 0);
+          const clientW = docEl ? docEl.clientWidth : window.innerWidth;
+          const scrollH = Math.max(docEl ? docEl.scrollHeight : 0, body ? body.scrollHeight : 0);
+          const clientH = docEl ? docEl.clientHeight : window.innerHeight;
+          const hasHorizontalOverflow = scrollW > clientW + 1;
+          const viewportMeta = document.querySelector('meta[name="viewport"]');
+          return {
+            scrollWidth: scrollW,
+            clientWidth: clientW,
+            scrollHeight: scrollH,
+            clientHeight: clientH,
+            hasHorizontalOverflow,
+            hasViewportMeta: Boolean(viewportMeta),
+            viewportContent: viewportMeta ? viewportMeta.getAttribute('content') : null,
+          };
+        })()`).catch((err) => ({ error: String(err) }));
+
+        results[bp.id] = {
+          name: bp.name,
+          width: bp.width,
+          height: bp.height,
+          mobile: bp.mobile,
+          ...evaluation,
+        };
+      }
+    } finally {
+      try {
+        wc.disableDeviceEmulation();
+        if (previousPreset && previousPreset !== 'responsive') {
+          this.setDevicePreset(targetId, previousPreset);
+        } else {
+          this.updateLayout();
+        }
+      } catch {}
+    }
+
+    return {
+      ok: true,
+      tabId: targetId,
+      url: tab.state.url,
+      timestamp: Date.now(),
+      breakpoints: results,
+    };
+  }
+
+  public async agentTrajectory(params: { steps: Array<Record<string, unknown>>; speed?: 'fast' | 'natural' | 'slow'; smoothScroll?: boolean; tabId?: string }): Promise<Record<string, unknown>> {
+    const targetId = params.tabId || this.activeTabId;
+    const tab = this.tabs.get(targetId);
+    if (!tab || tab.view.webContents.isDestroyed()) {
+      return { success: false, executed: 0 };
+    }
+    let executed = 0;
+    for (const step of params.steps) {
+      if (step.action === 'move' || step.type === 'move') {
+        await this.agentHover({ selector: step.selector as string, x: step.x as number, y: step.y as number, label: step.label as string, tabId: targetId });
+      } else if (step.action === 'click' || step.type === 'click') {
+        await this.agentClick({ selector: step.selector as string, x: step.x as number, y: step.y as number, label: step.label as string, tabId: targetId });
+      } else if (step.action === 'scroll' || step.type === 'scroll') {
+        await this.agentScroll({ deltaY: step.deltaY as number, selector: step.selector as string, tabId: targetId });
+      }
+      executed++;
+    }
+    return { success: true, executed, tabId: targetId };
+  }
+
+  public async agentMove(args: { selector?: string; x?: number; y?: number; label?: string; tabId?: string }): Promise<boolean> {
+    return this.agentHover(args);
+  }
+
+  public async agentSnapshot(tabId?: string): Promise<string> {
+    const targetId = tabId || this.activeTabId;
+    return this.getDom(undefined, targetId);
+  }
+
+  public async sendKeyboardPress(params: { key: string; modifiers?: string[]; tabId?: string }): Promise<{ success: boolean; key: string; modifiers: string[] }> {
+    const targetId = params.tabId || this.activeTabId;
+    const tab = this.tabs.get(targetId);
+    if (!tab || tab.view.webContents.isDestroyed()) {
+      return { success: false, key: params.key, modifiers: params.modifiers || [] };
+    }
+    const events = buildKeyboardInputEvents(params.key, params.modifiers);
+    for (const evt of events) {
+      tab.view.webContents.sendInputEvent(evt);
+    }
+    return { success: true, key: params.key, modifiers: params.modifiers || [] };
+  }
+
+  public setViewportSize(options: { width: number; height: number; mobile?: boolean; deviceScaleFactor?: number; tabId?: string }): boolean {
+    const targetId = options.tabId || this.activeTabId;
+    const tab = this.tabs.get(targetId);
+    if (!tab) return false;
+    tab.state.devicePresetId = `${options.width}x${options.height}`;
+    this.broadcastState();
+    return true;
+  }
+
+  public getDevicePresets(): DevicePreset[] {
+    return DEVICE_PRESETS;
+  }
+
+  public isCurrentTarget(target: BrowserTarget): boolean {
+    if (!target) return false;
+    if (typeof target.tabId !== 'string' || target.tabId !== this.activeTabId) return false;
+
+    const currentGen = this.getDocumentGeneration(target.tabId);
+    if (typeof target.documentGeneration !== 'number' || target.documentGeneration !== currentGen) {
+      return false;
+    }
+
+    if (!this.controlPlane) return false;
+
+    const lease = this.controlPlane.getLease();
+    if (typeof target.browserEpoch !== 'number' || target.browserEpoch !== lease.hostEpoch) return false;
+    if (typeof target.projectId !== 'string' || target.projectId !== lease.projectId) return false;
+    if (typeof target.workspaceId !== 'string' || (lease.workspaceId && target.workspaceId !== lease.workspaceId)) return false;
+    if (typeof target.runtimeId !== 'string' || target.runtimeId !== lease.runtimeId) return false;
+
+    return true;
+  }
+
+  public getDocumentGeneration(tabId?: string): number {
+    const id = tabId || this.activeTabId;
+    return this.documentGenerations.get(id) || 1;
+  }
+
+  public toggleFullScreen(): void {
+    this.window.setFullScreen(!this.window.isFullScreen());
+  }
+
+  public reloadWindow(): void {
+    this.persistTabs();
+    TerminalManager.getInstance().persistSync();
+    if (this.toolbarView && !this.toolbarView.webContents.isDestroyed()) {
+      this.toolbarView.webContents.reload();
+    }
+    if (this.sidebarView && !this.sidebarView.webContents.isDestroyed()) {
+      this.sidebarView.webContents.reload();
+    }
+    if (this.terminalView && !this.terminalView.webContents.isDestroyed()) {
+      this.terminalView.webContents.reload();
+    }
+  }
+
+  public createPreviewTab(rawPathOrUri: string, targetCapsuleId?: string): string | null {
+    try {
+      let cleanPath = rawPathOrUri.trim();
+      if (cleanPath.startsWith('file:///')) {
+        cleanPath = decodeURIComponent(cleanPath.slice(8));
+        if (/^\/[a-zA-Z]:/.test(cleanPath)) {
+          cleanPath = cleanPath.slice(1);
+        }
+      } else if (cleanPath.startsWith('file://')) {
+        cleanPath = decodeURIComponent(cleanPath.slice(7));
+      }
+
+      const allCapsules = this.capsuleManager.list();
+      let matchedCapsule: WorkspaceCapsule | null = null;
+      let relativePath = '';
+
+      if (targetCapsuleId) {
+        matchedCapsule = allCapsules.find((c) => c.id.toLowerCase() === targetCapsuleId.toLowerCase()) || null;
+      }
+
+      if (!matchedCapsule) {
+        const resolvedAbsolute = path.resolve(cleanPath);
+        for (const cap of allCapsules) {
+          if (cap.workspacePath && fs.existsSync(cap.workspacePath)) {
+            const capRoot = fs.realpathSync.native(path.resolve(cap.workspacePath));
+            const rel = path.relative(capRoot, resolvedAbsolute);
+            if (!rel.startsWith('..') && !path.isAbsolute(rel)) {
+              matchedCapsule = cap;
+              relativePath = rel;
+              break;
+            }
+          }
+        }
+      }
+
+      if (!matchedCapsule) {
+        matchedCapsule = this.ensureActiveCapsule();
+        const capRoot = fs.realpathSync.native(path.resolve(matchedCapsule.workspacePath));
+        if (path.isAbsolute(cleanPath)) {
+          const rel = path.relative(capRoot, path.resolve(cleanPath));
+          if (!rel.startsWith('..') && !path.isAbsolute(rel)) {
+            relativePath = rel;
+          } else {
+            relativePath = path.basename(cleanPath);
+          }
+        } else {
+          relativePath = cleanPath;
+        }
+      } else if (!relativePath) {
+        const capRoot = fs.realpathSync.native(path.resolve(matchedCapsule.workspacePath));
+        relativePath = path.relative(capRoot, path.resolve(cleanPath));
+      }
+
+      const previewUrl = buildPreviewUrl(matchedCapsule.id, relativePath);
+      const tabId = this.createTab(previewUrl);
+      if (tabId) {
+        const tab = this.tabs.get(tabId);
+        if (tab) {
+          tab.state.title = `Preview: ${path.basename(relativePath) || 'Workspace'}`;
+          this.broadcastState();
+        }
+      }
+      return tabId;
+    } catch (err) {
+      console.warn('[native-tab-host] Failed to create preview tab:', err);
+      return null;
+    }
+  }
+
+  private ensureActiveCapsule(): WorkspaceCapsule {
+    const active = this.capsuleManager.getActive();
+    if (active) return active;
+    const all = this.capsuleManager.list();
+    if (all.length > 0) {
+      this.capsuleManager.switchTo(all[0]!.id);
+      return all[0]!;
+    }
+    return this.capsuleManager.create('Default Workspace', process.cwd(), {
+      sidebarOpen: this.isSidebarOpen,
+      sidebarWidth: this.sidebarWidth,
+    });
+  }
+
+  private dispatchScopedReload(capsuleId: string, event: PreviewChangeEvent): void {
+    const targetKey = capsuleId.toLowerCase();
+    for (const tab of this.tabs.values()) {
+      if (tab.state.capsuleId?.toLowerCase() === targetKey && !tab.view.webContents.isDestroyed()) {
+        if (event.type === 'css-swap') {
+          tab.view.webContents.executeJavaScript(`(() => {
+            document.querySelectorAll('link[rel="stylesheet"]').forEach((link) => {
+              const url = new URL(link.href);
+              url.searchParams.set('antifan_ts', Date.now().toString());
+              link.href = url.toString();
+            });
+          })()`).catch(() => {});
+        } else {
+          tab.view.webContents.reload();
+        }
+      }
+    }
+  }
+
+  public togglePopoutTerminal(sessionId?: string, options?: { wasSidebarOpenBeforePopout?: boolean }): boolean {
+    if (this.popoutWindow && !this.popoutWindow.isDestroyed()) {
+      this.popoutWindow.close();
+      this.popoutWindow = null;
+      this.broadcastPopoutState(false);
+      if (this.wasSidebarOpenBeforePopout && !this.isSidebarOpen) {
+        this.toggleSidebar();
+      }
+      this.wasSidebarOpenBeforePopout = false;
+      this.schedulePersist();
+      return false;
+    }
+
+    const bounds = this.terminalWindowStateManager.getValidBounds();
+    const win = new BrowserWindow({
+      x: bounds.x,
+      y: bounds.y,
+      width: bounds.width || 900,
+      height: bounds.height || 600,
+      minWidth: 500,
+      minHeight: 350,
+      backgroundColor: '#060a11',
+      title: 'AntiFan Terminal Workbench',
+      autoHideMenuBar: true,
+      show: true,
+      webPreferences: {
+        preload: path.join(__dirname, '..', '..', 'preload', 'standalone-preload.js'),
+        contextIsolation: true,
+        sandbox: false,
+        nodeIntegration: false,
+      },
+    });
+
+    if (bounds.isMaximized) {
+      win.maximize();
+    }
+
+    this.terminalWindowStateManager.manage(win);
+    this.popoutWindow = win;
+    this.terminalWindows.set(win.id, win);
+
+    let standaloneHtml = path.join(__dirname, '..', '..', 'renderer', 'standalone.html');
+    if (!fs.existsSync(standaloneHtml)) {
+      standaloneHtml = path.join(process.cwd(), 'src', 'renderer', 'standalone.html');
+    }
+
+    win.webContents.on('did-finish-load', () => {
+      if (!win.isDestroyed()) {
+        const tm = TerminalManager.getInstance();
+        const activeId = sessionId || tm.getActiveSessionId();
+        const s = tm.getSession(activeId);
+        const activeSession = tm.listSessions().find(x => x.id === activeId);
+        win.webContents.send('antifan:terminal:session', {
+          activeSessionId: activeId,
+          sessions: tm.listSessions(),
+          splitSessionId: activeSession?.splitSessionId,
+          snapshot: s?.buffer || '',
+        });
+      }
+    });
+
+    win.loadFile(standaloneHtml, { query: { mode: 'popout', ...(sessionId ? { sessionId } : {}) } });
+    if (options && typeof options.wasSidebarOpenBeforePopout === 'boolean') {
+      this.wasSidebarOpenBeforePopout = options.wasSidebarOpenBeforePopout;
+    } else {
+      this.wasSidebarOpenBeforePopout = this.isSidebarOpen;
+    }
+    if (this.isSidebarOpen) {
+      this.toggleSidebar();
+    }
+    win.on('closed', () => {
+      this.terminalWindows.delete(win.id);
+      if (this.popoutWindow === win) {
+        this.popoutWindow = null;
+        this.broadcastPopoutState(false);
+        if (this.wasSidebarOpenBeforePopout && !this.isSidebarOpen) {
+          this.toggleSidebar();
+        }
+        this.wasSidebarOpenBeforePopout = false;
+      }
+    });
+    this.broadcastPopoutState(true);
+    this.schedulePersist();
+    return true;
+  }
+
+  public openNewTerminalWindow(sessionId?: string): boolean {
+    const bounds = this.terminalWindowStateManager.getValidBounds();
+    const count = this.terminalWindows.size;
+    const offsetX = count > 0 && typeof bounds.x === 'number' ? bounds.x + (count * 25) : bounds.x;
+    const offsetY = count > 0 && typeof bounds.y === 'number' ? bounds.y + (count * 25) : bounds.y;
+
+    const win = new BrowserWindow({
+      x: offsetX,
+      y: offsetY,
+      width: bounds.width || 900,
+      height: bounds.height || 600,
+      minWidth: 500,
+      minHeight: 350,
+      backgroundColor: '#060a11',
+      title: 'AntiFan Terminal Workbench',
+      autoHideMenuBar: true,
+      show: true,
+      webPreferences: {
+        preload: path.join(__dirname, '..', '..', 'preload', 'standalone-preload.js'),
+        contextIsolation: true,
+        sandbox: false,
+        nodeIntegration: false,
+      },
+    });
+
+    if (bounds.isMaximized && count === 0) {
+      win.maximize();
+    }
+
+    this.terminalWindowStateManager.manage(win);
+    this.terminalWindows.set(win.id, win);
+
+    let standaloneHtml = path.join(__dirname, '..', '..', 'renderer', 'standalone.html');
+    if (!fs.existsSync(standaloneHtml)) {
+      standaloneHtml = path.join(process.cwd(), 'src', 'renderer', 'standalone.html');
+    }
+
+    win.webContents.on('did-finish-load', () => {
+      if (!win.isDestroyed()) {
+        const tm = TerminalManager.getInstance();
+        const activeId = sessionId || tm.getActiveSessionId();
+        const s = tm.getSession(activeId);
+        const activeSession = tm.listSessions().find(x => x.id === activeId);
+        win.webContents.send('antifan:terminal:session', {
+          activeSessionId: activeId,
+          sessions: tm.listSessions(),
+          splitSessionId: activeSession?.splitSessionId,
+          snapshot: s?.buffer || '',
+        });
+      }
+    });
+
+    win.loadFile(standaloneHtml, { query: { mode: 'popout', ...(sessionId ? { sessionId } : {}) } });
+
+    win.on('closed', () => {
+      this.terminalWindows.delete(win.id);
+    });
+    return true;
+  }
+
+  private broadcastPopoutState(isPopout: boolean): void {
+    if (this.sidebarView && !this.sidebarView.webContents.isDestroyed()) {
+      this.sidebarView.webContents.send('antifan:terminal:popout-state-changed', isPopout);
+    }
+    if (this.popoutWindow && !this.popoutWindow.isDestroyed()) {
+      this.popoutWindow.webContents.send('antifan:terminal:popout-state-changed', isPopout);
+    }
+  }
   public dispose(): void {
     this.transcriptSyncer.dispose();
     if (this.inspectPollTimer) {
       clearInterval(this.inspectPollTimer);
     }
+    for (const [, win] of this.terminalWindows) {
+      if (win && !win.isDestroyed()) {
+        try { win.close(); } catch {}
+      }
+    }
+    this.terminalWindows.clear();
+    this.popoutWindow = null;
+    for (const unsub of this.tabPreviewUnsubscribers.values()) {
+      try { unsub(); } catch {}
+    }
+    this.tabPreviewUnsubscribers.clear();
     for (const [, tab] of this.tabs) {
       (tab.view.webContents as unknown as { destroy?: () => void })?.destroy?.();
     }

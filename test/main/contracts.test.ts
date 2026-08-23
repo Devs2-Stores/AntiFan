@@ -10,6 +10,7 @@ describe('AntiFan Contracts', () => {
     assert.ok(TOOLBAR_CHANNELS.NAVIGATE);
     assert.ok(TOOLBAR_CHANNELS.TOGGLE_INSPECT);
     assert.ok(TOOLBAR_CHANNELS.TOGGLE_SIDEBAR);
+    assert.ok(TOOLBAR_CHANNELS.TOGGLE_MUTE);
     assert.ok(SIDEBAR_CHANNELS.SEND_PROMPT);
     assert.ok(SIDEBAR_CHANNELS.ATTACH_ELEMENT);
     assert.ok(SIDEBAR_CHANNELS.GET_SESSIONS);
@@ -32,5 +33,25 @@ describe('AntiFan Contracts', () => {
     assert.strictEqual(el.tag, 'button');
     assert.strictEqual(el.id, 'btn-submit');
     assert.strictEqual(el.classes.length, 2);
+  });
+
+  it('supports audio indicator and scroll restoration fields on AntiFanTab', () => {
+    const tab: AntiFanTab = {
+      id: 'tab-123',
+      url: 'https://youtube.com',
+      title: 'YouTube Music',
+      isLoading: false,
+      canGoBack: true,
+      canGoForward: false,
+      zoomFactor: 1.0,
+      isAudible: true,
+      isMuted: false,
+      scrollX: 0,
+      scrollY: 450,
+    };
+
+    assert.strictEqual(tab.isAudible, true);
+    assert.strictEqual(tab.isMuted, false);
+    assert.strictEqual(tab.scrollY, 450);
   });
 });

@@ -24,7 +24,12 @@ function safeCopyFile(from, to) {
 const rendererSrcDir = path.join(ROOT, 'src', 'renderer');
 const rendererOutDir = path.join(ROOT, '.compiled', 'src', 'renderer');
 
-const filesToCopy = ['toolbar.html', 'toolbar.css', 'sidebar.html', 'sidebar.css', 'terminal.html', 'terminal.css'];
+const filesToCopy = [
+  'toolbar.html', 'toolbar.css',
+  'terminal.html', 'terminal.css',
+  'standalone.html', 'standalone.css', 'standalone-overrides.css', 'standalone.js',
+  'antifan-logo.jpg'
+];
 for (const file of filesToCopy) {
   const src = path.join(rendererSrcDir, file);
   const dst = path.join(rendererOutDir, file);
@@ -34,7 +39,7 @@ for (const file of filesToCopy) {
 }
 
 // Prepend exports fallback to compiled renderer JS files to avoid inline script requirement
-const jsFiles = ['toolbar.js', 'sidebar.js', 'terminal.js'];
+const jsFiles = ['toolbar.js', 'terminal.js'];
 for (const jsFile of jsFiles) {
   const dst = path.join(rendererOutDir, jsFile);
   if (fs.existsSync(dst)) {
@@ -46,3 +51,4 @@ for (const jsFile of jsFiles) {
 }
 
 console.log('[antifan] Copied static renderer assets.');
+

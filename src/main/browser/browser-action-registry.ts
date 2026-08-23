@@ -325,15 +325,34 @@ export class BrowserActionRegistry {
         properties: {},
       },
       handler: (_params: Record<string, any>, { tabHost }) => {
-        const status: AntiFanBridgeStatus = {
+        const tabs = tabHost.getTabList();
+        const activeTabId = tabHost.getActiveTabId();
+        return {
           active: true,
           port: 20129,
           clientCount: 0,
-          activeTabId: tabHost.getActiveTabId(),
-          tabCount: tabHost.getTabList().length,
+          activeTabId,
+          tabCount: tabs.length,
           inspecting: false,
         };
-        return status;
+      },
+    });
+
+    // 15. Agent Snapshot
+    this.registerAction({
+      name: 'agentSnapshot',
+      mcpName: 'antifan_agent_snapshot',
+      aliases: ['antifan.agentSnapshot', 'anti.browser.snapshot', 'snapshot'],
+      description: 'Capture interactive ARIA semantic snapshot with compact @e1, @e2 element references',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          tabId: { type: 'string', description: 'Optional tab ID' },
+        },
+      },
+      handler: async (params: { tabId?: string }, { tabHost }) => {
+        const snapshot = await tabHost.agentSnapshot(params?.tabId);
+        return { snapshot, success: true };
       },
     });
 

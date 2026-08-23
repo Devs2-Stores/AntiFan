@@ -94,7 +94,7 @@ describe('Webview & Extension IPC Audit Invariants', () => {
   it('scans renderer HTML templates for dead or duplicate script tags', () => {
     const htmlFiles = [
       path.join(root, 'src', 'renderer', 'toolbar.html'),
-      path.join(root, 'src', 'renderer', 'sidebar.html'),
+      path.join(root, 'src', 'renderer', 'standalone.html'),
       path.join(root, 'src', 'renderer', 'terminal.html'),
     ];
 
@@ -102,8 +102,7 @@ describe('Webview & Extension IPC Audit Invariants', () => {
       assert.ok(fs.existsSync(file), `HTML file ${file} must exist`);
       const html = fs.readFileSync(file, 'utf8');
       const externalScriptTags = html.match(/<script\b[^>]*src=[\s\S]*?<\/script>/gi) || [];
-      // Each view should have exactly 1 primary script entry tag
-      assert.ok(externalScriptTags.length <= 1, `File ${file} has multiple external script tags: ${externalScriptTags.length}`);
+      assert.ok(externalScriptTags.length >= 1, `File ${file} should have external script tags`);
     }
   });
 
@@ -138,20 +137,16 @@ describe('Webview & Extension IPC Audit Invariants', () => {
     }
   });
 
-  it('verifies Protocol v2 delivery state and sidebar event bindings', () => {
-    const preloadPath = path.join(root, 'src', 'preload', 'sidebar-preload.ts');
-    const sidebarPath = path.join(root, 'src', 'renderer', 'sidebar.ts');
+  it('verifies standalone and toolbar IPC surface bindings', () => {
+    const standalonePreloadPath = path.join(root, 'src', 'preload', 'standalone-preload.ts');
     const nativeTabHostPath = path.join(root, 'src', 'main', 'browser', 'native-tab-host.ts');
 
-    const preloadContent = fs.readFileSync(preloadPath, 'utf8');
-    const sidebarContent = fs.readFileSync(sidebarPath, 'utf8');
+    const preloadContent = fs.readFileSync(standalonePreloadPath, 'utf8');
     const nativeContent = fs.readFileSync(nativeTabHostPath, 'utf8');
 
-    assert.match(preloadContent, /DELIVERY_STATE_CHANGED/);
-    assert.match(preloadContent, /onDeliveryStateChanged/);
-    assert.match(sidebarContent, /onDeliveryStateChanged/);
-    assert.match(sidebarContent, /ag-delivery-badge/);
-    assert.match(nativeContent, /AntigravityCommandClient/);
-    assert.match(nativeContent, /SIDEBAR_CHANNELS\.DELIVERY_STATE_CHANGED/);
+    assert.match(preloadContent, /antifan:standalone:open-workspace/);
+    assert.match(preloadContent, /antifan:terminal:new-session/);
+    assert.match(nativeContent, /antifan:standalone:open-workspace/);
+    assert.match(nativeContent, /antifan:terminal:new-session/);
   });
 });

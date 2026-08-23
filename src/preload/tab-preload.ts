@@ -1,106 +1,153 @@
 /**
- * AntiFan Browser Desktop — Tab Preload Script (Stealth & Google Chrome Parity)
- * Completely masks Electron automation properties and injects Haravan JSON Viewer.
+ * AntiFan Browser Desktop — Tab Preload Script
+ * Lightweight preload for JSON Viewer and tab utilities.
+ * Does NOT monkey-patch navigator/window prototypes to preserve 100% native Google BotGuard and Cloudflare compatibility.
  */
-import { ipcRenderer } from 'electron';
+import { ipcRenderer, contextBridge, webFrame } from 'electron';
 
-// 1. Google Chrome Environment & Stealth Spoofing
-try {
-  // Remove navigator.webdriver
-  Object.defineProperty(navigator, 'webdriver', {
-    get: () => undefined,
-    configurable: true,
-  });
+// 1. Google Chrome & Cloudflare Native Compatibility Shield (Injected synchronously into the main World)
+(() => {
+  try {
+    const STEALTH_SCRIPT = `(() => {
+      try {
+        // 1. Ensure window.chrome runtime & csi objects match official Chrome desktop
+        if (!window.chrome) {
+          window.chrome = {};
+        }
+        if (!window.chrome.app) {
+          window.chrome.app = {
+            isInstalled: false,
+            InstallState: { DISABLED: 'disabled', INSTALLED: 'installed', NOT_INSTALLED: 'not_installed' },
+            RunningState: { CANNOT_RUN: 'cannot_run', READY_TO_RUN: 'ready_to_run', RUNNING: 'running' },
+            getDetails: function() { return null; },
+            getIsInstalled: function() { return false; },
+            getRunningState: function() { return 'cannot_run'; }
+          };
+        }
+        if (!window.chrome.csi) {
+          window.chrome.csi = function() {
+            return { startE: Date.now(), onloadT: Date.now(), pageT: 0, tran: 15 };
+          };
+        }
+        if (!window.chrome.loadTimes) {
+          window.chrome.loadTimes = function() {
+            return {
+              commitLoadTime: Date.now() / 1000,
+              connectionInfo: 'http/1.1',
+              finishDocumentLoadTime: Date.now() / 1000,
+              finishLoadTime: Date.now() / 1000,
+              firstPaintAfterLoadTime: 0,
+              firstPaintTime: Date.now() / 1000,
+              navigationType: 'Other',
+              npnNegotiatedProtocol: 'http/1.1',
+              requestTime: Date.now() / 1000,
+              startLoadTime: Date.now() / 1000,
+              wasAlternateProtocolAvailable: false,
+              wasFetchedViaSpdy: false,
+              wasNpnNegotiated: false,
+              wasSpdy: false
+            };
+          };
+        }
+        if (!window.chrome.runtime) {
+          window.chrome.runtime = {
+            OnInstalledReason: {},
+            OnRestartRequiredReason: {},
+            PlatformArch: {},
+            PlatformNaclArch: {},
+            PlatformOs: {},
+            RequestUpdateCheckStatus: {},
+            connect: function() {},
+            sendMessage: function() {}
+          };
+        }
 
-  // Emulate window.chrome properties expected by Google Accounts
-  if (!(window as any).chrome) {
-    (window as any).chrome = {
-      app: {
-        isInstalled: false,
-        InstallState: { DISABLED: 'disabled', INSTALLED: 'installed', NOT_INSTALLED: 'not_installed' },
-        RunningState: { CANNOT_RUN: 'cannot_run', READY_TO_RUN: 'ready_to_run', RUNNING: 'running' },
-      },
-      csi: () => {},
-      loadTimes: () => ({
-        requestTime: Date.now() / 1000,
-        startLoadTime: Date.now() / 1000,
-        commitLoadTime: Date.now() / 1000,
-        finishDocumentLoadTime: Date.now() / 1000,
-        finishLoadTime: Date.now() / 1000,
-        firstPaintTime: Date.now() / 1000,
-        firstPaintAfterLoadTime: 0,
-        navigationType: 'Other',
-        wasFetchedViaSpdy: false,
-        wasNpnNegotiated: false,
-        npnNegotiatedProtocol: 'unknown',
-        wasAlternateProtocolAvailable: false,
-        connectionInfo: 'unknown',
-      }),
-      runtime: {
-        OnInstalledReason: {},
-        OnRestartRequiredReason: {},
-        PlatformArch: { ARM: 'arm', ARM64: 'arm64', MIPS: 'mips', MIPS64: 'mips64', X86_32: 'x86-32', X86_64: 'x86-64' },
-        PlatformNaclArch: { ARM: 'arm', MIPS: 'mips', MIPS64: 'mips64', X86_32: 'x86-32', X86_64: 'x86-64' },
-        PlatformOs: { ANDROID: 'android', CROS: 'cros', LINUX: 'linux', MAC: 'mac', OPENBSD: 'openbsd', WIN: 'win' },
-        RequestUpdateCheckStatus: {},
-      },
-    };
-  }
+        // 2. Remove navigator.webdriver (Google BotGuard detection check)
+        try {
+          const navProto = Object.getPrototypeOf(navigator);
+          if (navProto && 'webdriver' in navProto) {
+            delete navProto.webdriver;
+          }
+          Object.defineProperty(navigator, 'webdriver', {
+            get: () => undefined,
+            configurable: true
+          });
+        } catch {}
 
-  // Spoof navigator.userAgentData with official Google Chrome brands
-  const fakeBrands = [
-    { brand: 'Google Chrome', version: '134' },
-    { brand: 'Chromium', version: '134' },
-    { brand: 'Not_A Brand', version: '24' },
-  ];
-  Object.defineProperty(navigator, 'userAgentData', {
-    get: () => ({
-      brands: fakeBrands,
-      mobile: false,
-      platform: 'Windows',
-      getHighEntropyValues: async () => ({
-        brands: fakeBrands,
-        mobile: false,
-        platform: 'Windows',
-        platformVersion: '15.0.0',
-        architecture: 'x86',
-        model: '',
-        uaFullVersion: '134.0.6998.45',
-        fullVersionList: fakeBrands,
-      }),
-      toJSON: () => ({
-        brands: fakeBrands,
-        mobile: false,
-        platform: 'Windows',
-      }),
-    }),
-    configurable: true,
-  });
+        // 3. Genuine Google Chrome userAgentData brands
+        if (navigator.userAgentData) {
+          const chromeBrands = [
+            { brand: 'Google Chrome', version: '134' },
+            { brand: 'Chromium', version: '134' },
+            { brand: 'Not?A_Brand', version: '24' }
+          ];
+          try {
+            Object.defineProperty(navigator.userAgentData, 'brands', {
+              get: () => chromeBrands,
+              configurable: true
+            });
+          } catch {}
+          const origGetHighEntropyValues = navigator.userAgentData.getHighEntropyValues;
+          if (typeof origGetHighEntropyValues === 'function') {
+            navigator.userAgentData.getHighEntropyValues = function(hints) {
+              return origGetHighEntropyValues.call(this, hints).then(function(res) {
+                if (res) {
+                  res.brands = chromeBrands;
+                }
+                return res;
+              });
+            };
+          }
+        }
 
-  // Remove any electron identifier from global scope
-  delete (window as any).electron;
-  delete (window as any).process;
-} catch {}
+        // 4. Authentic Google Chrome plugin list (length > 0)
+        if (navigator.plugins && navigator.plugins.length === 0) {
+          const dummyPlugin = {
+            0: { type: 'application/pdf', suffixes: 'pdf', description: 'Portable Document Format' },
+            description: 'Portable Document Format',
+            filename: 'internal-pdf-viewer',
+            length: 1,
+            name: 'Chrome PDF Viewer'
+          };
+          try {
+            Object.defineProperty(navigator, 'plugins', {
+              get: () => [dummyPlugin],
+              configurable: true
+            });
+          } catch {}
+        }
+      } catch (e) {}
+    })();`;
+    webFrame.executeJavaScript(STEALTH_SCRIPT);
+  } catch {}
+})();
 
-// 2. Haravan Auto JSON Viewer (Tree View & Unicode Decoded)
+const isGoogleAuthDomain = typeof window !== 'undefined' && (
+  /google\.|youtube\.|googleapis\.com|gstatic\.com|googleusercontent\.com/i.test(window.location.hostname || '') ||
+  /accounts\.google\./i.test(window.location.href || '')
+);
+// 2. Haravan Auto JSON Viewer (Tree View & Unicode Decoded - JSON endpoints only)
 window.addEventListener('DOMContentLoaded', () => {
   try {
-    const raw = (document.body && document.body.innerText) || (document.body && document.body.textContent) || '';
-    const trimmed = String(raw).trim();
+    // Only run on explicit JSON document endpoints or single <pre> raw responses
+    const isJsonDoc =
+      document.contentType === 'application/json' ||
+      document.contentType === 'text/json' ||
+      (document.body && document.body.children.length === 1 && document.body.children[0]?.tagName === 'PRE');
+    if (!isJsonDoc) return;
+
+    const rawEl = document.querySelector('pre') || document.body;
+    const raw = rawEl ? (rawEl.textContent || '') : '';
+    const trimmed = raw.trim();
     if (!trimmed || trimmed.length < 2) return;
 
     let parsed: any = null;
     if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
       try { parsed = JSON.parse(trimmed); } catch {}
     }
-    if (!parsed && /(?:=\s*)?([{\[][\s\S]*[}\]])\s*;?\s*$/.test(trimmed)) {
-      const m = trimmed.match(/(?:=\s*)?([{\[][\s\S]*[}\]])\s*;?\s*$/);
-      if (m && m[1]) { try { parsed = JSON.parse(m[1]); } catch {} }
-    }
-    if (parsed === null || typeof parsed !== 'object') return;
+    if (!parsed) return;
     if ((window as any).__masterJsonInjected) return;
     (window as any).__masterJsonInjected = true;
-
     const esc = (s: any) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
     const renderValue = (v: any): string => {
@@ -235,3 +282,196 @@ window.addEventListener(
   },
   { passive: false }
 );
+// 4. Web AI Real-time Streaming & Response State Detector (Scoped strictly to AI chat services)
+(() => {
+  if (isGoogleAuthDomain) return;
+  if (typeof window === 'undefined') return;
+
+  const AI_CHAT_HOSTS = /chatgpt\.com|chat\.openai\.com|claude\.ai|gemini\.google\.com|deepseek\.com|perplexity\.ai|poe\.com|grok\.com|x\.ai|qwen\.ai|tongyi\.aliyun\.com|openwebui|localhost:20128/i;
+  const host = (window.location.hostname || '') + ':' + (window.location.port || '');
+  if (!AI_CHAT_HOSTS.test(host)) return;
+
+  let currentAiState: 'idle' | 'streaming' | 'completed' = 'idle';
+  let idleResetTimer: any = null;
+  let checkThrottleTimer: any = null;
+
+  const STREAMING_SELECTORS = [
+    'button[data-testid="stop-button"]',
+    'button[aria-label="Stop streaming"]',
+    'button[aria-label="Stop generating"]',
+    '.result-streaming',
+    '[data-testid="fruitjuice-send-button"] [data-state="streaming"]',
+    // Claude.ai
+    'button[aria-label="Stop Response"]',
+    'button[aria-label="Stop response"]',
+    'button[aria-label="Stop Output"]',
+    'button[data-testid="stop-button"]',
+    '.font-claude-message [data-is-streaming="true"]',
+    // Google Gemini
+    'button[aria-label*="Stop" i]',
+    'button[aria-label*="Dừng" i]',
+    'mat-icon[fonticon="stop"]',
+    '.spark-streaming',
+    // DeepSeek
+    'div.ds-button--primary[aria-label*="Stop" i]',
+    'button.stop-btn',
+    '.ds-markdown--streaming',
+    '.ds-icon-button--stop',
+    // Perplexity, Poe, Grok, Qwen, 9Router, generic
+    'button[aria-label*="Stop generating" i]',
+    'button[title*="Stop generating" i]',
+    'button[aria-label*="Stop generation" i]',
+    '.ai-streaming',
+    '.is-generating',
+  ];
+
+  const checkAiStreaming = () => {
+    if (typeof document === 'undefined' || !document.body) return;
+    
+    let isStreaming = false;
+    for (const sel of STREAMING_SELECTORS) {
+      try {
+        const el = document.querySelector(sel);
+        if (el && (el.clientWidth > 0 || el.clientHeight > 0 || (el as HTMLElement).offsetParent !== null || el.classList.contains('result-streaming') || el.classList.contains('ds-markdown--streaming'))) {
+          isStreaming = true;
+          break;
+        }
+      } catch {}
+    }
+
+    if (isStreaming) {
+      if (idleResetTimer) {
+        clearTimeout(idleResetTimer);
+        idleResetTimer = null;
+      }
+      if (currentAiState !== 'streaming') {
+        currentAiState = 'streaming';
+        try {
+          ipcRenderer.send('antifan:tab-ai-state', { aiState: 'streaming' });
+        } catch {}
+      }
+    } else {
+      if (currentAiState === 'streaming') {
+        currentAiState = 'completed';
+        try {
+          ipcRenderer.send('antifan:tab-ai-state', { aiState: 'completed' });
+        } catch {}
+
+        // Reset to idle after 6 seconds of completion
+        if (idleResetTimer) clearTimeout(idleResetTimer);
+        idleResetTimer = setTimeout(() => {
+          if (currentAiState === 'completed') {
+            currentAiState = 'idle';
+            try {
+              ipcRenderer.send('antifan:tab-ai-state', { aiState: 'idle' });
+            } catch {}
+          }
+        }, 6000);
+      }
+    }
+  };
+
+  const scheduleCheck = () => {
+    if (checkThrottleTimer) return;
+    checkThrottleTimer = setTimeout(() => {
+      checkThrottleTimer = null;
+      checkAiStreaming();
+    }, 200);
+  };
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', () => {
+      scheduleCheck();
+      try {
+        const observer = new MutationObserver(() => scheduleCheck());
+        observer.observe(document.body || document.documentElement, { childList: true, subtree: true, attributes: true, attributeFilter: ['class', 'data-state', 'aria-label', 'disabled'] });
+      } catch {}
+    });
+  } else {
+    scheduleCheck();
+    try {
+      const observer = new MutationObserver(() => scheduleCheck());
+      observer.observe(document.body || document.documentElement, { childList: true, subtree: true, attributes: true, attributeFilter: ['class', 'data-state', 'aria-label', 'disabled'] });
+    } catch {}
+  }
+})();
+// 5. Theme Error Sentinel (Haravan, Shopify, Sapo Liquid & Server Errors)
+(() => {
+  if (typeof window !== 'undefined') {
+    const host = (window.location.hostname || '').toLowerCase();
+    const isExcludedDomain = /facebook\.com|fbcdn\.net|messenger\.com|instagram\.com|threads\.net|google\.com|youtube\.com|gstatic\.com|github\.com|twitter\.com|x\.com|apple\.com|microsoft\.com|chatgpt\.com|claude\.ai/i.test(host);
+    if (isExcludedDomain) return;
+  }
+
+  let reportedError: string | null = null;
+
+  const ERROR_SIGNATURES = [
+    { pattern: /\bThemeSyntaxError\b/i, name: 'ThemeSyntaxError (Lỗi cú pháp Liquid)' },
+    { pattern: /\bLiquid error:\b/i, name: 'Liquid Error (Lỗi render Liquid)' },
+    { pattern: /\bLiquid syntax error\b/i, name: 'Liquid Syntax Error' },
+    { pattern: /\bTemplate missing:\b/i, name: 'Template Missing (Thiếu file template)' },
+    { pattern: /\bLayout\s+["'].*?["']\s+is missing\b/i, name: 'Layout Missing (Thiếu layout)' },
+    { pattern: /\bSection\s+["'].*?["']\s+does not exist\b/i, name: 'Section Missing' },
+    { pattern: /\b500 Internal Server Error\b/i, name: '500 Internal Server Error' },
+    { pattern: /\bHaravan::TemplateError\b/i, name: 'Haravan Template Error' },
+  ];
+
+  const checkThemeError = () => {
+    if (typeof document === 'undefined' || !document.documentElement) return;
+    const pageTitle = document.title || '';
+    const bodyText = (document.body ? document.body.innerText || document.body.textContent || '' : '').slice(0, 15000);
+    const combined = `${pageTitle}\n${bodyText}`;
+
+    let detected: string | null = null;
+    for (const sig of ERROR_SIGNATURES) {
+      if (sig.pattern.test(combined)) {
+        detected = sig.name;
+        break;
+      }
+    }
+
+    if (detected !== reportedError) {
+      reportedError = detected;
+      try {
+        ipcRenderer.send('antifan:tab-theme-error', { themeError: reportedError });
+      } catch {}
+    }
+  };
+
+  const scheduleErrorCheck = () => {
+    setTimeout(checkThemeError, 250);
+  };
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', scheduleErrorCheck);
+    window.addEventListener('load', scheduleErrorCheck);
+  } else {
+    scheduleErrorCheck();
+  }
+
+  try {
+    const errorObserver = new MutationObserver(() => scheduleErrorCheck());
+    errorObserver.observe(document.documentElement, { childList: true, subtree: true });
+  } catch {}
+})();
+
+// 6. Passive Scroll Position Tracker for State & Restart Restoration
+(() => {
+  let scrollThrottle: number | NodeJS.Timeout | null = null;
+  window.addEventListener(
+    'scroll',
+    () => {
+      if (scrollThrottle) return;
+      scrollThrottle = setTimeout(() => {
+        scrollThrottle = null;
+        try {
+          ipcRenderer.send('antifan:tab:scroll-changed', {
+            scrollX: Math.round(window.scrollX || window.pageXOffset || 0),
+            scrollY: Math.round(window.scrollY || window.pageYOffset || 0),
+          });
+        } catch {}
+      }, 200);
+    },
+    { passive: true }
+  );
+})();

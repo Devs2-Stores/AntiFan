@@ -1,6 +1,7 @@
 /**
  * AntiFan Browser Desktop — Bridge Server (Extension & IDE Companion)
  * Fast, authenticated local WebSocket RPC server bridging between IDE Extension / Agent and Chromium Desktop.
+ * Includes Mobile Remote Companion Web App, Live Viewport streaming, and Terminal RPC.
  */
 import { WebSocketServer, WebSocket } from 'ws';
 import * as http from 'node:http';
@@ -9,6 +10,9 @@ import * as path from 'node:path';
 import * as os from 'node:os';
 import { randomUUID } from 'node:crypto';
 import { NativeTabHost } from '../browser/native-tab-host';
+import { TerminalManager } from '../browser/terminal-manager';
+import { renderMobileRemoteHtml } from './mobile-remote-html';
+import { generateQrSvg } from './qr-generator';
 import {
   AntiFanBridgeStatus,
   BridgeRequestPayload,
@@ -18,8 +22,35 @@ import {
   AntiFanTab,
   ChatMessage,
 } from '../../shared/contracts';
+import { CapabilityTransportAdapter } from '../tools/capability-transport';
+import { CapabilityRequestContext } from '../../shared/control-plane-contracts';
+import { BrowserTarget, RuntimeLease } from '../../shared/control-plane-contracts';
+
+export function getLocalLanIps(): string[] {
+  const ips: string[] = [];
+  const interfaces = os.networkInterfaces();
+  for (const name of Object.keys(interfaces)) {
+    for (const net of interfaces[name] || []) {
+      if (net.family === 'IPv4' && !net.internal) {
+        ips.push(net.address);
+      }
+    }
+  }
+  if (ips.length === 0) {
+    ips.push('127.0.0.1');
+  }
+  return ips;
+}
+
+interface RuntimeBinding {
+  lease: RuntimeLease;
+  projectId: string;
+  workspaceId: string;
+  browserTarget?: BrowserTarget;
+}
 
 export class BridgeServer {
+  private static instance: BridgeServer | null = null;
   private wss: WebSocketServer | null = null;
   private httpServer: http.Server | null = null;
   private clients: Set<WebSocket> = new Set();
@@ -28,8 +59,10 @@ export class BridgeServer {
   private port: number = 20129;
   private token: string = randomUUID();
   private bridgeInfoPath: string;
+  private readonly capabilityTransport?: CapabilityTransportAdapter;
+  private readonly runtimeBindingProvider?: () => RuntimeBinding;
 
-  constructor(tabHost: NativeTabHost, port = 20129, isDev = false) {
+  constructor(tabHost: NativeTabHost, port = 20129, isDev = false, capabilityTransport?: CapabilityTransportAdapter, runtimeBindingProvider?: () => RuntimeBinding) {
     this.tabHost = tabHost;
     this.isDev = isDev;
     this.port = isDev && port === 20129 ? 20130 : port;
@@ -42,21 +75,85 @@ export class BridgeServer {
     }
     const bridgeFileName = this.isDev ? 'bridge-dev.json' : 'bridge.json';
     this.bridgeInfoPath = path.join(configDir, bridgeFileName);
+    this.capabilityTransport = capabilityTransport;
+    this.runtimeBindingProvider = runtimeBindingProvider;
 
+    BridgeServer.instance = this;
     this.wireTabHostEvents();
   }
 
-  public async start(): Promise<number> {
-    return new Promise((resolve, reject) => {
-      this.httpServer = http.createServer((req, res) => {
-        if (req.url === '/status') {
-          res.writeHead(200, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify(this.getStatus()));
-          return;
+  public static getInstance(): BridgeServer | null {
+    return BridgeServer.instance;
+  }
+
+  public getRemoteConnectionInfo(): { port: number; token: string; lanIps: string[]; urls: string[]; primaryUrl: string; qrSvg: string } {
+    const lanIps = getLocalLanIps();
+    const urls = lanIps.map(ip => `http://${ip}:${this.port}/?token=${encodeURIComponent(this.token)}`);
+    const primaryUrl = urls[0] || `http://localhost:${this.port}/?token=${encodeURIComponent(this.token)}`;
+    const qrSvg = generateQrSvg(primaryUrl);
+    return { port: this.port, token: this.token, lanIps, urls, primaryUrl, qrSvg };
+  }
+
+  private createHttpHandler(): (req: http.IncomingMessage, res: http.ServerResponse) => void {
+    return async (req, res) => {
+      const host = req.headers.host || `127.0.0.1:${this.port}`;
+      const reqUrl = new URL(req.url || '/', `http://${host}`);
+      const pathname = reqUrl.pathname;
+
+      if (pathname === '/status') {
+        res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+        res.end(JSON.stringify(this.getStatus()));
+        return;
+      }
+
+      if (pathname === '/api/lan-ips' || pathname === '/api/remote-info') {
+        const lanIps = getLocalLanIps();
+        const urls = lanIps.map(ip => `http://${ip}:${this.port}/?token=${encodeURIComponent(this.token)}`);
+        const primaryUrl = urls[0] || `http://localhost:${this.port}/?token=${encodeURIComponent(this.token)}`;
+        const qrSvg = generateQrSvg(primaryUrl);
+        res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+        res.end(JSON.stringify({ port: this.port, token: this.token, lanIps, urls, primaryUrl, qrSvg }));
+        return;
+      }
+
+      if (pathname === '/api/qr') {
+        const lanIps = getLocalLanIps();
+        const url = `http://${lanIps[0] || '127.0.0.1'}:${this.port}/?token=${encodeURIComponent(this.token)}`;
+        const qrSvg = generateQrSvg(url);
+        res.writeHead(200, { 'Content-Type': 'image/svg+xml', 'Access-Control-Allow-Origin': '*' });
+        res.end(qrSvg);
+        return;
+      }
+
+      if (pathname === '/api/screenshot') {
+        try {
+          const imgBase64 = await this.tabHost.captureScreenshot();
+          const imgBuf = Buffer.from(imgBase64, 'base64');
+          res.writeHead(200, { 'Content-Type': 'image/png', 'Access-Control-Allow-Origin': '*' });
+          res.end(imgBuf);
+        } catch {
+          res.writeHead(500);
+          res.end('Failed to capture screenshot');
         }
-        res.writeHead(404);
-        res.end();
-      });
+        return;
+      }
+
+      if (pathname === '/' || pathname === '/mobile' || pathname === '/remote') {
+        const html = renderMobileRemoteHtml(this.token, this.port);
+        res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+        res.end(html);
+        return;
+      }
+
+      res.writeHead(404);
+      res.end('Not Found');
+    };
+  }
+
+  public async start(): Promise<number> {
+    return new Promise<number>((resolve, reject) => {
+      const handler = this.createHttpHandler();
+      this.httpServer = http.createServer(handler);
 
       this.wss = new WebSocketServer({ server: this.httpServer });
       this.setupWssEvents();
@@ -67,20 +164,12 @@ export class BridgeServer {
           try {
             this.wss?.close();
           } catch {}
-          const altServer = http.createServer((req, res) => {
-            if (req.url === '/status') {
-              res.writeHead(200, { 'Content-Type': 'application/json' });
-              res.end(JSON.stringify(this.getStatus()));
-              return;
-            }
-            res.writeHead(404);
-            res.end();
-          });
+          const altServer = http.createServer(this.createHttpHandler());
           this.httpServer = altServer;
           this.wss = new WebSocketServer({ server: altServer });
           this.setupWssEvents();
 
-          altServer.listen(0, '127.0.0.1', () => {
+          altServer.listen(0, '0.0.0.0', () => {
             const addr = altServer.address();
             if (addr && typeof addr === 'object') {
               this.port = addr.port;
@@ -93,7 +182,7 @@ export class BridgeServer {
         }
       });
 
-      this.httpServer.listen(this.port, '127.0.0.1', () => {
+      this.httpServer.listen(this.port, '0.0.0.0', () => {
         const address = this.httpServer?.address();
         if (address && typeof address === 'object') {
           this.port = address.port;
@@ -108,19 +197,17 @@ export class BridgeServer {
     return this.token;
   }
 
+  public getPort(): number {
+    return this.port;
+  }
+
   private setupWssEvents(): void {
     if (!this.wss) return;
 
     this.wss.on('connection', (ws: WebSocket, req) => {
-      // 1. Origin header check: deny browser-originated WebSocket requests
-      const origin = req.headers.origin;
-      if (origin) {
-        ws.close(4003, 'Forbidden: browser Origin header is not allowed on local bridge');
-        return;
-      }
-
-      // 2. Token authentication: must be provided and must match exactly
-      const url = new URL(req.url || '/', `http://${req.headers.host || '127.0.0.1'}`);
+      // 1. Token authentication: must be provided and must match exactly
+      const host = req.headers.host || `127.0.0.1:${this.port}`;
+      const url = new URL(req.url || '/', `http://${host}`);
       const clientToken = url.searchParams.get('token');
 
       if (!clientToken || clientToken !== this.token) {
@@ -128,19 +215,44 @@ export class BridgeServer {
         return;
       }
 
+      // 2. Origin check: prevent arbitrary cross-origin hijacking
+      const origin = req.headers.origin;
+      if (origin) {
+        try {
+          const originUrl = new URL(origin);
+          const [hostName] = host.split(':');
+          const isAllowedOrigin =
+            originUrl.hostname === 'localhost' ||
+            originUrl.hostname === '127.0.0.1' ||
+            originUrl.hostname === hostName ||
+            getLocalLanIps().includes(originUrl.hostname);
+
+          if (!isAllowedOrigin) {
+            ws.close(4003, 'Forbidden: untrusted origin');
+            return;
+          }
+        } catch {
+          ws.close(4003, 'Forbidden: malformed origin header');
+          return;
+        }
+      }
+
       this.clients.add(ws);
 
+      const tm = TerminalManager.getInstance();
       this.sendEvent(ws, 'antifan:init', {
         status: this.getStatus(),
         tabs: this.tabHost.getTabList(),
         activeTabId: this.tabHost.getActiveTabId(),
+        terminalSessions: tm.listSessions(),
+        activeTerminalSessionId: tm.getActiveSessionId(),
       });
 
       ws.on('message', async (data) => {
         try {
           const str = data.toString();
-          if (str.length > 2 * 1024 * 1024) {
-            ws.send(JSON.stringify({ id: 'unknown', success: false, error: 'Payload exceeds 2MB limit' }));
+          if (str.length > 5 * 1024 * 1024) {
+            ws.send(JSON.stringify({ id: 'unknown', success: false, error: 'Payload exceeds 5MB limit' }));
             return;
           }
           const raw = JSON.parse(str) as BridgeRequestPayload;
@@ -196,6 +308,17 @@ export class BridgeServer {
     this.tabHost.on('chat-prompt-submitted', (payload: { prompt: string; sessionId?: string; attachedElement?: AntiFanPickedElement; attachedImages?: Array<{ name: string; dataUrl: string }>; deliveryMode?: 'auto' | 'draft' }) => {
       this.broadcastEvent('antifan:chatPromptSubmitted', payload);
     });
+
+    // Wire live terminal streaming and session lifecycle to WebSocket clients
+    const tm = TerminalManager.getInstance();
+    tm.on('data', (payload: { sessionId: string; data: string } | string) => {
+      const formatted = typeof payload === 'string' ? { sessionId: tm.getActiveSessionId(), data: payload } : payload;
+      this.broadcastEvent('antifan:terminal:data', formatted);
+    });
+
+    tm.on('session', (payload: unknown) => {
+      this.broadcastEvent('antifan:terminal:session', payload);
+    });
   }
 
   private async handleMessage(ws: WebSocket, payload: BridgeRequestPayload): Promise<void> {
@@ -210,7 +333,54 @@ export class BridgeServer {
     };
 
     try {
+      if (this.capabilityTransport && typeof p.runtimeLease === 'object' && typeof p.projectId === 'string' && typeof p.workspaceId === 'string') {
+        const context = p.context as Partial<CapabilityRequestContext> | undefined;
+        const requestedGrant = context?.grant;
+        const bridgeGrant = requestedGrant === 'write' ? 'write' : 'read';
+        const result = await this.capabilityTransport.dispatch(method, p, {
+          lease: p.runtimeLease,
+          leaseToken: typeof p.leaseToken === 'string' ? p.leaseToken : '',
+          projectId: p.projectId,
+          workspaceId: p.workspaceId,
+          runId: context?.runId,
+          attemptId: context?.attemptId,
+          browserTarget: context?.browserTarget,
+          grant: bridgeGrant,
+        });
+        respond(result.ok, result.data, result.error ? `${result.error.code}: ${result.error.message}` : undefined);
+        return;
+      }
+
       switch (method) {
+        case 'agentMove':
+        case 'antifan.agentMove': {
+          const ok = await this.tabHost.agentMove({ selector: p.selector, x: p.x, y: p.y, label: p.label, tabId: p.tabId });
+          respond(ok, { moved: ok });
+          break;
+        }
+        case 'agentTrajectory':
+        case 'antifan.agentTrajectory': {
+          const result = await this.tabHost.agentTrajectory({
+            steps: p.steps,
+            speed: p.speed,
+            smoothScroll: p.smoothScroll,
+            tabId: p.tabId,
+          });
+          respond(Boolean(result.success), result);
+          break;
+        }
+
+
+        case 'getRuntimeBinding':
+        case 'antifan.getRuntimeBinding': {
+          if (!this.runtimeBindingProvider) {
+            respond(false, undefined, 'Runtime binding is unavailable');
+            break;
+          }
+          respond(true, this.runtimeBindingProvider());
+          break;
+        }
+
         case 'openTab':
         case 'antifan.openTab': {
           const tabId = this.tabHost.createTab(p.url);
@@ -267,6 +437,20 @@ export class BridgeServer {
           break;
         }
 
+        case 'toggleRuler':
+        case 'antifan.toggleRuler': {
+          const active = this.tabHost.toggleRuler();
+          respond(true, { active });
+          break;
+        }
+
+        case 'toggleFontFinder':
+        case 'antifan.toggleFontFinder': {
+          const active = this.tabHost.toggleFontFinder();
+          respond(true, { active });
+          break;
+        }
+
         case 'toggleSidebar':
         case 'antifan.toggleSidebar': {
           const isOpen = this.tabHost.toggleSidebar();
@@ -282,6 +466,126 @@ export class BridgeServer {
           } else {
             respond(false, undefined, 'Missing message in payload');
           }
+          break;
+        }
+
+        case 'terminalInput':
+        case 'antifan.terminalInput': {
+          if (typeof p.text === 'string') {
+            const tm = TerminalManager.getInstance();
+            if (p.sessionId) {
+              tm.writeTo(p.sessionId, p.text);
+            } else {
+              tm.write(p.text);
+            }
+            respond(true, { written: true });
+          } else {
+            respond(false, undefined, 'Missing text in terminalInput');
+          }
+          break;
+        }
+
+        case 'terminalSendKey':
+        case 'antifan.terminalSendKey': {
+          const keyMap: Record<string, string> = {
+            ctrl_c: '\x03',
+            ctrl_d: '\x04',
+            ctrl_z: '\x1a',
+            ctrl_l: '\x0c',
+            tab: '\t',
+            up: '\x1b[A',
+            down: '\x1b[B',
+            right: '\x1b[C',
+            left: '\x1b[D',
+            enter: '\r',
+            escape: '\x1b',
+            backspace: '\x7f',
+            clear: '\x0c',
+          };
+          const key = typeof p.key === 'string' ? p.key.toLowerCase() : '';
+          const sequence = keyMap[key] ?? p.sequence;
+          if (typeof sequence === 'string') {
+            const tm = TerminalManager.getInstance();
+            if (p.sessionId) {
+              tm.writeTo(p.sessionId, sequence);
+            } else {
+              tm.write(sequence);
+            }
+            respond(true, { sent: true, key });
+          } else {
+            respond(false, undefined, `Unknown key: ${p.key}`);
+          }
+          break;
+        }
+
+        case 'terminalListSessions':
+        case 'antifan.terminalListSessions':
+        case 'getTerminalSessions':
+        case 'antifan.getTerminalSessions': {
+          const tm = TerminalManager.getInstance();
+          respond(true, {
+            sessions: tm.listSessions(),
+            activeSessionId: tm.getActiveSessionId(),
+          });
+          break;
+        }
+
+        case 'terminalSwitchSession':
+        case 'antifan.terminalSwitchSession': {
+          if (typeof p.sessionId === 'string') {
+            const tm = TerminalManager.getInstance();
+            const switched = tm.switchSession(p.sessionId);
+            respond(switched, { switched, activeSessionId: tm.getActiveSessionId() });
+          } else {
+            respond(false, undefined, 'Missing sessionId');
+          }
+          break;
+        }
+
+        case 'terminalNewSession':
+        case 'antifan.terminalNewSession': {
+          const tm = TerminalManager.getInstance();
+          const sessionId = tm.createSession(p.cwd);
+          respond(true, { sessionId, sessions: tm.listSessions() });
+          break;
+        }
+
+        case 'terminalCloseSession':
+        case 'antifan.terminalCloseSession': {
+          const tm = TerminalManager.getInstance();
+          const targetId = p.sessionId || tm.getActiveSessionId();
+          const closed = await tm.closeSession(targetId);
+          respond(closed, { closed, sessions: tm.listSessions(), activeSessionId: tm.getActiveSessionId() });
+          break;
+        }
+
+        case 'terminalRenameSession':
+        case 'antifan.terminalRenameSession': {
+          const tm = TerminalManager.getInstance();
+          const targetId = p.id || p.sessionId || tm.getActiveSessionId();
+          const renamed = tm.renameSession(targetId, p.name || '');
+          respond(renamed, { renamed, sessions: tm.listSessions() });
+          break;
+        }
+        case 'terminalRestart':
+        case 'antifan.terminalRestart': {
+          const tm = TerminalManager.getInstance();
+          await tm.restart(p.cwd);
+          respond(true, { restarted: true });
+          break;
+        }
+
+        case 'terminalResize':
+        case 'antifan.terminalResize': {
+          const tm = TerminalManager.getInstance();
+          const cols = Number(p.cols) || 80;
+          const rows = Number(p.rows) || 24;
+          if (p.sessionId) {
+            tm.resizeTo(p.sessionId, cols, rows);
+          } else {
+            tm.resize(cols, rows);
+          }
+          respond(true, { resized: true, cols, rows });
           break;
         }
 
@@ -315,6 +619,16 @@ export class BridgeServer {
         case 'getStatus':
         case 'antifan.getStatus': {
           respond(true, this.getStatus());
+          break;
+        }
+
+        case 'getLanIps':
+        case 'antifan.getLanIps': {
+          const lanIps = getLocalLanIps();
+          const urls = lanIps.map(ip => `http://${ip}:${this.port}/?token=${encodeURIComponent(this.token)}`);
+          const primaryUrl = urls[0] || `http://localhost:${this.port}/?token=${encodeURIComponent(this.token)}`;
+          const qrSvg = generateQrSvg(primaryUrl);
+          respond(true, { port: this.port, token: this.token, lanIps, urls, primaryUrl, qrSvg });
           break;
         }
 

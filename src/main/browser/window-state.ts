@@ -19,8 +19,8 @@ export class WindowStateManager {
   private state: WindowState;
   private debounceTimer: NodeJS.Timeout | null = null;
 
-  constructor(userDataPath: string, defaultWidth = 1360, defaultHeight = 880) {
-    this.stateFilePath = path.join(userDataPath, 'window-state.json');
+  constructor(userDataPath: string, defaultWidth = 1360, defaultHeight = 880, stateFileName = 'window-state.json') {
+    this.stateFilePath = path.join(userDataPath, stateFileName);
     this.state = this.loadState(defaultWidth, defaultHeight);
   }
 
@@ -82,22 +82,29 @@ export class WindowStateManager {
   }
 
   public manage(window: BrowserWindow): void {
+    const captureState = () => {
+      if (window.isDestroyed()) return;
+      const isMaximized = window.isMaximized();
+      if (isMaximized) {
+        this.state.isMaximized = true;
+      } else if (!window.isMinimized()) {
+        let bounds = window.getBounds();
+        if ('getNormalBounds' in window && typeof window.getNormalBounds === 'function') {
+          try {
+            bounds = window.getNormalBounds();
+          } catch {}
+        }
+        this.state.x = bounds.x;
+        this.state.y = bounds.y;
+        this.state.width = bounds.width;
+        this.state.height = bounds.height;
+        this.state.isMaximized = false;
+      }
+    };
+
     const updateState = () => {
       try {
-        if (window.isDestroyed()) return;
-
-        const isMaximized = window.isMaximized();
-        if (isMaximized) {
-          this.state.isMaximized = true;
-        } else if (!window.isMinimized()) {
-          const bounds = window.getNormalBounds ? window.getNormalBounds() : window.getBounds();
-          this.state.x = bounds.x;
-          this.state.y = bounds.y;
-          this.state.width = bounds.width;
-          this.state.height = bounds.height;
-          this.state.isMaximized = false;
-        }
-
+        captureState();
         this.scheduleSave();
       } catch (err) {
         console.warn('[antifan] Error updating window state:', err);
@@ -109,13 +116,19 @@ export class WindowStateManager {
     window.on('maximize', updateState);
     window.on('unmaximize', updateState);
     window.on('close', () => {
-      if (this.debounceTimer) clearTimeout(this.debounceTimer);
-      this.saveStateSync();
+      clearTimeout(this.debounceTimer!);
+      this.debounceTimer = null;
+      try {
+        captureState();
+        this.saveStateSync();
+      } catch (err) {
+        console.warn('[antifan] Error saving window state on close:', err);
+      }
     });
   }
 
   private scheduleSave(): void {
-    if (this.debounceTimer) clearTimeout(this.debounceTimer);
+    clearTimeout(this.debounceTimer!);
     this.debounceTimer = setTimeout(() => {
       this.saveStateSync();
     }, 500);

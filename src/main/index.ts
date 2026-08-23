@@ -4,13 +4,37 @@
  */
 import * as path from 'path';
 import * as fs from 'fs';
-import { app, BrowserWindow, Menu, session } from 'electron';
+import { app, BrowserWindow, Menu, protocol, session } from 'electron';
+
+// Register custom privileged scheme for local workspace preview before app.whenReady()
+protocol.registerSchemesAsPrivileged([
+  {
+    scheme: 'antifan-preview',
+    privileges: {
+      standard: true,
+      secure: true,
+      supportFetchAPI: true,
+      corsEnabled: true,
+      stream: true,
+      bypassCSP: false,
+    },
+  },
+]);
+import { WorkspaceCapsuleManager } from './project/workspace-capsule';
+import { registerPreviewProtocolHandler } from './server/preview-protocol-handler';
 import { NativeTabHost } from './browser/native-tab-host';
 import { BridgeServer } from './bridge/bridge-server';
 import { AntiFanMcpServer } from './mcp/mcp-server';
+import { TerminalManager } from './browser/terminal-manager';
 import { CookiePersister } from './browser/cookie-persister';
 import { buildApplicationMenu } from './browser/app-menu';
 import { WindowStateManager } from './browser/window-state';
+import { googleAuthUserAgent, isGoogleAuthUrl, setUserAgentHeader, setChromeClientHints, cleanCorruptedGoogleCookies } from './browser/google-auth-identity';
+import { ControlPlaneRuntime } from './control-plane/control-plane-runtime';
+import { BrowserControlPort } from './tools/browser-control-port';
+import { CapabilityTransportAdapter } from './tools/capability-transport';
+import { validateControlPlaneId } from '../shared/control-plane-contracts';
+import { ProfileOwnership, ProfileOwnershipError, type ProfileLease } from './browser/profile-ownership';
 
 process.on('uncaughtException', (err) => {
   console.error('[antifan uncaughtException]', err);
@@ -25,40 +49,49 @@ const IS_DEV = !IS_PROD;
 const IS_MCP_SERVER = process.argv.includes('--mcp-server');
 const IS_MCP_HIGH_RISK = process.argv.includes('--mcp-high-risk');
 
-// Configure dedicated persistent Chromium user data path for Dev vs Prod
-const profileFolder = IS_PROD ? 'Chromium-prod' : 'Chromium-dev';
-const persistentUserData = path.join(process.cwd(), 'appdata', 'antigravity-browser-desktop', profileFolder);
+// Configure persistent Chromium user data path (shared across Desktop shortcut & dev launch)
+const profileFolder = 'Chromium-dev';
+const appRoot = app.getAppPath();
+const persistentUserData = path.join(appRoot, 'appdata', 'antifan-browser-desktop', profileFolder);
+const chromiumCachePath = path.join(appRoot, 'appdata', 'antifan-browser-desktop', `${profileFolder}-cache`);
+try { fs.mkdirSync(chromiumCachePath, { recursive: true }); } catch {}
 app.setPath('userData', persistentUserData);
+app.setPath('cache', chromiumCachePath);
+app.commandLine.appendSwitch('disk-cache-dir', path.join(chromiumCachePath, 'network'));
+app.commandLine.appendSwitch('gpu-cache-dir', path.join(chromiumCachePath, 'gpu'));
 
-if (IS_DEV) {
-  app.name = 'AntiFan Browser Desktop (Dev)';
-} else {
-  app.name = 'AntiFan Browser Desktop';
-}
+app.name = 'AntiFan Browser Desktop';
 
 // Configure high-performance Chromium hardware acceleration and security switches
 app.commandLine.appendSwitch('ignore-gpu-blocklist');
 app.commandLine.appendSwitch('enable-gpu-rasterization');
-app.commandLine.appendSwitch('enable-zero-copy');
 app.commandLine.appendSwitch('enable-smooth-scrolling');
-app.commandLine.appendSwitch('disable-features', 'CalculateNativeWinOcclusion');
-app.commandLine.appendSwitch('enable-features', 'PasswordManager,Autofill,CanvasOopRasterization,SmoothScrolling');
+app.commandLine.appendSwitch('enable-accelerated-2d-canvas');
+app.commandLine.appendSwitch('enable-accelerated-video-decode');
+app.commandLine.appendSwitch('enable-quic');
+app.commandLine.appendSwitch('enable-fast-unload');
+app.commandLine.appendSwitch('enable-tcp-fast-open');
+app.commandLine.appendSwitch('disk-cache-size', '536870912');
+app.commandLine.appendSwitch('media-cache-size', '268435456');
+app.commandLine.appendSwitch('enable-features', 'PasswordManager,Autofill,CanvasOopRasterization,SmoothScrolling,ParallelDownloading,BackForwardCache,AsyncImageDecoding');
 app.commandLine.appendSwitch('disable-blink-features', 'AutomationControlled');
-
-const CHROME_USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36';
+const CHROME_USER_AGENT = googleAuthUserAgent();
 app.userAgentFallback = CHROME_USER_AGENT;
 
 let mainWindow: BrowserWindow | null = null;
 let tabHost: NativeTabHost | null = null;
+let capsuleManager: WorkspaceCapsuleManager | null = null;
 let bridgeServer: BridgeServer | null = null;
+let mcpServer: AntiFanMcpServer | null = null;
 let windowStateManager: WindowStateManager | null = null;
-
+let controlPlane: ControlPlaneRuntime | null = null;
+let profileLease: ProfileLease | null = null;
 // Enforce single instance lock (except in pure MCP server child mode)
 if (!IS_MCP_SERVER) {
   const gotTheLock = app.requestSingleInstanceLock();
   if (!gotTheLock) {
     console.log(`[antifan] Another instance is already running (${IS_DEV ? 'DEV' : 'PROD'}). Exiting.`);
-    app.quit();
+    app.exit(0);
   } else {
     app.on('second-instance', (_event, commandLine) => {
       if (mainWindow) {
@@ -75,17 +108,23 @@ if (!IS_MCP_SERVER) {
   }
 }
 
+const ownsElectronInstance = IS_MCP_SERVER || app.hasSingleInstanceLock();
+
 async function createWindow(): Promise<void> {
   const windowTitle = IS_DEV ? 'AntiFan Browser Desktop [DEV]' : 'AntiFan Browser Desktop';
   
   windowStateManager = new WindowStateManager(persistentUserData, 1360, 880);
   const winBounds = windowStateManager.getValidBounds();
 
-  const appIconPath = path.join(__dirname, '..', '..', 'assets', 'icon.png');
+  const appIconCandidates = [
+    path.join(__dirname, '..', '..', 'assets', 'icon.png'),
+    path.join(process.cwd(), 'assets', 'icon.png'),
+  ];
+  const appIconPath = appIconCandidates.find((candidate) => fs.existsSync(candidate));
 
   mainWindow = new BrowserWindow({
     title: windowTitle,
-    icon: fs.existsSync(appIconPath) ? appIconPath : undefined,
+    icon: appIconPath,
     x: winBounds.x,
     y: winBounds.y,
     width: winBounds.width,
@@ -104,7 +143,42 @@ async function createWindow(): Promise<void> {
 
   windowStateManager.manage(mainWindow);
 
-  tabHost = new NativeTabHost(mainWindow);
+  tabHost = new NativeTabHost(mainWindow, capsuleManager || undefined);
+  const projectId = validateControlPlaneId(process.env.ANTIFAN_PROJECT_ID || 'project-00000000-0000-4000-8000-000000000001', 'project');
+  const workspaceId = validateControlPlaneId(process.env.ANTIFAN_WORKSPACE_ID || 'workspace-00000000-0000-4000-8000-000000000001', 'workspace');
+  controlPlane = new ControlPlaneRuntime({ projectId, workspaceId, dataRoot: path.join(persistentUserData, 'control-plane-v2'), allowEval: IS_MCP_HIGH_RISK });
+  tabHost.setControlPlane(controlPlane);
+  controlPlane.registerBrowser(new BrowserControlPort({
+    getTabList: () => tabHost!.getTabList(),
+    getActiveTabId: () => tabHost!.getActiveTabId(),
+    createTab: (url) => tabHost!.createTab(url),
+    closeTab: (tabId) => tabHost!.closeTab(tabId),
+    switchTab: (tabId) => tabHost!.switchTab(tabId),
+    navigate: (tabId, url) => tabHost!.navigate(tabId, url),
+    reload: (tabId) => tabHost!.reload(tabId),
+    getDom: (selector, tabId) => tabHost!.getDom(selector, tabId),
+    captureScreenshot: (rect, tabId) => tabHost!.captureScreenshot(rect as any, tabId),
+    evalJs: (expression) => tabHost!.evalJs(expression),
+    getDiagnostics: (tabId, level) => tabHost!.getDiagnostics(tabId, level),
+    runResponsiveCheck: (tabId) => tabHost!.runResponsiveCheck(tabId),
+    agentTrajectory: (params) => tabHost!.agentTrajectory(params),
+    agentMove: (args) => tabHost!.agentMove(args),
+    agentClick: (params) => tabHost!.agentClick(params),
+    agentType: (params) => tabHost!.agentType(params),
+    agentScroll: (params) => tabHost!.agentScroll(params),
+    agentHover: (params) => tabHost!.agentHover(params),
+    agentHighlight: (params) => tabHost!.agentHighlight(params),
+    agentClear: (tabId) => tabHost!.agentClear(tabId),
+    agentSnapshot: (tabId) => tabHost!.agentSnapshot(tabId),
+    sendKeyboardPress: (params) => tabHost!.sendKeyboardPress(params),
+    setViewportSize: (options) => tabHost!.setViewportSize(options),
+    setDevicePreset: (tabId, presetId) => tabHost!.setDevicePreset(tabId, presetId),
+    getDevicePresets: () => tabHost!.getDevicePresets(),
+    setZoom: (tabId, zoomFactor) => tabHost!.setZoom(tabId, zoomFactor),
+    toggleInspect: () => tabHost!.toggleInspect(),
+    isCurrentTarget: (target) => tabHost!.isCurrentTarget(target),
+  }));
+  const capabilityTransport = new CapabilityTransportAdapter(controlPlane.capabilities);
 
   // Set Top Menubar (File, Edit, Selection, View, Go, Run, Terminal, Help)
   Menu.setApplicationMenu(buildApplicationMenu(mainWindow, tabHost));
@@ -114,14 +188,31 @@ async function createWindow(): Promise<void> {
   tabHost.restoreTabs(initialUrl);
 
   // Start Bridge Server
-  bridgeServer = new BridgeServer(tabHost, IS_PROD ? 20129 : 20130, IS_DEV);
+  bridgeServer = new BridgeServer(tabHost, IS_PROD ? 20129 : 20130, IS_DEV, capabilityTransport, () => {
+    const lease = controlPlane!.getLease();
+    const activeTab = tabHost!.getActiveTab();
+    return {
+      lease,
+      projectId,
+      workspaceId,
+      browserTarget: activeTab ? {
+        projectId,
+        workspaceId,
+        runtimeId: lease.runtimeId,
+        tabId: activeTab.id,
+        browserEpoch: 1,
+        documentGeneration: tabHost!.getDocumentGeneration(activeTab.id),
+        url: activeTab.url,
+      } : undefined,
+    };
+  });
   const bridgePort = await bridgeServer.start();
   console.log(`[antifan] Bridge Server running on 127.0.0.1:${bridgePort} (${IS_DEV ? 'DEV' : 'PROD'})`);
 
   // Start MCP Server if requested
   if (IS_MCP_SERVER) {
     console.log('[antifan] Starting stdio MCP server...');
-    const mcpServer = new AntiFanMcpServer(tabHost, IS_MCP_HIGH_RISK);
+    mcpServer = new AntiFanMcpServer(tabHost, IS_MCP_HIGH_RISK, capabilityTransport);
     await mcpServer.start();
   }
 
@@ -134,31 +225,55 @@ async function createWindow(): Promise<void> {
   mainWindow.show();
   mainWindow.focus();
 
-  mainWindow.on('closed', () => {
+  mainWindow.on('closed', async () => {
     mainWindow = null;
+    await shutdown();
+    app.quit();
   });
 }
 
 app.whenReady().then(async () => {
+  if (!ownsElectronInstance) return;
+  try {
+    profileLease = new ProfileOwnership({ force: ownsElectronInstance }).acquire(persistentUserData);
+    if (profileLease.recovery.safeStartRecommended) {
+      console.warn('[antifan] Previous shutdown was unclean; restoring the active tab only (safe start).');
+    }
+  } catch (error) {
+    if (error instanceof ProfileOwnershipError) {
+      console.error(`[antifan] Profile is already owned: ${error.message}`);
+    } else {
+      console.error('[antifan] Failed to acquire profile ownership:', error);
+    }
+    app.exit(0);
+    return;
+  }
   // Set real Chrome User Agent across session to allow Google/Gmail OAuth login without "insecure browser" blocking
   session.defaultSession.setUserAgent(CHROME_USER_AGENT);
   session.defaultSession.webRequest.onBeforeSendHeaders(
     { urls: ['http://*/*', 'https://*/*'] },
     (details, callback) => {
       const headers = { ...details.requestHeaders };
-      headers['User-Agent'] = CHROME_USER_AGENT;
-      headers['Sec-CH-UA'] = '"Chromium";v="134", "Google Chrome";v="134", "Not_A Brand";v="24"';
-      headers['Sec-CH-UA-Mobile'] = '?0';
-      headers['Sec-CH-UA-Platform'] = '"Windows"';
-      delete headers['X-Requested-With'];
+      delete headers['X-Electron-Version'];
+      delete headers['X-Antifan-Version'];
+      setUserAgentHeader(headers, CHROME_USER_AGENT);
+      setChromeClientHints(headers);
       callback({ requestHeaders: headers });
     }
   );
+  // Clean any corrupted Google cookies from previous sessions
+  await cleanCorruptedGoogleCookies(session.defaultSession);
 
   // Restore persistent storefront, Haravan, and session cookies
   await CookiePersister.getInstance().restoreCookies();
   CookiePersister.getInstance().startAutoPersistence();
-
+  const capsuleStoragePath = path.join(app.getPath('userData'), 'workspace-capsules.json');
+  capsuleManager = new WorkspaceCapsuleManager({ filePath: capsuleStoragePath });
+  if (!capsuleManager.getActive()) {
+    const defaultDir = fs.existsSync('E:/Work') ? 'E:/Work' : (fs.existsSync('E:\\Work') ? 'E:\\Work' : process.cwd());
+    capsuleManager.create('Default Workspace', defaultDir);
+  }
+  registerPreviewProtocolHandler(capsuleManager);
   await createWindow();
 
   app.on('activate', async () => {
@@ -166,21 +281,61 @@ app.whenReady().then(async () => {
       await createWindow();
     }
   });
+}).catch((error) => {
+  console.error('[antifan startup failed]', error);
+  app.exit(1);
 });
 
-app.on('window-all-closed', () => {
+let shutdownPromise: Promise<void> | null = null;
+function shutdown(): Promise<void> {
+  if (shutdownPromise) return shutdownPromise;
+  shutdownPromise = (async () => {
+    try {
+      TerminalManager.getInstance().persistSync();
+    } catch {}
+    try {
+      await CookiePersister.getInstance().saveAllCookies();
+      await session.defaultSession.cookies.flushStore();
+    } catch {}
+    try {
+      tabHost?.dispose();
+    } catch {}
+    try {
+      bridgeServer?.dispose();
+    } catch {}
+    try {
+      await mcpServer?.stop();
+    } catch {}
+    try {
+      await TerminalManager.getInstance().dispose();
+    } catch {}
+    try {
+      profileLease?.markCleanShutdown();
+      profileLease?.release();
+      profileLease = null;
+    } catch {}
+  })();
+  return shutdownPromise;
+}
+
+app.on('window-all-closed', async () => {
+  await shutdown();
   if (process.platform !== 'darwin') {
     app.quit();
   }
 });
 
-app.on('before-quit', async () => {
-  try {
-    await session.defaultSession.cookies.flushStore();
-  } catch {}
+app.on('before-quit', (event) => {
+  if (!shutdownPromise) {
+    event.preventDefault();
+    shutdown().finally(() => {
+      app.quit();
+    });
+  }
 });
-
 app.on('will-quit', () => {
   bridgeServer?.dispose();
   tabHost?.dispose();
+  profileLease?.release();
+  profileLease = null;
 });

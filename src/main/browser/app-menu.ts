@@ -1,14 +1,15 @@
 /**
- * AntiFan Browser Desktop — Application Menu System
- * Provides standard VS Code style top Menubar: File, Edit, Selection, View, Go, Run, Terminal, Help
- * Includes "Check for Updates / Hot Recompile & Restart" functionality.
+ * AntiFan Browser Desktop — Modern Application Menu System
+ * Clean, organized top menubar tailored for AntiFan Browser Desktop:
+ * File, Edit, View, Browser, Tools, Terminal, Help
  */
-import { app, dialog, Menu, MenuItemConstructorOptions, BrowserWindow } from 'electron';
+import { app, dialog, Menu, MenuItemConstructorOptions, BrowserWindow, shell, clipboard } from 'electron';
 import * as cp from 'node:child_process';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { NativeTabHost } from './native-tab-host';
-
+import { ChromeProfileSyncManager } from './chrome-profile-sync';
+import { TerminalManager } from './terminal-manager';
 function getPendingSourceModifications(srcDir: string, compiledDir: string): string[] {
   const modifiedFiles: string[] = [];
   if (!fs.existsSync(srcDir)) return modifiedFiles;
@@ -19,22 +20,17 @@ function getPendingSourceModifications(srcDir: string, compiledDir: string): str
       const fullPath = path.join(dir, entry.name);
       if (entry.isDirectory()) {
         scan(fullPath);
-      } else if (entry.isFile()) {
-        const ext = path.extname(entry.name).toLowerCase();
-        if (['.ts', '.js', '.html', '.css', '.json', '.mjs', '.cjs'].includes(ext)) {
-          const relPath = path.relative(srcDir, fullPath);
-          const compiledJs = path.join(compiledDir, relPath.replace(/\.ts$/, '.js'));
-          const compiledRaw = path.join(compiledDir, relPath);
-          const targetCompiled = fs.existsSync(compiledJs) ? compiledJs : (fs.existsSync(compiledRaw) ? compiledRaw : null);
+      } else if (entry.isFile() && (entry.name.endsWith('.ts') || entry.name.endsWith('.js') || entry.name.endsWith('.css') || entry.name.endsWith('.html'))) {
+        const relative = path.relative(srcDir, fullPath);
+        const compiledPath = path.join(compiledDir, relative.replace(/\.ts$/, '.js'));
 
-          if (!targetCompiled) {
-            modifiedFiles.push(`src/${relPath.replace(/\\/g, '/')}`);
-          } else {
-            const srcStat = fs.statSync(fullPath);
-            const compStat = fs.statSync(targetCompiled);
-            if (srcStat.mtimeMs > compStat.mtimeMs + 500) {
-              modifiedFiles.push(`src/${relPath.replace(/\\/g, '/')}`);
-            }
+        if (!fs.existsSync(compiledPath)) {
+          modifiedFiles.push(relative);
+        } else {
+          const srcStat = fs.statSync(fullPath);
+          const compStat = fs.statSync(compiledPath);
+          if (srcStat.mtimeMs > compStat.mtimeMs + 100) {
+            modifiedFiles.push(relative);
           }
         }
       }
@@ -55,49 +51,61 @@ export function checkForUpdatesAndRestart(window?: BrowserWindow | null): void {
   const modified = getPendingSourceModifications(srcDir, compiledDir);
 
   const curatedChangelog = [
-    '- Message Copy and Undo Edit in Sidebar Chat',
-    '- Stop / Pause active Agent turn with 1-click',
-    '- Clean Image Lightbox zoom viewer without extra buttons',
-    '- Transparent Omnibox Search Suggestion dropdown overlay',
-    '- Ctrl+T (New Tab) and Ctrl+Shift+T (Reopen Closed Tab)',
-    '- Terminal Shell profiles (PowerShell, CMD, Git Bash)',
-    '- Session Locking (prevent chat jumping when IDE runs in background)',
-    '- Deterministic DOM selector verification and auto queue processing',
+    '• Terminal Workbench: Multi-session, split-screen AI Agent runner & pop-out window',
+    '• Google Auth & Login: Real Chrome User-Agent & Client Hints security spoofing',
+    '• Quick Inspect DOM: Instant inline comment modal for AI Agent workflow',
+    '• Font Finder: High-precision typography inspector & CSS typography extractor',
+    '• Bookmarks & Chrome Sync: Persistent bookmarks & Chrome profile integration',
+    '• Capture Viewport: Instant high-DPI screenshot copied to clipboard',
   ].join('\n');
 
   if (modified.length === 0) {
-    const choice = dialog.showMessageBoxSync(window || (undefined as any), {
+    const choice = dialog.showMessageBoxSync(window || (null as any), {
       type: 'info',
-      buttons: ['OK', 'Force Recompile and Restart'],
+      title: 'AntiFan Update System',
+      message: 'Mã nguồn đã được biên dịch hoàn chỉnh!',
+      detail: `Tất cả file nguồn đã sẵn sàng.\n\nTính năng mới:\n${curatedChangelog}\n\nBạn có muốn khởi động lại ứng dụng ngay để áp dụng phiên bản mới nhất không?`,
+      buttons: ['Khởi động lại ngay', 'Biên dịch lại từ đầu (Force Recompile)', 'Đóng'],
       defaultId: 0,
-      cancelId: 0,
-      title: 'Check for Updates',
-      message: 'AntiFan Browser Desktop is Up to Date',
-      detail: `All components are running the latest compiled build.\n\nCurrent Release Features and Changelog:\n${curatedChangelog}`,
+      cancelId: 2,
     });
 
-    if (choice !== 1) return;
-  } else {
-    const fileListPreview = modified.slice(0, 6).map((f) => `  - ${f}`).join('\n') + (modified.length > 6 ? `\n  ... and ${modified.length - 6} more file(s)` : '');
+    if (choice === 0) {
+      try {
+        TerminalManager.getInstance().persistSync();
+      } catch {}
+      app.relaunch();
+      app.exit(0);
+      return;
+    }
 
-    const choice = dialog.showMessageBoxSync(window || (undefined as any), {
-      type: 'question',
-      buttons: ['Compile and Restart Now', 'Cancel'],
-      defaultId: 0,
-      cancelId: 1,
-      title: 'Updates Available',
-      message: `New Updates Detected (${modified.length} modified file(s))`,
-      detail: `Pending source code changes detected:\n${fileListPreview}\n\nChangelog for this update:\n${curatedChangelog}\n\nWould you like to compile and restart now?`,
-    });
-
-    if (choice !== 0) return;
+    if (choice !== 1) {
+      return;
+    }
   }
+
+  const fileList = modified.slice(0, 8).map((f) => `  - ${f}`).join('\n') + (modified.length > 8 ? `\n  ... và ${modified.length - 8} file khác` : '');
+
+  const choice = dialog.showMessageBoxSync(window || null as any, {
+    type: 'question',
+    title: 'Phát hiện mã nguồn đã cập nhật',
+    message: `Tìm thấy ${modified.length} file mã nguồn đã thay đổi. Bạn có muốn biên dịch lại và khởi động lại ngay không?`,
+    detail: `File đã thay đổi:\n${fileList}\n\nChangelog mới nhất:\n${curatedChangelog}`,
+    buttons: ['Biên dịch & Khởi động lại ngay', 'Bỏ qua'],
+    defaultId: 0,
+    cancelId: 1,
+  });
+
+  if (choice !== 0) return;
 
   cp.exec('npm run compile', { cwd }, (err) => {
     if (err) {
-      dialog.showErrorBox('Update / Recompile Failed', `Failed to compile source code:\n\n${err.message}`);
+      dialog.showErrorBox('Lỗi biên dịch', `Không thể biên dịch mã nguồn:\n${err.message}`);
       return;
     }
+    try {
+      TerminalManager.getInstance().persistSync();
+    } catch {}
     app.relaunch();
     app.exit(0);
   });
@@ -105,6 +113,26 @@ export function checkForUpdatesAndRestart(window?: BrowserWindow | null): void {
 
 export function buildApplicationMenu(mainWindow: BrowserWindow, tabHost?: NativeTabHost | null): Menu {
   const isMac = process.platform === 'darwin';
+
+  const chromeProfiles = ChromeProfileSyncManager.getInstance().getAvailableProfiles();
+  const profileSubmenu: MenuItemConstructorOptions[] = chromeProfiles.length > 0
+    ? chromeProfiles.map((p) => ({
+        label: `Sync: ${p.name} (${p.id})`,
+        click: async () => {
+          const res = await ChromeProfileSyncManager.getInstance().syncProfile(p.id);
+          const bm = ChromeProfileSyncManager.getInstance().getChromeBookmarks(p.id);
+          if (bm.length > 0 && tabHost) {
+            tabHost.bookmarks = bm.map((b) => ({ id: b.url, title: b.title, url: b.url, createdAt: Date.now() }));
+            tabHost.broadcastState();
+          }
+          dialog.showMessageBox(mainWindow, {
+            type: res.success ? 'info' : 'warning',
+            title: 'Chrome Profile Sync',
+            message: res.message,
+          });
+        },
+      }))
+    : [{ label: 'Không tìm thấy Chrome Profile', enabled: false }];
 
   const template: MenuItemConstructorOptions[] = [
     // 1. File Menu
@@ -133,10 +161,6 @@ export function buildApplicationMenu(mainWindow: BrowserWindow, tabHost?: Native
         { type: 'separator' },
         {
           label: 'Capture Viewport Screenshot',
-          click: () => tabHost?.captureScreenshot(),
-        },
-        {
-          label: 'Capture Full Page Screenshot',
           accelerator: 'CmdOrCtrl+Shift+S',
           click: () => tabHost?.captureScreenshot(),
         },
@@ -159,37 +183,20 @@ export function buildApplicationMenu(mainWindow: BrowserWindow, tabHost?: Native
       ],
     },
 
-    // 3. Selection Menu
-    {
-      label: 'Selection',
-      submenu: [
-        {
-          label: 'Quick Inspect (Annotate DOM)',
-          accelerator: 'CmdOrCtrl+Shift+C',
-          click: () => tabHost?.toggleInspect(),
-        },
-        {
-          label: 'Font Finder',
-          accelerator: 'CmdOrCtrl+Shift+F',
-          click: () => tabHost?.toggleFontFinder(),
-        },
-        {
-          label: 'Color Lens Zoom Glass',
-          accelerator: 'CmdOrCtrl+Shift+L',
-          click: () => tabHost?.toggleLens(),
-        },
-        {
-          label: 'Precision Ruler',
-          accelerator: 'CmdOrCtrl+Shift+M',
-          click: () => tabHost?.toggleRuler(),
-        },
-      ],
-    },
-
-    // 4. View Menu
+    // 3. View Menu
     {
       label: 'View',
       submenu: [
+        {
+          label: 'Toggle Sidebar Terminal',
+          accelerator: 'CmdOrCtrl+Alt+B',
+          click: () => tabHost?.toggleSidebar(),
+        },
+        {
+          label: 'Toggle Bottom Terminal Drawer',
+          accelerator: 'CmdOrCtrl+`',
+          click: () => tabHost?.toggleTerminal(),
+        },
         {
           label: 'Reload Page',
           accelerator: 'CmdOrCtrl+R',
@@ -204,28 +211,21 @@ export function buildApplicationMenu(mainWindow: BrowserWindow, tabHost?: Native
             if (tabHost) tabHost.reload(tabHost.getActiveTabId());
           },
         },
-        { type: 'separator' },
-        {
-          label: 'Toggle AI Sidebar Chat',
-          accelerator: 'CmdOrCtrl+B',
-          click: () => tabHost?.toggleSidebar(),
-        },
         {
           label: 'Toggle Bookmarks Bar',
           accelerator: 'CmdOrCtrl+Shift+B',
           click: () => tabHost?.toggleBookmarkBar(),
-        },
-        {
-          label: 'Toggle Terminal Drawer',
-          accelerator: 'CmdOrCtrl+`',
-          click: () => tabHost?.toggleTerminal(),
         },
         { type: 'separator' },
         { role: 'resetZoom' },
         { role: 'zoomIn' },
         { role: 'zoomOut' },
         { type: 'separator' },
-        { role: 'togglefullscreen' },
+        {
+          label: 'Toggle Full Screen',
+          accelerator: 'F11',
+          click: () => tabHost?.toggleFullScreen(),
+        },
         {
           label: 'Toggle Developer Tools',
           accelerator: 'F12',
@@ -234,9 +234,9 @@ export function buildApplicationMenu(mainWindow: BrowserWindow, tabHost?: Native
       ],
     },
 
-    // 5. Go Menu
+    // 4. Browser Menu
     {
-      label: 'Go',
+      label: 'Browser',
       submenu: [
         {
           label: 'Back',
@@ -258,54 +258,103 @@ export function buildApplicationMenu(mainWindow: BrowserWindow, tabHost?: Native
             if (tabHost) tabHost.navigate(tabHost.getActiveTabId(), 'https://www.google.com');
           },
         },
-      ],
-    },
-
-    // 6. Run Menu
-    {
-      label: 'Run',
-      submenu: [
+        { type: 'separator' },
         {
-          label: '🔄 Recompile & Restart App',
-          accelerator: 'CmdOrCtrl+Shift+U',
-          click: () => checkForUpdatesAndRestart(mainWindow),
+          label: 'Bookmark This Tab',
+          accelerator: 'CmdOrCtrl+D',
+          click: () => tabHost?.bookmarkActiveTab(),
         },
         {
-          label: 'Clear Cookies & Cache for this site',
+          label: 'Sync Google Chrome Profile',
+          submenu: profileSubmenu,
+        },
+        { type: 'separator' },
+        {
+          label: 'Clear Cookies & Site Cache',
           click: () => tabHost?.clearStorageForActiveTab(),
         },
+        {
+          label: 'Open in System Browser',
+          click: () => tabHost?.openExternal(),
+        },
       ],
     },
 
-    // 7. Terminal Menu
+    // 5. Tools Menu
+    {
+      label: 'Tools',
+      submenu: [
+        {
+          label: 'Quick Inspect DOM (Annotate)',
+          accelerator: 'CmdOrCtrl+B',
+          click: () => tabHost?.toggleInspect(),
+        },
+        {
+          label: 'Font Finder (Inspect Typography)',
+          click: () => tabHost?.toggleFontFinder(),
+        },
+        {
+          label: 'GPU Lens Zoom Glass',
+          accelerator: 'CmdOrCtrl+Alt+L',
+          click: () => tabHost?.toggleLens(),
+        },
+        {
+          label: 'Precision Ruler & Layout Grid',
+          click: () => tabHost?.toggleRuler(),
+        },
+        { type: 'separator' },
+        {
+          label: 'Find in Page...',
+          accelerator: 'CmdOrCtrl+F',
+          click: () => tabHost?.focusFindBar(),
+        },
+      ],
+    },
+
+    // 6. Terminal Menu
     {
       label: 'Terminal',
       submenu: [
         {
-          label: 'Toggle Terminal Drawer',
+          label: 'Toggle Sidebar Terminal',
+          accelerator: 'CmdOrCtrl+Alt+B',
+          click: () => tabHost?.toggleSidebar(),
+        },
+        {
+          label: 'Toggle Bottom Terminal Drawer',
           accelerator: 'CmdOrCtrl+`',
           click: () => tabHost?.toggleTerminal(),
+        },
+        {
+          label: 'Pop out Terminal Workbench',
+          accelerator: 'CmdOrCtrl+Shift+N',
+          click: () => tabHost?.togglePopoutTerminal(),
         },
       ],
     },
 
-    // 8. Help Menu
+    // 7. Help Menu
     {
       label: 'Help',
       submenu: [
         {
-          label: '🔄 Check for Updates... (Recompile & Restart)',
+          label: 'Developer: Reload Window (Hot Reload UI)',
+          accelerator: 'CmdOrCtrl+Alt+R',
+          click: () => tabHost?.reloadWindow(),
+        },
+        {
+          label: 'Developer: Recompile & Restart App',
           accelerator: 'CmdOrCtrl+Shift+U',
           click: () => checkForUpdatesAndRestart(mainWindow),
         },
         { type: 'separator' },
         {
-          label: 'Open in System Browser',
-          click: () => tabHost?.openExternal(),
-        },
-        {
           label: 'Keyboard Shortcuts...',
           click: () => tabHost?.showShortcuts(),
+        },
+        {
+          label: 'Open in System Browser',
+          click: () => tabHost?.openExternal(),
         },
         { type: 'separator' },
         {
@@ -315,7 +364,7 @@ export function buildApplicationMenu(mainWindow: BrowserWindow, tabHost?: Native
               type: 'info',
               title: 'About AntiFan Browser Desktop',
               message: 'AntiFan Browser Desktop',
-              detail: 'Version: 1.0.0\nPlatform: Electron + Chromium\nEngine: Antigravity AI Bridge & Haravan Multi-Platform Engine',
+              detail: 'Version: 1.0.0\nPlatform: Electron + Chromium\nEngine: Antigravity AI Bridge & Haravan Multi-Platform Engine\nTerminal AI Workbench: Enabled',
             });
           },
         },

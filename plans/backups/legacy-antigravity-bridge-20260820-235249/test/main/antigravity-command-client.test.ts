@@ -111,6 +111,23 @@ describe('AntigravityCommandClient (Protocol v2)', () => {
 
     // Rejects invalid deliveryState (e.g. legacy false "submitted" state)
     assert.strictEqual(validateResultV2({ ...validRes, deliveryState: 'submitted' as any }).ok, false);
+
+    // Rejects receipt when commandId mismatches expected command
+    assert.strictEqual(
+      validateResultV2(validRes, { id: 'different-cmd-id', targetWorkspace: { folderUri: 'E:\\Work\\apps\\my-app' } }).ok,
+      false
+    );
+
+    // Rejects receipt when targetWorkspace mismatches
+    assert.strictEqual(
+      validateResultV2(validRes, { id: 'cmd-12345678-abcd', targetWorkspace: { folderUri: 'C:\\Wrong\\Path' } }).ok,
+      false
+    );
+    assert.strictEqual(
+      validateResultV2(validRes, { id: 'cmd-12345678-abcd', targetWorkspace: { folderUri: 'E:\\Work\\apps' } }).ok,
+      false,
+      'Ancestor workspace receipts must not satisfy exact binding'
+    );
   });
 
   it('dispatches command atomically and consumes matching receipt', async () => {
@@ -171,6 +188,7 @@ describe('AntigravityCommandClient (Protocol v2)', () => {
       workspacePath: workspace,
       pollIntervalMs: 10,
       timeoutMs: 50,
+      lateReceiptGraceMs: 0,
       clock: () => {
         fakeClock += 20;
         return fakeClock;
@@ -188,6 +206,32 @@ describe('AntigravityCommandClient (Protocol v2)', () => {
     assert.strictEqual(result.ok, false);
     assert.strictEqual(result.deliveryState, 'unknown');
     assert.strictEqual(result.errorCode, 'TIMEOUT_WAITING_RECEIPT');
+  });
+
+  it('keeps a timeout receipt available for one bounded late exact replacement', async () => {
+    const workspace = 'E:\\Work\\apps\\my-late-replacement-workspace';
+    const { fsSeam, files } = createMockFs();
+    const client = new AntigravityCommandClient({ workspacePath: workspace, pollIntervalMs: 5, timeoutMs: 30, lateReceiptGraceMs: 250, fsSeam });
+    const { command, resultPromise } = client.dispatchCommand({ action: 'send-prompt', mode: 'auto', promptText: 'Late replacement' });
+    const resultFilePath = path.join(workspace, '.antigravity', 'mcp-bridge', `${command.id}.res.json`);
+    const makeReceipt = (overrides: Partial<AntigravityResultV2>): AntigravityResultV2 => ({
+      protocolVersion: 2,
+      commandId: command.id,
+      hostInstanceId: 'ext-host-late',
+      hostEpoch: 2,
+      targetWorkspace: { folderUri: workspace },
+      ok: false,
+      deliveryState: 'unknown',
+      errorCode: 'EXECUTION_DEADLINE_EXCEEDED',
+      completedAtEpochMs: Date.now(),
+      ...overrides,
+    });
+    setTimeout(() => files.set(resultFilePath, JSON.stringify(makeReceipt({}))), 20);
+    setTimeout(() => files.set(resultFilePath, JSON.stringify(makeReceipt({ ok: true, deliveryState: 'ide-api-accepted', errorCode: undefined }))), 80);
+    const result = await resultPromise;
+    assert.strictEqual(result.ok, true);
+    assert.strictEqual(result.deliveryState, 'ide-api-accepted');
+    assert.strictEqual(files.has(resultFilePath), false);
   });
 
   it('reads host.json status if present and valid', () => {

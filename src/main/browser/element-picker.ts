@@ -19,10 +19,15 @@ export const ELEMENT_PICKER_SCRIPT = `(() => {
   let isModalOpen = false;
 
   const cleanup = () => {
-    document.removeEventListener('mousemove', onHover, true);
-    document.removeEventListener('pointermove', onHover, true);
-    document.removeEventListener('click', onClick, true);
-    document.removeEventListener('keydown', onKey, true);
+    window.removeEventListener('mousemove', onHover, true);
+    window.removeEventListener('pointermove', onHover, true);
+    window.removeEventListener('pointerdown', onPointerDown, true);
+    window.removeEventListener('pointerup', onPointerUp, true);
+    window.removeEventListener('touchmove', onTouchMove, true);
+    window.removeEventListener('touchstart', onTouchStart, true);
+    window.removeEventListener('touchend', onTouchEnd, true);
+    window.removeEventListener('click', onClick, true);
+    window.removeEventListener('keydown', onKey, true);
 
     const ov = document.getElementById(OVERLAY_ID);
     if (ov) ov.remove();
@@ -36,20 +41,42 @@ export const ELEMENT_PICKER_SCRIPT = `(() => {
 
     if (document.documentElement) document.documentElement.style.cursor = '';
     window.__antifanPickerActive = false;
+    isModalOpen = false;
+  };
+  window.__antifanPickerCleanup = cleanup;
+  const prevent = (e) => {
+    if (e && e.preventDefault) e.preventDefault();
+    if (e && e.stopPropagation) e.stopPropagation();
   };
 
-  const prevent = (e) => {
-    e.preventDefault();
-    e.stopPropagation();
+  const isInteractiveUiEvent = (e) => {
+    if (!e) return false;
+    const modal = document.getElementById(MODAL_ID);
+    const multiDock = document.getElementById(MULTI_BAR_ID);
+    const path = (e.composedPath && typeof e.composedPath === 'function') ? e.composedPath() : [];
+    if (modal && (modal === e.target || modal.contains(e.target) || path.includes(modal))) return true;
+    if (multiDock && (multiDock === e.target || multiDock.contains(e.target) || path.includes(multiDock))) return true;
+    if (e.target && e.target.nodeType === 1) {
+      const el = e.target;
+      if (el.id === MODAL_ID || el.id === MULTI_BAR_ID || (el.closest && (el.closest('#' + MODAL_ID) || el.closest('#' + MULTI_BAR_ID)))) {
+        return true;
+      }
+    }
+    return false;
   };
 
   const onKey = (e) => {
     if (e.key === 'Escape') {
+      prevent(e);
+      if (isModalOpen) {
+        const modal = document.getElementById(MODAL_ID);
+        if (modal) modal.remove();
+        isModalOpen = false;
+      }
       cleanup();
       window.__antifanPick = { canceled: true };
     }
   };
-
   const getDomAncestry = (el) => {
     const parts = [];
     let curr = el;
@@ -86,7 +113,7 @@ export const ELEMENT_PICKER_SCRIPT = `(() => {
   const findOptimalUniqueSelector = (el) => {
     if (!el || el.nodeType !== 1) return { selector: '', isUnique: false, matchCount: 0 };
 
-    // 1. Check ID uniqueness
+    // 1. Check ID uniqueness (ignore auto-numeric ids)
     if (el.id && typeof el.id === 'string' && !/^[0-9]/.test(el.id)) {
       const idSel = '#' + CSS.escape(el.id);
       try {
@@ -95,9 +122,33 @@ export const ELEMENT_PICKER_SCRIPT = `(() => {
     }
 
     const tag = el.tagName.toLowerCase();
-    const classList = Array.from(el.classList || []).filter((c) => typeof c === 'string' && !c.startsWith('antifan-') && !c.includes(':') && !/^[0-9]/.test(c));
+    const classList = Array.from(el.classList || []).filter((c) => typeof c === 'string' && !c.startsWith('antifan-') && !c.includes(':') && !c.includes('slick-cloned') && !c.includes('swiper-slide-duplicate') && !/^[0-9]/.test(c));
 
-    // 2. Check distinct single class
+    // 2. Check Liquid & Theme Semantic Anchors
+    const liquidAttrs = ['data-section-id', 'data-section-type', 'data-product-id', 'data-variant-id', 'setting-id', 'data-block-id', 'data-handle', 'data-sku', 'data-id', 'name', 'aria-label'];
+    for (const a of liquidAttrs) {
+      const v = el.getAttribute(a);
+      if (v && v.length < 80) {
+        const sel = tag + '[' + a + '="' + CSS.escape(v) + '"]';
+        try {
+          if (document.querySelectorAll(sel).length === 1) return { selector: sel, isUnique: true, matchCount: 1 };
+        } catch {}
+      }
+    }
+
+    // 3. Check Parent Liquid Section Scope
+    const closestSection = el.closest ? el.closest('[data-section-id], [data-section-type], section[id^="shopify-section-"], section[id^="haravan-section-"]') : null;
+    if (closestSection && closestSection !== el) {
+      const secAttr = closestSection.getAttribute('data-section-id') ? ('[data-section-id="' + CSS.escape(closestSection.getAttribute('data-section-id')) + '"]') : (closestSection.id ? ('#' + CSS.escape(closestSection.id)) : '');
+      if (secAttr && classList.length > 0) {
+        const scopedSel = secAttr + ' ' + tag + '.' + CSS.escape(classList[0]);
+        try {
+          if (document.querySelectorAll(scopedSel).length === 1) return { selector: scopedSel, isUnique: true, matchCount: 1 };
+        } catch {}
+      }
+    }
+
+    // 4. Check distinct single class
     if (classList.length > 0) {
       for (const c of classList) {
         const sel = tag + '.' + CSS.escape(c);
@@ -106,7 +157,7 @@ export const ELEMENT_PICKER_SCRIPT = `(() => {
         } catch {}
       }
 
-      // 3. Check combined classes
+      // 5. Check combined classes
       if (classList.length >= 2) {
         const sel = tag + '.' + classList.slice(0, 3).map((c) => CSS.escape(c)).join('.');
         try {
@@ -115,23 +166,11 @@ export const ELEMENT_PICKER_SCRIPT = `(() => {
       }
     }
 
-    // 4. Check data attributes & semantics
-    const attrs = ['data-id', 'data-sku', 'data-section-id', 'name', 'aria-label'];
-    for (const a of attrs) {
-      const v = el.getAttribute(a);
-      if (v && v.length < 50) {
-        const sel = tag + '[' + a + '="' + CSS.escape(v) + '"]';
-        try {
-          if (document.querySelectorAll(sel).length === 1) return { selector: sel, isUnique: true, matchCount: 1 };
-        } catch {}
-      }
-    }
-
-    // 5. Check parent-scoped selector
+    // 6. Check parent-scoped selector
     if (el.parentElement && el.parentElement !== document.body) {
       const pTag = el.parentElement.tagName.toLowerCase();
       const pCls = (el.parentElement.className && typeof el.parentElement.className === 'string')
-        ? el.parentElement.className.trim().split(/\\s+/).filter(Boolean)[0]
+        ? el.parentElement.className.trim().split(/\\s+/).filter((c) => !c.includes('slick-cloned')).filter(Boolean)[0]
         : '';
       const pPrefix = pCls ? pTag + '.' + CSS.escape(pCls) : pTag;
       const childSuffix = classList.length ? tag + '.' + CSS.escape(classList[0]) : tag;
@@ -150,18 +189,17 @@ export const ELEMENT_PICKER_SCRIPT = `(() => {
 
   const overlay = document.createElement('div');
   overlay.id = OVERLAY_ID;
-  overlay.style.cssText = 'position:fixed;pointer-events:none;z-index:2147483646;box-sizing:border-box;border:2px solid #087ff5;background-color:rgba(8,127,245,0.15);display:none;transition:none;';
+  overlay.style.cssText = 'position:fixed !important;pointer-events:none !important;z-index:2147483646 !important;box-sizing:border-box !important;border:2px solid #087ff5 !important;background-color:rgba(8,127,245,0.15) !important;display:none;transition:none !important;';
 
   const badge = document.createElement('div');
   badge.id = BADGE_ID;
-  badge.style.cssText = 'position:fixed;pointer-events:none;z-index:2147483647;box-sizing:border-box;background:#090d16;color:#38bdf8;border:1px solid rgba(56,189,248,0.5);border-radius:4px;padding:2px 6px;font:11px/14px monospace;box-shadow:0 4px 12px rgba(0,0,0,0.5);display:none;white-space:nowrap;';
+  badge.style.cssText = 'position:fixed !important;pointer-events:none !important;z-index:2147483647 !important;box-sizing:border-box !important;background:#090d16 !important;color:#38bdf8 !important;border:1px solid rgba(56,189,248,0.5) !important;border-radius:4px !important;padding:2px 6px !important;font:11px/14px monospace !important;box-shadow:0 4px 12px rgba(0,0,0,0.5) !important;display:none;white-space:nowrap !important;';
 
-  const container = document.body || document.documentElement;
+  const container = document.documentElement || document.body;
   if (container) {
     container.appendChild(overlay);
     container.appendChild(badge);
   }
-
   const updateMultiDock = () => {
     let dock = document.getElementById(MULTI_BAR_ID);
     if (pickedList.length === 0) {
@@ -194,13 +232,58 @@ export const ELEMENT_PICKER_SCRIPT = `(() => {
     };
   };
 
+  const resolveElementFromEvent = (e) => {
+    let clientX = e.clientX;
+    let clientY = e.clientY;
+    if ((clientX === undefined || clientY === undefined) && e.touches && e.touches.length > 0) {
+      clientX = e.touches[0].clientX;
+      clientY = e.touches[0].clientY;
+    } else if ((clientX === undefined || clientY === undefined) && e.changedTouches && e.changedTouches.length > 0) {
+      clientX = e.changedTouches[0].clientX;
+      clientY = e.changedTouches[0].clientY;
+    }
+
+    let el = null;
+    if (typeof clientX === 'number' && typeof clientY === 'number') {
+      try {
+        const hit = document.elementFromPoint(clientX, clientY);
+        if (hit && hit.id !== OVERLAY_ID && hit.id !== BADGE_ID && hit.id !== MULTI_BAR_ID && !hit.closest?.('#' + MODAL_ID) && !hit.closest?.('#' + MULTI_BAR_ID)) {
+          el = hit;
+        }
+      } catch {}
+    }
+
+    if (!el) {
+      const path = (e.composedPath && typeof e.composedPath === 'function') ? e.composedPath() : [];
+      for (let i = 0; i < path.length; i++) {
+        const node = path[i];
+        if (node && node.nodeType === 1) {
+          if (node.id === OVERLAY_ID || node.id === BADGE_ID || node.id === MULTI_BAR_ID || node.closest?.('#' + MODAL_ID) || node.closest?.('#' + MULTI_BAR_ID)) continue;
+          el = node;
+          break;
+        }
+      }
+    }
+
+    if (!el && e.target && e.target.nodeType === 1) {
+      el = e.target;
+    }
+
+    if (el && (el.id === OVERLAY_ID || el.id === BADGE_ID || el.id === MULTI_BAR_ID || el.closest?.('#' + MODAL_ID) || el.closest?.('#' + MULTI_BAR_ID))) {
+      return null;
+    }
+    return el;
+  };
+
   const onHover = (e) => {
     if (isModalOpen) return;
-    const el = (e.target && e.target.nodeType === 1) ? e.target : document.body;
-    if (!el || el.id === OVERLAY_ID || el.id === BADGE_ID || el.closest && (el.closest('#' + MODAL_ID) || el.closest('#' + MULTI_BAR_ID))) return;
-    currentTarget = el;
+    const el = resolveElementFromEvent(e);
+    if (!el) return;
 
+    currentTarget = el;
     const r = el.getBoundingClientRect();
+    if (r.width === 0 && r.height === 0) return;
+
     overlay.style.display = 'block';
     overlay.style.top = r.top + 'px';
     overlay.style.left = r.left + 'px';
@@ -211,7 +294,7 @@ export const ELEMENT_PICKER_SCRIPT = `(() => {
     if (el.id) tag += '#' + el.id;
     else if (el.className && typeof el.className === 'string') {
       const cls = el.className.trim().split(/\\s+/).filter(Boolean)[0];
-      if (cls) tag += '.' + cls;
+      if (cls && !cls.includes(':')) tag += '.' + cls;
     }
     badge.textContent = tag + ' (' + Math.round(r.width) + '×' + Math.round(r.height) + ')';
     badge.style.display = 'block';
@@ -226,41 +309,278 @@ export const ELEMENT_PICKER_SCRIPT = `(() => {
 
     const modal = document.createElement('div');
     modal.id = MODAL_ID;
-    modal.style.cssText = 'position:fixed;z-index:2147483647;box-sizing:border-box;background:#18181b;color:#f1f5f9;border:1px solid #3b82f6;border-radius:8px;padding:8px 10px;box-shadow:0 8px 24px rgba(0,0,0,0.65);width:260px;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;font-size:12px;display:flex;flex-direction:column;gap:6px;';
+    modal.style.cssText = 'position:fixed;z-index:2147483647;box-sizing:border-box;background:#0b111b;color:#e5eef8;border:1px solid #2c6d98;border-radius:10px;padding:10px 11px;box-shadow:0 14px 36px rgba(0,0,0,0.72),0 0 0 1px rgba(88,180,232,.08);width:310px;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;font-size:12px;display:flex;flex-direction:column;gap:8px;';
 
     const r = el.getBoundingClientRect();
     let top = r.bottom + 6;
     let left = r.left;
-    if (top + 130 > window.innerHeight) top = Math.max(10, r.top - 140);
-    if (left + 260 > window.innerWidth) left = Math.max(10, window.innerWidth - 270);
+    if (top + 170 > window.innerHeight) top = Math.max(10, r.top - 180);
+    if (left + 310 > window.innerWidth) left = Math.max(10, window.innerWidth - 320);
     modal.style.top = Math.max(10, top) + 'px';
     modal.style.left = Math.max(10, left) + 'px';
 
-    const selectorName = el.id ? '#' + el.id : (el.className && typeof el.className === 'string' ? el.tagName.toLowerCase() + '.' + el.className.trim().split(/\\s+/).filter(Boolean)[0] : el.tagName.toLowerCase());
+    const selectorName = el.id ? '#' + el.id : (el.className && typeof el.className === 'string' ? el.tagName.toLowerCase() + '.' + el.className.trim().split(/\s+/).filter(Boolean)[0] : el.tagName.toLowerCase());
 
     const header = document.createElement('div');
-    header.style.cssText = 'display:flex;align-items:center;justify-content:space-between;font-size:11px;color:#94a3b8;border-bottom:1px solid #27272a;padding-bottom:4px;';
-    header.innerHTML = '<span style="font-weight:600;color:#38bdf8;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:180px;">' + selectorName + '</span><span style="font-size:9.5px;color:#71717a;">Esc cancel</span>';
+    header.style.cssText = 'display:flex;align-items:center;justify-content:space-between;font-size:11px;color:#94a3b8;border-bottom:1px solid #203246;padding-bottom:6px;';
+    header.innerHTML = '<span style="font-weight:600;color:#38bdf8;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:200px;">' + selectorName + '</span><button type="button" id="btnModalClose" style="background:transparent;border:none;color:#94a3b8;font-size:11px;cursor:pointer;padding:2px 4px;display:flex;align-items:center;gap:3px;border-radius:3px;" title="Hủy (Esc)"><span style="font-size:9.5px;color:#71717a;">Esc hủy</span> <span style="font-weight:bold;color:#ef4444;">✕</span></button>';
+    const closeBtn = header.querySelector('#btnModalClose');
+    if (closeBtn) {
+      closeBtn.onclick = (e) => {
+        prevent(e);
+        cleanupModalListeners();
+        modal.remove();
+        isModalOpen = false;
+        if (pickedList.length === 0) {
+          cleanup();
+          window.__antifanPick = { canceled: true };
+        }
+      };
+    }
+    const termContext = window.__antifanTerminalContext || { sessions: [], selectedSessionId: '' };
+    const termRow = document.createElement('div');
+    termRow.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:6px;background:#060a11;border:1px solid #1e293b;border-radius:5px;padding:3px 7px;font-size:11px;box-sizing:border-box;';
 
+    const termLabel = document.createElement('div');
+    termLabel.style.cssText = 'display:flex;align-items:center;gap:4px;color:#94a3b8;flex-shrink:0;';
+    termLabel.innerHTML = '<span style="font-size:11px;">🎯</span><span style="font-weight:600;color:#cbd5e1;">Gửi tới:</span>';
+
+    const termSelect = document.createElement('select');
+    termSelect.id = 'antifanTerminalSelect';
+    termSelect.style.cssText = 'flex:1;min-width:0;background:#0f172a;color:#38bdf8;border:1px solid #263b50;border-radius:4px;padding:2px 4px;font-size:11px;font-weight:500;outline:none;cursor:pointer;text-overflow:ellipsis;';
+
+    if (termContext.sessions && termContext.sessions.length > 0) {
+      termContext.sessions.forEach((s) => {
+        const opt = document.createElement('option');
+        opt.value = s.id;
+        const folder = s.cwd ? s.cwd.split(/[\\\\/]/).filter(Boolean).pop() : '';
+        opt.textContent = (s.name || s.id) + (folder ? ' (' + folder + ')' : '');
+        if (s.id === termContext.selectedSessionId) {
+          opt.selected = true;
+        }
+        termSelect.appendChild(opt);
+      });
+    } else {
+      const opt = document.createElement('option');
+      opt.value = '';
+      opt.textContent = 'Terminal hiện tại (Active)';
+      termSelect.appendChild(opt);
+    }
+
+    termRow.appendChild(termLabel);
+    termRow.appendChild(termSelect);
     const textarea = document.createElement('textarea');
-    textarea.placeholder = 'Add comment (e.g. Change text, fix margin)...';
-    textarea.style.cssText = 'width:100%;height:44px;max-height:100px;background:#09090b;border:1px solid #27272a;border-radius:4px;color:#f8fafc;padding:5px 6px;font-size:11.5px;font-family:inherit;outline:none;resize:none;box-sizing:border-box;line-height:1.35;';
+    textarea.placeholder = 'Nhập mô tả / yêu cầu sửa... (hoặc dán Ctrl+V ảnh vào đây)';
+    textarea.style.cssText = 'width:100%;height:58px;min-height:58px;max-height:200px;background:#060a11;border:1px solid #263b50;border-radius:4px;color:#f8fafc;padding:8px;font-size:11.5px;font-family:inherit;outline:none;resize:none;box-sizing:border-box;line-height:1.4;overflow-y:auto;';
+
+    const attachedImages = [];
+    const previewContainer = document.createElement('div');
+    previewContainer.style.cssText = 'display:none;flex-wrap:wrap;gap:6px;padding:4px 0;max-height:100px;overflow-y:auto;';
+
+    const renderPreviews = () => {
+      previewContainer.innerHTML = '';
+      if (attachedImages.length === 0) {
+        previewContainer.style.display = 'none';
+        return;
+      }
+      previewContainer.style.display = 'flex';
+      attachedImages.forEach((img, idx) => {
+        const item = document.createElement('div');
+        item.style.cssText = 'position:relative;width:46px;height:46px;border-radius:4px;border:1px solid #38bdf8;overflow:hidden;background:#0f172a;flex-shrink:0;';
+        item.innerHTML = '<img src="' + img.dataUrl + '" style="width:100%;height:100%;object-fit:cover;" title="' + (img.name || 'Ảnh') + '" /><button type="button" style="position:absolute;top:1px;right:1px;background:rgba(0,0,0,0.7);color:#ef4444;border:none;border-radius:50%;width:14px;height:14px;font:bold 9px sans-serif;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0;">✕</button>';
+        const delBtn = item.querySelector('button');
+        if (delBtn) {
+          delBtn.onclick = (e) => {
+            e.stopPropagation();
+            attachedImages.splice(idx, 1);
+            renderPreviews();
+          };
+        }
+        previewContainer.appendChild(item);
+      });
+    };
+
+    const addImage = (name, dataUrl) => {
+      if (!dataUrl) return;
+      attachedImages.push({ name: name || ('image_' + (attachedImages.length + 1) + '.png'), dataUrl: dataUrl });
+      renderPreviews();
+      if (statusMsg.style.display !== 'none') statusMsg.style.display = 'none';
+    };
+
+    const fileInput = document.createElement('input');
+    fileInput.type = 'file';
+    fileInput.accept = 'image/*';
+    fileInput.multiple = true;
+    fileInput.style.display = 'none';
+    fileInput.onchange = (e) => {
+      const files = (e.target && e.target.files) ? Array.from(e.target.files) : [];
+      files.forEach((file) => {
+        const reader = new FileReader();
+        reader.onload = (ev) => {
+          if (ev.target && typeof ev.target.result === 'string') {
+            addImage(file.name, ev.target.result);
+          }
+        };
+        reader.readAsDataURL(file);
+      });
+      fileInput.value = '';
+    };
 
     const statusMsg = document.createElement('div');
     statusMsg.id = 'statusMsg';
     statusMsg.style.cssText = 'display:none;color:#ef4444;font-size:10.5px;padding-top:2px;line-height:1.2;font-weight:500;';
 
     const footer = document.createElement('div');
-    footer.style.cssText = 'display:flex;align-items:center;justify-content:space-between;padding-top:2px;';
-    footer.innerHTML = '<label style="font-size:10.5px;color:#a1a1aa;cursor:pointer;display:flex;align-items:center;gap:3px;"><input type="checkbox" id="chkMulti" ' + (isMultiMode ? 'checked' : '') + ' style="cursor:pointer;width:12px;height:12px;margin:0;" /> Multi</label><button id="btnModalSend" style="background:#087ff5;border:none;color:#ffffff;border-radius:4px;padding:3px 10px;font-size:11px;font-weight:600;cursor:pointer;">Send ↑</button>';
-
+    footer.style.cssText = 'display:flex;align-items:center;justify-content:space-between;padding-top:1px;';
+    footer.innerHTML = '<div style="display:flex;align-items:center;gap:6px;"><button id="btnAttachImg" type="button" style="background:#1e293b;border:1px solid #334155;color:#94a3b8;border-radius:4px;padding:3px 7px;font-size:11px;cursor:pointer;display:flex;align-items:center;gap:4px;" title="Đính kèm ảnh từ máy tính"><span>📷</span> <span>Ảnh</span></button><span style="font-size:9.5px;color:#64748b;">Dán Ctrl+V ảnh</span></div><button id="btnModalSend" type="button" style="background:#087ff5;border:none;color:#ffffff;border-radius:4px;padding:4px 12px;font-size:11px;font-weight:600;cursor:pointer;">Gửi ↑</button>';
     modal.appendChild(header);
+    modal.appendChild(termRow);
     modal.appendChild(textarea);
+    modal.appendChild(previewContainer);
+    modal.appendChild(fileInput);
     modal.appendChild(statusMsg);
     modal.appendChild(footer);
-    document.body.appendChild(modal);
-
+    const targetParent = document.body || document.documentElement;
+    targetParent.appendChild(modal);
     textarea.focus();
+    textarea.addEventListener('input', () => { textarea.style.height = '58px'; textarea.style.height = Math.min(200, Math.max(58, textarea.scrollHeight)) + 'px'; });
+
+    const btnAttach = modal.querySelector('#btnAttachImg');
+    if (btnAttach) {
+      btnAttach.onclick = () => fileInput.click();
+    }
+
+    // Helper function to process any image blob or file
+    const processImageFile = (fileOrBlob, defaultName) => {
+      if (!fileOrBlob) return;
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        if (e.target && typeof e.target.result === 'string') {
+          addImage(fileOrBlob.name || defaultName || ('image_' + (attachedImages.length + 1) + '.png'), e.target.result);
+        }
+      };
+      reader.readAsDataURL(fileOrBlob);
+    };
+
+    // Robust Clipboard Paste Handler (handles items, files, and HTML img tags)
+    const handlePasteData = (clipboardData, ev) => {
+      if (!clipboardData) return false;
+      let handled = false;
+
+      // 1. Check clipboard items (blobs / images / files)
+      const items = clipboardData.items;
+      if (items && items.length > 0) {
+        for (let i = 0; i < items.length; i++) {
+          const item = items[i];
+          if (item.type && item.type.startsWith('image/')) {
+            const blob = item.getAsFile();
+            if (blob) {
+              processImageFile(blob, 'pasted_image_' + (attachedImages.length + 1) + '.png');
+              handled = true;
+            }
+          } else if (item.kind === 'file') {
+            const file = item.getAsFile();
+            if (file && (file.type.startsWith('image/') || /\\.(png|jpe?g|webp|gif|svg|bmp|ico|avif)$/i.test(file.name))) {
+              processImageFile(file, file.name);
+              handled = true;
+            }
+          }
+        }
+      }
+
+      // 2. Check clipboard files (files copied from Windows Explorer / desktop)
+      const files = clipboardData.files;
+      if (files && files.length > 0) {
+        for (let i = 0; i < files.length; i++) {
+          const file = files[i];
+          if (file && (file.type.startsWith('image/') || /\\.(png|jpe?g|webp|gif|svg|bmp|ico|avif)$/i.test(file.name))) {
+            processImageFile(file, file.name);
+            handled = true;
+          }
+        }
+      }
+
+      // 3. Check HTML content for embedded <img> data URLs
+      if (!handled) {
+        const html = clipboardData.getData('text/html');
+        if (html) {
+          const match = html.match(/<img[^>]+src=["'](data:image\\/[^"']+)["']/i);
+          if (match && match[1]) {
+            addImage('pasted_image_' + (attachedImages.length + 1) + '.png', match[1]);
+            handled = true;
+          }
+        }
+      }
+
+      if (handled && ev) {
+        ev.preventDefault();
+        ev.stopPropagation();
+      }
+      return handled;
+    };
+
+    const onGlobalPaste = (ev) => {
+      if (!isModalOpen) return;
+      const cb = ev.clipboardData || window.clipboardData;
+      handlePasteData(cb, ev);
+    };
+
+    // Global keydown handler for modal: Escape dismiss and Ctrl+V paste
+    const onGlobalKeyDown = (ev) => {
+      if (!isModalOpen) return;
+      if (ev.key === 'Escape') {
+        prevent(ev);
+        cleanupModalListeners();
+        modal.remove();
+        isModalOpen = false;
+        if (pickedList.length === 0) {
+          cleanup();
+          window.__antifanPick = { canceled: true };
+        }
+        return;
+      }
+      if ((ev.ctrlKey || ev.metaKey) && !ev.altKey && (ev.key === 'v' || ev.key === 'V')) {
+        setTimeout(async () => {
+          if (attachedImages.length === 0 && navigator.clipboard && typeof navigator.clipboard.read === 'function') {
+            try {
+              const clipboardItems = await navigator.clipboard.read();
+              for (const item of clipboardItems) {
+                const imageType = item.types.find((t) => t.startsWith('image/'));
+                if (imageType) {
+                  const blob = await item.getType(imageType);
+                  processImageFile(blob, 'pasted_image_' + (attachedImages.length + 1) + '.png');
+                }
+              }
+            } catch {}
+          }
+        }, 60);
+      }
+    };
+
+    window.addEventListener('paste', onGlobalPaste, true);
+    document.addEventListener('paste', onGlobalPaste, true);
+    window.addEventListener('keydown', onGlobalKeyDown, true);
+
+    const cleanupModalListeners = () => {
+      window.removeEventListener('paste', onGlobalPaste, true);
+      document.removeEventListener('paste', onGlobalPaste, true);
+      window.removeEventListener('keydown', onGlobalKeyDown, true);
+    };
+
+    // Drag & Drop image files onto modal
+    modal.addEventListener('dragover', (e) => { e.preventDefault(); modal.style.borderColor = '#38bdf8'; });
+    modal.addEventListener('dragleave', () => { modal.style.borderColor = '#2c6d98'; });
+    modal.addEventListener('drop', (e) => {
+      e.preventDefault();
+      modal.style.borderColor = '#2c6d98';
+      if (e.dataTransfer && e.dataTransfer.files) {
+        Array.from(e.dataTransfer.files).forEach((file) => {
+          if (file.type && (file.type.startsWith('image/') || /\\.(png|jpe?g|webp|gif|svg|bmp|ico|avif)$/i.test(file.name))) {
+            processImageFile(file, file.name);
+          }
+        });
+      }
+    });
 
     textarea.oninput = () => {
       if (statusMsg.style.display !== 'none') {
@@ -269,20 +589,43 @@ export const ELEMENT_PICKER_SCRIPT = `(() => {
     };
 
     const doSubmit = () => {
-      const userComment = textarea.value.trim();
-      if (!userComment) {
-        statusMsg.textContent = 'Add a comment before sending to Chat.';
+      let userComment = textarea.value.trim();
+      if (!userComment && attachedImages.length === 0) {
+        statusMsg.textContent = 'Vui lòng nhập mô tả hoặc đính kèm ảnh trước khi gửi.';
         statusMsg.style.display = 'block';
         textarea.focus();
         return;
       }
+      if (!userComment && attachedImages.length > 0) {
+        userComment = 'Kiểm tra phần tử này theo ảnh đính kèm.';
+      }
       statusMsg.style.display = 'none';
 
-      const chk = modal.querySelector('#chkMulti');
-      isMultiMode = chk ? chk.checked : false;
+      const submitBtn = modal.querySelector('#btnModalSend');
+      if (submitBtn) {
+        submitBtn.textContent = 'Đang gửi...';
+        submitBtn.style.opacity = '0.7';
+      }
 
-      const rect = el.getBoundingClientRect();
+      // 1. Re-measure fresh rect on submit to eliminate any scroll/layout drift
+      const freshRect = el.getBoundingClientRect();
       const computed = window.getComputedStyle(el);
+
+      const pruneOuterHtml = (html) => {
+        if (!html || typeof html !== 'string') return '';
+        let res = html.replace(/d="[^"]{60,}"/gi, 'd="[svg-path-data]"');
+        res = res.replace(/src="data:image\\/[^;]+;base64,[^"]{60,}"/gi, 'src="data:[image-base64]"');
+        return res.slice(0, 8000);
+      };
+
+      const closestSec = el.closest ? el.closest('[data-section-id], [data-section-type], section[id^="shopify-section-"], section[id^="haravan-section-"], [id^="shopify-section-"]') : null;
+      const liquidContext = {
+        sectionId: closestSec ? (closestSec.getAttribute('data-section-id') || closestSec.id) : undefined,
+        sectionType: closestSec ? closestSec.getAttribute('data-section-type') : undefined,
+        productId: el.getAttribute ? (el.getAttribute('data-product-id') || el.closest('[data-product-id]')?.getAttribute('data-product-id')) : undefined,
+        variantId: el.getAttribute ? (el.getAttribute('data-variant-id') || el.closest('[data-variant-id]')?.getAttribute('data-variant-id')) : undefined,
+        settingId: el.getAttribute ? (el.getAttribute('setting-id') || el.closest('[setting-id]')?.getAttribute('setting-id')) : undefined,
+      };
 
       const styles = {
         fontFamily: computed.fontFamily,
@@ -310,54 +653,107 @@ export const ELEMENT_PICKER_SCRIPT = `(() => {
         isUnique: findOptimalUniqueSelector(el).isUnique,
         matchCount: findOptimalUniqueSelector(el).matchCount,
         domAncestry: getDomAncestry(el),
-        dimensions: Math.round(rect.width) + ' x ' + Math.round(rect.height) + ' px',
-        outerHTML: el.outerHTML ? el.outerHTML.slice(0, 15000) : '',
+        dimensions: Math.round(freshRect.width) + ' x ' + Math.round(freshRect.height) + ' px',
+        outerHTML: pruneOuterHtml(el.outerHTML || ''),
+        liquidContext: liquidContext,
         computedStyles: styles,
         userComment: userComment,
+        targetSessionId: termSelect ? termSelect.value : (termContext.selectedSessionId || undefined),
+        attachedImages: attachedImages.slice(0, 6),
         rect: {
-          x: Math.round(rect.left + window.scrollX),
-          y: Math.round(rect.top + window.scrollY),
-          width: Math.round(rect.width),
-          height: Math.round(rect.height),
+          x: Math.round(freshRect.left + window.scrollX),
+          y: Math.round(freshRect.top + window.scrollY),
+          width: Math.round(freshRect.width),
+          height: Math.round(freshRect.height),
         },
         clientRect: {
-          x: Math.round(rect.left),
-          y: Math.round(rect.top),
-          width: Math.round(rect.width),
-          height: Math.round(rect.height),
+          x: Math.round(freshRect.left),
+          y: Math.round(freshRect.top),
+          width: Math.round(freshRect.width),
+          height: Math.round(freshRect.height),
+        },
+        position: {
+          x: Math.round(freshRect.left),
+          y: Math.round(freshRect.top),
+          width: Math.round(freshRect.width),
+          height: Math.round(freshRect.height),
+          scrollX: Math.round(window.scrollX || window.pageXOffset || 0),
+          scrollY: Math.round(window.scrollY || window.pageYOffset || 0),
+        },
+        viewport: {
+          width: window.innerWidth || document.documentElement.clientWidth || 0,
+          height: window.innerHeight || document.documentElement.clientHeight || 0,
+          devicePixelRatio: window.devicePixelRatio || 1,
+          scrollX: Math.round(window.scrollX || window.pageXOffset || 0),
+          scrollY: Math.round(window.scrollY || window.pageYOffset || 0),
+          screenWidth: window.screen ? window.screen.width : 0,
+          screenHeight: window.screen ? window.screen.height : 0,
+          colorDepth: window.screen ? window.screen.colorDepth : 24,
+          orientation: window.screen?.orientation?.type || (window.innerWidth > window.innerHeight ? 'landscape-primary' : 'portrait-primary'),
+          userAgent: navigator.userAgent,
+        },
+        interactionState: {
+          hovered: false,
+          focused: document.activeElement === el,
+          disabled: !!(el.disabled || el.getAttribute('disabled')),
+          ariaExpanded: el.getAttribute('aria-expanded'),
+          ariaSelected: el.getAttribute('aria-selected'),
+          ariaChecked: el.getAttribute('aria-checked'),
+          visibility: computed.visibility,
+          display: computed.display,
+          opacity: computed.opacity,
+          zIndex: computed.zIndex,
+        },
+        accessibilitySnapshot: {
+          role: el.getAttribute('role') || el.tagName.toLowerCase(),
+          ariaLabel: el.getAttribute('aria-label') || el.getAttribute('title') || undefined,
+          ariaDescribedBy: el.getAttribute('aria-describedby') || undefined,
+          tabIndex: el.tabIndex,
+          disabled: !!(el.disabled || el.getAttribute('disabled')),
         },
         timestamp: Date.now(),
       };
-
       if (isMultiMode) {
         pickedList.push(pickedItem);
-        // Add pin badge to element
+        // Add fixed pin badge anchored to root document
         const pin = document.createElement('div');
         pin.className = PIN_CLASS;
-        pin.style.cssText = 'position:absolute;z-index:2147483645;background:#087ff5;color:#fff;border-radius:50%;width:20px;height:20px;display:flex;align-items:center;justify-content:center;font:bold 11px sans-serif;box-shadow:0 2px 6px rgba(0,0,0,0.5);pointer-events:none;';
+        pin.style.cssText = 'position:fixed;z-index:2147483645;background:#087ff5;color:#fff;border-radius:50%;width:20px;height:20px;display:flex;align-items:center;justify-content:center;font:bold 11px sans-serif;box-shadow:0 2px 6px rgba(0,0,0,0.5);pointer-events:none;';
         pin.textContent = String(pickedList.length);
-        pin.style.top = (rect.top + window.scrollY - 10) + 'px';
-        pin.style.left = (rect.left + window.scrollX - 10) + 'px';
-        document.body.appendChild(pin);
-
+        pin.style.top = Math.max(0, freshRect.top - 10) + 'px';
+        pin.style.left = Math.max(0, freshRect.left - 10) + 'px';
+        (document.documentElement || document.body).appendChild(pin);
+        cleanupModalListeners();
         modal.remove();
         isModalOpen = false;
         updateMultiDock();
       } else {
+        cleanupModalListeners();
         window.__antifanPick = pickedItem;
         cleanup();
       }
     };
 
     const sendBtn = modal.querySelector('#btnModalSend');
-    if (sendBtn) sendBtn.onclick = doSubmit;
-
+    if (sendBtn) {
+      sendBtn.onclick = (ev) => {
+        if (ev) {
+          ev.preventDefault();
+          ev.stopPropagation();
+        }
+        doSubmit();
+      };
+      sendBtn.onpointerdown = (ev) => {
+        if (ev) ev.stopPropagation();
+      };
+    }
     textarea.onkeydown = (ev) => {
       if (ev.key === 'Enter' && !ev.shiftKey) {
         ev.preventDefault();
         doSubmit();
       } else if (ev.key === 'Escape') {
         ev.preventDefault();
+        cleanupModalListeners();
         modal.remove();
         isModalOpen = false;
         if (pickedList.length === 0) {
@@ -367,18 +763,72 @@ export const ELEMENT_PICKER_SCRIPT = `(() => {
       }
     };
   };
-
   const onClick = (e) => {
+    if (isInteractiveUiEvent(e)) {
+      return;
+    }
     prevent(e);
     if (isModalOpen) return;
-    const el = currentTarget || (e.target && e.target.nodeType === 1 ? e.target : document.body);
-    if (!el || el.id === OVERLAY_ID || el.id === BADGE_ID || el.id === MULTI_BAR_ID || el.closest && el.closest('#' + MULTI_BAR_ID)) return;
+    const path = (e.composedPath && typeof e.composedPath === 'function') ? e.composedPath() : [];
+    let el = currentTarget;
+    if (!el) {
+      for (let i = 0; i < path.length; i++) {
+        const node = path[i];
+        if (node && node.nodeType === 1) {
+          if (node.id === OVERLAY_ID || node.id === BADGE_ID || node.id === MULTI_BAR_ID || node.id === MODAL_ID || (node.closest && (node.closest('#' + MODAL_ID) || node.closest('#' + MULTI_BAR_ID)))) continue;
+          el = node;
+          break;
+        }
+      }
+    }
+    if (!el) el = (e.target && e.target.nodeType === 1 ? e.target : document.body);
     showCommentModal(el);
   };
 
-  document.addEventListener('mousemove', onHover, true);
-  document.addEventListener('pointermove', onHover, true);
-  document.addEventListener('click', onClick, true);
-  document.addEventListener('keydown', onKey, true);
+  const onPointerDown = (e) => {
+    if (isInteractiveUiEvent(e) || isModalOpen) return;
+    const el = resolveElementFromEvent(e);
+    if (el) currentTarget = el;
+  };
+
+  const onPointerUp = (e) => {
+    if (isInteractiveUiEvent(e) || isModalOpen) return;
+    if (e.pointerType === 'touch' || e.pointerType === 'pen') {
+      const el = resolveElementFromEvent(e);
+      if (el) {
+        currentTarget = el;
+        onClick(e);
+      }
+    }
+  };
+
+  const onTouchStart = (e) => {
+    if (isInteractiveUiEvent(e) || isModalOpen) return;
+    onHover(e);
+  };
+
+  const onTouchMove = (e) => {
+    if (isInteractiveUiEvent(e) || isModalOpen) return;
+    onHover(e);
+  };
+
+  const onTouchEnd = (e) => {
+    if (isInteractiveUiEvent(e) || isModalOpen) return;
+    const el = resolveElementFromEvent(e);
+    if (el) {
+      currentTarget = el;
+      onClick(e);
+    }
+  };
+
+  window.addEventListener('mousemove', onHover, true);
+  window.addEventListener('pointermove', onHover, true);
+  window.addEventListener('pointerdown', onPointerDown, true);
+  window.addEventListener('pointerup', onPointerUp, true);
+  window.addEventListener('touchmove', onTouchMove, { capture: true, passive: true });
+  window.addEventListener('touchstart', onTouchStart, { capture: true, passive: true });
+  window.addEventListener('touchend', onTouchEnd, true);
+  window.addEventListener('click', onClick, true);
+  window.addEventListener('keydown', onKey, true);
   if (document.documentElement) document.documentElement.style.cursor = 'crosshair';
 })();`;

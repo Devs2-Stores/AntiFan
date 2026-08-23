@@ -4,16 +4,29 @@
  */
 import { WebPreferences, shell } from 'electron';
 
-const ALLOWED_PROTOCOLS = new Set(['http:', 'https:', 'about:']);
+const ALLOWED_PROTOCOLS = new Set(['http:', 'https:', 'about:', 'antifan:', 'antifan-preview:']);
 const BLOCKED_SCHEMES = new Set(['file:', 'javascript:', 'vbscript:', 'data:', 'chrome:', 'devtools:']);
 
 export function isAllowedNavigation(targetUrl: string): boolean {
-  try {
-    const parsed = new URL(targetUrl);
-    if (BLOCKED_SCHEMES.has(parsed.protocol)) {
+  const trimmed = (targetUrl || '').trim();
+  if (!trimmed) return false;
+  if (trimmed.toLowerCase().startsWith('view-source:')) {
+    const inner = trimmed.slice('view-source:'.length).trim();
+    try {
+      const innerParsed = new URL(inner);
+      const innerProto = innerParsed.protocol.toLowerCase();
+      return innerProto === 'http:' || innerProto === 'https:';
+    } catch {
       return false;
     }
-    return ALLOWED_PROTOCOLS.has(parsed.protocol);
+  }
+  try {
+    const parsed = new URL(trimmed);
+    const proto = parsed.protocol.toLowerCase();
+    if (BLOCKED_SCHEMES.has(proto)) {
+      return false;
+    }
+    return ALLOWED_PROTOCOLS.has(proto);
   } catch {
     return false;
   }
@@ -50,7 +63,25 @@ export function sanitizeUrl(inputUrl: string): string {
   const clean = cleanRestoredUrl(inputUrl);
   const trimmed = clean.trim();
   if (!trimmed) return 'about:blank';
-  if (trimmed.startsWith('http://') || trimmed.startsWith('https://') || trimmed === 'about:blank') {
+  if (trimmed.toLowerCase().startsWith('view-source:')) {
+    const inner = trimmed.slice('view-source:'.length).trim();
+    try {
+      const innerParsed = new URL(inner);
+      const innerProto = innerParsed.protocol.toLowerCase();
+      if (innerProto === 'http:' || innerProto === 'https:') {
+        return `view-source:${innerParsed.href}`;
+      }
+    } catch {}
+    return 'about:blank';
+  }
+  if (
+    trimmed.startsWith('http://') ||
+    trimmed.startsWith('https://') ||
+    trimmed.startsWith('antifan://') ||
+    trimmed.startsWith('antifan-preview://') ||
+    trimmed.startsWith('file://') ||
+    trimmed === 'about:blank'
+  ) {
     return trimmed;
   }
   if (trimmed.includes('.') && !trimmed.includes(' ')) {
@@ -81,5 +112,9 @@ export function getSecureWebPreferences(): WebPreferences {
     allowRunningInsecureContent: false,
     navigateOnDragDrop: false,
     spellcheck: false,
+    backgroundThrottling: true,
+    autoplayPolicy: 'no-user-gesture-required',
+    plugins: true,
+    webgl: true,
   };
 }

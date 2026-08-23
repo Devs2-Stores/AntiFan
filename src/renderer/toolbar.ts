@@ -14,16 +14,27 @@ interface AntiFanTab {
   zoomFactor: number;
   devicePresetId?: string;
   crashed?: boolean;
+  isAudible?: boolean;
+  isMuted?: boolean;
+  scrollX?: number;
+  scrollY?: number;
+  aiState?: 'idle' | 'thinking' | 'streaming' | 'completed' | 'agent_working';
+  themeError?: string | null;
+  terminalSessionId?: string;
 }
-
 interface AntiFanToolbarApi {
   getInitialState: () => Promise<any>;
   createTab: (url?: string) => Promise<string>;
   switchTab: (tabId: string) => Promise<boolean>;
   closeTab: (tabId: string) => Promise<boolean>;
   moveTab: (tabId: string, toIndex: number) => Promise<boolean>;
+  duplicateTab: (tabId: string) => Promise<string>;
+  closeOtherTabs: (tabId: string) => Promise<void>;
+  closeTabsToRight: (tabId: string) => Promise<void>;
+  setTabTerminalSession: (tabId: string, terminalSessionId: string) => Promise<boolean>;
   navigate: (url: string, tabId?: string) => Promise<boolean>;
   reload: (tabId?: string) => Promise<boolean>;
+  reloadWindow: () => Promise<boolean>;
   stopLoading: (tabId?: string) => Promise<boolean>;
   goBack: (tabId?: string) => Promise<boolean>;
   goForward: (tabId?: string) => Promise<boolean>;
@@ -35,20 +46,30 @@ interface AntiFanToolbarApi {
   toggleSidebar: () => Promise<boolean>;
   setDevicePreset: (presetId: string, tabId?: string) => Promise<boolean>;
   setZoom: (zoom: number, tabId?: string) => Promise<boolean>;
+  toggleMute: (tabId?: string) => Promise<boolean>;
   captureFullPage: () => Promise<string>;
   captureViewport: () => Promise<string>;
   openExternal: (url?: string) => Promise<boolean>;
+  getBookmarks: () => Promise<any>;
   findInPage: (text: string, forward?: boolean) => Promise<void>;
   stopFindInPage: () => Promise<void>;
   showMenu: () => Promise<void>;
-  setOverlay: (active: boolean) => Promise<void>;
+  setOverlay: (active: boolean, customHeight?: number) => Promise<void>;
+  getWorkflowState: () => Promise<{ tools: any[]; workflows: any[] }>;
+  runWorkflow: (payload: { workflowId?: string; workflowDef?: any }) => Promise<any>;
+  abortWorkflow: () => Promise<boolean>;
+  saveWorkflow: (item: { id?: string; name: string; description?: string; steps: any[] }) => Promise<any>;
+  deleteWorkflow: (id: string) => Promise<boolean>;
+  getWorkflowArtifact: (artifactId: string) => Promise<any>;
+  onWorkflowEvent: (callback: (event: any) => void) => () => void;
   clearStorage: () => Promise<void>;
-  getChromeProfiles: () => Promise<any[]>;
+  getChromeProfiles: () => Promise<any>;
   syncChromeProfile: (profileId: string) => Promise<any>;
   toggleBookmarkBar: () => Promise<boolean>;
   addBookmark: (title: string, url: string) => Promise<any>;
   removeBookmark: (url: string) => Promise<any>;
-  getSuggestions: (query: string) => Promise<{ suggestions: Array<{ type: 'search' | 'url' | 'bookmark'; text: string; url?: string }> }>;
+  popoutTerminal?: () => Promise<boolean>;
+  getSuggestions: (query: string) => Promise<{ suggestions: Array<{ type: 'search' | 'url' | 'bookmark' | 'history' | 'tab'; text: string; url?: string; tabId?: string; subText?: string }> }>;
   toggleTerminal: () => Promise<boolean>;
   startTerminal: (cwd?: string) => Promise<boolean>;
   sendTerminalInput: (input: string) => Promise<boolean>;
@@ -61,6 +82,7 @@ interface AntiFanToolbarApi {
   onFocusOmnibox: (callback: () => void) => () => void;
   onShowShortcuts: (callback: () => void) => () => void;
   onFindResult: (callback: (result: any) => void) => () => void;
+  onScreenshotCaptured?: (callback: () => void) => () => void;
 }
 
 declare global {
@@ -72,6 +94,15 @@ declare global {
 function getApi(): AntiFanToolbarApi | undefined {
   return window.antifanToolbar;
 }
+function showToolbarToast(message: string, duration = 2500) {
+  const toast = document.getElementById('toolbarToast');
+  if (!toast) return;
+  toast.innerHTML = message;
+  toast.style.display = 'flex';
+  setTimeout(() => {
+    toast.style.display = 'none';
+  }, duration);
+}
 
 let currentTabs: AntiFanTab[] = [];
 let currentBookmarks: Array<{ id: string; title: string; url: string }> = [];
@@ -80,6 +111,7 @@ let isInspecting = false;
 let isFontFinderActive = false;
 let isLensActive = false;
 let isRulerActive = false;
+const btnPopoutTerminal = document.getElementById('btnPopoutTerminal') as HTMLButtonElement | null;
 
 // DOM Elements
 const tabList = document.getElementById('tabList')!;
@@ -101,6 +133,11 @@ const btnQuickInspect = document.getElementById('btnQuickInspect') as HTMLButton
 const btnFontFinder = document.getElementById('btnFontFinder') as HTMLButtonElement;
 const btnRuler = document.getElementById('btnRuler') as HTMLButtonElement;
 const btnCaptureFullPage = document.getElementById('btnCaptureFullPage') as HTMLButtonElement;
+const btnMobileRemote = document.getElementById('btnMobileRemote') as HTMLButtonElement;
+const mobileRemoteOverlay = document.getElementById('mobileRemoteOverlay')!;
+const mobileRemoteClose = document.getElementById('mobileRemoteClose') as HTMLButtonElement;
+const mobileRemoteQrContainer = document.getElementById('mobileRemoteQrContainer')!;
+const mobileRemoteUrlsList = document.getElementById('mobileRemoteUrlsList')!;
 const btnDevTools = document.getElementById('btnDevTools') as HTMLButtonElement;
 const btnToggleSidebar = document.getElementById('btnToggleSidebar') as HTMLButtonElement;
 const btnChromeProfile = document.getElementById('btnChromeProfile') as HTMLButtonElement;
@@ -134,6 +171,359 @@ const findClose = document.getElementById('findClose') as HTMLButtonElement;
 const shortcutsOverlay = document.getElementById('shortcutsOverlay')!;
 const shortcutsClose = document.getElementById('shortcutsClose') as HTMLButtonElement;
 
+// Workflow & MCP Hub Elements
+const btnWorkflowHub = document.getElementById('btnWorkflowHub') as HTMLButtonElement | null;
+const workflowHubOverlay = document.getElementById('workflowHubOverlay') as HTMLElement | null;
+const btnWorkflowHubClose = document.getElementById('btnWorkflowHubClose') as HTMLButtonElement | null;
+const tabNavWorkflows = document.getElementById('tabNavWorkflows') as HTMLButtonElement | null;
+const tabNavMcp = document.getElementById('tabNavMcp') as HTMLButtonElement | null;
+const badgeWorkflowCount = document.getElementById('badgeWorkflowCount') as HTMLElement | null;
+const badgeMcpCount = document.getElementById('badgeMcpCount') as HTMLElement | null;
+const hubSearchInput = document.getElementById('hubSearchInput') as HTMLInputElement | null;
+const hubSearchClear = document.getElementById('hubSearchClear') as HTMLButtonElement | null;
+const btnHubNewWorkflow = document.getElementById('btnHubNewWorkflow') as HTMLButtonElement | null;
+const hubItemsList = document.getElementById('hubItemsList') as HTMLElement | null;
+const hubDetailEmpty = document.getElementById('hubDetailEmpty') as HTMLElement | null;
+const hubWfDetail = document.getElementById('hubWfDetail') as HTMLElement | null;
+const hubMcpDetail = document.getElementById('hubMcpDetail') as HTMLElement | null;
+
+const wfDetailCategory = document.getElementById('wfDetailCategory') as HTMLElement | null;
+const wfDetailName = document.getElementById('wfDetailName') as HTMLElement | null;
+const wfDetailDesc = document.getElementById('wfDetailDesc') as HTMLElement | null;
+const btnRunWorkflow = document.getElementById('btnRunWorkflow') as HTMLButtonElement | null;
+const btnStopWorkflow = document.getElementById('btnStopWorkflow') as HTMLButtonElement | null;
+const btnCopyWorkflowJson = document.getElementById('btnCopyWorkflowJson') as HTMLButtonElement | null;
+const btnDeleteCustomWf = document.getElementById('btnDeleteCustomWf') as HTMLButtonElement | null;
+
+const hubRunStatusBar = document.getElementById('hubRunStatusBar') as HTMLElement | null;
+const runStatusPill = document.getElementById('runStatusPill') as HTMLElement | null;
+const runCurrentStepText = document.getElementById('runCurrentStepText') as HTMLElement | null;
+const runTimerText = document.getElementById('runTimerText') as HTMLElement | null;
+const hubProgressBar = document.getElementById('hubProgressBar') as HTMLElement | null;
+const wfStepsCount = document.getElementById('wfStepsCount') as HTMLElement | null;
+const wfStepsContainer = document.getElementById('wfStepsContainer') as HTMLElement | null;
+const wfArtifactsSection = document.getElementById('wfArtifactsSection') as HTMLElement | null;
+const wfArtifactsGrid = document.getElementById('wfArtifactsGrid') as HTMLElement | null;
+
+const mcpDetailCategory = document.getElementById('mcpDetailCategory') as HTMLElement | null;
+const mcpDetailName = document.getElementById('mcpDetailName') as HTMLElement | null;
+const mcpDetailDesc = document.getElementById('mcpDetailDesc') as HTMLElement | null;
+const mcpDetailPermission = document.getElementById('mcpDetailPermission') as HTMLElement | null;
+const mcpSchemaCode = document.getElementById('mcpSchemaCode') as HTMLElement | null;
+
+let hubActiveTab: 'workflows' | 'mcp' = 'workflows';
+let hubWorkflows: any[] = [];
+let hubMcpTools: any[] = [];
+let hubSelectedWorkflow: any = null;
+let hubSelectedMcpTool: any = null;
+let isWorkflowRunning = false;
+let runStartTime = 0;
+let runTimerInterval: any = null;
+
+function getStepIcon(type: string): string {
+  if (type.startsWith('browser.navigate')) return '🌐';
+  if (type.startsWith('browser.click')) return '👆';
+  if (type.startsWith('browser.type')) return '✍️';
+  if (type.startsWith('browser.scroll')) return '📜';
+  if (type.startsWith('browser.hover')) return '🎯';
+  if (type.startsWith('browser.highlight')) return '✨';
+  if (type.startsWith('browser.wait')) return '⏳';
+  if (type.startsWith('browser.screenshot')) return '📸';
+  if (type.startsWith('browser.extract')) return '🔍';
+  if (type.startsWith('browser.set_')) return '📱';
+  if (type.startsWith('qa.')) return '🛡️';
+  if (type.startsWith('file.')) return '📄';
+  if (type.startsWith('report.')) return '📊';
+  return '⚡';
+}
+
+async function openWorkflowHub() {
+  if (!workflowHubOverlay) return;
+  workflowHubOverlay.style.display = 'flex';
+  getApi()?.setOverlay(true, 740);
+
+  try {
+    const res = await getApi()?.getWorkflowState();
+    if (res) {
+      hubWorkflows = res.workflows || [];
+      hubMcpTools = res.tools || [];
+      if (badgeWorkflowCount) badgeWorkflowCount.textContent = String(hubWorkflows.length);
+      if (badgeMcpCount) badgeMcpCount.textContent = String(hubMcpTools.length);
+    }
+  } catch (err) {
+    console.error('[workflow hub] Failed to fetch state:', err);
+  }
+
+  renderHubList();
+  if (hubActiveTab === 'workflows' && hubWorkflows.length > 0 && !hubSelectedWorkflow) {
+    selectWorkflow(hubWorkflows[0]);
+  } else if (hubActiveTab === 'mcp' && hubMcpTools.length > 0 && !hubSelectedMcpTool) {
+    selectMcpTool(hubMcpTools[0]);
+  }
+}
+
+function closeWorkflowHub() {
+  if (!workflowHubOverlay) return;
+  workflowHubOverlay.style.display = 'none';
+  getApi()?.setOverlay(false);
+}
+
+function renderHubList() {
+  if (!hubItemsList) return;
+  hubItemsList.innerHTML = '';
+  const search = (hubSearchInput?.value || '').toLowerCase().trim();
+
+  if (hubActiveTab === 'workflows') {
+    const filtered = hubWorkflows.filter((w) =>
+      w.name.toLowerCase().includes(search) ||
+      (w.description && w.description.toLowerCase().includes(search)) ||
+      (w.category && w.category.toLowerCase().includes(search))
+    );
+
+    if (filtered.length === 0) {
+      hubItemsList.innerHTML = '<div style="color:#64748b;font-size:12px;padding:20px;text-align:center;">Không tìm thấy kịch bản nào.</div>';
+      return;
+    }
+
+    filtered.forEach((wf) => {
+      const item = document.createElement('div');
+      item.className = `hub-list-item ${hubSelectedWorkflow?.id === wf.id ? 'selected' : ''}`;
+      const catClass = `pill-${wf.category || 'qa'}`;
+      const stepsCount = wf.definition?.steps?.length || 0;
+
+      item.innerHTML = `
+        <div class="hub-item-top">
+          <span class="hub-item-title">${escapeHtml(wf.name)}</span>
+          <span class="hub-item-pill ${catClass}">${escapeHtml(wf.category || 'QA')}</span>
+        </div>
+        <div class="hub-item-desc">${escapeHtml(wf.description || 'Chưa có mô tả')}</div>
+        <div class="hub-item-meta">
+          <span>📑 ${stepsCount} bước</span>
+          <span>•</span>
+          <span>${wf.isBuiltIn ? '🔒 Mặc định' : '✏️ Tùy chỉnh'}</span>
+        </div>
+      `;
+      item.onclick = () => selectWorkflow(wf);
+      hubItemsList.appendChild(item);
+    });
+  } else {
+    const filtered = hubMcpTools.filter((t) =>
+      t.name.toLowerCase().includes(search) ||
+      (t.description && t.description.toLowerCase().includes(search)) ||
+      (t.category && t.category.toLowerCase().includes(search))
+    );
+
+    if (filtered.length === 0) {
+      hubItemsList.innerHTML = '<div style="color:#64748b;font-size:12px;padding:20px;text-align:center;">Không tìm thấy MCP Tool nào.</div>';
+      return;
+    }
+
+    filtered.forEach((tool) => {
+      const item = document.createElement('div');
+      item.className = `hub-list-item ${hubSelectedMcpTool?.id === tool.id ? 'selected' : ''}`;
+      const catClass = `pill-${tool.category || 'browser'}`;
+
+      item.innerHTML = `
+        <div class="hub-item-top">
+          <span class="hub-item-title">${escapeHtml(tool.name)}</span>
+          <span class="hub-item-pill ${catClass}">${escapeHtml(tool.category || 'tool')}</span>
+        </div>
+        <div class="hub-item-desc">${escapeHtml(tool.description || 'Không có mô tả')}</div>
+        <div class="hub-item-meta">
+          <span>Quyền: ${(tool.permissions || ['read']).join(', ')}</span>
+        </div>
+      `;
+      item.onclick = () => selectMcpTool(tool);
+      hubItemsList.appendChild(item);
+    });
+  }
+}
+
+function selectWorkflow(wf: any) {
+  hubSelectedWorkflow = wf;
+  hubSelectedMcpTool = null;
+  renderHubList();
+
+  if (hubDetailEmpty) hubDetailEmpty.style.display = 'none';
+  if (hubMcpDetail) hubMcpDetail.style.display = 'none';
+  if (hubWfDetail) hubWfDetail.style.display = 'flex';
+
+  if (wfDetailCategory) {
+    wfDetailCategory.textContent = (wf.category || 'QA').toUpperCase();
+    wfDetailCategory.className = `hub-cat-pill pill-${wf.category || 'qa'}`;
+  }
+  if (wfDetailName) wfDetailName.textContent = wf.name;
+  if (wfDetailDesc) wfDetailDesc.textContent = wf.description || '';
+  if (btnDeleteCustomWf) {
+    btnDeleteCustomWf.style.display = wf.isBuiltIn ? 'none' : 'inline-block';
+  }
+
+  const steps = wf.definition?.steps || [];
+  if (wfStepsCount) wfStepsCount.textContent = `${steps.length} Bước`;
+  if (wfStepsContainer) {
+    wfStepsContainer.innerHTML = '';
+    steps.forEach((step: any, idx: number) => {
+      const card = document.createElement('div');
+      card.className = 'hub-step-card';
+      card.id = `step-card-${step.id || idx}`;
+
+      const icon = getStepIcon(step.type);
+      const paramsSummary = Object.entries(step.params || {})
+        .map(([k, v]) => `${k}: ${typeof v === 'object' ? JSON.stringify(v) : v}`)
+        .join(' | ');
+
+      card.innerHTML = `
+        <div class="hub-step-idx">${idx + 1}</div>
+        <div class="hub-step-icon">${icon}</div>
+        <div class="hub-step-info">
+          <div class="hub-step-title">${escapeHtml(step.name)}</div>
+          <div class="hub-step-meta">
+            <span class="hub-step-tag">${escapeHtml(step.type)}</span>
+            ${paramsSummary ? `<span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtml(paramsSummary)}</span>` : ''}
+          </div>
+        </div>
+        <div class="hub-step-status step-status-pending" id="step-status-${step.id || idx}">PENDING</div>
+      `;
+      wfStepsContainer.appendChild(card);
+    });
+  }
+
+  if (hubRunStatusBar) hubRunStatusBar.style.display = 'none';
+  if (wfArtifactsSection) wfArtifactsSection.style.display = 'none';
+  if (wfArtifactsGrid) wfArtifactsGrid.innerHTML = '';
+}
+
+function selectMcpTool(tool: any) {
+  hubSelectedMcpTool = tool;
+  hubSelectedWorkflow = null;
+  renderHubList();
+
+  if (hubDetailEmpty) hubDetailEmpty.style.display = 'none';
+  if (hubWfDetail) hubWfDetail.style.display = 'none';
+  if (hubMcpDetail) hubMcpDetail.style.display = 'flex';
+
+  if (mcpDetailCategory) {
+    mcpDetailCategory.textContent = (tool.category || 'BROWSER').toUpperCase();
+    mcpDetailCategory.className = `hub-cat-pill pill-${tool.category || 'browser'}`;
+  }
+  if (mcpDetailName) mcpDetailName.textContent = tool.name;
+  if (mcpDetailDesc) mcpDetailDesc.textContent = tool.description || 'Không có mô tả chi tiết.';
+  if (mcpDetailPermission) {
+    mcpDetailPermission.textContent = `Quyền Yêu Cầu: ${(tool.permissions || ['read']).join(', ')}`;
+  }
+  if (mcpSchemaCode) {
+    try {
+      mcpSchemaCode.textContent = JSON.stringify(tool.inputSchema || {}, null, 2);
+    } catch {
+      mcpSchemaCode.textContent = String(tool.inputSchema);
+    }
+  }
+}
+
+async function runActiveWorkflow() {
+  if (!hubSelectedWorkflow || isWorkflowRunning) return;
+  isWorkflowRunning = true;
+
+  if (btnRunWorkflow) btnRunWorkflow.style.display = 'none';
+  if (btnStopWorkflow) btnStopWorkflow.style.display = 'flex';
+  if (hubRunStatusBar) hubRunStatusBar.style.display = 'flex';
+  if (runStatusPill) {
+    runStatusPill.className = 'hub-status-pill pill-running';
+    runStatusPill.textContent = 'RUNNING';
+  }
+  if (runCurrentStepText) runCurrentStepText.textContent = 'Bắt đầu khởi chạy workflow...';
+  if (hubProgressBar) hubProgressBar.style.width = '5%';
+
+  const steps = hubSelectedWorkflow.definition?.steps || [];
+  steps.forEach((s: any, idx: number) => {
+    const pill = document.getElementById(`step-status-${s.id || idx}`);
+    if (pill) {
+      pill.className = 'hub-step-status step-status-pending';
+      pill.textContent = 'PENDING';
+    }
+    const card = document.getElementById(`step-card-${s.id || idx}`);
+    if (card) {
+      card.className = 'hub-step-card';
+    }
+  });
+
+  runStartTime = Date.now();
+  if (runTimerInterval) clearInterval(runTimerInterval);
+  runTimerInterval = setInterval(() => {
+    const elapsed = ((Date.now() - runStartTime) / 1000).toFixed(1);
+    if (runTimerText) runTimerText.textContent = `${elapsed}s`;
+  }, 100);
+
+  try {
+    const res = await getApi()?.runWorkflow({ workflowId: hubSelectedWorkflow.id, workflowDef: hubSelectedWorkflow.definition });
+    if (res) {
+      const isPassed = res.status === 'passed';
+      if (runStatusPill) {
+        runStatusPill.className = `hub-status-pill ${isPassed ? 'pill-passed' : 'pill-failed'}`;
+        runStatusPill.textContent = isPassed ? 'PASSED (100%)' : (res.status || 'FAILED').toUpperCase();
+      }
+      if (runCurrentStepText) {
+        runCurrentStepText.textContent = `Hoàn thành: ${res.passedSteps || 0}/${steps.length} bước thành công (${((res.totalDurationMs || 0) / 1000).toFixed(2)}s)`;
+      }
+      if (hubProgressBar) hubProgressBar.style.width = '100%';
+
+      if (res.artifacts && res.artifacts.length > 0 && wfArtifactsSection && wfArtifactsGrid) {
+        wfArtifactsSection.style.display = 'flex';
+        wfArtifactsGrid.innerHTML = '';
+        for (const art of res.artifacts) {
+          const card = document.createElement('div');
+          card.className = 'hub-artifact-card';
+          card.innerHTML = `
+            <div class="hub-artifact-preview">
+              <span style="font-size:32px;">📸</span>
+            </div>
+            <div class="hub-artifact-meta">
+              <div class="hub-artifact-title">${escapeHtml(art.name || art.id)}</div>
+              <div class="hub-artifact-desc">${escapeHtml(art.mimeType || 'artifact')} (${Math.round((art.sizeBytes || 0) / 1024)} KB)</div>
+            </div>
+          `;
+          try {
+            getApi()?.getWorkflowArtifact(art.id).then((fullArt) => {
+              if (fullArt && fullArt.data && fullArt.mimeType.startsWith('image/')) {
+                const preview = card.querySelector('.hub-artifact-preview');
+                if (preview) {
+                  preview.innerHTML = `<img src="${fullArt.data}" alt="${escapeHtml(art.name || '')}" />`;
+                }
+              }
+            });
+          } catch {}
+          wfArtifactsGrid.appendChild(card);
+        }
+      }
+      showToolbarToast(isPassed ? '✅ Workflow chạy hoàn tất thành công!' : '⚠️ Workflow kết thúc có lỗi.');
+    }
+  } catch (err: any) {
+    console.error('[workflow] Run failed:', err);
+    if (runStatusPill) {
+      runStatusPill.className = 'hub-status-pill pill-failed';
+      runStatusPill.textContent = 'ERROR';
+    }
+    if (runCurrentStepText) runCurrentStepText.textContent = `Lỗi: ${err.message || String(err)}`;
+    showToolbarToast(`❌ Lỗi chạy workflow: ${err.message || String(err)}`);
+  } finally {
+    isWorkflowRunning = false;
+    if (runTimerInterval) {
+      clearInterval(runTimerInterval);
+      runTimerInterval = null;
+    }
+    if (btnRunWorkflow) btnRunWorkflow.style.display = 'flex';
+    if (btnStopWorkflow) btnStopWorkflow.style.display = 'none';
+  }
+}
+
+async function stopActiveWorkflow() {
+  try {
+    await getApi()?.abortWorkflow();
+    showToolbarToast('⏹ Đã yêu cầu dừng Workflow.');
+  } catch (err) {
+    console.error('[workflow] Failed to abort:', err);
+  }
+}
 function hostname(u: string): string {
   try {
     return new URL(u).hostname || u;
@@ -180,7 +570,9 @@ function renderTabs() {
       tabEl.innerHTML = `
         <span class="tab-spinner" style="display:none;"></span>
         <img class="tab-icon" src="" alt=""/>
+        <span class="tab-agent-badge" style="display:none;">🤖 AGENT</span>
         <span class="tab-title"></span>
+        <span class="tab-audio-btn" style="display:none;" title="Tắt tiếng tab"></span>
         <span class="tab-status-dot done" title="Ready"></span>
         <span class="tab-close" title="Close Tab"></span>
       `;
@@ -189,11 +581,23 @@ function renderTabs() {
         e.stopPropagation();
         getApi()?.closeTab(tab.id);
       });
+      tabEl.querySelector('.tab-audio-btn')?.addEventListener('click', (e) => {
+        e.stopPropagation();
+        getApi()?.toggleMute(tab.id);
+      });
+
 
       tabEl.addEventListener('click', () => {
+        hideTabContextMenu();
         if (tab.id !== activeTabId) {
           getApi()?.switchTab(tab.id);
         }
+      });
+
+      tabEl.addEventListener('contextmenu', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        showTabContextMenu(e.clientX, e.clientY, tab.id);
       });
 
       // Drag and Drop Tab Reordering
@@ -245,21 +649,68 @@ function renderTabs() {
     if (tabList.children[index] !== tabEl) {
       tabList.insertBefore(tabEl, tabList.children[index] || null);
     }
-
     // Update classes & aria
-    tabEl.className = `tab ${isActive ? 'active' : ''}`;
-    tabEl.setAttribute('aria-selected', isActive ? 'true' : 'false');
+    const isAiStreaming = tab.aiState === 'streaming' || tab.aiState === 'thinking';
+    const isAiCompleted = tab.aiState === 'completed';
+    const isAgentWorking = tab.aiState === 'agent_working';
+    const hasThemeError = Boolean(tab.themeError);
 
+    tabEl.className = `tab ${isActive ? 'active' : ''} ${isAgentWorking ? 'agent-working' : isAiStreaming ? 'ai-streaming' : ''} ${hasThemeError ? 'tab-has-error' : ''}`;
+    tabEl.setAttribute('aria-selected', isActive ? 'true' : 'false');
     // Update Spinner & Icon
     const spinner = tabEl.querySelector('.tab-spinner') as HTMLElement;
     const icon = tabEl.querySelector('.tab-icon') as HTMLImageElement;
     const statusDot = tabEl.querySelector('.tab-status-dot') as HTMLElement;
+    const agentBadge = tabEl.querySelector('.tab-agent-badge') as HTMLElement;
     const titleSpan = tabEl.querySelector('.tab-title') as HTMLElement;
+    const audioBtn = tabEl.querySelector('.tab-audio-btn') as HTMLElement;
 
-    if (tab.isLoading) {
+    // Update Agent Badge
+    if (agentBadge) {
+      if (isAgentWorking) {
+        agentBadge.style.display = 'inline-flex';
+        agentBadge.className = 'tab-agent-badge agent';
+        agentBadge.textContent = '🤖 AGENT';
+      } else if (isAiStreaming) {
+        agentBadge.style.display = 'inline-flex';
+        agentBadge.className = 'tab-agent-badge ai';
+        agentBadge.textContent = '⚡ AI';
+      } else {
+        agentBadge.style.display = 'none';
+      }
+    }
+    // Update Audio & Mute State
+    if (audioBtn) {
+      if (tab.isAudible || tab.isMuted) {
+        audioBtn.style.display = 'inline-flex';
+        if (tab.isMuted) {
+          audioBtn.className = 'tab-audio-btn muted';
+          audioBtn.title = 'Bật tiếng tab (Muted)';
+          audioBtn.innerHTML = `<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 5L6 9H2v6h4l5 4V5z"/><line x1="23" y1="9" x2="17" y2="15"/><line x1="17" y1="9" x2="23" y2="15"/></svg>`;
+        } else {
+          audioBtn.className = 'tab-audio-btn playing';
+          audioBtn.title = 'Tắt tiếng tab (Đang phát âm thanh)';
+          audioBtn.innerHTML = `<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 5L6 9H2v6h4l5 4V5z"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/></svg>`;
+        }
+      } else {
+        audioBtn.style.display = 'none';
+      }
+    }
+
+
+    if (hasThemeError) {
+      if (spinner) spinner.style.display = 'none';
+      if (icon) icon.style.display = 'inline-block';
+      if (statusDot) {
+        statusDot.style.display = 'inline-block';
+        statusDot.className = 'tab-status-dot theme-error';
+        statusDot.title = `⚠️ Lỗi Theme: ${tab.themeError}`;
+      }
+    } else if (tab.isLoading) {
       if (spinner) spinner.style.display = 'inline-block';
       if (icon) icon.style.display = 'none';
       if (statusDot) {
+        statusDot.style.display = 'inline-block';
         statusDot.className = 'tab-status-dot loading';
         statusDot.title = 'Đang tải trang...';
       }
@@ -270,15 +721,28 @@ function renderTabs() {
         icon.src = tab.favicon || 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="%2394a3b8" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/><path d="M2 12h20"/></svg>';
       }
       if (statusDot) {
-        statusDot.className = isActive ? 'tab-status-dot working' : 'tab-status-dot done';
-        statusDot.title = isActive ? 'Đang kích hoạt' : 'Sẵn sàng';
+        if (isAgentWorking) {
+          statusDot.style.display = 'inline-block';
+          statusDot.className = 'tab-status-dot agent-working';
+          statusDot.title = '🤖 AI Agent đang điều phối tab này!';
+        } else if (isAiStreaming) {
+          statusDot.style.display = 'inline-block';
+          statusDot.className = 'tab-status-dot ai-streaming';
+          statusDot.title = '⚡ AI đang phản hồi...';
+        } else if (isAiCompleted) {
+          statusDot.style.display = 'inline-block';
+          statusDot.className = 'tab-status-dot ai-completed';
+          statusDot.title = '✓ AI đã phản hồi xong!';
+        } else {
+          statusDot.style.display = 'none';
+          statusDot.className = 'tab-status-dot';
+          statusDot.title = '';
+        }
       }
     }
-
-    // Update Title
-    const newTitle = tab.title || hostname(tab.url) || 'New Tab';
-    if (titleSpan && titleSpan.textContent !== newTitle) {
-      titleSpan.textContent = newTitle;
+    const baseTitle = tab.title || hostname(tab.url) || 'New Tab';
+    if (titleSpan && titleSpan.textContent !== baseTitle) {
+      titleSpan.textContent = baseTitle;
     }
   });
 }
@@ -298,8 +762,12 @@ function updateControls() {
     if (activeTab.devicePresetId && deviceSelect) {
       deviceSelect.value = activeTab.devicePresetId;
     }
-  }
 
+    const agentActiveBadge = document.getElementById('agentActiveBadge');
+    if (agentActiveBadge) {
+      agentActiveBadge.style.display = activeTab.aiState === 'agent_working' ? 'inline-flex' : 'none';
+    }
+  }
   if (btnClearOmnibox && urlInput) {
     btnClearOmnibox.style.display = urlInput.value ? 'block' : 'none';
   }
@@ -373,10 +841,12 @@ function renderBookmarksDropdown() {
     btnDel.title = 'Delete Bookmark';
     btnDel.innerHTML = '✕';
     btnDel.onclick = (e) => {
+      e.preventDefault();
       e.stopPropagation();
+      currentBookmarks = currentBookmarks.filter((b) => b.url !== bm.url);
+      renderBookmarksDropdown();
       getApi()?.removeBookmark(bm.url);
     };
-
     item.appendChild(icon);
     item.appendChild(info);
     item.appendChild(btnDel);
@@ -404,8 +874,12 @@ function renderBookmarks() {
   const isBookmarked = activeTab && currentBookmarks.some((b) => b.url === activeTab.url);
   if (btnStarBookmark) {
     btnStarBookmark.classList.toggle('active', !!isBookmarked);
+    if (isBookmarked) {
+      btnStarBookmark.innerHTML = `<svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M3.612 15.443c-.386.198-.824-.149-.746-.592l.83-4.73L.173 6.765c-.329-.314-.158-.888.283-.95l4.898-.696L7.538.792c.197-.39.73-.39.927 0l2.184 4.327 4.898.696c.441.062.612.636.282.95l-3.522 3.356.83 4.73c.078.443-.36.79-.746.592L8 13.187l-4.389 2.256z"/></svg>`;
+    } else {
+      btnStarBookmark.innerHTML = `<svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M2.866 14.85c-.078.444.36.791.746.593l4.39-2.256 4.389 2.256c.386.198.824-.149.746-.592l-.83-4.73 3.522-3.356c.33-.314.16-.888-.282-.95l-4.898-.696L8.465.792a.513.513 0 0 0-.927 0L5.354 5.12l-4.898.696c-.441.062-.612.636-.283.95l3.523 3.356-.83 4.73zm4.905-2.767-3.686 1.894.694-3.957a.565.565 0 0 0-.163-.505L1.71 6.745l4.052-.576a.525.525 0 0 0 .393-.288L8 2.223l1.847 3.658a.525.525 0 0 0 .393.288l4.052.575-2.906 2.77a.565.565 0 0 0-.163.506l.694 3.957-3.686-1.895a.5.5 0 0 0-.461 0z"/></svg>`;
+    }
   }
-
   if (bookmarkBar) {
     bookmarkBar.style.display = 'none';
   }
@@ -416,6 +890,7 @@ if (btnBookmarksMenu && bookmarksDropdownMenu) {
     e.stopPropagation();
     const isHidden = bookmarksDropdownMenu.style.display === 'none';
     bookmarksDropdownMenu.style.display = isHidden ? 'flex' : 'none';
+    getApi()?.setOverlay(isHidden);
     if (isHidden) {
       renderBookmarksDropdown();
       setTimeout(() => inputBookmarkSearch?.focus(), 50);
@@ -431,14 +906,19 @@ if (inputBookmarkSearch) {
   inputBookmarkSearch.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') {
       if (bookmarksDropdownMenu) bookmarksDropdownMenu.style.display = 'none';
+      getApi()?.setOverlay(false);
     }
   });
 }
 
 document.addEventListener('click', (e) => {
   if (bookmarksDropdownMenu && bookmarksDropdownMenu.style.display !== 'none') {
-    if (!bookmarksDropdownMenu.contains(e.target as Node) && e.target !== btnBookmarksMenu) {
+    const path = e.composedPath ? e.composedPath() : [];
+    const isInsideMenu = path.includes(bookmarksDropdownMenu) || bookmarksDropdownMenu.contains(e.target as Node);
+    const isMenuButton = (btnBookmarksMenu && path.includes(btnBookmarksMenu)) || e.target === btnBookmarksMenu;
+    if (!isInsideMenu && !isMenuButton) {
       bookmarksDropdownMenu.style.display = 'none';
+      getApi()?.setOverlay(false);
     }
   }
 });
@@ -447,7 +927,20 @@ document.addEventListener('click', (e) => {
 if (btnNewTab) btnNewTab.addEventListener('click', () => getApi()?.createTab());
 if (btnBack) btnBack.addEventListener('click', () => getApi()?.goBack());
 if (btnForward) btnForward.addEventListener('click', () => getApi()?.goForward());
-if (btnReload) btnReload.addEventListener('click', () => getApi()?.reload());
+if (btnReload) {
+  btnReload.title = 'Reload page (Ctrl+R) • Right-click or Ctrl+Alt+R for Reload Window';
+  btnReload.addEventListener('click', (e) => {
+    if (e.altKey || e.ctrlKey || e.metaKey) {
+      getApi()?.reloadWindow();
+    } else {
+      getApi()?.reload();
+    }
+  });
+  btnReload.addEventListener('contextmenu', (e) => {
+    e.preventDefault();
+    getApi()?.reloadWindow();
+  });
+}
 
 if (btnStarBookmark) {
   btnStarBookmark.addEventListener('click', () => {
@@ -456,8 +949,10 @@ if (btnStarBookmark) {
     const isBookmarked = currentBookmarks.some((b) => b.url === activeTab.url);
     if (isBookmarked) {
       getApi()?.removeBookmark(activeTab.url);
+      showToolbarToast('⭐ Đã xóa dấu trang');
     } else {
       getApi()?.addBookmark(activeTab.title || activeTab.url, activeTab.url);
+      showToolbarToast('⭐ Đã lưu dấu trang thành công');
     }
   });
 }
@@ -500,10 +995,16 @@ if (btnFontFinder) btnFontFinder.addEventListener('click', () => getApi()?.toggl
 if (btnRuler) btnRuler.addEventListener('click', () => getApi()?.toggleRuler());
 if (btnDevTools) btnDevTools.addEventListener('click', () => getApi()?.toggleDevTools());
 if (btnToggleSidebar) btnToggleSidebar.addEventListener('click', () => getApi()?.toggleSidebar());
+if (btnPopoutTerminal) btnPopoutTerminal.addEventListener('click', () => getApi()?.popoutTerminal?.());
 
 if (btnCaptureFullPage) {
   btnCaptureFullPage.addEventListener('click', async () => {
+    btnCaptureFullPage.style.color = '#22c55e';
     await getApi()?.captureViewport();
+    showToolbarToast('📸 Đã sao chép ảnh chụp màn hình vào Clipboard!');
+    setTimeout(() => {
+      btnCaptureFullPage.style.color = '';
+    }, 1500);
   });
 }
 
@@ -589,6 +1090,58 @@ if (shortcutsOverlay) {
   });
 }
 
+async function openMobileRemoteModal() {
+  if (!mobileRemoteOverlay) return;
+  getApi()?.setOverlay(true);
+  mobileRemoteOverlay.style.display = 'flex';
+
+  try {
+    const info = await (getApi() as any)?.getMobileRemoteInfo?.();
+    if (info) {
+      if (mobileRemoteQrContainer && info.qrSvg) {
+        mobileRemoteQrContainer.innerHTML = info.qrSvg;
+      }
+      if (mobileRemoteUrlsList && Array.isArray(info.urls)) {
+        mobileRemoteUrlsList.innerHTML = '';
+        info.urls.forEach((url: string) => {
+          const item = document.createElement('div');
+          item.className = 'mobile-url-item';
+          item.innerHTML = `
+            <span class="mobile-url-text">${escapeHtml(url)}</span>
+            <button class="btn-copy-url">Sao chép</button>
+          `;
+          item.querySelector('.btn-copy-url')?.addEventListener('click', (e) => {
+            e.stopPropagation();
+            navigator.clipboard.writeText(url);
+            showToolbarToast('📋 Đã sao chép liên kết Mobile Remote!');
+          });
+          mobileRemoteUrlsList.appendChild(item);
+        });
+      }
+    }
+  } catch (e) {
+    console.error('Failed to load mobile remote info', e);
+  }
+}
+
+function closeMobileRemoteModal() {
+  if (!mobileRemoteOverlay) return;
+  mobileRemoteOverlay.style.display = 'none';
+  getApi()?.setOverlay(false);
+}
+
+if (btnMobileRemote) {
+  btnMobileRemote.addEventListener('click', openMobileRemoteModal);
+}
+if (mobileRemoteClose) {
+  mobileRemoteClose.addEventListener('click', closeMobileRemoteModal);
+}
+if (mobileRemoteOverlay) {
+  mobileRemoteOverlay.addEventListener('click', (e) => {
+    if (e.target === mobileRemoteOverlay) closeMobileRemoteModal();
+  });
+}
+
 if (menuFind) {
   menuFind.addEventListener('click', () => {
     showFindBar();
@@ -626,9 +1179,140 @@ if (menuShortcuts) {
 }
 
 // Close menus when clicking outside
+// TAB CONTEXT MENU
+const tabContextMenu = document.getElementById('tabContextMenu') as HTMLDivElement | null;
+const menuItemNewTabRight = document.getElementById('menuItemNewTabRight');
+const menuItemDuplicateTab = document.getElementById('menuItemDuplicateTab');
+const menuItemReloadTab = document.getElementById('menuItemReloadTab');
+const menuItemCopyUrl = document.getElementById('menuItemCopyUrl');
+const menuItemCloseTab = document.getElementById('menuItemCloseTab');
+const menuItemCloseOtherTabs = document.getElementById('menuItemCloseOtherTabs');
+const menuItemCloseTabsToRight = document.getElementById('menuItemCloseTabsToRight');
+
+let contextMenuTargetTabId: string | null = null;
+
+function hideTabContextMenu() {
+  if (!tabContextMenu) return;
+  tabContextMenu.classList.remove('active');
+  tabContextMenu.style.display = 'none';
+  contextMenuTargetTabId = null;
+}
+
+function showTabContextMenu(x: number, y: number, tabId: string) {
+  if (!tabContextMenu) return;
+  contextMenuTargetTabId = tabId;
+
+  const tabIndex = currentTabs.findIndex((t) => t.id === tabId);
+  const totalTabs = currentTabs.length;
+
+  if (menuItemCloseOtherTabs) {
+    if (totalTabs <= 1) {
+      menuItemCloseOtherTabs.classList.add('disabled');
+    } else {
+      menuItemCloseOtherTabs.classList.remove('disabled');
+    }
+  }
+
+  if (menuItemCloseTabsToRight) {
+    if (tabIndex === -1 || tabIndex >= totalTabs - 1) {
+      menuItemCloseTabsToRight.classList.add('disabled');
+    } else {
+      menuItemCloseTabsToRight.classList.remove('disabled');
+    }
+  }
+
+  tabContextMenu.style.display = 'flex';
+  tabContextMenu.classList.add('active');
+
+  const menuWidth = 210;
+  const menuHeight = 220;
+  const maxX = window.innerWidth - menuWidth - 8;
+  const maxY = window.innerHeight - menuHeight - 8;
+
+  tabContextMenu.style.left = `${Math.max(8, Math.min(x, maxX))}px`;
+  tabContextMenu.style.top = `${Math.max(4, Math.min(y, maxY))}px`;
+}
+
+if (menuItemNewTabRight) {
+  menuItemNewTabRight.addEventListener('click', () => {
+    if (contextMenuTargetTabId) {
+      const idx = currentTabs.findIndex((t) => t.id === contextMenuTargetTabId);
+      getApi()?.createTab('https://www.google.com').then((newId: string) => {
+        if (newId && idx !== -1) {
+          getApi()?.moveTab(newId, idx + 1);
+        }
+      });
+    }
+    hideTabContextMenu();
+  });
+}
+
+if (menuItemDuplicateTab) {
+  menuItemDuplicateTab.addEventListener('click', () => {
+    if (contextMenuTargetTabId) {
+      getApi()?.duplicateTab(contextMenuTargetTabId);
+    }
+    hideTabContextMenu();
+  });
+}
+
+if (menuItemReloadTab) {
+  menuItemReloadTab.addEventListener('click', () => {
+    if (contextMenuTargetTabId) {
+      getApi()?.reload(contextMenuTargetTabId);
+    }
+    hideTabContextMenu();
+  });
+}
+
+if (menuItemCopyUrl) {
+  menuItemCopyUrl.addEventListener('click', () => {
+    if (contextMenuTargetTabId) {
+      const targetTab = currentTabs.find((t) => t.id === contextMenuTargetTabId);
+      if (targetTab && targetTab.url) {
+        navigator.clipboard.writeText(targetTab.url).then(() => {
+          showToolbarToast('Đã sao chép liên kết tab');
+        }).catch(() => {});
+      }
+    }
+    hideTabContextMenu();
+  });
+}
+
+if (menuItemCloseTab) {
+  menuItemCloseTab.addEventListener('click', () => {
+    if (contextMenuTargetTabId) {
+      getApi()?.closeTab(contextMenuTargetTabId);
+    }
+    hideTabContextMenu();
+  });
+}
+
+if (menuItemCloseOtherTabs) {
+  menuItemCloseOtherTabs.addEventListener('click', () => {
+    if (contextMenuTargetTabId) {
+      getApi()?.closeOtherTabs(contextMenuTargetTabId);
+    }
+    hideTabContextMenu();
+  });
+}
+
+if (menuItemCloseTabsToRight) {
+  menuItemCloseTabsToRight.addEventListener('click', () => {
+    if (contextMenuTargetTabId) {
+      getApi()?.closeTabsToRight(contextMenuTargetTabId);
+    }
+    hideTabContextMenu();
+  });
+}
+
+// Close menus when clicking outside
 document.addEventListener('click', (e) => {
   if (codexMainMenu && !codexMainMenu.contains(e.target as Node) && e.target !== btnMenu) {
     codexMainMenu.classList.remove('active');
+  }
+  if (tabContextMenu && !tabContextMenu.contains(e.target as Node)) {
+    hideTabContextMenu();
   }
 });
 
@@ -636,7 +1320,7 @@ document.addEventListener('click', (e) => {
 const omniboxSuggestDropdown = document.getElementById('omniboxSuggestDropdown') as HTMLDivElement | null;
 const omniboxSuggestList = document.getElementById('omniboxSuggestList') as HTMLDivElement | null;
 
-let suggestItems: Array<{ type: 'search' | 'url' | 'bookmark'; text: string; url?: string }> = [];
+let suggestItems: Array<{ type: 'search' | 'url' | 'bookmark' | 'history' | 'tab'; text: string; url?: string; tabId?: string; subText?: string }> = [];
 let selectedSuggestIndex = -1;
 let suggestDebounceTimer: any = null;
 
@@ -676,12 +1360,16 @@ function renderSuggestItems(query: string) {
     el.className = `suggest-item ${idx === selectedSuggestIndex ? 'selected' : ''}`;
 
     let iconSvg = '';
-    if (item.type === 'bookmark') {
-      iconSvg = '<svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor"><path d="M3.612 15.443c-.386.198-.824-.149-.746-.592l.83-4.73L.173 6.765c-.329-.314-.158-.888.283-.95l4.898-.696L7.538.792c.197-.39.73-.39.927 0l2.184 4.327 4.898.696c.441.062.612.636.282.95l-3.522 3.356.83 4.73c.078.443-.36.79-.746.592L8 13.187l-4.389 2.256z"/></svg>';
+    if (item.type === 'tab') {
+      iconSvg = '<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="#38bdf8" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="12" height="10" rx="2"/><line x1="2" y1="7" x2="14" y2="7"/></svg>';
+    } else if (item.type === 'bookmark') {
+      iconSvg = '<svg width="13" height="13" viewBox="0 0 16 16" fill="#f59e0b"><path d="M3.612 15.443c-.386.198-.824-.149-.746-.592l.83-4.73L.173 6.765c-.329-.314-.158-.888.283-.95l4.898-.696L7.538.792c.197-.39.73-.39.927 0l2.184 4.327 4.898.696c.441.062.612.636.282.95l-3.522 3.356.83 4.73c.078.443-.36.79-.746.592L8 13.187l-4.389 2.256z"/></svg>';
+    } else if (item.type === 'history') {
+      iconSvg = '<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="#60a5fa" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="8" r="6"/><polyline points="8 5 8 8 10.5 9.5"/></svg>';
     } else if (item.type === 'url') {
-      iconSvg = '<svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor"><path d="M4.715 6.542 3.343 7.914a3 3 0 1 0 4.243 4.243l1.828-1.829A3 3 0 0 0 8.586 5.5L8 6.086a1.002 1.002 0 0 0-.154.199 2 2 0 0 1 .861 3.337L6.88 11.45a2 2 0 1 1-2.83-2.83l.793-.792a4.018 4.018 0 0 1-.128-1.287z"/><path d="M6.586 4.672A3 3 0 0 0 7.414 9.5l.775-.776a2 2 0 0 1-.896-3.346L9.12 3.55a2 2 0 1 1 2.83 2.83l-.793.792c.112.42.155.855.128 1.287l1.372-1.372a3 3 0 1 0-4.243-4.243L6.586 4.672z"/></svg>';
+      iconSvg = '<svg width="13" height="13" viewBox="0 0 16 16" fill="#a78bfa"><path d="M4.715 6.542 3.343 7.914a3 3 0 1 0 4.243 4.243l1.828-1.829A3 3 0 0 0 8.586 5.5L8 6.086a1.002 1.002 0 0 0-.154.199 2 2 0 0 1 .861 3.337L6.88 11.45a2 2 0 1 1-2.83-2.83l.793-.792a4.018 4.018 0 0 1-.128-1.287z"/><path d="M6.586 4.672A3 3 0 0 0 7.414 9.5l.775-.776a2 2 0 0 1-.896-3.346L9.12 3.55a2 2 0 1 1 2.83 2.83l-.793.792c.112.42.155.855.128 1.287l1.372-1.372a3 3 0 1 0-4.243-4.243L6.586 4.672z"/></svg>';
     } else {
-      iconSvg = '<svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor"><path d="M11.742 10.344a6.5 6.5 0 1 0-1.397 1.398h-.001c.03.04.062.078.098.115l3.85 3.85a1 1 0 0 0 1.415-1.414l-3.85-3.85a1.007 1.007 0 0 0-.115-.1zM12 6.5a5.5 5.5 0 1 1-11 0 5.5 5.5 0 0 1 11 0z"/></svg>';
+      iconSvg = '<svg width="13" height="13" viewBox="0 0 16 16" fill="#9ca3af"><path d="M11.742 10.344a6.5 6.5 0 1 0-1.397 1.398h-.001c.03.04.062.078.098.115l3.85 3.85a1 1 0 0 0 1.415-1.414l-3.85-3.85a1.007 1.007 0 0 0-.115-.1zM12 6.5a5.5 5.5 0 1 1-11 0 5.5 5.5 0 0 1 11 0z"/></svg>';
     }
 
     let matchHtml = escapeHtml(item.text);
@@ -693,7 +1381,7 @@ function renderSuggestItems(query: string) {
       matchHtml = `${escapeHtml(before)}<b>${escapeHtml(match)}</b>${escapeHtml(after)}`;
     }
 
-    const subText = item.type === 'search' ? 'Google Search' : (item.url ? hostname(item.url) : '');
+    const subText = item.subText || (item.type === 'search' ? 'Google Search' : (item.url ? hostname(item.url) : ''));
 
     el.innerHTML = `
       <span class="suggest-icon">${iconSvg}</span>
@@ -705,12 +1393,21 @@ function renderSuggestItems(query: string) {
 
     el.addEventListener('mousedown', (e) => {
       e.preventDefault();
+      if (item.type === 'tab' && item.tabId) {
+        getApi()?.switchTab(item.tabId);
+        hideSuggestDropdown();
+        return;
+      }
       const targetNav = item.url || item.text;
+      if (targetNav === 'antifan:command:reload-window') {
+        getApi()?.reloadWindow();
+        hideSuggestDropdown();
+        return;
+      }
       if (urlInput) urlInput.value = targetNav;
       getApi()?.navigate(targetNav);
       hideSuggestDropdown();
     });
-
     omniboxSuggestList.appendChild(el);
   });
 }
@@ -763,6 +1460,12 @@ if (urlInput) {
 
     if (e.key === 'Enter') {
       const val = urlInput.value.trim();
+      if (val === 'antifan:command:reload-window' || val.toLowerCase() === '> reload window' || val.toLowerCase() === '> reload' || val.toLowerCase() === '> developer: reload window') {
+        getApi()?.reloadWindow();
+        hideSuggestDropdown();
+        urlInput.blur();
+        return;
+      }
       if (val) {
         getApi()?.navigate(val);
         hideSuggestDropdown();
@@ -837,19 +1540,8 @@ if (shortcutsOverlay) {
 }
 
 // Embedded Terminal Controls
-const btnToggleTerminal = document.getElementById('btnToggleTerminal') as HTMLButtonElement | null;
-const menuTerminal = document.getElementById('menuTerminal') as HTMLDivElement | null;
+const menuTerminal = null;
 
-if (btnToggleTerminal) {
-  btnToggleTerminal.addEventListener('click', () => {
-    getApi()?.toggleTerminal();
-  });
-}
-if (menuTerminal) {
-  menuTerminal.addEventListener('click', () => {
-    getApi()?.toggleTerminal();
-  });
-}
 
 async function initToolbar() {
   const api = getApi();
@@ -887,10 +1579,7 @@ async function initToolbar() {
       isFontFinderActive = !!state.isFontFinderActive;
       isLensActive = !!state.isLensActive;
       isRulerActive = !!state.isRulerActive;
-      if (btnToggleTerminal) {
-        btnToggleTerminal.classList.toggle('mode-active', !!state.isTerminalOpen);
-      }
-      renderTabs();
+            renderTabs();
       renderBookmarks();
       renderChromeProfiles();
       updateControls();
@@ -915,6 +1604,141 @@ async function initToolbar() {
       findCount.textContent = `${result.activeMatchOrdinal || 0}/${result.matches}`;
     }
   });
+  if (api.onScreenshotCaptured) {
+    api.onScreenshotCaptured(() => {
+      showToolbarToast('📸 Đã sao chép ảnh chụp màn hình vào Clipboard!');
+    });
+  }
+
+  // Wire Workflow & MCP Hub Events
+  btnWorkflowHub?.addEventListener('click', openWorkflowHub);
+  btnWorkflowHubClose?.addEventListener('click', closeWorkflowHub);
+  workflowHubOverlay?.addEventListener('click', (e) => {
+    if (e.target === workflowHubOverlay) closeWorkflowHub();
+  });
+  tabNavWorkflows?.addEventListener('click', () => {
+    hubActiveTab = 'workflows';
+    tabNavWorkflows.classList.add('active');
+    tabNavMcp?.classList.remove('active');
+    renderHubList();
+    if (hubWorkflows.length > 0) selectWorkflow(hubWorkflows[0]);
+  });
+  tabNavMcp?.addEventListener('click', () => {
+    hubActiveTab = 'mcp';
+    tabNavMcp.classList.add('active');
+    tabNavWorkflows?.classList.remove('active');
+    renderHubList();
+    if (hubMcpTools.length > 0) selectMcpTool(hubMcpTools[0]);
+  });
+  hubSearchInput?.addEventListener('input', () => {
+    if (hubSearchClear && hubSearchInput) {
+      hubSearchClear.style.display = hubSearchInput.value ? 'inline-block' : 'none';
+    }
+    renderHubList();
+  });
+  hubSearchClear?.addEventListener('click', () => {
+    if (hubSearchInput) hubSearchInput.value = '';
+    if (hubSearchClear) hubSearchClear.style.display = 'none';
+    renderHubList();
+  });
+  btnRunWorkflow?.addEventListener('click', runActiveWorkflow);
+  btnStopWorkflow?.addEventListener('click', stopActiveWorkflow);
+  btnCopyWorkflowJson?.addEventListener('click', () => {
+    if (hubSelectedWorkflow) {
+      navigator.clipboard.writeText(JSON.stringify(hubSelectedWorkflow.definition, null, 2));
+      showToolbarToast('📋 Đã sao chép kịch bản JSON vào Clipboard!');
+    }
+  });
+  btnDeleteCustomWf?.addEventListener('click', async () => {
+    if (hubSelectedWorkflow && !hubSelectedWorkflow.isBuiltIn) {
+      await getApi()?.deleteWorkflow(hubSelectedWorkflow.id);
+      const res = await getApi()?.getWorkflowState();
+      hubWorkflows = res?.workflows || [];
+      renderHubList();
+      if (hubWorkflows.length > 0) selectWorkflow(hubWorkflows[0]);
+      showToolbarToast('🗑️ Đã xóa kịch bản custom.');
+    }
+  });
+  btnHubNewWorkflow?.addEventListener('click', async () => {
+    const name = prompt('Nhập tên Workflow mới:');
+    if (!name || !name.trim()) return;
+    const description = prompt('Nhập mô tả kịch bản (tùy chọn):') || '';
+    const newWf = {
+      name: name.trim(),
+      description: description.trim(),
+      steps: [
+        {
+          id: 'step-navigate',
+          name: 'Mở trang web mục tiêu',
+          type: 'browser.navigate' as const,
+          params: { url: 'https://example.com' },
+          timeoutMs: 8000,
+          retryCount: 0,
+          continueOnError: false,
+        },
+        {
+          id: 'step-screenshot',
+          name: 'Chụp ảnh màn hình kiểm thử',
+          type: 'browser.screenshot' as const,
+          params: { format: 'png' },
+          timeoutMs: 10000,
+          retryCount: 0,
+          continueOnError: false,
+        },
+      ],
+    };
+    try {
+      await getApi()?.saveWorkflow(newWf);
+      const res = await getApi()?.getWorkflowState();
+      hubWorkflows = res?.workflows || [];
+      renderHubList();
+      const created = hubWorkflows.find((w) => w.name === newWf.name);
+      if (created) selectWorkflow(created);
+      showToolbarToast('✅ Đã tạo kịch bản Workflow mới!');
+    } catch (err: any) {
+      alert(`Lỗi tạo workflow: ${err.message || String(err)}`);
+    }
+  });
+
+  if (api.onWorkflowEvent) {
+    api.onWorkflowEvent((event: any) => {
+      if (!event) return;
+      if (event.type === 'step:start' && event.stepId) {
+        const card = document.getElementById(`step-card-${event.stepId}`);
+        if (card) card.className = 'hub-step-card step-running';
+        const pill = document.getElementById(`step-status-${event.stepId}`);
+        if (pill) {
+          pill.className = 'hub-step-status step-status-running';
+          pill.textContent = 'RUNNING';
+        }
+        if (runCurrentStepText) {
+          runCurrentStepText.textContent = `Đang chạy: ${event.stepName || event.stepId}...`;
+        }
+      } else if (event.type === 'step:end' && event.stepId) {
+        const isPassed = event.status === 'passed';
+        const card = document.getElementById(`step-card-${event.stepId}`);
+        if (card) card.className = `hub-step-card ${isPassed ? 'step-passed' : 'step-failed'}`;
+        const pill = document.getElementById(`step-status-${event.stepId}`);
+        if (pill) {
+          pill.className = `hub-step-status ${isPassed ? 'step-status-passed' : 'step-status-failed'}`;
+          pill.textContent = (event.status || 'DONE').toUpperCase();
+        }
+      }
+    });
+  }
+
+  window.addEventListener('keydown', (e) => {
+    if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === 'W' || e.key === 'w')) {
+      e.preventDefault();
+      if (workflowHubOverlay && workflowHubOverlay.style.display === 'flex') {
+        closeWorkflowHub();
+      } else {
+        openWorkflowHub();
+      }
+    } else if (e.key === 'Escape' && workflowHubOverlay && workflowHubOverlay.style.display === 'flex') {
+      closeWorkflowHub();
+    }
+  });
 }
 
 if (document.readyState === 'loading') {
@@ -922,3 +1746,4 @@ if (document.readyState === 'loading') {
 } else {
   initToolbar();
 }
+

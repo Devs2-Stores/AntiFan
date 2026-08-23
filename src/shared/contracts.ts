@@ -14,6 +14,14 @@ export interface AntiFanTab {
   zoomFactor: number;
   devicePresetId?: string;
   crashed?: boolean;
+  isAudible?: boolean;
+  isMuted?: boolean;
+  scrollX?: number;
+  scrollY?: number;
+  aiState?: 'idle' | 'thinking' | 'streaming' | 'completed' | 'agent_working';
+  themeError?: string | null;
+  terminalSessionId?: string;
+  capsuleId?: string;
 }
 
 export interface ElementRect {
@@ -46,6 +54,7 @@ export interface AntiFanPickedElement {
   dimensions?: string;
   outerHTML?: string;
   timestamp: number;
+  targetSessionId?: string;
 }
 
 export interface ChatToolCall {
@@ -83,6 +92,7 @@ export interface AntigravityCommandV2 {
   promptText: string;
   promptDigest: string;
   targetConversationId?: string;
+  backendSessionRef?: string;
   requestedRoute?: AntigravityDeliveryRoute;
   attachments?: AntigravityAttachmentDescriptor[];
   clientInstanceId?: string;
@@ -106,6 +116,12 @@ export interface AntigravityResultV2 {
   errorCode?: string;
   errorMessage?: string;
   completedAtEpochMs: number;
+  promptDigest?: string;
+  projectId?: string;
+  workspaceId?: string;
+  attemptId?: string;
+  backendSessionRef?: string;
+  sourceCommandId?: string;
   meta?: Record<string, unknown>;
 }
 
@@ -185,8 +201,13 @@ export const TOOLBAR_CHANNELS = {
   SWITCH_TAB: 'antifan:toolbar:switch-tab',
   CLOSE_TAB: 'antifan:toolbar:close-tab',
   MOVE_TAB: 'antifan:toolbar:move-tab',
+  DUPLICATE_TAB: 'antifan:toolbar:duplicate-tab',
+  CLOSE_OTHER_TABS: 'antifan:toolbar:close-other-tabs',
+  CLOSE_TABS_TO_RIGHT: 'antifan:toolbar:close-tabs-to-right',
+  SET_TAB_TERMINAL_SESSION: 'antifan:toolbar:set-tab-terminal-session',
   NAVIGATE: 'antifan:toolbar:navigate',
   RELOAD: 'antifan:toolbar:reload',
+  RELOAD_WINDOW: 'antifan:toolbar:reload-window',
   STOP_LOADING: 'antifan:toolbar:stop-loading',
   GO_BACK: 'antifan:toolbar:go-back',
   GO_FORWARD: 'antifan:toolbar:go-forward',
@@ -197,6 +218,7 @@ export const TOOLBAR_CHANNELS = {
   TOGGLE_SIDEBAR: 'antifan:toolbar:toggle-sidebar',
   SET_DEVICE_PRESET: 'antifan:toolbar:set-device-preset',
   SET_ZOOM: 'antifan:toolbar:set-zoom',
+  TOGGLE_MUTE: 'antifan:toolbar:toggle-mute',
   CAPTURE_FULL_PAGE: 'antifan:toolbar:capture-full-page',
   CAPTURE_VIEWPORT: 'antifan:toolbar:capture-viewport',
   OPEN_EXTERNAL: 'antifan:toolbar:open-external',
@@ -218,7 +240,8 @@ export const TOOLBAR_CHANNELS = {
   STATE_UPDATED: 'antifan:toolbar:state-updated',
   ELEMENT_PICKED: 'antifan:toolbar:element-picked',
   FIND_RESULT: 'antifan:toolbar:find-result',
-} as const;
+  GET_MOBILE_REMOTE_INFO: 'antifan:toolbar:get-mobile-remote-info',
+};
 
 export interface SessionInfo {
   id: string;
@@ -256,4 +279,16 @@ export const TERMINAL_CHANNELS = {
   KILL: 'antifan:terminal:kill',
   RESTART: 'antifan:terminal:restart',
   DATA: 'antifan:terminal:data',
+  RESIZE: 'antifan:terminal:resize',
+  NEW_SESSION: 'antifan:terminal:new-session',
+  LIST_SESSIONS: 'antifan:terminal:list-sessions',
+  SWITCH_SESSION: 'antifan:terminal:switch-session',
+  RENAME_SESSION: 'antifan:terminal:rename-session',
+  POPOUT: 'antifan:terminal:popout',
+  NEW_WINDOW: 'antifan:terminal:new-window',
+  CLOSE_WINDOW: 'antifan:terminal:close-window',
+  SET_ACTIVE_SESSION: 'antifan:terminal:set-active-session',
+  REDOCK: 'antifan:terminal:redock',
+  GET_POPOUT_STATE: 'antifan:terminal:get-popout-state',
+  POPOUT_STATE_CHANGED: 'antifan:terminal:popout-state-changed',
 } as const;

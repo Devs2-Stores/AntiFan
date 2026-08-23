@@ -14,5 +14,7 @@ appdata/
 probe.js
 smoke-result*.json
 trees_all.txt
+.antifan/
+*.png
 
 

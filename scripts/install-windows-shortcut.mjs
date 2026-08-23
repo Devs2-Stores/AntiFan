@@ -65,7 +65,7 @@ const desktopShortcut = path.join(desktopDir, 'AntiFan Browser.lnk');
 createWindowsShortcut(
   desktopShortcut,
   electronExe,
-  `"${ROOT}" --production`,
+  `"${ROOT}"`,
   ROOT,
   iconIco,
   'AntiFan Browser Desktop'
@@ -77,7 +77,7 @@ if (fs.existsSync(startMenuDir)) {
   createWindowsShortcut(
     startMenuShortcut,
     electronExe,
-    `"${ROOT}" --production`,
+    `"${ROOT}"`,
     ROOT,
     iconIco,
     'AntiFan Browser Desktop'
@@ -86,7 +86,7 @@ if (fs.existsSync(startMenuDir)) {
 
 // 3. Create a silent runner script in project root for quick access
 const silentVbs = path.join(ROOT, 'run-antifan.vbs');
-const vbsContent = `Set WshShell = CreateObject("WScript.Shell")\nWshShell.CurrentDirectory = "${ROOT.replace(/\\/g, '\\\\')}"\nWshShell.Run """${electronExe.replace(/\\/g, '\\\\')}"" """${ROOT.replace(/\\/g, '\\\\')}""" --production", 0, False\n`;
+const vbsContent = `Set WshShell = CreateObject("WScript.Shell")\nWshShell.CurrentDirectory = "${ROOT.replace(/\\/g, '\\\\')}"\nWshShell.Run """${electronExe.replace(/\\/g, '\\\\')}"" """${ROOT.replace(/\\/g, '\\\\')}""", 0, False\n`;
 fs.writeFileSync(silentVbs, vbsContent, 'utf8');
 console.log(`[installer] Created root launcher: ${silentVbs}`);
 

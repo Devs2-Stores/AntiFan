@@ -1,0 +1,87 @@
+[
+  {
+    "path": "src\\main\\agent\\codex-execution-backend.ts",
+    "sha256": "74FBF916BF13BDEE80C88E2A9A728135CFF9F10D9EF8F6FDDD9BC1BA8AFD0700",
+    "bytes": 5312
+  },
+  {
+    "path": "src\\main\\bridge\\antigravity-command-client.ts",
+    "sha256": "D82F21F5A28976814B71D8D71FB4F03B6B036E0A6A5226A7E9997AE29DCD3A10",
+    "bytes": 19800
+  },
+  {
+    "path": "src\\main\\bridge\\delivery-ledger.ts",
+    "sha256": "F3A4F318BF06EA68CFA935C47480AFA28F1FFB9B7AEB31399266710823D48751",
+    "bytes": 3359
+  },
+  {
+    "path": "src\\main\\bridge\\transcript-syncer.ts",
+    "sha256": "0DCB0DA61FD5A44C33EC04FAD029FE0F19D1E3C3A7950EF0CA87E9271D0CF3EA",
+    "bytes": 28797
+  },
+  {
+    "path": "src\\main\\chat\\chat-store.ts",
+    "sha256": "4C08FBFFA5ABA0E72F1E1F7C697C88758EE8E728EA9AF51271B77202EB0610CD",
+    "bytes": 2776
+  },
+  {
+    "path": "src\\main\\integrations\\antigravity\\antigravity-execution-backend.ts",
+    "sha256": "C1125403AAC577F7382C2BBB62988BE7A0F98F74942E35D05ADD29AF0DD5A25E",
+    "bytes": 7327
+  },
+  {
+    "path": "src\\main\\session\\receipt-store.ts",
+    "sha256": "45FCC1864618A242C7982AD92C9E7B7D35F60E6719495A1B72A66E59E1F6A762",
+    "bytes": 3841
+  },
+  {
+    "path": "src\\preload\\sidebar-preload.ts",
+    "sha256": "B18D1E5DA637724BE0DF072780D661BB510DFF1AF515B26C1A20E88A199F110A",
+    "bytes": 4241
+  },
+  {
+    "path": "src\\renderer\\sidebar.css",
+    "sha256": "B3AD44274C2859B1EEA62675C1FAD3CCE1D340DC279525CEDE111EAB5F6FC974",
+    "bytes": 55160
+  },
+  {
+    "path": "src\\renderer\\sidebar.html",
+    "sha256": "ACAC931D716B85C606AB536193E19C41A3EA0B8A7A74A44DB1D8663D01DB7B7D",
+    "bytes": 8442
+  },
+  {
+    "path": "src\\renderer\\sidebar.ts",
+    "sha256": "2C56E5CE6CFC12C57C115770F6F0DCCA8FC3D32097AD280A4E0375C7AC598077",
+    "bytes": 83596
+  },
+  {
+    "path": "test\\main\\antigravity-command-client.test.ts",
+    "sha256": "44F39D13AAD8AD39D4E71A005910BD3E5D35B017AF443EC3968B934296DC04D2",
+    "bytes": 13077
+  },
+  {
+    "path": "test\\main\\delivery-ledger.test.ts",
+    "sha256": "D56315678B0638D973B15B2C4A4DE29C46CAEE85007D46D1C6AA26700A1A89B6",
+    "bytes": 1563
+  },
+  {
+    "path": "test\\main\\execution-backend-contract.test.ts",
+    "sha256": "E29131DD3A6953C2E4C88D1AC9C4282909BEFD43C20E9A43E544E345990FB155",
+    "bytes": 4301
+  },
+  {
+    "path": "test\\main\\receipt-store.test.ts",
+    "sha256": "A0ADC3009DE9319F9283ACAC92571E66317129B86E0FD4945B306D6DF923830A",
+    "bytes": 1390
+  },
+  {
+    "path": "test\\main\\transcript-correlation.test.ts",
+    "sha256": "28A7CDC205F914FA06C3DD2B4EEB5075B487BD1B0342C65C4E8A3F986B39F097",
+    "bytes": 2493
+  },
+  {
+    "path": "test\\main\\transcript-syncer-security.test.ts",
+    "sha256": "40D5E7597B953AC9C0145BC7DB2D48B3CFA5D40ABC79E77E12DEDB16D6A90B3E",
+    "bytes": 2639
+  }
+]

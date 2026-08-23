@@ -5,7 +5,7 @@ import { BrowserActionRegistry } from '../../src/main/browser/browser-action-reg
 import { NativeTabHost } from '../../src/main/browser/native-tab-host';
 
 class MockTabHost extends EventEmitter {
-  private tabs: any[] = [{ id: 'tab-1', url: 'https://google.com', title: 'Google', isLoading: false, canGoBack: false, canGoForward: false, zoomFactor: 1.0 }];
+  private tabs = [{ id: 'tab-1', url: 'https://google.com', title: 'Google', isLoading: false, canGoBack: false, canGoForward: false, zoomFactor: 1.0 }];
   private activeTabId = 'tab-1';
 
   getTabList() {
@@ -48,7 +48,7 @@ class MockTabHost extends EventEmitter {
   toggleSidebar() {
     return true;
   }
-  pushAgentMessage(msg: any) {
+  pushAgentMessage(_msg: unknown) {
     return true;
   }
   async getDom(selector?: string) {
@@ -56,6 +56,24 @@ class MockTabHost extends EventEmitter {
   }
   async captureScreenshot() {
     return 'mock-base64-screenshot';
+  }
+  async agentSnapshot() {
+    return '@e1 [button] "Search" (id: "search-btn")\n@e2 [input:text] "Enter query"';
+  }
+  async agentClick(params: { selector?: string; x?: number; y?: number }) {
+    return Boolean(params.selector || (params.x !== undefined && params.y !== undefined));
+  }
+  async agentType(params: { selector?: string; text?: string }) {
+    return Boolean(params.selector && typeof params.text === 'string');
+  }
+  async agentScroll(params: { selector?: string; deltaY?: number }) {
+    return Boolean(params.selector || params.deltaY !== undefined);
+  }
+  async agentHover(params: { selector?: string; x?: number; y?: number }) {
+    return Boolean(params.selector || (params.x !== undefined && params.y !== undefined));
+  }
+  async agentHighlight(params: { selector?: string }) {
+    return Boolean(params.selector);
   }
   async evalJs(expr: string) {
     return { evaluated: expr };
@@ -126,5 +144,15 @@ describe('BrowserActionRegistry (Extensibility Phase 1)', () => {
     // With allowHighRisk, evalJs succeeds
     const evalRes = await registry.execute('evalJs', { expression: '1 + 1' }, true);
     assert.deepStrictEqual(evalRes.result, { evaluated: '1 + 1' });
+  });
+
+  it('registers and executes agentSnapshot with compact ref markers', async () => {
+    const mockHost = new MockTabHost() as unknown as NativeTabHost;
+    const registry = new BrowserActionRegistry(mockHost);
+
+    const snapshotRes = await registry.execute('agentSnapshot');
+    assert.strictEqual(snapshotRes.success, true);
+    assert.ok(snapshotRes.snapshot.includes('@e1 [button]'));
+    assert.ok(snapshotRes.snapshot.includes('@e2 [input:text]'));
   });
 });

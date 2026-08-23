@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>AntiFan Terminal</title>
+  <link rel="stylesheet" href="standalone.css">
+  <link rel="stylesheet" href="standalone-overrides.css">
+  <link rel="stylesheet" href="../../../node_modules/@xterm/xterm/css/xterm.css">
+</head>
+<body>
+  <main class="standalone">
+    <div id="resizeHandle" class="resize-handle" title="Kéo để chỉnh độ rộng Terminal"></div>
+    <header>
+      <div class="heading">
+        <span class="brand-wordmark" data-text="ANTIFAN">ANTIFAN</span>
+        <span class="brand-subtext">TERMINAL</span>
+      </div>
+      <div class="header-actions">
+        <button id="btnOpenFolder" class="icon-button" type="button" aria-label="Chọn thư mục Workspace (E:/Work/)" title="Chọn thư mục Workspace (E:/Work/)">
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
+            <path d="M1.75 2.5A1.75 1.75 0 0 0 0 4.25v7.5C0 12.716.784 13.5 1.75 13.5h12.5A1.75 1.75 0 0 0 16 11.75v-6A1.75 1.75 0 0 0 14.25 4H7.81a.25.25 0 0 1-.195-.094L6.177 2.094A1.75 1.75 0 0 0 4.81 1.5H1.75z"/>
+          </svg>
+        </button>
+        <button id="btnFullscreenHeader" class="icon-button" type="button" aria-label="Toàn màn hình (F11)" title="Toàn màn hình (F11)">
+          <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M2 5V2h3M11 2h3v3M14 11v3h-3M5 14H2v-3"/>
+          </svg>
+        </button>
+        <button id="btnNewTerminalWindow" class="icon-button" type="button" aria-label="Mở cửa sổ Terminal mới (Ctrl+Shift+N)" title="Mở cửa sổ Terminal mới (New Window)">
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="2" y="2" width="12" height="12" rx="2"/>
+            <path d="M8 5v6M5 8h6"/>
+          </svg>
+        </button>
+        <button id="btnPopoutWindow" class="icon-button" type="button" aria-label="Tách cửa sổ riêng (Pop out Window)" title="Tách ra cửa sổ độc lập (Pop out Window)">
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M10 2h4v4M14 2L8 8M6 4H3a1 1 0 00-1 1v8a1 1 0 001 1h8a1 1 0 001-1v-3"/>
+          </svg>
+        </button>
+      </div>
+    </header>
+    <section class="controls">
+      <div id="terminalTabs" class="terminal-tabs">
+        <button id="btnNewTerminal" class="new-terminal icon-action-btn" type="button" aria-label="Tạo terminal mới (Ctrl+Shift+T)" title="Tạo terminal mới (Ctrl+Shift+T)">
+          <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+            <line x1="8" y1="2" x2="8" y2="14"/>
+            <line x1="2" y1="8" x2="14" y2="8"/>
+          </svg>
+        </button>
+        <button id="btnSplitTerminal" class="split-terminal icon-action-btn" type="button" aria-label="Chia đôi màn hình terminal (Split Right)" title="Chia đôi màn hình terminal">
+          <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+            <rect x="2" y="2" width="12" height="12" rx="1.5"/>
+            <line x1="8" y1="2" x2="8" y2="14" stroke-dasharray="1.5 1.5"/>
+          </svg>
+        </button>
+      </div>
+    </section>
+    <div id="terminal"><div id="terminal-main"></div></div>
+
+    <!-- CUSTOM CONTEXT MENU FOR TABS -->
+    <div id="tabContextMenu" class="tab-context-menu" style="display:none;">
+      <div class="context-item" data-action="open-folder">
+        <svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor">
+          <path d="M1.75 2.5A1.75 1.75 0 0 0 0 4.25v7.5C0 12.716.784 13.5 1.75 13.5h12.5A1.75 1.75 0 0 0 16 11.75v-6A1.75 1.75 0 0 0 14.25 4H7.81a.25.25 0 0 1-.195-.094L6.177 2.094A1.75 1.75 0 0 0 4.81 1.5H1.75z"/>
+        </svg>
+        <span>Mở thư mục (Open Folder)</span>
+      </div>
+      <div class="context-item" data-action="rename">
+        <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+          <path d="M11.5 1.5l3 3L5 14H2v-3L11.5 1.5z"/>
+        </svg>
+        <span>Đổi tên (Rename)</span>
+      </div>
+      <div class="context-item" data-action="split">
+        <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+          <rect x="2" y="2" width="12" height="12" rx="1.5"/>
+          <line x1="8" y1="2" x2="8" y2="14"/>
+        </svg>
+        <span>Chia đôi tab (Split)</span>
+      </div>
+      <div class="context-item" data-action="new">
+        <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+          <line x1="8" y1="3" x2="8" y2="13"/>
+          <line x1="3" y1="8" x2="13" y2="8"/>
+        </svg>
+        <span>Mở tab mới (New Tab)</span>
+      </div>
+      <div class="context-divider"></div>
+      <div class="context-item danger" data-action="close">
+        <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+          <line x1="3" y1="3" x2="13" y2="13"/>
+          <line x1="13" y1="3" x2="3" y2="13"/>
+        </svg>
+        <span>Đóng tab này (Close)</span>
+      </div>
+      <div class="context-item danger" data-action="close-others">
+        <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+          <rect x="2" y="2" width="9" height="9" rx="1"/>
+          <path d="M5 14h8a1 1 0 0 0 1-1V5"/>
+        </svg>
+        <span>Đóng các tab khác (Close Others)</span>
+      </div>
+    </div>
+  </main>
+  <script src="../../../node_modules/@xterm/xterm/lib/xterm.js"></script>
+  <script src="../../../node_modules/@xterm/addon-fit/lib/addon-fit.js"></script>
+  <script src="../../../node_modules/@xterm/addon-webgl/lib/addon-webgl.js"></script>
+  <script src="../../../node_modules/@xterm/addon-web-links/lib/addon-web-links.js"></script>
+  <script src="standalone.js"></script>
+</body>
+</html>
