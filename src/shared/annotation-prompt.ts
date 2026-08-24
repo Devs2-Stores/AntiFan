@@ -3,7 +3,7 @@
  * 100% Parity with Antigravity Browser standalone prompt generation contract.
  */
 
-export const AGENT_CONTRACT_VERSION = '2.0.0';
+export const AGENT_CONTRACT_VERSION = '3.0.0';
 
 export type TaskIntent =
   | 'tweak'
@@ -288,11 +288,13 @@ ${executionPermission}
 
 ## Non-goals
 ${nonGoals}
-
 ## Acceptance criteria
 ${criteria}
 
+## Fable-Thinking Invariant Ledger & Safety Boundaries
+- **PRESERVES**: Existing behavior, public contracts, untargeted attributes, and system state outside the request boundary.
+- **DELIBERATELY CHANGES**: Only the explicitly targeted code, properties, or configuration required by the request.
+- **RISKS & SIDE EFFECTS**: Check regression paths, responsive constraints, and dependent module interactions before committing changes.
 ${STANDALONE_AGENT_CONTRACT}
-
 ${INTENT_MODULES[intent]}`;
 }

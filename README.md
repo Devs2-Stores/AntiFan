@@ -23,6 +23,12 @@ Trình duyệt Chromium Desktop siêu nhẹ, đóng vai trò là **Companion Eng
 
 ---
 
+### Annotation & định tuyến Workspace
+- Element Picker thu thập selector/XPath, ngữ cảnh DOM, computed styles, ảnh chụp và tối đa các ảnh đính kèm để đưa vào prompt cho AI.
+- `Tự động (theo site URL)` lưu annotation vào project tương ứng dưới `E:\Work\customizes`, `E:\Work\themes` hoặc `E:\Work\apps`; tên project khớp chính xác luôn được ưu tiên trước hậu tố số.
+- Khi người dùng chọn một terminal session cụ thể, lựa chọn đó là nguồn quyết định cho cả nơi lưu artifact và nơi gửi prompt. Chế độ tự động ngăn annotation rơi vào session đang active nhưng không liên quan.
+- Artifact được ghi vào `.antifan/annotations` và `.antifan/snapshots` của project đích. `auto` gửi prompt ngay tới terminal; `draft` giữ delivery ở trạng thái chờ.
+
 ## 🚀 Hướng dẫn Chạy & Phát triển
 
 ### Cài đặt & Build

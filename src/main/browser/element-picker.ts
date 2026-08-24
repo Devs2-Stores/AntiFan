@@ -103,82 +103,423 @@ export const ELEMENT_PICKER_SCRIPT = `(() => {
     }
     return '/' + parts.join('/');
   };
+  const escapeCSSString = (s) => {
+    return String(s)
+      .replace(/\\\\/g, '\\\\\\\\')
+      .replace(/"/g, '\\\\"')
+      .replace(/\\n/g, '\\\\n')
+      .replace(/\\r/g, '\\\\r');
+  };
 
-  const findOptimalUniqueSelector = (el) => {
-    if (!el || el.nodeType !== 1) return { selector: '', isUnique: false, matchCount: 0 };
+  const computeRelativeSubselector = (ownerEl, targetEl) => {
+    if (!ownerEl || !targetEl || ownerEl === targetEl) {
+      return { subselector: '', stability: 'stable', isStructuralFallback: false };
+    }
 
-    // 1. Check ID uniqueness (ignore auto-numeric ids)
-    if (el.id && typeof el.id === 'string' && !/^[0-9]/.test(el.id)) {
-      const idSel = '#' + CSS.escape(el.id);
+    // 1. Check clean class on targetEl
+    const cleanClasses = Array.from(targetEl.classList || []).filter(
+      (c) =>
+        typeof c === 'string' &&
+        !c.startsWith('antifan-') &&
+        !c.includes('slick-') &&
+        !c.includes('swiper-') &&
+        !c.includes('active') &&
+        !c.includes('hover') &&
+        !/^[0-9]/.test(c)
+    );
+
+    for (const cls of cleanClasses) {
+      const classSel = '.' + CSS.escape(cls);
       try {
-        if (document.querySelectorAll(idSel).length === 1) return { selector: idSel, isUnique: true, matchCount: 1 };
+        const matches = ownerEl.querySelectorAll(classSel);
+        if (matches.length === 1 && matches[0] === targetEl) {
+          return { subselector: classSel, stability: 'stable', isStructuralFallback: false };
+        }
       } catch {}
     }
 
-    const tag = el.tagName.toLowerCase();
-    const classList = Array.from(el.classList || []).filter((c) => typeof c === 'string' && !c.startsWith('antifan-') && !c.includes(':') && !c.includes('slick-cloned') && !c.includes('swiper-slide-duplicate') && !/^[0-9]/.test(c));
-
-    // 2. Check Liquid & Theme Semantic Anchors
-    const liquidAttrs = ['data-section-id', 'data-section-type', 'data-product-id', 'data-variant-id', 'setting-id', 'data-block-id', 'data-handle', 'data-sku', 'data-id', 'name', 'aria-label'];
-    for (const a of liquidAttrs) {
-      const v = el.getAttribute(a);
-      if (v && v.length < 80) {
-        const sel = tag + '[' + a + '="' + CSS.escape(v) + '"]';
+    // 2. Check semantic attributes on targetEl
+    const subAttrs = ['setting-id', 'name', 'type', 'role', 'aria-label'];
+    for (const attr of subAttrs) {
+      const val = targetEl.getAttribute(attr);
+      if (val && typeof val === 'string' && val.length < 80) {
+        const attrSel = '[' + attr + '="' + escapeCSSString(val) + '"]';
         try {
-          if (document.querySelectorAll(sel).length === 1) return { selector: sel, isUnique: true, matchCount: 1 };
+          const matches = ownerEl.querySelectorAll(attrSel);
+          if (matches.length === 1 && matches[0] === targetEl) {
+            return { subselector: attrSel, stability: 'stable', isStructuralFallback: false };
+          }
         } catch {}
       }
     }
 
-    // 3. Check Parent Liquid Section Scope
-    const closestSection = el.closest ? el.closest('[data-section-id], [data-section-type], section[id^="shopify-section-"], section[id^="haravan-section-"]') : null;
-    if (closestSection && closestSection !== el) {
-      const secAttr = closestSection.getAttribute('data-section-id') ? ('[data-section-id="' + CSS.escape(closestSection.getAttribute('data-section-id')) + '"]') : (closestSection.id ? ('#' + CSS.escape(closestSection.id)) : '');
-      if (secAttr && classList.length > 0) {
-        const scopedSel = secAttr + ' ' + tag + '.' + CSS.escape(classList[0]);
-        try {
-          if (document.querySelectorAll(scopedSel).length === 1) return { selector: scopedSel, isUnique: true, matchCount: 1 };
-        } catch {}
+    // 3. Fallback: Structural path with nth-of-type (EXPLICITLY UNSTABLE)
+    const pathParts = [];
+    let curr = targetEl;
+    while (curr && curr !== ownerEl && curr.parentElement && pathParts.length < 6) {
+      const parent = curr.parentElement;
+      const tag = curr.tagName.toLowerCase();
+      const siblings = Array.from(parent.children).filter((s) => s.tagName.toLowerCase() === tag);
+      if (siblings.length === 1) {
+        pathParts.unshift(tag);
+      } else {
+        const idx = siblings.indexOf(curr) + 1;
+        pathParts.unshift(tag + ':nth-of-type(' + idx + ')');
+      }
+      curr = parent;
+    }
+
+    return {
+      subselector: pathParts.join(' > '),
+      stability: 'unstable-structural-fallback',
+      isStructuralFallback: true,
+    };
+  };
+
+  const resolveRobustElementIdentity = (el) => {
+    if (!el || el.nodeType !== 1) {
+      return {
+        primarySelector: '',
+        isUnique: false,
+        isClone: false,
+        isLoopItem: false,
+        indexStability: 'stable',
+      };
+    }
+
+    // 1. Ancestor-aware Clone Detection
+    const cloneAncestor = el.closest
+      ? el.closest('.slick-cloned, .swiper-slide-duplicate, [data-cloned="true"]')
+      : null;
+    const isClone = Boolean(cloneAncestor);
+
+    // 2. Section Scope
+    const closestSec = el.closest
+      ? el.closest('section[id^="shopify-section-"], section[id^="haravan-section-"], [data-section-id], [data-section-type], section, main')
+      : null;
+
+    let sectionSelector = '';
+    let sectionId = undefined;
+    if (closestSec) {
+      if (closestSec.id) {
+        sectionSelector = '#' + CSS.escape(closestSec.id);
+        sectionId = closestSec.id;
+      } else if (closestSec.getAttribute('data-section-id')) {
+        const secAttr = closestSec.getAttribute('data-section-id');
+        sectionSelector = '[data-section-id="' + escapeCSSString(secAttr) + '"]';
+        sectionId = secAttr;
       }
     }
 
-    // 4. Check distinct single class
-    if (classList.length > 0) {
-      for (const c of classList) {
-        const sel = tag + '.' + CSS.escape(c);
-        try {
-          if (document.querySelectorAll(sel).length === 1) return { selector: sel, isUnique: true, matchCount: 1 };
-        } catch {}
-      }
+    // 3. Find Keyed Owner Element
+    const candidateAttrs = ['data-product-id', 'data-handle', 'data-variant-id', 'setting-id', 'data-block-id', 'name'];
+    let keyedOwner = undefined;
+    let ownerKeyAttr = undefined;
+    let ownerKeyValue = undefined;
 
-      // 5. Check combined classes
-      if (classList.length >= 2) {
-        const sel = tag + '.' + classList.slice(0, 3).map((c) => CSS.escape(c)).join('.');
-        try {
-          if (document.querySelectorAll(sel).length === 1) return { selector: sel, isUnique: true, matchCount: 1 };
-        } catch {}
+    let curr = el;
+    while (curr && curr !== closestSec && curr !== document.body) {
+      for (const attr of candidateAttrs) {
+        const val = curr.getAttribute ? curr.getAttribute(attr) : null;
+        if (val && typeof val === 'string' && val.length < 100) {
+          keyedOwner = curr;
+          ownerKeyAttr = attr;
+          ownerKeyValue = val;
+          break;
+        }
       }
+      if (keyedOwner) break;
+      curr = curr.parentElement;
     }
 
-    // 6. Check parent-scoped selector
-    if (el.parentElement && el.parentElement !== document.body) {
-      const pTag = el.parentElement.tagName.toLowerCase();
-      const pCls = (el.parentElement.className && typeof el.parentElement.className === 'string')
-        ? el.parentElement.className.trim().split(/\\s+/).filter((c) => !c.includes('slick-cloned')).filter(Boolean)[0]
-        : '';
-      const pPrefix = pCls ? pTag + '.' + CSS.escape(pCls) : pTag;
-      const childSuffix = classList.length ? tag + '.' + CSS.escape(classList[0]) : tag;
-      const scopedSel = pPrefix + ' > ' + childSuffix;
+    // 4. Compute Subselector
+    const subResult = keyedOwner
+      ? computeRelativeSubselector(keyedOwner, el)
+      : { subselector: '', stability: 'stable', isStructuralFallback: false };
+    const ownerQuery = keyedOwner ? '[' + ownerKeyAttr + '="' + escapeCSSString(ownerKeyValue) + '"]' : '';
+    const composedParts = [sectionSelector, ownerQuery, subResult.subselector].filter(Boolean);
+    const composedSelector = composedParts.join(' ').trim();
+
+    // 6. Strict Non-Clone Canonical Evidence Resolution via candidate.closest(cloneSelector) === null
+    let canonicalEvidence = {
+      isClone: isClone,
+      ownerKey: ownerKeyAttr,
+      ownerValue: ownerKeyValue,
+      relativeSubSelector: subResult.subselector,
+      canonicalMatchCount: 0,
+      canonicalFound: false,
+      isUniqueCanonicalTarget: false,
+    };
+
+    if (keyedOwner && ownerKeyAttr && ownerKeyValue) {
+      const ownerCandidateQuery = [sectionSelector, '[' + ownerKeyAttr + '="' + escapeCSSString(ownerKeyValue) + '"]'].filter(Boolean).join(' ').trim();
       try {
-        if (document.querySelectorAll(scopedSel).length === 1) return { selector: scopedSel, isUnique: true, matchCount: 1 };
+        const allCandidateOwners = Array.from(document.querySelectorAll(ownerCandidateQuery));
+        const nonCloneOwners = allCandidateOwners.filter(
+          (cand) => cand.closest('.slick-cloned, .swiper-slide-duplicate, [data-cloned="true"]') === null
+        );
+
+        if (nonCloneOwners.length === 1) {
+          const canonicalOwner = nonCloneOwners[0];
+          if (subResult.subselector) {
+            const canonicalTargets = Array.from(canonicalOwner.querySelectorAll(subResult.subselector));
+            if (canonicalTargets.length === 1) {
+              canonicalEvidence.canonicalFound = true;
+              canonicalEvidence.isUniqueCanonicalTarget = true;
+            } else if (canonicalTargets.length > 1) {
+              canonicalEvidence.canonicalFound = true;
+              canonicalEvidence.isUniqueCanonicalTarget = false;
+              canonicalEvidence.canonicalTargetCount = canonicalTargets.length;
+            }
+          } else {
+            canonicalEvidence.canonicalFound = true;
+            canonicalEvidence.isUniqueCanonicalTarget = true;
+          }
+        }
       } catch {}
     }
 
-    // Fallback: Dom Ancestry
-    const fallback = getDomAncestry(el);
-    let count = 1;
-    try { count = document.querySelectorAll(fallback).length; } catch {}
-    return { selector: fallback, isUnique: count === 1, matchCount: count };
+    // 7. Uniqueness & Match Metrics
+    let isUnique = false;
+    let matchCount = 1;
+    let captureTimeDomIndex = undefined;
+
+    if (composedSelector) {
+      try {
+        const allMatches = Array.from(document.querySelectorAll(composedSelector));
+        const realMatches = allMatches.filter(
+          (m) => m.closest('.slick-cloned, .swiper-slide-duplicate, [data-cloned="true"]') === null
+        );
+
+        matchCount = realMatches.length;
+        isUnique = realMatches.length === 1;
+
+        const idx = realMatches.indexOf(el);
+        if (idx >= 0) captureTimeDomIndex = idx;
+      } catch {}
+    }
+
+    return {
+      primarySelector: composedSelector || getDomAncestry(el),
+      relativeSubpath: subResult.subselector,
+      relativeSubpathStability: subResult.stability,
+      isStructuralFallback: subResult.isStructuralFallback,
+      keyedOwnerAttr: ownerKeyAttr,
+      keyedOwnerValue: ownerKeyValue,
+      isUnique: isUnique,
+      matchCount: matchCount,
+      captureTimeDomIndex: captureTimeDomIndex,
+      isClone: isClone,
+      canonicalEvidence: canonicalEvidence,
+      isLoopItem: matchCount > 1,
+      indexStability: (matchCount > 1 || subResult.isStructuralFallback) ? 'unstable-on-rerender' : 'stable',
+      sectionId: sectionId,
+      businessKeys: ownerKeyAttr ? { [ownerKeyAttr]: ownerKeyValue } : {},
+    };
+  };
+
+  const extractSourceHints = (el) => {
+    const signals = [];
+    let detectedFramework = 'unknown';
+    let frameworkConfidence = 'low';
+    let suggestedFile = undefined;
+    let suggestedLine = undefined;
+    let suggestedComponent = undefined;
+
+    if (!el || el.nodeType !== 1) {
+      return { framework: 'unknown', confidence: 'low', signals: [] };
+    }
+
+    // 1. Explicit Liquid Theme Section Marker (Shopify / Haravan)
+    const closestSec = el.closest ? el.closest('section[id^="shopify-section-"], section[id^="haravan-section-"], [data-section-id], [data-section-type]') : null;
+    if (closestSec) {
+      const isExplicitTheme = /^shopify-section-|^haravan-section-/.test(closestSec.id || '');
+      const secId = closestSec.getAttribute('data-section-id') || closestSec.id;
+      const secType = closestSec.getAttribute('data-section-type');
+
+      signals.push({
+        type: 'liquid-section',
+        name: 'sectionId',
+        value: String(secId || '').slice(0, 100),
+        confidence: isExplicitTheme ? 'high' : 'medium',
+      });
+
+      if (secType) {
+        signals.push({
+          type: 'liquid-section',
+          name: 'sectionType',
+          value: String(secType).slice(0, 100),
+          confidence: isExplicitTheme ? 'high' : 'medium',
+        });
+      }
+
+      if (isExplicitTheme) {
+        detectedFramework = 'liquid';
+        frameworkConfidence = 'high';
+      }
+    }
+    // 2. Strict Numeric Validation for sourceLine
+    const rawLine = (el.getAttribute('data-source-line') || '').trim();
+    if (/^\\d+$/.test(rawLine)) {
+      const parsedLine = Number(rawLine);
+      if (Number.isInteger(parsedLine) && parsedLine > 0 && parsedLine <= 1000000) {
+        suggestedLine = parsedLine;
+        signals.push({ type: 'build-attribute', name: 'data-source-line', value: String(parsedLine), confidence: 'medium' });
+      }
+    }
+
+    // 3. Build-time and Locator Attributes (Astro / Vite / Next.js / LocatorJS)
+    const astroFile = el.getAttribute('data-astro-source-file') || el.closest('[data-astro-source-file]')?.getAttribute('data-astro-source-file');
+    if (astroFile && typeof astroFile === 'string') {
+      suggestedFile = astroFile.slice(0, 300);
+      detectedFramework = 'astro';
+      frameworkConfidence = 'high';
+      signals.push({ type: 'build-attribute', name: 'data-astro-source-file', value: suggestedFile, confidence: 'high' });
+    }
+
+    const srcFile = el.getAttribute('data-source-file') || el.getAttribute('data-locatorjs-id') || el.closest('[data-source-file]')?.getAttribute('data-source-file');
+    if (srcFile && typeof srcFile === 'string' && !suggestedFile) {
+      suggestedFile = srcFile.slice(0, 300);
+      signals.push({ type: 'build-attribute', name: 'data-source-file', value: suggestedFile, confidence: 'medium' });
+    }
+
+    const sourceLoc = el.getAttribute('data-source-loc') || el.closest('[data-source-loc]')?.getAttribute('data-source-loc');
+    if (sourceLoc && typeof sourceLoc === 'string') {
+      const locParts = sourceLoc.split(':');
+      if (locParts.length >= 2) {
+        if (!suggestedFile) suggestedFile = locParts[0]?.slice(0, 300);
+        if (!suggestedLine && /^\\d+$/.test(locParts[1] || '')) suggestedLine = Number(locParts[1]);
+        signals.push({ type: 'build-attribute', name: 'data-source-loc', value: sourceLoc.slice(0, 300), confidence: 'high' });
+      }
+    }
+
+    const compName = el.getAttribute('data-component') || el.getAttribute('data-component-name') || el.closest('[data-component]')?.getAttribute('data-component');
+    if (compName && typeof compName === 'string') {
+      suggestedComponent = compName.slice(0, 100);
+      signals.push({ type: 'dom-attribute', name: 'data-component', value: suggestedComponent, confidence: 'medium' });
+    }
+
+    // 4. React Fiber & Debug Source Detection
+    try {
+      const fiberKey = Object.keys(el).find((k) => k.startsWith('__reactFiber$') || k.startsWith('__reactInternalInstance$'));
+      if (fiberKey && el[fiberKey]) {
+        if (detectedFramework === 'unknown') {
+          detectedFramework = 'react';
+          frameworkConfidence = 'medium';
+        }
+        let curr = el[fiberKey];
+        let depth = 0;
+        while (curr && depth < 10) {
+          if (curr._debugSource && !suggestedFile) {
+            if (curr._debugSource.fileName) suggestedFile = String(curr._debugSource.fileName).slice(0, 300);
+            if (curr._debugSource.lineNumber) suggestedLine = Number(curr._debugSource.lineNumber);
+            frameworkConfidence = 'high';
+            signals.push({ type: 'react-debug-source', name: '_debugSource', value: suggestedFile + ':' + suggestedLine, confidence: 'high' });
+          }
+          if (curr._debugOwner?.type?.name && !suggestedComponent) {
+            suggestedComponent = String(curr._debugOwner.type.name).slice(0, 100);
+            signals.push({ type: 'react-debug-owner', name: 'componentName', value: suggestedComponent, confidence: 'high' });
+          } else if (typeof curr.type === 'function' && curr.type.name && !suggestedComponent) {
+            suggestedComponent = String(curr.type.name).slice(0, 100);
+            signals.push({ type: 'react-fiber', name: 'componentName', value: suggestedComponent, confidence: 'medium' });
+          }
+          curr = curr.return;
+          depth++;
+        }
+      }
+    } catch {}
+
+    const getAttrNames = (target) => {
+      if (!target || !target.attributes) return [];
+      if (typeof target.attributes[Symbol.iterator] === 'function' || Array.isArray(target.attributes)) {
+        return Array.from(target.attributes).map((a) => (typeof a === 'string' ? a : (a && a.name) || ''));
+      }
+      return Object.keys(target.attributes);
+    };
+    const attrNames = getAttrNames(el);
+
+    // 5. Vue Framework Detection (__vue__, __vnode, data-v-*)
+    try {
+      const isVue = el.__vue__ || el.__vnode || Object.keys(el).some((k) => k.startsWith('__vueParentComponent'));
+      const hasVueScopedAttr = attrNames.some((name) => typeof name === 'string' && /^data-v-[a-f0-9]+$/i.test(name));
+      if (isVue || hasVueScopedAttr) {
+        if (detectedFramework === 'unknown') {
+          detectedFramework = 'vue';
+          frameworkConfidence = hasVueScopedAttr ? 'high' : 'medium';
+        }
+        signals.push({ type: 'vue-component', name: 'vueSignal', value: hasVueScopedAttr ? 'scoped-css' : 'vnode', confidence: 'medium' });
+      }
+    } catch {}
+
+    // 6. Svelte Framework Detection (class="svelte-*", data-svelte-*)
+    try {
+      const classNames = typeof el.className === 'string' ? el.className : '';
+      const isSvelteClass = /svelte-[a-z0-9]+/i.test(classNames);
+      const hasSvelteAttr = attrNames.some((name) => typeof name === 'string' && name.startsWith('data-svelte-'));
+      if (isSvelteClass || hasSvelteAttr) {
+        if (detectedFramework === 'unknown') {
+          detectedFramework = 'svelte';
+          frameworkConfidence = 'high';
+        }
+        signals.push({ type: 'svelte-component', name: 'svelteSignal', value: isSvelteClass ? 'scoped-class' : 'data-svelte', confidence: 'high' });
+      }
+    } catch {}
+    return {
+      framework: detectedFramework,
+      confidence: frameworkConfidence,
+      suggestedFile: suggestedFile,
+      suggestedLine: suggestedLine,
+      suggestedComponent: suggestedComponent,
+      signals: signals,
+    };
+  };
+
+  const extractBoxModel = (el, computed, rect) => {
+    const parse = (v) => parseFloat(v) || 0;
+    const mt = parse(computed.marginTop), mr = parse(computed.marginRight), mb = parse(computed.marginBottom), ml = parse(computed.marginLeft);
+    const pt = parse(computed.paddingTop), pr = parse(computed.paddingRight), pb = parse(computed.paddingBottom), pl = parse(computed.paddingLeft);
+    const bt = parse(computed.borderTopWidth), br = parse(computed.borderRightWidth), bb = parse(computed.borderBottomWidth), bl = parse(computed.borderLeftWidth);
+
+    return {
+      margin: { top: mt, right: mr, bottom: mb, left: ml },
+      padding: { top: pt, right: pr, bottom: pb, left: pl },
+      border: { top: bt, right: br, bottom: bb, left: bl },
+      content: {
+        width: Math.max(0, Math.round(rect.width - (pl + pr + bl + br))),
+        height: Math.max(0, Math.round(rect.height - (pt + pb + bt + bb))),
+      },
+    };
+  };
+
+  const extractParentLayout = (el) => {
+    const parent = el.parentElement;
+    if (!parent || parent === document.documentElement) return undefined;
+    try {
+      const pComp = window.getComputedStyle(parent);
+      const display = pComp.display || 'block';
+      return {
+        tag: parent.tagName.toLowerCase(),
+        selector: parent.id ? '#' + parent.id : (parent.className && typeof parent.className === 'string' ? '.' + parent.className.trim().split(/\\s+/)[0] : parent.tagName.toLowerCase()),
+        display: display,
+        flexDirection: display.includes('flex') ? pComp.flexDirection : undefined,
+        gap: (display.includes('flex') || display.includes('grid')) ? pComp.gap : undefined,
+        gridTemplateColumns: display.includes('grid') ? pComp.gridTemplateColumns : undefined,
+      };
+    } catch {
+      return undefined;
+    }
+  };
+
+  const extractSiblingSemantics = (el) => {
+    const parent = el.parentElement;
+    if (!parent) return [];
+    const siblings = Array.from(parent.children).slice(0, 6);
+    return siblings.map((sib) => ({
+      tag: sib.tagName.toLowerCase(),
+      role: sib.getAttribute('role') || undefined,
+      textSnippet: (sib.textContent || '').trim().slice(0, 50),
+      isTarget: sib === el,
+    }));
   };
 
   const overlay = document.createElement('div');
@@ -206,19 +547,25 @@ export const ELEMENT_PICKER_SCRIPT = `(() => {
       dock.style.cssText = 'position:fixed;bottom:20px;left:50%;transform:translateX(-50%);z-index:2147483647;background:rgba(18,24,38,0.95);border:1px solid #38bdf8;border-radius:24px;padding:6px 14px;box-shadow:0 8px 30px rgba(0,0,0,0.6);display:flex;align-items:center;gap:12px;color:#fff;font-family:-apple-system,sans-serif;font-size:12px;backdrop-filter:blur(8px);';
       document.body.appendChild(dock);
     }
-    dock.innerHTML = '<span style="font-weight:600;color:#38bdf8;">✨ ' + pickedList.length + ' element' + (pickedList.length > 1 ? 's' : '') + ' selected</span><button id="btnMultiSubmit" style="background:#087ff5;border:none;color:#fff;border-radius:14px;padding:4px 12px;font-size:11px;font-weight:600;cursor:pointer;">Send All ↑</button><button id="btnMultiCancel" style="background:transparent;border:none;color:#94a3b8;font-size:11px;cursor:pointer;">Cancel</button>';
+    dock.innerHTML = '<span style="font-weight:600;color:#38bdf8;">✨ ' + pickedList.length + ' element' + (pickedList.length > 1 ? 's' : '') + ' selected</span><div style="display:flex;align-items:center;gap:6px;"><button id="btnMultiQueue" style="background:#1e293b;border:1px solid #334155;color:#e2e8f0;border-radius:14px;padding:4px 10px;font-size:11px;font-weight:600;cursor:pointer;" title="Đưa vào hàng đợi / bản nháp (không chạy ngay)">Queue All</button><button id="btnMultiSubmit" style="background:#087ff5;border:none;color:#fff;border-radius:14px;padding:4px 12px;font-size:11px;font-weight:600;cursor:pointer;" title="Gửi và thực thi ngay">Send All ↑</button><button id="btnMultiCancel" style="background:transparent;border:none;color:#94a3b8;font-size:11px;cursor:pointer;">Cancel</button></div>';
 
-    dock.querySelector('#btnMultiSubmit').onclick = () => {
+    const submitMulti = (mode) => {
       if (pickedList.length > 0) {
         const first = pickedList[0];
         const combinedComment = pickedList.map((p, idx) => '[' + (idx + 1) + '] ' + p.selector + ': ' + (p.userComment || 'Check this element')).join('\\n\\n');
         window.__antifanPick = Object.assign({}, first, {
           userComment: combinedComment,
           multiItems: pickedList,
+          deliveryMode: mode || 'auto',
         });
       }
       cleanup();
     };
+
+    const multiQueueBtn = dock.querySelector('#btnMultiQueue');
+    if (multiQueueBtn) multiQueueBtn.onclick = () => submitMulti('draft');
+    const multiSubmitBtn = dock.querySelector('#btnMultiSubmit');
+    if (multiSubmitBtn) multiSubmitBtn.onclick = () => submitMulti('auto');
 
     dock.querySelector('#btnMultiCancel').onclick = () => {
       cleanup();
@@ -344,15 +691,17 @@ export const ELEMENT_PICKER_SCRIPT = `(() => {
     termSelect.style.cssText = 'flex:1;min-width:0;background:#0f172a;color:#38bdf8;border:1px solid #263b50;border-radius:4px;padding:2px 4px;font-size:11px;font-weight:500;outline:none;cursor:pointer;text-overflow:ellipsis;';
 
     if (termContext.sessions && termContext.sessions.length > 0) {
+      const autoOpt = document.createElement('option');
+      autoOpt.value = 'auto';
+      autoOpt.textContent = 'Tự động (theo site URL)';
+      autoOpt.selected = true;
+      termSelect.appendChild(autoOpt);
       termContext.sessions.forEach((s) => {
         const opt = document.createElement('option');
         opt.value = s.id;
         const cleanCwd = (s.cwd || '').replace(/\\\\/g, '/');
         const folder = cleanCwd ? cleanCwd.split('/').filter(Boolean).pop() : '';
         opt.textContent = (s.name || s.id) + (folder ? ' (' + folder + ')' : '');
-        if (s.id === termContext.selectedSessionId) {
-          opt.selected = true;
-        }
         termSelect.appendChild(opt);
       });
     } else {
@@ -427,7 +776,7 @@ export const ELEMENT_PICKER_SCRIPT = `(() => {
 
     const footer = document.createElement('div');
     footer.style.cssText = 'display:flex;align-items:center;justify-content:space-between;padding-top:1px;';
-    footer.innerHTML = '<div style="display:flex;align-items:center;gap:6px;"><button id="btnAttachImg" type="button" style="background:#1e293b;border:1px solid #334155;color:#94a3b8;border-radius:4px;padding:3px 7px;font-size:11px;cursor:pointer;display:flex;align-items:center;gap:4px;" title="Đính kèm ảnh từ máy tính"><span>📷</span> <span>Ảnh</span></button><span style="font-size:9.5px;color:#64748b;">Dán Ctrl+V ảnh</span></div><button id="btnModalSend" type="button" style="background:#087ff5;border:none;color:#ffffff;border-radius:4px;padding:4px 12px;font-size:11px;font-weight:600;cursor:pointer;">Gửi ↑</button>';
+    footer.innerHTML = '<div style="display:flex;align-items:center;gap:6px;"><button id="btnAttachImg" type="button" style="background:#1e293b;border:1px solid #334155;color:#94a3b8;border-radius:4px;padding:3px 7px;font-size:11px;cursor:pointer;display:flex;align-items:center;gap:4px;" title="Đính kèm ảnh từ máy tính"><span>📷</span> <span>Ảnh</span></button><span style="font-size:9.5px;color:#64748b;">Dán Ctrl+V ảnh</span></div><div style="display:flex;align-items:center;gap:6px;"><button id="btnModalQueue" type="button" style="background:#1e293b;border:1px solid #334155;color:#e2e8f0;border-radius:4px;padding:4px 9px;font-size:11px;font-weight:600;cursor:pointer;display:flex;align-items:center;gap:3px;" title="Đưa vào Queue / Draft (Không thực thi ngay)"><span>📥</span> <span>Queue</span></button><button id="btnModalSend" type="button" style="background:#087ff5;border:none;color:#ffffff;border-radius:4px;padding:4px 12px;font-size:11px;font-weight:600;cursor:pointer;" title="Gửi và thực thi ngay">Gửi ↑</button></div>';
     modal.appendChild(header);
     modal.appendChild(termRow);
     modal.appendChild(textarea);
@@ -570,7 +919,8 @@ export const ELEMENT_PICKER_SCRIPT = `(() => {
       }
     };
 
-    const doSubmit = () => {
+    const doSubmit = (mode = 'auto') => {
+      const deliveryMode = mode === 'draft' ? 'draft' : 'auto';
       let userComment = textarea.value.trim();
       if (!userComment && attachedImages.length === 0) {
         statusMsg.textContent = 'Vui lòng nhập mô tả hoặc đính kèm ảnh trước khi gửi.';
@@ -584,9 +934,17 @@ export const ELEMENT_PICKER_SCRIPT = `(() => {
       statusMsg.style.display = 'none';
 
       const submitBtn = modal.querySelector('#btnModalSend');
-      if (submitBtn) {
-        submitBtn.textContent = 'Đang gửi...';
-        submitBtn.style.opacity = '0.7';
+      const queueBtn = modal.querySelector('#btnModalQueue');
+      if (deliveryMode === 'draft') {
+        if (queueBtn) {
+          queueBtn.textContent = 'Đang lưu...';
+          queueBtn.style.opacity = '0.7';
+        }
+      } else {
+        if (submitBtn) {
+          submitBtn.textContent = 'Đang gửi...';
+          submitBtn.style.opacity = '0.7';
+        }
       }
       try {
         // 1. Re-measure fresh rect on submit to eliminate any scroll/layout drift
@@ -626,7 +984,12 @@ export const ELEMENT_PICKER_SCRIPT = `(() => {
           height: computed.height || '',
         };
 
-        const optimal = findOptimalUniqueSelector(el);
+        const robustIdentity = resolveRobustElementIdentity(el);
+        const sourceHints = extractSourceHints(el);
+        const boxModel = extractBoxModel(el, computed, freshRect);
+        const parentLayout = extractParentLayout(el);
+        const siblingSemantics = extractSiblingSemantics(el);
+
         const pickedItem = {
           tag: (el.tagName || 'div').toLowerCase(),
           tagName: (el.tagName || 'div').toLowerCase(),
@@ -635,9 +998,20 @@ export const ELEMENT_PICKER_SCRIPT = `(() => {
           textSnippet: (el.textContent || '').trim().slice(0, 120),
           textContent: (el.textContent || '').trim().slice(0, 1500),
           xpath: getXPath(el),
-          selector: optimal.selector,
-          isUnique: optimal.isUnique,
-          matchCount: optimal.matchCount,
+          selector: robustIdentity.primarySelector,
+          isUnique: robustIdentity.isUnique,
+          matchCount: robustIdentity.matchCount,
+          captureTimeDomIndex: robustIdentity.captureTimeDomIndex,
+          isClone: robustIdentity.isClone,
+          canonicalEvidence: robustIdentity.canonicalEvidence,
+          relativeSubpath: robustIdentity.relativeSubpath,
+          relativeSubpathStability: robustIdentity.relativeSubpathStability,
+          isLoopItem: robustIdentity.isLoopItem,
+          indexStability: robustIdentity.indexStability,
+          sourceHints: sourceHints,
+          boxModel: boxModel,
+          parentLayout: parentLayout,
+          siblingSemantics: siblingSemantics,
           domAncestry: getDomAncestry(el),
           dimensions: Math.round(freshRect.width) + ' x ' + Math.round(freshRect.height) + ' px',
           outerHTML: pruneOuterHtml(el.outerHTML || ''),
@@ -646,6 +1020,7 @@ export const ELEMENT_PICKER_SCRIPT = `(() => {
           userComment: userComment,
           targetSessionId: termSelect ? termSelect.value : (termContext.selectedSessionId || undefined),
           attachedImages: attachedImages.slice(0, 6),
+          deliveryMode: deliveryMode,
           rect: {
             x: Math.round(freshRect.left + window.scrollX),
             y: Math.round(freshRect.top + window.scrollY),
@@ -730,12 +1105,26 @@ export const ELEMENT_PICKER_SCRIPT = `(() => {
             userComment: userComment,
             targetSessionId: termSelect ? termSelect.value : undefined,
             attachedImages: attachedImages.slice(0, 6),
+            deliveryMode: deliveryMode,
             timestamp: Date.now(),
           };
         } catch {}
       }
     };
 
+    const queueBtn = modal.querySelector('#btnModalQueue');
+    if (queueBtn) {
+      queueBtn.onclick = (ev) => {
+        if (ev) {
+          ev.preventDefault();
+          ev.stopPropagation();
+        }
+        doSubmit('draft');
+      };
+      queueBtn.onpointerdown = (ev) => {
+        if (ev) ev.stopPropagation();
+      };
+    }
     const sendBtn = modal.querySelector('#btnModalSend');
     if (sendBtn) {
       sendBtn.onclick = (ev) => {
@@ -743,16 +1132,22 @@ export const ELEMENT_PICKER_SCRIPT = `(() => {
           ev.preventDefault();
           ev.stopPropagation();
         }
-        doSubmit();
+        doSubmit('auto');
       };
       sendBtn.onpointerdown = (ev) => {
         if (ev) ev.stopPropagation();
       };
     }
     textarea.onkeydown = (ev) => {
-      if (ev.key === 'Enter' && !ev.shiftKey) {
+      if (ev.key === 'Enter' && (ev.ctrlKey || ev.metaKey)) {
         ev.preventDefault();
-        doSubmit();
+        doSubmit('auto');
+      } else if (ev.key === 'Enter' && ev.altKey) {
+        ev.preventDefault();
+        doSubmit('draft');
+      } else if (ev.key === 'Enter' && !ev.shiftKey) {
+        ev.preventDefault();
+        doSubmit('auto');
       } else if (ev.key === 'Escape') {
         ev.preventDefault();
         cleanupModalListeners();
@@ -834,3 +1229,371 @@ export const ELEMENT_PICKER_SCRIPT = `(() => {
   window.addEventListener('keydown', onKey, true);
   if (document.documentElement) document.documentElement.style.cursor = 'crosshair';
 })();`;
+
+export interface RelativeSubselectorResult {
+  subselector: string;
+  stability: 'stable' | 'unstable-structural-fallback';
+  isStructuralFallback: boolean;
+}
+
+export const escapeCSS = (s: string): string => {
+  if (typeof CSS !== 'undefined' && typeof CSS.escape === 'function') {
+    return CSS.escape(s);
+  }
+  return String(s).replace(/([!"#$%&'()*+,.\/:;<=>?@[\\\]^`{|}~])/g, '\\$1');
+};
+
+export const escapeCSSString = (s: string): string => {
+  return String(s)
+    .replace(/\\/g, '\\\\')
+    .replace(/"/g, '\\"')
+    .replace(/\n/g, '\\n')
+    .replace(/\r/g, '\\r');
+};
+export function computeRelativeSubselectorTS(ownerEl: any, targetEl: any): RelativeSubselectorResult {
+  if (!ownerEl || !targetEl || ownerEl === targetEl) {
+    return { subselector: '', stability: 'stable', isStructuralFallback: false };
+  }
+
+  const cleanClasses: string[] = Array.from(targetEl.classList || [])
+    .filter(
+      (c: any): c is string =>
+        typeof c === 'string' &&
+        !c.startsWith('antifan-') &&
+        !c.includes('slick-') &&
+        !c.includes('swiper-') &&
+        !c.includes('active') &&
+        !c.includes('hover') &&
+        !/^[0-9]/.test(c)
+    );
+
+  for (const cls of cleanClasses) {
+    const classSel = '.' + escapeCSS(cls);
+    try {
+      const matches = ownerEl.querySelectorAll(classSel);
+      if (matches.length === 1 && matches[0] === targetEl) {
+        return { subselector: classSel, stability: 'stable', isStructuralFallback: false };
+      }
+    } catch {}
+  }
+
+  const subAttrs = ['setting-id', 'name', 'type', 'role', 'aria-label'];
+  for (const attr of subAttrs) {
+    const val = targetEl.getAttribute ? targetEl.getAttribute(attr) : null;
+    if (val && typeof val === 'string' && val.length < 80) {
+      const attrSel = '[' + attr + '="' + escapeCSSString(val) + '"]';
+      try {
+        const matches = ownerEl.querySelectorAll(attrSel);
+        if (matches.length === 1 && matches[0] === targetEl) {
+          return { subselector: attrSel, stability: 'stable', isStructuralFallback: false };
+        }
+      } catch {}
+    }
+  }
+
+  const pathParts: string[] = [];
+  let curr = targetEl;
+  while (curr && curr !== ownerEl && curr.parentElement && pathParts.length < 6) {
+    const parent = curr.parentElement;
+    const tag = curr.tagName.toLowerCase();
+    const siblings = Array.from(parent.children || []).filter((s: any) => s.tagName.toLowerCase() === tag);
+    if (siblings.length === 1) {
+      pathParts.unshift(tag);
+    } else {
+      const idx = siblings.indexOf(curr) + 1;
+      pathParts.unshift(tag + ':nth-of-type(' + idx + ')');
+    }
+    curr = parent;
+  }
+
+  return {
+    subselector: pathParts.join(' > '),
+    stability: 'unstable-structural-fallback',
+    isStructuralFallback: true,
+  };
+}
+
+export function resolveRobustElementIdentityTS(el: any, rootDocument?: any): any {
+  if (!el || el.nodeType !== 1) {
+    return { primarySelector: '', isUnique: false, isClone: false, isLoopItem: false, indexStability: 'stable' };
+  }
+  const doc = rootDocument || (typeof document !== 'undefined' ? document : null);
+  const cloneAncestor = el.closest ? el.closest('.slick-cloned, .swiper-slide-duplicate, [data-cloned="true"]') : null;
+  const isClone = Boolean(cloneAncestor);
+
+  const closestSec = el.closest
+    ? el.closest('section[id^="shopify-section-"], section[id^="haravan-section-"], [data-section-id], [data-section-type], section, main')
+    : null;
+
+  let sectionSelector = '';
+  let sectionId = undefined;
+  if (closestSec) {
+    if (closestSec.id) {
+      sectionSelector = '#' + escapeCSS(closestSec.id);
+      sectionId = closestSec.id;
+    } else if (closestSec.getAttribute && closestSec.getAttribute('data-section-id')) {
+      const secAttr = closestSec.getAttribute('data-section-id');
+      sectionSelector = '[data-section-id="' + escapeCSSString(secAttr) + '"]';
+    }
+  }
+
+  const candidateAttrs = ['data-product-id', 'data-handle', 'data-variant-id', 'setting-id', 'data-block-id', 'name'];
+  let keyedOwner: any = undefined;
+  let ownerKeyAttr: string | undefined = undefined;
+  let ownerKeyValue: string | undefined = undefined;
+
+  let curr = el;
+  while (curr && curr !== closestSec && curr !== (doc?.body)) {
+    for (const attr of candidateAttrs) {
+      const val = curr.getAttribute ? curr.getAttribute(attr) : null;
+      if (val && typeof val === 'string' && val.length < 100) {
+        keyedOwner = curr;
+        ownerKeyAttr = attr;
+        ownerKeyValue = val;
+        break;
+      }
+    }
+    if (keyedOwner) break;
+    curr = curr.parentElement;
+  }
+
+  const subResult = keyedOwner
+    ? computeRelativeSubselectorTS(keyedOwner, el)
+    : { subselector: '', stability: 'stable' as const, isStructuralFallback: false };
+  const ownerQuery = keyedOwner ? '[' + ownerKeyAttr + '="' + escapeCSSString(ownerKeyValue!) + '"]' : '';
+  const composedParts = [sectionSelector, ownerQuery, subResult.subselector].filter(Boolean);
+  const composedSelector = composedParts.join(' ').trim();
+
+  const canonicalEvidence: any = {
+    isClone,
+    ownerKey: ownerKeyAttr,
+    ownerValue: ownerKeyValue,
+    relativeSubSelector: subResult.subselector,
+    canonicalMatchCount: 0,
+    canonicalFound: false,
+    isUniqueCanonicalTarget: false,
+  };
+
+  if (keyedOwner && ownerKeyAttr && ownerKeyValue && doc) {
+    const ownerCandidateQuery = [sectionSelector, '[' + ownerKeyAttr + '="' + escapeCSSString(ownerKeyValue) + '"]'].filter(Boolean).join(' ').trim();
+    try {
+      const allCandidateOwners = Array.from(doc.querySelectorAll(ownerCandidateQuery));
+      const nonCloneOwners = allCandidateOwners.filter(
+        (cand: any) => cand.closest('.slick-cloned, .swiper-slide-duplicate, [data-cloned="true"]') === null
+      );
+      canonicalEvidence.canonicalMatchCount = nonCloneOwners.length;
+
+      if (nonCloneOwners.length === 1) {
+        const canonicalOwner: any = nonCloneOwners[0];
+        if (subResult.subselector) {
+          const canonicalTargets = Array.from(canonicalOwner.querySelectorAll(subResult.subselector));
+          if (canonicalTargets.length === 1) {
+            canonicalEvidence.canonicalFound = true;
+            canonicalEvidence.isUniqueCanonicalTarget = true;
+          } else if (canonicalTargets.length > 1) {
+            canonicalEvidence.canonicalFound = true;
+            canonicalEvidence.isUniqueCanonicalTarget = false;
+            canonicalEvidence.canonicalTargetCount = canonicalTargets.length;
+          }
+        } else {
+          canonicalEvidence.canonicalFound = true;
+          canonicalEvidence.isUniqueCanonicalTarget = true;
+        }
+      }
+    } catch {}
+  }
+
+  let isUnique = false;
+  let matchCount = 1;
+  let captureTimeDomIndex = undefined;
+
+  if (composedSelector && doc) {
+    try {
+      const allMatches = Array.from(doc.querySelectorAll(composedSelector));
+      const realMatches = allMatches.filter(
+        (m: any) => m.closest('.slick-cloned, .swiper-slide-duplicate, [data-cloned="true"]') === null
+      );
+
+      matchCount = realMatches.length;
+      isUnique = realMatches.length === 1;
+
+      const idx = realMatches.indexOf(el);
+      if (idx >= 0) captureTimeDomIndex = idx;
+    } catch {}
+  }
+
+  return {
+    primarySelector: composedSelector,
+    relativeSubpath: subResult.subselector,
+    relativeSubpathStability: subResult.stability,
+    isStructuralFallback: subResult.isStructuralFallback,
+    keyedOwnerAttr: ownerKeyAttr,
+    keyedOwnerValue: ownerKeyValue,
+    isUnique,
+    matchCount,
+    captureTimeDomIndex,
+    isClone,
+    canonicalEvidence,
+    isLoopItem: matchCount > 1,
+    indexStability: (matchCount > 1 || subResult.isStructuralFallback) ? 'unstable-on-rerender' : 'stable',
+    sectionId,
+  };
+}
+
+export function extractSourceHintsTS(el: any): any {
+  const signals: any[] = [];
+  let detectedFramework = 'unknown';
+  let frameworkConfidence = 'low';
+  let suggestedFile = undefined;
+  let suggestedLine = undefined;
+  let suggestedComponent = undefined;
+
+  if (!el || el.nodeType !== 1) {
+    return { framework: 'unknown', confidence: 'low', signals: [] };
+  }
+
+  // 1. Liquid section
+  const closestSec = el.closest ? el.closest('section[id^="shopify-section-"], section[id^="haravan-section-"], [data-section-id], [data-section-type]') : null;
+  if (closestSec) {
+    const isExplicitTheme = /^shopify-section-|^haravan-section-/.test(closestSec.id || '');
+    const secId = closestSec.getAttribute('data-section-id') || closestSec.id;
+    const secType = closestSec.getAttribute('data-section-type');
+
+    signals.push({
+      type: 'liquid-section',
+      name: 'sectionId',
+      value: String(secId || '').slice(0, 100),
+      confidence: isExplicitTheme ? 'high' : 'medium',
+    });
+
+    if (secType) {
+      signals.push({
+        type: 'liquid-section',
+        name: 'sectionType',
+        value: String(secType).slice(0, 100),
+        confidence: isExplicitTheme ? 'high' : 'medium',
+      });
+    }
+
+    if (isExplicitTheme) {
+      detectedFramework = 'liquid';
+      frameworkConfidence = 'high';
+    }
+  }
+
+  // 2. Strict Numeric Validation for sourceLine
+  const rawLine = (el.getAttribute('data-source-line') || '').trim();
+  if (/^\d+$/.test(rawLine)) {
+    const parsedLine = Number(rawLine);
+    if (Number.isInteger(parsedLine) && parsedLine > 0 && parsedLine <= 1000000) {
+      suggestedLine = parsedLine;
+      signals.push({ type: 'build-attribute', name: 'data-source-line', value: String(parsedLine), confidence: 'medium' });
+    }
+  }
+
+  // 3. Build-time attributes (Astro / LocatorJS / Vite / Next.js)
+  const astroFile = el.getAttribute('data-astro-source-file') || el.closest('[data-astro-source-file]')?.getAttribute('data-astro-source-file');
+  if (astroFile && typeof astroFile === 'string') {
+    suggestedFile = astroFile.slice(0, 300);
+    detectedFramework = 'astro';
+    frameworkConfidence = 'high';
+    signals.push({ type: 'build-attribute', name: 'data-astro-source-file', value: suggestedFile, confidence: 'high' });
+  }
+
+  const srcFile = el.getAttribute('data-source-file') || el.getAttribute('data-locatorjs-id') || el.closest('[data-source-file]')?.getAttribute('data-source-file');
+  if (srcFile && typeof srcFile === 'string' && !suggestedFile) {
+    suggestedFile = srcFile.slice(0, 300);
+    signals.push({ type: 'build-attribute', name: 'data-source-file', value: suggestedFile, confidence: 'medium' });
+  }
+
+  const sourceLoc = el.getAttribute('data-source-loc') || el.closest('[data-source-loc]')?.getAttribute('data-source-loc');
+  if (sourceLoc && typeof sourceLoc === 'string') {
+    const locParts = sourceLoc.split(':');
+    if (locParts.length >= 2) {
+      if (!suggestedFile) suggestedFile = locParts[0]?.slice(0, 300);
+      if (!suggestedLine && /^\d+$/.test(locParts[1] || '')) suggestedLine = Number(locParts[1]);
+      signals.push({ type: 'build-attribute', name: 'data-source-loc', value: sourceLoc.slice(0, 300), confidence: 'high' });
+    }
+  }
+
+  const compName = el.getAttribute('data-component') || el.getAttribute('data-component-name') || el.closest('[data-component]')?.getAttribute('data-component');
+  if (compName && typeof compName === 'string') {
+    suggestedComponent = compName.slice(0, 100);
+    signals.push({ type: 'dom-attribute', name: 'data-component', value: suggestedComponent, confidence: 'medium' });
+  }
+
+  // 4. React Fiber & Debug Source
+  try {
+    const fiberKey = Object.keys(el).find((k) => k.startsWith('__reactFiber$') || k.startsWith('__reactInternalInstance$'));
+    if (fiberKey && el[fiberKey]) {
+      if (detectedFramework === 'unknown') {
+        detectedFramework = 'react';
+        frameworkConfidence = 'medium';
+      }
+      let curr = el[fiberKey];
+      let depth = 0;
+      while (curr && depth < 10) {
+        if (curr._debugSource && !suggestedFile) {
+          if (curr._debugSource.fileName) suggestedFile = String(curr._debugSource.fileName).slice(0, 300);
+          if (curr._debugSource.lineNumber) suggestedLine = Number(curr._debugSource.lineNumber);
+          frameworkConfidence = 'high';
+          signals.push({ type: 'react-debug-source', name: '_debugSource', value: `${suggestedFile}:${suggestedLine}`, confidence: 'high' });
+        }
+        if (curr._debugOwner?.type?.name && !suggestedComponent) {
+          suggestedComponent = String(curr._debugOwner.type.name).slice(0, 100);
+          signals.push({ type: 'react-debug-owner', name: 'componentName', value: suggestedComponent, confidence: 'high' });
+        } else if (typeof curr.type === 'function' && curr.type.name && !suggestedComponent) {
+          suggestedComponent = String(curr.type.name).slice(0, 100);
+          signals.push({ type: 'react-fiber', name: 'componentName', value: suggestedComponent, confidence: 'medium' });
+        }
+        curr = curr.return;
+        depth++;
+      }
+    }
+  } catch {}
+
+  const getAttrNames = (target: any) => {
+    if (!target || !target.attributes) return [];
+    if (typeof target.attributes[Symbol.iterator] === 'function' || Array.isArray(target.attributes)) {
+      return Array.from(target.attributes).map((a: any) => (typeof a === 'string' ? a : (a && a.name) || ''));
+    }
+    return Object.keys(target.attributes);
+  };
+  const attrNames = getAttrNames(el);
+
+  // 5. Vue Framework
+  try {
+    const isVue = el.__vue__ || el.__vnode || Object.keys(el).some((k) => k.startsWith('__vueParentComponent'));
+    const hasVueScopedAttr = attrNames.some((name: string) => typeof name === 'string' && /^data-v-[a-f0-9]+$/i.test(name));
+    if (isVue || hasVueScopedAttr) {
+      if (detectedFramework === 'unknown') {
+        detectedFramework = 'vue';
+        frameworkConfidence = hasVueScopedAttr ? 'high' : 'medium';
+      }
+      signals.push({ type: 'vue-component', name: 'vueSignal', value: hasVueScopedAttr ? 'scoped-css' : 'vnode', confidence: 'medium' });
+    }
+  } catch {}
+
+  // 6. Svelte Framework
+  try {
+    const classNames = typeof el.className === 'string' ? el.className : '';
+    const isSvelteClass = /svelte-[a-z0-9]+/i.test(classNames);
+    const hasSvelteAttr = attrNames.some((name: string) => typeof name === 'string' && name.startsWith('data-svelte-'));
+    if (isSvelteClass || hasSvelteAttr) {
+      if (detectedFramework === 'unknown') {
+        detectedFramework = 'svelte';
+        frameworkConfidence = 'high';
+      }
+      signals.push({ type: 'svelte-component', name: 'svelteSignal', value: isSvelteClass ? 'scoped-class' : 'data-svelte', confidence: 'high' });
+    }
+  } catch {}
+
+  return {
+    framework: detectedFramework,
+    confidence: frameworkConfidence,
+    suggestedFile,
+    suggestedLine,
+    suggestedComponent,
+    signals,
+  };
+}

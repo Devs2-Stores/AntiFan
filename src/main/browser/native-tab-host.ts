@@ -13,6 +13,7 @@ import { EventEmitter } from 'node:events';
 import { AntiFanTab, AntiFanPickedElement, ChatMessage, TOOLBAR_CHANNELS, SIDEBAR_CHANNELS, TERMINAL_CHANNELS, BridgeDeliveryUpdatePayload, AntigravityAttachmentDescriptor } from '../../shared/contracts';
 import { getSecureWebPreferences, sanitizeUrl, isAllowedNavigation, cleanRestoredUrl, isInternalWidgetOrSubframeUrl } from '../security/security-policy';
 import { ELEMENT_PICKER_SCRIPT } from './element-picker';
+import { resolveWorkspaceFromUrl, DEFAULT_WORKSPACE_ROOTS } from './workspace-resolver';
 import { FONT_FINDER_SCRIPT } from './font-finder';
 import { GPU_LENS_SCRIPT } from './gpu-lens';
 import { RULER_SCRIPT } from './ruler';
@@ -2136,18 +2137,22 @@ export class NativeTabHost extends EventEmitter {
             ? this.transcriptSyncer.getActiveSessionId()
             : undefined);
           const targetWorkspace = this.resolveTargetWorkspace(targetSessionId, activeTab?.state.url);
+          const annotationWorkspace = this.resolveAnnotationWorkspace(targetSessionId, activeTab?.state.url);
 
           const annotationResult = await AnnotationManager.getInstance().processAnnotationPayload({
             url: active.state.url,
             title: active.state.title,
             targetImageBase64,
             viewportImageBase64,
-            workspaceDir: targetWorkspace,
+            workspaceDir: annotationWorkspace,
             ...rawResult,
           });
 
+          const effectiveDeliveryMode: 'auto' | 'draft' = rawResult.deliveryMode === 'draft' ? 'draft' : 'auto';
+
           const pickedData: AntiFanPickedElement = {
             ...rawResult,
+            deliveryMode: effectiveDeliveryMode,
             screenshotBase64: targetImageBase64,
             markdownPath: annotationResult.markdownPath,
             markdownContent: annotationResult.markdownContent,
@@ -2186,13 +2191,15 @@ export class NativeTabHost extends EventEmitter {
             fullPrompt += ` @${formatPath(annotationResult.targetImagePath)}`;
           }
 
-          // 1. Direct write to TerminalManager session PTY
-          const resolvedTerminalId = targetSessionId || tm.getActiveSessionId();
-          if (resolvedTerminalId) {
-            tm.switchSession(resolvedTerminalId);
-            tm.writeTo(resolvedTerminalId, fullPrompt + '\r');
-          } else {
-            tm.write(fullPrompt + '\r');
+          // 1. Direct write to TerminalManager session PTY ONLY if mode is 'auto' (immediate submit)
+          const resolvedTerminalId = targetSessionId && targetSessionId !== 'auto' ? targetSessionId : tm.getActiveSessionId();
+          if (effectiveDeliveryMode === 'auto') {
+            if (resolvedTerminalId) {
+              tm.switchSession(resolvedTerminalId);
+              tm.writeTo(resolvedTerminalId, fullPrompt + '\r');
+            } else {
+              tm.write(fullPrompt + '\r');
+            }
           }
 
           // 2. Also copy to OS clipboard for instant convenience
@@ -2209,7 +2216,7 @@ export class NativeTabHost extends EventEmitter {
           await this.handleSendPrompt({
             text: fullPrompt,
             attachedElement: pickedData,
-            deliveryMode: 'auto',
+            deliveryMode: effectiveDeliveryMode,
             sessionId: resolvedTerminalId,
           }).catch(() => {});
         }
@@ -2270,32 +2277,12 @@ export class NativeTabHost extends EventEmitter {
       }
     }
 
-    // 4. Try to classify based on tab URL (e.g. m-n-bakery -> customizes/Mnbakery)
+    // 4. Try to classify based on tab URL (e.g. seahorse.com.vn -> customizes/Seahorse2)
     if (tabUrl) {
-      try {
-        const parsedUrl = new URL(tabUrl);
-        const host = parsedUrl.hostname.toLowerCase();
-        const candidateRoots = [
-          path.join('e:\\Work', 'customizes'),
-          path.join('e:\\Work', 'themes'),
-          path.join('e:\\Work', 'apps'),
-        ];
-        for (const rootDir of candidateRoots) {
-          if (fs.existsSync(rootDir)) {
-            const subdirs = fs.readdirSync(rootDir, { withFileTypes: true });
-            for (const sd of subdirs) {
-              if (sd.isDirectory()) {
-                const subPath = path.join(rootDir, sd.name);
-                const cleanSub = sd.name.toLowerCase().replace(/[-_]/g, '');
-                const cleanHost = host.replace(/[-_.]/g, '');
-                if (cleanHost.includes(cleanSub) || (cleanHost.includes('myharavan') && cleanSub.includes(cleanHost.split('myharavan')[0] || '___'))) {
-                  return path.normalize(subPath);
-                }
-              }
-            }
-          }
-        }
-      } catch {}
+      const urlWorkspace = resolveWorkspaceFromUrl(tabUrl, DEFAULT_WORKSPACE_ROOTS);
+      if (urlWorkspace) {
+        return urlWorkspace;
+      }
     }
 
     // 5. Check active session from transcript syncer
@@ -2320,6 +2307,31 @@ export class NativeTabHost extends EventEmitter {
     return process.cwd();
   }
 
+  /**
+   * Workspace for storing annotation artifacts. An explicit terminal session
+   * chosen in the picker dropdown wins (user intent), else the annotated URL's
+   * project (so annotations never leak into an unrelated active session),
+   * else the same delivery resolution as before.
+   */
+  public resolveAnnotationWorkspace(targetSessionId?: string, tabUrl?: string): string {
+    if (targetSessionId && targetSessionId !== 'auto') {
+      const tm = TerminalManager.getInstance();
+      const session = tm.getSession(targetSessionId);
+      if (session?.cwd && fs.existsSync(path.normalize(session.cwd))) {
+        return path.normalize(session.cwd);
+      }
+      const sessionWorkspace = this.transcriptSyncer.getSessionWorkspace(targetSessionId);
+      if (sessionWorkspace && fs.existsSync(path.normalize(sessionWorkspace))) {
+        return path.normalize(sessionWorkspace);
+      }
+    }
+    const urlWorkspace = resolveWorkspaceFromUrl(tabUrl, DEFAULT_WORKSPACE_ROOTS);
+    if (urlWorkspace) {
+      return urlWorkspace;
+    }
+    return this.resolveTargetWorkspace(targetSessionId, tabUrl);
+  }
+
   public async handleSendPrompt(opts: {
     text: string;
     attachedElement?: AntiFanPickedElement;
@@ -2329,7 +2341,7 @@ export class NativeTabHost extends EventEmitter {
   }): Promise<{ ok: boolean; messageId: string; notice: string; commandId?: string }> {
     const mode = opts.deliveryMode || 'auto';
     const activeTab = this.tabs.get(this.activeTabId);
-    const targetSessionId = opts.sessionId || (this.transcriptSyncer.getActiveSessionId() !== 'auto' ? this.transcriptSyncer.getActiveSessionId() : undefined);
+    const targetSessionId = opts.sessionId && opts.sessionId !== 'auto' ? opts.sessionId : (this.transcriptSyncer.getActiveSessionId() !== 'auto' ? this.transcriptSyncer.getActiveSessionId() : undefined);
     const targetWorkspace = this.resolveTargetWorkspace(targetSessionId, activeTab?.state.url);
 
     // 1. Copy to OS clipboard instantly for 100% Antigravity IDE Ctrl+V parity

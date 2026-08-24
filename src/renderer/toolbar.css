@@ -1,5 +1,6 @@
 /* Antigravity Desktop — Original Classic VS Code Dark Theme */
 :root {
+  color-scheme: dark;
   --vscode-editor-background: #1e1e1e;
   --vscode-editor-foreground: #cccccc;
   --vscode-tab-inactiveBackground: #252526;
@@ -1033,6 +1034,7 @@ body, html {
 
 /* DEVICE SELECTOR & ZOOM CONTROLS */
 .device-select {
+  color-scheme: dark;
   background: rgba(255, 255, 255, 0.05);
   border: 1px solid rgba(255, 255, 255, 0.1);
   color: #e2e8f0;
@@ -1058,9 +1060,19 @@ body, html {
   box-shadow: 0 0 0 1px #38bdf8;
 }
 
+.device-select optgroup {
+  background: #141720;
+  color: #38bdf8;
+  font-weight: 600;
+  font-style: normal;
+  padding: 4px 6px;
+}
+
 .device-select option {
   background: #1c1c22;
   color: #f1f5f9;
+  font-style: normal;
+  padding: 4px 8px;
 }
 
 /* INLINE ZOOM STEPPER */
@@ -1416,24 +1428,27 @@ body, html {
   position: fixed;
   inset: 0;
   z-index: 2147483647;
-  background: rgba(0, 0, 0, 0.6);
+  background: rgba(0, 0, 0, 0.65);
+  backdrop-filter: blur(4px);
   display: flex;
   align-items: center;
   justify-content: center;
 }
 
+.shortcuts-modal,
 .shortcuts-panel {
-  background: var(--vscode-editor-background);
-  border: 1px solid var(--vscode-panel-border);
-  border-radius: 10px;
-  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
-  width: 460px;
+  background: #18191e;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 12px;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.7);
+  width: 480px;
   max-width: 92vw;
-  max-height: 80vh;
-  overflow-y: auto;
-  padding: 14px 16px;
-  color: var(--vscode-editor-foreground);
+  max-height: 85vh;
+  padding: 16px 20px;
+  color: #e2e8f0;
   font-size: 13px;
+  display: flex;
+  flex-direction: column;
 }
 
 .shortcuts-header {
@@ -1441,8 +1456,82 @@ body, html {
   justify-content: space-between;
   align-items: center;
   margin-bottom: 12px;
-  padding-bottom: 8px;
-  border-bottom: 1px solid var(--vscode-panel-border);
+  padding-bottom: 10px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.shortcuts-header span {
+  font-size: 14px;
+  font-weight: 600;
+  color: #f1f5f9;
+}
+
+.shortcuts-close,
+.shortcuts-header button {
+  background: transparent;
+  border: 0;
+  color: #94a3b8;
+  font-size: 18px;
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 6px;
+  line-height: 1;
+  transition: all 0.1s ease;
+}
+
+.shortcuts-close:hover,
+.shortcuts-header button:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: #ffffff;
+}
+
+.shortcuts-content {
+  overflow-y: auto;
+  max-height: calc(85vh - 70px);
+  padding-right: 4px;
+}
+
+.shortcuts-content::-webkit-scrollbar {
+  width: 6px;
+}
+
+.shortcuts-content::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 3px;
+}
+
+.shortcuts-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.shortcuts-table td {
+  padding: 7px 4px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  font-size: 12px;
+}
+
+.shortcuts-table td:first-child {
+  white-space: nowrap;
+  width: 170px;
+}
+
+.shortcuts-table td:last-child {
+  color: #cbd5e1;
+}
+
+.shortcuts-table tr:last-child td {
+  border-bottom: none;
+}
+
+.shortcuts-table kbd {
+  background: rgba(255, 255, 255, 0.09);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-bottom-width: 2px;
+  border-radius: 4px;
+  padding: 2px 6px;
+  font: 11px 'Cascadia Code', 'JetBrains Mono', Consolas, monospace;
+  color: #38bdf8;
 }
 
 /* GOOGLE CHROME STYLE BOOKMARK BAR */
@@ -1533,36 +1622,6 @@ body, html {
 .btn-star-bookmark.active svg {
   fill: #facc15 !important;
   color: #facc15 !important;
-}
-
-.shortcuts-header button {
-  background: transparent;
-  border: 0;
-  color: inherit;
-  font-size: 15px;
-  cursor: pointer;
-  padding: 4px 8px;
-  border-radius: 6px;
-}
-
-.shortcuts-table {
-  width: 100%;
-  border-collapse: collapse;
-}
-
-.shortcuts-table td {
-  padding: 6px 4px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
-}
-
-.shortcuts-table kbd {
-  background: rgba(255, 255, 255, 0.09);
-  border: 1px solid rgba(255, 255, 255, 0.16);
-  border-bottom-width: 2px;
-  border-radius: 4px;
-  padding: 1px 6px;
-  font: 11px monospace;
-  color: #3794ff;
 }
 
 /* BOOKMARKS POPOVER MENU */

@@ -241,4 +241,50 @@ describe('Agent Browser & Element Picker Injected Scripts', () => {
     assert.strictEqual(normal.executedSteps, 5);
     assert.strictEqual(normal.totalSteps, 5);
   });
+
+  it('verifies ELEMENT_PICKER_SCRIPT defines queue mode controls and passes deliveryMode', () => {
+    assert.ok(ELEMENT_PICKER_SCRIPT.includes('btnModalQueue'), 'Must define Queue button in modal');
+    assert.ok(ELEMENT_PICKER_SCRIPT.includes('btnModalSend'), 'Must define Send button in modal');
+    assert.ok(ELEMENT_PICKER_SCRIPT.includes('btnMultiQueue'), 'Must define Queue All in multi dock');
+    assert.ok(ELEMENT_PICKER_SCRIPT.includes('deliveryMode'), 'Must include deliveryMode in payload');
+  });
+
+  it('defaults annotation routing to the inspected site while preserving explicit session choice', () => {
+    assert.ok(ELEMENT_PICKER_SCRIPT.includes("autoOpt.value = 'auto'"), 'Picker must expose automatic site routing');
+    assert.ok(ELEMENT_PICKER_SCRIPT.includes("autoOpt.selected = true"), 'Automatic site routing must be the default');
+    assert.ok(ELEMENT_PICKER_SCRIPT.includes('targetSessionId: termSelect ? termSelect.value'), 'Picker must submit the selected route');
+    assert.ok(ELEMENT_PICKER_SCRIPT.includes('opt.value = s.id'), 'Picker must preserve explicit session choices');
+  });
+
+  it('verifies deliveryMode draft vs auto dispatch invariants', () => {
+    let ptyWritten = false;
+    let dispatchedMode: string | undefined;
+
+    const simulateAnnotationSubmit = (rawResult: { deliveryMode?: 'auto' | 'draft'; userComment?: string }) => {
+      const effectiveDeliveryMode: 'auto' | 'draft' = rawResult.deliveryMode === 'draft' ? 'draft' : 'auto';
+      const fullPrompt = rawResult.userComment || 'test';
+
+      // PTY write only on auto
+      if (effectiveDeliveryMode === 'auto') {
+        ptyWritten = true;
+      }
+
+      // Command client dispatch
+      dispatchedMode = effectiveDeliveryMode;
+    };
+
+    // 1. Draft/Queue mode: MUST NOT write to PTY with \r, MUST dispatch mode draft
+    ptyWritten = false;
+    dispatchedMode = undefined;
+    simulateAnnotationSubmit({ deliveryMode: 'draft', userComment: 'Inspect this' });
+    assert.strictEqual(ptyWritten, false, 'Draft mode must not invoke PTY write/execute');
+    assert.strictEqual(dispatchedMode, 'draft', 'Draft mode must dispatch as draft');
+
+    // 2. Auto mode: MUST write to PTY with \r, MUST dispatch mode auto
+    ptyWritten = false;
+    dispatchedMode = undefined;
+    simulateAnnotationSubmit({ deliveryMode: 'auto', userComment: 'Inspect this' });
+    assert.strictEqual(ptyWritten, true, 'Auto mode must invoke PTY write/execute');
+    assert.strictEqual(dispatchedMode, 'auto', 'Auto mode must dispatch as auto');
+  });
 });

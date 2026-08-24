@@ -44,6 +44,18 @@ export interface AnnotationPayload {
   slowResources?: any[];
   captureWarnings?: string[];
   multiItems?: any[];
+  isUnique?: boolean;
+  matchCount?: number;
+  captureTimeDomIndex?: number;
+  isClone?: boolean;
+  canonicalEvidence?: Record<string, any>;
+  relativeSubpath?: string;
+  relativeSubpathStability?: string;
+  isLoopItem?: boolean;
+  indexStability?: string;
+  boxModel?: Record<string, any>;
+  parentLayout?: Record<string, any>;
+  siblingSemantics?: any[];
 }
 
 export class AnnotationManager {
@@ -152,17 +164,68 @@ export class AnnotationManager {
         ? `\n## 💬 User Instructions / Prompt for AI\n> **${userComment.replaceAll('\n', '\n> ')}**\n`
         : '';
 
-      const targetImgSection = targetImagePath ? `![Target element](file:///${targetImagePath.replace(/\\/g, '/')})` : 'No target image captured.';
-      const viewportImgSection = viewportImagePath ? `\n### Viewport context\n![Viewport context](file:///${viewportImagePath.replace(/\\/g, '/')})\n` : '';
+      const targetRelPath = targetImagePath ? `../snapshots/${path.basename(targetImagePath)}` : '';
+      const viewportRelPath = viewportImagePath ? `../snapshots/${path.basename(viewportImagePath)}` : '';
+
+      const targetImgSection = targetImagePath
+        ? `![Target element](${targetRelPath})`
+        : 'No target image captured.';
+      const viewportImgSection = viewportImagePath
+        ? `\n### Viewport context\n![Viewport context](${viewportRelPath})\n`
+        : '';
       const attachedSection = savedAttachedImages.length > 0
-        ? `\n## Attached images (user-provided)\n${savedAttachedImages.map((img) => `![${img.name}](file:///${img.path.replace(/\\/g, '/')})`).join('\n')}\n`
+        ? `\n## Attached images (user-provided)\n${savedAttachedImages.map((img) => `![${img.name}](../snapshots/${path.basename(img.path)})`).join('\n')}\n`
         : '';
 
       const stylesList = payload.computedStyles ? Object.entries(payload.computedStyles).slice(0, 60) : [];
       const attributesList = payload.attributes ? Object.entries(payload.attributes).slice(0, 60) : [];
 
-      const detailedFileContent = `${evidenceEnvelope}
+      const isClone = payload.isClone || false;
+      const canonicalEv = payload.canonicalEvidence || {};
 
+      const elementIdentitySection = `## 🎯 Element Identity & Target Resolution
+- Primary Scoped Selector: \`${selector}\`
+- Uniqueness in DOM: ${payload.isUnique ? '✅ **100% Unique Match (1 node)**' : `⚠️ **Multiple Matches (${payload.matchCount || 'unknown'} nodes)**`}
+- Carousel / Clone Status: ${isClone ? '⚠️ **IS_CLONE (Detected inside cloned loop/carousel slide)**' : '✅ **ORIGINAL_NODE (Non-cloned element)**'}
+${isClone ? `- Canonical Counterpart: \`${canonicalEv.canonicalFound ? (canonicalEv.isUniqueCanonicalTarget ? 'Verified non-clone canonical found' : 'Multiple non-clone canonicals') : 'Unresolved'}\`\n- Owner Key: \`${canonicalEv.ownerKey || 'n/a'}="${canonicalEv.ownerValue || ''}"\`\n- Relative Subpath: \`${canonicalEv.relativeSubSelector || 'self'}\`\n- **Warning for AI Agent**: Element is inside a cloned slide (e.g. Slick/Swiper). Do NOT edit the clone wrapper. Modify the canonical template node or component matching the business key.` : ''}
+- Loop/List Item: ${payload.isLoopItem ? `Yes (${payload.matchCount} sibling items with same signature)` : 'No'}
+- Capture-Time Index: \`${payload.captureTimeDomIndex !== undefined ? payload.captureTimeDomIndex : 'n/a'}\`
+- Index Stability: \`${payload.indexStability || 'stable'}\` ${payload.indexStability === 'unstable-on-rerender' ? '(⚠️ Index will change when list re-orders or filters; do not hardcode :nth-of-type in code edits)' : ''}
+`;
+
+      const boxModelSection = payload.boxModel ? `## 📐 Layout & Box Model Metrics
+- Dimensions: ${dimensions}
+- Box Sizing: \`${payload.boxModel.boxSizing || 'border-box'}\`
+- Margin: \`${payload.boxModel.margin || '0px'}\`
+- Border: \`${payload.boxModel.border || '0px'}\`
+- Padding: \`${payload.boxModel.padding || '0px'}\`
+- Content Size: \`${payload.boxModel.contentWidth} x ${payload.boxModel.contentHeight} px\`
+` : '';
+
+      const parentLayoutSection = payload.parentLayout ? `## 🧱 Parent Layout Context
+- Parent Tag: \`${payload.parentLayout.parentTag || 'unknown'}\`${payload.parentLayout.parentClasses?.length ? ` (\`.${payload.parentLayout.parentClasses.join(' .')}\`)` : ''}
+- Layout Mode: \`${payload.parentLayout.display || 'block'}\`
+${payload.parentLayout.display?.includes('flex') ? `- Flex Properties: \`flex-direction: ${payload.parentLayout.flexDirection}\`, \`justify-content: ${payload.parentLayout.justifyContent}\`, \`align-items: ${payload.parentLayout.alignItems}\`, \`gap: ${payload.parentLayout.gap}\`` : ''}
+${payload.parentLayout.display?.includes('grid') ? `- Grid Properties: \`grid-template-columns: ${payload.parentLayout.gridTemplateColumns}\`, \`gap: ${payload.parentLayout.gap}\`` : ''}
+` : '';
+
+      const sourceHintsSection = payload.sourceHints && (payload.sourceHints.signals?.length || payload.sourceHints.framework !== 'unknown') ? `## 📍 Source Ownership & AST Code Locators
+> High-confidence signals mapping this DOM element to codebase templates.
+
+- Detected Framework: **${payload.sourceHints.framework || 'unknown'}** (Confidence: \`${payload.sourceHints.confidence || 'low'}\`)
+${payload.sourceHints.suggestedFile ? `- Suggested Source File: \`${payload.sourceHints.suggestedFile}\`` : ''}
+${payload.sourceHints.suggestedLine ? `- Suggested Line: \`${payload.sourceHints.suggestedLine}\`` : ''}
+${payload.sourceHints.suggestedComponent ? `- Suggested Component: \`${payload.sourceHints.suggestedComponent}\`` : ''}
+\`\`\`json
+${JSON.stringify(payload.sourceHints, null, 2)}
+\`\`\`
+` : '';
+
+      const siblingSemanticsSection = Array.isArray(payload.siblingSemantics) && payload.siblingSemantics.length > 0 ? `## 👯 Sibling & Context Semantics
+${payload.siblingSemantics.map((sib: any, idx: number) => `- Sibling ${idx + 1}: \`<${sib.tag}>\`${sib.role ? ` (role: \`${sib.role}\`)` : ''}${sib.isTarget ? ' **[TARGET]**' : ''}${sib.textSnippet ? ` - "${sib.textSnippet}"` : ''}`).join('\n')}
+` : '';
+
+      const detailedFileContent = `${evidenceEnvelope}
 ${buildAgentTaskHeader(userComment)}
 
 ## Captured element evidence [Visual Mode: Element SnapDOM Capture]
@@ -179,6 +242,11 @@ ${buildAgentTaskHeader(userComment)}
 - Position (viewport): ${payload.position ? JSON.stringify(payload.position) : 'n/a'}
 - Viewport Dimensions: ${payload.viewport ? JSON.stringify(payload.viewport) : 'n/a'}
 
+${elementIdentitySection}
+${boxModelSection}
+${parentLayoutSection}
+${siblingSemanticsSection}
+${sourceHintsSection}
 ## Annotation routing context
 \`\`\`json
 {
@@ -221,13 +289,6 @@ ${payload.interactionState ? JSON.stringify(payload.interactionState, null, 2) :
 ## Accessibility snapshot
 \`\`\`json
 ${payload.accessibilitySnapshot ? JSON.stringify(payload.accessibilitySnapshot, null, 2) : '{}'}
-\`\`\`
-
-## Source ownership hints
-These are discovery hints, not proof of the owning source file. Confirm ownership by scouting the repository.
-
-\`\`\`json
-${payload.sourceHints ? JSON.stringify(payload.sourceHints, null, 2) : '{}'}
 \`\`\`
 
 ## Runtime diagnostics observed before capture
