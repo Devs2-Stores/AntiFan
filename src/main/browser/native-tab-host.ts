@@ -82,6 +82,7 @@ export class NativeTabHost extends EventEmitter {
   private pendingDeliveries: Array<{ message: ChatMessage; commandId: string; targetWorkspace: string; dispatchedAt: number }> = [];
 
   private isInspecting: boolean = false;
+  private inspectedTabId: string | null = null;
   private isFontFinderActive: boolean = false;
   private isLensActive: boolean = false;
   private isRulerActive: boolean = false;
@@ -1580,11 +1581,12 @@ export class NativeTabHost extends EventEmitter {
     }
     this.diagnosticsManager.deleteTab(tabId);
     this.documentGenerations.delete(tabId);
-
+    if (this.isInspecting && this.inspectedTabId === tabId) {
+      this.stopInspect(tabId);
+    }
     if (this.activeTabId === tabId) {
       this.window.contentView.removeChildView(target.view);
     }
-
     (target.view.webContents as unknown as { destroy?: () => void })?.destroy?.();
     this.tabs.delete(tabId);
     this.tabOrder = this.tabOrder.filter((id) => id !== tabId);
@@ -2084,6 +2086,7 @@ export class NativeTabHost extends EventEmitter {
   public startInspect(): void {
     const active = this.tabs.get(this.activeTabId);
     if (!active) return;
+    this.inspectedTabId = this.activeTabId;
 
     const tm = TerminalManager.getInstance();
     const sessions = tm.listSessions();
@@ -2105,8 +2108,7 @@ export class NativeTabHost extends EventEmitter {
         const rawResult = await active.view.webContents.executeJavaScript('window.__antifanPick');
         if (rawResult) {
           await active.view.webContents.executeJavaScript('window.__antifanPick = null;');
-          this.stopInspect();
-
+          this.stopInspect(this.inspectedTabId || this.activeTabId);
           if (rawResult.canceled) return;
 
           let targetImageBase64: string | undefined;
@@ -2215,15 +2217,17 @@ export class NativeTabHost extends EventEmitter {
     }, 200);
   }
 
-  public stopInspect(): void {
+  public stopInspect(targetTabId?: string): void {
     this.isInspecting = false;
     if (this.inspectPollTimer) {
       clearInterval(this.inspectPollTimer);
       this.inspectPollTimer = null;
     }
-    const active = this.tabs.get(this.activeTabId);
-    if (active && !active.view.webContents.isDestroyed()) {
-      active.view.webContents.executeJavaScript(`(() => {
+    const tabIdToClean = targetTabId || this.inspectedTabId || this.activeTabId;
+    this.inspectedTabId = null;
+    const target = this.tabs.get(tabIdToClean);
+    if (target && !target.view.webContents.isDestroyed()) {
+      target.view.webContents.executeJavaScript(`(() => {
         try { if (typeof window.__antifanPickerCleanup === 'function') window.__antifanPickerCleanup(); } catch {}
         document.querySelectorAll('#antifan-inspect-overlay, #antifan-inspect-badge, #antifan-comment-modal, #antifan-multi-dock, .antifan-element-pin').forEach(el => {
           try { el.remove(); } catch {}
