@@ -29,15 +29,9 @@ export const ELEMENT_PICKER_SCRIPT = `(() => {
     window.removeEventListener('click', onClick, true);
     window.removeEventListener('keydown', onKey, true);
 
-    const ov = document.getElementById(OVERLAY_ID);
-    if (ov) ov.remove();
-    const bg = document.getElementById(BADGE_ID);
-    if (bg) bg.remove();
-    const modal = document.getElementById(MODAL_ID);
-    if (modal) modal.remove();
-    const multiDock = document.getElementById(MULTI_BAR_ID);
-    if (multiDock) multiDock.remove();
-    document.querySelectorAll('.' + PIN_CLASS).forEach((p) => p.remove());
+    document.querySelectorAll('#' + MODAL_ID + ', #' + OVERLAY_ID + ', #' + BADGE_ID + ', #' + MULTI_BAR_ID + ', .' + PIN_CLASS).forEach((el) => {
+      try { el.remove(); } catch {}
+    });
 
     if (document.documentElement) document.documentElement.style.cursor = '';
     window.__antifanPickerActive = false;
@@ -716,18 +710,21 @@ export const ELEMENT_PICKER_SCRIPT = `(() => {
           pin.style.left = Math.max(0, freshRect.left - 10) + 'px';
           (document.documentElement || document.body).appendChild(pin);
           cleanupModalListeners();
-          modal.remove();
+          try { modal.remove(); } catch {}
           isModalOpen = false;
           updateMultiDock();
         } else {
           cleanupModalListeners();
-          window.__antifanPick = pickedItem;
+          try { modal.remove(); } catch {}
           cleanup();
+          window.__antifanPick = pickedItem;
         }
       } catch (err) {
         console.error('[antifan-inspect] doSubmit error:', err);
         try {
           cleanupModalListeners();
+          try { modal.remove(); } catch {}
+          cleanup();
           window.__antifanPick = {
             selector: el.tagName ? el.tagName.toLowerCase() : 'div',
             userComment: userComment,
@@ -735,7 +732,6 @@ export const ELEMENT_PICKER_SCRIPT = `(() => {
             attachedImages: attachedImages.slice(0, 6),
             timestamp: Date.now(),
           };
-          cleanup();
         } catch {}
       }
     };

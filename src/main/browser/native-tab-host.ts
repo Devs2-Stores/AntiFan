@@ -2222,12 +2222,12 @@ export class NativeTabHost extends EventEmitter {
       this.inspectPollTimer = null;
     }
     const active = this.tabs.get(this.activeTabId);
-    if (active) {
+    if (active && !active.view.webContents.isDestroyed()) {
       active.view.webContents.executeJavaScript(`(() => {
-        const ov = document.getElementById('antifan-inspect-overlay');
-        if (ov) ov.remove();
-        const bg = document.getElementById('antifan-inspect-badge');
-        if (bg) bg.remove();
+        try { if (typeof window.__antifanPickerCleanup === 'function') window.__antifanPickerCleanup(); } catch {}
+        document.querySelectorAll('#antifan-inspect-overlay, #antifan-inspect-badge, #antifan-comment-modal, #antifan-multi-dock, .antifan-element-pin').forEach(el => {
+          try { el.remove(); } catch {}
+        });
         if (document.documentElement) document.documentElement.style.cursor = '';
         window.__antifanPickerActive = false;
       })()`).catch(() => {});
