@@ -205,27 +205,60 @@ describe('Webview & Extension IPC Audit Invariants', () => {
     );
   });
 
-  it('enforces single authority for shortcuts: app-menu owns menu accelerators, native-tab-host owns non-menu WebContents shortcuts with zero overlap', () => {
+  it('enforces single authority for shortcuts: app-menu owns menu accelerators with no duplicate accelerators, native-tab-host owns non-menu WebContents shortcuts with zero overlap', () => {
     const nativeTabHostPath = path.join(root, 'src', 'main', 'browser', 'native-tab-host.ts');
     const nativeTabHost = fs.readFileSync(nativeTabHostPath, 'utf8');
 
     const appMenuPath = path.join(root, 'src', 'main', 'browser', 'app-menu.ts');
     const appMenu = fs.readFileSync(appMenuPath, 'utf8');
 
-    // 1. app-menu.ts authoritatively defines core application accelerators
-    assert.match(appMenu, /accelerator:\s*['"]CmdOrCtrl\+T['"]/, 'app-menu must own CmdOrCtrl+T');
-    assert.match(appMenu, /accelerator:\s*['"]CmdOrCtrl\+Shift\+T['"]/, 'app-menu must own CmdOrCtrl+Shift+T');
-    assert.match(appMenu, /accelerator:\s*['"]CmdOrCtrl\+W['"]/, 'app-menu must own CmdOrCtrl+W');
-    assert.match(appMenu, /accelerator:\s*['"]CmdOrCtrl\+R['"]/, 'app-menu must own CmdOrCtrl+R');
-    assert.match(appMenu, /accelerator:\s*['"]CmdOrCtrl\+F['"]/, 'app-menu must own CmdOrCtrl+F');
-    assert.match(appMenu, /accelerator:\s*['"]CmdOrCtrl\+Alt\+B['"]/, 'app-menu must own CmdOrCtrl+Alt+B');
+    // 1. Extract and assert uniqueness of all accelerator literals in app-menu.ts
+    const acceleratorRegex = /accelerator:\s*['"]([^'"]+)['"]/g;
+    const foundAccelerators: string[] = [];
+    let match: RegExpExecArray | null;
+    while ((match = acceleratorRegex.exec(appMenu)) !== null) {
+      foundAccelerators.push(match[1]!);
+    }
 
-    // 2. Extract setupGlobalShortcutsOnView function body from native-tab-host.ts
+    const duplicateAccelerators = foundAccelerators.filter(
+      (acc, index) => foundAccelerators.indexOf(acc) !== index
+    );
+    assert.deepStrictEqual(
+      duplicateAccelerators,
+      [],
+      `app-menu.ts must not contain duplicate accelerator definitions: ${duplicateAccelerators.join(', ')}`
+    );
+
+    // 2. app-menu.ts authoritatively defines core application accelerators
+    const requiredAccelerators = [
+      'CmdOrCtrl+T',
+      'CmdOrCtrl+Shift+T',
+      'CmdOrCtrl+W',
+      'CmdOrCtrl+R',
+      'F5',
+      'CmdOrCtrl+Shift+R',
+      'CmdOrCtrl+Shift+B',
+      'CmdOrCtrl+Shift+I',
+      'F12',
+      'F11',
+      'CmdOrCtrl+F',
+      'CmdOrCtrl+Alt+B',
+      'CmdOrCtrl+`',
+      'CmdOrCtrl+Shift+N',
+    ];
+    for (const acc of requiredAccelerators) {
+      assert.ok(
+        foundAccelerators.includes(acc),
+        `app-menu.ts must define accelerator '${acc}'`
+      );
+    }
+
+    // 3. Extract setupGlobalShortcutsOnView function body from native-tab-host.ts
     const fnMatch = nativeTabHost.match(/setupGlobalShortcutsOnView\s*\([^)]*\)\s*:\s*void\s*\{([\s\S]*?)\n\s*private setupContextMenu/);
     assert.ok(fnMatch, 'setupGlobalShortcutsOnView method must be present in native-tab-host.ts');
     const fnBody = fnMatch[1]!;
 
-    // 3. Ensure NO overlapping handlers exist in setupGlobalShortcutsOnView for keys owned by app-menu
+    // 4. Ensure NO overlapping handlers exist in setupGlobalShortcutsOnView for keys owned by app-menu
     assert.doesNotMatch(
       fnBody,
       /input\.key\.toLowerCase\(\)\s*===\s*['"]t['"]/,
@@ -251,8 +284,23 @@ describe('Webview & Extension IPC Audit Invariants', () => {
       /input\.key\.toLowerCase\(\)\s*===\s*['"]f['"]/,
       'setupGlobalShortcutsOnView must not duplicate Ctrl+F (owned by app-menu)'
     );
+    assert.doesNotMatch(
+      fnBody,
+      /input\.key\.toLowerCase\(\)\s*===\s*['"]i['"]/,
+      'setupGlobalShortcutsOnView must not duplicate Ctrl+Shift+I (owned by app-menu)'
+    );
+    assert.doesNotMatch(
+      fnBody,
+      /input\.key\s*===\s*['"]F12['"]/,
+      'setupGlobalShortcutsOnView must not duplicate F12 (owned by app-menu)'
+    );
+    assert.doesNotMatch(
+      fnBody,
+      /input\.key\s*===\s*['"]F5['"]/,
+      'setupGlobalShortcutsOnView must not duplicate F5 (owned by app-menu)'
+    );
 
-    // 4. Ensure non-menu WebContents shortcuts are handled and prevent default
+    // 5. Ensure non-menu WebContents shortcuts are handled and prevent default
     assert.match(
       fnBody,
       /if\s*\(isCtrlOrCmd\s*&&\s*input\.key\s*===\s*['"]Tab['"]\)\s*\{[^}]*_event\.preventDefault\(\);[^}]*this\.switchTab\(/,

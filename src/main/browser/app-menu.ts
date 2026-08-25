@@ -188,18 +188,17 @@ export function buildApplicationMenu(mainWindow: BrowserWindow, tabHost?: Native
       label: 'View',
       submenu: [
         {
-          label: 'Toggle Sidebar Terminal',
-          accelerator: 'CmdOrCtrl+Alt+B',
-          click: () => tabHost?.toggleSidebar(),
-        },
-        {
-          label: 'Toggle Bottom Terminal Drawer',
-          accelerator: 'CmdOrCtrl+`',
-          click: () => tabHost?.toggleTerminal(),
-        },
-        {
           label: 'Reload Page',
           accelerator: 'CmdOrCtrl+R',
+          click: () => {
+            if (tabHost) tabHost.reload(tabHost.getActiveTabId());
+          },
+        },
+        {
+          label: 'Reload Page (F5)',
+          accelerator: 'F5',
+          visible: false,
+          acceleratorWorksWhenHidden: true,
           click: () => {
             if (tabHost) tabHost.reload(tabHost.getActiveTabId());
           },
@@ -228,7 +227,14 @@ export function buildApplicationMenu(mainWindow: BrowserWindow, tabHost?: Native
         },
         {
           label: 'Toggle Developer Tools',
+          accelerator: 'CmdOrCtrl+Shift+I',
+          click: () => tabHost?.toggleDevTools(),
+        },
+        {
+          label: 'Toggle Developer Tools (F12)',
           accelerator: 'F12',
+          visible: false,
+          acceleratorWorksWhenHidden: true,
           click: () => tabHost?.toggleDevTools(),
         },
       ],
