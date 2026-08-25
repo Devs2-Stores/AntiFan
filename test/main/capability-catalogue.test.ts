@@ -243,10 +243,12 @@ describe('Capability catalogue', () => {
     const lease = issueRuntimeLease(projectId, workspaceId, 30_000, 1);
     const catalogue = new CapabilityCatalogue({ runtime: { mode: 'standalone', lifecycle: 'active' }, projectId, workspaceId, runtimeId: lease.runtimeId, hostEpoch: 1 });
     let currentZoom = 1.0;
+    let automationTabId: string | undefined;
     const mockHost = {
       getTabList: () => [{ id: 'tab-1', url: 'https://example.com', title: 'Example' }],
       getActiveTab: () => ({ id: 'tab-1', url: 'https://example.com', title: 'Example' }),
       getActiveTabId: () => 'tab-1',
+      setAutomationTabId: (tabId?: string) => { automationTabId = tabId; },
       navigate: () => true,
       reload: () => true,
       getDom: async () => '<html></html>',
@@ -304,6 +306,124 @@ describe('Capability catalogue', () => {
     const outOfBoundsCall = await mcpServer.callTool('anti.browser.set_zoom', { zoomFactor: 0.1, tabId: 'tab-1' });
     assert.strictEqual(outOfBoundsCall.isError, true);
     assert.ok(outOfBoundsCall.content?.[0]?.text?.includes('between 0.25 and 5.0'));
+  });
+
+  it('persists the active tab as the agent target after successful direct MCP actions only', async () => {
+    let automationTabId: string | undefined;
+    let clickResult = true;
+    let markedTabId: string | undefined;
+    const mockHost = {
+      getTabList: () => [{ id: 'tab-active', url: 'https://example.com', title: 'Example', isAgentControlled: automationTabId === 'tab-active' }],
+      getActiveTab: () => ({ id: 'tab-active', url: 'https://example.com', title: 'Example', isAgentControlled: automationTabId === 'tab-active' }),
+      getActiveTabId: () => 'tab-active',
+      setAutomationTabId: (tabId?: string) => { automationTabId = tabId; },
+      markTabAgentWorking: (tabId?: string) => { markedTabId = tabId; },
+      agentClick: async () => clickResult,
+    };
+    const server = new AntiFanMcpServer(mockHost as any);
+
+    const success = await server.callTool('antifan_agent_click', { selector: '#submit' });
+    assert.strictEqual(success.isError, undefined);
+    assert.strictEqual(automationTabId, 'tab-active');
+    assert.strictEqual(markedTabId, 'tab-active');
+    assert.strictEqual(mockHost.getTabList()[0]?.isAgentControlled, true);
+
+    clickResult = false;
+    automationTabId = undefined;
+    markedTabId = undefined;
+    const failure = await server.callTool('antifan_agent_click', { selector: '#submit' });
+    assert.strictEqual(failure.isError, undefined);
+    assert.strictEqual(automationTabId, undefined);
+    assert.strictEqual(markedTabId, undefined);
+  });
+
+  it('uses canonical transport agent names with active-tab fallback and result-aware ownership', async () => {
+    const projectId = makeControlPlaneId('project');
+    const workspaceId = makeControlPlaneId('workspace');
+    const lease = issueRuntimeLease(projectId, workspaceId, 30_000, 1);
+    let automationTabId: string | undefined;
+    let keyboardSuccess = true;
+    let clickSuccess = true;
+    const mockHost = {
+      getTabList: () => [{ id: 'tab-active', url: 'https://example.com', title: 'Example' }],
+      getActiveTab: () => ({ id: 'tab-active', url: 'https://example.com', title: 'Example' }),
+      getActiveTabId: () => 'tab-active',
+      setAutomationTabId: (tabId?: string) => { automationTabId = tabId; },
+      markTabAgentWorking: () => {},
+      navigate: () => true,
+      reload: () => true,
+      getDom: async () => '<html></html>',
+      captureScreenshot: async () => '',
+      evalJs: async () => null,
+      sendKeyboardPress: async ({ tabId }: { tabId?: string }) => ({ success: keyboardSuccess, key: 'Enter', modifiers: [], tabId }),
+      agentClick: async () => clickSuccess,
+    };
+    const catalogue = new CapabilityCatalogue({ runtime: { mode: 'standalone', lifecycle: 'active' }, projectId, workspaceId, runtimeId: lease.runtimeId, hostEpoch: 1 });
+    const browser = new BrowserControlPort(mockHost);
+    registerBrowserCapabilities(catalogue, browser);
+    const server = new AntiFanMcpServer(mockHost as any, false, new CapabilityTransportAdapter(catalogue));
+    const context = { projectId, workspaceId, runtimeId: lease.runtimeId, tabId: 'tab-active', browserEpoch: 1, documentGeneration: 1 };
+    const base = { runtimeLease: lease, leaseToken: lease.token, projectId, workspaceId, context: { browserTarget: context, grant: 'write' } };
+
+    const keyboard = await server.callTool('browser.keyboard-press', { ...base, key: 'Enter' });
+    assert.strictEqual(keyboard.isError, undefined);
+    assert.strictEqual(automationTabId, 'tab-active');
+
+    keyboardSuccess = false;
+    automationTabId = undefined;
+    const failedKeyboard = await server.callTool('browser.keyboard-press', { ...base, key: 'Enter' });
+    assert.strictEqual(failedKeyboard.isError, undefined);
+    assert.strictEqual(automationTabId, undefined);
+
+    const click = await server.callTool('browser.agent-click', { ...base, selector: '#submit' });
+    assert.strictEqual(click.isError, undefined);
+    assert.strictEqual(automationTabId, 'tab-active');
+
+    clickSuccess = false;
+    automationTabId = undefined;
+    const failedClick = await server.callTool('browser.agent-click', { ...base, selector: '#submit' });
+    assert.strictEqual(failedClick.isError, undefined);
+    assert.strictEqual(automationTabId, undefined);
+  });
+  it('rejects stale bound targets before both DOM reads and agent actions', async () => {
+    const projectId = makeControlPlaneId('project');
+    const workspaceId = makeControlPlaneId('workspace');
+    const lease = issueRuntimeLease(projectId, workspaceId, 30_000, 1);
+    let agentCalls = 0;
+    const mockHost = {
+      getTabList: () => [{ id: 'tab-active', url: 'https://example.com', title: 'Example' }],
+      getActiveTabId: () => 'tab-active',
+      navigate: () => true,
+      reload: () => true,
+      getDom: async () => '<html>must not execute</html>',
+      captureScreenshot: async () => '',
+      evalJs: async () => null,
+      agentClick: async () => { agentCalls += 1; return true; },
+      isCurrentTarget: () => false,
+    };
+    const catalogue = new CapabilityCatalogue({ runtime: { mode: 'standalone', lifecycle: 'active' }, projectId, workspaceId, runtimeId: lease.runtimeId, hostEpoch: 1 });
+    const browser = new BrowserControlPort(mockHost);
+    registerBrowserCapabilities(catalogue, browser);
+    const server = new AntiFanMcpServer(mockHost as any, false, new CapabilityTransportAdapter(catalogue));
+    const base = {
+      runtimeLease: lease,
+      leaseToken: lease.token,
+      projectId,
+      workspaceId,
+      context: {
+        browserTarget: { projectId, workspaceId, runtimeId: lease.runtimeId, tabId: 'tab-active', browserEpoch: 1, documentGeneration: 1 },
+        grant: 'read' as const,
+      },
+    };
+
+    const dom = await server.callTool('browser.dom', { ...base });
+    assert.strictEqual(dom.isError, true);
+    assert.match(dom.content[0]?.text || '', /TARGET_STALE/);
+
+    const agent = await server.callTool('browser.agent-click', { ...base, selector: '#submit', context: { ...base.context, grant: 'write' as const } });
+    assert.strictEqual(agent.isError, true);
+    assert.match(agent.content[0]?.text || '', /TARGET_STALE/);
+    assert.strictEqual(agentCalls, 0);
   });
 
   it('enforces zoom boundaries (0.25 to 5.0) and validates boundary conditions', async () => {

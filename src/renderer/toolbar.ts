@@ -19,8 +19,14 @@ interface AntiFanTab {
   scrollX?: number;
   scrollY?: number;
   aiState?: 'idle' | 'thinking' | 'streaming' | 'completed' | 'agent_working';
+  isAgentControlled?: boolean;
   themeError?: string | null;
   terminalSessionId?: string;
+  splitMode?: boolean;
+  splitDesktopPresetId?: string;
+  splitMobilePresetId?: string;
+  splitFocusedPane?: 'desktop' | 'mobile';
+  splitError?: string;
 }
 interface AntiFanToolbarApi {
   getInitialState: () => Promise<any>;
@@ -72,6 +78,9 @@ interface AntiFanToolbarApi {
   popoutTerminal?: () => Promise<boolean>;
   getSuggestions: (query: string) => Promise<{ suggestions: Array<{ type: 'search' | 'url' | 'bookmark' | 'history' | 'tab'; text: string; url?: string; tabId?: string; subText?: string }> }>;
   toggleTerminal: () => Promise<boolean>;
+  toggleSplitReview: (tabId?: string, enabled?: boolean) => Promise<boolean>;
+  setSplitPreset: (paneId: 'desktop' | 'mobile', presetId: string, tabId?: string) => Promise<boolean>;
+  setSplitFocusedPane: (paneId: 'desktop' | 'mobile', tabId?: string) => Promise<boolean>;
   startTerminal: (cwd?: string) => Promise<boolean>;
   sendTerminalInput: (input: string) => Promise<boolean>;
   killTerminal: () => Promise<boolean>;
@@ -123,6 +132,13 @@ const btnReload = document.getElementById('btnReload') as HTMLButtonElement;
 const urlInput = document.getElementById('urlInput') as HTMLInputElement;
 const btnClearOmnibox = document.getElementById('btnClearOmnibox') as HTMLButtonElement;
 const deviceSelect = document.getElementById('deviceSelect') as HTMLSelectElement;
+const btnToggleSplit = document.getElementById('btnToggleSplit') as HTMLButtonElement | null;
+const splitControlsContainer = document.getElementById('splitControlsContainer') as HTMLElement | null;
+const splitDesktopSelect = document.getElementById('splitDesktopSelect') as HTMLSelectElement | null;
+const splitMobileSelect = document.getElementById('splitMobileSelect') as HTMLSelectElement | null;
+const btnSplitFocusDesktop = document.getElementById('btnSplitFocusDesktop') as HTMLButtonElement | null;
+const btnSplitFocusMobile = document.getElementById('btnSplitFocusMobile') as HTMLButtonElement | null;
+const agentActiveBadge = document.getElementById('agentActiveBadge') as HTMLElement | null;
 
 // Zoom Stepper Elements
 const zoomLabel = document.getElementById('zoomLabel')!;
@@ -655,9 +671,10 @@ function renderTabs() {
     const isAiStreaming = tab.aiState === 'streaming' || tab.aiState === 'thinking';
     const isAiCompleted = tab.aiState === 'completed';
     const isAgentWorking = tab.aiState === 'agent_working';
+    const isAgentControlled = tab.isAgentControlled === true;
     const hasThemeError = Boolean(tab.themeError);
 
-    tabEl.className = `tab ${isActive ? 'active' : ''} ${isAgentWorking ? 'agent-working' : isAiStreaming ? 'ai-streaming' : ''} ${hasThemeError ? 'tab-has-error' : ''}`;
+    tabEl.className = `tab ${isActive ? 'active' : ''} ${isAgentControlled ? 'agent-controlled' : ''} ${isAgentWorking ? 'agent-working' : isAiStreaming ? 'ai-streaming' : ''} ${hasThemeError ? 'tab-has-error' : ''}`;
     tabEl.setAttribute('aria-selected', isActive ? 'true' : 'false');
     // Update Spinner & Icon
     const spinner = tabEl.querySelector('.tab-spinner') as HTMLElement;
@@ -667,12 +684,13 @@ function renderTabs() {
     const titleSpan = tabEl.querySelector('.tab-title') as HTMLElement;
     const audioBtn = tabEl.querySelector('.tab-audio-btn') as HTMLElement;
 
-    // Update Agent Badge
+    // Keep the ownership badge visible for the automation target even when
+    // the short-lived activity state has returned to idle.
     if (agentBadge) {
-      if (isAgentWorking) {
+      if (isAgentControlled) {
         agentBadge.style.display = 'inline-flex';
-        agentBadge.className = 'tab-agent-badge agent';
-        agentBadge.textContent = '🤖 AGENT';
+        agentBadge.className = `tab-agent-badge ${isAgentWorking ? 'agent' : 'controlled'}`;
+        agentBadge.textContent = isAgentWorking ? '🤖 AGENT' : '🎯 AGENT TAB';
       } else if (isAiStreaming) {
         agentBadge.style.display = 'inline-flex';
         agentBadge.className = 'tab-agent-badge ai';
@@ -764,10 +782,27 @@ function updateControls() {
     if (activeTab.devicePresetId && deviceSelect) {
       deviceSelect.value = activeTab.devicePresetId;
     }
+    if (activeTab.splitMode) {
+      if (btnToggleSplit) btnToggleSplit.classList.add('mode-active');
+      if (splitControlsContainer) splitControlsContainer.style.display = 'flex';
+      if (deviceSelect) deviceSelect.style.display = 'none';
+      if (splitDesktopSelect && activeTab.splitDesktopPresetId) {
+        splitDesktopSelect.value = activeTab.splitDesktopPresetId;
+      }
+      if (splitMobileSelect && activeTab.splitMobilePresetId) {
+        splitMobileSelect.value = activeTab.splitMobilePresetId;
+      }
+      const focusedPane = activeTab.splitFocusedPane || 'desktop';
+      if (btnSplitFocusDesktop) btnSplitFocusDesktop.classList.toggle('active', focusedPane === 'desktop');
+      if (btnSplitFocusMobile) btnSplitFocusMobile.classList.toggle('active', focusedPane === 'mobile');
+    } else {
+      if (btnToggleSplit) btnToggleSplit.classList.remove('mode-active');
+      if (splitControlsContainer) splitControlsContainer.style.display = 'none';
+      if (deviceSelect) deviceSelect.style.display = 'inline-block';
+    }
 
-    const agentActiveBadge = document.getElementById('agentActiveBadge');
     if (agentActiveBadge) {
-      agentActiveBadge.style.display = activeTab.aiState === 'agent_working' ? 'inline-flex' : 'none';
+      agentActiveBadge.style.display = activeTab.isAgentControlled ? 'inline-flex' : 'none';
     }
   }
   if (btnClearOmnibox && urlInput) {
@@ -963,6 +998,34 @@ if (btnStarBookmark) {
 if (deviceSelect) {
   deviceSelect.addEventListener('change', () => {
     getApi()?.setDevicePreset(deviceSelect.value);
+  });
+}
+// Split Review Controls
+if (btnToggleSplit) {
+  btnToggleSplit.addEventListener('click', () => {
+    const activeTab = currentTabs.find((t) => t.id === activeTabId);
+    const nextEnabled = !(activeTab && activeTab.splitMode);
+    getApi()?.toggleSplitReview(activeTabId, nextEnabled);
+  });
+}
+if (splitDesktopSelect) {
+  splitDesktopSelect.addEventListener('change', () => {
+    getApi()?.setSplitPreset('desktop', splitDesktopSelect.value, activeTabId);
+  });
+}
+if (splitMobileSelect) {
+  splitMobileSelect.addEventListener('change', () => {
+    getApi()?.setSplitPreset('mobile', splitMobileSelect.value, activeTabId);
+  });
+}
+if (btnSplitFocusDesktop) {
+  btnSplitFocusDesktop.addEventListener('click', () => {
+    getApi()?.setSplitFocusedPane('desktop', activeTabId);
+  });
+}
+if (btnSplitFocusMobile) {
+  btnSplitFocusMobile.addEventListener('click', () => {
+    getApi()?.setSplitFocusedPane('mobile', activeTabId);
   });
 }
 

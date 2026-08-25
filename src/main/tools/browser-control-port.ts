@@ -8,20 +8,20 @@ export interface BrowserHostPort {
   switchTab?(tabId: string): boolean;
   navigate(tabId: string, url: string): boolean;
   reload(tabId: string): boolean;
-  getDom(selector?: string, tabId?: string): Promise<string>;
-  captureScreenshot(rect?: unknown, tabId?: string): Promise<string>;
-  evalJs(expression: string): Promise<unknown>;
+  getDom(selector?: string, tabId?: string, paneId?: 'desktop' | 'mobile'): Promise<string>;
+  captureScreenshot(rect?: unknown, tabId?: string, paneId?: 'desktop' | 'mobile'): Promise<string>;
+  evalJs(expression: string, tabId?: string, paneId?: 'desktop' | 'mobile'): Promise<unknown>;
   getDiagnostics?(tabId?: string, level?: number | string): { console: unknown[]; failures: unknown[] };
   runResponsiveCheck?(tabId: string): Promise<Record<string, unknown>>;
   agentTrajectory?(params: { steps: Array<Record<string, unknown>>; speed?: 'fast' | 'natural' | 'slow'; smoothScroll?: boolean; tabId?: string }): Promise<Record<string, unknown>>;
-  agentMove?(args: { selector?: string; x?: number; y?: number; label?: string; tabId?: string }): Promise<boolean>;
-  agentClick?(params: { selector?: string; ref?: string; x?: number; y?: number; label?: string; tabId?: string }): Promise<boolean>;
-  agentType?(params: { selector: string; text: string; clear?: boolean; tabId?: string }): Promise<boolean>;
-  agentScroll?(params: { deltaY?: number; selector?: string; tabId?: string }): Promise<boolean>;
-  agentHover?(params: { selector?: string; x?: number; y?: number; label?: string; tabId?: string }): Promise<boolean>;
-  agentHighlight?(params: { selector: string; label?: string; tabId?: string }): Promise<boolean>;
-  agentClear?(tabId?: string): Promise<boolean>;
-  agentSnapshot?(tabId?: string): Promise<string>;
+  agentMove?(args: { selector?: string; x?: number; y?: number; label?: string; tabId?: string; paneId?: 'desktop' | 'mobile' }): Promise<boolean>;
+  agentClick?(params: { selector?: string; ref?: string; x?: number; y?: number; label?: string; tabId?: string; paneId?: 'desktop' | 'mobile' }): Promise<boolean>;
+  agentType?(params: { selector: string; text: string; clear?: boolean; tabId?: string; paneId?: 'desktop' | 'mobile' }): Promise<boolean>;
+  agentScroll?(params: { deltaY?: number; selector?: string; tabId?: string; paneId?: 'desktop' | 'mobile' }): Promise<boolean>;
+  agentHover?(params: { selector?: string; x?: number; y?: number; label?: string; tabId?: string; paneId?: 'desktop' | 'mobile' }): Promise<boolean>;
+  agentHighlight?(params: { selector: string; label?: string; tabId?: string; paneId?: 'desktop' | 'mobile' }): Promise<boolean>;
+  agentClear?(tabId?: string, paneId?: 'desktop' | 'mobile'): Promise<boolean>;
+  agentSnapshot?(tabId?: string, paneId?: 'desktop' | 'mobile'): Promise<string>;
   sendKeyboardPress?(params: { key: string; modifiers?: string[]; tabId?: string }): Promise<{ success: boolean; key: string; modifiers: string[] }>;
   setViewportSize?(options: { width: number; height: number; mobile?: boolean; deviceScaleFactor?: number; tabId?: string }): boolean;
   setDevicePreset?(tabId: string, presetId: string): boolean;
@@ -54,30 +54,28 @@ export class BrowserControlPort {
     return { reloaded: this.host.reload(tabId), target: { ...target, tabId } };
   }
 
-  async dom(target: BrowserTarget, runId: string, attemptId: string, selector?: string, explicitTabId?: string): Promise<ArtifactRef | string> {
+  async dom(target: BrowserTarget, runId: string, attemptId: string, selector?: string, explicitTabId?: string, paneId?: 'desktop' | 'mobile'): Promise<ArtifactRef | string> {
     const tabId = this.resolveTargetTab(target, explicitTabId);
-    const html = await this.host.getDom(selector, tabId);
+    const html = await this.host.getDom(selector, tabId, paneId);
     return this.artifacts ? this.artifacts.stage({ kind: 'dom', mime: 'text/html', data: html, runId, attemptId, maxBytes: 512 * 1024 }) : limit(html, 512 * 1024);
   }
 
-  async screenshot(target: BrowserTarget, runId: string, attemptId: string, explicitTabId?: string): Promise<ArtifactRef | string> {
+  async screenshot(target: BrowserTarget, runId: string, attemptId: string, explicitTabId?: string, paneId?: 'desktop' | 'mobile'): Promise<ArtifactRef | string> {
     const tabId = this.resolveTargetTab(target, explicitTabId);
-    const base64 = await this.host.captureScreenshot(undefined, tabId);
+    const base64 = await this.host.captureScreenshot(undefined, tabId, paneId);
     const buffer = Buffer.from(base64, 'base64');
     return this.artifacts ? this.artifacts.stage({ kind: 'screenshot', mime: 'image/png', data: buffer, runId, attemptId, maxBytes: 8 * 1024 * 1024 }) : limit(base64, 8 * 1024 * 1024);
   }
-  async eval(target: BrowserTarget, expression: string): Promise<unknown> {
-    assertTarget(target);
-    this.assertCurrent(target);
+  async eval(target: BrowserTarget, expression: string, explicitTabId?: string, paneId?: 'desktop' | 'mobile'): Promise<unknown> {
+    const tabId = this.resolveTargetTab(target, explicitTabId);
     if (!expression.trim()) throw new CapabilityError('INVALID_ARGUMENT', 'JavaScript expression is required');
-    return this.host.evalJs(expression);
+    return this.host.evalJs(expression, tabId, paneId);
   }
 
   openTab(options: { url?: string; activate?: boolean } = {}): { tabId: string } {
     if (!this.host.createTab) throw new CapabilityError('CAPABILITY_NOT_FOUND', 'createTab is not supported by host');
-    return { tabId: this.host.createTab(options.url, options.activate ?? false) };
+    return { tabId: this.host.createTab(options.url, false) };
   }
-
   closeTab(tabId: string): { closed: boolean } {
     if (!this.host.closeTab) throw new CapabilityError('CAPABILITY_NOT_FOUND', 'closeTab is not supported by host');
     return { closed: this.host.closeTab(tabId) };
@@ -104,24 +102,23 @@ export class BrowserControlPort {
     return (await this.host.agentTrajectory({ ...args, tabId })) as Record<string, unknown>;
   }
 
-  async agentMove(args: { selector?: string; x?: number; y?: number; label?: string; tabId?: string }, target?: BrowserTarget): Promise<{ moved: boolean }> {
+  async agentMove(args: { selector?: string; x?: number; y?: number; label?: string; tabId?: string; paneId?: 'desktop' | 'mobile' }, target?: BrowserTarget): Promise<{ moved: boolean }> {
     if (!this.host.agentMove) throw new CapabilityError('CAPABILITY_NOT_FOUND', 'agentMove is not supported by host');
     const tabId = this.resolveTargetTab(target, args.tabId);
     return { moved: await this.host.agentMove({ ...args, tabId }) };
   }
 
-  async agentClick(args: { selector?: string; ref?: string; x?: number; y?: number; label?: string; tabId?: string }, target?: BrowserTarget): Promise<{ clicked: boolean }> {
+  async agentClick(args: { selector?: string; ref?: string; x?: number; y?: number; label?: string; tabId?: string; paneId?: 'desktop' | 'mobile' }, target?: BrowserTarget): Promise<{ clicked: boolean }> {
     if (!this.host.agentClick) throw new CapabilityError('CAPABILITY_NOT_FOUND', 'agentClick is not supported by host');
     const tabId = this.resolveTargetTab(target, args.tabId);
     return { clicked: await this.host.agentClick({ ...args, tabId }) };
   }
 
-  async agentType(args: { selector: string; text: string; clear?: boolean; tabId?: string }, target?: BrowserTarget): Promise<{ typed: boolean }> {
+  async agentType(args: { selector: string; text: string; clear?: boolean; tabId?: string; paneId?: 'desktop' | 'mobile' }, target?: BrowserTarget): Promise<{ typed: boolean }> {
     if (!this.host.agentType) throw new CapabilityError('CAPABILITY_NOT_FOUND', 'agentType is not supported by host');
     const tabId = this.resolveTargetTab(target, args.tabId);
     return { typed: await this.host.agentType({ ...args, tabId }) };
   }
-
   async keyboardPress(args: { key: string; modifiers?: string[]; tabId?: string }, target?: BrowserTarget): Promise<{ success: boolean; key: string; modifiers: string[] }> {
     if (!this.host.sendKeyboardPress) throw new CapabilityError('CAPABILITY_NOT_FOUND', 'sendKeyboardPress is not supported by host');
     if (!args || typeof args.key !== 'string' || args.key.trim().length === 0) {
@@ -139,33 +136,37 @@ export class BrowserControlPort {
       throw new CapabilityError('INVALID_ARGUMENT', msg);
     }
   }
-  async agentScroll(args: { deltaY?: number; selector?: string; tabId?: string }, target?: BrowserTarget): Promise<{ scrolled: boolean }> {
+  async agentScroll(args: { deltaY?: number; selector?: string; tabId?: string; paneId?: 'desktop' | 'mobile' }, target?: BrowserTarget): Promise<{ scrolled: boolean }> {
     if (!this.host.agentScroll) throw new CapabilityError('CAPABILITY_NOT_FOUND', 'agentScroll is not supported by host');
     const tabId = this.resolveTargetTab(target, args.tabId);
     return { scrolled: await this.host.agentScroll({ ...args, tabId }) };
   }
 
-  async agentHover(args: { selector?: string; x?: number; y?: number; label?: string; tabId?: string }, target?: BrowserTarget): Promise<{ hovered: boolean }> {
+  async agentHover(args: { selector?: string; x?: number; y?: number; label?: string; tabId?: string; paneId?: 'desktop' | 'mobile' }, target?: BrowserTarget): Promise<{ hovered: boolean }> {
     if (!this.host.agentHover) throw new CapabilityError('CAPABILITY_NOT_FOUND', 'agentHover is not supported by host');
     const tabId = this.resolveTargetTab(target, args.tabId);
     return { hovered: await this.host.agentHover({ ...args, tabId }) };
   }
 
-  async agentHighlight(args: { selector: string; label?: string; tabId?: string }, target?: BrowserTarget): Promise<{ highlighted: boolean }> {
+  async agentHighlight(args: { selector: string; label?: string; tabId?: string; paneId?: 'desktop' | 'mobile' }, target?: BrowserTarget): Promise<{ highlighted: boolean }> {
     if (!this.host.agentHighlight) throw new CapabilityError('CAPABILITY_NOT_FOUND', 'agentHighlight is not supported by host');
     const tabId = this.resolveTargetTab(target, args.tabId);
     return { highlighted: await this.host.agentHighlight({ ...args, tabId }) };
   }
-  async agentClear(tabId?: string, target?: BrowserTarget): Promise<{ cleared: boolean }> {
+  async agentClear(options?: { tabId?: string; paneId?: 'desktop' | 'mobile' } | string, target?: BrowserTarget): Promise<{ cleared: boolean }> {
     if (!this.host.agentClear) throw new CapabilityError('CAPABILITY_NOT_FOUND', 'agentClear is not supported by host');
+    const tabId = typeof options === 'string' ? options : options?.tabId;
+    const paneId = typeof options === 'object' ? options?.paneId : undefined;
     const effectiveTabId = this.resolveTargetTab(target, tabId);
-    return { cleared: await this.host.agentClear(effectiveTabId) };
+    return { cleared: await this.host.agentClear(effectiveTabId, paneId) };
   }
 
-  async agentSnapshot(tabId?: string, target?: BrowserTarget): Promise<{ snapshot: string }> {
+  async agentSnapshot(options?: { tabId?: string; paneId?: 'desktop' | 'mobile' } | string, target?: BrowserTarget): Promise<{ snapshot: string }> {
     if (!this.host.agentSnapshot) throw new CapabilityError('CAPABILITY_NOT_FOUND', 'agentSnapshot is not supported by host');
+    const tabId = typeof options === 'string' ? options : options?.tabId;
+    const paneId = typeof options === 'object' ? options?.paneId : undefined;
     const effectiveTabId = this.resolveTargetTab(target, tabId);
-    return { snapshot: await this.host.agentSnapshot(effectiveTabId) };
+    return { snapshot: await this.host.agentSnapshot(effectiveTabId, paneId) };
   }
 
   setViewport(options: { width: number; height: number; mobile?: boolean; deviceScaleFactor?: number; tabId?: string }, target?: BrowserTarget): { success: boolean; width: number; height: number; mobile?: boolean; presetId: string } {
@@ -217,16 +218,16 @@ export class BrowserControlPort {
     return { inspecting: this.host.toggleInspect() };
   }
   private resolveTargetTab(target?: BrowserTarget, explicitTabId?: string): string {
-    if (target) {
-      assertTarget(target);
-      this.assertCurrent(target);
-    }
     const resolved = explicitTabId ?? target?.tabId ?? (this.host.getActiveTabId ? this.host.getActiveTabId() : undefined);
     if (!resolved) {
       throw new CapabilityError('INVALID_ARGUMENT', 'No tab ID specified and no active target bound');
     }
     if (!this.host.getTabList().some((tab: any) => tab && tab.id === resolved)) {
       throw new CapabilityError('CAPABILITY_NOT_FOUND', `Unknown tab ID: ${resolved}`);
+    }
+    if (!explicitTabId && target) {
+      assertTarget(target);
+      this.assertCurrent(target);
     }
     return resolved;
   }

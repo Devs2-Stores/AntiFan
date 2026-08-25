@@ -124,6 +124,7 @@ export class AntiFanMcpServer {
           properties: {
             selector: { type: 'string', description: 'CSS selector (optional)' },
             tabId: { type: 'string', description: 'Optional tab ID. If specified, operates on this tab and switches to it.' },
+            paneId: { type: 'string', enum: ['desktop', 'mobile'], description: 'Optional pane target in split review mode' },
           },
         },
       },
@@ -134,6 +135,7 @@ export class AntiFanMcpServer {
           type: 'object',
           properties: {
             tabId: { type: 'string', description: 'Optional tab ID. If specified, operates on this tab and switches to it.' },
+            paneId: { type: 'string', enum: ['desktop', 'mobile'], description: 'Optional pane target in split review mode' },
           },
         },
       },
@@ -154,6 +156,7 @@ export class AntiFanMcpServer {
           type: 'object',
           properties: {
             tabId: { type: 'string', description: 'Optional tab ID' },
+            paneId: { type: 'string', enum: ['desktop', 'mobile'], description: 'Optional pane target in split review mode' },
           },
         },
       },
@@ -169,6 +172,7 @@ export class AntiFanMcpServer {
             y: { type: 'number', description: 'Optional viewport Y coordinate' },
             label: { type: 'string', description: 'Human-readable action description banner' },
             tabId: { type: 'string', description: 'Optional target tab ID. If specified, automatically activates and focuses this tab.' },
+            paneId: { type: 'string', enum: ['desktop', 'mobile'], description: 'Optional pane target in split review mode' },
           },
         },
       },
@@ -183,6 +187,7 @@ export class AntiFanMcpServer {
             text: { type: 'string', description: 'Text string to type' },
             clear: { type: 'boolean', description: 'Whether to clear existing text before typing' },
             tabId: { type: 'string', description: 'Optional target tab ID. If specified, automatically activates and focuses this tab.' },
+            paneId: { type: 'string', enum: ['desktop', 'mobile'], description: 'Optional pane target in split review mode' },
           },
           required: ['text'],
         },
@@ -197,6 +202,7 @@ export class AntiFanMcpServer {
             selector: { type: 'string', description: 'Optional element selector to scroll into view' },
             ref: { type: 'string', description: 'Optional interactive ARIA snapshot ref (e.g. @e1)' },
             tabId: { type: 'string', description: 'Optional target tab ID. If specified, automatically activates and focuses this tab.' },
+            paneId: { type: 'string', enum: ['desktop', 'mobile'], description: 'Optional pane target in split review mode' },
           },
         },
       },
@@ -212,6 +218,7 @@ export class AntiFanMcpServer {
             y: { type: 'number', description: 'Viewport Y' },
             label: { type: 'string', description: 'Hover badge label' },
             tabId: { type: 'string', description: 'Optional target tab ID. If specified, automatically activates and focuses this tab.' },
+            paneId: { type: 'string', enum: ['desktop', 'mobile'], description: 'Optional pane target in split review mode' },
           },
         },
       },
@@ -225,6 +232,7 @@ export class AntiFanMcpServer {
             ref: { type: 'string', description: 'Interactive ARIA snapshot ref (e.g. @e1)' },
             label: { type: 'string', description: 'Badge label text' },
             tabId: { type: 'string', description: 'Optional target tab ID. If specified, automatically activates and focuses this tab.' },
+            paneId: { type: 'string', enum: ['desktop', 'mobile'], description: 'Optional pane target in split review mode' },
           },
         },
       },
@@ -235,6 +243,7 @@ export class AntiFanMcpServer {
           type: 'object',
           properties: {
             tabId: { type: 'string', description: 'Optional target tab ID' },
+            paneId: { type: 'string', enum: ['desktop', 'mobile'], description: 'Optional pane target in split review mode' },
           },
         },
       },
@@ -363,6 +372,7 @@ export class AntiFanMcpServer {
           properties: {
             expression: { type: 'string', description: 'JavaScript code to execute' },
             tabId: { type: 'string', description: 'Optional tab ID to execute within' },
+            paneId: { type: 'string', enum: ['desktop', 'mobile'], description: 'Optional pane target in split review mode' },
           },
           required: ['expression'],
         },
@@ -417,30 +427,54 @@ export class AntiFanMcpServer {
     if (!a.tabId && a.id) a.tabId = a.id;
     if (toolName === 'anti.devtools.console.errors') a.level = 3;
     if (toolName === 'anti.devtools.console.warnings') a.level = 2;
+    const automationTarget = this.tabHost.getAutomationTarget?.();
+    const requestContext = a.context as Partial<CapabilityRequestContext> | undefined;
+    const effectiveTarget = requestContext?.browserTarget || automationTarget;
+    const callerTabId = a.tabId;
     const rid = requestId(a.requestId);
     const evidence = () => { const tab = a.tabId ? this.tabHost.getTabList().find((item) => item.id === a.tabId) : this.tabHost.getActiveTab(); return { tabId: tab?.id, url: tab?.url, title: tab?.title, themeError: tab?.themeError || null }; };
     const resultText = (data: unknown) => JSON.stringify({ ...envelope(data, { ...evidence(), timestamp: Date.now() }), requestId: rid });
-    const requireTab = () => { if (a.tabId && !this.tabHost.getTabList().some((item) => item.id === a.tabId)) throw new Error(`Unknown tabId: ${a.tabId}`); };
-    const activeTabId = a.tabId || this.tabHost.getActiveTabId();
-    if (activeTabId) {
-      this.tabHost.markTabAgentWorking?.(activeTabId, 6000);
-    }
+    const requireTab = () => { if (activeTabId && !this.tabHost.getTabList().some((item) => item.id === activeTabId)) throw new Error(`Unknown tabId: ${activeTabId}`); };
+    const isAgentCommand = isAgentCapabilityName(name);
+    const legacyTabId = callerTabId || (isAgentCommand ? effectiveTarget?.tabId || this.tabHost.getActiveTabId() : effectiveTarget?.tabId);
+    const activeTabId = legacyTabId;
+    const commitAgentTarget = (success: boolean): void => {
+      if (success && activeTabId && name !== 'browser.open-tab' && name !== 'antifan_open_tab' && name !== 'antifan_list_tabs') {
+        this.tabHost.setAutomationTabId?.(activeTabId);
+        this.tabHost.markTabAgentWorking?.(activeTabId, 6000);
+      }
+    };
     try {
-        if (this.transport && typeof a.runtimeLease === 'object' && typeof a.projectId === 'string' && typeof a.workspaceId === 'string') {
-          const context = a.context as Partial<CapabilityRequestContext> | undefined;
-          const result = await this.transport.dispatch(name, a, {
-            lease: a.runtimeLease,
-            leaseToken: typeof a.leaseToken === 'string' ? a.leaseToken : '',
-            projectId: a.projectId,
-            workspaceId: a.workspaceId,
-            runId: context?.runId,
-            attemptId: context?.attemptId,
-            browserTarget: context?.browserTarget,
-            grant: context?.grant,
-          });
-          return result.ok ? { content: [{ type: 'text', text: JSON.stringify(result.data) }] } : { isError: true, content: [{ type: 'text', text: JSON.stringify(result.error) }] };
+      // Validate an explicitly selected or automation-targeted tab before dispatch.
+      // Ownership is committed only after the operation succeeds.
+      if (activeTabId && name !== 'browser.open-tab' && name !== 'antifan_open_tab' && name !== 'antifan_list_tabs') {
+        requireTab();
+      }
+      if (this.transport && typeof a.runtimeLease === 'object' && typeof a.projectId === 'string' && typeof a.workspaceId === 'string') {
+        const transportArgs = { ...a };
+        if (callerTabId) transportArgs.tabId = callerTabId;
+        else delete transportArgs.tabId;
+        const result = await this.transport.dispatch(name, transportArgs, {
+          lease: a.runtimeLease,
+          leaseToken: typeof a.leaseToken === 'string' ? a.leaseToken : '',
+          projectId: a.projectId,
+          workspaceId: a.workspaceId,
+          runId: requestContext?.runId,
+          attemptId: requestContext?.attemptId,
+          browserTarget: effectiveTarget,
+          grant: requestContext?.grant,
+        });
+        if (result.ok) {
+          if ((name === 'browser.open-tab' || name === 'antifan_open_tab') && isCreatedTabResult(result.data)) {
+            this.tabHost.setAutomationTabId?.(result.data.tabId);
+          } else if (isAgentCommand) {
+            commitAgentTarget(agentCapabilitySucceeded(name, result.data));
+          }
         }
-        switch (name) {
+        return result.ok ? { content: [{ type: 'text', text: JSON.stringify(result.data) }] } : { isError: true, content: [{ type: 'text', text: JSON.stringify(result.error) }] };
+      }
+      if (!a.tabId && legacyTabId) a.tabId = legacyTabId;
+      switch (name) {
           case 'antifan_console_messages': {
             requireTab();
             const result = this.tabHost.getDiagnostics(a.tabId, a.level);
@@ -457,7 +491,8 @@ export class AntiFanMcpServer {
             return { content: [{ type: 'text', text: resultText(result) }] };
           }
           case 'antifan_open_tab': {
-            const tabId = this.tabHost.createTab(a.url);
+            const tabId = this.tabHost.createTab(a.url, false);
+            this.tabHost.setAutomationTabId?.(tabId);
             return { content: [{ type: 'text', text: resultText({ tabId, success: true }) }] };
           }
 
@@ -495,14 +530,14 @@ export class AntiFanMcpServer {
 
           case 'antifan_get_dom': {
             requireTab();
-            const html = await this.tabHost.getDom(a.selector, a.tabId);
+            const html = await this.tabHost.getDom(a.selector, a.tabId, a.paneId);
             const tab = a.tabId ? this.tabHost.getTabList().find((item) => item.id === a.tabId) : this.tabHost.getActiveTab();
             return { content: [{ type: 'text', text: resultText({ html, themeError: tab?.themeError || null }) }] };
           }
 
           case 'antifan_screenshot': {
             requireTab();
-            const imageBase64 = await this.tabHost.captureScreenshot(undefined, a.tabId);
+            const imageBase64 = await this.tabHost.captureScreenshot(undefined, a.tabId, a.paneId);
             return {
               content: [
                 {
@@ -525,7 +560,8 @@ export class AntiFanMcpServer {
 
           case 'antifan_agent_snapshot': {
             requireTab();
-            const snapshot = await this.tabHost.agentSnapshot(a.tabId);
+            const snapshot = await this.tabHost.agentSnapshot(a.tabId, a.paneId);
+            commitAgentTarget(true);
             return { content: [{ type: 'text', text: snapshot }] };
           }
 
@@ -541,7 +577,9 @@ export class AntiFanMcpServer {
               y: a.y,
               label: a.label,
               tabId: a.tabId,
+              paneId: a.paneId,
             });
+            commitAgentTarget(ok);
             return { content: [{ type: 'text', text: resultText({ success: ok }) }] };
           }
 
@@ -559,7 +597,9 @@ export class AntiFanMcpServer {
               text: a.text,
               clear: a.clear,
               tabId: a.tabId,
+              paneId: a.paneId,
             });
+            commitAgentTarget(ok);
             return { content: [{ type: 'text', text: resultText({ success: ok }) }] };
           }
           case 'antifan_keyboard_press': {
@@ -573,6 +613,7 @@ export class AntiFanMcpServer {
                 modifiers: a.modifiers,
                 tabId: a.tabId,
               });
+              commitAgentTarget(result.success);
               return { content: [{ type: 'text', text: resultText(result) }] };
             } catch (err: any) {
               return { isError: true, content: [{ type: 'text', text: err?.message || String(err) }] };
@@ -589,7 +630,9 @@ export class AntiFanMcpServer {
               deltaY: a.deltaY,
               selector: targetSelector,
               tabId: a.tabId,
+              paneId: a.paneId,
             });
+            commitAgentTarget(ok);
             return { content: [{ type: 'text', text: resultText({ success: ok }) }] };
           }
           case 'antifan_agent_trajectory': {
@@ -603,6 +646,7 @@ export class AntiFanMcpServer {
               smoothScroll: a.smoothScroll,
               tabId: a.tabId,
             });
+            commitAgentTarget(Boolean(result.success));
             return { content: [{ type: 'text', text: resultText(result) }] };
           }
 
@@ -619,7 +663,9 @@ export class AntiFanMcpServer {
               y: a.y,
               label: a.label,
               tabId: a.tabId,
+              paneId: a.paneId,
             });
+            commitAgentTarget(ok);
             return { content: [{ type: 'text', text: resultText({ success: ok }) }] };
           }
 
@@ -633,7 +679,9 @@ export class AntiFanMcpServer {
               selector: targetSelector,
               label: a.label,
               tabId: a.tabId,
+              paneId: a.paneId,
             });
+            commitAgentTarget(ok);
             return { content: [{ type: 'text', text: resultText({ success: ok }) }] };
           }
 
@@ -649,7 +697,8 @@ export class AntiFanMcpServer {
           }
 
           case 'antifan_agent_clear': {
-            const ok = await this.tabHost.agentClear(a.tabId);
+            const ok = await this.tabHost.agentClear(a.tabId, a.paneId);
+            commitAgentTarget(ok);
             return { content: [{ type: 'text', text: JSON.stringify({ success: ok }) }] };
           }
           case 'antifan_set_viewport': {
@@ -695,13 +744,12 @@ export class AntiFanMcpServer {
               return { isError: true, content: [{ type: 'text', text: 'High risk tool eval_js is disabled' }] };
             }
             requireTab();
-            const result = await this.tabHost.evalJs(a.expression, a.tabId);
+            const result = await this.tabHost.evalJs(a.expression, a.tabId, a.paneId);
             return { content: [{ type: 'text', text: JSON.stringify(result) }] };
           }
-
           default:
             return { isError: true, content: [{ type: 'text', text: `Unknown tool: ${name}` }] };
-        }
+      }
       } catch (err: unknown) {
         const errorMsg = err instanceof Error ? err.message : String(err);
         return { isError: true, content: [{ type: 'text', text: `Tool error: ${errorMsg}` }] };
@@ -719,6 +767,36 @@ export class AntiFanMcpServer {
     } catch {}
   }
 }
+function isCreatedTabResult(value: unknown): value is { tabId: string } {
+  return typeof value === 'object'
+    && value !== null
+    && typeof (value as { tabId?: unknown }).tabId === 'string'
+    && (value as { tabId: string }).tabId.trim().length > 0;
+}
+
+function isAgentCapabilityName(name: string): boolean {
+  return name === 'browser.keyboard-press'
+    || name === 'antifan_keyboard_press'
+    || name.startsWith('browser.agent-')
+    || name.startsWith('antifan_agent_');
+}
+
+function agentCapabilitySucceeded(name: string, data: unknown): boolean {
+  if (!data || typeof data !== 'object') return false;
+  const result = data as Record<string, unknown>;
+  if (name === 'browser.keyboard-press' || name === 'antifan_keyboard_press') return result.success === true;
+  if (name.endsWith('agent-click') || name === 'antifan_agent_click') return result.clicked === true;
+  if (name.endsWith('agent-type') || name === 'antifan_agent_type') return result.typed === true;
+  if (name.endsWith('agent-scroll') || name === 'antifan_agent_scroll') return result.scrolled === true;
+  if (name.endsWith('agent-hover') || name === 'antifan_agent_hover') return result.hovered === true;
+  if (name.endsWith('agent-highlight') || name === 'antifan_agent_highlight') return result.highlighted === true;
+  if (name.endsWith('agent-clear') || name === 'antifan_agent_clear') return result.cleared === true;
+  if (name.endsWith('agent-move') || name === 'antifan_agent_move') return result.moved === true;
+  if (name.endsWith('agent-trajectory') || name === 'antifan_agent_trajectory') return result.success === true;
+  if (name.endsWith('agent-snapshot') || name === 'antifan_agent_snapshot') return typeof result.snapshot === 'string';
+  return false;
+}
+
 export function buildMcpToolList(staticTools: Tool[], transport?: CapabilityTransportAdapter, isHighRiskAllowed = false): Tool[] {
   let listed: Tool[] = [];
   if (transport) {

@@ -330,4 +330,18 @@ describe('Webview & Extension IPC Audit Invariants', () => {
       'Escape must be handled in setupGlobalShortcutsOnView with _event.preventDefault()'
     );
   });
+
+  it('clears the implicit blank navigation entry after creating ordinary tabs without affecting view-source loading', () => {
+    const nativeTabHost = fs.readFileSync(path.join(root, 'src', 'main', 'browser', 'native-tab-host.ts'), 'utf8');
+    assert.match(
+      nativeTabHost,
+      /else if \(url !== 'about:blank'\) \{\s*wc\.loadURL\(url\)\s*\.then\(\(\) => this\.clearInitialNavigationHistory\(wc, state\)\)/,
+      'ordinary new tabs must clear the implicit about:blank history only after their initial URL loads'
+    );
+    assert.match(
+      nativeTabHost,
+      /if \(url\.startsWith\('view-source:'\)\) \{[\s\S]*?this\.fetchAndLoadPageSource\(wc, sourceTargetUrl, state\);\s*\} else if/,
+      'view-source tabs must retain their dedicated data-URL loading path'
+    );
+  });
 });

@@ -54,6 +54,12 @@ invented offsets, renderer never resizes Chromium directly.
    - Persistent **Project Binding Rail**: Project, Workspace, Chat/Run, active
      tab, document generation, browser-control status, stale/recovery state.
 
+### Split Review Surface (Desktop + Mobile Review)
+- **Dual Live WebContentsViews**: Single logical tab owns two live renderers (Desktop & Mobile) side-by-side.
+- **Preserved Scope & Session**: Both panes share the logical tab identity, cookies, localStorage, and capsule subscriptions.
+- **Authority & Loop-Guarded Sync**: Navigation events route through `SplitNavigationCoordinator` to maintain URL parity without echo loops.
+- **Toolbar Controls & Targeting**: Independent preset selectors for Desktop (`laptop-macbook13`, etc.) and Mobile (`phone-iphone15pro`, etc.), with focused pane tracking for MCP/BrowserControlPort DOM inspection, screenshots, and agent actions.
+
 ## Scope Rules
 
 - Every visible item carries immutable scope: Project/Workspace/Chat/Run/Tab.

@@ -13,7 +13,7 @@ export interface ActionDefinition<TParams = Record<string, any>, TResult = any> 
   isHighRisk?: boolean;
   inputSchema?: {
     type: 'object';
-    properties: Record<string, { type: string; description: string }>;
+    properties: Record<string, { type: string; description: string; enum?: string[] }>;
     required?: string[];
   };
   handler: (params: TParams, context: { tabHost: NativeTabHost }) => Promise<TResult> | TResult;
@@ -234,35 +234,38 @@ export class BrowserActionRegistry {
       name: 'getDom',
       mcpName: 'antifan_get_dom',
       aliases: ['getDOM', 'antifan.getDOM', 'antifan.getDom'],
-      description: 'Extract the full HTML or a specific selector subtree from the active tab',
+      description: 'Extract the full HTML or a specific selector subtree from the active tab (or specified tabId/paneId)',
       inputSchema: {
         type: 'object',
         properties: {
           selector: { type: 'string', description: 'CSS selector (optional)' },
+          tabId: { type: 'string', description: 'Optional tab ID' },
+          paneId: { type: 'string', enum: ['desktop', 'mobile'], description: 'Optional split review pane' },
         },
       },
-      handler: async (params: { selector?: string }, { tabHost }) => {
-        const html = await tabHost.getDom(params?.selector);
+      handler: async (params: { selector?: string; tabId?: string; paneId?: 'desktop' | 'mobile' }, { tabHost }) => {
+        const html = await tabHost.getDom(params?.selector, params?.tabId, params?.paneId);
         return { html };
       },
     });
-
     // 10. Capture Screenshot
     this.registerAction({
       name: 'captureScreenshot',
       mcpName: 'antifan_screenshot',
       aliases: ['antifan.captureScreenshot', 'screenshot'],
-      description: 'Capture a native GPU pixel-perfect screenshot of the active tab (returns base64 PNG)',
+      description: 'Capture a native GPU pixel-perfect screenshot of the active tab (or specified tabId/paneId, returns base64 PNG)',
       inputSchema: {
         type: 'object',
-        properties: {},
+        properties: {
+          tabId: { type: 'string', description: 'Optional tab ID' },
+          paneId: { type: 'string', enum: ['desktop', 'mobile'], description: 'Optional split review pane' },
+        },
       },
-      handler: async (_params: Record<string, any>, { tabHost }) => {
-        const imageBase64 = await tabHost.captureScreenshot();
+      handler: async (params: { tabId?: string; paneId?: 'desktop' | 'mobile' }, { tabHost }) => {
+        const imageBase64 = await tabHost.captureScreenshot(undefined, params?.tabId, params?.paneId);
         return { imageBase64 };
       },
     });
-
     // 11. Toggle Inspect
     this.registerAction({
       name: 'toggleInspect',
@@ -348,14 +351,14 @@ export class BrowserActionRegistry {
         type: 'object',
         properties: {
           tabId: { type: 'string', description: 'Optional tab ID' },
+          paneId: { type: 'string', enum: ['desktop', 'mobile'], description: 'Optional split review pane' },
         },
       },
-      handler: async (params: { tabId?: string }, { tabHost }) => {
-        const snapshot = await tabHost.agentSnapshot(params?.tabId);
+      handler: async (params: { tabId?: string; paneId?: 'desktop' | 'mobile' }, { tabHost }) => {
+        const snapshot = await tabHost.agentSnapshot(params?.tabId, params?.paneId);
         return { snapshot, success: true };
       },
     });
-
     // 15. Eval JS (High Risk)
     this.registerAction({
       name: 'evalJs',
@@ -367,11 +370,13 @@ export class BrowserActionRegistry {
         type: 'object',
         properties: {
           expression: { type: 'string', description: 'JavaScript code to execute' },
+          tabId: { type: 'string', description: 'Optional tab ID' },
+          paneId: { type: 'string', enum: ['desktop', 'mobile'], description: 'Optional split review pane' },
         },
         required: ['expression'],
       },
-      handler: async (params: { expression: string }, { tabHost }) => {
-        const result = await tabHost.evalJs(params.expression);
+      handler: async (params: { expression: string; tabId?: string; paneId?: 'desktop' | 'mobile' }, { tabHost }) => {
+        const result = await tabHost.evalJs(params.expression, params.tabId, params.paneId);
         return { result };
       },
     });

@@ -59,6 +59,51 @@
       <div class="toolbar-actions">
         <!-- Group 1: Viewport & Zoom -->
         <div class="toolbar-group toolbar-group-viewport">
+          <button class="nav-btn btn-split-review" id="btnToggleSplit" title="Toggle Split Desktop + Mobile Review">
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
+              <path fill-rule="evenodd" clip-rule="evenodd" d="M1.5 2.5A1 1 0 0 1 2.5 1.5h11a1 1 0 0 1 1 1v11a1 1 0 0 1-1 1h-11a1 1 0 0 1-1-1v-11zM7.25 3h-4.5v10h4.5V3zm1.5 10h4.5V3h-4.5v10z"/>
+            </svg>
+          </button>
+
+          <div class="split-controls-container" id="splitControlsContainer" style="display:none;">
+            <div class="split-preset-group">
+              <button class="split-pane-pill active" id="btnSplitFocusDesktop" title="Focus Desktop Pane">
+                <span class="split-pane-dot"></span>
+                <span>💻</span>
+              </button>
+              <select class="device-select split-device-select" id="splitDesktopSelect" title="Split Desktop Preset">
+                <option value="desktop-fhd">FHD (1920×1080)</option>
+                <option value="desktop-2k">2K QHD (2560×1440)</option>
+                <option value="desktop-4k">4K UHD (3840×2160)</option>
+                <option value="laptop-macbook16">MacBook Pro 16" (1728×1117)</option>
+                <option value="laptop-macbook14">MacBook Pro 14" (1512×982)</option>
+                <option value="laptop-macbook13">MacBook Air 13" (1280×832)</option>
+                <option value="laptop-1440">Laptop 14" (1440×900)</option>
+                <option value="laptop-hd">Laptop Standard (1366×768)</option>
+              </select>
+            </div>
+            <div class="split-preset-group">
+              <button class="split-pane-pill" id="btnSplitFocusMobile" title="Focus Mobile Pane">
+                <span class="split-pane-dot"></span>
+                <span>📱</span>
+              </button>
+              <select class="device-select split-device-select" id="splitMobileSelect" title="Split Mobile Preset">
+                <option value="phone-iphone16promax">iPhone 16 Pro Max (440×956)</option>
+                <option value="phone-iphone16plus">iPhone 16 Plus (430×932)</option>
+                <option value="phone-iphone15pro">iPhone 15 Pro (393×852)</option>
+                <option value="phone-iphone14pro">iPhone 14 (390×844)</option>
+                <option value="phone-iphonexr">iPhone XR (414×896)</option>
+                <option value="phone-iphonese">iPhone SE (375×667)</option>
+                <option value="phone-s24ultra">Galaxy S24 Ultra (412×915)</option>
+                <option value="phone-zfold5">Galaxy Z Fold 5 (344×882)</option>
+                <option value="phone-pixel8pro">Pixel 8 Pro (448×998)</option>
+                <option value="pixel-9-pro">Pixel 9 Pro (412×924)</option>
+                <option value="mobile-compact">Mobile Baseline (360×800)</option>
+                <option value="mobile-small">Mobile Small (360×640)</option>
+              </select>
+            </div>
+          </div>
+
           <select class="device-select" id="deviceSelect" title="Device Viewport Breakpoints">
             <option value="responsive">🖥️ Responsive (Fluid)</option>
             <optgroup label="💻 Desktops & Laptops">

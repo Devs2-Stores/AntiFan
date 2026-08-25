@@ -51,6 +51,9 @@ const CHANNELS = {
   ELEMENT_PICKED: 'antifan:toolbar:element-picked',
   FIND_RESULT: 'antifan:toolbar:find-result',
   GET_MOBILE_REMOTE_INFO: 'antifan:toolbar:get-mobile-remote-info',
+  TOGGLE_SPLIT_REVIEW: 'antifan:toolbar:toggle-split-review',
+  SET_SPLIT_PRESET: 'antifan:toolbar:set-split-preset',
+  SET_SPLIT_FOCUSED_PANE: 'antifan:toolbar:set-split-focused-pane',
 };
 
 const toolbarApi = {
@@ -98,6 +101,9 @@ const toolbarApi = {
   removeBookmark: (url: string) => ipcRenderer.invoke(CHANNELS.REMOVE_BOOKMARK, url),
   getSuggestions: (query: string) => ipcRenderer.invoke(CHANNELS.GET_SUGGESTIONS, query),
   toggleTerminal: () => ipcRenderer.invoke(CHANNELS.TOGGLE_TERMINAL),
+  toggleSplitReview: (tabId?: string, enabled?: boolean) => ipcRenderer.invoke(CHANNELS.TOGGLE_SPLIT_REVIEW, { tabId, enabled }),
+  setSplitPreset: (paneId: string, presetId: string, tabId?: string) => ipcRenderer.invoke(CHANNELS.SET_SPLIT_PRESET, { paneId, presetId, tabId }),
+  setSplitFocusedPane: (paneId: string, tabId?: string) => ipcRenderer.invoke(CHANNELS.SET_SPLIT_FOCUSED_PANE, { paneId, tabId }),
 
   // Workflow & MCP Hub APIs
   getWorkflowState: () => ipcRenderer.invoke('antifan:workflow:get-state'),

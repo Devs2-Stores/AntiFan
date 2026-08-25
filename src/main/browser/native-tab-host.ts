@@ -11,7 +11,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import { randomUUID, createHash } from 'node:crypto';
 import { EventEmitter } from 'node:events';
-import { AntiFanTab, AntiFanPickedElement, ChatMessage, TOOLBAR_CHANNELS, SIDEBAR_CHANNELS, TERMINAL_CHANNELS, BridgeDeliveryUpdatePayload, AntigravityAttachmentDescriptor } from '../../shared/contracts';
+import { AntiFanTab, SplitPaneId, AntiFanPickedElement, ChatMessage, TOOLBAR_CHANNELS, SIDEBAR_CHANNELS, TERMINAL_CHANNELS, BridgeDeliveryUpdatePayload, AntigravityAttachmentDescriptor } from '../../shared/contracts';
 import { getSecureWebPreferences, sanitizeUrl, isAllowedNavigation, cleanRestoredUrl, isInternalWidgetOrSubframeUrl } from '../security/security-policy';
 import { ELEMENT_PICKER_SCRIPT } from './element-picker';
 import { resolveWorkspaceFromUrl, DEFAULT_WORKSPACE_ROOTS } from './workspace-resolver';
@@ -39,6 +39,14 @@ import { AntigravityCommandClient, generateCommandId } from '../bridge/antigravi
 import { BridgeServer } from '../bridge/bridge-server';
 import { WorkflowRegistry } from '../workflow/workflow-registry';
 import { HistoryManager } from './history-manager';
+import {
+  DEFAULT_SPLIT_DESKTOP_PRESET,
+  DEFAULT_SPLIT_MOBILE_PRESET,
+  calculateSplitLayout,
+  SplitNavigationCoordinator,
+  sanitizeTabForPersistence,
+  migratePersistedTab,
+} from './split-review-coordinator';
 export const TOOLBAR_HEIGHT_WITH_BOOKMARKS = 102;
 export const TOOLBAR_HEIGHT_COMPACT = 74;
 
@@ -49,6 +57,12 @@ export interface BookmarkItem {
   createdAt: number;
 }
 
+export interface NativeTabRecord {
+  view: WebContentsView;
+  mobileView?: WebContentsView;
+  state: AntiFanTab;
+  focusedPane?: SplitPaneId;
+}
 
 export class NativeTabHost extends EventEmitter {
   private window: BrowserWindow;
@@ -65,8 +79,9 @@ export class NativeTabHost extends EventEmitter {
   private isBookmarkBarVisible: boolean = false;
   private sidebarWidth: number = 380;
   private transcriptSyncer: TranscriptSyncer;
+  private readonly splitCoordinator = new SplitNavigationCoordinator();
 
-  private tabs: Map<string, { view: WebContentsView; state: AntiFanTab }> = new Map();
+  private tabs: Map<string, NativeTabRecord> = new Map();
   private tabOrder: string[] = [];
   private activeTabId: string = '';
   private chatMessages: ChatMessage[] = [];
@@ -81,6 +96,7 @@ export class NativeTabHost extends EventEmitter {
   private browserEpoch: number = 1;
   private tabPreviewUnsubscribers: Map<string, () => void> = new Map();
   private recentlyClosedTabs: Array<{ url: string; title: string }> = [];
+  private automationTabId: string | null = null;
   private pendingDeliveries: Array<{ message: ChatMessage; commandId: string; targetWorkspace: string; dispatchedAt: number }> = [];
 
   private isInspecting: boolean = false;
@@ -92,6 +108,7 @@ export class NativeTabHost extends EventEmitter {
   private persistTimer: NodeJS.Timeout | null = null;
   private reconcilerTimer: NodeJS.Timeout | null = null;
   private agentWorkingTimers = new Map<string, NodeJS.Timeout>();
+  private agentWorkingRefs = new Map<string, number>();
   private lastAnnotationSessionId: string | undefined = undefined;
 
   constructor(window: BrowserWindow, capsuleManager?: WorkspaceCapsuleManager) {
@@ -295,6 +312,9 @@ export class NativeTabHost extends EventEmitter {
     ipcMain.handle(TOOLBAR_CHANNELS.TOGGLE_TERMINAL, () => this.toggleTerminal());
     ipcMain.handle(TOOLBAR_CHANNELS.TOGGLE_SIDEBAR, () => this.toggleSidebar());
     ipcMain.handle(TOOLBAR_CHANNELS.SET_DEVICE_PRESET, (_event, { tabId, presetId }: { tabId?: string; presetId: string }) => this.setDevicePreset(tabId || this.activeTabId, presetId));
+    ipcMain.handle(TOOLBAR_CHANNELS.TOGGLE_SPLIT_REVIEW, (_event, payload?: { tabId?: string; enabled?: boolean }) => this.toggleSplitReview(payload?.tabId || this.activeTabId, payload?.enabled));
+    ipcMain.handle(TOOLBAR_CHANNELS.SET_SPLIT_PRESET, (_event, { tabId, paneId, presetId }: { tabId?: string; paneId: SplitPaneId; presetId: string }) => this.setSplitPreset(tabId || this.activeTabId, paneId, presetId));
+    ipcMain.handle(TOOLBAR_CHANNELS.SET_SPLIT_FOCUSED_PANE, (_event, { tabId, paneId }: { tabId?: string; paneId: SplitPaneId }) => this.setSplitFocusedPane(tabId || this.activeTabId, paneId));
     ipcMain.handle(TOOLBAR_CHANNELS.SET_ZOOM, (_event, { tabId, zoom }: { tabId?: string; zoom: number }) => this.setZoom(tabId || this.activeTabId, zoom));
     ipcMain.on('antifan:tab-wheel-zoom', (event, { isZoomIn }: { isZoomIn: boolean }) => {
       const senderWc = event.sender;
@@ -1270,7 +1290,13 @@ export class NativeTabHost extends EventEmitter {
   }
 
   public getTabList(): AntiFanTab[] {
-    return this.tabOrder.map((id) => this.tabs.get(id)?.state).filter(Boolean) as AntiFanTab[];
+    return this.tabOrder
+      .map((id) => {
+        const tab = this.tabs.get(id);
+        if (!tab) return undefined;
+        return { ...tab.state, isAgentControlled: id === this.automationTabId };
+      })
+      .filter(Boolean) as AntiFanTab[];
   }
 
   public getActiveTabId(): string {
@@ -1279,7 +1305,246 @@ export class NativeTabHost extends EventEmitter {
 
   public getActiveTab(): AntiFanTab | null {
     const t = this.tabs.get(this.activeTabId);
-    return t ? { ...t.state } : null;
+    return t ? { ...t.state, isAgentControlled: this.activeTabId === this.automationTabId } : null;
+  }
+
+  public getTabWebContents(tabId?: string, paneId?: SplitPaneId): Electron.WebContents | null {
+    const targetId = tabId || this.activeTabId;
+    const tab = this.tabs.get(targetId);
+    if (!tab) return null;
+
+    if (paneId === 'mobile') {
+      if (tab.state.splitMode && tab.mobileView && !tab.mobileView.webContents.isDestroyed()) {
+        return tab.mobileView.webContents;
+      }
+      return null;
+    }
+
+    if (paneId === 'desktop') {
+      return tab.view.webContents.isDestroyed() ? null : tab.view.webContents;
+    }
+
+    if (tab.state.splitMode && tab.focusedPane === 'mobile' && tab.mobileView && !tab.mobileView.webContents.isDestroyed()) {
+      return tab.mobileView.webContents;
+    }
+    return tab.view.webContents.isDestroyed() ? null : tab.view.webContents;
+  }
+  public setAutomationTabId(tabId?: string): void {
+    const nextTabId = tabId && this.tabs.has(tabId) ? tabId : null;
+    if (nextTabId === this.automationTabId) return;
+    this.automationTabId = nextTabId;
+    this.broadcastState();
+  }
+
+  public getAutomationTarget(): BrowserTarget | undefined {
+    const tabId = this.automationTabId;
+    if (!tabId || !this.tabs.has(tabId) || !this.controlPlane) return undefined;
+    const lease = this.controlPlane.getLease();
+    const tab = this.tabs.get(tabId);
+    return {
+      projectId: lease.projectId,
+      workspaceId: lease.workspaceId || '',
+      runtimeId: lease.runtimeId,
+      tabId,
+      browserEpoch: lease.hostEpoch,
+      documentGeneration: this.getDocumentGeneration(tabId),
+      url: tab?.state.url,
+    };
+  }
+  private clearInitialNavigationHistory(wc: Electron.WebContents, state?: AntiFanTab): void {
+    const navigationHistory = wc.navigationHistory;
+    if (!navigationHistory || navigationHistory.length() <= 1) return;
+    try {
+      navigationHistory.clear();
+      if (state) {
+        state.canGoBack = navigationHistory.canGoBack();
+        state.canGoForward = navigationHistory.canGoForward();
+        this.broadcastState();
+      }
+    } catch (err) {
+      console.warn('[native-tab-host] Failed to clear initial navigation history:', err);
+    }
+  }
+
+
+  private setupTabWebContentsEvents(
+    id: string,
+    view: WebContentsView,
+    state: AntiFanTab,
+    paneId: SplitPaneId = 'desktop'
+  ): void {
+    const wc = view.webContents;
+
+    wc.on('did-start-loading', () => {
+      state.isLoading = true;
+      this.broadcastState();
+    });
+
+    wc.on('did-stop-loading', () => {
+      state.isLoading = false;
+      const nav = (wc as any).navigationHistory;
+      state.canGoBack = nav ? nav.canGoBack() : (wc.canGoBack ? wc.canGoBack() : false);
+      state.canGoForward = nav ? nav.canGoForward() : (wc.canGoForward ? wc.canGoForward() : false);
+      this.broadcastState();
+    });
+
+    wc.on('console-message', (_event, level, message, line, sourceId) => {
+      this.diagnosticsManager.recordConsole(id, {
+        level,
+        message: String(message || ''),
+        source: String(sourceId || ''),
+        line: Number(line || 0),
+        timestamp: Date.now(),
+      });
+    });
+
+    wc.on('did-fail-load', (_event, errorCode, errorDescription, validatedURL, isMainFrame) => {
+      this.diagnosticsManager.recordFailure(id, {
+        errorCode,
+        errorDescription: String(errorDescription || ''),
+        validatedURL: String(validatedURL || ''),
+        isMainFrame: Boolean(isMainFrame),
+        timestamp: Date.now(),
+      });
+      this.splitCoordinator.handleNavigationFailure(id, paneId, String(errorDescription || ''));
+    });
+
+    wc.on('did-finish-load', () => {
+      if (paneId === 'desktop') {
+        this.documentGenerations.set(id, (this.documentGenerations.get(id) || 0) + 1);
+      }
+      wc.session.cookies.flushStore().catch(() => {});
+      this.injectAutoJsonViewer(wc);
+      if (this.isRulerActive && id === this.activeTabId) {
+        wc.executeJavaScript(RULER_SCRIPT).catch(() => {});
+      }
+      if (this.isLensActive && id === this.activeTabId) {
+        wc.executeJavaScript(GPU_LENS_SCRIPT).catch(() => {});
+      }
+      if (this.isFontFinderActive && id === this.activeTabId) {
+        wc.executeJavaScript(FONT_FINDER_SCRIPT).catch(() => {});
+      }
+    });
+
+    wc.on('page-title-updated', (_event, title) => {
+      if (paneId === 'desktop') {
+        state.title = title || 'Untitled';
+        if (state.url && state.url !== 'about:blank' && !state.url.startsWith('view-source:')) {
+          HistoryManager.getInstance().updateTitle(state.url, state.title);
+        }
+        this.broadcastState();
+      }
+    });
+
+    wc.on('page-favicon-updated', (_event, favicons) => {
+      if (paneId === 'desktop' && favicons.length > 0) {
+        state.favicon = favicons[0];
+        this.broadcastState();
+      }
+    });
+
+    wc.on('did-navigate', (_event, navUrl) => {
+      if (isInternalWidgetOrSubframeUrl(navUrl)) return;
+      const currentUrl = wc.getURL();
+      const chosenUrl = (currentUrl && currentUrl !== 'about:blank' && !isInternalWidgetOrSubframeUrl(currentUrl))
+        ? currentUrl
+        : navUrl;
+      const cleanUrl = cleanRestoredUrl(chosenUrl);
+
+      if (paneId === 'desktop') {
+        state.url = cleanUrl;
+        if (state.url && state.url !== 'about:blank' && !state.url.startsWith('view-source:')) {
+          HistoryManager.getInstance().recordVisit(state.url, state.title, state.favicon);
+        }
+      }
+
+      const decision = this.splitCoordinator.handleNavigationEvent(id, paneId, cleanUrl, false);
+      if (decision.shouldMirror && decision.mirrorUrl && state.splitMode) {
+        const tab = this.tabs.get(id);
+        const siblingView = decision.targetPane === 'mobile' ? tab?.mobileView : tab?.view;
+        if (siblingView && !siblingView.webContents.isDestroyed()) {
+          this.splitCoordinator.markMirrorStarted(id);
+          siblingView.webContents.loadURL(decision.mirrorUrl).catch(() => {});
+        }
+      }
+
+      const nav = (wc as any).navigationHistory;
+      state.canGoBack = nav ? nav.canGoBack() : (wc.canGoBack ? wc.canGoBack() : false);
+      state.canGoForward = nav ? nav.canGoForward() : (wc.canGoForward ? wc.canGoForward() : false);
+      this.broadcastState();
+      this.schedulePersist();
+      if (this.isRulerActive && id === this.activeTabId) {
+        wc.executeJavaScript(RULER_SCRIPT).catch(() => {});
+      }
+    });
+
+    wc.on('did-navigate-in-page', (_event, navUrl, isMainFrame) => {
+      if (isMainFrame !== false && !isInternalWidgetOrSubframeUrl(navUrl)) {
+        const cleanUrl = cleanRestoredUrl(navUrl);
+        if (paneId === 'desktop') {
+          state.url = cleanUrl;
+          if (state.url && state.url !== 'about:blank' && !state.url.startsWith('view-source:')) {
+            HistoryManager.getInstance().recordVisit(state.url, state.title, state.favicon);
+          }
+        }
+
+        const decision = this.splitCoordinator.handleNavigationEvent(id, paneId, cleanUrl, true);
+        if (decision.shouldMirror && decision.mirrorUrl && state.splitMode) {
+          const tab = this.tabs.get(id);
+          const siblingView = decision.targetPane === 'mobile' ? tab?.mobileView : tab?.view;
+          if (siblingView && !siblingView.webContents.isDestroyed()) {
+            this.splitCoordinator.markMirrorStarted(id);
+            siblingView.webContents.loadURL(decision.mirrorUrl).catch(() => {});
+          }
+        }
+
+        const nav = (wc as any).navigationHistory;
+        state.canGoBack = nav ? nav.canGoBack() : (wc.canGoBack ? wc.canGoBack() : false);
+        state.canGoForward = nav ? nav.canGoForward() : (wc.canGoForward ? wc.canGoForward() : false);
+        this.broadcastState();
+        this.schedulePersist();
+        if (this.isRulerActive && id === this.activeTabId) {
+          wc.executeJavaScript(RULER_SCRIPT).catch(() => {});
+        }
+      }
+    });
+
+    wc.on('focus', () => {
+      const tab = this.tabs.get(id);
+      if (tab && state.splitMode && tab.focusedPane !== paneId) {
+        tab.focusedPane = paneId;
+        state.splitFocusedPane = paneId;
+        this.broadcastState();
+      }
+    });
+
+    wc.on('render-process-gone', () => {
+      state.crashed = true;
+      this.broadcastState();
+    });
+
+    wc.on('found-in-page', (_event, result) => {
+      this.toolbarView.webContents.send(TOOLBAR_CHANNELS.FIND_RESULT, result);
+    });
+
+    wc.setWindowOpenHandler(({ url: popupUrl }) => {
+      if (isAllowedNavigation(popupUrl)) {
+        this.createTab(popupUrl);
+      }
+      return { action: 'deny' };
+    });
+
+    wc.on('zoom-changed', (_event, zoomDirection) => {
+      const current = state.zoomFactor || 1.0;
+      const step = 0.1;
+      const nextZoom = zoomDirection === 'in'
+        ? Math.min(5.0, Number((current + step).toFixed(2)))
+        : Math.max(0.25, Number((current - step).toFixed(2)));
+      this.setZoom(id, nextZoom);
+    });
+
+    this.setupGlobalShortcutsOnView(wc);
+    this.setupContextMenu(wc);
   }
 
   public createTab(initialUrl = 'https://www.google.com', activate = true): string {
@@ -1337,138 +1602,9 @@ export class NativeTabHost extends EventEmitter {
       capsuleId: capsuleIdForPreview || undefined,
     };
 
-    const wc = view.webContents;
-    wc.on('did-start-loading', () => {
-      state.isLoading = true;
-      this.broadcastState();
-    });
+    this.setupTabWebContentsEvents(id, view, state, 'desktop');
 
-    wc.on('did-stop-loading', () => {
-      state.isLoading = false;
-      const nav = (wc as any).navigationHistory;
-      state.canGoBack = nav ? nav.canGoBack() : (wc.canGoBack ? wc.canGoBack() : false);
-      state.canGoForward = nav ? nav.canGoForward() : (wc.canGoForward ? wc.canGoForward() : false);
-      this.broadcastState();
-    });
-
-
-    wc.on('console-message', (_event, level, message, line, sourceId) => {
-      this.diagnosticsManager.recordConsole(id, {
-        level,
-        message: String(message || ''),
-        source: String(sourceId || ''),
-        line: Number(line || 0),
-        timestamp: Date.now(),
-      });
-    });
-
-    wc.on('did-fail-load', (_event, errorCode, errorDescription, validatedURL, isMainFrame) => {
-      this.diagnosticsManager.recordFailure(id, {
-        errorCode,
-        errorDescription: String(errorDescription || ''),
-        validatedURL: String(validatedURL || ''),
-        isMainFrame: Boolean(isMainFrame),
-        timestamp: Date.now(),
-      });
-    });
-
-    wc.on('did-finish-load', () => {
-      this.documentGenerations.set(id, (this.documentGenerations.get(id) || 0) + 1);
-      wc.session.cookies.flushStore().catch(() => {});
-      this.injectAutoJsonViewer(wc);
-      if (this.isRulerActive && id === this.activeTabId) {
-        wc.executeJavaScript(RULER_SCRIPT).catch(() => {});
-      }
-      if (this.isLensActive && id === this.activeTabId) {
-        wc.executeJavaScript(GPU_LENS_SCRIPT).catch(() => {});
-      }
-      if (this.isFontFinderActive && id === this.activeTabId) {
-        wc.executeJavaScript(FONT_FINDER_SCRIPT).catch(() => {});
-      }
-    });
-
-    wc.on('page-title-updated', (_event, title) => {
-      state.title = title || 'Untitled';
-      if (state.url && state.url !== 'about:blank' && !state.url.startsWith('view-source:')) {
-        HistoryManager.getInstance().updateTitle(state.url, state.title);
-      }
-      this.broadcastState();
-    });
-
-    wc.on('page-favicon-updated', (_event, favicons) => {
-      if (favicons.length > 0) {
-        state.favicon = favicons[0];
-        this.broadcastState();
-      }
-    });
-
-    wc.on('did-navigate', (_event, navUrl) => {
-      if (isInternalWidgetOrSubframeUrl(navUrl)) return;
-      const currentUrl = wc.getURL();
-      const chosenUrl = (currentUrl && currentUrl !== 'about:blank' && !isInternalWidgetOrSubframeUrl(currentUrl))
-        ? currentUrl
-        : navUrl;
-      state.url = cleanRestoredUrl(chosenUrl);
-      if (state.url && state.url !== 'about:blank' && !state.url.startsWith('view-source:')) {
-        HistoryManager.getInstance().recordVisit(state.url, state.title, state.favicon);
-      }
-      const nav = (wc as any).navigationHistory;
-      state.canGoBack = nav ? nav.canGoBack() : (wc.canGoBack ? wc.canGoBack() : false);
-      state.canGoForward = nav ? nav.canGoForward() : (wc.canGoForward ? wc.canGoForward() : false);
-      this.broadcastState();
-      this.schedulePersist();
-      if (this.isRulerActive && id === this.activeTabId) {
-        wc.executeJavaScript(RULER_SCRIPT).catch(() => {});
-      }
-    });
-
-    wc.on('did-navigate-in-page', (_event, navUrl, isMainFrame) => {
-      // ONLY update tab url if the in-page navigation was for the MAIN FRAME and not a subframe widget!
-      if (isMainFrame !== false && !isInternalWidgetOrSubframeUrl(navUrl)) {
-        state.url = cleanRestoredUrl(navUrl);
-        if (state.url && state.url !== 'about:blank' && !state.url.startsWith('view-source:')) {
-          HistoryManager.getInstance().recordVisit(state.url, state.title, state.favicon);
-        }
-        const nav = (wc as any).navigationHistory;
-        state.canGoBack = nav ? nav.canGoBack() : (wc.canGoBack ? wc.canGoBack() : false);
-        state.canGoForward = nav ? nav.canGoForward() : (wc.canGoForward ? wc.canGoForward() : false);
-        this.broadcastState();
-        this.schedulePersist();
-        if (this.isRulerActive && id === this.activeTabId) {
-          wc.executeJavaScript(RULER_SCRIPT).catch(() => {});
-        }
-      }
-    });
-
-    wc.on('render-process-gone', () => {
-      state.crashed = true;
-      this.broadcastState();
-    });
-
-    wc.on('found-in-page', (_event, result) => {
-      this.toolbarView.webContents.send(TOOLBAR_CHANNELS.FIND_RESULT, result);
-    });
-
-    wc.setWindowOpenHandler(({ url: popupUrl }) => {
-      if (isAllowedNavigation(popupUrl)) {
-        this.createTab(popupUrl);
-      }
-      return { action: 'deny' };
-    });
-
-    wc.on('zoom-changed', (_event, zoomDirection) => {
-      const current = state.zoomFactor || 1.0;
-      const step = 0.1;
-      const nextZoom = zoomDirection === 'in'
-        ? Math.min(5.0, Number((current + step).toFixed(2)))
-        : Math.max(0.25, Number((current - step).toFixed(2)));
-      this.setZoom(id, nextZoom);
-    });
-
-    this.setupGlobalShortcutsOnView(wc);
-    this.setupContextMenu(wc);
-
-    this.tabs.set(id, { view, state });
+    this.tabs.set(id, { view, state, focusedPane: 'desktop' });
     this.tabOrder.push(id);
 
     if (capsuleIdForPreview) {
@@ -1480,13 +1616,16 @@ export class NativeTabHost extends EventEmitter {
         this.tabPreviewUnsubscribers.set(id, unsub);
       }
     }
+    const wc = view.webContents;
     if (url.startsWith('view-source:')) {
       const sourceTargetUrl = url.slice('view-source:'.length).trim();
       state.title = `view-source:${sourceTargetUrl}`;
       state.url = url;
       this.fetchAndLoadPageSource(wc, sourceTargetUrl, state);
     } else if (url !== 'about:blank') {
-      wc.loadURL(url).catch(() => {});
+      wc.loadURL(url)
+        .then(() => this.clearInitialNavigationHistory(wc, state))
+        .catch(() => {});
     }
     if (activate) this.switchTab(id);
     return id;
@@ -1499,25 +1638,85 @@ export class NativeTabHost extends EventEmitter {
     if (this.activeTabId && this.activeTabId !== tabId) {
       const current = this.tabs.get(this.activeTabId);
       if (current) {
-        this.window.contentView.removeChildView(current.view);
+        try {
+          this.window.contentView.removeChildView(current.view);
+        } catch {}
+        if (current.mobileView) {
+          try {
+            this.window.contentView.removeChildView(current.mobileView);
+          } catch {}
+        }
       }
     }
 
     this.activeTabId = tabId;
     this.window.contentView.addChildView(target.view);
+    if (target.state.splitMode && target.mobileView) {
+      this.window.contentView.addChildView(target.mobileView);
+    }
     this.updateLayout();
     this.broadcastState();
 
     if (this.isRulerActive) {
       target.view.webContents.executeJavaScript(RULER_SCRIPT).catch(() => {});
+      if (target.mobileView && !target.mobileView.webContents.isDestroyed()) {
+        target.mobileView.webContents.executeJavaScript(RULER_SCRIPT).catch(() => {});
+      }
     }
     if (this.isLensActive) {
       target.view.webContents.executeJavaScript(GPU_LENS_SCRIPT).catch(() => {});
+      if (target.mobileView && !target.mobileView.webContents.isDestroyed()) {
+        target.mobileView.webContents.executeJavaScript(GPU_LENS_SCRIPT).catch(() => {});
+      }
     }
     if (this.isFontFinderActive) {
       target.view.webContents.executeJavaScript(FONT_FINDER_SCRIPT).catch(() => {});
+      if (target.mobileView && !target.mobileView.webContents.isDestroyed()) {
+        target.mobileView.webContents.executeJavaScript(FONT_FINDER_SCRIPT).catch(() => {});
+      }
     }
     return true;
+  }
+
+  private beginTabAgentWorking(tabId: string): void {
+    const target = this.tabs.get(tabId);
+    if (!target) return;
+    this.agentWorkingRefs.set(tabId, (this.agentWorkingRefs.get(tabId) || 0) + 1);
+    if (target.state.aiState !== 'agent_working') {
+      target.state.aiState = 'agent_working';
+      this.broadcastState();
+    }
+  }
+  private clearTabAgentWorking(tabId: string): void {
+    const timer = this.agentWorkingTimers.get(tabId);
+    if (timer) clearTimeout(timer);
+    this.agentWorkingTimers.delete(tabId);
+    this.agentWorkingRefs.delete(tabId);
+  }
+
+  private endTabAgentWorking(tabId: string): void {
+    const refs = (this.agentWorkingRefs.get(tabId) || 0) - 1;
+    if (refs > 0) {
+      this.agentWorkingRefs.set(tabId, refs);
+      return;
+    }
+    this.agentWorkingRefs.delete(tabId);
+    if (!this.agentWorkingTimers.has(tabId)) {
+      const target = this.tabs.get(tabId);
+      if (target?.state.aiState === 'agent_working') {
+        target.state.aiState = 'idle';
+        this.broadcastState();
+      }
+    }
+  }
+
+  private async withTabAgentWorking<T>(tabId: string, action: () => Promise<T>): Promise<T> {
+    this.beginTabAgentWorking(tabId);
+    try {
+      return await action();
+    } finally {
+      this.endTabAgentWorking(tabId);
+    }
   }
 
   public markTabAgentWorking(tabId?: string, durationMs = 5000): void {
@@ -1529,12 +1728,15 @@ export class NativeTabHost extends EventEmitter {
     this.broadcastState();
 
     const existingTimer = this.agentWorkingTimers.get(targetId);
-    clearTimeout(existingTimer);
+    if (existingTimer) clearTimeout(existingTimer);
 
     const timer = setTimeout(() => {
-      if (tab.state.aiState === 'agent_working') {
-        tab.state.aiState = 'idle';
-        this.broadcastState();
+      if ((this.agentWorkingRefs.get(targetId) || 0) === 0) {
+        const current = this.tabs.get(targetId);
+        if (current?.state.aiState === 'agent_working') {
+          current.state.aiState = 'idle';
+          this.broadcastState();
+        }
       }
       this.agentWorkingTimers.delete(targetId);
     }, durationMs);
@@ -1552,6 +1754,7 @@ export class NativeTabHost extends EventEmitter {
   public closeTab(tabId: string): boolean {
     const target = this.tabs.get(tabId);
     if (!target) return false;
+    this.clearTabAgentWorking(tabId);
 
     if (target.state.url && target.state.url !== 'about:blank') {
       this.recentlyClosedTabs.push({ url: target.state.url, title: target.state.title || 'Tab' });
@@ -1565,13 +1768,29 @@ export class NativeTabHost extends EventEmitter {
     }
     this.diagnosticsManager.deleteTab(tabId);
     this.documentGenerations.delete(tabId);
+    if (this.automationTabId === tabId) {
+      this.automationTabId = null;
+    }
     if (this.isInspecting && this.inspectedTabId === tabId) {
       this.stopInspect(tabId);
     }
     if (this.activeTabId === tabId) {
-      this.window.contentView.removeChildView(target.view);
+      try {
+        this.window.contentView.removeChildView(target.view);
+      } catch {}
+      if (target.mobileView) {
+        try {
+          this.window.contentView.removeChildView(target.mobileView);
+        } catch {}
+      }
     }
     (target.view.webContents as unknown as { destroy?: () => void })?.destroy?.();
+    if (target.mobileView) {
+      try {
+        (target.mobileView.webContents as unknown as { destroy?: () => void })?.destroy?.();
+      } catch {}
+    }
+    this.splitCoordinator?.cleanupTab(tabId);
     this.tabs.delete(tabId);
     this.tabOrder = this.tabOrder.filter((id) => id !== tabId);
 
@@ -1638,19 +1857,37 @@ export class NativeTabHost extends EventEmitter {
     if (!tab) return false;
     const cleanUrl = sanitizeUrl(inputUrl);
     tab.state.url = cleanUrl;
+
     if (cleanUrl.startsWith('view-source:')) {
       const sourceTargetUrl = cleanUrl.slice('view-source:'.length).trim();
       tab.state.title = `view-source:${sourceTargetUrl}`;
       this.fetchAndLoadPageSource(tab.view.webContents, sourceTargetUrl, tab.state);
+      if (tab.state.splitMode && tab.mobileView && !tab.mobileView.webContents.isDestroyed()) {
+        this.fetchAndLoadPageSource(tab.mobileView.webContents, sourceTargetUrl, tab.state);
+      }
     } else {
-      tab.view.webContents.loadURL(cleanUrl).catch(() => {});
+      if (tab.state.splitMode && tab.mobileView && !tab.mobileView.webContents.isDestroyed()) {
+        const authorityPane = tab.focusedPane || tab.state.splitFocusedPane || 'desktop';
+        this.splitCoordinator.startTransaction(tabId, authorityPane, cleanUrl);
+        const authorityView = authorityPane === 'mobile' ? tab.mobileView : tab.view;
+        authorityView.webContents.loadURL(cleanUrl).catch(() => {});
+      } else {
+        tab.view.webContents.loadURL(cleanUrl).catch(() => {});
+      }
     }
     return true;
   }
   public reload(tabId: string): boolean {
     const tab = this.tabs.get(tabId);
     if (!tab) return false;
-    tab.view.webContents.reload();
+    if (tab.state.splitMode && tab.mobileView && !tab.mobileView.webContents.isDestroyed()) {
+      const authorityPane = tab.focusedPane || tab.state.splitFocusedPane || 'desktop';
+      this.splitCoordinator.startTransaction(tabId, authorityPane, tab.state.url);
+      const authorityView = authorityPane === 'mobile' ? tab.mobileView : tab.view;
+      authorityView.webContents.reload();
+    } else {
+      tab.view.webContents.reload();
+    }
     return true;
   }
 
@@ -1658,19 +1895,37 @@ export class NativeTabHost extends EventEmitter {
     const tab = this.tabs.get(tabId);
     if (!tab) return false;
     tab.view.webContents.stop();
+    if (tab.state.splitMode && tab.mobileView && !tab.mobileView.webContents.isDestroyed()) {
+      tab.mobileView.webContents.stop();
+    }
     return true;
   }
 
   public goBack(tabId: string): boolean {
     const tab = this.tabs.get(tabId);
     if (!tab) return false;
+
+    if (tab.state.splitMode && tab.mobileView && !tab.mobileView.webContents.isDestroyed()) {
+      const authorityPane = tab.focusedPane || tab.state.splitFocusedPane || 'desktop';
+      const authorityView = authorityPane === 'mobile' ? tab.mobileView : tab.view;
+      const wc = authorityView.webContents;
+      const nav = (wc as any).navigationHistory;
+      if (nav && nav.canGoBack()) {
+        nav.goBack();
+        return true;
+      } else if (wc.canGoBack && wc.canGoBack()) {
+        wc.goBack();
+        return true;
+      }
+      return false;
+    }
+
     const wc = tab.view.webContents;
     const nav = (wc as any).navigationHistory;
     if (nav && nav.canGoBack()) {
       nav.goBack();
       return true;
-    }
-    if (wc.canGoBack && wc.canGoBack()) {
+    } else if (wc.canGoBack && wc.canGoBack()) {
       wc.goBack();
       return true;
     }
@@ -1680,25 +1935,180 @@ export class NativeTabHost extends EventEmitter {
   public goForward(tabId: string): boolean {
     const tab = this.tabs.get(tabId);
     if (!tab) return false;
+
+    if (tab.state.splitMode && tab.mobileView && !tab.mobileView.webContents.isDestroyed()) {
+      const authorityPane = tab.focusedPane || tab.state.splitFocusedPane || 'desktop';
+      const authorityView = authorityPane === 'mobile' ? tab.mobileView : tab.view;
+      const wc = authorityView.webContents;
+      const nav = (wc as any).navigationHistory;
+      if (nav && nav.canGoForward()) {
+        nav.goForward();
+        return true;
+      } else if (wc.canGoForward && wc.canGoForward()) {
+        wc.goForward();
+        return true;
+      }
+      return false;
+    }
+
     const wc = tab.view.webContents;
     const nav = (wc as any).navigationHistory;
     if (nav && nav.canGoForward()) {
       nav.goForward();
       return true;
-    }
-    if (wc.canGoForward && wc.canGoForward()) {
+    } else if (wc.canGoForward && wc.canGoForward()) {
       wc.goForward();
       return true;
     }
     return false;
   }
 
+  public toggleSplitReview(tabId: string, enabled?: boolean): boolean {
+    const tab = this.tabs.get(tabId);
+    if (!tab) return false;
+    const targetEnabled = enabled !== undefined ? enabled : !tab.state.splitMode;
+
+    if (targetEnabled === tab.state.splitMode) {
+      return Boolean(tab.state.splitMode);
+    }
+
+    tab.state.splitMode = targetEnabled;
+    if (targetEnabled) {
+      tab.state.splitDesktopPresetId = tab.state.splitDesktopPresetId || DEFAULT_SPLIT_DESKTOP_PRESET;
+      tab.state.splitMobilePresetId = tab.state.splitMobilePresetId || DEFAULT_SPLIT_MOBILE_PRESET;
+      tab.state.splitFocusedPane = 'desktop';
+      tab.focusedPane = 'desktop';
+      tab.state.splitError = null;
+
+      if (!tab.mobileView) {
+        const mobileView = new WebContentsView({
+          webPreferences: getSecureWebPreferences(),
+        });
+        tab.mobileView = mobileView;
+        this.setupTabWebContentsEvents(tabId, mobileView, tab.state, 'mobile');
+
+        if (tabId === this.activeTabId) {
+          this.window.contentView.addChildView(mobileView);
+        }
+
+        if (tab.state.url && tab.state.url !== 'about:blank' && !tab.state.url.startsWith('view-source:')) {
+          mobileView.webContents.loadURL(tab.state.url).catch(() => {});
+        }
+      }
+    } else {
+      if (tab.mobileView) {
+        if (tabId === this.activeTabId) {
+          try {
+            this.window.contentView.removeChildView(tab.mobileView);
+          } catch {}
+        }
+        try {
+          (tab.mobileView.webContents as unknown as { destroy?: () => void })?.destroy?.();
+        } catch {}
+        tab.mobileView = undefined;
+      }
+      tab.state.splitFocusedPane = undefined;
+      tab.focusedPane = undefined;
+      tab.state.splitError = null;
+      this.splitCoordinator.cleanupTab(tabId);
+    }
+
+    this.updateLayout();
+    this.broadcastState();
+    this.schedulePersist();
+    return Boolean(tab.state.splitMode);
+  }
+
+  public setSplitPreset(tabId: string, paneId: SplitPaneId, presetId: string): boolean {
+    const tab = this.tabs.get(tabId);
+    if (!tab) return false;
+
+    if (paneId === 'desktop') {
+      tab.state.splitDesktopPresetId = presetId;
+    } else {
+      tab.state.splitMobilePresetId = presetId;
+    }
+
+    this.updateLayout();
+    this.broadcastState();
+    this.schedulePersist();
+    return true;
+  }
+
+  public setSplitFocusedPane(tabId: string, paneId: SplitPaneId): boolean {
+    const tab = this.tabs.get(tabId);
+    if (!tab) return false;
+    tab.focusedPane = paneId;
+    tab.state.splitFocusedPane = paneId;
+    this.broadcastState();
+    return true;
+  }
+
   private applyTabDeviceEmulation(
-    tab: { view: WebContentsView; state: AntiFanTab },
+    tab: NativeTabRecord,
     availableWidth: number,
     availableHeight: number,
     toolbarHeight: number
   ): void {
+    // Case A: Split Review Mode (Desktop + Mobile Paired WebContentsViews)
+    if (tab.state.splitMode && tab.mobileView && !tab.mobileView.webContents.isDestroyed()) {
+      const userZoom = tab.state.zoomFactor || 1.0;
+      const splitLayout = calculateSplitLayout(
+        { width: availableWidth, height: availableHeight, yOffset: toolbarHeight },
+        tab.state.splitDesktopPresetId || DEFAULT_SPLIT_DESKTOP_PRESET,
+        tab.state.splitMobilePresetId || DEFAULT_SPLIT_MOBILE_PRESET,
+        userZoom
+      );
+
+      // Desktop view emulation & bounds
+      try {
+        tab.view.webContents.enableDeviceEmulation({
+          screenPosition: 'desktop',
+          screenSize: { width: splitLayout.desktop.emulatedWidth, height: splitLayout.desktop.emulatedHeight },
+          viewPosition: { x: 0, y: 0 },
+          deviceScaleFactor: splitLayout.desktop.deviceScaleFactor,
+          viewSize: { width: splitLayout.desktop.emulatedWidth, height: splitLayout.desktop.emulatedHeight },
+          scale: splitLayout.desktop.scale,
+        });
+      } catch (err) {
+        console.error('[native-tab-host] Failed desktop enableDeviceEmulation:', err);
+      }
+      try {
+        tab.view.webContents.setZoomFactor(userZoom);
+      } catch {}
+      tab.view.setBounds({
+        x: splitLayout.desktop.x,
+        y: splitLayout.desktop.y,
+        width: splitLayout.desktop.width,
+        height: splitLayout.desktop.height,
+      });
+
+      // Mobile view emulation & bounds
+      try {
+        tab.mobileView.webContents.enableDeviceEmulation({
+          screenPosition: 'mobile',
+          screenSize: { width: splitLayout.mobile.emulatedWidth, height: splitLayout.mobile.emulatedHeight },
+          viewPosition: { x: 0, y: 0 },
+          deviceScaleFactor: splitLayout.mobile.deviceScaleFactor,
+          viewSize: { width: splitLayout.mobile.emulatedWidth, height: splitLayout.mobile.emulatedHeight },
+          scale: splitLayout.mobile.scale,
+        });
+      } catch (err) {
+        console.error('[native-tab-host] Failed mobile enableDeviceEmulation:', err);
+      }
+      try {
+        tab.mobileView.webContents.setZoomFactor(userZoom);
+      } catch {}
+      tab.mobileView.setBounds({
+        x: splitLayout.mobile.x,
+        y: splitLayout.mobile.y,
+        width: splitLayout.mobile.width,
+        height: splitLayout.mobile.height,
+      });
+      return;
+    }
+
+    // Case B: Standard Single-View Preset or Fluid Responsive
     const preset = DEVICE_PRESETS.find((p) => p.id === tab.state.devicePresetId);
 
     if (preset && preset.width && preset.height) {
@@ -1758,7 +2168,6 @@ export class NativeTabHost extends EventEmitter {
       });
     }
   }
-
   public setZoom(tabId: string, zoomFactor: number): boolean {
     const tab = this.tabs.get(tabId);
     if (!tab) return false;
@@ -1921,133 +2330,144 @@ export class NativeTabHost extends EventEmitter {
   }
 
   // ─── Agent Browser Automation & Visual Cursor ───
-  public async ensureAgentBrowserInjected(tabId?: string): Promise<boolean> {
+  public async ensureAgentBrowserInjected(tabId?: string, paneId?: SplitPaneId): Promise<boolean> {
     const target = this.tabs.get(tabId || this.activeTabId);
     if (!target) return false;
+    const wc = this.getTabWebContents(target.state.id, paneId || target.focusedPane);
+    if (!wc) return false;
     try {
-      await target.view.webContents.executeJavaScript(AGENT_BROWSER_SCRIPT);
+      await wc.executeJavaScript(AGENT_BROWSER_SCRIPT);
       return true;
     } catch {
       return false;
     }
   }
 
-  public async agentClick(params: { selector?: string; x?: number; y?: number; label?: string; tabId?: string }): Promise<boolean> {
+  public async agentClick(params: { selector?: string; x?: number; y?: number; label?: string; tabId?: string; paneId?: SplitPaneId }): Promise<boolean> {
     const targetId = params.tabId || this.activeTabId;
     const target = this.tabs.get(targetId);
     if (!target) return false;
-    this.markTabAgentWorking(targetId);
-    await this.ensureAgentBrowserInjected(targetId);
+    const wc = this.getTabWebContents(targetId, params.paneId || target.focusedPane);
+    if (!wc) return false;
+    this.beginTabAgentWorking(targetId);
     try {
-      await target.view.webContents.executeJavaScript(`(() => {
-        if (window.__antifanAgentClick) {
-          window.__antifanAgentClick(${JSON.stringify(params.selector || '')}, ${typeof params.x === 'number' ? params.x : 'null'}, ${typeof params.y === 'number' ? params.y : 'null'}, ${JSON.stringify(params.label || '')});
-        }
-      })()`);
-      return true;
+      if (!await this.ensureAgentBrowserInjected(targetId, params.paneId || target.focusedPane)) return false;
+      return Boolean(await wc.executeJavaScript(`(async () => {
+        if (typeof window.__antifanAgentClick !== 'function') return false;
+        return await window.__antifanAgentClick(${JSON.stringify(params.selector || '')}, ${typeof params.x === 'number' ? params.x : 'null'}, ${typeof params.y === 'number' ? params.y : 'null'}, ${JSON.stringify(params.label || '')});
+      })()`));
     } catch (err) {
       console.error('[native-tab-host] agentClick error:', err);
       return false;
+    } finally {
+      this.endTabAgentWorking(targetId);
     }
   }
 
-  public async agentType(params: { selector: string; text: string; clear?: boolean; tabId?: string }): Promise<boolean> {
+  public async agentType(params: { selector: string; text: string; clear?: boolean; tabId?: string; paneId?: SplitPaneId }): Promise<boolean> {
     const targetId = params.tabId || this.activeTabId;
     const target = this.tabs.get(targetId);
     if (!target) return false;
-    this.markTabAgentWorking(targetId);
-    await this.ensureAgentBrowserInjected(targetId);
-    try {
-      await target.view.webContents.executeJavaScript(`(() => {
-        if (window.__antifanAgentType) {
-          window.__antifanAgentType(${JSON.stringify(params.selector)}, ${JSON.stringify(params.text)}, ${params.clear ? 'true' : 'false'});
-        }
-      })()`);
-      return true;
-    } catch (err) {
-      console.error('[native-tab-host] agentType error:', err);
-      return false;
-    }
-  }
-
-  public async agentScroll(params: { deltaY?: number; selector?: string; tabId?: string }): Promise<boolean> {
-    const targetId = params.tabId || this.activeTabId;
-    const target = this.tabs.get(targetId);
-    if (!target) return false;
-    this.markTabAgentWorking(targetId);
-    await this.ensureAgentBrowserInjected(targetId);
-    try {
-      await target.view.webContents.executeJavaScript(`(() => {
-        if (window.__antifanAgentScroll) {
-          window.__antifanAgentScroll(${typeof params.deltaY === 'number' ? params.deltaY : 400}, ${JSON.stringify(params.selector || '')});
-        }
-      })()`);
-      return true;
-    } catch (err) {
-      console.error('[native-tab-host] agentScroll error:', err);
-      return false;
-    }
-  }
-
-  public async agentHover(params: { selector?: string; x?: number; y?: number; label?: string; tabId?: string }): Promise<boolean> {
-    const targetId = params.tabId || this.activeTabId;
-    const target = this.tabs.get(targetId);
-    if (!target) return false;
-    this.markTabAgentWorking(targetId);
-    await this.ensureAgentBrowserInjected(targetId);
-    try {
-      let targetX = params.x;
-      let targetY = params.y;
-      if (params.selector) {
-        const rect = await target.view.webContents.executeJavaScript(`(() => {
-          const el = document.querySelector(${JSON.stringify(params.selector)});
-          if (!el) return null;
-          const r = el.getBoundingClientRect();
-          return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
-        })()`);
-        if (rect) {
-          targetX = rect.x;
-          targetY = rect.y;
-        }
+    const wc = this.getTabWebContents(targetId, params.paneId || target.focusedPane);
+    if (!wc) return false;
+    return this.withTabAgentWorking(targetId, async () => {
+      if (!await this.ensureAgentBrowserInjected(targetId, params.paneId || target.focusedPane)) return false;
+      try {
+        return Boolean(await wc.executeJavaScript(`(async () => {
+          if (typeof window.__antifanAgentType !== 'function') return false;
+          return await window.__antifanAgentType(${JSON.stringify(params.selector)}, ${JSON.stringify(params.text)}, ${params.clear ? 'true' : 'false'});
+        })()`));
+      } catch (err) {
+        console.error('[native-tab-host] agentType error:', err);
+        return false;
       }
-      if (typeof targetX === 'number' && typeof targetY === 'number') {
-        await target.view.webContents.executeJavaScript(`(() => {
-          if (window.__antifanAgentMove) {
-            window.__antifanAgentMove(${targetX}, ${targetY}, ${JSON.stringify(params.label || 'Hovering')});
+    });
+  }
+
+  public async agentScroll(params: { deltaY?: number; selector?: string; tabId?: string; paneId?: SplitPaneId }): Promise<boolean> {
+    const targetId = params.tabId || this.activeTabId;
+    const target = this.tabs.get(targetId);
+    if (!target) return false;
+    const wc = this.getTabWebContents(targetId, params.paneId || target.focusedPane);
+    if (!wc) return false;
+    return this.withTabAgentWorking(targetId, async () => {
+      if (!await this.ensureAgentBrowserInjected(targetId, params.paneId || target.focusedPane)) return false;
+      try {
+        return Boolean(await wc.executeJavaScript(`(async () => {
+          if (typeof window.__antifanAgentScroll !== 'function') return false;
+          return await window.__antifanAgentScroll(${typeof params.deltaY === 'number' ? params.deltaY : 400}, ${JSON.stringify(params.selector || '')});
+        })()`));
+      } catch (err) {
+        console.error('[native-tab-host] agentScroll error:', err);
+        return false;
+      }
+    });
+  }
+
+  public async agentHover(params: { selector?: string; x?: number; y?: number; label?: string; tabId?: string; paneId?: SplitPaneId }): Promise<boolean> {
+    const targetId = params.tabId || this.activeTabId;
+    const target = this.tabs.get(targetId);
+    if (!target) return false;
+    const wc = this.getTabWebContents(targetId, params.paneId || target.focusedPane);
+    if (!wc) return false;
+    return this.withTabAgentWorking(targetId, async () => {
+      if (!await this.ensureAgentBrowserInjected(targetId, params.paneId || target.focusedPane)) return false;
+      try {
+        let targetX = params.x;
+        let targetY = params.y;
+        if (params.selector) {
+          const rect = await wc.executeJavaScript(`(() => {
+            const el = document.querySelector(${JSON.stringify(params.selector)});
+            if (!el) return null;
+            const r = el.getBoundingClientRect();
+            return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+          })()`);
+          if (rect) {
+            targetX = rect.x;
+            targetY = rect.y;
           }
-        })()`);
+        }
+        if (typeof targetX === 'number' && typeof targetY === 'number') {
+          return Boolean(await wc.executeJavaScript(`(async () => {
+            if (typeof window.__antifanAgentMove !== 'function') return false;
+            return await window.__antifanAgentMove(${targetX}, ${targetY}, ${JSON.stringify(params.label || 'Hovering')});
+          })()`));
+        }
+        return false;
+      } catch (err) {
+        console.error('[native-tab-host] agentHover error:', err);
+        return false;
       }
-      return true;
-    } catch (err) {
-      console.error('[native-tab-host] agentHover error:', err);
-      return false;
-    }
+    });
   }
 
-  public async agentHighlight(params: { selector: string; label?: string; tabId?: string }): Promise<boolean> {
+  public async agentHighlight(params: { selector: string; label?: string; tabId?: string; paneId?: SplitPaneId }): Promise<boolean> {
     const targetId = params.tabId || this.activeTabId;
     const target = this.tabs.get(targetId);
     if (!target) return false;
-    this.markTabAgentWorking(targetId);
-    await this.ensureAgentBrowserInjected(targetId);
-    try {
-      await target.view.webContents.executeJavaScript(`(() => {
-        if (window.__antifanAgentHighlight) {
-          window.__antifanAgentHighlight(${JSON.stringify(params.selector)}, ${JSON.stringify(params.label || '')});
-        }
-      })()`);
-      return true;
-    } catch (err) {
-      console.error('[native-tab-host] agentHighlight error:', err);
-      return false;
-    }
+    const wc = this.getTabWebContents(targetId, params.paneId || target.focusedPane);
+    if (!wc) return false;
+    return this.withTabAgentWorking(targetId, async () => {
+      if (!await this.ensureAgentBrowserInjected(targetId, params.paneId || target.focusedPane)) return false;
+      try {
+        return Boolean(await wc.executeJavaScript(`(async () => {
+          if (typeof window.__antifanAgentHighlight !== 'function') return false;
+          return await window.__antifanAgentHighlight(${JSON.stringify(params.selector)}, ${JSON.stringify(params.label || '')});
+        })()`));
+      } catch (err) {
+        console.error('[native-tab-host] agentHighlight error:', err);
+        return false;
+      }
+    });
   }
 
-  public async agentClear(tabId?: string): Promise<boolean> {
+  public async agentClear(tabId?: string, paneId?: SplitPaneId): Promise<boolean> {
     const target = this.tabs.get(tabId || this.activeTabId);
     if (!target) return false;
+    const wc = this.getTabWebContents(target.state.id, paneId || target.focusedPane);
+    if (!wc) return false;
     try {
-      await target.view.webContents.executeJavaScript(`(() => {
+      await wc.executeJavaScript(`(() => {
         if (window.__antifanAgentClear) {
           window.__antifanAgentClear();
         }
@@ -2094,7 +2514,8 @@ export class NativeTabHost extends EventEmitter {
       ${validAnnotationSessionId === undefined ? 'delete window.__antifanTerminalContext.annotationSessionId;' : `window.__antifanTerminalContext.annotationSessionId = ${JSON.stringify(validAnnotationSessionId)};`}
     })();`;
     this.isInspecting = true;
-    active.view.webContents.executeJavaScript(`${termContextScript}\n${ELEMENT_PICKER_SCRIPT}`).catch(() => {});
+    const targetWc = this.getTabWebContents(active.state.id, active.focusedPane) || active.view.webContents;
+    targetWc.executeJavaScript(`${termContextScript}\n${ELEMENT_PICKER_SCRIPT}`).catch(() => {});
     this.broadcastState();
 
     if (this.inspectPollTimer) clearInterval(this.inspectPollTimer);
@@ -2105,14 +2526,14 @@ export class NativeTabHost extends EventEmitter {
       }
       try {
         const liveSessions = TerminalManager.getInstance().listSessions();
-        const currentCtx = await active.view.webContents.executeJavaScript('window.__antifanTerminalContext?.annotationSessionId').catch(() => null);
+        const currentCtx = await targetWc.executeJavaScript('window.__antifanTerminalContext?.annotationSessionId').catch(() => null);
         if (typeof currentCtx === 'string' && (currentCtx === 'auto' || liveSessions.some((s) => s.id === currentCtx))) {
           this.lastAnnotationSessionId = currentCtx;
         }
 
-        const rawResult = await active.view.webContents.executeJavaScript('window.__antifanPick');
+        const rawResult = await targetWc.executeJavaScript('window.__antifanPick');
         if (rawResult) {
-          await active.view.webContents.executeJavaScript('window.__antifanPick = null;');
+          await targetWc.executeJavaScript('window.__antifanPick = null;');
           this.stopInspect(this.inspectedTabId || this.activeTabId);
           if (rawResult.canceled) return;
 
@@ -2129,15 +2550,13 @@ export class NativeTabHost extends EventEmitter {
                 width: Math.min(2500, Math.ceil(rawResult.clientRect.width)),
                 height: Math.min(2500, Math.ceil(rawResult.clientRect.height)),
               };
-              const image = await active.view.webContents.capturePage(rect);
-              targetImageBase64 = image.toPNG().toString('base64');
+              const image = await targetWc.capturePage(rect);
             } catch {}
           }
 
           let viewportImageBase64: string | undefined;
           try {
-            const vpImg = await active.view.webContents.capturePage();
-            viewportImageBase64 = vpImg.toPNG().toString('base64');
+            const vpImg = await targetWc.capturePage();
           } catch {}
 
           const activeTab = this.tabs.get(this.activeTabId);
@@ -2241,15 +2660,21 @@ export class NativeTabHost extends EventEmitter {
     const tabIdToClean = targetTabId || this.inspectedTabId || this.activeTabId;
     this.inspectedTabId = null;
     const target = this.tabs.get(tabIdToClean);
-    if (target && !target.view.webContents.isDestroyed()) {
-      target.view.webContents.executeJavaScript(`(() => {
+    if (target) {
+      const cleanScript = `(() => {
         try { if (typeof window.__antifanPickerCleanup === 'function') window.__antifanPickerCleanup(); } catch {}
         document.querySelectorAll('#antifan-inspect-overlay, #antifan-inspect-badge, #antifan-comment-modal, #antifan-multi-dock, .antifan-element-pin').forEach(el => {
           try { el.remove(); } catch {}
         });
         if (document.documentElement) document.documentElement.style.cursor = '';
         window.__antifanPickerActive = false;
-      })()`).catch(() => {});
+      })()`;
+      if (!target.view.webContents.isDestroyed()) {
+        target.view.webContents.executeJavaScript(cleanScript).catch(() => {});
+      }
+      if (target.state.splitMode && target.mobileView && !target.mobileView.webContents.isDestroyed()) {
+        target.mobileView.webContents.executeJavaScript(cleanScript).catch(() => {});
+      }
     }
     this.emit('inspect-toggled', false);
     this.broadcastState();
@@ -2608,29 +3033,38 @@ export class NativeTabHost extends EventEmitter {
     }
   }
 
-  public async captureScreenshot(rect?: Rectangle, tabId?: string): Promise<string> {
-    const target = this.tabs.get(tabId || this.activeTabId);
+  public async captureScreenshot(rect?: Rectangle, tabId?: string, paneId?: SplitPaneId): Promise<string> {
+    const targetId = tabId || this.activeTabId;
+    const target = this.tabs.get(targetId);
     if (!target) return '';
-    const img = await target.view.webContents.capturePage(rect);
+    const wc = this.getTabWebContents(targetId, paneId || target.focusedPane);
+    if (!wc) return '';
+    const img = await wc.capturePage(rect);
     return img.toPNG().toString('base64');
   }
 
-  public async getDom(selector?: string, tabId?: string): Promise<string> {
-    const target = this.tabs.get(tabId || this.activeTabId);
+  public async getDom(selector?: string, tabId?: string, paneId?: SplitPaneId): Promise<string> {
+    const targetId = tabId || this.activeTabId;
+    const target = this.tabs.get(targetId);
     if (!target) return '';
+    const wc = this.getTabWebContents(targetId, paneId || target.focusedPane);
+    if (!wc) return '';
     const script = selector
       ? `(() => {
           const el = document.querySelector(${JSON.stringify(selector)});
           return el ? el.outerHTML : '';
         })()`
       : `(() => document.documentElement ? document.documentElement.outerHTML : '')()`;
-    return target.view.webContents.executeJavaScript(script);
+    return wc.executeJavaScript(script);
   }
 
-  public async evalJs(expression: string, tabId?: string): Promise<unknown> {
-    const target = this.tabs.get(tabId || this.activeTabId);
+  public async evalJs(expression: string, tabId?: string, paneId?: SplitPaneId): Promise<unknown> {
+    const targetId = tabId || this.activeTabId;
+    const target = this.tabs.get(targetId);
     if (!target) return undefined;
-    return target.view.webContents.executeJavaScript(expression);
+    const wc = this.getTabWebContents(targetId, paneId || target.focusedPane);
+    if (!wc) return undefined;
+    return wc.executeJavaScript(expression);
   }
 
   private getTabsStoragePath(): string {
@@ -2654,14 +3088,7 @@ export class NativeTabHost extends EventEmitter {
       const tabList = this.tabOrder.map((id) => {
         const tab = this.tabs.get(id);
         if (!tab) return null;
-        return {
-          id: tab.state.id,
-          url: cleanRestoredUrl(tab.state.url),
-          title: tab.state.title,
-          devicePresetId: tab.state.devicePresetId,
-          zoomFactor: tab.state.zoomFactor,
-          capsuleId: tab.state.capsuleId,
-        };
+        return sanitizeTabForPersistence(tab.state);
       }).filter(Boolean);
 
       const openTerminalWindows: Array<{
@@ -2756,16 +3183,23 @@ export class NativeTabHost extends EventEmitter {
           }
           if (Array.isArray(data.tabs) && data.tabs.length > 0) {
             let restoredActiveId = data.activeTabId;
-            for (const t of data.tabs) {
-              const safeUrl = cleanRestoredUrl(t.url);
-              const id = this.createTab(safeUrl);
+            for (const rawTab of data.tabs) {
+              const migrated = migratePersistedTab(rawTab);
+              const safeUrl = cleanRestoredUrl(migrated.url || 'about:blank');
+              const id = this.createTab(safeUrl, false);
               const tab = this.tabs.get(id);
               if (tab) {
-                if (t.title) tab.state.title = t.title;
-                if (t.devicePresetId) this.setDevicePreset(id, t.devicePresetId);
-                if (t.capsuleId && typeof t.capsuleId === 'string' && !tab.state.capsuleId) {
-                  tab.state.capsuleId = t.capsuleId;
-                  const targetCapsuleId = t.capsuleId;
+                if (migrated.title) tab.state.title = migrated.title;
+                if (migrated.devicePresetId) this.setDevicePreset(id, migrated.devicePresetId);
+                if (typeof migrated.zoomFactor === 'number') tab.state.zoomFactor = migrated.zoomFactor;
+                if (migrated.splitMode) {
+                  this.toggleSplitReview(id, true);
+                  if (migrated.splitDesktopPresetId) tab.state.splitDesktopPresetId = migrated.splitDesktopPresetId;
+                  if (migrated.splitMobilePresetId) tab.state.splitMobilePresetId = migrated.splitMobilePresetId;
+                }
+                if (migrated.capsuleId && typeof migrated.capsuleId === 'string' && !tab.state.capsuleId) {
+                  tab.state.capsuleId = migrated.capsuleId;
+                  const targetCapsuleId = migrated.capsuleId;
                   const capsule = this.capsuleManager.list().find((c) => c.id.toLowerCase() === targetCapsuleId.toLowerCase());
                   if (capsule && fs.existsSync(capsule.workspacePath) && !this.tabPreviewUnsubscribers.has(id)) {
                     const unsub = this.previewWatcherPool.retain(capsule.id, capsule.workspacePath, (event) => {
@@ -2775,7 +3209,7 @@ export class NativeTabHost extends EventEmitter {
                   }
                 }
               }
-              if (t.id === data.activeTabId) {
+              if (rawTab.id === data.activeTabId || migrated.id === data.activeTabId) {
                 restoredActiveId = id;
               }
             }
@@ -3219,32 +3653,78 @@ export class NativeTabHost extends EventEmitter {
   }
 
   public async agentTrajectory(params: { steps: Array<Record<string, unknown>>; speed?: 'fast' | 'natural' | 'slow'; smoothScroll?: boolean; tabId?: string }): Promise<Record<string, unknown>> {
-    const targetId = params.tabId || this.activeTabId;
+    const targetId = params?.tabId || this.activeTabId;
+    const steps = Array.isArray(params?.steps) ? params.steps : null;
+    if (!steps) {
+      return { success: false, executedSteps: 0, totalSteps: 0, reason: 'Missing or invalid steps array' };
+    }
     const tab = this.tabs.get(targetId);
+    const totalSteps = steps.length;
     if (!tab || tab.view.webContents.isDestroyed()) {
-      return { success: false, executed: 0 };
+      return { success: false, executedSteps: 0, totalSteps, reason: 'Target tab is unavailable' };
     }
-    let executed = 0;
-    for (const step of params.steps) {
-      if (step.action === 'move' || step.type === 'move') {
-        await this.agentHover({ selector: step.selector as string, x: step.x as number, y: step.y as number, label: step.label as string, tabId: targetId });
-      } else if (step.action === 'click' || step.type === 'click') {
-        await this.agentClick({ selector: step.selector as string, x: step.x as number, y: step.y as number, label: step.label as string, tabId: targetId });
-      } else if (step.action === 'scroll' || step.type === 'scroll') {
-        await this.agentScroll({ deltaY: step.deltaY as number, selector: step.selector as string, tabId: targetId });
+    return this.withTabAgentWorking(targetId, async () => {
+      if (!await this.ensureAgentBrowserInjected(targetId)) {
+        return { success: false, executedSteps: 0, totalSteps, reason: 'Agent browser injection failed' };
       }
-      executed++;
-    }
-    return { success: true, executed, tabId: targetId };
+      const generationBefore = this.getDocumentGeneration(targetId);
+      const urlBefore = tab.view.webContents.getURL();
+      let normalizedSteps: Array<Record<string, unknown>>;
+      try {
+        normalizedSteps = steps.map((step, index) => {
+          if (!step || typeof step !== 'object') throw new Error(`Trajectory step ${index} must be an object`);
+          const candidate = step as Record<string, unknown>;
+          const action = candidate.action || candidate.type;
+          if (action !== 'move' && action !== 'hover' && action !== 'click' && action !== 'type' && action !== 'scroll') {
+            throw new Error(`Unsupported trajectory action at step ${index}: ${String(action || 'missing')}`);
+          }
+          return { ...candidate, action };
+        });
+      } catch (err) {
+        const reason = err instanceof Error ? err.message : 'Invalid trajectory steps';
+        return { success: false, executedSteps: 0, totalSteps, reason };
+      }
+      try {
+        const result = await tab.view.webContents.executeJavaScript(`window.__antifanAgentTrajectory(${JSON.stringify(normalizedSteps)}, ${JSON.stringify({ speed: params?.speed, smoothScroll: params?.smoothScroll })})`);
+        const generationChanged = this.getDocumentGeneration(targetId) !== generationBefore;
+        const urlChanged = tab.view.webContents.isDestroyed() || tab.view.webContents.getURL() !== urlBefore;
+        const obj = result && typeof result === 'object' ? result as Record<string, unknown> : null;
+        const rawExecuted = obj?.executedSteps;
+        const rawTotal = obj?.totalSteps;
+        const hasValidExecuted = typeof rawExecuted === 'number' && Number.isInteger(rawExecuted) && rawExecuted >= 0 && rawExecuted <= totalSteps;
+        const hasValidTotal = typeof rawTotal === 'number' && Number.isInteger(rawTotal) && rawTotal === totalSteps;
+        const executedSteps = hasValidExecuted ? rawExecuted as number : 0;
+        const invalidResult = !obj || typeof obj.success !== 'boolean' || !hasValidExecuted || !hasValidTotal;
+        const countsMatch = hasValidExecuted && hasValidTotal && executedSteps === totalSteps;
+        const interrupted = generationChanged || urlChanged;
+        const reason = interrupted
+          ? (typeof obj?.reason === 'string' ? obj.reason : 'Interrupted by navigation or document change')
+          : invalidResult
+            ? 'Trajectory returned an invalid result'
+            : !countsMatch
+              ? (typeof obj?.reason === 'string' ? obj.reason : 'Trajectory did not complete all steps')
+              : (typeof obj?.reason === 'string' ? obj.reason : undefined);
+        return {
+          ...(obj || {}),
+          success: !interrupted && !invalidResult && countsMatch && obj?.success === true,
+          executedSteps,
+          totalSteps,
+          ...(reason ? { reason } : {}),
+        };
+      } catch (err) {
+        console.error('[native-tab-host] agentTrajectory error:', err);
+        return { success: false, executedSteps: 0, totalSteps, reason: 'Trajectory execution failed' };
+      }
+    });
   }
 
-  public async agentMove(args: { selector?: string; x?: number; y?: number; label?: string; tabId?: string }): Promise<boolean> {
+  public async agentMove(args: { selector?: string; x?: number; y?: number; label?: string; tabId?: string; paneId?: SplitPaneId }): Promise<boolean> {
     return this.agentHover(args);
   }
 
-  public async agentSnapshot(tabId?: string): Promise<string> {
+  public async agentSnapshot(tabId?: string, paneId?: SplitPaneId): Promise<string> {
     const targetId = tabId || this.activeTabId;
-    return this.getDom(undefined, targetId);
+    return this.getDom(undefined, targetId, paneId);
   }
 
   public async sendKeyboardPress(params: { key: string; modifiers?: string[]; tabId?: string }): Promise<{ success: boolean; key: string; modifiers: string[] }> {
@@ -3274,13 +3754,10 @@ export class NativeTabHost extends EventEmitter {
   }
 
   public isCurrentTarget(target: BrowserTarget): boolean {
-    if (!target) return false;
-    if (typeof target.tabId !== 'string' || target.tabId !== this.activeTabId) return false;
+    if (!target || typeof target.tabId !== 'string' || !this.tabs.has(target.tabId)) return false;
 
     const currentGen = this.getDocumentGeneration(target.tabId);
-    if (typeof target.documentGeneration !== 'number' || target.documentGeneration !== currentGen) {
-      return false;
-    }
+    if (typeof target.documentGeneration !== 'number' || target.documentGeneration !== currentGen) return false;
 
     if (!this.controlPlane) return false;
 
@@ -3612,7 +4089,19 @@ export class NativeTabHost extends EventEmitter {
     this.transcriptSyncer.dispose();
     if (this.inspectPollTimer) {
       clearInterval(this.inspectPollTimer);
+      this.inspectPollTimer = null;
     }
+    if (this.persistTimer) {
+      clearTimeout(this.persistTimer);
+      this.persistTimer = null;
+    }
+    if (this.reconcilerTimer) {
+      clearInterval(this.reconcilerTimer);
+      this.reconcilerTimer = null;
+    }
+    for (const timer of this.agentWorkingTimers.values()) clearTimeout(timer);
+    this.agentWorkingTimers.clear();
+    this.agentWorkingRefs.clear();
     for (const [, win] of this.terminalWindows) {
       if (win && !win.isDestroyed()) {
         try { win.close(); } catch {}
@@ -3624,8 +4113,14 @@ export class NativeTabHost extends EventEmitter {
       try { unsub(); } catch {}
     }
     this.tabPreviewUnsubscribers.clear();
-    for (const [, tab] of this.tabs) {
+    for (const [id, tab] of this.tabs) {
       (tab.view.webContents as unknown as { destroy?: () => void })?.destroy?.();
+      if (tab.mobileView) {
+        try {
+          (tab.mobileView.webContents as unknown as { destroy?: () => void })?.destroy?.();
+        } catch {}
+      }
+      this.splitCoordinator.cleanupTab(id);
     }
     this.tabs.clear();
     this.tabOrder = [];

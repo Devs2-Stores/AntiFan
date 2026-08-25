@@ -19,9 +19,31 @@ export interface AntiFanTab {
   scrollX?: number;
   scrollY?: number;
   aiState?: 'idle' | 'thinking' | 'streaming' | 'completed' | 'agent_working';
+  isAgentControlled?: boolean;
   themeError?: string | null;
   terminalSessionId?: string;
   capsuleId?: string;
+  splitMode?: boolean;
+  splitDesktopPresetId?: string;
+  splitMobilePresetId?: string;
+  splitFocusedPane?: 'desktop' | 'mobile';
+  splitError?: string | null;
+}
+
+export type SplitPaneId = 'desktop' | 'mobile';
+
+export interface SplitReviewState {
+  enabled: boolean;
+  desktopPresetId: string;
+  mobilePresetId: string;
+  focusedPane: SplitPaneId;
+  error?: string | null;
+}
+
+export interface SplitReviewConfig {
+  enabled: boolean;
+  desktopPresetId: string;
+  mobilePresetId: string;
 }
 
 export interface ElementRect {
@@ -243,6 +265,9 @@ export const TOOLBAR_CHANNELS = {
   ELEMENT_PICKED: 'antifan:toolbar:element-picked',
   FIND_RESULT: 'antifan:toolbar:find-result',
   GET_MOBILE_REMOTE_INFO: 'antifan:toolbar:get-mobile-remote-info',
+  TOGGLE_SPLIT_REVIEW: 'antifan:toolbar:toggle-split-review',
+  SET_SPLIT_PRESET: 'antifan:toolbar:set-split-preset',
+  SET_SPLIT_FOCUSED_PANE: 'antifan:toolbar:set-split-focused-pane',
 };
 
 export interface SessionInfo {
