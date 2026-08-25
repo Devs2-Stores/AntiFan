@@ -180,9 +180,10 @@ describe('Webview & Extension IPC Audit Invariants', () => {
     assert.match(preload, /findInPage:\s*\(text:\s*string,\s*forward\s*=\s*true,\s*findNext\s*=\s*false\)/);
     assert.match(nativeTabHost, /FIND_IN_PAGE[^]*findNext/);
 
-    // 4. Ctrl+F prevents default browser action before focusing custom find bar
-    assert.match(nativeTabHost, /if\s*\(isCtrlOrCmd\s*&&\s*input\.key\.toLowerCase\(\)\s*===\s*['"]f['"]\)\s*\{[^}]*_event\.preventDefault\(\);[^}]*antifan:focus-find/);
-
+    // 4. CmdOrCtrl+F is registered in app-menu and triggers focusFindBar
+    const appMenu = fs.readFileSync(path.join(root, 'src', 'main', 'browser', 'app-menu.ts'), 'utf8');
+    assert.match(appMenu, /accelerator:\s*['"]CmdOrCtrl\+F['"][^]*tabHost\?\.focusFindBar\(\)/);
+    assert.match(nativeTabHost, /focusFindBar\s*\(\)\s*:\s*void\s*\{[^}]*antifan:focus-find/);
     // 5. Overlay lifecycle in show/hide find bar
     assert.match(toolbarTs, /function showFindBar\(\)[^]*getApi\(\)\?\.setOverlay\(true,\s*50\)/);
     assert.match(toolbarTs, /function hideFindBar\(\)[^]*getApi\(\)\?\.setOverlay\(false\)/);
@@ -204,36 +205,73 @@ describe('Webview & Extension IPC Audit Invariants', () => {
     );
   });
 
-  it('verifies Ctrl+T, Ctrl+Shift+T, Ctrl+W, and Ctrl+Tab prevent default to avoid double actions', () => {
+  it('enforces single authority for shortcuts: app-menu owns menu accelerators, native-tab-host owns non-menu WebContents shortcuts with zero overlap', () => {
     const nativeTabHostPath = path.join(root, 'src', 'main', 'browser', 'native-tab-host.ts');
     const nativeTabHost = fs.readFileSync(nativeTabHostPath, 'utf8');
 
-    // Ctrl+T must preventDefault before createTab
-    assert.match(
-      nativeTabHost,
-      /if\s*\(isCtrlOrCmd\s*&&\s*!input\.shift\s*&&\s*input\.key\.toLowerCase\(\)\s*===\s*['"]t['"]\)\s*\{[^}]*_event\.preventDefault\(\);[^}]*this\.createTab\(\);/,
-      'Ctrl+T must call _event.preventDefault() before createTab()'
+    const appMenuPath = path.join(root, 'src', 'main', 'browser', 'app-menu.ts');
+    const appMenu = fs.readFileSync(appMenuPath, 'utf8');
+
+    // 1. app-menu.ts authoritatively defines core application accelerators
+    assert.match(appMenu, /accelerator:\s*['"]CmdOrCtrl\+T['"]/, 'app-menu must own CmdOrCtrl+T');
+    assert.match(appMenu, /accelerator:\s*['"]CmdOrCtrl\+Shift\+T['"]/, 'app-menu must own CmdOrCtrl+Shift+T');
+    assert.match(appMenu, /accelerator:\s*['"]CmdOrCtrl\+W['"]/, 'app-menu must own CmdOrCtrl+W');
+    assert.match(appMenu, /accelerator:\s*['"]CmdOrCtrl\+R['"]/, 'app-menu must own CmdOrCtrl+R');
+    assert.match(appMenu, /accelerator:\s*['"]CmdOrCtrl\+F['"]/, 'app-menu must own CmdOrCtrl+F');
+    assert.match(appMenu, /accelerator:\s*['"]CmdOrCtrl\+Alt\+B['"]/, 'app-menu must own CmdOrCtrl+Alt+B');
+
+    // 2. Extract setupGlobalShortcutsOnView function body from native-tab-host.ts
+    const fnMatch = nativeTabHost.match(/setupGlobalShortcutsOnView\s*\([^)]*\)\s*:\s*void\s*\{([\s\S]*?)\n\s*private setupContextMenu/);
+    assert.ok(fnMatch, 'setupGlobalShortcutsOnView method must be present in native-tab-host.ts');
+    const fnBody = fnMatch[1]!;
+
+    // 3. Ensure NO overlapping handlers exist in setupGlobalShortcutsOnView for keys owned by app-menu
+    assert.doesNotMatch(
+      fnBody,
+      /input\.key\.toLowerCase\(\)\s*===\s*['"]t['"]/,
+      'setupGlobalShortcutsOnView must not duplicate Ctrl+T / Ctrl+Shift+T (owned by app-menu)'
+    );
+    assert.doesNotMatch(
+      fnBody,
+      /input\.key\.toLowerCase\(\)\s*===\s*['"]w['"]/,
+      'setupGlobalShortcutsOnView must not duplicate Ctrl+W (owned by app-menu)'
+    );
+    assert.doesNotMatch(
+      fnBody,
+      /input\.key\.toLowerCase\(\)\s*===\s*['"]r['"]/,
+      'setupGlobalShortcutsOnView must not duplicate Ctrl+R (owned by app-menu)'
+    );
+    assert.doesNotMatch(
+      fnBody,
+      /input\.key\.toLowerCase\(\)\s*===\s*['"]b['"]/,
+      'setupGlobalShortcutsOnView must not duplicate Ctrl+Alt+B (owned by app-menu)'
+    );
+    assert.doesNotMatch(
+      fnBody,
+      /input\.key\.toLowerCase\(\)\s*===\s*['"]f['"]/,
+      'setupGlobalShortcutsOnView must not duplicate Ctrl+F (owned by app-menu)'
     );
 
-    // Ctrl+Shift+T must preventDefault before reopenClosedTab
+    // 4. Ensure non-menu WebContents shortcuts are handled and prevent default
     assert.match(
-      nativeTabHost,
-      /if\s*\(isCtrlOrCmd\s*&&\s*input\.shift\s*&&\s*input\.key\.toLowerCase\(\)\s*===\s*['"]t['"]\)\s*\{[^}]*_event\.preventDefault\(\);[^}]*this\.reopenClosedTab\(\);/,
-      'Ctrl+Shift+T must call _event.preventDefault() before reopenClosedTab()'
+      fnBody,
+      /if\s*\(isCtrlOrCmd\s*&&\s*input\.key\s*===\s*['"]Tab['"]\)\s*\{[^}]*_event\.preventDefault\(\);[^}]*this\.switchTab\(/,
+      'Ctrl+Tab must be handled in setupGlobalShortcutsOnView with _event.preventDefault()'
     );
-
-    // Ctrl+W must preventDefault before closeTab
     assert.match(
-      nativeTabHost,
-      /if\s*\(isCtrlOrCmd\s*&&\s*!input\.shift\s*&&\s*input\.key\.toLowerCase\(\)\s*===\s*['"]w['"]\)\s*\{[^}]*_event\.preventDefault\(\);[^}]*this\.closeTab\(/,
-      'Ctrl+W must call _event.preventDefault() before closeTab()'
+      fnBody,
+      /if\s*\(isCtrlOrCmd\s*&&\s*!input\.shift\s*&&\s*input\.key\.toLowerCase\(\)\s*===\s*['"]u['"]\)\s*\{[^}]*_event\.preventDefault\(\);[^}]*this\.viewPageSource\(/,
+      'Ctrl+U must be handled in setupGlobalShortcutsOnView with _event.preventDefault()'
     );
-
-    // Ctrl+Tab must preventDefault before switchTab
     assert.match(
-      nativeTabHost,
-      /if\s*\(isCtrlOrCmd\s*&&\s*input\.key\s*===\s*['"]Tab['"]\)\s*\{[^}]*_event\.preventDefault\(\);/,
-      'Ctrl+Tab must call _event.preventDefault() before switchTab()'
+      fnBody,
+      /if\s*\(isCtrlOrCmd\s*&&\s*input\.key\.toLowerCase\(\)\s*===\s*['"]l['"]\)\s*\{[^}]*_event\.preventDefault\(\);/,
+      'Ctrl+L must be handled in setupGlobalShortcutsOnView with _event.preventDefault()'
+    );
+    assert.match(
+      fnBody,
+      /if\s*\(input\.key\s*===\s*['"]Escape['"]\)\s*\{[^}]*_event\.preventDefault\(\);/,
+      'Escape must be handled in setupGlobalShortcutsOnView with _event.preventDefault()'
     );
   });
 });
