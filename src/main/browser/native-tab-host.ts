@@ -5,6 +5,7 @@
  * AI Chat Sidebar (WebSocket Relay with Antigravity IDE), Global Shortcuts, and Context Menu.
  */
 import { app, BrowserWindow, WebContentsView, Menu, MenuItem, clipboard, Rectangle, ipcMain, shell, dialog, net } from 'electron';
+import { spawn } from 'node:child_process';
 import * as path from 'node:path';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
@@ -91,6 +92,7 @@ export class NativeTabHost extends EventEmitter {
   private persistTimer: NodeJS.Timeout | null = null;
   private reconcilerTimer: NodeJS.Timeout | null = null;
   private agentWorkingTimers = new Map<string, NodeJS.Timeout>();
+  private lastAnnotationSessionId: string | undefined = undefined;
 
   constructor(window: BrowserWindow, capsuleManager?: WorkspaceCapsuleManager) {
     super();
@@ -311,8 +313,9 @@ export class NativeTabHost extends EventEmitter {
     ipcMain.handle(TOOLBAR_CHANNELS.CAPTURE_FULL_PAGE, () => this.captureScreenshot());
     ipcMain.handle(TOOLBAR_CHANNELS.CAPTURE_VIEWPORT, () => this.captureScreenshot());
     ipcMain.handle(TOOLBAR_CHANNELS.OPEN_EXTERNAL, (_event, url?: string) => this.openExternal(url));
+    ipcMain.handle(TOOLBAR_CHANNELS.OPEN_IN_VSCODE, () => this.openInVSCode());
     ipcMain.handle(TOOLBAR_CHANNELS.TOGGLE_BOOKMARK, (_event, { url, title }: { url: string; title?: string }) => this.toggleBookmark(url, title));
-    ipcMain.handle(TOOLBAR_CHANNELS.FIND_IN_PAGE, (_event, { text, forward }: { text: string; forward?: boolean }) => this.findInPage(text, forward));
+    ipcMain.handle(TOOLBAR_CHANNELS.FIND_IN_PAGE, (_event, { text, forward, findNext }: { text: string; forward?: boolean; findNext?: boolean }) => this.findInPage(text, forward, findNext));
     ipcMain.handle(TOOLBAR_CHANNELS.STOP_FIND_IN_PAGE, () => this.stopFindInPage());
     ipcMain.handle(TOOLBAR_CHANNELS.SHOW_MENU, () => this.showMainMenu());
     ipcMain.handle('antifan:toolbar:check-updates', () => checkForUpdatesAndRestart(this.window));
@@ -404,7 +407,7 @@ export class NativeTabHost extends EventEmitter {
 
       // 4. Fetch live Google search suggestions with UTF-8 encoding
       try {
-        const apiUrl = `https://suggestqueries.google.com/complete/search?client=chrome&hl=vi&gl=vn&ie=utf_8&oe=utf_8&q=${encodeURIComponent(q)}`;
+        const apiUrl = `https://suggestqueries.google.com/complete/search?client=chrome&hl=vi&gl=vn&ie=utf-8&oe=utf-8&q=${encodeURIComponent(q)}`;
         const res = await fetch(apiUrl, {
           headers: {
             'Accept': 'application/json, text/plain, */*',
@@ -412,11 +415,24 @@ export class NativeTabHost extends EventEmitter {
           },
         });
         if (res.ok) {
+          const contentType = res.headers.get('content-type') || '';
           const buffer = await res.arrayBuffer();
-          const text = new TextDecoder('utf-8').decode(buffer);
-          const data: any = JSON.parse(text);
+          let text = '';
+          if (/charset=iso-8859-1/i.test(contentType)) {
+            text = new TextDecoder('iso-8859-1').decode(buffer);
+          } else if (/charset=windows-1258/i.test(contentType)) {
+            text = new TextDecoder('windows-1258').decode(buffer);
+          } else {
+            try {
+              text = new TextDecoder('utf-8', { fatal: true }).decode(buffer);
+            } catch {
+              text = new TextDecoder('utf-8').decode(buffer);
+            }
+          }
+          const data: unknown = JSON.parse(text);
           if (Array.isArray(data) && Array.isArray(data[1])) {
-            const googleQueries: string[] = data[1].slice(0, 6);
+            const rawQueries = data[1] as unknown[];
+            const googleQueries = rawQueries.filter((item): item is string => typeof item === 'string').slice(0, 6);
             googleQueries.forEach(suggestedText => {
               if (suggestedText && !results.some(r => r.text === suggestedText)) {
                 results.push({
@@ -663,7 +679,7 @@ export class NativeTabHost extends EventEmitter {
       };
     });
 
-    ipcMain.handle('antifan:capsule:pick-folder', async () => {
+    ipcMain.handle('antifan:capsule:pick-folder', async (_event, opts?: { sessionId?: string }) => {
       const defaultDir = fs.existsSync('E:/Work')
         ? 'E:/Work'
         : (fs.existsSync('E:\\Work')
@@ -685,7 +701,7 @@ export class NativeTabHost extends EventEmitter {
       const folderName = path.basename(chosenPath) || 'Workspace';
       const created = this.capsuleManager.create(folderName, chosenPath);
       this.capsuleManager.switchTo(created.id);
-      TerminalManager.getInstance().setCapsule(created.id, chosenPath);
+      TerminalManager.getInstance().setCapsule(created.id, chosenPath, opts?.sessionId);
       return created;
     });
 
@@ -716,6 +732,25 @@ export class NativeTabHost extends EventEmitter {
       await shell.openPath(fallback);
       return { ok: true, workspacePath: fallback };
     });
+  }
+  private openInVSCode(): { ok: boolean; error?: string; workspacePath?: string } {
+    const activeTab = this.tabs.get(this.activeTabId);
+    const workspacePath = this.resolveTargetWorkspace(undefined, activeTab?.state.url);
+    if (!workspacePath || !fs.existsSync(workspacePath)) {
+      return { ok: false, error: 'Workspace not found' };
+    }
+    try {
+      const child = spawn('code', ['--reuse-window', workspacePath], {
+        cwd: workspacePath,
+        detached: true,
+        stdio: 'ignore',
+        windowsHide: true,
+      });
+      child.unref();
+      return { ok: true, workspacePath };
+    } catch (error) {
+      return { ok: false, error: error instanceof Error ? error.message : String(error) };
+    }
   }
 
   private setupSidebarIpc(): void {
@@ -892,6 +927,7 @@ export class NativeTabHost extends EventEmitter {
 
       // Ctrl+F -> Find in page
       if (isCtrlOrCmd && input.key.toLowerCase() === 'f') {
+        _event.preventDefault();
         this.toolbarView.webContents.send('antifan:focus-find');
         return;
       }
@@ -1299,7 +1335,7 @@ export class NativeTabHost extends EventEmitter {
     return t ? { ...t.state } : null;
   }
 
-  public createTab(initialUrl = 'https://www.google.com'): string {
+  public createTab(initialUrl = 'https://www.google.com', activate = true): string {
     const trimmed = (initialUrl || '').trim();
     if (trimmed && (trimmed.startsWith('file://') || /^[a-zA-Z]:[/\\]/.test(trimmed))) {
       const previewTabId = this.createPreviewTab(trimmed);
@@ -1505,7 +1541,7 @@ export class NativeTabHost extends EventEmitter {
     } else if (url !== 'about:blank') {
       wc.loadURL(url).catch(() => {});
     }
-    this.switchTab(id);
+    if (activate) this.switchTab(id);
     return id;
   }
 
@@ -2092,11 +2128,26 @@ export class NativeTabHost extends EventEmitter {
     const tm = TerminalManager.getInstance();
     const sessions = tm.listSessions();
     const activeSessionId = tm.getActiveSessionId();
-    const termContextScript = `window.__antifanTerminalContext = ${JSON.stringify({ sessions, selectedSessionId: activeSessionId })};`;
-
+    let validAnnotationSessionId: string | undefined = undefined;
+    if (typeof this.lastAnnotationSessionId === 'string') {
+      if (this.lastAnnotationSessionId === 'auto' || sessions.some((s) => s.id === this.lastAnnotationSessionId)) {
+        validAnnotationSessionId = this.lastAnnotationSessionId;
+      }
+    }
+    this.lastAnnotationSessionId = validAnnotationSessionId;
+    const termContextData: Record<string, unknown> = {
+      sessions,
+      selectedSessionId: activeSessionId,
+    };
+    if (validAnnotationSessionId !== undefined) {
+      termContextData.annotationSessionId = validAnnotationSessionId;
+    }
+    const termContextScript = `(() => {
+      window.__antifanTerminalContext = Object.assign(window.__antifanTerminalContext || {}, ${JSON.stringify(termContextData)});
+      ${validAnnotationSessionId === undefined ? 'delete window.__antifanTerminalContext.annotationSessionId;' : `window.__antifanTerminalContext.annotationSessionId = ${JSON.stringify(validAnnotationSessionId)};`}
+    })();`;
     this.isInspecting = true;
     active.view.webContents.executeJavaScript(`${termContextScript}\n${ELEMENT_PICKER_SCRIPT}`).catch(() => {});
-    this.emit('inspect-toggled', true);
     this.broadcastState();
 
     if (this.inspectPollTimer) clearInterval(this.inspectPollTimer);
@@ -2106,11 +2157,21 @@ export class NativeTabHost extends EventEmitter {
         return;
       }
       try {
+        const liveSessions = TerminalManager.getInstance().listSessions();
+        const currentCtx = await active.view.webContents.executeJavaScript('window.__antifanTerminalContext?.annotationSessionId').catch(() => null);
+        if (typeof currentCtx === 'string' && (currentCtx === 'auto' || liveSessions.some((s) => s.id === currentCtx))) {
+          this.lastAnnotationSessionId = currentCtx;
+        }
+
         const rawResult = await active.view.webContents.executeJavaScript('window.__antifanPick');
         if (rawResult) {
           await active.view.webContents.executeJavaScript('window.__antifanPick = null;');
           this.stopInspect(this.inspectedTabId || this.activeTabId);
           if (rawResult.canceled) return;
+
+          if (typeof rawResult.targetSessionId === 'string' && (rawResult.targetSessionId === 'auto' || liveSessions.some((s) => s.id === rawResult.targetSessionId))) {
+            this.lastAnnotationSessionId = rawResult.targetSessionId;
+          }
 
           let targetImageBase64: string | undefined;
           if (rawResult.clientRect && rawResult.clientRect.width > 0 && rawResult.clientRect.height > 0) {
@@ -2246,11 +2307,23 @@ export class NativeTabHost extends EventEmitter {
     this.emit('inspect-toggled', false);
     this.broadcastState();
   }
+  public getLastAnnotationSessionId(): string | undefined {
+    return this.lastAnnotationSessionId;
+  }
+
+  public setLastAnnotationSessionId(sessionId?: string): void {
+    if (typeof sessionId === 'string') {
+      const tm = TerminalManager.getInstance();
+      const sessions = tm.listSessions();
+      const valid = sessionId === 'auto' || sessions.some((s) => s.id === sessionId);
+      this.lastAnnotationSessionId = valid ? sessionId : undefined;
+    } else {
+      this.lastAnnotationSessionId = undefined;
+    }
+  }
 
   public resolveTargetWorkspace(targetSessionId?: string, tabUrl?: string): string {
     const tm = TerminalManager.getInstance();
-
-    // 1. If explicit terminal session ID is provided and resolved
     if (targetSessionId && targetSessionId !== 'auto') {
       const session = tm.getSession(targetSessionId);
       if (session?.cwd && fs.existsSync(path.normalize(session.cwd))) {
@@ -2575,10 +2648,10 @@ export class NativeTabHost extends EventEmitter {
     }, 2500);
   }
 
-  public findInPage(text: string, forward = true): void {
+  public findInPage(text: string, forward = true, findNext = false): void {
     const active = this.tabs.get(this.activeTabId);
     if (!active || !text) return;
-    active.view.webContents.findInPage(text, { forward, findNext: true });
+    active.view.webContents.findInPage(text, { forward, findNext });
   }
 
   public stopFindInPage(): void {

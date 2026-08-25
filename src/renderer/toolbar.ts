@@ -50,8 +50,9 @@ interface AntiFanToolbarApi {
   captureFullPage: () => Promise<string>;
   captureViewport: () => Promise<string>;
   openExternal: (url?: string) => Promise<boolean>;
+  openInVSCode: () => Promise<{ ok: boolean; error?: string; workspacePath?: string }>;
   getBookmarks: () => Promise<any>;
-  findInPage: (text: string, forward?: boolean) => Promise<void>;
+  findInPage: (text: string, forward?: boolean, findNext?: boolean) => Promise<void>;
   stopFindInPage: () => Promise<void>;
   showMenu: () => Promise<void>;
   setOverlay: (active: boolean, customHeight?: number) => Promise<void>;
@@ -140,6 +141,7 @@ const mobileRemoteQrContainer = document.getElementById('mobileRemoteQrContainer
 const mobileRemoteUrlsList = document.getElementById('mobileRemoteUrlsList')!;
 const btnDevTools = document.getElementById('btnDevTools') as HTMLButtonElement;
 const btnToggleSidebar = document.getElementById('btnToggleSidebar') as HTMLButtonElement;
+const btnOpenInVSCode = document.getElementById('btnOpenInVSCode') as HTMLButtonElement;
 const btnChromeProfile = document.getElementById('btnChromeProfile') as HTMLButtonElement;
 const profileAvatar = document.getElementById('profileAvatar')!;
 const profileName = document.getElementById('profileName')!;
@@ -163,9 +165,9 @@ const menuShortcuts = document.getElementById('menuShortcuts')!;
 const findBar = document.getElementById('findBar')!;
 const findInput = document.getElementById('findInput') as HTMLInputElement;
 const findCount = document.getElementById('findCount')!;
-const findPrev = document.getElementById('findPrev') as HTMLButtonElement;
-const findNext = document.getElementById('findNext') as HTMLButtonElement;
-const findClose = document.getElementById('findClose') as HTMLButtonElement;
+const findPrev = (document.getElementById('btnFindPrev') || document.getElementById('findPrev')) as HTMLButtonElement;
+const findNext = (document.getElementById('btnFindNext') || document.getElementById('findNext')) as HTMLButtonElement;
+const findClose = (document.getElementById('btnFindClose') || document.getElementById('findClose')) as HTMLButtonElement;
 
 // Shortcuts Overlay
 const shortcutsOverlay = document.getElementById('shortcutsOverlay')!;
@@ -1176,6 +1178,14 @@ document.getElementById('menuItemOpenSystemBrowser')?.addEventListener('click', 
   closeAppMenu();
   getApi()?.openExternal();
 });
+document.getElementById('btnOpenInVSCode')?.addEventListener('click', async () => {
+  const result = await getApi()?.openInVSCode();
+  if (result?.ok) {
+    showToolbarToast(`Đã mở Workspace trong VS Code: ${result.workspacePath}`);
+  } else {
+    showToolbarToast(`Không thể mở VS Code: ${result?.error || 'Không xác định'}`);
+  }
+});
 
 document.getElementById('menuItemDevTools')?.addEventListener('click', (e) => {
   e.stopPropagation();
@@ -1630,35 +1640,63 @@ if (btnClearOmnibox && urlInput) {
 function showFindBar() {
   if (!findBar || !findInput) return;
   findBar.style.display = 'flex';
+  getApi()?.setOverlay(true, 50);
   findInput.focus();
   findInput.select();
+  const q = findInput.value.trim();
+  if (q) {
+    getApi()?.findInPage(q, true, false);
+  }
 }
 
 function hideFindBar() {
   if (!findBar) return;
   findBar.style.display = 'none';
+  if (findCount) findCount.textContent = '0/0';
   getApi()?.stopFindInPage();
+  getApi()?.setOverlay(false);
 }
 
 if (findInput) {
   findInput.addEventListener('input', () => {
     const q = findInput.value.trim();
-    if (q) getApi()?.findInPage(q, true);
-    else getApi()?.stopFindInPage();
+    if (q) {
+      getApi()?.findInPage(q, true, false);
+    } else {
+      if (findCount) findCount.textContent = '0/0';
+      getApi()?.stopFindInPage();
+    }
   });
 
   findInput.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') {
-      getApi()?.findInPage(findInput.value.trim(), !e.shiftKey);
+      e.preventDefault();
+      const q = findInput.value.trim();
+      if (q) {
+        getApi()?.findInPage(q, !e.shiftKey, true);
+      }
     } else if (e.key === 'Escape') {
+      e.preventDefault();
       hideFindBar();
     }
   });
 }
 
-if (findNext && findInput) findNext.addEventListener('click', () => getApi()?.findInPage(findInput.value.trim(), true));
-if (findPrev && findInput) findPrev.addEventListener('click', () => getApi()?.findInPage(findInput.value.trim(), false));
-if (findClose) findClose.addEventListener('click', hideFindBar);
+if (findNext && findInput) {
+  findNext.addEventListener('click', () => {
+    const q = findInput.value.trim();
+    if (q) getApi()?.findInPage(q, true, true);
+  });
+}
+if (findPrev && findInput) {
+  findPrev.addEventListener('click', () => {
+    const q = findInput.value.trim();
+    if (q) getApi()?.findInPage(q, false, true);
+  });
+}
+if (findClose) {
+  findClose.addEventListener('click', hideFindBar);
+}
 
 // Shortcuts Overlay
 if (shortcutsClose && shortcutsOverlay) {

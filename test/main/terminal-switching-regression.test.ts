@@ -124,12 +124,12 @@ describe('Terminal Switching Regression & Viewport Integrity', () => {
     const cssContent = fs.readFileSync(cssPath, 'utf8');
     const jsContent = fs.readFileSync(jsPath, 'utf8');
 
-    // 1. Ensure .terminal-session-pane uses visibility: hidden + contain: strict (NOT display: none)
+    // 1. Ensure .terminal-session-pane uses visibility: hidden + box-sizing: border-box without contain: strict (NOT display: none)
     assert.match(cssContent, /\.terminal-session-pane\s*\{[^}]*visibility:\s*hidden/);
-    assert.match(cssContent, /\.terminal-session-pane\s*\{[^}]*contain:\s*strict/);
+    assert.match(cssContent, /\.terminal-session-pane\s*\{[^}]*box-sizing:\s*border-box/);
+    assert.doesNotMatch(cssContent, /\.terminal-session-pane\s*\{[^}]*contain:\s*strict/);
     assert.match(cssContent, /\.terminal-session-pane\.active\s*\{[^}]*visibility:\s*visible/);
     assert.doesNotMatch(cssContent, /\.terminal-session-pane\s*\{[^}]*display:\s*none/);
-
     // 2. Ensure .xterm-screen does NOT have width: 100% !important (which destroys xterm canvas pixel alignment)
     assert.doesNotMatch(cssContent, /\.terminal-session-pane\s+\.xterm-screen\s*\{[^}]*width:\s*100%\s*!important/);
 

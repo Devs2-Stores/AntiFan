@@ -379,8 +379,10 @@ export class TerminalManager extends EventEmitter {
   public resize(cols: number, rows: number): void {
     const validCols = Math.max(40, cols);
     const validRows = Math.max(8, rows);
-    this.lastCols = validCols;
-    this.lastRows = validRows;
+    if (validCols >= 60 && validRows >= 15) {
+      this.lastCols = validCols;
+      this.lastRows = validRows;
+    }
     for (const s of this.sessions.values()) {
       if (!s.disposed) {
         try {
@@ -393,9 +395,11 @@ export class TerminalManager extends EventEmitter {
   public resizeTo(id: string, cols: number, rows: number): void {
     const validCols = Math.max(40, cols);
     const validRows = Math.max(8, rows);
-    this.lastCols = validCols;
-    this.lastRows = validRows;
     const target = this.sessions.get(id);
+    if (!target?.splitOf && validCols >= 60 && validRows >= 15) {
+      this.lastCols = validCols;
+      this.lastRows = validRows;
+    }
     if (target && !target.disposed) {
       try { target.pty.resize(validCols, validRows); } catch {}
     }

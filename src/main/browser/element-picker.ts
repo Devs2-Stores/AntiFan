@@ -679,6 +679,14 @@ export const ELEMENT_PICKER_SCRIPT = `(() => {
       };
     }
     const termContext = window.__antifanTerminalContext || { sessions: [], selectedSessionId: '' };
+    let rememberedSessionId = typeof termContext.annotationSessionId === 'string' && termContext.annotationSessionId
+      ? termContext.annotationSessionId
+      : '';
+    if (!rememberedSessionId) {
+      try {
+        rememberedSessionId = localStorage.getItem('antifan_last_annotation_session_id') || '';
+      } catch {}
+    }
     const termRow = document.createElement('div');
     termRow.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:6px;background:#060a11;border:1px solid #1e293b;border-radius:5px;padding:3px 7px;font-size:11px;box-sizing:border-box;';
 
@@ -691,18 +699,35 @@ export const ELEMENT_PICKER_SCRIPT = `(() => {
     termSelect.style.cssText = 'flex:1;min-width:0;background:#0f172a;color:#38bdf8;border:1px solid #263b50;border-radius:4px;padding:2px 4px;font-size:11px;font-weight:500;outline:none;cursor:pointer;text-overflow:ellipsis;';
 
     if (termContext.sessions && termContext.sessions.length > 0) {
+      const availableSessionIds = termContext.sessions.map((s) => s.id);
+      const preferredSessionId = rememberedSessionId && (rememberedSessionId === 'auto' || availableSessionIds.includes(rememberedSessionId))
+        ? rememberedSessionId
+        : 'auto';
+
       const autoOpt = document.createElement('option');
       autoOpt.value = 'auto';
       autoOpt.textContent = 'Tự động (theo site URL)';
-      autoOpt.selected = true;
+      autoOpt.selected = preferredSessionId === 'auto';
       termSelect.appendChild(autoOpt);
       termContext.sessions.forEach((s) => {
         const opt = document.createElement('option');
         opt.value = s.id;
+        opt.selected = s.id === preferredSessionId;
         const cleanCwd = (s.cwd || '').replace(/\\\\/g, '/');
         const folder = cleanCwd ? cleanCwd.split('/').filter(Boolean).pop() : '';
         opt.textContent = (s.name || s.id) + (folder ? ' (' + folder + ')' : '');
         termSelect.appendChild(opt);
+      });
+      termSelect.value = preferredSessionId;
+      termContext.annotationSessionId = preferredSessionId;
+      termSelect.addEventListener('change', () => {
+        const selectedSessionId = termSelect.value || 'auto';
+        termContext.annotationSessionId = termSelect.value || 'auto';
+        window.__antifanTerminalContext = window.__antifanTerminalContext || {};
+        window.__antifanTerminalContext.annotationSessionId = selectedSessionId;
+        try {
+          localStorage.setItem('antifan_last_annotation_session_id', selectedSessionId);
+        } catch {}
       });
     } else {
       const opt = document.createElement('option');
@@ -776,7 +801,7 @@ export const ELEMENT_PICKER_SCRIPT = `(() => {
 
     const footer = document.createElement('div');
     footer.style.cssText = 'display:flex;align-items:center;justify-content:space-between;padding-top:1px;';
-    footer.innerHTML = '<div style="display:flex;align-items:center;gap:6px;"><button id="btnAttachImg" type="button" style="background:#1e293b;border:1px solid #334155;color:#94a3b8;border-radius:4px;padding:3px 7px;font-size:11px;cursor:pointer;display:flex;align-items:center;gap:4px;" title="Đính kèm ảnh từ máy tính"><span>📷</span> <span>Ảnh</span></button><span style="font-size:9.5px;color:#64748b;">Dán Ctrl+V ảnh</span></div><div style="display:flex;align-items:center;gap:6px;"><button id="btnModalQueue" type="button" style="background:#1e293b;border:1px solid #334155;color:#e2e8f0;border-radius:4px;padding:4px 9px;font-size:11px;font-weight:600;cursor:pointer;display:flex;align-items:center;gap:3px;" title="Đưa vào Queue / Draft (Không thực thi ngay)"><span>📥</span> <span>Queue</span></button><button id="btnModalSend" type="button" style="background:#087ff5;border:none;color:#ffffff;border-radius:4px;padding:4px 12px;font-size:11px;font-weight:600;cursor:pointer;" title="Gửi và thực thi ngay">Gửi ↑</button></div>';
+    footer.innerHTML = '<div style="display:flex;align-items:center;gap:6px;"><button id="btnAttachImg" type="button" style="background:#1e293b;border:1px solid #334155;color:#94a3b8;border-radius:4px;padding:3px 7px;font-size:11px;cursor:pointer;display:flex;align-items:center;gap:4px;" title="Đính kèm ảnh từ máy tính"><span>📷</span> <span>Ảnh</span></button><span style="font-size:9.5px;color:#64748b;">Alt+Enter xuống hàng</span></div><div style="display:flex;align-items:center;gap:6px;"><button id="btnModalQueue" type="button" style="background:#1e293b;border:1px solid #334155;color:#e2e8f0;border-radius:4px;padding:4px 9px;font-size:11px;font-weight:600;cursor:pointer;display:flex;align-items:center;gap:3px;" title="Đưa vào Queue / Draft (Không thực thi ngay)"><span>📥</span> <span>Queue</span></button><button id="btnModalSend" type="button" style="background:#087ff5;border:none;color:#ffffff;border-radius:4px;padding:4px 12px;font-size:11px;font-weight:600;cursor:pointer;" title="Gửi và thực thi ngay">Gửi ↑</button></div>';
     modal.appendChild(header);
     modal.appendChild(termRow);
     modal.appendChild(textarea);
@@ -1018,7 +1043,14 @@ export const ELEMENT_PICKER_SCRIPT = `(() => {
           liquidContext: liquidContext,
           computedStyles: styles,
           userComment: userComment,
-          targetSessionId: termSelect ? termSelect.value : (termContext.selectedSessionId || undefined),
+          targetSessionId: (() => {
+            const chosen = termSelect ? termSelect.value : (termContext.selectedSessionId || undefined);
+            if (chosen) {
+              try { localStorage.setItem('antifan_last_annotation_session_id', chosen); } catch {}
+              if (window.__antifanTerminalContext) window.__antifanTerminalContext.annotationSessionId = chosen;
+            }
+            return chosen;
+          })(),
           attachedImages: attachedImages.slice(0, 6),
           deliveryMode: deliveryMode,
           rect: {
@@ -1139,13 +1171,19 @@ export const ELEMENT_PICKER_SCRIPT = `(() => {
       };
     }
     textarea.onkeydown = (ev) => {
-      if (ev.key === 'Enter' && (ev.ctrlKey || ev.metaKey)) {
+      if (ev.key === 'Enter' && ev.altKey) {
+        ev.preventDefault();
+        const start = textarea.selectionStart;
+        const end = textarea.selectionEnd;
+        const val = textarea.value;
+        textarea.value = val.substring(0, start) + '\\n' + val.substring(end);
+        textarea.selectionStart = textarea.selectionEnd = start + 1;
+        textarea.style.height = '58px';
+        textarea.style.height = Math.min(200, Math.max(58, textarea.scrollHeight)) + 'px';
+      } else if (ev.key === 'Enter' && (ev.ctrlKey || ev.metaKey)) {
         ev.preventDefault();
         doSubmit('auto');
-      } else if (ev.key === 'Enter' && ev.altKey) {
-        ev.preventDefault();
-        doSubmit('draft');
-      } else if (ev.key === 'Enter' && !ev.shiftKey) {
+      } else if (ev.key === 'Enter') {
         ev.preventDefault();
         doSubmit('auto');
       } else if (ev.key === 'Escape') {

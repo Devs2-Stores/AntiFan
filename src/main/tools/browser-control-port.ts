@@ -3,7 +3,7 @@ import { BrowserTarget, CapabilityError, ArtifactRef, assertExactBrowserTarget, 
 export interface BrowserHostPort {
   getTabList(): unknown[];
   getActiveTabId?(): string;
-  createTab?(url?: string): string;
+  createTab?(url?: string, activate?: boolean): string;
   closeTab?(tabId: string): boolean;
   switchTab?(tabId: string): boolean;
   navigate(tabId: string, url: string): boolean;
@@ -73,9 +73,9 @@ export class BrowserControlPort {
     return this.host.evalJs(expression);
   }
 
-  openTab(url?: string): { tabId: string } {
+  openTab(options: { url?: string; activate?: boolean } = {}): { tabId: string } {
     if (!this.host.createTab) throw new CapabilityError('CAPABILITY_NOT_FOUND', 'createTab is not supported by host');
-    return { tabId: this.host.createTab(url) };
+    return { tabId: this.host.createTab(options.url, options.activate ?? false) };
   }
 
   closeTab(tabId: string): { closed: boolean } {
@@ -225,11 +225,8 @@ export class BrowserControlPort {
     if (!resolved) {
       throw new CapabilityError('INVALID_ARGUMENT', 'No tab ID specified and no active target bound');
     }
-    if (explicitTabId) {
-      const switched = this.host.switchTab ? this.host.switchTab(explicitTabId) : false;
-      if (!switched) {
-        throw new CapabilityError('CAPABILITY_NOT_FOUND', `Failed to switch to unknown or invalid tab ID: ${explicitTabId}`);
-      }
+    if (!this.host.getTabList().some((tab: any) => tab && tab.id === resolved)) {
+      throw new CapabilityError('CAPABILITY_NOT_FOUND', `Unknown tab ID: ${resolved}`);
     }
     return resolved;
   }

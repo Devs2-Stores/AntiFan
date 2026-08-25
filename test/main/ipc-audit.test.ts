@@ -148,5 +148,59 @@ describe('Webview & Extension IPC Audit Invariants', () => {
     assert.match(preloadContent, /antifan:terminal:new-session/);
     assert.match(nativeContent, /antifan:standalone:open-workspace/);
     assert.match(nativeContent, /antifan:terminal:new-session/);
+    assert.match(preloadContent, /pickWorkspaceFolder:\s*\(sessionId\?: string\).*\{ sessionId \}/);
+    assert.match(nativeContent, /capsule:pick-folder[^]*setCapsule\(created\.id, chosenPath, opts\?\.sessionId\)/);
+  });
+
+  it('verifies Find in Page DOM ID parity, IPC contracts, and shortcut prevention', () => {
+    const toolbarHtmlPath = path.join(root, 'src', 'renderer', 'toolbar.html');
+    const toolbarTsPath = path.join(root, 'src', 'renderer', 'toolbar.ts');
+    const preloadPath = path.join(root, 'src', 'preload', 'toolbar-preload.ts');
+    const nativeTabHostPath = path.join(root, 'src', 'main', 'browser', 'native-tab-host.ts');
+
+    const toolbarHtml = fs.readFileSync(toolbarHtmlPath, 'utf8');
+    const toolbarTs = fs.readFileSync(toolbarTsPath, 'utf8');
+    const preload = fs.readFileSync(preloadPath, 'utf8');
+    const nativeTabHost = fs.readFileSync(nativeTabHostPath, 'utf8');
+
+    // 1. HTML element IDs exist
+    assert.ok(toolbarHtml.includes('id="findBar"'), 'toolbar.html must define findBar');
+    assert.ok(toolbarHtml.includes('id="findInput"'), 'toolbar.html must define findInput');
+    assert.ok(toolbarHtml.includes('id="findCount"'), 'toolbar.html must define findCount');
+    assert.ok(toolbarHtml.includes('id="btnFindPrev"'), 'toolbar.html must define btnFindPrev');
+    assert.ok(toolbarHtml.includes('id="btnFindNext"'), 'toolbar.html must define btnFindNext');
+    assert.ok(toolbarHtml.includes('id="btnFindClose"'), 'toolbar.html must define btnFindClose');
+
+    // 2. TypeScript queries matching IDs
+    assert.ok(toolbarTs.includes("document.getElementById('btnFindPrev')"), 'toolbar.ts must query btnFindPrev');
+    assert.ok(toolbarTs.includes("document.getElementById('btnFindNext')"), 'toolbar.ts must query btnFindNext');
+    assert.ok(toolbarTs.includes("document.getElementById('btnFindClose')"), 'toolbar.ts must query btnFindClose');
+
+    // 3. Preload & IPC contracts pass findNext
+    assert.match(preload, /findInPage:\s*\(text:\s*string,\s*forward\s*=\s*true,\s*findNext\s*=\s*false\)/);
+    assert.match(nativeTabHost, /FIND_IN_PAGE[^]*findNext/);
+
+    // 4. Ctrl+F prevents default browser action before focusing custom find bar
+    assert.match(nativeTabHost, /if\s*\(isCtrlOrCmd\s*&&\s*input\.key\.toLowerCase\(\)\s*===\s*['"]f['"]\)\s*\{[^}]*_event\.preventDefault\(\);[^}]*antifan:focus-find/);
+
+    // 5. Overlay lifecycle in show/hide find bar
+    assert.match(toolbarTs, /function showFindBar\(\)[^]*getApi\(\)\?\.setOverlay\(true,\s*50\)/);
+    assert.match(toolbarTs, /function hideFindBar\(\)[^]*getApi\(\)\?\.setOverlay\(false\)/);
+  });
+
+  it('verifies search suggestion encoding uses standard UTF-8 parameters and charset fallback', () => {
+    const nativeTabHostPath = path.join(root, 'src', 'main', 'browser', 'native-tab-host.ts');
+    const nativeTabHost = fs.readFileSync(nativeTabHostPath, 'utf8');
+
+    assert.match(
+      nativeTabHost,
+      /suggestqueries\.google\.com\/complete\/search\?[^`]*ie=utf-8&oe=utf-8/,
+      'Google suggest query must use standard hyphenated ie=utf-8&oe=utf-8 parameters'
+    );
+    assert.match(
+      nativeTabHost,
+      /TextDecoder\('utf-8'/,
+      'Must decode search suggestions with UTF-8 TextDecoder'
+    );
   });
 });

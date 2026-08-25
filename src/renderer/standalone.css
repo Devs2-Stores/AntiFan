@@ -508,7 +508,7 @@ button {
   pointer-events: none;
   z-index: 0;
   overflow: hidden;
-  contain: strict;
+  box-sizing: border-box;
 }
 .terminal-session-pane.active {
   visibility: visible;

@@ -53,7 +53,7 @@ describe('Capability catalogue', () => {
     const mockHost = {
       getTabList: () => [{ id: 'tab-1', url: 'https://example.com' }, { id: 'tab-2', url: 'https://other.com' }],
       getActiveTabId: () => 'tab-1',
-      createTab: (url?: string) => { openedUrl = url || ''; return 'tab-new'; },
+      createTab: (url?: string, activate?: boolean) => { openedUrl = `${url || ''}|activate=${activate}`; return 'tab-new'; },
       closeTab: (tabId: string) => { closedTabId = tabId; return true; },
       switchTab: (tabId: string) => {
         if (tabId === 'tab-invalid') return false;
@@ -92,12 +92,12 @@ describe('Capability catalogue', () => {
     // 2. Open tab (write)
     const openRes = await catalogue.dispatch('browser.open-tab', { url: 'https://antifan.test' }, { lease, leaseToken: lease.token, projectId, workspaceId, grant: 'write' });
     assert.deepStrictEqual(openRes, { tabId: 'tab-new' });
-    assert.strictEqual(openedUrl, 'https://antifan.test');
+    assert.strictEqual(openedUrl, 'https://antifan.test|activate=false');
 
     // 3. Alias antifan_open_tab (write)
     const aliasOpen = await catalogue.dispatch('antifan_open_tab', { url: 'https://alias.test' }, { lease, leaseToken: lease.token, projectId, workspaceId, grant: 'write' });
     assert.deepStrictEqual(aliasOpen, { tabId: 'tab-new' });
-    assert.strictEqual(openedUrl, 'https://alias.test');
+    assert.strictEqual(openedUrl, 'https://alias.test|activate=false');
 
     // 4. Close tab & Switch tab
     await catalogue.dispatch('browser.close-tab', { tabId: 'tab-1' }, { lease, leaseToken: lease.token, projectId, workspaceId, grant: 'write' });

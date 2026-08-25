@@ -151,7 +151,7 @@ async function createWindow(): Promise<void> {
   controlPlane.registerBrowser(new BrowserControlPort({
     getTabList: () => tabHost!.getTabList(),
     getActiveTabId: () => tabHost!.getActiveTabId(),
-    createTab: (url) => tabHost!.createTab(url),
+    createTab: (url, activate = false) => tabHost!.createTab(url, activate),
     closeTab: (tabId) => tabHost!.closeTab(tabId),
     switchTab: (tabId) => tabHost!.switchTab(tabId),
     navigate: (tabId, url) => tabHost!.navigate(tabId, url),

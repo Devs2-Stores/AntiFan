@@ -223,6 +223,7 @@ export const TOOLBAR_CHANNELS = {
   CAPTURE_FULL_PAGE: 'antifan:toolbar:capture-full-page',
   CAPTURE_VIEWPORT: 'antifan:toolbar:capture-viewport',
   OPEN_EXTERNAL: 'antifan:toolbar:open-external',
+  OPEN_IN_VSCODE: 'antifan:toolbar:open-in-vscode',
   TOGGLE_BOOKMARK: 'antifan:toolbar:toggle-bookmark',
   GET_BOOKMARKS: 'antifan:toolbar:get-bookmarks',
   FIND_IN_PAGE: 'antifan:toolbar:find-in-page',

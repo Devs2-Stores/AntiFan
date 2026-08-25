@@ -13,6 +13,20 @@ const initialQuerySessionId = urlParams.get('sessionId') || '';
 let activeId = initialQuerySessionId || '';
 let sessions = [];
 let contextTargetSessionId = '';
+let globalResizeObserver = null;
+const MIN_TERMINAL_COLS = 40;
+const MIN_TERMINAL_ROWS = 8;
+
+function scheduleFitTerminal(delay = 50) {
+  requestAnimationFrame(() => {
+    fitCurrentTerminal();
+    if (delay > 0) {
+      setTimeout(() => {
+        fitCurrentTerminal();
+      }, delay);
+    }
+  });
+}
 function writeClipboard(text) {
   if (!text) return;
   if (api?.copyToClipboard) {
@@ -331,11 +345,13 @@ function getOrCreateTerminalPane(sessionId, snapshot) {
   const webLinksAddon = attachWebLinksAddon(sTerm);
   setupTerminalClipboard(sTerm, () => sessionId);
   mainPane.appendChild(paneEl);
-
+  if (globalResizeObserver) {
+    try { globalResizeObserver.observe(paneEl); } catch {}
+  }
   // Propose and apply initial sizing if DOM container has valid layout
   try {
     const propose = sFit.proposeDimensions();
-    if (propose && propose.cols >= 40 && propose.rows >= 8 && paneEl.clientWidth > 100) {
+    if (propose && propose.cols >= MIN_TERMINAL_COLS && propose.rows >= MIN_TERMINAL_ROWS && paneEl.clientWidth > 100) {
       sTerm.resize(propose.cols, propose.rows);
       api?.resizeTerminalTo(sessionId, propose.cols, propose.rows);
     }
@@ -418,6 +434,9 @@ function syncTerminalPool(allSessions, currentActiveId, snapshot) {
       try { item.webLinksAddon?.dispose(); } catch {}
       try { item.webglAddon?.dispose(); } catch {}
       try { item.term.dispose(); } catch {}
+      if (globalResizeObserver) {
+        try { globalResizeObserver.unobserve(item.paneEl); } catch {}
+      }
       item.paneEl.remove();
       terminalPool.delete(id);
     }
@@ -466,11 +485,14 @@ function syncTerminalPool(allSessions, currentActiveId, snapshot) {
     } else if (isNowActive) {
       const justBecameActive = !wasActive;
       item.paneEl.classList.add('active');
+      if (globalResizeObserver) {
+        try { globalResizeObserver.observe(item.paneEl); } catch {}
+      }
       item.isProgrammaticScroll = true;
       const doRefit = () => {
         try {
           const propose = item.fit.proposeDimensions();
-          if (propose && propose.cols >= 20 && propose.rows >= 5 && item.paneEl.clientWidth > 50) {
+          if (propose && propose.cols >= MIN_TERMINAL_COLS && propose.rows >= MIN_TERMINAL_ROWS && item.paneEl.clientWidth > 50) {
             if (item.term.cols !== propose.cols || item.term.rows !== propose.rows) {
               item.term.resize(propose.cols, propose.rows);
               api?.resizeTerminalTo(id, propose.cols, propose.rows);
@@ -492,6 +514,7 @@ function syncTerminalPool(allSessions, currentActiveId, snapshot) {
         } catch {}
       };
       doRefit();
+      scheduleFitTerminal(60);
       requestAnimationFrame(() => {
         doRefit();
         setTimeout(() => {
@@ -536,31 +559,37 @@ function applySplitRatio(ratio, resizePty = true) {
     mainPane.style.minHeight = '0';
     mainPane.style.height = '';
   }
-  const item = terminalPool.get(activeId);
-  if (item) {
-    try {
-      const propose = item.fit.proposeDimensions();
-      if (propose && propose.cols > 0 && propose.rows > 0) {
-        item.term.resize(propose.cols, propose.rows);
-        if (resizePty) {
-          api?.resizeTerminalTo(activeId, propose.cols, propose.rows);
+  requestAnimationFrame(() => {
+    const item = terminalPool.get(activeId);
+    if (item) {
+      try {
+        const propose = item.fit.proposeDimensions();
+        if (propose && propose.cols >= MIN_TERMINAL_COLS && propose.rows >= MIN_TERMINAL_ROWS) {
+          if (item.term.cols !== propose.cols || item.term.rows !== propose.rows) {
+            item.term.resize(propose.cols, propose.rows);
+            if (resizePty) {
+              api?.resizeTerminalTo(activeId, propose.cols, propose.rows);
+            }
+          }
         }
-      }
-      item.term.refresh(0, item.term.rows - 1);
-    } catch {}
-  }
-  if (splitFitAddon && splitTerm) {
-    try {
-      const splitPropose = splitFitAddon.proposeDimensions();
-      if (splitPropose && splitPropose.cols >= 20 && splitPropose.rows >= 4) {
-        splitTerm.resize(splitPropose.cols, splitPropose.rows);
-        if (resizePty && splitId) {
-          api?.resizeTerminalTo(splitId, splitPropose.cols, splitPropose.rows);
+        item.term.refresh(0, item.term.rows - 1);
+      } catch {}
+    }
+    if (splitFitAddon && splitTerm) {
+      try {
+        const splitPropose = splitFitAddon.proposeDimensions();
+        if (splitPropose && splitPropose.cols >= MIN_TERMINAL_COLS && splitPropose.rows >= MIN_TERMINAL_ROWS) {
+          if (splitTerm.cols !== splitPropose.cols || splitTerm.rows !== splitPropose.rows) {
+            splitTerm.resize(splitPropose.cols, splitPropose.rows);
+            if (resizePty && splitId) {
+              api?.resizeTerminalTo(splitId, splitPropose.cols, splitPropose.rows);
+            }
+          }
         }
-      }
-      splitTerm.refresh(0, splitTerm.rows - 1);
-    } catch {}
-  }
+        splitTerm.refresh(0, splitTerm.rows - 1);
+      } catch {}
+    }
+  });
 }
 
 function unmountSplit() {
@@ -585,21 +614,11 @@ function unmountSplit() {
   mainPane.style.flex = '1 1 100%';
   mainPane.style.height = '';
   mainPane.style.minHeight = '0';
-  const item = terminalPool.get(activeId);
-  if (item) {
-    try {
-      const propose = item.fit.proposeDimensions();
-      if (propose && propose.cols > 0 && propose.rows > 0) {
-        item.term.resize(propose.cols, propose.rows);
-        api?.resizeTerminalTo(activeId, propose.cols, propose.rows);
-      }
-      item.term.refresh(0, item.term.rows - 1);
-    } catch {}
-  }
   if (splitButton) {
     splitButton.classList.remove('active');
     splitButton.title = 'Chia đôi màn hình terminal (Split Right)';
   }
+  scheduleFitTerminal(60);
 }
 function mountSplit(sessionId, snapshot = '') {
   if (!sessionId) return;
@@ -1165,9 +1184,11 @@ function fitCurrentTerminal() {
       item.isProgrammaticScroll = true;
       try {
         const propose = item.fit.proposeDimensions();
-        if (propose && propose.cols >= 20 && propose.rows >= 5 && container.clientWidth > 50) {
-          item.term.resize(propose.cols, propose.rows);
-          api?.resizeTerminalTo(activeId, propose.cols, propose.rows);
+        if (propose && propose.cols >= MIN_TERMINAL_COLS && propose.rows >= MIN_TERMINAL_ROWS && (container?.clientWidth || 0) > 50) {
+          if (item.term.cols !== propose.cols || item.term.rows !== propose.rows) {
+            item.term.resize(propose.cols, propose.rows);
+            api?.resizeTerminalTo(activeId, propose.cols, propose.rows);
+          }
         }
         item.term.refresh(0, item.term.rows - 1);
         if (!item.isUserScrolledUp) {
@@ -1183,24 +1204,32 @@ function fitCurrentTerminal() {
   if (splitEnabled && splitFitAddon && splitTerm && splitId) {
     try {
       const splitPropose = splitFitAddon.proposeDimensions();
-      if (splitPropose && splitPropose.cols >= 20 && splitPropose.rows >= 5) {
-        splitTerm.resize(splitPropose.cols, splitPropose.rows);
-        api?.resizeTerminalTo(splitId, splitPropose.cols, splitPropose.rows);
+      if (splitPropose && splitPropose.cols >= MIN_TERMINAL_COLS && splitPropose.rows >= MIN_TERMINAL_ROWS) {
+        if (splitTerm.cols !== splitPropose.cols || splitTerm.rows !== splitPropose.rows) {
+          splitTerm.resize(splitPropose.cols, splitPropose.rows);
+          api?.resizeTerminalTo(splitId, splitPropose.cols, splitPropose.rows);
+        }
       }
       splitTerm.refresh(0, splitTerm.rows - 1);
     } catch {}
   }
 }
 if (window.ResizeObserver) {
-  const ro = new ResizeObserver(() => {
+  globalResizeObserver = new ResizeObserver(() => {
     clearTimeout(resizeDebounceTimer);
     resizeDebounceTimer = setTimeout(() => {
       fitCurrentTerminal();
     }, 20);
   });
-  if (container) ro.observe(container);
-  if (mainPane) ro.observe(mainPane);
+  if (container) globalResizeObserver.observe(container);
+  if (mainPane) globalResizeObserver.observe(mainPane);
 }
+
+window.addEventListener('beforeunload', () => {
+  if (globalResizeObserver) {
+    try { globalResizeObserver.disconnect(); } catch {}
+  }
+});
 
 window.addEventListener('resize', () => {
   fitCurrentTerminal();
@@ -1234,7 +1263,7 @@ if (isPopoutMode) {
   }
 }
 document.getElementById('btnOpenFolder')?.addEventListener('click', async () => {
-  await api?.pickWorkspaceFolder?.();
+  await api?.pickWorkspaceFolder?.(activeId);
 });
 const openNewWin = () => {
   api?.openNewTerminalWindow?.(activeId);

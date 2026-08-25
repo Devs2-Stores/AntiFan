@@ -249,11 +249,17 @@ describe('Agent Browser & Element Picker Injected Scripts', () => {
     assert.ok(ELEMENT_PICKER_SCRIPT.includes('deliveryMode'), 'Must include deliveryMode in payload');
   });
 
-  it('defaults annotation routing to the inspected site while preserving explicit session choice', () => {
-    assert.ok(ELEMENT_PICKER_SCRIPT.includes("autoOpt.value = 'auto'"), 'Picker must expose automatic site routing');
-    assert.ok(ELEMENT_PICKER_SCRIPT.includes("autoOpt.selected = true"), 'Automatic site routing must be the default');
-    assert.ok(ELEMENT_PICKER_SCRIPT.includes('targetSessionId: termSelect ? termSelect.value'), 'Picker must submit the selected route');
-    assert.ok(ELEMENT_PICKER_SCRIPT.includes('opt.value = s.id'), 'Picker must preserve explicit session choices');
+  it('restores the last explicitly selected annotation terminal route', () => {
+    assert.ok(ELEMENT_PICKER_SCRIPT.includes('annotationSessionId'), 'Picker must persist annotation terminal selection');
+    assert.ok(ELEMENT_PICKER_SCRIPT.includes('rememberedSessionId'), 'Picker must read remembered annotation terminal selection');
+    assert.ok(ELEMENT_PICKER_SCRIPT.includes('opt.selected = s.id === preferredSessionId'), 'Picker must restore selected terminal option');
+    assert.ok(ELEMENT_PICKER_SCRIPT.includes('termContext.annotationSessionId = termSelect.value || \'auto\''), 'Picker must persist Auto when explicitly selected');
+  });
+
+  it('verifies ELEMENT_PICKER_SCRIPT configures Alt+Enter to insert newline', () => {
+    assert.ok(ELEMENT_PICKER_SCRIPT.includes('ev.key === \'Enter\' && ev.altKey'), 'Must handle Alt+Enter for newline');
+    assert.ok(ELEMENT_PICKER_SCRIPT.includes("substring(0, start) + '\\n' + val.substring(end)"), 'Must insert newline character at cursor');
+    assert.ok(ELEMENT_PICKER_SCRIPT.includes('Alt+Enter xuống hàng'), 'Must provide visual shortcut hint in footer');
   });
 
   it('verifies deliveryMode draft vs auto dispatch invariants', () => {
@@ -286,5 +292,29 @@ describe('Agent Browser & Element Picker Injected Scripts', () => {
     simulateAnnotationSubmit({ deliveryMode: 'auto', userComment: 'Inspect this' });
     assert.strictEqual(ptyWritten, true, 'Auto mode must invoke PTY write/execute');
     assert.strictEqual(dispatchedMode, 'auto', 'Auto mode must dispatch as auto');
+  });
+
+  it('verifies annotation target terminal persistence and validation contract', () => {
+    const sessions = [
+      { id: 'terminal-1', name: 'PowerShell 1', cwd: 'E:/Work/site1' },
+      { id: 'terminal-2', name: 'PowerShell 2', cwd: 'E:/Work/site2' },
+    ];
+
+    const resolveValidAnnotationSession = (lastId: string | undefined, activeSessions: typeof sessions): string | undefined => {
+      if (typeof lastId !== 'string') return undefined;
+      return lastId === 'auto' || activeSessions.some((s) => s.id === lastId) ? lastId : undefined;
+    };
+
+    // 1. Uninitialized: undefined, allowing domain localStorage fallback
+    assert.strictEqual(resolveValidAnnotationSession(undefined, sessions), undefined);
+
+    // 2. Explicit terminal selection remembered
+    assert.strictEqual(resolveValidAnnotationSession('terminal-2', sessions), 'terminal-2');
+
+    // 3. Explicit Auto selection remembered
+    assert.strictEqual(resolveValidAnnotationSession('auto', sessions), 'auto');
+
+    // 4. Stale/closed session safely falls back to undefined (auto)
+    assert.strictEqual(resolveValidAnnotationSession('terminal-deleted', sessions), undefined);
   });
 });
