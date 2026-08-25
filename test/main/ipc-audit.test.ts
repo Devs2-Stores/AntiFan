@@ -203,4 +203,37 @@ describe('Webview & Extension IPC Audit Invariants', () => {
       'Must decode search suggestions with UTF-8 TextDecoder'
     );
   });
+
+  it('verifies Ctrl+T, Ctrl+Shift+T, Ctrl+W, and Ctrl+Tab prevent default to avoid double actions', () => {
+    const nativeTabHostPath = path.join(root, 'src', 'main', 'browser', 'native-tab-host.ts');
+    const nativeTabHost = fs.readFileSync(nativeTabHostPath, 'utf8');
+
+    // Ctrl+T must preventDefault before createTab
+    assert.match(
+      nativeTabHost,
+      /if\s*\(isCtrlOrCmd\s*&&\s*!input\.shift\s*&&\s*input\.key\.toLowerCase\(\)\s*===\s*['"]t['"]\)\s*\{[^}]*_event\.preventDefault\(\);[^}]*this\.createTab\(\);/,
+      'Ctrl+T must call _event.preventDefault() before createTab()'
+    );
+
+    // Ctrl+Shift+T must preventDefault before reopenClosedTab
+    assert.match(
+      nativeTabHost,
+      /if\s*\(isCtrlOrCmd\s*&&\s*input\.shift\s*&&\s*input\.key\.toLowerCase\(\)\s*===\s*['"]t['"]\)\s*\{[^}]*_event\.preventDefault\(\);[^}]*this\.reopenClosedTab\(\);/,
+      'Ctrl+Shift+T must call _event.preventDefault() before reopenClosedTab()'
+    );
+
+    // Ctrl+W must preventDefault before closeTab
+    assert.match(
+      nativeTabHost,
+      /if\s*\(isCtrlOrCmd\s*&&\s*!input\.shift\s*&&\s*input\.key\.toLowerCase\(\)\s*===\s*['"]w['"]\)\s*\{[^}]*_event\.preventDefault\(\);[^}]*this\.closeTab\(/,
+      'Ctrl+W must call _event.preventDefault() before closeTab()'
+    );
+
+    // Ctrl+Tab must preventDefault before switchTab
+    assert.match(
+      nativeTabHost,
+      /if\s*\(isCtrlOrCmd\s*&&\s*input\.key\s*===\s*['"]Tab['"]\)\s*\{[^}]*_event\.preventDefault\(\);/,
+      'Ctrl+Tab must call _event.preventDefault() before switchTab()'
+    );
+  });
 });

@@ -870,36 +870,42 @@ export class NativeTabHost extends EventEmitter {
 
       // Ctrl+Alt+B -> Toggle Sidebar Chat
       if (isCtrlOrCmd && input.alt && input.key.toLowerCase() === 'b') {
+        _event.preventDefault();
         this.toggleSidebar();
         return;
       }
 
       // F12 or Ctrl+Shift+I -> Toggle DevTools
       if (input.key === 'F12' || (isCtrlOrCmd && input.shift && input.key.toLowerCase() === 'i')) {
+        _event.preventDefault();
         this.toggleDevTools();
         return;
       }
 
       // Ctrl+Shift+T -> Reopen Recently Closed Tab (Chrome behavior)
       if (isCtrlOrCmd && input.shift && input.key.toLowerCase() === 't') {
+        _event.preventDefault();
         this.reopenClosedTab();
         return;
       }
 
       // Ctrl+T -> New Tab
       if (isCtrlOrCmd && !input.shift && input.key.toLowerCase() === 't') {
+        _event.preventDefault();
         this.createTab();
         return;
       }
 
       // Ctrl+W -> Close Tab
       if (isCtrlOrCmd && !input.shift && input.key.toLowerCase() === 'w') {
+        _event.preventDefault();
         this.closeTab(this.activeTabId);
         return;
       }
 
       // Ctrl+Tab / Ctrl+Shift+Tab -> Switch Tab
       if (isCtrlOrCmd && input.key === 'Tab') {
+        _event.preventDefault();
         if (this.tabOrder.length > 1) {
           const currIdx = this.tabOrder.indexOf(this.activeTabId);
           const nextIdx = input.shift ? (currIdx - 1 + this.tabOrder.length) % this.tabOrder.length : (currIdx + 1) % this.tabOrder.length;
@@ -909,18 +915,21 @@ export class NativeTabHost extends EventEmitter {
       }
       // Ctrl+U -> View Page Source
       if (isCtrlOrCmd && !input.shift && input.key.toLowerCase() === 'u') {
+        _event.preventDefault();
         this.viewPageSource(this.activeTabId);
         return;
       }
 
       // Ctrl+R or F5 -> Reload
       if ((isCtrlOrCmd && input.key.toLowerCase() === 'r') || input.key === 'F5') {
+        _event.preventDefault();
         this.reload(this.activeTabId);
         return;
       }
 
       // Ctrl+L -> Focus Omnibox
       if (isCtrlOrCmd && input.key.toLowerCase() === 'l') {
+        _event.preventDefault();
         this.toolbarView.webContents.send('antifan:focus-omnibox');
         return;
       }
@@ -934,6 +943,7 @@ export class NativeTabHost extends EventEmitter {
 
       // Ctrl++ / Ctrl+= -> Zoom In
       if (isCtrlOrCmd && (input.key === '=' || input.key === '+')) {
+        _event.preventDefault();
         const tab = this.tabs.get(this.activeTabId);
         if (tab) this.setZoom(this.activeTabId, Math.min(3.0, tab.state.zoomFactor + 0.1));
         return;
@@ -941,6 +951,7 @@ export class NativeTabHost extends EventEmitter {
 
       // Ctrl+- -> Zoom Out
       if (isCtrlOrCmd && (input.key === '-' || input.key === '_')) {
+        _event.preventDefault();
         const tab = this.tabs.get(this.activeTabId);
         if (tab) this.setZoom(this.activeTabId, Math.max(0.5, tab.state.zoomFactor - 0.1));
         return;
@@ -948,12 +959,14 @@ export class NativeTabHost extends EventEmitter {
 
       // Ctrl+0 -> Zoom Reset
       if (isCtrlOrCmd && input.key === '0') {
+        _event.preventDefault();
         this.setZoom(this.activeTabId, 1.0);
         return;
       }
 
       // Esc -> Stop Inspect / Font Finder / Lens / Find
       if (input.key === 'Escape') {
+        _event.preventDefault();
         if (this.isInspecting) this.stopInspect();
         if (this.isFontFinderActive) this.stopFontFinder();
         if (this.isLensActive) this.stopLens();
