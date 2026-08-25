@@ -220,16 +220,22 @@ describe('Webview & Extension IPC Audit Invariants', () => {
       foundAccelerators.push(match[1]!);
     }
 
-    const duplicateAccelerators = foundAccelerators.filter(
-      (acc, index) => foundAccelerators.indexOf(acc) !== index
-    );
-    assert.deepStrictEqual(
-      duplicateAccelerators,
-      [],
-      `app-menu.ts must not contain duplicate accelerator definitions: ${duplicateAccelerators.join(', ')}`
-    );
+    // Frequency map of every accelerator in app-menu.ts
+    const counts = new Map<string, number>();
+    for (const acc of foundAccelerators) {
+      counts.set(acc, (counts.get(acc) || 0) + 1);
+    }
 
-    // 2. app-menu.ts authoritatively defines core application accelerators
+    // Every accelerator present in app-menu must have an occurrence count of exactly 1
+    for (const [acc, count] of counts.entries()) {
+      assert.strictEqual(
+        count,
+        1,
+        `app-menu.ts contains duplicate accelerator '${acc}' (count: ${count})`
+      );
+    }
+
+    // 2. app-menu.ts authoritatively defines core application accelerators exactly once
     const requiredAccelerators = [
       'CmdOrCtrl+T',
       'CmdOrCtrl+Shift+T',
@@ -247,9 +253,11 @@ describe('Webview & Extension IPC Audit Invariants', () => {
       'CmdOrCtrl+Shift+N',
     ];
     for (const acc of requiredAccelerators) {
-      assert.ok(
-        foundAccelerators.includes(acc),
-        `app-menu.ts must define accelerator '${acc}'`
+      const occurrence = counts.get(acc) || 0;
+      assert.strictEqual(
+        occurrence,
+        1,
+        `app-menu.ts must define accelerator '${acc}' exactly once, but found ${occurrence}`
       );
     }
 
