@@ -544,19 +544,29 @@ if (btnNewTerminal) {
 function applySplitRatio(ratio, resizePty = true) {
   const lower = document.getElementById('terminal-split');
   if (lower && splitEnabled) {
-    const containerHeight = container?.clientHeight || 400;
-    const minPx = 90; // At least ~5-6 terminal rows + header
-    const minRatio = Math.min(0.25, minPx / Math.max(200, containerHeight));
-    const maxRatio = 1 - minRatio;
+    const divider = document.getElementById('terminal-divider');
+    const dividerHeight = divider?.offsetHeight || 7;
+    const totalHeight = container?.clientHeight || 400;
+    const usable = Math.max(0, totalHeight - dividerHeight);
+    const paneMin = Math.min(60, Math.floor(usable / 2));
     const rawRatio = (typeof ratio === 'number' && !isNaN(ratio) && ratio > 0) ? ratio : 0.5;
-    const clampedRatio = Math.max(minRatio, Math.min(maxRatio, rawRatio));
-    mainPane.style.flex = `${clampedRatio} 1 0px`;
-    mainPane.style.minHeight = `${minPx}px`;
-    lower.style.flex = `${1 - clampedRatio} 1 0px`;
-    lower.style.minHeight = `${minPx}px`;
+    const rawMain = Math.round(usable * rawRatio);
+    const clampedMain = Math.max(paneMin, Math.min(usable - paneMin, rawMain));
+    const clampedLower = Math.max(0, usable - clampedMain);
+
+    mainPane.style.flex = `0 0 ${clampedMain}px`;
+    mainPane.style.height = `${clampedMain}px`;
+    mainPane.style.minHeight = '0px';
+    mainPane.style.maxHeight = `${clampedMain}px`;
+
+    lower.style.flex = `0 0 ${clampedLower}px`;
+    lower.style.height = `${clampedLower}px`;
+    lower.style.minHeight = '0px';
+    lower.style.maxHeight = `${clampedLower}px`;
   } else {
     mainPane.style.flex = '1 1 100%';
     mainPane.style.minHeight = '0';
+    mainPane.style.maxHeight = '';
     mainPane.style.height = '';
   }
   requestAnimationFrame(() => {
@@ -614,6 +624,7 @@ function unmountSplit() {
   mainPane.style.flex = '1 1 100%';
   mainPane.style.height = '';
   mainPane.style.minHeight = '0';
+  mainPane.style.maxHeight = '';
   if (splitButton) {
     splitButton.classList.remove('active');
     splitButton.title = 'Chia đôi màn hình terminal (Split Right)';
@@ -1247,7 +1258,6 @@ window.addEventListener('scroll', () => {
     window.scrollTo(0, 0);
   }
 }, { passive: true });
-
 
 const btnPopoutWindow = document.getElementById('btnPopoutWindow');
 const btnNewTerminalWindow = document.getElementById('btnNewTerminalWindow');
