@@ -726,13 +726,14 @@ describe('Capability catalogue', () => {
     }
   });
 
-  it('creates isolated automation tab and enforces strict full BrowserTarget for capability execution', async () => {
+  it('auto-provisions dedicated isolated agent tab and enforces strict full BrowserTarget for capability execution', async () => {
     let automationTab: string | null = null;
     const tabs: Array<{ id: string; url: string }> = [
       { id: 'tab-user-active', url: 'https://user-website.com' },
     ];
     let createdUrl: string | undefined;
     let createdActivate: boolean | undefined;
+    const dispatchedCalls: Array<{ method: string; tabId?: string; args?: unknown }> = [];
 
     const mockHost = {
       getTabList: () => tabs,
@@ -747,53 +748,82 @@ describe('Capability catalogue', () => {
         return newId;
       },
       navigate: (tabId: string, url: string) => {
+        dispatchedCalls.push({ method: 'navigate', tabId, args: { url } });
         const t = tabs.find((x) => x.id === tabId);
         if (t) t.url = url;
         return true;
       },
       captureScreenshot: async (_rect?: unknown, tabId?: string) => {
+        dispatchedCalls.push({ method: 'screenshot', tabId });
         return `screenshot-of-${tabId}`;
+      },
+      agentClick: async (args: { tabId?: string; selector?: string }) => {
+        dispatchedCalls.push({ method: 'agentClick', tabId: args.tabId, args });
+        return true;
+      },
+      agentSnapshot: async (tabId?: string) => {
+        dispatchedCalls.push({ method: 'agentSnapshot', tabId });
+        return `<snapshot tab="${tabId}"/>`;
       },
     };
 
     const browser = new BrowserControlPort(mockHost as any);
+    const projectId = makeControlPlaneId('project');
+    const workspaceId = makeControlPlaneId('workspace');
+    const lease = issueRuntimeLease(projectId, workspaceId, 30_000, 1);
 
-    // 1. openTab creates a new tab in the background without activating it
-    const { tabId: openedTabId } = browser.openTab({ url: 'https://test-doc.org' });
-    assert.strictEqual(openedTabId, 'tab-agent-auto-2');
-    assert.strictEqual(createdActivate, false);
-    assert.strictEqual(automationTab, 'tab-agent-auto-2');
-    assert.strictEqual(mockHost.getActiveTabId(), 'tab-user-active'); // User's active tab is untouched
+    const catalogue = new CapabilityCatalogue({
+      runtime: { mode: 'standalone', lifecycle: 'active' },
+      projectId,
+      workspaceId,
+      runtimeId: lease.runtimeId,
+      hostEpoch: 1,
+    });
+    registerBrowserCapabilities(catalogue, browser);
 
-    // 2. Target with missing/empty fields strictly fails closed with TARGET_REQUIRED or TARGET_STALE
+    // 1. Target with blank/empty fields strictly fails closed with TARGET_REQUIRED or TARGET_STALE before any tab provisioning
     assert.throws(
       () => browser.navigate({} as any, 'https://new-url.com'),
       (error: unknown) => error instanceof CapabilityError && error.code === 'TARGET_REQUIRED'
     );
+    assert.strictEqual(tabs.length, 1); // No tab was created for empty target
+
     assert.throws(
-      () => browser.navigate({ projectId: 'p-1', workspaceId: 'w-1', runtimeId: 'b-1' } as any, 'https://new-url.com'),
-      (error: unknown) => error instanceof CapabilityError && error.code === 'TARGET_REQUIRED'
-    );
-    assert.throws(
-      () => browser.navigate({ projectId: 'p-1', workspaceId: 'w-1', runtimeId: 'b-1', tabId: openedTabId, browserEpoch: 0, documentGeneration: 1 } as any, 'https://new-url.com'),
+      () => browser.navigate({ projectId, workspaceId, runtimeId: lease.runtimeId, tabId: 'tab-agent-auto-2', browserEpoch: 0, documentGeneration: 1 } as any, 'https://new-url.com'),
       (error: unknown) => error instanceof CapabilityError && error.code === 'TARGET_STALE'
     );
 
-    // 3. Full authoritative BrowserTarget bound to openedTabId executes correctly on the isolated tab
-    const validTarget: BrowserTarget = {
-      projectId: makeControlPlaneId('project'),
-      workspaceId: makeControlPlaneId('workspace'),
-      runtimeId: makeControlPlaneId('binding'),
-      tabId: openedTabId,
+    // 2. End-to-end catalogue.dispatch with target lacking tabId auto-provisions a background tab
+    const targetWithoutTabId: BrowserTarget = {
+      projectId,
+      workspaceId,
+      runtimeId: lease.runtimeId,
+      tabId: undefined as any,
       browserEpoch: 1,
       documentGeneration: 1,
     };
-    const navResult = browser.navigate(validTarget, 'https://new-url.com');
-    assert.strictEqual(navResult.target.tabId, 'tab-agent-auto-2');
-    assert.strictEqual(tabs.find((x) => x.id === 'tab-agent-auto-2')?.url, 'https://new-url.com');
-    assert.strictEqual(tabs.find((x) => x.id === 'tab-user-active')?.url, 'https://user-website.com'); // User tab was NOT touched!
+    const ctx = {
+      lease,
+      leaseToken: lease.token,
+      projectId,
+      workspaceId,
+      browserTarget: targetWithoutTabId,
+      grant: 'write' as const,
+    };
 
-    const screenshot = await browser.screenshot(validTarget, 'run-1', 'att-1');
-    assert.strictEqual(screenshot, 'screenshot-of-tab-agent-auto-2');
+    // Agent click executes and auto-creates an isolated tab
+    const clickRes = await catalogue.dispatch('browser.agent-click', { selector: '#login-btn' }, ctx);
+    assert.deepStrictEqual(clickRes, { clicked: true });
+    assert.strictEqual(automationTab, 'tab-agent-auto-2');
+    assert.strictEqual(createdActivate, false); // Tab was created in the background without activating!
+    assert.strictEqual(mockHost.getActiveTabId(), 'tab-user-active'); // User active tab is untouched!
+    assert.strictEqual(dispatchedCalls[0]?.tabId, 'tab-agent-auto-2'); // Action was directed to agent tab
+
+    // Read snapshot reuses the already provisioned automation tab
+    const ctxRead = { ...ctx, grant: 'read' as const };
+    const snapshotRes = await catalogue.dispatch('browser.agent-snapshot', {}, ctxRead);
+    assert.deepStrictEqual(snapshotRes, { snapshot: '<snapshot tab="tab-agent-auto-2"/>' });
+    assert.strictEqual(dispatchedCalls[1]?.tabId, 'tab-agent-auto-2');
+    assert.strictEqual(tabs.find((x) => x.id === 'tab-user-active')?.url, 'https://user-website.com'); // User tab was NOT touched!
   });
 });

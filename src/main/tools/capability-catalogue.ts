@@ -52,7 +52,7 @@ export class CapabilityCatalogue {
     const definition = this.definitions.get(name);
     if (!definition) throw new CapabilityError('CAPABILITY_NOT_FOUND', `Unknown capability: ${name}`);
     if (!this.isVisible(definition, context.grant)) throw new CapabilityError('POLICY_DENIED', `Capability ${name} is not enabled by the current policy`);
-    if (definition.requiresBrowserTarget) assertExactBrowserTarget(context.browserTarget, { projectId: this.options.projectId, workspaceId: this.options.workspaceId, runtimeId: this.options.runtimeId });
+    if (definition.requiresBrowserTarget) assertExactBrowserTarget(context.browserTarget, { projectId: this.options.projectId, workspaceId: this.options.workspaceId, runtimeId: this.options.runtimeId }, true);
     return definition.execute(params, context);
   }
 

@@ -486,12 +486,16 @@ export function assertRuntimeLease(lease: RuntimeLease, expected: { projectId: s
   if (expected.hostEpoch !== undefined && lease.hostEpoch !== expected.hostEpoch) throw new CapabilityError('TARGET_STALE', 'Runtime lease host epoch is stale');
 }
 
-export function assertExactBrowserTarget(target: BrowserTarget | undefined, expected: Pick<BrowserBinding, 'projectId' | 'workspaceId' | 'runtimeId'> & Partial<Pick<BrowserBinding, 'browserEpoch' | 'documentGeneration'>>): BrowserTarget {
+export function assertExactBrowserTarget(
+  target: BrowserTarget | undefined,
+  expected: Pick<BrowserBinding, 'projectId' | 'workspaceId' | 'runtimeId'> & Partial<Pick<BrowserBinding, 'browserEpoch' | 'documentGeneration'>>,
+  allowMissingTab = false
+): BrowserTarget {
   if (!target) throw new CapabilityError('TARGET_REQUIRED', 'An explicit BrowserTarget is required');
   if (target.projectId !== expected.projectId || target.workspaceId !== expected.workspaceId || target.runtimeId !== expected.runtimeId) throw new CapabilityError('WORKSPACE_MISMATCH', 'Browser target ownership does not match request');
   if (expected.browserEpoch !== undefined && target.browserEpoch !== expected.browserEpoch) throw new CapabilityError('TARGET_STALE', 'Browser target epoch is stale');
   if (expected.documentGeneration !== undefined && target.documentGeneration !== expected.documentGeneration) throw new CapabilityError('TARGET_STALE', 'Browser target document generation is stale');
-  if (!target.tabId) throw new CapabilityError('TARGET_REQUIRED', 'Browser target tabId is required');
+  if (!allowMissingTab && !target.tabId) throw new CapabilityError('TARGET_REQUIRED', 'Browser target tabId is required');
   return target;
 }
 

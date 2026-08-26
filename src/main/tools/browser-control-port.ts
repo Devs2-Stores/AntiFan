@@ -224,7 +224,26 @@ export class BrowserControlPort {
     return { inspecting: this.host.toggleInspect() };
   }
   private resolveTargetTab(target?: BrowserTarget, explicitTabId?: string): string {
-    const resolved = explicitTabId ?? target?.tabId;
+    if (target) {
+      assertTarget(target, true);
+    }
+
+    let resolved = explicitTabId ?? target?.tabId;
+    if (!resolved) {
+      const currentAutoTab = this.host.getAutomationTabId ? this.host.getAutomationTabId() : undefined;
+      if (currentAutoTab && this.host.getTabList().some((tab: any) => tab && tab.id === currentAutoTab)) {
+        resolved = currentAutoTab;
+      } else if (this.host.createTab) {
+        resolved = this.host.createTab('about:blank', false);
+        if (this.host.setAutomationTabId) {
+          this.host.setAutomationTabId(resolved);
+        }
+      }
+      if (resolved && target) {
+        target.tabId = resolved;
+      }
+    }
+
     if (!resolved) {
       throw new CapabilityError('TARGET_REQUIRED', 'Browser target tabId is required');
     }
@@ -232,7 +251,7 @@ export class BrowserControlPort {
       throw new CapabilityError('CAPABILITY_NOT_FOUND', `Unknown tab ID: ${resolved}`);
     }
     if (!explicitTabId && target) {
-      assertTarget(target);
+      assertTarget(target, false);
       this.assertCurrent(target);
     }
     return resolved;
@@ -242,9 +261,19 @@ export class BrowserControlPort {
   }
 }
 
-function assertTarget(target: BrowserTarget): void {
-  assertExactBrowserTarget(target, { projectId: target.projectId, workspaceId: target.workspaceId, runtimeId: target.runtimeId });
-  if (!Number.isInteger(target.browserEpoch) || target.browserEpoch < 1 || !Number.isInteger(target.documentGeneration) || target.documentGeneration < 1) throw new CapabilityError('TARGET_STALE', 'Browser target epoch and document generation are required');
+function assertTarget(target: BrowserTarget, allowMissingTab = false): void {
+  if (!target || typeof target !== 'object') {
+    throw new CapabilityError('TARGET_REQUIRED', 'Browser target is required');
+  }
+  if (!target.projectId || !target.workspaceId || !target.runtimeId) {
+    throw new CapabilityError('TARGET_REQUIRED', 'Browser target projectId, workspaceId, and runtimeId are required');
+  }
+  if (!allowMissingTab && !target.tabId) {
+    throw new CapabilityError('TARGET_REQUIRED', 'Browser target tabId is required');
+  }
+  if (!Number.isInteger(target.browserEpoch) || target.browserEpoch < 1 || !Number.isInteger(target.documentGeneration) || target.documentGeneration < 1) {
+    throw new CapabilityError('TARGET_STALE', 'Browser target epoch and document generation are required');
+  }
 }
 
 function limit(value: string, max: number): string { return value.length > max ? `${value.slice(0, max)}...[truncated:${digestText(value).slice(0, 12)}]` : value; }
