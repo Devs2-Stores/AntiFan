@@ -148,9 +148,9 @@ describe('Terminal Switching Regression & Viewport Integrity', () => {
     // 7. Ensure convertEol is false so ConPTY redraws don't create phantom empty lines on cls
     assert.doesNotMatch(jsContent, /convertEol:\s*true/);
     assert.match(jsContent, /convertEol:\s*false/);
-    // 8. Ensure applySplitRatio enforces minPx bound to prevent mainPane collapse
-    assert.match(jsContent, /minPx\s*=\s*90/);
-    assert.match(jsContent, /minHeight\s*=\s*`\$\{minPx\}px`/);
+    // 8. Ensure applySplitRatio enforces bounded pane calculation to prevent overflow and collapse
+    assert.match(jsContent, /paneMin\s*=\s*Math\.min/);
+    assert.match(jsContent, /minHeight\s*=\s*'0px'/);
   });
   it('verifies split terminal lifecycle: resizeTo custom ratios, session events, close persistence, switch normalization, and recreate', async () => {
     const p1 = tm.createSession();

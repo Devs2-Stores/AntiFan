@@ -791,17 +791,16 @@ describe('Capability catalogue', () => {
     registerBrowserCapabilities(catalogue, browser);
 
     // 1. Target with blank/empty fields strictly fails closed with TARGET_REQUIRED or TARGET_STALE before any tab provisioning
-    assert.throws(
-      () => browser.navigate({} as any, 'https://new-url.com'),
+    await assert.rejects(
+      async () => browser.navigate({} as any, 'https://new-url.com'),
       (error: unknown) => error instanceof CapabilityError && error.code === 'TARGET_REQUIRED'
     );
     assert.strictEqual(tabs.length, 1); // No tab was created for empty target
 
-    assert.throws(
-      () => browser.navigate({ projectId, workspaceId, runtimeId: lease.runtimeId, tabId: 'tab-agent-auto-2', browserEpoch: 0, documentGeneration: 1 } as any, 'https://new-url.com'),
+    await assert.rejects(
+      async () => browser.navigate({ projectId, workspaceId, runtimeId: lease.runtimeId, tabId: 'tab-agent-auto-2', browserEpoch: 0, documentGeneration: 1 } as any, 'https://new-url.com'),
       (error: unknown) => error instanceof CapabilityError && error.code === 'TARGET_STALE'
     );
-
     // 2. End-to-end catalogue.dispatch with target lacking tabId auto-provisions a background tab
     const targetWithoutTabId: BrowserTarget = {
       projectId,
@@ -837,7 +836,7 @@ describe('Capability catalogue', () => {
     assert.strictEqual(targetWithoutTabId.tabId, undefined); // Original target remains completely immutable!
   });
 
-  it('enforces copied effective target validation on browser.navigate with explicit tabs, tabless targets, and stale targets', () => {
+  it('enforces copied effective target validation on browser.navigate with explicit tabs, tabless targets, and stale targets', async () => {
     let hostNavigateCalls = 0;
     let createTabCalls = 0;
     let navigatedTab: string | null = null;
@@ -886,15 +885,15 @@ describe('Capability catalogue', () => {
 
     // 1. Tabless target with invalid generation rejects up front before createTab or navigate
     const invalidTablessTarget: BrowserTarget = { ...tablessTarget, documentGeneration: 0 };
-    assert.throws(
-      () => browser.navigate(invalidTablessTarget, 'https://example.com/new'),
+    await assert.rejects(
+      async () => browser.navigate(invalidTablessTarget, 'https://example.com/new'),
       (err: unknown) => err instanceof CapabilityError && err.code === 'TARGET_STALE'
     );
     assert.strictEqual(createTabCalls, 0, 'createTab must not be called when initial assertTarget fails');
     assert.strictEqual(hostNavigateCalls, 0, 'host.navigate must not be called when initial assertTarget fails');
 
     // 2. Tabless target with explicitTabId succeeds and returns updated target without mutating original target
-    const nav1 = browser.navigate(tablessTarget, 'https://example.com/new', 'tab-2');
+    const nav1 = await browser.navigate(tablessTarget, 'https://example.com/new', 'tab-2');
     assert.strictEqual(nav1.navigated, true);
     assert.strictEqual(nav1.target.tabId, 'tab-2');
     assert.strictEqual(navigatedTab, 'tab-2');
@@ -903,7 +902,7 @@ describe('Capability catalogue', () => {
 
     // 3. Bound target (tab-1) with explicitTabId override (tab-2) succeeds without mutating original bound target
     const boundTarget: BrowserTarget = { ...tablessTarget, tabId: 'tab-1' };
-    const nav2 = browser.navigate(boundTarget, 'https://example.com/new', 'tab-2');
+    const nav2 = await browser.navigate(boundTarget, 'https://example.com/new', 'tab-2');
     assert.strictEqual(nav2.navigated, true);
     assert.strictEqual(nav2.target.tabId, 'tab-2');
     assert.strictEqual(navigatedTab, 'tab-2');
@@ -912,28 +911,28 @@ describe('Capability catalogue', () => {
 
     // 4. Stale target (documentGeneration = 2) must be rejected with TARGET_STALE before host.navigate
     const staleTarget: BrowserTarget = { ...tablessTarget, tabId: 'tab-1', documentGeneration: 2 };
-    assert.throws(
-      () => browser.navigate(staleTarget, 'https://example.com/new'),
+    await assert.rejects(
+      async () => browser.navigate(staleTarget, 'https://example.com/new'),
       (err: unknown) => err instanceof CapabilityError && err.code === 'TARGET_STALE'
     );
     assert.strictEqual(hostNavigateCalls, 2, 'host.navigate must not be called on stale target');
 
     // 5. Stale target even when explicitTabId is provided must be rejected with TARGET_STALE before host.navigate
-    assert.throws(
-      () => browser.navigate(staleTarget, 'https://example.com/new', 'tab-2'),
+    await assert.rejects(
+      async () => browser.navigate(staleTarget, 'https://example.com/new', 'tab-2'),
       (err: unknown) => err instanceof CapabilityError && err.code === 'TARGET_STALE'
     );
     assert.strictEqual(hostNavigateCalls, 2, 'host.navigate must not be called on stale target with explicitTabId');
 
     // 6. Unknown explicit tabId must be rejected with CAPABILITY_NOT_FOUND before host.navigate
-    assert.throws(
-      () => browser.navigate(boundTarget, 'https://example.com/new', 'tab-unknown'),
+    await assert.rejects(
+      async () => browser.navigate(boundTarget, 'https://example.com/new', 'tab-unknown'),
       (err: unknown) => err instanceof CapabilityError && err.code === 'CAPABILITY_NOT_FOUND'
     );
     assert.strictEqual(hostNavigateCalls, 2, 'host.navigate must not be called on unknown explicit tabId');
 
     // 7. Valid tabless target without explicit tab auto-provisions and navigates
-    const navAuto = browser.navigate(tablessTarget, 'https://example.com/auto');
+    const navAuto = await browser.navigate(tablessTarget, 'https://example.com/auto');
     assert.strictEqual(navAuto.navigated, true);
     assert.strictEqual(navAuto.target.tabId, 'tab-auto-prov');
     assert.strictEqual(createTabCalls, 1);
@@ -942,10 +941,62 @@ describe('Capability catalogue', () => {
 
     // 8. Stale tabless target (generation: 2) without explicit tab provisions but rejects on assertCurrent before host.navigate
     const staleTablessGen2: BrowserTarget = { ...tablessTarget, documentGeneration: 2 };
-    assert.throws(
-      () => browser.navigate(staleTablessGen2, 'https://example.com/stale-auto'),
+    await assert.rejects(
+      async () => browser.navigate(staleTablessGen2, 'https://example.com/stale-auto'),
       (err: unknown) => err instanceof CapabilityError && err.code === 'TARGET_STALE'
     );
     assert.strictEqual(hostNavigateCalls, 3, 'host.navigate must not be called on stale tabless target');
+  });
+
+  it('enforces updated documentGeneration on browser.reload and allows subsequent target-validated operations', async () => {
+    let currentDocGen = 1;
+    let hostReloadCalls = 0;
+    const mockHost = {
+      getTabList: () => [{ id: 'tab-1', url: 'https://example.com' }],
+      getActiveTabId: () => 'tab-1',
+      reload: () => {
+        hostReloadCalls++;
+        currentDocGen = 2; // Simulate host advancing generation upon reload
+        return true;
+      },
+      getDocumentGeneration: () => currentDocGen,
+      isCurrentTarget: (target: BrowserTarget) => {
+        return target.browserEpoch === 1 && target.documentGeneration === currentDocGen;
+      },
+      getDom: async () => '<main>Refreshed Content</main>',
+      navigate: () => true,
+      captureScreenshot: async () => '',
+      evalJs: async () => null,
+    };
+
+    const browser = new BrowserControlPort(mockHost);
+    const projectId = makeControlPlaneId('project');
+    const workspaceId = makeControlPlaneId('workspace');
+    const lease = issueRuntimeLease(projectId, workspaceId, 30_000, 1);
+
+    const initialTarget: BrowserTarget = {
+      projectId,
+      workspaceId,
+      runtimeId: lease.runtimeId,
+      tabId: 'tab-1',
+      browserEpoch: 1,
+      documentGeneration: 1,
+    };
+
+    // Reload advances target to generation 2
+    const reloadResult = await browser.reload(initialTarget);
+    assert.strictEqual(reloadResult.reloaded, true);
+    assert.strictEqual(reloadResult.target.documentGeneration, 2);
+    assert.strictEqual(hostReloadCalls, 1);
+
+    // Subsequent DOM operation with the updated target succeeds
+    const domResult = await browser.dom(reloadResult.target, 'run-1', 'attempt-1');
+    assert.strictEqual(domResult, '<main>Refreshed Content</main>');
+
+    // Old initialTarget with generation 1 is now rejected as stale
+    await assert.rejects(
+      async () => browser.dom(initialTarget, 'run-1', 'attempt-1'),
+      (err: unknown) => err instanceof CapabilityError && err.code === 'TARGET_STALE'
+    );
   });
 });

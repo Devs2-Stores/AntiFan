@@ -3,7 +3,7 @@
  * Central dispatch router for all Browser Actions invoked via MCP Stdio, WebSocket RPC, or Plugins.
  */
 import { NativeTabHost } from './native-tab-host';
-import { AntiFanBridgeStatus, ChatMessage } from '../../shared/contracts';
+import { AntiFanBridgeStatus } from '../../shared/contracts';
 
 export interface ActionDefinition<TParams = Record<string, any>, TResult = any> {
   name: string;
@@ -294,27 +294,6 @@ export class BrowserActionRegistry {
       handler: (_params: Record<string, any>, { tabHost }) => {
         const isOpen = tabHost.toggleSidebar();
         return { isOpen, success: true };
-      },
-    });
-
-    // 13. Push Agent Message
-    this.registerAction({
-      name: 'pushAgentMessage',
-      aliases: ['antifan.pushAgentMessage'],
-      description: 'Push an assistant message into the AI Chat Sidebar',
-      inputSchema: {
-        type: 'object',
-        properties: {
-          message: { type: 'object', description: 'ChatMessage payload' },
-        },
-        required: ['message'],
-      },
-      handler: (params: { message?: ChatMessage }, { tabHost }) => {
-        if (!params?.message) {
-          throw new Error('Missing message in payload');
-        }
-        tabHost.pushAgentMessage(params.message as ChatMessage);
-        return { pushed: true, success: true };
       },
     });
 

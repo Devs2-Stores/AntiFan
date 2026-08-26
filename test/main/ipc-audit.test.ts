@@ -58,14 +58,8 @@ describe('Webview & Extension IPC Audit Invariants', () => {
     // Check critical sidebar handlers
     const requiredSidebarChannels = [
       'SIDEBAR_CHANNELS.GET_INITIAL_STATE',
-      'SIDEBAR_CHANNELS.SEND_PROMPT',
-      'SIDEBAR_CHANNELS.CLEAR_HISTORY',
       'SIDEBAR_CHANNELS.CLOSE_SIDEBAR',
       'SIDEBAR_CHANNELS.SET_WIDTH',
-      'SIDEBAR_CHANNELS.GET_SESSIONS',
-      'SIDEBAR_CHANNELS.SWITCH_SESSION',
-      'SIDEBAR_CHANNELS.RENAME_SESSION',
-      'SIDEBAR_CHANNELS.DELETE_SESSION',
     ];
 
     for (const channel of requiredSidebarChannels) {

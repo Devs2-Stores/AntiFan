@@ -11,10 +11,9 @@ describe('AntiFan Contracts', () => {
     assert.ok(TOOLBAR_CHANNELS.TOGGLE_INSPECT);
     assert.ok(TOOLBAR_CHANNELS.TOGGLE_SIDEBAR);
     assert.ok(TOOLBAR_CHANNELS.TOGGLE_MUTE);
-    assert.ok(SIDEBAR_CHANNELS.SEND_PROMPT);
-    assert.ok(SIDEBAR_CHANNELS.ATTACH_ELEMENT);
-    assert.ok(SIDEBAR_CHANNELS.GET_SESSIONS);
-    assert.ok(SIDEBAR_CHANNELS.SWITCH_SESSION);
+    assert.ok(SIDEBAR_CHANNELS.GET_INITIAL_STATE);
+    assert.ok(SIDEBAR_CHANNELS.CLOSE_SIDEBAR);
+    assert.ok(SIDEBAR_CHANNELS.SET_WIDTH);
   });
 
   it('validates shape of picked element interface', () => {

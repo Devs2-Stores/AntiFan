@@ -20,7 +20,6 @@ import {
   BridgeEventPayload,
   AntiFanPickedElement,
   AntiFanTab,
-  ChatMessage,
 } from '../../shared/contracts';
 import { CapabilityTransportAdapter } from '../tools/capability-transport';
 import { CapabilityRequestContext, CapabilityError, BrowserTarget, RuntimeLease } from '../../shared/control-plane-contracts';
@@ -337,9 +336,6 @@ export class BridgeServer {
       this.broadcastEvent('antifan:inspectStateChanged', { active });
     });
 
-    this.tabHost.on('chat-prompt-submitted', (payload: { prompt: string; sessionId?: string; attachedElement?: AntiFanPickedElement; attachedImages?: Array<{ name: string; dataUrl: string }>; deliveryMode?: 'auto' | 'draft' }) => {
-      this.broadcastEvent('antifan:chatPromptSubmitted', payload);
-    });
 
     // Wire live terminal streaming and session lifecycle to WebSocket clients
     const tm = TerminalManager.getInstance();
@@ -626,16 +622,6 @@ export class BridgeServer {
           break;
         }
 
-        case 'pushAgentMessage':
-        case 'antifan.pushAgentMessage': {
-          if (p.message) {
-            this.tabHost.pushAgentMessage(p.message as ChatMessage);
-            respond(true, { pushed: true });
-          } else {
-            respond(false, undefined, 'Missing message in payload');
-          }
-          break;
-        }
 
         case 'terminalInput':
         case 'antifan.terminalInput': {

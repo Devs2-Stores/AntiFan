@@ -48,9 +48,6 @@ class MockTabHost extends EventEmitter {
   toggleSidebar() {
     return true;
   }
-  pushAgentMessage(_msg: unknown) {
-    return true;
-  }
   async getDom(selector?: string) {
     return '<html><body><h1>AntiFan</h1></body></html>';
   }

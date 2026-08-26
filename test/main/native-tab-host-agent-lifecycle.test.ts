@@ -22,6 +22,7 @@ function createHost(executeJavaScript: (code: string) => Promise<unknown>) {
   host.tabs = new Map([['tab-1', { state, view: { webContents } }]]);
   host.tabOrder = ['tab-1'];
   host.documentGenerations = new Map([['tab-1', 7]]);
+  host.programmaticNavigations = new Map();
   host.agentWorkingTimers = new Map();
   host.agentWorkingRefs = new Map();
   host.broadcastState = () => {};

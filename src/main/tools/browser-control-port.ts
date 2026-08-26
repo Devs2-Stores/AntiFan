@@ -8,8 +8,8 @@ export interface BrowserHostPort {
   createTab?(url?: string, activate?: boolean): string;
   closeTab?(tabId: string): boolean;
   switchTab?(tabId: string): boolean;
-  navigate(tabId: string, url: string): boolean;
-  reload(tabId: string): boolean;
+  navigate(tabId: string, url: string): Promise<boolean> | boolean;
+  reload(tabId: string): Promise<boolean> | boolean;
   getDom(selector?: string, tabId?: string, paneId?: 'desktop' | 'mobile'): Promise<string>;
   captureScreenshot(rect?: unknown, tabId?: string, paneId?: 'desktop' | 'mobile'): Promise<string>;
   evalJs(expression: string, tabId?: string, paneId?: 'desktop' | 'mobile'): Promise<unknown>;
@@ -47,17 +47,21 @@ export class BrowserControlPort {
     return this.host.getTabList();
   }
 
-  navigate(target: BrowserTarget, url: string, explicitTabId?: string): { navigated: boolean; target: BrowserTarget } {
+  async navigate(target: BrowserTarget, url: string, explicitTabId?: string): Promise<{ navigated: boolean; target: BrowserTarget }> {
     const tabId = this.resolveTargetTab(target, explicitTabId);
     if (!url || !/^https?:\/\//i.test(url)) throw new CapabilityError('INVALID_ARGUMENT', 'Navigation requires an http(s) URL');
-    const navigated = this.host.navigate(tabId, url);
+    const navigated = await this.host.navigate(tabId, url);
+    if (!navigated) throw new CapabilityError('TARGET_STALE', 'Navigation failed or timed out before starting');
     const docGen = this.host.getDocumentGeneration ? this.host.getDocumentGeneration(tabId) : (target.documentGeneration || 1);
-    return { navigated, target: { ...target, tabId, documentGeneration: docGen } };
+    return { navigated: true, target: { ...target, tabId, documentGeneration: docGen } };
   }
 
-  reload(target: BrowserTarget, explicitTabId?: string): { reloaded: boolean; target: BrowserTarget } {
+  async reload(target: BrowserTarget, explicitTabId?: string): Promise<{ reloaded: boolean; target: BrowserTarget }> {
     const tabId = this.resolveTargetTab(target, explicitTabId);
-    return { reloaded: this.host.reload(tabId), target: { ...target, tabId } };
+    const reloaded = await this.host.reload(tabId);
+    if (!reloaded) throw new CapabilityError('TARGET_STALE', 'Reload failed or timed out before starting');
+    const docGen = this.host.getDocumentGeneration ? this.host.getDocumentGeneration(tabId) : (target.documentGeneration || 1);
+    return { reloaded: true, target: { ...target, tabId, documentGeneration: docGen } };
   }
 
   async dom(target: BrowserTarget, runId: string, attemptId: string, selector?: string, explicitTabId?: string, paneId?: 'desktop' | 'mobile'): Promise<ArtifactRef | string> {

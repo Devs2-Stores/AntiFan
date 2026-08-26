@@ -289,21 +289,8 @@ export interface SessionInfo {
 
 export const SIDEBAR_CHANNELS = {
   GET_INITIAL_STATE: 'antifan:sidebar:get-initial-state',
-  SEND_PROMPT: 'antifan:sidebar:send-prompt',
-  STREAM_UPDATE: 'antifan:sidebar:stream-update',
-  CLEAR_HISTORY: 'antifan:sidebar:clear-history',
-  ATTACH_ELEMENT: 'antifan:sidebar:attach-element',
   CLOSE_SIDEBAR: 'antifan:sidebar:close-sidebar',
   SET_WIDTH: 'antifan:sidebar:set-width',
-  GET_SESSIONS: 'antifan:sidebar:get-sessions',
-  SWITCH_SESSION: 'antifan:sidebar:switch-session',
-  RENAME_SESSION: 'antifan:sidebar:rename-session',
-  DELETE_SESSION: 'antifan:sidebar:delete-session',
-  SESSION_CHANGED: 'antifan:sidebar:session-changed',
-  ABORT_GENERATION: 'antifan:sidebar:abort-generation',
-  GET_AUTOCOMPLETE_ITEMS: 'antifan:sidebar:get-autocomplete-items',
-  DELIVERY_STATE_CHANGED: 'antifan:sidebar:delivery-state-changed',
-  HOST_STATUS_CHANGED: 'antifan:sidebar:host-status-changed',
 } as const;
 
 export const TERMINAL_CHANNELS = {

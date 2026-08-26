@@ -1,5 +1,6 @@
 import { describe, it } from 'node:test';
 import * as assert from 'node:assert';
+import { EventEmitter } from 'node:events';
 import { NativeTabHost } from '../../src/main/browser/native-tab-host';
 import { SplitNavigationCoordinator } from '../../src/main/browser/split-review-coordinator';
 import { AntiFanTab } from '../../src/shared/contracts';
@@ -8,7 +9,8 @@ type TestHost = any;
 
 function createTestHost() {
   const host = Object.create(NativeTabHost.prototype) as TestHost;
-  const desktopWc = {
+  EventEmitter.call(host);
+  const desktopWc = Object.assign(new EventEmitter(), {
     isDestroyed: () => false,
     loadURL: async () => {},
     reload: () => {},
@@ -26,11 +28,11 @@ function createTestHost() {
     executeJavaScript: async (code: string) => `desktop:${code}`,
     insertCSS: async () => '',
     setUserAgent: (_ua: string) => {},
+    setWindowOpenHandler: () => {},
     debugger: { isAttached: () => false, attach: () => {}, sendCommand: async () => {} },
     destroy: () => {},
-  };
-
-  const mobileWc = {
+  });
+  const mobileWc = Object.assign(new EventEmitter(), {
     isDestroyed: () => false,
     loadURL: async () => {},
     reload: () => {},
@@ -48,10 +50,10 @@ function createTestHost() {
     executeJavaScript: async (code: string) => `mobile:${code}`,
     insertCSS: async () => '',
     setUserAgent: (_ua: string) => {},
+    setWindowOpenHandler: () => {},
     debugger: { isAttached: () => false, attach: () => {}, sendCommand: async () => {} },
     destroy: () => {},
-  };
-
+  });
   const desktopView = {
     webContents: desktopWc,
     setBounds: () => {},
@@ -81,6 +83,8 @@ function createTestHost() {
   host.agentWorkingTimers = new Map();
   host.agentWorkingRefs = new Map();
   host.terminalWindows = new Map();
+  host.documentGenerations = new Map();
+  host.programmaticNavigations = new Map();
   host.tabPreviewUnsubscribers = new Map();
   host.toolbarView = {
     webContents: {
@@ -88,7 +92,6 @@ function createTestHost() {
       send: () => {},
     },
   };
-  host.emit = () => true;
   host.window = {
     contentView: {
       addChildView: () => {},
@@ -101,6 +104,7 @@ function createTestHost() {
   host.isSidebarOpen = false;
   host.isBookmarkBarVisible = false;
   host.appliedClipRadius = new WeakMap();
+  host.diagnosticsManager = { recordConsole: () => {}, recordFailure: () => {} };
   host.broadcastState = () => {};
   host.updateLayout = () => {
     const tab = host.tabs.get(host.activeTabId);
@@ -110,6 +114,8 @@ function createTestHost() {
   };
   host.schedulePersist = () => {};
   host.setupTabWebContentsEvents = () => {};
+  host.setupGlobalShortcutsOnView = () => {};
+  host.setupContextMenu = () => {};
   return { host, tabs: host.tabs, state, desktopWc, mobileWc, desktopView, mobileView };
 }
 
@@ -280,12 +286,12 @@ describe('NativeTabHost Split Review Integration', () => {
     tab.focusedPane = 'desktop';
     tab.state.splitFocusedPane = 'desktop';
 
-    let promptSent: any = null;
-    let sendCount = 0;
-    host.handleSendPrompt = async (payload: any) => {
-      sendCount++;
-      promptSent = payload;
-    };
+    let pickedElement: any = null;
+    let pickCount = 0;
+    host.on('element-picked', (payload: any) => {
+      pickCount++;
+      pickedElement = payload;
+    });
     host.resolveTargetWorkspace = () => process.cwd();
     host.resolveAnnotationWorkspace = () => process.cwd();
 
@@ -328,8 +334,8 @@ describe('NativeTabHost Split Review Integration', () => {
     // Verify auto-focus switched to mobile pane
     assert.strictEqual(tab.focusedPane, 'mobile');
     assert.strictEqual(tab.state.splitFocusedPane, 'mobile');
-    assert.strictEqual(sendCount, 1);
-    assert.match(promptSent?.text || '', /Test mobile button/);
+    assert.strictEqual(pickCount, 1);
+    assert.strictEqual(pickedElement?.userComment, 'Test mobile button');
 
     (NativeTabHost.prototype as any).stopInspect.call(host);
   });
@@ -341,8 +347,8 @@ describe('NativeTabHost Split Review Integration', () => {
     tab.mobileView = mobileView;
     tab.focusedPane = 'desktop';
 
-    let sendCount = 0;
-    host.handleSendPrompt = async () => { sendCount++; };
+    let pickCount = 0;
+    host.on('element-picked', () => { pickCount++; });
     host.resolveTargetWorkspace = () => process.cwd();
     host.resolveAnnotationWorkspace = () => process.cwd();
 
@@ -385,7 +391,7 @@ describe('NativeTabHost Split Review Integration', () => {
 
     // Wait for the poll timer (200ms) to detect and process the picks
     await new Promise<void>((resolve) => setTimeout(resolve, 350));
-    assert.strictEqual(sendCount, 1);
+    assert.strictEqual(pickCount, 1);
     assert.strictEqual(host.isInspecting, false);
     (NativeTabHost.prototype as any).stopInspect.call(host);
   });
@@ -466,5 +472,87 @@ describe('NativeTabHost Split Review Integration', () => {
     host.reload('tab-split-1');
     assert.strictEqual(desktopReloadCount, 3);
     assert.strictEqual(mobileReloadCount, 2, 'Mobile WebContents must NOT reload when split mode is disabled');
+  });
+
+  it('awaits desktop navigation start in navigateAndWait and reloadAndWait', async () => {
+    const { host, desktopWc } = createTestHost();
+
+    // 1. navigateAndWait awaits did-start-navigation
+    let navPromise = host.navigateAndWait('tab-split-1', 'https://example.com/updated');
+    setImmediate(() => {
+      desktopWc.emit('did-start-navigation', {}, 'https://example.com/updated', false, true);
+    });
+    const navResult = await navPromise;
+    assert.strictEqual(navResult, true);
+
+    // 2. reloadAndWait awaits did-start-navigation
+    let reloadPromise = host.reloadAndWait('tab-split-1');
+    setImmediate(() => {
+      desktopWc.emit('did-start-navigation', {}, 'https://example.com/updated', false, true);
+    });
+    const reloadResult = await reloadPromise;
+    assert.strictEqual(reloadResult, true);
+  });
+
+  it('awaits mobile authority navigation start in navigateAndWait and reloadAndWait when mobile pane is focused', async () => {
+    const { host, desktopWc, mobileWc, mobileView } = createTestHost();
+    const tab = host.tabs.get('tab-split-1')!;
+    tab.state.splitMode = true;
+    tab.mobileView = mobileView;
+    tab.focusedPane = 'mobile';
+
+    // 1. navigateAndWait awaits did-start-navigation on mobile WebContents
+    let navPromise = host.navigateAndWait('tab-split-1', 'https://example.com/mobile-updated');
+    setImmediate(() => {
+      // Emit did-start-navigation ONLY on mobileWc (desktopWc does not emit)
+      mobileWc.emit('did-start-navigation', {}, 'https://example.com/mobile-updated', false, true);
+    });
+    const navResult = await navPromise;
+    assert.strictEqual(navResult, true);
+
+    // 2. reloadAndWait awaits did-start-navigation on mobile WebContents
+    let reloadPromise = host.reloadAndWait('tab-split-1');
+    setImmediate(() => {
+      // Emit did-start-navigation ONLY on mobileWc
+      mobileWc.emit('did-start-navigation', {}, 'https://example.com/mobile-updated', false, true);
+    });
+    const reloadResult = await reloadPromise;
+    assert.strictEqual(reloadResult, true);
+  });
+
+  it('increments documentGenerations only on authority pane navigation in split review mode', () => {
+    const { host, desktopWc, mobileWc, mobileView } = createTestHost();
+    const tab = host.tabs.get('tab-split-1')!;
+    tab.state.splitMode = true;
+    tab.mobileView = mobileView;
+    tab.focusedPane = 'mobile';
+    host.documentGenerations.set('tab-split-1', 1);
+
+    // Call real setupTabWebContentsEvents on both desktop and mobile views
+    (NativeTabHost.prototype as any).setupTabWebContentsEvents.call(host, 'tab-split-1', tab.view, tab.state, 'desktop');
+    (NativeTabHost.prototype as any).setupTabWebContentsEvents.call(host, 'tab-split-1', tab.mobileView, tab.state, 'mobile');
+
+    // Case 1: Mobile is authority -> did-start-navigation on mobile increments generation
+    mobileWc.emit('did-start-navigation', {}, 'https://example.com/mobile-1', false, true);
+    assert.strictEqual(host.getDocumentGeneration('tab-split-1'), 2, 'Mobile authority navigation must increment generation');
+
+    // Case 2: Mirror navigation on desktop must NOT double-increment generation
+    desktopWc.emit('did-start-navigation', {}, 'https://example.com/mobile-1', false, true);
+    assert.strictEqual(host.getDocumentGeneration('tab-split-1'), 2, 'Desktop mirror navigation must not double-increment');
+
+    // Case 3: Switch focused pane to desktop -> desktop becomes authority
+    tab.focusedPane = 'desktop';
+    desktopWc.emit('did-start-navigation', {}, 'https://example.com/desktop-1', false, true);
+    assert.strictEqual(host.getDocumentGeneration('tab-split-1'), 3, 'Desktop authority navigation must increment generation');
+
+    // Mobile mirror does not increment
+    mobileWc.emit('did-start-navigation', {}, 'https://example.com/desktop-1', false, true);
+    assert.strictEqual(host.getDocumentGeneration('tab-split-1'), 3, 'Mobile mirror navigation must not double-increment');
+
+    // Case 4: Destroyed mobile view falls back to desktop authority even if focusedPane is mobile
+    tab.focusedPane = 'mobile';
+    tab.mobileView.webContents.isDestroyed = () => true;
+    desktopWc.emit('did-start-navigation', {}, 'https://example.com/desktop-2', false, true);
+    assert.strictEqual(host.getDocumentGeneration('tab-split-1'), 4, 'Destroyed mobile view falls back to desktop authority');
   });
 });

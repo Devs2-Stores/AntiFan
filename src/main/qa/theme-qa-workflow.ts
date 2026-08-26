@@ -25,7 +25,7 @@ export interface ThemeQaWorkflowPorts {
   browser: BrowserControlPort;
   files: WorkspaceFilePort;
   artifacts: ArtifactStore;
-  reload: (target: BrowserTarget) => { reloaded: boolean; target: BrowserTarget };
+  reload: (target: BrowserTarget) => Promise<{ reloaded: boolean; target: BrowserTarget }> | { reloaded: boolean; target: BrowserTarget };
 }
 
 export class ThemeQaWorkflow {
@@ -45,7 +45,7 @@ export class ThemeQaWorkflow {
   async validate(input: { runId: string; attemptId: string; workspaceRoot: string; target: BrowserTarget; checklist?: Partial<ThemeQaChecklist> }): Promise<ThemeQaReport> {
     this.assertOwnership(input.target);
     const evidence = await this.inspect({ ...input });
-    const reload = this.ports.reload(input.target);
+    const reload = await this.ports.reload(input.target);
     if (!reload.reloaded) throw new CapabilityError('TARGET_STALE', 'Bound browser tab could not be reloaded');
     const checklist: ThemeQaChecklist = { layout: true, responsive: input.checklist?.responsive ?? true, overflow: input.checklist?.overflow ?? true, interactions: input.checklist?.interactions ?? true, diagnostics: input.checklist?.diagnostics ?? true };
     const artifacts: ArtifactRef[] = [];

@@ -546,8 +546,15 @@ function applySplitRatio(ratio, resizePty = true) {
   if (lower && splitEnabled) {
     const divider = document.getElementById('terminal-divider');
     const dividerHeight = divider?.offsetHeight || 7;
-    const totalHeight = container?.clientHeight || 400;
-    const usable = Math.max(0, totalHeight - dividerHeight);
+    const dividerStyle = (divider && typeof window.getComputedStyle === 'function') ? window.getComputedStyle(divider) : null;
+    const dividerMarginTop = dividerStyle ? (parseFloat(dividerStyle.marginTop) || 0) : 2;
+    const dividerMarginBottom = dividerStyle ? (parseFloat(dividerStyle.marginBottom) || 0) : 2;
+    const dividerTotal = dividerHeight + dividerMarginTop + dividerMarginBottom;
+    const containerStyle = (container && typeof window.getComputedStyle === 'function') ? window.getComputedStyle(container) : null;
+    const containerPadTop = containerStyle ? (parseFloat(containerStyle.paddingTop) || 0) : 4;
+    const containerPadBottom = containerStyle ? (parseFloat(containerStyle.paddingBottom) || 0) : 4;
+    const totalHeight = Math.max(0, (container?.clientHeight || 400) - (containerPadTop + containerPadBottom));
+    const usable = Math.max(0, totalHeight - dividerTotal);
     const paneMin = Math.min(60, Math.floor(usable / 2));
     const rawRatio = (typeof ratio === 'number' && !isNaN(ratio) && ratio > 0) ? ratio : 0.5;
     const rawMain = Math.round(usable * rawRatio);

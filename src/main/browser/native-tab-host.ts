@@ -11,7 +11,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import { randomUUID, createHash } from 'node:crypto';
 import { EventEmitter } from 'node:events';
-import { AntiFanTab, SplitPaneId, AntiFanPickedElement, ChatMessage, TOOLBAR_CHANNELS, SIDEBAR_CHANNELS, TERMINAL_CHANNELS, FRAME_BACKDROP_CHANNELS, BridgeDeliveryUpdatePayload, AntigravityAttachmentDescriptor } from '../../shared/contracts';
+import { AntiFanTab, SplitPaneId, AntiFanPickedElement, TOOLBAR_CHANNELS, SIDEBAR_CHANNELS, TERMINAL_CHANNELS, FRAME_BACKDROP_CHANNELS } from '../../shared/contracts';
 import { getSecureWebPreferences, sanitizeUrl, isAllowedNavigation, cleanRestoredUrl, isInternalWidgetOrSubframeUrl } from '../security/security-policy';
 import { ELEMENT_PICKER_SCRIPT } from './element-picker';
 import { resolveWorkspaceFromUrl, DEFAULT_WORKSPACE_ROOTS } from './workspace-resolver';
@@ -34,7 +34,6 @@ import { PreviewWatcherPool, type PreviewChangeEvent } from '../server/preview-w
 import { buildPreviewUrl, parsePreviewUrl } from '../server/preview-url-codec';
 import type { ControlPlaneRuntime } from '../control-plane/control-plane-runtime';
 import type { BrowserTarget } from '../../shared/control-plane-contracts';
-import { TranscriptSyncer } from '../bridge/transcript-syncer';
 import { AnnotationManager } from '../bridge/annotation-manager';
 import { ChromeProfileSyncManager } from './chrome-profile-sync';
 import { HaravanUploader } from './haravan-uploader';
@@ -42,7 +41,6 @@ import { TerminalManager } from './terminal-manager';
 import { checkForUpdatesAndRestart } from './app-menu';
 import { SkillScanner } from './skill-scanner';
 import { WindowStateManager, WindowState } from './window-state';
-import { AntigravityCommandClient, generateCommandId } from '../bridge/antigravity-command-client';
 import { BridgeServer } from '../bridge/bridge-server';
 import { WorkflowRegistry } from '../workflow/workflow-registry';
 import { HistoryManager } from './history-manager';
@@ -173,13 +171,11 @@ export class NativeTabHost extends EventEmitter {
   private sidebarWidth: number = 380;
   private isToolbarOverlayActive: boolean = false;
   private toolbarOverlayCustomHeight?: number;
-  private transcriptSyncer: TranscriptSyncer;
   private readonly splitCoordinator = new SplitNavigationCoordinator();
   private defaultUserAgent: string = MAC_DESKTOP_USER_AGENT;
   private tabs: Map<string, NativeTabRecord> = new Map();
   private tabOrder: string[] = [];
   private activeTabId: string = '';
-  private chatMessages: ChatMessage[] = [];
 
   public bookmarks: BookmarkItem[] = [];
   private readonly diagnosticsManager = new TabDiagnosticsManager();
@@ -192,7 +188,6 @@ export class NativeTabHost extends EventEmitter {
   private tabPreviewUnsubscribers: Map<string, () => void> = new Map();
   private recentlyClosedTabs: Array<{ url: string; title: string }> = [];
   private automationTabId: string | null = null;
-  private pendingDeliveries: Array<{ message: ChatMessage; commandId: string; targetWorkspace: string; dispatchedAt: number }> = [];
 
   private isInspecting: boolean = false;
   private inspectedTabId: string | null = null;
@@ -201,7 +196,6 @@ export class NativeTabHost extends EventEmitter {
   private isRulerActive: boolean = false;
   private inspectPollTimer: NodeJS.Timeout | null = null;
   private persistTimer: NodeJS.Timeout | null = null;
-  private reconcilerTimer: NodeJS.Timeout | null = null;
   private agentWorkingTimers = new Map<string, NodeJS.Timeout>();
   private agentWorkingRefs = new Map<string, number>();
   private lastAnnotationSessionId: string | undefined = undefined;
@@ -307,22 +301,6 @@ export class NativeTabHost extends EventEmitter {
       terminalHtml = path.join(process.cwd(), 'src', 'renderer', 'terminal.html');
     }
     this.terminalView.webContents.loadFile(terminalHtml);
-
-    // 4. Initialize Live Antigravity Transcript Syncer
-    this.transcriptSyncer = new TranscriptSyncer();
-    this.transcriptSyncer.start();
-    this.chatMessages = this.transcriptSyncer.getRecentMessages(40);
-
-    this.transcriptSyncer.on('message', (msg: ChatMessage) => {
-      this.pushAgentMessage(msg);
-    });
-
-    this.transcriptSyncer.on('session-changed', (data: { sessionId: string; messages: ChatMessage[] }) => {
-      this.chatMessages = data.messages;
-      if (this.sidebarView && !this.sidebarView.webContents.isDestroyed()) {
-        this.sidebarView.webContents.send(SIDEBAR_CHANNELS.SESSION_CHANGED, data);
-      }
-    });
 
     this.updateLayout();
 
@@ -973,54 +951,13 @@ export class NativeTabHost extends EventEmitter {
   private setupSidebarIpc(): void {
     ipcMain.handle(SIDEBAR_CHANNELS.GET_INITIAL_STATE, () => {
       const activeTab = this.tabs.get(this.activeTabId);
-      const targetSessionId = this.transcriptSyncer.getActiveSessionId() !== 'auto' ? this.transcriptSyncer.getActiveSessionId() : undefined;
-      const targetWorkspace = this.resolveTargetWorkspace(targetSessionId, activeTab?.state.url);
+      const targetWorkspace = this.resolveTargetWorkspace(undefined, activeTab?.state.url);
       return {
-        messages: this.chatMessages,
         isOpen: this.isSidebarOpen,
         width: this.sidebarWidth,
         workspacePath: targetWorkspace,
         activeWorkspace: targetWorkspace,
-        autocompleteItems: SkillScanner.getInstance().getAutocompleteItems(targetWorkspace),
       };
-    });
-
-    ipcMain.handle(SIDEBAR_CHANNELS.SEND_PROMPT, (_event, opts: { text: string; attachedElement?: AntiFanPickedElement; attachedImages?: Array<{ name: string; dataUrl: string }>; deliveryMode?: 'auto' | 'draft'; sessionId?: string }) => {
-      return this.handleSendPrompt(opts);
-    });
-
-    ipcMain.handle(SIDEBAR_CHANNELS.ABORT_GENERATION, async (_event, sessionId?: string) => {
-      const activeTab = this.tabs.get(this.activeTabId);
-      const targetSessionId = sessionId || (this.transcriptSyncer.getActiveSessionId() !== 'auto' ? this.transcriptSyncer.getActiveSessionId() : undefined);
-      const targetWorkspace = this.resolveTargetWorkspace(targetSessionId, activeTab?.state.url);
-
-      const client = new AntigravityCommandClient({ workspacePath: targetWorkspace, timeoutMs: 10000 });
-      client.dispatchCommand({
-        action: 'abort',
-        mode: 'auto',
-        promptText: 'abort',
-        meta: {
-          sessionId: targetSessionId,
-          conversationId: targetSessionId,
-        },
-      });
-
-      // 2. Emit abort event
-      this.emit('chat-abort-requested', { sessionId: targetSessionId });
-      return { ok: true };
-    });
-
-    ipcMain.handle(SIDEBAR_CHANNELS.GET_AUTOCOMPLETE_ITEMS, () => {
-      const activeTab = this.tabs.get(this.activeTabId);
-      const targetSessionId = this.transcriptSyncer.getActiveSessionId() !== 'auto' ? this.transcriptSyncer.getActiveSessionId() : undefined;
-      const targetWorkspace = this.resolveTargetWorkspace(targetSessionId, activeTab?.state.url);
-      return SkillScanner.getInstance().getAutocompleteItems(targetWorkspace);
-    });
-
-    ipcMain.handle(SIDEBAR_CHANNELS.CLEAR_HISTORY, () => {
-      this.chatMessages = [];
-      this.emit('chat-history-cleared');
-      return { ok: true };
     });
 
     ipcMain.handle(SIDEBAR_CHANNELS.CLOSE_SIDEBAR, () => {
@@ -1032,51 +969,6 @@ export class NativeTabHost extends EventEmitter {
       this.updateLayout();
       this.schedulePersist();
     });
-
-    ipcMain.handle(SIDEBAR_CHANNELS.GET_SESSIONS, () => {
-      return {
-        sessions: this.transcriptSyncer.getAvailableSessions(),
-        activeSessionId: this.transcriptSyncer.getActiveSessionId(),
-      };
-    });
-
-    ipcMain.handle(SIDEBAR_CHANNELS.SWITCH_SESSION, (_event, sessionId: string) => {
-      const ok = this.transcriptSyncer.switchSession(sessionId);
-      if (ok) {
-        this.chatMessages = this.transcriptSyncer.getRecentMessages(40);
-      }
-      return { ok, messages: this.chatMessages };
-    });
-
-    ipcMain.handle(SIDEBAR_CHANNELS.RENAME_SESSION, (_event, { sessionId, newTitle }: { sessionId: string; newTitle: string }) => {
-      const ok = this.transcriptSyncer.renameSession(sessionId, newTitle);
-      return {
-        ok,
-        sessions: this.transcriptSyncer.getAvailableSessions(),
-      };
-    });
-
-    ipcMain.handle(SIDEBAR_CHANNELS.DELETE_SESSION, (_event, sessionId: string) => {
-      const ok = this.transcriptSyncer.deleteSession(sessionId);
-      this.chatMessages = this.transcriptSyncer.getRecentMessages(40);
-      return {
-        ok,
-        sessions: this.transcriptSyncer.getAvailableSessions(),
-        messages: this.chatMessages,
-      };
-    });
-  }
-
-  public pushAgentMessage(message: ChatMessage): void {
-    const existingIdx = this.chatMessages.findIndex((m) => m.id === message.id);
-    if (existingIdx >= 0) {
-      this.chatMessages[existingIdx] = message;
-    } else {
-      this.chatMessages.push(message);
-    }
-    if (this.sidebarView && !this.sidebarView.webContents.isDestroyed()) {
-      this.sidebarView.webContents.send(SIDEBAR_CHANNELS.STREAM_UPDATE, { message });
-    }
   }
 
   private setupGlobalShortcutsOnView(wc: Electron.WebContents): void {
@@ -1664,7 +1556,10 @@ export class NativeTabHost extends EventEmitter {
       });
     });
     wc.on('did-start-navigation', (_event, _url, isInPlace, isMainFrame) => {
-      if (isMainFrame && !isInPlace && paneId === 'desktop') {
+      const currentTab = this.tabs.get(id);
+      const splitHasLiveMobile = Boolean(state.splitMode && currentTab?.mobileView && !currentTab.mobileView.webContents.isDestroyed());
+      const authorityPane = splitHasLiveMobile ? (currentTab?.focusedPane || state.splitFocusedPane || 'desktop') : 'desktop';
+      if (isMainFrame && !isInPlace && authorityPane === paneId) {
         this.documentGenerations.set(id, (this.documentGenerations.get(id) || 0) + 1);
       }
     });
@@ -2353,6 +2248,27 @@ export class NativeTabHost extends EventEmitter {
     }
     return true;
   }
+  public async navigateAndWait(tabId: string, inputUrl: string): Promise<boolean> {
+    const tab = this.tabs.get(tabId);
+    if (!tab) return false;
+    const cleanUrl = sanitizeUrl(inputUrl);
+    if (cleanUrl.startsWith('view-source:')) {
+      return this.navigate(tabId, inputUrl);
+    }
+    const authorityPane = tab.state.splitMode && tab.mobileView && !tab.mobileView.webContents.isDestroyed()
+      ? (tab.focusedPane || tab.state.splitFocusedPane || 'desktop')
+      : 'desktop';
+    const authorityView = authorityPane === 'mobile' && tab.mobileView ? tab.mobileView : tab.view;
+    if (!authorityView || authorityView.webContents.isDestroyed()) return false;
+
+    const waiter = this.createNavigationStartWaiter(authorityView.webContents);
+    const initiated = this.navigate(tabId, inputUrl);
+    if (!initiated) {
+      waiter.cancel();
+      return false;
+    }
+    return await waiter.promise;
+  }
   public reload(tabId: string): boolean {
     const tab = this.tabs.get(tabId);
     if (!tab) return false;
@@ -2369,6 +2285,70 @@ export class NativeTabHost extends EventEmitter {
       }
     }
     return true;
+  }
+  public async reloadAndWait(tabId: string): Promise<boolean> {
+    const tab = this.tabs.get(tabId);
+    if (!tab) return false;
+    const authorityPane = tab.state.splitMode && tab.mobileView && !tab.mobileView.webContents.isDestroyed()
+      ? (tab.focusedPane || tab.state.splitFocusedPane || 'desktop')
+      : 'desktop';
+    const authorityView = authorityPane === 'mobile' && tab.mobileView ? tab.mobileView : tab.view;
+    if (!authorityView || authorityView.webContents.isDestroyed()) return false;
+
+    const waiter = this.createNavigationStartWaiter(authorityView.webContents);
+    const initiated = this.reload(tabId);
+    if (!initiated) {
+      waiter.cancel();
+      return false;
+    }
+    return await waiter.promise;
+  }
+
+  private createNavigationStartWaiter(wc: Electron.WebContents, timeoutMs: number = 3000): { promise: Promise<boolean>; cancel: () => void } {
+    let cancelFn: () => void = () => {};
+    const promise = new Promise<boolean>((resolve) => {
+      if (!wc || wc.isDestroyed()) {
+        resolve(false);
+        return;
+      }
+      let settled = false;
+      const onStart = (_event: unknown, _url: unknown, isInPlace: boolean, isMainFrame: boolean) => {
+        if (isMainFrame && !isInPlace && !settled) {
+          settled = true;
+          cleanup();
+          resolve(true);
+        }
+      };
+      const onFail = () => {
+        if (!settled) {
+          settled = true;
+          cleanup();
+          resolve(false);
+        }
+      };
+      const timer = setTimeout(() => {
+        if (!settled) {
+          settled = true;
+          cleanup();
+          resolve(false);
+        }
+      }, timeoutMs);
+      const cleanup = () => {
+        clearTimeout(timer);
+        try { wc.removeListener('did-start-navigation', onStart); } catch {}
+        try { wc.removeListener('did-fail-load', onFail); } catch {}
+      };
+      cancelFn = () => {
+        if (!settled) {
+          settled = true;
+          cleanup();
+          resolve(false);
+        }
+      };
+      wc.on('did-start-navigation', onStart);
+      wc.on('did-fail-load', onFail);
+    });
+    return { promise, cancel: cancelFn };
   }
 
   public stopLoading(tabId: string): boolean {
@@ -3212,9 +3192,7 @@ export class NativeTabHost extends EventEmitter {
             } catch (err) {
               console.error('[native-tab-host] capture and crop error:', err);
             }
-            const targetSessionId = rawResult.targetSessionId || (this.transcriptSyncer.getActiveSessionId() !== 'auto'
-              ? this.transcriptSyncer.getActiveSessionId()
-              : undefined);
+            const targetSessionId = rawResult.targetSessionId || (tm.getActiveSessionId() !== 'auto' ? tm.getActiveSessionId() : undefined);
             const targetWorkspace = this.resolveTargetWorkspace(targetSessionId, activeTab?.state.url);
             const annotationWorkspace = this.resolveAnnotationWorkspace(targetSessionId, activeTab?.state.url);
 
@@ -3285,18 +3263,6 @@ export class NativeTabHost extends EventEmitter {
               clipboard.writeText(fullPrompt);
             } catch {}
 
-            // 3. Notify sidebar if open
-            if (this.sidebarView && !this.sidebarView.webContents.isDestroyed()) {
-              this.sidebarView.webContents.send(SIDEBAR_CHANNELS.ATTACH_ELEMENT, pickedData);
-            }
-
-            // 4. Dispatch via command client
-            await this.handleSendPrompt({
-              text: fullPrompt,
-              attachedElement: pickedData,
-              deliveryMode: effectiveDeliveryMode,
-              sessionId: resolvedTerminalId,
-            }).catch(() => {});
             break;
           }
         }
@@ -3354,10 +3320,6 @@ export class NativeTabHost extends EventEmitter {
       if (session?.cwd && fs.existsSync(path.normalize(session.cwd))) {
         return path.normalize(session.cwd);
       }
-      const sessionWs = this.transcriptSyncer.getSessionWorkspace(targetSessionId);
-      if (sessionWs && fs.existsSync(path.normalize(sessionWs))) {
-        return path.normalize(sessionWs);
-      }
     }
 
     // 2. Active capsule workspace
@@ -3383,14 +3345,6 @@ export class NativeTabHost extends EventEmitter {
       }
     }
 
-    // 5. Check active session from transcript syncer
-    const activeSessionId = this.transcriptSyncer.getActiveSessionId();
-    if (activeSessionId && activeSessionId !== 'auto') {
-      const activeWs = this.transcriptSyncer.getSessionWorkspace(activeSessionId);
-      if (activeWs && fs.existsSync(path.normalize(activeWs))) {
-        return path.normalize(activeWs);
-      }
-    }
 
     // 6. Current CWD from TerminalManager
     const tmCwd = tm.getCurrentCwd();
@@ -3418,10 +3372,6 @@ export class NativeTabHost extends EventEmitter {
       if (session?.cwd && fs.existsSync(path.normalize(session.cwd))) {
         return path.normalize(session.cwd);
       }
-      const sessionWorkspace = this.transcriptSyncer.getSessionWorkspace(targetSessionId);
-      if (sessionWorkspace && fs.existsSync(path.normalize(sessionWorkspace))) {
-        return path.normalize(sessionWorkspace);
-      }
     }
     const urlWorkspace = resolveWorkspaceFromUrl(tabUrl, DEFAULT_WORKSPACE_ROOTS);
     if (urlWorkspace) {
@@ -3430,248 +3380,6 @@ export class NativeTabHost extends EventEmitter {
     return this.resolveTargetWorkspace(targetSessionId, tabUrl);
   }
 
-  public async handleSendPrompt(opts: {
-    text: string;
-    attachedElement?: AntiFanPickedElement;
-    attachedImages?: Array<{ name: string; dataUrl: string }>;
-    deliveryMode?: 'auto' | 'draft';
-    sessionId?: string;
-  }): Promise<{ ok: boolean; messageId: string; notice: string; commandId?: string }> {
-    const mode = opts.deliveryMode || 'auto';
-    const activeTab = this.tabs.get(this.activeTabId);
-    const targetSessionId = opts.sessionId && opts.sessionId !== 'auto' ? opts.sessionId : (this.transcriptSyncer.getActiveSessionId() !== 'auto' ? this.transcriptSyncer.getActiveSessionId() : undefined);
-    const targetWorkspace = this.resolveTargetWorkspace(targetSessionId, activeTab?.state.url);
-
-    // 1. Copy to OS clipboard instantly for 100% Antigravity IDE Ctrl+V parity
-    try {
-      clipboard.writeText(opts.text);
-    } catch (err) {
-      console.error('[native-tab-host] Failed to copy prompt to clipboard:', err);
-    }
-
-    // 1b. Save any attached images to snapshots directory on disk
-    const savedImagePaths: string[] = [];
-    const snapshotsDirs = [
-      path.join(process.cwd(), '.antigravity', 'snapshots'),
-      path.join(process.cwd(), '..', '..', '.antigravity', 'snapshots'),
-      'e:\\Work\\.antigravity\\snapshots',
-    ];
-    for (const sDir of snapshotsDirs) {
-      try { fs.mkdirSync(sDir, { recursive: true }); } catch {}
-    }
-    const primarySnapshotsDir = snapshotsDirs.find((d) => fs.existsSync(d)) || snapshotsDirs[0]!;
-
-    if (Array.isArray(opts.attachedImages) && opts.attachedImages.length > 0) {
-      opts.attachedImages.forEach((img, idx) => {
-        if (img && typeof img.dataUrl === 'string' && img.dataUrl.startsWith('data:image/')) {
-          try {
-            const base64Data = img.dataUrl.replace(/^data:image\/\w+;base64,/, '');
-            const buffer = Buffer.from(base64Data, 'base64');
-            const safeName = (img.name || `image_${idx + 1}.png`).replace(/[^a-zA-Z0-9_.-]/g, '_');
-            const fileName = `pasted_${Date.now()}_${idx}_${safeName}`;
-            const targetPath = path.join(primarySnapshotsDir, fileName);
-            fs.writeFileSync(targetPath, buffer);
-            savedImagePaths.push(targetPath);
-          } catch (err) {
-            console.error('[native-tab-host] Failed to save attached image:', err);
-          }
-        }
-      });
-    }
-
-    if (opts.attachedElement) {
-      const elem = opts.attachedElement as any;
-      if (elem.targetImagePath && fs.existsSync(elem.targetImagePath)) {
-        if (!savedImagePaths.includes(elem.targetImagePath)) {
-          savedImagePaths.push(elem.targetImagePath);
-        }
-      } else if (elem.targetImageDataUrl && typeof elem.targetImageDataUrl === 'string' && elem.targetImageDataUrl.startsWith('data:image/')) {
-        try {
-          const base64Data = elem.targetImageDataUrl.replace(/^data:image\/\w+;base64,/, '');
-          const targetPath = path.join(primarySnapshotsDir, `target_${Date.now()}.png`);
-          fs.writeFileSync(targetPath, Buffer.from(base64Data, 'base64'));
-          savedImagePaths.push(targetPath);
-          elem.targetImagePath = targetPath;
-        } catch {}
-      }
-
-      if (elem.viewportImagePath && fs.existsSync(elem.viewportImagePath)) {
-        if (!savedImagePaths.includes(elem.viewportImagePath)) {
-          savedImagePaths.push(elem.viewportImagePath);
-        }
-      } else if (elem.viewportImageDataUrl && typeof elem.viewportImageDataUrl === 'string' && elem.viewportImageDataUrl.startsWith('data:image/')) {
-        try {
-          const base64Data = elem.viewportImageDataUrl.replace(/^data:image\/\w+;base64,/, '');
-          const targetPath = path.join(primarySnapshotsDir, `viewport_${Date.now()}.png`);
-          fs.writeFileSync(targetPath, Buffer.from(base64Data, 'base64'));
-          savedImagePaths.push(targetPath);
-          elem.viewportImagePath = targetPath;
-        } catch {}
-      }
-    }
-
-    // 1c. Prepare attachments and send command via AntigravityCommandClient
-    const attachments: AntigravityAttachmentDescriptor[] = [];
-    const addAttachment = (filePath: string, mime = 'application/octet-stream') => {
-      try {
-        if (fs.existsSync(filePath)) {
-          const stat = fs.statSync(filePath);
-          attachments.push({
-            name: path.basename(filePath),
-            filePath,
-            mime,
-            byteLength: stat.size,
-          });
-        }
-      } catch {}
-    };
-
-    if (opts.attachedElement?.markdownPath) {
-      addAttachment(opts.attachedElement.markdownPath, 'text/markdown');
-    }
-    if (opts.attachedElement?.targetImagePath) {
-      addAttachment(opts.attachedElement.targetImagePath, 'image/png');
-    }
-    if (opts.attachedElement?.viewportImagePath) {
-      addAttachment(opts.attachedElement.viewportImagePath, 'image/png');
-    }
-    for (const p of savedImagePaths) {
-      addAttachment(p, 'image/png');
-    }
-
-    if (opts.attachedElement) {
-      const elemPath = path.join(targetWorkspace, '.antigravity', 'latest_element_mcp.json');
-      try {
-        if (fs.existsSync(path.dirname(elemPath))) {
-          fs.writeFileSync(elemPath, JSON.stringify(opts.attachedElement, null, 2), 'utf8');
-        }
-      } catch {}
-    }
-
-    // Enforce 8-attachment, 10MiB total budget check
-    const MAX_ATTACHMENTS = 8;
-    const MAX_TOTAL_BYTES = 10 * 1024 * 1024;
-    let totalAttachmentBytes = 0;
-    for (const a of attachments) {
-      totalAttachmentBytes += a.byteLength;
-    }
-    if (attachments.length > MAX_ATTACHMENTS || totalAttachmentBytes > MAX_TOTAL_BYTES) {
-      return {
-        ok: false,
-        messageId: '',
-        notice: `Thất bại: Vượt quá giới hạn đính kèm (tối đa 8 tệp, 10MB; hiện tại: ${attachments.length} tệp, ${Math.round(totalAttachmentBytes / 1024 / 1024)}MB)`,
-      };
-    }
-
-    const client = new AntigravityCommandClient({
-      workspacePath: targetWorkspace,
-      timeoutMs: 30000,
-    });
-
-    const { command, resultPromise } = client.dispatchCommand({
-      action: 'send-prompt',
-      mode: mode === 'auto' ? 'auto' : 'draft',
-      promptText: opts.text,
-      targetConversationId: targetSessionId,
-      requestedRoute: mode === 'auto' ? 'sidecar-agentapi' : 'active-panel',
-      attachments,
-      meta: {
-        sessionId: targetSessionId,
-        conversationId: targetSessionId,
-      },
-    });
-
-    const msg: ChatMessage = {
-      id: String(Date.now()),
-      role: 'user',
-      text: opts.text,
-      attachedElement: opts.attachedElement,
-      attachedImages: opts.attachedImages,
-      timestamp: Date.now(),
-      commandId: command.id,
-      deliveryState: 'queued',
-      actualRoute: mode === 'auto' ? 'sidecar-agentapi' : 'active-panel',
-      observationState: 'none',
-    };
-    this.chatMessages.push(msg);
-    this.pendingDeliveries.push({
-      message: msg,
-      commandId: command.id,
-      targetWorkspace,
-      dispatchedAt: Date.now(),
-    });
-    this.startLateReceiptReconciler();
-
-    // Notify sidebar UI
-    if (this.sidebarView && !this.sidebarView.webContents.isDestroyed()) {
-      this.sidebarView.webContents.send(SIDEBAR_CHANNELS.STREAM_UPDATE, { message: msg });
-    }
-
-    void resultPromise.then((result) => {
-      msg.deliveryState = result.deliveryState;
-      msg.actualRoute = result.actualRoute;
-      msg.deliveryError = result.errorMessage;
-      const updatePayload: BridgeDeliveryUpdatePayload = {
-        messageId: msg.id,
-        commandId: command.id,
-        deliveryState: result.deliveryState,
-        actualRoute: result.actualRoute,
-        errorMessage: result.errorMessage,
-        errorCode: result.errorCode,
-        updatedAtEpochMs: Date.now(),
-      };
-      if (this.sidebarView && !this.sidebarView.webContents.isDestroyed()) {
-        this.sidebarView.webContents.send(SIDEBAR_CHANNELS.DELIVERY_STATE_CHANGED, updatePayload);
-      }
-    });
-
-    // 2. Emit event for bridge server
-    this.emit('chat-prompt-submitted', { prompt: opts.text, sessionId: targetSessionId, attachedElement: opts.attachedElement, attachedImages: opts.attachedImages, deliveryMode: mode });
-
-    const isAuto = mode === 'auto';
-    const notice = isAuto
-      ? '⚡ Đã chuyển tiếp tới Antigravity Agent qua Extension Bridge'
-      : '📝 Đã lưu prompt dưới dạng Draft';
-
-    return { ok: true, messageId: msg.id, notice, commandId: command.id };
-  }
-
-  private startLateReceiptReconciler(): void {
-    if (this.reconcilerTimer) return;
-    this.reconcilerTimer = setInterval(() => {
-      if (this.pendingDeliveries.length === 0) return;
-      const now = Date.now();
-      // Only keep items from the last 10 minutes
-      this.pendingDeliveries = this.pendingDeliveries.filter((p) => now - p.dispatchedAt < 600000);
-
-      for (const pending of this.pendingDeliveries) {
-        if (pending.message.deliveryState !== 'unknown' && pending.message.deliveryState !== 'queued') {
-          continue;
-        }
-        try {
-          const client = new AntigravityCommandClient({ workspacePath: pending.targetWorkspace });
-          const lateReceipt = client.checkLateReceipt(pending.commandId);
-          if (lateReceipt) {
-            pending.message.deliveryState = lateReceipt.deliveryState;
-            if (lateReceipt.actualRoute) pending.message.actualRoute = lateReceipt.actualRoute;
-            if (lateReceipt.errorMessage) pending.message.deliveryError = lateReceipt.errorMessage;
-            const updatePayload: BridgeDeliveryUpdatePayload = {
-              messageId: pending.message.id,
-              commandId: pending.commandId,
-              deliveryState: lateReceipt.deliveryState,
-              actualRoute: lateReceipt.actualRoute,
-              errorMessage: lateReceipt.errorMessage,
-              errorCode: lateReceipt.errorCode,
-              updatedAtEpochMs: Date.now(),
-            };
-            if (this.sidebarView && !this.sidebarView.webContents.isDestroyed()) {
-              this.sidebarView.webContents.send(SIDEBAR_CHANNELS.DELIVERY_STATE_CHANGED, updatePayload);
-            }
-          }
-        } catch {}
-      }
-    }, 2500);
-  }
 
   public findInPage(text: string, forward = true, findNext = false): void {
     const active = this.tabs.get(this.activeTabId);
@@ -4761,7 +4469,6 @@ export class NativeTabHost extends EventEmitter {
       } catch {}
       this.frameBackdropView = null;
     }
-    this.transcriptSyncer.dispose();
     if (this.inspectPollTimer) {
       clearInterval(this.inspectPollTimer);
       this.inspectPollTimer = null;
@@ -4769,10 +4476,6 @@ export class NativeTabHost extends EventEmitter {
     if (this.persistTimer) {
       clearTimeout(this.persistTimer);
       this.persistTimer = null;
-    }
-    if (this.reconcilerTimer) {
-      clearInterval(this.reconcilerTimer);
-      this.reconcilerTimer = null;
     }
     for (const timer of this.agentWorkingTimers.values()) clearTimeout(timer);
     this.agentWorkingTimers.clear();
