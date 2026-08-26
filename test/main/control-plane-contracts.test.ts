@@ -56,4 +56,52 @@ describe('Control-plane contracts', () => {
       fs.rmSync(root, { recursive: true, force: true });
     }
   });
+
+  it('enforces assertExactBrowserTarget tab presence by default and validates opt-in allowMissingTab semantics', () => {
+    const projectId = makeControlPlaneId('project');
+    const workspaceId = makeControlPlaneId('workspace');
+    const runtimeId = makeControlPlaneId('binding');
+
+    const expected = { projectId, workspaceId, runtimeId, browserEpoch: 2, documentGeneration: 3 };
+
+    const validFullTarget = {
+      projectId,
+      workspaceId,
+      runtimeId,
+      tabId: 'tab-123',
+      browserEpoch: 2,
+      documentGeneration: 3,
+    };
+
+    const validTablessTarget = {
+      projectId,
+      workspaceId,
+      runtimeId,
+      tabId: undefined as any,
+      browserEpoch: 2,
+      documentGeneration: 3,
+    };
+
+    // Default mode: requires tabId
+    assert.strictEqual(assertExactBrowserTarget(validFullTarget, expected), validFullTarget);
+    assert.throws(() => assertExactBrowserTarget(validTablessTarget, expected), (err: unknown) => err instanceof CapabilityError && err.code === 'TARGET_REQUIRED');
+    assert.throws(() => assertExactBrowserTarget(undefined, expected), (err: unknown) => err instanceof CapabilityError && err.code === 'TARGET_REQUIRED');
+    assert.throws(() => assertExactBrowserTarget({} as any, expected), (err: unknown) => err instanceof CapabilityError && err.code === 'WORKSPACE_MISMATCH');
+
+    // Mismatched project / workspace / runtime
+    assert.throws(() => assertExactBrowserTarget({ ...validFullTarget, projectId: 'proj-other' }, expected), (err: unknown) => err instanceof CapabilityError && err.code === 'WORKSPACE_MISMATCH');
+    assert.throws(() => assertExactBrowserTarget({ ...validFullTarget, workspaceId: 'ws-other' }, expected), (err: unknown) => err instanceof CapabilityError && err.code === 'WORKSPACE_MISMATCH');
+    assert.throws(() => assertExactBrowserTarget({ ...validFullTarget, runtimeId: 'rt-other' }, expected), (err: unknown) => err instanceof CapabilityError && err.code === 'WORKSPACE_MISMATCH');
+
+    // Stale epoch / generation
+    assert.throws(() => assertExactBrowserTarget({ ...validFullTarget, browserEpoch: 1 }, expected), (err: unknown) => err instanceof CapabilityError && err.code === 'TARGET_STALE');
+    assert.throws(() => assertExactBrowserTarget({ ...validFullTarget, documentGeneration: 2 }, expected), (err: unknown) => err instanceof CapabilityError && err.code === 'TARGET_STALE');
+
+    // Opt-in allowMissingTab mode: permits missing tabId if ownership and epoch/generation match
+    assert.strictEqual(assertExactBrowserTarget(validTablessTarget, expected, true), validTablessTarget);
+    assert.throws(() => assertExactBrowserTarget(undefined, expected, true), (err: unknown) => err instanceof CapabilityError && err.code === 'TARGET_REQUIRED');
+    assert.throws(() => assertExactBrowserTarget({ ...validTablessTarget, projectId: 'proj-other' }, expected, true), (err: unknown) => err instanceof CapabilityError && err.code === 'WORKSPACE_MISMATCH');
+    assert.throws(() => assertExactBrowserTarget({ ...validTablessTarget, browserEpoch: 1 }, expected, true), (err: unknown) => err instanceof CapabilityError && err.code === 'TARGET_STALE');
+    assert.throws(() => assertExactBrowserTarget({ ...validTablessTarget, documentGeneration: 2 }, expected, true), (err: unknown) => err instanceof CapabilityError && err.code === 'TARGET_STALE');
+  });
 });

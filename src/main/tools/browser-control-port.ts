@@ -227,7 +227,6 @@ export class BrowserControlPort {
     if (target) {
       assertTarget(target, true);
     }
-
     let resolved = explicitTabId ?? target?.tabId;
     if (!resolved) {
       const currentAutoTab = this.host.getAutomationTabId ? this.host.getAutomationTabId() : undefined;
@@ -239,9 +238,6 @@ export class BrowserControlPort {
           this.host.setAutomationTabId(resolved);
         }
       }
-      if (resolved && target) {
-        target.tabId = resolved;
-      }
     }
 
     if (!resolved) {
@@ -250,9 +246,10 @@ export class BrowserControlPort {
     if (!this.host.getTabList().some((tab: any) => tab && tab.id === resolved)) {
       throw new CapabilityError('CAPABILITY_NOT_FOUND', `Unknown tab ID: ${resolved}`);
     }
-    if (!explicitTabId && target) {
-      assertTarget(target, false);
-      this.assertCurrent(target);
+    if (target) {
+      const currentTarget = { ...target, tabId: resolved };
+      assertTarget(currentTarget, false);
+      this.assertCurrent(currentTarget);
     }
     return resolved;
   }
