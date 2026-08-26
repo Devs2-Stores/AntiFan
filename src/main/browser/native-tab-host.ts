@@ -953,6 +953,7 @@ export class NativeTabHost extends EventEmitter {
         detached: true,
         stdio: 'ignore',
         windowsHide: true,
+        shell: process.platform === 'win32',
       });
       child.unref();
       return { ok: true, workspacePath };
