@@ -134,8 +134,7 @@ describe('Keyboard Normalizer & Browser Native Keyboard Press', () => {
 
   describe('BrowserControlPort.keyboardPress', () => {
     it('dispatches keyboard press to host with active tab fallback and target resolution', async () => {
-      let dispatchedParams: { key: string; modifiers?: string[]; tabId?: string } | null = null;
-
+      let dispatchedParams: unknown;
       const mockHost = createMockHost({
         sendKeyboardPress: async (params) => {
           dispatchedParams = params;
@@ -144,7 +143,7 @@ describe('Keyboard Normalizer & Browser Native Keyboard Press', () => {
       });
 
       const port = new BrowserControlPort(mockHost);
-      const res = await port.keyboardPress({ key: 'Enter', modifiers: ['ctrl'] });
+      const res = await port.keyboardPress({ key: 'Enter', modifiers: ['ctrl'], tabId: 'tab-active' });
       assert.strictEqual(res.success, true);
       assert.strictEqual(res.key, 'Enter');
       assert.deepStrictEqual(dispatchedParams, { key: 'Enter', modifiers: ['ctrl'], tabId: 'tab-active' });
@@ -154,7 +153,7 @@ describe('Keyboard Normalizer & Browser Native Keyboard Press', () => {
       const mockHost = createMockHost({
         sendKeyboardPress: async (params) => {
           if (params.modifiers?.includes('invalid-mod')) {
-            throw new Error('Unknown modifier: invalid-mod');
+            throw new Error('Unsupported modifier: invalid-mod');
           }
           return { success: true, key: params.key, modifiers: params.modifiers || [] };
         },
@@ -162,11 +161,11 @@ describe('Keyboard Normalizer & Browser Native Keyboard Press', () => {
 
       const port = new BrowserControlPort(mockHost);
       await assert.rejects(
-        () => port.keyboardPress({ key: '' }),
+        () => port.keyboardPress({ key: '', tabId: 'tab-active' }),
         (err: unknown) => err instanceof CapabilityError && err.code === 'INVALID_ARGUMENT',
       );
       await assert.rejects(
-        () => port.keyboardPress({ key: 'a', modifiers: ['invalid-mod'] }),
+        () => port.keyboardPress({ key: 'a', modifiers: ['invalid-mod'], tabId: 'tab-active' }),
         (err: unknown) => err instanceof CapabilityError && err.code === 'INVALID_ARGUMENT',
       );
     });
@@ -176,7 +175,7 @@ describe('Keyboard Normalizer & Browser Native Keyboard Press', () => {
 
       const port = new BrowserControlPort(mockHost);
       await assert.rejects(
-        () => port.keyboardPress({ key: 'Escape' }),
+        () => port.keyboardPress({ key: 'Escape', tabId: 'tab-active' }),
         (err: unknown) => err instanceof CapabilityError && err.code === 'CAPABILITY_NOT_FOUND',
       );
     });
@@ -209,9 +208,18 @@ describe('Keyboard Normalizer & Browser Native Keyboard Press', () => {
       const port = new BrowserControlPort(mockHost);
       registerBrowserCapabilities(catalogue, port);
 
+      const browserTarget = {
+        projectId,
+        workspaceId,
+        runtimeId: lease.runtimeId,
+        tabId: 'tab-active',
+        browserEpoch: 1,
+        documentGeneration: 1,
+      };
+
       // Verify write capability requires write grant
       await assert.rejects(
-        () => catalogue.dispatch('browser.keyboard-press', { key: 'Tab' }, { lease, leaseToken: lease.token, projectId, workspaceId, grant: 'read' }),
+        () => catalogue.dispatch('browser.keyboard-press', { key: 'Tab' }, { lease, leaseToken: lease.token, projectId, workspaceId, browserTarget, grant: 'read' }),
         (err: unknown) => err instanceof CapabilityError && err.code === 'POLICY_DENIED',
       );
 
@@ -219,7 +227,7 @@ describe('Keyboard Normalizer & Browser Native Keyboard Press', () => {
       const result = (await catalogue.dispatch(
         'browser.keyboard-press',
         { key: 'Tab', modifiers: ['shift'] },
-        { lease, leaseToken: lease.token, projectId, workspaceId, grant: 'write' },
+        { lease, leaseToken: lease.token, projectId, workspaceId, browserTarget, grant: 'write' },
       )) as { success: boolean; key: string };
       assert.strictEqual(result.success, true);
       assert.strictEqual(hostKeyReceived, 'Tab');
@@ -229,7 +237,7 @@ describe('Keyboard Normalizer & Browser Native Keyboard Press', () => {
       const aliasResult = (await catalogue.dispatch(
         'antifan_keyboard_press',
         { key: 'Escape' },
-        { lease, leaseToken: lease.token, projectId, workspaceId, grant: 'write' },
+        { lease, leaseToken: lease.token, projectId, workspaceId, browserTarget, grant: 'write' },
       )) as { success: boolean; key: string };
       assert.strictEqual(aliasResult.success, true);
       assert.strictEqual(hostKeyReceived, 'Escape');

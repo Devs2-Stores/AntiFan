@@ -564,27 +564,27 @@ describe('Capability catalogue', () => {
     const browser = new BrowserControlPort(mockHost);
 
     // Valid boundaries
-    const minZoom = browser.setZoom({ zoomFactor: 0.25 });
+    const minZoom = browser.setZoom({ zoomFactor: 0.25, tabId: 'tab-active' });
     assert.strictEqual(minZoom.success, true);
     assert.strictEqual(minZoom.zoomFactor, 0.25);
     assert.strictEqual(currentZoom, 0.25);
 
-    const maxZoom = browser.setZoom({ zoomFactor: 5.0 });
+    const maxZoom = browser.setZoom({ zoomFactor: 5.0, tabId: 'tab-active' });
     assert.strictEqual(maxZoom.success, true);
     assert.strictEqual(maxZoom.zoomFactor, 5.0);
     assert.strictEqual(currentZoom, 5.0);
 
-    const midZoom = browser.setZoom({ zoomFactor: 1.5 });
+    const midZoom = browser.setZoom({ zoomFactor: 1.5, tabId: 'tab-active' });
     assert.strictEqual(midZoom.success, true);
     assert.strictEqual(midZoom.zoomFactor, 1.5);
     assert.strictEqual(currentZoom, 1.5);
 
     // Out of bounds: < 0.25, > 5.0, negative, zero, NaN
-    assert.throws(() => browser.setZoom({ zoomFactor: 0.24 }), (err: { code?: string }) => err.code === 'INVALID_ARGUMENT');
-    assert.throws(() => browser.setZoom({ zoomFactor: 5.01 }), (err: { code?: string }) => err.code === 'INVALID_ARGUMENT');
-    assert.throws(() => browser.setZoom({ zoomFactor: -1 }), (err: { code?: string }) => err.code === 'INVALID_ARGUMENT');
-    assert.throws(() => browser.setZoom({ zoomFactor: 0 }), (err: { code?: string }) => err.code === 'INVALID_ARGUMENT');
-    assert.throws(() => browser.setZoom({ zoomFactor: NaN }), (err: { code?: string }) => err.code === 'INVALID_ARGUMENT');
+    assert.throws(() => browser.setZoom({ zoomFactor: 0.24, tabId: 'tab-active' }), (err: { code?: string }) => err.code === 'INVALID_ARGUMENT');
+    assert.throws(() => browser.setZoom({ zoomFactor: 5.01, tabId: 'tab-active' }), (err: { code?: string }) => err.code === 'INVALID_ARGUMENT');
+    assert.throws(() => browser.setZoom({ zoomFactor: -1.0, tabId: 'tab-active' }), (err: { code?: string }) => err.code === 'INVALID_ARGUMENT');
+    assert.throws(() => browser.setZoom({ zoomFactor: 0, tabId: 'tab-active' }), (err: { code?: string }) => err.code === 'INVALID_ARGUMENT');
+    assert.throws(() => browser.setZoom({ zoomFactor: NaN, tabId: 'tab-active' }), (err: { code?: string }) => err.code === 'INVALID_ARGUMENT');
   });
 
   it('unconditionally forwards resolved target tabId to host for non-active target tabs', async () => {
@@ -724,5 +724,76 @@ describe('Capability catalogue', () => {
         `Missing browserTarget must reject ${capName} with TARGET_REQUIRED`
       );
     }
+  });
+
+  it('creates isolated automation tab and enforces strict full BrowserTarget for capability execution', async () => {
+    let automationTab: string | null = null;
+    const tabs: Array<{ id: string; url: string }> = [
+      { id: 'tab-user-active', url: 'https://user-website.com' },
+    ];
+    let createdUrl: string | undefined;
+    let createdActivate: boolean | undefined;
+
+    const mockHost = {
+      getTabList: () => tabs,
+      getActiveTabId: () => 'tab-user-active',
+      getAutomationTabId: () => automationTab,
+      setAutomationTabId: (id?: string) => { automationTab = id || null; },
+      createTab: (url = 'about:blank', activate = false) => {
+        createdUrl = url;
+        createdActivate = activate;
+        const newId = `tab-agent-auto-${tabs.length + 1}`;
+        tabs.push({ id: newId, url });
+        return newId;
+      },
+      navigate: (tabId: string, url: string) => {
+        const t = tabs.find((x) => x.id === tabId);
+        if (t) t.url = url;
+        return true;
+      },
+      captureScreenshot: async (_rect?: unknown, tabId?: string) => {
+        return `screenshot-of-${tabId}`;
+      },
+    };
+
+    const browser = new BrowserControlPort(mockHost as any);
+
+    // 1. openTab creates a new tab in the background without activating it
+    const { tabId: openedTabId } = browser.openTab({ url: 'https://test-doc.org' });
+    assert.strictEqual(openedTabId, 'tab-agent-auto-2');
+    assert.strictEqual(createdActivate, false);
+    assert.strictEqual(automationTab, 'tab-agent-auto-2');
+    assert.strictEqual(mockHost.getActiveTabId(), 'tab-user-active'); // User's active tab is untouched
+
+    // 2. Target with missing/empty fields strictly fails closed with TARGET_REQUIRED or TARGET_STALE
+    assert.throws(
+      () => browser.navigate({} as any, 'https://new-url.com'),
+      (error: unknown) => error instanceof CapabilityError && error.code === 'TARGET_REQUIRED'
+    );
+    assert.throws(
+      () => browser.navigate({ projectId: 'p-1', workspaceId: 'w-1', runtimeId: 'b-1' } as any, 'https://new-url.com'),
+      (error: unknown) => error instanceof CapabilityError && error.code === 'TARGET_REQUIRED'
+    );
+    assert.throws(
+      () => browser.navigate({ projectId: 'p-1', workspaceId: 'w-1', runtimeId: 'b-1', tabId: openedTabId, browserEpoch: 0, documentGeneration: 1 } as any, 'https://new-url.com'),
+      (error: unknown) => error instanceof CapabilityError && error.code === 'TARGET_STALE'
+    );
+
+    // 3. Full authoritative BrowserTarget bound to openedTabId executes correctly on the isolated tab
+    const validTarget: BrowserTarget = {
+      projectId: makeControlPlaneId('project'),
+      workspaceId: makeControlPlaneId('workspace'),
+      runtimeId: makeControlPlaneId('binding'),
+      tabId: openedTabId,
+      browserEpoch: 1,
+      documentGeneration: 1,
+    };
+    const navResult = browser.navigate(validTarget, 'https://new-url.com');
+    assert.strictEqual(navResult.target.tabId, 'tab-agent-auto-2');
+    assert.strictEqual(tabs.find((x) => x.id === 'tab-agent-auto-2')?.url, 'https://new-url.com');
+    assert.strictEqual(tabs.find((x) => x.id === 'tab-user-active')?.url, 'https://user-website.com'); // User tab was NOT touched!
+
+    const screenshot = await browser.screenshot(validTarget, 'run-1', 'att-1');
+    assert.strictEqual(screenshot, 'screenshot-of-tab-agent-auto-2');
   });
 });

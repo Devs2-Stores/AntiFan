@@ -3,6 +3,8 @@ import { BrowserTarget, CapabilityError, ArtifactRef, assertExactBrowserTarget, 
 export interface BrowserHostPort {
   getTabList(): unknown[];
   getActiveTabId?(): string;
+  getAutomationTabId?(): string | null;
+  setAutomationTabId?(tabId?: string): void;
   createTab?(url?: string, activate?: boolean): string;
   closeTab?(tabId: string): boolean;
   switchTab?(tabId: string): boolean;
@@ -74,7 +76,11 @@ export class BrowserControlPort {
 
   openTab(options: { url?: string; activate?: boolean } = {}): { tabId: string } {
     if (!this.host.createTab) throw new CapabilityError('CAPABILITY_NOT_FOUND', 'createTab is not supported by host');
-    return { tabId: this.host.createTab(options.url, false) };
+    const tabId = this.host.createTab(options.url || 'about:blank', options.activate ?? false);
+    if (this.host.setAutomationTabId) {
+      this.host.setAutomationTabId(tabId);
+    }
+    return { tabId };
   }
   closeTab(tabId: string): { closed: boolean } {
     if (!this.host.closeTab) throw new CapabilityError('CAPABILITY_NOT_FOUND', 'closeTab is not supported by host');
@@ -218,9 +224,9 @@ export class BrowserControlPort {
     return { inspecting: this.host.toggleInspect() };
   }
   private resolveTargetTab(target?: BrowserTarget, explicitTabId?: string): string {
-    const resolved = explicitTabId ?? target?.tabId ?? (this.host.getActiveTabId ? this.host.getActiveTabId() : undefined);
+    const resolved = explicitTabId ?? target?.tabId;
     if (!resolved) {
-      throw new CapabilityError('INVALID_ARGUMENT', 'No tab ID specified and no active target bound');
+      throw new CapabilityError('TARGET_REQUIRED', 'Browser target tabId is required');
     }
     if (!this.host.getTabList().some((tab: any) => tab && tab.id === resolved)) {
       throw new CapabilityError('CAPABILITY_NOT_FOUND', `Unknown tab ID: ${resolved}`);
@@ -231,7 +237,6 @@ export class BrowserControlPort {
     }
     return resolved;
   }
-
   private assertCurrent(target: BrowserTarget): void {
     if (this.host.isCurrentTarget && !this.host.isCurrentTarget(target)) throw new CapabilityError('TARGET_STALE', 'Browser target no longer matches the current tab document');
   }

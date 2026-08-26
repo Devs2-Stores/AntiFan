@@ -1329,6 +1329,9 @@ export class NativeTabHost extends EventEmitter {
     }
     return tab.view.webContents.isDestroyed() ? null : tab.view.webContents;
   }
+  public getAutomationTabId(): string | null {
+    return this.automationTabId;
+  }
   public setAutomationTabId(tabId?: string): void {
     const nextTabId = tabId && this.tabs.has(tabId) ? tabId : null;
     if (nextTabId === this.automationTabId) return;
