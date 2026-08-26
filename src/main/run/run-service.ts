@@ -53,7 +53,9 @@ export class RunService {
     private readonly receipts: ReceiptStore,
     private readonly getWorkspaceRoot: (workspaceId: string, projectId: string) => string,
     attachments?: AttachmentRegistry,
-    private readonly getHostEpoch: () => number = () => 1
+    private readonly getHostEpoch: () => number = () => 1,
+    private readonly getDocumentGeneration?: (tabId?: string) => number,
+    private readonly getAutomationTabId?: () => string | null
   ) {
     this.attachments =
       attachments ||
@@ -62,6 +64,8 @@ export class RunService {
         getHostEpoch: () => this.getHostEpoch(),
         getBackendId: (attemptId) => this.attempts.get(attemptId)?.backendId,
         getProcessPid: (_runId, attemptId) => this.attemptPids.get(attemptId),
+        getDocumentGeneration: (tabId) => (this.getDocumentGeneration ? this.getDocumentGeneration(tabId) : 1),
+        getAutomationTabId: () => (this.getAutomationTabId ? this.getAutomationTabId() : null),
       });
   }
 

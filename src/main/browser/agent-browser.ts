@@ -35,8 +35,8 @@ export const AGENT_BROWSER_SCRIPT = `(() => {
           pointer-events: none !important;
           z-index: 2147483646 !important;
           overflow: hidden !important;
-          box-shadow: inset 0 0 36px 6px rgba(0, 240, 255, 0.45), inset 0 0 12px 2px rgba(56, 189, 248, 0.75) !important;
-          border: 2.5px solid rgba(0, 240, 255, 0.85) !important;
+          border: none !important;
+          box-shadow: none !important;
           box-sizing: border-box !important;
           opacity: 0 !important;
           transition: opacity 0.4s ease !important;

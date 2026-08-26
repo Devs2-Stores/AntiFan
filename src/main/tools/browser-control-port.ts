@@ -31,6 +31,8 @@ export interface BrowserHostPort {
   setZoom?(tabId: string, zoomFactor: number): boolean;
   toggleInspect?(): boolean;
   isCurrentTarget?(target: BrowserTarget): boolean;
+  clearAllAgentWorking?(): void;
+  getDocumentGeneration?(tabId?: string): number;
 }
 
 export interface BrowserArtifactSink {
@@ -48,7 +50,9 @@ export class BrowserControlPort {
   navigate(target: BrowserTarget, url: string, explicitTabId?: string): { navigated: boolean; target: BrowserTarget } {
     const tabId = this.resolveTargetTab(target, explicitTabId);
     if (!url || !/^https?:\/\//i.test(url)) throw new CapabilityError('INVALID_ARGUMENT', 'Navigation requires an http(s) URL');
-    return { navigated: this.host.navigate(tabId, url), target: { ...target, tabId } };
+    const navigated = this.host.navigate(tabId, url);
+    const docGen = this.host.getDocumentGeneration ? this.host.getDocumentGeneration(tabId) : (target.documentGeneration || 1);
+    return { navigated, target: { ...target, tabId, documentGeneration: docGen } };
   }
 
   reload(target: BrowserTarget, explicitTabId?: string): { reloaded: boolean; target: BrowserTarget } {
@@ -222,6 +226,10 @@ export class BrowserControlPort {
   toggleInspect(): { inspecting: boolean } {
     if (!this.host.toggleInspect) throw new CapabilityError('CAPABILITY_NOT_FOUND', 'toggleInspect is not supported by host');
     return { inspecting: this.host.toggleInspect() };
+  }
+  clearAllAgentWorking(): { cleared: boolean } {
+    if (this.host.clearAllAgentWorking) this.host.clearAllAgentWorking();
+    return { cleared: true };
   }
   private resolveTargetTab(target?: BrowserTarget, explicitTabId?: string): string {
     if (target) {

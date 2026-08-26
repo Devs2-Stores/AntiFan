@@ -439,4 +439,12 @@ describe('Element Picker Resolution & Artifact Upgrades', () => {
       fs.rmSync(tempDir, { recursive: true, force: true });
     } catch {}
   });
+
+  it('ELEMENT_PICKER_SCRIPT executes cleanly without reference errors', () => {
+    assert.doesNotThrow(() => {
+      new Function(ELEMENT_PICKER_SCRIPT);
+    });
+    assert.ok(ELEMENT_PICKER_SCRIPT.includes('antifan-comment-modal'));
+    assert.ok(ELEMENT_PICKER_SCRIPT.includes('selectorName'));
+  });
 });

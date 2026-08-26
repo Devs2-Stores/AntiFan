@@ -22,6 +22,11 @@
             </svg>
           </div>
           <span class="wt-tab-title">PowerShell</span>
+          <button class="wt-tab-vscode" id="btnTabVSCode" title="Mở thư mục Terminal này trong VS Code (Open in VS Code)">
+            <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M14 2.5v11l-4.5-2.1L6 13.5V2.5l3.5 2.1L14 2.5z"/><path d="M2 4.5v7"/>
+            </svg>
+          </button>
           <button class="wt-tab-close" id="btnTabClose" title="Close Pane">✕</button>
         </div>
         <button class="wt-tab-new-btn" id="btnTabNew" title="New Terminal (Ctrl+Shift+`)">+</button>
@@ -40,6 +45,15 @@
             <span>Git Bash</span>
           </div>
           <div class="wt-shell-sep"></div>
+          <div class="wt-shell-item" data-shell="vscode" title="Mở thư mục Terminal trong VS Code">
+            <span class="wt-shell-icon" style="color:#38bdf8;">
+              <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M14 2.5v11l-4.5-2.1L6 13.5V2.5l3.5 2.1L14 2.5z"/><path d="M2 4.5v7"/>
+              </svg>
+            </span>
+            <span>Open in VS Code</span>
+          </div>
+          <div class="wt-shell-sep"></div>
           <div class="wt-shell-item" data-shell="restart">
             <span class="wt-shell-icon">🔄</span>
             <span>Restart Terminal</span>
@@ -53,6 +67,11 @@
 
       <!-- QUICK CHIP ACTIONS (Antigravity & Haravan Tools) -->
       <div class="wt-quick-actions">
+        <button class="wt-chip-btn wt-chip-vscode" id="btnChipVSCode" title="Mở Workspace / CWD trong VS Code">
+          <svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:3px;">
+            <path d="M14 2.5v11l-4.5-2.1L6 13.5V2.5l3.5 2.1L14 2.5z"/><path d="M2 4.5v7"/>
+          </svg>VS Code
+        </button>
         <button class="wt-chip-btn" data-cmd="hrv theme dev">⚡ hrv theme dev</button>
         <button class="wt-chip-btn" data-cmd="npm run dev">▶ npm run dev</button>
         <button class="wt-chip-btn" data-cmd="git status">git status</button>
@@ -61,6 +80,11 @@
 
       <!-- RIGHT WINDOW CONTROLS -->
       <div class="wt-controls">
+        <button id="btnTerminalVSCode" class="wt-ctrl-btn" title="Open Workspace in VS Code (Ctrl+Shift+E)">
+          <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M14 2.5v11l-4.5-2.1L6 13.5V2.5l3.5 2.1L14 2.5z"/><path d="M2 4.5v7"/>
+          </svg>
+        </button>
         <button id="btnTerminalRestart" class="wt-ctrl-btn" title="Restart PowerShell">🔄</button>
         <button id="btnTerminalKill" class="wt-ctrl-btn" title="Stop Current Process (Ctrl+C)">⏹</button>
         <button id="btnTerminalClear" class="wt-ctrl-btn" title="Clear Screen (cls)">🗑️</button>
@@ -79,6 +103,7 @@
           <span class="wt-cursor">█</span>
         </div>
       </div>
+      <div id="wtToast" class="wt-toast" style="display:none;"></div>
     </div>
   </div>
 

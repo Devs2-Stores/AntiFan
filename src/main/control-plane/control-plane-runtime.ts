@@ -26,6 +26,8 @@ export interface ControlPlaneRuntimeOptions {
   allowEval?: boolean;
   projects?: ProjectRegistry;
   workspaces?: WorkspaceRegistry;
+  getDocumentGeneration?: (tabId?: string) => number;
+  getAutomationTabId?: () => string | null;
 }
 
 export class ControlPlaneRuntime {
@@ -58,7 +60,9 @@ export class ControlPlaneRuntime {
         return this.workspaces.get(wsId, pId).rootPath;
       },
       undefined,
-      () => this.leaseState.hostEpoch
+      () => this.leaseState.hostEpoch,
+      options.getDocumentGeneration,
+      options.getAutomationTabId
     );
     this.files = new WorkspaceFilePort();
     this.workspaceRoot = options.workspaceRoot || path.resolve(options.dataRoot, '..');

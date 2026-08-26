@@ -19,6 +19,8 @@ export interface AttachmentValidatorDelegate {
   getHostEpoch?: () => number;
   getProcessPid?: (runId: string, attemptId: string) => number | undefined;
   getBackendId?: (attemptId: string) => string | undefined;
+  getDocumentGeneration?: (tabId?: string) => number;
+  getAutomationTabId?: () => string | null;
 }
 export interface IssueAttachmentOptions {
   chatId?: string;
@@ -230,13 +232,28 @@ export class AttachmentRegistry {
       expiresAt: Math.max(record.lease.expiresAt, record.expiresAt),
     };
 
-    const effectiveBrowserTarget: BrowserTarget = record.browserTarget || {
+    let targetTabId = record.tabId || '';
+    if (!targetTabId && this.delegate?.getAutomationTabId) {
+      targetTabId = this.delegate.getAutomationTabId() || '';
+    }
+    let docGen = record.documentGeneration || 1;
+    if (targetTabId && this.delegate?.getDocumentGeneration) {
+      const dynamicGen = this.delegate.getDocumentGeneration(targetTabId);
+      if (typeof dynamicGen === 'number' && dynamicGen > 0) {
+        docGen = dynamicGen;
+      }
+    }
+    const effectiveBrowserTarget: BrowserTarget = record.browserTarget ? {
+      ...record.browserTarget,
+      tabId: targetTabId || record.browserTarget.tabId,
+      documentGeneration: docGen,
+    } : {
       projectId: record.projectId,
       workspaceId: record.workspaceId,
       runtimeId: record.lease.runtimeId,
-      tabId: record.tabId || '',
+      tabId: targetTabId,
       browserEpoch: record.browserEpoch || record.hostEpoch || 1,
-      documentGeneration: record.documentGeneration || 1,
+      documentGeneration: docGen,
     };
 
     return {
@@ -254,6 +271,24 @@ export class AttachmentRegistry {
       browserTarget: effectiveBrowserTarget,
       grant: record.grant || claims.grant,
     };
+  }
+  updateAttachmentTab(attachmentId: string, tabId: string, documentGeneration?: number): boolean {
+    const record = this.records.get(attachmentId);
+    if (!record) return false;
+    record.tabId = tabId;
+    if (typeof documentGeneration === 'number') {
+      record.documentGeneration = documentGeneration;
+    }
+    if (record.browserTarget) {
+      record.browserTarget.tabId = tabId;
+      if (typeof documentGeneration === 'number') {
+        record.browserTarget.documentGeneration = documentGeneration;
+      }
+    }
+    return true;
+  }
+  getAttachment(attachmentId: string): ExecutionAttachmentRecord | undefined {
+    return this.records.get(attachmentId);
   }
 
   verifyConnectionToken(token: string): string | null {

@@ -146,11 +146,20 @@ async function createWindow(): Promise<void> {
   tabHost = new NativeTabHost(mainWindow, capsuleManager || undefined);
   const projectId = validateControlPlaneId(process.env.ANTIFAN_PROJECT_ID || 'project-00000000-0000-4000-8000-000000000001', 'project');
   const workspaceId = validateControlPlaneId(process.env.ANTIFAN_WORKSPACE_ID || 'workspace-00000000-0000-4000-8000-000000000001', 'workspace');
-  controlPlane = new ControlPlaneRuntime({ projectId, workspaceId, dataRoot: path.join(persistentUserData, 'control-plane-v2'), allowEval: IS_MCP_HIGH_RISK });
+  controlPlane = new ControlPlaneRuntime({
+    projectId,
+    workspaceId,
+    dataRoot: path.join(persistentUserData, 'control-plane-v2'),
+    allowEval: IS_MCP_HIGH_RISK,
+    getDocumentGeneration: (tabId) => tabHost!.getDocumentGeneration(tabId),
+    getAutomationTabId: () => tabHost!.getAutomationTabId(),
+  });
   tabHost.setControlPlane(controlPlane);
   controlPlane.registerBrowser(new BrowserControlPort({
     getTabList: () => tabHost!.getTabList(),
     getActiveTabId: () => tabHost!.getActiveTabId(),
+    getAutomationTabId: () => tabHost!.getAutomationTabId(),
+    setAutomationTabId: (tabId) => tabHost!.setAutomationTabId(tabId),
     createTab: (url, activate = false) => tabHost!.createTab(url, activate),
     closeTab: (tabId) => tabHost!.closeTab(tabId),
     switchTab: (tabId) => tabHost!.switchTab(tabId),
@@ -177,6 +186,8 @@ async function createWindow(): Promise<void> {
     setZoom: (tabId, zoomFactor) => tabHost!.setZoom(tabId, zoomFactor),
     toggleInspect: () => tabHost!.toggleInspect(),
     isCurrentTarget: (target) => tabHost!.isCurrentTarget(target),
+    clearAllAgentWorking: () => tabHost!.clearAllAgentWorking(),
+    getDocumentGeneration: (tabId) => tabHost!.getDocumentGeneration(tabId),
   }));
   const capabilityTransport = new CapabilityTransportAdapter(controlPlane.capabilities);
 

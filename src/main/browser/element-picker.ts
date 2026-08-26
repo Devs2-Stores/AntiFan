@@ -647,6 +647,14 @@ export const ELEMENT_PICKER_SCRIPT = `(() => {
     overlay.style.display = 'block';
     badge.style.display = 'none';
 
+    let selectorName = el.tagName ? el.tagName.toLowerCase() : 'element';
+    if (el.id) {
+      selectorName += '#' + el.id;
+    } else if (el.className && typeof el.className === 'string') {
+      const cls = el.className.trim().split(/\\s+/).filter(Boolean)[0];
+      if (cls && !cls.includes(':')) selectorName += '.' + cls;
+    }
+
     const modal = document.createElement('div');
     modal.id = MODAL_ID;
     modal.style.cssText = 'position:fixed;z-index:2147483647;box-sizing:border-box;background:#0b111b;color:#e5eef8;border:1px solid #2c6d98;border-radius:10px;padding:10px 11px;box-shadow:0 14px 36px rgba(0,0,0,0.72),0 0 0 1px rgba(88,180,232,.08);width:310px;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;font-size:12px;display:flex;flex-direction:column;gap:8px;';

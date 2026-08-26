@@ -172,11 +172,29 @@ function initFrameBackdrop() {
     });
   }
 
+  let agentWorkingWatchdogTimer: number | null = null;
+  function resetAgentWorkingVisuals() {
+    document.body.classList.remove('agent-working');
+    if (laptopMockup) laptopMockup.classList.remove('agent-working');
+    if (phoneMockup) phoneMockup.classList.remove('agent-working');
+    if (glowLeft) glowLeft.classList.remove('agent-working');
+    if (glowRight) glowRight.classList.remove('agent-working');
+  }
 
   function applyLayout(payload: FrameUpdatePayload) {
     const isAgentActive = Boolean(payload.agentWorking);
-    document.body.classList.toggle('agent-working', isAgentActive);
-
+    if (agentWorkingWatchdogTimer !== null) {
+      window.clearTimeout(agentWorkingWatchdogTimer);
+      agentWorkingWatchdogTimer = null;
+    }
+    if (isAgentActive) {
+      document.body.classList.add('agent-working');
+      agentWorkingWatchdogTimer = window.setTimeout(() => {
+        resetAgentWorkingVisuals();
+      }, 7000);
+    } else {
+      resetAgentWorkingVisuals();
+    }
     if (!payload.splitMode) {
       if (laptopMockup) {
         laptopMockup.style.display = 'none';
@@ -250,13 +268,14 @@ function initFrameBackdrop() {
         laptopAmbientShadow.style.height = `32px`;
       }
 
-      // Studio Glow Left
+      // Studio Glow Left (only visible when Agent is interacting)
       if (glowLeft) {
-        glowLeft.style.display = 'block';
+        glowLeft.style.display = isAgentActive ? 'block' : 'none';
         glowLeft.style.left = `${df.frameX + df.frameWidth * 0.2}px`;
         glowLeft.style.top = `${df.frameY + df.frameHeight * 0.2}px`;
         glowLeft.style.width = `${df.frameWidth * 0.6}px`;
         glowLeft.style.height = `${df.frameHeight * 0.6}px`;
+        glowLeft.classList.toggle('agent-working', isAgentActive);
       }
     }
 
@@ -293,6 +312,13 @@ function initFrameBackdrop() {
         const visualScreenRadius = Math.round(rawScreenRadius * mf.scale);
         const outerChassisRadius = rawScreenRadius > 0 ? Math.max(14, visualScreenRadius + (mf.bezelSide || 12)) : 10;
         phoneBody.style.borderRadius = `${outerChassisRadius}px`;
+        const innerBezelRadius = Math.max(0, outerChassisRadius - 2.5);
+        if (phoneTopBezel) {
+          phoneTopBezel.style.borderRadius = `${innerBezelRadius}px ${innerBezelRadius}px 0 0`;
+        }
+        if (phoneBottomBezel) {
+          phoneBottomBezel.style.borderRadius = `0 0 ${innerBezelRadius}px ${innerBezelRadius}px`;
+        }
       }
 
       // Ambient Shadow Under Phone
@@ -303,13 +329,14 @@ function initFrameBackdrop() {
         phoneAmbientShadow.style.height = `30px`;
       }
 
-      // Studio Glow Right
+      // Studio Glow Right (only visible when Agent is interacting)
       if (glowRight) {
-        glowRight.style.display = 'block';
+        glowRight.style.display = isAgentActive ? 'block' : 'none';
         glowRight.style.left = `${mf.frameX + mf.frameWidth * 0.1}px`;
         glowRight.style.top = `${mf.frameY + mf.frameHeight * 0.2}px`;
         glowRight.style.width = `${mf.frameWidth * 0.8}px`;
         glowRight.style.height = `${mf.frameHeight * 0.6}px`;
+        glowRight.classList.toggle('agent-working', isAgentActive);
       }
     }
   }

@@ -157,7 +157,6 @@ const mobileRemoteQrContainer = document.getElementById('mobileRemoteQrContainer
 const mobileRemoteUrlsList = document.getElementById('mobileRemoteUrlsList')!;
 const btnDevTools = document.getElementById('btnDevTools') as HTMLButtonElement;
 const btnToggleSidebar = document.getElementById('btnToggleSidebar') as HTMLButtonElement;
-const btnOpenInVSCode = document.getElementById('btnOpenInVSCode') as HTMLButtonElement;
 const btnChromeProfile = document.getElementById('btnChromeProfile') as HTMLButtonElement;
 const profileAvatar = document.getElementById('profileAvatar')!;
 const profileName = document.getElementById('profileName')!;
@@ -1244,14 +1243,6 @@ document.getElementById('menuItemOpenSystemBrowser')?.addEventListener('click', 
   e.stopPropagation();
   closeAppMenu();
   getApi()?.openExternal();
-});
-document.getElementById('btnOpenInVSCode')?.addEventListener('click', async () => {
-  const result = await getApi()?.openInVSCode();
-  if (result?.ok) {
-    showToolbarToast(`Đã mở Workspace trong VS Code: ${result.workspacePath}`);
-  } else {
-    showToolbarToast(`Không thể mở VS Code: ${result?.error || 'Không xác định'}`);
-  }
 });
 
 document.getElementById('menuItemDevTools')?.addEventListener('click', (e) => {

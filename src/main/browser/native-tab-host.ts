@@ -711,10 +711,13 @@ export class NativeTabHost extends EventEmitter {
       TerminalManager.getInstance().kill();
       return true;
     });
-
     ipcMain.handle(TERMINAL_CHANNELS.RESTART, (_event, cwd?: string) => {
       TerminalManager.getInstance().restart(cwd);
       return true;
+    });
+
+    ipcMain.handle(TERMINAL_CHANNELS.OPEN_IN_VSCODE, (_event, cwd?: string) => {
+      return this.openInVSCode(cwd);
     });
 
     ipcMain.handle(TERMINAL_CHANNELS.RESIZE, (_event, { cols, rows }: { cols: number; rows: number }) => {
@@ -927,9 +930,20 @@ export class NativeTabHost extends EventEmitter {
       return { ok: true, workspacePath: fallback };
     });
   }
-  private openInVSCode(): { ok: boolean; error?: string; workspacePath?: string } {
-    const activeTab = this.tabs.get(this.activeTabId);
-    const workspacePath = this.resolveTargetWorkspace(undefined, activeTab?.state.url);
+  private openInVSCode(targetPath?: string): { ok: boolean; error?: string; workspacePath?: string } {
+    let workspacePath = targetPath;
+    if (!workspacePath || !fs.existsSync(workspacePath)) {
+      const activeSessionId = TerminalManager.getInstance().getActiveSessionId();
+      const activeSession = activeSessionId ? TerminalManager.getInstance().getSession(activeSessionId) : undefined;
+      if (activeSession?.cwd && fs.existsSync(activeSession.cwd)) {
+        workspacePath = activeSession.cwd;
+      } else if (TerminalManager.getInstance().getCurrentCwd() && fs.existsSync(TerminalManager.getInstance().getCurrentCwd())) {
+        workspacePath = TerminalManager.getInstance().getCurrentCwd();
+      } else {
+        const activeTab = this.tabs.get(this.activeTabId);
+        workspacePath = this.resolveTargetWorkspace(undefined, activeTab?.state.url);
+      }
+    }
     if (!workspacePath || !fs.existsSync(workspacePath)) {
       return { ok: false, error: 'Workspace not found' };
     }
@@ -946,7 +960,6 @@ export class NativeTabHost extends EventEmitter {
       return { ok: false, error: error instanceof Error ? error.message : String(error) };
     }
   }
-
   private setupSidebarIpc(): void {
     ipcMain.handle(SIDEBAR_CHANNELS.GET_INITIAL_STATE, () => {
       const activeTab = this.tabs.get(this.activeTabId);
@@ -1579,6 +1592,11 @@ export class NativeTabHost extends EventEmitter {
         timestamp: Date.now(),
       });
     });
+    wc.on('did-start-navigation', (_event, _url, isInPlace, isMainFrame) => {
+      if (isMainFrame && !isInPlace && paneId === 'desktop') {
+        this.documentGenerations.set(id, (this.documentGenerations.get(id) || 0) + 1);
+      }
+    });
 
     wc.on('did-fail-load', (_event, errorCode, errorDescription, validatedURL, isMainFrame) => {
       this.diagnosticsManager.recordFailure(id, {
@@ -1592,9 +1610,6 @@ export class NativeTabHost extends EventEmitter {
     });
 
     wc.on('did-finish-load', () => {
-      if (paneId === 'desktop') {
-        this.documentGenerations.set(id, (this.documentGenerations.get(id) || 0) + 1);
-      }
       this.appliedClipRadius.delete(wc);
       wc.session.cookies.flushStore().catch(() => {});
       this.injectAutoJsonViewer(wc);
@@ -1954,43 +1969,6 @@ export class NativeTabHost extends EventEmitter {
       try {
         if (typeof window.__antifanAgentActive === 'function') {
           window.__antifanAgentActive();
-        } else {
-          let style = document.getElementById('__antifan_agent_glow_style__');
-          if (!style) {
-            style = document.createElement('style');
-            style.id = '__antifan_agent_glow_style__';
-            style.textContent = \`
-              @keyframes antifan_cyan_glow_pulse {
-                0% { box-shadow: inset 0 0 32px 4px rgba(0, 240, 255, 0.55), inset 0 0 10px 2px rgba(56, 189, 248, 0.85); border-color: rgba(0, 240, 255, 0.95); }
-                100% { box-shadow: inset 0 0 54px 8px rgba(0, 240, 255, 0.85), inset 0 0 16px 4px rgba(56, 189, 248, 1); border-color: #00f0ff; }
-              }
-              #__antifan_agent_overlay__ {
-                position: fixed !important;
-                top: 0 !important;
-                left: 0 !important;
-                width: 100vw !important;
-                height: 100vh !important;
-                pointer-events: none !important;
-                z-index: 2147483646 !important;
-                overflow: hidden !important;
-                box-shadow: inset 0 0 36px 6px rgba(0, 240, 255, 0.55), inset 0 0 12px 2px rgba(56, 189, 248, 0.85) !important;
-                border: 3px solid rgba(0, 240, 255, 0.9) !important;
-                box-sizing: border-box !important;
-                opacity: 1 !important;
-                animation: antifan_cyan_glow_pulse 1.2s ease-in-out infinite alternate !important;
-                transition: opacity 0.3s ease !important;
-              }
-            \`;
-            (document.head || document.documentElement).appendChild(style);
-          }
-          let ov = document.getElementById('__antifan_agent_overlay__');
-          if (!ov) {
-            ov = document.createElement('div');
-            ov.id = '__antifan_agent_overlay__';
-            (document.body || document.documentElement).appendChild(ov);
-          } else {
-            ov.classList.add('active');
-          }
         }
       } catch {}
     })()`;
@@ -2010,9 +1988,6 @@ export class NativeTabHost extends EventEmitter {
       try {
         if (typeof window.__antifanAgentClear === 'function') {
           window.__antifanAgentClear();
-        } else {
-          const ov = document.getElementById('__antifan_agent_overlay__');
-          if (ov) ov.classList.remove('active');
         }
       } catch {}
     })()`;
@@ -2104,6 +2079,21 @@ export class NativeTabHost extends EventEmitter {
     if (!tab) return;
     tab.state.aiState = aiState;
     this.broadcastState();
+  }
+  public clearAllAgentWorking(): void {
+    for (const [, timer] of this.agentWorkingTimers.entries()) {
+      clearTimeout(timer);
+    }
+    this.agentWorkingTimers.clear();
+    this.agentWorkingRefs.clear();
+    for (const [tabId, tab] of this.tabs.entries()) {
+      if (tab.state.aiState === 'agent_working') {
+        tab.state.aiState = 'idle';
+      }
+      this.deactivateAgentVisualGlow(tabId);
+    }
+    this.broadcastState();
+    this.syncFrameBackdrop();
   }
 
   public closeTab(tabId: string): boolean {
@@ -2210,7 +2200,6 @@ export class NativeTabHost extends EventEmitter {
   public navigate(tabId: string, inputUrl: string): boolean {
     const tab = this.tabs.get(tabId);
     if (!tab) return false;
-    this.markTabAgentWorking(tabId, 2500);
     const cleanUrl = sanitizeUrl(inputUrl);
     tab.state.url = cleanUrl;
     if (cleanUrl.startsWith('view-source:')) {
@@ -2235,7 +2224,6 @@ export class NativeTabHost extends EventEmitter {
   public reload(tabId: string): boolean {
     const tab = this.tabs.get(tabId);
     if (!tab) return false;
-    this.markTabAgentWorking(tabId, 2500);
     if (tab.state.splitMode && tab.mobileView && !tab.mobileView.webContents.isDestroyed()) {
       if (!tab.view.webContents.isDestroyed()) {
         tab.view.webContents.reload();
@@ -2633,10 +2621,8 @@ export class NativeTabHost extends EventEmitter {
   public setDevicePreset(tabId: string, presetId: string): boolean {
     const tab = this.tabs.get(tabId);
     if (!tab) return false;
-    this.markTabAgentWorking(tabId, 2500);
     tab.state.devicePresetId = presetId;
     this.updateLayout();
-    this.broadcastState();
     return true;
   }
 
@@ -4247,10 +4233,8 @@ export class NativeTabHost extends EventEmitter {
     const targetId = options.tabId || this.activeTabId;
     const tab = this.tabs.get(targetId);
     if (!tab) return false;
-    this.markTabAgentWorking(targetId, 2500);
     tab.state.devicePresetId = `${options.width}x${options.height}`;
     this.updateLayout();
-    this.broadcastState();
     return true;
   }
 

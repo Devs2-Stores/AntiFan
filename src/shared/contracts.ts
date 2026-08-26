@@ -324,4 +324,5 @@ export const TERMINAL_CHANNELS = {
   REDOCK: 'antifan:terminal:redock',
   GET_POPOUT_STATE: 'antifan:terminal:get-popout-state',
   POPOUT_STATE_CHANGED: 'antifan:terminal:popout-state-changed',
+  OPEN_IN_VSCODE: 'antifan:terminal:open-in-vscode',
 } as const;

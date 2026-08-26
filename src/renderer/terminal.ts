@@ -9,6 +9,7 @@ interface AntiFanTerminalApi {
   killTerminal: () => Promise<boolean>;
   restartTerminal: (cwd?: string) => Promise<boolean>;
   closeTerminal: () => Promise<boolean>;
+  openInVSCode?: (cwd?: string) => Promise<{ ok: boolean; error?: string; workspacePath?: string }>;
   popOut?: () => Promise<boolean>;
   reDock?: () => Promise<boolean>;
   isPopout?: () => boolean;
@@ -39,8 +40,22 @@ const btnTerminalClear = document.getElementById('btnTerminalClear') as HTMLButt
 const btnTerminalClose = document.getElementById('btnTerminalClose') as HTMLButtonElement | null;
 const btnTerminalPopout = document.getElementById('btnTerminalPopout') as HTMLButtonElement | null;
 const btnTabClose = document.getElementById('btnTabClose') as HTMLButtonElement | null;
+const btnTabVSCode = document.getElementById('btnTabVSCode') as HTMLButtonElement | null;
 const btnTabNew = document.getElementById('btnTabNew') as HTMLButtonElement | null;
+const btnChipVSCode = document.getElementById('btnChipVSCode') as HTMLButtonElement | null;
+const btnTerminalVSCode = document.getElementById('btnTerminalVSCode') as HTMLButtonElement | null;
+const wtToast = document.getElementById('wtToast') as HTMLDivElement | null;
 
+let toastTimer: any = null;
+function showTerminalToast(msg: string) {
+  if (!wtToast) return;
+  wtToast.textContent = msg;
+  wtToast.style.display = 'block';
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => {
+    if (wtToast) wtToast.style.display = 'none';
+  }, 3200);
+}
 let commandHistory: string[] = [];
 let historyIndex = -1;
 
@@ -278,9 +293,42 @@ function initTerminal() {
           api.sendTerminalInput('cmd.exe\r\n');
         } else if (shell === 'bash') {
           api.sendTerminalInput('bash\r\n');
+        } else if (shell === 'vscode') {
+          handleOpenInVSCode();
         }
         setTimeout(() => terminalCmdInput?.focus(), 50);
       });
+    });
+  }
+  async function handleOpenInVSCode(cwd?: string) {
+    const currentApi = getApi();
+    if (!currentApi?.openInVSCode) return;
+    const res = await currentApi.openInVSCode(cwd);
+    if (res && res.ok) {
+      showTerminalToast(`⚡ Đã mở trong VS Code: ${res.workspacePath || ''}`);
+    } else {
+      showTerminalToast(`❌ Không thể mở VS Code: ${res?.error || 'Không tìm thấy đường dẫn'}`);
+    }
+  }
+
+  if (btnTabVSCode) {
+    btnTabVSCode.addEventListener('click', (e) => {
+      e.stopPropagation();
+      handleOpenInVSCode();
+    });
+  }
+
+  if (btnChipVSCode) {
+    btnChipVSCode.addEventListener('click', (e) => {
+      e.stopPropagation();
+      handleOpenInVSCode();
+    });
+  }
+
+  if (btnTerminalVSCode) {
+    btnTerminalVSCode.addEventListener('click', (e) => {
+      e.stopPropagation();
+      handleOpenInVSCode();
     });
   }
 
@@ -318,6 +366,9 @@ function initTerminal() {
         terminalCmdInput.value = '';
       } else if (e.key === 'c' && e.ctrlKey) {
         api.sendTerminalInput('\x03');
+      } else if ((e.ctrlKey && e.shiftKey && (e.key === 'E' || e.key === 'e')) || (e.ctrlKey && e.altKey && (e.key === 'v' || e.key === 'V'))) {
+        e.preventDefault();
+        handleOpenInVSCode();
       } else if (e.key === 'ArrowUp') {
         e.preventDefault();
         if (commandHistory.length > 0) {

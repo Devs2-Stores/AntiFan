@@ -407,6 +407,24 @@ export class BridgeServer {
             const authContext = this.attachmentRegistry.validateAttachment(claims);
             const dispatchResult = await this.capabilityTransport.dispatch(p.name, p.params || {}, authContext);
             if (dispatchResult.ok) {
+              if (claims?.attachmentId && dispatchResult.data && typeof dispatchResult.data === 'object') {
+                const dataObj = dispatchResult.data as Record<string, unknown>;
+                const isOpenTab = p.name === 'browser.open-tab' || p.name === 'anti.browser.tabs.create' || p.name === 'antifan_open_tab';
+                const isNavigate = p.name === 'browser.navigate' || p.name === 'anti.browser.navigate' || p.name === 'antifan_navigate';
+                if (isOpenTab) {
+                  const newTabId = typeof dataObj.tabId === 'string' ? dataObj.tabId : undefined;
+                  if (newTabId) {
+                    this.attachmentRegistry.updateAttachmentTab(claims.attachmentId, newTabId);
+                  }
+                } else if (isNavigate) {
+                  const navTarget = dataObj.target && typeof dataObj.target === 'object' ? dataObj.target as Record<string, unknown> : undefined;
+                  const tabId = typeof navTarget?.tabId === 'string' ? navTarget.tabId : undefined;
+                  const docGen = typeof navTarget?.documentGeneration === 'number' ? navTarget.documentGeneration : undefined;
+                  if (tabId) {
+                    this.attachmentRegistry.updateAttachmentTab(claims.attachmentId, tabId, docGen);
+                  }
+                }
+              }
               respond(true, dispatchResult.data);
             } else {
               respond(false, undefined, dispatchResult.error ? `${dispatchResult.error.code}: ${dispatchResult.error.message}` : 'Capability dispatch failed');
@@ -423,8 +441,24 @@ export class BridgeServer {
             break;
           }
           try {
-            const activeTab = this.tabHost.getActiveTab();
-            const tabId = p.tabId || activeTab?.id;
+            let tabId = p.tabId;
+            if (!tabId) {
+              const currentAutoTab = this.tabHost.getAutomationTabId ? this.tabHost.getAutomationTabId() : undefined;
+              if (currentAutoTab && this.tabHost.getTabList().some((tab: any) => tab && tab.id === currentAutoTab)) {
+                tabId = currentAutoTab;
+              } else if (p.allowUserTabFallback) {
+                const activeTab = this.tabHost.getActiveTab();
+                tabId = activeTab?.id;
+              } else {
+                tabId = this.tabHost.createTab('about:blank', false);
+                if (this.tabHost.setAutomationTabId) {
+                  this.tabHost.setAutomationTabId(tabId);
+                }
+              }
+            }
+            if (tabId && this.tabHost.setAutomationTabId) {
+              this.tabHost.setAutomationTabId(tabId);
+            }
             const ownerPid = typeof p.ownerPid === 'number' && p.ownerPid > 0 ? p.ownerPid : undefined;
             const res = this.controlPlaneRuntime.createCliSession({
               backendId: p.backendId || 'cli',
@@ -470,6 +504,9 @@ export class BridgeServer {
             if (attachmentRecord.runId !== p.runId || attachmentRecord.attemptId !== p.attemptId) {
               respond(false, undefined, 'Lineage mismatch: attachment does not belong to specified run/attempt');
               break;
+            }
+            if (this.tabHost.clearAllAgentWorking) {
+              this.tabHost.clearAllAgentWorking();
             }
             const res = this.controlPlaneRuntime.endCliSession(
               p.runId,

@@ -628,4 +628,172 @@ describe('BridgeServer Attachment Authentication & Scoped Dispatch', () => {
       server.dispose();
     }
   });
+  it('retargets attachment tab and documentGeneration upon antifan_open_tab and antifan_navigate MCP aliases', async () => {
+    let currentTabId = 'tab-initial';
+    let currentGen = 1;
+    let clearAgentWorkingCalled = false;
+
+    class DynamicMockTabHost extends EventEmitter {
+      getTabList() { return [{ id: currentTabId, url: 'https://example.com', title: 'Example' }]; }
+      getActiveTabId() { return currentTabId; }
+      getActiveTab() { return { id: currentTabId, url: 'https://example.com', title: 'Example' }; }
+      getAutomationTabId() { return currentTabId; }
+      setAutomationTabId(id?: string) { if (id) currentTabId = id; }
+      createTab(url?: string) {
+        currentTabId = 'tab-created-456';
+        currentGen = 1;
+        return currentTabId;
+      }
+      navigate(tabId: string, url: string) {
+        currentGen += 1;
+        return true;
+      }
+      getDocumentGeneration(tabId?: string) { return currentGen; }
+      isCurrentTarget(target: any) {
+        return Boolean(target && target.tabId === currentTabId && target.documentGeneration === currentGen);
+      }
+      clearAllAgentWorking() {
+        clearAgentWorkingCalled = true;
+      }
+      async getDom() { return '<html><body>Content for ' + currentTabId + ' (gen ' + currentGen + ')</body></html>'; }
+    }
+    const dynamicMockHost = new DynamicMockTabHost() as unknown as NativeTabHost;
+
+    const runId = 'run-99999999999999999999';
+    const attemptId = 'attempt-99999999999999999999';
+    const projectId = 'project-99999999999999999999';
+    const workspaceId = 'workspace-99999999999999999999';
+    const runtimeId = 'binding-99999999999999999999';
+    const hostEpoch = 1;
+
+    const lease = {
+      runtimeId,
+      projectId,
+      workspaceId,
+      token: 'active-lease-token',
+      protocolVersion: 1,
+      hostEpoch,
+      ownerPid: process.pid,
+      issuedAt: Date.now(),
+      expiresAt: Date.now() + 60_000,
+    };
+
+    const catalogue = new CapabilityCatalogue({
+      runtime: { mode: 'standalone', lifecycle: 'active' },
+      projectId,
+      workspaceId,
+      runtimeId,
+      hostEpoch,
+      getActiveLease: () => lease,
+    });
+
+    const controlPort = new BrowserControlPort(dynamicMockHost as any);
+    registerBrowserCapabilities(catalogue, controlPort);
+    const transport = new CapabilityTransportAdapter(catalogue);
+    const registry = new AttachmentRegistry({
+      getHostEpoch: () => hostEpoch,
+      getDocumentGeneration: (tId) => (dynamicMockHost as any).getDocumentGeneration(tId),
+      getAutomationTabId: () => (dynamicMockHost as any).getAutomationTabId(),
+    });
+
+    const server = new BridgeServer(
+      dynamicMockHost,
+      0,
+      false,
+      transport,
+      undefined,
+      registry
+    );
+    const port = await server.start();
+    const { launch } = registry.issueAttachment(runId, attemptId, projectId, workspaceId, {
+      backendId: 'cli',
+      lease,
+      leaseToken: lease.token,
+      hostEpoch,
+      grant: 'write',
+      tabId: currentTabId,
+      documentGeneration: currentGen,
+    });
+
+    const ws = new WebSocket(`ws://127.0.0.1:${port}?token=${encodeURIComponent(launch.secret)}`);
+    try {
+      await new Promise<void>((resolve, reject) => {
+        ws.on('open', resolve);
+        ws.on('error', reject);
+      });
+
+      const sendRpc = (id: string, method: string, params: Record<string, unknown>) => {
+        return new Promise<{ success: boolean; data?: unknown; error?: string }>((resolve) => {
+          const handler = (raw: Buffer | string) => {
+            const resp = JSON.parse(raw.toString()) as { id: string; success: boolean; data?: unknown; error?: string };
+            if (resp.id === id) {
+              ws.off('message', handler);
+              resolve(resp);
+            }
+          };
+          ws.on('message', handler);
+          ws.send(JSON.stringify({ id, method, params }));
+        });
+      };
+
+      // 1. Open tab via MCP alias
+      const openResp = await sendRpc('req-open-1', 'antifan.capability.dispatch', {
+        name: 'antifan_open_tab',
+        params: { url: 'https://example.com/new' },
+        attachmentClaims: {
+          attachmentSecret: launch.secret,
+          attachmentId: launch.attachmentId,
+          runId,
+          attemptId,
+          projectId,
+          workspaceId,
+          invocationId: 'inv-open-1',
+          grant: 'write',
+        },
+      });
+      assert.strictEqual(openResp.success, true);
+      assert.strictEqual((openResp.data as any)?.tabId, 'tab-created-456');
+      assert.strictEqual(registry.getRecord(launch.attachmentId)?.tabId, 'tab-created-456');
+
+      // 2. Navigate via MCP alias
+      const navResp = await sendRpc('req-nav-1', 'antifan.capability.dispatch', {
+        name: 'antifan_navigate',
+        params: { url: 'https://example.com/navigated' },
+        attachmentClaims: {
+          attachmentSecret: launch.secret,
+          attachmentId: launch.attachmentId,
+          runId,
+          attemptId,
+          projectId,
+          workspaceId,
+          invocationId: 'inv-nav-1',
+          grant: 'write',
+        },
+      });
+      assert.strictEqual(navResp.success, true);
+      assert.strictEqual(currentGen, 2);
+      assert.strictEqual(registry.getRecord(launch.attachmentId)?.documentGeneration, 2);
+
+      // 3. Dispatch DOM read immediately after navigation - should NOT throw TARGET_STALE
+      const domResp = await sendRpc('req-dom-post-nav', 'antifan.capability.dispatch', {
+        name: 'antifan_get_dom',
+        params: {},
+        attachmentClaims: {
+          attachmentSecret: launch.secret,
+          attachmentId: launch.attachmentId,
+          runId,
+          attemptId,
+          projectId,
+          workspaceId,
+          invocationId: 'inv-dom-2',
+          grant: 'write',
+        },
+      });
+      assert.strictEqual(domResp.success, true);
+      assert.ok(typeof domResp.data === 'string' && domResp.data.includes('gen 2'));
+    } finally {
+      ws.close();
+      server.dispose();
+    }
+  });
 });

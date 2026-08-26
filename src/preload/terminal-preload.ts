@@ -9,6 +9,7 @@ const terminalApi = {
   sendTerminalInput: (input: string) => ipcRenderer.invoke(TERMINAL_CHANNELS.INPUT, input),
   killTerminal: () => ipcRenderer.invoke(TERMINAL_CHANNELS.KILL),
   restartTerminal: (cwd?: string) => ipcRenderer.invoke(TERMINAL_CHANNELS.RESTART, cwd),
+  openInVSCode: (cwd?: string) => ipcRenderer.invoke(TERMINAL_CHANNELS.OPEN_IN_VSCODE, cwd),
   pasteImageFromClipboard: () => ipcRenderer.invoke('antifan:terminal:paste-image'),
   savePastedImageBuffer: (dataUrlOrBase64: string) => ipcRenderer.invoke('antifan:terminal:save-pasted-image', dataUrlOrBase64),
   closeTerminal: () => ipcRenderer.invoke(TOOLBAR_CHANNELS.TOGGLE_TERMINAL),
