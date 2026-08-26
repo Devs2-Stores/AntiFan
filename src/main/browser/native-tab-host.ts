@@ -776,8 +776,11 @@ export class NativeTabHost extends EventEmitter {
       return this.openNewTerminalWindow(opts?.sessionId);
     });
 
-    ipcMain.handle(TERMINAL_CHANNELS.CLOSE_WINDOW, () => {
-      if (this.popoutWindow && !this.popoutWindow.isDestroyed()) {
+    ipcMain.handle(TERMINAL_CHANNELS.CLOSE_WINDOW, (event) => {
+      const senderWin = BrowserWindow.fromWebContents(event.sender);
+      if (senderWin && !senderWin.isDestroyed() && senderWin !== this.window) {
+        senderWin.close();
+      } else if (this.popoutWindow && !this.popoutWindow.isDestroyed()) {
         this.popoutWindow.close();
       }
       return true;
@@ -791,8 +794,15 @@ export class NativeTabHost extends EventEmitter {
       return true;
     });
 
-    ipcMain.handle(TERMINAL_CHANNELS.REDOCK, () => {
-      if (this.popoutWindow && !this.popoutWindow.isDestroyed()) {
+    ipcMain.handle(TERMINAL_CHANNELS.REDOCK, (event) => {
+      const senderWin = BrowserWindow.fromWebContents(event.sender);
+      if (senderWin && !senderWin.isDestroyed() && senderWin !== this.window) {
+        senderWin.close();
+        if (this.wasSidebarOpenBeforePopout && !this.isSidebarOpen) {
+          this.toggleSidebar();
+        }
+        this.wasSidebarOpenBeforePopout = false;
+      } else if (this.popoutWindow && !this.popoutWindow.isDestroyed()) {
         this.popoutWindow.close();
       } else {
         if (this.wasSidebarOpenBeforePopout && !this.isSidebarOpen) {
@@ -1341,7 +1351,8 @@ export class NativeTabHost extends EventEmitter {
   }
 
   public attachTabView(view: WebContentsView | null | undefined, isMobile = false): void {
-    if (!view || !this.window || !this.window.contentView) return;
+    if (!view || !this.window || this.window.isDestroyed() || !this.window.contentView) return;
+    if (view.webContents && view.webContents.isDestroyed()) return;
     try {
       if (this.window.contentView.children.includes(view)) return;
       const children = this.window.contentView.children;
@@ -1922,37 +1933,27 @@ export class NativeTabHost extends EventEmitter {
         target.state.isLoading = false;
       }
 
-      // Detach currently active tab views
-      if (this.activeTabId && this.activeTabId !== tabId) {
-        const current = this.tabs.get(this.activeTabId);
-        if (current) {
-          if (current.view && this.window.contentView.children.includes(current.view)) {
-            try { this.window.contentView.removeChildView(current.view); } catch {}
-          }
-          if (current.mobileView && this.window.contentView.children.includes(current.mobileView)) {
-            try { this.window.contentView.removeChildView(current.mobileView); } catch {}
-          }
-        }
-      }
-
-      // Defensively ensure no other inactive tab views remain attached
-      for (const [id, tab] of this.tabs.entries()) {
-        if (id !== tabId) {
-          if (tab.view && this.window.contentView.children.includes(tab.view)) {
-            try { this.window.contentView.removeChildView(tab.view); } catch {}
-          }
-          if (tab.mobileView && this.window.contentView.children.includes(tab.mobileView)) {
-            try { this.window.contentView.removeChildView(tab.mobileView); } catch {}
-          }
-        }
-      }
-
       this.activeTabId = tabId;
 
-      // Safely attach target active tab views at layer beneath shell views
+      // Safely attach target active tab views FIRST before detaching old views
+      // to maintain a continuous valid view hierarchy and avoid focus access violations
       this.attachTabView(target.view, false);
       if (target.state.splitMode && target.mobileView && !target.mobileView.webContents.isDestroyed()) {
         this.attachTabView(target.mobileView, true);
+      }
+
+      // Defensively ensure no other inactive tab views remain attached
+      if (this.window && !this.window.isDestroyed() && this.window.contentView) {
+        for (const [id, tab] of this.tabs.entries()) {
+          if (id !== tabId) {
+            if (tab.view && this.window.contentView.children.includes(tab.view)) {
+              try { this.window.contentView.removeChildView(tab.view); } catch {}
+            }
+            if (tab.mobileView && this.window.contentView.children.includes(tab.mobileView)) {
+              try { this.window.contentView.removeChildView(tab.mobileView); } catch {}
+            }
+          }
+        }
       }
 
       this.updateLayout();
@@ -2734,29 +2735,35 @@ export class NativeTabHost extends EventEmitter {
     if (!wc || (wc as unknown as { isDestroyed?: () => boolean }).isDestroyed?.()) return;
     try {
       if (!wc.debugger) return;
+      if (!enableTouch) {
+        if (wc.debugger.isAttached()) {
+          try {
+            await wc.debugger.sendCommand('Emulation.setTouchEmulationEnabled', {
+              enabled: false,
+            }).catch(() => {});
+            await wc.debugger.sendCommand('Emulation.setEmitTouchEventsForMouse', {
+              enabled: false,
+            }).catch(() => {});
+          } catch {}
+        }
+        return;
+      }
+
+      // enableTouch === true: only attach if necessary
       if (!wc.debugger.isAttached()) {
         try {
           wc.debugger.attach('1.3');
         } catch {}
       }
       if (wc.debugger.isAttached()) {
-        if (enableTouch) {
-          await wc.debugger.sendCommand('Emulation.setTouchEmulationEnabled', {
-            enabled: true,
-            maxTouchPoints: 5,
-          }).catch(() => {});
-          // Keep touch capability without hijacking mouse movements so hover and annotation picker work smoothly
-          await wc.debugger.sendCommand('Emulation.setEmitTouchEventsForMouse', {
-            enabled: false,
-          }).catch(() => {});
-        } else {
-          await wc.debugger.sendCommand('Emulation.setTouchEmulationEnabled', {
-            enabled: false,
-          }).catch(() => {});
-          await wc.debugger.sendCommand('Emulation.setEmitTouchEventsForMouse', {
-            enabled: false,
-          }).catch(() => {});
-        }
+        await wc.debugger.sendCommand('Emulation.setTouchEmulationEnabled', {
+          enabled: true,
+          maxTouchPoints: 5,
+        }).catch(() => {});
+        // Keep touch capability without hijacking mouse movements so hover and annotation picker work smoothly
+        await wc.debugger.sendCommand('Emulation.setEmitTouchEventsForMouse', {
+          enabled: false,
+        }).catch(() => {});
       }
     } catch {}
   }
@@ -2935,7 +2942,7 @@ export class NativeTabHost extends EventEmitter {
   }
 
   public async agentClick(params: { selector?: string; x?: number; y?: number; label?: string; tabId?: string; paneId?: SplitPaneId }): Promise<boolean> {
-    const targetId = params.tabId || this.activeTabId;
+    const targetId = params.tabId || this.automationTabId || this.activeTabId;
     const target = this.tabs.get(targetId);
     if (!target) return false;
     const wc = this.getTabWebContents(targetId, params.paneId || target.focusedPane);
@@ -2956,7 +2963,7 @@ export class NativeTabHost extends EventEmitter {
   }
 
   public async agentType(params: { selector: string; text: string; clear?: boolean; tabId?: string; paneId?: SplitPaneId }): Promise<boolean> {
-    const targetId = params.tabId || this.activeTabId;
+    const targetId = params.tabId || this.automationTabId || this.activeTabId;
     const target = this.tabs.get(targetId);
     if (!target) return false;
     const wc = this.getTabWebContents(targetId, params.paneId || target.focusedPane);
@@ -2976,7 +2983,7 @@ export class NativeTabHost extends EventEmitter {
   }
 
   public async agentScroll(params: { deltaY?: number; selector?: string; tabId?: string; paneId?: SplitPaneId }): Promise<boolean> {
-    const targetId = params.tabId || this.activeTabId;
+    const targetId = params.tabId || this.automationTabId || this.activeTabId;
     const target = this.tabs.get(targetId);
     if (!target) return false;
     const wc = this.getTabWebContents(targetId, params.paneId || target.focusedPane);
@@ -2996,7 +3003,7 @@ export class NativeTabHost extends EventEmitter {
   }
 
   public async agentHover(params: { selector?: string; x?: number; y?: number; label?: string; tabId?: string; paneId?: SplitPaneId }): Promise<boolean> {
-    const targetId = params.tabId || this.activeTabId;
+    const targetId = params.tabId || this.automationTabId || this.activeTabId;
     const target = this.tabs.get(targetId);
     if (!target) return false;
     const wc = this.getTabWebContents(targetId, params.paneId || target.focusedPane);
@@ -3033,7 +3040,7 @@ export class NativeTabHost extends EventEmitter {
   }
 
   public async agentHighlight(params: { selector: string; label?: string; tabId?: string; paneId?: SplitPaneId }): Promise<boolean> {
-    const targetId = params.tabId || this.activeTabId;
+    const targetId = params.tabId || this.automationTabId || this.activeTabId;
     const target = this.tabs.get(targetId);
     if (!target) return false;
     const wc = this.getTabWebContents(targetId, params.paneId || target.focusedPane);
@@ -3053,7 +3060,7 @@ export class NativeTabHost extends EventEmitter {
   }
 
   public async agentClear(tabId?: string, paneId?: SplitPaneId): Promise<boolean> {
-    const target = this.tabs.get(tabId || this.activeTabId);
+    const target = this.tabs.get(tabId || this.automationTabId || this.activeTabId);
     if (!target) return false;
     const wc = this.getTabWebContents(target.state.id, paneId || target.focusedPane);
     if (!wc) return false;
@@ -4020,7 +4027,7 @@ export class NativeTabHost extends EventEmitter {
   }
 
   public async agentTrajectory(params: { steps: Array<Record<string, unknown>>; speed?: 'fast' | 'natural' | 'slow'; smoothScroll?: boolean; tabId?: string }): Promise<Record<string, unknown>> {
-    const targetId = params?.tabId || this.activeTabId;
+    const targetId = params?.tabId || this.automationTabId || this.activeTabId;
     const steps = Array.isArray(params?.steps) ? params.steps : null;
     if (!steps) {
       return { success: false, executedSteps: 0, totalSteps: 0, reason: 'Missing or invalid steps array' };
@@ -4090,12 +4097,12 @@ export class NativeTabHost extends EventEmitter {
   }
 
   public async agentSnapshot(tabId?: string, paneId?: SplitPaneId): Promise<string> {
-    const targetId = tabId || this.activeTabId;
+    const targetId = tabId || this.automationTabId || this.activeTabId;
     return this.getDom(undefined, targetId, paneId);
   }
 
   public async sendKeyboardPress(params: { key: string; modifiers?: string[]; tabId?: string }): Promise<{ success: boolean; key: string; modifiers: string[] }> {
-    const targetId = params.tabId || this.activeTabId;
+    const targetId = params.tabId || this.automationTabId || this.activeTabId;
     const tab = this.tabs.get(targetId);
     if (!tab || tab.view.webContents.isDestroyed()) {
       return { success: false, key: params.key, modifiers: params.modifiers || [] };
@@ -4414,6 +4421,18 @@ export class NativeTabHost extends EventEmitter {
     win.once('ready-to-show', showNewTermWin);
     setTimeout(showNewTermWin, 300);
 
+    this.terminalWindows.set(win.id, win);
+    const activeSessionId = sessionId || TerminalManager.getInstance().getActiveSessionId();
+    this.terminalWindowMeta.set(win.id, { sessionId: activeSessionId, isPopout: false });
+
+    const onWindowChange = () => {
+      this.schedulePersist();
+    };
+    win.on('resize', onWindowChange);
+    win.on('move', onWindowChange);
+    win.on('maximize', onWindowChange);
+    win.on('unmaximize', onWindowChange);
+
     win.webContents.on('before-input-event', (event, input) => {
       if (input.type === 'keyDown' && input.key === 'F11') {
         event.preventDefault();
@@ -4455,8 +4474,10 @@ export class NativeTabHost extends EventEmitter {
     if (this.sidebarView && !this.sidebarView.webContents.isDestroyed()) {
       this.sidebarView.webContents.send('antifan:terminal:popout-state-changed', isPopout);
     }
-    if (this.popoutWindow && !this.popoutWindow.isDestroyed()) {
-      this.popoutWindow.webContents.send('antifan:terminal:popout-state-changed', isPopout);
+    for (const [, win] of this.terminalWindows) {
+      if (win && !win.webContents.isDestroyed()) {
+        win.webContents.send('antifan:terminal:popout-state-changed', isPopout);
+      }
     }
   }
   public dispose(): void {

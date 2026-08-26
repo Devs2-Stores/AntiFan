@@ -641,6 +641,23 @@ describe('Terminal Switching Regression & Viewport Integrity', () => {
     assert.strictEqual(html.includes('id="btnPopoutTerminalTab"'), false, 'btnPopoutTerminalTab must be removed');
   });
 
+  it('verifies NativeTabHost registers openNewTerminalWindow into terminalWindows and terminalWindowMeta for multi-screen sync', () => {
+    const nativeTabHostPath = path.resolve(process.cwd(), 'src/main/browser/native-tab-host.ts');
+    const content = fs.readFileSync(nativeTabHostPath, 'utf8');
+    assert.ok(
+      content.includes('this.terminalWindows.set(win.id, win)'),
+      'NativeTabHost must add openNewTerminalWindow BrowserWindow to this.terminalWindows'
+    );
+    assert.ok(
+      content.includes('this.terminalWindowMeta.set(win.id, { sessionId: activeSessionId, isPopout: false })'),
+      'NativeTabHost must track metadata for openNewTerminalWindow'
+    );
+    assert.ok(
+      content.includes('for (const [, win] of this.terminalWindows)'),
+      'broadcastPopoutState must broadcast state to all open terminal windows'
+    );
+  });
+
 });
 
 function sessionsAfterS2(sessions: Array<{ id: string; active: boolean }>, s2Id: string) {

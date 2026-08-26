@@ -1630,6 +1630,13 @@ if (urlInput) {
       updateSuggestDropdown(urlInput.value);
     }
   });
+  urlInput.addEventListener('blur', () => {
+    setTimeout(() => {
+      if (document.activeElement !== urlInput) {
+        hideSuggestDropdown();
+      }
+    }, 200);
+  });
 
   urlInput.addEventListener('keydown', (e) => {
     if (omniboxSuggestDropdown && omniboxSuggestDropdown.style.display !== 'none' && suggestItems.length > 0) {
