@@ -20,7 +20,7 @@ export const SPLIT_FRAME_BEZELS = {
   },
   phone: {
     bezelTop: 56, // Realistic iOS Status Bar + Safari URL Header
-    bezelSide: 8,
+    bezelSide: 0, // Full-width edge-to-edge smartphone screen flush with bezels
     bezelBottom: 46, // Realistic Safari Action Toolbar + Home Indicator
   },
 } as const;

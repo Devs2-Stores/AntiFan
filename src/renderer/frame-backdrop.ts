@@ -310,14 +310,13 @@ function initFrameBackdrop() {
 
         const rawScreenRadius = typeof mf.cornerRadius === 'number' ? mf.cornerRadius : 48;
         const visualScreenRadius = Math.round(rawScreenRadius * mf.scale);
-        const outerChassisRadius = rawScreenRadius > 0 ? Math.max(14, visualScreenRadius + (mf.bezelSide || 12)) : 10;
+        const outerChassisRadius = rawScreenRadius > 0 ? Math.max(16, visualScreenRadius) : 10;
         phoneBody.style.borderRadius = `${outerChassisRadius}px`;
-        const innerBezelRadius = Math.max(0, outerChassisRadius - 2.5);
         if (phoneTopBezel) {
-          phoneTopBezel.style.borderRadius = `${innerBezelRadius}px ${innerBezelRadius}px 0 0`;
+          phoneTopBezel.style.borderRadius = `${outerChassisRadius}px ${outerChassisRadius}px 0 0`;
         }
         if (phoneBottomBezel) {
-          phoneBottomBezel.style.borderRadius = `0 0 ${innerBezelRadius}px ${innerBezelRadius}px`;
+          phoneBottomBezel.style.borderRadius = `0 0 ${outerChassisRadius}px ${outerChassisRadius}px`;
         }
       }
 
