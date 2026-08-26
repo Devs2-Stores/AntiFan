@@ -76,7 +76,8 @@ export class OAuthPopupManager {
         height: 680,
         parent: parentWindow,
         modal: true,
-        show: true,
+        show: false,
+        backgroundColor: '#080c14',
         title: 'Xác thực Đăng nhập',
         webPreferences: {
           session: parentContents.session, // CRITICAL: Shares cookie/session storage
@@ -87,7 +88,18 @@ export class OAuthPopupManager {
       });
 
       this.activeAuthWindows.add(authWin);
-
+      let showPopupTimer: NodeJS.Timeout | null = null;
+      const showAuthWin = () => {
+        if (showPopupTimer) {
+          clearTimeout(showPopupTimer);
+          showPopupTimer = null;
+        }
+        if (!authWin.isDestroyed() && !authWin.isVisible()) {
+          authWin.show();
+        }
+      };
+      authWin.once('ready-to-show', showAuthWin);
+      showPopupTimer = setTimeout(showAuthWin, 300);
       authWin.loadURL(url).catch((err) => {
         console.warn('[OAuthPopupManager] Failed to load OAuth URL:', err);
       });
@@ -113,6 +125,10 @@ export class OAuthPopupManager {
       });
 
       authWin.on('closed', () => {
+        if (showPopupTimer) {
+          clearTimeout(showPopupTimer);
+          showPopupTimer = null;
+        }
         this.activeAuthWindows.delete(authWin);
       });
 

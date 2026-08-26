@@ -240,7 +240,7 @@ export class BrowserControlPort {
       : (target?.tabId && target.tabId.trim().length > 0 ? target.tabId : undefined);
     if (!resolved) {
       const currentAutoTab = this.host.getAutomationTabId ? this.host.getAutomationTabId() : undefined;
-      if (currentAutoTab && this.host.getTabList().some((tab: any) => tab && tab.id === currentAutoTab)) {
+      if (currentAutoTab && this.host.getTabList().some((tab: unknown) => Boolean(tab && typeof tab === 'object' && 'id' in tab && tab.id === currentAutoTab))) {
         resolved = currentAutoTab;
       } else if (this.host.createTab) {
         resolved = this.host.createTab('about:blank', false);
@@ -249,7 +249,7 @@ export class BrowserControlPort {
         }
       } else {
         const activeTabId = this.host.getActiveTabId ? this.host.getActiveTabId() : undefined;
-        if (activeTabId && this.host.getTabList().some((tab: any) => tab && tab.id === activeTabId)) {
+        if (activeTabId && this.host.getTabList().some((tab: unknown) => Boolean(tab && typeof tab === 'object' && 'id' in tab && tab.id === activeTabId))) {
           resolved = activeTabId;
         }
       }
@@ -258,7 +258,7 @@ export class BrowserControlPort {
     if (!resolved) {
       throw new CapabilityError('TARGET_REQUIRED', 'Browser target tabId is required');
     }
-    if (!this.host.getTabList().some((tab: any) => tab && tab.id === resolved)) {
+    if (!this.host.getTabList().some((tab: unknown) => Boolean(tab && typeof tab === 'object' && 'id' in tab && tab.id === resolved))) {
       throw new CapabilityError('CAPABILITY_NOT_FOUND', `Unknown tab ID: ${resolved}`);
     }
     if (target) {

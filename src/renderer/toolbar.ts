@@ -257,7 +257,7 @@ function getStepIcon(type: string): string {
 async function openWorkflowHub() {
   if (!workflowHubOverlay) return;
   workflowHubOverlay.style.display = 'flex';
-  getApi()?.setOverlay(true, 740);
+  getApi()?.setOverlay(true);
 
   try {
     const res = await getApi()?.getWorkflowState();

@@ -171,6 +171,8 @@ export class NativeTabHost extends EventEmitter {
   private isTerminalOpen: boolean = false;
   private isBookmarkBarVisible: boolean = false;
   private sidebarWidth: number = 380;
+  private isToolbarOverlayActive: boolean = false;
+  private toolbarOverlayCustomHeight?: number;
   private transcriptSyncer: TranscriptSyncer;
   private readonly splitCoordinator = new SplitNavigationCoordinator();
   private defaultUserAgent: string = MAC_DESKTOP_USER_AGENT;
@@ -297,6 +299,7 @@ export class NativeTabHost extends EventEmitter {
         nodeIntegration: false,
       },
     });
+    this.terminalView.setBackgroundColor('#0c0c0c');
     this.window.contentView.addChildView(this.terminalView);
 
     let terminalHtml = path.join(__dirname, '..', '..', 'renderer', 'terminal.html');
@@ -353,8 +356,14 @@ export class NativeTabHost extends EventEmitter {
     }
 
     // 1. Toolbar bounds
-    this.toolbarView.setBounds({ x: 0, y: 0, width: availableWidth, height: toolbarHeight });
-    // 2. Active Tab bounds & Auto-Fit Device Emulation
+    if (this.isToolbarOverlayActive) {
+      const overlayHeight = this.toolbarOverlayCustomHeight && this.toolbarOverlayCustomHeight > 0
+        ? Math.min(height, toolbarHeight + this.toolbarOverlayCustomHeight)
+        : height;
+      this.toolbarView.setBounds({ x: 0, y: 0, width: availableWidth, height: overlayHeight });
+    } else {
+      this.toolbarView.setBounds({ x: 0, y: 0, width: availableWidth, height: toolbarHeight });
+    }
     if (this.activeTabId) {
       const tab = this.tabs.get(this.activeTabId);
       if (tab) {
@@ -1439,16 +1448,62 @@ export class NativeTabHost extends EventEmitter {
     return this.isBookmarkBarVisible;
   }
 
+  public attachTabView(view: WebContentsView | null | undefined, isMobile = false): void {
+    if (!view || !this.window || !this.window.contentView) return;
+    try {
+      if (this.window.contentView.children.includes(view)) return;
+      const children = this.window.contentView.children;
+      let insertIndex = 0;
+      if (this.frameBackdropView && children.includes(this.frameBackdropView)) {
+        insertIndex = children.indexOf(this.frameBackdropView) + 1;
+      }
+      if (isMobile && this.activeTabId) {
+        const activeTab = this.tabs.get(this.activeTabId);
+        if (activeTab?.view && children.includes(activeTab.view)) {
+          insertIndex = children.indexOf(activeTab.view) + 1;
+        }
+      }
+      insertIndex = Math.max(0, Math.min(insertIndex, children.length));
+      this.window.contentView.addChildView(view, insertIndex);
+    } catch (err) {
+      console.error('[native-tab-host] attachTabView error:', err);
+    }
+  }
+
+  public bringViewToFront(_view: WebContentsView | null | undefined): void {
+    // Shell views (toolbarView, sidebarView, terminalView) are permanently positioned
+    // above tab views in the window.contentView hierarchy via attachTabView indexing.
+  }
+
+  public ensureShellViewsZOrder(): void {
+    // Maintained by attachTabView indexing
+  }
+
   public setToolbarOverlay(active: boolean, customHeight?: number): void {
+    this.isToolbarOverlayActive = active;
+    this.toolbarOverlayCustomHeight = customHeight;
     const { width, height } = this.window.getContentBounds();
     const availableWidth = this.isSidebarOpen ? Math.max(200, width - this.sidebarWidth) : width;
     if (active) {
-      this.window.contentView.addChildView(this.toolbarView);
+      this.ensureToolbarOnTop();
       // Give full window height or custom height so dropdowns, popovers, context menus are NEVER clipped!
       const overlayHeight = customHeight && customHeight > 0 ? Math.min(height, this.getToolbarHeight() + customHeight) : height;
       this.toolbarView.setBounds({ x: 0, y: 0, width: availableWidth, height: overlayHeight });
     } else {
       this.toolbarView.setBounds({ x: 0, y: 0, width: availableWidth, height: this.getToolbarHeight() });
+    }
+  }
+
+  private ensureToolbarOnTop(): void {
+    if (!this.window || !this.window.contentView || !this.toolbarView) return;
+    try {
+      const children = this.window.contentView.children;
+      if (children.includes(this.toolbarView)) {
+        this.window.contentView.removeChildView(this.toolbarView);
+        this.window.contentView.addChildView(this.toolbarView);
+      }
+    } catch (err) {
+      console.error('[native-tab-host] ensureToolbarOnTop error:', err);
     }
   }
   public async clearStorageForActiveTab(): Promise<void> {
@@ -1570,20 +1625,35 @@ export class NativeTabHost extends EventEmitter {
     paneId: SplitPaneId = 'desktop'
   ): void {
     const wc = view.webContents;
+    let loadingSafetyTimer: NodeJS.Timeout | null = null;
+    const clearLoadingTimer = () => {
+      if (loadingSafetyTimer) {
+        clearTimeout(loadingSafetyTimer);
+        loadingSafetyTimer = null;
+      }
+    };
 
     wc.on('did-start-loading', () => {
       state.isLoading = true;
+      clearLoadingTimer();
+      loadingSafetyTimer = setTimeout(() => {
+        loadingSafetyTimer = null;
+        if (!wc.isDestroyed() && this.tabs.has(id) && state.isLoading) {
+          state.isLoading = false;
+          this.broadcastState();
+        }
+      }, 12000);
       this.broadcastState();
     });
 
     wc.on('did-stop-loading', () => {
+      clearLoadingTimer();
       state.isLoading = false;
-      const nav = (wc as any).navigationHistory;
+      const nav = wc.navigationHistory;
       state.canGoBack = nav ? nav.canGoBack() : (wc.canGoBack ? wc.canGoBack() : false);
       state.canGoForward = nav ? nav.canGoForward() : (wc.canGoForward ? wc.canGoForward() : false);
       this.broadcastState();
     });
-
     wc.on('console-message', (_event, level, message, line, sourceId) => {
       this.diagnosticsManager.recordConsole(id, {
         level,
@@ -1600,6 +1670,9 @@ export class NativeTabHost extends EventEmitter {
     });
 
     wc.on('did-fail-load', (_event, errorCode, errorDescription, validatedURL, isMainFrame) => {
+      clearLoadingTimer();
+      state.isLoading = false;
+      this.broadcastState();
       this.diagnosticsManager.recordFailure(id, {
         errorCode,
         errorDescription: String(errorDescription || ''),
@@ -1804,8 +1877,13 @@ export class NativeTabHost extends EventEmitter {
     });
 
     wc.on('render-process-gone', () => {
+      clearLoadingTimer();
       state.crashed = true;
       this.broadcastState();
+    });
+
+    wc.on('destroyed', () => {
+      clearLoadingTimer();
     });
 
     wc.on('found-in-page', (_event, result) => {
@@ -1874,11 +1952,12 @@ export class NativeTabHost extends EventEmitter {
       webPreferences: getSecureWebPreferences(),
     });
     try { view.setBackgroundColor('#00000000'); } catch {}
+    const isBlankUrl = !url || url === 'about:blank';
     const state: AntiFanTab = {
       id,
       url,
       title: 'New Tab',
-      isLoading: true,
+      isLoading: !isBlankUrl,
       canGoBack: false,
       canGoForward: false,
       zoomFactor: 1.0,
@@ -1910,57 +1989,103 @@ export class NativeTabHost extends EventEmitter {
     } else if (url !== 'about:blank') {
       wc.loadURL(url)
         .then(() => this.clearInitialNavigationHistory(wc, state))
-        .catch(() => {});
+        .catch((err) => {
+          console.warn(`[native-tab-host] Failed to load initial url ${url} on tab ${id}:`, err);
+          state.isLoading = false;
+          this.broadcastState();
+        });
+    } else {
+      state.isLoading = false;
     }
     if (activate) this.switchTab(id);
     return id;
   }
 
   public switchTab(tabId: string): boolean {
-    const target = this.tabs.get(tabId);
-    if (!target) return false;
+    try {
+      const target = this.tabs.get(tabId);
+      if (!target) return false;
 
-    if (this.activeTabId && this.activeTabId !== tabId) {
-      const current = this.tabs.get(this.activeTabId);
-      if (current) {
-        try {
-          this.window.contentView.removeChildView(current.view);
-        } catch {}
-        if (current.mobileView) {
-          try {
-            this.window.contentView.removeChildView(current.mobileView);
-          } catch {}
+      // Guard against destroyed WebContents/WebContentsView
+      if (!target.view || target.view.webContents.isDestroyed()) {
+        console.warn(`[native-tab-host] Target tab ${tabId} webContents is destroyed; recreating view`);
+        target.view = new WebContentsView({
+          webPreferences: getSecureWebPreferences(),
+        });
+        try { target.view.setBackgroundColor('#00000000'); } catch {}
+        target.state.crashed = false;
+        const isBlank = !target.state.url || target.state.url === 'about:blank';
+        target.state.isLoading = !isBlank;
+        this.setupTabWebContentsEvents(tabId, target.view, target.state, 'desktop');
+        if (!isBlank) {
+          target.view.webContents.loadURL(target.state.url).catch(() => {
+            target.state.isLoading = false;
+            this.broadcastState();
+          });
+        }
+      } else if (!target.state.url || target.state.url === 'about:blank') {
+        target.state.isLoading = false;
+      }
+
+      // Detach currently active tab views
+      if (this.activeTabId && this.activeTabId !== tabId) {
+        const current = this.tabs.get(this.activeTabId);
+        if (current) {
+          if (current.view && this.window.contentView.children.includes(current.view)) {
+            try { this.window.contentView.removeChildView(current.view); } catch {}
+          }
+          if (current.mobileView && this.window.contentView.children.includes(current.mobileView)) {
+            try { this.window.contentView.removeChildView(current.mobileView); } catch {}
+          }
         }
       }
-    }
 
-    this.activeTabId = tabId;
-    this.window.contentView.addChildView(target.view);
-    if (target.state.splitMode && target.mobileView) {
-      this.window.contentView.addChildView(target.mobileView);
-    }
-    this.updateLayout();
-    this.broadcastState();
+      // Defensively ensure no other inactive tab views remain attached
+      for (const [id, tab] of this.tabs.entries()) {
+        if (id !== tabId) {
+          if (tab.view && this.window.contentView.children.includes(tab.view)) {
+            try { this.window.contentView.removeChildView(tab.view); } catch {}
+          }
+          if (tab.mobileView && this.window.contentView.children.includes(tab.mobileView)) {
+            try { this.window.contentView.removeChildView(tab.mobileView); } catch {}
+          }
+        }
+      }
 
-    if (this.isRulerActive) {
-      target.view.webContents.executeJavaScript(RULER_SCRIPT).catch(() => {});
-      if (target.mobileView && !target.mobileView.webContents.isDestroyed()) {
-        target.mobileView.webContents.executeJavaScript(RULER_SCRIPT).catch(() => {});
+      this.activeTabId = tabId;
+
+      // Safely attach target active tab views at layer beneath shell views
+      this.attachTabView(target.view, false);
+      if (target.state.splitMode && target.mobileView && !target.mobileView.webContents.isDestroyed()) {
+        this.attachTabView(target.mobileView, true);
       }
-    }
-    if (this.isLensActive) {
-      target.view.webContents.executeJavaScript(GPU_LENS_SCRIPT).catch(() => {});
-      if (target.mobileView && !target.mobileView.webContents.isDestroyed()) {
-        target.mobileView.webContents.executeJavaScript(GPU_LENS_SCRIPT).catch(() => {});
+
+      this.updateLayout();
+      this.broadcastState();
+
+      if (this.isRulerActive && !target.view.webContents.isDestroyed()) {
+        target.view.webContents.executeJavaScript(RULER_SCRIPT).catch(() => {});
+        if (target.mobileView && !target.mobileView.webContents.isDestroyed()) {
+          target.mobileView.webContents.executeJavaScript(RULER_SCRIPT).catch(() => {});
+        }
       }
-    }
-    if (this.isFontFinderActive) {
-      target.view.webContents.executeJavaScript(FONT_FINDER_SCRIPT).catch(() => {});
-      if (target.mobileView && !target.mobileView.webContents.isDestroyed()) {
-        target.mobileView.webContents.executeJavaScript(FONT_FINDER_SCRIPT).catch(() => {});
+      if (this.isLensActive && !target.view.webContents.isDestroyed()) {
+        target.view.webContents.executeJavaScript(GPU_LENS_SCRIPT).catch(() => {});
+        if (target.mobileView && !target.mobileView.webContents.isDestroyed()) {
+          target.mobileView.webContents.executeJavaScript(GPU_LENS_SCRIPT).catch(() => {});
+        }
       }
+      if (this.isFontFinderActive && !target.view.webContents.isDestroyed()) {
+        target.view.webContents.executeJavaScript(FONT_FINDER_SCRIPT).catch(() => {});
+        if (target.mobileView && !target.mobileView.webContents.isDestroyed()) {
+          target.mobileView.webContents.executeJavaScript(FONT_FINDER_SCRIPT).catch(() => {});
+        }
+      }
+      return true;
+    } catch (err) {
+      console.error('[native-tab-host] switchTab unexpected error:', err);
+      return false;
     }
-    return true;
   }
 
   private activateAgentVisualGlow(tabId: string): void {
@@ -2130,10 +2255,16 @@ export class NativeTabHost extends EventEmitter {
         } catch {}
       }
     }
-    (target.view.webContents as unknown as { destroy?: () => void })?.destroy?.();
+    try {
+      if (!target.view.webContents.isDestroyed()) {
+        (target.view.webContents as unknown as { destroy?: () => void })?.destroy?.();
+      }
+    } catch {}
     if (target.mobileView) {
       try {
-        (target.mobileView.webContents as unknown as { destroy?: () => void })?.destroy?.();
+        if (!target.mobileView.webContents.isDestroyed()) {
+          (target.mobileView.webContents as unknown as { destroy?: () => void })?.destroy?.();
+        }
       } catch {}
     }
     this.splitCoordinator?.cleanupTab(tabId);
@@ -2340,14 +2471,15 @@ export class NativeTabHost extends EventEmitter {
         mobileView.setBackgroundColor('#00000000');
         const mobilePreset = DEVICE_PRESETS.find((p) => p.id === tab.state.splitMobilePresetId) || DEVICE_PRESETS.find((p) => p.id === DEFAULT_SPLIT_MOBILE_PRESET);
         const mobileUA = getPresetUserAgent(mobilePreset, IPHONE_USER_AGENT);
-        if (mobileUA && (mobileView.webContents as any).setUserAgent) {
-          (mobileView.webContents as any).setUserAgent(mobileUA);
+        const mobWc = mobileView.webContents as unknown as { setUserAgent?: (ua: string) => void };
+        if (mobileUA && typeof mobWc.setUserAgent === 'function') {
+          try { mobWc.setUserAgent(mobileUA); } catch {}
         }
         tab.mobileView = mobileView;
         this.setupTabWebContentsEvents(tabId, mobileView, tab.state, 'mobile');
 
         if (tabId === this.activeTabId) {
-          this.window.contentView.addChildView(mobileView);
+          this.attachTabView(mobileView, true);
         }
 
         if (tab.state.url && tab.state.url !== 'about:blank' && !tab.state.url.startsWith('view-source:')) {
@@ -2409,165 +2541,204 @@ export class NativeTabHost extends EventEmitter {
     availableHeight: number,
     toolbarHeight: number
   ): void {
-    // Case A: Split Review Mode (Desktop + Mobile Paired WebContentsViews)
-    if (tab.state.splitMode && tab.mobileView && !tab.mobileView.webContents.isDestroyed()) {
-      const userZoom = tab.state.zoomFactor || 1.0;
-      const splitLayout = calculateSplitLayout(
-        { width: availableWidth, height: availableHeight, yOffset: toolbarHeight },
-        tab.state.splitDesktopPresetId || DEFAULT_SPLIT_DESKTOP_PRESET,
-        tab.state.splitMobilePresetId || DEFAULT_SPLIT_MOBILE_PRESET,
-        userZoom
-      );
-      // Ensure transparent view backgrounds so clipped corners do not render opaque white rectangles
-      try { tab.view.setBackgroundColor('#00000000'); } catch {}
-      try { tab.mobileView?.setBackgroundColor('#00000000'); } catch {}
+    if (!tab || !tab.view) return;
+    if (tab.view.webContents.isDestroyed()) return;
 
-      // Dynamic corner clipping for mobile pane, clear for desktop
-      const splitMobilePreset = DEVICE_PRESETS.find((p) => p.id === tab.state.splitMobilePresetId) || DEVICE_PRESETS.find((p) => p.id === DEFAULT_SPLIT_MOBILE_PRESET);
-      const splitMobileClipRadius = getPresetCornerRadius(splitMobilePreset);
-      this.applyDeviceCornerClipping(tab.view.webContents, 0);
-      this.applyDeviceCornerClipping(tab.mobileView.webContents, splitMobileClipRadius);
-      const desktopPreset = DEVICE_PRESETS.find((p) => p.id === tab.state.splitDesktopPresetId) || DEVICE_PRESETS.find((p) => p.id === DEFAULT_SPLIT_DESKTOP_PRESET);
-      const desktopUA = getPresetUserAgent(desktopPreset, MAC_DESKTOP_USER_AGENT);
-      if (desktopUA && (tab.view.webContents as any).setUserAgent) {
-        (tab.view.webContents as any).setUserAgent(desktopUA);
-      }
-      this.applyCdpTouchEmulation(tab.view.webContents, false);
+    try {
+      // Case A: Split Review Mode (Desktop + Mobile Paired WebContentsViews)
+      if (tab.state.splitMode && tab.mobileView && !tab.mobileView.webContents.isDestroyed()) {
+        const userZoom = tab.state.zoomFactor || 1.0;
+        const splitLayout = calculateSplitLayout(
+          { width: availableWidth, height: availableHeight, yOffset: toolbarHeight },
+          tab.state.splitDesktopPresetId || DEFAULT_SPLIT_DESKTOP_PRESET,
+          tab.state.splitMobilePresetId || DEFAULT_SPLIT_MOBILE_PRESET,
+          userZoom
+        );
+        // Ensure transparent view backgrounds so clipped corners do not render opaque white rectangles
+        try { tab.view.setBackgroundColor('#00000000'); } catch {}
+        try { tab.mobileView?.setBackgroundColor('#00000000'); } catch {}
 
-      try {
-        tab.view.webContents.enableDeviceEmulation({
-          screenPosition: 'desktop',
-          screenSize: { width: splitLayout.desktop.emulatedWidth, height: splitLayout.desktop.emulatedHeight },
-          viewPosition: { x: 0, y: 0 },
-          deviceScaleFactor: splitLayout.desktop.deviceScaleFactor,
-          viewSize: { width: splitLayout.desktop.emulatedWidth, height: splitLayout.desktop.emulatedHeight },
-          scale: splitLayout.desktop.scale,
-        });
-      } catch (err) {
-        console.error('[native-tab-host] Failed desktop enableDeviceEmulation:', err);
-      }
-      // Emulation scale already handles visual zoom; keep zoomFactor at 1 to prevent double-scaling
-      try {
-        tab.view.webContents.setZoomFactor(1);
-      } catch {}
-      tab.view.setBounds({
-        x: splitLayout.desktop.x,
-        y: splitLayout.desktop.y,
-        width: splitLayout.desktop.width,
-        height: splitLayout.desktop.height,
-      });
+        // Dynamic corner clipping for mobile pane, clear for desktop
+        const splitMobilePreset = DEVICE_PRESETS.find((p) => p.id === tab.state.splitMobilePresetId) || DEVICE_PRESETS.find((p) => p.id === DEFAULT_SPLIT_MOBILE_PRESET);
+        const splitMobileClipRadius = getPresetCornerRadius(splitMobilePreset);
+        this.applyDeviceCornerClipping(tab.view.webContents, 0);
+        this.applyDeviceCornerClipping(tab.mobileView.webContents, splitMobileClipRadius);
+        const desktopPreset = DEVICE_PRESETS.find((p) => p.id === tab.state.splitDesktopPresetId) || DEVICE_PRESETS.find((p) => p.id === DEFAULT_SPLIT_DESKTOP_PRESET);
+        const desktopUA = getPresetUserAgent(desktopPreset, MAC_DESKTOP_USER_AGENT);
+        const desktopWc = tab.view.webContents as unknown as { setUserAgent?: (ua: string) => void };
+        if (desktopUA && !tab.view.webContents.isDestroyed() && typeof desktopWc.setUserAgent === 'function') {
+          try { desktopWc.setUserAgent(desktopUA); } catch {}
+        }
+        this.applyCdpTouchEmulation(tab.view.webContents, false);
 
-      // Mobile view emulation & bounds
-      const mobilePreset = DEVICE_PRESETS.find((p) => p.id === tab.state.splitMobilePresetId) || DEVICE_PRESETS.find((p) => p.id === DEFAULT_SPLIT_MOBILE_PRESET);
-      const mobileUA = getPresetUserAgent(mobilePreset, IPHONE_USER_AGENT);
-      if (mobileUA && (tab.mobileView.webContents as any).setUserAgent) {
-        (tab.mobileView.webContents as any).setUserAgent(mobileUA);
-      }
-      this.applyCdpTouchEmulation(tab.mobileView.webContents, true);
-      try {
-        tab.mobileView.webContents.insertCSS(MOBILE_OVERLAY_SCROLLBAR_CSS).catch(() => {});
-      } catch {}
-
-      try {
-        tab.mobileView.webContents.enableDeviceEmulation({
-          screenPosition: 'mobile',
-          screenSize: { width: splitLayout.mobile.emulatedWidth, height: splitLayout.mobile.emulatedHeight },
-          viewPosition: { x: 0, y: 0 },
-          deviceScaleFactor: splitLayout.mobile.deviceScaleFactor,
-          viewSize: { width: splitLayout.mobile.emulatedWidth, height: splitLayout.mobile.emulatedHeight },
-          scale: splitLayout.mobile.scale,
-        });
-      } catch (err) {
-        console.error('[native-tab-host] Failed mobile enableDeviceEmulation:', err);
-      }
-      // Emulation scale already handles visual zoom; keep zoomFactor at 1 to prevent double-scaling
-      try {
-        tab.mobileView.webContents.setZoomFactor(1);
-      } catch {}
-      tab.mobileView.setBounds({
-        x: splitLayout.mobile.x,
-        y: splitLayout.mobile.y,
-        width: splitLayout.mobile.width,
-        height: splitLayout.mobile.height,
-      });
-      return;
-    }
-
-    // Case B: Standard Single-View Preset or Fluid Responsive
-    const preset = DEVICE_PRESETS.find((p) => p.id === tab.state.devicePresetId);
-
-    if (preset && preset.width && preset.height) {
-      const userZoom = tab.state.zoomFactor || 1.0;
-      const maxW = Math.max(100, availableWidth);
-      const maxH = Math.max(100, availableHeight);
-
-      const fitScale = Math.min(1.0, maxW / preset.width, maxH / preset.height);
-      const renderScale = Math.max(0.1, Math.min(5.0, fitScale * userZoom));
-      const renderedW = Math.round(preset.width * renderScale);
-      const renderedH = Math.round(preset.height * renderScale);
-      const targetX = Math.max(0, Math.floor((maxW - renderedW) / 2));
-      const targetY = toolbarHeight + Math.max(0, Math.floor((maxH - renderedH) / 2));
-
-      const ua = getPresetUserAgent(preset, preset.mobile ? IPHONE_USER_AGENT : this.defaultUserAgent || MAC_DESKTOP_USER_AGENT);
-      if (ua && (tab.view.webContents as any).setUserAgent) {
-        (tab.view.webContents as any).setUserAgent(ua);
-      }
-      this.applyCdpTouchEmulation(tab.view.webContents, Boolean(preset.mobile));
-      if (preset.mobile) {
         try {
-          tab.view.webContents.insertCSS(MOBILE_OVERLAY_SCROLLBAR_CSS).catch(() => {});
+          if (!tab.view.webContents.isDestroyed()) {
+            tab.view.webContents.enableDeviceEmulation({
+              screenPosition: 'desktop',
+              screenSize: { width: splitLayout.desktop.emulatedWidth, height: splitLayout.desktop.emulatedHeight },
+              viewPosition: { x: 0, y: 0 },
+              deviceScaleFactor: splitLayout.desktop.deviceScaleFactor,
+              viewSize: { width: splitLayout.desktop.emulatedWidth, height: splitLayout.desktop.emulatedHeight },
+              scale: splitLayout.desktop.scale,
+            });
+          }
+        } catch (err) {
+          console.error('[native-tab-host] Failed desktop enableDeviceEmulation:', err);
+        }
+        // Emulation scale already handles visual zoom; keep zoomFactor at 1 to prevent double-scaling
+        try {
+          if (!tab.view.webContents.isDestroyed()) {
+            tab.view.webContents.setZoomFactor(1);
+          }
+        } catch {}
+        try {
+          tab.view.setBounds({
+            x: splitLayout.desktop.x,
+            y: splitLayout.desktop.y,
+            width: splitLayout.desktop.width,
+            height: splitLayout.desktop.height,
+          });
+        } catch {}
+
+        // Mobile view emulation & bounds
+        const mobilePreset = DEVICE_PRESETS.find((p) => p.id === tab.state.splitMobilePresetId) || DEVICE_PRESETS.find((p) => p.id === DEFAULT_SPLIT_MOBILE_PRESET);
+        const mobileUA = getPresetUserAgent(mobilePreset, IPHONE_USER_AGENT);
+        const mobWc = tab.mobileView.webContents as unknown as { setUserAgent?: (ua: string) => void };
+        if (mobileUA && !tab.mobileView.webContents.isDestroyed() && typeof mobWc.setUserAgent === 'function') {
+          try { mobWc.setUserAgent(mobileUA); } catch {}
+        }
+        this.applyCdpTouchEmulation(tab.mobileView.webContents, true);
+        try {
+          if (!tab.mobileView.webContents.isDestroyed()) {
+            tab.mobileView.webContents.insertCSS(MOBILE_OVERLAY_SCROLLBAR_CSS).catch(() => {});
+          }
+        } catch {}
+
+        try {
+          if (!tab.mobileView.webContents.isDestroyed()) {
+            tab.mobileView.webContents.enableDeviceEmulation({
+              screenPosition: 'mobile',
+              screenSize: { width: splitLayout.mobile.emulatedWidth, height: splitLayout.mobile.emulatedHeight },
+              viewPosition: { x: 0, y: 0 },
+              deviceScaleFactor: splitLayout.mobile.deviceScaleFactor,
+              viewSize: { width: splitLayout.mobile.emulatedWidth, height: splitLayout.mobile.emulatedHeight },
+              scale: splitLayout.mobile.scale,
+            });
+          }
+        } catch (err) {
+          console.error('[native-tab-host] Failed mobile enableDeviceEmulation:', err);
+        }
+        // Emulation scale already handles visual zoom; keep zoomFactor at 1 to prevent double-scaling
+        try {
+          if (!tab.mobileView.webContents.isDestroyed()) {
+            tab.mobileView.webContents.setZoomFactor(1);
+          }
+        } catch {}
+        try {
+          tab.mobileView.setBounds({
+            x: splitLayout.mobile.x,
+            y: splitLayout.mobile.y,
+            width: splitLayout.mobile.width,
+            height: splitLayout.mobile.height,
+          });
+        } catch {}
+        return;
+      }
+
+      // Case B: Standard Single-View Preset or Fluid Responsive
+      const preset = DEVICE_PRESETS.find((p) => p.id === tab.state.devicePresetId);
+
+      if (preset && preset.width && preset.height) {
+        const userZoom = tab.state.zoomFactor || 1.0;
+        const maxW = Math.max(100, availableWidth);
+        const maxH = Math.max(100, availableHeight);
+
+        const fitScale = Math.min(1.0, maxW / preset.width, maxH / preset.height);
+        const renderScale = Math.max(0.1, Math.min(5.0, fitScale * userZoom));
+        const renderedW = Math.round(preset.width * renderScale);
+        const renderedH = Math.round(preset.height * renderScale);
+        const targetX = Math.max(0, Math.floor((maxW - renderedW) / 2));
+        const targetY = toolbarHeight + Math.max(0, Math.floor((maxH - renderedH) / 2));
+
+        const ua = getPresetUserAgent(preset, preset.mobile ? IPHONE_USER_AGENT : this.defaultUserAgent || MAC_DESKTOP_USER_AGENT);
+        const singleWc = tab.view.webContents as unknown as { setUserAgent?: (ua: string) => void };
+        if (ua && !tab.view.webContents.isDestroyed() && typeof singleWc.setUserAgent === 'function') {
+          try { singleWc.setUserAgent(ua); } catch {}
+        }
+        this.applyCdpTouchEmulation(tab.view.webContents, Boolean(preset.mobile));
+        if (preset.mobile) {
+          try {
+            if (!tab.view.webContents.isDestroyed()) {
+              tab.view.webContents.insertCSS(MOBILE_OVERLAY_SCROLLBAR_CSS).catch(() => {});
+            }
+          } catch {}
+        }
+
+        try {
+          if (!tab.view.webContents.isDestroyed()) {
+            tab.view.webContents.enableDeviceEmulation({
+              screenPosition: preset.mobile ? 'mobile' : 'desktop',
+              screenSize: { width: preset.width, height: preset.height },
+              viewPosition: { x: 0, y: 0 },
+              deviceScaleFactor: preset.deviceScaleFactor || (preset.category === 'desktop' ? 1 : 2),
+              viewSize: { width: preset.width, height: preset.height },
+              scale: renderScale,
+            });
+          }
+        } catch (err) {
+          console.error('[native-tab-host] Failed enableDeviceEmulation:', err);
+        }
+        // Dynamic corner clipping per-device preset, clear for desktop/flat screens
+        const clipRadius = getPresetCornerRadius(preset);
+        if (clipRadius > 0) {
+          try { tab.view.setBackgroundColor('#00000000'); } catch {}
+        }
+        this.applyDeviceCornerClipping(tab.view.webContents, clipRadius);
+
+        // Emulation scale already handles visual zoom; keep zoomFactor at 1 to prevent double-scaling
+        try {
+          if (!tab.view.webContents.isDestroyed()) {
+            tab.view.webContents.setZoomFactor(1);
+          }
+        } catch {}
+        try {
+          tab.view.setBounds({
+            x: targetX,
+            y: targetY,
+            width: renderedW,
+            height: renderedH,
+          });
+        } catch {}
+      } else {
+        this.applyDeviceCornerClipping(tab.view.webContents, 0);
+        this.applyCdpTouchEmulation(tab.view.webContents, false);
+        const fluidWc = tab.view.webContents as unknown as { setUserAgent?: (ua: string) => void };
+        if (this.defaultUserAgent && !tab.view.webContents.isDestroyed() && typeof fluidWc.setUserAgent === 'function') {
+          try { fluidWc.setUserAgent(this.defaultUserAgent); } catch {}
+        }
+        try {
+          if (!tab.view.webContents.isDestroyed()) {
+            tab.view.webContents.disableDeviceEmulation();
+          }
+        } catch {}
+
+        const userZoom = tab.state.zoomFactor || 1.0;
+        try {
+          if (!tab.view.webContents.isDestroyed()) {
+            tab.view.webContents.setZoomFactor(userZoom);
+          }
+        } catch {}
+        try {
+          tab.view.setBounds({
+            x: 0,
+            y: toolbarHeight,
+            width: availableWidth,
+            height: availableHeight,
+          });
         } catch {}
       }
-
-      try {
-        tab.view.webContents.enableDeviceEmulation({
-          screenPosition: preset.mobile ? 'mobile' : 'desktop',
-          screenSize: { width: preset.width, height: preset.height },
-          viewPosition: { x: 0, y: 0 },
-          deviceScaleFactor: preset.deviceScaleFactor || (preset.category === 'desktop' ? 1 : 2),
-          viewSize: { width: preset.width, height: preset.height },
-          scale: renderScale,
-        });
-      } catch (err) {
-        console.error('[native-tab-host] Failed enableDeviceEmulation:', err);
-      }
-      // Dynamic corner clipping per-device preset, clear for desktop/flat screens
-      const clipRadius = getPresetCornerRadius(preset);
-      if (clipRadius > 0) {
-        try { tab.view.setBackgroundColor('#00000000'); } catch {}
-      }
-      this.applyDeviceCornerClipping(tab.view.webContents, clipRadius);
-
-      // Emulation scale already handles visual zoom; keep zoomFactor at 1 to prevent double-scaling
-      try {
-        tab.view.webContents.setZoomFactor(1);
-      } catch {}
-      tab.view.setBounds({
-        x: targetX,
-        y: targetY,
-        width: renderedW,
-        height: renderedH,
-      });
-    } else {
-      this.applyDeviceCornerClipping(tab.view.webContents, 0);
-      this.applyCdpTouchEmulation(tab.view.webContents, false);
-      if (this.defaultUserAgent && (tab.view.webContents as any).setUserAgent) {
-        (tab.view.webContents as any).setUserAgent(this.defaultUserAgent);
-      }
-      try {
-        tab.view.webContents.disableDeviceEmulation();
-      } catch {}
-
-      const userZoom = tab.state.zoomFactor || 1.0;
-      try {
-        tab.view.webContents.setZoomFactor(userZoom);
-      } catch {}
-      tab.view.setBounds({
-        x: 0,
-        y: toolbarHeight,
-        width: availableWidth,
-        height: availableHeight,
-      });
+    } catch (err) {
+      console.error('[native-tab-host] applyTabDeviceEmulation error:', err);
     }
   }
   public setZoom(tabId: string, zoomFactor: number): boolean {
@@ -4413,7 +4584,7 @@ export class NativeTabHost extends EventEmitter {
       backgroundColor: '#060a11',
       title: 'AntiFan Terminal Workbench',
       autoHideMenuBar: true,
-      show: true,
+      show: false,
       webPreferences: {
         preload: path.join(__dirname, '..', '..', 'preload', 'standalone-preload.js'),
         contextIsolation: true,
@@ -4422,9 +4593,16 @@ export class NativeTabHost extends EventEmitter {
       },
     });
 
-    if (bounds.isMaximized) {
-      win.maximize();
-    }
+    const showPopoutWin = () => {
+      if (!win.isDestroyed() && !win.isVisible()) {
+        if (bounds.isMaximized) {
+          win.maximize();
+        }
+        win.show();
+      }
+    };
+    win.once('ready-to-show', showPopoutWin);
+    setTimeout(showPopoutWin, 300);
     this.terminalWindowStateManager.manage(win);
     this.popoutWindow = win;
     this.terminalWindows.set(win.id, win);
@@ -4508,7 +4686,7 @@ export class NativeTabHost extends EventEmitter {
       backgroundColor: '#060a11',
       title: 'AntiFan Terminal Workbench',
       autoHideMenuBar: true,
-      show: true,
+      show: false,
       webPreferences: {
         preload: path.join(__dirname, '..', '..', 'preload', 'standalone-preload.js'),
         contextIsolation: true,
@@ -4517,22 +4695,16 @@ export class NativeTabHost extends EventEmitter {
       },
     });
 
-    if (baseBounds.isMaximized) {
-      win.maximize();
-    }
-
-    this.terminalWindowStateManager.manage(win);
-    this.terminalWindows.set(win.id, win);
-    const activeSessionId = sessionId || TerminalManager.getInstance().getActiveSessionId();
-    this.terminalWindowMeta.set(win.id, { sessionId: activeSessionId, isPopout: false });
-
-    const onWindowChange = () => {
-      this.schedulePersist();
+    const showNewTermWin = () => {
+      if (!win.isDestroyed() && !win.isVisible()) {
+        if (baseBounds.isMaximized) {
+          win.maximize();
+        }
+        win.show();
+      }
     };
-    win.on('resize', onWindowChange);
-    win.on('move', onWindowChange);
-    win.on('maximize', onWindowChange);
-    win.on('unmaximize', onWindowChange);
+    win.once('ready-to-show', showNewTermWin);
+    setTimeout(showNewTermWin, 300);
 
     win.webContents.on('before-input-event', (event, input) => {
       if (input.type === 'keyDown' && input.key === 'F11') {

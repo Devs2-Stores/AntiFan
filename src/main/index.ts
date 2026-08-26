@@ -4,7 +4,7 @@
  */
 import * as path from 'path';
 import * as fs from 'fs';
-import { app, BrowserWindow, Menu, protocol, session } from 'electron';
+import { app, BrowserWindow, Menu, protocol, session, nativeTheme } from 'electron';
 
 // Register custom privileged scheme for local workspace preview before app.whenReady()
 protocol.registerSchemesAsPrivileged([
@@ -44,6 +44,14 @@ process.on('unhandledRejection', (reason) => {
   console.error('[antifan unhandledRejection]', reason);
 });
 
+app.on('render-process-gone', (_event, webContents, details) => {
+  console.warn('[antifan render-process-gone]', details.reason, 'exitCode:', details.exitCode, 'url:', webContents?.getURL?.() || 'unknown');
+});
+
+app.on('child-process-gone', (_event, details) => {
+  console.warn('[antifan child-process-gone]', details.type, details.reason, 'exitCode:', details.exitCode);
+});
+
 const IS_PROD = process.argv.includes('--production') || process.env.NODE_ENV === 'production';
 const IS_DEV = !IS_PROD;
 const IS_MCP_SERVER = process.argv.includes('--mcp-server');
@@ -61,6 +69,9 @@ app.commandLine.appendSwitch('disk-cache-dir', path.join(chromiumCachePath, 'net
 app.commandLine.appendSwitch('gpu-cache-dir', path.join(chromiumCachePath, 'gpu'));
 
 app.name = 'AntiFan Browser Desktop';
+
+app.commandLine.appendSwitch('force-dark-mode');
+nativeTheme.themeSource = 'dark';
 
 // Configure high-performance Chromium hardware acceleration and security switches
 app.commandLine.appendSwitch('ignore-gpu-blocklist');
@@ -237,16 +248,30 @@ async function createWindow(): Promise<void> {
     await mcpServer.start();
   }
 
-  if (winBounds.isMaximized) {
-    mainWindow.maximize();
-  } else if (typeof winBounds.x !== 'number' || typeof winBounds.y !== 'number') {
-    mainWindow.center();
-  }
+  let showFallbackTimer: NodeJS.Timeout | null = null;
+  const showMainWindow = () => {
+    if (showFallbackTimer) {
+      clearTimeout(showFallbackTimer);
+      showFallbackTimer = null;
+    }
+    if (!mainWindow || mainWindow.isDestroyed() || mainWindow.isVisible()) return;
+    if (winBounds.isMaximized) {
+      mainWindow.maximize();
+    } else if (typeof winBounds.x !== 'number' || typeof winBounds.y !== 'number') {
+      mainWindow.center();
+    }
+    mainWindow.show();
+    mainWindow.focus();
+  };
 
-  mainWindow.show();
-  mainWindow.focus();
+  mainWindow.once('ready-to-show', showMainWindow);
+  showFallbackTimer = setTimeout(showMainWindow, 300);
 
   mainWindow.on('closed', async () => {
+    if (showFallbackTimer) {
+      clearTimeout(showFallbackTimer);
+      showFallbackTimer = null;
+    }
     mainWindow = null;
     await shutdown();
     app.quit();
