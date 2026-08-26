@@ -5,10 +5,48 @@
  */
 
 import { AntiFanTab, SplitPaneId, SplitReviewConfig } from '../../shared/contracts';
-import { DEVICE_PRESETS, DevicePreset } from './device-presets';
+import { DEVICE_PRESETS, DevicePreset, getPresetCornerRadius } from './device-presets';
 
 export const DEFAULT_SPLIT_DESKTOP_PRESET = 'laptop-macbook13';
 export const DEFAULT_SPLIT_MOBILE_PRESET = 'phone-iphone15pro';
+
+export const SPLIT_FRAME_BEZELS = {
+  laptop: {
+    bezelTop: 16, // MacBook Top Display Bezel with Notch
+    bezelSide: 8,
+    bezelBottom: 14, // MacBook Bottom Chin with Logo
+    baseHeight: 12, // MacBook Unibody Aluminum Base Deck
+    baseSide: 12,
+  },
+  phone: {
+    bezelTop: 56, // Realistic iOS Status Bar + Safari URL Header
+    bezelSide: 8,
+    bezelBottom: 46, // Realistic Safari Action Toolbar + Home Indicator
+  },
+} as const;
+
+export interface DeviceFrameBounds {
+  frameX: number;
+  frameY: number;
+  frameWidth: number;
+  frameHeight: number;
+  screenX: number;
+  screenY: number;
+  screenWidth: number;
+  screenHeight: number;
+  bezelTop: number;
+  bezelSide: number;
+  bezelBottom: number;
+  baseHeight?: number;
+  baseSide?: number;
+  deviceType: 'laptop' | 'phone' | 'tablet' | 'desktop';
+  deviceName: string;
+  presetId: string;
+  scale: number;
+  badgeX: number;
+  badgeY: number;
+  cornerRadius?: number;
+}
 
 export interface SplitPaneBounds {
   x: number;
@@ -22,16 +60,21 @@ export interface SplitPaneBounds {
   emulatedHeight: number;
   deviceScaleFactor: number;
   isMobile: boolean;
+  frame?: DeviceFrameBounds;
 }
 
 export interface SplitLayoutResult {
   desktop: SplitPaneBounds;
   mobile: SplitPaneBounds;
+  desktopFrame: DeviceFrameBounds;
+  mobileFrame: DeviceFrameBounds;
   gap: number;
   containerWidth: number;
   containerHeight: number;
+  totalGroupWidth: number;
+  totalGroupHeight: number;
+  startX: number;
 }
-
 export interface SplitContainerBounds {
   width: number;
   height: number;
@@ -116,73 +159,194 @@ export function calculateSplitLayout(
   desktopPresetId: string = DEFAULT_SPLIT_DESKTOP_PRESET,
   mobilePresetId: string = DEFAULT_SPLIT_MOBILE_PRESET,
   userZoom: number = 1.0,
-  gap: number = 8
+  gap: number = 32
 ): SplitLayoutResult {
   const containerW = Math.max(100, container.width);
   const containerH = Math.max(100, container.height);
   const yOffset = Math.max(0, container.yOffset);
   const clampedZoom = Math.max(0.25, Math.min(3.0, userZoom || 1.0));
 
-  const availableW = Math.max(50, containerW - gap);
-  const slotW = Math.floor(availableW / 2);
-  const slotH = containerH;
-
   const desktopPreset = resolvePreset(desktopPresetId, DEFAULT_SPLIT_DESKTOP_PRESET);
   const mobilePreset = resolvePreset(mobilePresetId, DEFAULT_SPLIT_MOBILE_PRESET);
 
   const dWidth = desktopPreset.width || 1280;
   const dHeight = desktopPreset.height || 832;
-  const fitScaleD = Math.min(1.0, slotW / dWidth);
-  const effectiveScaleD = Math.max(0.1, Math.min(5.0, fitScaleD * clampedZoom));
-  const renderedWidthD = Math.min(slotW, Math.round(dWidth * effectiveScaleD));
-  const renderedHeightD = Math.min(slotH, Math.round(dHeight * effectiveScaleD));
-  const xD = Math.max(0, Math.floor((slotW - renderedWidthD) / 2));
-  const yD = yOffset + Math.max(0, Math.floor((slotH - renderedHeightD) / 2));
+  const mWidth = mobilePreset.width || 393;
+  const mHeight = mobilePreset.height || 852;
 
-  const desktopBounds: SplitPaneBounds = {
-    x: xD,
-    y: yD,
-    width: renderedWidthD,
-    height: renderedHeightD,
+  // Tight, sleek frame bezels from shared single source of truth
+  const laptopBezelTop = SPLIT_FRAME_BEZELS.laptop.bezelTop;
+  const laptopBezelSide = SPLIT_FRAME_BEZELS.laptop.bezelSide;
+  const laptopBezelBottom = SPLIT_FRAME_BEZELS.laptop.bezelBottom;
+  const laptopBaseHeight = SPLIT_FRAME_BEZELS.laptop.baseHeight;
+  const laptopBaseSide = SPLIT_FRAME_BEZELS.laptop.baseSide;
+  const laptopExtraW = 2 * laptopBezelSide + 2 * laptopBaseSide; // 36px total outer overhead
+  const laptopExtraH = laptopBezelTop + laptopBezelBottom + laptopBaseHeight; // 32px total outer overhead
+
+  const phoneBezelTop = SPLIT_FRAME_BEZELS.phone.bezelTop;
+  const phoneBezelSide = SPLIT_FRAME_BEZELS.phone.bezelSide;
+  const phoneBezelBottom = SPLIT_FRAME_BEZELS.phone.bezelBottom;
+  const phoneExtraW = 2 * phoneBezelSide; // 16px total outer overhead
+  const phoneExtraH = phoneBezelTop + phoneBezelBottom; // 24px total outer overhead
+  const interDeviceGap = Math.max(8, Math.min(20, typeof gap === 'number' && gap > 0 ? gap : 14));
+  const padX = Math.max(8, Math.min(20, Math.round(containerW * 0.015)));
+  const padTop = Math.max(34, Math.min(48, Math.round(containerH * 0.035)));
+  const padBottom = Math.max(10, Math.min(20, Math.round(containerH * 0.015)));
+  const availW = Math.max(60, containerW - 2 * padX - interDeviceGap);
+  const availH = Math.max(60, containerH - padTop - padBottom);
+
+  // 1. Maximize Viewport Utilization: Compute height-constrained and width-constrained baseline scales
+  const maxDesktopScreenH = Math.max(20, availH - laptopExtraH);
+  const maxMobileScreenH = Math.max(20, availH - phoneExtraH);
+  const rawScaleDH = Math.min(1.0, maxDesktopScreenH / dHeight);
+  const rawScaleMH = Math.min(1.0, maxMobileScreenH / mHeight);
+
+  const rawOuterWD = Math.round(dWidth * rawScaleDH) + laptopExtraW;
+  const rawOuterWM = Math.round(mWidth * rawScaleMH) + phoneExtraW;
+  const rawTotalW = rawOuterWD + rawOuterWM;
+
+  let fitScaleD = rawScaleDH;
+  let fitScaleM = rawScaleMH;
+
+  if (rawTotalW > availW) {
+    const widthScaleRatio = availW / rawTotalW;
+    fitScaleD = Math.max(0.001, rawScaleDH * widthScaleRatio);
+    fitScaleM = Math.max(0.001, rawScaleMH * widthScaleRatio);
+  }
+
+  // 2. Apply user zoom factor to effective scale
+  let effectiveScaleM = Math.max(0.001, fitScaleM * clampedZoom);
+  let effectiveScaleD = Math.max(0.001, fitScaleD * clampedZoom);
+
+  let screenWM = Math.round(mWidth * effectiveScaleM);
+  let screenHM = Math.round(mHeight * effectiveScaleM);
+  let phoneOuterW = screenWM + phoneExtraW;
+  let phoneOuterH = screenHM + phoneExtraH;
+
+  let screenWD = Math.round(dWidth * effectiveScaleD);
+  let screenHD = Math.round(dHeight * effectiveScaleD);
+  let laptopOuterW = screenWD + laptopExtraW;
+  let laptopOuterH = screenHD + laptopExtraH;
+
+  let totalGroupW = laptopOuterW + interDeviceGap + phoneOuterW;
+  let totalGroupH = Math.max(laptopOuterH, phoneOuterH);
+
+  // 3. Post-zoom 2-axis containment protection (guarantees frames and panes never overflow container)
+  const maxAllowedW = Math.max(40, containerW - 2 * padX);
+  const maxAllowedH = Math.max(40, containerH - padTop - padBottom);
+  if (totalGroupW > maxAllowedW || totalGroupH > maxAllowedH) {
+    const shrinkRatio = Math.min(maxAllowedW / totalGroupW, maxAllowedH / totalGroupH);
+    effectiveScaleM = Math.max(0.001, effectiveScaleM * shrinkRatio);
+    effectiveScaleD = Math.max(0.001, effectiveScaleD * shrinkRatio);
+    screenWM = Math.round(mWidth * effectiveScaleM);
+    screenHM = Math.round(mHeight * effectiveScaleM);
+    phoneOuterW = screenWM + phoneExtraW;
+    phoneOuterH = screenHM + phoneExtraH;
+    screenWD = Math.round(dWidth * effectiveScaleD);
+    screenHD = Math.round(dHeight * effectiveScaleD);
+    laptopOuterW = screenWD + laptopExtraW;
+    laptopOuterH = screenHD + laptopExtraH;
+    totalGroupW = laptopOuterW + interDeviceGap + phoneOuterW;
+    totalGroupH = Math.max(laptopOuterH, phoneOuterH);
+  }
+  // 4. Guaranteed non-negative, centered positioning on both axes
+  const groupStartX = Math.max(0, Math.floor((containerW - totalGroupW) / 2));
+  const localLaptopFrameY = padTop + Math.max(0, Math.floor((availH - laptopOuterH) / 2));
+  const localLaptopScreenY = localLaptopFrameY + laptopBezelTop;
+
+  const laptopFrameX = groupStartX;
+  const laptopScreenX = laptopFrameX + laptopBaseSide + laptopBezelSide;
+
+  const phoneFrameX = laptopFrameX + laptopOuterW + interDeviceGap;
+  const phoneScreenX = phoneFrameX + phoneBezelSide;
+  const localPhoneFrameY = padTop + Math.max(0, Math.floor((availH - phoneOuterH) / 2));
+  const localPhoneScreenY = localPhoneFrameY + phoneBezelTop;
+  // Local frame bounds sent to frameBackdropView (which starts at window y=toolbarHeight)
+  const desktopFrame: DeviceFrameBounds = {
+    frameX: laptopFrameX,
+    frameY: localLaptopFrameY,
+    frameWidth: laptopOuterW,
+    frameHeight: laptopOuterH,
+    screenX: laptopScreenX,
+    screenY: localLaptopScreenY,
+    screenWidth: screenWD,
+    screenHeight: screenHD,
+    bezelTop: laptopBezelTop,
+    bezelSide: laptopBezelSide,
+    bezelBottom: laptopBezelBottom,
+    baseHeight: laptopBaseHeight,
+    baseSide: laptopBaseSide,
+    deviceType: 'laptop',
+    deviceName: desktopPreset.name,
+    presetId: desktopPreset.id,
     scale: effectiveScaleD,
-    renderedWidth: renderedWidthD,
-    renderedHeight: renderedHeightD,
+    badgeX: laptopScreenX + Math.floor(screenWD / 2),
+    badgeY: Math.max(4, localLaptopFrameY - 28),
+    cornerRadius: getPresetCornerRadius(desktopPreset),
+  };
+
+  const mobileFrame: DeviceFrameBounds = {
+    frameX: phoneFrameX,
+    frameY: localPhoneFrameY,
+    frameWidth: phoneOuterW,
+    frameHeight: phoneOuterH,
+    screenX: phoneScreenX,
+    screenY: localPhoneScreenY,
+    screenWidth: screenWM,
+    screenHeight: screenHM,
+    bezelTop: phoneBezelTop,
+    bezelSide: phoneBezelSide,
+    bezelBottom: phoneBezelBottom,
+    deviceType: 'phone',
+    deviceName: mobilePreset.name,
+    presetId: mobilePreset.id,
+    scale: effectiveScaleM,
+    badgeX: phoneScreenX + Math.floor(screenWM / 2),
+    badgeY: Math.max(4, localPhoneFrameY - 28),
+    cornerRadius: getPresetCornerRadius(mobilePreset),
+  };
+
+  // Window-relative bounds for WebContentsView.setBounds
+  const desktopBounds: SplitPaneBounds = {
+    x: laptopScreenX,
+    y: yOffset + localLaptopScreenY,
+    width: screenWD,
+    height: screenHD,
+    scale: effectiveScaleD,
+    renderedWidth: screenWD,
+    renderedHeight: screenHD,
     emulatedWidth: dWidth,
     emulatedHeight: dHeight,
     deviceScaleFactor: desktopPreset.deviceScaleFactor || 1,
     isMobile: false,
+    frame: desktopFrame,
   };
 
-  const mWidth = mobilePreset.width || 393;
-  const mHeight = mobilePreset.height || 852;
-  const fitScaleM = Math.min(1.0, slotW / mWidth, slotH / mHeight);
-  const effectiveScaleM = Math.max(0.1, Math.min(5.0, fitScaleM * clampedZoom));
-  const renderedWidthM = Math.min(slotW, Math.round(mWidth * effectiveScaleM));
-  const renderedHeightM = Math.min(slotH, Math.round(mHeight * effectiveScaleM));
-  const slotMX = slotW + gap;
-  const xM = slotMX + Math.max(0, Math.floor((slotW - renderedWidthM) / 2));
-  const yM = yOffset + Math.max(0, Math.floor((slotH - renderedHeightM) / 2));
-
   const mobileBounds: SplitPaneBounds = {
-    x: xM,
-    y: yM,
-    width: renderedWidthM,
-    height: renderedHeightM,
+    x: phoneScreenX,
+    y: yOffset + localPhoneScreenY,
+    width: screenWM,
+    height: screenHM,
     scale: effectiveScaleM,
-    renderedWidth: renderedWidthM,
-    renderedHeight: renderedHeightM,
+    renderedWidth: screenWM,
+    renderedHeight: screenHM,
     emulatedWidth: mWidth,
     emulatedHeight: mHeight,
     deviceScaleFactor: mobilePreset.deviceScaleFactor || 2,
     isMobile: true,
+    frame: mobileFrame,
   };
-
   return {
     desktop: desktopBounds,
     mobile: mobileBounds,
-    gap,
+    desktopFrame,
+    mobileFrame,
+    gap: interDeviceGap,
     containerWidth: containerW,
     containerHeight: containerH,
+    totalGroupWidth: totalGroupW,
+    totalGroupHeight: totalGroupH,
+    startX: groupStartX,
   };
 }
 

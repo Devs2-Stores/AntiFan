@@ -23,7 +23,11 @@ const definitions = [
 function getBootstrap() {
   if (process.env.ANTIFAN_MCP_BOOTSTRAP) {
     try {
-      return JSON.parse(process.env.ANTIFAN_MCP_BOOTSTRAP);
+      const b = JSON.parse(process.env.ANTIFAN_MCP_BOOTSTRAP);
+      return {
+        ...b,
+        ownerPid: b.ownerPid || (process.env.ANTIFAN_OWNER_PID ? parseInt(process.env.ANTIFAN_OWNER_PID, 10) : undefined),
+      };
     } catch {
       return null;
     }
@@ -37,6 +41,7 @@ function getBootstrap() {
       attemptId: process.env.ANTIFAN_ATTEMPT_ID,
       projectId: process.env.ANTIFAN_PROJECT_ID,
       workspaceId: process.env.ANTIFAN_WORKSPACE_ID,
+      ownerPid: process.env.ANTIFAN_OWNER_PID ? parseInt(process.env.ANTIFAN_OWNER_PID, 10) : undefined,
     };
   }
   return null;
@@ -49,6 +54,19 @@ async function invoke(method, params = {}) {
   }
   const tokenParam = (bootstrap.token || bootstrap.secret) ? `?token=${encodeURIComponent(bootstrap.token || bootstrap.secret)}` : '';
   const ws = new WebSocket(`ws://127.0.0.1:${bootstrap.port}${tokenParam}`);
+
+  await new Promise((resolve, reject) => {
+    const connectTimer = setTimeout(() => reject(new Error(JSON.stringify({ code: 'TIMEOUT', message: 'AntiFan WebSocket connection timed out' }))), 5000);
+    ws.once('open', () => {
+      clearTimeout(connectTimer);
+      resolve();
+    });
+    ws.once('error', (err) => {
+      clearTimeout(connectTimer);
+      reject(err);
+    });
+  });
+
   const call = (id, rpcMethod, rpcParams) => new Promise((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error(JSON.stringify({ code: 'TIMEOUT', message: `AntiFan RPC timed out: ${rpcMethod}` }))), 15000);
     const handler = (raw) => {
@@ -95,6 +113,7 @@ async function invoke(method, params = {}) {
         projectId: bootstrap.projectId,
         workspaceId: bootstrap.workspaceId,
         invocationId: crypto.randomUUID(),
+        ownerPid: bootstrap.ownerPid,
       },
     });
   } finally {

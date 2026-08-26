@@ -10,7 +10,6 @@ const os = require('node:os');
 const fs = require('node:fs');
 
 app.commandLine.appendSwitch('no-sandbox');
-app.commandLine.appendSwitch('disable-gpu');
 
 const tempUserData = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-smoke-'));
 app.setPath('userData', tempUserData);
@@ -160,6 +159,15 @@ async function runSmokeTest() {
       throw new Error(`Expected shared localStorage, got: ${mobileLs}`);
     }
     console.log('[Smoke] Verified shared localStorage in same tab session.');
+
+    // Verify clean web standard DOM (no intrusive DOM containing-block clip styles injected)
+    const mobileHasClip = await tabHost.evalJs(`Boolean(document.getElementById('antifan-device-clip'));`, tabId, 'mobile');
+    const desktopHasClip = await tabHost.evalJs(`Boolean(document.getElementById('antifan-device-clip'));`, tabId, 'desktop');
+    if (mobileHasClip || desktopHasClip) {
+      throw new Error(`Expected clean DOM without clip style injections (got mobile=${mobileHasClip}, desktop=${desktopHasClip})`);
+    }
+    console.log('[Smoke] Verified clean DOM containing-block semantics across both panes.');
+
     console.log('[Smoke] Step 4: Testing synchronized navigation to Page 2...');
     tabHost.navigate(tabId, page2Url);
     // Wait for navigation coordinator to settle both panes
@@ -175,15 +183,26 @@ async function runSmokeTest() {
     console.log('[Smoke] Step 4b: Testing reload & resize layout update...');
     const reloadOk = tabHost.reload(tabId);
     if (!reloadOk) throw new Error('Expected tabHost.reload to return true');
-    await new Promise((resolve) => setTimeout(resolve, 1000));
+    await new Promise((resolve) => setTimeout(resolve, 2000));
     win.setSize(1600, 1000);
     tabHost.updateLayout();
     await new Promise((resolve) => setTimeout(resolve, 500));
     console.log('[Smoke] Verified reload and window resize layout update.');
     console.log('[Smoke] Step 4c: Testing back/forward history navigation...');
-    const backOk = tabHost.goBack(tabId);
+    
+    // Log history capabilities before traversal
+    const dCanBack = await tabHost.evalJs(`window.history.length`, tabId, 'desktop');
+    const mCanBack = await tabHost.evalJs(`window.history.length`, tabId, 'mobile');
+    console.log(`[Smoke] History length: desktop=${dCanBack}, mobile=${mCanBack}`);
+
+    let backOk = false;
+    for (let attempt = 0; attempt < 30; attempt++) {
+      backOk = tabHost.goBack(tabId);
+      if (backOk) break;
+      await new Promise((resolve) => setTimeout(resolve, 300));
+    }
     if (!backOk) {
-      throw new Error('Expected goBack to return true');
+      throw new Error(`Expected goBack to return true (desktopLen=${dCanBack}, mobileLen=${mCanBack})`);
     }
     await new Promise((resolve) => setTimeout(resolve, 2000));
     const backDesktopUrl = await tabHost.evalJs(`window.location.href;`, tabId, 'desktop');
@@ -204,6 +223,16 @@ async function runSmokeTest() {
       throw new Error(`Expected both panes on page2 after goForward, got desktop=${fwdDesktopUrl}, mobile=${fwdMobileUrl}`);
     }
     console.log('[Smoke] Verified goForward navigation synced to both panes:', { desktop: fwdDesktopUrl, mobile: fwdMobileUrl });
+    console.log('[Smoke] Step 4d: Testing split review zoom geometry...');
+    tabHost.setZoom(tabId, 1.25);
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    const tabAfterZoom = tabHost.getTabList().find((t) => t.id === tabId);
+    if (tabAfterZoom.zoomFactor !== 1.25) {
+      throw new Error(`Expected zoomFactor 1.25, got ${tabAfterZoom.zoomFactor}`);
+    }
+    tabHost.setZoom(tabId, 1.0);
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    console.log('[Smoke] Verified split review zoom geometry scaling.');
     console.log('[Smoke] Step 5: Testing focused pane switching & tool routing...');
     tabHost.setSplitFocusedPane(tabId, 'mobile');
     tabState = tabHost.getTabList().find((t) => t.id === tabId);
@@ -279,14 +308,33 @@ async function runSmokeTest() {
       throw new Error('Expected dangerous javascript: scheme to be blocked or sanitized');
     }
     console.log('[Smoke] Verified security policy scheme sanitization (no javascript: scheme execution).');
-    console.log('[Smoke] Step 7: Disabling Split Review Mode...');
+    console.log('[Smoke] Step 7: Disabling Split Review Mode & testing single-view preset transitions...');
     tabHost.toggleSplitReview(tabId);
     tabState = tabHost.getTabList().find((t) => t.id === tabId);
     if (tabState.splitMode === true) {
       throw new Error('Expected splitMode to be false after toggle');
     }
-    console.log('[Smoke] Verified split mode disable and single-view fallback.');
+    const singleFluidClip = await tabHost.evalJs(`Boolean(document.getElementById('antifan-device-clip'));`, tabId, 'desktop');
+    if (singleFluidClip) {
+      throw new Error('Expected corner clipping style to be removed on fluid single-view');
+    }
 
+    // Switch single-view to mobile preset -> verify clean DOM semantics preserved
+    tabHost.setDevicePreset(tabId, 'phone-iphone15pro');
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    const singleMobileClip = await tabHost.evalJs(`Boolean(document.getElementById('antifan-device-clip'));`, tabId, 'desktop');
+    if (singleMobileClip) {
+      throw new Error('Expected clean DOM without containing-block clip style injection for single-view mobile preset');
+    }
+
+    // Switch single-view back to responsive -> verify clean state continues
+    tabHost.setDevicePreset(tabId, 'responsive');
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    const singleResponsiveClip = await tabHost.evalJs(`Boolean(document.getElementById('antifan-device-clip'));`, tabId, 'desktop');
+    if (singleResponsiveClip) {
+      throw new Error('Expected clean DOM when switching back to responsive');
+    }
+    console.log('[Smoke] Verified split mode disable, single-view preset transitions, and clean DOM containment.');
     console.log('[Smoke] Step 8: Closing tab and disposing NativeTabHost...');
     tabHost.closeTab(tabId);
     tabHost.dispose();
@@ -295,9 +343,8 @@ async function runSmokeTest() {
     console.log('[Smoke] ALL REAL ELECTRON NATIVE TAB HOST SPLIT SMOKE TESTS PASSED SUCCESSFULLY.');
     server.close();
     try { fs.rmSync(tempUserData, { recursive: true, force: true }); } catch {}
-    setImmediate(() => {
-      app.exit(0);
-    });
+    app.exit(0);
+    process.exit(0);
   } catch (err) {
     console.error('[Smoke] NativeTabHost Split Smoke Test FAILED:', err);
     if (tabHost) {

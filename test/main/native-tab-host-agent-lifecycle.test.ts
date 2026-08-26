@@ -34,8 +34,11 @@ describe('NativeTabHost agent activity lifecycle', () => {
   it('normalizes legacy trajectory steps and rejects a partial success result', async () => {
     let executedScript = '';
     const { host, state } = createHost(async (code) => {
-      executedScript = code;
-      return { success: true, executedSteps: 1, totalSteps: 2 };
+      if (code.includes('__antifanAgentTrajectory')) {
+        executedScript = code;
+        return { success: true, executedSteps: 1, totalSteps: 2 };
+      }
+      return true;
     });
 
     const result = await host.agentTrajectory({
@@ -61,9 +64,12 @@ describe('NativeTabHost agent activity lifecycle', () => {
 
   it('returns structured preflight failures for malformed and unsupported steps', async () => {
     let executionCount = 0;
-    const { host } = createHost(async () => {
-      executionCount++;
-      return { success: true, executedSteps: 1, totalSteps: 1 };
+    const { host } = createHost(async (code) => {
+      if (code.includes('__antifanAgentTrajectory')) {
+        executionCount++;
+        return { success: true, executedSteps: 1, totalSteps: 1 };
+      }
+      return true;
     });
 
     const malformed = await host.agentTrajectory({ steps: undefined } as any);
@@ -83,9 +89,12 @@ describe('NativeTabHost agent activity lifecycle', () => {
   });
 
   it('forces failure when the document changes during trajectory execution', async () => {
-    const { host } = createHost(async () => {
-      host.documentGenerations.set('tab-1', 8);
-      return { success: true, executedSteps: 1, totalSteps: 1 };
+    const { host } = createHost(async (code) => {
+      if (code.includes('__antifanAgentTrajectory')) {
+        host.documentGenerations.set('tab-1', 8);
+        return { success: true, executedSteps: 1, totalSteps: 1 };
+      }
+      return true;
     });
 
     const result = await host.agentTrajectory({ steps: [{ action: 'move', x: 10, y: 20 }] });
@@ -98,8 +107,12 @@ describe('NativeTabHost agent activity lifecycle', () => {
 
   it('keeps overlapping agent actions active until the final action settles', async () => {
     const pending: Array<() => void> = [];
-    const { host, state } = createHost(() => new Promise<boolean>((resolve) => pending.push(() => resolve(true))));
-
+    const { host, state } = createHost((code) => {
+      if (code.includes('__antifanAgentClick')) {
+        return new Promise<boolean>((resolve) => pending.push(() => resolve(true)));
+      }
+      return Promise.resolve(true);
+    });
     const first = host.agentClick({ x: 10, y: 20 });
     const second = host.agentClick({ x: 30, y: 40 });
     await Promise.resolve();
@@ -120,8 +133,18 @@ describe('NativeTabHost agent activity lifecycle', () => {
   });
 
   it('propagates false hook results for direct actions', async () => {
-    const { host } = createHost(async () => false);
-
+    const { host } = createHost(async (code) => {
+      if (
+        code.includes('__antifanAgentClick(') ||
+        code.includes('__antifanAgentType(') ||
+        code.includes('__antifanAgentScroll(') ||
+        code.includes('__antifanAgentMove(') ||
+        code.includes('__antifanAgentHighlight(')
+      ) {
+        return false;
+      }
+      return true;
+    });
     assert.strictEqual(await host.agentClick({ x: 10, y: 20 }), false);
     assert.strictEqual(await host.agentType({ selector: '#name', text: 'Ada' }), false);
     assert.strictEqual(await host.agentScroll({ deltaY: 200 }), false);

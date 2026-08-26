@@ -687,10 +687,14 @@ function renderTabs() {
     // Keep the ownership badge visible for the automation target even when
     // the short-lived activity state has returned to idle.
     if (agentBadge) {
-      if (isAgentControlled) {
+      if (isAgentWorking) {
         agentBadge.style.display = 'inline-flex';
-        agentBadge.className = `tab-agent-badge ${isAgentWorking ? 'agent' : 'controlled'}`;
-        agentBadge.textContent = isAgentWorking ? '🤖 AGENT' : '🎯 AGENT TAB';
+        agentBadge.className = 'tab-agent-badge agent';
+        agentBadge.textContent = '🤖 AGENT';
+      } else if (isAgentControlled) {
+        agentBadge.style.display = 'inline-flex';
+        agentBadge.className = 'tab-agent-badge controlled';
+        agentBadge.textContent = '🎯 AGENT TAB';
       } else if (isAiStreaming) {
         agentBadge.style.display = 'inline-flex';
         agentBadge.className = 'tab-agent-badge ai';

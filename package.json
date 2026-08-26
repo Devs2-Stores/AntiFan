@@ -6,8 +6,13 @@
   "publisher": "antifan",
   "author": "AntiFan Team",
   "main": "./.compiled/src/main/index.js",
+  "bin": {
+    "antifan": "./scripts/antifan-agent.cjs",
+    "antifan-agent": "./scripts/antifan-agent.cjs"
+  },
   "type": "commonjs",
   "scripts": {
+    "agent": "node scripts/antifan-agent.cjs",
     "clean": "node -e \"fs.rmSync('.compiled',{recursive:true,force:true})\"",
     "compile": "tsc -p ./ && node scripts/copy-static.mjs",
     "watch": "tsc -p ./ --watch",

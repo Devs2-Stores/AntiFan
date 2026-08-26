@@ -11,7 +11,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import { randomUUID, createHash } from 'node:crypto';
 import { EventEmitter } from 'node:events';
-import { AntiFanTab, SplitPaneId, AntiFanPickedElement, ChatMessage, TOOLBAR_CHANNELS, SIDEBAR_CHANNELS, TERMINAL_CHANNELS, BridgeDeliveryUpdatePayload, AntigravityAttachmentDescriptor } from '../../shared/contracts';
+import { AntiFanTab, SplitPaneId, AntiFanPickedElement, ChatMessage, TOOLBAR_CHANNELS, SIDEBAR_CHANNELS, TERMINAL_CHANNELS, FRAME_BACKDROP_CHANNELS, BridgeDeliveryUpdatePayload, AntigravityAttachmentDescriptor } from '../../shared/contracts';
 import { getSecureWebPreferences, sanitizeUrl, isAllowedNavigation, cleanRestoredUrl, isInternalWidgetOrSubframeUrl } from '../security/security-policy';
 import { ELEMENT_PICKER_SCRIPT } from './element-picker';
 import { resolveWorkspaceFromUrl, DEFAULT_WORKSPACE_ROOTS } from './workspace-resolver';
@@ -19,7 +19,14 @@ import { FONT_FINDER_SCRIPT } from './font-finder';
 import { GPU_LENS_SCRIPT } from './gpu-lens';
 import { RULER_SCRIPT } from './ruler';
 import { AGENT_BROWSER_SCRIPT } from './agent-browser';
-import { DEVICE_PRESETS, DevicePreset } from './device-presets';
+import {
+  DEVICE_PRESETS,
+  DevicePreset,
+  getPresetUserAgent,
+  getPresetCornerRadius,
+  IPHONE_USER_AGENT,
+  MAC_DESKTOP_USER_AGENT,
+} from './device-presets';
 import { TabDiagnosticsManager } from './tab-diagnostics';
 import { buildKeyboardInputEvents } from './keyboard-normalizer';
 import { WorkspaceCapsuleManager, type WorkspaceCapsule } from '../project/workspace-capsule';
@@ -50,6 +57,91 @@ import {
 export const TOOLBAR_HEIGHT_WITH_BOOKMARKS = 102;
 export const TOOLBAR_HEIGHT_COMPACT = 74;
 
+export const MOBILE_OVERLAY_SCROLLBAR_CSS = `
+/* AntiFan Chrome DevTools Mobile Scrollbar Simulation */
+::-webkit-scrollbar {
+  width: 0px !important;
+  height: 0px !important;
+  background: transparent !important;
+}
+::-webkit-scrollbar-track {
+  background: transparent !important;
+}
+::-webkit-scrollbar-thumb {
+  background: transparent !important;
+}
+::-webkit-scrollbar-button {
+  display: none !important;
+  width: 0 !important;
+  height: 0 !important;
+}
+::-webkit-scrollbar-corner {
+  background: transparent !important;
+}
+html, body {
+  -webkit-touch-callout: default;
+  -webkit-tap-highlight-color: rgba(0, 0, 0, 0);
+  touch-action: manipulation;
+}
+`;
+
+export const MOBILE_TOUCH_CLIENT_SCRIPT = `(() => {
+  if (window.__antifanMobileEmulated) return;
+  window.__antifanMobileEmulated = true;
+  try {
+    Object.defineProperty(navigator, 'maxTouchPoints', { get: () => 5, configurable: true });
+  } catch {}
+  if (!('ontouchstart' in window)) {
+    try { window.ontouchstart = null; } catch {}
+  }
+  let isDown = false;
+  let startX = 0, startY = 0;
+  let scrollLeft = 0, scrollTop = 0;
+  let activeScrollEl = null;
+
+  function findScrollableParent(el) {
+    let curr = el;
+    while (curr && curr !== document.documentElement) {
+      if (curr instanceof HTMLElement) {
+        const style = window.getComputedStyle(curr);
+        const overflowX = style.overflowX;
+        const overflowY = style.overflowY;
+        const isScrollableX = (overflowX === 'auto' || overflowX === 'scroll') && curr.scrollWidth > curr.clientWidth;
+        const isScrollableY = (overflowY === 'auto' || overflowY === 'scroll') && curr.scrollHeight > curr.clientHeight;
+        if (isScrollableX || isScrollableY) return curr;
+      }
+      curr = curr.parentElement;
+    }
+    return document.scrollingElement || document.documentElement;
+  }
+
+  window.addEventListener('mousedown', (e) => {
+    if (e.button !== 0) return;
+    if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement || e.target instanceof HTMLSelectElement) return;
+    isDown = true;
+    startX = e.pageX;
+    startY = e.pageY;
+    activeScrollEl = findScrollableParent(e.target);
+    if (activeScrollEl) {
+      scrollLeft = activeScrollEl.scrollLeft;
+      scrollTop = activeScrollEl.scrollTop;
+    }
+  }, { capture: true, passive: true });
+
+  window.addEventListener('mousemove', (e) => {
+    if (!isDown || !activeScrollEl) return;
+    const dx = e.pageX - startX;
+    const dy = e.pageY - startY;
+    if (Math.abs(dx) > 3 || Math.abs(dy) > 3) {
+      activeScrollEl.scrollLeft = scrollLeft - dx;
+      activeScrollEl.scrollTop = scrollTop - dy;
+    }
+  }, { capture: true, passive: true });
+
+  const stopDrag = () => { isDown = false; activeScrollEl = null; };
+  window.addEventListener('mouseup', stopDrag, { capture: true, passive: true });
+  window.addEventListener('mouseleave', stopDrag, { capture: true, passive: true });
+})();`;
 export interface BookmarkItem {
   id: string;
   url: string;
@@ -67,6 +159,7 @@ export interface NativeTabRecord {
 export class NativeTabHost extends EventEmitter {
   private window: BrowserWindow;
   private toolbarView: WebContentsView;
+  private frameBackdropView: WebContentsView | null = null;
   private sidebarView: WebContentsView | null = null;
   private terminalView: WebContentsView | null = null;
   private popoutWindow: BrowserWindow | null = null;
@@ -80,7 +173,7 @@ export class NativeTabHost extends EventEmitter {
   private sidebarWidth: number = 380;
   private transcriptSyncer: TranscriptSyncer;
   private readonly splitCoordinator = new SplitNavigationCoordinator();
-
+  private defaultUserAgent: string = MAC_DESKTOP_USER_AGENT;
   private tabs: Map<string, NativeTabRecord> = new Map();
   private tabOrder: string[] = [];
   private activeTabId: string = '';
@@ -110,6 +203,7 @@ export class NativeTabHost extends EventEmitter {
   private agentWorkingTimers = new Map<string, NodeJS.Timeout>();
   private agentWorkingRefs = new Map<string, number>();
   private lastAnnotationSessionId: string | undefined = undefined;
+  private appliedClipRadius = new WeakMap<Electron.WebContents, number>();
 
   constructor(window: BrowserWindow, capsuleManager?: WorkspaceCapsuleManager) {
     super();
@@ -123,6 +217,27 @@ export class NativeTabHost extends EventEmitter {
         sidebarOpen: this.isSidebarOpen,
         sidebarWidth: this.sidebarWidth,
       });
+    }
+    // 0. Create Frame Backdrop View (Bottom-most layer for realistic device chassis)
+    try {
+      this.frameBackdropView = new WebContentsView({
+        webPreferences: {
+          preload: path.join(__dirname, '..', '..', 'preload', 'frame-backdrop-preload.js'),
+          contextIsolation: true,
+          sandbox: false,
+          nodeIntegration: false,
+        },
+      });
+      this.frameBackdropView.setBackgroundColor('#060910');
+      this.window.contentView.addChildView(this.frameBackdropView);
+
+      let backdropHtml = path.join(__dirname, '..', '..', 'renderer', 'frame-backdrop.html');
+      if (!fs.existsSync(backdropHtml)) {
+        backdropHtml = path.join(process.cwd(), 'src', 'renderer', 'frame-backdrop.html');
+      }
+      this.frameBackdropView.webContents.loadFile(backdropHtml);
+    } catch (err) {
+      console.error('[native-tab-host] Failed to initialize frameBackdropView:', err);
     }
     // 1. Create Toolbar View
     this.toolbarView = new WebContentsView({
@@ -214,6 +329,7 @@ export class NativeTabHost extends EventEmitter {
 
     this.setupToolbarIpc();
     this.setupSidebarIpc();
+    this.setupFrameBackdropIpc();
     this.setupGlobalShortcutsOnView(this.toolbarView.webContents);
   }
 
@@ -231,9 +347,13 @@ export class NativeTabHost extends EventEmitter {
     const terminalHeight = this.isTerminalOpen ? 240 : 0;
     const availableHeight = Math.max(0, height - toolbarHeight - terminalHeight);
 
+    // 0. Frame Backdrop bounds (starts at y = toolbarHeight)
+    if (this.frameBackdropView) {
+      this.frameBackdropView.setBounds({ x: 0, y: toolbarHeight, width: availableWidth, height: availableHeight });
+    }
+
     // 1. Toolbar bounds
     this.toolbarView.setBounds({ x: 0, y: 0, width: availableWidth, height: toolbarHeight });
-
     // 2. Active Tab bounds & Auto-Fit Device Emulation
     if (this.activeTabId) {
       const tab = this.tabs.get(this.activeTabId);
@@ -259,8 +379,62 @@ export class NativeTabHost extends EventEmitter {
         this.sidebarView.setBounds({ x: width, y: 0, width: 0, height: 0 });
       }
     }
+    // 5. Broadcast to Frame Backdrop
+    this.syncFrameBackdrop();
   }
 
+  private syncFrameBackdrop(): void {
+    if (!this.frameBackdropView || this.frameBackdropView.webContents.isDestroyed()) return;
+    if (!this.window || typeof this.window.getContentBounds !== 'function') return;
+    const activeTab = this.activeTabId ? this.tabs.get(this.activeTabId) : null;
+    const { width, height } = this.window.getContentBounds();
+    const availableWidth = this.isSidebarOpen ? Math.max(400, width - this.sidebarWidth) : width;
+    const toolbarHeight = this.getToolbarHeight();
+    const terminalHeight = this.isTerminalOpen ? 240 : 0;
+    const availableHeight = Math.max(0, height - toolbarHeight - terminalHeight);
+
+    const isAgentWorking = Boolean(activeTab && activeTab.state.aiState === 'agent_working');
+    if (activeTab && activeTab.state.splitMode) {
+      const userZoom = activeTab.state.zoomFactor || 1.0;
+      const splitLayout = calculateSplitLayout(
+        { width: availableWidth, height: availableHeight, yOffset: 0 },
+        activeTab.state.splitDesktopPresetId || DEFAULT_SPLIT_DESKTOP_PRESET,
+        activeTab.state.splitMobilePresetId || DEFAULT_SPLIT_MOBILE_PRESET,
+        userZoom
+      );
+      const payload = {
+        splitMode: true,
+        focusedPane: activeTab.focusedPane || activeTab.state.splitFocusedPane || 'desktop',
+        desktopFrame: splitLayout.desktopFrame,
+        mobileFrame: splitLayout.mobileFrame,
+        containerWidth: availableWidth,
+        containerHeight: availableHeight,
+        url: activeTab.state.url || '',
+        agentWorking: isAgentWorking,
+      };
+      this.frameBackdropView.webContents.send(FRAME_BACKDROP_CHANNELS.UPDATE_LAYOUT, payload);
+    } else {
+      this.frameBackdropView.webContents.send(FRAME_BACKDROP_CHANNELS.UPDATE_LAYOUT, {
+        splitMode: false,
+        focusedPane: 'desktop',
+        containerWidth: availableWidth,
+        containerHeight: availableHeight,
+        agentWorking: isAgentWorking,
+      });
+    }
+  }
+
+  private setupFrameBackdropIpc(): void {
+    ipcMain.on(FRAME_BACKDROP_CHANNELS.FOCUS_PANE, (_event, paneId: SplitPaneId) => {
+      if (this.activeTabId) {
+        this.setSplitFocusedPane(this.activeTabId, paneId);
+      }
+    });
+
+    ipcMain.on(FRAME_BACKDROP_CHANNELS.READY, () => {
+      this.syncFrameBackdrop();
+    });
+  }
   public toggleSidebar(): boolean {
     this.isSidebarOpen = !this.isSidebarOpen;
     this.updateLayout();
@@ -1269,7 +1443,12 @@ export class NativeTabHost extends EventEmitter {
       try {
         const ses = activeTab.view.webContents.session;
         await ses.clearStorageData({ storages: ['cookies', 'localstorage', 'cachestorage'] });
-        activeTab.view.webContents.reload();
+        if (!activeTab.view.webContents.isDestroyed()) {
+          activeTab.view.webContents.reload();
+        }
+        if (activeTab.state.splitMode && activeTab.mobileView && !activeTab.mobileView.webContents.isDestroyed()) {
+          activeTab.mobileView.webContents.reload();
+        }
       } catch (err) {
         console.error('[native-tab-host] Failed to clear storage:', err);
       }
@@ -1354,6 +1533,7 @@ export class NativeTabHost extends EventEmitter {
       url: tab?.state.url,
     };
   }
+
   private clearInitialNavigationHistory(wc: Electron.WebContents, state?: AntiFanTab): void {
     const navigationHistory = wc.navigationHistory;
     if (!navigationHistory || navigationHistory.length() <= 1) return;
@@ -1362,13 +1542,12 @@ export class NativeTabHost extends EventEmitter {
       if (state) {
         state.canGoBack = navigationHistory.canGoBack();
         state.canGoForward = navigationHistory.canGoForward();
-        this.broadcastState();
       }
+      this.broadcastState();
     } catch (err) {
       console.warn('[native-tab-host] Failed to clear initial navigation history:', err);
     }
   }
-
 
   private setupTabWebContentsEvents(
     id: string,
@@ -1416,8 +1595,26 @@ export class NativeTabHost extends EventEmitter {
       if (paneId === 'desktop') {
         this.documentGenerations.set(id, (this.documentGenerations.get(id) || 0) + 1);
       }
+      this.appliedClipRadius.delete(wc);
       wc.session.cookies.flushStore().catch(() => {});
       this.injectAutoJsonViewer(wc);
+      // Idempotent layout and clipping synchronization on page load
+      const isMobilePane = paneId === 'mobile' || Boolean(DEVICE_PRESETS.find((p) => p.id === state.devicePresetId)?.mobile);
+      if (isMobilePane) {
+        wc.insertCSS(MOBILE_OVERLAY_SCROLLBAR_CSS).catch(() => {});
+        wc.executeJavaScript(MOBILE_TOUCH_CLIENT_SCRIPT).catch(() => {});
+      }
+      if (paneId === 'mobile') {
+        const splitMobilePreset = DEVICE_PRESETS.find((p) => p.id === state.splitMobilePresetId) || DEVICE_PRESETS.find((p) => p.id === DEFAULT_SPLIT_MOBILE_PRESET);
+        const splitMobileClipRadius = getPresetCornerRadius(splitMobilePreset);
+        this.applyDeviceCornerClipping(wc, splitMobileClipRadius, true);
+      } else if (state.devicePresetId && state.devicePresetId !== 'responsive') {
+        const clipRadius = getPresetCornerRadius(state.devicePresetId);
+        this.applyDeviceCornerClipping(wc, clipRadius, true);
+      }
+      if (id === this.activeTabId) {
+        this.updateLayout();
+      }
       if (this.isRulerActive && id === this.activeTabId) {
         wc.executeJavaScript(RULER_SCRIPT).catch(() => {});
       }
@@ -1427,8 +1624,41 @@ export class NativeTabHost extends EventEmitter {
       if (this.isFontFinderActive && id === this.activeTabId) {
         wc.executeJavaScript(FONT_FINDER_SCRIPT).catch(() => {});
       }
+      if (this.isInspecting && id === this.activeTabId) {
+        const tm = TerminalManager.getInstance();
+        const termContextData: Record<string, unknown> = {
+          sessions: tm.listSessions(),
+          selectedSessionId: tm.getActiveSessionId(),
+        };
+        if (this.lastAnnotationSessionId !== undefined) {
+          termContextData.annotationSessionId = this.lastAnnotationSessionId;
+        }
+        const termContextScript = `(() => {
+          window.__antifanTerminalContext = Object.assign(window.__antifanTerminalContext || {}, ${JSON.stringify(termContextData)});
+          ${this.lastAnnotationSessionId === undefined ? 'delete window.__antifanTerminalContext.annotationSessionId;' : `window.__antifanTerminalContext.annotationSessionId = ${JSON.stringify(this.lastAnnotationSessionId)};`}
+        })();`;
+        wc.executeJavaScript(`${termContextScript}\n${ELEMENT_PICKER_SCRIPT}`).catch(() => {});
+      }
     });
 
+    wc.on('dom-ready', () => {
+      const isMobilePane = paneId === 'mobile' || Boolean(DEVICE_PRESETS.find((p) => p.id === state.devicePresetId)?.mobile);
+      if (isMobilePane) {
+        wc.insertCSS(MOBILE_OVERLAY_SCROLLBAR_CSS).catch(() => {});
+        wc.executeJavaScript(MOBILE_TOUCH_CLIENT_SCRIPT).catch(() => {});
+      }
+      if (paneId === 'mobile') {
+        const splitMobilePreset = DEVICE_PRESETS.find((p) => p.id === state.splitMobilePresetId) || DEVICE_PRESETS.find((p) => p.id === DEFAULT_SPLIT_MOBILE_PRESET);
+        const splitMobileClipRadius = getPresetCornerRadius(splitMobilePreset);
+        this.applyDeviceCornerClipping(wc, splitMobileClipRadius, true);
+      } else if (state.devicePresetId && state.devicePresetId !== 'responsive') {
+        const clipRadius = getPresetCornerRadius(state.devicePresetId);
+        this.applyDeviceCornerClipping(wc, clipRadius, true);
+      }
+      if (id === this.activeTabId) {
+        this.updateLayout();
+      }
+    });
     wc.on('page-title-updated', (_event, title) => {
       if (paneId === 'desktop') {
         state.title = title || 'Untitled';
@@ -1627,7 +1857,7 @@ export class NativeTabHost extends EventEmitter {
     const view = new WebContentsView({
       webPreferences: getSecureWebPreferences(),
     });
-
+    try { view.setBackgroundColor('#00000000'); } catch {}
     const state: AntiFanTab = {
       id,
       url,
@@ -1717,6 +1947,84 @@ export class NativeTabHost extends EventEmitter {
     return true;
   }
 
+  private activateAgentVisualGlow(tabId: string): void {
+    const tab = this.tabs.get(tabId);
+    if (!tab) return;
+    const script = `(() => {
+      try {
+        if (typeof window.__antifanAgentActive === 'function') {
+          window.__antifanAgentActive();
+        } else {
+          let style = document.getElementById('__antifan_agent_glow_style__');
+          if (!style) {
+            style = document.createElement('style');
+            style.id = '__antifan_agent_glow_style__';
+            style.textContent = \`
+              @keyframes antifan_cyan_glow_pulse {
+                0% { box-shadow: inset 0 0 32px 4px rgba(0, 240, 255, 0.55), inset 0 0 10px 2px rgba(56, 189, 248, 0.85); border-color: rgba(0, 240, 255, 0.95); }
+                100% { box-shadow: inset 0 0 54px 8px rgba(0, 240, 255, 0.85), inset 0 0 16px 4px rgba(56, 189, 248, 1); border-color: #00f0ff; }
+              }
+              #__antifan_agent_overlay__ {
+                position: fixed !important;
+                top: 0 !important;
+                left: 0 !important;
+                width: 100vw !important;
+                height: 100vh !important;
+                pointer-events: none !important;
+                z-index: 2147483646 !important;
+                overflow: hidden !important;
+                box-shadow: inset 0 0 36px 6px rgba(0, 240, 255, 0.55), inset 0 0 12px 2px rgba(56, 189, 248, 0.85) !important;
+                border: 3px solid rgba(0, 240, 255, 0.9) !important;
+                box-sizing: border-box !important;
+                opacity: 1 !important;
+                animation: antifan_cyan_glow_pulse 1.2s ease-in-out infinite alternate !important;
+                transition: opacity 0.3s ease !important;
+              }
+            \`;
+            (document.head || document.documentElement).appendChild(style);
+          }
+          let ov = document.getElementById('__antifan_agent_overlay__');
+          if (!ov) {
+            ov = document.createElement('div');
+            ov.id = '__antifan_agent_overlay__';
+            (document.body || document.documentElement).appendChild(ov);
+          } else {
+            ov.classList.add('active');
+          }
+        }
+      } catch {}
+    })()`;
+    if (!tab.view.webContents.isDestroyed()) {
+      tab.view.webContents.executeJavaScript(script).catch(() => {});
+    }
+    if (tab.mobileView && !tab.mobileView.webContents.isDestroyed()) {
+      tab.mobileView.webContents.executeJavaScript(script).catch(() => {});
+    }
+    this.syncFrameBackdrop();
+  }
+
+  private deactivateAgentVisualGlow(tabId: string): void {
+    const tab = this.tabs.get(tabId);
+    if (!tab) return;
+    const script = `(() => {
+      try {
+        if (typeof window.__antifanAgentClear === 'function') {
+          window.__antifanAgentClear();
+        } else {
+          const ov = document.getElementById('__antifan_agent_overlay__');
+          if (ov) ov.classList.remove('active');
+        }
+      } catch {}
+    })()`;
+    if (!tab.view.webContents.isDestroyed()) {
+      tab.view.webContents.executeJavaScript(script).catch(() => {});
+    }
+    if (tab.mobileView && !tab.mobileView.webContents.isDestroyed()) {
+      tab.mobileView.webContents.executeJavaScript(script).catch(() => {});
+    }
+    this.syncFrameBackdrop();
+  }
+
   private beginTabAgentWorking(tabId: string): void {
     const target = this.tabs.get(tabId);
     if (!target) return;
@@ -1725,12 +2033,15 @@ export class NativeTabHost extends EventEmitter {
       target.state.aiState = 'agent_working';
       this.broadcastState();
     }
+    this.activateAgentVisualGlow(tabId);
   }
+
   private clearTabAgentWorking(tabId: string): void {
     const timer = this.agentWorkingTimers.get(tabId);
     if (timer) clearTimeout(timer);
     this.agentWorkingTimers.delete(tabId);
     this.agentWorkingRefs.delete(tabId);
+    this.deactivateAgentVisualGlow(tabId);
   }
 
   private endTabAgentWorking(tabId: string): void {
@@ -1746,6 +2057,7 @@ export class NativeTabHost extends EventEmitter {
         target.state.aiState = 'idle';
         this.broadcastState();
       }
+      this.deactivateAgentVisualGlow(tabId);
     }
   }
 
@@ -1765,6 +2077,7 @@ export class NativeTabHost extends EventEmitter {
 
     tab.state.aiState = 'agent_working';
     this.broadcastState();
+    this.activateAgentVisualGlow(targetId);
 
     const existingTimer = this.agentWorkingTimers.get(targetId);
     if (existingTimer) clearTimeout(existingTimer);
@@ -1776,13 +2089,16 @@ export class NativeTabHost extends EventEmitter {
           current.state.aiState = 'idle';
           this.broadcastState();
         }
+        this.deactivateAgentVisualGlow(targetId);
       }
       this.agentWorkingTimers.delete(targetId);
     }, durationMs);
+    if (typeof timer?.unref === 'function') {
+      timer.unref();
+    }
 
     this.agentWorkingTimers.set(targetId, timer);
   }
-
   public setTabAiState(tabId: string, aiState: 'idle' | 'thinking' | 'streaming' | 'completed' | 'agent_working'): void {
     const tab = this.tabs.get(tabId);
     if (!tab) return;
@@ -1894,9 +2210,9 @@ export class NativeTabHost extends EventEmitter {
   public navigate(tabId: string, inputUrl: string): boolean {
     const tab = this.tabs.get(tabId);
     if (!tab) return false;
+    this.markTabAgentWorking(tabId, 2500);
     const cleanUrl = sanitizeUrl(inputUrl);
     tab.state.url = cleanUrl;
-
     if (cleanUrl.startsWith('view-source:')) {
       const sourceTargetUrl = cleanUrl.slice('view-source:'.length).trim();
       tab.state.title = `view-source:${sourceTargetUrl}`;
@@ -1919,13 +2235,18 @@ export class NativeTabHost extends EventEmitter {
   public reload(tabId: string): boolean {
     const tab = this.tabs.get(tabId);
     if (!tab) return false;
+    this.markTabAgentWorking(tabId, 2500);
     if (tab.state.splitMode && tab.mobileView && !tab.mobileView.webContents.isDestroyed()) {
-      const authorityPane = tab.focusedPane || tab.state.splitFocusedPane || 'desktop';
-      this.splitCoordinator.startTransaction(tabId, authorityPane, tab.state.url);
-      const authorityView = authorityPane === 'mobile' ? tab.mobileView : tab.view;
-      authorityView.webContents.reload();
+      if (!tab.view.webContents.isDestroyed()) {
+        tab.view.webContents.reload();
+      }
+      if (tab.mobileView && !tab.mobileView.webContents.isDestroyed()) {
+        tab.mobileView.webContents.reload();
+      }
     } else {
-      tab.view.webContents.reload();
+      if (!tab.view.webContents.isDestroyed()) {
+        tab.view.webContents.reload();
+      }
     }
     return true;
   }
@@ -2027,6 +2348,12 @@ export class NativeTabHost extends EventEmitter {
         const mobileView = new WebContentsView({
           webPreferences: getSecureWebPreferences(),
         });
+        mobileView.setBackgroundColor('#00000000');
+        const mobilePreset = DEVICE_PRESETS.find((p) => p.id === tab.state.splitMobilePresetId) || DEVICE_PRESETS.find((p) => p.id === DEFAULT_SPLIT_MOBILE_PRESET);
+        const mobileUA = getPresetUserAgent(mobilePreset, IPHONE_USER_AGENT);
+        if (mobileUA && (mobileView.webContents as any).setUserAgent) {
+          (mobileView.webContents as any).setUserAgent(mobileUA);
+        }
         tab.mobileView = mobileView;
         this.setupTabWebContentsEvents(tabId, mobileView, tab.state, 'mobile');
 
@@ -2102,8 +2429,22 @@ export class NativeTabHost extends EventEmitter {
         tab.state.splitMobilePresetId || DEFAULT_SPLIT_MOBILE_PRESET,
         userZoom
       );
+      // Ensure transparent view backgrounds so clipped corners do not render opaque white rectangles
+      try { tab.view.setBackgroundColor('#00000000'); } catch {}
+      try { tab.mobileView?.setBackgroundColor('#00000000'); } catch {}
 
-      // Desktop view emulation & bounds
+      // Dynamic corner clipping for mobile pane, clear for desktop
+      const splitMobilePreset = DEVICE_PRESETS.find((p) => p.id === tab.state.splitMobilePresetId) || DEVICE_PRESETS.find((p) => p.id === DEFAULT_SPLIT_MOBILE_PRESET);
+      const splitMobileClipRadius = getPresetCornerRadius(splitMobilePreset);
+      this.applyDeviceCornerClipping(tab.view.webContents, 0);
+      this.applyDeviceCornerClipping(tab.mobileView.webContents, splitMobileClipRadius);
+      const desktopPreset = DEVICE_PRESETS.find((p) => p.id === tab.state.splitDesktopPresetId) || DEVICE_PRESETS.find((p) => p.id === DEFAULT_SPLIT_DESKTOP_PRESET);
+      const desktopUA = getPresetUserAgent(desktopPreset, MAC_DESKTOP_USER_AGENT);
+      if (desktopUA && (tab.view.webContents as any).setUserAgent) {
+        (tab.view.webContents as any).setUserAgent(desktopUA);
+      }
+      this.applyCdpTouchEmulation(tab.view.webContents, false);
+
       try {
         tab.view.webContents.enableDeviceEmulation({
           screenPosition: 'desktop',
@@ -2116,8 +2457,9 @@ export class NativeTabHost extends EventEmitter {
       } catch (err) {
         console.error('[native-tab-host] Failed desktop enableDeviceEmulation:', err);
       }
+      // Emulation scale already handles visual zoom; keep zoomFactor at 1 to prevent double-scaling
       try {
-        tab.view.webContents.setZoomFactor(userZoom);
+        tab.view.webContents.setZoomFactor(1);
       } catch {}
       tab.view.setBounds({
         x: splitLayout.desktop.x,
@@ -2127,6 +2469,16 @@ export class NativeTabHost extends EventEmitter {
       });
 
       // Mobile view emulation & bounds
+      const mobilePreset = DEVICE_PRESETS.find((p) => p.id === tab.state.splitMobilePresetId) || DEVICE_PRESETS.find((p) => p.id === DEFAULT_SPLIT_MOBILE_PRESET);
+      const mobileUA = getPresetUserAgent(mobilePreset, IPHONE_USER_AGENT);
+      if (mobileUA && (tab.mobileView.webContents as any).setUserAgent) {
+        (tab.mobileView.webContents as any).setUserAgent(mobileUA);
+      }
+      this.applyCdpTouchEmulation(tab.mobileView.webContents, true);
+      try {
+        tab.mobileView.webContents.insertCSS(MOBILE_OVERLAY_SCROLLBAR_CSS).catch(() => {});
+      } catch {}
+
       try {
         tab.mobileView.webContents.enableDeviceEmulation({
           screenPosition: 'mobile',
@@ -2139,8 +2491,9 @@ export class NativeTabHost extends EventEmitter {
       } catch (err) {
         console.error('[native-tab-host] Failed mobile enableDeviceEmulation:', err);
       }
+      // Emulation scale already handles visual zoom; keep zoomFactor at 1 to prevent double-scaling
       try {
-        tab.mobileView.webContents.setZoomFactor(userZoom);
+        tab.mobileView.webContents.setZoomFactor(1);
       } catch {}
       tab.mobileView.setBounds({
         x: splitLayout.mobile.x,
@@ -2159,16 +2512,23 @@ export class NativeTabHost extends EventEmitter {
       const maxW = Math.max(100, availableWidth);
       const maxH = Math.max(100, availableHeight);
 
-      const fitScale = preset.category === 'desktop'
-        ? Math.min(1.0, maxW / preset.width)
-        : Math.min(1.0, maxW / preset.width, maxH / preset.height);
-      const effectiveScale = Math.max(0.1, Math.min(5.0, fitScale * userZoom));
-      const renderedW = Math.min(maxW, Math.round(preset.width * effectiveScale));
-      const renderedH = preset.category === 'desktop'
-        ? (preset.height && preset.height * effectiveScale <= maxH ? Math.round(preset.height * effectiveScale) : maxH)
-        : Math.min(maxH, Math.round(preset.height * effectiveScale));
+      const fitScale = Math.min(1.0, maxW / preset.width, maxH / preset.height);
+      const renderScale = Math.max(0.1, Math.min(5.0, fitScale * userZoom));
+      const renderedW = Math.round(preset.width * renderScale);
+      const renderedH = Math.round(preset.height * renderScale);
       const targetX = Math.max(0, Math.floor((maxW - renderedW) / 2));
-      const targetY = toolbarHeight + (renderedH < maxH ? Math.max(0, Math.floor((maxH - renderedH) / 2)) : 0);
+      const targetY = toolbarHeight + Math.max(0, Math.floor((maxH - renderedH) / 2));
+
+      const ua = getPresetUserAgent(preset, preset.mobile ? IPHONE_USER_AGENT : this.defaultUserAgent || MAC_DESKTOP_USER_AGENT);
+      if (ua && (tab.view.webContents as any).setUserAgent) {
+        (tab.view.webContents as any).setUserAgent(ua);
+      }
+      this.applyCdpTouchEmulation(tab.view.webContents, Boolean(preset.mobile));
+      if (preset.mobile) {
+        try {
+          tab.view.webContents.insertCSS(MOBILE_OVERLAY_SCROLLBAR_CSS).catch(() => {});
+        } catch {}
+      }
 
       try {
         tab.view.webContents.enableDeviceEmulation({
@@ -2177,16 +2537,22 @@ export class NativeTabHost extends EventEmitter {
           viewPosition: { x: 0, y: 0 },
           deviceScaleFactor: preset.deviceScaleFactor || (preset.category === 'desktop' ? 1 : 2),
           viewSize: { width: preset.width, height: preset.height },
-          scale: effectiveScale,
+          scale: renderScale,
         });
       } catch (err) {
         console.error('[native-tab-host] Failed enableDeviceEmulation:', err);
       }
+      // Dynamic corner clipping per-device preset, clear for desktop/flat screens
+      const clipRadius = getPresetCornerRadius(preset);
+      if (clipRadius > 0) {
+        try { tab.view.setBackgroundColor('#00000000'); } catch {}
+      }
+      this.applyDeviceCornerClipping(tab.view.webContents, clipRadius);
 
+      // Emulation scale already handles visual zoom; keep zoomFactor at 1 to prevent double-scaling
       try {
-        tab.view.webContents.setZoomFactor(effectiveScale);
+        tab.view.webContents.setZoomFactor(1);
       } catch {}
-
       tab.view.setBounds({
         x: targetX,
         y: targetY,
@@ -2194,6 +2560,11 @@ export class NativeTabHost extends EventEmitter {
         height: renderedH,
       });
     } else {
+      this.applyDeviceCornerClipping(tab.view.webContents, 0);
+      this.applyCdpTouchEmulation(tab.view.webContents, false);
+      if (this.defaultUserAgent && (tab.view.webContents as any).setUserAgent) {
+        (tab.view.webContents as any).setUserAgent(this.defaultUserAgent);
+      }
       try {
         tab.view.webContents.disableDeviceEmulation();
       } catch {}
@@ -2202,7 +2573,6 @@ export class NativeTabHost extends EventEmitter {
       try {
         tab.view.webContents.setZoomFactor(userZoom);
       } catch {}
-
       tab.view.setBounds({
         x: 0,
         y: toolbarHeight,
@@ -2220,10 +2590,50 @@ export class NativeTabHost extends EventEmitter {
     this.broadcastState();
     return true;
   }
+  private async applyCdpTouchEmulation(wc: Electron.WebContents, enableTouch: boolean): Promise<void> {
+    if (!wc || (wc as unknown as { isDestroyed?: () => boolean }).isDestroyed?.()) return;
+    try {
+      if (!wc.debugger) return;
+      if (!wc.debugger.isAttached()) {
+        try {
+          wc.debugger.attach('1.3');
+        } catch {}
+      }
+      if (wc.debugger.isAttached()) {
+        if (enableTouch) {
+          await wc.debugger.sendCommand('Emulation.setTouchEmulationEnabled', {
+            enabled: true,
+            maxTouchPoints: 5,
+          }).catch(() => {});
+          // Keep touch capability without hijacking mouse movements so hover and annotation picker work smoothly
+          await wc.debugger.sendCommand('Emulation.setEmitTouchEventsForMouse', {
+            enabled: false,
+          }).catch(() => {});
+        } else {
+          await wc.debugger.sendCommand('Emulation.setTouchEmulationEnabled', {
+            enabled: false,
+          }).catch(() => {});
+          await wc.debugger.sendCommand('Emulation.setEmitTouchEventsForMouse', {
+            enabled: false,
+          }).catch(() => {});
+        }
+      }
+    } catch {}
+  }
+
+  private applyDeviceCornerClipping(wc: Electron.WebContents, _radiusPx: number, _force: boolean = false): void {
+    if (!wc || wc.isDestroyed()) return;
+    const script = `(() => {
+      const style = document.getElementById('antifan-device-clip');
+      if (style) style.remove();
+    })()`;
+    wc.executeJavaScript(script).catch(() => {});
+  }
 
   public setDevicePreset(tabId: string, presetId: string): boolean {
     const tab = this.tabs.get(tabId);
     if (!tab) return false;
+    this.markTabAgentWorking(tabId, 2500);
     tab.state.devicePresetId = presetId;
     this.updateLayout();
     this.broadcastState();
@@ -2561,8 +2971,17 @@ export class NativeTabHost extends EventEmitter {
       ${validAnnotationSessionId === undefined ? 'delete window.__antifanTerminalContext.annotationSessionId;' : `window.__antifanTerminalContext.annotationSessionId = ${JSON.stringify(validAnnotationSessionId)};`}
     })();`;
     this.isInspecting = true;
-    const targetWc = this.getTabWebContents(active.state.id, active.focusedPane) || active.view.webContents;
-    targetWc.executeJavaScript(`${termContextScript}\n${ELEMENT_PICKER_SCRIPT}`).catch(() => {});
+    const targetWcs: Array<{ wc: Electron.WebContents; paneId: SplitPaneId }> = [];
+    if (active.view && !active.view.webContents.isDestroyed()) {
+      targetWcs.push({ wc: active.view.webContents, paneId: 'desktop' });
+    }
+    if (active.state.splitMode && active.mobileView && !active.mobileView.webContents.isDestroyed()) {
+      targetWcs.push({ wc: active.mobileView.webContents, paneId: 'mobile' });
+    }
+
+    for (const { wc } of targetWcs) {
+      wc.executeJavaScript(`${termContextScript}\n${ELEMENT_PICKER_SCRIPT}`).catch(() => {});
+    }
     this.broadcastState();
 
     if (this.inspectPollTimer) clearInterval(this.inspectPollTimer);
@@ -2573,135 +2992,155 @@ export class NativeTabHost extends EventEmitter {
       }
       try {
         const liveSessions = TerminalManager.getInstance().listSessions();
-        const currentCtx = await targetWc.executeJavaScript('window.__antifanTerminalContext?.annotationSessionId').catch(() => null);
-        if (typeof currentCtx === 'string' && (currentCtx === 'auto' || liveSessions.some((s) => s.id === currentCtx))) {
-          this.lastAnnotationSessionId = currentCtx;
+        const activeTab = this.tabs.get(this.activeTabId);
+        if (!activeTab) return;
+
+        const currentWcs: Array<{ wc: Electron.WebContents; paneId: SplitPaneId }> = [];
+        if (activeTab.view && !activeTab.view.webContents.isDestroyed()) {
+          currentWcs.push({ wc: activeTab.view.webContents, paneId: 'desktop' });
+        }
+        if (activeTab.state.splitMode && activeTab.mobileView && !activeTab.mobileView.webContents.isDestroyed()) {
+          currentWcs.push({ wc: activeTab.mobileView.webContents, paneId: 'mobile' });
         }
 
-        const rawResult = await targetWc.executeJavaScript('window.__antifanPick');
-        if (rawResult) {
-          await targetWc.executeJavaScript('window.__antifanPick = null;');
-          this.stopInspect(this.inspectedTabId || this.activeTabId);
-          if (rawResult.canceled) return;
-
-          if (typeof rawResult.targetSessionId === 'string' && (rawResult.targetSessionId === 'auto' || liveSessions.some((s) => s.id === rawResult.targetSessionId))) {
-            this.lastAnnotationSessionId = rawResult.targetSessionId;
+        for (const { wc, paneId } of currentWcs) {
+          if (!this.isInspecting) break;
+          if (wc.isDestroyed()) continue;
+          const currentCtx = await wc.executeJavaScript('window.__antifanTerminalContext?.annotationSessionId').catch(() => null);
+          if (typeof currentCtx === 'string' && (currentCtx === 'auto' || liveSessions.some((s) => s.id === currentCtx))) {
+            this.lastAnnotationSessionId = currentCtx;
           }
+          const rawResult = await wc.executeJavaScript('window.__antifanPick').catch(() => null);
+          if (rawResult) {
+            await wc.executeJavaScript('window.__antifanPick = null;').catch(() => {});
+            this.stopInspect(this.inspectedTabId || this.activeTabId);
+            if (rawResult.canceled) return;
 
-          let targetImageBase64: string | undefined;
-          let viewportImageBase64: string | undefined;
+            // Automatically focus the pane where user picked/annotated the element!
+            if (activeTab.state.splitMode) {
+              activeTab.focusedPane = paneId;
+              activeTab.state.splitFocusedPane = paneId;
+              this.broadcastState();
+            }
 
-          try {
-            const fullImage = await targetWc.capturePage();
-            if (!fullImage.isEmpty()) {
-              viewportImageBase64 = fullImage.toPNG().toString('base64');
-              const imgSize = fullImage.getSize();
-              if (rawResult.clientRect && rawResult.clientRect.width > 0 && rawResult.clientRect.height > 0 && imgSize.width > 0 && imgSize.height > 0) {
-                const domSize = await targetWc.executeJavaScript('({ w: window.innerWidth, h: window.innerHeight })').catch(() => null);
-                const scaleX = (domSize && typeof domSize.w === 'number' && domSize.w > 0) ? (imgSize.width / domSize.w) : 1.0;
-                const scaleY = (domSize && typeof domSize.h === 'number' && domSize.h > 0) ? (imgSize.height / domSize.h) : 1.0;
+            if (typeof rawResult.targetSessionId === 'string' && (rawResult.targetSessionId === 'auto' || liveSessions.some((s) => s.id === rawResult.targetSessionId))) {
+              this.lastAnnotationSessionId = rawResult.targetSessionId;
+            }
 
-                const cropX = Math.max(0, Math.min(imgSize.width - 1, Math.floor(rawResult.clientRect.x * scaleX)));
-                const cropY = Math.max(0, Math.min(imgSize.height - 1, Math.floor(rawResult.clientRect.y * scaleY)));
-                const cropW = Math.max(1, Math.min(imgSize.width - cropX, Math.ceil(rawResult.clientRect.width * scaleX)));
-                const cropH = Math.max(1, Math.min(imgSize.height - cropY, Math.ceil(rawResult.clientRect.height * scaleY)));
+            let targetImageBase64: string | undefined;
+            let viewportImageBase64: string | undefined;
 
-                const cropped = fullImage.crop({ x: cropX, y: cropY, width: cropW, height: cropH });
-                if (!cropped.isEmpty()) {
-                  targetImageBase64 = cropped.toPNG().toString('base64');
+            try {
+              const fullImage = await wc.capturePage();
+              if (!fullImage.isEmpty()) {
+                viewportImageBase64 = fullImage.toPNG().toString('base64');
+                const imgSize = fullImage.getSize();
+                if (rawResult.clientRect && rawResult.clientRect.width > 0 && rawResult.clientRect.height > 0 && imgSize.width > 0 && imgSize.height > 0) {
+                  const domSize = await wc.executeJavaScript('({ w: window.innerWidth, h: window.innerHeight })').catch(() => null);
+                  const scaleX = (domSize && typeof domSize.w === 'number' && domSize.w > 0) ? (imgSize.width / domSize.w) : 1.0;
+                  const scaleY = (domSize && typeof domSize.h === 'number' && domSize.h > 0) ? (imgSize.height / domSize.h) : 1.0;
+
+                  const cropX = Math.max(0, Math.min(imgSize.width - 1, Math.floor(rawResult.clientRect.x * scaleX)));
+                  const cropY = Math.max(0, Math.min(imgSize.height - 1, Math.floor(rawResult.clientRect.y * scaleY)));
+                  const cropW = Math.max(1, Math.min(imgSize.width - cropX, Math.ceil(rawResult.clientRect.width * scaleX)));
+                  const cropH = Math.max(1, Math.min(imgSize.height - cropY, Math.ceil(rawResult.clientRect.height * scaleY)));
+
+                  const cropped = fullImage.crop({ x: cropX, y: cropY, width: cropW, height: cropH });
+                  if (!cropped.isEmpty()) {
+                    targetImageBase64 = cropped.toPNG().toString('base64');
+                  }
                 }
               }
+            } catch (err) {
+              console.error('[native-tab-host] capture and crop error:', err);
             }
-          } catch (err) {
-            console.error('[native-tab-host] capture and crop error:', err);
-          }
-          const activeTab = this.tabs.get(this.activeTabId);
-          const targetSessionId = rawResult.targetSessionId || (this.transcriptSyncer.getActiveSessionId() !== 'auto'
-            ? this.transcriptSyncer.getActiveSessionId()
-            : undefined);
-          const targetWorkspace = this.resolveTargetWorkspace(targetSessionId, activeTab?.state.url);
-          const annotationWorkspace = this.resolveAnnotationWorkspace(targetSessionId, activeTab?.state.url);
+            const targetSessionId = rawResult.targetSessionId || (this.transcriptSyncer.getActiveSessionId() !== 'auto'
+              ? this.transcriptSyncer.getActiveSessionId()
+              : undefined);
+            const targetWorkspace = this.resolveTargetWorkspace(targetSessionId, activeTab?.state.url);
+            const annotationWorkspace = this.resolveAnnotationWorkspace(targetSessionId, activeTab?.state.url);
 
-          const annotationResult = await AnnotationManager.getInstance().processAnnotationPayload({
-            url: active.state.url,
-            title: active.state.title,
-            targetImageBase64,
-            viewportImageBase64,
-            workspaceDir: annotationWorkspace,
-            ...rawResult,
-          });
+            const annotationResult = await AnnotationManager.getInstance().processAnnotationPayload({
+              url: activeTab.state.url,
+              title: activeTab.state.title,
+              targetImageBase64,
+              viewportImageBase64,
+              workspaceDir: annotationWorkspace,
+              ...rawResult,
+            });
+            const effectiveDeliveryMode: 'auto' | 'draft' = rawResult.deliveryMode === 'draft' ? 'draft' : 'auto';
 
-          const effectiveDeliveryMode: 'auto' | 'draft' = rawResult.deliveryMode === 'draft' ? 'draft' : 'auto';
+            const pickedData: AntiFanPickedElement = {
+              ...rawResult,
+              deliveryMode: effectiveDeliveryMode,
+              screenshotBase64: targetImageBase64,
+              markdownPath: annotationResult.markdownPath,
+              markdownContent: annotationResult.markdownContent,
+              targetImagePath: annotationResult.targetImagePath,
+              viewportImagePath: annotationResult.viewportImagePath,
+              userComment: rawResult.userComment,
+              timestamp: Date.now(),
+            };
 
-          const pickedData: AntiFanPickedElement = {
-            ...rawResult,
-            deliveryMode: effectiveDeliveryMode,
-            screenshotBase64: targetImageBase64,
-            markdownPath: annotationResult.markdownPath,
-            markdownContent: annotationResult.markdownContent,
-            targetImagePath: annotationResult.targetImagePath,
-            viewportImagePath: annotationResult.viewportImagePath,
-            userComment: rawResult.userComment,
-            timestamp: Date.now(),
-          };
+            this.emit('element-picked', pickedData);
 
-          this.emit('element-picked', pickedData);
-
-          // Notify Toolbar
-          if (!this.toolbarView.webContents.isDestroyed()) {
-            this.toolbarView.webContents.send(TOOLBAR_CHANNELS.ELEMENT_PICKED, pickedData);
-          }
-
-          const formatPath = (p?: string) => {
-            if (!p) return '';
-            if (targetWorkspace) {
-              try {
-                const rel = path.relative(targetWorkspace, p).replace(/\\/g, '/');
-                if (!rel.startsWith('..') && !path.isAbsolute(rel)) {
-                  return rel.startsWith('.') ? rel : `./${rel}`;
-                }
-              } catch {}
+            // Notify Toolbar
+            if (!this.toolbarView.webContents.isDestroyed()) {
+              this.toolbarView.webContents.send(TOOLBAR_CHANNELS.ELEMENT_PICKED, pickedData);
             }
-            return p.replace(/\\/g, '/');
-          };
 
-          const promptText = rawResult.userComment?.trim() || 'Inspect the attached browser annotation, report observed evidence, and ask for the intended outcome before editing.';
-          let fullPrompt = promptText;
-          if (annotationResult.markdownPath) {
-            fullPrompt += ` @${formatPath(annotationResult.markdownPath)}`;
-          }
-          if (annotationResult.targetImagePath) {
-            fullPrompt += ` @${formatPath(annotationResult.targetImagePath)}`;
-          }
+            const formatPath = (p?: string) => {
+              if (!p) return '';
+              if (targetWorkspace) {
+                try {
+                  const rel = path.relative(targetWorkspace, p).replace(/\\/g, '/');
+                  if (!rel.startsWith('..') && !path.isAbsolute(rel)) {
+                    return rel.startsWith('.') ? rel : `./${rel}`;
+                  }
+                } catch {}
+              }
+              return p.replace(/\\/g, '/');
+            };
 
-          // 1. Direct write to TerminalManager session PTY ONLY if mode is 'auto' (immediate submit)
-          const resolvedTerminalId = targetSessionId && targetSessionId !== 'auto' ? targetSessionId : tm.getActiveSessionId();
-          if (effectiveDeliveryMode === 'auto') {
-            if (resolvedTerminalId) {
-              tm.switchSession(resolvedTerminalId);
-              tm.writeTo(resolvedTerminalId, fullPrompt + '\r');
-            } else {
-              tm.write(fullPrompt + '\r');
+            const promptText = rawResult.userComment?.trim() || 'Inspect the attached browser annotation, report observed evidence, and ask for the intended outcome before editing.';
+            let fullPrompt = promptText;
+            if (annotationResult.markdownPath) {
+              fullPrompt += ` @${formatPath(annotationResult.markdownPath)}`;
             }
+            if (annotationResult.targetImagePath) {
+              fullPrompt += ` @${formatPath(annotationResult.targetImagePath)}`;
+            }
+
+            // 1. Direct write to TerminalManager session PTY ONLY if mode is 'auto' (immediate submit)
+            const resolvedTerminalId = targetSessionId && targetSessionId !== 'auto' ? targetSessionId : tm.getActiveSessionId();
+            if (effectiveDeliveryMode === 'auto') {
+              if (resolvedTerminalId) {
+                tm.switchSession(resolvedTerminalId);
+                tm.writeTo(resolvedTerminalId, fullPrompt + '\r');
+              } else {
+                tm.write(fullPrompt + '\r');
+              }
+            }
+
+            // 2. Also copy to OS clipboard for instant convenience
+            try {
+              clipboard.writeText(fullPrompt);
+            } catch {}
+
+            // 3. Notify sidebar if open
+            if (this.sidebarView && !this.sidebarView.webContents.isDestroyed()) {
+              this.sidebarView.webContents.send(SIDEBAR_CHANNELS.ATTACH_ELEMENT, pickedData);
+            }
+
+            // 4. Dispatch via command client
+            await this.handleSendPrompt({
+              text: fullPrompt,
+              attachedElement: pickedData,
+              deliveryMode: effectiveDeliveryMode,
+              sessionId: resolvedTerminalId,
+            }).catch(() => {});
+            break;
           }
-
-          // 2. Also copy to OS clipboard for instant convenience
-          try {
-            clipboard.writeText(fullPrompt);
-          } catch {}
-
-          // 3. Notify sidebar if open
-          if (this.sidebarView && !this.sidebarView.webContents.isDestroyed()) {
-            this.sidebarView.webContents.send(SIDEBAR_CHANNELS.ATTACH_ELEMENT, pickedData);
-          }
-
-          // 4. Dispatch via command client
-          await this.handleSendPrompt({
-            text: fullPrompt,
-            attachedElement: pickedData,
-            deliveryMode: effectiveDeliveryMode,
-            sessionId: resolvedTerminalId,
-          }).catch(() => {});
         }
       } catch {}
     }, 200);
@@ -3095,8 +3534,10 @@ export class NativeTabHost extends EventEmitter {
     if (!target) return '';
     const wc = this.getTabWebContents(targetId, paneId || target.focusedPane);
     if (!wc) return '';
-    const img = await wc.capturePage(rect);
-    return img.toPNG().toString('base64');
+    return this.withTabAgentWorking(targetId, async () => {
+      const img = await wc.capturePage(rect);
+      return img.toPNG().toString('base64');
+    });
   }
 
   public async getDom(selector?: string, tabId?: string, paneId?: SplitPaneId): Promise<string> {
@@ -3105,13 +3546,15 @@ export class NativeTabHost extends EventEmitter {
     if (!target) return '';
     const wc = this.getTabWebContents(targetId, paneId || target.focusedPane);
     if (!wc) return '';
-    const script = selector
-      ? `(() => {
-          const el = document.querySelector(${JSON.stringify(selector)});
-          return el ? el.outerHTML : '';
-        })()`
-      : `(() => document.documentElement ? document.documentElement.outerHTML : '')()`;
-    return wc.executeJavaScript(script);
+    return this.withTabAgentWorking(targetId, async () => {
+      const script = selector
+        ? `(() => {
+            const el = document.querySelector(${JSON.stringify(selector)});
+            return el ? el.outerHTML : '';
+          })()`
+        : `(() => document.documentElement ? document.documentElement.outerHTML : '')()`;
+      return wc.executeJavaScript(script);
+    });
   }
 
   public async evalJs(expression: string, tabId?: string, paneId?: SplitPaneId): Promise<unknown> {
@@ -3120,7 +3563,9 @@ export class NativeTabHost extends EventEmitter {
     if (!target) return undefined;
     const wc = this.getTabWebContents(targetId, paneId || target.focusedPane);
     if (!wc) return undefined;
-    return wc.executeJavaScript(expression);
+    return this.withTabAgentWorking(targetId, async () => {
+      return wc.executeJavaScript(expression);
+    });
   }
 
   private getTabsStoragePath(): string {
@@ -3789,18 +4234,22 @@ export class NativeTabHost extends EventEmitter {
     if (!tab || tab.view.webContents.isDestroyed()) {
       return { success: false, key: params.key, modifiers: params.modifiers || [] };
     }
-    const events = buildKeyboardInputEvents(params.key, params.modifiers);
-    for (const evt of events) {
-      tab.view.webContents.sendInputEvent(evt);
-    }
-    return { success: true, key: params.key, modifiers: params.modifiers || [] };
+    return this.withTabAgentWorking(targetId, async () => {
+      const events = buildKeyboardInputEvents(params.key, params.modifiers);
+      for (const evt of events) {
+        tab.view.webContents.sendInputEvent(evt);
+      }
+      return { success: true, key: params.key, modifiers: params.modifiers || [] };
+    });
   }
 
   public setViewportSize(options: { width: number; height: number; mobile?: boolean; deviceScaleFactor?: number; tabId?: string }): boolean {
     const targetId = options.tabId || this.activeTabId;
     const tab = this.tabs.get(targetId);
     if (!tab) return false;
+    this.markTabAgentWorking(targetId, 2500);
     tab.state.devicePresetId = `${options.width}x${options.height}`;
+    this.updateLayout();
     this.broadcastState();
     return true;
   }
@@ -3945,12 +4394,16 @@ export class NativeTabHost extends EventEmitter {
             });
           })()`).catch(() => {});
         } else {
-          tab.view.webContents.reload();
+          if (!tab.view.webContents.isDestroyed()) {
+            tab.view.webContents.reload();
+          }
+          if (tab.state.splitMode && tab.mobileView && !tab.mobileView.webContents.isDestroyed()) {
+            tab.mobileView.webContents.reload();
+          }
         }
       }
     }
   }
-
   public togglePopoutTerminal(sessionId?: string, options?: { wasSidebarOpenBeforePopout?: boolean; bounds?: Partial<WindowState> }): boolean {
     if (this.popoutWindow && !this.popoutWindow.isDestroyed()) {
       this.popoutWindow.close();
@@ -4142,6 +4595,15 @@ export class NativeTabHost extends EventEmitter {
     }
   }
   public dispose(): void {
+    if (this.frameBackdropView) {
+      try {
+        this.window.contentView.removeChildView(this.frameBackdropView);
+      } catch {}
+      try {
+        (this.frameBackdropView.webContents as unknown as { destroy?: () => void })?.destroy?.();
+      } catch {}
+      this.frameBackdropView = null;
+    }
     this.transcriptSyncer.dispose();
     if (this.inspectPollTimer) {
       clearInterval(this.inspectPollTimer);

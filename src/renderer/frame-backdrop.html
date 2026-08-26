@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AntiFan Device Frame Backdrop</title>
+  <link rel="stylesheet" href="frame-backdrop.css">
+</head>
+<body>
+  <div class="backdrop-studio" id="backdropStudio">
+    <!-- Ambient Studio Lights -->
+    <div class="studio-glow studio-glow-left" id="glowLeft"></div>
+    <div class="studio-glow studio-glow-right" id="glowRight"></div>
+
+    <!-- LAPTOP MOCKUP CONTAINER -->
+    <div class="device-mockup laptop-mockup" id="laptopMockup" style="display:none;">
+      <!-- Floating Badge -->
+      <div class="device-badge laptop-badge" id="laptopBadge" title="Click to focus Desktop pane">
+        <span class="badge-dot"></span>
+        <span class="badge-icon" id="laptopBadgeIcon">💻</span>
+        <span class="badge-title" id="laptopBadgeTitle">MacBook Pro 16"</span>
+        <span class="badge-res" id="laptopBadgeRes">1728×1117</span>
+        <span class="badge-scale" id="laptopBadgeScale">65%</span>
+      </div>
+
+      <!-- MacBook Display Lid -->
+      <div class="laptop-lid" id="laptopLid">
+        <!-- Top Bezel & Signature MacBook Camera Notch -->
+        <div class="laptop-top-bezel">
+          <div class="macbook-notch" id="macbookNotch">
+            <div class="macbook-camera-lens">
+              <div class="macbook-lens-reflection"></div>
+            </div>
+            <div class="macbook-ambient-sensor"></div>
+            <div class="macbook-camera-led"></div>
+          </div>
+        </div>
+
+        <!-- Screen Cutout Boundary -->
+        <div class="laptop-screen-frame" id="laptopScreenFrame">
+          <div class="screen-inner-shadow"></div>
+        </div>
+
+        <!-- Bottom Chin & MacBook Logo/Branding -->
+        <div class="laptop-bottom-chin">
+          <div class="macbook-chin-emboss">MacBook Pro</div>
+        </div>
+      </div>
+
+      <!-- MacBook Unibody Aluminum Base Deck -->
+      <div class="laptop-base" id="laptopBase">
+        <div class="laptop-hinge-line"></div>
+        <div class="macbook-thumb-indent"></div>
+        <div class="laptop-base-edge"></div>
+      </div>
+      <!-- Realistic Ambient Shadow -->
+      <div class="laptop-ambient-shadow" id="laptopAmbientShadow"></div>
+    </div>
+
+    <!-- MOBILE MOCKUP CONTAINER -->
+    <div class="device-mockup phone-mockup" id="phoneMockup" style="display:none;">
+      <div class="device-badge phone-badge" id="phoneBadge" title="Click to focus Mobile pane">
+        <span class="badge-dot"></span>
+        <span class="badge-icon" id="phoneBadgeIcon">📱</span>
+        <span class="badge-title" id="phoneBadgeTitle">iPhone 15 Pro</span>
+        <span class="badge-res" id="phoneBadgeRes">393×852</span>
+        <span class="badge-scale" id="phoneBadgeScale">88%</span>
+      </div>
+
+      <!-- Phone Outer Titanium Chassis -->
+      <div class="phone-body" id="phoneBody">
+        <div class="phone-antenna antenna-left-top"></div>
+        <div class="phone-antenna antenna-left-bottom"></div>
+        <div class="phone-antenna antenna-right-top"></div>
+        <div class="phone-antenna antenna-right-bottom"></div>
+
+        <!-- Top Bezel: iOS Status Bar + Dynamic Island + Safari URL Bar -->
+        <div class="phone-top-bezel" id="phoneTopBezel">
+          <!-- Row 1: iOS Status Bar -->
+          <div class="safari-status-bar">
+            <div class="safari-status-left">
+              <span class="safari-status-time" id="safariStatusTime">18:07</span>
+            </div>
+            <div class="dynamic-island" id="dynamicIsland">
+              <div class="island-camera">
+                <div class="camera-lens-glint"></div>
+              </div>
+              <div class="island-sensor"></div>
+            </div>
+            <div class="safari-status-right">
+              <svg class="safari-icon safari-signal-icon" viewBox="0 0 18 12" fill="currentColor">
+                <rect x="1" y="8" width="2.5" height="4" rx="0.8"/>
+                <rect x="5" y="6" width="2.5" height="6" rx="0.8"/>
+                <rect x="9" y="3.5" width="2.5" height="8.5" rx="0.8"/>
+                <rect x="13" y="1" width="2.5" height="11" rx="0.8"/>
+              </svg>
+              <svg class="safari-icon safari-wifi-icon" viewBox="0 0 16 12" fill="currentColor">
+                <path d="M8 10a1.5 1.5 0 100-3 1.5 1.5 0 000 3z"/>
+                <path d="M4.5 6.2a5 5 0 017 0 .8.8 0 001.1-1.1 6.6 6.6 0 00-9.2 0 .8.8 0 001.1 1.1z" fill-rule="evenodd"/>
+                <path d="M2 3.7a8.5 8.5 0 0112 0 .8.8 0 001.1-1.1 10.1 10.1 0 00-14.2 0 .8.8 0 001.1 1.1z" fill-rule="evenodd"/>
+              </svg>
+              <div class="safari-battery-wrapper">
+                <div class="safari-battery-pill">
+                  <span class="safari-battery-level" id="safariBatteryLevel">30</span>
+                </div>
+                <div class="safari-battery-tip"></div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Row 2: Safari Top URL Bar -->
+          <div class="safari-url-bar">
+            <button class="safari-btn safari-sparkle-btn" id="safariBtnSparkle" title="Options">
+              <svg viewBox="0 0 16 16" fill="currentColor" width="14" height="14">
+                <path d="M8 1l1.3 4.2L13.5 6.5l-4.2 1.3L8 12l-1.3-4.2L2.5 6.5l4.2-1.3L8 1z"/>
+              </svg>
+            </button>
+            <div class="safari-url-pill" id="safariUrlPill">
+              <svg class="safari-lock-icon" viewBox="0 0 12 14" fill="currentColor" width="10" height="11">
+                <path d="M6 1a3 3 0 00-3 3v2H2a1 1 0 00-1 1v6a1 1 0 001 1h8a1 1 0 001-1V7a1 1 0 00-1-1H9V4a3 3 0 00-3-3zm1.5 5h-3V4a1.5 1.5 0 013 0v2z"/>
+              </svg>
+              <span class="safari-url-domain" id="safariUrlDomain">apshop.vn</span>
+            </div>
+            <button class="safari-btn safari-share-btn" id="safariBtnShare" title="Share">
+              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" width="14" height="14">
+                <path d="M8 10V2m0 0l-3 3m3-3l3 3M3 7v6a1 1 0 001 1h8a1 1 0 001-1V7"/>
+              </svg>
+            </button>
+          </div>
+        </div>
+
+        <!-- Screen Cutout Boundary (WebContentsView sits right here) -->
+        <div class="phone-screen-frame" id="phoneScreenFrame">
+          <div class="phone-screen-inner-shadow"></div>
+        </div>
+
+        <!-- Bottom Bezel: Safari Navigation Toolbar + Home Indicator -->
+        <div class="phone-bottom-bezel" id="phoneBottomBezel">
+          <!-- Row 1: Safari 5-Item Navigation Toolbar -->
+          <div class="safari-bottom-toolbar">
+            <button class="safari-nav-btn" id="safariBtnBack" title="Back">
+              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18">
+                <path d="M10 3L5 8l5 5"/>
+              </svg>
+            </button>
+            <button class="safari-nav-btn" id="safariBtnForward" title="Forward">
+              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18">
+                <path d="M6 3l5 5-5 5"/>
+              </svg>
+            </button>
+            <button class="safari-nav-btn" id="safariBtnNewTab" title="New Tab / Actions">
+              <div class="safari-plus-pill">
+                <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" width="15" height="15">
+                  <path d="M8 3v10M3 8h10"/>
+                </svg>
+              </div>
+            </button>
+            <button class="safari-nav-btn" id="safariBtnTabs" title="Tabs">
+              <div class="safari-tabs-box">
+                <span class="safari-tabs-count" id="safariTabsCount">49</span>
+              </div>
+            </button>
+            <button class="safari-nav-btn" id="safariBtnMore" title="More Options">
+              <svg viewBox="0 0 16 16" fill="currentColor" width="18" height="18">
+                <circle cx="3" cy="8" r="1.5"/>
+                <circle cx="8" cy="8" r="1.5"/>
+                <circle cx="13" cy="8" r="1.5"/>
+              </svg>
+            </button>
+          </div>
+
+          <!-- Row 2: Home Indicator -->
+          <div class="phone-home-indicator"></div>
+        </div>
+
+      <!-- Realistic Ambient Shadow -->
+      <div class="phone-ambient-shadow" id="phoneAmbientShadow"></div>
+    </div>
+  </div>
+
+  <script src="frame-backdrop.js"></script>
+</body>
+</html>

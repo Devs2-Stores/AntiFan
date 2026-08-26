@@ -28,6 +28,7 @@ const filesToCopy = [
   'toolbar.html', 'toolbar.css',
   'terminal.html', 'terminal.css',
   'standalone.html', 'standalone.css', 'standalone-overrides.css', 'standalone.js',
+  'frame-backdrop.html', 'frame-backdrop.css',
   'antifan-logo.jpg'
 ];
 for (const file of filesToCopy) {
@@ -39,7 +40,7 @@ for (const file of filesToCopy) {
 }
 
 // Prepend exports fallback to compiled renderer JS files to avoid inline script requirement
-const jsFiles = ['toolbar.js', 'terminal.js'];
+const jsFiles = ['toolbar.js', 'terminal.js', 'frame-backdrop.js'];
 for (const jsFile of jsFiles) {
   const dst = path.join(rendererOutDir, jsFile);
   if (fs.existsSync(dst)) {
@@ -50,5 +51,16 @@ for (const jsFile of jsFiles) {
   }
 }
 
+// Copy scripts to .compiled/scripts for standalone deployment
+const scriptsSrcDir = path.join(ROOT, 'scripts');
+const scriptsOutDir = path.join(ROOT, '.compiled', 'scripts');
+const scriptsToCopy = ['antifan-agent.cjs', 'antifan-agent.cmd', 'antifan-omp-mcp.cjs'];
+for (const scriptFile of scriptsToCopy) {
+  const src = path.join(scriptsSrcDir, scriptFile);
+  const dst = path.join(scriptsOutDir, scriptFile);
+  if (fs.existsSync(src)) {
+    safeCopyFile(src, dst);
+  }
+}
 console.log('[antifan] Copied static renderer assets.');
 

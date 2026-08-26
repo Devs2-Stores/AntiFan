@@ -4,6 +4,27 @@ import * as path from 'node:path';
 import * as os from 'node:os';
 import { execFile } from 'node:child_process';
 import { EventEmitter } from 'events';
+export function resolveScriptsDir(): string | undefined {
+  let dir = __dirname;
+  for (let i = 0; i < 6; i++) {
+    const candidate = path.join(dir, 'scripts');
+    try {
+      if (fs.existsSync(path.join(dir, 'package.json')) && fs.existsSync(path.join(candidate, 'antifan-agent.cjs'))) {
+        return candidate;
+      }
+    } catch {}
+    const parent = path.dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  const fallback = path.resolve(__dirname, '..', '..', '..', 'scripts');
+  try {
+    if (fs.existsSync(fallback) && fs.existsSync(path.join(fallback, 'antifan-agent.cjs'))) {
+      return fallback;
+    }
+  } catch {}
+  return undefined;
+}
 
 export function killProcessTree(pid: number | undefined): Promise<void> {
   if (!pid || typeof pid !== 'number' || pid <= 0 || !Number.isFinite(pid)) {
@@ -285,10 +306,20 @@ export class TerminalManager extends EventEmitter {
     let child: pty.IPty;
     const cols = Math.max(40, initialCols || this.lastCols || 120);
     const rows = Math.max(8, initialRows || this.lastRows || 30);
+    const scriptsDir = resolveScriptsDir();
+    const pathDelimiter = process.platform === 'win32' ? ';' : ':';
+    const currentPath = process.env.PATH || '';
+    const envPath = scriptsDir ? (currentPath ? `${scriptsDir}${pathDelimiter}${currentPath}` : scriptsDir) : currentPath;
+    const terminalEnv = {
+      ...process.env,
+      PATH: envPath,
+      TERM: 'xterm-256color',
+      FORCE_COLOR: '1',
+    };
     try {
-      child = pty.spawn(shell, [], { cwd: validCwd, cols, rows, env: { ...process.env, TERM: 'xterm-256color', FORCE_COLOR: '1' } });
+      child = pty.spawn(shell, [], { cwd: validCwd, cols, rows, env: terminalEnv });
     } catch {
-      child = pty.spawn(shell, [], { cwd: os.homedir(), cols, rows, env: { ...process.env, TERM: 'xterm-256color', FORCE_COLOR: '1' } });
+      child = pty.spawn(shell, [], { cwd: os.homedir(), cols, rows, env: terminalEnv });
     }
     const s: Session = {
       id,

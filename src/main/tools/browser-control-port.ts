@@ -227,7 +227,9 @@ export class BrowserControlPort {
     if (target) {
       assertTarget(target, true);
     }
-    let resolved = explicitTabId ?? target?.tabId;
+    let resolved = (explicitTabId && explicitTabId.trim().length > 0)
+      ? explicitTabId
+      : (target?.tabId && target.tabId.trim().length > 0 ? target.tabId : undefined);
     if (!resolved) {
       const currentAutoTab = this.host.getAutomationTabId ? this.host.getAutomationTabId() : undefined;
       if (currentAutoTab && this.host.getTabList().some((tab: any) => tab && tab.id === currentAutoTab)) {
@@ -236,6 +238,11 @@ export class BrowserControlPort {
         resolved = this.host.createTab('about:blank', false);
         if (this.host.setAutomationTabId) {
           this.host.setAutomationTabId(resolved);
+        }
+      } else {
+        const activeTabId = this.host.getActiveTabId ? this.host.getActiveTabId() : undefined;
+        if (activeTabId && this.host.getTabList().some((tab: any) => tab && tab.id === activeTabId)) {
+          resolved = activeTabId;
         }
       }
     }

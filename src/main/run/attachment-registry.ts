@@ -225,6 +225,19 @@ export class AttachmentRegistry {
     }
 
     nonces.add(claims.invocationId);
+    const effectiveLease = {
+      ...record.lease,
+      expiresAt: Math.max(record.lease.expiresAt, record.expiresAt),
+    };
+
+    const effectiveBrowserTarget: BrowserTarget = record.browserTarget || {
+      projectId: record.projectId,
+      workspaceId: record.workspaceId,
+      runtimeId: record.lease.runtimeId,
+      tabId: record.tabId || '',
+      browserEpoch: record.browserEpoch || record.hostEpoch || 1,
+      documentGeneration: record.documentGeneration || 1,
+    };
 
     return {
       attachmentId: record.id,
@@ -236,9 +249,9 @@ export class AttachmentRegistry {
       backendId: record.backendId,
       hostEpoch: record.hostEpoch,
       invocationId: claims.invocationId,
-      lease: record.lease,
+      lease: effectiveLease,
       leaseToken: record.leaseToken || '',
-      browserTarget: record.browserTarget,
+      browserTarget: effectiveBrowserTarget,
       grant: record.grant || claims.grant,
     };
   }
@@ -254,6 +267,12 @@ export class AttachmentRegistry {
       }
     }
     return null;
+  }
+  verifyAttachmentSecret(attachmentId: string, secret: string): boolean {
+    if (!attachmentId || typeof attachmentId !== 'string' || !secret || typeof secret !== 'string') return false;
+    const record = this.records.get(attachmentId);
+    if (!record || record.state !== 'active' || Date.now() > record.expiresAt) return false;
+    return verifySecret(secret, record.secretHash);
   }
 
   revokeAttachment(attachmentId: string): void {

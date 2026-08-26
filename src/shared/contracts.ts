@@ -270,6 +270,12 @@ export const TOOLBAR_CHANNELS = {
   SET_SPLIT_FOCUSED_PANE: 'antifan:toolbar:set-split-focused-pane',
 };
 
+export const FRAME_BACKDROP_CHANNELS = {
+  UPDATE_LAYOUT: 'antifan:frame-backdrop:update-layout',
+  FOCUS_PANE: 'antifan:frame-backdrop:focus-pane',
+  READY: 'antifan:frame-backdrop:ready',
+} as const;
+
 export interface SessionInfo {
   id: string;
   title: string;

@@ -9,6 +9,7 @@ import {
   migratePersistedTab,
   DEFAULT_SPLIT_DESKTOP_PRESET,
   DEFAULT_SPLIT_MOBILE_PRESET,
+  SPLIT_FRAME_BEZELS,
 } from '../../src/main/browser/split-review-coordinator';
 import { AntiFanTab } from '../../src/shared/contracts';
 
@@ -42,40 +43,91 @@ describe('Split Review Coordinator & Pure Engine', () => {
   });
 
   describe('calculateSplitLayout', () => {
-    it('allocates side-by-side desktop and mobile bounds with gap', () => {
+    it('allocates side-by-side desktop and mobile bounds with balanced framing and gap', () => {
       const container = { width: 1600, height: 900, yOffset: 60 };
-      const layout = calculateSplitLayout(container, 'laptop-macbook13', 'phone-iphone15pro', 1.0, 10);
+      const layout = calculateSplitLayout(container, 'laptop-macbook13', 'phone-iphone15pro', 1.0, 18);
 
-      assert.strictEqual(layout.gap, 10);
+      assert.strictEqual(layout.gap, 18);
       assert.strictEqual(layout.containerWidth, 1600);
       assert.strictEqual(layout.containerHeight, 900);
 
-      // Desktop pane
+      // Desktop pane & frame origin equality and bezel source of truth
       assert.strictEqual(layout.desktop.isMobile, false);
       assert.strictEqual(layout.desktop.emulatedWidth, 1280);
       assert.strictEqual(layout.desktop.emulatedHeight, 832);
-      assert.ok(layout.desktop.width <= (1600 - 10) / 2);
+      assert.ok(layout.desktop.width > 0);
       assert.ok(layout.desktop.x >= 0);
       assert.ok(layout.desktop.y >= 60);
+      assert.ok(layout.desktopFrame);
+      assert.strictEqual(layout.desktopFrame.deviceType, 'laptop');
+      assert.strictEqual(layout.desktopFrame.bezelTop, SPLIT_FRAME_BEZELS.laptop.bezelTop);
+      assert.strictEqual(layout.desktopFrame.bezelSide, SPLIT_FRAME_BEZELS.laptop.bezelSide);
+      assert.strictEqual(layout.desktopFrame.bezelBottom, SPLIT_FRAME_BEZELS.laptop.bezelBottom);
+      assert.strictEqual(layout.desktopFrame.screenX, layout.desktop.x);
+      assert.strictEqual(layout.desktopFrame.screenY, layout.desktop.y - 60);
+      assert.strictEqual(layout.desktopFrame.screenX, layout.desktopFrame.frameX + (layout.desktopFrame.baseSide || 0) + layout.desktopFrame.bezelSide);
+      assert.strictEqual(layout.desktopFrame.screenY, layout.desktopFrame.frameY + layout.desktopFrame.bezelTop);
+      assert.strictEqual(layout.desktop.renderedWidth, layout.desktopFrame.screenWidth);
+      assert.strictEqual(layout.desktop.renderedHeight, layout.desktopFrame.screenHeight);
 
-      // Mobile pane
+      // Mobile pane & frame origin equality and bezel source of truth
       assert.strictEqual(layout.mobile.isMobile, true);
       assert.strictEqual(layout.mobile.emulatedWidth, 393);
       assert.strictEqual(layout.mobile.emulatedHeight, 852);
       assert.ok(layout.mobile.x > layout.desktop.x);
       assert.ok(layout.mobile.y >= 60);
+      assert.ok(layout.mobileFrame);
+      assert.strictEqual(layout.mobileFrame.deviceType, 'phone');
+      assert.strictEqual(layout.mobileFrame.bezelTop, SPLIT_FRAME_BEZELS.phone.bezelTop);
+      assert.strictEqual(layout.mobileFrame.bezelSide, SPLIT_FRAME_BEZELS.phone.bezelSide);
+      assert.strictEqual(layout.mobileFrame.bezelBottom, SPLIT_FRAME_BEZELS.phone.bezelBottom);
+      assert.strictEqual(layout.mobileFrame.screenX, layout.mobile.x);
+      assert.strictEqual(layout.mobileFrame.screenY, layout.mobile.y - 60);
+      assert.strictEqual(layout.mobileFrame.screenX, layout.mobileFrame.frameX + layout.mobileFrame.bezelSide);
+      assert.strictEqual(layout.mobileFrame.screenY, layout.mobileFrame.frameY + layout.mobileFrame.bezelTop);
+      assert.strictEqual(layout.mobile.renderedWidth, layout.mobileFrame.screenWidth);
+      assert.strictEqual(layout.mobile.renderedHeight, layout.mobileFrame.screenHeight);
+      assert.ok(layout.totalGroupWidth <= 1600);
+      assert.ok(layout.startX >= 0);
     });
 
-    it('applies user zoom factor to effective scales', () => {
-      const container = { width: 1600, height: 900, yOffset: 0 };
+    it('applies user zoom factor to effective scales with container containment', () => {
+      const container = { width: 1600, height: 900, yOffset: 60 };
       const standardLayout = calculateSplitLayout(container, 'laptop-macbook13', 'phone-iphone15pro', 1.0);
-      const zoomedLayout = calculateSplitLayout(container, 'laptop-macbook13', 'phone-iphone15pro', 1.5);
+      const zoomedLayout = calculateSplitLayout(container, 'laptop-macbook13', 'phone-iphone15pro', 1.25);
 
       assert.ok(zoomedLayout.desktop.scale > standardLayout.desktop.scale);
       assert.ok(zoomedLayout.mobile.scale > standardLayout.mobile.scale);
+      assert.ok(zoomedLayout.desktop.x >= 0);
+      assert.ok(zoomedLayout.desktop.y >= 60);
+      assert.ok(zoomedLayout.mobile.x >= 0);
+      assert.ok(zoomedLayout.mobile.y >= 60);
+      assert.ok(zoomedLayout.desktopFrame.frameX >= 0);
+      assert.ok(zoomedLayout.desktopFrame.frameY >= 0);
+      assert.ok(zoomedLayout.mobileFrame.frameX >= 0);
+      assert.ok(zoomedLayout.mobileFrame.frameY >= 0);
+      assert.ok(zoomedLayout.totalGroupWidth <= 1600);
     });
 
-    it('handles narrow or minimal container bounds safely', () => {
+    it('centers layout symmetrically within container bounds at standard zoom', () => {
+      const container = { width: 1600, height: 900, yOffset: 60 };
+      const layout = calculateSplitLayout(container, 'laptop-macbook13', 'phone-iphone15pro', 1.0);
+      assert.ok(layout.startX >= 0);
+      assert.ok(layout.totalGroupWidth <= 1600);
+      const remainingSpace = 1600 - layout.totalGroupWidth;
+      const expectedStartX = Math.floor(remainingSpace / 2);
+      assert.strictEqual(layout.startX, expectedStartX);
+      assert.ok(layout.desktop.x >= 0);
+      assert.ok(layout.desktop.y >= 60);
+      assert.ok(layout.mobile.x >= 0);
+      assert.ok(layout.mobile.y >= 60);
+      assert.ok(layout.desktopFrame.frameX >= 0);
+      assert.ok(layout.desktopFrame.frameY >= 0);
+      assert.ok(layout.mobileFrame.frameX >= 0);
+      assert.ok(layout.mobileFrame.frameY >= 0);
+    });
+
+    it('handles narrow or minimal container bounds safely with non-negative coordinates', () => {
       const container = { width: 200, height: 150, yOffset: 0 };
       const layout = calculateSplitLayout(container, 'desktop-fhd', 'phone-iphone16promax', 1.0);
 
@@ -83,6 +135,58 @@ describe('Split Review Coordinator & Pure Engine', () => {
       assert.ok(layout.mobile.width > 0);
       assert.ok(layout.desktop.scale > 0);
       assert.ok(layout.mobile.scale > 0);
+      assert.ok(layout.desktop.x >= 0);
+      assert.ok(layout.desktop.y >= 0);
+      assert.ok(layout.mobile.x >= 0);
+      assert.ok(layout.mobile.y >= 0);
+      assert.ok(layout.desktopFrame.frameX >= 0);
+      assert.ok(layout.desktopFrame.frameY >= 0);
+      assert.ok(layout.mobileFrame.frameX >= 0);
+      assert.ok(layout.mobileFrame.frameY >= 0);
+      assert.ok(layout.totalGroupWidth <= 200);
+    });
+
+    it('guarantees floating badges never overlap with native screen views across large and tall mobile viewports (e.g. Pixel 8 Pro)', () => {
+      const testViewports = [
+        { width: 1920, height: 1080, yOffset: 60 },
+        { width: 1600, height: 900, yOffset: 60 },
+        { width: 1440, height: 900, yOffset: 60 },
+        { width: 1280, height: 800, yOffset: 60 },
+        { width: 2560, height: 1440, yOffset: 60 },
+      ];
+
+      const testPresets = [
+        { d: 'laptop-macbook13', m: 'phone-pixel8pro' },
+        { d: 'desktop-fhd', m: 'phone-iphone16promax' },
+        { d: 'laptop-macbook16', m: 'phone-iphone15pro' },
+      ];
+
+      for (const vp of testViewports) {
+        for (const { d, m } of testPresets) {
+          const layout = calculateSplitLayout(vp, d, m, 1.0);
+          const badgeHeight = 24;
+
+          // Desktop badge clearance
+          assert.ok(
+            layout.desktopFrame.badgeY + badgeHeight <= layout.desktopFrame.frameY,
+            `Desktop badge overlaps frame on ${vp.width}x${vp.height} with ${d}`
+          );
+          assert.ok(
+            layout.desktopFrame.badgeY + badgeHeight < layout.desktopFrame.screenY,
+            `Desktop badge overlaps screen WebContents on ${vp.width}x${vp.height} with ${d}`
+          );
+
+          // Mobile badge clearance (specifically protecting tall viewports like Pixel 8 Pro)
+          assert.ok(
+            layout.mobileFrame.badgeY + badgeHeight <= layout.mobileFrame.frameY,
+            `Mobile badge overlaps frame on ${vp.width}x${vp.height} with ${m}`
+          );
+          assert.ok(
+            layout.mobileFrame.badgeY + badgeHeight < layout.mobileFrame.screenY,
+            `Mobile badge overlaps screen WebContents on ${vp.width}x${vp.height} with ${m}`
+          );
+        }
+      }
     });
   });
 

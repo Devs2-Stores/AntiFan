@@ -624,7 +624,6 @@ export const ELEMENT_PICKER_SCRIPT = `(() => {
     currentTarget = el;
     const r = el.getBoundingClientRect();
     if (r.width === 0 && r.height === 0) return;
-
     overlay.style.display = 'block';
     overlay.style.top = r.top + 'px';
     overlay.style.left = r.left + 'px';
@@ -659,9 +658,6 @@ export const ELEMENT_PICKER_SCRIPT = `(() => {
     if (left + 310 > window.innerWidth) left = Math.max(10, window.innerWidth - 320);
     modal.style.top = Math.max(10, top) + 'px';
     modal.style.left = Math.max(10, left) + 'px';
-
-    const selectorName = el.id ? '#' + el.id : (el.className && typeof el.className === 'string' ? el.tagName.toLowerCase() + '.' + el.className.trim().split(/\s+/).filter(Boolean)[0] : el.tagName.toLowerCase());
-
     const header = document.createElement('div');
     header.style.cssText = 'display:flex;align-items:center;justify-content:space-between;font-size:11px;color:#94a3b8;border-bottom:1px solid #203246;padding-bottom:6px;';
     header.innerHTML = '<span style="font-weight:600;color:#38bdf8;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:200px;">' + selectorName + '</span><button type="button" id="btnModalClose" style="background:transparent;border:none;color:#94a3b8;font-size:11px;cursor:pointer;padding:2px 4px;display:flex;align-items:center;gap:3px;border-radius:3px;" title="Hủy (Esc)"><span style="font-size:9.5px;color:#71717a;">Esc hủy</span> <span style="font-weight:bold;color:#ef4444;">✕</span></button>';

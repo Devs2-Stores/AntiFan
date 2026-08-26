@@ -25,6 +25,7 @@ import {
 import { CapabilityTransportAdapter } from '../tools/capability-transport';
 import { CapabilityRequestContext, CapabilityError, BrowserTarget, RuntimeLease } from '../../shared/control-plane-contracts';
 import { AttachmentRegistry } from '../run/attachment-registry';
+import { ControlPlaneRuntime } from '../control-plane/control-plane-runtime';
 export function getLocalLanIps(): string[] {
   const ips: string[] = [];
   const interfaces = os.networkInterfaces();
@@ -63,8 +64,18 @@ export class BridgeServer {
   private readonly capabilityTransport?: CapabilityTransportAdapter;
   private readonly runtimeBindingProvider?: () => RuntimeBinding;
   private readonly attachmentRegistry?: AttachmentRegistry;
+  private controlPlaneRuntime?: ControlPlaneRuntime;
 
-  constructor(tabHost: NativeTabHost, port = 20129, isDev = false, capabilityTransport?: CapabilityTransportAdapter, runtimeBindingProvider?: () => RuntimeBinding, attachmentRegistry?: AttachmentRegistry, host = '127.0.0.1') {
+  constructor(
+    tabHost: NativeTabHost,
+    port = 20129,
+    isDev = false,
+    capabilityTransport?: CapabilityTransportAdapter,
+    runtimeBindingProvider?: () => RuntimeBinding,
+    attachmentRegistry?: AttachmentRegistry,
+    host = '127.0.0.1',
+    controlPlaneRuntime?: ControlPlaneRuntime
+  ) {
     this.tabHost = tabHost;
     this.isDev = isDev;
     this.port = isDev && port === 20129 ? 20130 : port;
@@ -81,6 +92,7 @@ export class BridgeServer {
     this.runtimeBindingProvider = runtimeBindingProvider;
     this.attachmentRegistry = attachmentRegistry;
     this.host = host || '127.0.0.1';
+    this.controlPlaneRuntime = controlPlaneRuntime;
     BridgeServer.instance = this;
     this.wireTabHostEvents();
   }
@@ -92,6 +104,10 @@ export class BridgeServer {
   public static getInstance(): BridgeServer | null {
     return BridgeServer.instance;
   }
+  public setControlPlane(controlPlane: ControlPlaneRuntime): void {
+    this.controlPlaneRuntime = controlPlane;
+  }
+
 
   public getRemoteConnectionInfo(): { port: number; lanIps: string[]; urls: string[]; primaryUrl: string; qrSvg: string } {
     const lanIps = getLocalLanIps();
@@ -295,14 +311,15 @@ export class BridgeServer {
       pid: process.pid,
       startedAt: Date.now(),
       isDev: this.isDev,
+      token: this.token,
     };
     try {
-      fs.writeFileSync(this.bridgeInfoPath, JSON.stringify(info, null, 2), 'utf8');
+      fs.writeFileSync(this.bridgeInfoPath, JSON.stringify(info, null, 2), { encoding: 'utf8', mode: 0o600 });
 
       const geminiDir = path.join(os.homedir(), '.gemini');
       if (fs.existsSync(geminiDir)) {
         const geminiFileName = this.isDev ? 'antifan_bridge_dev.json' : 'antifan_bridge.json';
-        fs.writeFileSync(path.join(geminiDir, geminiFileName), JSON.stringify(info, null, 2), 'utf8');
+        fs.writeFileSync(path.join(geminiDir, geminiFileName), JSON.stringify(info, null, 2), { encoding: 'utf8', mode: 0o600 });
       }
     } catch {}
   }
@@ -396,6 +413,73 @@ export class BridgeServer {
             }
           } catch (err: unknown) {
             const errorMsg = err instanceof CapabilityError ? `${err.code}: ${err.message}` : (err instanceof Error ? err.message : String(err));
+            respond(false, undefined, errorMsg);
+          }
+          break;
+        }
+        case 'antifan.cli.startSession': {
+          if (!this.controlPlaneRuntime) {
+            respond(false, undefined, 'Control plane runtime is not available');
+            break;
+          }
+          try {
+            const activeTab = this.tabHost.getActiveTab();
+            const tabId = p.tabId || activeTab?.id;
+            const ownerPid = typeof p.ownerPid === 'number' && p.ownerPid > 0 ? p.ownerPid : undefined;
+            const res = this.controlPlaneRuntime.createCliSession({
+              backendId: p.backendId || 'cli',
+              grant: p.grant || 'write',
+              tabId,
+              browserEpoch: p.browserEpoch,
+              ttlMs: typeof p.ttlMs === 'number' ? Math.min(Math.max(p.ttlMs, 10_000), 3_600_000) : 300_000,
+              ownerPid,
+            });
+            respond(true, {
+              runId: res.run.id,
+              attemptId: res.attempt.id,
+              attachmentId: res.launch.attachmentId,
+              secret: res.launch.secret,
+              projectId: res.launch.projectId,
+              workspaceId: res.launch.workspaceId,
+              host: this.host,
+              port: this.port,
+              bridgeToken: this.token,
+              expiresAt: res.launch.expiresAt,
+            });
+          } catch (err: unknown) {
+            const errorMsg = err instanceof Error ? err.message : String(err);
+            respond(false, undefined, errorMsg);
+          }
+          break;
+        }
+        case 'antifan.cli.endSession': {
+          if (!this.controlPlaneRuntime) {
+            respond(false, undefined, 'Control plane runtime is not available');
+            break;
+          }
+          if (!p.runId || !p.attemptId || !p.attachmentId || !p.secret) {
+            respond(false, undefined, 'runId, attemptId, attachmentId, and secret are required');
+            break;
+          }
+          try {
+            const attachmentRecord = this.controlPlaneRuntime.runs.attachments.getRecord(p.attachmentId);
+            if (!attachmentRecord || !this.controlPlaneRuntime.runs.attachments.verifyAttachmentSecret(p.attachmentId, p.secret)) {
+              respond(false, undefined, 'Unauthorized: invalid attachment credentials');
+              break;
+            }
+            if (attachmentRecord.runId !== p.runId || attachmentRecord.attemptId !== p.attemptId) {
+              respond(false, undefined, 'Lineage mismatch: attachment does not belong to specified run/attempt');
+              break;
+            }
+            const res = this.controlPlaneRuntime.endCliSession(
+              p.runId,
+              p.attemptId,
+              p.outcome === 'failed' || p.outcome === 'cancelled' ? p.outcome : 'completed',
+              p.error
+            );
+            respond(true, res);
+          } catch (err: unknown) {
+            const errorMsg = err instanceof Error ? err.message : String(err);
             respond(false, undefined, errorMsg);
           }
           break;

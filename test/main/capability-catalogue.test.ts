@@ -33,6 +33,15 @@ describe('Capability catalogue', () => {
     await assert.rejects(() => catalogue.dispatch('read', {}, { lease: forged, leaseToken: forged.token, projectId, workspaceId }), (error: unknown) => error instanceof CapabilityError && error.code === 'UNAUTHENTICATED');
   });
 
+  it('rejects a lease from a different runtimeId when constructed without getActiveLease', async () => {
+    const projectId = makeControlPlaneId('project');
+    const workspaceId = makeControlPlaneId('workspace');
+    const runtimeLease = issueRuntimeLease(projectId, workspaceId, 30_000, 1);
+    const differentRuntimeLease = issueRuntimeLease(projectId, workspaceId, 30_000, 1);
+    const catalogue = new CapabilityCatalogue({ runtime: { mode: 'standalone', lifecycle: 'active' }, projectId, workspaceId, runtimeId: runtimeLease.runtimeId, hostEpoch: 1 });
+    catalogue.register({ name: 'read', description: 'read', risk: 'read', inputSchema: { type: 'object' }, execute: () => 'ok' });
+    await assert.rejects(() => catalogue.dispatch('read', {}, { lease: differentRuntimeLease, leaseToken: differentRuntimeLease.token, projectId, workspaceId }), (error: unknown) => error instanceof CapabilityError && error.code === 'RUNTIME_MISMATCH');
+  });
   it('registers and dispatches full suite of browser capabilities and compatibility aliases', async () => {
     const projectId = makeControlPlaneId('project');
     const workspaceId = makeControlPlaneId('workspace');

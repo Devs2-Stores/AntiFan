@@ -45,7 +45,7 @@ export class CapabilityCatalogue {
     if (this.runtime.lifecycle !== 'active') throw new CapabilityError('RUNTIME_DRAINING', 'Runtime is draining and accepts no new capability requests');
     const activeLease = this.options.getActiveLease?.();
     assertRuntimeLease(context.lease, { projectId: this.options.projectId, workspaceId: this.options.workspaceId, hostEpoch: this.options.hostEpoch, token: activeLease?.token || context.leaseToken });
-    if (activeLease && (context.lease.runtimeId !== activeLease.runtimeId || context.lease.expiresAt !== activeLease.expiresAt)) throw new CapabilityError('UNAUTHENTICATED', 'Runtime lease is not the active authoritative lease');
+    if (activeLease && context.lease.runtimeId !== activeLease.runtimeId) throw new CapabilityError('UNAUTHENTICATED', 'Runtime lease is not the active authoritative lease');
     if (context.lease.runtimeId !== this.options.runtimeId) throw new CapabilityError('RUNTIME_MISMATCH', 'Capability request Runtime does not match the active control plane');
     if (context.projectId !== this.options.projectId) throw new CapabilityError('PROJECT_MISMATCH', 'Capability request Project does not match runtime');
     if (context.workspaceId !== this.options.workspaceId) throw new CapabilityError('WORKSPACE_MISMATCH', 'Capability request Workspace does not match runtime');

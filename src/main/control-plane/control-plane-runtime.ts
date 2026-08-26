@@ -91,9 +91,12 @@ export class ControlPlaneRuntime {
   registerBrowser(browser: BrowserControlPort): void { registerBrowserCapabilities(this.capabilities, browser); }
   getLifecycle(): RuntimeFeatureSwitch { return { ...this.switchState }; }
   getLease(): RuntimeLease {
-    if (this.leaseState.expiresAt - Date.now() < 10_000) {
-      const renewed = issueRuntimeLease(this.leaseState.projectId, this.leaseState.workspaceId, 30_000, this.leaseState.hostEpoch);
-      this.leaseState = { ...renewed, runtimeId: this.leaseState.runtimeId };
+    const now = Date.now();
+    if (this.leaseState.expiresAt - now < 10_000) {
+      this.leaseState = {
+        ...this.leaseState,
+        expiresAt: now + 30_000,
+      };
     }
     return { ...this.leaseState };
   }
@@ -110,7 +113,12 @@ export class ControlPlaneRuntime {
       ttlMs?: number;
     } = {}
   ) {
-    const lease = this.getLease();
+    const ttlMs = typeof options.ttlMs === 'number' && options.ttlMs > 0 ? options.ttlMs : 300_000;
+    const currentLease = this.getLease();
+    const lease: RuntimeLease = {
+      ...currentLease,
+      expiresAt: Date.now() + ttlMs,
+    };
     return this.runs.attachments.issueAttachment(runId, attemptId, this.leaseState.projectId, this.leaseState.workspaceId || '', {
       backendId: options.backendId || 'codex',
       lease,
@@ -120,7 +128,49 @@ export class ControlPlaneRuntime {
       grant: options.grant,
       tabId: options.tabId,
       browserEpoch: options.browserEpoch,
-      ttlMs: options.ttlMs,
+      ttlMs,
     });
+  }
+
+  createCliSession(
+    options: {
+      backendId?: string;
+      chatId?: string;
+      grant?: 'read' | 'write' | 'execute' | 'eval';
+      tabId?: string;
+      browserEpoch?: number;
+      ttlMs?: number;
+      ownerPid?: number;
+    } = {}
+  ) {
+    const ttlMs = typeof options.ttlMs === 'number' && options.ttlMs > 0 ? options.ttlMs : 300_000;
+    const currentLease = this.getLease();
+    const lease: RuntimeLease = {
+      ...currentLease,
+      expiresAt: Date.now() + ttlMs,
+    };
+    return this.runs.createCliSession({
+      projectId: this.leaseState.projectId,
+      workspaceId: this.leaseState.workspaceId || '',
+      chatId: options.chatId,
+      backendId: options.backendId || 'cli',
+      grant: options.grant || 'write',
+      tabId: options.tabId,
+      browserEpoch: options.browserEpoch,
+      ttlMs,
+      hostEpoch: this.leaseState.hostEpoch,
+      ownerPid: options.ownerPid,
+      lease,
+      leaseToken: lease.token,
+    });
+  }
+
+  endCliSession(
+    runId: string,
+    attemptId: string,
+    outcome: 'completed' | 'failed' | 'cancelled' = 'completed',
+    error?: string
+  ) {
+    return this.runs.endCliSession(runId, attemptId, outcome, error);
   }
 }

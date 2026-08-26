@@ -1,0 +1,669 @@
+/* AntiFan Browser Desktop — Device Mockup Frame Backdrop Styles */
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+html, body {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: #060910;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  color: #f1f5f9;
+}
+
+.backdrop-studio {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  background: 
+    radial-gradient(circle at 35% 45%, rgba(30, 48, 75, 0.35) 0%, transparent 60%),
+    radial-gradient(circle at 75% 50%, rgba(24, 38, 60, 0.3) 0%, transparent 55%),
+    #060910;
+  overflow: hidden;
+}
+
+/* Ambient Studio Glow Behind Devices */
+.studio-glow {
+  position: absolute;
+  pointer-events: none;
+  border-radius: 50%;
+  filter: blur(50px);
+  opacity: 0.85;
+  transition: all 0.3s ease-out;
+}
+
+/* Studio Glow Enhancements */
+.studio-glow-left {
+  background: radial-gradient(circle, rgba(56, 189, 248, 0.22) 0%, rgba(99, 102, 241, 0.08) 50%, transparent 75%);
+}
+
+.studio-glow-right {
+  background: radial-gradient(circle, rgba(56, 189, 248, 0.24) 0%, rgba(147, 51, 234, 0.08) 50%, transparent 75%);
+}
+
+.studio-glow.agent-working {
+  opacity: 1 !important;
+  filter: blur(40px) !important;
+  background: radial-gradient(circle, rgba(0, 240, 255, 0.45) 0%, rgba(6, 182, 212, 0.2) 50%, transparent 75%) !important;
+  animation: studio-glow-pulse 1.6s ease-in-out infinite alternate !important;
+}
+
+@keyframes studio-glow-pulse {
+  0% { transform: scale(0.95); opacity: 0.7; }
+  100% { transform: scale(1.15); opacity: 1; filter: blur(35px); }
+}
+
+/* Base Device Mockup Containers */
+.device-mockup {
+  position: absolute;
+  pointer-events: auto;
+  transition: opacity 0.2s ease-out;
+}
+
+/* Glassmorphism Floating Device Badge (Hidden per UX request) */
+.device-badge {
+  display: none !important;
+}
+
+.device-badge:hover {
+  background: rgba(30, 41, 59, 0.95);
+  border-color: rgba(56, 189, 248, 0.4);
+  color: #ffffff;
+  transform: translateX(-50%) translateY(-2px);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.5), 0 0 8px rgba(56, 189, 248, 0.3);
+}
+
+.device-badge.active-pane {
+  background: rgba(14, 30, 50, 0.95);
+  border-color: rgba(56, 189, 248, 0.6);
+  color: #38bdf8;
+  box-shadow: 0 4px 16px rgba(56, 189, 248, 0.25), 0 0 0 1px rgba(56, 189, 248, 0.4);
+}
+
+.badge-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #64748b;
+  transition: all 0.2s ease;
+}
+
+.device-badge.active-pane .badge-dot {
+  background: #38bdf8;
+  box-shadow: 0 0 8px #38bdf8;
+}
+
+.badge-icon {
+  font-size: 12px;
+}
+
+.badge-title {
+  font-weight: 600;
+}
+
+.badge-res {
+  color: #94a3b8;
+  font-size: 10px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
+.badge-scale {
+  background: rgba(255, 255, 255, 0.08);
+  padding: 1px 5px;
+  border-radius: 10px;
+  font-size: 9.5px;
+  color: #94a3b8;
+}
+
+/* ========================================================
+   LAPTOP MOCKUP (Authentic Apple MacBook Pro Chassis)
+   ======================================================== */
+
+.laptop-lid {
+  position: absolute;
+  background: #000000;
+  border: 2px solid #3f4756;
+  border-bottom: none;
+  border-radius: 12px 12px 0 0;
+  box-shadow: 
+    0 0 0 1px rgba(255, 255, 255, 0.18),
+    inset 0 1px 0 rgba(255, 255, 255, 0.25),
+    0 20px 48px rgba(0, 0, 0, 0.9);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: space-between;
+  overflow: hidden;
+}
+
+/* Active focus outline for laptop */
+.laptop-mockup.is-focused .laptop-lid {
+  border-color: rgba(56, 189, 248, 0.55);
+  box-shadow: 
+    inset 0 1px 0 rgba(255, 255, 255, 0.25),
+    0 0 24px rgba(56, 189, 248, 0.2),
+    0 16px 44px rgba(0, 0, 0, 0.75);
+}
+
+/* Agent Active Glow for laptop */
+.laptop-mockup.agent-working .laptop-lid {
+  border-color: #00f0ff !important;
+  box-shadow: 
+    0 0 0 2px rgba(0, 240, 255, 0.8),
+    0 0 28px rgba(0, 240, 255, 0.55),
+    0 0 56px rgba(0, 240, 255, 0.3),
+    0 20px 48px rgba(0, 0, 0, 0.9) !important;
+  animation: laptop-agent-pulse 1.4s ease-in-out infinite alternate !important;
+}
+
+@keyframes laptop-agent-pulse {
+  0% {
+    box-shadow: 0 0 0 2px rgba(0, 240, 255, 0.6), 0 0 20px rgba(0, 240, 255, 0.4), 0 20px 48px rgba(0, 0, 0, 0.9);
+  }
+  100% {
+    box-shadow: 0 0 0 3px rgba(0, 240, 255, 0.95), 0 0 38px rgba(0, 240, 255, 0.75), 0 20px 48px rgba(0, 0, 0, 0.9);
+  }
+}
+
+/* MacBook Top Bezel & Camera Notch */
+.laptop-top-bezel {
+  width: 100%;
+  height: 16px;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  background: #000000;
+  position: relative;
+  z-index: 4;
+}
+
+.macbook-notch {
+  width: 44px;
+  height: 10px;
+  background: #000000;
+  border-radius: 0 0 6px 6px;
+  border: 1px solid #1c222d;
+  border-top: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.6);
+}
+
+.macbook-camera-lens {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: #040810;
+  border: 1px solid #1a2233;
+  position: relative;
+  overflow: hidden;
+}
+
+.macbook-lens-reflection {
+  position: absolute;
+  top: 1px;
+  left: 1px;
+  width: 1.6px;
+  height: 1.6px;
+  border-radius: 50%;
+  background: rgba(56, 189, 248, 0.9);
+}
+
+.macbook-ambient-sensor {
+  width: 3px;
+  height: 3px;
+  border-radius: 50%;
+  background: #0a0d14;
+}
+
+.macbook-camera-led {
+  width: 2.5px;
+  height: 2.5px;
+  border-radius: 50%;
+  background: #10b981;
+  opacity: 0.6;
+  box-shadow: 0 0 3px #10b981;
+}
+
+.laptop-screen-frame {
+  width: 100%;
+  flex: 1;
+  background: #000000;
+  position: relative;
+}
+
+.screen-inner-shadow {
+  position: absolute;
+  inset: 0;
+  box-shadow: inset 0 0 3px rgba(0, 0, 0, 0.7);
+  pointer-events: none;
+}
+
+/* MacBook Bottom Chin with Logo */
+.laptop-bottom-chin {
+  width: 100%;
+  height: 14px;
+  background: #000000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-top: 1px solid #14171f;
+}
+
+.macbook-chin-emboss {
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", sans-serif;
+  font-size: 7.5px;
+  font-weight: 600;
+  letter-spacing: 1.6px;
+  color: rgba(255, 255, 255, 0.28);
+  text-transform: uppercase;
+  user-select: none;
+  pointer-events: none;
+}
+
+/* MacBook Unibody Aluminum Base Deck */
+.laptop-base {
+  position: absolute;
+  background: linear-gradient(180deg, #4b5563 0%, #374151 25%, #1f2937 100%);
+  border: 1px solid #4b5563;
+  border-top: 1px solid #6b7280;
+  border-radius: 0 0 10px 10px;
+  box-shadow: 
+    0 0 0 1px rgba(255, 255, 255, 0.2),
+    0 22px 48px -4px rgba(0, 0, 0, 0.9),
+    0 8px 20px rgba(0, 0, 0, 0.65);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+}
+
+.laptop-hinge-line {
+  width: 100%;
+  height: 1.5px;
+  background: #111827;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.macbook-thumb-indent {
+  width: 64px;
+  height: 4.5px;
+  background: #111827;
+  border-radius: 0 0 5px 5px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.25);
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.8);
+}
+
+.laptop-ambient-shadow {
+  position: absolute;
+  border-radius: 50%;
+  background: radial-gradient(ellipse at center, rgba(0, 0, 0, 0.75) 0%, transparent 75%);
+  filter: blur(14px);
+  pointer-events: none;
+  z-index: -1;
+}
+
+/* ========================================================
+   MOBILE MOCKUP (Titanium Smartphone / iPhone Pro)
+   ======================================================== */
+
+.phone-body {
+  position: absolute;
+  background: #000000;
+  border: 2.5px solid #5b687c;
+  border-radius: 36px;
+  box-shadow: 
+    0 0 0 1px rgba(255, 255, 255, 0.24),
+    0 24px 54px -6px rgba(0, 0, 0, 0.9),
+    0 8px 24px rgba(0, 0, 0, 0.65);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: space-between;
+  overflow: hidden;
+  padding: 0;
+}
+
+/* Active focus outline for mobile */
+.phone-mockup.is-focused .phone-body {
+  border-color: rgba(56, 189, 248, 0.6);
+  box-shadow: 
+    0 0 0 1px rgba(56, 189, 248, 0.4),
+    0 0 20px rgba(56, 189, 248, 0.2),
+    0 24px 54px -8px rgba(0, 0, 0, 0.9);
+}
+
+/* Agent Active Glow for mobile */
+.phone-mockup.agent-working .phone-body {
+  border-color: #00f0ff !important;
+  box-shadow: 
+    0 0 0 2.5px rgba(0, 240, 255, 0.85),
+    0 0 26px rgba(0, 240, 255, 0.55),
+    0 0 50px rgba(0, 240, 255, 0.3),
+    0 24px 54px -8px rgba(0, 0, 0, 0.9) !important;
+  animation: phone-agent-pulse 1.4s ease-in-out infinite alternate !important;
+}
+
+@keyframes phone-agent-pulse {
+  0% {
+    box-shadow: 0 0 0 2px rgba(0, 240, 255, 0.6), 0 0 18px rgba(0, 240, 255, 0.4), 0 24px 54px -8px rgba(0, 0, 0, 0.9);
+  }
+  100% {
+    box-shadow: 0 0 0 3px rgba(0, 240, 255, 0.95), 0 0 36px rgba(0, 240, 255, 0.75), 0 24px 54px -8px rgba(0, 0, 0, 0.9);
+  }
+}
+
+/* Antenna bands */
+.phone-antenna {
+  position: absolute;
+  background: rgba(255, 255, 255, 0.15);
+  pointer-events: none;
+}
+.antenna-left-top { left: -2px; top: 70px; width: 2px; height: 4px; }
+.antenna-left-bottom { left: -2px; bottom: 70px; width: 2px; height: 4px; }
+.antenna-right-top { right: -2px; top: 70px; width: 2px; height: 4px; }
+.antenna-right-bottom { right: -2px; bottom: 70px; width: 2px; height: 4px; }
+
+/* Phone Top Bezel (Status Bar + Safari URL Header) */
+.phone-top-bezel {
+  width: 100%;
+  height: 56px;
+  display: flex;
+  flex-direction: column;
+  background: #f8fafc;
+  color: #0f172a;
+  position: relative;
+  z-index: 5;
+  border-bottom: 1px solid #e2e8f0;
+  box-sizing: border-box;
+  padding: 2px 8px 4px;
+  user-select: none;
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, sans-serif;
+}
+
+/* Status Bar Row */
+.safari-status-bar {
+  width: 100%;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 4px;
+  position: relative;
+}
+
+.safari-status-left {
+  display: flex;
+  align-items: center;
+  min-width: 48px;
+}
+
+.safari-status-time {
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: -0.2px;
+  color: #000000;
+}
+
+.dynamic-island {
+  position: absolute;
+  left: 50%;
+  top: 2px;
+  transform: translateX(-50%);
+  width: 68px;
+  height: 14px;
+  background: #000000;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 5px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+}
+
+.island-camera {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #080d1a;
+  border: 1px solid #1e293b;
+  position: relative;
+}
+
+.camera-lens-glint {
+  position: absolute;
+  top: 1px;
+  left: 1px;
+  width: 1.8px;
+  height: 1.8px;
+  border-radius: 50%;
+  background: rgba(56, 189, 248, 0.95);
+}
+
+.island-sensor {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: #0f172a;
+}
+
+.safari-status-right {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 48px;
+  justify-content: flex-end;
+  color: #000000;
+}
+
+.safari-icon {
+  width: 13px;
+  height: 10px;
+}
+
+.safari-battery-wrapper {
+  display: flex;
+  align-items: center;
+  position: relative;
+}
+
+.safari-battery-pill {
+  width: 20px;
+  height: 10px;
+  border: 1.2px solid #000000;
+  border-radius: 3px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.5px;
+  box-sizing: border-box;
+  background: #000000;
+}
+
+.safari-battery-level {
+  font-size: 7.5px;
+  font-weight: 700;
+  color: #ffffff;
+  line-height: 1;
+}
+
+.safari-battery-tip {
+  width: 1.5px;
+  height: 4px;
+  background: #000000;
+  border-radius: 0 1px 1px 0;
+  margin-left: 0.5px;
+}
+
+/* Safari URL Bar Row */
+.safari-url-bar {
+  width: 100%;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 2px;
+}
+
+.safari-btn {
+  background: transparent;
+  border: none;
+  outline: none;
+  cursor: pointer;
+  color: #475569;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px;
+  border-radius: 6px;
+  transition: background 0.15s ease;
+}
+
+.safari-btn:hover {
+  background: rgba(0, 0, 0, 0.05);
+  color: #0f172a;
+}
+
+.safari-url-pill {
+  flex: 1;
+  height: 24px;
+  background: #e2e8f0;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 0 8px;
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.04);
+}
+
+.safari-lock-icon {
+  color: #64748b;
+  flex-shrink: 0;
+}
+
+.safari-url-domain {
+  font-size: 11px;
+  font-weight: 500;
+  color: #1e293b;
+  letter-spacing: -0.1px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Phone Screen Frame */
+.phone-screen-frame {
+  width: 100%;
+  flex: 1;
+  background: #000000;
+  position: relative;
+}
+
+.phone-screen-inner-shadow {
+  position: absolute;
+  inset: 0;
+  box-shadow: inset 0 0 3px rgba(0, 0, 0, 0.6);
+  pointer-events: none;
+}
+
+/* Phone Bottom Bezel (Safari Navigation Toolbar + Home Indicator) */
+.phone-bottom-bezel {
+  width: 100%;
+  height: 46px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  align-items: center;
+  background: rgba(248, 250, 252, 0.98);
+  border-top: 1px solid #e2e8f0;
+  box-sizing: border-box;
+  padding: 3px 12px 4px;
+  user-select: none;
+  z-index: 5;
+}
+
+.safari-bottom-toolbar {
+  width: 100%;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.safari-nav-btn {
+  background: transparent;
+  border: none;
+  outline: none;
+  cursor: pointer;
+  color: #64748b;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px 6px;
+  border-radius: 6px;
+  transition: all 0.15s ease;
+}
+
+.safari-nav-btn:hover {
+  background: rgba(0, 0, 0, 0.05);
+  color: #0f172a;
+}
+
+.safari-nav-btn:active {
+  transform: scale(0.92);
+}
+
+.safari-plus-pill {
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  background: #e2e8f0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #334155;
+}
+
+.safari-tabs-box {
+  width: 18px;
+  height: 18px;
+  border: 1.6px solid #64748b;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+}
+
+.safari-tabs-count {
+  font-size: 8.5px;
+  font-weight: 700;
+  color: #475569;
+  line-height: 1;
+}
+
+.phone-home-indicator {
+  width: 90px;
+  height: 3.5px;
+  background: #0f172a;
+  border-radius: 2px;
+  margin-bottom: 2px;
+  opacity: 0.85;
+}
+.phone-ambient-shadow {
+  position: absolute;
+  border-radius: 50%;
+  background: radial-gradient(ellipse at center, rgba(0, 0, 0, 0.8) 0%, transparent 75%);
+  filter: blur(14px);
+  pointer-events: none;
+  z-index: -1;
+}

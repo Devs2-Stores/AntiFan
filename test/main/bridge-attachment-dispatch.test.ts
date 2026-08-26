@@ -7,16 +7,22 @@ import { NativeTabHost } from '../../src/main/browser/native-tab-host';
 import { AttachmentRegistry } from '../../src/main/run/attachment-registry';
 import { CapabilityTransportAdapter } from '../../src/main/tools/capability-transport';
 import { CapabilityCatalogue } from '../../src/main/tools/capability-catalogue';
+import { registerBrowserCapabilities } from '../../src/main/tools/browser-capabilities';
+import { BrowserControlPort, type BrowserHostPort } from '../../src/main/tools/browser-control-port';
 
-class MockTabHost extends EventEmitter {
+class MockTabHost extends EventEmitter implements BrowserHostPort {
   getTabList() { return [{ id: 'tab-1', url: 'https://example.com', title: 'Example' }]; }
   getActiveTabId() { return 'tab-1'; }
   getActiveTab() { return { id: 'tab-1', url: 'https://example.com', title: 'Example' }; }
   isCurrentTarget() { return true; }
   getDocumentGeneration() { return 1; }
-  agentMove() { return true; }
+  async agentMove() { return true; }
+  navigate() { return true; }
+  reload() { return true; }
+  async getDom() { return '<html><body><h1>AntiFan DOM</h1></body></html>'; }
+  async captureScreenshot() { return 'base64-screenshot'; }
+  async evalJs() { return true; }
 }
-
 describe('BridgeServer Attachment Authentication & Scoped Dispatch', () => {
   it('authenticates via attachment secret, restricts to capability dispatch, enforces replay denial, and prevents legacy RPCs', async () => {
     const mockHost = new MockTabHost() as unknown as NativeTabHost;
@@ -529,5 +535,97 @@ describe('BridgeServer Attachment Authentication & Scoped Dispatch', () => {
       ownerPid: 54321,
     });
     assert.strictEqual(validBound.attachmentId, launchBoundPid.attachmentId);
+  });
+
+  it('automatically resolves target for browser.dom capability dispatch via attachment authentication without TARGET_REQUIRED error', async () => {
+    const mockHost = new MockTabHost() as unknown as NativeTabHost;
+    const runId = 'run-22222222222222222222';
+    const attemptId = 'attempt-22222222222222222222';
+    const projectId = 'project-22222222222222222222';
+    const workspaceId = 'workspace-22222222222222222222';
+    const runtimeId = 'binding-22222222222222222222';
+    const hostEpoch = 1;
+
+    const lease = {
+      runtimeId,
+      projectId,
+      workspaceId,
+      token: 'active-lease-token-2',
+      protocolVersion: 1,
+      hostEpoch,
+      ownerPid: process.pid,
+      issuedAt: Date.now(),
+      expiresAt: Date.now() + 60_000,
+    };
+
+    const catalogue = new CapabilityCatalogue({
+      runtime: { mode: 'standalone', lifecycle: 'active' },
+      projectId,
+      workspaceId,
+      runtimeId,
+      hostEpoch,
+      getActiveLease: () => lease,
+    });
+
+    const browserPort = new BrowserControlPort(mockHost as unknown as BrowserHostPort);
+    registerBrowserCapabilities(catalogue, browserPort);
+    const transport = new CapabilityTransportAdapter(catalogue);
+    const registry = new AttachmentRegistry();
+
+    const server = new BridgeServer(mockHost, 0, false, transport, undefined, registry);
+    const port = await server.start();
+
+    // Issue attachment with NO explicit browserTarget (standard for CLI session / MCP client)
+    const { launch } = registry.issueAttachment(runId, attemptId, projectId, workspaceId, {
+      backendId: 'cli',
+      lease,
+      leaseToken: lease.token,
+      hostEpoch,
+      grant: 'read',
+    });
+
+    const ws = new WebSocket(`ws://127.0.0.1:${port}?token=${encodeURIComponent(launch.secret)}`);
+    try {
+      await new Promise<void>((resolve, reject) => {
+        ws.on('open', resolve);
+        ws.on('error', reject);
+      });
+
+      const sendRpc = (id: string, method: string, params: Record<string, unknown>) => {
+        return new Promise<{ success: boolean; data?: unknown; error?: string }>((resolve) => {
+          const handler = (raw: Buffer | string) => {
+            const resp = JSON.parse(raw.toString()) as { id: string; success: boolean; data?: unknown; error?: string };
+            if (resp.id === id) {
+              ws.off('message', handler);
+              resolve(resp);
+            }
+          };
+          ws.on('message', handler);
+          ws.send(JSON.stringify({ id, method, params }));
+        });
+      };
+
+      // Dispatch browser.dom through attachment
+      const domResp = await sendRpc('req-dom-1', 'antifan.capability.dispatch', {
+        name: 'browser.dom',
+        params: {},
+        attachmentClaims: {
+          attachmentSecret: launch.secret,
+          attachmentId: launch.attachmentId,
+          runId,
+          attemptId,
+          projectId,
+          workspaceId,
+          invocationId: 'inv-dom-test-1',
+          grant: 'read',
+        },
+      });
+
+      assert.strictEqual(domResp.success, true, `browser.dom dispatch failed: ${domResp.error}`);
+      assert.ok(typeof domResp.data === 'string' && domResp.data.includes('AntiFan DOM'));
+    } finally {
+      ws.close();
+      server.dispose();
+    }
   });
 });

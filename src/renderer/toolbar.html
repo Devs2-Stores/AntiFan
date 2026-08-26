@@ -93,13 +93,17 @@
                 <option value="phone-iphone15pro">iPhone 15 Pro (393×852)</option>
                 <option value="phone-iphone14pro">iPhone 14 (390×844)</option>
                 <option value="phone-iphonexr">iPhone XR (414×896)</option>
-                <option value="phone-iphonese">iPhone SE (375×667)</option>
+                <option value="phone-iphonese">iPhone SE 2/3 (375×667)</option>
                 <option value="phone-s24ultra">Galaxy S24 Ultra (412×915)</option>
                 <option value="phone-zfold5">Galaxy Z Fold 5 (344×882)</option>
                 <option value="phone-pixel8pro">Pixel 8 Pro (448×998)</option>
                 <option value="pixel-9-pro">Pixel 9 Pro (412×924)</option>
                 <option value="mobile-compact">Mobile Baseline (360×800)</option>
                 <option value="mobile-small">Mobile Small (360×640)</option>
+                <option value="phone-iphone5s">iPhone 5s / SE 1 (320×568)</option>
+                <option value="mobile-320">Mobile 320 (320×568)</option>
+                <option value="mobile-320-tall">Mobile 320 Tall (320×640)</option>
+                <option value="mobile-320-compact">Mobile 320 Compact (320×480)</option>
               </select>
             </div>
           </div>
@@ -118,12 +122,19 @@
               <option value="desktop-1280">Desktop 5:4 (1280×1024)</option>
             </optgroup>
             <optgroup label="📟 Tablets">
+              <option value="tablet-ipad-pro-13">iPad Pro 13" M4 (1032×1376)</option>
               <option value="tablet-ipad-pro">iPad Pro 12.9" (1024×1366)</option>
+              <option value="tablet-ipad-pro-11">iPad Pro 11" M4 (834×1210)</option>
               <option value="tablet-ipad-air">iPad Air / Pro 11" (820×1180)</option>
               <option value="ipad-10th">iPad 10th Gen (810×1080)</option>
+              <option value="tablet-ipad-mini-6">iPad Mini 6/7 (744×1133)</option>
               <option value="tablet-ipad-mini">iPad Mini (768×1024)</option>
-              <option value="surface-pro-9">Surface Pro 9 (912×1368)</option>
+              <option value="galaxy-tab-s9-ultra">Galaxy Tab S9 Ultra (928×1480)</option>
               <option value="galaxy-tab-s9">Galaxy Tab S9 (800×1280)</option>
+              <option value="surface-pro-9">Surface Pro 9 / 11 (912×1368)</option>
+              <option value="tablet-768">Tablet Standard (768×1024)</option>
+              <option value="tablet-landscape-1024">Tablet Landscape (1024×768)</option>
+              <option value="tablet-landscape-1280">Tablet Landscape (1280×800)</option>
             </optgroup>
             <optgroup label="📱 Mobile Phones">
               <option value="phone-iphone16promax">iPhone 16 Pro Max (440×956)</option>
@@ -131,7 +142,7 @@
               <option value="phone-iphone15pro">iPhone 16 / 15 Pro (393×852)</option>
               <option value="phone-iphone14pro">iPhone 14 / 13 / 12 (390×844)</option>
               <option value="phone-iphonexr">iPhone XR / 11 (414×896)</option>
-              <option value="phone-iphonese">iPhone SE (375×667)</option>
+              <option value="phone-iphonese">iPhone SE 2/3 (375×667)</option>
               <option value="phone-s24ultra">Samsung Galaxy S24 Ultra (412×915)</option>
               <option value="phone-zfold5">Samsung Galaxy Z Fold 5 (344×882)</option>
               <option value="phone-pixel8pro">Google Pixel 8 Pro (448×998)</option>
@@ -140,6 +151,10 @@
               <option value="xiaomi-14">Xiaomi 14 / 13 (393×851)</option>
               <option value="mobile-compact">Mobile Baseline (360×800)</option>
               <option value="mobile-small">Mobile Small (360×640)</option>
+              <option value="phone-iphone5s">iPhone 5s / SE 1 (320×568)</option>
+              <option value="mobile-320">Mobile 320 (320×568)</option>
+              <option value="mobile-320-tall">Mobile 320 Tall (320×640)</option>
+              <option value="mobile-320-compact">Mobile 320 Compact (320×480)</option>
             </optgroup>
           </select>
 
@@ -161,22 +176,6 @@
 
           <button class="nav-btn" id="btnFontFinder" title="Font Finder (Hover typography, click to copy CSS)">
             <svg width="15" height="15" viewBox="0 0 16 16" fill="currentColor"><path d="M12.4 14.5l-1.35-3.5H4.95L3.6 14.5H1.8L7.1 1.5h1.8l5.3 13h-1.8zM8 3.15L5.6 9.5h4.8L8 3.15z"/></svg>
-          </button>
-
-          <button class="nav-btn" id="btnRuler" title="Pixel Ruler & Layout Grid Overlay">
-            <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.25"><rect x="1.5" y="4" width="13" height="8" rx="1"/><path d="M4 4v3M6.5 4v2M9 4v3M11.5 4v2"/></svg>
-          </button>
-
-          <button class="nav-btn" id="btnCaptureFullPage" title="Capture Viewport Screenshot (Ctrl+Shift+S)">
-            <svg width="15" height="15" viewBox="0 0 16 16" fill="currentColor"><path fill-rule="evenodd" clip-rule="evenodd" d="M3 3h10a1 1 0 0 1 1 1v8a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1zm0-1a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2H3zm5 4a2 2 0 1 0 0 4 2 2 0 0 0 0-4z"/></svg>
-          </button>
-
-          <button class="nav-btn" id="btnMobileRemote" title="Mobile Remote Control & QR Code (📱)">
-            <svg width="15" height="15" viewBox="0 0 16 16" fill="currentColor"><path d="M11 1H5a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2V3a2 2 0 0 0-2-2zM5 2h6a1 1 0 0 1 1 1v8H4V3a1 1 0 0 1 1-1zm3 12.25a.75.75 0 1 1 0-1.5.75.75 0 0 1 0 1.5z"/></svg>
-          </button>
-
-          <button class="nav-btn" id="btnDevTools" title="Toggle Developer Tools (F12)">
-            <svg width="15" height="15" viewBox="0 0 16 16" fill="currentColor"><path fill-rule="evenodd" clip-rule="evenodd" d="M4.854 4.146a.5.5 0 0 1 0 .708L1.707 8l3.147 3.146a.5.5 0 0 1-.708.708l-3.5-3.5a.5.5 0 0 1 0-.708l3.5-3.5a.5.5 0 0 1 .708 0zm6.292 0a.5.5 0 0 0 0 .708L14.293 8l-3.147 3.146a.5.5 0 0 0 .708.708l3.5-3.5a.5.5 0 0 0 0-.708l-3.5-3.5a.5.5 0 0 0-.708 0zm-4.79 9.544l3-11 .948.258-3 11-.948-.258z"/></svg>
           </button>
         </div>
 

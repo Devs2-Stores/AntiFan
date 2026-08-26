@@ -1,5 +1,6 @@
 import {
   ExecutionAttempt,
+  AttemptState,
   RunRecord,
   RunState,
   makeControlPlaneId,
@@ -8,7 +9,30 @@ import {
   ReceiptBinding,
   validateLaunchPath,
   CapabilityError,
+  McpAttachmentLaunch,
+  RuntimeLease,
 } from '../../shared/control-plane-contracts';
+
+export interface CreateCliSessionOptions {
+  projectId: string;
+  workspaceId: string;
+  chatId?: string;
+  backendId?: string;
+  grant?: 'read' | 'write' | 'execute' | 'eval';
+  tabId?: string;
+  browserEpoch?: number;
+  ttlMs?: number;
+  hostEpoch?: number;
+  ownerPid?: number;
+  lease: RuntimeLease;
+  leaseToken: string;
+}
+
+export interface CliSessionResult {
+  run: RunRecord;
+  attempt: ExecutionAttempt;
+  launch: McpAttachmentLaunch;
+}
 import { ChatStore } from '../chat/chat-store';
 import { EventStore } from '../session/event-store';
 import { ExecutionBackend, StartRunInput } from '../agent/execution-backend';
@@ -43,6 +67,9 @@ export class RunService {
 
   setAttemptProcessPid(attemptId: string, pid: number): void {
     this.attemptPids.set(validateControlPlaneId(attemptId, 'attempt'), pid);
+  }
+  getAttemptProcessPid(attemptId: string): number | undefined {
+    return this.attemptPids.get(validateControlPlaneId(attemptId, 'attempt'));
   }
   createRun(projectId: string, workspaceId: string, chatId: string, backendId: string): RunRecord {
     const chat = this.chats.get(chatId, projectId, workspaceId);
@@ -138,6 +165,82 @@ export class RunService {
   }
 
   listRuns(projectId: string): RunRecord[] { return Array.from(this.runs.values()).filter((item) => item.projectId === validateControlPlaneId(projectId, 'project')).map((item) => ({ ...item })); }
+  createCliSession(options: CreateCliSessionOptions): CliSessionResult {
+    let chatId = options.chatId;
+    if (!chatId) {
+      const chat = this.chats.create(options.projectId, options.workspaceId, 'CLI Session');
+      chatId = chat.id;
+    }
+    const backendId = options.backendId || 'cli';
+    const run = this.createRun(options.projectId, options.workspaceId, chatId, backendId);
+    run.state = 'streaming';
+    run.updatedAt = Date.now();
+    this.runs.set(run.id, run);
+
+    const promptDigest = digestText('cli:interactive');
+    const attempt: ExecutionAttempt = {
+      id: makeControlPlaneId('attempt'),
+      runId: run.id,
+      projectId: run.projectId,
+      workspaceId: run.workspaceId,
+      chatId: run.chatId,
+      state: 'running',
+      backendId,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+      promptDigest,
+    };
+    this.attempts.set(attempt.id, attempt);
+    if (typeof options.ownerPid === 'number' && options.ownerPid > 0) {
+      this.setAttemptProcessPid(attempt.id, options.ownerPid);
+    }
+    this.append('turn/start', { promptText: 'cli:interactive' }, run, attempt);
+
+    const { launch } = this.attachments.issueAttachment(run.id, attempt.id, options.projectId, options.workspaceId, {
+      backendId,
+      chatId,
+      grant: options.grant || 'write',
+      tabId: options.tabId,
+      browserEpoch: options.browserEpoch,
+      ttlMs: options.ttlMs || 300_000,
+      hostEpoch: options.hostEpoch ?? 1,
+      boundPid: options.ownerPid,
+      lease: options.lease,
+      leaseToken: options.leaseToken,
+    });
+
+    return { run: { ...run }, attempt: { ...attempt }, launch };
+  }
+
+  endCliSession(
+    runId: string,
+    attemptId: string,
+    outcome: 'completed' | 'failed' | 'cancelled' = 'completed',
+    error?: string
+  ): { ok: boolean } {
+    const validRunId = validateControlPlaneId(runId, 'run');
+    const validAttemptId = validateControlPlaneId(attemptId, 'attempt');
+    const run = this.runs.get(validRunId);
+    const attempt = this.attempts.get(validAttemptId);
+    const now = Date.now();
+    const finalRunState: RunState = outcome === 'completed' ? 'completed' : outcome === 'cancelled' ? 'interrupted' : 'failed';
+    const finalAttemptState: AttemptState = outcome === 'completed' ? 'completed' : outcome === 'cancelled' ? 'interrupted' : 'failed';
+    if (attempt) {
+      attempt.state = finalAttemptState;
+      attempt.updatedAt = now;
+      this.attempts.set(attempt.id, attempt);
+    }
+    if (run) {
+      run.state = finalRunState;
+      run.updatedAt = now;
+      this.runs.set(run.id, run);
+      this.append('turn/finish', { outcome, error, runState: finalRunState, attemptState: finalAttemptState }, run, attempt);
+    }
+    this.attachments.revokeForAttempt(validAttemptId);
+    this.attemptPids.delete(validAttemptId);
+    return { ok: true };
+  }
+
 
   private applyEvent(run: RunRecord, attempt: ExecutionAttempt, event: RunEvent, requiresReceipt = false): void {
     if (event.runId !== run.id || event.attemptId !== attempt.id) throw new Error('Backend event identity mismatch');

@@ -211,8 +211,11 @@ async function createWindow(): Promise<void> {
         } : undefined,
       };
     },
-    controlPlane.runs.attachments
+    controlPlane.runs.attachments,
+    '127.0.0.1',
+    controlPlane
   );
+  bridgeServer.setControlPlane(controlPlane);
   const bridgePort = await bridgeServer.start();
   console.log(`[antifan] Bridge Server running on 127.0.0.1:${bridgePort} (${IS_DEV ? 'DEV' : 'PROD'})`);
 
