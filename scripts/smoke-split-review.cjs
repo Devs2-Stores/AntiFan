@@ -79,7 +79,7 @@ async function runSmokeTest() {
     win = new BrowserWindow({
       width: 1440,
       height: 900,
-      show: false,
+      show: true,
       webPreferences: {
         sandbox: true,
         contextIsolation: true,
@@ -185,7 +185,7 @@ async function runSmokeTest() {
     if (!backOk) {
       throw new Error('Expected goBack to return true');
     }
-    await new Promise((resolve) => setTimeout(resolve, 1500));
+    await new Promise((resolve) => setTimeout(resolve, 2000));
     const backDesktopUrl = await tabHost.evalJs(`window.location.href;`, tabId, 'desktop');
     const backMobileUrl = await tabHost.evalJs(`window.location.href;`, tabId, 'mobile');
     if (!backDesktopUrl.endsWith('/') || !backMobileUrl.endsWith('/')) {
@@ -197,14 +197,13 @@ async function runSmokeTest() {
     if (!fwdOk) {
       throw new Error('Expected goForward to return true');
     }
-    await new Promise((resolve) => setTimeout(resolve, 1500));
+    await new Promise((resolve) => setTimeout(resolve, 2000));
     const fwdDesktopUrl = await tabHost.evalJs(`window.location.href;`, tabId, 'desktop');
     const fwdMobileUrl = await tabHost.evalJs(`window.location.href;`, tabId, 'mobile');
     if (!fwdDesktopUrl.includes('/page2') || !fwdMobileUrl.includes('/page2')) {
       throw new Error(`Expected both panes on page2 after goForward, got desktop=${fwdDesktopUrl}, mobile=${fwdMobileUrl}`);
     }
     console.log('[Smoke] Verified goForward navigation synced to both panes:', { desktop: fwdDesktopUrl, mobile: fwdMobileUrl });
-
     console.log('[Smoke] Step 5: Testing focused pane switching & tool routing...');
     tabHost.setSplitFocusedPane(tabId, 'mobile');
     tabState = tabHost.getTabList().find((t) => t.id === tabId);
@@ -220,16 +219,59 @@ async function runSmokeTest() {
       throw new Error('Expected agentSnapshot on mobile pane to return ARIA snapshot');
     }
     console.log('[Smoke] Verified focused pane target routing (DOM & agent snapshot).');
-    console.log('[Smoke] Step 5b: Testing inspect toggle on focused pane...');
+    console.log('[Smoke] Step 5b: Testing inspect mode & element pick capture on focused pane...');
     const inspectActive = tabHost.toggleInspect();
     if (!inspectActive) {
       throw new Error('Expected toggleInspect to activate inspect mode');
     }
-    const inspectCleaned = tabHost.toggleInspect();
-    if (inspectCleaned) {
-      throw new Error('Expected toggleInspect to deactivate inspect mode');
+    let emittedPickedData = null;
+    const onElementPicked = (data) => {
+      emittedPickedData = data;
+    };
+    tabHost.on('element-picked', onElementPicked);
+
+    // Simulate picking an element on focused mobile pane
+    await tabHost.evalJs(`
+      window.__antifanPick = {
+        tagName: 'INPUT',
+        selector: '#smoke-input',
+        clientRect: { x: 10, y: 20, width: 120, height: 32 },
+        canceled: false,
+        deliveryMode: 'draft',
+      };
+    `, tabId, 'mobile');
+
+    // Wait for inspect poll to consume __antifanPick
+    await new Promise((resolve) => setTimeout(resolve, 600));
+    tabHost.removeListener('element-picked', onElementPicked);
+    if (!emittedPickedData) {
+      throw new Error('Expected element-picked event to be emitted on simulated pick in split review');
     }
-    console.log('[Smoke] Verified inspect mode toggle and cleanup on split view.');
+    if (!emittedPickedData.screenshotBase64 || typeof emittedPickedData.screenshotBase64 !== 'string' || emittedPickedData.screenshotBase64.length === 0) {
+      throw new Error('Expected element-picked to contain non-empty screenshotBase64 image data');
+    }
+    if (!emittedPickedData.targetImagePath || !fs.existsSync(emittedPickedData.targetImagePath)) {
+      throw new Error(`Expected targetImagePath file to exist on disk, got: ${emittedPickedData.targetImagePath}`);
+    }
+    if (!emittedPickedData.viewportImagePath || !fs.existsSync(emittedPickedData.viewportImagePath)) {
+      throw new Error(`Expected viewportImagePath file to exist on disk, got: ${emittedPickedData.viewportImagePath}`);
+    }
+    const targetStat = fs.statSync(emittedPickedData.targetImagePath);
+    const viewportStat = fs.statSync(emittedPickedData.viewportImagePath);
+    if (targetStat.size === 0 || viewportStat.size === 0) {
+      throw new Error('Expected target and viewport images to have non-zero size');
+    }
+    if (targetStat.size >= viewportStat.size) {
+      throw new Error(`Expected cropped target image (${targetStat.size}B) to be smaller than full viewport image (${viewportStat.size}B)`);
+    }
+    console.log(`[Smoke] Verified element pick and coordinate capture on split view (target: ${targetStat.size}B, viewport: ${viewportStat.size}B).`);
+    if (tabHost.isInspectActive()) {
+      tabHost.stopInspect();
+    }
+    if (tabHost.isInspectActive()) {
+      throw new Error('Expected inspect mode to be deactivated');
+    }
+    console.log('[Smoke] Verified inspect mode cleanup on split view.');
     console.log('[Smoke] Step 6: Testing security guard against dangerous schemes...');
     tabHost.navigate(tabId, 'javascript:alert(1)');
     const sanitizedUrl = await tabHost.evalJs(`window.location.href;`, tabId, 'desktop');
@@ -253,10 +295,9 @@ async function runSmokeTest() {
     console.log('[Smoke] ALL REAL ELECTRON NATIVE TAB HOST SPLIT SMOKE TESTS PASSED SUCCESSFULLY.');
     server.close();
     try { fs.rmSync(tempUserData, { recursive: true, force: true }); } catch {}
-    setTimeout(() => {
-      try { app.exit(0); } catch {}
-      process.exit(0);
-    }, 50);
+    setImmediate(() => {
+      app.exit(0);
+    });
   } catch (err) {
     console.error('[Smoke] NativeTabHost Split Smoke Test FAILED:', err);
     if (tabHost) {
@@ -267,10 +308,9 @@ async function runSmokeTest() {
     }
     if (server) server.close();
     try { fs.rmSync(tempUserData, { recursive: true, force: true }); } catch {}
-    setTimeout(() => {
-      try { app.exit(1); } catch {}
-      process.exit(1);
-    }, 50);
+    setImmediate(() => {
+      app.exit(1);
+    });
   }
 }
 

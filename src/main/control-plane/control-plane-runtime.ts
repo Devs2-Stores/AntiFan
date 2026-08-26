@@ -24,11 +24,13 @@ export interface ControlPlaneRuntimeOptions {
   runtimeId?: string;
   hostEpoch?: number;
   allowEval?: boolean;
+  projects?: ProjectRegistry;
+  workspaces?: WorkspaceRegistry;
 }
 
 export class ControlPlaneRuntime {
-  readonly projects = new ProjectRegistry();
-  readonly workspaces = new WorkspaceRegistry(this.projects);
+  readonly projects: ProjectRegistry;
+  readonly workspaces: WorkspaceRegistry;
   readonly chats = new ChatStore();
   readonly events: EventStore;
   readonly receipts: ReceiptStore;
@@ -43,10 +45,21 @@ export class ControlPlaneRuntime {
   private workspaceRoot: string;
 
   constructor(options: ControlPlaneRuntimeOptions) {
+    this.projects = options.projects || new ProjectRegistry();
+    this.workspaces = options.workspaces || new WorkspaceRegistry(this.projects);
     this.events = new EventStore({ filePath: path.join(options.dataRoot, 'events.jsonl'), projectId: options.projectId, workspaceId: options.workspaceId });
     this.receipts = new ReceiptStore({ filePath: path.join(options.dataRoot, 'receipts.jsonl') });
     this.artifacts = new ArtifactStore({ root: path.join(options.dataRoot, 'artifacts') });
-    this.runs = new RunService(this.chats, this.events, this.receipts);
+    this.runs = new RunService(
+      this.chats,
+      this.events,
+      this.receipts,
+      (wsId, pId) => {
+        return this.workspaces.get(wsId, pId).rootPath;
+      },
+      undefined,
+      () => this.leaseState.hostEpoch
+    );
     this.files = new WorkspaceFilePort();
     this.workspaceRoot = options.workspaceRoot || path.resolve(options.dataRoot, '..');
     this.leaseState = issueRuntimeLease(options.projectId, options.workspaceId, 30_000, options.hostEpoch ?? 1);
@@ -83,5 +96,31 @@ export class ControlPlaneRuntime {
       this.leaseState = { ...renewed, runtimeId: this.leaseState.runtimeId };
     }
     return { ...this.leaseState };
+  }
+
+  issueAttemptAttachment(
+    runId: string,
+    attemptId: string,
+    options: {
+      backendId?: string;
+      chatId?: string;
+      grant?: 'read' | 'write' | 'execute' | 'eval';
+      tabId?: string;
+      browserEpoch?: number;
+      ttlMs?: number;
+    } = {}
+  ) {
+    const lease = this.getLease();
+    return this.runs.attachments.issueAttachment(runId, attemptId, this.leaseState.projectId, this.leaseState.workspaceId || '', {
+      backendId: options.backendId || 'codex',
+      lease,
+      leaseToken: lease.token,
+      hostEpoch: this.leaseState.hostEpoch,
+      chatId: options.chatId,
+      grant: options.grant,
+      tabId: options.tabId,
+      browserEpoch: options.browserEpoch,
+      ttlMs: options.ttlMs,
+    });
   }
 }

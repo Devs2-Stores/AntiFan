@@ -1,4 +1,10 @@
-import { AuthoritativeReceipt, BackendSessionRef, ReceiptBinding, RunState } from '../../shared/control-plane-contracts';
+import {
+  AuthoritativeReceipt,
+  BackendSessionRef,
+  McpAttachmentLaunch,
+  ReceiptBinding,
+  RunState,
+} from '../../shared/control-plane-contracts';
 
 export interface StartRunInput {
   runId: string;
@@ -8,12 +14,13 @@ export interface StartRunInput {
   chatId: string;
   promptText: string;
   cwd: string;
+  canonicalWorkspaceRoot?: string;
+  attachmentLaunch?: McpAttachmentLaunch;
   timeoutMs?: number;
   outputBudgetBytes?: number;
   backendSessionRef?: BackendSessionRef;
   signal?: AbortSignal;
 }
-
 export type RunEvent =
   | { type: 'status'; runId: string; attemptId: string; state: RunState; errorCode?: string; errorMessage?: string }
   | { type: 'receipt'; runId: string; attemptId: string; receipt: Pick<AuthoritativeReceipt, 'binding' | 'state' | 'deliveryState' | 'errorCode' | 'errorMessage'> & { binding: ReceiptBinding } }

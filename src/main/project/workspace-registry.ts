@@ -24,4 +24,8 @@ export class WorkspaceRegistry {
     const workspace = this.get(workspaceId, projectId);
     return assertWorkspaceContained(workspace.rootPath, candidate, allowRoot);
   }
+
+  register(workspace: WorkspaceRecord): WorkspaceRecord {
+    return this.projects.registerWorkspace(workspace);
+  }
 }

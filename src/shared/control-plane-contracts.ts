@@ -108,9 +108,9 @@ export interface BackendSessionRef {
   backendId: string;
   providerSessionId?: string;
   opaqueRef: string;
+  processPid?: number;
   createdAt: number;
 }
-
 export interface RuntimeLease {
   runtimeId: string;
   projectId: string;
@@ -133,6 +133,82 @@ export interface CapabilityRequestContext {
   browserTarget?: BrowserTarget;
   grant?: 'read' | 'write' | 'execute' | 'eval';
   signal?: AbortSignal;
+}
+
+export interface McpAttachmentLaunch {
+  attachmentId: string;
+  runId: string;
+  attemptId: string;
+  projectId: string;
+  workspaceId: string;
+  secret: string;
+  backendId: string;
+  issuedAt: number;
+  expiresAt: number;
+  hostEpoch: number;
+  grant?: 'read' | 'write' | 'execute' | 'eval';
+  tabId?: string;
+  browserEpoch?: number;
+}
+
+export interface UntrustedCapabilityClaims {
+  attachmentId?: string;
+  attachmentSecret?: string;
+  runId?: string;
+  attemptId?: string;
+  projectId?: string;
+  workspaceId?: string;
+  tabId?: string;
+  browserEpoch?: number;
+  expectedDocumentGeneration?: number;
+  invocationId?: string;
+  grant?: 'read' | 'write' | 'execute' | 'eval';
+  ownerPid?: number;
+}
+
+export interface AuthenticatedCapabilityContext {
+  attachmentId: string;
+  runId: string;
+  attemptId: string;
+  projectId: string;
+  workspaceId: string;
+  chatId?: string;
+  backendId: string;
+  hostEpoch: number;
+  invocationId: string;
+  lease: RuntimeLease;
+  leaseToken: string;
+  browserTarget?: BrowserTarget;
+  grant?: 'read' | 'write' | 'execute' | 'eval';
+  signal?: AbortSignal;
+}
+
+export type AttachmentState = 'issued' | 'bound' | 'active' | 'revoked' | 'expired' | 'stale';
+
+export interface ExecutionAttachmentRecord {
+  id: string;
+  runId: string;
+  attemptId: string;
+  projectId: string;
+  workspaceId: string;
+  chatId?: string;
+  backendId: string;
+  secretHash: string;
+  state: AttachmentState;
+  hostEpoch: number;
+  issuedAt: number;
+  expiresAt: number;
+  revokedAt?: number;
+  revocationReason?: string;
+  boundPid?: number;
+  connectionId?: string;
+  grant?: 'read' | 'write' | 'execute' | 'eval';
+  tabId?: string;
+  browserEpoch?: number;
+  documentGeneration?: number;
+  lease?: RuntimeLease;
+  leaseToken?: string;
+  browserTarget?: BrowserTarget;
 }
 
 export interface CapabilityDefinition<TParams = Record<string, unknown>, TResult = unknown> {
@@ -182,7 +258,30 @@ export interface AuthoritativeReceipt {
   errorMessage?: string;
 }
 
-export type CapabilityErrorCode = 'UNAUTHENTICATED' | 'LEASE_EXPIRED' | 'PROJECT_MISMATCH' | 'WORKSPACE_MISMATCH' | 'RUNTIME_MISMATCH' | 'TARGET_REQUIRED' | 'TARGET_STALE' | 'POLICY_DENIED' | 'CAPABILITY_NOT_FOUND' | 'INVALID_ARGUMENT' | 'OUTSIDE_WORKSPACE' | 'ARTIFACT_TOO_LARGE' | 'RUNTIME_DRAINING';
+export type CapabilityErrorCode =
+  | 'UNAUTHENTICATED'
+  | 'LEASE_EXPIRED'
+  | 'PROJECT_MISMATCH'
+  | 'WORKSPACE_MISMATCH'
+  | 'RUNTIME_MISMATCH'
+  | 'TARGET_REQUIRED'
+  | 'TARGET_STALE'
+  | 'TARGET_MISMATCH'
+  | 'POLICY_DENIED'
+  | 'CAPABILITY_NOT_FOUND'
+  | 'INVALID_ARGUMENT'
+  | 'OUTSIDE_WORKSPACE'
+  | 'ARTIFACT_TOO_LARGE'
+  | 'RUNTIME_DRAINING'
+  | 'ATTACHMENT_REQUIRED'
+  | 'ATTACHMENT_INVALID'
+  | 'ATTACHMENT_STALE'
+  | 'LINEAGE_MISMATCH'
+  | 'ATTEMPT_NOT_ACTIVE'
+  | 'PROCESS_MISMATCH'
+  | 'MCP_CONTEXT_REQUIRED'
+  | 'REPLAY_DENIED'
+  | 'LAUNCH_ERROR';
 
 export class CapabilityError extends Error {
   readonly code: CapabilityErrorCode;
@@ -221,24 +320,43 @@ function pathApi(value: string): typeof path {
   return /^[A-Za-z]:[\\/]/.test(value) || value.startsWith('\\\\') ? path.win32 : path;
 }
 
+function isWindowsPath(value: string): boolean {
+  return /^[A-Za-z]:[\\/]/.test(value) || value.startsWith('\\\\') || process.platform === 'win32';
+}
+
 export function canonicalizeWorkspaceRoot(root: string): string {
-  if (typeof root !== 'string' || root.trim().length === 0) throw new CapabilityError('INVALID_ARGUMENT', 'Workspace root is required');
+  if (typeof root !== 'string' || root.trim().length === 0) {
+    throw new CapabilityError('INVALID_ARGUMENT', 'Workspace root is required');
+  }
   const api = pathApi(root);
   const resolved = api.resolve(root);
+  let real: string;
   try {
-    return fs.realpathSync.native(resolved).replace(/[\\/]$/, '').toLowerCase();
-  } catch {
-    return resolved.replace(/[\\/]$/, '').toLowerCase();
+    real = fs.realpathSync.native(resolved);
+  } catch (err: unknown) {
+    throw new CapabilityError('OUTSIDE_WORKSPACE', `Workspace root cannot be resolved: ${root}`, { root, error: String(err) });
   }
+  const trimmed = real.replace(/[\\/]+$/, '');
+  return isWindowsPath(trimmed) ? trimmed.toLowerCase() : trimmed;
 }
 
 export function assertWorkspaceContained(root: string, candidate: string, allowRoot = false): string {
   const canonicalRoot = canonicalizeWorkspaceRoot(root);
-  const canonicalCandidate = canonicalizeWorkspaceRoot(candidate);
-  const api = pathApi(canonicalRoot);
-  const relative = api.relative(canonicalRoot, canonicalCandidate);
+  const api = pathApi(candidate);
+  const resolved = api.resolve(candidate);
+  let realCandidate: string;
+  try {
+    realCandidate = fs.realpathSync.native(resolved);
+  } catch {
+    realCandidate = resolved;
+  }
+  const trimmed = realCandidate.replace(/[\\/]+$/, '');
+  const canonicalCandidate = isWindowsPath(trimmed) ? trimmed.toLowerCase() : trimmed;
+  const isWin = isWindowsPath(canonicalRoot);
+  const normApi = isWin ? path.win32 : path.posix;
+  const relative = normApi.relative(canonicalRoot, canonicalCandidate);
   if (relative === '' && allowRoot) return canonicalCandidate;
-  if (relative === '' || relative.startsWith('..' + api.sep) || api.isAbsolute(relative)) {
+  if (relative === '' || relative === '..' || relative.startsWith('..' + normApi.sep) || normApi.isAbsolute(relative)) {
     throw new CapabilityError('OUTSIDE_WORKSPACE', 'Path is outside the attached workspace', { root: canonicalRoot, candidate: canonicalCandidate });
   }
   return canonicalCandidate;
@@ -248,19 +366,96 @@ export function assertNoReparseTraversal(root: string, candidate: string): void 
   const api = pathApi(root);
   const resolvedRoot = api.resolve(root);
   const resolvedCandidate = api.resolve(candidate);
-  const relative = api.relative(resolvedRoot, resolvedCandidate);
-  if (relative.startsWith('..' + api.sep) || api.isAbsolute(relative)) throw new CapabilityError('OUTSIDE_WORKSPACE', 'Path is outside the attached workspace');
-  const parts = relative ? relative.split(/[\\/]+/) : [];
-  let current = resolvedRoot;
+  const isWin = isWindowsPath(resolvedRoot);
+  const normApi = isWin ? path.win32 : path.posix;
+
+  const rootNorm = isWin ? resolvedRoot.toLowerCase() : resolvedRoot;
+  const candNorm = isWin ? resolvedCandidate.toLowerCase() : resolvedCandidate;
+  const relative = normApi.relative(rootNorm, candNorm);
+  if (relative === '..' || relative.startsWith('..' + normApi.sep) || normApi.isAbsolute(relative)) {
+    throw new CapabilityError('OUTSIDE_WORKSPACE', 'Path is outside the attached workspace');
+  }
+
+  // Check root segments first to ensure root is not behind a symlink/junction
+  const parsedRoot = api.parse(resolvedRoot);
+  let current = parsedRoot.root;
+  const rootSegments = resolvedRoot.slice(parsedRoot.root.length).split(/[\\/]+/).filter(Boolean);
+  for (const segment of rootSegments) {
+    current = api.join(current, segment);
+    try {
+      const stat = fs.lstatSync(current);
+      if (stat.isSymbolicLink()) {
+        throw new CapabilityError('OUTSIDE_WORKSPACE', `Symlink or junction traversal is not permitted: ${current}`);
+      }
+    } catch (error: unknown) {
+      if (error instanceof CapabilityError) throw error;
+      throw new CapabilityError('OUTSIDE_WORKSPACE', `Path segment inaccessible: ${current}`);
+    }
+  }
+
+  // Check candidate descendant segments
+  const parts = relative ? relative.split(/[\\/]+/).filter(Boolean) : [];
+  current = resolvedRoot;
   for (const part of parts) {
     current = api.join(current, part);
     try {
-      if (fs.lstatSync(current).isSymbolicLink()) throw new CapabilityError('OUTSIDE_WORKSPACE', 'Symlink or junction traversal is not permitted');
-    } catch (error) {
+      const stat = fs.lstatSync(current);
+      if (stat.isSymbolicLink()) {
+        throw new CapabilityError('OUTSIDE_WORKSPACE', `Symlink or junction traversal is not permitted: ${current}`);
+      }
+    } catch (error: unknown) {
       if (error instanceof CapabilityError) throw error;
-      break;
+      if ((error as NodeJS.ErrnoException)?.code === 'ENOENT') break;
+      throw new CapabilityError('OUTSIDE_WORKSPACE', `Path segment inaccessible: ${current}`);
     }
   }
+}
+
+export function hashSecret(secret: string): string {
+  return crypto.createHash('sha256').update(secret, 'utf8').digest('hex');
+}
+
+export function verifySecret(secret: string, secretHash: string): boolean {
+  if (typeof secret !== 'string' || typeof secretHash !== 'string') return false;
+  const computed = hashSecret(secret);
+  try {
+    const a = Buffer.from(computed, 'hex');
+    const b = Buffer.from(secretHash, 'hex');
+    if (a.length !== b.length) return false;
+    return crypto.timingSafeEqual(a, b);
+  } catch {
+    return false;
+  }
+}
+
+export function validateLaunchPath(rootPath: string, candidatePath?: string): { canonicalRoot: string; canonicalLaunchCwd: string } {
+  if (typeof rootPath !== 'string' || rootPath.trim().length === 0) {
+    throw new CapabilityError('INVALID_ARGUMENT', 'Workspace rootPath is required');
+  }
+  const api = pathApi(rootPath);
+  const resolvedRoot = api.resolve(rootPath);
+  if (!fs.existsSync(resolvedRoot)) {
+    throw new CapabilityError('OUTSIDE_WORKSPACE', `Workspace root does not exist: ${rootPath}`);
+  }
+  const rootStat = fs.statSync(resolvedRoot);
+  if (!rootStat.isDirectory()) {
+    throw new CapabilityError('OUTSIDE_WORKSPACE', `Workspace root is not a directory: ${rootPath}`);
+  }
+  const canonicalRoot = canonicalizeWorkspaceRoot(resolvedRoot);
+
+  const target = candidatePath && candidatePath.trim().length > 0 ? candidatePath : resolvedRoot;
+  const resolvedCandidate = api.resolve(target);
+  if (!fs.existsSync(resolvedCandidate)) {
+    throw new CapabilityError('OUTSIDE_WORKSPACE', `Launch path does not exist: ${target}`);
+  }
+  const candStat = fs.statSync(resolvedCandidate);
+  if (!candStat.isDirectory()) {
+    throw new CapabilityError('OUTSIDE_WORKSPACE', `Launch path is not a directory: ${target}`);
+  }
+
+  assertNoReparseTraversal(resolvedRoot, resolvedCandidate);
+  const canonicalLaunchCwd = assertWorkspaceContained(canonicalRoot, resolvedCandidate, true);
+  return { canonicalRoot, canonicalLaunchCwd };
 }
 
 export function issueRuntimeLease(projectId: string, workspaceId?: string, ttlMs = 30_000, hostEpoch = 1): RuntimeLease {

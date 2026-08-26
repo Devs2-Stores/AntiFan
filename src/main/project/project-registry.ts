@@ -25,6 +25,29 @@ export class ProjectRegistry {
     return { ...project };
   }
 
+  registerProject(project: ProjectRecord): ProjectRecord {
+    const id = validateControlPlaneId(project.id, 'project');
+    const record: ProjectRecord = {
+      ...project,
+      id,
+      dataRoot: path.resolve(project.dataRoot),
+    };
+    this.projects.set(id, record);
+    return { ...record };
+  }
+
+  registerWorkspace(workspace: WorkspaceRecord): WorkspaceRecord {
+    const id = validateControlPlaneId(workspace.id, 'workspace');
+    const projectId = validateControlPlaneId(workspace.projectId, 'project');
+    const record: WorkspaceRecord = {
+      ...workspace,
+      id,
+      projectId,
+      rootPath: path.resolve(workspace.rootPath),
+    };
+    this.workspaces.set(id, record);
+    return { ...record };
+  }
   getProject(projectId: string): ProjectRecord {
     const project = this.projects.get(validateControlPlaneId(projectId, 'project'));
     if (!project) throw new Error(`Project not found: ${projectId}`);

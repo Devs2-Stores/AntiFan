@@ -6,22 +6,44 @@ import {
   validateControlPlaneId,
   digestText,
   ReceiptBinding,
-  canonicalizeWorkspaceRoot,
+  validateLaunchPath,
+  CapabilityError,
 } from '../../shared/control-plane-contracts';
 import { ChatStore } from '../chat/chat-store';
 import { EventStore } from '../session/event-store';
 import { ExecutionBackend, StartRunInput } from '../agent/execution-backend';
 import { RunEvent } from '../agent/execution-backend';
 import { ReceiptStore } from '../session/receipt-store';
-
+import { AttachmentRegistry } from './attachment-registry';
 export class RunService {
   private readonly runs = new Map<string, RunRecord>();
   private readonly attempts = new Map<string, ExecutionAttempt>();
+  private readonly attemptPids = new Map<string, number>();
   private readonly receiptBindings = new Map<string, ReceiptBinding>();
   private readonly receiptWorkspaces = new Map<string, string>();
+  readonly attachments: AttachmentRegistry;
 
-  constructor(private readonly chats: ChatStore, private readonly events: EventStore, private readonly receipts: ReceiptStore) {}
+  constructor(
+    private readonly chats: ChatStore,
+    private readonly events: EventStore,
+    private readonly receipts: ReceiptStore,
+    private readonly getWorkspaceRoot: (workspaceId: string, projectId: string) => string,
+    attachments?: AttachmentRegistry,
+    private readonly getHostEpoch: () => number = () => 1
+  ) {
+    this.attachments =
+      attachments ||
+      new AttachmentRegistry({
+        getAttemptState: (attemptId) => this.attempts.get(attemptId)?.state,
+        getHostEpoch: () => this.getHostEpoch(),
+        getBackendId: (attemptId) => this.attempts.get(attemptId)?.backendId,
+        getProcessPid: (_runId, attemptId) => this.attemptPids.get(attemptId),
+      });
+  }
 
+  setAttemptProcessPid(attemptId: string, pid: number): void {
+    this.attemptPids.set(validateControlPlaneId(attemptId, 'attempt'), pid);
+  }
   createRun(projectId: string, workspaceId: string, chatId: string, backendId: string): RunRecord {
     const chat = this.chats.get(chatId, projectId, workspaceId);
     const now = Date.now();
@@ -48,7 +70,12 @@ export class RunService {
   async start(runId: string, promptText: string, backend: ExecutionBackend, options: Partial<Omit<StartRunInput, 'runId' | 'promptText' | 'attemptId' | 'projectId' | 'workspaceId' | 'chatId'>> = {}): Promise<ExecutionAttempt> {
     const run = this.getRun(runId);
     if (run.state !== 'queued' && run.state !== 'interrupted') throw new Error(`Run cannot start from ${run.state}`);
-    if (typeof options.cwd !== 'string' || options.cwd.trim().length === 0) throw new Error('Run requires an explicitly bound Workspace cwd');
+    if (typeof options.cwd !== 'string' || options.cwd.trim().length === 0) throw new CapabilityError('INVALID_ARGUMENT', 'Run requires an explicitly bound Workspace cwd');
+    const authoritativeRoot = this.getWorkspaceRoot(run.workspaceId, run.projectId);
+    if (!authoritativeRoot || typeof authoritativeRoot !== 'string') {
+      throw new CapabilityError('OUTSIDE_WORKSPACE', `No authoritative workspace root found for workspace: ${run.workspaceId}`);
+    }
+    const { canonicalRoot, canonicalLaunchCwd } = validateLaunchPath(authoritativeRoot, options.cwd);
     const promptDigest = digestText(promptText);
     const attempt: ExecutionAttempt = { id: makeControlPlaneId('attempt'), runId: run.id, projectId: run.projectId, workspaceId: run.workspaceId, chatId: run.chatId, state: 'prepared', backendId: backend.id, createdAt: Date.now(), updatedAt: Date.now() };
     attempt.promptDigest = promptDigest;
@@ -57,9 +84,9 @@ export class RunService {
     run.updatedAt = Date.now();
     this.runs.set(run.id, run);
     this.append('turn/start', { promptText }, run, attempt);
-    const canonicalWorkspace = canonicalizeWorkspaceRoot(options.cwd);
+    const canonicalWorkspace = canonicalLaunchCwd;
     this.receiptWorkspaces.set(attempt.id, canonicalWorkspace);
-    const requiresReceipt = backend.requiresAuthoritativeReceipt === true;
+    const requiresReceipt = Boolean(backend.requiresAuthoritativeReceipt);
     const binding: ReceiptBinding | undefined = requiresReceipt
       ? undefined
       : {
@@ -74,7 +101,7 @@ export class RunService {
           backendSessionRef: backend.id,
         };
     if (binding) this.receipts.put(binding, 'prepared', 'prepared');
-    const input: StartRunInput = { ...options, cwd: options.cwd, runId: run.id, attemptId: attempt.id, projectId: run.projectId, workspaceId: run.workspaceId, chatId: run.chatId, promptText };
+    const input: StartRunInput = { ...options, cwd: canonicalLaunchCwd, canonicalWorkspaceRoot: canonicalRoot, runId: run.id, attemptId: attempt.id, projectId: run.projectId, workspaceId: run.workspaceId, chatId: run.chatId, promptText };
     try {
       for await (const event of backend.startRun(input)) {
         this.applyEvent(run, attempt, event, requiresReceipt);
@@ -92,14 +119,17 @@ export class RunService {
         if (binding) this.receipts.put(binding, 'failed', 'failed', { errorCode, errorMessage });
         this.append('backend/status', { state: 'failed', error: errorMessage }, run, attempt);
       }
+    } finally {
+      this.attachments.revokeForAttempt(attempt.id);
     }
     return { ...attempt };
   }
 
   async cancel(runId: string, backend: ExecutionBackend): Promise<void> {
     const run = this.getRun(runId);
-    const attempt = Array.from(this.attempts.values()).reverse().find((item) => item.runId === run.id && ['prepared', 'dispatching', 'running'].includes(item.state));
+    const attempt = Array.from(this.attempts.values()).reverse().find((item) => item.runId === run.id && (item.state === 'prepared' || item.state === 'dispatching' || item.state === 'running'));
     if (!attempt) return;
+    this.attachments.revokeForAttempt(attempt.id);
     run.state = 'cancelling';
     attempt.state = 'interrupted';
     run.updatedAt = attempt.updatedAt = Date.now();
@@ -135,6 +165,9 @@ export class RunService {
     if (event.type === 'session/ref') {
       if (event.sessionRef.backendId !== attempt.backendId) throw new Error('Backend session identity mismatch');
       attempt.backendSessionRef = { ...event.sessionRef };
+      if (typeof event.sessionRef.processPid === 'number' && Number.isFinite(event.sessionRef.processPid) && event.sessionRef.processPid > 0) {
+        this.setAttemptProcessPid(attempt.id, event.sessionRef.processPid);
+      }
     }
     if (event.type === 'status') {
       const state = event.state;

@@ -45,6 +45,8 @@ export interface SplitNavigationTransaction {
   targetUrl: string;
   startedAt: number;
   state: 'started' | 'authority-committed' | 'mirror-started' | 'settled' | 'failed';
+  historyDirection?: 'back' | 'forward' | null;
+  historyCommittedPanes?: SplitPaneId[];
   error?: string | null;
 }
 
@@ -54,6 +56,7 @@ export interface NavigationEventDecision {
   targetPane?: SplitPaneId;
   isEcho: boolean;
   settled: boolean;
+  historyDirection?: 'back' | 'forward' | null;
   error?: string | null;
 }
 
@@ -219,12 +222,11 @@ export function convertToPaneCoordinates(
  */
 export class SplitNavigationCoordinator {
   private transactions: Map<string, SplitNavigationTransaction> = new Map();
+  private staleHistoryDiscards: Map<string, { pane: SplitPaneId; expiry: number }> = new Map();
   private readonly transactionTtlMs: number;
-
   constructor(transactionTtlMs: number = 10000) {
     this.transactionTtlMs = transactionTtlMs;
   }
-
   /**
    * Starts a new navigation transaction with an explicit authority pane.
    */
@@ -240,12 +242,36 @@ export class SplitNavigationCoordinator {
       targetUrl,
       startedAt: Date.now(),
       state: 'started',
+      historyDirection: null,
       error: null,
     };
     this.transactions.set(tabId, tx);
     return tx;
   }
 
+  /**
+   * Starts a history traversal transaction (back or forward) with an explicit authority pane.
+   */
+  public startHistoryTransaction(
+    tabId: string,
+    authorityPane: SplitPaneId,
+    direction: 'back' | 'forward'
+  ): SplitNavigationTransaction {
+    this.staleHistoryDiscards.delete(tabId);
+    const tx: SplitNavigationTransaction = {
+      id: `tx_hist_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+      tabId,
+      authorityPane,
+      targetUrl: '',
+      startedAt: Date.now(),
+      state: 'started',
+      historyDirection: direction,
+      historyCommittedPanes: [],
+      error: null,
+    };
+    this.transactions.set(tabId, tx);
+    return tx;
+  }
   /**
    * Returns the active transaction for a tab, clearing it if expired.
    */
@@ -268,6 +294,28 @@ export class SplitNavigationCoordinator {
     committedUrl: string,
     _isInPage: boolean = false
   ): NavigationEventDecision {
+    // Consume any delayed commit from an abandoned history traversal (stale-history barrier)
+    const staleDiscard = this.staleHistoryDiscards.get(tabId);
+    if (staleDiscard) {
+      if (Date.now() > staleDiscard.expiry) {
+        this.staleHistoryDiscards.delete(tabId);
+      } else if (staleDiscard.pane === sourcePane) {
+        const tx = this.getActiveTransaction(tabId);
+        if (tx && tx.authorityPane !== sourcePane && tx.targetUrl && areUrlsEquivalent(committedUrl, tx.targetUrl)) {
+          // Legitimate mirror commit of the replacement transaction — let normal transaction handling settle it while retaining barrier for delayed history traversal
+        } else {
+          // Non-matching commit from the abandoned history traversal — consume barrier and suppress
+          this.staleHistoryDiscards.delete(tabId);
+          return {
+            shouldMirror: false,
+            isEcho: true,
+            settled: false,
+            historyDirection: null,
+          };
+        }
+      }
+    }
+
     const tx = this.getActiveTransaction(tabId);
     const siblingPane: SplitPaneId = sourcePane === 'desktop' ? 'mobile' : 'desktop';
 
@@ -282,10 +330,69 @@ export class SplitNavigationCoordinator {
         settled: false,
       };
     }
+    // Case 1b: Active history traversal transaction (back/forward)
+    if (tx.historyDirection) {
+      if (sourcePane === tx.authorityPane) {
+        if (!tx.historyCommittedPanes) {
+          tx.historyCommittedPanes = [];
+        }
+        if (tx.historyCommittedPanes.includes(sourcePane)) {
+          // Duplicate commit from authority during history transaction — suppress re-mirroring
+          return {
+            shouldMirror: false,
+            isEcho: true,
+            settled: false,
+            historyDirection: null,
+          };
+        }
+
+        tx.historyCommittedPanes.push(sourcePane);
+        tx.targetUrl = committedUrl;
+        tx.state = 'authority-committed';
+        return {
+          shouldMirror: true,
+          mirrorUrl: committedUrl,
+          targetPane: siblingPane,
+          historyDirection: tx.historyDirection,
+          isEcho: false,
+          settled: false,
+        };
+      } else {
+        // Event from sibling pane
+        if (tx.state === 'authority-committed' || tx.state === 'mirror-started') {
+          // Authority has already committed — this is the expected sibling history commit!
+          tx.state = 'settled';
+          this.transactions.delete(tabId);
+          return {
+            shouldMirror: false,
+            isEcho: true,
+            settled: true,
+            historyDirection: null,
+          };
+        } else {
+          // Authority has not committed yet — independent user navigation on sibling supersedes history transaction
+          const abandonedAuthorityPane = tx.authorityPane;
+          tx.state = 'settled';
+          this.transactions.delete(tabId);
+          this.staleHistoryDiscards.set(tabId, {
+            pane: abandonedAuthorityPane,
+            expiry: Date.now() + 5000,
+          });
+          this.startTransaction(tabId, sourcePane, committedUrl);
+          return {
+            shouldMirror: true,
+            mirrorUrl: committedUrl,
+            targetPane: siblingPane,
+            isEcho: false,
+            settled: false,
+          };
+        }
+      }
+    }
 
     // Case 2: Event comes from the authority pane
     if (sourcePane === tx.authorityPane) {
-      if ((tx.state === 'authority-committed' || tx.state === 'mirror-started') && areUrlsEquivalent(committedUrl, tx.targetUrl)) {
+      if ((tx.state === 'authority-committed' || tx.state === 'mirror-started') && tx.targetUrl && areUrlsEquivalent(committedUrl, tx.targetUrl)) {
         // Idempotent duplicate event from authority — suppress re-mirroring
         return {
           shouldMirror: false,
@@ -301,11 +408,12 @@ export class SplitNavigationCoordinator {
         targetPane: siblingPane,
         isEcho: false,
         settled: false,
+        historyDirection: null,
       };
     }
     // Case 3: Event comes from the mirror pane
     if (sourcePane !== tx.authorityPane) {
-      if (areUrlsEquivalent(committedUrl, tx.targetUrl)) {
+      if (tx.targetUrl && areUrlsEquivalent(committedUrl, tx.targetUrl)) {
         // Expected mirror commit — settle transaction!
         tx.state = 'settled';
         this.transactions.delete(tabId);
@@ -329,7 +437,6 @@ export class SplitNavigationCoordinator {
         };
       }
     }
-
     return {
       shouldMirror: false,
       isEcho: false,

@@ -188,31 +188,38 @@ async function createWindow(): Promise<void> {
   tabHost.restoreTabs(initialUrl);
 
   // Start Bridge Server
-  bridgeServer = new BridgeServer(tabHost, IS_PROD ? 20129 : 20130, IS_DEV, capabilityTransport, () => {
-    const lease = controlPlane!.getLease();
-    const activeTab = tabHost!.getActiveTab();
-    return {
-      lease,
-      projectId,
-      workspaceId,
-      browserTarget: activeTab ? {
+  bridgeServer = new BridgeServer(
+    tabHost,
+    IS_PROD ? 20129 : 20130,
+    IS_DEV,
+    capabilityTransport,
+    () => {
+      const lease = controlPlane!.getLease();
+      const activeTab = tabHost!.getActiveTab();
+      return {
+        lease,
         projectId,
         workspaceId,
-        runtimeId: lease.runtimeId,
-        tabId: activeTab.id,
-        browserEpoch: 1,
-        documentGeneration: tabHost!.getDocumentGeneration(activeTab.id),
-        url: activeTab.url,
-      } : undefined,
-    };
-  });
+        browserTarget: activeTab ? {
+          projectId,
+          workspaceId,
+          runtimeId: lease.runtimeId,
+          tabId: activeTab.id,
+          browserEpoch: 1,
+          documentGeneration: tabHost!.getDocumentGeneration(activeTab.id),
+          url: activeTab.url,
+        } : undefined,
+      };
+    },
+    controlPlane.runs.attachments
+  );
   const bridgePort = await bridgeServer.start();
   console.log(`[antifan] Bridge Server running on 127.0.0.1:${bridgePort} (${IS_DEV ? 'DEV' : 'PROD'})`);
 
   // Start MCP Server if requested
   if (IS_MCP_SERVER) {
     console.log('[antifan] Starting stdio MCP server...');
-    mcpServer = new AntiFanMcpServer(tabHost, IS_MCP_HIGH_RISK, capabilityTransport);
+    mcpServer = new AntiFanMcpServer(tabHost, IS_MCP_HIGH_RISK, capabilityTransport, controlPlane.runs.attachments);
     await mcpServer.start();
   }
 

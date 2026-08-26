@@ -1,13 +1,61 @@
 import * as childProcess from 'node:child_process';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 import * as readline from 'node:readline';
-import { BackendSessionRef, RunState } from '../../shared/control-plane-contracts';
+import {
+  BackendSessionRef,
+  CapabilityError,
+  RunState,
+  validateLaunchPath,
+} from '../../shared/control-plane-contracts';
 import { ExecutionBackend, RunEvent, StartRunInput } from './execution-backend';
 
 export interface CodexExecutionBackendOptions {
   executable?: string;
+  approvedExecutables?: string[];
   spawn?: typeof childProcess.spawn;
   env?: NodeJS.ProcessEnv;
   defaultTimeoutMs?: number;
+}
+
+export function resolveApprovedExecutable(candidate?: string, approvedExecutables?: string[]): string {
+  if (!approvedExecutables || approvedExecutables.length === 0) {
+    throw new CapabilityError('LAUNCH_ERROR', 'No approved executable installation records configured');
+  }
+  if (!candidate || typeof candidate !== 'string' || candidate.trim().length === 0) {
+    throw new CapabilityError('LAUNCH_ERROR', 'Executable path is required and must be an approved absolute path');
+  }
+  if (!path.isAbsolute(candidate)) {
+    throw new CapabilityError('LAUNCH_ERROR', `Bare commands and relative executable paths are not permitted: ${candidate}`);
+  }
+  const resolved = path.resolve(candidate);
+  let realCandidate: string;
+  try {
+    realCandidate = fs.realpathSync.native(resolved);
+  } catch {
+    throw new CapabilityError('LAUNCH_ERROR', `Executable does not exist or cannot be resolved: ${candidate}`);
+  }
+  const stat = fs.statSync(realCandidate);
+  if (!stat.isFile()) {
+    throw new CapabilityError('LAUNCH_ERROR', `Executable path is not a file: ${candidate}`);
+  }
+  const isWin = process.platform === 'win32' || /^[A-Za-z]:[\\/]/.test(realCandidate);
+  const normCandidate = isWin ? realCandidate.toLowerCase() : realCandidate;
+
+  const isApproved = approvedExecutables.some((approved) => {
+    try {
+      const realApproved = fs.realpathSync.native(path.resolve(approved));
+      const normApproved = isWin ? realApproved.toLowerCase() : realApproved;
+      return normApproved === normCandidate;
+    } catch {
+      return false;
+    }
+  });
+
+  if (!isApproved) {
+    throw new CapabilityError('LAUNCH_ERROR', `Executable is not in the approved installation record: ${candidate}`);
+  }
+  return realCandidate;
 }
 
 export class CodexExecutionBackend implements ExecutionBackend {
@@ -19,19 +67,25 @@ export class CodexExecutionBackend implements ExecutionBackend {
   private readonly defaultTimeoutMs: number;
 
   constructor(options: CodexExecutionBackendOptions = {}) {
-    this.executable = options.executable || 'codex';
+    this.executable = resolveApprovedExecutable(options.executable, options.approvedExecutables);
     this.spawn = options.spawn || childProcess.spawn;
     this.env = options.env || { ...process.env };
     this.defaultTimeoutMs = options.defaultTimeoutMs ?? 120_000;
   }
-
   async *startRun(input: StartRunInput): AsyncIterable<RunEvent> {
     const timeoutMs = input.timeoutMs ?? this.defaultTimeoutMs;
     const args = ['exec', '--json', input.promptText];
     const runId = input.runId;
     const attemptId = input.attemptId;
-    const child = this.spawn(this.executable, args, { cwd: input.cwd, env: this.env, windowsHide: true, shell: false });
-    this.processes.set(runId, child);
+    const { canonicalLaunchCwd } = validateLaunchPath(input.canonicalWorkspaceRoot || input.cwd, input.cwd);
+    const childEnv: NodeJS.ProcessEnv = { ...this.env };
+    if (input.attachmentLaunch) {
+      childEnv.ANTIFAN_ATTACHMENT_SECRET = input.attachmentLaunch.secret;
+      childEnv.ANTIFAN_ATTACHMENT_ID = input.attachmentLaunch.attachmentId;
+      childEnv.ANTIFAN_RUN_ID = input.runId;
+      childEnv.ANTIFAN_ATTEMPT_ID = input.attemptId;
+    }
+    const child = this.spawn(this.executable, args, { cwd: canonicalLaunchCwd, env: childEnv, windowsHide: true, shell: false });
     let timedOut = false;
     let settled = false;
     const timer = setTimeout(() => {
@@ -41,7 +95,7 @@ export class CodexExecutionBackend implements ExecutionBackend {
     if (input.signal) input.signal.addEventListener('abort', () => this.killOwned(child), { once: true });
     yield { type: 'status', runId, attemptId, state: 'starting' };
 
-    const sessionRef: BackendSessionRef = { backendId: this.id, opaqueRef: `${runId}:${attemptId}`, createdAt: Date.now() };
+    const sessionRef: BackendSessionRef = { backendId: this.id, opaqueRef: `${runId}:${attemptId}`, processPid: child.pid, createdAt: Date.now() };
     yield { type: 'session/ref', runId, attemptId, sessionRef };
 
     const lines = readline.createInterface({ input: child.stdout!, crlfDelay: Infinity });

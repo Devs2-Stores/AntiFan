@@ -1,6 +1,4 @@
-const fs = require('node:fs');
-const os = require('node:os');
-const path = require('node:path');
+const crypto = require('node:crypto');
 const { WebSocket } = require('ws');
 const { Server } = require('@modelcontextprotocol/sdk/server/index.js');
 const { StdioServerTransport } = require('@modelcontextprotocol/sdk/server/stdio.js');
@@ -22,65 +20,85 @@ const definitions = [
   ['anti.agent.cursor.clear', 'Clear Agent Cursor overlays', { paneId: { type: 'string', enum: ['desktop', 'mobile'] } }],
 ];
 
-function readBridge() {
-  const root = path.join(os.homedir(), '.antifan');
-  for (const name of ['bridge-dev.json', 'bridge.json']) {
-    const file = path.join(root, name);
-    if (fs.existsSync(file)) return JSON.parse(fs.readFileSync(file, 'utf8'));
+function getBootstrap() {
+  if (process.env.ANTIFAN_MCP_BOOTSTRAP) {
+    try {
+      return JSON.parse(process.env.ANTIFAN_MCP_BOOTSTRAP);
+    } catch {
+      return null;
+    }
   }
-  throw new Error('AntiFan is not running');
+  if (process.env.ANTIFAN_ATTACHMENT_SECRET) {
+    return {
+      port: parseInt(process.env.ANTIFAN_MCP_PORT || '20129', 10),
+      secret: process.env.ANTIFAN_ATTACHMENT_SECRET,
+      attachmentId: process.env.ANTIFAN_ATTACHMENT_ID,
+      runId: process.env.ANTIFAN_RUN_ID,
+      attemptId: process.env.ANTIFAN_ATTEMPT_ID,
+      projectId: process.env.ANTIFAN_PROJECT_ID,
+      workspaceId: process.env.ANTIFAN_WORKSPACE_ID,
+    };
+  }
+  return null;
 }
 
 async function invoke(method, params = {}) {
-  const info = readBridge();
-  const ws = new WebSocket(`ws://127.0.0.1:${info.port}?token=${encodeURIComponent(info.token)}`);
-  await new Promise((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error('AntiFan Bridge connection timed out')), 3000);
-    ws.once('open', () => { clearTimeout(timer); resolve(); });
-    ws.once('error', (error) => { clearTimeout(timer); reject(error); });
-  });
+  const bootstrap = getBootstrap();
+  if (!bootstrap || !bootstrap.secret) {
+    throw new Error(JSON.stringify({ code: 'MCP_CONTEXT_REQUIRED', message: 'OMP MCP proxy requires an authoritative Main bootstrap' }));
+  }
+  const tokenParam = (bootstrap.token || bootstrap.secret) ? `?token=${encodeURIComponent(bootstrap.token || bootstrap.secret)}` : '';
+  const ws = new WebSocket(`ws://127.0.0.1:${bootstrap.port}${tokenParam}`);
   const call = (id, rpcMethod, rpcParams) => new Promise((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error(`AntiFan RPC timed out: ${rpcMethod}`)), 15000);
+    const timer = setTimeout(() => reject(new Error(JSON.stringify({ code: 'TIMEOUT', message: `AntiFan RPC timed out: ${rpcMethod}` }))), 15000);
     const handler = (raw) => {
-      const response = JSON.parse(raw.toString());
-      if (response.id !== id) return;
-      clearTimeout(timer);
-      ws.off('message', handler);
-      response.success ? resolve(response.data) : reject(new Error(response.error || `AntiFan RPC failed: ${rpcMethod}`));
+      try {
+        const response = JSON.parse(raw.toString());
+        if (response.id !== id) return;
+        clearTimeout(timer);
+        ws.off('message', handler);
+        response.success ? resolve(response.data) : reject(new Error(typeof response.error === 'string' ? response.error : JSON.stringify(response.error || { code: 'CAPABILITY_ERROR', message: `AntiFan RPC failed: ${rpcMethod}` })));
+      } catch (err) {
+        clearTimeout(timer);
+        ws.off('message', handler);
+        reject(err);
+      }
     };
     ws.on('message', handler);
     ws.send(JSON.stringify({ id, method: rpcMethod, params: rpcParams }));
   });
   try {
-    const binding = await call('binding', 'antifan.getRuntimeBinding', {});
-    if (method === 'anti.browser.tabs.create') return await call('openTab', 'openTab', params);
     const mapped = {
       'anti.browser.tabs.list': 'browser.list-tabs',
+      'anti.browser.tabs.create': 'browser.open-tab',
       'anti.browser.navigate': 'browser.navigate',
       'anti.browser.reload': 'browser.reload',
       'anti.inspect.dom': 'browser.dom',
       'anti.screenshot.viewport': 'browser.screenshot',
-    }[method];
-    const legacy = {
-      'anti.agent.cursor.click': 'antifan.agentClick',
-      'anti.agent.cursor.move': 'antifan.agentMove',
-      'anti.agent.cursor.type': 'antifan.agentType',
-      'anti.agent.cursor.scroll': 'antifan.agentScroll',
-      'anti.agent.cursor.hover': 'antifan.agentHover',
-      'anti.agent.cursor.highlight': 'antifan.agentHighlight',
-      'anti.agent.cursor.clear': 'antifan.agentClear',
-    }[method];
-    if (legacy) return await call('agent', legacy, { ...params, tabId: binding.browserTarget && binding.browserTarget.tabId });
-    return await call('tool', mapped, {
-      ...params,
-      runtimeLease: binding.lease,
-      leaseToken: binding.lease.token,
-      projectId: binding.projectId,
-      workspaceId: binding.workspaceId,
-      context: { browserTarget: binding.browserTarget, grant: mapped === 'browser.navigate' || mapped === 'browser.reload' ? 'write' : 'read' },
+      'anti.agent.cursor.click': 'anti.agent.cursor.click',
+      'anti.agent.cursor.move': 'anti.agent.cursor.move',
+      'anti.agent.cursor.type': 'anti.agent.cursor.type',
+      'anti.agent.cursor.scroll': 'anti.agent.cursor.scroll',
+      'anti.agent.cursor.hover': 'anti.agent.cursor.hover',
+      'anti.agent.cursor.highlight': 'anti.agent.cursor.highlight',
+      'anti.agent.cursor.clear': 'anti.agent.cursor.clear',
+    }[method] || method;
+
+    return await call('tool', 'antifan.capability.dispatch', {
+      name: mapped,
+      params,
+      attachmentClaims: {
+        attachmentSecret: bootstrap.secret,
+        attachmentId: bootstrap.attachmentId,
+        runId: bootstrap.runId,
+        attemptId: bootstrap.attemptId,
+        projectId: bootstrap.projectId,
+        workspaceId: bootstrap.workspaceId,
+        invocationId: crypto.randomUUID(),
+      },
     });
   } finally {
-    ws.close();
+    try { ws.close(); } catch {}
   }
 }
 

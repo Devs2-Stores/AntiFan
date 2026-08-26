@@ -23,9 +23,8 @@ import {
   ChatMessage,
 } from '../../shared/contracts';
 import { CapabilityTransportAdapter } from '../tools/capability-transport';
-import { CapabilityRequestContext } from '../../shared/control-plane-contracts';
-import { BrowserTarget, RuntimeLease } from '../../shared/control-plane-contracts';
-
+import { CapabilityRequestContext, CapabilityError, BrowserTarget, RuntimeLease } from '../../shared/control-plane-contracts';
+import { AttachmentRegistry } from '../run/attachment-registry';
 export function getLocalLanIps(): string[] {
   const ips: string[] = [];
   const interfaces = os.networkInterfaces();
@@ -54,15 +53,18 @@ export class BridgeServer {
   private wss: WebSocketServer | null = null;
   private httpServer: http.Server | null = null;
   private clients: Set<WebSocket> = new Set();
+  private readonly socketAttachmentIds: WeakMap<WebSocket, string> = new WeakMap();
   private tabHost: NativeTabHost;
   private isDev: boolean = false;
   private port: number = 20129;
+  private host: string = '127.0.0.1';
   private token: string = randomUUID();
   private bridgeInfoPath: string;
   private readonly capabilityTransport?: CapabilityTransportAdapter;
   private readonly runtimeBindingProvider?: () => RuntimeBinding;
+  private readonly attachmentRegistry?: AttachmentRegistry;
 
-  constructor(tabHost: NativeTabHost, port = 20129, isDev = false, capabilityTransport?: CapabilityTransportAdapter, runtimeBindingProvider?: () => RuntimeBinding) {
+  constructor(tabHost: NativeTabHost, port = 20129, isDev = false, capabilityTransport?: CapabilityTransportAdapter, runtimeBindingProvider?: () => RuntimeBinding, attachmentRegistry?: AttachmentRegistry, host = '127.0.0.1') {
     this.tabHost = tabHost;
     this.isDev = isDev;
     this.port = isDev && port === 20129 ? 20130 : port;
@@ -77,21 +79,26 @@ export class BridgeServer {
     this.bridgeInfoPath = path.join(configDir, bridgeFileName);
     this.capabilityTransport = capabilityTransport;
     this.runtimeBindingProvider = runtimeBindingProvider;
-
+    this.attachmentRegistry = attachmentRegistry;
+    this.host = host || '127.0.0.1';
     BridgeServer.instance = this;
     this.wireTabHostEvents();
+  }
+
+  public getHost(): string {
+    return this.host;
   }
 
   public static getInstance(): BridgeServer | null {
     return BridgeServer.instance;
   }
 
-  public getRemoteConnectionInfo(): { port: number; token: string; lanIps: string[]; urls: string[]; primaryUrl: string; qrSvg: string } {
+  public getRemoteConnectionInfo(): { port: number; lanIps: string[]; urls: string[]; primaryUrl: string; qrSvg: string } {
     const lanIps = getLocalLanIps();
-    const urls = lanIps.map(ip => `http://${ip}:${this.port}/?token=${encodeURIComponent(this.token)}`);
-    const primaryUrl = urls[0] || `http://localhost:${this.port}/?token=${encodeURIComponent(this.token)}`;
+    const urls = lanIps.map(ip => `http://${ip}:${this.port}/`);
+    const primaryUrl = urls[0] || `http://localhost:${this.port}/`;
     const qrSvg = generateQrSvg(primaryUrl);
-    return { port: this.port, token: this.token, lanIps, urls, primaryUrl, qrSvg };
+    return { port: this.port, lanIps, urls, primaryUrl, qrSvg };
   }
 
   private createHttpHandler(): (req: http.IncomingMessage, res: http.ServerResponse) => void {
@@ -100,6 +107,16 @@ export class BridgeServer {
       const reqUrl = new URL(req.url || '/', `http://${host}`);
       const pathname = reqUrl.pathname;
 
+      if (pathname === '/api/screenshot' || pathname === '/api/remote-info' || pathname === '/api/qr') {
+        const clientToken = extractAuthToken(req, reqUrl);
+        const isBridgeToken = Boolean(clientToken && clientToken === this.token);
+        const verifiedAttachmentId = clientToken ? (this.attachmentRegistry?.verifyConnectionToken(clientToken) ?? null) : null;
+        if (!isBridgeToken && !verifiedAttachmentId) {
+          res.writeHead(401, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Unauthorized: missing or invalid token' }));
+          return;
+        }
+      }
       if (pathname === '/status') {
         res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
         res.end(JSON.stringify(this.getStatus()));
@@ -107,21 +124,15 @@ export class BridgeServer {
       }
 
       if (pathname === '/api/lan-ips' || pathname === '/api/remote-info') {
-        const lanIps = getLocalLanIps();
-        const urls = lanIps.map(ip => `http://${ip}:${this.port}/?token=${encodeURIComponent(this.token)}`);
-        const primaryUrl = urls[0] || `http://localhost:${this.port}/?token=${encodeURIComponent(this.token)}`;
-        const qrSvg = generateQrSvg(primaryUrl);
         res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
-        res.end(JSON.stringify({ port: this.port, token: this.token, lanIps, urls, primaryUrl, qrSvg }));
+        res.end(JSON.stringify(this.getRemoteConnectionInfo()));
         return;
       }
 
       if (pathname === '/api/qr') {
-        const lanIps = getLocalLanIps();
-        const url = `http://${lanIps[0] || '127.0.0.1'}:${this.port}/?token=${encodeURIComponent(this.token)}`;
-        const qrSvg = generateQrSvg(url);
+        const info = this.getRemoteConnectionInfo();
         res.writeHead(200, { 'Content-Type': 'image/svg+xml', 'Access-Control-Allow-Origin': '*' });
-        res.end(qrSvg);
+        res.end(info.qrSvg);
         return;
       }
 
@@ -169,7 +180,7 @@ export class BridgeServer {
           this.wss = new WebSocketServer({ server: altServer });
           this.setupWssEvents();
 
-          altServer.listen(0, '0.0.0.0', () => {
+          altServer.listen(0, this.host, () => {
             const addr = altServer.address();
             if (addr && typeof addr === 'object') {
               this.port = addr.port;
@@ -182,7 +193,7 @@ export class BridgeServer {
         }
       });
 
-      this.httpServer.listen(this.port, '0.0.0.0', () => {
+      this.httpServer.listen(this.port, this.host, () => {
         const address = this.httpServer?.address();
         if (address && typeof address === 'object') {
           this.port = address.port;
@@ -205,14 +216,19 @@ export class BridgeServer {
     if (!this.wss) return;
 
     this.wss.on('connection', (ws: WebSocket, req) => {
-      // 1. Token authentication: must be provided and must match exactly
+      // 1. Token authentication: query param, Authorization: Bearer, or X-Antifan-Attachment-Secret
       const host = req.headers.host || `127.0.0.1:${this.port}`;
       const url = new URL(req.url || '/', `http://${host}`);
-      const clientToken = url.searchParams.get('token');
-
-      if (!clientToken || clientToken !== this.token) {
+      const clientToken = extractAuthToken(req, url);
+      const isBridgeToken = Boolean(clientToken && clientToken === this.token);
+      const verifiedAttachmentId = clientToken ? (this.attachmentRegistry?.verifyConnectionToken(clientToken) ?? null) : null;
+      if (!isBridgeToken && !verifiedAttachmentId) {
         ws.close(4001, 'Unauthorized: missing or invalid token');
         return;
+      }
+
+      if (verifiedAttachmentId && !isBridgeToken) {
+        this.socketAttachmentIds.set(ws, verifiedAttachmentId);
       }
 
       // 2. Origin check: prevent arbitrary cross-origin hijacking
@@ -272,11 +288,10 @@ export class BridgeServer {
       });
     });
   }
-
   private persistBridgeInfo(): void {
     const info = {
       port: this.port,
-      token: this.token,
+      host: this.host,
       pid: process.pid,
       startedAt: Date.now(),
       isDev: this.isDev,
@@ -333,7 +348,12 @@ export class BridgeServer {
     };
 
     try {
-      if (this.capabilityTransport && typeof p.runtimeLease === 'object' && typeof p.projectId === 'string' && typeof p.workspaceId === 'string') {
+      const boundAttachmentId = this.socketAttachmentIds.get(ws);
+      if (boundAttachmentId && method !== 'antifan.capability.dispatch') {
+        respond(false, undefined, 'Forbidden: Attachment-authenticated connections may only invoke antifan.capability.dispatch');
+        return;
+      }
+      if (method !== 'antifan.capability.dispatch' && this.capabilityTransport && typeof p.runtimeLease === 'object' && typeof p.projectId === 'string' && typeof p.workspaceId === 'string') {
         const context = p.context as Partial<CapabilityRequestContext> | undefined;
         const requestedGrant = context?.grant;
         const bridgeGrant = requestedGrant === 'write' ? 'write' : 'read';
@@ -352,7 +372,34 @@ export class BridgeServer {
       }
 
       switch (method) {
-        case 'agentMove':
+        case 'antifan.capability.dispatch': {
+          if (!this.capabilityTransport) {
+            respond(false, undefined, 'Capability transport is not available');
+            break;
+          }
+          if (!this.attachmentRegistry) {
+            respond(false, undefined, 'Attachment registry is not available');
+            break;
+          }
+          try {
+            const claims = p.attachmentClaims;
+            if (boundAttachmentId && claims?.attachmentId !== boundAttachmentId) {
+              respond(false, undefined, 'ATTACHMENT_INVALID: Cross-attachment dispatch denied: connection is bound to a different attachment');
+              break;
+            }
+            const authContext = this.attachmentRegistry.validateAttachment(claims);
+            const dispatchResult = await this.capabilityTransport.dispatch(p.name, p.params || {}, authContext);
+            if (dispatchResult.ok) {
+              respond(true, dispatchResult.data);
+            } else {
+              respond(false, undefined, dispatchResult.error ? `${dispatchResult.error.code}: ${dispatchResult.error.message}` : 'Capability dispatch failed');
+            }
+          } catch (err: unknown) {
+            const errorMsg = err instanceof CapabilityError ? `${err.code}: ${err.message}` : (err instanceof Error ? err.message : String(err));
+            respond(false, undefined, errorMsg);
+          }
+          break;
+        }
         case 'antifan.agentMove': {
           const ok = await this.tabHost.agentMove({ selector: p.selector, x: p.x, y: p.y, label: p.label, tabId: p.tabId });
           respond(ok, { moved: ok });
@@ -624,11 +671,7 @@ export class BridgeServer {
 
         case 'getLanIps':
         case 'antifan.getLanIps': {
-          const lanIps = getLocalLanIps();
-          const urls = lanIps.map(ip => `http://${ip}:${this.port}/?token=${encodeURIComponent(this.token)}`);
-          const primaryUrl = urls[0] || `http://localhost:${this.port}/?token=${encodeURIComponent(this.token)}`;
-          const qrSvg = generateQrSvg(primaryUrl);
-          respond(true, { port: this.port, token: this.token, lanIps, urls, primaryUrl, qrSvg });
+          respond(true, this.getRemoteConnectionInfo());
           break;
         }
 
@@ -751,4 +794,22 @@ export class BridgeServer {
     this.wss?.close();
     this.httpServer?.close();
   }
+}
+
+function extractAuthToken(req: http.IncomingMessage, url: URL): string | null {
+  const authHeader = req.headers['authorization'];
+  if (authHeader && typeof authHeader === 'string') {
+    const match = authHeader.match(/^Bearer\s+(.+)$/i);
+    if (match && match[1]) return match[1].trim();
+  }
+
+  const customHeader = req.headers['x-antifan-attachment-secret'];
+  if (customHeader && typeof customHeader === 'string') {
+    return customHeader.trim();
+  }
+
+  const queryToken = url.searchParams.get('token');
+  if (queryToken && typeof queryToken === 'string') return queryToken;
+
+  return null;
 }

@@ -236,6 +236,126 @@ describe('Split Review Coordinator & Pure Engine', () => {
       assert.strictEqual(failMirror.settled, true);
       assert.strictEqual(coordinator.getActiveTransaction(tabId), null);
     });
+
+    it('handles authority-first history traversal transactions in lockstep', () => {
+      const coordinator = new SplitNavigationCoordinator();
+      const tabId = 'tab-hist-auth-first';
+
+      // Start back transaction from desktop
+      coordinator.startHistoryTransaction(tabId, 'desktop', 'back');
+
+      // Desktop (authority) commits first
+      const authDecision = coordinator.handleNavigationEvent(tabId, 'desktop', 'https://antifan.test/home');
+      assert.strictEqual(authDecision.shouldMirror, true);
+      assert.strictEqual(authDecision.historyDirection, 'back');
+      assert.strictEqual(authDecision.targetPane, 'mobile');
+      assert.strictEqual(authDecision.settled, false);
+
+      // Mobile (sibling) commits second
+      const sibDecision = coordinator.handleNavigationEvent(tabId, 'mobile', 'https://antifan.test/home');
+      assert.strictEqual(sibDecision.shouldMirror, false);
+      assert.strictEqual(sibDecision.isEcho, true);
+      assert.strictEqual(sibDecision.settled, true);
+      assert.strictEqual(coordinator.getActiveTransaction(tabId), null);
+    });
+
+    it('cancels pending history transaction when sibling navigates independently and ignores delayed authority commit arriving first', () => {
+      const coordinator = new SplitNavigationCoordinator();
+      const tabId = 'tab-hist-sib-supersede-order1';
+
+      // Start forward transaction from desktop (authority)
+      coordinator.startHistoryTransaction(tabId, 'desktop', 'forward');
+
+      // Sibling (mobile) navigates to an organic URL before desktop authority commits
+      const sibDecision = coordinator.handleNavigationEvent(tabId, 'mobile', 'https://antifan.test/organic-page');
+      assert.strictEqual(sibDecision.shouldMirror, true);
+      assert.strictEqual(sibDecision.mirrorUrl, 'https://antifan.test/organic-page');
+      assert.strictEqual(sibDecision.targetPane, 'desktop');
+      assert.strictEqual(sibDecision.isEcho, false);
+      assert.strictEqual(sibDecision.settled, false);
+
+      // Active transaction is now a normal transaction owned by mobile
+      const activeTx = coordinator.getActiveTransaction(tabId);
+      assert.ok(activeTx);
+      assert.strictEqual(activeTx.authorityPane, 'mobile');
+      assert.strictEqual(activeTx.targetUrl, 'https://antifan.test/organic-page');
+      assert.strictEqual(activeTx.historyDirection, null);
+
+      // Delayed commit from the abandoned desktop forward history traversal arrives FIRST
+      const delayedDesktopDecision = coordinator.handleNavigationEvent(tabId, 'desktop', 'https://antifan.test/delayed-old-forward-target');
+      assert.strictEqual(delayedDesktopDecision.shouldMirror, false);
+      assert.strictEqual(delayedDesktopDecision.isEcho, true);
+      assert.strictEqual(delayedDesktopDecision.settled, false);
+
+      // Active transaction remains untouched for mobile's organic URL
+      const stillActiveTx = coordinator.getActiveTransaction(tabId);
+      assert.ok(stillActiveTx);
+      assert.strictEqual(stillActiveTx.authorityPane, 'mobile');
+      assert.strictEqual(stillActiveTx.targetUrl, 'https://antifan.test/organic-page');
+
+      // Desktop now commits the mirrored organic URL
+      const mirrorCommitDecision = coordinator.handleNavigationEvent(tabId, 'desktop', 'https://antifan.test/organic-page');
+      assert.strictEqual(mirrorCommitDecision.shouldMirror, false);
+      assert.strictEqual(mirrorCommitDecision.isEcho, true);
+      assert.strictEqual(mirrorCommitDecision.settled, true);
+      assert.strictEqual(coordinator.getActiveTransaction(tabId), null);
+    });
+
+    it('cancels pending history transaction and ignores delayed authority commit arriving AFTER replacement mirror settles', () => {
+      const coordinator = new SplitNavigationCoordinator();
+      const tabId = 'tab-hist-sib-supersede-order2';
+
+      // Start forward transaction from desktop (authority)
+      coordinator.startHistoryTransaction(tabId, 'desktop', 'forward');
+
+      // Sibling (mobile) navigates to an organic URL before desktop authority commits
+      const sibDecision = coordinator.handleNavigationEvent(tabId, 'mobile', 'https://antifan.test/organic-page');
+      assert.strictEqual(sibDecision.shouldMirror, true);
+      assert.strictEqual(sibDecision.mirrorUrl, 'https://antifan.test/organic-page');
+      assert.strictEqual(sibDecision.targetPane, 'desktop');
+      assert.strictEqual(sibDecision.isEcho, false);
+      assert.strictEqual(sibDecision.settled, false);
+
+      // Desktop commits the replacement mirror URL FIRST (fast load)
+      const mirrorCommitDecision = coordinator.handleNavigationEvent(tabId, 'desktop', 'https://antifan.test/organic-page');
+      assert.strictEqual(mirrorCommitDecision.shouldMirror, false);
+      assert.strictEqual(mirrorCommitDecision.isEcho, true);
+      assert.strictEqual(mirrorCommitDecision.settled, true);
+      assert.strictEqual(coordinator.getActiveTransaction(tabId), null);
+
+      // Delayed commit from the abandoned desktop forward history traversal arrives SECOND
+      const delayedDesktopDecision = coordinator.handleNavigationEvent(tabId, 'desktop', 'https://antifan.test/delayed-old-forward-target');
+      // Stale history barrier swallows this delayed commit without starting a new transaction or re-mirroring to mobile
+      assert.strictEqual(delayedDesktopDecision.shouldMirror, false);
+      assert.strictEqual(delayedDesktopDecision.isEcho, true);
+      assert.strictEqual(delayedDesktopDecision.settled, false);
+      assert.strictEqual(coordinator.getActiveTransaction(tabId), null);
+    });
+
+    it('suppresses duplicate authority commits during active history transaction', () => {
+      const coordinator = new SplitNavigationCoordinator();
+      const tabId = 'tab-hist-dup-auth';
+
+      // Start back transaction from desktop
+      coordinator.startHistoryTransaction(tabId, 'desktop', 'back');
+
+      // Desktop commits (did-navigate)
+      const firstDecision = coordinator.handleNavigationEvent(tabId, 'desktop', 'https://antifan.test/home');
+      assert.strictEqual(firstDecision.shouldMirror, true);
+      assert.strictEqual(firstDecision.historyDirection, 'back');
+
+      // Duplicate desktop commit (e.g. did-navigate-in-page or immediate redirect)
+      const dupDecision = coordinator.handleNavigationEvent(tabId, 'desktop', 'https://antifan.test/home');
+      assert.strictEqual(dupDecision.shouldMirror, false);
+      assert.strictEqual(dupDecision.isEcho, true);
+      assert.strictEqual(dupDecision.settled, false);
+
+      // Mobile commits — completes transaction
+      const sibDecision = coordinator.handleNavigationEvent(tabId, 'mobile', 'https://antifan.test/home');
+      assert.strictEqual(sibDecision.shouldMirror, false);
+      assert.strictEqual(sibDecision.settled, true);
+    });
+
   });
 
   describe('Persistence Sanitization & Migration', () => {

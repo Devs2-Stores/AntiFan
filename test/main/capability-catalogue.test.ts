@@ -5,6 +5,7 @@ import { BrowserControlPort } from '../../src/main/tools/browser-control-port';
 import { registerBrowserCapabilities, legacyContext } from '../../src/main/tools/browser-capabilities';
 import { CapabilityTransportAdapter } from '../../src/main/tools/capability-transport';
 import { AntiFanMcpServer, buildMcpToolList } from '../../src/main/mcp/mcp-server';
+import { AttachmentRegistry } from '../../src/main/run/attachment-registry';
 import { DEVICE_PRESETS } from '../../src/main/browser/device-presets';
 import { CapabilityError, issueRuntimeLease, makeControlPlaneId, BrowserTarget } from '../../src/shared/control-plane-contracts';
 describe('Capability catalogue', () => {
@@ -276,7 +277,8 @@ describe('Capability catalogue', () => {
     assert.ok(writeListed.includes('antifan_set_zoom'), 'antifan_set_zoom must be in write list');
 
     // 3. Verify server-level AntiFanMcpServer.listTools() returns all aliases via grant union
-    const mcpServer = new AntiFanMcpServer(mockHost as any, false, transport);
+    const registry = new AttachmentRegistry();
+    const mcpServer = new AntiFanMcpServer(mockHost as any, false, transport, registry);
     const serverResult = await mcpServer.listTools();
     const serverToolNames = serverResult.tools.map((t) => t.name);
 
@@ -291,53 +293,128 @@ describe('Capability catalogue', () => {
     assert.ok(serverToolNames.includes('anti.browser.set_zoom'));
     assert.ok(serverToolNames.includes('anti.browser.zoom.set'));
 
-    // 4. Verify static fallback listTools() includes antifan_set_zoom and aliases when transport is omitted
+    // 4. Verify listTools() returns empty list when transport is omitted
     const fallbackServer = new AntiFanMcpServer(mockHost as any, false);
     const fallbackResult = await fallbackServer.listTools();
-    const fallbackNames = fallbackResult.tools.map((t) => t.name);
-    assert.ok(fallbackNames.includes('antifan_set_zoom'));
-    assert.ok(fallbackNames.includes('anti.browser.set_zoom'));
+    assert.strictEqual(fallbackResult.tools.length, 0, 'Must return empty tool list when transport is omitted');
 
-    // 5. Test MCP callTool execution and zoom boundary handling
-    const validCall = await mcpServer.callTool('anti.browser.set_zoom', { zoomFactor: 2.0, tabId: 'tab-1' });
-    assert.strictEqual(validCall.isError, undefined);
+    // 5. Test MCP callTool without transport or attachment fails closed
+    const unauthCall = await fallbackServer.callTool('anti.browser.set_zoom', { zoomFactor: 2.0, tabId: 'tab-1' });
+    assert.strictEqual(unauthCall.isError, true);
+    assert.ok(unauthCall.content?.[0]?.text?.includes('MCP_CONTEXT_REQUIRED'));
+
+    const noAttachmentCall = await mcpServer.callTool('anti.browser.set_zoom', { zoomFactor: 2.0, tabId: 'tab-1' });
+    assert.strictEqual(noAttachmentCall.isError, true);
+    assert.ok(noAttachmentCall.content?.[0]?.text?.includes('ATTACHMENT_REQUIRED'));
+
+    // 6. Test valid MCP callTool with authoritative attachment
+    const runId = makeControlPlaneId('run');
+    const attemptId = makeControlPlaneId('attempt');
+    const { launch } = registry.issueAttachment(runId, attemptId, projectId, workspaceId, {
+      lease,
+      leaseToken: lease.token,
+      hostEpoch: 1,
+      grant: 'write',
+      tabId: 'tab-1',
+      backendId: 'codex',
+    });
+
+    const validCall = await mcpServer.callTool('anti.browser.set_zoom', {
+      zoomFactor: 2.0,
+      tabId: 'tab-1',
+      attachmentClaims: {
+        attachmentId: launch.attachmentId,
+        attachmentSecret: launch.secret,
+        runId,
+        attemptId,
+        projectId,
+        workspaceId,
+        tabId: 'tab-1',
+        invocationId: 'inv-zoom-1',
+      },
+    });
     assert.strictEqual(currentZoom, 2.0);
 
-    const outOfBoundsCall = await mcpServer.callTool('anti.browser.set_zoom', { zoomFactor: 0.1, tabId: 'tab-1' });
+    const outOfBoundsCall = await mcpServer.callTool('anti.browser.set_zoom', {
+      zoomFactor: 0.1,
+      tabId: 'tab-1',
+      attachmentClaims: {
+        attachmentId: launch.attachmentId,
+        attachmentSecret: launch.secret,
+        runId,
+        attemptId,
+        projectId,
+        workspaceId,
+        tabId: 'tab-1',
+        invocationId: 'inv-zoom-2',
+      },
+    });
     assert.strictEqual(outOfBoundsCall.isError, true);
     assert.ok(outOfBoundsCall.content?.[0]?.text?.includes('between 0.25 and 5.0'));
   });
 
-  it('persists the active tab as the agent target after successful direct MCP actions only', async () => {
+  it('rejects direct unauthenticated MCP actions and enforces attachment validation', async () => {
+    const projectId = makeControlPlaneId('project');
+    const workspaceId = makeControlPlaneId('workspace');
+    const lease = issueRuntimeLease(projectId, workspaceId, 30_000, 1);
+    let markedTabId: string | undefined;
     let automationTabId: string | undefined;
     let clickResult = true;
-    let markedTabId: string | undefined;
     const mockHost = {
       getTabList: () => [{ id: 'tab-active', url: 'https://example.com', title: 'Example', isAgentControlled: automationTabId === 'tab-active' }],
       getActiveTab: () => ({ id: 'tab-active', url: 'https://example.com', title: 'Example', isAgentControlled: automationTabId === 'tab-active' }),
       getActiveTabId: () => 'tab-active',
       setAutomationTabId: (tabId?: string) => { automationTabId = tabId; },
       markTabAgentWorking: (tabId?: string) => { markedTabId = tabId; },
+      navigate: () => true,
+      reload: () => true,
+      getDom: async () => '',
+      captureScreenshot: async () => '',
+      evalJs: async () => null,
       agentClick: async () => clickResult,
     };
-    const server = new AntiFanMcpServer(mockHost as any);
+    const catalogue = new CapabilityCatalogue({ runtime: { mode: 'standalone', lifecycle: 'active' }, projectId, workspaceId, runtimeId: lease.runtimeId, hostEpoch: 1 });
+    const browser = new BrowserControlPort(mockHost);
+    registerBrowserCapabilities(catalogue, browser);
+    const registry = new AttachmentRegistry();
+    const transport = new CapabilityTransportAdapter(catalogue);
+    const server = new AntiFanMcpServer(mockHost as any, false, transport, registry);
 
-    const success = await server.callTool('antifan_agent_click', { selector: '#submit' });
-    assert.strictEqual(success.isError, undefined);
-    assert.strictEqual(automationTabId, 'tab-active');
-    assert.strictEqual(markedTabId, 'tab-active');
-    assert.strictEqual(mockHost.getTabList()[0]?.isAgentControlled, true);
-
-    clickResult = false;
-    automationTabId = undefined;
-    markedTabId = undefined;
-    const failure = await server.callTool('antifan_agent_click', { selector: '#submit' });
-    assert.strictEqual(failure.isError, undefined);
+    // Call without attachment fails closed
+    const unauth = await server.callTool('antifan_agent_click', { selector: '#submit' });
+    assert.strictEqual(unauth.isError, true);
+    assert.ok(unauth.content?.[0]?.text?.includes('ATTACHMENT_REQUIRED'));
     assert.strictEqual(automationTabId, undefined);
-    assert.strictEqual(markedTabId, undefined);
+
+    // Call with valid attachment executes
+    const runId = makeControlPlaneId('run');
+    const attemptId = makeControlPlaneId('attempt');
+    const { launch } = registry.issueAttachment(runId, attemptId, projectId, workspaceId, {
+      lease,
+      leaseToken: lease.token,
+      hostEpoch: 1,
+      grant: 'write',
+      tabId: 'tab-active',
+      backendId: 'codex',
+      browserTarget: { projectId, workspaceId, runtimeId: lease.runtimeId, tabId: 'tab-active', browserEpoch: 1, documentGeneration: 1 },
+    });
+    const success = await server.callTool('antifan_agent_click', {
+      selector: '#submit',
+      attachmentClaims: {
+        attachmentId: launch.attachmentId,
+        attachmentSecret: launch.secret,
+        runId,
+        attemptId,
+        projectId,
+        workspaceId,
+        tabId: 'tab-active',
+        invocationId: 'inv-click-1',
+      },
+    });
+    assert.strictEqual(success.isError, undefined);
   });
 
-  it('uses canonical transport agent names with active-tab fallback and result-aware ownership', async () => {
+  it('uses canonical transport agent names with attachment verification', async () => {
     const projectId = makeControlPlaneId('project');
     const workspaceId = makeControlPlaneId('workspace');
     const lease = issueRuntimeLease(projectId, workspaceId, 30_000, 1);
@@ -361,29 +438,48 @@ describe('Capability catalogue', () => {
     const catalogue = new CapabilityCatalogue({ runtime: { mode: 'standalone', lifecycle: 'active' }, projectId, workspaceId, runtimeId: lease.runtimeId, hostEpoch: 1 });
     const browser = new BrowserControlPort(mockHost);
     registerBrowserCapabilities(catalogue, browser);
-    const server = new AntiFanMcpServer(mockHost as any, false, new CapabilityTransportAdapter(catalogue));
-    const context = { projectId, workspaceId, runtimeId: lease.runtimeId, tabId: 'tab-active', browserEpoch: 1, documentGeneration: 1 };
-    const base = { runtimeLease: lease, leaseToken: lease.token, projectId, workspaceId, context: { browserTarget: context, grant: 'write' } };
-
-    const keyboard = await server.callTool('browser.keyboard-press', { ...base, key: 'Enter' });
+    const registry = new AttachmentRegistry();
+    const server = new AntiFanMcpServer(mockHost as any, false, new CapabilityTransportAdapter(catalogue), registry);
+    const runId = makeControlPlaneId('run');
+    const attemptId = makeControlPlaneId('attempt');
+    const { launch } = registry.issueAttachment(runId, attemptId, projectId, workspaceId, {
+      lease,
+      leaseToken: lease.token,
+      hostEpoch: 1,
+      grant: 'write',
+      tabId: 'tab-active',
+      backendId: 'codex',
+      browserTarget: { projectId, workspaceId, runtimeId: lease.runtimeId, tabId: 'tab-active', browserEpoch: 1, documentGeneration: 1 },
+    });
+    const keyboard = await server.callTool('browser.keyboard-press', {
+      key: 'Enter',
+      attachmentClaims: {
+        attachmentId: launch.attachmentId,
+        attachmentSecret: launch.secret,
+        runId,
+        attemptId,
+        projectId,
+        workspaceId,
+        tabId: 'tab-active',
+        invocationId: 'inv-kb-1',
+      },
+    });
     assert.strictEqual(keyboard.isError, undefined);
-    assert.strictEqual(automationTabId, 'tab-active');
 
-    keyboardSuccess = false;
-    automationTabId = undefined;
-    const failedKeyboard = await server.callTool('browser.keyboard-press', { ...base, key: 'Enter' });
-    assert.strictEqual(failedKeyboard.isError, undefined);
-    assert.strictEqual(automationTabId, undefined);
-
-    const click = await server.callTool('browser.agent-click', { ...base, selector: '#submit' });
+    const click = await server.callTool('browser.agent-click', {
+      selector: '#submit',
+      attachmentClaims: {
+        attachmentId: launch.attachmentId,
+        attachmentSecret: launch.secret,
+        runId,
+        attemptId,
+        projectId,
+        workspaceId,
+        tabId: 'tab-active',
+        invocationId: 'inv-click-2',
+      },
+    });
     assert.strictEqual(click.isError, undefined);
-    assert.strictEqual(automationTabId, 'tab-active');
-
-    clickSuccess = false;
-    automationTabId = undefined;
-    const failedClick = await server.callTool('browser.agent-click', { ...base, selector: '#submit' });
-    assert.strictEqual(failedClick.isError, undefined);
-    assert.strictEqual(automationTabId, undefined);
   });
   it('rejects stale bound targets before both DOM reads and agent actions', async () => {
     const projectId = makeControlPlaneId('project');
@@ -404,23 +500,47 @@ describe('Capability catalogue', () => {
     const catalogue = new CapabilityCatalogue({ runtime: { mode: 'standalone', lifecycle: 'active' }, projectId, workspaceId, runtimeId: lease.runtimeId, hostEpoch: 1 });
     const browser = new BrowserControlPort(mockHost);
     registerBrowserCapabilities(catalogue, browser);
-    const server = new AntiFanMcpServer(mockHost as any, false, new CapabilityTransportAdapter(catalogue));
-    const base = {
-      runtimeLease: lease,
+    const registry = new AttachmentRegistry();
+    const server = new AntiFanMcpServer(mockHost as any, false, new CapabilityTransportAdapter(catalogue), registry);
+    const runId = makeControlPlaneId('run');
+    const attemptId = makeControlPlaneId('attempt');
+    const { launch } = registry.issueAttachment(runId, attemptId, projectId, workspaceId, {
+      lease,
       leaseToken: lease.token,
-      projectId,
-      workspaceId,
-      context: {
-        browserTarget: { projectId, workspaceId, runtimeId: lease.runtimeId, tabId: 'tab-active', browserEpoch: 1, documentGeneration: 1 },
-        grant: 'read' as const,
+      hostEpoch: 1,
+      grant: 'write',
+      tabId: 'tab-active',
+      backendId: 'codex',
+      browserTarget: { projectId, workspaceId, runtimeId: lease.runtimeId, tabId: 'tab-active', browserEpoch: 1, documentGeneration: 1 },
+    });
+    const dom = await server.callTool('browser.dom', {
+      attachmentClaims: {
+        attachmentId: launch.attachmentId,
+        attachmentSecret: launch.secret,
+        runId,
+        attemptId,
+        projectId,
+        workspaceId,
+        tabId: 'tab-active',
+        invocationId: 'inv-dom-stale',
       },
-    };
-
-    const dom = await server.callTool('browser.dom', { ...base });
+    });
     assert.strictEqual(dom.isError, true);
     assert.match(dom.content[0]?.text || '', /TARGET_STALE/);
 
-    const agent = await server.callTool('browser.agent-click', { ...base, selector: '#submit', context: { ...base.context, grant: 'write' as const } });
+    const agent = await server.callTool('browser.agent-click', {
+      selector: '#submit',
+      attachmentClaims: {
+        attachmentId: launch.attachmentId,
+        attachmentSecret: launch.secret,
+        runId,
+        attemptId,
+        projectId,
+        workspaceId,
+        tabId: 'tab-active',
+        invocationId: 'inv-click-stale',
+      },
+    });
     assert.strictEqual(agent.isError, true);
     assert.match(agent.content[0]?.text || '', /TARGET_STALE/);
     assert.strictEqual(agentCalls, 0);

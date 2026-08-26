@@ -13,7 +13,8 @@ import {
 } from '@modelcontextprotocol/sdk/types.js';
 import { NativeTabHost } from '../browser/native-tab-host';
 import { CapabilityTransportAdapter } from '../tools/capability-transport';
-import { CapabilityRequestContext } from '../../shared/control-plane-contracts';
+import { CapabilityRequestContext, CapabilityError } from '../../shared/control-plane-contracts';
+import { AttachmentRegistry } from '../run/attachment-registry';
 import { envelope, requestId } from './result-envelope';
 
 export class AntiFanMcpServer {
@@ -21,12 +22,13 @@ export class AntiFanMcpServer {
   private tabHost: NativeTabHost;
   private isHighRiskAllowed: boolean;
   private readonly transport?: CapabilityTransportAdapter;
+  private readonly attachmentRegistry?: AttachmentRegistry;
 
-  constructor(tabHost: NativeTabHost, isHighRiskAllowed = false, transport?: CapabilityTransportAdapter) {
+  constructor(tabHost: NativeTabHost, isHighRiskAllowed = false, transport?: CapabilityTransportAdapter, attachmentRegistry?: AttachmentRegistry) {
     this.tabHost = tabHost;
     this.isHighRiskAllowed = isHighRiskAllowed;
     this.transport = transport;
-
+    this.attachmentRegistry = attachmentRegistry;
     this.server = new Server(
       {
         name: 'antifan-browser-desktop',
@@ -425,335 +427,59 @@ export class AntiFanMcpServer {
     const name = aliasMap[toolName] || toolName;
     const a = (args || {}) as Record<string, any>;
     if (!a.tabId && a.id) a.tabId = a.id;
+    const callerTabId = typeof a.tabId === 'string' ? a.tabId : undefined;
     if (toolName === 'anti.devtools.console.errors') a.level = 3;
     if (toolName === 'anti.devtools.console.warnings') a.level = 2;
-    const automationTarget = this.tabHost.getAutomationTarget?.();
-    const requestContext = a.context as Partial<CapabilityRequestContext> | undefined;
-    const effectiveTarget = requestContext?.browserTarget || automationTarget;
-    const callerTabId = a.tabId;
-    const rid = requestId(a.requestId);
-    const evidence = () => { const tab = a.tabId ? this.tabHost.getTabList().find((item) => item.id === a.tabId) : this.tabHost.getActiveTab(); return { tabId: tab?.id, url: tab?.url, title: tab?.title, themeError: tab?.themeError || null }; };
-    const resultText = (data: unknown) => JSON.stringify({ ...envelope(data, { ...evidence(), timestamp: Date.now() }), requestId: rid });
-    const requireTab = () => { if (activeTabId && !this.tabHost.getTabList().some((item) => item.id === activeTabId)) throw new Error(`Unknown tabId: ${activeTabId}`); };
-    const isAgentCommand = isAgentCapabilityName(name);
-    const legacyTabId = callerTabId || (isAgentCommand ? effectiveTarget?.tabId || this.tabHost.getActiveTabId() : effectiveTarget?.tabId);
-    const activeTabId = legacyTabId;
-    const commitAgentTarget = (success: boolean): void => {
-      if (success && activeTabId && name !== 'browser.open-tab' && name !== 'antifan_open_tab' && name !== 'antifan_list_tabs') {
-        this.tabHost.setAutomationTabId?.(activeTabId);
-        this.tabHost.markTabAgentWorking?.(activeTabId, 6000);
-      }
-    };
+
+    if (!this.transport) {
+      return {
+        isError: true,
+        content: [{ type: 'text', text: JSON.stringify({ code: 'MCP_CONTEXT_REQUIRED', message: 'Authoritative transport is required for MCP tool execution' }) }],
+      };
+    }
+
+    if (!a.attachmentClaims || typeof a.attachmentClaims !== 'object') {
+      return {
+        isError: true,
+        content: [{ type: 'text', text: JSON.stringify({ code: 'ATTACHMENT_REQUIRED', message: 'Authoritative attachment claims are required for MCP capability execution' }) }],
+      };
+    }
+
+    if (!this.attachmentRegistry) {
+      return {
+        isError: true,
+        content: [{ type: 'text', text: JSON.stringify({ code: 'ATTACHMENT_INVALID', message: 'Attachment registry is not configured' }) }],
+      };
+    }
+
+    let authContext: CapabilityRequestContext;
     try {
-      // Validate an explicitly selected or automation-targeted tab before dispatch.
-      // Ownership is committed only after the operation succeeds.
-      if (activeTabId && name !== 'browser.open-tab' && name !== 'antifan_open_tab' && name !== 'antifan_list_tabs') {
-        requireTab();
+      authContext = this.attachmentRegistry.validateAttachment(a.attachmentClaims);
+    } catch (err: any) {
+      const code = err instanceof CapabilityError ? err.code : 'ATTACHMENT_INVALID';
+      return {
+        isError: true,
+        content: [{ type: 'text', text: JSON.stringify({ code, message: err.message || String(err) }) }],
+      };
+    }
+    const transportArgs = { ...a };
+    if (callerTabId) transportArgs.tabId = callerTabId;
+    else delete transportArgs.tabId;
+    delete transportArgs.attachmentClaims;
+    delete transportArgs.runtimeLease;
+    delete transportArgs.leaseToken;
+    delete transportArgs.projectId;
+    delete transportArgs.workspaceId;
+    delete transportArgs.context;
+
+    const result = await this.transport.dispatch(name, transportArgs, authContext);
+    if (result.ok) {
+      if ((name === 'browser.open-tab' || name === 'antifan_open_tab') && isCreatedTabResult(result.data)) {
+        this.tabHost.setAutomationTabId?.(result.data.tabId);
       }
-      if (this.transport && typeof a.runtimeLease === 'object' && typeof a.projectId === 'string' && typeof a.workspaceId === 'string') {
-        const transportArgs = { ...a };
-        if (callerTabId) transportArgs.tabId = callerTabId;
-        else delete transportArgs.tabId;
-        const result = await this.transport.dispatch(name, transportArgs, {
-          lease: a.runtimeLease,
-          leaseToken: typeof a.leaseToken === 'string' ? a.leaseToken : '',
-          projectId: a.projectId,
-          workspaceId: a.workspaceId,
-          runId: requestContext?.runId,
-          attemptId: requestContext?.attemptId,
-          browserTarget: effectiveTarget,
-          grant: requestContext?.grant,
-        });
-        if (result.ok) {
-          if ((name === 'browser.open-tab' || name === 'antifan_open_tab') && isCreatedTabResult(result.data)) {
-            this.tabHost.setAutomationTabId?.(result.data.tabId);
-          } else if (isAgentCommand) {
-            commitAgentTarget(agentCapabilitySucceeded(name, result.data));
-          }
-        }
-        return result.ok ? { content: [{ type: 'text', text: JSON.stringify(result.data) }] } : { isError: true, content: [{ type: 'text', text: JSON.stringify(result.error) }] };
-      }
-      if (!a.tabId && legacyTabId) a.tabId = legacyTabId;
-      switch (name) {
-          case 'antifan_console_messages': {
-            requireTab();
-            const result = this.tabHost.getDiagnostics(a.tabId, a.level);
-            return { content: [{ type: 'text', text: resultText(result.console) }] };
-          }
-          case 'antifan_network_failures': {
-            requireTab();
-            const result = this.tabHost.getDiagnostics(a.tabId);
-            return { content: [{ type: 'text', text: resultText(result.failures) }] };
-          }
-          case 'antifan_responsive_check': {
-            requireTab();
-            const result = await this.tabHost.runResponsiveCheck(a.tabId);
-            return { content: [{ type: 'text', text: resultText(result) }] };
-          }
-          case 'antifan_open_tab': {
-            const tabId = this.tabHost.createTab(a.url, false);
-            this.tabHost.setAutomationTabId?.(tabId);
-            return { content: [{ type: 'text', text: resultText({ tabId, success: true }) }] };
-          }
-
-          case 'antifan_list_tabs': {
-            const tabs = this.tabHost.getTabList();
-            const activeTabId = this.tabHost.getActiveTabId();
-            return { content: [{ type: 'text', text: resultText({ tabs, activeTabId }) }] };
-          }
-
-          case 'antifan_switch_tab': {
-            requireTab();
-            const ok = this.tabHost.switchTab(a.tabId);
-            return { content: [{ type: 'text', text: resultText({ success: ok }) }] };
-          }
-
-          case 'antifan_close_tab': {
-            requireTab();
-            const ok = this.tabHost.closeTab(a.tabId);
-            return { content: [{ type: 'text', text: resultText({ success: ok }) }] };
-          }
-
-          case 'antifan_navigate': {
-            requireTab();
-            const ok = this.tabHost.navigate(a.tabId || this.tabHost.getActiveTabId(), a.url);
-            const tab = a.tabId ? this.tabHost.getTabList().find((item) => item.id === a.tabId) : this.tabHost.getActiveTab();
-            return { content: [{ type: 'text', text: resultText({ success: ok, themeError: tab?.themeError || null }) }] };
-          }
-
-          case 'antifan_reload': {
-            requireTab();
-            const ok = this.tabHost.reload(a.tabId || this.tabHost.getActiveTabId());
-            const tab = a.tabId ? this.tabHost.getTabList().find((item) => item.id === a.tabId) : this.tabHost.getActiveTab();
-            return { content: [{ type: 'text', text: resultText({ success: ok, themeError: tab?.themeError || null }) }] };
-          }
-
-          case 'antifan_get_dom': {
-            requireTab();
-            const html = await this.tabHost.getDom(a.selector, a.tabId, a.paneId);
-            const tab = a.tabId ? this.tabHost.getTabList().find((item) => item.id === a.tabId) : this.tabHost.getActiveTab();
-            return { content: [{ type: 'text', text: resultText({ html, themeError: tab?.themeError || null }) }] };
-          }
-
-          case 'antifan_screenshot': {
-            requireTab();
-            const imageBase64 = await this.tabHost.captureScreenshot(undefined, a.tabId, a.paneId);
-            return {
-              content: [
-                {
-                  type: 'text',
-                  text: resultText({ bytes: imageBase64.length, mimeType: 'image/png' }),
-                },
-                {
-                  type: 'image',
-                  data: imageBase64,
-                  mimeType: 'image/png',
-                },
-              ],
-            };
-          }
-
-          case 'antifan_toggle_inspect': {
-            const inspecting = this.tabHost.toggleInspect();
-            return { content: [{ type: 'text', text: JSON.stringify({ inspecting, success: true }) }] };
-          }
-
-          case 'antifan_agent_snapshot': {
-            requireTab();
-            const snapshot = await this.tabHost.agentSnapshot(a.tabId, a.paneId);
-            commitAgentTarget(true);
-            return { content: [{ type: 'text', text: snapshot }] };
-          }
-
-          case 'antifan_agent_click': {
-            requireTab();
-            const targetSelector = a.ref || a.selector;
-            if (!targetSelector && (a.x === undefined || a.y === undefined)) {
-              return { isError: true, content: [{ type: 'text', text: 'Missing selector, ref, or (x, y) coordinates' }] };
-            }
-            const ok = await this.tabHost.agentClick({
-              selector: targetSelector,
-              x: a.x,
-              y: a.y,
-              label: a.label,
-              tabId: a.tabId,
-              paneId: a.paneId,
-            });
-            commitAgentTarget(ok);
-            return { content: [{ type: 'text', text: resultText({ success: ok }) }] };
-          }
-
-          case 'antifan_agent_type': {
-            requireTab();
-            const targetSelector = a.ref || a.selector;
-            if (!targetSelector) {
-              return { isError: true, content: [{ type: 'text', text: 'Missing selector or ref' }] };
-            }
-            if (typeof a.text !== 'string') {
-              return { isError: true, content: [{ type: 'text', text: 'Missing or invalid text to type' }] };
-            }
-            const ok = await this.tabHost.agentType({
-              selector: targetSelector,
-              text: a.text,
-              clear: a.clear,
-              tabId: a.tabId,
-              paneId: a.paneId,
-            });
-            commitAgentTarget(ok);
-            return { content: [{ type: 'text', text: resultText({ success: ok }) }] };
-          }
-          case 'antifan_keyboard_press': {
-            requireTab();
-            if (typeof a.key !== 'string' || a.key.trim().length === 0) {
-              return { isError: true, content: [{ type: 'text', text: 'Missing or invalid key' }] };
-            }
-            try {
-              const result = await this.tabHost.sendKeyboardPress({
-                key: a.key,
-                modifiers: a.modifiers,
-                tabId: a.tabId,
-              });
-              commitAgentTarget(result.success);
-              return { content: [{ type: 'text', text: resultText(result) }] };
-            } catch (err: any) {
-              return { isError: true, content: [{ type: 'text', text: err?.message || String(err) }] };
-            }
-          }
-
-          case 'antifan_agent_scroll': {
-            requireTab();
-            const targetSelector = a.ref || a.selector;
-            if (a.deltaY === undefined && !targetSelector) {
-              return { isError: true, content: [{ type: 'text', text: 'Missing deltaY or selector/ref to scroll' }] };
-            }
-            const ok = await this.tabHost.agentScroll({
-              deltaY: a.deltaY,
-              selector: targetSelector,
-              tabId: a.tabId,
-              paneId: a.paneId,
-            });
-            commitAgentTarget(ok);
-            return { content: [{ type: 'text', text: resultText({ success: ok }) }] };
-          }
-          case 'antifan_agent_trajectory': {
-            requireTab();
-            if (!Array.isArray(a.steps) || a.steps.length === 0) {
-              return { isError: true, content: [{ type: 'text', text: 'Missing or empty steps array' }] };
-            }
-            const result = await this.tabHost.agentTrajectory({
-              steps: a.steps,
-              speed: a.speed,
-              smoothScroll: a.smoothScroll,
-              tabId: a.tabId,
-            });
-            commitAgentTarget(Boolean(result.success));
-            return { content: [{ type: 'text', text: resultText(result) }] };
-          }
-
-
-          case 'antifan_agent_hover': {
-            requireTab();
-            const targetSelector = a.ref || a.selector;
-            if (!targetSelector && (a.x === undefined || a.y === undefined)) {
-              return { isError: true, content: [{ type: 'text', text: 'Missing selector, ref, or (x, y) coordinates' }] };
-            }
-            const ok = await this.tabHost.agentHover({
-              selector: targetSelector,
-              x: a.x,
-              y: a.y,
-              label: a.label,
-              tabId: a.tabId,
-              paneId: a.paneId,
-            });
-            commitAgentTarget(ok);
-            return { content: [{ type: 'text', text: resultText({ success: ok }) }] };
-          }
-
-          case 'antifan_agent_highlight': {
-            requireTab();
-            const targetSelector = a.ref || a.selector;
-            if (!targetSelector) {
-              return { isError: true, content: [{ type: 'text', text: 'Missing selector or ref' }] };
-            }
-            const ok = await this.tabHost.agentHighlight({
-              selector: targetSelector,
-              label: a.label,
-              tabId: a.tabId,
-              paneId: a.paneId,
-            });
-            commitAgentTarget(ok);
-            return { content: [{ type: 'text', text: resultText({ success: ok }) }] };
-          }
-
-          case 'antifan_get_chrome_profiles': {
-            const profiles = ChromeProfileSyncManager.getInstance().getAvailableProfiles();
-            return { content: [{ type: 'text', text: JSON.stringify({ profiles }) }] };
-          }
-
-          case 'antifan_sync_chrome_profile': {
-            const profileId = a.profileId || 'Default';
-            const result = await ChromeProfileSyncManager.getInstance().syncProfile(profileId);
-            return { content: [{ type: 'text', text: JSON.stringify(result) }] };
-          }
-
-          case 'antifan_agent_clear': {
-            const ok = await this.tabHost.agentClear(a.tabId, a.paneId);
-            commitAgentTarget(ok);
-            return { content: [{ type: 'text', text: JSON.stringify({ success: ok }) }] };
-          }
-          case 'antifan_set_viewport': {
-            requireTab();
-            const ok = this.tabHost.setViewportSize({
-              width: Number(a.width),
-              height: Number(a.height),
-              mobile: a.mobile,
-              deviceScaleFactor: a.deviceScaleFactor,
-              tabId: a.tabId,
-            });
-            return { content: [{ type: 'text', text: resultText({ success: ok, width: a.width, height: a.height, mobile: a.mobile ?? (a.width < 600) }) }] };
-          }
-
-          case 'antifan_set_device_preset': {
-            requireTab();
-            const tabId = a.tabId || this.tabHost.getActiveTabId();
-            const ok = this.tabHost.setDevicePreset(tabId, a.presetId);
-            return { content: [{ type: 'text', text: resultText({ success: ok, presetId: a.presetId }) }] };
-          }
-
-          case 'antifan_list_device_presets': {
-            const presets = this.tabHost.getDevicePresets ? this.tabHost.getDevicePresets() : DEVICE_PRESETS;
-            return { content: [{ type: 'text', text: JSON.stringify({ presets }) }] };
-          }
-          case 'antifan_set_zoom': {
-            requireTab();
-            const tabId = a.tabId || this.tabHost.getActiveTabId();
-            const rawZoom = a.zoomFactor !== undefined ? a.zoomFactor : a.zoom;
-            if (rawZoom === undefined || rawZoom === null) {
-              return { isError: true, content: [{ type: 'text', text: 'zoomFactor is required' }] };
-            }
-            const zoomVal = typeof rawZoom === 'number' ? rawZoom : Number(rawZoom);
-            if (!Number.isFinite(zoomVal) || zoomVal < 0.25 || zoomVal > 5.0) {
-              return { isError: true, content: [{ type: 'text', text: 'zoomFactor must be a number between 0.25 and 5.0' }] };
-            }
-            const ok = this.tabHost.setZoom ? this.tabHost.setZoom(tabId, zoomVal) : false;
-            return { content: [{ type: 'text', text: resultText({ success: ok, zoomFactor: zoomVal }) }] };
-          }
-
-          case 'antifan_eval_js': {
-            if (!this.isHighRiskAllowed) {
-              return { isError: true, content: [{ type: 'text', text: 'High risk tool eval_js is disabled' }] };
-            }
-            requireTab();
-            const result = await this.tabHost.evalJs(a.expression, a.tabId, a.paneId);
-            return { content: [{ type: 'text', text: JSON.stringify(result) }] };
-          }
-          default:
-            return { isError: true, content: [{ type: 'text', text: `Unknown tool: ${name}` }] };
-      }
-      } catch (err: unknown) {
-        const errorMsg = err instanceof Error ? err.message : String(err);
-        return { isError: true, content: [{ type: 'text', text: `Tool error: ${errorMsg}` }] };
-      }
+      return { content: [{ type: 'text', text: JSON.stringify(result.data) }] };
+    }
+    return { isError: true, content: [{ type: 'text', text: JSON.stringify(result.error) }] };
   }
 
   public async start(): Promise<void> {
@@ -798,26 +524,24 @@ function agentCapabilitySucceeded(name: string, data: unknown): boolean {
 }
 
 export function buildMcpToolList(staticTools: Tool[], transport?: CapabilityTransportAdapter, isHighRiskAllowed = false): Tool[] {
-  let listed: Tool[] = [];
-  if (transport) {
-    const grants: Array<'read' | 'write' | 'eval'> = ['read', 'write'];
-    if (isHighRiskAllowed) grants.push('eval');
-    const toolMap = new Map<string, Tool>();
-    for (const grant of grants) {
-      for (const item of transport.list({ grant })) {
-        if (!toolMap.has(item.name)) {
-          toolMap.set(item.name, {
-            name: item.name,
-            description: item.description,
-            inputSchema: item.inputSchema as Tool['inputSchema'],
-          });
-        }
+  if (!transport) {
+    return [];
+  }
+  const grants: Array<'read' | 'write' | 'eval'> = ['read', 'write'];
+  if (isHighRiskAllowed) grants.push('eval');
+  const toolMap = new Map<string, Tool>();
+  for (const grant of grants) {
+    for (const item of transport.list({ grant })) {
+      if (!toolMap.has(item.name)) {
+        toolMap.set(item.name, {
+          name: item.name,
+          description: item.description,
+          inputSchema: item.inputSchema as Tool['inputSchema'],
+        });
       }
     }
-    listed = Array.from(toolMap.values());
-  } else {
-    listed = staticTools;
   }
+  const listed = Array.from(toolMap.values());
   const aliases = listed.filter((item) => item.name.startsWith('antifan_')).flatMap((item) => {
     const generated: Tool[] = [];
     if (item.name === 'antifan_open_tab') generated.push({ ...item, name: 'anti.browser.tabs.create' });

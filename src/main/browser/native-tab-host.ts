@@ -1459,15 +1459,33 @@ export class NativeTabHost extends EventEmitter {
       }
 
       const decision = this.splitCoordinator.handleNavigationEvent(id, paneId, cleanUrl, false);
-      if (decision.shouldMirror && decision.mirrorUrl && state.splitMode) {
+      if (decision.shouldMirror && state.splitMode) {
         const tab = this.tabs.get(id);
         const siblingView = decision.targetPane === 'mobile' ? tab?.mobileView : tab?.view;
         if (siblingView && !siblingView.webContents.isDestroyed()) {
           this.splitCoordinator.markMirrorStarted(id);
-          siblingView.webContents.loadURL(decision.mirrorUrl).catch(() => {});
+          if (decision.historyDirection === 'back') {
+            const sibNav = (siblingView.webContents as any).navigationHistory;
+            if (sibNav && sibNav.canGoBack()) {
+              sibNav.goBack();
+            } else if (siblingView.webContents.canGoBack && siblingView.webContents.canGoBack()) {
+              siblingView.webContents.goBack();
+            }
+          } else if (decision.historyDirection === 'forward') {
+            const sibNav = (siblingView.webContents as any).navigationHistory;
+            if (sibNav && sibNav.canGoForward()) {
+              sibNav.goForward();
+            } else if (siblingView.webContents.canGoForward && siblingView.webContents.canGoForward()) {
+              siblingView.webContents.goForward();
+            }
+          } else if (decision.mirrorUrl) {
+            const siblingUrl = cleanRestoredUrl(siblingView.webContents.getURL());
+            if (siblingUrl !== decision.mirrorUrl) {
+              siblingView.webContents.loadURL(decision.mirrorUrl).catch(() => {});
+            }
+          }
         }
       }
-
       const nav = (wc as any).navigationHistory;
       state.canGoBack = nav ? nav.canGoBack() : (wc.canGoBack ? wc.canGoBack() : false);
       state.canGoForward = nav ? nav.canGoForward() : (wc.canGoForward ? wc.canGoForward() : false);
@@ -1489,15 +1507,33 @@ export class NativeTabHost extends EventEmitter {
         }
 
         const decision = this.splitCoordinator.handleNavigationEvent(id, paneId, cleanUrl, true);
-        if (decision.shouldMirror && decision.mirrorUrl && state.splitMode) {
+        if (decision.shouldMirror && state.splitMode) {
           const tab = this.tabs.get(id);
           const siblingView = decision.targetPane === 'mobile' ? tab?.mobileView : tab?.view;
           if (siblingView && !siblingView.webContents.isDestroyed()) {
             this.splitCoordinator.markMirrorStarted(id);
-            siblingView.webContents.loadURL(decision.mirrorUrl).catch(() => {});
+            if (decision.historyDirection === 'back') {
+              const sibNav = (siblingView.webContents as any).navigationHistory;
+              if (sibNav && sibNav.canGoBack()) {
+                sibNav.goBack();
+              } else if (siblingView.webContents.canGoBack && siblingView.webContents.canGoBack()) {
+                siblingView.webContents.goBack();
+              }
+            } else if (decision.historyDirection === 'forward') {
+              const sibNav = (siblingView.webContents as any).navigationHistory;
+              if (sibNav && sibNav.canGoForward()) {
+                sibNav.goForward();
+              } else if (siblingView.webContents.canGoForward && siblingView.webContents.canGoForward()) {
+                siblingView.webContents.goForward();
+              }
+            } else if (decision.mirrorUrl) {
+              const siblingUrl = cleanRestoredUrl(siblingView.webContents.getURL());
+              if (siblingUrl !== decision.mirrorUrl) {
+                siblingView.webContents.loadURL(decision.mirrorUrl).catch(() => {});
+              }
+            }
           }
         }
-
         const nav = (wc as any).navigationHistory;
         state.canGoBack = nav ? nav.canGoBack() : (wc.canGoBack ? wc.canGoBack() : false);
         state.canGoForward = nav ? nav.canGoForward() : (wc.canGoForward ? wc.canGoForward() : false);
@@ -1908,16 +1944,18 @@ export class NativeTabHost extends EventEmitter {
     if (tab.state.splitMode && tab.mobileView && !tab.mobileView.webContents.isDestroyed()) {
       const authorityPane = tab.focusedPane || tab.state.splitFocusedPane || 'desktop';
       const authorityView = authorityPane === 'mobile' ? tab.mobileView : tab.view;
-      const wc = authorityView.webContents;
-      const nav = (wc as any).navigationHistory;
-      if (nav && nav.canGoBack()) {
-        nav.goBack();
-        return true;
-      } else if (wc.canGoBack && wc.canGoBack()) {
-        wc.goBack();
-        return true;
+
+      const authNav = (authorityView.webContents as any).navigationHistory;
+      const canAuthBack = authNav ? authNav.canGoBack() : (authorityView.webContents.canGoBack ? authorityView.webContents.canGoBack() : false);
+      if (!canAuthBack) return false;
+
+      this.splitCoordinator.startHistoryTransaction(tabId, authorityPane, 'back');
+      if (authNav) {
+        authNav.goBack();
+      } else {
+        authorityView.webContents.goBack();
       }
-      return false;
+      return true;
     }
 
     const wc = tab.view.webContents;
@@ -1939,16 +1977,18 @@ export class NativeTabHost extends EventEmitter {
     if (tab.state.splitMode && tab.mobileView && !tab.mobileView.webContents.isDestroyed()) {
       const authorityPane = tab.focusedPane || tab.state.splitFocusedPane || 'desktop';
       const authorityView = authorityPane === 'mobile' ? tab.mobileView : tab.view;
-      const wc = authorityView.webContents;
-      const nav = (wc as any).navigationHistory;
-      if (nav && nav.canGoForward()) {
-        nav.goForward();
-        return true;
-      } else if (wc.canGoForward && wc.canGoForward()) {
-        wc.goForward();
-        return true;
+
+      const authNav = (authorityView.webContents as any).navigationHistory;
+      const canAuthFwd = authNav ? authNav.canGoForward() : (authorityView.webContents.canGoForward ? authorityView.webContents.canGoForward() : false);
+      if (!canAuthFwd) return false;
+
+      this.splitCoordinator.startHistoryTransaction(tabId, authorityPane, 'forward');
+      if (authNav) {
+        authNav.goForward();
+      } else {
+        authorityView.webContents.goForward();
       }
-      return false;
+      return true;
     }
 
     const wc = tab.view.webContents;
@@ -2487,6 +2527,10 @@ export class NativeTabHost extends EventEmitter {
     return this.isInspecting;
   }
 
+  public isInspectActive(): boolean {
+    return this.isInspecting;
+  }
+
   public startInspect(): void {
     const active = this.tabs.get(this.activeTabId);
     if (!active) return;
@@ -2542,23 +2586,32 @@ export class NativeTabHost extends EventEmitter {
           }
 
           let targetImageBase64: string | undefined;
-          if (rawResult.clientRect && rawResult.clientRect.width > 0 && rawResult.clientRect.height > 0) {
-            try {
-              const rect: Rectangle = {
-                x: Math.max(0, Math.floor(rawResult.clientRect.x)),
-                y: Math.max(0, Math.floor(rawResult.clientRect.y)),
-                width: Math.min(2500, Math.ceil(rawResult.clientRect.width)),
-                height: Math.min(2500, Math.ceil(rawResult.clientRect.height)),
-              };
-              const image = await targetWc.capturePage(rect);
-            } catch {}
-          }
-
           let viewportImageBase64: string | undefined;
-          try {
-            const vpImg = await targetWc.capturePage();
-          } catch {}
 
+          try {
+            const fullImage = await targetWc.capturePage();
+            if (!fullImage.isEmpty()) {
+              viewportImageBase64 = fullImage.toPNG().toString('base64');
+              const imgSize = fullImage.getSize();
+              if (rawResult.clientRect && rawResult.clientRect.width > 0 && rawResult.clientRect.height > 0 && imgSize.width > 0 && imgSize.height > 0) {
+                const domSize = await targetWc.executeJavaScript('({ w: window.innerWidth, h: window.innerHeight })').catch(() => null);
+                const scaleX = (domSize && typeof domSize.w === 'number' && domSize.w > 0) ? (imgSize.width / domSize.w) : 1.0;
+                const scaleY = (domSize && typeof domSize.h === 'number' && domSize.h > 0) ? (imgSize.height / domSize.h) : 1.0;
+
+                const cropX = Math.max(0, Math.min(imgSize.width - 1, Math.floor(rawResult.clientRect.x * scaleX)));
+                const cropY = Math.max(0, Math.min(imgSize.height - 1, Math.floor(rawResult.clientRect.y * scaleY)));
+                const cropW = Math.max(1, Math.min(imgSize.width - cropX, Math.ceil(rawResult.clientRect.width * scaleX)));
+                const cropH = Math.max(1, Math.min(imgSize.height - cropY, Math.ceil(rawResult.clientRect.height * scaleY)));
+
+                const cropped = fullImage.crop({ x: cropX, y: cropY, width: cropW, height: cropH });
+                if (!cropped.isEmpty()) {
+                  targetImageBase64 = cropped.toPNG().toString('base64');
+                }
+              }
+            }
+          } catch (err) {
+            console.error('[native-tab-host] capture and crop error:', err);
+          }
           const activeTab = this.tabs.get(this.activeTabId);
           const targetSessionId = rawResult.targetSessionId || (this.transcriptSyncer.getActiveSessionId() !== 'auto'
             ? this.transcriptSyncer.getActiveSessionId()
