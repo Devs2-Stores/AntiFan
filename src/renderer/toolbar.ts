@@ -28,7 +28,7 @@ interface AntiFanTab {
   splitFocusedPane?: 'desktop' | 'mobile';
   splitError?: string;
 }
-interface ThemeQaState { status: 'idle' | 'running' | 'pass' | 'fail' | 'error'; issueCount: number; reportArtifactId?: string; error?: string; updatedAt: number; }
+interface ThemeQaState { status: 'idle' | 'running' | 'pass' | 'fail' | 'error'; issueCount: number; reportArtifactId?: string; report?: Record<string, unknown>; error?: string; updatedAt: number; }
 interface AntiFanToolbarApi {
   getInitialState: () => Promise<any>;
   createTab: (url?: string) => Promise<string>;
@@ -116,9 +116,13 @@ function showToolbarToast(message: string, duration = 2500) {
     toast.style.display = 'none';
   }, duration);
 }
-function renderThemeQa(state: ThemeQaState, report?: any) {
+function renderThemeQa(state: ThemeQaState, report?: Record<string, unknown>) {
   themeQaState = state;
-  if (report) lastThemeQaReport = report;
+  if (report) {
+    lastThemeQaReport = report;
+  } else if (state.report) {
+    lastThemeQaReport = state.report;
+  }
   if (!btnThemeQa || !themeQaText) return;
   btnThemeQa.classList.remove('status-pass', 'status-fail');
   if (state.status === 'running') {
@@ -143,18 +147,33 @@ function renderThemeQa(state: ThemeQaState, report?: any) {
 }
 function openThemeQaSummary() {
   if (!themeQaOverlay || !themeQaSummary) return;
-  const findings = lastThemeQaReport?.findings;
+  const report = (lastThemeQaReport || themeQaState.report) as Record<string, unknown> | undefined;
+  const findings = report?.findings as Record<string, unknown> | undefined;
+  const summary = report?.summary as Record<string, unknown> | undefined;
+  const platform = findings?.platform as Record<string, unknown> | undefined;
+  const liquid = findings?.liquid as { errors?: Array<{ message?: string }> } | undefined;
+  const overflow = findings?.overflow as { culprits?: Array<{ selector?: string }> } | undefined;
+  const assets = findings?.assets as { brokenAssets?: Array<{ url?: string; src?: string }> } | undefined;
+  const hsRules = findings?.hsRules as { totalViolations?: number; violations?: Array<{ ruleId?: string; message?: string }> } | undefined;
+  const diagnosticIssues = findings?.diagnosticIssues as Array<{ kind?: string; message?: string; origin?: string }> | undefined;
+  const diagnosticWarnings = findings?.diagnosticWarnings as Array<{ kind?: string; message?: string; origin?: string }> | undefined;
+
   const lines = findings ? [
-    `Platform: ${findings.platform?.platform || 'unknown'}`,
-    `Liquid errors: ${findings.liquid?.errors?.length || 0}`,
-    `Layout overflow culprits: ${findings.overflow?.culprits?.length || 0}`,
-    `Broken assets: ${findings.assets?.brokenAssets?.length || 0}`,
-    `HS violations: ${findings.hsRules?.totalViolations || 0}`,
+    `Platform: ${platform?.platform || 'unknown'}`,
+    `Result: ${summary?.passed ? 'PASSED' : 'FAILED'} (Critical: ${summary?.criticalCount ?? liquid?.errors?.length ?? 0}, Total: ${summary?.totalIssues ?? 0})`,
+    `Liquid errors: ${liquid?.errors?.length || 0}`,
+    `Layout overflow culprits: ${overflow?.culprits?.length || 0}`,
+    `Broken assets: ${assets?.brokenAssets?.length || 0}`,
+    `HS violations: ${hsRules?.totalViolations || 0}`,
+    `Diagnostic issues (critical): ${diagnosticIssues?.length || 0}`,
+    `Diagnostic warnings: ${diagnosticWarnings?.length || 0}`,
     '',
-    ...(findings.liquid?.errors || []).map((item: any) => `Liquid: ${item.message}`),
-    ...(findings.overflow?.culprits || []).map((item: any) => `Overflow: ${item.selector || 'unknown element'}`),
-    ...(findings.assets?.brokenAssets || []).map((item: any) => `Asset: ${item.url || item.src || 'unknown asset'}`),
-    ...(findings.hsRules?.violations || []).map((item: any) => `${item.ruleId}: ${item.message}`),
+    ...(liquid?.errors || []).map((item) => `[Liquid] ${item.message || 'unknown error'}`),
+    ...(overflow?.culprits || []).map((item) => `[Overflow] ${item.selector || 'unknown element'}`),
+    ...(assets?.brokenAssets || []).map((item) => `[Asset] ${item.url || item.src || 'unknown asset'}`),
+    ...(hsRules?.violations || []).map((item) => `[HS] ${item.ruleId || 'rule'}: ${item.message || ''}`),
+    ...(diagnosticIssues || []).map((item) => `[Diagnostics Critical] [${item.kind || 'issue'}] ${item.message || ''}${item.origin ? ` (${item.origin})` : ''}`),
+    ...(diagnosticWarnings || []).map((item) => `[Diagnostics Warning] [${item.kind || 'warning'}] ${item.message || ''}${item.origin ? ` (${item.origin})` : ''}`),
   ] : [themeQaState.error || 'No validation has been run.'];
   themeQaSummary.textContent = lines.join('\n');
   themeQaOverlay.style.display = 'flex';
@@ -1129,16 +1148,34 @@ if (btnZoomOutPop) {
 // Tools
 if (btnThemeQa) {
   btnThemeQa.addEventListener('click', async () => {
-    if (themeQaState.status === 'pass' || themeQaState.status === 'fail' || themeQaState.status === 'error') {
+    const report = lastThemeQaReport || themeQaState.report;
+    if (report && (themeQaState.status === 'pass' || themeQaState.status === 'fail' || themeQaState.status === 'error')) {
       openThemeQaSummary();
       return;
     }
-    showToolbarToast('Theme QA: Validating Storefront...');
+    showToolbarToast('Theme QA: Validating Storefront…');
     const result = await getApi()?.runThemeQa();
-    if (result?.report) renderThemeQa(themeQaState, result.report);
-    if (result && !result.ok) showToolbarToast(`Theme QA: ${result.error || 'validation failed'}`);
+    if (result?.report) {
+      lastThemeQaReport = result.report;
+      renderThemeQa({ ...themeQaState, report: result.report }, result.report);
+      openThemeQaSummary();
+    } else if (result && !result.ok) {
+      showToolbarToast(`Theme QA: ${result.error || 'validation failed'}`);
+    }
   });
 }
+const btnThemeQaRerun = document.getElementById('btnThemeQaRerun') as HTMLButtonElement | null;
+btnThemeQaRerun?.addEventListener('click', async () => {
+  showToolbarToast('Theme QA: Re-validating Storefront…');
+  const result = await getApi()?.runThemeQa();
+  if (result?.report) {
+    lastThemeQaReport = result.report;
+    renderThemeQa({ ...themeQaState, report: result.report }, result.report);
+    openThemeQaSummary();
+  } else if (result && !result.ok) {
+    showToolbarToast(`Theme QA: ${result.error || 'validation failed'}`);
+  }
+});
 themeQaClose?.addEventListener('click', () => { if (themeQaOverlay) themeQaOverlay.style.display = 'none'; getApi()?.setOverlay(false); });
 themeQaOverlay?.addEventListener('click', (event) => { if (event.target === themeQaOverlay) { themeQaOverlay.style.display = 'none'; getApi()?.setOverlay(false); } });
 if (btnQuickInspect) btnQuickInspect.addEventListener('click', () => getApi()?.toggleInspect());

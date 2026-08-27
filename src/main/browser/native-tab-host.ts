@@ -191,7 +191,7 @@ export class NativeTabHost extends EventEmitter {
   private tabPreviewUnsubscribers: Map<string, () => void> = new Map();
   private recentlyClosedTabs: Array<{ url: string; title: string }> = [];
   private automationTabId: string | null = null;
-  private themeQaState: { status: 'idle' | 'running' | 'pass' | 'fail' | 'error'; issueCount: number; reportArtifactId?: string; error?: string; updatedAt: number } = { status: 'idle', issueCount: 0, updatedAt: Date.now() };
+  private themeQaState: { status: 'idle' | 'running' | 'pass' | 'fail' | 'error'; issueCount: number; reportArtifactId?: string; report?: unknown; error?: string; updatedAt: number } = { status: 'idle', issueCount: 0, updatedAt: Date.now() };
 
   private isInspecting: boolean = false;
   private inspectedTabId: string | null = null;
@@ -4164,10 +4164,21 @@ export class NativeTabHost extends EventEmitter {
     this.broadcastState();
     try {
       const report = await this.controlPlane.validateThemeQa(target, { workspaceRoot });
+      const summary = report.summary;
       const findings = report.findings;
-      const issueCount = findings ? findings.liquid.errors.length + findings.overflow.culprits.length + findings.assets.brokenAssets.length + findings.hsRules.totalViolations : 0;
-      const reportArtifactId = report.artifacts.find((item) => item.kind === 'report')?.id;
-      this.themeQaState = { status: issueCount === 0 ? 'pass' : 'fail', issueCount, reportArtifactId, updatedAt: Date.now() };
+      const issueCount = typeof summary?.criticalCount === 'number'
+        ? summary.criticalCount
+        : (findings ? (
+            (findings.liquid?.errors?.length || 0) +
+            (findings.overflow?.culprits?.length || 0) +
+            (findings.assets?.brokenAssets?.length || 0) +
+            (findings.hsRules?.totalViolations || 0) +
+            (findings.diagnosticIssues?.length || 0)
+          ) : 0);
+      const isPassed = typeof summary?.passed === 'boolean' ? summary.passed : issueCount === 0;
+      const status: 'pass' | 'fail' = isPassed ? 'pass' : 'fail';
+      const reportArtifactId = report.artifacts?.find((item: { kind?: string; id?: string }) => item.kind === 'report')?.id;
+      this.themeQaState = { status, issueCount, reportArtifactId, report, updatedAt: Date.now() };
       this.broadcastState();
       return { ok: true, report };
     } catch (error) {

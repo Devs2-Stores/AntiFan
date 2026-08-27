@@ -418,7 +418,10 @@
       <div class="theme-qa-modal" role="dialog" aria-modal="true" aria-labelledby="themeQaModalTitle">
         <div class="theme-qa-modal-header">
           <strong id="themeQaModalTitle">Theme QA Summary</strong>
-          <button class="shortcuts-close" id="themeQaClose" aria-label="Close Theme QA summary">&times;</button>
+          <div style="display:flex;align-items:center;gap:8px;">
+            <button id="btnThemeQaRerun" class="btn-theme-qa" style="padding:2px 8px;font-size:11px;" title="Re-run QA Validation">🔄 Re-run</button>
+            <button class="shortcuts-close" id="themeQaClose" aria-label="Close Theme QA summary">&times;</button>
+          </div>
         </div>
         <div class="theme-qa-modal-body" id="themeQaSummary">No validation has been run.</div>
       </div>
