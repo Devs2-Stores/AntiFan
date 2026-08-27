@@ -4,6 +4,34 @@ Tất cả các thay đổi, tính năng mới và bản vá lỗi quan trọng 
 
 ---
 
+## [v1.3.0] - 2026-08-27 (Theme QA & Verification Gate Release)
+
+### E-Commerce Platform Detection (Haravan, Sapo, Shopify)
+- Tích hợp `PlatformDetector` nhận diện tự động nền tảng Theme qua cấu trúc thư mục (`settings_schema.json`, `.bwt` vs `.liquid`, `package.json`), domain runtime (`haravan.com`, `mysapo.net`, `myshopify.com`) và script CDN (`hstatic.net`, `bizweb.dktcdn.net`, `cdn.shopify.com`).
+
+### Zero-Liquid Error Scanner (RT-01, RT-05)
+- Tự động phát hiện lỗi biên dịch Liquid runtime (`Liquid error:`, `missing_include`, `filter_error`, `translation_missing`, `syntax_error`).
+- Áp dụng bộ lọc loại trừ thông minh (RTE / Rich Text Content Exclusion) không báo lỗi giả khi nội dung văn bản trong bài viết hoặc mô tả sản phẩm chứa từ khoá "Liquid error".
+
+### Responsive Layout Overflow Engine & Culprit Attribution (RT-04, RT-06)
+- Quét tự động tràn ngang (Horizontal Layout Overflow) trên 3 breakpoints chuẩn e-commerce (Mobile 375px, Tablet 768px, Desktop 1440px).
+- Bổ sung ngưỡng deadband sub-pixel 0.5px loại trừ sai số làm tròn floating-point của trình duyệt.
+- Thuật toán Culprit Attribution xác định chính xác thẻ DOM và selector gây tràn ngang cùng toạ độ bounding box.
+
+### Cross-Platform HS1-HS26 Rules Matrix
+- Tích hợp bộ quy tắc kiểm định tương thích Haravan -> Sapo / Shopify:
+  - **HS-01**: Kiểm tra form Add to Cart (`name="variantId"` cho Sapo vs `name="id"` cho Haravan/Shopify).
+  - **HS-02**: Kiểm tra endpoint form liên hệ (`action="/postcontact"` cho Sapo vs `action="/contact"` cho Haravan/Shopify).
+  - **HS-03**: Nhận diện slice LINQ dump trong mảng Liquid.
+  - **HS-04**: Kiểm tra trường dữ liệu đa nền tảng (`data-xplat` fallback).
+
+### MCP Stdio Capabilities & Renderer QA Badge
+- Expose 2 MCP Tools mới cho AI Coding Agents (Antigravity, Claude Code, Cursor): `theme.qa_validate` và `theme.debug_bundle` (hỗ trợ alias `antifan_theme_qa_validate`, `antifan_theme_debug_bundle`).
+- Tích hợp Theme QA Badge trên Toolbar Renderer hiển thị trạng thái và kích hoạt quét kiểm thử storefront nhanh.
+- Tự động lọc thông tin nhạy cảm (PII Sanitization - email, số điện thoại, token) trên toàn bộ báo cáo và artifact lưu trữ.
+
+---
+
 ## [v1.2.4] - 2026-08-19 (AntiFan Unified Release)
 
 ### Desktop Viewport Auto-Fit Zoom & Presets

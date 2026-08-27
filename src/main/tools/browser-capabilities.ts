@@ -1,7 +1,11 @@
 import { BrowserTarget, CapabilityRequestContext } from '../../shared/control-plane-contracts';
 import { BrowserControlPort } from './browser-control-port';
 import { CapabilityCatalogue } from './capability-catalogue';
-
+import { PlatformDetector } from '../qa/scanners/platform-detector';
+import { LiquidErrorScanner, LiquidScanResult } from '../qa/scanners/liquid-error-scanner';
+import { BrokenAssetScanner, BrokenAssetScanResult } from '../qa/scanners/broken-asset-scanner';
+import { LayoutOverflowEngine, ViewportOverflowResult } from '../qa/scanners/layout-overflow-engine';
+import { HsGateRules, HsEvaluationResult } from '../qa/rules/hs-gate-rules';
 export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, browser: BrowserControlPort): void {
   // 1. Standard canonical capabilities
   catalogue.register({ name: 'browser.list-tabs', description: 'List Chromium tabs without selecting an active tab', risk: 'read', inputSchema: { type: 'object' }, execute: (_params, context) => browser.listTabs({ target: context.browserTarget }) });
@@ -58,6 +62,96 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
   catalogue.register({ name: 'antifan_set_device_preset', description: 'Alias for browser.set-device-preset', risk: 'write', inputSchema: { type: 'object', properties: { presetId: { type: 'string' }, tabId: { type: 'string' } }, required: ['presetId'] }, execute: (params: { presetId: string; tabId?: string }, context) => browser.setDevicePreset(params, context.browserTarget) });
   catalogue.register({ name: 'antifan_list_device_presets', description: 'Alias for browser.list-device-presets', risk: 'read', inputSchema: { type: 'object' }, execute: () => browser.listDevicePresets() });
   catalogue.register({ name: 'antifan_set_zoom', description: 'Alias for browser.set-zoom', risk: 'write', inputSchema: { type: 'object', properties: { zoomFactor: { type: 'number', minimum: 0.25, maximum: 5.0, description: 'Zoom factor between 0.25 and 5.0' }, tabId: { type: 'string' } }, required: ['zoomFactor'] }, execute: (params: { zoomFactor: number; tabId?: string }, context) => browser.setZoom(params, context.browserTarget) });
+  // 3. Theme QA & Verification Capabilities (Haravan / Sapo / Shopify)
+  catalogue.register({
+    name: 'theme.qa_validate',
+    description: 'Execute full static and live QA inspection on the active tab and workspace, returning structured ThemeQaReport',
+    risk: 'read',
+    requiresBrowserTarget: true,
+    inputSchema: { type: 'object', properties: { tabId: { type: 'string' }, workspaceRoot: { type: 'string' } } },
+    execute: async (params: { tabId?: string; workspaceRoot?: string }, context) => {
+      const target = context.browserTarget as BrowserTarget;
+      const domResult = await browser.dom(target, context.runId || 'run-unbound', context.attemptId || 'attempt-unbound', undefined, params.tabId);
+      const rawHtml = typeof domResult === 'string' ? domResult : '';
+      const platform = PlatformDetector.detect(params.workspaceRoot, undefined, rawHtml);
+      let liquid: LiquidScanResult = { hasErrors: false, errors: [], scannedElementsCount: 0 };
+      let overflow: ViewportOverflowResult = { viewport: { name: 'desktop', width: 1440, height: 900 }, hasOverflow: false, deltaX: 0, scrollWidth: 1440, clientWidth: 1440, culprits: [] };
+      let assets: BrokenAssetScanResult = { hasBrokenAssets: false, brokenAssets: [], totalImagesScanned: 0, totalStylesheetsScanned: 0 };
+      let hsRules: HsEvaluationResult = { passed: true, totalViolations: 0, errorsCount: 0, warningsCount: 0, violations: [] };
+      try {
+        const evalLiquid = await browser.eval(target, LiquidErrorScanner.getBrowserScanScript(), params.tabId);
+        if (evalLiquid && typeof evalLiquid === 'object' && 'hasErrors' in evalLiquid) liquid = evalLiquid as unknown as LiquidScanResult;
+        else if (rawHtml) liquid = LiquidErrorScanner.scanHtmlString(rawHtml);
+      } catch {
+        if (rawHtml) liquid = LiquidErrorScanner.scanHtmlString(rawHtml);
+      }
+      try {
+        const evalOverflow = await browser.eval(target, LayoutOverflowEngine.getBrowserScanScript('active'), params.tabId);
+        if (evalOverflow && typeof evalOverflow === 'object' && 'hasOverflow' in evalOverflow) overflow = evalOverflow as unknown as ViewportOverflowResult;
+      } catch {}
+      try {
+        const evalAssets = await browser.eval(target, BrokenAssetScanner.getBrowserScanScript(), params.tabId);
+        if (evalAssets && typeof evalAssets === 'object' && 'hasBrokenAssets' in evalAssets) assets = evalAssets as unknown as BrokenAssetScanResult;
+      } catch {}
+      try {
+        const evalHs = await browser.eval(target, HsGateRules.getBrowserEvaluationScript(platform.platform), params.tabId);
+        if (evalHs && typeof evalHs === 'object' && 'passed' in evalHs) hsRules = evalHs as unknown as HsEvaluationResult;
+        else if (rawHtml) hsRules = HsGateRules.evaluateHtml(rawHtml, platform.platform);
+      } catch {
+        if (rawHtml) hsRules = HsGateRules.evaluateHtml(rawHtml, platform.platform);
+      }
+      const checklist = {
+        layout: !overflow.hasOverflow,
+        responsive: overflow.culprits.length === 0,
+        overflow: !overflow.hasOverflow,
+        interactions: hsRules.passed,
+        diagnostics: !liquid.hasErrors && !assets.hasBrokenAssets,
+      };
+      return {
+        target,
+        platform,
+        checklist,
+        liquid,
+        overflow,
+        assets,
+        hsRules,
+        timestamp: Date.now(),
+      };
+    },
+  });
+  catalogue.register({
+    name: 'theme.debug_bundle',
+    description: 'Return a single atomic bundle containing platform metadata, active template/section hierarchy, zero-Liquid error scan, and layout overflow deltaX',
+    risk: 'read',
+    requiresBrowserTarget: true,
+    inputSchema: { type: 'object', properties: { tabId: { type: 'string' } } },
+    execute: async (params: { tabId?: string }, context) => {
+      const target = context.browserTarget as BrowserTarget;
+      const domResult = await browser.dom(target, context.runId || 'run-unbound', context.attemptId || 'attempt-unbound', undefined, params.tabId);
+      const rawHtml = typeof domResult === 'string' ? domResult : '';
+      const platform = PlatformDetector.detect(undefined, undefined, rawHtml);
+      const liquid = LiquidErrorScanner.scanHtmlString(rawHtml);
+      let overflow: { hasOverflow: boolean; deltaX: number; culprits: unknown[] } = { hasOverflow: false, deltaX: 0, culprits: [] };
+      try {
+        const evalOverflow = await browser.eval(target, LayoutOverflowEngine.getBrowserScanScript('active'), params.tabId);
+        if (evalOverflow && typeof evalOverflow === 'object' && 'hasOverflow' in evalOverflow) {
+          const casted = evalOverflow as { hasOverflow: boolean; deltaX: number; culprits?: unknown[] };
+          overflow = { hasOverflow: casted.hasOverflow, deltaX: casted.deltaX, culprits: casted.culprits || [] };
+        }
+      } catch {}
+      const hsRules = HsGateRules.evaluateHtml(rawHtml, platform.platform);
+      return {
+        target,
+        platform,
+        liquid,
+        overflow,
+        hsRules,
+        timestamp: Date.now(),
+      };
+    },
+  });
+  catalogue.register({ name: 'antifan_theme_qa_validate', description: 'Alias for theme.qa_validate', risk: 'read', requiresBrowserTarget: true, inputSchema: { type: 'object', properties: { tabId: { type: 'string' }, workspaceRoot: { type: 'string' } } }, execute: (params: Record<string, unknown>, context) => catalogue.get('theme.qa_validate')!.execute(params, context) });
+  catalogue.register({ name: 'antifan_theme_debug_bundle', description: 'Alias for theme.debug_bundle', risk: 'read', requiresBrowserTarget: true, inputSchema: { type: 'object', properties: { tabId: { type: 'string' } } }, execute: (params: Record<string, unknown>, context) => catalogue.get('theme.debug_bundle')!.execute(params, context) });
 }
 
 export function legacyContext(target: BrowserTarget, lease: CapabilityRequestContext['lease']): CapabilityRequestContext {

@@ -25,6 +25,7 @@
     "verify": "npm run typecheck && npm test",
     "package": "npm run compile && node scripts/package-windows.mjs",
     "smoke:split": "node scripts/run-electron.cjs scripts/smoke-split-review.cjs",
+    "smoke:theme-qa": "npm run compile && node scripts/smoke-theme-qa-gate.cjs",
     "benchmark:artifacts": "node scripts/benchmark-antigravity-artifacts.mjs",
     "icon": "python scripts/generate-icon.py",
     "install:shortcut": "node scripts/install-windows-shortcut.mjs"

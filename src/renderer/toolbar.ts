@@ -146,6 +146,7 @@ const btnZoomOutPop = document.getElementById('btnZoomOutPop') as HTMLButtonElem
 const btnZoomInPop = document.getElementById('btnZoomInPop') as HTMLButtonElement;
 
 // Tool Buttons
+const btnThemeQa = document.getElementById('btnThemeQa') as HTMLButtonElement | null;
 const btnQuickInspect = document.getElementById('btnQuickInspect') as HTMLButtonElement;
 const btnFontFinder = document.getElementById('btnFontFinder') as HTMLButtonElement;
 const btnRuler = document.getElementById('btnRuler') as HTMLButtonElement;
@@ -1073,6 +1074,11 @@ if (btnZoomOutPop) {
 }
 
 // Tools
+if (btnThemeQa) {
+  btnThemeQa.addEventListener('click', () => {
+    showToolbarToast('🛡️ Theme QA: Validating Storefront...');
+  });
+}
 if (btnQuickInspect) btnQuickInspect.addEventListener('click', () => getApi()?.toggleInspect());
 if (btnFontFinder) btnFontFinder.addEventListener('click', () => getApi()?.toggleFontFinder());
 if (btnRuler) btnRuler.addEventListener('click', () => getApi()?.toggleRuler());

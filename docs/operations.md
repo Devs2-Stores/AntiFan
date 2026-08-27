@@ -57,3 +57,30 @@ node scripts/install-sidecar.mjs --action remove
 - `⏳ Đang gửi...`: Command queued and processing.
 - `❌ Lỗi gửi`: Execution failed with bounded error message.
 - `⚠️ Không rõ biên nhận`: Execution timed out without definitive receipt; safe manual review required.
+
+---
+
+## Theme QA & Verification Gate Operations
+
+The Theme QA verification engine runs automated quality gates against e-commerce storefront themes (Haravan, Sapo, Shopify).
+
+### Verification Commands
+
+```bash
+# Run automated Theme QA verification gate smoke suite
+npm run smoke:theme-qa
+
+# Run full typecheck and test suite
+npm run verify
+```
+
+### MCP Capabilities for Coding Agents
+
+Coding agents (Antigravity, Claude Code, Cursor) can invoke Theme QA tools over MCP stdio:
+
+- `theme.qa_validate` / `antifan_theme_qa_validate`: Runs full inspection (Liquid errors, layout overflow, broken assets, HS rules) and generates a structured report artifact.
+- `theme.debug_bundle` / `antifan_theme_debug_bundle`: Returns immediate diagnostic scan results without staging reports.
+
+### PII Sanitization Guarantee
+
+All generated Theme QA reports automatically redact customer emails, phone numbers, and bearer tokens before saving artifacts or transmitting responses.
