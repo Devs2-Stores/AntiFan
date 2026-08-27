@@ -28,6 +28,7 @@ interface AntiFanTab {
   splitFocusedPane?: 'desktop' | 'mobile';
   splitError?: string;
 }
+interface ThemeQaState { status: 'idle' | 'running' | 'pass' | 'fail' | 'error'; issueCount: number; reportArtifactId?: string; error?: string; updatedAt: number; }
 interface AntiFanToolbarApi {
   getInitialState: () => Promise<any>;
   createTab: (url?: string) => Promise<string>;
@@ -93,6 +94,8 @@ interface AntiFanToolbarApi {
   onShowShortcuts: (callback: () => void) => () => void;
   onFindResult: (callback: (result: any) => void) => () => void;
   onScreenshotCaptured?: (callback: () => void) => () => void;
+  runThemeQa: (options?: { workspaceRoot?: string }) => Promise<{ ok: boolean; report?: any; error?: string }>;
+  onThemeQaState: (callback: (state: ThemeQaState) => void) => () => void;
 }
 
 declare global {
@@ -113,6 +116,50 @@ function showToolbarToast(message: string, duration = 2500) {
     toast.style.display = 'none';
   }, duration);
 }
+function renderThemeQa(state: ThemeQaState, report?: any) {
+  themeQaState = state;
+  if (report) lastThemeQaReport = report;
+  if (!btnThemeQa || !themeQaText) return;
+  btnThemeQa.classList.remove('status-pass', 'status-fail');
+  if (state.status === 'running') {
+    themeQaText.textContent = 'Checking…';
+    btnThemeQa.disabled = true;
+  } else if (state.status === 'pass') {
+    themeQaText.textContent = 'QA Clean';
+    btnThemeQa.classList.add('status-pass');
+    btnThemeQa.disabled = false;
+  } else if (state.status === 'fail') {
+    themeQaText.textContent = `${state.issueCount} Issues`;
+    btnThemeQa.classList.add('status-fail');
+    btnThemeQa.disabled = false;
+  } else if (state.status === 'error') {
+    themeQaText.textContent = 'QA Error';
+    btnThemeQa.classList.add('status-fail');
+    btnThemeQa.disabled = false;
+  } else {
+    themeQaText.textContent = 'QA';
+    btnThemeQa.disabled = false;
+  }
+}
+function openThemeQaSummary() {
+  if (!themeQaOverlay || !themeQaSummary) return;
+  const findings = lastThemeQaReport?.findings;
+  const lines = findings ? [
+    `Platform: ${findings.platform?.platform || 'unknown'}`,
+    `Liquid errors: ${findings.liquid?.errors?.length || 0}`,
+    `Layout overflow culprits: ${findings.overflow?.culprits?.length || 0}`,
+    `Broken assets: ${findings.assets?.brokenAssets?.length || 0}`,
+    `HS violations: ${findings.hsRules?.totalViolations || 0}`,
+    '',
+    ...(findings.liquid?.errors || []).map((item: any) => `Liquid: ${item.message}`),
+    ...(findings.overflow?.culprits || []).map((item: any) => `Overflow: ${item.selector || 'unknown element'}`),
+    ...(findings.assets?.brokenAssets || []).map((item: any) => `Asset: ${item.url || item.src || 'unknown asset'}`),
+    ...(findings.hsRules?.violations || []).map((item: any) => `${item.ruleId}: ${item.message}`),
+  ] : [themeQaState.error || 'No validation has been run.'];
+  themeQaSummary.textContent = lines.join('\n');
+  themeQaOverlay.style.display = 'flex';
+  getApi()?.setOverlay(true);
+}
 
 let currentTabs: AntiFanTab[] = [];
 let currentBookmarks: Array<{ id: string; title: string; url: string }> = [];
@@ -121,6 +168,8 @@ let isInspecting = false;
 let isFontFinderActive = false;
 let isLensActive = false;
 let isRulerActive = false;
+let themeQaState: ThemeQaState = { status: 'idle', issueCount: 0, updatedAt: Date.now() };
+let lastThemeQaReport: any = null;
 const btnPopoutTerminal = document.getElementById('btnPopoutTerminal') as HTMLButtonElement | null;
 
 // DOM Elements
@@ -148,6 +197,10 @@ const btnZoomInPop = document.getElementById('btnZoomInPop') as HTMLButtonElemen
 // Tool Buttons
 const btnThemeQa = document.getElementById('btnThemeQa') as HTMLButtonElement | null;
 const btnQuickInspect = document.getElementById('btnQuickInspect') as HTMLButtonElement;
+const themeQaText = document.getElementById('themeQaText') as HTMLElement | null;
+const themeQaOverlay = document.getElementById('themeQaOverlay') as HTMLElement | null;
+const themeQaClose = document.getElementById('themeQaClose') as HTMLButtonElement | null;
+const themeQaSummary = document.getElementById('themeQaSummary') as HTMLElement | null;
 const btnFontFinder = document.getElementById('btnFontFinder') as HTMLButtonElement;
 const btnRuler = document.getElementById('btnRuler') as HTMLButtonElement;
 const btnCaptureFullPage = document.getElementById('btnCaptureFullPage') as HTMLButtonElement;
@@ -1075,10 +1128,19 @@ if (btnZoomOutPop) {
 
 // Tools
 if (btnThemeQa) {
-  btnThemeQa.addEventListener('click', () => {
-    showToolbarToast('🛡️ Theme QA: Validating Storefront...');
+  btnThemeQa.addEventListener('click', async () => {
+    if (themeQaState.status === 'pass' || themeQaState.status === 'fail' || themeQaState.status === 'error') {
+      openThemeQaSummary();
+      return;
+    }
+    showToolbarToast('Theme QA: Validating Storefront...');
+    const result = await getApi()?.runThemeQa();
+    if (result?.report) renderThemeQa(themeQaState, result.report);
+    if (result && !result.ok) showToolbarToast(`Theme QA: ${result.error || 'validation failed'}`);
   });
 }
+themeQaClose?.addEventListener('click', () => { if (themeQaOverlay) themeQaOverlay.style.display = 'none'; getApi()?.setOverlay(false); });
+themeQaOverlay?.addEventListener('click', (event) => { if (event.target === themeQaOverlay) { themeQaOverlay.style.display = 'none'; getApi()?.setOverlay(false); } });
 if (btnQuickInspect) btnQuickInspect.addEventListener('click', () => getApi()?.toggleInspect());
 if (btnFontFinder) btnFontFinder.addEventListener('click', () => getApi()?.toggleFontFinder());
 if (btnRuler) btnRuler.addEventListener('click', () => getApi()?.toggleRuler());
@@ -1845,6 +1907,7 @@ async function initToolbar() {
       isFontFinderActive = !!state.isFontFinderActive;
       isLensActive = !!state.isLensActive;
       isRulerActive = !!state.isRulerActive;
+      if (state.themeQa) renderThemeQa(state.themeQa);
       renderTabs();
       renderBookmarks();
       renderChromeProfiles();
@@ -1865,12 +1928,14 @@ async function initToolbar() {
       isFontFinderActive = !!state.isFontFinderActive;
       isLensActive = !!state.isLensActive;
       isRulerActive = !!state.isRulerActive;
-            renderTabs();
+      if (state.themeQa) renderThemeQa(state.themeQa);
+      renderTabs();
       renderBookmarks();
       renderChromeProfiles();
       updateControls();
     }
   });
+  api.onThemeQaState((state) => renderThemeQa(state));
 
   api.onFocusFind(() => {
     showFindBar();

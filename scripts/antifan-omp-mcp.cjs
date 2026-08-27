@@ -18,6 +18,9 @@ const definitions = [
   ['anti.agent.cursor.hover', 'Move visual Agent Cursor to hover over an element in live AntiFan Desktop tab.', { selector: { type: 'string' }, x: { type: 'number' }, y: { type: 'number' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } }],
   ['anti.agent.cursor.highlight', 'Highlight a DOM element with visual Agent Cursor overlay in live AntiFan Desktop tab.', { selector: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } }, ['selector']],
   ['anti.agent.cursor.clear', 'Clear all active Agent Cursor overlays in live AntiFan Desktop tab.', { paneId: { type: 'string', enum: ['desktop', 'mobile'] } }],
+  ['theme.qa_validate', 'Run the authoritative Theme QA verification workflow for the bound storefront tab and workspace.', { tabId: { type: 'string' }, workspaceRoot: { type: 'string' } }],
+  ['theme.debug_bundle', 'Return an atomic storefront diagnostic bundle with platform, Liquid, overflow, and HS findings.', { tabId: { type: 'string' } }],
+  ['theme.assert_cart', 'Inspect passive storefront cart contract telemetry without adding synthetic items.', { tabId: { type: 'string' } }],
 ];
 
 function getBootstrap() {
@@ -98,8 +101,10 @@ async function invoke(method, params = {}) {
       'anti.agent.cursor.type': 'browser.agent-type',
       'anti.agent.cursor.scroll': 'browser.agent-scroll',
       'anti.agent.cursor.hover': 'browser.agent-hover',
-      'anti.agent.cursor.highlight': 'browser.agent-highlight',
       'anti.agent.cursor.clear': 'browser.agent-clear',
+      'theme.qa_validate': 'theme.qa_validate',
+      'theme.debug_bundle': 'theme.debug_bundle',
+      'theme.assert_cart': 'theme.assert_cart',
     }[method] || method;
 
     return await call('tool', 'antifan.capability.dispatch', {

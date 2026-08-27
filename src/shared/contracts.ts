@@ -220,6 +220,8 @@ export interface BridgeEventPayload<T = unknown> {
 
 export const TOOLBAR_CHANNELS = {
   GET_INITIAL_STATE: 'antifan:toolbar:get-initial-state',
+  THEME_QA_RUN: 'antifan:toolbar:theme-qa-run',
+  THEME_QA_STATE: 'antifan:toolbar:theme-qa-state',
   CREATE_TAB: 'antifan:toolbar:create-tab',
   SWITCH_TAB: 'antifan:toolbar:switch-tab',
   CLOSE_TAB: 'antifan:toolbar:close-tab',

@@ -6,7 +6,25 @@ import { LiquidErrorScanner, LiquidScanResult } from '../qa/scanners/liquid-erro
 import { BrokenAssetScanner, BrokenAssetScanResult } from '../qa/scanners/broken-asset-scanner';
 import { LayoutOverflowEngine, ViewportOverflowResult } from '../qa/scanners/layout-overflow-engine';
 import { HsGateRules, HsEvaluationResult } from '../qa/rules/hs-gate-rules';
-export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, browser: BrowserControlPort): void {
+import type { ThemeQaWorkflow } from '../qa/theme-qa-workflow';
+function getThemeHierarchyScript(): string {
+  return `(() => {
+    const template = document.documentElement?.getAttribute('data-template')
+      || document.body?.getAttribute('data-template')
+      || document.querySelector('meta[name="template"]')?.getAttribute('content')
+      || undefined;
+    const sections = Array.from(document.querySelectorAll('[data-section-id], [data-section-type], section[id^="shopify-section-"], section[id^="haravan-section-"]'))
+      .slice(0, 200)
+      .map((element) => ({
+        id: element.getAttribute('data-section-id') || element.id || undefined,
+        type: element.getAttribute('data-section-type') || undefined,
+        tag: element.tagName.toLowerCase(),
+      }));
+    return { template, sections };
+  })()`;
+}
+
+export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, browser: BrowserControlPort, themeQaWorkflow?: ThemeQaWorkflow, getWorkspaceRoot?: () => string): void {
   // 1. Standard canonical capabilities
   catalogue.register({ name: 'browser.list-tabs', description: 'List Chromium tabs without selecting an active tab', risk: 'read', inputSchema: { type: 'object' }, execute: (_params, context) => browser.listTabs({ target: context.browserTarget }) });
   catalogue.register({ name: 'browser.open-tab', description: 'Open a Chromium browser tab without changing the visible tab by default', risk: 'write', inputSchema: { type: 'object', properties: { url: { type: 'string' }, activate: { type: 'boolean' } } }, execute: (params: { url?: string; activate?: boolean }) => browser.openTab(params) });
@@ -62,15 +80,15 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
   catalogue.register({ name: 'antifan_set_device_preset', description: 'Alias for browser.set-device-preset', risk: 'write', inputSchema: { type: 'object', properties: { presetId: { type: 'string' }, tabId: { type: 'string' } }, required: ['presetId'] }, execute: (params: { presetId: string; tabId?: string }, context) => browser.setDevicePreset(params, context.browserTarget) });
   catalogue.register({ name: 'antifan_list_device_presets', description: 'Alias for browser.list-device-presets', risk: 'read', inputSchema: { type: 'object' }, execute: () => browser.listDevicePresets() });
   catalogue.register({ name: 'antifan_set_zoom', description: 'Alias for browser.set-zoom', risk: 'write', inputSchema: { type: 'object', properties: { zoomFactor: { type: 'number', minimum: 0.25, maximum: 5.0, description: 'Zoom factor between 0.25 and 5.0' }, tabId: { type: 'string' } }, required: ['zoomFactor'] }, execute: (params: { zoomFactor: number; tabId?: string }, context) => browser.setZoom(params, context.browserTarget) });
-  // 3. Theme QA & Verification Capabilities (Haravan / Sapo / Shopify)
   catalogue.register({
     name: 'theme.qa_validate',
-    description: 'Execute full static and live QA inspection on the active tab and workspace, returning structured ThemeQaReport',
+    description: 'Execute the authoritative Theme QA workflow for the bound storefront tab and workspace',
     risk: 'read',
     requiresBrowserTarget: true,
-    inputSchema: { type: 'object', properties: { tabId: { type: 'string' }, workspaceRoot: { type: 'string' } } },
-    execute: async (params: { tabId?: string; workspaceRoot?: string }, context) => {
+    inputSchema: { type: 'object', properties: { tabId: { type: 'string' }, workspaceRoot: { type: 'string' }, multiBreakpoint: { type: 'boolean' } } },
+    execute: async (params: { tabId?: string; workspaceRoot?: string; multiBreakpoint?: boolean }, context) => {
       const target = context.browserTarget as BrowserTarget;
+      if (themeQaWorkflow) return themeQaWorkflow.validate({ runId: context.runId || 'run-unbound', attemptId: context.attemptId || 'attempt-unbound', workspaceRoot: params.workspaceRoot || getWorkspaceRoot?.() || '', multiBreakpoint: params.multiBreakpoint, target: params.tabId ? { ...target, tabId: params.tabId } : target });
       const domResult = await browser.dom(target, context.runId || 'run-unbound', context.attemptId || 'attempt-unbound', undefined, params.tabId);
       const rawHtml = typeof domResult === 'string' ? domResult : '';
       const platform = PlatformDetector.detect(params.workspaceRoot, undefined, rawHtml);
@@ -78,50 +96,30 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
       let overflow: ViewportOverflowResult = { viewport: { name: 'desktop', width: 1440, height: 900 }, hasOverflow: false, deltaX: 0, scrollWidth: 1440, clientWidth: 1440, culprits: [] };
       let assets: BrokenAssetScanResult = { hasBrokenAssets: false, brokenAssets: [], totalImagesScanned: 0, totalStylesheetsScanned: 0 };
       let hsRules: HsEvaluationResult = { passed: true, totalViolations: 0, errorsCount: 0, warningsCount: 0, violations: [] };
-      try {
-        const evalLiquid = await browser.eval(target, LiquidErrorScanner.getBrowserScanScript(), params.tabId);
-        if (evalLiquid && typeof evalLiquid === 'object' && 'hasErrors' in evalLiquid) liquid = evalLiquid as unknown as LiquidScanResult;
-        else if (rawHtml) liquid = LiquidErrorScanner.scanHtmlString(rawHtml);
-      } catch {
-        if (rawHtml) liquid = LiquidErrorScanner.scanHtmlString(rawHtml);
+      try { const value = await browser.eval(target, LiquidErrorScanner.getBrowserScanScript(), params.tabId); if (value && typeof value === 'object' && 'hasErrors' in value) liquid = value as LiquidScanResult; else if (rawHtml) liquid = LiquidErrorScanner.scanHtmlString(rawHtml); } catch { if (rawHtml) liquid = LiquidErrorScanner.scanHtmlString(rawHtml); }
+      try { const value = await browser.eval(target, LayoutOverflowEngine.getBrowserScanScript('active'), params.tabId); if (value && typeof value === 'object' && 'hasOverflow' in value) overflow = value as ViewportOverflowResult; } catch {}
+      try { const value = await browser.eval(target, BrokenAssetScanner.getBrowserScanScript(), params.tabId); if (value && typeof value === 'object' && 'hasBrokenAssets' in value) assets = value as BrokenAssetScanResult; } catch {}
+      try { const value = await browser.eval(target, HsGateRules.getBrowserEvaluationScript(platform.platform), params.tabId); if (value && typeof value === 'object' && 'passed' in value) hsRules = value as HsEvaluationResult; else if (rawHtml) hsRules = HsGateRules.evaluateHtml(rawHtml, platform.platform); } catch { if (rawHtml) hsRules = HsGateRules.evaluateHtml(rawHtml, platform.platform); }
+      if (params.multiBreakpoint) {
+        try { const responsive = await browser.responsiveCheck(target.tabId); const breakpoints = responsive?.breakpoints; if (breakpoints && typeof breakpoints === 'object') { const failing = Object.values(breakpoints as Record<string, unknown>).filter((item): item is Record<string, unknown> => Boolean(item && typeof item === 'object' && (item as Record<string, unknown>).hasHorizontalOverflow === true)); if (failing.length > 0) overflow = { ...overflow, hasOverflow: true, culprits: [...overflow.culprits, ...failing] as ViewportOverflowResult['culprits'] }; } } catch {}
       }
-      try {
-        const evalOverflow = await browser.eval(target, LayoutOverflowEngine.getBrowserScanScript('active'), params.tabId);
-        if (evalOverflow && typeof evalOverflow === 'object' && 'hasOverflow' in evalOverflow) overflow = evalOverflow as unknown as ViewportOverflowResult;
-      } catch {}
-      try {
-        const evalAssets = await browser.eval(target, BrokenAssetScanner.getBrowserScanScript(), params.tabId);
-        if (evalAssets && typeof evalAssets === 'object' && 'hasBrokenAssets' in evalAssets) assets = evalAssets as unknown as BrokenAssetScanResult;
-      } catch {}
-      try {
-        const evalHs = await browser.eval(target, HsGateRules.getBrowserEvaluationScript(platform.platform), params.tabId);
-        if (evalHs && typeof evalHs === 'object' && 'passed' in evalHs) hsRules = evalHs as unknown as HsEvaluationResult;
-        else if (rawHtml) hsRules = HsGateRules.evaluateHtml(rawHtml, platform.platform);
-      } catch {
-        if (rawHtml) hsRules = HsGateRules.evaluateHtml(rawHtml, platform.platform);
-      }
-      const checklist = {
-        layout: !overflow.hasOverflow,
-        responsive: overflow.culprits.length === 0,
-        overflow: !overflow.hasOverflow,
-        interactions: hsRules.passed,
-        diagnostics: !liquid.hasErrors && !assets.hasBrokenAssets,
-      };
-      return {
-        target,
-        platform,
-        checklist,
-        liquid,
-        overflow,
-        assets,
-        hsRules,
-        timestamp: Date.now(),
-      };
+      return { target, platform, checklist: { layout: !overflow.hasOverflow, responsive: overflow.culprits.length === 0, overflow: !overflow.hasOverflow, interactions: hsRules.passed, diagnostics: !liquid.hasErrors && !assets.hasBrokenAssets }, liquid, overflow, assets, hsRules, timestamp: Date.now() };
+    },
+  });
+  catalogue.register({
+    name: 'theme.assert_cart',
+    description: 'Assert passive storefront AJAX cart contract telemetry without adding synthetic items',
+    risk: 'read',
+    requiresBrowserTarget: true,
+    inputSchema: { type: 'object', properties: { tabId: { type: 'string' } } },
+    execute: async (params: { tabId?: string }, context) => {
+      const value = await browser.eval(context.browserTarget as BrowserTarget, HsGateRules.getBrowserCartAssertionScript(), params.tabId);
+      return HsGateRules.evaluateCartTelemetry(value);
     },
   });
   catalogue.register({
     name: 'theme.debug_bundle',
-    description: 'Return a single atomic bundle containing platform metadata, active template/section hierarchy, zero-Liquid error scan, and layout overflow deltaX',
+    description: 'Return a single atomic bundle containing platform metadata, active template/section hierarchy, zero-Liquid error scan, layout overflow deltaX, and passive cart telemetry',
     risk: 'read',
     requiresBrowserTarget: true,
     inputSchema: { type: 'object', properties: { tabId: { type: 'string' } } },
@@ -132,22 +130,14 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
       const platform = PlatformDetector.detect(undefined, undefined, rawHtml);
       const liquid = LiquidErrorScanner.scanHtmlString(rawHtml);
       let overflow: { hasOverflow: boolean; deltaX: number; culprits: unknown[] } = { hasOverflow: false, deltaX: 0, culprits: [] };
-      try {
-        const evalOverflow = await browser.eval(target, LayoutOverflowEngine.getBrowserScanScript('active'), params.tabId);
-        if (evalOverflow && typeof evalOverflow === 'object' && 'hasOverflow' in evalOverflow) {
-          const casted = evalOverflow as { hasOverflow: boolean; deltaX: number; culprits?: unknown[] };
-          overflow = { hasOverflow: casted.hasOverflow, deltaX: casted.deltaX, culprits: casted.culprits || [] };
-        }
-      } catch {}
-      const hsRules = HsGateRules.evaluateHtml(rawHtml, platform.platform);
-      return {
-        target,
-        platform,
-        liquid,
-        overflow,
-        hsRules,
-        timestamp: Date.now(),
-      };
+      try { const evalOverflow = await browser.eval(target, LayoutOverflowEngine.getBrowserScanScript('active'), params.tabId); if (evalOverflow && typeof evalOverflow === 'object' && 'hasOverflow' in evalOverflow) { const casted = evalOverflow as { hasOverflow: boolean; deltaX: number; culprits?: unknown[] }; overflow = { hasOverflow: casted.hasOverflow, deltaX: casted.deltaX, culprits: casted.culprits || [] }; } } catch {}
+      let hsRules = HsGateRules.evaluateHtml(rawHtml, platform.platform);
+      try { const evalHs = await browser.eval(target, HsGateRules.getBrowserEvaluationScript(platform.platform), params.tabId); if (evalHs && typeof evalHs === 'object' && 'passed' in evalHs) hsRules = evalHs as HsEvaluationResult; } catch {}
+      let templateHierarchy: unknown = { template: undefined, sections: [] };
+      try { templateHierarchy = await browser.eval(target, getThemeHierarchyScript(), params.tabId) || templateHierarchy; } catch {}
+      let cartTelemetry = hsRules.cartTelemetry;
+      if (!cartTelemetry) { try { const value = await browser.eval(target, HsGateRules.getBrowserCartAssertionScript(), params.tabId); cartTelemetry = HsGateRules.evaluateCartTelemetry(value); } catch {} }
+      return { target, platform, templateHierarchy, liquid, overflow, cartTelemetry, hsRules, timestamp: Date.now() };
     },
   });
   catalogue.register({ name: 'antifan_theme_qa_validate', description: 'Alias for theme.qa_validate', risk: 'read', requiresBrowserTarget: true, inputSchema: { type: 'object', properties: { tabId: { type: 'string' }, workspaceRoot: { type: 'string' } } }, execute: (params: Record<string, unknown>, context) => catalogue.get('theme.qa_validate')!.execute(params, context) });

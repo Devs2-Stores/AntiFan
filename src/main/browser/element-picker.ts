@@ -62,11 +62,12 @@ export const ELEMENT_PICKER_SCRIPT = `(() => {
   const onKey = (e) => {
     if (e.key === 'Escape') {
       prevent(e);
-      if (isModalOpen) {
-        const modal = document.getElementById(MODAL_ID);
-        if (modal) modal.remove();
-        isModalOpen = false;
+      const modal = document.getElementById(MODAL_ID);
+      if (modal) {
+        try { if (typeof modal.close === 'function') modal.close(); } catch {}
+        modal.remove();
       }
+      isModalOpen = false;
       cleanup();
       window.__antifanPick = { canceled: true };
     }
@@ -655,9 +656,13 @@ export const ELEMENT_PICKER_SCRIPT = `(() => {
       if (cls && !cls.includes(':')) selectorName += '.' + cls;
     }
 
-    const modal = document.createElement('div');
+    // Use the browser top layer so storefront focus traps (Fancybox, Bootstrap,
+    // Shopify theme modals, etc.) cannot cover or steal focus from annotation UI.
+    const modal = document.createElement(typeof HTMLDialogElement === 'function' ? 'dialog' : 'div');
     modal.id = MODAL_ID;
-    modal.style.cssText = 'position:fixed;z-index:2147483647;box-sizing:border-box;background:#0b111b;color:#e5eef8;border:1px solid #2c6d98;border-radius:10px;padding:10px 11px;box-shadow:0 14px 36px rgba(0,0,0,0.72),0 0 0 1px rgba(88,180,232,.08);width:310px;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;font-size:12px;display:flex;flex-direction:column;gap:8px;';
+    modal.setAttribute('role', 'dialog');
+    modal.setAttribute('aria-modal', 'true');
+    modal.style.cssText = 'position:fixed;z-index:2147483647;inset:auto;box-sizing:border-box;background:#0b111b;color:#e5eef8;border:1px solid #2c6d98;border-radius:10px;padding:10px 11px;box-shadow:0 14px 36px rgba(0,0,0,0.72),0 0 0 1px rgba(88,180,232,.08);width:310px;margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;font-size:12px;display:flex;flex-direction:column;gap:8px;';
 
     const r = el.getBoundingClientRect();
     let top = r.bottom + 6;
@@ -674,6 +679,7 @@ export const ELEMENT_PICKER_SCRIPT = `(() => {
       closeBtn.onclick = (e) => {
         prevent(e);
         cleanupModalListeners();
+        try { if (typeof modal.close === 'function') modal.close(); } catch {}
         modal.remove();
         isModalOpen = false;
         if (pickedList.length === 0) {
@@ -815,6 +821,9 @@ export const ELEMENT_PICKER_SCRIPT = `(() => {
     modal.appendChild(footer);
     const targetParent = document.body || document.documentElement;
     targetParent.appendChild(modal);
+    if (typeof modal.showModal === 'function') {
+      try { modal.showModal(); } catch {}
+    }
     textarea.focus();
     textarea.addEventListener('input', () => { textarea.style.height = '58px'; textarea.style.height = Math.min(200, Math.max(58, textarea.scrollHeight)) + 'px'; });
 
@@ -909,6 +918,7 @@ export const ELEMENT_PICKER_SCRIPT = `(() => {
       if (ev.key === 'Escape') {
         prevent(ev);
         cleanupModalListeners();
+        try { if (typeof modal.close === 'function') modal.close(); } catch {}
         modal.remove();
         isModalOpen = false;
         if (pickedList.length === 0) {
@@ -922,9 +932,42 @@ export const ELEMENT_PICKER_SCRIPT = `(() => {
     window.addEventListener('paste', onGlobalPaste, true);
     window.addEventListener('keydown', onGlobalKeyDown, true);
 
-    const cleanupModalListeners = () => {
+    let cleanupModalListeners = () => {
       window.removeEventListener('paste', onGlobalPaste, true);
       window.removeEventListener('keydown', onGlobalKeyDown, true);
+    };
+    if (typeof modal.addEventListener === 'function') {
+      modal.addEventListener('cancel', (ev) => {
+        ev.preventDefault();
+        cleanupModalListeners();
+        try { if (typeof modal.close === 'function') modal.close(); } catch {}
+        modal.remove();
+        isModalOpen = false;
+        if (pickedList.length === 0) {
+          cleanup();
+          window.__antifanPick = { canceled: true };
+        }
+      });
+    }
+    // Theme focus traps may attempt to reclaim focus while their modal is open.
+    // Keep the annotation editor interactive until it is explicitly closed.
+    const onAnnotationFocusIn = (ev) => {
+      if (!isModalOpen || !modal.isConnected) return;
+      const target = ev && ev.target;
+      if (target && modal.contains(target)) return;
+      if (ev) {
+        ev.preventDefault();
+        ev.stopPropagation();
+      }
+      setTimeout(() => {
+        if (isModalOpen && modal.isConnected && !modal.contains(document.activeElement)) textarea.focus();
+      }, 0);
+    };
+    window.addEventListener('focusin', onAnnotationFocusIn, true);
+    const previousCleanupModalListeners = cleanupModalListeners;
+    cleanupModalListeners = () => {
+      previousCleanupModalListeners();
+      window.removeEventListener('focusin', onAnnotationFocusIn, true);
     };
 
     // Drag & Drop image files onto modal
@@ -1193,6 +1236,7 @@ export const ELEMENT_PICKER_SCRIPT = `(() => {
       } else if (ev.key === 'Escape') {
         ev.preventDefault();
         cleanupModalListeners();
+        try { if (typeof modal.close === 'function') modal.close(); } catch {}
         modal.remove();
         isModalOpen = false;
         if (pickedList.length === 0) {

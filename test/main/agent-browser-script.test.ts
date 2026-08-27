@@ -261,6 +261,12 @@ describe('Agent Browser & Element Picker Injected Scripts', () => {
     assert.ok(ELEMENT_PICKER_SCRIPT.includes("substring(0, start) + '\\n' + val.substring(end)"), 'Must insert newline character at cursor');
     assert.ok(ELEMENT_PICKER_SCRIPT.includes('Alt+Enter xuống hàng'), 'Must provide visual shortcut hint in footer');
   });
+  it('keeps annotation editor above storefront modal focus traps', () => {
+    assert.ok(ELEMENT_PICKER_SCRIPT.includes("document.createElement(typeof HTMLDialogElement === 'function' ? 'dialog' : 'div')"), 'Annotation UI must use the browser top layer when supported');
+    assert.ok(ELEMENT_PICKER_SCRIPT.includes('modal.showModal()'), 'Annotation dialog must enter the native top layer');
+    assert.ok(ELEMENT_PICKER_SCRIPT.includes("window.addEventListener('focusin', onAnnotationFocusIn, true)"), 'Annotation must guard against page focus traps');
+    assert.ok(ELEMENT_PICKER_SCRIPT.includes("window.removeEventListener('focusin', onAnnotationFocusIn, true)"), 'Focus guard must be removed when annotation closes');
+  });
 
   it('verifies deliveryMode draft vs auto dispatch invariants', () => {
     let ptyWritten = false;

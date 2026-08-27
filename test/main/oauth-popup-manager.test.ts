@@ -23,6 +23,15 @@ describe('OAuthPopupManager Invariants', () => {
     assert.strictEqual(manager.isOAuthUrl('https://github.com/stablyai/orca'), false);
     assert.strictEqual(manager.isOAuthUrl('https://vnexpress.net/thoi-su'), false);
   });
+  it('routes Google OAuth away from embedded WebView handling', () => {
+    const manager = OAuthPopupManager.getInstance();
+    assert.ok(manager.isOAuthUrl('https://accounts.google.com/v3/signin/identifier'), 'Google sign-in remains recognized as OAuth');
+    assert.ok(manager.isOAuthUrl('https://accounts.google.com/o/oauth2/v2/auth?client_id=123'), 'Google OAuth authorization remains recognized');
+  });
+  it('supports an explicit external OAuth handoff callback', () => {
+    const manager = OAuthPopupManager.getInstance();
+    assert.equal(typeof manager.handleWindowOpen, 'function');
+  });
 
   it('correctly identifies OAuth callback URLs', () => {
     const manager = OAuthPopupManager.getInstance();

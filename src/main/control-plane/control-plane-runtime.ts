@@ -16,6 +16,7 @@ import { registerWorkflowCapabilities } from '../workflow/workflow-capabilities'
 import { WorkflowRegistry } from '../workflow/workflow-registry';
 import { assertExactBrowserTarget, BrowserTarget, CapabilityError, CapabilityRequestContext, issueRuntimeLease, RuntimeFeatureSwitch, RuntimeLease } from '../../shared/control-plane-contracts';
 import { WorkflowDefinition, WorkflowExecutionResult, WorkflowEventListener } from '../workflow/workflow-schema';
+import { ThemeQaWorkflow, ThemeQaReport } from '../qa/theme-qa-workflow';
 
 export interface ControlPlaneRuntimeOptions {
   projectId: string;
@@ -46,6 +47,7 @@ export class ControlPlaneRuntime {
   private leaseState: RuntimeLease;
   private switchState: RuntimeFeatureSwitch = { mode: 'standalone', lifecycle: 'active' };
   private workspaceRoot: string;
+  private themeQaWorkflow: ThemeQaWorkflow | null = null;
 
   constructor(options: ControlPlaneRuntimeOptions) {
     this.projects = options.projects || new ProjectRegistry();
@@ -93,7 +95,20 @@ export class ControlPlaneRuntime {
   beginDrain(): void { this.switchState = { ...this.switchState, lifecycle: 'draining' }; this.capabilities.beginDrain(); }
   completeDrain(): void { this.switchState = { ...this.switchState, lifecycle: 'drained' }; this.capabilities.completeDrain(); }
   rollbackLegacy(): void { this.switchState = { mode: 'legacy', lifecycle: 'legacy' }; this.capabilities.switchToLegacy(); }
-  registerBrowser(browser: BrowserControlPort): void { registerBrowserCapabilities(this.capabilities, browser); }
+  registerBrowser(browser: BrowserControlPort): void {
+    this.themeQaWorkflow = new ThemeQaWorkflow({ browser, files: this.files, artifacts: this.artifacts, reload: (target) => browser.reload(target) });
+    registerBrowserCapabilities(this.capabilities, browser, this.themeQaWorkflow, () => this.getWorkspaceRoot());
+  }
+  async validateThemeQa(target: BrowserTarget, options: { runId?: string; attemptId?: string; workspaceRoot?: string; multiBreakpoint?: boolean } = {}): Promise<ThemeQaReport> {
+    if (!this.themeQaWorkflow) throw new CapabilityError('CAPABILITY_NOT_FOUND', 'Browser control is not registered');
+    return this.themeQaWorkflow.validate({
+      runId: options.runId || `run-theme-qa-${Date.now()}`,
+      attemptId: options.attemptId || `attempt-theme-qa-${Date.now()}`,
+      workspaceRoot: options.workspaceRoot || this.getWorkspaceRoot(),
+      multiBreakpoint: options.multiBreakpoint,
+      target,
+    });
+  }
   getLifecycle(): RuntimeFeatureSwitch { return { ...this.switchState }; }
   getLease(): RuntimeLease {
     const now = Date.now();

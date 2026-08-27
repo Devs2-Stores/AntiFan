@@ -54,6 +54,8 @@ const CHANNELS = {
   TOGGLE_SPLIT_REVIEW: 'antifan:toolbar:toggle-split-review',
   SET_SPLIT_PRESET: 'antifan:toolbar:set-split-preset',
   SET_SPLIT_FOCUSED_PANE: 'antifan:toolbar:set-split-focused-pane',
+  THEME_QA_RUN: 'antifan:toolbar:theme-qa-run',
+  THEME_QA_STATE: 'antifan:toolbar:theme-qa-state',
 };
 
 const toolbarApi = {
@@ -111,6 +113,12 @@ const toolbarApi = {
   abortWorkflow: () => ipcRenderer.invoke('antifan:workflow:abort'),
   saveWorkflow: (item: { id?: string; name: string; description?: string; steps: unknown[] }) => ipcRenderer.invoke('antifan:workflow:save', item),
   deleteWorkflow: (id: string) => ipcRenderer.invoke('antifan:workflow:delete', id),
+  runThemeQa: (options?: { workspaceRoot?: string }) => ipcRenderer.invoke(CHANNELS.THEME_QA_RUN, options),
+  onThemeQaState: (callback: (state: unknown) => void) => {
+    const handler = (_event: unknown, state: unknown) => callback(state);
+    ipcRenderer.on(CHANNELS.THEME_QA_STATE, handler);
+    return () => ipcRenderer.removeListener(CHANNELS.THEME_QA_STATE, handler);
+  },
   getWorkflowArtifact: (artifactId: string) => ipcRenderer.invoke('antifan:workflow:get-artifact', artifactId),
   onWorkflowEvent: (callback: (event: unknown) => void) => {
     const handler = (_event: unknown, data: unknown) => callback(data);

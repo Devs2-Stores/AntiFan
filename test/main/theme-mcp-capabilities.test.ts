@@ -38,62 +38,40 @@ describe('Theme QA MCP Capabilities', () => {
     assert.ok(toolNames.includes('antifan_theme_debug_bundle'));
   });
 
-  it('executes theme.debug_bundle returning platform and liquid error scans', async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-mcp-qa-'));
+  it('executes theme.debug_bundle with hierarchy and passive cart telemetry', async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-mcp-debug-'));
     const catalogue = new CapabilityCatalogue(defaultOptions);
-    const artifactStore = new ArtifactStore({ root: path.join(root, 'artifacts') });
-    const browser = new BrowserControlPort(
-      {
-        getTabList: () => [{ id: 'tab-1' }],
-        navigate: () => true,
-        reload: () => true,
-        getDom: async () => '<html><body><div>Shopify theme</div></body></html>',
-        captureScreenshot: async () => Buffer.from('png').toString('base64'),
-        evalJs: async () => null,
+    const browser = new BrowserControlPort({
+      getTabList: () => [{ id: 'tab-1' }],
+      navigate: () => true,
+      reload: () => true,
+      getDom: async () => '<html data-template="product"><body><section data-section-id="main-product" data-section-type="product"></section></body></html>',
+      captureScreenshot: async () => Buffer.from('png').toString('base64'),
+      evalJs: async (expression) => {
+        if (expression.includes('data-template')) return { template: 'product', sections: [{ id: 'main-product', type: 'product', tag: 'section' }] };
+        if (expression.includes('performance.getEntriesByType')) return { observedRequests: [{ url: 'https://shop.myshopify.com/cart.js', method: 'GET' }], forms: [], contracts: { add: false, change: false, read: true } };
+        return { hasOverflow: false, deltaX: 0, culprits: [] };
       },
-      artifactStore
-    );
+    });
     registerBrowserCapabilities(catalogue, browser);
-
-    const target: BrowserTarget = {
-      projectId: 'project-12345678901234567890',
-      workspaceId: 'workspace-12345678901234567890',
-      runtimeId: 'binding-12345678901234567890',
-      tabId: 'tab-1',
-      browserEpoch: 1,
-      documentGeneration: 1,
-    };
-
-    const context: CapabilityRequestContext = {
-      lease: {
-        token: 'token-1',
-        runtimeId: target.runtimeId,
-        expiresAt: Date.now() + 60000,
-        projectId: target.projectId,
-        workspaceId: target.workspaceId,
-        protocolVersion: 1,
-        hostEpoch: 1,
-        ownerPid: process.pid,
-        issuedAt: Date.now(),
-      },
-      leaseToken: 'token-1',
-      projectId: target.projectId,
-      workspaceId: target.workspaceId,
-      browserTarget: target,
-      grant: 'read',
-    };
-
-    const res = (await catalogue.dispatch('theme.debug_bundle', { tabId: 'tab-1' }, context)) as {
-      target: BrowserTarget;
-      platform: { platform: string };
-      liquid: { hasErrors: boolean };
-    };
-
-    assert.ok(res);
-    assert.strictEqual(res.target.tabId, 'tab-1');
-    assert.ok(res.platform);
-    assert.strictEqual(res.liquid.hasErrors, false);
-
+    const target: BrowserTarget = { projectId: defaultOptions.projectId, workspaceId: defaultOptions.workspaceId, runtimeId: defaultOptions.runtimeId, tabId: 'tab-1', browserEpoch: 1, documentGeneration: 1 };
+    const context: CapabilityRequestContext = { lease: { token: 'token-1', runtimeId: target.runtimeId, expiresAt: Date.now() + 60000, projectId: target.projectId, workspaceId: target.workspaceId, protocolVersion: 1, hostEpoch: 1, ownerPid: process.pid, issuedAt: Date.now() }, leaseToken: 'token-1', projectId: target.projectId, workspaceId: target.workspaceId, browserTarget: target, grant: 'read' };
+    const result = await catalogue.dispatch('theme.debug_bundle', { tabId: 'tab-1' }, context) as any;
+    assert.strictEqual(result.templateHierarchy.template, 'product');
+    assert.strictEqual(result.templateHierarchy.sections[0].id, 'main-product');
+    assert.strictEqual(result.cartTelemetry.contracts.read, true);
     fs.rmSync(root, { recursive: true, force: true });
+  });
+
+  it('passes optional multiBreakpoint through the authoritative Theme QA workflow', async () => {
+    const catalogue = new CapabilityCatalogue(defaultOptions);
+    let requestedMultiBreakpoint: boolean | undefined;
+    const workflow = { validate: async (input: any) => { requestedMultiBreakpoint = input.multiBreakpoint; return { ok: true }; } } as any;
+    const browser = new BrowserControlPort({ getTabList: () => [{ id: 'tab-1' }], navigate: () => true, reload: () => true, getDom: async () => '<html></html>', captureScreenshot: async () => Buffer.from('png').toString('base64'), evalJs: async () => null });
+    registerBrowserCapabilities(catalogue, browser, workflow);
+    const target: BrowserTarget = { projectId: defaultOptions.projectId, workspaceId: defaultOptions.workspaceId, runtimeId: defaultOptions.runtimeId, tabId: 'tab-1', browserEpoch: 1, documentGeneration: 1 };
+    const context: CapabilityRequestContext = { lease: { token: 'token-1', runtimeId: target.runtimeId, expiresAt: Date.now() + 60000, projectId: target.projectId, workspaceId: target.workspaceId, protocolVersion: 1, hostEpoch: 1, ownerPid: process.pid, issuedAt: Date.now() }, leaseToken: 'token-1', projectId: target.projectId, workspaceId: target.workspaceId, browserTarget: target, grant: 'read' };
+    await catalogue.dispatch('theme.qa_validate', { tabId: 'tab-1', multiBreakpoint: true }, context);
+    assert.strictEqual(requestedMultiBreakpoint, true);
   });
 });

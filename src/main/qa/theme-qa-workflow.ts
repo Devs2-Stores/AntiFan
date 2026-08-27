@@ -24,12 +24,18 @@ export interface ThemeQaDetailedFindings {
   hsRules: HsEvaluationResult;
 }
 
+export interface ThemeQaSummary {
+  passed: boolean;
+  totalIssues: number;
+  criticalCount: number;
+}
 export interface ThemeQaReport {
   runId: string;
   attemptId: string;
   workspaceId: string;
   target: BrowserTarget;
-  checklist: ThemeQaChecklist;
+  summary: ThemeQaSummary;
+  checklist: ThemeQaChecklist & { liquidClean: boolean; assetsValid: boolean; hsCompliant: boolean };
   findings?: ThemeQaDetailedFindings;
   artifacts: ArtifactRef[];
   createdAt: number;
@@ -130,6 +136,34 @@ export class ThemeQaWorkflow {
     } catch {
       // Retain clean fallback
     }
+    if (input.multiBreakpoint) {
+      try {
+        const responsive = await this.ports.browser.responsiveCheck(input.target.tabId);
+        const breakpoints = responsive && typeof responsive === 'object' ? (responsive as Record<string, unknown>).breakpoints : undefined;
+        if (breakpoints && typeof breakpoints === 'object') {
+          const overflowBreakpoints = Object.values(breakpoints).filter((item): item is Record<string, unknown> => Boolean(item && typeof item === 'object' && 'hasHorizontalOverflow' in item));
+          const failing = overflowBreakpoints.filter((item) => item.hasHorizontalOverflow === true);
+          if (failing.length > 0) {
+            const first = failing[0];
+            if (!first) throw new Error('Responsive overflow result missing');
+            overflowResult = {
+              ...overflowResult,
+              viewport: {
+                name: first.mobile ? 'mobile' : first.width === 820 ? 'tablet' : 'desktop',
+                width: typeof first.width === 'number' ? first.width : overflowResult.viewport.width,
+                height: typeof first.height === 'number' ? first.height : overflowResult.viewport.height,
+              },
+              hasOverflow: true,
+              deltaX: typeof first.scrollWidth === 'number' && typeof first.clientWidth === 'number' ? Math.max(0, first.scrollWidth - first.clientWidth) : overflowResult.deltaX,
+              scrollWidth: typeof first.scrollWidth === 'number' ? first.scrollWidth : overflowResult.scrollWidth,
+              clientWidth: typeof first.clientWidth === 'number' ? first.clientWidth : overflowResult.clientWidth,
+            };
+          }
+        }
+      } catch {
+        // Active viewport result remains authoritative when the optional sweep is unavailable.
+      }
+    }
 
     // 5. Broken Asset Telemetry (DOM + CDP Network Correlation)
     let assetResult: BrokenAssetScanResult = {
@@ -160,7 +194,7 @@ export class ThemeQaWorkflow {
       // Retain clean fallback
     }
 
-    // 6. HS1-HS26 Rules Evaluation
+    // 6. Platform-scoped HS gate evaluation
     let hsResult: HsEvaluationResult = { passed: true, totalViolations: 0, errorsCount: 0, warningsCount: 0, violations: [] };
     try {
       const evalRes = await this.ports.browser.eval(input.target, HsGateRules.getBrowserEvaluationScript(detectedPlatform));
@@ -175,16 +209,18 @@ export class ThemeQaWorkflow {
       }
     }
 
-    // 7. Compute Checklist Statuses
-    const checklist: ThemeQaChecklist = {
+    // 7. Compute checklist statuses, then apply caller overrides.
+    const checklist: ThemeQaReport['checklist'] = {
       layout: !overflowResult.hasOverflow,
       responsive: overflowResult.culprits.length === 0,
       overflow: !overflowResult.hasOverflow,
       interactions: hsResult.passed,
       diagnostics: !liquidResult.hasErrors && !assetResult.hasBrokenAssets,
+      liquidClean: !liquidResult.hasErrors,
+      assetsValid: !assetResult.hasBrokenAssets,
+      hsCompliant: hsResult.passed,
     };
 
-    // Apply any explicit overrides if supplied
     if (input.checklist) {
       if (input.checklist.layout !== undefined) checklist.layout = input.checklist.layout;
       if (input.checklist.responsive !== undefined) checklist.responsive = input.checklist.responsive;
@@ -192,6 +228,13 @@ export class ThemeQaWorkflow {
       if (input.checklist.interactions !== undefined) checklist.interactions = input.checklist.interactions;
       if (input.checklist.diagnostics !== undefined) checklist.diagnostics = input.checklist.diagnostics;
     }
+
+    const totalIssues = liquidResult.errors.length + overflowResult.culprits.length + assetResult.brokenAssets.length + hsResult.totalViolations;
+    const summary: ThemeQaSummary = {
+      passed: Object.values(checklist).every(Boolean),
+      totalIssues,
+      criticalCount: hsResult.errorsCount + liquidResult.errors.length,
+    };
 
     const findings: ThemeQaDetailedFindings = {
       platform: platformResult,
@@ -209,11 +252,15 @@ export class ThemeQaWorkflow {
     // 8. Generate PII-sanitized report JSON (RT-02 mitigation)
     const reportDataRaw = JSON.stringify(
       {
+        runId: input.runId,
+        attemptId: input.attemptId,
+        workspaceId: input.target.workspaceId,
+        target: input.target,
+        summary,
         checklist,
         findings,
         artifactIds: artifacts.map((item) => item.id),
-        target: input.target,
-        timestamp: Date.now(),
+        createdAt: Date.now(),
       },
       null,
       2
@@ -236,6 +283,7 @@ export class ThemeQaWorkflow {
       attemptId: input.attemptId,
       workspaceId: input.target.workspaceId,
       target: input.target,
+      summary,
       checklist,
       findings,
       artifacts,

@@ -21,7 +21,7 @@
     "start:dev": "node scripts/dev.mjs",
     "start:prod": "node scripts/run-electron.cjs . --production",
     "typecheck": "tsc -p ./ --noEmit",
-    "test": "npm run compile && node --test .compiled/test/main/*.test.js",
+    "test": "npm run compile && node --test .compiled/test/main/*.test.js .compiled/test/integration/*.test.js",
     "verify": "npm run typecheck && npm test",
     "package": "npm run compile && node scripts/package-windows.mjs",
     "smoke:split": "node scripts/run-electron.cjs scripts/smoke-split-review.cjs",

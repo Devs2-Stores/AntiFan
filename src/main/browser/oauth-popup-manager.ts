@@ -5,11 +5,13 @@
  * Manages Google Sign-in, GitHub OAuth, Shopify/Haravan logins via modal windows
  * sharing the parent tab session, and routes standard links to new browser tabs.
  */
-import { BrowserWindow, WebContents, HandlerDetails, WindowOpenHandlerResponse } from 'electron';
+import { BrowserWindow, WebContents, HandlerDetails, WindowOpenHandlerResponse, shell } from 'electron';
+import { isGoogleAuthUrl } from './google-auth-identity';
 
 export interface OAuthHandlerOptions {
   onNewTabRequested?: (url: string) => void;
   onOAuthCompleted?: (url: string) => void;
+  onExternalRequested?: (url: string) => void;
 }
 
 export class OAuthPopupManager {
@@ -76,9 +78,11 @@ export class OAuthPopupManager {
     const { url } = details;
 
     if (this.isOAuthUrl(url)) {
-      // Google blocks embedded OAuth modal windows. Keep auth in a normal persistent Chromium tab.
-      if (/accounts\.google\.com|gmail\.google\.com/i.test(url)) {
-        options?.onNewTabRequested?.(url);
+      // Google explicitly blocks OAuth inside embedded WebViews. Use the user's
+      // real browser so OAuth policy, device trust, and existing login state work.
+      if (isGoogleAuthUrl(url) || /gmail\.google\.com/i.test(url)) {
+        if (options?.onExternalRequested) options.onExternalRequested(url);
+        else shell.openExternal(url);
         return { action: 'deny' };
       }
       // Other providers use a dedicated modal sharing the parent session.

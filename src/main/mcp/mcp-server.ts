@@ -429,6 +429,7 @@ export class AntiFanMcpServer {
       'anti.theme.debug_bundle': 'antifan_theme_debug_bundle',
       'theme.qa_validate': 'antifan_theme_qa_validate',
       'theme.debug_bundle': 'antifan_theme_debug_bundle',
+      'anti.theme.assert_cart': 'theme.assert_cart',
     };
     const name = aliasMap[toolName] || toolName;
     const a = (args || {}) as Record<string, unknown>;
@@ -570,6 +571,7 @@ export function buildMcpToolList(staticTools: Tool[], transport?: CapabilityTran
     if (item.name === 'antifan_list_device_presets') generated.push({ ...item, name: 'anti.browser.viewport.list_presets' });
     if (item.name === 'antifan_theme_qa_validate') generated.push({ ...item, name: 'anti.theme.qa.validate' }, { ...item, name: 'anti.theme.qa_validate' });
     if (item.name === 'antifan_theme_debug_bundle') generated.push({ ...item, name: 'anti.theme.debug.bundle' }, { ...item, name: 'anti.theme.debug_bundle' });
+    if (item.name === 'theme.assert_cart') generated.push({ ...item, name: 'anti.theme.assert_cart' });
     if (item.name === 'antifan_set_zoom') generated.push({ ...item, name: 'anti.browser.set_zoom' }, { ...item, name: 'anti.browser.zoom.set' });
     return generated;
   });

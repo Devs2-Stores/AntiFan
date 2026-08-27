@@ -191,6 +191,7 @@ export class NativeTabHost extends EventEmitter {
   private tabPreviewUnsubscribers: Map<string, () => void> = new Map();
   private recentlyClosedTabs: Array<{ url: string; title: string }> = [];
   private automationTabId: string | null = null;
+  private themeQaState: { status: 'idle' | 'running' | 'pass' | 'fail' | 'error'; issueCount: number; reportArtifactId?: string; error?: string; updatedAt: number } = { status: 'idle', issueCount: 0, updatedAt: Date.now() };
 
   private isInspecting: boolean = false;
   private inspectedTabId: string | null = null;
@@ -526,8 +527,10 @@ export class NativeTabHost extends EventEmitter {
         devicePresets: DEVICE_PRESETS,
         activeChromeProfile: ChromeProfileSyncManager.getInstance().getActiveProfile(),
         chromeProfiles: ChromeProfileSyncManager.getInstance().getAvailableProfiles(),
+        themeQa: this.themeQaState,
       };
     });
+    ipcMain.handle(TOOLBAR_CHANNELS.THEME_QA_RUN, async (_event, options?: { workspaceRoot?: string }) => this.runThemeQa(options));
 
     ipcMain.handle(TOOLBAR_CHANNELS.CREATE_TAB, (_event, url?: string) => this.createTab(url));
     ipcMain.handle(TOOLBAR_CHANNELS.SWITCH_TAB, (_event, tabId: string) => this.switchTab(tabId));
@@ -1722,6 +1725,10 @@ export class NativeTabHost extends EventEmitter {
       const authorityPane = splitHasLiveMobile ? (currentTab?.focusedPane || state.splitFocusedPane || 'desktop') : 'desktop';
       if (isMainFrame && !isInPlace && authorityPane === paneId) {
         this.documentGenerations.set(id, (this.documentGenerations.get(id) || 0) + 1);
+        if (id === this.activeTabId) {
+          this.themeQaState = { status: 'idle', issueCount: 0, updatedAt: Date.now() };
+          this.broadcastState();
+        }
       }
     });
 
@@ -1966,6 +1973,11 @@ export class NativeTabHost extends EventEmitter {
               wc.reload();
             }
           },
+          onExternalRequested: (externalUrl: string) => {
+            if (isAllowedNavigation(externalUrl)) {
+              shell.openExternal(externalUrl);
+            }
+          }
         }
       );
     });
@@ -4102,6 +4114,7 @@ export class NativeTabHost extends EventEmitter {
       devicePresets: DEVICE_PRESETS,
       activeChromeProfile: ChromeProfileSyncManager.getInstance().getActiveProfile(),
       chromeProfiles: ChromeProfileSyncManager.getInstance().getAvailableProfiles(),
+      themeQa: this.themeQaState,
     };
     this.emit('tabs-changed', payload.tabs, payload.activeTabId);
     if (!this.toolbarView.webContents.isDestroyed()) {
@@ -4112,6 +4125,43 @@ export class NativeTabHost extends EventEmitter {
 
   public setControlPlane(cp: ControlPlaneRuntime): void {
     this.controlPlane = cp;
+  }
+  private async runThemeQa(options?: { workspaceRoot?: string }): Promise<{ ok: boolean; report?: unknown; error?: string }> {
+    if (!this.controlPlane) {
+      const error = 'Control plane runtime is not initialized';
+      this.themeQaState = { status: 'error', issueCount: 0, error, updatedAt: Date.now() };
+      this.broadcastState();
+      return { ok: false, error };
+    }
+    const tab = this.tabs.get(this.activeTabId);
+    const target = this.getAutomationTarget() || (() => {
+      if (!tab) return undefined;
+      const lease = this.controlPlane!.getLease();
+      return { projectId: lease.projectId, workspaceId: lease.workspaceId || '', runtimeId: lease.runtimeId, tabId: this.activeTabId, browserEpoch: lease.hostEpoch, documentGeneration: this.getDocumentGeneration(this.activeTabId), url: tab.state.url };
+    })();
+    if (!target) {
+      const error = 'No active browser tab for Theme QA validation';
+      this.themeQaState = { status: 'error', issueCount: 0, error, updatedAt: Date.now() };
+      this.broadcastState();
+      return { ok: false, error };
+    }
+    const workspaceRoot = options?.workspaceRoot || this.capsuleManager.getActive()?.workspacePath || this.controlPlane.getWorkspaceRoot();
+    this.themeQaState = { status: 'running', issueCount: 0, updatedAt: Date.now() };
+    this.broadcastState();
+    try {
+      const report = await this.controlPlane.validateThemeQa(target, { workspaceRoot });
+      const findings = report.findings;
+      const issueCount = findings ? findings.liquid.errors.length + findings.overflow.culprits.length + findings.assets.brokenAssets.length + findings.hsRules.totalViolations : 0;
+      const reportArtifactId = report.artifacts.find((item) => item.kind === 'report')?.id;
+      this.themeQaState = { status: issueCount === 0 ? 'pass' : 'fail', issueCount, reportArtifactId, updatedAt: Date.now() };
+      this.broadcastState();
+      return { ok: true, report };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.themeQaState = { status: 'error', issueCount: 0, error: message, updatedAt: Date.now() };
+      this.broadcastState();
+      return { ok: false, error: message };
+    }
   }
   public getBrowserEpoch(): number {
     return this.browserEpoch;
