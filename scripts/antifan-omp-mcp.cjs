@@ -126,20 +126,34 @@ async function invoke(method, params = {}) {
   }
 }
 
-// Heartbeat: keep the attached binding alive for the whole lifetime of this
-// stdio process (same terminal session). Renewal is fail-closed — a binding
-// that already expired is NEVER resurrected client-side; the heartbeat only
-// extends bindings that are still active, so long idle gaps never kill the
-// session as long as the owning terminal is alive.
+// Heartbeat: one long-lived connection keeps the attached binding alive for the
+// whole stdio lifetime (same terminal session). Renewal is fail-closed — an
+// expired binding is NEVER resurrected client-side; the renew RPC only extends
+// bindings the bridge still considers active.
 let heartbeatTimer = null;
 let heartbeatWs = null;
 let heartbeatBusy = false;
+let heartbeatFailureLogged = false;
+let heartbeatReconnectTimer = null;
+let heartbeatPendingTimer = null;
+
+function clearHeartbeatPending() {
+  if (heartbeatPendingTimer) {
+    clearTimeout(heartbeatPendingTimer);
+    heartbeatPendingTimer = null;
+  }
+}
 
 function stopHeartbeat() {
   if (heartbeatTimer) {
     clearInterval(heartbeatTimer);
     heartbeatTimer = null;
   }
+  if (heartbeatReconnectTimer) {
+    clearTimeout(heartbeatReconnectTimer);
+    heartbeatReconnectTimer = null;
+  }
+  clearHeartbeatPending();
   if (heartbeatWs) {
     try { heartbeatWs.close(); } catch {}
     heartbeatWs = null;
@@ -147,33 +161,39 @@ function stopHeartbeat() {
   heartbeatBusy = false;
 }
 
-function renewBinding(bootstrap) {
-  if (heartbeatBusy || !bootstrap || !bootstrap.secret || !bootstrap.attachmentId) return;
-  heartbeatBusy = true;
+function heartbeatUrl(bootstrap) {
   const tokenParam = (bootstrap.token || bootstrap.secret) ? `?token=${encodeURIComponent(bootstrap.token || bootstrap.secret)}` : '';
-  const wsUrl = `ws://127.0.0.1:${bootstrap.port}${tokenParam}`;
-  let ws;
-  try {
-    ws = new WebSocket(wsUrl);
-  } catch {
-    heartbeatBusy = false;
-    return;
-  }
-  heartbeatWs = ws;
-  const discard = () => {
-    // Only clear shared state when this socket is still the current one, so a
-    // late event from a stale socket can never reset the busy flag of a newer
-    // renewal in flight.
-    if (heartbeatWs === ws) {
-      heartbeatWs = null;
-      heartbeatBusy = false;
+  return `ws://127.0.0.1:${bootstrap.port}${tokenParam}`;
+}
+
+function scheduleHeartbeatReconnect(bootstrap) {
+  // A stopped heartbeat (timer cleared) must never schedule a reconnect; the
+  // close handler of the socket stopHeartbeat() closed fires after teardown.
+  if (heartbeatTimer === null || heartbeatReconnectTimer) return;
+  heartbeatReconnectTimer = setTimeout(() => {
+    heartbeatReconnectTimer = null;
+    if (heartbeatTimer === null) return;
+    if (!heartbeatWs && !heartbeatBusy) {
+      ensureHeartbeatSocket(bootstrap, (ws) => renewBinding(bootstrap, ws));
     }
-  };
-  const timer = setTimeout(() => {
-    try { ws.close(); } catch {}
-    discard();
   }, 5000);
-  ws.once('open', () => {
+  heartbeatReconnectTimer.unref?.();
+}
+
+// Renew the attached binding over the persistent socket. Fail-closed: a
+// binding that already expired is NEVER resurrected client-side; renewal
+// only extends bindings the bridge still considers active.
+function renewBinding(bootstrap, ws) {
+  if (!bootstrap || !bootstrap.secret || !bootstrap.attachmentId || !ws) return;
+  if (ws.readyState !== WebSocket.OPEN) return;
+  heartbeatBusy = true;
+  clearHeartbeatPending();
+  heartbeatPendingTimer = setTimeout(() => {
+    // No response within 5s — treat the connection as dead and rebuild it.
+    try { ws.close(); } catch {}
+  }, 5000);
+  heartbeatPendingTimer.unref?.();
+  try {
     ws.send(JSON.stringify({
       id: 'hb',
       method: 'antifan.cli.renewSession',
@@ -184,43 +204,79 @@ function renewBinding(bootstrap) {
         extensionMs: 7_200_000,
       },
     }));
-  });
-  const onHeartbeatMessage = (raw) => {
+  } catch (sendErr) {
+    process.stderr.write(`[antifan-omp] heartbeat send failed: ${sendErr.message}\n`);
+    clearHeartbeatPending();
+    heartbeatBusy = false;
+    try { ws.close(); } catch {}
+  }
+}
+
+// One long-lived connection for the whole stdio lifetime. Created on demand,
+// kept open, reused by every 30s renewal; closed by the bridge or by
+// stopHeartbeat() only. Success is reported through onOpen(ws) so callers
+// can renew exactly when the socket is actually OPEN.
+function ensureHeartbeatSocket(bootstrap, onOpen) {
+  if (heartbeatWs) {
+    if (onOpen && heartbeatWs.readyState === WebSocket.OPEN) onOpen(heartbeatWs);
+    return heartbeatWs;
+  }
+  if (!bootstrap || !bootstrap.secret || !bootstrap.attachmentId) return null;
+  let ws;
+  try {
+    ws = new WebSocket(heartbeatUrl(bootstrap));
+  } catch {
+    return null;
+  }
+  heartbeatWs = ws;
+  ws.on('message', (raw) => {
+    let response;
     try {
-      const response = JSON.parse(raw.toString());
-      // Ignore the antifan:init bootstrap event and any unrelated RPC traffic;
-      // only the 'hb' response completes this renewal.
-      if (response.id !== 'hb') return;
-      ws.off('message', onHeartbeatMessage);
-      clearTimeout(timer);
-      if (!response.success) {
-        process.stderr.write(`[antifan-omp] heartbeat renew failed: ${typeof response.error === 'string' ? response.error : JSON.stringify(response.error || {})}\n`);
-      }
-    } catch {}
-    try { ws.close(); } catch {}
-    discard();
-  };
-  ws.on('message', onHeartbeatMessage);
+      response = JSON.parse(raw.toString());
+    } catch {
+      // Non-JSON frame is not our response — keep listening for the 'hb' reply.
+      return;
+    }
+    // Ignore the antifan:init bootstrap event and any unrelated RPC traffic;
+    // only the 'hb' response completes a renewal.
+    if (response.id !== 'hb') return;
+    clearHeartbeatPending();
+    heartbeatFailureLogged = false;
+    heartbeatBusy = false;
+    if (!response.success) {
+      process.stderr.write(`[antifan-omp] heartbeat renew failed: ${typeof response.error === 'string' ? response.error : JSON.stringify(response.error || {})}\n`);
+    }
+    // Keep the connection open — it persists for the stdio lifetime.
+  });
   ws.once('error', (err) => {
-    clearTimeout(timer);
-    process.stderr.write(`[antifan-omp] heartbeat error: ${err.message}\n`);
-    try { ws.close(); } catch {}
-    discard();
+    if (!heartbeatFailureLogged) {
+      heartbeatFailureLogged = true;
+      process.stderr.write(`[antifan-omp] heartbeat error: ${err.message}\n`);
+    }
   });
   ws.once('close', () => {
-    clearTimeout(timer);
-    discard();
+    clearHeartbeatPending();
+    if (heartbeatWs === ws) heartbeatWs = null;
+    heartbeatBusy = false;
+    if (heartbeatTimer !== null) scheduleHeartbeatReconnect(bootstrap);
   });
+  if (onOpen) ws.once('open', () => { if (heartbeatWs === ws) onOpen(ws); });
+  return ws;
 }
 
 function startHeartbeat(bootstrap) {
   if (!bootstrap || !bootstrap.secret || !bootstrap.attachmentId) return;
-  heartbeatTimer = setInterval(() => renewBinding(bootstrap), 30_000);
+  ensureHeartbeatSocket(bootstrap, (ws) => renewBinding(bootstrap, ws));
+  const heartbeatIntervalMs = Math.max(Number(process.env.ANTIFAN_HEARTBEAT_MS) || 30_000, 50);
+  heartbeatTimer = setInterval(() => {
+    if (heartbeatBusy) return;
+    ensureHeartbeatSocket(bootstrap, (ws) => renewBinding(bootstrap, ws));
+  }, heartbeatIntervalMs);
   heartbeatTimer.unref?.();
-  renewBinding(bootstrap);
 }
 
 const server = new Server({ name: 'antifan-omp', version: '1.0.0' }, { capabilities: { tools: {} } });
+
 server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: definitions.map(([name, description, properties, required]) => ({ name, description, inputSchema: { type: 'object', properties, ...(required ? { required } : {}) } })) }));
 server.setRequestHandler(CallToolRequestSchema, async (request) => {
   try {
@@ -232,12 +288,16 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 });
 server.connect(new StdioServerTransport())
   .then(() => startHeartbeat(getBootstrap()))
-  .catch((error) => { process.stderr.write(`${error}\n`); process.exitCode = 1; });
+  .catch((error) => { stopHeartbeat(); process.stderr.write(`${error}\n`); process.exitCode = 1; });
 
 function shutdown() {
   stopHeartbeat();
   try { server.close(); } catch {}
 }
 process.stdin.on('close', shutdown);
+// The stdio transport ends when the MCP client closes its pipes; guard the
+// transport failure path too (EPIPE on stdout/stderr when the client dies).
+process.stdout.on('error', shutdown);
+process.stderr.on('error', shutdown);
 process.on('SIGINT', () => { shutdown(); process.exit(130); });
 process.on('SIGTERM', () => { shutdown(); process.exit(143); });

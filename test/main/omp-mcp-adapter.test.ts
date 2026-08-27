@@ -106,4 +106,79 @@ describe('OMP MCP stdio proxy security & bootstrap fail-closed contract', () => 
     const errorText = res.result.content[0].text;
     assert.ok(errorText.includes('MCP_CONTEXT_REQUIRED'), 'Must return MCP_CONTEXT_REQUIRED error code');
   });
+  it('keeps ONE long-lived heartbeat connection alive across renewals on a real ws server', async () => {
+    const { spawn } = await import('node:child_process');
+    const { WebSocketServer } = await import('ws');
+    const scriptPath = fs.existsSync(path.resolve(__dirname, '../../../scripts/antifan-omp-mcp.cjs'))
+      ? path.resolve(__dirname, '../../../scripts/antifan-omp-mcp.cjs')
+      : path.resolve(__dirname, '../../scripts/antifan-omp-mcp.cjs');
+
+    // Local bridge stand-in. The real bridge emits antifan:init on connect and
+    // answers antifan.cli.renewSession — the heartbeat must ignore the init
+    // event and renew repeatedly over the SAME socket (never reconnect).
+    const wss = new WebSocketServer({ host: '127.0.0.1', port: 0 });
+    // listen() is async: address() is undefined until the listening event fires.
+    await new Promise<void>((resolve) => wss.once('listening', () => resolve()));
+    const port = (wss.address() as any).port;
+    let connections = 0;
+    const renewParams: any[] = [];
+    wss.on('connection', (socket) => {
+      connections += 1;
+      socket.send(JSON.stringify({ type: 'event', event: 'antifan:init', data: { status: 'ok' } }));
+      socket.on('message', (raw) => {
+        let msg: any;
+        try { msg = JSON.parse(raw.toString()); } catch { return; }
+        if (msg.method !== 'antifan.cli.renewSession') return;
+        renewParams.push(msg.params);
+        socket.send(JSON.stringify({ id: 'hb', success: true, data: { expiresAt: Date.now() + 7_200_000 } }));
+      });
+    });
+    // Deadline race only — no wall-clock state to advance.
+    const deadline = new Promise<never>((_, reject) => {
+      const t = setTimeout(() => reject(new Error('heartbeat behavioral test timed out')), 10_000);
+      t.unref?.();
+    });
+
+    const env = {
+      ...process.env,
+      ANTIFAN_MCP_BOOTSTRAP: JSON.stringify({
+        port,
+        secret: 'test-secret-for-behavioral',
+        attachmentId: 'binding-behavioral-test',
+        runId: 'r-behavioral',
+        attemptId: 'a-behavioral',
+        projectId: 'p-behavioral',
+        workspaceId: 'w-behavioral',
+        ownerPid: 424_242,
+      }),
+      // Fast interval for the test; production default stays 30_000.
+      ANTIFAN_HEARTBEAT_MS: '200',
+    };
+    const child = spawn(process.execPath, [scriptPath], { env, stdio: ['pipe', 'pipe', 'pipe'] });
+    const exited = new Promise<number>((resolve) => child.once('exit', (code) => resolve(code ?? -1)));
+
+    try {
+      // Wait for two renewals on the fixed 200ms interval (deadline-capped).
+      await Promise.race([
+        new Promise<void>((resolve) => {
+          const check = () => { if (renewParams.length >= 2) resolve(); else setImmediate(check); };
+          check();
+        }),
+        deadline,
+      ]);
+
+      assert.strictEqual(connections, 1, 'Heartbeat must reuse one connection, never reconnect per renewal');
+      assert.ok(renewParams.length >= 2, 'Heartbeat must renew repeatedly on the persistent socket');
+      for (const params of renewParams) {
+        assert.strictEqual(params.attachmentId, 'binding-behavioral-test');
+        assert.strictEqual(params.secret, 'test-secret-for-behavioral');
+        assert.strictEqual(params.ownerPid, 424_242);
+        assert.strictEqual(params.extensionMs, 7_200_000);
+      }
+    } finally {
+      child.kill();
+      await Promise.race([exited, deadline]);
+      await new Promise<void>((resolve) => wss.close(() => resolve()));
+    }
+  });
 });
