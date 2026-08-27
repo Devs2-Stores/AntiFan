@@ -1303,11 +1303,10 @@ export class NativeTabHost extends EventEmitter {
 
         menu.append(
           new MenuItem({
-            label: 'ℹ️ View Image Info  Dimensions',
-            click: () => uploader.showImageInfo(imageUrl, this.window),
+            label: 'ℹ️ View Image Info & Dimensions',
+            click: () => uploader.showImageInfo(imageUrl, this.window, wc),
           })
         );
-
         menu.append(
           new MenuItem({
             label: '📋 Copy Image Address',

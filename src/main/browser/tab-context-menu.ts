@@ -145,8 +145,8 @@ export class TabContextMenuBuilder {
         );
         menu.append(
           new MenuItem({
-            label: 'ℹ️ View Image Info  Dimensions',
-            click: () => uploader.showImageInfo(imageUrl, win),
+            label: 'ℹ️ View Image Info & Dimensions',
+            click: () => uploader.showImageInfo(imageUrl, win, wc),
           })
         );
         menu.append(
