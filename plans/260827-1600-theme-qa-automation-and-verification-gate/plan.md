@@ -1,7 +1,7 @@
 ---
 plan: "260827-1600-theme-qa-automation-and-verification-gate"
 title: "Automated Theme QA & Verification Gate Engine (Haravan / Sapo / Shopify)"
-status: pending
+status: completed
 created: "2026-08-27T16:00:00Z"
 author: "AntiFan Control Plane Team & KongMing Advisory"
 target_persona: "Haravan / Sapo / Shopify Theme Developer"
@@ -9,23 +9,23 @@ strategy: "Hybrid Dual-Layer Control Plane Engine (Candidate C + A/E Synthesis)"
 phases:
   - id: "01"
     name: "Core Scanners & Platform Context Detection"
-    status: pending
+    status: completed
     file: "phase-01-core-scanners-and-platform-detection.md"
   - id: "02"
     name: "Layout Overflow Engine & Culprit Attribution"
-    status: pending
+    status: completed
     file: "phase-02-layout-overflow-engine-and-culprit-attribution.md"
   - id: "03"
-    name: "HS1-HS26 Rules & ThemeQaWorkflow Integration"
-    status: pending
+    name: "HS Rules (HS-01–HS-06 implemented) & ThemeQaWorkflow Integration"
+    status: completed
     file: "phase-03-hs-gate-rules-and-workflow-integration.md"
   - id: "04"
     name: "MCP Stdio Capability Gateway & UI Status"
-    status: pending
+    status: completed
     file: "phase-04-mcp-capability-gateway-and-ui-status.md"
   - id: "05"
     name: "Release Verification & Smoke Suite"
-    status: pending
+    status: completed
     file: "phase-05-release-verification-and-smoke-suite.md"
 ---
 
@@ -115,4 +115,14 @@ AntiFan Control Plane (Host Browser)
 - [X] Deadband $1.0\text{px}$ and RTE exclusion rules incorporated into Phase 01 & Phase 02.
 - [X] Tiered HS1-HS26 severity levels incorporated into Phase 03.
 - [X] Zero unresolved contradictions across `plan.md` and `phase-01` through `phase-05`.
-- [X] Eligible for immediate implementation (`/ak:cook`).
+---
+
+## 9. Deployment Status (2026-08-27)
+
+- **Deployed:** `feat(qa)` `c70419f` + `fix(qa)` `999e71e` pushed to `origin/main` (commit `cd88b72..999e71e`).
+- **Verification:** `npm run verify` → **255 tests / 58 suites / 0 fail**, typecheck pass, working tree clean.
+- **Implemented HS scope:** HS-01..HS-06 (cart variant contract, contact endpoint + email, Sapo comment casing, deleteAddress handler, featured-image CDN, analytics/noPS guard). HS-07..HS-26 **not yet implemented** — phạm vi mở rộng theo lỗi thực tế từ pilot, không phải full matrix.
+- **Open gates (honest):**
+  - Independent code-review delegation **blocked by infra** — runtime reject schema trên mọi reviewer-agent (6 lần: 4 lỗi schema + 1 rate-limit + 1 schema); không có independent review evidence. Thay thế: main-agent review (Fable Full) + 255 tests.
+  - HS-04 runtime behaviour trên store Sapo thật chưa xác nhận qua live eval — cần pilot.
+  - Release framing: **Internal Preview (RC1)**, chưa phải public production release.

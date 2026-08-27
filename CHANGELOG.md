@@ -18,12 +18,13 @@ Tất cả các thay đổi, tính năng mới và bản vá lỗi quan trọng 
 - Bổ sung ngưỡng deadband sub-pixel 0.5px loại trừ sai số làm tròn floating-point của trình duyệt.
 - Thuật toán Culprit Attribution xác định chính xác thẻ DOM và selector gây tràn ngang cùng toạ độ bounding box.
 
-### Cross-Platform HS1-HS26 Rules Matrix
-- Tích hợp bộ quy tắc kiểm định tương thích Haravan -> Sapo / Shopify:
+- Tích hợp bộ quy tắc kiểm định tương thích Haravan / Sapo / Shopify (đã triển khai HS-01 đến HS-06, mở rộng theo lỗi thực tế từ pilot):
   - **HS-01**: Kiểm tra form Add to Cart (`name="variantId"` cho Sapo vs `name="id"` cho Haravan/Shopify).
-  - **HS-02**: Kiểm tra endpoint form liên hệ (`action="/postcontact"` cho Sapo vs `action="/contact"` cho Haravan/Shopify).
-  - **HS-03**: Nhận diện slice LINQ dump trong mảng Liquid.
-  - **HS-04**: Kiểm tra trường dữ liệu đa nền tảng (`data-xplat` fallback).
+  - **HS-02**: Kiểm tra endpoint form liên hệ (`action="/postcontact"` cho Sapo vs `action="/contact"` cho Haravan/Shopify) và sự hiện diện trường `contact[email]`.
+  - **HS-03**: Casing trường blog comment trên Sapo (`Author/Email/Body` chuẩn hoa chữ đầu vs dạng thường).
+  - **HS-04**: Kiểm tra handler xoá địa chỉ khách hàng (`deleteAddress`) — engine runtime chứng minh sự vắng mặt qua `typeof`, fallback static chỉ cảnh báo (không thể chứng minh handler thiếu vì có thể nạp từ script ngoài).
+  - **HS-05**: Ảnh featured phải dùng URL CDN tuyệt đối của đúng nền tảng (`hstatic.net` / `dktcdn.net` / `cdn.shopify.com`).
+  - **HS-06**: Script analytics/nặng phải được bảo vệ bởi guard noPS/StartOptimize trước khi tải.
 
 ### MCP Stdio Capabilities & Renderer QA Badge
 - Expose 2 MCP Tools mới cho AI Coding Agents (Antigravity, Claude Code, Cursor): `theme.qa_validate` và `theme.debug_bundle` (hỗ trợ alias `antifan_theme_qa_validate`, `antifan_theme_debug_bundle`).
