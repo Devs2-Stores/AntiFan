@@ -4,6 +4,23 @@ Tất cả các thay đổi, tính năng mới và bản vá lỗi quan trọng 
 
 ---
 
+## [v1.4.0] - 2026-08-27 (QA Gate Trust & Self-QA)
+
+### Diagnostics Trust Gate
+- `TabDiagnosticsManager` thêm `clear()`: buffer diagnostics bị xoá ĐỒNG BỘ tại `did-start-navigation` (main-frame, không in-place, pane có quyền điều hướng) — dữ liệu QA không còn nhiễm từ navigation trước.
+- Console/failure entries gắn `origin` + `isFirstParty` tại thời điểm record (tính theo URL tab); eval/blob/data/javascript fallback page-owned, không bao giờ throw.
+
+### Shared Diagnostics Filter
+- Module `src/main/qa/diagnostics-filter.ts` là nguồn duy nhất: `computeOrigin`, `classifyDiagnostics`, `sanitizeDiagnosticText`, `stripUrlQuery`, `confineWorkspaceRoot`.
+- Verdict: console level ≥ 3 và network failure (Chromium NetError âm, trừ `-3` aborted) từ first-party/theme-asset CDN (`hstatic.net`, `shopifycdn.com`, `cdn.shopify.com`, `cdn.sapo.vn`) → critical; third-party noise (GTM, FB Pixel, chat widget) → warning; main-frame failure luôn critical.
+- Cả full path `ThemeQaWorkflow.validate` lẫn fallback path đều dùng chung filter → cùng verdict; fallback giờ luôn trả `summary` đầy đủ (`passed`/`totalIssues`/`criticalCount`).
+- Sanitize đầu ra: bỏ control chars/backticks/role markers, cắt query string (token/email không lộ vào prompt); workspaceRoot confine chống traversal.
+
+### Self-QA Directive trong Annotation Prompt
+- `buildAgentTaskHeader` chèn directive Self-QA: sau khi sửa file gọi `theme.qa_validate`, chỉ báo hoàn tất khi `summary.passed === true && criticalCount === 0`, tối đa 2 vòng tự sửa; nhánh fallback khi tool thiếu/lỗi auth (`ATTACHMENT_REQUIRED`/`ATTACHMENT_INVALID`/`MCP_CONTEXT_REQUIRED`) → báo dev xác nhận visual, CẤM bịa kết quả QA.
+- Intents read-only (review/research/security/documentation/testing/extract-component) dùng variant bằng chứng không bắt buộc.
+- `AGENT_CONTRACT_VERSION` 3.0.0 → 3.1.0 (đồng bộ test literal + evidence envelope).
+
 ## [v1.3.0] - 2026-08-27 (Theme QA & Verification Gate Release)
 
 ### E-Commerce Platform Detection (Haravan, Sapo, Shopify)
@@ -30,6 +47,11 @@ Tất cả các thay đổi, tính năng mới và bản vá lỗi quan trọng 
 - Expose 2 MCP Tools mới cho AI Coding Agents (Antigravity, Claude Code, Cursor): `theme.qa_validate` và `theme.debug_bundle` (hỗ trợ alias `antifan_theme_qa_validate`, `antifan_theme_debug_bundle`).
 - Tích hợp Theme QA Badge trên Toolbar Renderer hiển thị trạng thái và kích hoạt quét kiểm thử storefront nhanh.
 - Tự động lọc thông tin nhạy cảm (PII Sanitization - email, số điện thoại, token) trên toàn bộ báo cáo và artifact lưu trữ.
+
+### Trusted Diagnostics Gate & Annotation Self-QA Prompt
+- Diagnostics buffer được xoá đồng bộ tại `did-start-navigation` (main-frame, đúng authority pane) — hết lỗi ma khi navigate A→B; mọi console/network entry mang theo `origin`/`isFirstParty` để phân loại theo nguồn.
+- Shared filter `diagnostics-filter` dùng chung cho full path + fallback quick path: verdict nhất quán, `summary` object đầy đủ trên cả hai path (3rd-party noise chỉ là warning, không fail gate), workspace root bị confine chống path traversal.
+- Prompt annotation giờ yêu cầu agent tự gọi `theme.qa_validate` sau khi sửa (tối đa 2 vòng tự sửa) với fallback không tool / lỗi auth / hết vòng — CẤM bịa kết quả QA; `AGENT_CONTRACT_VERSION` bump `3.0.0` → `3.1.0`.
 
 ---
 

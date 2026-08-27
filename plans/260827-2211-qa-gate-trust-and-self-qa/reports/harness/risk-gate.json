@@ -1,0 +1,11 @@
+{
+  "stage": "finalize",
+  "riskTriggers": [
+    {"trigger": "--auto mode", "lens": "adversarial validator", "status": "pending (AdversarialValidator job running)"},
+    {"trigger": "public/exported contract change (AGENT_CONTRACT_VERSION bump, new exports, annotation prompt contract)", "lens": "domain-risk reviewer", "status": "reviewed in code review; blast radius contained: template writer + element-picker literal test updated together; no other consumers of version literal found (grep 3.0.0 clean)"},
+    {"trigger": "large diff (6 modified + 5 new files)", "lens": "adversarial validator", "status": "pending"}
+  ],
+  "autoStopRequired": true,
+  "humanApproved": false,
+  "reason": "--auto mode + large diff + public contract (annotation prompt version) => STOP before finalize/commit/ship per workflow rules. Human approval required."
+}

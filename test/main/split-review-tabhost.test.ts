@@ -107,7 +107,7 @@ function createTestHost() {
   host.isBookmarkBarVisible = false;
   host.appliedClipRadius = new WeakMap();
   host.emulatedWebContents = new WeakSet();
-  host.diagnosticsManager = { recordConsole: () => {}, recordFailure: () => {} };
+  host.diagnosticsManager = { recordConsole: () => {}, recordFailure: () => {}, clear: () => {} };
   host.broadcastState = () => {};
   host.updateLayout = () => {
     const tab = host.tabs.get(host.activeTabId);

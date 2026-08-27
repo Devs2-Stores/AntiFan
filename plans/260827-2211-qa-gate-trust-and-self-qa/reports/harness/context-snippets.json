@@ -1,0 +1,24 @@
+{
+  "plan": "plans/260827-2211-qa-gate-trust-and-self-qa/plan.md",
+  "phases": ["phase-01-diagnostics-buffer-and-origin-clear.md", "phase-02-shared-testability-filter.md", "phase-03-annotation-self-qa-prompt.md", "phase-04-tests-and-verification.md"],
+  "head": "e25d7d1",
+  "version": "1.4.0 (changelog entry; AGENT_CONTRACT_VERSION 3.1.0)",
+  "mode": "cook plan --auto (code mode; --advisor flag could not spawn kongming agent — plan already Red-Team + Validation reviewed, executed on plan authority)",
+  "parallel-session-note": "Working tree changed mid-run: a parallel session implemented phase 1-2 and phase 3 code + tests alongside this session. Reconciled: this session created and fixed src/main/qa/diagnostics-filter.ts (rename ClassifiedIssue->DiagnosticIssue, confineWorkspaceRoot empty-default back-compat), restricted step-5 asset correlation to first-party/theme-asset failures (Goal 2 regression fix), moved contextUrl earlier, confined workspaceRoot on the full ThemeQaWorkflow path, matched test contracts, ran verification. Final state verified end-to-end.",
+  "files-changed": {
+    "src/main/qa/diagnostics-filter.ts": "NEW — shared filter (computeOrigin, classifyDiagnostics, sanitizeDiagnosticText, stripUrlQuery, confineWorkspaceRoot, THEME_ASSET_HOSTS)",
+    "src/main/browser/tab-diagnostics.ts": "origin/isFirstParty fields on both entry interfaces; clear(tabId?); computeOrigin re-export",
+    "src/main/browser/native-tab-host.ts": "record console/failure with computeOrigin(source/url, tabURL); diagnosticsManager.clear(id) inside did-start-navigation gate",
+    "src/main/qa/theme-qa-workflow.ts": "diagnostics snapshot at validate() start; step-5 correlation restricted to first-party/theme-asset; step 5.5 classifyDiagnostics; checklist.diagnostics includes diagnosticIssues.length===0; summary.criticalCount += diagnosticIssues.length; findings.diagnosticIssues/diagnosticWarnings",
+    "src/main/tools/browser-capabilities.ts": "buildFallbackThemeQaResult exported (Finding 6 complete summary); classifyDiagnostics + confineWorkspaceRoot on BOTH paths",
+    "src/shared/annotation-prompt.ts": "SELF_QA_DIRECTIVE + SELF_QA_DIRECTIVE_READONLY + buildSelfQaDirective inserted in buildAgentTaskHeader; AGENT_CONTRACT_VERSION 3.1.0",
+    "test/main/element-picker-resolution.test.ts": "contract_version literal 3.0.0 -> 3.1.0 (Finding 8)",
+    "test/main/diagnostics-filter.test.ts": "NEW — computeOrigin matrix, classify matrix, sanitize/stripUrlQuery, confineWorkspaceRoot (28 tests)",
+    "test/main/tab-diagnostics.test.ts": "NEW — clear lifecycle, re-export check",
+    "test/main/annotation-prompt.test.ts": "NEW — directive presence/absence, auth-error branch, version (8 tests)",
+    "test/main/theme-qa-parity.test.ts": "NEW — full vs fallback identical fake diagnostics => identical summary.criticalCount; both have summary; third-party-only passes both paths; no-diagnostics host degrades",
+    "test/main/split-review-tabhost.test.ts": "diagnosticsManager stub + clear: () => {}",
+    "docs/operations.md": "theme.qa_validate description: summary object + third-party -> warning",
+    "CHANGELOG.md": "v1.4.0 section"
+  }
+}

@@ -422,7 +422,8 @@ describe('Element Picker Resolution & Artifact Upgrades', () => {
 
     const content = fs.readFileSync(res.markdownPath, 'utf8');
     // Verify critical sections
-    assert.ok(content.includes('contract_version: "3.0.0"'));
+    // Bumped with AGENT_CONTRACT_VERSION 3.0.0 -> 3.1.0 (self-QA directive, plan phase 3)
+    assert.ok(content.includes('contract_version: "3.1.0"'));
     assert.ok(content.includes('## Fable-Thinking Invariant Ledger & Safety Boundaries'));
     assert.ok(content.includes('PRESERVES'));
     assert.ok(content.includes('DELIBERATELY CHANGES'));

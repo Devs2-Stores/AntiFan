@@ -9,6 +9,12 @@ export interface ConsoleDiagnosticEntry {
   source: string;
   line: number;
   timestamp: number;
+/** Origin (scheme://host) của nguồn log — optional, giữ back-compat với
+   *  entries cũ; được gắn tại thời điểm record (phase trust gate). */
+  origin?: string;
+  /** Source có thuộc storefront tab (first-party) hay không — tính so với
+   *  URL tab tại thời điểm record. */
+  isFirstParty?: boolean;
 }
 
 export interface NetworkFailureDiagnosticEntry {
@@ -17,8 +23,9 @@ export interface NetworkFailureDiagnosticEntry {
   validatedURL: string;
   isMainFrame: boolean;
   timestamp: number;
+  origin?: string;
+  isFirstParty?: boolean;
 }
-
 export interface TabDiagnosticsBucket {
   console: ConsoleDiagnosticEntry[];
   failures: NetworkFailureDiagnosticEntry[];
@@ -93,3 +100,9 @@ export class TabDiagnosticsManager {
     }
   }
 }
+
+// computeOrigin sống ở qa/diagnostics-filter (nguồn duy nhất, dùng chung cho
+// full path + fallback path); re-export tại đây để native-tab-host không cần
+// import chéo sang module qa.
+export { computeOrigin } from '../qa/diagnostics-filter';
+

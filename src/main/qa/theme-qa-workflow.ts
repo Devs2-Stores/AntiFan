@@ -7,6 +7,7 @@ import { LiquidErrorScanner, LiquidScanResult, LiquidErrorFinding } from './scan
 import { BrokenAssetScanner, BrokenAssetScanResult, BrokenAssetFinding } from './scanners/broken-asset-scanner';
 import { LayoutOverflowEngine, ViewportOverflowResult } from './scanners/layout-overflow-engine';
 import { HsGateRules, HsEvaluationResult, HsRuleViolation } from './rules/hs-gate-rules';
+import { classifyDiagnostics, computeOrigin, DiagnosticsInput, DiagnosticIssue, THEME_ASSET_HOSTS } from './diagnostics-filter';
 
 export interface ThemeQaChecklist {
   layout: boolean;
@@ -22,6 +23,12 @@ export interface ThemeQaDetailedFindings {
   overflow: ViewportOverflowResult;
   assets: BrokenAssetScanResult;
   hsRules: HsEvaluationResult;
+  /** Critical diagnostics từ shared filter (console first-party/theme-asset
+   *  level >= 3, network Chromium âm trừ -3 của first-party/theme-asset,
+   *  isMainFrame failure). */
+  diagnosticIssues: DiagnosticIssue[];
+  /** Diagnostics third-party chỉ cảnh báo — không fail gate. */
+  diagnosticWarnings: DiagnosticIssue[];
 }
 
 export interface ThemeQaSummary {
@@ -82,6 +89,31 @@ export class ThemeQaWorkflow {
     multiBreakpoint?: boolean;
   }): Promise<ThemeQaReport> {
     this.assertOwnership(input.target);
+
+    // SNAPSHOT diagnostics tại ĐẦU validate, trước MỌI await (Red Team Finding
+    // 11): đọc muộn ở bước 5.5 race với navigation clear (phase 1 clear đồng
+    // bộ tại did-start-navigation). browser.diagnostics trả mảng copy sẵn nên
+    // snapshot an toàn; host không hỗ trợ diagnostics → rỗng, không fail.
+    let diagnosticsSnapshot: DiagnosticsInput = { console: [], failures: [] };
+    try {
+      const raw = this.ports.browser.diagnostics(input.target.tabId);
+      diagnosticsSnapshot = {
+        console: Array.isArray(raw.console) ? (raw.console as DiagnosticsInput['console']) : [],
+        failures: Array.isArray(raw.failures) ? (raw.failures as DiagnosticsInput['failures']) : [],
+      };
+    } catch {
+      // Host without diagnostics support — classification runs on empty input
+    }
+    // Context URL (tab URL tại thời điểm validate) dùng chung cho correlation
+    // filter (step 5) và 5.5 classification; best-effort.
+    let contextUrl = '';
+    try {
+      const tabs = this.ports.browser.listTabs({ target: input.target });
+      const tab = Array.isArray(tabs) ? tabs.find((t): t is Record<string, unknown> => Boolean(t && typeof t === 'object' && (t as Record<string, unknown>).id === input.target.tabId)) : undefined;
+      if (tab && typeof tab.url === 'string') contextUrl = tab.url;
+    } catch {
+      // best-effort — entries mới đều mang origin/isFirstParty sẵn
+    }
 
     // 1. Capture initial evidence
     const evidence = await this.inspect({ ...input });
@@ -178,14 +210,28 @@ export class ThemeQaWorkflow {
         assetResult = evalRes as BrokenAssetScanResult;
       }
       // Correlate with CDP diagnostics when available
-      const diagnostics = this.ports.browser.diagnostics(input.target.tabId);
+      const diagnostics = diagnosticsSnapshot;
       if (diagnostics && Array.isArray(diagnostics.failures) && diagnostics.failures.length > 0) {
+        // Chỉ correlate failure first-party/theme-asset — third-party (ad
+        // blocker, GTM, FB Pixel) không được biến thành brokenAssets làm fail
+        // gate (Goal 2: third-party chỉ warning). Legacy entries thiếu
+        // origin/isFirstParty → computeOrigin fallback theo contextUrl.
         const mappedFailures = diagnostics.failures
           .filter((f): f is Record<string, unknown> => Boolean(f && typeof f === 'object'))
+          .filter((f) => {
+            if (typeof f.isFirstParty === 'boolean') {
+              const origin = typeof f.origin === 'string' ? f.origin : '';
+              if (f.isFirstParty) return true;
+              return THEME_ASSET_HOSTS.some((host) => origin === host || origin.endsWith(`.${host}`));
+            }
+            const rawUrl = typeof f.validatedURL === 'string' ? f.validatedURL : '';
+            const originInfo = computeOrigin(rawUrl, contextUrl);
+            return originInfo.isFirstParty || THEME_ASSET_HOSTS.some((host) => originInfo.origin === host || originInfo.origin.endsWith(`.${host}`));
+          })
           .map((f) => ({
-            url: typeof f.url === 'string' ? f.url : '',
-            status: typeof f.status === 'number' ? f.status : undefined,
-            errorText: typeof f.errorText === 'string' ? f.errorText : undefined,
+            url: typeof f.validatedURL === 'string' ? f.validatedURL : '',
+            status: typeof f.errorCode === 'number' && f.errorCode > 0 ? f.errorCode : undefined,
+            errorText: typeof f.errorDescription === 'string' ? f.errorDescription : undefined,
           }))
           .filter((f) => f.url.length > 0);
         assetResult = BrokenAssetScanner.correlateWithNetworkFailures(assetResult, mappedFailures);
@@ -193,6 +239,13 @@ export class ThemeQaWorkflow {
     } catch {
       // Retain clean fallback
     }
+
+    // 5.5 Shared diagnostics classification (trust gate): quyết định critical vs
+    // warning theo origin + error class (module dùng chung với fallback path).
+    // URL tab làm context cho entries thiếu origin/isFirstParty (legacy).
+    const diagResult = classifyDiagnostics(diagnosticsSnapshot, contextUrl);
+    const diagnosticIssues: DiagnosticIssue[] = diagResult.criticalIssues;
+    const diagnosticWarnings: DiagnosticIssue[] = diagResult.warnings;
 
     // 6. Platform-scoped HS gate evaluation
     let hsResult: HsEvaluationResult = { passed: true, totalViolations: 0, errorsCount: 0, warningsCount: 0, violations: [] };
@@ -215,7 +268,7 @@ export class ThemeQaWorkflow {
       responsive: overflowResult.culprits.length === 0,
       overflow: !overflowResult.hasOverflow,
       interactions: hsResult.passed,
-      diagnostics: !liquidResult.hasErrors && !assetResult.hasBrokenAssets,
+      diagnostics: !liquidResult.hasErrors && !assetResult.hasBrokenAssets && diagnosticIssues.length === 0,
       liquidClean: !liquidResult.hasErrors,
       assetsValid: !assetResult.hasBrokenAssets,
       hsCompliant: hsResult.passed,
@@ -229,11 +282,17 @@ export class ThemeQaWorkflow {
       if (input.checklist.diagnostics !== undefined) checklist.diagnostics = input.checklist.diagnostics;
     }
 
-    const totalIssues = liquidResult.errors.length + overflowResult.culprits.length + assetResult.brokenAssets.length + hsResult.totalViolations;
+    const totalIssues =
+      liquidResult.errors.length +
+      overflowResult.culprits.length +
+      assetResult.brokenAssets.length +
+      hsResult.totalViolations +
+      diagnosticIssues.length +
+      diagnosticWarnings.length;
     const summary: ThemeQaSummary = {
       passed: Object.values(checklist).every(Boolean),
       totalIssues,
-      criticalCount: hsResult.errorsCount + liquidResult.errors.length,
+      criticalCount: hsResult.errorsCount + liquidResult.errors.length + diagnosticIssues.length,
     };
 
     const findings: ThemeQaDetailedFindings = {
@@ -242,6 +301,8 @@ export class ThemeQaWorkflow {
       overflow: overflowResult,
       assets: assetResult,
       hsRules: hsResult,
+      diagnosticIssues,
+      diagnosticWarnings,
     };
 
     const artifacts: ArtifactRef[] = [];

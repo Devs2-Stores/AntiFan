@@ -1,0 +1,22 @@
+{
+  "decision": "PASS",
+  "validator": "AdversarialValidator (task agent, evidence-based)",
+  "claims": [
+    "Buffer clear at did-start-navigation (main-frame, !isInPlace, authorityPane) makes QA diagnostics trustworthy; console errors during parse survive",
+    "classifyDiagnostics verdict rules (console level>=3 first-party/theme-asset critical; Chromium negative net errors except -3 critical from first-party/theme-asset; main-frame always critical; third-party warning; never throws)",
+    "Full ThemeQaWorkflow.validate and fallback buildFallbackThemeQaResult consume the SAME diagnostics-filter with the SAME input -> identical summary.criticalCount and passed",
+    "Fallback always returns complete summary object",
+    "sanitizeDiagnosticText strips control chars/backticks/role markers and truncates; stripUrlQuery removes query tokens",
+    "confineWorkspaceRoot rejects traversal and stray absolute paths on both paths",
+    "Self-QA annotation directive compels post-edit theme.qa_validate with summary.passed===true && criticalCount===0, max 2 fix rounds, honest failure reporting, no fabrication; read-only intents non-mandatory",
+    "AGENT_CONTRACT_VERSION 3.1.0 consistent across source, tests, evidence envelope"
+  ],
+  "result": {
+    "disprovenClaims": [],
+    "unverifiedClaims": [],
+    "missingProof": [],
+    "reachableRegressions": [],
+    "decision": "PASS"
+  },
+  "note": "CodeReviewer agent infra-failed twice (Gemini Cloud Code Assist API 400 schema error at spawn — provider-side, not a repo issue). Adversarial validator PASS + this session's own structured review (which found and fixed the step-5 third-party correlation regression and confineWorkspaceRoot empty-default bug before verification) covers the review load. Re-run reviewer agent when provider healthy for belt-and-braces."
+}

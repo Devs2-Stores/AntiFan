@@ -28,7 +28,7 @@ import {
   MAC_DESKTOP_USER_AGENT,
 } from './device-presets';
 import { googleAuthUserAgent } from './google-auth-identity';
-import { TabDiagnosticsManager } from './tab-diagnostics';
+import { TabDiagnosticsManager, computeOrigin } from './tab-diagnostics';
 import { buildKeyboardInputEvents } from './keyboard-normalizer';
 import { WorkspaceCapsuleManager, type WorkspaceCapsule } from '../project/workspace-capsule';
 import { PreviewWatcherPool, type PreviewChangeEvent } from '../server/preview-watcher-pool';
@@ -1710,12 +1710,16 @@ export class NativeTabHost extends EventEmitter {
       this.broadcastState();
     });
     wc.on('console-message', (_event, level, message, line, sourceId) => {
+      const source = String(sourceId || '');
+      const origin = computeOrigin(source, wc.getURL());
       this.diagnosticsManager.recordConsole(id, {
         level,
         message: String(message || ''),
-        source: String(sourceId || ''),
+        source,
         line: Number(line || 0),
         timestamp: Date.now(),
+        origin: origin.origin,
+        isFirstParty: origin.isFirstParty,
       });
     });
     wc.on('did-start-navigation', (_event, _url, isInPlace, isMainFrame) => {
@@ -1724,6 +1728,13 @@ export class NativeTabHost extends EventEmitter {
       const authorityPane = splitHasLiveMobile ? (currentTab?.focusedPane || state.splitFocusedPane || 'desktop') : 'desktop';
       if (isMainFrame && !isInPlace && authorityPane === paneId) {
         this.documentGenerations.set(id, (this.documentGenerations.get(id) || 0) + 1);
+        // Clear diagnostics buffer ĐỒNG BỘ tại start navigation (main-frame,
+        // không in-place, pane có quyền điều hướng). Không clear tại
+        // did-finish-load: lỗi console phát trong lúc parse phải được GIỮ LẠI
+        // cho QA. Không clear trên hash navigation (did-navigate-in-page,
+        // isInPlace=true) hoặc subframe; split-mode mirror navigation ở pane
+        // khác cũng không clear (gate authorityPane).
+        this.diagnosticsManager.clear(id);
         if (id === this.activeTabId) {
           this.themeQaState = { status: 'idle', issueCount: 0, updatedAt: Date.now() };
           this.broadcastState();
@@ -1735,12 +1746,16 @@ export class NativeTabHost extends EventEmitter {
       clearLoadingTimer();
       state.isLoading = false;
       this.broadcastState();
+      const rawUrl = String(validatedURL || '');
+      const origin = computeOrigin(rawUrl, wc.getURL());
       this.diagnosticsManager.recordFailure(id, {
         errorCode,
         errorDescription: String(errorDescription || ''),
-        validatedURL: String(validatedURL || ''),
+        validatedURL: rawUrl,
         isMainFrame: Boolean(isMainFrame),
         timestamp: Date.now(),
+        origin: origin.origin,
+        isFirstParty: origin.isFirstParty,
       });
       this.splitCoordinator.handleNavigationFailure(id, paneId, String(errorDescription || ''));
     });

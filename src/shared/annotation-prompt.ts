@@ -3,7 +3,7 @@
  * 100% Parity with Antigravity Browser standalone prompt generation contract.
  */
 
-export const AGENT_CONTRACT_VERSION = '3.0.0';
+export const AGENT_CONTRACT_VERSION = '3.1.0';
 
 export type TaskIntent =
   | 'tweak'
@@ -110,6 +110,37 @@ This module is additive; the core contract remains mandatory.
 3. Reuse the existing unit, token, variable, and component pattern.
 4. Verify the exact before -> after value and run the narrowest configured project check.
 5. Do not refactor or add abstractions for a one-property change.`;
+
+/** Intents không sửa file repo — self-QA chỉ là bằng chứng, không bắt buộc. */
+const SELF_QA_READONLY_INTENTS: Partial<Record<TaskIntent, true>> = {
+  review: true,
+  research: true,
+  security: true,
+  documentation: true,
+  testing: true,
+  'extract-component': true,
+};
+
+/**
+ * Self-QA directive (implementation variant): sau khi sửa file, agent PHẢI tự
+ * gọi theme.qa_validate (MCP AntiFan) trước khi báo hoàn tất, với 3 nhánh
+ * fallback khi không có tool / lỗi auth / hết 2 vòng sửa — KHÔNG bao giờ bịa
+ * kết quả QA (Red Team Finding 5). Chuỗi là hằng số để test so khớp được.
+ */
+export const SELF_QA_DIRECTIVE = `## Self-QA bắt buộc sau khi sửa (AntiFan Theme QA Gate)
+SAU KHI SỬA file theme: nếu tool \`theme.qa_validate\` có sẵn (MCP AntiFan), GỌI tool đó, chờ kết quả, và chỉ báo hoàn tất khi \`summary.passed === true\` và \`criticalCount === 0\`.
+1. Kết quả fail → tự sửa tiếp NGAY trong lượt này, tối đa 2 vòng sửa; sau mỗi vòng gọi lại \`theme.qa_validate\` để xác nhận đã qua gate.
+2. Tool \`theme.qa_validate\` KHÔNG có sẵn (no MCP) HOẶC tool trả lỗi auth (ATTACHMENT_REQUIRED, ATTACHMENT_INVALID, MCP_CONTEXT_REQUIRED) → KHÔNG lặp lại call; báo dev xác nhận visual trực tiếp trên AntiFan.
+3. Hết 2 vòng vẫn fail → báo kết quả fail trung thực, liệt kê criticalIssues, nhờ dev xác nhận hướng xử lý — KHÔNG báo hoàn tất.
+CẤM bịa kết quả QA: không có tool thì không có điểm số — không bao giờ tự gán summary.passed hay criticalCount nếu chưa gọi được tool.`;
+
+/** Self-QA variant cho READ-ONLY intents — bằng chứng hiện trạng, không bắt buộc. */
+export const SELF_QA_DIRECTIVE_READONLY = `## Self-QA (READ-ONLY — bằng chứng hiện trạng)
+Nếu tool \`theme.qa_validate\` có sẵn (MCP AntiFan), dùng nó để cung cấp bằng chứng hiện trạng. Không bắt buộc — task này không sửa file.`;
+
+export function buildSelfQaDirective(intent: TaskIntent): string {
+  return SELF_QA_READONLY_INTENTS[intent] ? SELF_QA_DIRECTIVE_READONLY : SELF_QA_DIRECTIVE;
+}
 
 const INTENT_MODULES: Record<TaskIntent, string> = {
   tweak: LIGHT_AGENT_CONTRACT,
@@ -295,6 +326,8 @@ ${criteria}
 - **PRESERVES**: Existing behavior, public contracts, untargeted attributes, and system state outside the request boundary.
 - **DELIBERATELY CHANGES**: Only the explicitly targeted code, properties, or configuration required by the request.
 - **RISKS & SIDE EFFECTS**: Check regression paths, responsive constraints, and dependent module interactions before committing changes.
+${buildSelfQaDirective(intent)}
+
 ${STANDALONE_AGENT_CONTRACT}
 ${INTENT_MODULES[intent]}`;
 }

@@ -1,0 +1,52 @@
+{
+  "artifactStage": "finalize",
+  "commands": [
+    {
+      "command": "npx tsc -p ./ --noEmit",
+      "result": "pass (exit 0, no diagnostics)",
+      "evidence": "run 2026-08-27 after all edits incl. parallel-session changes"
+    },
+    {
+      "command": "npm run verify",
+      "result": "306 tests pass / 70 suites / 0 fail / 0 skipped",
+      "evidence": "run 2026-08-27; baseline was 255 passing before plan — 51 new tests added (28 filter + 11 tab-diagnostics + 8 annotation-prompt + 4 parity incl. 3 sub-cases); no pre-existing test disabled or weakened"
+    },
+    {
+      "command": "node --test .compiled/test/main/diagnostics-filter.test.js",
+      "result": "28/28 pass",
+      "evidence": "computeOrigin matrix (blob inner URL, eval fallback, www strip, empty base), classify matrix (errorCode<0 except -3, HTTP-style 404, isMainFrame always critical, CDN theme hosts, third-party downgrade), sanitize (backticks/control/role markers, 200 truncate), stripUrlQuery (token/email removal), confineWorkspaceRoot (traversal, stray abs, empty default back-compat)"
+    },
+    {
+      "command": "node --test .compiled/test/main/tab-diagnostics.test.js",
+      "result": "pass",
+      "evidence": "clear(tabId) scoped, clear() global, no-op unknown tab, copies returned, maxEntries cap, level filter, deleteTab, computeOrigin re-export (single source)"
+    },
+    {
+      "command": "node --test .compiled/test/main/annotation-prompt.test.js",
+      "result": "pass",
+      "evidence": "version 3.1.0, implementation vs read-only variant selection, auth-error branches (ATTACHMENT_REQUIRED/INVALID, MCP_CONTEXT_REQUIRED), 2-round cap, exactly-once insertion after ledger, read-only intents excluded"
+    },
+    {
+      "command": "node --test .compiled/test/main/theme-qa-parity.test.js",
+      "result": "pass",
+      "evidence": "identical fake diagnostics -> identical summary.criticalCount AND passed on full vs fallback; both return complete summary object (Finding 6); third-party-only diagnostics pass on both paths (Goal 2); host without diagnostics support degrades to empty input without throwing"
+    },
+    {
+      "command": "npm run smoke:theme-qa",
+      "result": "pass (ALL THEME QA VERIFICATION CHECKS PASSED)",
+      "evidence": "fixture-based smoke (no live storefront): PlatformDetector=sapo, Liquid missing_include detected, HS-02 violation, workflow report generated, diagnostics check FAIL expected (Liquid error), PII redaction verified (customer@example.com absent from report artifact)"
+    }
+  ],
+  "smoke-limitation": "Live storefront smoke not executed — no QA project/storefront available in this environment; plan phase-04 risk assessment allows fixture fallback, marked here. Fixture covers Liquid/HS/overflow paths; third-party-noise pass is covered by unit + parity tests instead.",
+  "regression-checks": {
+    "element-picker-resolution.test.ts": "updated contract_version literal 3.0.0 -> 3.1.0 with the bump (Finding 8) — assert kept, only literal changed",
+    "split-review-tabhost.test.ts": "diagnosticsManager stub gained clear: () => {} — required because did-start-navigation now calls clear()",
+    "theme-mcp-capabilities.test.ts": "unchanged, still green — fallback diagnostics() guarded by try/catch (host stub without getDiagnostics)",
+    "vertical-slice": "test/integration/theme-qa-vertical-slice.test.ts unchanged, green"
+  },
+  "failures-observed-and-fixed": [
+    "confineWorkspaceRoot empty defaultRoot: resolve('') returned cwd, causing back-compat test failure — fixed by early return of candidate when default empty/whitespace",
+    "Step-5 correlation rewired by parallel session mapped ALL failures (incl. third-party) into brokenAssets -> would fail gate (Goal 2 regression) — restricted to first-party/theme-asset via isFirstParty/origin filter with computeOrigin fallback",
+    "Typecheck errors in parity test host mock (timestamp fields not in filter structural types; getDiagnostics unknown[] shape) — fixed with toHostDiagnostics wrapper"
+  ]
+}

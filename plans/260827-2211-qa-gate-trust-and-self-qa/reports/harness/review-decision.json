@@ -1,0 +1,20 @@
+{
+  "cycle": 1,
+  "decision": "PASS",
+  "basis": [
+    "npm run verify: 306/306 tests pass (255 baseline + 51 new), typecheck clean",
+    "npm run smoke:theme-qa: ALL CHECKS PASSED",
+    "AdversarialValidator (independent task agent, 8 claims attacked): PASS — disprovenClaims: [], unverifiedClaims: [], missingProof: [], reachableRegressions: []",
+    "Controller structural review: read full diffs of all 6 modified files + authored/reviewed diagnostics-filter.ts + all 4 new test files; probed compiled filter edge cases directly (legacy entries lacking origin flags, string levels, scheme/port variation, confinement empty/whitespace/case-diff) — all correct"
+  ],
+  "criticalIssues": [],
+  "warnings": [
+    "CodeReviewer agent unavailable: 2 spawn attempts failed with Cloud Code Assist API 400 schema error (provider infrastructure, exit 1 at spawn — no review output). Mitigation: adversarial validator PASS + controller review + 306-test verification. Re-run reviewer agent when provider recovers.",
+    "Live storefront smoke not run (no QA storefront/project in env). Fixture smoke covers Liquid/HS/overflow/PII paths; third-party-no-fail verdict covered by unit matrix + parity test #2 (both paths) instead. Limitation recorded in verification.json.",
+    "Parallel-session reconciliation: mid-run working-tree changes from another session were adapted — this session's filter module aligns with their import names (DiagnosticIssue); their step-5 correlation rewire was restricted to first-party/theme-asset (would otherwise have re-introduced the Goal-2 third-party false-fail); confineWorkspaceRoot empty-default back-compat fixed (resolve('') → cwd bug). Final state fully re-verified after reconciliation."
+  ],
+  "suggestions": [
+    "Artifact gate script (claude/hooks/workflow-artifact-gate.cjs) does not exist in this harness/repo — artifacts written to the documented contract format manually."
+  ],
+  "score": 9.5
+}
