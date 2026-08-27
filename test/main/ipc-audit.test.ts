@@ -199,6 +199,58 @@ describe('Webview & Extension IPC Audit Invariants', () => {
     );
   });
 
+  it('verifies Omnibox Suggest dropdown DOM parity, overlay lifecycle, and focus trigger', () => {
+    const toolbarHtmlPath = path.join(root, 'src', 'renderer', 'toolbar.html');
+    const toolbarTsPath = path.join(root, 'src', 'renderer', 'toolbar.ts');
+    const toolbarHtml = fs.readFileSync(toolbarHtmlPath, 'utf8');
+    const toolbarTs = fs.readFileSync(toolbarTsPath, 'utf8');
+
+    // 1. DOM IDs exist in toolbar.html
+    assert.ok(toolbarHtml.includes('id="omniboxSuggestDropdown"'), 'toolbar.html must define omniboxSuggestDropdown');
+    assert.ok(toolbarHtml.includes('id="omniboxSuggestList"'), 'toolbar.html must define omniboxSuggestList');
+
+    // 2. TypeScript queries matching IDs
+    assert.ok(toolbarTs.includes("document.getElementById('omniboxSuggestDropdown')"), 'toolbar.ts must query omniboxSuggestDropdown');
+    assert.ok(toolbarTs.includes("document.getElementById('omniboxSuggestList')"), 'toolbar.ts must query omniboxSuggestList');
+
+    // 3. Overlay lifecycle when showing and hiding suggest dropdown
+    assert.match(toolbarTs, /omniboxSuggestDropdown\.style\.display\s*=\s*'block'[^]*getApi\(\)\?\.setOverlay\(true,\s*420\)/);
+    assert.match(toolbarTs, /function hideSuggestDropdown\(\)[^]*omniboxSuggestDropdown\.style\.display\s*=\s*'none'[^]*getApi\(\)\?\.setOverlay\(false\)/);
+
+    // 4. Must NOT immediately close the suggest dropdown after showing it
+    assert.doesNotMatch(
+      toolbarTs,
+      /omniboxSuggestDropdown\.style\.display\s*=\s*'block';\s*getApi\(\)\?\.setOverlay\(true,\s*420\);\s*hideSuggestDropdown\(\);/,
+      'Must not call hideSuggestDropdown immediately after opening dropdown'
+    );
+  });
+
+  it('verifies tab host handles WebContents close, destroyed, and OAuth window open events', () => {
+    const nativeTabHostPath = path.join(root, 'src', 'main', 'browser', 'native-tab-host.ts');
+    const nativeTabHost = fs.readFileSync(nativeTabHostPath, 'utf8');
+
+    // 1. WebContents close event must invoke closeTab
+    assert.match(
+      nativeTabHost,
+      /\.on\('close',\s*\(\)\s*=>\s*\{[^}]*this\.closeTab\(id\)/,
+      'Must handle wc close event to close tab on window.close()'
+    );
+
+    // 2. WebContents destroyed event must clean up tab
+    assert.match(
+      nativeTabHost,
+      /wc\.on\('destroyed',\s*\(\)\s*=>\s*\{[^}]*this\.closeTab\(id\)/,
+      'Must handle wc destroyed event to clean up tab'
+    );
+
+    // 3. Window open handler must delegate to OAuthPopupManager
+    assert.match(
+      nativeTabHost,
+      /OAuthPopupManager\.getInstance\(\)\.handleWindowOpen/,
+      'Must delegate window.open calls to OAuthPopupManager'
+    );
+  });
+
   it('enforces single authority for shortcuts: app-menu owns menu accelerators with no duplicate accelerators, native-tab-host owns non-menu WebContents shortcuts with zero overlap', () => {
     const nativeTabHostPath = path.join(root, 'src', 'main', 'browser', 'native-tab-host.ts');
     const nativeTabHost = fs.readFileSync(nativeTabHostPath, 'utf8');
@@ -336,6 +388,38 @@ describe('Webview & Extension IPC Audit Invariants', () => {
       nativeTabHost,
       /if \(url\.startsWith\('view-source:'\)\) \{[\s\S]*?this\.fetchAndLoadPageSource\(wc, sourceTargetUrl, state\);\s*\} else if/,
       'view-source tabs must retain their dedicated data-URL loading path'
+    );
+  });
+
+  it('enforces single workflow authority in native-tab-host delegating through control-plane runtime', () => {
+    const nativeTabHost = fs.readFileSync(path.join(root, 'src', 'main', 'browser', 'native-tab-host.ts'), 'utf8');
+    
+    // Verify all 5 workflow IPC channels exist
+    const requiredChannels = [
+      'antifan:workflow:get-state',
+      'antifan:workflow:save',
+      'antifan:workflow:delete',
+      'antifan:workflow:run',
+      'antifan:workflow:abort',
+    ];
+    for (const ch of requiredChannels) {
+      assert.ok(
+        nativeTabHost.includes(`ipcMain.handle('${ch}'`) || nativeTabHost.includes(`ipcMain.on('${ch}'`),
+        `native-tab-host.ts must register channel ${ch}`
+      );
+    }
+
+    // Enforce no separate WorkflowEngine is instantiated in native-tab-host
+    assert.strictEqual(
+      nativeTabHost.includes('new WorkflowEngine'),
+      false,
+      'native-tab-host.ts must NOT instantiate its own WorkflowEngine; ControlPlaneRuntime owns workflow execution'
+    );
+
+    // Enforce workflow:run delegates to this.controlPlane.executeWorkflow
+    assert.ok(
+      nativeTabHost.includes('this.controlPlane.executeWorkflow'),
+      'antifan:workflow:run must delegate to this.controlPlane.executeWorkflow'
     );
   });
 });

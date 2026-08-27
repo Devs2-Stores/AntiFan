@@ -28,10 +28,16 @@ export class OAuthPopupManager {
     const oauthPatterns = [
       /accounts\.google\.com\/(o\/oauth2|signin|ServiceLogin|v3\/signin)/i,
       /github\.com\/login\/oauth/i,
+      /gitlab\.com\/oauth/i,
       /facebook\.com\/(v\d+\.\d+\/)?dialog\/oauth/i,
       /appleid\.apple\.com\/auth/i,
       /auth\.haravan\.com/i,
+      /accounts\.haravan\.com/i,
       /accounts\.shopify\.com\/oauth/i,
+      /myshopify\.com\/admin\/oauth/i,
+      /sapo\.vn\/(oauth|admin\/oauth|login)/i,
+      /(id|accounts)\.sapo\.vn/i,
+      /login\.(microsoftonline|live)\.com/i,
       /linear\.app\/oauth/i,
       /auth0\.com\/authorize/i,
       /clerk\.(dev|accounts)/i,
@@ -51,7 +57,12 @@ export class OAuthPopupManager {
       /\/signin-google/i,
       /\/signin-github/i,
       /\/auth\/complete/i,
+      /\/auth\/success/i,
+      /\/login\/callback/i,
       /code=[a-zA-Z0-9_.-]+(&|\b)/i,
+      /state=[a-zA-Z0-9_.-]+(&|\b)/i,
+      /access_token=[a-zA-Z0-9_.-]+(&|\b)/i,
+      /id_token=[a-zA-Z0-9_.-]+(&|\b)/i,
     ];
     return callbackPatterns.some((pattern) => pattern.test(url));
   }

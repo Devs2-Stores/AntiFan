@@ -18,6 +18,7 @@ import {
   issueRuntimeLease,
   makeControlPlaneId,
 } from '../../src/shared/control-plane-contracts';
+import { ControlPlaneRuntime } from '../../src/main/control-plane/control-plane-runtime';
 
 function createMockHost(overrides?: Partial<BrowserHostPort>): BrowserHostPort {
   let activeTab = 'tab-1';
@@ -427,6 +428,212 @@ describe('Workflow Engine', () => {
           }
         ),
       (err: unknown) => err instanceof CapabilityError && err.code === 'TARGET_REQUIRED'
+    );
+  });
+
+  it('executes a workflow through ControlPlaneRuntime.executeWorkflow with real run, attempt, events, and authoritative receipts', async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-cpr-wf-'));
+    const projectId = makeControlPlaneId('project');
+    const workspaceId = makeControlPlaneId('workspace');
+    const workspaceRoot = path.join(root, 'workspace');
+    fs.mkdirSync(workspaceRoot, { recursive: true });
+
+    const runtime = new ControlPlaneRuntime({
+      projectId,
+      workspaceId,
+      dataRoot: root,
+      workspaceRoot,
+      hostEpoch: 2,
+    });
+
+    runtime.projects.registerProject({
+      id: projectId,
+      name: 'Project',
+      dataRoot: root,
+      state: 'open',
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    });
+    runtime.workspaces.register({
+      id: workspaceId,
+      projectId,
+      rootPath: workspaceRoot,
+      state: 'attached',
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    });
+
+    const mockHost = createMockHost();
+    runtime.registerBrowser(new BrowserControlPort(mockHost));
+
+    const workflow: WorkflowDefinition = {
+      version: '1.0',
+      name: 'Runtime Integration Flow',
+      steps: [
+        {
+          id: 'step-nav',
+          name: 'Navigate to target',
+          type: 'browser.navigate',
+          params: { url: 'https://example.com/runtime-test' },
+          timeoutMs: 5000,
+          retryCount: 0,
+          continueOnError: false,
+        },
+      ],
+    };
+
+    const lease = runtime.getLease();
+    const target: BrowserTarget = {
+      tabId: 'tab-1',
+      url: 'https://example.com',
+      browserEpoch: 2,
+      documentGeneration: 1,
+      projectId,
+      workspaceId,
+      runtimeId: lease.runtimeId || '',
+    };
+
+    const events: string[] = [];
+    const result = await runtime.executeWorkflow({
+      workflow,
+      target,
+      grant: 'write',
+      onEvent: (event) => events.push(event.type),
+    });
+
+    assert.strictEqual(result.status, 'passed');
+    assert.strictEqual(result.passedSteps, 1);
+    assert.strictEqual(result.failedSteps, 0);
+    assert.strictEqual(events.includes('workflow:start'), true);
+    assert.strictEqual(events.includes('workflow:end'), true);
+
+    // Verify real run and attempt were created
+    const runs = Array.from((runtime.runs as any).runs.values());
+    assert.ok(runs.length > 0);
+    const wfRun = runs.find((r: any) => r.backendId === 'workflow');
+    assert.ok(wfRun, 'A real run with backendId=workflow must exist');
+    assert.strictEqual((wfRun as any).state, 'completed');
+
+    // Verify authoritative receipt is recorded and completed
+    const receipts = Array.from((runtime.receipts as any).records.values());
+    assert.ok(receipts.length > 0);
+    const wfReceipt = receipts.find((rec: any) => (rec as any).binding.backendSessionRef === 'workflow');
+    assert.ok(wfReceipt, 'An authoritative receipt for workflow must exist');
+    assert.strictEqual((wfReceipt as any).state, 'completed');
+    assert.strictEqual((wfReceipt as any).deliveryState, 'accepted-exact');
+  });
+
+  it('rejects stale epoch, mismatched project/workspace, draining runtime, or unauthorized grant in ControlPlaneRuntime.executeWorkflow', async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-cpr-wf-stale-'));
+    const projectId = makeControlPlaneId('project');
+    const workspaceId = makeControlPlaneId('workspace');
+    const workspaceRoot = path.join(root, 'workspace');
+    fs.mkdirSync(workspaceRoot, { recursive: true });
+
+    const runtime = new ControlPlaneRuntime({
+      projectId,
+      workspaceId,
+      dataRoot: root,
+      workspaceRoot,
+      hostEpoch: 5,
+    });
+
+    runtime.projects.registerProject({
+      id: projectId,
+      name: 'Project',
+      dataRoot: root,
+      state: 'open',
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    });
+    runtime.workspaces.register({
+      id: workspaceId,
+      projectId,
+      rootPath: workspaceRoot,
+      state: 'attached',
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    });
+
+    const mockHost = createMockHost();
+    runtime.registerBrowser(new BrowserControlPort(mockHost));
+    const lease = runtime.getLease();
+    const workflow: WorkflowDefinition = {
+      version: '1.0',
+      name: 'Security Fail-Closed Flow',
+      steps: [
+        {
+          id: 'step-1',
+          name: 'Navigate',
+          type: 'browser.navigate',
+          params: { url: 'https://example.com' },
+          timeoutMs: 5000,
+          retryCount: 0,
+          continueOnError: false,
+        },
+      ],
+    };
+
+    // 1. Stale epoch (epoch 1 vs host epoch 5)
+    const staleTarget: BrowserTarget = {
+      tabId: 'tab-1',
+      browserEpoch: 1,
+      documentGeneration: 1,
+      projectId,
+      workspaceId,
+      runtimeId: lease.runtimeId || '',
+    };
+    await assert.rejects(
+      () => runtime.executeWorkflow({ workflow, target: staleTarget, grant: 'write' }),
+      (err: unknown) => err instanceof CapabilityError && err.code === 'TARGET_STALE'
+    );
+
+    // 2. Mismatched project
+    const wrongProjectTarget: BrowserTarget = {
+      tabId: 'tab-1',
+      browserEpoch: 5,
+      documentGeneration: 1,
+      projectId: 'project-wrong',
+      workspaceId,
+      runtimeId: lease.runtimeId || '',
+    };
+    await assert.rejects(
+      () => runtime.executeWorkflow({ workflow, target: wrongProjectTarget, grant: 'write' }),
+      (err: unknown) => err instanceof CapabilityError && err.code === 'WORKSPACE_MISMATCH'
+    );
+    // 3. Missing tabId
+    const missingTabTarget = {
+      tabId: '',
+      browserEpoch: 5,
+      documentGeneration: 1,
+      projectId,
+      workspaceId,
+      runtimeId: lease.runtimeId || '',
+    } as any;
+    await assert.rejects(
+      () => runtime.executeWorkflow({ workflow, target: missingTabTarget, grant: 'write' }),
+      (err: unknown) => err instanceof CapabilityError && err.code === 'TARGET_REQUIRED'
+    );
+
+    // 4. Unauthorized grant (grant: 'read' vs workflow.execute risk: 'write' -> POLICY_DENIED)
+    const validTarget: BrowserTarget = {
+      tabId: 'tab-1',
+      browserEpoch: 5,
+      documentGeneration: 1,
+      projectId,
+      workspaceId,
+      runtimeId: lease.runtimeId || '',
+    };
+    await assert.rejects(
+      () => runtime.executeWorkflow({ workflow, target: validTarget, grant: 'read' }),
+      (err: unknown) => err instanceof CapabilityError && err.code === 'POLICY_DENIED'
+    );
+
+    // 5. Draining runtime (beginDrain -> RUNTIME_DRAINING)
+    runtime.beginDrain();
+    await assert.rejects(
+      () => runtime.executeWorkflow({ workflow, target: validTarget, grant: 'write' }),
+      (err: unknown) => err instanceof CapabilityError && err.code === 'RUNTIME_DRAINING'
     );
   });
 });

@@ -16,5 +16,8 @@ smoke-result*.json
 trees_all.txt
 .antifan/
 *.png
+**/AntiFan-Browser-Desktop-*/
+plans/**/reports/smoke/*.log
+plans/**/reports/baseline/*.log
 
 

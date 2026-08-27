@@ -58,20 +58,24 @@ const IS_MCP_SERVER = process.argv.includes('--mcp-server');
 const IS_MCP_HIGH_RISK = process.argv.includes('--mcp-high-risk');
 
 // Configure persistent Chromium user data path (shared across Desktop shortcut & dev launch)
-const profileFolder = 'Chromium-dev';
-const appRoot = app.getAppPath();
-const persistentUserData = path.join(appRoot, 'appdata', 'antifan-browser-desktop', profileFolder);
-const chromiumCachePath = path.join(appRoot, 'appdata', 'antifan-browser-desktop', `${profileFolder}-cache`);
+const profileFolder = IS_DEV ? 'Chromium-dev' : 'Chromium';
+const customUserData = process.env.ANTIFAN_USER_DATA || process.env.ANTIFAN_USER_DATA_DIR;
+const persistentUserData = customUserData
+  ? path.resolve(customUserData)
+  : (app.isPackaged
+      ? path.join(app.getPath('appData'), 'antifan-browser-desktop', profileFolder)
+      : path.join(app.getAppPath(), 'appdata', 'antifan-browser-desktop', profileFolder));
+
+const chromiumCachePath = `${persistentUserData}-cache`;
+try { fs.mkdirSync(persistentUserData, { recursive: true }); } catch {}
 try { fs.mkdirSync(chromiumCachePath, { recursive: true }); } catch {}
 app.setPath('userData', persistentUserData);
 app.setPath('cache', chromiumCachePath);
 app.commandLine.appendSwitch('disk-cache-dir', path.join(chromiumCachePath, 'network'));
 app.commandLine.appendSwitch('gpu-cache-dir', path.join(chromiumCachePath, 'gpu'));
-
 app.name = 'AntiFan Browser Desktop';
 
-app.commandLine.appendSwitch('force-dark-mode');
-nativeTheme.themeSource = 'dark';
+nativeTheme.themeSource = 'system';
 
 // Configure high-performance Chromium hardware acceleration and security switches
 app.commandLine.appendSwitch('ignore-gpu-blocklist');

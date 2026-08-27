@@ -716,9 +716,7 @@ export const AGENT_BROWSER_SCRIPT = `(() => {
       } else {
         el.textContent += char;
       }
-      const { promise, resolve } = Promise.withResolvers();
-      setTimeout(resolve, 30);
-      await promise;
+      await new Promise((resolve) => setTimeout(resolve, 30));
     }
     return true;
   };

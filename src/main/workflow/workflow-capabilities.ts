@@ -1,8 +1,7 @@
 import { CapabilityCatalogue } from '../tools/capability-catalogue';
 import { WorkflowEngine } from './workflow-engine';
 import { BrowserTarget, CapabilityError } from '../../shared/control-plane-contracts';
-import { WorkflowDefinition } from './workflow-schema';
-
+import { WorkflowDefinition, WorkflowEventListener } from './workflow-schema';
 export function registerWorkflowCapabilities(catalogue: CapabilityCatalogue, engine: WorkflowEngine): void {
   catalogue.register({
     name: 'workflow.execute',
@@ -17,7 +16,7 @@ export function registerWorkflowCapabilities(catalogue: CapabilityCatalogue, eng
       },
       required: ['workflow', 'workspaceRoot'],
     },
-    execute: async (params: { workflow: WorkflowDefinition; workspaceRoot: string }, context) => {
+    execute: async (params: { workflow: WorkflowDefinition; workspaceRoot: string; signal?: AbortSignal; onEvent?: WorkflowEventListener }, context) => {
       if (!context.browserTarget) {
         throw new CapabilityError('TARGET_REQUIRED', 'workflow.execute requires a bound BrowserTarget');
       }
@@ -30,6 +29,8 @@ export function registerWorkflowCapabilities(catalogue: CapabilityCatalogue, eng
         attemptId: context.attemptId || 'attempt-1',
         workspaceRoot: params.workspaceRoot,
         grant: context.grant,
+        signal: params.signal,
+        onEvent: params.onEvent,
       });
     },
   });

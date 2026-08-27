@@ -27,6 +27,7 @@ import {
   IPHONE_USER_AGENT,
   MAC_DESKTOP_USER_AGENT,
 } from './device-presets';
+import { googleAuthUserAgent } from './google-auth-identity';
 import { TabDiagnosticsManager } from './tab-diagnostics';
 import { buildKeyboardInputEvents } from './keyboard-normalizer';
 import { WorkspaceCapsuleManager, type WorkspaceCapsule } from '../project/workspace-capsule';
@@ -34,6 +35,7 @@ import { PreviewWatcherPool, type PreviewChangeEvent } from '../server/preview-w
 import { buildPreviewUrl, parsePreviewUrl } from '../server/preview-url-codec';
 import type { ControlPlaneRuntime } from '../control-plane/control-plane-runtime';
 import type { BrowserTarget } from '../../shared/control-plane-contracts';
+import type { WorkflowDefinition } from '../workflow/workflow-schema';
 import { AnnotationManager } from '../bridge/annotation-manager';
 import { ChromeProfileSyncManager } from './chrome-profile-sync';
 import { HaravanUploader } from './haravan-uploader';
@@ -42,8 +44,9 @@ import { checkForUpdatesAndRestart } from './app-menu';
 import { SkillScanner } from './skill-scanner';
 import { WindowStateManager, WindowState } from './window-state';
 import { BridgeServer } from '../bridge/bridge-server';
-import { WorkflowRegistry } from '../workflow/workflow-registry';
+
 import { HistoryManager } from './history-manager';
+import { OAuthPopupManager } from './oauth-popup-manager';
 import {
   DEFAULT_SPLIT_DESKTOP_PRESET,
   DEFAULT_SPLIT_MOBILE_PRESET,
@@ -172,7 +175,7 @@ export class NativeTabHost extends EventEmitter {
   private isToolbarOverlayActive: boolean = false;
   private toolbarOverlayCustomHeight?: number;
   private readonly splitCoordinator = new SplitNavigationCoordinator();
-  private defaultUserAgent: string = MAC_DESKTOP_USER_AGENT;
+  private defaultUserAgent: string = googleAuthUserAgent();
   private tabs: Map<string, NativeTabRecord> = new Map();
   private tabOrder: string[] = [];
   private activeTabId: string = '';
@@ -182,7 +185,7 @@ export class NativeTabHost extends EventEmitter {
   private readonly previewWatcherPool = new PreviewWatcherPool();
   private readonly capsuleManager: WorkspaceCapsuleManager;
   private controlPlane: ControlPlaneRuntime | null = null;
-  private readonly workflowRegistry = new WorkflowRegistry(path.join(os.homedir(), '.antifan', 'workflows'));
+  private activeWorkflowAbortController: AbortController | null = null;
   private documentGenerations: Map<string, number> = new Map();
   private browserEpoch: number = 1;
   private tabPreviewUnsubscribers: Map<string, () => void> = new Map();
@@ -200,7 +203,80 @@ export class NativeTabHost extends EventEmitter {
   private agentWorkingRefs = new Map<string, number>();
   private lastAnnotationSessionId: string | undefined = undefined;
   private appliedClipRadius = new WeakMap<Electron.WebContents, number>();
+  private emulatedWebContents = new WeakSet<Electron.WebContents>();
 
+  private safeEnableDeviceEmulation(
+    wc: Electron.WebContents | null | undefined,
+    params: Parameters<Electron.WebContents['enableDeviceEmulation']>[0]
+  ): void {
+    if (!wc || (typeof wc.isDestroyed === 'function' && wc.isDestroyed())) return;
+    if (typeof wc.getURL === 'function' && wc.getURL() === '') return;
+    try {
+      if (typeof wc.enableDeviceEmulation === 'function') {
+        wc.enableDeviceEmulation(params);
+        this.emulatedWebContents.add(wc);
+      }
+    } catch (err) {
+      console.error('[native-tab-host] safeEnableDeviceEmulation error:', err);
+    }
+  }
+
+  private safeDisableDeviceEmulation(wc: Electron.WebContents | null | undefined): void {
+    if (!wc || (typeof wc.isDestroyed === 'function' && wc.isDestroyed())) return;
+    if (!this.emulatedWebContents.has(wc)) return;
+    if (typeof wc.getURL === 'function' && wc.getURL() === '') return;
+    try {
+      if (typeof wc.disableDeviceEmulation === 'function') {
+        wc.disableDeviceEmulation();
+      }
+    } catch (err) {
+      console.error('[native-tab-host] safeDisableDeviceEmulation error:', err);
+    } finally {
+      this.emulatedWebContents.delete(wc);
+    }
+  }
+
+  private getCanGoBack(wc: Electron.WebContents | null | undefined): boolean {
+    if (!wc || (typeof wc.isDestroyed === 'function' && wc.isDestroyed())) return false;
+    try {
+      const nav = (wc as unknown as { navigationHistory?: { canGoBack?: () => boolean } }).navigationHistory;
+      if (nav && typeof nav.canGoBack === 'function') return Boolean(nav.canGoBack());
+    } catch {}
+    return false;
+  }
+
+  private getCanGoForward(wc: Electron.WebContents | null | undefined): boolean {
+    if (!wc || (typeof wc.isDestroyed === 'function' && wc.isDestroyed())) return false;
+    try {
+      const nav = (wc as unknown as { navigationHistory?: { canGoForward?: () => boolean } }).navigationHistory;
+      if (nav && typeof nav.canGoForward === 'function') return Boolean(nav.canGoForward());
+    } catch {}
+    return false;
+  }
+
+  private safeGoBack(wc: Electron.WebContents | null | undefined): boolean {
+    if (!wc || (typeof wc.isDestroyed === 'function' && wc.isDestroyed())) return false;
+    try {
+      const nav = (wc as unknown as { navigationHistory?: { canGoBack?: () => boolean; goBack?: () => void } }).navigationHistory;
+      if (nav && typeof nav.canGoBack === 'function' && nav.canGoBack()) {
+        if (typeof nav.goBack === 'function') nav.goBack();
+        return true;
+      }
+    } catch {}
+    return false;
+  }
+
+  private safeGoForward(wc: Electron.WebContents | null | undefined): boolean {
+    if (!wc || (typeof wc.isDestroyed === 'function' && wc.isDestroyed())) return false;
+    try {
+      const nav = (wc as unknown as { navigationHistory?: { canGoForward?: () => boolean; goForward?: () => void } }).navigationHistory;
+      if (nav && typeof nav.canGoForward === 'function' && nav.canGoForward()) {
+        if (typeof nav.goForward === 'function') nav.goForward();
+        return true;
+      }
+    } catch {}
+    return false;
+  }
   constructor(window: BrowserWindow, capsuleManager?: WorkspaceCapsuleManager) {
     super();
     this.window = window;
@@ -831,7 +907,7 @@ export class NativeTabHost extends EventEmitter {
     });
 
     ipcMain.handle('antifan:workflow:get-state', () => {
-      const workflows = this.workflowRegistry.getAll();
+      const workflows = this.controlPlane ? this.controlPlane.workflowRegistry.getAll() : [];
       const tools = [
         { id: 'antifan_open_tab', name: 'antifan_open_tab', description: 'Mở tab Chromium mới trong AntiFan Desktop', category: 'browser', permissions: ['execute'] },
         { id: 'antifan_navigate_tab', name: 'antifan_navigate_tab', description: 'Điều hướng tab hiện tại đến URL chỉ định', category: 'browser', permissions: ['execute'] },
@@ -849,22 +925,107 @@ export class NativeTabHost extends EventEmitter {
       return { workflows, tools };
     });
 
-    ipcMain.handle('antifan:workflow:save', (_event, item: any) => {
-      return this.workflowRegistry.saveCustom(item);
+    ipcMain.handle('antifan:workflow:save', (_event, item: unknown) => {
+      if (!this.controlPlane) {
+        throw new Error('Control plane runtime is not initialized');
+      }
+      return this.controlPlane.workflowRegistry.saveCustom(item as Parameters<typeof this.controlPlane.workflowRegistry.saveCustom>[0]);
     });
 
-    ipcMain.handle('antifan:workflow:delete', (_event, id: string) => {
-      return this.workflowRegistry.deleteCustom(id);
+    ipcMain.handle('antifan:workflow:delete', (_event, id: unknown) => {
+      if (!this.controlPlane) {
+        throw new Error('Control plane runtime is not initialized');
+      }
+      return typeof id === 'string' ? this.controlPlane.workflowRegistry.deleteCustom(id) : false;
     });
 
-    ipcMain.handle('antifan:workflow:run', async (_event, payload: any) => {
-      const wf = payload?.workflowDef || this.workflowRegistry.getById(payload?.workflowId);
-      if (!wf) return { ok: false, error: 'Không tìm thấy kịch bản Workflow' };
-      return { ok: true, status: 'passed', completedAt: new Date().toISOString() };
+    ipcMain.handle('antifan:workflow:run', async (_event, payload: unknown) => {
+      if (!this.controlPlane) {
+        return { ok: false, status: 'failed', error: 'Control plane runtime is not initialized' };
+      }
+      const raw = (payload && typeof payload === 'object') ? payload as { workflowDef?: unknown; workflowId?: unknown } : undefined;
+      let wfDef: WorkflowDefinition | undefined;
+      if (raw?.workflowDef && typeof raw.workflowDef === 'object') {
+        wfDef = raw.workflowDef as WorkflowDefinition;
+      } else if (typeof raw?.workflowId === 'string') {
+        const item = this.controlPlane.workflowRegistry.getById(raw.workflowId);
+        if (item?.definition) {
+          wfDef = item.definition;
+        }
+      }
+      if (!wfDef) {
+        return { ok: false, status: 'failed', error: 'Không tìm thấy kịch bản Workflow' };
+      }
+      const activeTab = this.getActiveTab();
+      const activeTabId = this.getActiveTabId();
+      if (!activeTab || !activeTabId) {
+        return { ok: false, status: 'failed', error: 'No active browser tab for workflow execution' };
+      }
+      const lease = this.controlPlane.getLease();
+      const hostEpoch = typeof this.browserEpoch === 'number' ? this.browserEpoch : 1;
+      if (hostEpoch !== lease.hostEpoch) {
+        return {
+          ok: false,
+          status: 'failed',
+          error: `Stale browser epoch: host is at epoch ${hostEpoch} but lease is at epoch ${lease.hostEpoch}`,
+          completedAt: new Date().toISOString(),
+        };
+      }
+      const target: BrowserTarget = {
+        tabId: activeTabId,
+        url: activeTab.url || '',
+        browserEpoch: hostEpoch,
+        documentGeneration: this.getDocumentGeneration(activeTabId),
+        projectId: lease.projectId,
+        workspaceId: lease.workspaceId || '',
+        runtimeId: lease.runtimeId || '',
+      };
+      const abortController = new AbortController();
+      this.activeWorkflowAbortController = abortController;
+      try {
+        const result = await this.controlPlane.executeWorkflow({
+          workflow: wfDef,
+          target,
+          signal: abortController.signal,
+          onEvent: (event) => {
+            try {
+              this.toolbarView?.webContents?.send?.('antifan:workflow:event', event);
+            } catch {}
+          },
+        });
+        return {
+          ok: result.status === 'passed',
+          status: result.status,
+          completedAt: new Date().toISOString(),
+          totalDurationMs: result.totalDurationMs,
+          passedSteps: result.passedSteps,
+          failedSteps: result.failedSteps,
+          skippedSteps: result.skippedSteps,
+          stepResults: result.stepResults,
+          artifacts: result.artifacts,
+        };
+      } catch (err: unknown) {
+        const errMessage = err instanceof Error ? err.message : String(err);
+        return {
+          ok: false,
+          status: 'failed',
+          error: errMessage,
+          completedAt: new Date().toISOString(),
+        };
+      } finally {
+        if (this.activeWorkflowAbortController === abortController) {
+          this.activeWorkflowAbortController = null;
+        }
+      }
     });
 
     ipcMain.handle('antifan:workflow:abort', () => {
-      return true;
+      if (this.activeWorkflowAbortController) {
+        this.activeWorkflowAbortController.abort();
+        this.activeWorkflowAbortController = null;
+        return true;
+      }
+      return false;
     });
     ipcMain.handle('antifan:capsule:list', () => {
       return {
@@ -1388,7 +1549,6 @@ export class NativeTabHost extends EventEmitter {
     const { width, height } = this.window.getContentBounds();
     const availableWidth = this.isSidebarOpen ? Math.max(200, width - this.sidebarWidth) : width;
     if (active) {
-      this.ensureToolbarOnTop();
       // Give full window height or custom height so dropdowns, popovers, context menus are NEVER clipped!
       const overlayHeight = customHeight && customHeight > 0 ? Math.min(height, this.getToolbarHeight() + customHeight) : height;
       this.toolbarView.setBounds({ x: 0, y: 0, width: availableWidth, height: overlayHeight });
@@ -1398,16 +1558,7 @@ export class NativeTabHost extends EventEmitter {
   }
 
   private ensureToolbarOnTop(): void {
-    if (!this.window || !this.window.contentView || !this.toolbarView) return;
-    try {
-      const children = this.window.contentView.children;
-      if (children.includes(this.toolbarView)) {
-        this.window.contentView.removeChildView(this.toolbarView);
-        this.window.contentView.addChildView(this.toolbarView);
-      }
-    } catch (err) {
-      console.error('[native-tab-host] ensureToolbarOnTop error:', err);
-    }
+    // Retained for API compatibility; shell views are permanently ordered above tab views
   }
   public async clearStorageForActiveTab(): Promise<void> {
     const activeTab = this.tabs.get(this.activeTabId);
@@ -1552,9 +1703,8 @@ export class NativeTabHost extends EventEmitter {
     wc.on('did-stop-loading', () => {
       clearLoadingTimer();
       state.isLoading = false;
-      const nav = wc.navigationHistory;
-      state.canGoBack = nav ? nav.canGoBack() : (wc.canGoBack ? wc.canGoBack() : false);
-      state.canGoForward = nav ? nav.canGoForward() : (wc.canGoForward ? wc.canGoForward() : false);
+      state.canGoBack = this.getCanGoBack(wc);
+      state.canGoForward = this.getCanGoForward(wc);
       this.broadcastState();
     });
     wc.on('console-message', (_event, level, message, line, sourceId) => {
@@ -1661,6 +1811,15 @@ export class NativeTabHost extends EventEmitter {
           HistoryManager.getInstance().updateTitle(state.url, state.title);
         }
         this.broadcastState();
+
+        // Auto-close OAuth completion tab if title indicates success
+        if (/Authentication Success|Xác thực thành công|Đăng nhập thành công|Login Success/i.test(title)) {
+          setTimeout(() => {
+            if (this.tabs.has(id) && this.tabs.size > 1) {
+              this.closeTab(id);
+            }
+          }, 1200);
+        }
       }
     });
 
@@ -1686,6 +1845,13 @@ export class NativeTabHost extends EventEmitter {
         }
       }
 
+        if (OAuthPopupManager.getInstance().isOAuthCallbackUrl(cleanUrl)) {
+          setTimeout(() => {
+            if (this.tabs.has(id) && this.tabs.size > 1) {
+              this.closeTab(id);
+            }
+          }, 1200);
+        }
       const decision = this.splitCoordinator.handleNavigationEvent(id, paneId, cleanUrl, false);
       if (decision.shouldMirror && state.splitMode) {
         const tab = this.tabs.get(id);
@@ -1693,19 +1859,9 @@ export class NativeTabHost extends EventEmitter {
         if (siblingView && !siblingView.webContents.isDestroyed()) {
           this.splitCoordinator.markMirrorStarted(id);
           if (decision.historyDirection === 'back') {
-            const sibNav = (siblingView.webContents as any).navigationHistory;
-            if (sibNav && sibNav.canGoBack()) {
-              sibNav.goBack();
-            } else if (siblingView.webContents.canGoBack && siblingView.webContents.canGoBack()) {
-              siblingView.webContents.goBack();
-            }
+            this.safeGoBack(siblingView.webContents);
           } else if (decision.historyDirection === 'forward') {
-            const sibNav = (siblingView.webContents as any).navigationHistory;
-            if (sibNav && sibNav.canGoForward()) {
-              sibNav.goForward();
-            } else if (siblingView.webContents.canGoForward && siblingView.webContents.canGoForward()) {
-              siblingView.webContents.goForward();
-            }
+            this.safeGoForward(siblingView.webContents);
           } else if (decision.mirrorUrl) {
             const siblingUrl = cleanRestoredUrl(siblingView.webContents.getURL());
             if (siblingUrl !== decision.mirrorUrl) {
@@ -1714,9 +1870,8 @@ export class NativeTabHost extends EventEmitter {
           }
         }
       }
-      const nav = (wc as any).navigationHistory;
-      state.canGoBack = nav ? nav.canGoBack() : (wc.canGoBack ? wc.canGoBack() : false);
-      state.canGoForward = nav ? nav.canGoForward() : (wc.canGoForward ? wc.canGoForward() : false);
+      state.canGoBack = this.getCanGoBack(wc);
+      state.canGoForward = this.getCanGoForward(wc);
       this.broadcastState();
       this.schedulePersist();
       if (this.isRulerActive && id === this.activeTabId) {
@@ -1741,19 +1896,9 @@ export class NativeTabHost extends EventEmitter {
           if (siblingView && !siblingView.webContents.isDestroyed()) {
             this.splitCoordinator.markMirrorStarted(id);
             if (decision.historyDirection === 'back') {
-              const sibNav = (siblingView.webContents as any).navigationHistory;
-              if (sibNav && sibNav.canGoBack()) {
-                sibNav.goBack();
-              } else if (siblingView.webContents.canGoBack && siblingView.webContents.canGoBack()) {
-                siblingView.webContents.goBack();
-              }
+              this.safeGoBack(siblingView.webContents);
             } else if (decision.historyDirection === 'forward') {
-              const sibNav = (siblingView.webContents as any).navigationHistory;
-              if (sibNav && sibNav.canGoForward()) {
-                sibNav.goForward();
-              } else if (siblingView.webContents.canGoForward && siblingView.webContents.canGoForward()) {
-                siblingView.webContents.goForward();
-              }
+              this.safeGoForward(siblingView.webContents);
             } else if (decision.mirrorUrl) {
               const siblingUrl = cleanRestoredUrl(siblingView.webContents.getURL());
               if (siblingUrl !== decision.mirrorUrl) {
@@ -1762,9 +1907,8 @@ export class NativeTabHost extends EventEmitter {
             }
           }
         }
-        const nav = (wc as any).navigationHistory;
-        state.canGoBack = nav ? nav.canGoBack() : (wc.canGoBack ? wc.canGoBack() : false);
-        state.canGoForward = nav ? nav.canGoForward() : (wc.canGoForward ? wc.canGoForward() : false);
+        state.canGoBack = this.getCanGoBack(wc);
+        state.canGoForward = this.getCanGoForward(wc);
         this.broadcastState();
         this.schedulePersist();
         if (this.isRulerActive && id === this.activeTabId) {
@@ -1788,19 +1932,42 @@ export class NativeTabHost extends EventEmitter {
       this.broadcastState();
     });
 
+    (wc as unknown as EventEmitter).on('close', () => {
+      clearLoadingTimer();
+      if (this.tabs.has(id)) {
+        this.closeTab(id);
+      }
+    });
+
     wc.on('destroyed', () => {
       clearLoadingTimer();
+      if (this.tabs.has(id)) {
+        this.closeTab(id);
+      }
     });
 
     wc.on('found-in-page', (_event, result) => {
       this.toolbarView.webContents.send(TOOLBAR_CHANNELS.FIND_RESULT, result);
     });
 
-    wc.setWindowOpenHandler(({ url: popupUrl }) => {
-      if (isAllowedNavigation(popupUrl)) {
-        this.createTab(popupUrl);
-      }
-      return { action: 'deny' };
+    wc.setWindowOpenHandler((details) => {
+      return OAuthPopupManager.getInstance().handleWindowOpen(
+        wc,
+        this.window,
+        details,
+        {
+          onNewTabRequested: (url: string) => {
+            if (isAllowedNavigation(url)) {
+              this.createTab(url, true);
+            }
+          },
+          onOAuthCompleted: (_callbackUrl: string) => {
+            if (!wc.isDestroyed()) {
+              wc.reload();
+            }
+          },
+        }
+      );
     });
 
     wc.on('zoom-changed', (_event, zoomDirection) => {
@@ -1857,7 +2024,7 @@ export class NativeTabHost extends EventEmitter {
     const view = new WebContentsView({
       webPreferences: getSecureWebPreferences(),
     });
-    try { view.setBackgroundColor('#00000000'); } catch {}
+    try { view.setBackgroundColor('#ffffff'); } catch {}
     const isBlankUrl = !url || url === 'about:blank';
     const state: AntiFanTab = {
       id,
@@ -1887,6 +2054,7 @@ export class NativeTabHost extends EventEmitter {
       }
     }
     const wc = view.webContents;
+    this.setSafeUserAgent(wc, this.defaultUserAgent);
     if (url.startsWith('view-source:')) {
       const sourceTargetUrl = url.slice('view-source:'.length).trim();
       state.title = `view-source:${sourceTargetUrl}`;
@@ -1895,7 +2063,16 @@ export class NativeTabHost extends EventEmitter {
     } else if (url !== 'about:blank') {
       wc.loadURL(url)
         .then(() => this.clearInitialNavigationHistory(wc, state))
-        .catch((err) => {
+        .catch((err: unknown) => {
+          if (err && typeof err === 'object' && ('code' in err || 'errno' in err)) {
+            const code = 'code' in err ? String(err.code) : '';
+            const errno = 'errno' in err ? Number(err.errno) : 0;
+            if (code === 'ERR_ABORTED' || errno === -3 || code === 'ERR_FAILED' || errno === -2) {
+              state.isLoading = false;
+              this.broadcastState();
+              return;
+            }
+          }
           console.warn(`[native-tab-host] Failed to load initial url ${url} on tab ${id}:`, err);
           state.isLoading = false;
           this.broadcastState();
@@ -1904,6 +2081,7 @@ export class NativeTabHost extends EventEmitter {
       state.isLoading = false;
     }
     if (activate) this.switchTab(id);
+    this.schedulePersist();
     return id;
   }
 
@@ -1918,13 +2096,21 @@ export class NativeTabHost extends EventEmitter {
         target.view = new WebContentsView({
           webPreferences: getSecureWebPreferences(),
         });
-        try { target.view.setBackgroundColor('#00000000'); } catch {}
+        try { target.view.setBackgroundColor('#ffffff'); } catch {}
         target.state.crashed = false;
+        this.setSafeUserAgent(target.view.webContents, this.defaultUserAgent);
         const isBlank = !target.state.url || target.state.url === 'about:blank';
         target.state.isLoading = !isBlank;
         this.setupTabWebContentsEvents(tabId, target.view, target.state, 'desktop');
         if (!isBlank) {
-          target.view.webContents.loadURL(target.state.url).catch(() => {
+          target.view.webContents.loadURL(target.state.url).catch((err: unknown) => {
+            if (err && typeof err === 'object' && ('code' in err || 'errno' in err)) {
+              const code = 'code' in err ? String(err.code) : '';
+              const errno = 'errno' in err ? Number(err.errno) : 0;
+              if (code === 'ERR_ABORTED' || errno === -3) {
+                return;
+              }
+            }
             target.state.isLoading = false;
             this.broadcastState();
           });
@@ -2370,29 +2556,14 @@ export class NativeTabHost extends EventEmitter {
       const authorityPane = tab.focusedPane || tab.state.splitFocusedPane || 'desktop';
       const authorityView = authorityPane === 'mobile' ? tab.mobileView : tab.view;
 
-      const authNav = (authorityView.webContents as any).navigationHistory;
-      const canAuthBack = authNav ? authNav.canGoBack() : (authorityView.webContents.canGoBack ? authorityView.webContents.canGoBack() : false);
+      const canAuthBack = this.getCanGoBack(authorityView.webContents);
       if (!canAuthBack) return false;
 
       this.splitCoordinator.startHistoryTransaction(tabId, authorityPane, 'back');
-      if (authNav) {
-        authNav.goBack();
-      } else {
-        authorityView.webContents.goBack();
-      }
-      return true;
+      return this.safeGoBack(authorityView.webContents);
     }
 
-    const wc = tab.view.webContents;
-    const nav = (wc as any).navigationHistory;
-    if (nav && nav.canGoBack()) {
-      nav.goBack();
-      return true;
-    } else if (wc.canGoBack && wc.canGoBack()) {
-      wc.goBack();
-      return true;
-    }
-    return false;
+    return this.safeGoBack(tab.view.webContents);
   }
 
   public goForward(tabId: string): boolean {
@@ -2403,29 +2574,14 @@ export class NativeTabHost extends EventEmitter {
       const authorityPane = tab.focusedPane || tab.state.splitFocusedPane || 'desktop';
       const authorityView = authorityPane === 'mobile' ? tab.mobileView : tab.view;
 
-      const authNav = (authorityView.webContents as any).navigationHistory;
-      const canAuthFwd = authNav ? authNav.canGoForward() : (authorityView.webContents.canGoForward ? authorityView.webContents.canGoForward() : false);
+      const canAuthFwd = this.getCanGoForward(authorityView.webContents);
       if (!canAuthFwd) return false;
 
       this.splitCoordinator.startHistoryTransaction(tabId, authorityPane, 'forward');
-      if (authNav) {
-        authNav.goForward();
-      } else {
-        authorityView.webContents.goForward();
-      }
-      return true;
+      return this.safeGoForward(authorityView.webContents);
     }
 
-    const wc = tab.view.webContents;
-    const nav = (wc as any).navigationHistory;
-    if (nav && nav.canGoForward()) {
-      nav.goForward();
-      return true;
-    } else if (wc.canGoForward && wc.canGoForward()) {
-      wc.goForward();
-      return true;
-    }
-    return false;
+    return this.safeGoForward(tab.view.webContents);
   }
 
   public toggleSplitReview(tabId: string, enabled?: boolean): boolean {
@@ -2452,10 +2608,7 @@ export class NativeTabHost extends EventEmitter {
         mobileView.setBackgroundColor('#00000000');
         const mobilePreset = DEVICE_PRESETS.find((p) => p.id === tab.state.splitMobilePresetId) || DEVICE_PRESETS.find((p) => p.id === DEFAULT_SPLIT_MOBILE_PRESET);
         const mobileUA = getPresetUserAgent(mobilePreset, IPHONE_USER_AGENT);
-        const mobWc = mobileView.webContents as unknown as { setUserAgent?: (ua: string) => void };
-        if (mobileUA && typeof mobWc.setUserAgent === 'function') {
-          try { mobWc.setUserAgent(mobileUA); } catch {}
-        }
+        this.setSafeUserAgent(mobileView.webContents, mobileUA || IPHONE_USER_AGENT);
         tab.mobileView = mobileView;
         this.setupTabWebContentsEvents(tabId, mobileView, tab.state, 'mobile');
 
@@ -2545,27 +2698,18 @@ export class NativeTabHost extends EventEmitter {
         this.applyDeviceCornerClipping(tab.view.webContents, 0);
         this.applyDeviceCornerClipping(tab.mobileView.webContents, splitMobileClipRadius);
         const desktopPreset = DEVICE_PRESETS.find((p) => p.id === tab.state.splitDesktopPresetId) || DEVICE_PRESETS.find((p) => p.id === DEFAULT_SPLIT_DESKTOP_PRESET);
-        const desktopUA = getPresetUserAgent(desktopPreset, MAC_DESKTOP_USER_AGENT);
-        const desktopWc = tab.view.webContents as unknown as { setUserAgent?: (ua: string) => void };
-        if (desktopUA && !tab.view.webContents.isDestroyed() && typeof desktopWc.setUserAgent === 'function') {
-          try { desktopWc.setUserAgent(desktopUA); } catch {}
-        }
+        const desktopUA = getPresetUserAgent(desktopPreset, this.defaultUserAgent);
+        this.setSafeUserAgent(tab.view.webContents, desktopUA || this.defaultUserAgent);
         this.applyCdpTouchEmulation(tab.view.webContents, false);
 
-        try {
-          if (!tab.view.webContents.isDestroyed()) {
-            tab.view.webContents.enableDeviceEmulation({
-              screenPosition: 'desktop',
-              screenSize: { width: splitLayout.desktop.emulatedWidth, height: splitLayout.desktop.emulatedHeight },
-              viewPosition: { x: 0, y: 0 },
-              deviceScaleFactor: splitLayout.desktop.deviceScaleFactor,
-              viewSize: { width: splitLayout.desktop.emulatedWidth, height: splitLayout.desktop.emulatedHeight },
-              scale: splitLayout.desktop.scale,
-            });
-          }
-        } catch (err) {
-          console.error('[native-tab-host] Failed desktop enableDeviceEmulation:', err);
-        }
+        this.safeEnableDeviceEmulation(tab.view.webContents, {
+          screenPosition: 'desktop',
+          screenSize: { width: splitLayout.desktop.emulatedWidth, height: splitLayout.desktop.emulatedHeight },
+          viewPosition: { x: 0, y: 0 },
+          deviceScaleFactor: splitLayout.desktop.deviceScaleFactor,
+          viewSize: { width: splitLayout.desktop.emulatedWidth, height: splitLayout.desktop.emulatedHeight },
+          scale: splitLayout.desktop.scale,
+        });
         // Emulation scale already handles visual zoom; keep zoomFactor at 1 to prevent double-scaling
         try {
           if (!tab.view.webContents.isDestroyed()) {
@@ -2584,10 +2728,7 @@ export class NativeTabHost extends EventEmitter {
         // Mobile view emulation & bounds
         const mobilePreset = DEVICE_PRESETS.find((p) => p.id === tab.state.splitMobilePresetId) || DEVICE_PRESETS.find((p) => p.id === DEFAULT_SPLIT_MOBILE_PRESET);
         const mobileUA = getPresetUserAgent(mobilePreset, IPHONE_USER_AGENT);
-        const mobWc = tab.mobileView.webContents as unknown as { setUserAgent?: (ua: string) => void };
-        if (mobileUA && !tab.mobileView.webContents.isDestroyed() && typeof mobWc.setUserAgent === 'function') {
-          try { mobWc.setUserAgent(mobileUA); } catch {}
-        }
+        this.setSafeUserAgent(tab.mobileView.webContents, mobileUA || IPHONE_USER_AGENT);
         this.applyCdpTouchEmulation(tab.mobileView.webContents, true);
         try {
           if (!tab.mobileView.webContents.isDestroyed()) {
@@ -2595,20 +2736,14 @@ export class NativeTabHost extends EventEmitter {
           }
         } catch {}
 
-        try {
-          if (!tab.mobileView.webContents.isDestroyed()) {
-            tab.mobileView.webContents.enableDeviceEmulation({
-              screenPosition: 'mobile',
-              screenSize: { width: splitLayout.mobile.emulatedWidth, height: splitLayout.mobile.emulatedHeight },
-              viewPosition: { x: 0, y: 0 },
-              deviceScaleFactor: splitLayout.mobile.deviceScaleFactor,
-              viewSize: { width: splitLayout.mobile.emulatedWidth, height: splitLayout.mobile.emulatedHeight },
-              scale: splitLayout.mobile.scale,
-            });
-          }
-        } catch (err) {
-          console.error('[native-tab-host] Failed mobile enableDeviceEmulation:', err);
-        }
+        this.safeEnableDeviceEmulation(tab.mobileView.webContents, {
+          screenPosition: 'mobile',
+          screenSize: { width: splitLayout.mobile.emulatedWidth, height: splitLayout.mobile.emulatedHeight },
+          viewPosition: { x: 0, y: 0 },
+          deviceScaleFactor: splitLayout.mobile.deviceScaleFactor,
+          viewSize: { width: splitLayout.mobile.emulatedWidth, height: splitLayout.mobile.emulatedHeight },
+          scale: splitLayout.mobile.scale,
+        });
         // Emulation scale already handles visual zoom; keep zoomFactor at 1 to prevent double-scaling
         try {
           if (!tab.mobileView.webContents.isDestroyed()) {
@@ -2641,11 +2776,8 @@ export class NativeTabHost extends EventEmitter {
         const targetX = Math.max(0, Math.floor((maxW - renderedW) / 2));
         const targetY = toolbarHeight + Math.max(0, Math.floor((maxH - renderedH) / 2));
 
-        const ua = getPresetUserAgent(preset, preset.mobile ? IPHONE_USER_AGENT : this.defaultUserAgent || MAC_DESKTOP_USER_AGENT);
-        const singleWc = tab.view.webContents as unknown as { setUserAgent?: (ua: string) => void };
-        if (ua && !tab.view.webContents.isDestroyed() && typeof singleWc.setUserAgent === 'function') {
-          try { singleWc.setUserAgent(ua); } catch {}
-        }
+        const ua = getPresetUserAgent(preset, preset.mobile ? IPHONE_USER_AGENT : this.defaultUserAgent);
+        this.setSafeUserAgent(tab.view.webContents, ua || this.defaultUserAgent);
         this.applyCdpTouchEmulation(tab.view.webContents, Boolean(preset.mobile));
         if (preset.mobile) {
           try {
@@ -2655,20 +2787,14 @@ export class NativeTabHost extends EventEmitter {
           } catch {}
         }
 
-        try {
-          if (!tab.view.webContents.isDestroyed()) {
-            tab.view.webContents.enableDeviceEmulation({
-              screenPosition: preset.mobile ? 'mobile' : 'desktop',
-              screenSize: { width: preset.width, height: preset.height },
-              viewPosition: { x: 0, y: 0 },
-              deviceScaleFactor: preset.deviceScaleFactor || (preset.category === 'desktop' ? 1 : 2),
-              viewSize: { width: preset.width, height: preset.height },
-              scale: renderScale,
-            });
-          }
-        } catch (err) {
-          console.error('[native-tab-host] Failed enableDeviceEmulation:', err);
-        }
+        this.safeEnableDeviceEmulation(tab.view.webContents, {
+          screenPosition: preset.mobile ? 'mobile' : 'desktop',
+          screenSize: { width: preset.width, height: preset.height },
+          viewPosition: { x: 0, y: 0 },
+          deviceScaleFactor: preset.deviceScaleFactor || (preset.category === 'desktop' ? 1 : 2),
+          viewSize: { width: preset.width, height: preset.height },
+          scale: renderScale,
+        });
         // Dynamic corner clipping per-device preset, clear for desktop/flat screens
         const clipRadius = getPresetCornerRadius(preset);
         if (clipRadius > 0) {
@@ -2692,16 +2818,10 @@ export class NativeTabHost extends EventEmitter {
         } catch {}
       } else {
         this.applyDeviceCornerClipping(tab.view.webContents, 0);
+        try { tab.view.setBackgroundColor('#ffffff'); } catch {}
         this.applyCdpTouchEmulation(tab.view.webContents, false);
-        const fluidWc = tab.view.webContents as unknown as { setUserAgent?: (ua: string) => void };
-        if (this.defaultUserAgent && !tab.view.webContents.isDestroyed() && typeof fluidWc.setUserAgent === 'function') {
-          try { fluidWc.setUserAgent(this.defaultUserAgent); } catch {}
-        }
-        try {
-          if (!tab.view.webContents.isDestroyed()) {
-            tab.view.webContents.disableDeviceEmulation();
-          }
-        } catch {}
+        this.setSafeUserAgent(tab.view.webContents, this.defaultUserAgent);
+        this.safeDisableDeviceEmulation(tab.view.webContents);
 
         const userZoom = tab.state.zoomFactor || 1.0;
         try {
@@ -2768,8 +2888,27 @@ export class NativeTabHost extends EventEmitter {
     } catch {}
   }
 
-  private applyDeviceCornerClipping(wc: Electron.WebContents, _radiusPx: number, _force: boolean = false): void {
-    if (!wc || wc.isDestroyed()) return;
+  private setSafeUserAgent(wc: Electron.WebContents, targetUA: string): void {
+    if (!wc || (typeof wc.isDestroyed === 'function' && wc.isDestroyed())) return;
+    if (!targetUA) return;
+    try {
+      if (typeof wc.setUserAgent === 'function') {
+        const currentUA = typeof wc.getUserAgent === 'function' ? wc.getUserAgent() : undefined;
+        if (currentUA !== targetUA) {
+          wc.setUserAgent(targetUA);
+        }
+      }
+    } catch (err) {
+      console.warn('[native-tab-host] Failed to set user agent:', err);
+    }
+  }
+
+  private applyDeviceCornerClipping(wc: Electron.WebContents, radiusPx: number, force: boolean = false): void {
+    if (!wc || (typeof wc.isDestroyed === 'function' && wc.isDestroyed())) return;
+    const prev = this.appliedClipRadius.get(wc);
+    if (!force && prev === radiusPx) return;
+    this.appliedClipRadius.set(wc, radiusPx);
+    if (radiusPx <= 0 && (prev === undefined || prev <= 0)) return;
     const script = `(() => {
       const style = document.getElementById('antifan-device-clip');
       if (style) style.remove();
@@ -3172,8 +3311,8 @@ export class NativeTabHost extends EventEmitter {
               this.lastAnnotationSessionId = rawResult.targetSessionId;
             }
 
-            let targetImageBase64: string | undefined;
-            let viewportImageBase64: string | undefined;
+            let targetImageBase64: string | undefined = rawResult.targetImageBase64 || rawResult.screenshotBase64;
+            let viewportImageBase64: string | undefined = rawResult.viewportImageBase64;
 
             try {
               const fullImage = await wc.capturePage();
@@ -3199,17 +3338,18 @@ export class NativeTabHost extends EventEmitter {
             } catch (err) {
               console.error('[native-tab-host] capture and crop error:', err);
             }
-            const targetSessionId = rawResult.targetSessionId || (tm.getActiveSessionId() !== 'auto' ? tm.getActiveSessionId() : undefined);
+            const tmActiveId = TerminalManager.getInstance().getActiveSessionId();
+            const targetSessionId = rawResult.targetSessionId || (tmActiveId !== 'auto' ? tmActiveId : undefined);
             const targetWorkspace = this.resolveTargetWorkspace(targetSessionId, activeTab?.state.url);
             const annotationWorkspace = this.resolveAnnotationWorkspace(targetSessionId, activeTab?.state.url);
 
             const annotationResult = await AnnotationManager.getInstance().processAnnotationPayload({
+              ...rawResult,
               url: activeTab.state.url,
               title: activeTab.state.title,
               targetImageBase64,
               viewportImageBase64,
               workspaceDir: annotationWorkspace,
-              ...rawResult,
             });
             const effectiveDeliveryMode: 'auto' | 'draft' = rawResult.deliveryMode === 'draft' ? 'draft' : 'auto';
 
@@ -3408,8 +3548,32 @@ export class NativeTabHost extends EventEmitter {
     const wc = this.getTabWebContents(targetId, paneId || target.focusedPane);
     if (!wc) return '';
     return this.withTabAgentWorking(targetId, async () => {
-      const img = await wc.capturePage(rect);
-      return img.toPNG().toString('base64');
+      try {
+        let img = await wc.capturePage(rect);
+        for (let retry = 0; retry < 3 && (typeof img?.isEmpty === 'function' ? img.isEmpty() : false); retry++) {
+          await new Promise((r) => setTimeout(r, 150));
+          img = await wc.capturePage(rect);
+        }
+        const hasContent = typeof img?.isEmpty === 'function' ? !img.isEmpty() : Boolean(img && typeof img.toPNG === 'function');
+        if (hasContent) {
+          return img.toPNG().toString('base64');
+        }
+      } catch {}
+
+      try {
+        if (!wc.debugger.isAttached()) {
+          wc.debugger.attach('1.3');
+        }
+        const cdpRes = (await wc.debugger.sendCommand('Page.captureScreenshot', {
+          format: 'png',
+          clip: rect ? { x: rect.x, y: rect.y, width: rect.width, height: rect.height, scale: 1 } : undefined,
+        })) as { data?: string };
+        if (cdpRes && typeof cdpRes.data === 'string' && cdpRes.data.length > 0) {
+          return cdpRes.data;
+        }
+      } catch {}
+
+      return '';
     });
   }
 
@@ -3449,7 +3613,10 @@ export class NativeTabHost extends EventEmitter {
     return path.join(userData, 'saved-tabs.json');
   }
 
+  private isDisposed = false;
+
   private schedulePersist(): void {
+    if (this.isDisposed) return;
     if (this.persistTimer) clearTimeout(this.persistTimer);
     this.persistTimer = setTimeout(() => {
       this.persistTabs();
@@ -3457,6 +3624,7 @@ export class NativeTabHost extends EventEmitter {
   }
 
   public persistTabs(): void {
+    if (this.isDisposed) return;
     try {
       const filePath = this.getTabsStoragePath();
       const tabList = this.tabOrder.map((id) => {
@@ -3515,6 +3683,7 @@ export class NativeTabHost extends EventEmitter {
         updatedAt: Date.now(),
       };
       fs.writeFileSync(filePath, JSON.stringify(data, null, 2), 'utf8');
+      console.log('[native-tab-host] Persisted tabs to:', filePath);
     } catch (err) {
       console.warn('[native-tab-host] Failed to persist tabs:', err);
     }
@@ -3944,6 +4113,14 @@ export class NativeTabHost extends EventEmitter {
   public setControlPlane(cp: ControlPlaneRuntime): void {
     this.controlPlane = cp;
   }
+  public getBrowserEpoch(): number {
+    return this.browserEpoch;
+  }
+
+  public setBrowserEpoch(epoch: number): void {
+    this.browserEpoch = epoch;
+  }
+
 
   public getDiagnostics(tabId?: string, level?: number | string): { console: any[]; failures: any[] } {
     const targetId = tabId || this.activeTabId;
@@ -3967,7 +4144,7 @@ export class NativeTabHost extends EventEmitter {
 
     try {
       for (const bp of testBreakpoints) {
-        wc.enableDeviceEmulation({
+        this.safeEnableDeviceEmulation(wc, {
           screenPosition: bp.mobile ? 'mobile' : 'desktop',
           screenSize: { width: bp.width, height: bp.height },
           viewPosition: { x: 0, y: 0 },
@@ -3978,7 +4155,7 @@ export class NativeTabHost extends EventEmitter {
 
         await new Promise((resolve) => setTimeout(resolve, 60));
 
-        const evaluation = await wc.executeJavaScript(`(() => {
+        const evalPromise = wc.executeJavaScript(`(() => {
           const docEl = document.documentElement;
           const body = document.body;
           const scrollW = Math.max(docEl ? docEl.scrollWidth : 0, body ? body.scrollWidth : 0);
@@ -3996,7 +4173,10 @@ export class NativeTabHost extends EventEmitter {
             hasViewportMeta: Boolean(viewportMeta),
             viewportContent: viewportMeta ? viewportMeta.getAttribute('content') : null,
           };
-        })()`).catch((err) => ({ error: String(err) }));
+        })()`).catch((err: unknown) => ({ error: String(err) }));
+
+        const timeoutPromise = new Promise<{ timeout: boolean }>((resolve) => setTimeout(() => resolve({ timeout: true }), 1500));
+        const evaluation = await Promise.race([evalPromise, timeoutPromise]);
 
         results[bp.id] = {
           name: bp.name,
@@ -4008,7 +4188,7 @@ export class NativeTabHost extends EventEmitter {
       }
     } finally {
       try {
-        wc.disableDeviceEmulation();
+        this.safeDisableDeviceEmulation(wc);
         if (previousPreset && previousPreset !== 'responsive') {
           this.setDevicePreset(targetId, previousPreset);
         } else {
@@ -4480,7 +4660,11 @@ export class NativeTabHost extends EventEmitter {
       }
     }
   }
+
   public dispose(): void {
+    if (this.isDisposed) return;
+    this.persistTabs();
+    this.isDisposed = true;
     if (this.frameBackdropView) {
       try {
         this.window.contentView.removeChildView(this.frameBackdropView);
@@ -4513,6 +4697,24 @@ export class NativeTabHost extends EventEmitter {
     }
     this.tabPreviewUnsubscribers.clear();
     for (const [id, tab] of this.tabs) {
+      try {
+        if (!tab.view.webContents.isDestroyed()) {
+          tab.view.webContents.stop();
+        }
+      } catch {}
+      try {
+        this.window.contentView.removeChildView(tab.view);
+      } catch {}
+      if (tab.mobileView) {
+        try {
+          if (!tab.mobileView.webContents.isDestroyed()) {
+            tab.mobileView.webContents.stop();
+          }
+        } catch {}
+        try {
+          this.window.contentView.removeChildView(tab.mobileView);
+        } catch {}
+      }
       (tab.view.webContents as unknown as { destroy?: () => void })?.destroy?.();
       if (tab.mobileView) {
         try {
@@ -4521,7 +4723,6 @@ export class NativeTabHost extends EventEmitter {
       }
       this.splitCoordinator.cleanupTab(id);
     }
-    this.tabs.clear();
     this.tabOrder = [];
   }
 }

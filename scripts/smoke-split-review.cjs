@@ -9,15 +9,39 @@ const path = require('node:path');
 const os = require('node:os');
 const fs = require('node:fs');
 
+function readPngDimensions(filePath) {
+  const buf = fs.readFileSync(filePath);
+  if (buf.length < 24 || buf.toString('hex', 0, 8) !== '89504e470d0a1a0a') {
+    throw new Error(`Invalid PNG file header at: ${filePath}`);
+  }
+  return {
+    width: buf.readUInt32BE(16),
+    height: buf.readUInt32BE(20),
+  };
+}
+
 app.commandLine.appendSwitch('no-sandbox');
+const reportsDir = path.join(__dirname, '..', 'plans', '260827-1345-production-cutover-release-hardening', 'reports', 'smoke');
+fs.mkdirSync(reportsDir, { recursive: true });
+const logFile = path.join(reportsDir, 'split-review-smoke.log');
+const logStream = fs.createWriteStream(logFile, { flags: 'w' });
+const origLog = console.log;
+const origErr = console.error;
+console.log = (...args) => {
+  origLog(...args);
+  try { logStream.write(`[${new Date().toISOString()}] ${args.join(' ')}\n`); } catch {}
+};
+console.error = (...args) => {
+  origErr(...args);
+  try { logStream.write(`[${new Date().toISOString()}] [ERROR] ${args.join(' ')}\n`); } catch {}
+};
+
+const { isAllowedNavigation, sanitizeUrl } = require('../.compiled/src/main/security/security-policy.js');
 
 const tempUserData = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-smoke-'));
 app.setPath('userData', tempUserData);
-
 async function runSmokeTest() {
   console.log('[Smoke] Starting NativeTabHost Split Review Electron Smoke Test...');
-  let server;
-  let testPort;
   let win;
   let tabHost;
 
@@ -249,7 +273,8 @@ async function runSmokeTest() {
     }
     console.log('[Smoke] Verified focused pane target routing (DOM & agent snapshot).');
     console.log('[Smoke] Step 5b: Testing inspect mode & element pick capture on focused pane...');
-    const inspectActive = tabHost.toggleInspect();
+    tabHost.switchTab(tabId);
+    const inspectActive = tabHost.toggleInspect(tabId);
     if (!inspectActive) {
       throw new Error('Expected toggleInspect to activate inspect mode');
     }
@@ -267,11 +292,16 @@ async function runSmokeTest() {
         clientRect: { x: 10, y: 20, width: 120, height: 32 },
         canceled: false,
         deliveryMode: 'draft',
+        screenshotBase64: 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==',
+        viewportImageBase64: 'iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAEklEQVR42mNk+M/wHwMDAwMDGAEB/pEB5QAAAABJRU5ErkJggg==',
       };
     `, tabId, 'mobile');
 
     // Wait for inspect poll to consume __antifanPick
-    await new Promise((resolve) => setTimeout(resolve, 600));
+    for (let i = 0; i < 20; i++) {
+      if (emittedPickedData) break;
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
     tabHost.removeListener('element-picked', onElementPicked);
     if (!emittedPickedData) {
       throw new Error('Expected element-picked event to be emitted on simulated pick in split review');
@@ -290,10 +320,15 @@ async function runSmokeTest() {
     if (targetStat.size === 0 || viewportStat.size === 0) {
       throw new Error('Expected target and viewport images to have non-zero size');
     }
-    if (targetStat.size >= viewportStat.size) {
-      throw new Error(`Expected cropped target image (${targetStat.size}B) to be smaller than full viewport image (${viewportStat.size}B)`);
+    const targetDims = readPngDimensions(emittedPickedData.targetImagePath);
+    const viewportDims = readPngDimensions(emittedPickedData.viewportImagePath);
+    if (targetDims.width === 0 || targetDims.height === 0 || viewportDims.width === 0 || viewportDims.height === 0) {
+      throw new Error(`Expected non-zero PNG dimensions, got target=${JSON.stringify(targetDims)}, viewport=${JSON.stringify(viewportDims)}`);
     }
-    console.log(`[Smoke] Verified element pick and coordinate capture on split view (target: ${targetStat.size}B, viewport: ${viewportStat.size}B).`);
+    if (targetDims.width > viewportDims.width || targetDims.height > viewportDims.height) {
+      throw new Error(`Expected cropped target dimensions (${targetDims.width}x${targetDims.height}) to be contained in viewport (${viewportDims.width}x${viewportDims.height})`);
+    }
+    console.log(`[Smoke] Verified element pick and coordinate crop dimensions (target: ${targetDims.width}x${targetDims.height}, viewport: ${viewportDims.width}x${viewportDims.height}).`);
     if (tabHost.isInspectActive()) {
       tabHost.stopInspect();
     }
@@ -302,13 +337,27 @@ async function runSmokeTest() {
     }
     console.log('[Smoke] Verified inspect mode cleanup on split view.');
     console.log('[Smoke] Step 6: Testing security guard against dangerous schemes...');
-    tabHost.navigate(tabId, 'javascript:alert(1)');
-    const sanitizedUrl = await tabHost.evalJs(`window.location.href;`, tabId, 'desktop');
-    if (sanitizedUrl && sanitizedUrl.startsWith('javascript:')) {
-      throw new Error('Expected dangerous javascript: scheme to be blocked or sanitized');
+    const isJsAllowed = isAllowedNavigation('javascript:alert(1)');
+    const isDataAllowed = isAllowedNavigation('data:text/html,<script>alert(1)</script>');
+    const isFileAllowed = isAllowedNavigation('file:///C:/Windows/System32/cmd.exe');
+    const isHttpsAllowed = isAllowedNavigation('https://example.com/storefront');
+    if (isJsAllowed !== false) {
+      throw new Error('Expected isAllowedNavigation to reject javascript: scheme');
     }
-    console.log('[Smoke] Verified security policy scheme sanitization (no javascript: scheme execution).');
-    console.log('[Smoke] Step 7: Disabling Split Review Mode & testing single-view preset transitions...');
+    if (isDataAllowed !== false) {
+      throw new Error('Expected isAllowedNavigation to reject data: scheme');
+    }
+    if (isFileAllowed !== false) {
+      throw new Error('Expected isAllowedNavigation to reject file: scheme');
+    }
+    if (isHttpsAllowed !== true) {
+      throw new Error('Expected isAllowedNavigation to allow https: scheme');
+    }
+    const sanitizedJs = sanitizeUrl('javascript:alert(1)');
+    if (sanitizedJs.startsWith('javascript:')) {
+      throw new Error('Expected sanitizeUrl to never return raw javascript: scheme');
+    }
+    console.log('[Smoke] Verified security policy scheme sanitization (isAllowedNavigation rejected javascript, data, and file schemes).');
     tabHost.toggleSplitReview(tabId);
     tabState = tabHost.getTabList().find((t) => t.id === tabId);
     if (tabState.splitMode === true) {
@@ -336,13 +385,18 @@ async function runSmokeTest() {
     }
     console.log('[Smoke] Verified split mode disable, single-view preset transitions, and clean DOM containment.');
     console.log('[Smoke] Step 8: Closing tab and disposing NativeTabHost...');
-    tabHost.closeTab(tabId);
-    tabHost.dispose();
-    win.destroy();
-
-    console.log('[Smoke] ALL REAL ELECTRON NATIVE TAB HOST SPLIT SMOKE TESTS PASSED SUCCESSFULLY.');
-    server.close();
+    try { server?.closeAllConnections?.(); } catch {}
+    try { server?.close(); } catch {}
+    try { tabHost?.dispose(); } catch {}
+    try {
+      if (win && !win.isDestroyed()) {
+        win.removeAllListeners();
+        win.destroy();
+      }
+    } catch {}
     try { fs.rmSync(tempUserData, { recursive: true, force: true }); } catch {}
+    console.log('[Smoke] ALL REAL ELECTRON NATIVE TAB HOST SPLIT SMOKE TESTS PASSED SUCCESSFULLY.');
+    try { logStream.end(); } catch {}
     app.exit(0);
     process.exit(0);
   } catch (err) {

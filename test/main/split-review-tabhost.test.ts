@@ -11,7 +11,8 @@ function createTestHost() {
   const host = Object.create(NativeTabHost.prototype) as TestHost;
   EventEmitter.call(host);
   const desktopWc = Object.assign(new EventEmitter(), {
-    isDestroyed: () => false,
+    isDestroyed: (): boolean => false,
+    getUserAgent: (): string => '',
     loadURL: async () => {},
     reload: () => {},
     stop: () => {},
@@ -33,7 +34,8 @@ function createTestHost() {
     destroy: () => {},
   });
   const mobileWc = Object.assign(new EventEmitter(), {
-    isDestroyed: () => false,
+    isDestroyed: (): boolean => false,
+    getUserAgent: (): string => '',
     loadURL: async () => {},
     reload: () => {},
     stop: () => {},
@@ -104,6 +106,7 @@ function createTestHost() {
   host.isSidebarOpen = false;
   host.isBookmarkBarVisible = false;
   host.appliedClipRadius = new WeakMap();
+  host.emulatedWebContents = new WeakSet();
   host.diagnosticsManager = { recordConsole: () => {}, recordFailure: () => {} };
   host.broadcastState = () => {};
   host.updateLayout = () => {
@@ -197,7 +200,7 @@ describe('NativeTabHost Split Review Integration', () => {
     const tab = host.tabs.get('tab-split-1');
     tab.state.splitMode = true;
     tab.mobileView = mobileView;
-
+    (host as any).emulatedWebContents.add(desktopWc);
     let removedChild = false;
     let mobileDestroyed = false;
     let emulationDisabled = false;
@@ -257,7 +260,7 @@ describe('NativeTabHost Split Review Integration', () => {
 
   it('cleans up and destroys frameBackdropView during dispose', () => {
     const { host } = createTestHost();
-    let removedView: any = null;
+    const removedViews: any[] = [];
     let destroyed = false;
     const mockBackdropView: any = {
       webContents: {
@@ -268,12 +271,12 @@ describe('NativeTabHost Split Review Integration', () => {
       setBounds: () => {},
     };
     host.window.contentView.removeChildView = (view: any) => {
-      removedView = view;
+      removedViews.push(view);
     };
     (host as any).frameBackdropView = mockBackdropView;
 
     (NativeTabHost.prototype as any).dispose.call(host);
-    assert.strictEqual(removedView, mockBackdropView);
+    assert.ok(removedViews.includes(mockBackdropView));
     assert.strictEqual(destroyed, true);
     assert.strictEqual((host as any).frameBackdropView, null);
   });
@@ -554,5 +557,31 @@ describe('NativeTabHost Split Review Integration', () => {
     tab.mobileView.webContents.isDestroyed = () => true;
     desktopWc.emit('did-start-navigation', {}, 'https://example.com/desktop-2', false, true);
     assert.strictEqual(host.getDocumentGeneration('tab-split-1'), 4, 'Destroyed mobile view falls back to desktop authority');
+  });
+
+  it('sets user agent safely and idempotently without redundant calls or ERR_ABORTED churn', () => {
+    const { host, desktopWc } = createTestHost();
+    let uaCallCount = 0;
+    let currentUa = 'Mozilla/5.0 DefaultUA';
+
+    desktopWc.getUserAgent = () => currentUa;
+    desktopWc.setUserAgent = (newUa: string) => {
+      uaCallCount++;
+      currentUa = newUa;
+    };
+
+    // First call sets new UA
+    (NativeTabHost.prototype as any).setSafeUserAgent.call(host, desktopWc, 'Mozilla/5.0 CustomUA');
+    assert.strictEqual(uaCallCount, 1);
+    assert.strictEqual(currentUa, 'Mozilla/5.0 CustomUA');
+
+    // Second call with same UA is a no-op and does not call setUserAgent
+    (NativeTabHost.prototype as any).setSafeUserAgent.call(host, desktopWc, 'Mozilla/5.0 CustomUA');
+    assert.strictEqual(uaCallCount, 1, 'Redundant setSafeUserAgent must be a no-op');
+
+    // Call on destroyed webContents does nothing
+    desktopWc.isDestroyed = () => true;
+    (NativeTabHost.prototype as any).setSafeUserAgent.call(host, desktopWc, 'Mozilla/5.0 AnotherUA');
+    assert.strictEqual(uaCallCount, 1, 'Destroyed webContents must not invoke setUserAgent');
   });
 });

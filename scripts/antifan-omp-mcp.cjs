@@ -93,13 +93,13 @@ async function invoke(method, params = {}) {
       'anti.browser.reload': 'browser.reload',
       'anti.inspect.dom': 'browser.dom',
       'anti.screenshot.viewport': 'browser.screenshot',
-      'anti.agent.cursor.click': 'anti.agent.cursor.click',
-      'anti.agent.cursor.move': 'anti.agent.cursor.move',
-      'anti.agent.cursor.type': 'anti.agent.cursor.type',
-      'anti.agent.cursor.scroll': 'anti.agent.cursor.scroll',
-      'anti.agent.cursor.hover': 'anti.agent.cursor.hover',
-      'anti.agent.cursor.highlight': 'anti.agent.cursor.highlight',
-      'anti.agent.cursor.clear': 'anti.agent.cursor.clear',
+      'anti.agent.cursor.click': 'browser.agent-click',
+      'anti.agent.cursor.move': 'browser.agent-hover',
+      'anti.agent.cursor.type': 'browser.agent-type',
+      'anti.agent.cursor.scroll': 'browser.agent-scroll',
+      'anti.agent.cursor.hover': 'browser.agent-hover',
+      'anti.agent.cursor.highlight': 'browser.agent-highlight',
+      'anti.agent.cursor.clear': 'browser.agent-clear',
     }[method] || method;
 
     return await call('tool', 'antifan.capability.dispatch', {

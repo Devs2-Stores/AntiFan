@@ -594,20 +594,35 @@ function renderTabs() {
         <span class="tab-close" title="Close Tab"></span>
       `;
 
-      tabEl.querySelector('.tab-close')?.addEventListener('click', (e) => {
-        e.stopPropagation();
-        getApi()?.closeTab(tab.id);
-      });
+      const closeBtn = tabEl.querySelector('.tab-close');
+      if (closeBtn) {
+        closeBtn.addEventListener('click', (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          getApi()?.closeTab(tab.id);
+        });
+        closeBtn.addEventListener('mousedown', (e) => {
+          e.stopPropagation();
+        });
+      }
+
       tabEl.querySelector('.tab-audio-btn')?.addEventListener('click', (e) => {
         e.stopPropagation();
         getApi()?.toggleMute(tab.id);
       });
 
-
-      tabEl.addEventListener('click', () => {
+      tabEl.addEventListener('click', (e) => {
+        const target = e.target as HTMLElement | null;
+        if (target && target.closest('.tab-close, .tab-audio-btn')) return;
         hideTabContextMenu();
-        if (tab.id !== activeTabId) {
-          getApi()?.switchTab(tab.id);
+        getApi()?.switchTab(tab.id);
+      });
+
+      tabEl.addEventListener('auxclick', (e) => {
+        if (e.button === 1) {
+          e.preventDefault();
+          e.stopPropagation();
+          getApi()?.closeTab(tab.id);
         }
       });
 
@@ -1541,9 +1556,10 @@ async function updateSuggestDropdown(query: string) {
     const res = await getApi()?.getSuggestions(q);
     if (res && Array.isArray(res.suggestions) && res.suggestions.length > 0) {
       suggestItems = res.suggestions;
+      selectedSuggestIndex = -1;
       renderSuggestItems(q);
       omniboxSuggestDropdown.style.display = 'block';
-      getApi()?.setOverlay(true);
+      getApi()?.setOverlay(true, 420);
     } else {
       hideSuggestDropdown();
     }
@@ -1626,7 +1642,11 @@ if (urlInput) {
   });
 
   urlInput.addEventListener('focus', () => {
-    if (urlInput.value) {
+    urlInput.select();
+    updateSuggestDropdown(urlInput.value);
+  });
+  urlInput.addEventListener('click', () => {
+    if (omniboxSuggestDropdown && omniboxSuggestDropdown.style.display === 'none') {
       updateSuggestDropdown(urlInput.value);
     }
   });
@@ -1676,10 +1696,33 @@ if (urlInput) {
         return;
       }
       if (val) {
+        if (selectedSuggestIndex >= 0 && selectedSuggestIndex < suggestItems.length) {
+          const item = suggestItems[selectedSuggestIndex];
+          if (item && item.type === 'tab' && item.tabId) {
+            getApi()?.switchTab(item.tabId);
+            hideSuggestDropdown();
+            urlInput.blur();
+            return;
+          }
+        }
         getApi()?.navigate(val);
         hideSuggestDropdown();
         urlInput.blur();
       }
+    }
+  });
+}
+
+const omniboxEl = document.querySelector('.omnibox') as HTMLDivElement | null;
+if (omniboxEl && urlInput) {
+  omniboxEl.addEventListener('click', (e) => {
+    const target = e.target as HTMLElement | null;
+    if (target && target.closest('#btnStarBookmark, #btnClearOmnibox')) return;
+    if (document.activeElement !== urlInput) {
+      urlInput.focus();
+      urlInput.select();
+    } else if (omniboxSuggestDropdown && omniboxSuggestDropdown.style.display === 'none') {
+      updateSuggestDropdown(urlInput.value);
     }
   });
 }

@@ -23,6 +23,7 @@
     "typecheck": "tsc -p ./ --noEmit",
     "test": "npm run compile && node --test .compiled/test/main/*.test.js",
     "verify": "npm run typecheck && npm test",
+    "package": "npm run compile && node scripts/package-windows.mjs",
     "smoke:split": "node scripts/run-electron.cjs scripts/smoke-split-review.cjs",
     "benchmark:artifacts": "node scripts/benchmark-antigravity-artifacts.mjs",
     "icon": "python scripts/generate-icon.py",
@@ -39,6 +40,7 @@
     "zod": "^3.23.8"
   },
   "devDependencies": {
+    "@electron/packager": "^20.3.0",
     "@types/node": "^22.0.0",
     "@types/ws": "^8.5.10",
     "electron": "^43.4.0",

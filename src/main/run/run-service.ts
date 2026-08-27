@@ -11,6 +11,7 @@ import {
   CapabilityError,
   McpAttachmentLaunch,
   RuntimeLease,
+  assertRuntimeLease,
 } from '../../shared/control-plane-contracts';
 
 export interface CreateCliSessionOptions {
@@ -27,11 +28,31 @@ export interface CreateCliSessionOptions {
   lease: RuntimeLease;
   leaseToken: string;
 }
-
 export interface CliSessionResult {
   run: RunRecord;
   attempt: ExecutionAttempt;
   launch: McpAttachmentLaunch;
+}
+
+export interface CreateWorkflowSessionOptions {
+  projectId: string;
+  workspaceId: string;
+  workflowName: string;
+  chatId?: string;
+  grant?: 'read' | 'write' | 'execute' | 'eval';
+  tabId?: string;
+  browserEpoch?: number;
+  hostEpoch?: number;
+  ttlMs?: number;
+  lease: RuntimeLease;
+  leaseToken: string;
+}
+
+export interface WorkflowSessionResult {
+  run: RunRecord;
+  attempt: ExecutionAttempt;
+  lease: RuntimeLease;
+  leaseToken: string;
 }
 import { ChatStore } from '../chat/chat-store';
 import { EventStore } from '../session/event-store';
@@ -244,10 +265,104 @@ export class RunService {
     this.attemptPids.delete(validAttemptId);
     return { ok: true };
   }
+  createWorkflowSession(options: CreateWorkflowSessionOptions): WorkflowSessionResult {
+    assertRuntimeLease(options.lease, {
+      projectId: options.projectId,
+      workspaceId: options.workspaceId,
+      hostEpoch: options.hostEpoch,
+      token: options.leaseToken,
+    });
 
+    const authoritativeRoot = this.getWorkspaceRoot(options.workspaceId, options.projectId);
+    if (!authoritativeRoot || typeof authoritativeRoot !== 'string') {
+      throw new CapabilityError('OUTSIDE_WORKSPACE', `No authoritative workspace root found for workspace: ${options.workspaceId}`);
+    }
+
+    const chatId = options.chatId
+      ? this.chats.get(options.chatId, options.projectId, options.workspaceId).id
+      : this.chats.create(options.projectId, options.workspaceId, `Workflow: ${options.workflowName}`).id;
+
+    const backendId = 'workflow';
+    const run = this.createRun(options.projectId, options.workspaceId, chatId, backendId);
+    run.state = 'streaming';
+    run.updatedAt = Date.now();
+    this.runs.set(run.id, run);
+
+    const promptDigest = digestText(`workflow:${options.workflowName}`);
+    const attempt: ExecutionAttempt = {
+      id: makeControlPlaneId('attempt'),
+      runId: run.id,
+      projectId: run.projectId,
+      workspaceId: run.workspaceId,
+      chatId: run.chatId,
+      state: 'running',
+      backendId,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+      promptDigest,
+    };
+    this.attempts.set(attempt.id, attempt);
+    this.append('turn/start', { promptText: `workflow:${options.workflowName}`, workflowName: options.workflowName }, run, attempt);
+
+    const canonicalWorkspace = authoritativeRoot;
+    this.receiptWorkspaces.set(attempt.id, canonicalWorkspace);
+
+    const binding: ReceiptBinding = {
+      commandId: attempt.id,
+      promptDigest,
+      projectId: run.projectId,
+      workspaceId: run.workspaceId,
+      canonicalWorkspace,
+      hostInstanceId: 'workflow-engine',
+      hostEpoch: options.hostEpoch ?? 1,
+      attemptId: attempt.id,
+      backendSessionRef: backendId,
+    };
+    this.receiptBindings.set(attempt.id, binding);
+    this.receipts.put(binding, 'accepted', 'accepted-exact');
+    return {
+      run: { ...run },
+      attempt: { ...attempt },
+      lease: options.lease,
+      leaseToken: options.leaseToken,
+    };
+  }
+
+  endWorkflowSession(
+    runId: string,
+    attemptId: string,
+    outcome: 'completed' | 'failed' | 'cancelled' = 'completed',
+    error?: string,
+    artifacts?: unknown[]
+  ): { ok: boolean } {
+    const validRunId = validateControlPlaneId(runId, 'run');
+    const validAttemptId = validateControlPlaneId(attemptId, 'attempt');
+    const run = this.runs.get(validRunId);
+    const attempt = this.attempts.get(validAttemptId);
+    const now = Date.now();
+    const finalRunState: RunState = outcome === 'completed' ? 'completed' : outcome === 'cancelled' ? 'interrupted' : 'failed';
+    const finalAttemptState: AttemptState = outcome === 'completed' ? 'completed' : outcome === 'cancelled' ? 'interrupted' : 'failed';
+    if (attempt) {
+      attempt.state = finalAttemptState;
+      attempt.updatedAt = now;
+      this.attempts.set(attempt.id, attempt);
+    }
+    if (run) {
+      run.state = finalRunState;
+      run.updatedAt = now;
+      this.runs.set(run.id, run);
+      this.append('turn/finish', { outcome, error, runState: finalRunState, attemptState: finalAttemptState, artifacts }, run, attempt);
+    }
+    const finalReceiptState: 'completed' | 'failed' = outcome === 'completed' ? 'completed' : 'failed';
+    const deliveryState: 'accepted-exact' | 'failed' = outcome === 'completed' ? 'accepted-exact' : 'failed';
+    const binding = this.receiptBindings.get(validAttemptId);
+    if (binding) {
+      this.receipts.put(binding, finalReceiptState, deliveryState, error ? { errorMessage: error } : undefined);
+    }
+    return { ok: true };
+  }
 
   private applyEvent(run: RunRecord, attempt: ExecutionAttempt, event: RunEvent, requiresReceipt = false): void {
-    if (event.runId !== run.id || event.attemptId !== attempt.id) throw new Error('Backend event identity mismatch');
     if (event.type === 'receipt') {
       const receipt = event.receipt;
       const expectedWorkspace = this.receiptWorkspaces.get(attempt.id);

@@ -1,0 +1,12 @@
+{
+  "packageName": "AntiFan-Browser-Desktop-win32-x64",
+  "outDir": "E:\\Work\\apps\\antifan-browser-desktop\\plans\\260827-1345-production-cutover-release-hardening\\reports\\artifacts\\AntiFan-Browser-Desktop-win32-x64",
+  "exePath": "E:\\Work\\apps\\antifan-browser-desktop\\plans\\260827-1345-production-cutover-release-hardening\\reports\\artifacts\\AntiFan-Browser-Desktop-win32-x64\\antifan-browser-desktop.exe",
+  "executableSize": 225562624,
+  "sha256": "764c9ddb91d84c64e7ed845b31276cae734ddac2ea3c95d6076e757a610690f5",
+  "gitRevision": "754dc6c051201a76818ca70cb93df751bffa73ff",
+  "builtAt": "2026-08-27T08:57:38.150Z",
+  "nodeVersion": "v24.13.0",
+  "platform": "win32",
+  "arch": "x64"
+}

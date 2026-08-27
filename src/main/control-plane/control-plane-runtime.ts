@@ -14,7 +14,8 @@ import { registerFileCapabilities } from '../tools/file-capabilities';
 import { WorkflowEngine } from '../workflow/workflow-engine';
 import { registerWorkflowCapabilities } from '../workflow/workflow-capabilities';
 import { WorkflowRegistry } from '../workflow/workflow-registry';
-import { issueRuntimeLease, RuntimeFeatureSwitch, RuntimeLease } from '../../shared/control-plane-contracts';
+import { assertExactBrowserTarget, BrowserTarget, CapabilityError, CapabilityRequestContext, issueRuntimeLease, RuntimeFeatureSwitch, RuntimeLease } from '../../shared/control-plane-contracts';
+import { WorkflowDefinition, WorkflowExecutionResult, WorkflowEventListener } from '../workflow/workflow-schema';
 
 export interface ControlPlaneRuntimeOptions {
   projectId: string;
@@ -176,5 +177,69 @@ export class ControlPlaneRuntime {
     error?: string
   ) {
     return this.runs.endCliSession(runId, attemptId, outcome, error);
+  }
+
+  async executeWorkflow(options: {
+    workflow: WorkflowDefinition;
+    target: BrowserTarget;
+    grant?: 'read' | 'write' | 'execute' | 'eval';
+    signal?: AbortSignal;
+    onEvent?: WorkflowEventListener;
+  }): Promise<WorkflowExecutionResult> {
+    const lease = this.getLease();
+    const boundTarget = assertExactBrowserTarget(options.target, {
+      projectId: lease.projectId,
+      workspaceId: lease.workspaceId || '',
+      runtimeId: lease.runtimeId || '',
+      browserEpoch: lease.hostEpoch,
+    }, false);
+
+    const session = this.runs.createWorkflowSession({
+      projectId: this.leaseState.projectId,
+      workspaceId: this.leaseState.workspaceId || '',
+      workflowName: options.workflow.name,
+      grant: options.grant || 'write',
+      tabId: boundTarget.tabId,
+      browserEpoch: boundTarget.browserEpoch,
+      hostEpoch: lease.hostEpoch,
+      ttlMs: 600_000,
+      lease,
+      leaseToken: lease.token,
+    });
+    const reqContext: CapabilityRequestContext = {
+      lease: session.lease,
+      leaseToken: session.leaseToken,
+      projectId: this.leaseState.projectId,
+      workspaceId: this.leaseState.workspaceId || '',
+      runId: session.run.id,
+      attemptId: session.attempt.id,
+      browserTarget: boundTarget,
+      grant: options.grant || 'write',
+      signal: options.signal,
+    };
+    try {
+      const result = (await this.capabilities.dispatch(
+        'workflow.execute',
+        {
+          workflow: options.workflow,
+          workspaceRoot: this.getWorkspaceRoot(),
+          signal: options.signal,
+          onEvent: options.onEvent,
+        },
+        reqContext
+      )) as WorkflowExecutionResult;
+      this.runs.endWorkflowSession(
+        session.run.id,
+        session.attempt.id,
+        result.status === 'passed' ? 'completed' : (result.status === 'interrupted' ? 'cancelled' : 'failed'),
+        result.status === 'failed' ? 'Workflow execution failed' : undefined,
+        result.artifacts
+      );
+      return result;
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      this.runs.endWorkflowSession(session.run.id, session.attempt.id, 'failed', msg);
+      throw err;
+    }
   }
 }

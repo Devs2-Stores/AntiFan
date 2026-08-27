@@ -3,6 +3,7 @@
  * Fast, authenticated local WebSocket RPC server bridging between IDE Extension / Agent and Chromium Desktop.
  * Includes Mobile Remote Companion Web App, Live Viewport streaming, and Terminal RPC.
  */
+import { app } from 'electron';
 import { WebSocketServer, WebSocket } from 'ws';
 import * as http from 'node:http';
 import * as fs from 'node:fs';
@@ -79,7 +80,7 @@ export class BridgeServer {
     this.isDev = isDev;
     this.port = isDev && port === 20129 ? 20130 : port;
 
-    const configDir = path.join(os.homedir(), '.antifan');
+    const configDir = process.env.ANTIFAN_CONFIG_DIR || path.join(os.homedir(), '.antifan');
     if (!fs.existsSync(configDir)) {
       try {
         fs.mkdirSync(configDir, { recursive: true });
@@ -767,6 +768,21 @@ export class BridgeServer {
         case 'antifan.evalJS': {
           const result = await this.tabHost.evalJs(p.expression);
           respond(true, { result });
+          break;
+        }
+        case 'persistTabs':
+        case 'antifan.persistTabs': {
+          this.tabHost.persistTabs();
+          respond(true, { persisted: true });
+          break;
+        }
+
+        case 'quit':
+        case 'antifan.quit': {
+          respond(true, { quitting: true });
+          setTimeout(() => {
+            try { app.quit(); } catch {}
+          }, 100);
           break;
         }
 
