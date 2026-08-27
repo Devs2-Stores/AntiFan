@@ -116,32 +116,34 @@ export class HaravanUploader {
   }
 
   /**
-   * Upload image to Haravan Media Storage & copy CDN URL
+   * Copy the predicted Haravan CDN URL. A real multipart upload to the Haravan
+   * Media endpoint is not implemented yet, so the file is never uploaded.
    */
   public async uploadImageToHaravan(
     imageUrl: string,
     shopDomain: string = 'myharavan.com',
     window?: BrowserWindow
-  ): Promise<{ success: boolean; cdnUrl?: string; message?: string }> {
+  ): Promise<{ success: boolean; cdnUrl?: string; message?: string; predicted?: boolean }> {
     try {
       const { buffer, mimeType } = await this.fetchImageBuffer(imageUrl);
       const filename = `upload_${Date.now()}.png`;
 
-      // Form multipart payload or simulate / delegate to Haravan upload endpoint
-      const cdnUrl = `https://file.hstatic.net/200000000000/file/${filename}`;
-      clipboard.writeText(cdnUrl);
+      // Simulated path only: no upload request is issued, the file is not
+      // stored anywhere, and the copied URL is a prediction, not a real CDN link.
+      const predictedUrl = `https://file.hstatic.net/200000000000/file/${filename}`;
+      clipboard.writeText(predictedUrl);
 
       if (window) {
         dialog.showMessageBox(window, {
-          type: 'info',
+          type: 'warning',
           title: 'Haravan Upload Toolkit',
-          message: 'Upload thành công!',
-          detail: `Đã tải ảnh lên Haravan Media Storage và sao chép CDN link vào Clipboard:\n${cdnUrl}`,
+          message: 'Chưa upload — URL CDN dự kiến',
+          detail: `File chưa được tải lên Haravan (upload thật chưa được cài đặt). Đã sao chép URL dự kiến vào Clipboard:\n${predictedUrl}`,
           buttons: ['OK'],
         });
       }
 
-      return { success: true, cdnUrl };
+      return { success: false, cdnUrl: predictedUrl, predicted: true, message: 'Upload thật chưa được hỗ trợ — chỉ sao chép URL CDN dự kiến' };
     } catch (err) {
       console.error('[HaravanUploader] upload error:', err);
       if (window) {
