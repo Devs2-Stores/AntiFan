@@ -4,6 +4,7 @@ import { WebSocket } from 'ws';
 import { EventEmitter } from 'node:events';
 import { BridgeServer } from '../../src/main/bridge/bridge-server';
 import { NativeTabHost } from '../../src/main/browser/native-tab-host';
+import { ControlPlaneRuntime } from '../../src/main/control-plane/control-plane-runtime';
 
 // Mock NativeTabHost for pure isolated bridge test
 class MockTabHost extends EventEmitter {
@@ -178,6 +179,73 @@ describe('AntiFan Bridge Server', () => {
     });
 
     assert.strictEqual(closeCode, 4003);
+    server.dispose();
+  });
+
+  it('handles antifan.cli.startSession and antifan.cli.renewSession RPC over WebSocket', async () => {
+    const mockHost = new MockTabHost() as unknown as NativeTabHost;
+    const lease = { runtimeId: 'binding-runtime', projectId: 'project-local', workspaceId: 'workspace-local', token: 'lease-token', protocolVersion: 1, hostEpoch: 1, ownerPid: process.pid, issuedAt: Date.now(), expiresAt: Date.now() + 30_000 };
+    let renewedAttachmentId = '';
+    const mockControlPlane = {
+      createCliSession: () => ({
+        run: { id: 'run-test-123456789012' },
+        attempt: { id: 'attempt-test-123456789012' },
+        launch: {
+          attachmentId: 'binding-test-123456789012',
+          secret: 'secret-123456',
+          projectId: 'project-local',
+          workspaceId: 'workspace-local',
+          expiresAt: Date.now() + 60_000,
+        },
+      }),
+      renewCliSession: (attachmentId: string, secret: string, options?: { extensionMs?: number; ownerPid?: number }) => {
+        renewedAttachmentId = attachmentId;
+        if (options?.ownerPid !== process.pid) {
+          throw new Error('PROCESS_MISMATCH');
+        }
+        return { expiresAt: Date.now() + 3600_000 };
+      },
+      runs: {
+        attachments: {
+          getRecord: () => ({ runId: 'run-test-123456789012', attemptId: 'attempt-test-123456789012' }),
+          verifyAttachmentSecret: () => true,
+        },
+      },
+      endCliSession: () => ({ ok: true }),
+    };
+    const server = new BridgeServer(mockHost, 0, false, undefined, () => ({ lease, projectId: 'project-local', workspaceId: 'workspace-local' }));
+    server.setControlPlane(mockControlPlane as unknown as ControlPlaneRuntime);
+    const port = await server.start();
+    const token = server.getToken();
+    const ws = new WebSocket(`ws://127.0.0.1:${port}?token=${token}`);
+    await new Promise<void>((resolve, reject) => { ws.on('open', resolve); ws.on('error', reject); });
+
+    // 1. Start CLI session
+    const startPromise = new Promise<any>((resolve) => {
+      ws.on('message', (data) => {
+        const parsed = JSON.parse(data.toString());
+        if (parsed.id === 'cli-start-1') resolve(parsed);
+      });
+    });
+    ws.send(JSON.stringify({ id: 'cli-start-1', method: 'antifan.cli.startSession', params: { backendId: 'cli', ownerPid: process.pid } }));
+    const startResp = await startPromise;
+    assert.strictEqual(startResp.success, true);
+    assert.strictEqual(startResp.data.attachmentId, 'binding-test-123456789012');
+
+    // 2. Renew CLI session
+    const renewPromise = new Promise<any>((resolve) => {
+      ws.on('message', (data) => {
+        const parsed = JSON.parse(data.toString());
+        if (parsed.id === 'cli-renew-1') resolve(parsed);
+      });
+    });
+    ws.send(JSON.stringify({ id: 'cli-renew-1', method: 'antifan.cli.renewSession', params: { attachmentId: 'binding-test-123456789012', secret: 'secret-123456', ownerPid: process.pid, extensionMs: 3600_000 } }));
+    const renewResp = await renewPromise;
+    assert.strictEqual(renewResp.success, true);
+    assert.strictEqual(renewedAttachmentId, 'binding-test-123456789012');
+    assert.ok(renewResp.data.expiresAt > Date.now());
+
+    ws.close();
     server.dispose();
   });
 });

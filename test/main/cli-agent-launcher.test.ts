@@ -177,7 +177,9 @@ describe('CLI Session and Agent Launcher Lifecycle', () => {
       ownerPid: 54321,
       ttlMs: 25,
     });
-    await new Promise((r) => setTimeout(r, 60));
+    // Drive expiry deterministically by mutating expiresAt instead of waiting.
+    const expiredSessionRecord = runtime.runs.attachments.getAttachment(expiredSession.launch.attachmentId)!;
+    expiredSessionRecord.expiresAt = Date.now() - 1;
     assert.strictEqual(runtime.runs.attachments.verifyAttachmentSecret(expiredSession.launch.attachmentId, expiredSession.launch.secret), false);
     const endRes = runtime.endCliSession(cliSession.run.id, cliSession.attempt.id, 'failed', 'Agent error');
     assert.strictEqual(endRes.ok, true);
@@ -245,6 +247,80 @@ describe('CLI Session and Agent Launcher Lifecycle', () => {
         }
         return false;
       }
+    );
+
+    try { fs.rmSync(tempDir, { recursive: true, force: true }); } catch {}
+  });
+  it('supports sliding window and renewCliSession heartbeat without secret change', async () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-cpr-renew-test-'));
+    const projectId = 'project-42345678901234567890';
+    const workspaceId = 'workspace-42345678901234567890';
+
+    const runtime = new ControlPlaneRuntime({
+      projectId,
+      workspaceId,
+      dataRoot: tempDir,
+      workspaceRoot: tempDir,
+      hostEpoch: 1,
+    });
+
+    const cliSession = runtime.createCliSession({
+      grant: 'write',
+      ownerPid: 11223,
+      ttlMs: 50,
+    });
+
+    const initialExpiresAt = cliSession.launch.expiresAt;
+    assert.strictEqual(runtime.runs.attachments.verifyAttachmentSecret(cliSession.launch.attachmentId, cliSession.launch.secret), true);
+
+    // 1. Wrong PID must fail with PROCESS_MISMATCH
+    assert.throws(
+      () => runtime.renewCliSession(cliSession.launch.attachmentId, cliSession.launch.secret, { extensionMs: 500, ownerPid: 99999 }),
+      (err: any) => err.code === 'PROCESS_MISMATCH'
+    );
+
+    // 2. Correct renewal advances expiresAt strictly
+    const renewResult = runtime.renewCliSession(cliSession.launch.attachmentId, cliSession.launch.secret, { extensionMs: 500, ownerPid: 11223 });
+    assert.ok(renewResult.expiresAt > initialExpiresAt, 'Renewed expiresAt must advance');
+    assert.strictEqual(runtime.runs.attachments.verifyAttachmentSecret(cliSession.launch.attachmentId, cliSession.launch.secret), true, 'Secret remains valid after renewal');
+
+    // 3. Simulate the clock advancing past the original 50ms TTL while the
+    // renewed window is still open — no real-time sleep.
+    const renewedRecord = runtime.runs.attachments.getAttachment(cliSession.launch.attachmentId)!;
+    renewedRecord.expiresAt = Date.now() + 100; // renewed extension was 500ms; pretend 400ms elapsed
+
+    // Must still validate successfully because of renewal!
+    const validated = runtime.runs.attachments.validateAttachment({
+      attachmentId: cliSession.launch.attachmentId,
+      attachmentSecret: cliSession.launch.secret,
+      runId: cliSession.run.id,
+      attemptId: cliSession.attempt.id,
+      projectId,
+      workspaceId,
+      invocationId: 'inv-renew-active-1',
+      ownerPid: 11223,
+    });
+    assert.strictEqual(validated.attachmentId, cliSession.launch.attachmentId);
+
+    // 4. Terminate session -> Attempt becomes terminal -> Renewal must fail with ATTEMPT_NOT_ACTIVE
+    runtime.endCliSession(cliSession.run.id, cliSession.attempt.id);
+    assert.throws(
+      () => runtime.renewCliSession(cliSession.launch.attachmentId, cliSession.launch.secret, { extensionMs: 500, ownerPid: 11223 }),
+      (err: any) => err.code === 'ATTEMPT_NOT_ACTIVE' || err.code === 'ATTACHMENT_STALE'
+    );
+
+    // 5. Expired attachment cannot be resurrected — drive expiry by clock
+    // mutation instead of a real-time wait.
+    const expSession = runtime.createCliSession({
+      grant: 'read',
+      ownerPid: 33445,
+      ttlMs: 25,
+    });
+    const expRecord = runtime.runs.attachments.getAttachment(expSession.launch.attachmentId)!;
+    expRecord.expiresAt = Date.now() - 1;
+    assert.throws(
+      () => runtime.renewCliSession(expSession.launch.attachmentId, expSession.launch.secret, { extensionMs: 500, ownerPid: 33445 }),
+      (err: any) => err.code === 'ATTACHMENT_STALE'
     );
 
     try { fs.rmSync(tempDir, { recursive: true, force: true }); } catch {}

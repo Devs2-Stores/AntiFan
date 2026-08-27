@@ -227,7 +227,7 @@ export class RunService {
       grant: options.grant || 'write',
       tabId: options.tabId,
       browserEpoch: options.browserEpoch,
-      ttlMs: options.ttlMs || 300_000,
+      ttlMs: options.ttlMs || 7_200_000,
       hostEpoch: options.hostEpoch ?? 1,
       boundPid: options.ownerPid,
       lease: options.lease,
@@ -264,6 +264,10 @@ export class RunService {
     this.attachments.revokeForAttempt(validAttemptId);
     this.attemptPids.delete(validAttemptId);
     return { ok: true };
+  }
+
+  renewCliSession(attachmentId: string, secret: string, options?: { extensionMs?: number; ownerPid?: number }): { expiresAt: number } {
+    return this.attachments.renewAttachment(attachmentId, secret, options);
   }
   createWorkflowSession(options: CreateWorkflowSessionOptions): WorkflowSessionResult {
     assertRuntimeLease(options.lease, {

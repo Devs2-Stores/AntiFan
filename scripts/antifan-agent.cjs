@@ -182,11 +182,26 @@ async function main() {
     shell: true,
   });
 
-
   let cleanedUp = false;
+  const heartbeatInterval = setInterval(async () => {
+    if (cleanedUp) return;
+    try {
+      if (ws.readyState === WebSocket.OPEN) {
+        await rpcCall(ws, 'antifan.cli.renewSession', {
+          attachmentId: session.attachmentId,
+          secret: session.secret,
+          ownerPid: boundPid,
+          extensionMs: 7200000,
+        }, 3000);
+      }
+    } catch {}
+  }, 30_000);
+  heartbeatInterval.unref?.();
+
   async function cleanup(outcome = 'completed', error = undefined) {
     if (cleanedUp) return;
     cleanedUp = true;
+    clearInterval(heartbeatInterval);
     try {
       if (ws.readyState === WebSocket.OPEN) {
         await rpcCall(ws, 'antifan.cli.endSession', {

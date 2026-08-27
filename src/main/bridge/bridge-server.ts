@@ -462,7 +462,7 @@ export class BridgeServer {
               grant: p.grant || 'write',
               tabId,
               browserEpoch: p.browserEpoch,
-              ttlMs: typeof p.ttlMs === 'number' ? Math.min(Math.max(p.ttlMs, 10_000), 3_600_000) : 300_000,
+              ttlMs: typeof p.ttlMs === 'number' ? Math.min(Math.max(p.ttlMs, 10_000), 86_400_000) : 7_200_000,
               ownerPid,
             });
             respond(true, {
@@ -511,6 +511,29 @@ export class BridgeServer {
               p.outcome === 'failed' || p.outcome === 'cancelled' ? p.outcome : 'completed',
               p.error
             );
+            respond(true, res);
+          } catch (err: unknown) {
+            const errorMsg = err instanceof Error ? err.message : String(err);
+            respond(false, undefined, errorMsg);
+          }
+          break;
+        }
+        case 'antifan.cli.renewSession':
+        case 'antifan.cli.heartbeat': {
+          if (!this.controlPlaneRuntime) {
+            respond(false, undefined, 'Control plane runtime is not available');
+            break;
+          }
+          const attachmentId = typeof p.attachmentId === 'string' ? p.attachmentId : undefined;
+          const secret = typeof p.secret === 'string' ? p.secret : undefined;
+          if (!attachmentId || !secret) {
+            respond(false, undefined, 'attachmentId and secret are required for session renewal');
+            break;
+          }
+          try {
+            const extensionMs = typeof p.extensionMs === 'number' && p.extensionMs > 0 ? p.extensionMs : undefined;
+            const ownerPid = typeof p.ownerPid === 'number' ? p.ownerPid : undefined;
+            const res = this.controlPlaneRuntime.renewCliSession(attachmentId, secret, { extensionMs, ownerPid });
             respond(true, res);
           } catch (err: unknown) {
             const errorMsg = err instanceof Error ? err.message : String(err);
@@ -752,21 +775,21 @@ export class BridgeServer {
 
         case 'getDOM':
         case 'antifan.getDOM': {
-          const dom = await this.tabHost.getDom(p.selector);
+          const dom = await this.tabHost.getDom(p.selector, p.tabId, p.paneId);
           respond(true, { html: dom });
           break;
         }
 
         case 'captureScreenshot':
         case 'antifan.captureScreenshot': {
-          const imageBase64 = await this.tabHost.captureScreenshot();
+          const imageBase64 = await this.tabHost.captureScreenshot(p.tabId, p.paneId);
           respond(true, { imageBase64 });
           break;
         }
 
         case 'evalJS':
         case 'antifan.evalJS': {
-          const result = await this.tabHost.evalJs(p.expression);
+          const result = await this.tabHost.evalJs(p.expression, p.tabId, p.paneId);
           respond(true, { result });
           break;
         }

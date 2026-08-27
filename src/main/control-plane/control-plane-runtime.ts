@@ -133,7 +133,7 @@ export class ControlPlaneRuntime {
       ttlMs?: number;
     } = {}
   ) {
-    const ttlMs = typeof options.ttlMs === 'number' && options.ttlMs > 0 ? options.ttlMs : 300_000;
+    const ttlMs = typeof options.ttlMs === 'number' && options.ttlMs > 0 ? options.ttlMs : 7_200_000;
     const currentLease = this.getLease();
     const lease: RuntimeLease = {
       ...currentLease,
@@ -163,7 +163,7 @@ export class ControlPlaneRuntime {
       ownerPid?: number;
     } = {}
   ) {
-    const ttlMs = typeof options.ttlMs === 'number' && options.ttlMs > 0 ? options.ttlMs : 300_000;
+    const ttlMs = typeof options.ttlMs === 'number' && options.ttlMs > 0 ? options.ttlMs : 7_200_000;
     const currentLease = this.getLease();
     const lease: RuntimeLease = {
       ...currentLease,
@@ -192,6 +192,10 @@ export class ControlPlaneRuntime {
     error?: string
   ) {
     return this.runs.endCliSession(runId, attemptId, outcome, error);
+  }
+
+  renewCliSession(attachmentId: string, secret: string, options?: { extensionMs?: number; ownerPid?: number }) {
+    return this.runs.renewCliSession(attachmentId, secret, options);
   }
 
   async executeWorkflow(options: {

@@ -126,6 +126,100 @@ async function invoke(method, params = {}) {
   }
 }
 
+// Heartbeat: keep the attached binding alive for the whole lifetime of this
+// stdio process (same terminal session). Renewal is fail-closed — a binding
+// that already expired is NEVER resurrected client-side; the heartbeat only
+// extends bindings that are still active, so long idle gaps never kill the
+// session as long as the owning terminal is alive.
+let heartbeatTimer = null;
+let heartbeatWs = null;
+let heartbeatBusy = false;
+
+function stopHeartbeat() {
+  if (heartbeatTimer) {
+    clearInterval(heartbeatTimer);
+    heartbeatTimer = null;
+  }
+  if (heartbeatWs) {
+    try { heartbeatWs.close(); } catch {}
+    heartbeatWs = null;
+  }
+  heartbeatBusy = false;
+}
+
+function renewBinding(bootstrap) {
+  if (heartbeatBusy || !bootstrap || !bootstrap.secret || !bootstrap.attachmentId) return;
+  heartbeatBusy = true;
+  const tokenParam = (bootstrap.token || bootstrap.secret) ? `?token=${encodeURIComponent(bootstrap.token || bootstrap.secret)}` : '';
+  const wsUrl = `ws://127.0.0.1:${bootstrap.port}${tokenParam}`;
+  let ws;
+  try {
+    ws = new WebSocket(wsUrl);
+  } catch {
+    heartbeatBusy = false;
+    return;
+  }
+  heartbeatWs = ws;
+  const discard = () => {
+    // Only clear shared state when this socket is still the current one, so a
+    // late event from a stale socket can never reset the busy flag of a newer
+    // renewal in flight.
+    if (heartbeatWs === ws) {
+      heartbeatWs = null;
+      heartbeatBusy = false;
+    }
+  };
+  const timer = setTimeout(() => {
+    try { ws.close(); } catch {}
+    discard();
+  }, 5000);
+  ws.once('open', () => {
+    ws.send(JSON.stringify({
+      id: 'hb',
+      method: 'antifan.cli.renewSession',
+      params: {
+        attachmentId: bootstrap.attachmentId,
+        secret: bootstrap.secret,
+        ownerPid: bootstrap.ownerPid,
+        extensionMs: 7_200_000,
+      },
+    }));
+  });
+  const onHeartbeatMessage = (raw) => {
+    try {
+      const response = JSON.parse(raw.toString());
+      // Ignore the antifan:init bootstrap event and any unrelated RPC traffic;
+      // only the 'hb' response completes this renewal.
+      if (response.id !== 'hb') return;
+      ws.off('message', onHeartbeatMessage);
+      clearTimeout(timer);
+      if (!response.success) {
+        process.stderr.write(`[antifan-omp] heartbeat renew failed: ${typeof response.error === 'string' ? response.error : JSON.stringify(response.error || {})}\n`);
+      }
+    } catch {}
+    try { ws.close(); } catch {}
+    discard();
+  };
+  ws.on('message', onHeartbeatMessage);
+  ws.once('error', (err) => {
+    clearTimeout(timer);
+    process.stderr.write(`[antifan-omp] heartbeat error: ${err.message}\n`);
+    try { ws.close(); } catch {}
+    discard();
+  });
+  ws.once('close', () => {
+    clearTimeout(timer);
+    discard();
+  });
+}
+
+function startHeartbeat(bootstrap) {
+  if (!bootstrap || !bootstrap.secret || !bootstrap.attachmentId) return;
+  heartbeatTimer = setInterval(() => renewBinding(bootstrap), 30_000);
+  heartbeatTimer.unref?.();
+  renewBinding(bootstrap);
+}
+
 const server = new Server({ name: 'antifan-omp', version: '1.0.0' }, { capabilities: { tools: {} } });
 server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: definitions.map(([name, description, properties, required]) => ({ name, description, inputSchema: { type: 'object', properties, ...(required ? { required } : {}) } })) }));
 server.setRequestHandler(CallToolRequestSchema, async (request) => {
@@ -136,4 +230,14 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     return { isError: true, content: [{ type: 'text', text: error instanceof Error ? error.message : String(error) }] };
   }
 });
-server.connect(new StdioServerTransport()).catch((error) => { process.stderr.write(`${error}\n`); process.exitCode = 1; });
+server.connect(new StdioServerTransport())
+  .then(() => startHeartbeat(getBootstrap()))
+  .catch((error) => { process.stderr.write(`${error}\n`); process.exitCode = 1; });
+
+function shutdown() {
+  stopHeartbeat();
+  try { server.close(); } catch {}
+}
+process.stdin.on('close', shutdown);
+process.on('SIGINT', () => { shutdown(); process.exit(130); });
+process.on('SIGTERM', () => { shutdown(); process.exit(143); });

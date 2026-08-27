@@ -59,7 +59,7 @@ export class AttachmentRegistry {
     const plainSecret = crypto.randomBytes(32).toString('hex');
     const secretHash = hashSecret(plainSecret);
     const now = Date.now();
-    const ttlMs = options.ttlMs ?? 60_000;
+    const ttlMs = options.ttlMs ?? 3_600_000;
     const expiresAt = now + ttlMs;
 
     const record: ExecutionAttachmentRecord = {
@@ -255,6 +255,14 @@ export class AttachmentRegistry {
       browserEpoch: record.browserEpoch || record.hostEpoch || 1,
       documentGeneration: docGen,
     };
+    // Sliding window renewal: active authenticated invocation extends the lease so long-running sessions don't get cut off
+    const slidingExtension = Math.max(record.expiresAt - record.issuedAt, 1_800_000);
+    record.expiresAt = Math.max(record.expiresAt, Date.now() + slidingExtension);
+    if (record.lease) {
+      record.lease.expiresAt = Math.max(record.lease.expiresAt, record.expiresAt);
+    }
+    effectiveLease.expiresAt = record.expiresAt;
+
 
     return {
       attachmentId: record.id,
@@ -308,6 +316,92 @@ export class AttachmentRegistry {
     const record = this.records.get(attachmentId);
     if (!record || record.state !== 'active' || Date.now() > record.expiresAt) return false;
     return verifySecret(secret, record.secretHash);
+  }
+
+  renewAttachment(
+    attachmentId: string,
+    secret: string,
+    options?: { extensionMs?: number; ownerPid?: number }
+  ): { expiresAt: number } {
+    if (!attachmentId || typeof attachmentId !== 'string' || !secret || typeof secret !== 'string') {
+      throw new CapabilityError('ATTACHMENT_INVALID', 'Valid attachmentId and secret are required for renewal');
+    }
+    const record = this.records.get(attachmentId);
+    if (!record) {
+      throw new CapabilityError('ATTACHMENT_INVALID', `No attachment found for id: ${attachmentId}`);
+    }
+    if (!verifySecret(secret, record.secretHash)) {
+      throw new CapabilityError('ATTACHMENT_INVALID', 'Attachment secret verification failed');
+    }
+    // Expiry timestamp gate first — a stale-by-time record must never be
+    // revived regardless of its nominal state.
+    if (Date.now() > record.expiresAt) {
+      record.state = 'expired';
+      throw new CapabilityError('ATTACHMENT_STALE', `Attachment ${record.id} has expired`);
+    }
+    // Fail-closed state gate: only 'active' records are renewable. 'revoked',
+    // 'expired', 'stale', 'issued' and 'bound' are all terminal for renewal;
+    // no resurrection from any other state.
+    if (record.state !== 'active') {
+      throw new CapabilityError(
+        'ATTACHMENT_STALE',
+        `Attachment ${record.id} is not renewable in state ${record.state}`
+      );
+    }
+
+    if (this.delegate) {
+      if (this.delegate.getHostEpoch) {
+        const currentHostEpoch = this.delegate.getHostEpoch();
+        if (record.hostEpoch !== currentHostEpoch) {
+          record.state = 'revoked';
+          throw new CapabilityError('ATTACHMENT_STALE', `Attachment host epoch ${record.hostEpoch} does not match current host epoch ${currentHostEpoch}`);
+        }
+      }
+
+      if (this.delegate.getAttemptState) {
+        const attemptState = this.delegate.getAttemptState(record.attemptId);
+        if (attemptState === undefined || (attemptState !== 'running' && attemptState !== 'prepared' && attemptState !== 'dispatching')) {
+          record.state = 'revoked';
+          throw new CapabilityError('ATTEMPT_NOT_ACTIVE', `Attempt ${record.attemptId} is in terminal or inactive state: ${attemptState ?? 'unknown'}`);
+        }
+      }
+
+      if (this.delegate.getBackendId) {
+        const backendId = this.delegate.getBackendId(record.attemptId);
+        if (!backendId || backendId !== record.backendId) {
+          throw new CapabilityError('LINEAGE_MISMATCH', `Backend mismatch: expected ${record.backendId}, got ${backendId ?? 'none'}`);
+        }
+      }
+
+      if (this.delegate.getProcessPid) {
+        const expectedPid = this.delegate.getProcessPid(record.runId, record.attemptId);
+        if (expectedPid !== undefined) {
+          if (options?.ownerPid === undefined || options.ownerPid !== expectedPid) {
+            throw new CapabilityError('PROCESS_MISMATCH', `Process PID mismatch: expected ${expectedPid}, got ${options?.ownerPid ?? 'none'}`);
+          }
+        } else if (record.boundPid !== undefined) {
+          if (options?.ownerPid === undefined || options.ownerPid !== record.boundPid) {
+            throw new CapabilityError('PROCESS_MISMATCH', `Process PID mismatch: expected ${record.boundPid}, got ${options?.ownerPid ?? 'none'}`);
+          }
+        }
+      } else if (record.boundPid !== undefined) {
+        if (options?.ownerPid === undefined || options.ownerPid !== record.boundPid) {
+          throw new CapabilityError('PROCESS_MISMATCH', `Process PID mismatch: expected ${record.boundPid}, got ${options?.ownerPid ?? 'none'}`);
+        }
+      }
+    } else if (record.boundPid !== undefined) {
+      if (options?.ownerPid === undefined || options.ownerPid !== record.boundPid) {
+        throw new CapabilityError('PROCESS_MISMATCH', `Process PID mismatch: expected ${record.boundPid}, got ${options?.ownerPid ?? 'none'}`);
+      }
+    }
+
+    const extensionMs = options?.extensionMs;
+    const validExtension = typeof extensionMs === 'number' && extensionMs > 0 ? Math.min(extensionMs, 86_400_000) : 3_600_000;
+    record.expiresAt = Math.max(record.expiresAt, Date.now()) + validExtension;
+    if (record.lease) {
+      record.lease.expiresAt = Math.max(record.lease.expiresAt, record.expiresAt);
+    }
+    return { expiresAt: record.expiresAt };
   }
 
   revokeAttachment(attachmentId: string): void {

@@ -5,6 +5,7 @@ import { EventEmitter } from 'node:events';
 import { BridgeServer } from '../../src/main/bridge/bridge-server';
 import { NativeTabHost } from '../../src/main/browser/native-tab-host';
 import { AttachmentRegistry } from '../../src/main/run/attachment-registry';
+import { CapabilityError } from '../../src/shared/control-plane-contracts';
 import { CapabilityTransportAdapter } from '../../src/main/tools/capability-transport';
 import { CapabilityCatalogue } from '../../src/main/tools/capability-catalogue';
 import { registerBrowserCapabilities } from '../../src/main/tools/browser-capabilities';
@@ -501,6 +502,28 @@ describe('BridgeServer Attachment Authentication & Scoped Dispatch', () => {
       (err: any) => err.code === 'LINEAGE_MISMATCH'
     );
 
+    // 8b. Active authenticated invocation extends sliding window expiresAt
+    backendId = 'codex';
+    const { launch: launchSliding } = registry.issueAttachment(runId, attemptId, projectId, workspaceId, {
+      backendId: 'codex',
+      lease,
+      leaseToken: lease.token,
+      hostEpoch: 1,
+      ttlMs: 60_000,
+    });
+    const initialExpiresAt = launchSliding.expiresAt;
+    const validatedContext = registry.validateAttachment({
+      attachmentId: launchSliding.attachmentId,
+      attachmentSecret: launchSliding.secret,
+      runId,
+      attemptId,
+      projectId,
+      workspaceId,
+      invocationId: 'inv-sliding-1',
+      ownerPid: 12345,
+    });
+    assert.ok(validatedContext.lease.expiresAt >= initialExpiresAt, 'Sliding window must maintain or extend expiresAt');
+
     // 9. Bound PID on attachment is strictly enforced without delegate
     const standaloneRegistry = new AttachmentRegistry();
     const { launch: launchBoundPid } = standaloneRegistry.issueAttachment(runId, attemptId, projectId, workspaceId, {
@@ -795,5 +818,63 @@ describe('BridgeServer Attachment Authentication & Scoped Dispatch', () => {
       ws.close();
       server.dispose();
     }
+  });
+  it('renewAttachment is fail-closed: rejects issued, bound, stale, revoked and expired states; renews only active', () => {
+    const registry = new AttachmentRegistry();
+    const runId = 'run-33333333333333333333';
+    const attemptId = 'attempt-33333333333333333333';
+    const projectId = 'project-33333333333333333333';
+    const workspaceId = 'workspace-33333333333333333333';
+    const lease = {
+      runtimeId: 'binding-33333333333333333333',
+      projectId,
+      workspaceId,
+      token: 'tok-333',
+      protocolVersion: 1,
+      hostEpoch: 1,
+      ownerPid: 33333,
+      issuedAt: Date.now(),
+      expiresAt: Date.now() + 60_000,
+    };
+
+    // Active record renews (reference returned by issueAttachment is the stored record).
+    const { record, launch } = registry.issueAttachment(runId, attemptId, projectId, workspaceId, {
+      backendId: 'codex',
+      lease,
+      leaseToken: lease.token,
+      hostEpoch: 1,
+      boundPid: 33333,
+    });
+    const before = record.expiresAt;
+    const renewed = registry.renewAttachment(launch.attachmentId, launch.secret, {
+      extensionMs: 60_000,
+      ownerPid: 33333,
+    });
+    assert.ok(renewed.expiresAt > before, 'active renewal must strictly advance expiresAt');
+
+    // Every non-active state must be rejected with ATTACHMENT_STALE.
+    for (const state of ['issued', 'bound', 'stale', 'revoked', 'expired'] as const) {
+      record.state = state;
+      assert.throws(
+        () => registry.renewAttachment(launch.attachmentId, launch.secret, {
+          extensionMs: 60_000,
+          ownerPid: 33333,
+        }),
+        (err: any) => err instanceof CapabilityError && err.code === 'ATTACHMENT_STALE',
+        'renewAttachment must reject state=' + state
+      );
+    }
+
+    // Timestamp-expired record must be rejected even if state is nominally 'active'.
+    record.state = 'active';
+    record.expiresAt = Date.now() - 1;
+    assert.throws(
+      () => registry.renewAttachment(launch.attachmentId, launch.secret, {
+        extensionMs: 60_000,
+        ownerPid: 33333,
+      }),
+      (err: any) => err instanceof CapabilityError && err.code === 'ATTACHMENT_STALE',
+      'renewAttachment must reject an active-state record past expiresAt'
+    );
   });
 });

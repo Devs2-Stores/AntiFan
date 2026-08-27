@@ -4,6 +4,23 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 
 describe('OMP MCP stdio proxy security & bootstrap fail-closed contract', () => {
+  it('wires persistent heartbeat renewal to the stdio lifecycle (same-terminal MCP sessions never expire while alive)', () => {
+    const scriptPath = fs.existsSync(path.resolve(__dirname, '../../../scripts/antifan-omp-mcp.cjs'))
+      ? path.resolve(__dirname, '../../../scripts/antifan-omp-mcp.cjs')
+      : path.resolve(__dirname, '../../scripts/antifan-omp-mcp.cjs');
+    const content = fs.readFileSync(scriptPath, 'utf8');
+
+    assert.ok(content.includes('startHeartbeat'), 'Proxy must define a heartbeat kick-off');
+    assert.ok(content.includes('renewBinding'), 'Proxy must define the renew RPC helper');
+    assert.ok(content.includes('antifan.cli.renewSession'), 'Heartbeat must call antifan.cli.renewSession');
+    assert.ok(content.includes('extensionMs'), 'Heartbeat must request an explicit extension window');
+    assert.ok(content.includes('setInterval'), 'Heartbeat must run on an interval');
+    assert.ok(content.includes("process.stdin.on('close',"), 'Heartbeat must stop when stdio closes');
+    assert.ok(content.includes('SIGINT'), 'Heartbeat must stop on SIGINT');
+    assert.ok(content.includes('SIGTERM'), 'Heartbeat must stop on SIGTERM');
+    assert.ok(content.includes('stopHeartbeat'), 'Proxy must be able to stop the heartbeat');
+    assert.ok(content.includes('server.connect('), 'Proxy must still connect the stdio server');
+  });
   it('contains zero references to home directory, bridge json files, getRuntimeBinding, or openTab', () => {
     const scriptPath = fs.existsSync(path.resolve(__dirname, '../../../scripts/antifan-omp-mcp.cjs'))
       ? path.resolve(__dirname, '../../../scripts/antifan-omp-mcp.cjs')
