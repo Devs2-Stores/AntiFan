@@ -3375,8 +3375,12 @@ export class NativeTabHost extends EventEmitter {
               viewportImageBase64,
               workspaceDir: annotationWorkspace,
             });
+            // Drop a legacy `deliveryMode` field that an older picker/page may still set,
+            // so it can never surface on the re-emitted payload at runtime.
+            const { deliveryMode: _legacyDeliveryMode, ...annotationPayload } = rawResult;
+            void _legacyDeliveryMode;
             const pickedData: AntiFanPickedElement = {
-              ...rawResult,
+              ...annotationPayload,
               screenshotBase64: targetImageBase64,
               markdownPath: annotationResult.markdownPath,
               markdownContent: annotationResult.markdownContent,
