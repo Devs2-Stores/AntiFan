@@ -14,6 +14,8 @@ async function build() {
   const artifactsDir = path.join(ROOT, 'plans', '260827-1345-production-cutover-release-hardening', 'reports', 'artifacts');
   fs.mkdirSync(artifactsDir, { recursive: true });
 
+  const pkgJson = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8'));
+
   const appPaths = await packager({
     dir: ROOT,
     out: artifactsDir,
@@ -36,12 +38,20 @@ async function build() {
       /^\/\.vscode/,
       /^\/appdata/,
       /^\/dist/,
+      /^\/\.antigravity/,
+      /^\/\.compiled\/test/,
+      /^\/\.compiled\/scripts/,
+      /^\/out/,
+      /^\/node_modules\/node-pty\/prebuilds\/darwin-arm64/,
+      /^\/node_modules\/node-pty\/prebuilds\/darwin-x64/,
+      /^\/node_modules\/node-pty\/prebuilds\/win32-arm64/,
+      /\.pdb$/,
       /\.md$/,
       /\.ts$/,
       /\.map$/,
     ],
     prune: true,
-    appVersion: '1.0.0',
+    appVersion: pkgJson.version || '1.0.0',
     appCopyright: 'Copyright (C) 2026 AntiFan Team',
   });
 
@@ -71,6 +81,7 @@ async function build() {
     packageName: 'AntiFan-Browser-Desktop-win32-x64',
     outDir,
     exePath,
+    appVersion: pkgJson.version || '1.0.0',
     executableSize: stat.size,
     sha256: hash,
     gitRevision,
