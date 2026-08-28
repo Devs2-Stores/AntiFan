@@ -6,20 +6,24 @@ import { spawn, execSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { createRequire } from 'node:module';
 
+const require = createRequire(import.meta.url);
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..');
 
+const electronBin = require('electron');
+
 let electronProc = null;
 let tscProc = null;
-let cwdChangedAt = Date.now();
-
-function log(msg) {
-  console.log(`[antifan-dev] ${msg}`);
-}
-
-function cleanupZombies() {
-  // Only clean up if needed without killing external electron instances
+let cwdChangedAt = Date.now() + 2000;
+function reconcileStartupInstances() {
+  try {
+    const lockFile = path.join(ROOT, 'appdata', 'antifan-browser-desktop', 'Chromium-dev', 'SingletonLock');
+    if (fs.existsSync(lockFile)) {
+      try { fs.unlinkSync(lockFile); } catch {}
+    }
+  } catch {}
 }
 
 function killTree(proc) {
@@ -28,7 +32,13 @@ function killTree(proc) {
       resolve();
       return;
     }
-    const done = () => resolve();
+    let settled = false;
+    const done = () => {
+      if (!settled) {
+        settled = true;
+        resolve();
+      }
+    };
     proc.once('exit', done);
     try {
       if (process.platform === 'win32' && proc.pid) {
@@ -55,11 +65,11 @@ async function relaunchElectron() {
       await killTree(electronProc);
       electronProc = null;
     }
-    cleanupZombies();
+    reconcileStartupInstances();
     log('Starting AntiFan Browser Desktop...');
-    const env = { ...process.env, NODE_ENV: 'development', ELECTRON_RUN_AS_NODE: '' };
+    const env = { ...process.env, NODE_ENV: 'development' };
     delete env.ELECTRON_RUN_AS_NODE;
-    electronProc = spawn('node', ['scripts/run-electron.cjs', '.', '--dev'], { cwd: ROOT, stdio: 'inherit', env });
+    electronProc = spawn(electronBin, ['.', '--dev'], { cwd: ROOT, stdio: 'inherit', env });
     electronProc.on('exit', () => {
       electronProc = null;
     });
@@ -70,19 +80,6 @@ async function relaunchElectron() {
   }
 }
 
-try {
-  execSync('npm run compile', { cwd: ROOT, stdio: 'inherit' });
-} catch (e) {
-  log(`Initial compile failed: ${e.message}`);
-}
-copyStatic();
-relaunchElectron();
-
-tscProc = spawn(process.execPath, [path.join(ROOT, 'node_modules', 'typescript', 'bin', 'tsc'), '-p', './', '--watch'], {
-  cwd: ROOT,
-  stdio: 'inherit',
-});
-
 function copyStatic() {
   try {
     execSync('node scripts/copy-static.mjs', { cwd: ROOT, stdio: 'inherit' });
@@ -91,30 +88,67 @@ function copyStatic() {
   }
 }
 
+reconcileStartupInstances();
+try {
+  execSync('npm run compile', { cwd: ROOT, stdio: 'inherit' });
+} catch (e) {
+  log(`Initial compile failed: ${e.message}`);
+}
+
+relaunchElectron();
+
+const tscBin = path.join(ROOT, 'node_modules', 'typescript', 'bin', 'tsc');
+tscProc = spawn(process.execPath, ['--max-old-space-size=4096', tscBin, '-p', './', '--watch'], {
+  cwd: ROOT,
+  stdio: 'inherit',
+});
+
 let relaunchTimer = null;
 function scheduleRelaunch() {
   const now = Date.now();
-  if (now - cwdChangedAt < 500) return;
+  if (now < cwdChangedAt || now - cwdChangedAt < 500) return;
   cwdChangedAt = now;
 
-  if (relaunchTimer) clearTimeout(relaunchTimer);
+  clearTimeout(relaunchTimer);
   relaunchTimer = setTimeout(() => {
     copyStatic();
     void relaunchElectron();
   }, 600);
 }
 
-fs.watch(path.join(ROOT, 'src'), { recursive: true }, () => scheduleRelaunch());
+try {
+  fs.watch(path.join(ROOT, 'src'), { recursive: true }, () => scheduleRelaunch());
+} catch (err) {
+  log(`Warning: recursive watch unavailable: ${err.message}`);
+}
 
 log('AntiFan Dev mode ready — editing src/** auto-reloads. Ctrl+C to stop.');
 
-setInterval(() => {}, 1_000_000);
+async function shutdown() {
+  log('Stopping dev services...');
+  clearTimeout(relaunchTimer);
+  if (electronProc) {
+    await killTree(electronProc);
+    electronProc = null;
+  }
+  if (tscProc) {
+    await killTree(tscProc);
+    tscProc = null;
+  }
+  process.exit(0);
+}
 
 process.on('SIGINT', () => {
-  cleanupZombies();
-  process.exit(0);
+  void shutdown();
 });
-
+process.on('SIGTERM', () => {
+  void shutdown();
+});
 process.on('exit', () => {
-  cleanupZombies();
+  if (electronProc && electronProc.pid && process.platform === 'win32') {
+    try { execSync(`taskkill /pid ${electronProc.pid} /T /F`, { stdio: 'ignore' }); } catch {}
+  }
+  if (tscProc && tscProc.pid && process.platform === 'win32') {
+    try { execSync(`taskkill /pid ${tscProc.pid} /T /F`, { stdio: 'ignore' }); } catch {}
+  }
 });
