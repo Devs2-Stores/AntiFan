@@ -145,7 +145,7 @@ app.whenReady().then(async () => {
       console.log(`  - Inactive session snapshot race: historical buffer (50 lines) + live background chunk preserved exactly once`);
       console.log(`  - Authoritative empty buffer session: isHydrated === true, queue empty, marker count exactly 1`);
       console.log(`  - Data-before-initial-session race: early chunk queued unrendered -> hydrated cleanly without duplicate`);
-      console.log(`  - Multi-session background streaming: verified in live Chromium renderer`);
+      console.log(`  - Ctrl+K scrollback clear: baseY reset to 0 in live Chromium renderer`);
       app.exit(0);
     }
   });
@@ -386,6 +386,32 @@ app.whenReady().then(async () => {
           throw new Error(\`Session 2 scrolled to top bug detected! Expected viewportY === baseY (\${s2Buf.baseY}), got \${s2Buf.viewportY}\`);
         }
         console.log('[SMOKE-RUNNER] Step 7 PASS: Session 2 stays strictly at the bottom (viewportY = baseY = ' + s2Buf.viewportY + ')');
+        // Step 8: Ctrl+K / Cmd+K clears scrollback in live xterm (tall scroll area reset)
+        const ctrlKSpam = [];
+        for (let i = 0; i < 300; i++) ctrlKSpam.push('[CTRLK-SCROLLBACK ' + i + '] filler\\r\\n');
+        await helper.emitData('session-1', ctrlKSpam.join(''));
+        await sleep(150);
+        const s1TabBtnK = document.querySelector('.terminal-tab-wrap[data-session-id="session-1"] .terminal-tab');
+        if (s1TabBtnK) s1TabBtnK.click();
+        else window.antifanStandalone.switchTerminal('session-1');
+        await sleep(200);
+
+        const ctrlKTerm = s1Item.term;
+        const ctrlKBeforeBaseY = ctrlKTerm.buffer.active.baseY;
+        const ctrlKBeforeLength = ctrlKTerm.buffer.active.length;
+        if (ctrlKBeforeBaseY <= 0) throw new Error('Ctrl+K precondition failed: no scrollback to clear (baseY=' + ctrlKBeforeBaseY + ')');
+
+        const ctrlKTextarea = ctrlKTerm.element && ctrlKTerm.element.querySelector('textarea');
+        if (!ctrlKTextarea) throw new Error('xterm helper textarea not found for Ctrl+K dispatch');
+        ctrlKTextarea.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', ctrlKey: true, bubbles: true, cancelable: true }));
+        await sleep(150);
+
+        const ctrlKAfterBaseY = ctrlKTerm.buffer.active.baseY;
+        const ctrlKAfterLength = ctrlKTerm.buffer.active.length;
+        if (ctrlKAfterBaseY !== 0 || ctrlKAfterLength >= ctrlKBeforeLength) {
+          throw new Error('Ctrl+K did not clear scrollback: baseY ' + ctrlKBeforeBaseY + '->' + ctrlKAfterBaseY + ', length ' + ctrlKBeforeLength + '->' + ctrlKAfterLength);
+        }
+        console.log('[SMOKE-RUNNER] Step 8 PASS: Ctrl+K cleared scrollback (baseY ' + ctrlKBeforeBaseY + '->' + ctrlKAfterBaseY + ', length ' + ctrlKBeforeLength + '->' + ctrlKAfterLength + ')');
 
         await helper.finish({
           ok: true,

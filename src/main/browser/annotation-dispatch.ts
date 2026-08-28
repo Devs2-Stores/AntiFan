@@ -2,8 +2,8 @@
  * Annotation → terminal prompt dispatch.
  *
  * Queue/draft delivery was removed: every annotation prompt is written to the
- * terminal immediately, regardless of any legacy deliveryMode field on the
- * picked payload. The terminal surface is expressed as a structural port so
+ * terminal immediately, and the picked payload carries no delivery mode. The
+ * terminal surface is expressed as a structural port so
  * the dispatch invariant is unit-testable without pulling node-pty/Electron
  * runtime into the test process.
  */

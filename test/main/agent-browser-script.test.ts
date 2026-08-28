@@ -249,7 +249,7 @@ describe('Agent Browser & Element Picker Injected Scripts', () => {
     assert.ok(!ELEMENT_PICKER_SCRIPT.includes('btnModalQueue'), 'Queue button must be removed from modal');
     assert.ok(!ELEMENT_PICKER_SCRIPT.includes('btnMultiQueue'), 'Queue All must be removed from multi dock');
     assert.ok(!/draft/.test(ELEMENT_PICKER_SCRIPT), 'No draft token may remain in picker script');
-    assert.ok(ELEMENT_PICKER_SCRIPT.includes("deliveryMode: 'auto'"), 'Payload must always dispatch auto');
+    assert.ok(!/deliveryMode/.test(ELEMENT_PICKER_SCRIPT), 'Payload must not carry a delivery mode');
   });
 
   it('restores the last explicitly selected annotation terminal route', () => {

@@ -291,7 +291,6 @@ async function runSmokeTest() {
         selector: '#smoke-input',
         clientRect: { x: 10, y: 20, width: 120, height: 32 },
         canceled: false,
-        deliveryMode: 'auto',
         screenshotBase64: 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==',
         viewportImageBase64: 'iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAEklEQVR42mNk+M/wHwMDAwMDGAEB/pEB5QAAAABJRU5ErkJggg==',
       };

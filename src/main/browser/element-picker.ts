@@ -557,7 +557,6 @@ export const ELEMENT_PICKER_SCRIPT = `(() => {
         window.__antifanPick = Object.assign({}, first, {
           userComment: combinedComment,
           multiItems: pickedList,
-          deliveryMode: 'auto',
         });
       }
       cleanup();
@@ -1079,7 +1078,6 @@ export const ELEMENT_PICKER_SCRIPT = `(() => {
             return chosen;
           })(),
           attachedImages: attachedImages.slice(0, 6),
-          deliveryMode: 'auto',
           rect: {
             x: Math.round(freshRect.left + window.scrollX),
             y: Math.round(freshRect.top + window.scrollY),
@@ -1164,7 +1162,6 @@ export const ELEMENT_PICKER_SCRIPT = `(() => {
             userComment: userComment,
             targetSessionId: termSelect ? termSelect.value : undefined,
             attachedImages: attachedImages.slice(0, 6),
-            deliveryMode: 'auto',
             timestamp: Date.now(),
           };
         } catch {}

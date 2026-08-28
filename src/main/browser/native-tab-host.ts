@@ -3377,7 +3377,6 @@ export class NativeTabHost extends EventEmitter {
             });
             const pickedData: AntiFanPickedElement = {
               ...rawResult,
-              deliveryMode: 'auto',
               screenshotBase64: targetImageBase64,
               markdownPath: annotationResult.markdownPath,
               markdownContent: annotationResult.markdownContent,
