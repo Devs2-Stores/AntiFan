@@ -17,13 +17,8 @@ const electronBin = require('electron');
 let electronProc = null;
 let tscProc = null;
 let cwdChangedAt = Date.now() + 2000;
-function reconcileStartupInstances() {
-  try {
-    const lockFile = path.join(ROOT, 'appdata', 'antifan-browser-desktop', 'Chromium-dev', 'SingletonLock');
-    if (fs.existsSync(lockFile)) {
-      try { fs.unlinkSync(lockFile); } catch {}
-    }
-  } catch {}
+function log(msg) {
+  console.log(`[antifan-dev] ${msg}`);
 }
 
 function killTree(proc) {
@@ -65,7 +60,6 @@ async function relaunchElectron() {
       await killTree(electronProc);
       electronProc = null;
     }
-    reconcileStartupInstances();
     log('Starting AntiFan Browser Desktop...');
     const env = { ...process.env, NODE_ENV: 'development' };
     delete env.ELECTRON_RUN_AS_NODE;
@@ -88,7 +82,6 @@ function copyStatic() {
   }
 }
 
-reconcileStartupInstances();
 try {
   execSync('npm run compile', { cwd: ROOT, stdio: 'inherit' });
 } catch (e) {
