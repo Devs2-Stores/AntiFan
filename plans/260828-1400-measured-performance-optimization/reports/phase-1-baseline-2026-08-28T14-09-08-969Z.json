@@ -1,0 +1,101 @@
+{
+  "generatedAt": "2026-08-28T14:09:06.157Z",
+  "appVersion": "1.3.0",
+  "runtimeVersion": "24.13.0",
+  "electronVersion": "43.4.0",
+  "os": "Windows_NT 10.0.22000 x64",
+  "scenario": "cold-start",
+  "runs": [
+    {
+      "run": 0,
+      "wallMs": 1843,
+      "appBootstrapToVisibleMs": 1180,
+      "bootstrapToReadyMs": 44,
+      "readyToWindowMs": 798,
+      "windowToVisibleMs": 338,
+      "firstVisibleNowMs": 1732.5031,
+      "process": {
+        "Browser": {
+          "processes": 1,
+          "workingSetKB": 174544,
+          "privateBytesKB": 68308
+        },
+        "GPU": {
+          "processes": 1,
+          "workingSetKB": 147164,
+          "privateBytesKB": 64552
+        },
+        "Utility": {
+          "processes": 1,
+          "workingSetKB": 113376,
+          "privateBytesKB": 13732
+        },
+        "Tab": {
+          "processes": 5,
+          "workingSetKB": 609848,
+          "privateBytesKB": 153780
+        }
+      },
+      "mainRssKB": 174584
+    }
+  ],
+  "warmCold": "cold",
+  "rows": [
+    {
+      "scenario": "cold-start",
+      "name": "bootstrapToFirstVisibleMs",
+      "baselineStatus": "measured",
+      "sampleCount": 1,
+      "p50": 1180,
+      "p95": 1180,
+      "min": 1180,
+      "max": 1180,
+      "values": [
+        1180
+      ]
+    },
+    {
+      "scenario": "cold-start",
+      "name": "bootstrapToReadyMs",
+      "baselineStatus": "measured",
+      "sampleCount": 1,
+      "p50": 44,
+      "p95": 44,
+      "min": 44,
+      "max": 44,
+      "values": [
+        44
+      ]
+    },
+    {
+      "scenario": "cold-start",
+      "name": "readyToWindowMs",
+      "baselineStatus": "measured",
+      "sampleCount": 1,
+      "p50": 798,
+      "p95": 798,
+      "min": 798,
+      "max": 798,
+      "values": [
+        798
+      ]
+    },
+    {
+      "scenario": "cold-start",
+      "name": "windowToFirstVisibleMs",
+      "baselineStatus": "measured",
+      "sampleCount": 1,
+      "p50": 338,
+      "p95": 338,
+      "min": 338,
+      "max": 338,
+      "values": [
+        338
+      ]
+    }
+  ],
+  "summary": [
+    "cold-start: p50=1180ms p95=1180ms over 1 runs",
+    "cold-start took 2809ms"
+  ]
+}

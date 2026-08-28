@@ -1,0 +1,85 @@
+{
+  "generatedAt": "2026-08-28T13:22:43.279Z",
+  "appVersion": "1.3.0",
+  "runtimeVersion": "24.13.0",
+  "electronVersion": "43.4.0",
+  "os": "Windows_NT 10.0.22000 x64",
+  "scenario": "terminal",
+  "runs": [],
+  "warmCold": "cold",
+  "rows": [
+    {
+      "scenario": "terminal",
+      "name": "interactiveEchoLatencyMs",
+      "baselineStatus": "unmeasured",
+      "sampleCount": 0,
+      "chunkCount": 5,
+      "bytes": 1150,
+      "sessionId": "terminal-2",
+      "nonceMatched": false
+    },
+    {
+      "scenario": "terminal",
+      "name": "interactiveEchoChunks",
+      "baselineStatus": "measured",
+      "sampleCount": 1,
+      "bytes": 1150,
+      "p50": 5,
+      "p95": 5,
+      "min": 5,
+      "max": 5,
+      "values": [
+        5
+      ]
+    },
+    {
+      "scenario": "terminal",
+      "name": "ptyDataChunks",
+      "baselineStatus": "measured",
+      "sampleCount": 1,
+      "bytes": 1544,
+      "p50": 10,
+      "p95": 10,
+      "min": 10,
+      "max": 10,
+      "values": [
+        10
+      ]
+    },
+    {
+      "scenario": "terminal",
+      "name": "burstChunks",
+      "baselineStatus": "measured",
+      "sampleCount": 1,
+      "bytes": 120,
+      "inputEchoChunks": 1,
+      "inputEchoBytes": 6,
+      "p50": 3,
+      "p95": 3,
+      "min": 3,
+      "max": 3,
+      "values": [
+        3
+      ]
+    },
+    {
+      "scenario": "terminal",
+      "name": "burstBytes",
+      "baselineStatus": "measured",
+      "sampleCount": 1,
+      "inputEchoExcluded": true,
+      "totalWithEcho": 126,
+      "p50": 120,
+      "p95": 120,
+      "min": 120,
+      "max": 120,
+      "values": [
+        120
+      ]
+    }
+  ],
+  "summary": [
+    "terminal: echoLatency=unmeasured burstChunks=3 bytes=120 burstMs=790",
+    "terminal took 16923ms"
+  ]
+}

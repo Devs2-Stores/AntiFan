@@ -1,0 +1,23 @@
+{
+  "generatedAt": "2026-08-28T14:30:08.453Z",
+  "appVersion": "1.3.0",
+  "runtimeVersion": "24.13.0",
+  "electronVersion": "43.4.0",
+  "os": "Windows_NT 10.0.22000 x64",
+  "scenario": "terminal",
+  "runs": [],
+  "warmCold": "cold",
+  "rows": [
+    {
+      "scenario": "terminal",
+      "name": "burst",
+      "baselineStatus": "unmeasured",
+      "sampleCount": 0,
+      "error": "shell produced no data before ready deadline"
+    }
+  ],
+  "summary": [
+    "terminal: unmeasured shell produced no data before ready deadline",
+    "terminal took 64012ms"
+  ]
+}

@@ -1,0 +1,254 @@
+{
+  "generatedAt": "2026-08-28T13:29:07.602Z",
+  "appVersion": "1.3.0",
+  "runtimeVersion": "24.13.0",
+  "electronVersion": "43.4.0",
+  "os": "Windows_NT 10.0.22000 x64",
+  "scenario": "all",
+  "runs": [
+    {
+      "run": 0,
+      "wallMs": 2516,
+      "appBootstrapToVisibleMs": 1714,
+      "firstVisibleNowMs": 2374.5578,
+      "process": {
+        "Browser": {
+          "processes": 1,
+          "workingSetKB": 188332,
+          "privateBytesKB": 68232
+        },
+        "GPU": {
+          "processes": 1,
+          "workingSetKB": 162460,
+          "privateBytesKB": 64204
+        },
+        "Utility": {
+          "processes": 1,
+          "workingSetKB": 128828,
+          "privateBytesKB": 13788
+        }
+      },
+      "mainRssKB": 188352
+    }
+  ],
+  "warmCold": "cold",
+  "rows": [
+    {
+      "scenario": "cold-start",
+      "name": "bootstrapToFirstVisibleMs",
+      "baselineStatus": "measured",
+      "sampleCount": 1,
+      "p50": 1714,
+      "p95": 1714,
+      "min": 1714,
+      "max": 1714,
+      "values": [
+        1714
+      ]
+    },
+    {
+      "scenario": "tabs",
+      "name": "tabSwitchMs",
+      "baselineStatus": "measured",
+      "sampleCount": 3,
+      "attachedViewSamples": [
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1
+      ],
+      "p50": 15.445200000000114,
+      "p95": 259.9364000000005,
+      "min": 8.774600000000646,
+      "max": 259.9364000000005,
+      "values": [
+        8.774600000000646,
+        15.445200000000114,
+        259.9364000000005
+      ]
+    },
+    {
+      "scenario": "terminal",
+      "name": "interactiveEchoLatencyMs",
+      "baselineStatus": "measured",
+      "sampleCount": 1,
+      "chunkCount": 16,
+      "bytes": 1512,
+      "sessionId": "terminal-1",
+      "nonceMatched": true,
+      "p50": 3870.7740000000013,
+      "p95": 3870.7740000000013,
+      "min": 3870.7740000000013,
+      "max": 3870.7740000000013,
+      "values": [
+        3870.7740000000013
+      ]
+    },
+    {
+      "scenario": "terminal",
+      "name": "interactiveEchoChunks",
+      "baselineStatus": "measured",
+      "sampleCount": 1,
+      "bytes": 1512,
+      "p50": 16,
+      "p95": 16,
+      "min": 16,
+      "max": 16,
+      "values": [
+        16
+      ]
+    },
+    {
+      "scenario": "terminal",
+      "name": "ptyDataChunks",
+      "baselineStatus": "measured",
+      "sampleCount": 1,
+      "bytes": 10126,
+      "p50": 1561,
+      "p95": 1561,
+      "min": 1561,
+      "max": 1561,
+      "values": [
+        1561
+      ]
+    },
+    {
+      "scenario": "terminal",
+      "name": "burstChunks",
+      "baselineStatus": "measured",
+      "sampleCount": 1,
+      "bytes": 8346,
+      "shellMarker": "bench-burst-30002",
+      "p50": 1544,
+      "p95": 1544,
+      "min": 1544,
+      "max": 1544,
+      "values": [
+        1544
+      ]
+    },
+    {
+      "scenario": "terminal",
+      "name": "burstBytes",
+      "baselineStatus": "measured",
+      "sampleCount": 1,
+      "inputEchoIncluded": true,
+      "burstMs": 4519,
+      "p50": 8346,
+      "p95": 8346,
+      "min": 8346,
+      "max": 8346,
+      "values": [
+        8346
+      ]
+    },
+    {
+      "scenario": "artifact",
+      "name": "stage-text-smallMs",
+      "baselineStatus": "measured",
+      "sampleCount": 1,
+      "bytes": 1024,
+      "redactedDecisions": [
+        true
+      ],
+      "p50": 3.426999999996042,
+      "p95": 3.426999999996042,
+      "min": 3.426999999996042,
+      "max": 3.426999999996042,
+      "values": [
+        3.426999999996042
+      ]
+    },
+    {
+      "scenario": "artifact",
+      "name": "stage-dom-mediumMs",
+      "baselineStatus": "measured",
+      "sampleCount": 1,
+      "bytes": 262144,
+      "redactedDecisions": [
+        true
+      ],
+      "p50": 18.942699999999604,
+      "p95": 18.942699999999604,
+      "min": 18.942699999999604,
+      "max": 18.942699999999604,
+      "values": [
+        18.942699999999604
+      ]
+    },
+    {
+      "scenario": "artifact",
+      "name": "stage-png-smallMs",
+      "baselineStatus": "measured",
+      "sampleCount": 1,
+      "bytes": 131072,
+      "redactedDecisions": [
+        true
+      ],
+      "binaryByteEqual": [
+        true
+      ],
+      "p50": 4.099300000001676,
+      "p95": 4.099300000001676,
+      "min": 4.099300000001676,
+      "max": 4.099300000001676,
+      "values": [
+        4.099300000001676
+      ]
+    },
+    {
+      "scenario": "artifact",
+      "name": "stage-png-maxMs",
+      "baselineStatus": "measured",
+      "sampleCount": 1,
+      "bytes": 4194304,
+      "redactedDecisions": [
+        true
+      ],
+      "binaryByteEqual": [
+        true
+      ],
+      "p50": 144.2393000000011,
+      "p95": 144.2393000000011,
+      "min": 144.2393000000011,
+      "max": 144.2393000000011,
+      "values": [
+        144.2393000000011
+      ]
+    },
+    {
+      "scenario": "package",
+      "name": "outputDir",
+      "baselineStatus": "unmeasured",
+      "sampleCount": 0,
+      "outDir": "E:\\Work\\apps\\antifan-browser-desktop\\plans\\260827-1345-production-cutover-release-hardening\\reports\\artifacts\\AntiFan-Browser-Desktop-win32-x64",
+      "files": 317,
+      "totalBytes": 1187016970,
+      "exeBytes": 225562624,
+      "exePresent": true,
+      "nodePtyDllPresent": true
+    }
+  ],
+  "summary": [
+    "cold-start: p50=1714ms p95=1714ms over 1 runs",
+    "cold-start took 3840ms",
+    "tabs: switch p50=15.4ms p95=259.9ms over 3 samples",
+    "tabs took 9973ms",
+    "terminal: echoLatency=3871ms burst=1544 chunks / 8346 bytes in 4519ms",
+    "terminal took 19639ms",
+    "artifact: text-small stage p50=3.43ms bytes=1024 binaryEqual=n/a",
+    "artifact: dom-medium stage p50=18.94ms bytes=262144 binaryEqual=n/a",
+    "artifact: png-small stage p50=4.10ms bytes=131072 binaryEqual=true",
+    "artifact: png-max stage p50=144.24ms bytes=4194304 binaryEqual=true",
+    "artifact took 234ms",
+    "package: files=317 totalBytes=1132MB exePresent=true nodePty=true",
+    "package took 132547ms"
+  ]
+}

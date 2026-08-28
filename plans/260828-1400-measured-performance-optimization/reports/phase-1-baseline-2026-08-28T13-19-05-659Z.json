@@ -1,0 +1,44 @@
+{
+  "generatedAt": "2026-08-28T13:18:59.119Z",
+  "appVersion": "1.3.0",
+  "runtimeVersion": "24.13.0",
+  "electronVersion": "43.4.0",
+  "os": "Windows_NT 10.0.22000 x64",
+  "scenario": "tabs",
+  "runs": [],
+  "warmCold": "cold",
+  "rows": [
+    {
+      "scenario": "tabs",
+      "name": "tabSwitchMs",
+      "baselineStatus": "measured",
+      "sampleCount": 3,
+      "attachedViewSamples": [
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1
+      ],
+      "p50": 4.813999999999396,
+      "p95": 10.13340000000062,
+      "min": 3.987300000000687,
+      "max": 10.13340000000062,
+      "values": [
+        3.987300000000687,
+        4.813999999999396,
+        10.13340000000062
+      ]
+    }
+  ],
+  "summary": [
+    "tabs: switch p50=4.8ms p95=10.1ms over 3 samples",
+    "tabs took 6538ms"
+  ]
+}

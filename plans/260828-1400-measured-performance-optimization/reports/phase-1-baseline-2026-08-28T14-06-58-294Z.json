@@ -1,0 +1,59 @@
+{
+  "generatedAt": "2026-08-28T14:06:55.382Z",
+  "appVersion": "1.3.0",
+  "runtimeVersion": "24.13.0",
+  "electronVersion": "43.4.0",
+  "os": "Windows_NT 10.0.22000 x64",
+  "scenario": "cold-start",
+  "runs": [
+    {
+      "run": 0,
+      "wallMs": 1864,
+      "appBootstrapToVisibleMs": 1355,
+      "firstVisibleNowMs": 1794.4051,
+      "process": {
+        "Browser": {
+          "processes": 1,
+          "workingSetKB": 173772,
+          "privateBytesKB": 68208
+        },
+        "GPU": {
+          "processes": 1,
+          "workingSetKB": 146860,
+          "privateBytesKB": 64796
+        },
+        "Utility": {
+          "processes": 1,
+          "workingSetKB": 113224,
+          "privateBytesKB": 13644
+        },
+        "Tab": {
+          "processes": 3,
+          "workingSetKB": 354272,
+          "privateBytesKB": 73916
+        }
+      },
+      "mainRssKB": 173792
+    }
+  ],
+  "warmCold": "cold",
+  "rows": [
+    {
+      "scenario": "cold-start",
+      "name": "bootstrapToFirstVisibleMs",
+      "baselineStatus": "measured",
+      "sampleCount": 1,
+      "p50": 1355,
+      "p95": 1355,
+      "min": 1355,
+      "max": 1355,
+      "values": [
+        1355
+      ]
+    }
+  ],
+  "summary": [
+    "cold-start: p50=1355ms p95=1355ms over 1 runs",
+    "cold-start took 2908ms"
+  ]
+}

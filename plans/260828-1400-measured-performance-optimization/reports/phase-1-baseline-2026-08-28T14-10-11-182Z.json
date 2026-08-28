@@ -1,0 +1,173 @@
+{
+  "generatedAt": "2026-08-28T14:10:02.823Z",
+  "appVersion": "1.3.0",
+  "runtimeVersion": "24.13.0",
+  "electronVersion": "43.4.0",
+  "os": "Windows_NT 10.0.22000 x64",
+  "scenario": "cold-start",
+  "runs": [
+    {
+      "run": 0,
+      "wallMs": 1931,
+      "appBootstrapToVisibleMs": 1335,
+      "bootstrapToReadyMs": 47,
+      "readyToWindowMs": 966,
+      "windowToVisibleMs": 322,
+      "firstVisibleNowMs": 1838.2353,
+      "process": {
+        "Browser": {
+          "processes": 1,
+          "workingSetKB": 172724,
+          "privateBytesKB": 68876
+        },
+        "GPU": {
+          "processes": 1,
+          "workingSetKB": 147108,
+          "privateBytesKB": 63776
+        },
+        "Utility": {
+          "processes": 1,
+          "workingSetKB": 113268,
+          "privateBytesKB": 13588
+        },
+        "Tab": {
+          "processes": 5,
+          "workingSetKB": 602080,
+          "privateBytesKB": 141312
+        }
+      },
+      "mainRssKB": 172776
+    },
+    {
+      "run": 1,
+      "wallMs": 1746,
+      "appBootstrapToVisibleMs": 1245,
+      "bootstrapToReadyMs": 44,
+      "readyToWindowMs": 866,
+      "windowToVisibleMs": 335,
+      "firstVisibleNowMs": 1683.8302,
+      "process": {
+        "Browser": {
+          "processes": 1,
+          "workingSetKB": 172952,
+          "privateBytesKB": 68856
+        },
+        "GPU": {
+          "processes": 1,
+          "workingSetKB": 147004,
+          "privateBytesKB": 65228
+        },
+        "Utility": {
+          "processes": 1,
+          "workingSetKB": 113264,
+          "privateBytesKB": 13620
+        },
+        "Tab": {
+          "processes": 5,
+          "workingSetKB": 605060,
+          "privateBytesKB": 147744
+        }
+      },
+      "mainRssKB": 172988
+    },
+    {
+      "run": 2,
+      "wallMs": 1879,
+      "appBootstrapToVisibleMs": 1318,
+      "bootstrapToReadyMs": 48,
+      "readyToWindowMs": 934,
+      "windowToVisibleMs": 335,
+      "firstVisibleNowMs": 1761.7639,
+      "process": {
+        "Browser": {
+          "processes": 1,
+          "workingSetKB": 172996,
+          "privateBytesKB": 68668
+        },
+        "GPU": {
+          "processes": 1,
+          "workingSetKB": 147044,
+          "privateBytesKB": 64840
+        },
+        "Utility": {
+          "processes": 1,
+          "workingSetKB": 113352,
+          "privateBytesKB": 13700
+        },
+        "Tab": {
+          "processes": 5,
+          "workingSetKB": 602124,
+          "privateBytesKB": 141676
+        }
+      },
+      "mainRssKB": 173044
+    }
+  ],
+  "warmCold": "cold",
+  "rows": [
+    {
+      "scenario": "cold-start",
+      "name": "bootstrapToFirstVisibleMs",
+      "baselineStatus": "measured",
+      "sampleCount": 3,
+      "p50": 1318,
+      "p95": 1335,
+      "min": 1245,
+      "max": 1335,
+      "values": [
+        1245,
+        1318,
+        1335
+      ]
+    },
+    {
+      "scenario": "cold-start",
+      "name": "bootstrapToReadyMs",
+      "baselineStatus": "measured",
+      "sampleCount": 3,
+      "p50": 47,
+      "p95": 48,
+      "min": 44,
+      "max": 48,
+      "values": [
+        44,
+        47,
+        48
+      ]
+    },
+    {
+      "scenario": "cold-start",
+      "name": "readyToWindowMs",
+      "baselineStatus": "measured",
+      "sampleCount": 3,
+      "p50": 934,
+      "p95": 966,
+      "min": 866,
+      "max": 966,
+      "values": [
+        866,
+        934,
+        966
+      ]
+    },
+    {
+      "scenario": "cold-start",
+      "name": "windowToFirstVisibleMs",
+      "baselineStatus": "measured",
+      "sampleCount": 3,
+      "p50": 335,
+      "p95": 335,
+      "min": 322,
+      "max": 335,
+      "values": [
+        322,
+        335,
+        335
+      ]
+    }
+  ],
+  "summary": [
+    "cold-start: p50=1318ms p95=1335ms over 3 runs",
+    "cold-start took 8356ms"
+  ]
+}

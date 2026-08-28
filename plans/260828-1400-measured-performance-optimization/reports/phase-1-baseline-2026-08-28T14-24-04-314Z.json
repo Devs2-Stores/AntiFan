@@ -1,0 +1,28 @@
+{
+  "generatedAt": "2026-08-28T14:23:00.275Z",
+  "appVersion": "1.3.0",
+  "runtimeVersion": "24.13.0",
+  "electronVersion": "43.4.0",
+  "os": "Windows_NT 10.0.22000 x64",
+  "scenario": "package",
+  "runs": [],
+  "warmCold": "cold",
+  "rows": [
+    {
+      "scenario": "package",
+      "name": "outputDir",
+      "baselineStatus": "unmeasured",
+      "sampleCount": 0,
+      "outDir": "E:\\Work\\apps\\antifan-browser-desktop\\plans\\260827-1345-production-cutover-release-hardening\\reports\\artifacts\\AntiFan-Browser-Desktop-win32-x64",
+      "files": 296,
+      "totalBytes": 395855763,
+      "exeBytes": 225562624,
+      "exePresent": true,
+      "nodePtyDllPresent": true
+    }
+  ],
+  "summary": [
+    "package: files=296 totalBytes=378MB exePresent=true nodePty=true",
+    "package took 64035ms"
+  ]
+}
