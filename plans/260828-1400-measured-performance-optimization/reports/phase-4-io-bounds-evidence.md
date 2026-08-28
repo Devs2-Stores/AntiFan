@@ -23,9 +23,9 @@ Phase 4 bounds I/O on the terminal write path (renderer), the bridge broadcast p
 
 ### 3. BridgeServer client backpressure + heartbeat (`src/main/bridge/bridge-server.ts`)
 
-- Constants: `BRIDGE_SOFT_HIGH_WATER = 8 MiB` per client backlog, `BRIDGE_DRAIN_INTERVAL_MS = 50`, `BRIDGE_HEARTBEAT_INTERVAL_MS = 30 s`.
+- Constants: `BRIDGE_SOFT_HIGH_WATER = 8 MiB` per client backlog, `BRIDGE_QUEUE_HARD_CAP = 32 MiB` per-client FIFO cap (overflow terminates the client), `BRIDGE_DRAIN_INTERVAL_MS = 50`, `BRIDGE_HEARTBEAT_INTERVAL_MS = 30 s`.
 - Healthy fast path unchanged: frame sent directly while `bufferedAmount + frame ≤ HIGH_WATER` and FIFO empty.
-- Slow client: frames enter a per-client FIFO; consecutive `antifan:terminal:data` frames for the same session coalesce (lossless: same bytes, same order); a shared unref'd pump drains while the socket has room below the high-water mark and stops itself when no client is congested.
+- Slow client: frames enter a per-client FIFO; consecutive `antifan:terminal:data` frames for the same session coalesce (lossless: same bytes, same order); a shared unref'd pump drains while the socket has room below the high-water mark and stops itself when no client is congested. A client that cannot drain past the 32 MiB FIFO cap is terminated (observable: socket close + stderr warn; the renderer reconnects and re-syncs terminal state via snapshot) — bounded memory, no silent loss.
 - Heartbeat: `isAlive` flag on connect, `pong` handler, interval terminates peers silent for two ticks — dead clients cannot accumulate in `clients` (prevents unbounded broadcast fan-out).
 - Both timers cleared in `dispose()` and unref'd (no process-keepalive in tests).
 - Telemetry preserved: `broadcast` metric now also reports `congested` client count; no payload decoding added.
@@ -43,5 +43,5 @@ Phase 4 bounds I/O on the terminal write path (renderer), the bridge broadcast p
 ## Rollout decisions
 
 - Dispatcher stays the single renderer write path; the standalone local `sliceUtf8Bytes` copy remains (independent of dispatcher slicing, no behavior coupling).
-- Bridge coalescing is a capacity bound, not a loss guarantee: it preserves FIFO and byte content; verified by code review (no new unit test for congestion pump — it requires injecting a throttled socket; deferred to Phase 6 regression smoke).
+- Bridge coalescing is a capacity bound, not a loss guarantee: it preserves FIFO and byte content; the stalled-client termination path is covered by the hard-cap regression test in `test/main/bridge-server.test.ts` (raw TCP client stops reading, queue exceeds the cap, server terminates).
 - No baseline regression expected on terminal echo (fast-path ≤256 B stays immediate; burst coalesces to one 64 KiB frame per RAF).

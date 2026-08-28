@@ -2,6 +2,8 @@ import { describe, it } from 'node:test';
 import * as assert from 'node:assert';
 import { WebSocket } from 'ws';
 import { EventEmitter } from 'node:events';
+import * as net from 'node:net';
+import * as crypto from 'node:crypto';
 import { BridgeServer } from '../../src/main/bridge/bridge-server';
 import { NativeTabHost } from '../../src/main/browser/native-tab-host';
 import { ControlPlaneRuntime } from '../../src/main/control-plane/control-plane-runtime';
@@ -310,5 +312,43 @@ describe('AntiFan Bridge Server', () => {
 
     ws.close();
     server.dispose();
+  });
+
+  it('terminates a client whose congestion FIFO exceeds the hard cap', { timeout: 30000 }, async () => {
+    const mockHost = new MockTabHost() as unknown as NativeTabHost;
+    const server = new BridgeServer(mockHost, 0);
+    let socket: net.Socket | undefined;
+    const warns: string[] = [];
+    const origWarn = console.warn;
+    console.warn = (msg: unknown) => { warns.push(String(msg)); };
+    try {
+      const port = await server.start();
+      const token = server.getToken();
+      const handshakeKey = crypto.randomBytes(16).toString('base64');
+      socket = net.connect(port, '127.0.0.1');
+      socket.write(
+        `GET / HTTP/1.1\r\nHost: 127.0.0.1:${port}\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n` +
+        `Sec-WebSocket-Key: ${handshakeKey}\r\nSec-WebSocket-Version: 13\r\nAuthorization: Bearer ${token}\r\n\r\n`,
+      );
+      // Wait for the 101 handshake, then stop draining: the TCP window closes and the server backlog grows.
+      await new Promise<void>((resolve, reject) => {
+        socket!.once('data', () => resolve());
+        socket!.once('error', reject);
+      });
+      socket.pause();
+      socket.on('error', () => {});
+      const chunk = 'x'.repeat(512 * 1024);
+      let terminated = false;
+      for (let i = 0; i < 128 && !terminated; i++) {
+        server.broadcastEvent('antifan:terminal:data', { sessionId: 'stall-1', data: chunk });
+        // Enqueue, cap-crossing, and dropSlowClient are all synchronous in the same call.
+        terminated = warns.some((w) => w.includes('terminated slow client'));
+      }
+      assert.ok(terminated, 'server must log the overflow termination for a stalled client');
+    } finally {
+      console.warn = origWarn;
+      socket?.destroy();
+      server.dispose();
+    }
   });
 });

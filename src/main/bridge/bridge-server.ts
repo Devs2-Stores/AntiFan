@@ -33,6 +33,7 @@ import { ControlPlaneRuntime } from '../control-plane/control-plane-runtime';
 // coalesce losslessly: same bytes, same order) instead of unbounded ws.send buffering.
 // The heartbeat interval detects dead peers so they cannot accumulate in `clients`.
 const BRIDGE_SOFT_HIGH_WATER = 8 * 1024 * 1024; // bytes buffered per client before coalescing engages
+const BRIDGE_QUEUE_HARD_CAP = 32 * 1024 * 1024; // per-client FIFO cap; a client that cannot drain past it is terminated
 const BRIDGE_DRAIN_INTERVAL_MS = 50; // congestion pump cadence
 const BRIDGE_HEARTBEAT_INTERVAL_MS = 30_000; // ping cadence; peers silent for two ticks are terminated
 
@@ -966,7 +967,10 @@ export class BridgeServer {
    * below the soft high-water mark) gets the frame immediately — unchanged fast
    * path. A slow client queues frames in FIFO order; consecutive terminal-data
    * frames for the same session coalesce (lossless merge: same bytes, same order)
-   * and a shared pump drains the FIFO once the socket has room again.
+   * and a shared pump drains the FIFO once the socket has room again. The FIFO is
+   * hard-capped per client (BRIDGE_QUEUE_HARD_CAP); a client that cannot drain
+   * past the cap is terminated — no unbounded buffering, no silent loss (the
+   * renderer reconnects and re-syncs terminal state via snapshot).
    */
   private sendEventFrame(ws: WebSocket, event: string, data: unknown, terminalSessionId?: string): void {
     if (ws.readyState !== WebSocket.OPEN) return;
@@ -993,6 +997,9 @@ export class BridgeServer {
         last.data = (last.data ?? '') + dataText;
         last.bytes += bytes;
         state.queuedBytes += bytes;
+        if (state.queuedBytes > BRIDGE_QUEUE_HARD_CAP) {
+          this.dropSlowClient(ws);
+        }
         return;
       }
       state.queue.push({ raw: '', bytes, coalesceKey: terminalSessionId, sessionId: terminalSessionId, data: dataText });
@@ -1000,6 +1007,10 @@ export class BridgeServer {
       state.queue.push({ raw, bytes, coalesceKey: null });
     }
     state.queuedBytes += bytes;
+    if (state.queuedBytes > BRIDGE_QUEUE_HARD_CAP) {
+      this.dropSlowClient(ws);
+      return;
+    }
     this.armDrainPump();
   }
 
@@ -1042,6 +1053,14 @@ export class BridgeServer {
       }
     }, BRIDGE_DRAIN_INTERVAL_MS);
     this.drainTimer.unref?.();
+  }
+
+  /** Terminates a client whose congestion FIFO exceeded the hard cap; observable via socket close + stderr warn. */
+  private dropSlowClient(ws: WebSocket): void {
+    this.clientCongestion.delete(ws);
+    this.clients.delete(ws);
+    try { ws.terminate(); } catch {}
+    console.warn('[bridge] terminated slow client: congestion queue exceeded hard cap');
   }
 
   private sendEvent(ws: WebSocket, event: string, data: unknown): void {
