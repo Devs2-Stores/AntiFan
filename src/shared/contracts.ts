@@ -77,7 +77,7 @@ export interface AntiFanPickedElement {
   outerHTML?: string;
   timestamp: number;
   targetSessionId?: string;
-  deliveryMode?: 'auto' | 'draft';
+  deliveryMode?: 'auto';
 }
 
 export interface ChatToolCall {

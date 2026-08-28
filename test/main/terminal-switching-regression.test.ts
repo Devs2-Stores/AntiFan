@@ -151,6 +151,9 @@ describe('Terminal Switching Regression & Viewport Integrity', () => {
     // 8. Ensure applySplitRatio enforces bounded pane calculation to prevent overflow and collapse
     assert.match(jsContent, /paneMin\s*=\s*Math\.min/);
     assert.match(jsContent, /minHeight\s*=\s*'0px'/);
+    // 9. Ensure Ctrl+K/Cmd+K clears the terminal scrollback via xterm clear() (resets the tall scroll area)
+    assert.match(jsContent, /targetTerm\.clear\(\)/);
+    assert.match(jsContent, /e\.key === 'k' \|\| e\.key === 'K'/);
   });
   it('verifies split terminal lifecycle: resizeTo custom ratios, session events, close persistence, switch normalization, and recreate', async () => {
     const p1 = tm.createSession();

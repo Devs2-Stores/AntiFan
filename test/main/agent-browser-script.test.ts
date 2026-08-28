@@ -3,6 +3,7 @@ import * as assert from 'node:assert';
 import * as vm from 'node:vm';
 import { AGENT_BROWSER_SCRIPT } from '../../src/main/browser/agent-browser';
 import { ELEMENT_PICKER_SCRIPT } from '../../src/main/browser/element-picker';
+import { dispatchAnnotationToTerminal } from '../../src/main/browser/annotation-dispatch';
 
 describe('Agent Browser & Element Picker Injected Scripts', () => {
   it('validates JavaScript syntax of AGENT_BROWSER_SCRIPT and ELEMENT_PICKER_SCRIPT', () => {
@@ -242,11 +243,13 @@ describe('Agent Browser & Element Picker Injected Scripts', () => {
     assert.strictEqual(normal.totalSteps, 5);
   });
 
-  it('verifies ELEMENT_PICKER_SCRIPT defines queue mode controls and passes deliveryMode', () => {
-    assert.ok(ELEMENT_PICKER_SCRIPT.includes('btnModalQueue'), 'Must define Queue button in modal');
+  it('verifies ELEMENT_PICKER_SCRIPT removed queue/draft and always dispatches auto', () => {
     assert.ok(ELEMENT_PICKER_SCRIPT.includes('btnModalSend'), 'Must define Send button in modal');
-    assert.ok(ELEMENT_PICKER_SCRIPT.includes('btnMultiQueue'), 'Must define Queue All in multi dock');
-    assert.ok(ELEMENT_PICKER_SCRIPT.includes('deliveryMode'), 'Must include deliveryMode in payload');
+    assert.ok(ELEMENT_PICKER_SCRIPT.includes('btnMultiSubmit'), 'Must define Send All in multi dock');
+    assert.ok(!ELEMENT_PICKER_SCRIPT.includes('btnModalQueue'), 'Queue button must be removed from modal');
+    assert.ok(!ELEMENT_PICKER_SCRIPT.includes('btnMultiQueue'), 'Queue All must be removed from multi dock');
+    assert.ok(!/draft/.test(ELEMENT_PICKER_SCRIPT), 'No draft token may remain in picker script');
+    assert.ok(ELEMENT_PICKER_SCRIPT.includes("deliveryMode: 'auto'"), 'Payload must always dispatch auto');
   });
 
   it('restores the last explicitly selected annotation terminal route', () => {
@@ -256,10 +259,10 @@ describe('Agent Browser & Element Picker Injected Scripts', () => {
     assert.ok(ELEMENT_PICKER_SCRIPT.includes('termContext.annotationSessionId = termSelect.value || \'auto\''), 'Picker must persist Auto when explicitly selected');
   });
 
-  it('verifies ELEMENT_PICKER_SCRIPT configures Alt+Enter to insert newline', () => {
-    assert.ok(ELEMENT_PICKER_SCRIPT.includes('ev.key === \'Enter\' && ev.altKey'), 'Must handle Alt+Enter for newline');
+  it('verifies ELEMENT_PICKER_SCRIPT configures Shift+Enter / Alt+Enter to insert newline', () => {
+    assert.ok(ELEMENT_PICKER_SCRIPT.includes("ev.shiftKey || ev.altKey"), 'Must handle Shift+Enter or Alt+Enter for newline');
     assert.ok(ELEMENT_PICKER_SCRIPT.includes("substring(0, start) + '\\n' + val.substring(end)"), 'Must insert newline character at cursor');
-    assert.ok(ELEMENT_PICKER_SCRIPT.includes('Alt+Enter xuống hàng'), 'Must provide visual shortcut hint in footer');
+    assert.ok(ELEMENT_PICKER_SCRIPT.includes('Shift+Enter / Alt+Enter xuống hàng'), 'Must provide visual shortcut hint in footer');
   });
   it('keeps annotation editor above storefront modal focus traps', () => {
     assert.ok(ELEMENT_PICKER_SCRIPT.includes("document.createElement(typeof HTMLDialogElement === 'function' ? 'dialog' : 'div')"), 'Annotation UI must use the browser top layer when supported');
@@ -268,36 +271,38 @@ describe('Agent Browser & Element Picker Injected Scripts', () => {
     assert.ok(ELEMENT_PICKER_SCRIPT.includes("window.removeEventListener('focusin', onAnnotationFocusIn, true)"), 'Focus guard must be removed when annotation closes');
   });
 
-  it('verifies deliveryMode draft vs auto dispatch invariants', () => {
-    let ptyWritten = false;
-    let dispatchedMode: string | undefined;
-
-    const simulateAnnotationSubmit = (rawResult: { deliveryMode?: 'auto' | 'draft'; userComment?: string }) => {
-      const effectiveDeliveryMode: 'auto' | 'draft' = rawResult.deliveryMode === 'draft' ? 'draft' : 'auto';
-      const fullPrompt = rawResult.userComment || 'test';
-
-      // PTY write only on auto
-      if (effectiveDeliveryMode === 'auto') {
-        ptyWritten = true;
-      }
-
-      // Command client dispatch
-      dispatchedMode = effectiveDeliveryMode;
+  it('dispatches every annotation prompt to the terminal immediately (queue/draft removed)', () => {
+    const calls: string[] = [];
+    const fakeTm = {
+      getActiveSessionId: () => 'active-session',
+      switchSession: (id: string) => { calls.push('switch:' + id); return true; },
+      writeTo: (id: string, data: string) => { calls.push('writeTo:' + id + ':' + data); },
+      write: (data: string) => { calls.push('write:' + data); },
     };
 
-    // 1. Draft/Queue mode: MUST NOT write to PTY with \r, MUST dispatch mode draft
-    ptyWritten = false;
-    dispatchedMode = undefined;
-    simulateAnnotationSubmit({ deliveryMode: 'draft', userComment: 'Inspect this' });
-    assert.strictEqual(ptyWritten, false, 'Draft mode must not invoke PTY write/execute');
-    assert.strictEqual(dispatchedMode, 'draft', 'Draft mode must dispatch as draft');
+    // 1. Explicit target session: switch + writeTo with \r, no gate
+    dispatchAnnotationToTerminal(fakeTm, 'session-9', 'Inspect this');
+    assert.deepStrictEqual(calls, ['switch:session-9', 'writeTo:session-9:Inspect this\r']);
 
-    // 2. Auto mode: MUST write to PTY with \r, MUST dispatch mode auto
-    ptyWritten = false;
-    dispatchedMode = undefined;
-    simulateAnnotationSubmit({ deliveryMode: 'auto', userComment: 'Inspect this' });
-    assert.strictEqual(ptyWritten, true, 'Auto mode must invoke PTY write/execute');
-    assert.strictEqual(dispatchedMode, 'auto', 'Auto mode must dispatch as auto');
+    // 2. Undefined target: falls back to the active session
+    calls.length = 0;
+    dispatchAnnotationToTerminal(fakeTm, undefined, 'Inspect this');
+    assert.deepStrictEqual(calls, ['switch:active-session', 'writeTo:active-session:Inspect this\r']);
+
+    // 3. 'auto' target: same active-session fallback
+    calls.length = 0;
+    dispatchAnnotationToTerminal(fakeTm, 'auto', 'Inspect this');
+    assert.deepStrictEqual(calls, ['switch:active-session', 'writeTo:active-session:Inspect this\r']);
+
+    // 4. Empty active session: falls back to a bare write (no session to attach to)
+    calls.length = 0;
+    dispatchAnnotationToTerminal({ ...fakeTm, getActiveSessionId: () => '' }, 'auto', 'Inspect this');
+    assert.deepStrictEqual(calls, ['write:Inspect this\r']);
+
+    // 5. Legacy draft payloads hit the same unconditional path: deliveryMode is never consulted
+    calls.length = 0;
+    dispatchAnnotationToTerminal(fakeTm, 'session-9', 'Inspect this');
+    assert.deepStrictEqual(calls, ['switch:session-9', 'writeTo:session-9:Inspect this\r']);
   });
 
   it('verifies annotation target terminal persistence and validation contract', () => {

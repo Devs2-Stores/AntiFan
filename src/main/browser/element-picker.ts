@@ -548,25 +548,23 @@ export const ELEMENT_PICKER_SCRIPT = `(() => {
       dock.style.cssText = 'position:fixed;bottom:20px;left:50%;transform:translateX(-50%);z-index:2147483647;background:rgba(18,24,38,0.95);border:1px solid #38bdf8;border-radius:24px;padding:6px 14px;box-shadow:0 8px 30px rgba(0,0,0,0.6);display:flex;align-items:center;gap:12px;color:#fff;font-family:-apple-system,sans-serif;font-size:12px;backdrop-filter:blur(8px);';
       document.body.appendChild(dock);
     }
-    dock.innerHTML = '<span style="font-weight:600;color:#38bdf8;">✨ ' + pickedList.length + ' element' + (pickedList.length > 1 ? 's' : '') + ' selected</span><div style="display:flex;align-items:center;gap:6px;"><button id="btnMultiQueue" style="background:#1e293b;border:1px solid #334155;color:#e2e8f0;border-radius:14px;padding:4px 10px;font-size:11px;font-weight:600;cursor:pointer;" title="Đưa vào hàng đợi / bản nháp (không chạy ngay)">Queue All</button><button id="btnMultiSubmit" style="background:#087ff5;border:none;color:#fff;border-radius:14px;padding:4px 12px;font-size:11px;font-weight:600;cursor:pointer;" title="Gửi và thực thi ngay">Send All ↑</button><button id="btnMultiCancel" style="background:transparent;border:none;color:#94a3b8;font-size:11px;cursor:pointer;">Cancel</button></div>';
+    dock.innerHTML = '<span style="font-weight:600;color:#38bdf8;">✨ ' + pickedList.length + ' element' + (pickedList.length > 1 ? 's' : '') + ' selected</span><div style="display:flex;align-items:center;gap:6px;"><button id="btnMultiSubmit" style="background:#087ff5;border:none;color:#fff;border-radius:14px;padding:4px 12px;font-size:11px;font-weight:600;cursor:pointer;" title="Gửi và thực thi ngay">Send All ↑</button><button id="btnMultiCancel" style="background:transparent;border:none;color:#94a3b8;font-size:11px;cursor:pointer;">Cancel</button></div>';
 
-    const submitMulti = (mode) => {
+    const submitMulti = () => {
       if (pickedList.length > 0) {
         const first = pickedList[0];
         const combinedComment = pickedList.map((p, idx) => '[' + (idx + 1) + '] ' + p.selector + ': ' + (p.userComment || 'Check this element')).join('\\n\\n');
         window.__antifanPick = Object.assign({}, first, {
           userComment: combinedComment,
           multiItems: pickedList,
-          deliveryMode: mode || 'auto',
+          deliveryMode: 'auto',
         });
       }
       cleanup();
     };
 
-    const multiQueueBtn = dock.querySelector('#btnMultiQueue');
-    if (multiQueueBtn) multiQueueBtn.onclick = () => submitMulti('draft');
     const multiSubmitBtn = dock.querySelector('#btnMultiSubmit');
-    if (multiSubmitBtn) multiSubmitBtn.onclick = () => submitMulti('auto');
+    if (multiSubmitBtn) multiSubmitBtn.onclick = () => submitMulti();
 
     dock.querySelector('#btnMultiCancel').onclick = () => {
       cleanup();
@@ -803,7 +801,7 @@ export const ELEMENT_PICKER_SCRIPT = `(() => {
 
     const footer = document.createElement('div');
     footer.style.cssText = 'display:flex;align-items:center;justify-content:space-between;padding-top:1px;';
-    footer.innerHTML = '<div style="display:flex;align-items:center;gap:6px;"><button id="btnAttachImg" type="button" style="background:#1e293b;border:1px solid #334155;color:#94a3b8;border-radius:4px;padding:3px 7px;font-size:11px;cursor:pointer;display:flex;align-items:center;gap:4px;" title="Đính kèm ảnh từ máy tính"><span>📷</span> <span>Ảnh</span></button><span style="font-size:9.5px;color:#64748b;">Alt+Enter xuống hàng</span></div><div style="display:flex;align-items:center;gap:6px;"><button id="btnModalQueue" type="button" style="background:#1e293b;border:1px solid #334155;color:#e2e8f0;border-radius:4px;padding:4px 9px;font-size:11px;font-weight:600;cursor:pointer;display:flex;align-items:center;gap:3px;" title="Đưa vào Queue / Draft (Không thực thi ngay)"><span>📥</span> <span>Queue</span></button><button id="btnModalSend" type="button" style="background:#087ff5;border:none;color:#ffffff;border-radius:4px;padding:4px 12px;font-size:11px;font-weight:600;cursor:pointer;" title="Gửi và thực thi ngay">Gửi ↑</button></div>';
+    footer.innerHTML = '<div style="display:flex;align-items:center;gap:6px;"><button id="btnAttachImg" type="button" style="background:#1e293b;border:1px solid #334155;color:#94a3b8;border-radius:4px;padding:3px 7px;font-size:11px;cursor:pointer;display:flex;align-items:center;gap:4px;" title="Đính kèm ảnh từ máy tính"><span>📷</span> <span>Ảnh</span></button><span style="font-size:9.5px;color:#64748b;">Shift+Enter / Alt+Enter xuống hàng</span></div><div style="display:flex;align-items:center;gap:6px;"><button id="btnModalSend" type="button" style="background:#087ff5;border:none;color:#ffffff;border-radius:4px;padding:4px 12px;font-size:11px;font-weight:600;cursor:pointer;" title="Gửi và thực thi ngay">Gửi ↑</button></div>';
     modal.appendChild(header);
     modal.appendChild(termRow);
     modal.appendChild(textarea);
@@ -983,8 +981,7 @@ export const ELEMENT_PICKER_SCRIPT = `(() => {
       }
     };
 
-    const doSubmit = (mode = 'auto') => {
-      const deliveryMode = mode === 'draft' ? 'draft' : 'auto';
+    const doSubmit = () => {
       let userComment = textarea.value.trim();
       if (!userComment && attachedImages.length === 0) {
         statusMsg.textContent = 'Vui lòng nhập mô tả hoặc đính kèm ảnh trước khi gửi.';
@@ -998,17 +995,9 @@ export const ELEMENT_PICKER_SCRIPT = `(() => {
       statusMsg.style.display = 'none';
 
       const submitBtn = modal.querySelector('#btnModalSend');
-      const queueBtn = modal.querySelector('#btnModalQueue');
-      if (deliveryMode === 'draft') {
-        if (queueBtn) {
-          queueBtn.textContent = 'Đang lưu...';
-          queueBtn.style.opacity = '0.7';
-        }
-      } else {
-        if (submitBtn) {
-          submitBtn.textContent = 'Đang gửi...';
-          submitBtn.style.opacity = '0.7';
-        }
+      if (submitBtn) {
+        submitBtn.textContent = 'Đang gửi...';
+        submitBtn.style.opacity = '0.7';
       }
       try {
         // 1. Re-measure fresh rect on submit to eliminate any scroll/layout drift
@@ -1090,7 +1079,7 @@ export const ELEMENT_PICKER_SCRIPT = `(() => {
             return chosen;
           })(),
           attachedImages: attachedImages.slice(0, 6),
-          deliveryMode: deliveryMode,
+          deliveryMode: 'auto',
           rect: {
             x: Math.round(freshRect.left + window.scrollX),
             y: Math.round(freshRect.top + window.scrollY),
@@ -1175,26 +1164,13 @@ export const ELEMENT_PICKER_SCRIPT = `(() => {
             userComment: userComment,
             targetSessionId: termSelect ? termSelect.value : undefined,
             attachedImages: attachedImages.slice(0, 6),
-            deliveryMode: deliveryMode,
+            deliveryMode: 'auto',
             timestamp: Date.now(),
           };
         } catch {}
       }
     };
 
-    const queueBtn = modal.querySelector('#btnModalQueue');
-    if (queueBtn) {
-      queueBtn.onclick = (ev) => {
-        if (ev) {
-          ev.preventDefault();
-          ev.stopPropagation();
-        }
-        doSubmit('draft');
-      };
-      queueBtn.onpointerdown = (ev) => {
-        if (ev) ev.stopPropagation();
-      };
-    }
     const sendBtn = modal.querySelector('#btnModalSend');
     if (sendBtn) {
       sendBtn.onclick = (ev) => {
@@ -1202,14 +1178,14 @@ export const ELEMENT_PICKER_SCRIPT = `(() => {
           ev.preventDefault();
           ev.stopPropagation();
         }
-        doSubmit('auto');
+        doSubmit();
       };
       sendBtn.onpointerdown = (ev) => {
         if (ev) ev.stopPropagation();
       };
     }
     textarea.onkeydown = (ev) => {
-      if (ev.key === 'Enter' && ev.altKey) {
+      if (ev.key === 'Enter' && (ev.shiftKey || ev.altKey)) {
         ev.preventDefault();
         const start = textarea.selectionStart;
         const end = textarea.selectionEnd;
@@ -1220,10 +1196,10 @@ export const ELEMENT_PICKER_SCRIPT = `(() => {
         textarea.style.height = Math.min(200, Math.max(58, textarea.scrollHeight)) + 'px';
       } else if (ev.key === 'Enter' && (ev.ctrlKey || ev.metaKey)) {
         ev.preventDefault();
-        doSubmit('auto');
+        doSubmit();
       } else if (ev.key === 'Enter') {
         ev.preventDefault();
-        doSubmit('auto');
+        doSubmit();
       } else if (ev.key === 'Escape') {
         ev.preventDefault();
         cleanupModalListeners();

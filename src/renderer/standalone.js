@@ -158,6 +158,14 @@ function setupTerminalClipboard(targetTerm, getSessionId) {
       return false;
     }
 
+    // Ctrl+K / Cmd+K: Clear scrollback buffer (shrink the tall scroll area back to the viewport)
+    if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && (e.key === 'k' || e.key === 'K')) {
+      e.preventDefault();
+      e.stopPropagation();
+      try { targetTerm.clear(); } catch {}
+      return false;
+    }
+
     return true;
   });
 

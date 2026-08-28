@@ -14,6 +14,7 @@ import { EventEmitter } from 'node:events';
 import { AntiFanTab, SplitPaneId, AntiFanPickedElement, TOOLBAR_CHANNELS, SIDEBAR_CHANNELS, TERMINAL_CHANNELS, FRAME_BACKDROP_CHANNELS } from '../../shared/contracts';
 import { getSecureWebPreferences, sanitizeUrl, isAllowedNavigation, cleanRestoredUrl, isInternalWidgetOrSubframeUrl } from '../security/security-policy';
 import { ELEMENT_PICKER_SCRIPT } from './element-picker';
+import { dispatchAnnotationToTerminal } from './annotation-dispatch';
 import { resolveWorkspaceFromUrl, DEFAULT_WORKSPACE_ROOTS } from './workspace-resolver';
 import { FONT_FINDER_SCRIPT } from './font-finder';
 import { GPU_LENS_SCRIPT } from './gpu-lens';
@@ -3374,11 +3375,9 @@ export class NativeTabHost extends EventEmitter {
               viewportImageBase64,
               workspaceDir: annotationWorkspace,
             });
-            const effectiveDeliveryMode: 'auto' | 'draft' = rawResult.deliveryMode === 'draft' ? 'draft' : 'auto';
-
             const pickedData: AntiFanPickedElement = {
               ...rawResult,
-              deliveryMode: effectiveDeliveryMode,
+              deliveryMode: 'auto',
               screenshotBase64: targetImageBase64,
               markdownPath: annotationResult.markdownPath,
               markdownContent: annotationResult.markdownContent,
@@ -3417,16 +3416,8 @@ export class NativeTabHost extends EventEmitter {
               fullPrompt += ` @${formatPath(annotationResult.targetImagePath)}`;
             }
 
-            // 1. Direct write to TerminalManager session PTY ONLY if mode is 'auto' (immediate submit)
-            const resolvedTerminalId = targetSessionId && targetSessionId !== 'auto' ? targetSessionId : tm.getActiveSessionId();
-            if (effectiveDeliveryMode === 'auto') {
-              if (resolvedTerminalId) {
-                tm.switchSession(resolvedTerminalId);
-                tm.writeTo(resolvedTerminalId, fullPrompt + '\r');
-              } else {
-                tm.write(fullPrompt + '\r');
-              }
-            }
+            // 1. Direct write to TerminalManager session PTY (immediate submit; queue/draft removed)
+            dispatchAnnotationToTerminal(tm, targetSessionId, fullPrompt);
 
             // 2. Also copy to OS clipboard for instant convenience
             try {
