@@ -260,10 +260,18 @@ describe('Agent Browser & Element Picker Injected Scripts', () => {
     assert.ok(ELEMENT_PICKER_SCRIPT.includes('termContext.annotationSessionId = termSelect.value || \'auto\''), 'Picker must persist Auto when explicitly selected');
   });
 
-  it('verifies ELEMENT_PICKER_SCRIPT configures Shift+Enter / Alt+Enter to insert newline', () => {
-    assert.ok(ELEMENT_PICKER_SCRIPT.includes("ev.shiftKey || ev.altKey"), 'Must handle Shift+Enter or Alt+Enter for newline');
-    assert.ok(ELEMENT_PICKER_SCRIPT.includes("substring(0, start) + '\\n' + val.substring(end)"), 'Must insert newline character at cursor');
-    assert.ok(ELEMENT_PICKER_SCRIPT.includes('Shift+Enter / Alt+Enter xuống hàng'), 'Must provide visual shortcut hint in footer');
+  it('defaults annotation prompts to the /queue prefix and keeps the editor compact', () => {
+    assert.ok(ELEMENT_PICKER_SCRIPT.includes("const QUEUE_PREFIX = '/queue '"), 'Prompt must default to /queue prefix');
+    assert.ok(ELEMENT_PICKER_SCRIPT.includes("if (!textarea.value) textarea.value = QUEUE_PREFIX"), 'Prefix must be pre-filled on open');
+    assert.ok(ELEMENT_PICKER_SCRIPT.includes("new RegExp('^/queue(?:\\s|$)')"), 'Bare /queue token must be normalized before validation');
+    assert.ok(ELEMENT_PICKER_SCRIPT.includes("userComment = '/queue ' + promptBody"), 'Prompt must always carry exactly one /queue prefix');
+    assert.ok(ELEMENT_PICKER_SCRIPT.includes('width:min(92vw,400px)'), 'Modal width must scale with viewport');
+    assert.ok(ELEMENT_PICKER_SCRIPT.includes('modal.offsetHeight'), 'Modal position must use measured height');
+    const measureIdx = ELEMENT_PICKER_SCRIPT.indexOf('modal.offsetHeight');
+    const appendIdx = ELEMENT_PICKER_SCRIPT.indexOf("modal.appendChild(footer)");
+    assert.ok(appendIdx !== -1 && measureIdx > appendIdx, 'Dimensions must be measured after all children are appended');
+    assert.ok(!ELEMENT_PICKER_SCRIPT.includes('btnAttachImg'), 'Attach-image button must be removed from footer');
+    assert.ok(!ELEMENT_PICKER_SCRIPT.includes('Shift+Enter / Alt+Enter xuống hàng'), 'Shortcut hint must be removed from footer');
   });
   it('keeps annotation editor above storefront modal focus traps', () => {
     assert.ok(ELEMENT_PICKER_SCRIPT.includes("document.createElement(typeof HTMLDialogElement === 'function' ? 'dialog' : 'div')"), 'Annotation UI must use the browser top layer when supported');

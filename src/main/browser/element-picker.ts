@@ -659,18 +659,14 @@ export const ELEMENT_PICKER_SCRIPT = `(() => {
     modal.id = MODAL_ID;
     modal.setAttribute('role', 'dialog');
     modal.setAttribute('aria-modal', 'true');
-    modal.style.cssText = 'position:fixed;z-index:2147483647;inset:auto;box-sizing:border-box;background:#0b111b;color:#e5eef8;border:1px solid #2c6d98;border-radius:10px;padding:10px 11px;box-shadow:0 14px 36px rgba(0,0,0,0.72),0 0 0 1px rgba(88,180,232,.08);width:310px;margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;font-size:12px;display:flex;flex-direction:column;gap:8px;';
+    // Compact on phones (92vw), scales with viewport on large screens (cap 400px).
+    modal.style.cssText = 'position:fixed;z-index:2147483647;inset:auto;box-sizing:border-box;background:#0b111b;color:#e5eef8;border:1px solid #2c6d98;border-radius:10px;padding:10px 11px;box-shadow:0 14px 36px rgba(0,0,0,0.72),0 0 0 1px rgba(88,180,232,.08);width:min(92vw,400px);margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;font-size:12px;display:flex;flex-direction:column;gap:8px;';
 
     const r = el.getBoundingClientRect();
-    let top = r.bottom + 6;
-    let left = r.left;
-    if (top + 170 > window.innerHeight) top = Math.max(10, r.top - 180);
-    if (left + 310 > window.innerWidth) left = Math.max(10, window.innerWidth - 320);
-    modal.style.top = Math.max(10, top) + 'px';
-    modal.style.left = Math.max(10, left) + 'px';
+    const targetParent = document.body || document.documentElement;
     const header = document.createElement('div');
     header.style.cssText = 'display:flex;align-items:center;justify-content:space-between;font-size:11px;color:#94a3b8;border-bottom:1px solid #203246;padding-bottom:6px;';
-    header.innerHTML = '<span style="font-weight:600;color:#38bdf8;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:200px;">' + selectorName + '</span><button type="button" id="btnModalClose" style="background:transparent;border:none;color:#94a3b8;font-size:11px;cursor:pointer;padding:2px 4px;display:flex;align-items:center;gap:3px;border-radius:3px;" title="Hủy (Esc)"><span style="font-size:9.5px;color:#71717a;">Esc hủy</span> <span style="font-weight:bold;color:#ef4444;">✕</span></button>';
+    header.innerHTML = '<span style="font-weight:600;color:#38bdf8;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:min(50vw,230px);">' + selectorName + '</span><button type="button" id="btnModalClose" style="background:transparent;border:none;color:#94a3b8;font-size:11px;cursor:pointer;padding:2px 4px;display:flex;align-items:center;gap:3px;border-radius:3px;" title="Hủy (Esc)"><span style="font-size:9.5px;color:#71717a;">Esc hủy</span> <span style="font-weight:bold;color:#ef4444;">✕</span></button>';
     const closeBtn = header.querySelector('#btnModalClose');
     if (closeBtn) {
       closeBtn.onclick = (e) => {
@@ -738,7 +734,7 @@ export const ELEMENT_PICKER_SCRIPT = `(() => {
     termRow.appendChild(termLabel);
     termRow.appendChild(termSelect);
     const textarea = document.createElement('textarea');
-    textarea.placeholder = 'Nhập mô tả / yêu cầu sửa... (hoặc dán Ctrl+V ảnh vào đây)';
+    textarea.placeholder = 'Mô tả / yêu cầu sửa...';
     textarea.style.cssText = 'width:100%;height:58px;min-height:58px;max-height:200px;background:#060a11;border:1px solid #263b50;border-radius:4px;color:#f8fafc;padding:8px;font-size:11.5px;font-family:inherit;outline:none;resize:none;box-sizing:border-box;line-height:1.4;overflow-y:auto;';
 
     const attachedImages = [];
@@ -775,51 +771,48 @@ export const ELEMENT_PICKER_SCRIPT = `(() => {
       if (statusMsg.style.display !== 'none') statusMsg.style.display = 'none';
     };
 
-    const fileInput = document.createElement('input');
-    fileInput.type = 'file';
-    fileInput.accept = 'image/*';
-    fileInput.multiple = true;
-    fileInput.style.display = 'none';
-    fileInput.onchange = (e) => {
-      const files = (e.target && e.target.files) ? Array.from(e.target.files) : [];
-      files.forEach((file) => {
-        const reader = new FileReader();
-        reader.onload = (ev) => {
-          if (ev.target && typeof ev.target.result === 'string') {
-            addImage(file.name, ev.target.result);
-          }
-        };
-        reader.readAsDataURL(file);
-      });
-      fileInput.value = '';
-    };
-
     const statusMsg = document.createElement('div');
     statusMsg.id = 'statusMsg';
     statusMsg.style.cssText = 'display:none;color:#ef4444;font-size:10.5px;padding-top:2px;line-height:1.2;font-weight:500;';
 
+    // Footer is deliberately bare: image attach lives on clipboard paste / drag-drop,
+    // so the modal stays compact on small screens. Just the primary action.
     const footer = document.createElement('div');
-    footer.style.cssText = 'display:flex;align-items:center;justify-content:space-between;padding-top:1px;';
-    footer.innerHTML = '<div style="display:flex;align-items:center;gap:6px;"><button id="btnAttachImg" type="button" style="background:#1e293b;border:1px solid #334155;color:#94a3b8;border-radius:4px;padding:3px 7px;font-size:11px;cursor:pointer;display:flex;align-items:center;gap:4px;" title="Đính kèm ảnh từ máy tính"><span>📷</span> <span>Ảnh</span></button><span style="font-size:9.5px;color:#64748b;">Shift+Enter / Alt+Enter xuống hàng</span></div><div style="display:flex;align-items:center;gap:6px;"><button id="btnModalSend" type="button" style="background:#087ff5;border:none;color:#ffffff;border-radius:4px;padding:4px 12px;font-size:11px;font-weight:600;cursor:pointer;" title="Gửi và thực thi ngay">Gửi ↑</button></div>';
+    footer.style.cssText = 'display:flex;align-items:center;justify-content:flex-end;padding-top:1px;';
+    footer.innerHTML = '<button id="btnModalSend" type="button" style="background:#087ff5;border:none;color:#ffffff;border-radius:4px;padding:4px 12px;font-size:11px;font-weight:600;cursor:pointer;" title="Gửi và thực thi ngay">Gửi ↑</button>';
     modal.appendChild(header);
     modal.appendChild(termRow);
     modal.appendChild(textarea);
     modal.appendChild(previewContainer);
-    modal.appendChild(fileInput);
     modal.appendChild(statusMsg);
     modal.appendChild(footer);
-    const targetParent = document.body || document.documentElement;
     targetParent.appendChild(modal);
+    // Position against the measured modal box AFTER all children are appended:
+    // the responsive width (min(92vw,400px)) and the real rendered height must
+    // feed the collision math, or a bottom-edge clamp would use ~0 height.
+    const modalW = modal.offsetWidth || 310;
+    const modalH = modal.offsetHeight || 190;
+    let top = r.bottom + 6;
+    let left = r.left;
+    if (top + modalH > window.innerHeight) top = Math.max(10, r.top - modalH - 6);
+    if (left + modalW > window.innerWidth) left = Math.max(10, window.innerWidth - modalW - 10);
+    modal.style.top = Math.max(10, top) + 'px';
+    modal.style.left = Math.max(10, left) + 'px';
     if (typeof modal.showModal === 'function') {
       try { modal.showModal(); } catch {}
     }
+    // Default prompt prefix: every annotation is queued to the agent (/queue),
+    // so the user only types the actual request. Kept on submit (see doSubmit).
+    const QUEUE_PREFIX = '/queue ';
+    if (!textarea.value) textarea.value = QUEUE_PREFIX;
     textarea.focus();
-    textarea.addEventListener('input', () => { textarea.style.height = '58px'; textarea.style.height = Math.min(200, Math.max(58, textarea.scrollHeight)) + 'px'; });
-
-    const btnAttach = modal.querySelector('#btnAttachImg');
-    if (btnAttach) {
-      btnAttach.onclick = () => fileInput.click();
+    const prefixLen = QUEUE_PREFIX.length;
+    if (textarea.value.substring(0, prefixLen) === QUEUE_PREFIX) {
+      textarea.setSelectionRange(prefixLen, prefixLen);
     }
+    const textareaAutoGrow = () => { textarea.style.height = '58px'; textarea.style.height = Math.min(200, Math.max(58, textarea.scrollHeight)) + 'px'; };
+    textareaAutoGrow();
+    textarea.addEventListener('input', textareaAutoGrow);
 
     // Helper function to process any image blob or file
     const processImageFile = (fileOrBlob, defaultName) => {
@@ -982,15 +975,22 @@ export const ELEMENT_PICKER_SCRIPT = `(() => {
 
     const doSubmit = () => {
       let userComment = textarea.value.trim();
-      if (!userComment && attachedImages.length === 0) {
+      // Keep the /queue command prefix as the prompt's first token, so the agent
+      // queues the annotation even when the user edited the textarea. Normalize
+      // first: strip a leading bare /queue token so a cleared textarea (value
+      // '/queue' after trim) is validated as empty instead of double-prefixed.
+let promptBody = userComment.replace(new RegExp('^/queue(?:\\s|$)'), '').trim();;
+      let bodyHasContent = promptBody.length > 0;
+      if (!bodyHasContent && attachedImages.length === 0) {
         statusMsg.textContent = 'Vui lòng nhập mô tả hoặc đính kèm ảnh trước khi gửi.';
         statusMsg.style.display = 'block';
         textarea.focus();
         return;
       }
-      if (!userComment && attachedImages.length > 0) {
-        userComment = 'Kiểm tra phần tử này theo ảnh đính kèm.';
+      if (!bodyHasContent && attachedImages.length > 0) {
+        promptBody = 'Kiểm tra phần tử này theo ảnh đính kèm.';
       }
+      userComment = '/queue ' + promptBody;
       statusMsg.style.display = 'none';
 
       const submitBtn = modal.querySelector('#btnModalSend');
@@ -1189,8 +1189,7 @@ export const ELEMENT_PICKER_SCRIPT = `(() => {
         const val = textarea.value;
         textarea.value = val.substring(0, start) + '\\n' + val.substring(end);
         textarea.selectionStart = textarea.selectionEnd = start + 1;
-        textarea.style.height = '58px';
-        textarea.style.height = Math.min(200, Math.max(58, textarea.scrollHeight)) + 'px';
+        textareaAutoGrow();
       } else if (ev.key === 'Enter' && (ev.ctrlKey || ev.metaKey)) {
         ev.preventDefault();
         doSubmit();

@@ -4,6 +4,13 @@ Tất cả các thay đổi, tính năng mới và bản vá lỗi quan trọng 
 
 ---
 
+## [v1.4.2] - 2026-08-28 (Annotation Popup Compact & Queue Prefix)
+
+### Popup Annotation — /queue Prefix & Gọn Lại
+- Popup Annotation mặc định bắt đầu bằng tiền tố `/queue `: mọi annotation được đẩy vào hàng đợi agent (`/queue`) ngay khi mở, chỉ cần gõ yêu cầu; nếu xoá tiền tố, nó được tự chèn lại lúc gửi.
+- Xoá nút đính kèm ảnh và dòng gợi ý phím tắt trên footer — popup gọn chỉ còn nút Gửi; dán ảnh (Ctrl+V) và kéo-thả ảnh vẫn hoạt động như cũ.
+- Popup đáp ứng kích thước màn hình: rộng `min(92vw, 400px)` (to hơn trên màn lớn, co gọn trên màn nhỏ), định vị dựa trên kích thước đo thực tế nên không tràn viewport dù textarea tự nở rộng.
+
 ## [v1.4.1] - 2026-08-28 (Per-Tab Terminal Memory Fix)
 
 ### Popup Annotation — Ghi nhớ Terminal theo từng tab
