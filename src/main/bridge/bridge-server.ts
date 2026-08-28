@@ -10,6 +10,8 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import { randomUUID } from 'node:crypto';
+import { performance } from 'node:perf_hooks';
+import { isBenchmarkEnabled, recordBenchmark } from '../benchmark/telemetry';
 import { NativeTabHost } from '../browser/native-tab-host';
 import { TerminalManager } from '../browser/terminal-manager';
 import { renderMobileRemoteHtml } from './mobile-remote-html';
@@ -26,6 +28,31 @@ import { CapabilityTransportAdapter } from '../tools/capability-transport';
 import { CapabilityRequestContext, CapabilityError, BrowserTarget, RuntimeLease } from '../../shared/control-plane-contracts';
 import { AttachmentRegistry } from '../run/attachment-registry';
 import { ControlPlaneRuntime } from '../control-plane/control-plane-runtime';
+// Slow-client bounds. A WebSocket whose kernel backlog exceeds the soft high-water
+// mark routes events through a per-client FIFO (consecutive terminal-data frames
+// coalesce losslessly: same bytes, same order) instead of unbounded ws.send buffering.
+// The heartbeat interval detects dead peers so they cannot accumulate in `clients`.
+const BRIDGE_SOFT_HIGH_WATER = 8 * 1024 * 1024; // bytes buffered per client before coalescing engages
+const BRIDGE_DRAIN_INTERVAL_MS = 50; // congestion pump cadence
+const BRIDGE_HEARTBEAT_INTERVAL_MS = 30_000; // ping cadence; peers silent for two ticks are terminated
+
+interface PendingOutboundFrame {
+  raw: string;
+  /** serialized frame byte size this entry contributes to queuedBytes */
+  bytes: number;
+  /** non-null => terminal:data frame; consecutive frames for the same session merge */
+  coalesceKey: string | null;
+  sessionId?: string;
+  data?: string;
+}
+
+interface BridgeCongestionState {
+  queue: PendingOutboundFrame[];
+  queuedBytes: number;
+}
+
+type HeartbeatWebSocket = WebSocket & { isAlive?: boolean };
+
 export function getLocalLanIps(): string[] {
   const ips: string[] = [];
   const interfaces = os.networkInterfaces();
@@ -65,6 +92,9 @@ export class BridgeServer {
   private readonly runtimeBindingProvider?: () => RuntimeBinding;
   private readonly attachmentRegistry?: AttachmentRegistry;
   private controlPlaneRuntime?: ControlPlaneRuntime;
+  private readonly clientCongestion: WeakMap<WebSocket, BridgeCongestionState> = new WeakMap();
+  private drainTimer: NodeJS.Timeout | null = null;
+  private heartbeatTimer: NodeJS.Timeout | null = null;
 
   constructor(
     tabHost: NativeTabHost,
@@ -270,6 +300,13 @@ export class BridgeServer {
       }
 
       this.clients.add(ws);
+
+      const hbClient = ws as HeartbeatWebSocket;
+      hbClient.isAlive = true;
+      ws.on('pong', () => {
+        (ws as HeartbeatWebSocket).isAlive = true;
+      });
+      this.ensureHeartbeat();
 
       const tm = TerminalManager.getInstance();
       this.sendEvent(ws, 'antifan:init', {
@@ -898,20 +935,146 @@ export class BridgeServer {
     }
   }
 
-  private sendEvent(ws: WebSocket, event: string, data: unknown): void {
-    if (ws.readyState === WebSocket.OPEN) {
-      const payload: BridgeEventPayload = { event, data };
-      ws.send(JSON.stringify(payload));
+  private getCongestionState(ws: WebSocket): BridgeCongestionState {
+    let state = this.clientCongestion.get(ws);
+    if (!state) {
+      state = { queue: [], queuedBytes: 0 };
+      this.clientCongestion.set(ws, state);
     }
+    return state;
+  }
+
+  private ensureHeartbeat(): void {
+    if (this.heartbeatTimer) return;
+    this.heartbeatTimer = setInterval(() => {
+      for (const client of this.clients) {
+        const hbClient = client as HeartbeatWebSocket;
+        if (hbClient.isAlive === false) {
+          this.clients.delete(client);
+          try { client.terminate(); } catch {}
+          continue;
+        }
+        hbClient.isAlive = false;
+        try { client.ping(); } catch {}
+      }
+    }, BRIDGE_HEARTBEAT_INTERVAL_MS);
+    this.heartbeatTimer.unref?.();
+  }
+
+  /**
+   * Backpressure-aware event send. A healthy client (empty FIFO and socket backlog
+   * below the soft high-water mark) gets the frame immediately — unchanged fast
+   * path. A slow client queues frames in FIFO order; consecutive terminal-data
+   * frames for the same session coalesce (lossless merge: same bytes, same order)
+   * and a shared pump drains the FIFO once the socket has room again.
+   */
+  private sendEventFrame(ws: WebSocket, event: string, data: unknown, terminalSessionId?: string): void {
+    if (ws.readyState !== WebSocket.OPEN) return;
+
+    const raw = JSON.stringify({ event, data } as BridgeEventPayload);
+    const bytes = Buffer.byteLength(raw, 'utf8');
+    const dataText = terminalSessionId
+      ? String(data && typeof data === 'object' && 'data' in data ? data.data ?? '' : '')
+      : '';
+
+    const state = this.getCongestionState(ws);
+    if (state.queue.length === 0 && ws.bufferedAmount + bytes <= BRIDGE_SOFT_HIGH_WATER) {
+      try {
+        ws.send(raw);
+      } catch {
+        this.clients.delete(ws);
+      }
+      return;
+    }
+
+    if (terminalSessionId) {
+      const last = state.queue[state.queue.length - 1];
+      if (last && last.coalesceKey === terminalSessionId) {
+        last.data = (last.data ?? '') + dataText;
+        last.bytes += bytes;
+        state.queuedBytes += bytes;
+        return;
+      }
+      state.queue.push({ raw: '', bytes, coalesceKey: terminalSessionId, sessionId: terminalSessionId, data: dataText });
+    } else {
+      state.queue.push({ raw, bytes, coalesceKey: null });
+    }
+    state.queuedBytes += bytes;
+    this.armDrainPump();
+  }
+
+  private flushCongestedClient(ws: WebSocket): void {
+    const state = this.clientCongestion.get(ws);
+    if (!state || state.queue.length === 0 || ws.readyState !== WebSocket.OPEN) return;
+
+    while (state.queue.length > 0 && ws.bufferedAmount < BRIDGE_SOFT_HIGH_WATER) {
+      const frame = state.queue[0]!;
+      const raw = frame.coalesceKey
+        ? JSON.stringify({ event: 'antifan:terminal:data', data: { sessionId: frame.sessionId, data: frame.data } })
+        : frame.raw;
+      const frameBytes = frame.bytes;
+      try {
+        ws.send(raw);
+      } catch {
+        this.clients.delete(ws);
+        state.queue = [];
+        state.queuedBytes = 0;
+        return;
+      }
+      state.queue.shift();
+      state.queuedBytes = Math.max(0, state.queuedBytes - frameBytes);
+    }
+  }
+
+  private armDrainPump(): void {
+    if (this.drainTimer) return;
+    this.drainTimer = setInterval(() => {
+      let anyCongested = false;
+      for (const client of this.clients) {
+        const state = this.clientCongestion.get(client);
+        if (!state || state.queue.length === 0) continue;
+        anyCongested = true;
+        this.flushCongestedClient(client);
+      }
+      if (!anyCongested && this.drainTimer) {
+        clearInterval(this.drainTimer);
+        this.drainTimer = null;
+      }
+    }, BRIDGE_DRAIN_INTERVAL_MS);
+    this.drainTimer.unref?.();
+  }
+
+  private sendEvent(ws: WebSocket, event: string, data: unknown): void {
+    this.sendEventFrame(ws, event, data);
   }
 
   public broadcastEvent(event: string, data: unknown): void {
     const payload: BridgeEventPayload = { event, data };
-    const raw = JSON.stringify(payload);
+    const broadcastStartMs = performance.now();
+    const isTerminalData = event === 'antifan:terminal:data';
+    const terminalSessionId = isTerminalData && data && typeof data === 'object' && 'sessionId' in data
+      ? String(data.sessionId ?? '')
+      : undefined;
+    let sent = 0;
+    let congested = 0;
     for (const client of this.clients) {
-      if (client.readyState === WebSocket.OPEN) {
-        client.send(raw);
+      if (client.readyState !== WebSocket.OPEN) continue;
+      const state = this.clientCongestion.get(client);
+      if (state && state.queue.length > 0) congested += 1;
+      if (isTerminalData) {
+        this.sendEventFrame(client, event, data, terminalSessionId);
+      } else {
+        this.sendEventFrame(client, event, data);
       }
+      sent += 1;
+    }
+    if (isBenchmarkEnabled()) {
+      recordBenchmark({
+        surface: 'bridge',
+        name: 'broadcast',
+        value: performance.now() - broadcastStartMs,
+        extra: { event, clients: sent, congested, bytes: Buffer.byteLength(JSON.stringify(payload), 'utf8') },
+      });
     }
   }
 
@@ -933,8 +1096,17 @@ export class BridgeServer {
       }
     } catch {}
 
+    if (this.drainTimer) {
+      clearInterval(this.drainTimer);
+      this.drainTimer = null;
+    }
+    if (this.heartbeatTimer) {
+      clearInterval(this.heartbeatTimer);
+      this.heartbeatTimer = null;
+    }
+
     for (const client of this.clients) {
-      client.close();
+      try { client.close(); } catch {}
     }
     this.clients.clear();
     this.wss?.close();

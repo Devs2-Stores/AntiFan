@@ -50,6 +50,28 @@ class MockTabHost extends EventEmitter {
   }
 }
 
+interface TerminalDataFrame {
+  event: 'antifan:terminal:data';
+  sessionId: string;
+  data: string;
+}
+
+function parseTerminalDataFrame(text: string): TerminalDataFrame | null {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text) as unknown;
+  } catch {
+    return null;
+  }
+  if (!parsed || typeof parsed !== 'object') return null;
+  if (!('event' in parsed) || parsed.event !== 'antifan:terminal:data') return null;
+  if (!('data' in parsed) || !parsed.data || typeof parsed.data !== 'object') return null;
+  const body = parsed.data;
+  if (!('sessionId' in body) || typeof body.sessionId !== 'string') return null;
+  if (!('data' in body) || typeof body.data !== 'string') return null;
+  return { event: 'antifan:terminal:data', sessionId: body.sessionId, data: body.data };
+}
+
 describe('AntiFan Bridge Server', () => {
   it('exposes the authenticated OMP runtime binding over RPC', async () => {
     const mockHost = new MockTabHost() as unknown as NativeTabHost;
@@ -244,6 +266,47 @@ describe('AntiFan Bridge Server', () => {
     assert.strictEqual(renewResp.success, true);
     assert.strictEqual(renewedAttachmentId, 'binding-test-123456789012');
     assert.ok(renewResp.data.expiresAt > Date.now());
+
+    ws.close();
+    server.dispose();
+  });
+
+  it('broadcasts terminal data as non-empty JSON frames over a live socket', { timeout: 5000 }, async () => {
+    const mockHost = new MockTabHost() as unknown as NativeTabHost;
+    const server = new BridgeServer(mockHost, 0);
+    const port = await server.start();
+    const ws = new WebSocket(`ws://127.0.0.1:${port}?token=${server.getToken()}`);
+    const open = new Promise<void>((resolve, reject) => {
+      ws.once('open', () => resolve());
+      ws.once('error', (err) => reject(err));
+    });
+    await open;
+
+    const dataFrames: TerminalDataFrame[] = [];
+    let sawInspect = false;
+    const allDelivered = new Promise<void>((resolve) => {
+      ws.on('message', (data) => {
+        const text = String(data);
+        assert.ok(text.length > 0, 'broadcast frames must never be empty strings');
+        if (text.includes('"event":"antifan:inspectStateChanged"')) sawInspect = true;
+        const frame = parseTerminalDataFrame(text);
+        if (frame) dataFrames.push(frame);
+        if (dataFrames.length >= 2 && sawInspect) resolve();
+      });
+    });
+
+    server.broadcastEvent('antifan:inspectStateChanged', { active: true });
+    server.broadcastEvent('antifan:terminal:data', { sessionId: 'bench-pty', data: 'line-1\r\n' });
+    server.broadcastEvent('antifan:terminal:data', { sessionId: 'bench-pty', data: 'line-2\r\n' });
+    await allDelivered;
+
+    const first = dataFrames[0];
+    const second = dataFrames[1];
+    assert.ok(first && second, 'expected two terminal data frames');
+    assert.strictEqual(first.event, 'antifan:terminal:data');
+    assert.strictEqual(first.sessionId, 'bench-pty');
+    assert.strictEqual(first.data, 'line-1\r\n');
+    assert.strictEqual(second.data, 'line-2\r\n');
 
     ws.close();
     server.dispose();
