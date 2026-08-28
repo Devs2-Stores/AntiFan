@@ -126,6 +126,90 @@ describe('Workflow & Artifact Security and Hub Registry', () => {
     });
   });
 
+  describe('ArtifactStore binary safety & redaction policy', () => {
+    it('stages binary raster payloads byte-for-byte without UTF-8 redaction', () => {
+      const store = new ArtifactStore({ root: artifactsRoot });
+      const tokenLikeBinary = Buffer.concat([
+        Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+        Buffer.from('eA4kZg9Q1tVbN3mHcR7xLp2sW8yF0jD6uG5iK9oQ1rT4vB7nM2cX5zH8wJ3', 'utf8'),
+        Buffer.from([0x00, 0xff, 0x00, 0xff, 0x80, 0x01, 0x02]),
+      ]);
+      const ref = store.stage({
+        kind: 'screenshot',
+        mime: 'image/png',
+        data: tokenLikeBinary,
+        runId: 'run-bin',
+        attemptId: 'att-bin',
+      });
+
+      assert.strictEqual(ref.redacted, false, 'binary path must not claim redaction');
+      assert.strictEqual(ref.byteLength, tokenLikeBinary.byteLength, 'stored size equals exact input size');
+      assert.strictEqual(ref.sha256, require('node:crypto').createHash('sha256').update(tokenLikeBinary).digest('hex'));
+
+      const read = store.readBytesById(ref.id);
+      assert.ok(read.data.equals(tokenLikeBinary), 'binary payload round-trips byte-identical');
+    });
+
+    it('redacts token-like secrets in text payloads and reports redacted=true', () => {
+      const store = new ArtifactStore({ root: artifactsRoot });
+      const text = 'api_key=sk-abcdefghijklmnopqrstuvwxyz1234567890 callback=0';
+      const ref = store.stage({
+        kind: 'dom',
+        mime: 'text/plain',
+        data: text,
+        runId: 'run-txt',
+        attemptId: 'att-txt',
+      });
+
+      assert.strictEqual(ref.redacted, true);
+      const read = store.readTextById(ref.id);
+      assert.ok(read.text.includes('api_key=[REDACTED]'), 'secret value is replaced');
+      assert.ok(!read.text.includes('sk-abcdefghijklmnopqrstuvwxyz1234567890'), 'secret value does not survive');
+    });
+
+    it('leaves text without token-like secrets unredacted and reports redacted=false', () => {
+      const store = new ArtifactStore({ root: artifactsRoot });
+      const text = 'no secrets here, just ordinary words.';
+      const ref = store.stage({
+        kind: 'dom',
+        mime: 'text/html',
+        data: text,
+        runId: 'run-safe',
+        attemptId: 'att-safe',
+      });
+
+      assert.strictEqual(ref.redacted, false);
+      assert.strictEqual(store.readTextById(ref.id).text, text);
+    });
+
+    it('treats SVG as text-like XML and redacts secrets inside it', () => {
+      const store = new ArtifactStore({ root: artifactsRoot });
+      const svg = '<svg><text>token=abcdefghijklmnopqrstuvwxyz0123456789</text></svg>';
+      const ref = store.stage({
+        kind: 'screenshot',
+        mime: 'image/svg+xml',
+        data: svg,
+        runId: 'run-svg',
+        attemptId: 'att-svg',
+      });
+      assert.strictEqual(ref.redacted, true);
+      assert.ok(store.readTextById(ref.id).text.includes('token=[REDACTED]'));
+    });
+
+    it('redacts secrets in parameterized and structured-suffix JSON MIME types', () => {
+      const store = new ArtifactStore({ root: artifactsRoot });
+      const json = '{"password": "hunter2secretvalue123456789012345"}';
+      for (const mime of ['application/json; charset=utf-8', 'application/problem+json']) {
+        const ref = store.stage({ kind: 'dom', mime, data: json, runId: 'run-mime', attemptId: 'attempt-1' });
+        assert.strictEqual(ref.redacted, true, `mime ${mime} must be text-like and redacted`);
+        const text = store.readTextById(ref.id).text;
+        assert.ok(!text.includes('hunter2secretvalue123456789012345'), `mime ${mime} secret removed`);
+        const parsed = JSON.parse(text) as Record<string, string>;
+        assert.strictEqual(parsed.password, '[REDACTED]', `mime ${mime} stores valid JSON with redacted value`);
+      }
+    });
+  });
+
   describe('WorkflowRegistry Built-ins and Custom Workflows', () => {
     it('provides default built-in workflows out of the box', () => {
       const registry = new WorkflowRegistry(workflowsDir);
