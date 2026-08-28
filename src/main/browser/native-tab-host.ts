@@ -202,7 +202,6 @@ export class NativeTabHost extends EventEmitter {
   private persistTimer: NodeJS.Timeout | null = null;
   private agentWorkingTimers = new Map<string, NodeJS.Timeout>();
   private agentWorkingRefs = new Map<string, number>();
-  private lastAnnotationSessionId: string | undefined = undefined;
   private appliedClipRadius = new WeakMap<Electron.WebContents, number>();
   private emulatedWebContents = new WeakSet<Electron.WebContents>();
 
@@ -545,6 +544,7 @@ export class NativeTabHost extends EventEmitter {
     ipcMain.handle(TOOLBAR_CHANNELS.GO_BACK, (_event, tabId?: string) => this.goBack(tabId || this.activeTabId));
     ipcMain.handle(TOOLBAR_CHANNELS.GO_FORWARD, (_event, tabId?: string) => this.goForward(tabId || this.activeTabId));
     ipcMain.handle(TOOLBAR_CHANNELS.TOGGLE_INSPECT, () => this.toggleInspect());
+    ipcMain.handle(TOOLBAR_CHANNELS.SET_TAB_TERMINAL_SESSION, (_event, { tabId, terminalSessionId }: { tabId?: string; terminalSessionId?: string }) => this.setTabTerminalSession(tabId || this.activeTabId, terminalSessionId));
     ipcMain.handle(TOOLBAR_CHANNELS.TOGGLE_FONT_FINDER, () => this.toggleFontFinder());
     ipcMain.handle(TOOLBAR_CHANNELS.TOGGLE_LENS, () => this.toggleLens());
     ipcMain.handle(TOOLBAR_CHANNELS.TOGGLE_RULER, () => this.toggleRuler());
@@ -1792,16 +1792,18 @@ export class NativeTabHost extends EventEmitter {
       }
       if (this.isInspecting && id === this.activeTabId) {
         const tm = TerminalManager.getInstance();
+        const tabSessionId = this.getTabTerminalSession(id);
         const termContextData: Record<string, unknown> = {
+          tabId: id,
           sessions: tm.listSessions(),
           selectedSessionId: tm.getActiveSessionId(),
         };
-        if (this.lastAnnotationSessionId !== undefined) {
-          termContextData.annotationSessionId = this.lastAnnotationSessionId;
+        if (tabSessionId !== undefined) {
+          termContextData.annotationSessionId = tabSessionId;
         }
         const termContextScript = `(() => {
           window.__antifanTerminalContext = Object.assign(window.__antifanTerminalContext || {}, ${JSON.stringify(termContextData)});
-          ${this.lastAnnotationSessionId === undefined ? 'delete window.__antifanTerminalContext.annotationSessionId;' : `window.__antifanTerminalContext.annotationSessionId = ${JSON.stringify(this.lastAnnotationSessionId)};`}
+          ${tabSessionId === undefined ? 'delete window.__antifanTerminalContext.annotationSessionId;' : `window.__antifanTerminalContext.annotationSessionId = ${JSON.stringify(tabSessionId)};`}
         })();`;
         wc.executeJavaScript(`${termContextScript}\n${ELEMENT_PICKER_SCRIPT}`).catch(() => {});
       }
@@ -3260,25 +3262,19 @@ export class NativeTabHost extends EventEmitter {
     this.inspectedTabId = this.activeTabId;
 
     const tm = TerminalManager.getInstance();
-    const sessions = tm.listSessions();
     const activeSessionId = tm.getActiveSessionId();
-    let validAnnotationSessionId: string | undefined = undefined;
-    if (typeof this.lastAnnotationSessionId === 'string') {
-      if (this.lastAnnotationSessionId === 'auto' || sessions.some((s) => s.id === this.lastAnnotationSessionId)) {
-        validAnnotationSessionId = this.lastAnnotationSessionId;
-      }
-    }
-    this.lastAnnotationSessionId = validAnnotationSessionId;
+    const tabSessionId = this.getTabTerminalSession(this.activeTabId);
     const termContextData: Record<string, unknown> = {
-      sessions,
+      tabId: this.activeTabId,
+      sessions: tm.listSessions(),
       selectedSessionId: activeSessionId,
     };
-    if (validAnnotationSessionId !== undefined) {
-      termContextData.annotationSessionId = validAnnotationSessionId;
+    if (tabSessionId !== undefined) {
+      termContextData.annotationSessionId = tabSessionId;
     }
     const termContextScript = `(() => {
       window.__antifanTerminalContext = Object.assign(window.__antifanTerminalContext || {}, ${JSON.stringify(termContextData)});
-      ${validAnnotationSessionId === undefined ? 'delete window.__antifanTerminalContext.annotationSessionId;' : `window.__antifanTerminalContext.annotationSessionId = ${JSON.stringify(validAnnotationSessionId)};`}
+      ${tabSessionId === undefined ? 'delete window.__antifanTerminalContext.annotationSessionId;' : `window.__antifanTerminalContext.annotationSessionId = ${JSON.stringify(tabSessionId)};`}
     })();`;
     this.isInspecting = true;
     const targetWcs: Array<{ wc: Electron.WebContents; paneId: SplitPaneId }> = [];
@@ -3302,15 +3298,16 @@ export class NativeTabHost extends EventEmitter {
       }
       try {
         const liveSessions = TerminalManager.getInstance().listSessions();
-        const activeTab = this.tabs.get(this.activeTabId);
-        if (!activeTab) return;
+        const targetTabId = this.inspectedTabId || this.activeTabId;
+        const targetTab = this.tabs.get(targetTabId);
+        if (!targetTab) return;
 
         const currentWcs: Array<{ wc: Electron.WebContents; paneId: SplitPaneId }> = [];
-        if (activeTab.view && !activeTab.view.webContents.isDestroyed()) {
-          currentWcs.push({ wc: activeTab.view.webContents, paneId: 'desktop' });
+        if (targetTab.view && !targetTab.view.webContents.isDestroyed()) {
+          currentWcs.push({ wc: targetTab.view.webContents, paneId: 'desktop' });
         }
-        if (activeTab.state.splitMode && activeTab.mobileView && !activeTab.mobileView.webContents.isDestroyed()) {
-          currentWcs.push({ wc: activeTab.mobileView.webContents, paneId: 'mobile' });
+        if (targetTab.state.splitMode && targetTab.mobileView && !targetTab.mobileView.webContents.isDestroyed()) {
+          currentWcs.push({ wc: targetTab.mobileView.webContents, paneId: 'mobile' });
         }
 
         for (const { wc, paneId } of currentWcs) {
@@ -3318,23 +3315,23 @@ export class NativeTabHost extends EventEmitter {
           if (wc.isDestroyed()) continue;
           const currentCtx = await wc.executeJavaScript('window.__antifanTerminalContext?.annotationSessionId').catch(() => null);
           if (typeof currentCtx === 'string' && (currentCtx === 'auto' || liveSessions.some((s) => s.id === currentCtx))) {
-            this.lastAnnotationSessionId = currentCtx;
+            targetTab.state.terminalSessionId = currentCtx;
           }
           const rawResult = await wc.executeJavaScript('window.__antifanPick').catch(() => null);
           if (rawResult) {
             await wc.executeJavaScript('window.__antifanPick = null;').catch(() => {});
-            this.stopInspect(this.inspectedTabId || this.activeTabId);
+            this.stopInspect(targetTabId);
             if (rawResult.canceled) return;
 
             // Automatically focus the pane where user picked/annotated the element!
-            if (activeTab.state.splitMode) {
-              activeTab.focusedPane = paneId;
-              activeTab.state.splitFocusedPane = paneId;
+            if (targetTab.state.splitMode) {
+              targetTab.focusedPane = paneId;
+              targetTab.state.splitFocusedPane = paneId;
               this.broadcastState();
             }
 
             if (typeof rawResult.targetSessionId === 'string' && (rawResult.targetSessionId === 'auto' || liveSessions.some((s) => s.id === rawResult.targetSessionId))) {
-              this.lastAnnotationSessionId = rawResult.targetSessionId;
+              targetTab.state.terminalSessionId = rawResult.targetSessionId;
             }
 
             let targetImageBase64: string | undefined = rawResult.targetImageBase64 || rawResult.screenshotBase64;
@@ -3366,13 +3363,13 @@ export class NativeTabHost extends EventEmitter {
             }
             const tmActiveId = TerminalManager.getInstance().getActiveSessionId();
             const targetSessionId = rawResult.targetSessionId || (tmActiveId !== 'auto' ? tmActiveId : undefined);
-            const targetWorkspace = this.resolveTargetWorkspace(targetSessionId, activeTab?.state.url);
-            const annotationWorkspace = this.resolveAnnotationWorkspace(targetSessionId, activeTab?.state.url);
+            const targetWorkspace = this.resolveTargetWorkspace(targetSessionId, targetTab?.state.url);
+            const annotationWorkspace = this.resolveAnnotationWorkspace(targetSessionId, targetTab?.state.url);
 
             const annotationResult = await AnnotationManager.getInstance().processAnnotationPayload({
               ...rawResult,
-              url: activeTab.state.url,
-              title: activeTab.state.title,
+              url: targetTab.state.url,
+              title: targetTab.state.title,
               targetImageBase64,
               viewportImageBase64,
               workspaceDir: annotationWorkspace,
@@ -3471,19 +3468,40 @@ export class NativeTabHost extends EventEmitter {
     this.emit('inspect-toggled', false);
     this.broadcastState();
   }
-  public getLastAnnotationSessionId(): string | undefined {
-    return this.lastAnnotationSessionId;
+  public getTabTerminalSession(tabId: string): string | undefined {
+    const tab = this.tabs.get(tabId);
+    if (!tab || !tab.state.terminalSessionId) return undefined;
+    const sessionId = tab.state.terminalSessionId;
+    if (sessionId === 'auto') return 'auto';
+    const tm = TerminalManager.getInstance();
+    const valid = tm.listSessions().some((s) => s.id === sessionId);
+    if (!valid) {
+      tab.state.terminalSessionId = undefined;
+      return undefined;
+    }
+    return sessionId;
   }
 
-  public setLastAnnotationSessionId(sessionId?: string): void {
-    if (typeof sessionId === 'string') {
+  public setTabTerminalSession(tabId: string, terminalSessionId?: string): boolean {
+    const tab = this.tabs.get(tabId);
+    if (!tab) return false;
+    if (typeof terminalSessionId === 'string' && terminalSessionId) {
       const tm = TerminalManager.getInstance();
-      const sessions = tm.listSessions();
-      const valid = sessionId === 'auto' || sessions.some((s) => s.id === sessionId);
-      this.lastAnnotationSessionId = valid ? sessionId : undefined;
+      const valid = terminalSessionId === 'auto' || tm.listSessions().some((s) => s.id === terminalSessionId);
+      tab.state.terminalSessionId = valid ? terminalSessionId : undefined;
     } else {
-      this.lastAnnotationSessionId = undefined;
+      tab.state.terminalSessionId = undefined;
     }
+    this.broadcastState();
+    return true;
+  }
+
+  public getLastAnnotationSessionId(tabId?: string): string | undefined {
+    return this.getTabTerminalSession(tabId || this.activeTabId);
+  }
+
+  public setLastAnnotationSessionId(sessionId?: string, tabId?: string): void {
+    this.setTabTerminalSession(tabId || this.activeTabId, sessionId);
   }
 
   public resolveTargetWorkspace(targetSessionId?: string, tabUrl?: string): string {

@@ -689,14 +689,9 @@ export const ELEMENT_PICKER_SCRIPT = `(() => {
       };
     }
     const termContext = window.__antifanTerminalContext || { sessions: [], selectedSessionId: '' };
-    let rememberedSessionId = typeof termContext.annotationSessionId === 'string' && termContext.annotationSessionId
+    const rememberedSessionId = typeof termContext.annotationSessionId === 'string' && termContext.annotationSessionId
       ? termContext.annotationSessionId
       : '';
-    if (!rememberedSessionId) {
-      try {
-        rememberedSessionId = localStorage.getItem('antifan_last_annotation_session_id') || '';
-      } catch {}
-    }
     const termRow = document.createElement('div');
     termRow.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:6px;background:#060a11;border:1px solid #1e293b;border-radius:5px;padding:3px 7px;font-size:11px;box-sizing:border-box;';
 
@@ -735,9 +730,6 @@ export const ELEMENT_PICKER_SCRIPT = `(() => {
         termContext.annotationSessionId = termSelect.value || 'auto';
         window.__antifanTerminalContext = window.__antifanTerminalContext || {};
         window.__antifanTerminalContext.annotationSessionId = selectedSessionId;
-        try {
-          localStorage.setItem('antifan_last_annotation_session_id', selectedSessionId);
-        } catch {}
       });
     } else {
       const opt = document.createElement('option');
@@ -1092,9 +1084,8 @@ export const ELEMENT_PICKER_SCRIPT = `(() => {
           userComment: userComment,
           targetSessionId: (() => {
             const chosen = termSelect ? termSelect.value : (termContext.selectedSessionId || undefined);
-            if (chosen) {
-              try { localStorage.setItem('antifan_last_annotation_session_id', chosen); } catch {}
-              if (window.__antifanTerminalContext) window.__antifanTerminalContext.annotationSessionId = chosen;
+            if (chosen && window.__antifanTerminalContext) {
+              window.__antifanTerminalContext.annotationSessionId = chosen;
             }
             return chosen;
           })(),

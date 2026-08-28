@@ -4,7 +4,16 @@ Tất cả các thay đổi, tính năng mới và bản vá lỗi quan trọng 
 
 ---
 
-## [v1.4.0] - 2026-08-27 (QA Gate Trust & Self-QA)
+## [v1.4.1] - 2026-08-28 (Per-Tab Terminal Memory Fix)
+
+### Popup Annotation — Ghi nhớ Terminal theo từng tab
+- Sửa lỗi Popup Annotation dùng nhầm Terminal của tab khác: trước đây lựa chọn Terminal được lưu ở một slot toàn cục (`lastAnnotationSessionId`) + `localStorage` chia sẻ theo origin, nên chọn Terminal B ở tab 2 sẽ ghi đè lựa chọn Terminal A ở tab 1.
+- Lựa chọn Terminal giờ được lưu **theo từng tab** (`tab.state.terminalSessionId`, field đã có sẵn trong contract `AntiFanTab`); `startInspect`, `did-finish-load` và poll 200ms chỉ đọc/ghi đúng tab đang inspect.
+- Xoá toàn bộ đọc/ghi `localStorage['antifan_last_annotation_session_id']` khỏi element-picker — hết rò rỉ giữa các tab cùng origin.
+- Poll inspect được khoá chặt vào `inspectedTabId`: chuyển tab giữa lúc inspect không còn đọc nhầm context của tab khác.
+- Nối dây kênh IPC chết `SET_TAB_TERMINAL_SESSION` (`antifan:toolbar:set-tab-terminal-session`) — bổ sung handler tại `NativeTabHost`.
+- Giữ backward-compat: `getLastAnnotationSessionId()` / `setLastAnnotationSessionId()` vẫn hoạt động (mặc định theo tab đang active, hỗ trợ tham số `tabId`).
+- Tab mới chưa chọn Terminal vẫn mặc định `auto`; session bị đóng/kill → tự động quay về `auto`, không crash. Thêm regression test `test/main/per-tab-terminal-session.test.ts`.
 
 ### Diagnostics Trust Gate
 - `TabDiagnosticsManager` thêm `clear()`: buffer diagnostics bị xoá ĐỒNG BỘ tại `did-start-navigation` (main-frame, không in-place, pane có quyền điều hướng) — dữ liệu QA không còn nhiễm từ navigation trước.
