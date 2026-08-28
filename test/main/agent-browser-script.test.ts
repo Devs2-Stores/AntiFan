@@ -3,7 +3,8 @@ import * as assert from 'node:assert';
 import * as vm from 'node:vm';
 import { AGENT_BROWSER_SCRIPT } from '../../src/main/browser/agent-browser';
 import { ELEMENT_PICKER_SCRIPT } from '../../src/main/browser/element-picker';
-import { dispatchAnnotationToTerminal } from '../../src/main/browser/annotation-dispatch';
+import { dispatchAnnotationToTerminal, stripDeliveryMode } from '../../src/main/browser/annotation-dispatch';
+import type { PickedElementInput } from '../../src/main/browser/annotation-dispatch';
 
 describe('Agent Browser & Element Picker Injected Scripts', () => {
   it('validates JavaScript syntax of AGENT_BROWSER_SCRIPT and ELEMENT_PICKER_SCRIPT', () => {
@@ -303,6 +304,32 @@ describe('Agent Browser & Element Picker Injected Scripts', () => {
     calls.length = 0;
     dispatchAnnotationToTerminal(fakeTm, 'session-9', 'Inspect this');
     assert.deepStrictEqual(calls, ['switch:session-9', 'writeTo:session-9:Inspect this\r']);
+  });
+
+  it('strips a legacy deliveryMode field from picked payloads before re-emit', () => {
+    const basePick: PickedElementInput = {
+      tag: 'div',
+      id: 'product-card',
+      classes: ['card', 'is-active'],
+      textSnippet: 'Áo thun cotton 100%',
+      xpath: '/html/body/div[1]/section[2]/div[1]',
+      selector: '#product-card',
+      rect: { x: 10, y: 20, width: 300, height: 120 },
+      computedStyles: { display: 'block' },
+    };
+
+    // Clean payload: passes through untouched (identical reference, no new key).
+    const clean = stripDeliveryMode(basePick);
+    assert.strictEqual(clean, basePick, 'payload without deliveryMode must pass through untouched');
+    assert.ok(!('deliveryMode' in clean));
+
+    // Legacy payload: an older picker build could still emit the field.
+    const legacyPick = { ...basePick, deliveryMode: 'draft' } as unknown as PickedElementInput;
+    const sanitized = stripDeliveryMode(legacyPick);
+    assert.ok(!('deliveryMode' in sanitized), 'legacy deliveryMode must not surface on the re-emitted payload');
+    assert.deepStrictEqual(sanitized, basePick, 'every other key must survive the strip');
+    assert.strictEqual(sanitized.selector, '#product-card');
+    assert.deepStrictEqual(sanitized.computedStyles, { display: 'block' });
   });
 
   it('verifies annotation target terminal persistence and validation contract', () => {

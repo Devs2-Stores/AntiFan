@@ -14,7 +14,7 @@ import { EventEmitter } from 'node:events';
 import { AntiFanTab, SplitPaneId, AntiFanPickedElement, TOOLBAR_CHANNELS, SIDEBAR_CHANNELS, TERMINAL_CHANNELS, FRAME_BACKDROP_CHANNELS } from '../../shared/contracts';
 import { getSecureWebPreferences, sanitizeUrl, isAllowedNavigation, cleanRestoredUrl, isInternalWidgetOrSubframeUrl } from '../security/security-policy';
 import { ELEMENT_PICKER_SCRIPT } from './element-picker';
-import { dispatchAnnotationToTerminal } from './annotation-dispatch';
+import { dispatchAnnotationToTerminal, stripDeliveryMode } from './annotation-dispatch';
 import { resolveWorkspaceFromUrl, DEFAULT_WORKSPACE_ROOTS } from './workspace-resolver';
 import { FONT_FINDER_SCRIPT } from './font-finder';
 import { GPU_LENS_SCRIPT } from './gpu-lens';
@@ -3375,10 +3375,7 @@ export class NativeTabHost extends EventEmitter {
               viewportImageBase64,
               workspaceDir: annotationWorkspace,
             });
-            // Drop a legacy `deliveryMode` field that an older picker/page may still set,
-            // so it can never surface on the re-emitted payload at runtime.
-            const { deliveryMode: _legacyDeliveryMode, ...annotationPayload } = rawResult;
-            void _legacyDeliveryMode;
+            const annotationPayload = stripDeliveryMode(rawResult);
             const pickedData: AntiFanPickedElement = {
               ...annotationPayload,
               screenshotBase64: targetImageBase64,

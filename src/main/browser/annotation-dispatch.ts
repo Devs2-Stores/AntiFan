@@ -7,6 +7,8 @@
  * the dispatch invariant is unit-testable without pulling node-pty/Electron
  * runtime into the test process.
  */
+import type { AntiFanPickedElement } from '../../shared/contracts';
+
 export interface TerminalDispatchPort {
   getActiveSessionId(): string;
   switchSession(id: string): boolean;
@@ -22,4 +24,29 @@ export function dispatchAnnotationToTerminal(tm: TerminalDispatchPort, targetSes
   } else {
     tm.write(fullPrompt + '\r');
   }
+}
+
+/**
+ * Raw element data reported by the storefront picker. The native host enriches
+ * it afterwards with screenshot/markdown/timestamp fields, so those are
+ * excluded from the input domain.
+ */
+export type PickedElementInput = Omit<
+  AntiFanPickedElement,
+  'screenshotBase64' | 'markdownPath' | 'markdownContent' | 'targetImagePath' | 'viewportImagePath' | 'userComment' | 'timestamp'
+>;
+
+/**
+ * Remove a legacy `deliveryMode` field from a raw pick payload before it is
+ * re-emitted, so the field can never surface on `element-picked`/toolbar
+ * payloads even when an older picker build or a storefront page still sets it.
+ * The destructuring copy preserves every other key.
+ */
+export function stripDeliveryMode(payload: PickedElementInput): PickedElementInput {
+  if (!('deliveryMode' in payload)) {
+    return payload;
+  }
+  const { deliveryMode: _legacyDeliveryMode, ...rest } = payload;
+  void _legacyDeliveryMode;
+  return rest;
 }
