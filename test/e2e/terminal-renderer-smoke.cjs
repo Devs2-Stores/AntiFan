@@ -107,9 +107,55 @@ app.whenReady().then(async () => {
   });
   ipcMain.handle('antifan:terminal:input-session', () => ({ ok: true }));
   ipcMain.handle('antifan:terminal:input', () => ({ ok: true }));
+  const splitRequests = [];
+  const resizeRequests = [];
+
+  ipcMain.handle('antifan:terminal:split-session', (_e, payload) => {
+    splitRequests.push(payload);
+    const parentId = typeof payload === 'string' ? payload : payload?.parentId || activeSessionId;
+    const splitId = `split-${parentId}`;
+    const parentSession = mockSessions.find((s) => s.id === parentId);
+    if (parentSession) {
+      parentSession.splitSessionId = splitId;
+      parentSession.splitBuffer = '';
+    }
+    const splitSession = {
+      id: splitId,
+      name: `Terminal (Split)`,
+      cwd: parentSession?.cwd || 'E:/Work/project',
+      splitOf: parentId,
+      active: false,
+      buffer: '',
+    };
+    if (!mockSessions.some((s) => s.id === splitId)) {
+      mockSessions.push(splitSession);
+    }
+    broadcastSessionState();
+    return splitId;
+  });
+
+  ipcMain.handle('antifan:terminal:unsplit-session', (_e, parentId) => {
+    const parentSession = mockSessions.find((s) => s.id === parentId);
+    if (parentSession) {
+      const splitId = parentSession.splitSessionId;
+      parentSession.splitSessionId = undefined;
+      parentSession.splitBuffer = undefined;
+      const idx = mockSessions.findIndex((s) => s.id === splitId);
+      if (idx !== -1) mockSessions.splice(idx, 1);
+    }
+    broadcastSessionState();
+    return true;
+  });
+
   ipcMain.handle('antifan:terminal:resize-session', (_e, { id, cols, rows }) => {
+    resizeRequests.push({ id, cols, rows });
     return { ok: true, id, cols, rows };
   });
+
+  ipcMain.handle('antifan:test:get-split-data', () => ({
+    splitRequests,
+    resizeRequests,
+  }));
 
   ipcMain.handle('antifan:terminal:new-session', () => {
     const newId = `session-${mockSessions.length + 1}`;
@@ -146,6 +192,11 @@ app.whenReady().then(async () => {
       console.log(`  - Authoritative empty buffer session: isHydrated === true, queue empty, marker count exactly 1`);
       console.log(`  - Data-before-initial-session race: early chunk queued unrendered -> hydrated cleanly without duplicate`);
       console.log(`  - Ctrl+K scrollback clear: baseY reset to 0 in live Chromium renderer`);
+      if (stats.initialRatio !== undefined) {
+        console.log(`  - Compact split initial ratio: ${stats.initialRatio.toFixed(3)} (~20% lower pane at 1000x700 window)`);
+        console.log(`  - Compact split custom restored ratio: ${stats.restoredSplitRatio?.toFixed(3)}`);
+        console.log(`  - Compact split PTY rows: ${stats.splitRows} rows`);
+      }
       app.exit(0);
     }
   });
@@ -413,12 +464,116 @@ app.whenReady().then(async () => {
         }
         console.log('[SMOKE-RUNNER] Step 8 PASS: Ctrl+K cleared scrollback (baseY ' + ctrlKBeforeBaseY + '->' + ctrlKAfterBaseY + ', length ' + ctrlKBeforeLength + '->' + ctrlKAfterLength + ')');
 
+        // Step 9: Split Terminal compact height (80/20 initial ratio), non-jumping divider, ratio persistence, and unsplit
+        const s1TabBtnSplit = document.querySelector('.terminal-tab-wrap[data-session-id="session-1"] .terminal-tab');
+        if (s1TabBtnSplit) s1TabBtnSplit.click();
+        else window.antifanStandalone.switchTerminal('session-1');
+        await sleep(200);
+
+        const parentRowsBeforeSplit = s1Item.term.rows;
+        const expectedInitialRows = Math.max(4, Math.floor(parentRowsBeforeSplit * 0.2));
+        const splitBtn = document.getElementById('btnSplitTerminal') || document.getElementById('btnSplitVertical');
+        if (!splitBtn) throw new Error('Split button not found in header');
+        splitBtn.click();
+        await sleep(350);
+
+        const mainPane = document.getElementById('terminal-main');
+        const lowerPane = document.getElementById('terminal-split');
+        const divider = document.getElementById('terminal-divider');
+        if (!lowerPane || !divider) throw new Error('Split pane or divider not mounted in DOM');
+
+        const initialMainHeight = mainPane.offsetHeight;
+        const initialLowerHeight = lowerPane.offsetHeight;
+        const initialRatio = initialLowerHeight / (initialMainHeight + initialLowerHeight);
+        if (initialRatio < 0.18 || initialRatio > 0.22) {
+          throw new Error('Initial split lower ratio expected ~0.20 (0.18-0.22), got ' + initialRatio.toFixed(3) + ' (main=' + initialMainHeight + 'px, lower=' + initialLowerHeight + 'px)');
+        }
+
+        const splitData = await helper.getSplitData();
+        const lastSplitReq = splitData.splitRequests[splitData.splitRequests.length - 1];
+        if (lastSplitReq?.rows !== expectedInitialRows) {
+          throw new Error('Split creation request rows expected ' + expectedInitialRows + ', got ' + lastSplitReq?.rows);
+        }
+        const splitResizes = splitData.resizeRequests.filter(r => r.id && String(r.id).startsWith('split-'));
+        const latestSplitResize = splitResizes[splitResizes.length - 1];
+        if (latestSplitResize && latestSplitResize.rows < 4) {
+          throw new Error('Split resize permitted below 4 rows: ' + latestSplitResize.rows);
+        }
+
+        // Pointerdown/pointerup on divider without movement must not jump away from initial ratio
+        divider.dispatchEvent(new PointerEvent('pointerdown', { clientY: divider.getBoundingClientRect().top + 3, bubbles: true, cancelable: true, pointerId: 1 }));
+        await sleep(50);
+        window.dispatchEvent(new PointerEvent('pointerup', { clientY: divider.getBoundingClientRect().top + 3, bubbles: true, cancelable: true, pointerId: 1 }));
+        await sleep(150);
+
+        const postClickMainHeight = mainPane.offsetHeight;
+        const postClickLowerHeight = lowerPane.offsetHeight;
+        const postClickRatio = postClickLowerHeight / (postClickMainHeight + postClickLowerHeight);
+        if (postClickRatio < 0.18 || postClickRatio > 0.22) {
+          throw new Error('Click without drag reset split ratio! Expected 0.18-0.22, got ' + postClickRatio.toFixed(3));
+        }
+
+        // Drag divider to ~35% lower pane (65% main)
+        const containerEl = document.getElementById('terminal');
+        const containerRect = containerEl.getBoundingClientRect();
+        const targetY = containerRect.top + containerRect.height * 0.65;
+        divider.dispatchEvent(new PointerEvent('pointerdown', { clientY: divider.getBoundingClientRect().top + 3, bubbles: true, cancelable: true, pointerId: 1 }));
+        window.dispatchEvent(new PointerEvent('pointermove', { clientY: targetY, bubbles: true, cancelable: true, pointerId: 1 }));
+        await sleep(100);
+        window.dispatchEvent(new PointerEvent('pointerup', { clientY: targetY, bubbles: true, cancelable: true, pointerId: 1 }));
+        await sleep(200);
+
+        const draggedMainHeight = mainPane.offsetHeight;
+        const draggedLowerHeight = lowerPane.offsetHeight;
+        const draggedRatio = draggedLowerHeight / (draggedMainHeight + draggedLowerHeight);
+        if (Math.abs(draggedRatio - 0.35) > 0.05) {
+          throw new Error('Dragged ratio expected ~0.35, got ' + draggedRatio.toFixed(3));
+        }
+
+        // Switch to Session 2 and back to Session 1 -> dragged ratio must be preserved
+        const s2TabBtnSplit = document.querySelector('.terminal-tab-wrap[data-session-id="session-2"] .terminal-tab');
+        if (s2TabBtnSplit) s2TabBtnSplit.click();
+        else window.antifanStandalone.switchTerminal('session-2');
+        await sleep(200);
+
+        const s1TabBtnSplitBack = document.querySelector('.terminal-tab-wrap[data-session-id="session-1"] .terminal-tab');
+        if (s1TabBtnSplitBack) s1TabBtnSplitBack.click();
+        else window.antifanStandalone.switchTerminal('session-1');
+        await sleep(200);
+        const restoredMainPane = document.getElementById('terminal-main');
+        const restoredLowerPane = document.getElementById('terminal-split');
+        if (!restoredLowerPane) throw new Error('Restored split pane not found in DOM after tab switch');
+        const restoredMainHeight = restoredMainPane?.offsetHeight || 0;
+        const restoredLowerHeight = restoredLowerPane.offsetHeight;
+        const restoredSplitRatio = restoredLowerHeight / (restoredMainHeight + restoredLowerHeight);
+        if (Math.abs(restoredSplitRatio - draggedRatio) > 0.03) {
+          throw new Error('Switching tabs failed to restore custom split ratio! Expected ~' + draggedRatio.toFixed(3) + ', got ' + restoredSplitRatio.toFixed(3));
+        }
+
+        // Close split pane via close button
+        const closeBtn = document.getElementById('btnCloseSplitPane');
+        if (!closeBtn) throw new Error('Close split button #btnCloseSplitPane not found');
+        closeBtn.click();
+        await sleep(200);
+
+        if (document.getElementById('terminal-split') || document.getElementById('terminal-divider')) {
+          throw new Error('Split pane or divider still in DOM after close');
+        }
+        const fullMainHeight = mainPane.offsetHeight;
+        if (fullMainHeight < initialMainHeight + initialLowerHeight - 20) {
+          throw new Error('Main pane failed to recover full height! Got ' + fullMainHeight + 'px');
+        }
+        console.log('[SMOKE-RUNNER] Step 9 PASS: Split terminal compact initial ratio (' + initialRatio.toFixed(3) + '), non-jumping click, custom drag (' + draggedRatio.toFixed(3) + '), tab switch restore (' + restoredSplitRatio.toFixed(3) + '), and clean close verified');
+
         await helper.finish({
           ok: true,
           stats: {
             s1Width: s1Rect.width,
             s1Height: s1Rect.height,
             restoredViewportY,
+            initialRatio,
+            restoredSplitRatio,
+            splitRows: latestSplitResize?.rows || expectedInitialRows,
           },
         });
       } catch (err) {

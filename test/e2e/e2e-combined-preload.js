@@ -14,14 +14,20 @@ const api = {
   killTerminal: () => ipcRenderer.invoke('antifan:terminal:kill'),
   resizeTerminal: (cols, rows) => ipcRenderer.invoke('antifan:terminal:resize', { cols, rows }),
   resizeTerminalSession: (id, cols, rows) => ipcRenderer.invoke('antifan:terminal:resize-session', { id, cols, rows }),
+  resizeTerminalTo: (id, cols, rows) => ipcRenderer.invoke('antifan:terminal:resize-session', { id, cols, rows }),
   listSessions: () => ipcRenderer.invoke('antifan:terminal:list-sessions'),
   switchTerminal: (id) => ipcRenderer.invoke('antifan:terminal:switch-session', id),
   setActiveSession: (sessionId) => ipcRenderer.invoke('antifan:terminal:set-active-session', { sessionId }),
   newTerminal: () => ipcRenderer.invoke('antifan:terminal:new-session'),
-  renameTerminal: (name) => ipcRenderer.invoke('antifan:terminal:rename-session', name),
+  renameTerminal: (id, name) => typeof id === 'string' && name === undefined ? ipcRenderer.invoke('antifan:terminal:rename-session', id) : ipcRenderer.invoke('antifan:terminal:rename-session', { id, name }),
   renameTerminalSession: (id, name) => ipcRenderer.invoke('antifan:terminal:rename-session', { id, name }),
+  closeTerminal: (id) => ipcRenderer.invoke('antifan:terminal:close-session', id),
   deleteTerminal: (id) => ipcRenderer.invoke('antifan:terminal:delete-session', id),
-  splitTerminal: (id) => ipcRenderer.invoke('antifan:terminal:split-session', { id }),
+  splitTerminal: (parentId, options) => {
+    const payload = typeof options === 'string' ? { parentId, cwd: options } : { parentId, ...(options || {}) };
+    return ipcRenderer.invoke('antifan:terminal:split-session', payload);
+  },
+  unsplitTerminal: (parentId) => ipcRenderer.invoke('antifan:terminal:unsplit-session', parentId),
   setSplitRatio: (id, ratio) => ipcRenderer.invoke('antifan:terminal:set-split-ratio', { id, ratio }),
   closeSplit: (id) => ipcRenderer.invoke('antifan:terminal:close-split', { id }),
   togglePopout: () => ipcRenderer.invoke('antifan:terminal:popout'),
@@ -54,5 +60,6 @@ contextBridge.exposeInMainWorld('antifanStandalone', api);
 contextBridge.exposeInMainWorld('antifanTestHelper', {
   emitData: (sessionId, data) => ipcRenderer.invoke('antifan:test:emit-data', { sessionId, data }),
   addAuthoritativeSession: (session) => ipcRenderer.invoke('antifan:test:add-authoritative-session', session),
+  getSplitData: () => ipcRenderer.invoke('antifan:test:get-split-data'),
   finish: (payload) => ipcRenderer.invoke('antifan:test:finish', payload),
 });

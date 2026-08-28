@@ -13,11 +13,13 @@ describe('Terminal Switching Regression & Viewport Integrity', () => {
   const testStateFile = path.join(tempDir, 'terminal-sessions.json');
 
   type TerminalManagerInternals = {
-    spawn: (id: string, cwd: string, restoredBuffer?: string) => unknown;
+    spawn: (id: string, cwd: string, restoredBuffer?: string, initialCols?: number, initialRows?: number, minimumRows?: number) => unknown;
     statePath: () => string;
     sessions: Map<string, unknown>;
     activeSessionId?: string;
     currentCapsuleId?: string;
+    lastCols?: number;
+    lastRows?: number;
     persistAsync: () => Promise<void>;
     readSavedSessions: () => { activeSessionId?: string; sessions?: Array<{ id: string; buffer?: string; name?: string }> };
   };
@@ -27,18 +29,20 @@ describe('Terminal Switching Regression & Viewport Integrity', () => {
   const originalStatePath = tmInternal.statePath.bind(tm);
 
   tmInternal.statePath = () => testStateFile;
-  tmInternal.spawn = function (id: string, cwd: string, restoredBuffer = '') {
+  tmInternal.spawn = function (id: string, cwd: string, restoredBuffer = '', initialCols?: number, initialRows?: number, minimumRows = 8) {
+    const cols = Math.max(40, initialCols || tmInternal.lastCols || 120);
+    const rows = Math.max(minimumRows, initialRows || tmInternal.lastRows || 30);
     const mockPty = {
       pid: undefined,
-      cols: undefined as number | undefined,
-      rows: undefined as number | undefined,
+      cols,
+      rows,
       onData: () => ({ dispose: () => {} }),
       onExit: () => ({ dispose: () => {} }),
       kill: () => {},
       write: () => {},
-      resize: (cols: number, rows: number) => {
-        mockPty.cols = cols;
-        mockPty.rows = rows;
+      resize: (newCols: number, newRows: number) => {
+        mockPty.cols = newCols;
+        mockPty.rows = newRows;
       },
     };
     const s = {
@@ -149,11 +153,27 @@ describe('Terminal Switching Regression & Viewport Integrity', () => {
     assert.doesNotMatch(jsContent, /convertEol:\s*true/);
     assert.match(jsContent, /convertEol:\s*false/);
     // 8. Ensure applySplitRatio enforces bounded pane calculation to prevent overflow and collapse
-    assert.match(jsContent, /paneMin\s*=\s*Math\.min/);
+    assert.match(jsContent, /getUsableTerminalHeight/);
+    assert.match(jsContent, /paneMin\s*=\s*Math\.min\(60,\s*Math\.floor\(usable\s*\*\s*0\.15\)\)/);
     assert.match(jsContent, /minHeight\s*=\s*'0px'/);
+    // Verify short-container clamping math: at 100px usable height, paneMin is 15px (not clamped to 50px 50/50)
+    const shortContainerUsable = 100;
+    const shortPaneMin = Math.min(60, Math.floor(shortContainerUsable * 0.15));
+    assert.strictEqual(shortPaneMin, 15);
+    const shortRawMain = Math.round(shortContainerUsable * 0.8);
+    const shortClampedMain = Math.max(shortPaneMin, Math.min(shortContainerUsable - shortPaneMin, shortRawMain));
+    assert.strictEqual(shortClampedMain, 80);
+    const shortClampedLower = shortContainerUsable - shortClampedMain;
+    assert.strictEqual(shortClampedLower, 20);
     // 9. Ensure Ctrl+K/Cmd+K clears the terminal scrollback via xterm clear() (resets the tall scroll area)
     assert.match(jsContent, /targetTerm\.clear\(\)/);
     assert.match(jsContent, /e\.key === 'k' \|\| e\.key === 'K'/);
+    // 10. Ensure standalone.js split constants and guard contracts
+    assert.match(jsContent, /DEFAULT_MAIN_SPLIT_RATIO\s*=\s*0\.8/);
+    assert.match(jsContent, /SPLIT_TERMINAL_FRACTION\s*=\s*0\.2/);
+    assert.match(jsContent, /MIN_SPLIT_TERMINAL_ROWS\s*=\s*4/);
+    assert.match(jsContent, /MIN_TERMINAL_ROWS\s*=\s*8/);
+    assert.match(jsContent, /splitPropose\.rows\s*>=\s*MIN_SPLIT_TERMINAL_ROWS/);
   });
   it('verifies split terminal lifecycle: resizeTo custom ratios, session events, close persistence, switch normalization, and recreate', async () => {
     const p1 = tm.createSession();
@@ -167,10 +187,23 @@ describe('Terminal Switching Regression & Viewport Integrity', () => {
     tm.on('session', onSession);
 
     try {
-      // 1. Create split session
+      // 1. Create split session with parent geometry 120x30
+      tm.resize(120, 30);
       const split1 = tm.createSplitSession(p1);
       assert.ok(split1);
       assert.match(split1, /^split-/);
+
+      // Verify default split creation starts at 120x6 (30 * 0.2)
+      const initialSplitSession = tm.getSession(split1);
+      assert.ok(initialSplitSession);
+      assert.strictEqual((initialSplitSession as any).pty.cols, 120);
+      assert.strictEqual((initialSplitSession as any).pty.rows, 6);
+
+      // Verify explicit split creation below 4-row floor clamps to 4
+      const pTemp = tm.createSession();
+      const splitClamped = tm.createSplitSession(pTemp, undefined, 100, 2);
+      assert.strictEqual((tm.getSession(splitClamped) as any).pty.rows, 4);
+      await tm.closeSession(pTemp);
 
       // Verify event was emitted for split creation
       const lastEventAfterCreate = sessionEvents[sessionEvents.length - 1];
@@ -193,7 +226,13 @@ describe('Terminal Switching Regression & Viewport Integrity', () => {
       assert.strictEqual((splitSession as any).pty.cols, 100);
       assert.strictEqual((splitSession as any).pty.rows, 30);
 
-      // 4. Test resizeTo with custom 70/30 split ratio
+      // 4. Test resizeTo with split-specific 4-row floor vs main 8-row floor
+      tm.resizeTo(split1, 120, 4);
+      assert.strictEqual((splitSession as any).pty.rows, 4);
+      tm.resizeTo(p1, 120, 4);
+      assert.strictEqual((parentSession as any).pty.rows, 8);
+
+      // Test resizeTo with custom 70/30 split ratio
       tm.resizeTo(p1, 120, 35);
       tm.resizeTo(split1, 120, 15);
       assert.strictEqual((parentSession as any).pty.cols, 120);

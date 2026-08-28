@@ -71,6 +71,9 @@ type Session = { id: string; name: string; cwd: string; pty: pty.IPty; buffer: s
 type SavedSession = { id: string; name: string; cwd: string; buffer?: string; splitOf?: string; capsuleId?: string };
 const MAX_TRANSCRIPT_BYTES = 512 * 1024; // 512KB in-memory history buffer (~5,000-10,000 lines)
 const MAX_PERSISTED_BYTES = 256 * 1024; // 256KB per session on disk
+const MIN_TERMINAL_ROWS = 8;
+const MIN_SPLIT_TERMINAL_ROWS = 4;
+const SPLIT_TERMINAL_FRACTION = 0.2;
 
 function safeSliceTail(str: string, maxBytes: number): string {
   if (!str || str.length <= maxBytes) return str || '';
@@ -96,6 +99,9 @@ export class TerminalManager extends EventEmitter {
   private lastCols = 120;
   private lastRows = 30;
   private isDisposed = false;
+  private getInitialSplitRows(parentRows = this.lastRows): number {
+    return Math.max(MIN_SPLIT_TERMINAL_ROWS, Math.floor((parentRows || 30) * SPLIT_TERMINAL_FRACTION));
+  }
 
   private statePath(): string {
     const dir = process.env.ANTIFAN_CONFIG_DIR || path.join(os.homedir(), '.antifan');
@@ -273,13 +279,16 @@ export class TerminalManager extends EventEmitter {
         }
         const splitSessions = saved.filter(item => item.splitOf && this.sessions.has(item.splitOf));
         for (const item of splitSessions) {
-          const s = this.spawn(item.id, item.cwd || this.currentCwd, '');
+          const parentRows = item.splitOf ? this.sessions.get(item.splitOf)?.pty?.rows : undefined;
+          const initialRows = this.getInitialSplitRows(parentRows || this.lastRows);
+          const s = this.spawn(item.id, item.cwd || this.currentCwd, '', undefined, initialRows, MIN_SPLIT_TERMINAL_ROWS);
           s.name = item.name || s.name;
           s.splitOf = item.splitOf;
           s.capsuleId = item.capsuleId || this.currentCapsuleId;
         }
         if (savedActiveId && this.sessions.has(savedActiveId)) {
-          this.activeSessionId = savedActiveId;
+          const savedTarget = this.sessions.get(savedActiveId);
+          this.activeSessionId = savedTarget?.splitOf || savedActiveId;
         } else {
           this.activeSessionId = baseSessions[0]?.id || '';
         }
@@ -293,7 +302,7 @@ export class TerminalManager extends EventEmitter {
     this.emitSession();
   }
 
-  private spawn(id: string, cwd: string, restoredBuffer = '', initialCols?: number, initialRows?: number): Session {
+  private spawn(id: string, cwd: string, restoredBuffer = '', initialCols?: number, initialRows?: number, minimumRows = MIN_TERMINAL_ROWS): Session {
     let validCwd = cwd || this.currentCwd;
     try {
       if (!validCwd || !fs.existsSync(validCwd) || !fs.statSync(validCwd).isDirectory()) {
@@ -305,7 +314,7 @@ export class TerminalManager extends EventEmitter {
     const shell = process.platform === 'win32' ? 'powershell.exe' : (process.env.SHELL || '/bin/bash');
     let child: pty.IPty;
     const cols = Math.max(40, initialCols || this.lastCols || 120);
-    const rows = Math.max(8, initialRows || this.lastRows || 30);
+    const rows = Math.max(minimumRows, initialRows || this.lastRows || 30);
     const scriptsDir = resolveScriptsDir();
     const pathDelimiter = process.platform === 'win32' ? ';' : ':';
     const currentPath = process.env.PATH || '';
@@ -368,13 +377,16 @@ export class TerminalManager extends EventEmitter {
         }
         const splitSessions = saved.filter(item => item.splitOf && this.sessions.has(item.splitOf));
         for (const item of splitSessions) {
-          const s = this.spawn(item.id, item.cwd || this.currentCwd, '');
+          const parentRows = item.splitOf ? this.sessions.get(item.splitOf)?.pty?.rows : undefined;
+          const initialRows = this.getInitialSplitRows(parentRows || this.lastRows);
+          const s = this.spawn(item.id, item.cwd || this.currentCwd, '', undefined, initialRows, MIN_SPLIT_TERMINAL_ROWS);
           s.name = item.name || s.name;
           s.splitOf = item.splitOf;
           s.capsuleId = item.capsuleId || this.currentCapsuleId;
         }
         if (savedActiveId && this.sessions.has(savedActiveId)) {
-          this.activeSessionId = savedActiveId;
+          const savedTarget = this.sessions.get(savedActiveId);
+          this.activeSessionId = savedTarget?.splitOf || savedActiveId;
         } else {
           this.activeSessionId = baseSessions[0]?.id || '';
         }
@@ -409,7 +421,7 @@ export class TerminalManager extends EventEmitter {
   }
   public resize(cols: number, rows: number): void {
     const validCols = Math.max(40, cols);
-    const validRows = Math.max(8, rows);
+    const validRows = Math.max(MIN_TERMINAL_ROWS, rows);
     if (validCols >= 60 && validRows >= 15) {
       this.lastCols = validCols;
       this.lastRows = validRows;
@@ -424,10 +436,11 @@ export class TerminalManager extends EventEmitter {
   }
 
   public resizeTo(id: string, cols: number, rows: number): void {
-    const validCols = Math.max(40, cols);
-    const validRows = Math.max(8, rows);
     const target = this.sessions.get(id);
-    if (!target?.splitOf && validCols >= 60 && validRows >= 15) {
+    const minRows = target?.splitOf ? MIN_SPLIT_TERMINAL_ROWS : MIN_TERMINAL_ROWS;
+    const validCols = Math.max(40, cols);
+    const validRows = Math.max(minRows, rows);
+    if (target && !target.splitOf && validCols >= 60 && validRows >= 15) {
       this.lastCols = validCols;
       this.lastRows = validRows;
     }
@@ -512,8 +525,8 @@ export class TerminalManager extends EventEmitter {
     while (this.sessions.has(`split-${n}`)) n++;
     const id = `split-${n}`;
     const targetCols = Math.max(40, initialCols || this.lastCols || 120);
-    const targetRows = Math.max(8, initialRows || Math.floor((this.lastRows || 30) / 2));
-    const splitSession = this.spawn(id, cwd || parent.cwd, '', targetCols, targetRows);
+    const targetRows = Math.max(MIN_SPLIT_TERMINAL_ROWS, initialRows || this.getInitialSplitRows(parent.pty?.rows));
+    const splitSession = this.spawn(id, cwd || parent.cwd, '', targetCols, targetRows, MIN_SPLIT_TERMINAL_ROWS);
     splitSession.splitOf = parentId;
     splitSession.capsuleId = parent.capsuleId || this.currentCapsuleId;
     this.persist();

@@ -16,6 +16,14 @@ let contextTargetSessionId = '';
 let globalResizeObserver = null;
 const MIN_TERMINAL_COLS = 40;
 const MIN_TERMINAL_ROWS = 8;
+const MIN_SPLIT_TERMINAL_ROWS = 4;
+const DEFAULT_MAIN_SPLIT_RATIO = 0.8;
+const SPLIT_TERMINAL_FRACTION = 0.2;
+
+function getInitialSplitRows(term) {
+  const parentRows = (term && typeof term.rows === 'number' && isFinite(term.rows) && term.rows > 0) ? term.rows : 30;
+  return Math.max(MIN_SPLIT_TERMINAL_ROWS, Math.floor(parentRows * SPLIT_TERMINAL_FRACTION));
+}
 
 function scheduleFitTerminal(delay = 50) {
   requestAnimationFrame(() => {
@@ -447,6 +455,7 @@ function syncTerminalPool(allSessions, currentActiveId, snapshot) {
       }
       item.paneEl.remove();
       terminalPool.delete(id);
+      sessionSplitRatios.delete(id);
     }
   }
   for (const s of allSessions) {
@@ -549,22 +558,26 @@ if (btnNewTerminal) {
   };
 }
 
+function getUsableTerminalHeight() {
+  const divider = document.getElementById('terminal-divider');
+  const dividerHeight = divider?.offsetHeight || 7;
+  const dividerStyle = (divider && typeof window.getComputedStyle === 'function') ? window.getComputedStyle(divider) : null;
+  const dividerMarginTop = dividerStyle ? (parseFloat(dividerStyle.marginTop) || 0) : 2;
+  const dividerMarginBottom = dividerStyle ? (parseFloat(dividerStyle.marginBottom) || 0) : 2;
+  const dividerTotal = dividerHeight + dividerMarginTop + dividerMarginBottom;
+  const containerStyle = (container && typeof window.getComputedStyle === 'function') ? window.getComputedStyle(container) : null;
+  const containerPadTop = containerStyle ? (parseFloat(containerStyle.paddingTop) || 0) : 4;
+  const containerPadBottom = containerStyle ? (parseFloat(containerStyle.paddingBottom) || 0) : 4;
+  const totalHeight = Math.max(0, (container?.clientHeight || 400) - (containerPadTop + containerPadBottom));
+  return Math.max(0, totalHeight - dividerTotal);
+}
+
 function applySplitRatio(ratio, resizePty = true) {
   const lower = document.getElementById('terminal-split');
   if (lower && splitEnabled) {
-    const divider = document.getElementById('terminal-divider');
-    const dividerHeight = divider?.offsetHeight || 7;
-    const dividerStyle = (divider && typeof window.getComputedStyle === 'function') ? window.getComputedStyle(divider) : null;
-    const dividerMarginTop = dividerStyle ? (parseFloat(dividerStyle.marginTop) || 0) : 2;
-    const dividerMarginBottom = dividerStyle ? (parseFloat(dividerStyle.marginBottom) || 0) : 2;
-    const dividerTotal = dividerHeight + dividerMarginTop + dividerMarginBottom;
-    const containerStyle = (container && typeof window.getComputedStyle === 'function') ? window.getComputedStyle(container) : null;
-    const containerPadTop = containerStyle ? (parseFloat(containerStyle.paddingTop) || 0) : 4;
-    const containerPadBottom = containerStyle ? (parseFloat(containerStyle.paddingBottom) || 0) : 4;
-    const totalHeight = Math.max(0, (container?.clientHeight || 400) - (containerPadTop + containerPadBottom));
-    const usable = Math.max(0, totalHeight - dividerTotal);
-    const paneMin = Math.min(60, Math.floor(usable / 2));
-    const rawRatio = (typeof ratio === 'number' && !isNaN(ratio) && ratio > 0) ? ratio : 0.5;
+    const usable = getUsableTerminalHeight();
+    const paneMin = Math.min(60, Math.floor(usable * 0.15));
+    const rawRatio = (typeof ratio === 'number' && isFinite(ratio) && ratio > 0 && ratio < 1) ? ratio : DEFAULT_MAIN_SPLIT_RATIO;
     const rawMain = Math.round(usable * rawRatio);
     const clampedMain = Math.max(paneMin, Math.min(usable - paneMin, rawMain));
     const clampedLower = Math.max(0, usable - clampedMain);
@@ -603,7 +616,7 @@ function applySplitRatio(ratio, resizePty = true) {
     if (splitFitAddon && splitTerm) {
       try {
         const splitPropose = splitFitAddon.proposeDimensions();
-        if (splitPropose && splitPropose.cols >= MIN_TERMINAL_COLS && splitPropose.rows >= MIN_TERMINAL_ROWS) {
+        if (splitPropose && splitPropose.cols >= MIN_TERMINAL_COLS && splitPropose.rows >= MIN_SPLIT_TERMINAL_ROWS) {
           if (splitTerm.cols !== splitPropose.cols || splitTerm.rows !== splitPropose.rows) {
             splitTerm.resize(splitPropose.cols, splitPropose.rows);
             if (resizePty && splitId) {
@@ -618,6 +631,20 @@ function applySplitRatio(ratio, resizePty = true) {
 }
 
 function unmountSplit() {
+  if (splitting) {
+    splitting = false;
+    const dividerEl = document.getElementById('terminal-divider');
+    dividerEl?.classList.remove('dragging');
+    document.body.style.cursor = '';
+    document.body.style.userSelect = '';
+    mainPane.style.pointerEvents = '';
+    const lowerEl = document.getElementById('terminal-split');
+    if (lowerEl) lowerEl.style.pointerEvents = '';
+    if (splitRafId) {
+      cancelAnimationFrame(splitRafId);
+      splitRafId = null;
+    }
+  }
   splitWriteTarget = null;
   isSplitUserScrolledUp = false;
   isSplitProgrammaticScroll = false;
@@ -713,7 +740,7 @@ function mountSplit(sessionId, snapshot = '') {
   splitHost.addEventListener('click', () => {
     splitTerm?.focus();
   });
-  applySplitRatio(sessionSplitRatios.get(activeId) || 0.5);
+  applySplitRatio(sessionSplitRatios.get(activeId) ?? DEFAULT_MAIN_SPLIT_RATIO);
   if (snapshot) splitTerm.write(snapshot);
   if (splitButton) {
     splitButton.classList.add('active');
@@ -751,7 +778,7 @@ if (splitButton) {
     try {
       const mainItem = terminalPool.get(activeId);
       const targetCols = (mainItem && mainItem.term && mainItem.term.cols) || 120;
-      const targetRows = (mainItem && mainItem.term && mainItem.term.rows) ? Math.max(8, Math.floor(mainItem.term.rows / 2)) : 15;
+      const targetRows = getInitialSplitRows(mainItem?.term);
       const newSplitId = await api.splitTerminal(activeId, { cols: targetCols, rows: targetRows });
       if (newSplitId) mountSplit(newSplitId);
     } finally {
@@ -812,7 +839,7 @@ contextMenu?.querySelectorAll('.context-item').forEach((item) => {
       if (!splitEnabled && api) {
         const mainItem = terminalPool.get(targetId);
         const targetCols = (mainItem && mainItem.term && mainItem.term.cols) || 120;
-        const targetRows = (mainItem && mainItem.term && mainItem.term.rows) ? Math.max(8, Math.floor(mainItem.term.rows / 2)) : 15;
+        const targetRows = getInitialSplitRows(mainItem?.term);
         const newSplitId = await api.splitTerminal(targetId, { cols: targetCols, rows: targetRows });
         if (newSplitId) mountSplit(newSplitId);
       } else if (splitEnabled && api) {
@@ -1230,7 +1257,7 @@ function fitCurrentTerminal() {
   if (splitEnabled && splitFitAddon && splitTerm && splitId) {
     try {
       const splitPropose = splitFitAddon.proposeDimensions();
-      if (splitPropose && splitPropose.cols >= MIN_TERMINAL_COLS && splitPropose.rows >= MIN_TERMINAL_ROWS) {
+      if (splitPropose && splitPropose.cols >= MIN_TERMINAL_COLS && splitPropose.rows >= MIN_SPLIT_TERMINAL_ROWS) {
         if (splitTerm.cols !== splitPropose.cols || splitTerm.rows !== splitPropose.rows) {
           splitTerm.resize(splitPropose.cols, splitPropose.rows);
           api?.resizeTerminalTo(splitId, splitPropose.cols, splitPropose.rows);
@@ -1375,11 +1402,12 @@ if (resizeHandle) {
 // Smooth Terminal Vertical Split Divider Resizing
 let splitting = false;
 let splitRafId = null;
-let pendingRatio = 0.5;
+let pendingRatio = DEFAULT_MAIN_SPLIT_RATIO;
 
 window.addEventListener('pointerdown', (e) => {
   if (e.target instanceof HTMLElement && e.target.id === 'terminal-divider') {
     splitting = true;
+    pendingRatio = sessionSplitRatios.get(activeId) ?? DEFAULT_MAIN_SPLIT_RATIO;
     const divider = e.target;
     divider.classList.add('dragging');
     try {
@@ -1395,15 +1423,14 @@ window.addEventListener('pointerdown', (e) => {
 
 window.addEventListener('pointermove', (e) => {
   if (!splitting || !splitEnabled) return;
-  const rect = container.getBoundingClientRect();
-  const dividerHeight = 7;
-  const availableHeight = rect.height - dividerHeight;
-  if (availableHeight <= 0) return;
+  const usable = getUsableTerminalHeight();
+  if (usable <= 0) return;
 
+  const rect = container.getBoundingClientRect();
   const currentY = e.clientY - rect.top;
-  const minPx = Math.min(90, Math.floor(availableHeight * 0.25));
-  const clampedY = Math.max(minPx, Math.min(availableHeight - minPx, currentY));
-  pendingRatio = clampedY / availableHeight;
+  const minPx = Math.min(60, Math.floor(usable * 0.15));
+  const clampedY = Math.max(minPx, Math.min(usable - minPx, currentY));
+  pendingRatio = clampedY / usable;
   sessionSplitRatios.set(activeId, pendingRatio);
 
   if (!splitRafId) {
