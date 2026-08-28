@@ -58,6 +58,26 @@ import {
 } from './split-review-coordinator';
 export const TOOLBAR_HEIGHT_WITH_BOOKMARKS = 102;
 export const TOOLBAR_HEIGHT_COMPACT = 74;
+/**
+ * Safely dispatches IPC messages to a WebContents instance, guarding against
+ * frame lifecycle races (e.g. disposed WebFrameMain during process termination/reloads).
+ */
+export function safeSendWebContents(
+  wc: Electron.WebContents | null | undefined,
+  channel: string,
+  ...args: unknown[]
+): boolean {
+  if (!wc || wc.isDestroyed()) return false;
+  try {
+    if (typeof wc.isCrashed === 'function' && wc.isCrashed()) return false;
+    if (!wc.mainFrame) return false;
+    wc.send(channel, ...args);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 
 export const MOBILE_OVERLAY_SCROLLBAR_CSS = `
 /* AntiFan Chrome DevTools Mobile Scrollbar Simulation */
@@ -347,18 +367,16 @@ export class NativeTabHost extends EventEmitter {
       standaloneHtml = path.join(process.cwd(), 'src', 'renderer', 'standalone.html');
     }
     this.sidebarView.webContents.on('did-finish-load', () => {
-      if (this.sidebarView && !this.sidebarView.webContents.isDestroyed()) {
-        const tm = TerminalManager.getInstance();
-        const activeId = tm.getActiveSessionId();
-        const s = tm.getSession(activeId);
-        const activeSession = tm.listSessions().find(x => x.id === activeId);
-        this.sidebarView.webContents.send('antifan:terminal:session', {
-          activeSessionId: activeId,
-          sessions: tm.listSessions(),
-          splitSessionId: activeSession?.splitSessionId,
-          snapshot: s?.buffer || '',
-        });
-      }
+      const tm = TerminalManager.getInstance();
+      const activeId = tm.getActiveSessionId();
+      const s = tm.getSession(activeId);
+      const activeSession = tm.listSessions().find(x => x.id === activeId);
+      safeSendWebContents(this.sidebarView?.webContents, 'antifan:terminal:session', {
+        activeSessionId: activeId,
+        sessions: tm.listSessions(),
+        splitSessionId: activeSession?.splitSessionId,
+        snapshot: s?.buffer || '',
+      });
     });
     this.sidebarView.webContents.loadFile(standaloneHtml);
     // 3. Create Bottom Docked Terminal View
@@ -476,9 +494,9 @@ export class NativeTabHost extends EventEmitter {
         url: activeTab.state.url || '',
         agentWorking: isAgentWorking,
       };
-      this.frameBackdropView.webContents.send(FRAME_BACKDROP_CHANNELS.UPDATE_LAYOUT, payload);
+      safeSendWebContents(this.frameBackdropView?.webContents, FRAME_BACKDROP_CHANNELS.UPDATE_LAYOUT, payload);
     } else {
-      this.frameBackdropView.webContents.send(FRAME_BACKDROP_CHANNELS.UPDATE_LAYOUT, {
+      safeSendWebContents(this.frameBackdropView?.webContents, FRAME_BACKDROP_CHANNELS.UPDATE_LAYOUT, {
         splitMode: false,
         focusedPane: 'desktop',
         containerWidth: availableWidth,
@@ -730,18 +748,11 @@ export class NativeTabHost extends EventEmitter {
       const formatted = typeof payload === 'string'
         ? { sessionId: TerminalManager.getInstance().getActiveSessionId(), data: payload }
         : payload;
-      if (this.sidebarView && !this.sidebarView.webContents.isDestroyed()) {
-        this.sidebarView.webContents.send('antifan:terminal:data', formatted);
-      }
-      if (this.terminalView && !this.terminalView.webContents.isDestroyed()) {
-        this.terminalView.webContents.send(TERMINAL_CHANNELS.DATA, formatted.data);
-      }
-      if (this.toolbarView && !this.toolbarView.webContents.isDestroyed()) {
-        this.toolbarView.webContents.send(TERMINAL_CHANNELS.DATA, formatted.data);
-      }
+      safeSendWebContents(this.sidebarView?.webContents, 'antifan:terminal:data', formatted);
+      safeSendWebContents(this.terminalView?.webContents, TERMINAL_CHANNELS.DATA, formatted.data);
       for (const [id, win] of this.terminalWindows.entries()) {
         if (win && !win.isDestroyed()) {
-          win.webContents.send('antifan:terminal:data', formatted);
+          safeSendWebContents(win.webContents, 'antifan:terminal:data', formatted);
         } else {
           this.terminalWindows.delete(id);
         }
@@ -749,12 +760,10 @@ export class NativeTabHost extends EventEmitter {
     });
 
     TerminalManager.getInstance().on('session', (state: unknown) => {
-      if (this.sidebarView && !this.sidebarView.webContents.isDestroyed()) {
-        this.sidebarView.webContents.send('antifan:terminal:session', state);
-      }
+      safeSendWebContents(this.sidebarView?.webContents, 'antifan:terminal:session', state);
       for (const [id, win] of this.terminalWindows.entries()) {
         if (win && !win.isDestroyed()) {
-          win.webContents.send('antifan:terminal:session', state);
+          safeSendWebContents(win.webContents, 'antifan:terminal:session', state);
         } else {
           this.terminalWindows.delete(id);
         }
@@ -1178,7 +1187,7 @@ export class NativeTabHost extends EventEmitter {
       // 3. Ctrl+L -> Focus Omnibox
       if (isCtrlOrCmd && input.key.toLowerCase() === 'l') {
         _event.preventDefault();
-        this.toolbarView.webContents.send('antifan:focus-omnibox');
+        safeSendWebContents(this.toolbarView?.webContents, 'antifan:focus-omnibox');
         return;
       }
 
@@ -1583,15 +1592,11 @@ export class NativeTabHost extends EventEmitter {
 
   public showShortcuts(): void {
     this.setToolbarOverlay(true);
-    if (this.toolbarView && !this.toolbarView.webContents.isDestroyed()) {
-      this.toolbarView.webContents.send('antifan:show-shortcuts');
-    }
+    safeSendWebContents(this.toolbarView?.webContents, 'antifan:show-shortcuts');
   }
 
   public focusFindBar(): void {
-    if (this.toolbarView && !this.toolbarView.webContents.isDestroyed()) {
-      this.toolbarView.webContents.send('antifan:focus-find');
-    }
+    safeSendWebContents(this.toolbarView?.webContents, 'antifan:focus-find');
   }
 
   public getTabList(): AntiFanTab[] {
@@ -1971,7 +1976,7 @@ export class NativeTabHost extends EventEmitter {
     });
 
     wc.on('found-in-page', (_event, result) => {
-      this.toolbarView.webContents.send(TOOLBAR_CHANNELS.FIND_RESULT, result);
+      safeSendWebContents(this.toolbarView?.webContents, TOOLBAR_CHANNELS.FIND_RESULT, result);
     });
 
     wc.setWindowOpenHandler((details) => {
@@ -3390,9 +3395,7 @@ export class NativeTabHost extends EventEmitter {
             this.emit('element-picked', pickedData);
 
             // Notify Toolbar
-            if (!this.toolbarView.webContents.isDestroyed()) {
-              this.toolbarView.webContents.send(TOOLBAR_CHANNELS.ELEMENT_PICKED, pickedData);
-            }
+            safeSendWebContents(this.toolbarView?.webContents, TOOLBAR_CHANNELS.ELEMENT_PICKED, pickedData);
 
             const formatPath = (p?: string) => {
               if (!p) return '';
@@ -4140,9 +4143,7 @@ export class NativeTabHost extends EventEmitter {
       themeQa: this.themeQaState,
     };
     this.emit('tabs-changed', payload.tabs, payload.activeTabId);
-    if (!this.toolbarView.webContents.isDestroyed()) {
-      this.toolbarView.webContents.send(TOOLBAR_CHANNELS.STATE_UPDATED, payload);
-    }
+    safeSendWebContents(this.toolbarView?.webContents, TOOLBAR_CHANNELS.STATE_UPDATED, payload);
     this.schedulePersist();
   }
 
@@ -4608,18 +4609,16 @@ export class NativeTabHost extends EventEmitter {
     }
 
     win.webContents.on('did-finish-load', () => {
-      if (!win.isDestroyed()) {
-        const tm = TerminalManager.getInstance();
-        const activeId = sessionId || tm.getActiveSessionId();
-        const s = tm.getSession(activeId);
-        const activeSession = tm.listSessions().find(x => x.id === activeId);
-        win.webContents.send('antifan:terminal:session', {
-          activeSessionId: activeId,
-          sessions: tm.listSessions(),
-          splitSessionId: activeSession?.splitSessionId,
-          snapshot: s?.buffer || '',
-        });
-      }
+      const tm = TerminalManager.getInstance();
+      const activeId = sessionId || tm.getActiveSessionId();
+      const s = tm.getSession(activeId);
+      const activeSession = tm.listSessions().find(x => x.id === activeId);
+      safeSendWebContents(win.webContents, 'antifan:terminal:session', {
+        activeSessionId: activeId,
+        sessions: tm.listSessions(),
+        splitSessionId: activeSession?.splitSessionId,
+        snapshot: s?.buffer || '',
+      });
     });
 
     win.loadFile(standaloneHtml, { query: { mode: 'popout', ...(sessionId ? { sessionId } : {}) } });
@@ -4709,18 +4708,16 @@ export class NativeTabHost extends EventEmitter {
     }
 
     win.webContents.on('did-finish-load', () => {
-      if (!win.isDestroyed()) {
-        const tm = TerminalManager.getInstance();
-        const activeId = sessionId || tm.getActiveSessionId();
-        const s = tm.getSession(activeId);
-        const activeSession = tm.listSessions().find(x => x.id === activeId);
-        win.webContents.send('antifan:terminal:session', {
-          activeSessionId: activeId,
-          sessions: tm.listSessions(),
-          splitSessionId: activeSession?.splitSessionId,
-          snapshot: s?.buffer || '',
-        });
-      }
+      const tm = TerminalManager.getInstance();
+      const activeId = sessionId || tm.getActiveSessionId();
+      const s = tm.getSession(activeId);
+      const activeSession = tm.listSessions().find(x => x.id === activeId);
+      safeSendWebContents(win.webContents, 'antifan:terminal:session', {
+        activeSessionId: activeId,
+        sessions: tm.listSessions(),
+        splitSessionId: activeSession?.splitSessionId,
+        snapshot: s?.buffer || '',
+      });
     });
 
     win.loadFile(standaloneHtml, { query: { mode: 'popout', ...(sessionId ? { sessionId } : {}) } });
@@ -4735,13 +4732,9 @@ export class NativeTabHost extends EventEmitter {
   }
 
   private broadcastPopoutState(isPopout: boolean): void {
-    if (this.sidebarView && !this.sidebarView.webContents.isDestroyed()) {
-      this.sidebarView.webContents.send('antifan:terminal:popout-state-changed', isPopout);
-    }
+    safeSendWebContents(this.sidebarView?.webContents, 'antifan:terminal:popout-state-changed', isPopout);
     for (const [, win] of this.terminalWindows) {
-      if (win && !win.webContents.isDestroyed()) {
-        win.webContents.send('antifan:terminal:popout-state-changed', isPopout);
-      }
+      safeSendWebContents(win?.webContents, 'antifan:terminal:popout-state-changed', isPopout);
     }
   }
 

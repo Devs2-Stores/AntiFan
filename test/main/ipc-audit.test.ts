@@ -422,4 +422,91 @@ describe('Webview & Extension IPC Audit Invariants', () => {
       'antifan:workflow:run must delegate to this.controlPlane.executeWorkflow'
     );
   });
+
+  it('verifies safeSendWebContents guards against disposed frames and crashes', () => {
+    const { safeSendWebContents } = require('../../src/main/browser/native-tab-host');
+    assert.strictEqual(typeof safeSendWebContents, 'function', 'safeSendWebContents must be exported');
+
+    // Null / Undefined WebContents
+    assert.strictEqual(safeSendWebContents(null, 'test'), false);
+    assert.strictEqual(safeSendWebContents(undefined, 'test'), false);
+
+    // Destroyed WebContents
+    const destroyedWc = {
+      isDestroyed: () => true,
+      send: () => { throw new Error('Should not be called'); },
+    };
+    assert.strictEqual(safeSendWebContents(destroyedWc as unknown as Electron.WebContents, 'test'), false);
+
+    // Crashed WebContents
+    const crashedWc = {
+      isDestroyed: () => false,
+      isCrashed: () => true,
+      mainFrame: {},
+      send: () => { throw new Error('Should not be called'); },
+    };
+    assert.strictEqual(safeSendWebContents(crashedWc as unknown as Electron.WebContents, 'test'), false);
+
+    // Missing mainFrame (frame disposed during reload)
+    const missingFrameWc = {
+      isDestroyed: () => false,
+      isCrashed: () => false,
+      mainFrame: null,
+      send: () => { throw new Error('Should not be called'); },
+    };
+    assert.strictEqual(safeSendWebContents(missingFrameWc as unknown as Electron.WebContents, 'test'), false);
+
+    // WebFrameMain.send throws disposal exception
+    const throwingWc = {
+      isDestroyed: () => false,
+      isCrashed: () => false,
+      mainFrame: {},
+      send: () => {
+        throw new Error('Render frame was disposed before WebFrameMain could be accessed');
+      },
+    };
+    assert.strictEqual(safeSendWebContents(throwingWc as unknown as Electron.WebContents, 'test'), false);
+
+    // Healthy WebContents
+    let sentChannel = '';
+    let sentArg = '';
+    const healthyWc = {
+      isDestroyed: () => false,
+      isCrashed: () => false,
+      mainFrame: {},
+      send: (ch: string, arg: string) => {
+        sentChannel = ch;
+        sentArg = arg;
+      },
+    };
+    assert.strictEqual(safeSendWebContents(healthyWc as unknown as Electron.WebContents, 'ch:ok', 'payload'), true);
+    assert.strictEqual(sentChannel, 'ch:ok');
+    assert.strictEqual(sentArg, 'payload');
+
+    // Verify toolbarView does NOT receive terminal data in native-tab-host.ts
+    const nativeTabHostPath = path.join(root, 'src', 'main', 'browser', 'native-tab-host.ts');
+    const content = fs.readFileSync(nativeTabHostPath, 'utf8');
+    assert.strictEqual(
+      content.includes('this.toolbarView.webContents.send(TERMINAL_CHANNELS.DATA'),
+      false,
+      'toolbarView must not receive TERMINAL_CHANNELS.DATA'
+    );
+
+    // Enforce no direct unsafe .webContents.send calls in native-tab-host.ts
+    assert.strictEqual(
+      content.includes('this.toolbarView.webContents.send('),
+      false,
+      'native-tab-host.ts must route toolbarView sends through safeSendWebContents'
+    );
+    assert.strictEqual(
+      content.includes('this.sidebarView.webContents.send('),
+      false,
+      'native-tab-host.ts must route sidebarView sends through safeSendWebContents'
+    );
+    assert.strictEqual(
+      content.includes('this.frameBackdropView.webContents.send('),
+      false,
+      'native-tab-host.ts must route frameBackdropView sends through safeSendWebContents'
+    );
+  });
 });

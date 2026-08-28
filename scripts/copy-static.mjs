@@ -44,13 +44,19 @@ const jsFiles = ['toolbar.js', 'terminal.js', 'frame-backdrop.js'];
 for (const jsFile of jsFiles) {
   const dst = path.join(rendererOutDir, jsFile);
   if (fs.existsSync(dst)) {
-    const original = fs.readFileSync(dst, 'utf8');
-    if (!original.startsWith('var exports = exports || {};')) {
-      fs.writeFileSync(dst, 'var exports = exports || {};\n' + original, 'utf8');
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        const original = fs.readFileSync(dst, 'utf8');
+        if (!original.startsWith('var exports = exports || {};')) {
+          fs.writeFileSync(dst, 'var exports = exports || {};\n' + original, 'utf8');
+        }
+        break;
+      } catch {
+        if (attempt === 2) break;
+      }
     }
   }
 }
-
 // Copy scripts to .compiled/scripts for standalone deployment
 const scriptsSrcDir = path.join(ROOT, 'scripts');
 const scriptsOutDir = path.join(ROOT, '.compiled', 'scripts');
