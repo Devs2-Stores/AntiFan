@@ -4,6 +4,8 @@ import * as path from 'node:path';
 import * as os from 'node:os';
 import { execFile } from 'node:child_process';
 import { EventEmitter } from 'events';
+import { performance } from 'node:perf_hooks';
+import { isBenchmarkEnabled, recordBenchmark } from '../benchmark/telemetry';
 export function resolveScriptsDir(): string | undefined {
   let dir = __dirname;
   for (let i = 0; i < 6; i++) {
@@ -99,6 +101,8 @@ export class TerminalManager extends EventEmitter {
   private lastCols = 120;
   private lastRows = 30;
   private isDisposed = false;
+  private benchmarkChunkSeq = 0;
+  private benchmarkChunkBytes = 0;
   private getInitialSplitRows(parentRows = this.lastRows): number {
     return Math.max(MIN_SPLIT_TERMINAL_ROWS, Math.floor((parentRows || 30) * SPLIT_TERMINAL_FRACTION));
   }
@@ -347,10 +351,16 @@ export class TerminalManager extends EventEmitter {
         s.buffer = safeSliceTail(s.buffer, MAX_TRANSCRIPT_BYTES);
       }
       this.schedulePersist();
+      if (isBenchmarkEnabled()) {
+        this.benchmarkChunkSeq += 1;
+        this.benchmarkChunkBytes += Buffer.byteLength(data, 'utf8');
+        recordBenchmark({ surface: 'terminal', name: 'ptyData', value: Buffer.byteLength(data, 'utf8'), extra: { sessionId: id, chunkSeq: this.benchmarkChunkSeq, totalBytes: this.benchmarkChunkBytes } });
+      }
       this.emit('data', { sessionId: id, data });
     });
     child.onExit(({ exitCode }) => {
       if (s.disposed) return;
+      recordBenchmark({ surface: 'terminal', name: 'exit', extra: { sessionId: id, exitCode } });
       const data = `\r\n[Process exited with code ${exitCode}]\r\n`;
       s.buffer += data;
       if (s.buffer.length > MAX_TRANSCRIPT_BYTES + 65536) {

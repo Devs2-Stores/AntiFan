@@ -35,6 +35,7 @@ import { BrowserControlPort } from './tools/browser-control-port';
 import { CapabilityTransportAdapter } from './tools/capability-transport';
 import { validateControlPlaneId } from '../shared/control-plane-contracts';
 import { ProfileOwnership, ProfileOwnershipError, type ProfileLease } from './browser/profile-ownership';
+import { recordBenchmark, startEventLoopDelayMonitor, isBenchmarkEnabled } from './benchmark/telemetry';
 
 process.on('uncaughtException', (err) => {
   console.error('[antifan uncaughtException]', err);
@@ -123,7 +124,28 @@ if (!IS_MCP_SERVER) {
   }
 }
 
+// Benchmark-mode-only telemetry (ANTIFAN_BENCHMARK=1 / --benchmark). Disabled
+// in normal startup; emits startup milestones and event-loop delay samples.
 const ownsElectronInstance = IS_MCP_SERVER || app.hasSingleInstanceLock();
+const benchmarkStopEventLoop = startEventLoopDelayMonitor();
+recordBenchmark({ surface: 'startup', name: 'bootstrap' });
+/** Samples Electron app metrics per process type; benchmark mode only. */
+function recordProcessMetrics(label: string): void {
+  if (!isBenchmarkEnabled()) return;
+  try {
+    const byType: Record<string, { processes: number; workingSetKB: number; privateBytesKB: number }> = {};
+    for (const metric of app.getAppMetrics()) {
+      const key = metric.type || 'Unknown';
+      const agg = byType[key] ?? (byType[key] = { processes: 0, workingSetKB: 0, privateBytesKB: 0 });
+      agg.processes += 1;
+      agg.workingSetKB += metric.memory?.workingSetSize ?? 0;
+      agg.privateBytesKB += metric.memory?.privateBytes ?? 0;
+    }
+    const breakdown: Record<string, unknown> = {};
+    for (const [type, agg] of Object.entries(byType)) breakdown[type] = agg;
+    recordBenchmark({ surface: 'process', name: label, extra: { breakdown, mainRssKB: process.memoryUsage().rss / 1024 } });
+  } catch {}
+}
 
 async function createWindow(): Promise<void> {
   const windowTitle = IS_DEV ? 'AntiFan Browser Desktop [DEV]' : 'AntiFan Browser Desktop';
@@ -266,6 +288,8 @@ async function createWindow(): Promise<void> {
     }
     mainWindow.show();
     mainWindow.focus();
+    recordBenchmark({ surface: 'startup', name: 'firstVisible' });
+    recordProcessMetrics('afterFirstVisible');
   };
 
   mainWindow.once('ready-to-show', showMainWindow);
@@ -284,6 +308,7 @@ async function createWindow(): Promise<void> {
 
 app.whenReady().then(async () => {
   if (!ownsElectronInstance) return;
+  recordBenchmark({ surface: 'startup', name: 'ready' });
   try {
     profileLease = new ProfileOwnership({ force: ownsElectronInstance }).acquire(persistentUserData);
     if (profileLease.recovery.safeStartRecommended) {
@@ -325,6 +350,7 @@ app.whenReady().then(async () => {
   }
   registerPreviewProtocolHandler(capsuleManager);
   await createWindow();
+  recordBenchmark({ surface: 'startup', name: 'windowCreated' });
 
   app.on('activate', async () => {
     if (BrowserWindow.getAllWindows().length === 0) {
@@ -388,4 +414,7 @@ app.on('will-quit', () => {
   tabHost?.dispose();
   profileLease?.release();
   profileLease = null;
+  benchmarkStopEventLoop?.();
+  recordBenchmark({ surface: 'startup', name: 'shutdown' });
+  recordProcessMetrics('atShutdown');
 });

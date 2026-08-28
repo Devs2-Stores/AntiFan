@@ -11,6 +11,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import { randomUUID, createHash } from 'node:crypto';
 import { EventEmitter } from 'node:events';
+import { performance } from 'node:perf_hooks';
 import { AntiFanTab, SplitPaneId, AntiFanPickedElement, TOOLBAR_CHANNELS, SIDEBAR_CHANNELS, TERMINAL_CHANNELS, FRAME_BACKDROP_CHANNELS } from '../../shared/contracts';
 import { getSecureWebPreferences, sanitizeUrl, isAllowedNavigation, cleanRestoredUrl, isInternalWidgetOrSubframeUrl } from '../security/security-policy';
 import { ELEMENT_PICKER_SCRIPT } from './element-picker';
@@ -48,6 +49,7 @@ import { BridgeServer } from '../bridge/bridge-server';
 
 import { HistoryManager } from './history-manager';
 import { OAuthPopupManager } from './oauth-popup-manager';
+import { isBenchmarkEnabled, recordBenchmark } from '../benchmark/telemetry';
 import {
   DEFAULT_SPLIT_DESKTOP_PRESET,
   DEFAULT_SPLIT_MOBILE_PRESET,
@@ -242,6 +244,19 @@ export class NativeTabHost extends EventEmitter {
     }
   }
 
+  /** Benchmark-mode helper: counts attached desktop+mobile views; no behavior. */
+  private countAttachedViews(): number {
+    if (!this.window || this.window.isDestroyed() || !this.window.contentView) return 0;
+    let count = 0;
+    for (const [, tab] of this.tabs.entries()) {
+      try {
+        if (this.window.contentView.children.includes(tab.view)) count += 1;
+        if (tab.mobileView && this.window.contentView.children.includes(tab.mobileView)) count += 1;
+      } catch {}
+    }
+    return count;
+  }
+
   private safeDisableDeviceEmulation(wc: Electron.WebContents | null | undefined): void {
     if (!wc || (typeof wc.isDestroyed === 'function' && wc.isDestroyed())) return;
     if (!this.emulatedWebContents.has(wc)) return;
@@ -329,6 +344,7 @@ export class NativeTabHost extends EventEmitter {
         backdropHtml = path.join(process.cwd(), 'src', 'renderer', 'frame-backdrop.html');
       }
       this.frameBackdropView.webContents.loadFile(backdropHtml);
+      this.setupBackdropContextMenu(this.frameBackdropView.webContents);
     } catch (err) {
       console.error('[native-tab-host] Failed to initialize frameBackdropView:', err);
     }
@@ -422,6 +438,7 @@ export class NativeTabHost extends EventEmitter {
     const toolbarHeight = this.getToolbarHeight();
     const terminalHeight = this.isTerminalOpen ? 240 : 0;
     const availableHeight = Math.max(0, height - toolbarHeight - terminalHeight);
+    const layoutStartMs = performance.now();
 
     // 0. Frame Backdrop bounds (starts at y = toolbarHeight)
     if (this.frameBackdropView) {
@@ -462,6 +479,9 @@ export class NativeTabHost extends EventEmitter {
       }
     }
     // 5. Broadcast to Frame Backdrop
+    if (isBenchmarkEnabled()) {
+      recordBenchmark({ surface: 'tabs', name: 'layout', value: performance.now() - layoutStartMs, extra: { width, height, attachedViews: this.countAttachedViews() } });
+    }
     this.syncFrameBackdrop();
   }
 
@@ -1202,12 +1222,22 @@ export class NativeTabHost extends EventEmitter {
     });
   }
 
-  private setupContextMenu(wc: Electron.WebContents): void {
+  private setupContextMenu(wc: Electron.WebContents, paneId?: SplitPaneId): void {
     wc.on('context-menu', async (_event, params) => {
-      const menu = new Menu();
-      const uploader = HaravanUploader.getInstance();
+      if (this.activeTabId) {
+        const tab = this.tabs.get(this.activeTabId);
+        if (tab && tab.state.splitMode && paneId && tab.focusedPane !== paneId) {
+          tab.focusedPane = paneId;
+          tab.state.splitFocusedPane = paneId;
+          this.broadcastState();
+        }
+      }
 
-      // ─── 1. AI & Design Inspection Tools ───
+      try {
+        const menu = new Menu();
+        const uploader = HaravanUploader.getInstance();
+
+        // ─── 1. AI & Design Inspection Tools ───
       menu.append(
         new MenuItem({
           label: '🎯 Inspect Element (Attach to AI Chat)',
@@ -1361,25 +1391,54 @@ export class NativeTabHost extends EventEmitter {
       }
 
       // ─── 5. Navigation ───
+      interface NavigationHistoryCarrier {
+        navigationHistory?: {
+          canGoBack?: () => boolean;
+          canGoForward?: () => boolean;
+          goBack?: () => void;
+          goForward?: () => void;
+        };
+      }
+      const navHistory = (wc as unknown as NavigationHistoryCarrier).navigationHistory;
+      const canBack = navHistory?.canGoBack?.() ?? false;
       menu.append(
         new MenuItem({
           label: '⬅️ Back',
-          enabled: (wc as any).navigationHistory?.canGoBack?.() || false,
-          click: () => this.goBack(this.activeTabId),
+          enabled: canBack,
+          click: () => {
+            if (navHistory?.canGoBack?.() && typeof navHistory.goBack === 'function') {
+              navHistory.goBack();
+            } else {
+              this.goBack(this.activeTabId);
+            }
+          },
         })
       );
+      const canForward = navHistory?.canGoForward?.() ?? false;
       menu.append(
         new MenuItem({
           label: '➡️ Forward',
-          enabled: (wc as any).navigationHistory?.canGoForward?.() || false,
-          click: () => this.goForward(this.activeTabId),
+          enabled: canForward,
+          click: () => {
+            if (navHistory?.canGoForward?.() && typeof navHistory.goForward === 'function') {
+              navHistory.goForward();
+            } else {
+              this.goForward(this.activeTabId);
+            }
+          },
         })
       );
       menu.append(
         new MenuItem({
           label: '🔄 Reload',
           accelerator: 'Ctrl+R',
-          click: () => this.reload(this.activeTabId),
+          click: () => {
+            if (!wc.isDestroyed()) {
+              wc.reload();
+            } else {
+              this.reload(this.activeTabId);
+            }
+          },
         })
       );
       menu.append(
@@ -1405,11 +1464,150 @@ export class NativeTabHost extends EventEmitter {
         new MenuItem({
           label: '🛠️ Inspect in DevTools',
           accelerator: 'F12',
+          click: () => {
+            if (!wc.isDestroyed()) {
+              if (wc.isDevToolsOpened()) {
+                wc.closeDevTools();
+              } else {
+                wc.openDevTools({ mode: 'detach' });
+              }
+            } else {
+              this.toggleDevTools();
+            }
+          },
+        })
+      );
+
+        menu.popup({ window: this.window });
+      } catch {}
+    });
+  }
+
+  private setupBackdropContextMenu(wc: Electron.WebContents): void {
+    wc.on('context-menu', async (_event, _params) => {
+      const tab = this.activeTabId ? this.tabs.get(this.activeTabId) : null;
+      if (!tab) return;
+
+      try {
+        const menu = new Menu();
+      // ─── 1. Split Pane Focus & Presets ───
+      if (tab.state.splitMode) {
+        menu.append(
+          new MenuItem({
+            label: '💻 Focus Desktop Pane',
+            click: () => this.setSplitFocusedPane(this.activeTabId, 'desktop'),
+          })
+        );
+        menu.append(
+          new MenuItem({
+            label: '📱 Focus Mobile Pane',
+            click: () => this.setSplitFocusedPane(this.activeTabId, 'mobile'),
+          })
+        );
+        menu.append(new MenuItem({ type: 'separator' }));
+
+        const desktopPresetsMenu = new Menu();
+        for (const preset of DEVICE_PRESETS.filter((p) => !p.mobile && p.id !== 'responsive')) {
+          desktopPresetsMenu.append(
+            new MenuItem({
+              label: preset.name,
+              type: 'radio',
+              checked: (tab.state.splitDesktopPresetId || DEFAULT_SPLIT_DESKTOP_PRESET) === preset.id,
+              click: () => this.setSplitPreset(this.activeTabId, 'desktop', preset.id),
+            })
+          );
+        }
+        menu.append(
+          new MenuItem({
+            label: '🖥️ Desktop Device Preset',
+            submenu: desktopPresetsMenu,
+          })
+        );
+
+        const mobilePresetsMenu = new Menu();
+        for (const preset of DEVICE_PRESETS.filter((p) => p.mobile)) {
+          mobilePresetsMenu.append(
+            new MenuItem({
+              label: preset.name,
+              type: 'radio',
+              checked: (tab.state.splitMobilePresetId || DEFAULT_SPLIT_MOBILE_PRESET) === preset.id,
+              click: () => this.setSplitPreset(this.activeTabId, 'mobile', preset.id),
+            })
+          );
+        }
+        menu.append(
+          new MenuItem({
+            label: '📱 Mobile Device Preset',
+            submenu: mobilePresetsMenu,
+          })
+        );
+
+        menu.append(new MenuItem({ type: 'separator' }));
+      }
+
+      // ─── 2. AI & Design Inspection Tools ───
+      menu.append(
+        new MenuItem({
+          label: '🎯 Inspect Element (Attach to AI Chat)',
+          accelerator: 'Alt+Ctrl+A',
+          click: () => this.startInspect(),
+        })
+      );
+      menu.append(
+        new MenuItem({
+          label: '🔤 Font Finder (Typography)',
+          accelerator: 'Alt+Ctrl+F',
+          click: () => this.toggleFontFinder(),
+        })
+      );
+      menu.append(
+        new MenuItem({
+          label: '📐 Pixel Ruler Layout Grid',
+          accelerator: 'Alt+Ctrl+R',
+          click: () => this.toggleRuler(),
+        })
+      );
+      menu.append(
+        new MenuItem({
+          label: '🔍 GPU Lens (Pixel Zoom)',
+          accelerator: 'Alt+Ctrl+L',
+          click: () => this.toggleLens(),
+        })
+      );
+      menu.append(
+        new MenuItem({
+          label: '💬 Toggle AI Chat Sidebar',
+          accelerator: 'Alt+Ctrl+B',
+          click: () => this.toggleSidebar(),
+        })
+      );
+      menu.append(new MenuItem({ type: 'separator' }));
+
+      // ─── 3. Navigation & DevTools ───
+      menu.append(
+        new MenuItem({
+          label: '🔄 Reload Tab / Both Panes',
+          accelerator: 'Ctrl+R',
+          click: () => this.reload(this.activeTabId),
+        })
+      );
+      menu.append(
+        new MenuItem({
+          label: '📄 View Page Source',
+          accelerator: 'Ctrl+U',
+          click: () => this.viewPageSource(this.activeTabId),
+        })
+      );
+      menu.append(
+        new MenuItem({
+          label: '🛠️ Inspect in DevTools',
+          accelerator: 'F12',
           click: () => this.toggleDevTools(),
         })
       );
 
-      menu.popup({ window: this.window });
+        menu.popup({ window: this.window });
+      } catch {}
     });
   }
 
@@ -2014,7 +2212,7 @@ export class NativeTabHost extends EventEmitter {
     });
 
     this.setupGlobalShortcutsOnView(wc);
-    this.setupContextMenu(wc);
+    this.setupContextMenu(wc, paneId);
   }
 
   public createTab(initialUrl = 'https://www.google.com', activate = true): string {
@@ -2116,6 +2314,7 @@ export class NativeTabHost extends EventEmitter {
     }
     if (activate) this.switchTab(id);
     this.schedulePersist();
+    recordBenchmark({ surface: 'tabs', name: 'created', extra: { activate, url: url.slice(0, 80) } });
     return id;
   }
 
@@ -2123,6 +2322,7 @@ export class NativeTabHost extends EventEmitter {
     try {
       const target = this.tabs.get(tabId);
       if (!target) return false;
+      const switchStartMs = performance.now();
 
       // Guard against destroyed WebContents/WebContentsView
       if (!target.view || target.view.webContents.isDestroyed()) {
@@ -2196,6 +2396,9 @@ export class NativeTabHost extends EventEmitter {
         if (target.mobileView && !target.mobileView.webContents.isDestroyed()) {
           target.mobileView.webContents.executeJavaScript(FONT_FINDER_SCRIPT).catch(() => {});
         }
+      }
+      if (isBenchmarkEnabled()) {
+        recordBenchmark({ surface: 'tabs', name: 'switched', value: performance.now() - switchStartMs, extra: { attachedViews: this.countAttachedViews() } });
       }
       return true;
     } catch (err) {
@@ -2396,6 +2599,7 @@ export class NativeTabHost extends EventEmitter {
     } else {
       this.broadcastState();
     }
+    recordBenchmark({ surface: 'tabs', name: 'closed', extra: { attachedViews: this.countAttachedViews() } });
     return true;
   }
 
@@ -2914,7 +3118,7 @@ export class NativeTabHost extends EventEmitter {
           enabled: true,
           maxTouchPoints: 5,
         }).catch(() => {});
-        // Keep touch capability without hijacking mouse movements so hover and annotation picker work smoothly
+        // Keep touch capability without hijacking mouse movements so hover, context menu, and annotation picker work smoothly
         await wc.debugger.sendCommand('Emulation.setEmitTouchEventsForMouse', {
           enabled: false,
         }).catch(() => {});
