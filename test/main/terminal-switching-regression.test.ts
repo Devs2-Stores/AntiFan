@@ -153,8 +153,9 @@ describe('Terminal Switching Regression & Viewport Integrity', () => {
     assert.doesNotMatch(jsContent, /convertEol:\s*true/);
     assert.match(jsContent, /convertEol:\s*false/);
     // 8. Ensure applySplitRatio enforces bounded pane calculation to prevent overflow and collapse
-    assert.match(jsContent, /getUsableTerminalHeight/);
+    assert.match(jsContent, /getSplitGeometry/);
     assert.match(jsContent, /paneMin\s*=\s*Math\.min\(60,\s*Math\.floor\(usable\s*\*\s*0\.15\)\)/);
+    assert.match(jsContent, /contentTopOffset/);
     assert.match(jsContent, /minHeight\s*=\s*'0px'/);
     // Verify short-container clamping math: at 100px usable height, paneMin is 15px (not clamped to 50px 50/50)
     const shortContainerUsable = 100;

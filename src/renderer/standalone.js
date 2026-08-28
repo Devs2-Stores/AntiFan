@@ -558,7 +558,7 @@ if (btnNewTerminal) {
   };
 }
 
-function getUsableTerminalHeight() {
+function getSplitGeometry() {
   const divider = document.getElementById('terminal-divider');
   const dividerHeight = divider?.offsetHeight || 7;
   const dividerStyle = (divider && typeof window.getComputedStyle === 'function') ? window.getComputedStyle(divider) : null;
@@ -568,20 +568,33 @@ function getUsableTerminalHeight() {
   const containerStyle = (container && typeof window.getComputedStyle === 'function') ? window.getComputedStyle(container) : null;
   const containerPadTop = containerStyle ? (parseFloat(containerStyle.paddingTop) || 0) : 4;
   const containerPadBottom = containerStyle ? (parseFloat(containerStyle.paddingBottom) || 0) : 4;
+  const containerBorderTop = container?.clientTop || (containerStyle ? (parseFloat(containerStyle.borderTopWidth) || 0) : 0);
   const totalHeight = Math.max(0, (container?.clientHeight || 400) - (containerPadTop + containerPadBottom));
-  return Math.max(0, totalHeight - dividerTotal);
+  const usable = Math.max(0, totalHeight - dividerTotal);
+  const paneMin = Math.min(60, Math.floor(usable * 0.15));
+  const contentTopOffset = containerBorderTop + containerPadTop;
+  return {
+    usable,
+    paneMin,
+    dividerTotal,
+    dividerHeight,
+    dividerMarginTop,
+    dividerMarginBottom,
+    contentTopOffset,
+  };
 }
 
 function applySplitRatio(ratio, resizePty = true) {
   const lower = document.getElementById('terminal-split');
   if (lower && splitEnabled) {
-    const usable = getUsableTerminalHeight();
-    const paneMin = Math.min(60, Math.floor(usable * 0.15));
+    const geo = getSplitGeometry();
+    if (geo.usable <= 0) return;
+    const usable = geo.usable;
+    const paneMin = geo.paneMin;
     const rawRatio = (typeof ratio === 'number' && isFinite(ratio) && ratio > 0 && ratio < 1) ? ratio : DEFAULT_MAIN_SPLIT_RATIO;
     const rawMain = Math.round(usable * rawRatio);
     const clampedMain = Math.max(paneMin, Math.min(usable - paneMin, rawMain));
     const clampedLower = Math.max(0, usable - clampedMain);
-
     mainPane.style.flex = `0 0 ${clampedMain}px`;
     mainPane.style.height = `${clampedMain}px`;
     mainPane.style.minHeight = '0px';
@@ -1423,14 +1436,14 @@ window.addEventListener('pointerdown', (e) => {
 
 window.addEventListener('pointermove', (e) => {
   if (!splitting || !splitEnabled) return;
-  const usable = getUsableTerminalHeight();
-  if (usable <= 0) return;
+  const geo = getSplitGeometry();
+  if (geo.usable <= 0) return;
 
   const rect = container.getBoundingClientRect();
-  const currentY = e.clientY - rect.top;
-  const minPx = Math.min(60, Math.floor(usable * 0.15));
-  const clampedY = Math.max(minPx, Math.min(usable - minPx, currentY));
-  pendingRatio = clampedY / usable;
+  // Compute pointer Y relative to content box, targeting divider centerline
+  const relativeY = (e.clientY - rect.top) - geo.contentTopOffset - geo.dividerMarginTop - (geo.dividerHeight / 2);
+  const clampedMain = Math.max(geo.paneMin, Math.min(geo.usable - geo.paneMin, Math.round(relativeY)));
+  pendingRatio = clampedMain / geo.usable;
   sessionSplitRatios.set(activeId, pendingRatio);
 
   if (!splitRafId) {

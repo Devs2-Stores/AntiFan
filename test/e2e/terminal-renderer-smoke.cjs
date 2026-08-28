@@ -516,7 +516,17 @@ app.whenReady().then(async () => {
         // Drag divider to ~35% lower pane (65% main)
         const containerEl = document.getElementById('terminal');
         const containerRect = containerEl.getBoundingClientRect();
-        const targetY = containerRect.top + containerRect.height * 0.65;
+        const dividerRect = divider.getBoundingClientRect();
+        const cStyle = window.getComputedStyle(containerEl);
+        const dStyle = window.getComputedStyle(divider);
+        const padTop = parseFloat(cStyle.paddingTop) || 0;
+        const padBottom = parseFloat(cStyle.paddingBottom) || 0;
+        const dMarginTop = parseFloat(dStyle.marginTop) || 0;
+        const dMarginBottom = parseFloat(dStyle.marginBottom) || 0;
+        const dHeight = dividerRect.height || 7;
+        const totalUsable = containerRect.height - (padTop + padBottom) - (dHeight + dMarginTop + dMarginBottom);
+        const targetY = containerRect.top + padTop + dMarginTop + (dHeight / 2) + (totalUsable * 0.65);
+
         divider.dispatchEvent(new PointerEvent('pointerdown', { clientY: divider.getBoundingClientRect().top + 3, bubbles: true, cancelable: true, pointerId: 1 }));
         window.dispatchEvent(new PointerEvent('pointermove', { clientY: targetY, bubbles: true, cancelable: true, pointerId: 1 }));
         await sleep(100);
@@ -526,9 +536,10 @@ app.whenReady().then(async () => {
         const draggedMainHeight = mainPane.offsetHeight;
         const draggedLowerHeight = lowerPane.offsetHeight;
         const draggedRatio = draggedLowerHeight / (draggedMainHeight + draggedLowerHeight);
-        if (Math.abs(draggedRatio - 0.35) > 0.05) {
-          throw new Error('Dragged ratio expected ~0.35, got ' + draggedRatio.toFixed(3));
+        if (Math.abs(draggedRatio - 0.35) > 0.01) {
+          throw new Error('Dragged ratio expected exact ~0.35 (within 0.01), got ' + draggedRatio.toFixed(3));
         }
+
 
         // Switch to Session 2 and back to Session 1 -> dragged ratio must be preserved
         const s2TabBtnSplit = document.querySelector('.terminal-tab-wrap[data-session-id="session-2"] .terminal-tab');
