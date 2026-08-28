@@ -323,7 +323,8 @@ describe('Agent Browser & Element Picker Injected Scripts', () => {
     assert.strictEqual(clean, basePick, 'payload without deliveryMode must pass through untouched');
     assert.ok(!('deliveryMode' in clean));
 
-    // Legacy payload: an older picker build could still emit the field.
+    // Test-only legacy fixture: an older picker build could still emit the field;
+    // the cast is confined to this fixture, never to production code paths.
     const legacyPick = { ...basePick, deliveryMode: 'draft' } as unknown as PickedElementInput;
     const sanitized = stripDeliveryMode(legacyPick);
     assert.ok(!('deliveryMode' in sanitized), 'legacy deliveryMode must not surface on the re-emitted payload');
