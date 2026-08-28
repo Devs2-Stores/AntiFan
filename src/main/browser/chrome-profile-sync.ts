@@ -31,6 +31,52 @@ export interface DecryptedCookieRecord {
   sameSite?: 'unspecified' | 'no_restriction' | 'lax' | 'strict';
 }
 
+/**
+ * Builds the cookies.set() payload for one decrypted Chrome cookie.
+ *
+ * Chrome's SQLite host_key distinguishes host-only cookies (bare host, no
+ * leading dot) from domain cookies (leading dot). A host-only cookie — and
+ * every `__Host-` prefixed cookie per RFC 6265bis — must be set without a
+ * Domain attribute, or Chromium rejects the set call and the cookie silently
+ * never imports. sameSite is mapped from SQLite's numeric flags; level 0 is
+ * only treated as no_restriction when the cookie is secure, matching Chrome's
+ * own session-restore behavior.
+ */
+export function cookieImportSetDetails(
+  name: string,
+  host: string,
+  value: string,
+  path: string,
+  secure: boolean,
+  httpOnly: boolean,
+  samesite: number
+): Electron.CookiesSetDetails {
+  const scheme = secure ? 'https://' : 'http://';
+  const domain = host.startsWith('.') ? host.substring(1) : host;
+  const cookieUrl = `${scheme}${domain}${path || '/'}`;
+
+  let sameSite: 'unspecified' | 'no_restriction' | 'lax' | 'strict' = 'unspecified';
+  if (samesite === 1) sameSite = 'lax';
+  else if (samesite === 2) sameSite = 'strict';
+  else if (samesite === 0 && secure) sameSite = 'no_restriction';
+
+  const details: Electron.CookiesSetDetails = {
+    url: cookieUrl,
+    name,
+    value,
+    path: path || '/',
+    secure,
+    httpOnly,
+    sameSite,
+  };
+  // Host-only cookies (bare host_key, and `__Host-` prefix by RFC 6265bis)
+  // must not carry a Domain attribute or Chromium rejects the set call.
+  if (host.startsWith('.') && !name.startsWith('__Host-')) {
+    details.domain = host;
+  }
+  return details;
+}
+
 export class ChromeProfileSyncManager {
   private static instance: ChromeProfileSyncManager;
   private chromeUserDataPath: string;
@@ -340,7 +386,7 @@ except Exception:
           try {
             const rawJson = cp.execFileSync('python', [pyPath, tempCookiesDb], { maxBuffer: 50 * 1024 * 1024 }).toString();
             const rawCookies = JSON.parse(rawJson);
-
+            let rejectedImports = 0;
             for (const item of rawCookies) {
               try {
                 let decryptedVal: string | null = null;
@@ -358,31 +404,25 @@ except Exception:
                   }
                 }
 
-                if (decryptedVal) {
-                  const scheme = item.secure ? 'https://' : 'http://';
-                  const domain = item.host.startsWith('.') ? item.host.substring(1) : item.host;
-                  const cookieUrl = `${scheme}${domain}${item.path || '/'}`;
-
-                  let sameSite: 'unspecified' | 'no_restriction' | 'lax' | 'strict' = 'unspecified';
-                  if (item.samesite === 1) sameSite = 'lax';
-                  else if (item.samesite === 2) sameSite = 'strict';
-                  else if (item.samesite === 0 && item.secure) sameSite = 'no_restriction';
-
-                  await targetSession.cookies.set({
-                    url: cookieUrl,
-                    name: item.name,
-                    value: decryptedVal,
-                    domain: item.host,
-                    path: item.path || '/',
-                    secure: item.secure,
-                    httpOnly: item.httponly,
-                    sameSite,
-                  });
-                  cookiesCount++;
+                if (!decryptedVal) {
+                  // Unsupported cipher or missing master key: the cookie cannot be
+                  // restored on this machine. Account for it so sync counts stay honest.
+                  rejectedImports++;
+                  console.warn(`[ChromeProfileSync] Skipped undecryptable cookie ${item.name} @ ${item.host}`);
+                  continue;
                 }
-              } catch {}
+
+                await targetSession.cookies.set(cookieImportSetDetails(item.name, item.host, decryptedVal, item.path, item.secure, item.httponly, item.samesite));
+                cookiesCount++;
+              } catch (err) {
+                rejectedImports++;
+                console.warn(`[ChromeProfileSync] Rejected cookie import ${item.name} @ ${item.host}:`, err);
+              }
             }
             await targetSession.cookies.flushStore();
+            if (rejectedImports > 0) {
+              console.warn(`[ChromeProfileSync] ${rejectedImports} cookie(s) failed to import and were skipped.`);
+            }
           } catch (pyErr) {
             console.warn('[ChromeProfileSync] Python extraction note:', pyErr);
           }
