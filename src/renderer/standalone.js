@@ -260,41 +260,16 @@ function attachWebLinksAddon(term) {
   }
   return null;
 }
-const MAX_FRAME_WRITE_BYTES = 65536;
-
-function getUtf8ByteLength(str) {
-  if (!str) return 0;
-  let bytes = 0;
-  for (const char of str) {
-    const cp = char.codePointAt(0);
-    if (cp <= 0x7f) bytes += 1;
-    else if (cp <= 0x7ff) bytes += 2;
-    else if (cp <= 0xffff) bytes += 3;
-    else bytes += 4;
-  }
-  return bytes;
-}
-
-function sliceUtf8Bytes(str, maxBytes) {
-  if (!str) return { head: '', tail: '', bytes: 0 };
-  let accumulatedBytes = 0;
-  let charCount = 0;
-  for (const char of str) {
-    const cp = char.codePointAt(0);
-    let charBytes = 1;
-    if (cp <= 0x7f) charBytes = 1;
-    else if (cp <= 0x7ff) charBytes = 2;
-    else if (cp <= 0xffff) charBytes = 3;
-    else charBytes = 4;
-    if (accumulatedBytes + charBytes > maxBytes) break;
-    accumulatedBytes += charBytes;
-    charCount += char.length;
-  }
-  return { head: str.slice(0, charCount), tail: str.slice(charCount), bytes: accumulatedBytes };
-}
 
 function writeToTerminalPane(item, chunk) {
   if (!item || !chunk) return;
+  const target = getWriteTargetFor(item);
+  if (target) {
+    try {
+      window.globalTerminalWriteDispatcher.queueWrite(target, chunk);
+      return;
+    } catch {}
+  }
   try {
     item.term.write(chunk, () => {
       if (!item.isUserScrolledUp && item.paneEl && item.paneEl.classList.contains('active')) {
@@ -306,8 +281,34 @@ function writeToTerminalPane(item, chunk) {
   }
 }
 
+function getWriteTargetFor(item) {
+  if (item.writeTarget) return item.writeTarget;
+  const dispatcher = window.globalTerminalWriteDispatcher;
+  if (!dispatcher) return null;
+  item.writeTarget = dispatcher.createTarget(item.term, () => {
+    if (!item.isUserScrolledUp && item.paneEl && item.paneEl.classList.contains('active')) {
+      item.term.scrollToBottom();
+    }
+  });
+  return item.writeTarget;
+}
+
 function writeToSplitPane(chunk) {
   if (!splitTerm || !chunk) return;
+  const dispatcher = window.globalTerminalWriteDispatcher;
+  if (dispatcher) {
+    if (!splitWriteTarget || splitWriteTarget.term !== splitTerm) {
+      splitWriteTarget = dispatcher.createTarget(splitTerm, () => {
+        if (!isSplitUserScrolledUp && splitTerm) {
+          splitTerm.scrollToBottom();
+        }
+      });
+    }
+    try {
+      dispatcher.queueWrite(splitWriteTarget, chunk);
+      return;
+    } catch {}
+  }
   try {
     splitTerm.write(chunk, () => {
       if (!isSplitUserScrolledUp && splitTerm) {
@@ -327,8 +328,13 @@ function getOrCreateTerminalPane(sessionId, snapshot) {
       if (snapshot.length > 0) item.term.write(snapshot);
       item.isHydrated = true;
       if (Array.isArray(item.pendingChunks) && item.pendingChunks.length > 0) {
+        const dispatcher = window.globalTerminalWriteDispatcher;
+        const target = dispatcher && getWriteTargetFor(item);
         for (const chunk of item.pendingChunks) {
-          item.term.write(chunk);
+          if (target) {
+            try { dispatcher.queueWrite(target, chunk); continue; } catch {}
+          }
+          try { item.term.write(chunk); } catch {}
         }
         item.pendingChunks = [];
       }
@@ -446,6 +452,7 @@ function syncTerminalPool(allSessions, currentActiveId, snapshot) {
   // Dispose closed sessions
   for (const [id, item] of terminalPool.entries()) {
     if (!activeSessionIds.has(id)) {
+      try { if (item.writeTarget && window.globalTerminalWriteDispatcher) window.globalTerminalWriteDispatcher.cancel(item.writeTarget); } catch {}
       item.writeTarget = null;
       try { item.webLinksAddon?.dispose(); } catch {}
       try { item.webglAddon?.dispose(); } catch {}
@@ -471,8 +478,13 @@ function syncTerminalPool(allSessions, currentActiveId, snapshot) {
         item.term.write(sessionSnapshot);
         item.pendingChunks = [];
       } else if (Array.isArray(item.pendingChunks) && item.pendingChunks.length > 0) {
+        const dispatcher = window.globalTerminalWriteDispatcher;
+        const target = dispatcher && getWriteTargetFor(item);
         for (const chunk of item.pendingChunks) {
-          item.term.write(chunk);
+          if (target) {
+            try { dispatcher.queueWrite(target, chunk); continue; } catch {}
+          }
+          try { item.term.write(chunk); } catch {}
         }
         item.pendingChunks = [];
       }
@@ -658,6 +670,7 @@ function unmountSplit() {
       splitRafId = null;
     }
   }
+  try { if (splitWriteTarget && window.globalTerminalWriteDispatcher) window.globalTerminalWriteDispatcher.cancel(splitWriteTarget); } catch {}
   splitWriteTarget = null;
   isSplitUserScrolledUp = false;
   isSplitProgrammaticScroll = false;

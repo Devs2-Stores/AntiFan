@@ -57,6 +57,19 @@ for (const jsFile of jsFiles) {
     }
   }
 }
+// Ship the shared TerminalWriteDispatcher to the standalone renderer as a classic-script
+// global (standalone.html loads classic scripts; it cannot `import` the compiled CJS module).
+const sharedSrcDir = path.join(ROOT, '.compiled', 'src', 'shared');
+const dispatcherDst = path.join(rendererOutDir, 'terminal-write-dispatcher.js');
+const dispatcherSrc = path.join(sharedSrcDir, 'terminal-write-dispatcher.js');
+if (fs.existsSync(dispatcherSrc)) {
+  const dispatcherRaw = fs.readFileSync(dispatcherSrc, 'utf8');
+  const dispatcherWrapped =
+    'var exports = exports || {};\nvar module = { exports: exports };\n' +
+    dispatcherRaw +
+    '\nwindow.TerminalWriteDispatcher = exports.TerminalWriteDispatcher;\nwindow.globalTerminalWriteDispatcher = exports.globalTerminalWriteDispatcher;\n';
+  fs.writeFileSync(dispatcherDst, dispatcherWrapped, 'utf8');
+}
 // Copy scripts to .compiled/scripts for standalone deployment
 const scriptsSrcDir = path.join(ROOT, 'scripts');
 const scriptsOutDir = path.join(ROOT, '.compiled', 'scripts');
