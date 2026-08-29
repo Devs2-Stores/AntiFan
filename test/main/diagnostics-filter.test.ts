@@ -86,6 +86,15 @@ describe('classifyDiagnostics — critical vs warning matrix', () => {
     assert.strictEqual(result.warnings.length, 0);
   });
 
+  it('console error from Sapo theme CDN (bizweb.dktcdn.net, dktcdn.net) is critical', () => {
+    const result = classifyDiagnostics(
+      { console: [{ level: 3, message: 'sapo theme error', source: 'https://bizweb.dktcdn.net/100/theme.js', origin: 'bizweb.dktcdn.net', isFirstParty: false }] },
+      contextUrl
+    );
+    assert.strictEqual(result.criticalIssues.length, 1);
+    assert.strictEqual(result.warnings.length, 0);
+  });
+
   it('console level below 3 is ignored', () => {
     const result = classifyDiagnostics(
       { console: [{ level: 2, message: 'warning only', source: 'https://store.example.com/app.js', origin: 'store.example.com', isFirstParty: true }] },

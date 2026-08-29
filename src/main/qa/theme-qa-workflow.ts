@@ -15,6 +15,9 @@ export interface ThemeQaChecklist {
   overflow: boolean;
   interactions: boolean;
   diagnostics: boolean;
+  liquidClean?: boolean;
+  assetsValid?: boolean;
+  hsCompliant?: boolean;
 }
 
 export interface ThemeQaDetailedFindings {
@@ -29,8 +32,11 @@ export interface ThemeQaDetailedFindings {
   diagnosticIssues: DiagnosticIssue[];
   /** Diagnostics third-party chỉ cảnh báo — không fail gate. */
   diagnosticWarnings: DiagnosticIssue[];
+  preReloadDiagnostics?: {
+    criticalIssues: DiagnosticIssue[];
+    warnings: DiagnosticIssue[];
+  };
 }
-
 export interface ThemeQaSummary {
   passed: boolean;
   totalIssues: number;
@@ -65,6 +71,14 @@ export function sanitizePii(text: string): string {
     .replace(/(?:\+?84|0)(?:3|5|7|8|9)[0-9]{8}/g, '[REDACTED_PHONE]')
     .replace(/(?:bearer\s+|token=)[a-zA-Z0-9_\-\.]{20,}/gi, '[REDACTED_TOKEN]');
 }
+function rethrowTargetLifecycleError(error: unknown): void {
+  if (
+    error instanceof CapabilityError &&
+    (error.code === 'TARGET_REQUIRED' || error.code === 'TARGET_STALE' || error.code === 'TARGET_MISMATCH')
+  ) {
+    throw error;
+  }
+}
 
 export class ThemeQaWorkflow {
   constructor(private readonly ports: ThemeQaWorkflowPorts) {}
@@ -85,7 +99,7 @@ export class ThemeQaWorkflow {
     attemptId: string;
     workspaceRoot: string;
     target: BrowserTarget;
-    checklist?: Partial<ThemeQaChecklist>;
+    enabledChecks?: Partial<Record<keyof ThemeQaChecklist, boolean>>;
     multiBreakpoint?: boolean;
   }): Promise<ThemeQaReport> {
     this.assertOwnership(input.target);
@@ -94,31 +108,61 @@ export class ThemeQaWorkflow {
     // 11): đọc muộn ở bước 5.5 race với navigation clear (phase 1 clear đồng
     // bộ tại did-start-navigation). browser.diagnostics trả mảng copy sẵn nên
     // snapshot an toàn; host không hỗ trợ diagnostics → rỗng, không fail.
-    let diagnosticsSnapshot: DiagnosticsInput = { console: [], failures: [] };
+    let preReloadDiagnostics: DiagnosticsInput = { console: [], failures: [] };
     try {
       const raw = this.ports.browser.diagnostics(input.target.tabId);
-      diagnosticsSnapshot = {
+      preReloadDiagnostics = {
         console: Array.isArray(raw.console) ? (raw.console as DiagnosticsInput['console']) : [],
         failures: Array.isArray(raw.failures) ? (raw.failures as DiagnosticsInput['failures']) : [],
       };
-    } catch {
+    } catch (error) {
+      rethrowTargetLifecycleError(error);
       // Host without diagnostics support — classification runs on empty input
     }
-    // Context URL (tab URL tại thời điểm validate) dùng chung cho correlation
-    // filter (step 5) và 5.5 classification; best-effort.
-    let contextUrl = '';
+    // Pre-reload context URL dùng cho audit-only classification của snapshot trước reload
+    let preReloadContextUrl = '';
     try {
       const tabs = this.ports.browser.listTabs({ target: input.target });
       const tab = Array.isArray(tabs) ? tabs.find((t): t is Record<string, unknown> => Boolean(t && typeof t === 'object' && (t as Record<string, unknown>).id === input.target.tabId)) : undefined;
+      if (tab && typeof tab.url === 'string') preReloadContextUrl = tab.url;
+    } catch (error) {
+      rethrowTargetLifecycleError(error);
+      // best-effort
+    }
+
+    // 1. Reload to reach load-complete document before inspecting
+    const reload = await this.ports.reload(input.target);
+    if (!reload || !reload.reloaded || !reload.target) {
+      throw new CapabilityError('TARGET_STALE', 'Bound browser tab could not reach a load-complete document');
+    }
+    const activeTarget = reload.target;
+
+    // 2. Read fresh diagnostics immediately after load-complete reload
+    let freshDiagnostics: DiagnosticsInput = { console: [], failures: [] };
+    try {
+      const raw = this.ports.browser.diagnostics(activeTarget.tabId);
+      freshDiagnostics = {
+        console: Array.isArray(raw.console) ? (raw.console as DiagnosticsInput['console']) : [],
+        failures: Array.isArray(raw.failures) ? (raw.failures as DiagnosticsInput['failures']) : [],
+      };
+    } catch (error) {
+      rethrowTargetLifecycleError(error);
+      // Host without diagnostics support — classification runs on empty input
+    }
+
+    // Post-reload context URL
+    let contextUrl = '';
+    try {
+      const tabs = this.ports.browser.listTabs({ target: activeTarget });
+      const tab = Array.isArray(tabs) ? tabs.find((t): t is Record<string, unknown> => Boolean(t && typeof t === 'object' && (t as Record<string, unknown>).id === activeTarget.tabId)) : undefined;
       if (tab && typeof tab.url === 'string') contextUrl = tab.url;
-    } catch {
+    } catch (error) {
+      rethrowTargetLifecycleError(error);
       // best-effort — entries mới đều mang origin/isFirstParty sẵn
     }
 
-    // 1. Capture initial evidence
-    const evidence = await this.inspect({ ...input });
-    const reload = await this.ports.reload(input.target);
-    if (!reload.reloaded) throw new CapabilityError('TARGET_STALE', 'Bound browser tab could not be reloaded');
+    // 3. Capture evidence from fresh activeTarget
+    const evidence = await this.inspect({ ...input, target: activeTarget });
 
     // Retrieve raw HTML for static analysis and platform detection
     let rawHtml = '';
@@ -132,26 +176,27 @@ export class ThemeQaWorkflow {
         // Ignore if store cannot resolve
       }
     }
-    // 2. Platform Detection
+    // 4. Platform Detection
     const platformResult = PlatformDetector.detect(input.workspaceRoot, undefined, rawHtml);
     const detectedPlatform: EcommercePlatform = platformResult.platform;
 
-    // 3. Liquid Error Scanning (RT-01 isolated script + fallback)
+    // 5. Liquid Error Scanning (RT-01 isolated script + fallback)
     let liquidResult: LiquidScanResult = { hasErrors: false, errors: [], scannedElementsCount: 0 };
     try {
-      const evalRes = await this.ports.browser.eval(input.target, LiquidErrorScanner.getBrowserScanScript());
+      const evalRes = await this.ports.browser.eval(activeTarget, LiquidErrorScanner.getBrowserScanScript());
       if (evalRes && typeof evalRes === 'object' && 'hasErrors' in evalRes) {
         liquidResult = evalRes as LiquidScanResult;
       } else if (rawHtml) {
         liquidResult = LiquidErrorScanner.scanHtmlString(rawHtml);
       }
-    } catch {
+    } catch (error) {
+      rethrowTargetLifecycleError(error);
       if (rawHtml) {
         liquidResult = LiquidErrorScanner.scanHtmlString(rawHtml);
       }
     }
 
-    // 4. Layout Overflow Engine (RT-06 sub-pixel deadband & RT-04 container limiting)
+    // 6. Layout Overflow Engine (RT-06 sub-pixel deadband & RT-04 container limiting)
     let overflowResult: ViewportOverflowResult = {
       viewport: { name: 'desktop', width: 1440, height: 900 },
       hasOverflow: false,
@@ -161,16 +206,17 @@ export class ThemeQaWorkflow {
       culprits: [],
     };
     try {
-      const evalRes = await this.ports.browser.eval(input.target, LayoutOverflowEngine.getBrowserScanScript('active'));
+      const evalRes = await this.ports.browser.eval(activeTarget, LayoutOverflowEngine.getBrowserScanScript('active'));
       if (evalRes && typeof evalRes === 'object' && 'hasOverflow' in evalRes) {
         overflowResult = evalRes as ViewportOverflowResult;
       }
-    } catch {
+    } catch (error) {
+      rethrowTargetLifecycleError(error);
       // Retain clean fallback
     }
     if (input.multiBreakpoint) {
       try {
-        const responsive = await this.ports.browser.responsiveCheck(input.target.tabId);
+        const responsive = await this.ports.browser.responsiveCheck(activeTarget.tabId);
         const breakpoints = responsive && typeof responsive === 'object' ? (responsive as Record<string, unknown>).breakpoints : undefined;
         if (breakpoints && typeof breakpoints === 'object') {
           const overflowBreakpoints = Object.values(breakpoints).filter((item): item is Record<string, unknown> => Boolean(item && typeof item === 'object' && 'hasHorizontalOverflow' in item));
@@ -192,12 +238,13 @@ export class ThemeQaWorkflow {
             };
           }
         }
-      } catch {
+      } catch (error) {
+        rethrowTargetLifecycleError(error);
         // Active viewport result remains authoritative when the optional sweep is unavailable.
       }
     }
 
-    // 5. Broken Asset Telemetry (DOM + CDP Network Correlation)
+    // 7. Broken Asset Telemetry (DOM + CDP Network Correlation)
     let assetResult: BrokenAssetScanResult = {
       hasBrokenAssets: false,
       brokenAssets: [],
@@ -205,12 +252,12 @@ export class ThemeQaWorkflow {
       totalStylesheetsScanned: 0,
     };
     try {
-      const evalRes = await this.ports.browser.eval(input.target, BrokenAssetScanner.getBrowserScanScript());
+      const evalRes = await this.ports.browser.eval(activeTarget, BrokenAssetScanner.getBrowserScanScript());
       if (evalRes && typeof evalRes === 'object' && 'hasBrokenAssets' in evalRes) {
         assetResult = evalRes as BrokenAssetScanResult;
       }
       // Correlate with CDP diagnostics when available
-      const diagnostics = diagnosticsSnapshot;
+      const diagnostics = freshDiagnostics;
       if (diagnostics && Array.isArray(diagnostics.failures) && diagnostics.failures.length > 0) {
         // Chỉ correlate failure first-party/theme-asset — third-party (ad
         // blocker, GTM, FB Pixel) không được biến thành brokenAssets làm fail
@@ -236,33 +283,47 @@ export class ThemeQaWorkflow {
           .filter((f) => f.url.length > 0);
         assetResult = BrokenAssetScanner.correlateWithNetworkFailures(assetResult, mappedFailures);
       }
-    } catch {
+    } catch (error) {
+      rethrowTargetLifecycleError(error);
       // Retain clean fallback
     }
 
-    // 5.5 Shared diagnostics classification (trust gate): quyết định critical vs
+    // 8. Shared diagnostics classification (trust gate): quyết định critical vs
     // warning theo origin + error class (module dùng chung với fallback path).
     // URL tab làm context cho entries thiếu origin/isFirstParty (legacy).
-    const diagResult = classifyDiagnostics(diagnosticsSnapshot, contextUrl);
+    const diagResult = classifyDiagnostics(freshDiagnostics, contextUrl);
     const diagnosticIssues: DiagnosticIssue[] = diagResult.criticalIssues;
     const diagnosticWarnings: DiagnosticIssue[] = diagResult.warnings;
 
-    // 6. Platform-scoped HS gate evaluation
+    // Pre-reload diagnostics classification (audit-only evidence)
+    const preReloadDiagResult = classifyDiagnostics(preReloadDiagnostics, preReloadContextUrl);
+    const preReloadCritical: DiagnosticIssue[] = preReloadDiagResult.criticalIssues;
+    const preReloadWarningsList: DiagnosticIssue[] = preReloadDiagResult.warnings;
+    const preReloadDiagnosticsObj =
+      preReloadCritical.length > 0 || preReloadWarningsList.length > 0
+        ? {
+            criticalIssues: preReloadCritical,
+            warnings: preReloadWarningsList,
+          }
+        : undefined;
+
+    // 9. Platform-scoped HS gate evaluation
     let hsResult: HsEvaluationResult = { passed: true, totalViolations: 0, errorsCount: 0, warningsCount: 0, violations: [] };
     try {
-      const evalRes = await this.ports.browser.eval(input.target, HsGateRules.getBrowserEvaluationScript(detectedPlatform));
+      const evalRes = await this.ports.browser.eval(activeTarget, HsGateRules.getBrowserEvaluationScript(detectedPlatform));
       if (evalRes && typeof evalRes === 'object' && 'passed' in evalRes) {
         hsResult = evalRes as HsEvaluationResult;
       } else if (rawHtml) {
         hsResult = HsGateRules.evaluateHtml(rawHtml, detectedPlatform);
       }
-    } catch {
+    } catch (error) {
+      rethrowTargetLifecycleError(error);
       if (rawHtml) {
         hsResult = HsGateRules.evaluateHtml(rawHtml, detectedPlatform);
       }
     }
 
-    // 7. Compute checklist statuses, then apply caller overrides.
+    // 10. Compute authoritative checklist statuses (owned strictly by the engine).
     const checklist: ThemeQaReport['checklist'] = {
       layout: !overflowResult.hasOverflow,
       responsive: overflowResult.culprits.length === 0,
@@ -274,12 +335,20 @@ export class ThemeQaWorkflow {
       hsCompliant: hsResult.passed,
     };
 
-    if (input.checklist) {
-      if (input.checklist.layout !== undefined) checklist.layout = input.checklist.layout;
-      if (input.checklist.responsive !== undefined) checklist.responsive = input.checklist.responsive;
-      if (input.checklist.overflow !== undefined) checklist.overflow = input.checklist.overflow;
-      if (input.checklist.interactions !== undefined) checklist.interactions = input.checklist.interactions;
-      if (input.checklist.diagnostics !== undefined) checklist.diagnostics = input.checklist.diagnostics;
+    // Filter which checks participate in the overall summary verdict if caller specified enabled checks
+    const activeChecklistEntries: boolean[] = [];
+    const enabled = input.enabledChecks;
+    if (enabled) {
+      if (enabled.layout !== false) activeChecklistEntries.push(checklist.layout);
+      if (enabled.responsive !== false) activeChecklistEntries.push(checklist.responsive);
+      if (enabled.overflow !== false) activeChecklistEntries.push(checklist.overflow);
+      if (enabled.interactions !== false) activeChecklistEntries.push(checklist.interactions);
+      if (enabled.diagnostics !== false) activeChecklistEntries.push(checklist.diagnostics);
+      if (enabled.liquidClean !== false) activeChecklistEntries.push(checklist.liquidClean);
+      if (enabled.assetsValid !== false) activeChecklistEntries.push(checklist.assetsValid);
+      if (enabled.hsCompliant !== false) activeChecklistEntries.push(checklist.hsCompliant);
+    } else {
+      activeChecklistEntries.push(...Object.values(checklist));
     }
 
     const totalIssues =
@@ -290,7 +359,7 @@ export class ThemeQaWorkflow {
       diagnosticIssues.length +
       diagnosticWarnings.length;
     const summary: ThemeQaSummary = {
-      passed: Object.values(checklist).every(Boolean),
+      passed: activeChecklistEntries.length > 0 ? activeChecklistEntries.every(Boolean) : true,
       totalIssues,
       criticalCount: hsResult.errorsCount + liquidResult.errors.length + diagnosticIssues.length,
     };
@@ -303,6 +372,7 @@ export class ThemeQaWorkflow {
       hsRules: hsResult,
       diagnosticIssues,
       diagnosticWarnings,
+      ...(preReloadDiagnosticsObj ? { preReloadDiagnostics: preReloadDiagnosticsObj } : {}),
     };
 
     const artifacts: ArtifactRef[] = [];
@@ -310,13 +380,13 @@ export class ThemeQaWorkflow {
       if (typeof item !== 'string') artifacts.push(item);
     }
 
-    // 8. Generate PII-sanitized report JSON (RT-02 mitigation)
+    // 11. Generate PII-sanitized report JSON (RT-02 mitigation)
     const reportDataRaw = JSON.stringify(
       {
         runId: input.runId,
         attemptId: input.attemptId,
-        workspaceId: input.target.workspaceId,
-        target: input.target,
+        workspaceId: activeTarget.workspaceId,
+        target: activeTarget,
         summary,
         checklist,
         findings,
@@ -342,8 +412,8 @@ export class ThemeQaWorkflow {
     return {
       runId: input.runId,
       attemptId: input.attemptId,
-      workspaceId: input.target.workspaceId,
-      target: input.target,
+      workspaceId: activeTarget.workspaceId,
+      target: activeTarget,
       summary,
       checklist,
       findings,
@@ -351,7 +421,6 @@ export class ThemeQaWorkflow {
       createdAt: Date.now(),
     };
   }
-
   private assertOwnership(target: BrowserTarget): void {
     if (!target.projectId || !target.workspaceId || !target.runtimeId || !target.tabId) {
       throw new CapabilityError('TARGET_REQUIRED', 'Theme QA requires an explicit Project/Workspace/runtime/tab target');

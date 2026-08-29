@@ -21,24 +21,29 @@ describe('Theme QA vertical slice', () => {
       documentGeneration: 1,
     };
     let reloads = 0;
+    let currentGen = 1;
+    const artifacts = new ArtifactStore({ root: path.join(root, 'artifacts') });
     const browser = new BrowserControlPort(
       {
         getTabList: () => [{ id: 'tab-1' }],
         navigate: () => true,
         reload: () => {
           reloads++;
+          currentGen++;
           return true;
         },
-        getDom: async () => '<main>fixture</main>',
-        captureScreenshot: async () => Buffer.from('png').toString('base64'),
+        getDocumentGeneration: () => currentGen,
+        isCurrentTarget: (t) => t.tabId === 'tab-1' && t.documentGeneration === currentGen,
+        getDom: async () => `<main>fixture-gen-${currentGen}</main>`,
+        captureScreenshot: async () => Buffer.from(`png-gen-${currentGen}`).toString('base64'),
         evalJs: async () => null,
       },
-      new ArtifactStore({ root: path.join(root, 'artifacts') })
+      artifacts
     );
     const workflow = new ThemeQaWorkflow({
       browser,
       files: new WorkspaceFilePort(),
-      artifacts: new ArtifactStore({ root: path.join(root, 'reports') }),
+      artifacts,
       reload: (value) => browser.reload(value),
     });
     workflow.edit({ workspaceRoot: root, relativePath: 'theme.css', content: 'body { color: red; }' });
@@ -49,10 +54,15 @@ describe('Theme QA vertical slice', () => {
       target,
     });
     assert.strictEqual(reloads, 1);
+    assert.strictEqual(report.target.documentGeneration, 2);
     assert.strictEqual(report.checklist.layout, true);
+    const domArtifact = report.artifacts.find((item) => item.kind === 'dom');
+    assert.ok(domArtifact, 'DOM artifact must exist');
+    const { data: domData } = artifacts.readBytesById(domArtifact.id);
+    assert.ok(domData.toString('utf8').includes('fixture-gen-2'), 'DOM artifact must be from post-reload generation 2');
+    assert.strictEqual(report.artifacts.some((item) => item.kind === 'screenshot'), true);
     assert.strictEqual(report.artifacts.some((item) => item.kind === 'report'), true);
     assert.ok(report.findings);
-
     fs.rmSync(root, { recursive: true, force: true });
   });
 
@@ -68,11 +78,17 @@ describe('Theme QA vertical slice', () => {
     };
     const htmlWithLiquidError = '<html><body><div>Liquid error: Could not find snippet "product-card"</div></body></html>';
     const artifactStore = new ArtifactStore({ root: path.join(root, 'artifacts') });
+    let currentGen = 1;
     const browser = new BrowserControlPort(
       {
         getTabList: () => [{ id: 'tab-1' }],
         navigate: () => true,
-        reload: () => true,
+        reload: () => {
+          currentGen++;
+          return true;
+        },
+        getDocumentGeneration: () => currentGen,
+        isCurrentTarget: (t) => t.tabId === 'tab-1' && t.documentGeneration === currentGen,
         getDom: async () => htmlWithLiquidError,
         captureScreenshot: async () => Buffer.from('png').toString('base64'),
         evalJs: async () => null,
@@ -112,11 +128,17 @@ describe('Theme QA vertical slice', () => {
     };
     const htmlWithPii = '<html><body><div>Liquid error: User test.merchant@example.com with phone 0987654321 not found</div></body></html>';
     const artifactStore = new ArtifactStore({ root: path.join(root, 'artifacts') });
+    let currentGen = 1;
     const browser = new BrowserControlPort(
       {
         getTabList: () => [{ id: 'tab-1' }],
         navigate: () => true,
-        reload: () => true,
+        reload: () => {
+          currentGen++;
+          return true;
+        },
+        getDocumentGeneration: () => currentGen,
+        isCurrentTarget: (t) => t.tabId === 'tab-1' && t.documentGeneration === currentGen,
         getDom: async () => htmlWithPii,
         captureScreenshot: async () => Buffer.from('png').toString('base64'),
         evalJs: async () => null,
@@ -129,7 +151,6 @@ describe('Theme QA vertical slice', () => {
       artifacts: artifactStore,
       reload: (value) => browser.reload(value),
     });
-
     const report = await workflow.validate({
       runId: 'run-12345678901234567890',
       attemptId: 'attempt-12345678901234567890',

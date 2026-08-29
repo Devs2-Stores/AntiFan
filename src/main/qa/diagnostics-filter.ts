@@ -28,6 +28,8 @@ export const THEME_ASSET_HOSTS: readonly string[] = [
   'shopifycdn.com',
   'cdn.shopify.com',
   'cdn.sapo.vn',
+  'dktcdn.net',
+  'bizweb.dktcdn.net',
 ];
 
 const MAX_MESSAGE_LENGTH = 200;

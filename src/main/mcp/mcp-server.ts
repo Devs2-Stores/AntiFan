@@ -13,7 +13,7 @@ import {
 } from '@modelcontextprotocol/sdk/types.js';
 import { NativeTabHost } from '../browser/native-tab-host';
 import { CapabilityTransportAdapter } from '../tools/capability-transport';
-import { CapabilityRequestContext, CapabilityError } from '../../shared/control-plane-contracts';
+import { CapabilityError, AuthenticatedCapabilityContext } from '../../shared/control-plane-contracts';
 import { AttachmentRegistry } from '../run/attachment-registry';
 import { envelope, requestId } from './result-envelope';
 
@@ -459,16 +459,27 @@ export class AntiFanMcpServer {
       };
     }
 
-    let authContext: CapabilityRequestContext;
+    let authContext: AuthenticatedCapabilityContext;
     try {
       authContext = this.attachmentRegistry.validateAttachment(a.attachmentClaims);
-    } catch (err: any) {
+    } catch (err: unknown) {
       const code = err instanceof CapabilityError ? err.code : 'ATTACHMENT_INVALID';
+      const message = err instanceof Error ? err.message : String(err);
       return {
         isError: true,
-        content: [{ type: 'text', text: JSON.stringify({ code, message: err.message || String(err) }) }],
+        content: [{ type: 'text', text: JSON.stringify({ code, message }) }],
       };
     }
+
+    const cleanCallerTab = callerTabId && callerTabId.trim().length > 0 ? callerTabId.trim() : undefined;
+    const isTargetAgnostic = name === 'browser.set-automation-target' || name === 'antifan_set_automation_target' || name === 'browser.open-tab' || name === 'antifan_open_tab' || name === 'anti.browser.tabs.create' || name === 'browser.list-tabs' || name === 'antifan_list_tabs' || name === 'anti.browser.tabs.list';
+    if (cleanCallerTab && authContext.browserTarget?.tabId && cleanCallerTab !== authContext.browserTarget.tabId.trim() && !isTargetAgnostic) {
+      return {
+        isError: true,
+        content: [{ type: 'text', text: JSON.stringify({ code: 'TARGET_MISMATCH', message: `Explicit tabId '${cleanCallerTab}' does not match authenticated target tabId '${authContext.browserTarget.tabId}'` }) }],
+      };
+    }
+
     const transportArgs = { ...a };
     if (callerTabId) transportArgs.tabId = callerTabId;
     else delete transportArgs.tabId;
@@ -481,8 +492,19 @@ export class AntiFanMcpServer {
 
     const result = await this.transport.dispatch(name, transportArgs, authContext);
     if (result.ok) {
-      if ((name === 'browser.open-tab' || name === 'antifan_open_tab') && isCreatedTabResult(result.data)) {
+      if ((name === 'browser.set-automation-target' || name === 'antifan_set_automation_target') && isCreatedTabResult(result.data)) {
         this.tabHost.setAutomationTabId?.(result.data.tabId);
+        if (authContext.attachmentId && this.attachmentRegistry) {
+          this.attachmentRegistry.updateAttachmentTab(authContext.attachmentId, result.data.tabId);
+        }
+      } else if ((name === 'browser.navigate' || name === 'antifan_navigate') && typeof result.data === 'object' && result.data !== null) {
+        const navData = result.data as Record<string, unknown>;
+        const navTarget = navData.target && typeof navData.target === 'object' ? navData.target as Record<string, unknown> : undefined;
+        const tabId = typeof navTarget?.tabId === 'string' ? navTarget.tabId : undefined;
+        const docGen = typeof navTarget?.documentGeneration === 'number' ? navTarget.documentGeneration : undefined;
+        if (tabId && authContext.attachmentId && this.attachmentRegistry) {
+          this.attachmentRegistry.updateAttachmentTab(authContext.attachmentId, tabId, docGen);
+        }
       }
       return { content: [{ type: 'text', text: JSON.stringify(result.data) }] };
     }

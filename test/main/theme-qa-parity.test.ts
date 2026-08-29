@@ -4,12 +4,12 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { ThemeQaWorkflow } from '../../src/main/qa/theme-qa-workflow';
+import { LayoutOverflowEngine } from '../../src/main/qa/scanners/layout-overflow-engine';
 import { buildFallbackThemeQaResult } from '../../src/main/tools/browser-capabilities';
 import { BrowserControlPort, BrowserHostPort } from '../../src/main/tools/browser-control-port';
 import { ArtifactStore } from '../../src/main/tools/artifact-store';
 import { BrowserTarget } from '../../src/shared/control-plane-contracts';
 import { DiagnosticsInput } from '../../src/main/qa/diagnostics-filter';
-
 /**
  * P1 agent reads summary.criticalCount / summary.passed from BOTH the full
  * ThemeQaWorkflow path and the fallback quick path (Red Team Finding 6).
@@ -59,8 +59,15 @@ function toHostDiagnostics(diag: DiagnosticsInput): { console: unknown[]; failur
 }
 
 async function runFullPath(root: string, tabDiagnostics: DiagnosticsInput): Promise<Record<string, unknown>> {
+  let docGen = 1;
   const host: BrowserHostPort = {
     ...TAB_HOST,
+    reload: () => {
+      docGen++;
+      return true;
+    },
+    getDocumentGeneration: () => docGen,
+    isCurrentTarget: (t) => t.tabId === 'tab-1' && t.documentGeneration === docGen,
     getDiagnostics: () => toHostDiagnostics(tabDiagnostics),
   };
   const artifactStore = new ArtifactStore({ root: path.join(root, 'artifacts') });
@@ -69,7 +76,7 @@ async function runFullPath(root: string, tabDiagnostics: DiagnosticsInput): Prom
     browser,
     files: { write: () => ({ path: 'x', byteLength: 0, sha256: '' }) } as never,
     artifacts: artifactStore,
-    reload: () => ({ reloaded: true, target: makeTarget() }),
+    reload: (t) => browser.reload(t),
   });
   const report = await workflow.validate({
     runId: 'run-12345678901234567890',
@@ -144,11 +151,12 @@ describe('Theme QA verdict parity: full path vs fallback path', () => {
   it('overflow + HS failures keep summaries aligned on both paths (review finding)', async () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-parity-overflow-'));
     try {
+      const overflowScript = LayoutOverflowEngine.getBrowserScanScript('active');
       const overflowingHost: BrowserHostPort = {
         ...TAB_HOST,
         getDiagnostics: () => ({ console: [], failures: [] }),
         evalJs: async (expression: string) => {
-          if (expression.includes('document.documentElement')) {
+          if (expression === overflowScript) {
             return { hasOverflow: true, viewport: { name: 'desktop', width: 1440, height: 900 }, deltaX: 120, scrollWidth: 1560, clientWidth: 1440, culprits: [{ tag: 'div', id: 'wide', className: '', selector: 'div#wide', width: 1560 }] };
           }
           if (expression.includes('const platform =')) {
@@ -209,6 +217,63 @@ describe('Theme QA verdict parity: full path vs fallback path', () => {
       });
       assert.equal(report.summary.criticalCount, 0);
       assert.equal(report.summary.passed, true);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('enforces engine checklist authority and applies enabledChecks strictly as a verdict filter', async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-enabled-checks-'));
+    try {
+      const overflowScript = LayoutOverflowEngine.getBrowserScanScript('active');
+      const overflowingHost: BrowserHostPort = {
+        ...TAB_HOST,
+        getDiagnostics: () => ({ console: [], failures: [] }),
+        getDom: async () => '<html><body><div style="width: 2000px">Wide overflow</div></body></html>',
+        evalJs: async (expr: string) => {
+          if (expr === overflowScript) {
+            return {
+              hasOverflow: true,
+              viewport: { name: 'desktop', width: 1440, height: 900 },
+              deltaX: 120,
+              scrollWidth: 1560,
+              clientWidth: 1440,
+              culprits: [{ tag: 'div', id: 'wide', className: '', selector: 'div#wide', width: 1560 }],
+            };
+          }
+          return null;
+        },
+      };
+
+      const artifactStore = new ArtifactStore({ root: path.join(root, 'artifacts') });
+      const browser = new BrowserControlPort(overflowingHost, artifactStore);
+      const workflow = new ThemeQaWorkflow({
+        browser,
+        files: { write: () => ({ path: 'x', byteLength: 0, sha256: '' }) } as never,
+        artifacts: artifactStore,
+        reload: () => ({ reloaded: true, target: makeTarget() }),
+      });
+      // Case 1: Default validate -> layout fails, so summary.passed is FALSE and checklist.layout is FALSE
+      const defaultReport = await workflow.validate({
+        runId: 'run-1',
+        attemptId: 'attempt-1',
+        workspaceRoot: root,
+        target: makeTarget(),
+      });
+      assert.equal(defaultReport.checklist.layout, false, 'Engine must detect layout overflow');
+      assert.equal(defaultReport.summary.passed, false, 'Summary must fail when layout fails');
+
+      // Case 2: Validate with enabledChecks: { layout: false } -> summary.passed evaluates to TRUE, but checklist.layout REMAINS FALSE
+      const filteredReport = await workflow.validate({
+        runId: 'run-2',
+        attemptId: 'attempt-2',
+        workspaceRoot: root,
+        target: makeTarget(),
+        enabledChecks: { layout: false, overflow: false, responsive: false },
+      });
+      assert.equal(filteredReport.checklist.layout, false, 'Checklist layout must remain false (engine authority preserved)');
+      assert.equal(filteredReport.checklist.overflow, false, 'Checklist overflow must remain false');
+      assert.equal(filteredReport.summary.passed, true, 'Summary passed must be true because failing checks were excluded from filter');
     } finally {
       fs.rmSync(root, { recursive: true, force: true });
     }

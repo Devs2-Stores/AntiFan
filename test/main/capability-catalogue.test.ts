@@ -999,4 +999,108 @@ describe('Capability catalogue', () => {
       (err: unknown) => err instanceof CapabilityError && err.code === 'TARGET_STALE'
     );
   });
+
+  it('rebinds host automation target upon antifan_set_automation_target and fails closed on unknown tabs', async () => {
+    let currentAutomationTab: string | null = 'tab-1';
+    const mockHost = {
+      getTabList: () => [
+        { id: 'tab-1', url: 'https://example.com/one' },
+        { id: 'tab-2', url: 'https://example.com/two' },
+      ],
+      getActiveTabId: () => 'tab-1',
+      getAutomationTabId: () => currentAutomationTab,
+      setAutomationTabId: (id?: string) => { currentAutomationTab = id || null; },
+      createTab: () => 'tab-3',
+      navigate: () => true,
+      reload: () => true,
+      getDom: async () => '<html><body>Target DOM</body></html>',
+      captureScreenshot: async () => Buffer.from('png').toString('base64'),
+      evalJs: async () => null,
+    };
+    const projectId = makeControlPlaneId('project');
+    const workspaceId = makeControlPlaneId('workspace');
+    const lease = issueRuntimeLease(projectId, workspaceId, 30_000, 1);
+    const catalogue = new CapabilityCatalogue({ runtime: { mode: 'standalone', lifecycle: 'active' }, projectId, workspaceId, runtimeId: lease.runtimeId, hostEpoch: 1 });
+    const browser = new BrowserControlPort(mockHost as any);
+    registerBrowserCapabilities(catalogue, browser);
+
+    const registry = new AttachmentRegistry();
+    const server = new AntiFanMcpServer(mockHost as any, false, new CapabilityTransportAdapter(catalogue), registry);
+    const runId = makeControlPlaneId('run');
+    const attemptId = makeControlPlaneId('attempt');
+    const { launch } = registry.issueAttachment(runId, attemptId, projectId, workspaceId, {
+      lease,
+      leaseToken: lease.token,
+      hostEpoch: 1,
+      grant: 'write',
+      tabId: 'tab-1',
+      backendId: 'codex',
+    });
+
+    // 1. Explicitly rebind to tab-2 via MCP callTool
+    const rebindRes = await server.callTool('antifan_set_automation_target', {
+      tabId: 'tab-2',
+      attachmentClaims: {
+        attachmentId: launch.attachmentId,
+        attachmentSecret: launch.secret,
+        runId,
+        attemptId,
+        projectId,
+        workspaceId,
+        invocationId: 'inv-rebind-1',
+      },
+    });
+    assert.strictEqual(rebindRes.isError, undefined);
+    assert.strictEqual(currentAutomationTab, 'tab-2', 'Host automation tab must be updated to tab-2');
+    assert.strictEqual(registry.getRecord(launch.attachmentId)?.tabId, 'tab-2', 'Attachment registry must rebind attachment to tab-2');
+
+    // 2. Call with non-existent tab ID must fail closed
+    const failRes = await server.callTool('antifan_set_automation_target', {
+      tabId: 'tab-unknown-999',
+      attachmentClaims: {
+        attachmentId: launch.attachmentId,
+        attachmentSecret: launch.secret,
+        runId,
+        attemptId,
+        projectId,
+        workspaceId,
+        invocationId: 'inv-rebind-fail',
+      },
+    });
+    assert.strictEqual(failRes.isError, true, 'Must fail when tab does not exist');
+    assert.match(failRes.content[0]?.text || '', /not found/);
+    assert.strictEqual(currentAutomationTab, 'tab-2', 'Host automation tab must NOT be corrupted by failed call');
+
+    // 3. Opening a new tab via MCP tool must NOT change the automation target (P1.1 invariant)
+    const openRes = await server.callTool('antifan_open_tab', {
+      url: 'https://example.com/three',
+      attachmentClaims: {
+        attachmentId: launch.attachmentId,
+        attachmentSecret: launch.secret,
+        runId,
+        attemptId,
+        projectId,
+        workspaceId,
+        invocationId: 'inv-open-no-retarget',
+      },
+    });
+    assert.strictEqual(openRes.isError, undefined);
+    assert.strictEqual(currentAutomationTab, 'tab-2', 'Automation tab must remain tab-2 after openTab');
+
+    // 4. Invoking target-required capability with explicit mismatched tabId must fail closed with TARGET_MISMATCH
+    const mismatchRes = await server.callTool('anti.inspect.dom', {
+      tabId: 'tab-1', // launch was rebound to tab-2; passing tab-1 must fail with TARGET_MISMATCH
+      attachmentClaims: {
+        attachmentId: launch.attachmentId,
+        attachmentSecret: launch.secret,
+        runId,
+        attemptId,
+        projectId,
+        workspaceId,
+        invocationId: 'inv-mismatch-target',
+      },
+    });
+    assert.strictEqual(mismatchRes.isError, true, 'Mismatched target tab must fail closed');
+    assert.match(mismatchRes.content[0]?.text || '', /TARGET_MISMATCH/);
+  });
 });

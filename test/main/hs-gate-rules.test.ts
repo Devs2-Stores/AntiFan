@@ -44,3 +44,37 @@ test('static HS engine: platform unknown short-circuits evaluation without error
   assert.equal(result.totalViolations, 0);
   assert.equal(result.passed, true);
 });
+
+test('HsGateRules.getBrowserEvaluationScript compiles to valid JavaScript syntax without SyntaxError', () => {
+  const platforms: EcommercePlatform[] = ['haravan', 'sapo', 'shopify', 'unknown'];
+  for (const p of platforms) {
+    const script = HsGateRules.getBrowserEvaluationScript(p);
+    assert.doesNotThrow(() => {
+      // Compile string as a JS function to ensure zero syntax errors
+      new Function(script);
+    }, `Script for platform ${p} must compile without SyntaxError`);
+  }
+});
+
+test('HS-05: accepts valid absolute platform CDN images and flags invalid non-CDN images', () => {
+  // 1. Haravan CDN image
+  const hrvValid = `<img class="featured-image" src="https://file.hstatic.net/200000/file/product_1.jpg" />`;
+  assert.equal(HsGateRules.evaluateHtml(hrvValid, 'haravan').violations.some(v => v.ruleId === 'HS-05'), false);
+
+  const hrvInvalid = `<img class="featured-image" src="https://random-domain.com/product_1.jpg" />`;
+  assert.equal(HsGateRules.evaluateHtml(hrvInvalid, 'haravan').violations.some(v => v.ruleId === 'HS-05'), true);
+
+  // 2. Sapo CDN image (bizweb.dktcdn.net, dktcdn.net, cdn.sapo.vn)
+  const sapoValidBizweb = `<img class="featured-image" src="https://bizweb.dktcdn.net/100/123/456/themes/theme.jpg" />`;
+  assert.equal(HsGateRules.evaluateHtml(sapoValidBizweb, 'sapo').violations.some(v => v.ruleId === 'HS-05'), false);
+
+  const sapoValidDkt = `<img class="featured-image" src="https://dktcdn.net/100/123/456/themes/theme.jpg" />`;
+  assert.equal(HsGateRules.evaluateHtml(sapoValidDkt, 'sapo').violations.some(v => v.ruleId === 'HS-05'), false);
+
+  const sapoValidCdn = `<img class="featured-image" src="https://cdn.sapo.vn/themes/banner.jpg" />`;
+  assert.equal(HsGateRules.evaluateHtml(sapoValidCdn, 'sapo').violations.some(v => v.ruleId === 'HS-05'), false);
+
+  // 3. Shopify CDN image (cdn.shopify.com, shopifycdn.com)
+  const shopifyValid = `<img class="product__image" src="https://cdn.shopify.com/s/files/1/0000/products/item.png" />`;
+  assert.equal(HsGateRules.evaluateHtml(shopifyValid, 'shopify').violations.some(v => v.ruleId === 'HS-05'), false);
+});

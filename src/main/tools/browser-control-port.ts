@@ -59,7 +59,7 @@ export class BrowserControlPort {
   async reload(target: BrowserTarget, explicitTabId?: string): Promise<{ reloaded: boolean; target: BrowserTarget }> {
     const tabId = this.resolveTargetTab(target, explicitTabId);
     const reloaded = await this.host.reload(tabId);
-    if (!reloaded) throw new CapabilityError('TARGET_STALE', 'Reload failed or timed out before starting');
+    if (!reloaded) throw new CapabilityError('TARGET_STALE', 'Reload failed or timed out before a load-complete document was available');
     const docGen = this.host.getDocumentGeneration ? this.host.getDocumentGeneration(tabId) : (target.documentGeneration || 1);
     return { reloaded: true, target: { ...target, tabId, documentGeneration: docGen } };
   }
@@ -85,10 +85,22 @@ export class BrowserControlPort {
   openTab(options: { url?: string; activate?: boolean } = {}): { tabId: string } {
     if (!this.host.createTab) throw new CapabilityError('CAPABILITY_NOT_FOUND', 'createTab is not supported by host');
     const tabId = this.host.createTab(options.url || 'about:blank', options.activate ?? false);
-    if (this.host.setAutomationTabId) {
-      this.host.setAutomationTabId(tabId);
-    }
     return { tabId };
+  }
+
+  setAutomationTarget(tabId: string): { success: boolean; tabId: string } {
+    const cleanId = tabId && typeof tabId === 'string' ? tabId.trim() : '';
+    if (!cleanId) throw new CapabilityError('INVALID_ARGUMENT', 'tabId is required');
+    if (!this.host.setAutomationTabId || !this.host.getTabList) {
+      throw new CapabilityError('CAPABILITY_NOT_FOUND', 'setAutomationTabId is not supported by host');
+    }
+    const tabs = this.host.getTabList() || [];
+    const exists = tabs.some(t => Boolean(t && typeof t === 'object' && 'id' in t && (t as { id: unknown }).id === cleanId));
+    if (!exists) {
+      throw new CapabilityError('INVALID_ARGUMENT', `Tab with id '${cleanId}' not found`);
+    }
+    this.host.setAutomationTabId(cleanId);
+    return { success: true, tabId: cleanId };
   }
   closeTab(tabId: string): { closed: boolean } {
     if (!this.host.closeTab) throw new CapabilityError('CAPABILITY_NOT_FOUND', 'closeTab is not supported by host');

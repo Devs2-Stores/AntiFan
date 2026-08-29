@@ -96,6 +96,35 @@ export class BrowserActionRegistry {
         return { tabId, success: true };
       },
     });
+    // 1b. Set Automation Target Tab
+    this.registerAction({
+      name: 'setAutomationTarget',
+      mcpName: 'antifan_set_automation_target',
+      aliases: ['antifan.setAutomationTarget', 'setAutomationTabId', 'antifan.setAutomationTabId'],
+      description: 'Explicitly set the active automation tab in AntiFan Desktop',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          tabId: { type: 'string', description: 'Tab ID to target for automation' },
+        },
+        required: ['tabId'],
+      },
+      handler: (params: { tabId: string }, { tabHost }) => {
+        const cleanId = params?.tabId && typeof params.tabId === 'string' ? params.tabId.trim() : '';
+        if (!cleanId) throw new Error('tabId is required');
+        if (!tabHost.setAutomationTabId || !tabHost.getTabList) {
+          throw new Error('setAutomationTabId is not supported by host');
+        }
+        const tabs = tabHost.getTabList() || [];
+        const exists = tabs.some(t => Boolean(t && typeof t === 'object' && 'id' in t && (t as { id: unknown }).id === cleanId));
+        if (!exists) {
+          throw new Error(`Tab with id '${cleanId}' not found`);
+        }
+        tabHost.setAutomationTabId(cleanId);
+        return { tabId: cleanId, success: true };
+      },
+    });
+
 
     // 2. List Tabs / Get Tabs
     this.registerAction({
