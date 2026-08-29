@@ -111,7 +111,23 @@ export class TerminalManager extends EventEmitter {
     const dir = process.env.ANTIFAN_CONFIG_DIR || path.join(os.homedir(), '.antifan');
     return path.join(dir, 'terminal-sessions.json');
   }
+  private cleanOrphanedTempFiles(): void {
+    try {
+      const dir = path.dirname(this.statePath());
+      if (!fs.existsSync(dir)) return;
+      const files = fs.readdirSync(dir);
+      for (const f of files) {
+        if (f.startsWith('terminal-sessions.json.tmp-')) {
+          try {
+            fs.unlinkSync(path.join(dir, f));
+          } catch {}
+        }
+      }
+    } catch {}
+  }
+
   private readSavedSessions(): { activeSessionId?: string; sessions: SavedSession[] } {
+    this.cleanOrphanedTempFiles();
     try {
       const value = JSON.parse(fs.readFileSync(this.statePath(), 'utf8'));
       if (Array.isArray(value)) return { sessions: value };
@@ -251,55 +267,65 @@ export class TerminalManager extends EventEmitter {
     this.currentCapsuleId = capsuleId || 'default';
     if (cwd) this.currentCwd = cwd;
 
-    // 1. Preserve and migrate all existing live sessions so tabs never disappear
-    for (const session of this.sessions.values()) {
-      session.capsuleId = this.currentCapsuleId;
-    }
-
-    const currentSessions = this.listSessions();
-    if (currentSessions.length > 0) {
-      if (targetSessionId && this.sessions.has(targetSessionId)) {
-        this.activeSessionId = targetSessionId;
-      } else if (!this.activeSessionId || !this.sessions.has(this.activeSessionId)) {
-        this.activeSessionId = currentSessions[0]!.id;
-      }
-      if (cwd) {
-        const active = this.sessions.get(this.activeSessionId);
-        if (active && !active.disposed && active.cwd !== cwd) {
-          active.cwd = cwd;
-          const isWin = process.platform === 'win32';
-          const cdCmd = isWin ? `Set-Location -LiteralPath "${cwd}"\r\n` : `cd "${cwd}"\n`;
-          try { active.pty.write(cdCmd); } catch {}
+    if (targetSessionId && this.sessions.has(targetSessionId)) {
+      // User explicitly targeted a specific session for this capsule/workspace folder
+      const target = this.sessions.get(targetSessionId);
+      if (target) {
+        target.capsuleId = this.currentCapsuleId;
+        if (cwd && !target.disposed) {
+          const oldCwd = target.cwd;
+          target.cwd = cwd;
+          if (oldCwd !== cwd) {
+            const isWin = process.platform === 'win32';
+            const cdCmd = isWin ? `Set-Location -LiteralPath "${cwd}"\r\n` : `cd "${cwd}"\n`;
+            try { target.pty?.write(cdCmd); } catch {}
+          }
         }
+        this.activeSessionId = targetSessionId;
       }
     } else {
-      const { activeSessionId: savedActiveId, sessions: saved } = this.readSavedSessions();
-      const baseSessions = saved.filter(item => !item.splitOf);
-      if (baseSessions.length > 0) {
-        for (const item of baseSessions) {
-          const s = this.spawn(item.id, item.cwd || this.currentCwd, '');
-          s.name = item.name || s.name;
-          s.capsuleId = item.capsuleId || this.currentCapsuleId;
-        }
-        const splitSessions = saved.filter(item => item.splitOf && this.sessions.has(item.splitOf));
-        for (const item of splitSessions) {
-          const parentRows = item.splitOf ? this.sessions.get(item.splitOf)?.pty?.rows : undefined;
-          const initialRows = this.getInitialSplitRows(parentRows || this.lastRows);
-          const s = this.spawn(item.id, item.cwd || this.currentCwd, '', undefined, initialRows, MIN_SPLIT_TERMINAL_ROWS);
-          s.name = item.name || s.name;
-          s.splitOf = item.splitOf;
-          s.capsuleId = item.capsuleId || this.currentCapsuleId;
-        }
-        if (savedActiveId && this.sessions.has(savedActiveId)) {
-          const savedTarget = this.sessions.get(savedActiveId);
-          this.activeSessionId = savedTarget?.splitOf || savedActiveId;
-        } else {
-          this.activeSessionId = baseSessions[0]?.id || '';
-        }
-      } else {
+      // Find an existing active/base session belonging to this capsule
+      const matching = [...this.sessions.values()].find(s => !s.splitOf && s.capsuleId === this.currentCapsuleId);
+      if (matching) {
+        this.activeSessionId = matching.id;
+      } else if (this.sessions.size > 0) {
+        // Live sessions exist for other capsules, but none for this capsule: spawn a new dedicated session
         const id = this.nextTerminalId();
         this.activeSessionId = id;
         this.spawn(id, this.currentCwd);
+      } else {
+        // No live sessions at all: restore from saved sessions or spawn fresh
+        const { activeSessionId: savedActiveId, sessions: saved } = this.readSavedSessions();
+        const baseSessions = saved.filter(item => !item.splitOf);
+        if (baseSessions.length > 0) {
+          for (const item of baseSessions) {
+            const s = this.spawn(item.id, item.cwd || this.currentCwd, '');
+            s.name = item.name || s.name;
+            s.capsuleId = item.capsuleId || this.currentCapsuleId;
+          }
+          const splitSessions = saved.filter(item => item.splitOf && this.sessions.has(item.splitOf));
+          for (const item of splitSessions) {
+            const parentRows = item.splitOf ? this.sessions.get(item.splitOf)?.pty?.rows : undefined;
+            const initialRows = this.getInitialSplitRows(parentRows || this.lastRows);
+            const s = this.spawn(item.id, item.cwd || this.currentCwd, '', undefined, initialRows, MIN_SPLIT_TERMINAL_ROWS);
+            s.name = item.name || s.name;
+            s.splitOf = item.splitOf;
+            s.capsuleId = item.capsuleId || this.currentCapsuleId;
+          }
+          const matchingRestored = [...this.sessions.values()].find(s => !s.splitOf && s.capsuleId === this.currentCapsuleId);
+          if (matchingRestored) {
+            this.activeSessionId = matchingRestored.id;
+          } else if (savedActiveId && this.sessions.has(savedActiveId)) {
+            const savedTarget = this.sessions.get(savedActiveId);
+            this.activeSessionId = savedTarget?.splitOf || savedActiveId;
+          } else {
+            this.activeSessionId = baseSessions[0]?.id || '';
+          }
+        } else {
+          const id = this.nextTerminalId();
+          this.activeSessionId = id;
+          this.spawn(id, this.currentCwd);
+        }
       }
     }
     this.persist();
@@ -329,10 +355,17 @@ export class TerminalManager extends EventEmitter {
       TERM: 'xterm-256color',
       FORCE_COLOR: '1',
     };
+    const ptyOptions: pty.IPtyForkOptions = {
+      cwd: validCwd,
+      cols,
+      rows,
+      env: terminalEnv,
+      ...(process.platform === 'win32' ? { useConpty: false } : {}),
+    };
     try {
-      child = pty.spawn(shell, [], { cwd: validCwd, cols, rows, env: terminalEnv });
+      child = pty.spawn(shell, [], ptyOptions);
     } catch {
-      child = pty.spawn(shell, [], { cwd: os.homedir(), cols, rows, env: terminalEnv });
+      child = pty.spawn(shell, [], { ...ptyOptions, cwd: os.homedir() });
     }
     const s: Session = {
       id,
@@ -465,16 +498,7 @@ export class TerminalManager extends EventEmitter {
     const pid = ptyInstance?.pid;
     if (ptyInstance) {
       try {
-        (ptyInstance as any)._socket?.unref?.();
-      } catch {}
-      try {
-        (ptyInstance as any).removeAllListeners?.();
-      } catch {}
-      try {
         ptyInstance.kill();
-      } catch {}
-      try {
-        (ptyInstance as any).destroy?.();
       } catch {}
     }
     if (pid && typeof pid === 'number' && pid > 0) {

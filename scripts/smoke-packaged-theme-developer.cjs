@@ -213,6 +213,13 @@ async function runThemeDeveloperSmoke() {
     const tabId = openTabRes?.tabId;
     assert.ok(tabId, 'Tab creation must return tabId');
 
+    // Retarget automation attachment to newly created preview tab
+    await sendBridgeRequest('antifan.capability.dispatch', {
+      name: 'browser.set-automation-target',
+      params: { tabId },
+      attachmentClaims: makeClaims(),
+    });
+
     // Wait for navigation load
     await new Promise((r) => setTimeout(r, 1500));
 

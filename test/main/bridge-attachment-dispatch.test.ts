@@ -651,7 +651,7 @@ describe('BridgeServer Attachment Authentication & Scoped Dispatch', () => {
       server.dispose();
     }
   });
-  it('retargets attachment tab and documentGeneration upon antifan_open_tab and antifan_navigate MCP aliases', async () => {
+  it('does not implicitly retarget on antifan_open_tab, retargets on antifan_set_automation_target and antifan_navigate', async () => {
     let currentTabId = 'tab-initial';
     let currentGen = 1;
     let clearAgentWorkingCalled = false;
@@ -759,7 +759,7 @@ describe('BridgeServer Attachment Authentication & Scoped Dispatch', () => {
         });
       };
 
-      // 1. Open tab via MCP alias
+      // 1. Open tab via MCP alias (does NOT implicitly retarget automation attachment)
       const openResp = await sendRpc('req-open-1', 'antifan.capability.dispatch', {
         name: 'antifan_open_tab',
         params: { url: 'https://example.com/new' },
@@ -775,8 +775,47 @@ describe('BridgeServer Attachment Authentication & Scoped Dispatch', () => {
         },
       });
       assert.strictEqual(openResp.success, true);
-      assert.strictEqual((openResp.data as any)?.tabId, 'tab-created-456');
+      const openData = openResp.data;
+      assert.ok(openData && typeof openData === 'object' && 'tabId' in openData);
+      assert.strictEqual(openData.tabId, 'tab-created-456');
+      // Invariant: openTab does NOT steal or retarget attachment tab
+      assert.strictEqual(registry.getRecord(launch.attachmentId)?.tabId, 'tab-initial');
+
+      // 1b. Explicitly retarget via antifan_set_automation_target
+      const retargetResp = await sendRpc('req-retarget-1', 'antifan.capability.dispatch', {
+        name: 'antifan_set_automation_target',
+        params: { tabId: 'tab-created-456' },
+        attachmentClaims: {
+          attachmentSecret: launch.secret,
+          attachmentId: launch.attachmentId,
+          runId,
+          attemptId,
+          projectId,
+          workspaceId,
+          invocationId: 'inv-retarget-1',
+          grant: 'write',
+        },
+      });
+      assert.strictEqual(retargetResp.success, true);
       assert.strictEqual(registry.getRecord(launch.attachmentId)?.tabId, 'tab-created-456');
+
+      // 1c. Invariant: setAutomationTarget fails closed on unknown tab ID
+      const failResp = await sendRpc('req-retarget-fail', 'antifan.capability.dispatch', {
+        name: 'antifan_set_automation_target',
+        params: { tabId: 'tab-non-existent-999' },
+        attachmentClaims: {
+          attachmentSecret: launch.secret,
+          attachmentId: launch.attachmentId,
+          runId,
+          attemptId,
+          projectId,
+          workspaceId,
+          invocationId: 'inv-retarget-fail',
+          grant: 'write',
+        },
+      });
+      assert.strictEqual(failResp.success, false);
+      assert.ok(failResp.error && failResp.error.includes('not found'));
 
       // 2. Navigate via MCP alias
       const navResp = await sendRpc('req-nav-1', 'antifan.capability.dispatch', {

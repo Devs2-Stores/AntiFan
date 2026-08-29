@@ -2161,14 +2161,14 @@ export class NativeTabHost extends EventEmitter {
 
     (wc as unknown as EventEmitter).on('close', () => {
       clearLoadingTimer();
-      if (this.tabs.has(id)) {
+      if (!this.isDisposed && this.tabs.has(id)) {
         this.closeTab(id);
       }
     });
 
     wc.on('destroyed', () => {
       clearLoadingTimer();
-      if (this.tabs.has(id)) {
+      if (!this.isDisposed && this.tabs.has(id)) {
         this.closeTab(id);
       }
     });
@@ -2216,6 +2216,7 @@ export class NativeTabHost extends EventEmitter {
   }
 
   public createTab(initialUrl = 'https://www.google.com', activate = true): string {
+    if (this.isDisposed) return '';
     const trimmed = (initialUrl || '').trim();
     if (trimmed && (trimmed.startsWith('file://') || /^[a-zA-Z]:[/\\]/.test(trimmed))) {
       const previewTabId = this.createPreviewTab(trimmed);
@@ -2319,6 +2320,7 @@ export class NativeTabHost extends EventEmitter {
   }
 
   public switchTab(tabId: string): boolean {
+    if (this.isDisposed) return false;
     try {
       const target = this.tabs.get(tabId);
       if (!target) return false;
@@ -2417,10 +2419,10 @@ export class NativeTabHost extends EventEmitter {
         }
       } catch {}
     })()`;
-    if (!tab.view.webContents.isDestroyed()) {
+    if (tab.view?.webContents && !tab.view.webContents.isDestroyed()) {
       tab.view.webContents.executeJavaScript(script).catch(() => {});
     }
-    if (tab.mobileView && !tab.mobileView.webContents.isDestroyed()) {
+    if (tab.mobileView?.webContents && !tab.mobileView.webContents.isDestroyed()) {
       tab.mobileView.webContents.executeJavaScript(script).catch(() => {});
     }
     this.syncFrameBackdrop();
@@ -2436,10 +2438,10 @@ export class NativeTabHost extends EventEmitter {
         }
       } catch {}
     })()`;
-    if (!tab.view.webContents.isDestroyed()) {
+    if (tab.view?.webContents && !tab.view.webContents.isDestroyed()) {
       tab.view.webContents.executeJavaScript(script).catch(() => {});
     }
-    if (tab.mobileView && !tab.mobileView.webContents.isDestroyed()) {
+    if (tab.mobileView?.webContents && !tab.mobileView.webContents.isDestroyed()) {
       tab.mobileView.webContents.executeJavaScript(script).catch(() => {});
     }
     this.syncFrameBackdrop();
@@ -2542,10 +2544,10 @@ export class NativeTabHost extends EventEmitter {
   }
 
   public closeTab(tabId: string): boolean {
+    if (this.isDisposed) return false;
     const target = this.tabs.get(tabId);
     if (!target) return false;
     this.clearTabAgentWorking(tabId);
-
     if (target.state.url && target.state.url !== 'about:blank') {
       this.recentlyClosedTabs.push({ url: target.state.url, title: target.state.title || 'Tab' });
       if (this.recentlyClosedTabs.length > 20) this.recentlyClosedTabs.shift();
@@ -2711,7 +2713,7 @@ export class NativeTabHost extends EventEmitter {
     }
     return true;
   }
-  public async reloadAndWait(tabId: string): Promise<boolean> {
+  public async reloadAndWait(tabId: string, timeoutMs: number = 3000): Promise<boolean> {
     const tab = this.tabs.get(tabId);
     if (!tab) return false;
     const authorityPane = tab.state.splitMode && tab.mobileView && !tab.mobileView.webContents.isDestroyed()
@@ -2720,13 +2722,63 @@ export class NativeTabHost extends EventEmitter {
     const authorityView = authorityPane === 'mobile' && tab.mobileView ? tab.mobileView : tab.view;
     if (!authorityView || authorityView.webContents.isDestroyed()) return false;
 
-    const waiter = this.createNavigationStartWaiter(authorityView.webContents);
+    const waiter = this.createLoadCompletionWaiter(authorityView.webContents, timeoutMs);
     const initiated = this.reload(tabId);
     if (!initiated) {
       waiter.cancel();
       return false;
     }
     return await waiter.promise;
+  }
+
+  private createLoadCompletionWaiter(wc: Electron.WebContents, timeoutMs: number = 3000): { promise: Promise<boolean>; cancel: () => void } {
+    let cancelFn: () => void = () => {};
+    const promise = new Promise<boolean>((resolve) => {
+      if (!wc || wc.isDestroyed()) {
+        resolve(false);
+        return;
+      }
+      let settled = false;
+      const onFinish = () => {
+        if (!settled) {
+          settled = true;
+          cleanup();
+          resolve(true);
+        }
+      };
+      const onFail = (_event: unknown, _errorCode: unknown, _errorDescription: unknown, _validatedURL: unknown, isMainFrame?: boolean) => {
+        if (isMainFrame === false) {
+          return;
+        }
+        if (!settled) {
+          settled = true;
+          cleanup();
+          resolve(false);
+        }
+      };
+      const timer = setTimeout(() => {
+        if (!settled) {
+          settled = true;
+          cleanup();
+          resolve(false);
+        }
+      }, timeoutMs);
+      const cleanup = () => {
+        clearTimeout(timer);
+        try { wc.removeListener('did-finish-load', onFinish); } catch {}
+        try { wc.removeListener('did-fail-load', onFail); } catch {}
+      };
+      cancelFn = () => {
+        if (!settled) {
+          settled = true;
+          cleanup();
+          resolve(false);
+        }
+      };
+      wc.on('did-finish-load', onFinish);
+      wc.on('did-fail-load', onFail);
+    });
+    return { promise, cancel: cancelFn };
   }
 
   private createNavigationStartWaiter(wc: Electron.WebContents, timeoutMs: number = 3000): { promise: Promise<boolean>; cancel: () => void } {
@@ -4951,7 +5003,9 @@ export class NativeTabHost extends EventEmitter {
         this.window.contentView.removeChildView(this.frameBackdropView);
       } catch {}
       try {
-        (this.frameBackdropView.webContents as unknown as { destroy?: () => void })?.destroy?.();
+        if (!this.frameBackdropView.webContents.isDestroyed()) {
+          (this.frameBackdropView.webContents as any).destroy?.();
+        }
       } catch {}
       this.frameBackdropView = null;
     }
@@ -4977,7 +5031,10 @@ export class NativeTabHost extends EventEmitter {
       try { unsub(); } catch {}
     }
     this.tabPreviewUnsubscribers.clear();
-    for (const [id, tab] of this.tabs) {
+    const tabsToClean = [...this.tabs.entries()];
+    this.tabs.clear();
+    this.tabOrder = [];
+    for (const [id, tab] of tabsToClean) {
       try {
         if (!tab.view.webContents.isDestroyed()) {
           tab.view.webContents.stop();
@@ -4996,14 +5053,7 @@ export class NativeTabHost extends EventEmitter {
           this.window.contentView.removeChildView(tab.mobileView);
         } catch {}
       }
-      (tab.view.webContents as unknown as { destroy?: () => void })?.destroy?.();
-      if (tab.mobileView) {
-        try {
-          (tab.mobileView.webContents as unknown as { destroy?: () => void })?.destroy?.();
-        } catch {}
-      }
       this.splitCoordinator.cleanupTab(id);
     }
-    this.tabOrder = [];
   }
 }

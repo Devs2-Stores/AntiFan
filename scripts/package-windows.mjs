@@ -13,6 +13,11 @@ async function build() {
   
   const artifactsDir = path.join(ROOT, 'plans', '260827-1345-production-cutover-release-hardening', 'reports', 'artifacts');
   fs.mkdirSync(artifactsDir, { recursive: true });
+  const targetDir = path.join(artifactsDir, 'AntiFan-Browser-Desktop-win32-x64');
+  if (fs.existsSync(targetDir)) {
+    console.log('[package] Cleaning existing target directory:', targetDir);
+    fs.rmSync(targetDir, { recursive: true, force: true });
+  }
 
   const pkgJson = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8'));
 
@@ -25,7 +30,8 @@ async function build() {
     arch: 'x64',
     overwrite: true,
     asar: {
-      unpack: '**/node_modules/node-pty/**/*',
+      unpack: '*.node',
+      unpackDir: 'node_modules/node-pty',
     },
     icon: fs.existsSync(path.join(ROOT, 'assets', 'icon.ico')) ? path.join(ROOT, 'assets', 'icon.ico') : undefined,
     ignore: [
@@ -70,6 +76,33 @@ async function build() {
   console.log('  Path:   ', exePath);
   console.log('  Size:   ', stat.size, 'bytes');
   console.log('  SHA-256:', hash);
+  // Ensure node-pty native binaries are unpacked into app.asar.unpacked
+  const unpackedNodePtyDir = path.join(outDir, 'resources', 'app.asar.unpacked', 'node_modules', 'node-pty');
+  const srcNodePtyDir = path.join(ROOT, 'node_modules', 'node-pty');
+  const unpackedWin32X64 = path.join(unpackedNodePtyDir, 'prebuilds', 'win32-x64');
+  fs.mkdirSync(unpackedWin32X64, { recursive: true });
+
+  const srcWin32X64 = path.join(srcNodePtyDir, 'prebuilds', 'win32-x64');
+  if (fs.existsSync(srcWin32X64)) {
+    fs.cpSync(srcWin32X64, unpackedWin32X64, { recursive: true });
+  }
+  const srcBuildRelease = path.join(srcNodePtyDir, 'build', 'Release');
+  if (fs.existsSync(srcBuildRelease)) {
+    const unpackedBuildRelease = path.join(unpackedNodePtyDir, 'build', 'Release');
+    fs.mkdirSync(unpackedBuildRelease, { recursive: true });
+    fs.cpSync(srcBuildRelease, unpackedBuildRelease, { recursive: true });
+  }
+
+  // Assert required native win32-x64 node-pty addons exist
+  const requiredAddons = ['pty.node', 'conpty.node', 'conpty_console_list.node'];
+  for (const addon of requiredAddons) {
+    const addonPath = path.join(unpackedWin32X64, addon);
+    if (!fs.existsSync(addonPath)) {
+      throw new Error(`[package] Required native addon missing in packaged build: ${addonPath}`);
+    }
+    const addonStat = fs.statSync(addonPath);
+    console.log(`[package] Verified native addon: ${addon} (${addonStat.size} bytes)`);
+  }
 
   let gitRevision = 'unknown';
   try {

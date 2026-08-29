@@ -222,7 +222,12 @@ export class BridgeServer {
           try {
             this.wss?.close();
           } catch {}
+          try {
+            this.httpServer?.removeAllListeners('error');
+            this.httpServer?.close();
+          } catch {}
           const altServer = http.createServer(this.createHttpHandler());
+          altServer.on('error', (altErr) => reject(altErr));
           this.httpServer = altServer;
           this.wss = new WebSocketServer({ server: altServer });
           this.setupWssEvents();
@@ -440,13 +445,19 @@ export class BridgeServer {
               break;
             }
             const authContext = this.attachmentRegistry.validateAttachment(claims);
+            const explicitTabId = typeof p.params?.tabId === 'string' && p.params.tabId.trim().length > 0 ? p.params.tabId.trim() : undefined;
+            const isTargetAgnostic = p.name === 'browser.set-automation-target' || p.name === 'antifan_set_automation_target' || p.name === 'browser.open-tab' || p.name === 'antifan_open_tab' || p.name === 'anti.browser.tabs.create' || p.name === 'browser.list-tabs' || p.name === 'antifan_list_tabs' || p.name === 'anti.browser.tabs.list';
+            if (explicitTabId && authContext.browserTarget?.tabId && explicitTabId !== authContext.browserTarget.tabId.trim() && !isTargetAgnostic) {
+              respond(false, undefined, `TARGET_MISMATCH: Explicit tabId '${explicitTabId}' does not match authenticated target tabId '${authContext.browserTarget.tabId}'`);
+              break;
+            }
             const dispatchResult = await this.capabilityTransport.dispatch(p.name, p.params || {}, authContext);
             if (dispatchResult.ok) {
               if (claims?.attachmentId && dispatchResult.data && typeof dispatchResult.data === 'object') {
                 const dataObj = dispatchResult.data as Record<string, unknown>;
-                const isOpenTab = p.name === 'browser.open-tab' || p.name === 'anti.browser.tabs.create' || p.name === 'antifan_open_tab';
+                const isSetAutomationTarget = p.name === 'browser.set-automation-target' || p.name === 'antifan_set_automation_target';
                 const isNavigate = p.name === 'browser.navigate' || p.name === 'anti.browser.navigate' || p.name === 'antifan_navigate';
-                if (isOpenTab) {
+                if (isSetAutomationTarget) {
                   const newTabId = typeof dataObj.tabId === 'string' ? dataObj.tabId : undefined;
                   if (newTabId) {
                     this.attachmentRegistry.updateAttachmentTab(claims.attachmentId, newTabId);

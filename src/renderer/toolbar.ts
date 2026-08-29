@@ -76,6 +76,7 @@ interface AntiFanToolbarApi {
   toggleBookmarkBar: () => Promise<boolean>;
   addBookmark: (title: string, url: string) => Promise<any>;
   removeBookmark: (url: string) => Promise<any>;
+  checkUpdates?: () => Promise<void>;
   popoutTerminal?: () => Promise<boolean>;
   getSuggestions: (query: string) => Promise<{ suggestions: Array<{ type: 'search' | 'url' | 'bookmark' | 'history' | 'tab'; text: string; url?: string; tabId?: string; subText?: string }> }>;
   toggleTerminal: () => Promise<boolean>;
@@ -1216,10 +1217,21 @@ function renderChromeProfiles() {
     `;
     item.onclick = async () => {
       profileDropdownMenu.style.display = 'none';
+      getApi()?.setOverlay(false);
+      showToolbarToast(`🔄 Đang đồng bộ Chrome Profile: ${p.name || p.id}...`);
       const res = await getApi()?.syncChromeProfile(p.id);
-      if (res) {
+      if (res && res.success !== false) {
         activeProfileInfo = p;
         renderChromeProfiles();
+        renderAppMenuProfiles();
+        if (res.isLocked) {
+          showToolbarToast(`⚠️ Chrome đang mở: Đã nạp ${res.bookmarksCount || 0} bookmarks. Hãy đóng Google Chrome rồi bấm Đồng bộ lại để nạp cookies!`, 5000);
+        } else {
+          const cookieNote = res.cookiesCount > 0 ? ` (${res.cookiesCount} cookies, ${res.bookmarksCount || 0} bookmarks)` : '';
+          showToolbarToast(`✅ Đã đồng bộ Chrome Profile: ${p.name || p.id}${cookieNote}`, 3000);
+        }
+      } else {
+        showToolbarToast(`⚠️ Không thể đồng bộ: ${res?.message || 'Lỗi profile'}`, 4000);
       }
     };
     profileDropdownList.appendChild(item);
@@ -1259,6 +1271,8 @@ document.addEventListener('click', (e) => {
 // Modern App Dropdown Menu (Three-dot ⋮)
 const appDropdownMenu = document.getElementById('appDropdownMenu') as HTMLElement | null;
 const menuProfileSubList = document.getElementById('menuProfileSubList') as HTMLElement | null;
+const menuItemSyncProfile = document.getElementById('menuItemSyncProfile') as HTMLElement | null;
+const menuProfileContainer = document.getElementById('menuProfileContainer') as HTMLElement | null;
 
 function renderAppMenuProfiles() {
   if (!menuProfileSubList) return;
@@ -1269,13 +1283,29 @@ function renderAppMenuProfiles() {
   menuProfileSubList.innerHTML = '';
   availableChromeProfiles.forEach((p) => {
     const item = document.createElement('div');
-    item.className = 'profile-sub-item';
-    item.innerHTML = `<span>👤</span><span>${escapeHtml(p.name || p.id)}</span>`;
+    const isActive = activeProfileInfo && activeProfileInfo.id === p.id;
+    item.className = `profile-sub-item ${isActive ? 'active' : ''}`;
+    item.innerHTML = `
+      <span>👤 ${escapeHtml(p.name || p.id)}</span>
+      ${isActive ? '<span style="font-size:10px;color:#4ade80;">● Đang dùng</span>' : '<span style="font-size:10px;color:#38bdf8;">Đồng bộ</span>'}
+    `;
     item.onclick = async (e) => {
       e.stopPropagation();
       closeAppMenu();
-      await getApi()?.syncChromeProfile(p.id);
-      showToolbarToast(`Đã đồng bộ Chrome Profile: ${p.name || p.id}`);
+      showToolbarToast(`🔄 Đang đồng bộ Chrome Profile: ${p.name || p.id}...`);
+      const res = await getApi()?.syncChromeProfile(p.id);
+      if (res && res.success !== false) {
+        activeProfileInfo = p;
+        renderChromeProfiles();
+        if (res.isLocked) {
+          showToolbarToast(`⚠️ Chrome đang mở: Đã nạp ${res.bookmarksCount || 0} bookmarks. Hãy đóng Google Chrome rồi bấm Đồng bộ lại để nạp cookies!`, 5000);
+        } else {
+          const cookieNote = res.cookiesCount > 0 ? ` (${res.cookiesCount} cookies, ${res.bookmarksCount || 0} bookmarks)` : '';
+          showToolbarToast(`✅ Đã đồng bộ Chrome Profile: ${p.name || p.id}${cookieNote}`, 3000);
+        }
+      } else {
+        showToolbarToast(`⚠️ Không thể đồng bộ: ${res?.message || 'Lỗi profile'}`, 4000);
+      }
     };
     menuProfileSubList.appendChild(item);
   });
@@ -1284,16 +1314,30 @@ function renderAppMenuProfiles() {
 function closeAppMenu() {
   if (appDropdownMenu && appDropdownMenu.style.display !== 'none') {
     appDropdownMenu.style.display = 'none';
+    if (menuProfileContainer) {
+      menuProfileContainer.style.display = 'none';
+    }
+    menuItemSyncProfile?.classList.remove('expanded');
     getApi()?.setOverlay(false);
   }
 }
 
-function toggleAppMenu() {
+async function toggleAppMenu() {
   if (!appDropdownMenu) return;
   const isHidden = appDropdownMenu.style.display === 'none';
   if (isHidden) {
     if (bookmarksDropdownMenu) bookmarksDropdownMenu.style.display = 'none';
     if (profileDropdownMenu) profileDropdownMenu.style.display = 'none';
+    
+    // Pre-fetch Chrome profiles asynchronously
+    getApi()?.getChromeProfiles().then((profiles) => {
+      if (profiles && Array.isArray(profiles)) {
+        availableChromeProfiles = profiles;
+        renderChromeProfiles();
+        renderAppMenuProfiles();
+      }
+    }).catch(() => {});
+
     renderAppMenuProfiles();
     appDropdownMenu.style.display = 'flex';
     getApi()?.setOverlay(true);
@@ -1309,11 +1353,34 @@ if (btnMenu && appDropdownMenu) {
   });
 }
 
+if (menuItemSyncProfile) {
+  menuItemSyncProfile.addEventListener('click', async (e) => {
+    e.stopPropagation();
+    if (!menuProfileContainer) return;
+    const isExpanded = menuProfileContainer.style.display !== 'none';
+    if (isExpanded) {
+      menuProfileContainer.style.display = 'none';
+      menuItemSyncProfile.classList.remove('expanded');
+    } else {
+      if (!availableChromeProfiles || availableChromeProfiles.length === 0) {
+        const profiles = await getApi()?.getChromeProfiles();
+        if (profiles && Array.isArray(profiles)) {
+          availableChromeProfiles = profiles;
+          renderChromeProfiles();
+        }
+      }
+      renderAppMenuProfiles();
+      menuProfileContainer.style.display = 'block';
+      menuItemSyncProfile.classList.add('expanded');
+    }
+  });
+}
+
 // App Menu Items Clicks
 document.getElementById('menuItemCheckUpdates')?.addEventListener('click', (e) => {
   e.stopPropagation();
   closeAppMenu();
-  (getApi() as any)?.checkUpdates?.();
+  getApi()?.checkUpdates?.();
 });
 
 document.getElementById('menuItemBookmarkTab')?.addEventListener('click', (e) => {

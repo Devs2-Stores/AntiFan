@@ -138,14 +138,19 @@ function initFrameBackdrop() {
       e.stopPropagation();
       window.antifanFrameBackdropApi?.focusPane('desktop');
     });
+    laptopBadge.addEventListener('contextmenu', (e) => {
+      e.stopPropagation();
+      window.antifanFrameBackdropApi?.focusPane('desktop');
+    });
   }
   if (laptopMockup) {
-    laptopMockup.addEventListener('click', (e) => {
-      // If clicked on frame borders
+    const focusDesktopIfBorder = (e: MouseEvent) => {
       if (e.target === laptopMockup || e.target === laptopBase || e.target === laptopLid) {
         window.antifanFrameBackdropApi?.focusPane('desktop');
       }
-    });
+    };
+    laptopMockup.addEventListener('click', focusDesktopIfBorder);
+    laptopMockup.addEventListener('contextmenu', focusDesktopIfBorder);
   }
 
   if (phoneBadge) {
@@ -153,21 +158,33 @@ function initFrameBackdrop() {
       e.stopPropagation();
       window.antifanFrameBackdropApi?.focusPane('mobile');
     });
+    phoneBadge.addEventListener('contextmenu', (e) => {
+      e.stopPropagation();
+      window.antifanFrameBackdropApi?.focusPane('mobile');
+    });
   }
   if (phoneMockup) {
-    phoneMockup.addEventListener('click', (e) => {
+    const focusMobileIfBody = (e: MouseEvent) => {
       if (e.target === phoneMockup || e.target === phoneBody) {
         window.antifanFrameBackdropApi?.focusPane('mobile');
       }
-    });
+    };
+    phoneMockup.addEventListener('click', focusMobileIfBody);
+    phoneMockup.addEventListener('contextmenu', focusMobileIfBody);
   }
   if (phoneTopBezel) {
-    phoneTopBezel.addEventListener('click', (e) => {
+    phoneTopBezel.addEventListener('click', () => {
+      window.antifanFrameBackdropApi?.focusPane('mobile');
+    });
+    phoneTopBezel.addEventListener('contextmenu', () => {
       window.antifanFrameBackdropApi?.focusPane('mobile');
     });
   }
   if (phoneBottomBezel) {
-    phoneBottomBezel.addEventListener('click', (e) => {
+    phoneBottomBezel.addEventListener('click', () => {
+      window.antifanFrameBackdropApi?.focusPane('mobile');
+    });
+    phoneBottomBezel.addEventListener('contextmenu', () => {
       window.antifanFrameBackdropApi?.focusPane('mobile');
     });
   }

@@ -844,39 +844,50 @@ body, html {
   margin: 4px 8px;
 }
 
-/* Submenu for Profile Sync */
+/* Submenu & Accordion for Profile Sync */
 .app-menu-has-sub {
   position: relative;
+  cursor: pointer;
 }
 
-.app-menu-submenu {
-  display: none;
-  position: absolute;
-  top: -6px;
-  right: calc(100% + 6px);
-  background: rgba(18, 18, 24, 0.98);
-  backdrop-filter: blur(20px);
-  border: 1px solid rgba(255, 255, 255, 0.12);
+.app-menu-has-sub .menu-chevron {
+  transition: transform 0.18s ease;
+}
+
+.app-menu-has-sub.expanded .menu-chevron {
+  transform: rotate(90deg);
+  color: #38bdf8;
+}
+
+.app-menu-profile-container {
+  margin: 2px 10px 6px 10px;
+  background: rgba(0, 0, 0, 0.35);
+  border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 8px;
-  box-shadow: 0 16px 36px rgba(0, 0, 0, 0.75);
-  min-width: 220px;
-  padding: 4px 0;
-  z-index: 1000000;
+  overflow: hidden;
+  animation: appMenuFadeIn 0.15s ease;
 }
 
-.app-menu-has-sub:hover .app-menu-submenu {
+.profile-sub-list {
   display: flex;
   flex-direction: column;
+  padding: 4px;
+  gap: 2px;
+  max-height: 200px;
+  overflow-y: auto;
 }
 
 .profile-sub-item {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 8px;
-  padding: 6px 12px;
+  padding: 6px 10px;
   font-size: 11.5px;
   color: #e2e8f0;
+  border-radius: 6px;
   cursor: pointer;
+  transition: all 0.12s ease;
 }
 
 .profile-sub-item:hover {
@@ -884,9 +895,17 @@ body, html {
   color: #38bdf8;
 }
 
+.profile-sub-item.active {
+  background: rgba(34, 197, 94, 0.12);
+  color: #4ade80;
+  font-weight: 500;
+}
+
 .profile-sub-item.disabled {
   color: #64748b;
   cursor: default;
+  justify-content: center;
+  padding: 8px 10px;
 }
 .nav-btn {
   display: inline-flex;

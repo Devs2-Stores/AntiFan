@@ -15,7 +15,7 @@ describe('Terminal Switching Regression & Viewport Integrity', () => {
   type TerminalManagerInternals = {
     spawn: (id: string, cwd: string, restoredBuffer?: string, initialCols?: number, initialRows?: number, minimumRows?: number) => unknown;
     statePath: () => string;
-    sessions: Map<string, unknown>;
+    sessions: Map<string, { id: string; cwd: string; name?: string; splitOf?: string; capsuleId?: string; disposed?: boolean; pty: { write: (data: string) => void } }>;
     activeSessionId?: string;
     currentCapsuleId?: string;
     lastCols?: number;
@@ -507,6 +507,17 @@ describe('Terminal Switching Regression & Viewport Integrity', () => {
     const s2 = tm.createSession('E:/Work/project-2');
     assert.ok(s1 && s2);
 
+    const pty1 = tmInternal.sessions.get(s1)?.pty;
+    const pty2 = tmInternal.sessions.get(s2)?.pty;
+    assert.ok(pty1 && pty2);
+
+    const pty1Writes: string[] = [];
+    const pty2Writes: string[] = [];
+    const origPty1Write = pty1.write.bind(pty1);
+    const origPty2Write = pty2.write.bind(pty2);
+    pty1.write = (data: string) => { pty1Writes.push(data); origPty1Write(data); };
+    pty2.write = (data: string) => { pty2Writes.push(data); origPty2Write(data); };
+
     // Set active in manager initially to s1
     tm.switchSession(s1);
     assert.strictEqual(tm.getActiveSessionId(), s1);
@@ -519,6 +530,10 @@ describe('Terminal Switching Regression & Viewport Integrity', () => {
     assert.strictEqual(tm.getSession(s2)?.cwd, 'E:/Work/project-target');
     assert.strictEqual(tm.getSession(s1)?.cwd, 'E:/Work/project-1');
 
+    // Invariant: pty2 received the cd/Set-Location command, while pty1 received zero writes
+    assert.strictEqual(pty1Writes.length, 0, 'Untargeted session 1 must receive zero shell commands');
+    assert.strictEqual(pty2Writes.length, 1, 'Targeted session 2 must receive exactly one cd/Set-Location command');
+    assert.match(pty2Writes[0] || '', /project-target/, 'Shell command must point to the new workspace directory');
     await tm.closeSession(s1);
     await tm.closeSession(s2);
   });

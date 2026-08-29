@@ -169,7 +169,10 @@ async function runRecoverySmoke() {
   const tempConfigDir = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-pkg-recovery-config-'));
   log('Temp user-data dir:', tempUserData);
   log('Temp config dir:', tempConfigDir);
-
+  const logDir = path.resolve(__dirname, '..', 'plans', '260827-1345-production-cutover-release-hardening', 'reports', 'smoke');
+  fs.mkdirSync(logDir, { recursive: true });
+  const logFile = path.join(logDir, 'packaged-recovery-smoke.log');
+  const logFd = fs.openSync(logFile, 'w');
   const testUrlAlpha = 'https://example.com/recovered-tab-alpha';
   const testUrlBeta = 'https://example.com/recovered-tab-beta';
 
@@ -189,7 +192,7 @@ async function runRecoverySmoke() {
         NODE_ENV: 'production',
         ELECTRON_NO_ATTACH_CONSOLE: '1',
       },
-      stdio: 'ignore',
+      stdio: ['ignore', logFd, logFd],
       windowsHide: true,
     });
 
@@ -254,7 +257,7 @@ async function runRecoverySmoke() {
         NODE_ENV: 'production',
         ELECTRON_NO_ATTACH_CONSOLE: '1',
       },
-      stdio: 'ignore',
+      stdio: ['ignore', logFd, logFd],
       windowsHide: true,
     });
 

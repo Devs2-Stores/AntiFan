@@ -29,7 +29,8 @@ import { TerminalManager } from './browser/terminal-manager';
 import { CookiePersister } from './browser/cookie-persister';
 import { buildApplicationMenu } from './browser/app-menu';
 import { WindowStateManager } from './browser/window-state';
-import { googleAuthUserAgent, isGoogleAuthUrl, setUserAgentHeader, setChromeClientHints, cleanCorruptedGoogleCookies } from './browser/google-auth-identity';
+import { HistoryManager } from './browser/history-manager';
+import { googleAuthUserAgent, isGoogleAuthUrl, isGoogleUrl, setUserAgentHeader, setChromeClientHints, cleanCorruptedGoogleCookies } from './browser/google-auth-identity';
 import { ControlPlaneRuntime } from './control-plane/control-plane-runtime';
 import { BrowserControlPort } from './tools/browser-control-port';
 import { CapabilityTransportAdapter } from './tools/capability-transport';
@@ -331,8 +332,15 @@ app.whenReady().then(async () => {
       const headers = { ...details.requestHeaders };
       delete headers['X-Electron-Version'];
       delete headers['X-Antifan-Version'];
-      setUserAgentHeader(headers, CHROME_USER_AGENT);
-      setChromeClientHints(headers);
+      if (isGoogleUrl(details.url) || isGoogleAuthUrl(details.url)) {
+        setUserAgentHeader(headers, CHROME_USER_AGENT);
+        setChromeClientHints(headers);
+      } else {
+        const uaKey = Object.keys(headers).find((k) => k.toLowerCase() === 'user-agent') || 'User-Agent';
+        if (headers[uaKey]) {
+          headers[uaKey] = headers[uaKey].replace(/\s*Electron\/\S+/g, '');
+        }
+      }
       callback({ requestHeaders: headers });
     }
   );
@@ -370,6 +378,9 @@ function shutdown(): Promise<void> {
       TerminalManager.getInstance().persistSync();
     } catch {}
     try {
+      HistoryManager.getInstance().persistSync();
+    } catch {}
+    try {
       await CookiePersister.getInstance().saveAllCookies();
       await session.defaultSession.cookies.flushStore();
     } catch {}
@@ -401,13 +412,14 @@ app.on('window-all-closed', async () => {
   }
 });
 
+let isShuttingDown = false;
 app.on('before-quit', (event) => {
-  if (!shutdownPromise) {
-    event.preventDefault();
-    shutdown().finally(() => {
-      app.quit();
-    });
-  }
+  if (isShuttingDown) return;
+  isShuttingDown = true;
+  event.preventDefault();
+  shutdown().finally(() => {
+    app.quit();
+  });
 });
 app.on('will-quit', () => {
   bridgeServer?.dispose();

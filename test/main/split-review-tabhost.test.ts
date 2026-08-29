@@ -53,7 +53,7 @@ function createTestHost() {
     insertCSS: async () => '',
     setUserAgent: (_ua: string) => {},
     setWindowOpenHandler: () => {},
-    debugger: { isAttached: () => false, attach: () => {}, sendCommand: async () => {} },
+    debugger: { isAttached: (): boolean => false, attach: () => {}, sendCommand: async (_command?: string, _params?: any): Promise<any> => {} },
     destroy: () => {},
   });
   const desktopView = {
@@ -477,27 +477,39 @@ describe('NativeTabHost Split Review Integration', () => {
     assert.strictEqual(mobileReloadCount, 2, 'Mobile WebContents must NOT reload when split mode is disabled');
   });
 
-  it('awaits desktop navigation start in navigateAndWait and reloadAndWait', async () => {
+  it('awaits desktop navigation start in navigateAndWait', async () => {
     const { host, desktopWc } = createTestHost();
 
-    // 1. navigateAndWait awaits did-start-navigation
+    // navigateAndWait awaits did-start-navigation
     let navPromise = host.navigateAndWait('tab-split-1', 'https://example.com/updated');
     setImmediate(() => {
       desktopWc.emit('did-start-navigation', {}, 'https://example.com/updated', false, true);
     });
     const navResult = await navPromise;
     assert.strictEqual(navResult, true);
+  });
 
-    // 2. reloadAndWait awaits did-start-navigation
+  it('awaits desktop load completion in reloadAndWait, ignoring premature navigation start', async () => {
+    const { host, desktopWc } = createTestHost();
+
     let reloadPromise = host.reloadAndWait('tab-split-1');
-    setImmediate(() => {
-      desktopWc.emit('did-start-navigation', {}, 'https://example.com/updated', false, true);
+    let isResolved = false;
+    reloadPromise.then(() => {
+      isResolved = true;
     });
+
+    // Emitting did-start-navigation must NOT resolve reloadAndWait
+    desktopWc.emit('did-start-navigation', {}, 'https://example.com/updated', false, true);
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.strictEqual(isResolved, false, 'reloadAndWait must remain pending after did-start-navigation');
+
+    // Emitting did-finish-load resolves reloadAndWait
+    desktopWc.emit('did-finish-load');
     const reloadResult = await reloadPromise;
     assert.strictEqual(reloadResult, true);
   });
 
-  it('awaits mobile authority navigation start in navigateAndWait and reloadAndWait when mobile pane is focused', async () => {
+  it('awaits mobile authority navigation start in navigateAndWait and load completion in reloadAndWait when mobile pane is focused', async () => {
     const { host, desktopWc, mobileWc, mobileView } = createTestHost();
     const tab = host.tabs.get('tab-split-1')!;
     tab.state.splitMode = true;
@@ -507,20 +519,54 @@ describe('NativeTabHost Split Review Integration', () => {
     // 1. navigateAndWait awaits did-start-navigation on mobile WebContents
     let navPromise = host.navigateAndWait('tab-split-1', 'https://example.com/mobile-updated');
     setImmediate(() => {
-      // Emit did-start-navigation ONLY on mobileWc (desktopWc does not emit)
       mobileWc.emit('did-start-navigation', {}, 'https://example.com/mobile-updated', false, true);
     });
     const navResult = await navPromise;
     assert.strictEqual(navResult, true);
 
-    // 2. reloadAndWait awaits did-start-navigation on mobile WebContents
+    // 2. reloadAndWait awaits did-finish-load on mobile WebContents
     let reloadPromise = host.reloadAndWait('tab-split-1');
-    setImmediate(() => {
-      // Emit did-start-navigation ONLY on mobileWc
-      mobileWc.emit('did-start-navigation', {}, 'https://example.com/mobile-updated', false, true);
+    let isResolved = false;
+    reloadPromise.then(() => {
+      isResolved = true;
     });
+
+    // Desktop finish load does not resolve mobile authority reload
+    desktopWc.emit('did-finish-load');
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.strictEqual(isResolved, false, 'reloadAndWait must not resolve from non-authority pane');
+
+    // Mobile finish load resolves
+    mobileWc.emit('did-finish-load');
     const reloadResult = await reloadPromise;
     assert.strictEqual(reloadResult, true);
+  });
+
+  it('handles did-fail-load and timeout in reloadAndWait with listener cleanup', async () => {
+    const { host, desktopWc } = createTestHost();
+
+    // 1. Subframe failure is ignored; subsequent finish-load resolves true
+    let reloadPromise1 = host.reloadAndWait('tab-split-1');
+    desktopWc.emit('did-fail-load', {}, -105, 'NAME_NOT_RESOLVED', 'https://example.com/subframe', false);
+    desktopWc.emit('did-finish-load');
+    const result1 = await reloadPromise1;
+    assert.strictEqual(result1, true, 'Subframe did-fail-load must not fail reloadAndWait');
+
+    // 2. Main-frame failure resolves false
+    let reloadPromise2 = host.reloadAndWait('tab-split-1');
+    desktopWc.emit('did-fail-load', {}, -105, 'NAME_NOT_RESOLVED', 'https://example.com/main', true);
+    const result2 = await reloadPromise2;
+    assert.strictEqual(result2, false, 'Main-frame did-fail-load must resolve false');
+
+    // 3. Bounded timeout resolves false and cleans up listeners
+    let reloadPromise3 = host.reloadAndWait('tab-split-1', 30);
+    const result3 = await reloadPromise3;
+    assert.strictEqual(result3, false, 'Timeout must resolve false');
+
+    // Late finish load event after timeout should not throw or alter settled state
+    assert.doesNotThrow(() => {
+      desktopWc.emit('did-finish-load');
+    });
   });
 
   it('increments documentGenerations only on authority pane navigation in split review mode', () => {
@@ -583,5 +629,62 @@ describe('NativeTabHost Split Review Integration', () => {
     desktopWc.isDestroyed = () => true;
     (NativeTabHost.prototype as any).setSafeUserAgent.call(host, desktopWc, 'Mozilla/5.0 AnotherUA');
     assert.strictEqual(uaCallCount, 1, 'Destroyed webContents must not invoke setUserAgent');
+  });
+
+  it('auto-focuses target pane on context-menu event in split review mode', () => {
+    const { host, mobileWc } = createTestHost();
+    const tab = host.tabs.get('tab-split-1')!;
+    tab.state.splitMode = true;
+    tab.focusedPane = 'desktop';
+    tab.state.splitFocusedPane = 'desktop';
+
+    // Attach real setupContextMenu for mobile pane
+    (NativeTabHost.prototype as any).setupContextMenu.call(host, mobileWc, 'mobile');
+
+    // Fire context-menu event on mobile webContents
+    mobileWc.emit('context-menu', {}, { x: 100, y: 100 });
+
+    assert.strictEqual(tab.focusedPane, 'mobile', 'Right-clicking mobile pane must switch focusedPane to mobile');
+    assert.strictEqual(tab.state.splitFocusedPane, 'mobile', 'Right-clicking mobile pane must update state.splitFocusedPane');
+  });
+
+  it('configures CDP touch emulation without hijacking mouse movements so hover and context menu work smoothly', async () => {
+    const { host, mobileWc } = createTestHost();
+    const sentCommands: Array<{ command: string; params?: any }> = [];
+
+    mobileWc.debugger = {
+      isAttached: (): boolean => true,
+      attach: () => {},
+      sendCommand: async (_command?: string, params?: any): Promise<any> => {
+        sentCommands.push({ command: _command || '', params });
+      },
+    };
+
+    // 1. Invoke applyCdpTouchEmulation with true (as called in split mobile mode)
+    await (NativeTabHost.prototype as any).applyCdpTouchEmulation.call(host, mobileWc, true);
+
+    const touchEnabledCommand = sentCommands.find((c) => c.command === 'Emulation.setTouchEmulationEnabled');
+    const mouseTouchCommand = sentCommands.find((c) => c.command === 'Emulation.setEmitTouchEventsForMouse');
+    assert.ok(touchEnabledCommand, 'Must send Emulation.setTouchEmulationEnabled command');
+    assert.strictEqual(touchEnabledCommand.params?.enabled, true, 'Touch emulation should be enabled for mobile testing');
+    assert.ok(mouseTouchCommand, 'Must configure mouse touch emission');
+    assert.strictEqual(mouseTouchCommand.params?.enabled, false, 'Must not hijack mouse movements with touch emission so right-click works');
+
+    // 2. Invoke applyCdpTouchEmulation with false (when exiting split mode)
+    sentCommands.length = 0;
+    await (NativeTabHost.prototype as any).applyCdpTouchEmulation.call(host, mobileWc, false);
+    const disableTouchCommand = sentCommands.find((c) => c.command === 'Emulation.setTouchEmulationEnabled');
+    assert.ok(disableTouchCommand, 'Must disable touch emulation on reset');
+    assert.strictEqual(disableTouchCommand.params?.enabled, false);
+  });
+
+  it('registers context-menu listener on frameBackdropView', () => {
+    const { host } = createTestHost();
+    const backdropWc = Object.assign(new EventEmitter(), {
+      isDestroyed: () => false,
+    });
+
+    (NativeTabHost.prototype as any).setupBackdropContextMenu.call(host, backdropWc);
+    assert.strictEqual(backdropWc.listenerCount('context-menu'), 1, 'Backdrop webContents must have 1 context-menu listener');
   });
 });
