@@ -11,6 +11,7 @@ import * as cp from 'child_process';
 import * as http from 'http';
 import * as crypto from 'crypto';
 import { session, Cookie } from 'electron';
+import { isGoogleDomain } from './google-auth-identity';
 
 export interface ChromeProfileInfo {
   id: string; // 'Default', 'Profile 1', etc.
@@ -49,8 +50,9 @@ export function cookieImportSetDetails(
   path: string,
   secure: boolean,
   httpOnly: boolean,
-  samesite: number
-): Electron.CookiesSetDetails {
+  samesite: number,
+  expires?: number
+): Electron.CookiesSetDetails | null {
   const scheme = secure ? 'https://' : 'http://';
   const domain = host.startsWith('.') ? host.substring(1) : host;
   const cookieUrl = `${scheme}${domain}${path || '/'}`;
@@ -74,6 +76,19 @@ export function cookieImportSetDetails(
   if (host.startsWith('.') && !name.startsWith('__Host-')) {
     details.domain = host;
   }
+
+  // Chromium SQLite stores expires_utc in microseconds since Jan 1, 1601 (Windows epoch)
+  if (typeof expires === 'number' && expires > 0) {
+    if (expires > 11644473600000000) {
+      const unixSeconds = Math.floor((expires - 11644473600000000) / 1000000);
+      if (unixSeconds <= Math.floor(Date.now() / 1000)) {
+        // Expired persistent cookie: return null so caller skips it rather than reviving it as a session cookie
+        return null;
+      }
+      details.expirationDate = unixSeconds;
+    }
+  }
+
   return details;
 }
 
@@ -340,6 +355,7 @@ export class ChromeProfileSyncManager {
     cookiesCount: number;
     bookmarksCount: number;
     message: string;
+    isLocked?: boolean;
   }> {
     this.activeProfileId = profileId;
     const profilePath = path.join(this.chromeUserDataPath, profileId);
@@ -352,6 +368,7 @@ export class ChromeProfileSyncManager {
 
     // 2. Extract and import cookies
     let cookiesCount = 0;
+    let isLocked = false;
     const cookiesSrc = path.join(profilePath, 'Network', 'Cookies');
 
     if (fs.existsSync(cookiesSrc)) {
@@ -361,7 +378,9 @@ export class ChromeProfileSyncManager {
 
       try {
         const copied = this.safeCopyLockedFile(cookiesSrc, tempCookiesDb);
-        if (copied && fs.existsSync(tempCookiesDb) && fs.statSync(tempCookiesDb).size > 1024) {
+        if (!copied) {
+          isLocked = true;
+        } else if (fs.existsSync(tempCookiesDb) && fs.statSync(tempCookiesDb).size > 1024) {
           const masterKey = this.getMasterKey();
           const pyScript = `import sqlite3, json, sys, os
 try:
@@ -389,6 +408,12 @@ except Exception:
             let rejectedImports = 0;
             for (const item of rawCookies) {
               try {
+                if (isGoogleDomain(item.host)) {
+                  // Google session tokens are cryptographically bound to the Chrome device/TLS channel.
+                  // Importing them into Electron triggers CookieMismatch and cookie settings errors.
+                  continue;
+                }
+
                 let decryptedVal: string | null = null;
                 const encBuf = Buffer.from(item.encHex, 'hex');
 
@@ -405,24 +430,21 @@ except Exception:
                 }
 
                 if (!decryptedVal) {
-                  // Unsupported cipher or missing master key: the cookie cannot be
-                  // restored on this machine. Account for it so sync counts stay honest.
                   rejectedImports++;
-                  console.warn(`[ChromeProfileSync] Skipped undecryptable cookie ${item.name} @ ${item.host}`);
                   continue;
                 }
 
-                await targetSession.cookies.set(cookieImportSetDetails(item.name, item.host, decryptedVal, item.path, item.secure, item.httponly, item.samesite));
+                const setDetails = cookieImportSetDetails(item.name, item.host, decryptedVal, item.path, item.secure, item.httponly, item.samesite, item.expires);
+                if (!setDetails) {
+                  continue;
+                }
+                await targetSession.cookies.set(setDetails);
                 cookiesCount++;
               } catch (err) {
                 rejectedImports++;
-                console.warn(`[ChromeProfileSync] Rejected cookie import ${item.name} @ ${item.host}:`, err);
               }
             }
             await targetSession.cookies.flushStore();
-            if (rejectedImports > 0) {
-              console.warn(`[ChromeProfileSync] ${rejectedImports} cookie(s) failed to import and were skipped.`);
-            }
           } catch (pyErr) {
             console.warn('[ChromeProfileSync] Python extraction note:', pyErr);
           }
@@ -434,6 +456,16 @@ except Exception:
           fs.rmSync(tempDir, { recursive: true, force: true });
         } catch {}
       }
+    }
+
+    if (isLocked) {
+      return {
+        success: true,
+        cookiesCount: 0,
+        bookmarksCount: bookmarks.length,
+        isLocked: true,
+        message: `Đã nạp ${bookmarks.length} dấu trang. Để nạp đầy đủ cookies, vui lòng đóng trình duyệt Google Chrome rồi bấm Đồng bộ lại!`,
+      };
     }
 
     return {

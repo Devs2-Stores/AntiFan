@@ -3,15 +3,18 @@
  * Retains all user authentication, session cookies, and storefront tokens across app restarts.
  * Handles localhost, 127.0.0.1 (9Router, local dashboards), Haravan, Sapo, Shopify, and web apps.
  */
-import { session, Cookie, CookiesSetDetails, Session } from 'electron';
+import { app, session, Cookie, CookiesSetDetails, Session } from 'electron';
 import * as fs from 'fs';
 import * as path from 'path';
+import { isGoogleDomain } from './google-auth-identity';
 
-function shouldPersistCookie(c: Cookie): boolean {
+export function shouldPersistCookie(c: Cookie): boolean {
   if (!c || !c.name) return false;
   const domain = (c.domain || '').toLowerCase().replace(/^\./, '');
-  // Skip short-lived Google OAuth handshake internal cookies that require fresh exchange
-  if (domain.includes('accounts.google.com') && c.name.startsWith('__Host-GAPS')) {
+  if (!domain) return false;
+  // Skip Google services: Chromium's native encrypted SQLite database handles Google cookies securely
+  // with correct session rotation tokens without external tampering
+  if (isGoogleDomain(domain)) {
     return false;
   }
   return true;
@@ -83,8 +86,11 @@ export function buildRestoreDetails(c: Cookie): CookiesSetDetails {
     sameSite: sameSiteValue,
   };
 
-  const mustBeHostOnly = c.name.startsWith('__Host-') || c.hostOnly === true || !c.domain;
-  if (!mustBeHostOnly) {
+  // RFC 6265bis: A cookie is a domain cookie IF AND ONLY IF its domain starts with a dot `.`
+  // Host-only cookies (bare host_key, no leading dot, or `__Host-` prefix) must not carry a Domain attribute
+  // or Chromium rejects __Host- cookies and converts host-only cookies into shadowing domain cookies.
+  const isDomainCookie = typeof c.domain === 'string' && c.domain.startsWith('.') && !c.name.startsWith('__Host-') && c.hostOnly !== true;
+  if (isDomainCookie) {
     details.domain = c.domain;
   }
 
@@ -99,32 +105,57 @@ export function buildRestoreDetails(c: Cookie): CookiesSetDetails {
   return details;
 }
 
+export function resolveCookieCachePath(
+  explicitPath?: string,
+  appOverride?: { getPath?: (name: string) => string }
+): string {
+  if (explicitPath) {
+    return explicitPath;
+  }
+  let userData: string | undefined;
+  const electronApp = appOverride || app;
+  try {
+    if (electronApp && typeof electronApp.getPath === 'function') {
+      userData = electronApp.getPath('userData');
+    }
+  } catch {}
+  if (!userData) {
+    userData = process.env.ANTIFAN_USER_DATA || process.env.ANTIFAN_USER_DATA_DIR;
+  }
+  if (!userData) {
+    userData = path.join(process.cwd(), 'appdata', 'antifan-browser-desktop', 'Chromium-dev');
+  }
+  const dir = path.join(userData, '..', 'state', 'v1');
+  return path.join(dir, 'cookies_cache.json');
+}
+
 export class CookiePersister {
-  private static instance: CookiePersister;
+  private static instance: CookiePersister | null = null;
   private cachePath: string;
   private isSaving = false;
   private saveDebounceTimer: NodeJS.Timeout | undefined = undefined;
 
-  private constructor(cachePath?: string) {
-    // Injectable for tests; production uses the default state cache.
-    if (cachePath) {
-      this.cachePath = cachePath;
-      return;
-    }
-    const dir = path.join(process.cwd(), 'appdata', 'antifan-browser-desktop', 'state', 'v1');
+  public constructor(cachePath?: string) {
+    this.cachePath = resolveCookieCachePath(cachePath);
     try {
-      fs.mkdirSync(dir, { recursive: true });
+      fs.mkdirSync(path.dirname(this.cachePath), { recursive: true });
     } catch {}
-    this.cachePath = path.join(dir, 'cookies_cache.json');
   }
 
-  public static getInstance(): CookiePersister {
-    if (!CookiePersister.instance) {
-      CookiePersister.instance = new CookiePersister();
+  public getCachePath(): string {
+    return this.cachePath;
+  }
+
+  public static getInstance(cachePath?: string): CookiePersister {
+    if (!CookiePersister.instance || (cachePath && CookiePersister.instance.cachePath !== cachePath)) {
+      CookiePersister.instance = new CookiePersister(cachePath);
     }
     return CookiePersister.instance;
   }
 
+  public static resetInstance(): void {
+    CookiePersister.instance = null;
+  }
   public async restoreCookies(targetSession?: Session, cookiesOverride?: Cookie[] | null): Promise<number> {
     const ses = targetSession || session.defaultSession;
     const cookies = Array.isArray(cookiesOverride)

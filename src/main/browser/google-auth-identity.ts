@@ -8,12 +8,13 @@ const GOOGLE_AUTH_HOSTS = new Set([
 ]);
 
 export function getChromeVersion(): string {
-  return process.versions.chrome || '134.0.6998.35';
+  return process.versions.chrome || '150.0.7871.224';
 }
 
 export function getChromeMajorVersion(): string {
-  return getChromeVersion().split('.')[0] || '134';
+  return getChromeVersion().split('.')[0] || '150';
 }
+
 
 export function isGoogleAuthUrl(rawUrl: string): boolean {
   try {
@@ -38,8 +39,8 @@ export function setChromeClientHints(headers: Record<string, string>): void {
   const major = getChromeMajorVersion();
   const platform = process.platform === 'darwin' ? 'macOS' : process.platform === 'win32' ? 'Windows' : 'Linux';
   
-  // Set genuine Google Chrome Sec-CH-UA headers matching real desktop Chrome
-  headers['sec-ch-ua'] = `"Google Chrome";v="${major}", "Chromium";v="${major}", "Not?A_Brand";v="24"`;
+  // Set Chromium Client Hints aligned with real Google Chrome desktop policy
+  headers['sec-ch-ua'] = `"Chromium";v="${major}", "Not=A?Brand";v="24", "Google Chrome";v="${major}"`;
   headers['sec-ch-ua-mobile'] = '?0';
   headers['sec-ch-ua-platform'] = `"${platform}"`;
 }
@@ -69,6 +70,86 @@ export async function applyGoogleAuthIdentity(contents: WebContents, url: string
   }).catch(() => {});
 }
 
-export async function cleanCorruptedGoogleCookies(_ses: Electron.Session): Promise<void> {
-  // No-op to preserve active user Google login sessions
+export function isGoogleDomain(domain?: string): boolean {
+  if (!domain) return false;
+  const d = domain.toLowerCase().replace(/^\./, '');
+  if (
+    d === 'google.com' || d.endsWith('.google.com') ||
+    d === 'google.com.vn' || d.endsWith('.google.com.vn') ||
+    d === 'google.vn' || d.endsWith('.google.vn') ||
+    d === 'googleadservices.com' || d.endsWith('.googleadservices.com') ||
+    d === 'doubleclick.net' || d.endsWith('.doubleclick.net') ||
+    d === 'youtube.com' || d.endsWith('.youtube.com') ||
+    d === 'gstatic.com' || d.endsWith('.gstatic.com') ||
+    d === 'googleapis.com' || d.endsWith('.googleapis.com') ||
+    d === 'googleusercontent.com' || d.endsWith('.googleusercontent.com') ||
+    d === '1e100.net' || d.endsWith('.1e100.net') ||
+    d === 'gvt1.com' || d.endsWith('.gvt1.com') ||
+    d === 'googlevideo.com' || d.endsWith('.googlevideo.com')
+  ) {
+    return true;
+  }
+  // Check international Google domains (e.g. google.co.uk, google.de, google.fr, google.com.sg, etc.)
+  return /(^|\.)google\.(com?(\.[a-z]{2})?|[a-z]{2})$/i.test(d);
+}
+
+export function isGoogleUrl(rawUrl: string): boolean {
+  try {
+    const hostname = new URL(rawUrl).hostname.toLowerCase();
+    return isGoogleDomain(hostname);
+  } catch {
+    return false;
+  }
+}
+
+export async function cleanCorruptedGoogleCookies(ses: Electron.Session): Promise<number> {
+  if (!ses || !ses.cookies) return 0;
+  let removed = 0;
+  try {
+    const allCookies = await ses.cookies.get({});
+    for (const c of allCookies) {
+      const domain = (c.domain || '').toLowerCase().replace(/^\./, '');
+      if (isGoogleDomain(domain)) {
+        // Clean only verifiable corruption indicators (CookieMismatch markers or RFC 6265bis prefix violations)
+        const isCorrupt =
+          c.name.toLowerCase().includes('cookiemismatch') ||
+          c.value.toLowerCase().includes('cookiemismatch') ||
+          (c.name.startsWith('__Secure-') && !c.secure) ||
+          (c.name.startsWith('__Host-') && (!c.secure || (typeof c.domain === 'string' && c.domain.startsWith('.'))));
+
+        if (isCorrupt) {
+          const scheme = c.secure ? 'https://' : 'http://';
+          const cookieDomain = c.domain?.startsWith('.') ? c.domain.substring(1) : (c.domain || 'google.com');
+          const cookieUrl = `${scheme}${cookieDomain}${c.path || '/'}`;
+          await ses.cookies.remove(cookieUrl, c.name).catch(() => {});
+          removed++;
+        }
+      }
+    }
+  } catch (err) {
+    console.warn('[cleanCorruptedGoogleCookies] Note:', err);
+  }
+  return removed;
+}
+
+export async function clearAllGoogleCookies(ses: Electron.Session): Promise<number> {
+  if (!ses || !ses.cookies) return 0;
+  let removed = 0;
+  try {
+    const allCookies = await ses.cookies.get({});
+    for (const c of allCookies) {
+      const domain = (c.domain || '').toLowerCase().replace(/^\./, '');
+      if (isGoogleDomain(domain)) {
+        const scheme = c.secure ? 'https://' : 'http://';
+        const cookieDomain = c.domain?.startsWith('.') ? c.domain.substring(1) : (c.domain || 'google.com');
+        const cookieUrl = `${scheme}${cookieDomain}${c.path || '/'}`;
+        await ses.cookies.remove(cookieUrl, c.name).catch(() => {});
+        removed++;
+      }
+    }
+    await ses.cookies.flushStore().catch(() => {});
+  } catch (err) {
+    console.warn('[clearAllGoogleCookies] Note:', err);
+  }
+  return removed;
 }

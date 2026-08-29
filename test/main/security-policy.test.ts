@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import * as assert from 'node:assert';
-import { isAllowedNavigation, sanitizeUrl, getSecureWebPreferences } from '../../src/main/security/security-policy';
+import { isAllowedNavigation, sanitizeUrl, getSecureWebPreferences, cleanRestoredUrl } from '../../src/main/security/security-policy';
 
 describe('AntiFan Security Policy', () => {
   it('allows standard https, http, and safe view-source urls', () => {
@@ -28,6 +28,11 @@ describe('AntiFan Security Policy', () => {
     assert.strictEqual(sanitizeUrl(''), 'about:blank');
     assert.strictEqual(sanitizeUrl('view-source:https://example.com'), 'view-source:https://example.com/');
     assert.strictEqual(sanitizeUrl('view-source:javascript:alert(1)'), 'about:blank');
+  });
+  it('cleans Google error and CookieMismatch URLs', () => {
+    assert.strictEqual(cleanRestoredUrl('https://accounts.google.com/CookieMismatch'), 'https://www.google.com');
+    assert.strictEqual(cleanRestoredUrl('https://accounts.google.com/CookieMismatch?continue=https://google.com'), 'https://www.google.com');
+    assert.strictEqual(cleanRestoredUrl('https://www.google.com/search?q=test'), 'https://www.google.com/search?q=test');
   });
   it('enforces secure webPreferences sandbox', () => {
     const prefs = getSecureWebPreferences();

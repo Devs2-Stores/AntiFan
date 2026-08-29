@@ -46,6 +46,19 @@ export function isInternalWidgetOrSubframeUrl(url?: string): boolean {
 export function cleanRestoredUrl(rawUrl?: string): string {
   if (!rawUrl) return '';
   if (rawUrl === 'about:blank') return 'about:blank';
+  if (rawUrl.includes('accounts.google.com/CookieMismatch') || rawUrl.includes('/CookieMismatch')) {
+    return 'https://www.google.com';
+  }
+  if (rawUrl.includes('accounts.google.com/v3/signin/rejected') || rawUrl.includes('accounts.google.com/signin/rejected')) {
+    try {
+      const u = new URL(rawUrl);
+      const cont = u.searchParams.get('continue');
+      if (cont && (cont.startsWith('http://') || cont.startsWith('https://'))) {
+        return cont;
+      }
+    } catch {}
+    return 'https://www.google.com';
+  }
   if (isInternalWidgetOrSubframeUrl(rawUrl)) {
     try {
       const u = new URL(rawUrl);

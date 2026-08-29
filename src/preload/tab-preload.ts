@@ -3,129 +3,14 @@
  * Lightweight preload for JSON Viewer and tab utilities.
  * Does NOT monkey-patch navigator/window prototypes to preserve 100% native Google BotGuard and Cloudflare compatibility.
  */
-import { ipcRenderer, contextBridge, webFrame } from 'electron';
+import { ipcRenderer } from 'electron';
 
-// 1. Google Chrome & Cloudflare Native Compatibility Shield (Injected synchronously into the main World)
-(() => {
-  try {
-    const STEALTH_SCRIPT = `(() => {
-      try {
-        // 1. Ensure window.chrome runtime & csi objects match official Chrome desktop
-        if (!window.chrome) {
-          window.chrome = {};
-        }
-        if (!window.chrome.app) {
-          window.chrome.app = {
-            isInstalled: false,
-            InstallState: { DISABLED: 'disabled', INSTALLED: 'installed', NOT_INSTALLED: 'not_installed' },
-            RunningState: { CANNOT_RUN: 'cannot_run', READY_TO_RUN: 'ready_to_run', RUNNING: 'running' },
-            getDetails: function() { return null; },
-            getIsInstalled: function() { return false; },
-            getRunningState: function() { return 'cannot_run'; }
-          };
-        }
-        if (!window.chrome.csi) {
-          window.chrome.csi = function() {
-            return { startE: Date.now(), onloadT: Date.now(), pageT: 0, tran: 15 };
-          };
-        }
-        if (!window.chrome.loadTimes) {
-          window.chrome.loadTimes = function() {
-            return {
-              commitLoadTime: Date.now() / 1000,
-              connectionInfo: 'http/1.1',
-              finishDocumentLoadTime: Date.now() / 1000,
-              finishLoadTime: Date.now() / 1000,
-              firstPaintAfterLoadTime: 0,
-              firstPaintTime: Date.now() / 1000,
-              navigationType: 'Other',
-              npnNegotiatedProtocol: 'http/1.1',
-              requestTime: Date.now() / 1000,
-              startLoadTime: Date.now() / 1000,
-              wasAlternateProtocolAvailable: false,
-              wasFetchedViaSpdy: false,
-              wasNpnNegotiated: false,
-              wasSpdy: false
-            };
-          };
-        }
-        if (!window.chrome.runtime) {
-          window.chrome.runtime = {
-            OnInstalledReason: {},
-            OnRestartRequiredReason: {},
-            PlatformArch: {},
-            PlatformNaclArch: {},
-            PlatformOs: {},
-            RequestUpdateCheckStatus: {},
-            connect: function() {},
-            sendMessage: function() {}
-          };
-        }
-
-        // 2. Remove navigator.webdriver (Google BotGuard detection check)
-        try {
-          const navProto = Object.getPrototypeOf(navigator);
-          if (navProto && 'webdriver' in navProto) {
-            delete navProto.webdriver;
-          }
-          Object.defineProperty(navigator, 'webdriver', {
-            get: () => undefined,
-            configurable: true
-          });
-        } catch {}
-
-        // 3. Genuine Google Chrome userAgentData brands
-        if (navigator.userAgentData) {
-          const chromeBrands = [
-            { brand: 'Google Chrome', version: '134' },
-            { brand: 'Chromium', version: '134' },
-            { brand: 'Not?A_Brand', version: '24' }
-          ];
-          try {
-            Object.defineProperty(navigator.userAgentData, 'brands', {
-              get: () => chromeBrands,
-              configurable: true
-            });
-          } catch {}
-          const origGetHighEntropyValues = navigator.userAgentData.getHighEntropyValues;
-          if (typeof origGetHighEntropyValues === 'function') {
-            navigator.userAgentData.getHighEntropyValues = function(hints) {
-              return origGetHighEntropyValues.call(this, hints).then(function(res) {
-                if (res) {
-                  res.brands = chromeBrands;
-                }
-                return res;
-              });
-            };
-          }
-        }
-
-        // 4. Authentic Google Chrome plugin list (length > 0)
-        if (navigator.plugins && navigator.plugins.length === 0) {
-          const dummyPlugin = {
-            0: { type: 'application/pdf', suffixes: 'pdf', description: 'Portable Document Format' },
-            description: 'Portable Document Format',
-            filename: 'internal-pdf-viewer',
-            length: 1,
-            name: 'Chrome PDF Viewer'
-          };
-          try {
-            Object.defineProperty(navigator, 'plugins', {
-              get: () => [dummyPlugin],
-              configurable: true
-            });
-          } catch {}
-        }
-      } catch (e) {}
-    })();`;
-    webFrame.executeJavaScript(STEALTH_SCRIPT);
-  } catch {}
-})();
-
-const isGoogleAuthDomain = typeof window !== 'undefined' && (
-  /google\.|youtube\.|googleapis\.com|gstatic\.com|googleusercontent\.com/i.test(window.location.hostname || '') ||
-  /accounts\.google\./i.test(window.location.href || '')
+const isGoogleProperty = typeof window !== 'undefined' && (
+  /(^|\.)(google\.(com?(\.[a-z]{2})?|[a-z]{2})|youtube\.com|googleapis\.com|gstatic\.com|1e100\.net|gvt1\.com)$/i.test(window.location.hostname || '')
 );
+
+if (!isGoogleProperty) {
+  // Run tab preload only on non-Google properties to maintain 100% native BotGuard and OAuth compatibility
 // 2. Haravan Auto JSON Viewer (Tree View & Unicode Decoded - JSON endpoints only)
 window.addEventListener('DOMContentLoaded', () => {
   try {
@@ -284,7 +169,6 @@ window.addEventListener(
 );
 // 4. Web AI Real-time Streaming & Response State Detector (Scoped strictly to AI chat services)
 (() => {
-  if (isGoogleAuthDomain) return;
   if (typeof window === 'undefined') return;
 
   const AI_CHAT_HOSTS = /chatgpt\.com|chat\.openai\.com|claude\.ai|gemini\.google\.com|deepseek\.com|perplexity\.ai|poe\.com|grok\.com|x\.ai|qwen\.ai|tongyi\.aliyun\.com|openwebui|localhost:20128/i;
@@ -475,3 +359,4 @@ window.addEventListener(
     { passive: true }
   );
 })();
+}
