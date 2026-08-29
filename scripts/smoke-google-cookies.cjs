@@ -1,11 +1,9 @@
 /**
  * Comprehensive Live Google Navigation A/B & Cookie Jar Verification Smoke Test
  * 
- * Verifies with real telemetry:
  * 1. Branch A: Baseline Session (stock Electron headers, no overrides) -> logs exact HTTP status & redirects.
  * 2. Branch B: Configured Session (Production UA & Client Hints policy) -> logs exact HTTP status & redirects.
- * 3. Branch C: Cookie Corruption & Targeted Purge -> verifies only verifiable invalid markers are cleaned.
- * 4. Branch D: Chrome Profile Sync Google filter and expiration drop -> verifies expired records return null.
+ * 3. Chrome Profile Sync expiration handling -> verifies expired records are never revived.
  */
 const { app, BrowserWindow, session } = require('electron');
 const path = require('node:path');
@@ -25,11 +23,8 @@ app.setPath('userData', tempUserData);
 const {
   googleAuthUserAgent,
   isGoogleAuthUrl,
-  isGoogleUrl,
   setUserAgentHeader,
   setChromeClientHints,
-  cleanCorruptedGoogleCookies,
-  isGoogleDomain,
 } = require('../.compiled/src/main/browser/google-auth-identity.js');
 
 const { cookieImportSetDetails } = require('../.compiled/src/main/browser/chrome-profile-sync.js');
@@ -40,37 +35,8 @@ async function runLiveABSmoke() {
   console.log('===============================================================');
 
   const sentinel = new BrowserWindow({ show: false, width: 10, height: 10 });
-  // -------------------------------------------------------------
-  // Branch C: Cookie Corruption & Targeted Purge Verification
-  // -------------------------------------------------------------
-  console.log('\n[Branch C] Verifying Targeted Cookie Corruption Cleanup...');
-  const testSes = session.fromPartition('test-corruption');
-  await testSes.cookies.set({ url: 'https://google.com/', name: 'CookieMismatch', value: '1', domain: '.google.com', secure: true });
-  await testSes.cookies.set({ url: 'https://www.google.com.vn/', name: 'cookiemismatch_flag', value: 'bad_token', domain: '.google.com.vn', secure: true });
-  await testSes.cookies.set({ url: 'https://google.com/', name: 'VALID_SESSION', value: 'legitimate', domain: '.google.com', secure: true });
-  await testSes.cookies.set({ url: 'https://www.google.com.vn/', name: 'AEC', value: 'valid_aec', domain: '.google.com.vn', secure: true });
-  await testSes.cookies.set({ url: 'https://myharavan.com/', name: 'store_token', value: 'valid_haravan', domain: '.myharavan.com', secure: true });
-
-  const cleanedCount = await cleanCorruptedGoogleCookies(testSes);
-  console.log(`[Branch C] Cleaned ${cleanedCount} corrupted/invalid cookies.`);
-  if (cleanedCount !== 2) {
-    throw new Error(`Expected exactly 2 cleaned cookies, got ${cleanedCount}`);
-  }
-
-  const remaining = await testSes.cookies.get({});
-  const remainingNames = remaining.map((c) => c.name).sort();
-  console.log('[Branch C] Remaining valid cookies:', remainingNames);
-  if (!remainingNames.includes('AEC') || !remainingNames.includes('VALID_SESSION') || !remainingNames.includes('store_token')) {
-    throw new Error('Valid cookies were erroneously deleted by cleanCorruptedGoogleCookies');
-  }
-
-  // -------------------------------------------------------------
-  // Branch D: Chrome Profile Sync Google Filter & Expiration Drop
-  // -------------------------------------------------------------
-  console.log('\n[Branch D] Verifying Chrome Profile Sync Filter and Expiration Drop...');
-  if (!isGoogleDomain('.google.com') || !isGoogleDomain('accounts.google.com') || !isGoogleDomain('www.google.com.vn')) {
-    throw new Error('isGoogleDomain failed to identify Google properties');
-  }
+  // Chrome Profile Sync expiration handling
+  console.log('\n[Storage] Verifying Chrome Profile Sync expiration handling...');
 
   const futureUnix = Math.floor(Date.now() / 1000) + 86400 * 30;
   const futureMicroseconds = (futureUnix * 1000000) + 11644473600000000;
@@ -84,7 +50,7 @@ async function runLiveABSmoke() {
   if (expiredNonGoogle !== null) {
     throw new Error('Expired cookie must return null to prevent reviving dead cookies as session cookies');
   }
-  console.log('[Branch D] Chrome Profile Sync filter and expiration rules verified.');
+  console.log('[Storage] Chrome Profile Sync expiration rules verified.');
 
   // -------------------------------------------------------------
   // Branch A: Baseline Session (Default Stock Headers, No Overrides)

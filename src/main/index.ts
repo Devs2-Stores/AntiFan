@@ -26,16 +26,15 @@ import { NativeTabHost } from './browser/native-tab-host';
 import { BridgeServer } from './bridge/bridge-server';
 import { AntiFanMcpServer } from './mcp/mcp-server';
 import { TerminalManager } from './browser/terminal-manager';
-import { CookiePersister } from './browser/cookie-persister';
 import { buildApplicationMenu } from './browser/app-menu';
 import { WindowStateManager } from './browser/window-state';
 import { HistoryManager } from './browser/history-manager';
-import { googleAuthUserAgent, isGoogleAuthUrl, isGoogleUrl, setUserAgentHeader, setChromeClientHints, cleanCorruptedGoogleCookies } from './browser/google-auth-identity';
+import { googleAuthUserAgent, isGoogleAuthUrl, isGoogleUrl, setUserAgentHeader, setChromeClientHints } from './browser/google-auth-identity';
 import { ControlPlaneRuntime } from './control-plane/control-plane-runtime';
 import { BrowserControlPort } from './tools/browser-control-port';
 import { CapabilityTransportAdapter } from './tools/capability-transport';
 import { validateControlPlaneId } from '../shared/control-plane-contracts';
-import { ProfileOwnership, ProfileOwnershipError, type ProfileLease } from './browser/profile-ownership';
+import { preparePersistentProfile, ProfileMigrationError, ProfileOwnership, ProfileOwnershipError, type PersistentProfileResult, type ProfileLease } from './browser/profile-ownership';
 import { recordBenchmark, startEventLoopDelayMonitor, isBenchmarkEnabled } from './benchmark/telemetry';
 
 process.on('uncaughtException', (err) => {
@@ -59,19 +58,32 @@ const IS_DEV = !IS_PROD;
 const IS_MCP_SERVER = process.argv.includes('--mcp-server');
 const IS_MCP_HIGH_RISK = process.argv.includes('--mcp-high-risk');
 
-// Configure persistent Chromium user data path (shared across Desktop shortcut & dev launch)
-const profileFolder = IS_DEV ? 'Chromium-dev' : 'Chromium';
+// Every packaged, shortcut, and development launch owns the same Chromium
+// profile. The environment override remains available for isolated tests and
+// benchmarks, but launch mode never changes a user's browser identity.
 const customUserData = process.env.ANTIFAN_USER_DATA || process.env.ANTIFAN_USER_DATA_DIR;
-const persistentUserData = customUserData
-  ? path.resolve(customUserData)
-  : (app.isPackaged
-      ? path.join(app.getPath('appData'), 'antifan-browser-desktop', profileFolder)
-      : path.join(app.getAppPath(), 'appdata', 'antifan-browser-desktop', profileFolder));
-
+let preparedProfile: PersistentProfileResult;
+try {
+  preparedProfile = preparePersistentProfile({
+    appDataPath: app.getPath('appData'),
+    appPath: app.getAppPath(),
+    customUserData,
+  });
+} catch (error) {
+  if (error instanceof ProfileMigrationError) {
+    console.error(`[antifan] ${error.message}`);
+  }
+  throw error;
+}
+const persistentUserData = preparedProfile.profilePath;
+if (preparedProfile.migratedFrom) {
+  console.log(`[antifan] Migrated Chromium profile from ${preparedProfile.migratedFrom} to ${persistentUserData}`);
+}
 const chromiumCachePath = `${persistentUserData}-cache`;
 try { fs.mkdirSync(persistentUserData, { recursive: true }); } catch {}
 try { fs.mkdirSync(chromiumCachePath, { recursive: true }); } catch {}
 app.setPath('userData', persistentUserData);
+app.setPath('sessionData', persistentUserData);
 app.setPath('cache', chromiumCachePath);
 app.commandLine.appendSwitch('disk-cache-dir', path.join(chromiumCachePath, 'network'));
 app.commandLine.appendSwitch('gpu-cache-dir', path.join(chromiumCachePath, 'gpu'));
@@ -311,7 +323,7 @@ app.whenReady().then(async () => {
   if (!ownsElectronInstance) return;
   recordBenchmark({ surface: 'startup', name: 'ready' });
   try {
-    profileLease = new ProfileOwnership({ force: ownsElectronInstance }).acquire(persistentUserData);
+    profileLease = new ProfileOwnership().acquire(persistentUserData);
     if (profileLease.recovery.safeStartRecommended) {
       console.warn('[antifan] Previous shutdown was unclean; restoring the active tab only (safe start).');
     }
@@ -344,12 +356,6 @@ app.whenReady().then(async () => {
       callback({ requestHeaders: headers });
     }
   );
-  // Clean any corrupted Google cookies from previous sessions
-  await cleanCorruptedGoogleCookies(session.defaultSession);
-
-  // Restore persistent storefront, Haravan, and session cookies
-  await CookiePersister.getInstance().restoreCookies();
-  CookiePersister.getInstance().startAutoPersistence();
   const capsuleStoragePath = path.join(app.getPath('userData'), 'workspace-capsules.json');
   capsuleManager = new WorkspaceCapsuleManager({ filePath: capsuleStoragePath });
   if (!capsuleManager.getActive()) {
@@ -381,7 +387,6 @@ function shutdown(): Promise<void> {
       HistoryManager.getInstance().persistSync();
     } catch {}
     try {
-      await CookiePersister.getInstance().saveAllCookies();
       await session.defaultSession.cookies.flushStore();
     } catch {}
     try {

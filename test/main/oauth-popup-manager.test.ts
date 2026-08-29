@@ -3,45 +3,111 @@ import * as assert from 'node:assert';
 import { OAuthPopupManager } from '../../src/main/browser/oauth-popup-manager';
 
 describe('OAuthPopupManager Invariants', () => {
-  it('correctly identifies OAuth authorization URLs', () => {
+  it('classifies OAuth authorization URLs by parsed host and path', () => {
     const manager = OAuthPopupManager.getInstance();
 
-    assert.strictEqual(manager.isOAuthUrl('https://accounts.google.com/o/oauth2/v2/auth?client_id=123'), true);
-    assert.strictEqual(manager.isOAuthUrl('https://accounts.google.com/signin/oauth/consent'), true);
-    assert.strictEqual(manager.isOAuthUrl('https://github.com/login/oauth/authorize?scope=user'), true);
-    assert.strictEqual(manager.isOAuthUrl('https://auth.haravan.com/connect/authorize'), true);
-    assert.strictEqual(manager.isOAuthUrl('https://accounts.shopify.com/oauth/authorize'), true);
-    assert.strictEqual(manager.isOAuthUrl('https://myshopify.com/admin/oauth/authorize'), true);
-    assert.strictEqual(manager.isOAuthUrl('https://sapo.vn/oauth/authorize'), true);
-    assert.strictEqual(manager.isOAuthUrl('https://id.sapo.vn/login'), true);
-    assert.strictEqual(manager.isOAuthUrl('https://accounts.sapo.vn/admin/oauth'), true);
-    assert.strictEqual(manager.isOAuthUrl('https://login.microsoftonline.com/common/oauth2/v2.0/authorize'), true);
-    assert.strictEqual(manager.isOAuthUrl('https://gitlab.com/oauth/authorize'), true);
-    assert.strictEqual(manager.isOAuthUrl('https://linear.app/oauth/authorize'), true);
-    // Non-OAuth URLs
-    assert.strictEqual(manager.isOAuthUrl('https://www.google.com/search?q=test'), false);
-    assert.strictEqual(manager.isOAuthUrl('https://github.com/stablyai/orca'), false);
-    assert.strictEqual(manager.isOAuthUrl('https://vnexpress.net/thoi-su'), false);
+    for (const url of [
+      'https://accounts.google.com/o/oauth2/v2/auth?client_id=123',
+      'https://www.facebook.com/dialog/oauth?client_id=456',
+      'https://accounts.google.com/signin/oauth/consent',
+      'https://github.com/login/oauth/authorize?scope=user',
+      'https://auth.haravan.com/connect/authorize',
+      'https://accounts.shopify.com/oauth/authorize',
+      'https://store.myshopify.com/admin/oauth/authorize',
+      'https://sapo.vn/oauth/authorize',
+      'https://id.sapo.vn/login',
+      'https://accounts.sapo.vn/admin/oauth',
+      'https://login.microsoftonline.com/common/oauth2/v2.0/authorize',
+      'https://gitlab.com/oauth/authorize',
+      'https://linear.app/oauth/authorize',
+      'https://trello.com/1/authorize?key=123&name=AntiFan',
+      'https://trello.com/1/OAuthAuthorizeToken?oauth_token=token',
+      'antifan-smoke://identity/oauth/authorize?client_id=smoke',
+    ]) {
+      assert.strictEqual(manager.isOAuthUrl(url), true, `expected OAuth URL: ${url}`);
+    }
+
+    for (const url of [
+      'https://www.google.com/search?q=test',
+      'https://github.com/stablyai/orca',
+      'https://vnexpress.net/thoi-su',
+      'https://attacker.example/?next=https://accounts.google.com/o/oauth2/v2/auth',
+      'https://attacker.example/accounts.google.com/signin',
+      'not a URL',
+    ]) {
+      assert.strictEqual(manager.isOAuthUrl(url), false, `expected ordinary URL: ${url}`);
+    }
   });
-  it('routes Google OAuth away from embedded WebView handling', () => {
+  it('keeps website-owned OAuth in the parent Chromium session without requesting a tab', () => {
     const manager = OAuthPopupManager.getInstance();
-    assert.ok(manager.isOAuthUrl('https://accounts.google.com/v3/signin/identifier'), 'Google sign-in remains recognized as OAuth');
-    assert.ok(manager.isOAuthUrl('https://accounts.google.com/o/oauth2/v2/auth?client_id=123'), 'Google OAuth authorization remains recognized');
-  });
-  it('supports an explicit external OAuth handoff callback', () => {
-    const manager = OAuthPopupManager.getInstance();
-    assert.equal(typeof manager.handleWindowOpen, 'function');
+    const sharedSession = { name: 'shared-session' };
+    const parentContents = { session: sharedSession };
+    const parentWindow = { name: 'parent-window' };
+    const opened: string[] = [];
+
+    for (const url of [
+      'https://accounts.google.com/o/oauth2/v2/auth?client_id=123',
+      'https://www.facebook.com/v20.0/dialog/oauth?client_id=456',
+      'https://www.facebook.com/dialog/oauth?client_id=456',
+      'https://github.com/login/oauth/authorize?scope=user',
+      'https://auth.haravan.com/connect/authorize',
+      'https://accounts.shopify.com/oauth/authorize',
+      'https://sapo.vn/oauth/authorize',
+      'https://login.microsoftonline.com/common/oauth2/v2.0/authorize',
+      'https://trello.com/1/authorize?key=123',
+    ]) {
+      const result = manager.handleWindowOpen(
+        parentContents as never,
+        parentWindow as never,
+        { url } as never,
+        { onNewTabRequested: (requestedUrl) => opened.push(requestedUrl) }
+      );
+      assert.strictEqual(result.action, 'allow');
+      assert.strictEqual(result.overrideBrowserWindowOptions?.parent, parentWindow);
+      assert.strictEqual(result.overrideBrowserWindowOptions?.webPreferences?.session, sharedSession);
+      assert.strictEqual(result.overrideBrowserWindowOptions?.webPreferences?.sandbox, true);
+      assert.strictEqual(result.overrideBrowserWindowOptions?.webPreferences?.nodeIntegration, false);
+      assert.strictEqual(result.overrideBrowserWindowOptions?.webPreferences?.contextIsolation, true);
+    }
+    assert.deepEqual(opened, []);
   });
 
-  it('correctly identifies OAuth callback URLs', () => {
+  it('routes ordinary HTTP popups to an AntiFan tab without opening an OS browser', () => {
+    const manager = OAuthPopupManager.getInstance();
+    const opened: string[] = [];
+    const result = manager.handleWindowOpen(
+      { session: {} } as never,
+      {} as never,
+      { url: 'https://example.com/docs' } as never,
+      { onNewTabRequested: (url) => opened.push(url) }
+    );
+    assert.strictEqual(result.action, 'deny');
+    assert.deepEqual(opened, ['https://example.com/docs']);
+  });
+
+  it('identifies OAuth callbacks by parsed pathname without closing ordinary stateful URLs', () => {
     const manager = OAuthPopupManager.getInstance();
 
-    assert.strictEqual(manager.isOAuthCallbackUrl('https://myapp.com/auth/callback?code=4/0AX4XfWh'), true);
-    assert.strictEqual(manager.isOAuthCallbackUrl('https://app.haravan.com/oauth/callback?code=abc'), true);
-    assert.strictEqual(manager.isOAuthCallbackUrl('https://localhost:3000/signin-google?code=xyz'), true);
-    assert.strictEqual(manager.isOAuthCallbackUrl('https://sapo.vn/oauth/callback?code=def'), true);
-    assert.strictEqual(manager.isOAuthCallbackUrl('https://mysite.com/auth/success'), true);
-    assert.strictEqual(manager.isOAuthCallbackUrl('https://mysite.com/login/callback?state=123'), true);
-    assert.strictEqual(manager.isOAuthCallbackUrl('https://google.com/news'), false);
+    for (const url of [
+      'https://myapp.com/auth/callback?code=4/0AX4XfWh',
+      'https://app.haravan.com/oauth/callback?code=abc',
+      'https://localhost:3000/signin-google?code=xyz',
+      'https://sapo.vn/oauth/callback?code=def',
+      'https://mysite.com/auth/success',
+      'https://mysite.com/login/callback?state=123',
+    ]) {
+      assert.strictEqual(manager.isOAuthCallbackUrl(url), true, `expected OAuth callback: ${url}`);
+    }
+
+    for (const url of [
+      'https://google.com/news',
+      'https://example.com/?state=active',
+      'https://example.com/article?code=abc',
+      'https://attacker.example/?next=https://myapp.com/auth/callback?code=abc',
+      'https://attacker.example/oauth/callback-lookalike?code=abc',
+      'not a URL',
+    ]) {
+      assert.strictEqual(manager.isOAuthCallbackUrl(url), false, `expected ordinary URL: ${url}`);
+    }
   });
 });

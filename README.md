@@ -47,7 +47,11 @@ npm run dev
 npm test
 npm run typecheck
 npm run verify
+npm run smoke:persistence
+npm run smoke:google
 ```
+
+`smoke:persistence` xác minh cookie, localStorage, IndexedDB và OAuth popup qua hai tiến trình Electron. `smoke:google` chạy kiểm tra live Google, nên cần kết nối mạng.
 
 ### Zoom giao diện ứng dụng
 - `Ctrl+Alt+=` tăng zoom UI AntiFan.

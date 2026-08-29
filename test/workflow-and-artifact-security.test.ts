@@ -91,38 +91,45 @@ describe('Workflow & Artifact Security and Hub Registry', () => {
       );
     });
 
-    it('rejects symbolic link inside root pointing outside root', () => {
+    it('rejects a filesystem link inside root pointing outside root', () => {
       const store = new ArtifactStore({ root: artifactsRoot });
-      const outsideTarget = path.join(tmpDir, 'outside-target.txt');
-      fs.writeFileSync(outsideTarget, 'target-outside-content');
+      const outsideTarget = path.join(tmpDir, 'outside-target');
+      fs.mkdirSync(outsideTarget, { recursive: true });
+      fs.writeFileSync(path.join(outsideTarget, 'secret.txt'), 'target-outside-content');
 
-      const symlinkInsideRoot = path.join(artifactsRoot, 'symlink-to-outside.txt');
+      const linkInsideRoot = path.join(artifactsRoot, 'link-to-outside');
       try {
-        fs.symlinkSync(outsideTarget, symlinkInsideRoot, 'file');
-      } catch {
-        // If OS environment does not permit symlink creation without admin rights, skip symlink creation
-        return;
+        fs.symlinkSync(outsideTarget, linkInsideRoot, 'dir');
+      } catch (error) {
+        if (process.platform !== 'win32') throw error;
+        fs.symlinkSync(outsideTarget, linkInsideRoot, 'junction');
       }
 
-      const symlinkRef: any = {
-        id: 'artifact-symlink-escape',
-        runId: 'run-symlink',
-        attemptId: 'att-symlink',
+      const linkedFile = path.join(linkInsideRoot, 'secret.txt');
+      const linkRef = {
+        id: 'artifact-link-escape',
+        runId: 'run-link',
+        attemptId: 'att-link',
         kind: 'log',
-        path: symlinkInsideRoot,
+        path: linkedFile,
         byteLength: 22,
         sha256: 'deadbeef',
         mime: 'text/plain',
         truncated: false,
         redacted: false,
         createdAt: Date.now(),
-      };
-      (store as any).artifacts.set(symlinkRef.id, symlinkRef);
+      } as const;
+      const artifactMap: unknown = Reflect.get(store, 'artifacts');
+      assert.ok(artifactMap instanceof Map);
+      artifactMap.set(linkRef.id, linkRef);
 
-      assert.throws(
-        () => store.readBytesById(symlinkRef.id),
-        (err: any) => err.code === 'OUTSIDE_WORKSPACE' || err.message.includes('symbolic links are not permitted') || err.message.includes('containment violation')
-      );
+      assert.throws(() => store.readBytesById(linkRef.id), (error: unknown) => {
+        if (!(error instanceof Error)) return false;
+        const code = 'code' in error ? error.code : undefined;
+        return code === 'OUTSIDE_WORKSPACE'
+          || error.message.includes('symbolic links are not permitted')
+          || error.message.includes('containment violation');
+      });
     });
   });
 

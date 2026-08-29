@@ -2187,16 +2187,6 @@ export class NativeTabHost extends EventEmitter {
             if (isAllowedNavigation(url)) {
               this.createTab(url, true);
             }
-          },
-          onOAuthCompleted: (_callbackUrl: string) => {
-            if (!wc.isDestroyed()) {
-              wc.reload();
-            }
-          },
-          onExternalRequested: (externalUrl: string) => {
-            if (isAllowedNavigation(externalUrl)) {
-              shell.openExternal(externalUrl);
-            }
           }
         }
       );

@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { googleAuthUserAgent, isGoogleAuthUrl, isGoogleUrl, isGoogleDomain, setUserAgentHeader, stripClientHints, setChromeClientHints, cleanCorruptedGoogleCookies, clearAllGoogleCookies } from '../../src/main/browser/google-auth-identity';
+import { googleAuthUserAgent, isGoogleAuthUrl, isGoogleUrl, isGoogleDomain, setUserAgentHeader, stripClientHints, setChromeClientHints } from '../../src/main/browser/google-auth-identity';
 test('Google auth identity is scoped to exact auth hosts', () => {
   assert.equal(isGoogleAuthUrl('https://accounts.google.com/v3/signin/identifier'), true);
   assert.equal(isGoogleAuthUrl('https://accounts.youtube.com/signin'), true);
@@ -43,34 +43,6 @@ test('setChromeClientHints sets Chromium client hints aligned with desktop Chrom
   assert.ok(headers['sec-ch-ua-platform']);
 });
 
-test('cleanCorruptedGoogleCookies safely identifies and removes only verifiable corruption markers', async () => {
-  const removedKeys: string[] = [];
-  const fakeSession = {
-    cookies: {
-      get: async () => [
-        { name: 'CookieMismatch', value: '1', domain: '.google.com', secure: true, path: '/' },
-        { name: '__Secure-BAD', value: 'bad', domain: '.google.com.vn', secure: false, path: '/' }, // Insecure __Secure- cookie
-        { name: '__Host-BAD', value: 'bad', domain: '.google.com', secure: true, path: '/' }, // Dotted domain on __Host- cookie
-        { name: 'VALID_SESSION', value: 'ok', domain: '.google.com', secure: true, path: '/' },
-        { name: 'AEC', value: 'valid_aec', domain: '.google.com.vn', secure: true, path: '/' },
-        { name: 'store_token', value: 'haravan', domain: '.myharavan.com', secure: true, path: '/' },
-      ],
-      remove: async (url: string, name: string) => {
-        removedKeys.push(`${name}@${url}`);
-      },
-      flushStore: async () => {},
-    },
-  };
-
-  const count = await cleanCorruptedGoogleCookies(fakeSession as never);
-  assert.equal(count, 3);
-  assert.ok(removedKeys.some((k) => k.startsWith('CookieMismatch@')));
-  assert.ok(removedKeys.some((k) => k.startsWith('__Secure-BAD@')));
-  assert.ok(removedKeys.some((k) => k.startsWith('__Host-BAD@')));
-  assert.ok(!removedKeys.some((k) => k.startsWith('VALID_SESSION@')));
-  assert.ok(!removedKeys.some((k) => k.startsWith('AEC@')));
-  assert.ok(!removedKeys.some((k) => k.startsWith('store_token@')));
-});
 
 test('tab-preload does not monkey-patch window.chrome or navigator prototypes', () => {
   const preloadPath = path.resolve(process.cwd(), 'src/preload/tab-preload.ts');

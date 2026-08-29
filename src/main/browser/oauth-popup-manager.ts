@@ -5,18 +5,14 @@
  * Manages Google Sign-in, GitHub OAuth, Shopify/Haravan logins via modal windows
  * sharing the parent tab session, and routes standard links to new browser tabs.
  */
-import { BrowserWindow, WebContents, HandlerDetails, WindowOpenHandlerResponse, shell } from 'electron';
-import { isGoogleAuthUrl } from './google-auth-identity';
+import { BrowserWindow, WebContents, HandlerDetails, WindowOpenHandlerResponse } from 'electron';
 
 export interface OAuthHandlerOptions {
   onNewTabRequested?: (url: string) => void;
-  onOAuthCompleted?: (url: string) => void;
-  onExternalRequested?: (url: string) => void;
 }
 
 export class OAuthPopupManager {
   private static instance: OAuthPopupManager;
-  private activeAuthWindows = new Set<BrowserWindow>();
 
   public static getInstance(): OAuthPopupManager {
     if (!OAuthPopupManager.instance) {
@@ -25,48 +21,54 @@ export class OAuthPopupManager {
     return OAuthPopupManager.instance;
   }
 
-  public isOAuthUrl(url: string): boolean {
-    if (!url || typeof url !== 'string') return false;
-    const oauthPatterns = [
-      /accounts\.google\.com\/(o\/oauth2|signin|ServiceLogin|v3\/signin)/i,
-      /github\.com\/login\/oauth/i,
-      /gitlab\.com\/oauth/i,
-      /facebook\.com\/(v\d+\.\d+\/)?dialog\/oauth/i,
-      /appleid\.apple\.com\/auth/i,
-      /auth\.haravan\.com/i,
-      /accounts\.haravan\.com/i,
-      /accounts\.shopify\.com\/oauth/i,
-      /myshopify\.com\/admin\/oauth/i,
-      /sapo\.vn\/(oauth|admin\/oauth|login)/i,
-      /(id|accounts)\.sapo\.vn/i,
-      /login\.(microsoftonline|live)\.com/i,
-      /linear\.app\/oauth/i,
-      /auth0\.com\/authorize/i,
-      /clerk\.(dev|accounts)/i,
-      /supabase\.co\/auth\/v1\/authorize/i,
-      /\/oauth2?\/authorize/i,
-      /\/auth\/login/i,
-    ];
-    return oauthPatterns.some((pattern) => pattern.test(url));
+  public isOAuthUrl(rawUrl: string): boolean {
+    if (!rawUrl || typeof rawUrl !== 'string') return false;
+    let parsed: URL;
+    try {
+      parsed = new URL(rawUrl);
+    } catch {
+      return false;
+    }
+
+    const hostname = parsed.hostname.toLowerCase();
+    const pathname = parsed.pathname.toLowerCase();
+    const hostIs = (domain: string): boolean => hostname === domain || hostname.endsWith(`.${domain}`);
+
+    return (hostname === 'accounts.google.com' && /^\/(?:o\/oauth2|signin|servicelogin|v3\/signin)(?:\/|$)/.test(pathname))
+      || (hostname === 'github.com' && pathname.startsWith('/login/oauth'))
+      || (hostname === 'gitlab.com' && pathname.startsWith('/oauth'))
+      || (hostIs('facebook.com') && /^\/(?:v\d+\.\d+\/)?dialog\/oauth(?:\/|$)/.test(pathname))
+      || (hostname === 'appleid.apple.com' && pathname.startsWith('/auth'))
+      || hostname === 'auth.haravan.com'
+      || hostname === 'accounts.haravan.com'
+      || (hostname === 'accounts.shopify.com' && pathname.startsWith('/oauth'))
+      || (hostIs('myshopify.com') && pathname.startsWith('/admin/oauth'))
+      || (hostIs('sapo.vn') && /^(?:\/oauth|\/admin\/oauth|\/login)(?:\/|$)/.test(pathname))
+      || hostname === 'id.sapo.vn'
+      || hostname === 'accounts.sapo.vn'
+      || hostname === 'login.microsoftonline.com'
+      || hostname === 'login.live.com'
+      || (hostname === 'linear.app' && pathname.startsWith('/oauth'))
+      || (hostIs('auth0.com') && pathname.startsWith('/authorize'))
+      || hostIs('clerk.dev')
+      || hostIs('clerk.accounts')
+      || (hostIs('supabase.co') && pathname.startsWith('/auth/v1/authorize'))
+      || (hostIs('trello.com') && /^\/1\/(?:authorize|oauthauthorizetoken)(?:\/|$)/.test(pathname))
+      || /(?:^|\/)oauth2?\/authorize(?:\/|$)/.test(pathname)
+      || /(?:^|\/)auth\/login(?:\/|$)/.test(pathname);
   }
 
-  public isOAuthCallbackUrl(url: string): boolean {
-    if (!url || typeof url !== 'string') return false;
-    const callbackPatterns = [
-      /\/oauth\/callback/i,
-      /\/auth\/callback/i,
-      /\/oauth2\/callback/i,
-      /\/signin-google/i,
-      /\/signin-github/i,
-      /\/auth\/complete/i,
-      /\/auth\/success/i,
-      /\/login\/callback/i,
-      /code=[a-zA-Z0-9_.-]+(&|\b)/i,
-      /state=[a-zA-Z0-9_.-]+(&|\b)/i,
-      /access_token=[a-zA-Z0-9_.-]+(&|\b)/i,
-      /id_token=[a-zA-Z0-9_.-]+(&|\b)/i,
-    ];
-    return callbackPatterns.some((pattern) => pattern.test(url));
+  public isOAuthCallbackUrl(rawUrl: string): boolean {
+    if (!rawUrl || typeof rawUrl !== 'string') return false;
+    let parsed: URL;
+    try {
+      parsed = new URL(rawUrl);
+    } catch {
+      return false;
+    }
+
+    const pathname = parsed.pathname.toLowerCase();
+    return /(?:^|\/)(?:oauth\/callback|auth\/callback|oauth2\/callback|signin-google|signin-github|auth\/complete|auth\/success|login\/callback)(?:\/|$)/.test(pathname);
   }
 
   public handleWindowOpen(
@@ -78,93 +80,33 @@ export class OAuthPopupManager {
     const { url } = details;
 
     if (this.isOAuthUrl(url)) {
-      // Google explicitly blocks OAuth inside embedded WebViews. Use the user's
-      // real browser so OAuth policy, device trust, and existing login state work.
-      if (isGoogleAuthUrl(url) || /gmail\.google\.com/i.test(url)) {
-        if (options?.onExternalRequested) options.onExternalRequested(url);
-        else shell.openExternal(url);
-        return { action: 'deny' };
-      }
-      // Other providers use a dedicated modal sharing the parent session.
-      const authWin = new BrowserWindow({
-        width: 520,
-        height: 680,
-        parent: parentWindow,
-        modal: true,
-        show: false,
-        backgroundColor: '#080c14',
-        title: 'Xác thực Đăng nhập',
-        webPreferences: {
-          session: parentContents.session, // CRITICAL: Shares cookie/session storage
-          sandbox: true,
-          nodeIntegration: false,
-          contextIsolation: true,
+      // AntiFan is the browser here; the visited website owns this OAuth flow.
+      // Allowing Chromium to create the child preserves window.opener and uses
+      // the exact parent Session for cookies and origin storage.
+      return {
+        action: 'allow',
+        overrideBrowserWindowOptions: {
+          width: 520,
+          height: 680,
+          parent: parentWindow,
+          show: true,
+          backgroundColor: '#080c14',
+          title: 'Xác thực Đăng nhập',
+          webPreferences: {
+            session: parentContents.session,
+            sandbox: true,
+            nodeIntegration: false,
+            contextIsolation: true,
+          },
         },
-      });
-
-      this.activeAuthWindows.add(authWin);
-      let showPopupTimer: NodeJS.Timeout | null = null;
-      const showAuthWin = () => {
-        if (showPopupTimer) {
-          clearTimeout(showPopupTimer);
-          showPopupTimer = null;
-        }
-        if (!authWin.isDestroyed() && !authWin.isVisible()) {
-          authWin.show();
-        }
       };
-      authWin.once('ready-to-show', showAuthWin);
-      showPopupTimer = setTimeout(showAuthWin, 300);
-      authWin.loadURL(url).catch((err) => {
-        console.warn('[OAuthPopupManager] Failed to load OAuth URL:', err);
-      });
-
-      const handleRedirect = (eventUrl: string) => {
-        if (this.isOAuthCallbackUrl(eventUrl)) {
-          options?.onOAuthCompleted?.(eventUrl);
-          // Wait briefly for cookies/tokens to settle before closing
-          setTimeout(() => {
-            if (!authWin.isDestroyed()) {
-              authWin.close();
-            }
-          }, 600);
-        }
-      };
-
-      authWin.webContents.on('will-redirect', (_event, redirectUrl) => {
-        handleRedirect(redirectUrl);
-      });
-
-      authWin.webContents.on('did-navigate', (_event, navUrl) => {
-        handleRedirect(navUrl);
-      });
-
-      authWin.on('closed', () => {
-        if (showPopupTimer) {
-          clearTimeout(showPopupTimer);
-          showPopupTimer = null;
-        }
-        this.activeAuthWindows.delete(authWin);
-      });
-
-      return { action: 'deny' };
     }
 
-    // 2. Standard link: open as new tab in AntiFan Browser
     if (options?.onNewTabRequested && url.startsWith('http')) {
       options.onNewTabRequested(url);
-      return { action: 'deny' };
     }
-
     return { action: 'deny' };
   }
 
-  public closeAll(): void {
-    for (const win of this.activeAuthWindows) {
-      if (!win.isDestroyed()) {
-        win.close();
-      }
-    }
-    this.activeAuthWindows.clear();
-  }
+
 }
