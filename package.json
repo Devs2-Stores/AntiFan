@@ -14,7 +14,7 @@
   "scripts": {
     "agent": "node scripts/antifan-agent.cjs",
     "clean": "node -e \"fs.rmSync('.compiled',{recursive:true,force:true})\"",
-    "compile": "tsc -p ./ && node scripts/copy-static.mjs && npm run build:extension",
+    "compile": "npm run clean && tsc -p ./ && node scripts/copy-static.mjs && npm run build:extension",
     "build:extension": "node scripts/build-extension.mjs",
     "watch": "tsc -p ./ --watch",
     "start": "node scripts/run-electron.cjs .",

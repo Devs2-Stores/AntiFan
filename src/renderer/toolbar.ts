@@ -79,15 +79,9 @@ interface AntiFanToolbarApi {
   checkUpdates?: () => Promise<void>;
   popoutTerminal?: () => Promise<boolean>;
   getSuggestions: (query: string) => Promise<{ suggestions: Array<{ type: 'search' | 'url' | 'bookmark' | 'history' | 'tab'; text: string; url?: string; tabId?: string; subText?: string }> }>;
-  toggleTerminal: () => Promise<boolean>;
   toggleSplitReview: (tabId?: string, enabled?: boolean) => Promise<boolean>;
   setSplitPreset: (paneId: 'desktop' | 'mobile', presetId: string, tabId?: string) => Promise<boolean>;
   setSplitFocusedPane: (paneId: 'desktop' | 'mobile', tabId?: string) => Promise<boolean>;
-  startTerminal: (cwd?: string) => Promise<boolean>;
-  sendTerminalInput: (input: string) => Promise<boolean>;
-  killTerminal: () => Promise<boolean>;
-  restartTerminal: (cwd?: string) => Promise<boolean>;
-  onTerminalData: (callback: (data: string) => void) => () => void;
   onStateUpdated: (callback: (state: any) => void) => () => void;
   onElementPicked: (callback: (element: any) => void) => () => void;
   onFocusFind: (callback: () => void) => () => void;
@@ -1990,9 +1984,6 @@ if (shortcutsOverlay) {
     if (e.target === shortcutsOverlay) shortcutsOverlay.style.display = 'none';
   });
 }
-
-// Embedded Terminal Controls
-const menuTerminal = null;
 
 
 async function initToolbar() {

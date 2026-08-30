@@ -327,9 +327,9 @@ export function buildApplicationMenu(mainWindow: BrowserWindow, tabHost?: Native
           click: () => tabHost?.toggleSidebar(),
         },
         {
-          label: 'Toggle Bottom Terminal Drawer',
+          label: 'Toggle Terminal Workbench',
           accelerator: 'CmdOrCtrl+`',
-          click: () => tabHost?.toggleTerminal(),
+          click: () => tabHost?.toggleSidebar(),
         },
         {
           label: 'Pop out Terminal Workbench',

@@ -262,7 +262,6 @@ export const TOOLBAR_CHANNELS = {
   ADD_BOOKMARK: 'antifan:toolbar:add-bookmark',
   REMOVE_BOOKMARK: 'antifan:toolbar:remove-bookmark',
   TOGGLE_RULER: 'antifan:toolbar:toggle-ruler',
-  TOGGLE_TERMINAL: 'antifan:toolbar:toggle-terminal',
   GET_SUGGESTIONS: 'antifan:toolbar:get-suggestions',
   STATE_UPDATED: 'antifan:toolbar:state-updated',
   ELEMENT_PICKED: 'antifan:toolbar:element-picked',

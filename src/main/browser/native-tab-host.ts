@@ -188,14 +188,12 @@ export class NativeTabHost extends EventEmitter {
   private toolbarView: WebContentsView;
   private frameBackdropView: WebContentsView | null = null;
   private sidebarView: WebContentsView | null = null;
-  private terminalView: WebContentsView | null = null;
   private popoutWindow: BrowserWindow | null = null;
   private terminalWindows: Map<number, BrowserWindow> = new Map();
   private terminalWindowMeta: Map<number, { sessionId?: string; isPopout?: boolean }> = new Map();
   private terminalWindowStateManager: WindowStateManager;
   private isSidebarOpen: boolean = true;
   private wasSidebarOpenBeforePopout: boolean = false;
-  private isTerminalOpen: boolean = false;
   private isBookmarkBarVisible: boolean = false;
   private sidebarWidth: number = 380;
   private isToolbarOverlayActive: boolean = false;
@@ -281,6 +279,9 @@ export class NativeTabHost extends EventEmitter {
     try {
       const nav = (wc as unknown as { navigationHistory?: { canGoBack?: () => boolean } }).navigationHistory;
       if (nav && typeof nav.canGoBack === 'function') return Boolean(nav.canGoBack());
+      if (typeof (wc as unknown as { canGoBack?: () => boolean }).canGoBack === 'function') {
+        return Boolean((wc as unknown as { canGoBack: () => boolean }).canGoBack());
+      }
     } catch {}
     return false;
   }
@@ -290,6 +291,9 @@ export class NativeTabHost extends EventEmitter {
     try {
       const nav = (wc as unknown as { navigationHistory?: { canGoForward?: () => boolean } }).navigationHistory;
       if (nav && typeof nav.canGoForward === 'function') return Boolean(nav.canGoForward());
+      if (typeof (wc as unknown as { canGoForward?: () => boolean }).canGoForward === 'function') {
+        return Boolean((wc as unknown as { canGoForward: () => boolean }).canGoForward());
+      }
     } catch {}
     return false;
   }
@@ -390,23 +394,6 @@ export class NativeTabHost extends EventEmitter {
       safeSendWebContents(this.sidebarView?.webContents, 'antifan:terminal:session', TerminalManager.getInstance().getSessionState());
     });
     this.sidebarView.webContents.loadFile(standaloneHtml);
-    // 3. Create Bottom Docked Terminal View
-    this.terminalView = new WebContentsView({
-      webPreferences: {
-        preload: path.join(__dirname, '..', '..', 'preload', 'terminal-preload.js'),
-        contextIsolation: true,
-        sandbox: false,
-        nodeIntegration: false,
-      },
-    });
-    this.terminalView.setBackgroundColor('#0c0c0c');
-    this.window.contentView.addChildView(this.terminalView);
-
-    let terminalHtml = path.join(__dirname, '..', '..', 'renderer', 'terminal.html');
-    if (!fs.existsSync(terminalHtml)) {
-      terminalHtml = path.join(process.cwd(), 'src', 'renderer', 'terminal.html');
-    }
-    this.terminalView.webContents.loadFile(terminalHtml);
 
     this.updateLayout();
 
@@ -431,8 +418,7 @@ export class NativeTabHost extends EventEmitter {
     const availableWidth = this.isSidebarOpen ? Math.max(400, width - this.sidebarWidth) : width;
     const sidebarActualWidth = width - availableWidth;
     const toolbarHeight = this.getToolbarHeight();
-    const terminalHeight = this.isTerminalOpen ? 240 : 0;
-    const availableHeight = Math.max(0, height - toolbarHeight - terminalHeight);
+    const availableHeight = Math.max(0, height - toolbarHeight);
     const layoutStartMs = performance.now();
 
     // 0. Frame Backdrop bounds (starts at y = toolbarHeight)
@@ -456,14 +442,6 @@ export class NativeTabHost extends EventEmitter {
       }
     }
 
-    // 3. Bottom Terminal bounds
-    if (this.terminalView) {
-      if (this.isTerminalOpen && terminalHeight > 0) {
-        this.terminalView.setBounds({ x: 0, y: height - terminalHeight, width: availableWidth, height: terminalHeight });
-      } else {
-        this.terminalView.setBounds({ x: 0, y: height, width: 0, height: 0 });
-      }
-    }
 
     // 4. Sidebar bounds
     if (this.sidebarView) {
@@ -487,8 +465,7 @@ export class NativeTabHost extends EventEmitter {
     const { width, height } = this.window.getContentBounds();
     const availableWidth = this.isSidebarOpen ? Math.max(400, width - this.sidebarWidth) : width;
     const toolbarHeight = this.getToolbarHeight();
-    const terminalHeight = this.isTerminalOpen ? 240 : 0;
-    const availableHeight = Math.max(0, height - toolbarHeight - terminalHeight);
+    const availableHeight = Math.max(0, height - toolbarHeight);
 
     const isAgentWorking = Boolean(activeTab && activeTab.state.aiState === 'agent_working');
     if (activeTab && activeTab.state.splitMode) {
@@ -542,15 +519,6 @@ export class NativeTabHost extends EventEmitter {
     return this.isSidebarOpen;
   }
 
-  public toggleTerminal(): boolean {
-    this.isTerminalOpen = !this.isTerminalOpen;
-    this.updateLayout();
-    this.broadcastState();
-    if (this.isTerminalOpen && this.terminalView && !this.terminalView.webContents.isDestroyed()) {
-      safeSendWebContents(this.terminalView.webContents, 'antifan:terminal:session', TerminalManager.getInstance().getSessionState());
-    }
-    return this.isTerminalOpen;
-  }
 
   private setupToolbarIpc(): void {
     ipcMain.handle(TOOLBAR_CHANNELS.GET_INITIAL_STATE, () => {
@@ -589,7 +557,6 @@ export class NativeTabHost extends EventEmitter {
     ipcMain.handle(TOOLBAR_CHANNELS.TOGGLE_LENS, () => this.toggleLens());
     ipcMain.handle(TOOLBAR_CHANNELS.TOGGLE_RULER, () => this.toggleRuler());
     ipcMain.handle(TOOLBAR_CHANNELS.TOGGLE_DEVTOOLS, () => this.toggleDevTools());
-    ipcMain.handle(TOOLBAR_CHANNELS.TOGGLE_TERMINAL, () => this.toggleTerminal());
     ipcMain.handle(TOOLBAR_CHANNELS.TOGGLE_SIDEBAR, () => this.toggleSidebar());
     ipcMain.handle(TOOLBAR_CHANNELS.SET_DEVICE_PRESET, (_event, { tabId, presetId }: { tabId?: string; presetId: string }) => this.setDevicePreset(tabId || this.activeTabId, presetId));
     ipcMain.handle(TOOLBAR_CHANNELS.TOGGLE_SPLIT_REVIEW, (_event, payload?: { tabId?: string; enabled?: boolean }) => this.toggleSplitReview(payload?.tabId || this.activeTabId, payload?.enabled));
@@ -791,9 +758,6 @@ export class NativeTabHost extends EventEmitter {
       if (this.isSidebarOpen && this.sidebarView && !this.sidebarView.webContents.isDestroyed()) {
         safeSendWebContents(this.sidebarView.webContents, 'antifan:terminal:data', payload);
       }
-      if (this.isTerminalOpen && this.terminalView && !this.terminalView.webContents.isDestroyed()) {
-        safeSendWebContents(this.terminalView.webContents, TERMINAL_CHANNELS.DATA, payload);
-      }
       for (const [id, win] of this.terminalWindows.entries()) {
         if (win && !win.isDestroyed()) {
           safeSendWebContents(win.webContents, 'antifan:terminal:data', payload);
@@ -806,9 +770,6 @@ export class NativeTabHost extends EventEmitter {
     TerminalManager.getInstance().on('session', (state: unknown) => {
       if (this.isSidebarOpen && this.sidebarView && !this.sidebarView.webContents.isDestroyed()) {
         safeSendWebContents(this.sidebarView.webContents, 'antifan:terminal:session', state);
-      }
-      if (this.isTerminalOpen && this.terminalView && !this.terminalView.webContents.isDestroyed()) {
-        safeSendWebContents(this.terminalView.webContents, 'antifan:terminal:session', state);
       }
       for (const [id, win] of this.terminalWindows.entries()) {
         if (win && !win.isDestroyed()) {
@@ -1810,8 +1771,7 @@ export class NativeTabHost extends EventEmitter {
   }
 
   public bringViewToFront(_view: WebContentsView | null | undefined): void {
-    // Shell views (toolbarView, sidebarView, terminalView) are permanently positioned
-    // above tab views in the window.contentView hierarchy via attachTabView indexing.
+    // Shell views stay above tab views through attachTabView indexing.
   }
 
   public ensureShellViewsZOrder(): void {
@@ -2024,8 +1984,13 @@ export class NativeTabHost extends EventEmitter {
     wc.on('did-stop-loading', () => {
       clearLoadingTimer();
       state.isLoading = false;
-      state.canGoBack = this.getCanGoBack(wc);
-      state.canGoForward = this.getCanGoForward(wc);
+      const currentTab = this.tabs.get(id);
+      const splitHasLiveMobile = Boolean(state.splitMode && currentTab?.mobileView && !currentTab.mobileView.webContents.isDestroyed());
+      const authorityPane = splitHasLiveMobile ? (currentTab?.focusedPane || state.splitFocusedPane || 'desktop') : 'desktop';
+      if (paneId === authorityPane) {
+        state.canGoBack = this.getCanGoBack(wc);
+        state.canGoForward = this.getCanGoForward(wc);
+      }
       this.broadcastState();
     });
     wc.on('console-message', (_event, level, message, line, sourceId) => {
@@ -2256,20 +2221,25 @@ export class NativeTabHost extends EventEmitter {
 
     wc.on('render-process-gone', () => {
       clearLoadingTimer();
-      state.crashed = true;
-      this.broadcastState();
+      if (paneId === 'desktop') {
+        state.crashed = true;
+        this.broadcastState();
+      } else {
+        this.toggleSplitReview(id, false);
+        state.splitError = 'Mobile view process exited unexpectedly';
+        this.broadcastState();
+      }
     });
-
     (wc as unknown as EventEmitter).on('close', () => {
       clearLoadingTimer();
-      if (!this.isDisposed && this.tabs.has(id)) {
+      if (paneId === 'desktop' && !this.isDisposed && this.tabs.has(id)) {
         this.closeTab(id);
       }
     });
 
     wc.on('destroyed', () => {
       clearLoadingTimer();
-      if (!this.isDisposed && this.tabs.has(id)) {
+      if (paneId === 'desktop' && !this.isDisposed && this.tabs.has(id)) {
         this.closeTab(id);
       }
     });
@@ -4519,7 +4489,6 @@ export class NativeTabHost extends EventEmitter {
       isLensActive: this.isLensActive,
       isRulerActive: this.isRulerActive,
       isSidebarOpen: this.isSidebarOpen,
-      isTerminalOpen: this.isTerminalOpen,
       bookmarks: this.bookmarks,
       devicePresets: DEVICE_PRESETS,
       activeChromeProfile: ChromeProfileSyncManager.getInstance().getActiveProfile(),
@@ -4853,9 +4822,6 @@ export class NativeTabHost extends EventEmitter {
     if (this.sidebarView && !this.sidebarView.webContents.isDestroyed()) {
       this.sidebarView.webContents.reload();
     }
-    if (this.terminalView && !this.terminalView.webContents.isDestroyed()) {
-      this.terminalView.webContents.reload();
-    }
   }
 
   public createPreviewTab(rawPathOrUri: string, targetCapsuleId?: string): string | null {
@@ -5188,17 +5154,6 @@ export class NativeTabHost extends EventEmitter {
         }
       } catch {}
       this.sidebarView = null;
-    }
-    if (this.terminalView) {
-      try {
-        this.window.contentView.removeChildView(this.terminalView);
-      } catch {}
-      try {
-        if (!this.terminalView.webContents.isDestroyed()) {
-          (this.terminalView.webContents as any).destroy?.();
-        }
-      } catch {}
-      this.terminalView = null;
     }
     if (this.inspectPollTimer) {
       clearInterval(this.inspectPollTimer);

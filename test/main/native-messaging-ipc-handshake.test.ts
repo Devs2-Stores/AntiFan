@@ -115,3 +115,109 @@ test('Local IPC: supports PING action and returns PONG', async () => {
     try { fs.rmSync(tmpRuntimeDir, { recursive: true, force: true }); } catch {}
   }
 });
+
+test('LocalIpcClient: rejects connection when auth file points to dead PID', async () => {
+  const tmpRuntimeDir = path.join(os.tmpdir(), `antifan-test-dead-pid-${crypto.randomUUID()}`);
+  fs.mkdirSync(tmpRuntimeDir, { recursive: true });
+  const authFile = path.join(tmpRuntimeDir, 'bridge-auth.json');
+
+  fs.writeFileSync(authFile, JSON.stringify({
+    instanceUuid: 'dead-uuid',
+    launchNonce: 'nonce-123',
+    socketPath: '\\\\.\\pipe\\antifan-bridge-ipc-dead-uuid',
+    port: 20129,
+    pid: 99999999, // Non-existent PID
+    createdAt: Date.now(),
+  }), 'utf8');
+
+  const client = new LocalIpcClient(tmpRuntimeDir);
+  try {
+    await assert.rejects(
+      async () => {
+        await client.connect();
+      },
+      (err: Error) => {
+        assert.match(err.message, /is no longer running/i);
+        return true;
+      }
+    );
+  } finally {
+    client.disconnect();
+    try { fs.rmSync(tmpRuntimeDir, { recursive: true, force: true }); } catch {}
+  }
+});
+
+test('LocalIpcServer: writes bridge-auth.json atomically with current PID and cleans up on close', async () => {
+  const tmpRuntimeDir = path.join(os.tmpdir(), `antifan-test-lifecycle-${crypto.randomUUID()}`);
+  const server = new LocalIpcServer();
+  const authFile = path.join(tmpRuntimeDir, 'bridge-auth.json');
+
+  try {
+    await server.start(
+      20129,
+      () => ({
+        token: 'test-token',
+        port: 20129,
+      }),
+      tmpRuntimeDir
+    );
+
+    assert.equal(fs.existsSync(authFile), true);
+    const auth = JSON.parse(fs.readFileSync(authFile, 'utf8'));
+    assert.equal(auth.pid, process.pid);
+    assert.equal(auth.instanceUuid, server.getInstanceUuid());
+    assert.equal(auth.port, 20129);
+  } finally {
+    server.close();
+    assert.equal(fs.existsSync(authFile), false, 'Auth file should be removed on close');
+    try { fs.rmSync(tmpRuntimeDir, { recursive: true, force: true }); } catch {}
+  }
+});
+
+test('LocalIpcServer: enforces runtime ownership and rejects concurrent competing live server', async () => {
+  const tmpRuntimeDir = path.join(os.tmpdir(), `antifan-test-contention-${crypto.randomUUID()}`);
+  const server1 = new LocalIpcServer();
+  const server2 = new LocalIpcServer();
+
+  try {
+    // 1. Server 1 starts successfully and acquires ownership of tmpRuntimeDir
+    await server1.start(
+      20129,
+      () => ({ token: 'token-1', port: 20129 }),
+      tmpRuntimeDir
+    );
+
+    // 2. Server 2 attempts to start on the SAME runtimeDir while Server 1 is alive -> MUST reject with ownership conflict
+    await assert.rejects(
+      async () => {
+        await server2.start(
+          20130,
+          () => ({ token: 'token-2', port: 20130 }),
+          tmpRuntimeDir
+        );
+      },
+      (err: Error) => {
+        assert.match(err.message, /Runtime ownership conflict/i);
+        return true;
+      }
+    );
+
+    // 3. Close Server 1 -> ownership is cleanly released
+    server1.close();
+
+    // 4. Server 2 can now successfully acquire ownership of tmpRuntimeDir
+    await server2.start(
+      20130,
+      () => ({ token: 'token-2', port: 20130 }),
+      tmpRuntimeDir
+    );
+    assert.equal(fs.existsSync(path.join(tmpRuntimeDir, 'bridge-auth.json')), true);
+    const auth2 = JSON.parse(fs.readFileSync(path.join(tmpRuntimeDir, 'bridge-auth.json'), 'utf8'));
+    assert.equal(auth2.instanceUuid, server2.getInstanceUuid());
+    assert.equal(auth2.port, 20130);
+  } finally {
+    server1.close();
+    server2.close();
+    try { fs.rmSync(tmpRuntimeDir, { recursive: true, force: true }); } catch {}
+  }
+});

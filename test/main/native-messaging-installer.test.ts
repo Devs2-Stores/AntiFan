@@ -12,7 +12,10 @@ import {
   COMPANION_EXTENSION_ID,
   WINDOWS_REGISTRY_KEYS,
   getDefaultManifestPath,
-  getDefaultHostBinaryPath
+  getDefaultHostBinaryPath,
+  getPermanentExtensionDir,
+  exportCompanionExtension,
+  installNativeHost
 } from '../../src/main/native-messaging/manifest-installer';
 test('generateHostManifest: produces valid Chromium manifest', () => {
   const extensionId = 'abcdefghijklmnopabcdefghijklmnop';
@@ -106,4 +109,65 @@ test('Companion Extension ID: mathematically matches extension/manifest.json RSA
   assert.deepEqual(hostManifest.allowed_origins, [
     'chrome-extension://khjcaadjohoclofjkkfblkbfbpmjjedp/',
   ]);
+});
+
+test('exportCompanionExtension: successfully copies extension files to target directory', () => {
+  const tmpExtDir = path.join(os.tmpdir(), `antifan-export-ext-${Date.now()}`);
+  const exportedPath = exportCompanionExtension(tmpExtDir);
+
+  assert.equal(exportedPath, tmpExtDir);
+  assert.equal(fs.existsSync(path.join(tmpExtDir, 'manifest.json')), true);
+  assert.equal(fs.existsSync(path.join(tmpExtDir, 'popup.html')), true);
+  assert.equal(fs.existsSync(path.join(tmpExtDir, 'popup.js')), true);
+  assert.equal(fs.existsSync(path.join(tmpExtDir, 'background.js')), true);
+
+  const permanentDir = getPermanentExtensionDir();
+  assert.match(permanentDir, /AntiFan[\\/]extension$/);
+
+  try { fs.rmSync(tmpExtDir, { recursive: true, force: true }); } catch {}
+});
+
+test('exportCompanionExtension: fails closed with clear error when manifest.json is missing in all source candidates', () => {
+  const tmpExtDir = path.join(os.tmpdir(), `antifan-export-ext-fail-${Date.now()}`);
+  const emptyCandidateDir = path.join(os.tmpdir(), `antifan-empty-cand-${Date.now()}`);
+  fs.mkdirSync(emptyCandidateDir, { recursive: true });
+
+  try {
+    assert.throws(
+      () => {
+        exportCompanionExtension(tmpExtDir, [emptyCandidateDir]);
+      },
+      (err: Error) => {
+        assert.match(err.message, /Failed to export companion extension: No valid source candidate directory/);
+        return true;
+      }
+    );
+  } finally {
+    try { fs.rmSync(tmpExtDir, { recursive: true, force: true }); } catch {}
+    try { fs.rmSync(emptyCandidateDir, { recursive: true, force: true }); } catch {}
+  }
+});
+
+test('installNativeHost: reports failure when extension export fails', async () => {
+  const tmpExtDir = path.join(os.tmpdir(), `antifan-export-ext-fail2-${Date.now()}`);
+  const emptyCandidateDir = path.join(os.tmpdir(), `antifan-empty-cand2-${Date.now()}`);
+  const tmpManifestFile = path.join(os.tmpdir(), `antifan-tmp-manifest-${Date.now()}.json`);
+  fs.mkdirSync(emptyCandidateDir, { recursive: true });
+
+  try {
+    const result = await installNativeHost(COMPANION_EXTENSION_ID, {
+      manifestPath: tmpManifestFile,
+      targetExtensionDir: tmpExtDir,
+      customCandidateDirs: [emptyCandidateDir],
+      browsers: [] // avoid touching real registry
+    });
+
+    assert.equal(result.success, false);
+    assert.ok(result.extensionExportError);
+    assert.match(result.extensionExportError, /No valid source candidate directory/);
+  } finally {
+    try { fs.rmSync(tmpExtDir, { recursive: true, force: true }); } catch {}
+    try { fs.rmSync(emptyCandidateDir, { recursive: true, force: true }); } catch {}
+    try { fs.unlinkSync(tmpManifestFile); } catch {}
+  }
 });

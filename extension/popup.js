@@ -22,7 +22,7 @@ function showMessage(type, text) {
   resultMessage.classList.remove('hidden');
 }
 
-function updateZeroTouchBanner(connected, port) {
+function updateZeroTouchBanner(connected, port, lastError) {
   if (connected) {
     zeroTouchBanner.className = 'zero-touch-banner connected';
     zeroTouchBanner.innerHTML = `
@@ -34,11 +34,12 @@ function updateZeroTouchBanner(connected, port) {
     `;
   } else {
     zeroTouchBanner.className = 'zero-touch-banner disconnected';
+    const detailMsg = lastError ? `Chi tiết: ${lastError}` : 'Mở ứng dụng AntiFan để tự động kích hoạt kết nối';
     zeroTouchBanner.innerHTML = `
       <div class="zt-icon">⚠️</div>
       <div class="zt-text">
-        <strong>Chưa mở AntiFan Desktop</strong>
-        <span>Mở ứng dụng AntiFan để tự động kích hoạt kết nối</span>
+        <strong>Chưa kết nối AntiFan Desktop</strong>
+        <span>${detailMsg}</span>
       </div>
     `;
   }
@@ -58,7 +59,6 @@ async function discoverBridge() {
           }
         });
       });
-
       if (bgStatus && bgStatus.connected && bgStatus.auth?.token) {
         const port = bgStatus.auth.port || 20138;
         setStatus('connected', 'AntiFan Online (Tự động)');
@@ -66,6 +66,14 @@ async function discoverBridge() {
         updateZeroTouchBanner(true, port);
         syncBtn.disabled = false;
         return true;
+      }
+
+      if (bgStatus && bgStatus.lastError) {
+        setStatus('disconnected', 'Chưa mở AntiFan');
+        portIndicator.textContent = `Port: --`;
+        updateZeroTouchBanner(false, null, bgStatus.lastError);
+        syncBtn.disabled = false;
+        return false;
       }
     }
   } catch {}

@@ -917,6 +917,7 @@
   var enabledProfiles = ["google", "ecommerce"];
   var syncActiveTabOnly = false;
   var isDeltaSyncEnabled = true;
+  var lastNativeError = null;
   var debouncer = new CookieDebouncer(async (batch) => {
     await dispatchDeltaSync(batch);
   }, 300, 1e3);
@@ -950,6 +951,7 @@
         if (nativePort !== port) return;
         console.log("[AntiFan Extension] Received from Native Host:", msg);
         if (msg.status === "SUCCESS" && msg.token) {
+          lastNativeError = null;
           bridgeAuth = {
             token: msg.token,
             port: msg.port,
@@ -959,11 +961,18 @@
           if (chrome.storage?.local) {
             await chrome.storage.local.set({ bridgeAuth });
           }
+        } else if (msg.status === "ERROR") {
+          lastNativeError = msg.message || msg.error || "NATIVE_IPC_ERROR";
+          console.warn("[AntiFan Extension] Native Host reported error:", lastNativeError);
         }
       });
       port.onDisconnect.addListener(() => {
         if (nativePort === port) {
-          console.warn("[AntiFan Extension] Native Host disconnected:", chrome.runtime.lastError?.message);
+          const disconnectMsg = chrome.runtime.lastError?.message;
+          console.warn("[AntiFan Extension] Native Host disconnected:", disconnectMsg);
+          if (typeof disconnectMsg === "string" && disconnectMsg.length > 0) {
+            lastNativeError = disconnectMsg;
+          }
           nativePort = null;
           bridgeAuth = null;
           if (typeof chrome !== "undefined" && chrome.storage?.local) {
@@ -1162,6 +1171,7 @@
         sendResponse({
           connected: !!(nativePort && bridgeAuth?.token),
           auth: bridgeAuth,
+          lastError: lastNativeError,
           enabledProfiles,
           syncActiveTabOnly,
           isDeltaSyncEnabled

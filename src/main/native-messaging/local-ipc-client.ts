@@ -1,13 +1,12 @@
 import * as net from 'net';
 import * as fs from 'fs';
 import * as path from 'path';
-import * as os from 'os';
 import { NativeMessageDecoder, encodeNativeMessage } from './framing';
-import { RuntimeBridgeAuth } from './windows-acl';
+import { RuntimeBridgeAuth, isProcessAlive } from './windows-acl';
+import { StorageLocations } from '../config/storage-locations';
 
 export function readRuntimeAuthFile(customRuntimeDir?: string): RuntimeBridgeAuth | null {
-  const localAppData = process.env.LOCALAPPDATA || path.join(os.homedir(), 'AppData', 'Local');
-  const runtimeDir = customRuntimeDir || path.join(localAppData, 'AntiFan', 'runtime');
+  const runtimeDir = customRuntimeDir || StorageLocations.getRuntimeDir();
   const authFile = path.join(runtimeDir, 'bridge-auth.json');
 
   if (!fs.existsSync(authFile)) {
@@ -41,6 +40,10 @@ export class LocalIpcClient {
       throw new Error('AntiFan Desktop is not running (no active runtime auth file found).');
     }
 
+    if (typeof auth.pid === 'number' && !isProcessAlive(auth.pid)) {
+      throw new Error(`AntiFan Desktop process (PID ${auth.pid}) is no longer running (stale auth file).`);
+    }
+
     return new Promise((resolve, reject) => {
       const socket = net.createConnection(auth.socketPath, () => {
         this.socket = socket;
@@ -50,7 +53,7 @@ export class LocalIpcClient {
       });
 
       socket.on('error', (err) => {
-        reject(new Error(`Failed to connect to AntiFan Local IPC at ${auth.socketPath}: ${err.message}`));
+        reject(new Error(`Failed to connect to AntiFan Local IPC at ${auth.socketPath} (PID ${auth.pid || 'unknown'}): ${err.message}`));
       });
     });
   }

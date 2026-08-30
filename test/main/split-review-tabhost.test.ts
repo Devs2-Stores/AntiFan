@@ -5,8 +5,12 @@ import { NativeTabHost } from '../../src/main/browser/native-tab-host';
 import { SplitNavigationCoordinator } from '../../src/main/browser/split-review-coordinator';
 import { AntiFanTab } from '../../src/shared/contracts';
 
-type TestHost = any;
+type PrivateHostMethods = {
+  setupTabWebContentsEvents: (id: string, view: unknown, state: unknown, paneId: string) => void;
+};
+const privateHost = NativeTabHost.prototype as unknown as PrivateHostMethods;
 
+type TestHost = any;
 function createTestHost() {
   const host = Object.create(NativeTabHost.prototype) as TestHost;
   EventEmitter.call(host);
@@ -18,8 +22,8 @@ function createTestHost() {
     stop: () => {},
     goBack: () => {},
     goForward: () => {},
-    canGoBack: () => true,
-    canGoForward: () => false,
+    canGoBack: (): boolean => true,
+    canGoForward: (): boolean => false,
     enableDeviceEmulation: (_cfg?: any) => {},
     disableDeviceEmulation: () => {},
     setZoomFactor: (_z?: number) => {},
@@ -41,8 +45,8 @@ function createTestHost() {
     stop: () => {},
     goBack: () => {},
     goForward: () => {},
-    canGoBack: () => true,
-    canGoForward: () => false,
+    canGoBack: (): boolean => true,
+    canGoForward: (): boolean => false,
     enableDeviceEmulation: (_cfg?: any) => {},
     disableDeviceEmulation: () => {},
     setZoomFactor: (_z?: number) => {},
@@ -80,6 +84,7 @@ function createTestHost() {
   host.activeTabId = 'tab-split-1';
   host.tabs = new Map([['tab-split-1', { state, view: desktopView, focusedPane: 'desktop' }]]);
   host.tabOrder = ['tab-split-1'];
+  host.recentlyClosedTabs = [];
   host.splitCoordinator = new SplitNavigationCoordinator();
   host.transcriptSyncer = { dispose: () => {}, getActiveSessionId: () => 'auto' };
   host.agentWorkingTimers = new Map();
@@ -107,7 +112,7 @@ function createTestHost() {
   host.isBookmarkBarVisible = false;
   host.appliedClipRadius = new WeakMap();
   host.emulatedWebContents = new WeakSet();
-  host.diagnosticsManager = { recordConsole: () => {}, recordFailure: () => {}, clear: () => {} };
+  host.diagnosticsManager = { recordConsole: () => {}, recordFailure: () => {}, clear: () => {}, deleteTab: () => {} };
   host.broadcastState = () => {};
   host.updateLayout = () => {
     const tab = host.tabs.get(host.activeTabId);
@@ -223,6 +228,87 @@ describe('NativeTabHost Split Review Integration', () => {
     assert.strictEqual(mobileDestroyed, true);
     assert.strictEqual(emulationDisabled, true);
     assert.strictEqual(zoomRestored, true);
+  });
+  it('does NOT close tab when disabling split review even when mobile view emits destroyed/close events', () => {
+    const { host, state, desktopWc, mobileWc, mobileView } = createTestHost();
+    const tab = host.tabs.get('tab-split-1');
+    tab.state.splitMode = true;
+    tab.mobileView = mobileView;
+
+    // Wire real setupTabWebContentsEvents to desktop and mobile views
+    privateHost.setupTabWebContentsEvents.call(host, 'tab-split-1', tab.view, tab.state, 'desktop');
+    privateHost.setupTabWebContentsEvents.call(host, 'tab-split-1', tab.mobileView, tab.state, 'mobile');
+
+    let closeTabCalled = false;
+    host.closeTab = (id: string) => {
+      closeTabCalled = true;
+      return true;
+    };
+
+    mobileWc.destroy = () => {
+      mobileWc.emit('destroyed');
+      mobileWc.emit('close');
+    };
+
+    const res = host.toggleSplitReview('tab-split-1', false);
+    assert.strictEqual(res, false);
+    assert.strictEqual(state.splitMode, false);
+    assert.strictEqual(tab.mobileView, undefined);
+    assert.strictEqual(closeTabCalled, false, 'toggleSplitReview(false) must not trigger closeTab');
+    assert.strictEqual(host.tabs.has('tab-split-1'), true, 'Tab must remain alive in tabs map');
+
+    // On the other hand, if desktop view emits destroyed, tab should close
+    desktopWc.emit('destroyed');
+    assert.strictEqual(closeTabCalled, true, 'Desktop webContents destroyed must close tab');
+  });
+
+  it('handles mobile render-process-gone by disabling split mode without crashing entire tab', () => {
+    const { host, state, mobileWc, mobileView } = createTestHost();
+    const tab = host.tabs.get('tab-split-1');
+    tab.state.splitMode = true;
+    tab.mobileView = mobileView;
+
+    privateHost.setupTabWebContentsEvents.call(host, 'tab-split-1', tab.view, tab.state, 'desktop');
+    privateHost.setupTabWebContentsEvents.call(host, 'tab-split-1', tab.mobileView, tab.state, 'mobile');
+
+    // Mobile crashes
+    mobileWc.emit('render-process-gone');
+    assert.strictEqual(state.crashed, undefined, 'Mobile crash must not mark state.crashed');
+    assert.strictEqual(state.splitMode, false, 'Mobile crash must toggle split review off');
+    assert.strictEqual(state.splitError, 'Mobile view process exited unexpectedly');
+    assert.strictEqual(host.tabs.has('tab-split-1'), true, 'Tab must remain open');
+  });
+
+  it('updates canGoBack/canGoForward from authority pane on did-stop-loading', () => {
+    const { host, state, desktopWc, mobileWc, mobileView } = createTestHost();
+    const tab = host.tabs.get('tab-split-1');
+    tab.state.splitMode = true;
+    tab.mobileView = mobileView;
+    tab.focusedPane = 'desktop';
+
+    privateHost.setupTabWebContentsEvents.call(host, 'tab-split-1', tab.view, tab.state, 'desktop');
+    privateHost.setupTabWebContentsEvents.call(host, 'tab-split-1', tab.mobileView, tab.state, 'mobile');
+
+    desktopWc.canGoBack = () => true;
+    desktopWc.canGoForward = () => false;
+    mobileWc.canGoBack = () => false;
+    mobileWc.canGoForward = () => true;
+
+    // When desktop is authority and stops loading
+    desktopWc.emit('did-stop-loading');
+    assert.strictEqual(state.canGoBack, true);
+    assert.strictEqual(state.canGoForward, false);
+
+    // When mobile is mirror (not authority) and stops loading, it does not overwrite authority navigation state
+    mobileWc.emit('did-stop-loading');
+    assert.strictEqual(state.canGoBack, true);
+    assert.strictEqual(state.canGoForward, false);
+
+    // When mobile becomes authority (focused) and stops loading
+    tab.focusedPane = 'mobile';
+    mobileWc.emit('did-stop-loading');
+    assert.strictEqual(state.canGoBack, false);
+    assert.strictEqual(state.canGoForward, true);
   });
 
   it('manages device corner clipping safely and idempotently without corrupting DOM containing blocks', async () => {

@@ -27,7 +27,6 @@ describe('Webview & Extension IPC Audit Invariants', () => {
       'TOOLBAR_CHANNELS.TOGGLE_LENS',
       'TOOLBAR_CHANNELS.TOGGLE_RULER',
       'TOOLBAR_CHANNELS.TOGGLE_DEVTOOLS',
-      'TOOLBAR_CHANNELS.TOGGLE_TERMINAL',
       'TOOLBAR_CHANNELS.TOGGLE_SIDEBAR',
       'TOOLBAR_CHANNELS.SET_DEVICE_PRESET',
       'TOOLBAR_CHANNELS.SET_ZOOM',
@@ -89,7 +88,6 @@ describe('Webview & Extension IPC Audit Invariants', () => {
     const htmlFiles = [
       path.join(root, 'src', 'renderer', 'toolbar.html'),
       path.join(root, 'src', 'renderer', 'standalone.html'),
-      path.join(root, 'src', 'renderer', 'terminal.html'),
     ];
 
     for (const file of htmlFiles) {
@@ -98,6 +96,30 @@ describe('Webview & Extension IPC Audit Invariants', () => {
       const externalScriptTags = html.match(/<script\b[^>]*src=[\s\S]*?<\/script>/gi) || [];
       assert.ok(externalScriptTags.length >= 1, `File ${file} should have external script tags`);
     }
+  });
+
+  it('keeps the legacy bottom terminal drawer fully removed', () => {
+    const nativeTabHost = fs.readFileSync(path.join(root, 'src', 'main', 'browser', 'native-tab-host.ts'), 'utf8');
+    const appMenu = fs.readFileSync(path.join(root, 'src', 'main', 'browser', 'app-menu.ts'), 'utf8');
+    const toolbarPreload = fs.readFileSync(path.join(root, 'src', 'preload', 'toolbar-preload.ts'), 'utf8');
+    const contracts = fs.readFileSync(path.join(root, 'src', 'shared', 'contracts.ts'), 'utf8');
+
+    for (const relativePath of [
+      'src/preload/terminal-preload.ts',
+      'src/renderer/terminal.ts',
+      'src/renderer/terminal.html',
+      'src/renderer/terminal.css',
+    ]) {
+      assert.strictEqual(fs.existsSync(path.join(root, relativePath)), false, `${relativePath} must remain deleted`);
+    }
+
+    for (const obsoleteSymbol of ['terminalView', 'isTerminalOpen', 'toggleTerminal', 'TOGGLE_TERMINAL']) {
+      assert.strictEqual(nativeTabHost.includes(obsoleteSymbol), false, `NativeTabHost must not restore ${obsoleteSymbol}`);
+    }
+    assert.strictEqual(toolbarPreload.includes('toggleTerminal'), false, 'toolbar preload must not expose the removed drawer');
+    assert.strictEqual(contracts.includes('TOGGLE_TERMINAL'), false, 'shared contracts must not expose the removed drawer');
+    assert.strictEqual(appMenu.includes('Toggle Bottom Terminal Drawer'), false, 'application menu must not restore the removed drawer item');
+    assert.match(appMenu, /label:\s*'Toggle Terminal Workbench'[\s\S]*?accelerator:\s*'CmdOrCtrl\+`'[\s\S]*?toggleSidebar\(\)/);
   });
 
   it('audits static event listeners to ensure no duplicate bindings on tool buttons', () => {
@@ -113,7 +135,6 @@ describe('Webview & Extension IPC Audit Invariants', () => {
       'btnCaptureFullPage',
       'btnDevTools',
       'btnToggleSidebar',
-      'btnToggleTerminal',
       'btnNewTab',
       'btnBack',
       'btnForward',

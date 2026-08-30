@@ -300,7 +300,7 @@ async function createWindow(): Promise<void> {
           activeCapsuleId: activeCapsule?.id,
           activePartition,
         };
-      });
+      }, StorageLocations.getRuntimeDir());
       console.log(`[antifan] Native Messaging Local IPC Server listening at ${localIpcServer.getSocketPath()}`);
 
       // Auto-register Chrome/Edge/Brave native messaging manifest on Windows

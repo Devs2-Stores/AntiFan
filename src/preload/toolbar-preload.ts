@@ -45,7 +45,6 @@ const CHANNELS = {
   TOGGLE_BOOKMARK_BAR: 'antifan:toolbar:toggle-bookmark-bar',
   ADD_BOOKMARK: 'antifan:toolbar:add-bookmark',
   REMOVE_BOOKMARK: 'antifan:toolbar:remove-bookmark',
-  TOGGLE_TERMINAL: 'antifan:toolbar:toggle-terminal',
   GET_SUGGESTIONS: 'antifan:toolbar:get-suggestions',
   STATE_UPDATED: 'antifan:toolbar:state-updated',
   ELEMENT_PICKED: 'antifan:toolbar:element-picked',
@@ -102,7 +101,6 @@ const toolbarApi = {
   addBookmark: (title: string, url: string) => ipcRenderer.invoke(CHANNELS.ADD_BOOKMARK, { title, url }),
   removeBookmark: (url: string) => ipcRenderer.invoke(CHANNELS.REMOVE_BOOKMARK, url),
   getSuggestions: (query: string) => ipcRenderer.invoke(CHANNELS.GET_SUGGESTIONS, query),
-  toggleTerminal: () => ipcRenderer.invoke(CHANNELS.TOGGLE_TERMINAL),
   toggleSplitReview: (tabId?: string, enabled?: boolean) => ipcRenderer.invoke(CHANNELS.TOGGLE_SPLIT_REVIEW, { tabId, enabled }),
   setSplitPreset: (paneId: string, presetId: string, tabId?: string) => ipcRenderer.invoke(CHANNELS.SET_SPLIT_PRESET, { paneId, presetId, tabId }),
   setSplitFocusedPane: (paneId: string, tabId?: string) => ipcRenderer.invoke(CHANNELS.SET_SPLIT_FOCUSED_PANE, { paneId, tabId }),
@@ -125,18 +123,6 @@ const toolbarApi = {
     ipcRenderer.on('antifan:workflow:event', handler);
     return () => {
       ipcRenderer.removeListener('antifan:workflow:event', handler);
-    };
-  },
-  // Embedded Terminal APIs
-  startTerminal: (cwd?: string) => ipcRenderer.invoke('antifan:terminal:start', cwd),
-  sendTerminalInput: (input: string) => ipcRenderer.invoke('antifan:terminal:input', input),
-  killTerminal: () => ipcRenderer.invoke('antifan:terminal:kill'),
-  restartTerminal: (cwd?: string) => ipcRenderer.invoke('antifan:terminal:restart', cwd),
-  onTerminalData: (callback: (data: string) => void) => {
-    const handler = (_event: unknown, data: string) => callback(data);
-    ipcRenderer.on('antifan:terminal:data', handler);
-    return () => {
-      ipcRenderer.removeListener('antifan:terminal:data', handler);
     };
   },
 

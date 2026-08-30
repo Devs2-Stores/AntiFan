@@ -84,7 +84,8 @@ class MockTabHostWithCapsulePartitions extends EventEmitter {
 
 test('Native Messaging E2E: Framed Stdio Host -> Named Pipe IPC -> BridgeServer -> Partition Session', async () => {
   const rootDir = process.cwd();
-  const tmpRuntimeDir = path.join(os.tmpdir(), `antifan-e2e-real-${crypto.randomUUID()}`);
+  const tmpDataRoot = path.join(os.tmpdir(), `antifan-e2e-real-${crypto.randomUUID()}`);
+  const tmpRuntimeDir = path.join(tmpDataRoot, 'runtime');
   const targetCapsuleId = 'store-a';
   const targetPartition = deriveCapsulePartition(targetCapsuleId);
 
@@ -113,7 +114,8 @@ test('Native Messaging E2E: Framed Stdio Host -> Named Pipe IPC -> BridgeServer 
     stdio: ['pipe', 'pipe', 'pipe'],
     env: {
       ...process.env,
-      ANTIFAN_RUNTIME_DIR: tmpRuntimeDir,
+      ANTIFAN_DATA_ROOT: tmpDataRoot,
+      ANTIFAN_RUNTIME_DIR: '',
     },
   });
 
@@ -251,6 +253,6 @@ test('Native Messaging E2E: Framed Stdio Host -> Named Pipe IPC -> BridgeServer 
 
     ipcServer.close();
     bridgeServer.dispose();
-    try { fs.rmSync(tmpRuntimeDir, { recursive: true, force: true }); } catch {}
+    try { fs.rmSync(tmpDataRoot, { recursive: true, force: true }); } catch {}
   }
 });

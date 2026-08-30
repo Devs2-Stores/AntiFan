@@ -26,7 +26,6 @@ const rendererOutDir = path.join(ROOT, '.compiled', 'src', 'renderer');
 
 const filesToCopy = [
   'toolbar.html', 'toolbar.css',
-  'terminal.html', 'terminal.css',
   'standalone.html', 'standalone.css', 'standalone-overrides.css', 'standalone.js',
   'frame-backdrop.html', 'frame-backdrop.css',
   'antifan-logo.jpg'
@@ -40,7 +39,7 @@ for (const file of filesToCopy) {
 }
 
 // Prepend exports fallback to compiled renderer JS files to avoid inline script requirement
-const jsFiles = ['toolbar.js', 'terminal.js', 'frame-backdrop.js'];
+const jsFiles = ['toolbar.js', 'frame-backdrop.js'];
 for (const jsFile of jsFiles) {
   const dst = path.join(rendererOutDir, jsFile);
   if (fs.existsSync(dst)) {

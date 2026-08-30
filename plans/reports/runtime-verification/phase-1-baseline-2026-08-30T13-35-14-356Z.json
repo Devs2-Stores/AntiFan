@@ -1,0 +1,24 @@
+{
+  "generatedAt": "2026-08-30T13:34:14.124Z",
+  "appVersion": "1.3.0",
+  "runtimeVersion": "24.13.0",
+  "electronVersion": "43.4.0",
+  "os": "Windows_NT 10.0.22000 x64",
+  "scenario": "terminal",
+  "runCount": 1,
+  "warmCold": "cold",
+  "rows": [
+    {
+      "scenario": "terminal",
+      "name": "burst",
+      "baselineStatus": "unmeasured",
+      "sampleCount": 0,
+      "error": "app never became visible"
+    }
+  ],
+  "runs": [],
+  "summary": [
+    "terminal: unmeasured (app not visible)",
+    "terminal took 60225ms"
+  ]
+}

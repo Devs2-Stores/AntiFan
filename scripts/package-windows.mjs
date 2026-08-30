@@ -115,6 +115,18 @@ async function build() {
   fs.cpSync(srcNativeMessagingDir, unpackedNativeMessagingDir, { recursive: true });
   console.log('[package] Unpacked native-messaging runner scripts to resources/app.asar.unpacked');
 
+  // Ensure standalone extension directory is unpacked for permanent Chrome extension loading
+  const unpackedExtensionDir = path.join(outDir, 'resources', 'app.asar.unpacked', 'extension');
+  fs.mkdirSync(unpackedExtensionDir, { recursive: true });
+  const srcExtensionDir = path.join(ROOT, 'extension');
+  if (fs.existsSync(srcExtensionDir)) {
+    fs.cpSync(srcExtensionDir, unpackedExtensionDir, { recursive: true });
+    const outExtensionDir = path.join(outDir, 'extension');
+    fs.mkdirSync(outExtensionDir, { recursive: true });
+    fs.cpSync(srcExtensionDir, outExtensionDir, { recursive: true });
+    console.log('[package] Unpacked extension files to resources/app.asar.unpacked/extension and outDir/extension');
+  }
+
   // Build and package native host binary shim (Fail-Closed)
   const shimBuilt = buildNativeHostShim();
   if (!shimBuilt) {

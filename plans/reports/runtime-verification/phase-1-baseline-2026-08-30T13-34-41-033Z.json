@@ -1,0 +1,222 @@
+{
+  "generatedAt": "2026-08-30T13:33:03.516Z",
+  "appVersion": "1.3.0",
+  "runtimeVersion": "24.13.0",
+  "electronVersion": "43.4.0",
+  "os": "Windows_NT 10.0.22000 x64",
+  "scenario": "cold-start",
+  "runCount": 5,
+  "warmCold": "cold",
+  "rows": [
+    {
+      "scenario": "cold-start",
+      "name": "bootstrapToFirstVisibleMs",
+      "baselineStatus": "measured",
+      "sampleCount": 4,
+      "p50": 4083,
+      "p95": 5635,
+      "min": 4076,
+      "max": 5635,
+      "values": [
+        4076,
+        4083,
+        4221,
+        5635
+      ]
+    },
+    {
+      "scenario": "cold-start",
+      "name": "bootstrapToReadyMs",
+      "baselineStatus": "measured",
+      "sampleCount": 5,
+      "p50": 46,
+      "p95": 81,
+      "min": 41,
+      "max": 81,
+      "values": [
+        41,
+        42,
+        46,
+        54,
+        81
+      ]
+    },
+    {
+      "scenario": "cold-start",
+      "name": "readyToWindowMs",
+      "baselineStatus": "measured",
+      "sampleCount": 4,
+      "p50": 3686,
+      "p95": 5205,
+      "min": 3666,
+      "max": 5205,
+      "values": [
+        3666,
+        3686,
+        3802,
+        5205
+      ]
+    },
+    {
+      "scenario": "cold-start",
+      "name": "windowToFirstVisibleMs",
+      "baselineStatus": "measured",
+      "sampleCount": 4,
+      "p50": 369,
+      "p95": 376,
+      "min": 356,
+      "max": 376,
+      "values": [
+        356,
+        369,
+        374,
+        376
+      ]
+    }
+  ],
+  "runs": [
+    {
+      "run": 0,
+      "wallMs": null,
+      "appBootstrapToVisibleMs": null,
+      "bootstrapToReadyMs": 81,
+      "readyToWindowMs": null,
+      "windowToVisibleMs": null,
+      "firstVisibleNowMs": null,
+      "process": null,
+      "mainRssKB": null
+    },
+    {
+      "run": 1,
+      "wallMs": 8139,
+      "appBootstrapToVisibleMs": 4221,
+      "bootstrapToReadyMs": 46,
+      "readyToWindowMs": 3802,
+      "windowToVisibleMs": 374,
+      "firstVisibleNowMs": 7993.8724,
+      "process": {
+        "Browser": {
+          "processes": 1,
+          "workingSetKB": 182848,
+          "privateBytesKB": 66876
+        },
+        "GPU": {
+          "processes": 1,
+          "workingSetKB": 156908,
+          "privateBytesKB": 63816
+        },
+        "Utility": {
+          "processes": 1,
+          "workingSetKB": 122280,
+          "privateBytesKB": 12836
+        },
+        "Tab": {
+          "processes": 3,
+          "workingSetKB": 386180,
+          "privateBytesKB": 78440
+        }
+      },
+      "mainRssKB": 182868
+    },
+    {
+      "run": 2,
+      "wallMs": 10322,
+      "appBootstrapToVisibleMs": 5635,
+      "bootstrapToReadyMs": 54,
+      "readyToWindowMs": 5205,
+      "windowToVisibleMs": 376,
+      "firstVisibleNowMs": 10120.9665,
+      "process": {
+        "Browser": {
+          "processes": 1,
+          "workingSetKB": 183960,
+          "privateBytesKB": 68268
+        },
+        "GPU": {
+          "processes": 1,
+          "workingSetKB": 156812,
+          "privateBytesKB": 63780
+        },
+        "Utility": {
+          "processes": 1,
+          "workingSetKB": 122448,
+          "privateBytesKB": 12996
+        },
+        "Tab": {
+          "processes": 3,
+          "workingSetKB": 389552,
+          "privateBytesKB": 83320
+        }
+      },
+      "mainRssKB": 183968
+    },
+    {
+      "run": 3,
+      "wallMs": 9580,
+      "appBootstrapToVisibleMs": 4083,
+      "bootstrapToReadyMs": 41,
+      "readyToWindowMs": 3686,
+      "windowToVisibleMs": 356,
+      "firstVisibleNowMs": 9433.8923,
+      "process": {
+        "Browser": {
+          "processes": 1,
+          "workingSetKB": 181104,
+          "privateBytesKB": 62892
+        },
+        "GPU": {
+          "processes": 1,
+          "workingSetKB": 157156,
+          "privateBytesKB": 63748
+        },
+        "Utility": {
+          "processes": 1,
+          "workingSetKB": 122560,
+          "privateBytesKB": 12832
+        },
+        "Tab": {
+          "processes": 3,
+          "workingSetKB": 388056,
+          "privateBytesKB": 77604
+        }
+      },
+      "mainRssKB": 181112
+    },
+    {
+      "run": 4,
+      "wallMs": 7860,
+      "appBootstrapToVisibleMs": 4076,
+      "bootstrapToReadyMs": 42,
+      "readyToWindowMs": 3666,
+      "windowToVisibleMs": 369,
+      "firstVisibleNowMs": 7691.2893,
+      "process": {
+        "Browser": {
+          "processes": 1,
+          "workingSetKB": 183968,
+          "privateBytesKB": 68776
+        },
+        "GPU": {
+          "processes": 1,
+          "workingSetKB": 157064,
+          "privateBytesKB": 64468
+        },
+        "Utility": {
+          "processes": 1,
+          "workingSetKB": 122404,
+          "privateBytesKB": 12664
+        },
+        "Tab": {
+          "processes": 3,
+          "workingSetKB": 384096,
+          "privateBytesKB": 73748
+        }
+      },
+      "mainRssKB": 183996
+    }
+  ],
+  "summary": [
+    "cold-start: p50=4083ms p95=5635ms over 4 runs",
+    "cold-start took 97513ms"
+  ]
+}

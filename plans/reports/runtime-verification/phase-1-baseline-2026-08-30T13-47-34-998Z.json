@@ -1,0 +1,92 @@
+{
+  "generatedAt": "2026-08-30T13:47:19.472Z",
+  "appVersion": "1.3.0",
+  "runtimeVersion": "24.13.0",
+  "electronVersion": "43.4.0",
+  "os": "Windows_NT 10.0.22000 x64",
+  "scenario": "terminal",
+  "runCount": 1,
+  "warmCold": "cold",
+  "rows": [
+    {
+      "scenario": "terminal",
+      "name": "interactiveEchoLatencyMs",
+      "baselineStatus": "measured",
+      "sampleCount": 1,
+      "chunkCount": 4,
+      "bytes": 161,
+      "sessionId": "terminal-1",
+      "nonceMatched": true,
+      "p50": 2646.797199999999,
+      "p95": 2646.797199999999,
+      "min": 2646.797199999999,
+      "max": 2646.797199999999,
+      "values": [
+        2646.797199999999
+      ]
+    },
+    {
+      "scenario": "terminal",
+      "name": "interactiveEchoChunks",
+      "baselineStatus": "measured",
+      "sampleCount": 1,
+      "bytes": 161,
+      "p50": 4,
+      "p95": 4,
+      "min": 4,
+      "max": 4,
+      "values": [
+        4
+      ]
+    },
+    {
+      "scenario": "terminal",
+      "name": "ptyDataChunks",
+      "baselineStatus": "measured",
+      "sampleCount": 1,
+      "bytes": 9240,
+      "p50": 1495,
+      "p95": 1495,
+      "min": 1495,
+      "max": 1495,
+      "values": [
+        1495
+      ]
+    },
+    {
+      "scenario": "terminal",
+      "name": "burstChunks",
+      "baselineStatus": "measured",
+      "sampleCount": 1,
+      "bytes": 8318,
+      "shellMarker": "bench-burst-30002",
+      "p50": 1489,
+      "p95": 1489,
+      "min": 1489,
+      "max": 1489,
+      "values": [
+        1489
+      ]
+    },
+    {
+      "scenario": "terminal",
+      "name": "burstBytes",
+      "baselineStatus": "measured",
+      "sampleCount": 1,
+      "inputEchoIncluded": true,
+      "burstMs": 1501,
+      "p50": 8318,
+      "p95": 8318,
+      "min": 8318,
+      "max": 8318,
+      "values": [
+        8318
+      ]
+    }
+  ],
+  "runs": [],
+  "summary": [
+    "terminal: echoLatency=2647ms burst=1489 chunks / 8318 bytes in 1501ms",
+    "terminal took 15524ms"
+  ]
+}

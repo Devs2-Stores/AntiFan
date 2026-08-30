@@ -22,9 +22,9 @@ Trình duyệt Chromium Desktop siêu nhẹ, đóng vai trò là **Companion Eng
    - Giao tiếp 2 chiều với Extension trong IDE (nhận lệnh duyệt web, gửi event khi user inspect phần tử).
 4. **Model Context Protocol (MCP)**:
    - Chạy chế độ `--mcp-server` để cung cấp tool duyệt web trực tiếp qua stdio cho Antigravity IDE, Claude Code, Cursor.
-5. **Siêu nhẹ & Hiệu năng cao**:
-   - Không chứa bloatware (đã loại bỏ toàn bộ sub-processes, AI loop riêng, checkpoint thừa).
-   - Khởi động tức thì, tiêu tốn <150MB RAM.
+5. **Hiệu năng có đo lường**:
+   - Không chứa AI loop hoặc daemon riêng; Chromium, Terminal và Bridge chạy trong một ứng dụng desktop cục bộ.
+   - Benchmark ghi riêng cold-start, tab switching và working set theo từng loại process; không dùng một mức RAM cố định cho mọi workload.
 
 ---
 

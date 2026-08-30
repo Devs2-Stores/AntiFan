@@ -27,6 +27,72 @@ export function getDefaultManifestPath(): string {
   return path.join(localAppData, 'AntiFan', 'NativeMessagingHosts', `${HOST_NAME}.json`);
 }
 
+export function getPermanentExtensionDir(): string {
+  const localAppData = process.env.LOCALAPPDATA || path.join(os.homedir(), 'AppData', 'Local');
+  return path.join(localAppData, 'AntiFan', 'extension');
+}
+
+export function copyDirectoryRecursive(src: string, dest: string): void {
+  if (!fs.existsSync(dest)) {
+    fs.mkdirSync(dest, { recursive: true });
+  }
+  const entries = fs.readdirSync(src, { withFileTypes: true });
+  for (const entry of entries) {
+    const srcPath = path.join(src, entry.name);
+    const destPath = path.join(dest, entry.name);
+    if (entry.isDirectory()) {
+      copyDirectoryRecursive(srcPath, destPath);
+    } else if (entry.isFile()) {
+      fs.copyFileSync(srcPath, destPath);
+    }
+  }
+}
+
+export function exportCompanionExtension(targetDir?: string, customCandidateDirs?: string[]): string {
+  const destDir = targetDir || getPermanentExtensionDir();
+  const candidateSrcDirs = customCandidateDirs || [
+    path.join(process.cwd(), 'extension'),
+    path.join(process.resourcesPath || '', 'app.asar.unpacked', 'extension'),
+    path.join(path.dirname(process.execPath), 'resources', 'app.asar.unpacked', 'extension'),
+    path.join(path.dirname(process.execPath), 'extension'),
+  ];
+
+  let validSourceFound = false;
+  let copiedSuccessfully = false;
+  let lastCopyError: Error | null = null;
+
+  for (const candidate of candidateSrcDirs) {
+    const candidateManifest = path.join(candidate, 'manifest.json');
+    if (fs.existsSync(candidateManifest)) {
+      validSourceFound = true;
+      try {
+        if (!fs.existsSync(destDir)) {
+          fs.mkdirSync(destDir, { recursive: true });
+        }
+        copyDirectoryRecursive(candidate, destDir);
+        const destManifest = path.join(destDir, 'manifest.json');
+        if (fs.existsSync(destManifest)) {
+          copiedSuccessfully = true;
+          break;
+        }
+      } catch (err: any) {
+        lastCopyError = err;
+        console.warn('[NativeInstaller] Failed to copy extension from candidate:', candidate, err);
+      }
+    }
+  }
+
+  if (!validSourceFound) {
+    throw new Error(`Failed to export companion extension: No valid source candidate directory containing manifest.json was found in: ${candidateSrcDirs.join(', ')}`);
+  }
+
+  if (!copiedSuccessfully) {
+    throw new Error(`Failed to export companion extension: Destination manifest.json was not created in ${destDir}. ${lastCopyError ? 'Last error: ' + lastCopyError.message : ''}`);
+  }
+
+  return destDir;
+}
+
 export function getDefaultHostBinaryPath(): string {
   // 1. If running inside packaged Electron, check sibling to process.execPath
   if (process.execPath && !process.execPath.endsWith('node.exe') && !process.execPath.endsWith('node')) {
@@ -101,12 +167,21 @@ export interface InstallResult {
   manifestPath: string;
   registeredKeys: string[];
   failedKeys: string[];
+  extensionExportError?: string;
 }
 
 export async function installNativeHost(
   extensionId: string,
-  options: { hostBinaryPath?: string; manifestPath?: string; browsers?: SupportedBrowser[] } = {}
+  options: { hostBinaryPath?: string; manifestPath?: string; browsers?: SupportedBrowser[]; targetExtensionDir?: string; customCandidateDirs?: string[] } = {}
 ): Promise<InstallResult> {
+  let extensionExportError: string | undefined;
+  try {
+    exportCompanionExtension(options.targetExtensionDir, options.customCandidateDirs);
+  } catch (err: any) {
+    extensionExportError = err?.message || String(err);
+    console.error('[NativeInstaller] exportCompanionExtension failed:', extensionExportError);
+  }
+
   const manifest = generateHostManifest(extensionId, options.hostBinaryPath);
   const manifestPath = writeManifestFile(manifest, options.manifestPath);
 
@@ -127,10 +202,11 @@ export async function installNativeHost(
   }
 
   return {
-    success: failedKeys.length === 0,
+    success: failedKeys.length === 0 && !extensionExportError,
     manifestPath,
     registeredKeys,
     failedKeys,
+    extensionExportError,
   };
 }
 
