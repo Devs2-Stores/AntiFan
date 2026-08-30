@@ -1882,21 +1882,31 @@ export class NativeTabHost extends EventEmitter {
       console.warn('[native-tab-host] Failed to clear initial navigation history:', err);
     }
   }
-  public getAllActiveSessions(): Electron.Session[] {
-    const sessions = new Set<Electron.Session>();
-    sessions.add(session.defaultSession);
-    for (const tab of this.tabs.values()) {
-      if (tab.view && !tab.view.webContents.isDestroyed()) {
-        sessions.add(tab.view.webContents.session);
-      }
-      if (tab.mobileView && !tab.mobileView.webContents.isDestroyed()) {
-        sessions.add(tab.mobileView.webContents.session);
-      }
-      if (tab.state.partition) {
-        sessions.add(session.fromPartition(tab.state.partition));
-      }
+  public getTabSession(tabId: string): Electron.Session | null {
+    const tab = this.tabs.get(tabId);
+    if (!tab) return null;
+    if (tab.view && !tab.view.webContents.isDestroyed()) {
+      return tab.view.webContents.session;
     }
-    return Array.from(sessions);
+    if (tab.state.partition) {
+      return session.fromPartition(tab.state.partition);
+    }
+    return session.defaultSession;
+  }
+
+  public getActiveTabSession(): Electron.Session {
+    if (this.activeTabId) {
+      const activeSes = this.getTabSession(this.activeTabId);
+      if (activeSes) return activeSes;
+    }
+    return session.defaultSession;
+  }
+
+  public getPartitionSession(partition: string): Electron.Session {
+    if (!partition || partition === 'default' || partition === 'persist:default') {
+      return session.defaultSession;
+    }
+    return session.fromPartition(partition);
   }
 
 

@@ -91,6 +91,72 @@ export function cookieImportSetDetails(
   return details;
 }
 
+export interface ExtensionCookieInput {
+  name: string;
+  value: string;
+  domain?: string;
+  host?: string;
+  path?: string;
+  secure?: boolean;
+  httpOnly?: boolean;
+  sameSite?: 'unspecified' | 'no_restriction' | 'lax' | 'strict' | string;
+  expirationDate?: number;
+}
+
+/**
+ * Builds the cookies.set() payload for a cookie exported from a Chrome Extension (chrome.cookies API).
+ * Handles Unix epoch seconds for expirationDate, RFC 6265bis __Host- constraints, and sameSite mappings.
+ */
+export function extensionCookieImportSetDetails(
+  cookie: ExtensionCookieInput
+): Electron.CookiesSetDetails | null {
+  if (!cookie || !cookie.name || cookie.value === undefined || cookie.value === null) {
+    return null;
+  }
+
+  const host = cookie.domain || cookie.host || '';
+  if (!host) return null;
+
+  const secure = Boolean(cookie.secure);
+  const scheme = secure ? 'https://' : 'http://';
+  const domain = host.startsWith('.') ? host.substring(1) : host;
+  const cookiePath = cookie.path || '/';
+  const cookieUrl = `${scheme}${domain}${cookiePath}`;
+
+  let sameSite: 'unspecified' | 'no_restriction' | 'lax' | 'strict' = 'unspecified';
+  if (cookie.sameSite === 'lax') sameSite = 'lax';
+  else if (cookie.sameSite === 'strict') sameSite = 'strict';
+  else if (cookie.sameSite === 'no_restriction') sameSite = 'no_restriction';
+  else sameSite = 'unspecified';
+
+  const details: Electron.CookiesSetDetails = {
+    url: cookieUrl,
+    name: cookie.name,
+    value: cookie.value,
+    path: cookiePath,
+    secure,
+    httpOnly: Boolean(cookie.httpOnly),
+    sameSite,
+  };
+
+  if (host.startsWith('.') && !cookie.name.startsWith('__Host-')) {
+    details.domain = host;
+  }
+
+  // Chrome Extension expirationDate is in Unix epoch seconds (float or integer)
+  if (typeof cookie.expirationDate === 'number' && cookie.expirationDate > 0) {
+    const unixSeconds = Math.floor(cookie.expirationDate);
+    const nowSeconds = Math.floor(Date.now() / 1000);
+    if (unixSeconds <= nowSeconds) {
+      // Expired cookie: skip it
+      return null;
+    }
+    details.expirationDate = unixSeconds;
+  }
+
+  return details;
+}
+
 export class ChromeProfileSyncManager {
   private static instance: ChromeProfileSyncManager;
   private chromeUserDataPath: string;

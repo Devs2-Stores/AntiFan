@@ -4,7 +4,7 @@
  * Includes Mobile Remote Companion Web App, Live Viewport streaming, and Terminal RPC.
  */
 import { app, session } from 'electron';
-import { cookieImportSetDetails } from '../browser/chrome-profile-sync';
+import { cookieImportSetDetails, extensionCookieImportSetDetails, ExtensionCookieInput } from '../browser/chrome-profile-sync';
 import { WebSocketServer, WebSocket } from 'ws';
 import * as http from 'node:http';
 import * as fs from 'node:fs';
@@ -154,6 +154,9 @@ export class BridgeServer {
       const host = req.headers.host || `127.0.0.1:${this.port}`;
       const reqUrl = new URL(req.url || '/', `http://${host}`);
       const pathname = reqUrl.pathname;
+      const clientToken = extractAuthToken(req, reqUrl);
+      const isBridgeToken = Boolean(clientToken && clientToken === this.token);
+      const verifiedAttachmentId = clientToken ? (this.attachmentRegistry?.verifyConnectionToken(clientToken) ?? null) : null;
 
       const rawOrigin = typeof req.headers.origin === 'string' ? req.headers.origin : '';
       const isAllowedOrigin = rawOrigin.startsWith('chrome-extension://') ||
@@ -174,9 +177,6 @@ export class BridgeServer {
       }
 
       if (pathname === '/api/screenshot' || pathname === '/api/remote-info' || pathname === '/api/qr' || pathname === '/api/cookies/import') {
-        const clientToken = extractAuthToken(req, reqUrl);
-        const isBridgeToken = Boolean(clientToken && clientToken === this.token);
-        const verifiedAttachmentId = clientToken ? (this.attachmentRegistry?.verifyConnectionToken(clientToken) ?? null) : null;
         if (!isBridgeToken && !verifiedAttachmentId) {
           const unauthHeaders: Record<string, string> = { 'Content-Type': 'application/json' };
           if (isAllowedOrigin) unauthHeaders['Access-Control-Allow-Origin'] = rawOrigin;
@@ -225,46 +225,101 @@ export class BridgeServer {
       }
       if (pathname === '/api/cookies/import' && req.method === 'POST') {
         let body = '';
-        req.on('data', (chunk) => (body += chunk));
+        let size = 0;
+        const MAX_BODY_SIZE = 10 * 1024 * 1024; // 10MB
+        let isTooLarge = false;
+
+        req.on('data', (chunk) => {
+          size += chunk.length;
+          if (size > MAX_BODY_SIZE) {
+            isTooLarge = true;
+            res.writeHead(413, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ success: false, error: 'Payload Too Large (max 10MB)' }));
+            req.destroy();
+            return;
+          }
+          body += chunk;
+        });
+
         req.on('end', async () => {
+          if (isTooLarge) return;
           const responseHeaders: Record<string, string> = { 'Content-Type': 'application/json' };
           if (isAllowedOrigin) responseHeaders['Access-Control-Allow-Origin'] = rawOrigin;
+
           try {
             const data = JSON.parse(body || '{}');
-            const cookies = Array.isArray(data.cookies) ? data.cookies : [];
-            let importedCount = 0;
-            const targetSessions = this.tabHost.getAllActiveSessions();
+            const rawCookies: ExtensionCookieInput[] = Array.isArray(data.cookies) ? data.cookies : [];
 
-            for (const cookie of cookies) {
-              if (!cookie || !cookie.name || !cookie.value) continue;
-              const host = cookie.domain || cookie.host || '';
-              const setDetails = cookieImportSetDetails(
-                cookie.name,
-                host,
-                cookie.value,
-                cookie.path || '/',
-                Boolean(cookie.secure),
-                Boolean(cookie.httpOnly),
-                cookie.sameSite === 'lax' ? 1 : cookie.sameSite === 'strict' ? 2 : 0,
-                cookie.expirationDate ? Math.floor(cookie.expirationDate) : undefined
-              );
-
-              if (!setDetails) continue;
-
-              for (const ses of targetSessions) {
-                try {
-                  await ses.cookies.set(setDetails);
-                  importedCount++;
-                } catch {}
+            let targetSession: Electron.Session;
+            if (verifiedAttachmentId && !isBridgeToken) {
+              // Attachment token: enforce attachment-scoped boundary
+              if (typeof data.partition === 'string' && data.partition.trim()) {
+                res.writeHead(403, responseHeaders);
+                res.end(JSON.stringify({ success: false, error: 'Forbidden: attachment tokens cannot target arbitrary partitions' }));
+                return;
+              }
+              const boundTabId = this.attachmentRegistry?.getRecord(verifiedAttachmentId)?.tabId;
+              if (typeof data.tabId === 'string' && data.tabId.trim() && boundTabId && data.tabId.trim() !== boundTabId) {
+                res.writeHead(403, responseHeaders);
+                res.end(JSON.stringify({ success: false, error: `Forbidden: attachment token bound to tab "${boundTabId}", cannot target "${data.tabId}"` }));
+                return;
+              }
+              const targetTabId = boundTabId || (typeof data.tabId === 'string' ? data.tabId.trim() : this.tabHost.getActiveTab()?.id);
+              const tabSession = targetTabId ? this.tabHost.getTabSession(targetTabId) : null;
+              if (!tabSession) {
+                res.writeHead(400, responseHeaders);
+                res.end(JSON.stringify({ success: false, error: `Target tab "${targetTabId || 'none'}" not found or destroyed` }));
+                return;
+              }
+              targetSession = tabSession;
+            } else {
+              // Master bridge token: allow explicit tabId, partition, or default to active tab
+              if (typeof data.tabId === 'string' && data.tabId.trim()) {
+                const tabSession = this.tabHost.getTabSession(data.tabId.trim());
+                if (!tabSession) {
+                  res.writeHead(400, responseHeaders);
+                  res.end(JSON.stringify({ success: false, error: `Target tabId "${data.tabId}" not found or destroyed` }));
+                  return;
+                }
+                targetSession = tabSession;
+              } else if (typeof data.partition === 'string' && data.partition.trim()) {
+                targetSession = this.tabHost.getPartitionSession(data.partition.trim());
+              } else {
+                targetSession = this.tabHost.getActiveTabSession();
               }
             }
 
-            for (const ses of targetSessions) {
-              try { await ses.cookies.flushStore(); } catch {}
+            let importedCount = 0;
+            let skippedCount = 0;
+            let failedCount = 0;
+            for (const cookie of rawCookies) {
+              const setDetails = extensionCookieImportSetDetails(cookie);
+              if (!setDetails) {
+                skippedCount++;
+                continue;
+              }
+
+              try {
+                await targetSession.cookies.set(setDetails);
+                importedCount++;
+              } catch {
+                failedCount++;
+              }
             }
 
+            try {
+              await targetSession.cookies.flushStore();
+            } catch {}
+
             res.writeHead(200, responseHeaders);
-            res.end(JSON.stringify({ success: true, importedCount, totalReceived: cookies.length }));
+            res.end(JSON.stringify({
+              success: true,
+              importedCount,
+              skippedCount,
+              failedCount,
+              totalReceived: rawCookies.length,
+              targetTabId: data.tabId || this.tabHost.getActiveTab()?.id || null,
+            }));
           } catch (err: unknown) {
             res.writeHead(400, responseHeaders);
             res.end(JSON.stringify({ success: false, error: err instanceof Error ? err.message : String(err) }));

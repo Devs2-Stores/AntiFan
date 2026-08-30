@@ -35,8 +35,15 @@
       </div>
 
       <div class="token-section" id="token-section">
-        <label for="bridge-token">Mã xác thực Bridge Token (tùy chọn):</label>
-        <input type="password" id="bridge-token" placeholder="Tự động nhận diện từ AntiFan..." />
+        <div class="token-label-row">
+          <label for="bridge-token">Mã Bridge Token kết nối:</label>
+          <button type="button" id="paste-token-btn" class="btn-text" title="Dán token từ clipboard">Dán</button>
+        </div>
+        <div class="token-input-wrapper">
+          <input type="password" id="bridge-token" placeholder="Dán token từ AntiFan Desktop..." />
+          <button type="button" id="toggle-token-btn" class="btn-icon" title="Hiện/Ẩn token">👁️</button>
+        </div>
+        <span class="token-help">Lấy token trong <code>~/.antifan/bridge.json</code> hoặc menu AntiFan</span>
       </div>
 
       <div class="actions">
@@ -53,7 +60,7 @@
 
     <div class="footer">
       <span>AntiFan Desktop 1.3.0</span>
-      <a href="#" id="open-app-btn">Mở AntiFan</a>
+      <span id="port-indicator" class="port-tag">Port: --</span>
     </div>
   </div>
   <script src="popup.js"></script>
