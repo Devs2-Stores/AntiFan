@@ -3,7 +3,8 @@
  * Fast, authenticated local WebSocket RPC server bridging between IDE Extension / Agent and Chromium Desktop.
  * Includes Mobile Remote Companion Web App, Live Viewport streaming, and Terminal RPC.
  */
-import { app } from 'electron';
+import { app, session } from 'electron';
+import { cookieImportSetDetails } from '../browser/chrome-profile-sync';
 import { WebSocketServer, WebSocket } from 'ws';
 import * as http from 'node:http';
 import * as fs from 'node:fs';
@@ -154,12 +155,32 @@ export class BridgeServer {
       const reqUrl = new URL(req.url || '/', `http://${host}`);
       const pathname = reqUrl.pathname;
 
-      if (pathname === '/api/screenshot' || pathname === '/api/remote-info' || pathname === '/api/qr') {
+      const rawOrigin = typeof req.headers.origin === 'string' ? req.headers.origin : '';
+      const isAllowedOrigin = rawOrigin.startsWith('chrome-extension://') ||
+                              rawOrigin.startsWith('http://localhost') ||
+                              rawOrigin.startsWith('http://127.0.0.1');
+
+      if (req.method === 'OPTIONS') {
+        const preflightHeaders: Record<string, string> = {
+          'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+          'Access-Control-Allow-Headers': 'Content-Type, Authorization, x-antifan-attachment-secret',
+        };
+        if (isAllowedOrigin) {
+          preflightHeaders['Access-Control-Allow-Origin'] = rawOrigin;
+        }
+        res.writeHead(204, preflightHeaders);
+        res.end();
+        return;
+      }
+
+      if (pathname === '/api/screenshot' || pathname === '/api/remote-info' || pathname === '/api/qr' || pathname === '/api/cookies/import') {
         const clientToken = extractAuthToken(req, reqUrl);
         const isBridgeToken = Boolean(clientToken && clientToken === this.token);
         const verifiedAttachmentId = clientToken ? (this.attachmentRegistry?.verifyConnectionToken(clientToken) ?? null) : null;
         if (!isBridgeToken && !verifiedAttachmentId) {
-          res.writeHead(401, { 'Content-Type': 'application/json' });
+          const unauthHeaders: Record<string, string> = { 'Content-Type': 'application/json' };
+          if (isAllowedOrigin) unauthHeaders['Access-Control-Allow-Origin'] = rawOrigin;
+          res.writeHead(401, unauthHeaders);
           res.end(JSON.stringify({ error: 'Unauthorized: missing or invalid token' }));
           return;
         }
@@ -200,6 +221,55 @@ export class BridgeServer {
         const html = renderMobileRemoteHtml(this.token, this.port);
         res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
         res.end(html);
+        return;
+      }
+      if (pathname === '/api/cookies/import' && req.method === 'POST') {
+        let body = '';
+        req.on('data', (chunk) => (body += chunk));
+        req.on('end', async () => {
+          const responseHeaders: Record<string, string> = { 'Content-Type': 'application/json' };
+          if (isAllowedOrigin) responseHeaders['Access-Control-Allow-Origin'] = rawOrigin;
+          try {
+            const data = JSON.parse(body || '{}');
+            const cookies = Array.isArray(data.cookies) ? data.cookies : [];
+            let importedCount = 0;
+            const targetSessions = this.tabHost.getAllActiveSessions();
+
+            for (const cookie of cookies) {
+              if (!cookie || !cookie.name || !cookie.value) continue;
+              const host = cookie.domain || cookie.host || '';
+              const setDetails = cookieImportSetDetails(
+                cookie.name,
+                host,
+                cookie.value,
+                cookie.path || '/',
+                Boolean(cookie.secure),
+                Boolean(cookie.httpOnly),
+                cookie.sameSite === 'lax' ? 1 : cookie.sameSite === 'strict' ? 2 : 0,
+                cookie.expirationDate ? Math.floor(cookie.expirationDate) : undefined
+              );
+
+              if (!setDetails) continue;
+
+              for (const ses of targetSessions) {
+                try {
+                  await ses.cookies.set(setDetails);
+                  importedCount++;
+                } catch {}
+              }
+            }
+
+            for (const ses of targetSessions) {
+              try { await ses.cookies.flushStore(); } catch {}
+            }
+
+            res.writeHead(200, responseHeaders);
+            res.end(JSON.stringify({ success: true, importedCount, totalReceived: cookies.length }));
+          } catch (err: unknown) {
+            res.writeHead(400, responseHeaders);
+            res.end(JSON.stringify({ success: false, error: err instanceof Error ? err.message : String(err) }));
+          }
+        });
         return;
       }
 

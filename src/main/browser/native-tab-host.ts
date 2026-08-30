@@ -1882,6 +1882,23 @@ export class NativeTabHost extends EventEmitter {
       console.warn('[native-tab-host] Failed to clear initial navigation history:', err);
     }
   }
+  public getAllActiveSessions(): Electron.Session[] {
+    const sessions = new Set<Electron.Session>();
+    sessions.add(session.defaultSession);
+    for (const tab of this.tabs.values()) {
+      if (tab.view && !tab.view.webContents.isDestroyed()) {
+        sessions.add(tab.view.webContents.session);
+      }
+      if (tab.mobileView && !tab.mobileView.webContents.isDestroyed()) {
+        sessions.add(tab.mobileView.webContents.session);
+      }
+      if (tab.state.partition) {
+        sessions.add(session.fromPartition(tab.state.partition));
+      }
+    }
+    return Array.from(sessions);
+  }
+
 
   private setupTabWebContentsEvents(
     id: string,
