@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import crypto from 'node:crypto';
 import { execSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { buildNativeHostShim } from './build-native-host-shim.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..');
@@ -104,6 +105,32 @@ async function build() {
     console.log(`[package] Verified native addon: ${addon} (${addonStat.size} bytes)`);
   }
 
+  // Ensure native messaging host runner is unpacked into app.asar.unpacked
+  const unpackedNativeMessagingDir = path.join(outDir, 'resources', 'app.asar.unpacked', '.compiled', 'src', 'main', 'native-messaging');
+  fs.mkdirSync(unpackedNativeMessagingDir, { recursive: true });
+  const srcNativeMessagingDir = path.join(ROOT, '.compiled', 'src', 'main', 'native-messaging');
+  if (!fs.existsSync(srcNativeMessagingDir)) {
+    throw new Error(`[package] Native messaging compiled directory missing at: ${srcNativeMessagingDir}. Run npm run compile first.`);
+  }
+  fs.cpSync(srcNativeMessagingDir, unpackedNativeMessagingDir, { recursive: true });
+  console.log('[package] Unpacked native-messaging runner scripts to resources/app.asar.unpacked');
+
+  // Build and package native host binary shim (Fail-Closed)
+  const shimBuilt = buildNativeHostShim();
+  if (!shimBuilt) {
+    throw new Error('[package] Failed to compile antifan-bridge-host.exe shim binary.');
+  }
+  const hostExeSrc = path.join(ROOT, 'bin', 'antifan-bridge-host.exe');
+  if (!fs.existsSync(hostExeSrc)) {
+    throw new Error(`[package] Built host binary not found at: ${hostExeSrc}`);
+  }
+
+  const outHostExe = path.join(outDir, 'antifan-bridge-host.exe');
+  fs.copyFileSync(hostExeSrc, outHostExe);
+  const outBinDir = path.join(outDir, 'bin');
+  fs.mkdirSync(outBinDir, { recursive: true });
+  fs.copyFileSync(hostExeSrc, path.join(outBinDir, 'antifan-bridge-host.exe'));
+  console.log('[package] Copied and verified antifan-bridge-host.exe in packaged distribution.');
   let gitRevision = 'unknown';
   try {
     gitRevision = execSync('git rev-parse HEAD', { cwd: ROOT, encoding: 'utf8' }).trim();

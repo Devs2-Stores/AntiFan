@@ -4,9 +4,9 @@
   "exePath": "E:\\Work\\apps\\antifan-browser-desktop\\plans\\260827-1345-production-cutover-release-hardening\\reports\\artifacts\\AntiFan-Browser-Desktop-win32-x64\\antifan-browser-desktop.exe",
   "appVersion": "1.3.0",
   "executableSize": 225562624,
-  "sha256": "0b6bf81776860ee59249b99f9e6b06ade4e055b573f67e3395056f5d50060b73",
-  "gitRevision": "931fc94b73bb1fc031b10c0a48ce5bd867eefebf",
-  "builtAt": "2026-08-29T10:19:04.199Z",
+  "sha256": "ffa2bfb22b3cb2cedc064749bab0e5564395a878c233640c7df7bc7b366f6a2c",
+  "gitRevision": "2a878b88d9ae828ea1bf4cf0aa678ff8d874e587",
+  "builtAt": "2026-08-30T09:53:14.103Z",
   "nodeVersion": "v24.13.0",
   "platform": "win32",
   "arch": "x64"

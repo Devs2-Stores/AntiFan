@@ -45,6 +45,15 @@ test('static HS engine: platform unknown short-circuits evaluation without error
   assert.equal(result.passed, true);
 });
 
+test('static HS engine: Sapo comment form with lowercase names flags HS-03 warning', () => {
+  const html = `<form action="/posts/1/comments"><input name="author"><input name="email"><textarea name="body"></textarea></form>`;
+  const result = HsGateRules.evaluateHtml(html, 'sapo' as EcommercePlatform);
+  const hs03 = result.violations.find((item) => item.ruleId === 'HS-03');
+  assert.ok(hs03, 'expected an HS-03 violation for lowercase comment fields');
+  assert.equal(hs03.severity, 'warning');
+  assert.equal(result.passed, true, 'warning must not fail the gate');
+});
+
 test('HsGateRules.getBrowserEvaluationScript compiles to valid JavaScript syntax without SyntaxError', () => {
   const platforms: EcommercePlatform[] = ['haravan', 'sapo', 'shopify', 'unknown'];
   for (const p of platforms) {

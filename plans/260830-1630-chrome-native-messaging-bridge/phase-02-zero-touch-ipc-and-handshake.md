@@ -15,17 +15,18 @@ Phase 2 eliminates the friction of manual token copying by establishing a high-s
 
 ## Requirements
 
-1. **Windows Named Pipe IPC Transport & Pipe Squatting Protection**:
-   - **Windows**: Local Named Pipe `\\\\.\\pipe\\antifan-bridge-ipc-<INSTANCE_UUID>` where `INSTANCE_UUID` is generated dynamically per desktop launch.
-   - **Kernel-Level Named Pipe Security Descriptor**: The Named Pipe server is created with an explicit Win32 Security Descriptor Definition Language (SDDL) string `D:P(A;;GA;;;<CURRENT_USER_SID>)(A;;GA;;;SY)` (where `<CURRENT_USER_SID>` is resolved at runtime via `whoami /user` or `GetTokenInformation`). This ensures the Windows kernel rejects pipe connection requests from any other user SID before application code executes.
-   - **Explicit Windows DACL Isolation for Nonce File**: AntiFan Desktop resolves `<CURRENT_USER_SID>`, initializes `%LOCALAPPDATA%\\AntiFan\\runtime`, and enforces an explicit protected DACL `D:P(A;OICI;FA;;;<CURRENT_USER_SID>)(A;OICI;FA;;;SY)` (purging all inherited and third-party explicit ACEs while retaining required Local SYSTEM and current user Full Access).
-   - **Local Nonce Secret Gate**: The 256-bit runtime launch nonce is written to `%LOCALAPPDATA%\\AntiFan\\runtime\\bridge-auth.json` inside this DACL-restricted directory. The Native Messaging Host reads this protected local file and supplies the `launchNonce` in its `HANDSHAKE` payload to complete mutual pairing.
-   - The Extension background service worker initiates connection via `chrome.runtime.connectNative('com.antifan.bridge')`.
-   - Native Host reads the local `bridge-auth.json` launch nonce and connects to AntiFan Desktop's Local IPC socket.
-   - Native Host transmits `{ action: 'HANDSHAKE', launchNonce }` over stream-framed IPC.
-   - AntiFan Desktop verifies `launchNonce` against the active runtime instance and issues an ephemeral scoped session token.
-   - The Extension persists the token exclusively in `chrome.storage.session` (in-memory, flushed on browser close).
-3. **Stream-Safe IPC Framing**:
+1. **Windows Local Named Pipe IPC & DACL-Isolated Nonce Transport**:
+   - **Per-Launch Unpredictable Pipe Path**: Local Named Pipe `\\\\.\\pipe\\antifan-bridge-ipc-<INSTANCE_UUID>` where `INSTANCE_UUID` is a cryptographically random UUID generated dynamically per desktop launch.
+   - **Explicit Protected Windows DACL for Runtime State**: AntiFan Desktop resolves `<CURRENT_USER_SID>`, initializes `%LOCALAPPDATA%\\AntiFan\\runtime`, and enforces an explicit protected DACL `D:P(A;OICI;FA;;;<CURRENT_USER_SID>)(A;OICI;FA;;;SY)` (purging all inherited rules, disabling inheritance with `SetAccessRuleProtection($true, $false)`, and granting Full Control strictly to current user SID and Local SYSTEM).
+   - **Fail-Closed Comprehensive DACL Invariant Assertions**: Before writing the secret nonce, the system mechanically verifies:
+     1. `AreAccessRulesProtected -eq $true` (inheritance stripped).
+     2. Exactly 2 ACEs exist in `$verified.Access`.
+     3. Both rules are `AccessControlType -eq 'Allow'`.
+     4. Both rules grant full control (`FileSystemRights -band FullControl`).
+     5. Both rules enforce `InheritanceFlags -eq 'ContainerInherit, ObjectInherit'` and `PropagationFlags -eq 'None'`.
+     6. Zero Deny ACEs exist.
+     7. If any assertion fails, the process throws immediately and aborts startup (never writing `bridge-auth.json`).
+   - **Zero-Trust Nonce-Authenticated Handshake**: The 256-bit runtime launch nonce is written to `%LOCALAPPDATA%\\AntiFan\\runtime\\bridge-auth.json` inside this DACL-restricted directory. The Native Messaging Host reads this protected local file and supplies `{ action: 'HANDSHAKE', launchNonce }` over the pipe. Any connection lacking the exact matching nonce is destroyed immediately (`socket.destroy()`).
    - Local IPC socket uses 32-bit LE uint32 length prefixing matching Phase 1 (`NativeMessageDecoder`) to ensure fragmented or concatenated chunks never corrupt JSON parsing.
 4. **MV3 Service Worker Lifecycle Resilience**:
    - Extension service worker gates all cookie sync operations behind an `ensureConnected()` asynchronous promise.
@@ -108,8 +109,9 @@ export function resolveCurrentUserSid(): string {
 }
 
 export function enforceProtectedDirectoryDacl(dirPath: string, userSid: string): void {
-  // Fail-Closed PowerShell script: Disables inheritance, purges all existing ACEs, and adds explicit FullControl for User SID and SYSTEM only
+  // Fail-Closed PowerShell script: Disables inheritance, purges all existing ACEs, and asserts strict DACL invariants
   const psScript = `
+    $ErrorActionPreference = 'Stop';
     $dir = '${dirPath.replace(/'/g, "''")}';
     $userSid = New-Object System.Security.Principal.SecurityIdentifier('${userSid}');
     $systemSid = New-Object System.Security.Principal.SecurityIdentifier('S-1-5-18');
@@ -117,29 +119,49 @@ export function enforceProtectedDirectoryDacl(dirPath: string, userSid: string):
     $acl = New-Object System.Security.AccessControl.DirectorySecurity;
     $acl.SetAccessRuleProtection($true, $false); # Disable inheritance and purge all inherited ACEs
     
-    $userRule = New-Object System.Security.AccessControl.FileSystemAccessRule($userSid, 'FullControl', 'ContainerInherit,ObjectInherit', 'None', 'Allow');
-    $systemRule = New-Object System.Security.AccessControl.FileSystemAccessRule($systemSid, 'FullControl', 'ContainerInherit,ObjectInherit', 'None', 'Allow');
+    $userRule = New-Object System.Security.AccessControl.FileSystemAccessRule($userSid, [System.Security.AccessControl.FileSystemRights]::FullControl, [System.Security.AccessControl.InheritanceFlags]'ContainerInherit, ObjectInherit', [System.Security.AccessControl.PropagationFlags]::None, [System.Security.AccessControl.AccessControlType]::Allow);
+    $systemRule = New-Object System.Security.AccessControl.FileSystemAccessRule($systemSid, [System.Security.AccessControl.FileSystemRights]::FullControl, [System.Security.AccessControl.InheritanceFlags]'ContainerInherit, ObjectInherit', [System.Security.AccessControl.PropagationFlags]::None, [System.Security.AccessControl.AccessControlType]::Allow);
     
     $acl.AddAccessRule($userRule);
     $acl.AddAccessRule($systemRule);
     
     Set-Acl -LiteralPath $dir -AclObject $acl;
     
-    # Post-set Verification: Ensure no other principal has access
+    # Rigorous Post-set Invariant Verification
     $verified = Get-Acl -LiteralPath $dir;
+    if (-not $verified.AreAccessRulesProtected) {
+      throw "DACL_INVARIANT_VIOLATION: Access rules are not protected against inheritance.";
+    }
+    
+    $rules = @($verified.Access);
+    if ($rules.Count -ne 2) {
+      throw "DACL_INVARIANT_VIOLATION: Expected exactly 2 ACEs, found $($rules.Count).";
+    }
+    
     $allowedSids = @($userSid.Value, 'S-1-5-18');
-    foreach ($rule in $verified.Access) {
+    foreach ($rule in $rules) {
       $ruleSid = $rule.IdentityReference.Translate([System.Security.Principal.SecurityIdentifier]).Value;
       if ($allowedSids -notcontains $ruleSid) {
-        throw "UNAUTHORIZED_PRINCIPAL_DETECTED: $ruleSid";
+        throw "DACL_INVARIANT_VIOLATION: Unauthorized SID detected: $ruleSid";
+      }
+      if ($rule.AccessControlType -ne [System.Security.AccessControl.AccessControlType]::Allow) {
+        throw "DACL_INVARIANT_VIOLATION: Unexpected AccessControlType: $($rule.AccessControlType)";
+      }
+      if (($rule.FileSystemRights -band [System.Security.AccessControl.FileSystemRights]::FullControl) -ne [System.Security.AccessControl.FileSystemRights]::FullControl) {
+        throw "DACL_INVARIANT_VIOLATION: Incomplete FileSystemRights for $ruleSid: $($rule.FileSystemRights)";
+      }
+      if ($rule.InheritanceFlags -ne [System.Security.AccessControl.InheritanceFlags]'ContainerInherit, ObjectInherit') {
+        throw "DACL_INVARIANT_VIOLATION: Incorrect InheritanceFlags: $($rule.InheritanceFlags)";
+      }
+      if ($rule.PropagationFlags -ne [System.Security.AccessControl.PropagationFlags]::None) {
+        throw "DACL_INVARIANT_VIOLATION: Incorrect PropagationFlags: $($rule.PropagationFlags)";
       }
     }
   `;
 
-  // Fail-closed execution: Throws on non-zero exit code or verification failure
+  // Fail-closed execution: Throws immediately on non-zero exit code or verification failure
   execFileSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', psScript], { stdio: 'pipe' });
 }
-
 export function setupSecureRuntimeAuth(instanceUuid: string, launchNonce: string, port: number): { runtimeDir: string; authFile: string; socketPath: string } {
   const localAppData = process.env.LOCALAPPDATA || path.join(os.homedir(), 'AppData', 'Local');
   const runtimeDir = path.join(localAppData, 'AntiFan', 'runtime');
@@ -275,17 +297,19 @@ initializeNativeBridge();
 
 ## Success Criteria & Test Plan
 
+- [ ] **Windows DACL & Security Unit Tests** (`test/main/windows-acl.test.ts`):
+  - Correctly resolves current user SID via `whoami /user`.
+  - Enforces protected DACL on `%LOCALAPPDATA%\AntiFan\runtime` with inheritance stripped.
+  - Verifies that only current User SID and SYSTEM (S-1-5-18) ACEs exist; throws if any unauthorized SID remains.
+  - **Fail-Closed Verification**: If DACL application fails, `setupSecureRuntimeAuth` throws immediately and never writes `bridge-auth.json`.
 - [ ] **IPC Handshake Integration Test** (`test/main/native-messaging-ipc-handshake.test.ts`):
   - Server starts on Windows Named Pipe path `\\.\pipe\antifan-bridge-ipc-<UUID>`.
-  - Client connects, sends `HANDSHAKE` action with valid `launchNonce`, and receives valid 256-bit token.
-  - Ephemeral token allows immediate authenticated access to `/api/cookies/import` on `BridgeServer`.
+  - Client connects, sends length-prefixed `HANDSHAKE` with valid `launchNonce`, and receives valid 256-bit token.
+  - Connection attempts with invalid or missing `launchNonce` are rejected with `INVALID_LAUNCH_NONCE` and the socket is destroyed.
+  - Ephemeral token allows authenticated access to `/api/cookies/import` on `BridgeServer`.
   - Nonce/token flushes and becomes invalid on server stop.
-- [ ] **Windows DACL & Security Check**:
-  - `%LOCALAPPDATA%\AntiFan\runtime` directory verified to have inheritance removed and granted strictly to current user SID.
-  - Connection attempts without valid `launchNonce` are rejected immediately.
 - [ ] **Extension Zero-Touch Smoke Test**:
-  - Launch AntiFan Desktop -> Open Chrome -> Extension popup instantly shows `Status: Connected (Zero-Touch)` without any user input.
-
+  - Launch AntiFan Desktop -> Open Chrome -> Extension popup instantly shows `Status: Connected (Zero-Touch)` without manual input.
 ---
 
 ## Risk Assessment & Mitigation

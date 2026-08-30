@@ -29,8 +29,10 @@ import { TerminalManager } from './browser/terminal-manager';
 import { buildApplicationMenu } from './browser/app-menu';
 import { WindowStateManager } from './browser/window-state';
 import { HistoryManager } from './browser/history-manager';
-import { configureBrowserSessionPartition } from './browser/browser-session-partition';
+import { configureBrowserSessionPartition, deriveCapsulePartition } from './browser/browser-session-partition';
 import { chromeSessionUserAgent } from './browser/google-auth-identity';
+import { LocalIpcServer } from './native-messaging/local-ipc-server';
+import { installNativeHost, COMPANION_EXTENSION_ID } from './native-messaging/manifest-installer';
 import { ControlPlaneRuntime } from './control-plane/control-plane-runtime';
 import { BrowserControlPort } from './tools/browser-control-port';
 import { CapabilityTransportAdapter } from './tools/capability-transport';
@@ -110,6 +112,7 @@ let mainWindow: BrowserWindow | null = null;
 let tabHost: NativeTabHost | null = null;
 let capsuleManager: WorkspaceCapsuleManager | null = null;
 let bridgeServer: BridgeServer | null = null;
+let localIpcServer: LocalIpcServer | null = null;
 let mcpServer: AntiFanMcpServer | null = null;
 let windowStateManager: WindowStateManager | null = null;
 let controlPlane: ControlPlaneRuntime | null = null;
@@ -200,7 +203,7 @@ async function createWindow(): Promise<void> {
     workspaceId,
     dataRoot: path.join(persistentUserData, 'control-plane-v2'),
     allowEval: IS_MCP_HIGH_RISK,
-    getDocumentGeneration: (tabId) => tabHost!.getDocumentGeneration(tabId),
+    getDocumentGeneration: (tabId?: string) => tabHost!.getDocumentGeneration(tabId),
     getAutomationTabId: () => tabHost!.getAutomationTabId(),
   });
   tabHost.setControlPlane(controlPlane);
@@ -279,7 +282,32 @@ async function createWindow(): Promise<void> {
   const bridgePort = await bridgeServer.start();
   console.log(`[antifan] Bridge Server running on 127.0.0.1:${bridgePort} (${IS_DEV ? 'DEV' : 'PROD'})`);
 
-  // Start MCP Server if requested
+  // Start Windows Native Messaging Local IPC Server
+  if (process.platform === 'win32') {
+    try {
+      localIpcServer = new LocalIpcServer();
+      await localIpcServer.start(bridgePort, () => {
+        const activeCapsule = capsuleManager?.getActive();
+        const activePartition = activeCapsule
+          ? deriveCapsulePartition(activeCapsule.id)
+          : deriveCapsulePartition('default');
+        return {
+          token: bridgeServer!.getToken(),
+          port: bridgePort,
+          activeCapsuleId: activeCapsule?.id,
+          activePartition,
+        };
+      });
+      console.log(`[antifan] Native Messaging Local IPC Server listening at ${localIpcServer.getSocketPath()}`);
+
+      // Auto-register Chrome/Edge/Brave native messaging manifest on Windows
+      installNativeHost(COMPANION_EXTENSION_ID).catch((err) => {
+        console.warn('[antifan] Native messaging manifest registration notice:', err?.message || err);
+      });
+    } catch (err) {
+      console.warn('[antifan] Failed to start Native Messaging Local IPC Server:', err);
+    }
+  }
   if (IS_MCP_SERVER) {
     console.log('[antifan] Starting stdio MCP server...');
     mcpServer = new AntiFanMcpServer(tabHost, IS_MCP_HIGH_RISK, capabilityTransport, controlPlane.runs.attachments);
@@ -377,6 +405,9 @@ function shutdown(): Promise<void> {
       bridgeServer?.dispose();
     } catch {}
     try {
+      localIpcServer?.close();
+    } catch {}
+    try {
       await mcpServer?.stop();
     } catch {}
     try {
@@ -409,6 +440,7 @@ app.on('before-quit', (event) => {
 });
 app.on('will-quit', () => {
   bridgeServer?.dispose();
+  localIpcServer?.close();
   tabHost?.dispose();
   profileLease?.release();
   profileLease = null;

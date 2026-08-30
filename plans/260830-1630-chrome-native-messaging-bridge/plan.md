@@ -100,6 +100,5 @@ Candidate Plan E delivers a comprehensive, production-grade synthesis for seamle
 - [ ] Chrome extension connects via `chrome.runtime.connectNative` and successfully executes zero-touch handshake without manual token input.
 - [ ] Domain-scoped sync transfers <50 targeted cookies in <50ms instead of 3,000 cookies (>10MB).
 - [ ] Ingested session cookies appear immediately in active capsule partition `persist:capsule-<id>` without affecting other tabs or default session.
-- [ ] All unit, integration, and mock tests pass (`npm test`).
-
+- [ ] All unit, integration, E2E, and packaged smoke tests pass (`npm test`).
 <!-- slug: chrome-native-messaging-bridge -->

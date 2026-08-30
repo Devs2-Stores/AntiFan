@@ -5,6 +5,7 @@
  */
 import { app, session } from 'electron';
 import { cookieImportSetDetails, extensionCookieImportSetDetails, ExtensionCookieInput } from '../browser/chrome-profile-sync';
+import { deriveCapsulePartition } from '../browser/browser-session-partition';
 import { WebSocketServer, WebSocket } from 'ws';
 import * as http from 'node:http';
 import * as fs from 'node:fs';
@@ -264,12 +265,25 @@ export class BridgeServer {
 
           try {
             const data = JSON.parse(body || '{}');
-            const rawCookies: ExtensionCookieInput[] = Array.isArray(data.cookies) ? data.cookies : [];
+            const rawCookies: ExtensionCookieInput[] = Array.isArray(data.cookies)
+              ? data.cookies
+              : (Array.isArray(data.upserted) ? data.upserted : []);
+            const rawRemoved: Array<{ name: string; domain?: string; host?: string; path?: string; secure?: boolean }> =
+              Array.isArray(data.removed) ? data.removed : [];
 
+            const requestedPartition = typeof data.partition === 'string' && data.partition.trim()
+              ? data.partition.trim()
+              : (typeof data.targetPartition === 'string' && data.targetPartition.trim()
+                ? data.targetPartition.trim()
+                : (typeof data.targetCapsuleId === 'string' && data.targetCapsuleId.trim()
+                  ? deriveCapsulePartition(data.targetCapsuleId.trim())
+                  : (typeof data.capsuleId === 'string' && data.capsuleId.trim()
+                    ? deriveCapsulePartition(data.capsuleId.trim())
+                    : null)));
             let targetSession: Electron.Session;
             if (verifiedAttachmentId && !isBridgeToken) {
               // Attachment token: enforce attachment-scoped boundary
-              if (typeof data.partition === 'string' && data.partition.trim()) {
+              if (requestedPartition) {
                 res.writeHead(403, responseHeaders);
                 res.end(JSON.stringify({ success: false, error: 'Forbidden: attachment tokens cannot target arbitrary partitions' }));
                 return;
@@ -290,6 +304,12 @@ export class BridgeServer {
               targetSession = tabSession;
             } else {
               // Master bridge token: allow explicit tabId, partition, or default to active tab
+              if (data.source === 'chrome-extension-delta' && !requestedPartition) {
+                res.writeHead(400, responseHeaders);
+                res.end(JSON.stringify({ success: false, error: 'MISSING_TARGET_PARTITION', message: 'Explicit targetPartition or targetCapsuleId is required for background delta sync.' }));
+                return;
+              }
+
               if (typeof data.tabId === 'string' && data.tabId.trim()) {
                 const tabSession = this.tabHost.getTabSession(data.tabId.trim());
                 if (!tabSession) {
@@ -298,16 +318,24 @@ export class BridgeServer {
                   return;
                 }
                 targetSession = tabSession;
-              } else if (typeof data.partition === 'string' && data.partition.trim()) {
-                targetSession = this.tabHost.getPartitionSession(data.partition.trim());
+              } else if (requestedPartition) {
+                if (!this.tabHost.isValidCapsulePartition(requestedPartition)) {
+                  res.writeHead(404, responseHeaders);
+                  res.end(JSON.stringify({ success: false, error: 'UNKNOWN_TARGET_PARTITION', message: `Partition "${requestedPartition}" is not an active or registered capsule session.` }));
+                  return;
+                }
+                targetSession = this.tabHost.getPartitionSession(requestedPartition);
               } else {
                 targetSession = this.tabHost.getActiveTabSession();
               }
             }
 
             let importedCount = 0;
+            let removedCount = 0;
             let skippedCount = 0;
             let failedCount = 0;
+
+            // 1. Process Upserts
             for (const cookie of rawCookies) {
               const setDetails = extensionCookieImportSetDetails(cookie);
               if (!setDetails) {
@@ -323,6 +351,27 @@ export class BridgeServer {
               }
             }
 
+            // 2. Process Delta Removals
+            for (const rem of rawRemoved) {
+              if (!rem || !rem.name) continue;
+              const host = rem.domain || rem.host || '';
+              if (!host) {
+                skippedCount++;
+                continue;
+              }
+              const secure = Boolean(rem.secure);
+              const scheme = secure ? 'https://' : 'http://';
+              const domain = host.startsWith('.') ? host.substring(1) : host;
+              const cookiePath = rem.path || '/';
+              const cookieUrl = `${scheme}${domain}${cookiePath}`;
+              try {
+                await targetSession.cookies.remove(cookieUrl, rem.name);
+                removedCount++;
+              } catch {
+                failedCount++;
+              }
+            }
+
             try {
               await targetSession.cookies.flushStore();
             } catch {}
@@ -331,10 +380,12 @@ export class BridgeServer {
             res.end(JSON.stringify({
               success: true,
               importedCount,
+              removedCount,
               skippedCount,
               failedCount,
-              totalReceived: rawCookies.length,
+              totalReceived: rawCookies.length + rawRemoved.length,
               targetTabId: data.tabId || this.tabHost.getActiveTab()?.id || null,
+              targetPartition: requestedPartition || 'activeTab',
             }));
           } catch (err: unknown) {
             res.writeHead(400, responseHeaders);

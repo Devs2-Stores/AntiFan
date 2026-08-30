@@ -35,9 +35,8 @@ Phase 4 connects the entire pipeline together by ingesting domain-scoped, delta-
    - Dispatches `TOOLBAR_CHANNELS.COOKIE_SYNC_COMPLETED` with sync stats (`{ count, domains, targetPartition }`).
    - Toolbar status indicator displays synced status with timestamp and active capsule indicator.
 5. **Comprehensive Verification Matrix**:
-   - Automated unit test coverage for framing, manifest installer, domain scoping, and IPC handshake.
-   - End-to-end integration test verifying full pipeline: Chrome extension mock -> Native Host framing -> Named Pipe IPC -> BridgeServer -> Partitioned Session.
-
+  - Automated unit test coverage for framing, manifest installer, domain scoping, and IPC handshake.
+  - End-to-end integration test verifying full pipeline: Built Chrome extension in browser -> Native Host stdio framing -> nonce-authenticated Named Pipe -> BridgeServer -> Partitioned Session.
 ---
 
 ## Architecture & Partition Routing Matrix
@@ -95,7 +94,7 @@ Phase 4 connects the entire pipeline together by ingesting domain-scoped, delta-
 | **Modify** | `src/main/browser/chrome-profile-sync.ts` | Ensure `extensionCookieImportSetDetails` handles all RFC 6265bis edge cases. |
 | **Modify** | `src/main/browser/native-tab-host.ts` | Wire partition resolution and toolbar status broadcast. |
 | **Create** | `test/main/capsule-partition-cookie-isolation.test.ts` | Rigorous tests verifying complete isolation between multiple capsule partitions. |
-| **Create** | `test/main/native-messaging-e2e-pipeline.test.ts` | End-to-end integration test simulating the entire native messaging sync flow. |
+| **Create** | `test/main/native-messaging-e2e-pipeline.test.ts` | End-to-end integration test exercising the built extension loaded in browser -> packaged native host with stdin/stdout framing -> nonce-authenticated Named Pipe -> live BridgeServer -> real isolated Electron session pipeline. |
 
 ---
 
@@ -175,33 +174,45 @@ if (pathname === '/api/cookies/import' && req.method === 'POST') {
 
 ### 2. Capsule Partition Isolation Test (`test/main/capsule-partition-cookie-isolation.test.ts`)
 ```typescript
-import { describe, it } from 'node:test';
-import * as assert from 'node:assert';
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { session } from 'electron';
+import { extensionCookieImportSetDetails } from '../../src/main/browser/chrome-profile-sync';
 
-describe('Capsule Partition Cookie Isolation', () => {
-  it('guarantees imported cookies in Capsule A do not leak into Capsule B or Default Session', async () => {
-    // 1. Setup Mock Sessions for Capsule A, Capsule B, and Default
-    const capsuleASession = new MockSession();
-    const capsuleBSession = new MockSession();
-    const defaultSession = new MockSession();
+test('Capsule partition cookie isolation guarantees zero cross-partition leakage', async () => {
+  const capsuleASession = session.fromPartition('persist:capsule-test-store-a');
+  const capsuleBSession = session.fromPartition('persist:capsule-test-store-b');
+  const defaultSession = session.defaultSession;
 
-    // 2. Import Haravan auth cookie into Capsule A
-    const cookieA = {
-      name: 'haravan_session',
-      value: 'auth-token-store-a',
-      domain: '.haravan.com',
-      path: '/',
-      secure: true,
-      httpOnly: true,
-    };
-
-    // 3. Assert cookie exists in Capsule A and is strictly absent from Capsule B and Default
-    assert.strictEqual(capsuleASession.hasCookie('haravan_session'), true);
-    assert.strictEqual(capsuleBSession.hasCookie('haravan_session'), false);
-    assert.strictEqual(defaultSession.hasCookie('haravan_session'), false);
+  // 1. Ingest cookie into Capsule A using extensionCookieImportSetDetails
+  const cookieDetails = extensionCookieImportSetDetails({
+    name: 'haravan_session',
+    value: 'auth-token-store-a',
+    domain: '.haravan.com',
+    path: '/',
+    secure: true,
+    httpOnly: true,
+    sameSite: 'lax',
   });
+  assert.ok(cookieDetails, 'cookieDetails should be valid');
+  await capsuleASession.cookies.set(cookieDetails);
+
+  // 2. Query all three sessions
+  const cookiesA = await capsuleASession.cookies.get({ name: 'haravan_session' });
+  const cookiesB = await capsuleBSession.cookies.get({ name: 'haravan_session' });
+  const cookiesDefault = await defaultSession.cookies.get({ name: 'haravan_session' });
+
+  // 3. Verify exact partition isolation
+  assert.equal(cookiesA.length, 1);
+  assert.equal(cookiesA[0].value, 'auth-token-store-a');
+  assert.equal(cookiesB.length, 0);
+  assert.equal(cookiesDefault.length, 0);
+
+  // Clean up test cookie
+  await capsuleASession.cookies.remove('https://haravan.com/', 'haravan_session');
 });
 ```
+
 
 ---
 
@@ -210,11 +221,14 @@ describe('Capsule Partition Cookie Isolation', () => {
 - [ ] **Verification Matrix**:
   | Test Suite | File | Coverage Area | Status |
   |---|---|---|---|
-  | Framing & Protocol | `test/main/native-messaging-framing.test.ts` | 32-bit LE uint32 parsing, stream chunking, 1MB limit | Planned |
-  | Manifest & Installer | `test/main/native-messaging-installer.test.ts` | Registry keys, macOS paths, idempotent install/uninstall | Planned |
-  | IPC & Handshake | `test/main/native-messaging-ipc-handshake.test.ts` | Named pipe / UNIX socket, 256-bit token generation | Planned |
-  | Domain Scoping | `test/main/domain-scoper.test.ts` | Google, E-Commerce, active tab eTLD+1 extraction | Planned |
+  | Framing & Protocol | `test/main/native-messaging-framing.test.ts` | 32-bit LE uint32 parsing, stream chunking, asymmetric 64 MiB inbound / 1 MiB outbound limits | Planned |
+  | Manifest & Installer | `test/main/native-messaging-installer.test.ts` | Windows Registry keys (`HKCU`), manifest generation, idempotent install/uninstall | Planned |
+  | Windows ACL & Nonce Security | `test/main/windows-acl.test.ts` | User SID resolution, fail-closed DACL enforcement & invariant assertions | Planned |
+  | IPC & Handshake | `test/main/native-messaging-ipc-handshake.test.ts` | Windows Named Pipe, 256-bit launchNonce verification, ephemeral token generation | Planned |
+  | Domain Scoping & PSL | `test/main/domain-scoper.test.ts` | Google, E-Commerce, active tab eTLD+1 extraction, complex TLD handling | Planned |
+  | MV3 Extension Bundling | `test/main/extension-bundle.test.ts` | Classic IIFE bundle validation, zero runtime imports, manifest compatibility | Planned |
   | Partition Isolation & Validation | `test/main/capsule-partition-cookie-isolation.test.ts` | Capsule A vs B isolation, RFC 6265bis rules, missing/unknown partition rejection, delta removal | Planned |
+  | End-to-End Pipeline | `test/main/native-messaging-e2e-pipeline.test.ts` | Built extension in Chrome -> native host stdio framing -> nonce-authenticated Named Pipe -> BridgeServer -> Real Partition Sessions | Planned |
   | Packaged Artifact Smoke | `scripts/smoke-native-messaging-packaged.mjs` | Spawns packaged `antifan-bridge-host.exe`, executes `connectNative` handshake | Planned |
 
 - [ ] **Acceptance Criteria**:

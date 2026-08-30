@@ -1959,6 +1959,29 @@ export class NativeTabHost extends EventEmitter {
     return session.defaultSession;
   }
 
+  public isValidCapsulePartition(partition: string): boolean {
+    if (!partition || typeof partition !== 'string') return false;
+    const clean = partition.trim();
+    if (clean === deriveCapsulePartition('default') || clean === 'persist:capsule-default') {
+      return true;
+    }
+    const allCapsules = this.capsuleManager.list();
+    for (const cap of allCapsules) {
+      if (
+        clean === deriveCapsulePartition(cap.id, 'clean') ||
+        clean === deriveCapsulePartition(cap.id, 'native')
+      ) {
+        return true;
+      }
+    }
+    for (const tab of this.tabs.values()) {
+      if (tab.state.partition === clean) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   public getPartitionSession(partition: string): Electron.Session {
     if (!partition || partition === 'default' || partition === 'persist:default') {
       return session.defaultSession;

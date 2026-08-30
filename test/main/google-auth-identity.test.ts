@@ -15,12 +15,19 @@ test('Google auth identity is scoped to exact auth hosts and service signin flow
 });
 
 test('Google auth identity uses Firefox 140 UA and strips Client Hints for auth hosts', () => {
-  const headers = { 'user-agent': 'old', 'Sec-CH-UA': 'Chromium', 'sec-ch-ua-platform': 'Windows' };
+  const headers = {
+    'user-agent': 'old',
+    'Sec-CH-UA': 'Chromium',
+    'sec-ch-ua-platform': 'Windows',
+    'sec-ch-dpr': '2',
+    'sec-ch-viewport-width': '1920',
+    'sec-ch-prefers-color-scheme': 'dark',
+  };
   setUserAgentHeader(headers, googleAuthUserAgent());
   setGoogleAuthClientHints(headers);
   assert.match(headers['user-agent'], /Firefox\/140\.0/);
   assert.doesNotMatch(headers['user-agent'], /Chrome/);
-  assert.equal(Object.keys(headers).some((key) => key.toLowerCase().startsWith('sec-ch-ua')), false);
+  assert.equal(Object.keys(headers).some((key) => key.toLowerCase().startsWith('sec-ch-')), false, 'All sec-ch-* client hints must be stripped');
   assert.equal(Object.keys(headers).filter((key) => key.toLowerCase() === 'user-agent').length, 1);
 });
 

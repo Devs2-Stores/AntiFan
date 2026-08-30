@@ -324,6 +324,23 @@ describe('Bridge Cookie Import Endpoint & Target Isolation', () => {
     server.dispose();
   });
 
+  it('rejects unauthorized web origins on CORS OPTIONS preflight', async () => {
+    const mockHost = new MockTabHostWithSessions() as unknown as NativeTabHost;
+    const server = new BridgeServer(mockHost, 0);
+    const port = await server.start();
+
+    const preflight = await requestHttp(port, 'OPTIONS', '/api/cookies/import', {
+      Origin: 'http://malicious-attacker.com',
+      'Access-Control-Request-Method': 'POST',
+      'Access-Control-Request-Headers': 'Content-Type, Authorization',
+    });
+
+    assert.strictEqual(preflight.status, 204);
+    assert.strictEqual(preflight.headers['access-control-allow-origin'], undefined, 'Unauthorized origins must NOT receive Access-Control-Allow-Origin');
+
+    server.dispose();
+  });
+
   it('imports cookies strictly into the targeted tab session without leaking to others', async () => {
     const mockHost = new MockTabHostWithSessions();
     const server = new BridgeServer(mockHost as unknown as NativeTabHost, 0);

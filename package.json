@@ -14,7 +14,8 @@
   "scripts": {
     "agent": "node scripts/antifan-agent.cjs",
     "clean": "node -e \"fs.rmSync('.compiled',{recursive:true,force:true})\"",
-    "compile": "tsc -p ./ && node scripts/copy-static.mjs",
+    "compile": "tsc -p ./ && node scripts/copy-static.mjs && npm run build:extension",
+    "build:extension": "node scripts/build-extension.mjs",
     "watch": "tsc -p ./ --watch",
     "start": "node scripts/run-electron.cjs .",
     "dev": "node --max-old-space-size=4096 scripts/dev.mjs",
@@ -29,6 +30,8 @@
     "smoke:persistence": "npm run compile && node scripts/smoke-profile-persistence-runner.cjs",
     "smoke:google": "npm run compile && node scripts/run-electron.cjs scripts/smoke-google-cookies.cjs",
     "smoke:google-auth": "npm run compile && node scripts/run-electron.cjs scripts/smoke-google-live-login.cjs",
+    "smoke:native-messaging": "npm run compile && node scripts/smoke-native-messaging-packaged.mjs",
+    "verify:native-messaging": "npm run package && npm run smoke:native-messaging",
     "benchmark:artifacts": "node scripts/benchmark-antigravity-artifacts.mjs",
     "icon": "python scripts/generate-icon.py",
     "install:shortcut": "node scripts/install-windows-shortcut.mjs"
@@ -40,6 +43,7 @@
     "@xterm/addon-webgl": "^0.19.0",
     "@xterm/xterm": "^6.0.0",
     "node-pty": "^1.1.0",
+    "tldts": "^7.4.11",
     "ws": "^8.18.0",
     "zod": "^3.23.8"
   },
@@ -48,6 +52,7 @@
     "@types/node": "^22.0.0",
     "@types/ws": "^8.5.10",
     "electron": "^43.4.0",
+    "esbuild": "^0.28.2",
     "typescript": "^5.5.0"
   }
 }

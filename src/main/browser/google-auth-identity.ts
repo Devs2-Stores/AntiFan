@@ -101,7 +101,7 @@ export function setGoogleAuthClientHints(headers: Record<string, string>): void 
 
 export function stripClientHints(headers: Record<string, string>): void {
   for (const key of Object.keys(headers)) {
-    if (key.toLowerCase().startsWith('sec-ch-ua')) {
+    if (key.toLowerCase().startsWith('sec-ch-')) {
       delete headers[key];
     }
   }
