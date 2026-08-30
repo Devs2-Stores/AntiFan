@@ -619,6 +619,24 @@ export class NativeTabHost extends EventEmitter {
     ipcMain.handle(TOOLBAR_CHANNELS.STOP_FIND_IN_PAGE, () => this.stopFindInPage());
     ipcMain.handle(TOOLBAR_CHANNELS.SHOW_MENU, () => this.showMainMenu());
     ipcMain.handle('antifan:toolbar:check-updates', () => checkForUpdatesAndRestart(this.window));
+    ipcMain.handle('antifan:copy-bridge-token', () => {
+      const bridge = BridgeServer.getInstance();
+      if (bridge) {
+        const token = bridge.getToken();
+        clipboard.writeText(token);
+        return { success: true };
+      }
+      return { success: false, error: 'Bridge server not running' };
+    });
+    ipcMain.handle('antifan:rotate-bridge-token', () => {
+      const bridge = BridgeServer.getInstance();
+      if (bridge) {
+        const token = bridge.rotateToken();
+        clipboard.writeText(token);
+        return { success: true };
+      }
+      return { success: false, error: 'Bridge server not running' };
+    });
     ipcMain.handle(TOOLBAR_CHANNELS.SET_OVERLAY, (_event, active: boolean, customHeight?: number) => this.setToolbarOverlay(active, customHeight));
     ipcMain.handle(TOOLBAR_CHANNELS.CLEAR_STORAGE, () => this.clearStorageForActiveTab());
     ipcMain.handle(TOOLBAR_CHANNELS.GET_CHROME_PROFILES, () => ChromeProfileSyncManager.getInstance().getAvailableProfiles());
@@ -1648,6 +1666,36 @@ export class NativeTabHost extends EventEmitter {
       {
         label: '🌟 Sync Google Chrome Profile',
         submenu: profileSubmenu,
+      },
+      {
+        label: '🔑 Copy Bridge Token (for Extension)',
+        click: () => {
+          const bridge = BridgeServer.getInstance();
+          if (bridge) {
+            const token = bridge.getToken();
+            clipboard.writeText(token);
+            dialog.showMessageBox(this.window, {
+              type: 'info',
+              title: 'Bridge Token',
+              message: 'Đã sao chép mã Bridge Token vào Clipboard.\nBạn có thể dán vào Chrome Extension.',
+            });
+          }
+        },
+      },
+      {
+        label: '🔄 Rotate Bridge Token (Invalidate & Regenerate)',
+        click: () => {
+          const bridge = BridgeServer.getInstance();
+          if (bridge) {
+            const token = bridge.rotateToken();
+            clipboard.writeText(token);
+            dialog.showMessageBox(this.window, {
+              type: 'info',
+              title: 'Bridge Token Rotated',
+              message: 'Đã tạo mới mã Bridge Token và sao chép vào Clipboard.\nCác kết nối cũ đã bị vô hiệu hóa.',
+            });
+          }
+        },
       },
       {
         label: '⭐ Bookmark this Tab...',

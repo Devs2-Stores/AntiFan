@@ -140,6 +140,11 @@ export class BridgeServer {
     this.controlPlaneRuntime = controlPlane;
   }
 
+  public rotateToken(): string {
+    this.token = randomUUID();
+    this.persistBridgeInfo();
+    return this.token;
+  }
 
   public getRemoteConnectionInfo(): { port: number; lanIps: string[]; urls: string[]; primaryUrl: string; qrSvg: string } {
     const lanIps = getLocalLanIps();

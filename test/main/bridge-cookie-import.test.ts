@@ -236,6 +236,23 @@ describe('Bridge Cookie Import Endpoint & Target Isolation', () => {
     );
     assert.strictEqual(resBadToken.status, 401);
 
+    // 4. rotateToken rotates the token and invalidates the previous token
+    const initialToken = server.getToken();
+    assert.ok(initialToken);
+    const rotatedToken = server.rotateToken();
+    assert.ok(rotatedToken);
+    assert.notStrictEqual(rotatedToken, initialToken);
+    assert.strictEqual(server.getToken(), rotatedToken);
+
+    // Old initial token must now return 401
+    const resOldToken = await requestHttp(
+      port,
+      'POST',
+      '/api/cookies/import',
+      { Authorization: `Bearer ${initialToken}` },
+      JSON.stringify({ cookies: [] })
+    );
+    assert.strictEqual(resOldToken.status, 401);
     server.dispose();
   });
 
