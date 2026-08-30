@@ -2,6 +2,7 @@ import { describe, it } from 'node:test';
 import * as assert from 'node:assert';
 import * as http from 'node:http';
 import { EventEmitter } from 'node:events';
+import { WebSocket } from 'ws';
 import { BridgeServer } from '../../src/main/bridge/bridge-server';
 import { NativeTabHost } from '../../src/main/browser/native-tab-host';
 import { AttachmentRegistry } from '../../src/main/run/attachment-registry';
@@ -253,6 +254,55 @@ describe('Bridge Cookie Import Endpoint & Target Isolation', () => {
       JSON.stringify({ cookies: [] })
     );
     assert.strictEqual(resOldToken.status, 401);
+    server.dispose();
+  });
+
+  it('rotateToken invalidates master token HTTP requests and closes active master-token WebSockets', async () => {
+    const mockHost = new MockTabHostWithSessions() as unknown as NativeTabHost;
+    const server = new BridgeServer(mockHost, 0);
+    const port = await server.start();
+    const initialToken = server.getToken();
+
+    // 1. Connect WebSocket with initial token
+    const ws = new WebSocket(`ws://127.0.0.1:${port}/?token=${initialToken}`);
+    await new Promise<void>((resolve, reject) => {
+      ws.on('open', () => resolve());
+      ws.on('error', reject);
+    });
+
+    let closedCode = 0;
+    const closePromise = new Promise<number>((resolve) => {
+      ws.on('close', (code) => {
+        closedCode = code;
+        resolve(code);
+      });
+    });
+
+    // 2. Rotate token
+    const newToken = server.rotateToken();
+    assert.notStrictEqual(newToken, initialToken);
+
+    // 3. Verify previous WebSocket connection is closed
+    const code = await closePromise;
+    assert.strictEqual(code, 4001);
+
+    // 4. New WebSocket with old token rejected (4001)
+    const badWs = new WebSocket(`ws://127.0.0.1:${port}/?token=${initialToken}`);
+    const badClosePromise = new Promise<number>((resolve) => {
+      badWs.on('close', (c) => resolve(c));
+      badWs.on('error', () => {});
+    });
+    const badCode = await badClosePromise;
+    assert.strictEqual(badCode, 4001);
+
+    // 5. New WebSocket with rotated token succeeds
+    const goodWs = new WebSocket(`ws://127.0.0.1:${port}/?token=${newToken}`);
+    await new Promise<void>((resolve, reject) => {
+      goodWs.on('open', () => resolve());
+      goodWs.on('error', reject);
+    });
+    goodWs.close();
+
     server.dispose();
   });
 

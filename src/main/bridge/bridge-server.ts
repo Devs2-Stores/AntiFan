@@ -139,10 +139,20 @@ export class BridgeServer {
   public setControlPlane(controlPlane: ControlPlaneRuntime): void {
     this.controlPlaneRuntime = controlPlane;
   }
-
   public rotateToken(): string {
     this.token = randomUUID();
     this.persistBridgeInfo();
+
+    // Terminate existing master-token WebSocket connections while preserving attachment-scoped clients
+    for (const client of Array.from(this.clients)) {
+      if (!this.socketAttachmentIds.has(client)) {
+        try {
+          client.close(4001, 'Bridge token rotated: connection invalidated');
+        } catch {}
+        this.clients.delete(client);
+      }
+    }
+
     return this.token;
   }
 
