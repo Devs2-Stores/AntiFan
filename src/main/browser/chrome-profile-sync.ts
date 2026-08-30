@@ -11,7 +11,6 @@ import * as cp from 'child_process';
 import * as http from 'http';
 import * as crypto from 'crypto';
 import { session, Cookie } from 'electron';
-import { isGoogleDomain } from './google-auth-identity';
 
 export interface ChromeProfileInfo {
   id: string; // 'Default', 'Profile 1', etc.
@@ -408,11 +407,6 @@ except Exception:
             let rejectedImports = 0;
             for (const item of rawCookies) {
               try {
-                if (isGoogleDomain(item.host)) {
-                  // Google session tokens are cryptographically bound to the Chrome device/TLS channel.
-                  // Importing them into Electron triggers CookieMismatch and cookie settings errors.
-                  continue;
-                }
 
                 let decryptedVal: string | null = null;
                 const encBuf = Buffer.from(item.encHex, 'hex');
