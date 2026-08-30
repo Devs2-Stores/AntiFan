@@ -29,7 +29,8 @@ import { TerminalManager } from './browser/terminal-manager';
 import { buildApplicationMenu } from './browser/app-menu';
 import { WindowStateManager } from './browser/window-state';
 import { HistoryManager } from './browser/history-manager';
-import { googleAuthUserAgent, isGoogleAuthUrl, isGoogleUrl, setUserAgentHeader, setChromeClientHints } from './browser/google-auth-identity';
+import { configureBrowserSessionPartition } from './browser/browser-session-partition';
+import { chromeSessionUserAgent } from './browser/google-auth-identity';
 import { ControlPlaneRuntime } from './control-plane/control-plane-runtime';
 import { BrowserControlPort } from './tools/browser-control-port';
 import { CapabilityTransportAdapter } from './tools/capability-transport';
@@ -104,7 +105,7 @@ app.commandLine.appendSwitch('disk-cache-size', '536870912');
 app.commandLine.appendSwitch('media-cache-size', '268435456');
 app.commandLine.appendSwitch('enable-features', 'PasswordManager,Autofill,CanvasOopRasterization,SmoothScrolling,ParallelDownloading,BackForwardCache,AsyncImageDecoding');
 app.commandLine.appendSwitch('disable-blink-features', 'AutomationControlled');
-const CHROME_USER_AGENT = googleAuthUserAgent();
+const CHROME_USER_AGENT = chromeSessionUserAgent();
 app.userAgentFallback = CHROME_USER_AGENT;
 
 let mainWindow: BrowserWindow | null = null;
@@ -336,26 +337,8 @@ app.whenReady().then(async () => {
     app.exit(0);
     return;
   }
-  // Set real Chrome User Agent across session to allow Google/Gmail OAuth login without "insecure browser" blocking
-  session.defaultSession.setUserAgent(CHROME_USER_AGENT);
-  session.defaultSession.webRequest.onBeforeSendHeaders(
-    { urls: ['http://*/*', 'https://*/*'] },
-    (details, callback) => {
-      const headers = { ...details.requestHeaders };
-      delete headers['X-Electron-Version'];
-      delete headers['X-Antifan-Version'];
-      if (isGoogleUrl(details.url) || isGoogleAuthUrl(details.url)) {
-        setUserAgentHeader(headers, CHROME_USER_AGENT);
-        setChromeClientHints(headers);
-      } else {
-        const uaKey = Object.keys(headers).find((k) => k.toLowerCase() === 'user-agent') || 'User-Agent';
-        if (headers[uaKey]) {
-          headers[uaKey] = headers[uaKey].replace(/\s*Electron\/\S+/g, '');
-        }
-      }
-      callback({ requestHeaders: headers });
-    }
-  );
+  // Configure default session policies cleanly without global header tampering
+  configureBrowserSessionPartition('', 'clean');
   const capsuleStoragePath = path.join(app.getPath('userData'), 'workspace-capsules.json');
   capsuleManager = new WorkspaceCapsuleManager({ filePath: capsuleStoragePath });
   if (!capsuleManager.getActive()) {

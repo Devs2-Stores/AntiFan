@@ -106,7 +106,7 @@ export function sanitizeUrl(inputUrl: string): string {
 import * as path from 'path';
 import * as fs from 'fs';
 
-export function getSecureWebPreferences(): WebPreferences {
+export function getSecureWebPreferences(partition?: string): WebPreferences {
   const candidatePaths = [
     path.join(__dirname, '..', '..', 'preload', 'tab-preload.js'),
     path.join(__dirname, '..', 'preload', 'tab-preload.js'),
@@ -116,9 +116,9 @@ export function getSecureWebPreferences(): WebPreferences {
 
   const resolvedPreload = candidatePaths.find((p) => fs.existsSync(p));
 
-  return {
+  const prefs: WebPreferences = {
     preload: resolvedPreload,
-    contextIsolation: true,
+    contextIsolation: false,
     sandbox: true,
     nodeIntegration: false,
     webSecurity: true,
@@ -130,4 +130,10 @@ export function getSecureWebPreferences(): WebPreferences {
     plugins: true,
     webgl: true,
   };
+
+  if (partition) {
+    prefs.partition = partition;
+  }
+
+  return prefs;
 }

@@ -28,6 +28,7 @@
     "smoke:theme-qa": "npm run compile && node scripts/smoke-theme-qa-gate.cjs",
     "smoke:persistence": "npm run compile && node scripts/smoke-profile-persistence-runner.cjs",
     "smoke:google": "npm run compile && node scripts/run-electron.cjs scripts/smoke-google-cookies.cjs",
+    "smoke:google-auth": "npm run compile && node scripts/run-electron.cjs scripts/smoke-google-live-login.cjs",
     "benchmark:artifacts": "node scripts/benchmark-antigravity-artifacts.mjs",
     "icon": "python scripts/generate-icon.py",
     "install:shortcut": "node scripts/install-windows-shortcut.mjs"

@@ -67,7 +67,7 @@ describe('OAuthPopupManager Invariants', () => {
       assert.strictEqual(result.overrideBrowserWindowOptions?.webPreferences?.session, sharedSession);
       assert.strictEqual(result.overrideBrowserWindowOptions?.webPreferences?.sandbox, true);
       assert.strictEqual(result.overrideBrowserWindowOptions?.webPreferences?.nodeIntegration, false);
-      assert.strictEqual(result.overrideBrowserWindowOptions?.webPreferences?.contextIsolation, true);
+      assert.strictEqual(result.overrideBrowserWindowOptions?.webPreferences?.contextIsolation, false);
     }
     assert.deepEqual(opened, []);
   });

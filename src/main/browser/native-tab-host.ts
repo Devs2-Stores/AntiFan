@@ -4,7 +4,7 @@
  * Multi-tab, Docked DevTools, GPU Lens, Font Finder, Device Emulation, Bookmarks,
  * AI Chat Sidebar (WebSocket Relay with Antigravity IDE), Global Shortcuts, and Context Menu.
  */
-import { app, BrowserWindow, WebContentsView, Menu, MenuItem, clipboard, Rectangle, ipcMain, shell, dialog, net } from 'electron';
+import { app, BrowserWindow, WebContentsView, Menu, MenuItem, clipboard, Rectangle, ipcMain, shell, dialog, net, session } from 'electron';
 import { spawn } from 'node:child_process';
 import * as path from 'node:path';
 import * as fs from 'node:fs';
@@ -29,7 +29,8 @@ import {
   IPHONE_USER_AGENT,
   MAC_DESKTOP_USER_AGENT,
 } from './device-presets';
-import { googleAuthUserAgent } from './google-auth-identity';
+import { googleAuthUserAgent, chromeSessionUserAgent, applyGoogleAuthIdentity } from './google-auth-identity';
+import { configureBrowserSessionPartition, deriveCapsulePartition, type BrowserSessionUserAgentMode } from './browser-session-partition';
 import { TabDiagnosticsManager, computeOrigin } from './tab-diagnostics';
 import { buildKeyboardInputEvents } from './keyboard-normalizer';
 import { WorkspaceCapsuleManager, type WorkspaceCapsule } from '../project/workspace-capsule';
@@ -198,7 +199,7 @@ export class NativeTabHost extends EventEmitter {
   private isToolbarOverlayActive: boolean = false;
   private toolbarOverlayCustomHeight?: number;
   private readonly splitCoordinator = new SplitNavigationCoordinator();
-  private defaultUserAgent: string = googleAuthUserAgent();
+  private defaultUserAgent: string = chromeSessionUserAgent();
   private tabs: Map<string, NativeTabRecord> = new Map();
   private tabOrder: string[] = [];
   private activeTabId: string = '';
@@ -622,7 +623,11 @@ export class NativeTabHost extends EventEmitter {
     ipcMain.handle(TOOLBAR_CHANNELS.CLEAR_STORAGE, () => this.clearStorageForActiveTab());
     ipcMain.handle(TOOLBAR_CHANNELS.GET_CHROME_PROFILES, () => ChromeProfileSyncManager.getInstance().getAvailableProfiles());
     ipcMain.handle(TOOLBAR_CHANNELS.SYNC_CHROME_PROFILE, async (_event, profileId: string) => {
-      const res = await ChromeProfileSyncManager.getInstance().syncProfile(profileId);
+      const activeTab = this.activeTabId ? this.tabs.get(this.activeTabId) : undefined;
+      const targetSession = activeTab?.view?.webContents && !activeTab.view.webContents.isDestroyed()
+        ? activeTab.view.webContents.session
+        : (activeTab?.state.partition ? session.fromPartition(activeTab.state.partition) : session.defaultSession);
+      const res = await ChromeProfileSyncManager.getInstance().syncProfile(profileId, targetSession);
       const bm = ChromeProfileSyncManager.getInstance().getChromeBookmarks(profileId);
       if (bm && bm.length > 0) {
         this.bookmarks = bm.map(b => ({ id: b.url, title: b.title, url: b.url, createdAt: Date.now() }));
@@ -1926,7 +1931,11 @@ export class NativeTabHost extends EventEmitter {
         isFirstParty: origin.isFirstParty,
       });
     });
-    wc.on('did-start-navigation', (_event, _url, isInPlace, isMainFrame) => {
+    wc.on('did-start-navigation', (_event, navUrl, isInPlace, isMainFrame) => {
+      if (isMainFrame && typeof navUrl === 'string') {
+        const baseUa = paneId === 'mobile' ? IPHONE_USER_AGENT : this.defaultUserAgent;
+        applyGoogleAuthIdentity(wc, navUrl, baseUa);
+      }
       const currentTab = this.tabs.get(id);
       const splitHasLiveMobile = Boolean(state.splitMode && currentTab?.mobileView && !currentTab.mobileView.webContents.isDestroyed());
       const authorityPane = splitHasLiveMobile ? (currentTab?.focusedPane || state.splitFocusedPane || 'desktop') : 'desktop';
@@ -1943,6 +1952,12 @@ export class NativeTabHost extends EventEmitter {
           this.themeQaState = { status: 'idle', issueCount: 0, updatedAt: Date.now() };
           this.broadcastState();
         }
+      }
+    });
+    wc.on('will-redirect', (_event, redirectUrl) => {
+      if (typeof redirectUrl === 'string') {
+        const baseUa = paneId === 'mobile' ? IPHONE_USER_AGENT : this.defaultUserAgent;
+        applyGoogleAuthIdentity(wc, redirectUrl, baseUa);
       }
     });
 
@@ -2205,7 +2220,14 @@ export class NativeTabHost extends EventEmitter {
     this.setupContextMenu(wc, paneId);
   }
 
-  public createTab(initialUrl = 'https://www.google.com', activate = true): string {
+  public createTab(
+    initialUrl = 'https://www.google.com',
+    activate = true,
+    options?: {
+      capsuleId?: string;
+      userAgentMode?: BrowserSessionUserAgentMode;
+    }
+  ): string {
     if (this.isDisposed) return '';
     const trimmed = (initialUrl || '').trim();
     if (trimmed && (trimmed.startsWith('file://') || /^[a-zA-Z]:[/\\]/.test(trimmed))) {
@@ -2214,7 +2236,7 @@ export class NativeTabHost extends EventEmitter {
     }
 
     const id = randomUUID();
-    let capsuleIdForPreview: string | null = null;
+    let capsuleIdForTab: string | undefined = options?.capsuleId;
     let url = initialUrl;
 
     if (initialUrl.startsWith('antifan-preview://')) {
@@ -2233,7 +2255,7 @@ export class NativeTabHost extends EventEmitter {
           console.warn(`[native-tab-host] Preview path escapes workspace root: ${relativePath}`);
           return '';
         }
-        capsuleIdForPreview = cap.id;
+        capsuleIdForTab = cap.id;
         url = initialUrl;
       } catch (err) {
         console.warn(`[native-tab-host] Failed to parse preview url: ${initialUrl}`, err);
@@ -2244,8 +2266,16 @@ export class NativeTabHost extends EventEmitter {
       url = sanitizeUrl(cleanInitialUrl);
     }
 
+    if (!capsuleIdForTab) {
+      capsuleIdForTab = this.capsuleManager.getActive()?.id;
+    }
+
+    const userAgentMode: BrowserSessionUserAgentMode = options?.userAgentMode || 'clean';
+    const partition = deriveCapsulePartition(capsuleIdForTab, userAgentMode);
+    configureBrowserSessionPartition(partition, userAgentMode);
+
     const view = new WebContentsView({
-      webPreferences: getSecureWebPreferences(),
+      webPreferences: getSecureWebPreferences(partition),
     });
     try { view.setBackgroundColor('#ffffff'); } catch {}
     const isBlankUrl = !url || url === 'about:blank';
@@ -2259,7 +2289,9 @@ export class NativeTabHost extends EventEmitter {
       zoomFactor: 1.0,
       devicePresetId: 'responsive',
       crashed: false,
-      capsuleId: capsuleIdForPreview || undefined,
+      capsuleId: capsuleIdForTab,
+      userAgentMode,
+      partition,
     };
 
     this.setupTabWebContentsEvents(id, view, state, 'desktop');
@@ -2267,8 +2299,8 @@ export class NativeTabHost extends EventEmitter {
     this.tabs.set(id, { view, state, focusedPane: 'desktop' });
     this.tabOrder.push(id);
 
-    if (capsuleIdForPreview) {
-      const cap = this.capsuleManager.list().find((c) => c.id.toLowerCase() === capsuleIdForPreview!.toLowerCase());
+    if (capsuleIdForTab && url.startsWith('antifan-preview://')) {
+      const cap = this.capsuleManager.list().find((c) => c.id.toLowerCase() === capsuleIdForTab!.toLowerCase());
       if (cap && cap.workspacePath && fs.existsSync(cap.workspacePath)) {
         const unsub = this.previewWatcherPool.retain(cap.id, cap.workspacePath, (event) => {
           this.dispatchScopedReload(cap.id, event);
@@ -2277,7 +2309,7 @@ export class NativeTabHost extends EventEmitter {
       }
     }
     const wc = view.webContents;
-    this.setSafeUserAgent(wc, this.defaultUserAgent);
+    applyGoogleAuthIdentity(wc, url, this.defaultUserAgent);
     if (url.startsWith('view-source:')) {
       const sourceTargetUrl = url.slice('view-source:'.length).trim();
       state.title = `view-source:${sourceTargetUrl}`;
@@ -2320,7 +2352,7 @@ export class NativeTabHost extends EventEmitter {
       if (!target.view || target.view.webContents.isDestroyed()) {
         console.warn(`[native-tab-host] Target tab ${tabId} webContents is destroyed; recreating view`);
         target.view = new WebContentsView({
-          webPreferences: getSecureWebPreferences(),
+          webPreferences: getSecureWebPreferences(target.state.partition),
         });
         try { target.view.setBackgroundColor('#ffffff'); } catch {}
         target.state.crashed = false;
@@ -2883,7 +2915,7 @@ export class NativeTabHost extends EventEmitter {
 
       if (!tab.mobileView) {
         const mobileView = new WebContentsView({
-          webPreferences: getSecureWebPreferences(),
+          webPreferences: getSecureWebPreferences(tab.state.partition),
         });
         mobileView.setBackgroundColor('#00000000');
         const mobilePreset = DEVICE_PRESETS.find((p) => p.id === tab.state.splitMobilePresetId) || DEVICE_PRESETS.find((p) => p.id === DEFAULT_SPLIT_MOBILE_PRESET);
@@ -4003,7 +4035,10 @@ export class NativeTabHost extends EventEmitter {
           }
           if (data.activeChromeProfileId) {
             ChromeProfileSyncManager.getInstance().activeProfileId = data.activeChromeProfileId;
-            ChromeProfileSyncManager.getInstance().syncProfile(data.activeChromeProfileId).catch(() => {});
+            const activeCapsule = this.capsuleManager.getActive();
+            const partition = deriveCapsulePartition(activeCapsule?.id);
+            const targetSession = session.fromPartition(partition);
+            ChromeProfileSyncManager.getInstance().syncProfile(data.activeChromeProfileId, targetSession).catch(() => {});
           }
           if (Array.isArray(data.bookmarks) && data.bookmarks.length > 0) {
             this.bookmarks = data.bookmarks;
@@ -4013,7 +4048,10 @@ export class NativeTabHost extends EventEmitter {
             for (const rawTab of data.tabs) {
               const migrated = migratePersistedTab(rawTab);
               const safeUrl = cleanRestoredUrl(migrated.url || 'about:blank');
-              const id = this.createTab(safeUrl, false);
+              const id = this.createTab(safeUrl, false, {
+                capsuleId: migrated.capsuleId,
+                userAgentMode: migrated.userAgentMode,
+              });
               const tab = this.tabs.get(id);
               if (tab) {
                 if (migrated.title) tab.state.title = migrated.title;

@@ -680,7 +680,9 @@ export function sanitizeTabForPersistence(tab: AntiFanTab): Partial<AntiFanTab> 
   if (tab.capsuleId) {
     clean.capsuleId = tab.capsuleId;
   }
-
+  if (tab.userAgentMode) {
+    clean.userAgentMode = tab.userAgentMode;
+  }
   if (tab.splitMode) {
     clean.splitMode = true;
     clean.splitDesktopPresetId = tab.splitDesktopPresetId || DEFAULT_SPLIT_DESKTOP_PRESET;
@@ -711,8 +713,8 @@ export function migratePersistedTab(raw: Partial<AntiFanTab> | null | undefined)
     zoomFactor: typeof raw.zoomFactor === 'number' && !isNaN(raw.zoomFactor) ? raw.zoomFactor : 1.0,
     devicePresetId: typeof raw.devicePresetId === 'string' ? raw.devicePresetId : undefined,
     capsuleId: typeof raw.capsuleId === 'string' ? raw.capsuleId : undefined,
+    userAgentMode: raw.userAgentMode === 'native' ? 'native' : (raw.userAgentMode === 'clean' ? 'clean' : undefined),
   };
-
   if (raw.splitMode === true) {
     result.splitMode = true;
     result.splitDesktopPresetId =

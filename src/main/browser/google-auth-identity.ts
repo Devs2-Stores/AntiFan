@@ -1,12 +1,9 @@
-import { WebContents } from 'electron';
+import { WebContents, Session } from 'electron';
 
 const GOOGLE_AUTH_HOSTS = new Set([
   'accounts.google.com',
   'accounts.youtube.com',
-  'myaccount.google.com',
-  'oauth2.googleapis.com',
 ]);
-
 export function getChromeVersion(): string {
   return process.versions.chrome || '150.0.7871.224';
 }
@@ -15,17 +12,44 @@ export function getChromeMajorVersion(): string {
   return getChromeVersion().split('.')[0] || '150';
 }
 
-
 export function isGoogleAuthUrl(rawUrl: string): boolean {
   try {
-    const hostname = new URL(rawUrl).hostname.toLowerCase();
-    return GOOGLE_AUTH_HOSTS.has(hostname);
+    const parsed = new URL(rawUrl);
+    const hostname = parsed.hostname.toLowerCase();
+    const pathname = parsed.pathname.toLowerCase();
+    const search = parsed.search.toLowerCase();
+
+    // 1. Direct Google Auth hostnames
+    if (GOOGLE_AUTH_HOSTS.has(hostname)) return true;
+
+    // 2. Google domain authentication flows (Gmail, Drive, Docs, Workspace, etc.)
+    if (isGoogleDomain(hostname)) {
+      if (
+        pathname.includes('/signin') ||
+        pathname.includes('/servicelogin') ||
+        pathname.includes('/accountchooser') ||
+        pathname.includes('/identifier') ||
+        pathname.includes('/v3/signin') ||
+        pathname.includes('/o/oauth2') ||
+        search.includes('flowname=glifwebsignin') ||
+        search.includes('flowname=weblitesignin') ||
+        search.includes('flowentry=') ||
+        search.includes('service=mail') ||
+        search.includes('service=accountsettings') ||
+        search.includes('continue=https%3a%2f%2fmail.google.com') ||
+        search.includes('continue=https://mail.google.com')
+      ) {
+        return true;
+      }
+    }
+
+    return false;
   } catch {
     return false;
   }
 }
 
-export function googleAuthUserAgent(): string {
+export function chromeSessionUserAgent(): string {
   const version = getChromeVersion();
   const platform = process.platform === 'darwin'
     ? 'Macintosh; Intel Mac OS X 10_15_7'
@@ -35,18 +59,44 @@ export function googleAuthUserAgent(): string {
   return `Mozilla/5.0 (${platform}) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${version} Safari/537.36`;
 }
 
+export function googleAuthUserAgent(): string {
+  const platform = process.platform === 'darwin'
+    ? 'Macintosh; Intel Mac OS X 10.15'
+    : process.platform === 'win32'
+      ? 'Windows NT 10.0; Win64; x64'
+      : 'X11; Linux x86_64';
+  return `Mozilla/5.0 (${platform}; rv:140.0) Gecko/20100101 Firefox/140.0`;
+}
+
+export function buildChromeClientHints(ua: string): { secChUa: string; secChUaFull: string } | null {
+  const chromeMatch = ua.match(/Chrome\/([\d.]+)/);
+  if (!chromeMatch || !chromeMatch[1]) return null;
+  const fullChromeVersion = chromeMatch[1];
+  const majorVersion = fullChromeVersion.split('.')[0] || '150';
+  let brand = 'Google Chrome';
+  let brandFullVersion = fullChromeVersion;
+  const edgeMatch = ua.match(/Edg\/([\d.]+)/);
+  if (edgeMatch && edgeMatch[1]) {
+    brand = 'Microsoft Edge';
+    brandFullVersion = edgeMatch[1];
+  }
+  const brandMajor = brandFullVersion.split('.')[0] || majorVersion;
+  return {
+    secChUa: `"${brand}";v="${brandMajor}", "Chromium";v="${majorVersion}", "Not/A)Brand";v="24"`,
+    secChUaFull: `"${brand}";v="${brandFullVersion}", "Chromium";v="${fullChromeVersion}", "Not/A)Brand";v="24.0.0.0"`
+  };
+}
+
 export function setChromeClientHints(headers: Record<string, string>): void {
   const major = getChromeMajorVersion();
   const platform = process.platform === 'darwin' ? 'macOS' : process.platform === 'win32' ? 'Windows' : 'Linux';
-  
-  // Set Chromium Client Hints aligned with real Google Chrome desktop policy
   headers['sec-ch-ua'] = `"Chromium";v="${major}", "Not=A?Brand";v="24", "Google Chrome";v="${major}"`;
   headers['sec-ch-ua-mobile'] = '?0';
   headers['sec-ch-ua-platform'] = `"${platform}"`;
 }
 
 export function setGoogleAuthClientHints(headers: Record<string, string>): void {
-  setChromeClientHints(headers);
+  stripClientHints(headers);
 }
 
 export function stripClientHints(headers: Record<string, string>): void {
@@ -62,13 +112,133 @@ export function setUserAgentHeader(headers: Record<string, string>, value: strin
   headers[key] = value;
 }
 
-export async function applyGoogleAuthIdentity(contents: WebContents, url: string, baseUserAgent: string): Promise<void> {
-  if (contents.isDestroyed()) return;
-  if (!contents.debugger.isAttached()) return;
-  await contents.debugger.sendCommand('Emulation.setUserAgentOverride', {
-    userAgent: isGoogleAuthUrl(url) ? googleAuthUserAgent() : baseUserAgent,
-  }).catch(() => {});
+export function setupClientHintsOverride(sess: Session, ua?: string): void {
+  const defaultUa = ua || chromeSessionUserAgent();
+  const chromeHints = buildChromeClientHints(defaultUa);
+  const firefoxUa = googleAuthUserAgent();
+
+  sess.webRequest.onBeforeSendHeaders({ urls: ['https://*/*'] }, (details, callback) => {
+    const headers = details.requestHeaders;
+    const uaKey = Object.keys(headers).find((k) => k.toLowerCase() === 'user-agent');
+    const currentUa = uaKey ? headers[uaKey] : undefined;
+    const isFirefox = currentUa === firefoxUa || (currentUa && currentUa.includes('Firefox/'));
+
+    if (isGoogleAuthUrl(details.url)) {
+      setUserAgentHeader(headers, firefoxUa);
+      stripClientHints(headers);
+      callback({ requestHeaders: headers });
+      return;
+    }
+
+    if (isFirefox) {
+      stripClientHints(headers);
+      callback({ requestHeaders: headers });
+      return;
+    }
+
+    if (chromeHints) {
+      for (const key of Object.keys(headers)) {
+        const lower = key.toLowerCase();
+        if (lower === 'sec-ch-ua') headers[key] = chromeHints.secChUa;
+        else if (lower === 'sec-ch-ua-full-version-list') headers[key] = chromeHints.secChUaFull;
+      }
+    }
+    callback({ requestHeaders: headers });
+  });
 }
+
+export const ANTI_DETECTION_SCRIPT = `(function() {
+  try {
+    Object.defineProperty(navigator, 'webdriver', { get: () => false, configurable: true });
+  } catch {}
+
+  const loc = window.location;
+  const hostname = (loc.hostname || '').toLowerCase();
+  const pathname = (loc.pathname || '').toLowerCase();
+  const search = (loc.search || '').toLowerCase();
+
+  const isGoogleAuth = navigator.userAgent.includes('Firefox/') ||
+    hostname === 'accounts.google.com' ||
+    hostname === 'accounts.youtube.com' ||
+    pathname.includes('/signin') ||
+    pathname.includes('/servicelogin') ||
+    pathname.includes('/accountchooser') ||
+    pathname.includes('/identifier') ||
+    pathname.includes('/v3/signin') ||
+    search.includes('flowname=glifwebsignin') ||
+    search.includes('flowname=weblitesignin') ||
+    search.includes('flowentry=') ||
+    search.includes('service=mail');
+
+  if (isGoogleAuth) {
+    try {
+      delete window.chrome;
+      if (window.constructor && window.constructor.prototype) {
+        delete window.constructor.prototype.chrome;
+      }
+      const proto = Object.getPrototypeOf(window);
+      if (proto) delete proto.chrome;
+    } catch {}
+
+    try {
+      delete navigator.userAgentData;
+      if (typeof Navigator !== 'undefined' && Navigator.prototype) {
+        delete Navigator.prototype.userAgentData;
+      }
+      const navProto = Object.getPrototypeOf(navigator);
+      if (navProto) delete navProto.userAgentData;
+    } catch {}
+
+    try {
+      if (!window.InstallTrigger) {
+        window.InstallTrigger = {};
+      }
+    } catch {}
+
+    try {
+      Object.defineProperty(navigator, 'oscpu', { get: () => 'Windows NT 10.0; Win64; x64', configurable: true });
+      Object.defineProperty(navigator, 'buildID', { get: () => '20181001000000', configurable: true });
+      Object.defineProperty(navigator, 'pdfViewerEnabled', { get: () => true, configurable: true });
+    } catch {}
+  } else {
+    if (navigator.plugins.length === 0) {
+      try {
+        Object.defineProperty(navigator, 'plugins', {
+          get: () => [
+            { name: 'Chrome PDF Plugin', filename: 'internal-pdf-viewer' },
+            { name: 'Chrome PDF Viewer', filename: 'mhjfbmdgcfjbbpaeojofohoefgiehjai' },
+            { name: 'Native Client', filename: 'internal-nacl-plugin' }
+          ],
+          configurable: true,
+        });
+      } catch {}
+    }
+    if (!window.chrome) {
+      window.chrome = {
+        app: { isInstalled: false },
+        runtime: { PlatformOs: { MAC: 'mac', WIN: 'win', ANDROID: 'android', CROS: 'cros', LINUX: 'linux', OPENBSD: 'openbsd' } },
+        csi: function() {},
+        loadTimes: function() {}
+      };
+    }
+  }
+})();`;
+
+export function applyGoogleAuthIdentity(contents: WebContents | null | undefined, url: string, baseUserAgent?: string): void {
+  if (!contents || (typeof contents.isDestroyed === 'function' && contents.isDestroyed())) return;
+  const targetUa = isGoogleAuthUrl(url) ? googleAuthUserAgent() : (baseUserAgent || chromeSessionUserAgent());
+  try {
+    if (typeof contents.setUserAgent === 'function') {
+      const currentUa = typeof contents.getUserAgent === 'function' ? contents.getUserAgent() : undefined;
+      if (currentUa !== targetUa) {
+        contents.setUserAgent(targetUa);
+      }
+    }
+  } catch (err) {
+    console.warn('[google-auth-identity] Failed to set user agent:', err);
+  }
+}
+
 
 export function isGoogleDomain(domain?: string): boolean {
   if (!domain) return false;

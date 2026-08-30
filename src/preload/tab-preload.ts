@@ -1,16 +1,131 @@
 /**
  * AntiFan Browser Desktop — Tab Preload Script
- * Lightweight preload for JSON Viewer and tab utilities.
- * Does NOT monkey-patch navigator/window prototypes to preserve 100% native Google BotGuard and Cloudflare compatibility.
+ * Lightweight preload for JSON Viewer, tab utilities, and anti-detection consistency.
  */
 import { ipcRenderer } from 'electron';
+
+// 1. Browser Identity & Anti-Detection Consistency
+(() => {
+  if (typeof window === 'undefined' || typeof navigator === 'undefined') return;
+
+  const loc = window.location;
+  const hostname = (loc.hostname || '').toLowerCase();
+  const pathname = (loc.pathname || '').toLowerCase();
+  const search = (loc.search || '').toLowerCase();
+
+  const isGoogleAuth = navigator.userAgent.includes('Firefox/') ||
+    hostname === 'accounts.google.com' ||
+    hostname === 'accounts.youtube.com' ||
+    pathname.includes('/signin') ||
+    pathname.includes('/servicelogin') ||
+    pathname.includes('/accountchooser') ||
+    pathname.includes('/identifier') ||
+    pathname.includes('/v3/signin') ||
+    search.includes('flowname=glifwebsignin') ||
+    search.includes('flowname=weblitesignin') ||
+    search.includes('flowentry=') ||
+    search.includes('service=mail');
+
+  if (isGoogleAuth) {
+    try {
+      Object.defineProperty(navigator, 'webdriver', { get: () => false, configurable: true });
+    } catch {}
+
+    try {
+      const platform = navigator.platform || 'Win32';
+      const platformStr = platform.includes('Mac')
+        ? 'Macintosh; Intel Mac OS X 10.15'
+        : platform.includes('Win')
+          ? 'Windows NT 10.0; Win64; x64'
+          : 'X11; Linux x86_64';
+      const firefoxUa = `Mozilla/5.0 (${platformStr}; rv:140.0) Gecko/20100101 Firefox/140.0`;
+      Object.defineProperty(navigator, 'userAgent', { get: () => firefoxUa, configurable: true });
+      Object.defineProperty(navigator, 'appVersion', { get: () => `5.0 (${platformStr})`, configurable: true });
+    } catch {}
+
+    try {
+      delete (window as unknown as Record<string, unknown>).chrome;
+      if (window.constructor && window.constructor.prototype) {
+        delete (window.constructor.prototype as unknown as Record<string, unknown>).chrome;
+      }
+      const proto = Object.getPrototypeOf(window) as Record<string, unknown> | null;
+      if (proto) delete proto.chrome;
+    } catch {}
+
+    try {
+      delete (navigator as unknown as Record<string, unknown>).userAgentData;
+      if (typeof Navigator !== 'undefined' && Navigator.prototype) {
+        delete (Navigator.prototype as unknown as Record<string, unknown>).userAgentData;
+      }
+      const navProto = Object.getPrototypeOf(navigator) as Record<string, unknown> | null;
+      if (navProto) delete navProto.userAgentData;
+    } catch {}
+
+    try {
+      if (!(window as unknown as Record<string, unknown>).InstallTrigger) {
+        (window as unknown as Record<string, unknown>).InstallTrigger = {};
+      }
+    } catch {}
+
+    try {
+      Object.defineProperty(navigator, 'oscpu', { get: () => 'Windows NT 10.0; Win64; x64', configurable: true });
+      Object.defineProperty(navigator, 'buildID', { get: () => '20181001000000', configurable: true });
+      Object.defineProperty(navigator, 'pdfViewerEnabled', { get: () => true, configurable: true });
+    } catch {}
+  } else {
+    try {
+      Object.defineProperty(navigator, 'webdriver', { get: () => false, configurable: true });
+    } catch {}
+
+    if (navigator.plugins.length === 0) {
+      try {
+        Object.defineProperty(navigator, 'plugins', {
+          get: () => [
+            { name: 'Chrome PDF Plugin', filename: 'internal-pdf-viewer' },
+            { name: 'Chrome PDF Viewer', filename: 'mhjfbmdgcfjbbpaeojofohoefgiehjai' },
+            { name: 'Native Client', filename: 'internal-nacl-plugin' },
+          ],
+          configurable: true,
+        });
+      } catch {}
+    }
+
+    const w = window as any;
+    if (!w.chrome) {
+      w.chrome = {};
+    }
+    if (!w.chrome.csi) {
+      w.chrome.csi = function () {
+        return { startE: Date.now(), onloadT: Date.now(), pageT: performance.now(), tran: 15 };
+      };
+    }
+    if (!w.chrome.loadTimes) {
+      w.chrome.loadTimes = function () {
+        return {
+          commitLoadTime: Date.now() / 1000,
+          connectionInfo: 'h2',
+          finishDocumentLoadTime: Date.now() / 1000,
+          finishLoadTime: Date.now() / 1000,
+          firstPaintAfterLoadTime: 0,
+          firstPaintTime: Date.now() / 1000,
+          navigationType: 'Other',
+          npnNegotiatedProtocol: 'h2',
+          requestTime: Date.now() / 1000 - 0.16,
+          startLoadTime: Date.now() / 1000 - 0.3,
+          wasAlternateProtocolAvailable: false,
+          wasFetchedViaSpdy: true,
+          wasNpnNegotiated: true,
+        };
+      };
+    }
+  }
+})();
 
 const isGoogleProperty = typeof window !== 'undefined' && (
   /(^|\.)(google\.(com?(\.[a-z]{2})?|[a-z]{2})|youtube\.com|googleapis\.com|gstatic\.com|1e100\.net|gvt1\.com)$/i.test(window.location.hostname || '')
 );
 
 if (!isGoogleProperty) {
-  // Run tab preload only on non-Google properties to maintain 100% native BotGuard and OAuth compatibility
 // 2. Haravan Auto JSON Viewer (Tree View & Unicode Decoded - JSON endpoints only)
 window.addEventListener('DOMContentLoaded', () => {
   try {

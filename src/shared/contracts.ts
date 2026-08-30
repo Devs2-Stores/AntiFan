@@ -23,6 +23,8 @@ export interface AntiFanTab {
   themeError?: string | null;
   terminalSessionId?: string;
   capsuleId?: string;
+  userAgentMode?: 'clean' | 'native';
+  partition?: string;
   splitMode?: boolean;
   splitDesktopPresetId?: string;
   splitMobilePresetId?: string;

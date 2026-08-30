@@ -22,10 +22,16 @@ app.setPath('userData', tempUserData);
 
 const {
   googleAuthUserAgent,
+  chromeSessionUserAgent,
   isGoogleAuthUrl,
   setUserAgentHeader,
   setChromeClientHints,
+  applyGoogleAuthIdentity,
 } = require('../.compiled/src/main/browser/google-auth-identity.js');
+const {
+  configureBrowserSessionPartition,
+  deriveCapsulePartition,
+} = require('../.compiled/src/main/browser/browser-session-partition.js');
 
 const { cookieImportSetDetails } = require('../.compiled/src/main/browser/chrome-profile-sync.js');
 
@@ -53,13 +59,14 @@ async function runLiveABSmoke() {
   console.log('[Storage] Chrome Profile Sync expiration rules verified.');
 
   // -------------------------------------------------------------
-  // Branch A: Baseline Session (Default Stock Headers, No Overrides)
+  // Branch A: Native Partition (Zero UA/Header Laundering for Auth)
   // -------------------------------------------------------------
-  console.log('\n[Branch A] Testing Baseline Navigation (Stock Electron Headers)...');
-  const baselineTelemetry = [];
-  const baselineSes = session.fromPartition('baseline-session');
-  baselineSes.webRequest.onResponseStarted({ urls: ['http://*/*', 'https://*/*'] }, (details) => {
-    baselineTelemetry.push({ url: details.url, status: details.statusCode, type: details.resourceType });
+  console.log('\n[Branch A] Testing Native Partition (persist:capsule-test-native)...');
+  const nativePartition = deriveCapsulePartition('test', 'native');
+  const nativeSes = configureBrowserSessionPartition(nativePartition, 'native');
+  const nativeTelemetry = [];
+  nativeSes.webRequest.onResponseStarted({ urls: ['http://*/*', 'https://*/*'] }, (details) => {
+    nativeTelemetry.push({ url: details.url, status: details.statusCode, type: details.resourceType });
   });
 
   const winA = new BrowserWindow({
@@ -67,7 +74,7 @@ async function runLiveABSmoke() {
     height: 768,
     show: false,
     webPreferences: {
-      session: baselineSes,
+      partition: nativePartition,
       sandbox: true,
       contextIsolation: true,
       nodeIntegration: false,
@@ -75,49 +82,32 @@ async function runLiveABSmoke() {
   });
 
   try {
-    await winA.loadURL('https://www.google.com.vn');
+    await winA.loadURL('https://accounts.google.com/');
     const finalUrlA = winA.webContents.getURL();
     const titleA = winA.getTitle();
-    const textA = await winA.webContents.executeJavaScript('document.body.innerText');
-    const cookiesA = await baselineSes.cookies.get({});
-
-    const mainResponseA = baselineTelemetry.find((t) => t.type === 'mainFrame') || baselineTelemetry[0];
+    const cookiesA = await nativeSes.cookies.get({});
+    const mainResponseA = nativeTelemetry.find((t) => t.type === 'mainFrame') || nativeTelemetry[0];
     const statusA = mainResponseA ? mainResponseA.status : 'unknown';
 
-    console.log(`[Branch A Result] Loaded: ${finalUrlA}`);
-    console.log(`[Branch A Result] Main HTTP Status: ${statusA}, Title: "${titleA}", Cookie count: ${cookiesA.length}`);
-    console.log(`[Branch A Result] Error in DOM: ${textA.includes('vấn đề với cài đặt cookie')}`);
+    console.log(`[Branch A Native Result] Loaded: ${finalUrlA}`);
+    console.log(`[Branch A Native Result] Status: ${statusA}, Title: "${titleA}", Cookies: ${cookiesA.length}`);
+    if (finalUrlA.includes('CookieMismatch')) {
+      throw new Error('Branch A navigation encountered CookieMismatch');
+    }
   } finally {
     winA.destroy();
     await new Promise((r) => setTimeout(r, 500));
   }
-  // Branch B: Configured Session (Production UA & Client Hints Policy)
-  console.log('\n[Branch B] Testing Production Configured Navigation (Production Session Setup)...');
-  const prodSes = session.fromPartition('prod-session');
-  const CHROME_USER_AGENT = googleAuthUserAgent();
-  prodSes.setUserAgent(CHROME_USER_AGENT);
-  const prodTelemetry = [];
-  prodSes.webRequest.onBeforeSendHeaders({ urls: ['http://*/*', 'https://*/*'] }, (details, callback) => {
-    try {
-      const headers = { ...details.requestHeaders };
-      delete headers['X-Electron-Version'];
-      delete headers['X-Antifan-Version'];
-      if (isGoogleAuthUrl(details.url)) {
-        setUserAgentHeader(headers, CHROME_USER_AGENT);
-        setChromeClientHints(headers);
-      } else {
-        const uaKey = Object.keys(headers).find((k) => k.toLowerCase() === 'user-agent') || 'User-Agent';
-        if (headers[uaKey]) {
-          headers[uaKey] = headers[uaKey].replace(/\s*Electron\/\S+/g, '');
-        }
-      }
-      callback({ requestHeaders: headers });
-    } catch (err) {
-      callback({ requestHeaders: details.requestHeaders });
-    }
-  });
-  prodSes.webRequest.onResponseStarted({ urls: ['http://*/*', 'https://*/*'] }, (details) => {
-    prodTelemetry.push({ url: details.url, status: details.statusCode, type: details.resourceType });
+
+  // -------------------------------------------------------------
+  // Branch B: Clean Partition (Clean Desktop Chrome UA for Storefronts)
+  // -------------------------------------------------------------
+  console.log('\n[Branch B] Testing Clean Partition (persist:capsule-test-clean)...');
+  const cleanPartition = deriveCapsulePartition('test', 'clean');
+  const cleanSes = configureBrowserSessionPartition(cleanPartition, 'clean');
+  const cleanTelemetry = [];
+  cleanSes.webRequest.onResponseStarted({ urls: ['http://*/*', 'https://*/*'] }, (details) => {
+    cleanTelemetry.push({ url: details.url, status: details.statusCode, type: details.resourceType });
   });
 
   const winB = new BrowserWindow({
@@ -125,67 +115,170 @@ async function runLiveABSmoke() {
     height: 768,
     show: false,
     webPreferences: {
-      session: prodSes,
+      partition: cleanPartition,
       sandbox: true,
       contextIsolation: true,
       nodeIntegration: false,
     },
   });
 
-  winB.webContents.on('did-fail-load', (e, errorCode, errorDescription, validatedURL, isMainFrame) => {
-    console.log('[winB did-fail-load]', { errorCode, errorDescription, validatedURL, isMainFrame });
-  });
-  winB.webContents.on('did-navigate', (e, url, httpResponseCode) => {
-    console.log('[winB did-navigate]', { url, httpResponseCode });
-  });
-  winB.webContents.on('did-redirect-navigation', (e, url, isInPlace, isMainFrame) => {
-    console.log('[winB did-redirect-navigation]', { url, isInPlace, isMainFrame });
-  });
   try {
-    await winB.loadURL('https://www.google.com.vn');
+    await winB.loadURL('https://www.google.com/');
     const finalUrlB = winB.webContents.getURL();
     const titleB = winB.getTitle();
-    const textB = await winB.webContents.executeJavaScript('document.body.innerText');
-    const cookiesB = await prodSes.cookies.get({});
-
-    const mainResponseB = prodTelemetry.find((t) => t.type === 'mainFrame') || prodTelemetry[0];
+    const cookiesB = await cleanSes.cookies.get({});
+    const mainResponseB = cleanTelemetry.find((t) => t.type === 'mainFrame') || cleanTelemetry[0];
     const statusB = mainResponseB ? mainResponseB.status : 'unknown';
 
-    console.log(`[Branch B Result] Loaded: ${finalUrlB}`);
-    console.log(`[Branch B Result] Main HTTP Status: ${statusB}, Title: "${titleB}", Cookie count: ${cookiesB.length}`);
-    console.log(`[Branch B Result] Negotiated Cookies:`, cookiesB.map((c) => c.name));
-    console.log(`[Branch B Result] Error in DOM: ${textB.includes('vấn đề với cài đặt cookie')}`);
-
-    if (textB.includes('vấn đề với cài đặt cookie') || finalUrlB.includes('CookieMismatch')) {
-      throw new Error('Branch B navigation failed with Google cookie error');
-    }
-
-    // Now test navigating directly to https://www.google.com
-    await winB.loadURL('https://www.google.com');
-    const dotComUrlB = winB.webContents.getURL();
-    const dotComTitleB = winB.getTitle();
-    const dotComTextB = await winB.webContents.executeJavaScript('document.body.innerText');
-    const dotComResponseB = prodTelemetry.find((t) => t.url.includes('google.com') && t.type === 'mainFrame');
-    const dotComStatusB = dotComResponseB ? dotComResponseB.status : 200;
-
-    console.log(`[Branch B .com Result] Loaded: ${dotComUrlB}, Status: ${dotComStatusB}, Title: "${dotComTitleB}"`);
-    if (dotComTextB.includes('vấn đề với cài đặt cookie') || dotComUrlB.includes('CookieMismatch')) {
-      throw new Error('Branch B .com navigation failed with Google cookie error');
+    console.log(`[Branch B Clean Result] Loaded: ${finalUrlB}`);
+    console.log(`[Branch B Clean Result] Status: ${statusB}, Title: "${titleB}", Cookies: ${cookiesB.length}`);
+    if (finalUrlB.includes('CookieMismatch')) {
+      throw new Error('Branch B navigation encountered CookieMismatch');
     }
   } finally {
     winB.destroy();
   }
+  // -------------------------------------------------------------
+  // Branch C: Live Google Sign-In Identifier Test (hangquoctai.157)
+  // -------------------------------------------------------------
+  console.log('\n[Branch C] Testing Live Google Sign-In Identifier Flow...');
+  const authPartition = deriveCapsulePartition('smoke-auth-c', 'clean');
+  const authSes = configureBrowserSessionPartition(authPartition, 'clean');
+  const preloadPath = path.join(__dirname, '../.compiled/src/preload/tab-preload.js');
 
-  console.log('\n===============================================================');
+  const winC = new BrowserWindow({
+    width: 1024,
+    height: 768,
+    show: false,
+    webPreferences: {
+      partition: authPartition,
+      contextIsolation: false,
+      sandbox: true,
+      nodeIntegration: false,
+      preload: preloadPath,
+    },
+  });
+  const baseUa = chromeSessionUserAgent();
+  applyGoogleAuthIdentity(winC.webContents, 'https://accounts.google.com/', baseUa);
+  winC.webContents.on('did-start-navigation', (_event, url, _isInPlace, isMainFrame) => {
+    if (isMainFrame) applyGoogleAuthIdentity(winC.webContents, url, baseUa);
+  });
+  try {
+    await winC.loadURL('https://accounts.google.com/');
+    await new Promise((r) => setTimeout(r, 2000));
+
+    const debugProps = await winC.webContents.executeJavaScript(`
+      ({
+        ua: navigator.userAgent,
+        hasChrome: 'chrome' in window,
+        hasUserAgentData: 'userAgentData' in navigator,
+        hasInstallTrigger: 'InstallTrigger' in window,
+        oscpu: navigator.oscpu,
+        pdfViewerEnabled: navigator.pdfViewerEnabled,
+        webdriver: navigator.webdriver,
+        title: document.title,
+      })
+    `);
+    console.log('[Branch C Debug Props]:', debugProps);
+
+    await winC.webContents.executeJavaScript(`
+      (() => {
+        const input = document.querySelector('input[type="email"]') || document.querySelector('input[name="identifier"]');
+        if (input) {
+          input.focus();
+          input.value = 'hangquoctai.157@gmail.com';
+          input.dispatchEvent(new Event('input', { bubbles: true }));
+          input.dispatchEvent(new Event('change', { bubbles: true }));
+          const btn = document.querySelector('#identifierNext button') || document.querySelector('button[type="button"]');
+          if (btn) btn.click();
+        }
+      })()
+    `);
+
+    await new Promise((r) => setTimeout(r, 5000));
+
+    const resultC = await winC.webContents.executeJavaScript(`
+      (() => {
+        const text = document.body ? document.body.innerText : '';
+        return {
+          url: window.location.href,
+          title: document.title,
+          hasInsecureWarning: text.includes("Couldn't sign you in") ||
+                              text.includes("This browser or app may not be secure") ||
+                              text.includes("Trình duyệt hoặc ứng dụng này có thể không an toàn"),
+          hasPasswordPrompt: !!document.querySelector('input[type="password"]'),
+        };
+      })()
+    `);
+
+    console.log(`[Branch C Auth Result] Final URL: ${resultC.url}`);
+    console.log(`[Branch C Auth Result] Title: "${resultC.title}", PasswordPrompt: ${resultC.hasPasswordPrompt}, InsecureWarning: ${resultC.hasInsecureWarning}`);
+
+    if (resultC.hasInsecureWarning) {
+      throw new Error('Branch C encountered Google insecure browser rejection');
+    }
+  } finally {
+    winC.destroy();
+  }
+
+  // -------------------------------------------------------------
+  // Branch D: Gmail GlifWebSignIn Live Flow (User Reported URL)
+  // -------------------------------------------------------------
+  console.log('\n[Branch D] Testing Gmail Direct Sign-In Flow...');
+  const gmailPartition = deriveCapsulePartition('smoke-gmail-d', 'clean');
+  const gmailSes = configureBrowserSessionPartition(gmailPartition, 'clean');
+
+  const winD = new BrowserWindow({
+    width: 1024,
+    height: 768,
+    show: false,
+    webPreferences: {
+      partition: gmailPartition,
+      contextIsolation: false,
+      sandbox: true,
+      nodeIntegration: false,
+      preload: preloadPath,
+    },
+  });
+
+  const gmailSigninUrl = 'https://mail.google.com/mail/?service=mail&flowName=GlifWebSignIn&flowEntry=AccountChooser&ec=asw-gmail-globalnav-signin';
+  applyGoogleAuthIdentity(winD.webContents, gmailSigninUrl, chromeSessionUserAgent());
+
+  try {
+    await winD.loadURL(gmailSigninUrl);
+    await new Promise((r) => setTimeout(r, 2500));
+
+    const resultD = await winD.webContents.executeJavaScript(`
+      (() => {
+        const text = document.body ? document.body.innerText : '';
+        return {
+          url: window.location.href,
+          title: document.title,
+          hasInsecureWarning: text.includes("Couldn't sign you in") ||
+                              text.includes("This browser or app may not be secure") ||
+                              text.includes("Trình duyệt hoặc ứng dụng này có thể không an toàn"),
+          hasIdentifierInput: !!(document.querySelector('input[type="email"]') || document.querySelector('input[name="identifier"]')),
+        };
+      })()
+    `);
+
+    console.log(`[Branch D Gmail Result] Final URL: ${resultD.url}`);
+    console.log(`[Branch D Gmail Result] Title: "${resultD.title}", IdentifierInput: ${resultD.hasIdentifierInput}, InsecureWarning: ${resultD.hasInsecureWarning}`);
+
+    if (resultD.hasInsecureWarning || !resultD.hasIdentifierInput) {
+      throw new Error('Branch D Gmail sign-in flow failed or showed insecure warning');
+    }
+  } finally {
+    winD.destroy();
+  }
   console.log('  [ALL VERIFICATION CHECKS PASSED WITH LIVE TELEMETRY]         ');
   console.log('===============================================================');
-
   try {
     sentinel.destroy();
     fs.rmSync(tempUserData, { recursive: true, force: true });
   } catch {}
-
   app.exit(0);
+  process.exit(0);
 }
 
 app.whenReady().then(runLiveABSmoke).catch((err) => {

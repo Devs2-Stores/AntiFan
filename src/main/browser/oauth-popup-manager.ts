@@ -6,7 +6,7 @@
  * sharing the parent tab session, and routes standard links to new browser tabs.
  */
 import { BrowserWindow, WebContents, HandlerDetails, WindowOpenHandlerResponse } from 'electron';
-
+import { getSecureWebPreferences } from '../security/security-policy';
 export interface OAuthHandlerOptions {
   onNewTabRequested?: (url: string) => void;
 }
@@ -93,10 +93,8 @@ export class OAuthPopupManager {
           backgroundColor: '#080c14',
           title: 'Xác thực Đăng nhập',
           webPreferences: {
+            ...getSecureWebPreferences(),
             session: parentContents.session,
-            sandbox: true,
-            nodeIntegration: false,
-            contextIsolation: true,
           },
         },
       };
