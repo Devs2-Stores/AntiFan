@@ -46,6 +46,7 @@ interface PendingOutboundFrame {
   coalesceKey: string | null;
   sessionId?: string;
   data?: string;
+  seq?: number;
 }
 
 interface BridgeCongestionState {
@@ -1128,9 +1129,16 @@ export class BridgeServer {
 
     const raw = JSON.stringify({ event, data } as BridgeEventPayload);
     const bytes = Buffer.byteLength(raw, 'utf8');
-    const dataText = terminalSessionId
-      ? String(data && typeof data === 'object' && 'data' in data ? data.data ?? '' : '')
-      : '';
+    let dataText = '';
+    let seq: number | undefined;
+    if (terminalSessionId && data && typeof data === 'object') {
+      if ('data' in data && data.data !== undefined) {
+        dataText = String(data.data ?? '');
+      }
+      if ('seq' in data && typeof data.seq === 'number') {
+        seq = data.seq;
+      }
+    }
 
     const state = this.getCongestionState(ws);
     if (state.queue.length === 0 && ws.bufferedAmount + bytes <= BRIDGE_SOFT_HIGH_WATER) {
@@ -1146,18 +1154,41 @@ export class BridgeServer {
       const last = state.queue[state.queue.length - 1];
       if (last && last.coalesceKey === terminalSessionId) {
         last.data = (last.data ?? '') + dataText;
-        last.bytes += bytes;
-        state.queuedBytes += bytes;
+        if (typeof seq === 'number') {
+          last.seq = typeof last.seq === 'number' ? Math.max(last.seq, seq) : seq;
+        }
+        const mergedRaw = JSON.stringify({
+          event: 'antifan:terminal:data',
+          data: {
+            sessionId: last.sessionId,
+            data: last.data,
+            ...(typeof last.seq === 'number' ? { seq: last.seq } : {}),
+          },
+        });
+        const newBytes = Buffer.byteLength(mergedRaw, 'utf8');
+        const diff = newBytes - last.bytes;
+        last.bytes = newBytes;
+        state.queuedBytes += diff;
         if (state.queuedBytes > BRIDGE_QUEUE_HARD_CAP) {
           this.dropSlowClient(ws);
         }
         return;
       }
-      state.queue.push({ raw: '', bytes, coalesceKey: terminalSessionId, sessionId: terminalSessionId, data: dataText });
+      const initialRaw = JSON.stringify({
+        event: 'antifan:terminal:data',
+        data: {
+          sessionId: terminalSessionId,
+          data: dataText,
+          ...(typeof seq === 'number' ? { seq } : {}),
+        },
+      });
+      const initialBytes = Buffer.byteLength(initialRaw, 'utf8');
+      state.queue.push({ raw: '', bytes: initialBytes, coalesceKey: terminalSessionId, sessionId: terminalSessionId, data: dataText, seq });
+      state.queuedBytes += initialBytes;
     } else {
       state.queue.push({ raw, bytes, coalesceKey: null });
+      state.queuedBytes += bytes;
     }
-    state.queuedBytes += bytes;
     if (state.queuedBytes > BRIDGE_QUEUE_HARD_CAP) {
       this.dropSlowClient(ws);
       return;
@@ -1172,7 +1203,14 @@ export class BridgeServer {
     while (state.queue.length > 0 && ws.bufferedAmount < BRIDGE_SOFT_HIGH_WATER) {
       const frame = state.queue[0]!;
       const raw = frame.coalesceKey
-        ? JSON.stringify({ event: 'antifan:terminal:data', data: { sessionId: frame.sessionId, data: frame.data } })
+        ? JSON.stringify({
+            event: 'antifan:terminal:data',
+            data: {
+              sessionId: frame.sessionId,
+              data: frame.data,
+              ...(typeof frame.seq === 'number' ? { seq: frame.seq } : {}),
+            },
+          })
         : frame.raw;
       const frameBytes = frame.bytes;
       try {

@@ -17,7 +17,9 @@ interface AntiFanTerminalApi {
   pasteImageFromClipboard?: () => Promise<{ ok: boolean; imagePath: string | null }>;
   savePastedImageBuffer?: (data: string) => Promise<{ ok: boolean; imagePath: string | null }>;
   onPopoutStateChanged?: (callback: (isPopout: boolean) => void) => () => void;
-  onTerminalData: (callback: (data: string) => void) => () => void;
+  getFullBuffer?: (sessionId?: string) => Promise<{ sessionId: string; buffer: string; snapshotThroughSeq: number }>;
+  onTerminalSession?: (callback: (state: unknown) => void) => () => void;
+  onTerminalData: (callback: (data: { sessionId: string; data: string; seq: number }) => void) => () => void;
 }
 
 declare global {
@@ -171,6 +173,77 @@ function flushWtBuffer() {
   }
 }
 
+let activeSessionId = '';
+let lastRenderedSeq = 0;
+let hydrationEpoch = 0;
+let activeHydratingEpoch: number | null = null;
+let liveQueue: Array<{ sessionId: string; seq: number; data: string; epoch: number }> = [];
+
+async function triggerDockHydration(targetSessionId: string, providedSnapshot?: string, providedSeq?: number) {
+  if (!targetSessionId || !terminalOutput) return;
+  activeSessionId = targetSessionId;
+  hydrationEpoch += 1;
+  const currentEpoch = hydrationEpoch;
+  activeHydratingEpoch = currentEpoch;
+
+  try {
+    let snapshot = providedSnapshot;
+    let snapshotSeq = providedSeq;
+
+    if (snapshot === undefined || snapshotSeq === undefined) {
+      const api = getApi();
+      if (!api?.getFullBuffer) return;
+      try {
+        const res = await api.getFullBuffer(targetSessionId);
+        if (hydrationEpoch !== currentEpoch) return;
+        snapshot = res.buffer || '';
+        snapshotSeq = res.snapshotThroughSeq || 0;
+      } catch {
+        return;
+      }
+    }
+
+    if (hydrationEpoch !== currentEpoch) return;
+
+    wtPendingBuffer = [];
+    if (wtRafId) {
+      cancelAnimationFrame(wtRafId);
+      wtRafId = null;
+    }
+    terminalOutput.innerHTML = '';
+    if (snapshot) {
+      const nodes = renderAnsiToNode(snapshot);
+      terminalOutput.appendChild(nodes);
+    }
+    lastRenderedSeq = snapshotSeq || 0;
+
+    while (liveQueue.length > 0) {
+      if (hydrationEpoch !== currentEpoch) return;
+      const batch = liveQueue.splice(0, liveQueue.length);
+      const pending = batch
+        .filter((item) => item.sessionId === activeSessionId && item.epoch === currentEpoch && item.seq > lastRenderedSeq)
+        .sort((a, b) => a.seq - b.seq);
+
+      for (const item of pending) {
+        const nodes = renderAnsiToNode(item.data);
+        terminalOutput.appendChild(nodes);
+        lastRenderedSeq = item.seq;
+      }
+    }
+
+    while (terminalOutput.childNodes.length > 2000) {
+      terminalOutput.removeChild(terminalOutput.firstChild!);
+    }
+    if (terminalBody) {
+      terminalBody.scrollTop = terminalBody.scrollHeight;
+    }
+  } finally {
+    if (hydrationEpoch === currentEpoch) {
+      activeHydratingEpoch = null;
+    }
+  }
+}
+
 function appendTerminalData(data: string) {
   if (!terminalOutput) return;
   wtPendingBuffer.push(data);
@@ -185,8 +258,35 @@ function initTerminal() {
 
   api.startTerminal();
 
-  api.onTerminalData((data) => {
-    appendTerminalData(data);
+  api.onTerminalSession?.((rawState: unknown) => {
+    const state = rawState as { activeSessionId?: string; snapshot?: string; snapshotThroughSeq?: number } | null;
+    if (state?.activeSessionId) {
+      triggerDockHydration(state.activeSessionId, state.snapshot, state.snapshotThroughSeq);
+    }
+  });
+
+  api.onTerminalData((payload: { sessionId: string; data: string; seq: number }) => {
+    if (!payload || !payload.sessionId || !activeSessionId || payload.sessionId !== activeSessionId) {
+      return;
+    }
+
+    if (activeHydratingEpoch !== null) {
+      liveQueue.push({
+        sessionId: payload.sessionId,
+        seq: payload.seq,
+        data: payload.data,
+        epoch: hydrationEpoch,
+      });
+      return;
+    }
+
+    if (payload.seq > 0 && payload.seq <= lastRenderedSeq) {
+      return;
+    }
+    if (payload.seq > 0) {
+      lastRenderedSeq = payload.seq;
+    }
+    appendTerminalData(payload.data);
   });
 
   if (terminalBody) {

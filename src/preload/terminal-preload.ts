@@ -24,8 +24,16 @@ const terminalApi = {
       ipcRenderer.removeListener(TERMINAL_CHANNELS.POPOUT_STATE_CHANGED, handler);
     };
   },
-  onTerminalData: (callback: (data: string) => void) => {
-    const handler = (_event: unknown, data: string) => callback(data);
+  getFullBuffer: (sessionId?: string) => ipcRenderer.invoke(TERMINAL_CHANNELS.GET_FULL_BUFFER, sessionId),
+  onTerminalSession: (callback: (state: unknown) => void) => {
+    const handler = (_event: unknown, state: unknown) => callback(state);
+    ipcRenderer.on('antifan:terminal:session', handler);
+    return () => {
+      ipcRenderer.removeListener('antifan:terminal:session', handler);
+    };
+  },
+  onTerminalData: (callback: (data: { sessionId: string; data: string; seq: number } | string) => void) => {
+    const handler = (_event: unknown, data: { sessionId: string; data: string; seq: number } | string) => callback(data);
     ipcRenderer.on(TERMINAL_CHANNELS.DATA, handler);
     return () => {
       ipcRenderer.removeListener(TERMINAL_CHANNELS.DATA, handler);

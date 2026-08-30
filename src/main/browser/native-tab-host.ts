@@ -384,16 +384,7 @@ export class NativeTabHost extends EventEmitter {
       standaloneHtml = path.join(process.cwd(), 'src', 'renderer', 'standalone.html');
     }
     this.sidebarView.webContents.on('did-finish-load', () => {
-      const tm = TerminalManager.getInstance();
-      const activeId = tm.getActiveSessionId();
-      const s = tm.getSession(activeId);
-      const activeSession = tm.listSessions().find(x => x.id === activeId);
-      safeSendWebContents(this.sidebarView?.webContents, 'antifan:terminal:session', {
-        activeSessionId: activeId,
-        sessions: tm.listSessions(),
-        splitSessionId: activeSession?.splitSessionId,
-        snapshot: s?.buffer || '',
-      });
+      safeSendWebContents(this.sidebarView?.webContents, 'antifan:terminal:session', TerminalManager.getInstance().getSessionState());
     });
     this.sidebarView.webContents.loadFile(standaloneHtml);
     // 3. Create Bottom Docked Terminal View
@@ -542,6 +533,9 @@ export class NativeTabHost extends EventEmitter {
     this.isSidebarOpen = !this.isSidebarOpen;
     this.updateLayout();
     this.broadcastState();
+    if (this.isSidebarOpen && this.sidebarView && !this.sidebarView.webContents.isDestroyed()) {
+      safeSendWebContents(this.sidebarView.webContents, 'antifan:terminal:session', TerminalManager.getInstance().getSessionState());
+    }
     return this.isSidebarOpen;
   }
 
@@ -549,6 +543,9 @@ export class NativeTabHost extends EventEmitter {
     this.isTerminalOpen = !this.isTerminalOpen;
     this.updateLayout();
     this.broadcastState();
+    if (this.isTerminalOpen && this.terminalView && !this.terminalView.webContents.isDestroyed()) {
+      safeSendWebContents(this.terminalView.webContents, 'antifan:terminal:session', TerminalManager.getInstance().getSessionState());
+    }
     return this.isTerminalOpen;
   }
 
@@ -787,15 +784,16 @@ export class NativeTabHost extends EventEmitter {
     });
 
     // Terminal IPC Handlers
-    TerminalManager.getInstance().on('data', (payload: { sessionId: string; data: string } | string) => {
-      const formatted = typeof payload === 'string'
-        ? { sessionId: TerminalManager.getInstance().getActiveSessionId(), data: payload }
-        : payload;
-      safeSendWebContents(this.sidebarView?.webContents, 'antifan:terminal:data', formatted);
-      safeSendWebContents(this.terminalView?.webContents, TERMINAL_CHANNELS.DATA, formatted.data);
+    TerminalManager.getInstance().on('data', (payload: { sessionId: string; data: string; seq: number }) => {
+      if (this.isSidebarOpen && this.sidebarView && !this.sidebarView.webContents.isDestroyed()) {
+        safeSendWebContents(this.sidebarView.webContents, 'antifan:terminal:data', payload);
+      }
+      if (this.isTerminalOpen && this.terminalView && !this.terminalView.webContents.isDestroyed()) {
+        safeSendWebContents(this.terminalView.webContents, TERMINAL_CHANNELS.DATA, payload);
+      }
       for (const [id, win] of this.terminalWindows.entries()) {
         if (win && !win.isDestroyed()) {
-          safeSendWebContents(win.webContents, 'antifan:terminal:data', formatted);
+          safeSendWebContents(win.webContents, 'antifan:terminal:data', payload);
         } else {
           this.terminalWindows.delete(id);
         }
@@ -803,7 +801,12 @@ export class NativeTabHost extends EventEmitter {
     });
 
     TerminalManager.getInstance().on('session', (state: unknown) => {
-      safeSendWebContents(this.sidebarView?.webContents, 'antifan:terminal:session', state);
+      if (this.isSidebarOpen && this.sidebarView && !this.sidebarView.webContents.isDestroyed()) {
+        safeSendWebContents(this.sidebarView.webContents, 'antifan:terminal:session', state);
+      }
+      if (this.isTerminalOpen && this.terminalView && !this.terminalView.webContents.isDestroyed()) {
+        safeSendWebContents(this.terminalView.webContents, 'antifan:terminal:session', state);
+      }
       for (const [id, win] of this.terminalWindows.entries()) {
         if (win && !win.isDestroyed()) {
           safeSendWebContents(win.webContents, 'antifan:terminal:session', state);
@@ -811,6 +814,12 @@ export class NativeTabHost extends EventEmitter {
           this.terminalWindows.delete(id);
         }
       }
+    });
+
+    ipcMain.handle(TERMINAL_CHANNELS.GET_FULL_BUFFER, (_event, sessionId?: string) => {
+      const tm = TerminalManager.getInstance();
+      const targetId = sessionId || tm.getActiveSessionId();
+      return tm.getFullBuffer(targetId);
     });
     ipcMain.handle(TERMINAL_CHANNELS.START, (_event, cwd?: string) => {
       return TerminalManager.getInstance().startTerminal(cwd);
@@ -5111,6 +5120,28 @@ export class NativeTabHost extends EventEmitter {
         }
       } catch {}
       this.frameBackdropView = null;
+    }
+    if (this.sidebarView) {
+      try {
+        this.window.contentView.removeChildView(this.sidebarView);
+      } catch {}
+      try {
+        if (!this.sidebarView.webContents.isDestroyed()) {
+          (this.sidebarView.webContents as any).destroy?.();
+        }
+      } catch {}
+      this.sidebarView = null;
+    }
+    if (this.terminalView) {
+      try {
+        this.window.contentView.removeChildView(this.terminalView);
+      } catch {}
+      try {
+        if (!this.terminalView.webContents.isDestroyed()) {
+          (this.terminalView.webContents as any).destroy?.();
+        }
+      } catch {}
+      this.terminalView = null;
     }
     if (this.inspectPollTimer) {
       clearInterval(this.inspectPollTimer);

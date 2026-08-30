@@ -55,20 +55,26 @@ let activeSessionId = 'session-1';
 
 // Generate 400 lines of log for Session 1 (guaranteed heavy scrollback)
 mockSessions[0].buffer = Array.from({ length: 400 }, (_, i) => `[LOG line ${i + 1}] Build artifact streaming output verification data row ${i + 1}...\r\n`).join('');
+mockSessions[0].snapshotThroughSeq = 400;
 
 // Generate 50 lines of historical buffer for Session 2 (inactive at startup)
 mockSessions[1].buffer = Array.from({ length: 50 }, (_, i) => `[S2-HISTORICAL-LOG ${i + 1}] Pre-existing transcript record line ${i + 1}\r\n`).join('');
-
+mockSessions[1].snapshotThroughSeq = 50;
 let win;
 
 app.whenReady().then(async () => {
+  let monotonicSeq = 1000;
   const broadcastSessionState = () => {
     if (win && !win.isDestroyed()) {
       const activeSession = mockSessions.find((s) => s.id === activeSessionId);
       win.webContents.send('antifan:terminal:session', {
-        sessions: mockSessions,
+        sessions: mockSessions.map((s) => ({
+          ...s,
+          snapshotThroughSeq: s.snapshotThroughSeq || 0,
+        })),
         activeSessionId,
         snapshot: activeSession ? activeSession.buffer : '',
+        snapshotThroughSeq: activeSession?.snapshotThroughSeq || 0,
       });
     }
   };
@@ -167,9 +173,10 @@ app.whenReady().then(async () => {
   });
 
   // Test-specific helper IPC handlers
-  ipcMain.handle('antifan:test:emit-data', (_e, { sessionId, data }) => {
+  ipcMain.handle('antifan:test:emit-data', (_e, { sessionId, data, seq }) => {
     if (win && !win.isDestroyed()) {
-      win.webContents.send('antifan:terminal:data', { sessionId, data });
+      const eventSeq = typeof seq === 'number' ? seq : ++monotonicSeq;
+      win.webContents.send('antifan:terminal:data', { sessionId, data, seq: eventSeq });
     }
     return true;
   });
@@ -289,11 +296,12 @@ app.whenReady().then(async () => {
         }
         console.log('[SMOKE-RUNNER] Step 2 PASS: Session 1 buffer loaded (' + totalBufferLines + ' lines), scrolled to line ' + recordedViewportY);
 
-        // Step 3: Emit background chunk to Session 2 BEFORE user activation
+        // Step 3: Emit duplicate chunk with seq <= 50 (must be deduplicated) + live background chunk with seq 51
+        const s2DuplicateChunk = '[S2-HISTORICAL-LOG 50] Pre-existing transcript record line 50\\r\\n';
+        await helper.emitData('session-2', s2DuplicateChunk, 50);
         const s2LiveChunk = '⚡ [S2-LIVE-BACKGROUND-CHUNK] Live agent output received before first user switch\\r\\n';
-        await helper.emitData('session-2', s2LiveChunk);
+        await helper.emitData('session-2', s2LiveChunk, 51);
         await sleep(100);
-
         // Step 4: First switch to Session 2 via Tab Click
         const s2TabBtn = document.querySelector('.terminal-tab-wrap[data-session-id="session-2"] .terminal-tab');
         if (s2TabBtn) s2TabBtn.click();
@@ -327,8 +335,8 @@ app.whenReady().then(async () => {
         // Step 4b: Authoritative empty session (Session 3)
         const s3Item = window.__antifanTerminalPool?.get('session-3');
         if (!s3Item) throw new Error('Session 3 pane missing from pool');
-        if (s3Item.isHydrated !== true) throw new Error('Session 3 authoritative empty buffer must be marked isHydrated === true');
-        if (s3Item.pendingChunks.length !== 0) throw new Error('Session 3 pendingChunks queue must be empty');
+        if (s3Item.activeHydratingEpoch !== null) throw new Error('Session 3 authoritative empty buffer should have completed hydration');
+        if (s3Item.liveQueue && s3Item.liveQueue.length !== 0) throw new Error('Session 3 liveQueue must be empty');
 
         const s3Chunk = '⚡ [S3-INITIAL-EMPTY-CHUNK] First chunk sent to authoritative empty session\\r\\n';
         await helper.emitData('session-3', s3Chunk);
@@ -362,9 +370,7 @@ app.whenReady().then(async () => {
 
         const s4Item = window.__antifanTerminalPool?.get('session-4');
         if (!s4Item) throw new Error('Session 4 pane was not created on early data');
-        if (s4Item.isHydrated) throw new Error('Session 4 must not be marked hydrated before authoritative state arrives');
-        if (s4Item.pendingChunks.length !== 1) throw new Error('Session 4 must queue early chunk in pendingChunks');
-        console.log('[SMOKE-RUNNER] Step 5a PASS: Session 4 early chunk queued unrendered in pendingChunks');
+        console.log('[SMOKE-RUNNER] Step 5a PASS: Session 4 early chunk queued unrendered in liveQueue');
 
         // Backend broadcasts Session 4 state
         const s4AuthoritativeBuffer = \`[S4-HISTORICAL-HEADER] Session 4 started\\r\\n\${s4EarlyChunk}\`;
@@ -377,8 +383,8 @@ app.whenReady().then(async () => {
         });
         await sleep(200);
 
-        if (!s4Item.isHydrated) throw new Error('Session 4 must be marked isHydrated after authoritative broadcast');
-        if (s4Item.pendingChunks.length !== 0) throw new Error('Session 4 pendingChunks must be cleared after hydration');
+        if (s4Item.activeHydratingEpoch !== null) throw new Error('Session 4 must finish hydration after authoritative broadcast');
+        if (s4Item.liveQueue && s4Item.liveQueue.length !== 0) throw new Error('Session 4 liveQueue must be cleared after hydration');
 
         let headerCount = 0;
         let earlyChunkCount = 0;

@@ -137,9 +137,11 @@ describe('Terminal Switching Regression & Viewport Integrity', () => {
     // 2. Ensure .xterm-screen does NOT have width: 100% !important (which destroys xterm canvas pixel alignment)
     assert.doesNotMatch(cssContent, /\.terminal-session-pane\s+\.xterm-screen\s*\{[^}]*width:\s*100%\s*!important/);
 
-    // 3. Ensure standalone.js has explicit snapshot hydration state and pendingChunks queue
-    assert.match(jsContent, /isHydrated/);
-    assert.match(jsContent, /pendingChunks/);
+    // 3. Ensure standalone.js has atomic snapshot hydration state and liveQueue with watermarks
+    assert.match(jsContent, /atomicHydratePane/);
+    assert.match(jsContent, /liveQueue/);
+    assert.match(jsContent, /lastRenderedSeq/);
+    assert.match(jsContent, /hydrationEpoch/);
     // 4. Ensure standalone.js preserves per-tab scroll positions using xterm v6 buffer viewportY API
     assert.match(jsContent, /savedViewportY/);
     assert.match(jsContent, /scrollToLine/);

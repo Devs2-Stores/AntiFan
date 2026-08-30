@@ -93,8 +93,6 @@ app.name = 'AntiFan Browser Desktop';
 nativeTheme.themeSource = 'system';
 
 // Configure high-performance Chromium hardware acceleration and security switches
-app.commandLine.appendSwitch('ignore-gpu-blocklist');
-app.commandLine.appendSwitch('enable-gpu-rasterization');
 app.commandLine.appendSwitch('enable-smooth-scrolling');
 app.commandLine.appendSwitch('enable-accelerated-2d-canvas');
 app.commandLine.appendSwitch('enable-accelerated-video-decode');
@@ -103,7 +101,7 @@ app.commandLine.appendSwitch('enable-fast-unload');
 app.commandLine.appendSwitch('enable-tcp-fast-open');
 app.commandLine.appendSwitch('disk-cache-size', '536870912');
 app.commandLine.appendSwitch('media-cache-size', '268435456');
-app.commandLine.appendSwitch('enable-features', 'PasswordManager,Autofill,CanvasOopRasterization,SmoothScrolling,ParallelDownloading,BackForwardCache,AsyncImageDecoding');
+app.commandLine.appendSwitch('enable-features', 'PasswordManager,Autofill,SmoothScrolling,ParallelDownloading,BackForwardCache,AsyncImageDecoding');
 app.commandLine.appendSwitch('disable-blink-features', 'AutomationControlled');
 const CHROME_USER_AGENT = chromeSessionUserAgent();
 app.userAgentFallback = CHROME_USER_AGENT;

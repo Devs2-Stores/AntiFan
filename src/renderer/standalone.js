@@ -219,7 +219,7 @@ function setupTerminalClipboard(targetTerm, getSessionId) {
   });
 }
 
-const terminalPool = new Map(); // id -> { term, fit, paneEl, isHydrated, pendingChunks, savedViewportY }
+const terminalPool = new Map(); // id -> item
 window.__antifanTerminalPool = terminalPool;
 let splitEnabled = false;
 let splitId = '';
@@ -232,6 +232,141 @@ let isSplitUserScrolledUp = false;
 let isSplitProgrammaticScroll = false;
 let resizeDebounceTimer = null;
 const sessionSplitRatios = new Map();
+
+const splitSessionState = {
+  id: '',
+  lastRenderedSeq: 0,
+  hydrationEpoch: 0,
+  activeHydratingEpoch: null,
+  liveQueue: [],
+};
+
+function writeTermAsync(term, data) {
+  return new Promise((resolve) => {
+    try {
+      term.write(data, () => resolve());
+    } catch {
+      resolve();
+    }
+  });
+}
+
+async function atomicHydratePane(item, sessionId, providedSnapshot, providedSeq) {
+  if (!item || !item.term) return;
+  item.hydrationEpoch += 1;
+  const currentEpoch = item.hydrationEpoch;
+  item.activeHydratingEpoch = currentEpoch;
+
+  try {
+    let snapshot = providedSnapshot;
+    let snapshotSeq = providedSeq;
+
+    if (snapshot === undefined || snapshotSeq === undefined) {
+      if (api?.getFullBuffer) {
+        try {
+          const res = await api.getFullBuffer(sessionId);
+          if (item.hydrationEpoch !== currentEpoch) return;
+          snapshot = res?.buffer || '';
+          snapshotSeq = res?.snapshotThroughSeq || 0;
+        } catch {}
+      }
+    }
+
+    if (item.hydrationEpoch !== currentEpoch) return;
+
+    try {
+      if (item.writeTarget && window.globalTerminalWriteDispatcher) {
+        window.globalTerminalWriteDispatcher.cancel(item.writeTarget);
+      }
+    } catch {}
+
+    item.term.reset();
+    if (snapshot && snapshot.length > 0) {
+      await writeTermAsync(item.term, snapshot);
+    }
+    item.lastRenderedSeq = snapshotSeq || 0;
+
+    while (item.liveQueue.length > 0) {
+      if (item.hydrationEpoch !== currentEpoch) return;
+      const batch = item.liveQueue.splice(0, item.liveQueue.length);
+      const pending = batch
+        .filter((entry) => entry.epoch === currentEpoch && entry.seq > item.lastRenderedSeq)
+        .sort((a, b) => a.seq - b.seq);
+
+      for (const entry of pending) {
+        await writeTermAsync(item.term, entry.data);
+        item.lastRenderedSeq = entry.seq;
+      }
+    }
+
+    if (!item.isUserScrolledUp && item.paneEl && item.paneEl.classList.contains('active')) {
+      item.term.scrollToBottom();
+    }
+  } finally {
+    if (item.hydrationEpoch === currentEpoch) {
+      item.activeHydratingEpoch = null;
+    }
+  }
+}
+
+async function atomicHydrateSplitPane(splitSessionId, providedSnapshot, providedSeq) {
+  if (!splitTerm || !splitSessionId) return;
+  splitSessionState.id = splitSessionId;
+  splitSessionState.hydrationEpoch += 1;
+  const currentEpoch = splitSessionState.hydrationEpoch;
+  splitSessionState.activeHydratingEpoch = currentEpoch;
+
+  try {
+    let snapshot = providedSnapshot;
+    let snapshotSeq = providedSeq;
+
+    if (snapshot === undefined || snapshotSeq === undefined) {
+      if (api?.getFullBuffer) {
+        try {
+          const res = await api.getFullBuffer(splitSessionId);
+          if (splitSessionState.hydrationEpoch !== currentEpoch) return;
+          snapshot = res?.buffer || '';
+          snapshotSeq = res?.snapshotThroughSeq || 0;
+        } catch {}
+      }
+    }
+
+    if (splitSessionState.hydrationEpoch !== currentEpoch) return;
+
+    try {
+      if (splitWriteTarget && window.globalTerminalWriteDispatcher) {
+        window.globalTerminalWriteDispatcher.cancel(splitWriteTarget);
+      }
+    } catch {}
+
+    splitTerm.reset();
+    if (snapshot && snapshot.length > 0) {
+      await writeTermAsync(splitTerm, snapshot);
+    }
+    splitSessionState.lastRenderedSeq = snapshotSeq || 0;
+
+    while (splitSessionState.liveQueue.length > 0) {
+      if (splitSessionState.hydrationEpoch !== currentEpoch) return;
+      const batch = splitSessionState.liveQueue.splice(0, splitSessionState.liveQueue.length);
+      const pending = batch
+        .filter((entry) => entry.epoch === currentEpoch && entry.seq > splitSessionState.lastRenderedSeq)
+        .sort((a, b) => a.seq - b.seq);
+
+      for (const entry of pending) {
+        await writeTermAsync(splitTerm, entry.data);
+        splitSessionState.lastRenderedSeq = entry.seq;
+      }
+    }
+
+    if (!isSplitUserScrolledUp && splitTerm) {
+      splitTerm.scrollToBottom();
+    }
+  } finally {
+    if (splitSessionState.hydrationEpoch === currentEpoch) {
+      splitSessionState.activeHydratingEpoch = null;
+    }
+  }
+}
 function attachWebglAddon(_term) {
   // Use standard high-performance DOM/Canvas renderer to avoid WebGL context loss and texture corruption across multiple tabs
   return null;
@@ -319,26 +454,9 @@ function writeToSplitPane(chunk) {
     try { splitTerm.write(chunk); } catch {}
   }
 }
-function getOrCreateTerminalPane(sessionId, snapshot) {
+function getOrCreateTerminalPane(sessionId, snapshot, snapshotSeq = 0, isAuthoritative = false) {
   let item = terminalPool.get(sessionId);
-  const hasSnapshot = typeof snapshot === 'string';
-
   if (item) {
-    if (!item.isHydrated && hasSnapshot) {
-      if (snapshot.length > 0) item.term.write(snapshot);
-      item.isHydrated = true;
-      if (Array.isArray(item.pendingChunks) && item.pendingChunks.length > 0) {
-        const dispatcher = window.globalTerminalWriteDispatcher;
-        const target = dispatcher && getWriteTargetFor(item);
-        for (const chunk of item.pendingChunks) {
-          if (target) {
-            try { dispatcher.queueWrite(target, chunk); continue; } catch {}
-          }
-          try { item.term.write(chunk); } catch {}
-        }
-        item.pendingChunks = [];
-      }
-    }
     return item;
   }
 
@@ -379,10 +497,6 @@ function getOrCreateTerminalPane(sessionId, snapshot) {
     }
   } catch {}
 
-  if (hasSnapshot) {
-    sTerm.write(snapshot);
-  }
-
   sTerm.onData((data) => {
     api?.sendTerminalInputTo(sessionId, data);
   });
@@ -394,8 +508,11 @@ function getOrCreateTerminalPane(sessionId, snapshot) {
     paneEl,
     webglAddon,
     webLinksAddon,
-    isHydrated: hasSnapshot,
-    pendingChunks: [],
+    lastRenderedSeq: 0,
+    hydrationEpoch: 0,
+    activeHydratingEpoch: null,
+    liveQueue: [],
+    hasAuthoritativeState: isAuthoritative,
     writeTarget: null,
     savedViewportY: null,
     isUserScrolledUp: false,
@@ -444,10 +561,11 @@ function getOrCreateTerminalPane(sessionId, snapshot) {
   });
 
   terminalPool.set(sessionId, item);
+  atomicHydratePane(item, sessionId, snapshot, snapshotSeq);
   return item;
 }
 
-function syncTerminalPool(allSessions, currentActiveId, snapshot) {
+function syncTerminalPool(allSessions, currentActiveId, snapshot, snapshotThroughSeq = 0) {
   const activeSessionIds = new Set((allSessions || []).map((s) => s.id));
   // Dispose closed sessions
   for (const [id, item] of terminalPool.entries()) {
@@ -469,29 +587,16 @@ function syncTerminalPool(allSessions, currentActiveId, snapshot) {
     const sessionSnapshot = s.id === currentActiveId
       ? (typeof snapshot === 'string' ? snapshot : (typeof s.buffer === 'string' ? s.buffer : ''))
       : (typeof s.buffer === 'string' ? s.buffer : '');
+    const seq = s.id === currentActiveId ? (snapshotThroughSeq || s.snapshotThroughSeq || 0) : (s.snapshotThroughSeq || 0);
 
     const item = terminalPool.get(s.id);
     if (!item) {
-      getOrCreateTerminalPane(s.id, sessionSnapshot);
-    } else if (!item.isHydrated) {
-      if (sessionSnapshot.length > 0) {
-        item.term.write(sessionSnapshot);
-        item.pendingChunks = [];
-      } else if (Array.isArray(item.pendingChunks) && item.pendingChunks.length > 0) {
-        const dispatcher = window.globalTerminalWriteDispatcher;
-        const target = dispatcher && getWriteTargetFor(item);
-        for (const chunk of item.pendingChunks) {
-          if (target) {
-            try { dispatcher.queueWrite(target, chunk); continue; } catch {}
-          }
-          try { item.term.write(chunk); } catch {}
-        }
-        item.pendingChunks = [];
-      }
-      item.isHydrated = true;
+      getOrCreateTerminalPane(s.id, sessionSnapshot, seq, true);
+    } else if (!item.hasAuthoritativeState) {
+      item.hasAuthoritativeState = true;
+      atomicHydratePane(item, s.id, sessionSnapshot, seq);
     }
   }
-  // Switch visibility smoothly and instantly without destroying scroll context or layout
   for (const [id, item] of terminalPool.entries()) {
     const isNowActive = id === currentActiveId;
     const wasActive = item.paneEl.classList.contains('active');
@@ -674,6 +779,10 @@ function unmountSplit() {
   splitWriteTarget = null;
   isSplitUserScrolledUp = false;
   isSplitProgrammaticScroll = false;
+  splitSessionState.id = '';
+  splitSessionState.activeHydratingEpoch = null;
+  splitSessionState.liveQueue = [];
+  splitSessionState.lastRenderedSeq = 0;
   try { splitWebLinksAddon?.dispose(); } catch {}
   splitWebLinksAddon = null;
   try { splitWebglAddon?.dispose(); } catch {}
@@ -699,7 +808,7 @@ function unmountSplit() {
   }
   scheduleFitTerminal(60);
 }
-function mountSplit(sessionId, snapshot = '') {
+function mountSplit(sessionId, snapshot = '', snapshotSeq = 0) {
   if (!sessionId) return;
   if (splitId === sessionId && splitTerm) return;
   unmountSplit();
@@ -708,7 +817,6 @@ function mountSplit(sessionId, snapshot = '') {
   isSplitUserScrolledUp = false;
   isSplitProgrammaticScroll = false;
   container.classList.add('split');
-
   const lower = document.createElement('div');
   lower.id = 'terminal-split';
 
@@ -767,7 +875,7 @@ function mountSplit(sessionId, snapshot = '') {
     splitTerm?.focus();
   });
   applySplitRatio(sessionSplitRatios.get(activeId) ?? DEFAULT_MAIN_SPLIT_RATIO);
-  if (snapshot) splitTerm.write(snapshot);
+  atomicHydrateSplitPane(sessionId, snapshot, snapshotSeq);
   if (splitButton) {
     splitButton.classList.add('active');
     splitButton.title = 'Tắt chia đôi terminal (Unsplit)';
@@ -1223,33 +1331,62 @@ api?.onTerminalSession((state) => {
     }
   }
   const activeSession = sessions.find((s) => s.id === activeId);
-  if (activeSession?.splitSessionId) mountSplit(activeSession.splitSessionId, activeSession.splitBuffer);
-  else if (!activeSession || !activeSession.splitSessionId) unmountSplit();
+  if (activeSession?.splitSessionId) {
+    mountSplit(activeSession.splitSessionId, activeSession.splitBuffer, activeSession.splitSnapshotThroughSeq || 0);
+  } else if (!activeSession || !activeSession.splitSessionId) {
+    unmountSplit();
+  }
   renderTabs();
-  syncTerminalPool(sessions, activeId, state.snapshot);
+  syncTerminalPool(sessions, activeId, state.snapshot, state.snapshotThroughSeq || 0);
 });
-api?.onTerminalData(({ sessionId, data }) => {
+api?.onTerminalData(({ sessionId, data, seq }) => {
   notifySessionActivity(sessionId, data);
+  const chunkSeq = typeof seq === 'number' ? seq : 0;
+
   if (sessionId === splitId && splitTerm) {
+    if (splitSessionState.activeHydratingEpoch !== null) {
+      splitSessionState.liveQueue.push({
+        seq: chunkSeq,
+        data,
+        epoch: splitSessionState.hydrationEpoch,
+      });
+      return;
+    }
+    if (chunkSeq > 0 && chunkSeq <= splitSessionState.lastRenderedSeq) {
+      return;
+    }
+    if (chunkSeq > 0) {
+      splitSessionState.lastRenderedSeq = chunkSeq;
+    }
     writeToSplitPane(data);
-  } else {
-    let item = terminalPool.get(sessionId);
-    if (!item) {
-      const s = sessions.find((x) => x.id === sessionId);
-      if (s) {
-        item = getOrCreateTerminalPane(sessionId, s.buffer ?? '');
-      } else {
-        item = getOrCreateTerminalPane(sessionId);
-      }
+    return;
+  }
+
+  let item = terminalPool.get(sessionId);
+  if (!item) {
+    const s = sessions.find((x) => x.id === sessionId);
+    if (s) {
+      item = getOrCreateTerminalPane(sessionId, s.buffer ?? '', 0, true);
+    } else {
+      item = getOrCreateTerminalPane(sessionId, '', 0, false);
     }
-    if (item) {
-      if (item.isHydrated) {
-        writeToTerminalPane(item, data);
-      } else {
-        if (!Array.isArray(item.pendingChunks)) item.pendingChunks = [];
-        item.pendingChunks.push(data);
-      }
+  }
+  if (item) {
+    if (item.activeHydratingEpoch !== null) {
+      item.liveQueue.push({
+        seq: chunkSeq,
+        data,
+        epoch: item.hydrationEpoch,
+      });
+      return;
     }
+    if (chunkSeq > 0 && chunkSeq <= item.lastRenderedSeq) {
+      return;
+    }
+    if (chunkSeq > 0) {
+      item.lastRenderedSeq = chunkSeq;
+    }
+    writeToTerminalPane(item, data);
   }
 });
 api?.getInitialState().then((s) => {

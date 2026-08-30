@@ -69,13 +69,27 @@ export function killProcessTree(pid: number | undefined): Promise<void> {
     }
   });
 }
-type Session = { id: string; name: string; cwd: string; pty: pty.IPty; buffer: string; splitOf?: string; capsuleId: string; disposed?: boolean };
+type Session = { id: string; name: string; cwd: string; pty: pty.IPty; buffer: string; splitOf?: string; capsuleId: string; disposed?: boolean; lastSeq?: number };
 type SavedSession = { id: string; name: string; cwd: string; buffer?: string; splitOf?: string; capsuleId?: string };
 const MAX_TRANSCRIPT_BYTES = 512 * 1024; // 512KB in-memory history buffer (~5,000-10,000 lines)
 const MAX_PERSISTED_BYTES = 256 * 1024; // 256KB per session on disk
 const MIN_TERMINAL_ROWS = 8;
 const MIN_SPLIT_TERMINAL_ROWS = 4;
 const SPLIT_TERMINAL_FRACTION = 0.2;
+const GLOBAL_JSON_BUFFER_BUDGET_BYTES = 40 * 1024; // 40 KiB total wire budget for all session buffers
+
+export interface SessionSummary {
+  id: string;
+  name: string;
+  cwd: string;
+  active: boolean;
+  buffer: string;
+  snapshotThroughSeq?: number;
+  splitSessionId?: string;
+  splitBuffer?: string;
+  splitSnapshotThroughSeq?: number;
+  bufferLength: number;
+}
 
 function safeSliceTail(str: string, maxBytes: number): string {
   if (!str || str.length <= maxBytes) return str || '';
@@ -87,6 +101,43 @@ function safeSliceTail(str: string, maxBytes: number): string {
   return raw;
 }
 
+export function safeSliceTailJsonBounded(str: string, maxJsonBytes: number): string {
+  if (!str || maxJsonBytes < 2) return '';
+  const resetPrefix = '\x1b[0m';
+  if (maxJsonBytes < Buffer.byteLength(JSON.stringify(resetPrefix), 'utf8')) {
+    return '';
+  }
+
+  const codePoints = Array.from(str);
+  let low = 0;
+  let high = codePoints.length;
+  let bestFit = '';
+
+  while (low <= high) {
+    const mid = Math.floor((low + high) / 2);
+    if (mid >= codePoints.length) {
+      break;
+    }
+    const rawSlice = codePoints.slice(mid).join('');
+    const firstNl = rawSlice.indexOf('\n');
+    const candidate = firstNl >= 0 && firstNl < rawSlice.length - 1
+      ? `${resetPrefix}${rawSlice.slice(firstNl + 1)}`
+      : `${resetPrefix}${rawSlice}`;
+
+    const jsonCost = Buffer.byteLength(JSON.stringify(candidate), 'utf8');
+    if (jsonCost <= maxJsonBytes) {
+      bestFit = candidate;
+      high = mid - 1;
+    } else {
+      low = mid + 1;
+    }
+  }
+
+  if (Buffer.byteLength(JSON.stringify(bestFit), 'utf8') > maxJsonBytes) {
+    return '';
+  }
+  return bestFit;
+}
 export class TerminalManager extends EventEmitter {
   private static instance: TerminalManager;
   private sessions = new Map<string, Session>();
@@ -375,34 +426,36 @@ export class TerminalManager extends EventEmitter {
       buffer: safeSliceTail(restoredBuffer, MAX_TRANSCRIPT_BYTES),
       capsuleId: this.currentCapsuleId,
       disposed: false,
+      lastSeq: 0,
     };
     this.sessions.set(id, s);
     child.onData(data => {
       if (s.disposed) return;
-      s.buffer += data;
-      if (s.buffer.length > MAX_TRANSCRIPT_BYTES + 65536) {
-        s.buffer = safeSliceTail(s.buffer, MAX_TRANSCRIPT_BYTES);
-      }
-      this.schedulePersist();
       if (isBenchmarkEnabled()) {
         this.benchmarkChunkSeq += 1;
         this.benchmarkChunkBytes += Buffer.byteLength(data, 'utf8');
         recordBenchmark({ surface: 'terminal', name: 'ptyData', value: Buffer.byteLength(data, 'utf8'), extra: { sessionId: id, chunkSeq: this.benchmarkChunkSeq, totalBytes: this.benchmarkChunkBytes } });
       }
-      this.emit('data', { sessionId: id, data });
+      this.appendData(s, data);
     });
     child.onExit(({ exitCode }) => {
       if (s.disposed) return;
       recordBenchmark({ surface: 'terminal', name: 'exit', extra: { sessionId: id, exitCode } });
       const data = `\r\n[Process exited with code ${exitCode}]\r\n`;
-      s.buffer += data;
-      if (s.buffer.length > MAX_TRANSCRIPT_BYTES + 65536) {
-        s.buffer = safeSliceTail(s.buffer, MAX_TRANSCRIPT_BYTES);
-      }
-      this.schedulePersist();
-      this.emit('data', { sessionId: id, data });
+      this.appendData(s, data);
     });
     return s;
+  }
+
+  private appendData(s: Session, data: string): void {
+    if (s.disposed) return;
+    s.lastSeq = (s.lastSeq || 0) + 1;
+    s.buffer += data;
+    if (s.buffer.length > MAX_TRANSCRIPT_BYTES + 65536) {
+      s.buffer = safeSliceTail(s.buffer, MAX_TRANSCRIPT_BYTES);
+    }
+    this.schedulePersist();
+    this.emit('data', { sessionId: s.id, data, seq: s.lastSeq });
   }
 
   public startTerminal(cwd?: string): boolean {
@@ -578,11 +631,68 @@ export class TerminalManager extends EventEmitter {
     return true;
   }
 
-  public listSessions() {
-    return [...this.sessions.values()].filter(s => !s.splitOf).map(s => {
+  public listSessions(paged = true): SessionSummary[] {
+    const baseSessions = [...this.sessions.values()].filter(s => !s.splitOf);
+    if (!paged || baseSessions.length === 0) {
+      return baseSessions.map(s => {
+        const split = [...this.sessions.values()].find(x => x.splitOf === s.id);
+        return {
+          id: s.id,
+          name: s.name,
+          cwd: s.cwd,
+          active: s.id === this.activeSessionId,
+          buffer: s.buffer,
+          snapshotThroughSeq: s.lastSeq || 0,
+          splitSessionId: split?.id,
+          splitBuffer: split?.buffer || '',
+          splitSnapshotThroughSeq: split ? (split.lastSeq || 0) : 0,
+          bufferLength: Buffer.byteLength(s.buffer, 'utf8'),
+        };
+      });
+    }
+
+    let totalPanes = 0;
+    for (const s of baseSessions) {
+      totalPanes += 1;
+      if ([...this.sessions.values()].some(x => x.splitOf === s.id)) totalPanes += 1;
+    }
+
+    const activeBudget = Math.floor(GLOBAL_JSON_BUFFER_BUDGET_BYTES * 0.4);
+    const bgBudget = totalPanes > 1
+      ? Math.floor((GLOBAL_JSON_BUFFER_BUDGET_BYTES * 0.6) / (totalPanes - 1))
+      : activeBudget;
+
+    return baseSessions.map(s => {
+      const isActive = s.id === this.activeSessionId;
       const split = [...this.sessions.values()].find(x => x.splitOf === s.id);
-      return { id: s.id, name: s.name, cwd: s.cwd, active: s.id === this.activeSessionId, buffer: s.buffer, splitSessionId: split?.id, splitBuffer: split?.buffer || '' };
+      const baseSlotBudget = isActive ? activeBudget : bgBudget;
+      const splitSlotBudget = bgBudget;
+
+      const buffer = safeSliceTailJsonBounded(s.buffer, baseSlotBudget);
+      const splitBuffer = split ? safeSliceTailJsonBounded(split.buffer, splitSlotBudget) : '';
+
+      return {
+        id: s.id,
+        name: s.name,
+        cwd: s.cwd,
+        active: isActive,
+        buffer,
+        snapshotThroughSeq: s.lastSeq || 0,
+        splitSessionId: split?.id,
+        splitBuffer,
+        splitSnapshotThroughSeq: split ? (split.lastSeq || 0) : 0,
+        bufferLength: Buffer.byteLength(s.buffer, 'utf8'),
+      };
     });
+  }
+
+  public getFullBuffer(sessionId: string): { sessionId: string; buffer: string; snapshotThroughSeq: number } {
+    const s = this.sessions.get(sessionId);
+    return {
+      sessionId,
+      buffer: s ? s.buffer : '',
+      snapshotThroughSeq: s ? (s.lastSeq || 0) : 0,
+    };
   }
 
   public renameSession(id: string, name: string): boolean {
@@ -662,14 +772,27 @@ export class TerminalManager extends EventEmitter {
     }
     return undefined;
   }
-  private emitSession(): void {
+  public getSessionState(): {
+    activeSessionId: string;
+    sessions: SessionSummary[];
+    splitSessionId?: string;
+    snapshot: string;
+    snapshotThroughSeq: number;
+  } {
     const s = this.sessions.get(this.activeSessionId);
-    this.emit('session', {
+    const sessionsList = this.listSessions();
+    const activeSummary = sessionsList.find(x => x.id === this.activeSessionId);
+    return {
       activeSessionId: this.activeSessionId,
-      sessions: this.listSessions(),
-      splitSessionId: this.sessions.get(this.listSessions().find(x => x.id === this.activeSessionId)?.splitSessionId || '')?.id,
-      snapshot: s?.buffer || ''
-    });
+      sessions: sessionsList,
+      splitSessionId: activeSummary?.splitSessionId,
+      snapshot: activeSummary?.buffer || (s?.buffer ? safeSliceTailJsonBounded(s.buffer, 16 * 1024) : ''),
+      snapshotThroughSeq: s ? (s.lastSeq || 0) : 0,
+    };
+  }
+
+  private emitSession(): void {
+    this.emit('session', this.getSessionState());
   }
 
   public async dispose(): Promise<void> {

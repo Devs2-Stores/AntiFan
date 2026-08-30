@@ -302,6 +302,7 @@ export const TERMINAL_CHANNELS = {
   KILL: 'antifan:terminal:kill',
   RESTART: 'antifan:terminal:restart',
   DATA: 'antifan:terminal:data',
+  GET_FULL_BUFFER: 'antifan:terminal:get-full-buffer',
   RESIZE: 'antifan:terminal:resize',
   NEW_SESSION: 'antifan:terminal:new-session',
   LIST_SESSIONS: 'antifan:terminal:list-sessions',

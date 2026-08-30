@@ -351,4 +351,54 @@ describe('AntiFan Bridge Server', () => {
       server.dispose();
     }
   });
+
+  it('coalesces consecutive terminal data frames for the same session and preserves highest seq', async () => {
+    const mockHost = new MockTabHost() as unknown as NativeTabHost;
+    const server = new BridgeServer(mockHost, 0);
+    const sentMessages: string[] = [];
+    const fakeWs = {
+      readyState: WebSocket.OPEN,
+      bufferedAmount: 9 * 1024 * 1024, // Exceeds BRIDGE_SOFT_HIGH_WATER (8 MiB) to force congestion queueing
+      send: (msg: string) => { sentMessages.push(msg); },
+    };
+    const wsHandle = fakeWs as unknown as WebSocket;
+
+    const serverAny = server as unknown as {
+      sendEventFrame: (ws: WebSocket, event: string, data: unknown, terminalSessionId?: string) => void;
+      getCongestionState: (ws: WebSocket) => { queue: Array<{ data?: string; seq?: number; bytes: number }>; queuedBytes: number };
+      flushCongestedClient: (ws: WebSocket) => void;
+    };
+
+    serverAny.sendEventFrame(wsHandle, 'antifan:terminal:data', { sessionId: 'coalesce-pty', data: 'chunk-1;', seq: 101 }, 'coalesce-pty');
+    serverAny.sendEventFrame(wsHandle, 'antifan:terminal:data', { sessionId: 'coalesce-pty', data: 'chunk-2;', seq: 102 }, 'coalesce-pty');
+    serverAny.sendEventFrame(wsHandle, 'antifan:terminal:data', { sessionId: 'coalesce-pty', data: 'chunk-3;', seq: 103 }, 'coalesce-pty');
+
+    const state = serverAny.getCongestionState(wsHandle);
+    assert.strictEqual(state.queue.length, 1, 'consecutive frames for the same session must coalesce into exactly 1 queue entry');
+    assert.strictEqual(state.queue[0]?.data, 'chunk-1;chunk-2;chunk-3;');
+    assert.strictEqual(state.queue[0]?.seq, 103, 'coalesced frame must carry the latest seq');
+
+    const expectedPayload = JSON.stringify({
+      event: 'antifan:terminal:data',
+      data: {
+        sessionId: 'coalesce-pty',
+        data: 'chunk-1;chunk-2;chunk-3;',
+        seq: 103,
+      },
+    });
+    const expectedBytes = Buffer.byteLength(expectedPayload, 'utf8');
+    assert.strictEqual(state.queue[0]?.bytes, expectedBytes, 'frame bytes must match exact merged JSON payload');
+    assert.strictEqual(state.queuedBytes, expectedBytes, 'queuedBytes must match exact merged byte size without envelope accumulation');
+
+    // Simulate socket drain
+    fakeWs.bufferedAmount = 0;
+    serverAny.flushCongestedClient(wsHandle);
+
+    assert.strictEqual(state.queue.length, 0, 'queue must be empty after flush');
+    assert.strictEqual(state.queuedBytes, 0, 'queuedBytes must be 0 after flush');
+    assert.strictEqual(sentMessages.length, 1, 'exactly 1 coalesced frame must be sent over the wire');
+    assert.strictEqual(sentMessages[0], expectedPayload);
+
+    server.dispose();
+  });
 });
