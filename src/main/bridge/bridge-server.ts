@@ -143,11 +143,11 @@ export class BridgeServer {
     this.token = randomUUID();
     this.persistBridgeInfo();
 
-    // Immediately terminate existing master-token WebSocket connections to prevent processing queued in-flight frames
+    // Terminate existing master-token WebSocket connections while preserving attachment-scoped clients
     for (const client of Array.from(this.clients)) {
       if (!this.socketAttachmentIds.has(client)) {
         try {
-          client.terminate();
+          client.close(4001, 'Bridge token rotated: connection invalidated');
         } catch {}
         this.clients.delete(client);
       }

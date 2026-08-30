@@ -282,9 +282,9 @@ describe('Bridge Cookie Import Endpoint & Target Isolation', () => {
     const newToken = server.rotateToken();
     assert.notStrictEqual(newToken, initialToken);
 
-    // 3. Verify previous WebSocket connection is immediately terminated (abnormal close 1006)
+    // 3. Verify previous WebSocket connection is closed
     const code = await closePromise;
-    assert.strictEqual(code, 1006);
+    assert.strictEqual(code, 4001);
 
     // 4. New WebSocket with old token rejected (4001)
     const badWs = new WebSocket(`ws://127.0.0.1:${port}/?token=${initialToken}`);
