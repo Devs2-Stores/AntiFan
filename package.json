@@ -34,7 +34,7 @@
     "verify:native-messaging": "npm run package && npm run smoke:native-messaging",
     "benchmark:artifacts": "node scripts/benchmark-antigravity-artifacts.mjs",
     "benchmark:soak": "node scripts/benchmark-electron-performance.mjs --scenario soak",
-    "icon": "python scripts/generate-icon.py",
+    "smoke:soak": "npm run compile && node scripts/smoke-real-soak.cjs",
     "install:shortcut": "node scripts/install-windows-shortcut.mjs"
   },
   "dependencies": {

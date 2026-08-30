@@ -143,6 +143,17 @@ export class ThemeQaWorkflow {
       throw new CapabilityError('TARGET_STALE', 'Bound browser tab could not reach a load-complete document');
     }
     const activeTarget = reload.target;
+
+    const checkAborted = () => {
+      if (input.signal?.aborted) {
+        throw new CapabilityError('TARGET_STALE', 'Theme QA validation was aborted by document navigation');
+      }
+      const currentGen = this.ports.browser.getDocumentGeneration?.(activeTarget.tabId);
+      if (typeof currentGen === 'number' && activeTarget.documentGeneration && currentGen !== activeTarget.documentGeneration) {
+        throw new CapabilityError('TARGET_STALE', `Document generation advanced from ${activeTarget.documentGeneration} to ${currentGen}`);
+      }
+    };
+    checkAborted();
     let freshDiagnostics: DiagnosticsInput = { console: [], failures: [] };
     try {
       const raw = this.ports.browser.diagnostics(activeTarget.tabId);
@@ -167,13 +178,10 @@ export class ThemeQaWorkflow {
     }
 
     // 3. Capture evidence from fresh activeTarget
-    if (input.signal?.aborted) {
-      throw new CapabilityError('TARGET_STALE', 'Theme QA validation was aborted by document navigation');
-    }
+    checkAborted();
+    await new Promise((r) => setImmediate(r));
     const evidence = await this.inspect({ ...input, target: activeTarget });
-    if (input.signal?.aborted) {
-      throw new CapabilityError('TARGET_STALE', 'Theme QA validation was aborted by document navigation');
-    }
+    checkAborted();
     let rawHtml = '';
     if (typeof evidence.dom === 'string') {
       rawHtml = evidence.dom;
@@ -190,9 +198,12 @@ export class ThemeQaWorkflow {
     const detectedPlatform: EcommercePlatform = platformResult.platform;
 
     // 5. Liquid Error Scanning (RT-01 isolated script + fallback)
+    await new Promise((r) => setImmediate(r));
     let liquidResult: LiquidScanResult = { hasErrors: false, errors: [], scannedElementsCount: 0 };
     try {
+      checkAborted();
       const evalRes = await this.ports.browser.eval(activeTarget, LiquidErrorScanner.getBrowserScanScript());
+      checkAborted();
       if (evalRes && typeof evalRes === 'object' && 'hasErrors' in evalRes) {
         liquidResult = evalRes as LiquidScanResult;
       } else if (rawHtml) {
@@ -214,8 +225,11 @@ export class ThemeQaWorkflow {
       clientWidth: 1440,
       culprits: [],
     };
+    await new Promise((r) => setImmediate(r));
     try {
+      checkAborted();
       const evalRes = await this.ports.browser.eval(activeTarget, LayoutOverflowEngine.getBrowserScanScript('active'));
+      checkAborted();
       if (evalRes && typeof evalRes === 'object' && 'hasOverflow' in evalRes) {
         overflowResult = evalRes as ViewportOverflowResult;
       }
@@ -260,15 +274,16 @@ export class ThemeQaWorkflow {
       totalImagesScanned: 0,
       totalStylesheetsScanned: 0,
     };
+    await new Promise((r) => setImmediate(r));
     try {
+      checkAborted();
       const evalRes = await this.ports.browser.eval(activeTarget, BrokenAssetScanner.getBrowserScanScript());
+      checkAborted();
       if (evalRes && typeof evalRes === 'object' && 'hasBrokenAssets' in evalRes) {
         assetResult = evalRes as BrokenAssetScanResult;
       }
-      // Correlate with CDP diagnostics when available
       const diagnostics = freshDiagnostics;
       if (diagnostics && Array.isArray(diagnostics.failures) && diagnostics.failures.length > 0) {
-        // Chỉ correlate failure first-party/theme-asset — third-party (ad
         // blocker, GTM, FB Pixel) không được biến thành brokenAssets làm fail
         // gate (Goal 2: third-party chỉ warning). Legacy entries thiếu
         // origin/isFirstParty → computeOrigin fallback theo contextUrl.
@@ -317,9 +332,12 @@ export class ThemeQaWorkflow {
         : undefined;
 
     // 9. Platform-scoped HS gate evaluation
+    await new Promise((r) => setImmediate(r));
     let hsResult: HsEvaluationResult = { passed: true, totalViolations: 0, errorsCount: 0, warningsCount: 0, violations: [] };
     try {
+      checkAborted();
       const evalRes = await this.ports.browser.eval(activeTarget, HsGateRules.getBrowserEvaluationScript(detectedPlatform));
+      checkAborted();
       if (evalRes && typeof evalRes === 'object' && 'passed' in evalRes) {
         hsResult = evalRes as HsEvaluationResult;
       } else if (rawHtml) {

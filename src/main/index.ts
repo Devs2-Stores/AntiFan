@@ -20,8 +20,9 @@ protocol.registerSchemesAsPrivileged([
     },
   },
 ]);
-import { WorkspaceCapsuleManager } from './project/workspace-capsule';
 import { registerPreviewProtocolHandler } from './server/preview-protocol-handler';
+import { StorageLocations } from './config/storage-locations';
+import { WorkspaceCapsuleManager } from './project/workspace-capsule';
 import { NativeTabHost } from './browser/native-tab-host';
 import { BridgeServer } from './bridge/bridge-server';
 import { AntiFanMcpServer } from './mcp/mcp-server';
@@ -65,12 +66,14 @@ const IS_MCP_HIGH_RISK = process.argv.includes('--mcp-high-risk');
 // profile. The environment override remains available for isolated tests and
 // benchmarks, but launch mode never changes a user's browser identity.
 const customUserData = process.env.ANTIFAN_USER_DATA || process.env.ANTIFAN_USER_DATA_DIR;
+StorageLocations.ensureDirectories();
 let preparedProfile: PersistentProfileResult;
 try {
   preparedProfile = preparePersistentProfile({
     appDataPath: app.getPath('appData'),
     appPath: app.getAppPath(),
     customUserData,
+    canonicalPath: StorageLocations.getProfileDir(),
   });
 } catch (error) {
   if (error instanceof ProfileMigrationError) {
@@ -82,27 +85,29 @@ const persistentUserData = preparedProfile.profilePath;
 if (preparedProfile.migratedFrom) {
   console.log(`[antifan] Migrated Chromium profile from ${preparedProfile.migratedFrom} to ${persistentUserData}`);
 }
-const chromiumCachePath = `${persistentUserData}-cache`;
+const chromiumCachePath = StorageLocations.getCacheDir();
 try { fs.mkdirSync(persistentUserData, { recursive: true }); } catch {}
 try { fs.mkdirSync(chromiumCachePath, { recursive: true }); } catch {}
 app.setPath('userData', persistentUserData);
 app.setPath('sessionData', persistentUserData);
 app.setPath('cache', chromiumCachePath);
-app.commandLine.appendSwitch('disk-cache-dir', path.join(chromiumCachePath, 'network'));
-app.commandLine.appendSwitch('gpu-cache-dir', path.join(chromiumCachePath, 'gpu'));
+app.commandLine.appendSwitch('disk-cache-dir', StorageLocations.getNetworkCacheDir());
+app.commandLine.appendSwitch('gpu-cache-dir', StorageLocations.getGpuCacheDir());
 app.name = 'AntiFan Browser Desktop';
-
 nativeTheme.themeSource = 'system';
 
-// Configure high-performance Chromium hardware acceleration and security switches
+// Configure high-performance Chromium hardware acceleration, memory caps, and security switches
 app.commandLine.appendSwitch('enable-smooth-scrolling');
 app.commandLine.appendSwitch('enable-accelerated-2d-canvas');
 app.commandLine.appendSwitch('enable-accelerated-video-decode');
 app.commandLine.appendSwitch('enable-quic');
 app.commandLine.appendSwitch('enable-fast-unload');
 app.commandLine.appendSwitch('enable-tcp-fast-open');
-app.commandLine.appendSwitch('disk-cache-size', '536870912');
-app.commandLine.appendSwitch('media-cache-size', '268435456');
+app.commandLine.appendSwitch('renderer-process-limit', '4');
+app.commandLine.appendSwitch('process-per-site');
+app.commandLine.appendSwitch('disk-cache-size', '134217728'); // 128 MB
+app.commandLine.appendSwitch('media-cache-size', '67108864');  // 64 MB
+app.commandLine.appendSwitch('disable-gpu-memory-buffer-video-frames');
 app.commandLine.appendSwitch('enable-features', 'PasswordManager,Autofill,SmoothScrolling,ParallelDownloading,BackForwardCache,AsyncImageDecoding');
 app.commandLine.appendSwitch('disable-blink-features', 'AutomationControlled');
 const CHROME_USER_AGENT = chromeSessionUserAgent();
@@ -165,9 +170,8 @@ function recordProcessMetrics(label: string): void {
 async function createWindow(): Promise<void> {
   const windowTitle = IS_DEV ? 'AntiFan Browser Desktop [DEV]' : 'AntiFan Browser Desktop';
   
-  windowStateManager = new WindowStateManager(persistentUserData, 1360, 880);
+  windowStateManager = new WindowStateManager(StorageLocations.getConfigDir(), 1360, 880);
   const winBounds = windowStateManager.getValidBounds();
-
   const appIconCandidates = [
     path.join(__dirname, '..', '..', 'assets', 'icon.png'),
     path.join(process.cwd(), 'assets', 'icon.png'),
@@ -201,9 +205,8 @@ async function createWindow(): Promise<void> {
   controlPlane = new ControlPlaneRuntime({
     projectId,
     workspaceId,
-    dataRoot: path.join(persistentUserData, 'control-plane-v2'),
+    dataRoot: StorageLocations.getControlPlaneDir(),
     allowEval: IS_MCP_HIGH_RISK,
-    getDocumentGeneration: (tabId?: string) => tabHost!.getDocumentGeneration(tabId),
     getAutomationTabId: () => tabHost!.getAutomationTabId(),
   });
   tabHost.setControlPlane(controlPlane);
@@ -365,7 +368,7 @@ app.whenReady().then(async () => {
   }
   // Configure default session policies cleanly without global header tampering
   configureBrowserSessionPartition('', 'clean');
-  const capsuleStoragePath = path.join(app.getPath('userData'), 'workspace-capsules.json');
+  const capsuleStoragePath = path.join(StorageLocations.getConfigDir(), 'workspace-capsules.json');
   capsuleManager = new WorkspaceCapsuleManager({ filePath: capsuleStoragePath });
   if (!capsuleManager.getActive()) {
     const defaultDir = fs.existsSync('E:/Work') ? 'E:/Work' : (fs.existsSync('E:\\Work') ? 'E:\\Work' : process.cwd());

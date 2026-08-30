@@ -11,6 +11,7 @@ import * as http from 'node:http';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
+import { StorageLocations } from '../config/storage-locations';
 import { randomUUID } from 'node:crypto';
 import { performance } from 'node:perf_hooks';
 import { isBenchmarkEnabled, recordBenchmark } from '../benchmark/telemetry';
@@ -114,7 +115,7 @@ export class BridgeServer {
     this.isDev = isDev;
     this.port = isDev && port === 20129 ? 20130 : port;
 
-    const configDir = process.env.ANTIFAN_CONFIG_DIR || path.join(os.homedir(), '.antifan');
+    const configDir = process.env.ANTIFAN_CONFIG_DIR || StorageLocations.getConfigDir();
     if (!fs.existsSync(configDir)) {
       try {
         fs.mkdirSync(configDir, { recursive: true });

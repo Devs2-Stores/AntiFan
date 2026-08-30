@@ -1,6 +1,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
+import { StorageLocations } from '../config/storage-locations';
 
 export interface SessionManifest {
   sessionId: string;
@@ -17,7 +18,7 @@ export class SessionResumeController {
   private readonly storageDir: string;
 
   constructor(customDir?: string) {
-    this.storageDir = customDir || process.env.ANTIFAN_CONFIG_DIR || path.join(os.homedir(), '.antifan', 'sessions');
+    this.storageDir = customDir || process.env.ANTIFAN_SESSIONS_DIR || StorageLocations.getSessionsDir();
     try {
       fs.mkdirSync(this.storageDir, { recursive: true });
     } catch {}

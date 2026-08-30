@@ -6,6 +6,7 @@ import { execFile } from 'node:child_process';
 import { EventEmitter } from 'events';
 import { performance } from 'node:perf_hooks';
 import { isBenchmarkEnabled, recordBenchmark } from '../benchmark/telemetry';
+import { StorageLocations } from '../config/storage-locations';
 export function resolveScriptsDir(): string | undefined {
   let dir = __dirname;
   for (let i = 0; i < 6; i++) {
@@ -159,7 +160,7 @@ export class TerminalManager extends EventEmitter {
   }
 
   private statePath(): string {
-    const dir = process.env.ANTIFAN_CONFIG_DIR || path.join(os.homedir(), '.antifan');
+    const dir = process.env.ANTIFAN_CONFIG_DIR || StorageLocations.getConfigDir();
     return path.join(dir, 'terminal-sessions.json');
   }
   private cleanOrphanedTempFiles(): void {

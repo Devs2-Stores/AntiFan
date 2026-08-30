@@ -2,7 +2,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import * as cp from 'node:child_process';
-
+import { StorageLocations } from '../config/storage-locations';
 export interface ProfileRecoveryState {
   cleanShutdown: boolean;
   startedAt?: number;
@@ -68,6 +68,7 @@ export interface PersistentProfileOptions {
   appDataPath: string;
   appPath: string;
   customUserData?: string;
+  canonicalPath?: string;
   pid?: number;
   now?: () => number;
   isProcessAlive?: (pid: number) => boolean;
@@ -176,8 +177,7 @@ export function preparePersistentProfile(options: PersistentProfileOptions): Per
   if (options.customUserData) {
     return { profilePath: path.resolve(options.customUserData) };
   }
-
-  const canonicalPath = path.join(options.appDataPath, 'antifan-browser-desktop', 'Profile');
+  const canonicalPath = path.resolve(options.canonicalPath || path.join(options.appDataPath, 'antifan-browser-desktop', 'Profile'));
   if (hasPersistentProfileState(canonicalPath)) {
     return { profilePath: canonicalPath };
   }
@@ -185,12 +185,12 @@ export function preparePersistentProfile(options: PersistentProfileOptions): Per
   if (fs.existsSync(canonicalPath) && hasDirectoryEntries(canonicalPath)) {
     throw new ProfileMigrationError('PROFILE_MIGRATION_FAILED', `Canonical profile directory is non-empty but contains no recognized Chromium state: ${canonicalPath}`);
   }
-
   const legacyAppDataRoot = path.join(options.appDataPath, 'antifan-browser-desktop');
   const candidatePaths = [
     path.join(options.appPath, 'appdata', 'antifan-browser-desktop', 'Chromium-dev'),
     path.join(options.appPath, 'appdata', 'antifan-browser-desktop', 'Chromium'),
     path.join(options.appPath, 'appdata', 'antifan-browser-desktop', 'Chromium-prod'),
+    path.join(legacyAppDataRoot, 'Profile'),
     path.join(legacyAppDataRoot, 'Chromium-dev'),
     path.join(legacyAppDataRoot, 'Chromium'),
     path.join(legacyAppDataRoot, 'Chromium-prod'),
@@ -214,10 +214,11 @@ export function preparePersistentProfile(options: PersistentProfileOptions): Per
     throw new ProfileMigrationError('PROFILE_IN_USE', `Cannot migrate Chromium profile while pid ${lease.pid} is using it`, sourcePath);
   }
 
-  const parentPath = path.dirname(canonicalPath);
-  const tempPath = path.join(options.appDataPath, `.antifan-profile-migration-${options.pid ?? process.pid}-${(options.now ?? Date.now)()}`);
+  const stagingParent = path.dirname(path.dirname(canonicalPath));
+  const tempPath = path.join(stagingParent, `.antifan-profile-migration-${options.pid ?? process.pid}-${(options.now ?? Date.now)()}`);
   try {
-    fs.mkdirSync(parentPath, { recursive: true });
+    fs.mkdirSync(path.dirname(canonicalPath), { recursive: true });
+    fs.mkdirSync(stagingParent, { recursive: true });
     if (fs.existsSync(canonicalPath)) fs.rmdirSync(canonicalPath);
     fs.cpSync(sourcePath, tempPath, {
       recursive: true,

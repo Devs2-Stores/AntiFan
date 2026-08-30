@@ -4,6 +4,13 @@ Install, update, logs, rollback, and process ownership for the opt-in desktop
 companion. The current Extension browser remains the independent fallback at
 every step.
 
+> **Scope Invariant (Personal / Non-Public Tooling):**
+> AntiFan Browser Desktop is strictly an internal, personal developer companion.
+> Public distribution concerns (such as Chrome Web Store publishing, EV Code
+> Signing certificates, and public auto-update servers) are intentionally
+> out-of-scope. Installation and upgrades use local packaging (`npm run package`)
+> and local script runners.
+
 ## Install / upgrade
 
 - Windows x64 installer; user data lives in the per-profile app-data dir.

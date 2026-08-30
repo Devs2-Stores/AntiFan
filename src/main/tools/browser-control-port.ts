@@ -303,6 +303,9 @@ export class BrowserControlPort {
     }
     return resolved;
   }
+  getDocumentGeneration(tabId?: string): number {
+    return this.host.getDocumentGeneration ? this.host.getDocumentGeneration(tabId) : 1;
+  }
   private assertCurrent(target: BrowserTarget): void {
     if (this.host.isCurrentTarget && !this.host.isCurrentTarget(target)) throw new CapabilityError('TARGET_STALE', 'Browser target no longer matches the current tab document');
   }

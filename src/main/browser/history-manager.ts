@@ -1,15 +1,9 @@
-/**
- * AntiFan Browser Desktop - Intelligent History & Omnibox Suggestion Engine
- * Captures all navigations (including SPAs), merges native Chrome profile history,
- * and provides high-precision frecency search for the Omnibox.
- */
-
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import * as cp from 'child_process';
 import { EventEmitter } from 'events';
-
+import { StorageLocations } from '../config/storage-locations';
 export interface HistoryItem {
   url: string;
   title: string;
@@ -54,10 +48,9 @@ export class HistoryManager extends EventEmitter {
   }
 
   private getHistoryFilePath(): string {
-    const dir = process.env.ANTIFAN_CONFIG_DIR || path.join(os.homedir(), '.antifan');
+    const dir = process.env.ANTIFAN_CONFIG_DIR || StorageLocations.getConfigDir();
     return path.join(dir, 'browser-history.json');
   }
-
   private loadHistory(): void {
     const filePath = this.getHistoryFilePath();
     try {

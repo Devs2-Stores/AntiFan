@@ -2,6 +2,11 @@
 
 Trình duyệt Chromium Desktop siêu nhẹ, đóng vai trò là **Companion Engine & Extension Bridge** phục vụ Antigravity / VS Code Extension và AI Agent.
 
+> 🔒 **LƯU Ý PHẠM VI DỰ ÁN (PERSONAL USE ONLY):**
+> - **Dùng cá nhân & Nội bộ 100%:** Ứng dụng này được phát triển phục vụ mục đích cá nhân trong quy trình kỹ thuật Theme E-commerce & AI Automation.
+> - **Không Public / Không Thương mại hóa:** Bỏ qua hoàn toàn các yêu cầu liên quan tới Public Distribution, Chrome Web Store, App Store, chứng chỉ số thương mại (EV Code Signing Authenticode), hoặc hạ tầng Auto-update công cộng.
+> - **Tập trung tối đa:** Toàn bộ nỗ lực kỹ thuật tập trung 100% vào chất lượng code, độ ổn định tuyệt đối, tốc độ thực thi, khả năng quét lỗi Theme QA chuyên sâu (Haravan, Sapo, Shopify) và bộ công cụ MCP Agent.
+
 ---
 
 ## 🎯 Mục đích & Kiến trúc Cốt lõi

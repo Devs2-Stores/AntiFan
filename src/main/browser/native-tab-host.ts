@@ -12,6 +12,7 @@ import * as os from 'node:os';
 import { randomUUID, createHash } from 'node:crypto';
 import { EventEmitter } from 'node:events';
 import { performance } from 'node:perf_hooks';
+import { StorageLocations } from '../config/storage-locations';
 import { AntiFanTab, SplitPaneId, AntiFanPickedElement, TOOLBAR_CHANNELS, SIDEBAR_CHANNELS, TERMINAL_CHANNELS, FRAME_BACKDROP_CHANNELS } from '../../shared/contracts';
 import { getSecureWebPreferences, sanitizeUrl, isAllowedNavigation, cleanRestoredUrl, isInternalWidgetOrSubframeUrl } from '../security/security-policy';
 import { ELEMENT_PICKER_SCRIPT } from './element-picker';
@@ -216,7 +217,7 @@ export class NativeTabHost extends EventEmitter {
   private tabPreviewUnsubscribers: Map<string, () => void> = new Map();
   private recentlyClosedTabs: Array<{ url: string; title: string }> = [];
   private automationTabId: string | null = null;
-  private themeQaState: { status: 'idle' | 'running' | 'pass' | 'fail' | 'error'; issueCount: number; reportArtifactId?: string; report?: unknown; error?: string; updatedAt: number } = { status: 'idle', issueCount: 0, updatedAt: Date.now() };
+  private tabThemeQaStates = new Map<string, { status: 'idle' | 'running' | 'pass' | 'fail' | 'error'; issueCount: number; reportArtifactId?: string; report?: unknown; error?: string; updatedAt: number }>();
   private asyncQaQueue = new AsyncThemeQaQueue();
 
   private isInspecting: boolean = false;
@@ -319,7 +320,7 @@ export class NativeTabHost extends EventEmitter {
   constructor(window: BrowserWindow, capsuleManager?: WorkspaceCapsuleManager) {
     super();
     this.window = window;
-    const stateDir = app ? app.getPath('userData') : path.join(os.homedir(), '.antifan-browser');
+    const stateDir = app ? app.getPath('userData') : StorageLocations.getConfigDir();
     this.terminalWindowStateManager = new WindowStateManager(stateDir, 900, 600, 'terminal-popout-window-state.json');
     this.capsuleManager = capsuleManager || new WorkspaceCapsuleManager({ filePath: path.join(stateDir, 'workspace-capsules.json') });
     if (!this.capsuleManager.getActive()) {
@@ -565,7 +566,7 @@ export class NativeTabHost extends EventEmitter {
         devicePresets: DEVICE_PRESETS,
         activeChromeProfile: ChromeProfileSyncManager.getInstance().getActiveProfile(),
         chromeProfiles: ChromeProfileSyncManager.getInstance().getAvailableProfiles(),
-        themeQa: this.themeQaState,
+        themeQa: this.getThemeQaState(this.activeTabId),
       };
     });
     ipcMain.handle(TOOLBAR_CHANNELS.THEME_QA_RUN, async (_event, options?: { workspaceRoot?: string }) => this.runThemeQa(options));
@@ -2053,8 +2054,8 @@ export class NativeTabHost extends EventEmitter {
         // isInPlace=true) hoặc subframe; split-mode mirror navigation ở pane
         // khác cũng không clear (gate authorityPane).
         this.diagnosticsManager.clear(id);
+        this.tabThemeQaStates?.set(id, { status: 'idle', issueCount: 0, updatedAt: Date.now() });
         if (id === this.activeTabId) {
-          this.themeQaState = { status: 'idle', issueCount: 0, updatedAt: Date.now() };
           this.broadcastState();
         }
       }
@@ -2419,7 +2420,13 @@ export class NativeTabHost extends EventEmitter {
     } else {
       state.isLoading = false;
     }
-    if (activate) this.switchTab(id);
+    if (activate) {
+      this.switchTab(id);
+    } else {
+      try {
+        wc.setBackgroundThrottling(true);
+      } catch {}
+    }
     this.schedulePersist();
     recordBenchmark({ surface: 'tabs', name: 'created', extra: { activate, url: url.slice(0, 80) } });
     return id;
@@ -2505,6 +2512,7 @@ export class NativeTabHost extends EventEmitter {
           target.mobileView.webContents.executeJavaScript(FONT_FINDER_SCRIPT).catch(() => {});
         }
       }
+      this.applyTabThrottling();
       if (isBenchmarkEnabled()) {
         recordBenchmark({ surface: 'tabs', name: 'switched', value: performance.now() - switchStartMs, extra: { attachedViews: this.countAttachedViews() } });
       }
@@ -2514,6 +2522,23 @@ export class NativeTabHost extends EventEmitter {
       return false;
     }
   }
+  public applyTabThrottling(): void {
+    if (this.isDisposed) return;
+    for (const [id, tab] of this.tabs.entries()) {
+      const isForeground = id === this.activeTabId;
+      if (tab.view && !tab.view.webContents.isDestroyed()) {
+        try {
+          tab.view.webContents.setBackgroundThrottling(!isForeground);
+        } catch {}
+      }
+      if (tab.mobileView && !tab.mobileView.webContents.isDestroyed()) {
+        try {
+          tab.mobileView.webContents.setBackgroundThrottling(!isForeground);
+        } catch {}
+      }
+    }
+  }
+
 
   private activateAgentVisualGlow(tabId: string): void {
     const tab = this.tabs.get(tabId);
@@ -2666,7 +2691,8 @@ export class NativeTabHost extends EventEmitter {
       this.tabPreviewUnsubscribers.delete(tabId);
     }
     this.diagnosticsManager.deleteTab(tabId);
-    this.documentGenerations.delete(tabId);
+    this.tabThemeQaStates?.delete(tabId);
+    this.documentGenerations?.delete(tabId);
     if (this.automationTabId === tabId) {
       this.automationTabId = null;
     }
@@ -3034,10 +3060,9 @@ export class NativeTabHost extends EventEmitter {
       tab.state.splitError = null;
       this.splitCoordinator.cleanupTab(tabId);
     }
-
+    this.applyTabThrottling();
     this.updateLayout();
     this.broadcastState();
-    this.schedulePersist();
     return Boolean(tab.state.splitMode);
   }
 
@@ -3998,13 +4023,12 @@ export class NativeTabHost extends EventEmitter {
   }
 
   private getTabsStoragePath(): string {
-    const userData = app ? app.getPath('userData') : path.join(os.homedir(), '.antifan-browser');
+    const userData = app ? app.getPath('userData') : StorageLocations.getConfigDir();
     if (!fs.existsSync(userData)) {
       try { fs.mkdirSync(userData, { recursive: true }); } catch {}
     }
     return path.join(userData, 'saved-tabs.json');
   }
-
   private isDisposed = false;
 
   private schedulePersist(): void {
@@ -4500,9 +4524,8 @@ export class NativeTabHost extends EventEmitter {
       devicePresets: DEVICE_PRESETS,
       activeChromeProfile: ChromeProfileSyncManager.getInstance().getActiveProfile(),
       chromeProfiles: ChromeProfileSyncManager.getInstance().getAvailableProfiles(),
-      themeQa: this.themeQaState,
+      themeQa: this.getThemeQaState(this.activeTabId),
     };
-    this.emit('tabs-changed', payload.tabs, payload.activeTabId);
     safeSendWebContents(this.toolbarView?.webContents, TOOLBAR_CHANNELS.STATE_UPDATED, payload);
     this.schedulePersist();
   }
@@ -4510,10 +4533,15 @@ export class NativeTabHost extends EventEmitter {
   public setControlPlane(cp: ControlPlaneRuntime): void {
     this.controlPlane = cp;
   }
+  public getThemeQaState(tabId?: string): { status: 'idle' | 'running' | 'pass' | 'fail' | 'error'; issueCount: number; reportArtifactId?: string; report?: unknown; error?: string; updatedAt: number } {
+    const id = tabId || this.activeTabId;
+    return this.tabThemeQaStates?.get(id) || { status: 'idle', issueCount: 0, updatedAt: Date.now() };
+  }
+
   private async runThemeQa(options?: { workspaceRoot?: string }): Promise<{ ok: boolean; report?: unknown; error?: string }> {
     if (!this.controlPlane) {
       const error = 'Control plane runtime is not initialized';
-      this.themeQaState = { status: 'error', issueCount: 0, error, updatedAt: Date.now() };
+      this.tabThemeQaStates?.set(this.activeTabId, { status: 'error', issueCount: 0, error, updatedAt: Date.now() });
       this.broadcastState();
       return { ok: false, error };
     }
@@ -4525,15 +4553,17 @@ export class NativeTabHost extends EventEmitter {
     })();
     if (!target) {
       const error = 'No active browser tab for Theme QA validation';
-      this.themeQaState = { status: 'error', issueCount: 0, error, updatedAt: Date.now() };
+      this.tabThemeQaStates?.set(this.activeTabId, { status: 'error', issueCount: 0, error, updatedAt: Date.now() });
       this.broadcastState();
       return { ok: false, error };
     }
     const workspaceRoot = options?.workspaceRoot || this.capsuleManager.getActive()?.workspacePath || this.controlPlane.getWorkspaceRoot();
-    this.themeQaState = { status: 'running', issueCount: 0, updatedAt: Date.now() };
-    this.broadcastState();
+    const tabId = target.tabId;
+    this.tabThemeQaStates?.set(tabId, { status: 'running', issueCount: 0, updatedAt: Date.now() });
+    if (tabId === this.activeTabId) {
+      this.broadcastState();
+    }
     return new Promise((resolve) => {
-      const tabId = target.tabId;
       const gen = this.getDocumentGeneration(tabId);
       this.asyncQaQueue.enqueue(tabId, gen, async (signal) => {
         try {
@@ -4552,8 +4582,10 @@ export class NativeTabHost extends EventEmitter {
           const isPassed = typeof summary?.passed === 'boolean' ? summary.passed : issueCount === 0;
           const status: 'pass' | 'fail' = isPassed ? 'pass' : 'fail';
           const reportArtifactId = report.artifacts?.find((item: { kind?: string; id?: string }) => item.kind === 'report')?.id;
-          this.themeQaState = { status, issueCount, reportArtifactId, report, updatedAt: Date.now() };
-          this.broadcastState();
+          this.tabThemeQaStates?.set(tabId, { status, issueCount, reportArtifactId, report, updatedAt: Date.now() });
+          if (tabId === this.activeTabId) {
+            this.broadcastState();
+          }
           resolve({ ok: true, report });
         } catch (error) {
           if (signal.aborted) {
@@ -4561,8 +4593,10 @@ export class NativeTabHost extends EventEmitter {
             return;
           }
           const message = error instanceof Error ? error.message : String(error);
-          this.themeQaState = { status: 'error', issueCount: 0, error: message, updatedAt: Date.now() };
-          this.broadcastState();
+          this.tabThemeQaStates?.set(tabId, { status: 'error', issueCount: 0, error: message, updatedAt: Date.now() });
+          if (tabId === this.activeTabId) {
+            this.broadcastState();
+          }
           resolve({ ok: false, error: message });
         }
       });
