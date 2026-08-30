@@ -24,6 +24,7 @@ interface PerTabHost {
   activeTabId: string;
   inspectedTabId: string | null;
   isInspecting: boolean;
+  inspectGeneration: number;
   inspectPollTimer: NodeJS.Timeout | null;
   broadcastState: () => void;
   getTabTerminalSession(tabId: string): string | undefined;
@@ -54,6 +55,7 @@ function createHost(tabIds: string[]): PerTabHost {
   host.activeTabId = tabIds[0] ?? '';
   host.inspectedTabId = null;
   host.isInspecting = false;
+  host.inspectGeneration = 0;
   host.inspectPollTimer = null;
   host.broadcastState = () => {};
   return host;
@@ -145,6 +147,40 @@ describe('Per-tab terminal memory in Popup Annotation', () => {
     assert.ok(injected.includes(`"${sessionA}"`), 'injected context must carry the tab remembered session');
     assert.ok(injected.includes('"tabId"'), 'injected context must be tab-scoped');
     host.stopInspect('tab-1');
+  });
+
+  it('guarantees startInspect is idempotent when called repeatedly and advances inspectGeneration on stop', () => {
+    const host = createHost(['tab-1']);
+    let execCount = 0;
+    const wc: HostWebContents = {
+      isDestroyed: () => false,
+      executeJavaScript: async () => {
+        execCount++;
+        return undefined;
+      },
+    };
+    host.tabs.get('tab-1')!.view = { webContents: wc };
+
+    // First startInspect
+    host.startInspect();
+    assert.strictEqual(host.isInspecting, true);
+    const initialGen = host.inspectGeneration;
+    assert.ok(initialGen > 0, 'Must increment inspectGeneration on start');
+    const initialExecCount = execCount;
+    const initialTimer = host.inspectPollTimer;
+
+    // Second startInspect on the same active tab (e.g. rapid shortcut / menu clicks)
+    host.startInspect();
+    assert.strictEqual(host.isInspecting, true);
+    assert.strictEqual(host.inspectGeneration, initialGen, 'Must NOT re-increment generation or re-run on duplicate start');
+    assert.strictEqual(execCount, initialExecCount, 'Must NOT re-execute injected scripts');
+    assert.strictEqual(host.inspectPollTimer, initialTimer, 'Must NOT leak or re-allocate duplicate timers');
+
+    // stopInspect should invalidate the generation and clean up
+    host.stopInspect('tab-1');
+    assert.strictEqual(host.isInspecting, false);
+    assert.strictEqual(host.inspectPollTimer, null);
+    assert.strictEqual(host.inspectGeneration, initialGen + 1, 'Must increment inspectGeneration on stop to invalidate in-flight polls');
   });
 
   it('drops a remembered session once the terminal no longer exists (session killed)', () => {

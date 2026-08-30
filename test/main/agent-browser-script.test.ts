@@ -2,7 +2,7 @@ import { describe, it } from 'node:test';
 import * as assert from 'node:assert';
 import * as vm from 'node:vm';
 import { AGENT_BROWSER_SCRIPT } from '../../src/main/browser/agent-browser';
-import { ELEMENT_PICKER_SCRIPT } from '../../src/main/browser/element-picker';
+import { ELEMENT_PICKER_SCRIPT, normalizeAnnotationPrompt } from '../../src/main/browser/element-picker';
 import { dispatchAnnotationToTerminal, stripDeliveryMode } from '../../src/main/browser/annotation-dispatch';
 import type { PickedElementInput } from '../../src/main/browser/annotation-dispatch';
 
@@ -263,7 +263,7 @@ describe('Agent Browser & Element Picker Injected Scripts', () => {
   it('defaults annotation prompts to the /queue prefix and keeps the editor compact', () => {
     assert.ok(ELEMENT_PICKER_SCRIPT.includes("const QUEUE_PREFIX = '/queue '"), 'Prompt must default to /queue prefix');
     assert.ok(ELEMENT_PICKER_SCRIPT.includes("if (!textarea.value) textarea.value = QUEUE_PREFIX"), 'Prefix must be pre-filled on open');
-    assert.ok(ELEMENT_PICKER_SCRIPT.includes("new RegExp('^/queue(?:\\s|$)')"), 'Bare /queue token must be normalized before validation');
+    assert.ok(ELEMENT_PICKER_SCRIPT.includes("replace(/^(\\s*\\/queue\\b\\s*)+/gi, '')"), 'Bare and repeated /queue tokens must be normalized before validation');
     assert.ok(ELEMENT_PICKER_SCRIPT.includes("userComment = '/queue ' + promptBody"), 'Prompt must always carry exactly one /queue prefix');
     assert.ok(ELEMENT_PICKER_SCRIPT.includes('width:min(92vw,400px)'), 'Modal width must scale with viewport');
     assert.ok(ELEMENT_PICKER_SCRIPT.includes('modal.offsetHeight'), 'Modal position must use measured height');
@@ -438,5 +438,42 @@ describe('Agent Browser & Element Picker Injected Scripts', () => {
     assert.ok(ctx.window.__antifanRefMap.has('@e1'));
     const entry = ctx.window.__antifanRefMap.get('@e1');
     assert.strictEqual(entry.node, mockButton);
+  });
+
+  it('guarantees ELEMENT_PICKER_SCRIPT double-submit guard and rAF performance throttling', () => {
+    // 1. Verify mutex and submission state locks
+    assert.ok(ELEMENT_PICKER_SCRIPT.includes('let isSubmitting = false;'), 'Must define submission lock variable');
+    assert.ok(ELEMENT_PICKER_SCRIPT.includes('if (isSubmitting) return;'), 'Must guard submission entry with lock');
+    assert.ok(ELEMENT_PICKER_SCRIPT.includes('isSubmitting = true;'), 'Must set lock during submit processing');
+    assert.ok(ELEMENT_PICKER_SCRIPT.includes('submitBtn.disabled = true'), 'Must disable submit button on send');
+    assert.ok(ELEMENT_PICKER_SCRIPT.includes('textarea.disabled = true'), 'Must disable textarea on send');
+
+    // 2. Verify /queue deduplication regex cleans repeated prefixes with word boundary
+    assert.ok(ELEMENT_PICKER_SCRIPT.includes('replace(/^(\\s*\\/queue\\b\\s*)+/gi, \'\')'), 'Must strip all repeated /queue tokens with word boundary');
+    // 3. Verify requestAnimationFrame hover throttling and coordinate deduplication
+    assert.ok(ELEMENT_PICKER_SCRIPT.includes('requestAnimationFrame'), 'Must use requestAnimationFrame for hover loop');
+    assert.ok(ELEMENT_PICKER_SCRIPT.includes('lastHoverRect'), 'Must cache bounding box to prevent reflow spam');
+    assert.ok(ELEMENT_PICKER_SCRIPT.includes('cancelAnimationFrame'), 'Must clean up pending hover animation frames');
+
+    // 4. Verify click debounce
+    assert.ok(ELEMENT_PICKER_SCRIPT.includes('lastClickTime'), 'Must debounce rapid click events');
+  });
+
+  it('tests /queue prompt normalization against duplicate /queue prefixes', () => {
+    // Single prefix
+    assert.strictEqual(normalizeAnnotationPrompt('/queue Tại sao sidebar này load hơi chậm nhỉ?'), '/queue Tại sao sidebar này load hơi chậm nhỉ?');
+    // Double prefix
+    assert.strictEqual(normalizeAnnotationPrompt('/queue /queue Tại sao sidebar này load hơi chậm nhỉ?'), '/queue Tại sao sidebar này load hơi chậm nhỉ?');
+    // Quadruple prefix (matching user issue symptom)
+    assert.strictEqual(normalizeAnnotationPrompt('/queue /queue /queue /queue Tại sao sidebar này load hơi chậm nhỉ?'), '/queue Tại sao sidebar này load hơi chậm nhỉ?');
+    // No prefix (user typed plain text)
+    assert.strictEqual(normalizeAnnotationPrompt('Tại sao sidebar này load hơi chậm nhỉ?'), '/queue Tại sao sidebar này load hơi chậm nhỉ?');
+    // Whitespace variations
+    assert.strictEqual(normalizeAnnotationPrompt('  /queue   /queue   Tại sao sidebar này load hơi chậm nhỉ?  '), '/queue Tại sao sidebar này load hơi chậm nhỉ?');
+    // Words starting with /queue (should preserve their suffix without corrupting)
+    assert.strictEqual(normalizeAnnotationPrompt('/queue_task issue'), '/queue /queue_task issue');
+    // Cleared textarea (/queue alone or whitespace)
+    assert.strictEqual(normalizeAnnotationPrompt('/queue'), '');
+    assert.strictEqual(normalizeAnnotationPrompt('/queue   '), '');
   });
 });

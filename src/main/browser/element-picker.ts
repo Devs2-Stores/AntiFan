@@ -17,9 +17,22 @@ export const ELEMENT_PICKER_SCRIPT = `(() => {
   let isMultiMode = false;
   let currentTarget = null;
   let isModalOpen = false;
+  let isSubmitting = false;
+  let hoverRafId = null;
+  let lastHoverEl = null;
+  let lastHoverRect = null;
+  let pendingHoverEvent = null;
+  let lastClickTime = 0;
 
   const cleanup = () => {
-    window.removeEventListener('mousemove', onHover, true);
+    if (hoverRafId !== null) {
+      cancelAnimationFrame(hoverRafId);
+      hoverRafId = null;
+    }
+    pendingHoverEvent = null;
+    lastHoverEl = null;
+    lastHoverRect = null;
+
     window.removeEventListener('pointermove', onHover, true);
     window.removeEventListener('pointerdown', onPointerDown, true);
     window.removeEventListener('pointerup', onPointerUp, true);
@@ -36,6 +49,7 @@ export const ELEMENT_PICKER_SCRIPT = `(() => {
     if (document.documentElement) document.documentElement.style.cursor = '';
     window.__antifanPickerActive = false;
     isModalOpen = false;
+    isSubmitting = false;
   };
   window.__antifanPickerCleanup = cleanup;
   const prevent = (e) => {
@@ -553,7 +567,7 @@ export const ELEMENT_PICKER_SCRIPT = `(() => {
     const submitMulti = () => {
       if (pickedList.length > 0) {
         const first = pickedList[0];
-        const combinedComment = pickedList.map((p, idx) => '[' + (idx + 1) + '] ' + p.selector + ': ' + (p.userComment || 'Check this element')).join('\\n\\n');
+        const combinedComment = '/queue ' + pickedList.map((p, idx) => '[' + (idx + 1) + '] ' + p.selector + ': ' + (p.userComment ? p.userComment.replace(/^(\\s*\\/queue\\b\\s*)+/gi, '') : 'Check this element')).join('\\n\\n');
         window.__antifanPick = Object.assign({}, first, {
           userComment: combinedComment,
           multiItems: pickedList,
@@ -614,21 +628,41 @@ export const ELEMENT_PICKER_SCRIPT = `(() => {
     return el;
   };
 
-  const onHover = (e) => {
-    if (isModalOpen) return;
-    const el = resolveElementFromEvent(e);
-    if (!el) return;
+  const updateHoverImmediate = (el) => {
+    if (!el || isModalOpen || isSubmitting) {
+      if (overlay) overlay.style.display = 'none';
+      if (badge) badge.style.display = 'none';
+      currentTarget = null;
+      lastHoverEl = null;
+      lastHoverRect = null;
+      return;
+    }
 
-    currentTarget = el;
     const r = el.getBoundingClientRect();
     if (r.width === 0 && r.height === 0) return;
+
+    if (
+      el === lastHoverEl &&
+      lastHoverRect &&
+      Math.abs(r.left - lastHoverRect.left) < 0.5 &&
+      Math.abs(r.top - lastHoverRect.top) < 0.5 &&
+      Math.abs(r.width - lastHoverRect.width) < 0.5 &&
+      Math.abs(r.height - lastHoverRect.height) < 0.5
+    ) {
+      return;
+    }
+
+    currentTarget = el;
+    lastHoverEl = el;
+    lastHoverRect = { left: r.left, top: r.top, width: r.width, height: r.height };
+
     overlay.style.display = 'block';
     overlay.style.top = r.top + 'px';
     overlay.style.left = r.left + 'px';
     overlay.style.width = r.width + 'px';
     overlay.style.height = r.height + 'px';
 
-    let tag = el.tagName.toLowerCase();
+    let tag = el.tagName ? el.tagName.toLowerCase() : 'div';
     if (el.id) tag += '#' + el.id;
     else if (el.className && typeof el.className === 'string') {
       const cls = el.className.trim().split(/\\s+/).filter(Boolean)[0];
@@ -640,11 +674,30 @@ export const ELEMENT_PICKER_SCRIPT = `(() => {
     badge.style.left = Math.max(2, r.left) + 'px';
   };
 
+  const onHover = (e) => {
+    if (isModalOpen || isSubmitting) return;
+    pendingHoverEvent = e;
+    if (hoverRafId !== null) return;
+    hoverRafId = requestAnimationFrame(() => {
+      hoverRafId = null;
+      if (!pendingHoverEvent || isModalOpen || isSubmitting) return;
+      const ev = pendingHoverEvent;
+      pendingHoverEvent = null;
+      const el = resolveElementFromEvent(ev);
+      updateHoverImmediate(el);
+    });
+  };
+
   const showCommentModal = (el) => {
+    if (isModalOpen) return;
     isModalOpen = true;
+
+    document.querySelectorAll('#' + MODAL_ID).forEach((m) => {
+      try { m.remove(); } catch {}
+    });
+
     overlay.style.display = 'block';
     badge.style.display = 'none';
-
     let selectorName = el.tagName ? el.tagName.toLowerCase() : 'element';
     if (el.id) {
       selectorName += '#' + el.id;
@@ -810,7 +863,14 @@ export const ELEMENT_PICKER_SCRIPT = `(() => {
     if (textarea.value.substring(0, prefixLen) === QUEUE_PREFIX) {
       textarea.setSelectionRange(prefixLen, prefixLen);
     }
-    const textareaAutoGrow = () => { textarea.style.height = '58px'; textarea.style.height = Math.min(200, Math.max(58, textarea.scrollHeight)) + 'px'; };
+    const textareaAutoGrow = () => {
+      const scrollH = textarea.scrollHeight;
+      if (scrollH > 58) {
+        textarea.style.height = Math.min(200, scrollH) + 'px';
+      } else {
+        textarea.style.height = '58px';
+      }
+    };
     textareaAutoGrow();
     textarea.addEventListener('input', textareaAutoGrow);
 
@@ -974,12 +1034,14 @@ export const ELEMENT_PICKER_SCRIPT = `(() => {
     };
 
     const doSubmit = () => {
+      if (isSubmitting) return;
+
       let userComment = textarea.value.trim();
       // Keep the /queue command prefix as the prompt's first token, so the agent
       // queues the annotation even when the user edited the textarea. Normalize
-      // first: strip a leading bare /queue token so a cleared textarea (value
+      // first: strip all leading /queue tokens so a cleared textarea (value
       // '/queue' after trim) is validated as empty instead of double-prefixed.
-let promptBody = userComment.replace(new RegExp('^/queue(?:\\s|$)'), '').trim();;
+      let promptBody = userComment.replace(/^(\\s*\\/queue\\b\\s*)+/gi, '').trim();
       let bodyHasContent = promptBody.length > 0;
       if (!bodyHasContent && attachedImages.length === 0) {
         statusMsg.textContent = 'Vui lòng nhập mô tả hoặc đính kèm ảnh trước khi gửi.';
@@ -993,11 +1055,16 @@ let promptBody = userComment.replace(new RegExp('^/queue(?:\\s|$)'), '').trim();
       userComment = '/queue ' + promptBody;
       statusMsg.style.display = 'none';
 
+      isSubmitting = true;
+      textarea.disabled = true;
       const submitBtn = modal.querySelector('#btnModalSend');
       if (submitBtn) {
+        submitBtn.disabled = true;
         submitBtn.textContent = 'Đang gửi...';
-        submitBtn.style.opacity = '0.7';
+        submitBtn.style.opacity = '0.6';
+        submitBtn.style.cursor = 'default';
       }
+      cleanupModalListeners();
       try {
         // 1. Re-measure fresh rect on submit to eliminate any scroll/layout drift
         const freshRect = el.getBoundingClientRect ? el.getBoundingClientRect() : { left: 0, top: 0, width: 0, height: 0 };
@@ -1144,6 +1211,7 @@ let promptBody = userComment.replace(new RegExp('^/queue(?:\\s|$)'), '').trim();
           cleanupModalListeners();
           try { modal.remove(); } catch {}
           isModalOpen = false;
+          isSubmitting = false;
           updateMultiDock();
         } else {
           cleanupModalListeners();
@@ -1182,6 +1250,7 @@ let promptBody = userComment.replace(new RegExp('^/queue(?:\\s|$)'), '').trim();
       };
     }
     textarea.onkeydown = (ev) => {
+      if (ev.isComposing || isSubmitting) return;
       if (ev.key === 'Enter' && (ev.shiftKey || ev.altKey)) {
         ev.preventDefault();
         const start = textarea.selectionStart;
@@ -1214,7 +1283,12 @@ let promptBody = userComment.replace(new RegExp('^/queue(?:\\s|$)'), '').trim();
       return;
     }
     prevent(e);
-    if (isModalOpen) return;
+    if (isModalOpen || isSubmitting) return;
+
+    const now = Date.now();
+    if (now - lastClickTime < 250) return;
+    lastClickTime = now;
+
     const path = (e.composedPath && typeof e.composedPath === 'function') ? e.composedPath() : [];
     let el = currentTarget;
     if (!el) {
@@ -1232,13 +1306,13 @@ let promptBody = userComment.replace(new RegExp('^/queue(?:\\s|$)'), '').trim();
   };
 
   const onPointerDown = (e) => {
-    if (isInteractiveUiEvent(e) || isModalOpen) return;
+    if (isInteractiveUiEvent(e) || isModalOpen || isSubmitting) return;
     const el = resolveElementFromEvent(e);
     if (el) currentTarget = el;
   };
 
   const onPointerUp = (e) => {
-    if (isInteractiveUiEvent(e) || isModalOpen) return;
+    if (isInteractiveUiEvent(e) || isModalOpen || isSubmitting) return;
     if (e.pointerType === 'touch' || e.pointerType === 'pen') {
       const el = resolveElementFromEvent(e);
       if (el) {
@@ -1249,17 +1323,17 @@ let promptBody = userComment.replace(new RegExp('^/queue(?:\\s|$)'), '').trim();
   };
 
   const onTouchStart = (e) => {
-    if (isInteractiveUiEvent(e) || isModalOpen) return;
+    if (isInteractiveUiEvent(e) || isModalOpen || isSubmitting) return;
     onHover(e);
   };
 
   const onTouchMove = (e) => {
-    if (isInteractiveUiEvent(e) || isModalOpen) return;
+    if (isInteractiveUiEvent(e) || isModalOpen || isSubmitting) return;
     onHover(e);
   };
 
   const onTouchEnd = (e) => {
-    if (isInteractiveUiEvent(e) || isModalOpen) return;
+    if (isInteractiveUiEvent(e) || isModalOpen || isSubmitting) return;
     const el = resolveElementFromEvent(e);
     if (el) {
       currentTarget = el;
@@ -1267,7 +1341,6 @@ let promptBody = userComment.replace(new RegExp('^/queue(?:\\s|$)'), '').trim();
     }
   };
 
-  window.addEventListener('mousemove', onHover, true);
   window.addEventListener('pointermove', onHover, true);
   window.addEventListener('pointerdown', onPointerDown, true);
   window.addEventListener('pointerup', onPointerUp, true);
@@ -1299,6 +1372,11 @@ export const escapeCSSString = (s: string): string => {
     .replace(/\n/g, '\\n')
     .replace(/\r/g, '\\r');
 };
+export function normalizeAnnotationPrompt(userComment: string): string {
+  const promptBody = (userComment || '').replace(/^(\s*\/queue\b\s*)+/gi, '').trim();
+  return promptBody ? `/queue ${promptBody}` : '';
+}
+
 export function computeRelativeSubselectorTS(ownerEl: any, targetEl: any): RelativeSubselectorResult {
   if (!ownerEl || !targetEl || ownerEl === targetEl) {
     return { subselector: '', stability: 'stable', isStructuralFallback: false };

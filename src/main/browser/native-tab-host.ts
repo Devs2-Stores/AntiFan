@@ -219,6 +219,9 @@ export class NativeTabHost extends EventEmitter {
   private asyncQaQueue = new AsyncThemeQaQueue();
 
   private isInspecting: boolean = false;
+  private isProcessingInspectPick: boolean = false;
+  private isInspectPollInFlight: boolean = false;
+  private inspectGeneration: number = 0;
   private inspectedTabId: string | null = null;
   private isFontFinderActive: boolean = false;
   private isLensActive: boolean = false;
@@ -3612,9 +3615,15 @@ export class NativeTabHost extends EventEmitter {
   }
 
   public startInspect(): void {
+    if (this.isInspecting && this.inspectedTabId === this.activeTabId) {
+      return;
+    }
     const active = this.tabs.get(this.activeTabId);
     if (!active) return;
     this.inspectedTabId = this.activeTabId;
+
+    this.inspectGeneration++;
+    const currentGeneration = this.inspectGeneration;
 
     const tm = TerminalManager.getInstance();
     const activeSessionId = tm.getActiveSessionId();
@@ -3632,6 +3641,8 @@ export class NativeTabHost extends EventEmitter {
       ${tabSessionId === undefined ? 'delete window.__antifanTerminalContext.annotationSessionId;' : `window.__antifanTerminalContext.annotationSessionId = ${JSON.stringify(tabSessionId)};`}
     })();`;
     this.isInspecting = true;
+    this.isProcessingInspectPick = false;
+    this.isInspectPollInFlight = false;
     const targetWcs: Array<{ wc: Electron.WebContents; paneId: SplitPaneId }> = [];
     if (active.view && !active.view.webContents.isDestroyed()) {
       targetWcs.push({ wc: active.view.webContents, paneId: 'desktop' });
@@ -3647,10 +3658,14 @@ export class NativeTabHost extends EventEmitter {
 
     if (this.inspectPollTimer) clearInterval(this.inspectPollTimer);
     this.inspectPollTimer = setInterval(async () => {
-      if (!this.isInspecting) {
-        if (this.inspectPollTimer) clearInterval(this.inspectPollTimer);
+      if (!this.isInspecting || this.inspectGeneration !== currentGeneration || this.isProcessingInspectPick || this.isInspectPollInFlight) {
+        if ((!this.isInspecting || this.inspectGeneration !== currentGeneration) && this.inspectPollTimer) {
+          clearInterval(this.inspectPollTimer);
+          this.inspectPollTimer = null;
+        }
         return;
       }
+      this.isInspectPollInFlight = true;
       try {
         const liveSessions = TerminalManager.getInstance().listSessions();
         const targetTabId = this.inspectedTabId || this.activeTabId;
@@ -3666,125 +3681,145 @@ export class NativeTabHost extends EventEmitter {
         }
 
         for (const { wc, paneId } of currentWcs) {
-          if (!this.isInspecting) break;
+          if (!this.isInspecting || this.inspectGeneration !== currentGeneration || this.isProcessingInspectPick) break;
           if (wc.isDestroyed()) continue;
           const currentCtx = await wc.executeJavaScript('window.__antifanTerminalContext?.annotationSessionId').catch(() => null);
+          if (this.inspectGeneration !== currentGeneration || !this.isInspecting) return;
           if (typeof currentCtx === 'string' && (currentCtx === 'auto' || liveSessions.some((s) => s.id === currentCtx))) {
             targetTab.state.terminalSessionId = currentCtx;
           }
-          const rawResult = await wc.executeJavaScript('window.__antifanPick').catch(() => null);
-          if (rawResult) {
-            await wc.executeJavaScript('window.__antifanPick = null;').catch(() => {});
+          // Atomic consume: read and clear in a single JavaScript execution
+          const rawResult = await wc.executeJavaScript('(() => { const r = window.__antifanPick; window.__antifanPick = null; return r; })()').catch(() => null);
+          if (this.inspectGeneration !== currentGeneration || !this.isInspecting) return;
+          if (rawResult && !this.isProcessingInspectPick) {
             this.stopInspect(targetTabId);
-            if (rawResult.canceled) return;
-
-            // Automatically focus the pane where user picked/annotated the element!
-            if (targetTab.state.splitMode) {
-              targetTab.focusedPane = paneId;
-              targetTab.state.splitFocusedPane = paneId;
-              this.broadcastState();
+            if (rawResult.canceled) {
+              this.isProcessingInspectPick = false;
+              return;
             }
-
-            if (typeof rawResult.targetSessionId === 'string' && (rawResult.targetSessionId === 'auto' || liveSessions.some((s) => s.id === rawResult.targetSessionId))) {
-              targetTab.state.terminalSessionId = rawResult.targetSessionId;
-            }
-
-            let targetImageBase64: string | undefined = rawResult.targetImageBase64 || rawResult.screenshotBase64;
-            let viewportImageBase64: string | undefined = rawResult.viewportImageBase64;
 
             try {
-              const fullImage = await wc.capturePage();
-              if (!fullImage.isEmpty()) {
-                viewportImageBase64 = fullImage.toPNG().toString('base64');
-                const imgSize = fullImage.getSize();
-                if (rawResult.clientRect && rawResult.clientRect.width > 0 && rawResult.clientRect.height > 0 && imgSize.width > 0 && imgSize.height > 0) {
-                  const domSize = await wc.executeJavaScript('({ w: window.innerWidth, h: window.innerHeight })').catch(() => null);
-                  const scaleX = (domSize && typeof domSize.w === 'number' && domSize.w > 0) ? (imgSize.width / domSize.w) : 1.0;
-                  const scaleY = (domSize && typeof domSize.h === 'number' && domSize.h > 0) ? (imgSize.height / domSize.h) : 1.0;
+              // Automatically focus the pane where user picked/annotated the element!
+              if (targetTab.state.splitMode) {
+                targetTab.focusedPane = paneId;
+                targetTab.state.splitFocusedPane = paneId;
+                this.broadcastState();
+              }
 
-                  const cropX = Math.max(0, Math.min(imgSize.width - 1, Math.floor(rawResult.clientRect.x * scaleX)));
-                  const cropY = Math.max(0, Math.min(imgSize.height - 1, Math.floor(rawResult.clientRect.y * scaleY)));
-                  const cropW = Math.max(1, Math.min(imgSize.width - cropX, Math.ceil(rawResult.clientRect.width * scaleX)));
-                  const cropH = Math.max(1, Math.min(imgSize.height - cropY, Math.ceil(rawResult.clientRect.height * scaleY)));
+              if (typeof rawResult.targetSessionId === 'string' && (rawResult.targetSessionId === 'auto' || liveSessions.some((s) => s.id === rawResult.targetSessionId))) {
+                targetTab.state.terminalSessionId = rawResult.targetSessionId;
+              }
 
-                  const cropped = fullImage.crop({ x: cropX, y: cropY, width: cropW, height: cropH });
-                  if (!cropped.isEmpty()) {
-                    targetImageBase64 = cropped.toPNG().toString('base64');
+              let targetImageBase64: string | undefined = rawResult.targetImageBase64 || rawResult.screenshotBase64;
+              let viewportImageBase64: string | undefined = rawResult.viewportImageBase64;
+
+              try {
+                const fullImage = await wc.capturePage();
+                if (!fullImage.isEmpty()) {
+                  viewportImageBase64 = fullImage.toPNG().toString('base64');
+                  const imgSize = fullImage.getSize();
+                  if (rawResult.clientRect && rawResult.clientRect.width > 0 && rawResult.clientRect.height > 0 && imgSize.width > 0 && imgSize.height > 0) {
+                    const domSize = await wc.executeJavaScript('({ w: window.innerWidth, h: window.innerHeight })').catch(() => null);
+                    const scaleX = (domSize && typeof domSize.w === 'number' && domSize.w > 0) ? (imgSize.width / domSize.w) : 1.0;
+                    const scaleY = (domSize && typeof domSize.h === 'number' && domSize.h > 0) ? (imgSize.height / domSize.h) : 1.0;
+
+                    const cropX = Math.max(0, Math.min(imgSize.width - 1, Math.floor(rawResult.clientRect.x * scaleX)));
+                    const cropY = Math.max(0, Math.min(imgSize.height - 1, Math.floor(rawResult.clientRect.y * scaleY)));
+                    const cropW = Math.max(1, Math.min(imgSize.width - cropX, Math.ceil(rawResult.clientRect.width * scaleX)));
+                    const cropH = Math.max(1, Math.min(imgSize.height - cropY, Math.ceil(rawResult.clientRect.height * scaleY)));
+
+                    const cropped = fullImage.crop({ x: cropX, y: cropY, width: cropW, height: cropH });
+                    if (!cropped.isEmpty()) {
+                      targetImageBase64 = cropped.toPNG().toString('base64');
+                    }
                   }
                 }
+              } catch (err) {
+                console.error('[native-tab-host] capture and crop error:', err);
               }
-            } catch (err) {
-              console.error('[native-tab-host] capture and crop error:', err);
-            }
-            const tmActiveId = TerminalManager.getInstance().getActiveSessionId();
-            const targetSessionId = rawResult.targetSessionId || (tmActiveId !== 'auto' ? tmActiveId : undefined);
-            const targetWorkspace = this.resolveTargetWorkspace(targetSessionId, targetTab?.state.url);
-            const annotationWorkspace = this.resolveAnnotationWorkspace(targetSessionId, targetTab?.state.url);
+              const tmActiveId = TerminalManager.getInstance().getActiveSessionId();
+              const targetSessionId = rawResult.targetSessionId || (tmActiveId !== 'auto' ? tmActiveId : undefined);
+              const targetWorkspace = this.resolveTargetWorkspace(targetSessionId, targetTab?.state.url);
+              const annotationWorkspace = this.resolveAnnotationWorkspace(targetSessionId, targetTab?.state.url);
 
-            const annotationResult = await AnnotationManager.getInstance().processAnnotationPayload({
-              ...rawResult,
-              url: targetTab.state.url,
-              title: targetTab.state.title,
-              targetImageBase64,
-              viewportImageBase64,
-              workspaceDir: annotationWorkspace,
-            });
-            const annotationPayload = stripDeliveryMode(rawResult);
-            const pickedData: AntiFanPickedElement = {
-              ...annotationPayload,
-              screenshotBase64: targetImageBase64,
-              markdownPath: annotationResult.markdownPath,
-              markdownContent: annotationResult.markdownContent,
-              targetImagePath: annotationResult.targetImagePath,
-              viewportImagePath: annotationResult.viewportImagePath,
-              userComment: rawResult.userComment,
-              timestamp: Date.now(),
-            };
+              const annotationResult = await AnnotationManager.getInstance().processAnnotationPayload({
+                ...rawResult,
+                url: targetTab.state.url,
+                title: targetTab.state.title,
+                targetImageBase64,
+                viewportImageBase64,
+                workspaceDir: annotationWorkspace,
+              });
+              const annotationPayload = stripDeliveryMode(rawResult);
+              const pickedData: AntiFanPickedElement = {
+                ...annotationPayload,
+                screenshotBase64: targetImageBase64,
+                markdownPath: annotationResult.markdownPath,
+                markdownContent: annotationResult.markdownContent,
+                targetImagePath: annotationResult.targetImagePath,
+                viewportImagePath: annotationResult.viewportImagePath,
+                userComment: rawResult.userComment,
+                timestamp: Date.now(),
+              };
 
-            this.emit('element-picked', pickedData);
+              this.emit('element-picked', pickedData);
 
-            // Notify Toolbar
-            safeSendWebContents(this.toolbarView?.webContents, TOOLBAR_CHANNELS.ELEMENT_PICKED, pickedData);
+              // Notify Toolbar
+              safeSendWebContents(this.toolbarView?.webContents, TOOLBAR_CHANNELS.ELEMENT_PICKED, pickedData);
 
-            const formatPath = (p?: string) => {
-              if (!p) return '';
-              if (targetWorkspace) {
-                try {
-                  const rel = path.relative(targetWorkspace, p).replace(/\\/g, '/');
-                  if (!rel.startsWith('..') && !path.isAbsolute(rel)) {
-                    return rel.startsWith('.') ? rel : `./${rel}`;
-                  }
-                } catch {}
+              const formatPath = (p?: string) => {
+                if (!p) return '';
+                if (targetWorkspace) {
+                  try {
+                    const rel = path.relative(targetWorkspace, p).replace(/\\/g, '/');
+                    if (!rel.startsWith('..') && !path.isAbsolute(rel)) {
+                      return rel.startsWith('.') ? rel : `./${rel}`;
+                    }
+                  } catch {}
+                }
+                return p.replace(/\\/g, '/');
+              };
+
+              const rawComment = rawResult.userComment?.trim() || 'Inspect the attached browser annotation, report observed evidence, and ask for the intended outcome before editing.';
+              const promptText = rawComment.replace(/^(\s*\/queue\b\s*)+/gi, '/queue ');
+              let fullPrompt = promptText;
+              if (annotationResult.markdownPath) {
+                fullPrompt += ` @${formatPath(annotationResult.markdownPath)}`;
               }
-              return p.replace(/\\/g, '/');
-            };
+              if (annotationResult.targetImagePath) {
+                fullPrompt += ` @${formatPath(annotationResult.targetImagePath)}`;
+              }
 
-            const promptText = rawResult.userComment?.trim() || 'Inspect the attached browser annotation, report observed evidence, and ask for the intended outcome before editing.';
-            let fullPrompt = promptText;
-            if (annotationResult.markdownPath) {
-              fullPrompt += ` @${formatPath(annotationResult.markdownPath)}`;
+              // 1. Direct write to TerminalManager session PTY (immediate submit; queue/draft removed)
+              dispatchAnnotationToTerminal(tm, targetSessionId, fullPrompt);
+
+              // 2. Also copy to OS clipboard for instant convenience
+              try {
+                clipboard.writeText(fullPrompt);
+              } catch {}
+            } finally {
+              this.isProcessingInspectPick = false;
             }
-            if (annotationResult.targetImagePath) {
-              fullPrompt += ` @${formatPath(annotationResult.targetImagePath)}`;
-            }
-
-            // 1. Direct write to TerminalManager session PTY (immediate submit; queue/draft removed)
-            dispatchAnnotationToTerminal(tm, targetSessionId, fullPrompt);
-
-            // 2. Also copy to OS clipboard for instant convenience
-            try {
-              clipboard.writeText(fullPrompt);
-            } catch {}
 
             break;
           }
         }
-      } catch {}
-    }, 200);
+      } catch {
+        if (this.inspectGeneration === currentGeneration) {
+          this.isProcessingInspectPick = false;
+        }
+      } finally {
+        if (this.inspectGeneration === currentGeneration) {
+          this.isInspectPollInFlight = false;
+        }
+      }
+    }, 150);
   }
-
   public stopInspect(targetTabId?: string): void {
+    this.inspectGeneration++;
     this.isInspecting = false;
+    this.isProcessingInspectPick = false;
+    this.isInspectPollInFlight = false;
     if (this.inspectPollTimer) {
       clearInterval(this.inspectPollTimer);
       this.inspectPollTimer = null;
