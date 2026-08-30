@@ -65,23 +65,42 @@ describe('ChromeProfileSyncManager Invariants', () => {
     }
   });
 
-  it('safely copies locked files without throwing EBUSY and handles missing source gracefully', () => {
+  it('synchronizes bookmarks cleanly and reports companion extension integration', async () => {
     const manager = ChromeProfileSyncManager.getInstance();
-    const tmpSrc = path.join(os.tmpdir(), `test-lock-src-${Date.now()}.txt`);
-    const tmpDst = path.join(os.tmpdir(), `test-lock-dst-${Date.now()}.txt`);
+    const origPath = (manager as any).chromeUserDataPath;
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-chrome-bm-test-'));
 
-    fs.writeFileSync(tmpSrc, 'test cookie data content', 'utf8');
-    const ok = manager.safeCopyLockedFile(tmpSrc, tmpDst);
+    try {
+      (manager as any).chromeUserDataPath = tempDir;
+      const defaultDir = path.join(tempDir, 'Default');
+      fs.mkdirSync(defaultDir, { recursive: true });
+      fs.writeFileSync(
+        path.join(defaultDir, 'Bookmarks'),
+        JSON.stringify({
+          roots: {
+            bookmark_bar: {
+              children: [
+                { type: 'url', name: 'Google', url: 'https://www.google.com' },
+                { type: 'url', name: 'Gmail', url: 'https://mail.google.com' },
+              ],
+            },
+          },
+        }),
+        'utf8'
+      );
 
-    assert.strictEqual(ok, true);
-    assert.strictEqual(fs.existsSync(tmpDst), true);
-    assert.strictEqual(fs.readFileSync(tmpDst, 'utf8'), 'test cookie data content');
+      const bms = manager.getChromeBookmarks('Default');
+      assert.strictEqual(bms.length, 2);
+      assert.strictEqual(bms[0]?.title, 'Google');
+      assert.strictEqual(bms[1]?.title, 'Gmail');
 
-    // Non-existent source returns false gracefully without crashing
-    const missingOk = manager.safeCopyLockedFile(path.join(os.tmpdir(), 'non-existent-source-file-12345.txt'), tmpDst);
-    assert.strictEqual(missingOk, false);
-
-    try { fs.unlinkSync(tmpSrc); } catch {}
-    try { fs.unlinkSync(tmpDst); } catch {}
+      const res = await manager.syncProfile('Default');
+      assert.strictEqual(res.success, true);
+      assert.strictEqual(res.bookmarksCount, 2);
+      assert.match(res.message, /AntiFan Chrome Extension/);
+    } finally {
+      (manager as any).chromeUserDataPath = origPath;
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
   });
 });

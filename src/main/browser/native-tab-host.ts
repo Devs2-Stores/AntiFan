@@ -29,7 +29,7 @@ import {
   IPHONE_USER_AGENT,
   MAC_DESKTOP_USER_AGENT,
 } from './device-presets';
-import { googleAuthUserAgent, chromeSessionUserAgent, applyGoogleAuthIdentity } from './google-auth-identity';
+import { chromeSessionUserAgent } from './google-auth-identity';
 import { configureBrowserSessionPartition, deriveCapsulePartition, type BrowserSessionUserAgentMode } from './browser-session-partition';
 import { TabDiagnosticsManager, computeOrigin } from './tab-diagnostics';
 import { buildKeyboardInputEvents } from './keyboard-normalizer';
@@ -2039,10 +2039,6 @@ export class NativeTabHost extends EventEmitter {
       });
     });
     wc.on('did-start-navigation', (_event, navUrl, isInPlace, isMainFrame) => {
-      if (isMainFrame && typeof navUrl === 'string') {
-        const baseUa = paneId === 'mobile' ? IPHONE_USER_AGENT : this.defaultUserAgent;
-        applyGoogleAuthIdentity(wc, navUrl, baseUa);
-      }
       const currentTab = this.tabs.get(id);
       const splitHasLiveMobile = Boolean(state.splitMode && currentTab?.mobileView && !currentTab.mobileView.webContents.isDestroyed());
       const authorityPane = splitHasLiveMobile ? (currentTab?.focusedPane || state.splitFocusedPane || 'desktop') : 'desktop';
@@ -2061,12 +2057,7 @@ export class NativeTabHost extends EventEmitter {
         }
       }
     });
-    wc.on('will-redirect', (_event, redirectUrl) => {
-      if (typeof redirectUrl === 'string') {
-        const baseUa = paneId === 'mobile' ? IPHONE_USER_AGENT : this.defaultUserAgent;
-        applyGoogleAuthIdentity(wc, redirectUrl, baseUa);
-      }
-    });
+    wc.on('will-redirect', (_event, _redirectUrl) => {});
 
     wc.on('did-fail-load', (_event, errorCode, errorDescription, validatedURL, isMainFrame) => {
       clearLoadingTimer();
@@ -2161,14 +2152,6 @@ export class NativeTabHost extends EventEmitter {
         }
         this.broadcastState();
 
-        // Auto-close OAuth completion tab if title indicates success
-        if (/Authentication Success|Xác thực thành công|Đăng nhập thành công|Login Success/i.test(title)) {
-          setTimeout(() => {
-            if (this.tabs.has(id) && this.tabs.size > 1) {
-              this.closeTab(id);
-            }
-          }, 1200);
-        }
       }
     });
 
@@ -2194,13 +2177,6 @@ export class NativeTabHost extends EventEmitter {
         }
       }
 
-        if (OAuthPopupManager.getInstance().isOAuthCallbackUrl(cleanUrl)) {
-          setTimeout(() => {
-            if (this.tabs.has(id) && this.tabs.size > 1) {
-              this.closeTab(id);
-            }
-          }, 1200);
-        }
       const decision = this.splitCoordinator.handleNavigationEvent(id, paneId, cleanUrl, false);
       if (decision.shouldMirror && state.splitMode) {
         const tab = this.tabs.get(id);
@@ -2416,7 +2392,6 @@ export class NativeTabHost extends EventEmitter {
       }
     }
     const wc = view.webContents;
-    applyGoogleAuthIdentity(wc, url, this.defaultUserAgent);
     if (url.startsWith('view-source:')) {
       const sourceTargetUrl = url.slice('view-source:'.length).trim();
       state.title = `view-source:${sourceTargetUrl}`;

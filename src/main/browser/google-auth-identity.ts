@@ -60,12 +60,7 @@ export function chromeSessionUserAgent(): string {
 }
 
 export function googleAuthUserAgent(): string {
-  const platform = process.platform === 'darwin'
-    ? 'Macintosh; Intel Mac OS X 10.15'
-    : process.platform === 'win32'
-      ? 'Windows NT 10.0; Win64; x64'
-      : 'X11; Linux x86_64';
-  return `Mozilla/5.0 (${platform}; rv:140.0) Gecko/20100101 Firefox/140.0`;
+  return chromeSessionUserAgent();
 }
 
 export function buildChromeClientHints(ua: string): { secChUa: string; secChUaFull: string } | null {
@@ -96,7 +91,7 @@ export function setChromeClientHints(headers: Record<string, string>): void {
 }
 
 export function setGoogleAuthClientHints(headers: Record<string, string>): void {
-  stripClientHints(headers);
+  setChromeClientHints(headers);
 }
 
 export function stripClientHints(headers: Record<string, string>): void {
@@ -115,26 +110,9 @@ export function setUserAgentHeader(headers: Record<string, string>, value: strin
 export function setupClientHintsOverride(sess: Session, ua?: string): void {
   const defaultUa = ua || chromeSessionUserAgent();
   const chromeHints = buildChromeClientHints(defaultUa);
-  const firefoxUa = googleAuthUserAgent();
 
   sess.webRequest.onBeforeSendHeaders({ urls: ['https://*/*'] }, (details, callback) => {
     const headers = details.requestHeaders;
-    const uaKey = Object.keys(headers).find((k) => k.toLowerCase() === 'user-agent');
-    const currentUa = uaKey ? headers[uaKey] : undefined;
-    const isFirefox = currentUa === firefoxUa || (currentUa && currentUa.includes('Firefox/'));
-
-    if (isGoogleAuthUrl(details.url)) {
-      setUserAgentHeader(headers, firefoxUa);
-      stripClientHints(headers);
-      callback({ requestHeaders: headers });
-      return;
-    }
-
-    if (isFirefox) {
-      stripClientHints(headers);
-      callback({ requestHeaders: headers });
-      return;
-    }
 
     if (chromeHints) {
       for (const key of Object.keys(headers)) {
@@ -151,82 +129,11 @@ export const ANTI_DETECTION_SCRIPT = `(function() {
   try {
     Object.defineProperty(navigator, 'webdriver', { get: () => false, configurable: true });
   } catch {}
-
-  const loc = window.location;
-  const hostname = (loc.hostname || '').toLowerCase();
-  const pathname = (loc.pathname || '').toLowerCase();
-  const search = (loc.search || '').toLowerCase();
-
-  const isGoogleAuth = navigator.userAgent.includes('Firefox/') ||
-    hostname === 'accounts.google.com' ||
-    hostname === 'accounts.youtube.com' ||
-    pathname.includes('/signin') ||
-    pathname.includes('/servicelogin') ||
-    pathname.includes('/accountchooser') ||
-    pathname.includes('/identifier') ||
-    pathname.includes('/v3/signin') ||
-    search.includes('flowname=glifwebsignin') ||
-    search.includes('flowname=weblitesignin') ||
-    search.includes('flowentry=') ||
-    search.includes('service=mail');
-
-  if (isGoogleAuth) {
-    try {
-      delete window.chrome;
-      if (window.constructor && window.constructor.prototype) {
-        delete window.constructor.prototype.chrome;
-      }
-      const proto = Object.getPrototypeOf(window);
-      if (proto) delete proto.chrome;
-    } catch {}
-
-    try {
-      delete navigator.userAgentData;
-      if (typeof Navigator !== 'undefined' && Navigator.prototype) {
-        delete Navigator.prototype.userAgentData;
-      }
-      const navProto = Object.getPrototypeOf(navigator);
-      if (navProto) delete navProto.userAgentData;
-    } catch {}
-
-    try {
-      if (!window.InstallTrigger) {
-        window.InstallTrigger = {};
-      }
-    } catch {}
-
-    try {
-      Object.defineProperty(navigator, 'oscpu', { get: () => 'Windows NT 10.0; Win64; x64', configurable: true });
-      Object.defineProperty(navigator, 'buildID', { get: () => '20181001000000', configurable: true });
-      Object.defineProperty(navigator, 'pdfViewerEnabled', { get: () => true, configurable: true });
-    } catch {}
-  } else {
-    if (navigator.plugins.length === 0) {
-      try {
-        Object.defineProperty(navigator, 'plugins', {
-          get: () => [
-            { name: 'Chrome PDF Plugin', filename: 'internal-pdf-viewer' },
-            { name: 'Chrome PDF Viewer', filename: 'mhjfbmdgcfjbbpaeojofohoefgiehjai' },
-            { name: 'Native Client', filename: 'internal-nacl-plugin' }
-          ],
-          configurable: true,
-        });
-      } catch {}
-    }
-    if (!window.chrome) {
-      window.chrome = {
-        app: { isInstalled: false },
-        runtime: { PlatformOs: { MAC: 'mac', WIN: 'win', ANDROID: 'android', CROS: 'cros', LINUX: 'linux', OPENBSD: 'openbsd' } },
-        csi: function() {},
-        loadTimes: function() {}
-      };
-    }
-  }
 })();`;
 
-export function applyGoogleAuthIdentity(contents: WebContents | null | undefined, url: string, baseUserAgent?: string): void {
+export function applyGoogleAuthIdentity(contents: WebContents | null | undefined, _url: string, baseUserAgent?: string): void {
   if (!contents || (typeof contents.isDestroyed === 'function' && contents.isDestroyed())) return;
-  const targetUa = isGoogleAuthUrl(url) ? googleAuthUserAgent() : (baseUserAgent || chromeSessionUserAgent());
+  const targetUa = baseUserAgent || chromeSessionUserAgent();
   try {
     if (typeof contents.setUserAgent === 'function') {
       const currentUa = typeof contents.getUserAgent === 'function' ? contents.getUserAgent() : undefined;

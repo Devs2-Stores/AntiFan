@@ -14,20 +14,16 @@ test('Google auth identity is scoped to exact auth hosts and service signin flow
   assert.equal(isGoogleAuthUrl('https://accounts.google.com.evil.test/'), false);
 });
 
-test('Google auth identity uses Firefox 140 UA and strips Client Hints for auth hosts', () => {
-  const headers = {
+test('Google auth identity uses authentic Chrome session UA and sets standard Client Hints', () => {
+  const headers: Record<string, string> = {
     'user-agent': 'old',
-    'Sec-CH-UA': 'Chromium',
-    'sec-ch-ua-platform': 'Windows',
-    'sec-ch-dpr': '2',
-    'sec-ch-viewport-width': '1920',
-    'sec-ch-prefers-color-scheme': 'dark',
   };
   setUserAgentHeader(headers, googleAuthUserAgent());
   setGoogleAuthClientHints(headers);
-  assert.match(headers['user-agent'], /Firefox\/140\.0/);
-  assert.doesNotMatch(headers['user-agent'], /Chrome/);
-  assert.equal(Object.keys(headers).some((key) => key.toLowerCase().startsWith('sec-ch-')), false, 'All sec-ch-* client hints must be stripped');
+  assert.match(String(headers['user-agent']), /Chrome\/\d+/);
+  assert.doesNotMatch(String(headers['user-agent']), /Firefox/);
+  assert.ok(headers['sec-ch-ua']);
+  assert.equal(headers['sec-ch-ua-mobile'], '?0');
   assert.equal(Object.keys(headers).filter((key) => key.toLowerCase() === 'user-agent').length, 1);
 });
 
@@ -36,7 +32,7 @@ test('Chrome session user agent produces standard Chrome desktop identity', () =
   assert.match(chromeUa, /Chrome\/\d+\.\d+\.\d+\.\d+/);
   assert.doesNotMatch(chromeUa, /Firefox/);
 });
-test('applyGoogleAuthIdentity switches between Firefox auth UA and base Chrome session UA', () => {
+test('applyGoogleAuthIdentity maintains consistent base Chrome session UA across all URLs', () => {
   let currentUa = '';
   const mockWebContents = {
     isDestroyed: () => false,
@@ -46,10 +42,12 @@ test('applyGoogleAuthIdentity switches between Firefox auth UA and base Chrome s
   const baseUa = chromeSessionUserAgent();
 
   applyGoogleAuthIdentity(mockWebContents as any, 'https://accounts.google.com/signin', baseUa);
-  assert.match(currentUa, /Firefox\/140\.0/);
+  assert.match(currentUa, /Chrome\/\d+/);
+  assert.doesNotMatch(currentUa, /Firefox/);
 
   applyGoogleAuthIdentity(mockWebContents as any, 'https://mail.google.com/', baseUa);
   assert.match(currentUa, /Chrome\/\d+/);
+  assert.doesNotMatch(currentUa, /Firefox/);
 });
 test('isGoogleUrl and isGoogleDomain recognize Google search and localized domains', () => {
   assert.equal(isGoogleUrl('https://www.google.com/search?q=test'), true);
@@ -76,12 +74,15 @@ test('setChromeClientHints sets Chromium client hints aligned with desktop Chrom
 });
 
 
-test('tab-preload does not monkey-patch window.chrome or navigator prototypes', () => {
+test('tab-preload does not monkey-patch window.chrome, navigator prototypes, or identity', () => {
   const preloadPath = path.resolve(process.cwd(), 'src/preload/tab-preload.ts');
   assert.ok(fs.existsSync(preloadPath), `tab-preload.ts must exist at ${preloadPath}`);
   const preloadSource = fs.readFileSync(preloadPath, 'utf8');
   assert.doesNotMatch(preloadSource, /STEALTH_SCRIPT/);
   assert.doesNotMatch(preloadSource, /dummyPlugin/);
+  assert.doesNotMatch(preloadSource, /isGoogleAuth/);
+  assert.doesNotMatch(preloadSource, /InstallTrigger/);
+  assert.doesNotMatch(preloadSource, /Firefox\//);
   assert.doesNotMatch(preloadSource, /window\.chrome\s*=/);
   assert.doesNotMatch(preloadSource, /window\.chrome\.runtime\s*=/);
   assert.doesNotMatch(preloadSource, /webFrame/);
