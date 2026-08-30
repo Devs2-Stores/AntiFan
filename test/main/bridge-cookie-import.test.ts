@@ -148,7 +148,7 @@ describe('Bridge Cookie Import Endpoint & Target Isolation', () => {
     assert.strictEqual(hostCookie?.domain, undefined);
     assert.strictEqual(hostCookie?.url, 'https://accounts.google.com/');
 
-    // 4. Secure cookie with sameSite 'unspecified' must remain 'unspecified' (not mutated to no_restriction)
+    // 4. Secure cookie with sameSite 'unspecified' must remain 'unspecified' (never converted to no_restriction)
     const unspecifiedCookie = extensionCookieImportSetDetails({
       name: 'SECURE_UNSPECIFIED',
       value: 'secure-unspecified-val',
@@ -160,7 +160,52 @@ describe('Bridge Cookie Import Endpoint & Target Isolation', () => {
     assert.ok(unspecifiedCookie);
     assert.strictEqual(unspecifiedCookie?.sameSite, 'unspecified');
 
-    // 5. Invalid / empty cookie returns null
+    // 5. sameSite 'lax' and 'strict' exact preservation
+    const laxCookie = extensionCookieImportSetDetails({
+      name: 'LAX_COOKIE',
+      value: 'lax-val',
+      domain: '.google.com',
+      sameSite: 'lax',
+    });
+    assert.strictEqual(laxCookie?.sameSite, 'lax');
+
+    const strictCookie = extensionCookieImportSetDetails({
+      name: 'STRICT_COOKIE',
+      value: 'strict-val',
+      domain: '.google.com',
+      sameSite: 'strict',
+    });
+    assert.strictEqual(strictCookie?.sameSite, 'strict');
+
+    // 6. Session cookie (no expirationDate) must not have expirationDate set
+    const sessionCookie = extensionCookieImportSetDetails({
+      name: 'SESSION_ONLY',
+      value: 'session-val',
+      domain: '.google.com',
+    });
+    assert.ok(sessionCookie);
+    assert.strictEqual(sessionCookie?.expirationDate, undefined);
+
+    // 7. Domain vs Host-only cookie:
+    // Domain cookie (with leading dot) sets details.domain
+    const dotDomainCookie = extensionCookieImportSetDetails({
+      name: 'DOMAIN_COOKIE',
+      value: 'dot-val',
+      domain: '.example.com',
+    });
+    assert.strictEqual(dotDomainCookie?.domain, '.example.com');
+    assert.strictEqual(dotDomainCookie?.url, 'http://example.com/');
+
+    // Host-only cookie (without leading dot) omits details.domain
+    const hostOnlyCookie = extensionCookieImportSetDetails({
+      name: 'HOST_ONLY_COOKIE',
+      value: 'host-val',
+      domain: 'sub.example.com',
+    });
+    assert.strictEqual(hostOnlyCookie?.domain, undefined);
+    assert.strictEqual(hostOnlyCookie?.url, 'http://sub.example.com/');
+
+    // 8. Invalid / empty cookie returns null
     assert.strictEqual(extensionCookieImportSetDetails(null as unknown as Parameters<typeof extensionCookieImportSetDetails>[0]), null);
     assert.strictEqual(extensionCookieImportSetDetails({ name: '', value: 'test' }), null);
     assert.strictEqual(extensionCookieImportSetDetails({ name: 'test', value: 'val', domain: '' }), null);
