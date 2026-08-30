@@ -51,6 +51,7 @@ import { BridgeServer } from '../bridge/bridge-server';
 import { HistoryManager } from './history-manager';
 import { OAuthPopupManager } from './oauth-popup-manager';
 import { isBenchmarkEnabled, recordBenchmark } from '../benchmark/telemetry';
+import { AsyncThemeQaQueue } from '../qa/async-qa-job-queue';
 import {
   DEFAULT_SPLIT_DESKTOP_PRESET,
   DEFAULT_SPLIT_MOBILE_PRESET,
@@ -216,6 +217,7 @@ export class NativeTabHost extends EventEmitter {
   private recentlyClosedTabs: Array<{ url: string; title: string }> = [];
   private automationTabId: string | null = null;
   private themeQaState: { status: 'idle' | 'running' | 'pass' | 'fail' | 'error'; issueCount: number; reportArtifactId?: string; report?: unknown; error?: string; updatedAt: number } = { status: 'idle', issueCount: 0, updatedAt: Date.now() };
+  private asyncQaQueue = new AsyncThemeQaQueue();
 
   private isInspecting: boolean = false;
   private inspectedTabId: string | null = null;
@@ -2044,7 +2046,7 @@ export class NativeTabHost extends EventEmitter {
       const authorityPane = splitHasLiveMobile ? (currentTab?.focusedPane || state.splitFocusedPane || 'desktop') : 'desktop';
       if (isMainFrame && !isInPlace && authorityPane === paneId) {
         this.documentGenerations.set(id, (this.documentGenerations.get(id) || 0) + 1);
-        // Clear diagnostics buffer ĐỒNG BỘ tại start navigation (main-frame,
+        this.asyncQaQueue?.abort(id);
         // không in-place, pane có quyền điều hướng). Không clear tại
         // did-finish-load: lỗi console phát trong lúc parse phải được GIỮ LẠI
         // cho QA. Không clear trên hash navigation (did-navigate-in-page,
@@ -2651,6 +2653,7 @@ export class NativeTabHost extends EventEmitter {
     if (this.isDisposed) return false;
     const target = this.tabs.get(tabId);
     if (!target) return false;
+    this.asyncQaQueue?.abort(tabId);
     this.clearTabAgentWorking(tabId);
     if (target.state.url && target.state.url !== 'about:blank') {
       this.recentlyClosedTabs.push({ url: target.state.url, title: target.state.title || 'Tab' });
@@ -3474,18 +3477,19 @@ export class NativeTabHost extends EventEmitter {
     }
   }
 
-  public async agentClick(params: { selector?: string; x?: number; y?: number; label?: string; tabId?: string; paneId?: SplitPaneId }): Promise<boolean> {
+  public async agentClick(params: { selector?: string; ref?: string; x?: number; y?: number; label?: string; tabId?: string; paneId?: SplitPaneId }): Promise<boolean> {
     const targetId = params.tabId || this.automationTabId || this.activeTabId;
     const target = this.tabs.get(targetId);
     if (!target) return false;
     const wc = this.getTabWebContents(targetId, params.paneId || target.focusedPane);
-    if (!wc) return false;
+    if (!wc || wc.isDestroyed()) return false;
     this.beginTabAgentWorking(targetId);
     try {
       if (!await this.ensureAgentBrowserInjected(targetId, params.paneId || target.focusedPane)) return false;
+      const targetSelector = params.ref || params.selector || '';
       return Boolean(await wc.executeJavaScript(`(async () => {
         if (typeof window.__antifanAgentClick !== 'function') return false;
-        return await window.__antifanAgentClick(${JSON.stringify(params.selector || '')}, ${typeof params.x === 'number' ? params.x : 'null'}, ${typeof params.y === 'number' ? params.y : 'null'}, ${JSON.stringify(params.label || '')});
+        return await window.__antifanAgentClick(${JSON.stringify(targetSelector)}, ${typeof params.x === 'number' ? params.x : 'null'}, ${typeof params.y === 'number' ? params.y : 'null'}, ${JSON.stringify(params.label || '')});
       })()`));
     } catch (err) {
       console.error('[native-tab-host] agentClick error:', err);
@@ -3495,18 +3499,19 @@ export class NativeTabHost extends EventEmitter {
     }
   }
 
-  public async agentType(params: { selector: string; text: string; clear?: boolean; tabId?: string; paneId?: SplitPaneId }): Promise<boolean> {
+  public async agentType(params: { selector?: string; ref?: string; text: string; clear?: boolean; tabId?: string; paneId?: SplitPaneId }): Promise<boolean> {
     const targetId = params.tabId || this.automationTabId || this.activeTabId;
     const target = this.tabs.get(targetId);
     if (!target) return false;
     const wc = this.getTabWebContents(targetId, params.paneId || target.focusedPane);
-    if (!wc) return false;
+    if (!wc || wc.isDestroyed()) return false;
     return this.withTabAgentWorking(targetId, async () => {
       if (!await this.ensureAgentBrowserInjected(targetId, params.paneId || target.focusedPane)) return false;
       try {
+        const targetSelector = params.ref || params.selector || '';
         return Boolean(await wc.executeJavaScript(`(async () => {
           if (typeof window.__antifanAgentType !== 'function') return false;
-          return await window.__antifanAgentType(${JSON.stringify(params.selector)}, ${JSON.stringify(params.text)}, ${params.clear ? 'true' : 'false'});
+          return await window.__antifanAgentType(${JSON.stringify(targetSelector)}, ${JSON.stringify(params.text)}, ${params.clear ? 'true' : 'false'});
         })()`));
       } catch (err) {
         console.error('[native-tab-host] agentType error:', err);
@@ -3520,7 +3525,7 @@ export class NativeTabHost extends EventEmitter {
     const target = this.tabs.get(targetId);
     if (!target) return false;
     const wc = this.getTabWebContents(targetId, params.paneId || target.focusedPane);
-    if (!wc) return false;
+    if (!wc || wc.isDestroyed()) return false;
     return this.withTabAgentWorking(targetId, async () => {
       if (!await this.ensureAgentBrowserInjected(targetId, params.paneId || target.focusedPane)) return false;
       try {
@@ -3535,36 +3540,25 @@ export class NativeTabHost extends EventEmitter {
     });
   }
 
-  public async agentHover(params: { selector?: string; x?: number; y?: number; label?: string; tabId?: string; paneId?: SplitPaneId }): Promise<boolean> {
+  public async agentHover(params: { selector?: string; ref?: string; x?: number; y?: number; label?: string; tabId?: string; paneId?: SplitPaneId }): Promise<boolean> {
     const targetId = params.tabId || this.automationTabId || this.activeTabId;
     const target = this.tabs.get(targetId);
     if (!target) return false;
     const wc = this.getTabWebContents(targetId, params.paneId || target.focusedPane);
-    if (!wc) return false;
+    if (!wc || wc.isDestroyed()) return false;
     return this.withTabAgentWorking(targetId, async () => {
       if (!await this.ensureAgentBrowserInjected(targetId, params.paneId || target.focusedPane)) return false;
       try {
-        let targetX = params.x;
-        let targetY = params.y;
-        if (params.selector) {
-          const rect = await wc.executeJavaScript(`(() => {
-            const el = document.querySelector(${JSON.stringify(params.selector)});
-            if (!el) return null;
-            const r = el.getBoundingClientRect();
-            return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
-          })()`);
-          if (rect) {
-            targetX = rect.x;
-            targetY = rect.y;
+        const targetSelector = params.ref || params.selector || '';
+        return Boolean(await wc.executeJavaScript(`(async () => {
+          if (typeof window.__antifanAgentHover === 'function') {
+            return await window.__antifanAgentHover(${JSON.stringify(targetSelector)}, ${typeof params.x === 'number' ? params.x : 'null'}, ${typeof params.y === 'number' ? params.y : 'null'}, ${JSON.stringify(params.label || '')});
           }
-        }
-        if (typeof targetX === 'number' && typeof targetY === 'number') {
-          return Boolean(await wc.executeJavaScript(`(async () => {
-            if (typeof window.__antifanAgentMove !== 'function') return false;
-            return await window.__antifanAgentMove(${targetX}, ${targetY}, ${JSON.stringify(params.label || 'Hovering')});
-          })()`));
-        }
-        return false;
+          if (typeof window.__antifanAgentMove === 'function' && typeof ${typeof params.x === 'number' ? params.x : 'null'} === 'number') {
+            return await window.__antifanAgentMove(${typeof params.x === 'number' ? params.x : 0}, ${typeof params.y === 'number' ? params.y : 0}, ${JSON.stringify(params.label || 'Hovering')});
+          }
+          return false;
+        })()`));
       } catch (err) {
         console.error('[native-tab-host] agentHover error:', err);
         return false;
@@ -4538,31 +4532,41 @@ export class NativeTabHost extends EventEmitter {
     const workspaceRoot = options?.workspaceRoot || this.capsuleManager.getActive()?.workspacePath || this.controlPlane.getWorkspaceRoot();
     this.themeQaState = { status: 'running', issueCount: 0, updatedAt: Date.now() };
     this.broadcastState();
-    try {
-      const report = await this.controlPlane.validateThemeQa(target, { workspaceRoot });
-      const summary = report.summary;
-      const findings = report.findings;
-      const issueCount = typeof summary?.criticalCount === 'number'
-        ? summary.criticalCount
-        : (findings ? (
-            (findings.liquid?.errors?.length || 0) +
-            (findings.overflow?.culprits?.length || 0) +
-            (findings.assets?.brokenAssets?.length || 0) +
-            (findings.hsRules?.totalViolations || 0) +
-            (findings.diagnosticIssues?.length || 0)
-          ) : 0);
-      const isPassed = typeof summary?.passed === 'boolean' ? summary.passed : issueCount === 0;
-      const status: 'pass' | 'fail' = isPassed ? 'pass' : 'fail';
-      const reportArtifactId = report.artifacts?.find((item: { kind?: string; id?: string }) => item.kind === 'report')?.id;
-      this.themeQaState = { status, issueCount, reportArtifactId, report, updatedAt: Date.now() };
-      this.broadcastState();
-      return { ok: true, report };
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      this.themeQaState = { status: 'error', issueCount: 0, error: message, updatedAt: Date.now() };
-      this.broadcastState();
-      return { ok: false, error: message };
-    }
+    return new Promise((resolve) => {
+      const tabId = target.tabId;
+      const gen = this.getDocumentGeneration(tabId);
+      this.asyncQaQueue.enqueue(tabId, gen, async (signal) => {
+        try {
+          const report = await this.controlPlane!.validateThemeQa(target, { workspaceRoot, signal });
+          const summary = report.summary;
+          const findings = report.findings;
+          const issueCount = typeof summary?.criticalCount === 'number'
+            ? summary.criticalCount
+            : (findings ? (
+                (findings.liquid?.errors?.length || 0) +
+                (findings.overflow?.culprits?.length || 0) +
+                (findings.assets?.brokenAssets?.length || 0) +
+                (findings.hsRules?.totalViolations || 0) +
+                (findings.diagnosticIssues?.length || 0)
+              ) : 0);
+          const isPassed = typeof summary?.passed === 'boolean' ? summary.passed : issueCount === 0;
+          const status: 'pass' | 'fail' = isPassed ? 'pass' : 'fail';
+          const reportArtifactId = report.artifacts?.find((item: { kind?: string; id?: string }) => item.kind === 'report')?.id;
+          this.themeQaState = { status, issueCount, reportArtifactId, report, updatedAt: Date.now() };
+          this.broadcastState();
+          resolve({ ok: true, report });
+        } catch (error) {
+          if (signal.aborted) {
+            resolve({ ok: false, error: 'Theme QA was aborted by document navigation' });
+            return;
+          }
+          const message = error instanceof Error ? error.message : String(error);
+          this.themeQaState = { status: 'error', issueCount: 0, error: message, updatedAt: Date.now() };
+          this.broadcastState();
+          resolve({ ok: false, error: message });
+        }
+      });
+    });
   }
   public getBrowserEpoch(): number {
     return this.browserEpoch;
@@ -4723,13 +4727,33 @@ export class NativeTabHost extends EventEmitter {
     });
   }
 
-  public async agentMove(args: { selector?: string; x?: number; y?: number; label?: string; tabId?: string; paneId?: SplitPaneId }): Promise<boolean> {
+  public async agentMove(args: { selector?: string; ref?: string; x?: number; y?: number; label?: string; tabId?: string; paneId?: SplitPaneId }): Promise<boolean> {
     return this.agentHover(args);
   }
 
   public async agentSnapshot(tabId?: string, paneId?: SplitPaneId): Promise<string> {
     const targetId = tabId || this.automationTabId || this.activeTabId;
-    return this.getDom(undefined, targetId, paneId);
+    const target = this.tabs.get(targetId);
+    if (!target) return '';
+    const wc = this.getTabWebContents(targetId, paneId || target.focusedPane);
+    if (!wc || wc.isDestroyed()) return '';
+    if (!await this.ensureAgentBrowserInjected(targetId, paneId || target.focusedPane)) {
+      return this.getDom(undefined, targetId, paneId);
+    }
+    try {
+      const res = await wc.executeJavaScript(`(() => {
+        if (typeof window.__antifanAgentSnapshot === 'function') {
+          return window.__antifanAgentSnapshot();
+        }
+        return '';
+      })()`);
+      if (typeof res === 'string' && res.trim().length > 0) {
+        return res;
+      }
+      return this.getDom(undefined, targetId, paneId);
+    } catch {
+      return this.getDom(undefined, targetId, paneId);
+    }
   }
 
   public async sendKeyboardPress(params: { key: string; modifiers?: string[]; tabId?: string }): Promise<{ success: boolean; key: string; modifiers: string[] }> {
@@ -5107,6 +5131,7 @@ export class NativeTabHost extends EventEmitter {
   public dispose(): void {
     if (this.isDisposed) return;
     this.persistTabs();
+    this.asyncQaQueue?.abortAll();
     this.isDisposed = true;
     if (this.frameBackdropView) {
       try {

@@ -99,13 +99,14 @@ export class ControlPlaneRuntime {
     this.themeQaWorkflow = new ThemeQaWorkflow({ browser, files: this.files, artifacts: this.artifacts, reload: (target) => browser.reload(target) });
     registerBrowserCapabilities(this.capabilities, browser, this.themeQaWorkflow, () => this.getWorkspaceRoot());
   }
-  async validateThemeQa(target: BrowserTarget, options: { runId?: string; attemptId?: string; workspaceRoot?: string; multiBreakpoint?: boolean } = {}): Promise<ThemeQaReport> {
+  async validateThemeQa(target: BrowserTarget, options: { runId?: string; attemptId?: string; workspaceRoot?: string; multiBreakpoint?: boolean; signal?: AbortSignal } = {}): Promise<ThemeQaReport> {
     if (!this.themeQaWorkflow) throw new CapabilityError('CAPABILITY_NOT_FOUND', 'Browser control is not registered');
     return this.themeQaWorkflow.validate({
       runId: options.runId || `run-theme-qa-${Date.now()}`,
       attemptId: options.attemptId || `attempt-theme-qa-${Date.now()}`,
       workspaceRoot: options.workspaceRoot || this.getWorkspaceRoot(),
       multiBreakpoint: options.multiBreakpoint,
+      signal: options.signal,
       target,
     });
   }

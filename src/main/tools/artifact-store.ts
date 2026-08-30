@@ -4,8 +4,15 @@ import * as crypto from 'node:crypto';
 import { performance } from 'node:perf_hooks';
 import { recordBenchmark } from '../benchmark/telemetry';
 import { ArtifactRef, CapabilityError } from '../../shared/control-plane-contracts';
+import { ArtifactRetentionCleaner, RetentionSweepOptions, RetentionSweepResult } from './artifact-retention-cleaner';
 
-export interface ArtifactStoreOptions { root: string; maxArtifactBytes?: number; maxRunBytes?: number; }
+export interface ArtifactStoreOptions {
+  root: string;
+  maxArtifactBytes?: number;
+  maxRunBytes?: number;
+  enableRetentionCleaner?: boolean;
+  retentionOptions?: RetentionSweepOptions;
+}
 
 export class ArtifactStore {
   private readonly maxArtifactBytes: number;
@@ -16,8 +23,10 @@ export class ArtifactStore {
   constructor(private readonly options: ArtifactStoreOptions) {
     this.maxArtifactBytes = options.maxArtifactBytes ?? 8 * 1024 * 1024;
     this.maxRunBytes = options.maxRunBytes ?? 32 * 1024 * 1024;
+    if (options.enableRetentionCleaner) {
+      Promise.resolve().then(() => this.sweepRetention()).catch(() => {});
+    }
   }
-
   stage(input: { kind: ArtifactRef['kind']; mime: string; data: string | Buffer; runId: string; attemptId: string; maxBytes?: number }): ArtifactRef {
     const stageStartMs = performance.now();
     const raw = Buffer.isBuffer(input.data) ? input.data : Buffer.from(input.data, 'utf8');
@@ -76,6 +85,10 @@ export class ArtifactStore {
   readTextById(id: string): { ref: ArtifactRef; text: string } {
     const { ref, data } = this.readBytesById(id);
     return { ref, text: data.toString('utf8') };
+  }
+
+  sweepRetention(options?: RetentionSweepOptions): RetentionSweepResult {
+    return ArtifactRetentionCleaner.sweep(this.options.root, options ?? this.options.retentionOptions);
   }
 }
 

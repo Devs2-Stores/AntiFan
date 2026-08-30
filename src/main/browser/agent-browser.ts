@@ -248,17 +248,56 @@ export const AGENT_BROWSER_SCRIPT = `(() => {
     window.__antifanRefMap = new Map();
   }
 
+  // Global element viewport rect resolver across nested iframes
+  function getElementGlobalRect(el) {
+    if (!el || typeof el.getBoundingClientRect !== 'function') return null;
+    const rect = el.getBoundingClientRect();
+    let currentWin = el.ownerDocument ? el.ownerDocument.defaultView : null;
+    let offsetX = 0;
+    let offsetY = 0;
+
+    while (currentWin && currentWin !== window && currentWin.frameElement) {
+      const frameEl = currentWin.frameElement;
+      const frameRect = frameEl.getBoundingClientRect();
+      offsetX += frameRect.left;
+      offsetY += frameRect.top;
+      currentWin = frameEl.ownerDocument ? frameEl.ownerDocument.defaultView : null;
+    }
+
+    return {
+      left: rect.left + offsetX,
+      top: rect.top + offsetY,
+      right: rect.right + offsetX,
+      bottom: rect.bottom + offsetY,
+      width: rect.width,
+      height: rect.height,
+      centerX: rect.left + offsetX + rect.width / 2,
+      centerY: rect.top + offsetY + rect.height / 2,
+    };
+  }
+
   // Deep selector helper for Shadow DOM & @ref resolution
   function querySelectorDeep(selectorOrRef) {
     if (!selectorOrRef) return null;
     const str = String(selectorOrRef).trim();
     if (str.startsWith('@e')) {
       if (window.__antifanRefMap && window.__antifanRefMap.has(str)) {
-        const cached = window.__antifanRefMap.get(str);
-        if (cached && cached.isConnected) return cached;
+        const entry = window.__antifanRefMap.get(str);
+        const node = entry && (entry.node || entry);
+        if (node && node.isConnected) return node;
       }
       const tagged = document.querySelector('[data-antifan-ref="' + str + '"]');
       if (tagged) return tagged;
+      const iframes = Array.from(document.querySelectorAll('iframe'));
+      for (const ifr of iframes) {
+        try {
+          const doc = ifr.contentDocument || ifr.contentWindow?.document;
+          if (doc) {
+            const inFrame = doc.querySelector('[data-antifan-ref="' + str + '"]');
+            if (inFrame) return inFrame;
+          }
+        } catch {}
+      }
     }
 
     let el = null;
@@ -288,46 +327,80 @@ export const AGENT_BROWSER_SCRIPT = `(() => {
   window.__antifanAgentSnapshot = () => {
     if (!window.__antifanRefMap) window.__antifanRefMap = new Map();
     window.__antifanRefMap.clear();
-    document.querySelectorAll('[data-antifan-ref]').forEach((node) => {
-      node.removeAttribute('data-antifan-ref');
-    });
+
+    const clearOldRefs = (doc) => {
+      try {
+        doc.querySelectorAll('[data-antifan-ref]').forEach((node) => {
+          node.removeAttribute('data-antifan-ref');
+        });
+      } catch {}
+    };
+    clearOldRefs(document);
 
     const selector = 'button, a[href], input, textarea, select, [role="button"], [role="link"], [role="tab"], [role="checkbox"], [role="menuitem"], [tabindex]:not([tabindex="-1"])';
-    const rawNodes = Array.from(document.querySelectorAll(selector));
     const lines = [];
     let refIndex = 1;
 
-    for (const node of rawNodes) {
-      if (node.id === OVERLAY_ID || node.id === CURSOR_ID || node.id === BANNER_ID || node.id === HIGHLIGHT_ID) continue;
-      if (node.closest('#' + OVERLAY_ID)) continue;
-      const rect = node.getBoundingClientRect();
-      if (rect.width === 0 || rect.height === 0) continue;
-      const style = window.getComputedStyle(node);
-      if (style.visibility === 'hidden' || style.display === 'none' || style.opacity === '0') continue;
+    const scanContainer = (container, rootDoc, framePath = '') => {
+      if (!container) return;
+      const elements = Array.from(container.querySelectorAll('*'));
+      for (const node of elements) {
+        if (node.id === OVERLAY_ID || node.id === CURSOR_ID || node.id === BANNER_ID || node.id === HIGHLIGHT_ID) continue;
+        if (node.closest && node.closest('#' + OVERLAY_ID)) continue;
 
-      const ref = '@e' + refIndex++;
-      node.setAttribute('data-antifan-ref', ref);
-      window.__antifanRefMap.set(ref, node);
+        if (node.shadowRoot) {
+          scanContainer(node.shadowRoot, rootDoc, framePath);
+        }
 
-      const tag = node.tagName.toLowerCase();
-      const role = node.getAttribute('role') || tag;
-      const type = node.getAttribute('type') || '';
-      const label = (node.innerText || node.getAttribute('aria-label') || node.getAttribute('placeholder') || node.getAttribute('title') || node.getAttribute('value') || '').trim().replace(/\\s+/g, ' ').slice(0, 60);
-      const sec = node.closest('[data-section-id]')?.getAttribute('data-section-id') || undefined;
-      const prod = node.closest('[data-product-id]')?.getAttribute('data-product-id') || undefined;
+        if (node.matches && node.matches(selector)) {
+          try {
+            const rect = node.getBoundingClientRect();
+            if (rect.width === 0 || rect.height === 0) continue;
+            const style = (rootDoc.defaultView || window).getComputedStyle(node);
+            if (style.visibility === 'hidden' || style.display === 'none' || style.opacity === '0') continue;
 
-      let line = ref + ' [' + role + (type ? ':' + type : '') + '] ' + (label ? '"' + label + '"' : '');
-      const meta = [];
-      if (node.id) meta.push('id: "' + node.id + '"');
-      if (sec) meta.push('section: "' + sec + '"');
-      if (prod) meta.push('product: "' + prod + '"');
-      if (meta.length > 0) {
-        line += ' (' + meta.join(', ') + ')';
+            const ref = '@e' + refIndex++;
+            node.setAttribute('data-antifan-ref', ref);
+            window.__antifanRefMap.set(ref, { node, framePath });
+
+            const tag = node.tagName.toLowerCase();
+            const role = node.getAttribute('role') || tag;
+            const type = node.getAttribute('type') || '';
+            const label = (node.innerText || node.getAttribute('aria-label') || node.getAttribute('placeholder') || node.getAttribute('title') || node.getAttribute('value') || '').trim().replace(/\\s+/g, ' ').slice(0, 60);
+            const sec = node.closest('[data-section-id]')?.getAttribute('data-section-id') || undefined;
+            const prod = node.closest('[data-product-id]')?.getAttribute('data-product-id') || undefined;
+            const block = node.closest('[data-block-id]')?.getAttribute('data-block-id') || undefined;
+
+            let line = ref + ' [' + role + (type ? ':' + type : '') + '] ' + (label ? '"' + label + '"' : '');
+            const meta = [];
+            if (node.id) meta.push('id: "' + node.id + '"');
+            if (sec) meta.push('section: "' + sec + '"');
+            if (prod) meta.push('product: "' + prod + '"');
+            if (block) meta.push('block: "' + block + '"');
+            if (framePath) meta.push('frame: "' + framePath + '"');
+            if (meta.length > 0) {
+              line += ' (' + meta.join(', ') + ')';
+            }
+            lines.push(line);
+            if (lines.length >= 150) return;
+          } catch {}
+        }
+
+        if (node.tagName && node.tagName.toLowerCase() === 'iframe') {
+          try {
+            const frameDoc = node.contentDocument || node.contentWindow?.document;
+            if (frameDoc) {
+              clearOldRefs(frameDoc);
+              const frameId = node.id || node.name || ('iframe-' + lines.length);
+              const nextPath = framePath ? framePath + ' > ' + frameId : frameId;
+              scanContainer(frameDoc, frameDoc, nextPath);
+            }
+          } catch {}
+        }
       }
-      lines.push(line);
-      if (lines.length >= 100) break;
-    }
+    };
 
+    scanContainer(document, document, '');
     return lines.join('\\n');
   };
   // ─── Kinematics: Cubic Bézier Curve & Fitts's Law Engine ───
@@ -627,10 +700,14 @@ export const AGENT_BROWSER_SCRIPT = `(() => {
     if (selector) {
       targetEl = querySelectorDeep(selector);
       if (targetEl) {
-        targetEl.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'center' });
-        const rect = targetEl.getBoundingClientRect();
-        targetX = rect.left + rect.width / 2;
-        targetY = rect.top + rect.height / 2;
+        if (typeof targetEl.scrollIntoView === 'function') {
+          targetEl.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'center' });
+        }
+        const gRect = getElementGlobalRect(targetEl);
+        if (gRect) {
+          targetX = gRect.centerX;
+          targetY = gRect.centerY;
+        }
         highlightElement(targetEl);
       } else if (typeof targetX !== 'number' || typeof targetY !== 'number') {
         return false;
@@ -644,7 +721,7 @@ export const AGENT_BROWSER_SCRIPT = `(() => {
       setTimeout(() => {
         createClickRipple(targetX, targetY);
         if (targetEl) {
-          targetEl.focus();
+          if (typeof targetEl.focus === 'function') targetEl.focus();
           targetEl.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true, clientX: targetX, clientY: targetY }));
           targetEl.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true, clientX: targetX, clientY: targetY }));
           if (typeof targetEl.click === 'function') {
@@ -674,10 +751,14 @@ export const AGENT_BROWSER_SCRIPT = `(() => {
     if (selector) {
       const el = querySelectorDeep(selector);
       if (el) {
-        el.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'center' });
-        const r = el.getBoundingClientRect();
-        targetX = r.left + r.width / 2;
-        targetY = r.top + r.height / 2;
+        if (typeof el.scrollIntoView === 'function') {
+          el.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'center' });
+        }
+        const gRect = getElementGlobalRect(el);
+        if (gRect) {
+          targetX = gRect.centerX;
+          targetY = gRect.centerY;
+        }
         highlightElement(el);
       } else if (typeof targetX !== 'number' || typeof targetY !== 'number') {
         return false;
@@ -695,13 +776,17 @@ export const AGENT_BROWSER_SCRIPT = `(() => {
     const el = selector ? querySelectorDeep(selector) : document.activeElement;
     if (!el) return false;
 
-    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    const rect = el.getBoundingClientRect();
-    window.__antifanAgentMove(rect.left + rect.width / 2, rect.top + rect.height / 2, 'Typing...');
+    if (typeof el.scrollIntoView === 'function') {
+      el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+    const gRect = getElementGlobalRect(el);
+    if (gRect) {
+      window.__antifanAgentMove(gRect.centerX, gRect.centerY, 'Typing...');
+    }
     showBanner('Typing: "' + text.slice(0, 32) + (text.length > 32 ? '...' : '') + '"', '⌨️');
     highlightElement(el);
 
-    el.focus();
+    if (typeof el.focus === 'function') el.focus();
     if (clear) {
       if ('value' in el) (el).value = '';
       else el.textContent = '';

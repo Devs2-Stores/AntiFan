@@ -609,6 +609,62 @@ async function scenarioPackaged(report) {
   report.summary.push(`packaged: firstVisible=${Math.round(firstVisible.nowMs)}ms ptyLoad=${ptyRow && ptyRow.sampleCount > 0 ? 'ok' : 'FAILED'}`);
   await driver.kill();
 }
+async function scenarioSoak(report) {
+  const isEndurance = args.includes('--endurance');
+  const durationMinutes = isEndurance ? 120 : 0.2; // 120m for endurance, ~12s for fast test
+  const sampleIntervalMs = isEndurance ? 60000 : 1000;
+
+  const samples = [];
+  const startMs = Date.now();
+  const driver = new AppDriver({ label: 'soak' });
+  await driver.launch();
+
+  const firstVisible = await driver.waitForMetric('startup', 'firstVisible', LAUNCH_TIMEOUT_MS);
+  if (!firstVisible) {
+    report.rows.push(reportRow('soak', 'launch', observationRows([]), { error: 'app never became visible' }));
+    report.summary.push('soak: unmeasured (app not visible)');
+    await driver.kill();
+    return;
+  }
+
+  const baselineRss = process.memoryUsage().rss;
+  samples.push({ timestamp: Date.now(), rssBytes: baselineRss });
+
+  const endMs = startMs + durationMinutes * 60000;
+  while (Date.now() < endMs) {
+    await new Promise((r) => setTimeout(r, sampleIntervalMs));
+    samples.push({ timestamp: Date.now(), rssBytes: process.memoryUsage().rss });
+  }
+
+  let slope = 0;
+  if (samples.length >= 2) {
+    const n = samples.length;
+    const firstT = samples[0].timestamp;
+    const tMin = samples.map((s) => (s.timestamp - firstT) / 60000);
+    const rMB = samples.map((s) => s.rssBytes / (1024 * 1024));
+    const meanT = tMin.reduce((a, b) => a + b, 0) / n;
+    const meanM = rMB.reduce((a, b) => a + b, 0) / n;
+    let num = 0;
+    let den = 0;
+    for (let i = 0; i < n; i++) {
+      const dt = tMin[i] - meanT;
+      const dm = rMB[i] - meanM;
+      num += dt * dm;
+      den += dt * dt;
+    }
+    slope = den === 0 ? 0 : num / den;
+  }
+
+  await driver.kill();
+
+  report.rows.push(reportRow('soak', 'memorySlopeMBPerMin', observationRows([Number(slope.toFixed(4))]), {
+    durationMinutes,
+    samplesCount: samples.length,
+    isEndurance,
+  }));
+  report.summary.push(`soak: duration=${durationMinutes}m samples=${samples.length} slope=${slope.toFixed(4)}MB/min`);
+}
+
 
 async function main() {
   const report = {
@@ -634,6 +690,7 @@ async function main() {
       case 'artifact': await scenarioArtifact(report); break;
       case 'package': await scenarioPackage(report); break;
       case 'packaged': await scenarioPackaged(report); break;
+      case 'soak': await scenarioSoak(report); break;
       default: report.rows.push(reportRow(name, 'unknown', observationRows([]), { error: `unknown scenario: ${name}` }));
     }
     report.summary.push(`${name} took ${Math.round(performance.now() - t0)}ms`);

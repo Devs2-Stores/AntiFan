@@ -13,6 +13,7 @@ import { LiquidErrorScanner } from '../../src/main/qa/scanners/liquid-error-scan
 import { LayoutOverflowEngine } from '../../src/main/qa/scanners/layout-overflow-engine';
 import { BrokenAssetScanner } from '../../src/main/qa/scanners/broken-asset-scanner';
 import { HsGateRules } from '../../src/main/qa/rules/hs-gate-rules';
+import { AsyncThemeQaQueue } from '../../src/main/qa/async-qa-job-queue';
 interface CallRecord {
   method: string;
   targetGen?: number;
@@ -470,5 +471,71 @@ describe('Theme QA Fresh Target Reliability', () => {
       'Diagnostics lifecycle error must propagate'
     );
     fs.rmSync(root, { recursive: true, force: true });
+  });
+
+  it('aborts ThemeQaWorkflow.validate immediately when signal is aborted', async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'theme-qa-abort-test-'));
+    const host = new StatefulBrowserHost();
+    const artifactStore = new ArtifactStore({ root: path.join(root, 'artifacts') });
+    const browser = new BrowserControlPort(host, artifactStore);
+    const workflow = new ThemeQaWorkflow({
+      browser,
+      files: new WorkspaceFilePort(),
+      artifacts: artifactStore,
+      reload: (t) => browser.reload(t),
+    });
+
+    const controller = new AbortController();
+    controller.abort();
+
+    await assert.rejects(
+      async () => {
+        await workflow.validate({
+          runId: 'run-12345678901234567890',
+          attemptId: 'attempt-12345678901234567890',
+          workspaceRoot: root,
+          target: makeTarget(1),
+          signal: controller.signal,
+        });
+      },
+      (err: unknown) => {
+        assert.ok(err instanceof CapabilityError);
+        assert.strictEqual((err as CapabilityError).code, 'TARGET_STALE');
+        return true;
+      },
+      'Pre-aborted signal must throw TARGET_STALE'
+    );
+    fs.rmSync(root, { recursive: true, force: true });
+  });
+
+  it('manages background jobs and aborts old generations cleanly in AsyncThemeQaQueue', async () => {
+    const queue = new AsyncThemeQaQueue();
+    let task1Aborted = false;
+    let task2Completed = false;
+
+    // Enqueue task 1 with generation 1
+    queue.enqueue('tab-1', 1, async (signal) => {
+      return new Promise<void>((resolve) => {
+        signal.addEventListener('abort', () => {
+          task1Aborted = true;
+          resolve();
+        });
+      });
+    });
+
+    assert.strictEqual(queue.isRunning('tab-1'), true);
+    assert.strictEqual(queue.getActiveJob('tab-1')?.generation, 1);
+
+    // Enqueue task 2 with generation 2 (simulating navigation)
+    queue.enqueue('tab-1', 2, async (signal) => {
+      task2Completed = true;
+    });
+
+    // Allow microtasks to settle
+    await new Promise((r) => setTimeout(r, 10));
+
+    assert.strictEqual(task1Aborted, true, 'Task 1 must have been aborted when generation bumped');
+    assert.strictEqual(task2Completed, true, 'Task 2 must complete');
+    assert.strictEqual(queue.isRunning('tab-1'), false, 'Queue must be empty after task 2 completes');
   });
 });

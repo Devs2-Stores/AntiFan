@@ -101,7 +101,11 @@ export class ThemeQaWorkflow {
     target: BrowserTarget;
     enabledChecks?: Partial<Record<keyof ThemeQaChecklist, boolean>>;
     multiBreakpoint?: boolean;
+    signal?: AbortSignal;
   }): Promise<ThemeQaReport> {
+    if (input.signal?.aborted) {
+      throw new CapabilityError('TARGET_STALE', 'Theme QA validation was aborted by document navigation');
+    }
     this.assertOwnership(input.target);
 
     // SNAPSHOT diagnostics tại ĐẦU validate, trước MỌI await (Red Team Finding
@@ -132,12 +136,13 @@ export class ThemeQaWorkflow {
 
     // 1. Reload to reach load-complete document before inspecting
     const reload = await this.ports.reload(input.target);
+    if (input.signal?.aborted) {
+      throw new CapabilityError('TARGET_STALE', 'Theme QA validation was aborted by document navigation');
+    }
     if (!reload || !reload.reloaded || !reload.target) {
       throw new CapabilityError('TARGET_STALE', 'Bound browser tab could not reach a load-complete document');
     }
     const activeTarget = reload.target;
-
-    // 2. Read fresh diagnostics immediately after load-complete reload
     let freshDiagnostics: DiagnosticsInput = { console: [], failures: [] };
     try {
       const raw = this.ports.browser.diagnostics(activeTarget.tabId);
@@ -162,9 +167,13 @@ export class ThemeQaWorkflow {
     }
 
     // 3. Capture evidence from fresh activeTarget
+    if (input.signal?.aborted) {
+      throw new CapabilityError('TARGET_STALE', 'Theme QA validation was aborted by document navigation');
+    }
     const evidence = await this.inspect({ ...input, target: activeTarget });
-
-    // Retrieve raw HTML for static analysis and platform detection
+    if (input.signal?.aborted) {
+      throw new CapabilityError('TARGET_STALE', 'Theme QA validation was aborted by document navigation');
+    }
     let rawHtml = '';
     if (typeof evidence.dom === 'string') {
       rawHtml = evidence.dom;
@@ -379,7 +388,9 @@ export class ThemeQaWorkflow {
     for (const item of [evidence.dom, evidence.screenshot]) {
       if (typeof item !== 'string') artifacts.push(item);
     }
-
+    if (input.signal?.aborted) {
+      throw new CapabilityError('TARGET_STALE', 'Theme QA validation was aborted by document navigation');
+    }
     // 11. Generate PII-sanitized report JSON (RT-02 mitigation)
     const reportDataRaw = JSON.stringify(
       {

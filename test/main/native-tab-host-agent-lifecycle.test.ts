@@ -1,6 +1,7 @@
 import { describe, it } from 'node:test';
 import * as assert from 'node:assert';
 import { NativeTabHost } from '../../src/main/browser/native-tab-host';
+import { AsyncThemeQaQueue } from '../../src/main/qa/async-qa-job-queue';
 
 type TestHost = any;
 
@@ -27,6 +28,7 @@ function createHost(executeJavaScript: (code: string) => Promise<unknown>) {
   host.agentWorkingRefs = new Map();
   host.broadcastState = () => {};
   host.ensureAgentBrowserInjected = async () => true;
+  host.asyncQaQueue = new AsyncThemeQaQueue();
 
   return { host, state, webContents };
 }

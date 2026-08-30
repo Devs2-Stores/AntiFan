@@ -367,6 +367,98 @@ export class BrowserActionRegistry {
         return { snapshot, success: true };
       },
     });
+    // 16. Agent Click
+    this.registerAction({
+      name: 'agentClick',
+      mcpName: 'antifan_agent_click',
+      aliases: ['antifan.agentClick', 'anti.browser.click', 'anti.agent.cursor.click'],
+      description: 'Click an element or coordinate using agent cursor (supports @ref like @e1 or CSS selector)',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          selector: { type: 'string', description: 'CSS selector or element text' },
+          ref: { type: 'string', description: 'Interactive snapshot element reference (e.g. @e1)' },
+          x: { type: 'number', description: 'Optional explicit X viewport coordinate' },
+          y: { type: 'number', description: 'Optional explicit Y viewport coordinate' },
+          label: { type: 'string', description: 'Optional visual action label' },
+          tabId: { type: 'string', description: 'Optional tab ID' },
+          paneId: { type: 'string', enum: ['desktop', 'mobile'], description: 'Optional split review pane' },
+        },
+      },
+      handler: async (params: { selector?: string; ref?: string; x?: number; y?: number; label?: string; tabId?: string; paneId?: 'desktop' | 'mobile' }, { tabHost }) => {
+        const clicked = await tabHost.agentClick(params);
+        return { clicked, success: clicked };
+      },
+    });
+
+    // 17. Agent Type
+    this.registerAction({
+      name: 'agentType',
+      mcpName: 'antifan_agent_type',
+      aliases: ['antifan.agentType', 'anti.browser.type', 'anti.agent.cursor.type'],
+      description: 'Type text into an input element using agent cursor (supports @ref like @e1 or CSS selector)',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          selector: { type: 'string', description: 'CSS selector for the input' },
+          ref: { type: 'string', description: 'Interactive snapshot element reference (e.g. @e1)' },
+          text: { type: 'string', description: 'Text to type into the target element' },
+          clear: { type: 'boolean', description: 'Clear existing text before typing' },
+          tabId: { type: 'string', description: 'Optional tab ID' },
+          paneId: { type: 'string', enum: ['desktop', 'mobile'], description: 'Optional split review pane' },
+        },
+        required: ['text'],
+      },
+      handler: async (params: { selector?: string; ref?: string; text: string; clear?: boolean; tabId?: string; paneId?: 'desktop' | 'mobile' }, { tabHost }) => {
+        const typed = await tabHost.agentType(params as any);
+        return { typed, success: typed };
+      },
+    });
+
+    // 18. Agent Hover
+    this.registerAction({
+      name: 'agentHover',
+      mcpName: 'antifan_agent_hover',
+      aliases: ['antifan.agentHover', 'anti.browser.hover', 'anti.agent.cursor.hover', 'anti.agent.cursor.move'],
+      description: 'Hover virtual cursor over an element or coordinate (supports @ref or CSS selector)',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          selector: { type: 'string', description: 'CSS selector or element text' },
+          ref: { type: 'string', description: 'Interactive snapshot element reference (e.g. @e1)' },
+          x: { type: 'number', description: 'Optional explicit X viewport coordinate' },
+          y: { type: 'number', description: 'Optional explicit Y viewport coordinate' },
+          label: { type: 'string', description: 'Optional visual action label' },
+          tabId: { type: 'string', description: 'Optional tab ID' },
+          paneId: { type: 'string', enum: ['desktop', 'mobile'], description: 'Optional split review pane' },
+        },
+      },
+      handler: async (params: { selector?: string; ref?: string; x?: number; y?: number; label?: string; tabId?: string; paneId?: 'desktop' | 'mobile' }, { tabHost }) => {
+        const hovered = await tabHost.agentHover(params);
+        return { hovered, success: hovered };
+      },
+    });
+
+    // 19. Agent Scroll
+    this.registerAction({
+      name: 'agentScroll',
+      mcpName: 'antifan_agent_scroll',
+      aliases: ['antifan.agentScroll', 'anti.browser.scroll', 'anti.agent.cursor.scroll'],
+      description: 'Scroll active page or container using virtual agent scroll',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          deltaY: { type: 'number', description: 'Vertical scroll delta in pixels (default: 400)' },
+          selector: { type: 'string', description: 'Optional container selector to scroll' },
+          tabId: { type: 'string', description: 'Optional tab ID' },
+          paneId: { type: 'string', enum: ['desktop', 'mobile'], description: 'Optional split review pane' },
+        },
+      },
+      handler: async (params: { deltaY?: number; selector?: string; tabId?: string; paneId?: 'desktop' | 'mobile' }, { tabHost }) => {
+        const scrolled = await tabHost.agentScroll(params);
+        return { scrolled, success: scrolled };
+      },
+    });
     // 15. Eval JS (High Risk)
     this.registerAction({
       name: 'evalJs',

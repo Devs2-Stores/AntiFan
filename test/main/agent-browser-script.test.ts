@@ -364,4 +364,79 @@ describe('Agent Browser & Element Picker Injected Scripts', () => {
     // 4. Stale/closed session safely falls back to undefined (auto)
     assert.strictEqual(resolveValidAnnotationSession('terminal-deleted', sessions), undefined);
   });
+
+  it('verifies semantic snapshot traverses same-origin iframes, shadow roots, and generates @ref tags', () => {
+    assert.ok(AGENT_BROWSER_SCRIPT.includes('getElementGlobalRect'));
+    assert.ok(AGENT_BROWSER_SCRIPT.includes('scanContainer'));
+    assert.ok(AGENT_BROWSER_SCRIPT.includes('node.shadowRoot'));
+    assert.ok(AGENT_BROWSER_SCRIPT.includes('iframe'));
+    assert.ok(AGENT_BROWSER_SCRIPT.includes('frameDoc'));
+    assert.ok(AGENT_BROWSER_SCRIPT.includes('framePath'));
+    assert.ok(AGENT_BROWSER_SCRIPT.includes('data-antifan-ref'));
+  });
+
+  it('verifies __antifanRefMap and querySelectorDeep resolution for @ref in top document and iframes', () => {
+    const ctx = {
+      window: {} as any,
+      document: {} as any,
+      setTimeout: (fn: Function) => setTimeout(fn, 0),
+      clearTimeout: () => {},
+      Event: class {},
+      MouseEvent: class {},
+      console: console,
+    };
+    ctx.window = ctx;
+
+    // Create minimal mock DOM
+    const mockButton = {
+      id: 'checkout-btn',
+      tagName: 'BUTTON',
+      getAttribute: (attr: string) => (attr === 'role' ? 'button' : null),
+      setAttribute: (attr: string, val: string) => { (mockButton as any)[attr] = val; },
+      removeAttribute: (attr: string) => { delete (mockButton as any)[attr]; },
+      getBoundingClientRect: () => ({ left: 100, top: 200, width: 80, height: 30, right: 180, bottom: 230 }),
+      matches: (sel: string) => sel.includes('button'),
+      closest: (sel: string) => null,
+      innerText: 'Proceed to Checkout',
+      isConnected: true,
+      focus: () => {},
+      dispatchEvent: () => true,
+      click: () => {},
+      ownerDocument: ctx.document,
+    };
+
+    ctx.document = {
+      defaultView: ctx.window,
+      querySelectorAll: (sel: string) => {
+        if (sel === '*') return [mockButton];
+        if (sel === '[data-antifan-ref]') return (mockButton as any)['data-antifan-ref'] ? [mockButton] : [];
+        if (sel === 'iframe') return [];
+        return [mockButton];
+      },
+      querySelector: (sel: string) => {
+        if (sel.includes('data-antifan-ref')) return mockButton;
+        return null;
+      },
+      getElementById: () => null,
+      createElement: () => ({ style: {}, appendChild: () => {}, remove: () => {} }),
+      body: { appendChild: () => {}, style: {} },
+    };
+    mockButton.ownerDocument = ctx.document;
+
+    ctx.window.document = ctx.document;
+    ctx.window.getComputedStyle = () => ({ visibility: 'visible', display: 'block', opacity: '1' });
+
+    vm.createContext(ctx);
+    vm.runInContext(AGENT_BROWSER_SCRIPT, ctx);
+
+    // 1. Run snapshot
+    assert.strictEqual(typeof ctx.window.__antifanAgentSnapshot, 'function');
+    const snapshotResult = ctx.window.__antifanAgentSnapshot();
+    assert.ok(snapshotResult.includes('@e1 [button] "Proceed to Checkout" (id: "checkout-btn")'));
+
+    // 2. Verify Ref Map populated
+    assert.ok(ctx.window.__antifanRefMap.has('@e1'));
+    const entry = ctx.window.__antifanRefMap.get('@e1');
+    assert.strictEqual(entry.node, mockButton);
+  });
 });

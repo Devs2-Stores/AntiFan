@@ -22,7 +22,7 @@
     "start:dev": "node --max-old-space-size=4096 scripts/dev.mjs",
     "start:prod": "node scripts/run-electron.cjs . --production",
     "typecheck": "tsc -p ./ --noEmit",
-    "test": "npm run clean && npm run compile && node --test .compiled/test/*.test.js .compiled/test/main/*.test.js .compiled/test/integration/*.test.js",
+    "test": "npm run clean && npm run compile && node --test .compiled/test/*.test.js .compiled/test/main/*.test.js .compiled/test/integration/*.test.js .compiled/test/e2e/*.test.js",
     "verify": "npm run typecheck && npm test",
     "package": "npm run compile && node scripts/package-windows.mjs",
     "smoke:split": "node scripts/run-electron.cjs scripts/smoke-split-review.cjs",
@@ -33,6 +33,7 @@
     "smoke:native-messaging": "npm run compile && node scripts/smoke-native-messaging-packaged.mjs",
     "verify:native-messaging": "npm run package && npm run smoke:native-messaging",
     "benchmark:artifacts": "node scripts/benchmark-antigravity-artifacts.mjs",
+    "benchmark:soak": "node scripts/benchmark-electron-performance.mjs --scenario soak",
     "icon": "python scripts/generate-icon.py",
     "install:shortcut": "node scripts/install-windows-shortcut.mjs"
   },
