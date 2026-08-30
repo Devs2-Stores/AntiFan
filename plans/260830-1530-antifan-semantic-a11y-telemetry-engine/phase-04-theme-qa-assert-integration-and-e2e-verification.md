@@ -1,7 +1,7 @@
 ---
 phase: 4
 title: "Theme QA Parity & End-to-End Suite"
-status: pending
+status: superseded
 priority: P1
 effort: "6h"
 dependencies: ["phase-02-ref-targeted-cursor-and-hydration-gate", "phase-03-telemetry-ring-buffer-and-inline-diagnostics"]

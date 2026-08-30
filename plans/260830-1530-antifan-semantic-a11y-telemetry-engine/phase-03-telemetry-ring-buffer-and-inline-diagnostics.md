@@ -1,7 +1,7 @@
 ---
 phase: 3
 title: "Telemetry Ring Buffer & Inline Diagnostics"
-status: pending
+status: superseded
 priority: P2
 effort: "4h"
 dependencies: ["phase-01-cdp-a11y-serializer-and-ref-registry"]

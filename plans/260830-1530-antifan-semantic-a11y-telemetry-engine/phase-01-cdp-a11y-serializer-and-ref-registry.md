@@ -1,7 +1,7 @@
 ---
 phase: 1
 title: "CDP A11y Serializer & Ref Registry"
-status: completed
+status: superseded
 priority: P1
 effort: "4h"
 dependencies: []

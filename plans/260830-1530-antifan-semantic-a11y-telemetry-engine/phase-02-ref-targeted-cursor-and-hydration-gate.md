@@ -1,7 +1,7 @@
 ---
 phase: 2
 title: "Ref-Targeted Cursor & Hydration Gate"
-status: pending
+status: superseded
 priority: P1
 effort: "6h"
 dependencies: ["phase-01-cdp-a11y-serializer-and-ref-registry"]
