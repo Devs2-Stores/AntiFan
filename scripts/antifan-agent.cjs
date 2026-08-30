@@ -6,7 +6,7 @@
  * and cleanly revokes attachment tokens upon process exit.
  */
 
-const { spawn } = require('node:child_process');
+const spawn = require('cross-spawn');
 const fs = require('node:fs');
 const path = require('node:path');
 const os = require('node:os');
@@ -30,43 +30,183 @@ Description:
 `);
 }
 
-function resolveBridgeInfo() {
-  const configDir = path.join(os.homedir(), '.antifan');
-  const candidates = [
-    path.join(configDir, 'bridge.json'),
-    path.join(configDir, 'bridge-dev.json'),
-    path.join(os.homedir(), '.gemini', 'antifan_bridge.json'),
-    path.join(os.homedir(), '.gemini', 'antifan_bridge_dev.json'),
-  ];
+function resolveBridgeCandidates() {
+  const candidates = [];
+  const seenTargets = new Set();
 
-  for (const candidate of candidates) {
-    if (fs.existsSync(candidate)) {
-      try {
-        const raw = fs.readFileSync(candidate, 'utf8');
-        const parsed = JSON.parse(raw);
-        if (parsed && typeof parsed.port === 'number') {
-          return {
-            port: parsed.port,
-            host: parsed.host || '127.0.0.1',
-            token: parsed.token || process.env.ANTIFAN_BRIDGE_TOKEN || '',
-            isDev: Boolean(parsed.isDev),
-          };
-        }
-      } catch {}
+  // 1. Explicit environment variables take top priority
+  if (process.env.ANTIFAN_BRIDGE_PORT) {
+    const port = parseInt(process.env.ANTIFAN_BRIDGE_PORT, 10);
+    const host = process.env.ANTIFAN_BRIDGE_HOST || '127.0.0.1';
+    const token = process.env.ANTIFAN_BRIDGE_TOKEN || '';
+    if (!Number.isNaN(port) && port > 0) {
+      const targetKey = `${host}:${port}:${token}`;
+      seenTargets.add(targetKey);
+      candidates.push({
+        source: 'env',
+        file: null,
+        port,
+        host,
+        token,
+        pid: null,
+        pidAlive: true,
+        startedAt: Date.now() + 100000,
+        isDev: false,
+      });
     }
   }
 
-  // Fallback to environment variables if present
-  if (process.env.ANTIFAN_BRIDGE_PORT) {
-    return {
-      port: parseInt(process.env.ANTIFAN_BRIDGE_PORT, 10),
-      host: process.env.ANTIFAN_BRIDGE_HOST || '127.0.0.1',
-      token: process.env.ANTIFAN_BRIDGE_TOKEN || '',
-      isDev: false,
-    };
+  // 2. Discover configuration directories across Drive E and standard locations
+  const candidateDirs = [
+    process.env.ANTIFAN_CONFIG_DIR,
+    process.env.ANTIFAN_DATA_ROOT ? path.join(process.env.ANTIFAN_DATA_ROOT, 'config') : null,
+    path.join('E:', 'Work', '.antifan-data', 'config'),
+    path.join('E:\\', 'Work', '.antifan-data', 'config'),
+    path.join('E:', '.antifan-data', 'config'),
+    path.join('D:', 'Work', '.antifan-data', 'config'),
+    process.env.APPDATA ? path.join(process.env.APPDATA, 'antifan-browser-desktop', 'data', 'config') : null,
+    process.env.LOCALAPPDATA ? path.join(process.env.LOCALAPPDATA, 'antifan-data', 'config') : null,
+    path.join(os.homedir(), '.antifan'),
+    path.join(os.homedir(), '.gemini'),
+  ].filter(Boolean);
+
+  const fileNames = ['bridge-dev.json', 'bridge.json', 'antifan_bridge_dev.json', 'antifan_bridge.json'];
+  const seenFiles = new Set();
+
+  for (const dir of candidateDirs) {
+    for (const name of fileNames) {
+      const filePath = path.resolve(dir, name);
+      if (seenFiles.has(filePath)) continue;
+      seenFiles.add(filePath);
+
+      if (fs.existsSync(filePath)) {
+        try {
+          const stat = fs.statSync(filePath);
+          const raw = fs.readFileSync(filePath, 'utf8');
+          const parsed = JSON.parse(raw);
+          if (parsed && typeof parsed.port === 'number' && parsed.port > 0) {
+            const host = parsed.host || '127.0.0.1';
+            const port = parsed.port;
+            const token = parsed.token || '';
+            const targetKey = `${host}:${port}:${token}`;
+            if (seenTargets.has(targetKey)) continue;
+            seenTargets.add(targetKey);
+
+            let pidAlive = null;
+            if (parsed.pid && typeof parsed.pid === 'number') {
+              try {
+                process.kill(parsed.pid, 0);
+                pidAlive = true;
+              } catch (err) {
+                pidAlive = err.code === 'EPERM' ? true : false;
+              }
+            }
+
+            candidates.push({
+              source: 'file',
+              file: filePath,
+              port,
+              host,
+              token,
+              pid: parsed.pid,
+              pidAlive,
+              startedAt: parsed.startedAt || stat.mtimeMs || 0,
+              isDev: Boolean(parsed.isDev),
+            });
+          }
+        } catch {}
+      }
+    }
   }
 
-  return null;
+  // Sort candidates:
+  // 1. Live processes (2) > env/unknown (1) > dead processes (0)
+  // 2. Dev before prod if same liveness rank
+  // 3. Newer startedAt timestamp before older
+  candidates.sort(compareCandidates);
+
+  return candidates;
+}
+
+function getLivenessRank(pidAlive) {
+  if (pidAlive === true) return 2;
+  if (pidAlive === null) return 1;
+  return 0;
+}
+
+function compareCandidates(a, b) {
+  const livenessDiff = getLivenessRank(b.pidAlive) - getLivenessRank(a.pidAlive);
+  if (livenessDiff !== 0) return livenessDiff;
+
+  const devDiff = (b.isDev ? 1 : 0) - (a.isDev ? 1 : 0);
+  if (devDiff !== 0) return devDiff;
+
+  return (b.startedAt || 0) - (a.startedAt || 0);
+}
+
+
+async function acquireBridgeSession(candidates, boundPid) {
+  const errors = [];
+  for (const candidate of candidates) {
+    const sanitizedEndpoint = `ws://${candidate.host}:${candidate.port}`;
+    const tokenParam = candidate.token ? `?token=${encodeURIComponent(candidate.token)}` : '';
+    const wsUrl = `${sanitizedEndpoint}${tokenParam}`;
+    let ws;
+    try {
+      ws = new WebSocket(wsUrl, {
+        headers: candidate.token ? { Authorization: `Bearer ${candidate.token}` } : {},
+      });
+
+      await new Promise((resolve, reject) => {
+        let settled = false;
+        const connectTimer = setTimeout(() => {
+          if (!settled) {
+            settled = true;
+            reject(new Error('WebSocket connection timed out'));
+          }
+        }, 3000);
+
+        ws.once('open', () => {
+          if (!settled) {
+            settled = true;
+            clearTimeout(connectTimer);
+            resolve();
+          }
+        });
+        ws.once('error', (err) => {
+          if (!settled) {
+            settled = true;
+            clearTimeout(connectTimer);
+            reject(err);
+          }
+        });
+        ws.once('close', (code, reason) => {
+          if (!settled) {
+            settled = true;
+            clearTimeout(connectTimer);
+            reject(new Error(`WebSocket closed early with code ${code}: ${reason.toString() || 'Unauthorized'}`));
+          }
+        });
+      });
+
+      const session = await rpcCall(ws, 'antifan.cli.startSession', {
+        backendId: 'cli',
+        grant: 'write',
+        ownerPid: boundPid,
+        ttlMs: 3600000,
+      }, 5000);
+
+      if (!session || !session.attachmentId || !session.secret) {
+        throw new Error('Invalid session payload received from bridge');
+      }
+
+      return { ws, bridgeInfo: candidate, session };
+    } catch (err) {
+      errors.push(`${sanitizedEndpoint} (${candidate.file || candidate.source || 'endpoint'}): ${err.message}`);
+      try { ws?.close(); } catch {}
+    }
+  }
+  throw new Error(`All candidate endpoints failed to authenticate or connect:\n  - ${errors.join('\n  - ')}`);
 }
 
 function rpcCall(ws, method, params = {}, timeoutMs = 10000) {
@@ -104,52 +244,30 @@ async function main() {
     process.exit(0);
   }
 
-  const bridgeInfo = resolveBridgeInfo();
-  if (!bridgeInfo) {
+  const candidates = resolveBridgeCandidates();
+  if (candidates.length === 0) {
     console.error('\x1b[31m[antifan-agent] Error: AntiFan Browser is not running.\x1b[0m');
     console.error('[antifan-agent] Please launch AntiFan Browser Desktop before running this agent.');
     process.exit(1);
   }
 
-  const tokenParam = bridgeInfo.token ? `?token=${encodeURIComponent(bridgeInfo.token)}` : '';
-  const wsUrl = `ws://${bridgeInfo.host}:${bridgeInfo.port}${tokenParam}`;
-  let ws;
-  try {
-    ws = new WebSocket(wsUrl, {
-      headers: bridgeInfo.token ? { Authorization: `Bearer ${bridgeInfo.token}` } : {},
-    });
-    await new Promise((resolve, reject) => {
-      const connectTimer = setTimeout(() => reject(new Error('WebSocket connection timed out')), 5000);
-      ws.on('open', () => {
-        clearTimeout(connectTimer);
-        resolve();
-      });
-      ws.on('error', (err) => {
-        clearTimeout(connectTimer);
-        reject(err);
-      });
-    });
-  } catch (err) {
-    console.error(`\x1b[31m[antifan-agent] Failed to connect to AntiFan Bridge on ${wsUrl}: ${err.message}\x1b[0m`);
-    process.exit(1);
-  }
-
-  let session;
   const boundPid = process.pid;
+  let bridgeAcquisition;
   try {
-    session = await rpcCall(ws, 'antifan.cli.startSession', {
-      backendId: 'cli',
-      grant: 'write',
-      ownerPid: boundPid,
-      ttlMs: 3600000,
-    });
+    bridgeAcquisition = await acquireBridgeSession(candidates, boundPid);
   } catch (err) {
-    console.error(`\x1b[31m[antifan-agent] Failed to obtain CLI session lease: ${err.message}\x1b[0m`);
-    try { ws.close(); } catch {}
+    console.error(`\x1b[31m[antifan-agent] Failed to connect to AntiFan Bridge:\x1b[0m\n${err.message}`);
+    console.error('[antifan-agent] Please verify that AntiFan Browser Desktop is running and responsive.');
     process.exit(1);
   }
+  const { ws, bridgeInfo, session } = bridgeAcquisition;
+  const sanitizedParentEnv = { ...process.env };
+  delete sanitizedParentEnv.ANTIFAN_BRIDGE_TOKEN;
+  delete sanitizedParentEnv.ANTIFAN_BRIDGE_PORT;
+  delete sanitizedParentEnv.ANTIFAN_BRIDGE_HOST;
+
   const childEnv = {
-    ...process.env,
+    ...sanitizedParentEnv,
     ANTIFAN_MCP_PORT: String(session.port || bridgeInfo.port),
     ANTIFAN_ATTACHMENT_SECRET: session.secret,
     ANTIFAN_ATTACHMENT_ID: session.attachmentId,
@@ -176,11 +294,7 @@ async function main() {
 
   console.log(`\x1b[36m[antifan-agent] Attached session ${session.attachmentId.slice(0, 16)}... to ${command}\x1b[0m`);
 
-  const child = spawn(command, commandArgs, {
-    stdio: 'inherit',
-    env: childEnv,
-    shell: true,
-  });
+  const child = spawnAgentChild(command, commandArgs, childEnv);
 
   let cleanedUp = false;
   const heartbeatInterval = setInterval(async () => {
@@ -240,7 +354,32 @@ async function main() {
   });
 }
 
-main().catch((err) => {
-  console.error('[antifan-agent] Unexpected error:', err);
-  process.exit(1);
-});
+if (require.main === module) {
+  main().catch((err) => {
+    console.error('[antifan-agent] Unexpected error:', err);
+    process.exit(1);
+  });
+} else {
+  module.exports = {
+    resolveBridgeCandidates,
+    getLivenessRank,
+    compareCandidates,
+    acquireBridgeSession,
+    spawnAgentChild,
+  };
+}
+
+function spawnAgentChild(command, commandArgs, env, spawnOptions = {}) {
+  const finalEnv = { ...(env || process.env) };
+  delete finalEnv.ANTIFAN_BRIDGE_TOKEN;
+  delete finalEnv.ANTIFAN_BRIDGE_PORT;
+  delete finalEnv.ANTIFAN_BRIDGE_HOST;
+
+  const { env: _ignoredEnv, ...restOptions } = spawnOptions;
+  return spawn(command, commandArgs, {
+    stdio: 'inherit',
+    windowsHide: true,
+    ...restOptions,
+    env: finalEnv,
+  });
+}

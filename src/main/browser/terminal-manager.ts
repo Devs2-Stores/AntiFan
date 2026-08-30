@@ -401,11 +401,13 @@ export class TerminalManager extends EventEmitter {
     const pathDelimiter = process.platform === 'win32' ? ';' : ':';
     const currentPath = process.env.PATH || '';
     const envPath = scriptsDir ? (currentPath ? `${scriptsDir}${pathDelimiter}${currentPath}` : scriptsDir) : currentPath;
-    const terminalEnv = {
+    const terminalEnv: Record<string, string> = {
       ...process.env,
       PATH: envPath,
       TERM: 'xterm-256color',
       FORCE_COLOR: '1',
+      ANTIFAN_CONFIG_DIR: process.env.ANTIFAN_CONFIG_DIR || StorageLocations.getConfigDir(),
+      ANTIFAN_DATA_ROOT: process.env.ANTIFAN_DATA_ROOT || StorageLocations.getDataRoot(),
     };
     const ptyOptions: pty.IPtyForkOptions = {
       cwd: validCwd,

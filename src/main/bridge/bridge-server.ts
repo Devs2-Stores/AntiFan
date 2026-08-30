@@ -1356,6 +1356,15 @@ export class BridgeServer {
       }
     } catch {}
 
+    try {
+      const geminiDir = path.join(os.homedir(), '.gemini');
+      const geminiFileName = this.isDev ? 'antifan_bridge_dev.json' : 'antifan_bridge.json';
+      const geminiFilePath = path.join(geminiDir, geminiFileName);
+      if (fs.existsSync(geminiFilePath)) {
+        fs.unlinkSync(geminiFilePath);
+      }
+    } catch {}
+
     if (this.drainTimer) {
       clearInterval(this.drainTimer);
       this.drainTimer = null;
