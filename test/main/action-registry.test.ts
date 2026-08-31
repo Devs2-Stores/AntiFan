@@ -69,8 +69,14 @@ class MockTabHost extends EventEmitter {
   async agentHover(params: { selector?: string; x?: number; y?: number }) {
     return Boolean(params.selector || (params.x !== undefined && params.y !== undefined));
   }
-  async agentHighlight(params: { selector?: string }) {
-    return Boolean(params.selector);
+  async agentHighlight(params: { selector?: string; ref?: string; label?: string }) {
+    return Boolean(params.ref || params.selector);
+  }
+  async agentClear(tabId?: string, paneId?: string) {
+    return true;
+  }
+  async agentTrajectory(params: { steps: Array<Record<string, unknown>> }) {
+    return { success: true, executedSteps: params.steps?.length || 0, totalSteps: params.steps?.length || 0 };
   }
   async evalJs(expr: string) {
     return { evaluated: expr };
@@ -151,5 +157,18 @@ describe('BrowserActionRegistry (Extensibility Phase 1)', () => {
     assert.strictEqual(snapshotRes.success, true);
     assert.ok(snapshotRes.snapshot.includes('@e1 [button]'));
     assert.ok(snapshotRes.snapshot.includes('@e2 [input:text]'));
+  });
+  it('registers and executes agentClear and agentTrajectory', async () => {
+    const mockHost = new MockTabHost() as unknown as NativeTabHost;
+    const registry = new BrowserActionRegistry(mockHost);
+
+    const clearRes = await registry.execute('agentClear');
+    assert.strictEqual(clearRes.success, true);
+
+    const trajRes = await registry.execute('agentTrajectory', {
+      steps: [{ action: 'move', x: 10, y: 20 }, { action: 'click', selector: '#btn' }],
+    });
+    assert.strictEqual(trajRes.success, true);
+    assert.strictEqual(trajRes.executedSteps, 2);
   });
 });

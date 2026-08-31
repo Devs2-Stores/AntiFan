@@ -294,6 +294,7 @@ export class AntiFanMcpServer {
             speed: { type: 'string', enum: ['fast', 'natural', 'slow'], description: 'Movement speed profile' },
             smoothScroll: { type: 'boolean', description: 'Whether to use smooth scrolling' },
             tabId: { type: 'string', description: 'Optional target tab ID. If specified, automatically activates and focuses this tab.' },
+            paneId: { type: 'string', enum: ['desktop', 'mobile'], description: 'Optional target pane in split review mode' },
           },
           required: ['steps'],
         },

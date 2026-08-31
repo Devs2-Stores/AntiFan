@@ -51,6 +51,15 @@ import { BridgeServer } from '../bridge/bridge-server';
 
 import { HistoryManager } from './history-manager';
 import { OAuthPopupManager } from './oauth-popup-manager';
+import { SemanticRefRegistry, makeTargetKey } from './semantic-ref-registry';
+import {
+  buildIsolatedExecutorScript,
+  ISOLATED_AGENT_WORLD_ID,
+  validateActionResponse,
+} from './semantic-ref-executor';
+import type { SemanticElementDescriptor } from './semantic-ref-types';
+import { generateCollectionNonce } from './semantic-ref-types';
+import { CapabilityError } from '../../shared/control-plane-contracts';
 import { isBenchmarkEnabled, recordBenchmark } from '../benchmark/telemetry';
 import { AsyncThemeQaQueue } from '../qa/async-qa-job-queue';
 import {
@@ -217,7 +226,9 @@ export class NativeTabHost extends EventEmitter {
   private automationTabId: string | null = null;
   private tabThemeQaStates = new Map<string, { status: 'idle' | 'running' | 'pass' | 'fail' | 'error'; issueCount: number; reportArtifactId?: string; report?: unknown; error?: string; updatedAt: number }>();
   private asyncQaQueue = new AsyncThemeQaQueue();
-
+  public readonly semanticRefRegistry = new SemanticRefRegistry();
+  private semanticDocumentGenerations = new Map<string, number>();
+  private targetOperationQueues = new Map<string, Promise<void>>();
   private isInspecting: boolean = false;
   private isProcessingInspectPick: boolean = false;
   private isInspectPollInFlight: boolean = false;
@@ -260,6 +271,44 @@ export class NativeTabHost extends EventEmitter {
       } catch {}
     }
     return count;
+  }
+
+  public getSemanticDocumentGeneration(tabId: string, paneId?: string): number {
+    const key = makeTargetKey(tabId, paneId);
+    return this.semanticDocumentGenerations.get(key) || 1;
+  }
+
+  public setSemanticDocumentGeneration(tabId: string, paneId: string | undefined, gen: number): void {
+    const key = makeTargetKey(tabId, paneId);
+    this.semanticDocumentGenerations.set(key, gen);
+  }
+
+  public async runTargetOperation<T>(tabId: string, paneId: string | undefined, operation: () => Promise<T>): Promise<T> {
+    if (this.isDisposed) {
+      throw new CapabilityError('RUNTIME_DRAINING', 'NativeTabHost is disposed');
+    }
+    const key = makeTargetKey(tabId, paneId);
+    const previousTail = this.targetOperationQueues.get(key) || Promise.resolve();
+
+    let resolveTail!: () => void;
+    const currentTail = new Promise<void>((resolve) => {
+      resolveTail = resolve;
+    });
+
+    this.targetOperationQueues.set(key, currentTail);
+
+    try {
+      await previousTail;
+      if (this.isDisposed) {
+        throw new CapabilityError('RUNTIME_DRAINING', 'NativeTabHost disposed before operation began');
+      }
+      return await operation();
+    } finally {
+      resolveTail();
+      if (this.targetOperationQueues.get(key) === currentTail) {
+        this.targetOperationQueues.delete(key);
+      }
+    }
   }
 
   private safeDisableDeviceEmulation(wc: Electron.WebContents | null | undefined): void {
@@ -2010,14 +2059,16 @@ export class NativeTabHost extends EventEmitter {
       });
     });
     wc.on('did-start-navigation', (_event, navUrl, isInPlace, isMainFrame) => {
+      const semanticKey = makeTargetKey(id, paneId);
+      if (!this.semanticDocumentGenerations) this.semanticDocumentGenerations = new Map();
+      this.semanticDocumentGenerations.set(semanticKey, (this.semanticDocumentGenerations.get(semanticKey) || 1) + 1);
+      this.semanticRefRegistry?.invalidateTarget(id, paneId);
       const currentTab = this.tabs.get(id);
       const splitHasLiveMobile = Boolean(state.splitMode && currentTab?.mobileView && !currentTab.mobileView.webContents.isDestroyed());
       const authorityPane = splitHasLiveMobile ? (currentTab?.focusedPane || state.splitFocusedPane || 'desktop') : 'desktop';
       if (isMainFrame && !isInPlace && authorityPane === paneId) {
         this.documentGenerations.set(id, (this.documentGenerations.get(id) || 0) + 1);
         this.asyncQaQueue?.abort(id);
-        // không in-place, pane có quyền điều hướng). Không clear tại
-        // did-finish-load: lỗi console phát trong lúc parse phải được GIỮ LẠI
         // cho QA. Không clear trên hash navigation (did-navigate-in-page,
         // isInPlace=true) hoặc subframe; split-mode mirror navigation ở pane
         // khác cũng không clear (gate authorityPane).
@@ -2651,6 +2702,13 @@ export class NativeTabHost extends EventEmitter {
     if (this.isDisposed) return false;
     const target = this.tabs.get(tabId);
     if (!target) return false;
+    this.semanticRefRegistry?.invalidateTab(tabId);
+    if (this.semanticDocumentGenerations) {
+      const prefix = `${String(tabId).trim()}:`;
+      for (const key of Array.from(this.semanticDocumentGenerations.keys())) {
+        if (key.startsWith(prefix)) this.semanticDocumentGenerations.delete(key);
+      }
+    }
     this.asyncQaQueue?.abort(tabId);
     this.clearTabAgentWorking(tabId);
     if (target.state.url && target.state.url !== 'about:blank') {
@@ -3474,116 +3532,162 @@ export class NativeTabHost extends EventEmitter {
       return false;
     }
   }
+  private async executeInIsolatedWorld(wc: Electron.WebContents, script: string): Promise<unknown> {
+    if ((wc as any).mainFrame && typeof (wc as any).mainFrame.executeJavaScriptInIsolatedWorld === 'function') {
+      return await (wc as any).mainFrame.executeJavaScriptInIsolatedWorld(ISOLATED_AGENT_WORLD_ID, [{ code: script }]);
+    }
+    if (typeof (wc as any).executeJavaScriptInIsolatedWorld === 'function') {
+      return await (wc as any).executeJavaScriptInIsolatedWorld(ISOLATED_AGENT_WORLD_ID, [{ code: script }]);
+    }
+    throw new CapabilityError('CAPABILITY_NOT_FOUND', 'Isolated world execution (world 1004) is not supported in this WebContents environment');
+  }
 
-  public async agentClick(params: { selector?: string; ref?: string; x?: number; y?: number; label?: string; tabId?: string; paneId?: SplitPaneId }): Promise<boolean> {
+  public async dispatchAgentAction(action: 'click' | 'type' | 'move' | 'hover' | 'scroll' | 'highlight' | 'clear' | 'trajectory', params: { selector?: string; ref?: string; x?: number; y?: number; text?: string; clear?: boolean; deltaY?: number; label?: string; tabId?: string; paneId?: SplitPaneId; steps?: Array<Record<string, unknown>>; speed?: 'fast' | 'natural' | 'slow'; smoothScroll?: boolean }): Promise<{ success: boolean; data?: unknown; reason?: string }> {
     const targetId = params.tabId || this.automationTabId || this.activeTabId;
     const target = this.tabs.get(targetId);
-    if (!target) return false;
-    const wc = this.getTabWebContents(targetId, params.paneId || target.focusedPane);
-    if (!wc || wc.isDestroyed()) return false;
-    this.beginTabAgentWorking(targetId);
-    try {
-      if (!await this.ensureAgentBrowserInjected(targetId, params.paneId || target.focusedPane)) return false;
-      const targetSelector = params.ref || params.selector || '';
-      return Boolean(await wc.executeJavaScript(`(async () => {
-        if (typeof window.__antifanAgentClick !== 'function') return false;
-        return await window.__antifanAgentClick(${JSON.stringify(targetSelector)}, ${typeof params.x === 'number' ? params.x : 'null'}, ${typeof params.y === 'number' ? params.y : 'null'}, ${JSON.stringify(params.label || '')});
-      })()`));
-    } catch (err) {
-      console.error('[native-tab-host] agentClick error:', err);
-      return false;
-    } finally {
-      this.endTabAgentWorking(targetId);
+    if (!target) {
+      return { success: false, reason: `Tab '${targetId}' not found` };
     }
+
+    const splitHasLiveMobile = Boolean(target.state.splitMode && target.mobileView && !target.mobileView.webContents.isDestroyed());
+    const effectivePane: SplitPaneId = params.paneId || (splitHasLiveMobile ? (target.focusedPane || target.state.splitFocusedPane || 'desktop') : 'desktop');
+    const targetKey = makeTargetKey(targetId, effectivePane);
+
+    // 1. Ref Mode — Strict Fail-Closed Main Resolution & Synchronous World-1004 Execution
+    if (typeof params.ref === 'string' && params.ref.trim().length > 0) {
+      const refToken = params.ref.trim();
+
+      return await this.runTargetOperation(targetId, effectivePane, async () => {
+        const curTab = this.tabs.get(targetId);
+        if (!curTab) return { success: false, reason: 'Tab closed' };
+        const wc = this.getTabWebContents(targetId, effectivePane);
+        if (!wc || wc.isDestroyed()) return { success: false, reason: 'WebContents destroyed' };
+
+        const curEpoch = this.getBrowserEpoch();
+        const curGen = this.getSemanticDocumentGeneration(targetId, effectivePane);
+        const curUrl = wc.getURL();
+
+        let descriptor: SemanticElementDescriptor;
+        try {
+          if (!this.semanticRefRegistry) {
+            throw new CapabilityError('RUNTIME_DRAINING', 'Ref registry is not available');
+          }
+          descriptor = this.semanticRefRegistry.resolveRef({
+            tabId: targetId,
+            paneId: effectivePane,
+            browserEpoch: curEpoch,
+            documentGeneration: curGen,
+            documentUrl: curUrl,
+          }, refToken);
+        } catch (err: unknown) {
+          const reason = err instanceof Error ? err.message : String(err);
+          return { success: false, reason };
+        }
+
+        return this.withTabAgentWorking(targetId, async () => {
+          if (this.getSemanticDocumentGeneration(targetId, effectivePane) !== curGen || wc.isDestroyed()) {
+            return { success: false, reason: 'Document navigated during preflight' };
+          }
+
+          try {
+            const script = buildIsolatedExecutorScript({
+              action: action as any,
+              ref: refToken,
+              descriptor,
+              text: params.text,
+              clear: params.clear,
+              deltaY: params.deltaY,
+              documentUrl: curUrl,
+              nonce: descriptor.nonce,
+            });
+
+            const rawRes = await this.executeInIsolatedWorld(wc, script);
+            const res = validateActionResponse(rawRes);
+
+            if (this.getSemanticDocumentGeneration(targetId, effectivePane) !== curGen || wc.isDestroyed()) {
+              return { success: false, reason: 'Document navigated during action execution' };
+            }
+
+            if (!res.ok) {
+              return { success: false, reason: res.error };
+            }
+
+            return { success: res.executed, data: res };
+          } catch (err: unknown) {
+            const reason = err instanceof Error ? err.message : String(err);
+            return { success: false, reason };
+          }
+        });
+      });
+    }
+
+    // 2. Explicit Selector / Coordinate / Non-ref Mode
+    const wc = this.getTabWebContents(targetId, effectivePane);
+    if (!wc || wc.isDestroyed()) return { success: false, reason: 'WebContents destroyed' };
+
+    return this.withTabAgentWorking(targetId, async () => {
+      try {
+        if (action === 'trajectory') {
+          const trajRes = await this.agentTrajectoryInternal(params, effectivePane);
+          return { success: Boolean(trajRes.success), data: trajRes };
+        }
+        if (action === 'clear') {
+          await this.executeInIsolatedWorld(wc, `(() => {
+            if (window.__antifanAgentClear) window.__antifanAgentClear();
+            return { ok: true, executed: true };
+          })()`);
+          return { success: true };
+        }
+
+        const script = buildIsolatedExecutorScript({
+          action: action as any,
+          selector: params.selector,
+          x: params.x,
+          y: params.y,
+          text: params.text,
+          clear: params.clear,
+          deltaY: params.deltaY,
+          documentUrl: wc.getURL(),
+          nonce: generateCollectionNonce(),
+        });
+
+        const rawRes = await this.executeInIsolatedWorld(wc, script);
+        const res = validateActionResponse(rawRes);
+        if (!res.ok) {
+          return { success: false, reason: res.error };
+        }
+        return { success: res.executed, data: res };
+      } catch (err: unknown) {
+        const reason = err instanceof Error ? err.message : String(err);
+        return { success: false, reason };
+      }
+    });
+  }
+
+  public async agentClick(params: { selector?: string; ref?: string; x?: number; y?: number; label?: string; tabId?: string; paneId?: SplitPaneId }): Promise<boolean> {
+    const res = await this.dispatchAgentAction('click', params);
+    return res.success;
   }
 
   public async agentType(params: { selector?: string; ref?: string; text: string; clear?: boolean; tabId?: string; paneId?: SplitPaneId }): Promise<boolean> {
-    const targetId = params.tabId || this.automationTabId || this.activeTabId;
-    const target = this.tabs.get(targetId);
-    if (!target) return false;
-    const wc = this.getTabWebContents(targetId, params.paneId || target.focusedPane);
-    if (!wc || wc.isDestroyed()) return false;
-    return this.withTabAgentWorking(targetId, async () => {
-      if (!await this.ensureAgentBrowserInjected(targetId, params.paneId || target.focusedPane)) return false;
-      try {
-        const targetSelector = params.ref || params.selector || '';
-        return Boolean(await wc.executeJavaScript(`(async () => {
-          if (typeof window.__antifanAgentType !== 'function') return false;
-          return await window.__antifanAgentType(${JSON.stringify(targetSelector)}, ${JSON.stringify(params.text)}, ${params.clear ? 'true' : 'false'});
-        })()`));
-      } catch (err) {
-        console.error('[native-tab-host] agentType error:', err);
-        return false;
-      }
-    });
+    const res = await this.dispatchAgentAction('type', params);
+    return res.success;
   }
 
-  public async agentScroll(params: { deltaY?: number; selector?: string; tabId?: string; paneId?: SplitPaneId }): Promise<boolean> {
-    const targetId = params.tabId || this.automationTabId || this.activeTabId;
-    const target = this.tabs.get(targetId);
-    if (!target) return false;
-    const wc = this.getTabWebContents(targetId, params.paneId || target.focusedPane);
-    if (!wc || wc.isDestroyed()) return false;
-    return this.withTabAgentWorking(targetId, async () => {
-      if (!await this.ensureAgentBrowserInjected(targetId, params.paneId || target.focusedPane)) return false;
-      try {
-        return Boolean(await wc.executeJavaScript(`(async () => {
-          if (typeof window.__antifanAgentScroll !== 'function') return false;
-          return await window.__antifanAgentScroll(${typeof params.deltaY === 'number' ? params.deltaY : 400}, ${JSON.stringify(params.selector || '')});
-        })()`));
-      } catch (err) {
-        console.error('[native-tab-host] agentScroll error:', err);
-        return false;
-      }
-    });
+  public async agentScroll(params: { deltaY?: number; selector?: string; ref?: string; tabId?: string; paneId?: SplitPaneId }): Promise<boolean> {
+    const res = await this.dispatchAgentAction('scroll', params);
+    return res.success;
   }
 
   public async agentHover(params: { selector?: string; ref?: string; x?: number; y?: number; label?: string; tabId?: string; paneId?: SplitPaneId }): Promise<boolean> {
-    const targetId = params.tabId || this.automationTabId || this.activeTabId;
-    const target = this.tabs.get(targetId);
-    if (!target) return false;
-    const wc = this.getTabWebContents(targetId, params.paneId || target.focusedPane);
-    if (!wc || wc.isDestroyed()) return false;
-    return this.withTabAgentWorking(targetId, async () => {
-      if (!await this.ensureAgentBrowserInjected(targetId, params.paneId || target.focusedPane)) return false;
-      try {
-        const targetSelector = params.ref || params.selector || '';
-        return Boolean(await wc.executeJavaScript(`(async () => {
-          if (typeof window.__antifanAgentHover === 'function') {
-            return await window.__antifanAgentHover(${JSON.stringify(targetSelector)}, ${typeof params.x === 'number' ? params.x : 'null'}, ${typeof params.y === 'number' ? params.y : 'null'}, ${JSON.stringify(params.label || '')});
-          }
-          if (typeof window.__antifanAgentMove === 'function' && typeof ${typeof params.x === 'number' ? params.x : 'null'} === 'number') {
-            return await window.__antifanAgentMove(${typeof params.x === 'number' ? params.x : 0}, ${typeof params.y === 'number' ? params.y : 0}, ${JSON.stringify(params.label || 'Hovering')});
-          }
-          return false;
-        })()`));
-      } catch (err) {
-        console.error('[native-tab-host] agentHover error:', err);
-        return false;
-      }
-    });
+    const res = await this.dispatchAgentAction('hover', params);
+    return res.success;
   }
 
-  public async agentHighlight(params: { selector: string; label?: string; tabId?: string; paneId?: SplitPaneId }): Promise<boolean> {
-    const targetId = params.tabId || this.automationTabId || this.activeTabId;
-    const target = this.tabs.get(targetId);
-    if (!target) return false;
-    const wc = this.getTabWebContents(targetId, params.paneId || target.focusedPane);
-    if (!wc) return false;
-    return this.withTabAgentWorking(targetId, async () => {
-      if (!await this.ensureAgentBrowserInjected(targetId, params.paneId || target.focusedPane)) return false;
-      try {
-        return Boolean(await wc.executeJavaScript(`(async () => {
-          if (typeof window.__antifanAgentHighlight !== 'function') return false;
-          return await window.__antifanAgentHighlight(${JSON.stringify(params.selector)}, ${JSON.stringify(params.label || '')});
-        })()`));
-      } catch (err) {
-        console.error('[native-tab-host] agentHighlight error:', err);
-        return false;
-      }
-    });
+  public async agentHighlight(params: { selector?: string; ref?: string; label?: string; tabId?: string; paneId?: SplitPaneId }): Promise<boolean> {
+    const res = await this.dispatchAgentAction('highlight', params as any);
+    return res.success;
   }
-
   public async agentClear(tabId?: string, paneId?: SplitPaneId): Promise<boolean> {
     const target = this.tabs.get(tabId || this.automationTabId || this.activeTabId);
     if (!target) return false;
@@ -3621,10 +3725,8 @@ export class NativeTabHost extends EventEmitter {
     const active = this.tabs.get(this.activeTabId);
     if (!active) return;
     this.inspectedTabId = this.activeTabId;
-
     this.inspectGeneration++;
     const currentGeneration = this.inspectGeneration;
-
     const tm = TerminalManager.getInstance();
     const activeSessionId = tm.getActiveSessionId();
     const tabSessionId = this.getTabTerminalSession(this.activeTabId);
@@ -4569,7 +4671,7 @@ export class NativeTabHost extends EventEmitter {
     }
     return new Promise((resolve) => {
       const gen = this.getDocumentGeneration(tabId);
-      this.asyncQaQueue.enqueue(tabId, gen, async (signal) => {
+      this.asyncQaQueue.enqueue(tabId, gen, async (signal: AbortSignal) => {
         try {
           const report = await this.controlPlane!.validateThemeQa(target, { workspaceRoot, signal });
           const summary = report.summary;
@@ -4699,70 +4801,84 @@ export class NativeTabHost extends EventEmitter {
     };
   }
 
-  public async agentTrajectory(params: { steps: Array<Record<string, unknown>>; speed?: 'fast' | 'natural' | 'slow'; smoothScroll?: boolean; tabId?: string }): Promise<Record<string, unknown>> {
+  private async agentTrajectoryInternal(params: { steps?: Array<Record<string, unknown>>; speed?: 'fast' | 'natural' | 'slow'; smoothScroll?: boolean; tabId?: string; paneId?: SplitPaneId }, paneId?: SplitPaneId): Promise<Record<string, unknown>> {
     const targetId = params?.tabId || this.automationTabId || this.activeTabId;
     const steps = Array.isArray(params?.steps) ? params.steps : null;
-    if (!steps) {
+    const totalSteps = steps ? steps.length : 0;
+    if (!steps || totalSteps === 0) {
       return { success: false, executedSteps: 0, totalSteps: 0, reason: 'Missing or invalid steps array' };
     }
     const tab = this.tabs.get(targetId);
-    const totalSteps = steps.length;
-    if (!tab || tab.view.webContents.isDestroyed()) {
+    if (!tab) {
       return { success: false, executedSteps: 0, totalSteps, reason: 'Target tab is unavailable' };
     }
-    return this.withTabAgentWorking(targetId, async () => {
-      if (!await this.ensureAgentBrowserInjected(targetId)) {
-        return { success: false, executedSteps: 0, totalSteps, reason: 'Agent browser injection failed' };
-      }
-      const generationBefore = this.getDocumentGeneration(targetId);
-      const urlBefore = tab.view.webContents.getURL();
-      let normalizedSteps: Array<Record<string, unknown>>;
-      try {
-        normalizedSteps = steps.map((step, index) => {
-          if (!step || typeof step !== 'object') throw new Error(`Trajectory step ${index} must be an object`);
-          const candidate = step as Record<string, unknown>;
-          const action = candidate.action || candidate.type;
-          if (action !== 'move' && action !== 'hover' && action !== 'click' && action !== 'type' && action !== 'scroll') {
-            throw new Error(`Unsupported trajectory action at step ${index}: ${String(action || 'missing')}`);
-          }
-          return { ...candidate, action };
-        });
-      } catch (err) {
-        const reason = err instanceof Error ? err.message : 'Invalid trajectory steps';
-        return { success: false, executedSteps: 0, totalSteps, reason };
-      }
-      try {
-        const result = await tab.view.webContents.executeJavaScript(`window.__antifanAgentTrajectory(${JSON.stringify(normalizedSteps)}, ${JSON.stringify({ speed: params?.speed, smoothScroll: params?.smoothScroll })})`);
-        const generationChanged = this.getDocumentGeneration(targetId) !== generationBefore;
-        const urlChanged = tab.view.webContents.isDestroyed() || tab.view.webContents.getURL() !== urlBefore;
-        const obj = result && typeof result === 'object' ? result as Record<string, unknown> : null;
-        const rawExecuted = obj?.executedSteps;
-        const rawTotal = obj?.totalSteps;
-        const hasValidExecuted = typeof rawExecuted === 'number' && Number.isInteger(rawExecuted) && rawExecuted >= 0 && rawExecuted <= totalSteps;
-        const hasValidTotal = typeof rawTotal === 'number' && Number.isInteger(rawTotal) && rawTotal === totalSteps;
-        const executedSteps = hasValidExecuted ? rawExecuted as number : 0;
-        const invalidResult = !obj || typeof obj.success !== 'boolean' || !hasValidExecuted || !hasValidTotal;
-        const countsMatch = hasValidExecuted && hasValidTotal && executedSteps === totalSteps;
-        const interrupted = generationChanged || urlChanged;
-        const reason = interrupted
-          ? (typeof obj?.reason === 'string' ? obj.reason : 'Interrupted by navigation or document change')
-          : invalidResult
-            ? 'Trajectory returned an invalid result'
-            : !countsMatch
-              ? (typeof obj?.reason === 'string' ? obj.reason : 'Trajectory did not complete all steps')
-              : (typeof obj?.reason === 'string' ? obj.reason : undefined);
-        return {
-          ...(obj || {}),
-          success: !interrupted && !invalidResult && countsMatch && obj?.success === true,
-          executedSteps,
-          totalSteps,
-          ...(reason ? { reason } : {}),
-        };
-      } catch (err) {
-        console.error('[native-tab-host] agentTrajectory error:', err);
-        return { success: false, executedSteps: 0, totalSteps, reason: 'Trajectory execution failed' };
-      }
-    });
+    const effectivePane = paneId || params?.paneId || (tab.state.splitMode ? (tab.focusedPane || tab.state.splitFocusedPane || 'desktop') : 'desktop');
+    const wc = this.getTabWebContents(targetId, effectivePane);
+    if (!wc || wc.isDestroyed()) {
+      return { success: false, executedSteps: 0, totalSteps, reason: 'Target webContents is unavailable' };
+    }
+
+    if (!await this.ensureAgentBrowserInjected(targetId, effectivePane)) {
+      return { success: false, executedSteps: 0, totalSteps, reason: 'Agent browser injection failed' };
+    }
+    const generationBefore = this.getSemanticDocumentGeneration(targetId, effectivePane);
+    const legacyDocGenBefore = this.documentGenerations?.get(targetId) || 0;
+    const urlBefore = wc.getURL();
+    let normalizedSteps: Array<Record<string, unknown>>;
+    try {
+      normalizedSteps = steps.map((step, index) => {
+        if (!step || typeof step !== 'object') throw new Error(`Trajectory step ${index} must be an object`);
+        const candidate = step as Record<string, unknown>;
+        const action = candidate.action || candidate.type;
+        if (action !== 'move' && action !== 'hover' && action !== 'click' && action !== 'type' && action !== 'scroll') {
+          throw new Error(`Unsupported trajectory action at step ${index}: ${String(action || 'missing')}`);
+        }
+        return { ...candidate, action };
+      });
+    } catch (err) {
+      const reason = err instanceof Error ? err.message : 'Invalid trajectory steps';
+      return { success: false, executedSteps: 0, totalSteps, reason };
+    }
+
+    try {
+      const result = await wc.executeJavaScript(`window.__antifanAgentTrajectory(${JSON.stringify(normalizedSteps)}, ${JSON.stringify({ speed: params?.speed, smoothScroll: params?.smoothScroll })})`);
+      const generationChanged = this.getSemanticDocumentGeneration(targetId, effectivePane) !== generationBefore || (this.documentGenerations?.get(targetId) || 0) !== legacyDocGenBefore;
+      const urlChanged = wc.isDestroyed() || wc.getURL() !== urlBefore;
+      const obj = result && typeof result === 'object' ? result as Record<string, unknown> : null;
+      const rawExecuted = obj?.executedSteps;
+      const rawTotal = obj?.totalSteps;
+      const hasValidExecuted = typeof rawExecuted === 'number' && Number.isInteger(rawExecuted) && rawExecuted >= 0 && rawExecuted <= totalSteps;
+      const hasValidTotal = typeof rawTotal === 'number' && Number.isInteger(rawTotal) && rawTotal === totalSteps;
+      const executedSteps = hasValidExecuted ? rawExecuted as number : 0;
+      const invalidResult = !obj || typeof obj.success !== 'boolean' || !hasValidExecuted || !hasValidTotal;
+      const countsMatch = hasValidExecuted && hasValidTotal && executedSteps === totalSteps;
+      const interrupted = generationChanged || urlChanged;
+      const reason = interrupted
+        ? (typeof obj?.reason === 'string' ? obj.reason : 'Interrupted by navigation or document change')
+        : invalidResult
+          ? 'Trajectory returned an invalid result'
+          : !countsMatch
+            ? (typeof obj?.reason === 'string' ? obj.reason : 'Trajectory did not complete all steps')
+            : (typeof obj?.reason === 'string' ? obj.reason : undefined);
+      return {
+        ...(obj || {}),
+        success: !interrupted && !invalidResult && countsMatch && obj?.success === true,
+        executedSteps,
+        totalSteps,
+        ...(reason ? { reason } : {}),
+      };
+    } catch (err) {
+      console.error('[native-tab-host] agentTrajectory error:', err);
+      return { success: false, executedSteps: 0, totalSteps, reason: 'Trajectory execution failed' };
+    }
+  }
+
+  public async agentTrajectory(params: { steps: Array<Record<string, unknown>>; speed?: 'fast' | 'natural' | 'slow'; smoothScroll?: boolean; tabId?: string; paneId?: SplitPaneId }): Promise<Record<string, unknown>> {
+    const res = await this.dispatchAgentAction('trajectory', params);
+    if (res.data && typeof res.data === 'object') {
+      return res.data as Record<string, unknown>;
+    }
+    return { success: res.success, executedSteps: 0, totalSteps: params?.steps?.length || 0, reason: res.reason };
   }
 
   public async agentMove(args: { selector?: string; ref?: string; x?: number; y?: number; label?: string; tabId?: string; paneId?: SplitPaneId }): Promise<boolean> {
@@ -5166,8 +5282,11 @@ export class NativeTabHost extends EventEmitter {
   public dispose(): void {
     if (this.isDisposed) return;
     this.persistTabs();
-    this.asyncQaQueue?.abortAll();
     this.isDisposed = true;
+    this.asyncQaQueue?.abortAll();
+    this.semanticRefRegistry?.destroy();
+    this.targetOperationQueues?.clear();
+    this.semanticDocumentGenerations?.clear();
     if (this.frameBackdropView) {
       try {
         this.window.contentView.removeChildView(this.frameBackdropView);

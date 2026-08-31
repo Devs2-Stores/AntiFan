@@ -784,7 +784,7 @@ export class BridgeServer {
           break;
         }
         case 'antifan.agentMove': {
-          const ok = await this.tabHost.agentMove({ selector: p.selector, x: p.x, y: p.y, label: p.label, tabId: p.tabId });
+          const ok = await this.tabHost.agentMove({ selector: p.selector, ref: p.ref, x: p.x, y: p.y, label: p.label, tabId: p.tabId, paneId: p.paneId });
           respond(ok, { moved: ok });
           break;
         }
@@ -795,6 +795,7 @@ export class BridgeServer {
             speed: p.speed,
             smoothScroll: p.smoothScroll,
             tabId: p.tabId,
+            paneId: p.paneId,
           });
           respond(Boolean(result.success), result);
           break;
@@ -1068,10 +1069,12 @@ export class BridgeServer {
         case 'antifan.agentClick': {
           const ok = await this.tabHost.agentClick({
             selector: p.selector,
+            ref: p.ref,
             x: p.x,
             y: p.y,
             label: p.label,
             tabId: p.tabId,
+            paneId: p.paneId,
           });
           respond(ok, { clicked: ok });
           break;
@@ -1081,9 +1084,11 @@ export class BridgeServer {
         case 'antifan.agentType': {
           const ok = await this.tabHost.agentType({
             selector: p.selector,
+            ref: p.ref,
             text: p.text,
             clear: p.clear,
             tabId: p.tabId,
+            paneId: p.paneId,
           });
           respond(ok, { typed: ok });
           break;
@@ -1094,7 +1099,9 @@ export class BridgeServer {
           const ok = await this.tabHost.agentScroll({
             deltaY: p.deltaY,
             selector: p.selector,
+            ref: p.ref,
             tabId: p.tabId,
+            paneId: p.paneId,
           });
           respond(ok, { scrolled: ok });
           break;
@@ -1104,10 +1111,12 @@ export class BridgeServer {
         case 'antifan.agentHover': {
           const ok = await this.tabHost.agentHover({
             selector: p.selector,
+            ref: p.ref,
             x: p.x,
             y: p.y,
             label: p.label,
             tabId: p.tabId,
+            paneId: p.paneId,
           });
           respond(ok, { hovered: ok });
           break;
@@ -1117,8 +1126,10 @@ export class BridgeServer {
         case 'antifan.agentHighlight': {
           const ok = await this.tabHost.agentHighlight({
             selector: p.selector,
+            ref: p.ref,
             label: p.label,
             tabId: p.tabId,
+            paneId: p.paneId,
           });
           respond(ok, { highlighted: ok });
           break;
@@ -1126,7 +1137,7 @@ export class BridgeServer {
 
         case 'agentClear':
         case 'antifan.agentClear': {
-          const ok = await this.tabHost.agentClear(p.tabId);
+          const ok = await this.tabHost.agentClear(p.tabId, p.paneId);
           respond(ok, { cleared: ok });
           break;
         }

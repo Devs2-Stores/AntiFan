@@ -1,8 +1,8 @@
 import { describe, it } from 'node:test';
 import * as assert from 'node:assert';
 import { NativeTabHost } from '../../src/main/browser/native-tab-host';
+import { SemanticRefRegistry } from '../../src/main/browser/semantic-ref-registry';
 import { AsyncThemeQaQueue } from '../../src/main/qa/async-qa-job-queue';
-
 type TestHost = any;
 
 function createHost(executeJavaScript: (code: string) => Promise<unknown>) {
@@ -13,12 +13,24 @@ function createHost(executeJavaScript: (code: string) => Promise<unknown>) {
     title: 'Example',
     aiState: 'idle',
   };
+  const mainFrame = {
+    executeJavaScriptInIsolatedWorld: async (worldId: number, scripts: Array<{ code: string }>) => {
+      const code = scripts[0]?.code || '';
+      const res = await executeJavaScript(code);
+      if (res && typeof res === 'object' && 'ok' in (res as any)) return res;
+      if (res === false) {
+        return { ok: false, error: 'Simulated failure' };
+      }
+      return { ok: true, executed: Boolean(res), rect: { x: 10, y: 20, width: 50, height: 20, centerX: 35, centerY: 30 } };
+    },
+  };
   const webContents = {
+    mainFrame,
     isDestroyed: () => false,
     getURL: () => state.url,
     executeJavaScript,
+    executeJavaScriptInIsolatedWorld: mainFrame.executeJavaScriptInIsolatedWorld,
   };
-
   host.activeTabId = 'tab-1';
   host.tabs = new Map([['tab-1', { state, view: { webContents } }]]);
   host.tabOrder = ['tab-1'];
@@ -29,7 +41,10 @@ function createHost(executeJavaScript: (code: string) => Promise<unknown>) {
   host.broadcastState = () => {};
   host.ensureAgentBrowserInjected = async () => true;
   host.asyncQaQueue = new AsyncThemeQaQueue();
-
+  host.semanticRefRegistry = new SemanticRefRegistry();
+  host.semanticDocumentGenerations = new Map();
+  host.targetOperationQueues = new Map();
+  host.persistTabs = () => {};
   return { host, state, webContents };
 }
 
@@ -111,7 +126,7 @@ describe('NativeTabHost agent activity lifecycle', () => {
   it('keeps overlapping agent actions active until the final action settles', async () => {
     const pending: Array<() => void> = [];
     const { host, state } = createHost((code) => {
-      if (code.includes('__antifanAgentClick')) {
+      if (code.includes('click') || code.includes('__antifanAgentClick')) {
         return new Promise<boolean>((resolve) => pending.push(() => resolve(true)));
       }
       return Promise.resolve(true);
@@ -138,11 +153,13 @@ describe('NativeTabHost agent activity lifecycle', () => {
   it('propagates false hook results for direct actions', async () => {
     const { host } = createHost(async (code) => {
       if (
-        code.includes('__antifanAgentClick(') ||
-        code.includes('__antifanAgentType(') ||
-        code.includes('__antifanAgentScroll(') ||
-        code.includes('__antifanAgentMove(') ||
-        code.includes('__antifanAgentHighlight(')
+        code.includes('click') ||
+        code.includes('type') ||
+        code.includes('scroll') ||
+        code.includes('move') ||
+        code.includes('hover') ||
+        code.includes('highlight') ||
+        code.includes('__antifanAgent')
       ) {
         return false;
       }
@@ -159,7 +176,7 @@ describe('NativeTabHost agent activity lifecycle', () => {
     let resolveType!: (result: boolean) => void;
     const typeResult = new Promise<boolean>((resolve) => { resolveType = resolve; });
     const { host } = createHost(async (code) => {
-      if (code.includes('__antifanAgentType')) return typeResult;
+      if (code.includes('type') || code.includes('__antifanAgentType')) return typeResult;
       return true;
     });
 

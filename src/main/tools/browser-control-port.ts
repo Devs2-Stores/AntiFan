@@ -15,13 +15,13 @@ export interface BrowserHostPort {
   evalJs(expression: string, tabId?: string, paneId?: 'desktop' | 'mobile'): Promise<unknown>;
   getDiagnostics?(tabId?: string, level?: number | string): { console: unknown[]; failures: unknown[] };
   runResponsiveCheck?(tabId: string): Promise<Record<string, unknown>>;
-  agentTrajectory?(params: { steps: Array<Record<string, unknown>>; speed?: 'fast' | 'natural' | 'slow'; smoothScroll?: boolean; tabId?: string }): Promise<Record<string, unknown>>;
-  agentMove?(args: { selector?: string; x?: number; y?: number; label?: string; tabId?: string; paneId?: 'desktop' | 'mobile' }): Promise<boolean>;
+  agentTrajectory?(params: { steps: Array<Record<string, unknown>>; speed?: 'fast' | 'natural' | 'slow'; smoothScroll?: boolean; tabId?: string; paneId?: 'desktop' | 'mobile' }): Promise<Record<string, unknown>>;
+  agentMove?(args: { selector?: string; ref?: string; x?: number; y?: number; label?: string; tabId?: string; paneId?: 'desktop' | 'mobile' }): Promise<boolean>;
   agentClick?(params: { selector?: string; ref?: string; x?: number; y?: number; label?: string; tabId?: string; paneId?: 'desktop' | 'mobile' }): Promise<boolean>;
-  agentType?(params: { selector: string; text: string; clear?: boolean; tabId?: string; paneId?: 'desktop' | 'mobile' }): Promise<boolean>;
-  agentScroll?(params: { deltaY?: number; selector?: string; tabId?: string; paneId?: 'desktop' | 'mobile' }): Promise<boolean>;
-  agentHover?(params: { selector?: string; x?: number; y?: number; label?: string; tabId?: string; paneId?: 'desktop' | 'mobile' }): Promise<boolean>;
-  agentHighlight?(params: { selector: string; label?: string; tabId?: string; paneId?: 'desktop' | 'mobile' }): Promise<boolean>;
+  agentType?(params: { selector?: string; ref?: string; text: string; clear?: boolean; tabId?: string; paneId?: 'desktop' | 'mobile' }): Promise<boolean>;
+  agentScroll?(params: { deltaY?: number; selector?: string; ref?: string; tabId?: string; paneId?: 'desktop' | 'mobile' }): Promise<boolean>;
+  agentHover?(params: { selector?: string; ref?: string; x?: number; y?: number; label?: string; tabId?: string; paneId?: 'desktop' | 'mobile' }): Promise<boolean>;
+  agentHighlight?(params: { selector?: string; ref?: string; label?: string; tabId?: string; paneId?: 'desktop' | 'mobile' }): Promise<boolean>;
   agentClear?(tabId?: string, paneId?: 'desktop' | 'mobile'): Promise<boolean>;
   agentSnapshot?(tabId?: string, paneId?: 'desktop' | 'mobile'): Promise<string>;
   sendKeyboardPress?(params: { key: string; modifiers?: string[]; tabId?: string }): Promise<{ success: boolean; key: string; modifiers: string[] }>;
@@ -122,13 +122,13 @@ export class BrowserControlPort {
     return this.host.runResponsiveCheck(tabId);
   }
 
-  async agentTrajectory(args: { steps: Array<Record<string, unknown>>; speed?: 'fast' | 'natural' | 'slow'; smoothScroll?: boolean; tabId?: string }, target?: BrowserTarget): Promise<Record<string, unknown>> {
+  async agentTrajectory(args: { steps: Array<Record<string, unknown>>; speed?: 'fast' | 'natural' | 'slow'; smoothScroll?: boolean; tabId?: string; paneId?: 'desktop' | 'mobile' }, target?: BrowserTarget): Promise<Record<string, unknown>> {
     if (!this.host.agentTrajectory) throw new CapabilityError('CAPABILITY_NOT_FOUND', 'agentTrajectory is not supported by host');
     const tabId = this.resolveTargetTab(target, args.tabId);
     return (await this.host.agentTrajectory({ ...args, tabId })) as Record<string, unknown>;
   }
 
-  async agentMove(args: { selector?: string; x?: number; y?: number; label?: string; tabId?: string; paneId?: 'desktop' | 'mobile' }, target?: BrowserTarget): Promise<{ moved: boolean }> {
+  async agentMove(args: { selector?: string; ref?: string; x?: number; y?: number; label?: string; tabId?: string; paneId?: 'desktop' | 'mobile' }, target?: BrowserTarget): Promise<{ moved: boolean }> {
     if (!this.host.agentMove) throw new CapabilityError('CAPABILITY_NOT_FOUND', 'agentMove is not supported by host');
     const tabId = this.resolveTargetTab(target, args.tabId);
     return { moved: await this.host.agentMove({ ...args, tabId }) };
@@ -140,7 +140,7 @@ export class BrowserControlPort {
     return { clicked: await this.host.agentClick({ ...args, tabId }) };
   }
 
-  async agentType(args: { selector: string; text: string; clear?: boolean; tabId?: string; paneId?: 'desktop' | 'mobile' }, target?: BrowserTarget): Promise<{ typed: boolean }> {
+  async agentType(args: { selector?: string; ref?: string; text: string; clear?: boolean; tabId?: string; paneId?: 'desktop' | 'mobile' }, target?: BrowserTarget): Promise<{ typed: boolean }> {
     if (!this.host.agentType) throw new CapabilityError('CAPABILITY_NOT_FOUND', 'agentType is not supported by host');
     const tabId = this.resolveTargetTab(target, args.tabId);
     return { typed: await this.host.agentType({ ...args, tabId }) };
@@ -162,19 +162,19 @@ export class BrowserControlPort {
       throw new CapabilityError('INVALID_ARGUMENT', msg);
     }
   }
-  async agentScroll(args: { deltaY?: number; selector?: string; tabId?: string; paneId?: 'desktop' | 'mobile' }, target?: BrowserTarget): Promise<{ scrolled: boolean }> {
+  async agentScroll(args: { deltaY?: number; selector?: string; ref?: string; tabId?: string; paneId?: 'desktop' | 'mobile' }, target?: BrowserTarget): Promise<{ scrolled: boolean }> {
     if (!this.host.agentScroll) throw new CapabilityError('CAPABILITY_NOT_FOUND', 'agentScroll is not supported by host');
     const tabId = this.resolveTargetTab(target, args.tabId);
     return { scrolled: await this.host.agentScroll({ ...args, tabId }) };
   }
 
-  async agentHover(args: { selector?: string; x?: number; y?: number; label?: string; tabId?: string; paneId?: 'desktop' | 'mobile' }, target?: BrowserTarget): Promise<{ hovered: boolean }> {
+  async agentHover(args: { selector?: string; ref?: string; x?: number; y?: number; label?: string; tabId?: string; paneId?: 'desktop' | 'mobile' }, target?: BrowserTarget): Promise<{ hovered: boolean }> {
     if (!this.host.agentHover) throw new CapabilityError('CAPABILITY_NOT_FOUND', 'agentHover is not supported by host');
     const tabId = this.resolveTargetTab(target, args.tabId);
     return { hovered: await this.host.agentHover({ ...args, tabId }) };
   }
 
-  async agentHighlight(args: { selector: string; label?: string; tabId?: string; paneId?: 'desktop' | 'mobile' }, target?: BrowserTarget): Promise<{ highlighted: boolean }> {
+  async agentHighlight(args: { selector?: string; ref?: string; label?: string; tabId?: string; paneId?: 'desktop' | 'mobile' }, target?: BrowserTarget): Promise<{ highlighted: boolean }> {
     if (!this.host.agentHighlight) throw new CapabilityError('CAPABILITY_NOT_FOUND', 'agentHighlight is not supported by host');
     const tabId = this.resolveTargetTab(target, args.tabId);
     return { highlighted: await this.host.agentHighlight({ ...args, tabId }) };

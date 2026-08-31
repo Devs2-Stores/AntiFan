@@ -13,7 +13,7 @@ export interface ActionDefinition<TParams = Record<string, any>, TResult = any> 
   isHighRisk?: boolean;
   inputSchema?: {
     type: 'object';
-    properties: Record<string, { type: string; description: string; enum?: string[] }>;
+    properties: Record<string, { type: string; description: string; enum?: string[]; items?: { type: string } }>;
     required?: string[];
   };
   handler: (params: TParams, context: { tabHost: NativeTabHost }) => Promise<TResult> | TResult;
@@ -444,19 +444,84 @@ export class BrowserActionRegistry {
       name: 'agentScroll',
       mcpName: 'antifan_agent_scroll',
       aliases: ['antifan.agentScroll', 'anti.browser.scroll', 'anti.agent.cursor.scroll'],
-      description: 'Scroll active page or container using virtual agent scroll',
+      description: 'Scroll active page or container using virtual agent scroll (supports @ref or CSS selector)',
       inputSchema: {
         type: 'object',
         properties: {
           deltaY: { type: 'number', description: 'Vertical scroll delta in pixels (default: 400)' },
           selector: { type: 'string', description: 'Optional container selector to scroll' },
+          ref: { type: 'string', description: 'Interactive snapshot element reference (e.g. @e1)' },
           tabId: { type: 'string', description: 'Optional tab ID' },
           paneId: { type: 'string', enum: ['desktop', 'mobile'], description: 'Optional split review pane' },
         },
       },
-      handler: async (params: { deltaY?: number; selector?: string; tabId?: string; paneId?: 'desktop' | 'mobile' }, { tabHost }) => {
+      handler: async (params: { deltaY?: number; selector?: string; ref?: string; tabId?: string; paneId?: 'desktop' | 'mobile' }, { tabHost }) => {
         const scrolled = await tabHost.agentScroll(params);
         return { scrolled, success: scrolled };
+      },
+    });
+
+    // 20. Agent Highlight
+    this.registerAction({
+      name: 'agentHighlight',
+      mcpName: 'antifan_agent_highlight',
+      aliases: ['antifan.agentHighlight', 'anti.agent.cursor.highlight'],
+      description: 'Visually highlight an element on page with neon border and badge',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          selector: { type: 'string', description: 'CSS selector of element to highlight' },
+          ref: { type: 'string', description: 'Interactive snapshot element reference (e.g. @e1)' },
+          label: { type: 'string', description: 'Badge label text' },
+          tabId: { type: 'string', description: 'Optional tab ID' },
+          paneId: { type: 'string', enum: ['desktop', 'mobile'], description: 'Optional split review pane' },
+        },
+      },
+      handler: async (params: { selector?: string; ref?: string; label?: string; tabId?: string; paneId?: 'desktop' | 'mobile' }, { tabHost }) => {
+        const highlighted = await tabHost.agentHighlight(params as any);
+        return { highlighted, success: highlighted };
+      },
+    });
+
+    // 21. Agent Clear
+    this.registerAction({
+      name: 'agentClear',
+      mcpName: 'antifan_agent_clear',
+      aliases: ['antifan.agentClear', 'anti.agent.cursor.clear'],
+      description: 'Clear AI cursor, highlights, and visual banners from the active page',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          tabId: { type: 'string', description: 'Optional tab ID' },
+          paneId: { type: 'string', enum: ['desktop', 'mobile'], description: 'Optional split review pane' },
+        },
+      },
+      handler: async (params: { tabId?: string; paneId?: 'desktop' | 'mobile' }, { tabHost }) => {
+        const cleared = await tabHost.agentClear(params?.tabId, params?.paneId);
+        return { cleared, success: cleared };
+      },
+    });
+
+    // 22. Agent Trajectory
+    this.registerAction({
+      name: 'agentTrajectory',
+      mcpName: 'antifan_agent_trajectory',
+      aliases: ['antifan.agentTrajectory', 'anti.agent.trajectory', 'trajectory'],
+      description: 'Execute continuous multi-step cubic Bézier cursor trajectory and actions',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          steps: { type: 'array', description: 'Array of trajectory action steps', items: { type: 'object' } },
+          speed: { type: 'string', enum: ['fast', 'natural', 'slow'], description: 'Movement speed profile' },
+          smoothScroll: { type: 'boolean', description: 'Whether to use smooth scrolling' },
+          tabId: { type: 'string', description: 'Optional tab ID' },
+          paneId: { type: 'string', enum: ['desktop', 'mobile'], description: 'Optional split review pane' },
+        },
+        required: ['steps'],
+      },
+      handler: async (params: { steps: Array<Record<string, unknown>>; speed?: 'fast' | 'natural' | 'slow'; smoothScroll?: boolean; tabId?: string; paneId?: 'desktop' | 'mobile' }, { tabHost }) => {
+        const result = await tabHost.agentTrajectory(params);
+        return { ...result, success: Boolean(result && typeof result === 'object' && (result as { success?: boolean }).success) };
       },
     });
     // 15. Eval JS (High Risk)

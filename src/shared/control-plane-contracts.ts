@@ -281,8 +281,11 @@ export type CapabilityErrorCode =
   | 'PROCESS_MISMATCH'
   | 'MCP_CONTEXT_REQUIRED'
   | 'REPLAY_DENIED'
-  | 'LAUNCH_ERROR';
-
+  | 'LAUNCH_ERROR'
+  | 'REF_STALE'
+  | 'REF_NOT_FOUND'
+  | 'FINGERPRINT_MISMATCH'
+  | 'NODE_DETACHED';
 export class CapabilityError extends Error {
   readonly code: CapabilityErrorCode;
   readonly details?: Record<string, unknown>;

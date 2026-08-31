@@ -2,9 +2,9 @@ import { describe, it } from 'node:test';
 import * as assert from 'node:assert';
 import { EventEmitter } from 'node:events';
 import { NativeTabHost } from '../../src/main/browser/native-tab-host';
+import { SemanticRefRegistry } from '../../src/main/browser/semantic-ref-registry';
 import { SplitNavigationCoordinator } from '../../src/main/browser/split-review-coordinator';
 import { AntiFanTab } from '../../src/shared/contracts';
-
 type PrivateHostMethods = {
   setupTabWebContentsEvents: (id: string, view: unknown, state: unknown, paneId: string) => void;
 };
@@ -91,6 +91,16 @@ function createTestHost() {
   host.agentWorkingRefs = new Map();
   host.terminalWindows = new Map();
   host.documentGenerations = new Map();
+  host.semanticDocumentGenerations = new Map();
+  host.semanticRefRegistry = new SemanticRefRegistry();
+  host.targetOperationQueues = new Map();
+  host.persistTabs = () => {};
+  host.inspectGeneration = 0;
+  host.isInspecting = false;
+  host.isProcessingInspectPick = false;
+  host.isInspectPollInFlight = false;
+  host.inspectedTabId = null;
+  host.inspectPollTimer = null;
   host.programmaticNavigations = new Map();
   host.tabPreviewUnsubscribers = new Map();
   host.toolbarView = {
@@ -395,17 +405,13 @@ describe('NativeTabHost Split Review Integration', () => {
     const injectedWcs: any[] = [];
     (desktopWc as any).executeJavaScript = async (script: string): Promise<any> => {
       injectedWcs.push(desktopWc);
-      if (script === 'window.__antifanPick') return null;
+      if (script.includes('const r = window.__antifanPick')) return null;
       return undefined;
     };
     let mobilePendingPick: any = { selector: 'button.checkout', userComment: 'Test mobile button' };
     (mobileWc as any).executeJavaScript = async (script: string): Promise<any> => {
       injectedWcs.push(mobileWc);
-      if (script.startsWith('window.__antifanPick = null')) {
-        mobilePendingPick = null;
-        return undefined;
-      }
-      if (script === 'window.__antifanPick') {
+      if (script.includes('const r = window.__antifanPick')) {
         const val = mobilePendingPick;
         mobilePendingPick = null;
         return val;
@@ -417,7 +423,6 @@ describe('NativeTabHost Split Review Integration', () => {
     // Both panes had the element picker injected
     assert.strictEqual(injectedWcs.includes(desktopWc), true);
     assert.strictEqual(injectedWcs.includes(mobileWc), true);
-
     // Wait for the poll timer (200ms) to detect and process the mobile pick
     await new Promise<void>((resolve) => setTimeout(resolve, 350));
     // Verify auto-focus switched to mobile pane
@@ -453,11 +458,7 @@ describe('NativeTabHost Split Review Integration', () => {
     let desktopPendingPick: any = { selector: 'header.desktop', userComment: 'Desktop comment' };
     let mobilePendingPick: any = { selector: 'footer.mobile', userComment: 'Mobile comment' };
     (desktopWc as any).executeJavaScript = async (script: string): Promise<any> => {
-      if (script.startsWith('window.__antifanPick = null')) {
-        desktopPendingPick = null;
-        return undefined;
-      }
-      if (script === 'window.__antifanPick') {
+      if (script.includes('const r = window.__antifanPick')) {
         const val = desktopPendingPick;
         desktopPendingPick = null;
         return val;
@@ -465,11 +466,7 @@ describe('NativeTabHost Split Review Integration', () => {
       return undefined;
     };
     (mobileWc as any).executeJavaScript = async (script: string): Promise<any> => {
-      if (script.startsWith('window.__antifanPick = null')) {
-        mobilePendingPick = null;
-        return undefined;
-      }
-      if (script === 'window.__antifanPick') {
+      if (script.includes('const r = window.__antifanPick')) {
         const val = mobilePendingPick;
         mobilePendingPick = null;
         return val;
@@ -666,31 +663,41 @@ describe('NativeTabHost Split Review Integration', () => {
     // Call real setupTabWebContentsEvents on both desktop and mobile views
     (NativeTabHost.prototype as any).setupTabWebContentsEvents.call(host, 'tab-split-1', tab.view, tab.state, 'desktop');
     (NativeTabHost.prototype as any).setupTabWebContentsEvents.call(host, 'tab-split-1', tab.mobileView, tab.state, 'mobile');
-
     // Case 1: Mobile is authority -> did-start-navigation on mobile increments generation
-    mobileWc.emit('did-start-navigation', {}, 'https://example.com/mobile-1', false, true);
-    assert.strictEqual(host.getDocumentGeneration('tab-split-1'), 2, 'Mobile authority navigation must increment generation');
+    const initialMobileGen = host.getSemanticDocumentGeneration('tab-split-1', 'mobile');
+    const initialDesktopGen = host.getSemanticDocumentGeneration('tab-split-1', 'desktop');
 
-    // Case 2: Mirror navigation on desktop must NOT double-increment generation
+    mobileWc.emit('did-start-navigation', {}, 'https://example.com/mobile-1', false, true);
+    assert.strictEqual(host.getDocumentGeneration('tab-split-1'), 2, 'Mobile authority navigation must increment tab generation');
+    assert.strictEqual(host.getSemanticDocumentGeneration('tab-split-1', 'mobile'), initialMobileGen + 1, 'Mobile navigation must increment mobile semantic generation');
+    assert.strictEqual(host.getSemanticDocumentGeneration('tab-split-1', 'desktop'), initialDesktopGen, 'Mobile navigation must not increment desktop semantic generation');
+
+    // Case 2: Mirror navigation on desktop must NOT double-increment tab generation, but increments desktop semantic generation
     desktopWc.emit('did-start-navigation', {}, 'https://example.com/mobile-1', false, true);
-    assert.strictEqual(host.getDocumentGeneration('tab-split-1'), 2, 'Desktop mirror navigation must not double-increment');
+    assert.strictEqual(host.getDocumentGeneration('tab-split-1'), 2, 'Desktop mirror navigation must not double-increment tab generation');
+    assert.strictEqual(host.getSemanticDocumentGeneration('tab-split-1', 'desktop'), initialDesktopGen + 1, 'Desktop mirror navigation must increment desktop semantic generation');
 
     // Case 3: Switch focused pane to desktop -> desktop becomes authority
     tab.focusedPane = 'desktop';
     desktopWc.emit('did-start-navigation', {}, 'https://example.com/desktop-1', false, true);
-    assert.strictEqual(host.getDocumentGeneration('tab-split-1'), 3, 'Desktop authority navigation must increment generation');
+    assert.strictEqual(host.getDocumentGeneration('tab-split-1'), 3, 'Desktop authority navigation must increment tab generation');
 
-    // Mobile mirror does not increment
+    // Mobile mirror does not increment tab generation, but increments mobile semantic generation
     mobileWc.emit('did-start-navigation', {}, 'https://example.com/desktop-1', false, true);
-    assert.strictEqual(host.getDocumentGeneration('tab-split-1'), 3, 'Mobile mirror navigation must not double-increment');
+    assert.strictEqual(host.getDocumentGeneration('tab-split-1'), 3, 'Mobile mirror navigation must not double-increment tab generation');
 
-    // Case 4: Destroyed mobile view falls back to desktop authority even if focusedPane is mobile
+    // Case 4: Subframe or in-place navigation on desktop increments desktop semantic generation without touching tab generation
+    const curDesktopGen = host.getSemanticDocumentGeneration('tab-split-1', 'desktop');
+    desktopWc.emit('did-start-navigation', {}, 'https://example.com/desktop-1#hash', true, true);
+    assert.strictEqual(host.getDocumentGeneration('tab-split-1'), 3, 'In-place navigation must not increment tab generation');
+    assert.strictEqual(host.getSemanticDocumentGeneration('tab-split-1', 'desktop'), curDesktopGen + 1, 'In-place navigation must increment desktop semantic generation');
+
+    // Case 5: Destroyed mobile view falls back to desktop authority even if focusedPane is mobile
     tab.focusedPane = 'mobile';
     tab.mobileView.webContents.isDestroyed = () => true;
     desktopWc.emit('did-start-navigation', {}, 'https://example.com/desktop-2', false, true);
     assert.strictEqual(host.getDocumentGeneration('tab-split-1'), 4, 'Destroyed mobile view falls back to desktop authority');
   });
-
   it('sets user agent safely and idempotently without redundant calls or ERR_ABORTED churn', () => {
     const { host, desktopWc } = createTestHost();
     let uaCallCount = 0;
