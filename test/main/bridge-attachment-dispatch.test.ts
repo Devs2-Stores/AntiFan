@@ -858,6 +858,166 @@ describe('BridgeServer Attachment Authentication & Scoped Dispatch', () => {
       server.dispose();
     }
   });
+
+  it('self-heals and rebinds target when previous authenticated tab was closed and caller provides explicit new tab or opens tab', async () => {
+    const liveTabs = new Map<string, { id: string; url: string; title: string }>();
+    liveTabs.set('tab-original', { id: 'tab-original', url: 'https://example.com', title: 'Example' });
+    let currentAutomationTab: string | null = 'tab-original';
+    let tabGen = 1;
+
+    class DynamicHost extends EventEmitter {
+      getTabList() { return Array.from(liveTabs.values()); }
+      getActiveTabId() { return liveTabs.keys().next().value || ''; }
+      getActiveTab() { return liveTabs.values().next().value || null; }
+      getAutomationTabId() { return currentAutomationTab; }
+      setAutomationTabId(id?: string) { currentAutomationTab = id || null; }
+      createTab(url?: string) {
+        const newId = `tab-created-${Date.now()}`;
+        liveTabs.set(newId, { id: newId, url: url || 'about:blank', title: 'New Tab' });
+        return newId;
+      }
+      navigate(tabId: string) {
+        tabGen += 1;
+        return true;
+      }
+      getDocumentGeneration() { return tabGen; }
+      isCurrentTarget(target: unknown) {
+        return Boolean(target && typeof target === 'object' && 'tabId' in target && (target as { tabId: unknown }).tabId === currentAutomationTab);
+      }
+      clearAllAgentWorking() {}
+      async getDom(_sel?: string, tabId?: string) {
+        return `<html><body>Content for ${tabId || currentAutomationTab}</body></html>`;
+      }
+    }
+    const host = new DynamicHost() as unknown as NativeTabHost;
+
+    const runId = 'run-88888888888888888888';
+    const attemptId = 'attempt-88888888888888888888';
+    const projectId = 'project-88888888888888888888';
+    const workspaceId = 'workspace-88888888888888888888';
+    const runtimeId = 'binding-88888888888888888888';
+
+    const lease = {
+      runtimeId,
+      projectId,
+      workspaceId,
+      token: 'active-lease-token',
+      protocolVersion: 1,
+      hostEpoch: 1,
+      ownerPid: process.pid,
+      issuedAt: Date.now(),
+      expiresAt: Date.now() + 60_000,
+    };
+
+    const catalogue = new CapabilityCatalogue({
+      runtime: { mode: 'standalone', lifecycle: 'active' },
+      projectId,
+      workspaceId,
+      runtimeId,
+      hostEpoch: 1,
+      getActiveLease: () => lease,
+    });
+    const browserPort = new BrowserControlPort(host as unknown as BrowserHostPort);
+    registerBrowserCapabilities(catalogue, browserPort);
+
+    const transport = new CapabilityTransportAdapter(catalogue);
+    const registry = new AttachmentRegistry({
+      getHostEpoch: () => 1,
+      getDocumentGeneration: () => tabGen,
+      getAutomationTabId: () => currentAutomationTab,
+    });
+
+    const server = new BridgeServer(host, 0, false, transport, undefined, registry);
+    const port = await server.start();
+
+    const { launch } = registry.issueAttachment(runId, attemptId, projectId, workspaceId, {
+      backendId: 'codex',
+      lease,
+      leaseToken: lease.token,
+      hostEpoch: 1,
+      tabId: 'tab-original',
+      grant: 'write',
+      browserTarget: {
+        projectId,
+        workspaceId,
+        runtimeId,
+        tabId: 'tab-original',
+        browserEpoch: 1,
+        documentGeneration: 1,
+      },
+    });
+
+    const ws = new WebSocket(`ws://127.0.0.1:${port}?token=${encodeURIComponent(launch.secret)}`);
+    try {
+      await new Promise<void>((resolve, reject) => {
+        ws.on('open', resolve);
+        ws.on('error', reject);
+      });
+
+      const sendRpc = (id: string, method: string, params: Record<string, unknown>) => {
+        return new Promise<{ success: boolean; data?: unknown; error?: string }>((resolve) => {
+          const handler = (raw: Buffer | string) => {
+            const resp = JSON.parse(raw.toString()) as { id: string; success: boolean; data?: unknown; error?: string };
+            if (resp.id === id) {
+              ws.off('message', handler);
+              resolve(resp);
+            }
+          };
+          ws.on('message', handler);
+          ws.send(JSON.stringify({ id, method, params }));
+        });
+      };
+
+      // Simulate user closing 'tab-original'
+      liveTabs.delete('tab-original');
+      currentAutomationTab = null;
+
+      // 1. Agent creates a new tab because previous tab was closed
+      const openResp = await sendRpc('req-open-dead-recover', 'antifan.capability.dispatch', {
+        name: 'anti.browser.tabs.create',
+        params: { url: 'https://example.com/recovered' },
+        attachmentClaims: {
+          attachmentSecret: launch.secret,
+          attachmentId: launch.attachmentId,
+          runId,
+          attemptId,
+          projectId,
+          workspaceId,
+          invocationId: 'inv-open-recover',
+          grant: 'write',
+        },
+      });
+      assert.strictEqual(openResp.success, true);
+      const openData = openResp.data as { tabId: string };
+      assert.ok(openData.tabId.startsWith('tab-created-'));
+      const newTabId = openData.tabId;
+
+      // Since old tab was dead, openTab immediately rebinds attachment tab to newTabId
+      assert.strictEqual(registry.getRecord(launch.attachmentId)?.tabId, newTabId);
+      assert.strictEqual(currentAutomationTab, newTabId);
+
+      // 2. Explicit tabId call on the new alive tab must succeed without TARGET_MISMATCH
+      const domResp = await sendRpc('req-dom-recovered', 'antifan.capability.dispatch', {
+        name: 'browser.dom',
+        params: { tabId: newTabId },
+        attachmentClaims: {
+          attachmentSecret: launch.secret,
+          attachmentId: launch.attachmentId,
+          runId,
+          attemptId,
+          projectId,
+          workspaceId,
+          invocationId: 'inv-dom-recover',
+          grant: 'write',
+        },
+      });
+      assert.strictEqual(domResp.success, true);
+      assert.ok(typeof domResp.data === 'string' && domResp.data.includes(newTabId));
+    } finally {
+      ws.close();
+      server.dispose();
+    }
+  });
   it('renewAttachment is fail-closed: rejects issued, bound, stale, revoked and expired states; renews only active', () => {
     const registry = new AttachmentRegistry();
     const runId = 'run-33333333333333333333';

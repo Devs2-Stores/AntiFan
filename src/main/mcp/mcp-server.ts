@@ -473,12 +473,32 @@ export class AntiFanMcpServer {
     }
 
     const cleanCallerTab = callerTabId && callerTabId.trim().length > 0 ? callerTabId.trim() : undefined;
-    const isTargetAgnostic = name === 'browser.set-automation-target' || name === 'antifan_set_automation_target' || name === 'browser.open-tab' || name === 'antifan_open_tab' || name === 'anti.browser.tabs.create' || name === 'browser.list-tabs' || name === 'antifan_list_tabs' || name === 'anti.browser.tabs.list';
+    const isTargetAgnostic =
+      name === 'browser.set-automation-target' || name === 'antifan_set_automation_target' ||
+      name === 'browser.open-tab' || name === 'antifan_open_tab' || name === 'anti.browser.tabs.create' ||
+      name === 'browser.list-tabs' || name === 'antifan_list_tabs' || name === 'anti.browser.tabs.list' ||
+      name === 'browser.switch-tab' || name === 'antifan_switch_tab' || name === 'anti.browser.tabs.activate' ||
+      name === 'browser.close-tab' || name === 'antifan_close_tab' || name === 'anti.browser.tabs.close';
+
+    const tabList = this.tabHost?.getTabList ? this.tabHost.getTabList() : [];
+    const isTabAlive = (id?: string) => Boolean(id && Array.isArray(tabList) && tabList.some((t: unknown) => Boolean(t && typeof t === 'object' && 'id' in t && t.id === id)));
+
     if (cleanCallerTab && authContext.browserTarget?.tabId && cleanCallerTab !== authContext.browserTarget.tabId.trim() && !isTargetAgnostic) {
-      return {
-        isError: true,
-        content: [{ type: 'text', text: JSON.stringify({ code: 'TARGET_MISMATCH', message: `Explicit tabId '${cleanCallerTab}' does not match authenticated target tabId '${authContext.browserTarget.tabId}'` }) }],
-      };
+      const currentAuthTab = authContext.browserTarget.tabId.trim();
+      if (!isTabAlive(currentAuthTab) && isTabAlive(cleanCallerTab)) {
+        if (authContext.attachmentId && this.attachmentRegistry) {
+          this.attachmentRegistry.updateAttachmentTab(authContext.attachmentId, cleanCallerTab);
+        }
+        if (this.tabHost?.setAutomationTabId) {
+          this.tabHost.setAutomationTabId(cleanCallerTab);
+        }
+        authContext.browserTarget.tabId = cleanCallerTab;
+      } else {
+        return {
+          isError: true,
+          content: [{ type: 'text', text: JSON.stringify({ code: 'TARGET_MISMATCH', message: `Explicit tabId '${cleanCallerTab}' does not match authenticated target tabId '${authContext.browserTarget.tabId}'` }) }],
+        };
+      }
     }
 
     const transportArgs = { ...a };
@@ -498,7 +518,23 @@ export class AntiFanMcpServer {
         if (authContext.attachmentId && this.attachmentRegistry) {
           this.attachmentRegistry.updateAttachmentTab(authContext.attachmentId, result.data.tabId);
         }
-      } else if ((name === 'browser.navigate' || name === 'antifan_navigate') && typeof result.data === 'object' && result.data !== null) {
+      } else if ((name === 'browser.open-tab' || name === 'antifan_open_tab' || name === 'anti.browser.tabs.create') && isCreatedTabResult(result.data)) {
+        const currentAuthTab = authContext.browserTarget?.tabId;
+        if (!currentAuthTab || !isTabAlive(currentAuthTab)) {
+          this.tabHost.setAutomationTabId?.(result.data.tabId);
+          if (authContext.attachmentId && this.attachmentRegistry) {
+            this.attachmentRegistry.updateAttachmentTab(authContext.attachmentId, result.data.tabId);
+          }
+        }
+      } else if (name === 'browser.switch-tab' || name === 'antifan_switch_tab' || name === 'anti.browser.tabs.activate') {
+        const switchedTabId = typeof callerTabId === 'string' && callerTabId.trim().length > 0 ? callerTabId.trim() : (typeof a.tabId === 'string' && a.tabId.trim().length > 0 ? a.tabId.trim() : undefined);
+        if (switchedTabId) {
+          this.tabHost.setAutomationTabId?.(switchedTabId);
+          if (authContext.attachmentId && this.attachmentRegistry) {
+            this.attachmentRegistry.updateAttachmentTab(authContext.attachmentId, switchedTabId);
+          }
+        }
+      } else if ((name === 'browser.navigate' || name === 'antifan_navigate' || name === 'anti.browser.navigate') && typeof result.data === 'object' && result.data !== null) {
         const navData = result.data as Record<string, unknown>;
         const navTarget = navData.target && typeof navData.target === 'object' ? navData.target as Record<string, unknown> : undefined;
         const tabId = typeof navTarget?.tabId === 'string' ? navTarget.tabId : undefined;

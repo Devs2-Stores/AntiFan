@@ -639,21 +639,62 @@ export class BridgeServer {
             }
             const authContext = this.attachmentRegistry.validateAttachment(claims);
             const explicitTabId = typeof p.params?.tabId === 'string' && p.params.tabId.trim().length > 0 ? p.params.tabId.trim() : undefined;
-            const isTargetAgnostic = p.name === 'browser.set-automation-target' || p.name === 'antifan_set_automation_target' || p.name === 'browser.open-tab' || p.name === 'antifan_open_tab' || p.name === 'anti.browser.tabs.create' || p.name === 'browser.list-tabs' || p.name === 'antifan_list_tabs' || p.name === 'anti.browser.tabs.list';
+            const isTargetAgnostic =
+              p.name === 'browser.set-automation-target' || p.name === 'antifan_set_automation_target' ||
+              p.name === 'browser.open-tab' || p.name === 'antifan_open_tab' || p.name === 'anti.browser.tabs.create' ||
+              p.name === 'browser.list-tabs' || p.name === 'antifan_list_tabs' || p.name === 'anti.browser.tabs.list' ||
+              p.name === 'browser.switch-tab' || p.name === 'antifan_switch_tab' || p.name === 'anti.browser.tabs.activate' ||
+              p.name === 'browser.close-tab' || p.name === 'antifan_close_tab' || p.name === 'anti.browser.tabs.close';
+
+            const tabList = this.tabHost?.getTabList ? this.tabHost.getTabList() : [];
+            const isTabAlive = (id?: string) => Boolean(id && Array.isArray(tabList) && tabList.some((t: unknown) => Boolean(t && typeof t === 'object' && 'id' in t && t.id === id)));
             if (explicitTabId && authContext.browserTarget?.tabId && explicitTabId !== authContext.browserTarget.tabId.trim() && !isTargetAgnostic) {
-              respond(false, undefined, `TARGET_MISMATCH: Explicit tabId '${explicitTabId}' does not match authenticated target tabId '${authContext.browserTarget.tabId}'`);
-              break;
+              const currentAuthTab = authContext.browserTarget.tabId.trim();
+              if (!isTabAlive(currentAuthTab) && isTabAlive(explicitTabId)) {
+                if (claims?.attachmentId) {
+                  this.attachmentRegistry.updateAttachmentTab(claims.attachmentId, explicitTabId);
+                }
+                if (this.tabHost?.setAutomationTabId) {
+                  this.tabHost.setAutomationTabId(explicitTabId);
+                }
+                authContext.browserTarget.tabId = explicitTabId;
+              } else {
+                respond(false, undefined, `TARGET_MISMATCH: Explicit tabId '${explicitTabId}' does not match authenticated target tabId '${authContext.browserTarget.tabId}'`);
+                break;
+              }
             }
             const dispatchResult = await this.capabilityTransport.dispatch(p.name, p.params || {}, authContext);
             if (dispatchResult.ok) {
               if (claims?.attachmentId && dispatchResult.data && typeof dispatchResult.data === 'object') {
                 const dataObj = dispatchResult.data as Record<string, unknown>;
                 const isSetAutomationTarget = p.name === 'browser.set-automation-target' || p.name === 'antifan_set_automation_target';
+                const isOpenTab = p.name === 'browser.open-tab' || p.name === 'antifan_open_tab' || p.name === 'anti.browser.tabs.create';
+                const isSwitchTab = p.name === 'browser.switch-tab' || p.name === 'antifan_switch_tab' || p.name === 'anti.browser.tabs.activate';
                 const isNavigate = p.name === 'browser.navigate' || p.name === 'anti.browser.navigate' || p.name === 'antifan_navigate';
                 if (isSetAutomationTarget) {
                   const newTabId = typeof dataObj.tabId === 'string' ? dataObj.tabId : undefined;
                   if (newTabId) {
+                    if (this.tabHost.setAutomationTabId) {
+                      this.tabHost.setAutomationTabId(newTabId);
+                    }
                     this.attachmentRegistry.updateAttachmentTab(claims.attachmentId, newTabId);
+                  }
+                } else if (isOpenTab) {
+                  const newTabId = typeof dataObj.tabId === 'string' ? dataObj.tabId : undefined;
+                  const currentAuthTab = authContext.browserTarget?.tabId;
+                  if (newTabId && (!currentAuthTab || !isTabAlive(currentAuthTab))) {
+                    if (this.tabHost.setAutomationTabId) {
+                      this.tabHost.setAutomationTabId(newTabId);
+                    }
+                    this.attachmentRegistry.updateAttachmentTab(claims.attachmentId, newTabId);
+                  }
+                } else if (isSwitchTab) {
+                  const switchedTabId = typeof p.params?.tabId === 'string' ? p.params.tabId.trim() : undefined;
+                  if (switchedTabId) {
+                    if (this.tabHost.setAutomationTabId) {
+                      this.tabHost.setAutomationTabId(switchedTabId);
+                    }
+                    this.attachmentRegistry.updateAttachmentTab(claims.attachmentId, switchedTabId);
                   }
                 } else if (isNavigate) {
                   const navTarget = dataObj.target && typeof dataObj.target === 'object' ? dataObj.target as Record<string, unknown> : undefined;
