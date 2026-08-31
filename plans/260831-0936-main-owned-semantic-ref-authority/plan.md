@@ -45,8 +45,8 @@ A queued semantic-ref action resolves against the active Main record, ensures th
 | 1 | [Characterize Contracts and Define Types](./phase-01-start.md) | Complete | None |
 | 2 | [Build Main Ref Registry](./phase-02-main-ref-registry.md) | Complete | Phase 1 |
 | 3 | [Unify Guarded Action Routing](./phase-03-guarded-action-routing.md) | Complete | Phase 2 |
-| 4 | [Remove Renderer Ref Authority](./phase-04-renderer-authority-removal.md) | In Progress | Phase 3 |
-| 5 | [Integrate, Race-Test, and Soak](./phase-05-integration-and-soak-verification.md) | Pending | Phase 4 |
+| 4 | [Remove Renderer Ref Authority](./phase-04-renderer-authority-removal.md) | Complete | Phase 3 |
+| 5 | [Integrate, Race-Test, and Soak](./phase-05-integration-and-soak-verification.md) | Complete | Phase 4 |
 ## Ultra Selection
 
 Mechanical eligibility ran before qualitative verification: every `npm run` name had to exist in `package.json`, and every direct test command had to target compiled JavaScript under `.compiled`. Candidates 1, 4, and 5 were rejected before scoring; verifier rank contains only eligible unchanged candidates.

@@ -17,15 +17,17 @@ Trình duyệt Chromium Desktop siêu nhẹ, đóng vai trò là **Companion Eng
 2. **High-Fidelity DOM Inspection & GPU Capture**:
    - Tích hợp Element Picker: Click chọn phần tử bất kỳ trên giao diện để trích xuất Selector, XPath, CSS Styles, và ảnh chụp pixel-perfect gửi về cho AI Agent.
    - GPU Lens Zoom 1.5x - 5.0x mượt mà.
-3. **Local Extension Bridge (`127.0.0.1:20129`)**:
    - WebSocket RPC Server bảo mật với session token.
    - Giao tiếp 2 chiều với Extension trong IDE (nhận lệnh duyệt web, gửi event khi user inspect phần tử).
-4. **Model Context Protocol (MCP)**:
+4. **Semantic Ref Engine & Zero-Mutation World 1004**:
+   - Quét DOM cấu trúc thuần túy không biến đổi DOM (không gán attribute `data-antifan-ref` hay global object lên main-world).
+   - Đánh số `@e1`, `@e2`, ... đơn điệu thuộc quyền kiểm soát của tiến trình Main (`SemanticRefRegistry`).
+   - Hỗ trợ đầy đủ Split Review (desktop & mobile panes) với generation và queue cách ly độc lập.
+5. **Model Context Protocol (MCP)**:
    - Chạy chế độ `--mcp-server` để cung cấp tool duyệt web trực tiếp qua stdio cho Antigravity IDE, Claude Code, Cursor.
-5. **Hiệu năng có đo lường**:
+6. **Hiệu năng có đo lường**:
    - Không chứa AI loop hoặc daemon riêng; Chromium, Terminal và Bridge chạy trong một ứng dụng desktop cục bộ.
    - Benchmark ghi riêng cold-start, tab switching và working set theo từng loại process; không dùng một mức RAM cố định cho mọi workload.
-
 ---
 
 ### Annotation & định tuyến Workspace
@@ -89,3 +91,13 @@ npm run smoke:google
 - `antifan_get_dom`
 - `antifan_screenshot`
 - `antifan_toggle_inspect`
+- `antifan_agent_snapshot`
+- `antifan_agent_click`
+- `antifan_agent_move`
+- `antifan_agent_type`
+- `antifan_agent_scroll`
+- `antifan_agent_highlight`
+- `antifan_agent_clear`
+- `theme_qa_validate`
+- `theme_debug_bundle`
+- `theme_assert_cart`

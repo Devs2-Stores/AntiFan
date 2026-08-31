@@ -38,8 +38,13 @@ export function buildIsolatedExecutorScript(request: RendererActionRequest): str
           if (step.kind === 'dom') {
             const children = Array.from(current.children || []);
             let candidate = children[step.index] || null;
-            if (!candidate && step.id && typeof current.getElementById === 'function') {
-              candidate = current.getElementById(step.id);
+            if (!candidate && step.id) {
+              if (typeof current.getElementById === 'function') {
+                candidate = current.getElementById(step.id);
+              }
+              if (!candidate && typeof document.getElementById === 'function') {
+                candidate = document.getElementById(step.id);
+              }
             }
             if (!candidate) return null;
             current = candidate;
@@ -194,6 +199,190 @@ export function buildIsolatedExecutorScript(request: RendererActionRequest): str
       return { ok: false, error: 'Unsupported action: "' + req.action + '"', code: 'INVALID_ARGUMENT' };
     } catch (err) {
       return { ok: false, error: err instanceof Error ? err.message : String(err), code: 'EXECUTION_ERROR' };
+    }
+  })()`;
+}
+export function buildIsolatedCollectorScript(nonce: string, expectedUrl: string): string {
+  const nonceJson = JSON.stringify(nonce);
+  const expectedUrlJson = JSON.stringify(expectedUrl);
+
+  return `(() => {
+    try {
+      const expectedNonce = ${nonceJson};
+      const expectedDocUrl = ${expectedUrlJson};
+
+      if (window.location.href !== expectedDocUrl) {
+        return {
+          ok: false,
+          error: 'Document URL mismatch before collection: expected "' + expectedDocUrl + '", got "' + window.location.href + '"',
+          code: 'REF_DOCUMENT_MUTATED'
+        };
+      }
+
+      const descriptors = [];
+      const MAX_ITEMS = 150;
+      const MAX_DEPTH = 32;
+
+      function getCleanLabel(el) {
+        const ariaLabel = el.getAttribute('aria-label');
+        if (ariaLabel && ariaLabel.trim()) return ariaLabel.trim().slice(0, 60);
+        const ariaLabelledBy = el.getAttribute('aria-labelledby');
+        if (ariaLabelledBy) {
+          const lblEl = document.getElementById(ariaLabelledBy);
+          if (lblEl && lblEl.textContent && lblEl.textContent.trim()) return lblEl.textContent.trim().slice(0, 60);
+        }
+        if (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA') {
+          const ph = el.getAttribute('placeholder');
+          if (ph && ph.trim()) return ph.trim().slice(0, 60);
+          if (el.type === 'submit' || el.type === 'button') {
+            const val = el.getAttribute('value');
+            if (val && val.trim()) return val.trim().slice(0, 60);
+          }
+        }
+        const title = el.getAttribute('title');
+        if (title && title.trim()) return title.trim().slice(0, 60);
+        const alt = el.getAttribute('alt');
+        if (alt && alt.trim()) return alt.trim().slice(0, 60);
+        const txt = el.innerText || el.textContent;
+        if (txt && txt.trim()) {
+          return txt.trim().replace(/\\s+/g, ' ').slice(0, 60);
+        }
+        return '';
+      }
+
+      function getStorefrontMetadata(el) {
+        let current = el;
+        let sectionId = undefined;
+        let productId = undefined;
+        let blockId = undefined;
+        while (current && current !== document.body && current !== document.documentElement) {
+          if (!sectionId && current.dataset) {
+            sectionId = current.dataset.sectionId || current.getAttribute('data-section-id') || undefined;
+          }
+          if (!productId && current.dataset) {
+            productId = current.dataset.productId || current.getAttribute('data-product-id') || undefined;
+          }
+          if (!blockId && current.dataset) {
+            blockId = current.dataset.blockId || current.getAttribute('data-block-id') || undefined;
+          }
+          current = current.parentElement;
+        }
+        if (sectionId || productId || blockId) {
+          return { sectionId, productId, blockId };
+        }
+        return undefined;
+      }
+
+      function scanNode(node, currentPath, depth, frameOffsetX, frameOffsetY) {
+        if (!node || descriptors.length >= MAX_ITEMS || depth > MAX_DEPTH) return;
+
+        const children = Array.from(node.children || []);
+        for (let i = 0; i < children.length; i++) {
+          if (descriptors.length >= MAX_ITEMS) break;
+          const child = children[i];
+          if (!child || !(child instanceof Element)) continue;
+
+          const tag = child.tagName.toLowerCase();
+          const step = { kind: 'dom', index: i, tag, id: child.id || undefined };
+          const stepPath = currentPath.concat([step]);
+
+          // Handle iframes
+          if (tag === 'iframe') {
+            try {
+              const contentDoc = child.contentDocument;
+              if (contentDoc) {
+                const ifrRect = child.getBoundingClientRect();
+                const ifrStep = { kind: 'iframe', index: i, tag: 'iframe', id: child.id || undefined };
+                scanNode(contentDoc, currentPath.concat([ifrStep]), depth + 1, frameOffsetX + ifrRect.left, frameOffsetY + ifrRect.top);
+              }
+            } catch {}
+            continue;
+          }
+
+          // Handle shadow roots
+          if (child.shadowRoot) {
+            try {
+              const shadowStep = { kind: 'shadow', index: i, tag };
+              scanNode(child.shadowRoot, currentPath.concat([shadowStep]), depth + 1, frameOffsetX, frameOffsetY);
+            } catch {}
+          }
+
+          const style = window.getComputedStyle(child);
+          if (style.display === 'none' || style.visibility === 'hidden') continue;
+
+          const role = child.getAttribute('role') || '';
+          const isInteractive = (
+            tag === 'button' ||
+            (tag === 'a' && child.hasAttribute('href')) ||
+            tag === 'input' ||
+            tag === 'select' ||
+            tag === 'textarea' ||
+            tag === 'summary' ||
+            role === 'button' ||
+            role === 'link' ||
+            role === 'checkbox' ||
+            role === 'radio' ||
+            role === 'tab' ||
+            role === 'menuitem' ||
+            child.hasAttribute('onclick') ||
+            (child.hasAttribute('tabindex') && child.getAttribute('tabindex') !== '-1')
+          );
+
+          if (isInteractive) {
+            const rect = child.getBoundingClientRect();
+            if (rect.width > 0 && rect.height > 0) {
+              const globalRect = {
+                x: rect.x + frameOffsetX,
+                y: rect.y + frameOffsetY,
+                width: rect.width,
+                height: rect.height,
+                centerX: rect.x + frameOffsetX + rect.width / 2,
+                centerY: rect.y + frameOffsetY + rect.height / 2
+              };
+
+              const label = getCleanLabel(child);
+              const metadata = getStorefrontMetadata(child);
+              const classHint = typeof child.className === 'string' && child.className.trim() ? child.className.trim().slice(0, 50) : undefined;
+
+              descriptors.push({
+                path: stepPath,
+                fingerprint: {
+                  tag,
+                  role: role || undefined,
+                  id: child.id || undefined,
+                  name: child.getAttribute('name') || undefined,
+                  type: child.getAttribute('type') || undefined,
+                  classHint
+                },
+                rect: globalRect,
+                label,
+                role: role || tag,
+                type: child.getAttribute('type') || undefined,
+                id: child.id || undefined,
+                metadata
+              });
+            }
+          }
+
+          // Scan child subtree
+          if (child.children && child.children.length > 0 && !child.shadowRoot) {
+            scanNode(child, stepPath, depth + 1, frameOffsetX, frameOffsetY);
+          }
+        }
+      }
+      scanNode(document, [], 0, 0, 0);
+      return {
+        ok: true,
+        nonce: expectedNonce,
+        documentUrl: window.location.href,
+        descriptors
+      };
+    } catch (err) {
+      return {
+        ok: false,
+        error: err instanceof Error ? err.message : String(err),
+        code: 'COLLECTION_ERROR'
+      };
     }
   })()`;
 }

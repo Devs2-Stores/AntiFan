@@ -54,11 +54,12 @@ import { OAuthPopupManager } from './oauth-popup-manager';
 import { SemanticRefRegistry, makeTargetKey } from './semantic-ref-registry';
 import {
   buildIsolatedExecutorScript,
+  buildIsolatedCollectorScript,
   ISOLATED_AGENT_WORLD_ID,
   validateActionResponse,
 } from './semantic-ref-executor';
 import type { SemanticElementDescriptor } from './semantic-ref-types';
-import { generateCollectionNonce } from './semantic-ref-types';
+import { generateCollectionNonce, validateCollectionEnvelope } from './semantic-ref-types';
 import { CapabilityError } from '../../shared/control-plane-contracts';
 import { isBenchmarkEnabled, recordBenchmark } from '../benchmark/telemetry';
 import { AsyncThemeQaQueue } from '../qa/async-qa-job-queue';
@@ -2709,7 +2710,12 @@ export class NativeTabHost extends EventEmitter {
         if (key.startsWith(prefix)) this.semanticDocumentGenerations.delete(key);
       }
     }
-    this.asyncQaQueue?.abort(tabId);
+    if (this.targetOperationQueues) {
+      const prefix = `${String(tabId).trim()}:`;
+      for (const key of Array.from(this.targetOperationQueues.keys())) {
+        if (key.startsWith(prefix)) this.targetOperationQueues.delete(key);
+      }
+    }
     this.clearTabAgentWorking(tabId);
     if (target.state.url && target.state.url !== 'about:blank') {
       this.recentlyClosedTabs.push({ url: target.state.url, title: target.state.title || 'Tab' });
@@ -3633,7 +3639,11 @@ export class NativeTabHost extends EventEmitter {
         }
         if (action === 'clear') {
           await this.executeInIsolatedWorld(wc, `(() => {
-            if (window.__antifanAgentClear) window.__antifanAgentClear();
+            const ids = ['__antifan_agent_overlay__', '__antifan_agent_cursor__', '__antifan_agent_highlight__', '__antifan_agent_banner__', '__antifan_agent_style__'];
+            for (let i = 0; i < ids.length; i++) {
+              const el = document.getElementById(ids[i]);
+              if (el) el.remove();
+            }
             return { ok: true, executed: true };
           })()`);
           return { success: true };
@@ -4889,25 +4899,65 @@ export class NativeTabHost extends EventEmitter {
     const targetId = tabId || this.automationTabId || this.activeTabId;
     const target = this.tabs.get(targetId);
     if (!target) return '';
-    const wc = this.getTabWebContents(targetId, paneId || target.focusedPane);
+    const splitHasLiveMobile = Boolean(target.state.splitMode && target.mobileView && !target.mobileView.webContents.isDestroyed());
+    const effectivePane: SplitPaneId = paneId || (splitHasLiveMobile ? (target.focusedPane || target.state.splitFocusedPane || 'desktop') : 'desktop');
+    const wc = this.getTabWebContents(targetId, effectivePane);
     if (!wc || wc.isDestroyed()) return '';
-    if (!await this.ensureAgentBrowserInjected(targetId, paneId || target.focusedPane)) {
-      return this.getDom(undefined, targetId, paneId);
-    }
-    try {
-      const res = await wc.executeJavaScript(`(() => {
-        if (typeof window.__antifanAgentSnapshot === 'function') {
-          return window.__antifanAgentSnapshot();
+
+    return await this.runTargetOperation(targetId, effectivePane, async () => {
+      const curTab = this.tabs.get(targetId);
+      if (!curTab) return '';
+      const curWc = this.getTabWebContents(targetId, effectivePane);
+      if (!curWc || curWc.isDestroyed()) return '';
+
+      const curEpoch = this.getBrowserEpoch();
+      const curGen = this.getSemanticDocumentGeneration(targetId, effectivePane);
+      const curUrl = curWc.getURL();
+
+      let collectionSession;
+      try {
+        if (!this.semanticRefRegistry) {
+          return '';
         }
+        collectionSession = this.semanticRefRegistry.beginCollection({
+          tabId: targetId,
+          paneId: effectivePane,
+          browserEpoch: curEpoch,
+          documentGeneration: curGen,
+          documentUrl: curUrl,
+        });
+      } catch (err: unknown) {
+        console.error('[native-tab-host] beginCollection error:', err);
         return '';
-      })()`);
-      if (typeof res === 'string' && res.trim().length > 0) {
-        return res;
       }
-      return this.getDom(undefined, targetId, paneId);
-    } catch {
-      return this.getDom(undefined, targetId, paneId);
-    }
+
+      try {
+        const collectorScript = buildIsolatedCollectorScript(collectionSession.nonce, curUrl);
+        const rawRes = await this.executeInIsolatedWorld(curWc, collectorScript);
+        const rawDescriptors = validateCollectionEnvelope(rawRes, collectionSession.nonce, curUrl);
+
+        if (this.getSemanticDocumentGeneration(targetId, effectivePane) !== curGen || curWc.isDestroyed() || curWc.getURL() !== curUrl) {
+          this.semanticRefRegistry.invalidateTarget(targetId, effectivePane);
+          return '';
+        }
+
+        const published = this.semanticRefRegistry.publishSnapshot({
+          tabId: targetId,
+          paneId: effectivePane,
+          nonce: collectionSession.nonce,
+          sequence: collectionSession.sequence,
+          browserEpoch: curEpoch,
+          documentGeneration: curGen,
+          documentUrl: curUrl,
+          rawDescriptors,
+        });
+
+        return published.formattedText;
+      } catch (err: unknown) {
+        this.semanticRefRegistry.invalidateTarget(targetId, effectivePane);
+        return this.getDom(undefined, targetId, effectivePane);
+      }
+    });
   }
 
   public async sendKeyboardPress(params: { key: string; modifiers?: string[]; tabId?: string }): Promise<{ success: boolean; key: string; modifiers: string[] }> {

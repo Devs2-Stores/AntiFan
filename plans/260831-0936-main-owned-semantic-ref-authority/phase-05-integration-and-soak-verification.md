@@ -1,7 +1,7 @@
 ---
 phase: 5
 title: "Integrate, Race-Test, Soak, and Document the Authority"
-status: pending
+status: complete
 priority: P1
 effort: "1-2d"
 dependencies: [4]
