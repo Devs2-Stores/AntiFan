@@ -223,7 +223,7 @@ describe('Semantic Ref Integration Pipeline (World 1004 & Control Plane Parity)'
     assert.strictEqual(res.includes('<html'), false, 'Must never dump raw HTML on collection error');
   });
 
-  it('6. Behavioral round-trip: collects and resolves descriptors across nested open Shadow DOM roots and same-origin iframes', () => {
+  it('6. Behavioral round-trip: collects and resolves descriptors across nested open Shadow DOM roots and same-origin iframes', async () => {
     // Create custom DOM Element class
     class MockElement {
       public tagName: string;
@@ -347,7 +347,7 @@ describe('Semantic Ref Integration Pipeline (World 1004 & Control Plane Parity)'
       nonce: 'test-nonce-123',
       documentUrl: 'https://example.com/store',
     });
-    const shadowExecRes = vm.runInContext(execShadowSrc, context) as any;
+    const shadowExecRes = (await vm.runInContext(execShadowSrc, context)) as any;
     assert.strictEqual(shadowExecRes.ok, true, 'Executor must successfully resolve and click element inside Shadow DOM');
     assert.strictEqual(shadowExecRes.executed, true);
 
@@ -358,7 +358,7 @@ describe('Semantic Ref Integration Pipeline (World 1004 & Control Plane Parity)'
       nonce: 'test-nonce-123',
       documentUrl: 'https://example.com/store',
     });
-    const iframeExecRes = vm.runInContext(execIframeSrc, context) as any;
+    const iframeExecRes = (await vm.runInContext(execIframeSrc, context)) as any;
     assert.strictEqual(iframeExecRes.ok, true, 'Executor must successfully resolve and click element inside iframe');
     assert.strictEqual(iframeExecRes.executed, true);
   });

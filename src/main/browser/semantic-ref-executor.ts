@@ -15,7 +15,7 @@ export { ISOLATED_AGENT_WORLD_ID, validateActionResponse };
 export function buildIsolatedExecutorScript(request: RendererActionRequest): string {
   const reqJson = JSON.stringify(request);
 
-  return `(() => {
+  return `(async () => {
     try {
       const req = ${reqJson};
 
@@ -60,21 +60,106 @@ export function buildIsolatedExecutorScript(request: RendererActionRequest): str
         }
         return current instanceof Element ? current : null;
       }
+      function resolveCandidate() {
+        let el = null;
+        if (req.descriptor && Array.isArray(req.descriptor.path)) {
+          el = resolveTraversalPath(req.descriptor.path);
+        } else if (req.selector && typeof req.selector === 'string') {
+          el = document.querySelector(req.selector);
+        }
+        return el && el.isConnected ? el : null;
+      }
 
-      // 3. Resolve target node
+      function isActionable(el) {
+        if (!el || !el.isConnected) return false;
+        const style = window.getComputedStyle ? window.getComputedStyle(el) : el.style || {};
+        if (style.display === 'none' || style.visibility === 'hidden' || parseFloat(style.opacity || '1') <= 0) {
+          return false;
+        }
+        if (el.disabled === true || el.getAttribute('aria-disabled') === 'true') {
+          return false;
+        }
+        return true;
+      }
+
+      // 3. Resolve target node with MutationObserver / rAF auto-wait (up to 1500ms for element to become connected AND actionable)
+      const needsTarget = Boolean(req.descriptor || req.selector);
       let targetElement = null;
-      if (req.descriptor && Array.isArray(req.descriptor.path)) {
-        targetElement = resolveTraversalPath(req.descriptor.path);
-        if (!targetElement || !targetElement.isConnected) {
+
+      if (needsTarget) {
+        targetElement = await new Promise((resolve) => {
+          const immediate = resolveCandidate();
+          if (immediate && isActionable(immediate)) {
+            resolve(immediate);
+            return;
+          }
+
+          let observer = null;
+          let timeoutTimer = null;
+          let rafHandle = null;
+
+          const cleanup = () => {
+            if (observer) {
+              try { observer.disconnect(); } catch {}
+              observer = null;
+            }
+            if (timeoutTimer) {
+              clearTimeout(timeoutTimer);
+              timeoutTimer = null;
+            }
+            if (rafHandle && typeof cancelAnimationFrame === 'function') {
+              cancelAnimationFrame(rafHandle);
+              rafHandle = null;
+            }
+          };
+
+          const check = () => {
+            const el = resolveCandidate();
+            if (el && isActionable(el)) {
+              cleanup();
+              resolve(el);
+              return true;
+            }
+            return false;
+          };
+
+          if (typeof MutationObserver === 'function' && document.body) {
+            observer = new MutationObserver(() => {
+              check();
+            });
+            observer.observe(document.documentElement || document.body, {
+              childList: true,
+              subtree: true,
+              attributes: true,
+            });
+          }
+
+          const pollRaf = () => {
+            if (!check()) {
+              if (typeof requestAnimationFrame === 'function') {
+                rafHandle = requestAnimationFrame(pollRaf);
+              }
+            }
+          };
+          if (typeof requestAnimationFrame === 'function') {
+            rafHandle = requestAnimationFrame(pollRaf);
+          }
+
+          timeoutTimer = setTimeout(() => {
+            cleanup();
+            resolve(resolveCandidate());
+          }, 1500);
+        });
+        if (!targetElement) {
           return {
             ok: false,
-            error: 'Target element detached or not found along traversal path',
+            error: req.selector ? 'Element not found for selector: "' + req.selector + '"' : 'Target element detached or not found along traversal path',
             code: 'REF_NOT_FOUND'
           };
         }
 
         // 4. Validate fingerprint
-        if (req.descriptor.fingerprint && typeof req.descriptor.fingerprint === 'object') {
+        if (req.descriptor && req.descriptor.fingerprint && typeof req.descriptor.fingerprint === 'object') {
           const fp = req.descriptor.fingerprint;
           if (fp.tag && targetElement.tagName.toLowerCase() !== fp.tag.toLowerCase()) {
             return {
@@ -98,15 +183,6 @@ export function buildIsolatedExecutorScript(request: RendererActionRequest): str
             };
           }
         }
-      } else if (req.selector && typeof req.selector === 'string') {
-        targetElement = document.querySelector(req.selector);
-        if (!targetElement) {
-          return {
-            ok: false,
-            error: 'Element not found for selector: "' + req.selector + '"',
-            code: 'REF_NOT_FOUND'
-          };
-        }
       }
 
       // 5. Re-check URL immediately before irreversible event dispatch
@@ -118,9 +194,30 @@ export function buildIsolatedExecutorScript(request: RendererActionRequest): str
         };
       }
 
-      // 6. Compute geometry rect
+      // 6. Actionability, Visibility Pre-flight, and Post-Scroll Rect Calculation
       let computedRect = undefined;
       if (targetElement) {
+        if (typeof targetElement.scrollIntoView === 'function') {
+          targetElement.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+        }
+
+        const style = window.getComputedStyle ? window.getComputedStyle(targetElement) : targetElement.style || {};
+        if (style.display === 'none' || style.visibility === 'hidden' || parseFloat(style.opacity || '1') <= 0) {
+          return {
+            ok: false,
+            error: 'Element is not visible (display: "' + style.display + '", visibility: "' + style.visibility + '", opacity: "' + style.opacity + '")',
+            code: 'ELEMENT_NOT_VISIBLE'
+          };
+        }
+
+        if (targetElement.disabled === true || targetElement.getAttribute('aria-disabled') === 'true') {
+          return {
+            ok: false,
+            error: 'Element is disabled',
+            code: 'ELEMENT_DISABLED'
+          };
+        }
+
         const rect = targetElement.getBoundingClientRect();
         computedRect = {
           x: rect.x,
@@ -135,9 +232,6 @@ export function buildIsolatedExecutorScript(request: RendererActionRequest): str
       // 7. Synchronous DOM event dispatch
       if (req.action === 'click') {
         if (targetElement) {
-          if (typeof targetElement.scrollIntoView === 'function') {
-            targetElement.scrollIntoView({ block: 'nearest', inline: 'nearest' });
-          }
           if (typeof targetElement.focus === 'function') {
             targetElement.focus();
           }
@@ -146,7 +240,7 @@ export function buildIsolatedExecutorScript(request: RendererActionRequest): str
           targetElement.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
           return { ok: true, executed: true, rect: computedRect };
         } else if (typeof req.x === 'number' && typeof req.y === 'number') {
-          const elAtPoint = document.elementFromPoint(req.x, req.y);
+          const elAtPoint = document.elementFromPoint ? document.elementFromPoint(req.x, req.y) : null;
           if (elAtPoint) {
             elAtPoint.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true, clientX: req.x, clientY: req.y, view: window }));
             elAtPoint.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true, clientX: req.x, clientY: req.y, view: window }));
@@ -157,9 +251,6 @@ export function buildIsolatedExecutorScript(request: RendererActionRequest): str
       } else if (req.action === 'type') {
         if (!targetElement) {
           return { ok: false, error: 'Target element required for type action', code: 'REF_NOT_FOUND' };
-        }
-        if (typeof targetElement.scrollIntoView === 'function') {
-          targetElement.scrollIntoView({ block: 'nearest', inline: 'nearest' });
         }
         if (typeof targetElement.focus === 'function') {
           targetElement.focus();
@@ -207,7 +298,7 @@ export function buildIsolatedExecutorScript(request: RendererActionRequest): str
             targetElement.textContent = '';
           }
           if (textToInsert) {
-            const sel = window.getSelection();
+            const sel = window.getSelection ? window.getSelection() : null;
             if (sel && sel.rangeCount > 0) {
               const range = sel.getRangeAt(0);
               range.deleteContents();
@@ -247,7 +338,7 @@ export function buildIsolatedExecutorScript(request: RendererActionRequest): str
           targetElement.dispatchEvent(new MouseEvent('mousemove', { bubbles: true, view: window }));
           return { ok: true, executed: true, rect: computedRect };
         } else if (typeof req.x === 'number' && typeof req.y === 'number') {
-          const elAtPoint = document.elementFromPoint(req.x, req.y);
+          const elAtPoint = document.elementFromPoint ? document.elementFromPoint(req.x, req.y) : null;
           if (elAtPoint) {
             elAtPoint.dispatchEvent(new MouseEvent('mouseenter', { bubbles: true, clientX: req.x, clientY: req.y, view: window }));
             elAtPoint.dispatchEvent(new MouseEvent('mouseover', { bubbles: true, clientX: req.x, clientY: req.y, view: window }));
@@ -257,7 +348,7 @@ export function buildIsolatedExecutorScript(request: RendererActionRequest): str
       } else if (req.action === 'scroll') {
         if (targetElement && typeof targetElement.scrollBy === 'function') {
           targetElement.scrollBy({ top: req.deltaY || 400, behavior: 'auto' });
-        } else {
+        } else if (window.scrollBy) {
           window.scrollBy({ top: req.deltaY || 400, behavior: 'auto' });
         }
         return { ok: true, executed: true };
@@ -267,9 +358,6 @@ export function buildIsolatedExecutorScript(request: RendererActionRequest): str
         if (!targetElement) {
           return { ok: false, error: 'Target element required for focus action', code: 'REF_NOT_FOUND' };
         }
-        if (typeof targetElement.scrollIntoView === 'function') {
-          targetElement.scrollIntoView({ block: 'nearest', inline: 'nearest' });
-        }
         if (typeof targetElement.focus === 'function') {
           targetElement.focus();
         }
@@ -277,12 +365,14 @@ export function buildIsolatedExecutorScript(request: RendererActionRequest): str
           if (typeof targetElement.select === 'function') {
             targetElement.select();
           } else if (targetElement.isContentEditable || (targetElement.getAttribute && targetElement.getAttribute('contenteditable') === 'true')) {
-            const range = document.createRange();
-            range.selectNodeContents(targetElement);
-            const sel = window.getSelection();
-            if (sel) {
-              sel.removeAllRanges();
-              sel.addRange(range);
+            const range = document.createRange ? document.createRange() : null;
+            if (range) {
+              range.selectNodeContents(targetElement);
+              const sel = window.getSelection ? window.getSelection() : null;
+              if (sel) {
+                sel.removeAllRanges();
+                sel.addRange(range);
+              }
             }
           }
         }

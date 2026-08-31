@@ -170,7 +170,7 @@ describe('Phase 3: Unified Guarded Agent Action Routing (World 1004 Isolated Exe
     const ref = snap.refs[0]!;
     assert.strictEqual(ref, '@e1');
 
-    const clicked = await host.agentClick({ ref, tabId: 'tab-1', paneId: 'desktop' });
+    const clicked = await host.agentClick({ ref, tabId: 'tab-1', paneId: 'desktop', trusted: false });
     assert.strictEqual(clicked, true, 'Valid ref action must resolve and return true');
 
     assert.strictEqual(desktopIsolatedCalls.length, 1, 'Must execute exactly 1 isolated world script');
@@ -308,7 +308,7 @@ describe('Phase 3: Unified Guarded Agent Action Routing (World 1004 Isolated Exe
     const ref = snap.refs[0]!;
 
     // Action dispatched without explicit paneId
-    const actionPromise = host.agentClick({ ref, tabId: 'tab-1' });
+    const actionPromise = host.agentClick({ ref, tabId: 'tab-1', trusted: false });
 
     // Switch focus concurrently
     curTab.focusedPane = 'desktop';

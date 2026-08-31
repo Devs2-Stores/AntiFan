@@ -326,9 +326,9 @@ async function runLiveChromiumTest() {
         nonce: 'warmup-nonce-' + w,
         documentUrl: pageUrl,
       });
-      const timedWarmup = `(() => {
+      const timedWarmup = `(async () => {
         const t0 = performance.now();
-        const res = (${warmupScript});
+        const res = await (${warmupScript});
         const t1 = performance.now();
         return { ...res, executionDurationMs: t1 - t0 };
       })()`;
@@ -349,9 +349,9 @@ async function runLiveChromiumTest() {
         documentUrl: pageUrl,
       });
 
-      const timedScript = `(() => {
+      const timedScript = `(async () => {
         const t0 = performance.now();
-        const res = (${baseScript});
+        const res = await (${baseScript});
         const t1 = performance.now();
         return { ...res, executionDurationMs: t1 - t0 };
       })()`;

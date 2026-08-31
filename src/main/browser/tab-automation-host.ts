@@ -278,6 +278,129 @@ export class TabAutomationHost {
     }
   }
 
+  private async executeTrustedClick(
+    wc: Electron.WebContents,
+    focusScript?: string,
+    x?: number,
+    y?: number
+  ): Promise<{ success: boolean; data?: unknown; reason?: string; fallbackNeeded?: boolean }> {
+    let clickX = x;
+    let clickY = y;
+    let rect: { x: number; y: number; width: number; height: number; centerX?: number; centerY?: number } | undefined = undefined;
+
+    if (focusScript) {
+      const rawRes = await this.executeInIsolatedWorld(wc, focusScript);
+      const res = validateActionResponse(rawRes);
+      if (!res.ok) {
+        return { success: false, reason: res.error || 'Failed to resolve element for trusted click' };
+      }
+      rect = res.rect;
+      if (typeof clickX !== 'number' || typeof clickY !== 'number') {
+        if (rect && typeof rect.centerX === 'number' && typeof rect.centerY === 'number') {
+          clickX = rect.centerX;
+          clickY = rect.centerY;
+        }
+      }
+    }
+
+    if (typeof clickX !== 'number' || typeof clickY !== 'number') {
+      return { success: false, reason: 'Coordinates could not be resolved for CDP click' };
+    }
+
+    if (!wc.debugger) {
+      return { success: false, fallbackNeeded: true, reason: 'Debugger interface not available' };
+    }
+
+    if (!wc.debugger.isAttached()) {
+      try {
+        wc.debugger.attach('1.3');
+      } catch (attachErr) {
+        console.warn(`[tab-automation-host] wc.debugger busy, using synthetic click fallback: ${attachErr instanceof Error ? attachErr.message : String(attachErr)}`);
+        return { success: false, fallbackNeeded: true, reason: 'Debugger busy' };
+      }
+    }
+
+    try {
+      await wc.debugger.sendCommand('Input.dispatchMouseEvent', {
+        type: 'mouseMoved',
+        x: clickX,
+        y: clickY,
+      });
+      await wc.debugger.sendCommand('Input.dispatchMouseEvent', {
+        type: 'mousePressed',
+        x: clickX,
+        y: clickY,
+        button: 'left',
+        clickCount: 1,
+      });
+      await wc.debugger.sendCommand('Input.dispatchMouseEvent', {
+        type: 'mouseReleased',
+        x: clickX,
+        y: clickY,
+        button: 'left',
+        clickCount: 1,
+      });
+      return { success: true, data: { ok: true, executed: true, tier: 'cdp_trusted', x: clickX, y: clickY, rect } };
+    } catch (cdpErr) {
+      console.warn(`[tab-automation-host] CDP Input.dispatchMouseEvent failed, using fallback: ${cdpErr instanceof Error ? cdpErr.message : String(cdpErr)}`);
+      return { success: false, fallbackNeeded: true, reason: 'CDP dispatch failed' };
+    }
+  }
+
+  private async executeTrustedHover(
+    wc: Electron.WebContents,
+    focusScript?: string,
+    x?: number,
+    y?: number
+  ): Promise<{ success: boolean; data?: unknown; reason?: string; fallbackNeeded?: boolean }> {
+    let hoverX = x;
+    let hoverY = y;
+    let rect: { x: number; y: number; width: number; height: number; centerX?: number; centerY?: number } | undefined = undefined;
+
+    if (focusScript) {
+      const rawRes = await this.executeInIsolatedWorld(wc, focusScript);
+      const res = validateActionResponse(rawRes);
+      if (!res.ok) {
+        return { success: false, reason: res.error || 'Failed to resolve element for trusted hover' };
+      }
+      rect = res.rect;
+      if (typeof hoverX !== 'number' || typeof hoverY !== 'number') {
+        if (rect && typeof rect.centerX === 'number' && typeof rect.centerY === 'number') {
+          hoverX = rect.centerX;
+          hoverY = rect.centerY;
+        }
+      }
+    }
+
+    if (typeof hoverX !== 'number' || typeof hoverY !== 'number') {
+      return { success: false, reason: 'Coordinates could not be resolved for CDP hover' };
+    }
+
+    if (!wc.debugger) {
+      return { success: false, fallbackNeeded: true, reason: 'Debugger interface not available' };
+    }
+
+    if (!wc.debugger.isAttached()) {
+      try {
+        wc.debugger.attach('1.3');
+      } catch (attachErr) {
+        console.warn(`[tab-automation-host] wc.debugger busy, using synthetic hover fallback: ${attachErr instanceof Error ? attachErr.message : String(attachErr)}`);
+        return { success: false, fallbackNeeded: true, reason: 'Debugger busy' };
+      }
+    }
+
+    try {
+      await wc.debugger.sendCommand('Input.dispatchMouseEvent', {
+        type: 'mouseMoved',
+        x: hoverX,
+        y: hoverY,
+      });
+      return { success: true, data: { ok: true, executed: true, tier: 'cdp_trusted', x: hoverX, y: hoverY, rect } };
+    } catch (cdpErr) {
+      console.warn(`[tab-automation-host] CDP Input.dispatchMouseEvent (mouseMoved) failed, using fallback: ${cdpErr instanceof Error ? cdpErr.message : String(cdpErr)}`);
+      return { success: false, fallbackNeeded: true, reason: 'CDP dispatch failed' };
+    }
+  }
   public async dispatchAgentAction(
     action: 'click' | 'type' | 'move' | 'hover' | 'scroll' | 'highlight' | 'clear' | 'trajectory',
     params: {
@@ -343,6 +466,45 @@ export class TabAutomationHost {
           }
 
           try {
+            if (params.trusted !== false && action === 'click') {
+              const focusScript = buildIsolatedExecutorScript({
+                action: 'focus',
+                ref: refToken,
+                descriptor,
+                documentUrl: curUrl,
+                nonce: descriptor.nonce,
+              });
+              const trustedRes = await this.executeTrustedClick(wc, focusScript, params.x, params.y);
+              if (trustedRes.success) {
+                if (this.ctx.getSemanticDocumentGeneration(targetId, effectivePane) !== curGen || wc.isDestroyed()) {
+                  return { success: false, reason: 'Document navigated during action execution' };
+                }
+                return trustedRes;
+              }
+              if (!trustedRes.fallbackNeeded) {
+                return trustedRes;
+              }
+            }
+
+            if (params.trusted !== false && action === 'hover') {
+              const focusScript = buildIsolatedExecutorScript({
+                action: 'focus',
+                ref: refToken,
+                descriptor,
+                documentUrl: curUrl,
+                nonce: descriptor.nonce,
+              });
+              const trustedRes = await this.executeTrustedHover(wc, focusScript, params.x, params.y);
+              if (trustedRes.success) {
+                if (this.ctx.getSemanticDocumentGeneration(targetId, effectivePane) !== curGen || wc.isDestroyed()) {
+                  return { success: false, reason: 'Document navigated during action execution' };
+                }
+                return trustedRes;
+              }
+              if (!trustedRes.fallbackNeeded) {
+                return trustedRes;
+              }
+            }
             if (params.trusted && action === 'type' && typeof params.text === 'string') {
               const focusScript = buildIsolatedExecutorScript({
                 action: 'focus',
@@ -412,6 +574,49 @@ export class TabAutomationHost {
               return { ok: true, executed: true };
             })()`);
             return { success: true };
+          }
+          if (params.trusted !== false && action === 'click') {
+            const focusScript = params.selector ? buildIsolatedExecutorScript({
+              action: 'focus',
+              selector: params.selector,
+              x: params.x,
+              y: params.y,
+              documentUrl: wc.getURL(),
+              nonce: generateCollectionNonce(),
+            }) : undefined;
+            const curGen = this.ctx.getSemanticDocumentGeneration(targetId, effectivePane);
+            const trustedRes = await this.executeTrustedClick(wc, focusScript, params.x, params.y);
+            if (trustedRes.success) {
+              if (this.ctx.getSemanticDocumentGeneration(targetId, effectivePane) !== curGen || wc.isDestroyed()) {
+                return { success: false, reason: 'Document navigated during action execution' };
+              }
+              return trustedRes;
+            }
+            if (!trustedRes.fallbackNeeded) {
+              return trustedRes;
+            }
+          }
+
+          if (params.trusted !== false && action === 'hover') {
+            const focusScript = params.selector ? buildIsolatedExecutorScript({
+              action: 'focus',
+              selector: params.selector,
+              x: params.x,
+              y: params.y,
+              documentUrl: wc.getURL(),
+              nonce: generateCollectionNonce(),
+            }) : undefined;
+            const curGen = this.ctx.getSemanticDocumentGeneration(targetId, effectivePane);
+            const trustedRes = await this.executeTrustedHover(wc, focusScript, params.x, params.y);
+            if (trustedRes.success) {
+              if (this.ctx.getSemanticDocumentGeneration(targetId, effectivePane) !== curGen || wc.isDestroyed()) {
+                return { success: false, reason: 'Document navigated during action execution' };
+              }
+              return trustedRes;
+            }
+            if (!trustedRes.fallbackNeeded) {
+              return trustedRes;
+            }
           }
           if (params.trusted && action === 'type' && typeof params.text === 'string') {
             const focusScript = buildIsolatedExecutorScript({

@@ -180,7 +180,7 @@ describe('Phase 4: Zero-Mutation Isolated World Walker & Executor (World 1004)',
     );
   });
 
-  it('4. Executor script verifies documentUrl preflight and returns REF_DOCUMENT_MUTATED on URL change', () => {
+  it('4. Executor script verifies documentUrl preflight and returns REF_DOCUMENT_MUTATED on URL change', async () => {
     const request = {
       action: 'click' as const,
       ref: '@e1',
@@ -199,7 +199,7 @@ describe('Phase 4: Zero-Mutation Isolated World Walker & Executor (World 1004)',
       Array,
     };
 
-    const res = vm.runInNewContext(script, sandbox);
+    const res = await vm.runInNewContext(script, sandbox);
     assert.strictEqual(res.ok, false);
     assert.strictEqual(res.code, 'REF_DOCUMENT_MUTATED');
     assert.match(res.error, /mutated before execution/i);

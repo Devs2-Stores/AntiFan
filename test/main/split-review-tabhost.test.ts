@@ -560,16 +560,66 @@ describe('NativeTabHost Split Review Integration', () => {
     assert.strictEqual(mobileReloadCount, 2, 'Mobile WebContents must NOT reload when split mode is disabled');
   });
 
-  it('awaits desktop navigation start in navigateAndWait', async () => {
+  it('awaits desktop navigation start and load completion in navigateAndWait', async () => {
     const { host, desktopWc } = createTestHost();
 
-    // navigateAndWait awaits did-start-navigation
+    // navigateAndWait awaits did-start-navigation and did-finish-load
     let navPromise = host.navigateAndWait('tab-split-1', 'https://example.com/updated');
     setImmediate(() => {
       desktopWc.emit('did-start-navigation', {}, 'https://example.com/updated', false, true);
+      desktopWc.emit('did-finish-load');
     });
     const navResult = await navPromise;
     assert.strictEqual(navResult, true);
+  });
+
+  it('ignores premature did-finish-load or did-fail-load from previous document before navigation start in navigateAndWait', async () => {
+    const { host, desktopWc } = createTestHost();
+
+    let navPromise = host.navigateAndWait('tab-split-1', 'https://example.com/clean-nav', 2000);
+    
+    // 1. Emit premature events from previous document abort/finish before did-start-navigation
+    desktopWc.emit('did-fail-load', {}, -3, 'ERR_ABORTED', 'https://example.com/old', true);
+    desktopWc.emit('did-finish-load');
+
+    // 2. Later, the new navigation actually starts and finishes
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    desktopWc.emit('did-start-navigation', {}, 'https://example.com/clean-nav', false, true);
+    desktopWc.emit('did-finish-load');
+
+    const navResult = await navPromise;
+    assert.strictEqual(navResult, true, 'navigateAndWait must ignore previous document events and resolve true after new navigation finishes');
+  });
+  it('returns false in navigateAndWait when main frame did-fail-load fires', async () => {
+    const { host, desktopWc } = createTestHost();
+
+    let navPromise = host.navigateAndWait('tab-split-1', 'https://example.com/failed', 1000);
+    setImmediate(() => {
+      desktopWc.emit('did-start-navigation', {}, 'https://example.com/failed', false, true);
+      desktopWc.emit('did-fail-load', {}, -105, 'ERR_NAME_NOT_RESOLVED', 'https://example.com/failed', true);
+    });
+    const navResult = await navPromise;
+    assert.strictEqual(navResult, false, 'navigateAndWait must return false when main frame fails to load');
+  });
+
+  it('returns false in navigateAndWait when navigation start times out', async () => {
+    const { host } = createTestHost();
+
+    // Do not emit did-start-navigation to trigger timeout
+    const navResult = await host.navigateAndWait('tab-split-1', 'https://example.com/timeout', 50);
+    assert.strictEqual(navResult, false, 'navigateAndWait must return false on navigation start timeout');
+  });
+
+  it('returns false in navigateAndWait when load completion times out after start', async () => {
+    const { host, desktopWc } = createTestHost();
+
+    let navPromise = host.navigateAndWait('tab-split-1', 'https://example.com/load-timeout', 50);
+    setImmediate(() => {
+      desktopWc.emit('did-start-navigation', {}, 'https://example.com/load-timeout', false, true);
+      // Do not emit did-finish-load or did-fail-load
+    });
+    const navResult = await navPromise;
+    assert.strictEqual(navResult, false, 'navigateAndWait must return false when load completion times out');
   });
 
   it('awaits desktop load completion in reloadAndWait, ignoring premature navigation start', async () => {
@@ -602,17 +652,18 @@ describe('NativeTabHost Split Review Integration', () => {
     assert.strictEqual(reloadResult, true);
   });
 
-  it('awaits mobile authority navigation start in navigateAndWait and load completion in reloadAndWait when mobile pane is focused', async () => {
+  it('awaits mobile authority navigation start and load completion in navigateAndWait when mobile pane is focused', async () => {
     const { host, desktopWc, mobileWc, mobileView } = createTestHost();
     const tab = host.tabs.get('tab-split-1')!;
     tab.state.splitMode = true;
     tab.mobileView = mobileView;
     tab.focusedPane = 'mobile';
 
-    // 1. navigateAndWait awaits did-start-navigation on mobile WebContents
+    // 1. navigateAndWait awaits did-start-navigation and did-finish-load on mobile WebContents
     let navPromise = host.navigateAndWait('tab-split-1', 'https://example.com/mobile-updated');
     setImmediate(() => {
       mobileWc.emit('did-start-navigation', {}, 'https://example.com/mobile-updated', false, true);
+      mobileWc.emit('did-finish-load');
     });
     const navResult = await navPromise;
     assert.strictEqual(navResult, true);

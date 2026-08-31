@@ -1,4 +1,5 @@
 const crypto = require('node:crypto');
+const http = require('node:http');
 const { WebSocket } = require('ws');
 const { Server } = require('@modelcontextprotocol/sdk/server/index.js');
 const { StdioServerTransport } = require('@modelcontextprotocol/sdk/server/stdio.js');
@@ -52,88 +53,194 @@ function getBootstrap() {
   return null;
 }
 
+/**
+ * Fetch raw binary artifact bytes over HTTP from BridgeServer using single-header authentication.
+ */
+function fetchArtifactBinary(bootstrap, artifactId) {
+  return new Promise((resolve, reject) => {
+    const options = {
+      hostname: '127.0.0.1',
+      port: bootstrap.port,
+      path: `/api/artifacts/${encodeURIComponent(artifactId)}`,
+      method: 'GET',
+      headers: {
+        'x-antifan-attachment-secret': bootstrap.secret,
+      },
+    };
+
+    const req = http.request(options, (res) => {
+      const chunks = [];
+      res.on('data', (chunk) => chunks.push(chunk));
+      res.on('end', () => {
+        const buffer = Buffer.concat(chunks);
+        if (res.statusCode !== 200) {
+          let errMsg = `Artifact download failed with status ${res.statusCode}`;
+          try {
+            const errObj = JSON.parse(buffer.toString('utf8'));
+            if (errObj && errObj.error) errMsg = errObj.error;
+          } catch {}
+          return reject(new Error(JSON.stringify({ code: 'ARTIFACT_READ_ERROR', message: errMsg })));
+        }
+        resolve({
+          data: buffer.toString('base64'),
+          mimeType: res.headers['content-type'] || 'image/png',
+        });
+      });
+    });
+
+    req.on('error', (err) => {
+      reject(new Error(JSON.stringify({ code: 'ARTIFACT_FETCH_ERROR', message: `Artifact fetch failed: ${err.message}` })));
+    });
+
+    req.end();
+  });
+}
+
+// ─── Multiplexed Persistent Dispatch Socket ──────────────────────────────────
+let dispatchWs = null;
+let dispatchConnecting = null;
+const pendingDispatchCalls = new Map(); // id -> { resolve, reject, timer }
+
+function ensureDispatchSocket(bootstrap) {
+  if (dispatchWs && dispatchWs.readyState === WebSocket.OPEN) {
+    return Promise.resolve(dispatchWs);
+  }
+  if (dispatchConnecting) {
+    return dispatchConnecting;
+  }
+
+  const tokenParam = (bootstrap.token || bootstrap.secret) ? `?token=${encodeURIComponent(bootstrap.token || bootstrap.secret)}` : '';
+  const url = `ws://127.0.0.1:${bootstrap.port}${tokenParam}`;
+
+  dispatchConnecting = new Promise((resolve, reject) => {
+    let ws;
+    try {
+      ws = new WebSocket(url);
+    } catch (err) {
+      dispatchConnecting = null;
+      return reject(err);
+    }
+
+    const connectTimer = setTimeout(() => {
+      dispatchConnecting = null;
+      try { ws.close(); } catch {}
+      reject(new Error(JSON.stringify({ code: 'TIMEOUT', message: 'AntiFan Dispatch WebSocket connection timed out' })));
+    }, 5000);
+
+    ws.once('open', () => {
+      clearTimeout(connectTimer);
+      dispatchWs = ws;
+      dispatchConnecting = null;
+
+      ws.on('message', (raw) => {
+        try {
+          const response = JSON.parse(raw.toString());
+          if (!response || !response.id || !pendingDispatchCalls.has(response.id)) return;
+          const entry = pendingDispatchCalls.get(response.id);
+          pendingDispatchCalls.delete(response.id);
+          clearTimeout(entry.timer);
+          response.success
+            ? entry.resolve(response.data)
+            : entry.reject(new Error(typeof response.error === 'string' ? response.error : JSON.stringify(response.error || { code: 'CAPABILITY_ERROR', message: 'AntiFan RPC failed' })));
+        } catch {}
+      });
+
+      resolve(ws);
+    });
+
+    ws.once('error', (err) => {
+      clearTimeout(connectTimer);
+      dispatchConnecting = null;
+      if (dispatchWs === ws) dispatchWs = null;
+      for (const [, entry] of pendingDispatchCalls.entries()) {
+        clearTimeout(entry.timer);
+        entry.reject(new Error(JSON.stringify({ code: 'CONNECTION_ERROR', message: `Dispatch WebSocket error: ${err.message}` })));
+      }
+      pendingDispatchCalls.clear();
+      reject(err);
+    });
+
+    ws.once('close', () => {
+      clearTimeout(connectTimer);
+      dispatchConnecting = null;
+      if (dispatchWs === ws) dispatchWs = null;
+      for (const [, entry] of pendingDispatchCalls.entries()) {
+        clearTimeout(entry.timer);
+        entry.reject(new Error(JSON.stringify({ code: 'CONNECTION_CLOSED', message: 'Dispatch WebSocket closed while request in flight' })));
+      }
+      pendingDispatchCalls.clear();
+    });
+  });
+
+  return dispatchConnecting;
+}
+
 async function invoke(method, params = {}) {
   const bootstrap = getBootstrap();
   if (!bootstrap || !bootstrap.secret) {
     throw new Error(JSON.stringify({ code: 'MCP_CONTEXT_REQUIRED', message: 'OMP MCP proxy requires an authoritative Main bootstrap' }));
   }
-  const tokenParam = (bootstrap.token || bootstrap.secret) ? `?token=${encodeURIComponent(bootstrap.token || bootstrap.secret)}` : '';
-  const ws = new WebSocket(`ws://127.0.0.1:${bootstrap.port}${tokenParam}`);
 
-  await new Promise((resolve, reject) => {
-    const connectTimer = setTimeout(() => reject(new Error(JSON.stringify({ code: 'TIMEOUT', message: 'AntiFan WebSocket connection timed out' }))), 5000);
-    ws.once('open', () => {
-      clearTimeout(connectTimer);
-      resolve();
-    });
-    ws.once('error', (err) => {
-      clearTimeout(connectTimer);
+  const ws = await ensureDispatchSocket(bootstrap);
+  const id = crypto.randomUUID();
+  const timeoutMs = (method === 'theme.qa_validate' || method === 'anti.theme.qa_validate') ? 60000 : 15000;
+
+  const mapped = {
+    'anti.browser.tabs.list': 'browser.list-tabs',
+    'anti.browser.tabs.create': 'browser.open-tab',
+    'anti.browser.tabs.activate': 'browser.switch-tab',
+    'anti.browser.tabs.close': 'browser.close-tab',
+    'anti.browser.navigate': 'browser.navigate',
+    'anti.browser.reload': 'browser.reload',
+    'anti.inspect.dom': 'browser.dom',
+    'anti.screenshot.viewport': 'browser.screenshot',
+    'anti.agent.cursor.click': 'browser.agent-click',
+    'anti.agent.cursor.move': 'browser.agent-hover',
+    'anti.agent.cursor.type': 'browser.agent-type',
+    'anti.agent.cursor.scroll': 'browser.agent-scroll',
+    'anti.agent.cursor.hover': 'browser.agent-hover',
+    'anti.agent.cursor.clear': 'browser.agent-clear',
+    'theme.qa_validate': 'theme.qa_validate',
+    'theme.debug_bundle': 'theme.debug_bundle',
+    'theme.assert_cart': 'theme.assert_cart',
+  }[method] || method;
+
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      pendingDispatchCalls.delete(id);
+      reject(new Error(JSON.stringify({ code: 'TIMEOUT', message: `AntiFan RPC timed out: ${mapped}` })));
+    }, timeoutMs);
+
+    pendingDispatchCalls.set(id, { resolve, reject, timer });
+
+    try {
+      ws.send(JSON.stringify({
+        id,
+        method: 'antifan.capability.dispatch',
+        params: {
+          name: mapped,
+          params,
+          attachmentClaims: {
+            attachmentSecret: bootstrap.secret,
+            attachmentId: bootstrap.attachmentId,
+            runId: bootstrap.runId,
+            attemptId: bootstrap.attemptId,
+            projectId: bootstrap.projectId,
+            workspaceId: bootstrap.workspaceId,
+            invocationId: crypto.randomUUID(),
+            ownerPid: bootstrap.ownerPid,
+          },
+        },
+      }));
+    } catch (err) {
+      clearTimeout(timer);
+      pendingDispatchCalls.delete(id);
       reject(err);
-    });
+    }
   });
-
-  const call = (id, rpcMethod, rpcParams) => new Promise((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error(JSON.stringify({ code: 'TIMEOUT', message: `AntiFan RPC timed out: ${rpcMethod}` }))), 15000);
-    const handler = (raw) => {
-      try {
-        const response = JSON.parse(raw.toString());
-        if (response.id !== id) return;
-        clearTimeout(timer);
-        ws.off('message', handler);
-        response.success ? resolve(response.data) : reject(new Error(typeof response.error === 'string' ? response.error : JSON.stringify(response.error || { code: 'CAPABILITY_ERROR', message: `AntiFan RPC failed: ${rpcMethod}` })));
-      } catch (err) {
-        clearTimeout(timer);
-        ws.off('message', handler);
-        reject(err);
-      }
-    };
-    ws.on('message', handler);
-    ws.send(JSON.stringify({ id, method: rpcMethod, params: rpcParams }));
-  });
-  try {
-    const mapped = {
-      'anti.browser.tabs.list': 'browser.list-tabs',
-      'anti.browser.tabs.create': 'browser.open-tab',
-      'anti.browser.tabs.activate': 'browser.switch-tab',
-      'anti.browser.tabs.close': 'browser.close-tab',
-      'anti.browser.navigate': 'browser.navigate',
-      'anti.browser.reload': 'browser.reload',
-      'anti.inspect.dom': 'browser.dom',
-      'anti.screenshot.viewport': 'browser.screenshot',
-      'anti.agent.cursor.click': 'browser.agent-click',
-      'anti.agent.cursor.move': 'browser.agent-hover',
-      'anti.agent.cursor.type': 'browser.agent-type',
-      'anti.agent.cursor.scroll': 'browser.agent-scroll',
-      'anti.agent.cursor.hover': 'browser.agent-hover',
-      'anti.agent.cursor.clear': 'browser.agent-clear',
-      'theme.qa_validate': 'theme.qa_validate',
-      'theme.debug_bundle': 'theme.debug_bundle',
-      'theme.assert_cart': 'theme.assert_cart',
-    }[method] || method;
-
-    return await call('tool', 'antifan.capability.dispatch', {
-      name: mapped,
-      params,
-      attachmentClaims: {
-        attachmentSecret: bootstrap.secret,
-        attachmentId: bootstrap.attachmentId,
-        runId: bootstrap.runId,
-        attemptId: bootstrap.attemptId,
-        projectId: bootstrap.projectId,
-        workspaceId: bootstrap.workspaceId,
-        invocationId: crypto.randomUUID(),
-        ownerPid: bootstrap.ownerPid,
-      },
-    });
-  } finally {
-    try { ws.close(); } catch {}
-  }
 }
 
-// Heartbeat: one long-lived connection keeps the attached binding alive for the
-// whole stdio lifetime (same terminal session). Renewal is fail-closed — an
-// expired binding is NEVER resurrected client-side; the renew RPC only extends
-// bindings the bridge still considers active.
+// ─── Dedicated Isolated Heartbeat Channel ────────────────────────────────────
 let heartbeatTimer = null;
 let heartbeatWs = null;
 let heartbeatBusy = false;
@@ -171,8 +278,6 @@ function heartbeatUrl(bootstrap) {
 }
 
 function scheduleHeartbeatReconnect(bootstrap) {
-  // A stopped heartbeat (timer cleared) must never schedule a reconnect; the
-  // close handler of the socket stopHeartbeat() closed fires after teardown.
   if (heartbeatTimer === null || heartbeatReconnectTimer) return;
   heartbeatReconnectTimer = setTimeout(() => {
     heartbeatReconnectTimer = null;
@@ -184,16 +289,12 @@ function scheduleHeartbeatReconnect(bootstrap) {
   heartbeatReconnectTimer.unref?.();
 }
 
-// Renew the attached binding over the persistent socket. Fail-closed: a
-// binding that already expired is NEVER resurrected client-side; renewal
-// only extends bindings the bridge still considers active.
 function renewBinding(bootstrap, ws) {
   if (!bootstrap || !bootstrap.secret || !bootstrap.attachmentId || !ws) return;
   if (ws.readyState !== WebSocket.OPEN) return;
   heartbeatBusy = true;
   clearHeartbeatPending();
   heartbeatPendingTimer = setTimeout(() => {
-    // No response within 5s — treat the connection as dead and rebuild it.
     try { ws.close(); } catch {}
   }, 5000);
   heartbeatPendingTimer.unref?.();
@@ -216,10 +317,6 @@ function renewBinding(bootstrap, ws) {
   }
 }
 
-// One long-lived connection for the whole stdio lifetime. Created on demand,
-// kept open, reused by every 30s renewal; closed by the bridge or by
-// stopHeartbeat() only. Success is reported through onOpen(ws) so callers
-// can renew exactly when the socket is actually OPEN.
 function ensureHeartbeatSocket(bootstrap, onOpen) {
   if (heartbeatWs) {
     if (onOpen && heartbeatWs.readyState === WebSocket.OPEN) onOpen(heartbeatWs);
@@ -238,11 +335,8 @@ function ensureHeartbeatSocket(bootstrap, onOpen) {
     try {
       response = JSON.parse(raw.toString());
     } catch {
-      // Non-JSON frame is not our response — keep listening for the 'hb' reply.
       return;
     }
-    // Ignore the antifan:init bootstrap event and any unrelated RPC traffic;
-    // only the 'hb' response completes a renewal.
     if (response.id !== 'hb') return;
     clearHeartbeatPending();
     heartbeatFailureLogged = false;
@@ -250,7 +344,6 @@ function ensureHeartbeatSocket(bootstrap, onOpen) {
     if (!response.success) {
       process.stderr.write(`[antifan-omp] heartbeat renew failed: ${typeof response.error === 'string' ? response.error : JSON.stringify(response.error || {})}\n`);
     }
-    // Keep the connection open — it persists for the stdio lifetime.
   });
   ws.once('error', (err) => {
     if (!heartbeatFailureLogged) {
@@ -279,28 +372,74 @@ function startHeartbeat(bootstrap) {
   heartbeatTimer.unref?.();
 }
 
+// ─── MCP Server Initialization ───────────────────────────────────────────────
 const server = new Server({ name: 'antifan-omp', version: '1.0.0' }, { capabilities: { tools: {} } });
 
-server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: definitions.map(([name, description, properties, required]) => ({ name, description, inputSchema: { type: 'object', properties, ...(required ? { required } : {}) } })) }));
+server.setRequestHandler(ListToolsRequestSchema, async () => ({
+  tools: definitions.map(([name, description, properties, required]) => ({
+    name,
+    description,
+    inputSchema: { type: 'object', properties, ...(required ? { required } : {}) },
+  })),
+}));
+
 server.setRequestHandler(CallToolRequestSchema, async (request) => {
   try {
+    const bootstrap = getBootstrap();
     const data = await invoke(request.params.name, request.params.arguments || {});
-    return { content: [{ type: 'text', text: JSON.stringify(data) }] };
+
+    // Handle ArtifactRef resolution from ArtifactStore
+    if (data && typeof data === 'object' && typeof data.id === 'string' && data.id.startsWith('artifact-')) {
+      const artifactPayload = await fetchArtifactBinary(bootstrap, data.id);
+      if (request.params.name === 'anti.screenshot.viewport' || request.params.name === 'antifan_screenshot' || (typeof data.mime === 'string' && data.mime.startsWith('image/'))) {
+        return {
+          content: [
+            {
+              type: 'image',
+              data: artifactPayload.data,
+              mimeType: artifactPayload.mimeType || data.mime || 'image/png',
+            },
+          ],
+        };
+      }
+      // Text artifact (e.g. DOM inspection, HTML, logs)
+      const textContent = Buffer.from(artifactPayload.data, 'base64').toString('utf8');
+      return { content: [{ type: 'text', text: textContent }] };
+    }
+
+    if (request.params.name === 'anti.screenshot.viewport' || request.params.name === 'antifan_screenshot') {
+      throw new Error(JSON.stringify({ code: 'CAPABILITY_ERROR', message: 'Expected ArtifactRef metadata from screenshot capability' }));
+    }
+
+    return { content: [{ type: 'text', text: typeof data === 'string' ? data : JSON.stringify(data) }] };
   } catch (error) {
     return { isError: true, content: [{ type: 'text', text: error instanceof Error ? error.message : String(error) }] };
   }
 });
+
 server.connect(new StdioServerTransport())
   .then(() => startHeartbeat(getBootstrap()))
-  .catch((error) => { stopHeartbeat(); process.stderr.write(`${error}\n`); process.exitCode = 1; });
+  .catch((error) => {
+    stopHeartbeat();
+    process.stderr.write(`${error}\n`);
+    process.exitCode = 1;
+  });
 
 function shutdown() {
   stopHeartbeat();
+  if (dispatchWs) {
+    try { dispatchWs.close(); } catch {}
+    dispatchWs = null;
+  }
+  for (const [, entry] of pendingDispatchCalls.entries()) {
+    clearTimeout(entry.timer);
+    entry.reject(new Error(JSON.stringify({ code: 'SHUTDOWN', message: 'MCP server shutting down' })));
+  }
+  pendingDispatchCalls.clear();
   try { server.close(); } catch {}
 }
+
 process.stdin.on('close', shutdown);
-// The stdio transport ends when the MCP client closes its pipes; guard the
-// transport failure path too (EPIPE on stdout/stderr when the client dies).
 process.stdout.on('error', shutdown);
 process.stderr.on('error', shutdown);
 process.on('SIGINT', () => { shutdown(); process.exit(130); });

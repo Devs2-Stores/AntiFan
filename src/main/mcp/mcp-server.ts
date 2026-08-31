@@ -508,6 +508,24 @@ export class AntiFanMcpServer {
           content: [{ type: 'text', text: JSON.stringify({ code: 'TARGET_MISMATCH', message: `Explicit tabId '${cleanCallerTab}' does not match authenticated target tabId '${authContext.browserTarget.tabId}' and is not a valid live tab` }) }],
         };
       }
+    } else if (authContext.browserTarget?.tabId) {
+      if (isTabAlive(authContext.browserTarget.tabId)) {
+        const liveDocGen = this.tabHost?.getDocumentGeneration ? this.tabHost.getDocumentGeneration(authContext.browserTarget.tabId) : undefined;
+        if (typeof liveDocGen === 'number') {
+          authContext.browserTarget.documentGeneration = liveDocGen;
+        }
+      } else if (!isTargetAgnostic) {
+        const autoTab = this.tabHost?.getAutomationTabId?.();
+        const fallbackTab = (autoTab && isTabAlive(autoTab)) ? autoTab : (this.tabHost?.getActiveTabId ? this.tabHost.getActiveTabId() : undefined);
+        if (fallbackTab && isTabAlive(fallbackTab)) {
+          const liveDocGen = this.tabHost?.getDocumentGeneration ? this.tabHost.getDocumentGeneration(fallbackTab) : undefined;
+          authContext.browserTarget.tabId = fallbackTab;
+          if (typeof liveDocGen === 'number') authContext.browserTarget.documentGeneration = liveDocGen;
+          if (authContext.attachmentId && this.attachmentRegistry) {
+            this.attachmentRegistry.updateAttachmentTab(authContext.attachmentId, fallbackTab, liveDocGen);
+          }
+        }
+      }
     }
 
     const transportArgs = { ...a };
@@ -553,8 +571,9 @@ export class AntiFanMcpServer {
         if (tabId && authContext.attachmentId && this.attachmentRegistry) {
           this.attachmentRegistry.updateAttachmentTab(authContext.attachmentId, tabId, docGen);
         }
-        if (authContext.browserTarget && typeof docGen === 'number') {
-          authContext.browserTarget.documentGeneration = docGen;
+        if (authContext.browserTarget) {
+          if (tabId) authContext.browserTarget.tabId = tabId;
+          if (typeof docGen === 'number') authContext.browserTarget.documentGeneration = docGen;
         }
       }
       return { content: [{ type: 'text', text: JSON.stringify(result.data) }] };

@@ -28,7 +28,7 @@ import {
   AntiFanTab,
 } from '../../shared/contracts';
 import { CapabilityTransportAdapter } from '../tools/capability-transport';
-import { CapabilityRequestContext, CapabilityError, BrowserTarget, RuntimeLease } from '../../shared/control-plane-contracts';
+import { CapabilityRequestContext, CapabilityError, BrowserTarget, RuntimeLease, ArtifactRef } from '../../shared/control-plane-contracts';
 import { AttachmentRegistry } from '../run/attachment-registry';
 import { ControlPlaneRuntime } from '../control-plane/control-plane-runtime';
 // Slow-client bounds. A WebSocket whose kernel backlog exceeds the soft high-water
@@ -232,6 +232,103 @@ export class BridgeServer {
           res.writeHead(500);
           res.end('Failed to capture screenshot');
         }
+        return;
+      }
+
+      if (pathname.startsWith('/api/artifacts/')) {
+        if (req.method !== 'GET') {
+          res.writeHead(405, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Method Not Allowed' }));
+          return;
+        }
+
+        // 1. Strict Query Parameter Prohibition (SECRETS_IN_URL_FORBIDDEN)
+        if (reqUrl.searchParams.has('token') || (reqUrl.search && reqUrl.search.includes('token='))) {
+          res.writeHead(401, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Unauthorized: SECRETS_IN_URL_FORBIDDEN - Tokens in URL query string are strictly prohibited' }));
+          return;
+        }
+
+        // 2. Strict Single-Header Authentication (x-antifan-attachment-secret)
+        const secretHeader = req.headers['x-antifan-attachment-secret'];
+        const secret = typeof secretHeader === 'string' ? secretHeader.trim() : (Array.isArray(secretHeader) ? secretHeader[0]?.trim() : null);
+
+        if (!secret) {
+          res.writeHead(401, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Unauthorized: ATTACHMENT_SECRET_REQUIRED - Missing x-antifan-attachment-secret header' }));
+          return;
+        }
+
+        if (!this.attachmentRegistry) {
+          res.writeHead(503, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Service Unavailable: Attachment registry not configured' }));
+          return;
+        }
+
+        const verifiedAttachmentId = this.attachmentRegistry.verifyConnectionToken(secret);
+        if (!verifiedAttachmentId) {
+          res.writeHead(401, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Unauthorized: Invalid or expired attachment secret' }));
+          return;
+        }
+
+        const record = this.attachmentRegistry.getAttachment(verifiedAttachmentId);
+        if (!record || record.state !== 'active' || Date.now() > record.expiresAt) {
+          res.writeHead(401, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Unauthorized: Inactive or expired attachment record' }));
+          return;
+        }
+
+        const artifactId = pathname.slice('/api/artifacts/'.length).trim();
+        if (!artifactId) {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Bad Request: Artifact ID is required' }));
+          return;
+        }
+
+        if (!this.controlPlaneRuntime?.artifacts) {
+          res.writeHead(503, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Service Unavailable: Artifact store not available' }));
+          return;
+        }
+
+        let ref: ArtifactRef;
+        let data: Buffer;
+        try {
+          const resObj = this.controlPlaneRuntime.artifacts.readBytesById(artifactId);
+          ref = resObj.ref;
+          data = resObj.data;
+        } catch (err: unknown) {
+          const message = err instanceof Error ? err.message : String(err);
+          const isContainment = err instanceof CapabilityError && err.code === 'OUTSIDE_WORKSPACE';
+          res.writeHead(isContainment ? 403 : 404, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: message }));
+          return;
+        }
+
+        // 3. Mandatory Ownership Validation: Zero bypass
+        if (ref.runId !== record.runId || ref.attemptId !== record.attemptId) {
+          res.writeHead(403, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Forbidden: ATTACHMENT_MISMATCH - Artifact run/attempt does not match attachment record' }));
+          return;
+        }
+
+        // 4. Truncation Defense
+        if (ref.truncated === true) {
+          res.writeHead(422, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Unprocessable Entity: PAYLOAD_TRUNCATED - Artifact payload was truncated' }));
+          return;
+        }
+
+        // 5. Stream Binary Payload
+        res.writeHead(200, {
+          'Content-Type': ref.mime || 'application/octet-stream',
+          'Content-Length': String(data.byteLength),
+          'X-Artifact-Id': ref.id,
+          'X-Artifact-Sha256': ref.sha256 || '',
+          'Access-Control-Allow-Origin': isAllowedOrigin ? rawOrigin : 'http://127.0.0.1',
+        });
+        res.end(data);
         return;
       }
 
@@ -650,6 +747,24 @@ export class BridgeServer {
                 respond(false, undefined, `TARGET_MISMATCH: Explicit tabId '${explicitTabId}' does not match authenticated target tabId '${authContext.browserTarget.tabId}' and is not a valid live tab`);
                 break;
               }
+            } else if (authContext.browserTarget?.tabId) {
+              if (isTabAlive(authContext.browserTarget.tabId)) {
+                const liveDocGen = this.tabHost?.getDocumentGeneration ? this.tabHost.getDocumentGeneration(authContext.browserTarget.tabId) : undefined;
+                if (typeof liveDocGen === 'number') {
+                  authContext.browserTarget.documentGeneration = liveDocGen;
+                }
+              } else if (!isTargetAgnostic) {
+                const autoTab = this.tabHost?.getAutomationTabId?.();
+                const fallbackTab = (autoTab && isTabAlive(autoTab)) ? autoTab : (this.tabHost?.getActiveTabId ? this.tabHost.getActiveTabId() : undefined);
+                if (fallbackTab && isTabAlive(fallbackTab)) {
+                  const liveDocGen = this.tabHost?.getDocumentGeneration ? this.tabHost.getDocumentGeneration(fallbackTab) : undefined;
+                  authContext.browserTarget.tabId = fallbackTab;
+                  if (typeof liveDocGen === 'number') authContext.browserTarget.documentGeneration = liveDocGen;
+                  if (claims?.attachmentId) {
+                    this.attachmentRegistry.updateAttachmentTab(claims.attachmentId, fallbackTab, liveDocGen);
+                  }
+                }
+              }
             }
             const dispatchResult = await this.capabilityTransport.dispatch(p.name, p.params || {}, authContext);
             if (dispatchResult.ok) {
@@ -692,8 +807,9 @@ export class BridgeServer {
                   if (tabId) {
                     this.attachmentRegistry.updateAttachmentTab(claims.attachmentId, tabId, docGen);
                   }
-                  if (authContext.browserTarget && typeof docGen === 'number') {
-                    authContext.browserTarget.documentGeneration = docGen;
+                  if (authContext.browserTarget) {
+                    if (tabId) authContext.browserTarget.tabId = tabId;
+                    if (typeof docGen === 'number') authContext.browserTarget.documentGeneration = docGen;
                   }
                 }
               }

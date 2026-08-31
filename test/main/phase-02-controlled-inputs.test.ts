@@ -67,7 +67,7 @@ describe('Phase 02: Controlled Inputs & Dual-Tier Synthetic/CDP Interaction Engi
       assert.ok(script.includes('contenteditable'), 'Must support contenteditable elements');
     });
 
-    it('simulates React 18 controlled input value tracker and validates synthetic cascade execution', () => {
+    it('simulates React 18 controlled input value tracker and validates synthetic cascade execution', async () => {
       // Mock DOM environment simulating React controlled input value tracking
       const events: Array<{ type: string; bubbles: boolean; composed: boolean; data?: string; isTrusted: boolean }> = [];
       let nativeSetterCalled = false;
@@ -76,6 +76,8 @@ describe('Phase 02: Controlled Inputs & Dual-Tier Synthetic/CDP Interaction Engi
       // Define standard HTMLInputElement prototype
       class MockHTMLElement {
         isContentEditable = false;
+        isConnected = true;
+        style = { display: 'block', visibility: 'visible', opacity: '1' };
         getAttribute() { return null; }
         scrollIntoView() {}
         focus() {}
@@ -125,7 +127,11 @@ describe('Phase 02: Controlled Inputs & Dual-Tier Synthetic/CDP Interaction Engi
 
       const evalScript = `
         const document = mockDoc;
-        const window = { getSelection: () => null, location: { href: 'https://example.com' } };
+        const window = {
+          getSelection: () => null,
+          location: { href: 'https://example.com' },
+          getComputedStyle: () => ({ display: 'block', visibility: 'visible', opacity: '1' }),
+        };
         const InputEvent = class {
           constructor(type, init = {}) {
             this.type = type;
@@ -157,7 +163,7 @@ describe('Phase 02: Controlled Inputs & Dual-Tier Synthetic/CDP Interaction Engi
       `;
       // Execute script in mock environment
       const executeInEnv = new Function('mockDoc', evalScript);
-      const res = executeInEnv(mockDocument);
+      const res = await executeInEnv(mockDocument);
 
       assert.equal(res.ok, true);
       assert.equal(res.executed, true);

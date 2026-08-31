@@ -2847,7 +2847,7 @@ export class NativeTabHost extends EventEmitter {
     }
     return true;
   }
-  public async navigateAndWait(tabId: string, inputUrl: string): Promise<boolean> {
+  public async navigateAndWait(tabId: string, inputUrl: string, timeoutMs: number = 8000): Promise<boolean> {
     const tab = this.tabs.get(tabId);
     if (!tab) return false;
     const cleanUrl = sanitizeUrl(inputUrl);
@@ -2860,13 +2860,15 @@ export class NativeTabHost extends EventEmitter {
     const authorityView = authorityPane === 'mobile' && tab.mobileView ? tab.mobileView : tab.view;
     if (!authorityView || authorityView.webContents.isDestroyed()) return false;
 
-    const waiter = this.createNavigationStartWaiter(authorityView.webContents);
+    const waiter = this.createNavigationLifecycleWaiter(authorityView.webContents, timeoutMs, Math.min(3000, timeoutMs));
     const initiated = this.navigate(tabId, inputUrl);
     if (!initiated) {
       waiter.cancel();
       return false;
     }
-    return await waiter.promise;
+    const loadOk = await waiter.promise;
+    if (!loadOk) return false;
+    return true;
   }
   public reload(tabId: string): boolean {
     const tab = this.tabs.get(tabId);
@@ -2967,7 +2969,11 @@ export class NativeTabHost extends EventEmitter {
     return { promise, cancel: cancelFn };
   }
 
-  private createNavigationStartWaiter(wc: Electron.WebContents, timeoutMs: number = 3000): { promise: Promise<boolean>; cancel: () => void } {
+  private createNavigationLifecycleWaiter(
+    wc: Electron.WebContents,
+    timeoutMs: number = 8000,
+    startTimeoutMs: number = 3000
+  ): { promise: Promise<boolean>; cancel: () => void } {
     let cancelFn: () => void = () => {};
     const promise = new Promise<boolean>((resolve) => {
       if (!wc || wc.isDestroyed()) {
@@ -2975,42 +2981,80 @@ export class NativeTabHost extends EventEmitter {
         return;
       }
       let settled = false;
-      const onStart = (_event: unknown, _url: unknown, isInPlace: boolean, isMainFrame: boolean) => {
-        if (isMainFrame && !isInPlace && !settled) {
-          settled = true;
-          cleanup();
-          resolve(true);
-        }
-      };
-      const onFail = () => {
-        if (!settled) {
-          settled = true;
-          cleanup();
-          resolve(false);
-        }
-      };
-      const timer = setTimeout(() => {
-        if (!settled) {
-          settled = true;
-          cleanup();
-          resolve(false);
-        }
-      }, timeoutMs);
+      let navStarted = false;
+      let startTimer: NodeJS.Timeout | null = null;
+      let totalTimer: NodeJS.Timeout | null = null;
+
       const cleanup = () => {
-        clearTimeout(timer);
+        if (startTimer) {
+          clearTimeout(startTimer);
+          startTimer = null;
+        }
+        if (totalTimer) {
+          clearTimeout(totalTimer);
+          totalTimer = null;
+        }
         try { wc.removeListener('did-start-navigation', onStart); } catch {}
+        try { wc.removeListener('did-finish-load', onFinish); } catch {}
         try { wc.removeListener('did-fail-load', onFail); } catch {}
       };
-      cancelFn = () => {
+
+      const finish = (result: boolean) => {
         if (!settled) {
           settled = true;
           cleanup();
-          resolve(false);
+          resolve(result);
         }
       };
+
+      const onStart = (_event: unknown, _url: unknown, isInPlace: boolean, isMainFrame: boolean) => {
+        if (isMainFrame && !isInPlace && !settled) {
+          navStarted = true;
+          if (startTimer) {
+            clearTimeout(startTimer);
+            startTimer = null;
+          }
+        }
+      };
+
+      const onFinish = () => {
+        // ONLY accept finish after this navigation has started in main-frame (non-in-place)
+        if (!settled && navStarted) {
+          finish(true);
+        }
+      };
+
+      const onFail = (_event: unknown, _errorCode: unknown, _errorDescription: unknown, _validatedURL: unknown, isMainFrame?: boolean) => {
+        if (isMainFrame === false) {
+          return;
+        }
+        // ONLY accept fail after this navigation has started in main-frame
+        if (!settled && navStarted) {
+          finish(false);
+        }
+      };
+
+      startTimer = setTimeout(() => {
+        if (!settled && !navStarted) {
+          finish(false);
+        }
+      }, Math.min(startTimeoutMs, timeoutMs));
+
+      totalTimer = setTimeout(() => {
+        if (!settled) {
+          finish(false);
+        }
+      }, timeoutMs);
+
+      cancelFn = () => {
+        finish(false);
+      };
+
       wc.on('did-start-navigation', onStart);
+      wc.on('did-finish-load', onFinish);
       wc.on('did-fail-load', onFail);
     });
+
     return { promise, cancel: cancelFn };
   }
 

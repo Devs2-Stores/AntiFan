@@ -10,13 +10,13 @@ dependencies: []
 # Phase 01: Secure Screenshot & Server-Side Artifact Resolver
 
 ## Overview
-Reconciles the visual screenshot pipeline with the security model (`docs/security-model.md:31-32,54`). Retains `ArtifactRef` metadata across internal capability dispatch boundaries, exposes an authenticated, bounded binary artifact resource/download edge on the Bridge Server backed by `ArtifactStore.readBytesById()`, strictly enforces tenancy/run ownership matching (`ref.runId === attachmentRecord.runId` and `ref.attemptId === attachmentRecord.attemptId` via resolved attachment secret), mandates header-based authentication (`Authorization: Bearer <secret>` or `x-antifan-attachment-secret`), eliminates query-param secret leakage, rejects truncated PNGs (`ref.truncated === true`), and formats standard MCP Image blocks (`type: 'image'`) exclusively at the Stdio adapter edge from the fetched binary stream.
+Reconciles the visual screenshot pipeline with the security model (`docs/security-model.md:31-32,54`). Retains `ArtifactRef` metadata across internal capability dispatch boundaries, exposes an authenticated, bounded binary artifact resource/download edge on the Bridge Server backed by `ArtifactStore.readBytesById()`, strictly enforces tenancy/run ownership matching (`ref.runId === attachmentRecord.runId` and `ref.attemptId === attachmentRecord.attemptId` via resolved attachment secret), mandates single-header authentication (`x-antifan-attachment-secret`), eliminates query-param secret leakage, rejects truncated PNGs (`ref.truncated === true`), and formats standard MCP Image blocks (`type: 'image'`) exclusively at the Stdio adapter edge from the fetched binary stream.
 
 ## Requirements
 - **Functional:**
   - `anti.screenshot.viewport` (and `antifan_screenshot`) MCP tool returns `{ content: [{ type: 'image', data: base64, mimeType: 'image/png' }] }` containing full authentic Base64 PNG bytes for consumption by AI Vision models.
   - Bridge Server provides an authenticated, bounded HTTP binary resource endpoint `GET /api/artifacts/:id`.
-  - **Strict Header-Based Authentication & Zero Query-Param Secrets:** The endpoint requires the caller's attachment secret sent via `Authorization: Bearer <attachmentSecret>` or `x-antifan-attachment-secret: <attachmentSecret>`. Query parameter token passing is strictly forbidden (`docs/security-model.md:54`).
+  - **Strict Single-Header Authentication & Zero Query-Param Secrets:** The endpoint requires the caller's attachment secret sent exclusively via `x-antifan-attachment-secret: <attachmentSecret>`. Query parameter token passing is strictly forbidden (`docs/security-model.md:54`), and bridge-token-only requests without attachment secret are rejected.
   - **Mandatory Attachment Ownership Validation:** The handler resolves `verifiedAttachmentId = attachmentRegistry.verifyConnectionToken(secret)` to its active `ExecutionAttachmentRecord`, and verifies that `ref.runId === attachmentRecord.runId` and `ref.attemptId === attachmentRecord.attemptId`. No caller (including `bridgeToken` holders) is exempt from run/attempt ownership verification on artifact downloads.
   - If an artifact was truncated during capture (`ref.truncated === true`), the system fails closed with `422 Unprocessable Entity` (`CapabilityError('INVALID_ARGUMENT', 'Artifact payload truncated during capture')`).
 - **Non-functional:**
@@ -44,7 +44,7 @@ Reconciles the visual screenshot pipeline with the security model (`docs/securit
          │ (Detects kind === 'screenshot' / isArtifactRef)
          ▼
 [BridgeServer GET /api/artifacts/:id]
-         │ 1. Header Auth: Authorization: Bearer <secret> / x-antifan-attachment-secret
+         │ 1. Header Auth: x-antifan-attachment-secret: <secret> (Single Header Only)
          │ 2. Resolve verifiedAttachmentId -> getAttachment(verifiedAttachmentId)
          │ 3. Enforce Strict Ownership: ref.runId === record.runId && ref.attemptId === record.attemptId
          │ 4. ArtifactStore.readBytesById(id) with Root Containment & Realpath Check
@@ -54,16 +54,15 @@ Reconciles the visual screenshot pipeline with the security model (`docs/securit
          ▼
 [MCP Client Stdio] { type: 'image', data: base64, mimeType: 'image/png' }
 ```
-## Related Code Files
-- Modify: `src/main/bridge/bridge-server.ts` (Add authenticated `GET /api/artifacts/:id` binary streaming route with header auth, attachment record ownership matching, and `ArtifactStore.readBytesById()` containment).
+- Modify: `src/main/bridge/bridge-server.ts` (Add authenticated `GET /api/artifacts/:id` binary streaming route with single `x-antifan-attachment-secret` header auth, attachment record ownership matching, and `ArtifactStore.readBytesById()` containment).
 - Modify: `src/main/control-plane/control-plane-runtime.ts` (Expose `readArtifactBytes` on control plane interface with strict run/attempt ownership verification against attachment record).
-- Modify: `scripts/antifan-omp-mcp.cjs` (Fetch binary buffer from `GET /api/artifacts/:id` using `Authorization: Bearer ${bootstrap.secret}` header and format image tool response to `{ type: 'image', data, mimeType }`).
-- Create: `test/main/mcp-secure-image-resolver.test.ts` (Unit & contract tests for header authentication, attachment record ownership validation, binary streaming, truncation rejection, query-token denial, and MCP image payload formatting).
-
+- Modify: `scripts/antifan-omp-mcp.cjs` (Fetch binary buffer from `GET /api/artifacts/:id` using `x-antifan-attachment-secret: ${bootstrap.secret}` single header, remove raw-base64 fallback, and format image tool response to `{ type: 'image', data, mimeType }`).
+- Create: `test/main/mcp-secure-image-resolver.test.ts` (Unit & contract tests for single-header authentication, bridge-token-only rejection, attachment record ownership validation, cross-run denial, binary streaming, truncation rejection, and MCP image payload formatting).
 ## Implementation Steps
 1. **Server-Side Binary Resource Endpoint with Mandatory Ownership Enforcement:**
    - In `src/main/bridge/bridge-server.ts`, add HTTP route handler for `/api/artifacts/:id`.
-   - Extract secret strictly from `req.headers['authorization']` (`Bearer <secret>`) or `req.headers['x-antifan-attachment-secret']`. Reject query parameter tokens with `401 Unauthorized` (`SECRETS_IN_URL_FORBIDDEN`).
+   - Extract secret strictly from single header `req.headers['x-antifan-attachment-secret']`. Reject query parameter tokens with `401 Unauthorized` (`SECRETS_IN_URL_FORBIDDEN`).
+   - Reject requests presenting only `bridgeToken` (without valid attachment secret) with `401 Unauthorized` (`ATTACHMENT_SECRET_REQUIRED`).
    - Resolve `verifiedAttachmentId = this.attachmentRegistry.verifyConnectionToken(secret)`. Reject invalid/expired secrets with `401 Unauthorized`.
    - Retrieve `attachmentRecord = this.attachmentRegistry.getAttachment(verifiedAttachmentId)`. If not found or inactive, return `401 Unauthorized`.
    - Call `this.controlPlaneRuntime.artifacts.readBytesById(artifactId)` -> returns `{ ref, data }`.
@@ -72,19 +71,21 @@ Reconciles the visual screenshot pipeline with the security model (`docs/securit
    - Stream binary bytes with `Content-Type: ref.mime` and `Content-Length: ref.byteLength`.
 2. **Proxy-Side Binary Stream Fetcher & MCP Formatter:**
    - In `scripts/antifan-omp-mcp.cjs`, inspect the result of `invoke(name, params)`.
-   - If `name === 'anti.screenshot.viewport'` or `name === 'antifan_screenshot'` and the result is an `ArtifactRef` object with `id` starting with `artifact-`:
-     * Fetch raw binary bytes via HTTP `GET http://127.0.0.1:${bootstrap.port}/api/artifacts/${data.id}` with headers:
-       `{ 'Authorization': `Bearer ${bootstrap.secret}`, 'x-antifan-attachment-secret': bootstrap.secret }`.
+   - If `name === 'anti.screenshot.viewport'` or `name === 'antifan_screenshot'`:
+     * Enforce that result is an `ArtifactRef` object with `id` starting with `artifact-`. If not, fail closed immediately (`CapabilityError('CAPABILITY_ERROR', 'Expected ArtifactRef metadata from screenshot capability')`). Banish all legacy raw-text/raw-base64 fallback paths.
+     * Fetch raw binary bytes via HTTP `GET http://127.0.0.1:${bootstrap.port}/api/artifacts/${data.id}` with single header:
+       `{ 'x-antifan-attachment-secret': bootstrap.secret }`.
      * Convert binary buffer into Base64 string at the Stdio edge.
      * Return `{ content: [{ type: 'image', data: base64String, mimeType: data.mime || 'image/png' }] }`.
-   - If `data` is already a base64 string (legacy fallback), format directly into `{ type: 'image', data: data, mimeType: 'image/png' }`.
 3. **Unit & Security Tests:**
    - Test that query string tokens (`?token=...`) on `/api/artifacts/:id` are rejected (401).
-   - Test that mismatched `runId`/`attemptId` requests are rejected with 403 `ATTACHMENT_MISMATCH`.
+   - Test that requests authenticated with `bridgeToken` only (missing attachment secret) are rejected (401).
+   - Test that requests with valid attachment secret succeed when `ref.runId === record.runId && ref.attemptId === record.attemptId`.
+   - Test that cross-run artifact access attempts (valid secret but mismatched `ref.runId`/`ref.attemptId`) are rejected with 403 `ATTACHMENT_MISMATCH`.
    - Test that truncated artifact throws explicit 422 error.
    - Test that root escape / symlink attempts fail closed.
+   - Test that non-ArtifactRef capability responses are rejected by the proxy.
    - Test that valid screenshot output matches standard MCP Image schema.
-- [ ] `anti.screenshot.viewport` returns valid MCP `{ type: 'image' }` payload.
 - [ ] Proxy never accesses filesystem directly via `fs.readFile`.
 - [ ] Truncated images are rejected with structured error.
 - [ ] All unit tests in `test/main/mcp-secure-image-resolver.test.ts` pass green.

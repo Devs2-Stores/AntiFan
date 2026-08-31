@@ -210,6 +210,7 @@ async function createWindow(): Promise<void> {
     dataRoot: StorageLocations.getControlPlaneDir(),
     allowEval: IS_MCP_HIGH_RISK,
     getAutomationTabId: () => tabHost!.getAutomationTabId(),
+    getDocumentGeneration: (tabId) => tabHost!.getDocumentGeneration(tabId),
   });
   tabHost.setControlPlane(controlPlane);
   const browserPort = new BrowserControlPort({
