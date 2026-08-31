@@ -564,6 +564,11 @@ export class TerminalManager extends EventEmitter {
   public async kill(): Promise<void> {
     const s = this.sessions.get(this.activeSessionId);
     if (s) {
+      const split = [...this.sessions.values()].find(x => x.splitOf === s.id);
+      if (split) {
+        await this.safelyKillSession(split);
+        this.sessions.delete(split.id);
+      }
       await this.safelyKillSession(s);
     }
   }
@@ -608,7 +613,7 @@ export class TerminalManager extends EventEmitter {
 
   public createSplitSession(parentId: string, cwd?: string, initialCols?: number, initialRows?: number): string {
     const parent = this.sessions.get(parentId);
-    if (!parent || parent.splitOf) return '';
+    if (!parent || parent.disposed || parent.splitOf) return '';
     const existing = [...this.sessions.values()].find(x => x.splitOf === parentId);
     if (existing) return existing.id;
     let n = 1;
@@ -624,8 +629,14 @@ export class TerminalManager extends EventEmitter {
     return id;
   }
 
-  public async closeSplitSession(parentId: string): Promise<boolean> {
-    const split = [...this.sessions.values()].find(x => x.splitOf === parentId);
+  public async closeSplitSession(parentIdOrSplitId: string): Promise<boolean> {
+    let split = [...this.sessions.values()].find(x => x.splitOf === parentIdOrSplitId);
+    if (!split) {
+      const direct = this.sessions.get(parentIdOrSplitId);
+      if (direct && direct.splitOf) {
+        split = direct;
+      }
+    }
     if (!split) return false;
     await this.safelyKillSession(split);
     this.sessions.delete(split.id);

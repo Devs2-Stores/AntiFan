@@ -501,6 +501,11 @@ button {
   flex: 1 1 0px;
 }
 
+#terminal.split #terminal-main.focused-pane {
+  box-shadow: inset 0 0 0 1px rgba(56, 189, 248, 0.22);
+  border-radius: 4px;
+}
+
 .terminal-session-pane {
   position: absolute;
   top: 0;
@@ -584,6 +589,15 @@ button {
   color: #94a3b8;
   border: 1px solid rgba(255, 255, 255, 0.06);
   flex-shrink: 0;
+}
+
+#terminal-split.focused-pane .split-pane-header {
+  background: rgba(56, 189, 248, 0.12);
+  border-color: rgba(56, 189, 248, 0.35);
+}
+#terminal-split.focused-pane {
+  box-shadow: inset 0 0 0 1px rgba(56, 189, 248, 0.22);
+  border-radius: 4px;
 }
 
 .split-pane-title {

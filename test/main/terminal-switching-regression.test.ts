@@ -177,6 +177,19 @@ describe('Terminal Switching Regression & Viewport Integrity', () => {
     assert.match(jsContent, /MIN_SPLIT_TERMINAL_ROWS\s*=\s*4/);
     assert.match(jsContent, /MIN_TERMINAL_ROWS\s*=\s*8/);
     assert.match(jsContent, /splitPropose\.rows\s*>=\s*MIN_SPLIT_TERMINAL_ROWS/);
+    // 11. Ensure standalone.js split shortcuts (Ctrl+Shift+D / Alt+Shift+D / Ctrl+\) and pane navigation (Alt+Up / Alt+Down)
+    assert.match(jsContent, /e\.key === 'd' \|\| e\.key === 'D'/);
+    assert.match(jsContent, /splitButton\?\.click\(\)/);
+    assert.match(jsContent, /ArrowUp/);
+    assert.match(jsContent, /ArrowDown/);
+    // 12. Ensure focused-pane styling contracts exist in CSS and JS focusin listeners
+    assert.match(cssContent, /#terminal\.split #terminal-main\.focused-pane/);
+    assert.match(cssContent, /#terminal-split\.focused-pane/);
+    assert.match(jsContent, /focused-pane/);
+    assert.match(jsContent, /addEventListener\('focusin'/);
+    // 13. Ensure context menu dynamically updates split/unsplit label
+    assert.match(jsContent, /Đóng chia đôi \(Unsplit\)/);
+    assert.match(jsContent, /Chia đôi tab \(Split\)/);
   });
   it('verifies split terminal lifecycle: resizeTo custom ratios, session events, close persistence, switch normalization, and recreate', async () => {
     const p1 = tm.createSession();
@@ -671,7 +684,7 @@ describe('Terminal Switching Regression & Viewport Integrity', () => {
     );
   });
 
-  it('verifies createSplitSession creates and closes split sessions cleanly regardless of capsule mismatch', async () => {
+  it('verifies createSplitSession creates and closes split sessions cleanly by parent ID and split ID', async () => {
     const s1 = tm.createSession();
     const splitId = tm.createSplitSession(s1);
     assert.ok(splitId, 'Split session ID must be generated');
@@ -681,9 +694,34 @@ describe('Terminal Switching Regression & Viewport Integrity', () => {
     const parentSession = sessionList.find(s => s.id === s1);
     assert.strictEqual(parentSession?.splitSessionId, splitId, 'Parent session must reference splitSessionId');
 
-    const closed = await tm.closeSplitSession(s1);
-    assert.strictEqual(closed, true, 'closeSplitSession must succeed');
+    // Test closing split by split's own ID
+    const closedBySplitId = await tm.closeSplitSession(splitId);
+    assert.strictEqual(closedBySplitId, true, 'closeSplitSession by splitId must succeed');
+    assert.strictEqual(tm.listSessions().find(s => s.id === s1)?.splitSessionId, undefined);
+
+    // Re-create split and test closing by parent ID
+    const splitId2 = tm.createSplitSession(s1);
+    assert.ok(splitId2);
+    const closedByParentId = await tm.closeSplitSession(s1);
+    assert.strictEqual(closedByParentId, true, 'closeSplitSession by parentId must succeed');
+    assert.strictEqual(tm.listSessions().find(s => s.id === s1)?.splitSessionId, undefined);
+
+    // Verify createSplitSession rejects disposed parent
     await tm.closeSession(s1);
+    const splitOnDisposed = tm.createSplitSession(s1);
+    assert.strictEqual(splitOnDisposed, '', 'createSplitSession on closed/disposed session must return empty string');
+  });
+
+  it('verifies kill() cleanly terminates attached split session along with parent', async () => {
+    const p = tm.createSession();
+    const sp = tm.createSplitSession(p);
+    assert.ok(sp);
+    assert.strictEqual(tm.getActiveSessionId(), p);
+    assert.ok(tm.getSession(sp));
+
+    await tm.kill();
+    assert.strictEqual(tm.getSession(sp), undefined, 'Split session must be removed and killed on parent kill()');
+    await tm.closeSession(p);
   });
 
   it('verifies standalone.html preserves canonical header actions and removes duplicate tab strip buttons', () => {

@@ -174,6 +174,36 @@ function setupTerminalClipboard(targetTerm, getSessionId) {
       return false;
     }
 
+    // Ctrl+Shift+D / Alt+Shift+D / Ctrl+\: Toggle terminal split
+    if (((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === 'd' || e.key === 'D')) ||
+        (e.altKey && e.shiftKey && (e.key === 'd' || e.key === 'D')) ||
+        ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && e.key === '\\')) {
+      e.preventDefault();
+      e.stopPropagation();
+      splitButton?.click();
+      return false;
+    }
+
+    // Alt+Up / Ctrl+Alt+Up: Focus Main Pane
+    if ((e.altKey && (e.key === 'ArrowUp' || e.key === 'Up')) ||
+        ((e.ctrlKey || e.metaKey) && e.altKey && (e.key === 'ArrowUp' || e.key === 'Up'))) {
+      e.preventDefault();
+      e.stopPropagation();
+      focusMainPane();
+      return false;
+    }
+
+    // Alt+Down / Ctrl+Alt+Down: Focus Split Pane (if split is open)
+    if ((e.altKey && (e.key === 'ArrowDown' || e.key === 'Down')) ||
+        ((e.ctrlKey || e.metaKey) && e.altKey && (e.key === 'ArrowDown' || e.key === 'Down'))) {
+      if (splitEnabled && splitTerm) {
+        e.preventDefault();
+        e.stopPropagation();
+        focusSplitPane();
+        return false;
+      }
+    }
+
     return true;
   });
 
@@ -232,6 +262,25 @@ let isSplitUserScrolledUp = false;
 let isSplitProgrammaticScroll = false;
 let resizeDebounceTimer = null;
 const sessionSplitRatios = new Map();
+
+function focusSplitPane() {
+  const lower = document.getElementById('terminal-split');
+  if (lower) lower.classList.add('focused-pane');
+  mainPane.classList.remove('focused-pane');
+  document.querySelectorAll('.terminal-session-pane').forEach((p) => p.classList.remove('focused-pane'));
+  try { splitTerm?.focus(); } catch {}
+}
+
+function focusMainPane() {
+  const lower = document.getElementById('terminal-split');
+  if (lower) lower.classList.remove('focused-pane');
+  mainPane.classList.add('focused-pane');
+  const activeItem = terminalPool.get(activeId);
+  if (activeItem) {
+    activeItem.paneEl.classList.add('focused-pane');
+    try { activeItem.term.focus(); } catch {}
+  }
+}
 
 const splitSessionState = {
   id: '',
@@ -519,9 +568,12 @@ function getOrCreateTerminalPane(sessionId, snapshot, snapshotSeq = 0, isAuthori
     savedDistanceToBottom: 0,
     isProgrammaticScroll: false,
   };
+  paneEl.addEventListener('focusin', () => {
+    focusMainPane();
+  });
   // Click on pane focuses the terminal
   paneEl.addEventListener('click', () => {
-    sTerm.focus();
+    focusMainPane();
   });
 
   paneEl.addEventListener('wheel', () => {
@@ -656,7 +708,7 @@ function syncTerminalPool(allSessions, currentActiveId, snapshot, snapshotThroug
         }, 50);
       });
       if (justBecameActive) {
-        item.term.focus();
+        focusMainPane();
       }
     } else {
       item.paneEl.classList.remove('active');
@@ -871,8 +923,11 @@ function mountSplit(sessionId, snapshot = '', snapshotSeq = 0) {
     }
   });
 
+  lower.addEventListener('focusin', () => {
+    focusSplitPane();
+  });
   splitHost.addEventListener('click', () => {
-    splitTerm?.focus();
+    focusSplitPane();
   });
   applySplitRatio(sessionSplitRatios.get(activeId) ?? DEFAULT_MAIN_SPLIT_RATIO);
   atomicHydrateSplitPane(sessionId, snapshot, snapshotSeq);
@@ -884,7 +939,7 @@ function mountSplit(sessionId, snapshot = '', snapshotSeq = 0) {
   requestAnimationFrame(() => {
     try {
       fitCurrentTerminal();
-      splitTerm?.focus();
+      focusSplitPane();
     } catch {}
   });
 
@@ -901,20 +956,22 @@ function mountSplit(sessionId, snapshot = '', snapshotSeq = 0) {
 // Split Toggle Button
 if (splitButton) {
   splitButton.onclick = async () => {
-    if (!activeId || !api) return;
-    if (splitEnabled) {
-      // Toggle off split
-      await api.unsplitTerminal?.(activeId);
-      unmountSplit();
-      return;
-    }
+    if (!activeId || !api || splitButton.disabled) return;
     splitButton.disabled = true;
     try {
+      if (splitEnabled) {
+        // Toggle off split
+        await api.unsplitTerminal?.(activeId);
+        unmountSplit();
+        return;
+      }
       const mainItem = terminalPool.get(activeId);
       const targetCols = (mainItem && mainItem.term && mainItem.term.cols) || 120;
       const targetRows = getInitialSplitRows(mainItem?.term);
       const newSplitId = await api.splitTerminal(activeId, { cols: targetCols, rows: targetRows });
       if (newSplitId) mountSplit(newSplitId);
+    } catch (err) {
+      console.error('[Terminal] Split toggle failed:', err);
     } finally {
       splitButton.disabled = false;
     }
@@ -926,6 +983,20 @@ function showContextMenu(e, sessionId) {
   e.stopPropagation();
   contextTargetSessionId = sessionId;
   if (!contextMenu) return;
+
+  const targetSession = sessions.find((item) => item.id === sessionId);
+  const isTargetSplit = Boolean(targetSession?.splitSessionId);
+  const splitItem = contextMenu.querySelector('.context-item[data-action="split"]');
+  if (splitItem) {
+    const textSpan = splitItem.querySelector('span:last-child') || splitItem;
+    if (isTargetSplit) {
+      textSpan.textContent = 'Đóng chia đôi (Unsplit)';
+      splitItem.title = 'Tắt chia đôi màn hình terminal của tab này';
+    } else {
+      textSpan.textContent = 'Chia đôi tab (Split)';
+      splitItem.title = 'Chia đôi màn hình terminal của tab này';
+    }
+  }
 
   contextMenu.style.display = 'flex';
   const menuWidth = 185;
@@ -970,15 +1041,28 @@ contextMenu?.querySelectorAll('.context-item').forEach((item) => {
         startInlineRename(targetId, wrap, titleSpan);
       }
     } else if (action === 'split') {
-      if (!splitEnabled && api) {
+      if (!targetId || !api) return;
+      const targetSession = sessions.find((x) => x.id === targetId);
+      const isTargetSplit = Boolean(targetSession?.splitSessionId);
+      if (targetId !== activeId) {
+        activeId = targetId;
+        tabsEl.querySelectorAll('.terminal-tab-wrap').forEach((el) => {
+          el.classList.toggle('active', el.getAttribute('data-session-id') === activeId);
+        });
+        syncTerminalPool(sessions, activeId);
+        if (!isPopoutMode) {
+          api?.switchTerminal(targetId);
+        }
+      }
+      if (!isTargetSplit) {
         const mainItem = terminalPool.get(targetId);
         const targetCols = (mainItem && mainItem.term && mainItem.term.cols) || 120;
         const targetRows = getInitialSplitRows(mainItem?.term);
         const newSplitId = await api.splitTerminal(targetId, { cols: targetCols, rows: targetRows });
-        if (newSplitId) mountSplit(newSplitId);
-      } else if (splitEnabled && api) {
+        if (newSplitId && activeId === targetId) mountSplit(newSplitId);
+      } else {
         await api.unsplitTerminal?.(targetId);
-        unmountSplit();
+        if (activeId === targetId) unmountSplit();
       }
     } else if (action === 'new') {
       api?.newTerminal();
@@ -1248,7 +1332,7 @@ function renderTabs() {
           });
           const targetSession = sessions.find((item) => item.id === s.id) || s;
           if (targetSession.splitSessionId) {
-            mountSplit(targetSession.splitSessionId, targetSession.splitBuffer);
+            mountSplit(targetSession.splitSessionId, targetSession.splitBuffer, targetSession.splitSnapshotThroughSeq || 0);
           } else {
             unmountSplit();
           }
@@ -1258,7 +1342,7 @@ function renderTabs() {
           }
           fitCurrentTerminal();
         }
-        terminalPool.get(activeId)?.term?.focus();
+        focusMainPane();
       };
       // Double click to rename
       b.ondblclick = (e) => {
@@ -1514,7 +1598,7 @@ window.addEventListener('focus', () => {
 });
 
 if (activeId) {
-  terminalPool.get(activeId)?.term?.focus();
+  focusMainPane();
 }
 
 // Smooth 60fps Right Sidebar Resizing with Pointer Capture

@@ -582,6 +582,41 @@ app.whenReady().then(async () => {
         }
         console.log('[SMOKE-RUNNER] Step 9 PASS: Split terminal compact initial ratio (' + initialRatio.toFixed(3) + '), non-jumping click, custom drag (' + draggedRatio.toFixed(3) + '), tab switch restore (' + restoredSplitRatio.toFixed(3) + '), and clean close verified');
 
+        // Step 10: Shortcut toggle (Ctrl+Shift+D) & Focus Navigation (Alt+Down / Alt+Up)
+        const s1Textarea = s1Item.term.element?.querySelector('textarea');
+        if (!s1Textarea) throw new Error('Session 1 helper textarea not found for shortcut dispatch');
+        s1Textarea.dispatchEvent(new KeyboardEvent('keydown', { key: 'd', ctrlKey: true, shiftKey: true, bubbles: true, cancelable: true }));
+        await sleep(350);
+
+        const shortcutLowerPane = document.getElementById('terminal-split');
+        if (!shortcutLowerPane) throw new Error('Ctrl+Shift+D failed to mount split pane in DOM');
+
+        // Test Alt+Down to focus split pane
+        s1Textarea.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', altKey: true, bubbles: true, cancelable: true }));
+        await sleep(150);
+        if (!shortcutLowerPane.classList.contains('focused-pane')) {
+          throw new Error('Alt+Down failed to focus split pane (focused-pane class missing)');
+        }
+
+        // Test Alt+Up to focus main pane
+        const splitHostEl = document.getElementById('terminal-split-host');
+        const splitTextarea = splitHostEl?.querySelector('textarea');
+        if (splitTextarea) {
+          splitTextarea.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowUp', altKey: true, bubbles: true, cancelable: true }));
+          await sleep(150);
+          if (!mainPane.classList.contains('focused-pane')) {
+            throw new Error('Alt+Up failed to focus main pane');
+          }
+        }
+
+        // Toggle split off via Ctrl+Shift+D
+        s1Textarea.dispatchEvent(new KeyboardEvent('keydown', { key: 'd', ctrlKey: true, shiftKey: true, bubbles: true, cancelable: true }));
+        await sleep(300);
+        if (document.getElementById('terminal-split')) {
+          throw new Error('Ctrl+Shift+D failed to toggle off split pane');
+        }
+        console.log('[SMOKE-RUNNER] Step 10 PASS: Ctrl+Shift+D shortcut toggle & Alt+Up/Down focus navigation verified');
+
         await helper.finish({
           ok: true,
           stats: {
