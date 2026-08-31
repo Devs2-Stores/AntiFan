@@ -72,7 +72,19 @@ export class TabDiagnosticsManager {
     if (!bucket) return { console: [], failures: [] };
 
     const numLevel =
-      typeof level === 'number' ? level : typeof level === 'string' ? parseInt(level, 10) : undefined;
+      typeof level === 'number'
+        ? level
+        : typeof level === 'string'
+        ? level === 'error'
+          ? 3
+          : level === 'warn' || level === 'warning'
+          ? 2
+          : level === 'info'
+          ? 1
+          : level === 'log'
+          ? 0
+          : parseInt(level, 10)
+        : undefined;
     const filteredConsole =
       typeof numLevel === 'number' && !isNaN(numLevel)
         ? bucket.console.filter((c) => c.level >= numLevel)
