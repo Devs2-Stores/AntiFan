@@ -2934,8 +2934,11 @@ export class NativeTabHost extends EventEmitter {
           resolve(true);
         }
       };
-      const onFail = (_event: unknown, _errorCode: unknown, _errorDescription: unknown, _validatedURL: unknown, isMainFrame?: boolean) => {
+      const onFail = (_event: unknown, errorCode: unknown, errorDescription: unknown, _validatedURL: unknown, isMainFrame?: boolean) => {
         if (isMainFrame === false) {
+          return;
+        }
+        if (errorCode === -3 || errorDescription === 'ERR_ABORTED') {
           return;
         }
         if (!settled) {
@@ -3024,11 +3027,15 @@ export class NativeTabHost extends EventEmitter {
         }
       };
 
-      const onFail = (_event: unknown, _errorCode: unknown, _errorDescription: unknown, _validatedURL: unknown, isMainFrame?: boolean) => {
+      const onFail = (_event: unknown, errorCode: unknown, errorDescription: unknown, _validatedURL: unknown, isMainFrame?: boolean) => {
         if (isMainFrame === false) {
           return;
         }
-        // ONLY accept fail after this navigation has started in main-frame
+        // Chromium emits ERR_ABORTED (-3) on HTTP 301/302/307 redirects or request replacements
+        if (errorCode === -3 || errorDescription === 'ERR_ABORTED') {
+          return;
+        }
+        // ONLY accept real failure after this navigation has started in main-frame
         if (!settled && navStarted) {
           finish(false);
         }

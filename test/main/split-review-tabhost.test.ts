@@ -590,6 +590,26 @@ describe('NativeTabHost Split Review Integration', () => {
     const navResult = await navPromise;
     assert.strictEqual(navResult, true, 'navigateAndWait must ignore previous document events and resolve true after new navigation finishes');
   });
+
+  it('handles HTTP redirect sequence with intermediate ERR_ABORTED in navigateAndWait without prematurely failing', async () => {
+    const { host, desktopWc } = createTestHost();
+
+    let navPromise = host.navigateAndWait('tab-split-1', 'https://example.com/initial-302', 2000);
+    
+    // 1. Initial navigation starts
+    desktopWc.emit('did-start-navigation', {}, 'https://example.com/initial-302', false, true);
+
+    // 2. Server responds 302: Chromium aborts initial request and fires did-fail-load with ERR_ABORTED
+    desktopWc.emit('did-fail-load', {}, -3, 'ERR_ABORTED', 'https://example.com/initial-302', true);
+
+    // 3. Chromium immediately starts redirected navigation and finishes
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    desktopWc.emit('did-start-navigation', {}, 'https://example.com/destination', false, true);
+    desktopWc.emit('did-finish-load');
+
+    const navResult = await navPromise;
+    assert.strictEqual(navResult, true, 'navigateAndWait must succeed across HTTP redirect without failing on intermediate ERR_ABORTED');
+  });
   it('returns false in navigateAndWait when main frame did-fail-load fires', async () => {
     const { host, desktopWc } = createTestHost();
 
