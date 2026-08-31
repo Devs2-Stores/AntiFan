@@ -9,8 +9,8 @@ import {
 } from '../../src/shared/annotation-prompt';
 
 describe('Annotation prompt self-QA directive', () => {
-  it('bumps AGENT_CONTRACT_VERSION to 3.1.0 (Finding 8)', () => {
-    assert.strictEqual(AGENT_CONTRACT_VERSION, '3.1.0');
+  it('bumps AGENT_CONTRACT_VERSION to 3.2.0-lean', () => {
+    assert.strictEqual(AGENT_CONTRACT_VERSION, '3.2.0-lean');
   });
 
   it('implementation intents carry the mandatory self-QA directive', () => {
@@ -61,7 +61,7 @@ describe('Annotation prompt self-QA directive', () => {
     assert.strictEqual(occurrences, 1);
     const ledgerIndex = header.indexOf('Fable-Thinking Invariant Ledger');
     const directiveIndex = header.indexOf('## Self-QA bắt buộc sau khi sửa');
-    const contractIndex = header.indexOf('## Core Agent Execution Contract');
+    const contractIndex = header.indexOf('## Core Execution Invariants');
     assert.ok(ledgerIndex !== -1 && directiveIndex !== -1 && contractIndex !== -1);
     assert.ok(ledgerIndex < directiveIndex && directiveIndex < contractIndex);
   });

@@ -12,6 +12,50 @@ import {
   getInitialTerminalState,
 } from '../../shared/annotation-prompt';
 
+export const ACTIVE_CSS_PROPERTIES: Record<string, true> = {
+  display: true,
+  'flex-direction': true,
+  'justify-content': true,
+  'align-items': true,
+  'align-self': true,
+  gap: true,
+  'grid-template-columns': true,
+  'grid-template-rows': true,
+  position: true,
+  top: true,
+  right: true,
+  bottom: true,
+  left: true,
+  'z-index': true,
+  width: true,
+  'max-width': true,
+  'min-width': true,
+  height: true,
+  'max-height': true,
+  'min-height': true,
+  padding: true,
+  margin: true,
+  color: true,
+  'background-color': true,
+  background: true,
+  'font-size': true,
+  'font-weight': true,
+  'font-family': true,
+  'line-height': true,
+  'text-align': true,
+  'text-transform': true,
+  border: true,
+  'border-radius': true,
+  'box-shadow': true,
+  opacity: true,
+  transform: true,
+  overflow: true,
+  'box-sizing': true,
+  cursor: true,
+  'pointer-events': true,
+  visibility: true,
+};
+
 export interface AnnotationPayload {
   annotationId?: string;
   workspaceDir?: string;
@@ -177,8 +221,11 @@ export class AnnotationManager {
         ? `\n## Attached images (user-provided)\n${savedAttachedImages.map((img) => `![${img.name}](../snapshots/${path.basename(img.path)})`).join('\n')}\n`
         : '';
 
-      const stylesList = payload.computedStyles ? Object.entries(payload.computedStyles).slice(0, 60) : [];
-      const attributesList = payload.attributes ? Object.entries(payload.attributes).slice(0, 60) : [];
+      const rawStyles = payload.computedStyles ? Object.entries(payload.computedStyles) : [];
+      const stylesList = rawStyles.length > 0
+        ? rawStyles.filter(([k]) => ACTIVE_CSS_PROPERTIES[k] === true).slice(0, 30)
+        : [];
+      const attributesList = payload.attributes ? Object.entries(payload.attributes).slice(0, 30) : [];
 
       const isClone = payload.isClone || false;
       const canonicalEv = payload.canonicalEvidence || {};
@@ -225,51 +272,54 @@ ${JSON.stringify(payload.sourceHints, null, 2)}
 ${payload.siblingSemantics.map((sib: any, idx: number) => `- Sibling ${idx + 1}: \`<${sib.tag}>\`${sib.role ? ` (role: \`${sib.role}\`)` : ''}${sib.isTarget ? ' **[TARGET]**' : ''}${sib.textSnippet ? ` - "${sib.textSnippet}"` : ''}`).join('\n')}
 ` : '';
 
+      const hasRuntimeErrors = Array.isArray(payload.runtimeErrors) && payload.runtimeErrors.length > 0;
+      const hasResourceFailures = Array.isArray(payload.resourceFailures) && payload.resourceFailures.length > 0;
+      const hasSlowResources = Array.isArray(payload.slowResources) && payload.slowResources.length > 0;
+      const diagnosticsSection = (hasRuntimeErrors || hasResourceFailures || hasSlowResources) ? `## ⚠️ Correlated Runtime Diagnostics
+${hasRuntimeErrors ? `### JavaScript Errors\n\`\`\`json\n${JSON.stringify(payload.runtimeErrors, null, 2)}\n\`\`\`\n` : ''}${hasResourceFailures ? `### Failed Network Resources (404/500)\n\`\`\`json\n${JSON.stringify(payload.resourceFailures, null, 2)}\n\`\`\`\n` : ''}${hasSlowResources ? `### Slow Resources (> 500ms)\n\`\`\`json\n${JSON.stringify(payload.slowResources, null, 2)}\n\`\`\`\n` : ''}
+` : '';
+
+      const liquidSection = payload.liquidContext && Object.values(payload.liquidContext).some(Boolean) ? `## ⚓ Liquid & Theme Semantic Anchors
+\`\`\`json
+${JSON.stringify(payload.liquidContext, null, 2)}
+\`\`\`
+` : '';
+
+      const attributesSection = attributesList.length > 0 ? `## 🏷️ HTML Attributes
+\`\`\`json
+{
+${attributesList.map(([key, value]) => `  "${safe(key, 100)}": ${JSON.stringify(safe(value, 500))}`).join(',\n')}
+}
+\`\`\`
+` : '';
+
+      const stylesSection = stylesList.length > 0 ? `## 🎨 Key Computed CSS Styles
+\`\`\`css
+${stylesList.map(([key, value]) => `${safe(key, 100)}: ${safe(value, 500)};`).join('\n')}
+\`\`\`
+` : '';
+
+      const cleanedOuterHTML = payload.outerHTML
+        ? safe(payload.outerHTML.replace(/src="data:image\/[^;]+;base64,[^"]{60,}"/gi, 'src="data:[image-base64]"'), 4000)
+        : '';
+
       const detailedFileContent = `${evidenceEnvelope}
 ${buildAgentTaskHeader(userComment)}
 
 ## Captured element evidence [Visual Mode: Element SnapDOM Capture]
 - Annotation ID: ${annotationId}
-- Selection Type: element
-- Captured At: ${new Date().toISOString()}
-- TTL Expiration: 30 minutes (Auto-removes)
 - Page URL: ${safe(payload.url, 4096)}
 - Element Selector: \`${selector}\`
-- DOM Ancestry Tree: \`${domAncestry || selector}\`
+- DOM Ancestry: \`${domAncestry || selector}\`
 - Tag Name: \`${safe(payload.tagName, 100)}\`
 - Dimensions: ${dimensions}
-- Subtree Info: ${childCount} children (${childTags || 'none'})
-- Position (viewport): ${payload.position ? JSON.stringify(payload.position) : 'n/a'}
-- Viewport Dimensions: ${payload.viewport ? JSON.stringify(payload.viewport) : 'n/a'}
 
 ${elementIdentitySection}
 ${boxModelSection}
 ${parentLayoutSection}
 ${siblingSemanticsSection}
 ${sourceHintsSection}
-## Annotation routing context
-\`\`\`json
-{
-  "annotationId": "${annotationId}",
-  "pageUrl": "${safe(payload.url, 4096)}",
-  "selector": "${selector}",
-  "timestamp": ${timestamp}
-}
-\`\`\`
-## Semantic anchor
-\`\`\`json
-{
-  "selector": "${selector}",
-  "tag": "${safe(payload.tagName, 100)}",
-  "text": "${safe(payload.textContent, 200)}"
-}
-\`\`\`
-${payload.liquidContext && Object.values(payload.liquidContext).some(Boolean) ? `
-## ⚓ Liquid & Theme Semantic Anchors
-\`\`\`json
-${JSON.stringify(payload.liquidContext, null, 2)}
-\`\`\`
-` : ''}
+${liquidSection}
 ${commentSection}
 ## Visual evidence
 Capture method: SnapDOM-rendered PNG produced from the selected element and its computed DOM styles.
@@ -278,56 +328,11 @@ Capture method: SnapDOM-rendered PNG produced from the selected element and its 
 ${targetImgSection}
 ${viewportImgSection}
 ${attachedSection}
-## Current responsive and interaction state
-- Only this viewport is observed: ${payload.viewport ? JSON.stringify(payload.viewport) : 'n/a'}
-- Other responsive widths and unobserved interaction states remain verification requirements.
-
-\`\`\`json
-${payload.interactionState ? JSON.stringify(payload.interactionState, null, 2) : '{}'}
-\`\`\`
-
-## Accessibility snapshot
-\`\`\`json
-${payload.accessibilitySnapshot ? JSON.stringify(payload.accessibilitySnapshot, null, 2) : '{}'}
-\`\`\`
-
-## Runtime diagnostics observed before capture
-### JavaScript errors and rejected promises
-\`\`\`json
-${payload.runtimeErrors ? JSON.stringify(payload.runtimeErrors, null, 2) : '[]'}
-\`\`\`
-
-### Failed resources
-\`\`\`json
-${payload.resourceFailures ? JSON.stringify(payload.resourceFailures, null, 2) : '[]'}
-\`\`\`
-
-### Slow resources above 500 ms
-\`\`\`json
-${payload.slowResources ? JSON.stringify(payload.slowResources, null, 2) : '[]'}
-\`\`\`
-
-## 🏷️ HTML Attributes
-\`\`\`json
-{
-${attributesList.map(([key, value]) => `  "${safe(key, 100)}": ${JSON.stringify(safe(value, 500))}`).join(',\n')}
-}
-\`\`\`
-
-## 📝 Text Content
-\`\`\`text
-${payload.textContent ? payload.textContent.trim() : '(empty)'}
-\`\`\`
-
-## 🎨 Key Computed CSS Styles
-\`\`\`css
-${stylesList.map(([key, value]) => `${safe(key, 100)}: ${safe(value, 500)};`).join('\n')}
-\`\`\`
-
-## 🧩 Complete Outer HTML
-\`\`\`html
-${safe(payload.outerHTML, 8000)}
-\`\`\`
+${diagnosticsSection}
+${attributesSection}
+${payload.textContent && payload.textContent.trim() ? `## 📝 Text Content\n\`\`\`text\n${payload.textContent.trim()}\n\`\`\`\n` : ''}
+${stylesSection}
+${cleanedOuterHTML ? `## 🧩 Complete Outer HTML\n\`\`\`html\n${cleanedOuterHTML}\n\`\`\`\n` : ''}
 ${Array.isArray(payload.multiItems) && payload.multiItems.length > 1 ? `\n## Multi-Element Batch Breakdown (${payload.multiItems.length} Elements Selected)\n` + payload.multiItems.map((item, idx) => `### ${idx + 1}. \`${safe(item.selector, 200)}\`\n- Tag: \`${safe(item.tagName || item.tag, 50)}\`\n- Dimensions: ${safe(item.dimensions, 50)}\n${item.userComment ? `- User Comment: **${safe(item.userComment, 500)}**\n` : ''}${item.textContent ? `- Text: "${safe(item.textContent, 200)}"\n` : ''}`).join('\n') : ''}
 `;
 

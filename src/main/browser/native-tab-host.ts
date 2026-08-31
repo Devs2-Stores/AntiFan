@@ -3853,6 +3853,19 @@ export class NativeTabHost extends EventEmitter {
               const targetSessionId = rawResult.targetSessionId || (tmActiveId !== 'auto' ? tmActiveId : undefined);
               const targetWorkspace = this.resolveTargetWorkspace(targetSessionId, targetTab?.state.url);
               const annotationWorkspace = this.resolveAnnotationWorkspace(targetSessionId, targetTab?.state.url);
+              const tabDiag = (this.diagnosticsManager && typeof this.diagnosticsManager.getDiagnostics === 'function')
+                ? this.diagnosticsManager.getDiagnostics(targetTabId, 'error')
+                : { console: [], failures: [] };
+              const recentErrors = (tabDiag?.console || []).slice(-10).map((c) => ({
+                message: c.message,
+                source: c.source ? `${c.source}:${c.line}` : undefined,
+                level: c.level === 3 ? 'error' : 'warning',
+              }));
+              const recentFailures = (tabDiag?.failures || []).slice(-10).map((f) => ({
+                url: f.validatedURL,
+                error: f.errorDescription,
+                code: f.errorCode,
+              }));
 
               const annotationResult = await AnnotationManager.getInstance().processAnnotationPayload({
                 ...rawResult,
@@ -3861,6 +3874,8 @@ export class NativeTabHost extends EventEmitter {
                 targetImageBase64,
                 viewportImageBase64,
                 workspaceDir: annotationWorkspace,
+                runtimeErrors: rawResult.runtimeErrors || (recentErrors.length > 0 ? recentErrors : undefined),
+                resourceFailures: rawResult.resourceFailures || (recentFailures.length > 0 ? recentFailures : undefined),
               });
               const annotationPayload = stripDeliveryMode(rawResult);
               const pickedData: AntiFanPickedElement = {

@@ -422,8 +422,9 @@ describe('Element Picker Resolution & Artifact Upgrades', () => {
 
     const content = fs.readFileSync(res.markdownPath, 'utf8');
     // Verify critical sections
-    // Bumped with AGENT_CONTRACT_VERSION 3.0.0 -> 3.1.0 (self-QA directive, plan phase 3)
-    assert.ok(content.includes('contract_version: "3.1.0"'));
+    // Bumped with AGENT_CONTRACT_VERSION 3.1.0 -> 3.2.0-lean
+    assert.ok(content.includes('contract_version: "3.2.0-lean"'));
+    assert.ok(content.length < 7500, `Markdown content size (${content.length} chars) should be lean (< 7.5KB / ~1,500 tokens)`);
     assert.ok(content.includes('## Fable-Thinking Invariant Ledger & Safety Boundaries'));
     assert.ok(content.includes('PRESERVES'));
     assert.ok(content.includes('DELIBERATELY CHANGES'));
@@ -440,6 +441,49 @@ describe('Element Picker Resolution & Artifact Upgrades', () => {
       fs.rmSync(tempDir, { recursive: true, force: true });
     } catch {}
   });
+  it('AnnotationManager filters computedStyles to ACTIVE_CSS_PROPERTIES whitelist and includes diagnostics when present', async () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-test-diag-'));
+    const manager = AnnotationManager.getInstance();
+
+    const payload = {
+      workspaceDir: tempDir,
+      url: 'https://myshop.com/products/t-shirt',
+      selector: 'button.btn-checkout',
+      tagName: 'button',
+      dimensions: '200 x 44 px',
+      userComment: 'Fix broken checkout button',
+      computedStyles: {
+        'display': 'flex',
+        'background-color': 'rgb(255, 0, 0)',
+        'color': 'rgb(255, 255, 255)',
+        'ruby-align': 'auto',
+        'mask-type': 'luminance',
+      },
+      runtimeErrors: [
+        { message: 'Uncaught TypeError: Cannot read properties of undefined', source: 'checkout.js:55' },
+      ],
+      resourceFailures: [
+        { url: 'https://myshop.com/assets/checkout.js', error: 'net::ERR_FILE_NOT_FOUND', code: -6 },
+      ],
+    };
+
+    const res = await manager.processAnnotationPayload(payload);
+    assert.strictEqual(res.ok, true);
+    const content = fs.readFileSync(res.markdownPath, 'utf8');
+
+    assert.ok(content.includes('display: flex;'));
+    assert.ok(content.includes('background-color: rgb(255, 0, 0);'));
+    assert.ok(!content.includes('ruby-align'));
+    assert.ok(!content.includes('mask-type'));
+    assert.ok(content.includes('## ⚠️ Correlated Runtime Diagnostics'));
+    assert.ok(content.includes('Cannot read properties of undefined'));
+    assert.ok(content.includes('net::ERR_FILE_NOT_FOUND'));
+
+    try {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    } catch {}
+  });
+
 
   it('ELEMENT_PICKER_SCRIPT executes cleanly without reference errors', () => {
     assert.doesNotThrow(() => {
