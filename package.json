@@ -2,7 +2,7 @@
   "name": "antifan-browser-desktop",
   "displayName": "AntiFan Browser Desktop",
   "description": "Ultra-lightweight Chromium companion & Extension Bridge for AntiFan Browser",
-  "version": "1.3.2",
+  "version": "1.3.3",
   "publisher": "antifan",
   "author": "AntiFan Team",
   "main": "./.compiled/src/main/index.js",

@@ -208,4 +208,17 @@ describe('Semantic Ref Integration Pipeline (World 1004 & Control Plane Parity)'
     const desktopClick = await host.dispatchAgentAction('click', { ref: '@e1', tabId: 'tab-integration-1', paneId: 'desktop' });
     assert.strictEqual(desktopClick.success, true);
   });
+
+  it('5. Hardened error fallback: script collection failure returns structured error string without dumping outerHTML', async () => {
+    const { host, desktopWc } = createIntegrationHost();
+    desktopWc.mainFrame.executeJavaScriptInIsolatedWorld = async () => {
+      throw new Error('Synthetic frame navigation crash during snapshot collection');
+    };
+
+    const res = await host.agentSnapshot('tab-integration-1', 'desktop');
+    assert.ok(res.startsWith('[Semantic Snapshot Error:'), `Expected error prefix but got: ${res}`);
+    assert.ok(res.includes('Synthetic frame navigation crash'));
+    assert.ok(res.length < 200, `Expected compact error under 200 chars but got length ${res.length}`);
+    assert.strictEqual(res.includes('<html'), false, 'Must never dump raw HTML on collection error');
+  });
 });

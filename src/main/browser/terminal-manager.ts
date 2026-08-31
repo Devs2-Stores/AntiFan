@@ -94,10 +94,17 @@ export interface SessionSummary {
 
 function safeSliceTail(str: string, maxBytes: number): string {
   if (!str || str.length <= maxBytes) return str || '';
-  const raw = str.slice(-maxBytes);
+  let raw = str.slice(-maxBytes);
+  if (raw.length > 0 && raw.charCodeAt(0) >= 0xdc00 && raw.charCodeAt(0) <= 0xdfff) {
+    raw = raw.slice(1);
+  }
   const firstNl = raw.indexOf('\n');
   if (firstNl !== -1 && firstNl < 2048) {
-    return raw.slice(firstNl + 1);
+    let sliced = raw.slice(firstNl + 1);
+    if (sliced.length > 0 && sliced.charCodeAt(0) >= 0xdc00 && sliced.charCodeAt(0) <= 0xdfff) {
+      sliced = sliced.slice(1);
+    }
+    return sliced;
   }
   return raw;
 }
@@ -105,39 +112,61 @@ function safeSliceTail(str: string, maxBytes: number): string {
 export function safeSliceTailJsonBounded(str: string, maxJsonBytes: number): string {
   if (!str || maxJsonBytes < 2) return '';
   const resetPrefix = '\x1b[0m';
-  if (maxJsonBytes < Buffer.byteLength(JSON.stringify(resetPrefix), 'utf8')) {
-    return '';
-  }
+  // JSON.stringify('\x1b[0m') produces "\u001b[0m" (11 bytes: 6 for \u001b, 3 for [0m, 2 for quotes)
+  const prefixByteCost = 11;
+  if (maxJsonBytes < prefixByteCost) return '';
+  const targetBodyBudget = maxJsonBytes - prefixByteCost;
+  if (targetBodyBudget <= 0) return '';
+  let bodyCost = 0;
+  let cutIndex = str.length;
 
-  const codePoints = Array.from(str);
-  let low = 0;
-  let high = codePoints.length;
-  let bestFit = '';
+  for (let i = str.length - 1; i >= 0; i--) {
+    const code = str.charCodeAt(i);
+    let charCost = 1;
+    if (code === 0x1b) {
+      charCost = 6;
+    } else if (code === 0x22 || code === 0x5c || code === 0x0a || code === 0x0d || code === 0x09) {
+      charCost = 2;
+    } else if (code < 0x20) {
+      charCost = 6;
+    } else if (code <= 0x7f) {
+      charCost = 1;
+    } else if (code <= 0x7ff) {
+      charCost = 2;
+    } else if (code >= 0xdc00 && code <= 0xdfff) {
+      if (i > 0 && str.charCodeAt(i - 1) >= 0xd800 && str.charCodeAt(i - 1) <= 0xdbff) {
+        charCost = 4;
+        i--;
+      } else {
+        charCost = 6;
+      }
+    } else if (code >= 0xd800 && code <= 0xdbff) {
+      charCost = 6;
+    } else {
+      charCost = 3;
+    }
 
-  while (low <= high) {
-    const mid = Math.floor((low + high) / 2);
-    if (mid >= codePoints.length) {
+    if (bodyCost + charCost > targetBodyBudget) {
       break;
     }
-    const rawSlice = codePoints.slice(mid).join('');
-    const firstNl = rawSlice.indexOf('\n');
-    const candidate = firstNl >= 0 && firstNl < rawSlice.length - 1
-      ? `${resetPrefix}${rawSlice.slice(firstNl + 1)}`
-      : `${resetPrefix}${rawSlice}`;
+    bodyCost += charCost;
+    cutIndex = i;
+  }
 
-    const jsonCost = Buffer.byteLength(JSON.stringify(candidate), 'utf8');
-    if (jsonCost <= maxJsonBytes) {
-      bestFit = candidate;
-      high = mid - 1;
-    } else {
-      low = mid + 1;
+  if (cutIndex > 0) {
+    const nl = str.indexOf('\n', cutIndex);
+    if (nl !== -1 && nl < str.length - 1) {
+      cutIndex = nl + 1;
     }
   }
 
-  if (Buffer.byteLength(JSON.stringify(bestFit), 'utf8') > maxJsonBytes) {
-    return '';
+  if (cutIndex < str.length && str.charCodeAt(cutIndex) >= 0xdc00 && str.charCodeAt(cutIndex) <= 0xdfff) {
+    cutIndex++;
   }
-  return bestFit;
+
+  const rawSlice = str.slice(cutIndex);
+  const result = `${resetPrefix}${rawSlice}`;
+  return result;
 }
 export class TerminalManager extends EventEmitter {
   private static instance: TerminalManager;

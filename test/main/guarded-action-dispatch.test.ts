@@ -442,4 +442,71 @@ describe('Phase 3: Unified Guarded Agent Action Routing (World 1004 Isolated Exe
     assert.strictEqual(res.success, false);
     assert.match(res.reason || '', /CAPABILITY_NOT_FOUND|Isolated world execution.*not supported/i);
   });
+  it('14. Trajectory via dispatchAgentAction routes through real runTargetOperation queue and settles strictly in FIFO order', { timeout: 3000 }, async () => {
+    const { host, desktopWc } = createGuardedTestHost();
+    const executionOrder: string[] = [];
+
+    // 1. Enqueue a prior long-running operation in runTargetOperation
+    let unlockPriorOp: () => void = () => {};
+    const priorOpPromise = new Promise<void>((resolve) => {
+      unlockPriorOp = resolve;
+    });
+
+    const priorTask = host.runTargetOperation('tab-1', 'desktop', async () => {
+      executionOrder.push('prior_start');
+      await priorOpPromise;
+      executionOrder.push('prior_done');
+      return 'prior_result';
+    });
+
+    // Yield to allow priorTask to enter execution and push 'prior_start'
+    await new Promise<void>((resolve) => setImmediate(resolve));
+
+    // 2. Mock trajectory execution to track execution order
+    desktopWc.executeJavaScript = async (code: string) => {
+      if (code.includes('window.__antifanAgentTrajectory(')) {
+        executionOrder.push('trajectory_executed');
+        return { success: true, executedSteps: 2, totalSteps: 2 };
+      }
+      return true;
+    };
+
+    // 3. Dispatch trajectory while prior operation is still in-flight
+    const trajectoryPromise = host.dispatchAgentAction('trajectory', {
+      tabId: 'tab-1',
+      paneId: 'desktop',
+      steps: [
+        { action: 'move', x: 10, y: 20 },
+        { action: 'click', selector: 'button.checkout' },
+      ],
+    });
+
+    // Yield microtask to ensure trajectory promise is enqueued in runTargetOperation
+    await new Promise<void>((resolve) => setImmediate(resolve));
+
+    // Verify trajectory has NOT executed yet because prior operation is in-flight
+    assert.deepStrictEqual(executionOrder, ['prior_start'], 'Trajectory must wait in FIFO queue');
+
+    // 4. Release prior operation
+    unlockPriorOp();
+    await priorTask;
+
+    // 5. Await trajectory result bounded by hard Promise.race deadlock timeout
+    let timer: NodeJS.Timeout | undefined;
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => reject(new Error('Queue deadlock: trajectoryPromise failed to settle within 2000ms')), 2000);
+      timer.unref?.();
+    });
+
+    const trajRes = await Promise.race([trajectoryPromise, timeoutPromise]).finally(() => {
+      if (timer) clearTimeout(timer);
+    });
+
+    assert.strictEqual(trajRes.success, true, 'Trajectory must succeed');
+    assert.deepStrictEqual(
+      executionOrder,
+      ['prior_start', 'prior_done', 'trajectory_executed'],
+      'Execution order must be strictly FIFO'
+    );
+  });
 });

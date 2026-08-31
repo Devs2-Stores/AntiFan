@@ -3,6 +3,20 @@
 Tất cả các thay đổi, tính năng mới và bản vá lỗi quan trọng của AntiFan Browser Desktop.
 
 ---
+## [v1.3.3] - 2026-08-31 (Runtime Performance, Token Guarding & Modular TabHost)
+
+### Runtime Performance & Terminal Buffer Optimization
+- Tối ưu hoá $O(1)$ memory cho `safeSliceTailJsonBounded` trong `TerminalManager`: duyệt ngược 1 lần (single-pass reverse scan) tính toán chính xác byte size UTF-8, escape sequences (`\x1b[0m`), ký tự điều khiển và lone surrogates ES2019 ($0xD800..0xDFFF \rightarrow 6\text{ bytes}$), xử lý buffer 512KB+ dưới 4ms mà không cấp phát mảng lớn.
+- Bổ sung bảo vệ biên UTF-16 surrogate pairs cho `safeSliceTail`.
+
+### Token Guard & Semantic Ref Error Protection
+- Khắc phục triệt để nguy cơ rò rỉ toàn bộ DOM/`outerHTML` vào LLM context khi ref lookup thất bại: `SemanticRefRegistry` và `TabAutomationHost` trả về error payload cấu trúc ngắn gọn kèm gợi ý CSS selector.
+
+### Phân tách Modular Sub-Controllers cho NativeTabHost
+- Tách `TabAutomationHost` quản lý con trỏ AI trực quan (Visual Cursor), quỹ đạo Bézier (Bézier Trajectory), và thực thi World 1004 có bảo vệ hàng đợi FIFO.
+- Tách `TabDevToolsHost` quản lý Font Finder, Lens, Ruler, Picker, In-Page DOM/screenshot, và View Page Source.
+- Duy trì 100% public API parity và tương thích ngược hoàn hảo trên `NativeTabHost`.
+
 
 ## [v1.4.2] - 2026-08-28 (Annotation Popup Compact & Queue Prefix)
 
