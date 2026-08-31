@@ -103,7 +103,7 @@ describe('Workflow Engine', () => {
 
     const engine = new WorkflowEngine({ catalogue, artifacts });
 
-    files.write(root, 'app.config.json', JSON.stringify({ version: '1.0.0' }));
+    await files.write(root, 'app.config.json', JSON.stringify({ version: '1.0.0' }));
 
     const workflow: WorkflowDefinition = {
       version: '1.0',

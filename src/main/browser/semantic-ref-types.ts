@@ -100,13 +100,14 @@ export type IsolatedCollectionEnvelope =
     };
 
 export interface RendererActionRequest {
-  action: 'click' | 'hover' | 'type' | 'scroll' | 'highlight' | 'move';
+  action: 'click' | 'hover' | 'type' | 'scroll' | 'highlight' | 'move' | 'focus';
   ref?: string;
   selector?: string;
   x?: number;
   y?: number;
   text?: string;
   clear?: boolean;
+  trusted?: boolean;
   label?: string;
   deltaY?: number;
   nonce: string;
@@ -172,10 +173,20 @@ export function parseSemanticRefIndex(ref: string): number {
   return parseInt(ref.slice(2), 10);
 }
 
+export function sanitizeDomTextForPrompt(text: string): string {
+  const safeText = (text || '')
+    .replace(/]]>/g, ']]]]><![CDATA[>')
+    .replace(/<\/storefront_untrusted_dom>/gi, '')
+    .replace(/\[(SYSTEM|DEVELOPER|INSTRUCTION)\]/gi, '');
+  return `<storefront_untrusted_dom><![CDATA[${safeText}]]></storefront_untrusted_dom>`;
+}
+
 export function sanitizeLabel(rawLabel: string | undefined | null): string {
   if (!rawLabel) return '';
   return String(rawLabel)
     .replace(/[\r\n\t\x00-\x1F\x7F]+/g, ' ')
+    .replace(/<\/storefront_untrusted_dom>/gi, '')
+    .replace(/\[(SYSTEM|DEVELOPER|INSTRUCTION)\]/gi, '')
     .replace(/\s+/g, ' ')
     .trim()
     .slice(0, MAX_LABEL_LENGTH);
@@ -185,11 +196,18 @@ function escapeSnapshotMetaString(value: string | undefined | null): string {
   if (!value) return '';
   return String(value)
     .replace(/[\r\n\t\x00-\x1F\x7F]+/g, ' ')
+    .replace(/<\/storefront_untrusted_dom>/gi, '')
+    .replace(/\[(SYSTEM|DEVELOPER|INSTRUCTION)\]/gi, '')
+    .replace(/\s+/g, ' ')
     .replace(/\\/g, '\\\\')
     .replace(/"/g, '\\"')
     .trim();
 }
 
+export function formatSemanticSnapshotPrompt(descriptors: SemanticElementDescriptor[]): string {
+  const rawFormatted = formatSemanticSnapshot(descriptors);
+  return sanitizeDomTextForPrompt(rawFormatted);
+}
 export function formatSemanticSnapshot(descriptors: SemanticElementDescriptor[]): string {
   const lines: string[] = [];
   for (const desc of descriptors) {
@@ -343,7 +361,7 @@ export function validateActionRequest(request: unknown): RendererActionRequest {
     throw new CapabilityError('INVALID_ARGUMENT', 'RendererActionRequest must be an object');
   }
   const req = request as Partial<RendererActionRequest>;
-  const validActions = ['click', 'hover', 'type', 'scroll', 'highlight', 'move'];
+  const validActions = ['click', 'hover', 'type', 'scroll', 'highlight', 'move', 'focus'];
   if (!req.action || !validActions.includes(req.action)) {
     throw new CapabilityError('INVALID_ARGUMENT', `Invalid action: "${req.action}"`);
   }
@@ -401,7 +419,8 @@ export function validateActionRequest(request: unknown): RendererActionRequest {
     x: typeof req.x === 'number' ? req.x : undefined,
     y: typeof req.y === 'number' ? req.y : undefined,
     text: typeof req.text === 'string' ? req.text : undefined,
-    clear: Boolean(req.clear),
+    clear: req.clear !== undefined ? Boolean(req.clear) : undefined,
+    trusted: req.trusted !== undefined ? Boolean(req.trusted) : undefined,
     label: typeof req.label === 'string' ? sanitizeLabel(req.label) : undefined,
     deltaY: typeof req.deltaY === 'number' ? req.deltaY : undefined,
     nonce: validNonce,

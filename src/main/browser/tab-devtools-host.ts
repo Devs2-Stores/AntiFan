@@ -40,11 +40,8 @@ export class TabDevToolsHost {
   private isRulerActive: boolean = false;
   private isInspecting: boolean = false;
   private isProcessingInspectPick: boolean = false;
-  private isInspectPollInFlight: boolean = false;
   public inspectGeneration: number = 0;
   public inspectedTabId: string | null = null;
-  public inspectPollTimer: NodeJS.Timeout | null = null;
-
   constructor(ctx: TabDevToolsContext) {
     this.ctx = ctx;
   }
@@ -209,7 +206,6 @@ export class TabDevToolsHost {
     })();`;
     this.isInspecting = true;
     this.isProcessingInspectPick = false;
-    this.isInspectPollInFlight = false;
 
     const targetWcs: Array<{ wc: Electron.WebContents; paneId: SplitPaneId }> = [];
     if (active.view && !active.view.webContents.isDestroyed()) {
@@ -218,194 +214,211 @@ export class TabDevToolsHost {
     if (active.state.splitMode && active.mobileView && !active.mobileView.webContents.isDestroyed()) {
       targetWcs.push({ wc: active.mobileView.webContents, paneId: 'mobile' });
     }
-
-    for (const { wc } of targetWcs) {
+    for (const { wc, paneId } of targetWcs) {
       wc.executeJavaScript(`${termContextScript}\n${ELEMENT_PICKER_SCRIPT}`).catch(() => {});
+      this.attachInspectPickListener(activeTabId, wc, paneId, currentGeneration);
     }
     this.ctx.broadcastState();
-
-    if (this.inspectPollTimer) clearInterval(this.inspectPollTimer);
-    this.inspectPollTimer = setInterval(async () => {
-      if (!this.isInspecting || this.inspectGeneration !== currentGeneration || this.isProcessingInspectPick || this.isInspectPollInFlight) {
-        if ((!this.isInspecting || this.inspectGeneration !== currentGeneration) && this.inspectPollTimer) {
-          clearInterval(this.inspectPollTimer);
-          this.inspectPollTimer = null;
-        }
-        return;
-      }
-      this.isInspectPollInFlight = true;
-      try {
-        const liveSessions = TerminalManager.getInstance().listSessions();
-        const targetTabId = this.inspectedTabId || this.ctx.getActiveTabId();
-        const targetTab = this.ctx.getTabRecord(targetTabId);
-        if (!targetTab) return;
-
-        const currentWcs: Array<{ wc: Electron.WebContents; paneId: SplitPaneId }> = [];
-        if (targetTab.view && !targetTab.view.webContents.isDestroyed()) {
-          currentWcs.push({ wc: targetTab.view.webContents, paneId: 'desktop' });
-        }
-        if (targetTab.state.splitMode && targetTab.mobileView && !targetTab.mobileView.webContents.isDestroyed()) {
-          currentWcs.push({ wc: targetTab.mobileView.webContents, paneId: 'mobile' });
-        }
-
-        for (const { wc, paneId } of currentWcs) {
-          if (!this.isInspecting || this.inspectGeneration !== currentGeneration || this.isProcessingInspectPick) break;
-          if (wc.isDestroyed()) continue;
-          const currentCtx = await wc.executeJavaScript('window.__antifanTerminalContext?.annotationSessionId').catch(() => null);
-          if (this.inspectGeneration !== currentGeneration || !this.isInspecting) return;
-          if (typeof currentCtx === 'string' && (currentCtx === 'auto' || liveSessions.some((s) => s.id === currentCtx))) {
-            targetTab.state.terminalSessionId = currentCtx;
-          }
-          // Atomic consume: read and clear in a single JavaScript execution
-          const rawResult = await wc.executeJavaScript('(() => { const r = window.__antifanPick; window.__antifanPick = null; return r; })()').catch(() => null);
-          if (this.inspectGeneration !== currentGeneration || !this.isInspecting) return;
-          if (rawResult && !this.isProcessingInspectPick) {
-            this.stopInspect(targetTabId);
-            if (rawResult.canceled) {
-              this.isProcessingInspectPick = false;
-              return;
-            }
-
-            try {
-              if (targetTab.state.splitMode) {
-                targetTab.focusedPane = paneId;
-                targetTab.state.splitFocusedPane = paneId;
-                this.ctx.broadcastState();
-              }
-
-              if (typeof rawResult.targetSessionId === 'string' && (rawResult.targetSessionId === 'auto' || liveSessions.some((s) => s.id === rawResult.targetSessionId))) {
-                targetTab.state.terminalSessionId = rawResult.targetSessionId;
-              }
-
-              let targetImageBase64: string | undefined = rawResult.targetImageBase64 || rawResult.screenshotBase64;
-              let viewportImageBase64: string | undefined = rawResult.viewportImageBase64;
-
-              try {
-                const fullImage = await wc.capturePage();
-                if (!fullImage.isEmpty()) {
-                  viewportImageBase64 = fullImage.toPNG().toString('base64');
-                  const imgSize = fullImage.getSize();
-                  if (rawResult.clientRect && rawResult.clientRect.width > 0 && rawResult.clientRect.height > 0 && imgSize.width > 0 && imgSize.height > 0) {
-                    const domSize = await wc.executeJavaScript('({ w: window.innerWidth, h: window.innerHeight })').catch(() => null);
-                    const scaleX = (domSize && typeof domSize.w === 'number' && domSize.w > 0) ? (imgSize.width / domSize.w) : 1.0;
-                    const scaleY = (domSize && typeof domSize.h === 'number' && domSize.h > 0) ? (imgSize.height / domSize.h) : 1.0;
-
-                    const cropX = Math.max(0, Math.min(imgSize.width - 1, Math.floor(rawResult.clientRect.x * scaleX)));
-                    const cropY = Math.max(0, Math.min(imgSize.height - 1, Math.floor(rawResult.clientRect.y * scaleY)));
-                    const cropW = Math.max(1, Math.min(imgSize.width - cropX, Math.ceil(rawResult.clientRect.width * scaleX)));
-                    const cropH = Math.max(1, Math.min(imgSize.height - cropY, Math.ceil(rawResult.clientRect.height * scaleY)));
-
-                    const cropped = fullImage.crop({ x: cropX, y: cropY, width: cropW, height: cropH });
-                    if (!cropped.isEmpty()) {
-                      targetImageBase64 = cropped.toPNG().toString('base64');
-                    }
-                  }
-                }
-              } catch (err) {
-                console.error('[tab-devtools-host] capture and crop error:', err);
-              }
-              const tmActiveId = TerminalManager.getInstance().getActiveSessionId();
-              const targetSessionId = rawResult.targetSessionId || (tmActiveId !== 'auto' ? tmActiveId : undefined);
-              const targetWorkspace = this.ctx.resolveTargetWorkspace(targetSessionId, targetTab?.state.url);
-              const annotationWorkspace = this.ctx.resolveAnnotationWorkspace(targetSessionId, targetTab?.state.url);
-              const tabDiag = (this.ctx.getDiagnostics && typeof this.ctx.getDiagnostics === 'function')
-                ? this.ctx.getDiagnostics(targetTabId, 'error')
-                : { console: [], failures: [] };
-              const recentErrors = (tabDiag?.console || []).slice(-10).map((c) => ({
-                message: c.message,
-                source: c.source ? `${c.source}:${c.line}` : undefined,
-                level: c.level === 3 ? 'error' : 'warning',
-              }));
-              const recentFailures = (tabDiag?.failures || []).slice(-10).map((f) => ({
-                url: f.validatedURL,
-                error: f.errorDescription,
-                code: f.errorCode,
-              }));
-
-              const annotationResult = await AnnotationManager.getInstance().processAnnotationPayload({
-                ...rawResult,
-                url: targetTab.state.url,
-                title: targetTab.state.title,
-                targetImageBase64,
-                viewportImageBase64,
-                workspaceDir: annotationWorkspace,
-                runtimeErrors: rawResult.runtimeErrors || (recentErrors.length > 0 ? recentErrors : undefined),
-                resourceFailures: rawResult.resourceFailures || (recentFailures.length > 0 ? recentFailures : undefined),
-              });
-              const annotationPayload = stripDeliveryMode(rawResult);
-              const pickedData: AntiFanPickedElement = {
-                ...annotationPayload,
-                screenshotBase64: targetImageBase64,
-                markdownPath: annotationResult.markdownPath,
-                markdownContent: annotationResult.markdownContent,
-                targetImagePath: annotationResult.targetImagePath,
-                viewportImagePath: annotationResult.viewportImagePath,
-                userComment: rawResult.userComment,
-                timestamp: Date.now(),
-              };
-
-              if (this.ctx.emitElementPicked) {
-                this.ctx.emitElementPicked(pickedData);
-              }
-              if (this.ctx.sendToolbarElementPicked) {
-                this.ctx.sendToolbarElementPicked(pickedData);
-              }
-
-              const formatPath = (p?: string) => {
-                if (!p) return '';
-                if (targetWorkspace) {
-                  try {
-                    const rel = path.relative(targetWorkspace, p).replace(/\\/g, '/');
-                    if (!rel.startsWith('..') && !path.isAbsolute(rel)) {
-                      return rel.startsWith('.') ? rel : `./${rel}`;
-                    }
-                  } catch {}
-                }
-                return p.replace(/\\/g, '/');
-              };
-
-              const rawComment = rawResult.userComment?.trim() || 'Inspect the attached browser annotation, report observed evidence, and ask for the intended outcome before editing.';
-              const promptText = rawComment.replace(/^(\s*\/queue\b\s*)+/gi, '/queue ');
-              let fullPrompt = promptText;
-              if (annotationResult.markdownPath) {
-                fullPrompt += ` @${formatPath(annotationResult.markdownPath)}`;
-              }
-              if (annotationResult.targetImagePath) {
-                fullPrompt += ` @${formatPath(annotationResult.targetImagePath)}`;
-              }
-
-              dispatchAnnotationToTerminal(tm, targetSessionId, fullPrompt);
-
-              try {
-                clipboard.writeText(fullPrompt);
-              } catch {}
-            } finally {
-              this.isProcessingInspectPick = false;
-            }
-
-            break;
-          }
-        }
-      } catch {
-        if (this.inspectGeneration === currentGeneration) {
-          this.isProcessingInspectPick = false;
-        }
-      } finally {
-        if (this.inspectGeneration === currentGeneration) {
-          this.isInspectPollInFlight = false;
-        }
-      }
-    }, 150);
   }
 
-  public stopInspect(targetTabId?: string): void {
+  private async attachInspectPickListener(
+    targetTabId: string,
+    wc: Electron.WebContents,
+    paneId: SplitPaneId,
+    currentGeneration: number
+  ): Promise<void> {
+    try {
+      const waitScript = `(() => {
+        try {
+          if (typeof window.__antifanPickWaiterCleanup === 'function') {
+            window.__antifanPickWaiterCleanup();
+          }
+        } catch {}
+
+        return new Promise((resolve) => {
+          if (window.__antifanPick) {
+            const r = window.__antifanPick;
+            window.__antifanPick = null;
+            resolve(r);
+            return;
+          }
+          const cleanupWaiter = () => {
+            window.removeEventListener('antifan-pick-event', onPick);
+            try {
+              delete window.__antifanPickWaiterCleanup;
+            } catch {}
+          };
+          const onPick = (e) => {
+            cleanupWaiter();
+            const r = e.detail || window.__antifanPick || null;
+            window.__antifanPick = null;
+            resolve(r);
+          };
+          window.__antifanPickWaiterCleanup = () => {
+            cleanupWaiter();
+            resolve(null);
+          };
+          window.addEventListener('antifan-pick-event', onPick, { once: true });
+        });
+      })()`;
+      const rawResult = await wc.executeJavaScript(waitScript).catch(() => null);
+      if (this.inspectGeneration !== currentGeneration || !this.isInspecting) {
+        return;
+      }
+      if (rawResult && !this.isProcessingInspectPick) {
+        await this.handleInspectPickResult(targetTabId, wc, paneId, currentGeneration, rawResult);
+      }
+    } catch (err) {
+      console.error('[tab-devtools-host] attachInspectPickListener error:', err);
+    }
+  }
+
+  private async handleInspectPickResult(
+    targetTabId: string,
+    wc: Electron.WebContents,
+    paneId: SplitPaneId,
+    currentGeneration: number,
+    rawResult: any
+  ): Promise<void> {
+    if (this.isProcessingInspectPick) return;
+    this.isProcessingInspectPick = true;
+    this.stopInspect(targetTabId, true);
+    if (rawResult.canceled) {
+      this.isProcessingInspectPick = false;
+      return;
+    }
+
+    try {
+      const targetTab = this.ctx.getTabRecord(targetTabId);
+      if (!targetTab) return;
+      const liveSessions = TerminalManager.getInstance().listSessions();
+
+      if (targetTab.state.splitMode) {
+        targetTab.focusedPane = paneId;
+        targetTab.state.splitFocusedPane = paneId;
+        this.ctx.broadcastState();
+      }
+
+      if (typeof rawResult.targetSessionId === 'string' && (rawResult.targetSessionId === 'auto' || liveSessions.some((s) => s.id === rawResult.targetSessionId))) {
+        targetTab.state.terminalSessionId = rawResult.targetSessionId;
+      }
+
+      let targetImageBase64: string | undefined = rawResult.targetImageBase64 || rawResult.screenshotBase64;
+      let viewportImageBase64: string | undefined = rawResult.viewportImageBase64;
+
+      try {
+        if (!wc.isDestroyed()) {
+          const fullImage = await wc.capturePage();
+          if (!fullImage.isEmpty()) {
+            viewportImageBase64 = fullImage.toPNG().toString('base64');
+            const imgSize = fullImage.getSize();
+            if (rawResult.clientRect && rawResult.clientRect.width > 0 && rawResult.clientRect.height > 0 && imgSize.width > 0 && imgSize.height > 0) {
+              const domSize = await wc.executeJavaScript('({ w: window.innerWidth, h: window.innerHeight })').catch(() => null);
+              const scaleX = (domSize && typeof domSize.w === 'number' && domSize.w > 0) ? (imgSize.width / domSize.w) : 1.0;
+              const scaleY = (domSize && typeof domSize.h === 'number' && domSize.h > 0) ? (imgSize.height / domSize.h) : 1.0;
+
+              const cropX = Math.max(0, Math.min(imgSize.width - 1, Math.floor(rawResult.clientRect.x * scaleX)));
+              const cropY = Math.max(0, Math.min(imgSize.height - 1, Math.floor(rawResult.clientRect.y * scaleY)));
+              const cropW = Math.max(1, Math.min(imgSize.width - cropX, Math.ceil(rawResult.clientRect.width * scaleX)));
+              const cropH = Math.max(1, Math.min(imgSize.height - cropY, Math.ceil(rawResult.clientRect.height * scaleY)));
+
+              const cropped = fullImage.crop({ x: cropX, y: cropY, width: cropW, height: cropH });
+              if (!cropped.isEmpty()) {
+                targetImageBase64 = cropped.toPNG().toString('base64');
+              }
+            }
+          }
+        }
+      } catch (err) {
+        console.error('[tab-devtools-host] capture and crop error:', err);
+      }
+
+      const tm = TerminalManager.getInstance();
+      const tmActiveId = tm.getActiveSessionId();
+      const targetSessionId = rawResult.targetSessionId || (tmActiveId !== 'auto' ? tmActiveId : undefined);
+      const targetWorkspace = this.ctx.resolveTargetWorkspace(targetSessionId, targetTab?.state.url);
+      const annotationWorkspace = this.ctx.resolveAnnotationWorkspace(targetSessionId, targetTab?.state.url);
+      const tabDiag = (this.ctx.getDiagnostics && typeof this.ctx.getDiagnostics === 'function')
+        ? this.ctx.getDiagnostics(targetTabId, 'error')
+        : { console: [], failures: [] };
+      const recentErrors = (tabDiag?.console || []).slice(-10).map((c) => ({
+        message: c.message,
+        source: c.source ? `${c.source}:${c.line}` : undefined,
+        level: c.level === 3 ? 'error' : 'warning',
+      }));
+      const recentFailures = (tabDiag?.failures || []).slice(-10).map((f) => ({
+        url: f.validatedURL,
+        error: f.errorDescription,
+        code: f.errorCode,
+      }));
+
+      const annotationResult = await AnnotationManager.getInstance().processAnnotationPayload({
+        ...rawResult,
+        url: targetTab.state.url,
+        title: targetTab.state.title,
+        targetImageBase64,
+        viewportImageBase64,
+        workspaceDir: annotationWorkspace,
+        runtimeErrors: rawResult.runtimeErrors || (recentErrors.length > 0 ? recentErrors : undefined),
+        resourceFailures: rawResult.resourceFailures || (recentFailures.length > 0 ? recentFailures : undefined),
+      });
+      const annotationPayload = stripDeliveryMode(rawResult);
+      const pickedData: AntiFanPickedElement = {
+        ...annotationPayload,
+        screenshotBase64: targetImageBase64,
+        markdownPath: annotationResult.markdownPath,
+        markdownContent: annotationResult.markdownContent,
+        targetImagePath: annotationResult.targetImagePath,
+        viewportImagePath: annotationResult.viewportImagePath,
+        userComment: rawResult.userComment,
+        timestamp: Date.now(),
+      };
+
+      if (this.ctx.emitElementPicked) {
+        this.ctx.emitElementPicked(pickedData);
+      }
+      if (this.ctx.sendToolbarElementPicked) {
+        this.ctx.sendToolbarElementPicked(pickedData);
+      }
+
+      const formatPath = (p?: string) => {
+        if (!p) return '';
+        if (targetWorkspace) {
+          try {
+            const rel = path.relative(targetWorkspace, p).replace(/\\/g, '/');
+            if (!rel.startsWith('..') && !path.isAbsolute(rel)) {
+              return rel.startsWith('.') ? rel : `./${rel}`;
+            }
+          } catch {}
+        }
+        return p.replace(/\\/g, '/');
+      };
+
+      const rawComment = rawResult.userComment?.trim() || 'Inspect the attached browser annotation, report observed evidence, and ask for the intended outcome before editing.';
+      const promptText = rawComment.replace(/^(\s*\/queue\b\s*)+/gi, '/queue ');
+      let fullPrompt = promptText;
+      if (annotationResult.markdownPath) {
+        fullPrompt += ` @${formatPath(annotationResult.markdownPath)}`;
+      }
+      if (annotationResult.targetImagePath) {
+        fullPrompt += ` @${formatPath(annotationResult.targetImagePath)}`;
+      }
+
+      dispatchAnnotationToTerminal(tm, targetSessionId, fullPrompt);
+
+      try {
+        clipboard.writeText(fullPrompt);
+      } catch {}
+    } finally {
+      this.isProcessingInspectPick = false;
+    }
+  }
+
+  public stopInspect(targetTabId?: string, preserveProcessingLock: boolean = false): void {
     this.inspectGeneration++;
     this.isInspecting = false;
-    this.isProcessingInspectPick = false;
-    this.isInspectPollInFlight = false;
-    if (this.inspectPollTimer) {
-      clearInterval(this.inspectPollTimer);
-      this.inspectPollTimer = null;
+    if (!preserveProcessingLock) {
+      this.isProcessingInspectPick = false;
     }
     const tabIdToClean = targetTabId || this.inspectedTabId || this.ctx.getActiveTabId();
     this.inspectedTabId = null;
@@ -413,6 +426,7 @@ export class TabDevToolsHost {
     if (target) {
       const cleanScript = `(() => {
         try { if (typeof window.__antifanPickerCleanup === 'function') window.__antifanPickerCleanup(); } catch {}
+        try { if (typeof window.__antifanPickWaiterCleanup === 'function') window.__antifanPickWaiterCleanup(); } catch {}
         document.querySelectorAll('#antifan-inspect-overlay, #antifan-inspect-badge, #antifan-comment-modal, #antifan-multi-dock, .antifan-element-pin').forEach(el => {
           try { el.remove(); } catch {}
         });
@@ -817,24 +831,24 @@ export class TabDevToolsHost {
       } catch {}
     }
 
-    const newTabId = this.ctx.createTab(`view-source:${sourceUrl}`);
-    if (newTabId && initialHtml) {
+    const newTabId = this.ctx.createTab('about:blank');
+    if (newTabId) {
       const newTab = this.ctx.getTabRecord(newTabId);
       if (newTab && !newTab.view.webContents.isDestroyed()) {
-        this.fetchAndLoadPageSource(newTab.view.webContents, sourceUrl, newTab.state, initialHtml);
+        newTab.state.url = `view-source:${sourceUrl}`;
+        newTab.state.title = `view-source:${sourceUrl}`;
+        newTab.state.isLoading = true;
+        this.ctx.broadcastState();
+        await this.fetchAndLoadPageSource(newTab.view.webContents, sourceUrl, newTab.state, initialHtml);
       }
     }
     return newTabId;
   }
 
   public dispose(): void {
-    if (this.inspectPollTimer) {
-      clearInterval(this.inspectPollTimer);
-      this.inspectPollTimer = null;
-    }
+    this.stopInspect(this.inspectedTabId || undefined);
     this.isInspecting = false;
     this.isProcessingInspectPick = false;
-    this.isInspectPollInFlight = false;
     this.isFontFinderActive = false;
     this.isLensActive = false;
     this.isRulerActive = false;

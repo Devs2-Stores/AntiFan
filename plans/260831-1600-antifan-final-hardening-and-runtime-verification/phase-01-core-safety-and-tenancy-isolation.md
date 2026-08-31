@@ -1,7 +1,7 @@
 ---
 phase: 1
 title: "Core Safety & Tenancy Isolation"
-status: pending
+status: completed
 priority: P0
 effort: "4h"
 dependencies: []
@@ -107,8 +107,8 @@ graph TD
 ---
 
 ## Success Criteria
-- [ ] `file.read` and `file.write` without context throw `WORKSPACE_UNBOUND` with 100% certainty.
-- [ ] `AnnotationManager` never writes artifacts to `process.cwd()` or ambient parent directories.
-- [ ] 1000 rapid file write operations under active file watcher complete with 0 `EBUSY`/`EPERM` unhandled exceptions and 0 spurious watcher reloads.
-- [ ] Storefront DOM elements containing `[SYSTEM]` or `</storefront_untrusted_dom>` are safely neutralized inside XML CDATA blocks.
-- [ ] Tab devtools host operates with 0 continuous polling timers.
+- [x] `file.read` and `file.write` without context throw `WORKSPACE_UNBOUND` with 100% certainty.
+- [x] `AnnotationManager` never writes artifacts to `process.cwd()` or ambient parent directories.
+- [x] 1000 rapid file write operations under active file watcher complete with 0 `EBUSY`/`EPERM` unhandled exceptions and 0 spurious watcher reloads.
+- [x] Storefront DOM elements containing `[SYSTEM]` or `</storefront_untrusted_dom>` are safely neutralized inside XML CDATA blocks.
+- [x] Tab devtools host operates with 0 continuous polling timers.

@@ -4,6 +4,7 @@ import { EventEmitter } from 'node:events';
 import { NativeTabHost } from '../../src/main/browser/native-tab-host';
 import { SemanticRefRegistry } from '../../src/main/browser/semantic-ref-registry';
 import { SplitNavigationCoordinator } from '../../src/main/browser/split-review-coordinator';
+import { FirstPartyNetworkTracker } from '../../src/main/browser/first-party-network-tracker';
 import { AntiFanTab } from '../../src/shared/contracts';
 type PrivateHostMethods = {
   setupTabWebContentsEvents: (id: string, view: unknown, state: unknown, paneId: string) => void;
@@ -34,7 +35,7 @@ function createTestHost() {
     insertCSS: async () => '',
     setUserAgent: (_ua: string) => {},
     setWindowOpenHandler: () => {},
-    debugger: { isAttached: () => false, attach: () => {}, sendCommand: async () => {} },
+    debugger: Object.assign(new EventEmitter(), { isAttached: () => false, attach: () => {}, sendCommand: async () => {} }),
     destroy: () => {},
   });
   const mobileWc = Object.assign(new EventEmitter(), {
@@ -57,7 +58,7 @@ function createTestHost() {
     insertCSS: async () => '',
     setUserAgent: (_ua: string) => {},
     setWindowOpenHandler: () => {},
-    debugger: { isAttached: (): boolean => false, attach: () => {}, sendCommand: async (_command?: string, _params?: any): Promise<any> => {} },
+    debugger: Object.assign(new EventEmitter(), { isAttached: (): boolean => false, attach: () => {}, sendCommand: async (_command?: string, _params?: any): Promise<any> => {} }),
     destroy: () => {},
   });
   const desktopView = {
@@ -94,13 +95,12 @@ function createTestHost() {
   host.semanticDocumentGenerations = new Map();
   host.semanticRefRegistry = new SemanticRefRegistry();
   host.targetOperationQueues = new Map();
+  host.networkTracker = new FirstPartyNetworkTracker();
   host.persistTabs = () => {};
   host.inspectGeneration = 0;
   host.isInspecting = false;
   host.isProcessingInspectPick = false;
-  host.isInspectPollInFlight = false;
   host.inspectedTabId = null;
-  host.inspectPollTimer = null;
   host.programmaticNavigations = new Map();
   host.tabPreviewUnsubscribers = new Map();
   host.toolbarView = {
@@ -575,11 +575,21 @@ describe('NativeTabHost Split Review Integration', () => {
   it('awaits desktop load completion in reloadAndWait, ignoring premature navigation start', async () => {
     const { host, desktopWc } = createTestHost();
 
-    let reloadPromise = host.reloadAndWait('tab-split-1');
+    let reloadInitiatedResolve: () => void = () => {};
+    const reloadInitiated = new Promise<void>((resolve) => {
+      reloadInitiatedResolve = resolve;
+    });
+    desktopWc.reload = () => {
+      reloadInitiatedResolve();
+    };
+
     let isResolved = false;
+    const reloadPromise = host.reloadAndWait('tab-split-1');
     reloadPromise.then(() => {
       isResolved = true;
     });
+
+    await reloadInitiated;
 
     // Emitting did-start-navigation must NOT resolve reloadAndWait
     desktopWc.emit('did-start-navigation', {}, 'https://example.com/updated', false, true);
@@ -608,11 +618,21 @@ describe('NativeTabHost Split Review Integration', () => {
     assert.strictEqual(navResult, true);
 
     // 2. reloadAndWait awaits did-finish-load on mobile WebContents
-    let reloadPromise = host.reloadAndWait('tab-split-1');
+    let mobileReloadInitiatedResolve: () => void = () => {};
+    const mobileReloadInitiated = new Promise<void>((resolve) => {
+      mobileReloadInitiatedResolve = resolve;
+    });
+    mobileWc.reload = () => {
+      mobileReloadInitiatedResolve();
+    };
+
     let isResolved = false;
+    const reloadPromise = host.reloadAndWait('tab-split-1');
     reloadPromise.then(() => {
       isResolved = true;
     });
+
+    await mobileReloadInitiated;
 
     // Desktop finish load does not resolve mobile authority reload
     desktopWc.emit('did-finish-load');
@@ -629,21 +649,37 @@ describe('NativeTabHost Split Review Integration', () => {
     const { host, desktopWc } = createTestHost();
 
     // 1. Subframe failure is ignored; subsequent finish-load resolves true
-    let reloadPromise1 = host.reloadAndWait('tab-split-1');
+    let reload1InitiatedResolve: () => void = () => {};
+    const reload1Initiated = new Promise<void>((resolve) => {
+      reload1InitiatedResolve = resolve;
+    });
+    desktopWc.reload = () => {
+      reload1InitiatedResolve();
+    };
+    const reloadPromise1 = host.reloadAndWait('tab-split-1');
+    await reload1Initiated;
     desktopWc.emit('did-fail-load', {}, -105, 'NAME_NOT_RESOLVED', 'https://example.com/subframe', false);
     desktopWc.emit('did-finish-load');
     const result1 = await reloadPromise1;
     assert.strictEqual(result1, true, 'Subframe did-fail-load must not fail reloadAndWait');
 
     // 2. Main-frame failure resolves false
-    let reloadPromise2 = host.reloadAndWait('tab-split-1');
+    let reload2InitiatedResolve: () => void = () => {};
+    const reload2Initiated = new Promise<void>((resolve) => {
+      reload2InitiatedResolve = resolve;
+    });
+    desktopWc.reload = () => {
+      reload2InitiatedResolve();
+    };
+    const reloadPromise2 = host.reloadAndWait('tab-split-1');
+    await reload2Initiated;
     desktopWc.emit('did-fail-load', {}, -105, 'NAME_NOT_RESOLVED', 'https://example.com/main', true);
     const result2 = await reloadPromise2;
     assert.strictEqual(result2, false, 'Main-frame did-fail-load must resolve false');
 
     // 3. Bounded timeout resolves false and cleans up listeners
-    let reloadPromise3 = host.reloadAndWait('tab-split-1', 30);
-    const result3 = await reloadPromise3;
+    desktopWc.reload = () => {};
+    const result3 = await host.reloadAndWait('tab-split-1', 30);
     assert.strictEqual(result3, false, 'Timeout must resolve false');
 
     // Late finish load event after timeout should not throw or alter settled state
@@ -745,13 +781,13 @@ describe('NativeTabHost Split Review Integration', () => {
     const { host, mobileWc } = createTestHost();
     const sentCommands: Array<{ command: string; params?: any }> = [];
 
-    mobileWc.debugger = {
+    mobileWc.debugger = Object.assign(new EventEmitter(), {
       isAttached: (): boolean => true,
       attach: () => {},
       sendCommand: async (_command?: string, params?: any): Promise<any> => {
         sentCommands.push({ command: _command || '', params });
       },
-    };
+    });
 
     // 1. Invoke applyCdpTouchEmulation with true (as called in split mobile mode)
     await (NativeTabHost.prototype as any).applyCdpTouchEmulation.call(host, mobileWc, true);

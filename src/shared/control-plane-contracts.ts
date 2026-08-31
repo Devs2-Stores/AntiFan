@@ -263,6 +263,8 @@ export type CapabilityErrorCode =
   | 'LEASE_EXPIRED'
   | 'PROJECT_MISMATCH'
   | 'WORKSPACE_MISMATCH'
+  | 'WORKSPACE_UNBOUND'
+  | 'FILE_LOCK_TIMEOUT'
   | 'RUNTIME_MISMATCH'
   | 'TARGET_REQUIRED'
   | 'TARGET_STALE'
@@ -288,7 +290,6 @@ export type CapabilityErrorCode =
   | 'NODE_DETACHED'
   | 'CAPABILITY_OVERLOADED'
   | 'PREEMPTED_BY_USER';
-
 export class CapabilityError extends Error {
   readonly code: CapabilityErrorCode;
   readonly details?: Record<string, unknown>;

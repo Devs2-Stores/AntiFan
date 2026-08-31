@@ -13,6 +13,7 @@ import {
   validateUuid,
   validateTargetVersions,
   formatSemanticSnapshot,
+  formatSemanticSnapshotPrompt,
   validateRawDescriptor,
   RawElementDescriptor,
   SemanticElementDescriptor,
@@ -247,7 +248,7 @@ export class SemanticRefRegistry {
       refs.push(refToken);
     }
 
-    const formattedText = formatSemanticSnapshot(descriptorsList);
+    const formattedText = formatSemanticSnapshotPrompt(descriptorsList);
     const snapshotId = `snap-${crypto.randomUUID()}`;
     const record: SemanticSnapshotRecord = {
       targetKey,

@@ -1,5 +1,6 @@
 import { describe, it } from 'node:test';
-import * as assert from 'node:assert';
+import * as assert from 'node:assert/strict';
+import * as vm from 'node:vm';
 import { BrokenAssetScanner, BrokenAssetScanResult } from '../../src/main/qa/scanners/broken-asset-scanner';
 
 describe('BrokenAssetScanner', () => {
@@ -25,10 +26,73 @@ describe('BrokenAssetScanner', () => {
     assert.strictEqual(correlated.brokenAssets[2]?.type, 'font');
   });
 
-  it('provides a valid executable browser scan script', () => {
-    const script = BrokenAssetScanner.getBrowserScanScript();
-    assert.ok(script.startsWith('(() => {'));
-    assert.ok(script.endsWith('})()'));
-    assert.ok(script.includes('data:image/svg+xml'));
+  it('compiles and executes browser scan script in contract-complete DOM sandbox', () => {
+    const scriptText = BrokenAssetScanner.getBrowserScanScript();
+    const script = new vm.Script(scriptText);
+
+    // Contract-complete mock DOM environment
+    const mockDocument = {
+      querySelectorAll: (sel: string) => {
+        if (sel === 'img') {
+          return [
+            {
+              tagName: 'IMG',
+              id: 'broken-hero-img',
+              className: 'hero-img',
+              src: 'https://example.com/broken.jpg',
+              naturalWidth: 0,
+              naturalHeight: 0,
+              complete: true,
+              getAttribute: (_attr: string) => null,
+              closest: (_sel: string) => null,
+              outerHTML: '<img id="broken-hero-img" src="https://example.com/broken.jpg">',
+            },
+            {
+              tagName: 'IMG',
+              id: 'valid-product-img',
+              className: 'product-img',
+              src: 'https://example.com/valid.jpg',
+              naturalWidth: 200,
+              naturalHeight: 100,
+              complete: true,
+              getAttribute: (_attr: string) => null,
+              closest: (_sel: string) => null,
+              outerHTML: '<img id="valid-product-img" src="https://example.com/valid.jpg">',
+            },
+          ];
+        }
+        if (sel === 'link[rel="stylesheet"]') {
+          return [
+            {
+              tagName: 'LINK',
+              href: 'https://example.com/style.css',
+              sheet: {},
+              disabled: false,
+              getAttribute: (attr: string) => (attr === 'href' ? 'https://example.com/style.css' : null),
+              outerHTML: '<link rel="stylesheet" href="https://example.com/style.css">',
+            },
+          ];
+        }
+        return [];
+      },
+    };
+
+    const sandbox = {
+      document: mockDocument,
+      window: {},
+      console: { log: () => {}, error: () => {} },
+    };
+    const context = vm.createContext(sandbox);
+    const result = script.runInContext(context) as BrokenAssetScanResult;
+
+    assert.ok(result, 'Script must return scan result object');
+    assert.strictEqual(result.hasBrokenAssets, true, 'Must detect 1 broken image');
+    assert.strictEqual(result.brokenAssets.length, 1);
+    const firstBroken = result.brokenAssets[0];
+    assert.ok(firstBroken);
+    assert.strictEqual(firstBroken.url, 'https://example.com/broken.jpg');
+    assert.strictEqual(firstBroken.elementSelector, 'img#broken-hero-img');
+    assert.strictEqual(result.totalImagesScanned, 2);
+    assert.strictEqual(result.totalStylesheetsScanned, 1);
   });
 });

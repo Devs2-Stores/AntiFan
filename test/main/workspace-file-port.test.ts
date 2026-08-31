@@ -7,7 +7,7 @@ import { WorkspaceFilePort } from '../../src/main/tools/workspace-file-port';
 import { CapabilityError } from '../../src/shared/control-plane-contracts';
 
 describe('Workspace file port', () => {
-  it('rejects absolute/traversal writes and stages bounded attachments', () => {
+  it('rejects absolute/traversal writes and stages bounded attachments', async () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-files-'));
     try {
       fs.writeFileSync(path.join(root, 'theme.css'), 'body { color: red; }'); // 20 bytes
@@ -32,23 +32,22 @@ describe('Workspace file port', () => {
       assert.strictEqual(truncatedRead.truncated, true);
 
       // Write within workspace
-      port.write(root, 'assets/style.css', '.header { font-size: 16px; }');
+      await port.write(root, 'assets/style.css', '.header { font-size: 16px; }');
       assert.strictEqual(fs.readFileSync(path.join(root, 'assets', 'style.css'), 'utf8'), '.header { font-size: 16px; }');
 
       // Write exact-limit success vs one-byte-over rejection
       const smallPort = new WorkspaceFilePort(10);
-      const exactWrite = smallPort.write(root, 'exact-10.txt', '0123456789'); // exactly 10 bytes
+      const exactWrite = await smallPort.write(root, 'exact-10.txt', '0123456789'); // exactly 10 bytes
       assert.strictEqual(exactWrite.byteLength, 10);
       assert.strictEqual(fs.readFileSync(path.join(root, 'exact-10.txt'), 'utf8'), '0123456789');
 
-      assert.throws(
-        () => smallPort.write(root, 'oversized.txt', '0123456789+'), // 11 bytes -> exceeds 10 bytes limit
+      await assert.rejects(
+        async () => smallPort.write(root, 'oversized.txt', '0123456789+'), // 11 bytes -> exceeds 10 bytes limit
         (error: unknown) => error instanceof CapabilityError && (error as CapabilityError).code === 'ARTIFACT_TOO_LARGE'
       );
 
       // Reject traversal write
-      assert.throws(() => port.write(root, '../../evil.sh', 'rm -rf /'), (error: unknown) => error instanceof CapabilityError);
-
+      await assert.rejects(async () => port.write(root, '../../evil.sh', 'rm -rf /'), (error: unknown) => error instanceof CapabilityError);
       // stageAttachment validation with default limit
       const artifact = port.stageAttachment(root, 'theme.css', 'run-12345678901234567890', 'attempt-12345678901234567890');
       assert.strictEqual(artifact.kind, 'attachment');

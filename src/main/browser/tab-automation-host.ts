@@ -200,6 +200,83 @@ export class TabAutomationHost {
     }
     throw new CapabilityError('CAPABILITY_NOT_FOUND', 'Isolated world execution (world 1004) is not supported in this WebContents environment');
   }
+  private async executeTrustedType(
+    wc: Electron.WebContents,
+    focusScript: string,
+    text: string,
+    clear?: boolean
+  ): Promise<{ success: boolean; data?: unknown; reason?: string }> {
+    // 1. Focus element and select in isolated world
+    const rawRes = await this.executeInIsolatedWorld(wc, focusScript);
+    const res = validateActionResponse(rawRes);
+    if (!res.ok) {
+      return { success: false, reason: res.error || 'Failed to focus element for trusted type' };
+    }
+
+    // 2. Attach debugger if needed
+    if (!wc.debugger) {
+      return { success: false, reason: 'Debugger interface not available on WebContents' };
+    }
+    if (!wc.debugger.isAttached()) {
+      try {
+        wc.debugger.attach('1.3');
+      } catch (attachErr) {
+        return {
+          success: false,
+          reason: `Failed to attach debugger for trusted input: ${attachErr instanceof Error ? attachErr.message : String(attachErr)}`,
+        };
+      }
+    }
+
+    // 3. If clear is requested, send CDP SelectAll + Backspace to generate authentic trusted deletion events
+    if (clear) {
+      try {
+        const isMac = process.platform === 'darwin';
+        const modifierFlag = isMac ? 4 : 2; // Meta (4) on Darwin, Control (2) on Win/Linux
+        await wc.debugger.sendCommand('Input.dispatchKeyEvent', {
+          type: 'keyDown',
+          modifiers: modifierFlag,
+          windowsVirtualKeyCode: 65,
+          code: 'KeyA',
+          key: 'a',
+        });
+        await wc.debugger.sendCommand('Input.dispatchKeyEvent', {
+          type: 'keyUp',
+          modifiers: modifierFlag,
+          windowsVirtualKeyCode: 65,
+          code: 'KeyA',
+          key: 'a',
+        });
+        await wc.debugger.sendCommand('Input.dispatchKeyEvent', {
+          type: 'keyDown',
+          windowsVirtualKeyCode: 8,
+          code: 'Backspace',
+          key: 'Backspace',
+        });
+        await wc.debugger.sendCommand('Input.dispatchKeyEvent', {
+          type: 'keyUp',
+          windowsVirtualKeyCode: 8,
+          code: 'Backspace',
+          key: 'Backspace',
+        });
+      } catch (clearErr) {
+        return {
+          success: false,
+          reason: `CDP trusted clear failed: ${clearErr instanceof Error ? clearErr.message : String(clearErr)}`,
+        };
+      }
+    }
+    // 4. Issue CDP Input.insertText exactly once
+    try {
+      await wc.debugger.sendCommand('Input.insertText', { text });
+      return { success: true, data: { ok: true, executed: true, tier: 'cdp_trusted', rect: res.rect } };
+    } catch (cdpErr) {
+      return {
+        success: false,
+        reason: `CDP Input.insertText failed: ${cdpErr instanceof Error ? cdpErr.message : String(cdpErr)}`,
+      };
+    }
+  }
 
   public async dispatchAgentAction(
     action: 'click' | 'type' | 'move' | 'hover' | 'scroll' | 'highlight' | 'clear' | 'trajectory',
@@ -210,6 +287,7 @@ export class TabAutomationHost {
       y?: number;
       text?: string;
       clear?: boolean;
+      trusted?: boolean;
       deltaY?: number;
       label?: string;
       tabId?: string;
@@ -265,12 +343,29 @@ export class TabAutomationHost {
           }
 
           try {
+            if (params.trusted && action === 'type' && typeof params.text === 'string') {
+              const focusScript = buildIsolatedExecutorScript({
+                action: 'focus',
+                ref: refToken,
+                descriptor,
+                clear: params.clear,
+                documentUrl: curUrl,
+                nonce: descriptor.nonce,
+              });
+              const trustedRes = await this.executeTrustedType(wc, focusScript, params.text, params.clear);
+              if (this.ctx.getSemanticDocumentGeneration(targetId, effectivePane) !== curGen || wc.isDestroyed()) {
+                return { success: false, reason: 'Document navigated during action execution' };
+              }
+              return trustedRes;
+            }
+
             const script = buildIsolatedExecutorScript({
               action: action as any,
               ref: refToken,
               descriptor,
               text: params.text,
               clear: params.clear,
+              trusted: params.trusted,
               deltaY: params.deltaY,
               documentUrl: curUrl,
               nonce: descriptor.nonce,
@@ -318,6 +413,23 @@ export class TabAutomationHost {
             })()`);
             return { success: true };
           }
+          if (params.trusted && action === 'type' && typeof params.text === 'string') {
+            const focusScript = buildIsolatedExecutorScript({
+              action: 'focus',
+              selector: params.selector,
+              x: params.x,
+              y: params.y,
+              clear: params.clear,
+              documentUrl: wc.getURL(),
+              nonce: generateCollectionNonce(),
+            });
+            const curGen = this.ctx.getSemanticDocumentGeneration(targetId, effectivePane);
+            const trustedRes = await this.executeTrustedType(wc, focusScript, params.text, params.clear);
+            if (this.ctx.getSemanticDocumentGeneration(targetId, effectivePane) !== curGen || wc.isDestroyed()) {
+              return { success: false, reason: 'Document navigated during action execution' };
+            }
+            return trustedRes;
+          }
 
           const script = buildIsolatedExecutorScript({
             action: action as any,
@@ -330,7 +442,6 @@ export class TabAutomationHost {
             documentUrl: wc.getURL(),
             nonce: generateCollectionNonce(),
           });
-
           const rawRes = await this.executeInIsolatedWorld(wc, script);
           const res = validateActionResponse(rawRes);
           if (!res.ok) {
@@ -345,16 +456,15 @@ export class TabAutomationHost {
     });
   }
 
-  public async agentClick(params: { selector?: string; ref?: string; x?: number; y?: number; label?: string; tabId?: string; paneId?: SplitPaneId }): Promise<boolean> {
+  public async agentClick(params: { selector?: string; ref?: string; x?: number; y?: number; label?: string; trusted?: boolean; tabId?: string; paneId?: SplitPaneId }): Promise<boolean> {
     const res = await this.dispatchAgentAction('click', params);
     return res.success;
   }
 
-  public async agentType(params: { selector?: string; ref?: string; text: string; clear?: boolean; tabId?: string; paneId?: SplitPaneId }): Promise<boolean> {
+  public async agentType(params: { selector?: string; ref?: string; text: string; clear?: boolean; trusted?: boolean; tabId?: string; paneId?: SplitPaneId }): Promise<boolean> {
     const res = await this.dispatchAgentAction('type', params);
     return res.success;
   }
-
   public async agentScroll(params: { deltaY?: number; selector?: string; ref?: string; tabId?: string; paneId?: SplitPaneId }): Promise<boolean> {
     const res = await this.dispatchAgentAction('scroll', params);
     return res.success;

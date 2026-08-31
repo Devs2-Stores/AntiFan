@@ -1,4 +1,4 @@
-import { BrowserTarget, CapabilityRequestContext } from '../../shared/control-plane-contracts';
+import { BrowserTarget, CapabilityRequestContext, CapabilityError } from '../../shared/control-plane-contracts';
 import { BrowserControlPort } from './browser-control-port';
 import { CapabilityCatalogue } from './capability-catalogue';
 import { PlatformDetector } from '../qa/scanners/platform-detector';
@@ -7,7 +7,8 @@ import { BrokenAssetScanner, BrokenAssetScanResult } from '../qa/scanners/broken
 import { LayoutOverflowEngine, ViewportOverflowResult } from '../qa/scanners/layout-overflow-engine';
 import { HsGateRules, HsEvaluationResult } from '../qa/rules/hs-gate-rules';
 import type { ThemeQaWorkflow } from '../qa/theme-qa-workflow';
-import { classifyDiagnostics, confineWorkspaceRoot, DiagnosticsInput } from '../qa/diagnostics-filter';
+import { ThemeQaRepairCoordinator } from '../qa/theme-qa-repair-coordinator';
+import { classifyDiagnostics, confineWorkspaceRoot, extractCorrelatableAssetFailures, DiagnosticsInput } from '../qa/diagnostics-filter';
 function getThemeHierarchyScript(): string {
   return `(() => {
     const template = document.documentElement?.getAttribute('data-template')
@@ -69,6 +70,10 @@ export async function buildFallbackThemeQaResult(
   } catch {
     // Host không hỗ trợ diagnostics → rỗng, không fail (giữ back-compat)
   }
+  if (Array.isArray(diag.failures) && diag.failures.length > 0) {
+    const mappedFailures = extractCorrelatableAssetFailures(diag.failures, contextUrl);
+    assets = BrokenAssetScanner.correlateWithNetworkFailures(assets, mappedFailures);
+  }
   const diagResult = classifyDiagnostics(diag, contextUrl);
   // CÔNG THỨC GIỐNG HỆT theme-qa-workflow.validate (Finding 6 parity):
   // checklist → passed = mọi hạng mục; criticalCount gồm HS errors + Liquid
@@ -80,7 +85,7 @@ export async function buildFallbackThemeQaResult(
     interactions: hsRules.passed,
     diagnostics: !liquid.hasErrors && !assets.hasBrokenAssets && diagResult.criticalIssues.length === 0,
   };
-  const criticalCount = hsRules.errorsCount + liquid.errors.length + diagResult.criticalIssues.length;
+  const criticalCount = hsRules.errorsCount + liquid.errors.length + diagResult.criticalIssues.length + overflow.culprits.length + assets.brokenAssets.length;
   const totalIssues =
     liquid.errors.length +
     overflow.culprits.length +
@@ -107,6 +112,7 @@ export async function buildFallbackThemeQaResult(
 }
 
 export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, browser: BrowserControlPort, themeQaWorkflow?: ThemeQaWorkflow, getWorkspaceRoot?: () => string): void {
+  const coordinator = themeQaWorkflow ? new ThemeQaRepairCoordinator(themeQaWorkflow) : undefined;
   // 1. Standard canonical capabilities
   catalogue.register({ name: 'browser.list-tabs', description: 'List Chromium tabs without selecting an active tab', risk: 'read', inputSchema: { type: 'object' }, execute: (_params, context) => browser.listTabs({ target: context.browserTarget }) });
   catalogue.register({ name: 'browser.open-tab', description: 'Open a Chromium browser tab without changing the visible tab by default', risk: 'write', inputSchema: { type: 'object', properties: { url: { type: 'string' }, activate: { type: 'boolean' } } }, execute: (params: { url?: string; activate?: boolean }) => browser.openTab(params) });
@@ -120,8 +126,8 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
   catalogue.register({ name: 'browser.diagnostics', description: 'Get tab console logs and network failures', risk: 'read', inputSchema: { type: 'object', properties: { tabId: { type: 'string' }, level: { type: 'number' } } }, execute: (params: { tabId?: string; level?: number | string }) => browser.diagnostics(params.tabId, params.level) });
   catalogue.register({ name: 'browser.responsive-check', description: 'Run responsive layout verification on a tab', risk: 'read', inputSchema: { type: 'object', properties: { tabId: { type: 'string' } }, required: ['tabId'] }, execute: (params: { tabId: string }) => browser.responsiveCheck(params.tabId) });
   catalogue.register({ name: 'browser.agent-move', description: 'Move agent virtual cursor to an element, ref (@e1), or coordinate', risk: 'write', requiresBrowserTarget: true, inputSchema: { type: 'object', properties: { selector: { type: 'string' }, ref: { type: 'string' }, x: { type: 'number' }, y: { type: 'number' }, label: { type: 'string' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } } }, execute: (params: { selector?: string; ref?: string; x?: number; y?: number; label?: string; tabId?: string; paneId?: 'desktop' | 'mobile' }, context) => browser.agentMove(params, context.browserTarget) });
-  catalogue.register({ name: 'browser.agent-click', description: 'Click an element or coordinate using agent cursor (supports @ref or CSS selector)', risk: 'write', requiresBrowserTarget: true, inputSchema: { type: 'object', properties: { selector: { type: 'string' }, ref: { type: 'string' }, x: { type: 'number' }, y: { type: 'number' }, label: { type: 'string' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } } }, execute: (params: { selector?: string; ref?: string; x?: number; y?: number; label?: string; tabId?: string; paneId?: 'desktop' | 'mobile' }, context) => browser.agentClick(params, context.browserTarget) });
-  catalogue.register({ name: 'browser.agent-type', description: 'Type text into an input element using agent cursor (supports @ref or CSS selector)', risk: 'write', requiresBrowserTarget: true, inputSchema: { type: 'object', properties: { selector: { type: 'string' }, ref: { type: 'string' }, text: { type: 'string' }, clear: { type: 'boolean' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } }, required: ['text'] }, execute: (params: { selector?: string; ref?: string; text: string; clear?: boolean; tabId?: string; paneId?: 'desktop' | 'mobile' }, context) => browser.agentType(params, context.browserTarget) });
+  catalogue.register({ name: 'browser.agent-click', description: 'Click an element or coordinate using agent cursor (supports @ref or CSS selector)', risk: 'write', requiresBrowserTarget: true, inputSchema: { type: 'object', properties: { selector: { type: 'string' }, ref: { type: 'string' }, x: { type: 'number' }, y: { type: 'number' }, label: { type: 'string' }, trusted: { type: 'boolean' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } } }, execute: (params: { selector?: string; ref?: string; x?: number; y?: number; label?: string; trusted?: boolean; tabId?: string; paneId?: 'desktop' | 'mobile' }, context) => browser.agentClick(params, context.browserTarget) });
+  catalogue.register({ name: 'browser.agent-type', description: 'Type text into an input element using agent cursor (supports @ref or CSS selector)', risk: 'write', requiresBrowserTarget: true, inputSchema: { type: 'object', properties: { selector: { type: 'string' }, ref: { type: 'string' }, text: { type: 'string' }, clear: { type: 'boolean' }, trusted: { type: 'boolean' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } }, required: ['text'] }, execute: (params: { selector?: string; ref?: string; text: string; clear?: boolean; trusted?: boolean; tabId?: string; paneId?: 'desktop' | 'mobile' }, context) => browser.agentType(params, context.browserTarget) });
   catalogue.register({ name: 'browser.keyboard-press', description: 'Send native key press (Enter, Escape, Tab, Backspace, Arrow keys, etc.) or combination (Ctrl+A) to the active tab', risk: 'write', inputSchema: { type: 'object', properties: { key: { type: 'string' }, modifiers: { type: 'array', items: { type: 'string' } }, tabId: { type: 'string' } }, required: ['key'] }, execute: (params: { key: string; modifiers?: string[]; tabId?: string }, context) => browser.keyboardPress(params, context.browserTarget) });
   catalogue.register({ name: 'browser.agent-scroll', description: 'Scroll page or element using agent cursor (supports @ref or CSS selector)', risk: 'write', requiresBrowserTarget: true, inputSchema: { type: 'object', properties: { deltaY: { type: 'number' }, selector: { type: 'string' }, ref: { type: 'string' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } } }, execute: (params: { deltaY?: number; selector?: string; ref?: string; tabId?: string; paneId?: 'desktop' | 'mobile' }, context) => browser.agentScroll(params, context.browserTarget) });
   catalogue.register({ name: 'browser.agent-hover', description: 'Hover an element, ref (@e1), or coordinate using agent cursor', risk: 'write', requiresBrowserTarget: true, inputSchema: { type: 'object', properties: { selector: { type: 'string' }, ref: { type: 'string' }, x: { type: 'number' }, y: { type: 'number' }, label: { type: 'string' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } } }, execute: (params: { selector?: string; ref?: string; x?: number; y?: number; label?: string; tabId?: string; paneId?: 'desktop' | 'mobile' }, context) => browser.agentHover(params, context.browserTarget) });
@@ -147,8 +153,8 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
   catalogue.register({ name: 'antifan_toggle_inspect', description: 'Alias for browser.toggle-inspect', risk: 'write', inputSchema: { type: 'object', properties: { tabId: { type: 'string' } } }, execute: () => browser.toggleInspect() });
   catalogue.register({ name: 'antifan_agent_snapshot', description: 'Alias for browser.agent-snapshot', risk: 'read', requiresBrowserTarget: true, inputSchema: { type: 'object', properties: { tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } } }, execute: (params: { tabId?: string; paneId?: 'desktop' | 'mobile' }, context) => browser.agentSnapshot(params, context.browserTarget) });
   catalogue.register({ name: 'antifan_eval_js', description: 'Alias for browser.eval', risk: 'eval', requiresBrowserTarget: true, inputSchema: { type: 'object', properties: { expression: { type: 'string' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } }, required: ['expression'] }, execute: (params: { expression: string; tabId?: string; paneId?: 'desktop' | 'mobile' }, context) => browser.eval(context.browserTarget as BrowserTarget, params.expression, params.tabId, params.paneId) });
-  catalogue.register({ name: 'antifan_agent_click', description: 'Alias for browser.agent-click', risk: 'write', requiresBrowserTarget: true, inputSchema: { type: 'object', properties: { selector: { type: 'string' }, ref: { type: 'string' }, x: { type: 'number' }, y: { type: 'number' }, label: { type: 'string' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } } }, execute: (params: { selector?: string; ref?: string; x?: number; y?: number; label?: string; tabId?: string; paneId?: 'desktop' | 'mobile' }, context) => browser.agentClick(params, context.browserTarget) });
-  catalogue.register({ name: 'antifan_agent_type', description: 'Alias for browser.agent-type', risk: 'write', requiresBrowserTarget: true, inputSchema: { type: 'object', properties: { selector: { type: 'string' }, ref: { type: 'string' }, text: { type: 'string' }, clear: { type: 'boolean' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } }, required: ['text'] }, execute: (params: { selector?: string; ref?: string; text: string; clear?: boolean; tabId?: string; paneId?: 'desktop' | 'mobile' }, context) => browser.agentType(params, context.browserTarget) });
+  catalogue.register({ name: 'antifan_agent_click', description: 'Alias for browser.agent-click', risk: 'write', requiresBrowserTarget: true, inputSchema: { type: 'object', properties: { selector: { type: 'string' }, ref: { type: 'string' }, x: { type: 'number' }, y: { type: 'number' }, label: { type: 'string' }, trusted: { type: 'boolean' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } } }, execute: (params: { selector?: string; ref?: string; x?: number; y?: number; label?: string; trusted?: boolean; tabId?: string; paneId?: 'desktop' | 'mobile' }, context) => browser.agentClick(params, context.browserTarget) });
+  catalogue.register({ name: 'antifan_agent_type', description: 'Alias for browser.agent-type', risk: 'write', requiresBrowserTarget: true, inputSchema: { type: 'object', properties: { selector: { type: 'string' }, ref: { type: 'string' }, text: { type: 'string' }, clear: { type: 'boolean' }, trusted: { type: 'boolean' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } }, required: ['text'] }, execute: (params: { selector?: string; ref?: string; text: string; clear?: boolean; trusted?: boolean; tabId?: string; paneId?: 'desktop' | 'mobile' }, context) => browser.agentType(params, context.browserTarget) });
   catalogue.register({ name: 'antifan_keyboard_press', description: 'Alias for browser.keyboard-press', risk: 'write', inputSchema: { type: 'object', properties: { key: { type: 'string' }, modifiers: { type: 'array', items: { type: 'string' } }, tabId: { type: 'string' } }, required: ['key'] }, execute: (params: { key: string; modifiers?: string[]; tabId?: string }, context) => browser.keyboardPress(params, context.browserTarget) });
   catalogue.register({ name: 'browser.send-keyboard-press', description: 'Alias for browser.keyboard-press', risk: 'write', inputSchema: { type: 'object', properties: { key: { type: 'string' }, modifiers: { type: 'array', items: { type: 'string' } }, tabId: { type: 'string' } }, required: ['key'] }, execute: (params: { key: string; modifiers?: string[]; tabId?: string }, context) => browser.keyboardPress(params, context.browserTarget) });
   catalogue.register({ name: 'antifan_agent_scroll', description: 'Alias for browser.agent-scroll', risk: 'write', requiresBrowserTarget: true, inputSchema: { type: 'object', properties: { deltaY: { type: 'number' }, selector: { type: 'string' }, ref: { type: 'string' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } } }, execute: (params: { deltaY?: number; selector?: string; ref?: string; tabId?: string; paneId?: 'desktop' | 'mobile' }, context) => browser.agentScroll(params, context.browserTarget) });
@@ -178,6 +184,67 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
       return buildFallbackThemeQaResult(browser, target, params, getWorkspaceRoot?.() || '');
     },
   });
+  catalogue.register({
+    name: 'theme.qa_repair.begin',
+    description: 'Begin a safe theme repair session: creates immutable R0 snapshot and validates Round 1 baseline',
+    risk: 'write',
+    requiresBrowserTarget: true,
+    inputSchema: { type: 'object' },
+    execute: async (_params: Record<string, unknown>, context) => {
+      const target = context.browserTarget as BrowserTarget;
+      if (!context.runId || !context.attemptId) {
+        throw new CapabilityError('UNAUTHENTICATED', 'runId and attemptId context are required for repair session');
+      }
+      const authWs = catalogue.resolveAuthoritativeWorkspace(
+        context.projectId || target.projectId,
+        context.workspaceId || target.workspaceId
+      );
+      if (!coordinator) throw new CapabilityError('CAPABILITY_NOT_FOUND', 'Theme repair coordinator is not available');
+      return coordinator.begin({
+        workspaceRoot: authWs.rootPath,
+        target,
+        runId: context.runId,
+        attemptId: context.attemptId,
+      });
+    },
+  });
+  catalogue.register({
+    name: 'theme.qa_repair.verify',
+    description: 'Verify a theme repair session: validates Round 2 and auto-rolls back workspace to R0 if regressions are detected',
+    risk: 'write',
+    requiresBrowserTarget: true,
+    inputSchema: { type: 'object', properties: { sessionId: { type: 'string' } }, required: ['sessionId'] },
+    execute: async (params: { sessionId: string }, context) => {
+      const target = context.browserTarget as BrowserTarget;
+      if (!context.attemptId) {
+        throw new CapabilityError('UNAUTHENTICATED', 'attemptId context is required for verify session');
+      }
+      if (!coordinator) throw new CapabilityError('CAPABILITY_NOT_FOUND', 'Theme repair coordinator is not available');
+      return coordinator.verify({
+        sessionId: params.sessionId,
+        target,
+        attemptId: context.attemptId,
+      });
+    },
+  });
+  catalogue.register({
+    name: 'theme.qa_rollback',
+    description: 'Roll back an active repair session to its initial R0 baseline',
+    risk: 'write',
+    requiresBrowserTarget: true,
+    inputSchema: { type: 'object', properties: { sessionId: { type: 'string' } }, required: ['sessionId'] },
+    execute: async (params: { sessionId: string }, context) => {
+      const target = context.browserTarget as BrowserTarget;
+      if (!coordinator) throw new CapabilityError('CAPABILITY_NOT_FOUND', 'Theme repair coordinator is not available');
+      return coordinator.rollback({
+        sessionId: params.sessionId,
+        target,
+      });
+    },
+  });
+  catalogue.register({ name: 'antifan_theme_qa_repair_begin', description: 'Alias for theme.qa_repair.begin', risk: 'write', requiresBrowserTarget: true, inputSchema: { type: 'object' }, execute: (params: Record<string, unknown>, context) => catalogue.get('theme.qa_repair.begin')!.execute(params, context) });
+  catalogue.register({ name: 'antifan_theme_qa_repair_verify', description: 'Alias for theme.qa_repair.verify', risk: 'write', requiresBrowserTarget: true, inputSchema: { type: 'object', properties: { sessionId: { type: 'string' } }, required: ['sessionId'] }, execute: (params: Record<string, unknown>, context) => catalogue.get('theme.qa_repair.verify')!.execute(params, context) });
+  catalogue.register({ name: 'antifan_theme_qa_rollback', description: 'Alias for theme.qa_rollback', risk: 'write', requiresBrowserTarget: true, inputSchema: { type: 'object', properties: { sessionId: { type: 'string' } }, required: ['sessionId'] }, execute: (params: Record<string, unknown>, context) => catalogue.get('theme.qa_rollback')!.execute(params, context) });
   catalogue.register({
     name: 'theme.assert_cart',
     description: 'Assert passive storefront AJAX cart contract telemetry without adding synthetic items',
@@ -223,8 +290,8 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
   catalogue.register({ name: 'anti.browser.reload', description: 'Alias for browser.reload', risk: 'write', requiresBrowserTarget: true, inputSchema: { type: 'object', properties: { tabId: { type: 'string' } } }, execute: (params: { tabId?: string }, context) => browser.reload(context.browserTarget as BrowserTarget, params.tabId) });
   catalogue.register({ name: 'anti.inspect.dom', description: 'Alias for browser.dom', risk: 'read', requiresBrowserTarget: true, inputSchema: { type: 'object', properties: { selector: { type: 'string' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } } }, execute: async (params: { selector?: string; tabId?: string; paneId?: 'desktop' | 'mobile' }, context) => browser.dom(context.browserTarget as BrowserTarget, context.runId || 'run-unbound', context.attemptId || 'attempt-unbound', params.selector, params.tabId, params.paneId) });
   catalogue.register({ name: 'anti.screenshot.viewport', description: 'Alias for browser.screenshot', risk: 'read', requiresBrowserTarget: true, inputSchema: { type: 'object', properties: { tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } } }, execute: async (params: { tabId?: string; paneId?: 'desktop' | 'mobile' }, context) => browser.screenshot(context.browserTarget as BrowserTarget, context.runId || 'run-unbound', context.attemptId || 'attempt-unbound', params.tabId, params.paneId) });
-  catalogue.register({ name: 'anti.agent.cursor.click', description: 'Alias for browser.agent-click', risk: 'write', requiresBrowserTarget: true, inputSchema: { type: 'object', properties: { selector: { type: 'string' }, ref: { type: 'string' }, x: { type: 'number' }, y: { type: 'number' }, label: { type: 'string' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } } }, execute: (params: { selector?: string; ref?: string; x?: number; y?: number; label?: string; tabId?: string; paneId?: 'desktop' | 'mobile' }, context) => browser.agentClick(params, context.browserTarget) });
-  catalogue.register({ name: 'anti.agent.cursor.type', description: 'Alias for browser.agent-type', risk: 'write', requiresBrowserTarget: true, inputSchema: { type: 'object', properties: { selector: { type: 'string' }, ref: { type: 'string' }, text: { type: 'string' }, clear: { type: 'boolean' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } }, required: ['text'] }, execute: (params: { selector?: string; ref?: string; text: string; clear?: boolean; tabId?: string; paneId?: 'desktop' | 'mobile' }, context) => browser.agentType(params, context.browserTarget) });
+  catalogue.register({ name: 'anti.agent.cursor.click', description: 'Alias for browser.agent-click', risk: 'write', requiresBrowserTarget: true, inputSchema: { type: 'object', properties: { selector: { type: 'string' }, ref: { type: 'string' }, x: { type: 'number' }, y: { type: 'number' }, label: { type: 'string' }, trusted: { type: 'boolean' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } } }, execute: (params: { selector?: string; ref?: string; x?: number; y?: number; label?: string; trusted?: boolean; tabId?: string; paneId?: 'desktop' | 'mobile' }, context) => browser.agentClick(params, context.browserTarget) });
+  catalogue.register({ name: 'anti.agent.cursor.type', description: 'Alias for browser.agent-type', risk: 'write', requiresBrowserTarget: true, inputSchema: { type: 'object', properties: { selector: { type: 'string' }, ref: { type: 'string' }, text: { type: 'string' }, clear: { type: 'boolean' }, trusted: { type: 'boolean' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } }, required: ['text'] }, execute: (params: { selector?: string; ref?: string; text: string; clear?: boolean; trusted?: boolean; tabId?: string; paneId?: 'desktop' | 'mobile' }, context) => browser.agentType(params, context.browserTarget) });
   catalogue.register({ name: 'anti.agent.cursor.move', description: 'Alias for browser.agent-hover', risk: 'write', requiresBrowserTarget: true, inputSchema: { type: 'object', properties: { selector: { type: 'string' }, ref: { type: 'string' }, x: { type: 'number' }, y: { type: 'number' }, label: { type: 'string' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } } }, execute: (params: { selector?: string; ref?: string; x?: number; y?: number; label?: string; tabId?: string; paneId?: 'desktop' | 'mobile' }, context) => browser.agentHover(params, context.browserTarget) });
   catalogue.register({ name: 'anti.agent.cursor.hover', description: 'Alias for browser.agent-hover', risk: 'write', requiresBrowserTarget: true, inputSchema: { type: 'object', properties: { selector: { type: 'string' }, ref: { type: 'string' }, x: { type: 'number' }, y: { type: 'number' }, label: { type: 'string' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } } }, execute: (params: { selector?: string; ref?: string; x?: number; y?: number; label?: string; tabId?: string; paneId?: 'desktop' | 'mobile' }, context) => browser.agentHover(params, context.browserTarget) });
   catalogue.register({ name: 'anti.agent.cursor.scroll', description: 'Alias for browser.agent-scroll', risk: 'write', requiresBrowserTarget: true, inputSchema: { type: 'object', properties: { deltaY: { type: 'number' }, selector: { type: 'string' }, ref: { type: 'string' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } } }, execute: (params: { deltaY?: number; selector?: string; ref?: string; tabId?: string; paneId?: 'desktop' | 'mobile' }, context) => browser.agentScroll(params, context.browserTarget) });

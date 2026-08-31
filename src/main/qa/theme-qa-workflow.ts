@@ -1,13 +1,12 @@
 import { ArtifactRef, BrowserTarget, CapabilityError } from '../../shared/control-plane-contracts';
 import { BrowserControlPort } from '../tools/browser-control-port';
-import { WorkspaceFilePort } from '../tools/workspace-file-port';
 import { ArtifactStore } from '../tools/artifact-store';
 import { PlatformDetector, PlatformDetectionResult, EcommercePlatform } from './scanners/platform-detector';
 import { LiquidErrorScanner, LiquidScanResult, LiquidErrorFinding } from './scanners/liquid-error-scanner';
 import { BrokenAssetScanner, BrokenAssetScanResult, BrokenAssetFinding } from './scanners/broken-asset-scanner';
 import { LayoutOverflowEngine, ViewportOverflowResult } from './scanners/layout-overflow-engine';
 import { HsGateRules, HsEvaluationResult, HsRuleViolation } from './rules/hs-gate-rules';
-import { classifyDiagnostics, computeOrigin, DiagnosticsInput, DiagnosticIssue, THEME_ASSET_HOSTS } from './diagnostics-filter';
+import { classifyDiagnostics, extractCorrelatableAssetFailures, DiagnosticsInput, DiagnosticIssue } from './diagnostics-filter';
 
 export interface ThemeQaChecklist {
   layout: boolean;
@@ -18,6 +17,22 @@ export interface ThemeQaChecklist {
   liquidClean?: boolean;
   assetsValid?: boolean;
   hsCompliant?: boolean;
+}
+
+export interface ThemeQaIssueItem {
+  category: 'diagnostics' | 'liquid' | 'overflow' | 'broken_asset' | 'hs_rule';
+  signature: string;
+  severity: 'critical' | 'warning';
+  message: string;
+  origin?: string;
+  details?: Record<string, unknown>;
+}
+
+export interface ThemeQaDifferentialAttribution {
+  preExistingIssues: ThemeQaIssueItem[];
+  resolvedIssues: ThemeQaIssueItem[];
+  introducedRegressions: ThemeQaIssueItem[];
+  hasRegressions: boolean;
 }
 
 export interface ThemeQaDetailedFindings {
@@ -36,6 +51,7 @@ export interface ThemeQaDetailedFindings {
     criticalIssues: DiagnosticIssue[];
     warnings: DiagnosticIssue[];
   };
+  differential?: ThemeQaDifferentialAttribution;
 }
 export interface ThemeQaSummary {
   passed: boolean;
@@ -53,10 +69,8 @@ export interface ThemeQaReport {
   artifacts: ArtifactRef[];
   createdAt: number;
 }
-
 export interface ThemeQaWorkflowPorts {
   browser: BrowserControlPort;
-  files: WorkspaceFilePort;
   artifacts: ArtifactStore;
   reload: (target: BrowserTarget) => Promise<{ reloaded: boolean; target: BrowserTarget }> | { reloaded: boolean; target: BrowserTarget };
 }
@@ -82,7 +96,6 @@ function rethrowTargetLifecycleError(error: unknown): void {
 
 export class ThemeQaWorkflow {
   constructor(private readonly ports: ThemeQaWorkflowPorts) {}
-
   async inspect(input: { runId: string; attemptId: string; workspaceRoot: string; target: BrowserTarget; selector?: string }): Promise<{ dom: ArtifactRef | string; screenshot: ArtifactRef | string }> {
     this.assertOwnership(input.target);
     const dom = await this.ports.browser.dom(input.target, input.runId, input.attemptId, input.selector);
@@ -90,9 +103,6 @@ export class ThemeQaWorkflow {
     return { dom, screenshot };
   }
 
-  edit(input: { workspaceRoot: string; relativePath: string; content: string }): { path: string; byteLength: number; sha256: string } {
-    return this.ports.files.write(input.workspaceRoot, input.relativePath, input.content);
-  }
 
   async validate(input: {
     runId: string;
@@ -102,12 +112,13 @@ export class ThemeQaWorkflow {
     enabledChecks?: Partial<Record<keyof ThemeQaChecklist, boolean>>;
     multiBreakpoint?: boolean;
     signal?: AbortSignal;
+    baselineFindings?: ThemeQaDetailedFindings | ThemeQaIssueItem[];
   }): Promise<ThemeQaReport> {
     if (input.signal?.aborted) {
       throw new CapabilityError('TARGET_STALE', 'Theme QA validation was aborted by document navigation');
     }
     this.assertOwnership(input.target);
-
+    const effectiveBaselineFindings = input.baselineFindings;
     // SNAPSHOT diagnostics tại ĐẦU validate, trước MỌI await (Red Team Finding
     // 11): đọc muộn ở bước 5.5 race với navigation clear (phase 1 clear đồng
     // bộ tại did-start-navigation). browser.diagnostics trả mảng copy sẵn nên
@@ -134,7 +145,16 @@ export class ThemeQaWorkflow {
       // best-effort
     }
 
-    // 1. Reload to reach load-complete document before inspecting
+    // Stage 1: File system debounce quiescence (150ms)
+    if (input.signal?.aborted) {
+      throw new CapabilityError('TARGET_STALE', 'Theme QA validation was aborted by document navigation');
+    }
+    await new Promise((r) => setTimeout(r, 150));
+    if (input.signal?.aborted) {
+      throw new CapabilityError('TARGET_STALE', 'Theme QA validation was aborted by document navigation');
+    }
+
+    // Stage 2: Reload to reach load-complete document
     const reload = await this.ports.reload(input.target);
     if (input.signal?.aborted) {
       throw new CapabilityError('TARGET_STALE', 'Theme QA validation was aborted by document navigation');
@@ -153,6 +173,28 @@ export class ThemeQaWorkflow {
         throw new CapabilityError('TARGET_STALE', `Document generation advanced from ${activeTarget.documentGeneration} to ${currentGen}`);
       }
     };
+
+    // Stage 2 & 3: Bounded Font Readiness (400ms race) + 2x rAF Visual Layout Settle
+    const settleScript = `(() => {
+      const fontPromise = (document.fonts && typeof document.fonts.ready === 'object' && typeof document.fonts.ready.then === 'function')
+        ? Promise.race([document.fonts.ready, new Promise(r => setTimeout(r, 400))]).catch(() => {})
+        : Promise.resolve();
+      const rafPromise = new Promise(resolve => {
+        requestAnimationFrame(() => {
+          requestAnimationFrame(resolve);
+        });
+      });
+      return Promise.all([fontPromise, rafPromise]).then(() => true);
+    })()`;
+    try {
+      await this.ports.browser.eval(activeTarget, settleScript);
+    } catch (err) {
+      rethrowTargetLifecycleError(err);
+      throw new CapabilityError(
+        'TARGET_STALE',
+        `Theme QA settle gate failed: ${err instanceof Error ? err.message : String(err)}`
+      );
+    }
     checkAborted();
     let freshDiagnostics: DiagnosticsInput = { console: [], failures: [] };
     try {
@@ -284,27 +326,7 @@ export class ThemeQaWorkflow {
       }
       const diagnostics = freshDiagnostics;
       if (diagnostics && Array.isArray(diagnostics.failures) && diagnostics.failures.length > 0) {
-        // blocker, GTM, FB Pixel) không được biến thành brokenAssets làm fail
-        // gate (Goal 2: third-party chỉ warning). Legacy entries thiếu
-        // origin/isFirstParty → computeOrigin fallback theo contextUrl.
-        const mappedFailures = diagnostics.failures
-          .filter((f): f is Record<string, unknown> => Boolean(f && typeof f === 'object'))
-          .filter((f) => {
-            if (typeof f.isFirstParty === 'boolean') {
-              const origin = typeof f.origin === 'string' ? f.origin : '';
-              if (f.isFirstParty) return true;
-              return THEME_ASSET_HOSTS.some((host) => origin === host || origin.endsWith(`.${host}`));
-            }
-            const rawUrl = typeof f.validatedURL === 'string' ? f.validatedURL : '';
-            const originInfo = computeOrigin(rawUrl, contextUrl);
-            return originInfo.isFirstParty || THEME_ASSET_HOSTS.some((host) => originInfo.origin === host || originInfo.origin.endsWith(`.${host}`));
-          })
-          .map((f) => ({
-            url: typeof f.validatedURL === 'string' ? f.validatedURL : '',
-            status: typeof f.errorCode === 'number' && f.errorCode > 0 ? f.errorCode : undefined,
-            errorText: typeof f.errorDescription === 'string' ? f.errorDescription : undefined,
-          }))
-          .filter((f) => f.url.length > 0);
+        const mappedFailures = extractCorrelatableAssetFailures(diagnostics.failures, contextUrl);
         assetResult = BrokenAssetScanner.correlateWithNetworkFailures(assetResult, mappedFailures);
       }
     } catch (error) {
@@ -323,14 +345,6 @@ export class ThemeQaWorkflow {
     const preReloadDiagResult = classifyDiagnostics(preReloadDiagnostics, preReloadContextUrl);
     const preReloadCritical: DiagnosticIssue[] = preReloadDiagResult.criticalIssues;
     const preReloadWarningsList: DiagnosticIssue[] = preReloadDiagResult.warnings;
-    const preReloadDiagnosticsObj =
-      preReloadCritical.length > 0 || preReloadWarningsList.length > 0
-        ? {
-            criticalIssues: preReloadCritical,
-            warnings: preReloadWarningsList,
-          }
-        : undefined;
-
     // 9. Platform-scoped HS gate evaluation
     await new Promise((r) => setImmediate(r));
     let hsResult: HsEvaluationResult = { passed: true, totalViolations: 0, errorsCount: 0, warningsCount: 0, violations: [] };
@@ -350,6 +364,173 @@ export class ThemeQaWorkflow {
       }
     }
 
+    // 9.5. Compute Canonical Differential Attribution across all diagnostics & scanner findings
+    const preExistingIssues: ThemeQaIssueItem[] = [];
+    const resolvedIssues: ThemeQaIssueItem[] = [];
+    const introducedRegressions: ThemeQaIssueItem[] = [];
+
+    // Build baseline items from all 5 scanner categories (or preReload diagnostics)
+    const preItems: ThemeQaIssueItem[] = [];
+    if (effectiveBaselineFindings) {
+      if (Array.isArray(effectiveBaselineFindings)) {
+        preItems.push(...effectiveBaselineFindings);
+      } else if (effectiveBaselineFindings.differential?.preExistingIssues) {
+        preItems.push(
+          ...effectiveBaselineFindings.differential.preExistingIssues,
+          ...effectiveBaselineFindings.differential.introducedRegressions
+        );
+      } else {
+        const bf = effectiveBaselineFindings;
+        if (bf.diagnosticIssues) {
+          preItems.push(
+            ...bf.diagnosticIssues.map((d): ThemeQaIssueItem => ({
+              category: 'diagnostics',
+              signature: `diagnostics:${d.kind}:${d.origin || ''}:${d.message}`,
+              severity: 'critical',
+              message: d.message,
+              origin: d.origin,
+            }))
+          );
+        }
+        if (bf.liquid?.errors) {
+          preItems.push(
+            ...bf.liquid.errors.map((e): ThemeQaIssueItem => ({
+              category: 'liquid',
+              signature: `liquid:${e.type}:${e.location || e.selector || ''}:${e.message}`,
+              severity: 'critical',
+              message: e.message,
+              details: { type: e.type, location: e.location, selector: e.selector },
+            }))
+          );
+        }
+        if (bf.overflow?.culprits) {
+          preItems.push(
+            ...bf.overflow.culprits.map((c): ThemeQaIssueItem => ({
+              category: 'overflow',
+              signature: `overflow:${c.selector || 'window'}:${Math.round(c.deltaX || 0)}`,
+              severity: 'critical',
+              message: `Layout horizontal overflow: deltaX ${c.deltaX}px on ${c.selector}`,
+              details: { selector: c.selector, deltaX: c.deltaX },
+            }))
+          );
+        }
+        if (bf.assets?.brokenAssets) {
+          preItems.push(
+            ...bf.assets.brokenAssets.map((a): ThemeQaIssueItem => ({
+              category: 'broken_asset',
+              signature: `broken_asset:${a.type}:${a.url}:${a.reason}`,
+              severity: 'critical',
+              message: `Broken ${a.type}: ${a.url} (${a.reason})`,
+              details: { type: a.type, url: a.url, reason: a.reason, elementSelector: a.elementSelector },
+            }))
+          );
+        }
+        if (bf.hsRules?.violations) {
+          preItems.push(
+            ...bf.hsRules.violations
+              .filter((v) => v.severity === 'error')
+              .map((v): ThemeQaIssueItem => ({
+                category: 'hs_rule',
+                signature: `hs_rule:${v.ruleId}:${v.selector || ''}:${v.message}`,
+                severity: 'critical',
+                message: v.message,
+                details: { ruleId: v.ruleId, ruleTitle: v.ruleTitle, selector: v.selector, recommendation: v.recommendation },
+              }))
+          );
+        }
+      }
+    } else {
+      preItems.push(
+        ...preReloadCritical.map((d): ThemeQaIssueItem => ({
+          category: 'diagnostics',
+          signature: `diagnostics:${d.kind}:${d.origin || ''}:${d.message}`,
+          severity: 'critical',
+          message: d.message,
+          origin: d.origin,
+        }))
+      );
+    }
+
+    const preCounts = new Map<string, { item: ThemeQaIssueItem; count: number }>();
+    for (const item of preItems) {
+      const existing = preCounts.get(item.signature);
+      if (existing) {
+        existing.count++;
+      } else {
+        preCounts.set(item.signature, { item, count: 1 });
+      }
+    }
+
+    // Build post-reload current critical items from diagnostics and all scanners with verified fields
+    const currentItems: ThemeQaIssueItem[] = [
+      ...diagnosticIssues.map((d): ThemeQaIssueItem => ({
+        category: 'diagnostics',
+        signature: `diagnostics:${d.kind}:${d.origin || ''}:${d.message}`,
+        severity: 'critical',
+        message: d.message,
+        origin: d.origin,
+      })),
+      ...liquidResult.errors.map((e): ThemeQaIssueItem => ({
+        category: 'liquid',
+        signature: `liquid:${e.type}:${e.location || e.selector || ''}:${e.message}`,
+        severity: 'critical',
+        message: e.message,
+        details: { type: e.type, location: e.location, selector: e.selector },
+      })),
+      ...overflowResult.culprits.map((c): ThemeQaIssueItem => ({
+        category: 'overflow',
+        signature: `overflow:${c.selector || 'window'}:${Math.round(c.deltaX || 0)}`,
+        severity: 'critical',
+        message: `Layout horizontal overflow: deltaX ${c.deltaX}px on ${c.selector}`,
+        details: { selector: c.selector, deltaX: c.deltaX },
+      })),
+      ...assetResult.brokenAssets.map((a): ThemeQaIssueItem => ({
+        category: 'broken_asset',
+        signature: `broken_asset:${a.type}:${a.url}:${a.reason}`,
+        severity: 'critical',
+        message: `Broken ${a.type}: ${a.url} (${a.reason})`,
+        details: { type: a.type, url: a.url, reason: a.reason, elementSelector: a.elementSelector },
+      })),
+      ...hsResult.violations
+        .filter((v) => v.severity === 'error')
+        .map((v): ThemeQaIssueItem => ({
+          category: 'hs_rule',
+          signature: `hs_rule:${v.ruleId}:${v.selector || ''}:${v.message}`,
+          severity: 'critical',
+          message: v.message,
+          details: { ruleId: v.ruleId, ruleTitle: v.ruleTitle, selector: v.selector, recommendation: v.recommendation },
+        })),
+    ];
+
+    for (const cur of currentItems) {
+      const preEntry = preCounts.get(cur.signature);
+      if (preEntry && preEntry.count > 0) {
+        preEntry.count--;
+        preExistingIssues.push(cur);
+      } else {
+        introducedRegressions.push(cur);
+      }
+    }
+
+    for (const [, entry] of preCounts) {
+      for (let i = 0; i < entry.count; i++) {
+        resolvedIssues.push(entry.item);
+      }
+    }
+
+    const differential: ThemeQaDifferentialAttribution = {
+      preExistingIssues,
+      resolvedIssues,
+      introducedRegressions,
+      hasRegressions: introducedRegressions.length > 0,
+    };
+    const preReloadDiagnosticsObj =
+      preReloadCritical.length > 0 || preReloadWarningsList.length > 0
+        ? {
+            criticalIssues: preReloadCritical,
+            warnings: preReloadWarningsList,
+          }
+        : undefined;
     // 10. Compute authoritative checklist statuses (owned strictly by the engine).
     const checklist: ThemeQaReport['checklist'] = {
       layout: !overflowResult.hasOverflow,
@@ -388,7 +569,7 @@ export class ThemeQaWorkflow {
     const summary: ThemeQaSummary = {
       passed: activeChecklistEntries.length > 0 ? activeChecklistEntries.every(Boolean) : true,
       totalIssues,
-      criticalCount: hsResult.errorsCount + liquidResult.errors.length + diagnosticIssues.length,
+      criticalCount: hsResult.errorsCount + liquidResult.errors.length + diagnosticIssues.length + overflowResult.culprits.length + assetResult.brokenAssets.length,
     };
 
     const findings: ThemeQaDetailedFindings = {
@@ -400,6 +581,7 @@ export class ThemeQaWorkflow {
       diagnosticIssues,
       diagnosticWarnings,
       ...(preReloadDiagnosticsObj ? { preReloadDiagnostics: preReloadDiagnosticsObj } : {}),
+      differential,
     };
 
     const artifacts: ArtifactRef[] = [];
@@ -456,3 +638,5 @@ export class ThemeQaWorkflow {
     }
   }
 }
+
+export { createWorkspaceSnapshotManifest, rollbackWorkspaceToManifest, WorkspaceSnapshotManifest, WorkspaceRollbackResult } from './workspace-snapshot-rollback';

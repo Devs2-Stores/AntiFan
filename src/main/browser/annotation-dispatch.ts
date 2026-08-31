@@ -16,13 +16,21 @@ export interface TerminalDispatchPort {
   write(input: string): void;
 }
 
+export function sanitizeTerminalPrompt(prompt: string): string {
+  return (prompt || '')
+    .replace(/[\r\n]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
 export function dispatchAnnotationToTerminal(tm: TerminalDispatchPort, targetSessionId: string | undefined, fullPrompt: string): void {
+  const sanitized = sanitizeTerminalPrompt(fullPrompt);
+  if (!sanitized) return;
   const resolvedTerminalId = targetSessionId && targetSessionId !== 'auto' ? targetSessionId : tm.getActiveSessionId();
   if (resolvedTerminalId) {
     tm.switchSession(resolvedTerminalId);
-    tm.writeTo(resolvedTerminalId, fullPrompt + '\r');
+    tm.writeTo(resolvedTerminalId, sanitized + '\r');
   } else {
-    tm.write(fullPrompt + '\r');
+    tm.write(sanitized + '\r');
   }
 }
 

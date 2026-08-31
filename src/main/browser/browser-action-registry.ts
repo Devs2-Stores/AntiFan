@@ -381,11 +381,12 @@ export class BrowserActionRegistry {
           x: { type: 'number', description: 'Optional explicit X viewport coordinate' },
           y: { type: 'number', description: 'Optional explicit Y viewport coordinate' },
           label: { type: 'string', description: 'Optional visual action label' },
+          trusted: { type: 'boolean', description: 'Dispatch hardware-level trusted CDP event' },
           tabId: { type: 'string', description: 'Optional tab ID' },
           paneId: { type: 'string', enum: ['desktop', 'mobile'], description: 'Optional split review pane' },
         },
       },
-      handler: async (params: { selector?: string; ref?: string; x?: number; y?: number; label?: string; tabId?: string; paneId?: 'desktop' | 'mobile' }, { tabHost }) => {
+      handler: async (params: { selector?: string; ref?: string; x?: number; y?: number; label?: string; trusted?: boolean; tabId?: string; paneId?: 'desktop' | 'mobile' }, { tabHost }) => {
         const clicked = await tabHost.agentClick(params);
         return { clicked, success: clicked };
       },
@@ -404,12 +405,13 @@ export class BrowserActionRegistry {
           ref: { type: 'string', description: 'Interactive snapshot element reference (e.g. @e1)' },
           text: { type: 'string', description: 'Text to type into the target element' },
           clear: { type: 'boolean', description: 'Clear existing text before typing' },
+          trusted: { type: 'boolean', description: 'Dispatch hardware-level trusted CDP input event' },
           tabId: { type: 'string', description: 'Optional tab ID' },
           paneId: { type: 'string', enum: ['desktop', 'mobile'], description: 'Optional split review pane' },
         },
         required: ['text'],
       },
-      handler: async (params: { selector?: string; ref?: string; text: string; clear?: boolean; tabId?: string; paneId?: 'desktop' | 'mobile' }, { tabHost }) => {
+      handler: async (params: { selector?: string; ref?: string; text: string; clear?: boolean; trusted?: boolean; tabId?: string; paneId?: 'desktop' | 'mobile' }, { tabHost }) => {
         const typed = await tabHost.agentType(params as any);
         return { typed, success: typed };
       },

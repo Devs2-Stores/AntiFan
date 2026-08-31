@@ -40,13 +40,13 @@ describe('Theme QA vertical slice', () => {
       },
       artifacts
     );
+    const filePort = new WorkspaceFilePort();
     const workflow = new ThemeQaWorkflow({
       browser,
-      files: new WorkspaceFilePort(),
       artifacts,
       reload: (value) => browser.reload(value),
     });
-    workflow.edit({ workspaceRoot: root, relativePath: 'theme.css', content: 'body { color: red; }' });
+    filePort.write(root, 'theme.css', 'body { color: red; }');
     const report = await workflow.validate({
       runId: 'run-12345678901234567890',
       attemptId: 'attempt-12345678901234567890',
@@ -97,7 +97,6 @@ describe('Theme QA vertical slice', () => {
     );
     const workflow = new ThemeQaWorkflow({
       browser,
-      files: new WorkspaceFilePort(),
       artifacts: artifactStore,
       reload: (value) => browser.reload(value),
     });
@@ -147,7 +146,6 @@ describe('Theme QA vertical slice', () => {
     );
     const workflow = new ThemeQaWorkflow({
       browser,
-      files: new WorkspaceFilePort(),
       artifacts: artifactStore,
       reload: (value) => browser.reload(value),
     });

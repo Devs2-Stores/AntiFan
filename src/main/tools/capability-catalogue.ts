@@ -135,6 +135,12 @@ export class CapabilityCatalogue {
     return definition.execute(params, context);
   }
   async dispatch(name: string, params: Record<string, unknown>, context: CapabilityRequestContext | AuthenticatedCapabilityContext): Promise<unknown> {
+    if (!context || typeof context !== 'object' || !context.projectId || !context.workspaceId) {
+      throw new CapabilityError(
+        'WORKSPACE_UNBOUND',
+        'Capability dispatch rejected: Request lacks authoritative projectId/workspaceId context tenancy binding'
+      );
+    }
     if ('attachmentId' in context && context.attachmentId) {
       return this.dispatchAuthenticated(name, params, context as AuthenticatedCapabilityContext);
     }

@@ -5,6 +5,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
+import { CapabilityError } from '../../shared/control-plane-contracts';
 import {
   buildAgentTaskHeader,
   buildEvidenceEnvelope,
@@ -113,24 +114,12 @@ export class AnnotationManager {
   }
 
   private getStorageDirectories(customWsDir?: string): { annotationsDir: string; snapshotsDir: string } {
-    const wsDir = customWsDir && fs.existsSync(customWsDir) ? customWsDir : process.cwd();
-    const candidates = [
-      wsDir,
-      path.join(wsDir, '..'),
-      path.join(wsDir, '..', '..'),
-      'e:\\Work',
-    ];
-
-    let foundBase = path.join(wsDir, '.antifan');
-    for (const c of candidates) {
-      if (fs.existsSync(path.join(c, '.antifan'))) {
-        foundBase = path.join(c, '.antifan');
-        break;
-      }
+    if (!customWsDir || typeof customWsDir !== 'string' || !fs.existsSync(customWsDir)) {
+      throw new CapabilityError('WORKSPACE_UNBOUND', 'Annotation processing requires a valid, bound workspace directory');
     }
-
-    const annotationsDir = path.join(foundBase, 'annotations');
-    const snapshotsDir = path.join(foundBase, 'snapshots');
+    const baseDir = path.join(path.resolve(customWsDir), '.antifan');
+    const annotationsDir = path.join(baseDir, 'annotations');
+    const snapshotsDir = path.join(baseDir, 'snapshots');
 
     try {
       fs.mkdirSync(annotationsDir, { recursive: true });
@@ -149,6 +138,7 @@ export class AnnotationManager {
     viewportImagePath?: string;
     userComment: string;
     error?: string;
+    errorCode?: string;
   }> {
     try {
       const { annotationsDir, snapshotsDir } = this.getStorageDirectories(payload.workspaceDir);
@@ -349,14 +339,19 @@ ${Array.isArray(payload.multiItems) && payload.multiItems.length > 1 ? `\n## Mul
         viewportImagePath,
         userComment: userComment || 'Inspect the attached browser element annotation.',
       };
-    } catch (err: any) {
+    } catch (err: unknown) {
+      let errorCode = '';
+      if (err instanceof CapabilityError) {
+        errorCode = err.code;
+      }
       return {
         ok: false,
         annotationId: '',
         markdownPath: '',
         markdownContent: '',
         userComment: '',
-        error: err?.message || 'Annotation generation failed',
+        error: err instanceof Error ? err.message : String(err),
+        errorCode: errorCode || undefined,
       };
     }
   }

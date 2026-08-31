@@ -32,6 +32,7 @@ import { chromeSessionUserAgent } from './google-auth-identity';
 import { configureBrowserSessionPartition, deriveCapsulePartition, type BrowserSessionUserAgentMode } from './browser-session-partition';
 import { TabDiagnosticsManager, computeOrigin } from './tab-diagnostics';
 import { buildKeyboardInputEvents } from './keyboard-normalizer';
+import { FirstPartyNetworkTracker } from './first-party-network-tracker';
 import { WorkspaceCapsuleManager, type WorkspaceCapsule } from '../project/workspace-capsule';
 import { PreviewWatcherPool, type PreviewChangeEvent } from '../server/preview-watcher-pool';
 import { buildPreviewUrl, parsePreviewUrl } from '../server/preview-url-codec';
@@ -216,6 +217,7 @@ export class NativeTabHost extends EventEmitter {
 
   public bookmarks: BookmarkItem[] = [];
   private readonly diagnosticsManager = new TabDiagnosticsManager();
+  private readonly networkTracker = new FirstPartyNetworkTracker();
   private readonly previewWatcherPool = new PreviewWatcherPool();
   private readonly capsuleManager: WorkspaceCapsuleManager;
   private controlPlane: ControlPlaneRuntime | null = null;
@@ -281,12 +283,6 @@ export class NativeTabHost extends EventEmitter {
   }
   public set inspectGeneration(val: number) {
     this.getDevToolsHost().inspectGeneration = val;
-  }
-  public get inspectPollTimer(): NodeJS.Timeout | null {
-    return this.devToolsHost ? this.devToolsHost.inspectPollTimer : null;
-  }
-  public set inspectPollTimer(val: NodeJS.Timeout | null) {
-    this.getDevToolsHost().inspectPollTimer = val;
   }
   public get agentWorkingRefs(): Map<string, number> {
     return this.getAutomationHost().agentWorkingRefs;
@@ -2897,14 +2893,28 @@ export class NativeTabHost extends EventEmitter {
       : 'desktop';
     const authorityView = authorityPane === 'mobile' && tab.mobileView ? tab.mobileView : tab.view;
     if (!authorityView || authorityView.webContents.isDestroyed()) return false;
-
+    // Reset inflight records for reload and ensure active debugger attachment
+    this.networkTracker.resetInflight(tabId, authorityPane);
+    await this.networkTracker.ensureAttached(
+      tabId,
+      authorityPane,
+      authorityView.webContents,
+      () => this.tabs.get(tabId)?.state.url || ''
+    );
     const waiter = this.createLoadCompletionWaiter(authorityView.webContents, timeoutMs);
     const initiated = this.reload(tabId);
     if (!initiated) {
       waiter.cancel();
       return false;
     }
-    return await waiter.promise;
+    const loadOk = await waiter.promise;
+    if (!loadOk) return false;
+    await this.networkTracker.awaitQuiescence(tabId, authorityPane, { idleWindowMs: 500, maxCeilingMs: Math.min(2000, timeoutMs) });
+    return true;
+  }
+
+  public getNetworkTracker(): FirstPartyNetworkTracker {
+    return this.networkTracker;
   }
 
   private createLoadCompletionWaiter(wc: Electron.WebContents, timeoutMs: number = 3000): { promise: Promise<boolean>; cancel: () => void } {
@@ -3463,15 +3473,15 @@ export class NativeTabHost extends EventEmitter {
     return this.getAutomationHost().executeInIsolatedWorld(wc, script);
   }
 
-  public async dispatchAgentAction(action: 'click' | 'type' | 'move' | 'hover' | 'scroll' | 'highlight' | 'clear' | 'trajectory', params: { selector?: string; ref?: string; x?: number; y?: number; text?: string; clear?: boolean; deltaY?: number; label?: string; tabId?: string; paneId?: SplitPaneId; steps?: Array<Record<string, unknown>>; speed?: 'fast' | 'natural' | 'slow'; smoothScroll?: boolean }): Promise<{ success: boolean; data?: unknown; reason?: string }> {
+  public async dispatchAgentAction(action: 'click' | 'type' | 'move' | 'hover' | 'scroll' | 'highlight' | 'clear' | 'trajectory', params: { selector?: string; ref?: string; x?: number; y?: number; text?: string; clear?: boolean; trusted?: boolean; deltaY?: number; label?: string; tabId?: string; paneId?: SplitPaneId; steps?: Array<Record<string, unknown>>; speed?: 'fast' | 'natural' | 'slow'; smoothScroll?: boolean }): Promise<{ success: boolean; data?: unknown; reason?: string }> {
     return this.getAutomationHost().dispatchAgentAction(action, params);
   }
 
-  public async agentClick(params: { selector?: string; ref?: string; x?: number; y?: number; label?: string; tabId?: string; paneId?: SplitPaneId }): Promise<boolean> {
+  public async agentClick(params: { selector?: string; ref?: string; x?: number; y?: number; label?: string; trusted?: boolean; tabId?: string; paneId?: SplitPaneId }): Promise<boolean> {
     return this.getAutomationHost().agentClick(params);
   }
 
-  public async agentType(params: { selector?: string; ref?: string; text: string; clear?: boolean; tabId?: string; paneId?: SplitPaneId }): Promise<boolean> {
+  public async agentType(params: { selector?: string; ref?: string; text: string; clear?: boolean; trusted?: boolean; tabId?: string; paneId?: SplitPaneId }): Promise<boolean> {
     return this.getAutomationHost().agentType(params);
   }
 
@@ -3580,11 +3590,7 @@ export class NativeTabHost extends EventEmitter {
       return path.normalize(tmCwd);
     }
 
-    // 7. Default fallback: e:\Work if exists, else process.cwd()
-    if (fs.existsSync('e:\\Work')) {
-      return 'e:\\Work';
-    }
-    return process.cwd();
+    return '';
   }
 
   /**

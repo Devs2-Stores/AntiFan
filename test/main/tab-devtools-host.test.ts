@@ -206,4 +206,28 @@ describe('TabDevToolsHost (Sub-Controller Unit Tests)', () => {
     devTools.dispose();
     assert.strictEqual(devTools.getIsInspecting(), false);
   });
+
+  it('7. viewPageSource creates about:blank and triggers exactly one preloaded fetch without double network load', async () => {
+    const { ctx, tabs, scriptsExecuted } = createMockContext();
+    let createTabUrl = '';
+    const origCreateTab = ctx.createTab;
+    ctx.createTab = (url?: string, activate?: boolean) => {
+      createTabUrl = url || '';
+      return origCreateTab(url, activate);
+    };
+
+    const devTools = new TabDevToolsHost(ctx);
+    let fetchCalls = 0;
+    (devTools as any).fetchAndLoadPageSource = async (_wc: any, _url: string, _state: any, _html: string) => {
+      fetchCalls++;
+    };
+
+    const newTabId = await devTools.viewPageSource('tab-1');
+    assert.strictEqual(createTabUrl, 'about:blank', 'Must create tab with about:blank to prevent native double fetch');
+    assert.strictEqual(fetchCalls, 1, 'fetchAndLoadPageSource must be invoked exactly once');
+
+    const newTab = tabs.get(newTabId);
+    assert.ok(newTab);
+    assert.strictEqual(newTab.state.url, 'view-source:https://example.com/store');
+  });
 });

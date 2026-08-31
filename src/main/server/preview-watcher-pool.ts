@@ -11,6 +11,8 @@ interface WatcherEntry {
   watcher: fs.FSWatcher;
   refCount: number;
   callbacks: Set<(event: PreviewChangeEvent) => void>;
+  debounceTimer: NodeJS.Timeout | null;
+  pendingFiles: Set<string>;
 }
 
 const IGNORED_DIR_PATTERNS = [
@@ -20,6 +22,8 @@ const IGNORED_DIR_PATTERNS = [
   /^[/\\]?dist([/\\]|$)/i,
   /^[/\\]?build([/\\]|$)/i,
   /^[/\\]?\.cache([/\\]|$)/i,
+  /\.tmp-[0-9a-zA-Z-]+$/i,
+  /\.tmp[/\\]?$/i,
 ];
 
 /**
@@ -48,9 +52,13 @@ export class PreviewWatcherPool {
       const callbacks = new Set<(event: PreviewChangeEvent) => void>();
       callbacks.add(onChanged);
 
-      let debounceTimer: NodeJS.Timeout | null = null;
-      let pendingFiles = new Set<string>();
-
+      const entryRef: WatcherEntry = {
+        watcher: null as any,
+        refCount: 1,
+        callbacks,
+        debounceTimer: null,
+        pendingFiles: new Set<string>(),
+      };
       try {
         const watcher = fs.watch(
           workspacePath,
@@ -66,12 +74,13 @@ export class PreviewWatcherPool {
               }
             }
 
-            pendingFiles.add(normalized);
+            entryRef.pendingFiles.add(normalized);
 
-            if (debounceTimer) clearTimeout(debounceTimer);
-            debounceTimer = setTimeout(() => {
-              const files = Array.from(pendingFiles);
-              pendingFiles.clear();
+            if (entryRef.debounceTimer) clearTimeout(entryRef.debounceTimer);
+            entryRef.debounceTimer = setTimeout(() => {
+              const files = Array.from(entryRef.pendingFiles);
+              entryRef.pendingFiles.clear();
+              entryRef.debounceTimer = null;
 
               if (files.length === 0) return;
 
@@ -84,7 +93,7 @@ export class PreviewWatcherPool {
                 capsuleId: key,
               };
 
-              for (const cb of callbacks) {
+              for (const cb of Array.from(entryRef.callbacks)) {
                 try {
                   cb(event);
                 } catch {
@@ -100,8 +109,8 @@ export class PreviewWatcherPool {
           this.release(capsuleId, onChanged);
         });
 
-        entry = { watcher, refCount: 1, callbacks };
-        this.watchers.set(key, entry);
+        entryRef.watcher = watcher;
+        this.watchers.set(key, entryRef);
       } catch {
         return () => {};
       }
@@ -124,6 +133,10 @@ export class PreviewWatcherPool {
 
     entry.refCount--;
     if (entry.refCount <= 0 || entry.callbacks.size === 0) {
+      if (entry.debounceTimer) {
+        clearTimeout(entry.debounceTimer);
+        entry.debounceTimer = null;
+      }
       try {
         entry.watcher.close();
       } catch {

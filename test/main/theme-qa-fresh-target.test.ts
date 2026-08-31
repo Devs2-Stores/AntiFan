@@ -131,7 +131,6 @@ describe('Theme QA Fresh Target Reliability', () => {
     const browser = new BrowserControlPort(host, artifactStore);
     const workflow = new ThemeQaWorkflow({
       browser,
-      files: new WorkspaceFilePort(),
       artifacts: artifactStore,
       reload: (t) => browser.reload(t),
     });
@@ -144,9 +143,8 @@ describe('Theme QA Fresh Target Reliability', () => {
       target: targetGen1,
     });
 
-    // Tick microtasks
-    await new Promise((r) => setImmediate(r));
-
+    // Wait for Stage 1 FS debounce (150ms) to complete and trigger reload
+    await new Promise((r) => setTimeout(r, 200));
     // Assert: Before reload releases, only synchronous pre-reload diagnostics and pre-reload listTabs were called.
     // No getDom, captureScreenshot, or evalJs should have run.
     const preReleaseCalls = host.calls.map((c) => c.method);
@@ -196,7 +194,6 @@ describe('Theme QA Fresh Target Reliability', () => {
     const browser = new BrowserControlPort(host, artifactStore);
     const workflow = new ThemeQaWorkflow({
       browser,
-      files: new WorkspaceFilePort(),
       artifacts: artifactStore,
       reload: (t) => browser.reload(t),
     });
@@ -253,7 +250,6 @@ describe('Theme QA Fresh Target Reliability', () => {
     const browser = new BrowserControlPort(host, artifactStore);
     const workflow = new ThemeQaWorkflow({
       browser,
-      files: new WorkspaceFilePort(),
       artifacts: artifactStore,
       reload: (t) => browser.reload(t),
     });
@@ -325,6 +321,9 @@ describe('Theme QA Fresh Target Reliability', () => {
     for (const sc of scannerCases) {
       const host = new StatefulBrowserHost();
       host.evalJsOverride = async (expr: string) => {
+        if (expr.includes('document.fonts') || expr.includes('rafPromise') || expr.includes('settleScript')) {
+          return true;
+        }
         if (sc.isTarget(expr)) {
           throw new CapabilityError('TARGET_STALE', `Document generation is stale in ${sc.name}`);
         }
@@ -362,7 +361,6 @@ describe('Theme QA Fresh Target Reliability', () => {
       const browser = new BrowserControlPort(host, artifactStore);
       const workflow = new ThemeQaWorkflow({
         browser,
-        files: new WorkspaceFilePort(),
         artifacts: artifactStore,
         reload: (t) => browser.reload(t),
       });
@@ -400,7 +398,6 @@ describe('Theme QA Fresh Target Reliability', () => {
       const browserOther = new BrowserControlPort(hostOther, artifactStoreOther);
       const workflowOther = new ThemeQaWorkflow({
         browser: browserOther,
-        files: new WorkspaceFilePort(),
         artifacts: artifactStoreOther,
         reload: (t) => browserOther.reload(t),
       });
@@ -423,14 +420,16 @@ describe('Theme QA Fresh Target Reliability', () => {
 
     // Assert: Non-target error (e.g. generic script eval error) retains static analysis fallback
     const hostNonTarget = new StatefulBrowserHost();
-    hostNonTarget.evalJsOverride = async () => {
+    hostNonTarget.evalJsOverride = async (expr: string) => {
+      if (expr.includes('document.fonts') || expr.includes('rafPromise') || expr.includes('settleScript')) {
+        return true;
+      }
       throw new Error('Some arbitrary non-target DOM execution error');
     };
     const artifactStoreNonTarget = new ArtifactStore({ root: path.join(root, 'artifacts-fallback') });
     const browserNonTarget = new BrowserControlPort(hostNonTarget, artifactStoreNonTarget);
     const workflowNonTarget = new ThemeQaWorkflow({
       browser: browserNonTarget,
-      files: new WorkspaceFilePort(),
       artifacts: artifactStoreNonTarget,
       reload: (t) => browserNonTarget.reload(t),
     });
@@ -450,7 +449,6 @@ describe('Theme QA Fresh Target Reliability', () => {
     const browserDiag = new BrowserControlPort(hostDiagStale, artifactStoreDiag);
     const workflowDiag = new ThemeQaWorkflow({
       browser: browserDiag,
-      files: new WorkspaceFilePort(),
       artifacts: artifactStoreDiag,
       reload: (t) => browserDiag.reload(t),
     });
@@ -480,7 +478,6 @@ describe('Theme QA Fresh Target Reliability', () => {
     const browser = new BrowserControlPort(host, artifactStore);
     const workflow = new ThemeQaWorkflow({
       browser,
-      files: new WorkspaceFilePort(),
       artifacts: artifactStore,
       reload: (t) => browser.reload(t),
     });

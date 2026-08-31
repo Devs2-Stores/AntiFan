@@ -37,8 +37,8 @@ export class CookieDebouncer {
   private maxWaitMs: number;
   private queue: Map<string, { type: 'upsert' | 'remove'; cookie: ExtensionCookie; timestamp: number }> = new Map();
   private timer: NodeJS.Timeout | number | null = null;
+  private maxTimer: NodeJS.Timeout | number | null = null;
   private firstEventTime: number | null = null;
-
   constructor(
     flushCallback: (batch: DeltaSyncBatch) => void | Promise<void>,
     delayMs = 300,
@@ -69,6 +69,7 @@ export class CookieDebouncer {
 
     if (!this.firstEventTime) {
       this.firstEventTime = Date.now();
+      this.maxTimer = setTimeout(() => this.flush(), this.maxWaitMs);
     }
 
     const elapsed = Date.now() - this.firstEventTime;
@@ -87,8 +88,11 @@ export class CookieDebouncer {
       clearTimeout(this.timer as NodeJS.Timeout);
       this.timer = null;
     }
+    if (this.maxTimer) {
+      clearTimeout(this.maxTimer as NodeJS.Timeout);
+      this.maxTimer = null;
+    }
     this.firstEventTime = null;
-
     if (this.queue.size === 0) return;
 
     const upserted: ExtensionCookie[] = [];

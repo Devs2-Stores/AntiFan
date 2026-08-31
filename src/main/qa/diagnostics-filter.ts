@@ -236,6 +236,53 @@ export function classifyDiagnostics(
   return { criticalIssues, warnings };
 }
 
+export interface CorrelatableFailure {
+  url: string;
+  status?: number;
+  errorText?: string;
+}
+
+/**
+ * Filter first-party/theme-asset network failures for BrokenAssetScanner correlation.
+ * Rejects ERR_ABORTED (-3) and third-party failures.
+ */
+export function extractCorrelatableAssetFailures(
+  failures: unknown[] | undefined,
+  contextUrl: string,
+  assetHosts: readonly string[] = THEME_ASSET_HOSTS
+): CorrelatableFailure[] {
+  if (!Array.isArray(failures) || failures.length === 0) return [];
+  return failures
+    .filter((f): f is Record<string, unknown> => Boolean(f && typeof f === 'object'))
+    .filter((f) => {
+      const status = typeof f.status === 'number' ? f.status : typeof f.errorCode === 'number' ? f.errorCode : 0;
+      const isRealFailure = (typeof f.errorCode === 'number' && f.errorCode < 0 && f.errorCode !== -3) || status >= 400;
+      if (!isRealFailure) return false;
+
+      const rawUrl = typeof f.validatedURL === 'string' && f.validatedURL ? f.validatedURL : typeof f.url === 'string' ? f.url : '';
+      if (!rawUrl) return false;
+
+      if (typeof f.isFirstParty === 'boolean') {
+        const origin = normalizeHostname(typeof f.origin === 'string' && f.origin ? f.origin : computeOrigin(rawUrl, contextUrl).origin);
+        if (f.isFirstParty) return true;
+        return isThemeAssetHost(origin, assetHosts);
+      }
+      const originInfo = computeOrigin(rawUrl, contextUrl);
+      const origin = normalizeHostname(originInfo.origin);
+      return originInfo.isFirstParty || isThemeAssetHost(origin, assetHosts);
+    })
+    .map((f) => {
+      const rawUrl = typeof f.validatedURL === 'string' && f.validatedURL ? f.validatedURL : typeof f.url === 'string' ? f.url : '';
+      const status = typeof f.status === 'number' ? f.status : typeof f.errorCode === 'number' ? f.errorCode : undefined;
+      const errorText = typeof f.errorDescription === 'string' ? f.errorDescription : undefined;
+      return {
+        url: rawUrl,
+        status,
+        errorText,
+      };
+    })
+    .filter((f) => f.url.length > 0);
+}
 /**
  * Confine a caller-supplied workspace root to the authoritative workspace
  * root. Traversal candidates ("../../.."), stray absolute paths, and empty

@@ -74,7 +74,6 @@ async function runFullPath(root: string, tabDiagnostics: DiagnosticsInput): Prom
   const browser = new BrowserControlPort(host, artifactStore);
   const workflow = new ThemeQaWorkflow({
     browser,
-    files: { write: () => ({ path: 'x', byteLength: 0, sha256: '' }) } as never,
     artifacts: artifactStore,
     reload: (t) => browser.reload(t),
   });
@@ -114,8 +113,8 @@ describe('Theme QA verdict parity: full path vs fallback path', () => {
       assert.equal(typeof fallbackSummary.criticalCount, 'number');
 
       // 2 first-party critical (console error + network -105), third-party
-      // noise downgraded to warnings, -3 aborted ignored
-      assert.equal(fallbackSummary.criticalCount, 2);
+      // noise downgraded to warnings, -3 aborted ignored, plus correlated first-party broken asset (3 total)
+      assert.equal(fallbackSummary.criticalCount, 3);
       assert.equal(fullSummary.criticalCount, fallbackSummary.criticalCount);
       assert.equal(fullSummary.passed, fallbackSummary.passed);
       assert.equal(fallbackSummary.passed, false, 'first-party critical issues fail the gate');
@@ -168,7 +167,6 @@ describe('Theme QA verdict parity: full path vs fallback path', () => {
       const fullBrowser = new BrowserControlPort(overflowingHost, new ArtifactStore({ root: path.join(root, 'artifacts') }));
       const fullWorkflow = new ThemeQaWorkflow({
         browser: fullBrowser,
-        files: { write: () => ({ path: 'x', byteLength: 0, sha256: '' }) } as never,
         artifacts: new ArtifactStore({ root: path.join(root, 'reports') }),
         reload: () => ({ reloaded: true, target: makeTarget() }),
       });
@@ -205,7 +203,6 @@ describe('Theme QA verdict parity: full path vs fallback path', () => {
       const fullBrowser = new BrowserControlPort(host, artifactStore);
       const workflow = new ThemeQaWorkflow({
         browser: fullBrowser,
-        files: { write: () => ({ path: 'x', byteLength: 0, sha256: '' }) } as never,
         artifacts: artifactStore,
         reload: () => ({ reloaded: true, target: makeTarget() }),
       });
@@ -249,7 +246,6 @@ describe('Theme QA verdict parity: full path vs fallback path', () => {
       const browser = new BrowserControlPort(overflowingHost, artifactStore);
       const workflow = new ThemeQaWorkflow({
         browser,
-        files: { write: () => ({ path: 'x', byteLength: 0, sha256: '' }) } as never,
         artifacts: artifactStore,
         reload: () => ({ reloaded: true, target: makeTarget() }),
       });

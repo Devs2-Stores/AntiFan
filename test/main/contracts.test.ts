@@ -1,56 +1,55 @@
 import { describe, it } from 'node:test';
-import * as assert from 'node:assert';
-import { TOOLBAR_CHANNELS, SIDEBAR_CHANNELS, AntiFanTab, AntiFanPickedElement } from '../../src/shared/contracts';
+import * as assert from 'node:assert/strict';
+import {
+  TOOLBAR_CHANNELS,
+  FRAME_BACKDROP_CHANNELS,
+  SIDEBAR_CHANNELS,
+  TERMINAL_CHANNELS,
+} from '../../src/shared/contracts';
 
-describe('AntiFan Contracts', () => {
-  it('has consistent IPC channel definitions', () => {
-    assert.ok(TOOLBAR_CHANNELS.CREATE_TAB);
-    assert.ok(TOOLBAR_CHANNELS.SWITCH_TAB);
-    assert.ok(TOOLBAR_CHANNELS.CLOSE_TAB);
-    assert.ok(TOOLBAR_CHANNELS.NAVIGATE);
-    assert.ok(TOOLBAR_CHANNELS.TOGGLE_INSPECT);
-    assert.ok(TOOLBAR_CHANNELS.TOGGLE_SIDEBAR);
-    assert.ok(TOOLBAR_CHANNELS.TOGGLE_MUTE);
-    assert.ok(SIDEBAR_CHANNELS.GET_INITIAL_STATE);
-    assert.ok(SIDEBAR_CHANNELS.CLOSE_SIDEBAR);
-    assert.ok(SIDEBAR_CHANNELS.SET_WIDTH);
-  });
+describe('AntiFan Shared Protocol Contracts & IPC Table Invariants', () => {
+  it('enforces namespacing, non-emptiness, and zero cross-channel collisions across all IPC namespaces', () => {
+    const namespaces = [
+      { name: 'TOOLBAR_CHANNELS', map: TOOLBAR_CHANNELS },
+      { name: 'FRAME_BACKDROP_CHANNELS', map: FRAME_BACKDROP_CHANNELS },
+      { name: 'SIDEBAR_CHANNELS', map: SIDEBAR_CHANNELS },
+      { name: 'TERMINAL_CHANNELS', map: TERMINAL_CHANNELS },
+    ];
 
-  it('validates shape of picked element interface', () => {
-    const el: AntiFanPickedElement = {
-      tag: 'button',
-      id: 'btn-submit',
-      classes: ['btn', 'btn-primary'],
-      textSnippet: 'Submit Order',
-      xpath: '//*[@id="btn-submit"]',
-      selector: 'button#btn-submit',
-      rect: { x: 100, y: 200, width: 120, height: 40 },
-      computedStyles: { color: 'rgb(255, 255, 255)' },
-      timestamp: Date.now(),
-    };
+    const seenChannels = new Map<string, string>();
 
-    assert.strictEqual(el.tag, 'button');
-    assert.strictEqual(el.id, 'btn-submit');
-    assert.strictEqual(el.classes.length, 2);
-  });
+    for (const ns of namespaces) {
+      const keys = Object.keys(ns.map);
+      const values = Object.values(ns.map) as string[];
 
-  it('supports audio indicator and scroll restoration fields on AntiFanTab', () => {
-    const tab: AntiFanTab = {
-      id: 'tab-123',
-      url: 'https://youtube.com',
-      title: 'YouTube Music',
-      isLoading: false,
-      canGoBack: true,
-      canGoForward: false,
-      zoomFactor: 1.0,
-      isAudible: true,
-      isMuted: false,
-      scrollX: 0,
-      scrollY: 450,
-    };
+      assert.ok(keys.length > 0, `Namespace ${ns.name} must not be empty`);
 
-    assert.strictEqual(tab.isAudible, true);
-    assert.strictEqual(tab.isMuted, false);
-    assert.strictEqual(tab.scrollY, 450);
+      // 1. Invariant: Every channel identifier must be non-empty and start with 'antifan:'
+      for (const val of values) {
+        assert.strictEqual(typeof val, 'string');
+        assert.ok(val.length > 0, `Channel value in ${ns.name} must be non-empty`);
+        assert.ok(
+          val.startsWith('antifan:'),
+          `Channel '${val}' in ${ns.name} must start with 'antifan:' namespace prefix`
+        );
+
+        // 2. Invariant: Zero collisions across any namespace
+        if (seenChannels.has(val)) {
+          assert.fail(`IPC Channel collision detected: '${val}' is defined in both ${seenChannels.get(val)} and ${ns.name}`);
+        }
+        seenChannels.set(val, ns.name);
+      }
+
+      // 3. Invariant: Keys within the same namespace must map to unique channel strings
+      const uniqueValues = new Set(values);
+      assert.strictEqual(
+        uniqueValues.size,
+        values.length,
+        `Namespace ${ns.name} contains internal duplicate channel strings`
+      );
+    }
+
+    // Verify minimum contract footprint
+    assert.ok(seenChannels.size >= 50, `Expected at least 50 IPC channel definitions, found ${seenChannels.size}`);
   });
 });

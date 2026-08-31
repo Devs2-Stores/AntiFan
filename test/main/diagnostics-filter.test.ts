@@ -6,6 +6,7 @@ import {
   sanitizeDiagnosticText,
   stripUrlQuery,
   confineWorkspaceRoot,
+  extractCorrelatableAssetFailures,
 } from '../../src/main/qa/diagnostics-filter';
 
 describe('computeOrigin — origin classification of diagnostic sources', () => {
@@ -222,5 +223,123 @@ describe('confineWorkspaceRoot — traversal confinement (Finding 12)', () => {
   it('keeps back-compat when the default root is empty', () => {
     const result = confineWorkspaceRoot('D:\\other\\project', '');
     assert.strictEqual(result, 'D:\\other\\project');
+  });
+});
+describe('extractCorrelatableAssetFailures — first-party asset network failure filtering', () => {
+  const contextUrl = 'https://store.example.com/';
+
+  it('includes first-party HTTP 404/500 failures and network error codes', () => {
+    const rawFailures = [
+      {
+        url: 'https://store.example.com/assets/theme.css',
+        status: 404,
+        errorDescription: 'Not Found',
+        origin: 'store.example.com',
+        isFirstParty: true,
+      },
+      {
+        url: 'https://store.example.com/assets/app.js',
+        errorCode: -105,
+        errorDescription: 'net::ERR_NAME_NOT_RESOLVED',
+        origin: 'store.example.com',
+        isFirstParty: true,
+      },
+    ];
+
+    const result = extractCorrelatableAssetFailures(rawFailures, contextUrl);
+    assert.strictEqual(result.length, 2);
+    assert.strictEqual(result[0]?.url, 'https://store.example.com/assets/theme.css');
+    assert.strictEqual(result[0]?.status, 404);
+    assert.strictEqual(result[0]?.errorText, 'Not Found');
+    assert.strictEqual(result[1]?.url, 'https://store.example.com/assets/app.js');
+    assert.strictEqual(result[1]?.status, -105);
+    assert.strictEqual(result[1]?.errorText, 'net::ERR_NAME_NOT_RESOLVED');
+  });
+
+  it('includes CDN theme asset hosts as correlatable failures', () => {
+    const rawFailures = [
+      {
+        url: 'https://theme.hstatic.net/1000/100/assets/style.css',
+        status: 404,
+        errorDescription: 'Not Found',
+        origin: 'theme.hstatic.net',
+        isFirstParty: false,
+      },
+      {
+        url: 'https://cdn.shopify.com/s/files/1/000/assets/bundle.js',
+        errorCode: -105,
+        errorDescription: 'ERR_NAME_NOT_RESOLVED',
+        origin: 'cdn.shopify.com',
+        isFirstParty: false,
+      },
+    ];
+
+    const result = extractCorrelatableAssetFailures(rawFailures, contextUrl);
+    assert.strictEqual(result.length, 2);
+    assert.strictEqual(result[0]?.url, 'https://theme.hstatic.net/1000/100/assets/style.css');
+    assert.strictEqual(result[1]?.url, 'https://cdn.shopify.com/s/files/1/000/assets/bundle.js');
+  });
+
+  it('excludes third-party network failures', () => {
+    const rawFailures = [
+      {
+        url: 'https://www.google-analytics.com/analytics.js',
+        status: 404,
+        errorDescription: 'Not Found',
+        origin: 'www.google-analytics.com',
+        isFirstParty: false,
+      },
+      {
+        url: 'https://connect.facebook.net/en_US/fbevents.js',
+        errorCode: -105,
+        errorDescription: 'ERR_NAME_NOT_RESOLVED',
+        origin: 'connect.facebook.net',
+        isFirstParty: false,
+      },
+    ];
+
+    const result = extractCorrelatableAssetFailures(rawFailures, contextUrl);
+    assert.strictEqual(result.length, 0);
+  });
+
+  it('excludes user cancelled / aborted requests (ERR_ABORTED -3)', () => {
+    const rawFailures = [
+      {
+        url: 'https://store.example.com/assets/video.mp4',
+        errorCode: -3,
+        errorDescription: 'ERR_ABORTED',
+        origin: 'store.example.com',
+        isFirstParty: true,
+      },
+    ];
+
+    const result = extractCorrelatableAssetFailures(rawFailures, contextUrl);
+    assert.strictEqual(result.length, 0);
+  });
+
+  it('excludes non-error HTTP status codes (< 400)', () => {
+    const rawFailures = [
+      {
+        url: 'https://store.example.com/assets/theme.css',
+        status: 200,
+        origin: 'store.example.com',
+        isFirstParty: true,
+      },
+      {
+        url: 'https://store.example.com/assets/theme.css',
+        status: 304,
+        origin: 'store.example.com',
+        isFirstParty: true,
+      },
+    ];
+
+    const result = extractCorrelatableAssetFailures(rawFailures, contextUrl);
+    assert.strictEqual(result.length, 0);
+  });
+
+  it('handles empty, non-array, and malformed inputs safely', () => {
+    assert.deepStrictEqual(extractCorrelatableAssetFailures(undefined, contextUrl), []);
+    assert.deepStrictEqual(extractCorrelatableAssetFailures([], contextUrl), []);
+    assert.deepStrictEqual(extractCorrelatableAssetFailures([null, undefined, 'not an object', {}], contextUrl), []);
   });
 });

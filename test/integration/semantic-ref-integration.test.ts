@@ -1,12 +1,13 @@
 import { describe, it } from 'node:test';
 import * as assert from 'node:assert';
+import * as vm from 'node:vm';
 import { EventEmitter } from 'node:events';
 import { NativeTabHost } from '../../src/main/browser/native-tab-host';
 import { BrowserActionRegistry } from '../../src/main/browser/browser-action-registry';
 import { CapabilityCatalogue } from '../../src/main/tools/capability-catalogue';
 import { registerBrowserCapabilities } from '../../src/main/tools/browser-capabilities';
 import { BrowserControlPort } from '../../src/main/tools/browser-control-port';
-import { ISOLATED_AGENT_WORLD_ID } from '../../src/main/browser/semantic-ref-executor';
+import { ISOLATED_AGENT_WORLD_ID, buildIsolatedCollectorScript, buildIsolatedExecutorScript } from '../../src/main/browser/semantic-ref-executor';
 import { makeControlPlaneId, issueRuntimeLease, BrowserTarget } from '../../src/shared/control-plane-contracts';
 import { AntiFanTab } from '../../src/shared/contracts';
 function createIntegrationHost() {
@@ -220,5 +221,145 @@ describe('Semantic Ref Integration Pipeline (World 1004 & Control Plane Parity)'
     assert.ok(res.includes('Synthetic frame navigation crash'));
     assert.ok(res.length < 200, `Expected compact error under 200 chars but got length ${res.length}`);
     assert.strictEqual(res.includes('<html'), false, 'Must never dump raw HTML on collection error');
+  });
+
+  it('6. Behavioral round-trip: collects and resolves descriptors across nested open Shadow DOM roots and same-origin iframes', () => {
+    // Create custom DOM Element class
+    class MockElement {
+      public tagName: string;
+      public id: string = '';
+      public className: string = '';
+      public children: MockElement[] = [];
+      public parentElement: MockElement | null = null;
+      public shadowRoot: any = null;
+      public contentDocument: any = null;
+      public isConnected: boolean = true;
+      public attributes: Record<string, string> = {};
+
+      constructor(tag: string, id: string = '') {
+        this.tagName = tag.toUpperCase();
+        this.id = id;
+      }
+
+      getAttribute(name: string) { return this.attributes[name] || null; }
+      setAttribute(name: string, val: string) { this.attributes[name] = val; }
+      hasAttribute(name: string) { return name in this.attributes; }
+      getBoundingClientRect() { return { x: 10, y: 20, left: 10, top: 20, right: 110, bottom: 50, width: 100, height: 30 }; }
+      focus() {}
+      click() {}
+      scrollIntoView() {}
+      dispatchEvent(_e: any) { return true; }
+      appendChild(child: MockElement) {
+        child.parentElement = this;
+        this.children.push(child);
+        return child;
+      }
+    }
+
+    // Build DOM structure with parentElement links:
+    const html = new MockElement('html');
+    const body = new MockElement('body');
+    html.appendChild(body);
+
+    // Shadow host
+    const customWidget = new MockElement('custom-widget', 'widget-host');
+    const shadowBtn = new MockElement('button', 'shadow-action-btn');
+    shadowBtn.setAttribute('role', 'button');
+    const shadowRoot = {
+      children: [shadowBtn],
+      getElementById: (id: string) => id === 'shadow-action-btn' ? shadowBtn : null,
+    };
+    customWidget.shadowRoot = shadowRoot;
+    body.appendChild(customWidget);
+
+    // Iframe host
+    const iframeEl = new MockElement('iframe', 'checkout-frame');
+    const iframeHtml = new MockElement('html');
+    const iframeBody = new MockElement('body');
+    const iframeBtn = new MockElement('button', 'iframe-submit-btn');
+    iframeBtn.setAttribute('role', 'button');
+    iframeHtml.appendChild(iframeBody);
+    iframeBody.appendChild(iframeBtn);
+    const iframeDoc = {
+      children: [iframeHtml],
+      childrenMap: { 'iframe-submit-btn': iframeBtn },
+      getElementById: (id: string) => id === 'iframe-submit-btn' ? iframeBtn : null,
+    };
+    iframeEl.contentDocument = iframeDoc;
+    body.appendChild(iframeEl);
+
+    const mockDocument = {
+      children: [html],
+      body,
+      documentElement: html,
+      getElementById: (id: string) => {
+        if (id === 'widget-host') return customWidget;
+        if (id === 'checkout-frame') return iframeEl;
+        return null;
+      },
+    };
+    class MockMouseEvent {
+      public type: string;
+      public bubbles: boolean;
+      public cancelable: boolean;
+      constructor(type: string, init?: any) {
+        this.type = type;
+        this.bubbles = Boolean(init?.bubbles);
+        this.cancelable = Boolean(init?.cancelable);
+      }
+    }
+
+    const sandbox = {
+      document: mockDocument,
+      Element: MockElement,
+      MouseEvent: MockMouseEvent,
+      Event: MockMouseEvent,
+      window: {
+        location: { href: 'https://example.com/store' },
+        getComputedStyle: (_el: any) => ({ display: 'block', visibility: 'visible' }),
+        innerWidth: 1200,
+        innerHeight: 800,
+      },
+      Array,
+      Object,
+      console: { log: () => {} },
+    };
+
+    const context = vm.createContext(sandbox);
+    // 1. Run collector script
+    const nonce = 'test-nonce-123';
+    const collectorScriptSrc = buildIsolatedCollectorScript(nonce, 'https://example.com/store');
+    const collectRes = vm.runInContext(collectorScriptSrc, context) as any;
+
+    assert.strictEqual(collectRes.ok, true, 'Collector script must execute cleanly');
+    assert.strictEqual(collectRes.descriptors.length, 2, 'Must collect both shadow DOM button and iframe button');
+
+    const shadowDesc = collectRes.descriptors.find((d: any) => d.id === 'shadow-action-btn');
+    const iframeDesc = collectRes.descriptors.find((d: any) => d.id === 'iframe-submit-btn');
+
+    assert.ok(shadowDesc, 'Shadow DOM button descriptor must be collected');
+    assert.ok(iframeDesc, 'Iframe button descriptor must be collected');
+
+    // 2. Run executor script against shadow button descriptor
+    const execShadowSrc = buildIsolatedExecutorScript({
+      action: 'click',
+      descriptor: shadowDesc,
+      nonce: 'test-nonce-123',
+      documentUrl: 'https://example.com/store',
+    });
+    const shadowExecRes = vm.runInContext(execShadowSrc, context) as any;
+    assert.strictEqual(shadowExecRes.ok, true, 'Executor must successfully resolve and click element inside Shadow DOM');
+    assert.strictEqual(shadowExecRes.executed, true);
+
+    // 3. Run executor script against iframe button descriptor
+    const execIframeSrc = buildIsolatedExecutorScript({
+      action: 'click',
+      descriptor: iframeDesc,
+      nonce: 'test-nonce-123',
+      documentUrl: 'https://example.com/store',
+    });
+    const iframeExecRes = vm.runInContext(execIframeSrc, context) as any;
+    assert.strictEqual(iframeExecRes.ok, true, 'Executor must successfully resolve and click element inside iframe');
+    assert.strictEqual(iframeExecRes.executed, true);
   });
 });

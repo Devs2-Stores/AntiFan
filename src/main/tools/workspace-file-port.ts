@@ -1,8 +1,8 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as crypto from 'node:crypto';
+import { setTimeout as sleep } from 'node:timers/promises';
 import { ArtifactRef, CapabilityError, assertNoReparseTraversal, assertWorkspaceContained } from '../../shared/control-plane-contracts';
-
 const DEFAULT_MAX_BYTES = 2 * 1024 * 1024;
 
 export class WorkspaceFilePort {
@@ -22,15 +22,52 @@ export class WorkspaceFilePort {
     return { path: target, content: data.subarray(0, maxBytes).toString('utf8'), truncated };
   }
 
-  write(root: string, relativePath: string, content: string | Buffer): { path: string; byteLength: number; sha256: string } {
+  async write(root: string, relativePath: string, content: string | Buffer): Promise<{ path: string; byteLength: number; sha256: string }> {
     const target = this.resolve(root, relativePath);
     const data = Buffer.isBuffer(content) ? content : Buffer.from(content, 'utf8');
     if (data.byteLength > this.maxBytes) throw new CapabilityError('ARTIFACT_TOO_LARGE', `File exceeds ${this.maxBytes} byte limit`);
     fs.mkdirSync(path.dirname(target), { recursive: true });
-    const temp = `${target}.tmp-${process.pid}-${Date.now()}`;
-    fs.writeFileSync(temp, data);
-    fs.renameSync(temp, target);
+    await this.writeAtomicWithRetry(target, data);
     return { path: target, byteLength: data.byteLength, sha256: crypto.createHash('sha256').update(data).digest('hex') };
+  }
+
+  private async writeAtomicWithRetry(target: string, data: Buffer, maxRetries = 5): Promise<void> {
+    const delays = [10, 25, 50, 100, 200];
+    const temp = `${target}.tmp-${process.pid}-${Date.now()}-${crypto.randomBytes(4).toString('hex')}`;
+    fs.writeFileSync(temp, data);
+
+    try {
+      for (let attempt = 0; attempt <= maxRetries; attempt++) {
+        try {
+          fs.renameSync(temp, target);
+          return;
+        } catch (err: unknown) {
+          let errCode = '';
+          if (err && typeof err === 'object' && 'code' in err) {
+            const codeVal = err.code;
+            if (typeof codeVal === 'string') errCode = codeVal;
+          }
+          const isLockError = errCode === 'EBUSY' || errCode === 'EPERM' || errCode === 'EACCES';
+          if (!isLockError) {
+            // Non-lock error (e.g. ENOSPC, EIO): rethrow immediately without retrying or masking
+            throw err;
+          }
+          if (attempt === maxRetries) {
+            throw new CapabilityError(
+              'FILE_LOCK_TIMEOUT',
+              `Failed to write file ${target} after ${attempt} retries due to lock contention: ${err instanceof Error ? err.message : String(err)}`
+            );
+          }
+          const jitter = Math.floor(Math.random() * 10);
+          const delayMs = (delays[attempt] || 200) + jitter;
+          await sleep(delayMs);
+        }
+      }
+    } finally {
+      try {
+        if (fs.existsSync(temp)) fs.unlinkSync(temp);
+      } catch {}
+    }
   }
 
   stageAttachment(root: string, sourcePath: string, runId: string, attemptId: string, maxBytes = 8 * 1024 * 1024): ArtifactRef {

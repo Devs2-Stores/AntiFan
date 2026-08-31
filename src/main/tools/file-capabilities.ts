@@ -5,20 +5,29 @@ import { CapabilityError, CapabilityRequestContext, AuthenticatedCapabilityConte
 export function registerFileCapabilities(
   catalogue: CapabilityCatalogue,
   files: WorkspaceFilePort,
-  getAuthoritativeWorkspaceRoot: () => string
+  getAuthoritativeWorkspaceRoot?: () => string
 ): void {
-  if (typeof getAuthoritativeWorkspaceRoot !== 'function') {
-    throw new CapabilityError('INVALID_ARGUMENT', 'registerFileCapabilities requires an authoritative workspace root getter function');
-  }
-
   const resolveRoot = (context?: CapabilityRequestContext | AuthenticatedCapabilityContext): string => {
-    if (context?.projectId && context?.workspaceId) {
-      try {
-        const ws = catalogue.resolveAuthoritativeWorkspace(context.projectId, context.workspaceId);
-        if (ws.rootPath) return ws.rootPath;
-      } catch {}
+    if (!context || !context.projectId || !context.workspaceId) {
+      throw new CapabilityError(
+        'WORKSPACE_UNBOUND',
+        'Operation rejected: Request lacks authoritative projectId/workspaceId context tenancy binding.'
+      );
     }
-    return getAuthoritativeWorkspaceRoot();
+    try {
+      const ws = catalogue.resolveAuthoritativeWorkspace(context.projectId, context.workspaceId);
+      if (ws?.rootPath) return ws.rootPath;
+    } catch (err) {
+      throw new CapabilityError(
+        'WORKSPACE_UNBOUND',
+        `Authoritative workspace ${context.workspaceId} could not be resolved: ${err instanceof Error ? err.message : String(err)}`
+      );
+    }
+    if (getAuthoritativeWorkspaceRoot) {
+      const root = getAuthoritativeWorkspaceRoot();
+      if (root) return root;
+    }
+    throw new CapabilityError('WORKSPACE_UNBOUND', `Authoritative workspace ${context.workspaceId} has no resolved root path`);
   };
   catalogue.register({
     name: 'file.read',

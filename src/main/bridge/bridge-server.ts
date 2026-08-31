@@ -1109,6 +1109,7 @@ export class BridgeServer {
             x: p.x,
             y: p.y,
             label: p.label,
+            trusted: p.trusted,
             tabId: p.tabId,
             paneId: p.paneId,
           });
@@ -1123,6 +1124,7 @@ export class BridgeServer {
             ref: p.ref,
             text: p.text,
             clear: p.clear,
+            trusted: p.trusted,
             tabId: p.tabId,
             paneId: p.paneId,
           });

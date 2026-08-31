@@ -848,6 +848,7 @@
     maxWaitMs;
     queue = /* @__PURE__ */ new Map();
     timer = null;
+    maxTimer = null;
     firstEventTime = null;
     constructor(flushCallback, delayMs = 300, maxWaitMs = 1e3) {
       this.flushCallback = flushCallback;
@@ -869,6 +870,7 @@
       });
       if (!this.firstEventTime) {
         this.firstEventTime = Date.now();
+        this.maxTimer = setTimeout(() => this.flush(), this.maxWaitMs);
       }
       const elapsed = Date.now() - this.firstEventTime;
       if (elapsed >= this.maxWaitMs) {
@@ -884,6 +886,10 @@
       if (this.timer) {
         clearTimeout(this.timer);
         this.timer = null;
+      }
+      if (this.maxTimer) {
+        clearTimeout(this.maxTimer);
+        this.maxTimer = null;
       }
       this.firstEventTime = null;
       if (this.queue.size === 0) return;

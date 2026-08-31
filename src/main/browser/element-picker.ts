@@ -52,6 +52,13 @@ export const ELEMENT_PICKER_SCRIPT = `(() => {
     isSubmitting = false;
   };
   window.__antifanPickerCleanup = cleanup;
+  const publishPick = (data) => {
+    cleanup();
+    window.__antifanPick = data;
+    try {
+      window.dispatchEvent(new CustomEvent('antifan-pick-event', { detail: data }));
+    } catch {}
+  };
   const prevent = (e) => {
     if (e && e.preventDefault) e.preventDefault();
     if (e && e.stopPropagation) e.stopPropagation();
@@ -82,8 +89,7 @@ export const ELEMENT_PICKER_SCRIPT = `(() => {
         modal.remove();
       }
       isModalOpen = false;
-      cleanup();
-      window.__antifanPick = { canceled: true };
+      publishPick({ canceled: true });
     }
   };
   const getDomAncestry = (el) => {
@@ -568,20 +574,20 @@ export const ELEMENT_PICKER_SCRIPT = `(() => {
       if (pickedList.length > 0) {
         const first = pickedList[0];
         const combinedComment = '/queue ' + pickedList.map((p, idx) => '[' + (idx + 1) + '] ' + p.selector + ': ' + (p.userComment ? p.userComment.replace(/^(\\s*\\/queue\\b\\s*)+/gi, '') : 'Check this element')).join('\\n\\n');
-        window.__antifanPick = Object.assign({}, first, {
+        publishPick(Object.assign({}, first, {
           userComment: combinedComment,
           multiItems: pickedList,
-        });
+        }));
+      } else {
+        cleanup();
       }
-      cleanup();
     };
 
     const multiSubmitBtn = dock.querySelector('#btnMultiSubmit');
     if (multiSubmitBtn) multiSubmitBtn.onclick = () => submitMulti();
 
     dock.querySelector('#btnMultiCancel').onclick = () => {
-      cleanup();
-      window.__antifanPick = { canceled: true };
+      publishPick({ canceled: true });
     };
   };
 
@@ -729,8 +735,7 @@ export const ELEMENT_PICKER_SCRIPT = `(() => {
         modal.remove();
         isModalOpen = false;
         if (pickedList.length === 0) {
-          cleanup();
-          window.__antifanPick = { canceled: true };
+          publishPick({ canceled: true });
         }
       };
     }
@@ -964,8 +969,7 @@ export const ELEMENT_PICKER_SCRIPT = `(() => {
         modal.remove();
         isModalOpen = false;
         if (pickedList.length === 0) {
-          cleanup();
-          window.__antifanPick = { canceled: true };
+          publishPick({ canceled: true });
         }
         return;
       }
@@ -986,8 +990,7 @@ export const ELEMENT_PICKER_SCRIPT = `(() => {
         modal.remove();
         isModalOpen = false;
         if (pickedList.length === 0) {
-          cleanup();
-          window.__antifanPick = { canceled: true };
+          publishPick({ canceled: true });
         }
       });
     }
@@ -1216,22 +1219,20 @@ export const ELEMENT_PICKER_SCRIPT = `(() => {
         } else {
           cleanupModalListeners();
           try { modal.remove(); } catch {}
-          cleanup();
-          window.__antifanPick = pickedItem;
+          publishPick(pickedItem);
         }
       } catch (err) {
         console.error('[antifan-inspect] doSubmit error:', err);
         try {
           cleanupModalListeners();
           try { modal.remove(); } catch {}
-          cleanup();
-          window.__antifanPick = {
+          publishPick({
             selector: el.tagName ? el.tagName.toLowerCase() : 'div',
             userComment: userComment,
             targetSessionId: termSelect ? termSelect.value : undefined,
             attachedImages: attachedImages.slice(0, 6),
             timestamp: Date.now(),
-          };
+          });
         } catch {}
       }
     };
@@ -1272,8 +1273,7 @@ export const ELEMENT_PICKER_SCRIPT = `(() => {
         modal.remove();
         isModalOpen = false;
         if (pickedList.length === 0) {
-          cleanup();
-          window.__antifanPick = { canceled: true };
+          publishPick({ canceled: true });
         }
       }
     };

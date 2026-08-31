@@ -158,18 +158,87 @@ export function buildIsolatedExecutorScript(request: RendererActionRequest): str
         if (!targetElement) {
           return { ok: false, error: 'Target element required for type action', code: 'REF_NOT_FOUND' };
         }
+        if (typeof targetElement.scrollIntoView === 'function') {
+          targetElement.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+        }
         if (typeof targetElement.focus === 'function') {
           targetElement.focus();
         }
-        if (req.clear && 'value' in targetElement) {
-          targetElement.value = '';
-          targetElement.dispatchEvent(new Event('input', { bubbles: true }));
+
+        const isContentEditable = Boolean(
+          targetElement.isContentEditable ||
+          (targetElement.getAttribute && targetElement.getAttribute('contenteditable') === 'true')
+        );
+
+        function setNativeValue(element, val) {
+          let proto = Object.getPrototypeOf(element);
+          let descriptor = null;
+          while (proto) {
+            descriptor = Object.getOwnPropertyDescriptor(proto, 'value');
+            if (descriptor && descriptor.set) break;
+            proto = Object.getPrototypeOf(proto);
+          }
+          if (descriptor && descriptor.set) {
+            descriptor.set.call(element, val);
+          } else {
+            element.value = val;
+          }
         }
-        if ('value' in targetElement) {
-          targetElement.value = (targetElement.value || '') + (req.text || '');
-          targetElement.dispatchEvent(new Event('input', { bubbles: true }));
-          targetElement.dispatchEvent(new Event('change', { bubbles: true }));
+
+        const textToInsert = req.text || '';
+        const currentVal = ('value' in targetElement) ? (targetElement.value || '') : (targetElement.textContent || '');
+        const nextVal = req.clear ? textToInsert : (currentVal + textToInsert);
+
+        try {
+          targetElement.dispatchEvent(new InputEvent('beforeinput', {
+            bubbles: true,
+            cancelable: true,
+            composed: true,
+            data: textToInsert,
+            inputType: 'insertText',
+            view: window
+          }));
+        } catch {
+          targetElement.dispatchEvent(new Event('beforeinput', { bubbles: true, cancelable: true, composed: true }));
         }
+
+        if (isContentEditable) {
+          if (req.clear) {
+            targetElement.textContent = '';
+          }
+          if (textToInsert) {
+            const sel = window.getSelection();
+            if (sel && sel.rangeCount > 0) {
+              const range = sel.getRangeAt(0);
+              range.deleteContents();
+              const textNode = document.createTextNode(textToInsert);
+              range.insertNode(textNode);
+              range.setStartAfter(textNode);
+              range.collapse(true);
+              sel.removeAllRanges();
+              sel.addRange(range);
+            } else {
+              targetElement.textContent = (targetElement.textContent || '') + textToInsert;
+            }
+          }
+        } else if ('value' in targetElement) {
+          setNativeValue(targetElement, nextVal);
+        }
+
+        try {
+          targetElement.dispatchEvent(new InputEvent('input', {
+            bubbles: true,
+            cancelable: false,
+            composed: true,
+            data: textToInsert,
+            inputType: 'insertText',
+            view: window
+          }));
+        } catch {
+          targetElement.dispatchEvent(new Event('input', { bubbles: true, composed: true }));
+        }
+
+        targetElement.dispatchEvent(new Event('change', { bubbles: true, cancelable: false, composed: true }));
         return { ok: true, executed: true, rect: computedRect };
       } else if (req.action === 'hover' || req.action === 'move') {
         if (targetElement) {
@@ -194,8 +263,31 @@ export function buildIsolatedExecutorScript(request: RendererActionRequest): str
         return { ok: true, executed: true };
       } else if (req.action === 'highlight') {
         return { ok: true, executed: true, rect: computedRect };
+      } else if (req.action === 'focus') {
+        if (!targetElement) {
+          return { ok: false, error: 'Target element required for focus action', code: 'REF_NOT_FOUND' };
+        }
+        if (typeof targetElement.scrollIntoView === 'function') {
+          targetElement.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+        }
+        if (typeof targetElement.focus === 'function') {
+          targetElement.focus();
+        }
+        if (req.clear) {
+          if (typeof targetElement.select === 'function') {
+            targetElement.select();
+          } else if (targetElement.isContentEditable || (targetElement.getAttribute && targetElement.getAttribute('contenteditable') === 'true')) {
+            const range = document.createRange();
+            range.selectNodeContents(targetElement);
+            const sel = window.getSelection();
+            if (sel) {
+              sel.removeAllRanges();
+              sel.addRange(range);
+            }
+          }
+        }
+        return { ok: true, executed: true, rect: computedRect };
       }
-
       return { ok: false, error: 'Unsupported action: "' + req.action + '"', code: 'INVALID_ARGUMENT' };
     } catch (err) {
       return { ok: false, error: err instanceof Error ? err.message : String(err), code: 'EXECUTION_ERROR' };
@@ -293,7 +385,7 @@ export function buildIsolatedCollectorScript(nonce: string, expectedUrl: string)
               if (contentDoc) {
                 const ifrRect = child.getBoundingClientRect();
                 const ifrStep = { kind: 'iframe', index: i, tag: 'iframe', id: child.id || undefined };
-                scanNode(contentDoc, currentPath.concat([ifrStep]), depth + 1, frameOffsetX + ifrRect.left, frameOffsetY + ifrRect.top);
+                scanNode(contentDoc, stepPath.concat([ifrStep]), depth + 1, frameOffsetX + ifrRect.left, frameOffsetY + ifrRect.top);
               }
             } catch {}
             continue;
@@ -303,10 +395,9 @@ export function buildIsolatedCollectorScript(nonce: string, expectedUrl: string)
           if (child.shadowRoot) {
             try {
               const shadowStep = { kind: 'shadow', index: i, tag };
-              scanNode(child.shadowRoot, currentPath.concat([shadowStep]), depth + 1, frameOffsetX, frameOffsetY);
+              scanNode(child.shadowRoot, stepPath.concat([shadowStep]), depth + 1, frameOffsetX, frameOffsetY);
             } catch {}
           }
-
           const style = window.getComputedStyle(child);
           if (style.display === 'none' || style.visibility === 'hidden') continue;
 
