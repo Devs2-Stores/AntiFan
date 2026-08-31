@@ -244,6 +244,110 @@ describe('Agent Browser & Element Picker Injected Scripts', () => {
     assert.strictEqual(normal.totalSteps, 5);
   });
 
+  it('guarantees starting trajectory B while A is running cancels A and clearing B cancels B cleanly without callback identity race', async () => {
+    let timerId = 0;
+    const activeTimers = new Map<number, NodeJS.Timeout>();
+    const customSetTimeout = (fn: Function, ms: number) => {
+      const id = ++timerId;
+      if (ms >= 500) return id;
+      const t = setTimeout(() => {
+        activeTimers.delete(id);
+        fn();
+      }, 1);
+      activeTimers.set(id, t);
+      return id;
+    };
+    const customClearTimeout = (id: any) => {
+      if (typeof id === 'number' && activeTimers.has(id)) {
+        clearTimeout(activeTimers.get(id)!);
+        activeTimers.delete(id);
+      }
+    };
+
+    const listeners: Record<string, Function[]> = {};
+    const contextObj: Record<string, any> = {
+      window: null as any,
+      document: {
+        getElementById: () => null,
+        createElement: () => ({
+          style: {},
+          appendChild: () => {},
+          removeChild: () => {},
+          remove: () => {},
+          classList: { add: () => {}, remove: () => {} },
+          addEventListener: () => {},
+          removeEventListener: () => {},
+          querySelector: () => null,
+          querySelectorAll: () => [],
+          offsetHeight: 10,
+          offsetWidth: 10,
+          getBoundingClientRect: () => ({ left: 0, top: 0, width: 10, height: 10 }),
+        }),
+        head: { appendChild: () => {}, removeChild: () => {} },
+        body: { appendChild: () => {}, removeChild: () => {}, classList: { add: () => {}, remove: () => {} } },
+        documentElement: { appendChild: () => {} },
+        addEventListener: (event: string, fn: Function) => {
+          listeners[event] = listeners[event] || [];
+          listeners[event].push(fn);
+        },
+        removeEventListener: () => {},
+        querySelector: () => null,
+        querySelectorAll: () => [],
+      },
+      setTimeout: customSetTimeout,
+      clearTimeout: customClearTimeout,
+      requestAnimationFrame: (fn: Function) => customSetTimeout(fn, 1),
+      cancelAnimationFrame: (id: any) => customClearTimeout(id),
+      Date: { now: () => Date.now() },
+      Math,
+      parseFloat,
+      Array,
+      Object,
+      String,
+      Number,
+      Boolean,
+      Promise,
+      innerWidth: 1920,
+      innerHeight: 1080,
+    };
+    contextObj.window = contextObj;
+    const ctx = vm.createContext(contextObj);
+    vm.runInContext(AGENT_BROWSER_SCRIPT, ctx);
+
+    // 1. Start Trajectory A (long 10-step sequence)
+    const promiseA = ctx.window.__antifanAgentTrajectory(
+      Array.from({ length: 10 }, (_, i) => ({ action: 'hover', x: 100 + i * 10, y: 100 + i * 10, dwellMs: 50 })),
+      { speed: 'fast' }
+    );
+
+    // Await a real tick so Trajectory A is actively in-flight inside its animation loop
+    await new Promise((r) => setTimeout(r, 5));
+
+    // 2. Start Trajectory B while A is actively running
+    const promiseB = ctx.window.__antifanAgentTrajectory(
+      Array.from({ length: 10 }, (_, i) => ({ action: 'hover', x: 500 + i * 10, y: 500 + i * 10, dwellMs: 50 })),
+      { speed: 'fast' }
+    );
+
+    // Await a tick so Trajectory A handles cancellation and Trajectory B is actively in-flight
+    await new Promise((r) => setTimeout(r, 5));
+
+    // Verify A gets cancelled by B's start
+    const resA = await promiseA;
+    assert.strictEqual(resA.success, false, 'Trajectory A must be cancelled upon Trajectory B start');
+    assert.strictEqual(resA.reason, 'Cancelled by user or navigation');
+
+    // 3. Clear B while B is running
+    assert.strictEqual(typeof ctx.window.__antifanAgentClear, 'function');
+    ctx.window.__antifanAgentClear();
+
+    // Verify B gets cancelled cleanly and its cancellation callback was not erased by A's exit
+    const resB = await promiseB;
+    assert.strictEqual(resB.success, false, 'Trajectory B must be cancelled cleanly by agentClear');
+    assert.strictEqual(resB.reason, 'Cancelled by user or navigation');
+    for (const t of activeTimers.values()) clearTimeout(t);
+    activeTimers.clear();
+  });
   it('verifies ELEMENT_PICKER_SCRIPT removed queue/draft and always dispatches auto', () => {
     assert.ok(ELEMENT_PICKER_SCRIPT.includes('btnModalSend'), 'Must define Send button in modal');
     assert.ok(ELEMENT_PICKER_SCRIPT.includes('btnMultiSubmit'), 'Must define Send All in multi dock');

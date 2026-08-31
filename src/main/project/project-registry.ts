@@ -113,4 +113,60 @@ export class ProjectRegistry {
     const id = validateControlPlaneId(projectId, 'project');
     return Array.from(this.workspaces.values()).filter((item) => item.projectId === id && item.state === 'attached').map((item) => ({ ...item }));
   }
+
+  listProjects(): ProjectRecord[] {
+    return Array.from(this.projects.values()).map((p) => ({ ...p }));
+  }
+
+  listAllWorkspaces(): WorkspaceRecord[] {
+    return Array.from(this.workspaces.values()).map((w) => ({ ...w }));
+  }
+
+  findWorkspaceById(workspaceId: string): WorkspaceRecord | undefined {
+    try {
+      const id = validateControlPlaneId(workspaceId, 'workspace');
+      const ws = this.workspaces.get(id);
+      return ws ? { ...ws } : undefined;
+    } catch {
+      return undefined;
+    }
+  }
+
+  ensureInitialWorkspace(projectId: string, workspaceId: string, rootPath: string, dataRoot: string): WorkspaceRecord {
+    const validProjectId = validateControlPlaneId(projectId, 'project');
+    const validWorkspaceId = validateControlPlaneId(workspaceId, 'workspace');
+
+    let project = this.projects.get(validProjectId);
+    if (!project) {
+      project = this.registerProject({
+        id: validProjectId,
+        name: `Project-${validProjectId}`,
+        dataRoot: path.resolve(dataRoot),
+        state: 'open',
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      });
+    } else if (project.state !== 'open') {
+      throw new Error('Cannot initialize a Workspace on a closed Project');
+    }
+    const existingWs = this.workspaces.get(validWorkspaceId);
+    if (existingWs) {
+      if (existingWs.projectId !== validProjectId) {
+        throw new Error(`Cannot initialize workspace '${validWorkspaceId}': already registered to another project '${existingWs.projectId}'`);
+      }
+      if (existingWs.state === 'detached') {
+        throw new Error(`Cannot initialize workspace '${validWorkspaceId}': workspace is detached`);
+      }
+      return { ...existingWs };
+    }
+
+    return this.registerWorkspace({
+      id: validWorkspaceId,
+      projectId: validProjectId,
+      rootPath: path.resolve(rootPath),
+      state: 'attached',
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    });
+  }
 }

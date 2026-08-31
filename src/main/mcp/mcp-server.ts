@@ -484,19 +484,22 @@ export class AntiFanMcpServer {
     const isTabAlive = (id?: string) => Boolean(id && Array.isArray(tabList) && tabList.some((t: unknown) => Boolean(t && typeof t === 'object' && 'id' in t && t.id === id)));
 
     if (cleanCallerTab && authContext.browserTarget?.tabId && cleanCallerTab !== authContext.browserTarget.tabId.trim() && !isTargetAgnostic) {
-      const currentAuthTab = authContext.browserTarget.tabId.trim();
-      if (!isTabAlive(currentAuthTab) && isTabAlive(cleanCallerTab)) {
+      if (isTabAlive(cleanCallerTab)) {
+        const liveDocGen = this.tabHost?.getDocumentGeneration ? this.tabHost.getDocumentGeneration(cleanCallerTab) : undefined;
         if (authContext.attachmentId && this.attachmentRegistry) {
-          this.attachmentRegistry.updateAttachmentTab(authContext.attachmentId, cleanCallerTab);
+          this.attachmentRegistry.updateAttachmentTab(authContext.attachmentId, cleanCallerTab, liveDocGen);
         }
         if (this.tabHost?.setAutomationTabId) {
           this.tabHost.setAutomationTabId(cleanCallerTab);
         }
         authContext.browserTarget.tabId = cleanCallerTab;
+        if (typeof liveDocGen === 'number') {
+          authContext.browserTarget.documentGeneration = liveDocGen;
+        }
       } else {
         return {
           isError: true,
-          content: [{ type: 'text', text: JSON.stringify({ code: 'TARGET_MISMATCH', message: `Explicit tabId '${cleanCallerTab}' does not match authenticated target tabId '${authContext.browserTarget.tabId}'` }) }],
+          content: [{ type: 'text', text: JSON.stringify({ code: 'TARGET_MISMATCH', message: `Explicit tabId '${cleanCallerTab}' does not match authenticated target tabId '${authContext.browserTarget.tabId}' and is not a valid live tab` }) }],
         };
       }
     }
@@ -513,34 +516,39 @@ export class AntiFanMcpServer {
 
     const result = await this.transport.dispatch(name, transportArgs, authContext);
     if (result.ok) {
-      if ((name === 'browser.set-automation-target' || name === 'antifan_set_automation_target') && isCreatedTabResult(result.data)) {
+      if ((name === 'browser.set-automation-target' || name === 'antifan_set_automation_target' || name === 'browser.open-tab' || name === 'antifan_open_tab' || name === 'anti.browser.tabs.create') && isCreatedTabResult(result.data)) {
+        const liveDocGen = this.tabHost.getDocumentGeneration?.(result.data.tabId) ?? 1;
         this.tabHost.setAutomationTabId?.(result.data.tabId);
         if (authContext.attachmentId && this.attachmentRegistry) {
-          this.attachmentRegistry.updateAttachmentTab(authContext.attachmentId, result.data.tabId);
+          this.attachmentRegistry.updateAttachmentTab(authContext.attachmentId, result.data.tabId, liveDocGen);
         }
-      } else if ((name === 'browser.open-tab' || name === 'antifan_open_tab' || name === 'anti.browser.tabs.create') && isCreatedTabResult(result.data)) {
-        const currentAuthTab = authContext.browserTarget?.tabId;
-        if (!currentAuthTab || !isTabAlive(currentAuthTab)) {
-          this.tabHost.setAutomationTabId?.(result.data.tabId);
-          if (authContext.attachmentId && this.attachmentRegistry) {
-            this.attachmentRegistry.updateAttachmentTab(authContext.attachmentId, result.data.tabId);
-          }
+        if (authContext.browserTarget) {
+          authContext.browserTarget.tabId = result.data.tabId;
+          authContext.browserTarget.documentGeneration = liveDocGen;
         }
       } else if (name === 'browser.switch-tab' || name === 'antifan_switch_tab' || name === 'anti.browser.tabs.activate') {
         const switchedTabId = typeof callerTabId === 'string' && callerTabId.trim().length > 0 ? callerTabId.trim() : (typeof a.tabId === 'string' && a.tabId.trim().length > 0 ? a.tabId.trim() : undefined);
-        if (switchedTabId) {
+        if (switchedTabId && isTabAlive(switchedTabId)) {
+          const liveDocGen = this.tabHost.getDocumentGeneration?.(switchedTabId) ?? 1;
           this.tabHost.setAutomationTabId?.(switchedTabId);
           if (authContext.attachmentId && this.attachmentRegistry) {
-            this.attachmentRegistry.updateAttachmentTab(authContext.attachmentId, switchedTabId);
+            this.attachmentRegistry.updateAttachmentTab(authContext.attachmentId, switchedTabId, liveDocGen);
+          }
+          if (authContext.browserTarget) {
+            authContext.browserTarget.tabId = switchedTabId;
+            authContext.browserTarget.documentGeneration = liveDocGen;
           }
         }
-      } else if ((name === 'browser.navigate' || name === 'antifan_navigate' || name === 'anti.browser.navigate') && typeof result.data === 'object' && result.data !== null) {
+      } else if ((name === 'browser.navigate' || name === 'antifan_navigate' || name === 'anti.browser.navigate' || name === 'browser.reload' || name === 'antifan_reload' || name === 'anti.browser.reload') && typeof result.data === 'object' && result.data !== null) {
         const navData = result.data as Record<string, unknown>;
         const navTarget = navData.target && typeof navData.target === 'object' ? navData.target as Record<string, unknown> : undefined;
-        const tabId = typeof navTarget?.tabId === 'string' ? navTarget.tabId : undefined;
-        const docGen = typeof navTarget?.documentGeneration === 'number' ? navTarget.documentGeneration : undefined;
+        const tabId = typeof navTarget?.tabId === 'string' ? navTarget.tabId : authContext.browserTarget?.tabId;
+        const docGen = typeof navTarget?.documentGeneration === 'number' ? navTarget.documentGeneration : (tabId ? this.tabHost.getDocumentGeneration?.(tabId) : undefined);
         if (tabId && authContext.attachmentId && this.attachmentRegistry) {
           this.attachmentRegistry.updateAttachmentTab(authContext.attachmentId, tabId, docGen);
+        }
+        if (authContext.browserTarget && typeof docGen === 'number') {
+          authContext.browserTarget.documentGeneration = docGen;
         }
       }
       return { content: [{ type: 'text', text: JSON.stringify(result.data) }] };

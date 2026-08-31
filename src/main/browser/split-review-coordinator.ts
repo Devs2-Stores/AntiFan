@@ -586,6 +586,15 @@ export class SplitNavigationCoordinator {
           isEcho: true,
           settled: true,
         };
+      } else if (tx.state === 'started') {
+        // Authority transaction is in-flight and has not committed yet.
+        // A non-matching commit from the mirror pane is a stale prior in-flight load (e.g. from tab init or previous page).
+        // Suppress reverse-mirroring to prevent aborting the authority transaction and rolling back authority.
+        return {
+          shouldMirror: false,
+          isEcho: true,
+          settled: false,
+        };
       } else {
         // Mirror navigated to a different URL (e.g. separate user click during load or redirect)
         // Settle old transaction and start new one from this pane to avoid deadlock.

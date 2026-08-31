@@ -603,21 +603,8 @@ export class BridgeServer {
         respond(false, undefined, 'Forbidden: Attachment-authenticated connections may only invoke antifan.capability.dispatch');
         return;
       }
-      if (method !== 'antifan.capability.dispatch' && this.capabilityTransport && typeof p.runtimeLease === 'object' && typeof p.projectId === 'string' && typeof p.workspaceId === 'string') {
-        const context = p.context as Partial<CapabilityRequestContext> | undefined;
-        const requestedGrant = context?.grant;
-        const bridgeGrant = requestedGrant === 'write' ? 'write' : 'read';
-        const result = await this.capabilityTransport.dispatch(method, p, {
-          lease: p.runtimeLease,
-          leaseToken: typeof p.leaseToken === 'string' ? p.leaseToken : '',
-          projectId: p.projectId,
-          workspaceId: p.workspaceId,
-          runId: context?.runId,
-          attemptId: context?.attemptId,
-          browserTarget: context?.browserTarget,
-          grant: bridgeGrant,
-        });
-        respond(result.ok, result.data, result.error ? `${result.error.code}: ${result.error.message}` : undefined);
+      if (method !== 'antifan.capability.dispatch' && this.capabilityTransport && typeof p.runtimeLease === 'object') {
+        respond(false, undefined, 'UNAUTHENTICATED: Direct capability dispatch without attachment claims is forbidden. Use antifan.capability.dispatch.');
         return;
       }
 
@@ -649,17 +636,18 @@ export class BridgeServer {
             const tabList = this.tabHost?.getTabList ? this.tabHost.getTabList() : [];
             const isTabAlive = (id?: string) => Boolean(id && Array.isArray(tabList) && tabList.some((t: unknown) => Boolean(t && typeof t === 'object' && 'id' in t && t.id === id)));
             if (explicitTabId && authContext.browserTarget?.tabId && explicitTabId !== authContext.browserTarget.tabId.trim() && !isTargetAgnostic) {
-              const currentAuthTab = authContext.browserTarget.tabId.trim();
-              if (!isTabAlive(currentAuthTab) && isTabAlive(explicitTabId)) {
+              if (isTabAlive(explicitTabId)) {
+                const liveDocGen = this.tabHost?.getDocumentGeneration ? this.tabHost.getDocumentGeneration(explicitTabId) : 1;
                 if (claims?.attachmentId) {
-                  this.attachmentRegistry.updateAttachmentTab(claims.attachmentId, explicitTabId);
+                  this.attachmentRegistry.updateAttachmentTab(claims.attachmentId, explicitTabId, liveDocGen);
                 }
                 if (this.tabHost?.setAutomationTabId) {
                   this.tabHost.setAutomationTabId(explicitTabId);
                 }
                 authContext.browserTarget.tabId = explicitTabId;
+                authContext.browserTarget.documentGeneration = liveDocGen;
               } else {
-                respond(false, undefined, `TARGET_MISMATCH: Explicit tabId '${explicitTabId}' does not match authenticated target tabId '${authContext.browserTarget.tabId}'`);
+                respond(false, undefined, `TARGET_MISMATCH: Explicit tabId '${explicitTabId}' does not match authenticated target tabId '${authContext.browserTarget.tabId}' and is not a valid live tab`);
                 break;
               }
             }
@@ -670,38 +658,42 @@ export class BridgeServer {
                 const isSetAutomationTarget = p.name === 'browser.set-automation-target' || p.name === 'antifan_set_automation_target';
                 const isOpenTab = p.name === 'browser.open-tab' || p.name === 'antifan_open_tab' || p.name === 'anti.browser.tabs.create';
                 const isSwitchTab = p.name === 'browser.switch-tab' || p.name === 'antifan_switch_tab' || p.name === 'anti.browser.tabs.activate';
-                const isNavigate = p.name === 'browser.navigate' || p.name === 'anti.browser.navigate' || p.name === 'antifan_navigate';
-                if (isSetAutomationTarget) {
+                const isNavigate = p.name === 'browser.navigate' || p.name === 'anti.browser.navigate' || p.name === 'antifan_navigate' || p.name === 'browser.reload' || p.name === 'antifan_reload' || p.name === 'anti.browser.reload';
+                if (isSetAutomationTarget || isOpenTab) {
                   const newTabId = typeof dataObj.tabId === 'string' ? dataObj.tabId : undefined;
                   if (newTabId) {
+                    const liveDocGen = this.tabHost?.getDocumentGeneration ? this.tabHost.getDocumentGeneration(newTabId) : 1;
                     if (this.tabHost.setAutomationTabId) {
                       this.tabHost.setAutomationTabId(newTabId);
                     }
-                    this.attachmentRegistry.updateAttachmentTab(claims.attachmentId, newTabId);
-                  }
-                } else if (isOpenTab) {
-                  const newTabId = typeof dataObj.tabId === 'string' ? dataObj.tabId : undefined;
-                  const currentAuthTab = authContext.browserTarget?.tabId;
-                  if (newTabId && (!currentAuthTab || !isTabAlive(currentAuthTab))) {
-                    if (this.tabHost.setAutomationTabId) {
-                      this.tabHost.setAutomationTabId(newTabId);
+                    this.attachmentRegistry.updateAttachmentTab(claims.attachmentId, newTabId, liveDocGen);
+                    if (authContext.browserTarget) {
+                      authContext.browserTarget.tabId = newTabId;
+                      authContext.browserTarget.documentGeneration = liveDocGen;
                     }
-                    this.attachmentRegistry.updateAttachmentTab(claims.attachmentId, newTabId);
                   }
                 } else if (isSwitchTab) {
                   const switchedTabId = typeof p.params?.tabId === 'string' ? p.params.tabId.trim() : undefined;
-                  if (switchedTabId) {
+                  if (switchedTabId && isTabAlive(switchedTabId)) {
+                    const liveDocGen = this.tabHost?.getDocumentGeneration ? this.tabHost.getDocumentGeneration(switchedTabId) : 1;
                     if (this.tabHost.setAutomationTabId) {
                       this.tabHost.setAutomationTabId(switchedTabId);
                     }
-                    this.attachmentRegistry.updateAttachmentTab(claims.attachmentId, switchedTabId);
+                    this.attachmentRegistry.updateAttachmentTab(claims.attachmentId, switchedTabId, liveDocGen);
+                    if (authContext.browserTarget) {
+                      authContext.browserTarget.tabId = switchedTabId;
+                      authContext.browserTarget.documentGeneration = liveDocGen;
+                    }
                   }
                 } else if (isNavigate) {
                   const navTarget = dataObj.target && typeof dataObj.target === 'object' ? dataObj.target as Record<string, unknown> : undefined;
-                  const tabId = typeof navTarget?.tabId === 'string' ? navTarget.tabId : undefined;
-                  const docGen = typeof navTarget?.documentGeneration === 'number' ? navTarget.documentGeneration : undefined;
+                  const tabId = typeof navTarget?.tabId === 'string' ? navTarget.tabId : authContext.browserTarget?.tabId;
+                  const docGen = typeof navTarget?.documentGeneration === 'number' ? navTarget.documentGeneration : (tabId && this.tabHost?.getDocumentGeneration ? this.tabHost.getDocumentGeneration(tabId) : undefined);
                   if (tabId) {
                     this.attachmentRegistry.updateAttachmentTab(claims.attachmentId, tabId, docGen);
+                  }
+                  if (authContext.browserTarget && typeof docGen === 'number') {
+                    authContext.browserTarget.documentGeneration = docGen;
                   }
                 }
               }
@@ -741,6 +733,9 @@ export class BridgeServer {
             }
             const ownerPid = typeof p.ownerPid === 'number' && p.ownerPid > 0 ? p.ownerPid : undefined;
             const res = this.controlPlaneRuntime.createCliSession({
+              projectId: typeof p.projectId === 'string' ? p.projectId : undefined,
+              workspaceId: typeof p.workspaceId === 'string' ? p.workspaceId : undefined,
+              cwd: typeof p.cwd === 'string' ? p.cwd : undefined,
               backendId: p.backendId || 'cli',
               grant: p.grant || 'write',
               tabId,

@@ -45,6 +45,7 @@ import { checkForUpdatesAndRestart } from './app-menu';
 import { SkillScanner } from './skill-scanner';
 import { WindowStateManager, WindowState } from './window-state';
 import { BridgeServer } from '../bridge/bridge-server';
+import { ViewportGate } from '../tools/browser-control-port';
 
 import { HistoryManager } from './history-manager';
 import { OAuthPopupManager } from './oauth-popup-manager';
@@ -229,6 +230,22 @@ export class NativeTabHost extends EventEmitter {
   public readonly semanticRefRegistry = new SemanticRefRegistry();
   private semanticDocumentGenerations = new Map<string, number>();
   private targetOperationQueues = new Map<string, Promise<void>>();
+  public agentInputInFlight = 0;
+  private viewportGate: ViewportGate | null = null;
+
+  public setViewportGate(gate: ViewportGate): void {
+    this.viewportGate = gate;
+  }
+
+  public syncWithAgentInput<T>(action: () => T): T {
+    this.agentInputInFlight++;
+    try {
+      return action();
+    } finally {
+      this.agentInputInFlight = Math.max(0, this.agentInputInFlight - 1);
+    }
+  }
+
   public get isInspecting(): boolean {
     return this.devToolsHost ? this.devToolsHost.getIsInspecting() : false;
   }
@@ -1313,10 +1330,11 @@ export class NativeTabHost extends EventEmitter {
 
   private setupGlobalShortcutsOnView(wc: Electron.WebContents): void {
     wc.on('before-input-event', (_event, input) => {
+      if (this.agentInputInFlight === 0 && this.viewportGate) {
+        this.viewportGate.preemptActiveAgent('Manual keyboard input detected on tab');
+      }
       if (input.type !== 'keyDown') return;
-
       const isCtrlOrCmd = input.control || input.meta;
-
       // Note: Standard application shortcuts (CmdOrCtrl+T, CmdOrCtrl+Shift+T, CmdOrCtrl+W,
       // CmdOrCtrl+R, CmdOrCtrl+Shift+R, CmdOrCtrl+Alt+B, F12, CmdOrCtrl+F, zoom, etc.)
       // are authoritatively registered in app-menu.ts to prevent duplicate execution.
@@ -2690,6 +2708,7 @@ export class NativeTabHost extends EventEmitter {
     if (this.isDisposed) return false;
     const target = this.tabs.get(tabId);
     if (!target) return false;
+    this.viewportGate?.cleanupTab(tabId);
     this.semanticRefRegistry?.invalidateTab(tabId);
     if (this.semanticDocumentGenerations) {
       const prefix = `${String(tabId).trim()}:`;
@@ -3997,10 +4016,13 @@ export class NativeTabHost extends EventEmitter {
     return this.getAutomationHost().agentMove(args);
   }
 
+  public async cancelActiveAgentAction(tabId?: string, paneId?: SplitPaneId): Promise<boolean> {
+    return this.getAutomationHost().agentClear(tabId, paneId);
+  }
+
   public async agentSnapshot(tabId?: string, paneId?: SplitPaneId): Promise<string> {
     return this.getAutomationHost().agentSnapshot(tabId, paneId);
   }
-
   public async sendKeyboardPress(params: { key: string; modifiers?: string[]; tabId?: string }): Promise<{ success: boolean; key: string; modifiers: string[] }> {
     const targetId = params.tabId || this.automationTabId || this.activeTabId;
     const tab = this.tabs.get(targetId);
@@ -4010,12 +4032,13 @@ export class NativeTabHost extends EventEmitter {
     return this.withTabAgentWorking(targetId, async () => {
       const events = buildKeyboardInputEvents(params.key, params.modifiers);
       for (const evt of events) {
-        tab.view.webContents.sendInputEvent(evt);
+        this.syncWithAgentInput(() => {
+          tab.view.webContents.sendInputEvent(evt);
+        });
       }
       return { success: true, key: params.key, modifiers: params.modifiers || [] };
     });
   }
-
   public setViewportSize(options: { width: number; height: number; mobile?: boolean; deviceScaleFactor?: number; tabId?: string }): boolean {
     const targetId = options.tabId || this.activeTabId;
     const tab = this.tabs.get(targetId);
@@ -4039,10 +4062,26 @@ export class NativeTabHost extends EventEmitter {
 
     const lease = this.controlPlane.getLease();
     if (typeof target.browserEpoch !== 'number' || target.browserEpoch !== lease.hostEpoch) return false;
-    if (typeof target.projectId !== 'string' || target.projectId !== lease.projectId) return false;
-    if (typeof target.workspaceId !== 'string' || (lease.workspaceId && target.workspaceId !== lease.workspaceId)) return false;
     if (typeof target.runtimeId !== 'string' || target.runtimeId !== lease.runtimeId) return false;
+    // Fast-path equality OR dynamic registry membership check
+    let projectMatches = target.projectId === lease.projectId;
+    if (!projectMatches) {
+      try {
+        projectMatches = Boolean(this.controlPlane.workspaces.get(target.workspaceId, target.projectId));
+      } catch {
+        projectMatches = false;
+      }
+    }
+    if (!projectMatches) return false;
 
+    if (lease.workspaceId && target.workspaceId !== lease.workspaceId) {
+      try {
+        const ws = this.controlPlane.workspaces.get(target.workspaceId, target.projectId);
+        if (!ws) return false;
+      } catch {
+        return false;
+      }
+    }
     return true;
   }
 

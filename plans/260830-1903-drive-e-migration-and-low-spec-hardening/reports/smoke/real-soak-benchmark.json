@@ -1,25 +1,25 @@
 {
-  "timestamp": 1788151599059,
-  "totalSamples": 29,
-  "baselineRssMB": 55.07,
-  "peakRssMB": 55.1,
-  "finalRssMB": 53.53,
-  "memorySlopeMBPerMin": -4.0441,
+  "timestamp": 1788178690823,
+  "totalSamples": 30,
+  "baselineRssMB": 55.08,
+  "peakRssMB": 55.13,
+  "finalRssMB": 53.63,
+  "memorySlopeMBPerMin": -3.6456,
   "stageResults": {
     "stage1Idle": {
-      "durationMs": 5015,
+      "durationMs": 5007,
       "samples": 25
     },
     "stage2Streaming": {
-      "durationMs": 1222,
+      "durationMs": 1411,
       "streamedBytes": 655360
     },
     "stage3TabThrash": {
-      "durationMs": 1611,
+      "durationMs": 1986,
       "tabSwitches": 15
     },
     "stage4QaBlast": {
-      "durationMs": 1068,
+      "durationMs": 1197,
       "qaRuns": 10
     }
   },

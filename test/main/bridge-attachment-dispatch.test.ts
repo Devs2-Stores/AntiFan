@@ -759,7 +759,7 @@ describe('BridgeServer Attachment Authentication & Scoped Dispatch', () => {
         });
       };
 
-      // 1. Open tab via MCP alias (does NOT implicitly retarget automation attachment)
+      // 1. Open tab via MCP alias (automatically rebinds automation attachment to newly created tab in Phase 02)
       const openResp = await sendRpc('req-open-1', 'antifan.capability.dispatch', {
         name: 'antifan_open_tab',
         params: { url: 'https://example.com/new' },
@@ -778,9 +778,8 @@ describe('BridgeServer Attachment Authentication & Scoped Dispatch', () => {
       const openData = openResp.data;
       assert.ok(openData && typeof openData === 'object' && 'tabId' in openData);
       assert.strictEqual(openData.tabId, 'tab-created-456');
-      // Invariant: openTab does NOT steal or retarget attachment tab
-      assert.strictEqual(registry.getRecord(launch.attachmentId)?.tabId, 'tab-initial');
-
+      // Phase 02 Invariant: openTab automatically rebinds attachment tab to created tab
+      assert.strictEqual(registry.getRecord(launch.attachmentId)?.tabId, 'tab-created-456');
       // 1b. Explicitly retarget via antifan_set_automation_target
       const retargetResp = await sendRpc('req-retarget-1', 'antifan.capability.dispatch', {
         name: 'antifan_set_automation_target',

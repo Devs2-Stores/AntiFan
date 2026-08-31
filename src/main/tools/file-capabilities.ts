@@ -1,6 +1,6 @@
 import { CapabilityCatalogue } from './capability-catalogue';
 import { WorkspaceFilePort } from './workspace-file-port';
-import { CapabilityError } from '../../shared/control-plane-contracts';
+import { CapabilityError, CapabilityRequestContext, AuthenticatedCapabilityContext } from '../../shared/control-plane-contracts';
 
 export function registerFileCapabilities(
   catalogue: CapabilityCatalogue,
@@ -11,6 +11,15 @@ export function registerFileCapabilities(
     throw new CapabilityError('INVALID_ARGUMENT', 'registerFileCapabilities requires an authoritative workspace root getter function');
   }
 
+  const resolveRoot = (context?: CapabilityRequestContext | AuthenticatedCapabilityContext): string => {
+    if (context?.projectId && context?.workspaceId) {
+      try {
+        const ws = catalogue.resolveAuthoritativeWorkspace(context.projectId, context.workspaceId);
+        if (ws.rootPath) return ws.rootPath;
+      } catch {}
+    }
+    return getAuthoritativeWorkspaceRoot();
+  };
   catalogue.register({
     name: 'file.read',
     description: 'Read a file relative to authoritative workspace root with boundary enforcement',
@@ -23,8 +32,8 @@ export function registerFileCapabilities(
       },
       required: ['path'],
     },
-    execute: (params: { path: string; maxBytes?: number }) => {
-      const root = getAuthoritativeWorkspaceRoot();
+    execute: (params: { path: string; maxBytes?: number }, context?: CapabilityRequestContext | AuthenticatedCapabilityContext) => {
+      const root = resolveRoot(context);
       if (!root) throw new CapabilityError('WORKSPACE_MISMATCH', 'No authoritative workspace attached');
       if (!params.path || typeof params.path !== 'string') {
         throw new CapabilityError('INVALID_ARGUMENT', 'Relative file path is required');
@@ -45,8 +54,8 @@ export function registerFileCapabilities(
       },
       required: ['path', 'content'],
     },
-    execute: (params: { path: string; content: string }) => {
-      const root = getAuthoritativeWorkspaceRoot();
+    execute: (params: { path: string; content: string }, context?: CapabilityRequestContext | AuthenticatedCapabilityContext) => {
+      const root = resolveRoot(context);
       if (!root) throw new CapabilityError('WORKSPACE_MISMATCH', 'No authoritative workspace attached');
       if (!params.path || typeof params.path !== 'string' || typeof params.content !== 'string') {
         throw new CapabilityError('INVALID_ARGUMENT', 'Relative file path and content are required');
@@ -67,8 +76,8 @@ export function registerFileCapabilities(
       },
       required: ['path', 'pattern'],
     },
-    execute: (params: { path: string; pattern: string }) => {
-      const root = getAuthoritativeWorkspaceRoot();
+    execute: (params: { path: string; pattern: string }, context?: CapabilityRequestContext | AuthenticatedCapabilityContext) => {
+      const root = resolveRoot(context);
       if (!root) throw new CapabilityError('WORKSPACE_MISMATCH', 'No authoritative workspace attached');
       if (!params.path || typeof params.path !== 'string' || !params.pattern || typeof params.pattern !== 'string') {
         throw new CapabilityError('INVALID_ARGUMENT', 'Relative file path and pattern are required');
@@ -77,7 +86,7 @@ export function registerFileCapabilities(
       if (res.content.includes(params.pattern)) {
         throw new Error(`File '${params.path}' contains forbidden pattern: '${params.pattern}'`);
       }
-      return { passed: true, path: params.path };
+      return { ok: true };
     },
   });
 }

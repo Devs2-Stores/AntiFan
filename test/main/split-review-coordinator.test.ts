@@ -322,6 +322,29 @@ describe('Split Review Coordinator & Pure Engine', () => {
       assert.strictEqual(coordinator.getActiveTransaction(tabId), null);
     });
 
+    it('suppresses stale mirror navigation while authority transaction is in started state', () => {
+      const coordinator = new SplitNavigationCoordinator();
+      const tabId = 'test-tab-started-guard';
+
+      // Desktop starts transaction to /page2 (state: 'started')
+      coordinator.startTransaction(tabId, 'desktop', 'https://antifan.test/page2');
+      assert.strictEqual(coordinator.getTransactionState(tabId), 'started');
+
+      // Mobile emits delayed commit for old /home URL before desktop commits /page2
+      const staleMirrorDecision = coordinator.handleNavigationEvent(tabId, 'mobile', 'https://antifan.test/home');
+      assert.strictEqual(staleMirrorDecision.shouldMirror, false, 'Must not mirror stale prior URL back to authority');
+      assert.strictEqual(staleMirrorDecision.isEcho, true);
+      assert.strictEqual(staleMirrorDecision.settled, false);
+      assert.strictEqual(coordinator.getTransactionState(tabId), 'started', 'Transaction must remain started for authority');
+
+      // Now desktop commits /page2
+      const authDecision = coordinator.handleNavigationEvent(tabId, 'desktop', 'https://antifan.test/page2');
+      assert.strictEqual(authDecision.shouldMirror, true);
+      assert.strictEqual(authDecision.mirrorUrl, 'https://antifan.test/page2');
+      assert.strictEqual(authDecision.targetPane, 'mobile');
+      assert.strictEqual(coordinator.getTransactionState(tabId), 'authority-committed');
+    });
+
     it('handles authority failure and mirror failure distinctly', () => {
       const coordinator = new SplitNavigationCoordinator();
       const tabId = 'test-tab-fail';

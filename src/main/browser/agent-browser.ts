@@ -558,7 +558,14 @@ export const AGENT_BROWSER_SCRIPT = `(() => {
     }
 
     let isCancelled = false;
-    activeTrajectoryCancel = () => { isCancelled = true; };
+    const cancelThisTrajectory = () => { isCancelled = true; };
+    activeTrajectoryCancel = cancelThisTrajectory;
+
+    const cleanupCancelRef = () => {
+      if (activeTrajectoryCancel === cancelThisTrajectory) {
+        activeTrajectoryCancel = null;
+      }
+    };
 
     const ov = activateOverlay();
     const cur = ensureCursor(ov);
@@ -575,7 +582,13 @@ export const AGENT_BROWSER_SCRIPT = `(() => {
 
     for (let idx = 0; idx < steps.length; idx++) {
       if (isCancelled) {
-        return { success: false, executedSteps: executedCount, totalSteps: steps.length, reason: 'Cancelled by user or navigation' };
+        cleanupCancelRef();
+        return {
+          success: false,
+          executedSteps: executedCount,
+          totalSteps: steps.length,
+          reason: 'Cancelled by user or navigation',
+        };
       }
 
       const step = steps[idx];
@@ -616,12 +629,20 @@ export const AGENT_BROWSER_SCRIPT = `(() => {
       const timePerPoint = stepDuration / bezierPoints.length;
 
       for (let p = 0; p < bezierPoints.length; p++) {
-        if (isCancelled) break;
+        if (isCancelled) {
+          cleanupCancelRef();
+          return { success: false, executedSteps: executedCount, totalSteps: steps.length, reason: 'Cancelled by user or navigation' };
+        }
         const pt = bezierPoints[p];
         cur.style.transition = 'none';
         cur.style.left = pt.x + 'px';
         cur.style.top = pt.y + 'px';
         await new Promise((r) => setTimeout(r, timePerPoint));
+      }
+
+      if (isCancelled) {
+        cleanupCancelRef();
+        return { success: false, executedSteps: executedCount, totalSteps: steps.length, reason: 'Cancelled by user or navigation' };
       }
 
       currentX = targetX;
@@ -657,6 +678,10 @@ export const AGENT_BROWSER_SCRIPT = `(() => {
         if (targetEl) {
           targetEl.focus();
           for (let c = 0; c < step.text.length; c++) {
+            if (isCancelled) {
+              cleanupCancelRef();
+              return { success: false, executedSteps: executedCount, totalSteps: steps.length, reason: 'Cancelled by user or navigation' };
+            }
             const ch = step.text[c];
             if ('value' in targetEl) {
               targetEl.value += ch;
@@ -674,13 +699,20 @@ export const AGENT_BROWSER_SCRIPT = `(() => {
 
       const dwell = typeof step.dwellMs === 'number' ? step.dwellMs : (step.action === 'click' ? 150 : 80);
       if (dwell > 0) {
-        await new Promise((r) => setTimeout(r, dwell));
+        const dwellStart = Date.now();
+        while (Date.now() - dwellStart < dwell) {
+          if (isCancelled) {
+            cleanupCancelRef();
+            return { success: false, executedSteps: executedCount, totalSteps: steps.length, reason: 'Cancelled by user or navigation' };
+          }
+          await new Promise((r) => setTimeout(r, Math.min(20, Math.max(1, dwell - (Date.now() - dwellStart)))));
+        }
       }
 
       executedCount++;
     }
 
-    activeTrajectoryCancel = null;
+    cleanupCancelRef();
     scheduleAgentIdleFadeout(60000);
     startAmbientWandering(cur);
 
@@ -843,6 +875,12 @@ export const AGENT_BROWSER_SCRIPT = `(() => {
     return false;
   };
   window.__antifanAgentClear = () => {
+    if (activeTrajectoryCancel) {
+      try {
+        activeTrajectoryCancel();
+      } catch {}
+      activeTrajectoryCancel = null;
+    }
     stopAmbientWandering();
     clearTimeout(cursorTimer);
     clearTimeout(highlightTimer);

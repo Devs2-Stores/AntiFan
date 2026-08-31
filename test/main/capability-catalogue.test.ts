@@ -1071,7 +1071,7 @@ describe('Capability catalogue', () => {
     assert.match(failRes.content[0]?.text || '', /not found/);
     assert.strictEqual(currentAutomationTab, 'tab-2', 'Host automation tab must NOT be corrupted by failed call');
 
-    // 3. Opening a new tab via MCP tool must NOT change the automation target (P1.1 invariant)
+    // 3. Opening a new tab via MCP tool automatically rebinds the automation target (Phase 02 invariant)
     const openRes = await server.callTool('antifan_open_tab', {
       url: 'https://example.com/three',
       attachmentClaims: {
@@ -1081,15 +1081,16 @@ describe('Capability catalogue', () => {
         attemptId,
         projectId,
         workspaceId,
-        invocationId: 'inv-open-no-retarget',
+        invocationId: 'inv-open-retarget',
       },
     });
     assert.strictEqual(openRes.isError, undefined);
-    assert.strictEqual(currentAutomationTab, 'tab-2', 'Automation tab must remain tab-2 after openTab');
+    assert.strictEqual(currentAutomationTab, 'tab-3', 'Automation tab must be updated to tab-3 after openTab');
+    assert.strictEqual(registry.getRecord(launch.attachmentId)?.tabId, 'tab-3', 'Attachment registry must be updated to tab-3');
 
-    // 4. Invoking target-required capability with explicit mismatched tabId must fail closed with TARGET_MISMATCH
+    // 4. Invoking target-required capability with non-existent tabId must fail closed with TARGET_MISMATCH
     const mismatchRes = await server.callTool('anti.inspect.dom', {
-      tabId: 'tab-1', // launch was rebound to tab-2; passing tab-1 must fail with TARGET_MISMATCH
+      tabId: 'tab-non-existent-999',
       attachmentClaims: {
         attachmentId: launch.attachmentId,
         attachmentSecret: launch.secret,
@@ -1100,7 +1101,7 @@ describe('Capability catalogue', () => {
         invocationId: 'inv-mismatch-target',
       },
     });
-    assert.strictEqual(mismatchRes.isError, true, 'Mismatched target tab must fail closed');
+    assert.strictEqual(mismatchRes.isError, true, 'Non-existent target tab must fail closed');
     assert.match(mismatchRes.content[0]?.text || '', /TARGET_MISMATCH/);
   });
 });

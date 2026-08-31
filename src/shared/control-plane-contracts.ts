@@ -285,7 +285,10 @@ export type CapabilityErrorCode =
   | 'REF_STALE'
   | 'REF_NOT_FOUND'
   | 'FINGERPRINT_MISMATCH'
-  | 'NODE_DETACHED';
+  | 'NODE_DETACHED'
+  | 'CAPABILITY_OVERLOADED'
+  | 'PREEMPTED_BY_USER';
+
 export class CapabilityError extends Error {
   readonly code: CapabilityErrorCode;
   readonly details?: Record<string, unknown>;

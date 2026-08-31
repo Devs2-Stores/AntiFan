@@ -28,4 +28,12 @@ export class WorkspaceRegistry {
   register(workspace: WorkspaceRecord): WorkspaceRecord {
     return this.projects.registerWorkspace(workspace);
   }
+
+  findWorkspaceById(workspaceId: string): WorkspaceRecord | undefined {
+    return this.projects.findWorkspaceById(workspaceId);
+  }
+
+  ensureInitialWorkspace(projectId: string, workspaceId: string, rootPath: string, dataRoot: string): WorkspaceRecord {
+    return this.projects.ensureInitialWorkspace(projectId, workspaceId, rootPath, dataRoot);
+  }
 }

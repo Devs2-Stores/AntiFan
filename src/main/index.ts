@@ -212,7 +212,7 @@ async function createWindow(): Promise<void> {
     getAutomationTabId: () => tabHost!.getAutomationTabId(),
   });
   tabHost.setControlPlane(controlPlane);
-  controlPlane.registerBrowser(new BrowserControlPort({
+  const browserPort = new BrowserControlPort({
     getTabList: () => tabHost!.getTabList(),
     getActiveTabId: () => tabHost!.getActiveTabId(),
     getAutomationTabId: () => tabHost!.getAutomationTabId(),
@@ -245,7 +245,9 @@ async function createWindow(): Promise<void> {
     isCurrentTarget: (target) => tabHost!.isCurrentTarget(target),
     clearAllAgentWorking: () => tabHost!.clearAllAgentWorking(),
     getDocumentGeneration: (tabId) => tabHost!.getDocumentGeneration(tabId),
-  }));
+  });
+  tabHost.setViewportGate(browserPort.viewportGate);
+  controlPlane.registerBrowser(browserPort);
   const capabilityTransport = new CapabilityTransportAdapter(controlPlane.capabilities);
 
   // Set Top Menubar (File, Edit, Selection, View, Go, Run, Terminal, Help)

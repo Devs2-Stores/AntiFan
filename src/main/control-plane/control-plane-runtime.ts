@@ -14,7 +14,7 @@ import { registerFileCapabilities } from '../tools/file-capabilities';
 import { WorkflowEngine } from '../workflow/workflow-engine';
 import { registerWorkflowCapabilities } from '../workflow/workflow-capabilities';
 import { WorkflowRegistry } from '../workflow/workflow-registry';
-import { assertExactBrowserTarget, BrowserTarget, CapabilityError, CapabilityRequestContext, issueRuntimeLease, RuntimeFeatureSwitch, RuntimeLease } from '../../shared/control-plane-contracts';
+import { assertExactBrowserTarget, BrowserTarget, CapabilityError, CapabilityRequestContext, issueRuntimeLease, RuntimeFeatureSwitch, RuntimeLease, WorkspaceRecord } from '../../shared/control-plane-contracts';
 import { WorkflowDefinition, WorkflowExecutionResult, WorkflowEventListener } from '../workflow/workflow-schema';
 import { ThemeQaWorkflow, ThemeQaReport } from '../qa/theme-qa-workflow';
 
@@ -52,6 +52,14 @@ export class ControlPlaneRuntime {
   constructor(options: ControlPlaneRuntimeOptions) {
     this.projects = options.projects || new ProjectRegistry();
     this.workspaces = options.workspaces || new WorkspaceRegistry(this.projects);
+    if (options.projectId && options.workspaceId) {
+      this.workspaces.ensureInitialWorkspace(
+        options.projectId,
+        options.workspaceId,
+        options.workspaceRoot || path.resolve(options.dataRoot, '..'),
+        options.dataRoot
+      );
+    }
     this.events = new EventStore({ filePath: path.join(options.dataRoot, 'events.jsonl'), projectId: options.projectId, workspaceId: options.workspaceId });
     this.receipts = new ReceiptStore({ filePath: path.join(options.dataRoot, 'receipts.jsonl') });
     this.artifacts = new ArtifactStore({ root: path.join(options.dataRoot, 'artifacts') });
@@ -71,7 +79,16 @@ export class ControlPlaneRuntime {
     this.workspaceRoot = options.workspaceRoot || path.resolve(options.dataRoot, '..');
     this.leaseState = issueRuntimeLease(options.projectId, options.workspaceId, 30_000, options.hostEpoch ?? 1);
     if (options.runtimeId) this.leaseState = { ...this.leaseState, runtimeId: options.runtimeId };
-    this.capabilities = new CapabilityCatalogue({ runtime: this.switchState, projectId: options.projectId, workspaceId: options.workspaceId, runtimeId: this.leaseState.runtimeId, hostEpoch: options.hostEpoch ?? 1, getActiveLease: () => this.getLease(), allowEval: options.allowEval });
+    this.capabilities = new CapabilityCatalogue({
+      runtime: this.switchState,
+      projectId: options.projectId,
+      workspaceId: options.workspaceId,
+      runtimeId: this.leaseState.runtimeId,
+      hostEpoch: options.hostEpoch ?? 1,
+      getActiveLease: () => this.getLease(),
+      workspaceRegistry: this.workspaces,
+      allowEval: options.allowEval,
+    });
 
     // Wire file and workflow capabilities into authoritative catalogue
     registerFileCapabilities(this.capabilities, this.files, () => this.getWorkspaceRoot());
@@ -122,10 +139,43 @@ export class ControlPlaneRuntime {
     return { ...this.leaseState };
   }
 
+  public resolveWorkspaceForSession(options?: { projectId?: string; workspaceId?: string; cwd?: string }): WorkspaceRecord {
+    if (options?.workspaceId && options?.projectId) {
+      return this.workspaces.get(options.workspaceId, options.projectId);
+    }
+    if (options?.cwd) {
+      const normalizedCwd = path.resolve(options.cwd);
+      const all = this.projects.listProjects();
+      const candidates: WorkspaceRecord[] = [];
+      for (const proj of all) {
+        if (proj.state !== 'open') continue;
+        const wsList = this.projects.listWorkspaces(proj.id);
+        for (const w of wsList) {
+          if (w.state !== 'attached' || !w.rootPath) continue;
+          const root = path.resolve(w.rootPath);
+          const rel = path.relative(root, normalizedCwd);
+          const isInsideOrEqual = rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel));
+          if (isInsideOrEqual) {
+            candidates.push(w);
+          }
+        }
+      }
+      if (candidates.length > 0) {
+        candidates.sort((a, b) => path.resolve(b.rootPath).length - path.resolve(a.rootPath).length);
+        const best = candidates[0];
+        if (best) return best;
+      }
+    }
+    return this.workspaces.get(this.leaseState.workspaceId || '', this.leaseState.projectId);
+  }
+
   issueAttemptAttachment(
     runId: string,
     attemptId: string,
     options: {
+      projectId?: string;
+      workspaceId?: string;
+      cwd?: string;
       backendId?: string;
       chatId?: string;
       grant?: 'read' | 'write' | 'execute' | 'eval';
@@ -134,17 +184,24 @@ export class ControlPlaneRuntime {
       ttlMs?: number;
     } = {}
   ) {
+    const targetWs = this.resolveWorkspaceForSession(options);
     const ttlMs = typeof options.ttlMs === 'number' && options.ttlMs > 0 ? options.ttlMs : 7_200_000;
-    const currentLease = this.getLease();
+    const isDefault = targetWs.projectId === this.leaseState.projectId && targetWs.id === this.leaseState.workspaceId;
+    const baseLease = isDefault ? this.getLease() : issueRuntimeLease(targetWs.projectId, targetWs.id, ttlMs, this.leaseState.hostEpoch);
     const lease: RuntimeLease = {
-      ...currentLease,
+      ...baseLease,
+      projectId: targetWs.projectId,
+      workspaceId: targetWs.id,
       expiresAt: Date.now() + ttlMs,
     };
-    return this.runs.attachments.issueAttachment(runId, attemptId, this.leaseState.projectId, this.leaseState.workspaceId || '', {
+    if (this.leaseState.runtimeId) {
+      lease.runtimeId = this.leaseState.runtimeId;
+    }
+    return this.runs.attachments.issueAttachment(runId, attemptId, targetWs.projectId, targetWs.id, {
       backendId: options.backendId || 'codex',
       lease,
       leaseToken: lease.token,
-      hostEpoch: this.leaseState.hostEpoch,
+      hostEpoch: lease.hostEpoch,
       chatId: options.chatId,
       grant: options.grant,
       tabId: options.tabId,
@@ -155,6 +212,9 @@ export class ControlPlaneRuntime {
 
   createCliSession(
     options: {
+      projectId?: string;
+      workspaceId?: string;
+      cwd?: string;
       backendId?: string;
       chatId?: string;
       grant?: 'read' | 'write' | 'execute' | 'eval';
@@ -164,22 +224,29 @@ export class ControlPlaneRuntime {
       ownerPid?: number;
     } = {}
   ) {
+    const targetWs = this.resolveWorkspaceForSession(options);
     const ttlMs = typeof options.ttlMs === 'number' && options.ttlMs > 0 ? options.ttlMs : 7_200_000;
-    const currentLease = this.getLease();
+    const isDefault = targetWs.projectId === this.leaseState.projectId && targetWs.id === this.leaseState.workspaceId;
+    const baseLease = isDefault ? this.getLease() : issueRuntimeLease(targetWs.projectId, targetWs.id, ttlMs, this.leaseState.hostEpoch);
     const lease: RuntimeLease = {
-      ...currentLease,
+      ...baseLease,
+      projectId: targetWs.projectId,
+      workspaceId: targetWs.id,
       expiresAt: Date.now() + ttlMs,
     };
+    if (this.leaseState.runtimeId) {
+      lease.runtimeId = this.leaseState.runtimeId;
+    }
     return this.runs.createCliSession({
-      projectId: this.leaseState.projectId,
-      workspaceId: this.leaseState.workspaceId || '',
+      projectId: targetWs.projectId,
+      workspaceId: targetWs.id,
       chatId: options.chatId,
       backendId: options.backendId || 'cli',
       grant: options.grant || 'write',
       tabId: options.tabId,
       browserEpoch: options.browserEpoch,
       ttlMs,
-      hostEpoch: this.leaseState.hostEpoch,
+      hostEpoch: lease.hostEpoch,
       ownerPid: options.ownerPid,
       lease,
       leaseToken: lease.token,
@@ -206,31 +273,50 @@ export class ControlPlaneRuntime {
     signal?: AbortSignal;
     onEvent?: WorkflowEventListener;
   }): Promise<WorkflowExecutionResult> {
-    const lease = this.getLease();
+    const targetProjectId = options.target?.projectId || this.leaseState.projectId;
+    const targetWorkspaceId = options.target?.workspaceId || this.leaseState.workspaceId || '';
+
+    let targetWs: WorkspaceRecord;
+    try {
+      targetWs = this.resolveWorkspaceForSession({
+        projectId: targetProjectId,
+        workspaceId: targetWorkspaceId,
+      });
+    } catch {
+      throw new CapabilityError('WORKSPACE_MISMATCH', `Target workspace '${targetWorkspaceId}' is not valid or not attached to project '${targetProjectId}'`);
+    }
+
     const boundTarget = assertExactBrowserTarget(options.target, {
-      projectId: lease.projectId,
-      workspaceId: lease.workspaceId || '',
-      runtimeId: lease.runtimeId || '',
-      browserEpoch: lease.hostEpoch,
+      projectId: targetWs.projectId,
+      workspaceId: targetWs.id,
+      runtimeId: this.leaseState.runtimeId || '',
+      browserEpoch: this.leaseState.hostEpoch,
     }, false);
 
+    const ttlMs = 600_000;
+    const isDefault = targetWs.projectId === this.leaseState.projectId && targetWs.id === this.leaseState.workspaceId;
+    const lease = isDefault ? this.getLease() : issueRuntimeLease(targetWs.projectId, targetWs.id, ttlMs, this.leaseState.hostEpoch);
+    if (this.leaseState.runtimeId) {
+      lease.runtimeId = this.leaseState.runtimeId;
+    }
+
     const session = this.runs.createWorkflowSession({
-      projectId: this.leaseState.projectId,
-      workspaceId: this.leaseState.workspaceId || '',
+      projectId: targetWs.projectId,
+      workspaceId: targetWs.id,
       workflowName: options.workflow.name,
       grant: options.grant || 'write',
       tabId: boundTarget.tabId,
       browserEpoch: boundTarget.browserEpoch,
       hostEpoch: lease.hostEpoch,
-      ttlMs: 600_000,
+      ttlMs,
       lease,
       leaseToken: lease.token,
     });
     const reqContext: CapabilityRequestContext = {
       lease: session.lease,
       leaseToken: session.leaseToken,
-      projectId: this.leaseState.projectId,
-      workspaceId: this.leaseState.workspaceId || '',
+      projectId: targetWs.projectId,
+      workspaceId: targetWs.id,
       runId: session.run.id,
       attemptId: session.attempt.id,
       browserTarget: boundTarget,
@@ -238,11 +324,11 @@ export class ControlPlaneRuntime {
       signal: options.signal,
     };
     try {
-      const result = (await this.capabilities.dispatch(
+      const result = (await this.capabilities.dispatchTrusted(
         'workflow.execute',
         {
           workflow: options.workflow,
-          workspaceRoot: this.getWorkspaceRoot(),
+          workspaceRoot: targetWs.rootPath,
           signal: options.signal,
           onEvent: options.onEvent,
         },
@@ -251,14 +337,13 @@ export class ControlPlaneRuntime {
       this.runs.endWorkflowSession(
         session.run.id,
         session.attempt.id,
-        result.status === 'passed' ? 'completed' : (result.status === 'interrupted' ? 'cancelled' : 'failed'),
-        result.status === 'failed' ? 'Workflow execution failed' : undefined,
-        result.artifacts
+        result.status === 'passed' ? 'completed' : result.status === 'interrupted' ? 'cancelled' : 'failed',
+        result.status !== 'passed' ? result.stepResults?.find((s) => s.error)?.error : undefined
       );
       return result;
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : String(err);
-      this.runs.endWorkflowSession(session.run.id, session.attempt.id, 'failed', msg);
+      const errorMsg = err instanceof Error ? err.message : String(err);
+      this.runs.endWorkflowSession(session.run.id, session.attempt.id, 'failed', errorMsg);
       throw err;
     }
   }
