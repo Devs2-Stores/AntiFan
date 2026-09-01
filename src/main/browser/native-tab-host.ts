@@ -336,6 +336,7 @@ export class NativeTabHost extends EventEmitter {
         broadcastState: () => this.broadcastState(),
         syncFrameBackdrop: () => this.syncFrameBackdrop(),
         getAllTabs: () => this.tabs ? this.tabs.entries() : [][Symbol.iterator](),
+        applyTabThrottling: () => this.applyTabThrottling(),
       });
     }
     return this.automationHost;
@@ -1324,10 +1325,18 @@ export class NativeTabHost extends EventEmitter {
     });
   }
 
-  private setupGlobalShortcutsOnView(wc: Electron.WebContents): void {
+  private setupGlobalShortcutsOnView(wc: Electron.WebContents, tabId?: string): void {
     wc.on('before-input-event', (_event, input) => {
       if (this.agentInputInFlight === 0 && this.viewportGate) {
-        this.viewportGate.preemptActiveAgent('Manual keyboard input detected on tab');
+        const automationTargetTabId = this.automationTabId;
+        // Scoped User Preemption (RT-01):
+        // If tabId is not explicitly bound (e.g. toolbarView), the event belongs to the current foreground tab (this.activeTabId).
+        // Only preempt the active agent if the physical keyboard input occurred on the automation target tab.
+        // User typing on Tab 2 (YouTube/Chat or toolbar URL bar) must never cancel or poison background agent work on Tab 1.
+        const eventTabId = tabId ?? this.activeTabId;
+        if (automationTargetTabId && eventTabId === automationTargetTabId) {
+          this.viewportGate.preemptActiveAgent('Manual keyboard input detected on tab', eventTabId);
+        }
       }
       if (input.type !== 'keyDown') return;
       const isCtrlOrCmd = input.control || input.meta;
@@ -2286,7 +2295,7 @@ export class NativeTabHost extends EventEmitter {
       }
     });
 
-    wc.on('did-navigate', (_event, navUrl) => {
+    wc.on('did-navigate', (_event, navUrl, httpResponseCode, httpStatusText) => {
       if (isInternalWidgetOrSubframeUrl(navUrl)) return;
       const currentUrl = wc.getURL();
       const chosenUrl = (currentUrl && currentUrl !== 'about:blank' && !isInternalWidgetOrSubframeUrl(currentUrl))
@@ -2294,13 +2303,26 @@ export class NativeTabHost extends EventEmitter {
         : navUrl;
       const cleanUrl = cleanRestoredUrl(chosenUrl);
 
+      if (typeof httpResponseCode === 'number' && httpResponseCode >= 400) {
+        const origin = computeOrigin(cleanUrl, currentUrl);
+        this.diagnosticsManager.recordFailure(id, {
+          errorCode: httpResponseCode,
+          status: httpResponseCode,
+          errorDescription: `HTTP ${httpResponseCode} ${httpStatusText || 'Error'}`,
+          validatedURL: cleanUrl,
+          isMainFrame: true,
+          timestamp: Date.now(),
+          origin: origin.origin,
+          isFirstParty: origin.isFirstParty,
+        });
+      }
+
       if (paneId === 'desktop') {
         state.url = cleanUrl;
         if (state.url && state.url !== 'about:blank' && !state.url.startsWith('view-source:')) {
           HistoryManager.getInstance().recordVisit(state.url, state.title, state.favicon);
         }
       }
-
       const decision = this.splitCoordinator.handleNavigationEvent(id, paneId, cleanUrl, false);
       if (decision.shouldMirror && state.splitMode) {
         const tab = this.tabs.get(id);
@@ -2428,7 +2450,7 @@ export class NativeTabHost extends EventEmitter {
       this.setZoom(id, nextZoom);
     });
 
-    this.setupGlobalShortcutsOnView(wc);
+    this.setupGlobalShortcutsOnView(wc, id);
     this.setupContextMenu(wc, paneId);
   }
 
@@ -2652,14 +2674,19 @@ export class NativeTabHost extends EventEmitter {
     if (this.isDisposed) return;
     for (const [id, tab] of this.tabs.entries()) {
       const isForeground = id === this.activeTabId;
+      const isAgentWorking = tab.state.aiState === 'agent_working' || (this.automationHost?.agentWorkingRefs.get(id) || 0) > 0;
+      // Dynamic In-Flight Throttling Exemption (RT-02):
+      // Unthrottle if the tab is foreground OR currently executing active agent operations.
+      // Once agent finishes (returns to idle), tab immediately throttles to conserve CPU/RAM.
+      const shouldThrottle = !isForeground && !isAgentWorking;
       if (tab.view && !tab.view.webContents.isDestroyed()) {
         try {
-          tab.view.webContents.setBackgroundThrottling(!isForeground);
+          tab.view.webContents.setBackgroundThrottling(shouldThrottle);
         } catch {}
       }
       if (tab.mobileView && !tab.mobileView.webContents.isDestroyed()) {
         try {
-          tab.mobileView.webContents.setBackgroundThrottling(!isForeground);
+          tab.mobileView.webContents.setBackgroundThrottling(shouldThrottle);
         } catch {}
       }
     }
@@ -2890,31 +2917,54 @@ export class NativeTabHost extends EventEmitter {
   public async reloadAndWait(tabId: string, timeoutMs: number = 3000): Promise<boolean> {
     const tab = this.tabs.get(tabId);
     if (!tab) return false;
-    const authorityPane = tab.state.splitMode && tab.mobileView && !tab.mobileView.webContents.isDestroyed()
-      ? (tab.focusedPane || tab.state.splitFocusedPane || 'desktop')
-      : 'desktop';
-    const authorityView = authorityPane === 'mobile' && tab.mobileView ? tab.mobileView : tab.view;
-    if (!authorityView || authorityView.webContents.isDestroyed()) return false;
+
+    const isBackground = tabId !== this.activeTabId;
+    const effectiveTimeoutMs = timeoutMs !== 3000 ? timeoutMs : (isBackground ? 8000 : 3000);
+    const isSplit = Boolean(tab.state.splitMode && tab.mobileView && !tab.mobileView.webContents.isDestroyed());
+
     // Reset inflight records for reload and ensure active debugger attachment
-    this.networkTracker.resetInflight(tabId, authorityPane);
+    this.networkTracker.resetInflight(tabId, 'desktop');
     await this.networkTracker.ensureAttached(
       tabId,
-      authorityPane,
-      authorityView.webContents,
+      'desktop',
+      tab.view.webContents,
       () => this.tabs.get(tabId)?.state.url || ''
     );
-    const waiter = this.createLoadCompletionWaiter(authorityView.webContents, timeoutMs);
+    const desktopWaiter = this.createLoadCompletionWaiter(tab.view.webContents, effectiveTimeoutMs);
+
+    let mobileWaiter: { promise: Promise<boolean>; cancel: () => void } | null = null;
+    if (isSplit && tab.mobileView) {
+      this.networkTracker.resetInflight(tabId, 'mobile');
+      await this.networkTracker.ensureAttached(
+        tabId,
+        'mobile',
+        tab.mobileView.webContents,
+        () => this.tabs.get(tabId)?.state.url || ''
+      );
+      mobileWaiter = this.createLoadCompletionWaiter(tab.mobileView.webContents, effectiveTimeoutMs);
+    }
+
     const initiated = this.reload(tabId);
     if (!initiated) {
-      waiter.cancel();
+      desktopWaiter.cancel();
+      mobileWaiter?.cancel();
       return false;
     }
-    const loadOk = await waiter.promise;
-    if (!loadOk) return false;
-    await this.networkTracker.awaitQuiescence(tabId, authorityPane, { idleWindowMs: 500, maxCeilingMs: Math.min(2000, timeoutMs) });
+
+    const [desktopOk, mobileOk] = await Promise.all([
+      desktopWaiter.promise,
+      mobileWaiter ? mobileWaiter.promise : Promise.resolve(true),
+    ]);
+
+    if (!desktopOk || !mobileOk) return false;
+
+    await Promise.all([
+      this.networkTracker.awaitQuiescence(tabId, 'desktop', { idleWindowMs: 500, maxCeilingMs: Math.min(2000, effectiveTimeoutMs) }),
+      isSplit ? this.networkTracker.awaitQuiescence(tabId, 'mobile', { idleWindowMs: 500, maxCeilingMs: Math.min(2000, effectiveTimeoutMs) }) : Promise.resolve(),
+    ]);
+
     return true;
   }
-
   public getNetworkTracker(): FirstPartyNetworkTracker {
     return this.networkTracker;
   }

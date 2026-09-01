@@ -104,7 +104,7 @@ export class AntiFanMcpServer {
       },
       {
         name: 'antifan_switch_tab',
-        description: 'Switch to an open tab by its ID',
+        description: 'Switch the active tab visible to the user by its ID. Note: Automated background agent operations should not switch tabs and should instead pass tabId directly.',
         inputSchema: {
           type: 'object',
           properties: {
@@ -153,7 +153,7 @@ export class AntiFanMcpServer {
           type: 'object',
           properties: {
             selector: { type: 'string', description: 'CSS selector (optional)' },
-            tabId: { type: 'string', description: 'Optional tab ID. If specified, operates on this tab and switches to it.' },
+            tabId: { type: 'string', description: 'Optional target tab ID. Executes directly against the specified tab in the background without changing active tab.' },
             paneId: { type: 'string', enum: ['desktop', 'mobile'], description: 'Optional pane target in split review mode' },
           },
         },
@@ -164,7 +164,7 @@ export class AntiFanMcpServer {
         inputSchema: {
           type: 'object',
           properties: {
-            tabId: { type: 'string', description: 'Optional tab ID. If specified, operates on this tab and switches to it.' },
+            tabId: { type: 'string', description: 'Optional target tab ID. Executes directly against the specified tab in the background without changing active tab.' },
             paneId: { type: 'string', enum: ['desktop', 'mobile'], description: 'Optional pane target in split review mode' },
           },
         },
@@ -192,7 +192,7 @@ export class AntiFanMcpServer {
       },
       {
         name: 'antifan_agent_click',
-        description: 'Agent Browser: Animate AI cursor, ripple pulse, and click element, ref (@e1), or (x, y) coordinates (auto-switches to target tab)',
+        description: 'Agent Browser: Animate AI cursor, ripple pulse, and click element, ref (@e1), or (x, y) coordinates',
         inputSchema: {
           type: 'object',
           properties: {
@@ -201,14 +201,14 @@ export class AntiFanMcpServer {
             x: { type: 'number', description: 'Optional viewport X coordinate' },
             y: { type: 'number', description: 'Optional viewport Y coordinate' },
             label: { type: 'string', description: 'Human-readable action description banner' },
-            tabId: { type: 'string', description: 'Optional target tab ID. If specified, automatically activates and focuses this tab.' },
+            tabId: { type: 'string', description: 'Optional target tab ID. Executes directly against the specified tab in the background without stealing visual focus.' },
             paneId: { type: 'string', enum: ['desktop', 'mobile'], description: 'Optional pane target in split review mode' },
           },
         },
       },
       {
         name: 'antifan_agent_type',
-        description: 'Agent Browser: Animate AI cursor, focus input, and type text with typing indicator (auto-switches to target tab)',
+        description: 'Agent Browser: Animate AI cursor, focus input, and type text with typing indicator',
         inputSchema: {
           type: 'object',
           properties: {
@@ -216,7 +216,7 @@ export class AntiFanMcpServer {
             ref: { type: 'string', description: 'Interactive ARIA snapshot ref (e.g. @e1)' },
             text: { type: 'string', description: 'Text string to type' },
             clear: { type: 'boolean', description: 'Whether to clear existing text before typing' },
-            tabId: { type: 'string', description: 'Optional target tab ID. If specified, automatically activates and focuses this tab.' },
+            tabId: { type: 'string', description: 'Optional target tab ID. Executes directly against the specified tab in the background without stealing visual focus.' },
             paneId: { type: 'string', enum: ['desktop', 'mobile'], description: 'Optional pane target in split review mode' },
           },
           required: ['text'],
@@ -224,21 +224,21 @@ export class AntiFanMcpServer {
       },
       {
         name: 'antifan_agent_scroll',
-        description: 'Agent Browser: Scroll the page smoothly by deltaY pixels or to a specific element (auto-switches to target tab)',
+        description: 'Agent Browser: Scroll the page smoothly by deltaY pixels or to a specific element',
         inputSchema: {
           type: 'object',
           properties: {
             deltaY: { type: 'number', description: 'Pixels to scroll (positive = down, negative = up)' },
             selector: { type: 'string', description: 'Optional element selector to scroll into view' },
             ref: { type: 'string', description: 'Optional interactive ARIA snapshot ref (e.g. @e1)' },
-            tabId: { type: 'string', description: 'Optional target tab ID. If specified, automatically activates and focuses this tab.' },
+            tabId: { type: 'string', description: 'Optional target tab ID. Executes directly against the specified tab in the background without stealing visual focus.' },
             paneId: { type: 'string', enum: ['desktop', 'mobile'], description: 'Optional pane target in split review mode' },
           },
         },
       },
       {
         name: 'antifan_agent_hover',
-        description: 'Agent Browser: Animate AI cursor to hover over an element, ref (@e1), or coordinate (auto-switches to target tab)',
+        description: 'Agent Browser: Animate AI cursor to hover over an element, ref (@e1), or coordinate',
         inputSchema: {
           type: 'object',
           properties: {
@@ -247,21 +247,21 @@ export class AntiFanMcpServer {
             x: { type: 'number', description: 'Viewport X' },
             y: { type: 'number', description: 'Viewport Y' },
             label: { type: 'string', description: 'Hover badge label' },
-            tabId: { type: 'string', description: 'Optional target tab ID. If specified, automatically activates and focuses this tab.' },
+            tabId: { type: 'string', description: 'Optional target tab ID. Executes directly against the specified tab in the background without stealing visual focus.' },
             paneId: { type: 'string', enum: ['desktop', 'mobile'], description: 'Optional pane target in split review mode' },
           },
         },
       },
       {
         name: 'antifan_agent_highlight',
-        description: 'Agent Browser: Visually highlight an element with a glowing neon border and title badge (auto-switches to target tab)',
+        description: 'Agent Browser: Visually highlight an element with a glowing neon border and title badge',
         inputSchema: {
           type: 'object',
           properties: {
             selector: { type: 'string', description: 'CSS selector of element to highlight' },
             ref: { type: 'string', description: 'Interactive ARIA snapshot ref (e.g. @e1)' },
             label: { type: 'string', description: 'Badge label text' },
-            tabId: { type: 'string', description: 'Optional target tab ID. If specified, automatically activates and focuses this tab.' },
+            tabId: { type: 'string', description: 'Optional target tab ID. Executes directly against the specified tab in the background without stealing visual focus.' },
             paneId: { type: 'string', enum: ['desktop', 'mobile'], description: 'Optional pane target in split review mode' },
           },
         },
@@ -296,7 +296,7 @@ export class AntiFanMcpServer {
       },
       {
         name: 'antifan_agent_trajectory',
-        description: 'Agent Browser: Execute continuous multi-step cubic Bézier cursor trajectory & actions with in-page micro-jitter (auto-switches to target tab)',
+        description: 'Agent Browser: Execute continuous multi-step cubic Bézier cursor trajectory & actions with in-page micro-jitter',
         inputSchema: {
           type: 'object',
           properties: {
@@ -321,7 +321,7 @@ export class AntiFanMcpServer {
             },
             speed: { type: 'string', enum: ['fast', 'natural', 'slow'], description: 'Movement speed profile' },
             smoothScroll: { type: 'boolean', description: 'Whether to use smooth scrolling' },
-            tabId: { type: 'string', description: 'Optional target tab ID. If specified, automatically activates and focuses this tab.' },
+            tabId: { type: 'string', description: 'Optional target tab ID. Executes directly against the specified tab in the background without stealing visual focus.' },
             paneId: { type: 'string', enum: ['desktop', 'mobile'], description: 'Optional target pane in split review mode' },
           },
           required: ['steps'],

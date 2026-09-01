@@ -181,4 +181,95 @@ describe('OMP MCP stdio proxy security & bootstrap fail-closed contract', () => 
       await new Promise<void>((resolve) => wss.close(() => resolve()));
     }
   });
+
+  it('injects authorityRevision from ANTIFAN_MCP_BOOTSTRAP into capability dispatch intents', async () => {
+    const { spawn } = await import('node:child_process');
+    const { WebSocketServer } = await import('ws');
+    const scriptPath = fs.existsSync(path.resolve(__dirname, '../../../scripts/antifan-omp-mcp.cjs'))
+      ? path.resolve(__dirname, '../../../scripts/antifan-omp-mcp.cjs')
+      : path.resolve(__dirname, '../../scripts/antifan-omp-mcp.cjs');
+
+    const wss = new WebSocketServer({ host: '127.0.0.1', port: 0 });
+    await new Promise<void>((resolve) => wss.once('listening', () => resolve()));
+    const port = (wss.address() as any).port;
+    let dispatchReceived: any = null;
+
+    wss.on('connection', (socket) => {
+      socket.send(JSON.stringify({ type: 'event', event: 'antifan:init', data: { status: 'ok' } }));
+      socket.on('message', (raw) => {
+        let msg: any;
+        try { msg = JSON.parse(raw.toString()); } catch { return; }
+        if (msg.method === 'antifan.capability.dispatch') {
+          dispatchReceived = msg.params;
+          socket.send(JSON.stringify({
+            id: msg.id,
+            success: true,
+            data: {
+              data: [{ id: 'tab-1', url: 'https://store.example.com' }],
+              authorityRevision: 'rev-updated-2',
+            },
+          }));
+        }
+      });
+    });
+
+    const env = {
+      ...process.env,
+      ANTIFAN_MCP_BOOTSTRAP: JSON.stringify({
+        port,
+        secret: 'test-secret-rev',
+        attachmentId: 'binding-rev-test',
+        authorityRevision: 'rev-initial-1',
+        runId: 'r-rev',
+        attemptId: 'a-rev',
+        projectId: 'p-rev',
+        workspaceId: 'w-rev',
+      }),
+    };
+
+    const child = spawn(process.execPath, [scriptPath], { env, stdio: ['pipe', 'pipe', 'pipe'] });
+    const sendJsonRpc = (msg: any) => {
+      child.stdin.write(JSON.stringify(msg) + '\n');
+    };
+
+    let received = '';
+    const responsePromise = new Promise<any>((resolve) => {
+      child.stdout.on('data', (chunk) => {
+        received += chunk.toString();
+        const lines = received.split('\n');
+        for (const line of lines) {
+          if (line.trim().length > 0) {
+            try {
+              const parsed = JSON.parse(line);
+              if (parsed.id === 2) {
+                resolve(parsed);
+              }
+            } catch {}
+          }
+        }
+      });
+    });
+
+    try {
+      sendJsonRpc({
+        jsonrpc: '2.0',
+        id: 2,
+        method: 'tools/call',
+        params: {
+          name: 'anti.browser.tabs.list',
+          arguments: {},
+        },
+      });
+
+      const res = await responsePromise;
+      assert.strictEqual(res.result.isError, undefined);
+      assert.ok(dispatchReceived, 'Dispatch must be received on WebSocket');
+      assert.strictEqual(dispatchReceived.authorityRevision, 'rev-initial-1');
+      assert.strictEqual(dispatchReceived.attachmentId, 'binding-rev-test');
+      assert.strictEqual(dispatchReceived.attachmentSecret, 'test-secret-rev');
+    } finally {
+      child.kill();
+      await new Promise<void>((resolve) => wss.close(() => resolve()));
+    }
+  });
 });

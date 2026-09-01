@@ -500,7 +500,8 @@ export type CapabilityErrorCode =
   | 'FINGERPRINT_MISMATCH'
   | 'NODE_DETACHED'
   | 'CAPABILITY_OVERLOADED'
-  | 'PREEMPTED_BY_USER';
+  | 'PREEMPTED_BY_USER'
+  | 'HMR_DRIFT';
 export class CapabilityError extends Error {
   readonly code: CapabilityErrorCode;
   readonly details?: Record<string, unknown>;

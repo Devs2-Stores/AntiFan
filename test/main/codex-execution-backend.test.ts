@@ -172,9 +172,15 @@ describe('CodexExecutionBackend & Approved Executable Security', () => {
 
     // Secret MUST be in environment
     assert.strictEqual(capturedOptions.env?.ANTIFAN_ATTACHMENT_SECRET, secret);
+    assert.strictEqual(capturedOptions.env?.ANTIFAN_AUTHORITY_REVISION, 'rev-codex-1');
     assert.strictEqual(capturedOptions.env?.ANTIFAN_RUN_ID, runId);
     assert.strictEqual(capturedOptions.env?.ANTIFAN_ATTEMPT_ID, attemptId);
-
+    assert.strictEqual(capturedOptions.env?.ANTIFAN_PROJECT_ID, 'project-12345678901234567890');
+    assert.strictEqual(capturedOptions.env?.ANTIFAN_WORKSPACE_ID, 'workspace-12345678901234567890');
+    assert.ok(capturedOptions.env?.ANTIFAN_MCP_BOOTSTRAP);
+    const bootstrap = JSON.parse(capturedOptions.env.ANTIFAN_MCP_BOOTSTRAP);
+    assert.strictEqual(bootstrap.authorityRevision, 'rev-codex-1');
+    assert.strictEqual(bootstrap.attachmentId, 'attachment-12345678901234567890');
     // Events must include starting, session/ref, streaming, text, completed
     assert.ok(events.some((e) => e.type === 'status' && e.state === 'starting'));
     assert.ok(events.some((e) => e.type === 'session/ref'));

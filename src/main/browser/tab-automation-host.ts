@@ -31,8 +31,8 @@ export interface TabAutomationContext {
   broadcastState: () => void;
   syncFrameBackdrop: () => void;
   getAllTabs: () => IterableIterator<[string, NativeTabRecord]>;
+  applyTabThrottling?: () => void;
 }
-
 export class TabAutomationHost {
   private readonly ctx: TabAutomationContext;
   public agentWorkingTimers = new Map<string, NodeJS.Timeout>();
@@ -87,18 +87,18 @@ export class TabAutomationHost {
     if (target.state.aiState !== 'agent_working') {
       target.state.aiState = 'agent_working';
       this.ctx.broadcastState();
+      this.ctx.applyTabThrottling?.();
     }
     this.activateAgentVisualGlow(tabId);
   }
-
   public clearTabAgentWorking(tabId: string): void {
     const timer = this.agentWorkingTimers.get(tabId);
     if (timer) clearTimeout(timer);
     this.agentWorkingTimers.delete(tabId);
     this.agentWorkingRefs.delete(tabId);
     this.deactivateAgentVisualGlow(tabId);
+    this.ctx.applyTabThrottling?.();
   }
-
   public endTabAgentWorking(tabId: string): void {
     const refs = (this.agentWorkingRefs.get(tabId) || 0) - 1;
     if (refs > 0) {
@@ -111,6 +111,7 @@ export class TabAutomationHost {
       if (target?.state.aiState === 'agent_working') {
         target.state.aiState = 'idle';
         this.ctx.broadcastState();
+        this.ctx.applyTabThrottling?.();
       }
       this.deactivateAgentVisualGlow(tabId);
     }
@@ -132,6 +133,7 @@ export class TabAutomationHost {
 
     tab.state.aiState = 'agent_working';
     this.ctx.broadcastState();
+    this.ctx.applyTabThrottling?.();
     this.activateAgentVisualGlow(targetId);
 
     const existingTimer = this.agentWorkingTimers.get(targetId);
@@ -143,6 +145,7 @@ export class TabAutomationHost {
         if (current?.state.aiState === 'agent_working') {
           current.state.aiState = 'idle';
           this.ctx.broadcastState();
+          this.ctx.applyTabThrottling?.();
         }
         this.deactivateAgentVisualGlow(targetId);
       }
@@ -154,14 +157,13 @@ export class TabAutomationHost {
 
     this.agentWorkingTimers.set(targetId, timer);
   }
-
   public setTabAiState(tabId: string, aiState: 'idle' | 'thinking' | 'streaming' | 'completed' | 'agent_working'): void {
     const tab = this.ctx.getTabRecord(tabId);
     if (!tab) return;
     tab.state.aiState = aiState;
     this.ctx.broadcastState();
+    this.ctx.applyTabThrottling?.();
   }
-
   public clearAllAgentWorking(): void {
     for (const [, timer] of this.agentWorkingTimers.entries()) {
       clearTimeout(timer);
@@ -176,6 +178,7 @@ export class TabAutomationHost {
     }
     this.ctx.broadcastState();
     this.ctx.syncFrameBackdrop();
+    this.ctx.applyTabThrottling?.();
   }
 
   public async ensureAgentBrowserInjected(tabId?: string, paneId?: SplitPaneId): Promise<boolean> {

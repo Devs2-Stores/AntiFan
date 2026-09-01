@@ -34,6 +34,7 @@
     "benchmark:artifacts": "node scripts/benchmark-antigravity-artifacts.mjs",
     "benchmark:soak": "node scripts/benchmark-electron-performance.mjs --scenario soak",
     "smoke:soak": "npm run compile && node scripts/run-electron.cjs scripts/smoke-real-soak.cjs",
+    "smoke:multitasking": "npm run compile && node scripts/run-electron.cjs scripts/smoke-background-multitasking.cjs",
     "install:shortcut": "node scripts/install-windows-shortcut.mjs"
   },
   "dependencies": {

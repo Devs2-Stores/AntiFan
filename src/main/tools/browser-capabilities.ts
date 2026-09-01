@@ -2,13 +2,12 @@ import { BrowserTarget, CapabilityRequestContext, CapabilityError, CapabilityEff
 import { BrowserControlPort } from './browser-control-port';
 import { CapabilityCatalogue } from './capability-catalogue';
 import { PlatformDetector } from '../qa/scanners/platform-detector';
-import { LiquidErrorScanner, LiquidScanResult } from '../qa/scanners/liquid-error-scanner';
-import { BrokenAssetScanner, BrokenAssetScanResult } from '../qa/scanners/broken-asset-scanner';
-import { LayoutOverflowEngine, ViewportOverflowResult } from '../qa/scanners/layout-overflow-engine';
+import { LiquidErrorScanner } from '../qa/scanners/liquid-error-scanner';
+import { LayoutOverflowEngine } from '../qa/scanners/layout-overflow-engine';
 import { HsGateRules, HsEvaluationResult } from '../qa/rules/hs-gate-rules';
 import type { ThemeQaWorkflow } from '../qa/theme-qa-workflow';
 import { ThemeQaRepairCoordinator } from '../qa/theme-qa-repair-coordinator';
-import { classifyDiagnostics, confineWorkspaceRoot, extractCorrelatableAssetFailures, DiagnosticsInput } from '../qa/diagnostics-filter';
+import { confineWorkspaceRoot } from '../qa/diagnostics-filter';
 function getThemeHierarchyScript(): string {
   return `(() => {
     const template = document.documentElement?.getAttribute('data-template')
@@ -26,90 +25,6 @@ function getThemeHierarchyScript(): string {
   })()`;
 }
 
-/**
- * Fallback quick path cho theme.qa_validate khi ThemeQaWorkflow chưa được
- * đăng ký (MCP/bridge-only mode). Dùng CHUNG module diagnostics-filter với
- * full path → cùng dữ liệu → cùng verdict. Luôn trả `summary` object đầy đủ
- * (Red Team Finding 6 — agent P1 đọc summary.passed/criticalCount).
- */
-export async function buildFallbackThemeQaResult(
-  browser: BrowserControlPort,
-  target: BrowserTarget,
-  params: { tabId?: string; workspaceRoot?: string; multiBreakpoint?: boolean },
-  workspaceDefault: string
-): Promise<Record<string, unknown>> {
-  // Confine workspaceRoot do caller cấp (Finding 12): traversal → dùng default
-  const workspaceRoot = confineWorkspaceRoot(params.workspaceRoot, workspaceDefault);
-  const domResult = await browser.dom(target, 'run-unbound', 'attempt-unbound', undefined, params.tabId);
-  const rawHtml = typeof domResult === 'string' ? domResult : '';
-  const platform = PlatformDetector.detect(workspaceRoot, undefined, rawHtml);
-  let liquid: LiquidScanResult = { hasErrors: false, errors: [], scannedElementsCount: 0 };
-  let overflow: ViewportOverflowResult = { viewport: { name: 'desktop', width: 1440, height: 900 }, hasOverflow: false, deltaX: 0, scrollWidth: 1440, clientWidth: 1440, culprits: [] };
-  let assets: BrokenAssetScanResult = { hasBrokenAssets: false, brokenAssets: [], totalImagesScanned: 0, totalStylesheetsScanned: 0 };
-  let hsRules: HsEvaluationResult = { passed: true, totalViolations: 0, errorsCount: 0, warningsCount: 0, violations: [] };
-  try { const value = await browser.eval(target, LiquidErrorScanner.getBrowserScanScript(), params.tabId); if (value && typeof value === 'object' && 'hasErrors' in value) liquid = value as LiquidScanResult; else if (rawHtml) liquid = LiquidErrorScanner.scanHtmlString(rawHtml); } catch { if (rawHtml) liquid = LiquidErrorScanner.scanHtmlString(rawHtml); }
-  try { const value = await browser.eval(target, LayoutOverflowEngine.getBrowserScanScript('active'), params.tabId); if (value && typeof value === 'object' && 'hasOverflow' in value) overflow = value as ViewportOverflowResult; } catch {}
-  try { const value = await browser.eval(target, BrokenAssetScanner.getBrowserScanScript(), params.tabId); if (value && typeof value === 'object' && 'hasBrokenAssets' in value) assets = value as BrokenAssetScanResult; } catch {}
-  try { const value = await browser.eval(target, HsGateRules.getBrowserEvaluationScript(platform.platform), params.tabId); if (value && typeof value === 'object' && 'passed' in value) hsRules = value as HsEvaluationResult; else if (rawHtml) hsRules = HsGateRules.evaluateHtml(rawHtml, platform.platform); } catch { if (rawHtml) hsRules = HsGateRules.evaluateHtml(rawHtml, platform.platform); }
-  if (params.multiBreakpoint) {
-    try { const responsive = await browser.responsiveCheck(target.tabId); const breakpoints = responsive?.breakpoints; if (breakpoints && typeof breakpoints === 'object') { const failing = Object.values(breakpoints as Record<string, unknown>).filter((item): item is Record<string, unknown> => Boolean(item && typeof item === 'object' && (item as Record<string, unknown>).hasHorizontalOverflow === true)); if (failing.length > 0) overflow = { ...overflow, hasOverflow: true, culprits: [...overflow.culprits, ...failing] as ViewportOverflowResult['culprits'] }; } } catch {}
-  }
-
-  // Diagnostics classification — cùng module với full path (cùng verdict)
-  let diag: DiagnosticsInput = { console: [], failures: [] };
-  let contextUrl = '';
-  try {
-    const raw = browser.diagnostics(params.tabId || target.tabId);
-    diag = {
-      console: Array.isArray(raw.console) ? (raw.console as DiagnosticsInput['console']) : [],
-      failures: Array.isArray(raw.failures) ? (raw.failures as DiagnosticsInput['failures']) : [],
-    };
-    const tabs = browser.listTabs({ target });
-    const tab = Array.isArray(tabs) ? tabs.find((t): t is Record<string, unknown> => Boolean(t && typeof t === 'object' && (t as Record<string, unknown>).id === (params.tabId || target.tabId))) : undefined;
-    if (tab && typeof tab.url === 'string') contextUrl = tab.url;
-  } catch {
-    // Host không hỗ trợ diagnostics → rỗng, không fail (giữ back-compat)
-  }
-  if (Array.isArray(diag.failures) && diag.failures.length > 0) {
-    const mappedFailures = extractCorrelatableAssetFailures(diag.failures, contextUrl);
-    assets = BrokenAssetScanner.correlateWithNetworkFailures(assets, mappedFailures);
-  }
-  const diagResult = classifyDiagnostics(diag, contextUrl);
-  // CÔNG THỨC GIỐNG HỆT theme-qa-workflow.validate (Finding 6 parity):
-  // checklist → passed = mọi hạng mục; criticalCount gồm HS errors + Liquid
-  // errors + diagnostics critical; totalIssues gồm mọi category.
-  const checklist = {
-    layout: !overflow.hasOverflow,
-    responsive: overflow.culprits.length === 0,
-    overflow: !overflow.hasOverflow,
-    interactions: hsRules.passed,
-    diagnostics: !liquid.hasErrors && !assets.hasBrokenAssets && diagResult.criticalIssues.length === 0,
-  };
-  const criticalCount = hsRules.errorsCount + liquid.errors.length + diagResult.criticalIssues.length + overflow.culprits.length + assets.brokenAssets.length;
-  const totalIssues =
-    liquid.errors.length +
-    overflow.culprits.length +
-    assets.brokenAssets.length +
-    hsRules.totalViolations +
-    diagResult.criticalIssues.length +
-    diagResult.warnings.length;
-  return {
-    target,
-    platform,
-    checklist,
-    liquid,
-    overflow,
-    assets,
-    hsRules,
-    diagnostics: diagResult,
-    summary: {
-      passed: Object.values(checklist).every(Boolean),
-      totalIssues,
-      criticalCount,
-    },
-    timestamp: Date.now(),
-  };
-}
 
 function makeBrowserPolicy(options: {
   effect: CapabilityEffectPolicyInput['effect'];
@@ -674,9 +589,20 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
     inputSchema: { type: 'object', properties: { tabId: { type: 'string' }, workspaceRoot: { type: 'string' }, multiBreakpoint: { type: 'boolean' } } },
     execute: async (params: { tabId?: string; workspaceRoot?: string; multiBreakpoint?: boolean }, context) => {
       const target = context.browserTarget as BrowserTarget;
+      if (params.tabId && params.tabId !== target?.tabId) {
+        throw new CapabilityError('TARGET_MISMATCH', `Tab ID mismatch: expected ${target?.tabId || 'unbound'}, got ${params.tabId}`);
+      }
+      if (!themeQaWorkflow) {
+        throw new CapabilityError('CAPABILITY_NOT_FOUND', 'Theme QA workflow is not available');
+      }
       const confinedRoot = confineWorkspaceRoot(params.workspaceRoot, getWorkspaceRoot?.() || '');
-      if (themeQaWorkflow) return themeQaWorkflow.validate({ runId: context.runId || 'run-unbound', attemptId: context.attemptId || 'attempt-unbound', workspaceRoot: confinedRoot, multiBreakpoint: params.multiBreakpoint, target: params.tabId ? { ...target, tabId: params.tabId } : target });
-      return buildFallbackThemeQaResult(browser, target, params, getWorkspaceRoot?.() || '');
+      return themeQaWorkflow.validate({
+        runId: context.runId || 'run-unbound',
+        attemptId: context.attemptId || 'attempt-unbound',
+        workspaceRoot: confinedRoot,
+        multiBreakpoint: params.multiBreakpoint,
+        target,
+      });
     },
   });
 

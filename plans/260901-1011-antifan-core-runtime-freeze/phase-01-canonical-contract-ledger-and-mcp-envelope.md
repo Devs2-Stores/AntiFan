@@ -3,7 +3,7 @@ phase: 1
 title: "Canonical Authority Contracts, Effect Policy & MCP Envelopes"
 status: pending
 priority: P0
-effort: "8h"
+effort: "1.5d"
 dependencies: []
 ---
 
@@ -21,6 +21,7 @@ Complete and freeze the partially implemented public wire intent and internal Ma
 - Remove `invocationId`, resolved `grant`, raw target authority, lease objects, `AbortSignal`, effect policy, and caller-selected authority revision from public MCP tool arguments. Direct Bridge/session clients may send only credentials and the opaque revision they were issued.
 - Make `authorityRevision` mandatory at the adapter-to-Main execution boundary. Main dispatch must not silently resolve “latest active” when the handle is absent.
 - Extend `CapabilityDefinition`/`CapabilityCatalogue` with immutable policy fields for effect type, risk, target requirement, scheduler lane, in-flight duplicate mode, terminal receipt visibility, current receipt-read permission/class, timeout, retention, disconnect/cancellation behavior, and policy version/digest.
+- Freeze grant visibility as explicit scope membership, not ordinal comparison: `read` sees read; `write` sees read+write; `execute` sees read+execute; `eval` sees read+eval only when `allowEval` is enabled. Any future cross-scope inheritance is a public policy change with dedicated tests.
 - Separate receipt disclosure from re-execution. A historical duplicate returns only the intersection of recorded visibility and current receipt-read permission; no policy path silently executes the same key again or exposes record existence to mismatched tenant/run lineage.
 - Standardize MCP success/failure envelopes with caller `requestId`, Main `invocationId`, typed error, and `McpEvidence`; preserve existing tool aliases and binary/content transport.
 - Return the new authority revision from session/attachment issue and every target/grant/lease/host rebinding response so trusted adapters can make the next exact request.
@@ -38,6 +39,7 @@ Complete and freeze the partially implemented public wire intent and internal Ma
 - Freeze initial bounds: `browser.observe` accepts at most the existing DOM 512 KiB, screenshot 8 MiB, and semantic snapshot 150-descriptor/128 KiB component limits; at most four observation components per call. Default deadline 5 s, maximum 30 s. The dedicated wait registry allows at most 4 waits per tab and 16 globally, default deadline 5 s, maximum 30 s. Semantic snapshot history keeps at most 2 published generations per target within the existing 10,000-process-descriptor and 5-minute age ceilings; byte/count eviction is oldest-first.
 - Persist only a versioned one-way verifier for the 256-bit random attachment secret and compare in constant time; never persist the reusable plaintext secret. Verifier format changes require explicit version migration, not implicit reinterpretation.
 - Capability aliases such as `qa.run`, if retained, delegate to the existing `theme.qa_validate`/`ThemeQaWorkflow`; no second QA engine or divergent result contract is permitted.
+- For standard MCP, derive caller `requestId` and retry `idempotencyKey` from the SDK handler's stable `extra.requestId` for that JSON-RPC operation. Retransmission of the same operation reuses the key; a distinct JSON-RPC call—even with identical params—is a new operation and receives a new key. Never hash params alone or generate a second unrelated key inside the proxy.
 
 ## Architecture
 ```mermaid
@@ -119,6 +121,8 @@ flowchart LR
 - [ ] `CapabilityTransportAdapter` accepts only trusted `ClientInvocationIntent`; public MCP schemas reject internal fields.
 - [ ] MCP/Bridge result-envelope builders preserve text/image MIME framing while adding request/invocation/evidence/revision metadata.
 - [ ] `scripts/antifan-omp-mcp.cjs` and `scripts/antifan-agent.cjs` retain and forward the current revision without exposing it as model-authored tool input.
+- [ ] MCP `CallToolRequest` handlers pass SDK `extra.requestId` through the trusted adapter as caller correlation/retry identity; the proxy does not replace it with per-send random UUIDs.
+- [ ] `CapabilityCatalogue.isVisible` implements the frozen scope matrix exactly; `eval` never implies write/execute and remains gated by `allowEval`.
 
 ## Dependency Map
 ```text
@@ -140,6 +144,8 @@ shared contracts + canonical digests
 | Equivalent objects use different key insertion order | Parameter and policy digests remain identical. |
 | Navigation/grant/lease/host binding rotates | Old snapshot remains immutable; response carries a replacement revision. |
 | Binary screenshot or artifact result uses unified envelope | MCP content parts, MIME, bytes and evidence remain intact. |
+| Same MCP JSON-RPC request is retransmitted vs. user issues a new identical call | Retransmission reuses one key/receipt; a new request ID creates a distinct operation. |
+| `read`, `write`, `execute`, and `eval` grants enumerate capabilities | Each sees only read plus its explicit non-read scope; eval is absent when `allowEval` is false. |
 
 ### Deep-Mode Verification Gate
 - Run focused contract/injection/completeness tests first, then typecheck and the existing MCP/Bridge catalogue suites. Phase 02 cannot start until every executable repo client has migrated.
@@ -149,7 +155,7 @@ shared contracts + canonical digests
 1. Add shared types, validators, ID entities, deterministic canonicalization, and typed receipt/binding states.
 2. Split public MCP schemas from the internal `ClientInvocationIntent`; reject all internal fields at the public boundary.
 3. Extend capability registration so every current definition declares a complete Main-owned effect/access policy; fail registration for missing or contradictory fields. Freeze future observe, declarative wait, artifact-read and actionability policy shapes here so later phases cannot invent transport-local semantics or smuggle eval through a read capability.
-4. Change attachment/session bootstrap to return the initial revision handle; make trusted adapters retain and inject it with a stable retry identity. Persist the existing one-way secret verifier with an explicit format version and constant-time verification, separately from active leases; never persist plaintext or add password-style KDF cost to random-token request authentication.
+4. Change attachment/session bootstrap to return the initial revision handle; make trusted adapters retain and inject it. Update MCP handlers to accept the SDK handler `extra` argument and use `extra.requestId` as the stable caller request/retry identity for that JSON-RPC operation; distinct calls remain distinct even when params match. Persist the existing one-way secret verifier with an explicit format version and constant-time verification, separately from active leases; never persist plaintext or add password-style KDF cost to random-token request authentication.
 5. Define revision rotation on target, navigation/reload, grant, lease, or host-binding changes and return the replacement handle explicitly.
 6. Add immutable project/workspace/run/attempt lineage and integrity metadata to `ArtifactRef`; migrate every artifact staging caller in the same cutover.
 7. Update `result-envelope.ts` and both transports to preserve `requestId` while returning Main `invocationId`, evidence, typed errors, coherence metadata, binary/image content, and replacement revision where applicable.
@@ -160,7 +166,7 @@ shared contracts + canonical digests
 - [ ] Public MCP tool schemas expose no authority handle or internal policy field; the trusted adapter injects the exact Main-issued revision.
 - [ ] Missing/forged `authorityRevision` at the adapter-to-Main boundary is rejected before dispatch.
 - [ ] Caller-supplied `invocationId`, policy, grant, lease, target authority, or signal cannot influence Main execution context.
-- [ ] Every capability has one catalogue-owned, versioned effect policy and explicit receipt-read permission/class.
+- [ ] Every capability has one catalogue-owned, versioned effect policy, explicit receipt-read permission/class, and visibility matching the frozen non-ordinal grant scope matrix.
 - [ ] `requestId` is echoed unchanged while `invocationId` is generated only by Main.
 - [ ] MCP and Bridge aliases return the same structured contract without raw-result escape paths.
 - [ ] All executable scripts/bootstrap clients compile and focused contract tests pass.

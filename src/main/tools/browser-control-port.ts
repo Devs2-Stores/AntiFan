@@ -113,8 +113,11 @@ export class ViewportGate {
     }
   }
 
-  public preemptActiveAgent(reason = 'Physical human user input preempted agent action'): void {
+  public preemptActiveAgent(reason = 'Physical human user input preempted agent action', tabId?: string): void {
     if (this.activeAbortController) {
+      if (tabId && this.activeTabId && tabId !== this.activeTabId) {
+        return; // User input on a different tab does not preempt this tab's active agent
+      }
       this.activeAbortController.abort(new CapabilityError('PREEMPTED_BY_USER', reason));
     }
   }
@@ -333,7 +336,7 @@ export class BrowserControlPort {
   }
 
   async navigate(target: BrowserTarget, url: string, explicitTabId?: string): Promise<{ navigated: boolean; target: BrowserTarget }> {
-    const tabId = this.resolveTargetTab(target, explicitTabId);
+    const tabId = this.resolveTargetTab(target, explicitTabId, 'lifecycle');
     if (!url || !/^https?:\/\//i.test(url)) throw new CapabilityError('INVALID_ARGUMENT', 'Navigation requires an http(s) URL');
     const navigated = await this.host.navigate(tabId, url);
     if (!navigated) throw new CapabilityError('TARGET_STALE', 'Navigation failed or timed out before starting');
@@ -342,7 +345,7 @@ export class BrowserControlPort {
   }
 
   async reload(target: BrowserTarget, explicitTabId?: string): Promise<{ reloaded: boolean; target: BrowserTarget }> {
-    const tabId = this.resolveTargetTab(target, explicitTabId);
+    const tabId = this.resolveTargetTab(target, explicitTabId, 'lifecycle');
     const reloaded = await this.host.reload(tabId);
     if (!reloaded) throw new CapabilityError('TARGET_STALE', 'Reload failed or timed out before a load-complete document was available');
     const docGen = this.host.getDocumentGeneration ? this.host.getDocumentGeneration(tabId) : (target.documentGeneration || 1);
@@ -415,7 +418,7 @@ export class BrowserControlPort {
 
   async agentTrajectory(args: { steps: Array<Record<string, unknown>>; speed?: 'fast' | 'natural' | 'slow'; smoothScroll?: boolean; tabId?: string; paneId?: 'desktop' | 'mobile' }, target?: BrowserTarget): Promise<Record<string, unknown>> {
     if (!this.host.agentTrajectory) throw new CapabilityError('CAPABILITY_NOT_FOUND', 'agentTrajectory is not supported by host');
-    const tabId = this.resolveTargetTab(target, args.tabId);
+    const tabId = this.resolveTargetTab(target, args.tabId, 'write');
     return this.viewportGate.withLock(async () => {
       return (await this.host.agentTrajectory!({ ...args, tabId })) as Record<string, unknown>;
     }, { tabId });
@@ -423,7 +426,7 @@ export class BrowserControlPort {
 
   async agentMove(args: { selector?: string; ref?: string; x?: number; y?: number; label?: string; tabId?: string; paneId?: 'desktop' | 'mobile' }, target?: BrowserTarget): Promise<{ moved: boolean }> {
     if (!this.host.agentMove) throw new CapabilityError('CAPABILITY_NOT_FOUND', 'agentMove is not supported by host');
-    const tabId = this.resolveTargetTab(target, args.tabId);
+    const tabId = this.resolveTargetTab(target, args.tabId, 'write');
     return this.viewportGate.withLock(async () => {
       return { moved: await this.host.agentMove!({ ...args, tabId }) };
     }, { tabId });
@@ -431,7 +434,7 @@ export class BrowserControlPort {
 
   async agentClick(args: { selector?: string; ref?: string; x?: number; y?: number; label?: string; trusted?: boolean; tabId?: string; paneId?: 'desktop' | 'mobile' }, target?: BrowserTarget): Promise<{ clicked: boolean }> {
     if (!this.host.agentClick) throw new CapabilityError('CAPABILITY_NOT_FOUND', 'agentClick is not supported by host');
-    const tabId = this.resolveTargetTab(target, args.tabId);
+    const tabId = this.resolveTargetTab(target, args.tabId, 'write');
     return this.viewportGate.withLock(async () => {
       return { clicked: await this.host.agentClick!({ ...args, tabId }) };
     }, { tabId });
@@ -439,7 +442,7 @@ export class BrowserControlPort {
 
   async agentType(args: { selector?: string; ref?: string; text: string; clear?: boolean; trusted?: boolean; tabId?: string; paneId?: 'desktop' | 'mobile' }, target?: BrowserTarget): Promise<{ typed: boolean }> {
     if (!this.host.agentType) throw new CapabilityError('CAPABILITY_NOT_FOUND', 'agentType is not supported by host');
-    const tabId = this.resolveTargetTab(target, args.tabId);
+    const tabId = this.resolveTargetTab(target, args.tabId, 'write');
     return this.viewportGate.withLock(async () => {
       return { typed: await this.host.agentType!({ ...args, tabId }) };
     }, { tabId });
@@ -449,7 +452,7 @@ export class BrowserControlPort {
     if (!args || typeof args.key !== 'string' || args.key.trim().length === 0) {
       throw new CapabilityError('INVALID_ARGUMENT', 'key must be a non-empty string');
     }
-    const effectiveTabId = this.resolveTargetTab(target, args.tabId);
+    const effectiveTabId = this.resolveTargetTab(target, args.tabId, 'write');
     return this.viewportGate.withLock(async () => {
       try {
         return await this.host.sendKeyboardPress!({ ...args, tabId: effectiveTabId });
@@ -465,7 +468,7 @@ export class BrowserControlPort {
   }
   async agentScroll(args: { deltaY?: number; selector?: string; ref?: string; tabId?: string; paneId?: 'desktop' | 'mobile' }, target?: BrowserTarget): Promise<{ scrolled: boolean }> {
     if (!this.host.agentScroll) throw new CapabilityError('CAPABILITY_NOT_FOUND', 'agentScroll is not supported by host');
-    const tabId = this.resolveTargetTab(target, args.tabId);
+    const tabId = this.resolveTargetTab(target, args.tabId, 'write');
     return this.viewportGate.withLock(async () => {
       return { scrolled: await this.host.agentScroll!({ ...args, tabId }) };
     }, { tabId });
@@ -473,7 +476,7 @@ export class BrowserControlPort {
 
   async agentHover(args: { selector?: string; ref?: string; x?: number; y?: number; label?: string; tabId?: string; paneId?: 'desktop' | 'mobile' }, target?: BrowserTarget): Promise<{ hovered: boolean }> {
     if (!this.host.agentHover) throw new CapabilityError('CAPABILITY_NOT_FOUND', 'agentHover is not supported by host');
-    const tabId = this.resolveTargetTab(target, args.tabId);
+    const tabId = this.resolveTargetTab(target, args.tabId, 'write');
     return this.viewportGate.withLock(async () => {
       return { hovered: await this.host.agentHover!({ ...args, tabId }) };
     }, { tabId });
@@ -481,7 +484,7 @@ export class BrowserControlPort {
 
   async agentHighlight(args: { selector?: string; ref?: string; label?: string; tabId?: string; paneId?: 'desktop' | 'mobile' }, target?: BrowserTarget): Promise<{ highlighted: boolean }> {
     if (!this.host.agentHighlight) throw new CapabilityError('CAPABILITY_NOT_FOUND', 'agentHighlight is not supported by host');
-    const tabId = this.resolveTargetTab(target, args.tabId);
+    const tabId = this.resolveTargetTab(target, args.tabId, 'write');
     return this.viewportGate.withLock(async () => {
       return { highlighted: await this.host.agentHighlight!({ ...args, tabId }) };
     }, { tabId });
@@ -554,7 +557,7 @@ export class BrowserControlPort {
     if (this.host.clearAllAgentWorking) this.host.clearAllAgentWorking();
     return { cleared: true };
   }
-  private resolveTargetTab(target?: BrowserTarget, explicitTabId?: string): string {
+  private resolveTargetTab(target?: BrowserTarget, explicitTabId?: string, operationType: 'read' | 'lifecycle' | 'write' = 'read'): string {
     if (target) {
       assertTarget(target, true);
     }
@@ -605,12 +608,26 @@ export class BrowserControlPort {
     }
     if (target) {
       const liveDocGen = this.host.getDocumentGeneration ? this.host.getDocumentGeneration(resolved) : target.documentGeneration;
+      // Differential Generation Fencing (RT-03):
+      // For passive reads and lifecycle reloads/navigates, auto-sync documentGeneration with liveDocGen to eliminate TARGET_STALE on background HMR.
+      // For interactive writes, enforce strict preflight check: fail-close with HMR_DRIFT error code if the DOM changed under the agent.
+      const isPassiveOrLifecycle = operationType === 'read' || operationType === 'lifecycle';
+      const docGenToAssert = isPassiveOrLifecycle
+        ? (liveDocGen ?? target.documentGeneration)
+        : (target.tabId === resolved && target.documentGeneration !== undefined ? target.documentGeneration : liveDocGen);
+
       const currentTarget: BrowserTarget = {
         ...target,
         tabId: resolved,
-        documentGeneration: target.tabId === resolved && target.documentGeneration !== undefined ? target.documentGeneration : liveDocGen,
+        documentGeneration: docGenToAssert,
       };
       assertTarget(currentTarget, false);
+      if (operationType === 'write' && typeof target.documentGeneration === 'number' && typeof liveDocGen === 'number' && target.documentGeneration !== liveDocGen) {
+        throw new CapabilityError(
+          'HMR_DRIFT',
+          `Browser target document generation (${target.documentGeneration}) is stale compared to live document generation (${liveDocGen}). The DOM was modified or reloaded in the background (HMR_DRIFT). Please re-inspect DOM before interacting.`
+        );
+      }
       this.assertCurrent(currentTarget);
     }
     return resolved;

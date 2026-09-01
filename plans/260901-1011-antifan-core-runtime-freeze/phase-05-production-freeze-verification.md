@@ -3,7 +3,7 @@ phase: 5
 title: "Production Freeze Verification, SLOs & Evidence"
 status: pending
 priority: P0
-effort: "8h + release soak window"
+effort: "1.5d + release soak window"
 dependencies: ["phase-01-canonical-contract-ledger-and-mcp-envelope.md", "phase-02-orchestration-lifecycle-and-cancellation.md", "phase-03-browser-observation-and-action-kernel.md", "phase-04-terminal-preview-artifact-services.md"]
 ---
 
@@ -15,14 +15,17 @@ Certify the authority-first runtime with one repeatable command plus focused sec
 ## Requirements
 
 ### Functional
-- Add `verify:freeze` to `package.json` using existing scripts and correct Electron runner semantics. Avoid redundant compile stages where `npm test` already compiles.
+- Add `verify:freeze` to `package.json` using correct Electron runner semantics. The certification runner performs exactly one compile, then invokes compiled tests and underlying smoke/benchmark scripts directly; no child alias may trigger another compile.
 - Add a certification runner that executes every required stage, records start/end/exit/timeout/cleanup state in `try/finally`, and emits JSON plus Markdown even when a stage fails.
 - Run focused tests for public-schema/adapter injection, authority contracts, catalogue effect/access policy completeness, invocation ledger races/bounds, historical replay and authorization downgrade, Bridge/MCP/mobile-token bypass rejection, browser revision chaining/target revalidation, cancellation, terminal cleanup, preview containment, and artifact retention.
+- Add focused tests for MCP SDK `extra.requestId` retry identity versus distinct identical calls, the explicit non-ordinal grant scope matrix, pre-dispatch durability failure with concurrent JOINers, concrete attachment/invocation recovery paths and corrupt tails, materialized run/attempt recovery order, ledger-owned workflow children/revision propagation, and timeout ambiguity settlement.
 - Add focused tests for identity-coherent `browser.observe`, event-driven bounded `browser.wait`, ledger-owned `terminal.wait`, centralized actionability, authenticated artifact route/capability parity, and `theme.qa_validate` single-engine ownership.
 - Observation tests distinguish cross-document identity from same-document drift: epoch/generation/URL changes fail closed; same-document timing differences are exposed by component timestamps/sequence/drift metadata rather than rejected as impossible atomicity violations.
 - Wait tests cover separate wait/passive capacity, fast path, dynamic mutation/lifecycle/network resolution, tracker attach/detach and abort-aware `awaitQuiescence()`, OWNER/JOIN convergence, timeout/navigation/session-close cleanup, and zero residual observers/listeners/timers.
 - Actionability tests cover detached nodes/frames, zero geometry, animation instability, occlusion/pointer-events, disabled/readonly controls, navigation during auto-wait, and human preemption during queue handover; every failure/preemption emits zero CDP input.
 - Artifact tests cover exact lineage, durable index restart/partial-write recovery, retained attachment verifier restart, receipt-read downgrade, no oracle before disk read, pagination, MIME framing, cache/disk corruption, and retention reachability across capability and HTTP.
+- Add transition-generation and viewport-failure tests: binding rotation rejects missing operation-proven generation; actionability failure releases once and forces queued target/actionability revalidation without changing the human-preemption epoch.
+- Add terminal shutdown `allSettled` ownership and unique run-local artifact quota tests, including duplicate-content staging near quota.
 - Run `npm run typecheck` and the complete existing test suite after all callers migrate.
 - Run live Theme QA, split-review, and real-soak scripts through their existing package/runner entry points.
 - Extend `scripts/smoke-real-soak.cjs` and/or `scripts/benchmark-real-soak-8h.cjs` only where current evidence does not measure required process, memory, latency, queue, watcher, joiner, and cleanup contracts.
@@ -142,6 +145,10 @@ Phase 01 contract/injection tests
 | Child script omits or writes outside selected report directory | Certification fails; missing evidence is never inferred as pass. |
 | Full suite and smokes run after compile | `.compiled` is not repeatedly cleaned/rebuilt between stages. |
 | Soak leaves one owned process/watcher/waiter | Freeze blocked; exact owner/resource appears in report. |
+| Adapter receives the same SDK request ID twice vs. a new ID with identical params | Same transport operation converges on one receipt; distinct call executes as a distinct operation. |
+| Workflow child or pre-dispatch append is forced to timeout/fail | No direct catalogue effect, ghost claim, leaked JOINer, scalar retry, or later child; durable state is explicit. |
+| Binding response lacks completed generation or queued action follows failed actionability | Rotation rejects missing generation; queued owner revalidates and emits no inherited input. |
+| Duplicate artifact content and multi-PTY shutdown hit boundary paths | Unique blob quota is correct; every kill settles and any failed owner blocks freeze. |
 | All stages and thresholds pass | Reports contain raw samples, commit/environment, commands and zero secrets; plan may complete. |
 
 ### Deep-Mode Verification Gate
@@ -152,7 +159,7 @@ Phase 01 contract/injection tests
 1. Encode the five-tier matrix—focused security/contracts, integration, live Electron, performance, soak—with stable Windows paths.
 2. Implement the certification runner with try/finally stage evidence and explicit report-directory propagation to every child script; any child writing elsewhere or missing evidence fails the gate.
 3. Add `verify:freeze` without redundant compilation.
-4. Run authority/replay/restart-verifier, discovery/mobile/broadcast isolation, observe/wait/actionability/preemption, terminal generation/exit, artifact index/authorization, QA single-owner, security and recovery tests. Include induced failures.
+4. Run authority/replay/restart-verifier, SDK retry-identity/grant-scope, durability-failure/JOIN cleanup, materialized run recovery, workflow child-ledger/revision/abort settlement, discovery/mobile/broadcast isolation, observe/wait/actionability/preemption, transition-generation, terminal generation/exit/all-settled teardown, unique-blob quota/artifact index/authorization, QA single-owner, security and recovery tests. Include induced failures.
 5. Run typecheck/full suite.
 6. Run actual Electron Theme QA, split review, CDP/preemption, terminal process-tree and artifact restart/read smokes.
 7. Measure tab switch, viewport lock, semantic snapshot, multi-modal observation, wait/passive capacity, artifact stage/read and cleanup with warmup/raw samples.

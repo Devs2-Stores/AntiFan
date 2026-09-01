@@ -23,6 +23,7 @@ export interface NetworkFailureDiagnosticEntry {
   validatedURL: string;
   isMainFrame: boolean;
   timestamp: number;
+  status?: number;
   origin?: string;
   isFirstParty?: boolean;
 }

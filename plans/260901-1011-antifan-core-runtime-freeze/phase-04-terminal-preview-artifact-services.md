@@ -3,7 +3,7 @@ phase: 4
 title: "Bounded Terminal, Preview & Content-Addressed Artifact Services"
 status: pending
 priority: P1
-effort: "8h"
+effort: "1.5d"
 dependencies: ["phase-01-canonical-contract-ledger-and-mcp-envelope.md", "phase-02-orchestration-lifecycle-and-cancellation.md", "phase-03-browser-observation-and-action-kernel.md"]
 ---
 
@@ -17,11 +17,11 @@ Harden infrastructure capabilities under the same Main authority and effect poli
 ### Functional
 - Route terminal input/session mutations through attachment-authenticated catalogue dispatch; master-token transport alone cannot execute them. Register every shipped terminal operation with complete effect/access policy.
 - Preserve per-session terminal history and wire budgets using `safeSliceTailJsonBounded`; determine current effective constants from source and tests, then centralize them rather than duplicating magic values.
-- On session close/cancel/timeout, keep the owned session registered until its process tree settles, terminate only that tree (`taskkill /PID <pid> /T /F` on Windows; owned process group on POSIX), then remove session/listeners/buffers. Never use a broad process pattern.
+- On session close/cancel/timeout/shutdown, keep every owned session registered until its process tree settles. Use `Promise.allSettled` for multi-session teardown, record typed kill failures/timeouts, and clear/remove a session only after its own settlement; terminate only that tree (`taskkill /PID <pid> /T /F` on Windows; owned process group on POSIX). Never use a broad process pattern.
 - Source search finds no `TerminalSessionPort` callsites outside its definition. Delete the dead file directly and prove zero references; do not invent a migration layer.
 - Fix `PreviewWatcherPool` ownership: one watcher per canonical capsule/root, one subscription token per retain call even when callback identity repeats, disposal only at `refCount === 0`, and cancellation of pending debounce timers on final release or runtime clear.
 - Enforce workspace containment using canonical/real paths and per-segment symlink checks in `SafeFsResolver`; file serving and watching share the same resolver.
-- Preserve content-addressed artifact integrity, quotas, sanitization, atomic writes, bounded reads and retention. Persist/rehydrate a crash-consistent metadata index with immutable project/workspace/run/attempt lineage, MIME, size, hash and path. Within each run namespace, delete a blob only when no retained metadata/receipt reference in that run requires it.
+- Preserve content-addressed artifact integrity, quotas, sanitization, atomic writes, bounded reads and retention. Persist/rehydrate a crash-consistent metadata index with immutable project/workspace/run/attempt lineage, MIME, size, hash and path. Run quota counts unique run-local blob bytes, not metadata-reference count: staging identical sanitized content in one run may add a metadata ref but consumes blob bytes only on first materialization. Within each run namespace, delete a blob only when no retained metadata/receipt reference in that run requires it.
 - Do not hard-code `E:\Work\.antifan-data` in reusable services; consume the configured `dataRoot` already established by runtime/storage setup.
 - Implement catalogue-owned `terminal.wait` for output match, process exit and silence using `(sessionGeneration, afterSeq)`. `TerminalManager` stores structured exit/close state before emitting events, checks already-terminal state before listener registration, and rejects cursors from a prior PTY incarnation. Every terminal path detaches exactly once.
 - Register authenticated `artifact.read`/`artifact.stat` capabilities and harden `/api/artifacts/:id` to use one authorization service that resolves durable metadata, authorizes exact lineage/current receipt-read permission before disk bytes, and returns a uniform no-oracle response.
@@ -92,12 +92,13 @@ flowchart LR
 ## Function and Interface Checklist
 - [ ] `TerminalManager` records `sessionGeneration`, structured exit/close state and bounded sequence before emitting terminal events.
 - [ ] `terminal.wait` checks terminal fast paths before listener registration and has one matcher/timer/listener cleanup path.
-- [ ] Process termination keeps session ownership until the owned tree settles; removal never precedes kill completion.
+- [ ] Process termination keeps each session registered through settlement; shutdown uses `Promise.allSettled`, records failures, and clears no ownership early.
 - [ ] `PreviewWatcherPool.retain` returns a unique subscription token; repeated callback identity cannot collapse refcounts.
 - [ ] Final watcher release and runtime clear cancel debounce timers and close one canonical watcher.
 - [ ] `ArtifactStore` persists and rehydrates immutable lineage/hash/path metadata and verifies SHA-256 before disclosure.
 - [ ] Shared artifact authorization runs before disk bytes for both catalogue and HTTP surfaces; denial is no-oracle.
 - [ ] Retention checks run-local metadata/receipt references before deleting a shared blob.
+- [ ] Run-byte quota is rebuilt from unique run-local blobs and increments only when a new blob is materialized; duplicate metadata refs do not double-charge.
 - [ ] `buildFallbackThemeQaResult` is removed; aliases and parity tests use only `ThemeQaWorkflow` with exact tab equality.
 
 ## Dependency Map
@@ -117,9 +118,9 @@ Phase 01 lineage/policy + Phase 02 receipts/cancellation + Phase 03 exact browse
 ## Implementation Steps
 1. Create terminal capabilities with complete policy and route executable bridge aliases through authenticated transport.
 2. Add `sessionGeneration`, structured exit code/time and closed state/events to `TerminalManager`. Implement terminal wait with terminal fast path before listener registration, generation-scoped sequence cursor, bounded matcher/silence/deadline and one cleanup path.
-3. Reconfirm and delete dead `TerminalSessionPort`. Centralize wire limits; keep session ownership in draining state until its owned process tree settles.
+3. Reconfirm and delete dead `TerminalSessionPort`. Centralize wire limits; keep session ownership in draining state until its owned process tree settles. On shutdown await `Promise.allSettled` and retain/report any failed owner instead of clearing the session map first.
 4. Fix preview subscription tokens/refcounts, repeated-callback retains, debounce cancellation, canonical keys, shutdown disposal and shared safe resolution.
-5. Create artifact capabilities around a durable, crash-consistent metadata index. Add project/workspace lineage to staging inputs, rehydrate before serving, and coordinate retained receipt references with cleanup.
+5. Create artifact capabilities around a durable, crash-consistent metadata index. Add project/workspace lineage to staging inputs, rehydrate unique run-local blob byte totals before serving, charge quota only when materializing a new sanitized-content hash, and coordinate retained receipt references with cleanup.
 6. Route catalogue/HTTP through one service: durable metadata lookup and exact-lineage/current-receipt-read authorization precede byte access and yield uniform denial. Retention consults run-local metadata/receipt references before deleting `root/<runId>/<sha>.artifact`; no cross-run blob-sharing abstraction is introduced.
 7. Implement 1 MiB chunks, UTF-8/base64 framing and SHA-256 verification for cache and disk. Verify index/file partial-write recovery and sanitization.
 8. Delete fallback QA execution, require canonical `ThemeQaWorkflow`, enforce explicit tab equality, and stop all artifact/watcher timers on drain/shutdown.
@@ -145,6 +146,8 @@ Phase 01 lineage/policy + Phase 02 receipts/cancellation + Phase 03 exact browse
 | Same callback retained twice | Independent subscription tokens/refcounts preserve watcher until both releases; clear cancels debounce timer. |
 | Main restarts with retained artifact receipt | Durable index rehydrates lineage/path/hash; authorized paged read succeeds without directory guessing. |
 | Same run stages identical content twice | Distinct metadata refs may share the run-local blob; cleanup preserves bytes until the last retained metadata/receipt reference expires. |
+| Same run stages identical content near quota | Second metadata ref reuses the blob and adds zero run-byte charge; a genuinely new blob over budget is rejected atomically. |
+| Shutdown reaps several PTYs and one kill fails | All kills settle; successful sessions clear, failed owner remains/report blocks freeze, and no unrelated PID is touched. |
 | Explicit QA tab differs from authority | `TARGET_MISMATCH`; fallback scanner does not exist and no scan executes. |
 
 ## Success Criteria

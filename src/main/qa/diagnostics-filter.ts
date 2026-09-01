@@ -224,8 +224,13 @@ export function classifyDiagnostics(
 
     const issue: DiagnosticIssue = { kind: 'network', origin, message };
     if (entry.isMainFrame === true && entry.errorCode !== -3) {
-      // Main-frame failure: the page itself did not load — always critical
-      criticalIssues.push(issue);
+      if (status >= 400 && status < 500) {
+        // Main-frame 4xx (e.g. 401/403 password challenge on dev stores, 404) is non-fatal warning
+        warnings.push(issue);
+      } else {
+        // Main-frame 5xx server crash or negative Chromium net error: the page itself did not load — always critical
+        criticalIssues.push(issue);
+      }
     } else if (originInfo.isFirstParty || isThemeAssetHost(origin, assetHosts)) {
       criticalIssues.push(issue);
     } else {

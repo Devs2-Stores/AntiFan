@@ -3,7 +3,7 @@ phase: 3
 title: "Exact Browser Target, Coherent Observation, Deterministic Wait & Action Kernel"
 status: pending
 priority: P0
-effort: "10h"
+effort: "1.5d"
 dependencies: ["phase-01-canonical-contract-ledger-and-mcp-envelope.md", "phase-02-orchestration-lifecycle-and-cancellation.md"]
 ---
 
@@ -17,7 +17,7 @@ Apply the authority/ledger contract to the actual browser kernel: no adapter-own
 ### Functional
 - Remove MCP/Bridge mutation of `authContext.browserTarget` and automatic active/automation-tab fallback for target-bound calls.
 - Keep tab lifecycle capabilities (`open/list/switch/close/set-automation-target`) explicitly target-agnostic in catalogue policy; successful binding changes issue and return a new authority revision.
-- Treat navigate, reload, document-generation advance, tab switch/close, and workflow steps that change browser binding as revision transitions. Multi-step workflows must consume the replacement revision before the next target-bound step.
+- Treat navigate, reload, document-generation advance, tab switch/close, and workflow steps that change browser binding as revision transitions. The browser operation result must include the stable completed `documentGeneration`; `AttachmentRegistry.updateAttachmentTab` requires it and never queries a live delegate fallback. Multi-step workflows must consume the replacement revision before the next target-bound child intent.
 - Preserve `TARGET_MISMATCH` for an explicit tab inconsistent with authority and `TARGET_STALE` for missing/advanced browser epoch or document generation.
 - For target-bound OWNER execution, validate exact browser target before claim and again after `ViewportGate` acquisition immediately before the first interactive side effect.
 - Catalogue scheduler classification is authoritative. Short passive capture/evaluation uses `PassiveExecutionPool`; long event-driven `browser.wait` installs through a bounded dedicated wait registry so its idle lifetime does not consume the 4-per-tab/16-global observation slots. Interactive cursor/input/drag/navigation uses `ViewportGate` where viewport ownership is required.
@@ -28,6 +28,7 @@ Apply the authority/ledger contract to the actual browser kernel: no adapter-own
 - Add canonical `browser.observe` in `PassiveExecutionPool`: at most four requested components, 5 s default/30 s maximum deadline, DOM 512 KiB, screenshot 8 MiB, semantic snapshot 150 descriptors/128 KiB. Capture timestamps/sequence/drift and fail `TARGET_STALE` across document identity.
 - Add canonical `browser.wait` for selector/ref state, document loaded, URL match, first-party network idle and bounded DOM stability. Raw JavaScript predicates remain separate eval-risk calls. Use World 1004 `MutationObserver`/rAF, WebContents lifecycle events and `FirstPartyNetworkTracker.awaitQuiescence()` before bounded polling fallback; expose no public event bus.
 - Centralize pre-action actionability in World 1004: attached frame/node, visible non-zero geometry, enabled/editable state, scroll alignment, two-frame geometry stability, pointer-event/hit-test reception, and a final generation check. On failure return typed evidence and emit zero trusted CDP events.
+- An ordinary pre-action actionability failure releases the viewport lock through one `finally` path. It does not advance the human-preemption epoch or blindly drain unrelated queued work; every next queued owner must reacquire, revalidate exact target/generation, and rerun actionability before any CDP event.
 - Keep observation payloads byte-bounded. Stage oversized DOM/screenshots through `ArtifactStore` rather than returning unbounded raw content.
 - Attach `FirstPartyNetworkTracker` once for every live target during tab/pane lifecycle setup—not only reload—and detach it on target destruction. Add `AbortSignal` to quiescence waits with idempotent timer/listener cleanup; unattached tracker state is an error, never synthetic idle.
 
@@ -90,7 +91,7 @@ flowchart LR
 | Modify | `src/main/browser/semantic-ref-registry.ts` | Two immutable published generations per target with bounded eviction | Observe contract |
 | Modify | `src/main/browser/native-tab-host.ts`, `src/main/browser/first-party-network-tracker.ts` | Tracker attach/detach lifecycle and abort-aware quiescence | Live target lifecycle |
 | Modify | `src/main/browser/tab-diagnostics.ts`, `src/main/browser/tab-devtools-host.ts` | Bounded observation components without duplicate owners | Observe assembly |
-| Modify | `src/main/workflow/workflow-engine.ts`, MCP/Bridge adapters | Canonical wait delegation and replacement revision propagation | Phases 01-02 transport |
+| Modify | `src/main/workflow/workflow-engine.ts`, `src/main/tools/capability-transport.ts`, MCP/Bridge adapters | Ledger-owned child intents, canonical wait delegation and replacement revision propagation | Phases 01-02 transport |
 | Create/Modify | Browser target, observe, wait, semantic ref, scheduler, actionability, concurrency tests listed above | Cross-document fencing, capacity, preemption, zero synthetic input | Production browser kernel |
 
 ## Function and Interface Checklist
@@ -101,7 +102,9 @@ flowchart LR
 - [ ] `FirstPartyNetworkTracker.attach`, `awaitQuiescence(signal)`, and `detach` cover every live target and clean timers/listeners exactly once.
 - [ ] `ViewportGate` preemption epoch invalidates active and queued handover work deterministically.
 - [ ] `TabAutomationHost` trusted click/hover/type paths fail closed when CDP attachment/dispatch fails; no synthetic storefront event fallback remains.
-- [ ] `WorkflowEngine` replaces `browser.wait_for_selector` polling with canonical `browser.wait` and consumes replacement revisions.
+- [ ] `WorkflowEngine` replaces `browser.wait_for_selector` polling with a ledger-owned canonical `browser.wait` child intent; all executable children use the transport interface and consume replacement revisions.
+- [ ] `AttachmentRegistry.updateAttachmentTab` requires operation-proven `documentGeneration`; no dynamic generation lookup fallback remains on transition.
+- [ ] Actionability failure releases the gate once; the next queued owner performs fresh target/actionability validation and cannot inherit stale assumptions.
 
 ## Dependency Map
 ```text
@@ -119,10 +122,10 @@ ledger OWNER + exact authority revision
 
 ## Implementation Steps
 1. Move target-agnostic/target-bound, scheduler-lane, actionability and deadline classification into catalogue policy; verify every browser capability is classified and raw-JS predicates cannot enter a read wait.
-2. Remove adapter-level active-tab fallback and in-place target mutation. Make open/switch/close/set-target/navigate/reload responses rotate and return authority revisions explicitly.
+2. Remove adapter-level active-tab fallback and in-place target mutation. Make open/switch/close/set-target/navigate/reload responses return a stable completed target generation, require that generation in revision rotation, and remove `updateAttachmentTab` live-delegate fallback.
 3. Harden exact resolution. Keep short passive work at 4/tab and 16/global; implement wait registry at 4/tab and 16/global, 5 s default/30 s max, immediate typed overload, and independent cancellation ownership.
 4. Implement bounded `browser.observe` with at most four components and the frozen per-component/deadline limits. Publish snapshots atomically into the two-generation target history and oldest-first global descriptor/age eviction.
-5. Attach `FirstPartyNetworkTracker` during every tab/pane target lifecycle. Implement `browser.wait` using World 1004 observers, WebContents lifecycle and abort-aware `awaitQuiescence()`; unattached network state fails closed. Replace workflow-local selector polling.
+5. Attach `FirstPartyNetworkTracker` during every tab/pane target lifecycle. Implement `browser.wait` using World 1004 observers, WebContents lifecycle and abort-aware `awaitQuiescence()`; unattached network state fails closed. Replace workflow-local selector polling with a transport child intent that owns its ledger receipt.
 6. Add a monotonic preemption epoch to `ViewportGate`; human preemption invalidates active and queued handover work before post-acquisition target revalidation.
 7. Add target revalidation inside lock scope before any effect; never overwrite expected generation with live state.
 8. Harden World 1004 actionability for attached/visible/enabled/editable/stable/hit-test checks, then repeat generation validation before genuine CDP dispatch. Never synthesize storefront events. Update `test/main/cdp-native-input-actionability.test.ts` test 8 so debugger attach failure fails closed with zero synthetic/storefront input rather than expecting synthetic fallback.
@@ -145,6 +148,8 @@ ledger OWNER + exact authority revision
 | First-party request remains in flight | Existing network tracker holds `network_idle`; quiescence debounce resolves without a second tracker. |
 | Wait deadline/abort/navigation fires | Typed terminal receipt; all observers/listeners/timers detach; JOINers converge through the ledger. |
 | Button is zero-sized, moving, disabled, readonly or occluded | Typed actionability failure with bounded diagnostics; zero CDP input events. |
+| Actionability fails while another owner is queued | Current lock releases once; queued owner reacquires and revalidates target/actionability; no inherited coordinates or CDP event. |
+| Binding transition omits completed document generation | Revision rotation is rejected; Main never samples a racing live generation as authority. |
 | Four long waits plus an observation | Wait registry remains bounded independently; observation obtains a passive slot and completes. |
 | Network wait on navigated/split/already-open tab | Tracker is attached or returns typed unavailable; it never reports idle from missing instrumentation. |
 | Main aborts network wait | Debounce/ceiling timers and target listener detach immediately and once. |

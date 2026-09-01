@@ -1,13 +1,13 @@
 ---
 title: "AntiFan Core Runtime Freeze & Authority-First Execution Architecture"
 description: "Freeze AntiFan's Main-owned capability authority, durable invocation semantics, identity-coherent browser observation, deterministic waits, actionability, bounded infrastructure, and production verification before downstream design-to-code workflows."
-status: pending
+status: in-progress
 priority: P0
-effort: "6d + release soak window"
+effort: "8d + release soak window"
 branch: "main"
 tags: [core, runtime, authority, mcp, idempotency, verification, freeze]
 blockedBy: []
-blocks: [260830-1630-chrome-native-messaging-bridge]
+blocks: [260830-1630-chrome-native-messaging-bridge, 260901-1548-browser-target-rebinding-and-server-500-detection]
 supersedes: [260828-1033-qa-fresh-target-reliability, 260831-0936-main-owned-semantic-ref-authority, 260831-1000-lean-annotation-context-engine, 260831-1344-runtime-performance-and-modular-tabhost-hardening, 260831-1500-multi-project-two-tier-concurrency, 260831-1600-antifan-final-hardening-and-runtime-verification]
 created: 2026-09-01
 ---
@@ -43,8 +43,9 @@ AntiFan becomes a deterministic Main-owned sensory and execution runtime. MCP an
 - Interactive OWNER calls revalidate target generation after queue acquisition and before the first side effect; unacknowledged in-flight CDP effects persist `unknown`/`interrupted`, never clean `failed`.
 - Navigate, reload, tab-binding changes, and multi-step workflows rotate and propagate authority revisions deterministically.
 - Exact target semantics, truthful bounded `browser.observe`, separately bounded `browser.wait`/`terminal.wait`, centralized actionability, World 1004 isolation, trusted-CDP-only effects, authenticated restart-safe attachment/artifact disclosure, secure mobile/discovery/terminal streams, two-tier scheduling, terminal/preview/artifact limits, process cleanup, canonical `theme.qa_validate` ownership, and retention behavior pass focused and end-to-end verification.
-- The 37-directory reconciliation ledger accounts for every timestamped plan directory exactly once while preserving header truth separately from implementation evidence.
+- The 38-directory reconciliation ledger accounts for every timestamped plan directory exactly once while preserving header truth separately from implementation evidence.
 - `npm run verify:freeze` and the separate release soak gates emit machine-readable evidence on pass or failure, measure every declared threshold, exit correctly, and leave zero orphaned processes.
+- Every executable workflow child step enters the same ledger-owned internal intent pipeline, records a child receipt linked to the parent invocation, propagates replacement authority revisions, and stops on ambiguous cancellation rather than continuing with untracked effects.
 
 ## Authority and Dispatch Contract
 
@@ -113,15 +114,17 @@ sequenceDiagram
 - Scope decision: HOLD. Extend existing owners; introduce only one new core service (`InvocationLedger`). Keep the bounded browser wait registry colocated with the browser kernel rather than creating another control plane.
 - Confirmed source deltas: partial authority contracts still have legacy callers; `AttachmentRegistry` retains volatile replay nonces; `WorkflowEngine` uses scalar retry and `Promise.race`; selector wait polls at 100 ms; trusted input retains synthetic fallback; artifact metadata is memory-only; preview subscriptions alias duplicate callback identity; smoke evidence destinations are inconsistent.
 - Planning corrections: Phase 01 completes/migrates partial contracts instead of recreating them; Phase 05 compiles once and invokes tests/smokes directly through the certification runner.
+- Red-team corrections: standard MCP retry identity is the SDK `extra.requestId`; grants retain explicit scope semantics instead of an inferred ordinal hierarchy; workflow child effects cannot call `CapabilityCatalogue` directly; attachment/ledger persistence paths and recovery order are concrete; failure-to-persist rejects all JOINers; target transition generations come from completed browser operations; terminal teardown and run-local artifact byte accounting preserve ownership.
 
 
 ## Cross-Plan Dependency Decision
 - This plan is not blocked by downstream product work.
 - `260830-1630-chrome-native-messaging-bridge` consumes frozen Bridge/capsule authority and remains blocked by this plan while its cookie-sync implementation stays out of scope.
+- `260901-1548-browser-target-rebinding-and-server-500-detection` was created after the earlier 37-directory sweep. Its HTTP-status telemetry and server-crash detection remain valid downstream scope. It is blocked by this freeze because its draft live-generation overwrite, implicit target-bound tab adoption, and `buildFallbackThemeQaResult` parity conflict with exact revisions and canonical `ThemeQaWorkflow`; those mechanisms must be rewritten after the freeze.
 - `260817-2217-rebuild-chromium-first-project-ui-and-workflow` has a stale `pending` header but its phase files record shipped completion on 2026-08-18. It is evidence/foundation requiring metadata audit, not downstream work blocked by this freeze.
 - Bookkeeping-only stale headers are recorded below. They are not silently rewritten to “completed” without a separate evidence audit.
 
-## 37-Directory Reconciliation Ledger
+## 38-Directory Reconciliation Ledger
 
 Header status is disk metadata, not an implementation verdict. “Foundation/reference” means this freeze reuses delivered or documented surfaces; it does not overwrite stale metadata. A timestamped directory without `plan.md` is classified explicitly rather than assigned an invented status.
 
@@ -169,10 +172,11 @@ Header status is disk metadata, not an implementation verdict. “Foundation/ref
 | `260830-1903-drive-e-migration-and-low-spec-hardening` | `complete` | Low-spec/storage foundation. |
 | `260831-1800-antifan-mcp-industrial-overhaul` | `completed` | MCP transport/catalogue/artifact foundation. |
 
-### Independent downstream, blocked by freeze (1)
+### Independent downstream, blocked by freeze (2)
 | Directory | Header truth | Relationship |
 |---|---|---|
 | `260830-1630-chrome-native-messaging-bridge` | `planned` | Cookie-sync bridge consumes frozen Bridge/capsule authority; functional scope remains independent. |
+| `260901-1548-browser-target-rebinding-and-server-500-detection` | `pending` | Preserve main-frame HTTP status telemetry and server-crash scanner intent; redesign Phase 3 and fallback-QA portions against exact target/revision and single-QA-owner contracts after this freeze. |
 
 ### Evidence-only directory without plan header (1)
 | Directory | Header truth | Role |
@@ -250,6 +254,29 @@ Header status is disk metadata, not an implementation verdict. “Foundation/ref
 | Parameterize all certification evidence destinations | Accept | Phase 05 |
 | Artifact oracle/hash, process removal ordering, master-token execution and retention findings | Reject as already explicit | Existing Phases 02, 04-05 |
 
+### Session — 2026-09-01 — Deep Mode Revalidation
+**Findings:** 15 current raw findings from Failure Mode and Assumption reviewers; 7 accepted as unique corrections, 8 rejected/merged as already explicit, unsafe mechanisms, or estimate-only duplicates. The replacement Security reviewer did not return before its bounded cancellation; existing security findings were source-rechecked against the current plan and produced no additional unique correction.
+**Severity:** accepted corrections are release-blocking contract/lifecycle defects regardless of reviewer priority labels.
+
+| Correction | Disposition | Applied to |
+|---|---|---|
+| Route workflow child effects through internal ledger intent and revision chain | Accept | Phases 02-03, 05 |
+| Use MCP SDK request identity only for actual transport retries | Accept; repeated user/model calls remain new operations | Phases 01-02, 05 |
+| Persist attachment history and invocation partitions under concrete versioned `dataRoot` paths; rehydrate run/attempt state first | Accept | Phase 02, 05 |
+| Reject/evict failed pre-dispatch claims and settle every JOINer | Accept | Phase 02, 05 |
+| Abort, acknowledge, and persist workflow child settlement before timeout/abort returns | Accept | Phase 02, 05 |
+| Require operation-proven document generation for binding transitions | Accept | Phase 03, 05 |
+| Preserve terminal ownership through `allSettled` teardown and count unique run-local artifact bytes | Accept | Phase 04, 05 |
+| Make grants a monotonic `read <= write <= execute <= eval` hierarchy | Reject | Existing grants are explicit scopes; freeze `read`, `read+write`, `read+execute`, and `read+eval` (subject to `allowEval`) instead. |
+| Drain all queued actions or increment preemption epoch after ordinary actionability failure | Reject | Lock release plus each queued owner's mandatory target/actionability revalidation is sufficient; epoch changes only on human preemption. |
+| Add separate fixes for terminal exit fast path, artifact reachability, semantic handover epoch, or synthetic input | Merge | Already explicit in Phases 03-04 and verified again in Phase 05. |
+| Reuse an idempotency key across a changed authority revision | Reject | Exact binding collision is intentional; a proven pre-effect retry uses a new key and revision. |
+
+### Advisory Checkpoint Availability — Deep Mode Revalidation
+- The runtime agent registry exposed no `kongming` agent; the design checkpoint call failed with `Unknown agent "kongming"`.
+- Review and validation do not claim KongMing approval. Authoritative plan gates continue through source-backed red team, mechanical validation, and whole-plan consistency checks.
+
+
 ### Whole-Plan Consistency Sweep — Completion Report Revision
 - Files reread: `plan.md` and all five phase files.
 - Decision deltas checked: 12 accepted corrections plus five duplicate/wrong-mechanism rejections.
@@ -277,7 +304,25 @@ Header status is disk metadata, not an implementation verdict. “Foundation/ref
 - Discovery/mobile/terminal streams and certification report destinations have explicit end-to-end contracts.
 - Decision deltas checked: 12; unresolved contradictions: 0.
 
+### Verification Results — 2026-09-01 — Deep Mode Revalidation
+- Tier: Full; 0 user questions because all material choices were resolved by current source, SDK types, and accepted authority policy.
+- `ak plan validate`: `valid: true`, errors `null`.
+- `ak plan parse`: 5 phases, 109 unchecked durable tasks, 0 malformed phases.
+- Dependency DAG: all 5 phase declarations exactly match prior-phase dependencies; no cycle or missing dependency.
+- Required phase sections: 8/8 present in all 5 phases; roadmap links exactly match the five canonical phase files.
+- Accepted correction propagation: SDK retry identity, non-ordinal grant scope, durable attachment/invocation paths, JOINer failure settlement, run/attempt recovery, workflow child intents, operation-proven generations, terminal `allSettled`, and unique blob quota appear in owning phases and Phase 05 verification.
+- Reconciliation ledger: 38 row entries exactly match the current 38 timestamped plan directories after classifying `260901-1548-browser-target-rebinding-and-server-500-detection` as blocked downstream work.
+- Unresolved planning markers: 0. Failed claims: 0. Unverified claims: 0.
+
+### Whole-Plan Consistency Sweep — 2026-09-01 — Deep Mode Revalidation
+- Reread `plan.md` and all five phases after correction propagation.
+- Canonical ordering, binding collision rules, explicit grant scopes, compile-once certification, dependency direction, and exact target generation agree across outcome, requirements, implementation steps, matrices, success criteria, and risks.
+- The new downstream server-500 plan is preserved but explicitly blocked; its conflicting live-generation, implicit-rebinding, and fallback-QA mechanisms cannot enter implementation before redesign against this freeze.
+- KongMing validation approval is not claimed because the runtime did not expose that agent. Mechanical/source-backed authoritative gates passed without substitution.
+- Unresolved contradictions: 0.
+
 ## Open Questions
-None. Authority/replay ordering, restart authentication, retry identity, receipt/artifact disclosure, bounded observe/wait/actionability, terminal incarnation, QA ownership, mobile/discovery security, dependency direction, and certification thresholds are fixed by source-reviewed contracts.
+None. Authority/replay ordering, restart authentication, retry identity, receipt/artifact disclosure, bounded observe/wait/actionability, terminal incarnation, QA ownership, mobile/discovery security, dependency direction, certification thresholds, and the redesign boundary for the newly added server-500 plan are fixed by source-reviewed contracts.
+
 
 <!-- slug: antifan-core-runtime-freeze -->

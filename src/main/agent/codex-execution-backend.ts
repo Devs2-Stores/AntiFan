@@ -85,6 +85,18 @@ export class CodexExecutionBackend implements ExecutionBackend {
       childEnv.ANTIFAN_AUTHORITY_REVISION = input.attachmentLaunch.authorityRevision;
       childEnv.ANTIFAN_RUN_ID = input.runId;
       childEnv.ANTIFAN_ATTEMPT_ID = input.attemptId;
+      childEnv.ANTIFAN_PROJECT_ID = input.attachmentLaunch.projectId;
+      childEnv.ANTIFAN_WORKSPACE_ID = input.attachmentLaunch.workspaceId;
+      childEnv.ANTIFAN_MCP_BOOTSTRAP = JSON.stringify({
+        port: process.env.ANTIFAN_BRIDGE_PORT || process.env.ANTIFAN_MCP_PORT,
+        secret: input.attachmentLaunch.secret,
+        attachmentId: input.attachmentLaunch.attachmentId,
+        authorityRevision: input.attachmentLaunch.authorityRevision,
+        runId: input.runId,
+        attemptId: input.attemptId,
+        projectId: input.attachmentLaunch.projectId,
+        workspaceId: input.attachmentLaunch.workspaceId,
+      });
     }
     const child = this.spawn(this.executable, args, { cwd: canonicalLaunchCwd, env: childEnv, windowsHide: true, shell: false });
     let timedOut = false;

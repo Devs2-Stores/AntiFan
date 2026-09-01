@@ -3,7 +3,7 @@ phase: 2
 title: "Invocation Ledger, Dispatch Ordering, Cancellation & Recovery"
 status: pending
 priority: P0
-effort: "12h"
+effort: "2d"
 dependencies: ["phase-01-canonical-contract-ledger-and-mcp-envelope.md"]
 ---
 
@@ -17,6 +17,7 @@ Implement the Main serialization boundary that guarantees one OWNER per deduplic
 ### Functional
 - Create a dedicated Main-owned `InvocationLedger`; do not overload run/turn `ReceiptStore` or audit `EventStore`.
 - Persist invocation binding, Main `invocationId`, originating `requestId`, immutable authority/policy snapshots and digests, state, sanitized result/error/evidence, referenced artifact IDs, and timestamps under configured `dataRoot`.
+- Store attachment verifier/revision history at `${dataRoot}/attachments-v1.jsonl` and invocation partitions at `${dataRoot}/invocations/<attachmentId>.jsonl`. Records are versioned append-only frames with checksum/length validation; compaction writes a sibling temporary file, fsyncs file and parent where supported, then atomically renames. A corrupt/truncated tail is quarantined/fails closed and never fabricates authority or a terminal receipt.
 - Split `AttachmentRegistry.validateAttachment()` into credential/lineage authentication, historical revision resolution, current receipt-read authorization, and live execution authority validation.
 - Preserve immutable authority revisions when target/lease/grant/host binding changes. Mutation issues a new revision; it never edits an old revision in place.
 - Remove volatile `invocationNonces`; atomic `claimOrObserve` owns deduplication.
@@ -24,12 +25,16 @@ Implement the Main serialization boundary that guarantees one OWNER per deduplic
 - Missing record path: require the revision to be active; validate current attempt/PID/backend/lease/workspace/runtime/grant/target and current execution policy; only then atomically create the OWNER record with its policy version/digest, durably persist `in_progress`, and dispatch. A stale handle cannot claim.
 - Execution expiry/inactive attempt state denies new OWNER work but does not alone erase retained receipt-read eligibility. Explicit security revocation denies both. Current receipt-read permission/grant downgrade may redact or deny historical disclosure.
 - Startup recovery converts durable `claiming`/`in_progress` records to `interrupted`; same-key requests return ambiguity and never auto-reexecute.
+- If the durable pre-dispatch append fails after an in-memory claim is visible, atomically remove that claim and reject the OWNER plus every attached JOINer with one typed durability failure. No unresolved deferred or joinable ghost claim remains.
 - Master bridge token remains valid for control-plane/session management only. Browser, terminal, eval, workflow, and diagnostic execution requires attachment intent and the canonical transport path.
 - Replace reusable master-token embedding in `/`, `/mobile`, and `/remote` HTML with a short-lived, single-purpose pairing/session credential issued through authenticated setup; `/api/remote-info`, `/api/qr`, and WebSocket execution retain their existing authentication gates.
 - Main links run cancellation, deadline, and catalogue disconnect policy into one internal `AbortSignal`. A JOINER disconnect never aborts an OWNER; an effectful OWNER is not aborted merely because its response subscriber disconnects.
 - Treat `browser.wait` and `terminal.wait` as ordinary ledger-owned read capabilities: one OWNER per binding, in-process JOIN for duplicates, terminal receipt convergence, and no blind retry after timeout/abort. A JOINER disconnect detaches only that subscriber; the OWNER aborts on disconnect only when catalogue policy permits and no subscribers remain.
+- Workflow execution is not an authority shortcut. Every executable child step uses an internal `CapabilityTransportAdapter` child-intent entrypoint linked to `(parentInvocationId, stepId, attemptIndex)`, receives its own Main invocation ID/receipt, and carries the current exact authority revision. Direct `CapabilityCatalogue.dispatch*` from `WorkflowEngine` is forbidden. A target-mutating child returns a replacement revision before the next child starts.
+- Replace workflow `Promise.race` timeout with a linked per-step `AbortController`: on timeout/parent abort, signal the OWNER, await catalogue-policy acknowledgement and persisted terminal/ambiguous receipt, then stop or continue only from that recorded state. `unknown`/`interrupted` never enters scalar retry.
 - Artifact references in receipts are disclosure metadata, not bearer authority. Historical replay and later `artifact.read` both re-evaluate exact lineage and current receipt-read permission without re-running the producer.
 - Persist and rehydrate the minimal historical attachment verifier/hash, exact lineage/revision history, receipt-read classification and explicit security-revocation state needed to authenticate retained receipts after restart. Terminal attempt state becomes historical/inactive execution state, not implicit security revocation.
+- Rehydrate concrete `RunRecord` and `ExecutionAttempt` maps from `EventStore` before attachment verifiers/revisions, invocation partitions, workflow dispatch, and artifact authorization. Recovery must preserve project/workspace/run/attempt/backend/state fields required by historical authorization; it cannot expose only summary `RecoveredRun` rows.
 - Require authentication for `/api/lan-ips` as well as `/api/remote-info` and `/api/qr`; no discovery route returns LAN addresses, connection URLs or QR data with wildcard unauthenticated access.
 - Make the mobile/remote pairing design end-to-end: authenticated setup issues a short-lived single-purpose credential, the HTML client exchanges it for attachment credentials plus the current revision, executable RPCs use canonical capability dispatch, and expiry/replay/revocation fail closed. Scope terminal stream broadcasts to authorized attachment/session subscribers.
 
@@ -98,20 +103,23 @@ flowchart TD
 ## Function and Interface Checklist
 - [ ] `InvocationLedger.claimOrObserve` is atomic and returns exactly one OWNER or an existing JOIN/REPLAY record.
 - [ ] Ledger terminal-state transitions are monotonic; recovery converts durable `claiming`/`in_progress` to `interrupted`.
+- [ ] A failed OWNER durability append evicts its claim and rejects every JOINer; no deferred, hot-index entry, or waiter survives.
 - [ ] `AttachmentRegistry` separates exact lineage authentication, historical revision resolution, receipt-read authorization, and live execution authority.
 - [ ] `CapabilityTransportAdapter.dispatchIntent` follows authenticate -> lookup -> disclose or authorize -> claim -> persist -> execute -> persist/respond.
 - [ ] `CapabilityCatalogue` exposes immutable policy to dispatch and owns retry/disconnect/cancellation decisions.
-- [ ] `WorkflowEngine` links deadline/run signals into capability context and never uses scalar retry alone for an ambiguous effect.
+- [ ] `WorkflowEngine` depends on an internal child-intent dispatch interface, not `CapabilityCatalogue`; child keys/receipts link to the parent and carry replacement revisions.
 - [ ] `CodexExecutionBackend` terminates only its owned process tree and reports acknowledgement ambiguity conservatively.
+- [ ] Workflow timeout/abort signals the child OWNER and awaits policy acknowledgement plus durable settlement; ambiguity stops retries and later steps.
+- [ ] `RunService.rehydrateRunsAndAttempts` consumes recovered event state before attachment/ledger rehydration and restores every authorization field.
 - [ ] Bridge discovery/pairing/terminal subscription paths reveal no topology, reusable master token, or cross-session events.
 
 ## Dependency Map
 ```text
 Phase 01 contracts/policy/revision
-  -> recover runs and attempts
-  -> rehydrate attachment verifiers and immutable revisions
-  -> replay InvocationLedger partitions; mark orphaned owners interrupted
-  -> construct transport/catalogue/workflow services
+  -> recover and materialize RunService runs/attempts
+  -> rehydrate `${dataRoot}/attachments-v1.jsonl` verifiers and immutable revisions
+  -> replay `${dataRoot}/invocations/<attachmentId>.jsonl`; mark orphaned owners interrupted
+  -> construct transport/catalogue and inject internal child-intent dispatch into workflows
   -> expose MCP and Bridge
   -> Phases 03-04 consume ledger-owned OWNER contexts and receipt policy
 ```
@@ -121,15 +129,15 @@ Phase 01 contracts/policy/revision
 
 
 ## Implementation Steps
-1. Implement partitioned ledger replay/rehydration, deterministic keying, atomic claim, in-process deferred JOIN, terminal persistence, bounded hot indexes/cache, measured compaction/retention, and explicit shutdown handling.
-2. Refactor `AttachmentRegistry` into credential/lineage authentication, historical revision resolution, current receipt-read authorization, and live execution authority resolution. Persist a secret verifier—not the secret—plus immutable historical lineage/revisions and explicit security-revocation state; rehydrate it before ledger replay. Attempt completion/expiry denies execution without overwriting the record as security-revoked.
+1. Implement `${dataRoot}/invocations/<attachmentId>.jsonl` partition replay/rehydration with versioned checksummed frames, deterministic keying, atomic claim, in-process deferred JOIN, terminal persistence, bounded hot indexes/cache, measured compaction/retention, and explicit shutdown handling. A failed pre-dispatch append atomically rejects/evicts OWNER and all JOINers.
+2. Refactor `AttachmentRegistry` into credential/lineage authentication, historical revision resolution, current receipt-read authorization, and live execution authority resolution. Persist a versioned secret verifier—not the secret—plus immutable historical lineage/revisions and explicit security-revocation state in `${dataRoot}/attachments-v1.jsonl`; validate checksummed frames and rehydrate it before ledger replay. Attempt completion/expiry denies execution without overwriting the record as security-revoked.
 3. Rebuild `CapabilityTransportAdapter.dispatch` around canonical ordering: authenticate exact attachment tenant/run/revision lineage before lookup; use recorded policy plus current receipt-read permission for disclosure-only existing records; resolve and validate current execution authority/policy before atomically creating a missing OWNER record.
-4. Wire one ledger and one historical attachment-verifier store through `ControlPlaneRuntime` startup recovery before MCP, Bridge, workflows and artifact disclosure become available.
+4. Add `RunService.rehydrateRunsAndAttempts` and wire startup order: event replay materializes run/attempt authorization state, then attachment history, then invocation partitions, then transport/workflows/artifact disclosure, and only then MCP/Bridge readiness.
 5. Remove Bridge and MCP pre-dispatch target mutation/fallback. Target changes are capabilities that produce a newly issued revision for subsequent calls.
 6. Restrict master-token methods to management. Authenticate LAN/remote/QR discovery routes. Route executable aliases through attachment dispatch or reject them with `ATTACHMENT_REQUIRED`.
 7. Implement the complete mobile/remote pairing handshake and client migration; remove embedded master credentials, enforce credential TTL/single use/revocation, and authorize terminal event subscriptions per attachment/session.
-8. Link owner cancellation/deadline/disconnect policy without letting a JOINER cancel the OWNER; settle every waiter from the persisted terminal/ambiguous receipt.
-9. Rehydrate runs, historical attachment verifiers/revisions and ledger records in dependency order; convert orphaned claims, clear/settle volatile joiners, and prove interrupted records cannot be joined as live or auto-reexecuted.
+8. Replace `WorkflowEngine` direct catalogue dispatch with the transport's internal child-intent interface. Derive child identity from parent invocation/step/attempt, propagate each replacement revision, and replace unmanaged `Promise.race` with linked abort plus acknowledgement/durable settlement before any retry or later step.
+9. Link owner cancellation/deadline/disconnect policy without letting a JOINER cancel the OWNER; settle every waiter from the persisted terminal/ambiguous receipt.
 10. Add race, binding-collision, lost-response, lease-expiry, completed-attempt replay, restart authentication, grant-downgrade, security-revocation, discovery-route auth, navigation, cancellation, pairing-token, terminal broadcast-isolation, storage-bound and bypass tests.
 
 ## Test Matrix
@@ -147,6 +155,10 @@ Phase 01 contracts/policy/revision
 | Mobile HTML fetched without pairing | No reusable master token in response; execution remains unavailable. |
 | JOINER disconnects | OWNER continues according to owner/run/deadline policy; no leaked waiter. |
 | Duplicate browser/terminal wait | One OWNER owns observers/listeners/timers; JOINers receive the same terminal receipt; cleanup occurs once. |
+| OWNER append fails while a duplicate is JOINing | OWNER and every JOINer receive the same durability failure; claim/index/deferred count returns to zero. |
+| Workflow navigate child completes | Child has its own receipt, replacement revision becomes the next child authority, and no direct catalogue dispatch occurs. |
+| Workflow child times out after possible effect | Abort is signalled and acknowledged/settled; ambiguous receipt stops scalar retry and later steps. |
+| Restart replays event state | Run/attempt maps exist before verifier/ledger authorization; completed attempts remain historical, not active. |
 | Historical receipt exposes artifact ID | ID alone grants nothing; later read repeats exact-lineage/current-receipt-read authorization and returns uniform not-found on denial. |
 | Main restarts before historical replay | Persisted verifier and immutable revision lineage authenticate the original secret after rehydration; no active lease is fabricated. |
 | Completed attempt is replayed | Execution is inactive but not security-revoked; current receipt-read policy controls disclosure. |

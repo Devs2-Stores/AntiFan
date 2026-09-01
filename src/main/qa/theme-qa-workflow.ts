@@ -3,11 +3,11 @@ import { BrowserControlPort } from '../tools/browser-control-port';
 import { ArtifactStore } from '../tools/artifact-store';
 import { PlatformDetector, PlatformDetectionResult, EcommercePlatform } from './scanners/platform-detector';
 import { LiquidErrorScanner, LiquidScanResult, LiquidErrorFinding } from './scanners/liquid-error-scanner';
+import { ServerCrashScanner, ServerCrashScanResult, ServerCrashFinding } from './scanners/server-crash-scanner';
 import { BrokenAssetScanner, BrokenAssetScanResult, BrokenAssetFinding } from './scanners/broken-asset-scanner';
 import { LayoutOverflowEngine, ViewportOverflowResult } from './scanners/layout-overflow-engine';
 import { HsGateRules, HsEvaluationResult, HsRuleViolation } from './rules/hs-gate-rules';
 import { classifyDiagnostics, extractCorrelatableAssetFailures, DiagnosticsInput, DiagnosticIssue } from './diagnostics-filter';
-
 export interface ThemeQaChecklist {
   layout: boolean;
   responsive: boolean;
@@ -41,9 +41,7 @@ export interface ThemeQaDetailedFindings {
   overflow: ViewportOverflowResult;
   assets: BrokenAssetScanResult;
   hsRules: HsEvaluationResult;
-  /** Critical diagnostics từ shared filter (console first-party/theme-asset
-   *  level >= 3, network Chromium âm trừ -3 của first-party/theme-asset,
-   *  isMainFrame failure). */
+  serverCrash?: ServerCrashScanResult;
   diagnosticIssues: DiagnosticIssue[];
   /** Diagnostics third-party chỉ cảnh báo — không fail gate. */
   diagnosticWarnings: DiagnosticIssue[];
@@ -174,15 +172,26 @@ export class ThemeQaWorkflow {
       }
     };
 
-    // Stage 2 & 3: Bounded Font Readiness (400ms race) + 2x rAF Visual Layout Settle
+    // Stage 2 & 3: Bounded Font Readiness (400ms race) + Resilient Visual Layout Settle (rAF with background timeout race)
     const settleScript = `(() => {
       const fontPromise = (document.fonts && typeof document.fonts.ready === 'object' && typeof document.fonts.ready.then === 'function')
         ? Promise.race([document.fonts.ready, new Promise(r => setTimeout(r, 400))]).catch(() => {})
         : Promise.resolve();
       const rafPromise = new Promise(resolve => {
-        requestAnimationFrame(() => {
-          requestAnimationFrame(resolve);
-        });
+        let settled = false;
+        const finish = () => { if (!settled) { settled = true; resolve(true); } };
+        // Fallback timer ensures settle gate completes even if background tab freezes rAF
+        const timer = setTimeout(finish, 150);
+        if (typeof requestAnimationFrame === 'function') {
+          requestAnimationFrame(() => {
+            requestAnimationFrame(() => {
+              clearTimeout(timer);
+              finish();
+            });
+          });
+        } else {
+          finish();
+        }
       });
       return Promise.all([fontPromise, rafPromise]).then(() => true);
     })()`;
@@ -364,6 +373,25 @@ export class ThemeQaWorkflow {
       }
     }
 
+    // 9.5 Server Crash Scanner (Haravan 500, Shopify 500, Sapo 500, Cloudflare 5xx)
+    let serverCrashResult: ServerCrashScanResult = { hasCrash: false, errorsCount: 0, findings: [] };
+    await new Promise((r) => setImmediate(r));
+    try {
+      checkAborted();
+      const evalRes = await this.ports.browser.eval(activeTarget, ServerCrashScanner.getBrowserScanScript());
+      checkAborted();
+      if (evalRes && typeof evalRes === 'object' && 'hasCrash' in evalRes) {
+        serverCrashResult = evalRes as ServerCrashScanResult;
+      } else if (rawHtml) {
+        serverCrashResult = ServerCrashScanner.scanHtmlString(rawHtml);
+      }
+    } catch (error) {
+      rethrowTargetLifecycleError(error);
+      if (rawHtml) {
+        serverCrashResult = ServerCrashScanner.scanHtmlString(rawHtml);
+      }
+    }
+
     // 9.5. Compute Canonical Differential Attribution across all diagnostics & scanner findings
     const preExistingIssues: ThemeQaIssueItem[] = [];
     const resolvedIssues: ThemeQaIssueItem[] = [];
@@ -537,7 +565,7 @@ export class ThemeQaWorkflow {
       responsive: overflowResult.culprits.length === 0,
       overflow: !overflowResult.hasOverflow,
       interactions: hsResult.passed,
-      diagnostics: !liquidResult.hasErrors && !assetResult.hasBrokenAssets && diagnosticIssues.length === 0,
+      diagnostics: !liquidResult.hasErrors && !assetResult.hasBrokenAssets && !serverCrashResult.hasCrash && diagnosticIssues.length === 0,
       liquidClean: !liquidResult.hasErrors,
       assetsValid: !assetResult.hasBrokenAssets,
       hsCompliant: hsResult.passed,
@@ -564,12 +592,13 @@ export class ThemeQaWorkflow {
       overflowResult.culprits.length +
       assetResult.brokenAssets.length +
       hsResult.totalViolations +
+      serverCrashResult.errorsCount +
       diagnosticIssues.length +
       diagnosticWarnings.length;
     const summary: ThemeQaSummary = {
       passed: activeChecklistEntries.length > 0 ? activeChecklistEntries.every(Boolean) : true,
       totalIssues,
-      criticalCount: hsResult.errorsCount + liquidResult.errors.length + diagnosticIssues.length + overflowResult.culprits.length + assetResult.brokenAssets.length,
+      criticalCount: hsResult.errorsCount + liquidResult.errors.length + serverCrashResult.errorsCount + diagnosticIssues.length + overflowResult.culprits.length + assetResult.brokenAssets.length,
     };
 
     const findings: ThemeQaDetailedFindings = {
@@ -578,10 +607,11 @@ export class ThemeQaWorkflow {
       overflow: overflowResult,
       assets: assetResult,
       hsRules: hsResult,
+      serverCrash: serverCrashResult,
       diagnosticIssues,
       diagnosticWarnings,
       ...(preReloadDiagnosticsObj ? { preReloadDiagnostics: preReloadDiagnosticsObj } : {}),
-      differential,
+      ...(differential ? { differential } : {}),
     };
 
     const artifacts: ArtifactRef[] = [];
