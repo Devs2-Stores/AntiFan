@@ -44,6 +44,22 @@ describe('LiquidErrorScanner', () => {
     assert.strictEqual(result.errors.length, 0);
   });
 
+  it('detects Shopify line-number formatted Liquid errors (e.g. line 42)', () => {
+    const html = `
+      <div class="product-wrapper">
+        <div class="error-line">Liquid error (line 42): Could not find snippet 'snippets/product-form.liquid'</div>
+        <p>Liquid syntax error (sections/header.liquid line 10): Unknown tag 'schema_invalid'</p>
+        <span>Liquid error (cart-template line 5): Index out of bounds</span>
+      </div>
+    `;
+    const result = LiquidErrorScanner.scanHtmlString(html);
+    assert.strictEqual(result.hasErrors, true);
+    assert.strictEqual(result.errors.length, 3);
+    assert.strictEqual(result.errors[0]?.type, 'missing_include');
+    assert.strictEqual(result.errors[1]?.type, 'syntax_error');
+    assert.strictEqual(result.errors[2]?.type, 'runtime_error');
+  });
+
   it('compiles and executes in-browser liquid scanner script in contract-complete DOM sandbox', () => {
     const scriptText = LiquidErrorScanner.getBrowserScanScript();
     const script = new vm.Script(scriptText);

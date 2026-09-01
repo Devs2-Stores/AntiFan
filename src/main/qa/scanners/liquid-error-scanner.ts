@@ -34,11 +34,11 @@ export class LiquidErrorScanner {
       ].join(', ');
 
       const ERROR_PATTERNS = [
-        { type: 'syntax_error', regex: /Liquid syntax error:?\\s*([^<\\n\\r]+)/i },
-        { type: 'missing_include', regex: /Liquid error:\\s*Could not find snippet\\s+['"]?([^'"\\s<]+)/i },
-        { type: 'missing_include', regex: /Liquid error:\\s*Could not find (?:asset|file)\\s+['"]?([^'"\\s<]+)/i },
+        { type: 'syntax_error', regex: /Liquid syntax error(?:\\s*\\([^)]*\\))?:?\\s*([^<\\n\\r]+)/i },
+        { type: 'missing_include', regex: /Liquid error(?:\\s*\\([^)]*\\))?:\\s*Could not find snippet\\s+['"]?([^'"\\s<]+)/i },
+        { type: 'missing_include', regex: /Liquid error(?:\\s*\\([^)]*\\))?:\\s*Could not find (?:asset|file)\\s+['"]?([^'"\\s<]+)/i },
         { type: 'translation_missing', regex: /translation missing:\\s*([a-zA-Z0-9_.-]+)/i },
-        { type: 'runtime_error', regex: /Liquid error:\\s*([^<\\n\\r]+)/i }
+        { type: 'runtime_error', regex: /Liquid error(?:\\s*\\([^)]*\\))?:\\s*([^<\\n\\r]+)/i }
       ];
 
       const findings = [];
@@ -126,11 +126,11 @@ export class LiquidErrorScanner {
       .replace(/<[^>]*class="[^"]*(?:rte|article__content|wysiwyg)[^"]*"[\s\S]*?<\/[a-z]+>/gi, '');
 
     const patterns: Array<{ type: LiquidErrorFinding['type']; regex: RegExp }> = [
-      { type: 'syntax_error', regex: /Liquid syntax error:?\s*([^<\n\r]+)/gi },
-      { type: 'missing_include', regex: /Liquid error:\s*Could not find snippet\s+['"]?([^'"\s<]+)/gi },
-      { type: 'missing_include', regex: /Liquid error:\s*Could not find (?:asset|file)\s+['"]?([^'"\s<]+)/gi },
+      { type: 'syntax_error', regex: /Liquid syntax error(?:\s*\([^)]*\))?:?\s*([^<\n\r]+)/gi },
+      { type: 'missing_include', regex: /Liquid error(?:\s*\([^)]*\))?:\s*Could not find snippet\s+['"]?([^'"\s<]+)/gi },
+      { type: 'missing_include', regex: /Liquid error(?:\s*\([^)]*\))?:\s*Could not find (?:asset|file)\s+['"]?([^'"\s<]+)/gi },
       { type: 'translation_missing', regex: /translation missing:\s*([a-zA-Z0-9_.-]+)/gi },
-      { type: 'runtime_error', regex: /Liquid error:\s*([^<\n\r]+)/gi },
+      { type: 'runtime_error', regex: /Liquid error(?:\s*\([^)]*\))?:\s*([^<\n\r]+)/gi },
     ];
 
     const indexedFindings: Array<{ index: number; length: number; finding: LiquidErrorFinding }> = [];

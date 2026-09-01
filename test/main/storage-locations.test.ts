@@ -53,4 +53,19 @@ describe('StorageLocations Configuration & Path Resolution', () => {
     assert.strictEqual(fs.existsSync(StorageLocations.getArtifactsDir()), true);
     assert.strictEqual(fs.existsSync(StorageLocations.getRuntimeDir()), true);
   });
+
+  it('rejects customRoot or env-root containing Windows reserved device names in any segment', () => {
+    assert.throws(() => {
+      StorageLocations.getDataRoot('C:\\Users\\Admin\\NUL\\data');
+    }, /reserved Windows device name/);
+
+    assert.throws(() => {
+      StorageLocations.getDataRoot('E:/Work/aux/antifan');
+    }, /reserved Windows device name/);
+
+    process.env.ANTIFAN_DATA_ROOT = 'D:\\projects\\COM1\\store';
+    assert.throws(() => {
+      StorageLocations.getDataRoot();
+    }, /reserved Windows device name/);
+  });
 });

@@ -72,20 +72,23 @@ export class LayoutOverflowEngine {
           inspectedElements.add(el);
 
           const rect = el.getBoundingClientRect();
-          // Check if element extends beyond right edge of viewport
+          // Check if element extends beyond right edge or left edge of viewport
           const elRight = rect.right;
-          const elDelta = elRight - viewportWidth;
+          const elDeltaRight = elRight - viewportWidth;
+          const elDeltaLeft = -rect.left;
+          const elDelta = Math.max(elDeltaRight, elDeltaLeft);
 
-          if (elDelta > deadband && rect.width > 0 && rect.height > 0) {
+          if ((elDeltaRight > deadband || elDeltaLeft > deadband) && rect.width > 0 && rect.height > 0) {
             const style = window.getComputedStyle(el);
             if (style.display !== 'none' && style.visibility !== 'hidden' && style.opacity !== '0') {
-              // Check if any direct child is the actual cause
               let hasOffendingChild = false;
-              if (el.children && el.children.length > 0 && el.children.length < 50) {
+              if (el.children && el.children.length > 0) {
                 for (let i = 0; i < el.children.length; i++) {
                   const child = el.children[i];
                   const childRect = child.getBoundingClientRect();
-                  if (childRect.right - viewportWidth > deadband) {
+                  const childDeltaRight = childRect.right - viewportWidth;
+                  const childDeltaLeft = -childRect.left;
+                  if (childDeltaRight > deadband || childDeltaLeft > deadband) {
                     hasOffendingChild = true;
                     inspectElement(child);
                   }

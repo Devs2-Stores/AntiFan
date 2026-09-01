@@ -7,24 +7,31 @@ import * as path from 'node:path';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import { enforceProtectedDirectoryDacl, resolveCurrentUserSid } from '../native-messaging/windows-acl';
+export function validateDataRootPath(inputPath: string): string {
+  const trimmed = (inputPath || '').trim();
+  if (!trimmed) {
+    throw new Error('Data root path cannot be empty');
+  }
+  const segments = trimmed.split(/[\\\\/]/).filter(Boolean);
+  const reservedPattern = /^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(\\..*)?$/i;
+  for (const seg of segments) {
+    if (/^[a-zA-Z]:$/.test(seg)) continue;
+    if (reservedPattern.test(seg)) {
+      throw new Error(`Invalid data root path: segment '${seg}' is a reserved Windows device name`);
+    }
+  }
+  return path.resolve(trimmed);
+}
 
 export class StorageLocations {
   private static cachedDataRoot: string | null = null;
 
-  /**
-   * Resolves the primary root directory for all AntiFan persistent data.
-   * Priority:
-   * 1. ANTIFAN_DATA_ROOT env var
-   * 2. E:\Work\.antifan-data (if E:\Work or E:\ exists and is writable)
-   * 3. Secondary drive roots (e.g. D:\Work\.antifan-data)
-   * 4. Fallback to AppData/UserData
-   */
   public static getDataRoot(customRoot?: string): string {
     if (customRoot) {
-      return path.resolve(customRoot);
+      return validateDataRootPath(customRoot);
     }
     if (process.env.ANTIFAN_DATA_ROOT) {
-      return path.resolve(process.env.ANTIFAN_DATA_ROOT);
+      return validateDataRootPath(process.env.ANTIFAN_DATA_ROOT);
     }
     if (this.cachedDataRoot) {
       return this.cachedDataRoot;

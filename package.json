@@ -36,6 +36,7 @@
     "smoke:soak": "npm run compile && node scripts/run-electron.cjs scripts/smoke-real-soak.cjs",
     "smoke:multitasking": "npm run compile && node scripts/run-electron.cjs scripts/smoke-background-multitasking.cjs",
     "smoke:parity": "npm run compile && node scripts/run-electron.cjs scripts/smoke-playwright-parity.cjs",
+    "smoke:terminal": "npm run compile && node scripts/run-electron.cjs test/e2e/terminal-renderer-smoke.cjs",
     "install:shortcut": "node scripts/install-windows-shortcut.mjs"
   },
   "dependencies": {

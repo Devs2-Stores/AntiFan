@@ -84,4 +84,84 @@ describe('LayoutOverflowEngine', () => {
     assert.strictEqual(firstCulprit.selector, 'div#banner-1');
     assert.strictEqual(firstCulprit.deltaX, 27);
   });
+
+  it('detects negative leftward overflow and correctly recurses through >=50 child elements', () => {
+    const scriptText = LayoutOverflowEngine.getBrowserScanScript('mobile');
+    const script = new vm.Script(scriptText);
+
+    // Create container with 60 children, where child #55 has negative left overflow (-50px)
+    const children: any[] = [];
+    for (let i = 0; i < 60; i++) {
+      const isLeftCulprit = i === 55;
+      children.push({
+        nodeType: 1,
+        tagName: 'DIV',
+        id: `grid-item-${i}`,
+        className: isLeftCulprit ? 'left-overflow-card' : 'normal-card',
+        children: [],
+        parentElement: null,
+        outerHTML: `<div id="grid-item-${i}">Item ${i}</div>`,
+        getBoundingClientRect: () => ({
+          left: isLeftCulprit ? -50 : 10,
+          right: isLeftCulprit ? 100 : 350,
+          width: 150,
+          top: i * 20,
+          bottom: i * 20 + 20,
+          height: 20,
+        }),
+      });
+    }
+
+    const container = {
+      nodeType: 1,
+      tagName: 'SECTION',
+      id: 'product-grid',
+      className: 'large-grid-container',
+      children,
+      parentElement: null,
+      outerHTML: '<section id="product-grid">...</section>',
+      getBoundingClientRect: () => ({
+        left: -50,
+        right: 390,
+        width: 440,
+        top: 0,
+        bottom: 1200,
+        height: 1200,
+      }),
+    };
+
+    const mockDocument = {
+      documentElement: {
+        scrollWidth: 440,
+        clientWidth: 393,
+        getBoundingClientRect: () => ({ left: 0, right: 393, width: 393, top: 0, bottom: 1200, height: 1200 }),
+      },
+      body: { scrollWidth: 440, clientWidth: 393 },
+      querySelectorAll: (_sel: string) => [container],
+    };
+
+    const sandbox = {
+      window: {
+        innerWidth: 393,
+        devicePixelRatio: 1.0,
+        getComputedStyle: (_el: unknown) => ({
+          display: 'block',
+          visibility: 'visible',
+          opacity: '1',
+          overflowX: 'visible',
+          position: 'static',
+        }),
+      },
+      document: mockDocument,
+      Set,
+      Array,
+      Math,
+      console: { log: () => {}, warn: () => {} },
+    };
+
+    const context = vm.createContext(sandbox);
+    const result = script.runInContext(context) as ViewportOverflowResult;
+    assert.strictEqual(result.hasOverflow, true);
+    assert.ok(result.culprits.some((c) => c.id === 'grid-item-55'), 'Child #55 must be identified as the narrower leftward culprit');
+  });
 });
