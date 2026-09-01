@@ -250,6 +250,26 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
     inputSchema: { type: 'object', properties: { tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } } },
     execute: (params: { tabId?: string; paneId?: 'desktop' | 'mobile' }, context) => browser.agentSnapshot(params, context.browserTarget),
   });
+  catalogue.register({
+    name: 'browser.find',
+    description: 'Search accessibility snapshot descriptors for text or regex pattern and return matching @eN element references with metadata',
+    risk: 'read',
+    requiresBrowserTarget: true,
+    policy: makeBrowserPolicy({ effect: 'read', risk: 'read', requiresBrowserTarget: true, lane: 'short-passive' }),
+    inputSchema: {
+      type: 'object',
+      properties: {
+        text: { type: 'string', description: 'Plain text to search for in page snapshot' },
+        regex: { type: 'string', description: 'Regular expression to search for in page snapshot' },
+        tabId: { type: 'string', description: 'Optional target tab ID' },
+        paneId: { type: 'string', enum: ['desktop', 'mobile'], description: 'Optional split-review pane' },
+        maxMatches: { type: 'number', description: 'Maximum number of matches to return' },
+      },
+    },
+    execute: (params: { text?: string; regex?: string; tabId?: string; paneId?: 'desktop' | 'mobile'; maxMatches?: number }, context) =>
+      browser.agentFind(params, context.browserTarget),
+  });
+
 
   catalogue.register({
     name: 'browser.agent-trajectory',
@@ -310,6 +330,26 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
     inputSchema: { type: 'object', properties: { tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } } },
     execute: (params: { tabId?: string; paneId?: 'desktop' | 'mobile' }, context) => browser.agentSnapshot(params, context.browserTarget),
   });
+  catalogue.register({
+    name: 'anti.inspect.find',
+    description: 'Alias for browser.find',
+    risk: 'read',
+    requiresBrowserTarget: true,
+    policy: makeBrowserPolicy({ effect: 'read', risk: 'read', requiresBrowserTarget: true, lane: 'short-passive' }),
+    inputSchema: {
+      type: 'object',
+      properties: {
+        text: { type: 'string', description: 'Plain text to search for' },
+        regex: { type: 'string', description: 'Regular expression to search for' },
+        tabId: { type: 'string' },
+        paneId: { type: 'string', enum: ['desktop', 'mobile'] },
+        maxMatches: { type: 'number' },
+      },
+    },
+    execute: (params: { text?: string; regex?: string; tabId?: string; paneId?: 'desktop' | 'mobile'; maxMatches?: number }, context) =>
+      browser.agentFind(params, context.browserTarget),
+  });
+
 
   catalogue.register({
     name: 'anti.browser.evaluate',
@@ -542,6 +582,43 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
     inputSchema: { type: 'object', properties: { tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } } },
     execute: (params: { tabId?: string; paneId?: 'desktop' | 'mobile' }, context) => browser.agentSnapshot(params, context.browserTarget),
   });
+  catalogue.register({
+    name: 'antifan_find',
+    description: 'Alias for browser.find',
+    risk: 'read',
+    requiresBrowserTarget: true,
+    policy: makeBrowserPolicy({ effect: 'read', risk: 'read', requiresBrowserTarget: true, lane: 'short-passive' }),
+    inputSchema: {
+      type: 'object',
+      properties: {
+        text: { type: 'string' },
+        regex: { type: 'string' },
+        tabId: { type: 'string' },
+        paneId: { type: 'string', enum: ['desktop', 'mobile'] },
+        maxMatches: { type: 'number' },
+      },
+    },
+    execute: (params: { text?: string; regex?: string; tabId?: string; paneId?: 'desktop' | 'mobile'; maxMatches?: number }, context) =>
+      browser.agentFind(params, context.browserTarget),
+  });
+
+  catalogue.register({
+    name: 'browser_find',
+    description: 'Canonical Playwright MCP alias for browser.find',
+    risk: 'read',
+    requiresBrowserTarget: true,
+    policy: makeBrowserPolicy({ effect: 'read', risk: 'read', requiresBrowserTarget: true, lane: 'short-passive' }),
+    inputSchema: {
+      type: 'object',
+      properties: {
+        text: { type: 'string', description: 'Plain text to search for in page snapshot' },
+        regex: { type: 'string', description: 'Regular expression to search for in page snapshot' },
+      },
+    },
+    execute: (params: { text?: string; regex?: string; tabId?: string; paneId?: 'desktop' | 'mobile'; maxMatches?: number }, context) =>
+      browser.agentFind(params, context.browserTarget),
+  });
+
 
   catalogue.register({
     name: 'antifan_eval_js',
@@ -590,6 +667,23 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
     inputSchema: { type: 'object', properties: { key: { type: 'string' }, modifiers: { type: 'array', items: { type: 'string' } }, tabId: { type: 'string' } }, required: ['key'] },
     execute: (params: { key: string; modifiers?: string[]; tabId?: string }, context) => browser.keyboardPress(params, context.browserTarget),
   });
+  catalogue.register({
+    name: 'browser_press_key',
+    description: 'Canonical Playwright MCP alias for browser.keyboard-press',
+    risk: 'write',
+    policy: makeBrowserPolicy({ effect: 'interactive-effect', risk: 'write', requiresBrowserTarget: false, lane: 'unbounded' }),
+    inputSchema: {
+      type: 'object',
+      properties: {
+        key: { type: 'string', description: 'Key or key combination to press (e.g. "Control+a", "Shift+Tab", "Escape", "Enter")' },
+        modifiers: { type: 'array', items: { type: 'string' } },
+        tabId: { type: 'string' },
+      },
+      required: ['key'],
+    },
+    execute: (params: { key: string; modifiers?: string[]; tabId?: string }, context) => browser.keyboardPress(params, context.browserTarget),
+  });
+
 
   catalogue.register({
     name: 'antifan_agent_scroll',

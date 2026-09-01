@@ -43,20 +43,59 @@ describe('Phase 04: E2E Industrial Overhaul & Storefront Latency Benchmarks', ()
 
   class MockTabHost extends EventEmitter {
     tabs = [{ id: 'tab-1', url: 'https://storefront.myshopify.com', title: 'Home' }];
+    recordedCalls: Array<{ method: string; tabId?: string; params?: any }> = [];
+    activeTabId = 'tab-1';
+    automationTabId = 'tab-1';
+
     getTabList() {
       return this.tabs;
     }
     getActiveTabId() {
-      return 'tab-1';
+      return this.activeTabId;
     }
     getAutomationTabId() {
-      return 'tab-1';
+      return this.automationTabId;
     }
-    async captureScreenshot() {
+    setAutomationTabId(tabId: string) {
+      this.automationTabId = tabId;
+    }
+    createTab(url?: string) {
+      const id = `tab-created-${this.tabs.length + 1}`;
+      this.tabs.push({ id, url: url || 'about:blank', title: 'New Tab' });
+      this.automationTabId = id;
+      return id;
+    }
+    switchTab(tabId: string) {
+      const exists = this.tabs.some((t) => t.id === tabId);
+      if (exists) {
+        this.activeTabId = tabId;
+        this.automationTabId = tabId;
+      }
+      return exists;
+    }
+    async captureScreenshot(rect?: any, tabId?: string) {
+      this.recordedCalls.push({ method: 'screenshot', tabId });
       return validPngBytes.toString('base64');
     }
-    async getDom() {
+    async getDom(selector?: string, tabId?: string) {
+      this.recordedCalls.push({ method: 'getDom', tabId, params: { selector } });
       return '<html><body><button id="buy-now">Buy Now</button></body></html>';
+    }
+    async agentFind(params: any) {
+      this.recordedCalls.push({ method: 'agentFind', tabId: params?.tabId, params });
+      return { matches: [{ ref: '@e1', label: 'Buy Now', role: 'button' }], count: 1 };
+    }
+    async agentType(params: any) {
+      this.recordedCalls.push({ method: 'agentType', tabId: params?.tabId, params });
+      return true;
+    }
+    async agentClick(params: any) {
+      this.recordedCalls.push({ method: 'agentClick', tabId: params?.tabId, params });
+      return true;
+    }
+    async sendKeyboardPress(p: any) {
+      this.recordedCalls.push({ method: 'sendKeyboardPress', tabId: p?.tabId, params: p });
+      return { success: true, key: p.key, modifiers: p.modifiers || [] };
     }
     async dispatchAgentAction(action: string) {
       return { success: true, data: { ok: true, executed: true, tier: 'cdp_trusted', action } };
@@ -66,70 +105,57 @@ describe('Phase 04: E2E Industrial Overhaul & Storefront Latency Benchmarks', ()
   before(async () => {
     tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-e2e-bench-'));
     testRunId = makeControlPlaneId('run');
-    testAttemptId = makeControlPlaneId('attempt');
     testProjectId = makeControlPlaneId('project');
     testWorkspaceId = makeControlPlaneId('workspace');
-
-    attachmentRegistry = new AttachmentRegistry();
-    const lease = issueRuntimeLease(testProjectId, testWorkspaceId, 3600000, 1);
-
-    const issued = attachmentRegistry.issueAttachment(
-      testRunId,
-      testAttemptId,
-      testProjectId,
-      testWorkspaceId,
-      {
-        backendId: 'test-backend',
-        lease,
-        leaseToken: lease.token,
-        grant: 'write',
-        browserTarget: {
-          projectId: testProjectId,
-          workspaceId: testWorkspaceId,
-          runtimeId: lease.runtimeId,
-          tabId: 'tab-1',
-          browserEpoch: 1,
-          documentGeneration: 1,
-        },
-      }
-    );
-    testSecret = issued.launch.secret;
-    testAttachmentId = issued.record.id;
-    testAuthorityRevision = issued.launch.authorityRevision;
-    const mockTabHost = new MockTabHost() as unknown as NativeTabHost;
 
     controlPlaneRuntime = new ControlPlaneRuntime({
       dataRoot: tempDir,
       projectId: testProjectId,
       workspaceId: testWorkspaceId,
-      runtimeId: lease.runtimeId,
-      hostEpoch: lease.hostEpoch,
+      hostEpoch: 1,
     });
+    await controlPlaneRuntime.initialize();
+
+    attachmentRegistry = controlPlaneRuntime.runs.attachments;
+    const session = controlPlaneRuntime.createCliSession({
+      tabId: 'tab-1',
+      grant: 'write',
+    });
+    testRunId = session.run.id;
+    testAttemptId = session.attempt.id;
+    testProjectId = session.launch.projectId;
+    testWorkspaceId = session.launch.workspaceId;
+    testSecret = session.launch.secret;
+    testAttachmentId = session.launch.attachmentId;
+    testAuthorityRevision = session.launch.authorityRevision;
+    const mockTabHost = new MockTabHost() as unknown as NativeTabHost;
+
     const browserPort = new BrowserControlPort({
       getTabList: () => mockTabHost.getTabList(),
       getActiveTabId: () => mockTabHost.getActiveTabId(),
       getAutomationTabId: () => mockTabHost.getAutomationTabId(),
-      setAutomationTabId: () => {},
-      createTab: () => 'tab-1',
-      closeTab: () => true,
-      switchTab: () => true,
+      setAutomationTabId: (id) => mockTabHost.setAutomationTabId(id),
+      createTab: (url, act) => (mockTabHost as any).createTab(url),
+      closeTab: (id) => true,
+      switchTab: (id) => (mockTabHost as any).switchTab(id),
+      agentFind: (p) => (mockTabHost as any).agentFind(p),
+      agentType: (p) => (mockTabHost as any).agentType(p),
+      agentClick: (p) => (mockTabHost as any).agentClick(p),
       navigate: async () => true,
       reload: async () => true,
-      getDom: async () => mockTabHost.getDom(),
-      captureScreenshot: async () => mockTabHost.captureScreenshot(),
+      getDom: async (sel, tid) => (mockTabHost as any).getDom(sel, tid),
+      captureScreenshot: async (rect, tid) => (mockTabHost as any).captureScreenshot(rect, tid),
       evalJs: async () => ({}),
       getDiagnostics: () => ({ console: [], failures: [] }),
       runResponsiveCheck: async () => ({ passes: true }),
       agentTrajectory: async () => ({ success: true }),
       agentMove: async () => true,
-      agentClick: async () => true,
-      agentType: async () => true,
       agentScroll: async () => true,
       agentHover: async () => true,
       agentHighlight: async () => true,
       agentClear: async () => true,
       agentSnapshot: async () => '',
-      sendKeyboardPress: async (p) => ({ success: true, key: p.key, modifiers: p.modifiers || [] }),
+      sendKeyboardPress: async (p) => (mockTabHost as any).sendKeyboardPress(p),
       setViewportSize: () => true,
       setDevicePreset: () => true,
       getDevicePresets: () => [],
@@ -140,7 +166,7 @@ describe('Phase 04: E2E Industrial Overhaul & Storefront Latency Benchmarks', ()
       getDocumentGeneration: () => 1,
     }, controlPlaneRuntime.artifacts);
     controlPlaneRuntime.registerBrowser(browserPort);
-    const capabilityTransport = new CapabilityTransportAdapter(controlPlaneRuntime.capabilities, attachmentRegistry);
+    const capabilityTransport = controlPlaneRuntime.transport;
 
     bridgeServer = new BridgeServer(mockTabHost, 0, false, capabilityTransport, undefined, attachmentRegistry, '127.0.0.1', controlPlaneRuntime);
     port = await bridgeServer.start();
@@ -274,5 +300,57 @@ describe('Phase 04: E2E Industrial Overhaul & Storefront Latency Benchmarks', ()
       avgLatency < 100,
       `Average tool dispatch latency must be under 100ms on Windows CI (got ${avgLatency.toFixed(2)}ms)`
     );
+  });
+
+  it('4. Dispatches anti.agent.cursor.type with ref-only (no selector) without MCP validation failure', async () => {
+    const typeResp = await sendMcpToolCall(4, 'anti.agent.cursor.type', {
+      ref: '@e1',
+      text: 'hello from agent',
+    });
+    assert.strictEqual(typeResp.error, undefined);
+    assert.strictEqual(typeResp.result?.isError, undefined);
+  });
+
+  it('5. Dispatches Playwright canonical browser_find and browser_press_key over OMP MCP proxy', async () => {
+    const findResp = await sendMcpToolCall(5, 'browser_find', { text: 'Buy Now' });
+    assert.strictEqual(findResp.error, undefined);
+    assert.strictEqual(findResp.result?.isError, undefined);
+
+    const pressResp = await sendMcpToolCall(6, 'browser_press_key', { key: 'Control+a' });
+    assert.strictEqual(pressResp.error, undefined);
+    assert.strictEqual(pressResp.result?.isError, undefined);
+  });
+
+  it('6. Exercises tab creation -> screenshot -> action sequence in the same MCP proxy session', async () => {
+    // 1. Create a new tab
+    const createResp = await sendMcpToolCall(7, 'anti.browser.tabs.create', { url: 'https://storefront.myshopify.com/cart' });
+    assert.strictEqual(createResp.error, undefined);
+    assert.strictEqual(createResp.result?.isError, undefined);
+    const parsedCreate = JSON.parse(createResp.result?.content?.[0]?.text || '{}');
+    const createdTabId = parsedCreate.tabId;
+    assert.ok(createdTabId, 'Must return created tab ID');
+
+    // 2. Immediately capture screenshot passing explicit createdTabId in the same session without TARGET_MISMATCH
+    const screenshotResp = await sendMcpToolCall(8, 'anti.screenshot.viewport', { tabId: createdTabId });
+    assert.strictEqual(screenshotResp.error, undefined);
+    assert.strictEqual(screenshotResp.result?.isError, undefined);
+    assert.strictEqual(screenshotResp.result?.content?.[0]?.type, 'image');
+    // 3. Execute ref-only cursor typing on the created tab in the same session
+    const typeResp = await sendMcpToolCall(9, 'anti.agent.cursor.type', { ref: '@e1', text: 'order now', tabId: createdTabId });
+    assert.strictEqual(typeResp.error, undefined);
+    assert.strictEqual(typeResp.result?.isError, undefined);
+
+    // 4. Immediately execute cursor click passing explicit createdTabId in the same session
+    const actionResp = await sendMcpToolCall(10, 'anti.agent.cursor.click', { selector: '#buy-now', tabId: createdTabId });
+    assert.strictEqual(actionResp.error, undefined);
+    assert.strictEqual(actionResp.result?.isError, undefined);
+
+    // 5. Assert host recorded calls targeting createdTabId
+    const screenshotCall = (bridgeServer as any).tabHost.recordedCalls.find((c: any) => c.method === 'screenshot' && c.tabId === createdTabId);
+    assert.ok(screenshotCall, 'Host must have executed screenshot against createdTabId');
+    const typeCall = (bridgeServer as any).tabHost.recordedCalls.find((c: any) => c.method === 'agentType' && c.tabId === createdTabId);
+    assert.ok(typeCall, 'Host must have executed agentType against createdTabId');
+    const clickCall = (bridgeServer as any).tabHost.recordedCalls.find((c: any) => c.method === 'agentClick' && c.tabId === createdTabId);
+    assert.ok(clickCall, 'Host must have executed agentClick against createdTabId');
   });
 });

@@ -40,7 +40,39 @@ describe('Phase 5: Playwright Parity Kernel & Gap Telemetry Verification', () =>
       executeJavaScript: async (code: string) => {
         if (code.includes('zero-dim')) return null;
         if (code.includes('drop-target')) return { x: 200, y: 300 };
+        if (code.includes('__antifan_agent_execute') || code.includes('IsolatedAgentExecutor') || code.includes('focus')) {
+          return { ok: true, executed: true, action: 'click', rect: { x: 100, y: 250, width: 180, height: 40, centerX: 190, centerY: 270 } };
+        }
         return { ok: true, count: 1 };
+      },
+      executeJavaScriptInIsolatedWorld: async (_worldId: number, scripts: Array<{ code: string }>) => {
+        const code = scripts[0]?.code || '';
+        if (code.includes('zero-dim')) return null;
+        if (code.includes('drop-target')) return { x: 200, y: 300 };
+        if (code.includes('__antifan_agent_execute') || code.includes('IsolatedAgentExecutor') || code.includes('focus')) {
+          return { ok: true, executed: true, action: 'click', rect: { x: 100, y: 250, width: 180, height: 40, centerX: 190, centerY: 270 } };
+        }
+        return { ok: true, count: 1 };
+      },
+      mainFrame: {
+        executeJavaScriptInIsolatedWorld: async (_worldId: number, scripts: Array<{ code: string }>) => {
+          const code = scripts[0]?.code || '';
+          if (code.includes('zero-dim')) return null;
+          if (code.includes('drop-target')) return { x: 200, y: 300 };
+          if (code.includes('__antifan_agent_execute') || code.includes('IsolatedAgentExecutor') || code.includes('focus')) {
+            return { ok: true, executed: true, action: 'click', rect: { x: 100, y: 250, width: 180, height: 40, centerX: 190, centerY: 270 } };
+          }
+          return { ok: true, count: 1 };
+        },
+      },
+      debugger: {
+        isAttached: () => true,
+        attach: () => {},
+        detach: () => {},
+        sendCommand: async (method: string, params: any) => {
+          cdpCalls.push({ method, params });
+          return {};
+        },
       },
     };
 
@@ -78,6 +110,26 @@ describe('Phase 5: Playwright Parity Kernel & Gap Telemetry Verification', () =>
       terminalSessionId: 'sess-p1',
     };
 
+    const targetOperationQueues = new Map<string, Promise<void>>();
+    const runTargetOperation = async <T>(_tabId: string, _paneId: string | undefined, operation: () => Promise<T>): Promise<T> => {
+      const key = `${_tabId}:${_paneId || 'desktop'}`;
+      const previousTail = targetOperationQueues.get(key) || Promise.resolve();
+      let resolveTail!: () => void;
+      const currentTail = new Promise<void>((resolve) => {
+        resolveTail = resolve;
+      });
+      targetOperationQueues.set(key, currentTail);
+      try {
+        await previousTail;
+        return await operation();
+      } finally {
+        resolveTail();
+        if (targetOperationQueues.get(key) === currentTail) {
+          targetOperationQueues.delete(key);
+        }
+      }
+    };
+
     const host = new TabAutomationHost({
       getTabWebContents: () => mockWc,
       getTabRecord: () => tabRecord,
@@ -86,7 +138,7 @@ describe('Phase 5: Playwright Parity Kernel & Gap Telemetry Verification', () =>
       getBrowserEpoch: () => 1,
       getSemanticDocumentGeneration: () => 1,
       semanticRefRegistry: registry,
-      runTargetOperation: async (_tabId, _paneId, op) => op(),
+      runTargetOperation,
       broadcastState: () => {},
       syncFrameBackdrop: () => {},
       getAllTabs: () => [][Symbol.iterator](),
@@ -94,7 +146,6 @@ describe('Phase 5: Playwright Parity Kernel & Gap Telemetry Verification', () =>
       getTabTerminalSession: () => 'sess-p1',
       resolveTargetWorkspace: (sessId) => (sessId === 'sess-p1' ? tmpDir : ''),
     });
-
     const hostPort: BrowserHostPort = {
       getTabList: () => [{ id: 'tab-p1', url: 'https://myshopify.test/storefront/product-1' }],
       getActiveTabId: () => 'tab-p1',
@@ -103,7 +154,9 @@ describe('Phase 5: Playwright Parity Kernel & Gap Telemetry Verification', () =>
       captureScreenshot: async () => Buffer.from('cdp-screenshot-bytes').toString('base64'),
       evalJs: async (exp) => mockDevToolsHost.evalJs(exp),
       agentSnapshot: async () => '<snapshot tab="tab-p1"/>',
-      agentClick: async () => true,
+      agentFind: async (params) => host.agentFind(params),
+      agentClick: async (params) => host.agentClick(params),
+      sendKeyboardPress: async (params) => ({ success: true, key: params.key, modifiers: params.modifiers || [] }),
       agentType: async () => true,
       uploadFileInput: async (params) => host.uploadFileInput(params.refOrSelector, params.filePaths, params.tabId, params.paneId),
       dropFiles: async (params) => host.dropFiles(params.refOrSelector, params.filePaths, params.tabId, params.paneId),
@@ -134,8 +187,16 @@ describe('Phase 5: Playwright Parity Kernel & Gap Telemetry Verification', () =>
       browserEpoch: 1,
       documentGeneration: 1,
     };
+    const ctx = {
+      grant: 'write' as const,
+      browserTarget: target,
+      projectId: target.projectId,
+      workspaceId: target.workspaceId,
+      lease,
+      leaseToken: lease.token,
+    };
 
-    return { host, registry, cdpCalls, mockWc, catalogue, browserPort, target, lease };
+    return { host, registry, cdpCalls, mockWc, catalogue, browserPort, target, lease, ctx };
   }
 
   it('1. Semantic Ref allocation produces clean monotonic @e1..@eN tags with spatial bounds and labels', () => {
@@ -690,5 +751,343 @@ describe('Phase 5: Playwright Parity Kernel & Gap Telemetry Verification', () =>
     assert.strictEqual(detached2, false, 'Host must NEVER detach externally attached mockWc2 on dispose');
     assert.ok(removedNavCb2, 'Host must remove did-navigate listener on mockWc2');
     assert.ok(removedDetachCb2, 'Host must remove detach listener on mockWc2');
+  });
+
+  it('12. browser.find / anti.inspect.find searches snapshot descriptors by text and regex pattern', async () => {
+    const { catalogue, target, ctx, registry } = createParityHarness();
+
+    // Populate registry with test descriptors
+    const session = registry.beginCollection({
+      tabId: target.tabId,
+      paneId: 'desktop',
+      browserEpoch: target.browserEpoch,
+      documentGeneration: target.documentGeneration,
+      documentUrl: 'https://myshopify.test/storefront/product-1',
+    });
+
+    registry.publishSnapshot({
+      tabId: target.tabId,
+      paneId: 'desktop',
+      browserEpoch: target.browserEpoch,
+      documentGeneration: target.documentGeneration,
+      documentUrl: 'https://myshopify.test/storefront/product-1',
+      sequence: session.sequence,
+      nonce: session.nonce,
+      rawDescriptors: [
+        {
+          path: [{ kind: 'dom', index: 0, id: 'main-nav' }, { kind: 'dom', index: 1 }],
+          fingerprint: { tag: 'a', role: 'link' },
+          role: 'link',
+          label: 'Home Catalog',
+          rect: { x: 10, y: 20, width: 100, height: 30, centerX: 60, centerY: 35 },
+        },
+        {
+          path: [{ kind: 'dom', index: 0, id: 'buy-box' }, { kind: 'dom', index: 2, id: 'btn-add-to-cart' }],
+          fingerprint: { tag: 'button', role: 'button', id: 'btn-add-to-cart' },
+          role: 'button',
+          type: 'submit',
+          label: 'Thêm vào giỏ hàng',
+          id: 'btn-add-to-cart',
+          metadata: { sectionId: 'product-template', productId: 'prod_9988' },
+          rect: { x: 50, y: 150, width: 200, height: 45, centerX: 150, centerY: 172 },
+        },
+        {
+          path: [{ kind: 'dom', index: 0, id: 'footer' }],
+          fingerprint: { tag: 'footer', role: 'contentinfo' },
+          role: 'contentinfo',
+          label: 'Copyright 2026 Storefront',
+          rect: { x: 0, y: 800, width: 1200, height: 60, centerX: 600, centerY: 830 },
+        },
+      ],
+    });
+
+    // Search via text query: 'giỏ hàng'
+    const findTextRes = (await catalogue.dispatch('anti.inspect.find', {
+      text: 'giỏ hàng',
+      tabId: target.tabId,
+    }, ctx)) as any;
+
+    assert.strictEqual(findTextRes.count, 1, 'Should find exactly 1 matching descriptor for text "giỏ hàng"');
+    assert.ok(findTextRes.matches[0].ref.startsWith('@e'), 'Matching element must have a valid @eN ref');
+    assert.strictEqual(findTextRes.matches[0].id, 'btn-add-to-cart');
+    assert.strictEqual(findTextRes.matches[0].role, 'button');
+    assert.ok(findTextRes.formattedText.includes('Thêm vào giỏ hàng'));
+
+    // Search via regex query: '/(catalog|storefront)/i'
+    const findRegexRes = (await catalogue.dispatch('browser.find', {
+      regex: '/(catalog|storefront)/i',
+      tabId: target.tabId,
+    }, ctx)) as any;
+
+    assert.strictEqual(findRegexRes.count, 2, 'Regex search should match Home Catalog and Storefront Footer');
+    assert.ok(findRegexRes.matches[0].ref.startsWith('@e'));
+    assert.ok(findRegexRes.matches[1].ref.startsWith('@e'));
+    // Search via regex query with global flag 'g': '/(catalog|storefront)/gi' to verify no alternating stateful misses
+    const findGlobalRegexRes = (await catalogue.dispatch('browser.find', {
+      regex: '/(catalog|storefront)/gi',
+      tabId: target.tabId,
+    }, ctx)) as any;
+    assert.strictEqual(findGlobalRegexRes.count, 2, 'Global flag g must be stripped so repeated tests do not fail on lastIndex mutation');
+    assert.strictEqual(findGlobalRegexRes.matches[0].ref, findRegexRes.matches[0].ref);
+    assert.strictEqual(findGlobalRegexRes.matches[1].ref, findRegexRes.matches[1].ref);
+
+    const findEmptyRes = (await catalogue.dispatch('anti.inspect.find', {
+      text: 'nonexistent-query-xyz',
+      tabId: target.tabId,
+    }, ctx)) as any;
+
+    assert.strictEqual(findEmptyRes.count, 0);
+    assert.ok(findEmptyRes.formattedText.includes('No elements matching'));
+  });
+
+  it('13. End-to-end ref loop: browser.find returns @eN which resolves and executes in action executor', async () => {
+    const { host, catalogue, target, ctx, registry, cdpCalls } = createParityHarness();
+
+    const session = registry.beginCollection({
+      tabId: target.tabId,
+      paneId: 'desktop',
+      browserEpoch: target.browserEpoch,
+      documentGeneration: target.documentGeneration,
+      documentUrl: 'https://myshopify.test/storefront/product-1',
+    });
+
+    registry.publishSnapshot({
+      tabId: target.tabId,
+      paneId: 'desktop',
+      browserEpoch: target.browserEpoch,
+      documentGeneration: target.documentGeneration,
+      documentUrl: 'https://myshopify.test/storefront/product-1',
+      sequence: session.sequence,
+      nonce: session.nonce,
+      rawDescriptors: [
+        {
+          path: [{ kind: 'dom', index: 0, id: 'product-form' }, { kind: 'dom', index: 3, id: 'submit-order' }],
+          fingerprint: { tag: 'button', role: 'button', id: 'submit-order' },
+          role: 'button',
+          type: 'submit',
+          label: 'Proceed to Checkout',
+          id: 'submit-order',
+          rect: { x: 100, y: 250, width: 180, height: 40, centerX: 190, centerY: 270 },
+        },
+      ],
+    });
+
+    // 1. Agent calls find to locate the checkout button ref
+    const findRes = (await catalogue.dispatch('browser.find', {
+      text: 'Checkout',
+      tabId: target.tabId,
+    }, ctx)) as any;
+
+    assert.strictEqual(findRes.count, 1);
+    const foundRef = findRes.matches[0].ref;
+    assert.ok(foundRef.startsWith('@e'), 'Must extract @eN token');
+
+    // 2. Agent passes the extracted ref directly to resolveRef
+    const resolvedDesc = registry.resolveRef({
+      tabId: target.tabId,
+      paneId: 'desktop',
+      browserEpoch: target.browserEpoch,
+      documentGeneration: target.documentGeneration,
+      documentUrl: 'https://myshopify.test/storefront/product-1',
+    }, foundRef);
+
+    assert.strictEqual(resolvedDesc.ref, foundRef);
+    assert.strictEqual(resolvedDesc.id, 'submit-order');
+    assert.strictEqual(resolvedDesc.rect?.centerX, 190);
+    assert.strictEqual(resolvedDesc.rect?.centerY, 270);
+
+    // 3. Agent executes click on the found ref through catalogue and asserts action execution & CDP dispatch
+    const clickRes = (await catalogue.dispatch('anti.agent.cursor.click', {
+      ref: foundRef,
+      tabId: target.tabId,
+    }, ctx)) as any;
+    assert.strictEqual(clickRes?.clicked, true, 'Action executor must successfully click on the resolved @eN ref');
+    const mouseEvents = cdpCalls.filter((c) => c.method === 'Input.dispatchMouseEvent');
+    assert.ok(mouseEvents.length >= 2, 'CDP Input.dispatchMouseEvent must be dispatched for mousePressed and mouseReleased');
+    const pressEvent = mouseEvents.find((c: any) => (c.params as any)?.type === 'mousePressed');
+    assert.strictEqual((pressEvent?.params as any)?.x, 190, 'Click X coordinate must match resolved center X');
+    assert.strictEqual((pressEvent?.params as any)?.y, 270, 'Click Y coordinate must match resolved center Y');
+  });
+
+  it('14. browser_find canonical Playwright MCP schema validation', async () => {
+    const { catalogue, target, ctx } = createParityHarness();
+
+    // Verify canonical route exists in catalogue
+    assert.ok(catalogue.get('browser_find'), 'browser_find must be registered');
+    assert.ok(catalogue.get('anti.inspect.find'), 'anti.inspect.find must be registered');
+    assert.ok(catalogue.get('antifan_find'), 'antifan_find must be registered');
+
+    // Error case: both text and regex provided
+    await assert.rejects(async () => {
+      await catalogue.dispatch('browser_find', {
+        text: 'hello',
+        regex: '/hello/',
+        tabId: target.tabId,
+      }, ctx);
+    }, (err: any) => {
+      assert.strictEqual(err.code, 'INVALID_ARGUMENT');
+      assert.ok(err.message.includes('Provide either "text" or "regex", not both'));
+      return true;
+    });
+
+    // Error case: neither text nor regex provided
+    await assert.rejects(async () => {
+      await catalogue.dispatch('browser_find', {
+        tabId: target.tabId,
+      }, ctx);
+    }, (err: any) => {
+      assert.strictEqual(err.code, 'INVALID_ARGUMENT');
+      assert.ok(err.message.includes('Either "text" or "regex" must be provided'));
+      return true;
+    });
+  });
+
+  it('15. Cold-registry agentFind triggers snapshot capture without deadlocking on targetOperation queue', async () => {
+    const { host, target, registry } = createParityHarness();
+
+    // Ensure registry has NO existing snapshot for target
+    assert.strictEqual(registry.getStats().totalDescriptors, 0, 'Registry must start cold with 0 descriptors');
+
+    // Call agentFind on cold target with race timeout — must not deadlock on targetOperation Promise tail
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      const timer = setTimeout(() => reject(new Error('Deadlock timeout: agentFind hung on targetOperation queue')), 2000);
+      timer.unref?.();
+    });
+
+    const findRes = (await Promise.race([
+      host.agentFind({
+        text: 'fake',
+        tabId: target.tabId,
+      }),
+      timeoutPromise,
+    ])) as any;
+
+    assert.ok(findRes, 'Cold agentFind must resolve without deadlocking or timing out');
+    assert.strictEqual(typeof findRes.count, 'number');
+  });
+
+  it('16. keyboard-normalizer parses compound key combinations ("Control+a", "Shift+Tab", "Escape", "+")', () => {
+    const { parseKeyCombo, buildKeyboardInputEvents } = require('../../src/main/browser/keyboard-normalizer');
+
+    // Compound combo: Control+a
+    const ctrlA = parseKeyCombo('Control+a');
+    assert.strictEqual(ctrlA.key, 'a');
+    assert.deepStrictEqual(ctrlA.modifiers, ['control']);
+
+    const eventsCtrlA = buildKeyboardInputEvents('Control+a');
+    assert.strictEqual(eventsCtrlA.length, 2, 'Ctrl+A shortcut must emit keyDown and keyUp without char event');
+    assert.strictEqual(eventsCtrlA[0].type, 'keyDown');
+    assert.strictEqual(eventsCtrlA[0].keyCode, 'a');
+    assert.deepStrictEqual(eventsCtrlA[0].modifiers, ['control']);
+
+    // Compound combo: Shift+Tab
+    const shiftTab = parseKeyCombo('Shift+Tab');
+    assert.strictEqual(shiftTab.key, 'Tab');
+    assert.deepStrictEqual(shiftTab.modifiers, ['shift']);
+
+    const eventsShiftTab = buildKeyboardInputEvents('Shift+Tab');
+    assert.strictEqual(eventsShiftTab.length, 2);
+    assert.strictEqual(eventsShiftTab[0].keyCode, 'Tab');
+    assert.deepStrictEqual(eventsShiftTab[0].modifiers, ['shift']);
+
+    // Literal plus sign: "+"
+    const plus = parseKeyCombo('+');
+    assert.strictEqual(plus.key, '+');
+    assert.deepStrictEqual(plus.modifiers, []);
+
+    // Trailing plus combinations: "Control++", "Shift++", "Ctrl+Shift++", "Control+Plus"
+    assert.deepStrictEqual(parseKeyCombo('Control++'), { key: '+', modifiers: ['control'] });
+    assert.deepStrictEqual(parseKeyCombo('Shift++'), { key: '+', modifiers: ['shift'] });
+    assert.deepStrictEqual(parseKeyCombo('Ctrl+Shift++'), { key: '+', modifiers: ['control', 'shift'] });
+    assert.deepStrictEqual(parseKeyCombo('Control+Plus'), { key: 'Plus', modifiers: ['control'] });
+
+    const eventsCtrlPlus = buildKeyboardInputEvents('Control++');
+    assert.strictEqual(eventsCtrlPlus.length, 2);
+    assert.strictEqual(eventsCtrlPlus[0].keyCode, '+');
+    assert.deepStrictEqual(eventsCtrlPlus[0].modifiers, ['control']);
+
+    // Multi-modifier: Cmd+Option+ArrowRight
+    const multiMod = parseKeyCombo('Cmd+Option+ArrowRight');
+    assert.strictEqual(multiMod.key, 'ArrowRight');
+    assert.ok(multiMod.modifiers.includes('meta'));
+    assert.ok(multiMod.modifiers.includes('alt'));
+
+    // Incomplete / malformed combinations must throw
+    assert.throws(() => parseKeyCombo('Ctrl+'), /Incomplete or malformed key combination/);
+    assert.throws(() => parseKeyCombo('Shift+'), /Incomplete or malformed key combination/);
+    assert.throws(() => parseKeyCombo('Control+Shift+'), /Incomplete or malformed key combination/);
+  });
+
+  it('17. browser_press_key canonical Playwright MCP dispatch and execution', async () => {
+    const { catalogue, target, ctx } = createParityHarness();
+
+    assert.ok(catalogue.get('browser_press_key'), 'browser_press_key must be registered');
+
+    const pressRes = (await catalogue.dispatch('browser_press_key', {
+      key: 'Control+a',
+      tabId: target.tabId,
+    }, ctx)) as any;
+
+    assert.strictEqual(pressRes?.success, true);
+    assert.strictEqual(pressRes?.key, 'Control+a');
+  });
+
+  it('18. BrowserControlPort stages screenshot to ArtifactSink and returns valid ArtifactRef', async () => {
+    const stagedArtifacts: any[] = [];
+    const fakeArtifactSink = {
+      stage(input: any) {
+        const ref = {
+          kind: input.kind,
+          id: `artifact-test-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+          mime: input.mime,
+          size: input.data.length,
+          digest: 'sha256-test',
+          runId: input.runId,
+          attemptId: input.attemptId,
+          projectId: input.projectId,
+          workspaceId: input.workspaceId,
+          createdAt: Date.now(),
+        };
+        stagedArtifacts.push({ ref, data: input.data });
+        return ref;
+      },
+    };
+
+    const { BrowserControlPort } = require('../../src/main/tools/browser-control-port');
+    const sampleBase64 = Buffer.from('fake-png-binary-data').toString('base64');
+    const fakeHost = {
+      getTabList: () => [{ id: 'tab-1', url: 'https://example.com' }],
+      captureScreenshot: async () => sampleBase64,
+      getDocumentGeneration: () => 1,
+    };
+
+    const portWithArtifacts = new BrowserControlPort(fakeHost, fakeArtifactSink);
+    const target = {
+      projectId: 'proj-1',
+      workspaceId: 'ws-1',
+      runtimeId: 'rt-1',
+      tabId: 'tab-1',
+      browserEpoch: 1,
+      documentGeneration: 1,
+    };
+
+    const result = await portWithArtifacts.screenshot(target, 'run-1', 'attempt-1', 'tab-1');
+    assert.ok(typeof result === 'object' && result !== null, 'Result must be an ArtifactRef object');
+    assert.strictEqual(result.kind, 'screenshot');
+    assert.strictEqual(result.mime, 'image/png');
+    assert.ok(result.id.startsWith('artifact-'), 'Artifact ID must start with "artifact-"');
+    assert.strictEqual(stagedArtifacts.length, 1);
+    assert.strictEqual(stagedArtifacts[0].ref.id, result.id);
+  });
+
+  it('19. antifan-omp-mcp tool definitions include ref parameter and Playwright tools', () => {
+    const ompScript = require('fs').readFileSync(
+      require('path').resolve(__dirname, '../../scripts/antifan-omp-mcp.cjs'),
+      'utf8'
+    );
+    assert.ok(ompScript.includes("'browser_find'"), 'Must declare browser_find in OMP MCP tools');
+    assert.ok(ompScript.includes("'browser_press_key'"), 'Must declare browser_press_key in OMP MCP tools');
+    assert.ok(ompScript.includes("['anti.agent.cursor.type'"), 'Must declare anti.agent.cursor.type');
+    assert.ok(ompScript.includes("ref: { type: 'string' }"), 'Cursor tools must include ref: { type: "string" }');
   });
 });

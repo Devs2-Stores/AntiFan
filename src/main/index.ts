@@ -239,6 +239,7 @@ async function createWindow(): Promise<void> {
     agentHighlight: (params) => tabHost!.agentHighlight(params),
     agentClear: (tabId, paneId) => tabHost!.agentClear(tabId, paneId),
     agentSnapshot: (tabId, paneId) => tabHost!.agentSnapshot(tabId, paneId),
+    agentFind: (params) => tabHost!.agentFind(params),
     sendKeyboardPress: (params) => tabHost!.sendKeyboardPress(params),
     setViewportSize: (options) => tabHost!.setViewportSize(options),
     setDevicePreset: (tabId, presetId) => tabHost!.setDevicePreset(tabId, presetId),
@@ -250,7 +251,7 @@ async function createWindow(): Promise<void> {
     getDocumentGeneration: (tabId) => tabHost!.getDocumentGeneration(tabId),
     uploadFileInput: (params) => tabHost!.uploadFileInput(params),
     dropFiles: (params) => tabHost!.dropFiles(params),
-  });
+  }, controlPlane.artifacts);
   tabHost.setViewportGate(browserPort.viewportGate);
   controlPlane.registerBrowser(browserPort);
   const capabilityTransport = controlPlane.transport;

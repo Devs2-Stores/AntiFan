@@ -194,6 +194,42 @@ export class AntiFanMcpServer {
         },
       },
       {
+        name: 'browser_find',
+        description: 'Search the accessibility snapshot of the current page for text or a regular expression. Returns matching snapshot nodes with a few lines of surrounding context (like search snippets), each shown under its path from the root of the tree, which is cheaper than capturing the whole snapshot when you only need to locate an element and its ref.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            text: { type: 'string', description: 'Plain text to search for in the page snapshot (case-insensitive substring match). Provide either text or regex, not both.' },
+            regex: { type: 'string', description: 'Regular expression to search for in the page snapshot. Matching is case-sensitive by default; wrap the pattern in slashes to add flags, e.g. "/error/i" for case-insensitive. Provide either text or regex, not both.' },
+          },
+        },
+      },
+      {
+        name: 'anti.inspect.find',
+        description: 'Search accessibility snapshot descriptors for text or regex pattern and return matching @eN element references with metadata',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            text: { type: 'string', description: 'Plain text query' },
+            regex: { type: 'string', description: 'Regex query' },
+            tabId: { type: 'string', description: 'Optional target tab ID' },
+            paneId: { type: 'string', enum: ['desktop', 'mobile'], description: 'Optional pane target in split review mode' },
+            maxMatches: { type: 'number', description: 'Maximum number of matches to return' },
+          },
+        },
+      },
+      {
+        name: 'browser_press_key',
+        description: 'Press a key or key combination on the active page (e.g. "Control+a", "Shift+Tab", "Escape", "Enter", "ArrowDown").',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            key: { type: 'string', description: 'Key or key combination to press (e.g. "Control+a", "Shift+Tab", "Escape", "Enter")' },
+          },
+          required: ['key'],
+        },
+      },
+      {
         name: 'antifan_agent_click',
         description: 'Agent Browser: Animate AI cursor, ripple pulse, and click element, ref (@e1), or (x, y) coordinates',
         inputSchema: {
@@ -475,6 +511,12 @@ export class AntiFanMcpServer {
       'anti.browser.evaluate': 'antifan_eval_js',
       'anti.inspect.eval': 'antifan_eval_js',
       'anti.inspect.snapshot': 'antifan_agent_snapshot',
+      'browser_find': 'antifan_find',
+      'anti.inspect.find': 'antifan_find',
+      'anti.browser.find': 'antifan_find',
+      'browser_press_key': 'antifan_keyboard_press',
+      'anti.agent.press_key': 'antifan_keyboard_press',
+      'anti.browser.press_key': 'antifan_keyboard_press',
       'anti.browser.set_zoom': 'antifan_set_zoom',
       'anti.browser.zoom.set': 'antifan_set_zoom',
       'anti.theme.qa.validate': 'antifan_theme_qa_validate',

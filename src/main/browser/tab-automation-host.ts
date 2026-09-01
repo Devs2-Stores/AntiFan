@@ -9,7 +9,7 @@ import * as path from 'node:path';
 import { SplitPaneId } from '../../shared/contracts';
 import { CapabilityError } from '../../shared/control-plane-contracts';
 import { AGENT_BROWSER_SCRIPT } from './agent-browser';
-import { SemanticRefRegistry, makeTargetKey } from './semantic-ref-registry';
+import { SemanticRefRegistry, makeTargetKey, SnapshotFindResult } from './semantic-ref-registry';
 import {
   buildIsolatedExecutorScript,
   buildIsolatedCollectorScript,
@@ -838,6 +838,62 @@ export class TabAutomationHost {
     return { success: res.success, executedSteps: 0, totalSteps: params?.steps?.length || 0, reason: res.reason };
   }
 
+  private async internalCollectSnapshot(targetId: string, effectivePane: SplitPaneId, selector?: string): Promise<string> {
+    const curTab = this.ctx.getTabRecord(targetId);
+    if (!curTab) return '';
+    const curWc = this.ctx.getTabWebContents(targetId, effectivePane);
+    if (!curWc || curWc.isDestroyed()) return '';
+
+    const curEpoch = this.ctx.getBrowserEpoch();
+    const curGen = this.ctx.getSemanticDocumentGeneration(targetId, effectivePane);
+    const curUrl = curWc.getURL();
+
+    let collectionSession;
+    try {
+      if (!this.ctx.semanticRefRegistry) {
+        return '';
+      }
+      collectionSession = this.ctx.semanticRefRegistry.beginCollection({
+        tabId: targetId,
+        paneId: effectivePane,
+        browserEpoch: curEpoch,
+        documentGeneration: curGen,
+        documentUrl: curUrl,
+      });
+    } catch (err: unknown) {
+      console.error('[tab-automation-host] beginCollection error:', err);
+      return '';
+    }
+
+    try {
+      const collectorScript = buildIsolatedCollectorScript(collectionSession.nonce, curUrl, selector);
+      const rawRes = await this.executeInIsolatedWorld(curWc, collectorScript);
+      const rawDescriptors = validateCollectionEnvelope(rawRes, collectionSession.nonce, curUrl);
+
+      if (this.ctx.getSemanticDocumentGeneration(targetId, effectivePane) !== curGen || curWc.isDestroyed() || curWc.getURL() !== curUrl) {
+        this.ctx.semanticRefRegistry.invalidateTarget(targetId, effectivePane);
+        return '';
+      }
+
+      const published = this.ctx.semanticRefRegistry.publishSnapshot({
+        tabId: targetId,
+        paneId: effectivePane,
+        nonce: collectionSession.nonce,
+        sequence: collectionSession.sequence,
+        browserEpoch: curEpoch,
+        documentGeneration: curGen,
+        documentUrl: curUrl,
+        rawDescriptors,
+      });
+
+      return published.formattedText;
+    } catch (err: unknown) {
+      this.ctx.semanticRefRegistry.invalidateTarget(targetId, effectivePane);
+      const msg = err instanceof Error ? err.message : String(err || 'isolated collection failed');
+      return `[Semantic Snapshot Error: ${msg}]`;
+    }
+  }
+
   public async agentSnapshot(tabId?: string, paneId?: SplitPaneId, selector?: string): Promise<string> {
     const targetId = tabId || this.ctx.getAutomationTabId() || this.ctx.getActiveTabId();
     const target = this.ctx.getTabRecord(targetId);
@@ -847,59 +903,54 @@ export class TabAutomationHost {
     const wc = this.ctx.getTabWebContents(targetId, effectivePane);
     if (!wc || wc.isDestroyed()) return '';
     return await this.ctx.runTargetOperation(targetId, effectivePane, async () => {
-      const curTab = this.ctx.getTabRecord(targetId);
-      if (!curTab) return '';
-      const curWc = this.ctx.getTabWebContents(targetId, effectivePane);
-      if (!curWc || curWc.isDestroyed()) return '';
+      return await this.internalCollectSnapshot(targetId, effectivePane, selector);
+    });
+  }
 
+  public async agentFind(params: {
+    text?: string;
+    regex?: string;
+    tabId?: string;
+    paneId?: SplitPaneId;
+    maxMatches?: number;
+  }): Promise<SnapshotFindResult> {
+    const targetId = params.tabId || this.ctx.getAutomationTabId() || this.ctx.getActiveTabId();
+    const target = this.ctx.getTabRecord(targetId);
+    if (!target) {
+      throw new CapabilityError('TARGET_STALE', `Target tab not found: ${targetId}`);
+    }
+
+    const splitHasLiveMobile = Boolean(target.state.splitMode && target.mobileView && !target.mobileView.webContents.isDestroyed());
+    const effectivePane: SplitPaneId = params.paneId || (splitHasLiveMobile ? (target.focusedPane || target.state.splitFocusedPane || 'desktop') : 'desktop');
+    const wc = this.ctx.getTabWebContents(targetId, effectivePane);
+    if (!wc || wc.isDestroyed()) {
+      throw new CapabilityError('TARGET_STALE', `WebContents destroyed for tab ${targetId}`);
+    }
+
+    return await this.ctx.runTargetOperation(targetId, effectivePane, async () => {
       const curEpoch = this.ctx.getBrowserEpoch();
       const curGen = this.ctx.getSemanticDocumentGeneration(targetId, effectivePane);
-      const curUrl = curWc.getURL();
+      const curUrl = wc.getURL();
 
-      let collectionSession;
-      try {
-        if (!this.ctx.semanticRefRegistry) {
-          return '';
-        }
-        collectionSession = this.ctx.semanticRefRegistry.beginCollection({
-          tabId: targetId,
-          paneId: effectivePane,
-          browserEpoch: curEpoch,
-          documentGeneration: curGen,
-          documentUrl: curUrl,
-        });
-      } catch (err: unknown) {
-        console.error('[tab-automation-host] beginCollection error:', err);
-        return '';
+      const existing = this.ctx.semanticRefRegistry.getActiveRecord({
+        tabId: targetId,
+        paneId: effectivePane,
+        browserEpoch: curEpoch,
+        documentGeneration: curGen,
+        documentUrl: curUrl,
+      });
+
+      if (!existing || existing.descriptors.size === 0) {
+        await this.internalCollectSnapshot(targetId, effectivePane);
       }
 
-      try {
-        const collectorScript = buildIsolatedCollectorScript(collectionSession.nonce, curUrl, selector);
-        const rawRes = await this.executeInIsolatedWorld(curWc, collectorScript);
-        const rawDescriptors = validateCollectionEnvelope(rawRes, collectionSession.nonce, curUrl);
-
-        if (this.ctx.getSemanticDocumentGeneration(targetId, effectivePane) !== curGen || curWc.isDestroyed() || curWc.getURL() !== curUrl) {
-          this.ctx.semanticRefRegistry.invalidateTarget(targetId, effectivePane);
-          return '';
-        }
-
-        const published = this.ctx.semanticRefRegistry.publishSnapshot({
-          tabId: targetId,
-          paneId: effectivePane,
-          nonce: collectionSession.nonce,
-          sequence: collectionSession.sequence,
-          browserEpoch: curEpoch,
-          documentGeneration: curGen,
-          documentUrl: curUrl,
-          rawDescriptors,
-        });
-
-        return published.formattedText;
-      } catch (err: unknown) {
-        this.ctx.semanticRefRegistry.invalidateTarget(targetId, effectivePane);
-        const msg = err instanceof Error ? err.message : String(err || 'isolated collection failed');
-        return `[Semantic Snapshot Error: ${msg}]`;
-      }
+      return this.ctx.semanticRefRegistry.findInSnapshot({
+        tabId: targetId,
+        paneId: effectivePane,
+        text: params.text,
+        regex: params.regex,
+        maxMatches: params.maxMatches,
+      });
     });
   }
 

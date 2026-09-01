@@ -28,6 +28,7 @@ Harden infrastructure capabilities under the same Main authority and effect poli
 - Bound artifact reads to 1 MiB chunks with continuation metadata; preserve MIME framing and verify SHA-256 on cache and disk reads. Index/file updates are crash-consistent; missing/corrupt index entries fail closed.
 - Remove `buildFallbackThemeQaResult` and make canonical `ThemeQaWorkflow` registration mandatory for `theme.qa_validate`; aliases delegate to it, and explicit `tabId` must equal the authorized target.
 - Extend the Phase 02 `artifact-capabilities.ts` owner with authenticated `artifact.read`/`artifact.stat`; retain its management-classified ledger-owned `report.generate` registration so workflow report staging has no direct/local bypass.
+- Terminal, file/artifact mutation, report generation, and process teardown owners integrate Phase 02 execution control at their irreversible boundary. Validation/path resolution/queueing remains `not-started`; before the first PTY write, filesystem rename/materialization, report publication, or process-kill signal they mark `effect-started`, and after acknowledgement they mark `effect-committed`. Cleanup may acknowledge `no-effect` only when the irreversible boundary was not crossed; otherwise cancellation is effect-possible/committed.
 
 ### Non-functional
 - No synchronous large-file or directory sweep on latency-sensitive Main dispatch paths.
@@ -58,6 +59,7 @@ flowchart LR
 - `src/main/server/safe-fs-resolver.ts`
 - `src/main/tools/artifact-store.ts`
 - `src/main/tools/artifact-retention-cleaner.ts`
+- `src/main/tools/artifact-capabilities.ts`
 - `src/main/qa/theme-qa-workflow.ts` only if alias plumbing requires no-op-free delegation changes
 - `src/main/tools/browser-capabilities.ts`
 - `test/main/theme-qa-parity.test.ts`
@@ -75,7 +77,6 @@ flowchart LR
 
 ### Create
 - `src/main/tools/terminal-capabilities.ts`
-- `src/main/tools/artifact-capabilities.ts` is created in Phase 02; modify it here for read/stat and shared authorization.
 - `test/main/terminal-capabilities.test.ts`
 - `test/main/artifact-capabilities.test.ts`
 
@@ -101,6 +102,7 @@ flowchart LR
 - [ ] Retention checks run-local metadata/receipt references before deleting a shared blob.
 - [ ] Run-byte quota is rebuilt from unique run-local blobs; sanitized SHA/existence is resolved before quota enforcement, and the counter increments only when a new blob is materialized.
 - [ ] `buildFallbackThemeQaResult` is removed; aliases and parity tests use only `ThemeQaWorkflow` with exact tab equality. `WorkflowEngine` has no local `report.generate` staging branch.
+- [ ] Terminal/artifact/report/process-effect owners mark execution-control boundaries and never acknowledge `no-effect` after bytes, signals, publication, or process input may have been emitted.
 
 ## Dependency Map
 ```text
@@ -124,7 +126,7 @@ Phase 01 lineage/policy + Phase 02 receipts/cancellation + Phase 03 exact browse
 5. Extend the Phase 02 artifact capability module around a durable, crash-consistent metadata index. Add project/workspace lineage to staging inputs, sanitize and hash before run-local existence/quota checks, rehydrate unique run-local blob byte totals before serving, charge quota only when materializing a new sanitized-content hash, and coordinate retained receipt references with cleanup.
 6. Route catalogue/HTTP through one service: durable metadata lookup and exact-lineage/current-receipt-read authorization precede byte access and yield uniform denial. Retention consults run-local metadata/receipt references before deleting `root/<runId>/<sha>.artifact`; no cross-run blob-sharing abstraction is introduced.
 7. Implement 1 MiB chunks, UTF-8/base64 framing and SHA-256 verification for cache and disk. Verify index/file partial-write recovery and sanitization.
-8. Delete fallback QA execution, require canonical `ThemeQaWorkflow`, enforce explicit tab equality, and stop all artifact/watcher timers on drain/shutdown.
+8. Integrate execution-control effect markers with PTY input/kill, artifact/report writes and publication, then delete fallback QA execution, require canonical `ThemeQaWorkflow`, enforce explicit tab equality, and stop all artifact/watcher timers on drain/shutdown.
 
 ## Test Matrix
 | Scenario | Expected result |
@@ -143,6 +145,7 @@ Phase 01 lineage/policy + Phase 02 receipts/cancellation + Phase 03 exact browse
 | Artifact bytes are modified on disk | SHA-256 mismatch fails `INTEGRITY_COMPROMISED`; no corrupt bytes disclosed. |
 | `qa.run` compatibility alias is called | Delegates to `theme.qa_validate` and the same `ThemeQaWorkflow`/output contract. |
 | Wait observes already-exited PTY | Fast path returns stored exit code/time for the current generation; no listener or timeout is installed. |
+| Cancellation occurs before vs. after PTY write, artifact rename, report publication, or kill signal | Pre-effect cleanup may acknowledge `no-effect`; crossed/uncertain boundary acknowledges effect-possible/committed and transport settles conservatively. |
 | Wait cursor belongs to restarted session ID | Generation mismatch returns typed stale-session error; output from different PTY incarnations is never conflated. |
 | Same callback retained twice | Independent subscription tokens/refcounts preserve watcher until both releases; clear cancels debounce timer. |
 | Main restarts with retained artifact receipt | Durable index rehydrates lineage/path/hash; authorized paged read succeeds without directory guessing. |
@@ -168,6 +171,7 @@ Phase 01 lineage/policy + Phase 02 receipts/cancellation + Phase 03 exact browse
 - [ ] Run-local content-addressed cleanup is reference-aware; one metadata ref's expiry cannot break another retained reference to the same run blob.
 - [ ] Preview subscriptions handle repeated callback identities and cancel pending debounce work at release/clear.
 - [ ] Fallback QA execution is deleted; canonical workflow registration and exact target equality are mandatory.
+- [ ] Infrastructure effects expose truthful execution-control boundaries; cancellation cannot be mislabeled `interrupted` after bytes/signals/publication may have occurred.
 
 ## Risk Assessment
 | Risk | Signal | Pre-decided response |

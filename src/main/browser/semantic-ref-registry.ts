@@ -18,6 +18,8 @@ import {
   RawElementDescriptor,
   SemanticElementDescriptor,
   SemanticSnapshotRecord,
+  StorefrontMetadata,
+  ElementGlobalRect,
   MAX_SNAPSHOT_DESCRIPTORS,
   MAX_TOTAL_SERIALIZED_BYTES,
 } from './semantic-ref-types';
@@ -48,6 +50,32 @@ export interface SnapshotPublishResult {
   refs: string[];
 }
 
+export interface FindSnapshotParams {
+  tabId: string;
+  paneId?: string;
+  text?: string;
+  regex?: string;
+  maxMatches?: number;
+}
+
+export interface FindMatchItem {
+  ref: string;
+  role: string;
+  type?: string;
+  label: string;
+  id?: string;
+  rect?: ElementGlobalRect;
+  metadata?: StorefrontMetadata;
+  snippet: string;
+}
+
+export interface SnapshotFindResult {
+  matches: FindMatchItem[];
+  count: number;
+  formattedText: string;
+  query: string;
+  snapshotId?: string;
+}
 export interface RegistryStats {
   activeTargets: number;
   totalDescriptors: number;
@@ -358,6 +386,121 @@ export class SemanticRefRegistry {
     const targetKey = makeTargetKey(target.tabId, target.paneId);
     const record = this.records.get(targetKey);
     return record ? record.formattedText : null;
+  }
+  public getActiveRecord(target: TargetIdentifier): SemanticSnapshotRecord | undefined {
+    if (this.isDisposed) return undefined;
+    this.pruneExpiredRecords();
+    const targetKey = makeTargetKey(target.tabId, target.paneId);
+    return this.records.get(targetKey);
+  }
+
+  public findInSnapshot(params: FindSnapshotParams): SnapshotFindResult {
+    if (this.isDisposed) {
+      throw new CapabilityError('RUNTIME_DRAINING', 'SemanticRefRegistry has been disposed');
+    }
+    this.pruneExpiredRecords();
+
+    const textQuery = typeof params.text === 'string' ? params.text.trim() : '';
+    const regexQuery = typeof params.regex === 'string' ? params.regex.trim() : '';
+
+    if (!textQuery && !regexQuery) {
+      throw new CapabilityError('INVALID_ARGUMENT', 'Either "text" or "regex" must be provided for snapshot search');
+    }
+    if (textQuery && regexQuery) {
+      throw new CapabilityError('INVALID_ARGUMENT', 'Provide either "text" or "regex", not both');
+    }
+
+    let matcher: (str: string) => boolean;
+    let queryDisplay = '';
+
+    if (textQuery) {
+      const lower = textQuery.toLowerCase();
+      queryDisplay = textQuery;
+      matcher = (str: string) => str.toLowerCase().includes(lower);
+    } else {
+      queryDisplay = regexQuery;
+      let pattern = regexQuery;
+      let flags = '';
+      const match = regexQuery.match(/^\/(.+)\/([gimsuy]*)$/);
+      if (match) {
+        pattern = match[1] ?? pattern;
+        flags = (match[2] ?? '').replace(/[gy]/g, '');
+      }
+      try {
+        const re = new RegExp(pattern, flags);
+        matcher = (str: string) => re.test(str);
+      } catch (err: unknown) {
+        throw new CapabilityError('INVALID_ARGUMENT', `Invalid regular expression "${regexQuery}": ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }
+
+    const targetKey = makeTargetKey(params.tabId, params.paneId);
+    const record = this.records.get(targetKey);
+
+    if (!record || record.descriptors.size === 0) {
+      return {
+        matches: [],
+        count: 0,
+        formattedText: `[No matches found: No active snapshot for target "${targetKey}"]`,
+        query: queryDisplay,
+        snapshotId: record?.snapshotId,
+      };
+    }
+
+    const maxMatches = typeof params.maxMatches === 'number' && params.maxMatches > 0 ? params.maxMatches : 50;
+    const matches: FindMatchItem[] = [];
+    const formattedLines: string[] = [];
+
+    for (const desc of record.descriptors.values()) {
+      const matchLabel = matcher(desc.label || '');
+      const matchId = desc.id ? matcher(desc.id) : false;
+      const matchRole = matcher(desc.role || '');
+      const matchType = desc.type ? matcher(desc.type) : false;
+      const matchSection = desc.metadata?.sectionId ? matcher(String(desc.metadata.sectionId)) : false;
+      const matchProduct = desc.metadata?.productId ? matcher(String(desc.metadata.productId)) : false;
+      const matchBlock = desc.metadata?.blockId ? matcher(String(desc.metadata.blockId)) : false;
+
+      if (matchLabel || matchId || matchRole || matchType || matchSection || matchProduct || matchBlock) {
+        const rolePart = desc.role + (desc.type ? ':' + desc.type : '');
+        const labelPart = desc.label ? ` "${desc.label}"` : '';
+        let snippet = `${desc.ref} [${rolePart}]${labelPart}`.trim();
+        const metaParts: string[] = [];
+        if (desc.id) metaParts.push(`id: "${desc.id}"`);
+        if (desc.metadata?.sectionId) metaParts.push(`section: "${desc.metadata.sectionId}"`);
+        if (desc.metadata?.productId) metaParts.push(`product: "${desc.metadata.productId}"`);
+        if (desc.metadata?.blockId) metaParts.push(`block: "${desc.metadata.blockId}"`);
+        if (desc.metadata?.framePath) metaParts.push(`frame: "${desc.metadata.framePath}"`);
+        if (metaParts.length > 0) {
+          snippet += ` (${metaParts.join(', ')})`;
+        }
+
+        matches.push({
+          ref: desc.ref,
+          role: desc.role,
+          type: desc.type,
+          label: desc.label,
+          id: desc.id,
+          rect: desc.rect,
+          metadata: desc.metadata,
+          snippet,
+        });
+
+        formattedLines.push(snippet);
+        if (matches.length >= maxMatches) {
+          break;
+        }
+      }
+    }
+
+    const formattedText = formattedLines.length > 0 ? formattedLines.join('\n') : `[No elements matching "${queryDisplay}"]`;
+
+    return {
+      matches,
+      count: matches.length,
+      formattedText,
+      query: queryDisplay,
+      snapshotId: record.snapshotId,
+    };
   }
 
   public invalidateTarget(tabId: string, paneId?: string): void {

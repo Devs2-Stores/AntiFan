@@ -161,6 +161,7 @@ async function runParitySmokeTest() {
       agentHighlight: (p) => tabHost.agentHighlight(p),
       agentClear: (id, pane) => tabHost.agentClear(id, pane),
       agentSnapshot: (id, pane) => tabHost.agentSnapshot(id, pane),
+      agentFind: (p) => tabHost.agentFind(p),
       agentType: (p) => tabHost.agentType(p),
       uploadFileInput: (p) => tabHost.uploadFileInput(p),
       dropFiles: (p) => tabHost.dropFiles(p),
@@ -260,7 +261,32 @@ async function runParitySmokeTest() {
     assert.strictEqual(entry.fallbackTool, 'browser_file_upload');
     assert.strictEqual(entry.fallbackResult, 'SUCCESS');
     console.log('[Parity Smoke Test] Milestone 5 SUCCESS: Telemetry record written and content verified.');
-    console.log('[Parity Smoke Test] ALL 5 PARITY MILESTONES VERIFIED SUCCESSFULLY VIA CANONICAL ANTI.* CAPABILITIES!');
+    // Milestone 6: Semantic Snapshot Targeted Find via anti.inspect.find / browser_find
+    console.log('[Parity Smoke Test] Milestone 6: Finding elements via anti.inspect.find and browser_find...');
+    try {
+      const findRes = await catalogue.dispatch('anti.inspect.find', {
+        text: 'Checkout',
+        tabId,
+      }, { ...ctx, grant: 'read' });
+      console.log('[Parity Smoke Test] Milestone 6 findRes:', JSON.stringify(findRes, null, 2));
+      assert.strictEqual(findRes?.count, 1, 'Must find 1 checkout button');
+      assert.ok(findRes?.matches?.[0]?.ref?.startsWith('@e'), 'Found match must contain @eN ref');
+      assert.strictEqual(findRes?.matches?.[0]?.id, 'checkout-btn');
+      assert.ok(findRes?.formattedText?.includes('Proceed to Checkout'));
+
+      // Canonical browser_find Playwright MCP query
+      const pwFindRes = await catalogue.dispatch('browser_find', {
+        regex: '/checkout/i',
+        tabId,
+      }, { ...ctx, grant: 'read' });
+      assert.strictEqual(pwFindRes?.count, 1);
+      assert.strictEqual(pwFindRes?.matches?.[0]?.ref, findRes?.matches?.[0]?.ref);
+      console.log(`[Parity Smoke Test] Milestone 6 SUCCESS: Element located with ref ${findRes.matches[0].ref}.`);
+    } catch (m6Err) {
+      console.error('[Parity Smoke Test] Milestone 6 error:', m6Err);
+      throw m6Err;
+    }
+    console.log('[Parity Smoke Test] ALL 6 PARITY MILESTONES VERIFIED SUCCESSFULLY VIA CANONICAL ANTI.* CAPABILITIES!');
     return true;
   } finally {
     await cleanupFn();

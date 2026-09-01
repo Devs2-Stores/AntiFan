@@ -401,4 +401,37 @@ describe('SemanticRefRegistry Pure Main Authority', () => {
       new vm.Script(clickScript);
     });
   });
+
+  it('findInSnapshot strips stateful g/y flags and matches all descriptors idempotently', () => {
+    const registry = new SemanticRefRegistry();
+    const target = {
+      tabId: 'tab-find-1',
+      paneId: 'desktop',
+      browserEpoch: 1,
+      documentGeneration: 1,
+      documentUrl: 'https://example.com/shop',
+    };
+
+    const c = registry.beginCollection(target);
+    registry.publishSnapshot({
+      ...target,
+      sequence: c.sequence,
+      nonce: c.nonce,
+      rawDescriptors: [
+        sampleDescriptor('prod-1', 'button', 'Thêm vào giỏ hàng Sản phẩm A'),
+        sampleDescriptor('prod-2', 'button', 'Thêm vào giỏ hàng Sản phẩm B'),
+        sampleDescriptor('prod-3', 'button', 'Thêm vào giỏ hàng Sản phẩm C'),
+      ],
+    });
+
+    // Search with global flag /giỏ hàng/g
+    const res = registry.findInSnapshot({
+      tabId: 'tab-find-1',
+      paneId: 'desktop',
+      regex: '/giỏ hàng/g',
+    });
+
+    assert.equal(res.count, 3, 'Must match all 3 products despite global flag /g');
+    assert.deepEqual(res.matches.map((m) => m.id), ['prod-1', 'prod-2', 'prod-3']);
+  });
 });

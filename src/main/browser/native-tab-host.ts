@@ -4161,6 +4161,9 @@ export class NativeTabHost extends EventEmitter {
   public async agentSnapshot(tabId?: string, paneId?: SplitPaneId): Promise<string> {
     return this.getAutomationHost().agentSnapshot(tabId, paneId);
   }
+  public async agentFind(params: { text?: string; regex?: string; tabId?: string; paneId?: SplitPaneId; maxMatches?: number }): Promise<unknown> {
+    return this.getAutomationHost().agentFind(params);
+  }
   public async sendKeyboardPress(params: { key: string; modifiers?: string[]; tabId?: string }): Promise<{ success: boolean; key: string; modifiers: string[] }> {
     const targetId = params.tabId || this.automationTabId || this.activeTabId;
     const tab = this.tabs.get(targetId);

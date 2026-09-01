@@ -24,6 +24,7 @@ export interface BrowserHostPort {
   agentHighlight?(params: { selector?: string; ref?: string; label?: string; tabId?: string; paneId?: 'desktop' | 'mobile' }): Promise<boolean>;
   agentClear?(tabId?: string, paneId?: 'desktop' | 'mobile'): Promise<boolean>;
   agentSnapshot?(tabId?: string, paneId?: 'desktop' | 'mobile'): Promise<string>;
+  agentFind?(params: { text?: string; regex?: string; tabId?: string; paneId?: 'desktop' | 'mobile'; maxMatches?: number }): Promise<unknown>;
   sendKeyboardPress?(params: { key: string; modifiers?: string[]; tabId?: string }): Promise<{ success: boolean; key: string; modifiers: string[] }>;
   setViewportSize?(options: { width: number; height: number; mobile?: boolean; deviceScaleFactor?: number; tabId?: string }): boolean;
   setDevicePreset?(tabId: string, presetId: string): boolean;
@@ -506,6 +507,12 @@ export class BrowserControlPort {
     const effectiveTabId = this.resolveTargetTab(target, tabId);
     return { snapshot: await this.host.agentSnapshot(effectiveTabId, paneId) };
   }
+  async agentFind(params: { text?: string; regex?: string; tabId?: string; paneId?: 'desktop' | 'mobile'; maxMatches?: number }, target?: BrowserTarget): Promise<unknown> {
+    if (!this.host.agentFind) throw new CapabilityError('CAPABILITY_NOT_FOUND', 'agentFind is not supported by host');
+    const effectiveTabId = this.resolveTargetTab(target, params.tabId);
+    return await this.host.agentFind({ ...params, tabId: effectiveTabId });
+  }
+
 
   async uploadFileInput(params: { refOrSelector: string; filePaths: string[]; tabId?: string; paneId?: 'desktop' | 'mobile' }, target?: BrowserTarget): Promise<{ success: boolean; uploadedCount: number; reason?: string }> {
     if (!this.host.uploadFileInput) throw new CapabilityError('CAPABILITY_NOT_FOUND', 'uploadFileInput is not supported by host');

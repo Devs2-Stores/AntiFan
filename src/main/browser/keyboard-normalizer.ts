@@ -42,7 +42,7 @@ const NAMED_KEY_MAP: Record<string, { keyCode: string; isPrintable: boolean; tex
   right: { keyCode: 'Right', isPrintable: false },
   space: { keyCode: 'Space', isPrintable: true, text: ' ' },
   spacebar: { keyCode: 'Space', isPrintable: true, text: ' ' },
-
+  plus: { keyCode: '+', isPrintable: true, text: '+' },
   // Function Keys
   f1: { keyCode: 'F1', isPrintable: false },
   f2: { keyCode: 'F2', isPrintable: false },
@@ -118,25 +118,70 @@ export function normalizeModifiers(modifiers?: string[]): ElectronModifier[] {
   return Array.from(resultSet);
 }
 
+export function parseKeyCombo(rawInput: string): { key: string; modifiers: ElectronModifier[] } {
+  if (typeof rawInput !== 'string' || rawInput.trim().length === 0) {
+    throw new Error('Key must be a non-empty string');
+  }
+
+  const trimmed = rawInput.trim();
+  if (trimmed === '+') {
+    return { key: '+', modifiers: [] };
+  }
+
+  // Handle trailing plus key e.g. "Control++", "Shift+Alt++", "++"
+  if (trimmed.endsWith('++')) {
+    const modPrefix = trimmed.slice(0, -2);
+    const modParts = modPrefix.split('+').map((p) => p.trim()).filter((p) => p.length > 0);
+    return {
+      key: '+',
+      modifiers: normalizeModifiers(modParts),
+    };
+  }
+
+  // Malformed hanging combination e.g. "Ctrl+", "Shift+"
+  if (trimmed.endsWith('+')) {
+    throw new Error(`Incomplete or malformed key combination: "${rawInput}"`);
+  }
+
+  if (trimmed.includes('+')) {
+    const parts = trimmed.split('+').map((p) => p.trim()).filter((p) => p.length > 0);
+    if (parts.length === 0) {
+      return { key: '+', modifiers: [] };
+    }
+    const rawKey = parts[parts.length - 1] ?? '+';
+    const rawMods = parts.slice(0, -1);
+    return {
+      key: rawKey,
+      modifiers: normalizeModifiers(rawMods),
+    };
+  }
+  return {
+    key: trimmed,
+    modifiers: [],
+  };
+}
+
 export function buildKeyboardInputEvents(rawKey: string, rawModifiers?: string[]): KeyboardInputEventDescriptor[] {
-  const keyInfo = normalizeKey(rawKey);
-  const modifiers = normalizeModifiers(rawModifiers);
+  const parsed = parseKeyCombo(rawKey);
+  const keyInfo = normalizeKey(parsed.key);
+  const explicitModifiers = normalizeModifiers(rawModifiers);
+  const allModifiers = Array.from(new Set([...parsed.modifiers, ...explicitModifiers]));
 
   const events: KeyboardInputEventDescriptor[] = [
-    { type: 'keyDown', keyCode: keyInfo.keyCode, modifiers },
+    { type: 'keyDown', keyCode: keyInfo.keyCode, modifiers: allModifiers },
   ];
 
   // If printable and no control/meta modifier (which make it a command shortcut like Ctrl+C)
-  const isShortcut = modifiers.includes('control') || modifiers.includes('meta');
+  const isShortcut = allModifiers.includes('control') || allModifiers.includes('meta');
   if (keyInfo.isPrintable && !isShortcut) {
     events.push({
       type: 'char',
       keyCode: keyInfo.text || keyInfo.keyCode,
-      modifiers,
+      modifiers: allModifiers,
     });
   }
 
-  events.push({ type: 'keyUp', keyCode: keyInfo.keyCode, modifiers });
+  events.push({ type: 'keyUp', keyCode: keyInfo.keyCode, modifiers: allModifiers });
 
   return events;
 }

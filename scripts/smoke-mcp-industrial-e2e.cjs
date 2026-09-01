@@ -23,7 +23,6 @@ const tempUserData = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-mcp-live-e2e
 app.setPath('userData', tempUserData);
 const { BridgeServer } = require('../.compiled/src/main/bridge/bridge-server.js');
 const { makeControlPlaneId, issueRuntimeLease } = require('../.compiled/src/shared/control-plane-contracts.js');
-const { CapabilityTransportAdapter } = require('../.compiled/src/main/tools/capability-transport.js');
 const { BrowserControlPort } = require('../.compiled/src/main/tools/browser-control-port.js');
 const { ControlPlaneRuntime } = require('../.compiled/src/main/control-plane/control-plane-runtime.js');
 const { AttachmentRegistry } = require('../.compiled/src/main/run/attachment-registry.js');
@@ -193,6 +192,7 @@ async function runMcpLiveE2ETest() {
       agentHighlight: (params) => tabHost.agentHighlight(params),
       agentClear: (id, paneId) => tabHost.agentClear(id, paneId),
       agentSnapshot: (id, paneId) => tabHost.agentSnapshot(id, paneId),
+      agentFind: (params) => tabHost.agentFind(params),
       sendKeyboardPress: (params) => tabHost.sendKeyboardPress(params),
       setViewportSize: (options) => tabHost.setViewportSize(options),
       setDevicePreset: (id, presetId) => tabHost.setDevicePreset(id, presetId),
@@ -201,7 +201,7 @@ async function runMcpLiveE2ETest() {
     }, controlPlaneRuntime.artifacts);
     tabHost.setViewportGate(browserPort.viewportGate);
     controlPlaneRuntime.registerBrowser(browserPort);
-    const capabilityTransport = new CapabilityTransportAdapter(controlPlaneRuntime.capabilities, attachmentRegistry);
+    const capabilityTransport = controlPlaneRuntime.transport;
     bridgeServer = new BridgeServer(
       tabHost,
       0,
@@ -394,6 +394,60 @@ async function runMcpLiveE2ETest() {
       'utf8'
     );
     console.log('[OK] Milestone 5: Benchmark metrics persisted to plans/reports/mcp-overhaul-benchmark.json');
+    // Milestone 6: Live MCP Session Tab Creation -> Screenshot -> Ref-Only Action Sequence
+    console.log('[Milestone 6] Creating new tab in live MCP proxy session...');
+    const createResp = await callMcp(300, 'anti.browser.tabs.create', { url: storefrontUrl });
+    assert.equal(createResp.error, undefined);
+    assert.equal(createResp.result?.isError, undefined);
+    const parsedCreate = JSON.parse(createResp.result?.content?.[0]?.text || '{}');
+    const createdTabId = parsedCreate.tabId;
+    assert.ok(createdTabId, 'Must return createdTabId');
+    assert.notEqual(createdTabId, tabId, 'Created tab must have a distinct ID from initial tab');
+
+    // Wait for the new tab to load and paint
+    const newWc = tabHost.getTabWebContents(createdTabId);
+    if (newWc) {
+      await new Promise((resolve) => {
+        if (newWc.isLoading()) {
+          newWc.once('did-finish-load', () => setTimeout(resolve, 400));
+        } else {
+          setTimeout(resolve, 400);
+        }
+      });
+    }
+
+    // Screenshot on the newly created tab via MCP
+    console.log('[Milestone 6] Capturing screenshot on new tab ' + createdTabId + ' via MCP...');
+    const newScreenshotResp = await callMcp(301, 'anti.screenshot.viewport', { tabId: createdTabId });
+    assert.equal(newScreenshotResp.error, undefined);
+    assert.equal(newScreenshotResp.result?.isError, undefined);
+    assert.equal(newScreenshotResp.result?.content?.[0]?.type, 'image');
+
+    // Locate textarea via browser_find on new tab over MCP
+    console.log('[Milestone 6] Locating textarea ref on new tab via browser_find...');
+    const findResp = await callMcp(302, 'browser_find', { text: 'Special delivery notes', tabId: createdTabId });
+    assert.equal(findResp.error, undefined);
+    assert.equal(findResp.result?.isError, undefined);
+    const parsedFind = JSON.parse(findResp.result?.content?.[0]?.text || '{}');
+    assert.ok(parsedFind.matches?.length > 0, 'Must find textarea element in snapshot');
+    const textareaRef = parsedFind.matches[0].ref;
+    assert.ok(textareaRef?.startsWith('@e'), 'Must extract valid @eN reference');
+
+    // Type into textarea on new tab using strictly ref-only (no selector) via MCP
+    console.log(`[Milestone 6] Typing with ref-only (${textareaRef}) on new tab via MCP...`);
+    const newTypeResp = await callMcp(303, 'anti.agent.cursor.type', { ref: textareaRef, text: 'Live MCP E2E verification note', tabId: createdTabId });
+    assert.equal(newTypeResp.error, undefined);
+    assert.equal(newTypeResp.result?.isError, undefined);
+
+    // Assert genuine DOM input event was recorded in the live Electron WebContents
+    assert.ok(newWc, 'Created WebContents must be alive');
+    const newRecordedActions = await newWc.executeJavaScript('window.recordedActions');
+    const typedAction = newRecordedActions.find((a) => a.type === 'input');
+    assert.ok(typedAction, 'Input action must be recorded in browser on created tab');
+    assert.equal(typedAction.value, 'Live MCP E2E verification note');
+    assert.equal(typedAction.target, 'customer-note');
+
+    console.log('[OK] Milestone 6: Live MCP session tab create -> screenshot -> ref-only type verified with authentic DOM events.');
 
     console.log('ALL LIVE CHROMIUM MCP INDUSTRIAL OVERHAUL MILESTONES PASSED SUCCESSFULLY.');
   } finally {
