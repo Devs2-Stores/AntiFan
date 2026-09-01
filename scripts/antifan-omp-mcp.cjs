@@ -26,12 +26,18 @@ const definitions = [
   ['theme.assert_cart', 'Inspect passive storefront cart contract telemetry without adding synthetic items.', { tabId: { type: 'string' } }],
 ];
 
+let currentAuthorityRevision = null;
+
 function getBootstrap() {
   if (process.env.ANTIFAN_MCP_BOOTSTRAP) {
     try {
       const b = JSON.parse(process.env.ANTIFAN_MCP_BOOTSTRAP);
+      if (b.authorityRevision && !currentAuthorityRevision) {
+        currentAuthorityRevision = b.authorityRevision;
+      }
       return {
         ...b,
+        authorityRevision: currentAuthorityRevision || b.authorityRevision,
         ownerPid: b.ownerPid || (process.env.ANTIFAN_OWNER_PID ? parseInt(process.env.ANTIFAN_OWNER_PID, 10) : undefined),
       };
     } catch {
@@ -39,10 +45,14 @@ function getBootstrap() {
     }
   }
   if (process.env.ANTIFAN_ATTACHMENT_SECRET) {
+    if (process.env.ANTIFAN_AUTHORITY_REVISION && !currentAuthorityRevision) {
+      currentAuthorityRevision = process.env.ANTIFAN_AUTHORITY_REVISION;
+    }
     return {
       port: parseInt(process.env.ANTIFAN_MCP_PORT || '20129', 10),
       secret: process.env.ANTIFAN_ATTACHMENT_SECRET,
       attachmentId: process.env.ANTIFAN_ATTACHMENT_ID,
+      authorityRevision: currentAuthorityRevision || process.env.ANTIFAN_AUTHORITY_REVISION,
       runId: process.env.ANTIFAN_RUN_ID,
       attemptId: process.env.ANTIFAN_ATTEMPT_ID,
       projectId: process.env.ANTIFAN_PROJECT_ID,
@@ -164,9 +174,20 @@ function ensureDispatchSocket(bootstrap) {
           const entry = pendingDispatchCalls.get(response.id);
           pendingDispatchCalls.delete(response.id);
           clearTimeout(entry.timer);
-          response.success
-            ? entry.resolve(response.data)
-            : entry.reject(new Error(typeof response.error === 'string' ? response.error : JSON.stringify(response.error || { code: 'CAPABILITY_ERROR', message: 'AntiFan RPC failed' })));
+          if (response.success) {
+            if (response.data && typeof response.data === 'object') {
+              if (response.data.authorityRevision) {
+                currentAuthorityRevision = response.data.authorityRevision;
+              }
+              if (response.data.data !== undefined) {
+                entry.resolve(response.data.data);
+                return;
+              }
+            }
+            entry.resolve(response.data);
+          } else {
+            entry.reject(new Error(typeof response.error === 'string' ? response.error : JSON.stringify(response.error || { code: 'CAPABILITY_ERROR', message: 'AntiFan RPC failed' })));
+          }
         } catch {}
       });
 
@@ -226,9 +247,13 @@ async function invoke(method, params = {}) {
         params: {
           name: mapped,
           params,
+          attachmentId: bootstrap.attachmentId,
+          attachmentSecret: bootstrap.secret,
+          authorityRevision: currentAuthorityRevision || bootstrap.authorityRevision,
           attachmentClaims: {
             attachmentSecret: bootstrap.secret,
             attachmentId: bootstrap.attachmentId,
+            authorityRevision: currentAuthorityRevision || bootstrap.authorityRevision,
             runId: bootstrap.runId,
             attemptId: bootstrap.attemptId,
             projectId: bootstrap.projectId,

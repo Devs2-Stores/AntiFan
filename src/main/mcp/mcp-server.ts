@@ -13,22 +13,33 @@ import {
 } from '@modelcontextprotocol/sdk/types.js';
 import { NativeTabHost } from '../browser/native-tab-host';
 import { CapabilityTransportAdapter } from '../tools/capability-transport';
-import { CapabilityError, AuthenticatedCapabilityContext } from '../../shared/control-plane-contracts';
+import { CapabilityError, AuthenticatedCapabilityContext, ClientInvocationIntent, makeControlPlaneId } from '../../shared/control-plane-contracts';
 import { AttachmentRegistry } from '../run/attachment-registry';
-import { envelope, requestId } from './result-envelope';
+import { envelope } from './result-envelope';
+
+export interface BoundAttachmentSession {
+  attachmentId: string;
+  attachmentSecret: string;
+  authorityRevision: string;
+}
 
 export class AntiFanMcpServer {
   private server: Server;
   private tabHost: NativeTabHost;
   private isHighRiskAllowed: boolean;
   private readonly transport?: CapabilityTransportAdapter;
-  private readonly attachmentRegistry?: AttachmentRegistry;
+  private boundSession?: BoundAttachmentSession;
 
-  constructor(tabHost: NativeTabHost, isHighRiskAllowed = false, transport?: CapabilityTransportAdapter, attachmentRegistry?: AttachmentRegistry) {
+  constructor(
+    tabHost: NativeTabHost,
+    isHighRiskAllowed = false,
+    transport?: CapabilityTransportAdapter,
+    boundSession?: BoundAttachmentSession
+  ) {
     this.tabHost = tabHost;
     this.isHighRiskAllowed = isHighRiskAllowed;
     this.transport = transport;
-    this.attachmentRegistry = attachmentRegistry;
+    this.boundSession = boundSession || this.resolveEnvBoundSession();
     this.server = new Server(
       {
         name: 'antifan-browser-desktop',
@@ -54,6 +65,23 @@ export class AntiFanMcpServer {
     });
   }
 
+  private resolveEnvBoundSession(): BoundAttachmentSession | undefined {
+    const attachmentId = process.env.ANTIFAN_ATTACHMENT_ID;
+    const attachmentSecret = process.env.ANTIFAN_ATTACHMENT_SECRET;
+    const authorityRevision = process.env.ANTIFAN_AUTHORITY_REVISION;
+    if (attachmentId && attachmentSecret && authorityRevision) {
+      return { attachmentId, attachmentSecret, authorityRevision };
+    }
+    return undefined;
+  }
+
+  public setBoundSession(session: BoundAttachmentSession): void {
+    this.boundSession = { ...session };
+  }
+
+  public getBoundSession(): BoundAttachmentSession | undefined {
+    return this.boundSession ? { ...this.boundSession } : undefined;
+  }
   public getStaticTools(): Tool[] {
     const tools: Tool[] = [
       {
@@ -441,7 +469,6 @@ export class AntiFanMcpServer {
     const name = aliasMap[toolName] || toolName;
     const a = (args || {}) as Record<string, unknown>;
     if (!a.tabId && a.id) a.tabId = a.id;
-    const callerTabId = typeof a.tabId === 'string' ? a.tabId : undefined;
     if (toolName === 'anti.devtools.console.errors') a.level = 3;
     if (toolName === 'anti.devtools.console.warnings') a.level = 2;
 
@@ -451,141 +478,80 @@ export class AntiFanMcpServer {
         content: [{ type: 'text', text: JSON.stringify({ code: 'MCP_CONTEXT_REQUIRED', message: 'Authoritative transport is required for MCP tool execution' }) }],
       };
     }
-
-    if (!a.attachmentClaims || typeof a.attachmentClaims !== 'object') {
+    if (
+      a.attachmentClaims !== undefined ||
+      a.attachmentId !== undefined ||
+      a.attachmentSecret !== undefined ||
+      a.authorityRevision !== undefined ||
+      a.secret !== undefined ||
+      a.revision !== undefined ||
+      a.runtimeLease !== undefined ||
+      a.leaseToken !== undefined
+    ) {
       return {
         isError: true,
-        content: [{ type: 'text', text: JSON.stringify({ code: 'ATTACHMENT_REQUIRED', message: 'Authoritative attachment claims are required for MCP capability execution' }) }],
+        content: [{ type: 'text', text: JSON.stringify({ code: 'INVALID_ARGUMENT', message: 'Authority credentials and attachment claims must not be passed in tool arguments' }) }],
       };
     }
 
-    if (!this.attachmentRegistry) {
+    const session = this.boundSession;
+    if (!session || !session.attachmentId || !session.attachmentSecret || !session.authorityRevision) {
       return {
         isError: true,
-        content: [{ type: 'text', text: JSON.stringify({ code: 'ATTACHMENT_INVALID', message: 'Attachment registry is not configured' }) }],
+        content: [{ type: 'text', text: JSON.stringify({ code: 'ATTACHMENT_REQUIRED', message: 'No authoritative attachment bound to MCP session' }) }],
       };
-    }
-
-    let authContext: AuthenticatedCapabilityContext;
-    try {
-      authContext = this.attachmentRegistry.validateAttachment(a.attachmentClaims);
-    } catch (err: unknown) {
-      const code = err instanceof CapabilityError ? err.code : 'ATTACHMENT_INVALID';
-      const message = err instanceof Error ? err.message : String(err);
-      return {
-        isError: true,
-        content: [{ type: 'text', text: JSON.stringify({ code, message }) }],
-      };
-    }
-
-    const cleanCallerTab = callerTabId && callerTabId.trim().length > 0 ? callerTabId.trim() : undefined;
-    const isTargetAgnostic =
-      name === 'browser.set-automation-target' || name === 'antifan_set_automation_target' ||
-      name === 'browser.open-tab' || name === 'antifan_open_tab' || name === 'anti.browser.tabs.create' ||
-      name === 'browser.list-tabs' || name === 'antifan_list_tabs' || name === 'anti.browser.tabs.list' ||
-      name === 'browser.switch-tab' || name === 'antifan_switch_tab' || name === 'anti.browser.tabs.activate' ||
-      name === 'browser.close-tab' || name === 'antifan_close_tab' || name === 'anti.browser.tabs.close';
-
-    const tabList = this.tabHost?.getTabList ? this.tabHost.getTabList() : [];
-    const isTabAlive = (id?: string) => Boolean(id && Array.isArray(tabList) && tabList.some((t: unknown) => Boolean(t && typeof t === 'object' && 'id' in t && t.id === id)));
-
-    if (cleanCallerTab && authContext.browserTarget?.tabId && cleanCallerTab !== authContext.browserTarget.tabId.trim() && !isTargetAgnostic) {
-      if (isTabAlive(cleanCallerTab)) {
-        const liveDocGen = this.tabHost?.getDocumentGeneration ? this.tabHost.getDocumentGeneration(cleanCallerTab) : undefined;
-        if (authContext.attachmentId && this.attachmentRegistry) {
-          this.attachmentRegistry.updateAttachmentTab(authContext.attachmentId, cleanCallerTab, liveDocGen);
-        }
-        if (this.tabHost?.setAutomationTabId) {
-          this.tabHost.setAutomationTabId(cleanCallerTab);
-        }
-        authContext.browserTarget.tabId = cleanCallerTab;
-        if (typeof liveDocGen === 'number') {
-          authContext.browserTarget.documentGeneration = liveDocGen;
-        }
-      } else {
-        return {
-          isError: true,
-          content: [{ type: 'text', text: JSON.stringify({ code: 'TARGET_MISMATCH', message: `Explicit tabId '${cleanCallerTab}' does not match authenticated target tabId '${authContext.browserTarget.tabId}' and is not a valid live tab` }) }],
-        };
-      }
-    } else if (authContext.browserTarget?.tabId) {
-      if (isTabAlive(authContext.browserTarget.tabId)) {
-        const liveDocGen = this.tabHost?.getDocumentGeneration ? this.tabHost.getDocumentGeneration(authContext.browserTarget.tabId) : undefined;
-        if (typeof liveDocGen === 'number') {
-          authContext.browserTarget.documentGeneration = liveDocGen;
-        }
-      } else if (!isTargetAgnostic) {
-        const autoTab = this.tabHost?.getAutomationTabId?.();
-        const fallbackTab = (autoTab && isTabAlive(autoTab)) ? autoTab : (this.tabHost?.getActiveTabId ? this.tabHost.getActiveTabId() : undefined);
-        if (fallbackTab && isTabAlive(fallbackTab)) {
-          const liveDocGen = this.tabHost?.getDocumentGeneration ? this.tabHost.getDocumentGeneration(fallbackTab) : undefined;
-          authContext.browserTarget.tabId = fallbackTab;
-          if (typeof liveDocGen === 'number') authContext.browserTarget.documentGeneration = liveDocGen;
-          if (authContext.attachmentId && this.attachmentRegistry) {
-            this.attachmentRegistry.updateAttachmentTab(authContext.attachmentId, fallbackTab, liveDocGen);
-          }
-        }
-      }
     }
 
     const transportArgs = { ...a };
-    if (callerTabId) transportArgs.tabId = callerTabId;
-    else delete transportArgs.tabId;
-    delete transportArgs.attachmentClaims;
-    delete transportArgs.runtimeLease;
-    delete transportArgs.leaseToken;
+    delete transportArgs.context;
     delete transportArgs.projectId;
     delete transportArgs.workspaceId;
-    delete transportArgs.context;
 
-    const result = await this.transport.dispatch(name, transportArgs, authContext);
+    const intent: ClientInvocationIntent = {
+      requestId: makeControlPlaneId('request'),
+      idempotencyKey: makeControlPlaneId('idempotency'),
+      attachmentId: session.attachmentId,
+      attachmentSecret: session.attachmentSecret,
+      authorityRevision: session.authorityRevision,
+      name,
+      params: transportArgs,
+    };
+    const result = await this.transport.dispatchIntent(intent);
     if (result.ok) {
-      if ((name === 'browser.set-automation-target' || name === 'antifan_set_automation_target' || name === 'browser.open-tab' || name === 'antifan_open_tab' || name === 'anti.browser.tabs.create') && isCreatedTabResult(result.data)) {
-        const liveDocGen = this.tabHost.getDocumentGeneration?.(result.data.tabId) ?? 1;
-        this.tabHost.setAutomationTabId?.(result.data.tabId);
-        if (authContext.attachmentId && this.attachmentRegistry) {
-          this.attachmentRegistry.updateAttachmentTab(authContext.attachmentId, result.data.tabId, liveDocGen);
-        }
-        if (authContext.browserTarget) {
-          authContext.browserTarget.tabId = result.data.tabId;
-          authContext.browserTarget.documentGeneration = liveDocGen;
-        }
-      } else if (name === 'browser.switch-tab' || name === 'antifan_switch_tab' || name === 'anti.browser.tabs.activate') {
-        const switchedTabId = typeof callerTabId === 'string' && callerTabId.trim().length > 0 ? callerTabId.trim() : (typeof a.tabId === 'string' && a.tabId.trim().length > 0 ? a.tabId.trim() : undefined);
-        if (switchedTabId && isTabAlive(switchedTabId)) {
-          const liveDocGen = this.tabHost.getDocumentGeneration?.(switchedTabId) ?? 1;
-          this.tabHost.setAutomationTabId?.(switchedTabId);
-          if (authContext.attachmentId && this.attachmentRegistry) {
-            this.attachmentRegistry.updateAttachmentTab(authContext.attachmentId, switchedTabId, liveDocGen);
-          }
-          if (authContext.browserTarget) {
-            authContext.browserTarget.tabId = switchedTabId;
-            authContext.browserTarget.documentGeneration = liveDocGen;
-          }
-        }
-      } else if ((name === 'browser.navigate' || name === 'antifan_navigate' || name === 'anti.browser.navigate' || name === 'browser.reload' || name === 'antifan_reload' || name === 'anti.browser.reload') && typeof result.data === 'object' && result.data !== null) {
-        const navData = result.data as Record<string, unknown>;
-        const navTarget = navData.target && typeof navData.target === 'object' ? navData.target as Record<string, unknown> : undefined;
-        const tabId = typeof navTarget?.tabId === 'string' ? navTarget.tabId : authContext.browserTarget?.tabId;
-        const docGen = typeof navTarget?.documentGeneration === 'number' ? navTarget.documentGeneration : (tabId ? this.tabHost.getDocumentGeneration?.(tabId) : undefined);
-        if (tabId && authContext.attachmentId && this.attachmentRegistry) {
-          this.attachmentRegistry.updateAttachmentTab(authContext.attachmentId, tabId, docGen);
-        }
-        if (authContext.browserTarget) {
-          if (tabId) authContext.browserTarget.tabId = tabId;
-          if (typeof docGen === 'number') authContext.browserTarget.documentGeneration = docGen;
-        }
+      if (result.replacementAuthorityRevision) {
+        this.boundSession = {
+          ...session,
+          authorityRevision: result.replacementAuthorityRevision,
+        };
       }
-      return { content: [{ type: 'text', text: JSON.stringify(result.data) }] };
+      const responseEnvelope = envelope(
+        result.data,
+        {},
+        result.requestId,
+        result.invocationId,
+        result.replacementAuthorityRevision
+      );
+      return { content: [{ type: 'text', text: JSON.stringify(responseEnvelope) }] };
     }
-    return { isError: true, content: [{ type: 'text', text: JSON.stringify(result.error) }] };
+    return {
+      isError: true,
+      content: [{
+        type: 'text',
+        text: JSON.stringify({
+          code: result.error?.code || 'CAPABILITY_ERROR',
+          message: result.error?.message || 'Capability execution failed',
+          details: result.error?.details,
+          requestId: result.requestId,
+          invocationId: result.invocationId,
+        }),
+      }],
+    };
   }
 
   public async start(): Promise<void> {
     const transport = new StdioServerTransport();
     await this.server.connect(transport);
   }
-
   public async stop(): Promise<void> {
     try {
       await this.server.close();
@@ -641,7 +607,7 @@ export function buildMcpToolList(staticTools: Tool[], transport?: CapabilityTran
     }
   }
   const listed = Array.from(toolMap.values());
-  const aliases = listed.filter((item) => item.name.startsWith('antifan_')).flatMap((item) => {
+  const aliases = listed.filter((item) => item.name.startsWith('antifan_') || item.name.startsWith('theme.')).flatMap((item) => {
     const generated: Tool[] = [];
     if (item.name === 'antifan_open_tab') generated.push({ ...item, name: 'anti.browser.tabs.create' });
     if (item.name === 'antifan_list_tabs') generated.push({ ...item, name: 'anti.browser.tabs.list' });

@@ -82,6 +82,7 @@ export class CodexExecutionBackend implements ExecutionBackend {
     if (input.attachmentLaunch) {
       childEnv.ANTIFAN_ATTACHMENT_SECRET = input.attachmentLaunch.secret;
       childEnv.ANTIFAN_ATTACHMENT_ID = input.attachmentLaunch.attachmentId;
+      childEnv.ANTIFAN_AUTHORITY_REVISION = input.attachmentLaunch.authorityRevision;
       childEnv.ANTIFAN_RUN_ID = input.runId;
       childEnv.ANTIFAN_ATTEMPT_ID = input.attemptId;
     }

@@ -156,6 +156,8 @@ describe('Phase 01: Secure Screenshot & Server-Side Artifact Resolver', () => {
       data: fakePng,
       runId: otherRunId,
       attemptId: otherAttemptId,
+      projectId: testProjectId,
+      workspaceId: testWorkspaceId,
     });
 
     const res = await httpRequest({
@@ -177,6 +179,8 @@ describe('Phase 01: Secure Screenshot & Server-Side Artifact Resolver', () => {
       data: bigData,
       runId: testRunId,
       attemptId: testAttemptId,
+      projectId: testProjectId,
+      workspaceId: testWorkspaceId,
       maxBytes: 100,
     });
     assert.strictEqual(truncatedRef.truncated, true);
@@ -200,6 +204,8 @@ describe('Phase 01: Secure Screenshot & Server-Side Artifact Resolver', () => {
       data: validPngBytes,
       runId: testRunId,
       attemptId: testAttemptId,
+      projectId: testProjectId,
+      workspaceId: testWorkspaceId,
     });
     assert.strictEqual(validRef.truncated, false);
 

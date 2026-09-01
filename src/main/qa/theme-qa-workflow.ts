@@ -616,6 +616,8 @@ export class ThemeQaWorkflow {
         data: reportData,
         runId: input.runId,
         attemptId: input.attemptId,
+        projectId: activeTarget.projectId,
+        workspaceId: activeTarget.workspaceId,
         maxBytes: 128 * 1024,
       })
     );

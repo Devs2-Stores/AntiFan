@@ -59,12 +59,13 @@ describe('BridgeServer Attachment Authentication & Scoped Dispatch', () => {
       name: 'browser.test-echo',
       description: 'Test echo capability',
       risk: 'read',
+      policy: { effect: 'read', risk: 'read', requiresBrowserTarget: false, schedulerLane: 'unbounded', duplicateMode: 'in-process-join', recordedVisibility: 'tenant-scoped', receiptReadPermission: 'read', timeoutMs: 15000, retentionPolicy: 'run-durable', cancellationBehavior: 'abort-immediate', policyVersion: 1 },
       inputSchema: { type: 'object' },
-      execute: (params: any) => ({ echoed: params.text }),
+      execute: (params: unknown) => ({ echoed: (params as { text?: unknown })?.text }),
     });
 
-    const transport = new CapabilityTransportAdapter(catalogue);
     const registry = new AttachmentRegistry();
+    const transport = new CapabilityTransportAdapter(catalogue, registry);
 
     const server = new BridgeServer(mockHost, 0, false, transport, undefined, registry);
     const port = await server.start();
@@ -104,37 +105,27 @@ describe('BridgeServer Attachment Authentication & Scoped Dispatch', () => {
     assert.ok(legacyResp.error?.includes('Forbidden'), 'Must reject legacy RPC for attachment-authenticated connections');
 
     // 3. Attachment-authenticated socket can invoke antifan.capability.dispatch
-    const invocationId1 = 'inv-11111111111111111111';
     const capResp1 = await sendRpc('2', 'antifan.capability.dispatch', {
       name: 'browser.test-echo',
       params: { text: 'hello world' },
-      attachmentClaims: {
-        attachmentId: launch.attachmentId,
-        attachmentSecret: launch.secret,
-        runId,
-        attemptId,
-        projectId,
-        workspaceId,
-        invocationId: invocationId1,
-      },
+      attachmentId: launch.attachmentId,
+      attachmentSecret: launch.secret,
+      authorityRevision: launch.authorityRevision,
+      idempotencyKey: 'idem-11111111111111111111',
     });
 
     assert.strictEqual(capResp1.success, true);
-    assert.deepStrictEqual(capResp1.data, { echoed: 'hello world' });
+    const capData1 = (capResp1.data as any)?.data ?? capResp1.data;
+    assert.deepStrictEqual(capData1, { echoed: 'hello world' });
 
-    // 4. Replay of same invocationId is rejected
+    // 4. Replay of same idempotencyKey is rejected
     const replayResp = await sendRpc('3', 'antifan.capability.dispatch', {
       name: 'browser.test-echo',
       params: { text: 'hello world' },
-      attachmentClaims: {
-        attachmentId: launch.attachmentId,
-        attachmentSecret: launch.secret,
-        runId,
-        attemptId,
-        projectId,
-        workspaceId,
-        invocationId: invocationId1,
-      },
+      attachmentId: launch.attachmentId,
+      attachmentSecret: launch.secret,
+      authorityRevision: launch.authorityRevision,
+      idempotencyKey: 'idem-11111111111111111111',
     });
     assert.strictEqual(replayResp.success, false);
     assert.ok(replayResp.error?.includes('REPLAY_DENIED') || replayResp.error?.includes('Duplicate invocation'));
@@ -150,15 +141,10 @@ describe('BridgeServer Attachment Authentication & Scoped Dispatch', () => {
     const crossResp = await sendRpc('4', 'antifan.capability.dispatch', {
       name: 'browser.test-echo',
       params: { text: 'cross attachment attack' },
-      attachmentClaims: {
-        attachmentId: launch2.attachmentId,
-        attachmentSecret: launch2.secret,
-        runId: runId2,
-        attemptId: attemptId2,
-        projectId,
-        workspaceId,
-        invocationId: 'inv-cross-11111111111',
-      },
+      attachmentId: launch2.attachmentId,
+      attachmentSecret: launch2.secret,
+      authorityRevision: launch2.authorityRevision,
+      idempotencyKey: 'idem-cross-11111111111',
     });
     assert.strictEqual(crossResp.success, false);
     assert.ok(crossResp.error?.includes('ATTACHMENT_INVALID') || crossResp.error?.includes('Cross-attachment'));
@@ -170,15 +156,10 @@ describe('BridgeServer Attachment Authentication & Scoped Dispatch', () => {
     const revokedResp = await sendRpc('5', 'antifan.capability.dispatch', {
       name: 'browser.test-echo',
       params: { text: 'after revocation' },
-      attachmentClaims: {
-        attachmentId: launch.attachmentId,
-        attachmentSecret: launch.secret,
-        runId,
-        attemptId,
-        projectId,
-        workspaceId,
-        invocationId: invocationId2,
-      },
+      attachmentId: launch.attachmentId,
+      attachmentSecret: launch.secret,
+      authorityRevision: launch.authorityRevision,
+      idempotencyKey: 'idem-22222222222222222222',
     });
     assert.strictEqual(revokedResp.success, false);
     assert.ok(revokedResp.error?.includes('ATTACHMENT_STALE') || revokedResp.error?.includes('revoked'));
@@ -216,20 +197,16 @@ describe('BridgeServer Attachment Authentication & Scoped Dispatch', () => {
         params: {
           name: 'browser.test-echo',
           params: { text: 'bearer header authenticated' },
-          attachmentClaims: {
-            attachmentId: launch3.attachmentId,
-            attachmentSecret: launch3.secret,
-            runId: runId3,
-            attemptId: attemptId3,
-            projectId,
-            workspaceId,
-            invocationId: 'inv-bearer-1111111111',
-          },
+          attachmentId: launch3.attachmentId,
+          attachmentSecret: launch3.secret,
+          authorityRevision: launch3.authorityRevision,
+          idempotencyKey: 'idem-bearer-1111111111',
         },
       }));
     });
     assert.strictEqual(bearerResp.success, true);
-    assert.deepStrictEqual(bearerResp.data, { echoed: 'bearer header authenticated' });
+    const bearerData = (bearerResp.data as any)?.data ?? bearerResp.data;
+    assert.deepStrictEqual(bearerData, { echoed: 'bearer header authenticated' });
     wsBearer.close();
 
     // 8. Verify X-Antifan-Attachment-Secret header authentication
@@ -263,20 +240,16 @@ describe('BridgeServer Attachment Authentication & Scoped Dispatch', () => {
         params: {
           name: 'browser.test-echo',
           params: { text: 'custom header authenticated' },
-          attachmentClaims: {
-            attachmentId: launch4.attachmentId,
-            attachmentSecret: launch4.secret,
-            runId: runId4,
-            attemptId: attemptId4,
-            projectId,
-            workspaceId,
-            invocationId: 'inv-custom-1111111111',
-          },
+          attachmentId: launch4.attachmentId,
+          attachmentSecret: launch4.secret,
+          authorityRevision: launch4.authorityRevision,
+          idempotencyKey: 'idem-custom-1111111111',
         },
       }));
     });
     assert.strictEqual(customResp.success, true);
-    assert.deepStrictEqual(customResp.data, { echoed: 'custom header authenticated' });
+    const customData = (customResp.data as any)?.data ?? customResp.data;
+    assert.deepStrictEqual(customData, { echoed: 'custom header authenticated' });
     wsCustomHeader.close();
 
     // 9. Verify getRemoteConnectionInfo is redacted and contains no raw token
@@ -592,8 +565,11 @@ describe('BridgeServer Attachment Authentication & Scoped Dispatch', () => {
 
     const browserPort = new BrowserControlPort(mockHost as unknown as BrowserHostPort);
     registerBrowserCapabilities(catalogue, browserPort);
-    const transport = new CapabilityTransportAdapter(catalogue);
-    const registry = new AttachmentRegistry();
+    const registry = new AttachmentRegistry({
+      getHostEpoch: () => hostEpoch,
+      getAutomationTabId: () => mockHost.getActiveTabId(),
+    });
+    const transport = new CapabilityTransportAdapter(catalogue, registry);
 
     const server = new BridgeServer(mockHost, 0, false, transport, undefined, registry);
     const port = await server.start();
@@ -632,20 +608,15 @@ describe('BridgeServer Attachment Authentication & Scoped Dispatch', () => {
       const domResp = await sendRpc('req-dom-1', 'antifan.capability.dispatch', {
         name: 'browser.dom',
         params: {},
-        attachmentClaims: {
-          attachmentSecret: launch.secret,
-          attachmentId: launch.attachmentId,
-          runId,
-          attemptId,
-          projectId,
-          workspaceId,
-          invocationId: 'inv-dom-test-1',
-          grant: 'read',
-        },
+        attachmentId: launch.attachmentId,
+        attachmentSecret: launch.secret,
+        authorityRevision: launch.authorityRevision,
+        idempotencyKey: 'idem-dom-test-1',
       });
 
       assert.strictEqual(domResp.success, true, `browser.dom dispatch failed: ${domResp.error}`);
-      assert.ok(typeof domResp.data === 'string' && domResp.data.includes('AntiFan DOM'));
+      const domData = (domResp.data as any)?.data ?? domResp.data;
+      assert.ok(typeof domData === 'string' && domData.includes('AntiFan DOM'));
     } finally {
       ws.close();
       server.dispose();
@@ -712,12 +683,11 @@ describe('BridgeServer Attachment Authentication & Scoped Dispatch', () => {
 
     const controlPort = new BrowserControlPort(dynamicMockHost as any);
     registerBrowserCapabilities(catalogue, controlPort);
-    const transport = new CapabilityTransportAdapter(catalogue);
     const registry = new AttachmentRegistry({
       getHostEpoch: () => hostEpoch,
-      getDocumentGeneration: (tId) => (dynamicMockHost as any).getDocumentGeneration(tId),
-      getAutomationTabId: () => (dynamicMockHost as any).getAutomationTabId(),
+      getDocumentGeneration: (tId) => (dynamicMockHost as unknown as { getDocumentGeneration: (t?: string) => number }).getDocumentGeneration(tId),
     });
+    const transport = new CapabilityTransportAdapter(catalogue, registry);
 
     const server = new BridgeServer(
       dynamicMockHost,
@@ -759,79 +729,67 @@ describe('BridgeServer Attachment Authentication & Scoped Dispatch', () => {
         });
       };
 
+      let currentRevision = launch.authorityRevision;
+
       // 1. Open tab via MCP alias (automatically rebinds automation attachment to newly created tab in Phase 02)
       const openResp = await sendRpc('req-open-1', 'antifan.capability.dispatch', {
         name: 'antifan_open_tab',
         params: { url: 'https://example.com/new' },
-        attachmentClaims: {
-          attachmentSecret: launch.secret,
-          attachmentId: launch.attachmentId,
-          runId,
-          attemptId,
-          projectId,
-          workspaceId,
-          invocationId: 'inv-open-1',
-          grant: 'write',
-        },
+        attachmentId: launch.attachmentId,
+        attachmentSecret: launch.secret,
+        authorityRevision: currentRevision,
+        idempotencyKey: 'idem-open-1',
       });
       assert.strictEqual(openResp.success, true);
-      const openData = openResp.data;
+      if ((openResp.data as any)?.authorityRevision) {
+        currentRevision = (openResp.data as any).authorityRevision;
+      }
+      const openData = (openResp.data as any)?.data ?? openResp.data;
       assert.ok(openData && typeof openData === 'object' && 'tabId' in openData);
       assert.strictEqual(openData.tabId, 'tab-created-456');
       // Phase 02 Invariant: openTab automatically rebinds attachment tab to created tab
       assert.strictEqual(registry.getRecord(launch.attachmentId)?.tabId, 'tab-created-456');
+
       // 1b. Explicitly retarget via antifan_set_automation_target
       const retargetResp = await sendRpc('req-retarget-1', 'antifan.capability.dispatch', {
         name: 'antifan_set_automation_target',
         params: { tabId: 'tab-created-456' },
-        attachmentClaims: {
-          attachmentSecret: launch.secret,
-          attachmentId: launch.attachmentId,
-          runId,
-          attemptId,
-          projectId,
-          workspaceId,
-          invocationId: 'inv-retarget-1',
-          grant: 'write',
-        },
+        attachmentId: launch.attachmentId,
+        attachmentSecret: launch.secret,
+        authorityRevision: currentRevision,
+        idempotencyKey: 'idem-retarget-1',
       });
       assert.strictEqual(retargetResp.success, true);
+      if ((retargetResp.data as any)?.authorityRevision) {
+        currentRevision = (retargetResp.data as any).authorityRevision;
+      }
       assert.strictEqual(registry.getRecord(launch.attachmentId)?.tabId, 'tab-created-456');
 
       // 1c. Invariant: setAutomationTarget fails closed on unknown tab ID
       const failResp = await sendRpc('req-retarget-fail', 'antifan.capability.dispatch', {
         name: 'antifan_set_automation_target',
         params: { tabId: 'tab-non-existent-999' },
-        attachmentClaims: {
-          attachmentSecret: launch.secret,
-          attachmentId: launch.attachmentId,
-          runId,
-          attemptId,
-          projectId,
-          workspaceId,
-          invocationId: 'inv-retarget-fail',
-          grant: 'write',
-        },
+        attachmentId: launch.attachmentId,
+        attachmentSecret: launch.secret,
+        authorityRevision: currentRevision,
+        idempotencyKey: 'idem-retarget-fail',
       });
       assert.strictEqual(failResp.success, false);
-      assert.ok(failResp.error && failResp.error.includes('not found'));
+      assert.ok(failResp.error && (failResp.error.includes('not found') || failResp.error.includes('TARGET_MISMATCH')));
 
       // 2. Navigate via MCP alias
       const navResp = await sendRpc('req-nav-1', 'antifan.capability.dispatch', {
         name: 'antifan_navigate',
         params: { url: 'https://example.com/navigated' },
-        attachmentClaims: {
-          attachmentSecret: launch.secret,
-          attachmentId: launch.attachmentId,
-          runId,
-          attemptId,
-          projectId,
-          workspaceId,
-          invocationId: 'inv-nav-1',
-          grant: 'write',
-        },
+        attachmentId: launch.attachmentId,
+        attachmentSecret: launch.secret,
+        authorityRevision: currentRevision,
+        idempotencyKey: 'idem-nav-1',
       });
       assert.strictEqual(navResp.success, true);
+      if ((navResp.data as any)?.authorityRevision) {
+        currentRevision = (navResp.data as any).authorityRevision;
+      }
       assert.strictEqual(currentGen, 2);
       assert.strictEqual(registry.getRecord(launch.attachmentId)?.documentGeneration, 2);
 
@@ -839,19 +797,14 @@ describe('BridgeServer Attachment Authentication & Scoped Dispatch', () => {
       const domResp = await sendRpc('req-dom-post-nav', 'antifan.capability.dispatch', {
         name: 'antifan_get_dom',
         params: {},
-        attachmentClaims: {
-          attachmentSecret: launch.secret,
-          attachmentId: launch.attachmentId,
-          runId,
-          attemptId,
-          projectId,
-          workspaceId,
-          invocationId: 'inv-dom-2',
-          grant: 'write',
-        },
+        attachmentId: launch.attachmentId,
+        attachmentSecret: launch.secret,
+        authorityRevision: currentRevision,
+        idempotencyKey: 'idem-dom-2',
       });
       assert.strictEqual(domResp.success, true);
-      assert.ok(typeof domResp.data === 'string' && domResp.data.includes('gen 2'));
+      const domData = (domResp.data as any)?.data ?? domResp.data;
+      assert.ok(typeof domData === 'string' && domData.includes('gen 2'));
     } finally {
       ws.close();
       server.dispose();
@@ -873,6 +826,7 @@ describe('BridgeServer Attachment Authentication & Scoped Dispatch', () => {
       createTab(url?: string) {
         const newId = `tab-created-${Date.now()}`;
         liveTabs.set(newId, { id: newId, url: url || 'about:blank', title: 'New Tab' });
+        currentAutomationTab = newId;
         return newId;
       }
       navigate(tabId: string) {
@@ -919,12 +873,12 @@ describe('BridgeServer Attachment Authentication & Scoped Dispatch', () => {
     const browserPort = new BrowserControlPort(host as unknown as BrowserHostPort);
     registerBrowserCapabilities(catalogue, browserPort);
 
-    const transport = new CapabilityTransportAdapter(catalogue);
     const registry = new AttachmentRegistry({
       getHostEpoch: () => 1,
       getDocumentGeneration: () => tabGen,
       getAutomationTabId: () => currentAutomationTab,
     });
+    const transport = new CapabilityTransportAdapter(catalogue, registry);
 
     const server = new BridgeServer(host, 0, false, transport, undefined, registry);
     const port = await server.start();
@@ -971,23 +925,22 @@ describe('BridgeServer Attachment Authentication & Scoped Dispatch', () => {
       liveTabs.delete('tab-original');
       currentAutomationTab = null;
 
+      let currentRevision = launch.authorityRevision;
+
       // 1. Agent creates a new tab because previous tab was closed
       const openResp = await sendRpc('req-open-dead-recover', 'antifan.capability.dispatch', {
         name: 'anti.browser.tabs.create',
         params: { url: 'https://example.com/recovered' },
-        attachmentClaims: {
-          attachmentSecret: launch.secret,
-          attachmentId: launch.attachmentId,
-          runId,
-          attemptId,
-          projectId,
-          workspaceId,
-          invocationId: 'inv-open-recover',
-          grant: 'write',
-        },
+        attachmentId: launch.attachmentId,
+        attachmentSecret: launch.secret,
+        authorityRevision: currentRevision,
+        idempotencyKey: 'idem-open-recover',
       });
       assert.strictEqual(openResp.success, true);
-      const openData = openResp.data as { tabId: string };
+      if ((openResp.data as any)?.authorityRevision) {
+        currentRevision = (openResp.data as any).authorityRevision;
+      }
+      const openData = (openResp.data as any)?.data ?? openResp.data;
       assert.ok(openData.tabId.startsWith('tab-created-'));
       const newTabId = openData.tabId;
 
@@ -999,19 +952,14 @@ describe('BridgeServer Attachment Authentication & Scoped Dispatch', () => {
       const domResp = await sendRpc('req-dom-recovered', 'antifan.capability.dispatch', {
         name: 'browser.dom',
         params: { tabId: newTabId },
-        attachmentClaims: {
-          attachmentSecret: launch.secret,
-          attachmentId: launch.attachmentId,
-          runId,
-          attemptId,
-          projectId,
-          workspaceId,
-          invocationId: 'inv-dom-recover',
-          grant: 'write',
-        },
+        attachmentId: launch.attachmentId,
+        attachmentSecret: launch.secret,
+        authorityRevision: currentRevision,
+        idempotencyKey: 'idem-dom-recover',
       });
       assert.strictEqual(domResp.success, true);
-      assert.ok(typeof domResp.data === 'string' && domResp.data.includes(newTabId));
+      const domData = (domResp.data as any)?.data ?? domResp.data;
+      assert.ok(typeof domData === 'string' && domData.includes(newTabId));
     } finally {
       ws.close();
       server.dispose();

@@ -1,5 +1,7 @@
 import {
   CapabilityDefinition,
+  RegisteredCapability,
+  CapabilityEffectPolicy,
   CapabilityError,
   CapabilityRequestContext,
   AuthenticatedCapabilityContext,
@@ -8,6 +10,7 @@ import {
   assertRuntimeLease,
   RuntimeLease,
   WorkspaceRecord,
+  computePolicyDigest,
 } from '../../shared/control-plane-contracts';
 import { WorkspaceRegistry } from '../project/workspace-registry';
 
@@ -23,7 +26,7 @@ export interface CapabilityCatalogueOptions {
 }
 
 export class CapabilityCatalogue {
-  private readonly definitions = new Map<string, CapabilityDefinition>();
+  private readonly definitions = new Map<string, RegisteredCapability>();
   private runtime: RuntimeFeatureSwitch;
 
   constructor(private readonly options: CapabilityCatalogueOptions) {
@@ -32,10 +35,51 @@ export class CapabilityCatalogue {
 
   register<TParams, TResult>(definition: CapabilityDefinition<TParams, TResult>): void {
     if (this.definitions.has(definition.name)) throw new Error(`Capability already registered: ${definition.name}`);
-    this.definitions.set(definition.name, definition as CapabilityDefinition);
+    if (!definition.policy) throw new Error(`Capability ${definition.name} missing required CapabilityEffectPolicy`);
+
+    const p = definition.policy;
+    if (definition.risk !== p.risk) {
+      throw new Error(`Capability ${definition.name} definition risk '${definition.risk}' does not match policy risk '${p.risk}'`);
+    }
+    if (Boolean(definition.requiresBrowserTarget) !== Boolean(p.requiresBrowserTarget)) {
+      throw new Error(`Capability ${definition.name} definition requiresBrowserTarget '${Boolean(definition.requiresBrowserTarget)}' does not match policy '${Boolean(p.requiresBrowserTarget)}'`);
+    }
+    if (!p.timeoutMs || p.timeoutMs <= 0) {
+      throw new Error(`Capability ${definition.name} policy timeoutMs must be positive`);
+    }
+    if (!p.policyVersion || p.policyVersion <= 0) {
+      throw new Error(`Capability ${definition.name} policy policyVersion must be positive`);
+    }
+    if (p.effect === 'read' && (p.risk === 'write' || p.risk === 'execute' || p.risk === 'eval')) {
+      throw new Error(`Capability ${definition.name} has read effect but write/execute/eval risk`);
+    }
+    if (p.effect === 'destructive-mutation' && (p.duplicateMode !== 'reject-concurrent' || p.cancellationBehavior === 'ignore-disconnect')) {
+      throw new Error(`Capability ${definition.name} has destructive-mutation effect and must use reject-concurrent and abortable cancellation`);
+    }
+    if (p.schedulerLane === 'short-passive' && p.effect !== 'read') {
+      throw new Error(`Capability ${definition.name} uses short-passive lane but has non-read effect`);
+    }
+    if (p.schedulerLane === 'viewport-gate' && !p.requiresBrowserTarget) {
+      throw new Error(`Capability ${definition.name} uses viewport-gate lane but requiresBrowserTarget is false`);
+    }
+
+    const digest = computePolicyDigest(p);
+    const frozenPolicy: CapabilityEffectPolicy = Object.freeze({
+      ...p,
+      policyDigest: digest,
+    });
+
+    this.definitions.set(definition.name, {
+      ...definition,
+      policy: frozenPolicy,
+    } as RegisteredCapability);
   }
 
-  get(name: string): CapabilityDefinition | undefined { return this.definitions.get(name); }
+  getPolicy(name: string): CapabilityEffectPolicy | undefined {
+    return this.definitions.get(name)?.policy;
+  }
+
+  get(name: string): RegisteredCapability | undefined { return this.definitions.get(name); }
 
   list(context?: Pick<CapabilityRequestContext, 'grant'>): Array<{ name: string; description: string; risk: string; inputSchema: Record<string, unknown> }> {
     return Array.from(this.definitions.values()).filter((definition) => this.isVisible(definition, context?.grant)).map((definition) => ({ name: definition.name, description: definition.description, risk: definition.risk, inputSchema: definition.inputSchema }));
@@ -93,6 +137,12 @@ export class CapabilityCatalogue {
         workspaceId: authoritativeWs.id,
         runtimeId: this.options.runtimeId
       }, true);
+      if (params && typeof params === 'object' && typeof (params as Record<string, unknown>).tabId === 'string') {
+        const reqTabId = ((params as Record<string, unknown>).tabId as string).trim();
+        if (reqTabId && context.browserTarget?.tabId && reqTabId !== context.browserTarget.tabId) {
+          throw new CapabilityError('TARGET_MISMATCH', `Tab ID mismatch: expected ${context.browserTarget.tabId}, got ${reqTabId}`);
+        }
+      }
     }
 
     return definition.execute(params, context);

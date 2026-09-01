@@ -3,6 +3,17 @@
 Tất cả các thay đổi, tính năng mới và bản vá lỗi quan trọng của AntiFan Browser Desktop.
 
 ---
+## [v1.3.5] - 2026-09-01 (Core Runtime Hardening, Lineage Safety & Dual-Tier MCP Parity)
+
+### Core Runtime & Lineage Security
+- Bổ sung canonical control-plane ID validation (`validateControlPlaneId`) và containment validation (`assertWorkspaceContained`, `assertNoReparseTraversal`) trong `WorkspaceFilePort.stageAttachment`, ngăn chặn triệt để path traversal qua `runId` và symlink/junction reparse points.
+- Kiểm tra `assertNoReparseTraversal` trước khi `mkdirSync` đệ quy thư mục run, ngăn chặn side-effect tạo thư mục ngoài workspace khi `.antifan` hoặc `.antifan/artifacts` là symlink trỏ ra ngoài.
+- Hỗ trợ idempotent duplicate staging: phát hiện file trùng qua `flag: 'wx'`, kiểm tra `isFile()` và so khớp hash `sha256` nguyên vẹn; ném `INVALID_ARGUMENT` khi phát hiện file bị sửa đổi / sai lệch hash.
+
+### MCP & Capability Tool Parity
+- Khớp nối và chuẩn hóa danh mục tool alias: expose đầy đủ `anti.theme.assert_cart` qua `mcpServer.listTools()` và duy trì contract đồng nhất cho `anti.agent.cursor.move`.
+- Khắc phục triệt để các trường hợp edge case trong bootstrap parsing và heartbeat renewal.
+
 ## [v1.3.3] - 2026-08-31 (Runtime Performance, Token Guarding & Modular TabHost)
 
 ### Runtime Performance & Terminal Buffer Optimization

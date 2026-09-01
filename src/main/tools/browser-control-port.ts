@@ -36,7 +36,7 @@ export interface BrowserHostPort {
 }
 
 export interface BrowserArtifactSink {
-  stage(input: { kind: ArtifactRef['kind']; mime: string; data: string | Buffer; runId: string; attemptId: string; maxBytes?: number }): Promise<ArtifactRef> | ArtifactRef;
+  stage(input: { kind: ArtifactRef['kind']; mime: string; data: string | Buffer; runId: string; attemptId: string; projectId: string; workspaceId: string; maxBytes?: number }): Promise<ArtifactRef> | ArtifactRef;
 }
 
 export interface ViewportLockOptions {
@@ -353,7 +353,7 @@ export class BrowserControlPort {
     const tabId = this.resolveTargetTab(target, explicitTabId);
     return this.passivePool.execute(tabId, async () => {
       const html = await this.host.getDom(selector, tabId, paneId);
-      return this.artifacts ? this.artifacts.stage({ kind: 'dom', mime: 'text/html', data: html, runId, attemptId, maxBytes: 512 * 1024 }) : limit(html, 512 * 1024);
+      return this.artifacts ? this.artifacts.stage({ kind: 'dom', mime: 'text/html', data: html, runId, attemptId, projectId: target.projectId, workspaceId: target.workspaceId, maxBytes: 512 * 1024 }) : limit(html, 512 * 1024);
     });
   }
 
@@ -362,7 +362,7 @@ export class BrowserControlPort {
     return this.passivePool.execute(tabId, async () => {
       const base64 = await this.host.captureScreenshot(undefined, tabId, paneId);
       const buffer = Buffer.from(base64, 'base64');
-      return this.artifacts ? this.artifacts.stage({ kind: 'screenshot', mime: 'image/png', data: buffer, runId, attemptId, maxBytes: 8 * 1024 * 1024 }) : limit(base64, 8 * 1024 * 1024);
+      return this.artifacts ? this.artifacts.stage({ kind: 'screenshot', mime: 'image/png', data: buffer, runId, attemptId, projectId: target.projectId, workspaceId: target.workspaceId, maxBytes: 8 * 1024 * 1024 }) : limit(base64, 8 * 1024 * 1024);
     });
   }
 

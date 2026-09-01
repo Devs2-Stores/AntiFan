@@ -1,7 +1,7 @@
 ---
 title: "CapsuleScope Dynamic Workspace & Two-Tier Concurrency Engine (CDW-2T)"
 slug: "260831-1500-multi-project-two-tier-concurrency"
-status: "in-progress"
+status: "superseded"
 created: "2026-08-31T15:00:00.000Z"
 priority: "P1"
 totalPhases: 5

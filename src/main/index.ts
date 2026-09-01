@@ -249,7 +249,7 @@ async function createWindow(): Promise<void> {
   });
   tabHost.setViewportGate(browserPort.viewportGate);
   controlPlane.registerBrowser(browserPort);
-  const capabilityTransport = new CapabilityTransportAdapter(controlPlane.capabilities);
+  const capabilityTransport = new CapabilityTransportAdapter(controlPlane.capabilities, controlPlane.runs.attachments);
 
   // Set Top Menubar (File, Edit, Selection, View, Go, Run, Terminal, Help)
   Menu.setApplicationMenu(buildApplicationMenu(mainWindow, tabHost));
@@ -318,7 +318,7 @@ async function createWindow(): Promise<void> {
   }
   if (IS_MCP_SERVER) {
     console.log('[antifan] Starting stdio MCP server...');
-    mcpServer = new AntiFanMcpServer(tabHost, IS_MCP_HIGH_RISK, capabilityTransport, controlPlane.runs.attachments);
+    mcpServer = new AntiFanMcpServer(tabHost, IS_MCP_HIGH_RISK, capabilityTransport);
     await mcpServer.start();
   }
 

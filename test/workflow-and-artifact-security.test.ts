@@ -31,6 +31,8 @@ describe('Workflow & Artifact Security and Hub Registry', () => {
         data: Buffer.from('fake-png-bytes-12345'),
         runId: 'run-001',
         attemptId: 'att-001',
+        projectId: 'project-test',
+        workspaceId: 'workspace-test',
       });
 
       assert.ok(ref.id.startsWith('artifact-'));
@@ -66,11 +68,11 @@ describe('Workflow & Artifact Security and Hub Registry', () => {
     it('rejects path traversal in runId or attemptId during stage()', () => {
       const store = new ArtifactStore({ root: artifactsRoot });
       assert.throws(
-        () => store.stage({ kind: 'dom', mime: 'text/html', data: 'hello', runId: '../../evil', attemptId: 'att-1' }),
+        () => store.stage({ kind: 'dom', mime: 'text/html', data: 'hello', runId: '../../evil', attemptId: 'att-1', projectId: 'project-test', workspaceId: 'workspace-test' }),
         (err: any) => err.code === 'INVALID_ARGUMENT' && err.message.includes('Invalid runId')
       );
       assert.throws(
-        () => store.stage({ kind: 'dom', mime: 'text/html', data: 'hello', runId: 'run-1', attemptId: '..\\..\\evil' }),
+        () => store.stage({ kind: 'dom', mime: 'text/html', data: 'hello', runId: 'run-1', attemptId: '..\\..\\evil', projectId: 'project-test', workspaceId: 'workspace-test' }),
         (err: any) => err.code === 'INVALID_ARGUMENT' && err.message.includes('Invalid attemptId')
       );
     });
@@ -85,6 +87,8 @@ describe('Workflow & Artifact Security and Hub Registry', () => {
         id: 'artifact-evil-traversal',
         runId: 'run-evil',
         attemptId: 'att-evil',
+        projectId: 'project-test',
+        workspaceId: 'workspace-test',
         kind: 'log',
         path: outsideFile,
         byteLength: 11,
@@ -121,6 +125,8 @@ describe('Workflow & Artifact Security and Hub Registry', () => {
         id: 'artifact-link-escape',
         runId: 'run-link',
         attemptId: 'att-link',
+        projectId: 'project-test',
+        workspaceId: 'workspace-test',
         kind: 'log',
         path: linkedFile,
         byteLength: 22,
@@ -158,6 +164,8 @@ describe('Workflow & Artifact Security and Hub Registry', () => {
         data: tokenLikeBinary,
         runId: 'run-bin',
         attemptId: 'att-bin',
+        projectId: 'project-test',
+        workspaceId: 'workspace-test',
       });
 
       assert.strictEqual(ref.redacted, false, 'binary path must not claim redaction');
@@ -177,6 +185,8 @@ describe('Workflow & Artifact Security and Hub Registry', () => {
         data: text,
         runId: 'run-txt',
         attemptId: 'att-txt',
+        projectId: 'project-test',
+        workspaceId: 'workspace-test',
       });
 
       assert.strictEqual(ref.redacted, true);
@@ -194,6 +204,8 @@ describe('Workflow & Artifact Security and Hub Registry', () => {
         data: text,
         runId: 'run-safe',
         attemptId: 'att-safe',
+        projectId: 'project-test',
+        workspaceId: 'workspace-test',
       });
 
       assert.strictEqual(ref.redacted, false);
@@ -209,6 +221,8 @@ describe('Workflow & Artifact Security and Hub Registry', () => {
         data: svg,
         runId: 'run-svg',
         attemptId: 'att-svg',
+        projectId: 'project-test',
+        workspaceId: 'workspace-test',
       });
       assert.strictEqual(ref.redacted, true);
       assert.ok(store.readTextById(ref.id).text.includes('token=[REDACTED]'));
@@ -218,7 +232,7 @@ describe('Workflow & Artifact Security and Hub Registry', () => {
       const store = new ArtifactStore({ root: artifactsRoot });
       const json = '{"password": "hunter2secretvalue123456789012345"}';
       for (const mime of ['application/json; charset=utf-8', 'application/problem+json']) {
-        const ref = store.stage({ kind: 'dom', mime, data: json, runId: 'run-mime', attemptId: 'attempt-1' });
+        const ref = store.stage({ kind: 'dom', mime, data: json, runId: 'run-mime', attemptId: 'attempt-1', projectId: 'project-test', workspaceId: 'workspace-test' });
         assert.strictEqual(ref.redacted, true, `mime ${mime} must be text-like and redacted`);
         const text = store.readTextById(ref.id).text;
         assert.ok(!text.includes('hunter2secretvalue123456789012345'), `mime ${mime} secret removed`);

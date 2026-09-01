@@ -8,6 +8,19 @@ export function registerWorkflowCapabilities(catalogue: CapabilityCatalogue, eng
     description: 'Execute an automated multi-step browser, QA, and validation workflow',
     risk: 'write',
     requiresBrowserTarget: true,
+    policy: {
+      effect: 'idempotent-write',
+      risk: 'write',
+      requiresBrowserTarget: true,
+      schedulerLane: 'viewport-gate',
+      duplicateMode: 'in-process-join',
+      recordedVisibility: 'tenant-scoped',
+      receiptReadPermission: 'write',
+      timeoutMs: 120_000,
+      retentionPolicy: 'run-durable',
+      cancellationBehavior: 'abort-immediate',
+      policyVersion: 1,
+    },
     inputSchema: {
       type: 'object',
       properties: {
@@ -16,21 +29,22 @@ export function registerWorkflowCapabilities(catalogue: CapabilityCatalogue, eng
       },
       required: ['workflow', 'workspaceRoot'],
     },
-    execute: async (params: { workflow: WorkflowDefinition; workspaceRoot: string; signal?: AbortSignal; onEvent?: WorkflowEventListener }, context) => {
+    execute: async (params: Record<string, unknown>, context) => {
       if (!context.browserTarget) {
         throw new CapabilityError('TARGET_REQUIRED', 'workflow.execute requires a bound BrowserTarget');
       }
+      const p = params as unknown as { workflow: WorkflowDefinition; workspaceRoot: string; signal?: AbortSignal; onEvent?: WorkflowEventListener };
       return engine.execute({
-        workflow: params.workflow,
+        workflow: p.workflow,
         target: context.browserTarget as BrowserTarget,
         lease: context.lease,
         leaseToken: context.leaseToken,
         runId: context.runId || 'run-workflow',
         attemptId: context.attemptId || 'attempt-1',
-        workspaceRoot: params.workspaceRoot,
+        workspaceRoot: p.workspaceRoot,
         grant: context.grant,
-        signal: params.signal,
-        onEvent: params.onEvent,
+        signal: p.signal,
+        onEvent: p.onEvent,
       });
     },
   });

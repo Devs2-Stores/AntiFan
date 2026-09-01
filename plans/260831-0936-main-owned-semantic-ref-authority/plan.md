@@ -1,7 +1,7 @@
 ---
 title: "Main-Owned Semantic Ref Authority"
 description: "Clean-cut renderer-owned @ref state into one bounded Main-process authority with zero storefront DOM mutation and fail-closed action routing."
-status: pending
+status: "superseded"
 priority: P1
 effort: "8-10d"
 tags: [refactor, browser, chromium, mcp, reliability, critical]

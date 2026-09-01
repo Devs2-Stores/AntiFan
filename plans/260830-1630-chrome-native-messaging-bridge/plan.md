@@ -5,6 +5,8 @@ status: planned
 priority: P1
 effort: "2d"
 tags: [native-messaging, chrome-extension, cookie-sync, auto-pairing, partition-isolation, security]
+blockedBy: [260901-1011-antifan-core-runtime-freeze]
+blocks: []
 created: 2026-08-30
 candidate: "Plan E (Comprehensive Synthesis)"
 ---

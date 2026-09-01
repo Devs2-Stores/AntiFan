@@ -167,12 +167,28 @@ describe('Multi-Tenant Lease Issuance & Dynamic Workspace Router (Phase 01)', ()
         name: 'test.action',
         description: 'Test action',
         risk: 'write',
+        policy: {
+          effect: 'idempotent-write',
+          risk: 'write',
+          requiresBrowserTarget: false,
+          schedulerLane: 'unbounded',
+          duplicateMode: 'in-process-join',
+          recordedVisibility: 'tenant-scoped',
+          receiptReadPermission: 'read',
+          timeoutMs: 10_000,
+          retentionPolicy: 'run-durable',
+          cancellationBehavior: 'abort-immediate',
+          policyVersion: 1,
+        },
         inputSchema: { type: 'object' },
-        execute: async (p: Record<string, unknown>, ctx) => ({
-          targetProject: ctx.projectId,
-          targetWorkspace: ctx.workspaceId,
-          payload: p.data,
-        }),
+        execute: async (p: unknown, ctx) => {
+          const params = (p && typeof p === 'object') ? (p as Record<string, unknown>) : {};
+          return {
+            targetProject: ctx.projectId,
+            targetWorkspace: ctx.workspaceId,
+            payload: params.data,
+          };
+        },
       });
 
       // 1. dispatchTrusted for Primary Workspace (Project A)

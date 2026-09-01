@@ -220,6 +220,8 @@ export class WorkflowEngine {
       data: JSON.stringify(finalReport, null, 2),
       runId,
       attemptId,
+      projectId: currentTarget.projectId,
+      workspaceId: currentTarget.workspaceId,
       maxBytes: 128 * 1024,
     });
     allArtifacts.push(reportArtifact);
@@ -479,13 +481,18 @@ export class WorkflowEngine {
       }
 
       case 'report.generate': {
+        if (!context.runId || !context.attemptId) {
+          throw new CapabilityError('INVALID_ARGUMENT', 'runId and attemptId are required for report generation');
+        }
         const reportData = JSON.stringify({ name: step.name, params, target: context.browserTarget, timestamp: Date.now() }, null, 2);
         const art = this.ports.artifacts.stage({
           kind: 'report',
           mime: 'application/json',
           data: reportData,
-          runId: context.runId || 'run-workflow',
-          attemptId: context.attemptId || 'attempt-1',
+          runId: context.runId,
+          attemptId: context.attemptId,
+          projectId: context.projectId,
+          workspaceId: context.workspaceId,
           maxBytes: 64 * 1024,
         });
         return { data: { generated: true }, artifacts: [art] };

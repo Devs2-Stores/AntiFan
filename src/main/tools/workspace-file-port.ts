@@ -2,7 +2,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as crypto from 'node:crypto';
 import { setTimeout as sleep } from 'node:timers/promises';
-import { ArtifactRef, CapabilityError, assertNoReparseTraversal, assertWorkspaceContained } from '../../shared/control-plane-contracts';
+import { ArtifactRef, CapabilityError, assertNoReparseTraversal, assertWorkspaceContained, validateControlPlaneId } from '../../shared/control-plane-contracts';
 const DEFAULT_MAX_BYTES = 2 * 1024 * 1024;
 
 export class WorkspaceFilePort {
@@ -70,17 +70,42 @@ export class WorkspaceFilePort {
     }
   }
 
-  stageAttachment(root: string, sourcePath: string, runId: string, attemptId: string, maxBytes = 8 * 1024 * 1024): ArtifactRef {
+  stageAttachment(root: string, sourcePath: string, runId: string, attemptId: string, projectId: string, workspaceId: string, maxBytes = 8 * 1024 * 1024): ArtifactRef {
+    const validRunId = validateControlPlaneId(runId, 'run');
+    const validAttemptId = validateControlPlaneId(attemptId, 'attempt');
+    const validProjectId = validateControlPlaneId(projectId, 'project');
+    const validWorkspaceId = validateControlPlaneId(workspaceId, 'workspace');
+
     const source = this.resolve(root, sourcePath);
     const stat = fs.lstatSync(source);
     if (!stat.isFile()) throw new CapabilityError('INVALID_ARGUMENT', 'Attachment must be a regular file');
     if (stat.size > maxBytes) throw new CapabilityError('ARTIFACT_TOO_LARGE', `Attachment exceeds ${maxBytes} byte limit`);
     const data = fs.readFileSync(source);
     const sha256 = crypto.createHash('sha256').update(data).digest('hex');
-    const artifactPath = path.join(root, '.antifan', 'artifacts', runId, `${sha256}-${path.basename(source)}`);
-    fs.mkdirSync(path.dirname(artifactPath), { recursive: true });
-    fs.writeFileSync(artifactPath, data, { flag: 'wx' });
-    return { id: `artifact-${crypto.randomUUID()}`, runId, attemptId, kind: 'attachment', path: artifactPath, byteLength: data.byteLength, sha256, mime: mimeFor(source), truncated: false, redacted: false, createdAt: Date.now() };
+    const artifactDir = path.join(root, '.antifan', 'artifacts', validRunId);
+    const artifactPath = path.join(artifactDir, `${sha256}-${path.basename(source)}`);
+    assertWorkspaceContained(root, artifactPath);
+    assertNoReparseTraversal(root, artifactDir);
+    fs.mkdirSync(artifactDir, { recursive: true });
+    assertNoReparseTraversal(root, artifactPath);
+    try {
+      fs.writeFileSync(artifactPath, data, { flag: 'wx' });
+    } catch (err: unknown) {
+      if ((err as { code?: string })?.code === 'EEXIST') {
+        const existingStat = fs.lstatSync(artifactPath);
+        if (!existingStat.isFile()) {
+          throw new CapabilityError('INVALID_ARGUMENT', `Existing attachment path '${artifactPath}' is not a regular file`);
+        }
+        const existingBytes = fs.readFileSync(artifactPath);
+        const existingSha256 = crypto.createHash('sha256').update(existingBytes).digest('hex');
+        if (existingSha256 !== sha256) {
+          throw new CapabilityError('INVALID_ARGUMENT', `Existing artifact hash '${existingSha256}' does not match expected sha256 '${sha256}'`);
+        }
+      } else {
+        throw err;
+      }
+    }
+    return { id: `artifact-${crypto.randomUUID()}`, runId: validRunId, attemptId: validAttemptId, projectId: validProjectId, workspaceId: validWorkspaceId, kind: 'attachment', path: artifactPath, byteLength: data.byteLength, sha256, mime: mimeFor(source), truncated: false, redacted: false, createdAt: Date.now() };
   }
 
   private resolve(root: string, relativePath: string): string {

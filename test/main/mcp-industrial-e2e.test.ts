@@ -25,6 +25,7 @@ describe('Phase 04: E2E Industrial Overhaul & Storefront Latency Benchmarks', ()
   let testWorkspaceId: string;
   let testSecret: string;
   let testAttachmentId: string;
+  let testAuthorityRevision: string;
   let mcpChild: ChildProcess;
   const scriptPath = path.resolve(__dirname, '../../scripts/antifan-omp-mcp.cjs');
 
@@ -94,7 +95,7 @@ describe('Phase 04: E2E Industrial Overhaul & Storefront Latency Benchmarks', ()
     );
     testSecret = issued.launch.secret;
     testAttachmentId = issued.record.id;
-
+    testAuthorityRevision = issued.launch.authorityRevision;
     const mockTabHost = new MockTabHost() as unknown as NativeTabHost;
 
     controlPlaneRuntime = new ControlPlaneRuntime({
@@ -139,7 +140,7 @@ describe('Phase 04: E2E Industrial Overhaul & Storefront Latency Benchmarks', ()
       getDocumentGeneration: () => 1,
     }, controlPlaneRuntime.artifacts);
     controlPlaneRuntime.registerBrowser(browserPort);
-    const capabilityTransport = new CapabilityTransportAdapter(controlPlaneRuntime.capabilities);
+    const capabilityTransport = new CapabilityTransportAdapter(controlPlaneRuntime.capabilities, attachmentRegistry);
 
     bridgeServer = new BridgeServer(mockTabHost, 0, false, capabilityTransport, undefined, attachmentRegistry, '127.0.0.1', controlPlaneRuntime);
     port = await bridgeServer.start();
@@ -149,6 +150,7 @@ describe('Phase 04: E2E Industrial Overhaul & Storefront Latency Benchmarks', ()
         port,
         secret: testSecret,
         attachmentId: testAttachmentId,
+        authorityRevision: testAuthorityRevision,
         runId: testRunId,
         attemptId: testAttemptId,
         projectId: testProjectId,

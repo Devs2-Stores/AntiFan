@@ -88,6 +88,8 @@ describe('ArtifactRetentionCleaner & SessionResumeController (Phase 3)', () => {
       data: '<html><body>Hello</body></html>',
       runId: 'run-test-1',
       attemptId: 'att-1',
+      projectId: 'project-test',
+      workspaceId: 'workspace-test',
     });
 
     assert.ok(fs.existsSync(ref.path));

@@ -1,6 +1,6 @@
 ---
 title: "AntiFan Final Hardening & Runtime Verification"
-status: in_progress
+status: "superseded"
 priority: P1
 totalPhases: 4
 planSlug: "260831-1600-antifan-final-hardening-and-runtime-verification"

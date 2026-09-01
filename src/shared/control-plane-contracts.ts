@@ -5,7 +5,7 @@ import * as path from 'node:path';
 export const CONTROL_PLANE_PROTOCOL_VERSION = 1;
 export const SESSION_FORMAT_VERSION = 1;
 
-export type ControlPlaneEntity = 'project' | 'workspace' | 'chat' | 'run' | 'attempt' | 'tool' | 'artifact' | 'binding';
+export type ControlPlaneEntity = 'project' | 'workspace' | 'chat' | 'run' | 'attempt' | 'tool' | 'artifact' | 'binding' | 'invocation' | 'event' | 'message' | 'request' | 'idempotency' | 'attachment';
 export type LifecycleState = 'open' | 'closed' | 'interrupted' | 'completed' | 'failed' | 'unknown';
 export type RunState = 'queued' | 'starting' | 'streaming' | 'waiting-tool' | 'cancelling' | 'completed' | 'failed' | 'interrupted' | 'unknown';
 export type AttemptState = 'prepared' | 'dispatching' | 'running' | 'completed' | 'failed' | 'interrupted' | 'unknown';
@@ -81,6 +81,8 @@ export interface ArtifactRef {
   id: string;
   runId: string;
   attemptId: string;
+  projectId: string;
+  workspaceId: string;
   kind: 'dom' | 'screenshot' | 'console' | 'terminal' | 'attachment' | 'report';
   path: string;
   byteLength: number;
@@ -149,6 +151,7 @@ export interface McpAttachmentLaunch {
   grant?: 'read' | 'write' | 'execute' | 'eval';
   tabId?: string;
   browserEpoch?: number;
+  authorityRevision: AuthorityRevisionHandle;
 }
 
 export interface UntrustedCapabilityClaims {
@@ -164,6 +167,208 @@ export interface UntrustedCapabilityClaims {
   invocationId?: string;
   grant?: 'read' | 'write' | 'execute' | 'eval';
   ownerPid?: number;
+}
+
+export type AuthorityRevisionHandle = string;
+
+export type InvocationState = 'claiming' | 'in_progress' | 'completed' | 'failed' | 'interrupted' | 'unknown';
+
+export interface ClientInvocationIntent<T = unknown> {
+  requestId: string;
+  idempotencyKey: string;
+  attachmentId: string;
+  attachmentSecret: string;
+  authorityRevision: AuthorityRevisionHandle;
+  name: string;
+  params?: T;
+}
+
+export interface MainResolvedAuthority {
+  attachmentId: string;
+  authorityRevision: AuthorityRevisionHandle;
+  revisionNumber: number;
+  projectId: string;
+  workspaceId?: string;
+  runId: string;
+  attemptId: string;
+  backendId: string;
+  grant: CapabilityRisk;
+  hostEpoch: number;
+  runtimePid: number;
+  runtimeLeaseToken?: string;
+  leaseExpiresAt: number;
+  browserTarget?: BrowserTarget;
+  issuedAt: number;
+}
+
+export interface CapabilityEffectPolicy {
+  effect: 'read' | 'idempotent-write' | 'destructive-mutation' | 'interactive-effect' | 'management';
+  risk: CapabilityRisk;
+  requiresBrowserTarget: boolean;
+  schedulerLane: 'short-passive' | 'event-wait' | 'viewport-gate' | 'unbounded';
+  duplicateMode: 'in-process-join' | 'reject-concurrent';
+  recordedVisibility: 'public' | 'tenant-scoped' | 'run-scoped' | 'redacted';
+  receiptReadPermission: CapabilityRisk;
+  timeoutMs: number;
+  retentionPolicy: 'ephemeral' | 'run-durable' | 'permanent';
+  cancellationBehavior: 'abort-immediate' | 'drain-and-persist' | 'ignore-disconnect';
+  policyVersion: number;
+  policyDigest: string;
+}
+export type CapabilityEffectPolicyInput = Omit<CapabilityEffectPolicy, 'policyDigest'>;
+export interface InvocationBinding {
+  attachmentId: string;
+  idempotencyKey: string;
+  authorityRevision: AuthorityRevisionHandle;
+  canonicalCapability: string;
+  parameterDigest: string;
+  policyDigest: string;
+}
+
+export interface AuthoritativeInvocationReceipt<T = unknown> {
+  invocationId: string;
+  originRequestId: string;
+  binding?: InvocationBinding;
+  state: InvocationState;
+  startedAt: number;
+  completedAt?: number;
+  data?: T;
+  error?: {
+    code: string;
+    message: string;
+    details?: unknown;
+  };
+  evidence?: {
+    tabId?: string;
+    url?: string;
+    documentGeneration?: number;
+    browserEpoch?: number;
+    timestamp?: number;
+    [key: string]: unknown;
+  };
+  replacementAuthorityRevision?: AuthorityRevisionHandle;
+}
+
+export interface BrowserObserveInput {
+  tabId?: string;
+  paneId?: 'desktop' | 'mobile';
+  components?: Array<'dom' | 'snapshot' | 'screenshot' | 'diagnostics' | 'network'>;
+  timeoutMs?: number;
+}
+
+export interface BrowserObserveResult {
+  browserEpoch: number;
+  tabId: string;
+  paneId: 'desktop' | 'mobile';
+  documentGeneration: number;
+  documentUrl: string;
+  captureTimestamp: number;
+  driftWindowMs: number;
+  dom?: {
+    html: string;
+    artifactRef?: ArtifactRef;
+    byteLength: number;
+  };
+  snapshot?: {
+    generation: number;
+    descriptorsCount: number;
+    serializedBytes: number;
+    rootSummary?: string;
+  };
+  screenshot?: {
+    artifactRef: ArtifactRef;
+    mime: 'image/png';
+  };
+  diagnostics?: unknown;
+  network?: {
+    inflightCount: number;
+    isIdle: boolean;
+  };
+}
+
+export interface BrowserWaitInput {
+  tabId?: string;
+  paneId?: 'desktop' | 'mobile';
+  condition: 'selector' | 'ref' | 'document-loaded' | 'url' | 'network-idle' | 'dom-stable';
+  selector?: string;
+  ref?: string;
+  urlPattern?: string;
+  stabilityMs?: number;
+  timeoutMs?: number;
+}
+
+export interface BrowserWaitResult {
+  satisfied: boolean;
+  condition: string;
+  durationMs: number;
+  documentGeneration: number;
+}
+
+export interface TerminalWaitInput {
+  sessionId: string;
+  condition: 'output-match' | 'exit' | 'silence';
+  pattern?: string;
+  sessionGeneration?: number;
+  afterSeq?: number;
+  silenceMs?: number;
+  timeoutMs?: number;
+}
+
+export interface TerminalWaitResult {
+  satisfied: boolean;
+  sessionGeneration: number;
+  lastSeq: number;
+  exitCode?: number;
+  outputTail?: string;
+}
+
+export interface ArtifactReadInput {
+  artifactId: string;
+  offset?: number;
+  limit?: number;
+}
+
+export interface ArtifactReadResult {
+  artifactId: string;
+  offset: number;
+  limit: number;
+  totalBytes: number;
+  hasMore: boolean;
+  mime: string;
+  encoding: 'utf8' | 'base64';
+  data: string;
+}
+
+export function canonicalJsonStringify(val: unknown): string {
+  if (val === null || typeof val !== 'object') {
+    return JSON.stringify(val);
+  }
+  if (Array.isArray(val)) {
+    return `[${val.map((item) => canonicalJsonStringify(item)).join(',')}]`;
+  }
+  const keys = Object.keys(val as Record<string, unknown>).sort();
+  const entries = keys.map((key) => `${JSON.stringify(key)}:${canonicalJsonStringify((val as Record<string, unknown>)[key])}`);
+  return `{${entries.join(',')}}`;
+}
+
+export function canonicalDigest(val: unknown): string {
+  return crypto.createHash('sha256').update(canonicalJsonStringify(val), 'utf8').digest('hex');
+}
+
+export function computePolicyDigest(policy: Omit<CapabilityEffectPolicy, 'policyDigest'>): string {
+  return canonicalDigest({
+    effect: policy.effect,
+    risk: policy.risk,
+    requiresBrowserTarget: policy.requiresBrowserTarget,
+    schedulerLane: policy.schedulerLane,
+    duplicateMode: policy.duplicateMode,
+    recordedVisibility: policy.recordedVisibility,
+    receiptReadPermission: policy.receiptReadPermission,
+    timeoutMs: policy.timeoutMs,
+    retentionPolicy: policy.retentionPolicy,
+    cancellationBehavior: policy.cancellationBehavior,
+    policyVersion: policy.policyVersion,
+  });
 }
 
 export interface AuthenticatedCapabilityContext {
@@ -209,6 +414,8 @@ export interface ExecutionAttachmentRecord {
   lease?: RuntimeLease;
   leaseToken?: string;
   browserTarget?: BrowserTarget;
+  authorityRevision: AuthorityRevisionHandle;
+  revisionNumber: number;
 }
 
 export interface CapabilityDefinition<TParams = Record<string, unknown>, TResult = unknown> {
@@ -217,9 +424,13 @@ export interface CapabilityDefinition<TParams = Record<string, unknown>, TResult
   risk: CapabilityRisk;
   requiresBrowserTarget?: boolean;
   inputSchema: Record<string, unknown>;
+  policy: CapabilityEffectPolicyInput;
   execute: (params: TParams, context: CapabilityRequestContext) => Promise<TResult> | TResult;
 }
 
+export interface RegisteredCapability<TParams = Record<string, unknown>, TResult = unknown> extends Omit<CapabilityDefinition<TParams, TResult>, 'policy'> {
+  policy: CapabilityEffectPolicy;
+}
 export interface ControlPlaneEvent<T = unknown> {
   formatVersion: number;
   id: string;
@@ -418,16 +629,21 @@ export function assertNoReparseTraversal(root: string, candidate: string): void 
   }
 }
 
+export const SECRET_VERIFIER_PREFIX = 'v1:sha256:';
+
 export function hashSecret(secret: string): string {
-  return crypto.createHash('sha256').update(secret, 'utf8').digest('hex');
+  const digest = crypto.createHash('sha256').update(secret, 'utf8').digest('hex');
+  return `${SECRET_VERIFIER_PREFIX}${digest}`;
 }
 
 export function verifySecret(secret: string, secretHash: string): boolean {
   if (typeof secret !== 'string' || typeof secretHash !== 'string') return false;
-  const computed = hashSecret(secret);
+  if (!secretHash.startsWith(SECRET_VERIFIER_PREFIX)) return false;
+  const targetHash = secretHash.slice(SECRET_VERIFIER_PREFIX.length);
+  const computed = crypto.createHash('sha256').update(secret, 'utf8').digest('hex');
   try {
     const a = Buffer.from(computed, 'hex');
-    const b = Buffer.from(secretHash, 'hex');
+    const b = Buffer.from(targetHash, 'hex');
     if (a.length !== b.length) return false;
     return crypto.timingSafeEqual(a, b);
   } catch {

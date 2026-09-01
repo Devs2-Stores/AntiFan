@@ -28,12 +28,27 @@ export class ArtifactStore {
       Promise.resolve().then(() => this.sweepRetention()).catch(() => {});
     }
   }
-  stage(input: { kind: ArtifactRef['kind']; mime: string; data: string | Buffer; runId: string; attemptId: string; maxBytes?: number }): ArtifactRef {
+  stage(input: {
+    kind: ArtifactRef['kind'];
+    mime: string;
+    data: string | Buffer;
+    runId: string;
+    attemptId: string;
+    projectId: string;
+    workspaceId: string;
+    maxBytes?: number;
+  }): ArtifactRef {
     if (!input.runId || typeof input.runId !== 'string' || !/^[a-zA-Z0-9_-]+$/.test(input.runId)) {
       throw new CapabilityError('INVALID_ARGUMENT', `Invalid runId '${input.runId}': must contain only alphanumeric characters, underscores, and dashes`);
     }
     if (input.attemptId && (typeof input.attemptId !== 'string' || !/^[a-zA-Z0-9_-]+$/.test(input.attemptId))) {
       throw new CapabilityError('INVALID_ARGUMENT', `Invalid attemptId '${input.attemptId}': must contain only alphanumeric characters, underscores, and dashes`);
+    }
+    if (!input.projectId || typeof input.projectId !== 'string' || input.projectId.trim().length === 0) {
+      throw new CapabilityError('INVALID_ARGUMENT', 'Valid projectId is required for artifact staging');
+    }
+    if (!input.workspaceId || typeof input.workspaceId !== 'string' || input.workspaceId.trim().length === 0) {
+      throw new CapabilityError('INVALID_ARGUMENT', 'Valid workspaceId is required for artifact staging');
     }
     const stageStartMs = performance.now();
     const raw = Buffer.isBuffer(input.data) ? input.data : Buffer.from(input.data, 'utf8');
@@ -50,7 +65,21 @@ export class ArtifactStore {
     if (!fs.existsSync(artifactPath)) fs.writeFileSync(artifactPath, storedData);
     const stored = fs.statSync(artifactPath).size;
     this.runBytes.set(input.runId, currentRunBytes + stored);
-    const ref: ArtifactRef = { id: `artifact-${crypto.randomUUID()}`, runId: input.runId, attemptId: input.attemptId, kind: input.kind, path: artifactPath, byteLength: stored, sha256, mime: input.mime, truncated, redacted, createdAt: Date.now() };
+    const ref: ArtifactRef = {
+      id: `artifact-${crypto.randomUUID()}`,
+      runId: input.runId,
+      attemptId: input.attemptId,
+      projectId: input.projectId,
+      workspaceId: input.workspaceId,
+      kind: input.kind,
+      path: artifactPath,
+      byteLength: stored,
+      sha256,
+      mime: input.mime,
+      truncated,
+      redacted,
+      createdAt: Date.now(),
+    };
     this.artifacts.set(ref.id, ref);
     if (storedData.byteLength <= 512 * 1024) {
       if (this.hotDataCache.size >= this.MAX_HOT_CACHE_ITEMS) {

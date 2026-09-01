@@ -1,7 +1,7 @@
 ---
 title: "AntiFan Runtime Performance & Modular TabHost Hardening"
 description: "Eliminate O(N log N) GC thrashing in terminal history tail slicing, guard against 50k-token raw DOM fallbacks in agent snapshots, decompose the 5,424-line NativeTabHost into domain sub-controllers, and preserve verified sub-12ms tab switch latency."
-status: in-progress
+status: "superseded"
 priority: P1
 effort: "4h"
 tags: ["performance", "terminal", "semantic-ref", "refactoring", "low-spec"]

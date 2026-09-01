@@ -160,6 +160,7 @@ describe('CodexExecutionBackend & Approved Executable Security', () => {
         issuedAt: Date.now(),
         expiresAt: Date.now() + 60000,
         hostEpoch: 1,
+        authorityRevision: 'rev-codex-1',
       },
     })) {
       events.push(event);

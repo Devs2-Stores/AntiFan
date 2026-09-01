@@ -2,18 +2,20 @@ import * as crypto from 'node:crypto';
 import {
   AttemptState,
   AuthenticatedCapabilityContext,
+  AuthorityRevisionHandle,
+  BrowserTarget,
   CapabilityError,
-  hashSecret,
-  makeControlPlaneId,
-  McpAttachmentLaunch,
+  ClientInvocationIntent,
   ExecutionAttachmentRecord,
+  MainResolvedAuthority,
+  McpAttachmentLaunch,
   RuntimeLease,
   UntrustedCapabilityClaims,
+  hashSecret,
+  makeControlPlaneId,
   validateControlPlaneId,
   verifySecret,
-  BrowserTarget,
 } from '../../shared/control-plane-contracts';
-
 export interface AttachmentValidatorDelegate {
   getAttemptState?: (attemptId: string) => AttemptState | undefined;
   getHostEpoch?: () => number;
@@ -37,11 +39,45 @@ export interface IssueAttachmentOptions {
   boundPid?: number;
 }
 
+function cloneBrowserTarget(target?: BrowserTarget): BrowserTarget | undefined {
+  if (!target) return undefined;
+  return Object.freeze({
+    projectId: target.projectId,
+    workspaceId: target.workspaceId,
+    runtimeId: target.runtimeId,
+    tabId: target.tabId,
+    browserEpoch: target.browserEpoch,
+    documentGeneration: target.documentGeneration,
+    ...(target.url !== undefined ? { url: target.url } : {}),
+  });
+}
+
+function cloneAuthoritySnapshot(auth: MainResolvedAuthority): MainResolvedAuthority {
+  return Object.freeze({
+    attachmentId: auth.attachmentId,
+    authorityRevision: auth.authorityRevision,
+    revisionNumber: auth.revisionNumber,
+    projectId: auth.projectId,
+    workspaceId: auth.workspaceId,
+    runId: auth.runId,
+    attemptId: auth.attemptId,
+    backendId: auth.backendId,
+    grant: auth.grant,
+    hostEpoch: auth.hostEpoch,
+    runtimePid: auth.runtimePid,
+    runtimeLeaseToken: auth.runtimeLeaseToken,
+    leaseExpiresAt: auth.leaseExpiresAt,
+    browserTarget: cloneBrowserTarget(auth.browserTarget),
+    issuedAt: auth.issuedAt,
+  });
+}
+
 export class AttachmentRegistry {
   private readonly records = new Map<string, ExecutionAttachmentRecord>();
   private readonly attemptIndex = new Map<string, Set<string>>();
   private readonly invocationNonces = new Map<string, Set<string>>();
-
+  private readonly revisions = new Map<AuthorityRevisionHandle, MainResolvedAuthority>();
+  private readonly activeRevisionByAttachment = new Map<string, AuthorityRevisionHandle>();
   constructor(private readonly delegate?: AttachmentValidatorDelegate) {}
   issueAttachment(
     runId: string,
@@ -62,6 +98,44 @@ export class AttachmentRegistry {
     const ttlMs = options.ttlMs ?? 3_600_000;
     const expiresAt = now + ttlMs;
 
+    const initialRevision: AuthorityRevisionHandle = `rev_${crypto.randomBytes(16).toString('hex')}`;
+    let delegatedAutomationTabId: string | undefined;
+    if (this.delegate?.getAutomationTabId) {
+      try {
+        const autoTab = this.delegate.getAutomationTabId();
+        if (typeof autoTab === 'string' && autoTab.trim().length > 0) {
+          delegatedAutomationTabId = autoTab.trim();
+        }
+      } catch {}
+    }
+    const effectiveTabId = options.tabId ?? options.browserTarget?.tabId ?? delegatedAutomationTabId;
+
+    let initialDocGen = options.documentGeneration ?? options.browserTarget?.documentGeneration;
+    if (typeof initialDocGen !== 'number' && effectiveTabId && this.delegate?.getDocumentGeneration) {
+      try {
+        const liveGen = this.delegate.getDocumentGeneration(effectiveTabId);
+        if (typeof liveGen === 'number' && liveGen > 0) {
+          initialDocGen = liveGen;
+        }
+      } catch {}
+    }
+    const resolvedDocGen = initialDocGen ?? 1;
+
+    const effectiveBrowserTarget: BrowserTarget | undefined = options.browserTarget
+      ? cloneBrowserTarget({
+          ...options.browserTarget,
+          tabId: effectiveTabId || options.browserTarget.tabId,
+          documentGeneration: options.browserTarget.documentGeneration ?? resolvedDocGen,
+        })
+      : (effectiveTabId ? {
+          projectId: validProjectId,
+          workspaceId: validWorkspaceId,
+          runtimeId: options.lease.runtimeId,
+          tabId: effectiveTabId,
+          browserEpoch: options.browserEpoch ?? 1,
+          documentGeneration: resolvedDocGen,
+        } : undefined);
+
     const record: ExecutionAttachmentRecord = {
       id: attachmentId,
       runId: validRunId,
@@ -77,15 +151,36 @@ export class AttachmentRegistry {
       lease: options.lease,
       leaseToken: options.leaseToken,
       hostEpoch: options.hostEpoch ?? 1,
-      browserTarget: options.browserTarget,
+      browserTarget: effectiveBrowserTarget,
       grant: options.grant,
-      tabId: options.tabId,
+      tabId: effectiveTabId,
       browserEpoch: options.browserEpoch,
-      documentGeneration: options.documentGeneration,
+      documentGeneration: resolvedDocGen,
       boundPid: options.boundPid,
+      authorityRevision: initialRevision,
+      revisionNumber: 1,
     };
     this.records.set(attachmentId, record);
 
+    const snapshot = cloneAuthoritySnapshot({
+      attachmentId,
+      authorityRevision: initialRevision,
+      revisionNumber: 1,
+      projectId: validProjectId,
+      workspaceId: validWorkspaceId,
+      runId: validRunId,
+      attemptId: validAttemptId,
+      backendId: options.backendId,
+      grant: options.grant || 'read',
+      hostEpoch: options.hostEpoch ?? 1,
+      runtimePid: options.lease.ownerPid,
+      runtimeLeaseToken: options.leaseToken,
+      leaseExpiresAt: options.lease.expiresAt,
+      browserTarget: effectiveBrowserTarget,
+      issuedAt: now,
+    });
+    this.revisions.set(initialRevision, snapshot);
+    this.activeRevisionByAttachment.set(attachmentId, initialRevision);
     if (!this.attemptIndex.has(validAttemptId)) {
       this.attemptIndex.set(validAttemptId, new Set());
     }
@@ -105,9 +200,135 @@ export class AttachmentRegistry {
       grant: options.grant,
       tabId: options.tabId,
       browserEpoch: options.browserEpoch,
+      authorityRevision: initialRevision,
     };
-
     return { record, launch };
+  }
+  rotateAuthorityRevision(
+    attachmentId: string,
+    overrides?: {
+      browserTarget?: BrowserTarget;
+      grant?: 'read' | 'write' | 'execute' | 'eval';
+      lease?: RuntimeLease;
+      leaseToken?: string;
+    }
+  ): AuthorityRevisionHandle {
+    const record = this.records.get(attachmentId);
+    if (!record) {
+      throw new CapabilityError('ATTACHMENT_INVALID', `No attachment found for id: ${attachmentId}`);
+    }
+    const activeRev = this.activeRevisionByAttachment.get(attachmentId);
+    const prevSnapshot = activeRev ? this.revisions.get(activeRev) : undefined;
+    const nextRevNumber = (prevSnapshot?.revisionNumber ?? record.revisionNumber ?? 1) + 1;
+    const nextRev: AuthorityRevisionHandle = `rev_${crypto.randomBytes(16).toString('hex')}`;
+
+    if (overrides?.browserTarget) record.browserTarget = cloneBrowserTarget(overrides.browserTarget);
+    if (overrides?.grant) record.grant = overrides.grant;
+    if (overrides?.lease) record.lease = overrides.lease;
+    if (overrides?.leaseToken) record.leaseToken = overrides.leaseToken;
+
+    record.revisionNumber = nextRevNumber;
+    record.authorityRevision = nextRev;
+
+    const nextSnapshot = cloneAuthoritySnapshot({
+      attachmentId: record.id,
+      authorityRevision: nextRev,
+      revisionNumber: nextRevNumber,
+      projectId: record.projectId,
+      workspaceId: record.workspaceId,
+      runId: record.runId,
+      attemptId: record.attemptId,
+      backendId: record.backendId,
+      grant: record.grant || 'read',
+      hostEpoch: record.hostEpoch,
+      runtimePid: record.lease?.ownerPid ?? process.pid,
+      runtimeLeaseToken: record.leaseToken,
+      leaseExpiresAt: record.lease?.expiresAt ?? record.expiresAt,
+      browserTarget: cloneBrowserTarget(record.browserTarget),
+      issuedAt: Date.now(),
+    });
+
+    this.revisions.set(nextRev, nextSnapshot);
+    this.activeRevisionByAttachment.set(attachmentId, nextRev);
+    return nextRev;
+  }
+
+  authenticateAttachmentCredentials(attachmentId: string, secret: string): ExecutionAttachmentRecord {
+    if (!attachmentId || typeof attachmentId !== 'string') {
+      throw new CapabilityError('ATTACHMENT_INVALID', 'Attachment ID is missing or invalid');
+    }
+    if (!secret || typeof secret !== 'string') {
+      throw new CapabilityError('ATTACHMENT_INVALID', 'Attachment secret is missing or invalid');
+    }
+    const record = this.records.get(attachmentId);
+    if (!record) {
+      throw new CapabilityError('ATTACHMENT_INVALID', `No attachment found for id: ${attachmentId}`);
+    }
+    if (!verifySecret(secret, record.secretHash)) {
+      throw new CapabilityError('ATTACHMENT_INVALID', 'Attachment secret verification failed');
+    }
+    if (record.state === 'revoked') {
+      throw new CapabilityError('ATTACHMENT_STALE', `Attachment ${record.id} has been revoked`);
+    }
+    return record;
+  }
+
+  resolveAuthority(intent: ClientInvocationIntent): MainResolvedAuthority {
+    if (!intent || typeof intent !== 'object') {
+      throw new CapabilityError('INVALID_ARGUMENT', 'Client invocation intent is required');
+    }
+    const record = this.authenticateAttachmentCredentials(intent.attachmentId, intent.attachmentSecret);
+
+    if (record.state === 'expired' || Date.now() > record.expiresAt) {
+      record.state = 'expired';
+      throw new CapabilityError('ATTACHMENT_STALE', `Attachment ${record.id} has expired`);
+    }
+    if (!intent.authorityRevision) {
+      throw new CapabilityError('TARGET_STALE', 'Authority revision is missing');
+    }
+
+    const snapshot = this.revisions.get(intent.authorityRevision);
+    if (!snapshot || snapshot.attachmentId !== record.id) {
+      throw new CapabilityError('TARGET_STALE', `Authority revision is not recognized for attachment ${record.id}`);
+    }
+
+    const activeRevision = this.activeRevisionByAttachment.get(record.id);
+    if (activeRevision !== intent.authorityRevision) {
+      throw new CapabilityError('TARGET_STALE', `Authority revision is inactive for new execution: expected ${activeRevision}, got ${intent.authorityRevision}`);
+    }
+
+    if (!record.lease || record.lease.expiresAt <= Date.now()) {
+      throw new CapabilityError('LEASE_EXPIRED', 'No active runtime lease bound to attachment');
+    }
+
+    if (intent.idempotencyKey) {
+      let nonces = this.invocationNonces.get(record.id);
+      if (!nonces) {
+        nonces = new Set();
+        this.invocationNonces.set(record.id, nonces);
+      }
+      if (nonces.has(intent.idempotencyKey)) {
+        throw new CapabilityError('REPLAY_DENIED', `Duplicate invocation detected: ${intent.idempotencyKey}`);
+      }
+      nonces.add(intent.idempotencyKey);
+    }
+
+    return cloneAuthoritySnapshot(snapshot);
+  }
+
+  resolveHistoricalRevision(intent: Pick<ClientInvocationIntent, 'attachmentId' | 'attachmentSecret' | 'authorityRevision'>): MainResolvedAuthority {
+    if (!intent || typeof intent !== 'object') {
+      throw new CapabilityError('INVALID_ARGUMENT', 'Intent is required');
+    }
+    const record = this.authenticateAttachmentCredentials(intent.attachmentId, intent.attachmentSecret);
+    if (!intent.authorityRevision) {
+      throw new CapabilityError('TARGET_STALE', 'Authority revision is missing');
+    }
+    const snapshot = this.revisions.get(intent.authorityRevision);
+    if (!snapshot || snapshot.attachmentId !== record.id) {
+      throw new CapabilityError('TARGET_STALE', `Authority revision is not recognized for attachment ${record.id}`);
+    }
+    return cloneAuthoritySnapshot(snapshot);
   }
 
   validateAttachment(claims?: UntrustedCapabilityClaims): AuthenticatedCapabilityContext {
@@ -280,20 +501,34 @@ export class AttachmentRegistry {
       grant: record.grant || claims.grant,
     };
   }
-  updateAttachmentTab(attachmentId: string, tabId: string, documentGeneration?: number): boolean {
+  updateAttachmentTab(attachmentId: string, tabId: string, documentGeneration?: number): AuthorityRevisionHandle | null {
     const record = this.records.get(attachmentId);
-    if (!record) return false;
+    if (!record) return null;
+    let docGen = documentGeneration;
+    if (typeof docGen !== 'number' && this.delegate?.getDocumentGeneration) {
+      try {
+        const liveGen = this.delegate.getDocumentGeneration(tabId);
+        if (typeof liveGen === 'number' && liveGen > 0) {
+          docGen = liveGen;
+        }
+      } catch {}
+    }
+    const resolvedDocGen = docGen ?? record.documentGeneration ?? 1;
     record.tabId = tabId;
-    if (typeof documentGeneration === 'number') {
-      record.documentGeneration = documentGeneration;
-    }
-    if (record.browserTarget) {
-      record.browserTarget.tabId = tabId;
-      if (typeof documentGeneration === 'number') {
-        record.browserTarget.documentGeneration = documentGeneration;
-      }
-    }
-    return true;
+    record.documentGeneration = resolvedDocGen;
+    const currentTarget = record.browserTarget ? { ...record.browserTarget } : {
+      projectId: record.projectId,
+      workspaceId: record.workspaceId,
+      runtimeId: record.lease?.runtimeId || '',
+      tabId,
+      browserEpoch: record.browserEpoch || record.hostEpoch || 1,
+      documentGeneration: resolvedDocGen,
+    };
+    currentTarget.tabId = tabId;
+    currentTarget.documentGeneration = resolvedDocGen;
+    return this.rotateAuthorityRevision(attachmentId, {
+      browserTarget: currentTarget,
+    });
   }
   getAttachment(attachmentId: string): ExecutionAttachmentRecord | undefined {
     return this.records.get(attachmentId);

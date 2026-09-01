@@ -124,7 +124,20 @@ describe('ControlPlaneRuntime Main Launch Owner & Attachment Authority', () => {
       runtime.capabilities.register({
         name: 'test.echo',
         description: 'Test echo capability',
-        risk: 'write',
+        risk: 'read',
+        policy: {
+          effect: 'read',
+          risk: 'read',
+          requiresBrowserTarget: false,
+          schedulerLane: 'unbounded',
+          duplicateMode: 'in-process-join',
+          recordedVisibility: 'tenant-scoped',
+          receiptReadPermission: 'read',
+          timeoutMs: 10_000,
+          retentionPolicy: 'run-durable',
+          cancellationBehavior: 'abort-immediate',
+          policyVersion: 1,
+        },
         inputSchema: { type: 'object' },
         execute: async (params: Record<string, unknown>) => ({ echo: params.msg }),
       });
@@ -198,7 +211,20 @@ describe('ControlPlaneRuntime Main Launch Owner & Attachment Authority', () => {
       runtime.capabilities.register({
         name: 'test.ping',
         description: 'Test ping capability',
-        risk: 'write',
+        risk: 'read',
+        policy: {
+          effect: 'read',
+          risk: 'read',
+          requiresBrowserTarget: false,
+          schedulerLane: 'unbounded',
+          duplicateMode: 'in-process-join',
+          recordedVisibility: 'tenant-scoped',
+          receiptReadPermission: 'read',
+          timeoutMs: 10_000,
+          retentionPolicy: 'run-durable',
+          cancellationBehavior: 'abort-immediate',
+          policyVersion: 1,
+        },
         inputSchema: { type: 'object' },
         execute: async () => ({ pong: true }),
       });

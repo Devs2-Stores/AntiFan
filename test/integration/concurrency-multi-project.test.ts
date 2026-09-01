@@ -98,8 +98,7 @@ describe('Multi-Project & Multi-Session Two-Tier Concurrency Stress Suite (Phase
       const browserPort = new BrowserControlPort(mockHost);
       registerBrowserCapabilities(runtime.capabilities, browserPort, undefined, () => '');
 
-      const transport = new CapabilityTransportAdapter(runtime.capabilities);
-      const mcpServer = new AntiFanMcpServer(mockHost, false, transport, runtime.runs.attachments);
+      const transport = new CapabilityTransportAdapter(runtime.capabilities, runtime.runs.attachments);
       bridgeServer = new BridgeServer(mockHost, 0, false, transport, undefined, runtime.runs.attachments);
       const bridgePort = await bridgeServer.start();
       const sessionA = runtime.createCliSession({
@@ -117,7 +116,6 @@ describe('Multi-Project & Multi-Session Two-Tier Concurrency Stress Suite (Phase
         tabId: 'tab-projB-1',
         grant: 'write',
       });
-
       const runA = sessionA.run.id;
       const attA = sessionA.attempt.id;
       const launchA = sessionA.launch;
@@ -126,23 +124,16 @@ describe('Multi-Project & Multi-Session Two-Tier Concurrency Stress Suite (Phase
       const attB = sessionB.attempt.id;
       const launchB = sessionB.launch;
 
-      // 1. Suite 1 & 2: Dynamic multi-project routing across MCP and Bridge
-      const mcpDomRes = await mcpServer.callTool('anti.inspect.dom', {
-        attachmentClaims: {
-          attachmentId: launchA.attachmentId,
-          attachmentSecret: launchA.secret,
-          runId: runA,
-          attemptId: attA,
-          projectId: projA,
-          workspaceId: wsA,
-          grant: 'read',
-          invocationId: 'inv-e2e-mcp-1',
-        },
+      const mcpServer = new AntiFanMcpServer(mockHost, false, transport, {
+        attachmentId: launchA.attachmentId,
+        attachmentSecret: launchA.secret,
+        authorityRevision: launchA.authorityRevision,
       });
+
+      // 1. Suite 1 & 2: Dynamic multi-project routing across MCP and Bridge
+      const mcpDomRes = await mcpServer.callTool('anti.inspect.dom', {});
       assert.strictEqual(mcpDomRes.isError, undefined, `mcpDomRes failed: ${mcpDomRes.content[0]?.text}`);
       assert.ok(mcpDomRes.content[0]?.text?.includes('tab-projA-1'));
-
-      // Bridge WebSocket execution for Project B
       ws = new WebSocket(`ws://127.0.0.1:${bridgePort}?token=${encodeURIComponent(launchB.secret)}`);
       await new Promise<void>((resolve, reject) => {
         ws!.on('open', resolve);
@@ -166,63 +157,30 @@ describe('Multi-Project & Multi-Session Two-Tier Concurrency Stress Suite (Phase
       const bridgeDomRes = await sendRpc('req-e2e-bridge-1', 'antifan.capability.dispatch', {
         name: 'anti.inspect.dom',
         params: {},
-        attachmentClaims: {
-          attachmentSecret: launchB.secret,
-          attachmentId: launchB.attachmentId,
-          runId: runB,
-          attemptId: attB,
-          projectId: projB,
-          workspaceId: wsB,
-          invocationId: 'inv-e2e-bridge-1',
-          grant: 'read',
-        },
+        attachmentId: launchB.attachmentId,
+        attachmentSecret: launchB.secret,
+        authorityRevision: launchB.authorityRevision,
       });
       assert.strictEqual(bridgeDomRes.success, true, `bridgeDomRes failed: ${bridgeDomRes.error}`);
       runtime.runs.attachments.revokeAttachment(launchA.attachmentId);
-      const revokedA = await mcpServer.callTool('anti.inspect.dom', {
-        attachmentClaims: {
-          attachmentId: launchA.attachmentId,
-          attachmentSecret: launchA.secret,
-          runId: runA,
-          attemptId: attA,
-          projectId: projA,
-          workspaceId: wsA,
-          grant: 'read',
-          invocationId: 'inv-e2e-revoked',
-        },
-      });
+      const revokedA = await mcpServer.callTool('anti.inspect.dom', {});
       assert.strictEqual(revokedA.isError, true, 'Revoked Session A must fail');
 
       const stillValidB = await sendRpc('req-e2e-bridge-2', 'antifan.capability.dispatch', {
         name: 'anti.inspect.dom',
         params: {},
-        attachmentClaims: {
-          attachmentSecret: launchB.secret,
-          attachmentId: launchB.attachmentId,
-          runId: runB,
-          attemptId: attB,
-          projectId: projB,
-          workspaceId: wsB,
-          invocationId: 'inv-e2e-bridge-valid',
-          grant: 'read',
-        },
+        attachmentId: launchB.attachmentId,
+        attachmentSecret: launchB.secret,
+        authorityRevision: launchB.authorityRevision,
       });
       assert.strictEqual(stillValidB.success, true, 'Session B in Project B must remain valid');
-
       // 3. Suite 4: Fast-Path Tab Rebind in Session B
       const openTabB = await sendRpc('req-e2e-open', 'antifan.capability.dispatch', {
         name: 'antifan_open_tab',
         params: { url: 'https://sapo.vn/products' },
-        attachmentClaims: {
-          attachmentSecret: launchB.secret,
-          attachmentId: launchB.attachmentId,
-          runId: runB,
-          attemptId: attB,
-          projectId: projB,
-          workspaceId: wsB,
-          invocationId: 'inv-e2e-open-tab',
-          grant: 'write',
-        },
+        attachmentId: launchB.attachmentId,
+        attachmentSecret: launchB.secret,
+        authorityRevision: launchB.authorityRevision,
       });
       assert.strictEqual(openTabB.success, true);
       assert.strictEqual(runtime.runs.attachments.getRecord(launchB.attachmentId)?.tabId, 'tab-dynamic-created-999');

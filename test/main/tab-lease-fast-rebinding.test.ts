@@ -72,8 +72,8 @@ describe('Fast-Path Tab Lease Rebinding & Explicit TabId Routing (Phase 02)', ()
       getDocumentGeneration: () => docGen,
       getAutomationTabId: () => currentAutoTab,
     });
-    const transport = new CapabilityTransportAdapter(catalogue);
-    const mcpServer = new AntiFanMcpServer(mockHost, false, transport, attachmentRegistry);
+    const transport = new CapabilityTransportAdapter(catalogue, attachmentRegistry);
+    const mcpServer = new AntiFanMcpServer(mockHost, false, transport);
 
     // 1. Issue an attachment initially bound to tab-initial with write grant
     const runId = makeControlPlaneId('run');
@@ -88,24 +88,20 @@ describe('Fast-Path Tab Lease Rebinding & Explicit TabId Routing (Phase 02)', ()
       documentGeneration: 1,
     });
 
-    const baseClaims = {
+    mcpServer.setBoundSession({
       attachmentId: launch.attachmentId,
       attachmentSecret: launch.secret,
-      runId,
-      attemptId,
-      projectId,
-      workspaceId,
-      grant: 'write',
-    };
+      authorityRevision: launch.authorityRevision,
+    });
 
     // 2. Call anti.browser.tabs.create to open a new tab
     const createRes = await mcpServer.callTool('anti.browser.tabs.create', {
       url: 'https://haravan.com',
-      attachmentClaims: { ...baseClaims, invocationId: 'inv-create-1' },
     });
 
     assert.strictEqual(createRes.isError, undefined, 'Tab creation should succeed');
-    const createdData = JSON.parse(createRes.content[0]?.text || '{}');
+    const parsedCreate = JSON.parse(createRes.content[0]?.text || '{}');
+    const createdData = parsedCreate.data || parsedCreate;
     assert.strictEqual(createdData.tabId, 'tab-new-123');
 
     // Verify AttachmentRegistry is updated to tab-new-123
@@ -113,24 +109,13 @@ describe('Fast-Path Tab Lease Rebinding & Explicit TabId Routing (Phase 02)', ()
     assert.strictEqual(recordAfterCreate?.tabId, 'tab-new-123');
 
     // 3. Immediately call anti.inspect.dom without passing explicit tabId or manual rebind
-    const domRes = await mcpServer.callTool('anti.inspect.dom', {
-      attachmentClaims: { ...baseClaims, invocationId: 'inv-dom-1' },
-    });
-    assert.strictEqual(domRes.isError, undefined);
-    assert.ok(domRes.content[0]?.text?.includes('tab-new-123'));
+    const domRes = await mcpServer.callTool('anti.inspect.dom', {});
+    assert.strictEqual(domRes.isError, undefined, 'DOM inspection should succeed on new tab');
+    assert.ok((domRes.content[0]?.text || '').includes('tab-new-123'));
 
-    // 4. Test dynamic tab adoption: Agent calls anti.screenshot.viewport targeting tab-secondary directly
-    const screenshotRes = await mcpServer.callTool('anti.screenshot.viewport', {
-      tabId: 'tab-secondary',
-      attachmentClaims: { ...baseClaims, invocationId: 'inv-shot-1' },
-    });
-    assert.strictEqual(screenshotRes.isError, undefined, 'Dynamic tab adoption should succeed without TARGET_MISMATCH');
-    assert.strictEqual(attachmentRegistry.getRecord(launch.attachmentId)?.tabId, 'tab-secondary');
-
-    // 5. Calling with invalid non-existent tabId fails closed with TARGET_MISMATCH
+    // 4. Calling with invalid non-existent tabId fails closed with TARGET_MISMATCH
     const alienRes = await mcpServer.callTool('anti.inspect.dom', {
       tabId: 'tab-non-existent-999',
-      attachmentClaims: { ...baseClaims, invocationId: 'inv-alien-1' },
     });
     assert.strictEqual(alienRes.isError, true);
     assert.ok((alienRes.content[0]?.text || '').includes('TARGET_MISMATCH'));
@@ -201,7 +186,7 @@ describe('Fast-Path Tab Lease Rebinding & Explicit TabId Routing (Phase 02)', ()
       getDocumentGeneration: () => docGen,
       getAutomationTabId: () => currentAutoTab,
     });
-    const transport = new CapabilityTransportAdapter(catalogue);
+    const transport = new CapabilityTransportAdapter(catalogue, attachmentRegistry);
     const bridgeServer = new BridgeServer(mockHost, 0, false, transport, undefined, attachmentRegistry);
     const port = await bridgeServer.start();
 
@@ -238,93 +223,66 @@ describe('Fast-Path Tab Lease Rebinding & Explicit TabId Routing (Phase 02)', ()
         });
       };
 
+      let currentRevision = launch.authorityRevision;
+
       // 1. Dispatch antifan_open_tab over WebSocket
       const openResp = await sendRpc('req-ws-open', 'antifan.capability.dispatch', {
         name: 'antifan_open_tab',
         params: { url: 'https://example.com/new-ws' },
-        attachmentClaims: {
-          attachmentSecret: launch.secret,
-          attachmentId: launch.attachmentId,
-          runId,
-          attemptId,
-          projectId,
-          workspaceId,
-          invocationId: 'inv-ws-open-1',
-          grant: 'write',
-        },
+        attachmentId: launch.attachmentId,
+        attachmentSecret: launch.secret,
+        authorityRevision: currentRevision,
       });
       assert.strictEqual(openResp.success, true);
-      assert.strictEqual((openResp.data as any).tabId, 'tab-ws-created-888');
+      const openEnvelope = openResp.data as { data: { tabId: string }; authorityRevision?: string };
+      assert.strictEqual(openEnvelope.data.tabId, 'tab-ws-created-888');
+      if (openEnvelope.authorityRevision) currentRevision = openEnvelope.authorityRevision;
       assert.strictEqual(attachmentRegistry.getRecord(launch.attachmentId)?.tabId, 'tab-ws-created-888');
 
-      // 2. Dispatch dynamic tab adoption over WebSocket to tab-ws-2
-      const adoptResp = await sendRpc('req-ws-adopt', 'antifan.capability.dispatch', {
+      // 2. Observation without retargeting to tab-ws-2 fails closed with TARGET_MISMATCH
+      const alienObserve = await sendRpc('req-ws-alien-obs', 'antifan.capability.dispatch', {
         name: 'anti.inspect.dom',
         params: { tabId: 'tab-ws-2' },
-        attachmentClaims: {
-          attachmentSecret: launch.secret,
-          attachmentId: launch.attachmentId,
-          runId,
-          attemptId,
-          projectId,
-          workspaceId,
-          invocationId: 'inv-ws-adopt-1',
-          grant: 'write',
-        },
+        attachmentId: launch.attachmentId,
+        attachmentSecret: launch.secret,
+        authorityRevision: currentRevision,
       });
-      assert.strictEqual(adoptResp.success, true);
+      assert.strictEqual(alienObserve.success, false);
+      assert.ok(alienObserve.error?.includes('TARGET_MISMATCH'));
+
+      // 3. Explicitly switch/activate tab-ws-2
+      const switchResp = await sendRpc('req-ws-switch', 'antifan.capability.dispatch', {
+        name: 'browser.switch-tab',
+        params: { tabId: 'tab-ws-2' },
+        attachmentId: launch.attachmentId,
+        attachmentSecret: launch.secret,
+        authorityRevision: currentRevision,
+      });
+      assert.strictEqual(switchResp.success, true);
+      const switchEnvelope = switchResp.data as { data: unknown; authorityRevision?: string };
+      if (switchEnvelope.authorityRevision) currentRevision = switchEnvelope.authorityRevision;
       assert.strictEqual(attachmentRegistry.getRecord(launch.attachmentId)?.tabId, 'tab-ws-2');
-      // 3. Dispatch browser.reload over WebSocket -> docGen updates to 2
+
+      // 4. Dispatch browser.reload over WebSocket -> docGen updates
       const reloadResp = await sendRpc('req-ws-reload', 'antifan.capability.dispatch', {
         name: 'browser.reload',
         params: {},
-        attachmentClaims: {
-          attachmentSecret: launch.secret,
-          attachmentId: launch.attachmentId,
-          runId,
-          attemptId,
-          projectId,
-          workspaceId,
-          invocationId: 'inv-ws-reload-1',
-          grant: 'write',
-        },
+        attachmentId: launch.attachmentId,
+        attachmentSecret: launch.secret,
+        authorityRevision: currentRevision,
       });
       assert.strictEqual(reloadResp.success, true);
-      assert.strictEqual(attachmentRegistry.getRecord(launch.attachmentId)?.documentGeneration, docGen);
-
-      // 4. Dispatch browser.switch-tab over WebSocket back to tab-ws-1 -> tabId & docGen update
-      const switchResp = await sendRpc('req-ws-switch', 'antifan.capability.dispatch', {
-        name: 'browser.switch-tab',
-        params: { tabId: 'tab-ws-1' },
-        attachmentClaims: {
-          attachmentSecret: launch.secret,
-          attachmentId: launch.attachmentId,
-          runId,
-          attemptId,
-          projectId,
-          workspaceId,
-          invocationId: 'inv-ws-switch-1',
-          grant: 'write',
-        },
-      });
-      assert.strictEqual(switchResp.success, true);
-      assert.strictEqual(attachmentRegistry.getRecord(launch.attachmentId)?.tabId, 'tab-ws-1');
+      const reloadEnvelope = reloadResp.data as { data: unknown; authorityRevision?: string };
+      if (reloadEnvelope.authorityRevision) currentRevision = reloadEnvelope.authorityRevision;
       assert.strictEqual(attachmentRegistry.getRecord(launch.attachmentId)?.documentGeneration, docGen);
 
       // 5. Dispatch to non-existent tab fails closed with TARGET_MISMATCH
       const failResp = await sendRpc('req-ws-fail', 'antifan.capability.dispatch', {
         name: 'anti.inspect.dom',
         params: { tabId: 'tab-ws-unknown-999' },
-        attachmentClaims: {
-          attachmentSecret: launch.secret,
-          attachmentId: launch.attachmentId,
-          runId,
-          attemptId,
-          projectId,
-          workspaceId,
-          invocationId: 'inv-ws-fail-1',
-          grant: 'write',
-        },
+        attachmentId: launch.attachmentId,
+        attachmentSecret: launch.secret,
+        authorityRevision: currentRevision,
       });
       assert.strictEqual(failResp.success, false);
       assert.ok(failResp.error?.includes('TARGET_MISMATCH'));
@@ -381,8 +339,8 @@ describe('Fast-Path Tab Lease Rebinding & Explicit TabId Routing (Phase 02)', ()
       getDocumentGeneration: () => docGen,
       getAutomationTabId: () => currentAutoTab,
     });
-    const transport = new CapabilityTransportAdapter(catalogue);
-    const mcpServer = new AntiFanMcpServer(mockHost, false, transport, attachmentRegistry);
+    const transport = new CapabilityTransportAdapter(catalogue, attachmentRegistry);
+    const mcpServer = new AntiFanMcpServer(mockHost, false, transport);
 
     const runId = makeControlPlaneId('run');
     const attemptId = makeControlPlaneId('attempt');
@@ -396,27 +354,20 @@ describe('Fast-Path Tab Lease Rebinding & Explicit TabId Routing (Phase 02)', ()
       documentGeneration: 1,
     });
 
-    const baseClaims = {
+    mcpServer.setBoundSession({
       attachmentId: launch.attachmentId,
       attachmentSecret: launch.secret,
-      runId,
-      attemptId,
-      projectId,
-      workspaceId,
-      grant: 'write',
-    };
+      authorityRevision: launch.authorityRevision,
+    });
 
     // 1. Initial DOM call at docGen 1 succeeds
-    const initialDom = await mcpServer.callTool('anti.inspect.dom', {
-      attachmentClaims: { ...baseClaims, invocationId: 'inv-adv-1' },
-    });
+    const initialDom = await mcpServer.callTool('anti.inspect.dom', {});
     assert.strictEqual(initialDom.isError, undefined);
     assert.ok(initialDom.content[0]?.text?.includes('Gen 1'));
 
     // 2. Navigate tab to advance docGen to 2
     const navRes = await mcpServer.callTool('anti.browser.navigate', {
       url: 'https://example.com/adv-page2',
-      attachmentClaims: { ...baseClaims, invocationId: 'inv-adv-nav' },
     });
     assert.strictEqual(navRes.isError, undefined);
     assert.strictEqual(docGen, 2);
@@ -426,10 +377,99 @@ describe('Fast-Path Tab Lease Rebinding & Explicit TabId Routing (Phase 02)', ()
     assert.strictEqual(recordAfterNav?.documentGeneration, 2);
 
     // 3. Subsequent DOM call succeeds because target has fresh docGen 2
-    const freshDom = await mcpServer.callTool('anti.inspect.dom', {
-      attachmentClaims: { ...baseClaims, invocationId: 'inv-adv-2' },
-    });
+    const freshDom = await mcpServer.callTool('anti.inspect.dom', {});
     assert.strictEqual(freshDom.isError, undefined);
     assert.ok(freshDom.content[0]?.text?.includes('Gen 2'));
+  });
+
+  it('dynamically queries and binds live documentGeneration (>1) when attachment is issued on pre-advanced tab', async () => {
+    const projectId = makeControlPlaneId('project');
+    const workspaceId = makeControlPlaneId('workspace');
+    const lease = issueRuntimeLease(projectId, workspaceId, 30_000, 1);
+
+    const catalogue = new CapabilityCatalogue({
+      runtime: { mode: 'standalone', lifecycle: 'active' },
+      projectId,
+      workspaceId,
+      runtimeId: lease.runtimeId,
+      hostEpoch: 1,
+      getActiveLease: () => lease,
+    });
+
+    const liveDocGenByTab = new Map<string, number>([
+      ['tab-advanced', 9],
+      ['tab-switched', 14],
+    ]);
+
+    class PreAdvancedMockHost extends EventEmitter {
+      getTabList() {
+        return [
+          { id: 'tab-advanced', url: 'https://example.com/advanced', title: 'Advanced' },
+          { id: 'tab-switched', url: 'https://example.com/switched', title: 'Switched' },
+        ];
+      }
+      getActiveTabId() { return 'tab-advanced'; }
+      getActiveTab() { return { id: 'tab-advanced', url: 'https://example.com/advanced', title: 'Advanced' }; }
+      getAutomationTabId() { return 'tab-advanced'; }
+      setAutomationTabId() {}
+      getDocumentGeneration(tId?: string) {
+        return liveDocGenByTab.get(tId || 'tab-advanced') ?? 1;
+      }
+      isCurrentTarget(t?: unknown) {
+        if (!t || typeof t !== 'object') return false;
+        const target = t as { tabId?: string; documentGeneration?: number };
+        const expectedGen = liveDocGenByTab.get(target.tabId || 'tab-advanced') ?? 1;
+        return target.tabId === 'tab-advanced' && target.documentGeneration === expectedGen;
+      }
+      async getDom(_sel?: string, tabId?: string) {
+        const gen = liveDocGenByTab.get(tabId || 'tab-advanced') ?? 1;
+        return `<html><body>Live Content for ${tabId || 'tab-advanced'} at DocGen ${gen}</body></html>`;
+      }
+    }
+
+    const mockHost = new PreAdvancedMockHost() as unknown as NativeTabHost;
+    const browserPort = new BrowserControlPort(mockHost);
+    registerBrowserCapabilities(catalogue, browserPort);
+
+    const attachmentRegistry = new AttachmentRegistry({
+      getHostEpoch: () => 1,
+      getDocumentGeneration: (id) => mockHost.getDocumentGeneration(id),
+      getAutomationTabId: () => 'tab-advanced',
+    });
+
+    const transport = new CapabilityTransportAdapter(catalogue, attachmentRegistry);
+    const runId = makeControlPlaneId('run');
+    const attemptId = makeControlPlaneId('attempt');
+
+    // Issue attachment on tab-advanced without specifying documentGeneration: MUST dynamically resolve 9 from delegate!
+    const { launch, record } = attachmentRegistry.issueAttachment(runId, attemptId, projectId, workspaceId, {
+      backendId: 'mcp',
+      lease,
+      leaseToken: lease.token,
+      hostEpoch: 1,
+      tabId: 'tab-advanced',
+      grant: 'write',
+    });
+
+    assert.strictEqual(record.documentGeneration, 9, 'Issue must dynamically bind live generation 9 from delegate');
+    assert.strictEqual(record.browserTarget?.documentGeneration, 9, 'BrowserTarget must carry dynamic generation 9');
+
+    const mcpServer = new AntiFanMcpServer(mockHost, false, transport, {
+      attachmentId: launch.attachmentId,
+      attachmentSecret: launch.secret,
+      authorityRevision: launch.authorityRevision,
+    });
+
+    // Initial DOM inspection succeeds directly at generation 9 without TARGET_STALE
+    const domRes = await mcpServer.callTool('anti.inspect.dom', {});
+    assert.strictEqual(domRes.isError, undefined);
+    assert.ok(domRes.content[0]?.text?.includes('DocGen 9'));
+
+    // Dynamic tab update to tab-switched without explicit documentGeneration: MUST dynamically resolve 14!
+    const newRev = attachmentRegistry.updateAttachmentTab(launch.attachmentId, 'tab-switched');
+    assert.ok(newRev);
+    const updatedRecord = attachmentRegistry.getRecord(launch.attachmentId);
+    assert.strictEqual(updatedRecord?.documentGeneration, 14, 'updateAttachmentTab must resolve live generation 14');
+    assert.strictEqual(updatedRecord?.browserTarget?.documentGeneration, 14);
   });
 });

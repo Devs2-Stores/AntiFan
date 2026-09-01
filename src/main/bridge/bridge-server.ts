@@ -28,7 +28,7 @@ import {
   AntiFanTab,
 } from '../../shared/contracts';
 import { CapabilityTransportAdapter } from '../tools/capability-transport';
-import { CapabilityRequestContext, CapabilityError, BrowserTarget, RuntimeLease, ArtifactRef } from '../../shared/control-plane-contracts';
+import { CapabilityRequestContext, CapabilityError, BrowserTarget, RuntimeLease, ArtifactRef, ClientInvocationIntent, makeControlPlaneId } from '../../shared/control-plane-contracts';
 import { AttachmentRegistry } from '../run/attachment-registry';
 import { ControlPlaneRuntime } from '../control-plane/control-plane-runtime';
 // Slow-client bounds. A WebSocket whose kernel backlog exceeds the soft high-water
@@ -716,111 +716,39 @@ export class BridgeServer {
             respond(false, undefined, 'Capability transport is not available');
             break;
           }
-          if (!this.attachmentRegistry) {
-            respond(false, undefined, 'Attachment registry is not available');
-            break;
-          }
           try {
             const claims = p.attachmentClaims;
-            if (boundAttachmentId && claims?.attachmentId !== boundAttachmentId) {
+            const targetAttachmentId = String(p.attachmentId || claims?.attachmentId || boundAttachmentId || '');
+            if (boundAttachmentId && targetAttachmentId && targetAttachmentId !== boundAttachmentId) {
               respond(false, undefined, 'ATTACHMENT_INVALID: Cross-attachment dispatch denied: connection is bound to a different attachment');
               break;
             }
-            const authContext = this.attachmentRegistry.validateAttachment(claims);
-            const explicitTabId = typeof p.params?.tabId === 'string' && p.params.tabId.trim().length > 0 ? p.params.tabId.trim() : undefined;
-            const isTargetAgnostic =
-              p.name === 'browser.set-automation-target' || p.name === 'antifan_set_automation_target' ||
-              p.name === 'browser.open-tab' || p.name === 'antifan_open_tab' || p.name === 'anti.browser.tabs.create' ||
-              p.name === 'browser.list-tabs' || p.name === 'antifan_list_tabs' || p.name === 'anti.browser.tabs.list' ||
-              p.name === 'browser.switch-tab' || p.name === 'antifan_switch_tab' || p.name === 'anti.browser.tabs.activate' ||
-              p.name === 'browser.close-tab' || p.name === 'antifan_close_tab' || p.name === 'anti.browser.tabs.close';
+            const attachmentId = targetAttachmentId;
+            const attachmentSecret = String(p.attachmentSecret || claims?.attachmentSecret || claims?.secret || '');
+            const authorityRevision = String(p.authorityRevision || claims?.authorityRevision || claims?.revision || '');
 
-            const tabList = this.tabHost?.getTabList ? this.tabHost.getTabList() : [];
-            const isTabAlive = (id?: string) => Boolean(id && Array.isArray(tabList) && tabList.some((t: unknown) => Boolean(t && typeof t === 'object' && 'id' in t && t.id === id)));
-            if (explicitTabId && authContext.browserTarget?.tabId && explicitTabId !== authContext.browserTarget.tabId.trim() && !isTargetAgnostic) {
-              if (isTabAlive(explicitTabId)) {
-                const liveDocGen = this.tabHost?.getDocumentGeneration ? this.tabHost.getDocumentGeneration(explicitTabId) : 1;
-                if (claims?.attachmentId) {
-                  this.attachmentRegistry.updateAttachmentTab(claims.attachmentId, explicitTabId, liveDocGen);
-                }
-                if (this.tabHost?.setAutomationTabId) {
-                  this.tabHost.setAutomationTabId(explicitTabId);
-                }
-                authContext.browserTarget.tabId = explicitTabId;
-                authContext.browserTarget.documentGeneration = liveDocGen;
-              } else {
-                respond(false, undefined, `TARGET_MISMATCH: Explicit tabId '${explicitTabId}' does not match authenticated target tabId '${authContext.browserTarget.tabId}' and is not a valid live tab`);
-                break;
-              }
-            } else if (authContext.browserTarget?.tabId) {
-              if (isTabAlive(authContext.browserTarget.tabId)) {
-                const liveDocGen = this.tabHost?.getDocumentGeneration ? this.tabHost.getDocumentGeneration(authContext.browserTarget.tabId) : undefined;
-                if (typeof liveDocGen === 'number') {
-                  authContext.browserTarget.documentGeneration = liveDocGen;
-                }
-              } else if (!isTargetAgnostic) {
-                const autoTab = this.tabHost?.getAutomationTabId?.();
-                const fallbackTab = (autoTab && isTabAlive(autoTab)) ? autoTab : (this.tabHost?.getActiveTabId ? this.tabHost.getActiveTabId() : undefined);
-                if (fallbackTab && isTabAlive(fallbackTab)) {
-                  const liveDocGen = this.tabHost?.getDocumentGeneration ? this.tabHost.getDocumentGeneration(fallbackTab) : undefined;
-                  authContext.browserTarget.tabId = fallbackTab;
-                  if (typeof liveDocGen === 'number') authContext.browserTarget.documentGeneration = liveDocGen;
-                  if (claims?.attachmentId) {
-                    this.attachmentRegistry.updateAttachmentTab(claims.attachmentId, fallbackTab, liveDocGen);
-                  }
-                }
-              }
-            }
-            const dispatchResult = await this.capabilityTransport.dispatch(p.name, p.params || {}, authContext);
+            const intent: ClientInvocationIntent = {
+              requestId: p.requestId || (typeof id === 'string' ? id : makeControlPlaneId('request')),
+              idempotencyKey: p.idempotencyKey || p.invocationId || claims?.invocationId || makeControlPlaneId('idempotency'),
+              attachmentId,
+              attachmentSecret,
+              authorityRevision,
+              name: p.name,
+              params: p.params || {},
+            };
+
+            const dispatchResult = await this.capabilityTransport.dispatchIntent(intent);
             if (dispatchResult.ok) {
-              if (claims?.attachmentId && dispatchResult.data && typeof dispatchResult.data === 'object') {
-                const dataObj = dispatchResult.data as Record<string, unknown>;
-                const isSetAutomationTarget = p.name === 'browser.set-automation-target' || p.name === 'antifan_set_automation_target';
-                const isOpenTab = p.name === 'browser.open-tab' || p.name === 'antifan_open_tab' || p.name === 'anti.browser.tabs.create';
-                const isSwitchTab = p.name === 'browser.switch-tab' || p.name === 'antifan_switch_tab' || p.name === 'anti.browser.tabs.activate';
-                const isNavigate = p.name === 'browser.navigate' || p.name === 'anti.browser.navigate' || p.name === 'antifan_navigate' || p.name === 'browser.reload' || p.name === 'antifan_reload' || p.name === 'anti.browser.reload';
-                if (isSetAutomationTarget || isOpenTab) {
-                  const newTabId = typeof dataObj.tabId === 'string' ? dataObj.tabId : undefined;
-                  if (newTabId) {
-                    const liveDocGen = this.tabHost?.getDocumentGeneration ? this.tabHost.getDocumentGeneration(newTabId) : 1;
-                    if (this.tabHost.setAutomationTabId) {
-                      this.tabHost.setAutomationTabId(newTabId);
-                    }
-                    this.attachmentRegistry.updateAttachmentTab(claims.attachmentId, newTabId, liveDocGen);
-                    if (authContext.browserTarget) {
-                      authContext.browserTarget.tabId = newTabId;
-                      authContext.browserTarget.documentGeneration = liveDocGen;
-                    }
-                  }
-                } else if (isSwitchTab) {
-                  const switchedTabId = typeof p.params?.tabId === 'string' ? p.params.tabId.trim() : undefined;
-                  if (switchedTabId && isTabAlive(switchedTabId)) {
-                    const liveDocGen = this.tabHost?.getDocumentGeneration ? this.tabHost.getDocumentGeneration(switchedTabId) : 1;
-                    if (this.tabHost.setAutomationTabId) {
-                      this.tabHost.setAutomationTabId(switchedTabId);
-                    }
-                    this.attachmentRegistry.updateAttachmentTab(claims.attachmentId, switchedTabId, liveDocGen);
-                    if (authContext.browserTarget) {
-                      authContext.browserTarget.tabId = switchedTabId;
-                      authContext.browserTarget.documentGeneration = liveDocGen;
-                    }
-                  }
-                } else if (isNavigate) {
-                  const navTarget = dataObj.target && typeof dataObj.target === 'object' ? dataObj.target as Record<string, unknown> : undefined;
-                  const tabId = typeof navTarget?.tabId === 'string' ? navTarget.tabId : authContext.browserTarget?.tabId;
-                  const docGen = typeof navTarget?.documentGeneration === 'number' ? navTarget.documentGeneration : (tabId && this.tabHost?.getDocumentGeneration ? this.tabHost.getDocumentGeneration(tabId) : undefined);
-                  if (tabId) {
-                    this.attachmentRegistry.updateAttachmentTab(claims.attachmentId, tabId, docGen);
-                  }
-                  if (authContext.browserTarget) {
-                    if (tabId) authContext.browserTarget.tabId = tabId;
-                    if (typeof docGen === 'number') authContext.browserTarget.documentGeneration = docGen;
-                  }
-                }
-              }
-              respond(true, dispatchResult.data);
+              respond(true, {
+                data: dispatchResult.data,
+                requestId: dispatchResult.requestId,
+                invocationId: dispatchResult.invocationId,
+                ...(dispatchResult.replacementAuthorityRevision ? { authorityRevision: dispatchResult.replacementAuthorityRevision } : {}),
+              });
             } else {
-              respond(false, undefined, dispatchResult.error ? `${dispatchResult.error.code}: ${dispatchResult.error.message}` : 'Capability dispatch failed');
+              const code = dispatchResult.error?.code || 'CAPABILITY_ERROR';
+              const message = dispatchResult.error?.message || 'Capability dispatch failed';
+              respond(false, undefined, `${code}: ${message}`);
             }
           } catch (err: unknown) {
             const errorMsg = err instanceof CapabilityError ? `${err.code}: ${err.message}` : (err instanceof Error ? err.message : String(err));

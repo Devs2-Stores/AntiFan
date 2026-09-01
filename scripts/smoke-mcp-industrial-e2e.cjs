@@ -143,49 +143,31 @@ async function runMcpLiveE2ETest() {
       });
     }
     // 3. Initialize Real Control Plane & Bridge Server mirroring index.ts
-    const runId = makeControlPlaneId('run');
-    const attemptId = makeControlPlaneId('attempt');
     const projectId = makeControlPlaneId('project');
     const workspaceId = makeControlPlaneId('workspace');
-
-    const attachmentRegistry = new AttachmentRegistry();
-    const lease = issueRuntimeLease(projectId, workspaceId, 3600000, 1);
-
-    const issued = attachmentRegistry.issueAttachment(
-      runId,
-      attemptId,
-      projectId,
-      workspaceId,
-      {
-        backendId: 'e2e-backend',
-        lease,
-        leaseToken: lease.token,
-        grant: 'write',
-        browserTarget: {
-          projectId,
-          workspaceId,
-          runtimeId: lease.runtimeId,
-          tabId,
-          browserEpoch: 1,
-          documentGeneration: 1,
-        },
-      }
-    );
-
-    const testSecret = issued.launch.secret;
-    const testAttachmentId = issued.record.id;
 
     const controlPlaneRuntime = new ControlPlaneRuntime({
       dataRoot: tempUserData,
       projectId,
       workspaceId,
-      runtimeId: lease.runtimeId,
-      hostEpoch: lease.hostEpoch,
       allowEval: false,
       getAutomationTabId: () => tabHost.getAutomationTabId(),
       getDocumentGeneration: (id) => tabHost.getDocumentGeneration(id),
     });
 
+    const session = controlPlaneRuntime.createCliSession({
+      projectId,
+      workspaceId,
+      backendId: 'e2e-backend',
+      tabId,
+      grant: 'write',
+    });
+
+    const runId = session.run.id;
+    const attemptId = session.attempt.id;
+    const testSecret = session.launch.secret;
+    const testAttachmentId = session.launch.attachmentId;
+    const attachmentRegistry = controlPlaneRuntime.runs.attachments;
     tabHost.setControlPlane(controlPlaneRuntime);
     const browserPort = new BrowserControlPort({
       getTabList: () => tabHost.getTabList(),
@@ -219,7 +201,7 @@ async function runMcpLiveE2ETest() {
     }, controlPlaneRuntime.artifacts);
     tabHost.setViewportGate(browserPort.viewportGate);
     controlPlaneRuntime.registerBrowser(browserPort);
-    const capabilityTransport = new CapabilityTransportAdapter(controlPlaneRuntime.capabilities);
+    const capabilityTransport = new CapabilityTransportAdapter(controlPlaneRuntime.capabilities, attachmentRegistry);
     bridgeServer = new BridgeServer(
       tabHost,
       0,
@@ -242,6 +224,7 @@ async function runMcpLiveE2ETest() {
           port: bridgePort,
           secret: testSecret,
           attachmentId: testAttachmentId,
+          authorityRevision: session.launch.authorityRevision,
           runId,
           attemptId,
           projectId,
@@ -249,7 +232,6 @@ async function runMcpLiveE2ETest() {
         }),
         ANTIFAN_HEARTBEAT_MS: '1000',
       },
-      stdio: ['pipe', 'pipe', 'pipe'],
     });
     mcpProc.stderr.on('data', (d) => console.error('[MCP STDERR]', d.toString()));
     const { StringDecoder } = require('node:string_decoder');
@@ -298,6 +280,9 @@ async function runMcpLiveE2ETest() {
     // Milestone 1: Live Chromium Viewport Screenshot Capture & HTTP Stream Resolution
     console.log('[Milestone 1] Capturing live Chromium screenshot over MCP...');
     const screenshotResp = await callMcp(1, 'anti.screenshot.viewport', {});
+    if (screenshotResp.result?.isError) {
+      console.error('[Screenshot ERROR content]', JSON.stringify(screenshotResp.result.content));
+    }
     assert.equal(screenshotResp.error, undefined);
     assert.equal(screenshotResp.result.isError, undefined);
     const imageContent = screenshotResp.result.content[0];

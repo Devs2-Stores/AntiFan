@@ -6,7 +6,7 @@ priority: P1
 effort: "XL (8-12 weeks)"
 branch: main
 tags: [refactor, frontend, electron, chromium, harness, critical]
-blockedBy: [260817-1931-rebuild-chromium-first-native-harness, 260820-1301-build-antifan-standalone-control-plane]
+blockedBy: [260820-1301-build-antifan-standalone-control-plane, 260901-1011-antifan-core-runtime-freeze]
 blocks: []
 created: 2026-08-17
 ---

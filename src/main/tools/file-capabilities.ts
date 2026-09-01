@@ -33,6 +33,19 @@ export function registerFileCapabilities(
     name: 'file.read',
     description: 'Read a file relative to authoritative workspace root with boundary enforcement',
     risk: 'read',
+    policy: {
+      effect: 'read',
+      risk: 'read',
+      requiresBrowserTarget: false,
+      schedulerLane: 'unbounded',
+      duplicateMode: 'in-process-join',
+      recordedVisibility: 'tenant-scoped',
+      receiptReadPermission: 'read',
+      timeoutMs: 15_000,
+      retentionPolicy: 'run-durable',
+      cancellationBehavior: 'abort-immediate',
+      policyVersion: 1,
+    },
     inputSchema: {
       type: 'object',
       properties: {
@@ -55,6 +68,19 @@ export function registerFileCapabilities(
     name: 'file.write',
     description: 'Write a file relative to authoritative workspace root with boundary enforcement',
     risk: 'write',
+    policy: {
+      effect: 'idempotent-write',
+      risk: 'write',
+      requiresBrowserTarget: false,
+      schedulerLane: 'unbounded',
+      duplicateMode: 'in-process-join',
+      recordedVisibility: 'tenant-scoped',
+      receiptReadPermission: 'write',
+      timeoutMs: 15_000,
+      retentionPolicy: 'run-durable',
+      cancellationBehavior: 'drain-and-persist',
+      policyVersion: 1,
+    },
     inputSchema: {
       type: 'object',
       properties: {
@@ -77,6 +103,19 @@ export function registerFileCapabilities(
     name: 'file.assert_not_contains',
     description: 'Assert that a workspace file does not contain a forbidden pattern',
     risk: 'read',
+    policy: {
+      effect: 'read',
+      risk: 'read',
+      requiresBrowserTarget: false,
+      schedulerLane: 'unbounded',
+      duplicateMode: 'in-process-join',
+      recordedVisibility: 'tenant-scoped',
+      receiptReadPermission: 'read',
+      timeoutMs: 15_000,
+      retentionPolicy: 'run-durable',
+      cancellationBehavior: 'abort-immediate',
+      policyVersion: 1,
+    },
     inputSchema: {
       type: 'object',
       properties: {
