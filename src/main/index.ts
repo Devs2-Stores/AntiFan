@@ -246,6 +246,8 @@ async function createWindow(): Promise<void> {
     isCurrentTarget: (target) => tabHost!.isCurrentTarget(target),
     clearAllAgentWorking: () => tabHost!.clearAllAgentWorking(),
     getDocumentGeneration: (tabId) => tabHost!.getDocumentGeneration(tabId),
+    uploadFileInput: (params) => tabHost!.uploadFileInput(params),
+    dropFiles: (params) => tabHost!.dropFiles(params),
   });
   tabHost.setViewportGate(browserPort.viewportGate);
   controlPlane.registerBrowser(browserPort);

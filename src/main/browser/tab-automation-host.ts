@@ -4,6 +4,8 @@
  * Isolated World (World 1004) Script Evaluation, and Semantic Snapshot Generation.
  */
 
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 import { SplitPaneId } from '../../shared/contracts';
 import { CapabilityError } from '../../shared/control-plane-contracts';
 import { AGENT_BROWSER_SCRIPT } from './agent-browser';
@@ -17,6 +19,7 @@ import {
 import type { SemanticElementDescriptor } from './semantic-ref-types';
 import { generateCollectionNonce, validateCollectionEnvelope } from './semantic-ref-types';
 import type { NativeTabRecord } from './native-tab-host';
+import type { TabDevToolsHost } from './tab-devtools-host';
 
 export interface TabAutomationContext {
   getTabWebContents: (tabId?: string, paneId?: SplitPaneId) => Electron.WebContents | null;
@@ -32,7 +35,48 @@ export interface TabAutomationContext {
   syncFrameBackdrop: () => void;
   getAllTabs: () => IterableIterator<[string, NativeTabRecord]>;
   applyTabThrottling?: () => void;
+  tabDevToolsHost?: TabDevToolsHost;
+  resolveTargetWorkspace?: (targetSessionId?: string, tabUrl?: string) => string;
+  getTabTerminalSession?: (tabId: string) => string | undefined;
 }
+
+function validatePathConfinement(rawFilePath: string, rawWorkspaceRoot: string): string {
+  if (typeof rawFilePath !== 'string' || !rawFilePath.trim()) {
+    throw new CapabilityError('INVALID_ARGUMENT', 'File path must be a non-empty string');
+  }
+  if (typeof rawWorkspaceRoot !== 'string' || !rawWorkspaceRoot.trim()) {
+    throw new CapabilityError('WORKSPACE_UNBOUND', 'No authoritative workspace root bound to target tab');
+  }
+
+  const absPath = path.resolve(rawFilePath);
+  const absRoot = path.resolve(rawWorkspaceRoot);
+
+  if (!fs.existsSync(absPath)) {
+    throw new CapabilityError('INVALID_ARGUMENT', `File does not exist on disk: ${rawFilePath}`);
+  }
+  if (!fs.existsSync(absRoot)) {
+    throw new CapabilityError('WORKSPACE_UNBOUND', `Authoritative workspace root does not exist on disk: ${rawWorkspaceRoot}`);
+  }
+
+  const realFile = fs.realpathSync(absPath);
+  const realRoot = fs.realpathSync(absRoot);
+
+  const rel = path.relative(realRoot, realFile);
+  const isEscaped =
+    rel.startsWith('..') ||
+    path.isAbsolute(rel) ||
+    (process.platform === 'win32' && /^[a-zA-Z]:/.test(rel));
+
+  if (isEscaped) {
+    throw new CapabilityError(
+      'OUTSIDE_WORKSPACE',
+      `Access denied: File path "${rawFilePath}" escapes authoritative workspace root "${rawWorkspaceRoot}"`
+    );
+  }
+
+  return realFile;
+}
+
 export class TabAutomationHost {
   private readonly ctx: TabAutomationContext;
   public agentWorkingTimers = new Map<string, NodeJS.Timeout>();
@@ -794,7 +838,7 @@ export class TabAutomationHost {
     return { success: res.success, executedSteps: 0, totalSteps: params?.steps?.length || 0, reason: res.reason };
   }
 
-  public async agentSnapshot(tabId?: string, paneId?: SplitPaneId): Promise<string> {
+  public async agentSnapshot(tabId?: string, paneId?: SplitPaneId, selector?: string): Promise<string> {
     const targetId = tabId || this.ctx.getAutomationTabId() || this.ctx.getActiveTabId();
     const target = this.ctx.getTabRecord(targetId);
     if (!target) return '';
@@ -802,7 +846,6 @@ export class TabAutomationHost {
     const effectivePane: SplitPaneId = paneId || (splitHasLiveMobile ? (target.focusedPane || target.state.splitFocusedPane || 'desktop') : 'desktop');
     const wc = this.ctx.getTabWebContents(targetId, effectivePane);
     if (!wc || wc.isDestroyed()) return '';
-
     return await this.ctx.runTargetOperation(targetId, effectivePane, async () => {
       const curTab = this.ctx.getTabRecord(targetId);
       if (!curTab) return '';
@@ -831,7 +874,7 @@ export class TabAutomationHost {
       }
 
       try {
-        const collectorScript = buildIsolatedCollectorScript(collectionSession.nonce, curUrl);
+        const collectorScript = buildIsolatedCollectorScript(collectionSession.nonce, curUrl, selector);
         const rawRes = await this.executeInIsolatedWorld(curWc, collectorScript);
         const rawDescriptors = validateCollectionEnvelope(rawRes, collectionSession.nonce, curUrl);
 
@@ -860,6 +903,280 @@ export class TabAutomationHost {
     });
   }
 
+  public async uploadFileInput(
+    refOrSelector: string,
+    filePaths: string[],
+    tabId?: string,
+    paneId?: SplitPaneId
+  ): Promise<{ success: boolean; uploadedCount: number; reason?: string }> {
+    const targetId = tabId || this.ctx.getAutomationTabId() || this.ctx.getActiveTabId();
+    const target = this.ctx.getTabRecord(targetId);
+    if (!target) return { success: false, uploadedCount: 0, reason: 'Target tab not found' };
+
+    if (!Array.isArray(filePaths) || filePaths.length === 0) {
+      return { success: false, uploadedCount: 0, reason: 'filePaths array is required and must not be empty' };
+    }
+
+    const targetSessionId = this.ctx.getTabTerminalSession?.(targetId);
+    const curTabUrl = target.state?.url || '';
+    const targetWorkspace = this.ctx.resolveTargetWorkspace?.(targetSessionId, curTabUrl) || '';
+    if (!targetWorkspace) {
+      throw new CapabilityError('WORKSPACE_UNBOUND', 'No authoritative workspace bound to target tab session');
+    }
+
+    const resolvedPaths = filePaths.map((p) => validatePathConfinement(p, targetWorkspace));
+    const splitHasLiveMobile = Boolean(target.state.splitMode && target.mobileView && !target.mobileView.webContents.isDestroyed());
+    const effectivePane: SplitPaneId = paneId || (splitHasLiveMobile ? (target.focusedPane || target.state.splitFocusedPane || 'desktop') : 'desktop');
+    const wc = this.ctx.getTabWebContents(targetId, effectivePane);
+    if (!wc || wc.isDestroyed()) return { success: false, uploadedCount: 0, reason: 'WebContents destroyed' };
+
+    return await this.ctx.runTargetOperation(targetId, effectivePane, async () => {
+      let resolvedObjectId: string | undefined;
+      let resolvedNodeId: number | undefined;
+      const targetRef = String(refOrSelector || '').trim();
+      if (!targetRef) {
+        throw new CapabilityError('INVALID_ARGUMENT', 'refOrSelector is required for uploadFileInput');
+      }
+      const isRef = targetRef.startsWith('@') || /^e\d+$/i.test(targetRef);
+
+      if (!this.ctx.tabDevToolsHost) {
+        throw new CapabilityError('CAPABILITY_NOT_FOUND', 'CDP TabDevToolsHost is required for file upload');
+      }
+
+      if (isRef) {
+        if (!this.ctx.semanticRefRegistry) {
+          throw new CapabilityError('REF_NOT_FOUND', `Semantic ref registry unavailable for ${refOrSelector}`);
+        }
+        const normRef = targetRef.startsWith('@') ? targetRef : `@${targetRef}`;
+        const curEpoch = this.ctx.getBrowserEpoch();
+        const curGen = this.ctx.getSemanticDocumentGeneration(targetId, effectivePane);
+        const curUrl = wc.getURL();
+        const desc = this.ctx.semanticRefRegistry.resolveRef(
+          {
+            tabId: targetId,
+            paneId: effectivePane,
+            browserEpoch: curEpoch,
+            documentGeneration: curGen,
+            documentUrl: curUrl,
+          },
+          normRef
+        );
+        if (!desc) {
+          throw new CapabilityError('REF_NOT_FOUND', `Semantic reference not found: ${refOrSelector}`);
+        }
+        const isolatedCtxId = await this.ctx.tabDevToolsHost.getOrCreateIsolatedWorldContext?.(wc);
+        const evalParams: Record<string, unknown> = {
+          expression: `(() => {
+            const desc = ${JSON.stringify(desc)};
+            function resolveTraversalPath(path) {
+              if (!Array.isArray(path) || path.length === 0) return null;
+              let current = document;
+              for (let i = 0; i < path.length; i++) {
+                const step = path[i];
+                if (!step || typeof step !== 'object') return null;
+                if (step.kind === 'dom') {
+                  const children = Array.from(current.children || []);
+                  let candidate = children[step.index] || null;
+                  if (!candidate && step.id) {
+                    if (typeof current.getElementById === 'function') candidate = current.getElementById(step.id);
+                    if (!candidate && typeof document.getElementById === 'function') candidate = document.getElementById(step.id);
+                  }
+                  if (!candidate) return null;
+                  current = candidate;
+                } else if (step.kind === 'shadow') {
+                  if (!current.shadowRoot) return null;
+                  current = current.shadowRoot;
+                } else if (step.kind === 'iframe') {
+                  if (!current.contentDocument) return null;
+                  current = current.contentDocument;
+                } else {
+                  return null;
+                }
+              }
+              return current instanceof Element ? current : null;
+            }
+
+            let el = resolveTraversalPath(desc.path);
+            if (!el && desc.id) el = document.getElementById(desc.id);
+            if (!el && desc.fingerprint?.id) el = document.getElementById(desc.fingerprint.id);
+            if (el && el.tagName !== 'INPUT' && typeof el.querySelector === 'function') {
+              el = el.querySelector('input[type="file"]') || el;
+            }
+            return el;
+          })()`,
+          returnByValue: false,
+        };
+        if (isolatedCtxId) {
+          evalParams.contextId = isolatedCtxId;
+        }
+
+        const evalRes = await this.ctx.tabDevToolsHost.sendCdpCommand<{ result?: { objectId?: string } }>(
+          wc,
+          'Runtime.evaluate',
+          evalParams
+        );
+        if (evalRes?.result?.objectId) {
+          resolvedObjectId = evalRes.result.objectId;
+          resolvedNodeId = await this.ctx.tabDevToolsHost.describeNodeByObjectId(wc, evalRes.result.objectId);
+        }
+      } else {
+        const evalRes = await this.ctx.tabDevToolsHost.sendCdpCommand<{ result?: { objectId?: string } }>(
+          wc,
+          'Runtime.evaluate',
+          {
+            expression: `document.querySelector(${JSON.stringify(targetRef)})`,
+            returnByValue: false,
+          }
+        );
+        if (evalRes?.result?.objectId) {
+          resolvedObjectId = evalRes.result.objectId;
+          resolvedNodeId = await this.ctx.tabDevToolsHost.describeNodeByObjectId(wc, evalRes.result.objectId);
+        }
+      }
+
+      if (!resolvedNodeId || !resolvedObjectId) {
+        throw new CapabilityError('REF_NOT_FOUND', `Could not resolve target file input element: ${refOrSelector}`);
+      }
+      await this.ctx.tabDevToolsHost.sendCdpCommand(wc, 'DOM.setFileInputFiles', {
+        files: resolvedPaths,
+        backendNodeId: resolvedNodeId,
+      });
+
+      // Dispatch input & change events directly on the resolved RemoteObject handle without global querySelector
+      try {
+        await this.ctx.tabDevToolsHost.sendCdpCommand(wc, 'Runtime.callFunctionOn', {
+          objectId: resolvedObjectId,
+          functionDeclaration: `function() {
+            this.dispatchEvent(new Event('input', { bubbles: true }));
+            this.dispatchEvent(new Event('change', { bubbles: true }));
+          }`,
+        });
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        throw new CapabilityError('NODE_DETACHED', `Failed to dispatch input/change events on file input: ${msg}`);
+      }
+
+      return { success: true, uploadedCount: resolvedPaths.length };
+    });
+  }
+
+  public async dropFiles(
+    refOrSelector: string,
+    filePaths: string[],
+    tabId?: string,
+    paneId?: SplitPaneId
+  ): Promise<{ success: boolean; droppedCount: number; reason?: string }> {
+    const targetRef = String(refOrSelector || '').trim();
+    if (!targetRef) {
+      throw new CapabilityError('INVALID_ARGUMENT', 'refOrSelector is required for dropFiles');
+    }
+
+    const targetId = tabId || this.ctx.getAutomationTabId() || this.ctx.getActiveTabId();
+    const target = this.ctx.getTabRecord(targetId);
+    if (!target) return { success: false, droppedCount: 0, reason: 'Target tab not found' };
+
+    if (!Array.isArray(filePaths) || filePaths.length === 0) {
+      return { success: false, droppedCount: 0, reason: 'filePaths array is required and must not be empty' };
+    }
+
+    const targetSessionId = this.ctx.getTabTerminalSession?.(targetId);
+    const curTabUrl = target.state?.url || '';
+    const targetWorkspace = this.ctx.resolveTargetWorkspace?.(targetSessionId, curTabUrl) || '';
+    if (!targetWorkspace) {
+      throw new CapabilityError('WORKSPACE_UNBOUND', 'No authoritative workspace bound to target tab session');
+    }
+
+    const resolvedPaths = filePaths.map((p) => validatePathConfinement(p, targetWorkspace));
+    const splitHasLiveMobile = Boolean(target.state.splitMode && target.mobileView && !target.mobileView.webContents.isDestroyed());
+    const effectivePane: SplitPaneId = paneId || (splitHasLiveMobile ? (target.focusedPane || target.state.splitFocusedPane || 'desktop') : 'desktop');
+    const wc = this.ctx.getTabWebContents(targetId, effectivePane);
+    if (!wc || wc.isDestroyed()) return { success: false, droppedCount: 0, reason: 'WebContents destroyed' };
+
+    if (!this.ctx.tabDevToolsHost) {
+      throw new CapabilityError('CAPABILITY_NOT_FOUND', 'CDP TabDevToolsHost is required for native drag-drop');
+    }
+
+    return await this.ctx.runTargetOperation(targetId, effectivePane, async () => {
+      // 1. Resolve target element coordinates strictly without @eN fallback to querySelector
+      const targetSel = JSON.stringify(targetRef);
+      const isRef = targetRef.startsWith('@') || /^e\d+$/i.test(targetRef);
+
+      let dropCoords: { x: number; y: number } | null = null;
+
+      if (isRef) {
+        if (!this.ctx.semanticRefRegistry) {
+          throw new CapabilityError('REF_NOT_FOUND', `Semantic ref registry unavailable for ${refOrSelector}`);
+        }
+        const normRef = targetRef.startsWith('@') ? targetRef : `@${targetRef}`;
+        const curEpoch = this.ctx.getBrowserEpoch();
+        const curGen = this.ctx.getSemanticDocumentGeneration(targetId, effectivePane);
+        const desc = this.ctx.semanticRefRegistry.resolveRef(
+          {
+            tabId: targetId,
+            paneId: effectivePane,
+            browserEpoch: curEpoch,
+            documentGeneration: curGen,
+            documentUrl: curTabUrl,
+          },
+          normRef
+        );
+        if (!desc || !desc.rect || desc.rect.width <= 0 || desc.rect.height <= 0) {
+          throw new CapabilityError('REF_NOT_FOUND', `Semantic drop target not found or has zero dimensions: ${refOrSelector}`);
+        }
+        dropCoords = { x: desc.rect.centerX, y: desc.rect.centerY };
+      } else {
+        const coordsRes = (await wc.executeJavaScript(`(() => {
+          const el = document.querySelector(${targetSel});
+          if (!el) return null;
+          const r = el.getBoundingClientRect();
+          if (r.width <= 0 || r.height <= 0) return null;
+          return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+        })()`)) as { x?: number; y?: number } | null;
+
+        if (!coordsRes || typeof coordsRes.x !== 'number' || typeof coordsRes.y !== 'number') {
+          throw new CapabilityError('REF_NOT_FOUND', `Target drop element not found or has zero dimensions: ${refOrSelector}`);
+        }
+        dropCoords = { x: coordsRes.x, y: coordsRes.y };
+      }
+
+      if (!dropCoords) {
+        throw new CapabilityError('REF_NOT_FOUND', `Target drop coordinates could not be resolved: ${refOrSelector}`);
+      }
+
+      const dropX = dropCoords.x;
+      const dropY = dropCoords.y;
+      // 2. Dispatch CDP-native Input.dispatchDragEvent with fail-closed error propagation
+      try {
+        const dragData = {
+          items: [],
+          files: resolvedPaths,
+          dragOperationsMask: 1,
+        };
+        await this.ctx.tabDevToolsHost!.sendCdpCommand(wc, 'Input.dispatchDragEvent', {
+          type: 'dragEnter',
+          x: dropX,
+          y: dropY,
+          data: dragData,
+        });
+        await this.ctx.tabDevToolsHost!.sendCdpCommand(wc, 'Input.dispatchDragEvent', {
+          type: 'dragOver',
+          x: dropX,
+          y: dropY,
+          data: dragData,
+        });
+        await this.ctx.tabDevToolsHost!.sendCdpCommand(wc, 'Input.dispatchDragEvent', {
+          type: 'drop',
+          x: dropX,
+          y: dropY,
+          data: dragData,
+        });
+        return { success: true, droppedCount: resolvedPaths.length };
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        throw new CapabilityError('CAPABILITY_NOT_FOUND', `CDP Input.dispatchDragEvent failed: ${msg}`);
+      }
+    });
+  }
   public dispose(): void {
     for (const [, timer] of this.agentWorkingTimers.entries()) {
       clearTimeout(timer);

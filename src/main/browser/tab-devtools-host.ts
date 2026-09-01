@@ -42,6 +42,12 @@ export class TabDevToolsHost {
   private isProcessingInspectPick: boolean = false;
   public inspectGeneration: number = 0;
   public inspectedTabId: string | null = null;
+  private cdpQueues = new Map<number, Promise<unknown>>();
+  private cdpAttachedWebContents = new Set<number>();
+  private cdpAttachedByHost = new Set<number>();
+  private cdpWebContentsRefs = new Map<number, Electron.WebContents>();
+  private cdpListeners = new Map<number, { onDetach: () => void; onNavigate?: () => void }>();
+  private isolatedContextIds = new Map<number, number>();
   constructor(ctx: TabDevToolsContext) {
     this.ctx = ctx;
   }
@@ -433,10 +439,10 @@ export class TabDevToolsHost {
         if (document.documentElement) document.documentElement.style.cursor = '';
         window.__antifanPickerActive = false;
       })()`;
-      if (!target.view.webContents.isDestroyed()) {
+      if (target.view?.webContents && !target.view.webContents.isDestroyed()) {
         target.view.webContents.executeJavaScript(cleanScript).catch(() => {});
       }
-      if (target.state.splitMode && target.mobileView && !target.mobileView.webContents.isDestroyed()) {
+      if (target.state?.splitMode && target.mobileView?.webContents && !target.mobileView.webContents.isDestroyed()) {
         target.mobileView.webContents.executeJavaScript(cleanScript).catch(() => {});
       }
     }
@@ -460,34 +466,147 @@ export class TabDevToolsHost {
     }
   }
 
+  // ─── CDP Low-Level Command Queue & Transport ───
+  public async sendCdpCommand<T = unknown>(
+    wc: Electron.WebContents,
+    method: string,
+    params: Record<string, unknown> = {}
+  ): Promise<T> {
+    if (!wc || wc.isDestroyed()) {
+      throw new Error(`WebContents is destroyed or unavailable for CDP method ${method}`);
+    }
+    const wcId = wc.id;
+    if (!this.cdpAttachedWebContents.has(wcId)) {
+      if (!wc.debugger.isAttached()) {
+        try {
+          wc.debugger.attach('1.3');
+          this.cdpAttachedByHost.add(wcId);
+        } catch (err: unknown) {
+          const msg = err instanceof Error ? err.message : String(err);
+          if (!msg.includes('Already attached')) {
+            throw err;
+          }
+        }
+      }
+      this.cdpAttachedWebContents.add(wcId);
+      this.cdpWebContentsRefs.set(wcId, wc);
+
+      const onDetach = () => {
+        this.cdpAttachedWebContents.delete(wcId);
+        this.cdpAttachedByHost.delete(wcId);
+        this.cdpWebContentsRefs.delete(wcId);
+        this.cdpQueues.delete(wcId);
+        this.isolatedContextIds.delete(wcId);
+        const l = this.cdpListeners.get(wcId);
+        if (l && l.onNavigate && typeof wc.removeListener === 'function') {
+          try { wc.removeListener('did-navigate', l.onNavigate); } catch {}
+        }
+        this.cdpListeners.delete(wcId);
+      };
+
+      const onNavigate = () => {
+        this.isolatedContextIds.delete(wcId);
+      };
+
+      wc.debugger.once('detach', onDetach);
+      if (typeof wc.on === 'function') {
+        wc.on('did-navigate', onNavigate);
+      }
+      this.cdpListeners.set(wcId, { onDetach, onNavigate });
+    }
+    const currentQueue = this.cdpQueues.get(wcId) || Promise.resolve();
+    const nextPromise = currentQueue.then(async () => {
+      if (wc.isDestroyed()) {
+        throw new Error(`WebContents destroyed before executing CDP method ${method}`);
+      }
+      return wc.debugger.sendCommand(method, params);
+    });
+
+    this.cdpQueues.set(
+      wcId,
+      nextPromise.catch(() => {})
+    );
+
+    return nextPromise as Promise<T>;
+  }
+
+  public async describeNodeByObjectId(
+    wc: Electron.WebContents,
+    objectId: string
+  ): Promise<number | undefined> {
+    try {
+      const res = await this.sendCdpCommand<{ node?: { backendNodeId?: number } }>(
+        wc,
+        'DOM.describeNode',
+        { objectId }
+      );
+      return res?.node?.backendNodeId;
+    } catch {
+      return undefined;
+    }
+  }
+
+  public async getOrCreateIsolatedWorldContext(wc: Electron.WebContents): Promise<number | undefined> {
+    if (!wc || wc.isDestroyed()) return undefined;
+    const wcId = wc.id;
+    if (this.isolatedContextIds.has(wcId)) {
+      return this.isolatedContextIds.get(wcId);
+    }
+    try {
+      await this.sendCdpCommand(wc, 'Page.enable');
+      const frameTree = await this.sendCdpCommand<{ frameTree?: { frame?: { id?: string } } }>(wc, 'Page.getFrameTree');
+      const frameId = frameTree?.frameTree?.frame?.id;
+      if (frameId) {
+        const res = await this.sendCdpCommand<{ executionContextId?: number }>(wc, 'Page.createIsolatedWorld', {
+          frameId,
+          worldName: 'AntifanAgentWorld1004',
+          grantUniveralAccess: true,
+        });
+        if (res?.executionContextId) {
+          this.isolatedContextIds.set(wcId, res.executionContextId);
+          return res.executionContextId;
+        }
+      }
+    } catch {
+      return undefined;
+    }
+    return undefined;
+  }
   // ─── DOM / Screenshot / Eval Utilities ───
   public async captureScreenshot(rect?: Rectangle, tabId?: string, paneId?: SplitPaneId): Promise<string> {
     const targetId = tabId || this.ctx.getActiveTabId();
     const target = this.ctx.getTabRecord(targetId);
     if (!target) return '';
     const wc = this.ctx.getTabWebContents(targetId, paneId || target.focusedPane);
-    if (!wc) return '';
+    if (!wc || wc.isDestroyed()) return '';
     return this.ctx.withTabAgentWorking(targetId, async () => {
+      // Empirical Cascade Tier 1: Fast webContents.capturePage() with 500ms race
       try {
-        let img = await wc.capturePage(rect);
-        for (let retry = 0; retry < 3 && (typeof img?.isEmpty === 'function' ? img.isEmpty() : false); retry++) {
-          await new Promise<void>((r) => setTimeout(r, 150));
-          img = await wc.capturePage(rect);
-        }
-        const hasContent = typeof img?.isEmpty === 'function' ? !img.isEmpty() : Boolean(img && typeof img.toPNG === 'function');
-        if (hasContent) {
+        const capturePromise = wc.capturePage(rect);
+        const timeoutPromise = new Promise<null>((r) => setTimeout(() => r(null), 500));
+        const img = await Promise.race([capturePromise, timeoutPromise]);
+        if (img && typeof img.isEmpty === 'function' && !img.isEmpty()) {
           return img.toPNG().toString('base64');
+        }
+        if (img && typeof img.toPNG === 'function') {
+          const pngBuf = img.toPNG();
+          if (pngBuf.length > 0) {
+            return pngBuf.toString('base64');
+          }
         }
       } catch {}
 
+      // Empirical Cascade Tier 2: CDP Page.captureScreenshot with fromSurface: false & exact clip bounds
       try {
-        if (!wc.debugger.isAttached()) {
-          wc.debugger.attach('1.3');
-        }
-        const cdpRes = (await wc.debugger.sendCommand('Page.captureScreenshot', {
+        await this.sendCdpCommand(wc, 'Page.enable');
+        const cdpRes = await this.sendCdpCommand<{ data?: string }>(wc, 'Page.captureScreenshot', {
           format: 'png',
-          clip: rect ? { x: rect.x, y: rect.y, width: rect.width, height: rect.height, scale: 1 } : undefined,
-        })) as { data?: string };
+          fromSurface: false,
+          captureBeyondViewport: true,
+          clip: rect
+            ? { x: rect.x, y: rect.y, width: rect.width, height: rect.height, scale: 1 }
+            : undefined,
+        });
         if (cdpRes && typeof cdpRes.data === 'string' && cdpRes.data.length > 0) {
           return cdpRes.data;
         }
@@ -502,7 +621,7 @@ export class TabDevToolsHost {
     const target = this.ctx.getTabRecord(targetId);
     if (!target) return '';
     const wc = this.ctx.getTabWebContents(targetId, paneId || target.focusedPane);
-    if (!wc) return '';
+    if (!wc || wc.isDestroyed()) return '';
     return this.ctx.withTabAgentWorking(targetId, async () => {
       const script = selector
         ? `(() => {
@@ -514,17 +633,60 @@ export class TabDevToolsHost {
     });
   }
 
-  public async evalJs(expression: string, tabId?: string, paneId?: SplitPaneId): Promise<unknown> {
+  public async evalJs(
+    expression: string,
+    tabId?: string,
+    paneId?: SplitPaneId,
+    userGesture = false
+  ): Promise<unknown> {
     const targetId = tabId || this.ctx.getActiveTabId();
     const target = this.ctx.getTabRecord(targetId);
     if (!target) return undefined;
     const wc = this.ctx.getTabWebContents(targetId, paneId || target.focusedPane);
-    if (!wc) return undefined;
+    if (!wc || wc.isDestroyed()) return undefined;
     return this.ctx.withTabAgentWorking(targetId, async () => {
-      return wc.executeJavaScript(expression);
+      const wrapped = `(async () => {
+        function serializeCircularSafe(val, seen = new WeakSet(), depth = 0) {
+          if (val === null || typeof val !== 'object') {
+            if (typeof val === 'bigint') return val.toString() + 'n';
+            if (typeof val === 'function') return '[Function: ' + (val.name || 'anonymous') + ']';
+            if (typeof val === 'symbol') return val.toString();
+            return val;
+          }
+          if (depth > 10) return '[MaxDepth]';
+          if (seen.has(val)) return '[Circular]';
+          seen.add(val);
+          if (Array.isArray(val)) {
+            return val.map(item => serializeCircularSafe(item, seen, depth + 1));
+          }
+          if (typeof Element !== 'undefined' && val instanceof Element) {
+            return {
+              tagName: val.tagName,
+              id: val.id || undefined,
+              className: val.className || undefined,
+              outerHTML: val.outerHTML ? val.outerHTML.slice(0, 1000) : undefined,
+            };
+          }
+          const out = {};
+          for (const key of Object.keys(val)) {
+            try {
+              out[key] = serializeCircularSafe(val[key], seen, depth + 1);
+            } catch {
+              out[key] = '[Unserializable]';
+            }
+          }
+          return out;
+        }
+        try {
+          const result = await (0, eval)(${JSON.stringify(expression)});
+          return serializeCircularSafe(result);
+        } catch (err) {
+          throw err;
+        }
+      })()`;
+      return wc.executeJavaScript(wrapped, userGesture);
     });
   }
-
   // ─── Auto JSON Viewer & View Page Source ───
   public injectAutoJsonViewer(wc: Electron.WebContents): void {
     if (!wc || wc.isDestroyed()) return;
@@ -846,11 +1008,46 @@ export class TabDevToolsHost {
   }
 
   public dispose(): void {
-    this.stopInspect(this.inspectedTabId || undefined);
-    this.isInspecting = false;
+    if (this.inspectedTabId) {
+      this.stopInspect(this.inspectedTabId);
+    }
     this.isProcessingInspectPick = false;
     this.isFontFinderActive = false;
     this.isLensActive = false;
     this.isRulerActive = false;
+
+    // 1. Snapshot listeners and remove registered event listeners first
+    const listenersSnapshot = Array.from(this.cdpListeners.entries());
+    for (const [wcId, listeners] of listenersSnapshot) {
+      const wc = this.cdpWebContentsRefs.get(wcId);
+      if (wc && !wc.isDestroyed()) {
+        try {
+          if (listeners.onNavigate && typeof wc.removeListener === 'function') {
+            wc.removeListener('did-navigate', listeners.onNavigate);
+          }
+          if (listeners.onDetach && wc.debugger && typeof wc.debugger.removeListener === 'function') {
+            wc.debugger.removeListener('detach', listeners.onDetach);
+          }
+        } catch {}
+      }
+    }
+
+    // 2. Snapshot attached IDs and detach only debugger sessions attached by this host instance
+    const attachedByHostSnapshot = Array.from(this.cdpAttachedByHost);
+    for (const wcId of attachedByHostSnapshot) {
+      const wc = this.cdpWebContentsRefs.get(wcId);
+      if (wc && !wc.isDestroyed() && wc.debugger && wc.debugger.isAttached()) {
+        try {
+          wc.debugger.detach();
+        } catch {}
+      }
+    }
+
+    this.cdpAttachedByHost.clear();
+    this.cdpAttachedWebContents.clear();
+    this.cdpWebContentsRefs.clear();
+    this.cdpListeners.clear();
+    this.cdpQueues.clear();
+    this.isolatedContextIds.clear();
   }
 }

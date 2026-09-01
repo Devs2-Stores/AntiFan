@@ -16,7 +16,7 @@ import { CapabilityTransportAdapter } from '../tools/capability-transport';
 import { CapabilityError, AuthenticatedCapabilityContext, ClientInvocationIntent, makeControlPlaneId } from '../../shared/control-plane-contracts';
 import { AttachmentRegistry } from '../run/attachment-registry';
 import { envelope } from './result-envelope';
-
+import { recordFallbackTelemetry, FallbackTelemetryPayload } from '../telemetry/fallback-recorder';
 export interface BoundAttachmentSession {
   attachmentId: string;
   attachmentSecret: string;
@@ -392,6 +392,25 @@ export class AntiFanMcpServer {
           required: ['zoomFactor'],
         },
       },
+      {
+        name: 'anti.telemetry.record_fallback',
+        description: 'Record sanitized structured fallback telemetry when falling back to Playwright after an AntiFan capability failure',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            sessionId: { type: 'string', description: 'Terminal or agent session identifier' },
+            targetUrl: { type: 'string', description: 'Storefront or page URL where failure occurred' },
+            primaryTool: { type: 'string', description: 'The primary anti.* capability that failed' },
+            errorCode: { type: 'string', description: 'The error code returned by AntiFan' },
+            errorMessage: { type: 'string', description: 'The error message or failure reason' },
+            fallbackTool: { type: 'string', description: 'The fallback Playwright browser_* tool invoked' },
+            fallbackResult: { type: 'string', enum: ['SUCCESS', 'FAILED', 'SKIPPED'], description: 'Outcome of the fallback tool invocation' },
+            durationMs: { type: 'number', description: 'Execution duration in milliseconds' },
+            notes: { type: 'string', description: 'Optional comparative diagnostic notes' },
+          },
+          required: ['primaryTool', 'fallbackTool', 'fallbackResult'],
+        },
+      },
     ];
 
     if (this.isHighRiskAllowed) {
@@ -465,6 +484,12 @@ export class AntiFanMcpServer {
       'theme.qa_repair.verify': 'antifan_theme_qa_repair_verify',
       'anti.theme.qa_rollback': 'antifan_theme_qa_rollback',
       'theme.qa_rollback': 'antifan_theme_qa_rollback',
+      'anti.agent.file_upload': 'antifan_upload_file',
+      'anti.agent.upload_file': 'antifan_upload_file',
+      'anti.browser.upload_file': 'antifan_upload_file',
+      'anti.agent.drop': 'antifan_drop_files',
+      'anti.agent.file_drop': 'antifan_drop_files',
+      'anti.browser.drop_files': 'antifan_drop_files',
     };
     const name = aliasMap[toolName] || toolName;
     const a = (args || {}) as Record<string, unknown>;
@@ -472,6 +497,12 @@ export class AntiFanMcpServer {
     if (toolName === 'anti.devtools.console.errors') a.level = 3;
     if (toolName === 'anti.devtools.console.warnings') a.level = 2;
 
+    if (toolName === 'anti.telemetry.record_fallback' || name === 'anti.telemetry.record_fallback') {
+      const result = recordFallbackTelemetry(args as unknown as FallbackTelemetryPayload);
+      return {
+        content: [{ type: 'text', text: JSON.stringify(result) }],
+      };
+    }
     if (!this.transport) {
       return {
         isError: true,

@@ -1,9 +1,10 @@
 import { describe, it } from 'node:test';
 import * as assert from 'node:assert/strict';
+import * as vm from 'node:vm';
 import { SemanticRefRegistry, makeTargetKey } from '../../src/main/browser/semantic-ref-registry';
 import { RawElementDescriptor } from '../../src/main/browser/semantic-ref-types';
 import { CapabilityError } from '../../src/shared/control-plane-contracts';
-
+import { buildIsolatedCollectorScript, buildIsolatedExecutorScript } from '../../src/main/browser/semantic-ref-executor';
 describe('SemanticRefRegistry Pure Main Authority', () => {
   const sampleDescriptor = (id: string, tag = 'button', label = 'Click Me'): RawElementDescriptor => ({
     path: [{ kind: 'dom', index: 0, tag, id }],
@@ -375,5 +376,29 @@ describe('SemanticRefRegistry Pure Main Authority', () => {
       () => registry.beginCollection(target),
       (err: unknown) => err instanceof CapabilityError && err.code === 'RUNTIME_DRAINING'
     );
+  });
+
+  it('buildIsolatedCollectorScript produces valid JavaScript syntax with and without rootSelector', () => {
+    const defaultScript = buildIsolatedCollectorScript('test-nonce-1', 'https://example.com');
+    assert.doesNotThrow(() => {
+      new vm.Script(defaultScript);
+    });
+
+    const scopedScript = buildIsolatedCollectorScript('test-nonce-2', 'https://example.com', '#cart-drawer');
+    assert.doesNotThrow(() => {
+      new vm.Script(scopedScript);
+    });
+  });
+
+  it('buildIsolatedExecutorScript produces valid JavaScript syntax for actions', () => {
+    const clickScript = buildIsolatedExecutorScript({
+      action: 'click',
+      ref: '@e1',
+      nonce: 'nonce-1',
+      documentUrl: 'https://example.com',
+    });
+    assert.doesNotThrow(() => {
+      new vm.Script(clickScript);
+    });
   });
 });

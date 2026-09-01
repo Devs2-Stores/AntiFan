@@ -64,12 +64,32 @@ export function buildIsolatedExecutorScript(request: RendererActionRequest): str
         let el = null;
         if (req.descriptor && Array.isArray(req.descriptor.path)) {
           el = resolveTraversalPath(req.descriptor.path);
-        } else if (req.selector && typeof req.selector === 'string') {
+        }
+        if (!el && req.descriptor && req.descriptor.fingerprint) {
+          // Multi-attribute fallback matching during dynamic React DOM mutations
+          const fp = req.descriptor.fingerprint;
+          if (fp.id) {
+            el = document.getElementById(fp.id);
+          }
+          if (!el && fp.tag) {
+            const candidates = Array.from(document.querySelectorAll(fp.tag));
+            for (const cand of candidates) {
+              if (fp.role && cand.getAttribute('role') === fp.role) {
+                el = cand;
+                break;
+              }
+              if (fp.name && cand.getAttribute('name') === fp.name) {
+                el = cand;
+                break;
+              }
+            }
+          }
+        }
+        if (!el && req.selector && typeof req.selector === 'string') {
           el = document.querySelector(req.selector);
         }
         return el && el.isConnected ? el : null;
       }
-
       function isActionable(el) {
         if (!el || !el.isConnected) return false;
         const style = window.getComputedStyle ? window.getComputedStyle(el) : el.style || {};
@@ -218,6 +238,54 @@ export function buildIsolatedExecutorScript(request: RendererActionRequest): str
             ok: false,
             error: 'Element is disabled',
             code: 'ELEMENT_DISABLED'
+          };
+        }
+
+        // Wait for CSS animations / scrolling velocity decay (rect movement <= 2px across consecutive rAF frames with 50ms timer fallback)
+        let prevRect = targetElement.getBoundingClientRect();
+        for (let frame = 0; frame < 5; frame++) {
+          await new Promise((resolve) => {
+            let settled = false;
+            const step = () => {
+              if (!settled) {
+                settled = true;
+                resolve(undefined);
+              }
+            };
+            if (typeof requestAnimationFrame === 'function') {
+              requestAnimationFrame(step);
+            }
+            setTimeout(step, 50);
+          });
+          const currentRect = targetElement.getBoundingClientRect();
+          const delta = Math.hypot(currentRect.x - prevRect.x, currentRect.y - prevRect.y);
+          prevRect = currentRect;
+          if (delta <= 2) {
+            break;
+          }
+        }
+        // Re-validate post-settle invariants immediately before final rect computation & event dispatch
+        if (typeof req.documentUrl === 'string' && req.documentUrl.trim() && window.location.href !== req.documentUrl.trim()) {
+          return {
+            ok: false,
+            error: 'Document URL mutated during animation stabilization wait: expected "' + req.documentUrl + '", current "' + window.location.href + '"',
+            code: 'REF_DOCUMENT_MUTATED'
+          };
+        }
+
+        if (!targetElement.isConnected) {
+          return {
+            ok: false,
+            error: 'Target element detached from DOM during animation stabilization wait',
+            code: 'REF_DETACHED'
+          };
+        }
+
+        if (!isActionable(targetElement)) {
+          return {
+            ok: false,
+            error: 'Target element became non-actionable during animation stabilization wait',
+            code: 'ELEMENT_NOT_ACTIONABLE'
           };
         }
 
@@ -387,14 +455,16 @@ export function buildIsolatedExecutorScript(request: RendererActionRequest): str
     }
   })()`;
 }
-export function buildIsolatedCollectorScript(nonce: string, expectedUrl: string): string {
+export function buildIsolatedCollectorScript(nonce: string, expectedUrl: string, rootSelector?: string): string {
   const nonceJson = JSON.stringify(nonce);
   const expectedUrlJson = JSON.stringify(expectedUrl);
+  const rootSelectorJson = JSON.stringify(rootSelector || '');
 
   return `(() => {
     try {
       const expectedNonce = ${nonceJson};
       const expectedDocUrl = ${expectedUrlJson};
+      const targetRootSelector = ${rootSelectorJson};
 
       if (window.location.href !== expectedDocUrl) {
         return {
@@ -554,7 +624,15 @@ export function buildIsolatedCollectorScript(nonce: string, expectedUrl: string)
           }
         }
       }
-      scanNode(document, [], 0, 0, 0);
+      const startNode = targetRootSelector ? document.querySelector(targetRootSelector) : document;
+      if (!startNode) {
+        return {
+          ok: false,
+          error: 'Root selector not found: "' + targetRootSelector + '"',
+          code: 'SELECTOR_NOT_FOUND'
+        };
+      }
+      scanNode(startNode, [], 0, 0, 0);
       return {
         ok: true,
         nonce: expectedNonce,

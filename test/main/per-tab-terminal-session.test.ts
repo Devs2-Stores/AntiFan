@@ -7,7 +7,7 @@ import { NativeTabHost } from '../../src/main/browser/native-tab-host';
 import { AntiFanTab } from '../../src/shared/contracts';
 import { TerminalManager } from '../../src/main/browser/terminal-manager';
 
-const ROOT = path.resolve(__dirname, '../../..');
+const ROOT = path.resolve(__dirname, '../..');
 
 // Test seam: run NativeTabHost prototype methods without the full Electron
 // constructor. Shape mirrors the real NativeTabRecord (native-tab-host.ts:153).
@@ -32,14 +32,15 @@ interface PerTabHost {
   setLastAnnotationSessionId(sessionId?: string, tabId?: string): void;
   startInspect(): void;
   stopInspect(targetTabId?: string): void;
+  resolveTabStrictWorkspace(targetSessionId?: string, tabUrl?: string): string;
 }
 
 // Test seam: NativeTabHost reads the TerminalManager singleton's listSessions()
 // to validate remembered session ids. Override that public boundary so the
-// helper logic runs against a controlled session set.
 interface TerminalManagerOverride {
   listSessions: () => Array<{ id: string; name: string; cwd: string }>;
   getActiveSessionId: () => string;
+  getSession?: (id: string) => { id: string; name: string; cwd: string } | undefined;
 }
 
 function createHost(tabIds: string[]): PerTabHost {
@@ -73,6 +74,7 @@ describe('Per-tab terminal memory in Popup Annotation', () => {
     ];
     tm.listSessions = () => liveSessions;
     tm.getActiveSessionId = () => sessionA;
+    tm.getSession = (id: string) => liveSessions.find((s) => s.id === id);
   });
 
   after(() => {
@@ -186,6 +188,21 @@ describe('Per-tab terminal memory in Popup Annotation', () => {
     liveSessions = [];
     assert.strictEqual(host.getTabTerminalSession('tab-1'), undefined);
     assert.strictEqual(host.tabs.get('tab-1')?.state.terminalSessionId, undefined);
+  });
+  it('resolveTabStrictWorkspace fails closed without falling through to active session or CWD', () => {
+    const host = createHost(['tab-1']);
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-tab-ws-'));
+    liveSessions = [{ id: sessionA, name: 'S1', cwd: tmpDir }];
+
+    // 1. Explicit valid session returns cwd
+    assert.strictEqual(host.resolveTabStrictWorkspace(sessionA), path.normalize(tmpDir));
+
+    // 2. Unbound session (undefined, 'auto', invalid id) with no matching URL returns empty string
+    assert.strictEqual(host.resolveTabStrictWorkspace(undefined, 'https://unknown-domain.com'), '');
+    assert.strictEqual(host.resolveTabStrictWorkspace('auto', 'https://unknown-domain.com'), '');
+    assert.strictEqual(host.resolveTabStrictWorkspace('non-existent-session-id', 'about:blank'), '');
+
+    fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 
   it('element-picker source no longer reads or writes the origin-shared localStorage key', () => {

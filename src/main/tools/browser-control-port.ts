@@ -33,6 +33,8 @@ export interface BrowserHostPort {
   isCurrentTarget?(target: BrowserTarget): boolean;
   clearAllAgentWorking?(): void;
   getDocumentGeneration?(tabId?: string): number;
+  uploadFileInput?(params: { refOrSelector: string; filePaths: string[]; tabId?: string; paneId?: 'desktop' | 'mobile' }): Promise<{ success: boolean; uploadedCount: number; reason?: string }>;
+  dropFiles?(params: { refOrSelector: string; filePaths: string[]; tabId?: string; paneId?: 'desktop' | 'mobile' }): Promise<{ success: boolean; droppedCount: number; reason?: string }>;
 }
 
 export interface BrowserArtifactSink {
@@ -505,6 +507,17 @@ export class BrowserControlPort {
     return { snapshot: await this.host.agentSnapshot(effectiveTabId, paneId) };
   }
 
+  async uploadFileInput(params: { refOrSelector: string; filePaths: string[]; tabId?: string; paneId?: 'desktop' | 'mobile' }, target?: BrowserTarget): Promise<{ success: boolean; uploadedCount: number; reason?: string }> {
+    if (!this.host.uploadFileInput) throw new CapabilityError('CAPABILITY_NOT_FOUND', 'uploadFileInput is not supported by host');
+    const effectiveTabId = this.resolveTargetTab(target, params.tabId, 'write');
+    return this.host.uploadFileInput({ ...params, tabId: effectiveTabId });
+  }
+
+  async dropFiles(params: { refOrSelector: string; filePaths: string[]; tabId?: string; paneId?: 'desktop' | 'mobile' }, target?: BrowserTarget): Promise<{ success: boolean; droppedCount: number; reason?: string }> {
+    if (!this.host.dropFiles) throw new CapabilityError('CAPABILITY_NOT_FOUND', 'dropFiles is not supported by host');
+    const effectiveTabId = this.resolveTargetTab(target, params.tabId, 'write');
+    return this.host.dropFiles({ ...params, tabId: effectiveTabId });
+  }
   setViewport(options: { width: number; height: number; mobile?: boolean; deviceScaleFactor?: number; tabId?: string }, target?: BrowserTarget): { success: boolean; width: number; height: number; mobile?: boolean; presetId: string } {
     if (!this.host.setViewportSize) throw new CapabilityError('CAPABILITY_NOT_FOUND', 'setViewportSize is not supported by host');
     if (typeof options.width !== 'number' || options.width <= 0 || typeof options.height !== 'number' || options.height <= 0) {

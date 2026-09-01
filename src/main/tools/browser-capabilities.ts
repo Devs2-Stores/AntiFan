@@ -8,6 +8,7 @@ import { HsGateRules, HsEvaluationResult } from '../qa/rules/hs-gate-rules';
 import type { ThemeQaWorkflow } from '../qa/theme-qa-workflow';
 import { ThemeQaRepairCoordinator } from '../qa/theme-qa-repair-coordinator';
 import { confineWorkspaceRoot } from '../qa/diagnostics-filter';
+import { recordFallbackTelemetry, FallbackTelemetryPayload } from '../telemetry/fallback-recorder';
 function getThemeHierarchyScript(): string {
   return `(() => {
     const template = document.documentElement?.getAttribute('data-template')
@@ -260,6 +261,138 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
     execute: (params: { steps: Array<Record<string, unknown>>; speed?: 'fast' | 'natural' | 'slow'; smoothScroll?: boolean; tabId?: string; paneId?: 'desktop' | 'mobile' }, context) => browser.agentTrajectory(params, context.browserTarget),
   });
 
+  catalogue.register({
+    name: 'browser.upload-file',
+    description: 'Upload local files into a file input element in active tab',
+    risk: 'write',
+    requiresBrowserTarget: true,
+    policy: makeBrowserPolicy({ effect: 'interactive-effect', risk: 'write', requiresBrowserTarget: true, lane: 'viewport-gate' }),
+    inputSchema: {
+      type: 'object',
+      properties: {
+        refOrSelector: { type: 'string', description: 'CSS selector or @ref of target file input' },
+        filePaths: { type: 'array', items: { type: 'string' }, description: 'Array of local file paths' },
+        tabId: { type: 'string' },
+        paneId: { type: 'string', enum: ['desktop', 'mobile'] },
+      },
+      required: ['refOrSelector', 'filePaths'],
+    },
+    execute: (params: { refOrSelector: string; filePaths: string[]; tabId?: string; paneId?: 'desktop' | 'mobile' }, context) =>
+      browser.uploadFileInput(params, context.browserTarget),
+  });
+
+  catalogue.register({
+    name: 'browser.drop-files',
+    description: 'Dispatch native drag and drop file transfer onto a target drop zone element in active tab',
+    risk: 'write',
+    requiresBrowserTarget: true,
+    policy: makeBrowserPolicy({ effect: 'interactive-effect', risk: 'write', requiresBrowserTarget: true, lane: 'viewport-gate' }),
+    inputSchema: {
+      type: 'object',
+      properties: {
+        refOrSelector: { type: 'string', description: 'CSS selector or @ref of target drop zone' },
+        filePaths: { type: 'array', items: { type: 'string' }, description: 'Array of local file paths' },
+        tabId: { type: 'string' },
+        paneId: { type: 'string', enum: ['desktop', 'mobile'] },
+      },
+      required: ['refOrSelector', 'filePaths'],
+    },
+    execute: (params: { refOrSelector: string; filePaths: string[]; tabId?: string; paneId?: 'desktop' | 'mobile' }, context) =>
+      browser.dropFiles(params, context.browserTarget),
+  });
+
+  catalogue.register({
+    name: 'anti.inspect.snapshot',
+    description: 'Capture agent visual snapshot tree',
+    risk: 'read',
+    requiresBrowserTarget: true,
+    policy: makeBrowserPolicy({ effect: 'read', risk: 'read', requiresBrowserTarget: true, lane: 'short-passive' }),
+    inputSchema: { type: 'object', properties: { tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } } },
+    execute: (params: { tabId?: string; paneId?: 'desktop' | 'mobile' }, context) => browser.agentSnapshot(params, context.browserTarget),
+  });
+
+  catalogue.register({
+    name: 'anti.browser.evaluate',
+    description: 'Execute JavaScript expression in page context',
+    risk: 'eval',
+    requiresBrowserTarget: true,
+    policy: makeBrowserPolicy({ effect: 'interactive-effect', risk: 'eval', requiresBrowserTarget: true, lane: 'viewport-gate' }),
+    inputSchema: { type: 'object', properties: { expression: { type: 'string' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } }, required: ['expression'] },
+    execute: (params: { expression: string; tabId?: string; paneId?: 'desktop' | 'mobile' }, context) => browser.eval(context.browserTarget as BrowserTarget, params.expression, params.tabId, params.paneId),
+  });
+
+  catalogue.register({
+    name: 'anti.inspect.eval',
+    description: 'Alias for anti.browser.evaluate',
+    risk: 'eval',
+    requiresBrowserTarget: true,
+    policy: makeBrowserPolicy({ effect: 'interactive-effect', risk: 'eval', requiresBrowserTarget: true, lane: 'viewport-gate' }),
+    inputSchema: { type: 'object', properties: { expression: { type: 'string' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } }, required: ['expression'] },
+    execute: (params: { expression: string; tabId?: string; paneId?: 'desktop' | 'mobile' }, context) => browser.eval(context.browserTarget as BrowserTarget, params.expression, params.tabId, params.paneId),
+  });
+
+  catalogue.register({
+    name: 'anti.agent.file_upload',
+    description: 'Upload local files into a file input element',
+    risk: 'write',
+    requiresBrowserTarget: true,
+    policy: makeBrowserPolicy({ effect: 'interactive-effect', risk: 'write', requiresBrowserTarget: true, lane: 'viewport-gate' }),
+    inputSchema: { type: 'object', properties: { refOrSelector: { type: 'string' }, filePaths: { type: 'array', items: { type: 'string' } }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } }, required: ['refOrSelector', 'filePaths'] },
+    execute: (params: { refOrSelector: string; filePaths: string[]; tabId?: string; paneId?: 'desktop' | 'mobile' }, context) => browser.uploadFileInput(params, context.browserTarget),
+  });
+
+  catalogue.register({
+    name: 'anti.agent.drop',
+    description: 'Dispatch native drag and drop file transfer onto a target drop zone',
+    risk: 'write',
+    requiresBrowserTarget: true,
+    policy: makeBrowserPolicy({ effect: 'interactive-effect', risk: 'write', requiresBrowserTarget: true, lane: 'viewport-gate' }),
+    inputSchema: { type: 'object', properties: { refOrSelector: { type: 'string' }, filePaths: { type: 'array', items: { type: 'string' } }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } }, required: ['refOrSelector', 'filePaths'] },
+    execute: (params: { refOrSelector: string; filePaths: string[]; tabId?: string; paneId?: 'desktop' | 'mobile' }, context) => browser.dropFiles(params, context.browserTarget),
+  });
+
+  catalogue.register({
+    name: 'antifan_upload_file',
+    description: 'Alias for browser.upload-file',
+    risk: 'write',
+    requiresBrowserTarget: true,
+    policy: makeBrowserPolicy({ effect: 'interactive-effect', risk: 'write', requiresBrowserTarget: true, lane: 'viewport-gate' }),
+    inputSchema: { type: 'object', properties: { refOrSelector: { type: 'string' }, filePaths: { type: 'array', items: { type: 'string' } }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } }, required: ['refOrSelector', 'filePaths'] },
+    execute: (params: { refOrSelector: string; filePaths: string[]; tabId?: string; paneId?: 'desktop' | 'mobile' }, context) => browser.uploadFileInput(params, context.browserTarget),
+  });
+
+  catalogue.register({
+    name: 'antifan_drop_files',
+    description: 'Alias for browser.drop-files',
+    risk: 'write',
+    requiresBrowserTarget: true,
+    policy: makeBrowserPolicy({ effect: 'interactive-effect', risk: 'write', requiresBrowserTarget: true, lane: 'viewport-gate' }),
+    inputSchema: { type: 'object', properties: { refOrSelector: { type: 'string' }, filePaths: { type: 'array', items: { type: 'string' } }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } }, required: ['refOrSelector', 'filePaths'] },
+    execute: (params: { refOrSelector: string; filePaths: string[]; tabId?: string; paneId?: 'desktop' | 'mobile' }, context) => browser.dropFiles(params, context.browserTarget),
+  });
+
+  catalogue.register({
+    name: 'anti.telemetry.record_fallback',
+    description: 'Record sanitized structured fallback telemetry when falling back to Playwright',
+    risk: 'write',
+    policy: makeBrowserPolicy({ effect: 'idempotent-write', risk: 'write', requiresBrowserTarget: false, lane: 'unbounded' }),
+    inputSchema: {
+      type: 'object',
+      properties: {
+        sessionId: { type: 'string' },
+        targetUrl: { type: 'string' },
+        primaryTool: { type: 'string' },
+        errorCode: { type: 'string' },
+        errorMessage: { type: 'string' },
+        fallbackTool: { type: 'string' },
+        fallbackResult: { type: 'string', enum: ['SUCCESS', 'FAILED', 'SKIPPED'] },
+        durationMs: { type: 'number' },
+        notes: { type: 'string' },
+      },
+      required: ['primaryTool', 'fallbackTool', 'fallbackResult'],
+    },
+    execute: async (params: FallbackTelemetryPayload, context) => recordFallbackTelemetry(params, getWorkspaceRoot ? getWorkspaceRoot() : undefined),
+  });
   catalogue.register({
     name: 'browser.set-viewport',
     description: 'Set browser responsive viewport dimensions (width, height, mobile emulation, DPR)',

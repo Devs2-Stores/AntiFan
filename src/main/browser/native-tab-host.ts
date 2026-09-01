@@ -337,6 +337,9 @@ export class NativeTabHost extends EventEmitter {
         syncFrameBackdrop: () => this.syncFrameBackdrop(),
         getAllTabs: () => this.tabs ? this.tabs.entries() : [][Symbol.iterator](),
         applyTabThrottling: () => this.applyTabThrottling(),
+        tabDevToolsHost: this.getDevToolsHost(),
+        resolveTargetWorkspace: (targetSessionId, tabUrl) => this.resolveTabStrictWorkspace(targetSessionId, tabUrl),
+        getTabTerminalSession: (tabId) => this.getTabTerminalSession(tabId),
       });
     }
     return this.automationHost;
@@ -3715,7 +3718,27 @@ export class NativeTabHost extends EventEmitter {
     return this.resolveTargetWorkspace(targetSessionId, tabUrl);
   }
 
-
+  /**
+   * Fail-closed workspace resolver for Tab Automation (e.g. file upload/drop security).
+   * Only resolves the specific tab's bound terminal session or explicit tab URL mapping.
+   * NEVER falls through to active capsule, active terminal, or global CWD.
+   */
+  public resolveTabStrictWorkspace(targetSessionId?: string, tabUrl?: string): string {
+    const tm = TerminalManager.getInstance();
+    if (targetSessionId && targetSessionId !== 'auto') {
+      const session = tm.getSession(targetSessionId);
+      if (session?.cwd && fs.existsSync(path.normalize(session.cwd))) {
+        return path.normalize(session.cwd);
+      }
+    }
+    if (tabUrl) {
+      const urlWorkspace = resolveWorkspaceFromUrl(tabUrl, DEFAULT_WORKSPACE_ROOTS);
+      if (urlWorkspace && fs.existsSync(path.normalize(urlWorkspace))) {
+        return path.normalize(urlWorkspace);
+      }
+    }
+    return '';
+  }
   public findInPage(text: string, forward = true, findNext = false): void {
     this.getDevToolsHost().findInPage(text, forward, findNext);
   }
@@ -3734,6 +3757,14 @@ export class NativeTabHost extends EventEmitter {
 
   public async evalJs(expression: string, tabId?: string, paneId?: SplitPaneId): Promise<unknown> {
     return this.getDevToolsHost().evalJs(expression, tabId, paneId);
+  }
+
+  public async uploadFileInput(params: { refOrSelector: string; filePaths: string[]; tabId?: string; paneId?: SplitPaneId }): Promise<{ success: boolean; uploadedCount: number; reason?: string }> {
+    return this.getAutomationHost().uploadFileInput(params.refOrSelector, params.filePaths, params.tabId, params.paneId);
+  }
+
+  public async dropFiles(params: { refOrSelector: string; filePaths: string[]; tabId?: string; paneId?: SplitPaneId }): Promise<{ success: boolean; droppedCount: number; reason?: string }> {
+    return this.getAutomationHost().dropFiles(params.refOrSelector, params.filePaths, params.tabId, params.paneId);
   }
 
   private getTabsStoragePath(): string {
