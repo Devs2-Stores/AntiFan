@@ -147,11 +147,15 @@ describe('Phase 02: Behavioral Persistent Transport & Concurrency Integration', 
   it('2. Dispatches 10 concurrent tool calls over the single persistent dispatch socket with UUID correlation', async () => {
     const totalCalls = 10;
     const initialDispatchMessageCount = dispatchMessageCount;
+    const { StringDecoder } = require('node:string_decoder');
+    const decoder2 = new StringDecoder('utf8');
     const receivedResponses: Map<number, any> = new Map();
     const { promise, resolve } = Promise.withResolvers<void>();
-
+    let stdoutBuffer = '';
     const stdoutHandler = (chunk: Buffer) => {
-      const lines = chunk.toString('utf8').split('\n');
+      stdoutBuffer += decoder2.write(chunk);
+      const lines = stdoutBuffer.split('\n');
+      stdoutBuffer = lines.pop() || '';
       for (const line of lines) {
         if (!line.trim()) continue;
         try {
@@ -214,11 +218,14 @@ describe('Phase 02: Behavioral Persistent Transport & Concurrency Integration', 
   });
 
   it('3. Rejects in-flight requests cleanly with CONNECTION_CLOSED when dispatch socket drops', async () => {
-    assert.ok(dispatchSocket, 'Dispatch socket must be active');
+    const { StringDecoder } = require('node:string_decoder');
+    const decoder3 = new StringDecoder('utf8');
     const { promise, resolve } = Promise.withResolvers<any>();
-
+    let errStdoutBuffer = '';
     const stdoutHandler = (chunk: Buffer) => {
-      const lines = chunk.toString('utf8').split('\n');
+      errStdoutBuffer += decoder3.write(chunk);
+      const lines = errStdoutBuffer.split('\n');
+      errStdoutBuffer = lines.pop() || '';
       for (const line of lines) {
         if (!line.trim()) continue;
         try {
@@ -256,7 +263,7 @@ describe('Phase 02: Behavioral Persistent Transport & Concurrency Integration', 
     assert.ok(errorResp.result?.isError, 'In-flight call must return an error when connection is terminated');
     const errorText = errorResp.result?.content?.[0]?.text || '';
     assert.ok(
-      errorText.includes('CONNECTION_CLOSED') || errorText.includes('CONNECTION_ERROR') || errorText.includes('error'),
+      errorText.includes('CONNECTION_CLOSED') || errorText.includes('CONNECTION_ERROR'),
       `Error text must report connection loss, got: ${errorText}`
     );
   });

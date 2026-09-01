@@ -19,7 +19,8 @@ export class ArtifactStore {
   private readonly maxRunBytes: number;
   private readonly runBytes = new Map<string, number>();
   private readonly artifacts = new Map<string, ArtifactRef>();
-
+  private readonly hotDataCache = new Map<string, Buffer>();
+  private readonly MAX_HOT_CACHE_ITEMS = 32;
   constructor(private readonly options: ArtifactStoreOptions) {
     this.maxArtifactBytes = options.maxArtifactBytes ?? 8 * 1024 * 1024;
     this.maxRunBytes = options.maxRunBytes ?? 32 * 1024 * 1024;
@@ -28,6 +29,12 @@ export class ArtifactStore {
     }
   }
   stage(input: { kind: ArtifactRef['kind']; mime: string; data: string | Buffer; runId: string; attemptId: string; maxBytes?: number }): ArtifactRef {
+    if (!input.runId || typeof input.runId !== 'string' || !/^[a-zA-Z0-9_-]+$/.test(input.runId)) {
+      throw new CapabilityError('INVALID_ARGUMENT', `Invalid runId '${input.runId}': must contain only alphanumeric characters, underscores, and dashes`);
+    }
+    if (input.attemptId && (typeof input.attemptId !== 'string' || !/^[a-zA-Z0-9_-]+$/.test(input.attemptId))) {
+      throw new CapabilityError('INVALID_ARGUMENT', `Invalid attemptId '${input.attemptId}': must contain only alphanumeric characters, underscores, and dashes`);
+    }
     const stageStartMs = performance.now();
     const raw = Buffer.isBuffer(input.data) ? input.data : Buffer.from(input.data, 'utf8');
     const max = Math.min(input.maxBytes ?? this.maxArtifactBytes, this.maxArtifactBytes);
@@ -45,6 +52,13 @@ export class ArtifactStore {
     this.runBytes.set(input.runId, currentRunBytes + stored);
     const ref: ArtifactRef = { id: `artifact-${crypto.randomUUID()}`, runId: input.runId, attemptId: input.attemptId, kind: input.kind, path: artifactPath, byteLength: stored, sha256, mime: input.mime, truncated, redacted, createdAt: Date.now() };
     this.artifacts.set(ref.id, ref);
+    if (storedData.byteLength <= 512 * 1024) {
+      if (this.hotDataCache.size >= this.MAX_HOT_CACHE_ITEMS) {
+        const firstKey = this.hotDataCache.keys().next().value;
+        if (firstKey) this.hotDataCache.delete(firstKey);
+      }
+      this.hotDataCache.set(ref.id, storedData);
+    }
     recordBenchmark({ surface: 'artifact', name: 'stage', value: performance.now() - stageStartMs, extra: { kind: input.kind, mime: input.mime, inputBytes: raw.byteLength, storedBytes: stored, truncated, redacted: ref.redacted } });
     return ref;
   }
@@ -76,7 +90,19 @@ export class ArtifactStore {
       ) {
         throw new CapabilityError('OUTSIDE_WORKSPACE', 'Artifact realpath containment violation');
       }
-      return { ref, data: fs.readFileSync(resolved) };
+      const cached = this.hotDataCache.get(id);
+      if (cached) {
+        return { ref, data: cached };
+      }
+      const diskData = fs.readFileSync(resolved);
+      if (diskData.byteLength <= 512 * 1024) {
+        if (this.hotDataCache.size >= this.MAX_HOT_CACHE_ITEMS) {
+          const firstKey = this.hotDataCache.keys().next().value;
+          if (firstKey) this.hotDataCache.delete(firstKey);
+        }
+        this.hotDataCache.set(id, diskData);
+      }
+      return { ref, data: diskData };
     } catch (err) {
       if (err instanceof CapabilityError) throw err;
       throw new CapabilityError('INVALID_ARGUMENT', `Failed to read artifact: ${(err as Error).message}`);

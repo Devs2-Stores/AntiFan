@@ -63,6 +63,17 @@ describe('Workflow & Artifact Security and Hub Registry', () => {
         (err: any) => err.code === 'INVALID_ARGUMENT' || err.message.includes('not found')
       );
     });
+    it('rejects path traversal in runId or attemptId during stage()', () => {
+      const store = new ArtifactStore({ root: artifactsRoot });
+      assert.throws(
+        () => store.stage({ kind: 'dom', mime: 'text/html', data: 'hello', runId: '../../evil', attemptId: 'att-1' }),
+        (err: any) => err.code === 'INVALID_ARGUMENT' && err.message.includes('Invalid runId')
+      );
+      assert.throws(
+        () => store.stage({ kind: 'dom', mime: 'text/html', data: 'hello', runId: 'run-1', attemptId: '..\\..\\evil' }),
+        (err: any) => err.code === 'INVALID_ARGUMENT' && err.message.includes('Invalid attemptId')
+      );
+    });
 
     it('enforces containment and rejects traversal outside artifact root', () => {
       const store = new ArtifactStore({ root: artifactsRoot });

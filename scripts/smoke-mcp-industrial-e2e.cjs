@@ -68,12 +68,14 @@ async function runMcpLiveE2ETest() {
   <script>
     window.recordedActions = [];
 
-    // Simulate Shopify/Haravan 80ms inventory hydration
-    setTimeout(() => {
+    // Explicitly do NOT hydrate on timer: element remains disabled until test triggers dynamic hydration
+    window.hydrateButton = function() {
       const btn = document.getElementById('add-to-cart');
-      btn.removeAttribute('disabled');
-      btn.textContent = 'Add to Cart';
-    }, 80);
+      if (btn) {
+        btn.removeAttribute('disabled');
+        btn.textContent = 'Add to Cart';
+      }
+    };
 
     const btn = document.getElementById('add-to-cart');
     btn.addEventListener('click', (ev) => {
@@ -214,8 +216,7 @@ async function runMcpLiveE2ETest() {
       setDevicePreset: (id, presetId) => tabHost.setDevicePreset(id, presetId),
       getDevicePresets: () => tabHost.getDevicePresets(),
       getTabViewportMetrics: (id, paneId) => tabHost.getTabViewportMetrics(id, paneId),
-      artifacts: controlPlaneRuntime.artifacts,
-    });
+    }, controlPlaneRuntime.artifacts);
     tabHost.setViewportGate(browserPort.viewportGate);
     controlPlaneRuntime.registerBrowser(browserPort);
     const capabilityTransport = new CapabilityTransportAdapter(controlPlaneRuntime.capabilities);
@@ -236,6 +237,7 @@ async function runMcpLiveE2ETest() {
     mcpProc = spawn(process.execPath, [proxyScript], {
       env: {
         ...process.env,
+        ELECTRON_RUN_AS_NODE: '1',
         ANTIFAN_MCP_BOOTSTRAP: JSON.stringify({
           port: bridgePort,
           secret: testSecret,
@@ -249,29 +251,36 @@ async function runMcpLiveE2ETest() {
       },
       stdio: ['pipe', 'pipe', 'pipe'],
     });
-
     mcpProc.stderr.on('data', (d) => console.error('[MCP STDERR]', d.toString()));
+    const { StringDecoder } = require('node:string_decoder');
+    const mcpDecoder = new StringDecoder('utf8');
+    const pendingMcpRequests = new Map();
+    let mcpStdoutBuffer = '';
+    mcpProc.stdout.on('data', (chunk) => {
+      mcpStdoutBuffer += mcpDecoder.write(chunk);
+      const lines = mcpStdoutBuffer.split('\n');
+      mcpStdoutBuffer = lines.pop() || '';
+      for (const line of lines) {
+        if (!line.trim()) continue;
+        try {
+          const parsed = JSON.parse(line);
+          if (parsed && parsed.id !== undefined && pendingMcpRequests.has(parsed.id)) {
+            const entry = pendingMcpRequests.get(parsed.id);
+            pendingMcpRequests.delete(parsed.id);
+            clearTimeout(entry.timer);
+            entry.resolve(parsed);
+          }
+        } catch {}
+      }
+    });
+
     function callMcp(id, name, args = {}, timeoutMs = 15000) {
       return new Promise((resolve, reject) => {
         const timer = setTimeout(() => {
-          mcpProc.stdout.off('data', handler);
+          pendingMcpRequests.delete(id);
           reject(new Error(`MCP call '${name}' (id: ${id}) timed out after ${timeoutMs}ms`));
         }, timeoutMs);
-        const handler = (chunk) => {
-          const lines = chunk.toString('utf8').split('\n');
-          for (const line of lines) {
-            if (!line.trim()) continue;
-            try {
-              const parsed = JSON.parse(line);
-              if (parsed.id === id) {
-                clearTimeout(timer);
-                mcpProc.stdout.off('data', handler);
-                resolve(parsed);
-              }
-            } catch {}
-          }
-        };
-        mcpProc.stdout.on('data', handler);
+        pendingMcpRequests.set(id, { resolve, reject, timer });
         mcpProc.stdin.write(JSON.stringify({ jsonrpc: '2.0', id, method: 'tools/call', params: { name, arguments: args } }) + '\n');
       });
     }
@@ -302,10 +311,21 @@ async function runMcpLiveE2ETest() {
     assert.equal(pngHeader[3], 0x47); // G
     console.log('[OK] Milestone 1: Live Chromium Viewport Screenshot Capture verified (authentic PNG).');
 
-    // Milestone 2: CDP Native Input & Actionability with isTrusted === true
-    console.log('[Milestone 2] Executing CDP Trusted Input actions through TabAutomationHost...');
+    // Milestone 2: CDP Native Input & Actionability Gate with genuine isTrusted === true
+    console.log('[Milestone 2] Executing CDP Trusted Input with dynamic Actionability Gate...');
+    // Schedule dynamic hydration 120ms AFTER click initiation to rigorously exercise MutationObserver actionability gate
+    setTimeout(() => {
+      targetWc.executeJavaScript('window.hydrateButton()').catch(() => {});
+    }, 120);
+
+    const clickStartMs = performance.now();
     const clickResp = await callMcp(2, 'anti.agent.cursor.click', { selector: '#add-to-cart', trusted: true });
+    const clickDurationMs = performance.now() - clickStartMs;
     assert.equal(clickResp.error, undefined);
+    assert.ok(
+      clickDurationMs >= 90,
+      `Actionability gate must have waited for element to become enabled (waited ${clickDurationMs.toFixed(1)}ms, expected >= 90ms)`
+    );
 
     const typeResp = await callMcp(3, 'anti.agent.cursor.type', { selector: '#customer-note', text: 'Doorbell is broken', trusted: true });
     assert.equal(typeResp.error, undefined);
@@ -320,8 +340,8 @@ async function runMcpLiveE2ETest() {
 
     assert.ok(inputAction, 'Input action must be recorded in browser');
     assert.equal(inputAction.value, 'Doorbell is broken');
-    console.log('[OK] Milestone 2: CDP Native Input with genuine isTrusted === true verified.');
-
+    const actionabilityPassed = clickDurationMs >= 90 && Boolean(clickAction && clickAction.isTrusted);
+    console.log(`[OK] Milestone 2: CDP Native Input & Actionability Gate verified (waited ${clickDurationMs.toFixed(1)}ms for dynamic hydration, isTrusted === true).`);
     // Milestone 3: 20-Call Storefront Benchmark with p50 and p95 computation
     console.log('[Milestone 3] Running 20-Call Storefront Benchmark...');
     const latencies = [];
@@ -357,6 +377,7 @@ async function runMcpLiveE2ETest() {
     fs.mkdirSync(reportsDir, { recursive: true });
     const benchmarkData = {
       timestamp: new Date().toISOString(),
+      target: 'local-synthetic-storefront (Node.js HTTP server with dynamic DOM hydration)',
       platform: process.platform,
       arch: process.arch,
       benchmark: {
@@ -366,14 +387,19 @@ async function runMcpLiveE2ETest() {
         p95Ms: Number(p95.toFixed(2)),
         samplesMs: latencies.map((l) => Number(l.toFixed(2))),
       },
+      actionabilityTest: {
+        hydrationDelayMs: 120,
+        actionWaitMs: Number(clickDurationMs.toFixed(2)),
+        waitedSuccessfully: actionabilityPassed,
+      },
       stability: {
         cycles: 50,
         heapDeltaMb: Number(heapDiffMb.toFixed(2)),
       },
       verifications: {
         screenshotResolution: 'PASS',
-        cdpNativeInputTrusted: 'PASS',
-        actionabilityGate: 'PASS',
+        cdpNativeInputTrusted: clickAction && clickAction.isTrusted ? 'PASS' : 'FAIL',
+        actionabilityGate: actionabilityPassed ? 'PASS' : 'FAIL',
         singleHeaderStreaming: 'PASS',
       },
     };

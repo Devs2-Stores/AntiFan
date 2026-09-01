@@ -1,28 +1,33 @@
 {
-  "timestamp": 1788178690823,
-  "totalSamples": 30,
-  "baselineRssMB": 55.08,
-  "peakRssMB": 55.13,
-  "finalRssMB": 53.63,
-  "memorySlopeMBPerMin": -3.6456,
+  "timestamp": "2026-08-31T18:07:33.118Z",
+  "totalSamples": 35,
+  "steadyStateSamplesCount": 12,
+  "baselineRssMB": 895.47,
+  "peakRssMB": 1462.51,
+  "finalRssMB": 1353.82,
+  "steadyStateMemorySlopeMBPerMin": 89.7601,
   "stageResults": {
     "stage1Idle": {
-      "durationMs": 5007,
-      "samples": 25
+      "durationMs": 5005,
+      "samples": 10
     },
     "stage2Streaming": {
-      "durationMs": 1411,
-      "streamedBytes": 655360
+      "durationMs": 3419,
+      "ptyReceivedBytes": 513576,
+      "sessionCreated": true
     },
     "stage3TabThrash": {
-      "durationMs": 1986,
-      "tabSwitches": 15
+      "durationMs": 2058,
+      "tabSwitches": 20,
+      "tabCount": 4
     },
     "stage4QaBlast": {
-      "durationMs": 1197,
-      "qaRuns": 10
+      "durationMs": 7227,
+      "qaRuns": 20,
+      "errorsFound": 20,
+      "steadyStateSamplesCount": 12
     }
   },
   "orphanProcessesCount": 0,
-  "passed": true
+  "passed": false
 }

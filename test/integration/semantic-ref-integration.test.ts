@@ -182,7 +182,7 @@ describe('Semantic Ref Integration Pipeline (World 1004 & Control Plane Parity)'
       grant: 'write',
       browserTarget: boundTarget,
     });
-    assert.strictEqual(typeof clickRes, 'object');
+    assert.deepStrictEqual(clickRes, { clicked: true }, 'Click execution must return { clicked: true }');
   });
 
   it('4. Split review isolation: desktop and mobile panes maintain independent snapshots and generations', async () => {

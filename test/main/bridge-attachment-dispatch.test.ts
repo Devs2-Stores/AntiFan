@@ -651,7 +651,7 @@ describe('BridgeServer Attachment Authentication & Scoped Dispatch', () => {
       server.dispose();
     }
   });
-  it('does not implicitly retarget on antifan_open_tab, retargets on antifan_set_automation_target and antifan_navigate', async () => {
+  it('automatically rebinds target on antifan_open_tab, antifan_set_automation_target and antifan_navigate', async () => {
     let currentTabId = 'tab-initial';
     let currentGen = 1;
     let clearAgentWorkingCalled = false;

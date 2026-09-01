@@ -294,6 +294,9 @@ async function runSmokeTest() {
         screenshotBase64: 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==',
         viewportImageBase64: 'iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAEklEQVR42mNk+M/wHwMDAwMDGAEB/pEB5QAAAABJRU5ErkJggg==',
       };
+      try {
+        window.dispatchEvent(new CustomEvent('antifan-pick-event', { detail: window.__antifanPick }));
+      } catch {}
     `, tabId, 'mobile');
 
     // Wait for inspect poll to consume __antifanPick

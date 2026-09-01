@@ -123,15 +123,18 @@ export function buildIsolatedExecutorScript(request: RendererActionRequest): str
             return false;
           };
 
-          if (typeof MutationObserver === 'function' && document.body) {
+          if (typeof MutationObserver === 'function' && (document.documentElement || document.body)) {
             observer = new MutationObserver(() => {
               check();
             });
-            observer.observe(document.documentElement || document.body, {
-              childList: true,
-              subtree: true,
-              attributes: true,
-            });
+            try {
+              observer.observe(document.documentElement || document.body, {
+                childList: true,
+                subtree: true,
+                attributes: true,
+                attributeFilter: ['class', 'style', 'hidden', 'disabled', 'aria-hidden', 'open'],
+              });
+            } catch {}
           }
 
           const pollRaf = () => {

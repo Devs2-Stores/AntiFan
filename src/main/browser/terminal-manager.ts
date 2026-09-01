@@ -98,11 +98,17 @@ function safeSliceTail(str: string, maxBytes: number): string {
   if (raw.length > 0 && raw.charCodeAt(0) >= 0xdc00 && raw.charCodeAt(0) <= 0xdfff) {
     raw = raw.slice(1);
   }
+  if (raw.length > 0 && raw.charCodeAt(raw.length - 1) >= 0xd800 && raw.charCodeAt(raw.length - 1) <= 0xdbff) {
+    raw = raw.slice(0, -1);
+  }
   const firstNl = raw.indexOf('\n');
   if (firstNl !== -1 && firstNl < 2048) {
     let sliced = raw.slice(firstNl + 1);
     if (sliced.length > 0 && sliced.charCodeAt(0) >= 0xdc00 && sliced.charCodeAt(0) <= 0xdfff) {
       sliced = sliced.slice(1);
+    }
+    if (sliced.length > 0 && sliced.charCodeAt(sliced.length - 1) >= 0xd800 && sliced.charCodeAt(sliced.length - 1) <= 0xdbff) {
+      sliced = sliced.slice(0, -1);
     }
     return sliced;
   }

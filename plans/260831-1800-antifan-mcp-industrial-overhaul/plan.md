@@ -1,6 +1,6 @@
 ---
 title: "AntiFan MCP Industrial-Grade Overhaul"
-status: pending
+status: completed
 priority: P1
 totalPhases: 4
 planSlug: "260831-1800-antifan-mcp-industrial-overhaul"
@@ -23,10 +23,10 @@ This plan delivers an industrial-grade overhaul of AntiFan's Model Context Proto
 
 | Phase | Title | Priority | Status | Description |
 |:---:|---|:---:|:---:|---|
-| [01](./phase-01-secure-screenshot-and-artifact-resolver.md) | Secure Screenshot & Server-Side Artifact Resolver | P0 | pending | Enforce `ArtifactRef` contract sanctity (zero legacy raw-text fallback), add authenticated HTTP binary resource endpoint with single `x-antifan-attachment-secret` header auth, mandatory attachment record ownership matching (bridge-token-only rejected), root containment / symlink defense, guard `ref.truncated`, and format MCP `{ type: 'image' }` payload in stdio adapter. |
-| [02](./phase-02-dual-channel-persistent-transport.md) | Dual-Channel Persistent Transport & RPC Multiplexing | P0 | pending | Refactor `antifan-omp-mcp.cjs` to use a long-lived multiplexed dispatch socket with request ID map, separate heartbeat channel, token/secret auth dual-mode, and failover auto-reconnect. |
-| [03](./phase-03-pure-css-cdp-input-and-actionability.md) | Pure CSS-Pixel CDP Input & Actionability Gate | P0 | pending | Target pane-specific `WebContents`, calculate in-page CSS center coordinates, dispatch native CDP mouse/key events (`isTrusted: true`), integrate in-page actionability pre-flight, and handle debugger contention gracefully. |
-| [04](./phase-04-e2e-integration-and-storefront-benchmarks.md) | E2E Integration Suite & Real-Storefront Benchmarks | P1 | pending | Implement comprehensive E2E test suite covering MCP image delivery, transport multiplexing throughput, CDP trusted input on interactive storefront drawers, and fail-closed security boundaries. |
+| [01](./phase-01-secure-screenshot-and-artifact-resolver.md) | Secure Screenshot & Server-Side Artifact Resolver | P0 | completed | Enforce `ArtifactRef` contract sanctity (zero legacy raw-text fallback), add authenticated HTTP binary resource endpoint with single `x-antifan-attachment-secret` header auth, mandatory attachment record ownership matching (bridge-token-only rejected), root containment / symlink defense, guard `ref.truncated`, and format MCP `{ type: 'image' }` payload in stdio adapter. |
+| [02](./phase-02-dual-channel-persistent-transport.md) | Dual-Channel Persistent Transport & RPC Multiplexing | P0 | completed | Refactor `antifan-omp-mcp.cjs` to use a long-lived multiplexed dispatch socket with request ID map, separate heartbeat channel, token/secret auth dual-mode, and failover auto-reconnect. |
+| [03](./phase-03-pure-css-cdp-input-and-actionability.md) | Pure CSS-Pixel CDP Input & Actionability Gate | P0 | completed | Target pane-specific `WebContents`, calculate in-page CSS center coordinates, dispatch native CDP mouse/key events (`isTrusted: true`), integrate in-page actionability pre-flight, and handle debugger contention gracefully. |
+| [04](./phase-04-e2e-integration-and-storefront-benchmarks.md) | E2E Integration Suite & Real-Storefront Benchmarks | P1 | completed | Implement comprehensive E2E test suite covering MCP image delivery, transport multiplexing throughput, CDP trusted input on interactive storefront drawers, and fail-closed security boundaries. |
 
 ---
 

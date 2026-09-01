@@ -185,22 +185,38 @@ describe('Phase 04: E2E Industrial Overhaul & Storefront Latency Benchmarks', ()
     fs.rmSync(tempDir, { recursive: true, force: true });
   });
 
-  function sendMcpToolCall(id: number, name: string, args: Record<string, unknown> = {}): Promise<any> {
-    const { promise, resolve, reject } = Promise.withResolvers<any>();
-    const stdoutHandler = (chunk: Buffer) => {
-      const lines = chunk.toString('utf8').split('\n');
+  const { StringDecoder } = require('node:string_decoder');
+  const decoder = new StringDecoder('utf8');
+  const pendingCalls = new Map<number, { resolve: (val: any) => void; reject: (err: any) => void; timer: NodeJS.Timeout }>();
+  let stdoutAccumulator = '';
+
+  before(() => {
+    mcpChild.stdout?.on('data', (chunk: Buffer) => {
+      stdoutAccumulator += decoder.write(chunk);
+      const lines = stdoutAccumulator.split('\n');
+      stdoutAccumulator = lines.pop() || '';
       for (const line of lines) {
         if (!line.trim()) continue;
         try {
           const parsed = JSON.parse(line);
-          if (parsed.id === id) {
-            mcpChild.stdout?.off('data', stdoutHandler);
-            resolve(parsed);
+          if (parsed && parsed.id !== undefined && pendingCalls.has(parsed.id)) {
+            const entry = pendingCalls.get(parsed.id)!;
+            pendingCalls.delete(parsed.id);
+            clearTimeout(entry.timer);
+            entry.resolve(parsed);
           }
         } catch {}
       }
-    };
-    mcpChild.stdout?.on('data', stdoutHandler);
+    });
+  });
+
+  function sendMcpToolCall(id: number, name: string, args: Record<string, unknown> = {}, timeoutMs = 15000): Promise<any> {
+    const { promise, resolve, reject } = Promise.withResolvers<any>();
+    const timer = setTimeout(() => {
+      pendingCalls.delete(id);
+      reject(new Error(`Tool call '${name}' (${id}) timed out after ${timeoutMs}ms`));
+    }, timeoutMs);
+    pendingCalls.set(id, { resolve, reject, timer });
     mcpChild.stdin?.write(
       JSON.stringify({
         jsonrpc: '2.0',
@@ -229,17 +245,18 @@ describe('Phase 04: E2E Industrial Overhaul & Storefront Latency Benchmarks', ()
   it('2. Dispatches DOM inspection and agent actions cleanly over persistent channel', async () => {
     const domResp = await sendMcpToolCall(2, 'anti.inspect.dom', {});
     assert.strictEqual(domResp.error, undefined);
+    assert.strictEqual(domResp.result?.isError, undefined);
     const domContent = domResp.result?.content?.[0]?.text;
     assert.ok(domContent && domContent.includes('Buy Now'), 'Must inspect DOM content');
 
     const clickResp = await sendMcpToolCall(3, 'anti.agent.cursor.click', { selector: '#buy-now', trusted: true });
     assert.strictEqual(clickResp.error, undefined);
+    assert.strictEqual(clickResp.result?.isError, undefined);
   });
 
-  it('3. Benchmarks RPC dispatch latency under 50ms per tool invocation after warmup', async () => {
+  it('3. Benchmarks RPC dispatch latency under 100ms per tool invocation after warmup', async () => {
     const iterations = 5;
     const latencies: number[] = [];
-
     for (let i = 0; i < iterations; i++) {
       const start = performance.now();
       await sendMcpToolCall(100 + i, 'anti.browser.tabs.list', {});

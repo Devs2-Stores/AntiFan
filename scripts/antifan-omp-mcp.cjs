@@ -87,6 +87,9 @@ function fetchArtifactBinary(bootstrap, artifactId) {
         });
       });
     });
+    req.setTimeout(15000, () => {
+      req.destroy(new Error('ARTIFACT_STREAM_TIMEOUT'));
+    });
 
     req.on('error', (err) => {
       reject(new Error(JSON.stringify({ code: 'ARTIFACT_FETCH_ERROR', message: `Artifact fetch failed: ${err.message}` })));
@@ -96,6 +99,25 @@ function fetchArtifactBinary(bootstrap, artifactId) {
   });
 }
 
+const CAPABILITY_MAP = Object.freeze({
+  'anti.browser.tabs.list': 'browser.list-tabs',
+  'anti.browser.tabs.create': 'browser.open-tab',
+  'anti.browser.tabs.activate': 'browser.switch-tab',
+  'anti.browser.tabs.close': 'browser.close-tab',
+  'anti.browser.navigate': 'browser.navigate',
+  'anti.browser.reload': 'browser.reload',
+  'anti.inspect.dom': 'browser.dom',
+  'anti.screenshot.viewport': 'browser.screenshot',
+  'anti.agent.cursor.click': 'browser.agent-click',
+  'anti.agent.cursor.move': 'browser.agent-hover',
+  'anti.agent.cursor.type': 'browser.agent-type',
+  'anti.agent.cursor.scroll': 'browser.agent-scroll',
+  'anti.agent.cursor.hover': 'browser.agent-hover',
+  'anti.agent.cursor.clear': 'browser.agent-clear',
+  'theme.qa_validate': 'theme.qa_validate',
+  'theme.debug_bundle': 'theme.debug_bundle',
+  'theme.assert_cart': 'theme.assert_cart',
+});
 // ─── Multiplexed Persistent Dispatch Socket ──────────────────────────────────
 let dispatchWs = null;
 let dispatchConnecting = null;
@@ -109,13 +131,16 @@ function ensureDispatchSocket(bootstrap) {
     return dispatchConnecting;
   }
 
+  const authHeaders = {};
+  if (bootstrap.secret) authHeaders['X-Antifan-Attachment-Secret'] = bootstrap.secret;
+  if (bootstrap.token) authHeaders['Authorization'] = `Bearer ${bootstrap.token}`;
   const tokenParam = (bootstrap.token || bootstrap.secret) ? `?token=${encodeURIComponent(bootstrap.token || bootstrap.secret)}` : '';
   const url = `ws://127.0.0.1:${bootstrap.port}${tokenParam}`;
 
   dispatchConnecting = new Promise((resolve, reject) => {
     let ws;
     try {
-      ws = new WebSocket(url);
+      ws = new WebSocket(url, { headers: authHeaders });
     } catch (err) {
       dispatchConnecting = null;
       return reject(err);
@@ -185,26 +210,7 @@ async function invoke(method, params = {}) {
   const id = crypto.randomUUID();
   const timeoutMs = (method === 'theme.qa_validate' || method === 'anti.theme.qa_validate') ? 60000 : 15000;
 
-  const mapped = {
-    'anti.browser.tabs.list': 'browser.list-tabs',
-    'anti.browser.tabs.create': 'browser.open-tab',
-    'anti.browser.tabs.activate': 'browser.switch-tab',
-    'anti.browser.tabs.close': 'browser.close-tab',
-    'anti.browser.navigate': 'browser.navigate',
-    'anti.browser.reload': 'browser.reload',
-    'anti.inspect.dom': 'browser.dom',
-    'anti.screenshot.viewport': 'browser.screenshot',
-    'anti.agent.cursor.click': 'browser.agent-click',
-    'anti.agent.cursor.move': 'browser.agent-hover',
-    'anti.agent.cursor.type': 'browser.agent-type',
-    'anti.agent.cursor.scroll': 'browser.agent-scroll',
-    'anti.agent.cursor.hover': 'browser.agent-hover',
-    'anti.agent.cursor.clear': 'browser.agent-clear',
-    'theme.qa_validate': 'theme.qa_validate',
-    'theme.debug_bundle': 'theme.debug_bundle',
-    'theme.assert_cart': 'theme.assert_cart',
-  }[method] || method;
-
+  const mapped = CAPABILITY_MAP[method] || method;
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => {
       pendingDispatchCalls.delete(id);
@@ -323,9 +329,12 @@ function ensureHeartbeatSocket(bootstrap, onOpen) {
     return heartbeatWs;
   }
   if (!bootstrap || !bootstrap.secret || !bootstrap.attachmentId) return null;
+  const authHeaders = {};
+  if (bootstrap.secret) authHeaders['X-Antifan-Attachment-Secret'] = bootstrap.secret;
+  if (bootstrap.token) authHeaders['Authorization'] = `Bearer ${bootstrap.token}`;
   let ws;
   try {
-    ws = new WebSocket(heartbeatUrl(bootstrap));
+    ws = new WebSocket(heartbeatUrl(bootstrap), { headers: authHeaders });
   } catch {
     return null;
   }
@@ -391,7 +400,11 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     // Handle ArtifactRef resolution from ArtifactStore
     if (data && typeof data === 'object' && typeof data.id === 'string' && data.id.startsWith('artifact-')) {
       const artifactPayload = await fetchArtifactBinary(bootstrap, data.id);
-      if (request.params.name === 'anti.screenshot.viewport' || request.params.name === 'antifan_screenshot' || (typeof data.mime === 'string' && data.mime.startsWith('image/'))) {
+      if (
+        request.params.name === 'anti.screenshot.viewport' ||
+        request.params.name === 'antifan_screenshot' ||
+        (typeof data.mime === 'string' && data.mime.startsWith('image/'))
+      ) {
         return {
           content: [
             {

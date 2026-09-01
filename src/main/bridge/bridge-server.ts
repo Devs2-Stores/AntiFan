@@ -696,8 +696,13 @@ export class BridgeServer {
 
     try {
       const boundAttachmentId = this.socketAttachmentIds.get(ws);
-      if (boundAttachmentId && method !== 'antifan.capability.dispatch') {
-        respond(false, undefined, 'Forbidden: Attachment-authenticated connections may only invoke antifan.capability.dispatch');
+      if (
+        boundAttachmentId &&
+        method !== 'antifan.capability.dispatch' &&
+        method !== 'antifan.cli.renewSession' &&
+        method !== 'antifan.cli.heartbeat'
+      ) {
+        respond(false, undefined, 'Forbidden: Attachment-authenticated connections may only invoke antifan.capability.dispatch or renewSession');
         return;
       }
       if (method !== 'antifan.capability.dispatch' && this.capabilityTransport && typeof p.runtimeLease === 'object') {
@@ -922,6 +927,10 @@ export class BridgeServer {
           const secret = typeof p.secret === 'string' ? p.secret : undefined;
           if (!attachmentId || !secret) {
             respond(false, undefined, 'attachmentId and secret are required for session renewal');
+            break;
+          }
+          if (boundAttachmentId && attachmentId !== boundAttachmentId) {
+            respond(false, undefined, 'ATTACHMENT_INVALID: Cross-attachment renew denied: connection is bound to a different attachment');
             break;
           }
           try {

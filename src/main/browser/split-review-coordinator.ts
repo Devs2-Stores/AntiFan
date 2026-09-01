@@ -135,15 +135,19 @@ export function areUrlsEquivalent(urlA: string | undefined | null, urlB: string 
   }
 }
 
+const PRESET_MAP = new Map<string, DevicePreset>(DEVICE_PRESETS.map((p) => [p.id, p]));
+
 /**
- * Resolves a DevicePreset from its ID or falls back to standard defaults.
+ * Resolves a DevicePreset from its ID or falls back to standard defaults via O(1) Map lookup.
  */
 export function resolvePreset(presetId: string | undefined, defaultId: string): DevicePreset {
-  const found = DEVICE_PRESETS.find((p) => p.id === presetId);
-  if (found && found.width && found.height) {
-    return found;
+  if (presetId) {
+    const found = PRESET_MAP.get(presetId);
+    if (found && found.width && found.height) {
+      return found;
+    }
   }
-  const fallback = DEVICE_PRESETS.find((p) => p.id === defaultId);
+  const fallback = PRESET_MAP.get(defaultId);
   return fallback || { id: defaultId, name: 'Default', category: 'desktop', width: 1280, height: 800 };
 }
 

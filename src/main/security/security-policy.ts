@@ -76,7 +76,17 @@ export function sanitizeUrl(inputUrl: string): string {
   const clean = cleanRestoredUrl(inputUrl);
   const trimmed = clean.trim();
   if (!trimmed) return 'about:blank';
-  if (trimmed.toLowerCase().startsWith('view-source:')) {
+  const lower = trimmed.toLowerCase();
+  if (
+    lower.startsWith('file:') ||
+    lower.startsWith('javascript:') ||
+    lower.startsWith('data:') ||
+    lower.startsWith('vbscript:') ||
+    lower.startsWith('chrome:')
+  ) {
+    return 'about:blank';
+  }
+  if (lower.startsWith('view-source:')) {
     const inner = trimmed.slice('view-source:'.length).trim();
     try {
       const innerParsed = new URL(inner);
@@ -88,12 +98,11 @@ export function sanitizeUrl(inputUrl: string): string {
     return 'about:blank';
   }
   if (
-    trimmed.startsWith('http://') ||
-    trimmed.startsWith('https://') ||
-    trimmed.startsWith('antifan://') ||
-    trimmed.startsWith('antifan-preview://') ||
-    trimmed.startsWith('file://') ||
-    trimmed === 'about:blank'
+    lower.startsWith('http://') ||
+    lower.startsWith('https://') ||
+    lower.startsWith('antifan://') ||
+    lower.startsWith('antifan-preview://') ||
+    lower === 'about:blank'
   ) {
     return trimmed;
   }

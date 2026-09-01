@@ -24,8 +24,14 @@ describe('AntiFan Security Policy', () => {
   it('sanitizes user input into valid URLs', () => {
     assert.strictEqual(sanitizeUrl('example.com'), 'https://example.com');
     assert.strictEqual(sanitizeUrl('https://github.com'), 'https://github.com');
+    assert.strictEqual(sanitizeUrl('HTTP://localhost:3000'), 'HTTP://localhost:3000');
+    assert.strictEqual(sanitizeUrl('HTTPS://example.com'), 'HTTPS://example.com');
     assert.strictEqual(sanitizeUrl('hello world'), 'https://www.google.com/search?q=hello%20world');
     assert.strictEqual(sanitizeUrl(''), 'about:blank');
+    assert.strictEqual(sanitizeUrl('ABOUT:BLANK'), 'ABOUT:BLANK');
+    assert.strictEqual(sanitizeUrl('file:///C:/passwords.txt'), 'about:blank');
+    assert.strictEqual(sanitizeUrl('javascript:alert(1)'), 'about:blank');
+    assert.strictEqual(sanitizeUrl('data:text/html,<h1>bad</h1>'), 'about:blank');
     assert.strictEqual(sanitizeUrl('view-source:https://example.com'), 'view-source:https://example.com/');
     assert.strictEqual(sanitizeUrl('view-source:javascript:alert(1)'), 'about:blank');
   });

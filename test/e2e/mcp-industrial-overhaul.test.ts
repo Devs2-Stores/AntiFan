@@ -40,7 +40,7 @@ describe('Live Chromium E2E: MCP Industrial Overhaul & Storefront Benchmark', ()
 
     assert.equal(exitCode, 0, `Live Electron test must exit with 0; stdout:\n${stdout}\nstderr:\n${stderr}`);
     assert.ok(stdout.includes('[OK] Milestone 1: Live Chromium Viewport Screenshot Capture verified'), 'Milestone 1 must pass');
-    assert.ok(stdout.includes('[OK] Milestone 2: CDP Native Input with genuine isTrusted === true verified'), 'Milestone 2 must pass');
+    assert.ok(stdout.includes('[OK] Milestone 2: CDP Native Input') && stdout.includes('isTrusted === true'), 'Milestone 2 must pass');
     assert.ok(stdout.includes('[OK] Milestone 3: 20-Call Storefront Latency'), 'Milestone 3 must pass');
     assert.ok(stdout.includes('[OK] Milestone 4: 50-Cycle Rapid Dispatch Stability verified'), 'Milestone 4 must pass');
     assert.ok(stdout.includes('ALL LIVE CHROMIUM MCP INDUSTRIAL OVERHAUL MILESTONES PASSED SUCCESSFULLY.'));
