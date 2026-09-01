@@ -74,6 +74,7 @@ export class InvocationLedger {
   private readonly invocationToAttachment = new Map<string, string>();
   private readonly quarantinedPartitions = new Set<string>();
   private readonly ioQueues = new Map<string, Promise<void>>();
+  private readonly uncompactedFrameCounts = new Map<string, number>();
   constructor(private readonly options: InvocationLedgerOptions) {
     this.partitionsDir = path.join(options.dataRoot, 'invocations');
     this.maxHotRecords = options.maxHotRecordsPerPartition ?? 200;
@@ -141,8 +142,8 @@ export class InvocationLedger {
         return;
       }
     }
-
     this.hotPartitions.set(attachmentId, partitionMap);
+    this.uncompactedFrameCounts.set(attachmentId, Math.max(0, lines.length - partitionMap.size));
     if (needsCompaction) {
       await this.compactPartition(attachmentId);
     }
@@ -235,68 +236,81 @@ export class InvocationLedger {
       throw new CapabilityError('DURABILITY_FAILED', `Invocation partition for attachment ${attachmentId} is corrupted and quarantined. All execution on this attachment is halted.`);
     }
 
-    const existing = await this.observe(intent, liveAuthority);
-    if (existing) return existing;
-    let partition = this.hotPartitions.get(attachmentId);
-    if (!partition) {
-      partition = new Map<string, InvocationRecord>();
-      this.hotPartitions.set(attachmentId, partition);
-    }
+    let shouldCompact = false;
+    const result = await this.runWithIOLock(attachmentId, async () => {
+      // Idempotency check strictly under the serialization lock
+      const existing = await this.observe(intent, liveAuthority);
+      if (existing) return existing;
 
-    const paramDigest = canonicalDigest(intent.params || {});
-    const invocationId = makeControlPlaneId('invocation');
-    const now = Date.now();
-    const newRecord: InvocationRecord = {
-      formatVersion: 1,
-      id: invocationId,
-      attachmentId,
-      requestId: intent.requestId,
-      idempotencyKey: intent.idempotencyKey,
-      name: intent.name,
-      paramDigest,
-      policyDigest,
-      policyVersion,
-      recordedVisibility,
-      state: 'in_progress',
-      authoritySnapshot: liveAuthority,
-      createdAt: now,
-    };
+      let partition = this.hotPartitions.get(attachmentId);
+      if (!partition) {
+        partition = new Map<string, InvocationRecord>();
+        this.hotPartitions.set(attachmentId, partition);
+      }
 
-    let resolvePromise!: (record: InvocationRecord) => void;
-    let rejectPromise!: (err: unknown) => void;
-    const promise = new Promise<InvocationRecord>((resolve, reject) => {
-      resolvePromise = resolve;
-      rejectPromise = reject;
+      const paramDigest = canonicalDigest(intent.params || {});
+      const invocationId = makeControlPlaneId('invocation');
+      const now = Date.now();
+      const newRecord: InvocationRecord = {
+        formatVersion: 1,
+        id: invocationId,
+        attachmentId,
+        requestId: intent.requestId,
+        idempotencyKey: intent.idempotencyKey,
+        name: intent.name,
+        paramDigest,
+        policyDigest,
+        policyVersion,
+        recordedVisibility,
+        state: 'in_progress',
+        authoritySnapshot: liveAuthority,
+        createdAt: now,
+      };
+
+      // Durably append to disk first while holding IO lock
+      try {
+        await this.appendFrameUnlocked(newRecord);
+      } catch (err) {
+        throw new CapabilityError('DURABILITY_FAILED', `Failed to durably persist invocation claim: ${err instanceof Error ? err.message : String(err)}`);
+      }
+
+      let resolvePromise!: (record: InvocationRecord) => void;
+      let rejectPromise!: (err: unknown) => void;
+      const promise = new Promise<InvocationRecord>((resolve, reject) => {
+        resolvePromise = resolve;
+        rejectPromise = reject;
+      });
+
+      const inFlightEntry: InFlightClaim = {
+        record: newRecord,
+        resolve: resolvePromise,
+        reject: rejectPromise,
+        promise,
+      };
+
+      // Update in-memory state only after successful disk append
+      partition.set(intent.idempotencyKey, newRecord);
+      this.inFlight.set(invocationId, inFlightEntry);
+      this.invocationToAttachment.set(invocationId, attachmentId);
+
+      const currentFrames = this.uncompactedFrameCounts.get(attachmentId) || 0;
+      if (currentFrames >= this.maxHotRecords) {
+        shouldCompact = true;
+      }
+
+      const ownerResult: InvocationClaimResult = {
+        kind: 'owner',
+        invocationId,
+        record: { ...newRecord },
+      };
+      return ownerResult;
     });
 
-    const inFlightEntry: InFlightClaim = {
-      record: newRecord,
-      resolve: resolvePromise,
-      reject: rejectPromise,
-      promise,
-    };
-
-    // Atomically register in hot state and inFlight
-    partition.set(intent.idempotencyKey, newRecord);
-    this.inFlight.set(invocationId, inFlightEntry);
-    this.invocationToAttachment.set(invocationId, attachmentId);
-
-    // Durably append to disk
-    try {
-      await this.appendFrame(newRecord);
-    } catch (err) {
-      partition.delete(intent.idempotencyKey);
-      this.inFlight.delete(invocationId);
-      this.invocationToAttachment.delete(invocationId);
-      rejectPromise(err);
-      throw new CapabilityError('DURABILITY_FAILED', `Failed to durably persist invocation claim: ${err instanceof Error ? err.message : String(err)}`);
+    if (shouldCompact) {
+      this.compactPartition(attachmentId).catch(() => {});
     }
 
-    return {
-      kind: 'owner',
-      invocationId,
-      record: { ...newRecord },
-    };
+    return result;
   }
 
   public async claimOrObserve(
@@ -325,51 +339,62 @@ export class InvocationLedger {
       throw new CapabilityError('CAPABILITY_NOT_FOUND', `Unknown invocation ID: ${invocationId}`);
     }
 
-    const partition = this.hotPartitions.get(attachmentId);
-    if (!partition) {
-      throw new CapabilityError('CAPABILITY_NOT_FOUND', `Invocation partition not found for: ${attachmentId}`);
-    }
-
-    let existing: InvocationRecord | undefined;
-    for (const rec of partition.values()) {
-      if (rec.id === invocationId) {
-        existing = rec;
-        break;
+    let shouldCompact = false;
+    const settled = await this.runWithIOLock(attachmentId, async () => {
+      const partition = this.hotPartitions.get(attachmentId);
+      if (!partition) {
+        throw new CapabilityError('CAPABILITY_NOT_FOUND', `Invocation partition not found for: ${attachmentId}`);
       }
-    }
 
-    if (!existing) {
-      throw new CapabilityError('CAPABILITY_NOT_FOUND', `Invocation record not found for: ${invocationId}`);
-    }
+      let existing: InvocationRecord | undefined;
+      for (const rec of partition.values()) {
+        if (rec.id === invocationId) {
+          existing = rec;
+          break;
+        }
+      }
 
-    if (existing.state === 'completed' || existing.state === 'failed' || existing.state === 'interrupted' || existing.state === 'unknown') {
-      return { ...existing };
-    }
+      if (!existing) {
+        throw new CapabilityError('CAPABILITY_NOT_FOUND', `Invocation record not found for: ${invocationId}`);
+      }
 
-    const settledRecord: InvocationRecord = {
-      ...existing,
-      state,
-      result: data,
-      error,
-      evidence,
-      artifactIds,
-      replacementAuthorityRevision,
-      settledAt: Date.now(),
-    };
+      if (existing.state === 'completed' || existing.state === 'failed' || existing.state === 'interrupted' || existing.state === 'unknown') {
+        return { ...existing };
+      }
 
-    partition.set(existing.idempotencyKey, settledRecord);
-    await this.appendFrame(settledRecord);
-    const inFlightEntry = this.inFlight.get(invocationId);
-    if (inFlightEntry) {
-      this.inFlight.delete(invocationId);
-      if (state === 'failed' && error) {
-        inFlightEntry.resolve(settledRecord);
-      } else {
+      const settledRecord: InvocationRecord = {
+        ...existing,
+        state,
+        result: data,
+        error,
+        evidence,
+        artifactIds,
+        replacementAuthorityRevision,
+        settledAt: Date.now(),
+      };
+
+      await this.appendFrameUnlocked(settledRecord);
+      partition.set(existing.idempotencyKey, settledRecord);
+
+      const inFlightEntry = this.inFlight.get(invocationId);
+      if (inFlightEntry) {
+        this.inFlight.delete(invocationId);
         inFlightEntry.resolve(settledRecord);
       }
+
+      const currentFrames = this.uncompactedFrameCounts.get(attachmentId) || 0;
+      if (currentFrames >= this.maxHotRecords) {
+        shouldCompact = true;
+      }
+
+      return { ...settledRecord };
+    });
+
+    if (shouldCompact) {
+      this.compactPartition(attachmentId).catch(() => {});
     }
 
-    return { ...settledRecord };
+    return settled;
   }
 
   public getRecord(invocationId: string): InvocationRecord | undefined {
@@ -381,6 +406,15 @@ export class InvocationLedger {
       if (rec.id === invocationId) return { ...rec };
     }
     return undefined;
+  }
+
+  public async drain(attachmentId?: string): Promise<void> {
+    if (attachmentId) {
+      await this.runWithIOLock(attachmentId, async () => {});
+      return;
+    }
+    const activeKeys = Array.from(this.ioQueues.keys());
+    await Promise.all(activeKeys.map((id) => this.runWithIOLock(id, async () => {})));
   }
 
   private async runWithIOLock<T>(attachmentId: string, fn: () => Promise<T>): Promise<T> {
@@ -400,56 +434,67 @@ export class InvocationLedger {
     }
   }
 
+  private async appendFrameUnlocked(record: InvocationRecord): Promise<void> {
+    const filePath = this.getPartitionPath(record.attachmentId);
+    const dir = path.dirname(filePath);
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
+
+    const { checksum, ...rest } = record;
+    const calculatedChecksum = computeFrameChecksum(rest);
+    const frameWithChecksum: InvocationRecord = {
+      ...rest,
+      checksum: calculatedChecksum,
+    };
+
+    const line = JSON.stringify(frameWithChecksum) + '\n';
+    await fs.promises.appendFile(filePath, line, 'utf8');
+    const count = (this.uncompactedFrameCounts.get(record.attachmentId) || 0) + 1;
+    this.uncompactedFrameCounts.set(record.attachmentId, count);
+  }
+
   private async appendFrame(record: InvocationRecord): Promise<void> {
     return this.runWithIOLock(record.attachmentId, async () => {
-      const filePath = this.getPartitionPath(record.attachmentId);
-      const dir = path.dirname(filePath);
-      if (!fs.existsSync(dir)) {
-        fs.mkdirSync(dir, { recursive: true });
-      }
-
-      const { checksum, ...rest } = record;
-      const calculatedChecksum = computeFrameChecksum(rest);
-      const frameWithChecksum: InvocationRecord = {
-        ...rest,
-        checksum: calculatedChecksum,
-      };
-
-      const line = JSON.stringify(frameWithChecksum) + '\n';
-      await fs.promises.appendFile(filePath, line, 'utf8');
+      return this.appendFrameUnlocked(record);
     });
+  }
+
+  private async compactPartitionUnlocked(attachmentId: string): Promise<void> {
+    const filePath = this.getPartitionPath(attachmentId);
+    const partition = this.hotPartitions.get(attachmentId);
+    if (!partition || partition.size === 0) return;
+
+    const dir = path.dirname(filePath);
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+
+    // Coalesce multi-frame history into single latest-state frame per idempotencyKey
+    const records = Array.from(partition.values());
+    const tempFile = `${filePath}.tmp-${process.pid}-${Date.now()}`;
+
+    try {
+      const content = records
+        .map((rec) => {
+          const { checksum, ...rest } = rec;
+          const calc = computeFrameChecksum(rest);
+          return JSON.stringify({ ...rest, checksum: calc });
+        })
+        .join('\n') + (records.length > 0 ? '\n' : '');
+
+      await fs.promises.writeFile(tempFile, content, 'utf8');
+      await fs.promises.rename(tempFile, filePath);
+      this.uncompactedFrameCounts.set(attachmentId, 0);
+    } catch (err) {
+      try {
+        if (fs.existsSync(tempFile)) await fs.promises.unlink(tempFile);
+      } catch {}
+      throw err;
+    }
   }
 
   public async compactPartition(attachmentId: string): Promise<void> {
     return this.runWithIOLock(attachmentId, async () => {
-      const filePath = this.getPartitionPath(attachmentId);
-      const partition = this.hotPartitions.get(attachmentId);
-      if (!partition || partition.size === 0) return;
-
-      const dir = path.dirname(filePath);
-      if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-
-      // Coalesce multi-frame history into single latest-state frame per idempotencyKey
-      const records = Array.from(partition.values());
-      const tempFile = `${filePath}.tmp-${process.pid}-${Date.now()}`;
-
-      try {
-        const content = records
-          .map((rec) => {
-            const { checksum, ...rest } = rec;
-            const calc = computeFrameChecksum(rest);
-            return JSON.stringify({ ...rest, checksum: calc });
-          })
-          .join('\n') + (records.length > 0 ? '\n' : '');
-
-        await fs.promises.writeFile(tempFile, content, 'utf8');
-        await fs.promises.rename(tempFile, filePath);
-      } catch (err) {
-        try {
-          if (fs.existsSync(tempFile)) await fs.promises.unlink(tempFile);
-        } catch {}
-        throw err;
-      }
+      return this.compactPartitionUnlocked(attachmentId);
     });
   }
 }

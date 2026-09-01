@@ -27,6 +27,8 @@ const { registerBrowserCapabilities } = require('../.compiled/src/main/tools/bro
 const { BrowserControlPort } = require('../.compiled/src/main/tools/browser-control-port.js');
 const { issueRuntimeLease, makeControlPlaneId } = require('../.compiled/src/shared/control-plane-contracts.js');
 const { getTelemetryLogPath } = require('../.compiled/src/main/telemetry/fallback-recorder.js');
+let cleanupFn = async () => {};
+
 async function runParitySmokeTest() {
   console.log('[Parity Smoke Test] Starting live Electron verification...');
 
@@ -34,6 +36,34 @@ async function runParitySmokeTest() {
   let mainWindow;
   let tabHost;
   let termId;
+
+  let cleanupPromise = null;
+  cleanupFn = () => {
+    if (cleanupPromise) return cleanupPromise;
+    cleanupPromise = (async () => {
+      if (tabHost) {
+        try { tabHost.dispose(); } catch {}
+      }
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        try { mainWindow.destroy(); } catch {}
+      }
+      if (server) {
+        try {
+          server.closeAllConnections?.();
+          await new Promise((resolve) => server.close(resolve));
+        } catch {}
+      }
+      if (termId) {
+        try {
+          await TerminalManager.getInstance().closeSession(termId);
+        } catch {}
+      }
+      try {
+        fs.rmSync(tempUserData, { recursive: true, force: true });
+      } catch {}
+    })();
+    return cleanupPromise;
+  };
 
   try {
     // 1. Setup Local Test HTTP Server with File Input and Interactive Elements
@@ -233,30 +263,13 @@ async function runParitySmokeTest() {
     console.log('[Parity Smoke Test] ALL 5 PARITY MILESTONES VERIFIED SUCCESSFULLY VIA CANONICAL ANTI.* CAPABILITIES!');
     return true;
   } finally {
-    if (tabHost) {
-      try { tabHost.dispose(); } catch {}
-    }
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.destroy();
-    }
-    if (server) {
-      try {
-        server.closeAllConnections?.();
-        await new Promise((resolve) => server.close(resolve));
-      } catch {}
-    }
-    if (termId) {
-      try {
-        await TerminalManager.getInstance().closeSession(termId);
-      } catch {}
-    }
-    try {
-      fs.rmSync(tempUserData, { recursive: true, force: true });
-    } catch {}
+    await cleanupFn();
   }
 }
-process.on('unhandledRejection', (reason) => {
+
+process.on('unhandledRejection', async (reason) => {
   console.error('[Parity Smoke Test] Unhandled Rejection:', reason);
+  try { await cleanupFn(); } catch {}
   app.exit(1);
 });
 
@@ -272,6 +285,7 @@ app.whenReady().then(async () => {
   } catch (err) {
     clearTimeout(timer);
     console.error('[Parity Smoke Test] FAILED with error:', err);
+    try { await cleanupFn(); } catch {}
     app.exit(1);
   }
 });

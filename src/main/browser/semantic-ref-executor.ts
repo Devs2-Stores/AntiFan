@@ -58,7 +58,7 @@ export function buildIsolatedExecutorScript(request: RendererActionRequest): str
             return null;
           }
         }
-        return (current && (typeof current.getAttribute === 'function' || current.nodeType === 1)) ? current : null;
+        return current instanceof Element ? current : null;
       }
       function resolveCandidate() {
         let el = null;

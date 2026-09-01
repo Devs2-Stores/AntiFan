@@ -23,13 +23,49 @@ const electronBin = require('electron'); // resolves to the binary path under No
 const child = spawn(electronBin, process.argv.slice(2), {
   stdio: 'inherit',
   env,
+  detached: process.platform !== 'win32',
 });
-child.on('exit', (code) => {
+
+let killed = false;
+let childExited = false;
+function killChildTree() {
+  if (childExited || killed || !child || !child.pid) return;
+  killed = true;
   if (process.platform === 'win32') {
     try {
-      // Best-effort tree kill: Electron can leave gpu/utility/crashpad orphans.
       require('node:child_process').spawnSync('taskkill', ['/PID', String(child.pid), '/T', '/F'], { stdio: 'ignore' });
     } catch {}
+  } else {
+    try {
+      process.kill(-child.pid, 'SIGKILL');
+    } catch {
+      try {
+        child.kill('SIGKILL');
+      } catch {}
+    }
   }
-  process.exit(code ?? 1);
+}
+
+process.on('SIGINT', () => {
+  killChildTree();
+  process.exit(130);
+});
+
+process.on('SIGTERM', () => {
+  killChildTree();
+  process.exit(143);
+});
+
+process.on('SIGHUP', () => {
+  killChildTree();
+  process.exit(129);
+});
+
+process.on('exit', () => {
+  killChildTree();
+});
+
+child.on('exit', (code) => {
+  childExited = true;
+  process.exit(code !== null ? code : 1);
 });

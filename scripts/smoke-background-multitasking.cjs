@@ -29,6 +29,8 @@ const { AttachmentRegistry } = require('../.compiled/src/main/run/attachment-reg
 const { NativeTabHost } = require('../.compiled/src/main/browser/native-tab-host.js');
 const { AntiFanMcpServer } = require('../.compiled/src/main/mcp/mcp-server.js');
 
+let cleanupFn = async () => {};
+
 async function runMultitaskingSmokeTest() {
   console.log('[Smoke Multitasking] Starting live Electron decoupled background automation test...');
 
@@ -36,6 +38,29 @@ async function runMultitaskingSmokeTest() {
   let mainWindow;
   let tabHost;
   let bridgeServer;
+
+  let cleanupPromise = null;
+  cleanupFn = () => {
+    if (cleanupPromise) return cleanupPromise;
+    cleanupPromise = (async () => {
+      if (tabHost) {
+        try { tabHost.dispose(); } catch {}
+      }
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        try { mainWindow.destroy(); } catch {}
+      }
+      if (server) {
+        try {
+          server.closeAllConnections?.();
+          await new Promise((resolve) => server.close(resolve));
+        } catch {}
+      }
+      try {
+        fs.rmSync(tempUserData, { recursive: true, force: true });
+      } catch {}
+    })();
+    return cleanupPromise;
+  };
 
   try {
     // 1. Setup Local HTTP Test Server with Storefront and User App pages
@@ -193,26 +218,13 @@ async function runMultitaskingSmokeTest() {
 
     console.log('ALL LIVE ELECTRON MULTITASKING BACKGROUND AUTOMATION CHECKS PASSED.');
   } finally {
-    if (tabHost) {
-      try { tabHost.dispose(); } catch {}
-    }
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.destroy();
-    }
-    if (server) {
-      try {
-        server.closeAllConnections?.();
-        await new Promise((resolve) => server.close(resolve));
-      } catch {}
-    }
-    try {
-      fs.rmSync(tempUserData, { recursive: true, force: true });
-    } catch {}
+    await cleanupFn();
   }
 }
 
-process.on('unhandledRejection', (reason) => {
+process.on('unhandledRejection', async (reason) => {
   console.error('[Smoke Multitasking] Unhandled Rejection:', reason);
+  try { await cleanupFn(); } catch {}
   app.exit(1);
 });
 
@@ -228,6 +240,7 @@ app.whenReady().then(async () => {
   } catch (err) {
     clearTimeout(timer);
     console.error('[Live Electron Multitasking Smoke FAIL]', err);
+    try { await cleanupFn(); } catch {}
     app.exit(1);
   }
 });
