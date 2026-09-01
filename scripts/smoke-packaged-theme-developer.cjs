@@ -198,7 +198,6 @@ async function runThemeDeveloperSmoke() {
         workspaceId: sessionRes.workspaceId,
         runId: sessionRes.runId,
         attemptId: sessionRes.attemptId,
-        invocationId: `inv-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
         ...overrides,
       };
     }

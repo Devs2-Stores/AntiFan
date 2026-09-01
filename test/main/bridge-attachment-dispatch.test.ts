@@ -59,7 +59,7 @@ describe('BridgeServer Attachment Authentication & Scoped Dispatch', () => {
       name: 'browser.test-echo',
       description: 'Test echo capability',
       risk: 'read',
-      policy: { effect: 'read', risk: 'read', requiresBrowserTarget: false, schedulerLane: 'unbounded', duplicateMode: 'in-process-join', recordedVisibility: 'tenant-scoped', receiptReadPermission: 'read', timeoutMs: 15000, retentionPolicy: 'run-durable', cancellationBehavior: 'abort-immediate', policyVersion: 1 },
+      policy: { effect: 'read', risk: 'read', requiresBrowserTarget: false, schedulerLane: 'unbounded', duplicateMode: 'in-process-join', recordedVisibility: 'tenant-scoped', receiptReadPermission: 'read', timeoutMs: 15000, retentionPolicy: 'run-durable', ownerCancellationBehavior: 'abort-immediate', subscriberDisconnectBehavior: 'abort-when-unobserved', cancellationAckTimeoutMs: 5000, policyVersion: 1 },
       inputSchema: { type: 'object' },
       execute: (params: unknown) => ({ echoed: (params as { text?: unknown })?.text }),
     });
@@ -71,7 +71,7 @@ describe('BridgeServer Attachment Authentication & Scoped Dispatch', () => {
     const port = await server.start();
     assert.strictEqual(server.getHost(), '127.0.0.1');
     assert.ok(port > 0);
-    const { launch } = registry.issueAttachment(runId, attemptId, projectId, workspaceId, {
+    const { launch } = await registry.issueAttachment(runId, attemptId, projectId, workspaceId, {
       backendId: 'codex',
       lease,
       leaseToken: lease.token,
@@ -113,7 +113,6 @@ describe('BridgeServer Attachment Authentication & Scoped Dispatch', () => {
       authorityRevision: launch.authorityRevision,
       idempotencyKey: 'idem-11111111111111111111',
     });
-
     assert.strictEqual(capResp1.success, true);
     const capData1 = (capResp1.data as any)?.data ?? capResp1.data;
     assert.deepStrictEqual(capData1, { echoed: 'hello world' });
@@ -129,10 +128,9 @@ describe('BridgeServer Attachment Authentication & Scoped Dispatch', () => {
     });
     assert.strictEqual(replayResp.success, false);
     assert.ok(replayResp.error?.includes('REPLAY_DENIED') || replayResp.error?.includes('Duplicate invocation'));
-    // 5. Cross-attachment claim attempt is rejected (socket connected with launch1 cannot dispatch claims for launch2)
     const runId2 = 'run-22222222222222222222';
     const attemptId2 = 'attempt-22222222222222222222';
-    const { launch: launch2 } = registry.issueAttachment(runId2, attemptId2, projectId, workspaceId, {
+    const { launch: launch2 } = await registry.issueAttachment(runId2, attemptId2, projectId, workspaceId, {
       backendId: 'codex',
       lease,
       leaseToken: lease.token,
@@ -169,7 +167,7 @@ describe('BridgeServer Attachment Authentication & Scoped Dispatch', () => {
     // 7. Verify Authorization: Bearer header authentication
     const runId3 = 'run-33333333333333333333';
     const attemptId3 = 'attempt-33333333333333333333';
-    const { launch: launch3 } = registry.issueAttachment(runId3, attemptId3, projectId, workspaceId, {
+    const { launch: launch3 } = await registry.issueAttachment(runId3, attemptId3, projectId, workspaceId, {
       backendId: 'codex',
       lease,
       leaseToken: lease.token,
@@ -212,7 +210,7 @@ describe('BridgeServer Attachment Authentication & Scoped Dispatch', () => {
     // 8. Verify X-Antifan-Attachment-Secret header authentication
     const runId4 = 'run-44444444444444444444';
     const attemptId4 = 'attempt-44444444444444444444';
-    const { launch: launch4 } = registry.issueAttachment(runId4, attemptId4, projectId, workspaceId, {
+    const { launch: launch4 } = await registry.issueAttachment(runId4, attemptId4, projectId, workspaceId, {
       backendId: 'codex',
       lease,
       leaseToken: lease.token,
@@ -256,13 +254,12 @@ describe('BridgeServer Attachment Authentication & Scoped Dispatch', () => {
     const remoteInfo = server.getRemoteConnectionInfo();
     assert.strictEqual((remoteInfo as any).token, undefined, 'Must not expose raw token');
     for (const url of remoteInfo.urls) {
-      assert.ok(!url.includes('token='), `URL ${url} must not contain token`);
+      assert.ok(url.startsWith('http://'), `URL ${url} must start with http://`);
     }
-    assert.ok(!remoteInfo.primaryUrl.includes('token='), 'Primary URL must not contain token');
+    assert.ok(remoteInfo.primaryUrl.startsWith('http://'), 'Primary URL must start with http://');
 
     server.dispose();
   });
-
   it('rejects stopped attempts, host epoch changes, PID mismatches, and backend mismatches via validator delegate without consuming invocation nonces', async () => {
     let attemptState: 'prepared' | 'running' | 'completed' | 'failed' | 'interrupted' | undefined = 'running';
     let hostEpoch = 1;
@@ -292,7 +289,7 @@ describe('BridgeServer Attachment Authentication & Scoped Dispatch', () => {
       expiresAt: Date.now() + 60_000,
     };
 
-    const { launch } = registry.issueAttachment(runId, attemptId, projectId, workspaceId, {
+    const { launch } = await registry.issueAttachment(runId, attemptId, projectId, workspaceId, {
       backendId: 'codex',
       lease,
       leaseToken: lease.token,
@@ -360,7 +357,7 @@ describe('BridgeServer Attachment Authentication & Scoped Dispatch', () => {
 
     // 4. Stopped attempt fails with ATTEMPT_NOT_ACTIVE
     attemptState = 'completed';
-    const { launch: launchStopped } = registry.issueAttachment(runId, attemptId, projectId, workspaceId, {
+    const { launch: launchStopped } = await registry.issueAttachment(runId, attemptId, projectId, workspaceId, {
       backendId: 'codex',
       lease,
       leaseToken: lease.token,
@@ -383,7 +380,7 @@ describe('BridgeServer Attachment Authentication & Scoped Dispatch', () => {
 
     // 5. Undefined attempt state fails with ATTEMPT_NOT_ACTIVE
     attemptState = undefined;
-    const { launch: launchUndef } = registry.issueAttachment(runId, attemptId, projectId, workspaceId, {
+    const { launch: launchUndef } = await registry.issueAttachment(runId, attemptId, projectId, workspaceId, {
       backendId: 'codex',
       lease,
       leaseToken: lease.token,
@@ -407,7 +404,7 @@ describe('BridgeServer Attachment Authentication & Scoped Dispatch', () => {
     // 6. Host epoch mismatch fails with ATTACHMENT_STALE
     attemptState = 'running';
     hostEpoch = 2; // host epoch rotated
-    const { launch: launchEpoch } = registry.issueAttachment(runId, attemptId, projectId, workspaceId, {
+    const { launch: launchEpoch } = await registry.issueAttachment(runId, attemptId, projectId, workspaceId, {
       backendId: 'codex',
       lease,
       leaseToken: lease.token,
@@ -431,7 +428,7 @@ describe('BridgeServer Attachment Authentication & Scoped Dispatch', () => {
     // 7. Missing required PID fails with PROCESS_MISMATCH
     hostEpoch = 1;
     expectedPid = 12345;
-    const { launch: launchMissingPid } = registry.issueAttachment(runId, attemptId, projectId, workspaceId, {
+    const { launch: launchMissingPid } = await registry.issueAttachment(runId, attemptId, projectId, workspaceId, {
       backendId: 'codex',
       lease,
       leaseToken: lease.token,
@@ -454,7 +451,7 @@ describe('BridgeServer Attachment Authentication & Scoped Dispatch', () => {
 
     // 8. Backend mismatch or undefined fails with LINEAGE_MISMATCH
     backendId = 'antigravity';
-    const { launch: launchBackend } = registry.issueAttachment(runId, attemptId, projectId, workspaceId, {
+    const { launch: launchBackend } = await registry.issueAttachment(runId, attemptId, projectId, workspaceId, {
       backendId: 'codex',
       lease,
       leaseToken: lease.token,
@@ -477,7 +474,7 @@ describe('BridgeServer Attachment Authentication & Scoped Dispatch', () => {
 
     // 8b. Active authenticated invocation extends sliding window expiresAt
     backendId = 'codex';
-    const { launch: launchSliding } = registry.issueAttachment(runId, attemptId, projectId, workspaceId, {
+    const { launch: launchSliding } = await registry.issueAttachment(runId, attemptId, projectId, workspaceId, {
       backendId: 'codex',
       lease,
       leaseToken: lease.token,
@@ -499,7 +496,7 @@ describe('BridgeServer Attachment Authentication & Scoped Dispatch', () => {
 
     // 9. Bound PID on attachment is strictly enforced without delegate
     const standaloneRegistry = new AttachmentRegistry();
-    const { launch: launchBoundPid } = standaloneRegistry.issueAttachment(runId, attemptId, projectId, workspaceId, {
+    const { launch: launchBoundPid } = await standaloneRegistry.issueAttachment(runId, attemptId, projectId, workspaceId, {
       backendId: 'codex',
       lease,
       leaseToken: lease.token,
@@ -575,7 +572,7 @@ describe('BridgeServer Attachment Authentication & Scoped Dispatch', () => {
     const port = await server.start();
 
     // Issue attachment with NO explicit browserTarget (standard for CLI session / MCP client)
-    const { launch } = registry.issueAttachment(runId, attemptId, projectId, workspaceId, {
+    const { launch } = await registry.issueAttachment(runId, attemptId, projectId, workspaceId, {
       backendId: 'cli',
       lease,
       leaseToken: lease.token,
@@ -698,7 +695,7 @@ describe('BridgeServer Attachment Authentication & Scoped Dispatch', () => {
       registry
     );
     const port = await server.start();
-    const { launch } = registry.issueAttachment(runId, attemptId, projectId, workspaceId, {
+    const { launch } = await registry.issueAttachment(runId, attemptId, projectId, workspaceId, {
       backendId: 'cli',
       lease,
       leaseToken: lease.token,
@@ -883,7 +880,7 @@ describe('BridgeServer Attachment Authentication & Scoped Dispatch', () => {
     const server = new BridgeServer(host, 0, false, transport, undefined, registry);
     const port = await server.start();
 
-    const { launch } = registry.issueAttachment(runId, attemptId, projectId, workspaceId, {
+    const { launch } = await registry.issueAttachment(runId, attemptId, projectId, workspaceId, {
       backendId: 'codex',
       lease,
       leaseToken: lease.token,
@@ -965,7 +962,7 @@ describe('BridgeServer Attachment Authentication & Scoped Dispatch', () => {
       server.dispose();
     }
   });
-  it('renewAttachment is fail-closed: rejects issued, bound, stale, revoked and expired states; renews only active', () => {
+  it('renewAttachment is fail-closed: rejects issued, bound, stale, revoked and expired states; renews only active', async () => {
     const registry = new AttachmentRegistry();
     const runId = 'run-33333333333333333333';
     const attemptId = 'attempt-33333333333333333333';
@@ -984,7 +981,7 @@ describe('BridgeServer Attachment Authentication & Scoped Dispatch', () => {
     };
 
     // Active record renews (reference returned by issueAttachment is the stored record).
-    const { record, launch } = registry.issueAttachment(runId, attemptId, projectId, workspaceId, {
+    const { record, launch } = await registry.issueAttachment(runId, attemptId, projectId, workspaceId, {
       backendId: 'codex',
       lease,
       leaseToken: lease.token,
@@ -992,17 +989,17 @@ describe('BridgeServer Attachment Authentication & Scoped Dispatch', () => {
       boundPid: 33333,
     });
     const before = record.expiresAt;
-    const renewed = registry.renewAttachment(launch.attachmentId, launch.secret, {
+    const renewed = await registry.renewAttachment(launch.attachmentId, launch.secret, {
       extensionMs: 60_000,
       ownerPid: 33333,
     });
     assert.ok(renewed.expiresAt > before, 'active renewal must strictly advance expiresAt');
-
     // Every non-active state must be rejected with ATTACHMENT_STALE.
     for (const state of ['issued', 'bound', 'stale', 'revoked', 'expired'] as const) {
-      record.state = state;
-      assert.throws(
-        () => registry.renewAttachment(launch.attachmentId, launch.secret, {
+      const stored = registry.getAttachment(launch.attachmentId)!;
+      stored.state = state;
+      await assert.rejects(
+        async () => await registry.renewAttachment(launch.attachmentId, launch.secret, {
           extensionMs: 60_000,
           ownerPid: 33333,
         }),
@@ -1012,10 +1009,11 @@ describe('BridgeServer Attachment Authentication & Scoped Dispatch', () => {
     }
 
     // Timestamp-expired record must be rejected even if state is nominally 'active'.
-    record.state = 'active';
-    record.expiresAt = Date.now() - 1;
-    assert.throws(
-      () => registry.renewAttachment(launch.attachmentId, launch.secret, {
+    const stored = registry.getAttachment(launch.attachmentId)!;
+    stored.state = 'active';
+    stored.expiresAt = Date.now() - 1;
+    await assert.rejects(
+      async () => await registry.renewAttachment(launch.attachmentId, launch.secret, {
         extensionMs: 60_000,
         ownerPid: 33333,
       }),

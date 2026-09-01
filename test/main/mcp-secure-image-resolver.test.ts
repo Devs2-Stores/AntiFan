@@ -36,7 +36,7 @@ describe('Phase 01: Secure Screenshot & Server-Side Artifact Resolver', () => {
 
     attachmentRegistry = new AttachmentRegistry();
     const lease = issueRuntimeLease(testProjectId, testWorkspaceId, 60000, 1);
-    const issued = attachmentRegistry.issueAttachment(
+    const issued = await attachmentRegistry.issueAttachment(
       testRunId,
       testAttemptId,
       testProjectId,

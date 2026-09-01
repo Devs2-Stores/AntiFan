@@ -111,7 +111,7 @@ export function makeTargetKey(tabId: string, paneId?: string): string {
 
 export class SemanticRefRegistry {
   private nextRefIndex: number = 1;
-  private records = new Map<string, SemanticSnapshotRecord>();
+  private records = new Map<string, SemanticSnapshotRecord[]>();
   private pendingCollections = new Map<string, PendingCollection>();
   private activeSequences = new Map<string, number>();
   private isDisposed: boolean = false;
@@ -132,9 +132,12 @@ export class SemanticRefRegistry {
 
   private pruneExpiredRecords(): void {
     const now = this.clock();
-    for (const [key, record] of Array.from(this.records.entries())) {
-      if (now - record.createdAt > this.maxRecordAgeMs) {
+    for (const [key, recordList] of Array.from(this.records.entries())) {
+      const validList = recordList.filter(rec => now - rec.createdAt <= this.maxRecordAgeMs);
+      if (validList.length === 0) {
         this.records.delete(key);
+      } else {
+        this.records.set(key, validList);
       }
     }
     for (const [key, pending] of Array.from(this.pendingCollections.entries())) {
@@ -163,10 +166,6 @@ export class SemanticRefRegistry {
     this.pruneExpiredRecords();
 
     const targetKey = makeTargetKey(target.tabId, target.paneId);
-
-    // Invalidate active record immediately before nonce rotation
-    this.records.delete(targetKey);
-
     const nextSeq = (this.activeSequences.get(targetKey) || 0) + 1;
     const nextNonce = generateCollectionNonce();
 
@@ -235,10 +234,12 @@ export class SemanticRefRegistry {
       validatedRawList.push(validateRawDescriptor(params.rawDescriptors[idx], idx));
     }
 
-    // Check process total descriptors limit
+    // Check and enforce process total descriptors limit across all published generations
     let currentTotal = 0;
-    for (const rec of this.records.values()) {
-      currentTotal += rec.descriptors.size;
+    for (const list of this.records.values()) {
+      for (const rec of list) {
+        currentTotal += rec.descriptors.size;
+      }
     }
     if (currentTotal + validatedRawList.length > this.maxTotalProcessDescriptors) {
       throw new CapabilityError(
@@ -293,7 +294,10 @@ export class SemanticRefRegistry {
       formattedText,
     };
     this.pendingCollections.delete(targetKey);
-    this.records.set(targetKey, record);
+    const existingList = this.records.get(targetKey) || [];
+    // Prepend new record (immutable newest first) and keep at most 2 published generations per exact target
+    const updatedList = [record, ...existingList].slice(0, 2);
+    this.records.set(targetKey, updatedList);
     return {
       snapshotId,
       formattedText,
@@ -315,9 +319,9 @@ export class SemanticRefRegistry {
 
     validateTargetVersions(target);
     const targetKey = makeTargetKey(target.tabId, target.paneId);
-    const record = this.records.get(targetKey);
+    const recordList = this.records.get(targetKey) || [];
 
-    if (!record) {
+    if (recordList.length === 0) {
       const requestedIndex = parseSemanticRefIndex(ref);
       if (requestedIndex < this.nextRefIndex) {
         throw new CapabilityError(
@@ -331,38 +335,74 @@ export class SemanticRefRegistry {
       );
     }
 
+    // If documentGeneration is explicitly specified, find the matching generation record
+    let matchedRecord: SemanticSnapshotRecord | undefined;
+    if (typeof target.documentGeneration === 'number') {
+      matchedRecord = recordList.find(r => r.documentGeneration === target.documentGeneration);
+      if (!matchedRecord) {
+        const requestedIndex = parseSemanticRefIndex(ref);
+        if (requestedIndex < this.nextRefIndex) {
+          throw new CapabilityError(
+            'REF_STALE',
+            `Document generation mismatch for ref "${ref}": requested gen ${target.documentGeneration} not in active generations`
+          );
+        }
+        throw new CapabilityError(
+          'REF_NOT_FOUND',
+          `Semantic ref "${ref}" not found in generation ${target.documentGeneration} for target "${targetKey}"`
+        );
+      }
+    } else {
+      // Otherwise search from newest generation to older generation for ref
+      matchedRecord = recordList.find(r => r.descriptors.has(ref)) || recordList[0];
+    }
+
+    if (!matchedRecord) {
+      const requestedIndex = parseSemanticRefIndex(ref);
+      if (requestedIndex < this.nextRefIndex) {
+        throw new CapabilityError(
+          'REF_STALE',
+          `Semantic ref "${ref}" is stale for target "${targetKey}"`
+        );
+      }
+      throw new CapabilityError(
+        'REF_NOT_FOUND',
+        `Semantic ref "${ref}" not found in active snapshot for target "${targetKey}"`
+      );
+    }
+
     if (
       typeof target.browserEpoch === 'number' &&
-      record.browserEpoch !== target.browserEpoch
+      matchedRecord.browserEpoch !== target.browserEpoch
     ) {
       throw new CapabilityError(
         'TARGET_STALE',
-        `Target browser epoch mismatch: active ${record.browserEpoch}, requested ${target.browserEpoch}`
+        `Target browser epoch mismatch: active ${matchedRecord.browserEpoch}, requested ${target.browserEpoch}`
       );
     }
 
     if (
       typeof target.documentGeneration === 'number' &&
-      record.documentGeneration !== target.documentGeneration
+      matchedRecord.documentGeneration !== target.documentGeneration
     ) {
       throw new CapabilityError(
         'REF_STALE',
-        `Document generation mismatch for ref "${ref}": record gen ${record.documentGeneration}, target gen ${target.documentGeneration}`
+        `Document generation mismatch for ref "${ref}": record gen ${matchedRecord.documentGeneration}, target gen ${target.documentGeneration}`
       );
     }
 
     if (
       typeof target.documentUrl === 'string' &&
       target.documentUrl.trim() &&
-      record.documentUrl !== target.documentUrl.trim()
+      matchedRecord.documentUrl !== target.documentUrl.trim()
     ) {
       throw new CapabilityError(
         'REF_STALE',
-        `Document URL mismatch for ref "${ref}": record URL "${record.documentUrl}", requested "${target.documentUrl}"`
+        `Document URL mismatch for ref "${ref}": record URL "${matchedRecord.documentUrl}", requested "${target.documentUrl}"`
       );
     }
 
-    const descriptor = record.descriptors.get(ref);
+    const descriptor = matchedRecord.descriptors.get(ref);
     if (!descriptor) {
       const requestedIndex = parseSemanticRefIndex(ref);
       if (requestedIndex < this.nextRefIndex) {
@@ -384,14 +424,15 @@ export class SemanticRefRegistry {
     if (this.isDisposed) return null;
     this.pruneExpiredRecords();
     const targetKey = makeTargetKey(target.tabId, target.paneId);
-    const record = this.records.get(targetKey);
-    return record ? record.formattedText : null;
+    const recordList = this.records.get(targetKey);
+    return recordList && recordList.length > 0 ? recordList[0]!.formattedText : null;
   }
   public getActiveRecord(target: TargetIdentifier): SemanticSnapshotRecord | undefined {
     if (this.isDisposed) return undefined;
     this.pruneExpiredRecords();
     const targetKey = makeTargetKey(target.tabId, target.paneId);
-    return this.records.get(targetKey);
+    const recordList = this.records.get(targetKey);
+    return recordList && recordList.length > 0 ? recordList[0] : undefined;
   }
 
   public findInSnapshot(params: FindSnapshotParams): SnapshotFindResult {
@@ -435,7 +476,8 @@ export class SemanticRefRegistry {
     }
 
     const targetKey = makeTargetKey(params.tabId, params.paneId);
-    const record = this.records.get(targetKey);
+    const recordList = this.records.get(targetKey);
+    const record = recordList && recordList.length > 0 ? recordList[0] : undefined;
 
     if (!record || record.descriptors.size === 0) {
       return {
@@ -531,8 +573,10 @@ export class SemanticRefRegistry {
 
   public getStats(): RegistryStats {
     let totalDescriptors = 0;
-    for (const rec of this.records.values()) {
-      totalDescriptors += rec.descriptors.size;
+    for (const list of this.records.values()) {
+      for (const rec of list) {
+        totalDescriptors += rec.descriptors.size;
+      }
     }
     return {
       activeTargets: this.records.size,

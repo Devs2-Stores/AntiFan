@@ -100,7 +100,7 @@ describe('Run lifecycle ownership', () => {
       expiresAt: Date.now() + 60_000,
     };
 
-    const { launch } = runs.attachments.issueAttachment(run.id, activeAttempt.id, projectId, workspaceId, {
+    const { launch } = await runs.attachments.issueAttachment(run.id, activeAttempt.id, projectId, workspaceId, {
       backendId: 'codex',
       lease,
       leaseToken: lease.token,

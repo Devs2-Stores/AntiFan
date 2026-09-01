@@ -64,7 +64,7 @@ describe('Fast-Path Tab Lease Rebinding & Explicit TabId Routing (Phase 02)', ()
     }
 
     const mockHost = new MockHost() as unknown as NativeTabHost;
-    const browserPort = new BrowserControlPort(mockHost);
+    const browserPort = new BrowserControlPort(mockHost as any);
     registerBrowserCapabilities(catalogue, browserPort, undefined, () => '');
 
     const attachmentRegistry = new AttachmentRegistry({
@@ -78,7 +78,7 @@ describe('Fast-Path Tab Lease Rebinding & Explicit TabId Routing (Phase 02)', ()
     // 1. Issue an attachment initially bound to tab-initial with write grant
     const runId = makeControlPlaneId('run');
     const attemptId = makeControlPlaneId('attempt');
-    const { launch } = attachmentRegistry.issueAttachment(runId, attemptId, projectId, workspaceId, {
+    const { launch } = await attachmentRegistry.issueAttachment(runId, attemptId, projectId, workspaceId, {
       backendId: 'mcp',
       lease,
       leaseToken: lease.token,
@@ -178,7 +178,7 @@ describe('Fast-Path Tab Lease Rebinding & Explicit TabId Routing (Phase 02)', ()
     }
 
     const mockHost = new MockHost() as unknown as NativeTabHost;
-    const browserPort = new BrowserControlPort(mockHost);
+    const browserPort = new BrowserControlPort(mockHost as any);
     registerBrowserCapabilities(catalogue, browserPort, undefined, () => '');
 
     const attachmentRegistry = new AttachmentRegistry({
@@ -192,7 +192,7 @@ describe('Fast-Path Tab Lease Rebinding & Explicit TabId Routing (Phase 02)', ()
 
     const runId = makeControlPlaneId('run');
     const attemptId = makeControlPlaneId('attempt');
-    const { launch } = attachmentRegistry.issueAttachment(runId, attemptId, projectId, workspaceId, {
+    const { launch } = await attachmentRegistry.issueAttachment(runId, attemptId, projectId, workspaceId, {
       backendId: 'cli',
       lease,
       leaseToken: lease.token,
@@ -331,7 +331,7 @@ describe('Fast-Path Tab Lease Rebinding & Explicit TabId Routing (Phase 02)', ()
     }
 
     const mockHost = new MockHost() as unknown as NativeTabHost;
-    const browserPort = new BrowserControlPort(mockHost);
+    const browserPort = new BrowserControlPort(mockHost as any);
     registerBrowserCapabilities(catalogue, browserPort, undefined, () => '');
 
     const attachmentRegistry = new AttachmentRegistry({
@@ -344,7 +344,7 @@ describe('Fast-Path Tab Lease Rebinding & Explicit TabId Routing (Phase 02)', ()
 
     const runId = makeControlPlaneId('run');
     const attemptId = makeControlPlaneId('attempt');
-    const { launch } = attachmentRegistry.issueAttachment(runId, attemptId, projectId, workspaceId, {
+    const { launch } = await attachmentRegistry.issueAttachment(runId, attemptId, projectId, workspaceId, {
       backendId: 'mcp',
       lease,
       leaseToken: lease.token,
@@ -428,7 +428,7 @@ describe('Fast-Path Tab Lease Rebinding & Explicit TabId Routing (Phase 02)', ()
     }
 
     const mockHost = new PreAdvancedMockHost() as unknown as NativeTabHost;
-    const browserPort = new BrowserControlPort(mockHost);
+    const browserPort = new BrowserControlPort(mockHost as any);
     registerBrowserCapabilities(catalogue, browserPort);
 
     const attachmentRegistry = new AttachmentRegistry({
@@ -442,7 +442,7 @@ describe('Fast-Path Tab Lease Rebinding & Explicit TabId Routing (Phase 02)', ()
     const attemptId = makeControlPlaneId('attempt');
 
     // Issue attachment on tab-advanced without specifying documentGeneration: MUST dynamically resolve 9 from delegate!
-    const { launch, record } = attachmentRegistry.issueAttachment(runId, attemptId, projectId, workspaceId, {
+    const { launch, record } = await attachmentRegistry.issueAttachment(runId, attemptId, projectId, workspaceId, {
       backendId: 'mcp',
       lease,
       leaseToken: lease.token,
@@ -466,7 +466,7 @@ describe('Fast-Path Tab Lease Rebinding & Explicit TabId Routing (Phase 02)', ()
     assert.ok(domRes.content[0]?.text?.includes('DocGen 9'));
 
     // Dynamic tab update to tab-switched without explicit documentGeneration: MUST dynamically resolve 14!
-    const newRev = attachmentRegistry.updateAttachmentTab(launch.attachmentId, 'tab-switched');
+    const newRev = await attachmentRegistry.updateAttachmentTab(launch.attachmentId, 'tab-switched');
     assert.ok(newRev);
     const updatedRecord = attachmentRegistry.getRecord(launch.attachmentId);
     assert.strictEqual(updatedRecord?.documentGeneration, 14, 'updateAttachmentTab must resolve live generation 14');

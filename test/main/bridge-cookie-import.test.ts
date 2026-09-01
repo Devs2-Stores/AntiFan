@@ -442,7 +442,7 @@ describe('Bridge Cookie Import Endpoint & Target Isolation', () => {
     const projectId = makeControlPlaneId('project');
     const workspaceId = makeControlPlaneId('workspace');
 
-    const { launch } = registry.issueAttachment(runId, attemptId, projectId, workspaceId, {
+    const { launch } = await registry.issueAttachment(runId, attemptId, projectId, workspaceId, {
       backendId: 'test-backend',
       lease,
       leaseToken: 'lease-tok',

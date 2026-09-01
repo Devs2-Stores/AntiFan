@@ -22,7 +22,7 @@ describe('Capability catalogue', () => {
       name: 'read',
       description: 'read',
       risk: 'read',
-      policy: { effect: 'read', risk: 'read', requiresBrowserTarget: false, schedulerLane: 'unbounded', duplicateMode: 'in-process-join', recordedVisibility: 'tenant-scoped', receiptReadPermission: 'read', timeoutMs: 15000, retentionPolicy: 'run-durable', cancellationBehavior: 'abort-immediate', policyVersion: 1 },
+      policy: { effect: 'read', risk: 'read', requiresBrowserTarget: false, schedulerLane: 'unbounded', duplicateMode: 'in-process-join', recordedVisibility: 'tenant-scoped', receiptReadPermission: 'read', timeoutMs: 15000, retentionPolicy: 'run-durable', ownerCancellationBehavior: 'abort-immediate', subscriberDisconnectBehavior: 'abort-when-unobserved', cancellationAckTimeoutMs: 5000, policyVersion: 1 },
       inputSchema: { type: 'object' },
       execute: () => 'ok',
     });
@@ -30,7 +30,7 @@ describe('Capability catalogue', () => {
       name: 'write',
       description: 'write',
       risk: 'write',
-      policy: { effect: 'idempotent-write', risk: 'write', requiresBrowserTarget: false, schedulerLane: 'unbounded', duplicateMode: 'in-process-join', recordedVisibility: 'tenant-scoped', receiptReadPermission: 'write', timeoutMs: 15000, retentionPolicy: 'run-durable', cancellationBehavior: 'drain-and-persist', policyVersion: 1 },
+      policy: { effect: 'idempotent-write', risk: 'write', requiresBrowserTarget: false, schedulerLane: 'unbounded', duplicateMode: 'in-process-join', recordedVisibility: 'tenant-scoped', receiptReadPermission: 'write', timeoutMs: 15000, retentionPolicy: 'run-durable', ownerCancellationBehavior: 'drain-and-persist', subscriberDisconnectBehavior: 'detach-and-continue', cancellationAckTimeoutMs: 5000, policyVersion: 1 },
       inputSchema: { type: 'object' },
       execute: () => 'written',
     });
@@ -50,7 +50,7 @@ describe('Capability catalogue', () => {
       name: 'read',
       description: 'read',
       risk: 'read',
-      policy: { effect: 'read', risk: 'read', requiresBrowserTarget: false, schedulerLane: 'unbounded', duplicateMode: 'in-process-join', recordedVisibility: 'tenant-scoped', receiptReadPermission: 'read', timeoutMs: 15000, retentionPolicy: 'run-durable', cancellationBehavior: 'abort-immediate', policyVersion: 1 },
+      policy: { effect: 'read', risk: 'read', requiresBrowserTarget: false, schedulerLane: 'unbounded', duplicateMode: 'in-process-join', recordedVisibility: 'tenant-scoped', receiptReadPermission: 'read', timeoutMs: 15000, retentionPolicy: 'run-durable', ownerCancellationBehavior: 'abort-immediate', subscriberDisconnectBehavior: 'abort-when-unobserved', cancellationAckTimeoutMs: 5000, policyVersion: 1 },
       inputSchema: { type: 'object' },
       execute: () => 'ok',
     });
@@ -68,7 +68,7 @@ describe('Capability catalogue', () => {
       name: 'read',
       description: 'read',
       risk: 'read',
-      policy: { effect: 'read', risk: 'read', requiresBrowserTarget: false, schedulerLane: 'unbounded', duplicateMode: 'in-process-join', recordedVisibility: 'tenant-scoped', receiptReadPermission: 'read', timeoutMs: 15000, retentionPolicy: 'run-durable', cancellationBehavior: 'abort-immediate', policyVersion: 1 },
+      policy: { effect: 'read', risk: 'read', requiresBrowserTarget: false, schedulerLane: 'unbounded', duplicateMode: 'in-process-join', recordedVisibility: 'tenant-scoped', receiptReadPermission: 'read', timeoutMs: 15000, retentionPolicy: 'run-durable', ownerCancellationBehavior: 'abort-immediate', subscriberDisconnectBehavior: 'abort-when-unobserved', cancellationAckTimeoutMs: 5000, policyVersion: 1 },
       inputSchema: { type: 'object' },
       execute: () => 'ok',
     });
@@ -177,10 +177,9 @@ describe('Capability catalogue', () => {
     );
 
     // 10. Agent trajectory registration and execution with tabId
-    const trajResult = await catalogue.dispatch('browser.agent-trajectory', { steps: [{ action: 'move', x: 50, y: 50 }], tabId: 'tab-2' }, { lease, leaseToken: lease.token, projectId, workspaceId, grant: 'write', browserTarget: boundTarget });
+    const trajResult = await catalogue.dispatch('browser.agent-trajectory', { steps: [{ action: 'move', x: 50, y: 50 }], tabId: 'tab-2' }, { lease, leaseToken: lease.token, projectId, workspaceId, grant: 'write', browserTarget: { ...boundTarget, tabId: 'tab-2' } });
     assert.deepStrictEqual(trajResult, { success: true, executedSteps: 1, totalSteps: 1 });
     assert.strictEqual(switchedTabId, 'tab-2');
-
     // 11. Viewport and Mobile Device Emulation
     const vpRes = await catalogue.dispatch('browser.set-viewport', { width: 390, height: 844, mobile: true, tabId: 'tab-2' }, { lease, leaseToken: lease.token, projectId, workspaceId, grant: 'write', browserTarget: boundTarget });
     assert.deepStrictEqual(vpRes, { success: true, width: 390, height: 844, mobile: true, presetId: 'custom-390x844' });
@@ -352,7 +351,7 @@ describe('Capability catalogue', () => {
     // 6. Test valid MCP callTool with authoritative attachment
     const runId = makeControlPlaneId('run');
     const attemptId = makeControlPlaneId('attempt');
-    const { launch } = registry.issueAttachment(runId, attemptId, projectId, workspaceId, {
+    const { launch } = await registry.issueAttachment(runId, attemptId, projectId, workspaceId, {
       lease,
       leaseToken: lease.token,
       hostEpoch: 1,
@@ -416,7 +415,7 @@ describe('Capability catalogue', () => {
     // Call with valid attachment executes
     const runId = makeControlPlaneId('run');
     const attemptId = makeControlPlaneId('attempt');
-    const { launch } = registry.issueAttachment(runId, attemptId, projectId, workspaceId, {
+    const { launch } = await registry.issueAttachment(runId, attemptId, projectId, workspaceId, {
       lease,
       leaseToken: lease.token,
       hostEpoch: 1,
@@ -464,7 +463,7 @@ describe('Capability catalogue', () => {
     const server = new AntiFanMcpServer(mockHost as any, false, new CapabilityTransportAdapter(catalogue, registry));
     const runId = makeControlPlaneId('run');
     const attemptId = makeControlPlaneId('attempt');
-    const { launch } = registry.issueAttachment(runId, attemptId, projectId, workspaceId, {
+    const { launch } = await registry.issueAttachment(runId, attemptId, projectId, workspaceId, {
       lease,
       leaseToken: lease.token,
       hostEpoch: 1,
@@ -511,7 +510,7 @@ describe('Capability catalogue', () => {
     const server = new AntiFanMcpServer(mockHost as any, false, new CapabilityTransportAdapter(catalogue, registry));
     const runId = makeControlPlaneId('run');
     const attemptId = makeControlPlaneId('attempt');
-    const { launch } = registry.issueAttachment(runId, attemptId, projectId, workspaceId, {
+    const { launch } = await registry.issueAttachment(runId, attemptId, projectId, workspaceId, {
       lease,
       leaseToken: lease.token,
       hostEpoch: 1,
@@ -976,12 +975,11 @@ describe('Capability catalogue', () => {
     const domResult = await browser.dom(reloadResult.target, 'run-1', 'attempt-1');
     assert.strictEqual(domResult, '<main>Refreshed Content</main>');
 
-    // Old initialTarget with generation 1 (vs live generation 2) is rejected on interactive operations with HMR_DRIFT
+    // Old initialTarget with generation 1 (vs live generation 2) is rejected on interactive operations with TARGET_STALE
     await assert.rejects(
       async () => browser.agentClick({ tabId: 'tab-1', selector: 'button' }, initialTarget),
-      (err: unknown) => err instanceof CapabilityError && err.code === 'HMR_DRIFT'
+      (err: unknown) => err instanceof CapabilityError && err.code === 'TARGET_STALE'
     );
-
     // Mismatched browserEpoch or runtime is rejected with TARGET_STALE
     await assert.rejects(
       async () => browser.dom({ ...initialTarget, browserEpoch: 999 }, 'run-1', 'attempt-1'),
@@ -1020,7 +1018,7 @@ describe('Capability catalogue', () => {
     const server = new AntiFanMcpServer(mockHost as any, false, new CapabilityTransportAdapter(catalogue, registry));
     const runId = makeControlPlaneId('run');
     const attemptId = makeControlPlaneId('attempt');
-    const { launch } = registry.issueAttachment(runId, attemptId, projectId, workspaceId, {
+    const { launch } = await registry.issueAttachment(runId, attemptId, projectId, workspaceId, {
       lease,
       leaseToken: lease.token,
       hostEpoch: 1,
@@ -1101,7 +1099,7 @@ describe('Capability catalogue', () => {
 
       const runId = makeControlPlaneId('run');
       const attemptId = makeControlPlaneId('attempt');
-      const { launch } = registry.issueAttachment(runId, attemptId, projectId, workspaceId, {
+      const { launch } = await registry.issueAttachment(runId, attemptId, projectId, workspaceId, {
         lease,
         leaseToken: lease.token,
         hostEpoch: 1,

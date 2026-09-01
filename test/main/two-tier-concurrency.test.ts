@@ -86,7 +86,7 @@ describe('Two-Tier Concurrency Engine & ViewportGate Integration (Phase 03)', ()
     }
 
     const mockHost = new MockHost() as unknown as NativeTabHost;
-    const browserPort = new BrowserControlPort(mockHost);
+    const browserPort = new BrowserControlPort(mockHost as any);
     registerBrowserCapabilities(catalogue, browserPort, undefined, () => '');
 
     const attachmentRegistry = new AttachmentRegistry({
@@ -98,7 +98,7 @@ describe('Two-Tier Concurrency Engine & ViewportGate Integration (Phase 03)', ()
     // Issue Session 1 (bound to tab-1)
     const run1 = makeControlPlaneId('run');
     const att1 = makeControlPlaneId('attempt');
-    const { launch: launch1 } = attachmentRegistry.issueAttachment(run1, att1, projectId, workspaceId, {
+    const { launch: launch1 } = await attachmentRegistry.issueAttachment(run1, att1, projectId, workspaceId, {
       backendId: 'mcp',
       lease,
       leaseToken: lease.token,
@@ -110,7 +110,7 @@ describe('Two-Tier Concurrency Engine & ViewportGate Integration (Phase 03)', ()
     // Issue Session 2 (bound to tab-2)
     const run2 = makeControlPlaneId('run');
     const att2 = makeControlPlaneId('attempt');
-    const { launch: launch2 } = attachmentRegistry.issueAttachment(run2, att2, projectId, workspaceId, {
+    const { launch: launch2 } = await attachmentRegistry.issueAttachment(run2, att2, projectId, workspaceId, {
       backendId: 'mcp',
       lease,
       leaseToken: lease.token,
@@ -205,7 +205,7 @@ describe('Two-Tier Concurrency Engine & ViewportGate Integration (Phase 03)', ()
       },
       getDom: async () => '<div>test</div>',
     } as unknown as NativeTabHost;
-    const browserPort = new BrowserControlPort(mockHost);
+    const browserPort = new BrowserControlPort(mockHost as any);
     registerBrowserCapabilities(catalogue, browserPort, undefined, () => '');
 
     const attachmentRegistry = new AttachmentRegistry({
@@ -219,7 +219,7 @@ describe('Two-Tier Concurrency Engine & ViewportGate Integration (Phase 03)', ()
 
     const runId = makeControlPlaneId('run');
     const attemptId = makeControlPlaneId('attempt');
-    const { launch } = attachmentRegistry.issueAttachment(runId, attemptId, projectId, workspaceId, {
+    const { launch } = await attachmentRegistry.issueAttachment(runId, attemptId, projectId, workspaceId, {
       backendId: 'mcp',
       lease,
       leaseToken: lease.token,

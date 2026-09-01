@@ -31,8 +31,8 @@ export interface TabDevToolsContext {
   getDiagnostics?: (tabId: string, level?: string) => { console?: Array<{ message: string; source?: string; line?: number; level?: number }>; failures?: Array<{ validatedURL?: string; errorDescription?: string; errorCode?: number }> } | null;
   createTab: (url?: string, activate?: boolean) => string;
   withTabAgentWorking: <T>(tabId: string, action: () => Promise<T>) => Promise<T>;
+  runWithAttachedTabView?: <T>(view: Electron.WebContentsView | null | undefined, action: () => Promise<T>, isMobile?: boolean) => Promise<T>;
 }
-
 export class TabDevToolsHost {
   private readonly ctx: TabDevToolsContext;
   private isFontFinderActive: boolean = false;
@@ -579,40 +579,57 @@ export class TabDevToolsHost {
     if (!target) return '';
     const wc = this.ctx.getTabWebContents(targetId, paneId || target.focusedPane);
     if (!wc || wc.isDestroyed()) return '';
+    if (target.view && typeof target.view.getBounds === 'function') {
+      const bounds = target.view.getBounds();
+      if (!bounds || bounds.width === 0 || bounds.height === 0) {
+        const ctxAny = this.ctx as unknown as { getTabContentBounds?: (id: string, pane?: SplitPaneId) => { width: number; height: number } };
+        const mainBounds = ctxAny.getTabContentBounds ? ctxAny.getTabContentBounds(targetId, paneId || target.focusedPane) : { width: 1200, height: 800 };
+        target.view.setBounds({ x: 0, y: 0, width: mainBounds.width || 1200, height: mainBounds.height || 800 });
+      }
+    }
     return this.ctx.withTabAgentWorking(targetId, async () => {
-      // Empirical Cascade Tier 1: Fast webContents.capturePage() with 500ms race
-      try {
-        const capturePromise = wc.capturePage(rect);
-        const timeoutPromise = new Promise<null>((r) => setTimeout(() => r(null), 500));
-        const img = await Promise.race([capturePromise, timeoutPromise]);
-        if (img && typeof img.isEmpty === 'function' && !img.isEmpty()) {
-          return img.toPNG().toString('base64');
-        }
-        if (img && typeof img.toPNG === 'function') {
-          const pngBuf = img.toPNG();
-          if (pngBuf.length > 0) {
-            return pngBuf.toString('base64');
+      const captureAction = async (): Promise<string> => {
+        // Empirical Cascade Tier 1: Fast webContents.capturePage() with 500ms race
+        try {
+          const capturePromise = wc.capturePage(rect);
+          const timeoutPromise = new Promise<null>((r) => setTimeout(() => r(null), 500));
+          const img = await Promise.race([capturePromise, timeoutPromise]);
+          if (img && typeof img.isEmpty === 'function' && !img.isEmpty()) {
+            return img.toPNG().toString('base64');
           }
-        }
-      } catch {}
+          if (img && typeof img.toPNG === 'function') {
+            const pngBuf = img.toPNG();
+            if (pngBuf.length > 0) {
+              return pngBuf.toString('base64');
+            }
+          }
+        } catch {}
 
-      // Empirical Cascade Tier 2: CDP Page.captureScreenshot with fromSurface: false & exact clip bounds
-      try {
-        await this.sendCdpCommand(wc, 'Page.enable');
-        const cdpRes = await this.sendCdpCommand<{ data?: string }>(wc, 'Page.captureScreenshot', {
-          format: 'png',
-          fromSurface: false,
-          captureBeyondViewport: true,
-          clip: rect
-            ? { x: rect.x, y: rect.y, width: rect.width, height: rect.height, scale: 1 }
-            : undefined,
-        });
-        if (cdpRes && typeof cdpRes.data === 'string' && cdpRes.data.length > 0) {
-          return cdpRes.data;
-        }
-      } catch {}
+        // Empirical Cascade Tier 2: CDP Page.captureScreenshot with fromSurface: false & exact clip bounds
+        try {
+          await this.sendCdpCommand(wc, 'Page.enable');
+          const cdpRes = await this.sendCdpCommand<{ data?: string }>(wc, 'Page.captureScreenshot', {
+            format: 'png',
+            fromSurface: false,
+            captureBeyondViewport: true,
+            clip: rect
+              ? { x: rect.x, y: rect.y, width: rect.width, height: rect.height, scale: 1 }
+              : undefined,
+          });
+          if (cdpRes && typeof cdpRes.data === 'string' && cdpRes.data.length > 0) {
+            return cdpRes.data;
+          }
+        } catch {}
 
-      return '';
+        return '';
+      };
+
+      const isMobile = (paneId || target.focusedPane) === 'mobile';
+      const targetPaneView = isMobile ? (target.mobileView || target.view) : target.view;
+      if (this.ctx.runWithAttachedTabView && targetPaneView) {
+        return this.ctx.runWithAttachedTabView(targetPaneView, captureAction, isMobile);
+      }
+      return captureAction();
     });
   }
 

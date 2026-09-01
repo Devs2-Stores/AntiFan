@@ -460,4 +460,135 @@ describe('InvocationLedger - Main Serialization & Deduplication', () => {
     const lines = fs.readFileSync(partitionPath, 'utf8').trim().split('\n');
     assert.strictEqual(lines.length, 4, 'Compacted partition must contain 4 in_progress frames');
   });
+
+  it('11. InvocationDispatchStage advancement persists pre_dispatch and dispatch_started transitions', async () => {
+    const attachmentId = makeControlPlaneId('attachment');
+    const authority = createMockAuthority(attachmentId, 'run-1', 'att-1');
+    const intent: ClientInvocationIntent = {
+      requestId: 'req-stage-1',
+      idempotencyKey: 'idem-stage-1',
+      attachmentId,
+      attachmentSecret: 'sec-1',
+      authorityRevision: 'rev-test-1',
+      name: 'test.action',
+      params: {},
+    };
+
+    const claim = await ledger.claimOwner(intent, authority, 'digest', 1, 'public');
+    assert.strictEqual(claim.kind, 'owner');
+    assert.strictEqual(claim.record?.dispatchStage, 'pre_dispatch');
+
+    const advanced = await ledger.advanceStage(claim.invocationId, 'dispatch_started');
+    assert.strictEqual(advanced.dispatchStage, 'dispatch_started');
+
+    const recordInMem = ledger.getRecord(claim.invocationId);
+    assert.strictEqual(recordInMem?.dispatchStage, 'dispatch_started');
+
+    // Verify on disk
+    const partitionPath = path.join(tmpDir, 'invocations', `${attachmentId}.jsonl`);
+    const lines = fs.readFileSync(partitionPath, 'utf8').trim().split('\n').filter((l) => l.trim().length > 0);
+    assert.strictEqual(lines.length, 2);
+    const frame1 = JSON.parse(lines[0]!);
+    const frame2 = JSON.parse(lines[1]!);
+    assert.strictEqual(frame1.dispatchStage, 'pre_dispatch');
+    assert.strictEqual(frame2.dispatchStage, 'dispatch_started');
+  });
+
+  it('12. Crash recovery distinguishes pre_dispatch (interrupted) vs dispatch_started (unknown)', async () => {
+    const attachmentId = makeControlPlaneId('attachment');
+    const authority = createMockAuthority(attachmentId, 'run-1', 'att-1');
+
+    const intentPre: ClientInvocationIntent = {
+      requestId: 'req-pre-1',
+      idempotencyKey: 'idem-pre-1',
+      attachmentId,
+      attachmentSecret: 'sec-1',
+      authorityRevision: 'rev-test-1',
+      name: 'test.action',
+      params: { stage: 'pre' },
+    };
+    const claimPre = await ledger.claimOwner(intentPre, authority, 'digest', 1, 'public');
+    assert.strictEqual(claimPre.record?.dispatchStage, 'pre_dispatch');
+
+    const intentStarted: ClientInvocationIntent = {
+      requestId: 'req-started-1',
+      idempotencyKey: 'idem-started-1',
+      attachmentId,
+      attachmentSecret: 'sec-1',
+      authorityRevision: 'rev-test-1',
+      name: 'test.action',
+      params: { stage: 'started' },
+    };
+    const claimStarted = await ledger.claimOwner(intentStarted, authority, 'digest', 1, 'public');
+    await ledger.advanceStage(claimStarted.invocationId, 'dispatch_started');
+
+    // Simulate restart
+    const recoveredLedger = new InvocationLedger({ dataRoot: tmpDir });
+    await recoveredLedger.initialize();
+
+    const replayPre = await recoveredLedger.observe(intentPre, authority);
+    assert.strictEqual(replayPre?.kind, 'replay');
+    assert.strictEqual(replayPre?.record?.state, 'interrupted');
+    assert.strictEqual(replayPre?.record?.error?.code, 'PROCESS_INTERRUPTED');
+
+    const replayStarted = await recoveredLedger.observe(intentStarted, authority);
+    assert.strictEqual(replayStarted?.kind, 'replay');
+    assert.strictEqual(replayStarted?.record?.state, 'unknown');
+    assert.strictEqual(replayStarted?.record?.error?.code, 'EXECUTION_UNKNOWN');
+  });
+
+  it('13. Ambiguous append failure poisons partition in memory while retaining live .jsonl file on disk', async () => {
+    const attachmentId = makeControlPlaneId('attachment');
+    const authority = createMockAuthority(attachmentId, 'run-1', 'att-1');
+    const intent: ClientInvocationIntent = {
+      requestId: 'req-poison-1',
+      idempotencyKey: 'idem-poison-1',
+      attachmentId,
+      attachmentSecret: 'sec-1',
+      authorityRevision: 'rev-test-1',
+      name: 'test.action',
+      params: {},
+    };
+
+    const claim = await ledger.claimOwner(intent, authority, 'digest', 1, 'public');
+    assert.strictEqual(claim.kind, 'owner');
+
+    // Force append failure on advanceStage
+    const originalAppendFile = fs.promises.appendFile;
+    (fs.promises as unknown as { appendFile: typeof fs.promises.appendFile }).appendFile = async () => {
+      throw new Error('Simulated IO failure');
+    };
+
+    try {
+      await assert.rejects(
+        async () => ledger.advanceStage(claim.invocationId, 'dispatch_started'),
+        (err: unknown) => err instanceof CapabilityError && err.code === 'DURABILITY_FAILED'
+      );
+
+      assert.strictEqual(ledger.isPoisoned(attachmentId), true);
+
+      // File on disk remains intact (NOT quarantined)
+      const partitionPath = path.join(tmpDir, 'invocations', `${attachmentId}.jsonl`);
+      assert.strictEqual(fs.existsSync(partitionPath), true);
+
+      // Subsequent operations fail closed with DURABILITY_FAILED
+      await assert.rejects(
+        async () => ledger.observe(intent, authority),
+        (err: unknown) => err instanceof CapabilityError && err.code === 'DURABILITY_FAILED'
+      );
+    } finally {
+      fs.promises.appendFile = originalAppendFile;
+    }
+
+    // Restart ledger -> recovers cleanly from on-disk state without quarantine
+    const restarted = new InvocationLedger({ dataRoot: tmpDir });
+    await restarted.initialize();
+    assert.strictEqual(restarted.isQuarantined(attachmentId), false);
+    assert.strictEqual(restarted.isPoisoned(attachmentId), false);
+
+    // Since advanceStage failed before write, record was pre_dispatch -> recovers as interrupted
+    const observed = await restarted.observe(intent, authority);
+    assert.strictEqual(observed?.kind, 'replay');
+    assert.strictEqual(observed?.record?.state, 'interrupted');
+  });
 });

@@ -15,7 +15,7 @@ import {
 } from '../../src/shared/control-plane-contracts';
 
 describe('Decoupled Dual-Plane Background Automation & TARGET_STALE Elimination (Phase 01-04)', () => {
-  function createHarness() {
+  async function createHarness() {
     const projectId = makeControlPlaneId('project');
     const workspaceId = makeControlPlaneId('workspace');
     const lease = issueRuntimeLease(projectId, workspaceId, 30_000, 1);
@@ -105,7 +105,7 @@ describe('Decoupled Dual-Plane Background Automation & TARGET_STALE Elimination 
 
     const runId = makeControlPlaneId('run');
     const attemptId = makeControlPlaneId('attempt');
-    const { launch } = attachmentRegistry.issueAttachment(runId, attemptId, projectId, workspaceId, {
+    const { launch } = await attachmentRegistry.issueAttachment(runId, attemptId, projectId, workspaceId, {
       backendId: 'mcp',
       lease,
       leaseToken: lease.token,
@@ -139,7 +139,7 @@ describe('Decoupled Dual-Plane Background Automation & TARGET_STALE Elimination 
   }
 
   it('1. Decoupled Dual-Plane Execution: background agent calls on Tab 1 do not alter user active Tab 2', async () => {
-    const { mcpServer, getUserActiveTabId } = createHarness();
+    const { mcpServer, getUserActiveTabId } = await createHarness();
 
     assert.strictEqual(getUserActiveTabId(), 'tab-2', 'User starts on Tab 2 (e.g. YouTube)');
 
@@ -163,7 +163,7 @@ describe('Decoupled Dual-Plane Background Automation & TARGET_STALE Elimination 
   });
 
   it('2. RT-01 Scoped Preemption: physical keyboard input on Tab 2 does NOT abort agent running on Tab 1', async () => {
-    const { port } = createHarness();
+    const { port } = await createHarness();
 
     let agentFinished = false;
     let agentError: unknown = null;
@@ -253,7 +253,7 @@ describe('Decoupled Dual-Plane Background Automation & TARGET_STALE Elimination 
   });
 
   it('4. RT-03 Differential Generation Fencing: Passive reads auto-sync while interactive writes fail-close on HMR', async () => {
-    const { port, setTab1DocGen } = createHarness();
+    const { port, setTab1DocGen } = await createHarness();
 
     const target: BrowserTarget = {
       projectId: makeControlPlaneId('project'),
@@ -280,7 +280,7 @@ describe('Decoupled Dual-Plane Background Automation & TARGET_STALE Elimination 
     assert.strictEqual(reloadResult.reloaded, true);
     assert.strictEqual(reloadResult.target.documentGeneration, 5, 'Reload returned updated generation 5');
 
-    // 4. Interactive write with stale target (gen 1 vs live gen 5): must fail-close with HMR_DRIFT diagnostic
+    // 4. Interactive write with stale target (gen 1 vs live gen 5): must fail-close with TARGET_STALE diagnostic
     let writeError: CapabilityError | null = null;
     try {
       await port.agentClick({ tabId: 'tab-1', selector: 'button.checkout' }, target);
@@ -289,7 +289,7 @@ describe('Decoupled Dual-Plane Background Automation & TARGET_STALE Elimination 
     }
 
     assert.ok(writeError !== null, 'Interactive write rejected due to stale generation');
-    assert.strictEqual(writeError.code, 'HMR_DRIFT');
-    assert.ok(writeError.message.includes('HMR_DRIFT'), 'Error message contains actionable HMR_DRIFT diagnostic');
+    assert.strictEqual(writeError.code, 'TARGET_STALE');
+    assert.ok(writeError.message.includes('stale'), 'Error message contains actionable stale diagnostic');
   });
 });

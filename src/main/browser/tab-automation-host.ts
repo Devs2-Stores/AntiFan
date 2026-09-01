@@ -330,7 +330,7 @@ export class TabAutomationHost {
     focusScript?: string,
     x?: number,
     y?: number
-  ): Promise<{ success: boolean; data?: unknown; reason?: string; fallbackNeeded?: boolean }> {
+  ): Promise<{ success: boolean; data?: unknown; reason?: string; fallbackNeeded?: boolean; executionTier?: 'cdp_trusted' | 'isolated_synthetic' }> {
     let clickX = x;
     let clickY = y;
     let rect: { x: number; y: number; width: number; height: number; centerX?: number; centerY?: number } | undefined = undefined;
@@ -339,7 +339,7 @@ export class TabAutomationHost {
       const rawRes = await this.executeInIsolatedWorld(wc, focusScript);
       const res = validateActionResponse(rawRes);
       if (!res.ok) {
-        return { success: false, reason: res.error || 'Failed to resolve element for trusted click' };
+        return { success: false, reason: res.error || 'Failed to resolve element for trusted click', fallbackNeeded: false };
       }
       rect = res.rect;
       if (typeof clickX !== 'number' || typeof clickY !== 'number') {
@@ -351,7 +351,7 @@ export class TabAutomationHost {
     }
 
     if (typeof clickX !== 'number' || typeof clickY !== 'number') {
-      return { success: false, reason: 'Coordinates could not be resolved for CDP click' };
+      return { success: false, reason: 'Coordinates could not be resolved for CDP click', fallbackNeeded: false };
     }
 
     if (!wc.debugger) {
@@ -367,12 +367,15 @@ export class TabAutomationHost {
       }
     }
 
+    let dispatchStage: 'none' | 'moved' | 'pressed' | 'released' = 'none';
     try {
       await wc.debugger.sendCommand('Input.dispatchMouseEvent', {
         type: 'mouseMoved',
         x: clickX,
         y: clickY,
       });
+      dispatchStage = 'moved';
+
       await wc.debugger.sendCommand('Input.dispatchMouseEvent', {
         type: 'mousePressed',
         x: clickX,
@@ -380,6 +383,8 @@ export class TabAutomationHost {
         button: 'left',
         clickCount: 1,
       });
+      dispatchStage = 'pressed';
+
       await wc.debugger.sendCommand('Input.dispatchMouseEvent', {
         type: 'mouseReleased',
         x: clickX,
@@ -387,10 +392,45 @@ export class TabAutomationHost {
         button: 'left',
         clickCount: 1,
       });
-      return { success: true, data: { ok: true, executed: true, tier: 'cdp_trusted', x: clickX, y: clickY, rect } };
+      dispatchStage = 'released';
+
+      return {
+        success: true,
+        executionTier: 'cdp_trusted',
+        data: { ok: true, executed: true, tier: 'cdp_trusted', executionTier: 'cdp_trusted', x: clickX, y: clickY, rect },
+      };
     } catch (cdpErr) {
-      console.warn(`[tab-automation-host] CDP Input.dispatchMouseEvent failed, using fallback: ${cdpErr instanceof Error ? cdpErr.message : String(cdpErr)}`);
-      return { success: false, fallbackNeeded: true, reason: 'CDP dispatch failed' };
+      const errMsg = cdpErr instanceof Error ? cdpErr.message : String(cdpErr);
+      if (dispatchStage === 'pressed') {
+        try {
+          await Promise.race([
+            wc.debugger.sendCommand('Input.dispatchMouseEvent', {
+              type: 'mouseReleased',
+              x: clickX,
+              y: clickY,
+              button: 'left',
+              clickCount: 1,
+            }),
+            new Promise((_, reject) => setTimeout(() => reject(new Error('Cleanup release timed out')), 1000)),
+          ]);
+        } catch {
+          // Bounded cleanup error ignored
+        }
+        // Never cross tiers after button press emitted
+        return {
+          success: false,
+          fallbackNeeded: false,
+          executionTier: 'cdp_trusted',
+          reason: `CDP mouse release failed after mousePressed: ${errMsg}`,
+        };
+      }
+
+      return {
+        success: false,
+        fallbackNeeded: true,
+        executionTier: 'cdp_trusted',
+        reason: `CDP dispatch failed: ${errMsg}`,
+      };
     }
   }
 
@@ -399,7 +439,7 @@ export class TabAutomationHost {
     focusScript?: string,
     x?: number,
     y?: number
-  ): Promise<{ success: boolean; data?: unknown; reason?: string; fallbackNeeded?: boolean }> {
+  ): Promise<{ success: boolean; data?: unknown; reason?: string; fallbackNeeded?: boolean; executionTier?: 'cdp_trusted' | 'isolated_synthetic' }> {
     let hoverX = x;
     let hoverY = y;
     let rect: { x: number; y: number; width: number; height: number; centerX?: number; centerY?: number } | undefined = undefined;
@@ -408,7 +448,7 @@ export class TabAutomationHost {
       const rawRes = await this.executeInIsolatedWorld(wc, focusScript);
       const res = validateActionResponse(rawRes);
       if (!res.ok) {
-        return { success: false, reason: res.error || 'Failed to resolve element for trusted hover' };
+        return { success: false, reason: res.error || 'Failed to resolve element for trusted hover', fallbackNeeded: false };
       }
       rect = res.rect;
       if (typeof hoverX !== 'number' || typeof hoverY !== 'number') {
@@ -420,7 +460,7 @@ export class TabAutomationHost {
     }
 
     if (typeof hoverX !== 'number' || typeof hoverY !== 'number') {
-      return { success: false, reason: 'Coordinates could not be resolved for CDP hover' };
+      return { success: false, reason: 'Coordinates could not be resolved for CDP hover', fallbackNeeded: false };
     }
 
     if (!wc.debugger) {
@@ -442,10 +482,19 @@ export class TabAutomationHost {
         x: hoverX,
         y: hoverY,
       });
-      return { success: true, data: { ok: true, executed: true, tier: 'cdp_trusted', x: hoverX, y: hoverY, rect } };
+      return {
+        success: true,
+        executionTier: 'cdp_trusted',
+        data: { ok: true, executed: true, tier: 'cdp_trusted', executionTier: 'cdp_trusted', x: hoverX, y: hoverY, rect },
+      };
     } catch (cdpErr) {
       console.warn(`[tab-automation-host] CDP Input.dispatchMouseEvent (mouseMoved) failed, using fallback: ${cdpErr instanceof Error ? cdpErr.message : String(cdpErr)}`);
-      return { success: false, fallbackNeeded: true, reason: 'CDP dispatch failed' };
+      return {
+        success: false,
+        fallbackNeeded: true,
+        executionTier: 'cdp_trusted',
+        reason: `CDP dispatch failed: ${cdpErr instanceof Error ? cdpErr.message : String(cdpErr)}`,
+      };
     }
   }
   public async dispatchAgentAction(
@@ -588,10 +637,10 @@ export class TabAutomationHost {
             }
 
             if (!res.ok) {
-              return { success: false, reason: res.error };
+              return { success: false, reason: res.error, data: { ...res, executionTier: 'isolated_synthetic' } };
             }
 
-            return { success: res.executed, data: res };
+            return { success: res.executed, data: { ...res, executionTier: 'isolated_synthetic' } };
           } catch (err: unknown) {
             const reason = err instanceof Error ? err.message : String(err);
             return { success: false, reason };
@@ -697,9 +746,9 @@ export class TabAutomationHost {
           const rawRes = await this.executeInIsolatedWorld(wc, script);
           const res = validateActionResponse(rawRes);
           if (!res.ok) {
-            return { success: false, reason: res.error };
+            return { success: false, reason: res.error, data: { ...res, executionTier: 'isolated_synthetic' } };
           }
-          return { success: res.executed, data: res };
+          return { success: res.executed, data: { ...res, executionTier: 'isolated_synthetic' } };
         } catch (err: unknown) {
           const reason = err instanceof Error ? err.message : String(err);
           return { success: false, reason };

@@ -117,7 +117,7 @@ describe('Phase 04: E2E Industrial Overhaul & Storefront Latency Benchmarks', ()
     await controlPlaneRuntime.initialize();
 
     attachmentRegistry = controlPlaneRuntime.runs.attachments;
-    const session = controlPlaneRuntime.createCliSession({
+    const session = await controlPlaneRuntime.createCliSession({
       tabId: 'tab-1',
       grant: 'write',
     });

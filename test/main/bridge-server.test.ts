@@ -414,7 +414,7 @@ describe('AntiFan Bridge Server', () => {
     const workspaceId = makeControlPlaneId('workspace');
     const runtimeId = makeControlPlaneId('binding');
     const lease = { runtimeId, projectId, workspaceId, token: 'tok-1', protocolVersion: 1, hostEpoch: 1, ownerPid: process.pid, issuedAt: Date.now(), expiresAt: Date.now() + 30_000 };
-    const { launch } = registry.issueAttachment(runId, attemptId, projectId, workspaceId, {
+    const { launch } = await registry.issueAttachment(runId, attemptId, projectId, workspaceId, {
       backendId: 'omp',
       lease,
       leaseToken: lease.token,

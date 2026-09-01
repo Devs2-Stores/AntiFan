@@ -4,6 +4,7 @@ import * as crypto from 'node:crypto';
 import {
   CapabilityError,
   ClientInvocationIntent,
+  InvocationDispatchStage,
   MainResolvedAuthority,
   canonicalDigest,
   canonicalJsonStringify,
@@ -11,6 +12,7 @@ import {
 } from '../../shared/control-plane-contracts';
 
 export type InvocationState = 'claiming' | 'in_progress' | 'completed' | 'failed' | 'interrupted' | 'unknown';
+export { InvocationDispatchStage };
 
 export interface InvocationRecord {
   formatVersion: number;
@@ -24,6 +26,7 @@ export interface InvocationRecord {
   policyVersion: number;
   recordedVisibility: string;
   state: InvocationState;
+  dispatchStage?: InvocationDispatchStage;
   authoritySnapshot: MainResolvedAuthority;
   result?: unknown;
   error?: {
@@ -73,8 +76,10 @@ export class InvocationLedger {
   // invocationId -> attachmentId
   private readonly invocationToAttachment = new Map<string, string>();
   private readonly quarantinedPartitions = new Set<string>();
+  private readonly poisonedPartitions = new Set<string>();
   private readonly ioQueues = new Map<string, Promise<void>>();
   private readonly uncompactedFrameCounts = new Map<string, number>();
+
   constructor(private readonly options: InvocationLedgerOptions) {
     this.partitionsDir = path.join(options.dataRoot, 'invocations');
     this.maxHotRecords = options.maxHotRecordsPerPartition ?? 200;
@@ -90,6 +95,14 @@ export class InvocationLedger {
       const attachmentId = path.basename(file, '.jsonl');
       await this.replayPartition(attachmentId);
     }
+  }
+
+  public isQuarantined(attachmentId: string): boolean {
+    return this.quarantinedPartitions.has(attachmentId);
+  }
+
+  public isPoisoned(attachmentId: string): boolean {
+    return this.poisonedPartitions.has(attachmentId);
   }
 
   private getPartitionPath(attachmentId: string): string {
@@ -126,12 +139,21 @@ export class InvocationLedger {
 
         // Check if startup recovery needed for claiming or in_progress
         if (frame.state === 'claiming' || frame.state === 'in_progress') {
-          frame.state = 'interrupted';
-          frame.settledAt = Date.now();
-          frame.error = {
-            code: 'PROCESS_INTERRUPTED',
-            message: 'Execution was interrupted by process crash or restart',
-          };
+          if (frame.dispatchStage === 'dispatch_started') {
+            frame.state = 'unknown';
+            frame.settledAt = Date.now();
+            frame.error = {
+              code: 'EXECUTION_UNKNOWN',
+              message: 'Execution state unknown due to process termination after dispatch started',
+            };
+          } else {
+            frame.state = 'interrupted';
+            frame.settledAt = Date.now();
+            frame.error = {
+              code: 'PROCESS_INTERRUPTED',
+              message: 'Execution was interrupted by process crash or restart',
+            };
+          }
           needsCompaction = true;
         }
 
@@ -145,7 +167,7 @@ export class InvocationLedger {
     this.hotPartitions.set(attachmentId, partitionMap);
     this.uncompactedFrameCounts.set(attachmentId, Math.max(0, lines.length - partitionMap.size));
     if (needsCompaction) {
-      await this.compactPartition(attachmentId);
+      await this.compactPartitionUnlocked(attachmentId);
     }
   }
 
@@ -158,6 +180,17 @@ export class InvocationLedger {
         fs.renameSync(filePath, quarantinePath);
       }
     } catch {}
+  }
+
+  private poisonPartition(attachmentId: string, reason: string): void {
+    this.poisonedPartitions.add(attachmentId);
+    // Reject in-flight waiters for this partition with durability error
+    for (const [invId, claim] of this.inFlight.entries()) {
+      if (claim.record.attachmentId === attachmentId) {
+        claim.reject(new CapabilityError('DURABILITY_FAILED', `Partition ${attachmentId} is poisoned due to append ambiguity: ${reason}`));
+        this.inFlight.delete(invId);
+      }
+    }
   }
 
   public async observe(
@@ -181,7 +214,6 @@ export class InvocationLedger {
         partition = this.hotPartitions.get(attachmentId)!;
       }
     }
-
     const paramDigest = canonicalDigest(intent.params || {});
     const existing = partition.get(intent.idempotencyKey);
 
@@ -205,6 +237,10 @@ export class InvocationLedger {
         invocationId: existing.id,
         record: { ...existing },
       };
+    }
+    // If partition is poisoned due to append ambiguity, in-flight execution/JOIN cannot proceed and new claims are denied
+    if (this.poisonedPartitions.has(attachmentId)) {
+      throw new CapabilityError('DURABILITY_FAILED', `Invocation partition for attachment ${attachmentId} is poisoned due to append ambiguity. In-flight execution/JOIN is denied.`);
     }
 
     // Existing is in-flight: join
@@ -235,6 +271,9 @@ export class InvocationLedger {
     if (this.quarantinedPartitions.has(attachmentId)) {
       throw new CapabilityError('DURABILITY_FAILED', `Invocation partition for attachment ${attachmentId} is corrupted and quarantined. All execution on this attachment is halted.`);
     }
+    if (this.poisonedPartitions.has(attachmentId)) {
+      throw new CapabilityError('DURABILITY_FAILED', `Invocation partition for attachment ${attachmentId} is poisoned due to append ambiguity. All execution on this attachment is halted.`);
+    }
 
     let shouldCompact = false;
     const result = await this.runWithIOLock(attachmentId, async () => {
@@ -263,6 +302,7 @@ export class InvocationLedger {
         policyVersion,
         recordedVisibility,
         state: 'in_progress',
+        dispatchStage: 'pre_dispatch',
         authoritySnapshot: liveAuthority,
         createdAt: now,
       };
@@ -271,7 +311,53 @@ export class InvocationLedger {
       try {
         await this.appendFrameUnlocked(newRecord);
       } catch (err) {
-        throw new CapabilityError('DURABILITY_FAILED', `Failed to durably persist invocation claim: ${err instanceof Error ? err.message : String(err)}`);
+        // Reconcile append error under lock: failed initial claim evicts only if proven absent from disk.
+        // If any line fails parse or checksum, or file content is uncertain, it must poison, not evict.
+        const filePath = this.getPartitionPath(attachmentId);
+        let isProvenAbsent = false;
+        try {
+          if (!fs.existsSync(filePath)) {
+            isProvenAbsent = true;
+          } else {
+            const content = await fs.promises.readFile(filePath, 'utf8');
+            const lines = content.split(/\r?\n/).filter((l) => l.trim().length > 0);
+            let foundOnDisk = false;
+            let hasInvalidFrame = false;
+            for (const line of lines) {
+              try {
+                const parsed = JSON.parse(line) as InvocationRecord;
+                if (!parsed.checksum) {
+                  hasInvalidFrame = true;
+                  break;
+                }
+                const { checksum, ...rest } = parsed;
+                if (computeFrameChecksum(rest) !== checksum) {
+                  hasInvalidFrame = true;
+                  break;
+                }
+                if (parsed.id === newRecord.id) {
+                  foundOnDisk = true;
+                  break;
+                }
+              } catch {
+                hasInvalidFrame = true;
+                break;
+              }
+            }
+            if (!foundOnDisk && !hasInvalidFrame) {
+              isProvenAbsent = true;
+            }
+          }
+        } catch {
+          isProvenAbsent = false;
+        }
+
+        if (isProvenAbsent) {
+          throw new CapabilityError('DURABILITY_FAILED', `Failed to durably persist invocation claim: ${err instanceof Error ? err.message : String(err)}`);
+        } else {
+          this.poisonPartition(attachmentId, err instanceof Error ? err.message : String(err));
+          throw new CapabilityError('DURABILITY_FAILED', `Ambiguous append failure on claim: ${err instanceof Error ? err.message : String(err)}`);
+        }
       }
 
       let resolvePromise!: (record: InvocationRecord) => void;
@@ -280,7 +366,7 @@ export class InvocationLedger {
         resolvePromise = resolve;
         rejectPromise = reject;
       });
-
+      promise.catch(() => {});
       const inFlightEntry: InFlightClaim = {
         record: newRecord,
         resolve: resolvePromise,
@@ -325,6 +411,70 @@ export class InvocationLedger {
     return this.claimOwner(intent, authority, policyDigest, policyVersion, recordedVisibility);
   }
 
+  public async advanceStage(
+    invocationId: string,
+    stage: InvocationDispatchStage
+  ): Promise<InvocationRecord> {
+    const attachmentId = this.invocationToAttachment.get(invocationId);
+    if (!attachmentId) {
+      throw new CapabilityError('CAPABILITY_NOT_FOUND', `Unknown invocation ID: ${invocationId}`);
+    }
+
+    return this.runWithIOLock(attachmentId, async () => {
+      if (this.quarantinedPartitions.has(attachmentId)) {
+        throw new CapabilityError('DURABILITY_FAILED', `Invocation partition for attachment ${attachmentId} is corrupted and quarantined.`);
+      }
+      if (this.poisonedPartitions.has(attachmentId)) {
+        throw new CapabilityError('DURABILITY_FAILED', `Invocation partition for attachment ${attachmentId} is poisoned due to append ambiguity.`);
+      }
+
+      const partition = this.hotPartitions.get(attachmentId);
+      if (!partition) {
+        throw new CapabilityError('CAPABILITY_NOT_FOUND', `Invocation partition not found for: ${attachmentId}`);
+      }
+
+      let existing: InvocationRecord | undefined;
+      for (const rec of partition.values()) {
+        if (rec.id === invocationId) {
+          existing = rec;
+          break;
+        }
+      }
+
+      if (!existing) {
+        throw new CapabilityError('CAPABILITY_NOT_FOUND', `Invocation record not found for: ${invocationId}`);
+      }
+
+      if (existing.state === 'completed' || existing.state === 'failed' || existing.state === 'interrupted' || existing.state === 'unknown') {
+        return { ...existing };
+      }
+
+      if (existing.dispatchStage === stage) {
+        return { ...existing };
+      }
+
+      const updatedRecord: InvocationRecord = {
+        ...existing,
+        dispatchStage: stage,
+      };
+
+      try {
+        await this.appendFrameUnlocked(updatedRecord);
+      } catch (err) {
+        this.poisonPartition(attachmentId, `Failed to advance dispatch stage to ${stage}: ${err instanceof Error ? err.message : String(err)}`);
+        throw new CapabilityError('DURABILITY_FAILED', `Failed to durably advance dispatch stage to ${stage}: ${err instanceof Error ? err.message : String(err)}`);
+      }
+
+      partition.set(existing.idempotencyKey, updatedRecord);
+      const inFlightEntry = this.inFlight.get(invocationId);
+      if (inFlightEntry) {
+        inFlightEntry.record = updatedRecord;
+      }
+
+      return { ...updatedRecord };
+    });
+  }
+
   public async settle(
     invocationId: string,
     state: 'completed' | 'failed' | 'interrupted' | 'unknown',
@@ -341,6 +491,13 @@ export class InvocationLedger {
 
     let shouldCompact = false;
     const settled = await this.runWithIOLock(attachmentId, async () => {
+      if (this.quarantinedPartitions.has(attachmentId)) {
+        throw new CapabilityError('DURABILITY_FAILED', `Invocation partition for attachment ${attachmentId} is corrupted and quarantined.`);
+      }
+      if (this.poisonedPartitions.has(attachmentId)) {
+        throw new CapabilityError('DURABILITY_FAILED', `Invocation partition for attachment ${attachmentId} is poisoned due to append ambiguity.`);
+      }
+
       const partition = this.hotPartitions.get(attachmentId);
       if (!partition) {
         throw new CapabilityError('CAPABILITY_NOT_FOUND', `Invocation partition not found for: ${attachmentId}`);
@@ -373,7 +530,13 @@ export class InvocationLedger {
         settledAt: Date.now(),
       };
 
-      await this.appendFrameUnlocked(settledRecord);
+      try {
+        await this.appendFrameUnlocked(settledRecord);
+      } catch (err) {
+        this.poisonPartition(attachmentId, `Failed to settle invocation: ${err instanceof Error ? err.message : String(err)}`);
+        throw new CapabilityError('DURABILITY_FAILED', `Failed to durably settle invocation: ${err instanceof Error ? err.message : String(err)}`);
+      }
+
       partition.set(existing.idempotencyKey, settledRecord);
 
       const inFlightEntry = this.inFlight.get(invocationId);

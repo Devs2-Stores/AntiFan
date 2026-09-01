@@ -125,6 +125,35 @@ describe('Preview Protocol & Watcher Suite', () => {
       assert.strictEqual(pool.getActiveWatcherCount(), 0);
       assert.strictEqual(pool.getRefCount('cap-test'), 0);
     });
+
+    it('handles repeated callback identity with independent subscription tokens and clear timer cleanup', () => {
+      const pool = new PreviewWatcherPool();
+      const sharedCallback = () => {};
+
+      // Retain twice with the EXACT same callback function reference
+      const unsubA = pool.retain('cap-duplicate', tmpDir, sharedCallback);
+      const unsubB = pool.retain('cap-duplicate', tmpDir, sharedCallback);
+
+      assert.strictEqual(pool.getActiveWatcherCount(), 1);
+      assert.strictEqual(pool.getRefCount('cap-duplicate'), 2);
+
+      // Release first subscription token: refCount remains 1 and watcher stays open
+      unsubA();
+      assert.strictEqual(pool.getActiveWatcherCount(), 1);
+      assert.strictEqual(pool.getRefCount('cap-duplicate'), 1);
+
+      // Release second subscription token: watcher tears down cleanly
+      unsubB();
+      assert.strictEqual(pool.getActiveWatcherCount(), 0);
+      assert.strictEqual(pool.getRefCount('cap-duplicate'), 0);
+
+      // Test pool.clear() cleanly closes watchers
+      const unsubC = pool.retain('cap-clear', tmpDir, sharedCallback);
+      assert.strictEqual(pool.getActiveWatcherCount(), 1);
+      pool.clear();
+      assert.strictEqual(pool.getActiveWatcherCount(), 0);
+      unsubC(); // Unsub after clear is safe no-op
+    });
   });
 
   describe('NativeTabHost preview lifecycle & IPC integration', () => {

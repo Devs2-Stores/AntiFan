@@ -7,6 +7,7 @@ import { EventEmitter } from 'events';
 import { performance } from 'node:perf_hooks';
 import { isBenchmarkEnabled, recordBenchmark } from '../benchmark/telemetry';
 import { StorageLocations } from '../config/storage-locations';
+import { TerminalWaitInput, TerminalWaitResult, CapabilityError } from '../../shared/control-plane-contracts';
 export function resolveScriptsDir(): string | undefined {
   let dir = __dirname;
   for (let i = 0; i < 6; i++) {
@@ -53,6 +54,7 @@ export function killProcessTree(pid: number | undefined): Promise<void> {
           { windowsHide: true, timeout: 1500 },
           () => settle()
         );
+        child.unref?.();
         child.on('error', settle);
         child.on('close', settle);
       } catch {
@@ -70,7 +72,25 @@ export function killProcessTree(pid: number | undefined): Promise<void> {
     }
   });
 }
-type Session = { id: string; name: string; cwd: string; pty: pty.IPty; buffer: string; splitOf?: string; capsuleId: string; disposed?: boolean; lastSeq?: number };
+type Session = {
+  id: string;
+  name: string;
+  cwd: string;
+  pty: pty.IPty;
+  buffer: string;
+  splitOf?: string;
+  capsuleId: string;
+  disposed?: boolean;
+  lastSeq: number;
+  sessionGeneration: number;
+  state: 'running' | 'exited' | 'closed';
+  exitCode?: number;
+  exitSignal?: number;
+  exitedAt?: number;
+  closedAt?: number;
+  dataSubscription?: { dispose: () => void };
+  exitSubscription?: { dispose: () => void };
+};
 type SavedSession = { id: string; name: string; cwd: string; buffer?: string; splitOf?: string; capsuleId?: string };
 const MAX_TRANSCRIPT_BYTES = 512 * 1024; // 512KB in-memory history buffer (~5,000-10,000 lines)
 const MAX_PERSISTED_BYTES = 256 * 1024; // 256KB per session on disk
@@ -90,8 +110,12 @@ export interface SessionSummary {
   splitBuffer?: string;
   splitSnapshotThroughSeq?: number;
   bufferLength: number;
+  sessionGeneration: number;
+  state?: 'running' | 'exited' | 'closed';
+  exitCode?: number;
+  exitedAt?: number;
+  closedAt?: number;
 }
-
 function safeSliceTail(str: string, maxBytes: number): string {
   if (!str || str.length <= maxBytes) return str || '';
   let raw = str.slice(-maxBytes);
@@ -177,6 +201,7 @@ export function safeSliceTailJsonBounded(str: string, maxJsonBytes: number): str
 export class TerminalManager extends EventEmitter {
   private static instance: TerminalManager;
   private sessions = new Map<string, Session>();
+  private sessionGenerations = new Map<string, number>();
   private activeSessionId = '';
   private currentCwd = process.cwd();
   private currentCapsuleId = 'default';
@@ -456,6 +481,8 @@ export class TerminalManager extends EventEmitter {
     } catch {
       child = pty.spawn(shell, [], { ...ptyOptions, cwd: os.homedir() });
     }
+    const generation = (this.sessionGenerations.get(id) || 0) + 1;
+    this.sessionGenerations.set(id, generation);
     const s: Session = {
       id,
       name: `Terminal ${id.replace('terminal-', '')}`,
@@ -465,9 +492,10 @@ export class TerminalManager extends EventEmitter {
       capsuleId: this.currentCapsuleId,
       disposed: false,
       lastSeq: 0,
+      sessionGeneration: generation,
+      state: 'running',
     };
-    this.sessions.set(id, s);
-    child.onData(data => {
+    const dataSub = child.onData(data => {
       if (s.disposed) return;
       if (isBenchmarkEnabled()) {
         this.benchmarkChunkSeq += 1;
@@ -476,12 +504,28 @@ export class TerminalManager extends EventEmitter {
       }
       this.appendData(s, data);
     });
-    child.onExit(({ exitCode }) => {
+    const exitSub = child.onExit(({ exitCode, signal }) => {
       if (s.disposed) return;
       recordBenchmark({ surface: 'terminal', name: 'exit', extra: { sessionId: id, exitCode } });
+      s.state = 'exited';
+      s.exitCode = exitCode;
+      s.exitSignal = typeof signal === 'number' ? signal : undefined;
+      s.exitedAt = Date.now();
       const data = `\r\n[Process exited with code ${exitCode}]\r\n`;
       this.appendData(s, data);
+      this.emit('exit', {
+        sessionId: s.id,
+        sessionGeneration: s.sessionGeneration,
+        exitCode,
+        signal,
+        lastSeq: s.lastSeq,
+        exitedAt: s.exitedAt,
+      });
+      this.emitSession();
     });
+    s.dataSubscription = dataSub;
+    s.exitSubscription = exitSub;
+    this.sessions.set(id, s);
     return s;
   }
 
@@ -585,10 +629,29 @@ export class TerminalManager extends EventEmitter {
   private async safelyKillSession(s: Session | undefined): Promise<void> {
     if (!s || s.disposed) return;
     s.disposed = true;
+    s.state = 'closed';
+    s.closedAt = Date.now();
+    this.emit('close', {
+      sessionId: s.id,
+      sessionGeneration: s.sessionGeneration,
+      lastSeq: s.lastSeq,
+      closedAt: s.closedAt,
+    });
+    if (s.dataSubscription) {
+      try { s.dataSubscription.dispose(); } catch {}
+      s.dataSubscription = undefined;
+    }
+    if (s.exitSubscription) {
+      try { s.exitSubscription.dispose(); } catch {}
+      s.exitSubscription = undefined;
+    }
     const ptyInstance = s.pty;
     const pid = ptyInstance?.pid;
     if (ptyInstance) {
       try {
+        if (typeof (ptyInstance as any).removeAllListeners === 'function') {
+          (ptyInstance as any).removeAllListeners();
+        }
         ptyInstance.kill();
       } catch {}
     }
@@ -696,10 +759,14 @@ export class TerminalManager extends EventEmitter {
           splitBuffer: split?.buffer || '',
           splitSnapshotThroughSeq: split ? (split.lastSeq || 0) : 0,
           bufferLength: Buffer.byteLength(s.buffer, 'utf8'),
+          sessionGeneration: s.sessionGeneration,
+          state: s.state,
+          exitCode: s.exitCode,
+          exitedAt: s.exitedAt,
+          closedAt: s.closedAt,
         };
       });
     }
-
     let totalPanes = 0;
     for (const s of baseSessions) {
       totalPanes += 1;
@@ -731,6 +798,11 @@ export class TerminalManager extends EventEmitter {
         splitBuffer,
         splitSnapshotThroughSeq: split ? (split.lastSeq || 0) : 0,
         bufferLength: Buffer.byteLength(s.buffer, 'utf8'),
+        sessionGeneration: s.sessionGeneration,
+        state: s.state,
+        exitCode: s.exitCode,
+        exitedAt: s.exitedAt,
+        closedAt: s.closedAt,
       };
     });
   }
@@ -862,7 +934,190 @@ export class TerminalManager extends EventEmitter {
     for (const [, s] of this.sessions.entries()) {
       killPromises.push(this.safelyKillSession(s));
     }
+    await Promise.allSettled(killPromises);
     this.sessions.clear();
-    await Promise.all(killPromises);
+  }
+
+  public async waitTerminal(input: TerminalWaitInput, signal?: AbortSignal): Promise<TerminalWaitResult> {
+    if (!input.sessionId) {
+      throw new CapabilityError('INVALID_ARGUMENT', 'sessionId is required for terminal wait');
+    }
+    const s = this.sessions.get(input.sessionId);
+    if (!s) {
+      throw new CapabilityError('INVALID_ARGUMENT', `Terminal session ${input.sessionId} not found`);
+    }
+    if (input.sessionGeneration !== undefined && input.sessionGeneration !== s.sessionGeneration) {
+      throw new CapabilityError(
+        'SESSION_STALE',
+        `Terminal session generation mismatch: requested ${input.sessionGeneration}, active is ${s.sessionGeneration}`
+      );
+    }
+    const validConditions = ['exit', 'output-match', 'silence'];
+    if (!validConditions.includes(input.condition)) {
+      throw new CapabilityError('INVALID_ARGUMENT', `Unsupported wait condition: ${input.condition}`);
+    }
+
+    // Fail-fast if session already terminated and condition is not exit
+    if (s.state === 'exited' || s.state === 'closed') {
+      if (input.condition === 'exit') {
+        return {
+          satisfied: true,
+          sessionGeneration: s.sessionGeneration,
+          lastSeq: s.lastSeq || 0,
+          exitCode: s.exitCode,
+        };
+      }
+      throw new CapabilityError('SESSION_CLOSED', 'Terminal session already terminated');
+    }
+
+    // Fast path for output-match when afterSeq is not specified or already reached
+    if (input.condition === 'output-match') {
+      if (!input.pattern) {
+        throw new CapabilityError('INVALID_ARGUMENT', 'pattern is required for output-match condition');
+      }
+      let regex: RegExp;
+      try {
+        regex = new RegExp(input.pattern);
+      } catch (err) {
+        throw new CapabilityError('INVALID_ARGUMENT', `Invalid regex pattern: ${(err as Error).message}`);
+      }
+      if (input.afterSeq === undefined && regex.test(s.buffer)) {
+        return {
+          satisfied: true,
+          sessionGeneration: s.sessionGeneration,
+          lastSeq: s.lastSeq || 0,
+          outputTail: safeSliceTail(s.buffer, 4096),
+        };
+      }
+    }
+
+    let regex: RegExp | undefined;
+    if (input.condition === 'output-match') {
+      if (!input.pattern) {
+        throw new CapabilityError('INVALID_ARGUMENT', 'pattern is required for output-match condition');
+      }
+      try {
+        regex = new RegExp(input.pattern);
+      } catch (err) {
+        throw new CapabilityError('INVALID_ARGUMENT', `Invalid regex pattern: ${(err as Error).message}`);
+      }
+    }
+
+    return new Promise<TerminalWaitResult>((resolve, reject) => {
+      let settled = false;
+      let timeoutTimer: NodeJS.Timeout | null = null;
+      let silenceTimer: NodeJS.Timeout | null = null;
+
+      const cleanup = () => {
+        settled = true;
+        if (timeoutTimer) {
+          clearTimeout(timeoutTimer);
+          timeoutTimer = null;
+        }
+        if (silenceTimer) {
+          clearTimeout(silenceTimer);
+          silenceTimer = null;
+        }
+        this.removeListener('data', onData);
+        this.removeListener('exit', onExit);
+        this.removeListener('close', onClose);
+        if (signal) {
+          signal.removeEventListener('abort', onAbort);
+        }
+      };
+
+      const onAbort = () => {
+        if (settled) return;
+        cleanup();
+        reject(new CapabilityError('WAIT_ABORTED', 'Terminal wait was aborted'));
+      };
+
+      if (signal?.aborted) {
+        onAbort();
+        return;
+      }
+      if (signal) {
+        signal.addEventListener('abort', onAbort, { once: true });
+      }
+
+      const timeoutMs = input.timeoutMs ?? 30_000;
+      timeoutTimer = setTimeout(() => {
+        if (settled) return;
+        cleanup();
+        reject(new CapabilityError('WAIT_TIMEOUT', `Terminal wait timed out after ${timeoutMs}ms`));
+      }, timeoutMs);
+      timeoutTimer.unref?.();
+
+      const onData = (evt: { sessionId: string; data: string; seq: number }) => {
+        if (settled || evt.sessionId !== input.sessionId) return;
+        if (input.afterSeq !== undefined && evt.seq <= input.afterSeq) return;
+
+        if (input.condition === 'output-match' && regex) {
+          if (regex.test(evt.data) || regex.test(s.buffer)) {
+            cleanup();
+            resolve({
+              satisfied: true,
+              sessionGeneration: s.sessionGeneration,
+              lastSeq: evt.seq,
+              outputTail: safeSliceTail(s.buffer, 4096),
+            });
+            return;
+          }
+        }
+
+        if (input.condition === 'silence') {
+          if (silenceTimer) clearTimeout(silenceTimer);
+          silenceTimer = setTimeout(() => {
+            if (settled) return;
+            cleanup();
+            resolve({
+              satisfied: true,
+              sessionGeneration: s.sessionGeneration,
+              lastSeq: s.lastSeq || 0,
+            });
+          }, input.silenceMs ?? 1000);
+          silenceTimer.unref?.();
+        }
+      };
+
+      const onExit = (evt: { sessionId: string; sessionGeneration: number; exitCode?: number }) => {
+        if (settled || evt.sessionId !== input.sessionId) return;
+        if (input.condition === 'exit') {
+          cleanup();
+          resolve({
+            satisfied: true,
+            sessionGeneration: s.sessionGeneration,
+            lastSeq: s.lastSeq || 0,
+            exitCode: evt.exitCode,
+          });
+        } else {
+          cleanup();
+          reject(new CapabilityError('SESSION_CLOSED', 'Terminal session exited before wait condition was satisfied'));
+        }
+      };
+
+      const onClose = (evt: { sessionId: string; sessionGeneration: number }) => {
+        if (settled || evt.sessionId !== input.sessionId) return;
+        cleanup();
+        reject(new CapabilityError('SESSION_CLOSED', 'Terminal session closed before wait condition was satisfied'));
+      };
+
+      this.on('data', onData);
+      this.on('exit', onExit);
+      this.on('close', onClose);
+
+      if (input.condition === 'silence') {
+        silenceTimer = setTimeout(() => {
+          if (settled) return;
+          cleanup();
+          resolve({
+            satisfied: true,
+            sessionGeneration: s.sessionGeneration,
+            lastSeq: s.lastSeq || 0,
+          });
+        }, input.silenceMs ?? 1000);
+        silenceTimer.unref?.();
+      }
+    });
   }
 }

@@ -70,14 +70,27 @@ export class CapabilityCatalogue {
     if (!p.retentionPolicy || !validRetentions.has(p.retentionPolicy)) {
       throw new Error(`Capability ${definition.name} policy has invalid retentionPolicy '${p.retentionPolicy}'`);
     }
-    const validCancellations = new Set(['abort-immediate', 'drain-and-persist', 'ignore-disconnect']);
-    if (!p.cancellationBehavior || !validCancellations.has(p.cancellationBehavior)) {
-      throw new Error(`Capability ${definition.name} policy has invalid cancellationBehavior '${p.cancellationBehavior}'`);
+    const validOwnerCancellations = new Set(['abort-immediate', 'drain-and-persist']);
+    if (!p.ownerCancellationBehavior || !validOwnerCancellations.has(p.ownerCancellationBehavior)) {
+      throw new Error(`Capability ${definition.name} policy has invalid ownerCancellationBehavior '${p.ownerCancellationBehavior}'`);
+    }
+    const validSubscriberDisconnects = new Set(['abort-when-unobserved', 'detach-and-continue']);
+    if (!p.subscriberDisconnectBehavior || !validSubscriberDisconnects.has(p.subscriberDisconnectBehavior)) {
+      throw new Error(`Capability ${definition.name} policy has invalid subscriberDisconnectBehavior '${p.subscriberDisconnectBehavior}'`);
+    }
+    if (!p.cancellationAckTimeoutMs || p.cancellationAckTimeoutMs <= 0 || p.cancellationAckTimeoutMs > p.timeoutMs) {
+      throw new Error(`Capability ${definition.name} policy cancellationAckTimeoutMs must be positive and <= timeoutMs`);
+    }
+    if (p.subscriberDisconnectBehavior === 'abort-when-unobserved' && p.ownerCancellationBehavior !== 'abort-immediate') {
+      throw new Error(`Capability ${definition.name} policy cannot use abort-when-unobserved with drain-and-persist`);
+    }
+    if (p.ownerCancellationBehavior === 'drain-and-persist' && p.subscriberDisconnectBehavior !== 'detach-and-continue') {
+      throw new Error(`Capability ${definition.name} policy with drain-and-persist requires detach-and-continue`);
     }
     if (p.effect === 'read' && (p.risk === 'write' || p.risk === 'execute' || p.risk === 'eval')) {
       throw new Error(`Capability ${definition.name} has read effect but write/execute/eval risk`);
     }
-    if (p.effect === 'destructive-mutation' && (p.duplicateMode !== 'reject-concurrent' || p.cancellationBehavior === 'ignore-disconnect')) {
+    if (p.effect === 'destructive-mutation' && (p.duplicateMode !== 'reject-concurrent' || p.ownerCancellationBehavior !== 'abort-immediate')) {
       throw new Error(`Capability ${definition.name} has destructive-mutation effect and must use reject-concurrent and abortable cancellation`);
     }
     if (p.schedulerLane === 'short-passive' && p.effect !== 'read') {

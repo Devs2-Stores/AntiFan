@@ -1,29 +1,29 @@
 {
-  "timestamp": "2026-08-31T18:10:01.466Z",
+  "timestamp": "2026-09-01T19:18:50.016Z",
   "type": "functional-multi-process-workload-smoke",
-  "totalSamples": 35,
+  "totalSamples": 36,
   "steadyStateSamplesCount": 10,
-  "baselineRssMB": 902.63,
-  "peakRssMB": 1469.7,
-  "finalRssMB": 1357.98,
-  "observedSlopeMBPerMin": 0.0783,
+  "baselineRssMB": 486.54,
+  "peakRssMB": 921.06,
+  "finalRssMB": 847.27,
+  "observedSlopeMBPerMin": 0.0509,
   "stageResults": {
     "stage1Idle": {
-      "durationMs": 5000,
-      "samples": 10
+      "durationMs": 5002,
+      "samples": 11
     },
     "stage2Streaming": {
-      "durationMs": 3493,
-      "ptyReceivedBytes": 679193,
+      "durationMs": 3526,
+      "ptyReceivedBytes": 520930,
       "sessionCreated": true
     },
     "stage3TabThrash": {
-      "durationMs": 2041,
+      "durationMs": 2010,
       "tabSwitches": 20,
       "tabCount": 4
     },
     "stage4QaBlast": {
-      "durationMs": 7236,
+      "durationMs": 7196,
       "qaRuns": 20,
       "errorsFound": 20,
       "steadyStateSamplesCount": 10

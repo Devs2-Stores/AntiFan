@@ -1,13 +1,5 @@
-export type McpEvidence = {
-  timestamp?: number;
-  tabId?: string;
-  url?: string;
-  title?: string;
-  documentGeneration?: number;
-  browserEpoch?: number;
-  viewport?: { width: number; height: number };
-  [key: string]: unknown;
-};
+import type { McpEvidence } from '../../shared/control-plane-contracts';
+export type { McpEvidence };
 
 export function envelope<T>(
   data: T,

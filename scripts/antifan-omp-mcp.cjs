@@ -185,7 +185,9 @@ function ensureDispatchSocket(bootstrap) {
       ws.on('message', (raw) => {
         try {
           const response = JSON.parse(raw.toString());
-          if (!response || !response.id || !pendingDispatchCalls.has(response.id)) return;
+          if (!response || !response.id || !pendingDispatchCalls.has(response.id)) {
+            return;
+          }
           const entry = pendingDispatchCalls.get(response.id);
           pendingDispatchCalls.delete(response.id);
           clearTimeout(entry.timer);
@@ -193,6 +195,8 @@ function ensureDispatchSocket(bootstrap) {
             if (response.data && typeof response.data === 'object') {
               if (response.data.authorityRevision) {
                 currentAuthorityRevision = response.data.authorityRevision;
+              } else if (response.data.replacementAuthorityRevision) {
+                currentAuthorityRevision = response.data.replacementAuthorityRevision;
               }
               if (response.data.data !== undefined) {
                 entry.resolve(response.data.data);
@@ -201,6 +205,7 @@ function ensureDispatchSocket(bootstrap) {
             }
             entry.resolve(response.data);
           } else {
+            process.stderr.write(`[MCP Proxy RPC Error] ${JSON.stringify(response)}\n`);
             entry.reject(new Error(typeof response.error === 'string' ? response.error : JSON.stringify(response.error || { code: 'CAPABILITY_ERROR', message: 'AntiFan RPC failed' })));
           }
         } catch {}
@@ -236,7 +241,7 @@ function ensureDispatchSocket(bootstrap) {
   return dispatchConnecting;
 }
 
-async function invoke(method, params = {}) {
+async function invoke(method, params = {}, callerRequestId) {
   const bootstrap = getBootstrap();
   if (!bootstrap || !bootstrap.secret) {
     throw new Error(JSON.stringify({ code: 'MCP_CONTEXT_REQUIRED', message: 'OMP MCP proxy requires an authoritative Main bootstrap' }));
@@ -247,6 +252,8 @@ async function invoke(method, params = {}) {
   const timeoutMs = (method === 'theme.qa_validate' || method === 'anti.theme.qa_validate') ? 60000 : 15000;
 
   const mapped = CAPABILITY_MAP[method] || method;
+  const requestId = callerRequestId ? `req-mcp-${callerRequestId}-${crypto.randomUUID()}` : `req-${crypto.randomUUID()}`;
+  const idempotencyKey = callerRequestId ? `idem-mcp-${callerRequestId}-${crypto.randomUUID()}` : `idem-${crypto.randomUUID()}`;
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => {
       pendingDispatchCalls.delete(id);
@@ -262,6 +269,8 @@ async function invoke(method, params = {}) {
         params: {
           name: mapped,
           params,
+          requestId,
+          idempotencyKey,
           attachmentId: bootstrap.attachmentId,
           attachmentSecret: bootstrap.secret,
           authorityRevision: currentAuthorityRevision || bootstrap.authorityRevision,
@@ -273,7 +282,6 @@ async function invoke(method, params = {}) {
             attemptId: bootstrap.attemptId,
             projectId: bootstrap.projectId,
             workspaceId: bootstrap.workspaceId,
-            invocationId: crypto.randomUUID(),
             ownerPid: bootstrap.ownerPid,
           },
         },
@@ -432,11 +440,13 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
   })),
 }));
 
-server.setRequestHandler(CallToolRequestSchema, async (request) => {
+server.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
   try {
     const bootstrap = getBootstrap();
-    const data = await invoke(request.params.name, request.params.arguments || {});
-
+    const callerRequestId = extra && (typeof extra.requestId === 'string' || typeof extra.requestId === 'number')
+      ? String(extra.requestId)
+      : undefined;
+    const data = await invoke(request.params.name, request.params.arguments || {}, callerRequestId);
     // Handle ArtifactRef resolution from ArtifactStore
     if (data && typeof data === 'object' && typeof data.id === 'string' && data.id.startsWith('artifact-')) {
       const artifactPayload = await fetchArtifactBinary(bootstrap, data.id);

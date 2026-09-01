@@ -177,7 +177,9 @@ describe('Multi-Tenant Lease Issuance & Dynamic Workspace Router (Phase 01)', ()
           receiptReadPermission: 'read',
           timeoutMs: 10_000,
           retentionPolicy: 'run-durable',
-          cancellationBehavior: 'abort-immediate',
+          ownerCancellationBehavior: 'abort-immediate',
+          subscriberDisconnectBehavior: 'abort-when-unobserved',
+          cancellationAckTimeoutMs: 5000,
           policyVersion: 1,
         },
         inputSchema: { type: 'object' },
@@ -364,7 +366,7 @@ describe('Multi-Tenant Lease Issuance & Dynamic Workspace Router (Phase 01)', ()
       });
 
       // 1. Create CLI session for Project B explicitly
-      const sessionB = runtime.createCliSession({
+      const sessionB = await runtime.createCliSession({
         projectId: projectB,
         workspaceId: wsB,
         backendId: 'cli',
@@ -375,7 +377,7 @@ describe('Multi-Tenant Lease Issuance & Dynamic Workspace Router (Phase 01)', ()
       assert.strictEqual(sessionB.launch.workspaceId, wsB);
 
       // 2. Create CLI session by cwd in Project B folder
-      const sessionCwdB = runtime.createCliSession({
+      const sessionCwdB = await runtime.createCliSession({
         cwd: path.join(dirB, 'subfolder'),
         backendId: 'cli',
         grant: 'write',
@@ -385,7 +387,7 @@ describe('Multi-Tenant Lease Issuance & Dynamic Workspace Router (Phase 01)', ()
       assert.strictEqual(sessionCwdB.launch.workspaceId, wsB);
 
       // 3. Sibling prefix must NOT match dirB (e.g. dirB + '-sibling' should fallback to default workspace A)
-      const sessionSibling = runtime.createCliSession({
+      const sessionSibling = await runtime.createCliSession({
         cwd: dirB + '-sibling',
         backendId: 'cli',
         grant: 'write',
@@ -405,7 +407,7 @@ describe('Multi-Tenant Lease Issuance & Dynamic Workspace Router (Phase 01)', ()
         createdAt: Date.now(),
         updatedAt: Date.now(),
       });
-      const sessionNested = runtime.createCliSession({
+      const sessionNested = await runtime.createCliSession({
         cwd: path.join(dirBNested, 'src', 'components'),
         backendId: 'cli',
         grant: 'write',

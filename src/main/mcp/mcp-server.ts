@@ -609,6 +609,12 @@ export class AntiFanMcpServer {
       );
       return { content: [{ type: 'text', text: JSON.stringify(responseEnvelope) }] };
     }
+    if (result.replacementAuthorityRevision) {
+      this.boundSession = {
+        ...session,
+        authorityRevision: result.replacementAuthorityRevision,
+      };
+    }
     return {
       isError: true,
       content: [{
@@ -619,11 +625,11 @@ export class AntiFanMcpServer {
           details: result.error?.details,
           requestId: result.requestId,
           invocationId: result.invocationId,
+          ...(result.replacementAuthorityRevision ? { authorityRevision: result.replacementAuthorityRevision } : {}),
         }),
       }],
     };
   }
-
   public async start(): Promise<void> {
     const transport = new StdioServerTransport();
     await this.server.connect(transport);

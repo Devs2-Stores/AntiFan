@@ -7,7 +7,7 @@ import { NativeTabHost } from '../../src/main/browser/native-tab-host';
 import { AntiFanTab } from '../../src/shared/contracts';
 import { TerminalManager } from '../../src/main/browser/terminal-manager';
 
-const ROOT = path.resolve(__dirname, '../..');
+const ROOT = path.resolve(__dirname, '../../..');
 
 // Test seam: run NativeTabHost prototype methods without the full Electron
 // constructor. Shape mirrors the real NativeTabRecord (native-tab-host.ts:153).

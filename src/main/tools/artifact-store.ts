@@ -3,7 +3,7 @@ import * as path from 'node:path';
 import * as crypto from 'node:crypto';
 import { performance } from 'node:perf_hooks';
 import { recordBenchmark } from '../benchmark/telemetry';
-import { ArtifactRef, CapabilityError } from '../../shared/control-plane-contracts';
+import { ArtifactRef, CapabilityError, ArtifactReadResult, CapabilityRequestContext, AuthenticatedCapabilityContext } from '../../shared/control-plane-contracts';
 import { ArtifactRetentionCleaner, RetentionSweepOptions, RetentionSweepResult } from './artifact-retention-cleaner';
 
 export interface ArtifactStoreOptions {
@@ -13,7 +13,6 @@ export interface ArtifactStoreOptions {
   enableRetentionCleaner?: boolean;
   retentionOptions?: RetentionSweepOptions;
 }
-
 export class ArtifactStore {
   private readonly maxArtifactBytes: number;
   private readonly maxRunBytes: number;
@@ -23,10 +22,72 @@ export class ArtifactStore {
   private readonly MAX_HOT_CACHE_ITEMS = 32;
   constructor(private readonly options: ArtifactStoreOptions) {
     this.maxArtifactBytes = options.maxArtifactBytes ?? 8 * 1024 * 1024;
-    this.maxRunBytes = options.maxRunBytes ?? 32 * 1024 * 1024;
+    this.maxRunBytes = options.maxRunBytes ?? 256 * 1024 * 1024;
+    this.rehydrateIndex();
     if (options.enableRetentionCleaner) {
       Promise.resolve().then(() => this.sweepRetention()).catch(() => {});
     }
+  }
+
+  private getIndexFilePath(runId: string): string {
+    return path.join(this.options.root, runId, 'index.json');
+  }
+
+  private persistRunIndex(runId: string): void {
+    try {
+      const runDir = path.join(this.options.root, runId);
+      fs.mkdirSync(runDir, { recursive: true });
+      const runArtifacts = [...this.artifacts.values()].filter((a) => a.runId === runId);
+      const indexFile = this.getIndexFilePath(runId);
+      const tempPath = `${indexFile}.tmp-${Date.now()}`;
+      fs.writeFileSync(tempPath, JSON.stringify(runArtifacts, null, 2), 'utf8');
+      try {
+        fs.renameSync(tempPath, indexFile);
+      } catch {
+        fs.writeFileSync(indexFile, JSON.stringify(runArtifacts, null, 2), 'utf8');
+        try { fs.unlinkSync(tempPath); } catch {}
+      }
+    } catch {}
+  }
+
+  private rehydrateIndex(): void {
+    try {
+      if (!fs.existsSync(this.options.root)) return;
+      const entries = fs.readdirSync(this.options.root, { withFileTypes: true });
+      for (const entry of entries) {
+        if (!entry.isDirectory()) continue;
+        const runId = entry.name;
+        const runDir = path.join(this.options.root, runId);
+        let runTotalBytes = 0;
+        try {
+          const files = fs.readdirSync(runDir);
+          for (const f of files) {
+            if (f.endsWith('.artifact')) {
+              try {
+                const st = fs.statSync(path.join(runDir, f));
+                runTotalBytes += st.size;
+              } catch {}
+            }
+          }
+        } catch {}
+        this.runBytes.set(runId, runTotalBytes);
+
+        const indexFile = this.getIndexFilePath(runId);
+        if (fs.existsSync(indexFile)) {
+          try {
+            const raw = fs.readFileSync(indexFile, 'utf8');
+            const parsed = JSON.parse(raw);
+            if (Array.isArray(parsed)) {
+              for (const item of parsed) {
+                if (item && typeof item.id === 'string' && typeof item.path === 'string') {
+                  this.artifacts.set(item.id, item as ArtifactRef);
+                }
+              }
+            }
+          } catch {}
+        }
+      }
+    } catch {}
   }
   stage(input: {
     kind: ArtifactRef['kind'];
@@ -55,16 +116,25 @@ export class ArtifactStore {
     const max = Math.min(input.maxBytes ?? this.maxArtifactBytes, this.maxArtifactBytes);
     const truncated = raw.byteLength > max;
     const data = raw.subarray(0, max);
-    const currentRunBytes = this.runBytes.get(input.runId) || 0;
-    if (currentRunBytes + data.byteLength > this.maxRunBytes) throw new CapabilityError('ARTIFACT_TOO_LARGE', 'Run artifact budget exceeded');
     const binary = !isTextLike(input.mime);
     const { data: storedData, redacted } = binary ? { data, redacted: false } : redactSecrets(data);
     const sha256 = crypto.createHash('sha256').update(storedData).digest('hex');
     const artifactPath = path.join(this.options.root, input.runId, `${sha256}.artifact`);
     fs.mkdirSync(path.dirname(artifactPath), { recursive: true });
-    if (!fs.existsSync(artifactPath)) fs.writeFileSync(artifactPath, storedData);
-    const stored = fs.statSync(artifactPath).size;
-    this.runBytes.set(input.runId, currentRunBytes + stored);
+
+    const alreadyExists = fs.existsSync(artifactPath);
+    let stored = 0;
+    if (!alreadyExists) {
+      const currentRunBytes = this.runBytes.get(input.runId) || 0;
+      if (currentRunBytes + storedData.byteLength > this.maxRunBytes) {
+        throw new CapabilityError('ARTIFACT_TOO_LARGE', 'Run artifact budget exceeded');
+      }
+      fs.writeFileSync(artifactPath, storedData);
+      stored = fs.statSync(artifactPath).size;
+      this.runBytes.set(input.runId, currentRunBytes + stored);
+    } else {
+      stored = fs.statSync(artifactPath).size;
+    }
     const ref: ArtifactRef = {
       id: `artifact-${crypto.randomUUID()}`,
       runId: input.runId,
@@ -81,6 +151,7 @@ export class ArtifactStore {
       createdAt: Date.now(),
     };
     this.artifacts.set(ref.id, ref);
+    this.persistRunIndex(input.runId);
     if (storedData.byteLength <= 512 * 1024) {
       if (this.hotDataCache.size >= this.MAX_HOT_CACHE_ITEMS) {
         const firstKey = this.hotDataCache.keys().next().value;
@@ -96,9 +167,28 @@ export class ArtifactStore {
     return this.artifacts.get(id);
   }
 
-  readBytesById(id: string): { ref: ArtifactRef; data: Buffer } {
+  readBytesById(
+    id: string,
+    context?: CapabilityRequestContext | AuthenticatedCapabilityContext
+  ): { ref: ArtifactRef; data: Buffer } {
     const ref = this.artifacts.get(id);
     if (!ref) throw new CapabilityError('INVALID_ARGUMENT', `Artifact ${id} not found in store`);
+
+    if (context) {
+      if (context.runId && context.runId !== ref.runId) {
+        throw new CapabilityError('INVALID_ARGUMENT', `Artifact ${id} not found`);
+      }
+      if (context.attemptId && context.attemptId !== ref.attemptId) {
+        throw new CapabilityError('INVALID_ARGUMENT', `Artifact ${id} not found`);
+      }
+      if (context.projectId && context.projectId !== ref.projectId) {
+        throw new CapabilityError('INVALID_ARGUMENT', `Artifact ${id} not found`);
+      }
+      if (context.workspaceId && context.workspaceId !== ref.workspaceId) {
+        throw new CapabilityError('INVALID_ARGUMENT', `Artifact ${id} not found`);
+      }
+    }
+
     const resolved = path.resolve(ref.path);
     const rootResolved = path.resolve(this.options.root);
     const rootPrefix = rootResolved.endsWith(path.sep) ? rootResolved : rootResolved + path.sep;
@@ -121,9 +211,17 @@ export class ArtifactStore {
       }
       const cached = this.hotDataCache.get(id);
       if (cached) {
+        const cachedSha = crypto.createHash('sha256').update(cached).digest('hex');
+        if (cachedSha !== ref.sha256) {
+          throw new CapabilityError('INTEGRITY_COMPROMISED', 'Artifact hash verification failed: content corrupted');
+        }
         return { ref, data: cached };
       }
       const diskData = fs.readFileSync(resolved);
+      const diskSha = crypto.createHash('sha256').update(diskData).digest('hex');
+      if (diskSha !== ref.sha256) {
+        throw new CapabilityError('INTEGRITY_COMPROMISED', 'Artifact hash verification failed: content corrupted');
+      }
       if (diskData.byteLength <= 512 * 1024) {
         if (this.hotDataCache.size >= this.MAX_HOT_CACHE_ITEMS) {
           const firstKey = this.hotDataCache.keys().next().value;
@@ -137,9 +235,65 @@ export class ArtifactStore {
       throw new CapabilityError('INVALID_ARGUMENT', `Failed to read artifact: ${(err as Error).message}`);
     }
   }
-  readTextById(id: string): { ref: ArtifactRef; text: string } {
-    const { ref, data } = this.readBytesById(id);
+
+  readTextById(
+    id: string,
+    context?: CapabilityRequestContext | AuthenticatedCapabilityContext
+  ): { ref: ArtifactRef; text: string } {
+    const { ref, data } = this.readBytesById(id, context);
     return { ref, text: data.toString('utf8') };
+  }
+
+  readChunkById(
+    id: string,
+    offset = 0,
+    limit = 1024 * 1024,
+    context?: CapabilityRequestContext | AuthenticatedCapabilityContext
+  ): ArtifactReadResult {
+    const { ref, data } = this.readBytesById(id, context);
+    const maxChunkLimit = 1024 * 1024;
+    const chunkLimit = Math.min(Math.max(1, limit), maxChunkLimit);
+    const chunkOffset = Math.max(0, offset);
+    const totalBytes = data.byteLength;
+    const slice = data.subarray(chunkOffset, chunkOffset + chunkLimit);
+    const hasMore = chunkOffset + slice.byteLength < totalBytes;
+    const isText = isTextLike(ref.mime);
+    const encoding: 'utf8' | 'base64' = isText ? 'utf8' : 'base64';
+    const chunkStr = isText ? slice.toString('utf8') : slice.toString('base64');
+
+    return {
+      artifactId: ref.id,
+      offset: chunkOffset,
+      limit: slice.byteLength,
+      totalBytes,
+      hasMore,
+      mime: ref.mime,
+      encoding,
+      data: chunkStr,
+    };
+  }
+
+  stat(
+    id: string,
+    context?: CapabilityRequestContext | AuthenticatedCapabilityContext
+  ): ArtifactRef {
+    const ref = this.artifacts.get(id);
+    if (!ref) throw new CapabilityError('INVALID_ARGUMENT', `Artifact ${id} not found in store`);
+    if (context) {
+      if (context.runId && context.runId !== ref.runId) {
+        throw new CapabilityError('INVALID_ARGUMENT', `Artifact ${id} not found`);
+      }
+      if (context.attemptId && context.attemptId !== ref.attemptId) {
+        throw new CapabilityError('INVALID_ARGUMENT', `Artifact ${id} not found`);
+      }
+      if (context.projectId && context.projectId !== ref.projectId) {
+        throw new CapabilityError('INVALID_ARGUMENT', `Artifact ${id} not found`);
+      }
+      if (context.workspaceId && context.workspaceId !== ref.workspaceId) {
+        throw new CapabilityError('INVALID_ARGUMENT', `Artifact ${id} not found`);
+      }
+    }
+    return ref;
   }
 
   sweepRetention(options?: RetentionSweepOptions): RetentionSweepResult {

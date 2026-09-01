@@ -1,24 +1,26 @@
 import { CapabilityCatalogue } from '../tools/capability-catalogue';
 import { WorkflowEngine } from './workflow-engine';
-import { BrowserTarget, CapabilityError } from '../../shared/control-plane-contracts';
-import { WorkflowDefinition, WorkflowEventListener } from './workflow-schema';
+import { CapabilityError, BrowserTarget, AuthenticatedCapabilityContext } from '../../shared/control-plane-contracts';
+import { WorkflowDefinition } from './workflow-schema';
 export function registerWorkflowCapabilities(catalogue: CapabilityCatalogue, engine: WorkflowEngine): void {
   catalogue.register({
     name: 'workflow.execute',
     description: 'Execute an automated multi-step browser, QA, and validation workflow',
     risk: 'write',
-    requiresBrowserTarget: true,
+    requiresBrowserTarget: false,
     policy: {
       effect: 'idempotent-write',
       risk: 'write',
-      requiresBrowserTarget: true,
-      schedulerLane: 'viewport-gate',
+      requiresBrowserTarget: false,
+      schedulerLane: 'unbounded',
       duplicateMode: 'in-process-join',
       recordedVisibility: 'tenant-scoped',
       receiptReadPermission: 'write',
       timeoutMs: 120_000,
       retentionPolicy: 'run-durable',
-      cancellationBehavior: 'abort-immediate',
+      ownerCancellationBehavior: 'abort-immediate',
+      subscriberDisconnectBehavior: 'abort-when-unobserved',
+      cancellationAckTimeoutMs: 10_000,
       policyVersion: 1,
     },
     inputSchema: {
@@ -29,19 +31,14 @@ export function registerWorkflowCapabilities(catalogue: CapabilityCatalogue, eng
       },
       required: ['workflow', 'workspaceRoot'],
     },
-    execute: async (params: Record<string, unknown>, context) => {
+    execute: async (params: Record<string, unknown>, rawContext) => {
+      const context = rawContext as AuthenticatedCapabilityContext;
       if (!context.browserTarget) {
         throw new CapabilityError('TARGET_REQUIRED', 'workflow.execute requires a bound BrowserTarget');
       }
-      const p = params as unknown as {
+      const p = params as {
         workflow: WorkflowDefinition;
         workspaceRoot: string;
-        signal?: AbortSignal;
-        onEvent?: WorkflowEventListener;
-        attachmentId?: string;
-        attachmentSecret?: string;
-        authorityRevision?: string;
-        parentInvocationId?: string;
       };
       return engine.execute({
         workflow: p.workflow,
@@ -52,12 +49,11 @@ export function registerWorkflowCapabilities(catalogue: CapabilityCatalogue, eng
         attemptId: context.attemptId || 'attempt-1',
         workspaceRoot: p.workspaceRoot,
         grant: context.grant,
-        signal: p.signal,
-        onEvent: p.onEvent,
-        attachmentId: p.attachmentId,
-        attachmentSecret: p.attachmentSecret,
-        authorityRevision: p.authorityRevision,
-        parentInvocationId: p.parentInvocationId,
+        signal: context.signal,
+        progressSink: context.progressSink,
+        authorityRevision: context.authorityRevision,
+        parentInvocationId: context.invocationId,
+        dispatchChildIntent: context.dispatchChildIntent,
       });
     },
   });

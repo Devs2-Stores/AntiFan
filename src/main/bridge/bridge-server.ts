@@ -208,8 +208,7 @@ export class BridgeServer {
         pathname === '/api/remote-info' ||
         pathname === '/api/qr' ||
         pathname === '/api/cookies/import' ||
-        pathname === '/api/lan-ips' ||
-        pathname === '/status'
+        pathname === '/api/lan-ips'
       ) {
         if (!isBridgeToken && !verifiedAttachmentId) {
           const unauthHeaders: Record<string, string> = { 'Content-Type': 'application/json' };
@@ -330,10 +329,20 @@ export class BridgeServer {
           return;
         }
 
-        // 3. Mandatory Ownership Validation: Zero bypass
+        // 3. Mandatory Lineage & Ownership Validation: Zero bypass
         if (ref.runId !== record.runId || ref.attemptId !== record.attemptId) {
           res.writeHead(403, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({ error: 'Forbidden: ATTACHMENT_MISMATCH - Artifact run/attempt does not match attachment record' }));
+          return;
+        }
+        if (record.projectId && ref.projectId && ref.projectId !== record.projectId) {
+          res.writeHead(403, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Forbidden: ATTACHMENT_MISMATCH - Artifact projectId does not match attachment record' }));
+          return;
+        }
+        if (record.workspaceId && ref.workspaceId && ref.workspaceId !== record.workspaceId) {
+          res.writeHead(403, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Forbidden: ATTACHMENT_MISMATCH - Artifact workspaceId does not match attachment record' }));
           return;
         }
 
@@ -344,7 +353,32 @@ export class BridgeServer {
           return;
         }
 
-        // 5. Stream Binary Payload
+        // 5. Stream Binary Payload (with 1 MiB chunking support)
+        const hasChunkParams = reqUrl.searchParams.has('offset') || reqUrl.searchParams.has('limit');
+        if (hasChunkParams || data.byteLength > 1024 * 1024) {
+          const offsetParam = reqUrl.searchParams.get('offset');
+          const limitParam = reqUrl.searchParams.get('limit');
+          const offset = offsetParam ? Math.max(0, parseInt(offsetParam, 10) || 0) : 0;
+          const maxChunk = 1024 * 1024;
+          const limit = limitParam ? Math.min(Math.max(1, parseInt(limitParam, 10) || maxChunk), maxChunk) : maxChunk;
+          const chunk = data.subarray(offset, offset + limit);
+          const hasMore = offset + chunk.byteLength < data.byteLength;
+
+          res.writeHead(200, {
+            'Content-Type': ref.mime || 'application/octet-stream',
+            'Content-Length': String(chunk.byteLength),
+            'X-Artifact-Id': ref.id,
+            'X-Artifact-Sha256': ref.sha256 || '',
+            'X-Artifact-Offset': String(offset),
+            'X-Artifact-Limit': String(chunk.byteLength),
+            'X-Artifact-Total-Bytes': String(data.byteLength),
+            'X-Artifact-Has-More': String(hasMore),
+            'Access-Control-Allow-Origin': isAllowedOrigin ? rawOrigin : 'http://127.0.0.1',
+          });
+          res.end(chunk);
+          return;
+        }
+
         res.writeHead(200, {
           'Content-Type': ref.mime || 'application/octet-stream',
           'Content-Length': String(data.byteLength),
@@ -770,14 +804,14 @@ export class BridgeServer {
               name: p.name,
               params: p.params || {},
             };
-
             const dispatchResult = await this.capabilityTransport.dispatchIntent(intent);
             if (dispatchResult.ok) {
               respond(true, {
                 data: dispatchResult.data,
                 requestId: dispatchResult.requestId,
                 invocationId: dispatchResult.invocationId,
-                ...(dispatchResult.replacementAuthorityRevision ? { authorityRevision: dispatchResult.replacementAuthorityRevision } : {}),
+                replacementAuthorityRevision: dispatchResult.replacementAuthorityRevision,
+                authorityRevision: dispatchResult.replacementAuthorityRevision,
               });
             } else {
               const code = dispatchResult.error?.code || 'CAPABILITY_ERROR';
@@ -815,7 +849,7 @@ export class BridgeServer {
               this.tabHost.setAutomationTabId(tabId);
             }
             const ownerPid = typeof p.ownerPid === 'number' && p.ownerPid > 0 ? p.ownerPid : undefined;
-            const res = this.controlPlaneRuntime.createCliSession({
+            const res = await this.controlPlaneRuntime.createCliSession({
               projectId: typeof p.projectId === 'string' ? p.projectId : undefined,
               workspaceId: typeof p.workspaceId === 'string' ? p.workspaceId : undefined,
               cwd: typeof p.cwd === 'string' ? p.cwd : undefined,
@@ -867,7 +901,7 @@ export class BridgeServer {
             if (this.tabHost.clearAllAgentWorking) {
               this.tabHost.clearAllAgentWorking();
             }
-            const res = this.controlPlaneRuntime.endCliSession(
+            const res = await this.controlPlaneRuntime.endCliSession(
               p.runId,
               p.attemptId,
               p.outcome === 'failed' || p.outcome === 'cancelled' ? p.outcome : 'completed',
@@ -899,7 +933,7 @@ export class BridgeServer {
           try {
             const extensionMs = typeof p.extensionMs === 'number' && p.extensionMs > 0 ? p.extensionMs : undefined;
             const ownerPid = typeof p.ownerPid === 'number' ? p.ownerPid : undefined;
-            const res = this.controlPlaneRuntime.renewCliSession(attachmentId, secret, { extensionMs, ownerPid });
+            const res = await this.controlPlaneRuntime.renewCliSession(attachmentId, secret, { extensionMs, ownerPid });
             respond(true, res);
           } catch (err: unknown) {
             const errorMsg = err instanceof Error ? err.message : String(err);

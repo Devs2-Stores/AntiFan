@@ -120,11 +120,15 @@ export type RendererActionResponse =
       ok: true;
       executed: boolean;
       rect?: ElementGlobalRect;
+      executionTier?: 'cdp_trusted' | 'isolated_synthetic';
+      metadata?: Record<string, unknown>;
     }
   | {
       ok: false;
       error: string;
       code?: string;
+      executionTier?: 'cdp_trusted' | 'isolated_synthetic';
+      metadata?: Record<string, unknown>;
     };
 
 export const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -474,6 +478,8 @@ export function validateActionResponse(response: unknown): RendererActionRespons
       ok: true,
       executed: res.executed,
       rect: validatedRect,
+      executionTier: res.executionTier === 'cdp_trusted' || res.executionTier === 'isolated_synthetic' ? res.executionTier : undefined,
+      metadata: res.metadata && typeof res.metadata === 'object' ? (res.metadata as Record<string, unknown>) : undefined,
     };
   }
 
@@ -485,5 +491,7 @@ export function validateActionResponse(response: unknown): RendererActionRespons
     ok: false,
     error: res.error.trim(),
     code: typeof res.code === 'string' && res.code.trim() ? res.code.trim() : undefined,
+    executionTier: res.executionTier === 'cdp_trusted' || res.executionTier === 'isolated_synthetic' ? res.executionTier : undefined,
+    metadata: res.metadata && typeof res.metadata === 'object' ? (res.metadata as Record<string, unknown>) : undefined,
   };
 }

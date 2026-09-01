@@ -29,7 +29,7 @@ function makeMockLease(overrides: Partial<RuntimeLease> = {}): RuntimeLease {
 }
 
 describe('CLI Session and Agent Launcher Lifecycle', () => {
-  it('RunService.createCliSession and endCliSession manage full session and PID attachment lifecycle', () => {
+  it('RunService.createCliSession and endCliSession manage full session and PID attachment lifecycle', async () => {
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-cli-test-'));
     const projectId = 'project-12345678901234567890';
     const workspaceId = 'workspace-12345678901234567890';
@@ -40,7 +40,7 @@ describe('CLI Session and Agent Launcher Lifecycle', () => {
     const lease = makeMockLease({ projectId, workspaceId });
 
     // 1. Create CLI Session with immediate ownerPid binding
-    const session = runs.createCliSession({
+    const session = await runs.createCliSession({
       projectId,
       workspaceId,
       backendId: 'cli',
@@ -114,7 +114,7 @@ describe('CLI Session and Agent Launcher Lifecycle', () => {
     );
 
     // 5. End CLI Session and verify state transitions and revocation
-    const endResult = runs.endCliSession(session.run.id, session.attempt.id, 'completed');
+    const endResult = await runs.endCliSession(session.run.id, session.attempt.id, 'completed');
     assert.strictEqual(endResult.ok, true);
 
     const updatedRun = runs.getRun(session.run.id);
@@ -159,7 +159,7 @@ describe('CLI Session and Agent Launcher Lifecycle', () => {
       hostEpoch: 1,
     });
 
-    const cliSession = runtime.createCliSession({
+    const cliSession = await runtime.createCliSession({
       grant: 'write',
       ownerPid: 54321,
     });
@@ -172,7 +172,7 @@ describe('CLI Session and Agent Launcher Lifecycle', () => {
     assert.strictEqual(runtime.runs.attachments.verifyAttachmentSecret(cliSession.launch.attachmentId, cliSession.launch.secret), true);
     assert.strictEqual(runtime.runs.attachments.verifyAttachmentSecret(cliSession.launch.attachmentId, 'invalid-secret-12345'), false);
     // Verify secret authentication fails after expiration
-    const expiredSession = runtime.createCliSession({
+    const expiredSession = await runtime.createCliSession({
       grant: 'read',
       ownerPid: 54321,
       ttlMs: 25,
@@ -181,7 +181,7 @@ describe('CLI Session and Agent Launcher Lifecycle', () => {
     const expiredSessionRecord = runtime.runs.attachments.getAttachment(expiredSession.launch.attachmentId)!;
     expiredSessionRecord.expiresAt = Date.now() - 1;
     assert.strictEqual(runtime.runs.attachments.verifyAttachmentSecret(expiredSession.launch.attachmentId, expiredSession.launch.secret), false);
-    const endRes = runtime.endCliSession(cliSession.run.id, cliSession.attempt.id, 'failed', 'Agent error');
+    const endRes = await runtime.endCliSession(cliSession.run.id, cliSession.attempt.id, 'failed', 'Agent error');
     assert.strictEqual(endRes.ok, true);
 
     // Verify secret authentication is revoked post termination
@@ -193,7 +193,7 @@ describe('CLI Session and Agent Launcher Lifecycle', () => {
     try { fs.rmSync(tempDir, { recursive: true, force: true }); } catch {}
   });
 
-  it('handles user cancellation (SIGINT/SIGTERM) with interrupted state transition and immediate revocation', () => {
+  it('handles user cancellation (SIGINT/SIGTERM) with interrupted state transition and immediate revocation', async () => {
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-cpr-cancel-test-'));
     const projectId = 'project-32345678901234567890';
     const workspaceId = 'workspace-32345678901234567890';
@@ -206,7 +206,7 @@ describe('CLI Session and Agent Launcher Lifecycle', () => {
       hostEpoch: 1,
     });
 
-    const cliSession = runtime.createCliSession({
+    const cliSession = await runtime.createCliSession({
       grant: 'write',
       ownerPid: 98765,
     });
@@ -215,7 +215,7 @@ describe('CLI Session and Agent Launcher Lifecycle', () => {
     assert.strictEqual(cliSession.attempt.state, 'running');
 
     // Simulate SIGINT / cancellation
-    const cancelRes = runtime.endCliSession(
+    const cancelRes = await runtime.endCliSession(
       cliSession.run.id,
       cliSession.attempt.id,
       'cancelled',
@@ -264,7 +264,7 @@ describe('CLI Session and Agent Launcher Lifecycle', () => {
       hostEpoch: 1,
     });
 
-    const cliSession = runtime.createCliSession({
+    const cliSession = await runtime.createCliSession({
       grant: 'write',
       ownerPid: 11223,
       ttlMs: 50,
@@ -274,13 +274,13 @@ describe('CLI Session and Agent Launcher Lifecycle', () => {
     assert.strictEqual(runtime.runs.attachments.verifyAttachmentSecret(cliSession.launch.attachmentId, cliSession.launch.secret), true);
 
     // 1. Wrong PID must fail with PROCESS_MISMATCH
-    assert.throws(
-      () => runtime.renewCliSession(cliSession.launch.attachmentId, cliSession.launch.secret, { extensionMs: 500, ownerPid: 99999 }),
+    await assert.rejects(
+      async () => await runtime.renewCliSession(cliSession.launch.attachmentId, cliSession.launch.secret, { extensionMs: 500, ownerPid: 99999 }),
       (err: any) => err.code === 'PROCESS_MISMATCH'
     );
 
     // 2. Correct renewal advances expiresAt strictly
-    const renewResult = runtime.renewCliSession(cliSession.launch.attachmentId, cliSession.launch.secret, { extensionMs: 500, ownerPid: 11223 });
+    const renewResult = await runtime.renewCliSession(cliSession.launch.attachmentId, cliSession.launch.secret, { extensionMs: 500, ownerPid: 11223 });
     assert.ok(renewResult.expiresAt > initialExpiresAt, 'Renewed expiresAt must advance');
     assert.strictEqual(runtime.runs.attachments.verifyAttachmentSecret(cliSession.launch.attachmentId, cliSession.launch.secret), true, 'Secret remains valid after renewal');
 
@@ -303,29 +303,27 @@ describe('CLI Session and Agent Launcher Lifecycle', () => {
     assert.strictEqual(validated.attachmentId, cliSession.launch.attachmentId);
 
     // 4. Terminate session -> Attempt becomes terminal -> Renewal must fail with ATTEMPT_NOT_ACTIVE
-    runtime.endCliSession(cliSession.run.id, cliSession.attempt.id);
-    assert.throws(
-      () => runtime.renewCliSession(cliSession.launch.attachmentId, cliSession.launch.secret, { extensionMs: 500, ownerPid: 11223 }),
+    await runtime.endCliSession(cliSession.run.id, cliSession.attempt.id);
+    await assert.rejects(
+      async () => await runtime.renewCliSession(cliSession.launch.attachmentId, cliSession.launch.secret, { extensionMs: 500, ownerPid: 11223 }),
       (err: any) => err.code === 'ATTEMPT_NOT_ACTIVE' || err.code === 'ATTACHMENT_STALE'
     );
-
     // 5. Expired attachment cannot be resurrected — drive expiry by clock
     // mutation instead of a real-time wait.
-    const expSession = runtime.createCliSession({
+    const expSession = await runtime.createCliSession({
       grant: 'read',
       ownerPid: 33445,
       ttlMs: 25,
     });
     const expRecord = runtime.runs.attachments.getAttachment(expSession.launch.attachmentId)!;
     expRecord.expiresAt = Date.now() - 1;
-    assert.throws(
-      () => runtime.renewCliSession(expSession.launch.attachmentId, expSession.launch.secret, { extensionMs: 500, ownerPid: 33445 }),
+    await assert.rejects(
+      async () => await runtime.renewCliSession(expSession.launch.attachmentId, expSession.launch.secret, { extensionMs: 500, ownerPid: 33445 }),
       (err: any) => err.code === 'ATTACHMENT_STALE'
     );
-
     try { fs.rmSync(tempDir, { recursive: true, force: true }); } catch {}
   });
-  it('CLI Launcher Files and Packaging Verification', () => {
+  it('CLI Launcher Files and Packaging Verification', async () => {
     const rootDir = process.cwd();
     const launcherPath = path.resolve(rootDir, 'scripts', 'antifan-agent.cjs');
     const cmdWrapperPath = path.resolve(rootDir, 'scripts', 'antifan-agent.cmd');
@@ -361,7 +359,7 @@ describe('CLI Session and Agent Launcher Lifecycle', () => {
     assert.ok(launcherContent.includes('getLivenessRank'), 'Must use rank mapping for tri-state PID liveness');
   });
 
-  it('Tri-state candidate comparator is strictly antisymmetric and orders live > env > dead', () => {
+  it('Tri-state candidate comparator is strictly antisymmetric and orders live > env > dead', async () => {
     const launcherPath = path.resolve(process.cwd(), 'scripts', 'antifan-agent.cjs');
     const launcherModule = require(launcherPath);
     const { compareCandidates } = launcherModule;

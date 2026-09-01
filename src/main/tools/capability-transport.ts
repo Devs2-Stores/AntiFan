@@ -1,16 +1,23 @@
 import * as crypto from 'node:crypto';
+import {
+  ClientInvocationIntent,
+  MainResolvedAuthority,
+  CapabilityExecutionControl,
+  CapabilityDispatchRuntimeOptions,
+  AuthenticatedCapabilityContext,
+  makeControlPlaneId,
+  CapabilityError,
+  CapabilityRequestContext,
+  ExecutionAttachmentRecord,
+  CapabilityEffectPolicy,
+  CapabilityRisk,
+} from '../../shared/control-plane-contracts';
 import { CapabilityCatalogue } from './capability-catalogue';
 import { AttachmentRegistry } from '../run/attachment-registry';
 import { InvocationLedger } from '../session/invocation-ledger';
-import {
-  AuthenticatedCapabilityContext,
-  CapabilityError,
-  CapabilityRequestContext,
-  ClientInvocationIntent,
-  ExecutionAttachmentRecord,
-  MainResolvedAuthority,
-  makeControlPlaneId,
-} from '../../shared/control-plane-contracts';
+
+type EffectMarker = 'not-started' | 'effect-started' | 'effect-committed';
+type EffectAcknowledgement = 'no-effect' | 'effect-possible' | 'effect-committed';
 
 export interface CapabilityListItem {
   name: string;
@@ -18,7 +25,6 @@ export interface CapabilityListItem {
   risk: string;
   inputSchema: Record<string, unknown>;
 }
-
 export interface CapabilityTransportResponse {
   ok: boolean;
   requestId: string;
@@ -31,6 +37,44 @@ export interface CapabilityTransportResponse {
   };
   evidence?: Record<string, unknown>;
   replacementAuthorityRevision?: string;
+}
+
+class ExecutionControlImpl implements CapabilityExecutionControl {
+  private _effectStage: EffectMarker = 'not-started';
+  private _cancellationAck?: EffectAcknowledgement;
+  private readonly abortController = new AbortController();
+  public readonly cancellationId: string;
+  public cancellationSource?: 'owner' | 'subscriber' | 'timeout' | 'system';
+
+  constructor(cancellationId: string) {
+    this.cancellationId = cancellationId;
+  }
+
+  get effectStage(): EffectMarker {
+    return this._effectStage;
+  }
+
+  setEffectStage(stage: 'effect-started' | 'effect-committed'): void {
+    if (this._effectStage === 'effect-committed') return;
+    this._effectStage = stage;
+  }
+
+  get signal(): AbortSignal {
+    return this.abortController.signal;
+  }
+
+  abort(source: 'owner' | 'subscriber' | 'timeout' | 'system' = 'system'): void {
+    this.cancellationSource = source;
+    this.abortController.abort();
+  }
+
+  acknowledgeCancellation(ack: EffectAcknowledgement): void {
+    this._cancellationAck = ack;
+  }
+
+  get cancellationAck(): EffectAcknowledgement | undefined {
+    return this._cancellationAck;
+  }
 }
 
 export class CapabilityTransportAdapter {
@@ -60,7 +104,10 @@ export class CapabilityTransportAdapter {
     return this.dispatchIntent(childIntent);
   }
 
-  async dispatchIntent(intent: ClientInvocationIntent): Promise<CapabilityTransportResponse> {
+  async dispatchIntent(
+    intent: ClientInvocationIntent,
+    runtimeOptions?: CapabilityDispatchRuntimeOptions
+  ): Promise<CapabilityTransportResponse> {
     if (!intent || typeof intent !== 'object') {
       throw new CapabilityError('INVALID_ARGUMENT', 'Client invocation intent is required');
     }
@@ -106,27 +153,55 @@ export class CapabilityTransportAdapter {
     }
     const { record, authority } = authResult;
 
-    // Resolve capability definition and policy
+    // Step 2: Lookup capability definition and policy
     const definition = this.catalogue.get(intent.name);
-    const policy = definition?.policy;
+    if (!definition) {
+      return {
+        ok: false,
+        requestId: intent.requestId,
+        invocationId: makeControlPlaneId('invocation'),
+        error: {
+          code: 'CAPABILITY_NOT_FOUND',
+          message: `Capability '${intent.name}' not found in catalogue`,
+        },
+      };
+    }
+    const policy = definition.policy;
     const policyDigest = policy?.policyDigest || 'unversioned';
     const policyVersion = policy?.policyVersion || 1;
     const recordedVisibility = policy?.recordedVisibility || 'public';
 
-    // Step 2: If ledger is configured, check for existing record (JOIN/REPLAY)
+    // Step 3: Disclose / Authorize
     let invocationId = makeControlPlaneId('invocation');
     let isOwner = true;
 
+    if (!this.ledger) {
+      // In standalone / ledger-less transport mode, replay denial is checked via attachment nonces
+      if (intent.idempotencyKey) {
+        let nonces = this.attachmentRegistry['invocationNonces']?.get(record.id);
+        if (nonces && nonces.has(intent.idempotencyKey)) {
+          return {
+            ok: false,
+            requestId: intent.requestId,
+            invocationId,
+            error: {
+              code: 'REPLAY_DENIED',
+              message: `Duplicate invocation detected: ${intent.idempotencyKey}`,
+            },
+          };
+        }
+      }
+    }
     if (this.ledger) {
       try {
         const existing = await this.ledger.observe(intent, authority);
         if (existing) {
           const rec = existing.record;
-          if (rec && policyDigest !== 'unversioned' && rec.policyDigest !== policyDigest) {
+          if (rec && policyDigest !== 'unversioned' && rec.policyDigest !== 'unversioned' && rec.policyDigest !== policyDigest) {
             throw new CapabilityError('BINDING_COLLISION', 'Recorded policy digest mismatch with current capability policy');
           }
 
-          const canRead = this.canReadReceipt(authority.grant, policy?.receiptReadPermission, rec?.recordedVisibility);
+          const canRead = this.attachmentRegistry.canReadReceipt(authority.grant, policy?.receiptReadPermission, rec?.recordedVisibility);
           if (existing.kind === 'replay' && rec) {
             if (!canRead) {
               if (rec.recordedVisibility === 'redacted') {
@@ -153,7 +228,7 @@ export class CapabilityTransportAdapter {
           }
           if (existing.kind === 'join' && existing.promise) {
             const joinedRec = await existing.promise;
-            if (!this.canReadReceipt(authority.grant, policy?.receiptReadPermission, joinedRec.recordedVisibility)) {
+            if (!this.attachmentRegistry.canReadReceipt(authority.grant, policy?.receiptReadPermission, joinedRec.recordedVisibility)) {
               return {
                 ok: joinedRec.state === 'completed',
                 requestId: intent.requestId,
@@ -189,10 +264,10 @@ export class CapabilityTransportAdapter {
       }
     }
 
-    // Step 3: Validate live execution authority for new OWNER (BEFORE claiming OWNER)
+    // Validate live execution authority for new OWNER
     let liveAuthority: MainResolvedAuthority;
     try {
-      liveAuthority = this.attachmentRegistry.validateLiveExecution(record, intent.authorityRevision);
+      liveAuthority = this.attachmentRegistry.validateLiveExecution(record, intent.authorityRevision, intent.idempotencyKey);
     } catch (err) {
       const typed = err as { code?: string; message?: string; details?: unknown };
       return {
@@ -207,7 +282,7 @@ export class CapabilityTransportAdapter {
       };
     }
 
-    // Step 4: Claim OWNER in ledger
+    // Step 4: Claim pre_dispatch in ledger
     if (this.ledger) {
       try {
         const claim = await this.ledger.claimOwner(
@@ -219,6 +294,17 @@ export class CapabilityTransportAdapter {
         );
         if (claim.kind === 'replay' && claim.record) {
           const rec = claim.record;
+          const canRead = this.attachmentRegistry.canReadReceipt(authority.grant, policy?.receiptReadPermission, rec.recordedVisibility);
+          if (!canRead) {
+            return {
+              ok: rec.state === 'completed',
+              requestId: intent.requestId,
+              invocationId: rec.id,
+              data: { state: rec.state, redacted: true },
+              evidence: rec.evidence,
+              replacementAuthorityRevision: rec.replacementAuthorityRevision,
+            };
+          }
           return {
             ok: rec.state === 'completed',
             requestId: intent.requestId,
@@ -231,6 +317,17 @@ export class CapabilityTransportAdapter {
         }
         if (claim.kind === 'join' && claim.promise) {
           const rec = await claim.promise;
+          const canRead = this.attachmentRegistry.canReadReceipt(authority.grant, policy?.receiptReadPermission, rec.recordedVisibility);
+          if (!canRead) {
+            return {
+              ok: rec.state === 'completed',
+              requestId: intent.requestId,
+              invocationId: rec.id,
+              data: { state: rec.state, redacted: true },
+              evidence: rec.evidence,
+              replacementAuthorityRevision: rec.replacementAuthorityRevision,
+            };
+          }
           return {
             ok: rec.state === 'completed',
             requestId: intent.requestId,
@@ -258,7 +355,42 @@ export class CapabilityTransportAdapter {
       }
     }
 
-    // Step 5: Execute capability
+    // Step 5: Durably advance stage to dispatch_started
+    if (this.ledger && isOwner) {
+      try {
+        await this.ledger.advanceStage(invocationId, 'dispatch_started');
+      } catch (err) {
+        const typed = err as { code?: string; message?: string; details?: unknown };
+        return {
+          ok: false,
+          requestId: intent.requestId,
+          invocationId,
+          error: {
+            code: typed.code || 'DURABILITY_FAILED',
+            message: typed.message || String(err),
+            details: typed.details,
+          },
+        };
+      }
+    }
+
+    // Step 6: Execute capability
+    const execControl = new ExecutionControlImpl(invocationId);
+    let childSeq = 0;
+    const dispatchChildIntent = async (stepId: string, attempt: number, childIntent: ClientInvocationIntent) => {
+      childSeq++;
+      const deterministicKey = `child:${invocationId}:${stepId}:${attempt}:${childSeq}`;
+      const childWithLineage: ClientInvocationIntent = {
+        ...childIntent,
+        requestId: `${intent.requestId}:child:${childSeq}`,
+        idempotencyKey: deterministicKey,
+        attachmentId: liveAuthority.attachmentId,
+        attachmentSecret: intent.attachmentSecret,
+        authorityRevision: liveAuthority.authorityRevision,
+      };
+      return await this.dispatchIntent(childWithLineage, runtimeOptions);
+    };
+
     try {
       const authContext: AuthenticatedCapabilityContext = {
         attachmentId: liveAuthority.attachmentId,
@@ -274,7 +406,12 @@ export class CapabilityTransportAdapter {
         leaseToken: liveAuthority.runtimeLeaseToken || '',
         browserTarget: liveAuthority.browserTarget,
         grant: liveAuthority.grant,
+        signal: runtimeOptions?.signal,
+        progressSink: runtimeOptions?.progressSink,
+        authorityRevision: liveAuthority.authorityRevision,
+        dispatchChildIntent,
       };
+
       const data = await this.catalogue.dispatchAuthenticated(
         intent.name,
         (intent.params as Record<string, unknown>) || {},
@@ -297,20 +434,20 @@ export class CapabilityTransportAdapter {
           newTabId = p.tabId.trim();
         }
         if (newTabId) {
-          const newRev = this.attachmentRegistry.updateAttachmentTab(authority.attachmentId, newTabId);
+          const newRev = await this.attachmentRegistry.updateAttachmentTab(authority.attachmentId, newTabId);
           if (newRev) replacementAuthorityRevision = newRev;
         }
       } else if (isSwitchTab) {
         const switchedTabId = p && typeof p.tabId === 'string' && p.tabId.trim().length > 0 ? p.tabId.trim() : undefined;
         if (switchedTabId) {
-          const newRev = this.attachmentRegistry.updateAttachmentTab(authority.attachmentId, switchedTabId);
+          const newRev = await this.attachmentRegistry.updateAttachmentTab(authority.attachmentId, switchedTabId);
           if (newRev) replacementAuthorityRevision = newRev;
         }
       } else if (isNavigate || isReload) {
         if (data && typeof data === 'object' && 'target' in data) {
           const targetObj = (data as { target?: { tabId?: string; documentGeneration?: number } }).target;
           if (targetObj && typeof targetObj.tabId === 'string') {
-            const newRev = this.attachmentRegistry.updateAttachmentTab(
+            const newRev = await this.attachmentRegistry.updateAttachmentTab(
               authority.attachmentId,
               targetObj.tabId,
               targetObj.documentGeneration
@@ -320,6 +457,7 @@ export class CapabilityTransportAdapter {
         }
       }
 
+      // Step 7: Persist terminal receipt (completed)
       if (this.ledger && isOwner) {
         await this.ledger.settle(
           invocationId,
@@ -332,6 +470,7 @@ export class CapabilityTransportAdapter {
         );
       }
 
+      // Step 8: Respond
       return {
         ok: true,
         requestId: intent.requestId,
@@ -340,19 +479,22 @@ export class CapabilityTransportAdapter {
         ...(replacementAuthorityRevision ? { replacementAuthorityRevision } : {}),
       };
     } catch (error: unknown) {
-      const typed = error as { code?: string; message?: string; details?: unknown };
+      // Step 7: Persist terminal receipt (classified error)
+      const classified = this.classifySettlement(error, policy, execControl);
+
       const errObj = {
-        code: typed.code || 'CAPABILITY_ERROR',
-        message: typed.message || String(error),
-        details: typed.details,
+        code: classified.code,
+        message: classified.message,
+        details: classified.details,
       };
 
       if (this.ledger && isOwner) {
         try {
-          await this.ledger.settle(invocationId, 'failed', undefined, errObj);
+          await this.ledger.settle(invocationId, classified.state, undefined, errObj);
         } catch {}
       }
 
+      // Step 8: Respond
       return {
         ok: false,
         requestId: intent.requestId,
@@ -362,22 +504,89 @@ export class CapabilityTransportAdapter {
     }
   }
 
+  private classifySettlement(
+    err: unknown,
+    policy: CapabilityEffectPolicy | undefined,
+    control: ExecutionControlImpl
+  ): { state: 'failed' | 'interrupted' | 'unknown'; code: string; message: string; details?: unknown } {
+    const typed = err as { code?: string; message?: string; name?: string; details?: unknown };
+    const isAbort =
+      typed?.name === 'AbortError' ||
+      (err instanceof Error && err.name === 'AbortError') ||
+      typed?.code === 'ABORTED' ||
+      typed?.code === 'CANCELLED' ||
+      control.signal.aborted;
+
+    if (isAbort || typed?.code === 'PROCESS_INTERRUPTED') {
+      const ack = control.cancellationAck;
+      const effectStage = control.effectStage;
+      if (ack === 'no-effect' || effectStage === 'not-started') {
+        return {
+          state: 'interrupted',
+          code: typed?.code || 'ABORTED',
+          message: typed?.message || 'Execution was aborted before effects were committed',
+          details: typed?.details,
+        };
+      }
+      if (ack === 'effect-committed' || effectStage === 'effect-committed') {
+        return {
+          state: policy?.ownerCancellationBehavior === 'drain-and-persist' ? 'interrupted' : 'unknown',
+          code: typed?.code || 'ABORTED',
+          message: typed?.message || 'Execution was aborted after effects were committed',
+          details: typed?.details,
+        };
+      }
+      return {
+        state: policy?.ownerCancellationBehavior === 'abort-immediate' ? 'interrupted' : 'unknown',
+        code: typed?.code || 'ABORTED',
+        message: typed?.message || 'Execution was aborted with indeterminate effect state',
+        details: typed?.details,
+      };
+    }
+
+    if (typed?.code === 'TIMEOUT' || typed?.code === 'EXECUTION_TIMEOUT') {
+      if (control.effectStage === 'effect-started' || policy?.effect === 'destructive-mutation' || policy?.effect === 'interactive-effect') {
+        return {
+          state: 'unknown',
+          code: typed?.code || 'TIMEOUT',
+          message: typed?.message || 'Execution timed out with indeterminate effect state',
+          details: typed?.details,
+        };
+      }
+      return {
+        state: 'failed',
+        code: typed?.code || 'TIMEOUT',
+        message: typed?.message || 'Execution timed out',
+        details: typed?.details,
+      };
+    }
+
+    if (typed?.code === 'EXECUTION_UNKNOWN') {
+      return {
+        state: 'unknown',
+        code: 'EXECUTION_UNKNOWN',
+        message: typed?.message || 'Execution ended in unknown state',
+        details: typed?.details,
+      };
+    }
+
+    return {
+      state: 'failed',
+      code: typed?.code || 'CAPABILITY_ERROR',
+      message: typed?.message || (err instanceof Error ? err.message : String(err)),
+      details: typed?.details,
+    };
+  }
+
   private canReadReceipt(
     grant?: string,
     requiredPermission?: string,
     recordedVisibility?: string
   ): boolean {
-    if (recordedVisibility === 'redacted') return false;
-    if (!requiredPermission || requiredPermission === 'read') return true;
-    if (requiredPermission === 'write') {
-      return grant === 'write' || grant === 'execute' || grant === 'eval';
-    }
-    if (requiredPermission === 'execute') {
-      return grant === 'execute' || grant === 'eval';
-    }
-    if (requiredPermission === 'eval') {
-      return grant === 'eval';
-    }
-    return false;
+    return this.attachmentRegistry.canReadReceipt(
+      grant as CapabilityRisk | undefined,
+      requiredPermission as CapabilityRisk | undefined,
+      recordedVisibility
+    );
   }
 }

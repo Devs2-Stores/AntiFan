@@ -36,6 +36,60 @@ export interface BrowserHostPort {
   getDocumentGeneration?(tabId?: string): number;
   uploadFileInput?(params: { refOrSelector: string; filePaths: string[]; tabId?: string; paneId?: 'desktop' | 'mobile' }): Promise<{ success: boolean; uploadedCount: number; reason?: string }>;
   dropFiles?(params: { refOrSelector: string; filePaths: string[]; tabId?: string; paneId?: 'desktop' | 'mobile' }): Promise<{ success: boolean; droppedCount: number; reason?: string }>;
+  getNetworkTracker?(): { isAttached: (tabId: string, paneId?: string) => boolean; awaitQuiescence: (tabId: string, paneId?: string, options?: unknown, signal?: AbortSignal) => Promise<{ settled: boolean; durationMs: number; timedOut: boolean }> };
+  wait?(params: BrowserWaitParams, signal?: AbortSignal): Promise<BrowserWaitResult>;
+  observe?(params: BrowserObserveParams): Promise<BrowserObserveResult>;
+}
+
+export interface BrowserObserveParams {
+  components?: Array<'dom' | 'screenshot' | 'snapshot' | 'diagnostics'>;
+  selector?: string;
+  tabId?: string;
+  paneId?: 'desktop' | 'mobile';
+}
+
+export interface BrowserObserveResult {
+  target: {
+    tabId: string;
+    paneId: 'desktop' | 'mobile';
+    browserEpoch: number;
+    documentGeneration: number;
+    documentUrl?: string;
+  };
+  components: {
+    dom?: ArtifactRef | string;
+    screenshot?: ArtifactRef | string;
+    snapshot?: string;
+    diagnostics?: { console: unknown[]; failures: unknown[] };
+  };
+  metadata: {
+    timestamps: {
+      start: number;
+      end: number;
+      perComponent: Record<string, { start: number; end: number }>;
+    };
+    driftMs: number;
+    sequence: number[];
+  };
+}
+
+export interface BrowserWaitParams {
+  condition: 'selector' | 'ref' | 'document_loaded' | 'url_match' | 'network_idle' | 'dom_stable';
+  selector?: string;
+  ref?: string;
+  urlPattern?: string;
+  state?: 'attached' | 'visible' | 'actionable' | 'detached' | 'hidden';
+  timeoutMs?: number;
+  idleWindowMs?: number;
+  tabId?: string;
+  paneId?: 'desktop' | 'mobile';
+}
+
+export interface BrowserWaitResult {
+  satisfied: boolean;
+  condition: string;
+  durationMs: number;
+  details?: Record<string, unknown>;
 }
 
 export interface BrowserArtifactSink {
@@ -85,15 +139,82 @@ export class PassiveExecutionPool {
     this.globalActiveCount = 0;
   }
 }
+export class WaitRegistry {
+  private tabWaitCounts = new Map<string, number>();
+  private globalWaitCount = 0;
+  private readonly MAX_PER_TAB = 4;
+  private readonly MAX_GLOBAL = 16;
+  private readonly DEFAULT_TIMEOUT_MS = 5_000;
+  private readonly MAX_TIMEOUT_MS = 30_000;
+
+  async execute<T>(
+    tabId: string,
+    action: (signal: AbortSignal) => Promise<T>,
+    options?: { timeoutMs?: number; signal?: AbortSignal }
+  ): Promise<T> {
+    const tabCount = this.tabWaitCounts.get(tabId) || 0;
+    if (tabCount >= this.MAX_PER_TAB || this.globalWaitCount >= this.MAX_GLOBAL) {
+      throw new CapabilityError('CAPABILITY_OVERLOADED', `Wait registry concurrency limit exceeded on tab ${tabId}`);
+    }
+
+    this.tabWaitCounts.set(tabId, tabCount + 1);
+    this.globalWaitCount++;
+
+    const timeoutMs = Math.min(this.MAX_TIMEOUT_MS, Math.max(100, options?.timeoutMs ?? this.DEFAULT_TIMEOUT_MS));
+    const controller = new AbortController();
+    let timer: NodeJS.Timeout | null = null;
+    let onParentAbort: (() => void) | null = null;
+
+    try {
+      if (options?.signal?.aborted) {
+        throw (options.signal.reason || new CapabilityError('WAIT_ABORTED', 'Wait was aborted before starting'));
+      }
+      onParentAbort = () => controller.abort(options?.signal?.reason);
+      if (options?.signal) {
+        options.signal.addEventListener('abort', onParentAbort, { once: true });
+      }
+
+      timer = setTimeout(() => {
+        controller.abort(new CapabilityError('LEASE_EXPIRED', `Wait execution exceeded ${timeoutMs}ms deadline`));
+      }, timeoutMs);
+
+      return await action(controller.signal);
+    } finally {
+      if (timer) clearTimeout(timer);
+      if (options?.signal && onParentAbort) {
+        options.signal.removeEventListener('abort', onParentAbort);
+      }
+      const updated = (this.tabWaitCounts.get(tabId) || 1) - 1;
+      if (updated <= 0) this.tabWaitCounts.delete(tabId);
+      else this.tabWaitCounts.set(tabId, updated);
+      this.globalWaitCount = Math.max(0, this.globalWaitCount - 1);
+    }
+  }
+
+  getActiveTabCount(tabId: string): number {
+    return this.tabWaitCounts.get(tabId) || 0;
+  }
+
+  getGlobalActiveCount(): number {
+    return this.globalWaitCount;
+  }
+
+  clear(): void {
+    this.tabWaitCounts.clear();
+    this.globalWaitCount = 0;
+  }
+}
 
 export class ViewportGate {
   private isLocked = false;
   private isPoisoned = false;
+  private preemptionEpoch = 1;
   private activeAbortController: AbortController | null = null;
   private activeTabId: string | null = null;
   private onCancelCallback: ((tabId?: string) => Promise<boolean>) | null = null;
   private queue: Array<{
     tabId?: string;
+    epoch: number;
     resolve: (release: () => void) => void;
     reject: (err: Error) => void;
     timer: NodeJS.Timeout;
@@ -117,6 +238,7 @@ export class ViewportGate {
   }
 
   public preemptActiveAgent(reason = 'Physical human user input preempted agent action', tabId?: string): void {
+    this.preemptionEpoch++;
     if (this.activeAbortController) {
       if (tabId && this.activeTabId && tabId !== this.activeTabId) {
         return; // User input on a different tab does not preempt this tab's active agent
@@ -124,7 +246,6 @@ export class ViewportGate {
       this.activeAbortController.abort(new CapabilityError('PREEMPTED_BY_USER', reason));
     }
   }
-
   async withLock<T>(
     action: (signal: AbortSignal) => Promise<T>,
     options: ViewportLockOptions = {}
@@ -241,7 +362,13 @@ export class ViewportGate {
 
     if (!this.isLocked) {
       this.isLocked = true;
-      return Promise.resolve(() => this.releaseNext());
+      let releaseCalled = false;
+      const safeRelease = () => {
+        if (releaseCalled) return;
+        releaseCalled = true;
+        this.releaseNext();
+      };
+      return Promise.resolve(safeRelease);
     }
 
     return new Promise<() => void>((resolve, reject) => {
@@ -263,6 +390,7 @@ export class ViewportGate {
 
       const entry = {
         tabId,
+        epoch: this.preemptionEpoch,
         resolve: (releaseFn: () => void) => {
           clearTimeout(timer);
           if (signal) signal.removeEventListener('abort', onAbort);
@@ -284,11 +412,19 @@ export class ViewportGate {
   private releaseNext(): void {
     if (this.queue.length > 0) {
       const next = this.queue.shift()!;
-      next.resolve(() => this.releaseNext());
+      clearTimeout(next.timer);
+      let releaseCalled = false;
+      const safeRelease = () => {
+        if (releaseCalled) return;
+        releaseCalled = true;
+        this.releaseNext();
+      };
+      next.resolve(safeRelease);
     } else {
       this.isLocked = false;
     }
   }
+
 
   private removeFromQueue(entry: typeof this.queue[number]): void {
     const index = this.queue.indexOf(entry);
@@ -319,9 +455,9 @@ export class ViewportGate {
 
 export class BrowserControlPort {
   public readonly passivePool = new PassiveExecutionPool();
+  public readonly waitRegistry = new WaitRegistry();
   public readonly viewportGate = new ViewportGate();
-
-  constructor(private readonly host: BrowserHostPort, private readonly artifacts?: BrowserArtifactSink) {
+  constructor(private readonly host: BrowserHostPort, public readonly artifacts?: BrowserArtifactSink) {
     this.viewportGate.setCancellationHandler(async (tabId) => {
       if (this.host.agentClear) {
         try {
@@ -359,7 +495,7 @@ export class BrowserControlPort {
     const tabId = this.resolveTargetTab(target, explicitTabId);
     return this.passivePool.execute(tabId, async () => {
       const html = await this.host.getDom(selector, tabId, paneId);
-      return this.artifacts ? this.artifacts.stage({ kind: 'dom', mime: 'text/html', data: html, runId, attemptId, projectId: target.projectId, workspaceId: target.workspaceId, maxBytes: 512 * 1024 }) : limit(html, 512 * 1024);
+      return this.artifacts ? await this.artifacts.stage({ kind: 'dom', mime: 'text/html', data: html, runId, attemptId, projectId: target.projectId, workspaceId: target.workspaceId, maxBytes: 512 * 1024 }) : limit(html, 512 * 1024);
     });
   }
 
@@ -368,16 +504,167 @@ export class BrowserControlPort {
     return this.passivePool.execute(tabId, async () => {
       const base64 = await this.host.captureScreenshot(undefined, tabId, paneId);
       const buffer = Buffer.from(base64, 'base64');
-      return this.artifacts ? this.artifacts.stage({ kind: 'screenshot', mime: 'image/png', data: buffer, runId, attemptId, projectId: target.projectId, workspaceId: target.workspaceId, maxBytes: 8 * 1024 * 1024 }) : limit(base64, 8 * 1024 * 1024);
+      return this.artifacts ? await this.artifacts.stage({ kind: 'screenshot', mime: 'image/png', data: buffer, runId, attemptId, projectId: target.projectId, workspaceId: target.workspaceId, maxBytes: 8 * 1024 * 1024 }) : limit(base64, 8 * 1024 * 1024);
     });
   }
-
   async eval(target: BrowserTarget, expression: string, explicitTabId?: string, paneId?: 'desktop' | 'mobile'): Promise<unknown> {
     const tabId = this.resolveTargetTab(target, explicitTabId);
     if (!expression.trim()) throw new CapabilityError('INVALID_ARGUMENT', 'JavaScript expression is required');
     return this.passivePool.execute(tabId, async () => {
       return this.host.evalJs(expression, tabId, paneId);
     });
+  }
+
+  async observe(
+    target: BrowserTarget,
+    runId: string,
+    attemptId: string,
+    params: BrowserObserveParams = {},
+    explicitTabId?: string,
+    paneId?: 'desktop' | 'mobile'
+  ): Promise<BrowserObserveResult> {
+    const tabId = this.resolveTargetTab(target, explicitTabId || params.tabId);
+    const effectivePane = paneId || params.paneId || 'desktop';
+
+    const requested = params.components && params.components.length > 0
+      ? params.components
+      : ['snapshot'];
+
+    if (requested.length > 4) {
+      throw new CapabilityError('INVALID_ARGUMENT', 'At most 4 observation components can be requested');
+    }
+
+    return this.passivePool.execute(tabId, async () => {
+      const initialDocGen = this.host.getDocumentGeneration ? this.host.getDocumentGeneration(tabId) : (target.documentGeneration || 1);
+      const initialEpoch = target.browserEpoch;
+      const startAll = Date.now();
+      const perComponent: Record<string, { start: number; end: number }> = {};
+      const sequence: number[] = [];
+      const resultComponents: BrowserObserveResult['components'] = {};
+
+      for (let i = 0; i < requested.length; i++) {
+        const comp = requested[i]!;
+        sequence.push(i + 1);
+        const compStart = Date.now();
+
+        if (comp === 'dom') {
+          const html = await this.host.getDom(params.selector, tabId, effectivePane);
+          resultComponents.dom = this.artifacts
+            ? await this.artifacts.stage({ kind: 'dom', mime: 'text/html', data: html, runId, attemptId, projectId: target.projectId, workspaceId: target.workspaceId, maxBytes: 512 * 1024 })
+            : limit(html, 512 * 1024);
+        } else if (comp === 'screenshot') {
+          const base64 = await this.host.captureScreenshot(undefined, tabId, effectivePane);
+          const buffer = Buffer.from(base64, 'base64');
+          resultComponents.screenshot = this.artifacts
+            ? await this.artifacts.stage({ kind: 'screenshot', mime: 'image/png', data: buffer, runId, attemptId, projectId: target.projectId, workspaceId: target.workspaceId, maxBytes: 8 * 1024 * 1024 })
+            : limit(base64, 8 * 1024 * 1024);
+        } else if (comp === 'snapshot') {
+          const snapshotText = this.host.agentSnapshot ? await this.host.agentSnapshot(tabId, effectivePane) : '';
+          resultComponents.snapshot = limit(snapshotText, 128 * 1024);
+        } else if (comp === 'diagnostics') {
+          resultComponents.diagnostics = this.host.getDiagnostics ? this.host.getDiagnostics(tabId) : { console: [], failures: [] };
+        }
+
+        const compEnd = Date.now();
+        perComponent[comp] = { start: compStart, end: compEnd };
+
+        // Revalidate document generation across components
+        const currentDocGen = this.host.getDocumentGeneration ? this.host.getDocumentGeneration(tabId) : initialDocGen;
+        if (currentDocGen !== initialDocGen) {
+          throw new CapabilityError('TARGET_STALE', 'Document navigated or reloaded during observation; observation crossed document identity');
+        }
+      }
+
+      const endAll = Date.now();
+      return {
+        target: {
+          tabId,
+          paneId: effectivePane,
+          browserEpoch: initialEpoch,
+          documentGeneration: initialDocGen,
+        },
+        components: resultComponents,
+        metadata: {
+          timestamps: { start: startAll, end: endAll, perComponent },
+          driftMs: endAll - startAll,
+          sequence,
+        },
+      };
+    });
+  }
+
+  async wait(
+    target: BrowserTarget,
+    params: BrowserWaitParams,
+    explicitTabId?: string,
+    paneId?: 'desktop' | 'mobile',
+    signal?: AbortSignal
+  ): Promise<BrowserWaitResult> {
+    if (!params || !params.condition) {
+      throw new CapabilityError('INVALID_ARGUMENT', 'Wait condition is required');
+    }
+    const tabId = this.resolveTargetTab(target, explicitTabId || params.tabId);
+    const effectivePane = paneId || params.paneId || 'desktop';
+
+    return this.waitRegistry.execute(tabId, async (waitSignal) => {
+      if (waitSignal.aborted) {
+        throw (waitSignal.reason || new CapabilityError('WAIT_ABORTED', 'Wait was aborted'));
+      }
+      const startTime = Date.now();
+
+      if (params.condition === 'network_idle') {
+        if (this.host.getNetworkTracker) {
+          const tracker = this.host.getNetworkTracker();
+          if (tracker && typeof tracker.isAttached === 'function' && !tracker.isAttached(tabId, effectivePane)) {
+            throw new CapabilityError('TARGET_STALE', `FirstPartyNetworkTracker is not attached for target "${tabId}:${effectivePane}"`);
+          }
+          if (tracker && typeof tracker.awaitQuiescence === 'function') {
+            const res = await tracker.awaitQuiescence(
+              tabId,
+              effectivePane,
+              { idleWindowMs: params.idleWindowMs ?? 500, maxCeilingMs: params.timeoutMs ?? 5000, requireAttached: true },
+              waitSignal
+            );
+            return {
+              satisfied: res.settled && !res.timedOut,
+              condition: 'network_idle',
+              durationMs: res.durationMs,
+              details: { timedOut: res.timedOut },
+            };
+          }
+        }
+      }
+      if (this.host.wait) {
+        return await this.host.wait({ ...params, tabId, paneId: effectivePane }, waitSignal);
+      }
+
+      if (params.condition === 'document_loaded') {
+        const docGen = this.host.getDocumentGeneration ? this.host.getDocumentGeneration(tabId) : (target.documentGeneration || 1);
+        return {
+          satisfied: true,
+          condition: 'document_loaded',
+          durationMs: Date.now() - startTime,
+          details: { documentGeneration: docGen },
+        };
+      }
+
+      if (params.condition === 'selector' && params.selector) {
+        const sel = params.selector;
+        const dom = await this.host.getDom(sel, tabId, effectivePane);
+        return {
+          satisfied: Boolean(dom && dom.length > 0),
+          condition: 'selector',
+          durationMs: Date.now() - startTime,
+          details: { selector: sel },
+        };
+      }
+
+      return {
+        satisfied: true,
+        condition: params.condition,
+        durationMs: Date.now() - startTime,
+      };
+    }, { timeoutMs: params.timeoutMs, signal });
   }
   openTab(options: { url?: string; activate?: boolean } = {}): { tabId: string } {
     if (!this.host.createTab) throw new CapabilityError('CAPABILITY_NOT_FOUND', 'createTab is not supported by host');
@@ -423,6 +710,7 @@ export class BrowserControlPort {
     if (!this.host.agentTrajectory) throw new CapabilityError('CAPABILITY_NOT_FOUND', 'agentTrajectory is not supported by host');
     const tabId = this.resolveTargetTab(target, args.tabId, 'write');
     return this.viewportGate.withLock(async () => {
+      this.revalidateTargetInsideLock(target, tabId);
       return (await this.host.agentTrajectory!({ ...args, tabId })) as Record<string, unknown>;
     }, { tabId });
   }
@@ -431,6 +719,7 @@ export class BrowserControlPort {
     if (!this.host.agentMove) throw new CapabilityError('CAPABILITY_NOT_FOUND', 'agentMove is not supported by host');
     const tabId = this.resolveTargetTab(target, args.tabId, 'write');
     return this.viewportGate.withLock(async () => {
+      this.revalidateTargetInsideLock(target, tabId);
       return { moved: await this.host.agentMove!({ ...args, tabId }) };
     }, { tabId });
   }
@@ -439,6 +728,7 @@ export class BrowserControlPort {
     if (!this.host.agentClick) throw new CapabilityError('CAPABILITY_NOT_FOUND', 'agentClick is not supported by host');
     const tabId = this.resolveTargetTab(target, args.tabId, 'write');
     return this.viewportGate.withLock(async () => {
+      this.revalidateTargetInsideLock(target, tabId);
       return { clicked: await this.host.agentClick!({ ...args, tabId }) };
     }, { tabId });
   }
@@ -447,6 +737,7 @@ export class BrowserControlPort {
     if (!this.host.agentType) throw new CapabilityError('CAPABILITY_NOT_FOUND', 'agentType is not supported by host');
     const tabId = this.resolveTargetTab(target, args.tabId, 'write');
     return this.viewportGate.withLock(async () => {
+      this.revalidateTargetInsideLock(target, tabId);
       return { typed: await this.host.agentType!({ ...args, tabId }) };
     }, { tabId });
   }
@@ -457,6 +748,7 @@ export class BrowserControlPort {
     }
     const effectiveTabId = this.resolveTargetTab(target, args.tabId, 'write');
     return this.viewportGate.withLock(async () => {
+      this.revalidateTargetInsideLock(target, effectiveTabId);
       try {
         return await this.host.sendKeyboardPress!({ ...args, tabId: effectiveTabId });
       } catch (err: unknown) {
@@ -473,6 +765,7 @@ export class BrowserControlPort {
     if (!this.host.agentScroll) throw new CapabilityError('CAPABILITY_NOT_FOUND', 'agentScroll is not supported by host');
     const tabId = this.resolveTargetTab(target, args.tabId, 'write');
     return this.viewportGate.withLock(async () => {
+      this.revalidateTargetInsideLock(target, tabId);
       return { scrolled: await this.host.agentScroll!({ ...args, tabId }) };
     }, { tabId });
   }
@@ -481,6 +774,7 @@ export class BrowserControlPort {
     if (!this.host.agentHover) throw new CapabilityError('CAPABILITY_NOT_FOUND', 'agentHover is not supported by host');
     const tabId = this.resolveTargetTab(target, args.tabId, 'write');
     return this.viewportGate.withLock(async () => {
+      this.revalidateTargetInsideLock(target, tabId);
       return { hovered: await this.host.agentHover!({ ...args, tabId }) };
     }, { tabId });
   }
@@ -489,6 +783,7 @@ export class BrowserControlPort {
     if (!this.host.agentHighlight) throw new CapabilityError('CAPABILITY_NOT_FOUND', 'agentHighlight is not supported by host');
     const tabId = this.resolveTargetTab(target, args.tabId, 'write');
     return this.viewportGate.withLock(async () => {
+      this.revalidateTargetInsideLock(target, tabId);
       return { highlighted: await this.host.agentHighlight!({ ...args, tabId }) };
     }, { tabId });
   }
@@ -517,13 +812,40 @@ export class BrowserControlPort {
   async uploadFileInput(params: { refOrSelector: string; filePaths: string[]; tabId?: string; paneId?: 'desktop' | 'mobile' }, target?: BrowserTarget): Promise<{ success: boolean; uploadedCount: number; reason?: string }> {
     if (!this.host.uploadFileInput) throw new CapabilityError('CAPABILITY_NOT_FOUND', 'uploadFileInput is not supported by host');
     const effectiveTabId = this.resolveTargetTab(target, params.tabId, 'write');
-    return this.host.uploadFileInput({ ...params, tabId: effectiveTabId });
+    return this.viewportGate.withLock(async () => {
+      this.revalidateTargetInsideLock(target, effectiveTabId);
+      return this.host.uploadFileInput!({ ...params, tabId: effectiveTabId });
+    }, { tabId: effectiveTabId });
   }
 
   async dropFiles(params: { refOrSelector: string; filePaths: string[]; tabId?: string; paneId?: 'desktop' | 'mobile' }, target?: BrowserTarget): Promise<{ success: boolean; droppedCount: number; reason?: string }> {
     if (!this.host.dropFiles) throw new CapabilityError('CAPABILITY_NOT_FOUND', 'dropFiles is not supported by host');
     const effectiveTabId = this.resolveTargetTab(target, params.tabId, 'write');
-    return this.host.dropFiles({ ...params, tabId: effectiveTabId });
+    return this.viewportGate.withLock(async () => {
+      this.revalidateTargetInsideLock(target, effectiveTabId);
+      return this.host.dropFiles!({ ...params, tabId: effectiveTabId });
+    }, { tabId: effectiveTabId });
+  }
+
+  private revalidateTargetInsideLock(target?: BrowserTarget, tabId?: string): void {
+    if (!target) return;
+    if (tabId && this.host.getTabList) {
+      const tabs = this.host.getTabList() || [];
+      const exists = tabs.some((t: any) => t && typeof t === 'object' && t.id === tabId);
+      if (!exists) {
+        throw new CapabilityError('TARGET_STALE', `Target tab '${tabId}' no longer exists`);
+      }
+    }
+    const liveDocGen = this.host.getDocumentGeneration ? this.host.getDocumentGeneration(tabId) : target.documentGeneration;
+    if (typeof target.documentGeneration === 'number' && typeof liveDocGen === 'number' && target.documentGeneration !== liveDocGen) {
+      throw new CapabilityError(
+        'TARGET_STALE',
+        `Browser target document generation (${target.documentGeneration}) is stale compared to live document generation (${liveDocGen}) after acquiring viewport lock`
+      );
+    }
+    if (this.host.isCurrentTarget && !this.host.isCurrentTarget(target)) {
+      throw new CapabilityError('TARGET_STALE', 'Browser target no longer matches current tab document after acquiring viewport lock');
+    }
   }
   setViewport(options: { width: number; height: number; mobile?: boolean; deviceScaleFactor?: number; tabId?: string }, target?: BrowserTarget): { success: boolean; width: number; height: number; mobile?: boolean; presetId: string } {
     if (!this.host.setViewportSize) throw new CapabilityError('CAPABILITY_NOT_FOUND', 'setViewportSize is not supported by host');
@@ -589,6 +911,9 @@ export class BrowserControlPort {
     let resolved: string | undefined;
 
     if (explicitTabId && explicitTabId.trim().length > 0) {
+      if (operationType === 'write' && target?.tabId && target.tabId.trim().length > 0 && explicitTabId.trim() !== target.tabId.trim()) {
+        throw new CapabilityError('TARGET_MISMATCH', `Explicit tabId "${explicitTabId}" does not match target tabId "${target.tabId}"`);
+      }
       if (!tabExists(explicitTabId)) {
         throw new CapabilityError('CAPABILITY_NOT_FOUND', `Unknown tab ID: ${explicitTabId}`);
       }
@@ -623,15 +948,13 @@ export class BrowserControlPort {
     if (!resolved) {
       throw new CapabilityError('TARGET_REQUIRED', 'Browser target tabId is required');
     }
-    if (!tabExists(resolved)) {
-      throw new CapabilityError('CAPABILITY_NOT_FOUND', `Unknown tab ID: ${resolved}`);
-    }
+
     if (target) {
       const liveDocGen = this.host.getDocumentGeneration ? this.host.getDocumentGeneration(resolved) : target.documentGeneration;
       if (operationType === 'write' && typeof target.documentGeneration === 'number' && typeof liveDocGen === 'number' && target.documentGeneration !== liveDocGen) {
         throw new CapabilityError(
-          'HMR_DRIFT',
-          `Browser target document generation (${target.documentGeneration}) is stale compared to live document generation (${liveDocGen}). The DOM was modified or reloaded in the background (HMR_DRIFT). Please re-inspect DOM before interacting.`
+          'TARGET_STALE',
+          `Browser target document generation (${target.documentGeneration}) is stale compared to live document generation (${liveDocGen}). The DOM was modified or reloaded in the background. Please re-inspect DOM before interacting.`
         );
       }
 
@@ -644,9 +967,9 @@ export class BrowserControlPort {
         tabId: resolved,
         documentGeneration: effectiveDocGen,
       };
-      assertTarget(currentTarget, false);
       this.assertCurrent(currentTarget);
     }
+
     return resolved;
   }
   getDocumentGeneration(tabId?: string): number {

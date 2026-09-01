@@ -13,9 +13,12 @@ import { BrowserControlPort } from '../tools/browser-control-port';
 import { registerBrowserCapabilities } from '../tools/browser-capabilities';
 import { WorkspaceFilePort } from '../tools/workspace-file-port';
 import { registerFileCapabilities } from '../tools/file-capabilities';
-import { WorkflowEngine } from '../workflow/workflow-engine';
+import { registerArtifactCapabilities } from '../tools/artifact-capabilities';
+import { registerTerminalCapabilities } from '../tools/terminal-capabilities';
 import { registerWorkflowCapabilities } from '../workflow/workflow-capabilities';
 import { WorkflowRegistry } from '../workflow/workflow-registry';
+import { TerminalManager } from '../browser/terminal-manager';
+import { WorkflowEngine } from '../workflow/workflow-engine';
 import { assertExactBrowserTarget, BrowserTarget, CapabilityError, CapabilityRequestContext, issueRuntimeLease, RuntimeFeatureSwitch, RuntimeLease, WorkspaceRecord } from '../../shared/control-plane-contracts';
 import { WorkflowDefinition, WorkflowExecutionResult, WorkflowEventListener } from '../workflow/workflow-schema';
 import { ThemeQaWorkflow, ThemeQaReport } from '../qa/theme-qa-workflow';
@@ -46,6 +49,7 @@ export class ControlPlaneRuntime {
   readonly files: WorkspaceFilePort;
   readonly capabilities: CapabilityCatalogue;
   readonly transport: CapabilityTransportAdapter;
+  readonly terminal: TerminalManager;
   readonly workflowEngine: WorkflowEngine;
   readonly workflowRegistry: WorkflowRegistry;
   private leaseState: RuntimeLease;
@@ -95,11 +99,19 @@ export class ControlPlaneRuntime {
       workspaceRegistry: this.workspaces,
     });
     this.transport = new CapabilityTransportAdapter(this.capabilities, this.runs.attachments, this.ledger);
+    this.terminal = new TerminalManager();
     registerFileCapabilities(this.capabilities, this.files, () => this.getWorkspaceRoot());
-    this.workflowEngine = new WorkflowEngine({ catalogue: this.capabilities, artifacts: this.artifacts, transport: this.transport });
+    registerArtifactCapabilities(this.capabilities, this.artifacts);
+    registerTerminalCapabilities(this.capabilities, this.terminal);
     this.workflowRegistry = new WorkflowRegistry(path.join(options.dataRoot, 'workflows'));
+    this.workflowEngine = new WorkflowEngine({
+      transport: this.transport,
+      catalogue: this.capabilities,
+      artifacts: this.artifacts,
+    });
     registerWorkflowCapabilities(this.capabilities, this.workflowEngine);
   }
+
   public async initialize(): Promise<void> {
     await this.runs.attachments.initialize();
     await this.ledger.initialize();
@@ -178,7 +190,7 @@ export class ControlPlaneRuntime {
     return this.workspaces.get(this.leaseState.workspaceId || '', this.leaseState.projectId);
   }
 
-  issueAttemptAttachment(
+  async issueAttemptAttachment(
     runId: string,
     attemptId: string,
     options: {
@@ -206,7 +218,7 @@ export class ControlPlaneRuntime {
     if (this.leaseState.runtimeId) {
       lease.runtimeId = this.leaseState.runtimeId;
     }
-    return this.runs.attachments.issueAttachment(runId, attemptId, targetWs.projectId, targetWs.id, {
+    return await this.runs.attachments.issueAttachment(runId, attemptId, targetWs.projectId, targetWs.id, {
       backendId: options.backendId || 'codex',
       lease,
       leaseToken: lease.token,
@@ -219,7 +231,7 @@ export class ControlPlaneRuntime {
     });
   }
 
-  createCliSession(
+  async createCliSession(
     options: {
       projectId?: string;
       workspaceId?: string;
@@ -246,7 +258,7 @@ export class ControlPlaneRuntime {
     if (this.leaseState.runtimeId) {
       lease.runtimeId = this.leaseState.runtimeId;
     }
-    return this.runs.createCliSession({
+    return await this.runs.createCliSession({
       projectId: targetWs.projectId,
       workspaceId: targetWs.id,
       chatId: options.chatId,
@@ -262,17 +274,21 @@ export class ControlPlaneRuntime {
     });
   }
 
-  endCliSession(
+  async endCliSession(
     runId: string,
     attemptId: string,
     outcome: 'completed' | 'failed' | 'cancelled' = 'completed',
     error?: string
-  ) {
-    return this.runs.endCliSession(runId, attemptId, outcome, error);
+  ): Promise<{ ok: boolean }> {
+    return await this.runs.endCliSession(runId, attemptId, outcome, error);
   }
 
-  renewCliSession(attachmentId: string, secret: string, options?: { extensionMs?: number; ownerPid?: number }) {
-    return this.runs.renewCliSession(attachmentId, secret, options);
+  async renewCliSession(
+    attachmentId: string,
+    secret: string,
+    options?: { extensionMs?: number; ownerPid?: number }
+  ): Promise<{ expiresAt: number }> {
+    return await this.runs.renewCliSession(attachmentId, secret, options);
   }
 
   async executeWorkflow(options: {
@@ -309,7 +325,7 @@ export class ControlPlaneRuntime {
       lease.runtimeId = this.leaseState.runtimeId;
     }
 
-    const session = this.runs.createWorkflowSession({
+    const session = await this.runs.createWorkflowSession({
       projectId: targetWs.projectId,
       workspaceId: targetWs.id,
       workflowName: options.workflow.name,
@@ -322,33 +338,39 @@ export class ControlPlaneRuntime {
       lease,
       leaseToken: lease.token,
     });
-    const reqContext: CapabilityRequestContext = {
-      lease: session.lease,
-      leaseToken: session.leaseToken,
-      projectId: targetWs.projectId,
-      workspaceId: targetWs.id,
-      runId: session.run.id,
-      attemptId: session.attempt.id,
-      browserTarget: boundTarget,
-      grant: options.grant || 'write',
-      signal: options.signal,
-    };
     try {
-      const result = (await this.capabilities.dispatchTrusted(
-        'workflow.execute',
+      const resultEnvelope = await this.transport.dispatchIntent(
         {
-          workflow: options.workflow,
-          workspaceRoot: targetWs.rootPath,
-          signal: options.signal,
-          onEvent: options.onEvent,
+          requestId: session.attempt.id,
+          idempotencyKey: `wf-root-${session.attempt.id}`,
           attachmentId: session.launch.attachmentId,
           attachmentSecret: session.launch.secret,
           authorityRevision: session.launch.authorityRevision,
-          parentInvocationId: session.attempt.id,
+          name: 'workflow.execute',
+          params: {
+            workflow: options.workflow,
+            workspaceRoot: targetWs.rootPath,
+          },
         },
-        reqContext
-      )) as WorkflowExecutionResult;
-      this.runs.endWorkflowSession(
+        {
+          signal: options.signal,
+          progressSink: options.onEvent ? {
+            onProgress: (event: any) => options.onEvent?.(event),
+          } : undefined,
+        }
+      );
+
+      if (!resultEnvelope.ok) {
+        const errorMsg = resultEnvelope.error?.message || 'Workflow execution failed';
+        await this.runs.endWorkflowSession(session.run.id, session.attempt.id, 'failed', errorMsg);
+        const code = (resultEnvelope.error?.code as any) || 'CAPABILITY_ERROR';
+        const err = new CapabilityError(code, errorMsg);
+        (err as any)._alreadyFinalized = true;
+        throw err;
+      }
+
+      const result = resultEnvelope.data as WorkflowExecutionResult;
+      await this.runs.endWorkflowSession(
         session.run.id,
         session.attempt.id,
         result.status === 'passed' ? 'completed' : result.status === 'interrupted' ? 'cancelled' : 'failed',
@@ -356,8 +378,10 @@ export class ControlPlaneRuntime {
       );
       return result;
     } catch (err: unknown) {
-      const errorMsg = err instanceof Error ? err.message : String(err);
-      this.runs.endWorkflowSession(session.run.id, session.attempt.id, 'failed', errorMsg);
+      if (!(err && typeof err === 'object' && '_alreadyFinalized' in err)) {
+        const errorMsg = err instanceof Error ? err.message : String(err);
+        await this.runs.endWorkflowSession(session.run.id, session.attempt.id, 'failed', errorMsg);
+      }
       throw err;
     }
   }

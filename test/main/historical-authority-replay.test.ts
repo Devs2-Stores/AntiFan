@@ -64,14 +64,16 @@ describe('Historical Authority & Invocation Replay (Phase 02)', () => {
         recordedVisibility: 'public',
         receiptReadPermission: 'read',
         retentionPolicy: 'run-durable',
-        cancellationBehavior: 'abort-immediate',
+        ownerCancellationBehavior: 'abort-immediate',
+        subscriberDisconnectBehavior: 'abort-when-unobserved',
+        cancellationAckTimeoutMs: 5000,
       },
       execute: async () => ({ value: 'executed-result-123' }),
     });
 
     const transport = new CapabilityTransportAdapter(catalogue, registry, ledger);
 
-    const { launch } = registry.issueAttachment(runId, attemptId, projectId, workspaceId, {
+    const { launch } = await registry.issueAttachment(runId, attemptId, projectId, workspaceId, {
       backendId: 'test-backend',
       lease,
       leaseToken: lease.token,
@@ -149,14 +151,16 @@ describe('Historical Authority & Invocation Replay (Phase 02)', () => {
         recordedVisibility: 'public',
         receiptReadPermission: 'read',
         retentionPolicy: 'run-durable',
-        cancellationBehavior: 'abort-immediate',
+        ownerCancellationBehavior: 'abort-immediate',
+        subscriberDisconnectBehavior: 'abort-when-unobserved',
+        cancellationAckTimeoutMs: 5000,
       },
       execute: async () => ({ value: 'executed-result-123' }),
     });
 
     const transport = new CapabilityTransportAdapter(catalogue, registry, ledger);
 
-    const { launch } = registry.issueAttachment(runId, attemptId, projectId, workspaceId, {
+    const { launch } = await registry.issueAttachment(runId, attemptId, projectId, workspaceId, {
       backendId: 'test-backend',
       lease,
       leaseToken: lease.token,
@@ -224,7 +228,9 @@ describe('Historical Authority & Invocation Replay (Phase 02)', () => {
         recordedVisibility: 'tenant-scoped',
         receiptReadPermission: 'write',
         retentionPolicy: 'run-durable',
-        cancellationBehavior: 'abort-immediate',
+        ownerCancellationBehavior: 'abort-immediate',
+        subscriberDisconnectBehavior: 'abort-when-unobserved',
+        cancellationAckTimeoutMs: 5000,
       },
       execute: async () => ({ secretKey: 'classified-data-999' }),
     });
@@ -232,7 +238,7 @@ describe('Historical Authority & Invocation Replay (Phase 02)', () => {
     const transport = new CapabilityTransportAdapter(catalogue, registry, ledger);
 
     // Initial attachment with write grant
-    const { launch } = registry.issueAttachment(runId, attemptId, projectId, workspaceId, {
+    const { launch } = await registry.issueAttachment(runId, attemptId, projectId, workspaceId, {
       backendId: 'test-backend',
       lease,
       leaseToken: lease.token,
@@ -254,7 +260,7 @@ describe('Historical Authority & Invocation Replay (Phase 02)', () => {
     assert.deepStrictEqual(resp1.data, { secretKey: 'classified-data-999' });
 
     // Downgrade caller grant to read
-    const downgradedRev = registry.rotateAuthorityRevision(launch.attachmentId, { grant: 'read' });
+    const downgradedRev = await registry.rotateAuthorityRevision(launch.attachmentId, { grant: 'read' });
 
     // Replay with downgraded grant -> receipt is disclosed but payload is redacted
     const respReplay = await transport.dispatchIntent({
@@ -297,14 +303,16 @@ describe('Historical Authority & Invocation Replay (Phase 02)', () => {
         recordedVisibility: 'public',
         receiptReadPermission: 'read',
         retentionPolicy: 'run-durable',
-        cancellationBehavior: 'abort-immediate',
+        ownerCancellationBehavior: 'abort-immediate',
+        subscriberDisconnectBehavior: 'abort-when-unobserved',
+        cancellationAckTimeoutMs: 5000,
       },
       execute: async () => ({ value: 'ok' }),
     });
 
     const transport = new CapabilityTransportAdapter(catalogue, registry, ledger);
 
-    const { launch } = registry.issueAttachment(runId, attemptId, projectId, workspaceId, {
+    const { launch } = await registry.issueAttachment(runId, attemptId, projectId, workspaceId, {
       backendId: 'test-backend',
       lease,
       leaseToken: lease.token,
@@ -421,14 +429,16 @@ describe('Historical Authority & Invocation Replay (Phase 02)', () => {
         recordedVisibility: 'public',
         receiptReadPermission: 'read',
         retentionPolicy: 'run-durable',
-        cancellationBehavior: 'abort-immediate',
+        ownerCancellationBehavior: 'abort-immediate',
+        subscriberDisconnectBehavior: 'abort-when-unobserved',
+        cancellationAckTimeoutMs: 5000,
       },
       execute: async () => ({ count: 42, executedAt: Date.now() }),
     });
 
     const transport1 = new CapabilityTransportAdapter(catalogue1, registry1, ledger1);
 
-    const { launch } = registry1.issueAttachment(runId, attemptId, projectId, workspaceId, {
+    const { launch } = await registry1.issueAttachment(runId, attemptId, projectId, workspaceId, {
       backendId: 'test-backend',
       lease,
       leaseToken: lease.token,
@@ -480,7 +490,9 @@ describe('Historical Authority & Invocation Replay (Phase 02)', () => {
         recordedVisibility: 'public',
         receiptReadPermission: 'read',
         retentionPolicy: 'run-durable',
-        cancellationBehavior: 'abort-immediate',
+        ownerCancellationBehavior: 'abort-immediate',
+        subscriberDisconnectBehavior: 'abort-when-unobserved',
+        cancellationAckTimeoutMs: 5000,
       },
       execute: async () => ({ count: 999 }), // Different output if re-executed
     });
@@ -525,15 +537,15 @@ describe('Historical Authority & Invocation Replay (Phase 02)', () => {
       const attemptId = makeControlPlaneId('attempt');
       const lease = issueRuntimeLease(projectId, workspaceId, 60_000, 1);
 
-      const { launch } = registry1.issueAttachment(runId, attemptId, projectId, workspaceId, {
+      const { launch } = await registry1.issueAttachment(runId, attemptId, projectId, workspaceId, {
         backendId: 'test-backend',
         lease,
         leaseToken: lease.token,
       });
 
       const rev1 = launch.authorityRevision;
-      const rev2 = registry1.rotateAuthorityRevision(launch.attachmentId);
-      const rev3 = registry1.rotateAuthorityRevision(launch.attachmentId);
+      const rev2 = await registry1.rotateAuthorityRevision(launch.attachmentId);
+      const rev3 = await registry1.rotateAuthorityRevision(launch.attachmentId);
 
       // Restart into registry2 from disk with maxHistoricalRevisions: 3
       const registry2 = new AttachmentRegistry(undefined, regDir, 3);
@@ -545,7 +557,7 @@ describe('Historical Authority & Invocation Replay (Phase 02)', () => {
       assert.ok(registry2.authenticateLineage(launch.attachmentId, launch.secret, { authorityRevision: rev1 }));
 
       // 4th rotation in registry2 -> prunes rev1 (history retained: rev2, rev3, rev4)
-      const rev4 = registry2.rotateAuthorityRevision(launch.attachmentId);
+      const rev4 = await registry2.rotateAuthorityRevision(launch.attachmentId);
 
       assert.ok(registry2.authenticateLineage(launch.attachmentId, launch.secret, { authorityRevision: rev4 }));
       assert.ok(registry2.authenticateLineage(launch.attachmentId, launch.secret, { authorityRevision: rev3 }));
@@ -570,5 +582,117 @@ describe('Historical Authority & Invocation Replay (Phase 02)', () => {
         fs.rmSync(regDir, { recursive: true, force: true });
       } catch {}
     }
+  });
+
+  it('9. Policy-aware settlement classifier settles aborts with no-effect as interrupted', async () => {
+    const runId = makeControlPlaneId('run');
+    const projectId = makeControlPlaneId('project');
+    const workspaceId = makeControlPlaneId('workspace');
+    const attemptId = makeControlPlaneId('attempt');
+    const lease = issueRuntimeLease(projectId, workspaceId, 10000, 1);
+
+    const catalogue = new CapabilityCatalogue({
+      projectId,
+      workspaceId,
+      runtimeId: lease.runtimeId,
+      hostEpoch: 1,
+      allowEval: true,
+      runtime: { mode: 'standalone', lifecycle: 'active' },
+    });
+
+    catalogue.register({
+      name: 'abortable.action',
+      description: 'Abortable action',
+      risk: 'read',
+      inputSchema: { type: 'object' },
+      policy: {
+        effect: 'read',
+        risk: 'read',
+        requiresBrowserTarget: false,
+        timeoutMs: 5000,
+        policyVersion: 1,
+        schedulerLane: 'short-passive',
+        duplicateMode: 'in-process-join',
+        recordedVisibility: 'public',
+        receiptReadPermission: 'read',
+        retentionPolicy: 'run-durable',
+        ownerCancellationBehavior: 'abort-immediate',
+        subscriberDisconnectBehavior: 'abort-when-unobserved',
+        cancellationAckTimeoutMs: 5000,
+      },
+      execute: async () => {
+        const err = new Error('Execution aborted by client');
+        err.name = 'AbortError';
+        throw err;
+      },
+    });
+
+    const transport = new CapabilityTransportAdapter(catalogue, registry, ledger);
+    const { launch } = await registry.issueAttachment(runId, attemptId, projectId, workspaceId, {
+      backendId: 'test-backend',
+      lease,
+      leaseToken: lease.token,
+    });
+
+    const intent: ClientInvocationIntent = {
+      requestId: 'req-abort-1',
+      idempotencyKey: 'idem-abort-1',
+      attachmentId: launch.attachmentId,
+      attachmentSecret: launch.secret,
+      authorityRevision: launch.authorityRevision!,
+      name: 'abortable.action',
+      params: {},
+    };
+
+    const resp = await transport.dispatchIntent(intent);
+    assert.strictEqual(resp.ok, false);
+    assert.strictEqual(resp.error?.code, 'ABORTED');
+
+    // Verify ledger record was settled as interrupted (NOT failed)
+    const record = ledger.getRecord(resp.invocationId);
+    assert.strictEqual(record?.state, 'interrupted');
+  });
+
+  it('10. Strict separation of receipt read permission vs live execution authority', async () => {
+    const runId = makeControlPlaneId('run');
+    const projectId = makeControlPlaneId('project');
+    const workspaceId = makeControlPlaneId('workspace');
+    const attemptId = makeControlPlaneId('attempt');
+    const lease = issueRuntimeLease(projectId, workspaceId, 50, 1);
+
+    const { launch, record } = await registry.issueAttachment(runId, attemptId, projectId, workspaceId, {
+      backendId: 'test-backend',
+      lease,
+      leaseToken: lease.token,
+      ttlMs: 50,
+      grant: 'write',
+    });
+
+    // Wait for attachment and lease to expire
+    await new Promise((r) => setTimeout(r, 60));
+
+    // 1. Live execution fails closed because attachment/lease is expired
+    assert.throws(
+      () => registry.validateLiveExecution(record, launch.authorityRevision!),
+      (err: unknown) => err instanceof CapabilityError && (err.code === 'ATTACHMENT_STALE' || err.code === 'LEASE_EXPIRED')
+    );
+
+    // 2. Receipt read permission authorization still succeeds for historical inspection
+    const readAuth = registry.authorizeReceiptRead(
+      { attachmentId: launch.attachmentId, attachmentSecret: launch.secret },
+      'read',
+      'public'
+    );
+    assert.strictEqual(readAuth.allowed, true);
+    assert.strictEqual(readAuth.record.id, launch.attachmentId);
+
+    // 3. Historical revision resolution succeeds for historical inspection
+    const histAuth = registry.resolveHistoricalRevision({
+      attachmentId: launch.attachmentId,
+      attachmentSecret: launch.secret,
+      authorityRevision: launch.authorityRevision!,
+    });
+    assert.strictEqual(histAuth.attachmentId, launch.attachmentId);
+    assert.strictEqual(histAuth.authorityRevision, launch.authorityRevision);
   });
 });

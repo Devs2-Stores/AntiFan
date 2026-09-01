@@ -43,7 +43,9 @@ export function registerFileCapabilities(
       receiptReadPermission: 'read',
       timeoutMs: 15_000,
       retentionPolicy: 'run-durable',
-      cancellationBehavior: 'abort-immediate',
+      ownerCancellationBehavior: 'abort-immediate',
+      subscriberDisconnectBehavior: 'abort-when-unobserved',
+      cancellationAckTimeoutMs: 5_000,
       policyVersion: 1,
     },
     inputSchema: {
@@ -78,7 +80,9 @@ export function registerFileCapabilities(
       receiptReadPermission: 'write',
       timeoutMs: 15_000,
       retentionPolicy: 'run-durable',
-      cancellationBehavior: 'drain-and-persist',
+      ownerCancellationBehavior: 'drain-and-persist',
+      subscriberDisconnectBehavior: 'detach-and-continue',
+      cancellationAckTimeoutMs: 5_000,
       policyVersion: 1,
     },
     inputSchema: {
@@ -113,7 +117,9 @@ export function registerFileCapabilities(
       receiptReadPermission: 'read',
       timeoutMs: 15_000,
       retentionPolicy: 'run-durable',
-      cancellationBehavior: 'abort-immediate',
+      ownerCancellationBehavior: 'abort-immediate',
+      subscriberDisconnectBehavior: 'abort-when-unobserved',
+      cancellationAckTimeoutMs: 5_000,
       policyVersion: 1,
     },
     inputSchema: {

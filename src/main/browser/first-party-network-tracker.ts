@@ -4,8 +4,8 @@ import { CapabilityError } from '../../shared/control-plane-contracts';
 export interface NetworkTrackerOptions {
   idleWindowMs?: number; // default 500ms
   maxCeilingMs?: number; // default 2000ms
+  requireAttached?: boolean;
 }
-
 const CRITICAL_RESOURCE_TYPES = new Set([
   'mainframe',
   'document',
@@ -72,10 +72,12 @@ export class FirstPartyNetworkTracker {
   }
 
   public getInflightCount(tabId: string, paneId: string = 'desktop'): number {
-    const key = this.makeKey(tabId, paneId);
-    return this.inflightByTarget.get(key)?.size ?? 0;
+    return (this.inflightByTarget.get(this.makeKey(tabId, paneId)) || new Set()).size;
   }
 
+  public isAttached(tabId: string, paneId: string = 'desktop'): boolean {
+    return this.attachedTargets.has(this.makeKey(tabId, paneId));
+  }
   /**
    * Resets active inflight tracking for a navigation/reload without detaching listeners.
    */
@@ -119,67 +121,100 @@ export class FirstPartyNetworkTracker {
   public async awaitQuiescence(
     tabId: string,
     paneId: string = 'desktop',
-    options: NetworkTrackerOptions = {}
+    options: NetworkTrackerOptions = {},
+    signal?: AbortSignal
   ): Promise<{ settled: boolean; durationMs: number; timedOut: boolean }> {
     const key = this.makeKey(tabId, paneId);
+
+    if (options.requireAttached && !this.isAttached(tabId, paneId)) {
+      throw new CapabilityError('TARGET_STALE', `FirstPartyNetworkTracker is not attached for target "${key}"`);
+    }
+
+    if (signal?.aborted) {
+      throw new CapabilityError('WAIT_ABORTED', 'Network quiescence wait aborted');
+    }
+
     const idleWindowMs = options.idleWindowMs ?? 500;
     const maxCeilingMs = options.maxCeilingMs ?? 2000;
     const startTime = Date.now();
 
-    return new Promise((resolve) => {
-      let debounceTimer: NodeJS.Timeout | null = null;
-      let ceilingTimer: NodeJS.Timeout | null = null;
-      let settled = false;
+    const { promise, resolve, reject } = Promise.withResolvers<{ settled: boolean; durationMs: number; timedOut: boolean }>();
 
-      const finish = (timedOut: boolean) => {
-        if (settled) return;
-        settled = true;
-        if (debounceTimer) {
-          clearTimeout(debounceTimer);
-          debounceTimer = null;
-        }
-        if (ceilingTimer) {
-          clearTimeout(ceilingTimer);
-          ceilingTimer = null;
-        }
-        const listeners = this.listenersByTarget.get(key);
-        if (listeners) listeners.delete(onStateChange);
-        resolve({ settled: true, durationMs: Date.now() - startTime, timedOut });
-      };
+    let debounceTimer: NodeJS.Timeout | null = null;
+    let ceilingTimer: NodeJS.Timeout | null = null;
+    let settled = false;
 
-      const resetDebounce = () => {
-        if (settled) return;
-        if (debounceTimer) {
-          clearTimeout(debounceTimer);
-          debounceTimer = null;
-        }
-        if (this.getInflightCount(tabId, paneId) === 0) {
-          debounceTimer = setTimeout(() => {
-            if (!settled && this.getInflightCount(tabId, paneId) === 0) {
-              finish(false);
-            }
-          }, idleWindowMs);
-        }
-      };
-
-      const onStateChange = () => {
-        if (settled) return;
-        resetDebounce();
-      };
-
-      let listeners = this.listenersByTarget.get(key);
-      if (!listeners) {
-        listeners = new Set();
-        this.listenersByTarget.set(key, listeners);
+    const cleanup = () => {
+      if (debounceTimer) {
+        clearTimeout(debounceTimer);
+        debounceTimer = null;
       }
-      listeners.add(onStateChange);
+      if (ceilingTimer) {
+        clearTimeout(ceilingTimer);
+        ceilingTimer = null;
+      }
+      const listeners = this.listenersByTarget.get(key);
+      if (listeners) {
+        listeners.delete(onStateChange);
+        if (listeners.size === 0) this.listenersByTarget.delete(key);
+      }
+      if (signal) {
+        signal.removeEventListener('abort', onAbort);
+      }
+    };
 
-      ceilingTimer = setTimeout(() => {
-        finish(true);
-      }, maxCeilingMs);
+    const finish = (timedOut: boolean) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      resolve({ settled: true, durationMs: Date.now() - startTime, timedOut });
+    };
 
+    const onAbort = () => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      reject(new CapabilityError('WAIT_ABORTED', 'Network quiescence wait aborted'));
+    };
+
+    const resetDebounce = () => {
+      if (settled) return;
+      if (debounceTimer) {
+        clearTimeout(debounceTimer);
+        debounceTimer = null;
+      }
+      if (this.getInflightCount(tabId, paneId) === 0) {
+        debounceTimer = setTimeout(() => {
+          if (!settled && this.getInflightCount(tabId, paneId) === 0) {
+            finish(false);
+          }
+        }, idleWindowMs);
+      }
+    };
+
+    const onStateChange = () => {
+      if (settled) return;
       resetDebounce();
-    });
+    };
+
+    if (signal) {
+      signal.addEventListener('abort', onAbort, { once: true });
+    }
+
+    let listeners = this.listenersByTarget.get(key);
+    if (!listeners) {
+      listeners = new Set();
+      this.listenersByTarget.set(key, listeners);
+    }
+    listeners.add(onStateChange);
+
+    ceilingTimer = setTimeout(() => {
+      finish(true);
+    }, maxCeilingMs);
+
+    resetDebounce();
+
+    return promise;
   }
 
   /**

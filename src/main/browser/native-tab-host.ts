@@ -314,6 +314,7 @@ export class NativeTabHost extends EventEmitter {
         getDiagnostics: (tabId, level) => (this.diagnosticsManager && typeof this.diagnosticsManager.getDiagnostics === 'function') ? this.diagnosticsManager.getDiagnostics(tabId, level as any) : null,
         createTab: (url, activate) => this.createTab(url, activate),
         withTabAgentWorking: (tabId, action) => this.withTabAgentWorking(tabId, action),
+        runWithAttachedTabView: (view, action, isMobile) => this.runWithAttachedTabView(view, action, isMobile),
       });
     }
     return this.devToolsHost;
@@ -1913,12 +1914,57 @@ export class NativeTabHost extends EventEmitter {
     return this.isBookmarkBarVisible;
   }
 
-  public attachTabView(view: WebContentsView | null | undefined, isMobile = false): void {
-    if (!view || !this.window || this.window.isDestroyed() || !this.window.contentView) return;
-    if (view.webContents && view.webContents.isDestroyed()) return;
+  private temporaryViewAttachCounts = new WeakMap<WebContentsView, { count: number; attachedByHelper: boolean }>();
+
+  public isTabViewAttached(view: WebContentsView | null | undefined): boolean {
+    if (!view || !this.window || (typeof this.window.isDestroyed === 'function' && this.window.isDestroyed()) || !this.window.contentView) return false;
+    return Array.isArray(this.window.contentView.children) && this.window.contentView.children.includes(view);
+  }
+  public async runWithAttachedTabView<T>(view: WebContentsView | null | undefined, action: () => Promise<T>, isMobile = false): Promise<T> {
+    if (!view || !this.window || (typeof this.window.isDestroyed === 'function' && this.window.isDestroyed()) || !this.window.contentView) {
+      return action();
+    }
+    if (!this.temporaryViewAttachCounts) {
+      this.temporaryViewAttachCounts = new WeakMap();
+    }
+    const state = this.temporaryViewAttachCounts.get(view);
+    if (!state || state.count === 0) {
+      const wasAttached = this.isTabViewAttached(view);
+      if (!wasAttached) {
+        this.attachTabView(view, isMobile);
+      }
+      this.temporaryViewAttachCounts.set(view, { count: 1, attachedByHelper: !wasAttached });
+    } else {
+      state.count++;
+    }
     try {
-      if (this.window.contentView.children.includes(view)) return;
-      const children = this.window.contentView.children;
+      return await action();
+    } finally {
+      const current = this.temporaryViewAttachCounts.get(view);
+      if (current) {
+        current.count--;
+        if (current.count <= 0) {
+          this.temporaryViewAttachCounts.delete(view);
+          const activeTab = this.activeTabId ? this.tabs.get(this.activeTabId) : null;
+          const isActiveView = activeTab && (activeTab.view === view || activeTab.mobileView === view);
+          if (!isActiveView && current.attachedByHelper) {
+            try {
+              if (this.window && (typeof this.window.isDestroyed !== 'function' || !this.window.isDestroyed()) && this.window.contentView && this.isTabViewAttached(view)) {
+                this.window.contentView.removeChildView(view);
+              }
+            } catch {}
+          }
+        }
+      }
+    }
+  }
+
+  public attachTabView(view: WebContentsView | null | undefined, isMobile = false): void {
+    if (!view || !this.window || (typeof this.window.isDestroyed === 'function' && this.window.isDestroyed()) || !this.window.contentView) return;
+    if (view.webContents && typeof view.webContents.isDestroyed === 'function' && view.webContents.isDestroyed()) return;
+    try {
+      if (Array.isArray(this.window.contentView.children) && this.window.contentView.children.includes(view)) return;
+      const children = Array.isArray(this.window.contentView.children) ? this.window.contentView.children : [];
       let insertIndex = 0;
       if (this.frameBackdropView && children.includes(this.frameBackdropView)) {
         insertIndex = children.indexOf(this.frameBackdropView) + 1;
@@ -1935,7 +1981,6 @@ export class NativeTabHost extends EventEmitter {
       console.error('[native-tab-host] attachTabView error:', err);
     }
   }
-
   public bringViewToFront(_view: WebContentsView | null | undefined): void {
     // Shell views stay above tab views through attachTabView indexing.
   }
@@ -2134,6 +2179,7 @@ export class NativeTabHost extends EventEmitter {
       }
     };
 
+    this.networkTracker.ensureAttached(id, paneId, wc, () => wc.getURL()).catch(() => {});
     wc.on('did-start-loading', () => {
       state.isLoading = true;
       clearLoadingTimer();
@@ -2759,7 +2805,8 @@ export class NativeTabHost extends EventEmitter {
       try { unsub(); } catch {}
       this.tabPreviewUnsubscribers.delete(tabId);
     }
-    this.diagnosticsManager.deleteTab(tabId);
+    this.networkTracker?.detachTarget(tabId, 'desktop');
+    this.networkTracker?.detachTarget(tabId, 'mobile');
     this.tabThemeQaStates?.delete(tabId);
     this.documentGenerations?.delete(tabId);
     if (this.automationTabId === tabId) {

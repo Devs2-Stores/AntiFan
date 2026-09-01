@@ -36,10 +36,10 @@ export interface WorkflowExecutionOptions {
   grant?: 'read' | 'write' | 'execute' | 'eval';
   signal?: AbortSignal;
   onEvent?: WorkflowEventListener;
-  attachmentId?: string;
-  attachmentSecret?: string;
+  progressSink?: { onProgress: (event: unknown) => void };
   authorityRevision?: string;
   parentInvocationId?: string;
+  dispatchChildIntent?: (stepId: string, attempt: number, intent: ClientInvocationIntent) => Promise<any>;
 }
 export class WorkflowEngine {
   constructor(private readonly ports: WorkflowEnginePorts) {}
@@ -55,10 +55,20 @@ export class WorkflowEngine {
       grant,
       signal,
       onEvent,
-      attachmentId,
-      attachmentSecret,
+      progressSink,
+      authorityRevision,
       parentInvocationId,
+      dispatchChildIntent,
     } = options;
+
+    const emitEvent = (ev: Parameters<WorkflowEventListener>[0]) => {
+      try {
+        onEvent?.(ev);
+      } catch {}
+      try {
+        progressSink?.onProgress(ev);
+      } catch {}
+    };
 
     // 1. Validate workflow schema
     const parsed = WorkflowDefinitionSchema.safeParse(workflow);
@@ -76,7 +86,7 @@ export class WorkflowEngine {
     const allArtifacts: ArtifactRef[] = [];
     const startTime = Date.now();
 
-    onEvent?.({ type: 'workflow:start' });
+    emitEvent({ type: 'workflow:start' });
 
     let status: 'passed' | 'failed' | 'interrupted' = 'passed';
 
@@ -87,7 +97,7 @@ export class WorkflowEngine {
       // Check abort signal before starting step
       if (signal?.aborted) {
         status = 'interrupted';
-        onEvent?.({ type: 'step:start', stepId: step.id, stepName: step.name });
+        emitEvent({ type: 'step:start', stepId: step.id, stepName: step.name });
         const stepResult: WorkflowStepResult = {
           stepId: step.id,
           stepName: step.name,
@@ -97,11 +107,11 @@ export class WorkflowEngine {
           error: 'Workflow was aborted by caller',
         };
         stepResults.push(stepResult);
-        onEvent?.({ type: 'step:end', stepId: step.id, stepName: step.name, status: 'skipped', error: stepResult.error });
+        emitEvent({ type: 'step:end', stepId: step.id, stepName: step.name, status: 'skipped', error: stepResult.error });
         break;
       }
 
-      onEvent?.({ type: 'step:start', stepId: step.id, stepName: step.name });
+      emitEvent({ type: 'step:start', stepId: step.id, stepName: step.name });
       const stepStartTime = Date.now();
       let stepResult: WorkflowStepResult | null = null;
       let lastError: Error | null = null;
@@ -127,10 +137,12 @@ export class WorkflowEngine {
           };
 
           const dispatchChild =
-            this.ports.transport && attachmentId && attachmentSecret && currentRevision
+            dispatchChildIntent
+              ? (intent: ClientInvocationIntent) => dispatchChildIntent(step.id, attempt, intent)
+              : this.ports.transport && parentInvocationId
               ? (intent: ClientInvocationIntent) =>
                   this.ports.transport!.dispatchChildIntent(
-                    parentInvocationId || makeControlPlaneId('invocation'),
+                    parentInvocationId,
                     step.id,
                     attempt,
                     intent
@@ -142,10 +154,7 @@ export class WorkflowEngine {
             reqContext,
             step.timeoutMs,
             signal,
-            dispatchChild,
-            attachmentId && attachmentSecret && currentRevision
-              ? { attachmentId, attachmentSecret, authorityRevision: currentRevision }
-              : undefined
+            dispatchChild
           );
 
           if (stepOutput.updatedTarget) {
@@ -189,9 +198,12 @@ export class WorkflowEngine {
           }
         }
       }
+      let isAborted = Boolean(signal?.aborted);
       if (!stepResult) {
         const errorMsg = lastError?.message || 'Unknown step execution failure';
-        const isAborted = signal?.aborted || errorMsg.includes('aborted');
+        if (signal?.aborted || errorMsg.includes('aborted')) {
+          isAborted = true;
+        }
         stepResult = {
           stepId: step.id,
           stepName: step.name,
@@ -209,29 +221,32 @@ export class WorkflowEngine {
       }
 
       stepResults.push(stepResult);
-      onEvent?.({
+      emitEvent({
         type: 'step:end',
         stepId: step.id,
         stepName: step.name,
         status: stepResult.status,
-        durationMs: stepResult.durationMs,
         error: stepResult.error,
       });
 
-      if (status !== 'passed' && !step.continueOnError) {
-        // Skip remaining steps
-        for (let j = i + 1; j < def.steps.length; j++) {
-          const remainingStep = def.steps[j];
-          if (!remainingStep) continue;
-          stepResults.push({
-            stepId: remainingStep.id,
-            stepName: remainingStep.name,
-            type: remainingStep.type,
-            status: 'skipped',
-            durationMs: 0,
-          });
+      if (stepResult.status === 'failed') {
+        if (!isAborted) {
+          status = 'failed';
         }
-        break;
+        if (!step.continueOnError || isAborted) {
+          for (let j = i + 1; j < def.steps.length; j++) {
+            const remainingStep = def.steps[j];
+            if (!remainingStep) continue;
+            stepResults.push({
+              stepId: remainingStep.id,
+              stepName: remainingStep.name,
+              type: remainingStep.type,
+              status: 'skipped',
+              durationMs: 0,
+            });
+          }
+          break;
+        }
       }
     }
 
@@ -281,7 +296,7 @@ export class WorkflowEngine {
       artifacts: allArtifacts,
     };
 
-    onEvent?.({ type: 'workflow:end', result: executionResult });
+    emitEvent({ type: 'workflow:end', result: executionResult });
 
     return executionResult;
   }
@@ -364,17 +379,14 @@ export class WorkflowEngine {
       payload: Record<string, unknown>,
       ctx: CapabilityRequestContext = context
     ): Promise<{ data?: unknown; replacementRevision?: string }> => {
-      if (dispatchChild && attachmentContext) {
-        const intent: ClientInvocationIntent = {
+      if (dispatchChild) {
+        const minimalIntent = {
           requestId: makeControlPlaneId('request'),
           idempotencyKey: makeControlPlaneId('idempotency'),
-          attachmentId: attachmentContext.attachmentId,
-          attachmentSecret: attachmentContext.attachmentSecret,
-          authorityRevision: attachmentContext.authorityRevision,
           name,
           params: payload,
-        };
-        const resp = await dispatchChild(intent);
+        } as unknown as ClientInvocationIntent;
+        const resp = await dispatchChild(minimalIntent);
         if (!resp.ok) {
           const code = resp.error?.code || 'CAPABILITY_ERROR';
           const msg = resp.error?.message || 'Capability execution failed';

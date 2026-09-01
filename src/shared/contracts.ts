@@ -316,3 +316,24 @@ export const TERMINAL_CHANNELS = {
   POPOUT_STATE_CHANGED: 'antifan:terminal:popout-state-changed',
   OPEN_IN_VSCODE: 'antifan:terminal:open-in-vscode',
 } as const;
+
+export type {
+  ClientInvocationIntent,
+  MainResolvedAuthority,
+  CapabilityExecutionControl,
+  InvocationDispatchStage,
+  OwnerCancellationBehavior,
+  SubscriberDisconnectBehavior,
+  EffectMarker,
+  EffectAcknowledgement,
+  CancellationAck,
+  CapabilityEffectPolicy,
+  CapabilityEffectPolicyInput,
+  AuthoritativeInvocationReceipt,
+  McpEvidence,
+  InvocationBinding,
+  InvocationState,
+  AuthorityRevisionHandle,
+  CapabilityRisk,
+  CapabilityErrorCode,
+} from './control-plane-contracts';

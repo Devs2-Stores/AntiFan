@@ -241,6 +241,24 @@ describe('Keyboard Normalizer & Browser Native Keyboard Press', () => {
       )) as { success: boolean; key: string };
       assert.strictEqual(aliasResult.success, true);
       assert.strictEqual(hostKeyReceived, 'Escape');
+
+      // Verify freeze policy: requiresBrowserTarget and viewport-gate lane
+      const keyboardCaps = [
+        'browser.keyboard-press',
+        'antifan_keyboard_press',
+        'browser.send-keyboard-press',
+        'browser_press_key',
+      ];
+      for (const capName of keyboardCaps) {
+        const registered = catalogue.get(capName);
+        assert.ok(registered, `Capability ${capName} must be registered`);
+        assert.strictEqual(registered.requiresBrowserTarget, true, `${capName} must have requiresBrowserTarget: true`);
+        assert.strictEqual(registered.policy.requiresBrowserTarget, true, `${capName} policy must have requiresBrowserTarget: true`);
+        assert.strictEqual(registered.policy.schedulerLane, 'viewport-gate', `${capName} policy must have schedulerLane: 'viewport-gate'`);
+        assert.strictEqual(registered.policy.ownerCancellationBehavior, 'drain-and-persist');
+        assert.strictEqual(registered.policy.subscriberDisconnectBehavior, 'detach-and-continue');
+        assert.ok(registered.policy.cancellationAckTimeoutMs > 0);
+      }
     });
   });
 });

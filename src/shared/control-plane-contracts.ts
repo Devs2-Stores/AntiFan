@@ -172,7 +172,24 @@ export interface UntrustedCapabilityClaims {
 export type AuthorityRevisionHandle = string;
 
 export type InvocationState = 'claiming' | 'in_progress' | 'completed' | 'failed' | 'interrupted' | 'unknown';
+export type InvocationDispatchStage = 'pre_dispatch' | 'dispatch_started';
 
+export type OwnerCancellationBehavior = 'abort-immediate' | 'drain-and-persist';
+export type SubscriberDisconnectBehavior = 'abort-when-unobserved' | 'detach-and-continue';
+
+export type EffectMarker = 'not-started' | 'effect-started' | 'effect-committed';
+export type EffectAcknowledgement = 'no-effect' | 'effect-possible' | 'effect-committed';
+export type CancellationAck = EffectAcknowledgement;
+
+export interface CapabilityExecutionControl {
+  readonly cancellationId?: string;
+  readonly cancellationSource?: 'owner' | 'subscriber' | 'timeout' | 'system';
+  readonly effectStage: EffectMarker;
+  setEffectStage(stage: 'effect-started' | 'effect-committed'): void;
+  readonly signal: AbortSignal;
+  acknowledgeCancellation(ack: EffectAcknowledgement): void;
+  readonly cancellationAck?: EffectAcknowledgement;
+}
 export interface ClientInvocationIntent<T = unknown> {
   requestId: string;
   idempotencyKey: string;
@@ -211,7 +228,9 @@ export interface CapabilityEffectPolicy {
   receiptReadPermission: CapabilityRisk;
   timeoutMs: number;
   retentionPolicy: 'ephemeral' | 'run-durable' | 'permanent';
-  cancellationBehavior: 'abort-immediate' | 'drain-and-persist' | 'ignore-disconnect';
+  ownerCancellationBehavior: OwnerCancellationBehavior;
+  subscriberDisconnectBehavior: SubscriberDisconnectBehavior;
+  cancellationAckTimeoutMs: number;
   policyVersion: number;
   policyDigest: string;
 }
@@ -225,11 +244,25 @@ export interface InvocationBinding {
   policyDigest: string;
 }
 
+export interface McpEvidence {
+  timestamp?: number;
+  tabId?: string;
+  url?: string;
+  title?: string;
+  documentGeneration?: number;
+  browserEpoch?: number;
+  viewport?: { width: number; height: number };
+  executionTier?: 'cdp_trusted' | 'isolated_synthetic';
+  fallbackReason?: string;
+  [key: string]: unknown;
+}
+
 export interface AuthoritativeInvocationReceipt<T = unknown> {
   invocationId: string;
   originRequestId: string;
   binding?: InvocationBinding;
   state: InvocationState;
+  dispatchStage?: InvocationDispatchStage;
   startedAt: number;
   completedAt?: number;
   data?: T;
@@ -238,14 +271,7 @@ export interface AuthoritativeInvocationReceipt<T = unknown> {
     message: string;
     details?: unknown;
   };
-  evidence?: {
-    tabId?: string;
-    url?: string;
-    documentGeneration?: number;
-    browserEpoch?: number;
-    timestamp?: number;
-    [key: string]: unknown;
-  };
+  evidence?: McpEvidence;
   replacementAuthorityRevision?: AuthorityRevisionHandle;
 }
 
@@ -366,9 +392,24 @@ export function computePolicyDigest(policy: Omit<CapabilityEffectPolicy, 'policy
     receiptReadPermission: policy.receiptReadPermission,
     timeoutMs: policy.timeoutMs,
     retentionPolicy: policy.retentionPolicy,
-    cancellationBehavior: policy.cancellationBehavior,
+    ownerCancellationBehavior: policy.ownerCancellationBehavior,
+    subscriberDisconnectBehavior: policy.subscriberDisconnectBehavior,
+    cancellationAckTimeoutMs: policy.cancellationAckTimeoutMs,
     policyVersion: policy.policyVersion,
   });
+}
+
+export interface InternalChildCapabilityResponse {
+  ok: boolean;
+  state?: InvocationState;
+  data?: unknown;
+  error?: { code?: string; message: string; details?: unknown };
+  replacementAuthorityRevision?: string;
+}
+
+export interface CapabilityDispatchRuntimeOptions {
+  signal?: AbortSignal;
+  progressSink?: { onProgress: (event: unknown) => void };
 }
 
 export interface AuthenticatedCapabilityContext {
@@ -386,6 +427,10 @@ export interface AuthenticatedCapabilityContext {
   browserTarget?: BrowserTarget;
   grant?: 'read' | 'write' | 'execute' | 'eval';
   signal?: AbortSignal;
+  control?: CapabilityExecutionControl;
+  progressSink?: { onProgress: (event: unknown) => void };
+  authorityRevision?: string;
+  dispatchChildIntent?: (stepId: string, attempt: number, intent: ClientInvocationIntent) => Promise<InternalChildCapabilityResponse>;
 }
 export type AttachmentState = 'issued' | 'bound' | 'active' | 'revoked' | 'expired' | 'stale';
 
@@ -507,7 +552,14 @@ export type CapabilityErrorCode =
   | 'NODE_DETACHED'
   | 'CAPABILITY_OVERLOADED'
   | 'PREEMPTED_BY_USER'
-  | 'HMR_DRIFT';
+  | 'HMR_DRIFT'
+  | 'REF_AMBIGUOUS'
+  | 'INTEGRITY_COMPROMISED'
+  | 'SESSION_STALE'
+  | 'SESSION_CLOSED'
+  | 'WAIT_TIMEOUT'
+  | 'WAIT_ABORTED';
+
 export class CapabilityError extends Error {
   readonly code: CapabilityErrorCode;
   readonly details?: Record<string, unknown>;

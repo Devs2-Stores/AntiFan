@@ -68,7 +68,7 @@ describe('ControlPlaneRuntime Main Launch Owner & Attachment Authority', () => {
       const runPromise = runtime.runs.start(run.id, 'prompt', backend, { cwd: workspaceRoot });
       await startedPromise;
 
-      const { launch, record } = runtime.issueAttemptAttachment(run.id, activeAttemptId, {
+      const { launch, record } = await runtime.issueAttemptAttachment(run.id, activeAttemptId, {
         backendId: 'codex',
         chatId: chat.id,
         grant: 'execute',
@@ -134,7 +134,9 @@ describe('ControlPlaneRuntime Main Launch Owner & Attachment Authority', () => {
           receiptReadPermission: 'read',
           timeoutMs: 10_000,
           retentionPolicy: 'run-durable',
-          cancellationBehavior: 'abort-immediate',
+          ownerCancellationBehavior: 'abort-immediate',
+          subscriberDisconnectBehavior: 'abort-when-unobserved',
+          cancellationAckTimeoutMs: 5000,
           policyVersion: 1,
         },
         inputSchema: { type: 'object' },
@@ -142,7 +144,7 @@ describe('ControlPlaneRuntime Main Launch Owner & Attachment Authority', () => {
       });
 
       // 1. Create a CLI session (default ttl 300,000ms)
-      const cliSession = runtime.createCliSession({
+      const cliSession = await runtime.createCliSession({
         backendId: 'cli',
         grant: 'write',
         ownerPid: process.pid,
@@ -221,14 +223,16 @@ describe('ControlPlaneRuntime Main Launch Owner & Attachment Authority', () => {
           receiptReadPermission: 'read',
           timeoutMs: 10_000,
           retentionPolicy: 'run-durable',
-          cancellationBehavior: 'abort-immediate',
+          ownerCancellationBehavior: 'abort-immediate',
+          subscriberDisconnectBehavior: 'abort-when-unobserved',
+          cancellationAckTimeoutMs: 5000,
           policyVersion: 1,
         },
         inputSchema: { type: 'object' },
         execute: async () => ({ pong: true }),
       });
 
-      const cliSession = runtime.createCliSession({
+      const cliSession = await runtime.createCliSession({
         backendId: 'cli',
         grant: 'write',
         ownerPid: process.pid,

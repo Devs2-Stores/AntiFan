@@ -34,11 +34,17 @@ function makeBrowserPolicy(options: {
   lane?: CapabilityEffectPolicyInput['schedulerLane'];
   timeoutMs?: number;
   duplicateMode?: CapabilityEffectPolicyInput['duplicateMode'];
-  cancellationBehavior?: CapabilityEffectPolicyInput['cancellationBehavior'];
+  ownerCancellationBehavior?: CapabilityEffectPolicyInput['ownerCancellationBehavior'];
+  subscriberDisconnectBehavior?: CapabilityEffectPolicyInput['subscriberDisconnectBehavior'];
+  cancellationAckTimeoutMs?: number;
   receiptReadPermission?: CapabilityRisk;
 }): CapabilityEffectPolicyInput {
   const reqTarget = Boolean(options.requiresBrowserTarget);
   const defaultLane = reqTarget ? (options.risk === 'read' ? 'short-passive' : 'viewport-gate') : 'unbounded';
+  const ownerCancellation = options.ownerCancellationBehavior || (options.effect === 'read' ? 'abort-immediate' : 'drain-and-persist');
+  const subscriberDisconnect = options.subscriberDisconnectBehavior || (ownerCancellation === 'abort-immediate' ? 'abort-when-unobserved' : 'detach-and-continue');
+  const timeoutMs = options.timeoutMs || 30_000;
+  const cancellationAckTimeoutMs = options.cancellationAckTimeoutMs || Math.min(timeoutMs, 5_000);
   return {
     effect: options.effect,
     risk: options.risk,
@@ -47,9 +53,11 @@ function makeBrowserPolicy(options: {
     duplicateMode: options.duplicateMode || (options.effect === 'destructive-mutation' ? 'reject-concurrent' : 'in-process-join'),
     recordedVisibility: 'tenant-scoped',
     receiptReadPermission: options.receiptReadPermission || options.risk,
-    timeoutMs: options.timeoutMs || 30_000,
+    timeoutMs,
     retentionPolicy: 'run-durable',
-    cancellationBehavior: options.cancellationBehavior || (options.effect === 'read' ? 'abort-immediate' : 'drain-and-persist'),
+    ownerCancellationBehavior: ownerCancellation,
+    subscriberDisconnectBehavior: subscriberDisconnect,
+    cancellationAckTimeoutMs,
     policyVersion: 1,
   };
 }
@@ -133,6 +141,57 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
     inputSchema: { type: 'object', properties: { tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } } },
     execute: async (params: { tabId?: string; paneId?: 'desktop' | 'mobile' }, context) => browser.screenshot(context.browserTarget as BrowserTarget, context.runId || 'run-unbound', context.attemptId || 'attempt-unbound', params.tabId, params.paneId),
   });
+  catalogue.register({
+    name: 'browser.observe',
+    description: 'Truthful identity-coherent multi-modal observation capturing bounded DOM, screenshot, snapshot, and diagnostics with drift metadata',
+    risk: 'read',
+    requiresBrowserTarget: true,
+    policy: makeBrowserPolicy({ effect: 'read', risk: 'read', requiresBrowserTarget: true, lane: 'short-passive' }),
+    inputSchema: {
+      type: 'object',
+      properties: {
+        components: {
+          type: 'array',
+          items: { type: 'string', enum: ['dom', 'screenshot', 'snapshot', 'diagnostics'] },
+          description: 'List of up to 4 components to observe',
+        },
+        selector: { type: 'string', description: 'Optional CSS selector root' },
+        tabId: { type: 'string' },
+        paneId: { type: 'string', enum: ['desktop', 'mobile'] },
+      },
+    },
+    execute: async (params: { components?: Array<'dom' | 'screenshot' | 'snapshot' | 'diagnostics'>; selector?: string; tabId?: string; paneId?: 'desktop' | 'mobile' }, context) =>
+      browser.observe(context.browserTarget as BrowserTarget, context.runId || 'run-unbound', context.attemptId || 'attempt-unbound', params, params.tabId, params.paneId),
+  });
+
+  catalogue.register({
+    name: 'browser.wait',
+    description: 'Deterministic wait for selector, ref, document_loaded, url_match, network_idle, or dom_stable state',
+    risk: 'read',
+    requiresBrowserTarget: true,
+    policy: makeBrowserPolicy({ effect: 'read', risk: 'read', requiresBrowserTarget: true, lane: 'short-passive', timeoutMs: 30_000 }),
+    inputSchema: {
+      type: 'object',
+      properties: {
+        condition: {
+          type: 'string',
+          enum: ['selector', 'ref', 'document_loaded', 'url_match', 'network_idle', 'dom_stable'],
+          description: 'Wait condition to evaluate',
+        },
+        selector: { type: 'string', description: 'CSS selector to wait for' },
+        ref: { type: 'string', description: 'Semantic reference token (@e1) to wait for' },
+        urlPattern: { type: 'string', description: 'URL pattern or substring to match' },
+        state: { type: 'string', enum: ['attached', 'visible', 'actionable', 'detached', 'hidden'] },
+        timeoutMs: { type: 'number', description: 'Timeout in milliseconds (5000 default, 30000 max)' },
+        idleWindowMs: { type: 'number', description: 'Debounce idle window in milliseconds (500 default)' },
+        tabId: { type: 'string' },
+        paneId: { type: 'string', enum: ['desktop', 'mobile'] },
+      },
+      required: ['condition'],
+    },
+    execute: (params: { condition: 'selector' | 'ref' | 'document_loaded' | 'url_match' | 'network_idle' | 'dom_stable'; selector?: string; ref?: string; urlPattern?: string; state?: 'attached' | 'visible' | 'actionable' | 'detached' | 'hidden'; timeoutMs?: number; idleWindowMs?: number; tabId?: string; paneId?: 'desktop' | 'mobile' }, context) =>
+      browser.wait(context.browserTarget as BrowserTarget, params, params.tabId, params.paneId, context.signal),
+  });
 
   catalogue.register({
     name: 'browser.eval',
@@ -196,7 +255,8 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
     name: 'browser.keyboard-press',
     description: 'Send native key press (Enter, Escape, Tab, Backspace, Arrow keys, etc.) or combination (Ctrl+A) to the active tab',
     risk: 'write',
-    policy: makeBrowserPolicy({ effect: 'interactive-effect', risk: 'write', requiresBrowserTarget: false, lane: 'unbounded' }),
+    requiresBrowserTarget: true,
+    policy: makeBrowserPolicy({ effect: 'interactive-effect', risk: 'write', requiresBrowserTarget: true, lane: 'viewport-gate' }),
     inputSchema: { type: 'object', properties: { key: { type: 'string' }, modifiers: { type: 'array', items: { type: 'string' } }, tabId: { type: 'string' } }, required: ['key'] },
     execute: (params: { key: string; modifiers?: string[]; tabId?: string }, context) => browser.keyboardPress(params, context.browserTarget),
   });
@@ -348,6 +408,56 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
     },
     execute: (params: { text?: string; regex?: string; tabId?: string; paneId?: 'desktop' | 'mobile'; maxMatches?: number }, context) =>
       browser.agentFind(params, context.browserTarget),
+  });
+  catalogue.register({
+    name: 'anti.inspect.observe',
+    description: 'Alias for browser.observe',
+    risk: 'read',
+    requiresBrowserTarget: true,
+    policy: makeBrowserPolicy({ effect: 'read', risk: 'read', requiresBrowserTarget: true, lane: 'short-passive' }),
+    inputSchema: {
+      type: 'object',
+      properties: {
+        components: {
+          type: 'array',
+          items: { type: 'string', enum: ['dom', 'screenshot', 'snapshot', 'diagnostics'] },
+          description: 'List of up to 4 components to observe',
+        },
+        selector: { type: 'string' },
+        tabId: { type: 'string' },
+        paneId: { type: 'string', enum: ['desktop', 'mobile'] },
+      },
+    },
+    execute: async (params: { components?: Array<'dom' | 'screenshot' | 'snapshot' | 'diagnostics'>; selector?: string; tabId?: string; paneId?: 'desktop' | 'mobile' }, context) =>
+      browser.observe(context.browserTarget as BrowserTarget, context.runId || 'run-unbound', context.attemptId || 'attempt-unbound', params, params.tabId, params.paneId),
+  });
+
+  catalogue.register({
+    name: 'anti.browser.wait',
+    description: 'Alias for browser.wait',
+    risk: 'read',
+    requiresBrowserTarget: true,
+    policy: makeBrowserPolicy({ effect: 'read', risk: 'read', requiresBrowserTarget: true, lane: 'short-passive', timeoutMs: 30_000 }),
+    inputSchema: {
+      type: 'object',
+      properties: {
+        condition: {
+          type: 'string',
+          enum: ['selector', 'ref', 'document_loaded', 'url_match', 'network_idle', 'dom_stable'],
+        },
+        selector: { type: 'string' },
+        ref: { type: 'string' },
+        urlPattern: { type: 'string' },
+        state: { type: 'string', enum: ['attached', 'visible', 'actionable', 'detached', 'hidden'] },
+        timeoutMs: { type: 'number' },
+        idleWindowMs: { type: 'number' },
+        tabId: { type: 'string' },
+        paneId: { type: 'string', enum: ['desktop', 'mobile'] },
+      },
+      required: ['condition'],
+    },
+    execute: (params: { condition: 'selector' | 'ref' | 'document_loaded' | 'url_match' | 'network_idle' | 'dom_stable'; selector?: string; ref?: string; urlPattern?: string; state?: 'attached' | 'visible' | 'actionable' | 'detached' | 'hidden'; timeoutMs?: number; idleWindowMs?: number; tabId?: string; paneId?: 'desktop' | 'mobile' }, context) =>
+      browser.wait(context.browserTarget as BrowserTarget, params, params.tabId, params.paneId, context.signal),
   });
 
 
@@ -654,7 +764,8 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
     name: 'antifan_keyboard_press',
     description: 'Alias for browser.keyboard-press',
     risk: 'write',
-    policy: makeBrowserPolicy({ effect: 'interactive-effect', risk: 'write', requiresBrowserTarget: false, lane: 'unbounded' }),
+    requiresBrowserTarget: true,
+    policy: makeBrowserPolicy({ effect: 'interactive-effect', risk: 'write', requiresBrowserTarget: true, lane: 'viewport-gate' }),
     inputSchema: { type: 'object', properties: { key: { type: 'string' }, modifiers: { type: 'array', items: { type: 'string' } }, tabId: { type: 'string' } }, required: ['key'] },
     execute: (params: { key: string; modifiers?: string[]; tabId?: string }, context) => browser.keyboardPress(params, context.browserTarget),
   });
@@ -663,7 +774,8 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
     name: 'browser.send-keyboard-press',
     description: 'Alias for browser.keyboard-press',
     risk: 'write',
-    policy: makeBrowserPolicy({ effect: 'interactive-effect', risk: 'write', requiresBrowserTarget: false, lane: 'unbounded' }),
+    requiresBrowserTarget: true,
+    policy: makeBrowserPolicy({ effect: 'interactive-effect', risk: 'write', requiresBrowserTarget: true, lane: 'viewport-gate' }),
     inputSchema: { type: 'object', properties: { key: { type: 'string' }, modifiers: { type: 'array', items: { type: 'string' } }, tabId: { type: 'string' } }, required: ['key'] },
     execute: (params: { key: string; modifiers?: string[]; tabId?: string }, context) => browser.keyboardPress(params, context.browserTarget),
   });
@@ -671,7 +783,8 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
     name: 'browser_press_key',
     description: 'Canonical Playwright MCP alias for browser.keyboard-press',
     risk: 'write',
-    policy: makeBrowserPolicy({ effect: 'interactive-effect', risk: 'write', requiresBrowserTarget: false, lane: 'unbounded' }),
+    requiresBrowserTarget: true,
+    policy: makeBrowserPolicy({ effect: 'interactive-effect', risk: 'write', requiresBrowserTarget: true, lane: 'viewport-gate' }),
     inputSchema: {
       type: 'object',
       properties: {
@@ -891,7 +1004,8 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
       requiresBrowserTarget: true,
       lane: 'viewport-gate',
       duplicateMode: 'reject-concurrent',
-      cancellationBehavior: 'abort-immediate',
+      ownerCancellationBehavior: 'abort-immediate',
+      subscriberDisconnectBehavior: 'abort-when-unobserved',
     }),
     inputSchema: { type: 'object', properties: { sessionId: { type: 'string' } }, required: ['sessionId'] },
     execute: async (params: { sessionId: string }, context) => {
@@ -935,7 +1049,8 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
       requiresBrowserTarget: true,
       lane: 'viewport-gate',
       duplicateMode: 'reject-concurrent',
-      cancellationBehavior: 'abort-immediate',
+      ownerCancellationBehavior: 'abort-immediate',
+      subscriberDisconnectBehavior: 'abort-when-unobserved',
     }),
     inputSchema: { type: 'object', properties: { sessionId: { type: 'string' } }, required: ['sessionId'] },
     execute: (params: Record<string, unknown>, context) => catalogue.get('theme.qa_rollback')!.execute(params, context),
@@ -964,7 +1079,16 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
     execute: async (params: { tabId?: string }, context) => {
       const target = context.browserTarget as BrowserTarget;
       const domResult = await browser.dom(target, context.runId || 'run-unbound', context.attemptId || 'attempt-unbound', undefined, params.tabId);
-      const rawHtml = typeof domResult === 'string' ? domResult : '';
+      let rawHtml = '';
+      if (typeof domResult === 'string') {
+        rawHtml = domResult;
+      } else if (domResult && typeof domResult === 'object' && 'id' in domResult && browser.artifacts && typeof (browser.artifacts as any).readTextById === 'function') {
+        try {
+          rawHtml = (browser.artifacts as any).readTextById(domResult.id, context).text;
+        } catch {
+          rawHtml = '';
+        }
+      }
       const platform = PlatformDetector.detect(undefined, undefined, rawHtml);
       const liquid = LiquidErrorScanner.scanHtmlString(rawHtml);
       let overflow: { hasOverflow: boolean; deltaX: number; culprits: unknown[] } = { hasOverflow: false, deltaX: 0, culprits: [] };

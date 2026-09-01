@@ -95,13 +95,13 @@ describe('Multi-Project & Multi-Session Two-Tier Concurrency Stress Suite (Phase
       }
 
       const mockHost = new MockE2EHost() as unknown as NativeTabHost;
-      const browserPort = new BrowserControlPort(mockHost);
+      const browserPort = new BrowserControlPort(mockHost as any);
       registerBrowserCapabilities(runtime.capabilities, browserPort, undefined, () => '');
 
       const transport = new CapabilityTransportAdapter(runtime.capabilities, runtime.runs.attachments);
       bridgeServer = new BridgeServer(mockHost, 0, false, transport, undefined, runtime.runs.attachments);
       const bridgePort = await bridgeServer.start();
-      const sessionA = runtime.createCliSession({
+      const sessionA = await runtime.createCliSession({
         projectId: projA,
         workspaceId: wsA,
         backendId: 'mcp',
@@ -109,7 +109,7 @@ describe('Multi-Project & Multi-Session Two-Tier Concurrency Stress Suite (Phase
         grant: 'write',
       });
 
-      const sessionB = runtime.createCliSession({
+      const sessionB = await runtime.createCliSession({
         projectId: projB,
         workspaceId: wsB,
         backendId: 'cli',
@@ -162,7 +162,7 @@ describe('Multi-Project & Multi-Session Two-Tier Concurrency Stress Suite (Phase
         authorityRevision: launchB.authorityRevision,
       });
       assert.strictEqual(bridgeDomRes.success, true, `bridgeDomRes failed: ${bridgeDomRes.error}`);
-      runtime.runs.attachments.revokeAttachment(launchA.attachmentId);
+      await runtime.runs.attachments.revokeAttachment(launchA.attachmentId);
       const revokedA = await mcpServer.callTool('anti.inspect.dom', {});
       assert.strictEqual(revokedA.isError, true, 'Revoked Session A must fail');
 

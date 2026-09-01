@@ -1,5 +1,6 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import * as crypto from 'node:crypto';
 
 export interface PreviewChangeEvent {
   type: 'css-swap' | 'full-reload';
@@ -10,11 +11,11 @@ export interface PreviewChangeEvent {
 interface WatcherEntry {
   watcher: fs.FSWatcher;
   refCount: number;
-  callbacks: Set<(event: PreviewChangeEvent) => void>;
+  canonicalPath: string;
+  subscriptions: Map<string, (event: PreviewChangeEvent) => void>;
   debounceTimer: NodeJS.Timeout | null;
   pendingFiles: Set<string>;
 }
-
 const IGNORED_DIR_PATTERNS = [
   /^[/\\]?node_modules([/\\]|$)/i,
   /^[/\\]?\.git([/\\]|$)/i,
@@ -39,23 +40,33 @@ export class PreviewWatcherPool {
     onChanged: (event: PreviewChangeEvent) => void
   ): () => void {
     const key = capsuleId.toLowerCase();
+    const subToken = `sub-${crypto.randomUUID()}`;
+
+    let canonicalPath = path.resolve(workspacePath);
+    try {
+      if (fs.existsSync(canonicalPath)) {
+        canonicalPath = fs.realpathSync.native(canonicalPath);
+      }
+    } catch {}
+
     let entry = this.watchers.get(key);
 
     if (entry) {
       entry.refCount++;
-      entry.callbacks.add(onChanged);
+      entry.subscriptions.set(subToken, onChanged);
     } else {
       if (!fs.existsSync(workspacePath)) {
         return () => {};
       }
 
-      const callbacks = new Set<(event: PreviewChangeEvent) => void>();
-      callbacks.add(onChanged);
+      const subscriptions = new Map<string, (event: PreviewChangeEvent) => void>();
+      subscriptions.set(subToken, onChanged);
 
       const entryRef: WatcherEntry = {
-        watcher: null as any,
+        watcher: null as unknown as fs.FSWatcher,
         refCount: 1,
-        callbacks,
+        canonicalPath,
+        subscriptions,
         debounceTimer: null,
         pendingFiles: new Set<string>(),
       };
@@ -93,7 +104,7 @@ export class PreviewWatcherPool {
                 capsuleId: key,
               };
 
-              for (const cb of Array.from(entryRef.callbacks)) {
+              for (const cb of Array.from(entryRef.subscriptions.values())) {
                 try {
                   cb(event);
                 } catch {
@@ -106,7 +117,7 @@ export class PreviewWatcherPool {
 
         watcher.on('error', () => {
           // Fail-safe cleanup on watcher error
-          this.release(capsuleId, onChanged);
+          this.release(capsuleId, subToken);
         });
 
         entryRef.watcher = watcher;
@@ -116,27 +127,41 @@ export class PreviewWatcherPool {
       }
     }
 
-    // Return cleanup callback
+    // Return cleanup callback with bound unique subscription token
     return () => {
-      this.release(capsuleId, onChanged);
+      this.release(capsuleId, subToken);
     };
   }
 
-  public release(capsuleId: string, onChanged?: (event: PreviewChangeEvent) => void): void {
+  public release(
+    capsuleId: string,
+    tokenOrCallback?: string | ((event: PreviewChangeEvent) => void)
+  ): void {
     const key = capsuleId.toLowerCase();
     const entry = this.watchers.get(key);
     if (!entry) return;
 
-    if (onChanged) {
-      entry.callbacks.delete(onChanged);
+    if (typeof tokenOrCallback === 'string') {
+      entry.subscriptions.delete(tokenOrCallback);
+      entry.refCount--;
+    } else if (typeof tokenOrCallback === 'function') {
+      for (const [token, cb] of entry.subscriptions.entries()) {
+        if (cb === tokenOrCallback) {
+          entry.subscriptions.delete(token);
+          break;
+        }
+      }
+      entry.refCount--;
+    } else {
+      entry.refCount--;
     }
 
-    entry.refCount--;
-    if (entry.refCount <= 0 || entry.callbacks.size === 0) {
+    if (entry.refCount <= 0 || entry.subscriptions.size === 0) {
       if (entry.debounceTimer) {
         clearTimeout(entry.debounceTimer);
         entry.debounceTimer = null;
       }
+      entry.pendingFiles.clear();
       try {
         entry.watcher.close();
       } catch {
@@ -157,6 +182,12 @@ export class PreviewWatcherPool {
 
   public clear(): void {
     for (const entry of this.watchers.values()) {
+      if (entry.debounceTimer) {
+        clearTimeout(entry.debounceTimer);
+        entry.debounceTimer = null;
+      }
+      entry.pendingFiles.clear();
+      entry.subscriptions.clear();
       try {
         entry.watcher.close();
       } catch {

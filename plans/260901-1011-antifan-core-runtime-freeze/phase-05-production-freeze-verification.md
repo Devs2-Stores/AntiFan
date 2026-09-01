@@ -46,6 +46,8 @@ Certify the authority-first runtime with one repeatable command plus focused sec
 - Interactive target generation change during queue wait fails before side effect.
 - Navigate/reload/workflow target changes rotate and propagate authority revisions.
 - `browser.observe` never mixes documents and never claims same-document DOM/PNG atomicity; all requested components carry capture metadata and bounded payload/artifact references.
+- Catalogue policy tests verify every capability against the freeze schema. Assert valid effect, risk, target requirement, scheduler lane, visibility, timeout, and cancellation behavior. Ensure `browser.keyboard-press` and its aliases (`browser_press_key`, `antifan_keyboard_press`, `browser.send-keyboard-press`) require `requiresBrowserTarget: true` and `lane: 'viewport-gate'`. Reject `ignore-disconnect` or unregistered aliases.
+- Lane tests verify `viewport-gate` serializes interactive actions (including `browser_press_key`) per tab while passive pool allows concurrency up to 4. Assert priority preemption interrupts passive observation when interactive action arrives.
 - Duplicate browser/terminal waits share one OWNER and terminal receipt; cancellation, timeout and teardown release every resource exactly once.
 - `qa.run` compatibility, when present, invokes the same `ThemeQaWorkflow` and result schema as `theme.qa_validate`.
 - Historical attachment authentication and artifact lookup remain functional after restart without persisted plaintext secrets; terminal attempt completion is distinct from security revocation.

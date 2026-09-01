@@ -154,7 +154,7 @@ async function runMcpLiveE2ETest() {
       getDocumentGeneration: (id) => tabHost.getDocumentGeneration(id),
     });
 
-    const session = controlPlaneRuntime.createCliSession({
+    const session = await controlPlaneRuntime.createCliSession({
       projectId,
       workspaceId,
       backendId: 'e2e-backend',
@@ -181,8 +181,9 @@ async function runMcpLiveE2ETest() {
       getDom: (selector, id, paneId) => tabHost.getDom(selector, id, paneId),
       captureScreenshot: (rect, id, paneId) => tabHost.captureScreenshot(rect, id, paneId),
       evalJs: (expression, id, paneId) => tabHost.evalJs(expression, id, paneId),
+      getDocumentGeneration: (id) => tabHost.getDocumentGeneration(id),
+      isCurrentTarget: (target) => tabHost.isCurrentTarget(target),
       getDiagnostics: (id, level) => tabHost.getDiagnostics(id, level),
-      runResponsiveCheck: (id) => tabHost.runResponsiveCheck(id),
       agentTrajectory: (params) => tabHost.agentTrajectory(params),
       agentMove: (args) => tabHost.agentMove(args),
       agentClick: (params) => tabHost.agentClick(params),
@@ -404,25 +405,30 @@ async function runMcpLiveE2ETest() {
     assert.ok(createdTabId, 'Must return createdTabId');
     assert.notEqual(createdTabId, tabId, 'Created tab must have a distinct ID from initial tab');
 
-    // Wait for the new tab to load and paint
+    assert.equal(tabHost.getActiveTabId(), tabId, 'Active tab must remain unchanged after background tab creation');
+
+    // Wait for the new tab to load and paint in background
+    await new Promise((resolve) => setTimeout(resolve, 1000));
     const newWc = tabHost.getTabWebContents(createdTabId);
     if (newWc) {
       await new Promise((resolve) => {
         if (newWc.isLoading()) {
-          newWc.once('did-finish-load', () => setTimeout(resolve, 400));
+          newWc.once('did-finish-load', () => setTimeout(resolve, 600));
         } else {
-          setTimeout(resolve, 400);
+          setTimeout(resolve, 600);
         }
       });
     }
 
     // Screenshot on the newly created tab via MCP
     console.log('[Milestone 6] Capturing screenshot on new tab ' + createdTabId + ' via MCP...');
-    const newScreenshotResp = await callMcp(301, 'anti.screenshot.viewport', { tabId: createdTabId });
-    assert.equal(newScreenshotResp.error, undefined);
+    const newScreenshotResp = await callMcp(301, 'anti.screenshot.viewport', { tabId: createdTabId }, 25000);
+    if (newScreenshotResp.result?.isError) {
+      console.log('[DEBUG newScreenshotResp error]', JSON.stringify(newScreenshotResp));
+    }
     assert.equal(newScreenshotResp.result?.isError, undefined);
     assert.equal(newScreenshotResp.result?.content?.[0]?.type, 'image');
-
+    assert.equal(tabHost.getActiveTabId(), tabId, 'Active tab must remain invariant after screenshot capture on background tab');
     // Locate textarea via browser_find on new tab over MCP
     console.log('[Milestone 6] Locating textarea ref on new tab via browser_find...');
     const findResp = await callMcp(302, 'browser_find', { text: 'Special delivery notes', tabId: createdTabId });
@@ -438,6 +444,7 @@ async function runMcpLiveE2ETest() {
     const newTypeResp = await callMcp(303, 'anti.agent.cursor.type', { ref: textareaRef, text: 'Live MCP E2E verification note', tabId: createdTabId });
     assert.equal(newTypeResp.error, undefined);
     assert.equal(newTypeResp.result?.isError, undefined);
+    assert.equal(tabHost.getActiveTabId(), tabId, 'Active tab must remain invariant after ref-only typing on background tab');
 
     // Assert genuine DOM input event was recorded in the live Electron WebContents
     assert.ok(newWc, 'Created WebContents must be alive');

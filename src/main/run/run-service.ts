@@ -175,7 +175,7 @@ export class RunService {
         this.append('backend/status', { state: 'failed', error: errorMessage }, run, attempt);
       }
     } finally {
-      this.attachments.revokeForAttempt(attempt.id);
+      await this.attachments.revokeForAttempt(attempt.id);
     }
     return { ...attempt };
   }
@@ -184,7 +184,7 @@ export class RunService {
     const run = this.getRun(runId);
     const attempt = Array.from(this.attempts.values()).reverse().find((item) => item.runId === run.id && (item.state === 'prepared' || item.state === 'dispatching' || item.state === 'running'));
     if (!attempt) return;
-    this.attachments.revokeForAttempt(attempt.id);
+    await this.attachments.revokeForAttempt(attempt.id);
     run.state = 'cancelling';
     attempt.state = 'interrupted';
     run.updatedAt = attempt.updatedAt = Date.now();
@@ -193,7 +193,9 @@ export class RunService {
   }
 
   listRuns(projectId: string): RunRecord[] { return Array.from(this.runs.values()).filter((item) => item.projectId === validateControlPlaneId(projectId, 'project')).map((item) => ({ ...item })); }
-  createCliSession(options: CreateCliSessionOptions): CliSessionResult {
+  async createCliSession(options: CreateCliSessionOptions): Promise<CliSessionResult> {
+    const validProjectId = validateControlPlaneId(options.projectId, 'project');
+    const validWorkspaceId = validateControlPlaneId(options.workspaceId, 'workspace');
     let chatId = options.chatId;
     if (!chatId) {
       const chat = this.chats.create(options.projectId, options.workspaceId, 'CLI Session');
@@ -224,7 +226,7 @@ export class RunService {
     }
     this.append('turn/start', { promptText: 'cli:interactive' }, run, attempt);
 
-    const { launch } = this.attachments.issueAttachment(run.id, attempt.id, options.projectId, options.workspaceId, {
+    const { launch } = await this.attachments.issueAttachment(run.id, attempt.id, options.projectId, options.workspaceId, {
       backendId,
       chatId,
       grant: options.grant || 'write',
@@ -240,12 +242,12 @@ export class RunService {
     return { run: { ...run }, attempt: { ...attempt }, launch };
   }
 
-  endCliSession(
+  async endCliSession(
     runId: string,
     attemptId: string,
     outcome: 'completed' | 'failed' | 'cancelled' = 'completed',
     error?: string
-  ): { ok: boolean } {
+  ): Promise<{ ok: boolean }> {
     const validRunId = validateControlPlaneId(runId, 'run');
     const validAttemptId = validateControlPlaneId(attemptId, 'attempt');
     const run = this.runs.get(validRunId);
@@ -264,15 +266,15 @@ export class RunService {
       this.runs.set(run.id, run);
       this.append('turn/finish', { outcome, error, runState: finalRunState, attemptState: finalAttemptState }, run, attempt);
     }
-    this.attachments.revokeForAttempt(validAttemptId);
+    await this.attachments.revokeForAttempt(validAttemptId);
     this.attemptPids.delete(validAttemptId);
     return { ok: true };
   }
 
-  renewCliSession(attachmentId: string, secret: string, options?: { extensionMs?: number; ownerPid?: number }): { expiresAt: number } {
-    return this.attachments.renewAttachment(attachmentId, secret, options);
+  async renewCliSession(attachmentId: string, secret: string, options?: { extensionMs?: number; ownerPid?: number }): Promise<{ expiresAt: number }> {
+    return await this.attachments.renewAttachment(attachmentId, secret, options);
   }
-  createWorkflowSession(options: CreateWorkflowSessionOptions): WorkflowSessionResult {
+  async createWorkflowSession(options: CreateWorkflowSessionOptions): Promise<WorkflowSessionResult> {
     assertRuntimeLease(options.lease, {
       projectId: options.projectId,
       workspaceId: options.workspaceId,
@@ -327,7 +329,7 @@ export class RunService {
     };
     this.receiptBindings.set(attempt.id, binding);
     this.receipts.put(binding, 'accepted', 'accepted-exact');
-    const { launch } = this.attachments.issueAttachment(
+    const { launch } = await this.attachments.issueAttachment(
       run.id,
       attempt.id,
       run.projectId,
@@ -345,7 +347,6 @@ export class RunService {
         ttlMs: options.ttlMs,
       }
     );
-
     return {
       run: { ...run },
       attempt: { ...attempt },
@@ -355,13 +356,13 @@ export class RunService {
     };
   }
 
-  endWorkflowSession(
+  async endWorkflowSession(
     runId: string,
     attemptId: string,
     outcome: 'completed' | 'failed' | 'cancelled' = 'completed',
     error?: string,
-    artifacts?: unknown[]
-  ): { ok: boolean } {
+    artifacts?: string[]
+  ): Promise<{ ok: boolean }> {
     const validRunId = validateControlPlaneId(runId, 'run');
     const validAttemptId = validateControlPlaneId(attemptId, 'attempt');
     const run = this.runs.get(validRunId);
@@ -386,7 +387,7 @@ export class RunService {
     if (binding) {
       this.receipts.put(binding, finalReceiptState, deliveryState, error ? { errorMessage: error } : undefined);
     }
-    this.attachments.revokeForAttempt(validAttemptId);
+    await this.attachments.revokeForAttempt(validAttemptId);
     return { ok: true };
   }
 

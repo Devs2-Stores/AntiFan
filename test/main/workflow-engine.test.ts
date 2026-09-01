@@ -682,7 +682,7 @@ describe('Workflow Engine', () => {
     );
     const engine = new WorkflowEngine({ catalogue, artifacts, transport });
 
-    const { launch } = registry.issueAttachment(runId, attemptId, projectId, workspaceId, {
+    const { launch } = await registry.issueAttachment(runId, attemptId, projectId, workspaceId, {
       backendId: 'test-backend',
       grant: 'write',
       lease,
@@ -707,10 +707,18 @@ describe('Workflow Engine', () => {
       runId,
       attemptId,
       grant: 'write',
-      attachmentId: launch.attachmentId,
-      attachmentSecret: launch.secret,
       authorityRevision: launch.authorityRevision,
       parentInvocationId: 'parent-wf-inv-1',
+      dispatchChildIntent: (stepId, attempt, intent) => {
+        const record = registry.getRecord(launch.attachmentId);
+        const currentRev = record?.authorityRevision || launch.authorityRevision;
+        return transport.dispatchChildIntent('parent-wf-inv-1', stepId, attempt, {
+          ...intent,
+          attachmentId: launch.attachmentId,
+          attachmentSecret: launch.secret,
+          authorityRevision: currentRev,
+        });
+      },
     });
     if (result.status !== 'passed') {
       console.error('Child workflow execution failed:', JSON.stringify(result.stepResults, null, 2));
