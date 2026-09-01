@@ -62,6 +62,8 @@ export function connectNativeMessaging(): void {
         if (chrome.storage?.local) {
           await chrome.storage.local.set({ bridgeAuth });
         }
+        // Zero-touch auto-hydration on successful handshake
+        triggerAutoHydration().catch(() => {});
       } else if (msg.status === 'ERROR') {
         lastNativeError = msg.message || msg.error || 'NATIVE_IPC_ERROR';
         console.warn('[AntiFan Extension] Native Host reported error:', lastNativeError);
@@ -235,6 +237,36 @@ export async function dispatchDeltaSync(batch: DeltaSyncBatch): Promise<void> {
   );
 }
 
+let isHydrating = false;
+
+export async function triggerAutoHydration(): Promise<{ success: boolean; count: number; error?: string }> {
+  if (isHydrating) {
+    return { success: true, count: 0 };
+  }
+  if (typeof chrome === 'undefined' || !chrome.cookies?.getAll) {
+    return { success: false, count: 0, error: 'CHROME_COOKIES_UNAVAILABLE' };
+  }
+  isHydrating = true;
+  try {
+    const allCookies = await chrome.cookies.getAll({});
+    const scopedCookies = allCookies.filter((c: ExtensionCookie) =>
+      isCookieInScope(c, enabledProfiles)
+    );
+    if (scopedCookies.length === 0) {
+      return { success: true, count: 0 };
+    }
+    const result = await dispatchFullSync(scopedCookies);
+    console.log(`[AntiFan Extension] Auto-hydrated ${result.count} cookies into AntiFan Desktop.`);
+    return result;
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.warn('[AntiFan Extension] Auto-hydration notice:', message);
+    return { success: false, count: 0, error: message || 'AUTO_HYDRATION_FAILED' };
+  } finally {
+    isHydrating = false;
+  }
+}
+
 async function getActiveTabHostname(): Promise<string | null> {
   if (typeof chrome === 'undefined' || !chrome.tabs?.query) return null;
   try {
@@ -326,6 +358,28 @@ if (typeof chrome !== 'undefined' && chrome.runtime?.onMessage) {
 }
 
 // Start up
+
+// Watchdog for MV3 Service Worker suspension recovery
+if (typeof chrome !== 'undefined' && chrome.alarms) {
+  try {
+    chrome.alarms.create('antifan-bridge-watchdog', { periodInMinutes: 1 });
+    chrome.alarms.onAlarm.addListener((alarm: { name?: string }) => {
+      if (alarm && alarm.name === 'antifan-bridge-watchdog') {
+        if (!nativePort || !bridgeAuth) {
+          connectNativeMessaging();
+        }
+      }
+    });
+  } catch {}
+}
+
+if (typeof chrome !== 'undefined' && chrome.runtime?.onStartup) {
+  chrome.runtime.onStartup.addListener(() => {
+    loadSettings().then(() => {
+      connectNativeMessaging();
+    });
+  });
+}
 loadSettings().then(() => {
   connectNativeMessaging();
 });

@@ -967,6 +967,8 @@
           if (chrome.storage?.local) {
             await chrome.storage.local.set({ bridgeAuth });
           }
+          triggerAutoHydration().catch(() => {
+          });
         } else if (msg.status === "ERROR") {
           lastNativeError = msg.message || msg.error || "NATIVE_IPC_ERROR";
           console.warn("[AntiFan Extension] Native Host reported error:", lastNativeError);
@@ -1113,6 +1115,34 @@
       () => ensureBridgeAuth(true)
     );
   }
+  var isHydrating = false;
+  async function triggerAutoHydration() {
+    if (isHydrating) {
+      return { success: true, count: 0 };
+    }
+    if (typeof chrome === "undefined" || !chrome.cookies?.getAll) {
+      return { success: false, count: 0, error: "CHROME_COOKIES_UNAVAILABLE" };
+    }
+    isHydrating = true;
+    try {
+      const allCookies = await chrome.cookies.getAll({});
+      const scopedCookies = allCookies.filter(
+        (c) => isCookieInScope(c, enabledProfiles)
+      );
+      if (scopedCookies.length === 0) {
+        return { success: true, count: 0 };
+      }
+      const result = await dispatchFullSync(scopedCookies);
+      console.log(`[AntiFan Extension] Auto-hydrated ${result.count} cookies into AntiFan Desktop.`);
+      return result;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.warn("[AntiFan Extension] Auto-hydration notice:", message);
+      return { success: false, count: 0, error: message || "AUTO_HYDRATION_FAILED" };
+    } finally {
+      isHydrating = false;
+    }
+  }
   async function getActiveTabHostname() {
     if (typeof chrome === "undefined" || !chrome.tabs?.query) return null;
     try {
@@ -1190,6 +1220,26 @@
         return false;
       }
       return false;
+    });
+  }
+  if (typeof chrome !== "undefined" && chrome.alarms) {
+    try {
+      chrome.alarms.create("antifan-bridge-watchdog", { periodInMinutes: 1 });
+      chrome.alarms.onAlarm.addListener((alarm) => {
+        if (alarm && alarm.name === "antifan-bridge-watchdog") {
+          if (!nativePort || !bridgeAuth) {
+            connectNativeMessaging();
+          }
+        }
+      });
+    } catch {
+    }
+  }
+  if (typeof chrome !== "undefined" && chrome.runtime?.onStartup) {
+    chrome.runtime.onStartup.addListener(() => {
+      loadSettings().then(() => {
+        connectNativeMessaging();
+      });
     });
   }
   loadSettings().then(() => {

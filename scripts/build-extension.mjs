@@ -27,6 +27,34 @@ async function buildExtension() {
 
   const stats = fs.statSync(outfile);
   console.log(`[build:extension] Successfully generated extension/background.js (${stats.size} bytes).`);
+
+  // Also synchronize to the permanent %LOCALAPPDATA%\AntiFan\extension directory if on Windows
+  const localAppData = process.env.LOCALAPPDATA;
+  if (localAppData) {
+    const permanentExtDir = path.join(localAppData, 'AntiFan', 'extension');
+    try {
+      if (!fs.existsSync(permanentExtDir)) {
+        fs.mkdirSync(permanentExtDir, { recursive: true });
+      }
+      const extSrcDir = path.join(rootDir, 'extension');
+      const copyRecursive = (src, dest) => {
+        if (!fs.existsSync(dest)) fs.mkdirSync(dest, { recursive: true });
+        for (const entry of fs.readdirSync(src, { withFileTypes: true })) {
+          const srcPath = path.join(src, entry.name);
+          const destPath = path.join(dest, entry.name);
+          if (entry.isDirectory()) {
+            copyRecursive(srcPath, destPath);
+          } else if (entry.isFile()) {
+            fs.copyFileSync(srcPath, destPath);
+          }
+        }
+      };
+      copyRecursive(extSrcDir, permanentExtDir);
+      console.log(`[build:extension] Synced extension bundle to permanent directory: ${permanentExtDir}`);
+    } catch (copyErr) {
+      console.warn('[build:extension] Notice: Could not sync to permanent AppData extension dir:', copyErr?.message || copyErr);
+    }
+  }
 }
 
 buildExtension().catch((err) => {

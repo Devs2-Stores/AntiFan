@@ -594,3 +594,187 @@ test('Zero-Touch Popup Pipeline: Full Chrome Extension MV3 Harness (Popup Click 
     server.dispose();
   }
 });
+
+test('Zero-Touch Auto-Hydration: Ingests scoped cookies on Handshake without popup and recovers via Watchdog alarm', async () => {
+  const tabHost = new MockTabHostWithCapsulePartitions();
+  const server = new BridgeServer(tabHost as unknown as NativeTabHost, 0);
+  const bridgePort = await server.start();
+  const masterToken = server.getToken();
+
+  const targetCapsuleId = 'capsule-google-sync-test';
+  const targetPartition = 'persist:capsule-google-sync-test';
+
+  const mockStorage: Record<string, any> = {};
+  const mockChromeCookies = [
+    {
+      name: 'SID',
+      value: 'auto-hydrated-sid-token-12345',
+      domain: '.google.com',
+      path: '/',
+      secure: true,
+      httpOnly: true,
+      sameSite: 'lax',
+    },
+    {
+      name: 'SHOPIFY_S',
+      value: 'shopify-session-token-abcde',
+      domain: '.myshopify.com',
+      path: '/',
+      secure: true,
+      httpOnly: true,
+      sameSite: 'lax',
+    },
+    {
+      name: 'UNSCOPED_TRACKER',
+      value: 'tracker-xyz',
+      domain: '.ad-tracker-unknown.com',
+      path: '/',
+      secure: false,
+      httpOnly: false,
+      sameSite: 'no_restriction',
+    },
+  ];
+
+  let activeNativePort: any = null;
+  let isNativeHostAvailable = true;
+  const alarmListeners: Array<(alarm: { name: string }) => void> = [];
+
+  const mockChrome = {
+    storage: {
+      local: {
+        get: async (keys: string[]) => {
+          const res: Record<string, any> = {};
+          for (const k of keys) {
+            if (k in mockStorage) res[k] = mockStorage[k];
+          }
+          return res;
+        },
+        set: async (items: Record<string, any>) => {
+          Object.assign(mockStorage, items);
+        },
+        remove: async (keys: string[]) => {
+          for (const k of keys) delete mockStorage[k];
+        },
+      },
+    },
+    cookies: {
+      getAll: async (_query: any) => mockChromeCookies,
+      onChanged: { addListener: () => {} },
+    },
+    alarms: {
+      create: (_name: string, _info: any) => {},
+      onAlarm: {
+        addListener: (fn: (alarm: { name: string }) => void) => {
+          alarmListeners.push(fn);
+        },
+      },
+    },
+    runtime: {
+      onMessage: { addListener: () => {} },
+      onStartup: { addListener: () => {} },
+      connectNative: (host: string) => {
+        assert.equal(host, 'com.antifan.bridge');
+        let portMessageHandler: any = null;
+        let portDisconnectListener: any = null;
+        const portObj = {
+          onMessage: {
+            addListener: (fn: any) => {
+              portMessageHandler = fn;
+            },
+          },
+          onDisconnect: {
+            addListener: (fn: any) => {
+              portDisconnectListener = fn;
+            },
+          },
+          postMessage: (msg: any) => {
+            if (msg.action === 'HANDSHAKE') {
+              if (isNativeHostAvailable) {
+                setTimeout(() => {
+                  if (portMessageHandler) {
+                    portMessageHandler({
+                      status: 'SUCCESS',
+                      token: masterToken,
+                      port: bridgePort,
+                      activeCapsuleId: targetCapsuleId,
+                      activePartition: targetPartition,
+                    });
+                  }
+                }, 10);
+              } else {
+                setTimeout(() => {
+                  if (portDisconnectListener) {
+                    portDisconnectListener();
+                  }
+                }, 10);
+              }
+            }
+          },
+          disconnect: () => {
+            if (portDisconnectListener) {
+              portDisconnectListener();
+            }
+          },
+        };
+        activeNativePort = portObj;
+        return portObj;
+      },
+    },
+  };
+
+  const bgPath = path.resolve(process.cwd(), 'extension', 'background.js');
+  const bgCode = fs.readFileSync(bgPath, 'utf8');
+
+  const bgContext = vm.createContext({
+    chrome: mockChrome,
+    fetch: globalThis.fetch,
+    console: console,
+    setTimeout: globalThis.setTimeout,
+    clearTimeout: globalThis.clearTimeout,
+    Date: globalThis.Date,
+    URL: globalThis.URL,
+    Array: globalThis.Array,
+    Object: globalThis.Object,
+    JSON: globalThis.JSON,
+    Promise: globalThis.Promise,
+  });
+
+  // 1. Run Background Script — zero popup interaction
+  vm.runInContext(bgCode, bgContext);
+
+  // Allow auto-hydration on handshake to complete
+  await new Promise((r) => setTimeout(r, 150));
+
+  // 2. Assert that scoped cookies (Google & Shopify) automatically reached the capsule session
+  const capsuleGoogle = await tabHost.capsuleSession.cookies.get({ domain: '.google.com' });
+  assert.equal(capsuleGoogle.length, 1);
+  assert.equal(capsuleGoogle[0]?.name, 'SID');
+  assert.equal(capsuleGoogle[0]?.value, 'auto-hydrated-sid-token-12345');
+
+  const capsuleShopify = await tabHost.capsuleSession.cookies.get({ domain: '.myshopify.com' });
+  assert.equal(capsuleShopify.length, 1);
+  assert.equal(capsuleShopify[0]?.name, 'SHOPIFY_S');
+
+  // 3. Assert unscoped cookies were filtered out
+  const capsuleUnscoped = await tabHost.capsuleSession.cookies.get({ domain: '.ad-tracker-unknown.com' });
+  assert.equal(capsuleUnscoped.length, 0);
+
+  // 4. Assert Watchdog alarm reconnects when disconnected
+  isNativeHostAvailable = false;
+  activeNativePort?.disconnect();
+  await new Promise((r) => setTimeout(r, 50));
+  assert.equal(mockStorage['bridgeAuth'], undefined);
+
+  // Now host becomes available and watchdog alarm fires
+  isNativeHostAvailable = true;
+  assert.ok(alarmListeners.length > 0, 'Watchdog alarm listener must be registered');
+  for (const listener of alarmListeners) {
+    listener({ name: 'antifan-bridge-watchdog' });
+  }
+  await new Promise((r) => setTimeout(r, 150));
+
+  // Assert re-authenticated and auto-hydrated
+  const getBridgeAuth = (): BridgeAuth | undefined => mockStorage['bridgeAuth'];
+  assert.equal(getBridgeAuth()?.token, masterToken);
+  server.dispose();
+});
