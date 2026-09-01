@@ -17,13 +17,13 @@ created: 2026-09-01
 ## Delivery Contract
 
 ### Outcome
-AntiFan becomes a deterministic Main-owned sensory and execution runtime. MCP and Bridge clients submit serializable intent only; Main resolves immutable authority, assigns canonical invocation IDs, applies catalogue-owned effect policy, executes at most once for each deduplication binding, and returns durable receipts that converge after lost responses without re-running side effects. Browser observation reports exact target/document identity plus per-component timing and drift rather than false same-document atomicity; browser and terminal waits are bounded, cancellable capabilities; interactive effects pass a centralized actionability gate before trusted CDP dispatch.
+AntiFan becomes a deterministic Main-owned sensory and execution runtime. MCP and Bridge clients submit serializable intent only; Main resolves immutable authority, assigns canonical invocation IDs, applies catalogue-owned effect policy, executes at most once for each deduplication binding, and returns durable receipts that converge after lost responses without re-running side effects. Browser observation reports exact target/document identity plus per-component timing and drift rather than false same-document atomicity; browser and terminal waits are bounded, cancellable capabilities; interactive effects pass a centralized actionability gate and report the actual `cdp_trusted` or `isolated_synthetic` execution tier, with synthetic fallback permitted only after a proven pre-effect trusted-path failure.
 
 ### Constraints
 - Preserve existing MCP tool names and Bridge transport compatibility where they do not bypass authority.
 - Bridge WebSocket remains authenticated by bridge token or attachment token; the defect to remove is bridge-token compatibility execution that bypasses per-invocation attachment, lease, grant, and target authorization.
 - External standard MCP tool arguments do not expose or ask an LLM to synthesize kernel authority. The trusted AntiFan session/stdio/Bridge adapter must inject the exact Main-issued revision and retry identity into the adapter-to-Main intent.
-- Callers never supply resolved authority, effect/replay policy, `AbortSignal`, or canonical `invocationId`.
+- External callers never supply resolved authority, effect/replay policy, `AbortSignal`, or canonical `invocationId`; Main may carry a non-serializable signal only as internal dispatch runtime state.
 - New OWNER execution fails closed on stale lease, grant, browser epoch, tab, or document generation using the existing `TARGET_STALE` / `TARGET_MISMATCH` taxonomy.
 - Execution authority and retained-receipt disclosure are separate lifecycles. Expiry/inactive attempt state denies new OWNER work; explicit security revocation denies both. Before ledger lookup, authenticate the presented attachment credential and exact immutable tenant/run lineage `(attachmentId, projectId, workspaceId, runId, attemptId, authorityRevision)`; mismatched lineage receives no receipt-existence signal. Existing JOIN/REPLAY authorizes disclosure only through the intersection of recorded visibility and current receipt-read permission.
 - Reuse `CapabilityCatalogue`, `CapabilityTransportAdapter`, `AttachmentRegistry`, `ReceiptStore`, `EventStore`, `BrowserControlPort`, `ViewportGate`, `PassiveExecutionPool`, and existing service owners. Do not create a second control plane.
@@ -40,12 +40,12 @@ AntiFan becomes a deterministic Main-owned sensory and execution runtime. MCP an
 - A dedicated durable `InvocationLedger` guarantees one OWNER for `(attachmentId, idempotencyKey)`, in-process JOIN for identical in-flight requests, exact binding collision rejection, terminal receipt replay, and explicit `interrupted`/`unknown` recovery.
 - Historical JOIN/REPLAY authenticates the current attachment credential and exact tenant/run/revision lineage before lookup, then authorizes receipt disclosure through current receipt-read permission and recorded visibility. It may bypass current execution target/generation/lease checks only because it cannot dispatch. A missing record requires an active revision plus current lease, grant, target, and policy validation before atomic OWNER creation.
 - Master-token compatibility methods cannot directly execute browser, terminal, eval, or workflow capabilities; execution routes through the authenticated transport pipeline. Mobile/remote HTML never embeds the reusable master token.
-- Interactive OWNER calls revalidate target generation after queue acquisition and before the first side effect; unacknowledged in-flight CDP effects persist `unknown`/`interrupted`, never clean `failed`.
+- Interactive OWNER calls revalidate target generation after queue acquisition and before the first side effect. A trusted-path failure proven to have emitted no input may fall back to isolated World 1004 synthetic execution; any possibly emitted trusted event forbids fallback and persists `unknown`/`interrupted`, never clean `failed`.
 - Navigate, reload, tab-binding changes, and multi-step workflows rotate and propagate authority revisions deterministically.
-- Exact target semantics, truthful bounded `browser.observe`, separately bounded `browser.wait`/`terminal.wait`, centralized actionability, World 1004 isolation, trusted-CDP-only effects, authenticated restart-safe attachment/artifact disclosure, secure mobile/discovery/terminal streams, two-tier scheduling, terminal/preview/artifact limits, process cleanup, canonical `theme.qa_validate` ownership, and retention behavior pass focused and end-to-end verification.
+- Exact target semantics, truthful bounded `browser.observe`, separately bounded `browser.wait`/`terminal.wait`, centralized actionability, ambiguity-safe semantic refs, observable trusted-CDP-first/isolated-synthetic input tiers, authenticated restart-safe attachment/artifact disclosure, secure mobile/discovery/terminal streams, two-tier scheduling, terminal/preview/artifact limits, process cleanup, canonical `theme.qa_validate` ownership, and retention behavior pass focused and end-to-end verification.
 - The 38-directory reconciliation ledger accounts for every timestamped plan directory exactly once while preserving header truth separately from implementation evidence.
 - `npm run verify:freeze` and the separate release soak gates emit machine-readable evidence on pass or failure, measure every declared threshold, exit correctly, and leave zero orphaned processes.
-- Every executable workflow child step enters the same ledger-owned internal intent pipeline, records a child receipt linked to the parent invocation, propagates replacement authority revisions, and stops on ambiguous cancellation rather than continuing with untracked effects.
+- Every executable workflow child call enters the same ledger-owned internal intent pipeline, receives deterministic identity derived from `(parentInvocationId, stepId, attemptIndex, invocationSeq)`, records a child receipt linked to the parent invocation, propagates replacement authority revisions, retries only catalogue `read`/`idempotent-write` effects, and stops on `unknown`/`interrupted` cancellation settlement rather than continuing with untracked effects.
 
 ## Authority and Dispatch Contract
 
@@ -71,7 +71,7 @@ sequenceDiagram
         Transport->>Registry: resolve active immutable authority + validate attempt/lease/grant
         Transport->>Catalogue: resolve current immutable execution policy
         Transport->>Ledger: atomic OWNER claim(bindingDigest) + durable in_progress
-        Transport->>Target: execute with Main-linked AbortSignal
+        Transport->>Target: execute with Main-linked runtime AbortSignal
         Target-->>Transport: result / typed failure
         Transport->>Ledger: persist terminal or unknown receipt; settle JOINers
         Transport-->>Client: requestId + invocationId + result + evidence
@@ -84,8 +84,8 @@ sequenceDiagram
 3. Only after lineage authentication, lookup `(attachmentId, idempotencyKey)` in `InvocationLedger`; the stored binding owns the historical policy snapshot/digest.
 4. **Existing record:** require the stored tenant/run/revision lineage, capability, parameter digest, and recorded policy digest to match. Resolve current receipt-read permission from `CapabilityCatalogue`/grant, intersect it with recorded visibility, then JOIN an in-process OWNER or disclose the recorded terminal/ambiguous receipt. JOIN/REPLAY is disclosure-only: it never dispatches and therefore may bypass current target, document-generation, and execution-lease checks without turning a stale revision into execution authority.
 5. **Missing record:** require `authorityRevision` to be active, resolve immutable `MainResolvedAuthority`, validate current attempt/PID/backend/lease/grant/workspace/runtime/target and current execution policy, then atomically create the OWNER record via `claimOrObserve`. A stale handle cannot create a record. A race loser re-enters the existing-record path and repeats disclosure authorization.
-6. Durably persist OWNER state before dispatch. Main links parent run cancellation and deadline; transport disconnect behavior is the claimed catalogue policy. Effectful operations detach and finish/persist safely rather than being aborted merely because one subscriber disconnected.
-7. Interactive OWNER calls acquire `ViewportGate`, then revalidate browser epoch, tab, and document generation inside the lock immediately before the first trusted CDP/UI side effect. Remove any path that overwrites expected generation with live generation before comparison.
+6. Durably persist OWNER state before dispatch. Main links parent run cancellation and deadline; transport disconnect behavior is the claimed catalogue policy. Effectful operations detach and finish/persist safely rather than being aborted merely because one subscriber disconnected. On deadline/abort, the transport signals the OWNER, waits one bounded acknowledgement grace, then atomically persists `unknown` if execution still has not settled; monotonic ledger state rejects every late overwrite.
+7. Interactive OWNER calls acquire `ViewportGate`, then revalidate browser epoch, tab, and document generation inside the lock immediately before the selected input tier's first side effect. Trusted CDP is attempted first for existing auto-tier click/hover semantics; isolated World 1004 fallback is allowed only when the trusted path proves that no input event was emitted. If a mouse-down may have been emitted, attempt bounded best-effort release cleanup, persist ambiguity, and never cross tiers. Remove any path that overwrites expected generation with live generation before comparison.
 8. Persist sanitized completed/failed receipts before responding. If effect acknowledgement is uncertain, persist `unknown`/`interrupted`. On process loss, startup recovery converts durable `claiming`/`in_progress` records to `interrupted`; the same key never auto-reexecutes an ambiguous effect.
 
 ### Identifier and State Rules
@@ -97,6 +97,10 @@ sequenceDiagram
 - Duplicate binding includes attachment ID, idempotency key, authority revision, canonical capability name, parameter digest, and catalogue policy version/digest.
 - A proven pre-effect `TARGET_STALE` may be retried only with a newly issued revision and a new idempotency key. Reusing the old key with a new revision is a binding collision. Ambiguous effects require state inspection before any new key.
 - Receipt replay never means re-execution. Recorded policy defines historical semantics; current receipt-read permission may further redact or deny disclosure but never silently dispatches again.
+- Workflow child identity is transport-derived from `(parentInvocationId, stepId, attemptIndex, invocationSeq)`, where `parentInvocationId` is the Main-issued invocation ID of `workflow.execute`. `invocationSeq` is monotonic within each step attempt and advances for every child capability call. The internal child request cannot supply an idempotency key; no clock/random fallback, session-attempt substitute, or step-name inference participates in identity.
+- Every transport response carries explicit `InvocationState` in addition to `ok`; replay/JOIN/OWNER responses preserve `completed | failed | interrupted | unknown`. `WorkflowEngine` advances one shared authority-revision cursor immediately on every child response before interpreting data/error, so a later failure, retry, or `continueOnError` path cannot strand a completed target transition.
+- `workflow.execute` is an orchestration owner and never holds `ViewportGate` or passive/wait capacity across child execution; each child acquires only its catalogue lane. Workflow retry authority comes from an exhaustive `WorkflowStep.type -> canonical capability set` mapping and current catalogue policies. A retry is permitted only when every reachable capability effect is `read` or `idempotent-write`; interactive/destructive/management effects and missing mappings/policies are single-attempt fail-closed. Canonical `report.generate` is ledger-owned and policy-classified as management, not a local unreceipted artifact mutation.
+- A workflow timeout or parent abort is carried as runtime-only signal state, never serialized into `ClientInvocationIntent`. The transport waits one bounded acknowledgement grace for monotonic durable child settlement and atomically settles `unknown` when acknowledgement cannot be proven; `unknown` or `interrupted` blocks retry and all later steps even when `continueOnError` is true, and late completion cannot rewrite the terminal state.
 
 ## Phase Roadmap
 
@@ -104,7 +108,7 @@ sequenceDiagram
 |---:|---|:---:|---|---|
 | [01](./phase-01-canonical-contract-ledger-and-mcp-envelope.md) | Canonical Authority Contracts, Policy & Envelopes | P0 | None | Freeze wire intent, immutable authority revision, effect policy, ID separation, and response contracts. |
 | [02](./phase-02-orchestration-lifecycle-and-cancellation.md) | Invocation Ledger, Dispatch Ordering & Recovery | P0 | Phase 01 | Implement atomic OWNER/JOIN/REPLAY semantics, remove master-token execution bypasses, and link cancellation/recovery. |
-| [03](./phase-03-browser-observation-and-action-kernel.md) | Exact Browser Target, Coherent Observation & Action Kernel | P0 | Phases 01-02 | Enforce exact targets, truthful multi-modal observation, deterministic waits, actionability, two-tier scheduling, World 1004 refs, and trusted CDP input. |
+| [03](./phase-03-browser-observation-and-action-kernel.md) | Exact Browser Target, Coherent Observation & Action Kernel | P0 | Phases 01-02 | Enforce exact targets, truthful multi-modal observation, deterministic waits, ambiguity-safe actionability, two-tier scheduling, and observable trusted-CDP-first/isolated-synthetic input. |
 | [04](./phase-04-terminal-preview-artifact-services.md) | Bounded Terminal, Preview & Artifact Services | P1 | Phases 01-03 | Close resource, path-containment, watcher, process-tree, and retention contracts. |
 | [05](./phase-05-production-freeze-verification.md) | Production Freeze Verification | P0 | Phases 01-04 | Run contract, security, runtime, smoke, performance, and soak gates and publish evidence. |
 
@@ -115,6 +119,8 @@ sequenceDiagram
 - Confirmed source deltas: partial authority contracts still have legacy callers; `AttachmentRegistry` retains volatile replay nonces; `WorkflowEngine` uses scalar retry and `Promise.race`; selector wait polls at 100 ms; trusted input retains synthetic fallback; artifact metadata is memory-only; preview subscriptions alias duplicate callback identity; smoke evidence destinations are inconsistent.
 - Planning corrections: Phase 01 completes/migrates partial contracts instead of recreating them; Phase 05 compiles once and invokes tests/smokes directly through the certification runner.
 - Red-team corrections: standard MCP retry identity is the SDK `extra.requestId`; grants retain explicit scope semantics instead of an inferred ordinal hierarchy; workflow child effects cannot call `CapabilityCatalogue` directly; attachment/ledger persistence paths and recovery order are concrete; failure-to-persist rejects all JOINers; target transition generations come from completed browser operations; terminal teardown and run-local artifact byte accounting preserve ownership.
+- Convergence correction: current source proves automatic trusted-CDP-first/isolated-synthetic fallback, first-match semantic fingerprint recovery, random child identity fallback, scalar retry, and an unpropagated authenticated signal. The plan preserves the valid two-tier input behavior while making its tier observable, rejects ambiguous semantic fallback, derives child identity deterministically, delegates retry eligibility to catalogue effect policy, and requires durable abort settlement.
+- Hostile-review correction: attachment persistence becomes awaited asynchronous serialized I/O; failed pre-dispatch claims reject every JOINer; browser action signals reach the gate; gate release is idempotent; semantic fallback is boundary-confined, full-fingerprint validated, and capped at 500 inspected nodes or 50 ms; network waits require live instrumentation and abort-clean all resources; duplicate run-local artifact content is hashed before quota charge; watcher/PTY teardown retains ownership until every settlement.
 
 
 ## Cross-Plan Dependency Decision
@@ -206,12 +212,14 @@ Header status is disk metadata, not an implementation verdict. “Foundation/ref
 | Historical lookup becomes a cross-lineage receipt oracle | Wrong tenant/run/revision learns existence or receives data | Block release; authenticate exact attachment lineage before lookup, normalize mismatch/denial responses, and authorize disclosure separately from execution. |
 | Two concurrent calls both execute | Duplicate side-effect counter > 1 or two OWNER IDs | Block release; make claim atomic in one Main serialization boundary before dispatch. |
 | Queue wait makes target stale | Generation changes while OWNER waits for `ViewportGate` | Persist pre-effect `TARGET_STALE`; do not execute or silently retarget. |
-| Effect acknowledgement is lost | Browser may have committed while transport reports abort | Persist `unknown`/`interrupted`; never classify clean failure or auto-retry. |
+| Effect acknowledgement is lost | Trusted CDP may have emitted one or more events, or isolated synthetic execution may have committed, while transport reports abort | Persist `unknown`/`interrupted`; never cross tiers, classify clean failure, or auto-retry. |
 | Crash leaves permanent in-flight state | Rehydrated `claiming`/`in_progress` row remains joinable | Convert to `interrupted`, settle/clear in-memory joiners, require inspection before a new key. |
 | Effect policy drift breaks old replay interpretation | Recorded policy digest differs from current catalogue | Use recorded policy for historical semantics and current receipt-read permission for further restriction. |
 | Ledger durability blocks Main or grows without bound | Event-loop delay, file growth, or heap exceeds budget | Use partitioned append-only async durability, bounded indexes, measured compaction, and retention coordinated with referenced artifacts. |
 | Multi-modal observation claims false atomicity | DOM/snapshot/screenshot differ inside one document generation | Guarantee target/document identity only; return component timestamps, sequence and drift metadata, and fail closed only on cross-document identity change. |
 | Wait/actionability helpers fork or starve observations | Poll loops, duplicate trackers, or long waits consume all short-passive slots | Reuse canonical internal primitives but give event waits an independently bounded registry; block transport-local engines. |
+| Semantic fingerprint fallback is non-unique | Traversal path is stale and two live nodes satisfy the full fingerprint | Return `REF_AMBIGUOUS` with bounded non-sensitive evidence; emit no input and require a new observation. |
+| Workflow retry classification drifts from executed capabilities | A step retries an interactive/missing-policy child or a new step type lacks a mapping | Fail policy-completeness tests and run single-attempt; never use `step.name` or an optimistic default. |
 | Stale plan metadata is presented as delivery truth | Ledger claims completion contrary to header/phase record | Keep header truth and implementation evidence separate; audit metadata independently. |
 
 ## Red Team Review
@@ -229,7 +237,7 @@ Header status is disk metadata, not an implementation verdict. “Foundation/ref
 | Partition/bound ledger durability and define subscriber cancellation/ambiguity | Accept | Phase 02 |
 | Separate receipt-disclosure lifecycle and intersect current receipt-read permission | Accept | Phases 01-02, 04 |
 | Protect mobile/remote token delivery | Accept (narrowed to observed routes) | Phase 02 |
-| Add poison recovery, trusted-CDP-only effects, process kill ordering, watcher refcounts, artifact integrity | Accept | Phases 03-04 |
+| Preserve input fallback while preventing post-effect cross-tier replay | Supersedes the earlier trusted-CDP-only correction: trusted CDP remains first, isolated World 1004 fallback remains valid only after proven pre-effect failure, and the result reports its tier | Phases 01, 03, 05 |
 | Add the omitted reports-only plan directory and correct UI metadata classification | Accept | Master ledger |
 | Measure every SLO and always emit certification evidence | Accept | Phase 05 |
 | Reuse the same idempotency key with a new revision after staleness | Reject | Violates exact binding; use a new key only after proven pre-effect failure. |
@@ -271,6 +279,18 @@ Header status is disk metadata, not an implementation verdict. “Foundation/ref
 | Drain all queued actions or increment preemption epoch after ordinary actionability failure | Reject | Lock release plus each queued owner's mandatory target/actionability revalidation is sufficient; epoch changes only on human preemption. |
 | Add separate fixes for terminal exit fast path, artifact reachability, semantic handover epoch, or synthetic input | Merge | Already explicit in Phases 03-04 and verified again in Phase 05. |
 | Reuse an idempotency key across a changed authority revision | Reject | Exact binding collision is intentional; a proven pre-effect retry uses a new key and revision. |
+
+### Session — 2026-09-01 — Runtime Convergence Correction
+**Findings:** five source-proven contradictions; all five accepted because each changes an executable safety or identity contract.
+
+| Correction | Disposition | Applied to |
+|---|---|---|
+| Preserve trusted-CDP-first/isolated-synthetic behavior, expose the actual tier, and prohibit fallback after possibly emitted trusted input | Accept; replaces trusted-CDP-only plan text without weakening actionability or exact-target gates | Phases 01, 03, 05 |
+| Replace semantic first-match fallback with full-fingerprint candidate cardinality and `REF_AMBIGUOUS` | Accept; exact traversal and registry semantics remain unchanged | Phases 01, 03, 05 |
+| Derive workflow child keys from parent/step/attempt/invocation sequence with no clock/random fallback | Accept | Phases 02, 05 |
+| Permit workflow retries only when every mapped catalogue effect is `read` or `idempotent-write`; keep local report generation single-attempt | Accept | Phases 01-02, 05 |
+| Pass cancellation as runtime-only transport state and await monotonic durable child settlement before return/retry/continuation | Accept | Phases 02, 05 |
+
 
 ### Advisory Checkpoint Availability — Deep Mode Revalidation
 - The runtime agent registry exposed no `kongming` agent; the design checkpoint call failed with `Unknown agent "kongming"`.
@@ -321,8 +341,19 @@ Header status is disk metadata, not an implementation verdict. “Foundation/ref
 - KongMing validation approval is not claimed because the runtime did not expose that agent. Mechanical/source-backed authoritative gates passed without substitution.
 - Unresolved contradictions: 0.
 
+### Verification Results — 2026-09-01 — Runtime Convergence Correction
+- Source trace covered `WorkflowStepSchema`, every `WorkflowEngine.dispatchStep` branch, `CapabilityTransportAdapter.dispatchChildIntent`/`dispatchIntent`, `CapabilityCatalogue.getPolicy`, authenticated signal context, `ViewportGate`, `TabAutomationHost` trusted and synthetic paths, and `semantic-ref-executor` traversal/fingerprint fallback.
+- Rejected stale assumptions: trusted-CDP-only execution, random child-key fallback, scalar retry independent of policy, abort-by-`Promise.race`, and first-match fingerprint recovery.
+- Accepted contract: observable two-tier input with pre-effect-only fallback, ambiguity-safe semantic resolution, deterministic child sequence identity, exhaustive effect-policy retry classification, and durable abort settlement.
+- KongMing approval is not claimed: the runtime registry still exposes no `kongming` agent.
+
+### Whole-Plan Consistency Sweep — Runtime Convergence Correction
+- Owning contracts were reconciled across `plan.md` and Phases 01-03/05; Phase 04 is intentionally unchanged.
+- Historical review entries remain labeled by session; the runtime convergence session supersedes the earlier trusted-CDP-only disposition.
+- Unresolved contradictions: 0 after final mechanical/source-backed validation.
+
 ## Open Questions
-None. Authority/replay ordering, restart authentication, retry identity, receipt/artifact disclosure, bounded observe/wait/actionability, terminal incarnation, QA ownership, mobile/discovery security, dependency direction, certification thresholds, and the redesign boundary for the newly added server-500 plan are fixed by source-reviewed contracts.
+None. Authority/replay ordering, restart authentication, retry identity, receipt/artifact disclosure, bounded observe/wait/actionability, semantic ambiguity, two-tier input evidence, policy-derived workflow retry, durable child cancellation, terminal incarnation, QA ownership, mobile/discovery security, dependency direction, certification thresholds, and the redesign boundary for the downstream server-500 plan are fixed by source-reviewed contracts.
 
 
 <!-- slug: antifan-core-runtime-freeze -->

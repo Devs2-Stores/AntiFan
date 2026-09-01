@@ -786,7 +786,7 @@ export class TabDevToolsHost {
   const rawView = document.getElementById('jvRaw');
   
   tree.addEventListener('click', (e) => {
-    const t = (e.target as HTMLElement | null)?.closest('.jv-toggle');
+    const t = e.target?.closest?.('.jv-toggle');
     if (!t) return;
     const n = t.closest('.jv-node');
     if (!n) return;

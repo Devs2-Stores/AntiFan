@@ -20,15 +20,15 @@ Complete and freeze the partially implemented public wire intent and internal Ma
 - Split the external standard MCP schema from the trusted adapter-to-Main intent. LLM-authored tool arguments keep capability params only; the authenticated AntiFan adapter injects attachment credentials, caller `requestId`, retry `idempotencyKey`, and the current opaque Main-issued `authorityRevision`.
 - Remove `invocationId`, resolved `grant`, raw target authority, lease objects, `AbortSignal`, effect policy, and caller-selected authority revision from public MCP tool arguments. Direct Bridge/session clients may send only credentials and the opaque revision they were issued.
 - Make `authorityRevision` mandatory at the adapter-to-Main execution boundary. Main dispatch must not silently resolve “latest active” when the handle is absent.
-- Extend `CapabilityDefinition`/`CapabilityCatalogue` with immutable policy fields for effect type, risk, target requirement, scheduler lane, in-flight duplicate mode, terminal receipt visibility, current receipt-read permission/class, timeout, retention, disconnect/cancellation behavior, and policy version/digest.
+- Extend `CapabilityDefinition`/`CapabilityCatalogue` with immutable policy fields for effect type, risk, target requirement, scheduler lane, in-flight duplicate mode, terminal receipt visibility, current receipt-read permission/class, timeout, retention, disconnect/cancellation behavior, and policy version/digest. Orchestration capabilities cannot hold a child execution lane across nested dispatch; `workflow.execute` uses an orchestration/unbounded lane while each child independently acquires its catalogue lane.
 - Freeze grant visibility as explicit scope membership, not ordinal comparison: `read` sees read; `write` sees read+write; `execute` sees read+execute; `eval` sees read+eval only when `allowEval` is enabled. Any future cross-scope inheritance is a public policy change with dedicated tests.
 - Separate receipt disclosure from re-execution. A historical duplicate returns only the intersection of recorded visibility and current receipt-read permission; no policy path silently executes the same key again or exposes record existence to mismatched tenant/run lineage.
-- Standardize MCP success/failure envelopes with caller `requestId`, Main `invocationId`, typed error, and `McpEvidence`; preserve existing tool aliases and binary/content transport.
+- Standardize MCP success/failure envelopes with caller `requestId`, Main `invocationId`, explicit `InvocationState`, typed error, and `McpEvidence`; preserve existing tool aliases and binary/content transport. `ok` is a convenience projection only and cannot collapse `failed`, `interrupted`, or `unknown`.
 - Return the new authority revision from session/attachment issue and every target/grant/lease/host rebinding response so trusted adapters can make the next exact request.
-- Freeze serializable contracts and policy classifications for `browser.observe`, `browser.wait`, `terminal.wait`, `artifact.read`, and centralized interactive actionability. These are canonical capabilities, not transport-specific helpers.
+- Freeze serializable contracts and policy classifications for `browser.observe`, `browser.wait`, `terminal.wait`, `artifact.read`, centralized interactive actionability, and internal ledger-owned `report.generate`. These are canonical capabilities, not transport-specific helpers or local unreceipted workflow effects.
 - Define observation coherence as exact `(browserEpoch, tabId, paneId, documentGeneration, documentUrl)` identity plus per-component capture timestamps, monotonic snapshot sequence, duration, and drift metadata. Do not claim same-document DOM/screenshot atomicity.
 - Define typed, bounded inputs/results for browser wait conditions, terminal wait conditions, and paged artifact reads; preserve text/image MIME framing in MCP responses.
-- Extend the error taxonomy only with codes that callers can act on: binding collision/ambiguous recovery, wait deadline/abort, terminal session closure, artifact integrity compromise, and specific actionability failures.
+- Extend the error taxonomy only with codes that callers can act on: binding collision/ambiguous recovery, wait deadline/abort, terminal session closure, artifact integrity compromise, semantic fallback ambiguity (`REF_AMBIGUOUS`), and specific actionability failures.
 
 ### Non-functional
 - All adapter-to-Main wire structures are JSON-serializable and schema-validated; public MCP schemas expose no internal authority fields.
@@ -40,6 +40,7 @@ Complete and freeze the partially implemented public wire intent and internal Ma
 - Persist only a versioned one-way verifier for the 256-bit random attachment secret and compare in constant time; never persist the reusable plaintext secret. Verifier format changes require explicit version migration, not implicit reinterpretation.
 - Capability aliases such as `qa.run`, if retained, delegate to the existing `theme.qa_validate`/`ThemeQaWorkflow`; no second QA engine or divergent result contract is permitted.
 - For standard MCP, derive caller `requestId` and retry `idempotencyKey` from the SDK handler's stable `extra.requestId` for that JSON-RPC operation. Retransmission of the same operation reuses the key; a distinct JSON-RPC call—even with identical params—is a new operation and receives a new key. Never hash params alone or generate a second unrelated key inside the proxy.
+- Workflow retry eligibility is derived only from immutable catalogue `effect` policy through an exhaustive `WorkflowStep.type -> canonical capability set` mapping. Only mappings whose every reachable effect is `read` or `idempotent-write` are retryable; unknown/missing policies and management-classified `report.generate` fail closed to one attempt. The internal child-dispatch input omits `idempotencyKey`; transport alone derives it from the Main parent invocation and deterministic step/attempt/sequence coordinates.
 
 ## Architecture
 ```mermaid
@@ -59,15 +60,16 @@ flowchart LR
 - Public MCP tool args: capability-specific serializable params only; no attachment secret, authority revision, policy, signal, or canonical invocation ID authored by the model.
 - `ClientInvocationIntent`: trusted-boundary `requestId`, `idempotencyKey`, `attachmentId`, `attachmentSecret`, `authorityRevision`, canonical capability, and params.
 - `MainResolvedAuthority`: revision/attachment/run/attempt/project/workspace/runtime/host/PID/grant/lease/target snapshot; never accepted from untrusted JSON.
-- `CapabilityEffectPolicy`: effect, risk, target requirement, lane, join mode, recorded replay visibility, current receipt-read permission/class, deadline, retention, disconnect/cancellation behavior, version/digest.
+- `CapabilityEffectPolicy`: effect, risk, target requirement, lane, join mode, recorded replay visibility, current receipt-read permission/class, deadline, retention, disconnect/cancellation behavior, version/digest. An orchestration parent cannot reserve the lane later acquired by its children.
 - `InvocationBinding`: attachment, idempotency key, authority revision, canonical capability, params digest, policy digest.
-- `AuthoritativeInvocationReceipt`: Main `invocationId`, origin `requestId`, binding, monotonic state, timestamps, sanitized result/error/evidence.
-- Error taxonomy retains `TARGET_STALE`, `TARGET_MISMATCH`, `REPLAY_DENIED`, and adds only evidence-proven codes needed for binding collision or ambiguous recovery.
+- `CapabilityTransportResponse`/`AuthoritativeInvocationReceipt`: Main `invocationId`, origin `requestId`, explicit monotonic `InvocationState`, binding, timestamps, sanitized result/error/evidence and optional replacement revision; `ok` never substitutes for state.
+- Error taxonomy retains `TARGET_STALE`, `TARGET_MISMATCH`, `REPLAY_DENIED`, and adds only evidence-proven codes needed for binding collision, ambiguous recovery, or non-unique semantic fallback (`REF_AMBIGUOUS`).
 - `BrowserObserveInput/Result`: at most four requested components; exact target/document identity; optional DOM (512 KiB), semantic snapshot (150 descriptors/128 KiB), screenshot (8 MiB), diagnostics and network components; 5 s default/30 s maximum deadline; per-component capture metadata and truthful drift.
 - `BrowserWaitInput/Result`: selector/ref, document-loaded, URL, network-idle and bounded declarative DOM-state conditions; target-bound, deadline-limited and abortable. Raw JavaScript predicates are not part of the read capability; any expression evaluation remains a separate `eval`-risk capability requiring `allowEval`.
 - `TerminalWaitInput/Result`: output match, exit or silence conditions with `(sessionGeneration, afterSeq)` cursor, deadline and byte-bounded output tail; stale-generation cursors fail closed.
 - `ArtifactReadInput/Result`: exact artifact ID, offset/limit bounded to 1 MiB, UTF-8/base64 framing, total bytes and continuation state. Durable artifact metadata carries immutable project/workspace/run/attempt lineage and SHA-256; disclosure remains exact-lineage and receipt-read authorized.
-- Interactive capability policy declares required actionability checks; execution returns stable typed failure metadata and emits no CDP input on failure.
+- Interactive capability policy declares required actionability checks; execution returns stable typed failure metadata and emits no trusted or synthetic input on pre-action failure.
+- `RendererActionResponse`/MCP evidence reports `executionTier: 'cdp_trusted' | 'isolated_synthetic'` for executed interactive input and bounded `fallbackReason` only when trusted execution failed before emitting input; an ambiguous post-dispatch failure has no fallback success response and performs bounded best-effort trusted-input cleanup without crossing tiers.
 - Historical attachment authentication persists only a versioned one-way verifier, immutable lineage/revision records, security-revocation state and receipt-disclosure metadata; reusable plaintext secrets are never persisted.
 
 ## Related Code Files
@@ -118,11 +120,12 @@ flowchart LR
 - [ ] Deterministic canonical serializer and policy/parameter digest helpers are key-order independent.
 - [ ] `AttachmentRegistry.issueAttachment`, revision rotation, and bootstrap responses return immutable revision handles.
 - [ ] `CapabilityCatalogue.register` rejects incomplete or contradictory effect/access policies.
-- [ ] `CapabilityTransportAdapter` accepts only trusted `ClientInvocationIntent`; public MCP schemas reject internal fields.
-- [ ] MCP/Bridge result-envelope builders preserve text/image MIME framing while adding request/invocation/evidence/revision metadata.
+- [ ] `CapabilityTransportAdapter` accepts only trusted `ClientInvocationIntent`; public MCP schemas reject internal fields. Its internal workflow-child method accepts no caller idempotency key and derives the key from the Main parent invocation ID plus step/attempt/sequence.
+- [ ] MCP/Bridge result-envelope builders preserve text/image MIME framing while adding request/invocation/state/evidence/revision metadata.
 - [ ] `scripts/antifan-omp-mcp.cjs` and `scripts/antifan-agent.cjs` retain and forward the current revision without exposing it as model-authored tool input.
 - [ ] MCP `CallToolRequest` handlers pass SDK `extra.requestId` through the trusted adapter as caller correlation/retry identity; the proxy does not replace it with per-send random UUIDs.
 - [ ] `CapabilityCatalogue.isVisible` implements the frozen scope matrix exactly; `eval` never implies write/execute and remains gated by `allowEval`.
+- [ ] Catalogue policy access is the only workflow retry authority; a compile-time exhaustive step-type mapping names every reachable canonical capability and has no permissive default. `workflow.execute` occupies no child scheduler lane and `report.generate` is a ledger-owned management capability.
 
 ## Dependency Map
 ```text
@@ -146,6 +149,10 @@ shared contracts + canonical digests
 | Binary screenshot or artifact result uses unified envelope | MCP content parts, MIME, bytes and evidence remain intact. |
 | Same MCP JSON-RPC request is retransmitted vs. user issues a new identical call | Retransmission reuses one key/receipt; a new request ID creates a distinct operation. |
 | `read`, `write`, `execute`, and `eval` grants enumerate capabilities | Each sees only read plus its explicit non-read scope; eval is absent when `allowEval` is false. |
+| New workflow step type or missing mapped capability policy | Completeness test fails; runtime treats the step as single-attempt and never infers from display name. |
+| Workflow parent dispatches interactive/passive/wait children | Parent reserves no child lane; each child independently acquires and releases its catalogue lane without nested-lock deadlock. |
+| Child response is failed, interrupted or unknown | Explicit response state survives every envelope; workflow never infers durable state from `ok` alone. |
+| Action executes through isolated fallback or two fingerprint-equivalent nodes exist | Response reports `isolated_synthetic` for the former; the latter returns typed `REF_AMBIGUOUS` with no input. |
 
 ### Deep-Mode Verification Gate
 - Run focused contract/injection/completeness tests first, then typecheck and the existing MCP/Bridge catalogue suites. Phase 02 cannot start until every executable repo client has migrated.
@@ -154,11 +161,11 @@ shared contracts + canonical digests
 ## Implementation Steps
 1. Add shared types, validators, ID entities, deterministic canonicalization, and typed receipt/binding states.
 2. Split public MCP schemas from the internal `ClientInvocationIntent`; reject all internal fields at the public boundary.
-3. Extend capability registration so every current definition declares a complete Main-owned effect/access policy; fail registration for missing or contradictory fields. Freeze future observe, declarative wait, artifact-read and actionability policy shapes here so later phases cannot invent transport-local semantics or smuggle eval through a read capability.
+3. Extend capability registration so every current definition declares a complete Main-owned effect/access policy; expose immutable policy lookup to the workflow retry classifier and fail registration for missing or contradictory fields. Freeze future observe, declarative wait, artifact-read, ledger-owned report generation and actionability policy shapes here so later phases cannot invent transport-local semantics or smuggle eval through a read capability. Classify `workflow.execute` as orchestration/unbounded and `report.generate` as management/single-attempt.
 4. Change attachment/session bootstrap to return the initial revision handle; make trusted adapters retain and inject it. Update MCP handlers to accept the SDK handler `extra` argument and use `extra.requestId` as the stable caller request/retry identity for that JSON-RPC operation; distinct calls remain distinct even when params match. Persist the existing one-way secret verifier with an explicit format version and constant-time verification, separately from active leases; never persist plaintext or add password-style KDF cost to random-token request authentication.
 5. Define revision rotation on target, navigation/reload, grant, lease, or host-binding changes and return the replacement handle explicitly.
 6. Add immutable project/workspace/run/attempt lineage and integrity metadata to `ArtifactRef`; migrate every artifact staging caller in the same cutover.
-7. Update `result-envelope.ts` and both transports to preserve `requestId` while returning Main `invocationId`, evidence, typed errors, coherence metadata, binary/image content, and replacement revision where applicable.
+7. Update `result-envelope.ts` and both transports to preserve `requestId` while returning Main `invocationId`, explicit invocation state, evidence, typed errors, coherence metadata, binary/image content, and replacement revision where applicable.
 8. Migrate every producer/consumer—including `scripts/antifan-omp-mcp.cjs`, `scripts/antifan-agent.cjs`, workflow clients, smoke/benchmark scripts, and tests—in one compile-safe cutover. Explicitly propagate `ANTIFAN_AUTHORITY_REVISION` through launcher/bootstrap environments; keep no caller-owned invocation-authority compatibility path.
 9. Add focused public-schema, adapter-injection, policy-registration, ID-separation, alias, revision-rotation, canonical serialization, bounded-schema, no-read-to-eval-escalation and content-framing tests.
 
@@ -174,6 +181,9 @@ shared contracts + canonical digests
 - [ ] Any `qa.run` compatibility alias executes the same `ThemeQaWorkflow` and schema as `theme.qa_validate`; no secondary QA owner exists.
 - [ ] Historical verifier/revision and artifact-lineage schemas are restart-safe without persisting reusable secrets in plaintext.
 - [ ] Observation/wait/snapshot count, byte, history and deadline bounds exactly match the frozen values and fail with typed overload/size/deadline errors.
+- [ ] Transport responses expose monotonic invocation state, workflow parents never hold child scheduler capacity, and internal child callers cannot override transport-derived identity.
+- [ ] Workflow retry classification is exhaustive over `WorkflowStep.type`, resolves real canonical capability policies, and defaults missing/local/non-retry-safe work to one attempt.
+- [ ] Interactive action envelopes preserve actual trusted/synthetic tier evidence and expose `REF_AMBIGUOUS` without leaking candidate DOM content.
 
 ## Risk Assessment
 | Risk | Signal | Pre-decided response |

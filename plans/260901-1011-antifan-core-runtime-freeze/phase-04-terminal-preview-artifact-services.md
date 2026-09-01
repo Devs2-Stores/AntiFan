@@ -21,12 +21,13 @@ Harden infrastructure capabilities under the same Main authority and effect poli
 - Source search finds no `TerminalSessionPort` callsites outside its definition. Delete the dead file directly and prove zero references; do not invent a migration layer.
 - Fix `PreviewWatcherPool` ownership: one watcher per canonical capsule/root, one subscription token per retain call even when callback identity repeats, disposal only at `refCount === 0`, and cancellation of pending debounce timers on final release or runtime clear.
 - Enforce workspace containment using canonical/real paths and per-segment symlink checks in `SafeFsResolver`; file serving and watching share the same resolver.
-- Preserve content-addressed artifact integrity, quotas, sanitization, atomic writes, bounded reads and retention. Persist/rehydrate a crash-consistent metadata index with immutable project/workspace/run/attempt lineage, MIME, size, hash and path. Run quota counts unique run-local blob bytes, not metadata-reference count: staging identical sanitized content in one run may add a metadata ref but consumes blob bytes only on first materialization. Within each run namespace, delete a blob only when no retained metadata/receipt reference in that run requires it.
+- Preserve content-addressed artifact integrity, quotas, sanitization, atomic writes, bounded reads and retention. Persist/rehydrate a crash-consistent metadata index with immutable project/workspace/run/attempt lineage, MIME, size, hash and path. Sanitize first, compute SHA-256, and determine whether the run-local blob already exists before enforcing or incrementing the run-byte quota. Run quota counts unique run-local blob bytes, not metadata-reference count: staging identical sanitized content in one run may add a metadata ref but consumes blob bytes only on first materialization. Within each run namespace, delete a blob only when no retained metadata/receipt reference in that run requires it.
 - Do not hard-code `E:\Work\.antifan-data` in reusable services; consume the configured `dataRoot` already established by runtime/storage setup.
 - Implement catalogue-owned `terminal.wait` for output match, process exit and silence using `(sessionGeneration, afterSeq)`. `TerminalManager` stores structured exit/close state before emitting events, checks already-terminal state before listener registration, and rejects cursors from a prior PTY incarnation. Every terminal path detaches exactly once.
 - Register authenticated `artifact.read`/`artifact.stat` capabilities and harden `/api/artifacts/:id` to use one authorization service that resolves durable metadata, authorizes exact lineage/current receipt-read permission before disk bytes, and returns a uniform no-oracle response.
 - Bound artifact reads to 1 MiB chunks with continuation metadata; preserve MIME framing and verify SHA-256 on cache and disk reads. Index/file updates are crash-consistent; missing/corrupt index entries fail closed.
 - Remove `buildFallbackThemeQaResult` and make canonical `ThemeQaWorkflow` registration mandatory for `theme.qa_validate`; aliases delegate to it, and explicit `tabId` must equal the authorized target.
+- Extend the Phase 02 `artifact-capabilities.ts` owner with authenticated `artifact.read`/`artifact.stat`; retain its management-classified ledger-owned `report.generate` registration so workflow report staging has no direct/local bypass.
 
 ### Non-functional
 - No synchronous large-file or directory sweep on latency-sensitive Main dispatch paths.
@@ -74,14 +75,14 @@ flowchart LR
 
 ### Create
 - `src/main/tools/terminal-capabilities.ts`
-- `src/main/tools/artifact-capabilities.ts`
+- `src/main/tools/artifact-capabilities.ts` is created in Phase 02; modify it here for read/stat and shared authorization.
 - `test/main/terminal-capabilities.test.ts`
 - `test/main/artifact-capabilities.test.ts`
 
 ## Deep-Mode File Inventory
 | Action | Paths | Protected responsibility | Dependency |
 |---|---|---|---|
-| Create | `src/main/tools/terminal-capabilities.ts`, `src/main/tools/artifact-capabilities.ts` | Authenticated catalogue surfaces for terminal and artifact operations | Phases 01-02 policy/ledger |
+| Modify | `src/main/tools/artifact-capabilities.ts` | Preserve ledger-owned `report.generate`; add authenticated artifact read/stat operations | Phases 01-02 policy/ledger |
 | Modify | `src/main/browser/terminal-manager.ts` | Session incarnation, structured exit, bounded wait, owned process teardown | OWNER cancellation context |
 | Delete | `src/main/tools/terminal-session-port.ts` | Remove confirmed zero-callsites execution duplicate | Final reference proof |
 | Modify | `src/main/server/preview-watcher-pool.ts`, preview protocol/resolver | Token subscriptions, canonical roots, debounce/handle teardown | Existing `SafeFsResolver` |
@@ -98,8 +99,8 @@ flowchart LR
 - [ ] `ArtifactStore` persists and rehydrates immutable lineage/hash/path metadata and verifies SHA-256 before disclosure.
 - [ ] Shared artifact authorization runs before disk bytes for both catalogue and HTTP surfaces; denial is no-oracle.
 - [ ] Retention checks run-local metadata/receipt references before deleting a shared blob.
-- [ ] Run-byte quota is rebuilt from unique run-local blobs and increments only when a new blob is materialized; duplicate metadata refs do not double-charge.
-- [ ] `buildFallbackThemeQaResult` is removed; aliases and parity tests use only `ThemeQaWorkflow` with exact tab equality.
+- [ ] Run-byte quota is rebuilt from unique run-local blobs; sanitized SHA/existence is resolved before quota enforcement, and the counter increments only when a new blob is materialized.
+- [ ] `buildFallbackThemeQaResult` is removed; aliases and parity tests use only `ThemeQaWorkflow` with exact tab equality. `WorkflowEngine` has no local `report.generate` staging branch.
 
 ## Dependency Map
 ```text
@@ -120,7 +121,7 @@ Phase 01 lineage/policy + Phase 02 receipts/cancellation + Phase 03 exact browse
 2. Add `sessionGeneration`, structured exit code/time and closed state/events to `TerminalManager`. Implement terminal wait with terminal fast path before listener registration, generation-scoped sequence cursor, bounded matcher/silence/deadline and one cleanup path.
 3. Reconfirm and delete dead `TerminalSessionPort`. Centralize wire limits; keep session ownership in draining state until its owned process tree settles. On shutdown await `Promise.allSettled` and retain/report any failed owner instead of clearing the session map first.
 4. Fix preview subscription tokens/refcounts, repeated-callback retains, debounce cancellation, canonical keys, shutdown disposal and shared safe resolution.
-5. Create artifact capabilities around a durable, crash-consistent metadata index. Add project/workspace lineage to staging inputs, rehydrate unique run-local blob byte totals before serving, charge quota only when materializing a new sanitized-content hash, and coordinate retained receipt references with cleanup.
+5. Extend the Phase 02 artifact capability module around a durable, crash-consistent metadata index. Add project/workspace lineage to staging inputs, sanitize and hash before run-local existence/quota checks, rehydrate unique run-local blob byte totals before serving, charge quota only when materializing a new sanitized-content hash, and coordinate retained receipt references with cleanup.
 6. Route catalogue/HTTP through one service: durable metadata lookup and exact-lineage/current-receipt-read authorization precede byte access and yield uniform denial. Retention consults run-local metadata/receipt references before deleting `root/<runId>/<sha>.artifact`; no cross-run blob-sharing abstraction is introduced.
 7. Implement 1 MiB chunks, UTF-8/base64 framing and SHA-256 verification for cache and disk. Verify index/file partial-write recovery and sanitization.
 8. Delete fallback QA execution, require canonical `ThemeQaWorkflow`, enforce explicit tab equality, and stop all artifact/watcher timers on drain/shutdown.
@@ -147,6 +148,7 @@ Phase 01 lineage/policy + Phase 02 receipts/cancellation + Phase 03 exact browse
 | Main restarts with retained artifact receipt | Durable index rehydrates lineage/path/hash; authorized paged read succeeds without directory guessing. |
 | Same run stages identical content twice | Distinct metadata refs may share the run-local blob; cleanup preserves bytes until the last retained metadata/receipt reference expires. |
 | Same run stages identical content near quota | Second metadata ref reuses the blob and adds zero run-byte charge; a genuinely new blob over budget is rejected atomically. |
+| Workflow `report.generate` executes | Catalogue management policy, child invocation receipt and artifact references are durable; `WorkflowEngine` performs no direct stage call. |
 | Shutdown reaps several PTYs and one kill fails | All kills settle; successful sessions clear, failed owner remains/report blocks freeze, and no unrelated PID is touched. |
 | Explicit QA tab differs from authority | `TARGET_MISMATCH`; fallback scanner does not exist and no scan executes. |
 
@@ -162,6 +164,7 @@ Phase 01 lineage/policy + Phase 02 receipts/cancellation + Phase 03 exact browse
 - [ ] `ThemeQaWorkflow` remains the sole QA engine; aliases do not fork behavior or schema.
 - [ ] Terminal exit/close fast paths and session-generation cursors prevent missed events and cross-incarnation sequence ambiguity.
 - [ ] Artifact metadata/index and receipt protections survive restart and partial-write recovery; authorization occurs before disk byte access.
+- [ ] Report generation remains transport/ledger-owned and management-classified while read/stat share the canonical artifact authorization service.
 - [ ] Run-local content-addressed cleanup is reference-aware; one metadata ref's expiry cannot break another retained reference to the same run blob.
 - [ ] Preview subscriptions handle repeated callback identities and cancel pending debounce work at release/clear.
 - [ ] Fallback QA execution is deleted; canonical workflow registration and exact target equality are mandatory.

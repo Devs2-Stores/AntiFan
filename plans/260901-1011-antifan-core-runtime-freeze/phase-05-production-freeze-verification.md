@@ -18,14 +18,14 @@ Certify the authority-first runtime with one repeatable command plus focused sec
 - Add `verify:freeze` to `package.json` using correct Electron runner semantics. The certification runner performs exactly one compile, then invokes compiled tests and underlying smoke/benchmark scripts directly; no child alias may trigger another compile.
 - Add a certification runner that executes every required stage, records start/end/exit/timeout/cleanup state in `try/finally`, and emits JSON plus Markdown even when a stage fails.
 - Run focused tests for public-schema/adapter injection, authority contracts, catalogue effect/access policy completeness, invocation ledger races/bounds, historical replay and authorization downgrade, Bridge/MCP/mobile-token bypass rejection, browser revision chaining/target revalidation, cancellation, terminal cleanup, preview containment, and artifact retention.
-- Add focused tests for MCP SDK `extra.requestId` retry identity versus distinct identical calls, the explicit non-ordinal grant scope matrix, pre-dispatch durability failure with concurrent JOINers, concrete attachment/invocation recovery paths and corrupt tails, materialized run/attempt recovery order, ledger-owned workflow children/revision propagation, and timeout ambiguity settlement.
+- Add focused tests for MCP SDK `extra.requestId` retry identity versus distinct identical calls, the explicit non-ordinal grant scope matrix, pre-dispatch durability failure with concurrent JOINers, awaited asynchronous attachment/revision persistence, concrete attachment/invocation recovery paths and corrupt tails, materialized run/attempt recovery order, deterministic workflow child `(Main parent invocation, step, attempt, sequence)` identity, exhaustive step/capability policy mapping, no nested workflow lane, per-child revision cursor updates, read/idempotent-only retry, runtime signal propagation, explicit response states, bounded forced-unknown settlement, and timeout ambiguity monotonicity.
 - Add focused tests for identity-coherent `browser.observe`, event-driven bounded `browser.wait`, ledger-owned `terminal.wait`, centralized actionability, authenticated artifact route/capability parity, and `theme.qa_validate` single-engine ownership.
 - Observation tests distinguish cross-document identity from same-document drift: epoch/generation/URL changes fail closed; same-document timing differences are exposed by component timestamps/sequence/drift metadata rather than rejected as impossible atomicity violations.
-- Wait tests cover separate wait/passive capacity, fast path, dynamic mutation/lifecycle/network resolution, tracker attach/detach and abort-aware `awaitQuiescence()`, OWNER/JOIN convergence, timeout/navigation/session-close cleanup, and zero residual observers/listeners/timers.
-- Actionability tests cover detached nodes/frames, zero geometry, animation instability, occlusion/pointer-events, disabled/readonly controls, navigation during auto-wait, and human preemption during queue handover; every failure/preemption emits zero CDP input.
+- Wait tests cover separate wait/passive capacity, fast path, dynamic mutation/lifecycle/network resolution, tracker live-attachment/detach and abort-aware `awaitQuiescence(signal)`, OWNER/JOIN convergence, timeout/navigation/session-close cleanup, and zero residual observers/listeners/timers.
+- Actionability/input tests cover detached nodes/frames, boundary escape, exact-path terminal fingerprint drift, zero geometry, animation instability, occlusion/pointer-events, disabled/readonly controls, navigation during auto-wait, duplicate or budget-truncated fingerprint candidates, trusted pre-effect failure, partial mouse dispatch cleanup, possible post-dispatch failure, signal cancellation while queued, double-release poison path, and human preemption during queue handover. Pre-action/ambiguity failures emit zero input; executed actions report exactly one `cdp_trusted` or `isolated_synthetic` tier.
 - Artifact tests cover exact lineage, durable index restart/partial-write recovery, retained attachment verifier restart, receipt-read downgrade, no oracle before disk read, pagination, MIME framing, cache/disk corruption, and retention reachability across capability and HTTP.
 - Add transition-generation and viewport-failure tests: binding rotation rejects missing operation-proven generation; actionability failure releases once and forces queued target/actionability revalidation without changing the human-preemption epoch.
-- Add terminal shutdown `allSettled` ownership and unique run-local artifact quota tests, including duplicate-content staging near quota.
+- Add terminal shutdown `allSettled` ownership, preview debounce cancellation, management-receipted workflow report generation, and sanitized-hash-first unique run-local artifact quota tests, including duplicate-content staging near quota.
 - Run `npm run typecheck` and the complete existing test suite after all callers migrate.
 - Run live Theme QA, split-review, and real-soak scripts through their existing package/runner entry points.
 - Extend `scripts/smoke-real-soak.cjs` and/or `scripts/benchmark-real-soak-8h.cjs` only where current evidence does not measure required process, memory, latency, queue, watcher, joiner, and cleanup contracts.
@@ -49,6 +49,9 @@ Certify the authority-first runtime with one repeatable command plus focused sec
 - Historical attachment authentication and artifact lookup remain functional after restart without persisted plaintext secrets; terminal attempt completion is distinct from security revocation.
 - LAN/remote/QR routes require authentication; mobile pairing enables canonical execution; terminal broadcasts remain attachment/session scoped.
 - Event waits do not starve passive observation, network tracking never treats unattached as idle, semantic observations do not prematurely invalidate live refs, and human preemption survives lock handover.
+- Workflow policy tests prove every `WorkflowStep.type` maps to its actual canonical capability set, only all-`read`/`idempotent-write` mappings retry, management-classified `report.generate` is ledger-owned/single-attempt, human names are irrelevant, the Main workflow invocation ID is the parent, the workflow reserves no child lane, and multiple child calls within one attempt receive increasing deterministic sequence keys.
+- Cancellation tests prove the internal signal is absent from serialized intent/digests, present on `AuthenticatedCapabilityContext`, forwarded through browser queue ownership, and the workflow cannot return/retry/continue before an explicit monotonic durable child state. A child that misses bounded acknowledgement is atomically `unknown`; late settlement is ignored; `unknown`/`interrupted` overrides `continueOnError`.
+- Semantic/input tests prove boundary-confined exact traversal, terminal full populated-field matching even on an exact path, 500-node/50-ms candidate budget, `REF_AMBIGUOUS` when uniqueness is unproven, trusted-CDP-first behavior, pre-effect-only isolated fallback, best-effort mouse release after partial dispatch, and no cross-tier replay after a possibly emitted event.
 
 ### Performance/resource gates
 - Preserve the accepted release thresholds unless live baseline evidence forces an explicit plan decision:
@@ -57,9 +60,9 @@ Certify the authority-first runtime with one repeatable command plus focused sec
   - peak total Electron process memory `<= 1.6 GB` on the target workstation profile;
   - tab switch `p50 <= 12 ms`, `p95 <= 18 ms`, max `<= 35 ms` after warmup;
   - viewport lock acquisition `p50 <= 5 ms`, `p95 <= 10 ms`;
-  - semantic snapshot of the defined 5,000-node fixture `p95 <= 35 ms`;
+  - semantic snapshot of the defined 5,000-node fixture `p95 <= 35 ms`; stale-ref candidate resolution inspects at most 500 nodes or 50 ms and emits no input when uniqueness remains unproven;
   - `browser.observe` fixed fixture `p95 <= 250 ms`, deadline 5 s default/30 s max, at most four components, DOM `<= 512 KiB`, screenshot `<= 8 MiB`, semantic descriptors `<= 150` and serialized semantic payload `<= 128 KiB`;
-  - wait/actionability test fixtures leave `0` observers/listeners/timers and emit `0` CDP events on pre-action failure;
+  - wait/actionability test fixtures leave `0` observers/listeners/timers and emit `0` trusted/synthetic input events on pre-action or semantic-ambiguity failure;
   - artifact read chunk size `<= 1,048,576` bytes and integrity/authorization parity failures: `0`;
   - long wait capacity exhaustion and passive observation starvation failures: `0`;
   - lost ViewportGate handover preemptions: `0`;
@@ -146,8 +149,13 @@ Phase 01 contract/injection tests
 | Full suite and smokes run after compile | `.compiled` is not repeatedly cleaned/rebuilt between stages. |
 | Soak leaves one owned process/watcher/waiter | Freeze blocked; exact owner/resource appears in report. |
 | Adapter receives the same SDK request ID twice vs. a new ID with identical params | Same transport operation converges on one receipt; distinct call executes as a distinct operation. |
-| Workflow child or pre-dispatch append is forced to timeout/fail | No direct catalogue effect, ghost claim, leaked JOINer, scalar retry, or later child; durable state is explicit. |
+| Workflow child identity/retry/cancellation is exercised across multiple calls and attempts | Keys increase deterministically by sequence; only mapped read/idempotent effects retry; signal reaches authenticated context; `unknown`/`interrupted` prevents retries and later children. |
+| Workflow child rotates authority then later fails | Shared revision cursor advances before error handling; retry/continuation uses the replacement and no stale-authority cascade occurs. |
+| Workflow child ignores cancellation grace or completes after forced settlement | Receipt becomes monotonic `unknown`; workflow stops and late completion cannot overwrite it. |
+| Workflow parent dispatches a viewport child | Parent holds no viewport/passive/wait lane; child acquires once with no deadlock. |
 | Binding response lacks completed generation or queued action follows failed actionability | Rotation rejects missing generation; queued owner revalidates and emits no inherited input. |
+| Traversal is stale with duplicate fingerprint matches | `REF_AMBIGUOUS`; no input; new observation required. |
+| Trusted debugger fails before vs. possibly after input dispatch | Pre-effect case falls back once and reports `isolated_synthetic`; uncertain case never crosses tiers and persists ambiguity. |
 | Duplicate artifact content and multi-PTY shutdown hit boundary paths | Unique blob quota is correct; every kill settles and any failed owner blocks freeze. |
 | All stages and thresholds pass | Reports contain raw samples, commit/environment, commands and zero secrets; plan may complete. |
 
@@ -159,7 +167,7 @@ Phase 01 contract/injection tests
 1. Encode the five-tier matrix—focused security/contracts, integration, live Electron, performance, soak—with stable Windows paths.
 2. Implement the certification runner with try/finally stage evidence and explicit report-directory propagation to every child script; any child writing elsewhere or missing evidence fails the gate.
 3. Add `verify:freeze` without redundant compilation.
-4. Run authority/replay/restart-verifier, SDK retry-identity/grant-scope, durability-failure/JOIN cleanup, materialized run recovery, workflow child-ledger/revision/abort settlement, discovery/mobile/broadcast isolation, observe/wait/actionability/preemption, transition-generation, terminal generation/exit/all-settled teardown, unique-blob quota/artifact index/authorization, QA single-owner, security and recovery tests. Include induced failures.
+4. Run authority/replay/restart-verifier, SDK retry-identity/grant-scope, durability-failure/JOIN cleanup, asynchronous attachment durability, materialized run recovery, deterministic Main-parent workflow child sequencing, exhaustive effect-policy retry classification, non-nested workflow scheduling, per-child revision cursor updates, explicit transport states, runtime abort propagation/bounded forced-unknown settlement, discovery/mobile/broadcast isolation, observe/wait/actionability/boundary-confined semantic ambiguity/two-tier-input/partial-dispatch cleanup/preemption, transition-generation, terminal generation/exit/all-settled teardown, preview debounce teardown, sanitized-hash-first unique-blob quota/artifact index/authorization, ledger-owned report generation, QA single-owner, security and recovery tests. Include induced failures.
 5. Run typecheck/full suite.
 6. Run actual Electron Theme QA, split review, CDP/preemption, terminal process-tree and artifact restart/read smokes.
 7. Measure tab switch, viewport lock, semantic snapshot, multi-modal observation, wait/passive capacity, artifact stage/read and cleanup with warmup/raw samples.
@@ -187,6 +195,11 @@ npm run verify:freeze
 - [ ] Restart tests prove retained attachment authentication and artifact disclosure/index recovery; discovery/pairing/broadcast tests prove no topology or cross-session leakage.
 - [ ] Separate wait/passive capacity, tracker lifecycle, semantic snapshot retention and handover preemption tests pass with zero starvation, false idle, accidental ref invalidation or dropped preemption.
 - [ ] Frozen observe/wait/snapshot budgets pass boundary and overload tests; no Phase 05 threshold is invented after implementation.
+- [ ] Every workflow step type and reachable child capability is covered by policy-completeness tests; no interactive/unclassified step retries and no child identity uses random/time fallback.
+- [ ] Workflow parent scheduling, shared revision cursor, explicit child state, cancellation grace and late-settlement monotonicity tests pass without deadlock or stale-authority continuation.
+- [ ] Boundary-confined semantic scans, exact-path fingerprint validation, candidate-budget cutoff, partial trusted-input cleanup, queued signal abort and idempotent gate release tests pass with zero wrong-target/orphan input.
+- [ ] Workflow timeout/abort waits for durable settlement and stops on `unknown`/`interrupted` regardless of `continueOnError`.
+- [ ] Semantic fallback cardinality and input-tier tests prove zero wrong-target input, truthful `executionTier`, pre-effect-only fallback, and no cross-tier replay after uncertain dispatch.
 - [ ] Every smoke/soak child writes evidence under the certification report directory selected by the runner.
 - [ ] JSON and Markdown reports contain reproducible evidence and no secrets/private payloads.
 - [ ] Plan completion and the single downstream unblock occur only after evidence is recorded.

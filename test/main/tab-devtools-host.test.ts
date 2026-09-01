@@ -1,5 +1,6 @@
 import { describe, it } from 'node:test';
 import * as assert from 'node:assert';
+import vm from 'node:vm';
 import { TabDevToolsHost, TabDevToolsContext } from '../../src/main/browser/tab-devtools-host';
 import { AntiFanTab, SplitPaneId, AntiFanPickedElement } from '../../src/shared/contracts';
 
@@ -225,9 +226,27 @@ describe('TabDevToolsHost (Sub-Controller Unit Tests)', () => {
     const newTabId = await devTools.viewPageSource('tab-1');
     assert.strictEqual(createTabUrl, 'about:blank', 'Must create tab with about:blank to prevent native double fetch');
     assert.strictEqual(fetchCalls, 1, 'fetchAndLoadPageSource must be invoked exactly once');
-
     const newTab = tabs.get(newTabId);
     assert.ok(newTab);
     assert.strictEqual(newTab.state.url, 'view-source:https://example.com/store');
+  });
+
+  it('8. injectAutoJsonViewer emits valid pure JavaScript without TypeScript keywords or syntax errors', () => {
+    const { ctx } = createMockContext();
+    const devTools = new TabDevToolsHost(ctx);
+    let injectedScript = '';
+    const mockWc = {
+      isDestroyed: () => false,
+      executeJavaScript: async (code: string) => {
+        injectedScript = code;
+        return undefined;
+      },
+    } as unknown as Electron.WebContents;
+
+    devTools.injectAutoJsonViewer(mockWc);
+    assert.ok(injectedScript.length > 0, 'Must inject AutoJsonViewer script');
+    assert.doesNotThrow(() => {
+      new vm.Script(injectedScript);
+    }, 'Injected AutoJsonViewer script must be 100% valid ECMAScript without SyntaxError');
   });
 });
