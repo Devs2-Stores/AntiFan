@@ -215,7 +215,7 @@ describe('Capability catalogue', () => {
     assert.ok(dpSchema?.properties?.tabId, 'browser.set-device-preset must expose tabId in schema');
   });
 
-  it('verifies production index.ts wires all required browser and responsive control methods', async () => {
+  it('verifies production index.ts wires all required browser and responsive control methods and validates port contracts', async () => {
     const fs = await import('node:fs');
     const path = await import('node:path');
     const indexSrc = fs.readFileSync(path.resolve(process.cwd(), 'src/main/index.ts'), 'utf8');
@@ -252,6 +252,7 @@ describe('Capability catalogue', () => {
     for (const binding of requiredBindings) {
       assert.ok(indexSrc.includes(`${binding}:`), `src/main/index.ts must bind ${binding} in BrowserControlPort`);
     }
+
   });
 
   it('verifies device presets catalog and mobile emulation parameters', async () => {
@@ -941,6 +942,7 @@ describe('Capability catalogue', () => {
         return target.browserEpoch === 1 && target.documentGeneration === currentDocGen;
       },
       getDom: async () => '<main>Refreshed Content</main>',
+      agentClick: async () => true,
       navigate: () => true,
       captureScreenshot: async () => '',
       evalJs: async () => null,
@@ -970,9 +972,15 @@ describe('Capability catalogue', () => {
     const domResult = await browser.dom(reloadResult.target, 'run-1', 'attempt-1');
     assert.strictEqual(domResult, '<main>Refreshed Content</main>');
 
-    // Old initialTarget with generation 1 is now rejected as stale
+    // Old initialTarget with generation 1 (vs live generation 2) is rejected on interactive operations with HMR_DRIFT
     await assert.rejects(
-      async () => browser.dom(initialTarget, 'run-1', 'attempt-1'),
+      async () => browser.agentClick({ tabId: 'tab-1', selector: 'button' }, initialTarget),
+      (err: unknown) => err instanceof CapabilityError && err.code === 'HMR_DRIFT'
+    );
+
+    // Mismatched browserEpoch or runtime is rejected with TARGET_STALE
+    await assert.rejects(
+      async () => browser.dom({ ...initialTarget, browserEpoch: 999 }, 'run-1', 'attempt-1'),
       (err: unknown) => err instanceof CapabilityError && err.code === 'TARGET_STALE'
     );
   });
@@ -1049,6 +1057,7 @@ describe('Capability catalogue', () => {
       tabId: 'tab-non-existent-999',
     });
     assert.strictEqual(mismatchRes.isError, true, 'Non-existent target tab must fail closed');
-    assert.match(mismatchRes.content[0]?.text || '', /TARGET_MISMATCH|CAPABILITY_NOT_FOUND|Unknown tab/);
+    const errPayload = JSON.parse(mismatchRes.content[0]?.text || '{}');
+    assert.strictEqual(errPayload.code, 'TARGET_MISMATCH', 'Target mismatch must yield exact TARGET_MISMATCH code');
   });
 });

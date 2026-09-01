@@ -3,10 +3,13 @@ import {
   BrowserTarget,
   CapabilityError,
   CapabilityRequestContext,
+  ClientInvocationIntent,
+  makeControlPlaneId,
   RuntimeLease,
 } from '../../shared/control-plane-contracts';
 import { CapabilityCatalogue } from '../tools/capability-catalogue';
 import { ArtifactStore } from '../tools/artifact-store';
+import { CapabilityTransportAdapter, CapabilityTransportResponse } from '../tools/capability-transport';
 import {
   WorkflowDefinition,
   WorkflowDefinitionSchema,
@@ -19,6 +22,7 @@ import {
 export interface WorkflowEnginePorts {
   catalogue: CapabilityCatalogue;
   artifacts: ArtifactStore;
+  transport?: CapabilityTransportAdapter;
 }
 
 export interface WorkflowExecutionOptions {
@@ -32,13 +36,29 @@ export interface WorkflowExecutionOptions {
   grant?: 'read' | 'write' | 'execute' | 'eval';
   signal?: AbortSignal;
   onEvent?: WorkflowEventListener;
+  attachmentId?: string;
+  attachmentSecret?: string;
+  authorityRevision?: string;
+  parentInvocationId?: string;
 }
-
 export class WorkflowEngine {
   constructor(private readonly ports: WorkflowEnginePorts) {}
 
   async execute(options: WorkflowExecutionOptions): Promise<WorkflowExecutionResult> {
-    const { workflow, target, lease, leaseToken, runId, attemptId, grant, signal, onEvent } = options;
+    const {
+      workflow,
+      target,
+      lease,
+      leaseToken,
+      runId,
+      attemptId,
+      grant,
+      signal,
+      onEvent,
+      attachmentId,
+      attachmentSecret,
+      parentInvocationId,
+    } = options;
 
     // 1. Validate workflow schema
     const parsed = WorkflowDefinitionSchema.safeParse(workflow);
@@ -51,6 +71,7 @@ export class WorkflowEngine {
     this.assertTarget(target);
 
     let currentTarget: BrowserTarget = { ...target };
+    let currentRevision: string | undefined = options.authorityRevision;
     const stepResults: WorkflowStepResult[] = [];
     const allArtifacts: ArtifactRef[] = [];
     const startTime = Date.now();
@@ -105,15 +126,34 @@ export class WorkflowEngine {
             grant: grant ?? 'write',
           };
 
+          const dispatchChild =
+            this.ports.transport && attachmentId && attachmentSecret && currentRevision
+              ? (intent: ClientInvocationIntent) =>
+                  this.ports.transport!.dispatchChildIntent(
+                    parentInvocationId || makeControlPlaneId('invocation'),
+                    step.id,
+                    attempt,
+                    intent
+                  )
+              : undefined;
+
           const stepOutput = await this.executeStepWithTimeout(
             step,
             reqContext,
             step.timeoutMs,
-            signal
+            signal,
+            dispatchChild,
+            attachmentId && attachmentSecret && currentRevision
+              ? { attachmentId, attachmentSecret, authorityRevision: currentRevision }
+              : undefined
           );
 
           if (stepOutput.updatedTarget) {
-            currentTarget = stepOutput.updatedTarget;
+            currentTarget = { ...currentTarget, ...stepOutput.updatedTarget };
+          }
+
+          if (stepOutput.replacementRevision) {
+            currentRevision = stepOutput.replacementRevision;
           }
 
           if (stepOutput.artifacts) {
@@ -135,19 +175,20 @@ export class WorkflowEngine {
         } catch (err: unknown) {
           lastError = err instanceof Error ? err : new Error(String(err));
           // If error is security or lease mismatch, abort retries immediately
-          if (err instanceof CapabilityError && (
-            err.code === 'PROJECT_MISMATCH' ||
-            err.code === 'WORKSPACE_MISMATCH' ||
-            err.code === 'RUNTIME_MISMATCH' ||
-            err.code === 'UNAUTHENTICATED' ||
-            err.code === 'POLICY_DENIED' ||
-            err.code === 'TARGET_REQUIRED'
-          )) {
+          if (
+            err instanceof CapabilityError &&
+            (err.code === 'PROJECT_MISMATCH' ||
+              err.code === 'WORKSPACE_MISMATCH' ||
+              err.code === 'RUNTIME_MISMATCH' ||
+              err.code === 'UNAUTHENTICATED' ||
+              err.code === 'POLICY_DENIED' ||
+              err.code === 'TARGET_REQUIRED' ||
+              err.code === 'AUTHENTICATION_DENIED')
+          ) {
             break;
           }
         }
       }
-
       if (!stepResult) {
         const errorMsg = lastError?.message || 'Unknown step execution failure';
         const isAborted = signal?.aborted || errorMsg.includes('aborted');
@@ -249,142 +290,189 @@ export class WorkflowEngine {
     step: WorkflowStep,
     context: CapabilityRequestContext,
     timeoutMs: number,
-    signal?: AbortSignal
-  ): Promise<{ data?: unknown; artifacts?: ArtifactRef[]; updatedTarget?: BrowserTarget }> {
+    signal?: AbortSignal,
+    dispatchChild?: (intent: ClientInvocationIntent) => Promise<CapabilityTransportResponse>,
+    attachmentContext?: { attachmentId: string; attachmentSecret: string; authorityRevision: string }
+  ): Promise<{ data?: unknown; artifacts?: ArtifactRef[]; updatedTarget?: BrowserTarget; replacementRevision?: string }> {
+    const stepAbortController = new AbortController();
     let timer: NodeJS.Timeout | undefined;
 
+    const onCallerAbort = () => {
+      stepAbortController.abort(signal?.reason || new Error('Workflow aborted'));
+    };
+
+    if (signal) {
+      if (signal.aborted) {
+        stepAbortController.abort(signal.reason || new Error('Workflow aborted'));
+      } else {
+        signal.addEventListener('abort', onCallerAbort, { once: true });
+      }
+    }
+
     const timeoutPromise = new Promise<never>((_, reject) => {
-      timer = setTimeout(() => {
-        reject(new Error(`Step '${step.name}' timed out after ${timeoutMs}ms`));
-      }, timeoutMs);
+      if (timeoutMs > 0) {
+        timer = setTimeout(() => {
+          const timeoutErr = new Error(`Step '${step.name}' timed out after ${timeoutMs}ms`);
+          stepAbortController.abort(timeoutErr);
+          reject(timeoutErr);
+        }, timeoutMs);
+      }
     });
 
     const abortPromise = new Promise<never>((_, reject) => {
-      if (signal?.aborted) {
-        reject(new Error('Workflow aborted'));
-      } else if (signal) {
-        signal.addEventListener('abort', () => reject(new Error('Workflow aborted')), { once: true });
+      if (stepAbortController.signal.aborted) {
+        reject(stepAbortController.signal.reason || new Error('Workflow aborted'));
+      } else {
+        stepAbortController.signal.addEventListener(
+          'abort',
+          () => reject(stepAbortController.signal.reason || new Error('Workflow aborted')),
+          { once: true }
+        );
       }
     });
 
     try {
       return await Promise.race([
-        this.dispatchStep(step, context),
+        this.dispatchStep(
+          step,
+          context,
+          stepAbortController.signal,
+          dispatchChild,
+          attachmentContext
+        ),
         timeoutPromise,
         abortPromise,
       ]);
     } finally {
-      clearTimeout(timer);
+      if (timer) clearTimeout(timer);
+      if (signal) signal.removeEventListener('abort', onCallerAbort);
     }
   }
 
   private async dispatchStep(
     step: WorkflowStep,
-    context: CapabilityRequestContext
-  ): Promise<{ data?: unknown; artifacts?: ArtifactRef[]; updatedTarget?: BrowserTarget }> {
-    const params = step.params as Record<string, unknown>;
+    context: CapabilityRequestContext,
+    signal: AbortSignal,
+    dispatchChild?: (intent: ClientInvocationIntent) => Promise<CapabilityTransportResponse>,
+    attachmentContext?: { attachmentId: string; attachmentSecret: string; authorityRevision: string }
+  ): Promise<{ data?: unknown; artifacts?: ArtifactRef[]; updatedTarget?: BrowserTarget; replacementRevision?: string }> {
+    const params = (step.params || {}) as Record<string, unknown>;
     const tabId = typeof params.tabId === 'string' ? params.tabId : undefined;
+
+    const invokeCap = async (
+      name: string,
+      payload: Record<string, unknown>,
+      ctx: CapabilityRequestContext = context
+    ): Promise<{ data?: unknown; replacementRevision?: string }> => {
+      if (dispatchChild && attachmentContext) {
+        const intent: ClientInvocationIntent = {
+          requestId: makeControlPlaneId('request'),
+          idempotencyKey: makeControlPlaneId('idempotency'),
+          attachmentId: attachmentContext.attachmentId,
+          attachmentSecret: attachmentContext.attachmentSecret,
+          authorityRevision: attachmentContext.authorityRevision,
+          name,
+          params: payload,
+        };
+        const resp = await dispatchChild(intent);
+        if (!resp.ok) {
+          const code = resp.error?.code || 'CAPABILITY_ERROR';
+          const msg = resp.error?.message || 'Capability execution failed';
+          throw new CapabilityError(code as any, msg);
+        }
+        return { data: resp.data, replacementRevision: resp.replacementAuthorityRevision };
+      }
+      const data = await this.ports.catalogue.dispatch(name, payload, { ...ctx, signal });
+      return { data };
+    };
 
     switch (step.type) {
       case 'browser.navigate': {
         const url = params.url;
         if (!url || typeof url !== 'string') throw new CapabilityError('INVALID_ARGUMENT', 'browser.navigate requires url');
-        const res = (await this.ports.catalogue.dispatch('browser.navigate', { url, tabId }, context)) as { navigated: boolean; target: BrowserTarget };
-        return { data: res, updatedTarget: res.target };
+        const res = (await invokeCap('browser.navigate', { url, tabId })) as { data: { navigated: boolean; target: BrowserTarget }; replacementRevision?: string };
+        const data = res.data;
+        return { data, updatedTarget: data?.target, replacementRevision: res.replacementRevision };
       }
 
       case 'browser.click': {
-        const ok = await this.ports.catalogue.dispatch(
+        const res = await invokeCap(
           'browser.agent-click',
-          { selector: params.selector, ref: params.ref, x: params.x, y: params.y, label: params.label, tabId },
-          context
+          { selector: params.selector, ref: params.ref, x: params.x, y: params.y, label: params.label, tabId }
         );
-        return { data: { success: ok } };
+        return { data: { success: Boolean(res.data) }, replacementRevision: res.replacementRevision };
       }
 
       case 'browser.type': {
         const text = params.text;
         if (typeof text !== 'string') throw new CapabilityError('INVALID_ARGUMENT', 'browser.agent-type requires text');
-        const ok = await this.ports.catalogue.dispatch(
+        const res = await invokeCap(
           'browser.agent-type',
-          { selector: params.selector, text, clear: params.clear, tabId },
-          context
+          { selector: params.selector, text, clear: params.clear, tabId }
         );
-        return { data: { success: ok } };
+        return { data: { success: Boolean(res.data) }, replacementRevision: res.replacementRevision };
       }
 
       case 'browser.scroll': {
-        const ok = await this.ports.catalogue.dispatch(
+        const res = await invokeCap(
           'browser.agent-scroll',
-          { deltaY: params.deltaY, selector: params.selector, tabId },
-          context
+          { deltaY: params.deltaY, selector: params.selector, tabId }
         );
-        return { data: { success: ok } };
+        return { data: { success: Boolean(res.data) }, replacementRevision: res.replacementRevision };
       }
 
       case 'browser.hover': {
-        const ok = await this.ports.catalogue.dispatch(
+        const res = await invokeCap(
           'browser.agent-hover',
-          { selector: params.selector, x: params.x, y: params.y, label: params.label, tabId },
-          context
+          { selector: params.selector, x: params.x, y: params.y, label: params.label, tabId }
         );
-        return { data: { success: ok } };
+        return { data: { success: Boolean(res.data) }, replacementRevision: res.replacementRevision };
       }
 
       case 'browser.highlight': {
         if (!params.selector || typeof params.selector !== 'string') throw new CapabilityError('INVALID_ARGUMENT', 'browser.agent-highlight requires selector');
-        const ok = await this.ports.catalogue.dispatch(
+        const res = await invokeCap(
           'browser.agent-highlight',
-          { selector: params.selector, label: params.label, tabId },
-          context
+          { selector: params.selector, label: params.label, tabId }
         );
-        return { data: { success: ok } };
+        return { data: { success: Boolean(res.data) }, replacementRevision: res.replacementRevision };
       }
 
       case 'browser.screenshot': {
-        const res = await this.ports.catalogue.dispatch('browser.screenshot', { tabId }, { ...context, grant: 'read' });
-        const artifacts: ArtifactRef[] = (typeof res === 'object' && res !== null && 'id' in res) ? [res as ArtifactRef] : [];
-        return { data: { captured: true }, artifacts };
+        const res = await invokeCap('browser.screenshot', { tabId }, { ...context, grant: 'read' });
+        const artifacts: ArtifactRef[] = (typeof res.data === 'object' && res.data !== null && 'id' in res.data) ? [res.data as ArtifactRef] : [];
+        return { data: { captured: true }, artifacts, replacementRevision: res.replacementRevision };
       }
 
       case 'browser.extract_dom': {
-        const res = await this.ports.catalogue.dispatch('browser.dom', { selector: params.selector, tabId }, { ...context, grant: 'read' });
-        const artifacts: ArtifactRef[] = (typeof res === 'object' && res !== null && 'id' in res) ? [res as ArtifactRef] : [];
-        return { data: { extracted: true }, artifacts };
+        const res = await invokeCap('browser.dom', { selector: params.selector, tabId }, { ...context, grant: 'read' });
+        const artifacts: ArtifactRef[] = (typeof res.data === 'object' && res.data !== null && 'id' in res.data) ? [res.data as ArtifactRef] : [];
+        return { data: { extracted: true }, artifacts, replacementRevision: res.replacementRevision };
       }
 
       case 'browser.set_viewport': {
         const width = Number(params.width);
         const height = Number(params.height);
         if (!width || !height) throw new CapabilityError('INVALID_ARGUMENT', 'browser.set-viewport requires width and height');
-        const res = await this.ports.catalogue.dispatch(
+        const res = await invokeCap(
           'browser.set-viewport',
-          { width, height, mobile: params.mobile, deviceScaleFactor: params.deviceScaleFactor, tabId },
-          context
+          { width, height, mobile: params.mobile, deviceScaleFactor: params.deviceScaleFactor, tabId }
         );
-        return { data: res };
+        return { data: res.data, replacementRevision: res.replacementRevision };
       }
 
       case 'browser.set_device_preset': {
         const presetId = params.presetId;
         if (!presetId || typeof presetId !== 'string') throw new CapabilityError('INVALID_ARGUMENT', 'browser.set-device-preset requires presetId');
-        const res = await this.ports.catalogue.dispatch(
-          'browser.set-device-preset',
-          { presetId, tabId },
-          context
-        );
-        return { data: res };
+        const res = await invokeCap('browser.set-device-preset', { presetId, tabId });
+        return { data: res.data, replacementRevision: res.replacementRevision };
       }
 
       case 'browser.set_zoom': {
         const zoomFactor = Number(params.zoomFactor);
         if (!zoomFactor) throw new CapabilityError('INVALID_ARGUMENT', 'browser.set-zoom requires zoomFactor');
-        const res = await this.ports.catalogue.dispatch(
-          'browser.set-zoom',
-          { zoomFactor, tabId },
-          context
-        );
-        return { data: res };
+        const res = await invokeCap('browser.set-zoom', { zoomFactor, tabId });
+        return { data: res.data, replacementRevision: res.replacementRevision };
       }
 
       case 'browser.wait_for_selector': {
@@ -396,18 +484,23 @@ export class WorkflowEngine {
         let found = false;
 
         while (Date.now() - startPoll < maxWaitMs) {
+          if (signal?.aborted) {
+            throw new Error('Workflow was aborted');
+          }
           try {
-            const dom = await this.ports.catalogue.dispatch('browser.dom', { selector, tabId }, { ...context, grant: 'read' });
-            if (dom) {
+            const domRes = await invokeCap('browser.dom', { selector, tabId }, { ...context, grant: 'read' });
+            if (domRes.data) {
               found = true;
               break;
             }
-          } catch {
+          } catch (err) {
+            if (signal?.aborted) {
+              throw new Error('Workflow was aborted');
+            }
             // keep polling
           }
           await this.delay(pollIntervalMs);
         }
-
         if (!found) {
           throw new Error(`Selector '${selector}' not found within ${maxWaitMs}ms`);
         }
@@ -415,49 +508,52 @@ export class WorkflowEngine {
       }
 
       case 'qa.check_console_errors': {
-        const diag = (await this.ports.catalogue.dispatch(
+        const res = await invokeCap(
           'browser.diagnostics',
           { tabId: tabId || context.browserTarget?.tabId, level: 3 },
           { ...context, grant: 'read' }
-        )) as { console?: any[]; failures?: any[] };
+        );
+        const diag = res.data as { console?: any[]; failures?: any[] };
         const errors = diag?.console || [];
         if (errors.length > 0) {
           throw new Error(`Found ${errors.length} critical console error(s): ${errors.map((e: any) => e.text || e).join('; ')}`);
         }
-        return { data: { errors: 0, passed: true } };
+        return { data: { errors: 0, passed: true }, replacementRevision: res.replacementRevision };
       }
 
       case 'qa.check_broken_images': {
-        const diag = (await this.ports.catalogue.dispatch(
+        const res = await invokeCap(
           'browser.diagnostics',
           { tabId: tabId || context.browserTarget?.tabId },
           { ...context, grant: 'read' }
-        )) as { console?: any[]; failures?: any[] };
+        );
+        const diag = res.data as { console?: any[]; failures?: any[] };
         const failures = diag?.failures || [];
         const imageFailures = failures.filter((f: any) => typeof f.url === 'string' && /\.(png|jpe?g|webp|gif|svg)(\?.*)?$/i.test(f.url));
         if (imageFailures.length > 0) {
           throw new Error(`Found ${imageFailures.length} broken image(s): ${imageFailures.map((f: any) => f.url).join('; ')}`);
         }
-        return { data: { brokenImages: 0, passed: true } };
+        return { data: { brokenImages: 0, passed: true }, replacementRevision: res.replacementRevision };
       }
 
       case 'qa.check_overflow': {
-        const res = (await this.ports.catalogue.dispatch(
+        const res = await invokeCap(
           'browser.responsive-check',
           { tabId: tabId || context.browserTarget?.tabId },
           { ...context, grant: 'read' }
-        )) as { hasHorizontalScrollbar?: boolean; scrollWidth?: number; clientWidth?: number };
-        if (res?.hasHorizontalScrollbar) {
-          throw new Error(`Horizontal overflow detected: scrollWidth (${res.scrollWidth}) > clientWidth (${res.clientWidth})`);
+        );
+        const data = res.data as { hasHorizontalScrollbar?: boolean; scrollWidth?: number; clientWidth?: number };
+        if (data?.hasHorizontalScrollbar) {
+          throw new Error(`Horizontal overflow detected: scrollWidth (${data.scrollWidth}) > clientWidth (${data.clientWidth})`);
         }
-        return { data: res };
+        return { data, replacementRevision: res.replacementRevision };
       }
 
       case 'file.read': {
         const path = params.path;
         if (!path || typeof path !== 'string') throw new CapabilityError('INVALID_ARGUMENT', 'file.read requires path');
-        const res = await this.ports.catalogue.dispatch('file.read', { path, maxBytes: params.maxBytes }, { ...context, grant: 'read' });
-        return { data: res };
+        const res = await invokeCap('file.read', { path, maxBytes: params.maxBytes }, { ...context, grant: 'read' });
+        return { data: res.data, replacementRevision: res.replacementRevision };
       }
 
       case 'file.write': {
@@ -466,8 +562,8 @@ export class WorkflowEngine {
         if (!path || typeof path !== 'string' || typeof content !== 'string') {
           throw new CapabilityError('INVALID_ARGUMENT', 'file.write requires path and content');
         }
-        const res = await this.ports.catalogue.dispatch('file.write', { path, content }, context);
-        return { data: res };
+        const res = await invokeCap('file.write', { path, content }, context);
+        return { data: res.data, replacementRevision: res.replacementRevision };
       }
 
       case 'file.assert_not_contains': {
@@ -476,8 +572,8 @@ export class WorkflowEngine {
         if (!path || typeof path !== 'string' || !pattern || typeof pattern !== 'string') {
           throw new CapabilityError('INVALID_ARGUMENT', 'file.assert_not_contains requires path and pattern');
         }
-        const res = await this.ports.catalogue.dispatch('file.assert_not_contains', { path, pattern }, { ...context, grant: 'read' });
-        return { data: res };
+        const res = await invokeCap('file.assert_not_contains', { path, pattern }, { ...context, grant: 'read' });
+        return { data: res.data, replacementRevision: res.replacementRevision };
       }
 
       case 'report.generate': {

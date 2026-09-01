@@ -5,8 +5,10 @@ import { WorkspaceRegistry } from '../project/workspace-registry';
 import { RunService } from '../run/run-service';
 import { EventStore } from '../session/event-store';
 import { ReceiptStore } from '../session/receipt-store';
+import { InvocationLedger } from '../session/invocation-ledger';
 import { ArtifactStore } from '../tools/artifact-store';
 import { CapabilityCatalogue } from '../tools/capability-catalogue';
+import { CapabilityTransportAdapter } from '../tools/capability-transport';
 import { BrowserControlPort } from '../tools/browser-control-port';
 import { registerBrowserCapabilities } from '../tools/browser-capabilities';
 import { WorkspaceFilePort } from '../tools/workspace-file-port';
@@ -38,10 +40,12 @@ export class ControlPlaneRuntime {
   readonly chats = new ChatStore();
   readonly events: EventStore;
   readonly receipts: ReceiptStore;
+  readonly ledger: InvocationLedger;
   readonly artifacts: ArtifactStore;
   readonly runs: RunService;
   readonly files: WorkspaceFilePort;
   readonly capabilities: CapabilityCatalogue;
+  readonly transport: CapabilityTransportAdapter;
   readonly workflowEngine: WorkflowEngine;
   readonly workflowRegistry: WorkflowRegistry;
   private leaseState: RuntimeLease;
@@ -62,40 +66,45 @@ export class ControlPlaneRuntime {
     }
     this.events = new EventStore({ filePath: path.join(options.dataRoot, 'events.jsonl'), projectId: options.projectId, workspaceId: options.workspaceId });
     this.receipts = new ReceiptStore({ filePath: path.join(options.dataRoot, 'receipts.jsonl') });
+    this.ledger = new InvocationLedger({ dataRoot: options.dataRoot });
     this.artifacts = new ArtifactStore({ root: path.join(options.dataRoot, 'artifacts') });
+    this.workspaceRoot = options.workspaceRoot || path.resolve(options.dataRoot, '..');
+    this.leaseState = issueRuntimeLease(options.projectId, options.workspaceId, 30_000, options.hostEpoch ?? 1);
     this.runs = new RunService(
       this.chats,
       this.events,
       this.receipts,
-      (wsId, pId) => {
+      (wsId: string, pId: string) => {
         return this.workspaces.get(wsId, pId).rootPath;
       },
       undefined,
       () => this.leaseState.hostEpoch,
       options.getDocumentGeneration,
-      options.getAutomationTabId
+      options.getAutomationTabId,
+      options.dataRoot
     );
     this.files = new WorkspaceFilePort();
-    this.workspaceRoot = options.workspaceRoot || path.resolve(options.dataRoot, '..');
-    this.leaseState = issueRuntimeLease(options.projectId, options.workspaceId, 30_000, options.hostEpoch ?? 1);
-    if (options.runtimeId) this.leaseState = { ...this.leaseState, runtimeId: options.runtimeId };
     this.capabilities = new CapabilityCatalogue({
       runtime: this.switchState,
       projectId: options.projectId,
       workspaceId: options.workspaceId,
       runtimeId: this.leaseState.runtimeId,
       hostEpoch: options.hostEpoch ?? 1,
+      allowEval: options.allowEval ?? true,
       getActiveLease: () => this.getLease(),
       workspaceRegistry: this.workspaces,
-      allowEval: options.allowEval,
     });
-
-    // Wire file and workflow capabilities into authoritative catalogue
+    this.transport = new CapabilityTransportAdapter(this.capabilities, this.runs.attachments, this.ledger);
     registerFileCapabilities(this.capabilities, this.files, () => this.getWorkspaceRoot());
-    this.workflowEngine = new WorkflowEngine({ catalogue: this.capabilities, artifacts: this.artifacts });
+    this.workflowEngine = new WorkflowEngine({ catalogue: this.capabilities, artifacts: this.artifacts, transport: this.transport });
     this.workflowRegistry = new WorkflowRegistry(path.join(options.dataRoot, 'workflows'));
     registerWorkflowCapabilities(this.capabilities, this.workflowEngine);
   }
+  public async initialize(): Promise<void> {
+    await this.runs.attachments.initialize();
+    await this.ledger.initialize();
+  }
+
   getWorkspaceRoot(): string {
     if (this.leaseState.workspaceId) {
       try {
@@ -307,6 +316,7 @@ export class ControlPlaneRuntime {
       grant: options.grant || 'write',
       tabId: boundTarget.tabId,
       browserEpoch: boundTarget.browserEpoch,
+      browserTarget: boundTarget,
       hostEpoch: lease.hostEpoch,
       ttlMs,
       lease,
@@ -331,6 +341,10 @@ export class ControlPlaneRuntime {
           workspaceRoot: targetWs.rootPath,
           signal: options.signal,
           onEvent: options.onEvent,
+          attachmentId: session.launch.attachmentId,
+          attachmentSecret: session.launch.secret,
+          authorityRevision: session.launch.authorityRevision,
+          parentInvocationId: session.attempt.id,
         },
         reqContext
       )) as WorkflowExecutionResult;

@@ -60,8 +60,11 @@ export class AntiFanMcpServer {
       return this.listTools();
     });
 
-    this.server.setRequestHandler(CallToolRequestSchema, async (request) => {
-      return this.callTool(request.params.name, (request.params.arguments || {}) as Record<string, unknown>);
+    this.server.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
+      const callerRequestId = extra && (typeof extra.requestId === 'string' || typeof extra.requestId === 'number')
+        ? String(extra.requestId)
+        : undefined;
+      return this.callTool(request.params.name, (request.params.arguments || {}) as Record<string, unknown>, callerRequestId);
     });
   }
 
@@ -416,7 +419,7 @@ export class AntiFanMcpServer {
     if (this.isHighRiskAllowed) {
       tools.push({
         name: 'antifan_eval_js',
-        description: 'Execute arbitrary JavaScript expression in the active tab (requires high-risk mode)',
+        description: 'Execute JavaScript expression in the active or target tab context. Requires explicit high-risk privilege.',
         inputSchema: {
           type: 'object',
           properties: {
@@ -435,7 +438,7 @@ export class AntiFanMcpServer {
     return { tools: buildMcpToolList(this.getStaticTools(), this.transport, this.isHighRiskAllowed) };
   }
 
-  public async callTool(toolName: string, args: Record<string, unknown> = {}): Promise<{ content: Array<{ type: string; text?: string; data?: string; mimeType?: string }>; isError?: boolean }> {
+  public async callTool(toolName: string, args: Record<string, unknown> = {}, callerRequestId?: string): Promise<{ content: Array<{ type: string; text?: string; data?: string; mimeType?: string }>; isError?: boolean }> {
     const aliasMap: Record<string, string> = {
       'anti.browser.tabs.create': 'antifan_open_tab',
       'anti.browser.tabs.list': 'antifan_list_tabs',
@@ -469,6 +472,9 @@ export class AntiFanMcpServer {
       'anti.devtools.console.warnings': 'antifan_console_messages',
       'anti.browser.eval': 'antifan_eval_js',
       'anti.agent.eval': 'antifan_eval_js',
+      'anti.browser.evaluate': 'antifan_eval_js',
+      'anti.inspect.eval': 'antifan_eval_js',
+      'anti.inspect.snapshot': 'antifan_agent_snapshot',
       'anti.browser.set_zoom': 'antifan_set_zoom',
       'anti.browser.zoom.set': 'antifan_set_zoom',
       'anti.theme.qa.validate': 'antifan_theme_qa_validate',
@@ -497,12 +503,6 @@ export class AntiFanMcpServer {
     if (toolName === 'anti.devtools.console.errors') a.level = 3;
     if (toolName === 'anti.devtools.console.warnings') a.level = 2;
 
-    if (toolName === 'anti.telemetry.record_fallback' || name === 'anti.telemetry.record_fallback') {
-      const result = recordFallbackTelemetry(args as unknown as FallbackTelemetryPayload);
-      return {
-        content: [{ type: 'text', text: JSON.stringify(result) }],
-      };
-    }
     if (!this.transport) {
       return {
         isError: true,
@@ -537,10 +537,12 @@ export class AntiFanMcpServer {
     delete transportArgs.context;
     delete transportArgs.projectId;
     delete transportArgs.workspaceId;
-
+    delete transportArgs.idempotencyKey;
+    const requestId = callerRequestId ? `req-mcp-${callerRequestId}` : makeControlPlaneId('request');
+    const idempotencyKey = callerRequestId ? `idem-mcp-${callerRequestId}` : makeControlPlaneId('idempotency');
     const intent: ClientInvocationIntent = {
-      requestId: makeControlPlaneId('request'),
-      idempotencyKey: makeControlPlaneId('idempotency'),
+      requestId,
+      idempotencyKey,
       attachmentId: session.attachmentId,
       attachmentSecret: session.attachmentSecret,
       authorityRevision: session.authorityRevision,
@@ -665,6 +667,10 @@ export function buildMcpToolList(staticTools: Tool[], transport?: CapabilityTran
     if (item.name === 'antifan_theme_qa_rollback') generated.push({ ...item, name: 'anti.theme.qa_rollback' }, { ...item, name: 'theme.qa_rollback' });
     if (item.name === 'theme.assert_cart') generated.push({ ...item, name: 'anti.theme.assert_cart' });
     if (item.name === 'antifan_set_zoom') generated.push({ ...item, name: 'anti.browser.set_zoom' }, { ...item, name: 'anti.browser.zoom.set' });
+    if (item.name === 'antifan_agent_snapshot') generated.push({ ...item, name: 'anti.inspect.snapshot' });
+    if (item.name === 'antifan_eval_js') generated.push({ ...item, name: 'anti.browser.evaluate' }, { ...item, name: 'anti.inspect.eval' });
+    if (item.name === 'antifan_upload_file') generated.push({ ...item, name: 'anti.agent.file_upload' }, { ...item, name: 'anti.agent.upload_file' }, { ...item, name: 'anti.browser.upload_file' });
+    if (item.name === 'antifan_drop_files') generated.push({ ...item, name: 'anti.agent.drop' }, { ...item, name: 'anti.agent.file_drop' }, { ...item, name: 'anti.browser.drop_files' });
     return generated;
   });
   const diagnosticAliases = listed.some((item) => item.name === 'antifan_console_messages')

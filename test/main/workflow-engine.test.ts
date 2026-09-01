@@ -19,7 +19,9 @@ import {
   makeControlPlaneId,
 } from '../../src/shared/control-plane-contracts';
 import { ControlPlaneRuntime } from '../../src/main/control-plane/control-plane-runtime';
-
+import { AttachmentRegistry } from '../../src/main/run/attachment-registry';
+import { InvocationLedger } from '../../src/main/session/invocation-ledger';
+import { CapabilityTransportAdapter } from '../../src/main/tools/capability-transport';
 function createMockHost(overrides?: Partial<BrowserHostPort>): BrowserHostPort {
   let activeTab = 'tab-1';
   const tabs = [
@@ -635,5 +637,280 @@ describe('Workflow Engine', () => {
       () => runtime.executeWorkflow({ workflow, target: validTarget, grant: 'write' }),
       (err: unknown) => err instanceof CapabilityError && err.code === 'RUNTIME_DRAINING'
     );
+  });
+
+  it('executes workflow steps through CapabilityTransportAdapter with child intent dispatch and authority progression', async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-wf-child-'));
+    const projectId = makeControlPlaneId('project');
+    const workspaceId = makeControlPlaneId('workspace');
+    const runId = makeControlPlaneId('run');
+    const attemptId = makeControlPlaneId('attempt');
+    const lease = issueRuntimeLease(projectId, workspaceId, 30_000, 1);
+
+    const target: BrowserTarget = {
+      projectId,
+      workspaceId,
+      runtimeId: lease.runtimeId,
+      tabId: 'tab-1',
+      browserEpoch: 1,
+      documentGeneration: 1,
+    };
+
+    const host = createMockHost();
+    const artifacts = new ArtifactStore({ root: path.join(root, 'artifacts') });
+    const browser = new BrowserControlPort(host, artifacts);
+    const files = new WorkspaceFilePort();
+
+    const catalogue = new CapabilityCatalogue({
+      runtime: { mode: 'standalone', lifecycle: 'active' },
+      projectId,
+      workspaceId,
+      runtimeId: lease.runtimeId,
+      hostEpoch: 1,
+    });
+    registerBrowserCapabilities(catalogue, browser);
+    registerFileCapabilities(catalogue, files, () => root);
+
+    const registry = new AttachmentRegistry(undefined, root);
+    const ledger = new InvocationLedger({ dataRoot: root });
+    await ledger.initialize();
+
+    const transport = new CapabilityTransportAdapter(
+      catalogue,
+      registry,
+      ledger
+    );
+    const engine = new WorkflowEngine({ catalogue, artifacts, transport });
+
+    const { launch } = registry.issueAttachment(runId, attemptId, projectId, workspaceId, {
+      backendId: 'test-backend',
+      grant: 'write',
+      lease,
+      leaseToken: lease.token,
+      browserTarget: target,
+    });
+
+    const workflow: WorkflowDefinition = {
+      version: '1.0',
+      name: 'Child Intent Workflow',
+      steps: [
+        { id: 's1', name: 'Navigate', type: 'browser.navigate', params: { url: 'https://example.com/page1' }, timeoutMs: 5000, retryCount: 0, continueOnError: false },
+        { id: 's2', name: 'Click button', type: 'browser.click', params: { selector: '#btn' }, timeoutMs: 5000, retryCount: 0, continueOnError: false },
+      ],
+    };
+
+    const result = await engine.execute({
+      workflow,
+      target,
+      lease,
+      leaseToken: lease.token,
+      runId,
+      attemptId,
+      grant: 'write',
+      attachmentId: launch.attachmentId,
+      attachmentSecret: launch.secret,
+      authorityRevision: launch.authorityRevision,
+      parentInvocationId: 'parent-wf-inv-1',
+    });
+    if (result.status !== 'passed') {
+      console.error('Child workflow execution failed:', JSON.stringify(result.stepResults, null, 2));
+    }
+    assert.strictEqual(result.status, 'passed');
+    assert.strictEqual(result.passedSteps, 2);
+  });
+
+  it('times out hanging capability and interrupts step execution cleanly via Promise.race', async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-wf-timeout-'));
+    const projectId = makeControlPlaneId('project');
+    const workspaceId = makeControlPlaneId('workspace');
+    const runId = makeControlPlaneId('run');
+    const attemptId = makeControlPlaneId('attempt');
+    const lease = issueRuntimeLease(projectId, workspaceId, 30_000, 1);
+
+    const target: BrowserTarget = {
+      projectId,
+      workspaceId,
+      runtimeId: lease.runtimeId,
+      tabId: 'tab-1',
+      browserEpoch: 1,
+      documentGeneration: 1,
+    };
+
+    // Mock host that hangs forever on agentClick
+    const host = createMockHost({
+      agentClick: async () => new Promise<boolean>(() => {}), // Never resolves
+    });
+    const artifacts = new ArtifactStore({ root: path.join(root, 'artifacts') });
+    const browser = new BrowserControlPort(host, artifacts);
+
+    const catalogue = new CapabilityCatalogue({
+      runtime: { mode: 'standalone', lifecycle: 'active' },
+      projectId,
+      workspaceId,
+      runtimeId: lease.runtimeId,
+      hostEpoch: 1,
+    });
+    registerBrowserCapabilities(catalogue, browser);
+
+    const engine = new WorkflowEngine({ catalogue, artifacts });
+
+    const workflow: WorkflowDefinition = {
+      version: '1.0',
+      name: 'Hanging Step Workflow',
+      steps: [
+        { id: 's1', name: 'Hanging Click', type: 'browser.click', params: { selector: '#hang' }, timeoutMs: 100, retryCount: 0, continueOnError: false },
+      ],
+    };
+    const startTime = Date.now();
+    const result = await engine.execute({
+      workflow,
+      target,
+      lease,
+      leaseToken: lease.token,
+      runId,
+      attemptId,
+      grant: 'write',
+    });
+
+    const elapsed = Date.now() - startTime;
+    assert.strictEqual(result.status, 'failed');
+    assert.strictEqual(result.failedSteps, 1);
+    assert.ok(elapsed < 2000, `Elapsed time (${elapsed}ms) must be close to timeout (50ms)`);
+    assert.ok(result.stepResults[0]?.error?.includes('timed out'), `Expected timeout error, got: ${result.stepResults[0]?.error}`);
+  });
+
+  it('propagates exact documentGeneration !== 1 into initial workflow attachment and child execution', async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-wf-docgen-'));
+    const projectId = makeControlPlaneId('project');
+    const workspaceId = makeControlPlaneId('workspace');
+    const workspaceRoot = path.join(root, 'workspace');
+    fs.mkdirSync(workspaceRoot, { recursive: true });
+
+    const runtime = new ControlPlaneRuntime({
+      projectId,
+      workspaceId,
+      dataRoot: root,
+      workspaceRoot,
+      hostEpoch: 3,
+    });
+
+    runtime.projects.registerProject({
+      id: projectId,
+      name: 'Project',
+      dataRoot: root,
+      state: 'open',
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    });
+    runtime.workspaces.register({
+      id: workspaceId,
+      projectId,
+      rootPath: workspaceRoot,
+      state: 'attached',
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    });
+
+    const mockHost = createMockHost();
+    runtime.registerBrowser(new BrowserControlPort(mockHost));
+
+    const workflow: WorkflowDefinition = {
+      version: '1.0',
+      name: 'DocGen Workflow',
+      steps: [
+        { id: 's1', name: 'Click', type: 'browser.click', params: { selector: '#btn' }, timeoutMs: 5000, retryCount: 0, continueOnError: false },
+      ],
+    };
+
+    const lease = runtime.getLease();
+    const targetWithDocGen7: BrowserTarget = {
+      tabId: 'tab-1',
+      browserEpoch: 3,
+      documentGeneration: 7,
+      projectId,
+      workspaceId,
+      runtimeId: lease.runtimeId || '',
+    };
+
+    const result = await runtime.executeWorkflow({
+      workflow,
+      target: targetWithDocGen7,
+      grant: 'write',
+    });
+
+    assert.strictEqual(result.status, 'passed');
+    assert.strictEqual(result.passedSteps, 1);
+  });
+
+  it('aborts browser.wait_for_selector immediately when AbortSignal fires', async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-wf-abort-'));
+    const artifacts = new ArtifactStore({ root: path.join(root, 'artifacts') });
+    const controller = new AbortController();
+    let domCalls = 0;
+    const host = createMockHost({
+      getDom: async () => {
+        domCalls++;
+        controller.abort(new Error('User aborted wait'));
+        return '';
+      },
+    });
+    const browser = new BrowserControlPort(host, artifacts);
+
+    const runId = makeControlPlaneId('run');
+    const attemptId = makeControlPlaneId('attempt');
+    const projectId = makeControlPlaneId('project');
+    const workspaceId = makeControlPlaneId('workspace');
+    const runtimeId = makeControlPlaneId('binding');
+    const lease = { runtimeId, projectId, workspaceId, token: 'tok-1', protocolVersion: 1, hostEpoch: 1, ownerPid: process.pid, issuedAt: Date.now(), expiresAt: Date.now() + 60_000 };
+
+    const catalogue = new CapabilityCatalogue({
+      runtime: { mode: 'standalone', lifecycle: 'active' },
+      projectId,
+      workspaceId,
+      runtimeId: lease.runtimeId,
+      hostEpoch: 1,
+    });
+    registerBrowserCapabilities(catalogue, browser);
+
+    const engine = new WorkflowEngine({ catalogue, artifacts });
+
+    const workflow: WorkflowDefinition = {
+      version: '1.0',
+      name: 'Abort Wait For Selector',
+      steps: [
+        {
+          id: 'step-wait',
+          name: 'Wait for missing button',
+          type: 'browser.wait_for_selector',
+          params: { selector: '#never-appears' },
+          timeoutMs: 10_000,
+          retryCount: 0,
+          continueOnError: false,
+        },
+      ],
+    };
+
+    const target: BrowserTarget = {
+      tabId: 'tab-1',
+      browserEpoch: 1,
+      documentGeneration: 1,
+      projectId,
+      workspaceId,
+      runtimeId: lease.runtimeId,
+    };
+
+    const result = await engine.execute({
+      workflow,
+      target,
+      lease,
+      leaseToken: lease.token,
+      runId,
+      attemptId,
+      grant: 'write',
+      signal: controller.signal,
+    });
+
+    assert.strictEqual(result.status, 'interrupted');
+    assert.ok(domCalls >= 1, 'Mock DOM must have been called before abort');
   });
 });

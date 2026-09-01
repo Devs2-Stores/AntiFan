@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import * as assert from 'node:assert';
-import { isAllowedNavigation, sanitizeUrl, getSecureWebPreferences, cleanRestoredUrl } from '../../src/main/security/security-policy';
+import { isAllowedNavigation, sanitizeUrl, getSecureWebPreferences, cleanRestoredUrl, isInternalWidgetOrSubframeUrl } from '../../src/main/security/security-policy';
 
 describe('AntiFan Security Policy', () => {
   it('allows standard https, http, and safe view-source urls', () => {
@@ -53,5 +53,15 @@ describe('AntiFan Security Policy', () => {
     assert.strictEqual(prefs.partition, 'persist:capsule-workspace-1');
     assert.strictEqual(prefs.contextIsolation, false);
     assert.strictEqual(prefs.sandbox, true);
+  });
+  it('identifies internal widget and subframe URLs correctly', () => {
+    assert.strictEqual(isInternalWidgetOrSubframeUrl('https://contacts.google.com/widget/hovercard'), true);
+    assert.strictEqual(isInternalWidgetOrSubframeUrl('https://accounts.google.com/gsi/iframe/select'), true);
+    assert.strictEqual(isInternalWidgetOrSubframeUrl('https://www.google.com/recaptcha/api2/bframe'), true);
+    assert.strictEqual(isInternalWidgetOrSubframeUrl('https://www.google.com/recaptcha/enterprise/bframe'), true);
+    assert.strictEqual(isInternalWidgetOrSubframeUrl('https://example.com/checkout'), false);
+    assert.strictEqual(isInternalWidgetOrSubframeUrl('https://haravan.com/admin'), false);
+    assert.strictEqual(isInternalWidgetOrSubframeUrl(''), false);
+    assert.strictEqual(isInternalWidgetOrSubframeUrl(undefined), false);
   });
 });

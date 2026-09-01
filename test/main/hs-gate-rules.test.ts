@@ -54,6 +54,21 @@ test('static HS engine: Sapo comment form with lowercase names flags HS-03 warni
   assert.equal(result.passed, true, 'warning must not fail the gate');
 });
 
+
+test('static HS engine: un-guarded analytics script flags HS-06 warning', () => {
+  const html = `<script src="https://www.googletagmanager.com/gtag/js?id=GA_TRACKING_ID"></script>`;
+  const result = HsGateRules.evaluateHtml(html, 'haravan' as EcommercePlatform);
+  const hs06 = result.violations.find((item) => item.ruleId === 'HS-06');
+  assert.ok(hs06, 'expected an HS-06 violation for un-guarded analytics script');
+  assert.equal(hs06.severity, 'warning');
+  assert.equal(result.passed, true, 'warning must not fail the gate');
+});
+
+test('static HS engine: guarded analytics script with data-nops passes HS-06', () => {
+  const html = `<script src="https://www.googletagmanager.com/gtag/js?id=GA_TRACKING_ID" data-nops></script>`;
+  const result = HsGateRules.evaluateHtml(html, 'haravan' as EcommercePlatform);
+  assert.ok(!result.violations.some((item) => item.ruleId === 'HS-06'), 'guarded script must pass HS-06');
+});
 test('HsGateRules.getBrowserEvaluationScript compiles to valid JavaScript syntax without SyntaxError', () => {
   const platforms: EcommercePlatform[] = ['haravan', 'sapo', 'shopify', 'unknown'];
   for (const p of platforms) {

@@ -4,10 +4,12 @@ import { WebSocket } from 'ws';
 import { EventEmitter } from 'node:events';
 import * as net from 'node:net';
 import * as crypto from 'node:crypto';
+import * as http from 'node:http';
 import { BridgeServer } from '../../src/main/bridge/bridge-server';
 import { NativeTabHost } from '../../src/main/browser/native-tab-host';
 import { ControlPlaneRuntime } from '../../src/main/control-plane/control-plane-runtime';
-
+import { AttachmentRegistry } from '../../src/main/run/attachment-registry';
+import { makeControlPlaneId } from '../../src/shared/control-plane-contracts';
 // Mock NativeTabHost for pure isolated bridge test
 class MockTabHost extends EventEmitter {
   private tabs: any[] = [{ id: 'tab-1', url: 'https://google.com', title: 'Google', isLoading: false, canGoBack: false, canGoForward: false, zoomFactor: 1.0 }];
@@ -399,6 +401,95 @@ describe('AntiFan Bridge Server', () => {
     assert.strictEqual(state.queuedBytes, 0, 'queuedBytes must be 0 after flush');
     assert.strictEqual(sentMessages.length, 1, 'exactly 1 coalesced frame must be sent over the wire');
     assert.strictEqual(sentMessages[0], expectedPayload);
+
+    server.dispose();
+  });
+
+  it('enforces SEC-01: forbids attachment tokens from accessing administrative mobile HTML', async () => {
+    const mockHost = new MockTabHost() as unknown as NativeTabHost;
+    const registry = new AttachmentRegistry();
+    const runId = makeControlPlaneId('run');
+    const attemptId = makeControlPlaneId('attempt');
+    const projectId = makeControlPlaneId('project');
+    const workspaceId = makeControlPlaneId('workspace');
+    const runtimeId = makeControlPlaneId('binding');
+    const lease = { runtimeId, projectId, workspaceId, token: 'tok-1', protocolVersion: 1, hostEpoch: 1, ownerPid: process.pid, issuedAt: Date.now(), expiresAt: Date.now() + 30_000 };
+    const { launch } = registry.issueAttachment(runId, attemptId, projectId, workspaceId, {
+      backendId: 'omp',
+      lease,
+      leaseToken: lease.token,
+      grant: 'write',
+      tabId: 'tab-1',
+    });
+    const server = new BridgeServer(mockHost, 0, false, undefined, undefined, registry);
+    const port = await server.start();
+
+    // 1. Request with attachment secret should return 403 Forbidden
+    const forbiddenRes = await new Promise<{ statusCode: number; body: string }>((resolve, reject) => {
+      const req = http.get(`http://127.0.0.1:${port}/mobile?token=${launch.secret}`, (res) => {
+        let data = '';
+        res.on('data', chunk => { data += chunk; });
+        res.on('end', () => resolve({ statusCode: res.statusCode || 0, body: data }));
+      });
+      req.on('error', reject);
+    });
+    assert.strictEqual(forbiddenRes.statusCode, 403, 'Attachment token must receive 403 Forbidden on mobile admin route');
+    assert.ok(!forbiddenRes.body.includes(server.getToken()), 'Forbidden response must not leak master bridge token');
+
+    // 2. Request with unauthenticated token should return 401 Unauthorized
+    const unauthorizedRes = await new Promise<{ statusCode: number }>((resolve, reject) => {
+      const req = http.get(`http://127.0.0.1:${port}/mobile`, (res) => {
+        resolve({ statusCode: res.statusCode || 0 });
+      });
+      req.on('error', reject);
+    });
+    assert.strictEqual(unauthorizedRes.statusCode, 401, 'Unauthenticated request must receive 401');
+
+    // 3. Request with master bridge token should return 200 OK
+    const successRes = await new Promise<{ statusCode: number; body: string }>((resolve, reject) => {
+      const req = http.get(`http://127.0.0.1:${port}/mobile?token=${server.getToken()}`, (res) => {
+        let data = '';
+        res.on('data', chunk => { data += chunk; });
+        res.on('end', () => resolve({ statusCode: res.statusCode || 0, body: data }));
+      });
+      req.on('error', reject);
+    });
+    assert.strictEqual(successRes.statusCode, 200, 'Master token must receive 200 OK');
+    assert.ok(successRes.body.includes(server.getToken()), 'Authorized response includes master token for legitimate pairing');
+
+    server.dispose();
+  });
+
+  it('enforces SEC-02: rejects attacker domains from CORS origin reflection', async () => {
+    const mockHost = new MockTabHost() as unknown as NativeTabHost;
+    const server = new BridgeServer(mockHost, 0);
+    const port = await server.start();
+
+    // 1. Malicious origin http://localhost.evil.com on preflight
+    const maliciousOptions = await new Promise<{ statusCode: number; headers: http.IncomingHttpHeaders }>((resolve, reject) => {
+      const req = http.request(`http://127.0.0.1:${port}/status`, {
+        method: 'OPTIONS',
+        headers: { Origin: 'http://localhost.evil.com' },
+      }, (res) => {
+        resolve({ statusCode: res.statusCode || 0, headers: res.headers });
+      });
+      req.on('error', reject);
+      req.end();
+    });
+    assert.strictEqual(maliciousOptions.headers['access-control-allow-origin'], undefined, 'Malicious origin must not be reflected in preflight');
+
+    // 2. Legitimate localhost origin on preflight
+    const legitimateOptions = await new Promise<{ statusCode: number; headers: http.IncomingHttpHeaders }>((resolve, reject) => {
+      const req = http.request(`http://127.0.0.1:${port}/status`, {
+        method: 'OPTIONS',
+        headers: { Origin: 'http://localhost:3000' },
+      }, (res) => {
+        resolve({ statusCode: res.statusCode || 0, headers: res.headers });
+      });
+      req.on('error', reject);
+      req.end();
+    });
+    assert.strictEqual(legitimateOptions.headers['access-control-allow-origin'], 'http://localhost:3000', 'Legitimate localhost origin must be reflected');
 
     server.dispose();
   });

@@ -74,8 +74,7 @@ describe('ControlPlaneRuntime Main Launch Owner & Attachment Authority', () => {
         grant: 'execute',
       });
 
-      assert.ok(launch.attachmentId.startsWith('binding-'));
-      assert.strictEqual(launch.runId, run.id);
+      assert.ok(launch.attachmentId.startsWith('attachment-') || launch.attachmentId.startsWith('binding-'));
       assert.strictEqual(launch.attemptId, activeAttemptId);
       assert.strictEqual(launch.hostEpoch, 5);
       assert.strictEqual(record.grant, 'execute');

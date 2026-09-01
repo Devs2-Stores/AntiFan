@@ -1,10 +1,14 @@
+import * as crypto from 'node:crypto';
 import { CapabilityCatalogue } from './capability-catalogue';
 import { AttachmentRegistry } from '../run/attachment-registry';
+import { InvocationLedger } from '../session/invocation-ledger';
 import {
   AuthenticatedCapabilityContext,
   CapabilityError,
   CapabilityRequestContext,
   ClientInvocationIntent,
+  ExecutionAttachmentRecord,
+  MainResolvedAuthority,
   makeControlPlaneId,
 } from '../../shared/control-plane-contracts';
 
@@ -32,11 +36,28 @@ export interface CapabilityTransportResponse {
 export class CapabilityTransportAdapter {
   constructor(
     private readonly catalogue: CapabilityCatalogue,
-    private readonly attachmentRegistry: AttachmentRegistry
+    private readonly attachmentRegistry: AttachmentRegistry,
+    private readonly ledger?: InvocationLedger
   ) {}
 
   list(context?: Pick<CapabilityRequestContext, 'grant'>): CapabilityListItem[] {
     return this.catalogue.list(context);
+  }
+
+  async dispatchChildIntent(
+    parentInvocationId: string,
+    stepId: string,
+    attemptIndex: number,
+    intent: ClientInvocationIntent,
+    invocationSeq?: number | string
+  ): Promise<CapabilityTransportResponse> {
+    const seqSuffix = invocationSeq !== undefined ? String(invocationSeq) : `${Date.now()}-${crypto.randomBytes(4).toString('hex')}`;
+    const childIntent: ClientInvocationIntent = {
+      ...intent,
+      requestId: intent.requestId || makeControlPlaneId('request'),
+      idempotencyKey: intent.idempotencyKey || `child:${parentInvocationId}:${stepId}:${attemptIndex}:${seqSuffix}`,
+    };
+    return this.dispatchIntent(childIntent);
   }
 
   async dispatchIntent(intent: ClientInvocationIntent): Promise<CapabilityTransportResponse> {
@@ -62,31 +83,198 @@ export class CapabilityTransportAdapter {
       throw new CapabilityError('INVALID_ARGUMENT', 'Intent capability name must be a non-empty string');
     }
 
-    const invocationId = makeControlPlaneId('invocation');
-
+    // Step 1: Authenticate lineage
+    let authResult: { record: ExecutionAttachmentRecord; authority: MainResolvedAuthority };
     try {
-      const authority = this.attachmentRegistry.resolveAuthority(intent);
-      const record = this.attachmentRegistry.getAttachment(authority.attachmentId);
-      if (!record || !record.lease) {
-        throw new CapabilityError('UNAUTHENTICATED', 'No active lease on resolved attachment record');
-      }
-
-      const authContext: AuthenticatedCapabilityContext = {
-        attachmentId: authority.attachmentId,
-        runId: authority.runId,
-        attemptId: authority.attemptId,
-        projectId: authority.projectId,
-        workspaceId: authority.workspaceId || '',
-        chatId: record.chatId,
-        backendId: authority.backendId,
-        hostEpoch: authority.hostEpoch,
-        invocationId,
-        lease: record.lease,
-        leaseToken: authority.runtimeLeaseToken || '',
-        browserTarget: authority.browserTarget,
-        grant: authority.grant,
+      authResult = this.attachmentRegistry.authenticateLineage(
+        intent.attachmentId,
+        intent.attachmentSecret,
+        { authorityRevision: intent.authorityRevision }
+      );
+    } catch (err) {
+      const typed = err as { code?: string; message?: string; details?: unknown };
+      return {
+        ok: false,
+        requestId: intent.requestId,
+        invocationId: makeControlPlaneId('invocation'),
+        error: {
+          code: typed.code || 'AUTHENTICATION_DENIED',
+          message: typed.message || String(err),
+          details: typed.details,
+        },
       };
+    }
+    const { record, authority } = authResult;
 
+    // Resolve capability definition and policy
+    const definition = this.catalogue.get(intent.name);
+    const policy = definition?.policy;
+    const policyDigest = policy?.policyDigest || 'unversioned';
+    const policyVersion = policy?.policyVersion || 1;
+    const recordedVisibility = policy?.recordedVisibility || 'public';
+
+    // Step 2: If ledger is configured, check for existing record (JOIN/REPLAY)
+    let invocationId = makeControlPlaneId('invocation');
+    let isOwner = true;
+
+    if (this.ledger) {
+      try {
+        const existing = await this.ledger.observe(intent, authority);
+        if (existing) {
+          const rec = existing.record;
+          if (rec && policyDigest !== 'unversioned' && rec.policyDigest !== policyDigest) {
+            throw new CapabilityError('BINDING_COLLISION', 'Recorded policy digest mismatch with current capability policy');
+          }
+
+          const canRead = this.canReadReceipt(authority.grant, policy?.receiptReadPermission, rec?.recordedVisibility);
+          if (existing.kind === 'replay' && rec) {
+            if (!canRead) {
+              if (rec.recordedVisibility === 'redacted') {
+                throw new CapabilityError('POLICY_DENIED', 'Receipt visibility is redacted');
+              }
+              return {
+                ok: rec.state === 'completed',
+                requestId: intent.requestId,
+                invocationId: rec.id,
+                data: { state: rec.state, redacted: true },
+                evidence: rec.evidence,
+                replacementAuthorityRevision: rec.replacementAuthorityRevision,
+              };
+            }
+            return {
+              ok: rec.state === 'completed',
+              requestId: intent.requestId,
+              invocationId: rec.id,
+              data: rec.result,
+              error: rec.error,
+              evidence: rec.evidence,
+              replacementAuthorityRevision: rec.replacementAuthorityRevision,
+            };
+          }
+          if (existing.kind === 'join' && existing.promise) {
+            const joinedRec = await existing.promise;
+            if (!this.canReadReceipt(authority.grant, policy?.receiptReadPermission, joinedRec.recordedVisibility)) {
+              return {
+                ok: joinedRec.state === 'completed',
+                requestId: intent.requestId,
+                invocationId: joinedRec.id,
+                data: { state: joinedRec.state, redacted: true },
+                evidence: joinedRec.evidence,
+                replacementAuthorityRevision: joinedRec.replacementAuthorityRevision,
+              };
+            }
+            return {
+              ok: joinedRec.state === 'completed',
+              requestId: intent.requestId,
+              invocationId: joinedRec.id,
+              data: joinedRec.result,
+              error: joinedRec.error,
+              evidence: joinedRec.evidence,
+              replacementAuthorityRevision: joinedRec.replacementAuthorityRevision,
+            };
+          }
+        }
+      } catch (err) {
+        const typed = err as { code?: string; message?: string; details?: unknown };
+        return {
+          ok: false,
+          requestId: intent.requestId,
+          invocationId,
+          error: {
+            code: typed.code || 'LEDGER_CLAIM_FAILED',
+            message: typed.message || String(err),
+            details: typed.details,
+          },
+        };
+      }
+    }
+
+    // Step 3: Validate live execution authority for new OWNER (BEFORE claiming OWNER)
+    let liveAuthority: MainResolvedAuthority;
+    try {
+      liveAuthority = this.attachmentRegistry.validateLiveExecution(record, intent.authorityRevision);
+    } catch (err) {
+      const typed = err as { code?: string; message?: string; details?: unknown };
+      return {
+        ok: false,
+        requestId: intent.requestId,
+        invocationId,
+        error: {
+          code: typed.code || 'UNAUTHENTICATED',
+          message: typed.message || String(err),
+          details: typed.details,
+        },
+      };
+    }
+
+    // Step 4: Claim OWNER in ledger
+    if (this.ledger) {
+      try {
+        const claim = await this.ledger.claimOwner(
+          intent,
+          liveAuthority,
+          policyDigest,
+          policyVersion,
+          recordedVisibility
+        );
+        if (claim.kind === 'replay' && claim.record) {
+          const rec = claim.record;
+          return {
+            ok: rec.state === 'completed',
+            requestId: intent.requestId,
+            invocationId: rec.id,
+            data: rec.result,
+            error: rec.error,
+            evidence: rec.evidence,
+            replacementAuthorityRevision: rec.replacementAuthorityRevision,
+          };
+        }
+        if (claim.kind === 'join' && claim.promise) {
+          const rec = await claim.promise;
+          return {
+            ok: rec.state === 'completed',
+            requestId: intent.requestId,
+            invocationId: rec.id,
+            data: rec.result,
+            error: rec.error,
+            evidence: rec.evidence,
+            replacementAuthorityRevision: rec.replacementAuthorityRevision,
+          };
+        }
+        invocationId = claim.invocationId;
+        isOwner = true;
+      } catch (err) {
+        const typed = err as { code?: string; message?: string; details?: unknown };
+        return {
+          ok: false,
+          requestId: intent.requestId,
+          invocationId,
+          error: {
+            code: typed.code || 'LEDGER_CLAIM_FAILED',
+            message: typed.message || String(err),
+            details: typed.details,
+          },
+        };
+      }
+    }
+
+    // Step 5: Execute capability
+    try {
+      const authContext: AuthenticatedCapabilityContext = {
+        attachmentId: liveAuthority.attachmentId,
+        runId: liveAuthority.runId,
+        attemptId: liveAuthority.attemptId,
+        projectId: liveAuthority.projectId,
+        workspaceId: liveAuthority.workspaceId || '',
+        chatId: record.chatId,
+        backendId: liveAuthority.backendId,
+        hostEpoch: liveAuthority.hostEpoch,
+        invocationId,
+        lease: record.lease!,
+        leaseToken: liveAuthority.runtimeLeaseToken || '',
+        browserTarget: liveAuthority.browserTarget,
+        grant: liveAuthority.grant,
+      };
       const data = await this.catalogue.dispatchAuthenticated(
         intent.name,
         (intent.params as Record<string, unknown>) || {},
@@ -132,6 +320,18 @@ export class CapabilityTransportAdapter {
         }
       }
 
+      if (this.ledger && isOwner) {
+        await this.ledger.settle(
+          invocationId,
+          'completed',
+          data,
+          undefined,
+          undefined,
+          undefined,
+          replacementAuthorityRevision
+        );
+      }
+
       return {
         ok: true,
         requestId: intent.requestId,
@@ -141,16 +341,43 @@ export class CapabilityTransportAdapter {
       };
     } catch (error: unknown) {
       const typed = error as { code?: string; message?: string; details?: unknown };
+      const errObj = {
+        code: typed.code || 'CAPABILITY_ERROR',
+        message: typed.message || String(error),
+        details: typed.details,
+      };
+
+      if (this.ledger && isOwner) {
+        try {
+          await this.ledger.settle(invocationId, 'failed', undefined, errObj);
+        } catch {}
+      }
+
       return {
         ok: false,
         requestId: intent.requestId,
         invocationId,
-        error: {
-          code: typed.code || 'CAPABILITY_ERROR',
-          message: typed.message || String(error),
-          details: typed.details,
-        },
+        error: errObj,
       };
     }
+  }
+
+  private canReadReceipt(
+    grant?: string,
+    requiredPermission?: string,
+    recordedVisibility?: string
+  ): boolean {
+    if (recordedVisibility === 'redacted') return false;
+    if (!requiredPermission || requiredPermission === 'read') return true;
+    if (requiredPermission === 'write') {
+      return grant === 'write' || grant === 'execute' || grant === 'eval';
+    }
+    if (requiredPermission === 'execute') {
+      return grant === 'execute' || grant === 'eval';
+    }
+    if (requiredPermission === 'eval') {
+      return grant === 'eval';
+    }
+    return false;
   }
 }

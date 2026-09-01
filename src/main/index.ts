@@ -212,6 +212,8 @@ async function createWindow(): Promise<void> {
     getAutomationTabId: () => tabHost!.getAutomationTabId(),
     getDocumentGeneration: (tabId) => tabHost!.getDocumentGeneration(tabId),
   });
+  // 1. Initialize Control Plane Runtime (Ledger & Stores) before wiring tabs or bridge
+  await controlPlane.initialize();
   tabHost.setControlPlane(controlPlane);
   const browserPort = new BrowserControlPort({
     getTabList: () => tabHost!.getTabList(),
@@ -251,7 +253,7 @@ async function createWindow(): Promise<void> {
   });
   tabHost.setViewportGate(browserPort.viewportGate);
   controlPlane.registerBrowser(browserPort);
-  const capabilityTransport = new CapabilityTransportAdapter(controlPlane.capabilities, controlPlane.runs.attachments);
+  const capabilityTransport = controlPlane.transport;
 
   // Set Top Menubar (File, Edit, Selection, View, Go, Run, Terminal, Help)
   Menu.setApplicationMenu(buildApplicationMenu(mainWindow, tabHost));
@@ -259,7 +261,6 @@ async function createWindow(): Promise<void> {
   // Check URL from command line arguments or restore tabs
   const initialUrl = process.argv.find((arg) => (arg.startsWith('http://') || arg.startsWith('https://')) && !arg.includes('localhost:20128') && !arg.includes('localhost:20129') && !arg.includes('localhost:20130'));
   tabHost.restoreTabs(initialUrl);
-
   // Start Bridge Server
   bridgeServer = new BridgeServer(
     tabHost,

@@ -32,7 +32,8 @@ export function failure(
   details: unknown,
   evidence: McpEvidence,
   originRequestId: string,
-  invocationId: string
+  invocationId: string,
+  replacementAuthorityRevision?: string
 ) {
   return {
     ok: false,
@@ -44,5 +45,6 @@ export function failure(
       ...(details !== undefined ? { details } : {}),
     },
     evidence: { timestamp: Date.now(), ...evidence },
+    ...(replacementAuthorityRevision ? { authorityRevision: replacementAuthorityRevision } : {}),
   };
 }

@@ -50,6 +50,30 @@ export class CapabilityCatalogue {
     if (!p.policyVersion || p.policyVersion <= 0) {
       throw new Error(`Capability ${definition.name} policy policyVersion must be positive`);
     }
+    const validLanes = new Set(['short-passive', 'event-wait', 'viewport-gate', 'unbounded']);
+    if (!p.schedulerLane || !validLanes.has(p.schedulerLane)) {
+      throw new Error(`Capability ${definition.name} policy has invalid schedulerLane '${p.schedulerLane}'`);
+    }
+    const validDuplicateModes = new Set(['in-process-join', 'reject-concurrent']);
+    if (!p.duplicateMode || !validDuplicateModes.has(p.duplicateMode)) {
+      throw new Error(`Capability ${definition.name} policy has invalid duplicateMode '${p.duplicateMode}'`);
+    }
+    const validVisibilities = new Set(['public', 'tenant-scoped', 'run-scoped', 'redacted']);
+    if (!p.recordedVisibility || !validVisibilities.has(p.recordedVisibility)) {
+      throw new Error(`Capability ${definition.name} policy has invalid recordedVisibility '${p.recordedVisibility}'`);
+    }
+    const validReceiptPermissions = new Set(['read', 'write', 'execute', 'eval']);
+    if (!p.receiptReadPermission || !validReceiptPermissions.has(p.receiptReadPermission)) {
+      throw new Error(`Capability ${definition.name} policy has invalid receiptReadPermission '${p.receiptReadPermission}'`);
+    }
+    const validRetentions = new Set(['ephemeral', 'run-durable', 'permanent']);
+    if (!p.retentionPolicy || !validRetentions.has(p.retentionPolicy)) {
+      throw new Error(`Capability ${definition.name} policy has invalid retentionPolicy '${p.retentionPolicy}'`);
+    }
+    const validCancellations = new Set(['abort-immediate', 'drain-and-persist', 'ignore-disconnect']);
+    if (!p.cancellationBehavior || !validCancellations.has(p.cancellationBehavior)) {
+      throw new Error(`Capability ${definition.name} policy has invalid cancellationBehavior '${p.cancellationBehavior}'`);
+    }
     if (p.effect === 'read' && (p.risk === 'write' || p.risk === 'execute' || p.risk === 'eval')) {
       throw new Error(`Capability ${definition.name} has read effect but write/execute/eval risk`);
     }
@@ -62,7 +86,6 @@ export class CapabilityCatalogue {
     if (p.schedulerLane === 'viewport-gate' && !p.requiresBrowserTarget) {
       throw new Error(`Capability ${definition.name} uses viewport-gate lane but requiresBrowserTarget is false`);
     }
-
     const digest = computePolicyDigest(p);
     const frozenPolicy: CapabilityEffectPolicy = Object.freeze({
       ...p,
@@ -191,7 +214,7 @@ export class CapabilityCatalogue {
         'Capability dispatch rejected: Request lacks authoritative projectId/workspaceId context tenancy binding'
       );
     }
-    if ('attachmentId' in context && context.attachmentId) {
+    if ('attachmentId' in context && context.attachmentId && 'backendId' in context && 'invocationId' in context) {
       return this.dispatchAuthenticated(name, params, context as AuthenticatedCapabilityContext);
     }
     return this.dispatchTrusted(name, params, context);
@@ -204,7 +227,10 @@ export class CapabilityCatalogue {
 
   private isVisible(definition: CapabilityDefinition, grant?: CapabilityRequestContext['grant']): boolean {
     if (definition.risk === 'read') return true;
-    if (definition.risk === 'eval' && !this.options.allowEval) return false;
-    return this.runtime.mode === 'standalone' && grant === definition.risk;
+    if (this.runtime.mode !== 'standalone') return false;
+    if (grant === 'write') return definition.risk === 'write';
+    if (grant === 'execute') return definition.risk === 'execute';
+    if (grant === 'eval') return this.options.allowEval === true && definition.risk === 'eval';
+    return false;
   }
 }

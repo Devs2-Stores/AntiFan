@@ -346,11 +346,11 @@ export function canonicalJsonStringify(val: unknown): string {
   if (Array.isArray(val)) {
     return `[${val.map((item) => canonicalJsonStringify(item)).join(',')}]`;
   }
-  const keys = Object.keys(val as Record<string, unknown>).sort();
-  const entries = keys.map((key) => `${JSON.stringify(key)}:${canonicalJsonStringify((val as Record<string, unknown>)[key])}`);
+  const record = val as Record<string, unknown>;
+  const keys = Object.keys(record).filter((k) => record[k] !== undefined).sort();
+  const entries = keys.map((key) => `${JSON.stringify(key)}:${canonicalJsonStringify(record[key])}`);
   return `{${entries.join(',')}}`;
 }
-
 export function canonicalDigest(val: unknown): string {
   return crypto.createHash('sha256').update(canonicalJsonStringify(val), 'utf8').digest('hex');
 }
@@ -387,7 +387,6 @@ export interface AuthenticatedCapabilityContext {
   grant?: 'read' | 'write' | 'execute' | 'eval';
   signal?: AbortSignal;
 }
-
 export type AttachmentState = 'issued' | 'bound' | 'active' | 'revoked' | 'expired' | 'stale';
 
 export interface ExecutionAttachmentRecord {
@@ -490,6 +489,13 @@ export type CapabilityErrorCode =
   | 'ATTACHMENT_INVALID'
   | 'ATTACHMENT_STALE'
   | 'LINEAGE_MISMATCH'
+  | 'AUTHENTICATION_DENIED'
+  | 'BINDING_COLLISION'
+  | 'DURABILITY_FAILED'
+  | 'REVISION_STALE'
+  | 'ATTEMPT_INACTIVE'
+  | 'HOST_EPOCH_STALE'
+  | 'LEDGER_CLAIM_FAILED'
   | 'ATTEMPT_NOT_ACTIVE'
   | 'PROCESS_MISMATCH'
   | 'MCP_CONTEXT_REQUIRED'
@@ -724,7 +730,7 @@ export function assertExactBrowserTarget(
 }
 
 export function createEvent<T>(input: Omit<ControlPlaneEvent<T>, 'formatVersion' | 'id'>): ControlPlaneEvent<T> {
-  return { ...input, formatVersion: SESSION_FORMAT_VERSION, id: makeControlPlaneId('attempt') };
+  return { ...input, formatVersion: SESSION_FORMAT_VERSION, id: makeControlPlaneId('event') };
 }
 
 export function digestText(value: string): string {

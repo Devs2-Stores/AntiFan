@@ -61,7 +61,7 @@ export class EventStore {
   }
 
   append<T>(event: Omit<ControlPlaneEvent<T>, 'formatVersion' | 'id' | 'sequence'>): ControlPlaneEvent<T> {
-    const record: ControlPlaneEvent<T> = { ...event, formatVersion: SESSION_FORMAT_VERSION, id: makeControlPlaneId('attempt'), sequence: this.nextSequence++ };
+    const record: ControlPlaneEvent<T> = { ...event, formatVersion: SESSION_FORMAT_VERSION, id: makeControlPlaneId('event'), sequence: this.nextSequence++ };
     const line = JSON.stringify(record);
     if (Buffer.byteLength(line, 'utf8') > this.maxEventBytes) throw new Error(`Event exceeds ${this.maxEventBytes} byte limit`);
     this.fs.appendFileSync(this.options.filePath, `${line}\n`, 'utf8');

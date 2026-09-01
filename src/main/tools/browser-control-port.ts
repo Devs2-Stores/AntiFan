@@ -621,26 +621,23 @@ export class BrowserControlPort {
     }
     if (target) {
       const liveDocGen = this.host.getDocumentGeneration ? this.host.getDocumentGeneration(resolved) : target.documentGeneration;
-      // Differential Generation Fencing (RT-03):
-      // For passive reads and lifecycle reloads/navigates, auto-sync documentGeneration with liveDocGen to eliminate TARGET_STALE on background HMR.
-      // For interactive writes, enforce strict preflight check: fail-close with HMR_DRIFT error code if the DOM changed under the agent.
-      const isPassiveOrLifecycle = operationType === 'read' || operationType === 'lifecycle';
-      const docGenToAssert = isPassiveOrLifecycle
-        ? (liveDocGen ?? target.documentGeneration)
-        : (target.tabId === resolved && target.documentGeneration !== undefined ? target.documentGeneration : liveDocGen);
-
-      const currentTarget: BrowserTarget = {
-        ...target,
-        tabId: resolved,
-        documentGeneration: docGenToAssert,
-      };
-      assertTarget(currentTarget, false);
       if (operationType === 'write' && typeof target.documentGeneration === 'number' && typeof liveDocGen === 'number' && target.documentGeneration !== liveDocGen) {
         throw new CapabilityError(
           'HMR_DRIFT',
           `Browser target document generation (${target.documentGeneration}) is stale compared to live document generation (${liveDocGen}). The DOM was modified or reloaded in the background (HMR_DRIFT). Please re-inspect DOM before interacting.`
         );
       }
+
+      const effectiveDocGen = (operationType === 'read' || operationType === 'lifecycle')
+        ? (liveDocGen ?? target.documentGeneration)
+        : target.documentGeneration;
+
+      const currentTarget: BrowserTarget = {
+        ...target,
+        tabId: resolved,
+        documentGeneration: effectiveDocGen,
+      };
+      assertTarget(currentTarget, false);
       this.assertCurrent(currentTarget);
     }
     return resolved;

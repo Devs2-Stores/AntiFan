@@ -1,4 +1,5 @@
 import {
+  BrowserTarget,
   ExecutionAttempt,
   AttemptState,
   RunRecord,
@@ -13,7 +14,6 @@ import {
   RuntimeLease,
   assertRuntimeLease,
 } from '../../shared/control-plane-contracts';
-
 export interface CreateCliSessionOptions {
   projectId: string;
   workspaceId: string;
@@ -46,13 +46,14 @@ export interface CreateWorkflowSessionOptions {
   ttlMs?: number;
   lease: RuntimeLease;
   leaseToken: string;
+  browserTarget?: BrowserTarget;
 }
-
 export interface WorkflowSessionResult {
   run: RunRecord;
   attempt: ExecutionAttempt;
   lease: RuntimeLease;
   leaseToken: string;
+  launch: McpAttachmentLaunch;
 }
 import { ChatStore } from '../chat/chat-store';
 import { EventStore } from '../session/event-store';
@@ -76,7 +77,8 @@ export class RunService {
     attachments?: AttachmentRegistry,
     private readonly getHostEpoch: () => number = () => 1,
     private readonly getDocumentGeneration?: (tabId?: string) => number,
-    private readonly getAutomationTabId?: () => string | null
+    private readonly getAutomationTabId?: () => string | null,
+    dataRoot?: string
   ) {
     this.attachments =
       attachments ||
@@ -86,8 +88,9 @@ export class RunService {
         getBackendId: (attemptId) => this.attempts.get(attemptId)?.backendId,
         getProcessPid: (_runId, attemptId) => this.attemptPids.get(attemptId),
         getDocumentGeneration: (tabId) => (this.getDocumentGeneration ? this.getDocumentGeneration(tabId) : 1),
-        getAutomationTabId: () => (this.getAutomationTabId ? this.getAutomationTabId() : null),
-      });
+        getAutomationTabId: this.getAutomationTabId,
+      },
+      dataRoot);
   }
 
   setAttemptProcessPid(attemptId: string, pid: number): void {
@@ -324,11 +327,31 @@ export class RunService {
     };
     this.receiptBindings.set(attempt.id, binding);
     this.receipts.put(binding, 'accepted', 'accepted-exact');
+    const { launch } = this.attachments.issueAttachment(
+      run.id,
+      attempt.id,
+      run.projectId,
+      run.workspaceId,
+      {
+        backendId,
+        grant: options.grant || 'write',
+        lease: options.lease,
+        leaseToken: options.leaseToken,
+        tabId: options.tabId ?? options.browserTarget?.tabId,
+        browserEpoch: options.browserEpoch ?? options.browserTarget?.browserEpoch,
+        documentGeneration: options.browserTarget?.documentGeneration,
+        browserTarget: options.browserTarget,
+        hostEpoch: options.hostEpoch,
+        ttlMs: options.ttlMs,
+      }
+    );
+
     return {
       run: { ...run },
       attempt: { ...attempt },
       lease: options.lease,
       leaseToken: options.leaseToken,
+      launch,
     };
   }
 
@@ -363,6 +386,7 @@ export class RunService {
     if (binding) {
       this.receipts.put(binding, finalReceiptState, deliveryState, error ? { errorMessage: error } : undefined);
     }
+    this.attachments.revokeForAttempt(validAttemptId);
     return { ok: true };
   }
 

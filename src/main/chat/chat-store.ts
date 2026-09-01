@@ -47,7 +47,7 @@ export class ChatStore {
   appendMessage(chatId: string, message: Omit<ControlPlaneChatMessage, 'id' | 'chatId' | 'createdAt'>): ControlPlaneChatMessage {
     const chat = this.get(chatId);
     if (chat.state !== 'open') throw new Error('Cannot append to a closed Chat');
-    const item: ControlPlaneChatMessage = { ...message, id: makeControlPlaneId('attempt'), chatId: chat.id, createdAt: Date.now() };
+    const item: ControlPlaneChatMessage = { ...message, id: makeControlPlaneId('message'), chatId: chat.id, createdAt: Date.now() };
     const messages = this.messages.get(chat.id) || [];
     messages.push(item);
     this.messages.set(chat.id, messages);

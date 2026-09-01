@@ -33,7 +33,16 @@ export function registerWorkflowCapabilities(catalogue: CapabilityCatalogue, eng
       if (!context.browserTarget) {
         throw new CapabilityError('TARGET_REQUIRED', 'workflow.execute requires a bound BrowserTarget');
       }
-      const p = params as unknown as { workflow: WorkflowDefinition; workspaceRoot: string; signal?: AbortSignal; onEvent?: WorkflowEventListener };
+      const p = params as unknown as {
+        workflow: WorkflowDefinition;
+        workspaceRoot: string;
+        signal?: AbortSignal;
+        onEvent?: WorkflowEventListener;
+        attachmentId?: string;
+        attachmentSecret?: string;
+        authorityRevision?: string;
+        parentInvocationId?: string;
+      };
       return engine.execute({
         workflow: p.workflow,
         target: context.browserTarget as BrowserTarget,
@@ -45,6 +54,10 @@ export function registerWorkflowCapabilities(catalogue: CapabilityCatalogue, eng
         grant: context.grant,
         signal: p.signal,
         onEvent: p.onEvent,
+        attachmentId: p.attachmentId,
+        attachmentSecret: p.attachmentSecret,
+        authorityRevision: p.authorityRevision,
+        parentInvocationId: p.parentInvocationId,
       });
     },
   });

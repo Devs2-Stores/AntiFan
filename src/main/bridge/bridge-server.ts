@@ -161,8 +161,8 @@ export class BridgeServer {
 
   public getRemoteConnectionInfo(): { port: number; lanIps: string[]; urls: string[]; primaryUrl: string; qrSvg: string } {
     const lanIps = getLocalLanIps();
-    const urls = lanIps.map(ip => `http://${ip}:${this.port}/`);
-    const primaryUrl = urls[0] || `http://localhost:${this.port}/`;
+    const urls = lanIps.map(ip => `http://${ip}:${this.port}/?token=${this.token}`);
+    const primaryUrl = urls[0] || `http://localhost:${this.port}/?token=${this.token}`;
     const qrSvg = generateQrSvg(primaryUrl);
     return { port: this.port, lanIps, urls, primaryUrl, qrSvg };
   }
@@ -177,10 +177,19 @@ export class BridgeServer {
       const verifiedAttachmentId = clientToken ? (this.attachmentRegistry?.verifyConnectionToken(clientToken) ?? null) : null;
 
       const rawOrigin = typeof req.headers.origin === 'string' ? req.headers.origin : '';
-      const isAllowedOrigin = rawOrigin.startsWith('chrome-extension://') ||
-                              rawOrigin.startsWith('http://localhost') ||
-                              rawOrigin.startsWith('http://127.0.0.1');
-
+      let isAllowedOrigin = false;
+      if (rawOrigin) {
+        if (rawOrigin.startsWith('chrome-extension://')) {
+          isAllowedOrigin = true;
+        } else {
+          try {
+            const parsedOrigin = new URL(rawOrigin);
+            isAllowedOrigin = parsedOrigin.hostname === 'localhost' || parsedOrigin.hostname === '127.0.0.1';
+          } catch {
+            isAllowedOrigin = false;
+          }
+        }
+      }
       if (req.method === 'OPTIONS') {
         const preflightHeaders: Record<string, string> = {
           'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
@@ -194,7 +203,14 @@ export class BridgeServer {
         return;
       }
 
-      if (pathname === '/api/screenshot' || pathname === '/api/remote-info' || pathname === '/api/qr' || pathname === '/api/cookies/import') {
+      if (
+        pathname === '/api/screenshot' ||
+        pathname === '/api/remote-info' ||
+        pathname === '/api/qr' ||
+        pathname === '/api/cookies/import' ||
+        pathname === '/api/lan-ips' ||
+        pathname === '/status'
+      ) {
         if (!isBridgeToken && !verifiedAttachmentId) {
           const unauthHeaders: Record<string, string> = { 'Content-Type': 'application/json' };
           if (isAllowedOrigin) unauthHeaders['Access-Control-Allow-Origin'] = rawOrigin;
@@ -204,20 +220,26 @@ export class BridgeServer {
         }
       }
       if (pathname === '/status') {
-        res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+        const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+        if (isAllowedOrigin) headers['Access-Control-Allow-Origin'] = rawOrigin;
+        res.writeHead(200, headers);
         res.end(JSON.stringify(this.getStatus()));
         return;
       }
 
       if (pathname === '/api/lan-ips' || pathname === '/api/remote-info') {
-        res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+        const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+        if (isAllowedOrigin) headers['Access-Control-Allow-Origin'] = rawOrigin;
+        res.writeHead(200, headers);
         res.end(JSON.stringify(this.getRemoteConnectionInfo()));
         return;
       }
 
       if (pathname === '/api/qr') {
         const info = this.getRemoteConnectionInfo();
-        res.writeHead(200, { 'Content-Type': 'image/svg+xml', 'Access-Control-Allow-Origin': '*' });
+        const headers: Record<string, string> = { 'Content-Type': 'image/svg+xml' };
+        if (isAllowedOrigin) headers['Access-Control-Allow-Origin'] = rawOrigin;
+        res.writeHead(200, headers);
         res.end(info.qrSvg);
         return;
       }
@@ -226,7 +248,9 @@ export class BridgeServer {
         try {
           const imgBase64 = await this.tabHost.captureScreenshot();
           const imgBuf = Buffer.from(imgBase64, 'base64');
-          res.writeHead(200, { 'Content-Type': 'image/png', 'Access-Control-Allow-Origin': '*' });
+          const headers: Record<string, string> = { 'Content-Type': 'image/png' };
+          if (isAllowedOrigin) headers['Access-Control-Allow-Origin'] = rawOrigin;
+          res.writeHead(200, headers);
           res.end(imgBuf);
         } catch {
           res.writeHead(500);
@@ -333,6 +357,16 @@ export class BridgeServer {
       }
 
       if (pathname === '/' || pathname === '/mobile' || pathname === '/remote') {
+        if (verifiedAttachmentId && !isBridgeToken) {
+          res.writeHead(403, { 'Content-Type': 'text/plain; charset=utf-8' });
+          res.end('Forbidden: Attachment tokens cannot access administrative mobile companion');
+          return;
+        }
+        if (!isBridgeToken) {
+          res.writeHead(401, { 'Content-Type': 'text/plain; charset=utf-8' });
+          res.end('Unauthorized: Pairing token is required to access mobile companion');
+          return;
+        }
         const html = renderMobileRemoteHtml(this.token, this.port);
         res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
         res.end(html);
