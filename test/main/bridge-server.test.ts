@@ -219,6 +219,7 @@ describe('AntiFan Bridge Server', () => {
           secret: 'secret-123456',
           projectId: 'project-local',
           workspaceId: 'workspace-local',
+          authorityRevision: 'rev-test-123456789012',
           expiresAt: Date.now() + 60_000,
         },
       }),
@@ -255,7 +256,7 @@ describe('AntiFan Bridge Server', () => {
     const startResp = await startPromise;
     assert.strictEqual(startResp.success, true);
     assert.strictEqual(startResp.data.attachmentId, 'binding-test-123456789012');
-
+    assert.strictEqual(startResp.data.authorityRevision, 'rev-test-123456789012');
     // 2. Renew CLI session
     const renewPromise = new Promise<any>((resolve) => {
       ws.on('message', (data) => {

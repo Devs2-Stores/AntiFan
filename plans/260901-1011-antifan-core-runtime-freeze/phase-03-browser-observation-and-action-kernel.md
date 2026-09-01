@@ -82,6 +82,41 @@ flowchart LR
 ### Delete
 - None.
 
+## Deep-Mode File Inventory
+| Action | Paths | Protected responsibility | Dependency |
+|---|---|---|---|
+| Modify | `src/main/tools/browser-control-port.ts`, `src/main/tools/browser-capabilities.ts` | Exact target resolution, lane routing, passive pool, colocated bounded wait registry | Phases 01-02 policy/OWNER context |
+| Modify | `src/main/browser/tab-automation-host.ts`, `src/main/browser/semantic-ref-executor.ts` | World 1004 actionability and trusted-CDP-only effects | Exact target and ViewportGate |
+| Modify | `src/main/browser/semantic-ref-registry.ts` | Two immutable published generations per target with bounded eviction | Observe contract |
+| Modify | `src/main/browser/native-tab-host.ts`, `src/main/browser/first-party-network-tracker.ts` | Tracker attach/detach lifecycle and abort-aware quiescence | Live target lifecycle |
+| Modify | `src/main/browser/tab-diagnostics.ts`, `src/main/browser/tab-devtools-host.ts` | Bounded observation components without duplicate owners | Observe assembly |
+| Modify | `src/main/workflow/workflow-engine.ts`, MCP/Bridge adapters | Canonical wait delegation and replacement revision propagation | Phases 01-02 transport |
+| Create/Modify | Browser target, observe, wait, semantic ref, scheduler, actionability, concurrency tests listed above | Cross-document fencing, capacity, preemption, zero synthetic input | Production browser kernel |
+
+## Function and Interface Checklist
+- [ ] `BrowserControlPort.resolveTargetTab` rejects explicit mismatch/stale generation and never creates/falls back to an active tab for target-bound work.
+- [ ] `PassiveExecutionPool` remains 4/tab and 16/global for short passive work.
+- [ ] The bounded wait registry is independent (4/tab, 16/global), Main-owned and colocated with the browser kernel; no transport-local wait service exists.
+- [ ] `SemanticRefRegistry.beginCollection`, publication, resolution and eviction preserve two immutable generations without accidental deletion.
+- [ ] `FirstPartyNetworkTracker.attach`, `awaitQuiescence(signal)`, and `detach` cover every live target and clean timers/listeners exactly once.
+- [ ] `ViewportGate` preemption epoch invalidates active and queued handover work deterministically.
+- [ ] `TabAutomationHost` trusted click/hover/type paths fail closed when CDP attachment/dispatch fails; no synthetic storefront event fallback remains.
+- [ ] `WorkflowEngine` replaces `browser.wait_for_selector` polling with canonical `browser.wait` and consumes replacement revisions.
+
+## Dependency Map
+```text
+ledger OWNER + exact authority revision
+  -> catalogue lane
+     -> short passive -> browser.observe -> semantic history/artifacts
+     -> event wait -> bounded wait registry -> World 1004/lifecycle/network tracker
+     -> interactive -> ViewportGate -> post-queue target check -> actionability -> trusted CDP
+  -> durable receipt/unknown state through Phase 02
+```
+
+### Deep-Mode Verification Gate
+- Run target-race, wait-capacity, tracker lifecycle, ref-retention, preemption handover and zero-synthetic-input tests before browser integration and live Electron E2E.
+
+
 ## Implementation Steps
 1. Move target-agnostic/target-bound, scheduler-lane, actionability and deadline classification into catalogue policy; verify every browser capability is classified and raw-JS predicates cannot enter a read wait.
 2. Remove adapter-level active-tab fallback and in-place target mutation. Make open/switch/close/set-target/navigate/reload responses rotate and return authority revisions explicitly.

@@ -104,6 +104,50 @@ These existing or prior-phase-owned tests are consumed unchanged by this phase; 
 ### Delete
 - None.
 
+## Deep-Mode File Inventory
+| Action | Paths | Protected responsibility | Dependency |
+|---|---|---|---|
+| Create | `scripts/verify-core-runtime-freeze.cjs` | Compile-once stage runner, timeout/cleanup control, always-emitted certification evidence | Phases 01-04 green |
+| Modify | `package.json` | Stable `verify:freeze` entrypoint without redundant compile cycles | Runner complete |
+| Modify | `scripts/smoke-real-soak.cjs`, `scripts/benchmark-real-soak-8h.cjs`, `scripts/smoke-theme-qa-gate.cjs`, `scripts/smoke-split-review.cjs` | Parameterized `ANTIFAN_REPORT_DIR`, raw samples, cleanup evidence | Existing live runners |
+| Create | `test/main/theme-qa-workflow.test.ts` | Canonical QA owner coverage after fallback removal | Phase 04 |
+| Consume | Prior-phase focused tests listed above | Authority, ledger, browser, terminal, artifact gates | Phases 01-04 |
+| Generate | `reports/core-runtime-freeze-report.json`, `reports/core-runtime-freeze-report.md` | Machine-readable and concise human evidence on pass or failure | Every runner stage |
+
+## Function and Interface Checklist
+- [ ] Certification runner compiles once, runs focused/full/live/performance/soak stages directly, and records command/start/end/exit/timeout/cleanup.
+- [ ] `ANTIFAN_REPORT_DIR` reaches every child smoke/benchmark; missing or misplaced child evidence fails certification.
+- [ ] Report emission lives in `finally` and succeeds for induced stage failure as well as pass.
+- [ ] Memory-slope calculation uses real timestamped samples, normalized minutes/MB, and guards insufficient/zero-variance input.
+- [ ] Electron/process-tree teardown snapshots owned PIDs before/after and reports zero orphans without killing unrelated processes.
+- [ ] Phase status and downstream unblock use live `ak plan` status operations only after all measured gates pass.
+
+## Dependency Map
+```text
+Phase 01 contract/injection tests
+  + Phase 02 race/replay/recovery tests
+  + Phase 03 observe/wait/actionability tests
+  + Phase 04 terminal/preview/artifact/QA tests
+  -> one compile
+  -> focused tests -> typecheck -> full suite
+  -> live Theme QA/split/browser/terminal smokes
+  -> performance + bounded soak -> teardown audit
+  -> JSON/Markdown evidence -> freeze or fail closed
+```
+
+## Test Matrix
+| Scenario | Expected result |
+|---|---|
+| One focused stage is deliberately failed | Runner exits nonzero but still writes complete failed JSON/Markdown evidence and cleanup state. |
+| Child script omits or writes outside selected report directory | Certification fails; missing evidence is never inferred as pass. |
+| Full suite and smokes run after compile | `.compiled` is not repeatedly cleaned/rebuilt between stages. |
+| Soak leaves one owned process/watcher/waiter | Freeze blocked; exact owner/resource appears in report. |
+| All stages and thresholds pass | Reports contain raw samples, commit/environment, commands and zero secrets; plan may complete. |
+
+### Deep-Mode Verification Gate
+- Run the runner against both induced failure and clean pass paths. The separate 8-hour release soak remains explicit and mandatory for the final seal, not normal CI.
+
+
 ## Implementation Steps
 1. Encode the five-tier matrix—focused security/contracts, integration, live Electron, performance, soak—with stable Windows paths.
 2. Implement the certification runner with try/finally stage evidence and explicit report-directory propagation to every child script; any child writing elsewhere or missing evidence fails the gate.
@@ -116,11 +160,11 @@ These existing or prior-phase-owned tests are consumed unchanged by this phase; 
 9. Emit reports on pass/failure; complete and unblock only when every gate is measured green.
 
 ## Verification Command Shape
-The implementation may compose existing scripts behind the certification runner, adjusted only to match final package ownership:
+The stable entrypoint is:
 ```text
-npm run verify && npm run smoke:theme-qa && npm run smoke:split && npm run smoke:soak
+npm run verify:freeze
 ```
-`verify:freeze` is the stable bounded certification alias and always writes evidence. The separate release-soak command remains explicit because its duration exceeds normal CI/smoke execution.
+`verify:freeze` invokes `scripts/verify-core-runtime-freeze.cjs`. The runner compiles once, then calls focused/full tests and underlying smoke scripts directly with one explicit report directory; it never chains npm smoke aliases that each recompile. The separate release-soak command remains explicit because its duration exceeds normal CI/smoke execution.
 
 ## Success Criteria
 - [ ] All focused adapter, authority, race, exact-lineage/no-oracle replay, receipt-read downgrade, stale-handle claim denial, revocation, recovery, bypass, revision-chain, and target-revalidation scenarios pass.

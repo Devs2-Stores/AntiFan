@@ -799,6 +799,7 @@ export class BridgeServer {
               secret: res.launch.secret,
               projectId: res.launch.projectId,
               workspaceId: res.launch.workspaceId,
+              authorityRevision: res.launch.authorityRevision,
               host: this.host,
               port: this.port,
               bridgeToken: this.token,

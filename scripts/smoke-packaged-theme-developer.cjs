@@ -193,6 +193,7 @@ async function runThemeDeveloperSmoke() {
       return {
         attachmentId: sessionRes.attachmentId,
         attachmentSecret: sessionRes.secret,
+        authorityRevision: sessionRes.authorityRevision,
         projectId: sessionRes.projectId,
         workspaceId: sessionRes.workspaceId,
         runId: sessionRes.runId,

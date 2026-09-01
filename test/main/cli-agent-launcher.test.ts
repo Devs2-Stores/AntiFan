@@ -337,7 +337,7 @@ describe('CLI Session and Agent Launcher Lifecycle', () => {
     assert.ok(content.startsWith('#!/usr/bin/env node'), 'Should have node shebang');
     assert.ok(content.includes('antifan.cli.startSession'), 'Should invoke startSession RPC');
     assert.ok(content.includes('ANTIFAN_MCP_BOOTSTRAP'), 'Should inject ANTIFAN_MCP_BOOTSTRAP');
-
+    assert.ok(content.includes('ANTIFAN_AUTHORITY_REVISION'), 'Should inject ANTIFAN_AUTHORITY_REVISION');
     const pkg = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8'));
     assert.strictEqual(pkg.bin['antifan-agent'], './scripts/antifan-agent.cjs', 'package.json bin should map antifan-agent');
     assert.ok(pkg.scripts.agent, 'package.json should have agent script');

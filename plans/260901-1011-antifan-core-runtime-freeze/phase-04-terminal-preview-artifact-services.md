@@ -58,6 +58,8 @@ flowchart LR
 - `src/main/tools/artifact-store.ts`
 - `src/main/tools/artifact-retention-cleaner.ts`
 - `src/main/qa/theme-qa-workflow.ts` only if alias plumbing requires no-op-free delegation changes
+- `src/main/tools/browser-capabilities.ts`
+- `test/main/theme-qa-parity.test.ts`
 - `src/main/control-plane/control-plane-runtime.ts`
 - `src/main/bridge/bridge-server.ts`
 - `test/main/safe-slice-tail.test.ts`
@@ -75,6 +77,42 @@ flowchart LR
 - `src/main/tools/artifact-capabilities.ts`
 - `test/main/terminal-capabilities.test.ts`
 - `test/main/artifact-capabilities.test.ts`
+
+## Deep-Mode File Inventory
+| Action | Paths | Protected responsibility | Dependency |
+|---|---|---|---|
+| Create | `src/main/tools/terminal-capabilities.ts`, `src/main/tools/artifact-capabilities.ts` | Authenticated catalogue surfaces for terminal and artifact operations | Phases 01-02 policy/ledger |
+| Modify | `src/main/browser/terminal-manager.ts` | Session incarnation, structured exit, bounded wait, owned process teardown | OWNER cancellation context |
+| Delete | `src/main/tools/terminal-session-port.ts` | Remove confirmed zero-callsites execution duplicate | Final reference proof |
+| Modify | `src/main/server/preview-watcher-pool.ts`, preview protocol/resolver | Token subscriptions, canonical roots, debounce/handle teardown | Existing `SafeFsResolver` |
+| Modify | `src/main/tools/artifact-store.ts`, retention cleaner, Bridge HTTP route | Durable index, chunked reads, hash verification, reference-aware cleanup, shared authorization | Phase 01 lineage; Phase 02 receipts |
+| Modify | `src/main/tools/browser-capabilities.ts`, `src/main/qa/theme-qa-workflow.ts`, `test/main/theme-qa-parity.test.ts` | Delete fallback QA owner and migrate parity tests to canonical workflow | Explicit target authority |
+| Create/Modify | Terminal, preview, artifact, QA tests listed above | Generation, process, watcher, restart, integrity, no-oracle, single-owner coverage | Production services wired |
+
+## Function and Interface Checklist
+- [ ] `TerminalManager` records `sessionGeneration`, structured exit/close state and bounded sequence before emitting terminal events.
+- [ ] `terminal.wait` checks terminal fast paths before listener registration and has one matcher/timer/listener cleanup path.
+- [ ] Process termination keeps session ownership until the owned tree settles; removal never precedes kill completion.
+- [ ] `PreviewWatcherPool.retain` returns a unique subscription token; repeated callback identity cannot collapse refcounts.
+- [ ] Final watcher release and runtime clear cancel debounce timers and close one canonical watcher.
+- [ ] `ArtifactStore` persists and rehydrates immutable lineage/hash/path metadata and verifies SHA-256 before disclosure.
+- [ ] Shared artifact authorization runs before disk bytes for both catalogue and HTTP surfaces; denial is no-oracle.
+- [ ] Retention checks run-local metadata/receipt references before deleting a shared blob.
+- [ ] `buildFallbackThemeQaResult` is removed; aliases and parity tests use only `ThemeQaWorkflow` with exact tab equality.
+
+## Dependency Map
+```text
+Phase 01 lineage/policy + Phase 02 receipts/cancellation + Phase 03 exact browser target
+  -> terminal capabilities and incarnation-aware wait
+  -> preview token/refcount ownership through canonical resolver
+  -> durable artifact metadata + shared authorization + retention reachability
+  -> canonical ThemeQaWorkflow only
+  -> Phase 05 cleanup/restart/parity certification
+```
+
+### Deep-Mode Verification Gate
+- Run terminal generation/process-tree, duplicate-callback watcher, reparse containment, artifact restart/hash/no-oracle/retention, and QA single-owner tests before full integration.
+
 
 ## Implementation Steps
 1. Create terminal capabilities with complete policy and route executable bridge aliases through authenticated transport.

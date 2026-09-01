@@ -3,7 +3,7 @@ title: "AntiFan Core Runtime Freeze & Authority-First Execution Architecture"
 description: "Freeze AntiFan's Main-owned capability authority, durable invocation semantics, identity-coherent browser observation, deterministic waits, actionability, bounded infrastructure, and production verification before downstream design-to-code workflows."
 status: pending
 priority: P0
-effort: "5d"
+effort: "6d + release soak window"
 branch: "main"
 tags: [core, runtime, authority, mcp, idempotency, verification, freeze]
 blockedBy: []
@@ -106,6 +106,14 @@ sequenceDiagram
 | [03](./phase-03-browser-observation-and-action-kernel.md) | Exact Browser Target, Coherent Observation & Action Kernel | P0 | Phases 01-02 | Enforce exact targets, truthful multi-modal observation, deterministic waits, actionability, two-tier scheduling, World 1004 refs, and trusted CDP input. |
 | [04](./phase-04-terminal-preview-artifact-services.md) | Bounded Terminal, Preview & Artifact Services | P1 | Phases 01-03 | Close resource, path-containment, watcher, process-tree, and retention contracts. |
 | [05](./phase-05-production-freeze-verification.md) | Production Freeze Verification | P0 | Phases 01-04 | Run contract, security, runtime, smoke, performance, and soak gates and publish evidence. |
+
+## Deep Planning Evidence
+- Source research: authority/ledger, browser-terminal kernel, and freeze certification surfaces inspected independently against HEAD `e206a4e`.
+- Per-phase scouting: every named existing path was checked; planned create/delete paths were separated from disk truth.
+- Scope decision: HOLD. Extend existing owners; introduce only one new core service (`InvocationLedger`). Keep the bounded browser wait registry colocated with the browser kernel rather than creating another control plane.
+- Confirmed source deltas: partial authority contracts still have legacy callers; `AttachmentRegistry` retains volatile replay nonces; `WorkflowEngine` uses scalar retry and `Promise.race`; selector wait polls at 100 ms; trusted input retains synthetic fallback; artifact metadata is memory-only; preview subscriptions alias duplicate callback identity; smoke evidence destinations are inconsistent.
+- Planning corrections: Phase 01 completes/migrates partial contracts instead of recreating them; Phase 05 compiles once and invokes tests/smokes directly through the certification runner.
+
 
 ## Cross-Plan Dependency Decision
 - This plan is not blocked by downstream product work.

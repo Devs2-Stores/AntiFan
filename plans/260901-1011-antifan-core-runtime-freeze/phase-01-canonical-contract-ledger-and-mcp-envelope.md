@@ -10,12 +10,12 @@ dependencies: []
 # Phase 01: Canonical Authority Contracts, Effect Policy & MCP Envelopes
 
 ## Overview
-Freeze the public wire intent and internal Main authority boundary before changing dispatch. Replace caller-owned invocation authority with mandatory opaque revision handles, catalogue-owned effect policy, Main-issued canonical invocation IDs, and consistent MCP/Bridge result envelopes.
+Complete and freeze the partially implemented public wire intent and internal Main authority boundary before changing dispatch. Replace remaining caller-owned invocation authority with mandatory opaque revision handles, catalogue-owned effect policy, Main-issued canonical invocation IDs, and consistent MCP/Bridge result envelopes.
 
 ## Requirements
 
 ### Functional
-- Add `AuthorityRevisionHandle`, `ClientInvocationIntent`, `MainResolvedAuthority`, `CapabilityEffectPolicy`, `InvocationBinding`, `InvocationState`, and `AuthoritativeInvocationReceipt` to `src/shared/control-plane-contracts.ts`.
+- Complete, validate, and migrate the existing partial `AuthorityRevisionHandle`, `ClientInvocationIntent`, `MainResolvedAuthority`, `CapabilityEffectPolicy`, `InvocationBinding`, `InvocationState`, and `AuthoritativeInvocationReceipt` contracts in `src/shared/control-plane-contracts.ts`; do not create parallel replacements.
 - Add `invocation`, `event`, and `message` to canonical ID entities only where actual stores issue those IDs; migrate all callsites in the same cutover.
 - Split the external standard MCP schema from the trusted adapter-to-Main intent. LLM-authored tool arguments keep capability params only; the authenticated AntiFan adapter injects attachment credentials, caller `requestId`, retry `idempotencyKey`, and the current opaque Main-issued `authorityRevision`.
 - Remove `invocationId`, resolved `grant`, raw target authority, lease objects, `AbortSignal`, effect policy, and caller-selected authority revision from public MCP tool arguments. Direct Bridge/session clients may send only credentials and the opaque revision they were issued.
@@ -100,6 +100,51 @@ flowchart LR
 ### Delete
 - None. `src/main/browser/browser-action-registry.ts` is a legacy, test-referenced registry disconnected from the canonical `ControlPlaneRuntime` capability path; deleting or migrating it is outside this phase unless callsite migration proves it executable.
 
+## Deep-Mode File Inventory
+| Action | Paths | Protected responsibility | Dependency |
+|---|---|---|---|
+| Modify | `src/shared/control-plane-contracts.ts`, `src/main/tools/capability-catalogue.ts` | Canonical IDs, immutable authority/policy, deterministic digests | None; contract source for all later phases |
+| Modify | `src/main/tools/capability-transport.ts`, `src/main/mcp/result-envelope.ts`, `src/main/mcp/mcp-server.ts`, `src/main/bridge/bridge-server.ts` | Trusted intent injection, public schema isolation, response framing | Shared contracts complete first |
+| Modify | `src/main/run/attachment-registry.ts`, `src/main/run/run-service.ts`, `src/main/control-plane/control-plane-runtime.ts` | Revision issuance/rotation and runtime wiring | Contract and policy types |
+| Modify | `src/main/chat/chat-store.ts`, `src/main/session/event-store.ts` | Correct canonical message/event ID issuance | ID entity migration |
+| Modify | `scripts/antifan-omp-mcp.cjs`, `scripts/antifan-agent.cjs`, all executable smoke/bootstrap/test clients | Retain and propagate `ANTIFAN_AUTHORITY_REVISION`, request ID, and retry identity | Session bootstrap response |
+| Modify | `src/main/tools/browser-capabilities.ts`, `src/main/tools/file-capabilities.ts`, `src/main/workflow/workflow-capabilities.ts` | Complete catalogue policies and canonical schemas | Catalogue policy contract |
+| Create | `test/main/authority-contracts.test.ts`, `test/main/adapter-injection.test.ts`, `test/main/policy-completeness.test.ts` | Contract, injection, and startup completeness gates | Production contracts compiled |
+
+## Function and Interface Checklist
+- [ ] `makeControlPlaneId` / ID validators issue and accept the final entity prefixes at every store callsite.
+- [ ] Deterministic canonical serializer and policy/parameter digest helpers are key-order independent.
+- [ ] `AttachmentRegistry.issueAttachment`, revision rotation, and bootstrap responses return immutable revision handles.
+- [ ] `CapabilityCatalogue.register` rejects incomplete or contradictory effect/access policies.
+- [ ] `CapabilityTransportAdapter` accepts only trusted `ClientInvocationIntent`; public MCP schemas reject internal fields.
+- [ ] MCP/Bridge result-envelope builders preserve text/image MIME framing while adding request/invocation/evidence/revision metadata.
+- [ ] `scripts/antifan-omp-mcp.cjs` and `scripts/antifan-agent.cjs` retain and forward the current revision without exposing it as model-authored tool input.
+
+## Dependency Map
+```text
+shared contracts + canonical digests
+  -> catalogue policy completeness
+  -> attachment/session revision issuance
+  -> trusted adapter injection
+  -> MCP/Bridge envelope migration
+  -> executable scripts, smokes, benchmarks, tests
+  -> Phase 02 ledger binding and durable dispatch
+```
+
+## Test Matrix
+| Scenario | Expected result |
+|---|---|
+| Model supplies revision, invocation ID, grant, target, or policy in public tool args | Schema rejection before trusted intent construction. |
+| Trusted adapter starts from authenticated bootstrap | Current revision and stable retry identity are injected; Main issues invocation ID. |
+| Policy registration omits lane, duplicate, cancellation, deadline, retention, or receipt-read class | Startup/registration fails with a typed completeness error. |
+| Equivalent objects use different key insertion order | Parameter and policy digests remain identical. |
+| Navigation/grant/lease/host binding rotates | Old snapshot remains immutable; response carries a replacement revision. |
+| Binary screenshot or artifact result uses unified envelope | MCP content parts, MIME, bytes and evidence remain intact. |
+
+### Deep-Mode Verification Gate
+- Run focused contract/injection/completeness tests first, then typecheck and the existing MCP/Bridge catalogue suites. Phase 02 cannot start until every executable repo client has migrated.
+
+
 ## Implementation Steps
 1. Add shared types, validators, ID entities, deterministic canonicalization, and typed receipt/binding states.
 2. Split public MCP schemas from the internal `ClientInvocationIntent`; reject all internal fields at the public boundary.
@@ -108,7 +153,7 @@ flowchart LR
 5. Define revision rotation on target, navigation/reload, grant, lease, or host-binding changes and return the replacement handle explicitly.
 6. Add immutable project/workspace/run/attempt lineage and integrity metadata to `ArtifactRef`; migrate every artifact staging caller in the same cutover.
 7. Update `result-envelope.ts` and both transports to preserve `requestId` while returning Main `invocationId`, evidence, typed errors, coherence metadata, binary/image content, and replacement revision where applicable.
-8. Migrate every producer/consumer—including `scripts/antifan-omp-mcp.cjs`, `scripts/antifan-agent.cjs`, workflow clients, smoke/benchmark scripts, and tests—in one compile-safe cutover; keep no caller-owned invocation-authority compatibility path.
+8. Migrate every producer/consumer—including `scripts/antifan-omp-mcp.cjs`, `scripts/antifan-agent.cjs`, workflow clients, smoke/benchmark scripts, and tests—in one compile-safe cutover. Explicitly propagate `ANTIFAN_AUTHORITY_REVISION` through launcher/bootstrap environments; keep no caller-owned invocation-authority compatibility path.
 9. Add focused public-schema, adapter-injection, policy-registration, ID-separation, alias, revision-rotation, canonical serialization, bounded-schema, no-read-to-eval-escalation and content-framing tests.
 
 ## Success Criteria

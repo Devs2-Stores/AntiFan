@@ -84,6 +84,42 @@ flowchart TD
 ### Delete
 - None.
 
+## Deep-Mode File Inventory
+| Action | Paths | Protected responsibility | Dependency |
+|---|---|---|---|
+| Create | `src/main/session/invocation-ledger.ts` | Atomic OWNER/JOIN/REPLAY, durable invocation state, bounded hot index | Phase 01 binding/policy contracts |
+| Modify | `src/main/run/attachment-registry.ts`, `src/main/run/run-service.ts` | Lineage authentication, historical disclosure, live authority, revision history | Phase 01 revision/verifier schema |
+| Modify | `src/main/tools/capability-transport.ts`, `src/main/tools/capability-catalogue.ts` | Canonical eight-step dispatch ordering and policy-owned cancellation | Ledger and authority gates |
+| Modify | `src/main/control-plane/control-plane-runtime.ts`, `src/main/session/run-recovery.ts` | Recovery order and external-surface readiness | Runs -> attachments -> ledger |
+| Modify | `src/main/bridge/bridge-server.ts`, `src/main/bridge/mobile-remote-html.ts`, `src/main/mcp/mcp-server.ts` | Remove execution bypasses; pairing/discovery/stream isolation | Canonical transport ready |
+| Modify | `src/main/workflow/workflow-engine.ts`, `src/main/agent/codex-execution-backend.ts` | Linked cancellation, policy-driven retry, owned subprocess teardown | Ledger OWNER context |
+| Create/Modify | Ledger, historical replay, bridge, mobile, run, and workflow tests listed above | Race, restart, disclosure, bypass, pairing, cancellation | Production owners wired |
+
+## Function and Interface Checklist
+- [ ] `InvocationLedger.claimOrObserve` is atomic and returns exactly one OWNER or an existing JOIN/REPLAY record.
+- [ ] Ledger terminal-state transitions are monotonic; recovery converts durable `claiming`/`in_progress` to `interrupted`.
+- [ ] `AttachmentRegistry` separates exact lineage authentication, historical revision resolution, receipt-read authorization, and live execution authority.
+- [ ] `CapabilityTransportAdapter.dispatchIntent` follows authenticate -> lookup -> disclose or authorize -> claim -> persist -> execute -> persist/respond.
+- [ ] `CapabilityCatalogue` exposes immutable policy to dispatch and owns retry/disconnect/cancellation decisions.
+- [ ] `WorkflowEngine` links deadline/run signals into capability context and never uses scalar retry alone for an ambiguous effect.
+- [ ] `CodexExecutionBackend` terminates only its owned process tree and reports acknowledgement ambiguity conservatively.
+- [ ] Bridge discovery/pairing/terminal subscription paths reveal no topology, reusable master token, or cross-session events.
+
+## Dependency Map
+```text
+Phase 01 contracts/policy/revision
+  -> recover runs and attempts
+  -> rehydrate attachment verifiers and immutable revisions
+  -> replay InvocationLedger partitions; mark orphaned owners interrupted
+  -> construct transport/catalogue/workflow services
+  -> expose MCP and Bridge
+  -> Phases 03-04 consume ledger-owned OWNER contexts and receipt policy
+```
+
+### Deep-Mode Verification Gate
+- Force concurrent duplicate races, crash/restart replay, completed-attempt disclosure, grant downgrade, security revocation, master-token bypass, pairing expiry, subscriber disconnect, and process cancellation before broad tests.
+
+
 ## Implementation Steps
 1. Implement partitioned ledger replay/rehydration, deterministic keying, atomic claim, in-process deferred JOIN, terminal persistence, bounded hot indexes/cache, measured compaction/retention, and explicit shutdown handling.
 2. Refactor `AttachmentRegistry` into credential/lineage authentication, historical revision resolution, current receipt-read authorization, and live execution authority resolution. Persist a secret verifier—not the secret—plus immutable historical lineage/revisions and explicit security-revocation state; rehydrate it before ledger replay. Attempt completion/expiry denies execution without overwriting the record as security-revoked.
