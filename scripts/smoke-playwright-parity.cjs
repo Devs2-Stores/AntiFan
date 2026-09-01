@@ -255,12 +255,22 @@ async function runParitySmokeTest() {
     } catch {}
   }
 }
+process.on('unhandledRejection', (reason) => {
+  console.error('[Parity Smoke Test] Unhandled Rejection:', reason);
+  app.exit(1);
+});
 
 app.whenReady().then(async () => {
+  let timer;
+  const timeoutPromise = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new Error('[Parity Smoke Test] Watchdog timeout reached (60s)')), 60_000);
+  });
   try {
-    await runParitySmokeTest();
+    await Promise.race([runParitySmokeTest(), timeoutPromise]);
+    clearTimeout(timer);
     app.exit(0);
   } catch (err) {
+    clearTimeout(timer);
     console.error('[Parity Smoke Test] FAILED with error:', err);
     app.exit(1);
   }

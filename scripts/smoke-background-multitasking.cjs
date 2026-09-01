@@ -200,7 +200,10 @@ async function runMultitaskingSmokeTest() {
       mainWindow.destroy();
     }
     if (server) {
-      server.close();
+      try {
+        server.closeAllConnections?.();
+        await new Promise((resolve) => server.close(resolve));
+      } catch {}
     }
     try {
       fs.rmSync(tempUserData, { recursive: true, force: true });
@@ -208,13 +211,23 @@ async function runMultitaskingSmokeTest() {
   }
 }
 
-app.whenReady().then(() => {
-  runMultitaskingSmokeTest()
-    .then(() => {
-      app.exit(0);
-    })
-    .catch((err) => {
-      console.error('[Live Electron Multitasking Smoke FAIL]', err);
-      app.exit(1);
-    });
+process.on('unhandledRejection', (reason) => {
+  console.error('[Smoke Multitasking] Unhandled Rejection:', reason);
+  app.exit(1);
+});
+
+app.whenReady().then(async () => {
+  let timer;
+  const timeoutPromise = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new Error('[Smoke Multitasking] Watchdog timeout reached (60s)')), 60_000);
+  });
+  try {
+    await Promise.race([runMultitaskingSmokeTest(), timeoutPromise]);
+    clearTimeout(timer);
+    app.exit(0);
+  } catch (err) {
+    clearTimeout(timer);
+    console.error('[Live Electron Multitasking Smoke FAIL]', err);
+    app.exit(1);
+  }
 });

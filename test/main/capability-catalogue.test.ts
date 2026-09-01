@@ -1,5 +1,9 @@
 import { describe, it } from 'node:test';
 import * as assert from 'node:assert';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+import * as os from 'node:os';
+import { InvocationLedger } from '../../src/main/session/invocation-ledger';
 import { CapabilityCatalogue } from '../../src/main/tools/capability-catalogue';
 import { BrowserControlPort } from '../../src/main/tools/browser-control-port';
 import { registerBrowserCapabilities, legacyContext } from '../../src/main/tools/browser-capabilities';
@@ -1059,5 +1063,101 @@ describe('Capability catalogue', () => {
     assert.strictEqual(mismatchRes.isError, true, 'Non-existent target tab must fail closed');
     const errPayload = JSON.parse(mismatchRes.content[0]?.text || '{}');
     assert.strictEqual(errPayload.code, 'TARGET_MISMATCH', 'Target mismatch must yield exact TARGET_MISMATCH code');
+  });
+
+  it('rejects caller credential smuggling in arguments and converges deterministically on retry with InvocationLedger', async () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-smuggle-test-'));
+    try {
+      let currentAutomationTab: string | null = 'tab-1';
+      let executionCount = 0;
+      const mockHost = {
+        getTabList: () => [{ id: 'tab-1', url: 'https://example.com/one' }],
+        getActiveTabId: () => 'tab-1',
+        getAutomationTabId: () => currentAutomationTab,
+        setAutomationTabId: (id?: string) => { currentAutomationTab = id || null; },
+        createTab: () => 'tab-1',
+        navigate: () => true,
+        reload: () => true,
+        getDom: async () => {
+          executionCount++;
+          return '<html><body>Execution #' + executionCount + '</body></html>';
+        },
+        captureScreenshot: async () => Buffer.from('png').toString('base64'),
+        evalJs: async () => null,
+      };
+
+      const projectId = makeControlPlaneId('project');
+      const workspaceId = makeControlPlaneId('workspace');
+      const lease = issueRuntimeLease(projectId, workspaceId, 30_000, 1);
+      const catalogue = new CapabilityCatalogue({ runtime: { mode: 'standalone', lifecycle: 'active' }, projectId, workspaceId, runtimeId: lease.runtimeId, hostEpoch: 1 });
+      const browser = new BrowserControlPort(mockHost as any);
+      registerBrowserCapabilities(catalogue, browser);
+
+      const ledger = new InvocationLedger({ dataRoot: tmpDir });
+      await ledger.initialize();
+      const registry = new AttachmentRegistry();
+      const transport = new CapabilityTransportAdapter(catalogue, registry, ledger);
+      const server = new AntiFanMcpServer(mockHost as any, false, transport);
+
+      const runId = makeControlPlaneId('run');
+      const attemptId = makeControlPlaneId('attempt');
+      const { launch } = registry.issueAttachment(runId, attemptId, projectId, workspaceId, {
+        lease,
+        leaseToken: lease.token,
+        hostEpoch: 1,
+        grant: 'read',
+        tabId: 'tab-1',
+        backendId: 'codex',
+      });
+
+      server.setBoundSession({
+        attachmentId: launch.attachmentId,
+        attachmentSecret: launch.secret,
+        authorityRevision: launch.authorityRevision,
+      });
+
+      // 1. Attempt to smuggle authority credentials in tool parameters -> must fail closed with FORBIDDEN_ATTACHMENT_CLAIMS (CRIT-03)
+      const smuggledRes = await server.callTool('anti.inspect.dom', {
+        callerRequestId: 'req-smuggle-1',
+        attachmentSecret: 'smuggled-evil-secret',
+        authorityRevision: 'rev-forged',
+        runId: 'run-forged',
+      });
+      assert.strictEqual(smuggledRes.isError, true, 'Smuggled credentials must be rejected');
+      const smugglePayload = JSON.parse(smuggledRes.content[0]?.text || '{}');
+      assert.strictEqual(smugglePayload.code, 'INVALID_ARGUMENT');
+      assert.match(smugglePayload.message, /Authority credentials and attachment claims must not be passed in tool arguments/);
+      assert.strictEqual(executionCount, 0, 'No execution should occur on smuggled credential rejection');
+
+      // 2. Legitimate initial invocation with callerRequestId passed via canonical protocol parameter
+      const firstRes = await server.callTool('anti.inspect.dom', {}, 'req-converge-1');
+      assert.strictEqual(firstRes.isError, undefined, 'First valid call must succeed');
+      assert.match(firstRes.content[0]?.text || '', /Execution #1/);
+      assert.strictEqual(executionCount, 1);
+
+      // 3. Retry invocation with same canonical callerRequestId -> must replay from ledger without re-executing underlying tool
+      const retryRes = await server.callTool('anti.inspect.dom', {}, 'req-converge-1');
+      assert.strictEqual(retryRes.isError, undefined, 'Retry call must succeed deterministically');
+      assert.match(retryRes.content[0]?.text || '', /Execution #1/, 'Retry must yield exact original execution result');
+      assert.strictEqual(executionCount, 1, 'Underlying DOM extraction must NOT re-execute on ledger replay');
+
+      // 3. Forged attachment Secret in unauthenticated transport direct dispatch fails closed
+      const forgedIntent = {
+        requestId: 'req-forged-direct',
+        idempotencyKey: 'idem-forged',
+        attachmentId: launch.attachmentId,
+        attachmentSecret: 'completely-wrong-secret',
+        authorityRevision: launch.authorityRevision,
+        name: 'anti.inspect.dom',
+        params: {},
+      };
+      const forgedRes = await transport.dispatchIntent(forgedIntent);
+      assert.strictEqual(forgedRes.ok, false);
+      assert.strictEqual(forgedRes.error?.code, 'AUTHENTICATION_DENIED');
+    } finally {
+      try {
+        fs.rmSync(tmpDir, { recursive: true, force: true });
+      } catch {}
+    }
   });
 });

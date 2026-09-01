@@ -231,4 +231,57 @@ describe('InvocationLedger - Main Serialization & Deduplication', () => {
       (err: unknown) => err instanceof CapabilityError && err.code === 'DURABILITY_FAILED'
     );
   });
+
+  it('7. Compacts partition by coalescing duplicate lifecycle frames into single canonical latest state', async () => {
+    const smallLedger = new InvocationLedger({ dataRoot: tmpDir });
+    await smallLedger.initialize();
+
+    const attachmentId = makeControlPlaneId('attachment');
+    const authority = createMockAuthority(attachmentId, 'run-1', 'att-1');
+
+    // Append 5 completed invocations (each claims in_progress frame then settles completed frame -> 10 total frames)
+    for (let i = 1; i <= 5; i++) {
+      const intent: ClientInvocationIntent = {
+        requestId: `req-compact-${i}`,
+        idempotencyKey: `idem-compact-${i}`,
+        attachmentId,
+        attachmentSecret: 'sec-1',
+        authorityRevision: 'rev-test-1',
+        name: 'test.action',
+        params: { index: i },
+      };
+      const claim = await smallLedger.claimOrObserve(intent, authority, 'digest', 1, 'public');
+      assert.strictEqual(claim.kind, 'owner');
+      await smallLedger.settle(claim.invocationId, 'completed', { result: i });
+    }
+
+    const partitionPath = path.join(tmpDir, 'invocations', `${attachmentId}.jsonl`);
+    const uncompactedLines = fs.readFileSync(partitionPath, 'utf8').trim().split('\n');
+    assert.strictEqual(uncompactedLines.length, 10, 'Uncompacted partition must contain 10 raw frames (in_progress + completed per item)');
+
+    // Perform compaction -> coalesces to 5 latest-state frames
+    await smallLedger.compactPartition(attachmentId);
+    const compactedLines = fs.readFileSync(partitionPath, 'utf8').trim().split('\n');
+    assert.strictEqual(compactedLines.length, 5, 'Compacted partition must contain exactly 5 coalesced records');
+
+    // Replay partition from disk into a fresh ledger to verify compaction file integrity across all 5 items
+    const replayedLedger = new InvocationLedger({ dataRoot: tmpDir });
+    await replayedLedger.initialize();
+
+    for (let i = 1; i <= 5; i++) {
+      const checkIntent: ClientInvocationIntent = {
+        requestId: `req-compact-${i}`,
+        idempotencyKey: `idem-compact-${i}`,
+        attachmentId,
+        attachmentSecret: 'sec-1',
+        authorityRevision: 'rev-test-1',
+        name: 'test.action',
+        params: { index: i },
+      };
+      const replayedClaim = await replayedLedger.claimOrObserve(checkIntent, authority, 'digest', 1, 'public');
+      assert.strictEqual(replayedClaim.kind, 'replay');
+      assert.strictEqual(replayedClaim.record?.state, 'completed');
+      assert.strictEqual((replayedClaim.record?.result as any)?.result, i);
+    }
+  });
 });

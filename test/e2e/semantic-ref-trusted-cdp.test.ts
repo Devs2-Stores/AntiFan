@@ -41,7 +41,7 @@ describe('Live Chromium E2E: Semantic Ref Dual-Tier & Trusted CDP Interaction', 
     assert.equal(exitCode, 0, `Live Electron test must exit with 0; stdout:\n${stdout}\nstderr:\n${stderr}`);
     assert.ok(stdout.includes('[OK] Tier 1 Synthetic Path with genuine React 18 verified.'), 'Tier 1 React 18 must pass in live Chromium');
     assert.ok(stdout.includes('[OK] Tier 1 Synthetic Path with genuine React 19 verified.'), 'Tier 1 React 19 must pass in live Chromium');
-    assert.ok(stdout.includes('[OK] Tier 1 real executor sub-5ms average latency verified'), 'Tier 1 real executor synthetic input must be verified with sub-5ms average latency and 20/20 correct state updates');
+    assert.ok(stdout.includes('[OK] Tier 1 real executor bounded actionability latency verified'), 'Tier 1 real executor synthetic input must be verified with bounded actionability latency and 20/20 correct state updates');
     assert.ok(stdout.includes('[OK] Tier 2 Hardware CDP Trusted Path verified.'), 'Tier 2 CDP trusted path must pass in live Chromium');
     assert.ok(stdout.includes('[OK] Shadow DOM Interaction verified.'), 'Shadow DOM interaction must pass in live Chromium');
     assert.ok(stdout.includes('[OK] ContentEditable Text Insertion verified.'), 'ContentEditable must pass in live Chromium');

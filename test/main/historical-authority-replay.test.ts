@@ -512,4 +512,63 @@ describe('Historical Authority & Invocation Replay (Phase 02)', () => {
       (err: unknown) => err instanceof CapabilityError && err.code === 'DURABILITY_FAILED'
     );
   });
+
+  it('8. Prunes historical revisions across restart and fails closed when authenticating pruned revision', async () => {
+    const regDir = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-rev-retention-'));
+    try {
+      const registry1 = new AttachmentRegistry(undefined, regDir, 3); // Max 3 revisions retained
+      await registry1.initialize();
+
+      const projectId = makeControlPlaneId('project');
+      const workspaceId = makeControlPlaneId('workspace');
+      const runId = makeControlPlaneId('run');
+      const attemptId = makeControlPlaneId('attempt');
+      const lease = issueRuntimeLease(projectId, workspaceId, 60_000, 1);
+
+      const { launch } = registry1.issueAttachment(runId, attemptId, projectId, workspaceId, {
+        backendId: 'test-backend',
+        lease,
+        leaseToken: lease.token,
+      });
+
+      const rev1 = launch.authorityRevision;
+      const rev2 = registry1.rotateAuthorityRevision(launch.attachmentId);
+      const rev3 = registry1.rotateAuthorityRevision(launch.attachmentId);
+
+      // Restart into registry2 from disk with maxHistoricalRevisions: 3
+      const registry2 = new AttachmentRegistry(undefined, regDir, 3);
+      await registry2.initialize();
+
+      // Before 4th rotation, rev1, rev2, rev3 are all valid
+      assert.ok(registry2.authenticateLineage(launch.attachmentId, launch.secret, { authorityRevision: rev3 }));
+      assert.ok(registry2.authenticateLineage(launch.attachmentId, launch.secret, { authorityRevision: rev2 }));
+      assert.ok(registry2.authenticateLineage(launch.attachmentId, launch.secret, { authorityRevision: rev1 }));
+
+      // 4th rotation in registry2 -> prunes rev1 (history retained: rev2, rev3, rev4)
+      const rev4 = registry2.rotateAuthorityRevision(launch.attachmentId);
+
+      assert.ok(registry2.authenticateLineage(launch.attachmentId, launch.secret, { authorityRevision: rev4 }));
+      assert.ok(registry2.authenticateLineage(launch.attachmentId, launch.secret, { authorityRevision: rev3 }));
+      assert.ok(registry2.authenticateLineage(launch.attachmentId, launch.secret, { authorityRevision: rev2 }));
+
+      // rev1 was pruned -> must fail closed with AUTHENTICATION_DENIED
+      assert.throws(
+        () => registry2.authenticateLineage(launch.attachmentId, launch.secret, { authorityRevision: rev1 }),
+        (err: unknown) => err instanceof CapabilityError && err.code === 'AUTHENTICATION_DENIED'
+      );
+
+      // Restart again into registry3 -> verify persisted state only contains bounded revisions
+      const registry3 = new AttachmentRegistry(undefined, regDir, 3);
+      await registry3.initialize();
+      assert.ok(registry3.authenticateLineage(launch.attachmentId, launch.secret, { authorityRevision: rev4 }));
+      assert.throws(
+        () => registry3.authenticateLineage(launch.attachmentId, launch.secret, { authorityRevision: rev1 }),
+        (err: unknown) => err instanceof CapabilityError && err.code === 'AUTHENTICATION_DENIED'
+      );
+    } finally {
+      try {
+        fs.rmSync(regDir, { recursive: true, force: true });
+      } catch {}
+    }
+  });
 });

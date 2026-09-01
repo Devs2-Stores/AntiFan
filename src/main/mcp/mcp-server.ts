@@ -538,6 +538,7 @@ export class AntiFanMcpServer {
     delete transportArgs.projectId;
     delete transportArgs.workspaceId;
     delete transportArgs.idempotencyKey;
+    delete transportArgs.callerRequestId;
     const requestId = callerRequestId ? `req-mcp-${callerRequestId}` : makeControlPlaneId('request');
     const idempotencyKey = callerRequestId ? `idem-mcp-${callerRequestId}` : makeControlPlaneId('idempotency');
     const intent: ClientInvocationIntent = {

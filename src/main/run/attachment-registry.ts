@@ -79,12 +79,17 @@ export class AttachmentRegistry {
   private readonly attemptIndex = new Map<string, Set<string>>();
   private readonly revisions = new Map<AuthorityRevisionHandle, MainResolvedAuthority>();
   private readonly activeRevisionByAttachment = new Map<string, AuthorityRevisionHandle>();
+  private readonly revisionHistoryByAttachment = new Map<string, AuthorityRevisionHandle[]>();
   private readonly invocationNonces = new Map<string, Set<string>>();
+  private readonly maxHistoricalRevisions: number;
   private isQuarantined = false;
   constructor(
     private readonly delegate?: AttachmentValidatorDelegate,
-    private readonly dataRoot?: string
-  ) {}
+    private readonly dataRoot?: string,
+    maxHistoricalRevisions: number = 100
+  ) {
+    this.maxHistoricalRevisions = Math.max(1, maxHistoricalRevisions ?? 100);
+  }
 
   public async initialize(): Promise<void> {
     if (!this.dataRoot) return;
@@ -115,7 +120,9 @@ export class AttachmentRegistry {
 
         const rec = frame.record;
         if (Array.isArray(frame.revisions)) {
-          for (const rev of frame.revisions) {
+          const sortedRevs = [...frame.revisions].sort((a, b) => (a.revisionNumber || 0) - (b.revisionNumber || 0));
+          const revHandles: AuthorityRevisionHandle[] = [];
+          for (const rev of sortedRevs) {
             if (
               rev.attachmentId !== rec.id ||
               rev.projectId !== rec.projectId ||
@@ -127,7 +134,26 @@ export class AttachmentRegistry {
               return;
             }
             this.revisions.set(rev.authorityRevision, cloneAuthoritySnapshot(rev));
+            revHandles.push(rev.authorityRevision);
           }
+          if (revHandles.length > this.maxHistoricalRevisions) {
+            const toPrune = revHandles.splice(0, revHandles.length - this.maxHistoricalRevisions);
+            for (const oldRev of toPrune) {
+              this.revisions.delete(oldRev);
+            }
+          }
+          const prevHistory = this.revisionHistoryByAttachment.get(rec.id);
+          if (prevHistory) {
+            const activeSet = new Set(revHandles);
+            for (const oldHandle of prevHistory) {
+              if (!activeSet.has(oldHandle)) {
+                this.revisions.delete(oldHandle);
+              }
+            }
+          }
+          this.revisionHistoryByAttachment.set(rec.id, revHandles);
+        } else if (rec.authorityRevision) {
+          this.revisionHistoryByAttachment.set(rec.id, [rec.authorityRevision]);
         }
 
         this.records.set(rec.id, rec);
@@ -149,6 +175,7 @@ export class AttachmentRegistry {
     this.records.clear();
     this.revisions.clear();
     this.activeRevisionByAttachment.clear();
+    this.revisionHistoryByAttachment.clear();
     this.attemptIndex.clear();
     this.invocationNonces.clear();
     const quarantinePath = `${filePath}.quarantine-${Date.now()}`;
@@ -281,6 +308,7 @@ export class AttachmentRegistry {
     });
     this.revisions.set(initialRevision, snapshot);
     this.activeRevisionByAttachment.set(attachmentId, initialRevision);
+    this.revisionHistoryByAttachment.set(attachmentId, [initialRevision]);
     if (!this.attemptIndex.has(validAttemptId)) {
       this.attemptIndex.set(validAttemptId, new Set());
     }
@@ -355,6 +383,15 @@ export class AttachmentRegistry {
 
     this.revisions.set(nextRev, nextSnapshot);
     this.activeRevisionByAttachment.set(attachmentId, nextRev);
+    const history = this.revisionHistoryByAttachment.get(attachmentId) || [];
+    history.push(nextRev);
+    if (history.length > this.maxHistoricalRevisions) {
+      const toPrune = history.splice(0, history.length - this.maxHistoricalRevisions);
+      for (const oldRev of toPrune) {
+        this.revisions.delete(oldRev);
+      }
+    }
+    this.revisionHistoryByAttachment.set(attachmentId, history);
     this.appendPersistenceFrame(record);
     return nextRev;
   }

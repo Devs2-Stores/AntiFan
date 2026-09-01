@@ -73,7 +73,7 @@ export class InvocationLedger {
   // invocationId -> attachmentId
   private readonly invocationToAttachment = new Map<string, string>();
   private readonly quarantinedPartitions = new Set<string>();
-
+  private readonly ioQueues = new Map<string, Promise<void>>();
   constructor(private readonly options: InvocationLedgerOptions) {
     this.partitionsDir = path.join(options.dataRoot, 'invocations');
     this.maxHotRecords = options.maxHotRecordsPerPartition ?? 200;
@@ -359,7 +359,6 @@ export class InvocationLedger {
 
     partition.set(existing.idempotencyKey, settledRecord);
     await this.appendFrame(settledRecord);
-
     const inFlightEntry = this.inFlight.get(invocationId);
     if (inFlightEntry) {
       this.inFlight.delete(invocationId);
@@ -384,44 +383,73 @@ export class InvocationLedger {
     return undefined;
   }
 
-  private async appendFrame(record: InvocationRecord): Promise<void> {
-    const filePath = this.getPartitionPath(record.attachmentId);
-    const dir = path.dirname(filePath);
-    if (!fs.existsSync(dir)) {
-      fs.mkdirSync(dir, { recursive: true });
+  private async runWithIOLock<T>(attachmentId: string, fn: () => Promise<T>): Promise<T> {
+    const prev = this.ioQueues.get(attachmentId) || Promise.resolve();
+    let resolveNext!: () => void;
+    const next = new Promise<void>((r) => { resolveNext = r; });
+    this.ioQueues.set(attachmentId, next);
+
+    await prev;
+    try {
+      return await fn();
+    } finally {
+      resolveNext();
+      if (this.ioQueues.get(attachmentId) === next) {
+        this.ioQueues.delete(attachmentId);
+      }
     }
-
-    const { checksum, ...rest } = record;
-    const calculatedChecksum = computeFrameChecksum(rest);
-    const frameWithChecksum: InvocationRecord = {
-      ...rest,
-      checksum: calculatedChecksum,
-    };
-
-    const line = JSON.stringify(frameWithChecksum) + '\n';
-    await fs.promises.appendFile(filePath, line, 'utf8');
   }
 
-  private async compactPartition(attachmentId: string): Promise<void> {
-    const filePath = this.getPartitionPath(attachmentId);
-    const partition = this.hotPartitions.get(attachmentId);
-    if (!partition) return;
+  private async appendFrame(record: InvocationRecord): Promise<void> {
+    return this.runWithIOLock(record.attachmentId, async () => {
+      const filePath = this.getPartitionPath(record.attachmentId);
+      const dir = path.dirname(filePath);
+      if (!fs.existsSync(dir)) {
+        fs.mkdirSync(dir, { recursive: true });
+      }
 
-    const dir = path.dirname(filePath);
-    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+      const { checksum, ...rest } = record;
+      const calculatedChecksum = computeFrameChecksum(rest);
+      const frameWithChecksum: InvocationRecord = {
+        ...rest,
+        checksum: calculatedChecksum,
+      };
 
-    const records = Array.from(partition.values()).slice(-this.maxHotRecords);
-    const tempFile = `${filePath}.tmp-${process.pid}-${Date.now()}`;
+      const line = JSON.stringify(frameWithChecksum) + '\n';
+      await fs.promises.appendFile(filePath, line, 'utf8');
+    });
+  }
 
-    const content = records
-      .map((rec) => {
-        const { checksum, ...rest } = rec;
-        const calc = computeFrameChecksum(rest);
-        return JSON.stringify({ ...rest, checksum: calc });
-      })
-      .join('\n') + (records.length > 0 ? '\n' : '');
+  public async compactPartition(attachmentId: string): Promise<void> {
+    return this.runWithIOLock(attachmentId, async () => {
+      const filePath = this.getPartitionPath(attachmentId);
+      const partition = this.hotPartitions.get(attachmentId);
+      if (!partition || partition.size === 0) return;
 
-    await fs.promises.writeFile(tempFile, content, 'utf8');
-    await fs.promises.rename(tempFile, filePath);
+      const dir = path.dirname(filePath);
+      if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+
+      // Coalesce multi-frame history into single latest-state frame per idempotencyKey
+      const records = Array.from(partition.values());
+      const tempFile = `${filePath}.tmp-${process.pid}-${Date.now()}`;
+
+      try {
+        const content = records
+          .map((rec) => {
+            const { checksum, ...rest } = rec;
+            const calc = computeFrameChecksum(rest);
+            return JSON.stringify({ ...rest, checksum: calc });
+          })
+          .join('\n') + (records.length > 0 ? '\n' : '');
+
+        await fs.promises.writeFile(tempFile, content, 'utf8');
+        await fs.promises.rename(tempFile, filePath);
+      } catch (err) {
+        try {
+          if (fs.existsSync(tempFile)) await fs.promises.unlink(tempFile);
+        } catch {}
+        throw err;
+      }
+    });
   }
 }
