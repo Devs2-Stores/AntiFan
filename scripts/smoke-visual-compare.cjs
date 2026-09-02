@@ -52,23 +52,28 @@ app.whenReady().then(async () => {
     assert.strictEqual(diffCrossed.match, false);
     console.log('[Smoke] 2b. Crossed aspect ratio pixel accounting passed.');
 
-    // 2c. Boundary tolerance precision test (unrounded threshold check)
-    // 100x100 canvas (10,000 pixels). 501 diff pixels = 5.01% actual mismatch.
-    // With 5.00% tolerance, roundedMismatch is 5.01%, but if tolerance was 5.005%,
-    // unrounded check must strictly reject (5.01 > 5.005) rather than comparing rounded.
-    const bufA = Buffer.alloc(100 * 100 * 4, 0);
-    const bufB = Buffer.alloc(100 * 100 * 4, 0);
-    for (let i = 0; i < 501 * 4; i += 4) {
+    // 2c. Boundary tolerance precision test (unrounded threshold discriminating test)
+    // Canvas: 25,000 pixels (width=250, height=100).
+    // Let diffPixels = 1251. Actual mismatch = 1251 / 25000 * 100 = 5.004%.
+    // Display roundedMismatch = Math.round(5.004 * 100) / 100 = 5.00%.
+    // If tolerance is set to 5.00%:
+    // - Under the old bug (comparing roundedMismatch <= tolerance): 5.00 <= 5.00 -> TRUE (FALSE POSITIVE!).
+    // - Under the unrounded fix (comparing mismatchPct <= tolerance): 5.004 <= 5.00 -> FALSE (CORRECT!).
+    // Reported display mismatchPercentage MUST remain rounded 5.00%.
+    const bufA = Buffer.alloc(250 * 100 * 4, 0);
+    const bufB = Buffer.alloc(250 * 100 * 4, 0);
+    for (let i = 0; i < 1251 * 4; i += 4) {
       bufB[i] = 255;
       bufB[i + 3] = 255;
     }
-    const imgA = nativeImage.createFromBitmap(bufA, { width: 100, height: 100 });
-    const imgB = nativeImage.createFromBitmap(bufB, { width: 100, height: 100 });
-    const diffBoundary = computePixelDiff(imgA.toPNG(), imgB.toPNG(), 5.005);
-    assert.strictEqual(diffBoundary.diffPixels, 501);
-    assert.strictEqual(diffBoundary.mismatchPercentage, 5.01);
-    assert.strictEqual(diffBoundary.match, false, '5.01% actual mismatch must strictly fail 5.005% tolerance');
-    console.log('[Smoke] 2c. Boundary tolerance precision passed.');
+    const imgA = nativeImage.createFromBitmap(bufA, { width: 250, height: 100 });
+    const imgB = nativeImage.createFromBitmap(bufB, { width: 250, height: 100 });
+    const diffBoundary = computePixelDiff(imgA.toPNG(), imgB.toPNG(), 5.00);
+    assert.strictEqual(diffBoundary.diffPixels, 1251);
+    assert.strictEqual(diffBoundary.totalPixels, 25000);
+    assert.strictEqual(diffBoundary.mismatchPercentage, 5.00, 'Display percentage must remain rounded to 2 decimals (5.00%)');
+    assert.strictEqual(diffBoundary.match, false, 'Exact 5.004% must strictly fail 5.00% tolerance even though rounded display is 5.00%');
+    console.log('[Smoke] 2c. Discriminating boundary precision passed (exact 5.004% fails 5.00% tolerance while display rounds to 5.00%).');
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-electron-smoke-'));
     try {
       const artifactStore = new ArtifactStore({
