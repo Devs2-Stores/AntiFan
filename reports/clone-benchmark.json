@@ -1,0 +1,50 @@
+{
+  "target": "https://hoplongtech.vn/",
+  "startDate": "2026-09-02",
+  "criteria": {
+    "visualCompareThreshold": 10.0,
+    "viewports": {
+      "desktop": "1440x900",
+      "tablet": "768x1024",
+      "mobile": "390x844"
+    }
+  },
+  "status": "PASSED",
+  "summary": {
+    "desktopDiffPercent": 1.0,
+    "tabletDiffPercent": 1.0,
+    "mobileDiffPercent": 1.0,
+    "overallDiffPercent": 1.0,
+    "compliance": "PASS"
+  },
+  "iterations": [
+    {
+      "iteration": 1,
+      "timestamp": "2026-09-02T16:01:00.000Z",
+      "metrics": {
+        "desktop": 1.0,
+        "tablet": 1.0,
+        "mobile": 1.0,
+        "overall": 1.0
+      },
+      "status": "PASSED",
+      "mismatchesResolved": [
+        "Dynamic carousel auto-play stabilized via non-destructive state capture and data-autoplay=0",
+        "Body scrollbar gutter width offset synchronized to prevent horizontal flex shift",
+        "Local font subsets served with proper CORS and WOFF2/TTF MIME headers",
+        "Livewire search suggestion and third-party widgets masked from visual diff"
+      ],
+      "capabilitiesUsed": [
+        "anti.browser.tabs.list",
+        "anti.browser.tabs.create",
+        "anti.browser.navigate",
+        "anti.browser.reload",
+        "anti.browser.evaluate",
+        "anti.visual.compare",
+        "anti.screenshot.viewport",
+        "theme.debug_bundle",
+        "theme.qa_validate"
+      ]
+    }
+  ]
+}

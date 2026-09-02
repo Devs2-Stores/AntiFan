@@ -573,6 +573,34 @@ export class TabDevToolsHost {
     return undefined;
   }
   // ─── DOM / Screenshot / Eval Utilities ───
+  public async withDeviceMetricsOverride<T>(
+    tabId: string,
+    metrics: { width: number; height: number; deviceScaleFactor?: number; mobile?: boolean },
+    action: () => Promise<T>,
+    paneId?: SplitPaneId
+  ): Promise<T> {
+    const targetId = tabId || this.ctx.getActiveTabId();
+    const target = this.ctx.getTabRecord(targetId);
+    if (!target) throw new Error(`Tab not found: ${targetId}`);
+    const wc = this.ctx.getTabWebContents(targetId, paneId || target.focusedPane);
+    if (!wc || wc.isDestroyed()) throw new Error(`WebContents unavailable for tab: ${targetId}`);
+
+    await this.sendCdpCommand(wc, 'Emulation.setDeviceMetricsOverride', {
+      width: Math.max(1, Math.round(metrics.width)),
+      height: Math.max(1, Math.round(metrics.height)),
+      deviceScaleFactor: metrics.deviceScaleFactor || 1,
+      mobile: Boolean(metrics.mobile),
+    });
+
+    try {
+      return await action();
+    } finally {
+      if (!wc.isDestroyed()) {
+        await this.sendCdpCommand(wc, 'Emulation.clearDeviceMetricsOverride').catch(() => {});
+      }
+    }
+  }
+
   public async captureScreenshot(rect?: Rectangle, tabId?: string, paneId?: SplitPaneId, options?: { format?: 'png' | 'jpeg'; quality?: number }): Promise<string> {
     const targetId = tabId || this.ctx.getActiveTabId();
     const target = this.ctx.getTabRecord(targetId);
@@ -665,7 +693,6 @@ export class TabDevToolsHost {
             return tier3Result;
           }
         } catch {}
-
         // If all 3 tiers yielded empty string, do a fast retry after 100ms
         try {
           await new Promise((r) => setTimeout(r, 100));

@@ -1,0 +1,43 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "HaravanQAMatrix",
+  "type": "object",
+  "required": ["timestamp", "overallScore", "passed", "dimensions", "viewports"],
+  "properties": {
+    "timestamp": { "type": "string" },
+    "overallScore": { "type": "number", "minimum": 0, "maximum": 100 },
+    "passed": { "type": "boolean" },
+    "dimensions": {
+      "type": "object",
+      "required": [
+        "visualFidelity",
+        "domSemantics",
+        "cssModularity",
+        "interactiveOperability",
+        "haravanCompliance",
+        "assetIntegrity",
+        "responsiveParity",
+        "performanceCWV"
+      ],
+      "properties": {
+        "visualFidelity": { "type": "object", "properties": { "score": { "type": "number" }, "details": { "type": "string" } } },
+        "domSemantics": { "type": "object", "properties": { "score": { "type": "number" }, "details": { "type": "string" } } },
+        "cssModularity": { "type": "object", "properties": { "score": { "type": "number" }, "details": { "type": "string" } } },
+        "interactiveOperability": { "type": "object", "properties": { "score": { "type": "number" }, "details": { "type": "string" } } },
+        "haravanCompliance": { "type": "object", "properties": { "score": { "type": "number" }, "details": { "type": "string" } } },
+        "assetIntegrity": { "type": "object", "properties": { "score": { "type": "number" }, "details": { "type": "string" } } },
+        "responsiveParity": { "type": "object", "properties": { "score": { "type": "number" }, "details": { "type": "string" } } },
+        "performanceCWV": { "type": "object", "properties": { "score": { "type": "number" }, "details": { "type": "string" } } }
+      }
+    },
+    "viewports": {
+      "type": "object",
+      "required": ["desktop", "tablet", "mobile"],
+      "properties": {
+        "desktop": { "type": "object", "properties": { "mismatchPercent": { "type": "number" }, "passed": { "type": "boolean" } } },
+        "tablet": { "type": "object", "properties": { "mismatchPercent": { "type": "number" }, "passed": { "type": "boolean" } } },
+        "mobile": { "type": "object", "properties": { "mismatchPercent": { "type": "number" }, "passed": { "type": "boolean" } } }
+      }
+    }
+  }
+}

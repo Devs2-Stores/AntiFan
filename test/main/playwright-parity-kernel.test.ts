@@ -365,7 +365,13 @@ describe('Phase 5: Playwright Parity Kernel & Gap Telemetry Verification', () =>
         once: () => {},
         sendCommand: async (method: string, params: any) => {
           cdpCalls.push({ method, params });
-          if (method === 'Page.captureScreenshot') return { data: 'b2NjbHVkZWQtc2NyZWVuc2hvdA==' };
+          if (method === 'Page.captureScreenshot') {
+            if (params.fromSurface === true) {
+              // Simulate surface inactive on background view
+              return { data: '' };
+            }
+            return { data: 'b2NjbHVkZWQtc2NyZWVuc2hvdA==' };
+          }
           return {};
         },
       },
@@ -379,11 +385,10 @@ describe('Phase 5: Playwright Parity Kernel & Gap Telemetry Verification', () =>
 
     const shotBase64 = await devToolsHost.captureScreenshot();
     assert.strictEqual(shotBase64, 'b2NjbHVkZWQtc2NyZWVuc2hvdA==');
-
-    const shotCmd = cdpCalls.find((c) => c.method === 'Page.captureScreenshot');
-    assert.ok(shotCmd, 'Must send Page.captureScreenshot');
-    assert.strictEqual((shotCmd.params as any).fromSurface, false, 'fromSurface must be false for background capture');
-    assert.strictEqual((shotCmd.params as any).captureBeyondViewport, true, 'captureBeyondViewport must be true for full occlusion-proof capture');
+    const fallbackShotCmd = cdpCalls.find((c) => c.method === 'Page.captureScreenshot' && (c.params as any)?.fromSurface === false);
+    assert.ok(fallbackShotCmd, 'Must send fallback Page.captureScreenshot with fromSurface: false');
+    assert.strictEqual((fallbackShotCmd.params as any).fromSurface, false, 'fromSurface must be false for background capture');
+    assert.strictEqual((fallbackShotCmd.params as any).captureBeyondViewport, true, 'captureBeyondViewport must be true for full occlusion-proof capture');
   });
 
   it('7. CDP low-level command queue serializes execution and cleans up isolatedContext on detach', async () => {

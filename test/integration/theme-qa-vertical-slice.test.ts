@@ -166,6 +166,23 @@ describe('Theme QA vertical slice', () => {
     assert.ok(!rawContent.includes('0987654321'));
     assert.ok(rawContent.includes('[REDACTED_PHONE]'));
 
+    // Verify 8-dimension QA Matrix emission
+    assert.ok(report.qaMatrix, 'Must generate 8-dimension QA Matrix');
+    assert.strictEqual(typeof report.qaMatrix.overallScore, 'number');
+    assert.ok(report.qaMatrix.dimensions.visualFidelity);
+    assert.ok(report.qaMatrix.dimensions.domSemantics);
+    assert.ok(report.qaMatrix.dimensions.cssModularity);
+    assert.ok(report.qaMatrix.dimensions.interactiveOperability);
+    assert.ok(report.qaMatrix.dimensions.haravanCompliance);
+    assert.ok(report.qaMatrix.dimensions.assetIntegrity);
+    assert.ok(report.qaMatrix.dimensions.responsiveParity);
+    assert.ok(report.qaMatrix.dimensions.performanceCWV);
+
+    const emittedSpecs = path.join(root, 'specs', 'qa-matrix.json');
+    assert.ok(fs.existsSync(emittedSpecs), 'Must emit specs/qa-matrix.json to workspaceRoot');
+    const specsContent = JSON.parse(fs.readFileSync(emittedSpecs, 'utf8'));
+    assert.strictEqual(specsContent.passed, report.summary.passed);
+    assert.strictEqual(typeof specsContent.overallScore, 'number');
     fs.rmSync(root, { recursive: true, force: true });
   });
 });

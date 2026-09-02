@@ -22,4 +22,5 @@ plans/**/reports/baseline/*.log
 
 .playwright-mcp/
 clone/
+**/__pycache__/
 

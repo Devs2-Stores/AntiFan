@@ -2,7 +2,7 @@
  * Quote Form Submission & Validation Module
  * Secure, XSS-hardened implementation using textContent & DOM APIs.
  */
-document.addEventListener('DOMContentLoaded', () => {
+export function initQuoteForm() {
   const quoteForm = document.querySelector('.quote-form, #form-quote');
   if (!quoteForm) return;
 
@@ -36,4 +36,4 @@ document.addEventListener('DOMContentLoaded', () => {
     quoteForm.appendChild(alertBox);
     quoteForm.reset();
   });
-});
+}

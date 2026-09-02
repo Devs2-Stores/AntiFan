@@ -1,0 +1,22 @@
+{
+  "name": "@antifan/site-clone",
+  "version": "1.0.0",
+  "description": "Haravan OS 2.0 Storefront Cloning & QA Engine",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -p ./",
+    "typecheck": "tsc -p ./ --noEmit",
+    "test": "node --test dist/**/*.test.js"
+  },
+  "dependencies": {
+    "pixelmatch": "^5.3.0",
+    "pngjs": "^7.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "@types/pixelmatch": "^5.2.6",
+    "@types/pngjs": "^6.0.4",
+    "typescript": "^5.3.3"
+  }
+}

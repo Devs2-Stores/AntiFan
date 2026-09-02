@@ -249,4 +249,37 @@ describe('TabDevToolsHost (Sub-Controller Unit Tests)', () => {
       new vm.Script(injectedScript);
     }, 'Injected AutoJsonViewer script must be 100% valid ECMAScript without SyntaxError');
   });
+
+  it('9. withDeviceMetricsOverride executes CDP Emulation commands and clears metrics in finally', async () => {
+    const { ctx } = createMockContext();
+    const devTools = new TabDevToolsHost(ctx);
+
+    const cdpCommands: Array<{ method: string; params?: unknown }> = [];
+    (devTools as unknown as { sendCdpCommand: (wc: unknown, method: string, params?: unknown) => Promise<unknown> }).sendCdpCommand = async (_wc, method, params) => {
+      cdpCommands.push({ method, params });
+      return {};
+    };
+
+    let actionExecuted = false;
+    const result = await devTools.withDeviceMetricsOverride('tab-1', { width: 768, height: 1024, mobile: true }, async () => {
+      actionExecuted = true;
+      return 'action-result';
+    });
+
+    assert.strictEqual(actionExecuted, true);
+    assert.strictEqual(result, 'action-result');
+    assert.strictEqual(cdpCommands.length, 2);
+    const cmd0 = cdpCommands[0];
+    const cmd1 = cdpCommands[1];
+    assert.ok(cmd0);
+    assert.ok(cmd1);
+    assert.strictEqual(cmd0.method, 'Emulation.setDeviceMetricsOverride');
+    assert.deepStrictEqual(cmd0.params, {
+      width: 768,
+      height: 1024,
+      deviceScaleFactor: 1,
+      mobile: true,
+    });
+    assert.strictEqual(cmd1.method, 'Emulation.clearDeviceMetricsOverride');
+  });
 });

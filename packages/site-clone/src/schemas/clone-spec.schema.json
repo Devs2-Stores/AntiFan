@@ -1,0 +1,82 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "HaravanCloneSpec",
+  "type": "object",
+  "required": ["metadata", "themeSettings", "sections", "assets", "stateContract"],
+  "properties": {
+    "metadata": {
+      "type": "object",
+      "required": ["targetUrl", "title", "extractedAt", "targetPlatform"],
+      "properties": {
+        "targetUrl": { "type": "string", "format": "uri" },
+        "title": { "type": "string" },
+        "extractedAt": { "type": "string" },
+        "targetPlatform": { "type": "string", "enum": ["haravan", "shopify", "sapo"] }
+      }
+    },
+    "themeSettings": {
+      "type": "object",
+      "required": ["colors", "typography", "layout"],
+      "properties": {
+        "colors": { "type": "object" },
+        "typography": { "type": "object" },
+        "layout": { "type": "object" }
+      }
+    },
+    "sections": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "type", "name", "liquidTemplate"],
+        "properties": {
+          "id": { "type": "string" },
+          "type": { "type": "string" },
+          "name": { "type": "string" },
+          "liquidTemplate": { "type": "string" },
+          "schema": { "type": "object" },
+          "presets": { "type": "array" },
+          "defaultData": { "type": "object" }
+        }
+      }
+    },
+    "snippets": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "liquidTemplate"],
+        "properties": {
+          "name": { "type": "string" },
+          "liquidTemplate": { "type": "string" }
+        }
+      }
+    },
+    "assets": {
+      "type": "object",
+      "required": ["stylesheets", "javascripts", "images", "fonts"],
+      "properties": {
+        "stylesheets": { "type": "array", "items": { "type": "string" } },
+        "javascripts": { "type": "array", "items": { "type": "string" } },
+        "images": { "type": "array" },
+        "fonts": { "type": "array" }
+      }
+    },
+    "stateContract": {
+      "type": "object",
+      "required": ["interactiveWidgets"],
+      "properties": {
+        "interactiveWidgets": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["widgetType", "selector", "behavior"],
+            "properties": {
+              "widgetType": { "type": "string", "enum": ["slider", "tabs", "modal", "dropdown", "accordion", "search"] },
+              "selector": { "type": "string" },
+              "behavior": { "type": "string" }
+            }
+          }
+        }
+      }
+    }
+  }
+}

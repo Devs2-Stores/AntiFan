@@ -15,7 +15,10 @@ const mimeTypes = {
   '.svg': 'image/svg+xml',
   '.ico': 'image/x-icon',
   '.json': 'application/json',
-  '.webp': 'image/webp'
+  '.webp': 'image/webp',
+  '.ttf': 'font/ttf',
+  '.woff': 'font/woff',
+  '.woff2': 'font/woff2'
 };
 
 const server = http.createServer((req, res) => {
@@ -86,7 +89,17 @@ const server = http.createServer((req, res) => {
   
   fs.createReadStream(filePath).pipe(res);
 });
+server.on('error', (err) => {
+  console.error('[Clone Server] Server error:', err);
+});
+
+process.on('uncaughtException', (err) => {
+  console.error('[Clone Server] Uncaught exception:', err);
+});
 
 server.listen(PORT, '127.0.0.1', () => {
   console.log(`[Clone Server] Ready on http://127.0.0.1:${PORT}`);
 });
+
+// Keep process alive
+setInterval(() => {}, 1000 * 60 * 60);
