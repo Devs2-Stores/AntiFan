@@ -21,6 +21,8 @@ plans/**/reports/smoke/*.log
 plans/**/reports/baseline/*.log
 
 .playwright-mcp/
-clone/
+clone/*
+!clone/hoplongtech/
+clone/hoplongtech/build/
 **/__pycache__/
 

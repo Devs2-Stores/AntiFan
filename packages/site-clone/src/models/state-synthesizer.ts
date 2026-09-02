@@ -53,24 +53,55 @@ function initHeroSlider() {
   });
 }
 
-// 2. Category Navigation Hover & Click
+// 2. Category Navigation Hover & Multi-Level Submenu
 function initCategorySubmenu() {
   const items = document.querySelectorAll('.category-navigation__list ul li');
-  const subMenu = document.getElementById('category-navigation__sub');
-  if (!items.length || !subMenu) return;
+  const subMenuContainer = document.getElementById('category-navigation__sub');
+  const subMenus = subMenuContainer ? Array.from(subMenuContainer.querySelectorAll('.sub-menu')) : [];
+  if (!items.length || !subMenuContainer) return;
 
-  items.forEach(item => {
-    item.addEventListener('mouseenter', () => {
-      subMenu.classList.add('active');
+  let hideTimer = null;
+
+  const showSubMenu = (index) => {
+    if (hideTimer) {
+      clearTimeout(hideTimer);
+      hideTimer = null;
+    }
+    subMenuContainer.classList.add('active');
+    subMenus.forEach((sm, i) => {
+      if (i === index) {
+        sm.style.display = 'block';
+        sm.classList.add('active');
+      } else {
+        sm.style.display = 'none';
+        sm.classList.remove('active');
+      }
     });
+  };
+
+  const hideAll = () => {
+    hideTimer = setTimeout(() => {
+      subMenuContainer.classList.remove('active');
+      subMenus.forEach(sm => {
+        sm.style.display = 'none';
+        sm.classList.remove('active');
+      });
+    }, 120);
+  };
+
+  items.forEach((item, index) => {
+    item.addEventListener('mouseenter', () => showSubMenu(index));
+    item.addEventListener('mouseleave', () => hideAll());
   });
 
-  const nav = document.querySelector('.category-navigation');
-  if (nav) {
-    nav.addEventListener('mouseleave', () => {
-      subMenu.classList.remove('active');
-    });
-  }
+  subMenuContainer.addEventListener('mouseenter', () => {
+    if (hideTimer) {
+      clearTimeout(hideTimer);
+      hideTimer = null;
+    }
+  });
+
+  subMenuContainer.addEventListener('mouseleave', () => hideAll());
 }
 
 // 3. Brand Tabs Switcher
@@ -104,27 +135,59 @@ function initBranchSelector() {
   });
 }
 
-// 5. Video Popup Dialog
+// 5. Video Popup Dialog (Click image, button, backdrop, close button, Esc key)
 function initVideoModal() {
-  const videoBtn = document.querySelector('.video-content__button');
+  const videoTriggers = document.querySelectorAll('.video-content, .video-content__button, .video-content__image');
   const popup = document.getElementById('popup-video');
-  const closeBtn = document.querySelector('.popup-close');
+  const closeBtn = popup ? popup.querySelector('.popup-close') : document.querySelector('.popup-close');
   const iframe = popup ? popup.querySelector('iframe') : null;
 
-  if (videoBtn && popup) {
-    videoBtn.addEventListener('click', (e) => {
-      e.preventDefault();
-      popup.style.display = 'flex';
-      if (iframe) iframe.src = 'https://www.youtube.com/embed/Nt2J6ZX牢?autoplay=1';
+  const openModal = (e) => {
+    if (e) e.preventDefault();
+    if (!popup) return;
+    popup.classList.add('active');
+    popup.style.display = 'flex';
+    if (iframe) {
+      iframe.src = 'https://www.youtube.com/embed/Nt2J6ZXPuw0?autoplay=1';
+    }
+  };
+
+  const closeModal = (e) => {
+    if (e) e.preventDefault();
+    if (!popup) return;
+    popup.classList.remove('active');
+    popup.style.display = 'none';
+    if (iframe) {
+      iframe.src = '';
+    }
+  };
+
+  videoTriggers.forEach(trig => {
+    trig.addEventListener('click', (e) => {
+      // Avoid re-triggering if clicking inside popup
+      if (popup && popup.contains(e.target)) return;
+      openModal(e);
+    });
+  });
+
+  if (closeBtn) {
+    closeBtn.addEventListener('click', closeModal);
+  }
+
+  if (popup) {
+    // Backdrop click closes popup
+    popup.addEventListener('click', (e) => {
+      if (e.target === popup) {
+        closeModal(e);
+      }
     });
   }
 
-  if (closeBtn && popup) {
-    closeBtn.addEventListener('click', () => {
-      popup.style.display = 'none';
-      if (iframe) iframe.src = '';
-    });
-  }
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && popup && popup.classList.contains('active')) {
+      closeModal(e);
+    }
+  });
 }
 
 // 6. Fast Quote Form Validation

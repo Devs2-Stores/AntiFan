@@ -47,6 +47,69 @@
                 visibility: visible !important;
                 opacity: 1 !important;
             }
+            .slide-content .video-content,
+            .slide-content .video-content__image,
+            .slide-content .video-content__button {
+                cursor: pointer !important;
+            }
+            #popup-video {
+                opacity: 0;
+                visibility: hidden;
+                width: 100%;
+                height: 100vh;
+                background: rgba(0, 0, 0, 0.62);
+                position: fixed;
+                inset: 0px;
+                padding: 40px 53px 54px 48px;
+                z-index: 99999 !important;
+                transition: 0.3s;
+                display: none;
+                align-items: center;
+                justify-content: center;
+            }
+            #popup-video.active {
+                opacity: 1 !important;
+                visibility: visible !important;
+                display: flex !important;
+            }
+            #popup-video .popup-content {
+                max-width: 90%;
+                width: 1000px;
+                height: auto;
+                background: #000;
+                border-radius: 10px;
+                padding: 14px;
+                position: relative;
+            }
+            #popup-video .popup-close {
+                width: 40px;
+                height: 40px;
+                cursor: pointer;
+                position: absolute;
+                background: #3590ce;
+                right: -15px;
+                top: -15px;
+                border-radius: 50%;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                z-index: 10;
+            }
+            #popup-video .popup-content__wrap {
+                position: relative;
+                width: 100%;
+                padding-bottom: 56.25%;
+                height: 0;
+            }
+            #popup-video .popup-content__wrap iframe {
+                position: absolute;
+                top: 0;
+                left: 0;
+                width: 100%;
+                height: 100%;
+                border: none;
+                border-radius: 6px;
+            }
         </style>
         <link rel="preload" as="style" href="css/app.css"><link rel="stylesheet" href="css/app.css" data-navigate-track="reload">                <meta property="fb:app_id" content="1333336401388015">
 <meta name="msvalidate.01" content="6A124AD6CCC76D00A6F754479D76D619">
