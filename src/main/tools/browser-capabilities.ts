@@ -1,3 +1,4 @@
+import * as path from 'node:path';
 import { BrowserTarget, CapabilityRequestContext, CapabilityError, CapabilityEffectPolicyInput, CapabilityRisk } from '../../shared/control-plane-contracts';
 import { BrowserControlPort } from './browser-control-port';
 import { CapabilityCatalogue } from './capability-catalogue';
@@ -196,6 +197,39 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
     inputSchema: { type: 'object', properties: { selector: { type: 'string' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } } },
     execute: async (params: { selector?: string; tabId?: string; paneId?: 'desktop' | 'mobile' }, context) => browser.dom(context.browserTarget as BrowserTarget, context.runId || 'run-unbound', context.attemptId || 'attempt-unbound', params.selector, params.tabId, params.paneId),
   });
+  catalogue.register({
+    name: 'browser.dump_dom',
+    description: 'Stream clean or raw page DOM directly to a workspace file with zero MCP transport truncation and Windows-safe atomic writes',
+    risk: 'write',
+    requiresBrowserTarget: true,
+    policy: makeBrowserPolicy({ effect: 'idempotent-write', risk: 'write', requiresBrowserTarget: true, lane: 'viewport-gate' }),
+    inputSchema: {
+      type: 'object',
+      properties: {
+        outputPath: { type: 'string', description: 'Destination file path relative to workspace root' },
+        selector: { type: 'string', description: 'Optional CSS selector to isolate subtrees' },
+        tabId: { type: 'string', description: 'Optional target tabId' },
+        paneId: { type: 'string', enum: ['desktop', 'mobile'] },
+        clean: { type: 'boolean', description: 'Automatically sanitize Livewire/SSR metadata blobs', default: true },
+      },
+      required: ['outputPath'],
+    },
+    execute: async (params: { outputPath: string; selector?: string; tabId?: string; paneId?: 'desktop' | 'mobile'; clean?: boolean }, context) => {
+      let rootPath = process.cwd();
+      if (context?.projectId && context?.workspaceId) {
+        try {
+          const ws = catalogue.resolveAuthoritativeWorkspace(context.projectId, context.workspaceId);
+          if (ws?.rootPath) rootPath = ws.rootPath;
+        } catch {}
+      }
+      const resolvedTarget = path.isAbsolute(params.outputPath)
+        ? params.outputPath
+        : path.resolve(rootPath, params.outputPath);
+      const safePath = confineWorkspaceRoot(resolvedTarget, rootPath);
+      return browser.dumpDom(context.browserTarget as BrowserTarget, safePath, params);
+    },
+  });
+
 
   catalogue.register({
     name: 'browser.screenshot',

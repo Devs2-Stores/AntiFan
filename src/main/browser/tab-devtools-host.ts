@@ -592,11 +592,20 @@ export class TabDevToolsHost {
 
     return this.ctx.withTabAgentWorking(targetId, async () => {
       const captureAction = async (): Promise<string> => {
-        // Empirical Cascade Tier 1: Fast webContents.capturePage() with 500ms race
+        const withTimeout = <T>(p: Promise<T>, ms: number, fallback: T): Promise<T> => {
+          let timer: NodeJS.Timeout | undefined;
+          const timeoutPromise = new Promise<T>((resolve) => {
+            timer = setTimeout(() => resolve(fallback), ms);
+          });
+          p.catch(() => {});
+          return Promise.race([p, timeoutPromise]).finally(() => {
+            clearTimeout(timer);
+          });
+        };
+
+        // Tier 1: Fast webContents.capturePage() with 600ms race
         try {
-          const capturePromise = wc.capturePage(rect);
-          const timeoutPromise = new Promise<null>((r) => setTimeout(() => r(null), 500));
-          const img = await Promise.race([capturePromise, timeoutPromise]);
+          const img = await withTimeout(wc.capturePage(rect), 600, null);
           if (img && typeof img.isEmpty === 'function' && !img.isEmpty()) {
             if (format === 'jpeg' && typeof img.toJPEG === 'function') {
               return img.toJPEG(quality).toString('base64');
@@ -615,20 +624,45 @@ export class TabDevToolsHost {
           }
         } catch {}
 
-        // Empirical Cascade Tier 2: CDP Page.captureScreenshot with fromSurface: false & exact clip bounds
+        // Tier 2: CDP Page.captureScreenshot with surface sync & compositor wake kick (800ms race)
         try {
-          await this.sendCdpCommand(wc, 'Page.enable');
-          const cdpRes = await this.sendCdpCommand<{ data?: string }>(wc, 'Page.captureScreenshot', {
-            format,
-            quality: format === 'jpeg' ? quality : undefined,
-            fromSurface: false,
-            captureBeyondViewport: true,
-            clip: rect
-              ? { x: rect.x, y: rect.y, width: rect.width, height: rect.height, scale: 1 }
-              : undefined,
-          });
-          if (cdpRes && typeof cdpRes.data === 'string' && cdpRes.data.length > 0) {
-            return cdpRes.data;
+          const cdpTask = async (): Promise<string | null> => {
+            await this.sendCdpCommand(wc, 'Page.enable');
+            await this.sendCdpCommand(wc, 'DOM.getDocument', { depth: 1 }).catch(() => {});
+            const cdpRes = await this.sendCdpCommand<{ data?: string }>(wc, 'Page.captureScreenshot', {
+              format,
+              quality: format === 'jpeg' ? quality : undefined,
+              fromSurface: true,
+              captureBeyondViewport: false,
+              clip: rect
+                ? { x: rect.x, y: rect.y, width: rect.width, height: rect.height, scale: 1 }
+                : undefined,
+            });
+            return (cdpRes && typeof cdpRes.data === 'string' && cdpRes.data.length > 0) ? cdpRes.data : null;
+          };
+          const cdpResult = await withTimeout(cdpTask(), 800, null);
+          if (cdpResult && cdpResult.length > 0) {
+            return cdpResult;
+          }
+        } catch {}
+
+        // Tier 3: Offscreen Native View Paint Fallback (1000ms race)
+        try {
+          const offscreenTask = async (): Promise<string | null> => {
+            const cdpRes = await this.sendCdpCommand<{ data?: string }>(wc, 'Page.captureScreenshot', {
+              format,
+              quality: format === 'jpeg' ? quality : undefined,
+              fromSurface: false,
+              captureBeyondViewport: true,
+              clip: rect
+                ? { x: rect.x, y: rect.y, width: rect.width, height: rect.height, scale: 1 }
+                : undefined,
+            });
+            return (cdpRes && typeof cdpRes.data === 'string' && cdpRes.data.length > 0) ? cdpRes.data : null;
+          };
+          const tier3Result = await withTimeout(offscreenTask(), 1000, null);
+          if (tier3Result && tier3Result.length > 0) {
+            return tier3Result;
           }
         } catch {}
 

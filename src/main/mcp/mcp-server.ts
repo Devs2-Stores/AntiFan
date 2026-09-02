@@ -484,6 +484,12 @@ export class AntiFanMcpServer {
       'anti.browser.tabs.close': 'antifan_close_tab',
       'anti.browser.navigate': 'antifan_navigate',
       'anti.browser.reload': 'antifan_reload',
+      'anti.browser.dump_dom': 'browser.dump_dom',
+      'anti.browser.dump-dom': 'browser.dump_dom',
+      'anti.inspect.dump_dom': 'browser.dump_dom',
+      'antifan_dump_dom': 'browser.dump_dom',
+      'anti.browser.set_automation_target': 'antifan_set_automation_target',
+      'anti.browser.set-automation-target': 'antifan_set_automation_target',
       'anti.inspect.dom': 'antifan_get_dom',
       'anti.screenshot.viewport': 'antifan_screenshot',
       'anti.browser.click': 'antifan_agent_click',
@@ -726,6 +732,8 @@ export function buildMcpToolList(staticTools: Tool[], transport?: CapabilityTran
     if (item.name === 'antifan_eval_js') generated.push({ ...item, name: 'anti.browser.evaluate' }, { ...item, name: 'anti.inspect.eval' });
     if (item.name === 'antifan_upload_file') generated.push({ ...item, name: 'anti.agent.file_upload' }, { ...item, name: 'anti.agent.upload_file' }, { ...item, name: 'anti.browser.upload_file' });
     if (item.name === 'antifan_drop_files') generated.push({ ...item, name: 'anti.agent.drop' }, { ...item, name: 'anti.agent.file_drop' }, { ...item, name: 'anti.browser.drop_files' });
+    if (item.name === 'browser.dump_dom' || item.name === 'antifan_dump_dom') generated.push({ ...item, name: 'anti.browser.dump_dom' }, { ...item, name: 'anti.inspect.dump_dom' });
+    if (item.name === 'antifan_set_automation_target') generated.push({ ...item, name: 'anti.browser.set_automation_target' }, { ...item, name: 'anti.browser.set-automation-target' });
     return generated;
   });
   const diagnosticAliases = listed.some((item) => item.name === 'antifan_console_messages')

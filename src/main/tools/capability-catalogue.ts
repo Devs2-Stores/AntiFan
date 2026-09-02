@@ -176,7 +176,10 @@ export class CapabilityCatalogue {
       if (params && typeof params === 'object' && typeof (params as Record<string, unknown>).tabId === 'string') {
         const reqTabId = ((params as Record<string, unknown>).tabId as string).trim();
         if (reqTabId && context.browserTarget?.tabId && reqTabId !== context.browserTarget.tabId) {
-          throw new CapabilityError('TARGET_MISMATCH', `Tab ID mismatch: expected ${context.browserTarget.tabId}, got ${reqTabId}`);
+          context.browserTarget = {
+            ...context.browserTarget,
+            tabId: reqTabId,
+          };
         }
       }
     }
@@ -216,6 +219,15 @@ export class CapabilityCatalogue {
         workspaceId: authoritativeWs.id,
         runtimeId: this.options.runtimeId
       }, true);
+      if (params && typeof params === 'object' && typeof (params as Record<string, unknown>).tabId === 'string') {
+        const reqTabId = ((params as Record<string, unknown>).tabId as string).trim();
+        if (reqTabId && context.browserTarget?.tabId && reqTabId !== context.browserTarget.tabId) {
+          context.browserTarget = {
+            ...context.browserTarget,
+            tabId: reqTabId,
+          };
+        }
+      }
     }
 
     return definition.execute(params, context);

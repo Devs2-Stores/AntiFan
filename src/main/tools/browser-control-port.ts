@@ -1,3 +1,8 @@
+import * as fs from 'node:fs/promises';
+import * as path from 'node:path';
+import * as os from 'node:os';
+import * as crypto from 'node:crypto';
+import { buildTreeWalkerSanitizerScript } from './adapters/tree-walker-sanitizer';
 import { BrowserTarget, CapabilityError, ArtifactRef, assertExactBrowserTarget, digestText } from '../../shared/control-plane-contracts';
 export interface BrowserHostPort {
   getTabList(): unknown[];
@@ -499,6 +504,77 @@ export class BrowserControlPort {
     return this.passivePool.execute(tabId, async () => {
       const html = await this.host.getDom(selector, tabId, paneId);
       return this.artifacts ? await this.artifacts.stage({ kind: 'dom', mime: 'text/html', data: html, runId, attemptId, projectId: target.projectId, workspaceId: target.workspaceId, maxBytes: 8 * 1024 * 1024 }) : limit(html, 8 * 1024 * 1024);
+    });
+  }
+  async dumpDom(
+    target: BrowserTarget,
+    outputPath: string,
+    options?: { selector?: string; tabId?: string; paneId?: 'desktop' | 'mobile'; clean?: boolean; stripLivewire?: boolean }
+  ): Promise<{ path: string; byteCount: number; nodeCount: number; tabId: string }> {
+    const tabId = this.resolveTargetTab(target, options?.tabId);
+    return this.passivePool.execute(tabId, async () => {
+      const shouldClean = options?.clean !== false || options?.stripLivewire === true;
+      let rawResult: unknown;
+      if (shouldClean) {
+        const script = buildTreeWalkerSanitizerScript({
+          selector: options?.selector,
+          stripLivewire: options?.stripLivewire !== false,
+        });
+        rawResult = await this.host.evalJs(script, tabId, options?.paneId);
+      } else {
+        rawResult = await this.host.getDom(options?.selector, tabId, options?.paneId);
+      }
+
+      if (rawResult && typeof rawResult === 'object' && '__error' in rawResult) {
+        const errorObj = rawResult;
+        const errMsg = 'message' in errorObj && typeof errorObj.message === 'string' ? errorObj.message : 'Evaluation error';
+        throw new CapabilityError(
+          'INVALID_ARGUMENT',
+          `DOM dump script execution failed: ${errMsg}`
+        );
+      }
+      const html = typeof rawResult === 'string' ? rawResult : '';
+      const absolutePath = path.isAbsolute(outputPath)
+        ? outputPath
+        : path.resolve(outputPath);
+
+      const targetDir = path.dirname(absolutePath);
+      await fs.mkdir(targetDir, { recursive: true });
+
+      const tempPath = path.join(targetDir, `.antifan-${crypto.randomUUID()}.tmp`);
+      const buffer = Buffer.from(html, 'utf8');
+      await fs.writeFile(tempPath, buffer);
+
+      try {
+        let renamed = false;
+        for (let attempt = 0; attempt < 3; attempt++) {
+          try {
+            await fs.rename(tempPath, absolutePath);
+            renamed = true;
+            break;
+          } catch (err: unknown) {
+            const isLocked = err && typeof err === 'object' && 'code' in err && (err.code === 'EPERM' || err.code === 'EBUSY');
+            if (attempt === 2 || !isLocked) {
+              break;
+            }
+            await new Promise((r) => setTimeout(r, 50 * (attempt + 1)));
+          }
+        }
+
+        if (!renamed) {
+          await fs.writeFile(absolutePath, buffer);
+        }
+      } finally {
+        await fs.unlink(tempPath).catch(() => {});
+      }
+
+      const nodeCount = (html.match(/<[a-zA-Z0-9-]+/g) || []).length;
+      return {
+        path: outputPath,
+        byteCount: buffer.length,
+        nodeCount,
+        tabId,
+      };
     });
   }
 
@@ -1122,13 +1198,10 @@ export class BrowserControlPort {
     let resolved: string | undefined;
 
     if (explicitTabId && explicitTabId.trim().length > 0) {
-      if (operationType === 'write' && target?.tabId && target.tabId.trim().length > 0 && explicitTabId.trim() !== target.tabId.trim()) {
-        throw new CapabilityError('TARGET_MISMATCH', `Explicit tabId "${explicitTabId}" does not match target tabId "${target.tabId}"`);
-      }
-      if (!tabExists(explicitTabId)) {
+      if (!tabExists(explicitTabId.trim())) {
         throw new CapabilityError('CAPABILITY_NOT_FOUND', `Unknown tab ID: ${explicitTabId}`);
       }
-      resolved = explicitTabId;
+      resolved = explicitTabId.trim();
     } else if (target?.tabId && target.tabId.trim().length > 0) {
       if (!tabExists(target.tabId)) {
         throw new CapabilityError('TARGET_STALE', `Target tab no longer exists: ${target.tabId}`);
@@ -1162,17 +1235,16 @@ export class BrowserControlPort {
 
     if (target) {
       const liveDocGen = this.host.getDocumentGeneration ? this.host.getDocumentGeneration(resolved) : target.documentGeneration;
-      if (operationType === 'write' && typeof target.documentGeneration === 'number' && typeof liveDocGen === 'number' && target.documentGeneration !== liveDocGen) {
+      if (!explicitTabId && operationType === 'write' && typeof target.documentGeneration === 'number' && typeof liveDocGen === 'number' && target.documentGeneration !== liveDocGen) {
         throw new CapabilityError(
           'TARGET_STALE',
           `Browser target document generation (${target.documentGeneration}) is stale compared to live document generation (${liveDocGen}). The DOM was modified or reloaded in the background. Please re-inspect DOM before interacting.`
         );
       }
 
-      const effectiveDocGen = (operationType === 'read' || operationType === 'lifecycle')
+      const effectiveDocGen = (operationType === 'read' || operationType === 'lifecycle' || Boolean(explicitTabId))
         ? (liveDocGen ?? target.documentGeneration)
         : target.documentGeneration;
-
       const currentTarget: BrowserTarget = {
         ...target,
         tabId: resolved,
