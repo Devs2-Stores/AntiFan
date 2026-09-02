@@ -21,4 +21,5 @@ plans/**/reports/smoke/*.log
 plans/**/reports/baseline/*.log
 
 .playwright-mcp/
+clone/
 
