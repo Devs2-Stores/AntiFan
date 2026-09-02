@@ -494,4 +494,59 @@ describe('CLI Session and Agent Launcher Lifecycle', () => {
       try { fs.rmSync(tempDir, { recursive: true, force: true }); } catch {}
     }
   });
+  it('resolveAgentCommand deterministically routes MCP aliases to antifan-omp-mcp.cjs and passes through external commands', () => {
+    const launcherPath = path.resolve(process.cwd(), 'scripts', 'antifan-agent.cjs');
+    const { resolveAgentCommand } = require(launcherPath);
+    const mockScriptsDir = 'C:\\mock\\scripts';
+
+    // 1. MCP Aliases route directly to Node binary + antifan-omp-mcp.cjs
+    const expectedMcpScript = path.resolve(mockScriptsDir, 'antifan-omp-mcp.cjs');
+
+    const mcpRes = resolveAgentCommand(['mcp'], mockScriptsDir);
+    assert.strictEqual(mcpRes.command, process.execPath);
+    assert.deepStrictEqual(mcpRes.commandArgs, [expectedMcpScript]);
+    assert.strictEqual(mcpRes.isMcpAlias, true);
+
+    const mcpWithArgsRes = resolveAgentCommand(['mcp', '--verbose', '--port', '1234'], mockScriptsDir);
+    assert.strictEqual(mcpWithArgsRes.command, process.execPath);
+    assert.deepStrictEqual(mcpWithArgsRes.commandArgs, [expectedMcpScript, '--verbose', '--port', '1234']);
+    assert.strictEqual(mcpWithArgsRes.isMcpAlias, true);
+
+    const mcpServerRes = resolveAgentCommand(['mcp-server'], mockScriptsDir);
+    assert.strictEqual(mcpServerRes.command, process.execPath);
+    assert.deepStrictEqual(mcpServerRes.commandArgs, [expectedMcpScript]);
+    assert.strictEqual(mcpServerRes.isMcpAlias, true);
+
+    const stdioRes = resolveAgentCommand(['stdio'], mockScriptsDir);
+    assert.strictEqual(stdioRes.command, process.execPath);
+    assert.deepStrictEqual(stdioRes.commandArgs, [expectedMcpScript]);
+    assert.strictEqual(stdioRes.isMcpAlias, true);
+
+    const ompMcpRes = resolveAgentCommand(['omp-mcp'], mockScriptsDir);
+    assert.strictEqual(ompMcpRes.command, process.execPath);
+    assert.deepStrictEqual(ompMcpRes.commandArgs, [expectedMcpScript]);
+    assert.strictEqual(ompMcpRes.isMcpAlias, true);
+
+    // 2. External agent CLIs pass through unmodified
+    const claudeRes = resolveAgentCommand(['claude', '--print', 'query'], mockScriptsDir);
+    assert.strictEqual(claudeRes.command, 'claude');
+    assert.deepStrictEqual(claudeRes.commandArgs, ['--print', 'query']);
+    assert.strictEqual(claudeRes.isMcpAlias, false);
+
+    const ompRes = resolveAgentCommand(['omp', 'build'], mockScriptsDir);
+    assert.strictEqual(ompRes.command, 'omp');
+    assert.deepStrictEqual(ompRes.commandArgs, ['build']);
+    assert.strictEqual(ompRes.isMcpAlias, false);
+
+    const codexRes = resolveAgentCommand(['codex', '--model', 'default'], mockScriptsDir);
+    assert.strictEqual(codexRes.command, 'codex');
+    assert.deepStrictEqual(codexRes.commandArgs, ['--model', 'default']);
+    assert.strictEqual(codexRes.isMcpAlias, false);
+
+    // 3. Empty args returns safe defaults
+    const emptyRes = resolveAgentCommand([], mockScriptsDir);
+    assert.strictEqual(emptyRes.command, '');
+    assert.deepStrictEqual(emptyRes.commandArgs, []);
+    assert.strictEqual(emptyRes.isMcpAlias, false);
+  });
 });

@@ -20,6 +20,7 @@ Usage:
   antifan-agent <command> [args...]
 
 Examples:
+  antifan mcp
   antifan omp
   antifan claude
   antifan codex
@@ -290,11 +291,9 @@ async function main() {
       ownerPid: boundPid,
     }),
   };
+  const { command, commandArgs } = resolveAgentCommand(args, __dirname);
 
-  const command = args[0];
-  const commandArgs = args.slice(1);
-
-  console.log(`\x1b[36m[antifan-agent] Attached session ${session.attachmentId.slice(0, 16)}... to ${command}\x1b[0m`);
+  console.error(`\x1b[36m[antifan-agent] Attached session ${session.attachmentId.slice(0, 16)}... to ${args[0]}\x1b[0m`);
 
   const child = spawnAgentChild(command, commandArgs, childEnv);
 
@@ -356,6 +355,28 @@ async function main() {
   });
 }
 
+function resolveAgentCommand(args, scriptsDir = __dirname) {
+  if (!args || args.length === 0) {
+    return { command: '', commandArgs: [], isMcpAlias: false };
+  }
+  const rawCommand = args[0];
+  const restArgs = args.slice(1);
+
+  if (rawCommand === 'mcp' || rawCommand === 'mcp-server' || rawCommand === 'stdio' || rawCommand === 'omp-mcp') {
+    return {
+      command: process.execPath,
+      commandArgs: [path.resolve(scriptsDir, 'antifan-omp-mcp.cjs'), ...restArgs],
+      isMcpAlias: true,
+    };
+  }
+
+  return {
+    command: rawCommand,
+    commandArgs: restArgs,
+    isMcpAlias: false,
+  };
+}
+
 if (require.main === module) {
   main().catch((err) => {
     console.error('[antifan-agent] Unexpected error:', err);
@@ -368,6 +389,7 @@ if (require.main === module) {
     compareCandidates,
     acquireBridgeSession,
     spawnAgentChild,
+    resolveAgentCommand,
   };
 }
 
