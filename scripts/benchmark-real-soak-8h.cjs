@@ -27,6 +27,15 @@ const TOTAL_MINUTES = parseFloat(process.env.SOAK_DURATION_MINUTES || '480');
 const WARMUP_MINUTES = parseFloat(process.env.SOAK_WARMUP_MINUTES || '30');
 const RECOVERY_MINUTES = parseFloat(process.env.SOAK_RECOVERY_MINUTES || '30');
 const WORKLOAD_MINUTES = Math.max(0.1, TOTAL_MINUTES - WARMUP_MINUTES - RECOVERY_MINUTES);
+const FREEZE_SLO = {
+  overallSlopeMBPerMin: 0.35,
+  rendererSlopeMBPerMin: 0.15,
+  peakTotalWorkingSetMB: 1600, // <= 1.6 GB
+  switchLatencyP50Ms: 12,
+  switchLatencyP95Ms: 18,
+  switchLatencyMaxMs: 35,
+  maxOrphans: 0,
+};
 
 const REPORTS_DIR = path.join(PROJECT_ROOT, 'plans', 'reports', 'runtime-verification');
 fs.mkdirSync(REPORTS_DIR, { recursive: true });
@@ -34,7 +43,6 @@ const CHECKPOINT_PATH = path.join(REPORTS_DIR, 'real-soak-8h-checkpoint.json');
 const FINAL_REPORT_PATH = path.join(REPORTS_DIR, 'real-soak-8h.json');
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-
 function quantiles(values) {
   if (!values.length) return { min: null, p50: null, p95: null, max: null };
   const sorted = [...values].sort((a, b) => a - b);
@@ -46,6 +54,32 @@ function quantiles(values) {
   };
 }
 
+function evaluateFreezeVerdict(meta, metrics, orphanPidsCount) {
+  const overallSlope = metrics.overallActiveSlopeMBPerMin;
+  const rendererSlope = metrics.rendererActiveSlopeMBPerMin;
+  const hasValidSlope = overallSlope !== null && rendererSlope !== null;
+  const maxActive = metrics.activeWorkingSetMB?.max || 0;
+  const switchP50 = metrics.switchLatencyMs?.p50 || 0;
+  const switchP95 = metrics.switchLatencyMs?.p95 || 0;
+  const switchMax = metrics.switchLatencyMs?.max || 0;
+
+  const slopeOk = hasValidSlope && overallSlope <= FREEZE_SLO.overallSlopeMBPerMin && rendererSlope <= FREEZE_SLO.rendererSlopeMBPerMin;
+  const memoryOk = maxActive <= FREEZE_SLO.peakTotalWorkingSetMB;
+  const latencyOk = switchP50 <= FREEZE_SLO.switchLatencyP50Ms && switchP95 <= FREEZE_SLO.switchLatencyP95Ms && switchMax <= FREEZE_SLO.switchLatencyMaxMs;
+  const processOk = meta.processQuerySuccess === true && (orphanPidsCount || 0) <= FREEZE_SLO.maxOrphans;
+  const executionOk = !meta.executionError && !meta.childExitedPrematurely;
+
+  const isPassed = slopeOk && memoryOk && latencyOk && processOk && executionOk;
+  return {
+    isPassed,
+    slopeOk,
+    memoryOk,
+    latencyOk,
+    processOk,
+    executionOk,
+    verdict: isPassed ? 'PASSED' : 'FAILED',
+  };
+}
 function calculateSlope(samples, key) {
   if (!samples || samples.length < 2) return null;
   const t0 = samples[0].at;
@@ -218,28 +252,36 @@ function buildReportPayload(meta) {
       terminalEventsCount: terminalEvents.length,
       totalSamples: samples.length,
     },
-    metrics: {
-      switchLatencyMs: quantiles(switchLatencies.map((v) => Number(v.toFixed(3)))),
-      activeWorkingSetMB: quantiles(totals),
-      activeRendererWorkingSetMB: quantiles(rendererTotals),
-      overallActiveSlopeMBPerMin: calculateSlope(activeSamples, 'totalWorkingSetMB') !== null ? Number(calculateSlope(activeSamples, 'totalWorkingSetMB').toFixed(6)) : null,
-      overallActiveSlopeMBPerHour: calculateSlope(activeSamples, 'totalWorkingSetMB') !== null ? Number((calculateSlope(activeSamples, 'totalWorkingSetMB') * 60).toFixed(4)) : null,
-      rendererActiveSlopeMBPerMin: calculateSlope(activeSamples.map((s) => ({ at: s.at, rMB: s.byType?.renderer?.workingSetMB || 0 })), 'rMB') !== null
-        ? Number(calculateSlope(activeSamples.map((s) => ({ at: s.at, rMB: s.byType?.renderer?.workingSetMB || 0 })), 'rMB').toFixed(6))
-        : null,
-      rendererActiveSlopeMBPerHour: calculateSlope(activeSamples.map((s) => ({ at: s.at, rMB: s.byType?.renderer?.workingSetMB || 0 })), 'rMB') !== null
-        ? Number((calculateSlope(activeSamples.map((s) => ({ at: s.at, rMB: s.byType?.renderer?.workingSetMB || 0 })), 'rMB') * 60).toFixed(4))
-        : null,
-      rolling60MinSlopes: calculateRollingSlopes(activeSamples, 60),
-      initialLoadedMB: samples[0]?.totalWorkingSetMB || null,
-      postWarmupMB: warmupSamples[warmupSamples.length - 1]?.totalWorkingSetMB || null,
-      finalActiveMB: activeSamples[activeSamples.length - 1]?.totalWorkingSetMB || null,
-      recoveredMB: recoverySamples[recoverySamples.length - 1]?.totalWorkingSetMB || null,
-      slopeSloSatisfied: calculateSlope(activeSamples, 'totalWorkingSetMB') !== null && (calculateSlope(activeSamples, 'totalWorkingSetMB') * 60) <= 0.05,
-      orphanSloSatisfied: (meta.processQuerySuccess === true) && (orphanPids || []).length === 0,
-      verdict: (calculateSlope(activeSamples, 'totalWorkingSetMB') !== null && (calculateSlope(activeSamples, 'totalWorkingSetMB') * 60) <= 0.05 && (meta.processQuerySuccess === true) && (orphanPids || []).length === 0 && !meta.executionError) ? 'PASSED' : 'FAILED',
-    },
-    orphanPids: orphanPids || [],
+    metrics: (() => {
+      const rawMetrics = {
+        switchLatencyMs: quantiles(switchLatencies.map((v) => Number(v.toFixed(3)))),
+        activeWorkingSetMB: quantiles(totals),
+        activeRendererWorkingSetMB: quantiles(rendererTotals),
+        overallActiveSlopeMBPerMin: calculateSlope(activeSamples, 'totalWorkingSetMB') !== null ? Number(calculateSlope(activeSamples, 'totalWorkingSetMB').toFixed(6)) : null,
+        overallActiveSlopeMBPerHour: calculateSlope(activeSamples, 'totalWorkingSetMB') !== null ? Number((calculateSlope(activeSamples, 'totalWorkingSetMB') * 60).toFixed(4)) : null,
+        rendererActiveSlopeMBPerMin: calculateSlope(activeSamples.map((s) => ({ at: s.at, rMB: s.byType?.renderer?.workingSetMB || 0 })), 'rMB') !== null
+          ? Number(calculateSlope(activeSamples.map((s) => ({ at: s.at, rMB: s.byType?.renderer?.workingSetMB || 0 })), 'rMB').toFixed(6))
+          : null,
+        rendererActiveSlopeMBPerHour: calculateSlope(activeSamples.map((s) => ({ at: s.at, rMB: s.byType?.renderer?.workingSetMB || 0 })), 'rMB') !== null
+          ? Number((calculateSlope(activeSamples.map((s) => ({ at: s.at, rMB: s.byType?.renderer?.workingSetMB || 0 })), 'rMB') * 60).toFixed(4))
+          : null,
+        rolling60MinSlopes: calculateRollingSlopes(activeSamples, 60),
+        initialLoadedMB: samples[0]?.totalWorkingSetMB || null,
+        postWarmupMB: warmupSamples[warmupSamples.length - 1]?.totalWorkingSetMB || null,
+        finalActiveMB: activeSamples[activeSamples.length - 1]?.totalWorkingSetMB || null,
+        recoveredMB: recoverySamples[recoverySamples.length - 1]?.totalWorkingSetMB || null,
+      };
+      const evaluation = evaluateFreezeVerdict(meta, rawMetrics, (orphanPids || []).length);
+      return {
+        ...rawMetrics,
+        slopeSloSatisfied: evaluation.slopeOk,
+        memorySloSatisfied: evaluation.memoryOk,
+        latencySloSatisfied: evaluation.latencyOk,
+        orphanSloSatisfied: evaluation.processOk,
+        executionSloSatisfied: evaluation.executionOk,
+        verdict: evaluation.verdict,
+      };
+    })(),
     samples,
     stderrTail: (stderr || '').split(/\r?\n/).filter(Boolean).slice(-40),
     stdoutBenchmarkTail: (stdout || '')
@@ -642,23 +684,13 @@ async function main() {
       stateMeta.error = executionError.message;
     }
 
-    const preliminaryPayload = buildReportPayload({ ...stateMeta, status: 'completed' });
-    const overallSlope = preliminaryPayload.metrics.overallActiveSlopeMBPerMin;
-    const rendererSlope = preliminaryPayload.metrics.rendererActiveSlopeMBPerMin;
-    const hasValidSlope = overallSlope !== null && rendererSlope !== null;
-    const isPassed = !executionError &&
-      hasValidSlope &&
-      overallSlope <= 0.35 &&
-      rendererSlope <= 0.15 &&
-      processQuerySuccess === true &&
-      orphanPids.length === 0 &&
-      !childExitedPrematurely;
-    const finalStatus = isPassed ? 'completed' : 'failed';
     const finalPayload = buildReportPayload({
       ...stateMeta,
-      status: finalStatus,
+      status: executionError ? 'failed' : (childExitedPrematurely ? 'failed' : 'completed'),
       executionError: executionError ? executionError.message : (childExitedPrematurely ? 'child_exited_prematurely' : undefined),
     });
+    const isPassed = finalPayload.metrics.verdict === 'PASSED';
+    finalPayload.status = isPassed ? 'completed' : 'failed';
     fs.writeFileSync(FINAL_REPORT_PATH, JSON.stringify(finalPayload, null, 2), 'utf8');
     console.log(`[soak] Final report saved to ${FINAL_REPORT_PATH}`);
 
@@ -669,15 +701,16 @@ async function main() {
     }
     console.log(`  Initial Loaded: ${finalPayload.metrics.initialLoadedMB} MB`);
     console.log(`  Post-Warmup: ${finalPayload.metrics.postWarmupMB} MB`);
-    console.log(`  Final Active p50: ${finalPayload.metrics.activeWorkingSetMB.p50} MB`);
+    console.log(`  Final Active p50: ${finalPayload.metrics.activeWorkingSetMB.p50} MB (Peak Max: ${finalPayload.metrics.activeWorkingSetMB.max} MB, SLO <= ${FREEZE_SLO.peakTotalWorkingSetMB} MB)`);
     console.log(`  Recovered: ${finalPayload.metrics.recoveredMB} MB`);
-    console.log(`  Overall Slope: ${overallSlope !== null ? overallSlope + ' MB/min' : 'N/A'} (SLO <= 0.35 MB/min)`);
-    console.log(`  Renderer Slope: ${rendererSlope !== null ? rendererSlope + ' MB/min' : 'N/A'} (SLO <= 0.15 MB/min)`);
-    console.log(`  Orphan Processes: ${orphanPids.length} (Query OK: ${processQuerySuccess}, SLO = 0)`);
+    console.log(`  Overall Slope: ${finalPayload.metrics.overallActiveSlopeMBPerMin !== null ? finalPayload.metrics.overallActiveSlopeMBPerMin + ' MB/min' : 'N/A'} (SLO <= ${FREEZE_SLO.overallSlopeMBPerMin} MB/min)`);
+    console.log(`  Renderer Slope: ${finalPayload.metrics.rendererActiveSlopeMBPerMin !== null ? finalPayload.metrics.rendererActiveSlopeMBPerMin + ' MB/min' : 'N/A'} (SLO <= ${FREEZE_SLO.rendererSlopeMBPerMin} MB/min)`);
+    console.log(`  Tab Switch Latency: p50=${finalPayload.metrics.switchLatencyMs.p50}ms (SLO <= ${FREEZE_SLO.switchLatencyP50Ms}ms), p95=${finalPayload.metrics.switchLatencyMs.p95}ms (SLO <= ${FREEZE_SLO.switchLatencyP95Ms}ms), max=${finalPayload.metrics.switchLatencyMs.max}ms (SLO <= ${FREEZE_SLO.switchLatencyMaxMs}ms)`);
+    console.log(`  Orphan Processes: ${orphanPids.length} (Query OK: ${processQuerySuccess}, SLO = ${FREEZE_SLO.maxOrphans})`);
     console.log('========================================================================');
 
     if (!isPassed) {
-      console.error(`[soak] FAILED: SLO violations, telemetry failure, or execution error detected (error: ${executionError ? executionError.message : 'none'}, validSlope: ${hasValidSlope}, overallSlope <= 0.35: ${overallSlope !== null && overallSlope <= 0.35}, rendererSlope <= 0.15: ${rendererSlope !== null && rendererSlope <= 0.15}, processQueryOK: ${processQuerySuccess}, orphan == 0: ${orphanPids.length === 0})`);
+      console.error(`[soak] FAILED: SLO violations or execution failure detected (slopeOk: ${finalPayload.metrics.slopeSloSatisfied}, memoryOk: ${finalPayload.metrics.memorySloSatisfied}, latencyOk: ${finalPayload.metrics.latencySloSatisfied}, processOk: ${finalPayload.metrics.orphanSloSatisfied}, executionOk: ${finalPayload.metrics.executionSloSatisfied})`);
       process.exitCode = 1;
     }
   }
