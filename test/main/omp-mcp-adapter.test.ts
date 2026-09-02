@@ -474,4 +474,115 @@ describe('OMP MCP stdio proxy security & bootstrap fail-closed contract', () => 
       await new Promise<void>((resolve) => wss.close(() => resolve()));
     }
   });
+
+  it('returns raw ArtifactRef metadata for anti.artifact.stat without content hydration', async () => {
+    const { spawn } = await import('node:child_process');
+    const { WebSocketServer } = await import('ws');
+    const scriptPath = fs.existsSync(path.resolve(__dirname, '../../../scripts/antifan-omp-mcp.cjs'))
+      ? path.resolve(__dirname, '../../../scripts/antifan-omp-mcp.cjs')
+      : path.resolve(__dirname, '../../scripts/antifan-omp-mcp.cjs');
+
+    const expectedStat = {
+      id: 'artifact-small-dom-1',
+      runId: 'run-1',
+      attemptId: 'att-1',
+      projectId: 'proj-1',
+      workspaceId: 'ws-1',
+      kind: 'dom',
+      path: 'artifacts/run-1/dom.html',
+      byteLength: 512,
+      sha256: 'smallsha256hash',
+      mime: 'text/html',
+      truncated: false,
+      redacted: false,
+      createdAt: 1725280000000,
+    };
+
+    const wss = new WebSocketServer({ host: '127.0.0.1', port: 0 });
+    await new Promise<void>((resolve) => wss.once('listening', () => resolve()));
+    const port = (wss.address() as any).port;
+
+    wss.on('connection', (ws) => {
+      ws.on('message', (raw) => {
+        try {
+          const msg = JSON.parse(raw.toString());
+          if (msg.method === 'antifan.capability.dispatch') {
+            ws.send(JSON.stringify({
+              id: msg.id,
+              success: true,
+              data: {
+                data: expectedStat,
+              },
+            }));
+          }
+        } catch {}
+      });
+    });
+
+    const bootstrap = {
+      port,
+      secret: 'secret-stat-test',
+      attachmentId: 'att-stat-test',
+      authorityRevision: 'rev-stat-1',
+    };
+
+    const child = spawn(process.execPath, [scriptPath], {
+      env: { ...process.env, ANTIFAN_MCP_BOOTSTRAP: JSON.stringify(bootstrap) },
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+
+    const sendJsonRpc = (msg: any) => child.stdin.write(JSON.stringify(msg) + '\n');
+
+    let received = '';
+    const responsePromise = new Promise<any>((resolve) => {
+      child.stdout.on('data', (chunk) => {
+        received += chunk.toString();
+        const lines = received.split('\n');
+        for (const line of lines) {
+          if (line.trim().length > 0) {
+            try {
+              const parsed = JSON.parse(line);
+              if (parsed.id === 30) resolve(parsed);
+            } catch {}
+          }
+        }
+      });
+    });
+
+    try {
+      sendJsonRpc({
+        jsonrpc: '2.0',
+        id: 0,
+        method: 'initialize',
+        params: {
+          protocolVersion: '2024-11-05',
+          capabilities: {},
+          clientInfo: { name: 'test', version: '1.0' },
+        },
+      });
+
+      sendJsonRpc({
+        jsonrpc: '2.0',
+        id: 30,
+        method: 'tools/call',
+        params: {
+          name: 'anti.artifact.stat',
+          arguments: { artifactId: 'artifact-small-dom-1' },
+        },
+      });
+
+      const res = await responsePromise;
+      assert.strictEqual(res.result.isError, undefined);
+      const textContent = res.result.content[0].text;
+      const parsedStat = JSON.parse(textContent);
+      assert.strictEqual(parsedStat.id, 'artifact-small-dom-1');
+      assert.strictEqual(parsedStat.byteLength, 512);
+      assert.strictEqual(parsedStat.sha256, 'smallsha256hash');
+      assert.strictEqual(parsedStat.kind, 'dom');
+      assert.strictEqual(parsedStat.mime, 'text/html');
+    } finally {
+      child.kill();
+      await new Promise<void>((resolve) => wss.close(() => resolve()));
+    }
+  });
 });
