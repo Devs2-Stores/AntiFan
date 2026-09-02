@@ -11,7 +11,7 @@ import { CapabilityTransportAdapter } from '../../src/main/tools/capability-tran
 import { AntiFanMcpServer, buildMcpToolList } from '../../src/main/mcp/mcp-server';
 import { AttachmentRegistry } from '../../src/main/run/attachment-registry';
 import { DEVICE_PRESETS } from '../../src/main/browser/device-presets';
-import { CapabilityError, issueRuntimeLease, makeControlPlaneId, BrowserTarget } from '../../src/shared/control-plane-contracts';
+import { CapabilityError, issueRuntimeLease, makeControlPlaneId, BrowserTarget, AuthenticatedCapabilityContext, CapabilityRequestContext } from '../../src/shared/control-plane-contracts';
 describe('Capability catalogue', () => {
   it('uses one lease/policy-aware catalogue and fails closed on missing target/grant', async () => {
     const projectId = makeControlPlaneId('project');
@@ -1103,7 +1103,7 @@ describe('Capability catalogue', () => {
         lease,
         leaseToken: lease.token,
         hostEpoch: 1,
-        grant: 'read',
+        grant: 'write',
         tabId: 'tab-1',
         backendId: 'codex',
       });
@@ -1152,10 +1152,78 @@ describe('Capability catalogue', () => {
       const forgedRes = await transport.dispatchIntent(forgedIntent);
       assert.strictEqual(forgedRes.ok, false);
       assert.strictEqual(forgedRes.error?.code, 'AUTHENTICATION_DENIED');
+
+      // 4. Test fine-grained execution control effect tracking:
+      catalogue.register({
+        name: 'test.effect-tracker',
+        description: 'Test effect tracking capability',
+        risk: 'write',
+        requiresBrowserTarget: false,
+        policy: {
+          effect: 'destructive-mutation',
+          risk: 'write',
+          requiresBrowserTarget: false,
+          schedulerLane: 'unbounded',
+          duplicateMode: 'reject-concurrent',
+          recordedVisibility: 'tenant-scoped',
+          receiptReadPermission: 'write',
+          timeoutMs: 30000,
+          retentionPolicy: 'run-durable',
+          ownerCancellationBehavior: 'abort-immediate',
+          subscriberDisconnectBehavior: 'abort-when-unobserved',
+          cancellationAckTimeoutMs: 5000,
+          policyVersion: 1,
+        },
+        inputSchema: { type: 'object', properties: { markEffect: { type: 'boolean' }, shouldTimeout: { type: 'boolean' } } },
+        execute: async (rawParams: unknown, ctx: CapabilityRequestContext) => {
+          const params = (rawParams || {}) as { markEffect?: boolean; shouldTimeout?: boolean };
+          if (params.markEffect) {
+            (ctx as AuthenticatedCapabilityContext).control?.setEffectStage('effect-started');
+          }
+          if (params.shouldTimeout) {
+            const err = new Error('Operation timed out during execution');
+            (err as any).code = 'EXECUTION_TIMEOUT';
+            throw err;
+          }
+          return { done: true };
+        },
+      });
+
+      // (a) TIMEOUT with effect marked -> settlement must be 'unknown'
+      const effectTimeoutIntent = {
+        requestId: 'req-effect-timeout-1',
+        idempotencyKey: 'idem-effect-timeout-1',
+        attachmentId: launch.attachmentId,
+        attachmentSecret: launch.secret,
+        authorityRevision: launch.authorityRevision,
+        name: 'test.effect-tracker',
+        params: { markEffect: true, shouldTimeout: true },
+      };
+      const effectTimeoutRes = await transport.dispatchIntent(effectTimeoutIntent);
+      assert.strictEqual(effectTimeoutRes.ok, false);
+      assert.strictEqual(effectTimeoutRes.error?.code, 'EXECUTION_TIMEOUT');
+
+      const ledgerRecord1 = await ledger.getRecord(effectTimeoutRes.invocationId!);
+      assert.strictEqual(ledgerRecord1?.state, 'unknown', 'Settlement must be classified as unknown when timeout occurs after effect-started');
+
+      // (b) TIMEOUT without effect marked -> settlement must be 'failed'
+      const noEffectTimeoutIntent = {
+        requestId: 'req-no-effect-timeout-1',
+        idempotencyKey: 'idem-no-effect-timeout-1',
+        attachmentId: launch.attachmentId,
+        attachmentSecret: launch.secret,
+        authorityRevision: launch.authorityRevision,
+        name: 'test.effect-tracker',
+        params: { markEffect: false, shouldTimeout: true },
+      };
+      const noEffectTimeoutRes = await transport.dispatchIntent(noEffectTimeoutIntent);
+      assert.strictEqual(noEffectTimeoutRes.ok, false);
+      assert.strictEqual(noEffectTimeoutRes.error?.code, 'EXECUTION_TIMEOUT');
+
+      const ledgerRecord2 = await ledger.getRecord(noEffectTimeoutRes.invocationId!);
+      assert.strictEqual(ledgerRecord2?.state, 'failed', 'Settlement must be classified as failed when timeout occurs before effect-started');
     } finally {
-      try {
-        fs.rmSync(tmpDir, { recursive: true, force: true });
-      } catch {}
+      await fs.promises.rm(tmpDir, { recursive: true, force: true });
     }
   });
 });

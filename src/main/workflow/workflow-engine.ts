@@ -4,7 +4,6 @@ import {
   CapabilityError,
   CapabilityRequestContext,
   ClientInvocationIntent,
-  makeControlPlaneId,
   RuntimeLease,
 } from '../../shared/control-plane-contracts';
 import { CapabilityCatalogue } from '../tools/capability-catalogue';
@@ -381,8 +380,6 @@ export class WorkflowEngine {
     ): Promise<{ data?: unknown; replacementRevision?: string }> => {
       if (dispatchChild) {
         const minimalIntent = {
-          requestId: makeControlPlaneId('request'),
-          idempotencyKey: makeControlPlaneId('idempotency'),
           name,
           params: payload,
         } as unknown as ClientInvocationIntent;

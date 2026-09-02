@@ -1,3 +1,13 @@
+/**
+ * AntiFan Browser Desktop — In-Memory Slope Math & Telemetry Schema Unit Test
+ * 
+ * NOTE: This test file verifies the mathematical linear regression slope formula
+ * and SoakBenchmarkReport schema in memory (< 100ms).
+ * 
+ * AUTHORITATIVE OS RELEASE GATES:
+ * - Standalone Recovery (30m): `scripts/benchmark-standalone-recovery.cjs`
+ * - Production Soak (8h): `scripts/benchmark-real-soak-8h.cjs`
+ */
 import { describe, it } from 'node:test';
 import * as assert from 'node:assert';
 import * as fs from 'node:fs';
@@ -9,7 +19,6 @@ export interface MemorySample {
   rssBytes: number;
   heapUsedBytes?: number;
 }
-
 export interface SoakBenchmarkReport {
   timestamp: number;
   durationMs: number;

@@ -60,13 +60,10 @@ export class BrokenAssetScanner {
         }
       }
 
-      // 2. Check broken stylesheets
+      // 2. Scan stylesheets count (network-level correlation in extractCorrelatableAssetFailures handles 404/500 failures)
       for (const link of links) {
         const href = link.getAttribute('href') || link.href;
         if (!href) continue;
-        if (link.sheet === null && !link.disabled && !href.startsWith('data:')) {
-          // Note: cross-origin stylesheets might have sheet !== null, but load errors have sheet === null in some cases
-        }
       }
 
       function getSelector(el) {

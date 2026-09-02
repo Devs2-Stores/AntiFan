@@ -169,7 +169,7 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
     description: 'Deterministic wait for selector, ref, document_loaded, url_match, network_idle, or dom_stable state',
     risk: 'read',
     requiresBrowserTarget: true,
-    policy: makeBrowserPolicy({ effect: 'read', risk: 'read', requiresBrowserTarget: true, lane: 'short-passive', timeoutMs: 30_000 }),
+    policy: makeBrowserPolicy({ effect: 'read', risk: 'read', requiresBrowserTarget: true, lane: 'event-wait', timeoutMs: 30_000 }),
     inputSchema: {
       type: 'object',
       properties: {
@@ -437,7 +437,7 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
     description: 'Alias for browser.wait',
     risk: 'read',
     requiresBrowserTarget: true,
-    policy: makeBrowserPolicy({ effect: 'read', risk: 'read', requiresBrowserTarget: true, lane: 'short-passive', timeoutMs: 30_000 }),
+    policy: makeBrowserPolicy({ effect: 'read', risk: 'read', requiresBrowserTarget: true, lane: 'event-wait', timeoutMs: 30_000 }),
     inputSchema: {
       type: 'object',
       properties: {

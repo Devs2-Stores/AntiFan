@@ -402,22 +402,21 @@ export class CapabilityTransportAdapter {
         backendId: liveAuthority.backendId,
         hostEpoch: liveAuthority.hostEpoch,
         invocationId,
-        lease: record.lease!,
-        leaseToken: liveAuthority.runtimeLeaseToken || '',
         browserTarget: liveAuthority.browserTarget,
         grant: liveAuthority.grant,
+        lease: record.lease!,
+        leaseToken: liveAuthority.runtimeLeaseToken || '',
         signal: runtimeOptions?.signal,
+        control: execControl,
         progressSink: runtimeOptions?.progressSink,
         authorityRevision: liveAuthority.authorityRevision,
         dispatchChildIntent,
       };
-
       const data = await this.catalogue.dispatchAuthenticated(
         intent.name,
         (intent.params as Record<string, unknown>) || {},
         authContext
       );
-
       let replacementAuthorityRevision: string | undefined;
       const p = intent.params as Record<string, unknown> | undefined;
       const isSetTarget = intent.name === 'browser.set-automation-target' || intent.name === 'antifan_set_automation_target';
@@ -545,7 +544,7 @@ export class CapabilityTransportAdapter {
     }
 
     if (typed?.code === 'TIMEOUT' || typed?.code === 'EXECUTION_TIMEOUT') {
-      if (control.effectStage === 'effect-started' || policy?.effect === 'destructive-mutation' || policy?.effect === 'interactive-effect') {
+      if (control.effectStage === 'effect-started' || control.effectStage === 'effect-committed') {
         return {
           state: 'unknown',
           code: typed?.code || 'TIMEOUT',
