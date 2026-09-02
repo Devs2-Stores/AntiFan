@@ -25,6 +25,71 @@ function getThemeHierarchyScript(): string {
     return { template, sections };
   })()`;
 }
+function getProductResolverScript(handle?: string): string {
+  const handleJson = JSON.stringify(handle || '');
+  return `(async () => {
+    try {
+      let targetHandle = ${handleJson};
+      if (!targetHandle) {
+        const pathSegments = window.location.pathname.split('/').filter(Boolean);
+        const prodIdx = pathSegments.indexOf('products');
+        if (prodIdx !== -1 && pathSegments[prodIdx + 1]) {
+          targetHandle = pathSegments[prodIdx + 1].split('?')[0].split('#')[0];
+        }
+      }
+      let productData = null;
+      if (targetHandle) {
+        try {
+          const res = await fetch('/products/' + encodeURIComponent(targetHandle) + '.js');
+          if (res.ok) {
+            productData = await res.json();
+          }
+        } catch {}
+      }
+      if (!productData) {
+        const scriptEl = document.querySelector('script[type="application/json"][data-product-json], script[type="application/ld+json"]');
+        if (scriptEl && scriptEl.textContent) {
+          try {
+            const parsed = JSON.parse(scriptEl.textContent);
+            productData = Array.isArray(parsed) ? parsed[0] : parsed;
+          } catch {}
+        }
+      }
+      if (!productData && window.meta && window.meta.product) {
+        productData = window.meta.product;
+      }
+      if (productData) {
+        return {
+          ok: true,
+          handle: targetHandle || productData.handle,
+          title: productData.title || productData.name,
+          vendor: productData.vendor || productData.brand,
+          price: productData.price,
+          compare_at_price: productData.compare_at_price,
+          available: productData.available,
+          variantsCount: Array.isArray(productData.variants) ? productData.variants.length : 1,
+          variants: Array.isArray(productData.variants) ? productData.variants.map((v) => ({
+            id: v.id,
+            title: v.title,
+            price: v.price,
+            compare_at_price: v.compare_at_price,
+            sku: v.sku,
+            available: v.available,
+            featured_image: v.featured_image ? v.featured_image.src : undefined,
+          })) : [],
+          options: productData.options || [],
+        };
+      }
+      return {
+        ok: false,
+        error: 'No product metadata or /products/{handle}.js found on current page',
+        url: window.location.href,
+      };
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : String(err) };
+    }
+  })()`;
+}
 
 
 function makeBrowserPolicy(options: {
@@ -1210,6 +1275,48 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
     policy: makeBrowserPolicy({ effect: 'read', risk: 'read', requiresBrowserTarget: true, lane: 'short-passive', timeoutMs: 60_000 }),
     inputSchema: { type: 'object', properties: { tabId: { type: 'string' } } },
     execute: (params: Record<string, unknown>, context) => catalogue.get('theme.debug_bundle')!.execute(params, context),
+  });
+  catalogue.register({
+    name: 'theme.resolve_product',
+    description: 'Auto-resolve complete storefront product variant matrix, pricing, SKU, and availability',
+    risk: 'read',
+    requiresBrowserTarget: true,
+    policy: makeBrowserPolicy({ effect: 'read', risk: 'read', requiresBrowserTarget: true, lane: 'short-passive', timeoutMs: 30_000 }),
+    inputSchema: { type: 'object', properties: { handle: { type: 'string' }, tabId: { type: 'string' } } },
+    execute: async (params: { handle?: string; tabId?: string }, context) => {
+      const target = context.browserTarget as BrowserTarget;
+      return browser.eval(target, getProductResolverScript(params.handle), params.tabId);
+    },
+  });
+
+  catalogue.register({
+    name: 'anti.theme.resolve_product',
+    description: 'Alias for theme.resolve_product',
+    risk: 'read',
+    requiresBrowserTarget: true,
+    policy: makeBrowserPolicy({ effect: 'read', risk: 'read', requiresBrowserTarget: true, lane: 'short-passive', timeoutMs: 30_000 }),
+    inputSchema: { type: 'object', properties: { handle: { type: 'string' }, tabId: { type: 'string' } } },
+    execute: (params: Record<string, unknown>, context) => catalogue.get('theme.resolve_product')!.execute(params, context),
+  });
+
+  catalogue.register({
+    name: 'storefront.resolve_product',
+    description: 'Alias for theme.resolve_product',
+    risk: 'read',
+    requiresBrowserTarget: true,
+    policy: makeBrowserPolicy({ effect: 'read', risk: 'read', requiresBrowserTarget: true, lane: 'short-passive', timeoutMs: 30_000 }),
+    inputSchema: { type: 'object', properties: { handle: { type: 'string' }, tabId: { type: 'string' } } },
+    execute: (params: Record<string, unknown>, context) => catalogue.get('theme.resolve_product')!.execute(params, context),
+  });
+
+  catalogue.register({
+    name: 'antifan_theme_resolve_product',
+    description: 'Alias for theme.resolve_product',
+    risk: 'read',
+    requiresBrowserTarget: true,
+    policy: makeBrowserPolicy({ effect: 'read', risk: 'read', requiresBrowserTarget: true, lane: 'short-passive', timeoutMs: 30_000 }),
+    inputSchema: { type: 'object', properties: { handle: { type: 'string' }, tabId: { type: 'string' } } },
+    execute: (params: Record<string, unknown>, context) => catalogue.get('theme.resolve_product')!.execute(params, context),
   });
 
   // 3. anti.* aliases for unified client / bridge execution

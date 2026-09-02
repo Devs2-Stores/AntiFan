@@ -26,6 +26,8 @@ const definitions = [
   ['theme.qa_validate', 'Run the authoritative Theme QA verification workflow for the bound storefront tab and workspace.', { tabId: { type: 'string' }, workspaceRoot: { type: 'string' } }],
   ['theme.debug_bundle', 'Return an atomic storefront diagnostic bundle with platform, Liquid, overflow, and HS findings.', { tabId: { type: 'string' } }],
   ['theme.assert_cart', 'Inspect passive storefront cart contract telemetry without adding synthetic items.', { tabId: { type: 'string' } }],
+  ['theme.resolve_product', 'Auto-resolve complete storefront product variant matrix, pricing, SKU, and availability.', { handle: { type: 'string' }, tabId: { type: 'string' } }],
+  ['storefront.resolve_product', 'Auto-resolve complete storefront product variant matrix, pricing, SKU, and availability.', { handle: { type: 'string' }, tabId: { type: 'string' } }],
   ['anti.agent.file_upload', 'Upload local files into a file input element in live AntiFan Desktop tab without native file dialogs.', { refOrSelector: { type: 'string' }, filePaths: { type: 'array', items: { type: 'string' } }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } }, ['refOrSelector', 'filePaths']],
   ['anti.agent.drop', 'Dispatch native drag and drop file transfer onto a target drop zone element in live AntiFan Desktop tab.', { refOrSelector: { type: 'string' }, filePaths: { type: 'array', items: { type: 'string' } }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } }, ['refOrSelector', 'filePaths']],
   ['anti.inspect.snapshot', 'Capture an accessible semantic snapshot of elements indexed with monotonic @e1..@eN references (supports selector and viewportOnly filtering).', { tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] }, selector: { type: 'string' }, viewportOnly: { type: 'boolean' } }],
@@ -498,12 +500,19 @@ server.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
       ? String(extra.requestId)
       : undefined;
     const data = await invoke(request.params.name, request.params.arguments || {}, callerRequestId);
-    // Handle ArtifactRef resolution from ArtifactStore
+    // For stat tools, directly return raw ArtifactRef metadata without hydration
+    const isStat = request.params.name === 'anti.artifact.stat' ||
+      request.params.name === 'artifact.stat' ||
+      request.params.name === 'artifact_stat';
+    if (isStat) {
+      return { content: [{ type: 'text', text: JSON.stringify(data, null, 2) }] };
+    }
+
+    // Handle ArtifactRef resolution from ArtifactStore for content-fetching capabilities
     if (data && typeof data === 'object' && typeof data.id === 'string' && data.id.startsWith('artifact-')) {
       const isImage = request.params.name === 'anti.screenshot.viewport' ||
         request.params.name === 'antifan_screenshot' ||
         (typeof data.mime === 'string' && data.mime.startsWith('image/'));
-
       if (isImage) {
         const artifactPayload = await fetchArtifactBinary(bootstrap, data.id);
         const detectedMime = artifactPayload.data.startsWith('/9j/')

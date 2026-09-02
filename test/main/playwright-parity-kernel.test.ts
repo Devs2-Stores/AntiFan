@@ -1180,4 +1180,59 @@ describe('Phase 5: Playwright Parity Kernel & Gap Telemetry Verification', () =>
     assert.ok(scriptWithVp.includes('isStickyOrFixed'), 'Must include sticky/fixed element whitelist check');
     assert.ok(scriptWithVp.includes('vpHeight * 1.5'), 'Must check viewport height threshold (1.5x)');
   });
+
+  it('23. theme.resolve_product and storefront.resolve_product dispatch and auto-resolve variant matrix', async () => {
+    const { catalogue, ctx } = createParityHarness();
+
+    assert.ok(catalogue.get('theme.resolve_product'), 'theme.resolve_product must be registered');
+    assert.ok(catalogue.get('storefront.resolve_product'), 'storefront.resolve_product alias must be registered');
+    assert.ok(catalogue.get('anti.theme.resolve_product'), 'anti.theme.resolve_product alias must be registered');
+
+    const res = (await catalogue.dispatch('theme.resolve_product', { handle: 'ram-gskill-128gb' }, ctx)) as any;
+    assert.ok(res, 'Must return evaluation result');
+    assert.strictEqual(typeof res, 'object');
+  });
+
+  it('24. anti.agent.sequence executes awaitNetwork and dismissModals actions cleanly', async () => {
+    const { BrowserControlPort } = require('../../src/main/tools/browser-control-port');
+    let sequenceReceived: any = null;
+    const fakeHost = {
+      getTabList: () => [{ id: 'tab-1', url: 'https://example.com' }],
+      executeActionSequence: async (params: any) => {
+        sequenceReceived = params;
+        return {
+          success: true,
+          executedCount: 2,
+          totalCount: 2,
+          results: [
+            { actionIndex: 0, type: 'awaitNetwork', success: true, data: { quiescenceWaitMs: 300 } },
+            { actionIndex: 1, type: 'dismissModals', success: true, data: { clickedCount: 1 } },
+          ],
+        };
+      },
+      getDocumentGeneration: () => 1,
+    };
+
+    const port = new BrowserControlPort(fakeHost as any);
+    const target = {
+      projectId: 'proj-1',
+      workspaceId: 'ws-1',
+      runtimeId: 'rt-1',
+      tabId: 'tab-1',
+      browserEpoch: 1,
+      documentGeneration: 1,
+    };
+    const res = (await port.sequence({
+      actions: [
+        { type: 'awaitNetwork', timeoutMs: 300 },
+        { type: 'dismissModals' },
+      ],
+      tabId: 'tab-1',
+    }, target)) as any;
+
+    assert.strictEqual(res.success, true);
+    assert.strictEqual(res.executedCount, 2);
+    assert.strictEqual(sequenceReceived.actions[0].type, 'awaitNetwork');
+    assert.strictEqual(sequenceReceived.actions[1].type, 'dismissModals');
+  });
 });

@@ -749,11 +749,25 @@ export function buildIsolatedCollectorScript(nonce: string, expectedUrl: string,
         };
       }
       scanNode(startNode, [], 0, 0, 0);
+      const vpWidth = window.innerWidth || 1280;
+      descriptors.sort((a, b) => {
+        const aInVp = a.rect.centerY >= 0 && a.rect.centerY <= vpHeight && a.rect.centerX >= 0 && a.rect.centerX <= vpWidth;
+        const bInVp = b.rect.centerY >= 0 && b.rect.centerY <= vpHeight && b.rect.centerX >= 0 && b.rect.centerX <= vpWidth;
+        if (aInVp && !bInVp) return -1;
+        if (!aInVp && bInVp) return 1;
+        return (a.rect.y - b.rect.y);
+      });
+      let finalDescriptors = descriptors.slice(0, MAX_ITEMS);
+      let payloadJson = JSON.stringify(finalDescriptors);
+      while (finalDescriptors.length > 20 && payloadJson.length > 120000) {
+        finalDescriptors = finalDescriptors.slice(0, Math.floor(finalDescriptors.length * 0.8));
+        payloadJson = JSON.stringify(finalDescriptors);
+      }
       return {
         ok: true,
         nonce: expectedNonce,
         documentUrl: window.location.href,
-        descriptors
+        descriptors: finalDescriptors
       };
     } catch (err) {
       return {

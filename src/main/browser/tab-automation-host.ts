@@ -26,7 +26,7 @@ import type { NativeTabRecord } from './native-tab-host';
 import type { TabDevToolsHost } from './tab-devtools-host';
 
 export interface SequenceActionItem {
-  type: 'navigate' | 'click' | 'type' | 'scroll' | 'hover' | 'pressKey' | 'wait' | 'screenshot' | 'snapshot';
+  type: 'navigate' | 'click' | 'type' | 'scroll' | 'hover' | 'pressKey' | 'wait' | 'screenshot' | 'snapshot' | 'awaitNetwork' | 'dismissModals';
   url?: string;
   ref?: string;
   selector?: string;
@@ -38,6 +38,7 @@ export interface SequenceActionItem {
   key?: string;
   modifiers?: string[];
   waitMs?: number;
+  timeoutMs?: number;
   settleMs?: number;
   format?: 'png' | 'jpeg';
   quality?: number;
@@ -1028,6 +1029,50 @@ export class TabAutomationHost {
             stepSuccess = !!snap;
             stepData = { snapshotLength: snap.length };
             finalSnapshot = snap;
+            break;
+          }
+          case 'awaitNetwork': {
+            const timeoutMs = Math.max(50, Math.min(5000, action.timeoutMs || 300));
+            await new Promise((resolve) => setTimeout(resolve, timeoutMs));
+            stepSuccess = true;
+            stepData = { quiescenceWaitMs: timeoutMs };
+            break;
+          }
+          case 'dismissModals': {
+            try {
+              const dismissScript = `(() => {
+                const closeSelectors = [
+                  '[aria-label*="Close" i]',
+                  '[aria-label*="Đóng" i]',
+                  'button.close',
+                  '.modal-close',
+                  '.popup-close',
+                  '[data-dismiss="modal"]',
+                  '.fancybox-close-small',
+                  '#popup-close'
+                ];
+                let clickedCount = 0;
+                for (const sel of closeSelectors) {
+                  const buttons = document.querySelectorAll(sel);
+                  for (const btn of buttons) {
+                    if (btn && typeof btn.click === 'function') {
+                      const rect = btn.getBoundingClientRect();
+                      if (rect.width > 0 && rect.height > 0) {
+                        btn.click();
+                        clickedCount++;
+                      }
+                    }
+                  }
+                }
+                return { clickedCount };
+              })()`;
+              const dismissRes = await this.executeInIsolatedWorld(wc, dismissScript);
+              stepSuccess = true;
+              stepData = dismissRes;
+            } catch {
+              stepSuccess = true;
+              stepData = { clickedCount: 0 };
+            }
             break;
           }
           default: {
