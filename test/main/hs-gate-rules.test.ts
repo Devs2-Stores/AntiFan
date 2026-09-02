@@ -54,6 +54,12 @@ test('static HS engine: Sapo comment form with lowercase names flags HS-03 warni
   assert.equal(result.passed, true, 'warning must not fail the gate');
 });
 
+test('static HS engine: Sapo comment form with capitalized Author, Email, Body does NOT flag HS-03 warning', () => {
+  const html = `<form action="/posts/1/comments"><input name="Author"><input name="Email"><textarea name="Body"></textarea></form>`;
+  const result = HsGateRules.evaluateHtml(html, 'sapo' as EcommercePlatform);
+  const hs03 = result.violations.find((item) => item.ruleId === 'HS-03');
+  assert.strictEqual(hs03, undefined, 'capitalized Author, Email, Body must NOT flag HS-03 violation');
+});
 
 test('static HS engine: un-guarded analytics script flags HS-06 warning', () => {
   const html = `<script src="https://www.googletagmanager.com/gtag/js?id=GA_TRACKING_ID"></script>`;

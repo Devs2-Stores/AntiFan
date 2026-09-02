@@ -1,5 +1,4 @@
 import { BrowserTarget, CapabilityError, ArtifactRef, assertExactBrowserTarget, digestText } from '../../shared/control-plane-contracts';
-
 export interface BrowserHostPort {
   getTabList(): unknown[];
   getActiveTabId?(): string;
@@ -36,6 +35,8 @@ export interface BrowserHostPort {
   getDocumentGeneration?(tabId?: string): number;
   uploadFileInput?(params: { refOrSelector: string; filePaths: string[]; tabId?: string; paneId?: 'desktop' | 'mobile' }): Promise<{ success: boolean; uploadedCount: number; reason?: string }>;
   dropFiles?(params: { refOrSelector: string; filePaths: string[]; tabId?: string; paneId?: 'desktop' | 'mobile' }): Promise<{ success: boolean; droppedCount: number; reason?: string }>;
+  inspectStyles?(params: { selector?: string; ref?: string; properties?: string[]; tabId?: string; paneId?: 'desktop' | 'mobile' }): Promise<Record<string, unknown>>;
+  inspectRegion?(params: { x?: number; y?: number; width?: number; height?: number; selector?: string; ref?: string; tabId?: string; paneId?: 'desktop' | 'mobile' }): Promise<Record<string, unknown>>;
   getNetworkTracker?(): { isAttached: (tabId: string, paneId?: string) => boolean; awaitQuiescence: (tabId: string, paneId?: string, options?: unknown, signal?: AbortSignal) => Promise<{ settled: boolean; durationMs: number; timedOut: boolean }> };
   wait?(params: BrowserWaitParams, signal?: AbortSignal): Promise<BrowserWaitResult>;
   observe?(params: BrowserObserveParams): Promise<BrowserObserveResult>;
@@ -94,6 +95,7 @@ export interface BrowserWaitResult {
 
 export interface BrowserArtifactSink {
   stage(input: { kind: ArtifactRef['kind']; mime: string; data: string | Buffer; runId: string; attemptId: string; projectId: string; workspaceId: string; maxBytes?: number }): Promise<ArtifactRef> | ArtifactRef;
+  readBytesById?(artifactId: string, context?: { runId?: string; attemptId?: string; projectId?: string; workspaceId?: string }): { ref: ArtifactRef; data: Buffer };
 }
 
 export interface ViewportLockOptions {
@@ -495,7 +497,7 @@ export class BrowserControlPort {
     const tabId = this.resolveTargetTab(target, explicitTabId);
     return this.passivePool.execute(tabId, async () => {
       const html = await this.host.getDom(selector, tabId, paneId);
-      return this.artifacts ? await this.artifacts.stage({ kind: 'dom', mime: 'text/html', data: html, runId, attemptId, projectId: target.projectId, workspaceId: target.workspaceId, maxBytes: 512 * 1024 }) : limit(html, 512 * 1024);
+      return this.artifacts ? await this.artifacts.stage({ kind: 'dom', mime: 'text/html', data: html, runId, attemptId, projectId: target.projectId, workspaceId: target.workspaceId, maxBytes: 8 * 1024 * 1024 }) : limit(html, 8 * 1024 * 1024);
     });
   }
 
@@ -550,14 +552,14 @@ export class BrowserControlPort {
         if (comp === 'dom') {
           const html = await this.host.getDom(params.selector, tabId, effectivePane);
           resultComponents.dom = this.artifacts
-            ? await this.artifacts.stage({ kind: 'dom', mime: 'text/html', data: html, runId, attemptId, projectId: target.projectId, workspaceId: target.workspaceId, maxBytes: 512 * 1024 })
+            ? await this.artifacts.stage({ kind: 'dom', mime: 'text/html', data: html, runId, attemptId, projectId: target.projectId, workspaceId: target.workspaceId, maxBytes: 8 * 1024 * 1024 })
             : limit(html, 512 * 1024);
         } else if (comp === 'screenshot') {
           const base64 = await this.host.captureScreenshot(undefined, tabId, effectivePane);
           const buffer = Buffer.from(base64, 'base64');
           resultComponents.screenshot = this.artifacts
             ? await this.artifacts.stage({ kind: 'screenshot', mime: 'image/png', data: buffer, runId, attemptId, projectId: target.projectId, workspaceId: target.workspaceId, maxBytes: 8 * 1024 * 1024 })
-            : limit(base64, 8 * 1024 * 1024);
+            : limit(base64, 512 * 1024);
         } else if (comp === 'snapshot') {
           const snapshotText = this.host.agentSnapshot ? await this.host.agentSnapshot(tabId, effectivePane) : '';
           resultComponents.snapshot = limit(snapshotText, 128 * 1024);
@@ -899,6 +901,199 @@ export class BrowserControlPort {
     if (this.host.clearAllAgentWorking) this.host.clearAllAgentWorking();
     return { cleared: true };
   }
+  async inspectStyles(
+    target: BrowserTarget,
+    params: { selector?: string; ref?: string; properties?: string[]; tabId?: string; paneId?: 'desktop' | 'mobile' } = {},
+    explicitTabId?: string,
+    paneId?: 'desktop' | 'mobile'
+  ): Promise<Record<string, unknown>> {
+    const tabId = this.resolveTargetTab(target, explicitTabId || params.tabId);
+    const effectivePane = paneId || params.paneId || 'desktop';
+
+    if (!this.host.inspectStyles) {
+      throw new CapabilityError('CAPABILITY_NOT_FOUND', 'inspectStyles is not supported by host');
+    }
+
+    return this.passivePool.execute(tabId, async () => {
+      return this.host.inspectStyles!({ ...params, tabId, paneId: effectivePane });
+    });
+  }
+
+  async inspectRegion(
+    target: BrowserTarget,
+    params: { x?: number; y?: number; width?: number; height?: number; selector?: string; ref?: string; tabId?: string; paneId?: 'desktop' | 'mobile' } = {},
+    explicitTabId?: string,
+    paneId?: 'desktop' | 'mobile'
+  ): Promise<Record<string, unknown>> {
+    const tabId = this.resolveTargetTab(target, explicitTabId || params.tabId);
+    const effectivePane = paneId || params.paneId || 'desktop';
+
+    if (!this.host.inspectRegion) {
+      throw new CapabilityError('CAPABILITY_NOT_FOUND', 'inspectRegion is not supported by host');
+    }
+
+    return this.passivePool.execute(tabId, async () => {
+      return this.host.inspectRegion!({ ...params, tabId, paneId: effectivePane });
+    });
+  }
+
+  async traceInteraction(
+    target: BrowserTarget,
+    runId: string,
+    attemptId: string,
+    params: {
+      action: 'click' | 'hover' | 'focus' | 'type' | 'scroll';
+      selector?: string;
+      ref?: string;
+      text?: string;
+      deltaY?: number;
+      settleMs?: number;
+      tabId?: string;
+      paneId?: 'desktop' | 'mobile';
+    },
+    explicitTabId?: string,
+    paneId?: 'desktop' | 'mobile',
+    signal?: AbortSignal
+  ): Promise<Record<string, unknown>> {
+    if (!params || !params.action) {
+      throw new CapabilityError('INVALID_ARGUMENT', 'Trace interaction action is required');
+    }
+    const tabId = this.resolveTargetTab(target, explicitTabId || params.tabId, 'write');
+    const effectivePane = paneId || params.paneId || 'desktop';
+
+    return this.viewportGate.withLock(async (lockSignal) => {
+      if (lockSignal.aborted) {
+        throw (lockSignal.reason || new CapabilityError('WAIT_ABORTED', 'Trace interaction was aborted'));
+      }
+      this.revalidateTargetInsideLock(target, tabId);
+
+      const startTime = Date.now();
+      let beforeStyles: Record<string, unknown> = {};
+      try {
+        beforeStyles = await this.inspectStyles(target, { selector: params.selector, ref: params.ref, tabId, paneId: effectivePane });
+      } catch {}
+
+      if (params.action === 'click') {
+        if (this.host.agentClick) {
+          await this.host.agentClick({ selector: params.selector, ref: params.ref, trusted: true, tabId, paneId: effectivePane });
+        } else {
+          const sel = params.ref ? `[data-antifan-ref="${params.ref}"]` : (params.selector || 'body');
+          await this.host.evalJs(`document.querySelector(${JSON.stringify(sel)})?.click()`, tabId, effectivePane);
+        }
+      } else if (params.action === 'hover') {
+        if (this.host.agentHover) {
+          await this.host.agentHover({ selector: params.selector, ref: params.ref, tabId, paneId: effectivePane });
+        }
+      } else if (params.action === 'type') {
+        if (this.host.agentType) {
+          await this.host.agentType({ selector: params.selector, ref: params.ref, text: params.text || '', trusted: true, tabId, paneId: effectivePane });
+        }
+      } else if (params.action === 'scroll') {
+        if (this.host.agentScroll) {
+          await this.host.agentScroll({ selector: params.selector, ref: params.ref, deltaY: params.deltaY || 300, tabId, paneId: effectivePane });
+        }
+      }
+
+      const settleWait = Math.min(Math.max(params.settleMs || 100, 20), 2000);
+      await new Promise((r) => setTimeout(r, settleWait));
+
+      let afterStyles: Record<string, unknown> = {};
+      try {
+        afterStyles = await this.inspectStyles(target, { selector: params.selector, ref: params.ref, tabId, paneId: effectivePane });
+      } catch {}
+
+      const durationMs = Date.now() - startTime;
+      return {
+        action: params.action,
+        target: { selector: params.selector, ref: params.ref },
+        durationMs,
+        beforeStyles,
+        afterStyles,
+        settled: true,
+      };
+    }, { tabId, timeoutMs: 15_000, signal });
+  }
+  async visualCompare(
+    target: BrowserTarget,
+    runId: string,
+    attemptId: string,
+    params: {
+      baselineScreenshotRef?: string;
+      comparisonTabId?: string;
+      tolerance?: number;
+      tabId?: string;
+      paneId?: 'desktop' | 'mobile';
+    } = {},
+    explicitTabId?: string,
+    paneId?: 'desktop' | 'mobile'
+  ): Promise<Record<string, unknown>> {
+    if (!params.baselineScreenshotRef && !params.comparisonTabId) {
+      throw new CapabilityError('INVALID_ARGUMENT', 'Either baselineScreenshotRef or comparisonTabId is required for visual comparison');
+    }
+    const tabId = this.resolveTargetTab(target, explicitTabId || params.tabId);
+    const effectivePane = paneId || params.paneId || 'desktop';
+
+    return this.passivePool.execute(tabId, async () => {
+      const curBase64 = await this.host.captureScreenshot(undefined, tabId, effectivePane);
+      const curBuffer = Buffer.from(curBase64, 'base64');
+      const curArtifact = this.artifacts
+        ? await this.artifacts.stage({ kind: 'screenshot', mime: 'image/png', data: curBuffer, runId, attemptId, projectId: target.projectId, workspaceId: target.workspaceId, maxBytes: 8 * 1024 * 1024 })
+        : limit(curBase64, 8 * 1024 * 1024);
+
+      let baselineBuffer: Buffer | null = null;
+      let baselineArtifactRef = params.baselineScreenshotRef;
+      if (params.baselineScreenshotRef) {
+        if (!this.artifacts || typeof this.artifacts.readBytesById !== 'function') {
+          throw new CapabilityError('CAPABILITY_NOT_FOUND', 'Artifact store is not available to load baseline screenshot');
+        }
+        try {
+          const loaded = this.artifacts.readBytesById(params.baselineScreenshotRef, {
+            runId,
+            attemptId,
+            projectId: target.projectId,
+            workspaceId: target.workspaceId,
+          });
+          if (loaded.ref.truncated) {
+            throw new CapabilityError('INVALID_ARGUMENT', `Baseline screenshot artifact '${params.baselineScreenshotRef}' is marked as truncated`);
+          }
+          if (typeof loaded.ref.mime === 'string' && !loaded.ref.mime.startsWith('image/')) {
+            throw new CapabilityError('INVALID_ARGUMENT', `Baseline artifact '${params.baselineScreenshotRef}' is not an image (mime: ${loaded.ref.mime})`);
+          }
+          baselineBuffer = loaded.data;
+        } catch (err: unknown) {
+          if (err instanceof CapabilityError) throw err;
+          throw new CapabilityError('INVALID_ARGUMENT', `Baseline screenshot artifact '${params.baselineScreenshotRef}' not found: ${err instanceof Error ? err.message : String(err)}`);
+        }
+      } else if (params.comparisonTabId) {
+        const compTabId = this.resolveTargetTab(target, params.comparisonTabId);
+        const compBase64 = await this.host.captureScreenshot(undefined, compTabId, effectivePane);
+        baselineBuffer = Buffer.from(compBase64, 'base64');
+        const compArtifact = this.artifacts
+          ? await this.artifacts.stage({ kind: 'screenshot', mime: 'image/png', data: baselineBuffer, runId, attemptId, projectId: target.projectId, workspaceId: target.workspaceId, maxBytes: 8 * 1024 * 1024 })
+          : limit(compBase64, 8 * 1024 * 1024);
+        baselineArtifactRef = typeof compArtifact === 'object' && compArtifact ? (compArtifact as any).id : compArtifact;
+      }
+
+      if (!baselineBuffer) {
+        throw new CapabilityError('INVALID_ARGUMENT', 'Failed to acquire baseline image buffer for comparison');
+      }
+
+      const tolerance = typeof params.tolerance === 'number' ? params.tolerance : 5.0;
+      const diffResult = computePixelDiff(curBuffer, baselineBuffer, tolerance);
+
+      return {
+        match: diffResult.match,
+        mismatchPercentage: diffResult.mismatchPercentage,
+        diffPixels: diffResult.diffPixels,
+        totalPixels: diffResult.totalPixels,
+        dimensionsMatch: diffResult.dimensionsMatch,
+        tolerance,
+        currentScreenshot: curArtifact,
+        baselineScreenshot: baselineArtifactRef,
+        notes: diffResult.match ? 'Visual comparison passed within tolerance' : `Visual discrepancies detected (${diffResult.mismatchPercentage}% mismatch exceeds ${tolerance}% tolerance)`,
+      };
+    });
+  }
   private resolveTargetTab(target?: BrowserTarget, explicitTabId?: string, operationType: 'read' | 'lifecycle' | 'write' = 'read'): string {
     if (target) {
       assertTarget(target, true);
@@ -969,12 +1164,13 @@ export class BrowserControlPort {
       };
       this.assertCurrent(currentTarget);
     }
-
     return resolved;
   }
+
   getDocumentGeneration(tabId?: string): number {
     return this.host.getDocumentGeneration ? this.host.getDocumentGeneration(tabId) : 1;
   }
+
   private assertCurrent(target: BrowserTarget): void {
     if (this.host.isCurrentTarget && !this.host.isCurrentTarget(target)) throw new CapabilityError('TARGET_STALE', 'Browser target no longer matches the current tab document');
   }
@@ -996,3 +1192,72 @@ function assertTarget(target: BrowserTarget, allowMissingTab = false): void {
 }
 
 function limit(value: string, max: number): string { return value.length > max ? `${value.slice(0, max)}...[truncated:${digestText(value).slice(0, 12)}]` : value; }
+export function computePixelDiff(
+  img1Buffer: Buffer,
+  img2Buffer: Buffer,
+  tolerancePercent = 5.0
+): { match: boolean; mismatchPercentage: number; diffPixels: number; totalPixels: number; dimensionsMatch: boolean } {
+  if (typeof tolerancePercent !== 'number' || !Number.isFinite(tolerancePercent) || tolerancePercent < 0 || tolerancePercent > 100) {
+    throw new CapabilityError('INVALID_ARGUMENT', 'Tolerance must be a finite number between 0 and 100');
+  }
+
+  let size1 = { width: 0, height: 0 };
+  let size2 = { width: 0, height: 0 };
+  let bitmap1: Buffer | null = null;
+  let bitmap2: Buffer | null = null;
+
+  try {
+    const { nativeImage } = require('electron');
+    if (!nativeImage || typeof nativeImage.createFromBuffer !== 'function') {
+      throw new Error('Electron nativeImage is unavailable');
+    }
+    const nImg1 = nativeImage.createFromBuffer(img1Buffer);
+    const nImg2 = nativeImage.createFromBuffer(img2Buffer);
+    size1 = nImg1.getSize();
+    size2 = nImg2.getSize();
+    if (!nImg1.isEmpty()) bitmap1 = nImg1.getBitmap();
+    if (!nImg2.isEmpty()) bitmap2 = nImg2.getBitmap();
+  } catch (err: unknown) {
+    throw new CapabilityError('CAPABILITY_NOT_FOUND', `Electron nativeImage decoder unavailable for visual diff: ${err instanceof Error ? err.message : String(err)}`);
+  }
+
+  if (!bitmap1 || !bitmap2 || size1.width <= 0 || size1.height <= 0 || size2.width <= 0 || size2.height <= 0) {
+    throw new CapabilityError('INVALID_ARGUMENT', 'Failed to decode one or both PNG images into raw pixel bitmaps');
+  }
+
+  const width = Math.max(size1.width, size2.width);
+  const height = Math.max(size1.height, size2.height);
+  const totalPixels = width * height;
+  let diffPixels = 0;
+  const dimensionsMatch = size1.width === size2.width && size1.height === size2.height;
+  const minW = Math.min(size1.width, size2.width);
+  const minH = Math.min(size1.height, size2.height);
+  if (!dimensionsMatch) {
+    diffPixels += (totalPixels - minW * minH);
+  }
+
+  for (let y = 0; y < minH; y++) {
+    for (let x = 0; x < minW; x++) {
+      const idx1 = (y * size1.width + x) * 4;
+      const idx2 = (y * size2.width + x) * 4;
+      const rDiff = Math.abs(bitmap1[idx1]! - bitmap2[idx2]!);
+      const gDiff = Math.abs(bitmap1[idx1 + 1]! - bitmap2[idx2 + 1]!);
+      const bDiff = Math.abs(bitmap1[idx1 + 2]! - bitmap2[idx2 + 2]!);
+      const aDiff = Math.abs(bitmap1[idx1 + 3]! - bitmap2[idx2 + 3]!);
+      const colorDelta = Math.sqrt(rDiff * rDiff + gDiff * gDiff + bDiff * bDiff + aDiff * aDiff) / 510;
+      if (colorDelta > 0.05) {
+        diffPixels++;
+      }
+    }
+  }
+
+  const mismatchPct = totalPixels > 0 ? (diffPixels / totalPixels) * 100 : 0;
+  const roundedMismatch = Math.round(mismatchPct * 100) / 100;
+  return {
+    match: roundedMismatch <= tolerancePercent,
+    mismatchPercentage: roundedMismatch,
+    diffPixels,
+    totalPixels,
+    dimensionsMatch,
+  };
+}

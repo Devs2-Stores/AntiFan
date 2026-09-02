@@ -3650,6 +3650,13 @@ export class NativeTabHost extends EventEmitter {
   public async agentClear(tabId?: string, paneId?: SplitPaneId): Promise<boolean> {
     return this.getAutomationHost().agentClear(tabId, paneId);
   }
+  public async inspectStyles(params: { selector?: string; ref?: string; properties?: string[]; tabId?: string; paneId?: SplitPaneId }): Promise<Record<string, unknown>> {
+    return this.getAutomationHost().inspectStyles(params);
+  }
+
+  public async inspectRegion(params: { x?: number; y?: number; width?: number; height?: number; selector?: string; ref?: string; tabId?: string; paneId?: SplitPaneId }): Promise<Record<string, unknown>> {
+    return this.getAutomationHost().inspectRegion(params);
+  }
 
   public toggleInspect(): boolean {
     return this.getDevToolsHost().toggleInspect();

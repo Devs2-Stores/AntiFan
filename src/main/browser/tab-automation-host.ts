@@ -16,6 +16,10 @@ import {
   ISOLATED_AGENT_WORLD_ID,
   validateActionResponse,
 } from './semantic-ref-executor';
+import {
+  buildInspectStylesIsolatedScript,
+  buildInspectRegionIsolatedScript,
+} from './scripts/advanced-inspection-scripts';
 import type { SemanticElementDescriptor } from './semantic-ref-types';
 import { generateCollectionNonce, validateCollectionEnvelope } from './semantic-ref-types';
 import type { NativeTabRecord } from './native-tab-host';
@@ -339,7 +343,7 @@ export class TabAutomationHost {
       const rawRes = await this.executeInIsolatedWorld(wc, focusScript);
       const res = validateActionResponse(rawRes);
       if (!res.ok) {
-        return { success: false, reason: res.error || 'Failed to resolve element for trusted click', fallbackNeeded: false };
+        return { success: false, reason: res.error || 'Failed to resolve element for trusted click', fallbackNeeded: true };
       }
       rect = res.rect;
       if (typeof clickX !== 'number' || typeof clickY !== 'number') {
@@ -351,7 +355,7 @@ export class TabAutomationHost {
     }
 
     if (typeof clickX !== 'number' || typeof clickY !== 'number') {
-      return { success: false, reason: 'Coordinates could not be resolved for CDP click', fallbackNeeded: false };
+      return { success: false, reason: 'Coordinates could not be resolved for CDP click', fallbackNeeded: true };
     }
 
     if (!wc.debugger) {
@@ -448,7 +452,7 @@ export class TabAutomationHost {
       const rawRes = await this.executeInIsolatedWorld(wc, focusScript);
       const res = validateActionResponse(rawRes);
       if (!res.ok) {
-        return { success: false, reason: res.error || 'Failed to resolve element for trusted hover', fallbackNeeded: false };
+        return { success: false, reason: res.error || 'Failed to resolve element for trusted hover', fallbackNeeded: true };
       }
       rect = res.rect;
       if (typeof hoverX !== 'number' || typeof hoverY !== 'number') {
@@ -460,9 +464,8 @@ export class TabAutomationHost {
     }
 
     if (typeof hoverX !== 'number' || typeof hoverY !== 'number') {
-      return { success: false, reason: 'Coordinates could not be resolved for CDP hover', fallbackNeeded: false };
+      return { success: false, reason: 'Coordinates could not be resolved for CDP hover', fallbackNeeded: true };
     }
-
     if (!wc.debugger) {
       return { success: false, fallbackNeeded: true, reason: 'Debugger interface not available' };
     }
@@ -1275,6 +1278,147 @@ export class TabAutomationHost {
         const msg = err instanceof Error ? err.message : String(err);
         throw new CapabilityError('CAPABILITY_NOT_FOUND', `CDP Input.dispatchDragEvent failed: ${msg}`);
       }
+    });
+  }
+  public async inspectStyles(params: {
+    selector?: string;
+    ref?: string;
+    properties?: string[];
+    tabId?: string;
+    paneId?: SplitPaneId;
+  }): Promise<Record<string, unknown>> {
+    const targetId = params.tabId || this.ctx.getAutomationTabId() || this.ctx.getActiveTabId();
+    const target = this.ctx.getTabRecord(targetId);
+    if (!target) {
+      throw new CapabilityError('CAPABILITY_NOT_FOUND', `Tab '${targetId}' not found`);
+    }
+
+    const splitHasLiveMobile = Boolean(target.state.splitMode && target.mobileView && !target.mobileView.webContents.isDestroyed());
+    const effectivePane: SplitPaneId = params.paneId || (splitHasLiveMobile ? (target.focusedPane || target.state.splitFocusedPane || 'desktop') : 'desktop');
+
+    return await this.ctx.runTargetOperation(targetId, effectivePane, async () => {
+      const wc = this.ctx.getTabWebContents(targetId, effectivePane);
+      if (!wc || wc.isDestroyed()) {
+        throw new CapabilityError('CAPABILITY_NOT_FOUND', 'Target WebContents is destroyed or unavailable');
+      }
+
+      let descriptor: SemanticElementDescriptor | undefined;
+      const curEpoch = this.ctx.getBrowserEpoch();
+      const curGen = this.ctx.getSemanticDocumentGeneration(targetId, effectivePane);
+      const curUrl = wc.getURL();
+
+      if (typeof params.ref === 'string' && params.ref.trim().length > 0) {
+        if (!this.ctx.semanticRefRegistry) {
+          throw new CapabilityError('RUNTIME_DRAINING', 'Semantic ref registry is not available');
+        }
+        const normRef = params.ref.trim().startsWith('@') ? params.ref.trim() : `@${params.ref.trim()}`;
+        try {
+          descriptor = this.ctx.semanticRefRegistry.resolveRef({
+            tabId: targetId,
+            paneId: effectivePane,
+            browserEpoch: curEpoch,
+            documentGeneration: curGen,
+            documentUrl: curUrl,
+          }, normRef);
+        } catch (err: unknown) {
+          const msg = err instanceof Error ? err.message : String(err);
+          throw new CapabilityError('REF_NOT_FOUND', msg);
+        }
+      }
+
+      const script = buildInspectStylesIsolatedScript({
+        descriptor,
+        selector: params.selector,
+        properties: params.properties,
+        documentUrl: curUrl,
+      });
+
+      const rawRes = await this.executeInIsolatedWorld(wc, script);
+      const res = rawRes as { ok: boolean; data?: Record<string, unknown>; error?: string; code?: string } | null;
+
+      if (!res || !res.ok) {
+        const errCode = res?.code === 'REF_NOT_FOUND' ? 'REF_NOT_FOUND'
+          : res?.code === 'INVALID_SELECTOR' ? 'INVALID_ARGUMENT'
+          : res?.code === 'REF_DOCUMENT_MUTATED' ? 'TARGET_STALE'
+          : 'NODE_DETACHED';
+        throw new CapabilityError(errCode, res?.error || 'Failed to inspect element styles');
+      }
+
+      return res.data || {};
+    });
+  }
+
+  public async inspectRegion(params: {
+    x?: number;
+    y?: number;
+    width?: number;
+    height?: number;
+    selector?: string;
+    ref?: string;
+    tabId?: string;
+    paneId?: SplitPaneId;
+  }): Promise<Record<string, unknown>> {
+    const targetId = params.tabId || this.ctx.getAutomationTabId() || this.ctx.getActiveTabId();
+    const target = this.ctx.getTabRecord(targetId);
+    if (!target) {
+      throw new CapabilityError('CAPABILITY_NOT_FOUND', `Tab '${targetId}' not found`);
+    }
+
+    const splitHasLiveMobile = Boolean(target.state.splitMode && target.mobileView && !target.mobileView.webContents.isDestroyed());
+    const effectivePane: SplitPaneId = params.paneId || (splitHasLiveMobile ? (target.focusedPane || target.state.splitFocusedPane || 'desktop') : 'desktop');
+
+    return await this.ctx.runTargetOperation(targetId, effectivePane, async () => {
+      const wc = this.ctx.getTabWebContents(targetId, effectivePane);
+      if (!wc || wc.isDestroyed()) {
+        throw new CapabilityError('CAPABILITY_NOT_FOUND', 'Target WebContents is destroyed or unavailable');
+      }
+
+      let descriptor: SemanticElementDescriptor | undefined;
+      const curEpoch = this.ctx.getBrowserEpoch();
+      const curGen = this.ctx.getSemanticDocumentGeneration(targetId, effectivePane);
+      const curUrl = wc.getURL();
+
+      if (typeof params.ref === 'string' && params.ref.trim().length > 0) {
+        if (!this.ctx.semanticRefRegistry) {
+          throw new CapabilityError('RUNTIME_DRAINING', 'Semantic ref registry is not available');
+        }
+        const normRef = params.ref.trim().startsWith('@') ? params.ref.trim() : `@${params.ref.trim()}`;
+        try {
+          descriptor = this.ctx.semanticRefRegistry.resolveRef({
+            tabId: targetId,
+            paneId: effectivePane,
+            browserEpoch: curEpoch,
+            documentGeneration: curGen,
+            documentUrl: curUrl,
+          }, normRef);
+        } catch (err: unknown) {
+          const msg = err instanceof Error ? err.message : String(err);
+          throw new CapabilityError('REF_NOT_FOUND', msg);
+        }
+      }
+
+      const script = buildInspectRegionIsolatedScript({
+        descriptor,
+        selector: params.selector,
+        x: params.x,
+        y: params.y,
+        width: params.width,
+        height: params.height,
+        documentUrl: curUrl,
+      });
+
+      const rawRes = await this.executeInIsolatedWorld(wc, script);
+      const res = rawRes as { ok: boolean; data?: Record<string, unknown>; error?: string; code?: string } | null;
+
+      if (!res || !res.ok) {
+        const errCode = res?.code === 'REF_NOT_FOUND' ? 'REF_NOT_FOUND'
+          : res?.code === 'INVALID_SELECTOR' ? 'INVALID_ARGUMENT'
+          : res?.code === 'REF_DOCUMENT_MUTATED' ? 'TARGET_STALE'
+          : 'NODE_DETACHED';
+        throw new CapabilityError(errCode, res?.error || 'Failed to inspect spatial region');
+      }
+
+      return res.data || {};
     });
   }
   public dispose(): void {

@@ -1269,6 +1269,178 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
     inputSchema: { type: 'object', properties: { tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } } },
     execute: (params: { tabId?: string; paneId?: 'desktop' | 'mobile' }, context) => browser.agentClear(params, context.browserTarget),
   });
+  catalogue.register({
+    name: 'browser.inspect_styles',
+    description: 'Inspect computed CSS styles, box model, typography, layout, and CSS variables for an element (supports @ref or CSS selector)',
+    risk: 'read',
+    requiresBrowserTarget: true,
+    policy: makeBrowserPolicy({ effect: 'read', risk: 'read', requiresBrowserTarget: true, lane: 'short-passive' }),
+    inputSchema: {
+      type: 'object',
+      properties: {
+        selector: { type: 'string' },
+        ref: { type: 'string' },
+        properties: { type: 'array', items: { type: 'string' } },
+        tabId: { type: 'string' },
+        paneId: { type: 'string', enum: ['desktop', 'mobile'] },
+      },
+    },
+    execute: (params: { selector?: string; ref?: string; properties?: string[]; tabId?: string; paneId?: 'desktop' | 'mobile' }, context) =>
+      browser.inspectStyles(context.browserTarget as BrowserTarget, params, params?.tabId, params?.paneId),
+  });
+
+  catalogue.register({
+    name: 'anti.inspect.styles',
+    description: 'Alias for browser.inspect_styles',
+    risk: 'read',
+    requiresBrowserTarget: true,
+    policy: makeBrowserPolicy({ effect: 'read', risk: 'read', requiresBrowserTarget: true, lane: 'short-passive' }),
+    inputSchema: {
+      type: 'object',
+      properties: {
+        selector: { type: 'string' },
+        ref: { type: 'string' },
+        properties: { type: 'array', items: { type: 'string' } },
+        tabId: { type: 'string' },
+        paneId: { type: 'string', enum: ['desktop', 'mobile'] },
+      },
+    },
+    execute: (params: { selector?: string; ref?: string; properties?: string[]; tabId?: string; paneId?: 'desktop' | 'mobile' }, context) =>
+      browser.inspectStyles(context.browserTarget as BrowserTarget, params, params?.tabId, params?.paneId),
+  });
+
+  catalogue.register({
+    name: 'browser.inspect_region',
+    description: 'Inspect spatial region bounds, collecting intersecting visible DOM elements with coordinates and z-index',
+    risk: 'read',
+    requiresBrowserTarget: true,
+    policy: makeBrowserPolicy({ effect: 'read', risk: 'read', requiresBrowserTarget: true, lane: 'short-passive' }),
+    inputSchema: {
+      type: 'object',
+      properties: {
+        x: { type: 'number' },
+        y: { type: 'number' },
+        width: { type: 'number' },
+        height: { type: 'number' },
+        selector: { type: 'string' },
+        ref: { type: 'string' },
+        tabId: { type: 'string' },
+        paneId: { type: 'string', enum: ['desktop', 'mobile'] },
+      },
+    },
+    execute: (params: { x?: number; y?: number; width?: number; height?: number; selector?: string; ref?: string; tabId?: string; paneId?: 'desktop' | 'mobile' }, context) =>
+      browser.inspectRegion(context.browserTarget as BrowserTarget, params, params?.tabId, params?.paneId),
+  });
+
+  catalogue.register({
+    name: 'anti.inspect.region',
+    description: 'Alias for browser.inspect_region',
+    risk: 'read',
+    requiresBrowserTarget: true,
+    policy: makeBrowserPolicy({ effect: 'read', risk: 'read', requiresBrowserTarget: true, lane: 'short-passive' }),
+    inputSchema: {
+      type: 'object',
+      properties: {
+        x: { type: 'number' },
+        y: { type: 'number' },
+        width: { type: 'number' },
+        height: { type: 'number' },
+        selector: { type: 'string' },
+        ref: { type: 'string' },
+        tabId: { type: 'string' },
+        paneId: { type: 'string', enum: ['desktop', 'mobile'] },
+      },
+    },
+    execute: (params: { x?: number; y?: number; width?: number; height?: number; selector?: string; ref?: string; tabId?: string; paneId?: 'desktop' | 'mobile' }, context) =>
+      browser.inspectRegion(context.browserTarget as BrowserTarget, params, params?.tabId, params?.paneId),
+  });
+
+  catalogue.register({
+    name: 'browser.trace_interaction',
+    description: 'Trace an interactive action (click, hover, focus, type, scroll) capturing pre/post DOM changes, style deltas, and layout shifts',
+    risk: 'write',
+    requiresBrowserTarget: true,
+    policy: makeBrowserPolicy({ effect: 'interactive-effect', risk: 'write', requiresBrowserTarget: true, lane: 'viewport-gate' }),
+    inputSchema: {
+      type: 'object',
+      properties: {
+        action: { type: 'string', enum: ['click', 'hover', 'focus', 'type', 'scroll'] },
+        selector: { type: 'string' },
+        ref: { type: 'string' },
+        text: { type: 'string' },
+        deltaY: { type: 'number' },
+        settleMs: { type: 'number' },
+        tabId: { type: 'string' },
+        paneId: { type: 'string', enum: ['desktop', 'mobile'] },
+      },
+      required: ['action'],
+    },
+    execute: (params: { action: 'click' | 'hover' | 'focus' | 'type' | 'scroll'; selector?: string; ref?: string; text?: string; deltaY?: number; settleMs?: number; tabId?: string; paneId?: 'desktop' | 'mobile' }, context) =>
+      browser.traceInteraction(context.browserTarget as BrowserTarget, context.runId || 'run-default', context.attemptId || 'att-default', params, params?.tabId, params?.paneId, context.signal),
+  });
+
+  catalogue.register({
+    name: 'anti.trace.interaction',
+    description: 'Alias for browser.trace_interaction',
+    risk: 'write',
+    requiresBrowserTarget: true,
+    policy: makeBrowserPolicy({ effect: 'interactive-effect', risk: 'write', requiresBrowserTarget: true, lane: 'viewport-gate' }),
+    inputSchema: {
+      type: 'object',
+      properties: {
+        action: { type: 'string', enum: ['click', 'hover', 'focus', 'type', 'scroll'] },
+        selector: { type: 'string' },
+        ref: { type: 'string' },
+        text: { type: 'string' },
+        deltaY: { type: 'number' },
+        settleMs: { type: 'number' },
+        tabId: { type: 'string' },
+        paneId: { type: 'string', enum: ['desktop', 'mobile'] },
+      },
+      required: ['action'],
+    },
+    execute: (params: { action: 'click' | 'hover' | 'focus' | 'type' | 'scroll'; selector?: string; ref?: string; text?: string; deltaY?: number; settleMs?: number; tabId?: string; paneId?: 'desktop' | 'mobile' }, context) =>
+      browser.traceInteraction(context.browserTarget as BrowserTarget, context.runId || 'run-default', context.attemptId || 'att-default', params, params?.tabId, params?.paneId, context.signal),
+  });
+  catalogue.register({
+    name: 'browser.visual_compare',
+    description: 'Compare current viewport or tab against baseline screenshot with pixel-level diffing and configurable tolerance',
+    risk: 'read',
+    requiresBrowserTarget: true,
+    policy: makeBrowserPolicy({ effect: 'read', risk: 'read', requiresBrowserTarget: true, lane: 'short-passive' }),
+    inputSchema: {
+      type: 'object',
+      properties: {
+        baselineScreenshotRef: { type: 'string' },
+        comparisonTabId: { type: 'string' },
+        tolerance: { type: 'number' },
+        tabId: { type: 'string' },
+        paneId: { type: 'string', enum: ['desktop', 'mobile'] },
+      },
+    },
+    execute: (params: { baselineScreenshotRef?: string; comparisonTabId?: string; tolerance?: number; tabId?: string; paneId?: 'desktop' | 'mobile' }, context) =>
+      browser.visualCompare(context.browserTarget as BrowserTarget, context.runId || 'run-default', context.attemptId || 'att-default', params, params?.tabId, params?.paneId),
+  });
+
+  catalogue.register({
+    name: 'anti.visual.compare',
+    description: 'Alias for browser.visual_compare',
+    risk: 'read',
+    requiresBrowserTarget: true,
+    policy: makeBrowserPolicy({ effect: 'read', risk: 'read', requiresBrowserTarget: true, lane: 'short-passive' }),
+    inputSchema: {
+      type: 'object',
+      properties: {
+        baselineScreenshotRef: { type: 'string' },
+        comparisonTabId: { type: 'string' },
+        tolerance: { type: 'number' },
+        tabId: { type: 'string' },
+        paneId: { type: 'string', enum: ['desktop', 'mobile'] },
+      },
+    },
+    execute: (params: { baselineScreenshotRef?: string; comparisonTabId?: string; tolerance?: number; tabId?: string; paneId?: 'desktop' | 'mobile' }, context) =>
+      browser.visualCompare(context.browserTarget as BrowserTarget, context.runId || 'run-default', context.attemptId || 'att-default', params, params?.tabId, params?.paneId),
+  });
 }
 
 export function legacyContext(target: BrowserTarget, lease: CapabilityRequestContext['lease']): CapabilityRequestContext {

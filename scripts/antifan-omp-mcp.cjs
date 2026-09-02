@@ -31,6 +31,10 @@ const definitions = [
   ['anti.inspect.snapshot', 'Capture an accessible semantic snapshot of elements indexed with monotonic @e1..@eN references.', { tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } }],
   ['anti.browser.evaluate', 'Execute JavaScript expression in page context with depth-capped circular protection.', { expression: { type: 'string' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } }, ['expression']],
   ['anti.telemetry.record_fallback', 'Record sanitized fallback telemetry when invoking Playwright after an AntiFan capability failure.', { primaryTool: { type: 'string' }, fallbackTool: { type: 'string' }, fallbackResult: { type: 'string', enum: ['SUCCESS', 'FAILED', 'SKIPPED'] }, sessionId: { type: 'string' }, targetUrl: { type: 'string' }, errorCode: { type: 'string' }, errorMessage: { type: 'string' }, durationMs: { type: 'number' }, notes: { type: 'string' } }, ['primaryTool', 'fallbackTool', 'fallbackResult']],
+  ['anti.inspect.styles', 'Inspect computed CSS styles, box model, typography, layout, and CSS variables for an element (supports @ref or CSS selector).', { selector: { type: 'string' }, ref: { type: 'string' }, properties: { type: 'array', items: { type: 'string' } }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } }],
+  ['anti.inspect.region', 'Inspect spatial region bounds, collecting intersecting visible DOM elements with coordinates and z-index.', { x: { type: 'number' }, y: { type: 'number' }, width: { type: 'number' }, height: { type: 'number' }, selector: { type: 'string' }, ref: { type: 'string' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } }],
+  ['anti.trace.interaction', 'Trace an interactive action (click, hover, focus, type, scroll) capturing pre/post DOM changes, style deltas, and layout shifts.', { action: { type: 'string', enum: ['click', 'hover', 'focus', 'type', 'scroll'] }, selector: { type: 'string' }, ref: { type: 'string' }, text: { type: 'string' }, deltaY: { type: 'number' }, settleMs: { type: 'number' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } }, ['action']],
+  ['anti.visual.compare', 'Compare current viewport or tab against baseline screenshot with pixel-level diffing and configurable tolerance.', { baselineScreenshotRef: { type: 'string' }, comparisonTabId: { type: 'string' }, tolerance: { type: 'number' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } }],
 ];
 
 let currentAuthorityRevision = null;
@@ -73,47 +77,76 @@ function getBootstrap() {
 /**
  * Fetch raw binary artifact bytes over HTTP from BridgeServer using single-header authentication.
  */
-function fetchArtifactBinary(bootstrap, artifactId) {
-  return new Promise((resolve, reject) => {
-    const options = {
-      hostname: '127.0.0.1',
-      port: bootstrap.port,
-      path: `/api/artifacts/${encodeURIComponent(artifactId)}`,
-      method: 'GET',
-      headers: {
-        'x-antifan-attachment-secret': bootstrap.secret,
-      },
-    };
+async function fetchArtifactBinary(bootstrap, artifactId) {
+  function fetchChunk(offset = 0, limit = 1024 * 1024) {
+    return new Promise((resolve, reject) => {
+      const options = {
+        hostname: '127.0.0.1',
+        port: bootstrap.port,
+        path: `/api/artifacts/${encodeURIComponent(artifactId)}?offset=${offset}&limit=${limit}`,
+        method: 'GET',
+        headers: {
+          'x-antifan-attachment-secret': bootstrap.secret,
+        },
+      };
 
-    const req = http.request(options, (res) => {
-      const chunks = [];
-      res.on('data', (chunk) => chunks.push(chunk));
-      res.on('end', () => {
-        const buffer = Buffer.concat(chunks);
-        if (res.statusCode !== 200) {
-          let errMsg = `Artifact download failed with status ${res.statusCode}`;
-          try {
-            const errObj = JSON.parse(buffer.toString('utf8'));
-            if (errObj && errObj.error) errMsg = errObj.error;
-          } catch {}
-          return reject(new Error(JSON.stringify({ code: 'ARTIFACT_READ_ERROR', message: errMsg })));
-        }
-        resolve({
-          data: buffer.toString('base64'),
-          mimeType: res.headers['content-type'] || 'image/png',
+      const req = http.request(options, (res) => {
+        const chunks = [];
+        res.on('data', (chunk) => chunks.push(chunk));
+        res.on('end', () => {
+          const buffer = Buffer.concat(chunks);
+          if (res.statusCode !== 200) {
+            let errMsg = `Artifact download failed with status ${res.statusCode}`;
+            try {
+              const errObj = JSON.parse(buffer.toString('utf8'));
+              if (errObj && errObj.error) errMsg = errObj.error;
+            } catch {}
+            return reject(new Error(JSON.stringify({ code: 'ARTIFACT_READ_ERROR', message: errMsg })));
+          }
+          const hasMore = res.headers['x-artifact-has-more'] === 'true';
+          const totalBytes = parseInt(res.headers['x-artifact-total-bytes'] || '0', 10) || buffer.length;
+          const mimeType = res.headers['content-type'] || 'image/png';
+          resolve({
+            buffer,
+            hasMore,
+            totalBytes,
+            mimeType,
+          });
         });
       });
-    });
-    req.setTimeout(15000, () => {
-      req.destroy(new Error('ARTIFACT_STREAM_TIMEOUT'));
-    });
+      req.setTimeout(30000, () => {
+        req.destroy(new Error('ARTIFACT_STREAM_TIMEOUT'));
+      });
 
-    req.on('error', (err) => {
-      reject(new Error(JSON.stringify({ code: 'ARTIFACT_FETCH_ERROR', message: `Artifact fetch failed: ${err.message}` })));
-    });
+      req.on('error', (err) => {
+        reject(new Error(JSON.stringify({ code: 'ARTIFACT_FETCH_ERROR', message: `Artifact fetch failed: ${err.message}` })));
+      });
 
-    req.end();
-  });
+      req.end();
+    });
+  }
+
+  const collectedChunks = [];
+  let currentOffset = 0;
+  let finalMimeType = 'application/octet-stream';
+  const CHUNK_SIZE = 1024 * 1024;
+
+  while (true) {
+    const chunkRes = await fetchChunk(currentOffset, CHUNK_SIZE);
+    collectedChunks.push(chunkRes.buffer);
+    finalMimeType = chunkRes.mimeType;
+    currentOffset += chunkRes.buffer.length;
+
+    if (!chunkRes.hasMore || chunkRes.buffer.length === 0) {
+      break;
+    }
+  }
+
+  const fullBuffer = Buffer.concat(collectedChunks);
+  return {
+    data: fullBuffer.toString('base64'),
+    mimeType: finalMimeType,
+  };
 }
 
 const CAPABILITY_MAP = Object.freeze({
@@ -136,11 +169,11 @@ const CAPABILITY_MAP = Object.freeze({
   'anti.agent.cursor.clear': 'browser.agent-clear',
   'anti.agent.file_upload': 'anti.agent.file_upload',
   'anti.agent.drop': 'anti.agent.drop',
+  'anti.inspect.styles': 'browser.inspect_styles',
+  'anti.inspect.region': 'browser.inspect_region',
+  'anti.trace.interaction': 'browser.trace_interaction',
+  'anti.visual.compare': 'browser.visual_compare',
   'anti.telemetry.record_fallback': 'anti.telemetry.record_fallback',
-  'browser_find': 'antifan_find',
-  'browser_press_key': 'browser.keyboard-press',
-  'theme.qa_validate': 'theme.qa_validate',
-  'theme.debug_bundle': 'theme.debug_bundle',
   'theme.assert_cart': 'theme.assert_cart',
 });
 // ─── Multiplexed Persistent Dispatch Socket ──────────────────────────────────
@@ -249,8 +282,7 @@ async function invoke(method, params = {}, callerRequestId) {
 
   const ws = await ensureDispatchSocket(bootstrap);
   const id = crypto.randomUUID();
-  const timeoutMs = (method === 'theme.qa_validate' || method === 'anti.theme.qa_validate') ? 60000 : 15000;
-
+  const timeoutMs = (method === 'theme.qa_validate' || method === 'anti.theme.qa_validate') ? 60000 : 30000;
   const mapped = CAPABILITY_MAP[method] || method;
   const requestId = callerRequestId ? `req-mcp-${callerRequestId}-${crypto.randomUUID()}` : `req-${crypto.randomUUID()}`;
   const idempotencyKey = callerRequestId ? `idem-mcp-${callerRequestId}-${crypto.randomUUID()}` : `idem-${crypto.randomUUID()}`;
@@ -455,6 +487,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
         request.params.name === 'antifan_screenshot' ||
         (typeof data.mime === 'string' && data.mime.startsWith('image/'))
       ) {
+        const sizeKb = Math.round((artifactPayload.data.length * 0.75) / 1024);
         return {
           content: [
             {

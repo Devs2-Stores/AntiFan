@@ -22,7 +22,6 @@ export class BrokenAssetScanner {
       const findings = [];
       const images = Array.from(document.querySelectorAll('img'));
       const links = Array.from(document.querySelectorAll('link[rel="stylesheet"]'));
-      const scripts = Array.from(document.querySelectorAll('script[src]'));
 
       let imageCount = images.length;
       let linkCount = links.length;
@@ -60,11 +59,6 @@ export class BrokenAssetScanner {
         }
       }
 
-      // 2. Scan stylesheets count (network-level correlation in extractCorrelatableAssetFailures handles 404/500 failures)
-      for (const link of links) {
-        const href = link.getAttribute('href') || link.href;
-        if (!href) continue;
-      }
 
       function getSelector(el) {
         if (!el) return '';

@@ -346,13 +346,13 @@ export class BridgeServer {
           return;
         }
 
-        // 4. Truncation Defense
-        if (ref.truncated === true) {
+        // 4. Truncation Defense: Allow partial text/DOM retrieval with truncation header, fail-closed on corrupt binary images
+        const isImage = typeof ref.mime === 'string' && ref.mime.startsWith('image/');
+        if (ref.truncated === true && isImage) {
           res.writeHead(422, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ error: 'Unprocessable Entity: PAYLOAD_TRUNCATED - Artifact payload was truncated' }));
+          res.end(JSON.stringify({ error: 'Unprocessable Entity: PAYLOAD_TRUNCATED - Image payload was truncated' }));
           return;
         }
-
         // 5. Stream Binary Payload (with 1 MiB chunking support)
         const hasChunkParams = reqUrl.searchParams.has('offset') || reqUrl.searchParams.has('limit');
         if (hasChunkParams || data.byteLength > 1024 * 1024) {
@@ -373,6 +373,7 @@ export class BridgeServer {
             'X-Artifact-Limit': String(chunk.byteLength),
             'X-Artifact-Total-Bytes': String(data.byteLength),
             'X-Artifact-Has-More': String(hasMore),
+            'X-Artifact-Truncated': ref.truncated ? 'true' : 'false',
             'Access-Control-Allow-Origin': isAllowedOrigin ? rawOrigin : 'http://127.0.0.1',
           });
           res.end(chunk);
@@ -384,6 +385,7 @@ export class BridgeServer {
           'Content-Length': String(data.byteLength),
           'X-Artifact-Id': ref.id,
           'X-Artifact-Sha256': ref.sha256 || '',
+          'X-Artifact-Truncated': ref.truncated ? 'true' : 'false',
           'Access-Control-Allow-Origin': isAllowedOrigin ? rawOrigin : 'http://127.0.0.1',
         });
         res.end(data);

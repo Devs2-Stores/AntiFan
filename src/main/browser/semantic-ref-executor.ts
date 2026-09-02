@@ -164,10 +164,31 @@ export function buildIsolatedExecutorScript(request: RendererActionRequest): str
         }
 
         if (req.selector && typeof req.selector === 'string') {
-          const el = document.querySelector(req.selector);
-          return { element: el && el.isConnected ? el : null, error: null };
+          try {
+            let el = document.querySelector(req.selector);
+            if (!el) {
+              function queryShadowDeep(selector, root) {
+                if (!root) return null;
+                try {
+                  const direct = root.querySelector(selector);
+                  if (direct) return direct;
+                } catch {}
+                const elements = root.querySelectorAll ? Array.from(root.querySelectorAll('*')) : [];
+                for (let i = 0; i < elements.length; i++) {
+                  if (elements[i] && elements[i].shadowRoot) {
+                    const found = queryShadowDeep(selector, elements[i].shadowRoot);
+                    if (found) return found;
+                  }
+                }
+                return null;
+              }
+              el = queryShadowDeep(req.selector, document);
+            }
+            return { element: el && el.isConnected ? el : null, error: null };
+          } catch (e) {
+            return { element: null, error: { ok: false, error: 'Invalid selector: ' + e.message, code: 'INVALID_SELECTOR' } };
+          }
         }
-
         return { element: null, error: null };
       }
 
@@ -177,7 +198,7 @@ export function buildIsolatedExecutorScript(request: RendererActionRequest): str
         if (style.display === 'none' || style.visibility === 'hidden' || parseFloat(style.opacity || '1') <= 0) {
           return false;
         }
-        if (el.disabled === true || el.getAttribute('aria-disabled') === 'true') {
+        if (el.disabled === true || (typeof el.getAttribute === 'function' && el.getAttribute('aria-disabled') === 'true')) {
           return false;
         }
         return true;
@@ -549,24 +570,26 @@ export function buildIsolatedCollectorScript(nonce: string, expectedUrl: string,
       const MAX_DEPTH = 32;
 
       function getCleanLabel(el) {
-        const ariaLabel = el.getAttribute('aria-label');
+        if (!el) return '';
+        const getAttr = (name) => typeof el.getAttribute === 'function' ? el.getAttribute(name) : null;
+        const ariaLabel = getAttr('aria-label');
         if (ariaLabel && ariaLabel.trim()) return ariaLabel.trim().slice(0, 60);
-        const ariaLabelledBy = el.getAttribute('aria-labelledby');
+        const ariaLabelledBy = getAttr('aria-labelledby');
         if (ariaLabelledBy) {
-          const lblEl = document.getElementById(ariaLabelledBy);
+          const lblEl = typeof document.getElementById === 'function' ? document.getElementById(ariaLabelledBy) : null;
           if (lblEl && lblEl.textContent && lblEl.textContent.trim()) return lblEl.textContent.trim().slice(0, 60);
         }
         if (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA') {
-          const ph = el.getAttribute('placeholder');
+          const ph = getAttr('placeholder');
           if (ph && ph.trim()) return ph.trim().slice(0, 60);
           if (el.type === 'submit' || el.type === 'button') {
-            const val = el.getAttribute('value');
+            const val = getAttr('value');
             if (val && val.trim()) return val.trim().slice(0, 60);
           }
         }
-        const title = el.getAttribute('title');
+        const title = getAttr('title');
         if (title && title.trim()) return title.trim().slice(0, 60);
-        const alt = el.getAttribute('alt');
+        const alt = getAttr('alt');
         if (alt && alt.trim()) return alt.trim().slice(0, 60);
         const txt = el.innerText || el.textContent;
         if (txt && txt.trim()) {
@@ -631,13 +654,17 @@ export function buildIsolatedCollectorScript(nonce: string, expectedUrl: string,
               scanNode(child.shadowRoot, stepPath.concat([shadowStep]), depth + 1, frameOffsetX, frameOffsetY);
             } catch {}
           }
-          const style = window.getComputedStyle(child);
-          if (style.display === 'none' || style.visibility === 'hidden') continue;
+          const hasHiddenAttr = typeof child.hasAttribute === 'function' && child.hasAttribute('hidden');
+          const hasDisplayNone = child.style && (child.style.display === 'none' || child.style.visibility === 'hidden');
+          if (child.hidden || hasHiddenAttr || hasDisplayNone) continue;
 
-          const role = child.getAttribute('role') || '';
+          const getAttr = (name) => typeof child.getAttribute === 'function' ? child.getAttribute(name) : null;
+          const hasAttr = (name) => typeof child.hasAttribute === 'function' ? child.hasAttribute(name) : false;
+
+          const role = getAttr('role') || '';
           const isInteractive = (
             tag === 'button' ||
-            (tag === 'a' && child.hasAttribute('href')) ||
+            (tag === 'a' && hasAttr('href')) ||
             tag === 'input' ||
             tag === 'select' ||
             tag === 'textarea' ||
@@ -648,13 +675,17 @@ export function buildIsolatedCollectorScript(nonce: string, expectedUrl: string,
             role === 'radio' ||
             role === 'tab' ||
             role === 'menuitem' ||
-            child.hasAttribute('onclick') ||
-            (child.hasAttribute('tabindex') && child.getAttribute('tabindex') !== '-1')
+            hasAttr('onclick') ||
+            (hasAttr('tabindex') && getAttr('tabindex') !== '-1')
           );
 
           if (isInteractive) {
             const rect = child.getBoundingClientRect();
             if (rect.width > 0 && rect.height > 0) {
+              const style = window.getComputedStyle ? window.getComputedStyle(child) : null;
+              if (style && (style.display === 'none' || style.visibility === 'hidden' || parseFloat(style.opacity || '1') <= 0)) {
+                continue;
+              }
               const globalRect = {
                 x: rect.x + frameOffsetX,
                 y: rect.y + frameOffsetY,
@@ -674,20 +705,19 @@ export function buildIsolatedCollectorScript(nonce: string, expectedUrl: string,
                   tag,
                   role: role || undefined,
                   id: child.id || undefined,
-                  name: child.getAttribute('name') || undefined,
-                  type: child.getAttribute('type') || undefined,
+                  name: getAttr('name') || undefined,
+                  type: getAttr('type') || undefined,
                   classHint
                 },
                 rect: globalRect,
                 label,
                 role: role || tag,
-                type: child.getAttribute('type') || undefined,
+                type: getAttr('type') || undefined,
                 id: child.id || undefined,
                 metadata
               });
             }
           }
-
           // Scan child subtree
           if (child.children && child.children.length > 0 && !child.shadowRoot) {
             scanNode(child, stepPath, depth + 1, frameOffsetX, frameOffsetY);
