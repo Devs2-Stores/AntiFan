@@ -1,0 +1,240 @@
+/* Responsive Layout & Mobile Styles */
+
+/* Mobile Navigation Drawer & Hamburger Trigger */
+.mobile-nav-toggle {
+  display: none;
+  flex-direction: column;
+  justify-content: center;
+  gap: 5px;
+  width: 36px;
+  height: 36px;
+  background-color: var(--color-bg-alt);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  padding: 6px;
+  color: var(--color-text-heading);
+}
+
+.mobile-nav-toggle span {
+  display: block;
+  height: 2px;
+  width: 100%;
+  background-color: currentColor;
+  border-radius: 2px;
+  transition: all var(--transition-fast);
+}
+
+.mobile-drawer-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background-color: rgba(0, 0, 0, 0.5);
+  z-index: var(--z-drawer);
+  opacity: 0;
+  visibility: hidden;
+  transition: all var(--transition-base);
+}
+
+.mobile-drawer-overlay.active {
+  opacity: 1;
+  visibility: visible;
+}
+
+.mobile-drawer {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 85%;
+  max-width: 320px;
+  height: 100%;
+  background-color: #ffffff;
+  z-index: calc(var(--z-drawer) + 1);
+  transform: translateX(-100%);
+  transition: transform var(--transition-smooth);
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+}
+
+.mobile-drawer.active {
+  transform: translateX(0);
+}
+
+.mobile-drawer__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--spacing-4);
+  background-color: var(--color-primary);
+  color: #ffffff;
+}
+
+.mobile-drawer__close {
+  color: #ffffff;
+  font-size: 24px;
+}
+
+.mobile-drawer__body {
+  padding: var(--spacing-3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-3);
+}
+
+/* Breakpoint: <= 1200px */
+@media (max-width: 1200px) {
+  .hero-layout {
+    grid-template-columns: 220px 1fr;
+  }
+  
+  .category-flyout {
+    width: 600px;
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .category-products-grid {
+    grid-template-columns: repeat(4, 1fr);
+  }
+
+  .category-block-body {
+    grid-template-columns: 200px 1fr;
+  }
+
+  .partners-grid {
+    grid-template-columns: repeat(6, 1fr);
+  }
+}
+
+/* Breakpoint: <= 992px (Tablet) */
+@media (max-width: 992px) {
+  .site-header__top {
+    display: none;
+  }
+
+  .mobile-nav-toggle {
+    display: flex;
+  }
+
+  .main-header-cta {
+    display: none;
+  }
+
+  .site-header__bottom {
+    display: none;
+  }
+
+  .hero-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .category-sidebar {
+    display: none;
+  }
+
+  .category-block-body {
+    grid-template-columns: 1fr;
+  }
+
+  .category-feature-banner {
+    max-height: 200px;
+  }
+
+  .category-products-grid {
+    grid-template-columns: repeat(3, 1fr);
+  }
+
+  .category-feature-strip {
+    grid-template-columns: repeat(3, 1fr);
+  }
+
+  .accessory-grid {
+    grid-template-columns: repeat(3, 1fr);
+  }
+
+  .quote-banner-box {
+    grid-template-columns: 1fr;
+    gap: var(--spacing-6);
+  }
+
+  .news-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .footer-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+/* Breakpoint: <= 768px (Mobile) */
+@media (max-width: 768px) {
+  .main-header-inner {
+    flex-wrap: wrap;
+  }
+
+  .main-header__logo img {
+    height: 38px;
+  }
+
+  .main-header__search {
+    order: 3;
+    max-width: 100%;
+    width: 100%;
+    margin-top: var(--spacing-2);
+  }
+
+  .category-feature-strip {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .category-products-grid {
+    grid-template-columns: repeat(2, 1fr);
+    gap: var(--spacing-2);
+  }
+
+  .accessory-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .partners-grid {
+    grid-template-columns: repeat(4, 1fr);
+  }
+
+  .quote-form-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .quote-form-grid .form-group-full {
+    grid-column: span 1;
+  }
+
+  .footer-grid {
+    grid-template-columns: 1fr;
+    gap: var(--spacing-4);
+  }
+
+  .footer-bottom-inner {
+    flex-direction: column;
+    text-align: center;
+  }
+}
+
+/* Breakpoint: <= 480px (Small Mobile) */
+@media (max-width: 480px) {
+  .category-feature-strip {
+    grid-template-columns: 1fr;
+  }
+
+  .partners-grid {
+    grid-template-columns: repeat(3, 1fr);
+  }
+
+  .news-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .product-card {
+    padding: var(--spacing-2);
+  }
+}

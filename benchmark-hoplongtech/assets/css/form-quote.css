@@ -1,0 +1,127 @@
+/* Quote Request & Company Intro Form */
+
+.quote-section {
+  margin-bottom: var(--spacing-8);
+}
+
+.quote-banner-box {
+  background: linear-gradient(135deg, #0b2341 0%, #15416e 100%);
+  border-radius: var(--radius-lg);
+  padding: var(--spacing-6) var(--spacing-8);
+  color: #ffffff;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--spacing-8);
+  align-items: center;
+  box-shadow: var(--shadow-md);
+  position: relative;
+  overflow: hidden;
+}
+
+.quote-intro__tag {
+  display: inline-block;
+  padding: 4px 12px;
+  background-color: rgba(255, 147, 46, 0.2);
+  border: 1px solid var(--color-accent);
+  color: var(--color-accent);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-bold);
+  border-radius: var(--radius-full);
+  text-transform: uppercase;
+  margin-bottom: var(--spacing-2);
+}
+
+.quote-intro__title {
+  font-size: var(--font-size-2xl);
+  font-weight: var(--font-weight-bold);
+  line-height: var(--line-height-tight);
+  margin-bottom: var(--spacing-3);
+  color: #ffffff;
+}
+
+.quote-intro__desc {
+  font-size: var(--font-size-base);
+  color: #cbd5e1;
+  line-height: var(--line-height-relaxed);
+  margin-bottom: var(--spacing-4);
+}
+
+.quote-highlights {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: var(--spacing-3);
+}
+
+.quote-highlight-item {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-2);
+  font-size: var(--font-size-sm);
+  color: #e2e8f0;
+}
+
+.quote-highlight-icon {
+  color: var(--color-accent);
+  font-size: 16px;
+}
+
+/* Quote Form Component */
+.quote-form-card {
+  background-color: #ffffff;
+  border-radius: var(--radius-md);
+  padding: var(--spacing-5);
+  box-shadow: var(--shadow-lg);
+  color: var(--color-text-main);
+}
+
+.quote-form-title {
+  font-size: var(--font-size-lg);
+  font-weight: var(--font-weight-bold);
+  color: var(--color-text-heading);
+  margin-bottom: var(--spacing-1);
+}
+
+.quote-form-subtitle {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+  margin-bottom: var(--spacing-4);
+}
+
+.quote-form-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--spacing-3);
+}
+
+.quote-form-grid .form-group-full {
+  grid-column: span 2;
+}
+
+.file-upload-box {
+  border: 1px dashed var(--color-border-dark);
+  border-radius: var(--radius-sm);
+  padding: var(--spacing-3);
+  text-align: center;
+  background-color: var(--color-bg-alt);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.file-upload-box:hover {
+  border-color: var(--color-primary);
+  background-color: var(--color-primary-light);
+}
+
+.file-upload-label {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+  cursor: pointer;
+}
+
+.file-upload-label strong {
+  color: var(--color-primary);
+}

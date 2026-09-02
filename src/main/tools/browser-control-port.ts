@@ -1113,6 +1113,10 @@ export class BrowserControlPort {
       baselineScreenshotRef?: string;
       comparisonTabId?: string;
       tolerance?: number;
+      selector?: string;
+      clipRect?: { x: number; y: number; width: number; height: number };
+      maskSelectors?: string[];
+      normalizeScroll?: boolean;
       tabId?: string;
       paneId?: 'desktop' | 'mobile';
     } = {},
@@ -1126,6 +1130,44 @@ export class BrowserControlPort {
     const effectivePane = paneId || params.paneId || 'desktop';
 
     return this.passivePool.execute(tabId, async () => {
+      if (params.normalizeScroll) {
+        try {
+          await this.host.evalJs(`(() => {
+            const style = document.createElement('style');
+            style.id = '__antifan_normalize_scroll';
+            style.textContent = 'html { overflow-y: scroll !important; scrollbar-gutter: stable !important; }';
+            if (!document.getElementById('__antifan_normalize_scroll')) document.head.appendChild(style);
+          })()`, tabId, effectivePane);
+        } catch {
+          // Non-blocking normalization
+        }
+      }
+
+      // Extract mask bounding boxes if maskSelectors provided
+      let maskBoxes: Array<{ x: number; y: number; width: number; height: number }> = [];
+      if (Array.isArray(params.maskSelectors) && params.maskSelectors.length > 0) {
+        try {
+          const rawBoxes = await this.host.evalJs(`(() => {
+            const selectors = ${JSON.stringify(params.maskSelectors)};
+            const boxes = [];
+            selectors.forEach(sel => {
+              document.querySelectorAll(sel).forEach(el => {
+                const r = el.getBoundingClientRect();
+                if (r.width > 0 && r.height > 0) {
+                  boxes.push({ x: r.x, y: r.y, width: r.width, height: r.height });
+                }
+              });
+            });
+            return boxes;
+          })()`, tabId, effectivePane);
+          if (Array.isArray(rawBoxes)) {
+            maskBoxes = rawBoxes as Array<{ x: number; y: number; width: number; height: number }>;
+          }
+        } catch {
+          // Non-blocking mask resolution
+        }
+      }
+
       const curBase64 = await this.host.captureScreenshot(undefined, tabId, effectivePane);
       const curBuffer = Buffer.from(curBase64, 'base64');
       const curArtifact = this.artifacts
@@ -1158,12 +1200,24 @@ export class BrowserControlPort {
         }
       } else if (params.comparisonTabId) {
         const compTabId = this.resolveTargetTab(target, params.comparisonTabId);
+        if (params.normalizeScroll) {
+          try {
+            await this.host.evalJs(`(() => {
+              const style = document.createElement('style');
+              style.id = '__antifan_normalize_scroll';
+              style.textContent = 'html { overflow-y: scroll !important; scrollbar-gutter: stable !important; }';
+              if (!document.getElementById('__antifan_normalize_scroll')) document.head.appendChild(style);
+            })()`, compTabId, effectivePane);
+          } catch {
+            // Non-blocking normalization
+          }
+        }
         const compBase64 = await this.host.captureScreenshot(undefined, compTabId, effectivePane);
         baselineBuffer = Buffer.from(compBase64, 'base64');
         const compArtifact = this.artifacts
           ? await this.artifacts.stage({ kind: 'screenshot', mime: 'image/png', data: baselineBuffer, runId, attemptId, projectId: target.projectId, workspaceId: target.workspaceId, maxBytes: 8 * 1024 * 1024 })
           : limit(compBase64, 8 * 1024 * 1024);
-        baselineArtifactRef = typeof compArtifact === 'object' && compArtifact ? (compArtifact as any).id : compArtifact;
+        baselineArtifactRef = typeof compArtifact === 'object' && compArtifact && 'id' in compArtifact ? (compArtifact as { id: string }).id : (typeof compArtifact === 'string' ? compArtifact : undefined);
       }
 
       if (!baselineBuffer) {
@@ -1171,7 +1225,7 @@ export class BrowserControlPort {
       }
 
       const tolerance = typeof params.tolerance === 'number' ? params.tolerance : 5.0;
-      const diffResult = computePixelDiff(curBuffer, baselineBuffer, tolerance);
+      const diffResult = computePixelDiff(curBuffer, baselineBuffer, tolerance, maskBoxes);
 
       return {
         match: diffResult.match,
@@ -1180,6 +1234,7 @@ export class BrowserControlPort {
         totalPixels: diffResult.totalPixels,
         dimensionsMatch: diffResult.dimensionsMatch,
         tolerance,
+        diffBoundingBoxes: diffResult.diffBoundingBoxes,
         currentScreenshot: curArtifact,
         baselineScreenshot: baselineArtifactRef,
         notes: diffResult.match ? 'Visual comparison passed within tolerance' : `Visual discrepancies detected (${diffResult.mismatchPercentage}% mismatch exceeds ${tolerance}% tolerance)`,
@@ -1283,8 +1338,16 @@ function limit(value: string, max: number): string { return value.length > max ?
 export function computePixelDiff(
   img1Buffer: Buffer,
   img2Buffer: Buffer,
-  tolerancePercent = 5.0
-): { match: boolean; mismatchPercentage: number; diffPixels: number; totalPixels: number; dimensionsMatch: boolean } {
+  tolerancePercent = 5.0,
+  maskBoxes: Array<{ x: number; y: number; width: number; height: number }> = []
+): {
+  match: boolean;
+  mismatchPercentage: number;
+  diffPixels: number;
+  totalPixels: number;
+  dimensionsMatch: boolean;
+  diffBoundingBoxes: Array<{ x: number; y: number; width: number; height: number; pixelCount: number }>;
+} {
   if (typeof tolerancePercent !== 'number' || !Number.isFinite(tolerancePercent) || tolerancePercent < 0 || tolerancePercent > 100) {
     throw new CapabilityError('INVALID_ARGUMENT', 'Tolerance must be a finite number between 0 and 100');
   }
@@ -1318,17 +1381,35 @@ export function computePixelDiff(
   const minW = Math.min(size1.width, size2.width);
   const minH = Math.min(size1.height, size2.height);
   const overlapArea = minW * minH;
-  // Total pixels represented across both images (Union of Image1 and Image2 canvas areas)
-  const totalPixels = area1 + area2 - overlapArea;
+  let totalPixels = area1 + area2 - overlapArea;
   let diffPixels = 0;
   const dimensionsMatch = size1.width === size2.width && size1.height === size2.height;
   if (!dimensionsMatch) {
-    // Pixels belonging to exactly one image that are out-of-bounds in the other
     diffPixels += (area1 + area2 - 2 * overlapArea);
   }
 
+  // Grid clustering for diff bounding boxes (32x32 blocks)
+  const blockSize = 32;
+  const gridW = Math.ceil(minW / blockSize);
+  const gridH = Math.ceil(minH / blockSize);
+  const gridCounts = new Map<string, number>();
+
+  const isMasked = (x: number, y: number): boolean => {
+    for (let i = 0; i < maskBoxes.length; i++) {
+      const box = maskBoxes[i];
+      if (box && x >= box.x && x <= box.x + box.width && y >= box.y && y <= box.y + box.height) {
+        return true;
+      }
+    }
+    return false;
+  };
+
   for (let y = 0; y < minH; y++) {
     for (let x = 0; x < minW; x++) {
+      if (maskBoxes.length > 0 && isMasked(x, y)) {
+        totalPixels = Math.max(0, totalPixels - 1);
+        continue;
+      }
       const idx1 = (y * size1.width + x) * 4;
       const idx2 = (y * size2.width + x) * 4;
       const rDiff = Math.abs(bitmap1[idx1]! - bitmap2[idx2]!);
@@ -1338,7 +1419,27 @@ export function computePixelDiff(
       const colorDelta = Math.sqrt(rDiff * rDiff + gDiff * gDiff + bDiff * bDiff + aDiff * aDiff) / 510;
       if (colorDelta > 0.05) {
         diffPixels++;
+        const gx = Math.floor(x / blockSize);
+        const gy = Math.floor(y / blockSize);
+        const key = `${gx},${gy}`;
+        gridCounts.set(key, (gridCounts.get(key) || 0) + 1);
       }
+    }
+  }
+
+  const diffBoundingBoxes: Array<{ x: number; y: number; width: number; height: number; pixelCount: number }> = [];
+  for (const [key, count] of gridCounts.entries()) {
+    if (count > 4) {
+      const [gxStr, gyStr] = key.split(',');
+      const gx = parseInt(gxStr || '0', 10);
+      const gy = parseInt(gyStr || '0', 10);
+      diffBoundingBoxes.push({
+        x: gx * blockSize,
+        y: gy * blockSize,
+        width: Math.min(blockSize, minW - gx * blockSize),
+        height: Math.min(blockSize, minH - gy * blockSize),
+        pixelCount: count,
+      });
     }
   }
 
@@ -1350,5 +1451,6 @@ export function computePixelDiff(
     diffPixels,
     totalPixels,
     dimensionsMatch,
+    diffBoundingBoxes: diffBoundingBoxes.slice(0, 50),
   };
 }

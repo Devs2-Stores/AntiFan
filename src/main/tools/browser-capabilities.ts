@@ -1676,7 +1676,7 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
   });
   catalogue.register({
     name: 'browser.visual_compare',
-    description: 'Compare current viewport or tab against baseline screenshot with pixel-level diffing and configurable tolerance',
+    description: 'Compare current viewport or tab against baseline screenshot with pixel-level diffing, element selection, dynamic masking, and configurable tolerance',
     risk: 'read',
     requiresBrowserTarget: true,
     policy: makeBrowserPolicy({ effect: 'read', risk: 'read', requiresBrowserTarget: true, lane: 'short-passive' }),
@@ -1686,17 +1686,32 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
         baselineScreenshotRef: { type: 'string' },
         comparisonTabId: { type: 'string' },
         tolerance: { type: 'number' },
+        selector: { type: 'string' },
+        clipRect: {
+          type: 'object',
+          properties: {
+            x: { type: 'number' },
+            y: { type: 'number' },
+            width: { type: 'number' },
+            height: { type: 'number' },
+          },
+        },
+        maskSelectors: {
+          type: 'array',
+          items: { type: 'string' },
+        },
+        normalizeScroll: { type: 'boolean' },
         tabId: { type: 'string' },
         paneId: { type: 'string', enum: ['desktop', 'mobile'] },
       },
     },
-    execute: (params: { baselineScreenshotRef?: string; comparisonTabId?: string; tolerance?: number; tabId?: string; paneId?: 'desktop' | 'mobile' }, context) =>
+    execute: (params: { baselineScreenshotRef?: string; comparisonTabId?: string; tolerance?: number; selector?: string; clipRect?: { x: number; y: number; width: number; height: number }; maskSelectors?: string[]; normalizeScroll?: boolean; tabId?: string; paneId?: 'desktop' | 'mobile' }, context) =>
       browser.visualCompare(context.browserTarget as BrowserTarget, context.runId || 'run-default', context.attemptId || 'att-default', params, params?.tabId, params?.paneId),
   });
 
   catalogue.register({
     name: 'anti.visual.compare',
-    description: 'Alias for browser.visual_compare',
+    description: 'Alias for browser.visual_compare with element selection, dynamic masking, and subpixel stabilization',
     risk: 'read',
     requiresBrowserTarget: true,
     policy: makeBrowserPolicy({ effect: 'read', risk: 'read', requiresBrowserTarget: true, lane: 'short-passive' }),
@@ -1706,11 +1721,26 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
         baselineScreenshotRef: { type: 'string' },
         comparisonTabId: { type: 'string' },
         tolerance: { type: 'number' },
+        selector: { type: 'string' },
+        clipRect: {
+          type: 'object',
+          properties: {
+            x: { type: 'number' },
+            y: { type: 'number' },
+            width: { type: 'number' },
+            height: { type: 'number' },
+          },
+        },
+        maskSelectors: {
+          type: 'array',
+          items: { type: 'string' },
+        },
+        normalizeScroll: { type: 'boolean' },
         tabId: { type: 'string' },
         paneId: { type: 'string', enum: ['desktop', 'mobile'] },
       },
     },
-    execute: (params: { baselineScreenshotRef?: string; comparisonTabId?: string; tolerance?: number; tabId?: string; paneId?: 'desktop' | 'mobile' }, context) =>
+    execute: (params: { baselineScreenshotRef?: string; comparisonTabId?: string; tolerance?: number; selector?: string; clipRect?: { x: number; y: number; width: number; height: number }; maskSelectors?: string[]; normalizeScroll?: boolean; tabId?: string; paneId?: 'desktop' | 'mobile' }, context) =>
       browser.visualCompare(context.browserTarget as BrowserTarget, context.runId || 'run-default', context.attemptId || 'att-default', params, params?.tabId, params?.paneId),
   });
 }

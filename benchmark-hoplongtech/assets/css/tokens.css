@@ -1,0 +1,99 @@
+:root {
+  /* Colors */
+  --color-primary: #3590ce;
+  --color-primary-dark: #0854a0;
+  --color-primary-light: #f0f7ff;
+  --color-primary-border: #cbe2f8;
+  --color-accent: #ff932e;
+  --color-accent-hover: #e57e1c;
+  --color-accent-light: #fff5eb;
+  
+  --color-text-main: #22343e;
+  --color-text-heading: #1e2d35;
+  --color-text-muted: #767676;
+  --color-text-light: #9aa8b2;
+  --color-text-white: #ffffff;
+  
+  --color-bg-body: #f0f4f8;
+  --color-bg-card: #ffffff;
+  --color-bg-alt: #ffffff;
+  --color-bg-subtle: #f8fafc;
+  
+  --color-border: #e8ecef;
+  --color-border-light: #f1f5f9;
+  --color-border-dark: #cbd5e1;
+  
+  --color-success: #10b981;
+  --color-warning: #f59e0b;
+  --color-danger: #ef4444;
+
+  /* Typography */
+  --font-family-base: 'Roboto', -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif;
+  --font-size-xs: 11px;
+  --font-size-sm: 12px;
+  --font-size-base: 14px;
+  --font-size-md: 15px;
+  --font-size-lg: 16px;
+  --font-size-xl: 18px;
+  --font-size-2xl: 20px;
+  --font-size-3xl: 24px;
+  --font-size-4xl: 28px;
+  
+  --font-weight-normal: 400;
+  --font-weight-medium: 500;
+  --font-weight-semibold: 600;
+  --font-weight-bold: 700;
+  /* Layout */
+  --container-max-width: 1440px;
+  --container-gutter: 15px;
+  --sidebar-width: 220px;
+  --header-height-top: 36px;
+  --header-height-main: 78px;
+  --header-height-bottom: 48px;
+
+  /* Spacing */
+  --spacing-1: 4px;
+  --spacing-2: 8px;
+  --spacing-3: 12px;
+  --spacing-4: 16px;
+  --spacing-5: 20px;
+  --spacing-6: 24px;
+  --spacing-8: 32px;
+  --spacing-10: 40px;
+  --spacing-12: 48px;
+
+  /* Layout */
+  --container-max-width: 1440px;
+  --container-gutter: 16px;
+  --sidebar-width: 240px;
+  --header-height-top: 44px;
+  --header-height-main: 70px;
+  --header-height-bottom: 48px;
+
+  /* Borders & Radius */
+  --radius-xs: 2px;
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-full: 9999px;
+
+  /* Shadows */
+  --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.04);
+  --shadow-sm: 0 2px 6px rgba(0, 0, 0, 0.06);
+  --shadow-md: 0 4px 14px rgba(0, 0, 0, 0.08);
+  --shadow-lg: 0 10px 25px rgba(0, 0, 0, 0.12);
+  --shadow-card: 0 2px 8px rgba(34, 52, 62, 0.06);
+  --shadow-card-hover: 0 8px 24px rgba(34, 52, 62, 0.12);
+
+  /* Transitions */
+  --transition-fast: 0.15s ease;
+  --transition-base: 0.25s ease;
+  --transition-smooth: 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+  
+  /* Z-Index Scale */
+  --z-dropdown: 100;
+  --z-sticky: 500;
+  --z-drawer: 1000;
+  --z-modal: 1100;
+  --z-toast: 1200;
+}
