@@ -4,11 +4,11 @@
  */
 
 export class HaravanSchemaGenerator {
-  public generateSettingsSchema(): string {
+  public generateSettingsSchema(themeName: string = 'Storefront Pro', hotline: string = '', email: string = ''): string {
     const schema = [
       {
         name: 'theme_info',
-        theme_name: 'Hop Long Tech Pro',
+        theme_name: themeName,
         theme_author: 'AntiFan Theme Engineering',
         theme_version: '1.0.0'
       },
@@ -70,13 +70,13 @@ export class HaravanSchemaGenerator {
             type: 'text',
             id: 'hotline',
             label: 'Support Hotline',
-            default: '1900.6536'
+            default: hotline || ''
           },
           {
             type: 'text',
             id: 'email',
             label: 'Contact Email',
-            default: 'info@hoplong.com'
+            default: email || ''
           }
         ]
       }

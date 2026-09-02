@@ -1,0 +1,136 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://antifan.dev/schemas/v1/clone-ir.schema.json",
+  "title": "AntiFan ComponentContractIR",
+  "description": "Platform-agnostic intermediate representation contract for e-commerce storefront theme reconstruction",
+  "type": "object",
+  "required": [
+    "version",
+    "metadata",
+    "layout",
+    "themeSettings",
+    "sections",
+    "storefrontRuntime"
+  ],
+  "properties": {
+    "version": {
+      "type": "string",
+      "enum": ["1.0.0"]
+    },
+    "metadata": {
+      "type": "object",
+      "required": ["sourceUrl", "extractedAt"],
+      "properties": {
+        "sourceUrl": { "type": "string" },
+        "extractedAt": { "type": "string" },
+        "engineVersion": { "type": "string" }
+      }
+    },
+    "layout": {
+      "type": "object",
+      "required": ["containerMaxWidth", "containerPaddingPx", "gridGapPx", "breakpoints"],
+      "properties": {
+        "containerMaxWidth": { "type": "number", "minimum": 320 },
+        "containerPaddingPx": { "type": "number", "minimum": 0 },
+        "gridGapPx": { "type": "number", "minimum": 0 },
+        "breakpoints": {
+          "type": "object",
+          "required": ["mobileMax", "tabletMin", "tabletMax", "desktopMin"],
+          "properties": {
+            "mobileMax": { "type": "number" },
+            "tabletMin": { "type": "number" },
+            "tabletMax": { "type": "number" },
+            "desktopMin": { "type": "number" }
+          }
+        }
+      }
+    },
+    "themeSettings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "type", "label"],
+        "properties": {
+          "id": { "type": "string" },
+          "type": { "type": "string", "enum": ["color", "image_picker", "text", "textarea", "range", "font_picker", "link_list"] },
+          "label": { "type": "string" },
+          "default": {}
+        }
+      }
+    },
+    "sections": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "name", "archetype", "layoutType", "blocks"],
+        "properties": {
+          "id": { "type": "string" },
+          "name": { "type": "string" },
+          "archetype": {
+            "type": "string",
+            "enum": ["header", "hero_slider", "product_grid", "collection_list", "banner_grid", "rich_text", "footer", "custom_section"]
+          },
+          "layoutType": {
+            "type": "string",
+            "enum": ["grid", "flex", "scroll_snap_carousel", "column", "flow"]
+          },
+          "cssRules": {
+            "type": "object",
+            "additionalProperties": { "type": "string" }
+          },
+          "settings": { "type": "object" },
+          "blocks": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["type", "name", "settings"],
+              "properties": {
+                "type": { "type": "string" },
+                "name": { "type": "string" },
+                "limit": { "type": "number" },
+                "settings": { "type": "object" },
+                "dataBindings": {
+                  "type": "object",
+                  "additionalProperties": { "type": "string" }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "storefrontRuntime": {
+      "type": "object",
+      "required": ["controllers"],
+      "properties": {
+        "controllers": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["type", "targetSelector", "triggerSelector", "behavior"],
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": ["carousel", "dropdown", "modal", "drawer", "tabs", "form_validation"]
+              },
+              "targetSelector": { "type": "string" },
+              "triggerSelector": { "type": "string" },
+              "behavior": {
+                "type": "string",
+                "enum": ["css_scroll_snap", "class_toggle", "dialog_native", "hover_intent"]
+              }
+            }
+          }
+        }
+      }
+    },
+    "normalizedData": {
+      "type": "object",
+      "properties": {
+        "products": { "type": "array" },
+        "categories": { "type": "array" },
+        "siteSettings": { "type": "object" }
+      }
+    }
+  }
+}

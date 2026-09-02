@@ -41,34 +41,86 @@ export class EcommerceDataModeler {
     return {
       products: this.extractProducts(root),
       categories: this.extractCategories(root),
-      siteSettings: {
-        title: 'Hop Long Tech Pro',
-        hotline: '1900.6536',
-        email: 'info@hoplong.com'
-      }
+      siteSettings: this.extractSiteSettings(root, html)
     };
   }
 
+  private extractSiteSettings(root: ParsedElementNode, html: string): { title: string; hotline: string; email: string } {
+    let title = '';
+    const titleNodes = DomTreeParser.findByTag(root, 'title');
+    if (titleNodes.length > 0) {
+      title = DomTreeParser.extractText(titleNodes[0]).split('|')[0].trim();
+    }
+
+    let hotline = '';
+    const telLinks = DomTreeParser.findByTag(root, 'a').filter(a => a.attributes['href']?.startsWith('tel:'));
+    if (telLinks.length > 0) {
+      hotline = (telLinks[0].attributes['href'] || '').replace('tel:', '').trim();
+    }
+
+    let email = '';
+    const mailLinks = DomTreeParser.findByTag(root, 'a').filter(a => a.attributes['href']?.startsWith('mailto:'));
+    if (mailLinks.length > 0) {
+      email = (mailLinks[0].attributes['href'] || '').replace('mailto:', '').trim();
+    }
+
+    return {
+      title: title || 'Storefront',
+      hotline: hotline || '',
+      email: email || ''
+    };
+  }
   private extractProducts(root: ParsedElementNode): NormalizedProduct[] {
     const products: NormalizedProduct[] = [];
-    const productNodes = DomTreeParser.findByClass(root, 'product-item');
+    // Support generic product card class archetypes
+    const productNodes = [
+      ...DomTreeParser.findByClass(root, 'product-item'),
+      ...DomTreeParser.findByClass(root, 'product-card'),
+      ...DomTreeParser.findByClass(root, 'card-product'),
+      ...DomTreeParser.findByClass(root, 'item-product')
+    ];
+
+    // Deduplicate nodes
+    const seen = new Set<ParsedElementNode>();
+    const uniqueNodes = productNodes.filter(n => {
+      if (seen.has(n)) return false;
+      seen.add(n);
+      return true;
+    });
 
     let idx = 1;
-    for (const node of productNodes) {
-      const titles = DomTreeParser.findByClass(node, 'title');
-      const title = titles.length > 0 ? DomTreeParser.extractText(titles[0]) : `Sản phẩm ${idx}`;
+    for (const node of uniqueNodes) {
+      const titles = [
+        ...DomTreeParser.findByClass(node, 'title'),
+        ...DomTreeParser.findByClass(node, 'product-title'),
+        ...DomTreeParser.findByClass(node, 'name'),
+        ...DomTreeParser.findByTag(node, 'h3'),
+        ...DomTreeParser.findByTag(node, 'h2')
+      ];
+      const title = titles.length > 0 ? DomTreeParser.extractText(titles[0]).trim() : `Sản phẩm ${idx}`;
 
       const imgs = DomTreeParser.findByTag(node, 'img');
       const links = DomTreeParser.findByTag(node, 'a');
-      const prices = DomTreeParser.findByClass(node, 'price');
+      const prices = [
+        ...DomTreeParser.findByClass(node, 'price'),
+        ...DomTreeParser.findByClass(node, 'price-current'),
+        ...DomTreeParser.findByClass(node, 'amount')
+      ];
       const priceText = prices.length > 0 ? DomTreeParser.extractText(prices[0]) : '';
       const price = this.parsePrice(priceText);
+
+      // Extract vendor dynamically if present
+      const vendors = [
+        ...DomTreeParser.findByClass(node, 'vendor'),
+        ...DomTreeParser.findByClass(node, 'brand')
+      ];
+      const vendor = vendors.length > 0 ? DomTreeParser.extractText(vendors[0]).trim() : '';
 
       products.push({
         id: `prod_${idx}`,
         title,
-        handle: title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, ''),
-        vendor: 'Schneider / Omron',
+        handle: title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || `product-${idx}`,
+        vendor,
         price,
         featuredImage: imgs[0]?.attributes['src'] || '',
         url: links[0]?.attributes['href'] || '#'

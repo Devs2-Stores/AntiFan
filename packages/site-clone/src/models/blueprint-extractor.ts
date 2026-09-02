@@ -73,7 +73,7 @@ export class BlueprintExtractor {
           { type: 'image_picker', id: 'logo', label: 'Logo Image' },
           { type: 'text', id: 'logo_url', label: 'External Logo URL' },
           { type: 'link_list', id: 'main_menu', label: 'Main Navigation Menu' },
-          { type: 'text', id: 'hotline', label: 'Support Hotline', default: '1900.6536' }
+          { type: 'text', id: 'hotline', label: 'Support Hotline', default: '' }
         ],
         blockDefinitions: [],
         blockInstances: []
@@ -130,10 +130,10 @@ export class BlueprintExtractor {
         rawHtml: fNode.outerHtml,
         liquidTemplate: this.generateFooterLiquid(),
         schemaSettings: [
-          { type: 'text', id: 'company_name', label: 'Company Name', default: 'Công ty Cổ phần Công nghệ Hợp Long' },
+          { type: 'text', id: 'company_name', label: 'Company Name', default: 'Cửa hàng trực tuyến' },
           { type: 'textarea', id: 'address', label: 'Company Address' },
-          { type: 'text', id: 'phone', label: 'Phone Number', default: '1900.6536' },
-          { type: 'text', id: 'email', label: 'Support Email', default: 'info@hoplong.com' }
+          { type: 'text', id: 'phone', label: 'Phone Number', default: '' },
+          { type: 'text', id: 'email', label: 'Support Email', default: '' }
         ],
         blockDefinitions: [],
         blockInstances: []
@@ -289,7 +289,7 @@ export class BlueprintExtractor {
     return `
 <header class="site-header">
   <div class="site-header__top w-100">
-    <div class="container container-fuild">
+    <div class="container container-fluid">
       <div class="main-header flex flex-left-between w-100">
         <div class="main-header__logo">
           <a href="{{ routes.root_url }}">
@@ -322,10 +322,9 @@ export class BlueprintExtractor {
     if (type === 'hero-slider') {
       return `
 <section class="${className}">
-  <div class="container container-fuild">
+  <div class="container container-fluid">
     <div class="slide-content flex flex-left-between">
-      {% render 'category-navigation' %}
-      <div class="slide-content__detail">
+      <div class="slide-content__detail w-100">
         <div class="s-content flex">
           {% for block in section.blocks %}
             {% assign slide_src = block.settings.image_url | default: (block.settings.image | img_url: 'master') %}
@@ -348,7 +347,7 @@ export class BlueprintExtractor {
     if (type === 'featured-products') {
       return `
 <section class="${className}">
-  <div class="container container-fuild">
+  <div class="container container-fluid">
     <div class="block-category__header flex flex-left-between">
       <h2 class="title">{{ section.settings.heading | default: '${heading || "Sản Phẩm Nổi Bật"}' }}</h2>
       <a href="{{ section.settings.view_all_link }}" class="view-more">Xem thêm</a>
@@ -366,7 +365,7 @@ export class BlueprintExtractor {
     if (type === 'quote-form') {
       return `
 <section class="${className}">
-  <div class="container container-fuild">
+  <div class="container container-fluid">
     <div class="home-form__wrapper">
       <h2 class="form-title">{{ section.settings.heading | default: '${heading || "Nhận Báo Giá Nhanh"}' }}</h2>
       <form action="/contact" method="post" id="quote-form">
@@ -384,7 +383,7 @@ export class BlueprintExtractor {
 
     return `
 <section class="${className}" id="{{ section.id }}">
-  <div class="container container-fuild">
+  <div class="container container-fluid">
     {% if section.settings.heading != blank %}
       <h2 class="section-title">{{ section.settings.heading }}</h2>
     {% endif %}
@@ -403,7 +402,7 @@ export class BlueprintExtractor {
   private generateFooterLiquid(): string {
     return `
 <footer class="site-footer">
-  <div class="container container-fuild">
+  <div class="container container-fluid">
     <div class="site-footer__top flex">
       <div class="footer-col col-info">
         <h3>{{ section.settings.company_name }}</h3>

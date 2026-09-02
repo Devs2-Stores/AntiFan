@@ -47,4 +47,24 @@ describe('CleanTabProbe - Behavioral Interactive Verification', () => {
       assert.strictEqual(r.passed, false, `${r.name} must fail when element is missing`);
     }
   });
+
+  it('3. verifyCriticalBreaks validates overflow, commercial forms, and zero liquid leak', async () => {
+    const mockBreakEvaluator = async (expr: string): Promise<unknown> => {
+      if (expr.includes('scrollWidth') && expr.includes('innerWidth')) {
+        return { passed: true, details: 'scrollWidth: 1200px, innerWidth: 1200px, deltaX: 0px' };
+      }
+      if (expr.includes('forms') && expr.includes('productCards')) {
+        return { passed: true, details: 'forms: 2, productCards: 8' };
+      }
+      if (expr.includes('leakedTags')) {
+        return { passed: true, details: 'Zero Liquid syntax leakage' };
+      }
+      return { passed: true };
+    };
+
+    const check = await CleanTabProbe.verifyCriticalBreaks(mockBreakEvaluator);
+    assert.strictEqual(check.passed, true);
+    assert.strictEqual(check.breaks.length, 3);
+    assert.ok(check.breaks.every(b => b.passed));
+  });
 });

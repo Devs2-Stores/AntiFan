@@ -42,4 +42,22 @@ describe('Schemas - JSON Schema Validation & Integrity', () => {
     assert.ok(requiredViewports.includes('tablet'));
     assert.ok(requiredViewports.includes('mobile'));
   });
+
+  it('3. clone-ir.schema.json validates ComponentContractIR and its core invariants', () => {
+    const schemaPath = path.resolve('packages/site-clone/src/schemas/clone-ir.schema.json');
+    assert.ok(fs.existsSync(schemaPath), 'clone-ir.schema.json must exist');
+    const schema = JSON.parse(fs.readFileSync(schemaPath, 'utf-8'));
+
+    assert.strictEqual(schema.title, 'AntiFan ComponentContractIR');
+    assert.ok(schema.required.includes('version'));
+    assert.ok(schema.required.includes('metadata'));
+    assert.ok(schema.required.includes('layout'));
+    assert.ok(schema.required.includes('themeSettings'));
+    assert.ok(schema.required.includes('sections'));
+    assert.ok(schema.required.includes('storefrontRuntime'));
+
+    const layout = schema.properties.layout;
+    assert.ok(layout.required.includes('containerMaxWidth'));
+    assert.ok(layout.required.includes('breakpoints'));
+  });
 });

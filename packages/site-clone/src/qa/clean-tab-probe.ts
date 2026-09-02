@@ -153,4 +153,64 @@ export class CleanTabProbe {
       }))
     ]);
   }
+
+  public static async verifyCriticalBreaks(evaluator: (expr: string) => Promise<unknown>): Promise<{
+    passed: boolean;
+    breaks: Array<{ id: string; name: string; passed: boolean; details?: string }>;
+  }> {
+    const results = await Promise.all([
+      // Break 1: Viewport Overflow (No horizontal scroll leak)
+      evaluator(`(() => {
+        const docWidth = document.documentElement.scrollWidth;
+        const winWidth = window.innerWidth;
+        const deltaX = docWidth - winWidth;
+        return {
+          passed: deltaX <= 2,
+          details: \`scrollWidth: \${docWidth}px, innerWidth: \${winWidth}px, deltaX: \${deltaX}px\`
+        };
+      })()`).then(res => {
+        const p = parseProbeResult(res);
+        return { id: 'break_1_overflow', name: 'Horizontal Viewport Overflow', passed: Boolean(p?.passed), details: typeof p?.details === 'string' ? p.details : JSON.stringify(p?.details || {}) };
+      }).catch(err => ({ id: 'break_1_overflow', name: 'Horizontal Viewport Overflow', passed: false, details: String(err) })),
+
+      // Break 2: Commercial Action Integrity
+      evaluator(`(() => {
+        const forms = Array.from(document.querySelectorAll('form'));
+        const productCards = Array.from(document.querySelectorAll('.product-card, [data-product-id], .product-item'));
+        const hasFormsOrProducts = forms.length > 0 || productCards.length > 0;
+        return {
+          passed: hasFormsOrProducts,
+          details: \`forms: \${forms.length}, productCards: \${productCards.length}\`
+        };
+      })()`).then(res => {
+        const p = parseProbeResult(res);
+        return { id: 'break_2_commercial', name: 'Commercial Action & Product Integrity', passed: Boolean(p?.passed), details: typeof p?.details === 'string' ? p.details : JSON.stringify(p?.details || {}) };
+      }).catch(err => ({ id: 'break_2_commercial', name: 'Commercial Action & Product Integrity', passed: false, details: String(err) })),
+
+      // Break 3: Liquid Syntax & Variable Leakage
+      evaluator(`(() => {
+        const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+        let node;
+        const leakedTags = [];
+        const pattern = /\\{\\{|\\{%/;
+        while ((node = walker.nextNode())) {
+          const text = node.textContent || '';
+          if (pattern.test(text) && !node.parentElement?.closest('script, style, code, pre')) {
+            leakedTags.push(text.trim().slice(0, 50));
+            if (leakedTags.length >= 5) break;
+          }
+        }
+        return {
+          passed: leakedTags.length === 0,
+          details: leakedTags.length === 0 ? 'Zero Liquid syntax leakage' : \`Leaked tags: \${leakedTags.join(', ')}\`
+        };
+      })()`).then(res => {
+        const p = parseProbeResult(res);
+        return { id: 'break_3_liquid_leak', name: 'Liquid Syntax & Variable Leakage', passed: Boolean(p?.passed), details: typeof p?.details === 'string' ? p.details : JSON.stringify(p?.details || {}) };
+      }).catch(err => ({ id: 'break_3_liquid_leak', name: 'Liquid Syntax & Variable Leakage', passed: false, details: String(err) }))
+    ]);
+
+    const passed = results.every(r => r.passed);
+    return { passed, breaks: results };
+  }
 }

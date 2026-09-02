@@ -36,11 +36,13 @@ function initHeroSlider() {
 
   let currentIndex = 0;
   const total = items.length;
-  const slideWidth = 775;
+  const getSlideWidth = () => {
+    return (slider.clientWidth / (parseInt(slider.dataset.slidesPerView, 10) || 1)) || (items[0] ? items[0].getBoundingClientRect().width : 0) || 300;
+  };
 
   const goTo = (idx) => {
     currentIndex = (idx + total) % total;
-    slider.style.transform = \`translateX(-\${currentIndex * slideWidth}px)\`;
+    slider.style.transform = \`translateX(-\${currentIndex * getSlideWidth()}px)\`;
     slider.style.transition = 'transform 0.4s cubic-bezier(0.25, 1, 0.5, 1)';
   };
 

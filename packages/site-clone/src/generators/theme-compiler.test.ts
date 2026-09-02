@@ -154,4 +154,70 @@ describe('ThemeCompiler - End-to-End Haravan OS 2.0 Theme Compilation', () => {
       fs.rmSync(tempDir, { recursive: true, force: true });
     }
   });
+
+  it('4. Compiles directly from ComponentContractIR object with clean decoupling', () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'haravan-ir-test-'));
+    const ir = {
+      version: '1.0.0' as const,
+      metadata: {
+        sourceUrl: 'https://decoupled-store.vn',
+        extractedAt: new Date().toISOString()
+      },
+      layout: {
+        containerMaxWidth: 1200,
+        containerPaddingPx: 20,
+        gridGapPx: 16,
+        breakpoints: {
+          mobileMax: 767,
+          tabletMin: 768,
+          tabletMax: 1024,
+          desktopMin: 1025
+        }
+      },
+      themeSettings: [
+        { id: 'color_primary', type: 'color' as const, label: 'Primary', default: '#112233' }
+      ],
+      sections: [
+        {
+          id: 'custom_banner',
+          name: 'Custom Banner',
+          archetype: 'hero_slider' as const,
+          layoutType: 'scroll_snap_carousel' as const,
+          heading: 'Khuyến mãi đặc biệt',
+          className: 'banner-hero',
+          settings: {},
+          blocks: [
+            {
+              id: 'slide_1',
+              type: 'slide',
+              name: 'Slide 1',
+              settings: { title: 'Mùa Hè Sôi Động' }
+            }
+          ]
+        }
+      ],
+      storefrontRuntime: {
+        controllers: []
+      },
+      normalizedData: {
+        siteSettings: {
+          title: 'Decoupled Store',
+          hotline: '0988776655',
+          email: 'contact@decoupled.vn'
+        }
+      }
+    };
+
+    try {
+      const result = compiler.compileTheme(tempDir, ir);
+      assert.strictEqual(result.sectionCount, 1);
+      assert.ok(fs.existsSync(path.join(tempDir, 'sections', 'custom_banner.liquid')));
+      const indexJson = JSON.parse(fs.readFileSync(path.join(tempDir, 'templates', 'index.json'), 'utf-8'));
+      assert.ok(indexJson.sections.custom_banner);
+      assert.strictEqual(indexJson.sections.custom_banner.type, 'custom_banner');
+      assert.strictEqual(indexJson.sections.custom_banner.settings.heading, 'Khuyến mãi đặc biệt');
+    } finally {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
 });
