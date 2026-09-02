@@ -45,12 +45,26 @@ app.whenReady().then(async () => {
     const png1x4 = img1x4.toPNG();
     const png4x1 = img4x1.toPNG();
     const diffCrossed = computePixelDiff(png1x4, png4x1, 10.0);
-    // area1=4, area2=4, overlap=1x1=1. Non-overlap pixels = 4 + 4 - 2(1) = 6. Inside overlap: matching white pixels -> 0 diff. Total diff = 6. Max bounding area = 4x4 = 16. Mismatch % = 6/16*100 = 37.5%.
+    // area1=4, area2=4, overlap=1x1=1. Non-overlap pixels = 4 + 4 - 2(1) = 6. Union total pixels = 4 + 4 - 1 = 7.
+    // Inside overlap: matching white pixels -> 0 diff. Total diff = 6.
+    // Normalized by union area (7 pixels): Mismatch % = 6/7 * 100 = 85.71%.
     assert.strictEqual(diffCrossed.diffPixels, 6, 'Non-overlap pixels must be exactly area1 + area2 - 2*overlap');
-    assert.strictEqual(diffCrossed.totalPixels, 16, 'Total canvas area is 4x4 = 16');
-    assert.strictEqual(diffCrossed.mismatchPercentage, 37.5);
+    assert.strictEqual(diffCrossed.totalPixels, 7, 'Total union area is 4 + 4 - 1 = 7');
+    assert.strictEqual(diffCrossed.mismatchPercentage, 85.71);
     assert.strictEqual(diffCrossed.match, false);
     console.log('[Smoke] 2b. Crossed aspect ratio pixel accounting passed.');
+
+    // 2b-2. Elongated crossed aspect ratio test (1x100 vs 100x1)
+    // area1=100, area2=100, overlap=1x1=1. Non-overlap diff = 198. Union total = 100 + 100 - 1 = 199.
+    // Mismatch % = 198/199 * 100 = 99.5% (MUST strictly fail 5% tolerance despite bounding box being 10,000).
+    const img1x100 = nativeImage.createFromBitmap(Buffer.alloc(1 * 100 * 4, 255), { width: 1, height: 100 });
+    const img100x1 = nativeImage.createFromBitmap(Buffer.alloc(100 * 1 * 4, 255), { width: 100, height: 1 });
+    const diffElongated = computePixelDiff(img1x100.toPNG(), img100x1.toPNG(), 5.0);
+    assert.strictEqual(diffElongated.diffPixels, 198);
+    assert.strictEqual(diffElongated.totalPixels, 199);
+    assert.strictEqual(diffElongated.mismatchPercentage, 99.5);
+    assert.strictEqual(diffElongated.match, false, '1x100 vs 100x1 must strictly fail 5% tolerance (99.5% mismatch)');
+    console.log('[Smoke] 2b-2. Elongated crossed ratio (1x100 vs 100x1 = 99.5% mismatch) passed.');
 
     // 2c. Boundary tolerance precision test (unrounded threshold discriminating test)
     // Canvas: 25,000 pixels (width=250, height=100).

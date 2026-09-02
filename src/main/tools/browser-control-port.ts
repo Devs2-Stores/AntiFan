@@ -1225,18 +1225,17 @@ export function computePixelDiff(
     throw new CapabilityError('INVALID_ARGUMENT', 'Failed to decode one or both PNG images into raw pixel bitmaps');
   }
 
-  const width = Math.max(size1.width, size2.width);
-  const height = Math.max(size1.height, size2.height);
-  const totalPixels = width * height;
-  let diffPixels = 0;
-  const dimensionsMatch = size1.width === size2.width && size1.height === size2.height;
+  const area1 = size1.width * size1.height;
+  const area2 = size2.width * size2.height;
   const minW = Math.min(size1.width, size2.width);
   const minH = Math.min(size1.height, size2.height);
+  const overlapArea = minW * minH;
+  // Total pixels represented across both images (Union of Image1 and Image2 canvas areas)
+  const totalPixels = area1 + area2 - overlapArea;
+  let diffPixels = 0;
+  const dimensionsMatch = size1.width === size2.width && size1.height === size2.height;
   if (!dimensionsMatch) {
-    const area1 = size1.width * size1.height;
-    const area2 = size2.width * size2.height;
-    const overlapArea = minW * minH;
-    // Exactly counts pixels that belong to one image but are out-of-bounds in the other
+    // Pixels belonging to exactly one image that are out-of-bounds in the other
     diffPixels += (area1 + area2 - 2 * overlapArea);
   }
 
