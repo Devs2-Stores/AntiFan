@@ -39,6 +39,18 @@ app.whenReady().then(async () => {
     assert.strictEqual(diffDiff.dimensionsMatch, false);
     console.log('[Smoke] 2. Strict difference detection passed.');
 
+    // 2b. Crossed aspect ratios test (e.g. 1x4 vs 4x1)
+    const img1x4 = nativeImage.createFromBitmap(Buffer.alloc(1 * 4 * 4, 255), { width: 1, height: 4 });
+    const img4x1 = nativeImage.createFromBitmap(Buffer.alloc(4 * 1 * 4, 255), { width: 4, height: 1 });
+    const png1x4 = img1x4.toPNG();
+    const png4x1 = img4x1.toPNG();
+    const diffCrossed = computePixelDiff(png1x4, png4x1, 10.0);
+    // area1=4, area2=4, overlap=1x1=1. Non-overlap pixels = 4 + 4 - 2(1) = 6. Inside overlap: matching white pixels -> 0 diff. Total diff = 6. Max bounding area = 4x4 = 16. Mismatch % = 6/16*100 = 37.5%.
+    assert.strictEqual(diffCrossed.diffPixels, 6, 'Non-overlap pixels must be exactly area1 + area2 - 2*overlap');
+    assert.strictEqual(diffCrossed.totalPixels, 16, 'Total canvas area is 4x4 = 16');
+    assert.strictEqual(diffCrossed.mismatchPercentage, 37.5);
+    assert.strictEqual(diffCrossed.match, false);
+    console.log('[Smoke] 2b. Crossed aspect ratio pixel accounting passed.');
     // 3. Capability execution through ArtifactStore
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-electron-smoke-'));
     try {

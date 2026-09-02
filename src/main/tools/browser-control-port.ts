@@ -1233,7 +1233,11 @@ export function computePixelDiff(
   const minW = Math.min(size1.width, size2.width);
   const minH = Math.min(size1.height, size2.height);
   if (!dimensionsMatch) {
-    diffPixels += (totalPixels - minW * minH);
+    const area1 = size1.width * size1.height;
+    const area2 = size2.width * size2.height;
+    const overlapArea = minW * minH;
+    // Exactly counts pixels that belong to one image but are out-of-bounds in the other
+    diffPixels += (area1 + area2 - 2 * overlapArea);
   }
 
   for (let y = 0; y < minH; y++) {
