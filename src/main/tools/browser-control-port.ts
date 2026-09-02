@@ -1258,7 +1258,7 @@ export function computePixelDiff(
   const mismatchPct = totalPixels > 0 ? (diffPixels / totalPixels) * 100 : 0;
   const roundedMismatch = Math.round(mismatchPct * 100) / 100;
   return {
-    match: roundedMismatch <= tolerancePercent,
+    match: mismatchPct <= tolerancePercent,
     mismatchPercentage: roundedMismatch,
     diffPixels,
     totalPixels,

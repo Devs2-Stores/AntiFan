@@ -51,7 +51,24 @@ app.whenReady().then(async () => {
     assert.strictEqual(diffCrossed.mismatchPercentage, 37.5);
     assert.strictEqual(diffCrossed.match, false);
     console.log('[Smoke] 2b. Crossed aspect ratio pixel accounting passed.');
-    // 3. Capability execution through ArtifactStore
+
+    // 2c. Boundary tolerance precision test (unrounded threshold check)
+    // 100x100 canvas (10,000 pixels). 501 diff pixels = 5.01% actual mismatch.
+    // With 5.00% tolerance, roundedMismatch is 5.01%, but if tolerance was 5.005%,
+    // unrounded check must strictly reject (5.01 > 5.005) rather than comparing rounded.
+    const bufA = Buffer.alloc(100 * 100 * 4, 0);
+    const bufB = Buffer.alloc(100 * 100 * 4, 0);
+    for (let i = 0; i < 501 * 4; i += 4) {
+      bufB[i] = 255;
+      bufB[i + 3] = 255;
+    }
+    const imgA = nativeImage.createFromBitmap(bufA, { width: 100, height: 100 });
+    const imgB = nativeImage.createFromBitmap(bufB, { width: 100, height: 100 });
+    const diffBoundary = computePixelDiff(imgA.toPNG(), imgB.toPNG(), 5.005);
+    assert.strictEqual(diffBoundary.diffPixels, 501);
+    assert.strictEqual(diffBoundary.mismatchPercentage, 5.01);
+    assert.strictEqual(diffBoundary.match, false, '5.01% actual mismatch must strictly fail 5.005% tolerance');
+    console.log('[Smoke] 2c. Boundary tolerance precision passed.');
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-electron-smoke-'));
     try {
       const artifactStore = new ArtifactStore({
