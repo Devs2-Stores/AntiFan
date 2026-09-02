@@ -1,5 +1,5 @@
 {
-  "status": "in-progress",
+  "status": "interrupted",
   "startedAt": "2026-09-01T21:19:54.327Z",
   "finishedAt": "2026-09-02T02:30:13.914Z",
   "config": {
@@ -81692,5 +81692,6 @@
     "[antifan-benchmark] {\"surface\":\"bridge\",\"name\":\"broadcast\",\"value\":0.10680000111460686,\"extra\":{\"event\":\"antifan:terminal:data\",\"clients\":1,\"congested\":0,\"bytes\":3149},\"ts\":\"2026-09-02T02:30:10.537Z\",\"nowMs\":18616142.413}",
     "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"layout\",\"value\":0.14550000056624413,\"extra\":{\"width\":1344,\"height\":815,\"attachedViews\":1},\"ts\":\"2026-09-02T02:30:13.378Z\",\"nowMs\":18618983.1224}",
     "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"switched\",\"value\":4.585799999535084,\"extra\":{\"attachedViews\":1},\"ts\":\"2026-09-02T02:30:13.378Z\",\"nowMs\":18618983.4114}"
-  ]
+  ],
+  "note": "Interrupted at 310m (5h10m) upon user request to transition to Phase 3 recovery evaluation"
 }

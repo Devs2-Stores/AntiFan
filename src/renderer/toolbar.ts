@@ -230,32 +230,31 @@ const profileAvatar = document.getElementById('profileAvatar')!;
 const profileName = document.getElementById('profileName')!;
 const profileDropdownMenu = document.getElementById('profileDropdownMenu')!;
 const profileDropdownList = document.getElementById('profileDropdownList')!;
-const btnMenu = document.getElementById('btnMenu') as HTMLButtonElement;
-const codexMainMenu = document.getElementById('codexMainMenu')!;
+const btnMenu = document.getElementById('btnMenu') as HTMLButtonElement | null;
+const codexMainMenu = document.getElementById('codexMainMenu') as HTMLElement | null;
 
 let activeProfileInfo: any = null;
 let availableChromeProfiles: any[] = [];
 
 // Menu Items
-const menuFind = document.getElementById('menuFind')!;
-const menuQuickAnnotate = document.getElementById('menuQuickAnnotate')!;
-const menuFontFinder = document.getElementById('menuFontFinder')!;
-const menuLens = document.getElementById('menuLens')!;
-const menuOpenBrowser = document.getElementById('menuOpenBrowser')!;
-const menuShortcuts = document.getElementById('menuShortcuts')!;
+const menuFind = document.getElementById('menuFind') as HTMLElement | null;
+const menuQuickAnnotate = document.getElementById('menuQuickAnnotate') as HTMLElement | null;
+const menuFontFinder = document.getElementById('menuFontFinder') as HTMLElement | null;
+const menuLens = document.getElementById('menuLens') as HTMLElement | null;
+const menuOpenBrowser = document.getElementById('menuOpenBrowser') as HTMLElement | null;
+const menuShortcuts = document.getElementById('menuShortcuts') as HTMLElement | null;
 
 // Find Bar
-const findBar = document.getElementById('findBar')!;
-const findInput = document.getElementById('findInput') as HTMLInputElement;
-const findCount = document.getElementById('findCount')!;
-const findPrev = (document.getElementById('btnFindPrev') || document.getElementById('findPrev')) as HTMLButtonElement;
-const findNext = (document.getElementById('btnFindNext') || document.getElementById('findNext')) as HTMLButtonElement;
-const findClose = (document.getElementById('btnFindClose') || document.getElementById('findClose')) as HTMLButtonElement;
+const findBar = document.getElementById('findBar') as HTMLElement | null;
+const findInput = document.getElementById('findInput') as HTMLInputElement | null;
+const findCount = document.getElementById('findCount') as HTMLElement | null;
+const findPrev = (document.getElementById('btnFindPrev') || document.getElementById('findPrev')) as HTMLButtonElement | null;
+const findNext = (document.getElementById('btnFindNext') || document.getElementById('findNext')) as HTMLButtonElement | null;
+const findClose = (document.getElementById('btnFindClose') || document.getElementById('findClose')) as HTMLButtonElement | null;
 
 // Shortcuts Overlay
-const shortcutsOverlay = document.getElementById('shortcutsOverlay')!;
-const shortcutsClose = document.getElementById('shortcutsClose') as HTMLButtonElement;
-
+const shortcutsOverlay = document.getElementById('shortcutsOverlay') as HTMLElement | null;
+const shortcutsClose = document.getElementById('shortcutsClose') as HTMLButtonElement | null;
 // Workflow & MCP Hub Elements
 const btnWorkflowHub = document.getElementById('btnWorkflowHub') as HTMLButtonElement | null;
 const workflowHubOverlay = document.getElementById('workflowHubOverlay') as HTMLElement | null;
@@ -911,9 +910,9 @@ function updateControls() {
   }
 }
 
-const bookmarkBar = document.getElementById('bookmarkBar')!;
-const bookmarkItems = document.getElementById('bookmarkItems')!;
-const btnStarBookmark = document.getElementById('btnStarBookmark') as HTMLButtonElement;
+const bookmarkBar = document.getElementById('bookmarkBar') as HTMLElement | null;
+const bookmarkItems = document.getElementById('bookmarkItems') as HTMLElement | null;
+const btnStarBookmark = document.getElementById('btnStarBookmark') as HTMLButtonElement | null;
 const btnBookmarksMenu = document.getElementById('btnBookmarksMenu') as HTMLButtonElement | null;
 const bookmarksDropdownMenu = document.getElementById('bookmarksDropdownMenu') as HTMLElement | null;
 const bookmarksCountPill = document.getElementById('bookmarksCountPill') as HTMLElement | null;

@@ -323,12 +323,21 @@ async function main() {
 
   let stdout = '';
   let stderr = '';
+  let childExited = false;
+  let childExitCode = null;
   child.stdout.setEncoding('utf8');
   child.stderr.setEncoding('utf8');
   child.stdout.on('data', (d) => { stdout = (stdout + d).slice(-300000); });
   child.stderr.on('data', (d) => { stderr = (stderr + d).slice(-300000); });
-
-  // 3. Connect to Bridge Server
+  child.on('exit', (code, signal) => {
+    childExited = true;
+    childExitCode = typeof code === 'number' ? code : (signal ? 1 : 0);
+    console.error(`[soak] Electron child process exited unexpectedly with code ${code}, signal ${signal}`);
+  });
+  child.on('error', (err) => {
+    childExited = true;
+    console.error('[soak] Electron child process error:', err.message);
+  });
   const bridgePath = path.join(configDir, 'bridge.json');
   let bridge = null;
   for (let i = 0; i < 240; i++) {
@@ -479,6 +488,14 @@ async function main() {
   let lastCheckpointTime = startTime;
 
   while (Date.now() < totalEndTime) {
+    if (childExited) {
+      console.error(`[soak] Aborting soak loop early due to child process exit (code: ${childExitCode})`);
+      stateMeta.finishedAt = new Date().toISOString();
+      stateMeta.status = 'failed';
+      stateMeta.error = `Child process exited unexpectedly with code ${childExitCode}`;
+      saveCheckpoint();
+      throw new Error(`Child process exited unexpectedly with code ${childExitCode}`);
+    }
     const now = Date.now();
     const currentPhase = now < warmupEndTime ? 'warmup' : now < workloadEndTime ? 'workload' : 'recovery';
 
@@ -495,7 +512,6 @@ async function main() {
       } catch {}
       nextSwitchTime = now + 3000; // Switch tab every 3s
     }
-
     // 2. Terminal Bursts (every 30s in warmup & workload)
     if (currentPhase !== 'recovery' && now >= nextBurstTime) {
       try {

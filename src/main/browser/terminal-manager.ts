@@ -1048,23 +1048,37 @@ export class TerminalManager extends EventEmitter {
       }, timeoutMs);
       timeoutTimer.unref?.();
 
+      let accumulatedAfterSeq = '';
       const onData = (evt: { sessionId: string; data: string; seq: number }) => {
         if (settled || evt.sessionId !== input.sessionId) return;
         if (input.afterSeq !== undefined && evt.seq <= input.afterSeq) return;
 
         if (input.condition === 'output-match' && regex) {
-          if (regex.test(evt.data) || regex.test(s.buffer)) {
-            cleanup();
-            resolve({
-              satisfied: true,
-              sessionGeneration: s.sessionGeneration,
-              lastSeq: evt.seq,
-              outputTail: safeSliceTail(s.buffer, 4096),
-            });
-            return;
+          if (input.afterSeq !== undefined) {
+            accumulatedAfterSeq += evt.data;
+            if (regex.test(evt.data) || regex.test(accumulatedAfterSeq)) {
+              cleanup();
+              resolve({
+                satisfied: true,
+                sessionGeneration: s.sessionGeneration,
+                lastSeq: evt.seq,
+                outputTail: safeSliceTail(s.buffer, 4096),
+              });
+              return;
+            }
+          } else {
+            if (regex.test(evt.data) || regex.test(s.buffer)) {
+              cleanup();
+              resolve({
+                satisfied: true,
+                sessionGeneration: s.sessionGeneration,
+                lastSeq: evt.seq,
+                outputTail: safeSliceTail(s.buffer, 4096),
+              });
+              return;
+            }
           }
         }
-
         if (input.condition === 'silence') {
           if (silenceTimer) clearTimeout(silenceTimer);
           silenceTimer = setTimeout(() => {
