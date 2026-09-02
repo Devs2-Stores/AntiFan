@@ -594,7 +594,7 @@ export class CapabilityTransportAdapter {
     if (isAbort || typed?.code === 'PROCESS_INTERRUPTED') {
       const ack = control.cancellationAck;
       const effectStage = control.effectStage;
-      if (ack === 'no-effect' || (isTransportAbort && effectStage === 'not-started')) {
+      if (ack === 'no-effect' || (isTransportAbort && effectStage === 'not-started') || (policy?.effect === 'read' && effectStage === 'not-started')) {
         return {
           state: 'interrupted',
           code: typed?.code || 'ABORTED',

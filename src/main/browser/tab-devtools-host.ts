@@ -573,7 +573,7 @@ export class TabDevToolsHost {
     return undefined;
   }
   // ─── DOM / Screenshot / Eval Utilities ───
-  public async captureScreenshot(rect?: Rectangle, tabId?: string, paneId?: SplitPaneId): Promise<string> {
+  public async captureScreenshot(rect?: Rectangle, tabId?: string, paneId?: SplitPaneId, options?: { format?: 'png' | 'jpeg'; quality?: number }): Promise<string> {
     const targetId = tabId || this.ctx.getActiveTabId();
     const target = this.ctx.getTabRecord(targetId);
     if (!target) return '';
@@ -587,6 +587,9 @@ export class TabDevToolsHost {
         target.view.setBounds({ x: 0, y: 0, width: mainBounds.width || 1200, height: mainBounds.height || 800 });
       }
     }
+    const format = options?.format === 'jpeg' ? 'jpeg' : 'png';
+    const quality = typeof options?.quality === 'number' ? Math.max(1, Math.min(100, Math.round(options.quality))) : 85;
+
     return this.ctx.withTabAgentWorking(targetId, async () => {
       const captureAction = async (): Promise<string> => {
         // Empirical Cascade Tier 1: Fast webContents.capturePage() with 500ms race
@@ -595,9 +598,16 @@ export class TabDevToolsHost {
           const timeoutPromise = new Promise<null>((r) => setTimeout(() => r(null), 500));
           const img = await Promise.race([capturePromise, timeoutPromise]);
           if (img && typeof img.isEmpty === 'function' && !img.isEmpty()) {
+            if (format === 'jpeg' && typeof img.toJPEG === 'function') {
+              return img.toJPEG(quality).toString('base64');
+            }
             return img.toPNG().toString('base64');
           }
           if (img && typeof img.toPNG === 'function') {
+            if (format === 'jpeg' && typeof img.toJPEG === 'function') {
+              const jpegBuf = img.toJPEG(quality);
+              if (jpegBuf.length > 0) return jpegBuf.toString('base64');
+            }
             const pngBuf = img.toPNG();
             if (pngBuf.length > 0) {
               return pngBuf.toString('base64');
@@ -609,7 +619,8 @@ export class TabDevToolsHost {
         try {
           await this.sendCdpCommand(wc, 'Page.enable');
           const cdpRes = await this.sendCdpCommand<{ data?: string }>(wc, 'Page.captureScreenshot', {
-            format: 'png',
+            format,
+            quality: format === 'jpeg' ? quality : undefined,
             fromSurface: false,
             captureBeyondViewport: true,
             clip: rect

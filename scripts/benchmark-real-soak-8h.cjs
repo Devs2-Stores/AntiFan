@@ -23,10 +23,10 @@ const req = createRequire(path.join(PROJECT_ROOT, 'package.json'));
 const electronBin = req('electron');
 const WebSocket = req('ws');
 
-const TOTAL_MINUTES = parseInt(process.env.SOAK_DURATION_MINUTES || '480', 10);
-const WARMUP_MINUTES = parseInt(process.env.SOAK_WARMUP_MINUTES || '30', 10);
-const RECOVERY_MINUTES = parseInt(process.env.SOAK_RECOVERY_MINUTES || '30', 10);
-const WORKLOAD_MINUTES = Math.max(1, TOTAL_MINUTES - WARMUP_MINUTES - RECOVERY_MINUTES);
+const TOTAL_MINUTES = parseFloat(process.env.SOAK_DURATION_MINUTES || '480');
+const WARMUP_MINUTES = parseFloat(process.env.SOAK_WARMUP_MINUTES || '30');
+const RECOVERY_MINUTES = parseFloat(process.env.SOAK_RECOVERY_MINUTES || '30');
+const WORKLOAD_MINUTES = Math.max(0.1, TOTAL_MINUTES - WARMUP_MINUTES - RECOVERY_MINUTES);
 
 const REPORTS_DIR = path.join(PROJECT_ROOT, 'plans', 'reports', 'runtime-verification');
 fs.mkdirSync(REPORTS_DIR, { recursive: true });
@@ -47,10 +47,10 @@ function quantiles(values) {
 }
 
 function calculateSlope(samples, key) {
-  if (samples.length < 2) return 0;
+  if (!samples || samples.length < 2) return null;
   const t0 = samples[0].at;
   const xs = samples.map((s) => (s.at - t0) / 60000);
-  const ys = samples.map((s) => s[key]);
+  const ys = samples.map((s) => Number(s[key] || 0));
   const mx = xs.reduce((a, b) => a + b, 0) / xs.length;
   const my = ys.reduce((a, b) => a + b, 0) / ys.length;
   let num = 0;
@@ -80,10 +80,11 @@ async function getWindowsProcessTable() {
       timeout: 15000,
     });
     const parsed = JSON.parse(raw.trim() || '[]');
-    return Array.isArray(parsed) ? parsed : [parsed];
+    const rows = Array.isArray(parsed) ? parsed : [parsed];
+    return { ok: true, rows };
   } catch (err) {
     console.warn('[soak] Failed to query process table:', err.message);
-    return [];
+    return { ok: false, rows: [], error: err.message };
   }
 }
 
@@ -121,7 +122,11 @@ function classifyProcess(row, rootPid) {
 }
 
 async function sampleMetrics(rootPid, label) {
-  const all = await getWindowsProcessTable();
+  const procResult = await getWindowsProcessTable();
+  if (!procResult.ok) {
+    throw new Error(`Process table query failed during sample (${label}): ${procResult.error}`);
+  }
+  const all = procResult.rows;
   const tree = collectProcessTree(all, rootPid);
   const byType = {};
   let totalMB = 0;
@@ -217,18 +222,22 @@ function buildReportPayload(meta) {
       switchLatencyMs: quantiles(switchLatencies.map((v) => Number(v.toFixed(3)))),
       activeWorkingSetMB: quantiles(totals),
       activeRendererWorkingSetMB: quantiles(rendererTotals),
-      overallActiveSlopeMBPerMin: Number(calculateSlope(activeSamples, 'totalWorkingSetMB').toFixed(4)),
-      rendererActiveSlopeMBPerMin: Number(
-        calculateSlope(
-          activeSamples.map((s) => ({ at: s.at, rMB: s.byType?.renderer?.workingSetMB || 0 })),
-          'rMB'
-        ).toFixed(4)
-      ),
+      overallActiveSlopeMBPerMin: calculateSlope(activeSamples, 'totalWorkingSetMB') !== null ? Number(calculateSlope(activeSamples, 'totalWorkingSetMB').toFixed(6)) : null,
+      overallActiveSlopeMBPerHour: calculateSlope(activeSamples, 'totalWorkingSetMB') !== null ? Number((calculateSlope(activeSamples, 'totalWorkingSetMB') * 60).toFixed(4)) : null,
+      rendererActiveSlopeMBPerMin: calculateSlope(activeSamples.map((s) => ({ at: s.at, rMB: s.byType?.renderer?.workingSetMB || 0 })), 'rMB') !== null
+        ? Number(calculateSlope(activeSamples.map((s) => ({ at: s.at, rMB: s.byType?.renderer?.workingSetMB || 0 })), 'rMB').toFixed(6))
+        : null,
+      rendererActiveSlopeMBPerHour: calculateSlope(activeSamples.map((s) => ({ at: s.at, rMB: s.byType?.renderer?.workingSetMB || 0 })), 'rMB') !== null
+        ? Number((calculateSlope(activeSamples.map((s) => ({ at: s.at, rMB: s.byType?.renderer?.workingSetMB || 0 })), 'rMB') * 60).toFixed(4))
+        : null,
       rolling60MinSlopes: calculateRollingSlopes(activeSamples, 60),
       initialLoadedMB: samples[0]?.totalWorkingSetMB || null,
       postWarmupMB: warmupSamples[warmupSamples.length - 1]?.totalWorkingSetMB || null,
       finalActiveMB: activeSamples[activeSamples.length - 1]?.totalWorkingSetMB || null,
       recoveredMB: recoverySamples[recoverySamples.length - 1]?.totalWorkingSetMB || null,
+      slopeSloSatisfied: calculateSlope(activeSamples, 'totalWorkingSetMB') !== null && (calculateSlope(activeSamples, 'totalWorkingSetMB') * 60) <= 0.05,
+      orphanSloSatisfied: (meta.processQuerySuccess === true) && (orphanPids || []).length === 0,
+      verdict: (calculateSlope(activeSamples, 'totalWorkingSetMB') !== null && (calculateSlope(activeSamples, 'totalWorkingSetMB') * 60) <= 0.05 && (meta.processQuerySuccess === true) && (orphanPids || []).length === 0 && !meta.executionError) ? 'PASSED' : 'FAILED',
     },
     orphanPids: orphanPids || [],
     samples,
@@ -257,7 +266,66 @@ async function main() {
 
   // 1. Start Local Fixture Server
   let requestCount = 0;
-  const fixtureServer = http.createServer((req_, res) => {
+  let fixturePort = null;
+  let fixtureServer = null;
+  let child = null;
+  let ws = null;
+  let tabIds = [];
+  let sessionId = null;
+  let isIntentionalTeardown = false;
+  let childExitedPrematurely = false;
+  let childExitCode = null;
+  let executionError = null;
+  let stdout = '';
+  let stderr = '';
+  const samples = [];
+  const switchLatencies = [];
+  const terminalEvents = [];
+  let switches = 0;
+  let bursts = 0;
+  let reloads = 0;
+  let seq = 0;
+  const pending = new Map();
+
+  const stateMeta = {
+    startedAt,
+    rootPid: null,
+    fixturePort: null,
+    tabIds,
+    terminalEvents,
+    samples,
+    switchLatencies,
+    requestCount: 0,
+    switches: 0,
+    bursts: 0,
+    reloads: 0,
+    stdout: '',
+    stderr: '',
+  };
+
+  const rpc = (method, params = {}) => new Promise((resolve, reject) => {
+    if (!ws || ws.readyState !== WebSocket.OPEN) {
+      return reject(new Error('WebSocket is not open'));
+    }
+    const id = `soak-${seq++}`;
+    const timer = setTimeout(() => {
+      pending.delete(id);
+      reject(new Error(`RPC timeout for ${method}`));
+    }, 30000);
+    pending.set(id, {
+      resolve: (data) => { clearTimeout(timer); resolve(data); },
+      reject: (err) => { clearTimeout(timer); reject(err); },
+    });
+    try {
+      ws.send(JSON.stringify({ id, method, params }));
+    } catch (err) {
+      clearTimeout(timer);
+      pending.delete(id);
+      reject(err);
+    }
+  });
+
+  fixtureServer = http.createServer((req_, res) => {
     requestCount++;
     res.writeHead(200, {
       'content-type': 'text/html; charset=utf-8',
@@ -300,151 +368,108 @@ async function main() {
     fixtureServer.once('error', reject);
     fixtureServer.listen(0, '127.0.0.1', resolve);
   });
-  const fixturePort = fixtureServer.address().port;
+  fixturePort = fixtureServer.address().port;
+  stateMeta.fixturePort = fixturePort;
   console.log(`[soak] Fixture server running at http://127.0.0.1:${fixturePort}`);
 
-  // 2. Launch Production Electron Runtime
-  const env = {
-    ...process.env,
-    ANTIFAN_BENCHMARK: '1',
-    ANTIFAN_DATA_ROOT: soakDataDir,
-    ANTIFAN_USER_DATA: path.join(soakDataDir, 'Profile'),
-    ANTIFAN_CONFIG_DIR: configDir,
-    NODE_ENV: 'production',
-  };
-  delete env.ELECTRON_RUN_AS_NODE;
+  try {
+    // 2. Launch Production Electron Runtime
+    const env = {
+      ...process.env,
+      ANTIFAN_BENCHMARK: '1',
+      ANTIFAN_DATA_ROOT: soakDataDir,
+      ANTIFAN_USER_DATA: path.join(soakDataDir, 'Profile'),
+      ANTIFAN_CONFIG_DIR: configDir,
+      NODE_ENV: 'production',
+    };
+    delete env.ELECTRON_RUN_AS_NODE;
 
-  console.log('[soak] Launching Electron app...');
-  const child = spawn(electronBin, [PROJECT_ROOT, '--production'], {
-    cwd: PROJECT_ROOT,
-    env,
-    stdio: ['ignore', 'pipe', 'pipe'],
-  });
-
-  let stdout = '';
-  let stderr = '';
-  let childExited = false;
-  let childExitCode = null;
-  child.stdout.setEncoding('utf8');
-  child.stderr.setEncoding('utf8');
-  child.stdout.on('data', (d) => { stdout = (stdout + d).slice(-300000); });
-  child.stderr.on('data', (d) => { stderr = (stderr + d).slice(-300000); });
-  child.on('exit', (code, signal) => {
-    childExited = true;
-    childExitCode = typeof code === 'number' ? code : (signal ? 1 : 0);
-    console.error(`[soak] Electron child process exited unexpectedly with code ${code}, signal ${signal}`);
-  });
-  child.on('error', (err) => {
-    childExited = true;
-    console.error('[soak] Electron child process error:', err.message);
-  });
-  const bridgePath = path.join(configDir, 'bridge.json');
-  let bridge = null;
-  for (let i = 0; i < 240; i++) {
-    if (fs.existsSync(bridgePath)) {
-      try {
-        bridge = JSON.parse(fs.readFileSync(bridgePath, 'utf8'));
-        if (bridge.port && bridge.token) break;
-      } catch {}
-    }
-    await sleep(250);
-  }
-  if (!bridge) throw new Error('Bridge server failed to initialize.');
-
-  console.log(`[soak] Bridge server connected on port ${bridge.port}`);
-  const ws = new WebSocket(`ws://127.0.0.1:${bridge.port}`, {
-    headers: { authorization: `Bearer ${bridge.token}` },
-  });
-  await new Promise((resolve, reject) => {
-    ws.once('open', resolve);
-    ws.once('error', reject);
-  });
-
-  let seq = 0;
-  const pending = new Map();
-  const terminalEvents = [];
-
-  ws.on('message', (raw) => {
-    let msg;
-    try { msg = JSON.parse(String(raw)); } catch { return; }
-    if (msg.event === 'antifan:terminal:data') terminalEvents.push(msg.data);
-    if (msg.id && pending.has(msg.id)) {
-      const p = pending.get(msg.id);
-      pending.delete(msg.id);
-      if (msg.success === false) {
-        p.reject(new Error(msg.error || 'RPC failed'));
-      } else {
-        p.resolve(msg.data);
-      }
-    }
-  });
-
-  const rpc = (method, params = {}) => new Promise((resolve, reject) => {
-    const id = `soak-${seq++}`;
-    const timer = setTimeout(() => {
-      pending.delete(id);
-      reject(new Error(`RPC timeout for ${method}`));
-    }, 30000);
-    pending.set(id, {
-      resolve: (data) => { clearTimeout(timer); resolve(data); },
-      reject: (err) => { clearTimeout(timer); reject(err); },
+    console.log('[soak] Launching Electron app...');
+    child = spawn(electronBin, [PROJECT_ROOT, '--production'], {
+      cwd: PROJECT_ROOT,
+      env,
+      stdio: ['ignore', 'pipe', 'pipe'],
     });
-    try {
-      ws.send(JSON.stringify({ id, method, params }));
-    } catch (err) {
-      clearTimeout(timer);
-      pending.delete(id);
-      reject(err);
+    stateMeta.rootPid = child.pid;
+
+    child.stdout.setEncoding('utf8');
+    child.stderr.setEncoding('utf8');
+    child.stdout.on('data', (d) => { stdout = (stdout + d).slice(-300000); });
+    child.stderr.on('data', (d) => { stderr = (stderr + d).slice(-300000); });
+    child.on('exit', (code, signal) => {
+      if (!isIntentionalTeardown) {
+        childExitedPrematurely = true;
+        childExitCode = typeof code === 'number' ? code : (signal ? 1 : 0);
+        console.error(`[soak] Electron child process exited unexpectedly with code ${code}, signal ${signal}`);
+      }
+    });
+    child.on('error', (err) => {
+      if (!isIntentionalTeardown) {
+        childExitedPrematurely = true;
+        console.error('[soak] Electron child process error:', err.message);
+      }
+    });
+    const bridgePath = path.join(configDir, 'bridge.json');
+    let bridge = null;
+    for (let i = 0; i < 240; i++) {
+      if (fs.existsSync(bridgePath)) {
+        try {
+          bridge = JSON.parse(fs.readFileSync(bridgePath, 'utf8'));
+          if (bridge.port && bridge.token) break;
+        } catch {}
+      }
+      await sleep(250);
     }
-  });
+    if (!bridge) throw new Error('Bridge server failed to initialize.');
 
-  // 4. Setup tabs and terminal
-  const tabUrls = [
-    `http://127.0.0.1:${fixturePort}/store-home`,
-    `http://127.0.0.1:${fixturePort}/collection-featured`,
-    `http://127.0.0.1:${fixturePort}/product-test-1`,
-    `http://127.0.0.1:${fixturePort}/product-test-2`,
-    'https://example.com',
-    'https://www.wikipedia.org',
-  ];
-  const tabIds = [];
-  console.log(`[soak] Opening ${tabUrls.length} tabs...`);
-  for (const url of tabUrls) {
-    try {
-      const res = await rpc('antifan.openTab', { url });
-      if (res && res.tabId) tabIds.push(res.tabId);
-    } catch (err) {
-      console.warn(`[soak] Failed to open tab ${url}:`, err.message);
+    console.log(`[soak] Bridge server connected on port ${bridge.port}`);
+    ws = new WebSocket(`ws://127.0.0.1:${bridge.port}`, {
+      headers: { authorization: `Bearer ${bridge.token}` },
+    });
+    await new Promise((resolve, reject) => {
+      ws.once('open', resolve);
+      ws.once('error', reject);
+    });
+
+    ws.on('message', (raw) => {
+      let msg;
+      try { msg = JSON.parse(String(raw)); } catch { return; }
+      if (msg.event === 'antifan:terminal:data') terminalEvents.push(msg.data);
+      if (msg.id && pending.has(msg.id)) {
+        const p = pending.get(msg.id);
+        pending.delete(msg.id);
+        if (msg.success === false) {
+          p.reject(new Error(msg.error || 'RPC failed'));
+        } else {
+          p.resolve(msg.data);
+        }
+      }
+    });
+
+    // 4. Setup tabs and terminal
+    const tabUrls = [
+      `http://127.0.0.1:${fixturePort}/store-home`,
+      `http://127.0.0.1:${fixturePort}/collection-featured`,
+      `http://127.0.0.1:${fixturePort}/product-test-1`,
+      `http://127.0.0.1:${fixturePort}/product-test-2`,
+      'https://example.com',
+      'https://www.wikipedia.org',
+    ];
+    console.log(`[soak] Opening ${tabUrls.length} tabs...`);
+    for (const url of tabUrls) {
+      try {
+        const res = await rpc('antifan.openTab', { url });
+        if (res && res.tabId) tabIds.push(res.tabId);
+      } catch (err) {
+        console.warn(`[soak] Failed to open tab ${url}:`, err.message);
+      }
+      await sleep(200);
     }
-    await sleep(200);
-  }
 
-  console.log('[soak] Spawning terminal session...');
-  const termRes = await rpc('antifan.terminalNewSession', {});
-  const sessionId = termRes?.sessionId;
-  if (!sessionId) throw new Error('Failed to create terminal session.');
-
-  const samples = [];
-  const switchLatencies = [];
-  let switches = 0;
-  let bursts = 0;
-  let reloads = 0;
-
-  const stateMeta = {
-    startedAt,
-    rootPid: child.pid,
-    fixturePort,
-    tabIds,
-    terminalEvents,
-    samples,
-    switchLatencies,
-    requestCount: 0,
-    switches: 0,
-    bursts: 0,
-    reloads: 0,
-    stdout: '',
-    stderr: '',
-  };
+    console.log('[soak] Spawning terminal session...');
+    const termRes = await rpc('antifan.terminalNewSession', {});
+    sessionId = termRes?.sessionId;
+    if (!sessionId) throw new Error('Failed to create terminal session.');
 
   const saveCheckpoint = () => {
     stateMeta.requestCount = requestCount;
@@ -488,7 +513,7 @@ async function main() {
   let lastCheckpointTime = startTime;
 
   while (Date.now() < totalEndTime) {
-    if (childExited) {
+    if (childExitedPrematurely) {
       console.error(`[soak] Aborting soak loop early due to child process exit (code: ${childExitCode})`);
       stateMeta.finishedAt = new Date().toISOString();
       stateMeta.status = 'failed';
@@ -537,12 +562,8 @@ async function main() {
 
     // 4. Sample Metrics (every 10 seconds)
     if (now >= nextSampleTime) {
-      try {
-        const s = await sampleMetrics(child.pid, currentPhase);
-        samples.push(s);
-      } catch (err) {
-        console.warn('[soak] Sample failed:', err.message);
-      }
+      const s = await sampleMetrics(child.pid, currentPhase);
+      samples.push(s);
       nextSampleTime = now + 10000;
     }
 
@@ -554,62 +575,105 @@ async function main() {
 
     await sleep(100);
   }
+  } catch (err) {
+    executionError = err;
+    console.error('[soak] Error during soak workload:', err.message);
+  } finally {
+    console.log('[soak] Soak workload phase concluded. Running guaranteed resource teardown...');
+    isIntentionalTeardown = true;
 
-  console.log('[soak] Soak duration complete. Cleaning up resources...');
+    if (ws && tabIds.length > 0) {
+      for (const id of tabIds) {
+        try { await rpc('antifan.closeTab', { tabId: id }); } catch {}
+      }
+    }
+    if (ws && sessionId) {
+      try { await rpc('antifan.terminalCloseSession', { sessionId }); } catch {}
+    }
 
-  // Close tabs and terminal
-  for (const id of tabIds) {
-    try { await rpc('antifan.closeTab', { tabId: id }); } catch {}
-  }
-  try { await rpc('antifan.terminalCloseSession', { sessionId }); } catch {}
+    if (child && child.pid && !executionError) {
+      try {
+        console.log('[soak] Measuring final recovery state...');
+        await sleep(10000);
+        samples.push(await sampleMetrics(child.pid, 'recovery'));
+      } catch (recErr) {
+        console.error('[soak] Recovery state sampling failed:', recErr.message);
+        executionError = recErr;
+      }
+    }
+    const pidsBeforeKill = [...new Set(samples.flatMap((s) => s.pids))];
+    if (ws) {
+      try { ws.close(); } catch {}
+    }
+    if (child && child.pid) {
+      try {
+        await execFilePromise('taskkill', ['/PID', String(child.pid), '/T', '/F'], {
+          windowsHide: true,
+          timeout: 10000,
+        });
+      } catch {}
+    }
 
-  console.log('[soak] Measuring final recovery state...');
-  await sleep(15000);
-  samples.push(await sampleMetrics(child.pid, 'recovery'));
+    if (fixtureServer) {
+      try { fixtureServer.close(); } catch {}
+    }
 
-  const pidsBeforeKill = [...new Set(samples.flatMap((s) => s.pids))];
-  try { ws.close(); } catch {}
-  try {
-    await execFilePromise('taskkill', ['/PID', String(child.pid), '/T', '/F'], {
-      windowsHide: true,
-      timeout: 10000,
+    await sleep(3000);
+    const postShutdownResult = await getWindowsProcessTable();
+    const processQuerySuccess = postShutdownResult.ok;
+    const afterProcesses = postShutdownResult.rows;
+    const alivePidSet = new Set(afterProcesses.map((p) => Number(p.ProcessId)));
+    const orphanPids = pidsBeforeKill.filter((pid) => alivePidSet.has(pid));
+
+    // Save final report
+    stateMeta.finishedAt = new Date().toISOString();
+    stateMeta.orphanPids = orphanPids;
+    stateMeta.processQuerySuccess = processQuerySuccess;
+    stateMeta.requestCount = requestCount;
+    stateMeta.switches = switches;
+    stateMeta.bursts = bursts;
+    stateMeta.reloads = reloads;
+    stateMeta.stdout = stdout;
+    stateMeta.stderr = stderr;
+    if (executionError) {
+      stateMeta.error = executionError.message;
+    }
+
+    const preliminaryPayload = buildReportPayload({ ...stateMeta, status: 'completed' });
+    const overallSlopePerHour = preliminaryPayload.metrics.overallActiveSlopeMBPerHour;
+    const hasValidSlope = overallSlopePerHour !== null;
+    const isPassed = !executionError && hasValidSlope && overallSlopePerHour <= 0.05 && processQuerySuccess === true && orphanPids.length === 0 && !childExitedPrematurely;
+    const finalStatus = isPassed ? 'completed' : 'failed';
+    const finalPayload = buildReportPayload({
+      ...stateMeta,
+      status: finalStatus,
+      executionError: executionError ? executionError.message : (childExitedPrematurely ? 'child_exited_prematurely' : undefined),
     });
-  } catch {}
+    fs.writeFileSync(FINAL_REPORT_PATH, JSON.stringify(finalPayload, null, 2), 'utf8');
+    console.log(`[soak] Final report saved to ${FINAL_REPORT_PATH}`);
 
-  await sleep(3000);
-  const afterProcesses = await getWindowsProcessTable();
-  const alivePidSet = new Set(afterProcesses.map((p) => Number(p.ProcessId)));
-  const orphanPids = pidsBeforeKill.filter((pid) => alivePidSet.has(pid));
+    console.log('========================================================================');
+    console.log(`  AntiFan 8-Hour Soak Verdict: ${isPassed ? 'PASSED' : 'FAILED'}`);
+    if (executionError) {
+      console.error(`  Execution Error: ${executionError.message}`);
+    }
+    console.log(`  Initial Loaded: ${finalPayload.metrics.initialLoadedMB} MB`);
+    console.log(`  Post-Warmup: ${finalPayload.metrics.postWarmupMB} MB`);
+    console.log(`  Final Active p50: ${finalPayload.metrics.activeWorkingSetMB.p50} MB`);
+    console.log(`  Recovered: ${finalPayload.metrics.recoveredMB} MB`);
+    console.log(`  Overall Slope: ${finalPayload.metrics.overallActiveSlopeMBPerMin} MB/min (${overallSlopePerHour !== null ? overallSlopePerHour + ' MB/hour' : 'N/A'}, SLO <= 0.05 MB/h)`);
+    console.log(`  Renderer Slope: ${finalPayload.metrics.rendererActiveSlopeMBPerMin} MB/min`);
+    console.log(`  Orphan Processes: ${orphanPids.length} (Query OK: ${processQuerySuccess}, SLO = 0)`);
+    console.log('========================================================================');
 
-  fixtureServer.close();
-
-  // Save final report
-  stateMeta.finishedAt = new Date().toISOString();
-  stateMeta.orphanPids = orphanPids;
-  stateMeta.requestCount = requestCount;
-  stateMeta.switches = switches;
-  stateMeta.bursts = bursts;
-  stateMeta.reloads = reloads;
-  stateMeta.stdout = stdout;
-  stateMeta.stderr = stderr;
-
-  const finalPayload = buildReportPayload({ ...stateMeta, status: 'completed' });
-  fs.writeFileSync(FINAL_REPORT_PATH, JSON.stringify(finalPayload, null, 2), 'utf8');
-  console.log(`[soak] Final report saved to ${FINAL_REPORT_PATH}`);
-
-  console.log('========================================================================');
-  console.log('  AntiFan 8-Hour Soak Completed Successfully');
-  console.log(`  Initial Loaded: ${finalPayload.metrics.initialLoadedMB} MB`);
-  console.log(`  Post-Warmup: ${finalPayload.metrics.postWarmupMB} MB`);
-  console.log(`  Final Active p50: ${finalPayload.metrics.activeWorkingSetMB.p50} MB`);
-  console.log(`  Recovered: ${finalPayload.metrics.recoveredMB} MB`);
-  console.log(`  Overall Slope: ${finalPayload.metrics.overallActiveSlopeMBPerMin} MB/min`);
-  console.log(`  Renderer Slope: ${finalPayload.metrics.rendererActiveSlopeMBPerMin} MB/min`);
-  console.log(`  Orphan Processes: ${orphanPids.length}`);
-  console.log('========================================================================');
+    if (!isPassed) {
+      console.error(`[soak] FAILED: SLO violations, telemetry failure, or execution error detected (error: ${executionError ? executionError.message : 'none'}, validSlope: ${hasValidSlope}, slope <= 0.05: ${overallSlopePerHour !== null && overallSlopePerHour <= 0.05}, processQueryOK: ${processQuerySuccess}, orphan == 0: ${orphanPids.length === 0})`);
+      process.exitCode = 1;
+    }
+  }
 }
 
 main().catch((err) => {
   console.error('[soak] Fatal error:', err);
-  process.exit(1);
+  process.exitCode = 1;
 });

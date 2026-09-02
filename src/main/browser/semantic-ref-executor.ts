@@ -546,16 +546,19 @@ export function buildIsolatedExecutorScript(request: RendererActionRequest): str
     }
   })()`;
 }
-export function buildIsolatedCollectorScript(nonce: string, expectedUrl: string, rootSelector?: string): string {
+export function buildIsolatedCollectorScript(nonce: string, expectedUrl: string, rootSelector?: string, viewportOnly?: boolean): string {
   const nonceJson = JSON.stringify(nonce);
   const expectedUrlJson = JSON.stringify(expectedUrl);
   const rootSelectorJson = JSON.stringify(rootSelector || '');
+  const isVpOnly = viewportOnly === true;
 
   return `(() => {
     try {
       const expectedNonce = ${nonceJson};
       const expectedDocUrl = ${expectedUrlJson};
       const targetRootSelector = ${rootSelectorJson};
+      const isViewportOnly = ${isVpOnly ? 'true' : 'false'};
+      const vpHeight = window.innerHeight || 900;
 
       if (window.location.href !== expectedDocUrl) {
         return {
@@ -692,6 +695,12 @@ export function buildIsolatedCollectorScript(nonce: string, expectedUrl: string,
               const style = window.getComputedStyle ? window.getComputedStyle(child) : null;
               if (style && (style.display === 'none' || style.visibility === 'hidden' || parseFloat(style.opacity || '1') <= 0)) {
                 continue;
+              }
+              const isStickyOrFixed = style && (style.position === 'fixed' || style.position === 'sticky');
+              if (isViewportOnly && !isStickyOrFixed && !targetRootSelector) {
+                if (rect.bottom < -200 || rect.top > vpHeight * 1.5) {
+                  continue;
+                }
               }
               const globalRect = {
                 x: rect.x + frameOffsetX,

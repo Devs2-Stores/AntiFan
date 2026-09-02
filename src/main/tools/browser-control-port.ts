@@ -10,7 +10,7 @@ export interface BrowserHostPort {
   navigate(tabId: string, url: string): Promise<boolean> | boolean;
   reload(tabId: string): Promise<boolean> | boolean;
   getDom(selector?: string, tabId?: string, paneId?: 'desktop' | 'mobile'): Promise<string>;
-  captureScreenshot(rect?: unknown, tabId?: string, paneId?: 'desktop' | 'mobile'): Promise<string>;
+  captureScreenshot(rect?: unknown, tabId?: string, paneId?: 'desktop' | 'mobile', options?: { format?: 'png' | 'jpeg'; quality?: number }): Promise<string>;
   evalJs(expression: string, tabId?: string, paneId?: 'desktop' | 'mobile'): Promise<unknown>;
   getDiagnostics?(tabId?: string, level?: number | string): { console: unknown[]; failures: unknown[] };
   runResponsiveCheck?(tabId: string): Promise<Record<string, unknown>>;
@@ -22,7 +22,7 @@ export interface BrowserHostPort {
   agentHover?(params: { selector?: string; ref?: string; x?: number; y?: number; label?: string; tabId?: string; paneId?: 'desktop' | 'mobile' }): Promise<boolean>;
   agentHighlight?(params: { selector?: string; ref?: string; label?: string; tabId?: string; paneId?: 'desktop' | 'mobile' }): Promise<boolean>;
   agentClear?(tabId?: string, paneId?: 'desktop' | 'mobile'): Promise<boolean>;
-  agentSnapshot?(tabId?: string, paneId?: 'desktop' | 'mobile'): Promise<string>;
+  agentSnapshot?(tabId?: string, paneId?: 'desktop' | 'mobile', selector?: string, viewportOnly?: boolean): Promise<string>;
   agentFind?(params: { text?: string; regex?: string; tabId?: string; paneId?: 'desktop' | 'mobile'; maxMatches?: number }): Promise<unknown>;
   sendKeyboardPress?(params: { key: string; modifiers?: string[]; tabId?: string }): Promise<{ success: boolean; key: string; modifiers: string[] }>;
   setViewportSize?(options: { width: number; height: number; mobile?: boolean; deviceScaleFactor?: number; tabId?: string }): boolean;
@@ -35,6 +35,7 @@ export interface BrowserHostPort {
   getDocumentGeneration?(tabId?: string): number;
   uploadFileInput?(params: { refOrSelector: string; filePaths: string[]; tabId?: string; paneId?: 'desktop' | 'mobile' }): Promise<{ success: boolean; uploadedCount: number; reason?: string }>;
   dropFiles?(params: { refOrSelector: string; filePaths: string[]; tabId?: string; paneId?: 'desktop' | 'mobile' }): Promise<{ success: boolean; droppedCount: number; reason?: string }>;
+  executeActionSequence?(params: { actions: unknown[]; tabId?: string; paneId?: 'desktop' | 'mobile'; stopOnError?: boolean }): Promise<unknown>;
   inspectStyles?(params: { selector?: string; ref?: string; properties?: string[]; tabId?: string; paneId?: 'desktop' | 'mobile' }): Promise<Record<string, unknown>>;
   inspectRegion?(params: { x?: number; y?: number; width?: number; height?: number; selector?: string; ref?: string; tabId?: string; paneId?: 'desktop' | 'mobile' }): Promise<Record<string, unknown>>;
   getNetworkTracker?(): { isAttached: (tabId: string, paneId?: string) => boolean; awaitQuiescence: (tabId: string, paneId?: string, options?: unknown, signal?: AbortSignal) => Promise<{ settled: boolean; durationMs: number; timedOut: boolean }> };
@@ -501,12 +502,14 @@ export class BrowserControlPort {
     });
   }
 
-  async screenshot(target: BrowserTarget, runId: string, attemptId: string, explicitTabId?: string, paneId?: 'desktop' | 'mobile'): Promise<ArtifactRef | string> {
+  async screenshot(target: BrowserTarget, runId: string, attemptId: string, explicitTabId?: string, paneId?: 'desktop' | 'mobile', options?: { format?: 'png' | 'jpeg'; quality?: number }): Promise<ArtifactRef | string> {
     const tabId = this.resolveTargetTab(target, explicitTabId);
     return this.passivePool.execute(tabId, async () => {
-      const base64 = await this.host.captureScreenshot(undefined, tabId, paneId);
+      const format = options?.format === 'jpeg' ? 'jpeg' : 'png';
+      const mime = format === 'jpeg' ? 'image/jpeg' : 'image/png';
+      const base64 = await this.host.captureScreenshot(undefined, tabId, paneId, options);
       const buffer = Buffer.from(base64, 'base64');
-      return this.artifacts ? await this.artifacts.stage({ kind: 'screenshot', mime: 'image/png', data: buffer, runId, attemptId, projectId: target.projectId, workspaceId: target.workspaceId, maxBytes: 8 * 1024 * 1024 }) : limit(base64, 8 * 1024 * 1024);
+      return this.artifacts ? await this.artifacts.stage({ kind: 'screenshot', mime, data: buffer, runId, attemptId, projectId: target.projectId, workspaceId: target.workspaceId, maxBytes: 8 * 1024 * 1024 }) : limit(base64, 8 * 1024 * 1024);
     });
   }
   async eval(target: BrowserTarget, expression: string, explicitTabId?: string, paneId?: 'desktop' | 'mobile'): Promise<unknown> {
@@ -797,17 +800,30 @@ export class BrowserControlPort {
     return { cleared: await this.host.agentClear(effectiveTabId, paneId) };
   }
 
-  async agentSnapshot(options?: { tabId?: string; paneId?: 'desktop' | 'mobile' } | string, target?: BrowserTarget): Promise<{ snapshot: string }> {
+  async agentSnapshot(options?: { tabId?: string; paneId?: 'desktop' | 'mobile'; selector?: string; viewportOnly?: boolean } | string, target?: BrowserTarget): Promise<{ snapshot: string }> {
     if (!this.host.agentSnapshot) throw new CapabilityError('CAPABILITY_NOT_FOUND', 'agentSnapshot is not supported by host');
     const tabId = typeof options === 'string' ? options : options?.tabId;
     const paneId = typeof options === 'object' ? options?.paneId : undefined;
+    const selector = typeof options === 'object' ? options?.selector : undefined;
+    const viewportOnly = typeof options === 'object' ? options?.viewportOnly : undefined;
     const effectiveTabId = this.resolveTargetTab(target, tabId);
-    return { snapshot: await this.host.agentSnapshot(effectiveTabId, paneId) };
+    return { snapshot: await this.host.agentSnapshot(effectiveTabId, paneId, selector, viewportOnly) };
   }
   async agentFind(params: { text?: string; regex?: string; tabId?: string; paneId?: 'desktop' | 'mobile'; maxMatches?: number }, target?: BrowserTarget): Promise<unknown> {
     if (!this.host.agentFind) throw new CapabilityError('CAPABILITY_NOT_FOUND', 'agentFind is not supported by host');
     const effectiveTabId = this.resolveTargetTab(target, params.tabId);
     return await this.host.agentFind({ ...params, tabId: effectiveTabId });
+  }
+  async sequence(args: { actions: Array<Record<string, unknown>>; tabId?: string; paneId?: 'desktop' | 'mobile'; stopOnError?: boolean }, target?: BrowserTarget): Promise<unknown> {
+    if (!this.host.executeActionSequence) throw new CapabilityError('CAPABILITY_NOT_FOUND', 'executeActionSequence is not supported by host');
+    if (!args || !Array.isArray(args.actions) || args.actions.length === 0) {
+      throw new CapabilityError('INVALID_ARGUMENT', 'actions must be a non-empty array');
+    }
+    const effectiveTabId = this.resolveTargetTab(target, args.tabId, 'write');
+    return this.viewportGate.withLock(async () => {
+      this.revalidateTargetInsideLock(target, effectiveTabId);
+      return await this.host.executeActionSequence!({ ...args, tabId: effectiveTabId });
+    }, { tabId: effectiveTabId });
   }
 
 

@@ -41,6 +41,7 @@ import type { BrowserTarget } from '../../shared/control-plane-contracts';
 import type { WorkflowDefinition } from '../workflow/workflow-schema';
 import { ChromeProfileSyncManager } from './chrome-profile-sync';
 import { HaravanUploader } from './haravan-uploader';
+import type { ActionSequenceParams, ActionSequenceResult } from './tab-automation-host';
 import { TerminalManager } from './terminal-manager';
 import { checkForUpdatesAndRestart } from './app-menu';
 import { SkillScanner } from './skill-scanner';
@@ -341,6 +342,8 @@ export class NativeTabHost extends EventEmitter {
         tabDevToolsHost: this.getDevToolsHost(),
         resolveTargetWorkspace: (targetSessionId, tabUrl) => this.resolveTabStrictWorkspace(targetSessionId, tabUrl),
         getTabTerminalSession: (tabId) => this.getTabTerminalSession(tabId),
+        sendKeyboardPress: (params) => this.sendKeyboardPress(params),
+        navigateAndWait: (tabId, inputUrl, timeoutMs) => this.navigateAndWait(tabId, inputUrl, timeoutMs),
       });
     }
     return this.automationHost;
@@ -3801,8 +3804,8 @@ export class NativeTabHost extends EventEmitter {
     this.getDevToolsHost().stopFindInPage();
   }
 
-  public async captureScreenshot(rect?: Rectangle, tabId?: string, paneId?: SplitPaneId): Promise<string> {
-    return this.getDevToolsHost().captureScreenshot(rect, tabId, paneId);
+  public async captureScreenshot(rect?: Rectangle, tabId?: string, paneId?: SplitPaneId, options?: { format?: 'png' | 'jpeg'; quality?: number }): Promise<string> {
+    return this.getDevToolsHost().captureScreenshot(rect, tabId, paneId, options);
   }
 
   public async getDom(selector?: string, tabId?: string, paneId?: SplitPaneId): Promise<string> {
@@ -3819,6 +3822,9 @@ export class NativeTabHost extends EventEmitter {
 
   public async dropFiles(params: { refOrSelector: string; filePaths: string[]; tabId?: string; paneId?: SplitPaneId }): Promise<{ success: boolean; droppedCount: number; reason?: string }> {
     return this.getAutomationHost().dropFiles(params.refOrSelector, params.filePaths, params.tabId, params.paneId);
+  }
+  public async executeActionSequence(params: ActionSequenceParams): Promise<ActionSequenceResult> {
+    return this.getAutomationHost().executeActionSequence(params);
   }
 
   private getTabsStoragePath(): string {
@@ -4212,8 +4218,8 @@ export class NativeTabHost extends EventEmitter {
     return this.getAutomationHost().agentClear(tabId, paneId);
   }
 
-  public async agentSnapshot(tabId?: string, paneId?: SplitPaneId): Promise<string> {
-    return this.getAutomationHost().agentSnapshot(tabId, paneId);
+  public async agentSnapshot(tabId?: string, paneId?: SplitPaneId, selector?: string, viewportOnly?: boolean): Promise<string> {
+    return this.getAutomationHost().agentSnapshot(tabId, paneId, selector, viewportOnly);
   }
   public async agentFind(params: { text?: string; regex?: string; tabId?: string; paneId?: SplitPaneId; maxMatches?: number }): Promise<unknown> {
     return this.getAutomationHost().agentFind(params);

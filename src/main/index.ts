@@ -40,6 +40,7 @@ import { CapabilityTransportAdapter } from './tools/capability-transport';
 import { validateControlPlaneId } from '../shared/control-plane-contracts';
 import { preparePersistentProfile, ProfileMigrationError, ProfileOwnership, ProfileOwnershipError, type PersistentProfileResult, type ProfileLease } from './browser/profile-ownership';
 import { recordBenchmark, startEventLoopDelayMonitor, isBenchmarkEnabled } from './benchmark/telemetry';
+import type { ActionSequenceParams } from './browser/tab-automation-host';
 
 process.on('uncaughtException', (err) => {
   console.error('[antifan uncaughtException]', err);
@@ -251,6 +252,7 @@ async function createWindow(): Promise<void> {
     getDocumentGeneration: (tabId) => tabHost!.getDocumentGeneration(tabId),
     uploadFileInput: (params) => tabHost!.uploadFileInput(params),
     dropFiles: (params) => tabHost!.dropFiles(params),
+    executeActionSequence: (params) => tabHost!.executeActionSequence(params as ActionSequenceParams),
   }, controlPlane.artifacts);
   tabHost.setViewportGate(browserPort.viewportGate);
   controlPlane.registerBrowser(browserPort);

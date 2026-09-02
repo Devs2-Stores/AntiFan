@@ -1090,4 +1090,94 @@ describe('Phase 5: Playwright Parity Kernel & Gap Telemetry Verification', () =>
     assert.ok(ompScript.includes("['anti.agent.cursor.type'"), 'Must declare anti.agent.cursor.type');
     assert.ok(ompScript.includes("ref: { type: 'string' }"), 'Cursor tools must include ref: { type: "string" }');
   });
+
+  it('20. anti.agent.sequence executes multi-step action sequence with navigation guard', async () => {
+    const { catalogue, target, ctx } = createParityHarness();
+
+    assert.ok(catalogue.get('browser.agent-sequence'), 'browser.agent-sequence must be registered');
+    assert.ok(catalogue.get('anti.agent.sequence'), 'anti.agent.sequence must be registered');
+    assert.ok(catalogue.get('antifan_agent_sequence'), 'antifan_agent_sequence must be registered');
+
+    let executedActions: any[] = [];
+    const fakeHostWithSeq = {
+      getTabList: () => [{ id: 'tab-seq-1', url: 'https://example.com' }],
+      getDocumentGeneration: () => 1,
+      executeActionSequence: async (params: any) => {
+        executedActions = params.actions;
+        return {
+          success: true,
+          executedCount: params.actions.length,
+          totalCount: params.actions.length,
+          results: params.actions.map((a: any, i: number) => ({ actionIndex: i, type: a.type, success: true })),
+        };
+      },
+    };
+
+    const { BrowserControlPort } = require('../../src/main/tools/browser-control-port');
+    const portWithSeq = new BrowserControlPort(fakeHostWithSeq);
+    const targetSeq = {
+      projectId: 'proj-1',
+      workspaceId: 'ws-1',
+      runtimeId: 'rt-1',
+      tabId: 'tab-seq-1',
+      browserEpoch: 1,
+      documentGeneration: 1,
+    };
+
+    const res = (await portWithSeq.sequence({
+      actions: [
+        { type: 'navigate', url: 'https://example.com/search?q=ram' },
+        { type: 'type', text: 'RTX 4090', ref: '@e1' },
+        { type: 'click', ref: '@e2', settleMs: 50 },
+        { type: 'wait', waitMs: 100 },
+        { type: 'screenshot', format: 'jpeg', quality: 80 },
+      ],
+      tabId: 'tab-seq-1',
+    }, targetSeq)) as Record<string, unknown>;
+
+    assert.strictEqual(res.success, true);
+    assert.strictEqual(res.executedCount, 5);
+    assert.strictEqual(executedActions.length, 5);
+    assert.strictEqual(executedActions[0].type, 'navigate');
+    assert.strictEqual(executedActions[0].url, 'https://example.com/search?q=ram');
+    assert.strictEqual(executedActions[1].text, 'RTX 4090');
+    assert.strictEqual(executedActions[4].format, 'jpeg');
+  });
+
+  it('21. anti.screenshot.viewport and BrowserControlPort support JPEG format and quality', async () => {
+    const sampleJpegBase64 = Buffer.from('fake-jpeg-binary-data').toString('base64');
+    let capturedOptions: any = null;
+    const fakeHost = {
+      getTabList: () => [{ id: 'tab-1', url: 'https://example.com' }],
+      captureScreenshot: async (_rect: any, _tabId: any, _paneId: any, options: any) => {
+        capturedOptions = options;
+        return sampleJpegBase64;
+      },
+      getDocumentGeneration: () => 1,
+    };
+
+    const { BrowserControlPort } = require('../../src/main/tools/browser-control-port');
+    const port = new BrowserControlPort(fakeHost);
+    const target = {
+      projectId: 'proj-1',
+      workspaceId: 'ws-1',
+      runtimeId: 'rt-1',
+      tabId: 'tab-1',
+      browserEpoch: 1,
+      documentGeneration: 1,
+    };
+
+    const result = await port.screenshot(target, 'run-1', 'attempt-1', 'tab-1', undefined, { format: 'jpeg', quality: 80 });
+    assert.strictEqual(capturedOptions?.format, 'jpeg');
+    assert.strictEqual(capturedOptions?.quality, 80);
+    assert.strictEqual(typeof result, 'string');
+  });
+
+  it('22. buildIsolatedCollectorScript incorporates viewportOnly and sticky element whitelist', () => {
+    const { buildIsolatedCollectorScript } = require('../../src/main/browser/semantic-ref-executor');
+    const scriptWithVp = buildIsolatedCollectorScript('test-nonce', 'https://example.com', undefined, true);
+    assert.ok(scriptWithVp.includes('isViewportOnly = true'), 'Must set isViewportOnly flag to true');
+    assert.ok(scriptWithVp.includes('isStickyOrFixed'), 'Must include sticky/fixed element whitelist check');
+    assert.ok(scriptWithVp.includes('vpHeight * 1.5'), 'Must check viewport height threshold (1.5x)');
+  });
 });

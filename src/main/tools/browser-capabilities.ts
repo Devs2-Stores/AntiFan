@@ -138,8 +138,8 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
     risk: 'read',
     requiresBrowserTarget: true,
     policy: makeBrowserPolicy({ effect: 'read', risk: 'read', requiresBrowserTarget: true, lane: 'short-passive' }),
-    inputSchema: { type: 'object', properties: { tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } } },
-    execute: async (params: { tabId?: string; paneId?: 'desktop' | 'mobile' }, context) => browser.screenshot(context.browserTarget as BrowserTarget, context.runId || 'run-unbound', context.attemptId || 'attempt-unbound', params.tabId, params.paneId),
+    inputSchema: { type: 'object', properties: { tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] }, format: { type: 'string', enum: ['png', 'jpeg'] }, quality: { type: 'number' } } },
+    execute: async (params: { tabId?: string; paneId?: 'desktop' | 'mobile'; format?: 'png' | 'jpeg'; quality?: number }, context) => browser.screenshot(context.browserTarget as BrowserTarget, context.runId || 'run-unbound', context.attemptId || 'attempt-unbound', params.tabId, params.paneId, { format: params.format, quality: params.quality }),
   });
   catalogue.register({
     name: 'browser.observe',
@@ -303,12 +303,12 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
 
   catalogue.register({
     name: 'browser.agent-snapshot',
-    description: 'Capture agent visual snapshot tree',
+    description: 'Capture agent visual snapshot tree (supports selector and viewportOnly filtering)',
     risk: 'read',
     requiresBrowserTarget: true,
     policy: makeBrowserPolicy({ effect: 'read', risk: 'read', requiresBrowserTarget: true, lane: 'short-passive' }),
-    inputSchema: { type: 'object', properties: { tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } } },
-    execute: (params: { tabId?: string; paneId?: 'desktop' | 'mobile' }, context) => browser.agentSnapshot(params, context.browserTarget),
+    inputSchema: { type: 'object', properties: { tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] }, selector: { type: 'string' }, viewportOnly: { type: 'boolean' } } },
+    execute: (params: { tabId?: string; paneId?: 'desktop' | 'mobile'; selector?: string; viewportOnly?: boolean }, context) => browser.agentSnapshot(params, context.browserTarget),
   });
   catalogue.register({
     name: 'browser.find',
@@ -339,6 +339,49 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
     policy: makeBrowserPolicy({ effect: 'interactive-effect', risk: 'write', requiresBrowserTarget: true, lane: 'viewport-gate' }),
     inputSchema: { type: 'object', properties: { steps: { type: 'array', items: { type: 'object' } }, speed: { type: 'string', enum: ['fast', 'natural', 'slow'] }, smoothScroll: { type: 'boolean' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } }, required: ['steps'] },
     execute: (params: { steps: Array<Record<string, unknown>>; speed?: 'fast' | 'natural' | 'slow'; smoothScroll?: boolean; tabId?: string; paneId?: 'desktop' | 'mobile' }, context) => browser.agentTrajectory(params, context.browserTarget),
+  });
+  catalogue.register({
+    name: 'browser.agent-sequence',
+    description: 'Execute an atomic multi-step action sequence (navigate, click, type, scroll, hover, pressKey, wait, screenshot, snapshot) in 1 roundtrip with auto-wait and navigation guards',
+    risk: 'write',
+    requiresBrowserTarget: true,
+    policy: makeBrowserPolicy({ effect: 'interactive-effect', risk: 'write', requiresBrowserTarget: true, lane: 'viewport-gate' }),
+    inputSchema: {
+      type: 'object',
+      properties: {
+        actions: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              type: { type: 'string', enum: ['navigate', 'click', 'type', 'scroll', 'hover', 'pressKey', 'wait', 'screenshot', 'snapshot'] },
+              url: { type: 'string' },
+              ref: { type: 'string' },
+              selector: { type: 'string' },
+              x: { type: 'number' },
+              y: { type: 'number' },
+              text: { type: 'string' },
+              clear: { type: 'boolean' },
+              deltaY: { type: 'number' },
+              key: { type: 'string' },
+              modifiers: { type: 'array', items: { type: 'string' } },
+              waitMs: { type: 'number' },
+              settleMs: { type: 'number' },
+              format: { type: 'string', enum: ['jpeg', 'png'] },
+              quality: { type: 'number' },
+            },
+            required: ['type'],
+          },
+          description: 'Ordered array of action steps to execute sequentially',
+        },
+        tabId: { type: 'string' },
+        paneId: { type: 'string', enum: ['desktop', 'mobile'] },
+        stopOnError: { type: 'boolean' },
+      },
+      required: ['actions'],
+    },
+    execute: (params: { actions: Array<Record<string, unknown>>; tabId?: string; paneId?: 'desktop' | 'mobile'; stopOnError?: boolean }, context) =>
+      browser.sequence(params, context.browserTarget),
   });
 
   catalogue.register({
@@ -383,12 +426,12 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
 
   catalogue.register({
     name: 'anti.inspect.snapshot',
-    description: 'Capture agent visual snapshot tree',
+    description: 'Capture an accessible semantic snapshot of elements indexed with monotonic @e1..@eN references (supports selector and viewportOnly filtering)',
     risk: 'read',
     requiresBrowserTarget: true,
     policy: makeBrowserPolicy({ effect: 'read', risk: 'read', requiresBrowserTarget: true, lane: 'short-passive' }),
-    inputSchema: { type: 'object', properties: { tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } } },
-    execute: (params: { tabId?: string; paneId?: 'desktop' | 'mobile' }, context) => browser.agentSnapshot(params, context.browserTarget),
+    inputSchema: { type: 'object', properties: { tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] }, selector: { type: 'string' }, viewportOnly: { type: 'boolean' } } },
+    execute: (params: { tabId?: string; paneId?: 'desktop' | 'mobile'; selector?: string; viewportOnly?: boolean }, context) => browser.agentSnapshot(params, context.browserTarget),
   });
   catalogue.register({
     name: 'anti.inspect.find',
@@ -670,8 +713,8 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
     risk: 'read',
     requiresBrowserTarget: true,
     policy: makeBrowserPolicy({ effect: 'read', risk: 'read', requiresBrowserTarget: true, lane: 'short-passive' }),
-    inputSchema: { type: 'object', properties: { tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } } },
-    execute: async (params: { tabId?: string; paneId?: 'desktop' | 'mobile' }, context) => browser.screenshot(context.browserTarget as BrowserTarget, context.runId || 'run-unbound', context.attemptId || 'attempt-unbound', params.tabId, params.paneId),
+    inputSchema: { type: 'object', properties: { tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] }, format: { type: 'string', enum: ['png', 'jpeg'] }, quality: { type: 'number' } } },
+    execute: async (params: { tabId?: string; paneId?: 'desktop' | 'mobile'; format?: 'png' | 'jpeg'; quality?: number }, context) => browser.screenshot(context.browserTarget as BrowserTarget, context.runId || 'run-unbound', context.attemptId || 'attempt-unbound', params.tabId, params.paneId, { format: params.format, quality: params.quality }),
   });
 
   catalogue.register({
@@ -772,6 +815,48 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
     policy: makeBrowserPolicy({ effect: 'interactive-effect', risk: 'write', requiresBrowserTarget: true, lane: 'viewport-gate' }),
     inputSchema: { type: 'object', properties: { key: { type: 'string' }, modifiers: { type: 'array', items: { type: 'string' } }, tabId: { type: 'string' } }, required: ['key'] },
     execute: (params: { key: string; modifiers?: string[]; tabId?: string }, context) => browser.keyboardPress(params, context.browserTarget),
+  });
+  catalogue.register({
+    name: 'antifan_agent_sequence',
+    description: 'Alias for browser.agent-sequence',
+    risk: 'write',
+    requiresBrowserTarget: true,
+    policy: makeBrowserPolicy({ effect: 'interactive-effect', risk: 'write', requiresBrowserTarget: true, lane: 'viewport-gate' }),
+    inputSchema: {
+      type: 'object',
+      properties: {
+        actions: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              type: { type: 'string', enum: ['navigate', 'click', 'type', 'scroll', 'hover', 'pressKey', 'wait', 'screenshot', 'snapshot'] },
+              url: { type: 'string' },
+              ref: { type: 'string' },
+              selector: { type: 'string' },
+              x: { type: 'number' },
+              y: { type: 'number' },
+              text: { type: 'string' },
+              clear: { type: 'boolean' },
+              deltaY: { type: 'number' },
+              key: { type: 'string' },
+              modifiers: { type: 'array', items: { type: 'string' } },
+              waitMs: { type: 'number' },
+              settleMs: { type: 'number' },
+              format: { type: 'string', enum: ['jpeg', 'png'] },
+              quality: { type: 'number' },
+            },
+            required: ['type'],
+          },
+        },
+        tabId: { type: 'string' },
+        paneId: { type: 'string', enum: ['desktop', 'mobile'] },
+        stopOnError: { type: 'boolean' },
+      },
+      required: ['actions'],
+    },
+    execute: (params: { actions: Array<Record<string, unknown>>; tabId?: string; paneId?: 'desktop' | 'mobile'; stopOnError?: boolean }, context) =>
+      browser.sequence(params, context.browserTarget),
   });
 
   catalogue.register({
@@ -1196,12 +1281,12 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
 
   catalogue.register({
     name: 'anti.screenshot.viewport',
-    description: 'Alias for browser.screenshot',
+    description: 'Capture high-fidelity viewport screenshot from live AntiFan Desktop GUI (supports desktop and mobile split panes, format: jpeg/png)',
     risk: 'read',
     requiresBrowserTarget: true,
     policy: makeBrowserPolicy({ effect: 'read', risk: 'read', requiresBrowserTarget: true, lane: 'short-passive' }),
-    inputSchema: { type: 'object', properties: { tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } } },
-    execute: async (params: { tabId?: string; paneId?: 'desktop' | 'mobile' }, context) => browser.screenshot(context.browserTarget as BrowserTarget, context.runId || 'run-unbound', context.attemptId || 'attempt-unbound', params.tabId, params.paneId),
+    inputSchema: { type: 'object', properties: { tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] }, format: { type: 'string', enum: ['png', 'jpeg'] }, quality: { type: 'number' } } },
+    execute: async (params: { tabId?: string; paneId?: 'desktop' | 'mobile'; format?: 'png' | 'jpeg'; quality?: number }, context) => browser.screenshot(context.browserTarget as BrowserTarget, context.runId || 'run-unbound', context.attemptId || 'attempt-unbound', params.tabId, params.paneId, { format: params.format || 'jpeg', quality: params.quality ?? 85 }),
   });
 
   catalogue.register({
@@ -1272,6 +1357,48 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
     policy: makeBrowserPolicy({ effect: 'interactive-effect', risk: 'write', requiresBrowserTarget: true, lane: 'viewport-gate' }),
     inputSchema: { type: 'object', properties: { tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } } },
     execute: (params: { tabId?: string; paneId?: 'desktop' | 'mobile' }, context) => browser.agentClear(params, context.browserTarget),
+  });
+  catalogue.register({
+    name: 'anti.agent.sequence',
+    description: 'Execute an atomic multi-step action sequence (navigate, click, type, scroll, hover, pressKey, wait, screenshot, snapshot) in 1 roundtrip with auto-wait and navigation guards',
+    risk: 'write',
+    requiresBrowserTarget: true,
+    policy: makeBrowserPolicy({ effect: 'interactive-effect', risk: 'write', requiresBrowserTarget: true, lane: 'viewport-gate' }),
+    inputSchema: {
+      type: 'object',
+      properties: {
+        actions: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              type: { type: 'string', enum: ['navigate', 'click', 'type', 'scroll', 'hover', 'pressKey', 'wait', 'screenshot', 'snapshot'] },
+              url: { type: 'string' },
+              ref: { type: 'string' },
+              selector: { type: 'string' },
+              x: { type: 'number' },
+              y: { type: 'number' },
+              text: { type: 'string' },
+              clear: { type: 'boolean' },
+              deltaY: { type: 'number' },
+              key: { type: 'string' },
+              modifiers: { type: 'array', items: { type: 'string' } },
+              waitMs: { type: 'number' },
+              settleMs: { type: 'number' },
+              format: { type: 'string', enum: ['jpeg', 'png'] },
+              quality: { type: 'number' },
+            },
+            required: ['type'],
+          },
+        },
+        tabId: { type: 'string' },
+        paneId: { type: 'string', enum: ['desktop', 'mobile'] },
+        stopOnError: { type: 'boolean' },
+      },
+      required: ['actions'],
+    },
+    execute: (params: { actions: Array<Record<string, unknown>>; tabId?: string; paneId?: 'desktop' | 'mobile'; stopOnError?: boolean }, context) =>
+      browser.sequence(params, context.browserTarget),
   });
   catalogue.register({
     name: 'browser.inspect_styles',

@@ -25,6 +25,48 @@ import { generateCollectionNonce, validateCollectionEnvelope } from './semantic-
 import type { NativeTabRecord } from './native-tab-host';
 import type { TabDevToolsHost } from './tab-devtools-host';
 
+export interface SequenceActionItem {
+  type: 'navigate' | 'click' | 'type' | 'scroll' | 'hover' | 'pressKey' | 'wait' | 'screenshot' | 'snapshot';
+  url?: string;
+  ref?: string;
+  selector?: string;
+  x?: number;
+  y?: number;
+  text?: string;
+  clear?: boolean;
+  deltaY?: number;
+  key?: string;
+  modifiers?: string[];
+  waitMs?: number;
+  settleMs?: number;
+  format?: 'png' | 'jpeg';
+  quality?: number;
+}
+
+export interface ActionSequenceParams {
+  actions: SequenceActionItem[];
+  tabId?: string;
+  paneId?: SplitPaneId;
+  stopOnError?: boolean;
+}
+
+export interface ActionSequenceResult {
+  success: boolean;
+  executedCount: number;
+  totalCount: number;
+  navigatedEarly?: boolean;
+  results: Array<{
+    actionIndex: number;
+    type: string;
+    success: boolean;
+    data?: unknown;
+    error?: string;
+  }>;
+  finalSnapshot?: string;
+  finalScreenshot?: string;
+  reason?: string;
+}
+
 export interface TabAutomationContext {
   getTabWebContents: (tabId?: string, paneId?: SplitPaneId) => Electron.WebContents | null;
   getTabRecord: (tabId: string) => NativeTabRecord | undefined;
@@ -42,6 +84,8 @@ export interface TabAutomationContext {
   tabDevToolsHost?: TabDevToolsHost;
   resolveTargetWorkspace?: (targetSessionId?: string, tabUrl?: string) => string;
   getTabTerminalSession?: (tabId: string) => string | undefined;
+  sendKeyboardPress?: (params: { key: string; modifiers?: string[]; tabId?: string }) => Promise<{ success: boolean; key: string; modifiers: string[] }>;
+  navigateAndWait?: (tabId: string, inputUrl: string, timeoutMs?: number) => Promise<boolean>;
 }
 
 function validatePathConfinement(rawFilePath: string, rawWorkspaceRoot: string): string {
@@ -804,6 +848,236 @@ export class TabAutomationHost {
       return false;
     }
   }
+  public async executeActionSequence(params: ActionSequenceParams): Promise<ActionSequenceResult> {
+    const rawActions = params?.actions;
+    if (!Array.isArray(rawActions) || rawActions.length === 0) {
+      return { success: false, executedCount: 0, totalCount: 0, results: [], reason: 'Actions array is required and must not be empty' };
+    }
+    if (rawActions.length > 30) {
+      return { success: false, executedCount: 0, totalCount: rawActions.length, results: [], reason: 'Actions array exceeds maximum batch cap (30)' };
+    }
+
+    const targetId = params.tabId || this.ctx.getAutomationTabId() || this.ctx.getActiveTabId();
+    const target = this.ctx.getTabRecord(targetId);
+    if (!target) {
+      return { success: false, executedCount: 0, totalCount: rawActions.length, results: [], reason: `Target tab not found: ${targetId}` };
+    }
+
+    const effectivePane = params.paneId || (target.state?.splitMode ? (target.focusedPane || target.state.splitFocusedPane || 'desktop') : 'desktop');
+    const wc = this.ctx.getTabWebContents(targetId, effectivePane);
+    if (!wc || wc.isDestroyed()) {
+      return { success: false, executedCount: 0, totalCount: rawActions.length, results: [], reason: 'Target webContents is unavailable' };
+    }
+
+    const results: Array<{ actionIndex: number; type: string; success: boolean; data?: unknown; error?: string }> = [];
+    let initialUrl = wc.getURL();
+    let initialGen = this.ctx.getSemanticDocumentGeneration(targetId, effectivePane);
+    let finalSnapshot: string | undefined;
+    let finalScreenshot: string | undefined;
+
+    for (let i = 0; i < rawActions.length; i++) {
+      const action = rawActions[i];
+      if (!action || typeof action !== 'object') {
+        const error = `Action at index ${i} is invalid`;
+        results.push({ actionIndex: i, type: 'unknown', success: false, error });
+        if (params.stopOnError !== false) {
+          return { success: false, executedCount: i + 1, totalCount: rawActions.length, results, reason: error };
+        }
+        continue;
+      }
+
+      // Safety 1: Break-on-Navigate Guard
+      if (i > 0) {
+        const curUrl = wc.isDestroyed() ? '' : wc.getURL();
+        const curGen = this.ctx.getSemanticDocumentGeneration(targetId, effectivePane);
+        if (curUrl !== initialUrl || curGen !== initialGen) {
+          if (action.type === 'click' || action.type === 'type' || action.type === 'hover' || action.type === 'scroll') {
+            return {
+              success: true,
+              executedCount: i,
+              totalCount: rawActions.length,
+              navigatedEarly: true,
+              results,
+              finalSnapshot,
+              finalScreenshot,
+              reason: 'Navigation detected during sequence execution; stopped early to preserve semantic ref integrity',
+            };
+          }
+        }
+      }
+
+      let stepSuccess = false;
+      let stepData: unknown = undefined;
+      let stepError: string | undefined = undefined;
+
+      try {
+        switch (action.type) {
+          case 'navigate': {
+            if (!action.url || typeof action.url !== 'string' || !action.url.trim()) {
+              stepSuccess = false;
+              stepError = 'Missing or invalid url for navigate action';
+            } else if (this.ctx.navigateAndWait) {
+              const navOk = await this.ctx.navigateAndWait(targetId, action.url.trim(), 10000);
+              stepSuccess = navOk;
+              if (!navOk) stepError = `Navigation to "${action.url}" failed or timed out`;
+              initialUrl = wc.isDestroyed() ? action.url.trim() : wc.getURL();
+              initialGen = this.ctx.getSemanticDocumentGeneration(targetId, effectivePane);
+              stepData = { navigatedUrl: initialUrl, documentGeneration: initialGen };
+            } else {
+              wc.loadURL(action.url.trim()).catch(() => {});
+              stepSuccess = true;
+              initialUrl = action.url.trim();
+              initialGen = this.ctx.getSemanticDocumentGeneration(targetId, effectivePane);
+              stepData = { navigatedUrl: initialUrl };
+            }
+            break;
+          }
+          case 'click': {
+            const res = await this.dispatchAgentAction('click', {
+              selector: action.selector,
+              ref: action.ref,
+              x: action.x,
+              y: action.y,
+              tabId: targetId,
+              paneId: effectivePane,
+            });
+            stepSuccess = res.success;
+            stepData = res.data;
+            if (!res.success) stepError = res.reason || 'Click failed';
+            break;
+          }
+          case 'type': {
+            const res = await this.dispatchAgentAction('type', {
+              selector: action.selector,
+              ref: action.ref,
+              text: action.text || '',
+              clear: action.clear,
+              tabId: targetId,
+              paneId: effectivePane,
+            });
+            stepSuccess = res.success;
+            stepData = res.data;
+            if (!res.success) stepError = res.reason || 'Type failed';
+            break;
+          }
+          case 'scroll': {
+            const res = await this.dispatchAgentAction('scroll', {
+              deltaY: action.deltaY,
+              selector: action.selector,
+              ref: action.ref,
+              tabId: targetId,
+              paneId: effectivePane,
+            });
+            stepSuccess = res.success;
+            stepData = res.data;
+            if (!res.success) stepError = res.reason || 'Scroll failed';
+            break;
+          }
+          case 'hover': {
+            const res = await this.dispatchAgentAction('hover', {
+              selector: action.selector,
+              ref: action.ref,
+              x: action.x,
+              y: action.y,
+              tabId: targetId,
+              paneId: effectivePane,
+            });
+            stepSuccess = res.success;
+            stepData = res.data;
+            if (!res.success) stepError = res.reason || 'Hover failed';
+            break;
+          }
+          case 'pressKey': {
+            if (!action.key) {
+              stepSuccess = false;
+              stepError = 'Missing key for pressKey action';
+            } else if (this.ctx.sendKeyboardPress) {
+              const pressRes = await this.ctx.sendKeyboardPress({ key: action.key, modifiers: action.modifiers, tabId: targetId });
+              stepSuccess = pressRes.success;
+            } else {
+              wc.sendInputEvent({ type: 'keyDown', keyCode: action.key });
+              wc.sendInputEvent({ type: 'char', keyCode: action.key });
+              wc.sendInputEvent({ type: 'keyUp', keyCode: action.key });
+              stepSuccess = true;
+            }
+            break;
+          }
+          case 'wait': {
+            const waitMs = Math.max(1, Math.min(10000, action.waitMs || 100));
+            await new Promise((resolve) => setTimeout(resolve, waitMs));
+            stepSuccess = true;
+            stepData = { waitedMs: waitMs };
+            break;
+          }
+          case 'screenshot': {
+            const format = action.format || 'jpeg';
+            const quality = action.quality ?? 85;
+            if (this.ctx.tabDevToolsHost) {
+              const shot = await this.ctx.tabDevToolsHost.captureScreenshot(undefined, targetId, effectivePane, { format, quality });
+              stepSuccess = !!shot;
+              stepData = { captured: true, byteLength: shot.length };
+              finalScreenshot = shot;
+            } else {
+              stepSuccess = false;
+              stepError = 'DevToolsHost unavailable for screenshot';
+            }
+            break;
+          }
+          case 'snapshot': {
+            const snap = await this.agentSnapshot(targetId, effectivePane);
+            stepSuccess = !!snap;
+            stepData = { snapshotLength: snap.length };
+            finalSnapshot = snap;
+            break;
+          }
+          default: {
+            stepSuccess = false;
+            stepError = `Unsupported action type: ${(action as any).type}`;
+            break;
+          }
+        }
+      } catch (err: unknown) {
+        stepSuccess = false;
+        stepError = err instanceof Error ? err.message : String(err);
+      }
+
+      results.push({
+        actionIndex: i,
+        type: action.type,
+        success: stepSuccess,
+        data: stepData,
+        error: stepError,
+      });
+
+      // Safety 2: Auto-Wait Settle Time
+      const settleMs = typeof action.settleMs === 'number' ? action.settleMs : (action.type === 'click' || action.type === 'type' || action.type === 'pressKey' ? 50 : 0);
+      if (settleMs > 0 && i < rawActions.length - 1) {
+        await new Promise((resolve) => setTimeout(resolve, settleMs));
+      }
+
+      // Safety 3: Stop-On-Error
+      if (!stepSuccess && params.stopOnError !== false) {
+        return {
+          success: false,
+          executedCount: i + 1,
+          totalCount: rawActions.length,
+          results,
+          reason: stepError || `Action at index ${i} (${action.type}) failed`,
+          finalSnapshot,
+          finalScreenshot,
+        };
+      }
+    }
+
+    return {
+      success: true,
+      executedCount: rawActions.length,
+      totalCount: rawActions.length,
+      results,
+      finalSnapshot,
+      finalScreenshot,
+    };
+  }
 
   public async agentTrajectoryInternal(
     params: { steps?: Array<Record<string, unknown>>; speed?: 'fast' | 'natural' | 'slow'; smoothScroll?: boolean; tabId?: string; paneId?: SplitPaneId },
@@ -890,7 +1164,7 @@ export class TabAutomationHost {
     return { success: res.success, executedSteps: 0, totalSteps: params?.steps?.length || 0, reason: res.reason };
   }
 
-  private async internalCollectSnapshot(targetId: string, effectivePane: SplitPaneId, selector?: string): Promise<string> {
+  private async internalCollectSnapshot(targetId: string, effectivePane: SplitPaneId, selector?: string, viewportOnly?: boolean): Promise<string> {
     const curTab = this.ctx.getTabRecord(targetId);
     if (!curTab) return '';
     const curWc = this.ctx.getTabWebContents(targetId, effectivePane);
@@ -918,7 +1192,7 @@ export class TabAutomationHost {
     }
 
     try {
-      const collectorScript = buildIsolatedCollectorScript(collectionSession.nonce, curUrl, selector);
+      const collectorScript = buildIsolatedCollectorScript(collectionSession.nonce, curUrl, selector, viewportOnly);
       const rawRes = await this.executeInIsolatedWorld(curWc, collectorScript);
       const rawDescriptors = validateCollectionEnvelope(rawRes, collectionSession.nonce, curUrl);
 
@@ -946,7 +1220,7 @@ export class TabAutomationHost {
     }
   }
 
-  public async agentSnapshot(tabId?: string, paneId?: SplitPaneId, selector?: string): Promise<string> {
+  public async agentSnapshot(tabId?: string, paneId?: SplitPaneId, selector?: string, viewportOnly?: boolean): Promise<string> {
     const targetId = tabId || this.ctx.getAutomationTabId() || this.ctx.getActiveTabId();
     const target = this.ctx.getTabRecord(targetId);
     if (!target) return '';
@@ -955,7 +1229,7 @@ export class TabAutomationHost {
     const wc = this.ctx.getTabWebContents(targetId, effectivePane);
     if (!wc || wc.isDestroyed()) return '';
     return await this.ctx.runTargetOperation(targetId, effectivePane, async () => {
-      return await this.internalCollectSnapshot(targetId, effectivePane, selector);
+      return await this.internalCollectSnapshot(targetId, effectivePane, selector, viewportOnly);
     });
   }
 

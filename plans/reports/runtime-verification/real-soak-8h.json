@@ -1,397 +1,270 @@
 {
-  "status": "completed",
-  "startedAt": "2026-09-01T21:18:11.697Z",
-  "finishedAt": "2026-09-01T21:19:47.647Z",
+  "status": "failed",
+  "startedAt": "2026-09-02T05:55:45.744Z",
+  "finishedAt": "2026-09-02T05:56:58.375Z",
   "config": {
-    "totalMinutes": 1,
-    "warmupMinutes": 0,
-    "workloadMinutes": 1,
-    "recoveryMinutes": 0
+    "totalMinutes": 0.4,
+    "warmupMinutes": 0.05,
+    "workloadMinutes": 0.30000000000000004,
+    "recoveryMinutes": 0.05
   },
-  "rootPid": 5376,
-  "fixturePort": 63924,
+  "rootPid": 16628,
+  "fixturePort": 65001,
   "stats": {
     "requestCount": 5,
     "openedTabs": 6,
-    "switches": 19,
-    "bursts": 2,
+    "switches": 5,
+    "bursts": 1,
     "reloads": 1,
-    "terminalEventsCount": 29,
-    "totalSamples": 8
+    "terminalEventsCount": 27,
+    "totalSamples": 5
   },
   "metrics": {
     "switchLatencyMs": {
-      "min": 7.952,
-      "p50": 10.041,
-      "p95": 11.765,
-      "max": 11.765
+      "min": 22.545,
+      "p50": 22.953,
+      "p95": 25.532,
+      "max": 25.532
     },
     "activeWorkingSetMB": {
-      "min": 1047.11,
-      "p50": 1052.62,
-      "p95": 1063.88,
-      "max": 1063.88
+      "min": 1416.25,
+      "p50": 1426.51,
+      "p95": 1426.51,
+      "max": 1426.51
     },
     "activeRendererWorkingSetMB": {
-      "min": 557.21,
-      "p50": 560.16,
-      "p95": 567.42,
-      "max": 567.42
+      "min": 735.75,
+      "p50": 749.44,
+      "p95": 749.44,
+      "max": 749.44
     },
-    "overallActiveSlopeMBPerMin": -17.1128,
-    "rendererActiveSlopeMBPerMin": -9.1265,
+    "overallActiveSlopeMBPerMin": 57.355819,
+    "overallActiveSlopeMBPerHour": 3441.3491,
+    "rendererActiveSlopeMBPerMin": 76.530327,
+    "rendererActiveSlopeMBPerHour": 4591.8196,
     "rolling60MinSlopes": [],
-    "initialLoadedMB": 1030.93,
-    "postWarmupMB": 1030.93,
-    "finalActiveMB": 1049.11,
-    "recoveredMB": 661.69
+    "initialLoadedMB": 1402.26,
+    "postWarmupMB": 1407.81,
+    "finalActiveMB": 1426.51,
+    "recoveredMB": 927.67,
+    "slopeSloSatisfied": false,
+    "orphanSloSatisfied": true,
+    "verdict": "FAILED"
   },
   "orphanPids": [],
   "samples": [
     {
-      "at": 1788297503803,
+      "at": 1788328568479,
       "label": "warmup",
-      "totalWorkingSetMB": 1030.93,
+      "totalWorkingSetMB": 1402.26,
       "processCount": 14,
       "byType": {
         "browser": {
           "count": 1,
-          "workingSetMB": 147.42
+          "workingSetMB": 212.64
         },
         "other": {
           "count": 6,
-          "workingSetMB": 160.71
+          "workingSetMB": 153.59
         },
         "renderer": {
           "count": 5,
-          "workingSetMB": 552.93
+          "workingSetMB": 725.59
         },
         "utility": {
           "count": 1,
-          "workingSetMB": 51.75
+          "workingSetMB": 120.43
         },
         "gpu": {
           "count": 1,
-          "workingSetMB": 118.11
+          "workingSetMB": 190
         }
       },
       "pids": [
-        5376,
-        10136,
-        11220,
-        21584,
-        21084,
-        19916,
-        13548,
-        20728,
-        21460,
-        22808,
-        1248,
-        9392,
-        3684,
-        5200
+        16628,
+        16264,
+        23668,
+        23244,
+        12008,
+        21448,
+        184,
+        9496,
+        20244,
+        22392,
+        16588,
+        21640,
+        6600,
+        3300
       ]
     },
     {
-      "at": 1788297506846,
+      "at": 1788328573702,
+      "label": "warmup",
+      "totalWorkingSetMB": 1407.81,
+      "processCount": 14,
+      "byType": {
+        "browser": {
+          "count": 1,
+          "workingSetMB": 199.77
+        },
+        "other": {
+          "count": 6,
+          "workingSetMB": 159.73
+        },
+        "renderer": {
+          "count": 5,
+          "workingSetMB": 728.91
+        },
+        "utility": {
+          "count": 1,
+          "workingSetMB": 120.43
+        },
+        "gpu": {
+          "count": 1,
+          "workingSetMB": 198.97
+        }
+      },
+      "pids": [
+        16628,
+        16264,
+        23668,
+        23244,
+        12008,
+        21448,
+        184,
+        9496,
+        20244,
+        22392,
+        16588,
+        21640,
+        6600,
+        3300
+      ]
+    },
+    {
+      "at": 1788328584000,
       "label": "workload",
-      "totalWorkingSetMB": 1063.88,
+      "totalWorkingSetMB": 1416.25,
       "processCount": 14,
       "byType": {
         "browser": {
           "count": 1,
-          "workingSetMB": 149.8
+          "workingSetMB": 198.82
         },
         "other": {
           "count": 6,
-          "workingSetMB": 165.77
+          "workingSetMB": 159.79
         },
         "renderer": {
           "count": 5,
-          "workingSetMB": 567.42
+          "workingSetMB": 735.75
         },
         "utility": {
           "count": 1,
-          "workingSetMB": 51.91
+          "workingSetMB": 120.42
         },
         "gpu": {
           "count": 1,
-          "workingSetMB": 128.98
+          "workingSetMB": 201.47
         }
       },
       "pids": [
-        5376,
-        10136,
-        11220,
-        21584,
-        21084,
-        19916,
-        13548,
-        20728,
-        21460,
-        22808,
-        1248,
-        9392,
-        3684,
-        5200
+        16628,
+        16264,
+        23668,
+        23244,
+        12008,
+        21448,
+        184,
+        9496,
+        20244,
+        22392,
+        16588,
+        21640,
+        6600,
+        3300
       ]
     },
     {
-      "at": 1788297516607,
+      "at": 1788328594733,
       "label": "workload",
-      "totalWorkingSetMB": 1061.73,
+      "totalWorkingSetMB": 1426.51,
       "processCount": 14,
       "byType": {
         "browser": {
           "count": 1,
-          "workingSetMB": 145.63
+          "workingSetMB": 194.48
         },
         "other": {
           "count": 6,
-          "workingSetMB": 165.82
+          "workingSetMB": 159.02
         },
         "renderer": {
           "count": 5,
-          "workingSetMB": 562.54
+          "workingSetMB": 749.44
         },
         "utility": {
           "count": 1,
-          "workingSetMB": 51.94
+          "workingSetMB": 120.43
         },
         "gpu": {
           "count": 1,
-          "workingSetMB": 135.8
+          "workingSetMB": 203.14
         }
       },
       "pids": [
-        5376,
-        10136,
-        11220,
-        21584,
-        21084,
-        19916,
-        13548,
-        20728,
-        21460,
-        22808,
-        1248,
-        9392,
-        3684,
-        5200
+        16628,
+        16264,
+        23668,
+        23244,
+        12008,
+        21448,
+        184,
+        9496,
+        20244,
+        22392,
+        16588,
+        21640,
+        6600,
+        3300
       ]
     },
     {
-      "at": 1788297526653,
-      "label": "workload",
-      "totalWorkingSetMB": 1047.11,
-      "processCount": 14,
-      "byType": {
-        "browser": {
-          "count": 1,
-          "workingSetMB": 135.5
-        },
-        "other": {
-          "count": 6,
-          "workingSetMB": 165.44
-        },
-        "renderer": {
-          "count": 5,
-          "workingSetMB": 557.21
-        },
-        "utility": {
-          "count": 1,
-          "workingSetMB": 51.92
-        },
-        "gpu": {
-          "count": 1,
-          "workingSetMB": 137.05
-        }
-      },
-      "pids": [
-        5376,
-        10136,
-        11220,
-        21584,
-        21084,
-        19916,
-        13548,
-        20728,
-        21460,
-        22808,
-        1248,
-        9392,
-        3684,
-        5200
-      ]
-    },
-    {
-      "at": 1788297536851,
-      "label": "workload",
-      "totalWorkingSetMB": 1048.28,
-      "processCount": 14,
-      "byType": {
-        "browser": {
-          "count": 1,
-          "workingSetMB": 132.36
-        },
-        "other": {
-          "count": 6,
-          "workingSetMB": 166.59
-        },
-        "renderer": {
-          "count": 5,
-          "workingSetMB": 558.47
-        },
-        "utility": {
-          "count": 1,
-          "workingSetMB": 51.98
-        },
-        "gpu": {
-          "count": 1,
-          "workingSetMB": 138.88
-        }
-      },
-      "pids": [
-        5376,
-        10136,
-        11220,
-        21584,
-        21084,
-        19916,
-        13548,
-        20728,
-        21460,
-        22808,
-        1248,
-        9392,
-        3684,
-        5200
-      ]
-    },
-    {
-      "at": 1788297546590,
-      "label": "workload",
-      "totalWorkingSetMB": 1052.62,
-      "processCount": 14,
-      "byType": {
-        "browser": {
-          "count": 1,
-          "workingSetMB": 132.62
-        },
-        "other": {
-          "count": 6,
-          "workingSetMB": 166.59
-        },
-        "renderer": {
-          "count": 5,
-          "workingSetMB": 560.16
-        },
-        "utility": {
-          "count": 1,
-          "workingSetMB": 51.98
-        },
-        "gpu": {
-          "count": 1,
-          "workingSetMB": 141.27
-        }
-      },
-      "pids": [
-        5376,
-        10136,
-        11220,
-        21584,
-        21084,
-        19916,
-        13548,
-        20728,
-        21460,
-        22808,
-        1248,
-        9392,
-        3684,
-        5200
-      ]
-    },
-    {
-      "at": 1788297556931,
-      "label": "workload",
-      "totalWorkingSetMB": 1049.11,
-      "processCount": 14,
-      "byType": {
-        "browser": {
-          "count": 1,
-          "workingSetMB": 131.52
-        },
-        "other": {
-          "count": 6,
-          "workingSetMB": 166.5
-        },
-        "renderer": {
-          "count": 5,
-          "workingSetMB": 557.91
-        },
-        "utility": {
-          "count": 1,
-          "workingSetMB": 51.2
-        },
-        "gpu": {
-          "count": 1,
-          "workingSetMB": 141.99
-        }
-      },
-      "pids": [
-        5376,
-        10136,
-        11220,
-        21584,
-        21084,
-        19916,
-        13548,
-        20728,
-        21460,
-        22808,
-        1248,
-        9392,
-        3684,
-        5200
-      ]
-    },
-    {
-      "at": 1788297582092,
+      "at": 1788328610602,
       "label": "recovery",
-      "totalWorkingSetMB": 661.69,
+      "totalWorkingSetMB": 927.67,
       "processCount": 8,
       "byType": {
         "browser": {
           "count": 1,
-          "workingSetMB": 128.55
-        },
-        "other": {
-          "count": 3,
-          "workingSetMB": 81.65
+          "workingSetMB": 191.61
         },
         "renderer": {
           "count": 2,
-          "workingSetMB": 256.82
+          "workingSetMB": 332.83
+        },
+        "other": {
+          "count": 3,
+          "workingSetMB": 76.41
         },
         "utility": {
           "count": 1,
-          "workingSetMB": 51.35
+          "workingSetMB": 120.43
         },
         "gpu": {
           "count": 1,
-          "workingSetMB": 143.32
+          "workingSetMB": 206.4
         }
       },
       "pids": [
-        5376,
-        13548,
-        20728,
-        21460,
-        22808,
-        9392,
-        3684,
-        5200
+        16628,
+        12008,
+        9496,
+        20244,
+        22392,
+        21640,
+        6600,
+        3300
       ]
     }
   ],
@@ -399,45 +272,45 @@
     "(electron) 'console-message' arguments are deprecated and will be removed. Please use Event<WebContentsConsoleMessageEventParams> object instead."
   ],
   "stdoutBenchmarkTail": [
-    "[antifan-benchmark] {\"surface\":\"bridge\",\"name\":\"broadcast\",\"value\":0.16019999999844003,\"extra\":{\"event\":\"antifan:terminal:data\",\"clients\":1,\"congested\":0,\"bytes\":588},\"ts\":\"2026-09-01T21:18:54.113Z\",\"nowMs\":42340.6426}",
-    "[antifan-benchmark] {\"surface\":\"terminal\",\"name\":\"ptyData\",\"value\":478,\"extra\":{\"sessionId\":\"terminal-2\",\"chunkSeq\":25,\"totalBytes\":4793},\"ts\":\"2026-09-01T21:18:54.148Z\",\"nowMs\":42375.5232}",
-    "[antifan-benchmark] {\"surface\":\"bridge\",\"name\":\"broadcast\",\"value\":0.36779999999998836,\"extra\":{\"event\":\"antifan:terminal:data\",\"clients\":1,\"congested\":0,\"bytes\":983},\"ts\":\"2026-09-01T21:18:54.148Z\",\"nowMs\":42376.3253}",
-    "[antifan-benchmark] {\"surface\":\"terminal\",\"name\":\"ptyData\",\"value\":117,\"extra\":{\"sessionId\":\"terminal-2\",\"chunkSeq\":26,\"totalBytes\":4910},\"ts\":\"2026-09-01T21:18:54.181Z\",\"nowMs\":42409.3429}",
-    "[antifan-benchmark] {\"surface\":\"bridge\",\"name\":\"broadcast\",\"value\":0.17529999999533175,\"extra\":{\"event\":\"antifan:terminal:data\",\"clients\":1,\"congested\":0,\"bytes\":304},\"ts\":\"2026-09-01T21:18:54.182Z\",\"nowMs\":42409.7424}",
-    "[antifan-benchmark] {\"surface\":\"terminal\",\"name\":\"ptyData\",\"value\":619,\"extra\":{\"sessionId\":\"terminal-2\",\"chunkSeq\":27,\"totalBytes\":5529},\"ts\":\"2026-09-01T21:18:54.213Z\",\"nowMs\":42441.1686}",
-    "[antifan-benchmark] {\"surface\":\"bridge\",\"name\":\"broadcast\",\"value\":0.16839999999501742,\"extra\":{\"event\":\"antifan:terminal:data\",\"clients\":1,\"congested\":0,\"bytes\":1189},\"ts\":\"2026-09-01T21:18:54.214Z\",\"nowMs\":42441.5202}",
-    "[antifan-benchmark] {\"surface\":\"terminal\",\"name\":\"ptyData\",\"value\":970,\"extra\":{\"sessionId\":\"terminal-2\",\"chunkSeq\":28,\"totalBytes\":6499},\"ts\":\"2026-09-01T21:18:54.266Z\",\"nowMs\":42493.5313}",
-    "[antifan-benchmark] {\"surface\":\"bridge\",\"name\":\"broadcast\",\"value\":0.16339999999763677,\"extra\":{\"event\":\"antifan:terminal:data\",\"clients\":1,\"congested\":0,\"bytes\":1813},\"ts\":\"2026-09-01T21:18:54.266Z\",\"nowMs\":42493.9133}",
-    "[antifan-benchmark] {\"surface\":\"terminal\",\"name\":\"ptyData\",\"value\":280,\"extra\":{\"sessionId\":\"terminal-2\",\"chunkSeq\":29,\"totalBytes\":6779},\"ts\":\"2026-09-01T21:18:54.300Z\",\"nowMs\":42528.3454}",
-    "[antifan-benchmark] {\"surface\":\"bridge\",\"name\":\"broadcast\",\"value\":0.15750000000116415,\"extra\":{\"event\":\"antifan:terminal:data\",\"clients\":1,\"congested\":0,\"bytes\":569},\"ts\":\"2026-09-01T21:18:54.301Z\",\"nowMs\":42528.6989}",
-    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"layout\",\"value\":0.20000000000436557,\"extra\":{\"width\":1344,\"height\":815,\"attachedViews\":1},\"ts\":\"2026-09-01T21:18:56.970Z\",\"nowMs\":45198.122}",
-    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"switched\",\"value\":8.63130000000092,\"extra\":{\"attachedViews\":1},\"ts\":\"2026-09-01T21:18:56.971Z\",\"nowMs\":45198.6616}",
-    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"layout\",\"value\":0.2897000000011758,\"extra\":{\"width\":1344,\"height\":815,\"attachedViews\":1},\"ts\":\"2026-09-01T21:19:00.045Z\",\"nowMs\":48272.8061}",
-    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"switched\",\"value\":7.973500000000058,\"extra\":{\"attachedViews\":1},\"ts\":\"2026-09-01T21:19:00.046Z\",\"nowMs\":48273.6182}",
-    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"layout\",\"value\":0.3632999999972526,\"extra\":{\"width\":1344,\"height\":815,\"attachedViews\":1},\"ts\":\"2026-09-01T21:19:03.144Z\",\"nowMs\":51371.7749}",
-    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"switched\",\"value\":8.141700000000128,\"extra\":{\"attachedViews\":1},\"ts\":\"2026-09-01T21:19:03.145Z\",\"nowMs\":51372.7093}",
-    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"layout\",\"value\":0.5158000000010361,\"extra\":{\"width\":1344,\"height\":815,\"attachedViews\":1},\"ts\":\"2026-09-01T21:19:06.702Z\",\"nowMs\":54929.8549}",
-    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"switched\",\"value\":8.557600000000093,\"extra\":{\"attachedViews\":1},\"ts\":\"2026-09-01T21:19:06.702Z\",\"nowMs\":54930.3546}",
-    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"layout\",\"value\":0.5313000000023749,\"extra\":{\"width\":1344,\"height\":815,\"attachedViews\":1},\"ts\":\"2026-09-01T21:19:09.795Z\",\"nowMs\":58022.6243}",
-    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"switched\",\"value\":10.192800000004354,\"extra\":{\"attachedViews\":1},\"ts\":\"2026-09-01T21:19:09.796Z\",\"nowMs\":58023.9486}",
-    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"layout\",\"value\":0.32999999999447027,\"extra\":{\"width\":1344,\"height\":815,\"attachedViews\":1},\"ts\":\"2026-09-01T21:19:12.860Z\",\"nowMs\":61087.8918}",
-    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"switched\",\"value\":9.715400000000955,\"extra\":{\"attachedViews\":1},\"ts\":\"2026-09-01T21:19:12.860Z\",\"nowMs\":61088.326}",
-    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"layout\",\"value\":0.8119000000006054,\"extra\":{\"width\":1344,\"height\":815,\"attachedViews\":1},\"ts\":\"2026-09-01T21:19:17.043Z\",\"nowMs\":65270.7443}",
-    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"switched\",\"value\":10.546900000001187,\"extra\":{\"attachedViews\":1},\"ts\":\"2026-09-01T21:19:17.044Z\",\"nowMs\":65271.6581}",
-    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"layout\",\"value\":0.22750000000814907,\"extra\":{\"width\":1344,\"height\":815,\"attachedViews\":1},\"ts\":\"2026-09-01T21:19:20.129Z\",\"nowMs\":68357.1662}",
-    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"switched\",\"value\":8.558299999989686,\"extra\":{\"attachedViews\":1},\"ts\":\"2026-09-01T21:19:20.130Z\",\"nowMs\":68357.5723}",
-    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"layout\",\"value\":0.24710000000777654,\"extra\":{\"width\":1344,\"height\":815,\"attachedViews\":1},\"ts\":\"2026-09-01T21:19:23.129Z\",\"nowMs\":71357.1094}",
-    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"switched\",\"value\":7.0406999999977415,\"extra\":{\"attachedViews\":1},\"ts\":\"2026-09-01T21:19:23.130Z\",\"nowMs\":71357.5101}",
-    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"layout\",\"value\":0.27830000000540167,\"extra\":{\"width\":1344,\"height\":815,\"attachedViews\":1},\"ts\":\"2026-09-01T21:19:23.888Z\",\"nowMs\":72115.8219}",
-    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"switched\",\"value\":3.7410000000090804,\"extra\":{\"attachedViews\":1},\"ts\":\"2026-09-01T21:19:23.889Z\",\"nowMs\":72116.9247}",
-    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"closed\",\"extra\":{\"attachedViews\":1},\"ts\":\"2026-09-01T21:19:23.889Z\",\"nowMs\":72117.0781}",
-    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"closed\",\"extra\":{\"attachedViews\":1},\"ts\":\"2026-09-01T21:19:23.895Z\",\"nowMs\":72122.3745}",
-    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"closed\",\"extra\":{\"attachedViews\":1},\"ts\":\"2026-09-01T21:19:23.900Z\",\"nowMs\":72127.433}",
-    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"closed\",\"extra\":{\"attachedViews\":1},\"ts\":\"2026-09-01T21:19:23.905Z\",\"nowMs\":72132.354}",
-    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"closed\",\"extra\":{\"attachedViews\":1},\"ts\":\"2026-09-01T21:19:23.911Z\",\"nowMs\":72138.95}",
-    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"layout\",\"value\":0.9585999999981141,\"extra\":{\"width\":1344,\"height\":815,\"attachedViews\":1},\"ts\":\"2026-09-01T21:19:23.925Z\",\"nowMs\":72153.2782}",
-    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"switched\",\"value\":5.2075000000040745,\"extra\":{\"attachedViews\":1},\"ts\":\"2026-09-01T21:19:23.926Z\",\"nowMs\":72153.7085}",
-    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"closed\",\"extra\":{\"attachedViews\":1},\"ts\":\"2026-09-01T21:19:23.926Z\",\"nowMs\":72153.7995}",
-    "[antifan-benchmark] {\"surface\":\"bridge\",\"name\":\"broadcast\",\"value\":0.34230000000388827,\"extra\":{\"event\":\"antifan:terminal:session\",\"clients\":1,\"congested\":0,\"bytes\":1024},\"ts\":\"2026-09-01T21:19:24.272Z\",\"nowMs\":72499.9498}"
+    "[antifan-benchmark] {\"surface\":\"bridge\",\"name\":\"broadcast\",\"value\":0.16150000000197906,\"extra\":{\"event\":\"antifan:terminal:data\",\"clients\":1,\"congested\":0,\"bytes\":373},\"ts\":\"2026-09-02T05:56:09.439Z\",\"nowMs\":23515.8928}",
+    "[antifan-benchmark] {\"surface\":\"terminal\",\"name\":\"ptyData\",\"value\":90,\"extra\":{\"sessionId\":\"terminal-2\",\"chunkSeq\":18,\"totalBytes\":2983},\"ts\":\"2026-09-02T05:56:09.492Z\",\"nowMs\":23568.3917}",
+    "[antifan-benchmark] {\"surface\":\"bridge\",\"name\":\"broadcast\",\"value\":0.20899999999892316,\"extra\":{\"event\":\"antifan:terminal:data\",\"clients\":1,\"congested\":0,\"bytes\":249},\"ts\":\"2026-09-02T05:56:09.492Z\",\"nowMs\":23568.913}",
+    "[antifan-benchmark] {\"surface\":\"terminal\",\"name\":\"ptyData\",\"value\":32,\"extra\":{\"sessionId\":\"terminal-2\",\"chunkSeq\":19,\"totalBytes\":3015},\"ts\":\"2026-09-02T05:56:09.561Z\",\"nowMs\":23638.104}",
+    "[antifan-benchmark] {\"surface\":\"bridge\",\"name\":\"broadcast\",\"value\":0.17369999999937136,\"extra\":{\"event\":\"antifan:terminal:data\",\"clients\":1,\"congested\":0,\"bytes\":145},\"ts\":\"2026-09-02T05:56:09.562Z\",\"nowMs\":23638.5094}",
+    "[antifan-benchmark] {\"surface\":\"terminal\",\"name\":\"ptyData\",\"value\":99,\"extra\":{\"sessionId\":\"terminal-2\",\"chunkSeq\":20,\"totalBytes\":3114},\"ts\":\"2026-09-02T05:56:09.599Z\",\"nowMs\":23675.4821}",
+    "[antifan-benchmark] {\"surface\":\"bridge\",\"name\":\"broadcast\",\"value\":0.3397000000004482,\"extra\":{\"event\":\"antifan:terminal:data\",\"clients\":1,\"congested\":0,\"bytes\":265},\"ts\":\"2026-09-02T05:56:09.600Z\",\"nowMs\":23676.3541}",
+    "[antifan-benchmark] {\"surface\":\"terminal\",\"name\":\"ptyData\",\"value\":221,\"extra\":{\"sessionId\":\"terminal-2\",\"chunkSeq\":21,\"totalBytes\":3335},\"ts\":\"2026-09-02T05:56:09.680Z\",\"nowMs\":23756.985}",
+    "[antifan-benchmark] {\"surface\":\"bridge\",\"name\":\"broadcast\",\"value\":0.14719999999942956,\"extra\":{\"event\":\"antifan:terminal:data\",\"clients\":1,\"congested\":0,\"bytes\":481},\"ts\":\"2026-09-02T05:56:09.681Z\",\"nowMs\":23757.3248}",
+    "[antifan-benchmark] {\"surface\":\"terminal\",\"name\":\"ptyData\",\"value\":252,\"extra\":{\"sessionId\":\"terminal-2\",\"chunkSeq\":22,\"totalBytes\":3587},\"ts\":\"2026-09-02T05:56:09.721Z\",\"nowMs\":23797.4039}",
+    "[antifan-benchmark] {\"surface\":\"bridge\",\"name\":\"broadcast\",\"value\":0.1635999999998603,\"extra\":{\"event\":\"antifan:terminal:data\",\"clients\":1,\"congested\":0,\"bytes\":537},\"ts\":\"2026-09-02T05:56:09.721Z\",\"nowMs\":23797.7796}",
+    "[antifan-benchmark] {\"surface\":\"terminal\",\"name\":\"ptyData\",\"value\":199,\"extra\":{\"sessionId\":\"terminal-2\",\"chunkSeq\":23,\"totalBytes\":3786},\"ts\":\"2026-09-02T05:56:09.767Z\",\"nowMs\":23843.8479}",
+    "[antifan-benchmark] {\"surface\":\"bridge\",\"name\":\"broadcast\",\"value\":0.29720000000088476,\"extra\":{\"event\":\"antifan:terminal:data\",\"clients\":1,\"congested\":0,\"bytes\":440},\"ts\":\"2026-09-02T05:56:09.768Z\",\"nowMs\":23844.3709}",
+    "[antifan-benchmark] {\"surface\":\"terminal\",\"name\":\"ptyData\",\"value\":36,\"extra\":{\"sessionId\":\"terminal-2\",\"chunkSeq\":24,\"totalBytes\":3822},\"ts\":\"2026-09-02T05:56:09.810Z\",\"nowMs\":23886.524}",
+    "[antifan-benchmark] {\"surface\":\"bridge\",\"name\":\"broadcast\",\"value\":0.15130000000135624,\"extra\":{\"event\":\"antifan:terminal:data\",\"clients\":1,\"congested\":0,\"bytes\":153},\"ts\":\"2026-09-02T05:56:09.810Z\",\"nowMs\":23886.8811}",
+    "[antifan-benchmark] {\"surface\":\"terminal\",\"name\":\"ptyData\",\"value\":39,\"extra\":{\"sessionId\":\"terminal-2\",\"chunkSeq\":25,\"totalBytes\":3861},\"ts\":\"2026-09-02T05:56:10.494Z\",\"nowMs\":24570.2473}",
+    "[antifan-benchmark] {\"surface\":\"bridge\",\"name\":\"broadcast\",\"value\":0.14419999999881838,\"extra\":{\"event\":\"antifan:terminal:data\",\"clients\":1,\"congested\":0,\"bytes\":147},\"ts\":\"2026-09-02T05:56:10.494Z\",\"nowMs\":24570.5822}",
+    "[antifan-benchmark] {\"surface\":\"terminal\",\"name\":\"ptyData\",\"value\":31,\"extra\":{\"sessionId\":\"terminal-2\",\"chunkSeq\":26,\"totalBytes\":3892},\"ts\":\"2026-09-02T05:56:10.602Z\",\"nowMs\":24678.335}",
+    "[antifan-benchmark] {\"surface\":\"bridge\",\"name\":\"broadcast\",\"value\":0.15079999999943539,\"extra\":{\"event\":\"antifan:terminal:data\",\"clients\":1,\"congested\":0,\"bytes\":138},\"ts\":\"2026-09-02T05:56:10.602Z\",\"nowMs\":24678.7211}",
+    "[antifan-benchmark] {\"surface\":\"terminal\",\"name\":\"ptyData\",\"value\":5,\"extra\":{\"sessionId\":\"terminal-2\",\"chunkSeq\":27,\"totalBytes\":3897},\"ts\":\"2026-09-02T05:56:10.641Z\",\"nowMs\":24717.9894}",
+    "[antifan-benchmark] {\"surface\":\"bridge\",\"name\":\"broadcast\",\"value\":0.1790000000000873,\"extra\":{\"event\":\"antifan:terminal:data\",\"clients\":1,\"congested\":0,\"bytes\":96},\"ts\":\"2026-09-02T05:56:10.642Z\",\"nowMs\":24718.4062}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"layout\",\"value\":0.7503000000033353,\"extra\":{\"width\":1344,\"height\":815,\"attachedViews\":1},\"ts\":\"2026-09-02T05:56:13.826Z\",\"nowMs\":27902.622}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"switched\",\"value\":20.624700000000303,\"extra\":{\"attachedViews\":1},\"ts\":\"2026-09-02T05:56:13.827Z\",\"nowMs\":27903.8648}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"layout\",\"value\":0.42339999999967404,\"extra\":{\"width\":1344,\"height\":815,\"attachedViews\":1},\"ts\":\"2026-09-02T05:56:16.933Z\",\"nowMs\":31009.8526}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"switched\",\"value\":22.579099999999016,\"extra\":{\"attachedViews\":1},\"ts\":\"2026-09-02T05:56:16.934Z\",\"nowMs\":31010.5844}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"layout\",\"value\":0.41270000000076834,\"extra\":{\"width\":1344,\"height\":815,\"attachedViews\":1},\"ts\":\"2026-09-02T05:56:24.137Z\",\"nowMs\":38213.703}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"switched\",\"value\":24.091599999999744,\"extra\":{\"attachedViews\":1},\"ts\":\"2026-09-02T05:56:24.138Z\",\"nowMs\":38214.8724}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"layout\",\"value\":0.33420000000478467,\"extra\":{\"width\":1344,\"height\":815,\"attachedViews\":1},\"ts\":\"2026-09-02T05:56:27.200Z\",\"nowMs\":41276.7152}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"switched\",\"value\":17.418400000002293,\"extra\":{\"attachedViews\":1},\"ts\":\"2026-09-02T05:56:27.201Z\",\"nowMs\":41277.2797}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"closed\",\"extra\":{\"attachedViews\":1},\"ts\":\"2026-09-02T05:56:34.853Z\",\"nowMs\":48929.8926}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"closed\",\"extra\":{\"attachedViews\":1},\"ts\":\"2026-09-02T05:56:34.870Z\",\"nowMs\":48947.182}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"closed\",\"extra\":{\"attachedViews\":1},\"ts\":\"2026-09-02T05:56:34.875Z\",\"nowMs\":48951.7509}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"closed\",\"extra\":{\"attachedViews\":1},\"ts\":\"2026-09-02T05:56:34.892Z\",\"nowMs\":48968.2912}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"layout\",\"value\":0.2725999999966007,\"extra\":{\"width\":1344,\"height\":815,\"attachedViews\":1},\"ts\":\"2026-09-02T05:56:34.912Z\",\"nowMs\":48989.183}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"switched\",\"value\":4.667600000000675,\"extra\":{\"attachedViews\":1},\"ts\":\"2026-09-02T05:56:34.913Z\",\"nowMs\":48989.6331}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"closed\",\"extra\":{\"attachedViews\":1},\"ts\":\"2026-09-02T05:56:34.913Z\",\"nowMs\":48989.7176}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"layout\",\"value\":2.0117000000027474,\"extra\":{\"width\":1344,\"height\":815,\"attachedViews\":1},\"ts\":\"2026-09-02T05:56:34.950Z\",\"nowMs\":49026.7119}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"switched\",\"value\":19.319100000000617,\"extra\":{\"attachedViews\":1},\"ts\":\"2026-09-02T05:56:34.951Z\",\"nowMs\":49027.4964}",
+    "[antifan-benchmark] {\"surface\":\"tabs\",\"name\":\"closed\",\"extra\":{\"attachedViews\":1},\"ts\":\"2026-09-02T05:56:34.951Z\",\"nowMs\":49027.6481}",
+    "[antifan-benchmark] {\"surface\":\"bridge\",\"name\":\"broadcast\",\"value\":0.7429000000047381,\"extra\":{\"event\":\"antifan:terminal:session\",\"clients\":1,\"congested\":0,\"bytes\":1130},\"ts\":\"2026-09-02T05:56:35.335Z\",\"nowMs\":49411.7922}"
   ]
 }
