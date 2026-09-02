@@ -192,7 +192,7 @@ async function acquireBridgeSession(candidates, boundPid) {
 
       const session = await rpcCall(ws, 'antifan.cli.startSession', {
         backendId: 'cli',
-        grant: 'write',
+        grant: 'eval',
         ownerPid: boundPid,
         ttlMs: 3600000,
       }, 5000);

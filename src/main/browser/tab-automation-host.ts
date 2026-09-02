@@ -997,6 +997,7 @@ export class TabAutomationHost {
       }
 
       return this.ctx.semanticRefRegistry.findInSnapshot({
+        ...params,
         tabId: targetId,
         paneId: effectivePane,
         text: params.text,

@@ -1,55 +1,52 @@
 ---
 phase: 2
-title: "P1 & P2 Core Hardening & Context Invariants"
+title: "Local Stdio Artifact Backpressure Guard & Chunk Capping"
 status: pending
-priority: P1
+priority: P0
 effort: "45m"
 dependencies: [1]
 ---
 
-# Phase 2: P1 & P2 Core Hardening & Context Invariants
+# Phase 2: Local Stdio Artifact Backpressure Guard & Chunk Capping
 
-## Overview
-Surgically fix the two P1 defects and the P2 lineage cleanup: inject `control: execControl` into `AuthenticatedCapabilityContext`, correct `browser.wait` metadata lane to `event-wait`, and clean intermediate random idempotency keys in `WorkflowEngine`.
+## 1. Overview
+In `scripts/antifan-omp-mcp.cjs`, `invoke()` communicates with the Electron Main process over WebSocket and receives tool responses. When Electron Main stages large payloads (e.g., large DOM queries or dumps) into `ArtifactStore`, it returns an `ArtifactRef` metadata object (`{ id: 'artifact-...', sha256: '...', bytes: ..., mime: ... }`).
 
-## Requirements
-- `AuthenticatedCapabilityContext` must receive `control: execControl` so capability executors can report `effectStage` and acknowledge cancellations.
-- `browser.wait` and `anti.browser.wait` catalogue registration must declare `lane: 'event-wait'` to match `WaitRegistry` runtime dispatch.
-- `WorkflowEngine` must pass clean intent objects without dead random idempotency keys, leaving child lineage generation solely to `CapabilityTransportAdapter`.
+Currently, `antifan-omp-mcp.cjs` unconditionally hydrates all non-image `ArtifactRef` instances by fetching the full binary payload via `fetchArtifactBinary()` and decoding it into a massive UTF-8 string over `stdout`. For multi-megabyte DOM snapshots, this saturates the Windows stdio pipe buffer.
 
-## Architecture
+This phase hardens the proxy:
+1. **Preserve ArtifactRef for Large Payloads:** If an `ArtifactRef` is returned by a capability and exceeds 64 KiB (and is not an explicit screenshot tool), preserve the `ArtifactRef` metadata (`id`, `sha256`, `bytes`, `mime`) in the MCP tool response instead of forcing a full raw string hydration.
+2. **Cap `artifact.read` Chunks:** Ensure MCP-facing `artifact.read` tool respects a bounded chunk size (default $\le 32\text{ KiB}$ per frame) rather than dumping up to 1 MiB per stdout frame.
+
+## 2. Requirements
+- Edit `scripts/antifan-omp-mcp.cjs` lines 483–505 to inspect `data.bytes` or payload size before hydrating text.
+- If payload $\ge 64\text{ KiB}$ and tool is not an explicit image viewer, return structured `ArtifactRef` metadata with `id: data.id`.
+- Ensure callers can read chunks sequentially via `artifact.read` tool with bounded chunk size.
+
+## 3. Architecture & Payload Routing
 ```text
-CapabilityTransportAdapter.dispatchIntent()
-  ├─ const execControl = new ExecutionControlImpl(invocationId);
-  ├─ authContext: AuthenticatedCapabilityContext = {
-  │    ...,
-  │    control: execControl   <-- [INJECTED]
-  │  }
-  └─ this.classifySettlement(err, policy, execControl)
-
-Browser Capabilities Registration:
-  └─ makeBrowserPolicy({ lane: 'event-wait', ... })  <-- [ALIGNED WITH WAITREGISTRY]
-
-WorkflowEngine.invokeCap():
-  └─ minimalIntent = { name, params: payload }       <-- [CLEANED INTERMEDIATE KEY]
+invoke(name, args) ──► Electron Main
+                           │
+                           ▼
+Returns ArtifactRef: { id: "artifact-...", bytes: 248102, mime: "text/html" }
+                           │
+                           ▼
+antifan-omp-mcp.cjs (CallToolHandler)
+  ├─ If Screenshot / Image ────────► Hydrate Image Content (MCP Image Protocol)
+  ├─ If Text & bytes < 64 KB ──────► Hydrate Text Content (Inline Text)
+  └─ If Text & bytes >= 64 KB ─────► Return ArtifactRef Metadata (id, sha256, bytes)
 ```
 
-## Related Code Files
-- Modify: `src/main/tools/capability-transport.ts`
-- Modify: `src/main/tools/browser-capabilities.ts`
-- Modify: `src/main/workflow/workflow-engine.ts`
+## 4. Related Code Files
+- Modify: `scripts/antifan-omp-mcp.cjs`
+- Inspect: `src/main/tools/artifact-store.ts`
 
-## Implementation Steps
-1. Edit `src/main/tools/capability-transport.ts` line 407 to include `control: execControl`.
-2. Edit `src/main/tools/browser-capabilities.ts` lines 172 and 440 to specify `lane: 'event-wait'`.
-3. Edit `src/main/workflow/workflow-engine.ts` line 382 to remove `makeControlPlaneId` key assignment in `minimalIntent`.
-4. Run focused compiler and unit test checks (`tsc -p .`, `test/main/capability-catalogue.test.ts`, `test/main/workflow-engine.test.ts`).
+## 5. Implementation Steps
+1. Update `scripts/antifan-omp-mcp.cjs` to check `data.bytes` or payload byte length.
+2. If `data.bytes >= 65536` and not a screenshot tool, return `{ content: [{ type: 'text', text: JSON.stringify(data) }] }`.
+3. Verify with DOM inspection probe.
 
-## Success Criteria
-- [ ] `authContext.control` is defined and populated for all authenticated dispatches.
-- [ ] `catalogue.getPolicy('browser.wait').schedulerLane === 'event-wait'`.
-- [ ] `WorkflowEngine` dispatches preserve deterministic `child:...` idempotency keys in `InvocationLedger`.
-
-## Risk Assessment
-- Risk: Capability handlers throwing if `control` methods fail.
-- Mitigation: `ExecutionControlImpl` methods are non-throwing and idempotent.
+## 6. Success Criteria & Verification
+- [ ] No non-image tool call forces $>64\text{ KiB}$ text hydration over stdio without explicit chunked read.
+- [ ] Existing screenshot tools continue to hydrate images properly.
+- [ ] Tool calls return standard `artifact-...` identifiers and metadata.

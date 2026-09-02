@@ -9,9 +9,8 @@ import { CapabilityError } from '../../shared/control-plane-contracts';
 export const ISOLATED_AGENT_WORLD_ID = 1004;
 export const MAX_SNAPSHOT_DESCRIPTORS = 150;
 export const MAX_LABEL_LENGTH = 60;
-export const MAX_TOTAL_SERIALIZED_BYTES = 128 * 1024; // 128 KB
+export const MAX_TOTAL_SERIALIZED_BYTES = 512 * 1024; // 512 KB
 export const MAX_TRAVERSAL_DEPTH = 32;
-
 export type TraversalStepKind = 'dom' | 'shadow' | 'iframe';
 
 export interface TraversalStep {

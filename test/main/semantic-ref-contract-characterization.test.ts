@@ -235,7 +235,7 @@ describe('Semantic Ref Contract Characterization', () => {
         framePath: 'f'.repeat(1000),
       },
     };
-    const giantList = Array.from({ length: 40 }, () => hugeDescriptor);
+    const giantList = Array.from({ length: 140 }, () => hugeDescriptor);
     assert.ok(Buffer.byteLength(JSON.stringify(giantList), 'utf8') > MAX_TOTAL_SERIALIZED_BYTES);
     assert.throws(
       () =>

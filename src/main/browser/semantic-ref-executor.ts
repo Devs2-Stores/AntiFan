@@ -603,7 +603,9 @@ export function buildIsolatedCollectorScript(nonce: string, expectedUrl: string,
         let sectionId = undefined;
         let productId = undefined;
         let blockId = undefined;
-        while (current && current !== document.body && current !== document.documentElement) {
+        let depth = 0;
+        while (current && current !== document.body && current !== document.documentElement && depth < 8) {
+          depth++;
           if (!sectionId && current.dataset) {
             sectionId = current.dataset.sectionId || current.getAttribute('data-section-id') || undefined;
           }
@@ -613,10 +615,15 @@ export function buildIsolatedCollectorScript(nonce: string, expectedUrl: string,
           if (!blockId && current.dataset) {
             blockId = current.dataset.blockId || current.getAttribute('data-block-id') || undefined;
           }
+          if (sectionId && productId && blockId) break;
           current = current.parentElement;
         }
         if (sectionId || productId || blockId) {
-          return { sectionId, productId, blockId };
+          return {
+            sectionId: sectionId ? sectionId.slice(0, 80) : undefined,
+            productId: productId ? productId.slice(0, 80) : undefined,
+            blockId: blockId ? blockId.slice(0, 80) : undefined
+          };
         }
         return undefined;
       }

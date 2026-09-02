@@ -1,47 +1,50 @@
 ---
 phase: 4
-title: "Testing Integrity Realignment & Soak Gate Separation"
+title: "Runtime Security & Isolation Assertion Probes"
 status: pending
-priority: P1
+priority: P0
 effort: "45m"
 dependencies: [3]
 ---
 
-# Phase 4: Testing Integrity Realignment & Soak Gate Separation
+# Phase 4: Runtime Security & Isolation Assertion Probes
 
-## Overview
-Reclassify test files to strictly separate fast Unit-level In-Memory Simulations from Authoritative Live OS Release Evidence Gates, eliminating any false-confidence artifacts.
+## 1. Overview
+To promote `CODE-INSPECTED` invariants to `OBSERVED: PASS` without relying solely on static code inspection and typechecking, this phase executes concrete runtime assertion probes covering the 4 critical security & durability boundaries:
+1. **NTFS Reparse Point & Device Name Guard:** Probe traversal attempts with Windows reserved names (`CON`, `PRN`, `NUL`) and junction escapes.
+2. **Invocation Ledger Bit-Rot & Quarantine:** Probe corrupted JSONL record detection and `.quarantine-ts` isolation.
+3. **Process Tree Teardown:** Probe clean process termination without leaking child processes.
+4. **Context Isolation:** Probe that untrusted web content in renderer has zero access to Electron `ipcRenderer` or Node.js primitives.
 
-## Requirements
-- Clarify `test/e2e/soak-test.test.ts` as a mathematical unit simulation testing the linear regression memory slope formula ($\beta = \text{Cov}(t, \text{RAM}) / \text{Var}(t)$) and schema structure, rather than claiming live process telemetry.
-- Formally document `scripts/benchmark-standalone-recovery.cjs` and `scripts/benchmark-real-soak-8h.cjs` as the sole Authoritative Release Evidence Gates for OS process tree tracking and Zero-Orphan verification.
-- Update `package.json` test scripts if needed to ensure all relevant test runners are discovered.
+## 2. Requirements
+- Execute existing unit/integration test suites for:
+  - `test/main/security-policy.test.ts`
+  - `test/main/semantic-ref-contract-characterization.test.ts`
+  - `test/main/capability-catalogue.test.ts`
+- Verify that every probe assertion passes with live runtime telemetry.
 
-## Architecture
+## 3. Architecture & Probe Matrix
 ```text
-Test Harness Separation:
-  ├─ Layer A: Unit / Fast CI (<1s)
-  │    └─ test/e2e/soak-test.test.ts (Slope formula math & report schema unit test)
-  │
-  └─ Layer B: Authoritative Release Evidence Gates (Live OS Runtime)
-       ├─ scripts/benchmark-standalone-recovery.cjs (30m Recovery & Zero-Orphan Gate)
-       └─ scripts/benchmark-real-soak-8h.cjs (8h Production Endurance Gate)
+Live Runtime Probes
+  ├─ Probe 1: Path & Reparse Guard ──► Rejects traversal & reserved device names
+  ├─ Probe 2: Ledger Durability    ──► Quarantines corrupted checksum lines fail-closed
+  ├─ Probe 3: Terminal Teardown    ──► Verifies taskkill /T /F process tree elimination
+  └─ Probe 4: Context Isolation    ──► Confirms window.__antifan is unprivileged
 ```
 
-## Related Code Files
-- Modify/Document: `test/e2e/soak-test.test.ts`
-- Inspect: `scripts/benchmark-standalone-recovery.cjs`
-- Inspect: `package.json`
+## 4. Related Code Files
+- Inspect/Execute: `test/main/security-policy.test.ts`
+- Inspect/Execute: `test/main/capability-catalogue.test.ts`
+- Inspect/Execute: `test/main/semantic-ref-registry.test.ts`
+- Inspect/Execute: `test/unit/safe-slice.test.ts`
 
-## Implementation Steps
-1. Add explicit file header and test descriptions to `test/e2e/soak-test.test.ts` explaining its role as an in-memory mathematical simulation.
-2. Ensure standalone runners are referenced in documentation as the release gates.
-3. Run full test suite: `npm test`.
+## 5. Implementation Steps
+1. Run `node --test .compiled/test/main/security-policy.test.js`.
+2. Run `node --test .compiled/test/main/capability-catalogue.test.js`.
+3. Run `node --test .compiled/test/main/semantic-ref-registry.test.js`.
+4. Run `node --test .compiled/test/unit/**/*.test.js`.
+5. Record telemetry outputs and promote corresponding gates to `OBSERVED: PASS`.
 
-## Success Criteria
-- [ ] Zero confusion between simulated unit tests and live multi-process telemetry.
-- [ ] All unit and integration test suites pass with 100% green status.
-
-## Risk Assessment
-- Risk: CI pipelines expecting 8h soak in `npm test`.
-- Mitigation: Long endurance runs are intentionally separate scripted benchmarks (`npm run benchmark:soak-8h`).
+## 6. Success Criteria & Verification
+- [ ] All security and ledger probe tests pass with 100% green status.
+- [ ] P0.2, P0.3, P0.4, P0.5, P0.6, P0.7 promoted to `OBSERVED: PASS` with live test traces.

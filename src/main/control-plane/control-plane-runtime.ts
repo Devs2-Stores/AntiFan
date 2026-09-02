@@ -263,7 +263,7 @@ export class ControlPlaneRuntime {
       workspaceId: targetWs.id,
       chatId: options.chatId,
       backendId: options.backendId || 'cli',
-      grant: options.grant || 'write',
+      grant: options.grant || 'eval',
       tabId: options.tabId,
       browserEpoch: options.browserEpoch,
       ttlMs,

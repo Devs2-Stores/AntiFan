@@ -703,6 +703,8 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
       properties: {
         text: { type: 'string' },
         regex: { type: 'string' },
+        pattern: { type: 'string' },
+        query: { type: 'string' },
         tabId: { type: 'string' },
         paneId: { type: 'string', enum: ['desktop', 'mobile'] },
         maxMatches: { type: 'number' },
@@ -723,9 +725,11 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
       properties: {
         text: { type: 'string', description: 'Plain text to search for in page snapshot' },
         regex: { type: 'string', description: 'Regular expression to search for in page snapshot' },
+        pattern: { type: 'string' },
+        query: { type: 'string' },
       },
     },
-    execute: (params: { text?: string; regex?: string; tabId?: string; paneId?: 'desktop' | 'mobile'; maxMatches?: number }, context) =>
+    execute: (params: { text?: string; regex?: string; pattern?: string; query?: string; tabId?: string; paneId?: 'desktop' | 'mobile'; maxMatches?: number }, context) =>
       browser.agentFind(params, context.browserTarget),
   });
 

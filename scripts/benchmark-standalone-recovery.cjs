@@ -137,7 +137,7 @@ async function main() {
   let childExited = false;
   let childExitCode = null;
   let executionError = null;
-
+  let bridge = null;
   try {
     // 1. Fixture Server
     fixtureServer = http.createServer((req_, res) => {
@@ -184,7 +184,7 @@ async function main() {
     });
 
     const bridgePath = path.join(configDir, 'bridge.json');
-    let bridge = null;
+    bridge = null;
     for (let i = 0; i < 240; i++) {
       if (fs.existsSync(bridgePath)) {
         try {
@@ -195,8 +195,11 @@ async function main() {
       await sleep(250);
     }
     if (!bridge) throw new Error('Bridge server failed to initialize.');
+    if (bridge.pid) {
+      observedPids.add(bridge.pid);
+    }
 
-    console.log(`[recovery] Bridge server connected on port ${bridge.port}`);
+    console.log(`[recovery] Bridge server connected on port ${bridge.port} (PID: ${bridge.pid || 'unknown'})`);
     ws = new WebSocket(`ws://127.0.0.1:${bridge.port}`, {
       headers: { authorization: `Bearer ${bridge.token}` },
     });
@@ -316,9 +319,12 @@ async function main() {
     if (fixtureServer) {
       try { fixtureServer.close(); } catch {}
     }
-    if (child && child.pid) {
+    const pidsToKill = new Set();
+    if (child && child.pid) pidsToKill.add(child.pid);
+    if (bridge && bridge.pid) pidsToKill.add(bridge.pid);
+    for (const pid of pidsToKill) {
       try {
-        await execFilePromise('taskkill', ['/PID', String(child.pid), '/T', '/F'], { windowsHide: true });
+        await execFilePromise('taskkill', ['/PID', String(pid), '/T', '/F'], { windowsHide: true });
       } catch {}
     }
   }

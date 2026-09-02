@@ -243,7 +243,7 @@ export class CapabilityCatalogue {
     if (this.runtime.mode !== 'standalone') return false;
     if (grant === 'write') return definition.risk === 'write';
     if (grant === 'execute') return definition.risk === 'execute';
-    if (grant === 'eval') return this.options.allowEval === true && definition.risk === 'eval';
+    if (grant === 'eval') return this.options.allowEval === true && (definition.risk === 'eval' || definition.risk === 'write');
     return false;
   }
 }

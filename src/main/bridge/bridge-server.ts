@@ -856,7 +856,7 @@ export class BridgeServer {
               workspaceId: typeof p.workspaceId === 'string' ? p.workspaceId : undefined,
               cwd: typeof p.cwd === 'string' ? p.cwd : undefined,
               backendId: p.backendId || 'cli',
-              grant: p.grant || 'write',
+              grant: p.grant || 'eval',
               tabId,
               browserEpoch: p.browserEpoch,
               ttlMs: typeof p.ttlMs === 'number' ? Math.min(Math.max(p.ttlMs, 10_000), 86_400_000) : 7_200_000,

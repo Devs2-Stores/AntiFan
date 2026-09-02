@@ -1174,16 +1174,58 @@ describe('Capability catalogue', () => {
           cancellationAckTimeoutMs: 5000,
           policyVersion: 1,
         },
-        inputSchema: { type: 'object', properties: { markEffect: { type: 'boolean' }, shouldTimeout: { type: 'boolean' } } },
+        inputSchema: {
+          type: 'object',
+          properties: {
+            markEffect: { type: 'boolean' },
+            shouldTimeout: { type: 'boolean' },
+            shouldAbort: { type: 'boolean' },
+            ackNoEffect: { type: 'boolean' },
+            ignoreSignal: { type: 'boolean' },
+            delayMs: { type: 'number' },
+          },
+        },
         execute: async (rawParams: unknown, ctx: CapabilityRequestContext) => {
-          const params = (rawParams || {}) as { markEffect?: boolean; shouldTimeout?: boolean };
+          const params = (rawParams || {}) as {
+            markEffect?: boolean;
+            shouldTimeout?: boolean;
+            shouldAbort?: boolean;
+            ackNoEffect?: boolean;
+            ignoreSignal?: boolean;
+            delayMs?: number;
+          };
+          const authCtx = ctx as AuthenticatedCapabilityContext;
           if (params.markEffect) {
-            (ctx as AuthenticatedCapabilityContext).control?.setEffectStage('effect-started');
+            authCtx.control?.setEffectStage('effect-started');
+          }
+          if (params.delayMs) {
+            await new Promise((resolve) => setTimeout(resolve, params.delayMs));
+          }
+          if (authCtx.signal?.aborted && !params.ignoreSignal) {
+            if (params.ackNoEffect && authCtx.control?.cancellationId) {
+              authCtx.control.acknowledgeCancellation(authCtx.control.cancellationId, 'no-effect');
+            }
+            const err = new Error('Execution was aborted');
+            (err as any).name = 'AbortError';
+            (err as any).code = 'ABORTED';
+            throw err;
           }
           if (params.shouldTimeout) {
             const err = new Error('Operation timed out during execution');
             (err as any).code = 'EXECUTION_TIMEOUT';
             throw err;
+          }
+          if (params.shouldAbort) {
+            if (params.ackNoEffect && authCtx.control?.cancellationId) {
+              authCtx.control.acknowledgeCancellation(authCtx.control.cancellationId, 'no-effect');
+            }
+            const err = new Error('Execution was aborted');
+            (err as any).name = 'AbortError';
+            (err as any).code = 'ABORTED';
+            throw err;
+          }
+          if (params.ackNoEffect && authCtx.control?.cancellationId) {
+            authCtx.control.acknowledgeCancellation(authCtx.control.cancellationId, 'no-effect');
           }
           return { done: true };
         },
@@ -1222,6 +1264,102 @@ describe('Capability catalogue', () => {
 
       const ledgerRecord2 = await ledger.getRecord(noEffectTimeoutRes.invocationId!);
       assert.strictEqual(ledgerRecord2?.state, 'failed', 'Settlement must be classified as failed when timeout occurs before effect-started');
+
+      // (c) Concurrent transport abort with effect marked (effect-started) without ack -> settles as 'unknown'
+      const abortCtrl1 = new AbortController();
+      const effectAbortIntent = {
+        requestId: 'req-effect-abort-1',
+        idempotencyKey: 'idem-effect-abort-1',
+        attachmentId: launch.attachmentId,
+        attachmentSecret: launch.secret,
+        authorityRevision: launch.authorityRevision,
+        name: 'test.effect-tracker',
+        params: { markEffect: true, delayMs: 200 },
+      };
+      const effectAbortPromise = transport.dispatchIntent(effectAbortIntent, { signal: abortCtrl1.signal });
+      setTimeout(() => abortCtrl1.abort(), 50);
+      const effectAbortRes = await effectAbortPromise;
+      assert.strictEqual(effectAbortRes.ok, false);
+      assert.strictEqual(effectAbortRes.error?.code, 'ABORTED');
+
+      const ledgerRecord3 = await ledger.getRecord(effectAbortRes.invocationId!);
+      assert.strictEqual(ledgerRecord3?.state, 'unknown', 'Settlement must be classified as unknown when abort occurs after effect-started without no-effect ack');
+
+      // (d) Handler-forged internal AbortError at not-started without transport cancellation -> settles as 'failed'
+      const forgedAbortIntent = {
+        requestId: 'req-forged-abort-1',
+        idempotencyKey: 'idem-forged-abort-1',
+        attachmentId: launch.attachmentId,
+        attachmentSecret: launch.secret,
+        authorityRevision: launch.authorityRevision,
+        name: 'test.effect-tracker',
+        params: { markEffect: false, shouldAbort: true },
+      };
+      const forgedAbortRes = await transport.dispatchIntent(forgedAbortIntent);
+      assert.strictEqual(forgedAbortRes.ok, false);
+      assert.strictEqual(forgedAbortRes.error?.code, 'ABORTED');
+
+      const ledgerRecord4 = await ledger.getRecord(forgedAbortRes.invocationId!);
+      assert.strictEqual(ledgerRecord4?.state, 'failed', 'Unrequested internal AbortError must settle as failed rather than clean interrupted');
+
+      // (e) Transport abort in-flight with explicit 'no-effect' acknowledgement -> settles as 'interrupted'
+      const abortCtrl2 = new AbortController();
+      const ackNoEffectIntent = {
+        requestId: 'req-ack-no-effect-1',
+        idempotencyKey: 'idem-ack-no-effect-1',
+        attachmentId: launch.attachmentId,
+        attachmentSecret: launch.secret,
+        authorityRevision: launch.authorityRevision,
+        name: 'test.effect-tracker',
+        params: { markEffect: false, delayMs: 40, ackNoEffect: true },
+      };
+      const ackNoEffectPromise = transport.dispatchIntent(ackNoEffectIntent, { signal: abortCtrl2.signal });
+      setTimeout(() => abortCtrl2.abort(), 10);
+      const ackNoEffectRes = await ackNoEffectPromise;
+      assert.strictEqual(ackNoEffectRes.ok, false);
+      assert.strictEqual(ackNoEffectRes.error?.code, 'ABORTED');
+
+      const ledgerRecord5 = await ledger.getRecord(ackNoEffectRes.invocationId!);
+      assert.strictEqual(ledgerRecord5?.state, 'interrupted', 'In-flight transport abort with no-effect acknowledgement must settle as interrupted');
+
+      // (f) Success race: handler ignores abort signal and resolves data without no-effect ack -> settles as 'unknown'
+      const abortCtrl3 = new AbortController();
+      const raceIntent = {
+        requestId: 'req-race-1',
+        idempotencyKey: 'idem-race-1',
+        attachmentId: launch.attachmentId,
+        attachmentSecret: launch.secret,
+        authorityRevision: launch.authorityRevision,
+        name: 'test.effect-tracker',
+        params: { markEffect: true, delayMs: 200, ignoreSignal: true },
+      };
+      const racePromise = transport.dispatchIntent(raceIntent, { signal: abortCtrl3.signal });
+      setTimeout(() => abortCtrl3.abort(), 50);
+      const raceRes = await racePromise;
+      assert.strictEqual(raceRes.ok, false);
+      assert.strictEqual(raceRes.error?.code, 'ABORTED');
+
+      const ledgerRecord6 = await ledger.getRecord(raceRes.invocationId!);
+      assert.strictEqual(ledgerRecord6?.state, 'unknown', 'Late resolution under transport abort without no-effect ack must settle as unknown');
+
+      // (g) Pre-dispatch abort: signal already aborted before dispatch_started -> settles as 'interrupted'
+      const preAbortedCtrl = new AbortController();
+      preAbortedCtrl.abort();
+      const preAbortIntent = {
+        requestId: 'req-pre-abort-1',
+        idempotencyKey: 'idem-pre-abort-1',
+        attachmentId: launch.attachmentId,
+        attachmentSecret: launch.secret,
+        authorityRevision: launch.authorityRevision,
+        name: 'test.effect-tracker',
+        params: { markEffect: true },
+      };
+      const preAbortRes = await transport.dispatchIntent(preAbortIntent, { signal: preAbortedCtrl.signal });
+      assert.strictEqual(preAbortRes.ok, false);
+      assert.strictEqual(preAbortRes.error?.code, 'ABORTED');
+
+      const ledgerRecord7 = await ledger.getRecord(preAbortRes.invocationId!);
+      assert.strictEqual(ledgerRecord7?.state, 'interrupted', 'Pre-dispatch cancellation must settle as interrupted');
     } finally {
       await fs.promises.rm(tmpDir, { recursive: true, force: true });
     }

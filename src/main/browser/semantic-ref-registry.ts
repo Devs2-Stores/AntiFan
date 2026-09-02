@@ -441,8 +441,20 @@ export class SemanticRefRegistry {
     }
     this.pruneExpiredRecords();
 
-    const textQuery = typeof params.text === 'string' ? params.text.trim() : '';
-    const regexQuery = typeof params.regex === 'string' ? params.regex.trim() : '';
+    const rawParams = params as unknown as Record<string, unknown>;
+    const queryParam = typeof rawParams.query === 'string' ? rawParams.query : undefined;
+    const patternParam = typeof rawParams.pattern === 'string' ? rawParams.pattern : undefined;
+    let rawText = typeof params.text === 'string' ? params.text : (queryParam ?? patternParam ?? '');
+    let rawRegex = typeof params.regex === 'string' ? params.regex : '';
+
+    // If pattern was passed and looks like a regex literal e.g. /pattern/i, treat as regex if rawRegex is empty
+    if (!rawRegex && patternParam && /^\/.+\/[gimsuy]*$/.test(patternParam.trim())) {
+      rawRegex = patternParam.trim();
+      rawText = '';
+    }
+
+    const textQuery = rawText.trim();
+    const regexQuery = rawRegex.trim();
 
     if (!textQuery && !regexQuery) {
       throw new CapabilityError('INVALID_ARGUMENT', 'Either "text" or "regex" must be provided for snapshot search');

@@ -68,8 +68,21 @@ class ExecutionControlImpl implements CapabilityExecutionControl {
     this.abortController.abort();
   }
 
-  acknowledgeCancellation(ack: EffectAcknowledgement): void {
+  acknowledgeCancellation(cancellationId: string, ack: EffectAcknowledgement): boolean {
+    if (!this.signal.aborted || !cancellationId || cancellationId !== this.cancellationId) {
+      return false;
+    }
+    if (ack === 'no-effect' && this._effectStage !== 'not-started') {
+      return false;
+    }
+    if (this._cancellationAck === 'effect-committed') {
+      return false;
+    }
+    if (this._cancellationAck === 'effect-possible' && ack === 'no-effect') {
+      return false;
+    }
     this._cancellationAck = ack;
+    return true;
   }
 
   get cancellationAck(): EffectAcknowledgement | undefined {
@@ -354,6 +367,25 @@ export class CapabilityTransportAdapter {
         };
       }
     }
+    // Pre-dispatch cancellation check: if caller already aborted before dispatch_started,
+    // settle immediately as clean 'interrupted' without executing side effects or advancing to dispatch_started.
+    if (runtimeOptions?.signal?.aborted) {
+      const preDispatchErr = {
+        code: 'ABORTED',
+        message: 'Execution was aborted before dispatch started',
+      };
+      if (this.ledger && isOwner) {
+        try {
+          await this.ledger.settle(invocationId, 'interrupted', undefined, preDispatchErr);
+        } catch {}
+      }
+      return {
+        ok: false,
+        requestId: intent.requestId,
+        invocationId,
+        error: preDispatchErr,
+      };
+    }
 
     // Step 5: Durably advance stage to dispatch_started
     if (this.ledger && isOwner) {
@@ -376,6 +408,19 @@ export class CapabilityTransportAdapter {
 
     // Step 6: Execute capability
     const execControl = new ExecutionControlImpl(invocationId);
+    let abortListenerCleanup: (() => void) | undefined;
+    if (runtimeOptions?.signal) {
+      if (runtimeOptions.signal.aborted) {
+        execControl.abort('owner');
+      } else {
+        const onAbort = () => execControl.abort('owner');
+        runtimeOptions.signal.addEventListener('abort', onAbort, { once: true });
+        abortListenerCleanup = () => {
+          runtimeOptions.signal?.removeEventListener('abort', onAbort);
+        };
+      }
+    }
+
     let childSeq = 0;
     const dispatchChildIntent = async (stepId: string, attempt: number, childIntent: ClientInvocationIntent) => {
       childSeq++;
@@ -406,12 +451,18 @@ export class CapabilityTransportAdapter {
         grant: liveAuthority.grant,
         lease: record.lease!,
         leaseToken: liveAuthority.runtimeLeaseToken || '',
-        signal: runtimeOptions?.signal,
+        signal: execControl.signal,
         control: execControl,
         progressSink: runtimeOptions?.progressSink,
         authorityRevision: liveAuthority.authorityRevision,
         dispatchChildIntent,
       };
+      if (execControl.signal.aborted) {
+        const err = new Error('Execution was aborted before handler dispatch');
+        (err as unknown as { code: string; name: string }).code = 'ABORTED';
+        (err as unknown as { code: string; name: string }).name = 'AbortError';
+        throw err;
+      }
       const data = await this.catalogue.dispatchAuthenticated(
         intent.name,
         (intent.params as Record<string, unknown>) || {},
@@ -454,6 +505,27 @@ export class CapabilityTransportAdapter {
             if (newRev) replacementAuthorityRevision = newRev;
           }
         }
+      }
+      // Check if cancellation arrived during execution under abort-immediate
+      if (execControl.signal.aborted && policy?.ownerCancellationBehavior !== 'drain-and-persist') {
+        const isInterrupted = execControl.cancellationAck === 'no-effect' && execControl.effectStage === 'not-started';
+        const errObj = {
+          code: 'ABORTED',
+          message: isInterrupted
+            ? 'Execution was aborted before effects were committed'
+            : 'Execution was aborted with indeterminate effect state',
+        };
+        if (this.ledger && isOwner) {
+          try {
+            await this.ledger.settle(invocationId, isInterrupted ? 'interrupted' : 'unknown', undefined, errObj);
+          } catch {}
+        }
+        return {
+          ok: false,
+          requestId: intent.requestId,
+          invocationId,
+          error: errObj,
+        };
       }
 
       // Step 7: Persist terminal receipt (completed)
@@ -500,6 +572,8 @@ export class CapabilityTransportAdapter {
         invocationId,
         error: errObj,
       };
+    } finally {
+      abortListenerCleanup?.();
     }
   }
 
@@ -509,17 +583,18 @@ export class CapabilityTransportAdapter {
     control: ExecutionControlImpl
   ): { state: 'failed' | 'interrupted' | 'unknown'; code: string; message: string; details?: unknown } {
     const typed = err as { code?: string; message?: string; name?: string; details?: unknown };
+    const isTransportAbort = control.signal.aborted;
     const isAbort =
+      isTransportAbort ||
       typed?.name === 'AbortError' ||
       (err instanceof Error && err.name === 'AbortError') ||
       typed?.code === 'ABORTED' ||
-      typed?.code === 'CANCELLED' ||
-      control.signal.aborted;
+      typed?.code === 'CANCELLED';
 
     if (isAbort || typed?.code === 'PROCESS_INTERRUPTED') {
       const ack = control.cancellationAck;
       const effectStage = control.effectStage;
-      if (ack === 'no-effect' || effectStage === 'not-started') {
+      if (ack === 'no-effect' || (isTransportAbort && effectStage === 'not-started')) {
         return {
           state: 'interrupted',
           code: typed?.code || 'ABORTED',
@@ -527,16 +602,16 @@ export class CapabilityTransportAdapter {
           details: typed?.details,
         };
       }
-      if (ack === 'effect-committed' || effectStage === 'effect-committed') {
+      if (!isTransportAbort && effectStage === 'not-started') {
         return {
-          state: policy?.ownerCancellationBehavior === 'drain-and-persist' ? 'interrupted' : 'unknown',
+          state: 'failed',
           code: typed?.code || 'ABORTED',
-          message: typed?.message || 'Execution was aborted after effects were committed',
+          message: typed?.message || 'Execution failed with unrequested internal abort',
           details: typed?.details,
         };
       }
       return {
-        state: policy?.ownerCancellationBehavior === 'abort-immediate' ? 'interrupted' : 'unknown',
+        state: 'unknown',
         code: typed?.code || 'ABORTED',
         message: typed?.message || 'Execution was aborted with indeterminate effect state',
         details: typed?.details,

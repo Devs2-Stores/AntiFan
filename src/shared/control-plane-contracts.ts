@@ -187,7 +187,7 @@ export interface CapabilityExecutionControl {
   readonly effectStage: EffectMarker;
   setEffectStage(stage: 'effect-started' | 'effect-committed'): void;
   readonly signal: AbortSignal;
-  acknowledgeCancellation(ack: EffectAcknowledgement): void;
+  acknowledgeCancellation(cancellationId: string, ack: EffectAcknowledgement): boolean;
   readonly cancellationAck?: EffectAcknowledgement;
 }
 export interface ClientInvocationIntent<T = unknown> {
