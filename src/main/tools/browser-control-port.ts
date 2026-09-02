@@ -1168,7 +1168,14 @@ export class BrowserControlPort {
         }
       }
 
-      const curBase64 = await this.host.captureScreenshot(undefined, tabId, effectivePane);
+      let curBase64 = await this.host.captureScreenshot(undefined, tabId, effectivePane);
+      if (!curBase64 || curBase64.length === 0) {
+        await new Promise((r) => setTimeout(r, 150));
+        curBase64 = await this.host.captureScreenshot(undefined, tabId, effectivePane);
+      }
+      if (!curBase64 || curBase64.length === 0) {
+        throw new CapabilityError('TARGET_STALE', `Failed to capture non-empty viewport screenshot on tab '${tabId}' (document may still be rendering)`);
+      }
       const curBuffer = Buffer.from(curBase64, 'base64');
       const curArtifact = this.artifacts
         ? await this.artifacts.stage({ kind: 'screenshot', mime: 'image/png', data: curBuffer, runId, attemptId, projectId: target.projectId, workspaceId: target.workspaceId, maxBytes: 8 * 1024 * 1024 })
@@ -1212,7 +1219,14 @@ export class BrowserControlPort {
             // Non-blocking normalization
           }
         }
-        const compBase64 = await this.host.captureScreenshot(undefined, compTabId, effectivePane);
+        let compBase64 = await this.host.captureScreenshot(undefined, compTabId, effectivePane);
+        if (!compBase64 || compBase64.length === 0) {
+          await new Promise((r) => setTimeout(r, 150));
+          compBase64 = await this.host.captureScreenshot(undefined, compTabId, effectivePane);
+        }
+        if (!compBase64 || compBase64.length === 0) {
+          throw new CapabilityError('TARGET_STALE', `Failed to capture non-empty baseline screenshot on comparison tab '${compTabId}'`);
+        }
         baselineBuffer = Buffer.from(compBase64, 'base64');
         const compArtifact = this.artifacts
           ? await this.artifacts.stage({ kind: 'screenshot', mime: 'image/png', data: baselineBuffer, runId, attemptId, projectId: target.projectId, workspaceId: target.workspaceId, maxBytes: 8 * 1024 * 1024 })

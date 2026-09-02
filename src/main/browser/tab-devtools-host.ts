@@ -666,6 +666,15 @@ export class TabDevToolsHost {
           }
         } catch {}
 
+        // If all 3 tiers yielded empty string, do a fast retry after 100ms
+        try {
+          await new Promise((r) => setTimeout(r, 100));
+          const retryImg = await withTimeout(wc.capturePage(rect), 800, null);
+          if (retryImg && typeof retryImg.isEmpty === 'function' && !retryImg.isEmpty()) {
+            return format === 'jpeg' ? retryImg.toJPEG(quality).toString('base64') : retryImg.toPNG().toString('base64');
+          }
+        } catch {}
+
         return '';
       };
 
@@ -740,7 +749,13 @@ export class TabDevToolsHost {
           return out;
         }
         try {
-          const result = await (0, eval)(${JSON.stringify(expression)});
+          // Guard against background tab rAF freeze with 15s timeout
+          const execPromise = (async () => (0, eval)(${JSON.stringify(expression)}))();
+          let timer;
+          const timeoutPromise = new Promise((_, reject) => {
+            timer = setTimeout(() => reject(new Error('Evaluation timed out after 15000ms (note: requestAnimationFrame pauses in background tabs)')), 15000);
+          });
+          const result = await Promise.race([execPromise, timeoutPromise]).finally(() => clearTimeout(timer));
           return serializeCircularSafe(result);
         } catch (err) {
           throw err;
