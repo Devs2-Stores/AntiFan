@@ -272,4 +272,206 @@ describe('OMP MCP stdio proxy security & bootstrap fail-closed contract', () => 
       await new Promise<void>((resolve) => wss.close(() => resolve()));
     }
   });
+
+  it('registers anti.artifact.read and clamps limit to <= 32768 bytes on dispatch', async () => {
+    const { spawn } = await import('node:child_process');
+    const { WebSocketServer } = await import('ws');
+    const scriptPath = fs.existsSync(path.resolve(__dirname, '../../../scripts/antifan-omp-mcp.cjs'))
+      ? path.resolve(__dirname, '../../../scripts/antifan-omp-mcp.cjs')
+      : path.resolve(__dirname, '../../scripts/antifan-omp-mcp.cjs');
+
+    const wss = new WebSocketServer({ host: '127.0.0.1', port: 0 });
+    await new Promise<void>((resolve) => wss.once('listening', () => resolve()));
+    const port = (wss.address() as any).port;
+
+    let dispatchReceived: any = null;
+    wss.on('connection', (ws) => {
+      ws.on('message', (raw) => {
+        try {
+          const msg = JSON.parse(raw.toString());
+          if (msg.method === 'antifan.capability.dispatch') {
+            dispatchReceived = msg.params;
+            ws.send(JSON.stringify({
+              id: msg.id,
+              success: true,
+              data: {
+                data: {
+                  chunk: 'dGVzdA==',
+                  bytesRead: 4,
+                  totalBytes: 4,
+                  hasMore: false,
+                },
+              },
+            }));
+          }
+        } catch {}
+      });
+    });
+
+    const bootstrap = {
+      port,
+      secret: 'secret-artifact-clamp',
+      attachmentId: 'att-artifact-clamp',
+      authorityRevision: 'rev-clamp-1',
+    };
+
+    const child = spawn(process.execPath, [scriptPath], {
+      env: { ...process.env, ANTIFAN_MCP_BOOTSTRAP: JSON.stringify(bootstrap) },
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+
+    const sendJsonRpc = (msg: any) => child.stdin.write(JSON.stringify(msg) + '\n');
+
+    let received = '';
+    const responsePromise = new Promise<any>((resolve) => {
+      child.stdout.on('data', (chunk) => {
+        received += chunk.toString();
+        const lines = received.split('\n');
+        for (const line of lines) {
+          if (line.trim().length > 0) {
+            try {
+              const parsed = JSON.parse(line);
+              if (parsed.id === 10) resolve(parsed);
+            } catch {}
+          }
+        }
+      });
+    });
+
+    try {
+      sendJsonRpc({
+        jsonrpc: '2.0',
+        id: 0,
+        method: 'initialize',
+        params: {
+          protocolVersion: '2024-11-05',
+          capabilities: {},
+          clientInfo: { name: 'test', version: '1.0' },
+        },
+      });
+
+      // Request artifact.read with limit: 1048576 (1MB) - proxy must clamp to 32768 (32KB)
+      sendJsonRpc({
+        jsonrpc: '2.0',
+        id: 10,
+        method: 'tools/call',
+        params: {
+          name: 'anti.artifact.read',
+          arguments: {
+            artifactId: 'artifact-test-123',
+            offset: 0,
+            limit: 1048576,
+          },
+        },
+      });
+
+      const res = await responsePromise;
+      assert.strictEqual(res.result.isError, undefined);
+      assert.ok(dispatchReceived, 'Dispatch must be received on WebSocket');
+      assert.strictEqual(dispatchReceived.name, 'artifact.read');
+      assert.strictEqual(dispatchReceived.params.limit, 32768, 'Proxy must clamp limit to <= 32768 bytes');
+    } finally {
+      child.kill();
+      await new Promise<void>((resolve) => wss.close(() => resolve()));
+    }
+  });
+
+  it('preserves ArtifactRef metadata without saturating stdio when payload >= 64KB', async () => {
+    const { spawn } = await import('node:child_process');
+    const { WebSocketServer } = await import('ws');
+    const scriptPath = fs.existsSync(path.resolve(__dirname, '../../../scripts/antifan-omp-mcp.cjs'))
+      ? path.resolve(__dirname, '../../../scripts/antifan-omp-mcp.cjs')
+      : path.resolve(__dirname, '../../scripts/antifan-omp-mcp.cjs');
+
+    const wss = new WebSocketServer({ host: '127.0.0.1', port: 0 });
+    await new Promise<void>((resolve) => wss.once('listening', () => resolve()));
+    const port = (wss.address() as any).port;
+
+    wss.on('connection', (ws) => {
+      ws.on('message', (raw) => {
+        try {
+          const msg = JSON.parse(raw.toString());
+          if (msg.method === 'antifan.capability.dispatch') {
+            ws.send(JSON.stringify({
+              id: msg.id,
+              success: true,
+              data: {
+                data: {
+                  id: 'artifact-large-dom-1',
+                  byteLength: 150000,
+                  sha256: 'abc123sha',
+                  mime: 'text/html',
+                },
+              },
+            }));
+          }
+        } catch {}
+      });
+    });
+
+    const bootstrap = {
+      port,
+      secret: 'secret-artifact-large',
+      attachmentId: 'att-artifact-large',
+      authorityRevision: 'rev-large-1',
+    };
+
+    const child = spawn(process.execPath, [scriptPath], {
+      env: { ...process.env, ANTIFAN_MCP_BOOTSTRAP: JSON.stringify(bootstrap) },
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+
+    const sendJsonRpc = (msg: any) => child.stdin.write(JSON.stringify(msg) + '\n');
+
+    let received = '';
+    const responsePromise = new Promise<any>((resolve) => {
+      child.stdout.on('data', (chunk) => {
+        received += chunk.toString();
+        const lines = received.split('\n');
+        for (const line of lines) {
+          if (line.trim().length > 0) {
+            try {
+              const parsed = JSON.parse(line);
+              if (parsed.id === 20) resolve(parsed);
+            } catch {}
+          }
+        }
+      });
+    });
+
+    try {
+      sendJsonRpc({
+        jsonrpc: '2.0',
+        id: 0,
+        method: 'initialize',
+        params: {
+          protocolVersion: '2024-11-05',
+          capabilities: {},
+          clientInfo: { name: 'test', version: '1.0' },
+        },
+      });
+
+      sendJsonRpc({
+        jsonrpc: '2.0',
+        id: 20,
+        method: 'tools/call',
+        params: {
+          name: 'anti.inspect.dom',
+          arguments: { selector: 'body' },
+        },
+      });
+
+      const res = await responsePromise;
+      assert.strictEqual(res.result.isError, undefined);
+      const textContent = res.result.content[0].text;
+      const parsedRef = JSON.parse(textContent);
+      assert.strictEqual(parsedRef._type, 'ArtifactRef');
+      assert.strictEqual(parsedRef.id, 'artifact-large-dom-1');
+      assert.strictEqual(parsedRef.byteLength, 150000);
+      assert.ok(parsedRef.message.includes('ArtifactRef'), 'Must explain artifact reference for large payload');
+    } finally {
+      child.kill();
+      await new Promise<void>((resolve) => wss.close(() => resolve()));
+    }
+  });
 });

@@ -3,8 +3,9 @@ phase: 5
 title: "8h Live Soak Execution & Official Freeze Certification"
 status: pending
 priority: P0
-effort: "1h"
+effort: "8h"
 dependencies: [4]
+schedule: "Overnight execution (scheduled for tonight per user instruction)"
 ---
 
 # Phase 5: 8h Live Soak Execution & Official Freeze Certification

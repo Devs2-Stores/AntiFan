@@ -37,6 +37,6 @@ While the architectural end-state is to move all mutable business heuristics to 
 - Retain: `src/main/qa/scanners/*.ts`
 
 ## 5. Success Criteria & Verification
-- [ ] `hs-gate-rules.ts` preserved without breaking existing tests.
-- [ ] Raw scanners in `src/main/qa/scanners/` remain pure telemetry producers.
-- [ ] Phase status explicitly tracked as `BLOCKED` until external skill handoff.
+- [x] `hs-gate-rules.ts` preserved without breaking existing tests.
+- [x] Raw scanners in `src/main/qa/scanners/` remain pure telemetry producers.
+- [x] Phase status explicitly tracked as `BLOCKED` until external skill handoff.

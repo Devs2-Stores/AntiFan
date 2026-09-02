@@ -253,6 +253,8 @@ async function createWindow(): Promise<void> {
     uploadFileInput: (params) => tabHost!.uploadFileInput(params),
     dropFiles: (params) => tabHost!.dropFiles(params),
     executeActionSequence: (params) => tabHost!.executeActionSequence(params as ActionSequenceParams),
+    inspectStyles: (params) => tabHost!.inspectStyles(params),
+    inspectRegion: (params) => tabHost!.inspectRegion(params),
   }, controlPlane.artifacts);
   tabHost.setViewportGate(browserPort.viewportGate);
   controlPlane.registerBrowser(browserPort);

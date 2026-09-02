@@ -1,7 +1,7 @@
 ---
 phase: 2
 title: "Local Stdio Artifact Backpressure Guard & Chunk Capping"
-status: pending
+status: completed
 priority: P0
 effort: "45m"
 dependencies: [1]
@@ -47,6 +47,6 @@ antifan-omp-mcp.cjs (CallToolHandler)
 3. Verify with DOM inspection probe.
 
 ## 6. Success Criteria & Verification
-- [ ] No non-image tool call forces $>64\text{ KiB}$ text hydration over stdio without explicit chunked read.
-- [ ] Existing screenshot tools continue to hydrate images properly.
-- [ ] Tool calls return standard `artifact-...` identifiers and metadata.
+- [x] No non-image tool call forces $>64\text{ KiB}$ text hydration over stdio without explicit chunked read.
+- [x] Existing screenshot tools continue to hydrate images properly.
+- [x] Tool calls return standard `artifact-...` identifiers and metadata.

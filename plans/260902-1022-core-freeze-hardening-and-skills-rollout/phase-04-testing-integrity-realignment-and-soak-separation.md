@@ -1,7 +1,7 @@
 ---
 phase: 4
 title: "Runtime Security & Isolation Assertion Probes"
-status: pending
+status: completed
 priority: P0
 effort: "45m"
 dependencies: [3]
@@ -46,5 +46,5 @@ Live Runtime Probes
 5. Record telemetry outputs and promote corresponding gates to `OBSERVED: PASS`.
 
 ## 6. Success Criteria & Verification
-- [ ] All security and ledger probe tests pass with 100% green status.
-- [ ] P0.2, P0.3, P0.4, P0.5, P0.6, P0.7 promoted to `OBSERVED: PASS` with live test traces.
+- [x] All security and ledger probe tests pass with 100% green status.
+- [x] P0.2, P0.3, P0.4, P0.5, P0.6, P0.7 promoted to `OBSERVED: PASS` with live test traces.

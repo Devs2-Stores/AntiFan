@@ -36,6 +36,8 @@ const definitions = [
   ['anti.trace.interaction', 'Trace an interactive action (click, hover, focus, type, scroll) capturing pre/post DOM changes, style deltas, and layout shifts.', { action: { type: 'string', enum: ['click', 'hover', 'focus', 'type', 'scroll'] }, selector: { type: 'string' }, ref: { type: 'string' }, text: { type: 'string' }, deltaY: { type: 'number' }, settleMs: { type: 'number' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } }, ['action']],
   ['anti.visual.compare', 'Compare current viewport or tab against baseline screenshot with pixel-level diffing and configurable tolerance.', { baselineScreenshotRef: { type: 'string' }, comparisonTabId: { type: 'string' }, tolerance: { type: 'number' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } }],
   ['anti.agent.sequence', 'Execute an atomic multi-step action sequence (navigate, click, type, scroll, hover, pressKey, wait, screenshot, snapshot) in 1 roundtrip with auto-wait and navigation guards.', { actions: { type: 'array', items: { type: 'object' } }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] }, stopOnError: { type: 'boolean' } }, ['actions']],
+  ['anti.artifact.read', 'Read an authorized artifact by ID with bounded chunk size (clamped to max 32KB per frame).', { artifactId: { type: 'string' }, offset: { type: 'number' }, limit: { type: 'number' } }, ['artifactId']],
+  ['anti.artifact.stat', 'Retrieve metadata and size information for an authorized artifact.', { artifactId: { type: 'string' } }, ['artifactId']],
 ];
 
 let currentAuthorityRevision = null;
@@ -178,6 +180,12 @@ const CAPABILITY_MAP = Object.freeze({
   'anti.agent.sequence': 'browser.agent-sequence',
   'browser_find': 'browser.find',
   'theme.assert_cart': 'theme.assert_cart',
+  'anti.artifact.read': 'artifact.read',
+  'artifact.read': 'artifact.read',
+  'artifact_read': 'artifact.read',
+  'anti.artifact.stat': 'artifact.stat',
+  'artifact.stat': 'artifact.stat',
+  'artifact_stat': 'artifact.stat',
 });
 // ─── Multiplexed Persistent Dispatch Socket ──────────────────────────────────
 let dispatchWs = null;
@@ -287,6 +295,14 @@ async function invoke(method, params = {}, callerRequestId) {
   const id = crypto.randomUUID();
   const timeoutMs = (method === 'theme.qa_validate' || method === 'anti.theme.qa_validate') ? 60000 : 30000;
   const mapped = CAPABILITY_MAP[method] || method;
+  let effectiveParams = params;
+  if (mapped === 'artifact.read') {
+    const rawLimit = typeof params.limit === 'number' && params.limit > 0 ? params.limit : 32768;
+    effectiveParams = {
+      ...params,
+      limit: Math.min(rawLimit, 32768), // Bounded chunk size: <= 32 KiB per frame
+    };
+  }
   const requestId = callerRequestId ? `req-mcp-${callerRequestId}-${crypto.randomUUID()}` : `req-${crypto.randomUUID()}`;
   const idempotencyKey = callerRequestId ? `idem-mcp-${callerRequestId}-${crypto.randomUUID()}` : `idem-${crypto.randomUUID()}`;
   return new Promise((resolve, reject) => {
@@ -303,7 +319,7 @@ async function invoke(method, params = {}, callerRequestId) {
         method: 'antifan.capability.dispatch',
         params: {
           name: mapped,
-          params,
+          params: effectiveParams,
           requestId,
           idempotencyKey,
           attachmentId: bootstrap.attachmentId,
@@ -484,25 +500,72 @@ server.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
     const data = await invoke(request.params.name, request.params.arguments || {}, callerRequestId);
     // Handle ArtifactRef resolution from ArtifactStore
     if (data && typeof data === 'object' && typeof data.id === 'string' && data.id.startsWith('artifact-')) {
-      const artifactPayload = await fetchArtifactBinary(bootstrap, data.id);
-      if (
-        request.params.name === 'anti.screenshot.viewport' ||
+      const isImage = request.params.name === 'anti.screenshot.viewport' ||
         request.params.name === 'antifan_screenshot' ||
-        (typeof data.mime === 'string' && data.mime.startsWith('image/'))
-      ) {
-        const sizeKb = Math.round((artifactPayload.data.length * 0.75) / 1024);
+        (typeof data.mime === 'string' && data.mime.startsWith('image/'));
+
+      if (isImage) {
+        const artifactPayload = await fetchArtifactBinary(bootstrap, data.id);
+        const detectedMime = artifactPayload.data.startsWith('/9j/')
+          ? 'image/jpeg'
+          : artifactPayload.data.startsWith('iVBORw0KGgo')
+          ? 'image/png'
+          : artifactPayload.data.startsWith('UklGR')
+          ? 'image/webp'
+          : (artifactPayload.mimeType || data.mime || 'image/png');
         return {
           content: [
             {
               type: 'image',
               data: artifactPayload.data,
-              mimeType: artifactPayload.mimeType || data.mime || 'image/png',
+              mimeType: detectedMime,
             },
           ],
         };
       }
-      // Text artifact (e.g. DOM inspection, HTML, logs)
+
+      // If text artifact exceeds 64 KiB, return ArtifactRef metadata to prevent stdio pipe saturation
+      const byteSize = typeof data.byteLength === 'number'
+        ? data.byteLength
+        : (typeof data.bytes === 'number' ? data.bytes : null);
+      if (byteSize !== null && byteSize >= 65536) {
+        return {
+          content: [
+            {
+              type: 'text',
+              text: JSON.stringify({
+                _type: 'ArtifactRef',
+                id: data.id,
+                byteLength: byteSize,
+                sha256: data.sha256,
+                mime: data.mime || 'text/plain',
+                message: 'Large payload (>=64KB) preserved as ArtifactRef to prevent stdio buffer saturation. Read via artifact.read or HTTP endpoint.',
+              }, null, 2),
+            },
+          ],
+        };
+      }
+
+      // Small text artifact (<64KB)
+      const artifactPayload = await fetchArtifactBinary(bootstrap, data.id);
       const textContent = Buffer.from(artifactPayload.data, 'base64').toString('utf8');
+      if (textContent.length >= 65536) {
+        return {
+          content: [
+            {
+              type: 'text',
+              text: JSON.stringify({
+                _type: 'ArtifactRef',
+                id: data.id,
+                byteLength: textContent.length,
+                sha256: data.sha256,
+                mime: data.mime || 'text/plain',
+                message: 'Large payload (>=64KB) preserved as ArtifactRef to prevent stdio buffer saturation. Read via artifact.read or HTTP endpoint.',
+              }, null, 2),
+            },
+          ],
+        };
+      }
       return { content: [{ type: 'text', text: textContent }] };
     }
 

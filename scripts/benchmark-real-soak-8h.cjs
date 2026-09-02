@@ -276,6 +276,7 @@ async function main() {
   let childExitedPrematurely = false;
   let childExitCode = null;
   let executionError = null;
+  let interruptedSignal = null;
   let stdout = '';
   let stderr = '';
   const samples = [];
@@ -287,6 +288,14 @@ async function main() {
   let seq = 0;
   const pending = new Map();
 
+  const onSignal = (sig) => {
+    if (!interruptedSignal) {
+      interruptedSignal = sig;
+      console.log(`[soak] Received ${sig}, initiating graceful abort through teardown lifecycle...`);
+    }
+  };
+  process.on('SIGINT', onSignal);
+  process.on('SIGTERM', onSignal);
   const stateMeta = {
     startedAt,
     rootPid: null,
@@ -412,6 +421,7 @@ async function main() {
     const bridgePath = path.join(configDir, 'bridge.json');
     let bridge = null;
     for (let i = 0; i < 240; i++) {
+      if (interruptedSignal) throw new Error(`Interrupted by ${interruptedSignal}`);
       if (fs.existsSync(bridgePath)) {
         try {
           bridge = JSON.parse(fs.readFileSync(bridgePath, 'utf8'));
@@ -420,8 +430,8 @@ async function main() {
       }
       await sleep(250);
     }
+    if (interruptedSignal) throw new Error(`Interrupted by ${interruptedSignal}`);
     if (!bridge) throw new Error('Bridge server failed to initialize.');
-
     console.log(`[soak] Bridge server connected on port ${bridge.port}`);
     ws = new WebSocket(`ws://127.0.0.1:${bridge.port}`, {
       headers: { authorization: `Bearer ${bridge.token}` },
@@ -487,16 +497,6 @@ async function main() {
     }
   };
 
-  // Safe handler for unexpected termination
-  const handleExit = async () => {
-    console.log('[soak] Graceful shutdown triggered...');
-    stateMeta.finishedAt = new Date().toISOString();
-    saveCheckpoint();
-  };
-  process.on('SIGINT', handleExit);
-  process.on('SIGTERM', handleExit);
-
-  // Initial sample
   samples.push(await sampleMetrics(child.pid, 'warmup'));
 
   const startTime = Date.now();
@@ -513,6 +513,9 @@ async function main() {
   let lastCheckpointTime = startTime;
 
   while (Date.now() < totalEndTime) {
+    if (interruptedSignal) {
+      throw new Error(`Interrupted by ${interruptedSignal}`);
+    }
     if (childExitedPrematurely) {
       console.error(`[soak] Aborting soak loop early due to child process exit (code: ${childExitCode})`);
       stateMeta.finishedAt = new Date().toISOString();
@@ -523,7 +526,6 @@ async function main() {
     }
     const now = Date.now();
     const currentPhase = now < warmupEndTime ? 'warmup' : now < workloadEndTime ? 'workload' : 'recovery';
-
     // 1. Tab Switching (Active in warmup & workload)
     if (currentPhase !== 'recovery' && now >= nextSwitchTime && tabIds.length > 0) {
       const tabId = tabIds[switches % tabIds.length];
@@ -577,8 +579,9 @@ async function main() {
   }
   } catch (err) {
     executionError = err;
-    console.error('[soak] Error during soak workload:', err.message);
   } finally {
+    process.removeListener('SIGINT', onSignal);
+    process.removeListener('SIGTERM', onSignal);
     console.log('[soak] Soak workload phase concluded. Running guaranteed resource teardown...');
     isIntentionalTeardown = true;
 
