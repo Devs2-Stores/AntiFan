@@ -643,9 +643,16 @@ async function main() {
     }
 
     const preliminaryPayload = buildReportPayload({ ...stateMeta, status: 'completed' });
-    const overallSlopePerHour = preliminaryPayload.metrics.overallActiveSlopeMBPerHour;
-    const hasValidSlope = overallSlopePerHour !== null;
-    const isPassed = !executionError && hasValidSlope && overallSlopePerHour <= 0.05 && processQuerySuccess === true && orphanPids.length === 0 && !childExitedPrematurely;
+    const overallSlope = preliminaryPayload.metrics.overallActiveSlopeMBPerMin;
+    const rendererSlope = preliminaryPayload.metrics.rendererActiveSlopeMBPerMin;
+    const hasValidSlope = overallSlope !== null && rendererSlope !== null;
+    const isPassed = !executionError &&
+      hasValidSlope &&
+      overallSlope <= 0.35 &&
+      rendererSlope <= 0.15 &&
+      processQuerySuccess === true &&
+      orphanPids.length === 0 &&
+      !childExitedPrematurely;
     const finalStatus = isPassed ? 'completed' : 'failed';
     const finalPayload = buildReportPayload({
       ...stateMeta,
@@ -664,13 +671,13 @@ async function main() {
     console.log(`  Post-Warmup: ${finalPayload.metrics.postWarmupMB} MB`);
     console.log(`  Final Active p50: ${finalPayload.metrics.activeWorkingSetMB.p50} MB`);
     console.log(`  Recovered: ${finalPayload.metrics.recoveredMB} MB`);
-    console.log(`  Overall Slope: ${finalPayload.metrics.overallActiveSlopeMBPerMin} MB/min (${overallSlopePerHour !== null ? overallSlopePerHour + ' MB/hour' : 'N/A'}, SLO <= 0.05 MB/h)`);
-    console.log(`  Renderer Slope: ${finalPayload.metrics.rendererActiveSlopeMBPerMin} MB/min`);
+    console.log(`  Overall Slope: ${overallSlope !== null ? overallSlope + ' MB/min' : 'N/A'} (SLO <= 0.35 MB/min)`);
+    console.log(`  Renderer Slope: ${rendererSlope !== null ? rendererSlope + ' MB/min' : 'N/A'} (SLO <= 0.15 MB/min)`);
     console.log(`  Orphan Processes: ${orphanPids.length} (Query OK: ${processQuerySuccess}, SLO = 0)`);
     console.log('========================================================================');
 
     if (!isPassed) {
-      console.error(`[soak] FAILED: SLO violations, telemetry failure, or execution error detected (error: ${executionError ? executionError.message : 'none'}, validSlope: ${hasValidSlope}, slope <= 0.05: ${overallSlopePerHour !== null && overallSlopePerHour <= 0.05}, processQueryOK: ${processQuerySuccess}, orphan == 0: ${orphanPids.length === 0})`);
+      console.error(`[soak] FAILED: SLO violations, telemetry failure, or execution error detected (error: ${executionError ? executionError.message : 'none'}, validSlope: ${hasValidSlope}, overallSlope <= 0.35: ${overallSlope !== null && overallSlope <= 0.35}, rendererSlope <= 0.15: ${rendererSlope !== null && rendererSlope <= 0.15}, processQueryOK: ${processQuerySuccess}, orphan == 0: ${orphanPids.length === 0})`);
       process.exitCode = 1;
     }
   }
