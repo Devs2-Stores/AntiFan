@@ -851,8 +851,26 @@ export class BridgeServer {
                       throw new Error(`TERMINAL_TAB_CLOSED: The tab previously attached to this terminal ${closedNotice} was closed. Please rebind or specify a tabId.`);
                     }
                   } else {
-                    const genNotice = terminalGen !== undefined ? ` at generation ${terminalGen}` : '';
-                    throw new Error(`TERMINAL_TAB_UNBOUND: No active tab is bound to terminal session '${terminalSessionId}'${genNotice}. Please attach a tab or specify tabId.`);
+                    const candidateTab = this.tabHost.getActiveTabId ? this.tabHost.getActiveTabId() : (this.tabHost.getActiveTab ? this.tabHost.getActiveTab()?.id : undefined);
+                    if (candidateTab && this.tabHost.hasTab(candidateTab)) {
+                      tabId = candidateTab;
+                      if (typeof this.tabHost.bindTerminalAgentAffinity === 'function') {
+                        this.tabHost.bindTerminalAgentAffinity(terminalSessionId, terminalGen, candidateTab);
+                      }
+                    } else {
+                      const currentAutoTab = this.tabHost.getAutomationTabId ? this.tabHost.getAutomationTabId() : undefined;
+                      if (currentAutoTab && this.tabHost.hasTab(currentAutoTab)) {
+                        tabId = currentAutoTab;
+                        if (typeof this.tabHost.bindTerminalAgentAffinity === 'function') {
+                          this.tabHost.bindTerminalAgentAffinity(terminalSessionId, terminalGen, currentAutoTab);
+                        }
+                      } else {
+                        tabId = this.tabHost.createTab('about:blank', false);
+                        if (typeof this.tabHost.bindTerminalAgentAffinity === 'function') {
+                          this.tabHost.bindTerminalAgentAffinity(terminalSessionId, terminalGen, tabId);
+                        }
+                      }
+                    }
                   }
                 }
               } else {

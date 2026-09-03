@@ -947,6 +947,18 @@ export class NativeTabHost extends EventEmitter {
     TerminalManager.getInstance().on('session-restarted', ({ id, generation }: { id: string; generation: number }) => {
       this.migrateTerminalAgentAffinityGeneration(id, generation);
     });
+    TerminalManager.getInstance().on('session-created', ({ id, parentId, generation }: { id: string; parentId?: string; generation?: number }) => {
+      let targetTab = this.activeTabId;
+      if (parentId) {
+        const parentAffinity = this.getTerminalAgentAffinity(parentId);
+        if (parentAffinity && parentAffinity.status === 'alive') {
+          targetTab = parentAffinity.tabId;
+        }
+      }
+      if (targetTab && this.hasTab(targetTab)) {
+        this.bindTerminalAgentAffinity(id, generation || 1, targetTab);
+      }
+    });
 
     ipcMain.handle(TERMINAL_CHANNELS.GET_FULL_BUFFER, (_event, sessionId?: string) => {
       const tm = TerminalManager.getInstance();

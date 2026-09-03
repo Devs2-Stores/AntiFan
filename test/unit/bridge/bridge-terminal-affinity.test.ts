@@ -116,14 +116,14 @@ describe('BridgeServer Terminal Affinity Resolution Live RPC Contract Tests', ()
     assert.ok(resp.error.includes('TERMINAL_TAB_CLOSED'));
   });
 
-  it('3. Fails closed with TERMINAL_TAB_UNBOUND when terminal has no affinity or generation mismatch', async () => {
+  it('3. Auto-binds unbound terminal to active tab on first use without throwing TERMINAL_TAB_UNBOUND', async () => {
+    recordedAutomationTabId = null;
     const resp = await rpcCall('antifan.cli.startSession', {
-      terminalSessionId: 'term-alive',
-      terminalGeneration: 999, // mismatch
+      terminalSessionId: 'term-unbound',
     });
 
-    assert.strictEqual(resp.success, false);
-    assert.ok(resp.error.includes('TERMINAL_TAB_UNBOUND'));
+    assert.strictEqual(resp.success, true);
+    assert.strictEqual(recordedAutomationTabId, 'tab-active');
   });
 
   it('4. Validates explicit tabId and rejects non-existent tabId up front with TAB_NOT_FOUND', async () => {

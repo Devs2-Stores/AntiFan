@@ -718,9 +718,10 @@ export class TerminalManager extends EventEmitter {
     this.isDisposed = false;
     const id = this.nextTerminalId();
     this.activeSessionId = id;
-    this.spawn(id, cwd || this.currentCwd);
+    const s = this.spawn(id, cwd || this.currentCwd);
     this.persist();
     this.emitSession();
+    this.emit('session-created', { id, generation: s.sessionGeneration });
     return id;
   }
 
@@ -739,6 +740,7 @@ export class TerminalManager extends EventEmitter {
     splitSession.capsuleId = parent.capsuleId || this.currentCapsuleId;
     this.persist();
     this.emitSession();
+    this.emit('session-created', { id, parentId, generation: splitSession.sessionGeneration });
     return id;
   }
 

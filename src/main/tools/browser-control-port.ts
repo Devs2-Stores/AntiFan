@@ -480,7 +480,14 @@ export class BrowserControlPort {
   }
   listTabs(context: { target?: BrowserTarget }): unknown[] {
     if (context.target) assertTarget(context.target);
-    return this.host.getTabList();
+    const list = this.host.getTabList() || [];
+    const boundTabId = context.target?.tabId;
+    return list
+      .map((tab: any) => ({
+        ...tab,
+        isBoundTab: Boolean(boundTabId && tab.id === boundTabId),
+      }))
+      .sort((a: any, b: any) => (b.isBoundTab ? 1 : 0) - (a.isBoundTab ? 1 : 0));
   }
 
   async navigate(target: BrowserTarget, url: string, explicitTabId?: string): Promise<{ navigated: boolean; target: BrowserTarget }> {

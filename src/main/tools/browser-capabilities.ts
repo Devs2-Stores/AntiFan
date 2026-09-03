@@ -173,7 +173,7 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
   // 1. Standard canonical capabilities
   catalogue.register({
     name: 'browser.list-tabs',
-    description: 'List Chromium tabs without selecting an active tab',
+    description: 'List Chromium tabs. The tab bound to this session is marked with isBoundTab: true. Always operate on your bound tab or omit tabId.',
     risk: 'read',
     policy: makeBrowserPolicy({ effect: 'read', risk: 'read', requiresBrowserTarget: false, lane: 'unbounded' }),
     inputSchema: { type: 'object' },
@@ -781,7 +781,7 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
   // 2. Compatibility aliases for MCP & Bridge protocols
   catalogue.register({
     name: 'antifan_list_tabs',
-    description: 'Alias for browser.list-tabs',
+    description: 'List Chromium tabs. The tab bound to this session is marked with isBoundTab: true. Always operate on your bound tab or omit tabId.',
     risk: 'read',
     policy: makeBrowserPolicy({ effect: 'read', risk: 'read', requiresBrowserTarget: false, lane: 'unbounded' }),
     inputSchema: { type: 'object' },
@@ -1395,7 +1395,7 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
   // 3. anti.* aliases for unified client / bridge execution
   catalogue.register({
     name: 'anti.browser.tabs.list',
-    description: 'Alias for browser.list-tabs',
+    description: 'List Chromium tabs. The tab bound to this session is marked with isBoundTab: true. Always operate on your bound tab or omit tabId.',
     risk: 'read',
     policy: makeBrowserPolicy({ effect: 'read', risk: 'read', requiresBrowserTarget: false, lane: 'unbounded' }),
     inputSchema: { type: 'object' },
