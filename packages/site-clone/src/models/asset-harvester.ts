@@ -34,13 +34,17 @@ export class AssetHarvester {
       totalBytes: 0
     };
 
-    // 1. Extract CSS stylesheets
-    const cssRegex = /<link\b[^>]*rel=["']stylesheet["'][^>]*href=["']([^"']*)["'][^>]*>/gi;
+    // 1. Extract CSS stylesheets (matches regardless of attribute order: rel before href or href before rel)
+    const linkTagRegex = /<link\b([^>]*)>/gi;
     let match: RegExpExecArray | null;
     let cssIdx = 1;
 
-    while ((match = cssRegex.exec(html)) !== null) {
-      const href = match[1];
+    while ((match = linkTagRegex.exec(html)) !== null) {
+      const attrs = match[1];
+      if (!/rel=["']stylesheet["']/i.test(attrs)) continue;
+      const hrefMatch = attrs.match(/href=["']([^"']*)["']/i);
+      if (!hrefMatch) continue;
+      const href = hrefMatch[1];
       const cleanUrl = href.split('?')[0];
       const filename = path.basename(cleanUrl) || `style_${cssIdx}.css`;
       manifest.stylesheets.push({

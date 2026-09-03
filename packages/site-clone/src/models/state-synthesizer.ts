@@ -24,8 +24,8 @@ export class StateSynthesizer {
     const target = q(t.getAttribute('data-antifan-target') || t.getAttribute('data-antifan-toggle')) || t.nextElementSibling; if (!target) return;
     const cls = t.getAttribute('data-antifan-class') || 'active', grp = t.getAttribute('data-antifan-group');
     if (grp) {
-      document.querySelectorAll(\`[data-antifan-group="\${grp}"]\`).forEach((o) => {
-        if (o !== t) {
+      document.querySelectorAll('[data-antifan-group]').forEach((o) => {
+        if (o !== t && o.getAttribute('data-antifan-group') === grp) {
           o.classList.remove(cls); o.setAttribute('aria-expanded', 'false');
           const sib = q(o.getAttribute('data-antifan-target') || o.getAttribute('data-antifan-toggle'));
           if (sib) { sib.classList.remove(cls); sib.setAttribute('aria-hidden', 'true'); }
@@ -37,16 +37,15 @@ export class StateSynthesizer {
   });
   let hTimer = null;
   document.addEventListener('mouseover', (e) => {
-    const t = e.target.closest('[data-antifan-hover]'); if (!t) return;
+    const t = e.target.closest('[data-antifan-hover]') || e.target.closest('[data-antifan-dropdown-panel]'); if (!t) return;
     if (hTimer) { clearTimeout(hTimer); hTimer = null; }
-    const p = q(t.getAttribute('data-antifan-target') || t.getAttribute('data-antifan-hover')) || t.querySelector('[data-antifan-dropdown-panel]');
-    if (p) { p.classList.add('active'); t.classList.add('active'); }
+    const p = t.hasAttribute('data-antifan-dropdown-panel') ? t : (q(t.getAttribute('data-antifan-target') || t.getAttribute('data-antifan-hover')) || t.querySelector('[data-antifan-dropdown-panel]'));
+    if (p) p.classList.add('active');
   });
   document.addEventListener('mouseout', (e) => {
-    const t = e.target.closest('[data-antifan-hover]'); if (!t) return;
-    const p = q(t.getAttribute('data-antifan-target') || t.getAttribute('data-antifan-hover')) || t.querySelector('[data-antifan-dropdown-panel]');
-    if (!p) return;
-    hTimer = setTimeout(() => { p.classList.remove('active'); t.classList.remove('active'); }, 150);
+    const t = e.target.closest('[data-antifan-hover]') || e.target.closest('[data-antifan-dropdown-panel]'); if (!t) return;
+    if (e.relatedTarget && (t.contains(e.relatedTarget) || (e.relatedTarget.closest && (e.relatedTarget.closest('[data-antifan-hover]') || e.relatedTarget.closest('[data-antifan-dropdown-panel]'))))) return;
+    hTimer = setTimeout(() => { document.querySelectorAll('[data-antifan-dropdown-panel].active, [data-antifan-hover].active').forEach((el) => el.classList.remove('active')); }, 150);
   });
   let triggerEl = null;
   const closeModal = (m) => {

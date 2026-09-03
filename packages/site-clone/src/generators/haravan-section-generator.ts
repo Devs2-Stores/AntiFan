@@ -64,7 +64,8 @@ export class HaravanSectionGenerator {
         }
       }
     }
-    const schemaObj = {
+    const isStaticSection = blueprint.type === 'header' || blueprint.type === 'footer' || blueprint.name.toLowerCase().includes('header') || blueprint.name.toLowerCase().includes('footer');
+    const schemaObj: Record<string, unknown> = {
       name: blueprint.name,
       tag: blueprint.tagName,
       class: blueprint.className,
@@ -73,14 +74,17 @@ export class HaravanSectionGenerator {
         type: def.type,
         name: def.name,
         settings: def.settings
-      })),
-      presets: [
+      }))
+    };
+
+    if (!isStaticSection) {
+      schemaObj.presets = [
         {
           name: blueprint.name,
           category: 'Custom Sections'
         }
-      ]
-    };
+      ];
+    }
 
     const schemaJson = JSON.stringify(schemaObj, null, 2);
 

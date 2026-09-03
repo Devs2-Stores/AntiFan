@@ -73,6 +73,15 @@ describe('Schemas - JSON Schema Validation & Integrity', () => {
     assert.ok(schema.definitions.NormalizedProduct, 'Must define NormalizedProduct');
     assert.ok(schema.definitions.NormalizedCategory, 'Must define NormalizedCategory');
 
+    // Validate HarvestedAssetItem required fields match TS (byteCount optional)
+    const assetItemRequired = schema.definitions.HarvestedAssetItem.required;
+    assert.deepStrictEqual(assetItemRequired, ['type', 'sourceUrl', 'filename', 'localPath']);
+
+    // Validate NormalizedCategory properties match TS
+    const catProps = schema.definitions.NormalizedCategory.properties;
+    assert.ok(catProps.handle, 'Must define handle');
+    assert.ok(catProps.icon, 'Must define icon');
+    assert.ok(catProps.children, 'Must define recursive children');
     const layout = schema.properties.layout;
     assert.ok(layout.required.includes('containerMaxWidth'));
     assert.ok(layout.required.includes('breakpoints'));

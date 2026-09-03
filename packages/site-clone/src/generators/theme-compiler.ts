@@ -220,19 +220,45 @@ export class ThemeCompiler {
       // 10. Validate staging integrity before swap
       this.validateStagingTheme(stagingDir);
 
-      // 11. Atomic Swap: Clean destination directories and copy validated staging files
+      // 11. Atomic Swap with Rollback Backup
       fs.mkdirSync(outputDir, { recursive: true });
-      for (const d of dirs) {
-        const destSub = path.join(outputDir, d);
-        if (fs.existsSync(destSub)) {
-          fs.rmSync(destSub, { recursive: true, force: true });
+      const backupDir = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-theme-backup-'));
+      try {
+        // Backup existing directories
+        for (const d of dirs) {
+          const destSub = path.join(outputDir, d);
+          if (fs.existsSync(destSub)) {
+            const backupSub = path.join(backupDir, d);
+            fs.cpSync(destSub, backupSub, { recursive: true });
+          }
         }
-        const srcSub = path.join(stagingDir, d);
-        if (fs.existsSync(srcSub)) {
-          fs.cpSync(srcSub, destSub, { recursive: true });
+        // Copy validated staging to destination
+        for (const d of dirs) {
+          const destSub = path.join(outputDir, d);
+          if (fs.existsSync(destSub)) {
+            fs.rmSync(destSub, { recursive: true, force: true });
+          }
+          const srcSub = path.join(stagingDir, d);
+          if (fs.existsSync(srcSub)) {
+            fs.cpSync(srcSub, destSub, { recursive: true });
+          }
         }
+      } catch (swapErr) {
+        // Rollback from backup if anything fails
+        try {
+          for (const d of dirs) {
+            const backupSub = path.join(backupDir, d);
+            const destSub = path.join(outputDir, d);
+            if (fs.existsSync(backupSub)) {
+              if (fs.existsSync(destSub)) fs.rmSync(destSub, { recursive: true, force: true });
+              fs.cpSync(backupSub, destSub, { recursive: true });
+            }
+          }
+        } catch {}
+        throw swapErr;
+      } finally {
+        try { fs.rmSync(backupDir, { recursive: true, force: true }); } catch {}
       }
-
       return {
         success: true,
         sectionCount: sections.length,

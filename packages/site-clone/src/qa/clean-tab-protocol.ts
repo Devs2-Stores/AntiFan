@@ -54,6 +54,8 @@ export class CleanTabProtocol {
         // 2. Restore scroll position
         window.scrollTo(${Number(snapshot.scrollX) || 0}, ${Number(snapshot.scrollY) || 0});
 
+        // 3. Clear runtime initialization flag if present
+        if (window.__antifan_rt) delete window.__antifan_rt;
         return true;
       } catch {
         return false;
@@ -107,6 +109,7 @@ export class CleanTabProtocol {
     const raw = await evaluator(`(() => {
       const leaks = [];
       if (window.__antifanFreeze) leaks.push('__antifanFreeze');
+      if (window.__antifan_rt) leaks.push('__antifan_rt');
       if (document.querySelectorAll('[data-antifan-probe]').length > 0) leaks.push('data-antifan-probe');
       if (document.querySelectorAll('style#antifan-qa-freeze').length > 0) leaks.push('style#antifan-qa-freeze');
       return {

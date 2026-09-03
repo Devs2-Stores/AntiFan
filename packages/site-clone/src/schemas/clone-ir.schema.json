@@ -151,7 +151,7 @@
   "definitions": {
     "HarvestedAssetItem": {
       "type": "object",
-      "required": ["type", "sourceUrl", "filename", "localPath", "byteCount"],
+      "required": ["type", "sourceUrl", "filename", "localPath"],
       "properties": {
         "type": { "type": "string", "enum": ["css", "js", "image", "font"] },
         "sourceUrl": { "type": "string" },
@@ -225,8 +225,13 @@
       "properties": {
         "id": { "type": "string" },
         "title": { "type": "string" },
+        "handle": { "type": "string" },
+        "icon": { "type": "string" },
         "url": { "type": "string" },
-        "count": { "type": "number" }
+        "children": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/NormalizedCategory" }
+        }
       }
     }
   }

@@ -252,13 +252,16 @@ export class MutationQAHarness {
         return result;
       }
       case 'cardinality_11': {
-        // Clone firstCard 11 times
-        const elevenCards = Array(11).fill(firstCard.outerHtml).join('\n');
-        let result = originalHtml.replace(firstCard.outerHtml, elevenCards);
-        for (let i = 1; i < cards.length; i++) {
-          result = result.replace(cards[i].outerHtml, '');
+        // Remove subsequent cards in reverse order to prevent matching newly cloned cards
+        let result = originalHtml;
+        for (let i = cards.length - 1; i >= 1; i--) {
+          const idx = result.lastIndexOf(cards[i].outerHtml);
+          if (idx !== -1) {
+            result = result.slice(0, idx) + result.slice(idx + cards[i].outerHtml.length);
+          }
         }
-        return result;
+        const elevenCards = Array(11).fill(firstCard.outerHtml).join('\n');
+        return result.replace(firstCard.outerHtml, elevenCards);
       }
       case 'image_ratio_tall': {
         // Mutate only image INSIDE firstCard, leaving logo/header images untouched
@@ -363,8 +366,16 @@ export class MutationQAHarness {
         const parent = cards[0].parentElement;
         const parentRect = parent ? parent.getBoundingClientRect() : null;
         const cardRects = cards.map((c) => c.getBoundingClientRect());
+        const isSliderOrCarousel = parent && (
+          parent.closest('[data-antifan-slider]') !== null ||
+          parent.classList.contains('swiper-wrapper') ||
+          parent.classList.contains('splide__list') ||
+          parent.classList.contains('slick-track') ||
+          window.getComputedStyle(parent).overflowX === 'scroll' ||
+          window.getComputedStyle(parent).overflowX === 'auto'
+        );
 
-        if (parentRect) {
+        if (parentRect && !isSliderOrCarousel) {
           for (const r of cardRects) {
             if (r.right > parentRect.right + 4 || r.left < parentRect.left - 4) {
               gridWrapAndRowAlignmentValid = false;
@@ -398,7 +409,7 @@ export class MutationQAHarness {
       if (firstCard) {
         const title = firstCard.querySelector('h2, h3, h4, .title, .product-title, .name');
         const btn = firstCard.querySelector('button, .price');
-        if (title && btn) {
+        if (title && btn && !title.contains(btn) && !btn.contains(title)) {
           const r1 = title.getBoundingClientRect();
           const r2 = btn.getBoundingClientRect();
           const xOverlap = Math.max(0, Math.min(r1.right, r2.right) - Math.max(r1.left, r2.left));
