@@ -47,6 +47,7 @@ describe('Full-Stack E2E Integration: OMP / MCP Multi-Tab Affinity, Lineage & Fa
     const host = Object.create(NativeTabHost.prototype) as unknown as any;
     host.tabs = new Map<string, any>();
     host.terminalAgentAffinity = new Map();
+    host.sessionTabPools = new Map();
     host.broadcastState = () => {};
 
     // Helper to add tabs to mock host
@@ -268,6 +269,7 @@ describe('Full-Stack E2E Integration: OMP / MCP Multi-Tab Affinity, Lineage & Fa
     const host = Object.create(NativeTabHost.prototype) as unknown as any;
     host.tabs = new Map<string, any>();
     host.terminalAgentAffinity = new Map();
+    host.sessionTabPools = new Map();
     host.broadcastState = () => {};
 
     function registerTab(id: string, url: string) {

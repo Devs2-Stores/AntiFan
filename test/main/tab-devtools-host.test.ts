@@ -293,4 +293,68 @@ describe('TabDevToolsHost (Sub-Controller Unit Tests)', () => {
     });
     assert.strictEqual(cmd1.method, 'Emulation.clearDeviceMetricsOverride');
   });
+
+  it('10. captureScreenshot with fullPage: true sends CDP Page.captureScreenshot with fromSurface false and captureBeyondViewport true', async () => {
+    const { ctx } = createMockContext();
+    const devTools = new TabDevToolsHost(ctx);
+
+    const cdpCommands: Array<{ method: string; params?: unknown }> = [];
+    (devTools as unknown as { sendCdpCommand: (wc: unknown, method: string, params?: unknown) => Promise<unknown> }).sendCdpCommand = async (_wc, method, params) => {
+      cdpCommands.push({ method, params });
+      if (method === 'Page.getLayoutMetrics') {
+        return {
+          contentSize: { width: 1440, height: 3200 },
+        };
+      }
+      if (method === 'Page.captureScreenshot') {
+        return { data: 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==' };
+      }
+      return {};
+    };
+
+    const base64 = await devTools.captureScreenshot(undefined, 'tab-1', 'desktop', { fullPage: true });
+    assert.ok(base64.length > 0);
+
+    const pageCaptureCmd = cdpCommands.find((c) => c.method === 'Page.captureScreenshot');
+    assert.ok(pageCaptureCmd, 'Page.captureScreenshot must be invoked');
+    const params = pageCaptureCmd.params as { fromSurface?: boolean; captureBeyondViewport?: boolean; clip?: { width: number; height: number } };
+    assert.strictEqual(params.fromSurface, false, 'fromSurface must be false to avoid clipping to compositor surface');
+    assert.strictEqual(params.captureBeyondViewport, true, 'captureBeyondViewport must be true to capture full document');
+    assert.strictEqual(params.clip?.width, 1440);
+    assert.strictEqual(params.clip?.height, 3200);
+  });
+
+  it('11. captureScreenshot with fullPage: true evaluates DOM scroll dimensions when layoutMetrics contentSize is truncated to viewport', async () => {
+    const { ctx } = createMockContext();
+    const devTools = new TabDevToolsHost(ctx);
+
+    const cdpCommands: Array<{ method: string; params?: unknown }> = [];
+    (devTools as unknown as { sendCdpCommand: (wc: unknown, method: string, params?: unknown) => Promise<unknown> }).sendCdpCommand = async (_wc, method, params) => {
+      cdpCommands.push({ method, params });
+      if (method === 'Page.getLayoutMetrics') {
+        return {
+          contentSize: { width: 1200, height: 800 },
+          layoutViewport: { clientWidth: 1200, clientHeight: 800 },
+        };
+      }
+      if (method === 'Runtime.evaluate') {
+        return {
+          result: { value: { width: 1200, height: 5800 } },
+        };
+      }
+      if (method === 'Page.captureScreenshot') {
+        return { data: 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==' };
+      }
+      return {};
+    };
+
+    const base64 = await devTools.captureScreenshot(undefined, 'tab-1', 'desktop', { fullPage: true });
+    assert.ok(base64.length > 0);
+
+    const pageCaptureCmd = cdpCommands.find((c) => c.method === 'Page.captureScreenshot');
+    assert.ok(pageCaptureCmd, 'Page.captureScreenshot must be invoked');
+    const params = pageCaptureCmd.params as { clip?: { width: number; height: number } };
+    assert.strictEqual(params.clip?.width, 1200);
+    assert.strictEqual(params.clip?.height, 5800, 'Height must be evaluated from DOM scrollHeight 5800, not truncated 800');
+  });
 });

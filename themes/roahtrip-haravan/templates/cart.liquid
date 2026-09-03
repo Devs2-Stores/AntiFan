@@ -1,0 +1,43 @@
+<section class="cart-template py-12 px-4 sm:px-6 lg:px-8 max-w-4xl mx-auto">
+  <h1 class="text-3xl font-bold tracking-tight text-neutral-900 mb-8">Shopping Cart</h1>
+
+  {% if cart.item_count > 0 %}
+    <form action="/cart" method="post" class="space-y-8">
+      <div class="border-t border-b divide-y divide-neutral-200">
+        {% for item in cart.items %}
+          <div class="py-6 flex items-center space-x-6">
+            <img src="{{ item.image | img_url: '160x160' }}" alt="{{ item.title | escape }}" class="w-20 h-20 object-cover rounded-lg border bg-neutral-50 flex-shrink-0">
+            <div class="flex-1 min-w-0">
+              <h3 class="text-base font-semibold text-neutral-900 truncate"><a href="{{ item.url }}">{{ item.product.title }}</a></h3>
+              {% unless item.variant.title contains 'Default' %}
+                <p class="text-sm text-neutral-500 mt-1">{{ item.variant.title }}</p>
+              {% endunless %}
+              <p class="text-sm font-medium text-neutral-900 mt-1">{{ item.price | money }}</p>
+            </div>
+            <div class="flex items-center space-x-4">
+              <input type="number" name="updates[]" id="updates_{{ item.key }}" value="{{ item.quantity }}" min="0" class="w-16 rounded-md border-neutral-300 text-center text-sm py-1.5 focus:ring-black focus:border-black">
+              <a href="/cart/change?line={{ forloop.index }}&quantity=0" class="text-sm font-medium text-red-600 hover:text-red-500">Remove</a>
+            </div>
+          </div>
+        {% endfor %}
+      </div>
+
+      <div class="flex flex-col items-end space-y-4 pt-4">
+        <div class="flex items-baseline space-x-4 text-xl">
+          <span class="font-medium text-neutral-700">Subtotal</span>
+          <span class="font-bold text-neutral-900">{{ cart.total_price | money }}</span>
+        </div>
+        <p class="text-sm text-neutral-500">Shipping and taxes calculated at checkout.</p>
+        <div class="flex space-x-4">
+          <input type="submit" name="update" value="Update Cart" class="px-6 py-3 border border-neutral-300 rounded-lg text-sm font-semibold text-neutral-700 hover:bg-neutral-50 cursor-pointer">
+          <input type="submit" name="checkout" value="Check Out" class="px-8 py-3 bg-black text-white rounded-lg text-sm font-semibold hover:bg-neutral-800 cursor-pointer">
+        </div>
+      </div>
+    </form>
+  {% else %}
+    <div class="empty-cart text-center py-16">
+      <p class="text-neutral-500 text-lg mb-6">Your cart is currently empty.</p>
+      <a href="/" class="inline-block bg-black text-white px-8 py-3 rounded-lg text-sm font-semibold hover:bg-neutral-800 transition-colors">Continue Shopping</a>
+    </div>
+  {% endif %}
+</section>

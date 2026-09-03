@@ -1,0 +1,102 @@
+<section class="collection-grid-section py-16 sm:py-24 bg-white" data-collection-grid>
+  <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+    <div class="flex items-center justify-between mb-8 sm:mb-12">
+      <div>
+        <h2 class="text-2xl sm:text-3xl font-extrabold text-neutral-900 tracking-tight">
+          {{ section.settings.title | default: 'Shop By Category' }}
+        </h2>
+        <p class="mt-1 text-sm text-neutral-500">Explore our purpose-built cargo and mounting systems</p>
+      </div>
+      <a href="/collections/all" class="text-xs sm:text-sm font-semibold text-neutral-900 hover:text-neutral-600 flex items-center space-x-1">
+        <span>View All</span>
+        <span>&rarr;</span>
+      </a>
+    </div>
+
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+      
+      <!-- Card 1 -->
+      <a href="/collections/roof-rack-cargo-box" class="collection-card group relative rounded-2xl overflow-hidden bg-neutral-100 aspect-[4/5] flex flex-col justify-end p-6 hover:shadow-xl transition-all duration-300">
+        <img 
+          src="https://www.roahtrip.com/cdn/shop/collections/universal-titan-roof-box.jpg?v=1761124430&width=832" 
+          alt="Roof Rack Cargo Box" 
+          class="absolute inset-0 w-full h-full object-cover object-center group-hover:scale-105 transition-transform duration-500 ease-out"
+          loading="lazy"
+          width="400"
+          height="500"
+        >
+        <div class="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent"></div>
+        <div class="relative z-10">
+          <span class="text-xs font-semibold uppercase tracking-wider text-neutral-300">Storage</span>
+          <h3 class="text-lg sm:text-xl font-bold text-white mt-1 group-hover:translate-x-1 transition-transform">Roof Rack Cargo Box</h3>
+        </div>
+      </a>
+
+      <!-- Card 2 -->
+      <a href="/collections/roof-rack-crossbars" class="collection-card group relative rounded-2xl overflow-hidden bg-neutral-100 aspect-[4/5] flex flex-col justify-end p-6 hover:shadow-xl transition-all duration-300">
+        <img 
+          src="https://www.roahtrip.com/cdn/shop/collections/universal-airfoil-crossbar-5078495.jpg?v=1761124431&width=832" 
+          alt="Roof Rack Crossbars" 
+          class="absolute inset-0 w-full h-full object-cover object-center group-hover:scale-105 transition-transform duration-500 ease-out"
+          loading="lazy"
+          width="400"
+          height="500"
+        >
+        <div class="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent"></div>
+        <div class="relative z-10">
+          <span class="text-xs font-semibold uppercase tracking-wider text-neutral-300">Mounting</span>
+          <h3 class="text-lg sm:text-xl font-bold text-white mt-1 group-hover:translate-x-1 transition-transform">Roof Rack Crossbars</h3>
+        </div>
+      </a>
+
+      <!-- Card 3 -->
+      <a href="/collections/roof-mount-bike-rack" class="collection-card group relative rounded-2xl overflow-hidden bg-neutral-100 aspect-[4/5] flex flex-col justify-end p-6 hover:shadow-xl transition-all duration-300">
+        <img 
+          src="https://www.roahtrip.com/cdn/shop/collections/universal-roof-bike-rack-012-9529031.png?v=1761124407&width=832" 
+          alt="Roof Mount Bike Rack" 
+          class="absolute inset-0 w-full h-full object-cover object-center group-hover:scale-105 transition-transform duration-500 ease-out"
+          loading="lazy"
+          width="400"
+          height="500"
+        >
+        <div class="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent"></div>
+        <div class="relative z-10">
+          <span class="text-xs font-semibold uppercase tracking-wider text-neutral-300">Adventure</span>
+          <h3 class="text-lg sm:text-xl font-bold text-white mt-1 group-hover:translate-x-1 transition-transform">Roof Mount Bike Rack</h3>
+        </div>
+      </a>
+
+      <!-- Card 4 -->
+      <a href="/collections/roof-rack-cargo-basket" class="collection-card group relative rounded-2xl overflow-hidden bg-neutral-100 aspect-[4/5] flex flex-col justify-end p-6 hover:shadow-xl transition-all duration-300">
+        <img 
+          src="https://www.roahtrip.com/cdn/shop/collections/universal-beast-roof-basket-2-9198283.png?v=1761124425&width=832" 
+          alt="Roof Rack Cargo Basket" 
+          class="absolute inset-0 w-full h-full object-cover object-center group-hover:scale-105 transition-transform duration-500 ease-out"
+          loading="lazy"
+          width="400"
+          height="500"
+        >
+        <div class="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent"></div>
+        <div class="relative z-10">
+          <span class="text-xs font-semibold uppercase tracking-wider text-neutral-300">Utility</span>
+          <h3 class="text-lg sm:text-xl font-bold text-white mt-1 group-hover:translate-x-1 transition-transform">Roof Rack Cargo Basket</h3>
+        </div>
+      </a>
+
+    </div>
+  </div>
+</section>
+
+{% schema %}
+{
+  "name": "Collection Grid",
+  "settings": [
+    {
+      "type": "text",
+      "id": "title",
+      "label": "Heading",
+      "default": "Shop By Category"
+    }
+  ]
+}
+{% endschema %}

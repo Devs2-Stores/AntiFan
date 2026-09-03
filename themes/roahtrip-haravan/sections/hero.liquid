@@ -1,0 +1,74 @@
+<section class="hero-section relative w-full h-[928px] max-h-[928px] bg-neutral-900 overflow-hidden" data-hero>
+  <!-- Background Image without artificial heavy overlay -->
+  <div class="hero-section__media absolute inset-0 z-0">
+    <picture>
+      <source media="(min-width: 1024px)" srcset="{{ section.settings.image_desktop | default: 'https://www.roahtrip.com/cdn/shop/files/1_54.jpg?v=1762244412&width=1920' }}">
+      <img 
+        src="{{ section.settings.image_desktop | default: 'https://www.roahtrip.com/cdn/shop/files/1_54.jpg?v=1762244412&width=1920' }}" 
+        alt="{{ section.settings.title | escape }}" 
+        class="w-full h-[928px] object-cover object-center"
+        fetchpriority="high"
+        loading="eager"
+      >
+    </picture>
+  </div>
+
+  <!-- Content Container: Bottom-aligned exactly at 754px -->
+  <div class="absolute inset-x-0 bottom-12 z-10 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center text-white">
+    <h1 class="text-3xl sm:text-5xl lg:text-[56px] font-normal tracking-tight leading-tight sm:leading-[56px] drop-shadow-md mb-4.5">
+      {{ section.settings.title | default: 'Reconnecting Humans and Nature' }}
+    </h1>
+    
+    {% if section.settings.subtitle != blank %}
+      <p class="text-xs sm:text-sm text-white/90 font-normal max-w-3xl mx-auto mb-4.5 leading-relaxed drop-shadow">
+        {{ section.settings.subtitle }}
+      </p>
+    {% endif %}
+
+    <div class="flex justify-center pt-1">
+      <a 
+        href="{{ section.settings.button_link | default: '/collections/all' }}" 
+        class="inline-flex items-center justify-center w-full max-w-[402px] h-[51px] px-8 border border-white/60 bg-black/20 backdrop-blur-sm text-sm font-normal text-white rounded hover:bg-white hover:text-black transition-all duration-200"
+      >
+        <span>{{ section.settings.button_text | default: 'Shop Now →' }}</span>
+      </a>
+    </div>
+  </div>
+</section>
+
+{% schema %}
+{
+  "name": "Hero Banner",
+  "settings": [
+    {
+      "type": "image_picker",
+      "id": "image_desktop",
+      "label": "Desktop background image"
+    },
+    {
+      "type": "text",
+      "id": "title",
+      "label": "Heading",
+      "default": "Reconnecting Humans and Nature"
+    },
+    {
+      "type": "textarea",
+      "id": "subtitle",
+      "label": "Subheading",
+      "default": "We make things that work better and last longer. Our products solve real problems with clean design and honest materials"
+    },
+    {
+      "type": "text",
+      "id": "button_text",
+      "label": "Button text",
+      "default": "Shop Now →"
+    },
+    {
+      "type": "url",
+      "id": "button_link",
+      "label": "Button link",
+      "default": "/collections/all"
+    }
+  ]
+}
+{% endschema %}

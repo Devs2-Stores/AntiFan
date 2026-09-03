@@ -1,0 +1,87 @@
+<div class="product-card group flex flex-col bg-white rounded-xl border border-neutral-200/80 overflow-hidden hover:shadow-lg transition-all duration-300" data-product-card data-product-id="{{ product.id }}">
+  <!-- Product Media with secondary hover image -->
+  <a href="{{ product.url }}" class="product-card__media relative aspect-square bg-neutral-100 overflow-hidden block">
+    <img 
+      src="{{ product.featured_image | default: product.images[0] | img_url: '600x600' }}" 
+      alt="{{ product.title | escape }}" 
+      class="product-card__image w-full h-full object-cover object-center group-hover:scale-105 transition-transform duration-500 ease-out"
+      loading="lazy"
+      width="600"
+      height="600"
+    >
+    {% if product.images.size > 1 %}
+      <img 
+        src="{{ product.images[1] | img_url: '600x600' }}" 
+        alt="{{ product.title | escape }}" 
+        class="product-card__image-secondary absolute inset-0 w-full h-full object-cover object-center opacity-0 group-hover:opacity-100 transition-opacity duration-300 ease-out"
+        loading="lazy"
+        width="600"
+        height="600"
+      >
+    {% endif %}
+
+    {% if product.compare_at_price > product.price %}
+      <span class="product-card__badge absolute top-3 left-3 bg-red-600 text-white text-xs font-bold uppercase tracking-wider px-2.5 py-1 rounded">Sale</span>
+    {% endif %}
+  </a>
+
+  <!-- Product Info -->
+  <div class="product-card__info p-5 flex flex-col flex-1">
+    {% if product.vendor %}
+      <span class="product-card__vendor text-xs font-semibold tracking-wider text-neutral-400 uppercase mb-1.5">{{ product.vendor }}</span>
+    {% endif %}
+
+    <h3 class="product-card__title text-sm font-semibold text-neutral-900 line-clamp-2 hover:text-black mb-2 flex-1">
+      <a href="{{ product.url }}">{{ product.title }}</a>
+    </h3>
+
+    <!-- Price -->
+    <div class="product-card__price flex items-baseline space-x-2 mb-4">
+      <span class="product-card__price-current text-base font-bold text-neutral-900" data-price>
+        {{ product.price | money }}
+      </span>
+      {% if product.compare_at_price > product.price %}
+        <span class="product-card__price-compare text-xs text-neutral-400 line-through">
+          {{ product.compare_at_price | money }}
+        </span>
+      {% endif %}
+    </div>
+
+    <!-- Variant Selector Pills (if product has multiple variants) -->
+    {% if product.variants.size > 1 %}
+      <div class="product-card__variants flex flex-wrap gap-1.5 mb-4" data-variant-selector>
+        {% for variant in product.variants %}
+          <button 
+            type="button" 
+            class="product-card__variant-pill text-xs px-2.5 py-1 rounded border {% if forloop.first %}border-black bg-black text-white active{% else %}border-neutral-200 text-neutral-700 hover:border-neutral-400{% endif %} transition-colors"
+            data-variant-id="{{ variant.id }}"
+            data-variant-price="{{ variant.price | money }}"
+            data-variant-available="{{ variant.available }}"
+          >
+            {{ variant.title }}
+          </button>
+        {% endfor %}
+      </div>
+    {% endif %}
+
+    <!-- Add To Cart Form -->
+    <form action="/cart/add" method="post" enctype="multipart/form-data" class="product-card__form mt-auto" data-card-form>
+      <input type="hidden" name="id" value="{{ product.selected_or_first_available_variant.id | default: product.variants[0].id }}" data-card-variant-id>
+      <button 
+        type="submit" 
+        name="add" 
+        class="product-card__button w-full bg-neutral-900 text-white text-xs font-semibold uppercase tracking-wider py-3 px-4 rounded-lg hover:bg-neutral-800 active:scale-[0.98] transition-all flex items-center justify-center space-x-2 disabled:opacity-50 disabled:cursor-not-allowed"
+        {% unless product.available %}disabled{% endunless %}
+        data-add-button
+      >
+        <span class="product-card__button-text">
+          {% if product.available %}
+            Add to Cart
+          {% else %}
+            Sold Out
+          {% endif %}
+        </span>
+      </button>
+    </form>
+  </div>
+</div>

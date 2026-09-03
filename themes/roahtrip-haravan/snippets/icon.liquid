@@ -1,0 +1,48 @@
+{% case name %}
+  {% when 'cart' %}
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="none" class="{{ class | default: 'w-5 h-5' }}" aria-hidden="true">
+      <path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M3.392 6.875h13.216v8.016c0 .567-.224 1.11-.623 1.511a2.127 2.127 0 0 1-1.503.625H5.518c-.563 0-1.104-.225-1.503-.625a2.14 2.14 0 0 1-.623-1.511V6.875Z"/>
+      <path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M6.875 9.062V5.469a3.125 3.125 0 1 1 6.25 0v3.593"/>
+    </svg>
+  {% when 'search' %}
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="none" class="{{ class | default: 'w-5 h-5' }}" aria-hidden="true">
+      <path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M14.062 14.062 17.5 17.5M16.25 9.375a6.875 6.875 0 1 1-13.75 0 6.875 6.875 0 0 1 13.75 0Z"/>
+    </svg>
+  {% when 'account' %}
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="none" class="{{ class | default: 'w-5 h-5' }}" aria-hidden="true">
+      <circle cx="10" cy="6.5" r="2.75" stroke="currentColor" stroke-width="1.5"/>
+      <path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="m5.172 14.591-.437.786a.588.588 0 0 0 .514.873h9.502a.588.588 0 0 0 .514-.873l-.437-.786a5.523 5.523 0 0 0-9.656 0"/>
+    </svg>
+  {% when 'close' %}
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="none" class="{{ class | default: 'w-5 h-5' }}" aria-hidden="true">
+      <path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="m15 5-10 10M5 5l10 10"/>
+    </svg>
+  {% when 'menu' %}
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" class="{{ class | default: 'w-6 h-6' }}" aria-hidden="true">
+      <path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4 6h16M4 12h16M4 18h16"/>
+    </svg>
+  {% when 'chevron-left' %}
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="none" class="{{ class | default: 'w-5 h-5' }}" aria-hidden="true">
+      <path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="m12.5 15-5-5 5-5"/>
+    </svg>
+  {% when 'chevron-right' %}
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="none" class="{{ class | default: 'w-5 h-5' }}" aria-hidden="true">
+      <path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="m7.5 15 5-5-5-5"/>
+    </svg>
+  {% when 'truck' %}
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" class="{{ class | default: 'w-6 h-6' }}" aria-hidden="true">
+      <path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M3 5h11v11H3V5Zm11 4h4l3 3v4h-7V9Zm-9 10a2 2 0 1 0 0-4 2 2 0 0 0 0 4Zm12 0a2 2 0 1 0 0-4 2 2 0 0 0 0 4Z"/>
+    </svg>
+  {% when 'return' %}
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" class="{{ class | default: 'w-6 h-6' }}" aria-hidden="true">
+      <path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M3 9h13a5 5 0 0 1 0 10H8m-5-10 4-4m-4 4 4 4"/>
+    </svg>
+  {% when 'warranty' %}
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" class="{{ class | default: 'w-6 h-6' }}" aria-hidden="true">
+      <path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 3s8 3 8 9c0 6-8 9-8 9s-8-3-8-9c0-6 8-9 8-9Zm-2 9 1.5 1.5L15 10"/>
+    </svg>
+  {% when 'play' %}
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="{{ class | default: 'w-6 h-6' }}" aria-hidden="true">
+      <path d="M8 5v14l11-7z"/>
+    </svg>
+{% endcase %}

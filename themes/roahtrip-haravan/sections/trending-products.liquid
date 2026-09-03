@@ -1,0 +1,133 @@
+<section class="trending-products py-16 sm:py-24 bg-neutral-50" data-trending-products>
+  <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+    <div class="text-center max-w-2xl mx-auto mb-12 sm:mb-16">
+      <h2 class="text-3xl sm:text-4xl font-extrabold text-neutral-900 tracking-tight">
+        {{ section.settings.title | default: 'Trending Products' }}
+      </h2>
+      {% if section.settings.subtitle != blank %}
+        <p class="mt-3 text-sm sm:text-base text-neutral-500">
+          {{ section.settings.subtitle }}
+        </p>
+      {% endif %}
+    </div>
+
+    <!-- Products Grid -->
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-8">
+      {% assign featured_collection = collections[section.settings.collection] %}
+      {% if featured_collection and featured_collection.products.size > 0 %}
+        {% for product in featured_collection.products limit: 6 %}
+          {% render 'product-card', product: product %}
+        {% endfor %}
+      {% else %}
+        <!-- Standalone Fallback Product Cards from Discovered Target Data -->
+        
+        <!-- Product 1 -->
+        <div class="product-card group flex flex-col bg-white rounded-xl border border-neutral-200/80 overflow-hidden hover:shadow-lg transition-all duration-300" data-product-card>
+          <a href="/products/universal-roof-crossbars-suv-roof-crossbars-luggage-roof-crossbars" class="product-card__media relative aspect-square bg-neutral-100 overflow-hidden block">
+            <img src="https://www.roahtrip.com/cdn/shop/files/universal-roahtrip-roof-rack-cross-bar-1.jpg?v=1763962246&width=800" alt="Roahtrip Airfoil JYC JJ06-53.1" class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" loading="lazy">
+            <img src="https://www.roahtrip.com/cdn/shop/files/universal-roahtrip-roof-rack-cross-bar-4.jpg?v=1763962247&width=800" alt="Roahtrip Airfoil Secondary" class="absolute inset-0 w-full h-full object-cover opacity-0 group-hover:opacity-100 transition-opacity duration-300" loading="lazy">
+          </a>
+          <div class="p-5 flex flex-col flex-1">
+            <span class="text-xs font-semibold tracking-wider text-neutral-400 uppercase mb-1.5">AquaHorizon Global Group</span>
+            <h3 class="text-sm font-semibold text-neutral-900 line-clamp-2 hover:text-black mb-2 flex-1">
+              <a href="/products/universal-roof-crossbars-suv-roof-crossbars-luggage-roof-crossbars">Roahtrip Airfoil JYC JJ06-53.1"(135cm) / 57.1"(145cm)</a>
+            </h3>
+            <div class="flex items-baseline space-x-2 mb-4">
+              <span class="text-base font-bold text-neutral-900" data-price>$299.99 USD</span>
+            </div>
+            <div class="flex flex-wrap gap-1.5 mb-4" data-variant-selector>
+              <button type="button" class="text-xs px-2.5 py-1 rounded border border-black bg-black text-white active" data-variant-id="45652068630681" data-variant-price="$299.99 USD">135cm</button>
+              <button type="button" class="text-xs px-2.5 py-1 rounded border border-neutral-200 text-neutral-700 hover:border-neutral-400" data-variant-id="45679939518617" data-variant-price="$299.99 USD">145cm</button>
+            </div>
+            <form action="/cart/add" method="post" class="mt-auto" data-card-form>
+              <input type="hidden" name="id" value="45652068630681" data-card-variant-id>
+              <button type="submit" class="w-full bg-neutral-900 text-white text-xs font-semibold uppercase tracking-wider py-3 px-4 rounded-lg hover:bg-neutral-800 transition-colors" data-add-button>Add to Cart</button>
+            </form>
+          </div>
+        </div>
+
+        <!-- Product 2 -->
+        <div class="product-card group flex flex-col bg-white rounded-xl border border-neutral-200/80 overflow-hidden hover:shadow-lg transition-all duration-300" data-product-card>
+          <a href="/products/universal-roof-crossbars-suv-roof-crossbars-luggage-roof-crossbars-1" class="product-card__media relative aspect-square bg-neutral-100 overflow-hidden block">
+            <img src="https://www.roahtrip.com/cdn/shop/files/universal-roahtrip-roof-rack-cross-bar-1.jpg?v=1763962246&width=800" alt="Roahtrip Airfoil JYC JJ06-45.3" class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" loading="lazy">
+            <img src="https://www.roahtrip.com/cdn/shop/files/universal-roahtrip-roof-rack-cross-bar-115_125.jpg?v=1763962253&width=800" alt="Roahtrip Airfoil Secondary" class="absolute inset-0 w-full h-full object-cover opacity-0 group-hover:opacity-100 transition-opacity duration-300" loading="lazy">
+          </a>
+          <div class="p-5 flex flex-col flex-1">
+            <span class="text-xs font-semibold tracking-wider text-neutral-400 uppercase mb-1.5">AquaHorizon Global Group</span>
+            <h3 class="text-sm font-semibold text-neutral-900 line-clamp-2 hover:text-black mb-2 flex-1">
+              <a href="/products/universal-roof-crossbars-suv-roof-crossbars-luggage-roof-crossbars-1">Roahtrip Airfoil JYC JJ06-45.3"(115cm) / 49.2"(125cm)</a>
+            </h3>
+            <div class="flex items-baseline space-x-2 mb-4">
+              <span class="text-base font-bold text-neutral-900" data-price>$299.99 USD</span>
+            </div>
+            <div class="flex flex-wrap gap-1.5 mb-4" data-variant-selector>
+              <button type="button" class="text-xs px-2.5 py-1 rounded border border-black bg-black text-white active" data-variant-id="45652068663449" data-variant-price="$299.99 USD">115cm</button>
+              <button type="button" class="text-xs px-2.5 py-1 rounded border border-neutral-200 text-neutral-700 hover:border-neutral-400" data-variant-id="45679939551385" data-variant-price="$299.99 USD">125cm</button>
+            </div>
+            <form action="/cart/add" method="post" class="mt-auto" data-card-form>
+              <input type="hidden" name="id" value="45652068663449" data-card-variant-id>
+              <button type="submit" class="w-full bg-neutral-900 text-white text-xs font-semibold uppercase tracking-wider py-3 px-4 rounded-lg hover:bg-neutral-800 transition-colors" data-add-button>Add to Cart</button>
+            </form>
+          </div>
+        </div>
+
+        <!-- Product 3 -->
+        <div class="product-card group flex flex-col bg-white rounded-xl border border-neutral-200/80 overflow-hidden hover:shadow-lg transition-all duration-300" data-product-card>
+          <a href="/products/universal-roof-crossbars-suv-roof-crossbars-luggage-roof-crossbars-2" class="product-card__media relative aspect-square bg-neutral-100 overflow-hidden block">
+            <img src="https://www.roahtrip.com/cdn/shop/files/universal-roahtrip-roof-rack-cross-bar-JYC03.jpg?v=1763962250&width=800" alt="Roahtrip Airfoil JYC JJ03CA-53.1" class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" loading="lazy">
+            <img src="https://www.roahtrip.com/cdn/shop/files/universal-roahtrip-roof-rack-cross-bar-8.jpg?v=1763962248&width=800" alt="Roahtrip Airfoil Secondary" class="absolute inset-0 w-full h-full object-cover opacity-0 group-hover:opacity-100 transition-opacity duration-300" loading="lazy">
+          </a>
+          <div class="p-5 flex flex-col flex-1">
+            <span class="text-xs font-semibold tracking-wider text-neutral-400 uppercase mb-1.5">AquaHorizon Global Group</span>
+            <h3 class="text-sm font-semibold text-neutral-900 line-clamp-2 hover:text-black mb-2 flex-1">
+              <a href="/products/universal-roof-crossbars-suv-roof-crossbars-luggage-roof-crossbars-2">Roahtrip Airfoil JYC JJ03CA-53.1"(135cm) / 57.1"(145cm)</a>
+            </h3>
+            <div class="flex items-baseline space-x-2 mb-4">
+              <span class="text-base font-bold text-neutral-900" data-price>$269.99 USD</span>
+            </div>
+            <div class="flex flex-wrap gap-1.5 mb-4" data-variant-selector>
+              <button type="button" class="text-xs px-2.5 py-1 rounded border border-black bg-black text-white active" data-variant-id="45652068696217" data-variant-price="$269.99 USD">135cm</button>
+              <button type="button" class="text-xs px-2.5 py-1 rounded border border-neutral-200 text-neutral-700 hover:border-neutral-400" data-variant-id="45679939584153" data-variant-price="$269.99 USD">145cm</button>
+            </div>
+            <form action="/cart/add" method="post" class="mt-auto" data-card-form>
+              <input type="hidden" name="id" value="45652068696217" data-card-variant-id>
+              <button type="submit" class="w-full bg-neutral-900 text-white text-xs font-semibold uppercase tracking-wider py-3 px-4 rounded-lg hover:bg-neutral-800 transition-colors" data-add-button>Add to Cart</button>
+            </form>
+          </div>
+        </div>
+
+      {% endif %}
+    </div>
+
+    <div class="text-center mt-12">
+      <a href="/collections/all" class="inline-flex items-center justify-center px-8 py-3.5 border border-neutral-300 text-sm font-semibold rounded-lg text-neutral-900 bg-white hover:bg-neutral-50 hover:border-neutral-400 transition-colors shadow-sm">
+        View All Crossbars & Cargo Accessories
+      </a>
+    </div>
+  </div>
+</section>
+
+{% schema %}
+{
+  "name": "Trending Products",
+  "settings": [
+    {
+      "type": "text",
+      "id": "title",
+      "label": "Heading",
+      "default": "Trending Products"
+    },
+    {
+      "type": "text",
+      "id": "subtitle",
+      "label": "Subtitle",
+      "default": "Discover our most popular aerodynamic crossbars and cargo gear"
+    },
+    {
+      "type": "collection",
+      "id": "collection",
+      "label": "Collection"
+    }
+  ]
+}
+{% endschema %}

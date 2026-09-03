@@ -276,8 +276,8 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
     risk: 'read',
     requiresBrowserTarget: true,
     policy: makeBrowserPolicy({ effect: 'read', risk: 'read', requiresBrowserTarget: true, lane: 'short-passive' }),
-    inputSchema: { type: 'object', properties: { tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] }, format: { type: 'string', enum: ['png', 'jpeg'] }, quality: { type: 'number' } } },
-    execute: async (params: { tabId?: string; paneId?: 'desktop' | 'mobile'; format?: 'png' | 'jpeg'; quality?: number }, context) => browser.screenshot(context.browserTarget as BrowserTarget, context.runId || 'run-unbound', context.attemptId || 'attempt-unbound', params.tabId, params.paneId, { format: params.format, quality: params.quality }),
+    inputSchema: { type: 'object', properties: { tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] }, format: { type: 'string', enum: ['png', 'jpeg'] }, quality: { type: 'number' }, fullPage: { type: 'boolean', description: 'Capture entire scrollable page height instead of visible viewport' } } },
+    execute: async (params: { tabId?: string; paneId?: 'desktop' | 'mobile'; format?: 'png' | 'jpeg'; quality?: number; fullPage?: boolean }, context) => browser.screenshot(context.browserTarget as BrowserTarget, context.runId || 'run-unbound', context.attemptId || 'attempt-unbound', params.tabId, params.paneId, { format: params.format, quality: params.quality, fullPage: params.fullPage }),
   });
   catalogue.register({
     name: 'browser.observe',
@@ -851,8 +851,8 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
     risk: 'read',
     requiresBrowserTarget: true,
     policy: makeBrowserPolicy({ effect: 'read', risk: 'read', requiresBrowserTarget: true, lane: 'short-passive' }),
-    inputSchema: { type: 'object', properties: { tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] }, format: { type: 'string', enum: ['png', 'jpeg'] }, quality: { type: 'number' } } },
-    execute: async (params: { tabId?: string; paneId?: 'desktop' | 'mobile'; format?: 'png' | 'jpeg'; quality?: number }, context) => browser.screenshot(context.browserTarget as BrowserTarget, context.runId || 'run-unbound', context.attemptId || 'attempt-unbound', params.tabId, params.paneId, { format: params.format, quality: params.quality }),
+    inputSchema: { type: 'object', properties: { tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] }, format: { type: 'string', enum: ['png', 'jpeg'] }, quality: { type: 'number' }, fullPage: { type: 'boolean', description: 'Capture entire scrollable page height instead of visible viewport' } } },
+    execute: async (params: { tabId?: string; paneId?: 'desktop' | 'mobile'; format?: 'png' | 'jpeg'; quality?: number; fullPage?: boolean }, context) => browser.screenshot(context.browserTarget as BrowserTarget, context.runId || 'run-unbound', context.attemptId || 'attempt-unbound', params.tabId, params.paneId, { format: params.format, quality: params.quality, fullPage: params.fullPage }),
   });
 
   catalogue.register({
@@ -1465,8 +1465,18 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
     risk: 'read',
     requiresBrowserTarget: true,
     policy: makeBrowserPolicy({ effect: 'read', risk: 'read', requiresBrowserTarget: true, lane: 'short-passive' }),
+    inputSchema: { type: 'object', properties: { tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] }, format: { type: 'string', enum: ['png', 'jpeg'] }, quality: { type: 'number' }, fullPage: { type: 'boolean', description: 'Capture entire scrollable page height instead of visible viewport' } } },
+    execute: async (params: { tabId?: string; paneId?: 'desktop' | 'mobile'; format?: 'png' | 'jpeg'; quality?: number; fullPage?: boolean }, context) => browser.screenshot(context.browserTarget as BrowserTarget, context.runId || 'run-unbound', context.attemptId || 'attempt-unbound', params.tabId, params.paneId, { format: params.format || 'jpeg', quality: params.quality ?? 85, fullPage: params.fullPage }),
+  });
+
+  catalogue.register({
+    name: 'anti.screenshot.full_page',
+    description: 'Capture full-page screenshot of entire scrollable page height using CDP (bypassing viewport compositor surface)',
+    risk: 'read',
+    requiresBrowserTarget: true,
+    policy: makeBrowserPolicy({ effect: 'read', risk: 'read', requiresBrowserTarget: true, lane: 'short-passive' }),
     inputSchema: { type: 'object', properties: { tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] }, format: { type: 'string', enum: ['png', 'jpeg'] }, quality: { type: 'number' } } },
-    execute: async (params: { tabId?: string; paneId?: 'desktop' | 'mobile'; format?: 'png' | 'jpeg'; quality?: number }, context) => browser.screenshot(context.browserTarget as BrowserTarget, context.runId || 'run-unbound', context.attemptId || 'attempt-unbound', params.tabId, params.paneId, { format: params.format || 'jpeg', quality: params.quality ?? 85 }),
+    execute: async (params: { tabId?: string; paneId?: 'desktop' | 'mobile'; format?: 'png' | 'jpeg'; quality?: number }, context) => browser.screenshot(context.browserTarget as BrowserTarget, context.runId || 'run-unbound', context.attemptId || 'attempt-unbound', params.tabId, params.paneId, { format: params.format || 'png', quality: params.quality ?? 85, fullPage: true }),
   });
 
   catalogue.register({
@@ -1683,10 +1693,11 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
         settleMs: { type: 'number' },
         tabId: { type: 'string' },
         paneId: { type: 'string', enum: ['desktop', 'mobile'] },
+        motionSpec: { type: 'object', description: 'Expected motion specification (duration, easing, properties, amplitude)' },
       },
       required: ['action'],
     },
-    execute: (params: { action: 'click' | 'hover' | 'focus' | 'type' | 'scroll'; selector?: string; ref?: string; text?: string; deltaY?: number; settleMs?: number; tabId?: string; paneId?: 'desktop' | 'mobile' }, context) =>
+    execute: (params: { action: 'click' | 'hover' | 'focus' | 'type' | 'scroll'; selector?: string; ref?: string; text?: string; deltaY?: number; settleMs?: number; tabId?: string; paneId?: 'desktop' | 'mobile'; motionSpec?: any }, context) =>
       browser.traceInteraction(context.browserTarget as BrowserTarget, context.runId || 'run-default', context.attemptId || 'att-default', params, params?.tabId, params?.paneId, context.signal),
   });
 
@@ -1707,10 +1718,11 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
         settleMs: { type: 'number' },
         tabId: { type: 'string' },
         paneId: { type: 'string', enum: ['desktop', 'mobile'] },
+        motionSpec: { type: 'object', description: 'Expected motion specification (duration, easing, properties, amplitude)' },
       },
       required: ['action'],
     },
-    execute: (params: { action: 'click' | 'hover' | 'focus' | 'type' | 'scroll'; selector?: string; ref?: string; text?: string; deltaY?: number; settleMs?: number; tabId?: string; paneId?: 'desktop' | 'mobile' }, context) =>
+    execute: (params: { action: 'click' | 'hover' | 'focus' | 'type' | 'scroll'; selector?: string; ref?: string; text?: string; deltaY?: number; settleMs?: number; tabId?: string; paneId?: 'desktop' | 'mobile'; motionSpec?: any }, context) =>
       browser.traceInteraction(context.browserTarget as BrowserTarget, context.runId || 'run-default', context.attemptId || 'att-default', params, params?.tabId, params?.paneId, context.signal),
   });
   catalogue.register({
@@ -1742,9 +1754,10 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
         normalizeScroll: { type: 'boolean' },
         tabId: { type: 'string' },
         paneId: { type: 'string', enum: ['desktop', 'mobile'] },
+        fullPage: { type: 'boolean', description: 'Capture entire document scroll height for full-page visual comparison' },
       },
     },
-    execute: (params: { baselineScreenshotRef?: string; comparisonTabId?: string; tolerance?: number; selector?: string; clipRect?: { x: number; y: number; width: number; height: number }; maskSelectors?: string[]; normalizeScroll?: boolean; tabId?: string; paneId?: 'desktop' | 'mobile' }, context) =>
+    execute: (params: { baselineScreenshotRef?: string; comparisonTabId?: string; tolerance?: number; selector?: string; clipRect?: { x: number; y: number; width: number; height: number }; maskSelectors?: string[]; normalizeScroll?: boolean; tabId?: string; paneId?: 'desktop' | 'mobile'; fullPage?: boolean }, context) =>
       browser.visualCompare(context.browserTarget as BrowserTarget, context.runId || 'run-default', context.attemptId || 'att-default', params, params?.tabId, params?.paneId),
   });
 
@@ -1777,9 +1790,10 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
         normalizeScroll: { type: 'boolean' },
         tabId: { type: 'string' },
         paneId: { type: 'string', enum: ['desktop', 'mobile'] },
+        fullPage: { type: 'boolean', description: 'Capture entire document scroll height for full-page visual comparison' },
       },
     },
-    execute: (params: { baselineScreenshotRef?: string; comparisonTabId?: string; tolerance?: number; selector?: string; clipRect?: { x: number; y: number; width: number; height: number }; maskSelectors?: string[]; normalizeScroll?: boolean; tabId?: string; paneId?: 'desktop' | 'mobile' }, context) =>
+    execute: (params: { baselineScreenshotRef?: string; comparisonTabId?: string; tolerance?: number; selector?: string; clipRect?: { x: number; y: number; width: number; height: number }; maskSelectors?: string[]; normalizeScroll?: boolean; tabId?: string; paneId?: 'desktop' | 'mobile'; fullPage?: boolean }, context) =>
       browser.visualCompare(context.browserTarget as BrowserTarget, context.runId || 'run-default', context.attemptId || 'att-default', params, params?.tabId, params?.paneId),
   });
 }

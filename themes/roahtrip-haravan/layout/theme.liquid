@@ -1,0 +1,68 @@
+<!doctype html>
+<html class="no-js" lang="{{ request.locale.iso_code | default: 'en' }}">
+  <head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, height=device-height, minimum-scale=1.0">
+    <link rel="canonical" href="{{ canonical_url }}">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+    {% if settings.favicon != blank %}
+      <link rel="icon" type="image/png" href="{{ settings.favicon | img_url: '32x32' }}">
+    {% else %}
+      <link rel="icon" type="image/jpeg" href="https://www.roahtrip.com/cdn/shop/files/universal-roahtrip.jpg?crop=center&height=32&v=1751267315&width=32">
+    {% endif %}
+
+    <title>
+      {{ page_title }}
+      {% if current_tags %} &ndash; tagged "{{ current_tags | join: ', ' }}"{% endif %}
+      {% if current_page != 1 %} &ndash; Page {{ current_page }}{% endif %}
+      {% unless page_title contains shop.name %} &ndash; {{ shop.name }}{% endunless %}
+    </title>
+
+    {% if page_description %}
+      <meta name="description" content="{{ page_description | escape }}">
+    {% endif %}
+
+    <!-- Open Graph / Social Media Meta -->
+    <meta property="og:site_name" content="{{ shop.name }}">
+    <meta property="og:url" content="{{ canonical_url }}">
+    <meta property="og:title" content="{{ page_title | default: shop.name }}">
+    <meta property="og:type" content="website">
+    <meta property="og:description" content="{{ page_description | default: shop.name | escape }}">
+    {% if page_image %}
+      <meta property="og:image" content="http:{{ page_image | img_url: '1200x628' }}">
+      <meta property="og:image:secure_url" content="https:{{ page_image | img_url: '1200x628' }}">
+      <meta property="og:image:width" content="1200">
+      <meta property="og:image:height" content="628">
+    {% endif %}
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:title" content="{{ page_title | default: shop.name }}">
+    <meta name="twitter:description" content="{{ page_description | default: shop.name | escape }}">
+
+    {{ content_for_header }}
+
+    <link rel="stylesheet" href="{{ 'application.css' | asset_url }}">
+    <script src="{{ 'theme.js' | asset_url }}" defer></script>
+  </head>
+
+  <body class="template-{{ template | replace: '.', '-' | handle }} antialiased text-neutral-900 bg-white selection:bg-neutral-900 selection:text-white">
+    <a href="#MainContent" class="sr-only focus:not-sr-only focus:fixed focus:top-4 focus:left-4 focus:z-50 focus:px-4 focus:py-2 focus:bg-black focus:text-white focus:rounded focus:shadow-lg">
+      {{ 'general.skip_to_content' | t | default: 'Skip to content' }}
+    </a>
+
+    {% section 'announcement-bar' %}
+    {% section 'header' %}
+
+    <main id="MainContent" class="main-content focus:outline-none" role="main" tabindex="-1">
+      {{ content_for_layout }}
+    </main>
+
+    {% section 'footer' %}
+
+    {% render 'cart-drawer' %}
+    {% render 'search-modal' %}
+  </body>
+</html>

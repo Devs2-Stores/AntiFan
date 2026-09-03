@@ -601,7 +601,7 @@ export class TabDevToolsHost {
     }
   }
 
-  public async captureScreenshot(rect?: Rectangle, tabId?: string, paneId?: SplitPaneId, options?: { format?: 'png' | 'jpeg'; quality?: number }): Promise<string> {
+  public async captureScreenshot(rect?: Rectangle, tabId?: string, paneId?: SplitPaneId, options?: { format?: 'png' | 'jpeg'; quality?: number; fullPage?: boolean }): Promise<string> {
     const targetId = tabId || this.ctx.getActiveTabId();
     const target = this.ctx.getTabRecord(targetId);
     if (!target) return '';
@@ -616,8 +616,9 @@ export class TabDevToolsHost {
       }
     }
     const format = options?.format === 'jpeg' ? 'jpeg' : 'png';
-    const quality = typeof options?.quality === 'number' ? Math.max(1, Math.min(100, Math.round(options.quality))) : 85;
-
+    const rawQuality = typeof options?.quality === 'number' ? options.quality : 80;
+    const quality = Math.max(1, Math.min(100, Math.round(rawQuality <= 1 && rawQuality > 0 ? rawQuality * 100 : rawQuality)));
+    const isFullPage = Boolean(options?.fullPage);
     return this.ctx.withTabAgentWorking(targetId, async () => {
       const captureAction = async (): Promise<string> => {
         const withTimeout = <T>(p: Promise<T>, ms: number, fallback: T): Promise<T> => {
@@ -631,6 +632,66 @@ export class TabDevToolsHost {
           });
         };
 
+        // Full-page CDP capture bypasses Tier 1 (wc.capturePage is strictly viewport-only)
+        if (isFullPage) {
+          try {
+            const fullPageTask = async (): Promise<string | null> => {
+              await this.sendCdpCommand(wc, 'Page.enable');
+              const metrics = await this.sendCdpCommand<{
+                contentSize?: { width: number; height: number };
+                cssContentSize?: { width: number; height: number };
+                visualViewport?: { clientWidth: number; clientHeight: number };
+                layoutViewport?: { clientWidth: number; clientHeight: number };
+              }>(wc, 'Page.getLayoutMetrics').catch(() => null);
+
+              let contentWidth = metrics?.contentSize?.width || metrics?.cssContentSize?.width;
+              let contentHeight = metrics?.contentSize?.height || metrics?.cssContentSize?.height;
+              const vpWidth = metrics?.visualViewport?.clientWidth || metrics?.layoutViewport?.clientWidth || 1200;
+              const vpHeight = metrics?.visualViewport?.clientHeight || metrics?.layoutViewport?.clientHeight || 800;
+
+              // If content dimensions are missing or height appears truncated to viewport, query DOM scroll dimensions directly
+              if (!contentHeight || contentHeight <= vpHeight || !contentWidth) {
+                try {
+                  const docDims = await this.sendCdpCommand<{ result?: { value?: { width?: number; height?: number } } }>(
+                    wc,
+                    'Runtime.evaluate',
+                    {
+                      expression: '({ width: Math.max(document.documentElement ? document.documentElement.scrollWidth : 0, document.body ? document.body.scrollWidth : 0, document.scrollingElement ? document.scrollingElement.scrollWidth : 0), height: Math.max(document.documentElement ? document.documentElement.scrollHeight : 0, document.body ? document.body.scrollHeight : 0, document.scrollingElement ? document.scrollingElement.scrollHeight : 0) })',
+                      returnByValue: true,
+                    }
+                  ).catch(() => null);
+                  if (docDims?.result?.value?.height) {
+                    contentHeight = Math.max(contentHeight || 0, docDims.result.value.height);
+                  }
+                  if (docDims?.result?.value?.width) {
+                    contentWidth = Math.max(contentWidth || 0, docDims.result.value.width);
+                  }
+                } catch {}
+              }
+
+              const rawW = Math.round(contentWidth || vpWidth);
+              const rawH = Math.round(contentHeight || vpHeight);
+              const safeWidth = Number.isFinite(rawW) ? Math.max(1, Math.min(rawW, 16384)) : 1200;
+              const safeHeight = Number.isFinite(rawH) ? Math.max(1, Math.min(rawH, 16384)) : 800;
+
+              const cdpRes = await this.sendCdpCommand<{ data?: string }>(wc, 'Page.captureScreenshot', {
+                format,
+                quality: format === 'jpeg' ? quality : undefined,
+                fromSurface: false,
+                captureBeyondViewport: true,
+                clip: { x: 0, y: 0, width: safeWidth, height: safeHeight, scale: 1 },
+              });
+
+              return (cdpRes && typeof cdpRes.data === 'string' && cdpRes.data.length > 0) ? cdpRes.data : null;
+            };
+
+            const fullPageResult = await withTimeout(fullPageTask(), 5000, null);
+            if (fullPageResult && fullPageResult.length > 0) {
+              return fullPageResult;
+            }
+          } catch {}
+          // Fall back gracefully to existing viewport capture below
+        }
         // Tier 1: Fast webContents.capturePage() with 600ms race
         try {
           const img = await withTimeout(wc.capturePage(rect), 600, null);

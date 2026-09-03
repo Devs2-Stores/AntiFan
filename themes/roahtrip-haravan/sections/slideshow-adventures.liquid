@@ -1,0 +1,88 @@
+<section class="slideshow-adventures py-16 sm:py-24 bg-neutral-950 text-white overflow-hidden" data-slideshow>
+  <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mb-8 sm:mb-12 text-center">
+    <h2 class="text-2xl sm:text-4xl lg:text-5xl font-extrabold tracking-tight">
+      {{ section.settings.title | default: 'Built to accompany every one of your real-world adventures.' }}
+    </h2>
+    {% if section.settings.subtitle != blank %}
+      <p class="mt-3 text-sm sm:text-base text-neutral-400 max-w-2xl mx-auto">
+        {{ section.settings.subtitle }}
+      </p>
+    {% endif %}
+  </div>
+
+  <div class="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+    <!-- Carousel Track Container -->
+    <div class="carousel-container relative rounded-2xl overflow-hidden aspect-[16/9] sm:aspect-[21/9] bg-neutral-900 shadow-2xl" data-carousel-track-wrapper>
+      <div class="carousel-track flex h-full transition-transform duration-500 ease-out" data-carousel-track>
+        
+        <!-- Slide 1 -->
+        <div class="carousel-slide flex-shrink-0 w-full h-full relative" data-slide="0">
+          <img src="https://www.roahtrip.com/cdn/shop/files/a2add06cacc4d6e3ef0b1262c477e31e.jpg?v=1787214855&width=1920" alt="Adventure Camping" class="w-full h-full object-cover object-center" loading="lazy">
+          <div class="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent"></div>
+        </div>
+
+        <!-- Slide 2 -->
+        <div class="carousel-slide flex-shrink-0 w-full h-full relative" data-slide="1">
+          <img src="https://www.roahtrip.com/cdn/shop/files/5d4a36c7462ad72d00cb4c8e48b54af4.jpg?v=1787214709&width=1920" alt="Mountain Road Trip" class="w-full h-full object-cover object-center" loading="lazy">
+          <div class="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent"></div>
+        </div>
+
+        <!-- Slide 3 -->
+        <div class="carousel-slide flex-shrink-0 w-full h-full relative" data-slide="2">
+          <img src="https://www.roahtrip.com/cdn/shop/files/18ab4e70d6a517cf69f3e70e3754d3c3.jpg?v=1787650023&width=1920" alt="Off-road Vehicle Mount" class="w-full h-full object-cover object-center" loading="lazy">
+          <div class="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent"></div>
+        </div>
+
+        <!-- Slide 4 -->
+        <div class="carousel-slide flex-shrink-0 w-full h-full relative" data-slide="3">
+          <img src="https://www.roahtrip.com/cdn/shop/files/1_9220e226-15ee-414a-964e-1deca96beb7e.jpg?v=1770277593&width=1920" alt="Coastal Exploration" class="w-full h-full object-cover object-center" loading="lazy">
+          <div class="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent"></div>
+        </div>
+
+        <!-- Slide 5 -->
+        <div class="carousel-slide flex-shrink-0 w-full h-full relative" data-slide="4">
+          <img src="https://www.roahtrip.com/cdn/shop/files/123.png?v=1770281231&width=1920" alt="Scenic Overlook" class="w-full h-full object-cover object-center" loading="lazy">
+          <div class="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent"></div>
+        </div>
+
+      </div>
+
+      <!-- Controls: Prev / Next -->
+      <button type="button" class="carousel-arrow carousel-arrow--prev absolute left-4 top-1/2 -translate-y-1/2 p-3 rounded-full bg-black/40 text-white backdrop-blur hover:bg-black/80 transition-colors focus:outline-none" aria-label="Previous slide" data-carousel-prev>
+        {% render 'icon', name: 'chevron-left', class: 'w-5 h-5' %}
+      </button>
+      <button type="button" class="carousel-arrow carousel-arrow--next absolute right-4 top-1/2 -translate-y-1/2 p-3 rounded-full bg-black/40 text-white backdrop-blur hover:bg-black/80 transition-colors focus:outline-none" aria-label="Next slide" data-carousel-next>
+        {% render 'icon', name: 'chevron-right', class: 'w-5 h-5' %}
+      </button>
+    </div>
+
+    <!-- Dots Pagination -->
+    <div class="carousel-dots flex justify-center items-center space-x-2 mt-6" data-carousel-dots>
+      <button type="button" class="w-2.5 h-2.5 rounded-full bg-white transition-all active" aria-label="Go to slide 1" data-dot="0"></button>
+      <button type="button" class="w-2.5 h-2.5 rounded-full bg-neutral-600 transition-all" aria-label="Go to slide 2" data-dot="1"></button>
+      <button type="button" class="w-2.5 h-2.5 rounded-full bg-neutral-600 transition-all" aria-label="Go to slide 3" data-dot="2"></button>
+      <button type="button" class="w-2.5 h-2.5 rounded-full bg-neutral-600 transition-all" aria-label="Go to slide 4" data-dot="3"></button>
+      <button type="button" class="w-2.5 h-2.5 rounded-full bg-neutral-600 transition-all" aria-label="Go to slide 5" data-dot="4"></button>
+    </div>
+  </div>
+</section>
+
+{% schema %}
+{
+  "name": "Slideshow Adventures",
+  "settings": [
+    {
+      "type": "text",
+      "id": "title",
+      "label": "Heading",
+      "default": "Built to accompany every one of your real-world adventures."
+    },
+    {
+      "type": "text",
+      "id": "subtitle",
+      "label": "Subtitle",
+      "default": "Authentic creators driven by heart and purpose"
+    }
+  ]
+}
+{% endschema %}

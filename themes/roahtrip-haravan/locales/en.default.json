@@ -1,0 +1,33 @@
+{
+  "general": {
+    "skip_to_content": "Skip to content",
+    "search": "Search",
+    "close": "Close",
+    "menu": "Menu",
+    "language": "Language"
+  },
+  "sections": {
+    "header": {
+      "cart_count": "Total items in cart: {{ count }}",
+      "open_cart": "Open cart",
+      "open_search": "Open search",
+      "open_account": "Open account menu"
+    },
+    "hero": {
+      "shop_now": "Shop Now"
+    },
+    "trending": {
+      "title": "Trending Products",
+      "subtitle": "Discover our most popular aerodynamic crossbars and cargo gear",
+      "add_to_cart": "Add to cart",
+      "sold_out": "Sold out"
+    },
+    "cart_drawer": {
+      "title": "Your Cart",
+      "empty": "Your cart is currently empty",
+      "subtotal": "Subtotal",
+      "checkout": "Checkout",
+      "continue_shopping": "Continue shopping"
+    }
+  }
+}

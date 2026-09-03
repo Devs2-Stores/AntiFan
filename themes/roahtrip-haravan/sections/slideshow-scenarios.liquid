@@ -1,0 +1,76 @@
+<section class="slideshow-scenarios py-16 sm:py-24 bg-white" data-slideshow>
+  <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mb-8 sm:mb-12 text-center">
+    <h2 class="text-2xl sm:text-4xl font-extrabold text-neutral-900 tracking-tight">
+      {{ section.settings.title | default: 'Product usage scenario diagram' }}
+    </h2>
+    {% if section.settings.subtitle != blank %}
+      <p class="mt-2 text-sm sm:text-base text-neutral-500">
+        {{ section.settings.subtitle }}
+      </p>
+    {% endif %}
+  </div>
+
+  <div class="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+    <div class="carousel-container relative rounded-2xl overflow-hidden aspect-[16/9] sm:aspect-[21/9] bg-neutral-100 shadow-xl border border-neutral-200/80" data-carousel-track-wrapper>
+      <div class="carousel-track flex h-full transition-transform duration-500 ease-out" data-carousel-track>
+        
+        <!-- Slide 1 -->
+        <div class="carousel-slide flex-shrink-0 w-full h-full relative" data-slide="0">
+          <img src="https://www.roahtrip.com/cdn/shop/files/34c45979af0e4957eb559d8f05e8091c_1_1.jpg?v=1787216140&width=1920" alt="Scenario 1" class="w-full h-full object-cover" loading="lazy">
+        </div>
+
+        <!-- Slide 2 -->
+        <div class="carousel-slide flex-shrink-0 w-full h-full relative" data-slide="1">
+          <img src="https://www.roahtrip.com/cdn/shop/files/IMG_0007.jpg?v=1787623741&width=1920" alt="Scenario 2" class="w-full h-full object-cover" loading="lazy">
+        </div>
+
+        <!-- Slide 3 -->
+        <div class="carousel-slide flex-shrink-0 w-full h-full relative" data-slide="2">
+          <img src="https://www.roahtrip.com/cdn/shop/files/201.jpg?v=1769994853&width=1920" alt="Scenario 3" class="w-full h-full object-cover" loading="lazy">
+        </div>
+
+        <!-- Slide 4 -->
+        <div class="carousel-slide flex-shrink-0 w-full h-full relative" data-slide="3">
+          <img src="https://www.roahtrip.com/cdn/shop/files/twi0422-2.png?v=1787623834&width=1920" alt="Scenario 4" class="w-full h-full object-cover" loading="lazy">
+        </div>
+
+      </div>
+
+      <!-- Arrow Controls -->
+      <button type="button" class="carousel-arrow carousel-arrow--prev absolute left-4 top-1/2 -translate-y-1/2 p-3 rounded-full bg-white/80 text-black backdrop-blur hover:bg-white shadow-lg transition-colors focus:outline-none" aria-label="Previous scenario" data-carousel-prev>
+        {% render 'icon', name: 'chevron-left', class: 'w-5 h-5' %}
+      </button>
+      <button type="button" class="carousel-arrow carousel-arrow--next absolute right-4 top-1/2 -translate-y-1/2 p-3 rounded-full bg-white/80 text-black backdrop-blur hover:bg-white shadow-lg transition-colors focus:outline-none" aria-label="Next scenario" data-carousel-next>
+        {% render 'icon', name: 'chevron-right', class: 'w-5 h-5' %}
+      </button>
+    </div>
+
+    <!-- Dots -->
+    <div class="carousel-dots flex justify-center items-center space-x-2 mt-6" data-carousel-dots>
+      <button type="button" class="w-2.5 h-2.5 rounded-full bg-black transition-all active" aria-label="Go to slide 1" data-dot="0"></button>
+      <button type="button" class="w-2.5 h-2.5 rounded-full bg-neutral-300 transition-all" aria-label="Go to slide 2" data-dot="1"></button>
+      <button type="button" class="w-2.5 h-2.5 rounded-full bg-neutral-300 transition-all" aria-label="Go to slide 3" data-dot="2"></button>
+      <button type="button" class="w-2.5 h-2.5 rounded-full bg-neutral-300 transition-all" aria-label="Go to slide 4" data-dot="3"></button>
+    </div>
+  </div>
+</section>
+
+{% schema %}
+{
+  "name": "Slideshow Scenarios",
+  "settings": [
+    {
+      "type": "text",
+      "id": "title",
+      "label": "Heading",
+      "default": "Product usage scenario diagram"
+    },
+    {
+      "type": "text",
+      "id": "subtitle",
+      "label": "Subtitle",
+      "default": "Real-world installations on SUVs, sedans, and trucks"
+    }
+  ]
+}
+{% endschema %}

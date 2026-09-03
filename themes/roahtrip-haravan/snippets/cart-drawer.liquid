@@ -1,0 +1,75 @@
+<div id="CartDrawer" class="cart-drawer fixed inset-0 z-50 pointer-events-none transition-opacity duration-300 opacity-0 invisible" aria-hidden="true" role="dialog" aria-modal="true" aria-label="Shopping Cart">
+  <!-- Backdrop -->
+  <div class="cart-drawer__backdrop fixed inset-0 bg-black/50 transition-opacity duration-300 pointer-events-auto" data-drawer-close></div>
+
+  <!-- Panel -->
+  <div class="cart-drawer__panel fixed inset-y-0 right-0 max-w-full w-full sm:max-w-md bg-white shadow-2xl flex flex-col pointer-events-auto transform translate-x-full transition-transform duration-300 ease-in-out">
+    <!-- Header -->
+    <div class="cart-drawer__header px-6 py-5 border-b border-neutral-200 flex items-center justify-between">
+      <h2 class="text-lg font-bold text-neutral-900 flex items-center space-x-2">
+        <span>Your Cart</span>
+        <span class="cart-drawer__count-badge bg-neutral-100 text-neutral-800 text-xs px-2 py-0.5 rounded-full font-semibold" data-cart-count>{{ cart.item_count }}</span>
+      </h2>
+      <button type="button" class="p-2 text-neutral-400 hover:text-neutral-700 rounded-lg hover:bg-neutral-100 transition-colors" data-drawer-close aria-label="Close cart">
+        {% render 'icon', name: 'close', class: 'w-5 h-5' %}
+      </button>
+    </div>
+
+    <!-- Free Shipping Notice -->
+    <div class="cart-drawer__shipping-bar px-6 py-3 bg-neutral-50 border-b border-neutral-200 text-xs text-neutral-600 flex items-center space-x-2">
+      {% render 'icon', name: 'truck', class: 'w-4 h-4 text-neutral-800 flex-shrink-0' %}
+      <span>Free standard shipping for orders over <strong>$30</strong></span>
+    </div>
+
+    <!-- Body / Items List -->
+    <div class="cart-drawer__body flex-1 overflow-y-auto px-6 py-4 divide-y divide-neutral-200" data-cart-items>
+      {% if cart.item_count > 0 %}
+        {% for item in cart.items %}
+          <div class="cart-drawer__item py-4 flex space-x-4" data-line-item-id="{{ item.id }}">
+            <img src="{{ item.image | img_url: '140x140' }}" alt="{{ item.title | escape }}" class="w-20 h-20 object-cover rounded-lg bg-neutral-100 border border-neutral-200 flex-shrink-0">
+            <div class="flex-1 min-w-0">
+              <h4 class="text-sm font-semibold text-neutral-900 truncate">
+                <a href="{{ item.url }}" class="hover:underline">{{ item.product.title }}</a>
+              </h4>
+              {% unless item.variant.title contains 'Default' %}
+                <p class="text-xs text-neutral-500 mt-0.5">{{ item.variant.title }}</p>
+              {% endunless %}
+              <div class="text-sm font-bold text-neutral-900 mt-1.5">{{ item.price | money }}</div>
+
+              <div class="flex items-center justify-between mt-3">
+                <div class="inline-flex items-center border border-neutral-200 rounded-md">
+                  <button type="button" class="px-2.5 py-1 text-neutral-500 hover:text-black hover:bg-neutral-50" data-qty-change="-1" data-variant-id="{{ item.id }}">-</button>
+                  <span class="px-3 text-xs font-semibold text-neutral-900" data-item-qty>{{ item.quantity }}</span>
+                  <button type="button" class="px-2.5 py-1 text-neutral-500 hover:text-black hover:bg-neutral-50" data-qty-change="1" data-variant-id="{{ item.id }}">+</button>
+                </div>
+                <button type="button" class="text-xs text-neutral-400 hover:text-red-600 transition-colors" data-remove-item data-variant-id="{{ item.id }}">Remove</button>
+              </div>
+            </div>
+          </div>
+        {% endfor %}
+      {% else %}
+        <div class="cart-drawer__empty text-center py-16">
+          <div class="w-16 h-16 mx-auto mb-4 bg-neutral-100 rounded-full flex items-center justify-center text-neutral-400">
+            {% render 'icon', name: 'cart', class: 'w-8 h-8' %}
+          </div>
+          <p class="text-neutral-500 text-sm mb-6">Your shopping cart is currently empty.</p>
+          <button type="button" class="bg-black text-white px-6 py-2.5 rounded-lg text-xs font-semibold uppercase tracking-wider hover:bg-neutral-800 transition-colors" data-drawer-close>
+            Start Shopping
+          </button>
+        </div>
+      {% endif %}
+    </div>
+
+    <!-- Footer / Checkout -->
+    <div class="cart-drawer__footer p-6 border-t border-neutral-200 bg-neutral-50/50 space-y-4" data-cart-footer {% if cart.item_count == 0 %}style="display: none;"{% endif %}>
+      <div class="flex justify-between items-baseline">
+        <span class="text-sm font-medium text-neutral-600">Subtotal</span>
+        <span class="text-lg font-bold text-neutral-900" data-cart-subtotal>{{ cart.total_price | money }}</span>
+      </div>
+      <p class="text-xs text-neutral-400">Taxes and shipping calculated at checkout.</p>
+      <a href="/checkout" class="w-full block text-center bg-black text-white py-3.5 px-6 rounded-lg text-sm font-semibold uppercase tracking-wider hover:bg-neutral-800 transition-colors shadow-sm">
+        Proceed to Checkout
+      </a>
+    </div>
+  </div>
+</div>

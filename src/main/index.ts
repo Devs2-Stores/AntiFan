@@ -236,7 +236,7 @@ async function createWindow(): Promise<void> {
     navigate: (tabId, url) => tabHost!.navigateAndWait(tabId, url),
     reload: (tabId) => tabHost!.reloadAndWait(tabId),
     getDom: (selector, tabId, paneId) => tabHost!.getDom(selector, tabId, paneId),
-    captureScreenshot: (rect, tabId, paneId) => tabHost!.captureScreenshot(rect as any, tabId, paneId),
+    captureScreenshot: (rect, tabId, paneId, options) => tabHost!.captureScreenshot(rect as any, tabId, paneId, options),
     evalJs: (expression, tabId, paneId) => tabHost!.evalJs(expression, tabId, paneId),
     getDiagnostics: (tabId, level) => tabHost!.getDiagnostics(tabId, level),
     runResponsiveCheck: (tabId) => tabHost!.runResponsiveCheck(tabId),

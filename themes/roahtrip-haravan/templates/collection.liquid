@@ -1,0 +1,29 @@
+<section class="collection-template py-12 px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto">
+  <div class="collection-header text-center mb-12">
+    <h1 class="text-3xl sm:text-4xl font-bold tracking-tight text-neutral-900 mb-4">{{ collection.title }}</h1>
+    {% if collection.description != blank %}
+      <p class="text-base text-neutral-600 max-w-2xl mx-auto">{{ collection.description }}</p>
+    {% endif %}
+  </div>
+
+  {% paginate collection.products by 12 %}
+    {% if collection.products.size > 0 %}
+      <div class="product-grid grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 lg:gap-8">
+        {% for product in collection.products %}
+          {% render 'product-card', product: product %}
+        {% endfor %}
+      </div>
+
+      {% if paginate.pages > 1 %}
+        <div class="pagination flex justify-center items-center space-x-2 mt-12">
+          {{ paginate | default_pagination }}
+        </div>
+      {% endif %}
+    {% else %}
+      <div class="empty-collection text-center py-16">
+        <p class="text-neutral-500 text-lg mb-6">No products found in this collection.</p>
+        <a href="/" class="inline-block bg-black text-white px-6 py-3 rounded-lg text-sm font-semibold hover:bg-neutral-800 transition-colors">Return to Home</a>
+      </div>
+    {% endif %}
+  {% endpaginate %}
+</section>

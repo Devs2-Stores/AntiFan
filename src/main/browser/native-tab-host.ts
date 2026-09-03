@@ -243,6 +243,7 @@ export class NativeTabHost extends EventEmitter {
     lastUrl?: string;
     closedAt?: number;
   }>();
+  private readonly sessionTabPools = new Map<string, Set<string>>();
   private tabThemeQaStates = new Map<string, { status: 'idle' | 'running' | 'pass' | 'fail' | 'error'; issueCount: number; reportArtifactId?: string; report?: unknown; error?: string; updatedAt: number }>();
   private asyncQaQueue = new AsyncThemeQaQueue();
   public readonly semanticRefRegistry = new SemanticRefRegistry();
@@ -753,7 +754,7 @@ export class NativeTabHost extends EventEmitter {
         }
       }
     });
-    ipcMain.handle(TOOLBAR_CHANNELS.CAPTURE_FULL_PAGE, () => this.captureScreenshot());
+    ipcMain.handle(TOOLBAR_CHANNELS.CAPTURE_FULL_PAGE, () => this.captureScreenshot(undefined, undefined, undefined, { fullPage: true }));
     ipcMain.handle(TOOLBAR_CHANNELS.CAPTURE_VIEWPORT, () => this.captureScreenshot());
     ipcMain.handle(TOOLBAR_CHANNELS.OPEN_EXTERNAL, (_event, url?: string) => this.openExternal(url));
     ipcMain.handle(TOOLBAR_CHANNELS.OPEN_IN_VSCODE, () => this.openInVSCode());
@@ -2792,6 +2793,8 @@ export class NativeTabHost extends EventEmitter {
       try {
         wc.setBackgroundThrottling(true);
       } catch {}
+      this.updateLayout();
+      this.broadcastState();
     }
     this.schedulePersist();
     recordBenchmark({ surface: 'tabs', name: 'created', extra: { activate, url: url.slice(0, 80) } });
@@ -2982,6 +2985,15 @@ export class NativeTabHost extends EventEmitter {
       this.automationTabId = null;
     }
     this.tombstoneTerminalAgentAffinity(tabId, target.state.url);
+    if (this.sessionTabPools) {
+      for (const [sId, pool] of Array.from(this.sessionTabPools.entries())) {
+        pool.delete(tabId);
+        if (pool.size === 0) {
+          this.sessionTabPools.delete(sId);
+        }
+      }
+      this.sessionTabPools.delete(tabId);
+    }
     if (target.state.partition) {
       unconfigureBrowserSessionPartition(target.state.partition);
     }
@@ -3103,6 +3115,11 @@ export class NativeTabHost extends EventEmitter {
     const cleanUrl = sanitizeUrl(inputUrl);
     if (cleanUrl.startsWith('view-source:')) {
       return this.navigate(tabId, inputUrl);
+    }
+    const currentUrl = (tab.state.url || '').replace(/\/$/, '');
+    const targetUrl = sanitizeUrl(inputUrl).replace(/\/$/, '');
+    if (currentUrl && targetUrl === currentUrl) {
+      return this.reloadAndWait(tabId, timeoutMs);
     }
     const authorityPane = tab.state.splitMode && tab.mobileView && !tab.mobileView.webContents.isDestroyed()
       ? (tab.focusedPane || tab.state.splitFocusedPane || 'desktop')
@@ -3279,6 +3296,7 @@ export class NativeTabHost extends EventEmitter {
         try { wc.removeListener('did-start-navigation', onStart); } catch {}
         try { wc.removeListener('did-finish-load', onFinish); } catch {}
         try { wc.removeListener('did-fail-load', onFail); } catch {}
+        try { wc.removeListener('did-navigate-in-page', onInPage); } catch {}
       };
 
       const finish = (result: boolean) => {
@@ -3306,6 +3324,11 @@ export class NativeTabHost extends EventEmitter {
         }
       };
 
+      const onInPage = (_event: unknown, _url: unknown, isMainFrame: boolean) => {
+        if (isMainFrame && !settled) {
+          finish(true);
+        }
+      };
       const onFail = (_event: unknown, errorCode: unknown, errorDescription: unknown, _validatedURL: unknown, isMainFrame?: boolean) => {
         if (isMainFrame === false) {
           return;
@@ -3339,6 +3362,7 @@ export class NativeTabHost extends EventEmitter {
       wc.on('did-start-navigation', onStart);
       wc.on('did-finish-load', onFinish);
       wc.on('did-fail-load', onFail);
+      wc.on('did-navigate-in-page', onInPage);
     });
 
     return { promise, cancel: cancelFn };
@@ -3902,6 +3926,26 @@ export class NativeTabHost extends EventEmitter {
     return true;
   }
 
+  public adoptChildTabForSession(sessionId: string, childTabId: string): boolean {
+    if (!sessionId || !childTabId) return false;
+    if (!this.sessionTabPools) (this as any).sessionTabPools = new Map<string, Set<string>>();
+    let pool = this.sessionTabPools.get(sessionId);
+    if (!pool) {
+      pool = new Set<string>();
+      this.sessionTabPools.set(sessionId, pool);
+    }
+    if (pool.size >= 10 && !pool.has(childTabId)) {
+      return false;
+    }
+    pool.add(childTabId);
+    const tab = this.tabs.get(childTabId);
+    if (tab) {
+      tab.state.terminalSessionId = sessionId;
+      this.broadcastState();
+    }
+    return true;
+  }
+
   public adoptChildTab(
     identifier: string,
     childTabId: string,
@@ -3910,9 +3954,54 @@ export class NativeTabHost extends EventEmitter {
     parentTabId?: string
   ): boolean {
     if (!this.terminalAgentAffinity || !identifier || !childTabId) return false;
+    if (!this.sessionTabPools) (this as any).sessionTabPools = new Map<string, Set<string>>();
     const childTab = this.tabs?.get(childTabId);
     if (!childTab) return false;
 
+    // Check if identifier is an active session or found in sessionTabPools
+    let targetSessionId: string | undefined;
+    if (this.sessionTabPools.has(identifier)) {
+      targetSessionId = identifier;
+    } else {
+      for (const [sId, pool] of this.sessionTabPools.entries()) {
+        if (pool.has(identifier)) {
+          targetSessionId = sId;
+          break;
+        }
+      }
+    }
+
+    if (!targetSessionId) {
+      try {
+        const tm = TerminalManager.getInstance();
+        if (tm.getSession(identifier) || tm.getActiveSessionId() === identifier) {
+          targetSessionId = identifier;
+        }
+      } catch {}
+    }
+
+    if (!targetSessionId) {
+      const parentTab = this.tabs.get(identifier);
+      if (parentTab?.state.terminalSessionId) {
+        const termSessId = parentTab.state.terminalSessionId;
+        if (this.sessionTabPools.has(termSessId)) {
+          targetSessionId = termSessId;
+        } else {
+          try {
+            const tm = TerminalManager.getInstance();
+            if (tm.getSession(termSessId) || tm.getActiveSessionId() === termSessId) {
+              targetSessionId = termSessId;
+            }
+          } catch {}
+        }
+      }
+    }
+
+    // Fallback: If identifier is a live tab (e.g. MCP bound tab without terminal affinity),
+    // initialize an ad-hoc session pool anchored at identifier so child tabs are recognized.
+    if (!targetSessionId && this.tabs.has(identifier)) {
+      targetSessionId = identifier;
+    }
     // 1. Try finding entry as terminalId
     let entry = this.resolveTerminalAffinityEntry(identifier, generation);
     let resolvedTerminalId = identifier;
@@ -3929,12 +4018,23 @@ export class NativeTabHost extends EventEmitter {
       }
     }
 
-    if (!entry) return false;
-
-    // Hard limit: max 5 tabs per terminal
-    if (entry.managedTabIds.size >= 5 && !entry.managedTabIds.has(childTabId)) {
+    // Hard limit: max 10 tabs per terminal session - reject before mutating sessionTabPools
+    if (entry && entry.managedTabIds && entry.managedTabIds.size >= 10 && !entry.managedTabIds.has(childTabId)) {
       return false;
     }
+
+    let adoptedIntoPool = false;
+    if (targetSessionId) {
+      if (this.tabs.has(identifier)) {
+        this.adoptChildTabForSession(targetSessionId, identifier);
+      }
+      adoptedIntoPool = this.adoptChildTabForSession(targetSessionId, childTabId);
+      if (!adoptedIntoPool && !entry) {
+        return false;
+      }
+    }
+
+    if (!entry) return adoptedIntoPool;
 
     if (!entry.managedTabIds) entry.managedTabIds = new Set<string>([entry.tabId]);
     entry.managedTabIds.add(childTabId);
@@ -3964,6 +4064,16 @@ export class NativeTabHost extends EventEmitter {
 
   public getManagedTabIdsForBoundTab(boundTabId: string): Set<string> {
     if (!boundTabId) return new Set();
+    if (!this.sessionTabPools) (this as any).sessionTabPools = new Map<string, Set<string>>();
+    const directPool = this.sessionTabPools.get(boundTabId);
+    if (directPool) {
+      return new Set(directPool);
+    }
+    for (const pool of this.sessionTabPools.values()) {
+      if (pool.has(boundTabId)) {
+        return new Set(pool);
+      }
+    }
     for (const entry of this.terminalAgentAffinity.values()) {
       if (entry.primaryTabId === boundTabId || entry.managedTabIds?.has(boundTabId)) {
         return new Set(entry.managedTabIds);
@@ -3973,20 +4083,40 @@ export class NativeTabHost extends EventEmitter {
   }
 
   public getManagedTabIds(boundTabIdOrTerminalId: string): Set<string> {
+    if (!boundTabIdOrTerminalId) return new Set();
+    if (!this.sessionTabPools) (this as any).sessionTabPools = new Map<string, Set<string>>();
+    const found = this.sessionTabPools.get(boundTabIdOrTerminalId);
+    if (found) {
+      return new Set(found);
+    }
+    for (const pool of this.sessionTabPools.values()) {
+      if (pool.has(boundTabIdOrTerminalId)) {
+        return new Set(pool);
+      }
+    }
     return this.getManagedTabIdsForBoundTab(boundTabIdOrTerminalId);
   }
 
   public isTabAllowedForPrimary(primaryTabId: string, requestedTabId: string): boolean {
     if (!primaryTabId || !requestedTabId) return false;
     if (primaryTabId === requestedTabId) return true;
-    for (const entry of this.terminalAgentAffinity.values()) {
-      const matchesSession =
-        entry.primaryTabId === primaryTabId ||
-        entry.managedTabIds?.has(primaryTabId) ||
-        entry.lineage?.has(primaryTabId) ||
-        entry.lastUrls?.has(primaryTabId);
-      if (matchesSession && (entry.managedTabIds?.has(requestedTabId) || entry.primaryTabId === requestedTabId)) {
-        return !entry.closedAt;
+    if (this.sessionTabPools) {
+      for (const pool of this.sessionTabPools.values()) {
+        if (pool.has(primaryTabId) && pool.has(requestedTabId)) {
+          return true;
+        }
+      }
+    }
+    if (this.terminalAgentAffinity) {
+      for (const entry of this.terminalAgentAffinity.values()) {
+        const matchesSession =
+          entry.primaryTabId === primaryTabId ||
+          entry.managedTabIds?.has(primaryTabId) ||
+          entry.lineage?.has(primaryTabId) ||
+          entry.lastUrls?.has(primaryTabId);
+        if (matchesSession && (entry.managedTabIds?.has(requestedTabId) || entry.primaryTabId === requestedTabId)) {
+          return !entry.closedAt;
+        }
       }
     }
     return false;
@@ -4287,7 +4417,7 @@ export class NativeTabHost extends EventEmitter {
     this.getDevToolsHost().stopFindInPage();
   }
 
-  public async captureScreenshot(rect?: Rectangle, tabId?: string, paneId?: SplitPaneId, options?: { format?: 'png' | 'jpeg'; quality?: number }): Promise<string> {
+  public async captureScreenshot(rect?: Rectangle, tabId?: string, paneId?: SplitPaneId, options?: { format?: 'png' | 'jpeg'; quality?: number; fullPage?: boolean }): Promise<string> {
     return this.getDevToolsHost().captureScreenshot(rect, tabId, paneId, options);
   }
 
@@ -5103,6 +5233,7 @@ export class NativeTabHost extends EventEmitter {
     this.semanticRefRegistry?.destroy();
     this.targetOperationQueues?.clear();
     this.semanticDocumentGenerations?.clear();
+    this.sessionTabPools?.clear();
     if (this.frameBackdropView) {
       try {
         this.window.contentView.removeChildView(this.frameBackdropView);

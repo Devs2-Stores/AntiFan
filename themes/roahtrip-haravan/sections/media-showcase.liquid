@@ -1,0 +1,80 @@
+<section class="media-showcase py-16 sm:py-24 bg-neutral-900 text-white" data-media-showcase>
+  <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+    <div class="text-center max-w-3xl mx-auto mb-10 sm:mb-14">
+      <span class="text-xs sm:text-sm font-semibold uppercase tracking-widest text-neutral-400 block mb-2">
+        {{ section.settings.tagline | default: '- Bestselling New Products -' }}
+      </span>
+      <h2 class="text-3xl sm:text-4xl lg:text-5xl font-extrabold tracking-tight">
+        {{ section.settings.title | default: 'Engineered For The Journey' }}
+      </h2>
+      {% if section.settings.description != blank %}
+        <p class="mt-4 text-sm sm:text-base text-neutral-400 leading-relaxed">
+          {{ section.settings.description }}
+        </p>
+      {% endif %}
+    </div>
+
+    <!-- Video Wrapper -->
+    <div class="relative max-w-5xl mx-auto rounded-2xl overflow-hidden aspect-video bg-black shadow-2xl group border border-neutral-800" data-video-wrapper>
+      <video 
+        class="w-full h-full object-cover" 
+        poster="{{ section.settings.video_poster | default: 'https://www.roahtrip.com/cdn/shop/files/preview_images/32f06cb6465f4a7c990acab0297fb07e.thumbnail.0000000000.jpg?v=1750904488&width=1920' }}"
+        playsinline
+        muted
+        loop
+        data-video-element
+      >
+        <source src="{{ section.settings.video_url | default: 'https://www.roahtrip.com/cdn/shop/videos/c/vp/32f06cb6465f4a7c990acab0297fb07e/32f06cb6465f4a7c990acab0297fb07e.HD-1080p-7.2Mbps-50059316.mp4?v=0' }}" type="video/mp4">
+        Your browser does not support HTML5 video.
+      </video>
+
+      <!-- Custom Play Overlay -->
+      <button 
+        type="button" 
+        class="video-play-btn absolute inset-0 flex items-center justify-center bg-black/30 hover:bg-black/20 transition-colors group-data-[playing=true]:opacity-0 group-data-[playing=true]:pointer-events-none"
+        aria-label="Play video"
+        data-video-play-btn
+      >
+        <div class="w-16 h-16 sm:w-20 sm:h-20 rounded-full bg-white/90 text-black flex items-center justify-center shadow-xl transform group-hover:scale-110 transition-transform">
+          {% render 'icon', name: 'play', class: 'w-8 h-8 sm:w-10 sm:h-10 ml-1' %}
+        </div>
+      </button>
+    </div>
+  </div>
+</section>
+
+{% schema %}
+{
+  "name": "Media Showcase",
+  "settings": [
+    {
+      "type": "text",
+      "id": "tagline",
+      "label": "Tagline",
+      "default": "- Bestselling New Products -"
+    },
+    {
+      "type": "text",
+      "id": "title",
+      "label": "Heading",
+      "default": "Engineered For The Journey"
+    },
+    {
+      "type": "textarea",
+      "id": "description",
+      "label": "Description",
+      "default": "Seamlessly integrates with your vehicle roof for wind-silenced touring, maximum payload stability, and quick-release versatility."
+    },
+    {
+      "type": "text",
+      "id": "video_url",
+      "label": "Video MP4 URL"
+    },
+    {
+      "type": "image_picker",
+      "id": "video_poster",
+      "label": "Video poster image"
+    }
+  ]
+}
+{% endschema %}

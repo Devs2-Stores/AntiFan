@@ -1,0 +1,69 @@
+{
+  "sections": {
+    "hero": {
+      "type": "hero",
+      "settings": {
+        "title": "Quick-install roof box | Essential storage | For Road Trips & Camping",
+        "subtitle": "Engineered for aerodynamic efficiency, effortless mounting, and rugged outdoor durability.",
+        "button_text": "Shop Now ->",
+        "button_link": "/collections/all"
+      }
+    },
+    "value_props": {
+      "type": "value-props",
+      "settings": {}
+    },
+    "collection_grid": {
+      "type": "collection-grid",
+      "settings": {
+        "title": "Shop By Category"
+      }
+    },
+    "slideshow_adventures": {
+      "type": "slideshow-adventures",
+      "settings": {
+        "title": "Built to accompany every one of your real-world adventures.",
+        "subtitle": "Authentic creators driven by heart and purpose"
+      }
+    },
+    "trending_products": {
+      "type": "trending-products",
+      "settings": {
+        "title": "Trending Products",
+        "subtitle": "Discover our most popular aerodynamic crossbars and cargo gear"
+      }
+    },
+    "media_showcase": {
+      "type": "media-showcase",
+      "settings": {
+        "tagline": "- Bestselling New Products -",
+        "title": "Engineered For The Journey",
+        "description": "Seamlessly integrates with your vehicle roof for wind-silenced touring, maximum payload stability, and quick-release versatility."
+      }
+    },
+    "slideshow_scenarios": {
+      "type": "slideshow-scenarios",
+      "settings": {
+        "title": "Product usage scenario diagram",
+        "subtitle": "Real-world installations on SUVs, sedans, and trucks"
+      }
+    },
+    "newsletter": {
+      "type": "newsletter",
+      "settings": {
+        "title": "Join The Roahtrip Community",
+        "subtitle": "Subscribe to receive updates, access to exclusive deals, and more."
+      }
+    }
+  },
+  "order": [
+    "hero",
+    "value_props",
+    "collection_grid",
+    "slideshow_adventures",
+    "trending_products",
+    "media_showcase",
+    "slideshow_scenarios",
+    "newsletter"
+  ]
+}

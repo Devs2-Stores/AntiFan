@@ -479,9 +479,13 @@ export class AntiFanMcpServer {
   public async callTool(toolName: string, args: Record<string, unknown> = {}, callerRequestId?: string): Promise<{ content: Array<{ type: string; text?: string; data?: string; mimeType?: string }>; isError?: boolean }> {
     const aliasMap: Record<string, string> = {
       'anti.browser.tabs.create': 'antifan_open_tab',
+      'anti.browser.open_tab': 'antifan_open_tab',
       'anti.browser.tabs.list': 'antifan_list_tabs',
+      'anti.browser.list_tabs': 'antifan_list_tabs',
       'anti.browser.tabs.activate': 'antifan_switch_tab',
+      'anti.browser.switch_tab': 'antifan_switch_tab',
       'anti.browser.tabs.close': 'antifan_close_tab',
+      'anti.browser.close_tab': 'antifan_close_tab',
       'anti.browser.navigate': 'antifan_navigate',
       'anti.browser.reload': 'antifan_reload',
       'anti.browser.dump_dom': 'browser.dump_dom',
@@ -492,7 +496,9 @@ export class AntiFanMcpServer {
       'anti.browser.set-automation-target': 'antifan_set_automation_target',
       'anti.inspect.dom': 'antifan_get_dom',
       'anti.screenshot.viewport': 'antifan_screenshot',
-      'anti.browser.click': 'antifan_agent_click',
+      'anti.screenshot.full_page': 'antifan_screenshot',
+      'anti.screenshot.fullpage': 'antifan_screenshot',
+      'antifan_screenshot_full_page': 'antifan_screenshot',
       'anti.browser.type': 'antifan_agent_type',
       'anti.browser.scroll': 'antifan_agent_scroll',
       'anti.browser.hover': 'antifan_agent_hover',
@@ -509,8 +515,11 @@ export class AntiFanMcpServer {
       'anti.browser.trajectory': 'antifan_agent_trajectory',
       'anti.browser.viewport.set': 'antifan_set_viewport',
       'anti.browser.set_device': 'antifan_set_device_preset',
+      'anti.browser.set_device_preset': 'antifan_set_device_preset',
       'anti.browser.viewport.set_preset': 'antifan_set_device_preset',
       'anti.browser.viewport.list_presets': 'antifan_list_device_presets',
+      'antifan_set_device_preset': 'antifan_set_device_preset',
+      'antifan_list_device_presets': 'antifan_list_device_presets',
       'anti.devtools.console.list': 'antifan_console_messages',
       'anti.devtools.console.errors': 'antifan_console_messages',
       'anti.devtools.console.warnings': 'antifan_console_messages',
@@ -553,6 +562,7 @@ export class AntiFanMcpServer {
     const name = aliasMap[toolName] || toolName;
     const a = (args || {}) as Record<string, unknown>;
     if (!a.tabId && a.id) a.tabId = a.id;
+    if (toolName === 'anti.screenshot.full_page' || toolName === 'anti.screenshot.fullpage' || toolName === 'antifan_screenshot_full_page') a.fullPage = true;
     if (toolName === 'anti.devtools.console.errors') a.level = 3;
     if (toolName === 'anti.devtools.console.warnings') a.level = 2;
 
@@ -651,13 +661,6 @@ export class AntiFanMcpServer {
     } catch {}
   }
 }
-function isCreatedTabResult(value: unknown): value is { tabId: string } {
-  return typeof value === 'object'
-    && value !== null
-    && typeof (value as { tabId?: unknown }).tabId === 'string'
-    && (value as { tabId: string }).tabId.trim().length > 0;
-}
-
 function isAgentCapabilityName(name: string): boolean {
   return name === 'browser.keyboard-press'
     || name === 'antifan_keyboard_press'
@@ -709,7 +712,7 @@ export function buildMcpToolList(staticTools: Tool[], transport?: CapabilityTran
     if (item.name === 'antifan_navigate') generated.push({ ...item, name: 'anti.browser.navigate' });
     if (item.name === 'antifan_reload') generated.push({ ...item, name: 'anti.browser.reload' });
     if (item.name === 'antifan_get_dom') generated.push({ ...item, name: 'anti.inspect.dom' });
-    if (item.name === 'antifan_screenshot') generated.push({ ...item, name: 'anti.screenshot.viewport' });
+    if (item.name === 'antifan_screenshot') generated.push({ ...item, name: 'anti.screenshot.viewport' }, { ...item, name: 'anti.screenshot.full_page', description: 'Capture full-page screenshot of entire scrollable page height using CDP' });
     if (item.name === 'antifan_agent_click') generated.push({ ...item, name: 'anti.browser.click' }, { ...item, name: 'anti.agent.cursor.click' });
     if (item.name === 'antifan_agent_type') generated.push({ ...item, name: 'anti.browser.type' }, { ...item, name: 'anti.agent.cursor.type' });
     if (item.name === 'antifan_agent_scroll') generated.push({ ...item, name: 'anti.browser.scroll' }, { ...item, name: 'anti.agent.cursor.scroll' });
@@ -718,7 +721,7 @@ export function buildMcpToolList(staticTools: Tool[], transport?: CapabilityTran
     if (item.name === 'antifan_agent_clear') generated.push({ ...item, name: 'anti.browser.clear' }, { ...item, name: 'anti.agent.cursor.clear' });
     if (item.name === 'antifan_agent_trajectory') generated.push({ ...item, name: 'anti.browser.trajectory' }, { ...item, name: 'anti.agent.cursor.trajectory' });
     if (item.name === 'antifan_set_viewport') generated.push({ ...item, name: 'anti.browser.viewport.set' });
-    if (item.name === 'antifan_set_device_preset') generated.push({ ...item, name: 'anti.browser.set_device' }, { ...item, name: 'anti.browser.viewport.set_preset' });
+    if (item.name === 'antifan_set_device_preset') generated.push({ ...item, name: 'anti.browser.set_device' }, { ...item, name: 'anti.browser.viewport.set_preset' }, { ...item, name: 'anti.browser.set_device_preset' });
     if (item.name === 'antifan_list_device_presets') generated.push({ ...item, name: 'anti.browser.viewport.list_presets' });
     if (item.name === 'antifan_theme_qa_validate') generated.push({ ...item, name: 'anti.theme.qa.validate' }, { ...item, name: 'anti.theme.qa_validate' });
     if (item.name === 'antifan_theme_debug_bundle') generated.push({ ...item, name: 'anti.theme.debug.bundle' }, { ...item, name: 'anti.theme.debug_bundle' });

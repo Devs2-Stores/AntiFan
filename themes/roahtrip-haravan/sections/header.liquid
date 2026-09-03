@@ -1,0 +1,117 @@
+<header class="site-header absolute top-[42px] inset-x-0 z-40 bg-transparent transition-all duration-200" data-header>
+  <div class="max-w-[1470px] mx-auto px-6 sm:px-10">
+    <div class="flex items-center justify-between h-[60px]">
+      
+      <!-- Left: Logo & Navigation -->
+      <div class="flex items-center space-x-6">
+        <!-- Mobile Menu Trigger -->
+        <div class="flex items-center lg:hidden">
+          <button type="button" class="p-2 text-white hover:text-white/80 focus:outline-none" aria-label="Open menu" data-mobile-menu-trigger>
+            {% render 'icon', name: 'menu', class: 'w-6 h-6' %}
+          </button>
+        </div>
+
+        <!-- Brand Logo (White) -->
+        <div class="flex-shrink-0 flex items-center mr-2">
+          <a href="/" class="flex items-center">
+            {% if section.settings.logo != blank %}
+              <img src="{{ section.settings.logo | img_url: '300x' }}" alt="{{ shop.name }}" class="h-5 w-auto object-contain">
+            {% else %}
+              <img src="https://www.roahtrip.com/cdn/shop/files/logo_6d2126ac-728b-43ff-ab70-06dd668eb9a6.png?height=20&v=1748571831" alt="ROAHTRIP" class="h-5 w-auto object-contain" width="85" height="20">
+            {% endif %}
+          </a>
+        </div>
+
+        <!-- Desktop Navigation Menu -->
+        <nav class="hidden lg:flex items-center space-x-1" aria-label="Main Navigation">
+          {% for link in linklists.main-menu.links %}
+            <a href="{{ link.url }}" class="px-3 h-11 inline-flex items-center text-sm font-normal text-white/70 hover:text-white transition-colors {% if link.active %}text-white font-medium{% endif %}">
+              {{ link.title }}
+            </a>
+          {% else %}
+            <a href="/" class="px-3 h-11 inline-flex items-center text-sm font-normal text-white">HOME</a>
+            <a href="/collections/all" class="px-3 h-11 inline-flex items-center text-sm font-normal text-white/70 hover:text-white transition-colors">PRODUCTS</a>
+            <a href="/blogs/blog" class="px-3 h-11 inline-flex items-center text-sm font-normal text-white/70 hover:text-white transition-colors">BLOG</a>
+            <a href="/pages/about-us" class="px-3 h-11 inline-flex items-center text-sm font-normal text-white/70 hover:text-white transition-colors">ABOUT US</a>
+            <a href="/pages/apply-for-dealer-program" class="px-3 h-11 inline-flex items-center text-sm font-normal text-white/70 hover:text-white transition-colors">Apply for Dealer Program</a>
+          {% endfor %}
+        </nav>
+      </div>
+
+      <!-- Right: Header Actions -->
+      <div class="flex items-center space-x-1 text-white">
+        <!-- Language Switcher (Desktop) -->
+        <div class="hidden sm:flex items-center text-sm font-normal mr-2">
+          <select class="bg-transparent border-0 py-1 pl-2 pr-4 text-sm font-normal text-white focus:ring-0 cursor-pointer" aria-label="Select Language">
+            <option value="en" class="text-black" selected>English</option>
+            <option value="zh" class="text-black">简体中文</option>
+          </select>
+        </div>
+
+        <!-- Search Action -->
+        <button type="button" class="w-11 h-11 inline-flex items-center justify-center text-white hover:text-white/80 transition-colors" aria-label="Open search" data-search-trigger>
+          {% render 'icon', name: 'search', class: 'w-5 h-5' %}
+        </button>
+
+        <!-- Account Action -->
+        <a href="/account/login" class="w-11 h-11 inline-flex items-center justify-center text-white hover:text-white/80 transition-colors hidden sm:inline-flex" aria-label="Account">
+          {% render 'icon', name: 'account', class: 'w-5 h-5' %}
+        </a>
+
+        <!-- Cart Action -->
+        <button type="button" class="w-11 h-11 inline-flex items-center justify-center text-white hover:text-white/80 transition-colors relative" aria-label="Open cart" data-cart-trigger>
+          {% render 'icon', name: 'cart', class: 'w-5 h-5' %}
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Mobile Slide-out Drawer -->
+  <div id="MobileNavDrawer" class="mobile-nav-drawer fixed inset-0 z-50 pointer-events-none transition-opacity duration-300 opacity-0 invisible" aria-hidden="true">
+    <div class="mobile-nav-drawer__backdrop fixed inset-0 bg-black/50 pointer-events-auto" data-mobile-menu-close></div>
+    <div class="mobile-nav-drawer__panel fixed inset-y-0 left-0 max-w-xs w-full bg-white shadow-2xl flex flex-col pointer-events-auto transform -translate-x-full transition-transform duration-300 ease-in-out">
+      <div class="p-5 border-b border-neutral-100 flex items-center justify-between">
+        <img src="https://www.roahtrip.com/cdn/shop/files/universal-roahtrip-logo.png?height=20&v=1743559830" alt="ROAHTRIP" class="h-5 w-auto object-contain">
+        <button type="button" class="p-2 text-neutral-400 hover:text-black" data-mobile-menu-close aria-label="Close menu">
+          {% render 'icon', name: 'close', class: 'w-5 h-5' %}
+        </button>
+      </div>
+
+      <nav class="p-6 flex flex-col space-y-4 flex-1 overflow-y-auto">
+        <a href="/" class="text-sm font-bold text-black py-2 border-b border-neutral-100">HOME</a>
+        <a href="/collections/all" class="text-sm font-bold text-neutral-700 hover:text-black py-2 border-b border-neutral-100">PRODUCTS</a>
+        <a href="/blogs/blog" class="text-sm font-bold text-neutral-700 hover:text-black py-2 border-b border-neutral-100">BLOG</a>
+        <a href="/pages/about-us" class="text-sm font-bold text-neutral-700 hover:text-black py-2 border-b border-neutral-100">ABOUT US</a>
+        <a href="/pages/apply-for-dealer-program" class="text-sm font-bold text-neutral-700 hover:text-black py-2 border-b border-neutral-100">Apply for Dealer Program</a>
+        <a href="/account/login" class="text-sm font-medium text-neutral-600 py-2">My Account</a>
+      </nav>
+
+      <div class="p-6 border-t border-neutral-100 bg-neutral-50">
+        <label class="block text-xs font-semibold text-neutral-500 mb-2">Language</label>
+        <select class="w-full bg-white border border-neutral-200 rounded-md p-2 text-xs font-medium text-neutral-700">
+          <option value="en">English</option>
+          <option value="zh">简体中文</option>
+        </select>
+      </div>
+    </div>
+  </div>
+</header>
+
+{% schema %}
+{
+  "name": "Header",
+  "settings": [
+    {
+      "type": "image_picker",
+      "id": "logo",
+      "label": "Custom logo"
+    },
+    {
+      "type": "link_list",
+      "id": "menu",
+      "label": "Menu",
+      "default": "main-menu"
+    }
+  ]
+}
+{% endschema %}

@@ -1,0 +1,22 @@
+{
+  "current": {
+    "color_primary": "#171717",
+    "color_accent": "#dc2626",
+    "color_background": "#ffffff",
+    "color_text": "#171717",
+    "color_text_subdued": "#5c5c5c",
+    "social_facebook_link": "https://facebook.com",
+    "social_instagram_link": "https://instagram.com",
+    "social_tiktok_link": "https://tiktok.com",
+    "social_youtube_link": "https://youtube.com"
+  },
+  "presets": {
+    "Default": {
+      "color_primary": "#171717",
+      "color_accent": "#dc2626",
+      "color_background": "#ffffff",
+      "color_text": "#171717",
+      "color_text_subdued": "#5c5c5c"
+    }
+  }
+}

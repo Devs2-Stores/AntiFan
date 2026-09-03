@@ -20,7 +20,7 @@ export interface BrowserHostPort {
   navigate(tabId: string, url: string): Promise<boolean> | boolean;
   reload(tabId: string): Promise<boolean> | boolean;
   getDom(selector?: string, tabId?: string, paneId?: 'desktop' | 'mobile'): Promise<string>;
-  captureScreenshot(rect?: unknown, tabId?: string, paneId?: 'desktop' | 'mobile', options?: { format?: 'png' | 'jpeg'; quality?: number }): Promise<string>;
+  captureScreenshot(rect?: unknown, tabId?: string, paneId?: 'desktop' | 'mobile', options?: { format?: 'png' | 'jpeg'; quality?: number; fullPage?: boolean }): Promise<string>;
   evalJs(expression: string, tabId?: string, paneId?: 'desktop' | 'mobile'): Promise<unknown>;
   getDiagnostics?(tabId?: string, level?: number | string): { console: unknown[]; failures: unknown[] };
   runResponsiveCheck?(tabId: string): Promise<Record<string, unknown>>;
@@ -593,7 +593,7 @@ export class BrowserControlPort {
     });
   }
 
-  async screenshot(target: BrowserTarget, runId: string, attemptId: string, explicitTabId?: string, paneId?: 'desktop' | 'mobile', options?: { format?: 'png' | 'jpeg'; quality?: number }): Promise<ArtifactRef | string> {
+  async screenshot(target: BrowserTarget, runId: string, attemptId: string, explicitTabId?: string, paneId?: 'desktop' | 'mobile', options?: { format?: 'png' | 'jpeg'; quality?: number; fullPage?: boolean }): Promise<ArtifactRef | string> {
     const tabId = this.resolveTargetTab(target, explicitTabId);
     return this.passivePool.execute(tabId, async () => {
       const format = options?.format === 'jpeg' ? 'jpeg' : 'png';
@@ -767,8 +767,8 @@ export class BrowserControlPort {
     const boundTabId = context?.target?.tabId;
     if (boundTabId && this.host.getManagedTabIds) {
       const currentTabs = this.host.getManagedTabIds(boundTabId);
-      if (currentTabs && currentTabs.size >= 5) {
-        throw new CapabilityError('POLICY_DENIED', 'Terminal tab limit reached (maximum 5 tabs per terminal session). Please close unused tabs.');
+      if (currentTabs && currentTabs.size >= 10) {
+        throw new CapabilityError('POLICY_DENIED', 'Terminal tab limit reached (maximum 10 tabs per session). Please close unused tabs.');
       }
     }
     const tabId = this.host.createTab(options.url || 'about:blank', options.activate ?? false, { ephemeral: options.ephemeral });
@@ -1074,6 +1074,12 @@ export class BrowserControlPort {
       settleMs?: number;
       tabId?: string;
       paneId?: 'desktop' | 'mobile';
+      motionSpec?: {
+        expectedDurationMs?: number;
+        expectedEasing?: string;
+        expectedProperties?: string[];
+        expectedAmplitude?: { scaleDelta?: number; opacityDelta?: number };
+      };
     },
     explicitTabId?: string,
     paneId?: 'desktop' | 'mobile',
@@ -1099,6 +1105,79 @@ export class BrowserControlPort {
 
       // Capture Dual-Scope Before State
       const beforeState = await this.captureBehaviorScope(tabId, effectivePane, params.selector, params.ref);
+
+      // In-page V8 Micro-Observer (rAF loop):
+      // Observes per-frame style mutations directly in the V8 runtime without IPC ping-pong.
+      // Accurately tracks continuous CSS transitions, Web Animations, and JS/rAF animations.
+      const observerScript = `(() => {
+        try {
+          const sel = ${JSON.stringify(params.selector || '')};
+          const ref = ${JSON.stringify(params.ref || '')};
+          let el = null;
+          if (ref) el = document.querySelector('[data-antifan-ref="' + ref + '"]');
+          if (!el && sel) el = document.querySelector(sel);
+          if (!el) el = document.body;
+          window.__antifanMotionSamples = [];
+          let active = true;
+          const startT = performance.now();
+          const tick = () => {
+            if (!active) return;
+            const now = performance.now();
+            const cs = window.getComputedStyle(el);
+            window.__antifanMotionSamples.push({
+              t: Math.round(now - startT),
+              transform: cs.transform || 'none',
+              opacity: cs.opacity || '1',
+              width: cs.width || '0px',
+              height: cs.height || '0px',
+            });
+            if (now - startT < 2500) {
+              requestAnimationFrame(tick);
+            }
+          };
+          requestAnimationFrame(tick);
+          window.__stopAntifanMotion = () => {
+            active = false;
+            const cs = window.getComputedStyle(el);
+            let animEasing = '';
+            let animProps = [];
+            try {
+              const anims = typeof el.getAnimations === 'function' ? el.getAnimations() : [];
+              for (const a of anims) {
+                if (a.effect && typeof a.effect.getTiming === 'function') {
+                  const t = a.effect.getTiming();
+                  if (t && t.easing) animEasing = t.easing;
+                }
+                if (a.effect && typeof a.effect.getKeyframes === 'function') {
+                  const kfs = a.effect.getKeyframes();
+                  for (const kf of kfs) {
+                    for (const k of Object.keys(kf)) {
+                      if (k !== 'offset' && k !== 'computedOffset' && k !== 'easing' && !animProps.includes(k)) {
+                        animProps.push(k);
+                      }
+                    }
+                  }
+                }
+              }
+            } catch {}
+            const res = {
+              samples: window.__antifanMotionSamples || [],
+              computedTimingFunction: cs.transitionTimingFunction || 'none',
+              computedTransitionProperty: cs.transitionProperty || 'none',
+              animEasing,
+              animProps,
+            };
+            try { delete window.__antifanMotionSamples; delete window.__stopAntifanMotion; } catch {}
+            return res;
+          };
+          return true;
+        } catch {
+          return false;
+        }
+      })()`;
+      try {
+        await this.host.evalJs(observerScript, tabId, effectivePane);
+      } catch {}
 
       // Execute Action
       if (params.action === 'click') {
@@ -1131,6 +1210,157 @@ export class BrowserControlPort {
       const { promise: settlePromise, resolve: settleResolve } = Promise.withResolvers<void>();
       setTimeout(settleResolve, settleWait);
       await settlePromise;
+
+      let motionTrace: Record<string, unknown> | undefined;
+      try {
+        const rawMotion = await this.host.evalJs('window.__stopAntifanMotion ? window.__stopAntifanMotion() : null', tabId, effectivePane) as any;
+        if (rawMotion && Array.isArray(rawMotion.samples) && rawMotion.samples.length > 0) {
+          const samples = rawMotion.samples as Array<{ t: number; transform: string; opacity: string; width: string; height: string }>;
+          let firstChangeIndex = -1;
+          let lastChangeIndex = -1;
+          const changedPropsSet = new Set<string>();
+
+          for (let i = 1; i < samples.length; i++) {
+            const prev = samples[i - 1];
+            const cur = samples[i];
+            if (!prev || !cur) continue;
+            let stepDiff = false;
+            if (cur.transform !== prev.transform) { stepDiff = true; changedPropsSet.add('transform'); }
+            if (cur.opacity !== prev.opacity) { stepDiff = true; changedPropsSet.add('opacity'); }
+            if (cur.width !== prev.width) { stepDiff = true; changedPropsSet.add('width'); }
+            if (cur.height !== prev.height) { stepDiff = true; changedPropsSet.add('height'); }
+            if (stepDiff) {
+              if (firstChangeIndex === -1) firstChangeIndex = i;
+              lastChangeIndex = i;
+            }
+          }
+
+          const hasMotion = lastChangeIndex !== -1;
+          const lastSample = lastChangeIndex !== -1 ? samples[lastChangeIndex] : undefined;
+          const motionStartSample = firstChangeIndex > 0 ? samples[firstChangeIndex - 1] : samples[0];
+          const observedDurationMs = hasMotion && lastSample && motionStartSample
+            ? Math.max(0, lastSample.t - motionStartSample.t)
+            : 0;
+
+          const startSample = samples[0];
+          const endSample = samples[samples.length - 1];
+          const parseOpacity = (o?: string): number => {
+            const n = parseFloat(o ?? '1');
+            return Number.isFinite(n) ? n : 1;
+          };
+          const startOpacity = parseOpacity(startSample?.opacity);
+          const endOpacity = parseOpacity(endSample?.opacity);
+          const opacityDelta = Math.abs(endOpacity - startOpacity);
+
+          const parseScale = (t?: string): number => {
+            if (!t || t === 'none') return 1;
+            const m = t.match(/matrix(?:3d)?\(([^,]+)/);
+            if (m && m[1]) {
+              const val = parseFloat(m[1]);
+              return Number.isFinite(val) ? val : 1;
+            }
+            const s = t.match(/scale(?:3d)?\(([^,)]+)/);
+            if (s && s[1]) {
+              const val = parseFloat(s[1]);
+              return Number.isFinite(val) ? val : 1;
+            }
+            return 1;
+          };
+          const startScale = parseScale(startSample?.transform);
+          const endScale = parseScale(endSample?.transform);
+          const scaleDelta = Math.abs(endScale - startScale);
+
+          const observedEasing = rawMotion.animEasing || (rawMotion.computedTimingFunction !== 'none' ? rawMotion.computedTimingFunction : 'none');
+          const allAnimatedProps = Array.from(new Set([...Array.from(changedPropsSet), ...(rawMotion.animProps || [])]));
+
+          const spec = params.motionSpec;
+          let overallVerdict: 'PASS' | 'WARN' | 'FAIL' | 'STATIC' = hasMotion ? 'PASS' : 'STATIC';
+
+          // Vector 1: Temporal
+          let temporalVerdict: 'PASS' | 'FAIL' = 'PASS';
+          let temporalDelta = 0;
+          if (spec && typeof spec.expectedDurationMs === 'number') {
+            temporalDelta = Math.abs(observedDurationMs - spec.expectedDurationMs);
+            temporalVerdict = temporalDelta <= 33 ? 'PASS' : 'FAIL';
+            if (temporalVerdict === 'FAIL') overallVerdict = 'FAIL';
+          }
+
+          // Vector 2: Curve
+          let curveVerdict: 'PASS' | 'FAIL' = 'PASS';
+          if (spec && spec.expectedEasing) {
+            const EASING_ALIASES: Record<string, string> = {
+              'ease': 'cubic-bezier(0.25,0.1,0.25,1)',
+              'linear': 'cubic-bezier(0,0,1,1)',
+              'ease-in': 'cubic-bezier(0.42,0,1,1)',
+              'ease-out': 'cubic-bezier(0,0,0.58,1)',
+              'ease-in-out': 'cubic-bezier(0.42,0,0.58,1)',
+            };
+            const normalizeEasing = (e: string) => {
+              const cleaned = e.replace(/\s+/g, '').toLowerCase();
+              return EASING_ALIASES[cleaned] || cleaned;
+            };
+            curveVerdict = normalizeEasing(observedEasing) === normalizeEasing(spec.expectedEasing) ? 'PASS' : 'FAIL';
+            if (curveVerdict === 'FAIL') overallVerdict = 'FAIL';
+          }
+
+          // Vector 3: Amplitude
+          let amplitudeVerdict: 'PASS' | 'FAIL' = 'PASS';
+          if (spec && spec.expectedAmplitude) {
+            if (typeof spec.expectedAmplitude.scaleDelta === 'number') {
+              const scaleErr = Math.abs(scaleDelta - spec.expectedAmplitude.scaleDelta);
+              if (scaleErr > 0.05) amplitudeVerdict = 'FAIL';
+            }
+            if (typeof spec.expectedAmplitude.opacityDelta === 'number') {
+              const opErr = Math.abs(opacityDelta - spec.expectedAmplitude.opacityDelta);
+              if (opErr > 0.05) amplitudeVerdict = 'FAIL';
+            }
+            if (amplitudeVerdict === 'FAIL') overallVerdict = 'FAIL';
+          }
+
+          // Vector 4: Property
+          let propertyVerdict: 'PASS' | 'FAIL' = 'PASS';
+          if (spec && Array.isArray(spec.expectedProperties) && spec.expectedProperties.length > 0) {
+            const missingProps = spec.expectedProperties.filter(p => !allAnimatedProps.includes(p));
+            propertyVerdict = missingProps.length === 0 ? 'PASS' : 'FAIL';
+            if (propertyVerdict === 'FAIL') overallVerdict = 'FAIL';
+          }
+
+          motionTrace = {
+            verdict: overallVerdict,
+            hasMotion,
+            sampleCount: samples.length,
+            observedDurationMs,
+            observedEasing,
+            animatedProperties: allAnimatedProps,
+            observedAmplitude: { scaleDelta, opacityDelta },
+            vectors: {
+              temporal: {
+                verdict: temporalVerdict,
+                observedMs: observedDurationMs,
+                expectedMs: spec?.expectedDurationMs,
+                deadbandMs: 33,
+                deltaMs: temporalDelta,
+              },
+              curve: {
+                verdict: curveVerdict,
+                observed: observedEasing,
+                expected: spec?.expectedEasing,
+              },
+              amplitude: {
+                verdict: amplitudeVerdict,
+                observed: { scaleDelta, opacityDelta },
+                expected: spec?.expectedAmplitude,
+              },
+              property: {
+                verdict: propertyVerdict,
+                observedProperties: allAnimatedProps,
+                expectedProperties: spec?.expectedProperties,
+              },
+            },
+          };
+        }
+      } catch {}
+
       let afterStyles: Record<string, unknown> = {};
       try {
         afterStyles = await this.inspectStyles(target, { selector: params.selector, ref: params.ref, tabId, paneId: effectivePane });
@@ -1159,6 +1389,7 @@ export class BrowserControlPort {
         evidence: evaluation.evidence,
         beforeStyles,
         afterStyles,
+        motion: motionTrace,
       };
     }, { tabId, timeoutMs: 15_000, signal });
   }
@@ -1387,6 +1618,7 @@ export class BrowserControlPort {
       normalizeScroll?: boolean;
       tabId?: string;
       paneId?: 'desktop' | 'mobile';
+      fullPage?: boolean;
     } = {},
     explicitTabId?: string,
     paneId?: 'desktop' | 'mobile'
@@ -1436,10 +1668,11 @@ export class BrowserControlPort {
         }
       }
 
-      let curBase64 = await this.host.captureScreenshot(undefined, tabId, effectivePane);
+      const captureOpts = { format: 'png' as const, fullPage: Boolean(params.fullPage) };
+      let curBase64 = await this.host.captureScreenshot(undefined, tabId, effectivePane, captureOpts);
       if (!curBase64 || curBase64.length === 0) {
         await new Promise((r) => setTimeout(r, 150));
-        curBase64 = await this.host.captureScreenshot(undefined, tabId, effectivePane);
+        curBase64 = await this.host.captureScreenshot(undefined, tabId, effectivePane, captureOpts);
       }
       if (!curBase64 || curBase64.length === 0) {
         throw new CapabilityError('TARGET_STALE', `Failed to capture non-empty viewport screenshot on tab '${tabId}' (document may still be rendering)`);
@@ -1487,10 +1720,10 @@ export class BrowserControlPort {
             // Non-blocking normalization
           }
         }
-        let compBase64 = await this.host.captureScreenshot(undefined, compTabId, effectivePane);
+        let compBase64 = await this.host.captureScreenshot(undefined, compTabId, effectivePane, captureOpts);
         if (!compBase64 || compBase64.length === 0) {
           await new Promise((r) => setTimeout(r, 150));
-          compBase64 = await this.host.captureScreenshot(undefined, compTabId, effectivePane);
+          compBase64 = await this.host.captureScreenshot(undefined, compTabId, effectivePane, captureOpts);
         }
         if (!compBase64 || compBase64.length === 0) {
           throw new CapabilityError('TARGET_STALE', `Failed to capture non-empty baseline screenshot on comparison tab '${compTabId}'`);
@@ -1505,6 +1738,36 @@ export class BrowserControlPort {
       if (!baselineBuffer) {
         throw new CapabilityError('INVALID_ARGUMENT', 'Failed to acquire baseline image buffer for comparison');
       }
+      // Bitmap Height Parity Guard: detect silent DOM truncation / viewport-only capture
+      const getPngDims = (buf: Buffer): { width: number; height: number } | null => {
+        if (buf.length >= 24 && buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4e && buf[3] === 0x47) {
+          return {
+            width: buf.readUInt32BE(16),
+            height: buf.readUInt32BE(20),
+          };
+        }
+        return null;
+      };
+      const curDims = getPngDims(curBuffer);
+      const baseDims = getPngDims(baselineBuffer);
+      if (curDims && baseDims && baseDims.height > 0) {
+        const heightDelta = Math.abs(curDims.height - baseDims.height) / baseDims.height;
+        if (heightDelta > 0.10) {
+          return {
+            match: false,
+            mismatchPercentage: 100,
+            verdict: 'STRUCTURAL_TRUNCATION_DETECTED',
+            reason: `Structural height mismatch exceeds 10% tolerance (current: ${curDims.height}px, baseline: ${baseDims.height}px, delta: ${(heightDelta * 100).toFixed(1)}%). Potential DOM truncation or viewport-only capture detected.`,
+            dimensions: {
+              visual: { verdict: 'FAIL', mismatchPercentage: 100, heightRatio: curDims.height / baseDims.height },
+              layout: { verdict: 'FAIL', currentHeight: curDims.height, baselineHeight: baseDims.height, deltaPx: Math.abs(curDims.height - baseDims.height) },
+            },
+            currentScreenshot: curArtifact,
+            baselineScreenshot: baselineArtifactRef,
+          };
+        }
+      }
+
 
       const tolerance = typeof params.tolerance === 'number' ? params.tolerance : 5.0;
       const diffResult = computePixelDiff(curBuffer, baselineBuffer, tolerance, maskBoxes);

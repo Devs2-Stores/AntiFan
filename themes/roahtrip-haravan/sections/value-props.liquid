@@ -1,0 +1,47 @@
+<section class="value-props bg-neutral-50 border-b border-neutral-200/60 py-10 sm:py-14" data-value-props>
+  <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-8 md:gap-12">
+      
+      <!-- Value Prop 1 -->
+      <div class="value-prop-item flex items-start space-x-4">
+        <div class="flex-shrink-0 p-3 bg-white rounded-xl shadow-sm border border-neutral-200/80 text-neutral-900">
+          {% render 'icon', name: 'truck', class: 'w-6 h-6' %}
+        </div>
+        <div>
+          <h3 class="text-base font-bold text-neutral-900">Free shipping for orders over $30</h3>
+          <p class="mt-1 text-xs sm:text-sm text-neutral-500 leading-relaxed">Fast standard ground delivery across all lower 48 states.</p>
+        </div>
+      </div>
+
+      <!-- Value Prop 2 -->
+      <div class="value-prop-item flex items-start space-x-4">
+        <div class="flex-shrink-0 p-3 bg-white rounded-xl shadow-sm border border-neutral-200/80 text-neutral-900">
+          {% render 'icon', name: 'return', class: 'w-6 h-6' %}
+        </div>
+        <div>
+          <h3 class="text-base font-bold text-neutral-900">7 Days - 15 Days Free Return</h3>
+          <p class="mt-1 text-xs sm:text-sm text-neutral-500 leading-relaxed">Hassle-free 100% money-back guarantee if you're not satisfied.</p>
+        </div>
+      </div>
+
+      <!-- Value Prop 3 -->
+      <div class="value-prop-item flex items-start space-x-4">
+        <div class="flex-shrink-0 p-3 bg-white rounded-xl shadow-sm border border-neutral-200/80 text-neutral-900">
+          {% render 'icon', name: 'warranty', class: 'w-6 h-6' %}
+        </div>
+        <div>
+          <h3 class="text-base font-bold text-neutral-900">12 Months Free Warranty</h3>
+          <p class="mt-1 text-xs sm:text-sm text-neutral-500 leading-relaxed">Peace of mind guaranteed with all manufacturer replacement parts.</p>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+{% schema %}
+{
+  "name": "Value Propositions",
+  "settings": []
+}
+{% endschema %}

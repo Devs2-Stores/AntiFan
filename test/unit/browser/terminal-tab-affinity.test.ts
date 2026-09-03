@@ -18,6 +18,7 @@ interface TestHost {
   bindTerminalAgentAffinity(terminalId: string, generation: number | string | undefined, tabId: string): boolean;
   adoptChildTab(terminalId: string, childTabId: string, generation?: number | string): boolean;
   adoptChildTabForBoundTab(boundTabId: string, childTabId: string): boolean;
+  getManagedTabIds(boundTabIdOrTerminalId: string): Set<string>;
   getManagedTabIdsForBoundTab(boundTabId: string): Set<string>;
   isTabAllowedForPrimary(primaryTabId: string, requestedTabId: string): boolean;
   removeManagedTab(terminalId: string, tabId: string, generation?: number | string): boolean;
@@ -54,6 +55,7 @@ function createTestHost(tabIds: string[]): TestHost {
   (host as any).createTab = () => '';
   (host as any).countAttachedViews = () => 0;
   (host as any).terminalAgentAffinity = new Map<string, { tabId: string; lastUrl?: string; closedAt?: number }>();
+  (host as any).sessionTabPools = new Map<string, Set<string>>();
   (host as any).recentlyClosedTabs = [];
   (host as any).tabPreviewUnsubscribers = new Map();
   (host as any).activeTabThemeQAPromises = new Map();
@@ -263,7 +265,7 @@ describe('Terminal-to-Tab Agent Affinity Contract Tests (NativeTabHost Seam)', (
     assert.strictEqual(host.isTabAllowedForPrimary('tab-live', 'tab-unrelated'), false);
   });
 
-  it('12. Auto-Adoption in openTab and enforces max 5 tabs rate limit', () => {
+  it('12. Auto-Adoption in openTab and enforces max 10 tabs rate limit', () => {
     let createdCount = 0;
     const managedSet = new Set(['tab-primary']);
     const mockHost = {
@@ -281,18 +283,33 @@ describe('Terminal-to-Tab Agent Affinity Contract Tests (NativeTabHost Seam)', (
     const port = new BrowserControlPort(mockHost as any);
     const boundTarget = { tabId: 'tab-primary', projectId: 'proj-1', workspaceId: 'ws-1', runtimeId: 'rt-1', browserEpoch: 1, documentGeneration: 1 } as any;
 
-    // Spawn 4 child tabs (total 5 tabs: primary + 4 children)
-    for (let i = 1; i <= 4; i++) {
+    // Spawn 9 child tabs (total 10 tabs: primary + 9 children)
+    for (let i = 1; i <= 9; i++) {
       const res = port.openTab({ url: `http://localhost:${3000 + i}` }, { target: boundTarget });
       assert.strictEqual(res.tabId, `tab-child-${i}`);
     }
-    assert.strictEqual(managedSet.size, 5);
+    assert.strictEqual(managedSet.size, 10);
 
-    // Attempting 6th tab: throws POLICY_DENIED
+    // Attempting 11th tab: throws POLICY_DENIED
     assert.throws(
-      () => port.openTab({ url: 'http://localhost:3005' }, { target: boundTarget }),
-      (err: any) => err.code === 'POLICY_DENIED' && err.message.includes('maximum 5 tabs')
+      () => port.openTab({ url: 'http://localhost:3010' }, { target: boundTarget }),
+      (err: any) => err.code === 'POLICY_DENIED' && err.message.includes('maximum 10 tabs')
     );
+  });
+
+  it('14. Ad-hoc Session Pool: adoptChildTab anchors at boundTabId when terminal session is absent', () => {
+    const host = createTestHost(['tab-bound-mcp', 'tab-child-mcp', 'tab-other']);
+    // No terminal affinity bound for tab-bound-mcp
+    const ok = host.adoptChildTab('tab-bound-mcp', 'tab-child-mcp');
+    assert.strictEqual(ok, true, 'adoptChildTab must succeed by creating ad-hoc session pool anchored at boundTabId');
+
+    const managed = host.getManagedTabIdsForBoundTab('tab-bound-mcp');
+    assert.strictEqual(managed.has('tab-bound-mcp'), true);
+    assert.strictEqual(managed.has('tab-child-mcp'), true);
+    assert.strictEqual(managed.has('tab-other'), false);
+
+    assert.strictEqual(host.isTabAllowedForPrimary('tab-bound-mcp', 'tab-child-mcp'), true);
+    assert.strictEqual(host.isTabAllowedForPrimary('tab-bound-mcp', 'tab-other'), false);
   });
 
   it('13. listTabs returns all managed tabs with isBoundTab: true and marks primary', () => {
@@ -365,6 +382,27 @@ describe('Terminal-to-Tab Agent Affinity Contract Tests (NativeTabHost Seam)', (
       () => (port as any).resolveTargetTab(boundTarget, 'tab-youtube', 'write'),
       (err: any) => err.code === 'TARGET_MISMATCH' && err.message.includes('does not match')
     );
+  });
+
+  it('16. Quota Enforcement: NativeTabHost.adoptChildTab rejects 11th tab and leaves sessionTabPools clean without leaks', () => {
+    const tabIds = ['tab-primary', ...Array.from({ length: 11 }, (_, i) => `tab-sub-${i + 1}`)];
+    const host = createTestHost(tabIds);
+
+    assert.strictEqual(host.bindTerminalAgentAffinity('terminal-1', 1, 'tab-primary'), true);
+
+    // Adopt 9 child tabs (total 10 tabs: primary + 9 children)
+    for (let i = 1; i <= 9; i++) {
+      assert.strictEqual(host.adoptChildTab('tab-primary', `tab-sub-${i}`), true);
+    }
+    const managedTabs = host.getManagedTabIds('tab-primary');
+    assert.strictEqual(managedTabs.size, 10);
+
+    // 10th child (attempted 11th tab) must be rejected
+    assert.strictEqual(host.adoptChildTab('tab-primary', 'tab-sub-10'), false);
+    // Quota must still be 10, not 11
+    assert.strictEqual(host.getManagedTabIds('tab-primary').size, 10);
+    // Rejected tab must NOT be allowed
+    assert.strictEqual(host.isTabAllowedForPrimary('tab-primary', 'tab-sub-10'), false);
   });
 });
 
