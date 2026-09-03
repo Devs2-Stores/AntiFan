@@ -134,4 +134,30 @@ describe('CleanTabProtocol - Reversible State & Mutation Guard', () => {
     assert.strictEqual(restored, true);
     assert.strictEqual(mockBodyClass, 'theme-default');
   });
+
+  it('5. Restores empty body class when classes were mutated during probe', async () => {
+    let mockBodyClass = 'mutated-probe-class overflow-hidden';
+    const mockEvaluator = async (expr: string): Promise<unknown> => {
+      if (expr.includes('bodyClassName: document.body')) {
+        return {
+          scrollX: 0,
+          scrollY: 0,
+          bodyClassName: '',
+          injectedElementIds: []
+        };
+      }
+      if (expr.includes('document.body.className = ""')) {
+        mockBodyClass = '';
+        return true;
+      }
+      return true;
+    };
+
+    const snapshot = await CleanTabProtocol.captureState(mockEvaluator);
+    assert.strictEqual(snapshot.bodyClassName, '');
+
+    const restored = await CleanTabProtocol.restoreState(mockEvaluator, snapshot);
+    assert.strictEqual(restored, true);
+    assert.strictEqual(mockBodyClass, '', 'Mutated classes must be cleared back to empty string');
+  });
 });

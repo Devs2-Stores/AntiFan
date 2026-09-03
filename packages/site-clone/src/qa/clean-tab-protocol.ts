@@ -65,17 +65,16 @@ export class CleanTabProtocol {
         // 3. Restore scroll position
         window.scrollTo(${Number(snapshot.scrollX) || 0}, ${Number(snapshot.scrollY) || 0});
 
-        // 4. Restore body classes
-        if (document.body && ${bodyClassJson} !== '""') {
+        // 4. Restore body classes (including restoring back to empty string when mutated)
+        if (document.body && typeof ${bodyClassJson} === 'string') {
           document.body.className = ${bodyClassJson};
         }
 
-        // 5. Close newly opened dialogs if any
+        // 5. Close newly opened dialogs if any (pure JS without TS casts)
         const dialogs = document.querySelectorAll('dialog[open]');
         dialogs.forEach(d => {
-          try { (d as any).close(); } catch {}
+          try { if (typeof d.close === 'function') d.close(); } catch {}
         });
-
         // 6. Clear runtime initialization flags
         if (window.__antifan_rt) delete window.__antifan_rt;
         if (window.__antifanFreeze) delete window.__antifanFreeze;
