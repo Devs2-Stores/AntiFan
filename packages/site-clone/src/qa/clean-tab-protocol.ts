@@ -7,6 +7,8 @@ export interface PageSnapshotState {
   scrollX: number;
   scrollY: number;
   bodyClassName?: string;
+  bodyInlineStyle?: string;
+  htmlInlineStyle?: string;
   injectedElementIds: string[];
   openDialogIds?: string[];
 }
@@ -16,6 +18,7 @@ export interface ReversibleExecutionResult<T> {
   data?: T;
   error?: string;
   restored: boolean;
+  probesCleared: boolean;
 }
 
 export class CleanTabProtocol {
@@ -28,30 +31,42 @@ export class CleanTabProtocol {
         scrollX: window.scrollX || 0,
         scrollY: window.scrollY || 0,
         bodyClassName: document.body ? document.body.className : '',
+        bodyInlineStyle: document.body ? (document.body.getAttribute('style') || '') : '',
+        htmlInlineStyle: document.documentElement ? (document.documentElement.getAttribute('style') || '') : '',
         injectedElementIds: Array.from(document.querySelectorAll('[data-antifan-probe]')).map(el => el.id).filter(Boolean),
         openDialogIds: Array.from(document.querySelectorAll('dialog[open]')).map(el => el.id).filter(Boolean)
       };
     })()`);
 
     if (raw && typeof raw === 'object') {
-      const candidate = raw as { scrollX?: unknown; scrollY?: unknown; bodyClassName?: unknown; injectedElementIds?: unknown; openDialogIds?: unknown };
+      const candidate = raw as {
+        scrollX?: unknown;
+        scrollY?: unknown;
+        bodyClassName?: unknown;
+        bodyInlineStyle?: unknown;
+        htmlInlineStyle?: unknown;
+        injectedElementIds?: unknown;
+        openDialogIds?: unknown;
+      };
       return {
         scrollX: typeof candidate.scrollX === 'number' ? candidate.scrollX : 0,
         scrollY: typeof candidate.scrollY === 'number' ? candidate.scrollY : 0,
         bodyClassName: typeof candidate.bodyClassName === 'string' ? candidate.bodyClassName : '',
+        bodyInlineStyle: typeof candidate.bodyInlineStyle === 'string' ? candidate.bodyInlineStyle : '',
+        htmlInlineStyle: typeof candidate.htmlInlineStyle === 'string' ? candidate.htmlInlineStyle : '',
         injectedElementIds: Array.isArray(candidate.injectedElementIds) ? candidate.injectedElementIds.filter((id): id is string => typeof id === 'string') : [],
         openDialogIds: Array.isArray(candidate.openDialogIds) ? candidate.openDialogIds.filter((id): id is string => typeof id === 'string') : []
       };
     }
-
     return { scrollX: 0, scrollY: 0, injectedElementIds: [] };
   }
-
   /**
    * Restores page state back to snapshot
    */
   public static async restoreState(evaluator: (expr: string) => Promise<unknown>, snapshot: PageSnapshotState): Promise<boolean> {
     const bodyClassJson = JSON.stringify(snapshot.bodyClassName ?? '');
+    const bodyStyleJson = JSON.stringify(snapshot.bodyInlineStyle ?? '');
+    const htmlStyleJson = JSON.stringify(snapshot.htmlInlineStyle ?? '');
     const res = await evaluator(`(() => {
       try {
         // 1. Remove any injected probe elements
@@ -70,12 +85,30 @@ export class CleanTabProtocol {
           document.body.className = ${bodyClassJson};
         }
 
-        // 5. Close newly opened dialogs if any (pure JS without TS casts)
+        // 5. Restore body and html inline styles (preventing scroll-lock or overflow leaks)
+        if (document.body) {
+          const bStyle = ${bodyStyleJson};
+          if (bStyle) {
+            document.body.setAttribute('style', bStyle);
+          } else {
+            document.body.removeAttribute('style');
+          }
+        }
+        if (document.documentElement) {
+          const hStyle = ${htmlStyleJson};
+          if (hStyle) {
+            document.documentElement.setAttribute('style', hStyle);
+          } else {
+            document.documentElement.removeAttribute('style');
+          }
+        }
+
+        // 6. Close newly opened dialogs if any (pure JS without TS casts)
         const dialogs = document.querySelectorAll('dialog[open]');
         dialogs.forEach(d => {
           try { if (typeof d.close === 'function') d.close(); } catch {}
         });
-        // 6. Clear runtime initialization flags
+        // 7. Clear runtime initialization flags
         if (window.__antifan_rt) delete window.__antifan_rt;
         if (window.__antifanFreeze) delete window.__antifanFreeze;
         return true;
@@ -120,14 +153,14 @@ export class CleanTabProtocol {
       success,
       data: resultData,
       error: executionError,
-      restored
+      restored,
+      probesCleared: restored
     };
   }
-
   /**
-   * Verifies that the tab is in a clean reloaded state
+   * Verifies that AntiFan-owned probes, styles, and runtime flags are cleared
    */
-  public static async assertCleanTab(evaluator: (expr: string) => Promise<unknown>): Promise<{ clean: boolean; leaks: string[] }> {
+  public static async assertCleanProbes(evaluator: (expr: string) => Promise<unknown>): Promise<{ clean: boolean; leaks: string[] }> {
     const raw = await evaluator(`(() => {
       const leaks = [];
       if (window.__antifanFreeze) leaks.push('__antifanFreeze');
@@ -149,5 +182,12 @@ export class CleanTabProtocol {
     }
 
     return { clean: false, leaks: ['invalid_response'] };
+  }
+
+  /**
+   * Backward-compatible alias for assertCleanProbes
+   */
+  public static async assertCleanTab(evaluator: (expr: string) => Promise<unknown>): Promise<{ clean: boolean; leaks: string[] }> {
+    return this.assertCleanProbes(evaluator);
   }
 }

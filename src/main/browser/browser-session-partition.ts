@@ -13,8 +13,18 @@ const userAgentModeBySession = new WeakMap<Session, BrowserSessionUserAgentMode>
  */
 export function deriveCapsulePartition(
   capsuleId?: string,
-  mode: BrowserSessionUserAgentMode = 'clean'
+  mode: BrowserSessionUserAgentMode = 'clean',
+  ephemeral = false
 ): string {
+  if (ephemeral) {
+    const effectiveId = capsuleId && typeof capsuleId === 'string' && capsuleId.trim()
+      ? capsuleId.trim()
+      : 'default';
+    const nonce = Math.random().toString(36).slice(2, 10);
+    return mode === 'native'
+      ? `ephemeral-${effectiveId}-${nonce}-native`
+      : `ephemeral-${effectiveId}-${nonce}`;
+  }
   const effectiveId = capsuleId && typeof capsuleId === 'string' && capsuleId.trim()
     ? capsuleId.trim()
     : 'default';

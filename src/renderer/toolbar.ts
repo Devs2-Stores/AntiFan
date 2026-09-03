@@ -22,6 +22,7 @@ interface AntiFanTab {
   isAgentControlled?: boolean;
   themeError?: string | null;
   terminalSessionId?: string;
+  ephemeral?: boolean;
   splitMode?: boolean;
   splitDesktopPresetId?: string;
   splitMobilePresetId?: string;

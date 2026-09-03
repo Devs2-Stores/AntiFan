@@ -2139,6 +2139,9 @@ export class NativeTabHost extends EventEmitter {
   public isValidCapsulePartition(partition: string): boolean {
     if (!partition || typeof partition !== 'string') return false;
     const clean = partition.trim();
+    if (clean.startsWith('ephemeral-')) {
+      return true;
+    }
     if (clean === deriveCapsulePartition('default') || clean === 'persist:capsule-default') {
       return true;
     }
@@ -2512,6 +2515,7 @@ export class NativeTabHost extends EventEmitter {
     options?: {
       capsuleId?: string;
       userAgentMode?: BrowserSessionUserAgentMode;
+      ephemeral?: boolean;
     }
   ): string {
     if (this.isDisposed) return '';
@@ -2557,9 +2561,9 @@ export class NativeTabHost extends EventEmitter {
     }
 
     const userAgentMode: BrowserSessionUserAgentMode = options?.userAgentMode || 'clean';
-    const partition = deriveCapsulePartition(capsuleIdForTab, userAgentMode);
+    const isEphemeral = Boolean(options?.ephemeral);
+    const partition = deriveCapsulePartition(capsuleIdForTab, userAgentMode, isEphemeral);
     configureBrowserSessionPartition(partition, userAgentMode);
-
     const view = new WebContentsView({
       webPreferences: getSecureWebPreferences(partition),
     });
@@ -2578,8 +2582,8 @@ export class NativeTabHost extends EventEmitter {
       capsuleId: capsuleIdForTab,
       userAgentMode,
       partition,
+      ephemeral: isEphemeral,
     };
-
     this.setupTabWebContentsEvents(id, view, state, 'desktop');
 
     this.tabs.set(id, { view, state, focusedPane: 'desktop' });

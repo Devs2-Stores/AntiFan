@@ -9,7 +9,7 @@ export interface BrowserHostPort {
   getActiveTabId?(): string;
   getAutomationTabId?(): string | null;
   setAutomationTabId?(tabId?: string): void;
-  createTab?(url?: string, activate?: boolean): string;
+  createTab?(url?: string, activate?: boolean, options?: { capsuleId?: string; userAgentMode?: any; ephemeral?: boolean }): string;
   closeTab?(tabId: string): boolean;
   switchTab?(tabId: string): boolean;
   navigate(tabId: string, url: string): Promise<boolean> | boolean;
@@ -747,9 +747,9 @@ export class BrowserControlPort {
       };
     }, { timeoutMs: params.timeoutMs, signal });
   }
-  openTab(options: { url?: string; activate?: boolean } = {}): { tabId: string } {
+  openTab(options: { url?: string; activate?: boolean; ephemeral?: boolean } = {}): { tabId: string } {
     if (!this.host.createTab) throw new CapabilityError('CAPABILITY_NOT_FOUND', 'createTab is not supported by host');
-    const tabId = this.host.createTab(options.url || 'about:blank', options.activate ?? false);
+    const tabId = this.host.createTab(options.url || 'about:blank', options.activate ?? false, { ephemeral: options.ephemeral });
     return { tabId };
   }
 

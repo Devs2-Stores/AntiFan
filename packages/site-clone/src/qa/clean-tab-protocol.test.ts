@@ -160,4 +160,60 @@ describe('CleanTabProtocol - Reversible State & Mutation Guard', () => {
     assert.strictEqual(restored, true);
     assert.strictEqual(mockBodyClass, '', 'Mutated classes must be cleared back to empty string');
   });
+
+  it('6. Captures and restores inline style on body and html (preventing scroll lock)', async () => {
+    let mockBodyStyle = 'overflow: hidden; padding-right: 15px;';
+    let mockHtmlStyle = 'overflow: hidden;';
+    const mockEvaluator = async (expr: string): Promise<unknown> => {
+      if (expr.includes('bodyClassName: document.body')) {
+        return {
+          scrollX: 0,
+          scrollY: 0,
+          bodyClassName: '',
+          bodyInlineStyle: '',
+          htmlInlineStyle: 'color: red;',
+          injectedElementIds: []
+        };
+      }
+      if (expr.includes("document.body.removeAttribute('style')")) {
+        mockBodyStyle = '';
+      }
+      if (expr.includes('const hStyle = "color: red;";') && expr.includes("document.documentElement.setAttribute('style', hStyle)")) {
+        mockHtmlStyle = 'color: red;';
+      }
+      return true;
+    };
+
+    const snapshot = await CleanTabProtocol.captureState(mockEvaluator);
+    assert.strictEqual(snapshot.bodyInlineStyle, '');
+    assert.strictEqual(snapshot.htmlInlineStyle, 'color: red;');
+
+    const restored = await CleanTabProtocol.restoreState(mockEvaluator, snapshot);
+    assert.strictEqual(restored, true);
+    assert.strictEqual(mockBodyStyle, '', 'Mutated body style must be stripped when original was empty');
+    assert.strictEqual(mockHtmlStyle, 'color: red;', 'Mutated html style must revert to original');
+  });
+
+  it('7. withReversibleState truthfully reports probesCleared flag', async () => {
+    const mockEvaluator = async (expr: string): Promise<unknown> => {
+      if (expr.includes('window.scrollTo')) return true;
+      return { scrollX: 0, scrollY: 0, injectedElementIds: [] };
+    };
+
+    const res = await CleanTabProtocol.withReversibleState(mockEvaluator, async () => 42);
+    assert.strictEqual(res.success, true);
+    assert.strictEqual(res.data, 42);
+    assert.strictEqual(res.restored, true);
+    assert.strictEqual(res.probesCleared, true);
+  });
+
+  it('8. assertCleanProbes and assertCleanTab verify zero residual AntiFan artifacts', async () => {
+    const evaluator = async (): Promise<unknown> => ({ clean: true, leaks: [] });
+    const probeCheck = await CleanTabProtocol.assertCleanProbes(evaluator);
+    assert.strictEqual(probeCheck.clean, true);
+    assert.deepStrictEqual(probeCheck.leaks, []);
+
+    const tabCheck = await CleanTabProtocol.assertCleanTab(evaluator);
+    assert.strictEqual(tabCheck.clean, true);
+  });
 });

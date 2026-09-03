@@ -111,4 +111,15 @@ test('deriveCapsulePartition suffixes native mode with -native and defaults clea
   assert.equal(deriveCapsulePartition('workspace-1', 'native'), 'persist:capsule-workspace-1-native');
   assert.equal(deriveCapsulePartition('', 'clean'), 'persist:capsule-default');
   assert.equal(deriveCapsulePartition('', 'native'), 'persist:capsule-default-native');
+
+  // Ephemeral mode creates in-memory non-persistent partition names
+  const eph1 = deriveCapsulePartition('workspace-1', 'clean', true);
+  const eph2 = deriveCapsulePartition('workspace-1', 'clean', true);
+  assert.equal(eph1.startsWith('ephemeral-workspace-1-'), true);
+  assert.equal(eph1.includes('persist:'), false);
+  assert.notEqual(eph1, eph2, 'Ephemeral partitions must be unique per derivation to guarantee isolation');
+
+  const ephNative = deriveCapsulePartition('workspace-1', 'native', true);
+  assert.equal(ephNative.startsWith('ephemeral-workspace-1-'), true);
+  assert.equal(ephNative.endsWith('-native'), true);
 });
