@@ -1808,19 +1808,43 @@ export class BrowserControlPort {
       const script = `(() => {
         const freeze = ${Boolean(freeze)};
         let mediaCount = 0;
-        document.querySelectorAll('video, audio').forEach(el => {
-          mediaCount++;
-          if (freeze) {
-            if (!el.paused) {
-              el.dataset.__antifanPaused = 'true';
-              el.pause();
-            }
-          } else if (el.dataset.__antifanPaused === 'true') {
-            delete el.dataset.__antifanPaused;
-            el.play().catch(() => {});
-          }
-        });
         const freezeStyleId = '__antifan_freeze_media_style';
+
+        const visitRoots = (root, cb) => {
+          cb(root);
+          root.querySelectorAll('*').forEach(el => {
+            if (el.shadowRoot) visitRoots(el.shadowRoot, cb);
+            if (el.tagName === 'IFRAME') {
+              try {
+                if (el.contentDocument) visitRoots(el.contentDocument, cb);
+              } catch {}
+            }
+          });
+        };
+
+        visitRoots(document, r => {
+          r.querySelectorAll('video, audio').forEach(el => {
+            mediaCount++;
+            if (freeze) {
+              if (!el.paused) {
+                el.dataset.__antifanPaused = 'true';
+                el.pause();
+              }
+            } else if (el.dataset.__antifanPaused === 'true') {
+              delete el.dataset.__antifanPaused;
+              el.play().catch(() => {});
+            }
+          });
+
+          r.querySelectorAll('svg').forEach(s => {
+            if (freeze && typeof s.pauseAnimations === 'function') {
+              s.pauseAnimations();
+            } else if (!freeze && typeof s.unpauseAnimations === 'function') {
+              s.unpauseAnimations();
+            }
+          });
+        });
+
         let styleEl = document.getElementById(freezeStyleId);
         if (freeze) {
           if (!styleEl) {
@@ -1829,9 +1853,38 @@ export class BrowserControlPort {
             styleEl.textContent = '* { animation-play-state: paused !important; transition-duration: 0s !important; }';
             document.head.appendChild(styleEl);
           }
-        } else if (styleEl) {
-          styleEl.remove();
+          if (!window.__antifanOriginalRAF) {
+            window.__antifanOriginalRAF = window.requestAnimationFrame;
+            window.__antifanRAFQueue = [];
+            window.requestAnimationFrame = (cb) => {
+              window.__antifanRAFQueue.push(cb);
+              return window.__antifanRAFQueue.length;
+            };
+          }
+          if (window.__antifanFreezeTimer) clearTimeout(window.__antifanFreezeTimer);
+          window.__antifanFreezeTimer = setTimeout(() => {
+            const s = document.getElementById(freezeStyleId);
+            if (s) s.remove();
+            if (window.__antifanOriginalRAF) {
+              window.requestAnimationFrame = window.__antifanOriginalRAF;
+              delete window.__antifanOriginalRAF;
+            }
+          }, 60000);
+        } else {
+          if (styleEl) styleEl.remove();
+          if (window.__antifanOriginalRAF) {
+            window.requestAnimationFrame = window.__antifanOriginalRAF;
+            delete window.__antifanOriginalRAF;
+            const q = window.__antifanRAFQueue || [];
+            delete window.__antifanRAFQueue;
+            q.forEach(cb => { try { cb(performance.now()); } catch {} });
+          }
+          if (window.__antifanFreezeTimer) {
+            clearTimeout(window.__antifanFreezeTimer);
+            delete window.__antifanFreezeTimer;
+          }
         }
+
         if (freeze) {
           document.querySelectorAll('.slideshow, .carousel, [class*="slider"], [class*="slideshow"]').forEach(el => {
             if (typeof el.scrollTo === 'function') {
@@ -1875,8 +1928,23 @@ export class BrowserControlPort {
         const rawSections = [];
         for (let i = 0; i < candidateElements.length; i++) {
           const el = candidateElements[i];
-          const rect = el.getBoundingClientRect();
-          if (rect.width === 0 && rect.height === 0) continue;
+          let rect = el.getBoundingClientRect();
+          // Handle display: contents where parent rect is 0 but children have geometry
+          if ((rect.width === 0 || rect.height === 0) && el.children.length > 0) {
+            let minTop = Infinity, maxBottom = -Infinity, maxW = 0;
+            for (let c = 0; c < el.children.length; c++) {
+              const cr = el.children[c].getBoundingClientRect();
+              if (cr.width > 0 && cr.height > 0) {
+                if (cr.top < minTop) minTop = cr.top;
+                if (cr.bottom > maxBottom) maxBottom = cr.bottom;
+                if (cr.width > maxW) maxW = cr.width;
+              }
+            }
+            if (minTop !== Infinity && maxBottom !== -Infinity) {
+              rect = { top: minTop, height: maxBottom - minTop, width: maxW };
+            }
+          }
+          if (rect.width < 5 || rect.height < 5) continue;
           const absY = Math.round(rect.top + window.scrollY);
           const absH = Math.round(rect.height);
           if (absH < 20) continue;
@@ -1891,8 +1959,13 @@ export class BrowserControlPort {
           } else if (el.closest('footer') || elId.includes('footer') || elCls.includes('newsletter') || elId.includes('newsletter')) {
             group = 'footer-group';
           }
-          const h = el.querySelector('h1, h2, h3, h4, [class*="heading"], [class*="title"]');
-          const heading = h ? (h.textContent || '').trim().slice(0, 80) : undefined;
+          let heading = undefined;
+          const h = el.querySelector('h1, h2, h3, h4, h5, h6, [role="heading"], [class*="heading"], [class*="title"], [data-heading]');
+          if (h) {
+            heading = (h.getAttribute('data-heading') || h.getAttribute('aria-label') || h.textContent || '').trim().slice(0, 80);
+          } else if (el.getAttribute('aria-label')) {
+            heading = el.getAttribute('aria-label').trim().slice(0, 80);
+          }
           let selector = el.tagName.toLowerCase();
           if (el.id) {
             selector = '#' + el.id;
@@ -1907,7 +1980,7 @@ export class BrowserControlPort {
             y: absY,
             height: absH,
             group,
-            heading,
+            heading: heading || undefined,
           });
         }
         rawSections.sort((a, b) => a.y - b.y);
@@ -1934,6 +2007,19 @@ export class BrowserControlPort {
     const props = Array.isArray(params.properties) && params.properties.length > 0
       ? params.properties
       : ['width', 'height', 'padding', 'margin', 'font-family', 'font-size', 'font-weight', 'line-height', 'color', 'background-color', 'border', 'border-radius', 'box-shadow', 'display', 'position'];
+    const normalizeVal = (prop: string, val: string): string => {
+      let clean = val.trim().toLowerCase();
+      clean = clean.replace(/rgba\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*,\s*1(?:\.0)?\s*\)/g, 'rgb($1, $2, $3)');
+      clean = clean.replace(/,\s*/g, ', ');
+      if (prop === 'font-family') {
+        clean = clean.replace(/['"]/g, '');
+        // If primary font family matches, consider compatible
+        const primary = clean.split(',')[0]?.trim();
+        if (primary) return primary;
+      }
+      clean = clean.replace(/\b0px\b/g, '0');
+      return clean;
+    };
     const getStylesScript = (sel: string) => `(() => {
       const el = document.querySelector(${JSON.stringify(sel)});
       if (!el) return null;
@@ -1950,17 +2036,21 @@ export class BrowserControlPort {
     const differences: Record<string, { tab1: string; tab2: string; status: 'MATCH' | 'MISMATCH' | 'MISSING' }> = {};
     let allMatch = true;
     for (const p of props) {
-      const val1 = styles1 ? (styles1[p] || '') : 'NOT_FOUND';
-      const val2 = styles2 ? (styles2[p] || '') : 'NOT_FOUND';
+      const raw1 = styles1 ? (styles1[p] || '') : 'NOT_FOUND';
+      const raw2 = styles2 ? (styles2[p] || '') : 'NOT_FOUND';
       let status: 'MATCH' | 'MISMATCH' | 'MISSING' = 'MATCH';
-      if (!styles1 || !styles2) {
+      if (!styles1 || !styles2 || raw1 === 'NOT_FOUND' || raw2 === 'NOT_FOUND') {
         status = 'MISSING';
         allMatch = false;
-      } else if (val1 !== val2) {
-        status = 'MISMATCH';
-        allMatch = false;
+      } else {
+        const n1 = normalizeVal(p, raw1);
+        const n2 = normalizeVal(p, raw2);
+        if (n1 !== n2) {
+          status = 'MISMATCH';
+          allMatch = false;
+        }
       }
-      differences[p] = { tab1: val1, tab2: val2, status };
+      differences[p] = { tab1: raw1, tab2: raw2, status };
     }
     return {
       selector: params.selector,
@@ -1972,7 +2062,7 @@ export class BrowserControlPort {
   async validateSpecGate(
     target: BrowserTarget,
     params: { specTabId?: string; targetTabId?: string; tolerance?: number } = {}
-  ): Promise<{ passed: boolean; criticalCount: number; checklist: Record<string, { status: 'PASS' | 'FAIL' | 'WARN'; message: string; details?: unknown }> }> {
+  ): Promise<{ passed: boolean; score: number; criticalCount: number; checklist: Record<string, { status: 'PASS' | 'FAIL' | 'WARN'; message: string; details?: unknown }> }> {
     const specTabId = this.resolveTargetTab(target, params.specTabId || '@spec');
     const targetTabId = this.resolveTargetTab(target, params.targetTabId || target?.tabId || '@storefront');
     const tolerance = typeof params.tolerance === 'number' ? params.tolerance : 5.0;
@@ -2011,7 +2101,8 @@ export class BrowserControlPort {
     } else {
       const maxDelta = (tolerance > 0 ? tolerance : 5.0) / 100;
       const heightDelta = Math.abs(specInv.scrollHeight - targetInv.scrollHeight) / targetInv.scrollHeight;
-      if (heightDelta > maxDelta) {
+      const EPSILON = 1e-6;
+      if (heightDelta - maxDelta > EPSILON) {
         checklist.heightParity = {
           status: 'FAIL',
           message: `Height mismatch delta ${(heightDelta * 100).toFixed(1)}% exceeds ${tolerance}% threshold (${specInv.scrollHeight}px vs ${targetInv.scrollHeight}px)`,
@@ -2041,8 +2132,14 @@ export class BrowserControlPort {
         message: 'No runtime console or syntax errors detected',
       };
     }
+    const score = Math.max(0, Math.min(100, Math.round(
+      (checklist.structuralSections?.status === 'PASS' ? 40 : 0) +
+      (checklist.heightParity?.status === 'PASS' ? 30 : 0) +
+      (checklist.consoleErrors?.status === 'PASS' ? 30 : 0)
+    )));
     return {
       passed: criticalCount === 0,
+      score,
       criticalCount,
       checklist,
     };

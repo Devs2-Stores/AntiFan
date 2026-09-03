@@ -165,8 +165,29 @@ describe('AntiFan Sensory Engine & Quality Gate Suite', () => {
       assert.strictEqual(diff.differences['width']?.tab2, '128px');
       assert.strictEqual(diff.differences['box-shadow']?.status, 'MISMATCH');
     });
-  });
+    test('normalizes color formats and primary font families', async () => {
+      const host = createMockHost({
+        evalJs: async (_expr: string, tabId?: string) => {
+          if (tabId === 'tab-1') {
+            return { color: 'rgba(255, 255, 255, 1)', 'font-family': "'Inter', sans-serif" };
+          }
+          return { color: 'rgb(255, 255, 255)', 'font-family': 'Inter, -apple-system, sans-serif' };
+        },
+      });
+      const port = new BrowserControlPort(host);
 
+      const diff = await port.styleDiff(dummyTarget, {
+        selector: '.title',
+        tabId: 'tab-1',
+        comparisonTabId: 'tab-2',
+        properties: ['color', 'font-family'],
+      });
+
+      assert.strictEqual(diff.match, true);
+      assert.strictEqual(diff.differences['color']?.status, 'MATCH');
+      assert.strictEqual(diff.differences['font-family']?.status, 'MATCH');
+    });
+  });
   describe('validateSpecGate', () => {
     test('passes when section count and height parity are within tolerance and zero console errors', async () => {
       const host = createMockHost({
@@ -182,6 +203,7 @@ describe('AntiFan Sensory Engine & Quality Gate Suite', () => {
 
       const res = await port.validateSpecGate(dummyTarget, { specTabId: 'tab-2', targetTabId: 'tab-1', tolerance: 5.0 });
       assert.strictEqual(res.passed, true);
+      assert.strictEqual(res.score, 100);
       assert.strictEqual(res.criticalCount, 0);
       assert.strictEqual(res.checklist['structuralSections']?.status, 'PASS');
       assert.strictEqual(res.checklist['heightParity']?.status, 'PASS');

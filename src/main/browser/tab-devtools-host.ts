@@ -601,7 +601,7 @@ export class TabDevToolsHost {
     }
   }
 
-  public async captureScreenshot(rect?: Rectangle, tabId?: string, paneId?: SplitPaneId, options?: { format?: 'png' | 'jpeg'; quality?: number; fullPage?: boolean }): Promise<string> {
+  public async captureScreenshot(rect?: Rectangle, tabId?: string, paneId?: SplitPaneId, options?: { format?: 'png' | 'jpeg'; quality?: number; fullPage?: boolean; maskSelectors?: string[] }): Promise<string> {
     const targetId = tabId || this.ctx.getActiveTabId();
     const target = this.ctx.getTabRecord(targetId);
     if (!target) return '';
@@ -620,18 +620,40 @@ export class TabDevToolsHost {
     const quality = Math.max(1, Math.min(100, Math.round(rawQuality <= 1 && rawQuality > 0 ? rawQuality * 100 : rawQuality)));
     const isFullPage = Boolean(options?.fullPage);
     return this.ctx.withTabAgentWorking(targetId, async () => {
-      const captureAction = async (): Promise<string> => {
-        const withTimeout = <T>(p: Promise<T>, ms: number, fallback: T): Promise<T> => {
-          let timer: NodeJS.Timeout | undefined;
-          const timeoutPromise = new Promise<T>((resolve) => {
-            timer = setTimeout(() => resolve(fallback), ms);
-          });
-          p.catch(() => {});
-          return Promise.race([p, timeoutPromise]).finally(() => {
-            clearTimeout(timer);
-          });
-        };
+      let maskStyleInjected = false;
+      const maskStyleId = '__antifan_screenshot_mask_style';
+      if (options?.maskSelectors && Array.isArray(options.maskSelectors) && options.maskSelectors.length > 0) {
+        try {
+          const selectorList = options.maskSelectors.map((s: string) => String(s).replace(/'/g, "\\'")).join(', ');
+          await this.evalJs(
+            `(() => {
+              let el = document.getElementById('${maskStyleId}');
+              if (!el) {
+                el = document.createElement('style');
+                el.id = '${maskStyleId}';
+                el.textContent = '${selectorList} { visibility: hidden !important; opacity: 0 !important; }';
+                document.head.appendChild(el);
+              }
+            })()`,
+            targetId,
+            paneId
+          );
+          maskStyleInjected = true;
+        } catch {}
+      }
 
+      try {
+        const captureAction = async (): Promise<string> => {
+          const withTimeout = <T>(p: Promise<T>, ms: number, fallback: T): Promise<T> => {
+            let timer: NodeJS.Timeout | undefined;
+            const timeoutPromise = new Promise<T>((resolve) => {
+              timer = setTimeout(() => resolve(fallback), ms);
+            });
+            p.catch(() => {});
+            return Promise.race([p, timeoutPromise]).finally(() => {
+              clearTimeout(timer);
+            });
+          };
         // Full-page CDP capture bypasses Tier 1 (wc.capturePage is strictly viewport-only)
         if (isFullPage) {
           try {
@@ -671,8 +693,12 @@ export class TabDevToolsHost {
 
               const rawW = Math.round(contentWidth || vpWidth);
               const rawH = Math.round(contentHeight || vpHeight);
-              const safeWidth = Number.isFinite(rawW) ? Math.max(1, Math.min(rawW, 16384)) : 1200;
-              const safeHeight = Number.isFinite(rawH) ? Math.max(1, Math.min(rawH, 16384)) : 800;
+              let safeWidth = Number.isFinite(rawW) ? Math.max(1, Math.min(rawW, 16384)) : 1200;
+              let safeHeight = Number.isFinite(rawH) ? Math.max(1, Math.min(rawH, 16384)) : 800;
+              const maxPixels = 268435456;
+              if (safeWidth * safeHeight > maxPixels) {
+                safeHeight = Math.floor(maxPixels / safeWidth);
+              }
 
               const cdpRes = await this.sendCdpCommand<{ data?: string }>(wc, 'Page.captureScreenshot', {
                 format,
@@ -689,6 +715,7 @@ export class TabDevToolsHost {
             if (fullPageResult && fullPageResult.length > 0) {
               return fullPageResult;
             }
+            this.cdpQueues.delete(wc.id);
             throw new Error('FULLPAGE_CAPTURE_TIMEOUT: CDP full-page screenshot timed out after 20000ms. Consider freezing media or checking page complexity.');
           } catch (err: any) {
             console.error('[AntiFan DevTools] Full-page capture error:', err);
@@ -771,11 +798,25 @@ export class TabDevToolsHost {
 
       const isMobile = (paneId || target.focusedPane) === 'mobile';
       const targetPaneView = isMobile ? (target.mobileView || target.view) : target.view;
+      let result = '';
       if (this.ctx.runWithAttachedTabView && targetPaneView) {
-        return this.ctx.runWithAttachedTabView(targetPaneView, captureAction, isMobile);
+        result = await this.ctx.runWithAttachedTabView(targetPaneView, captureAction, isMobile);
+      } else {
+        result = await captureAction();
       }
-      return captureAction();
-    });
+      return result;
+    } finally {
+      if (maskStyleInjected) {
+        try {
+          await this.evalJs(
+            `(() => { const el = document.getElementById('${maskStyleId}'); if (el) el.remove(); })()`,
+            targetId,
+            paneId
+          );
+        } catch {}
+      }
+    }
+  });
   }
 
   public async getDom(selector?: string, tabId?: string, paneId?: SplitPaneId): Promise<string> {
