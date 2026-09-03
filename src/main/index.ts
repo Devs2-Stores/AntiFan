@@ -68,8 +68,12 @@ const IS_MCP_HIGH_RISK = process.argv.includes('--mcp-high-risk') || (IS_LOCAL_E
 // benchmarks, but launch mode never changes a user's browser identity.
 const customUserData = process.env.ANTIFAN_USER_DATA || process.env.ANTIFAN_USER_DATA_DIR;
 StorageLocations.ensureDirectories();
-process.env.ANTIFAN_CONFIG_DIR = StorageLocations.getConfigDir();
-process.env.ANTIFAN_DATA_ROOT = StorageLocations.getDataRoot();
+if (!process.env.ANTIFAN_CONFIG_DIR) {
+  process.env.ANTIFAN_CONFIG_DIR = StorageLocations.getConfigDir();
+}
+if (!process.env.ANTIFAN_DATA_ROOT) {
+  process.env.ANTIFAN_DATA_ROOT = StorageLocations.getDataRoot();
+}
 let preparedProfile: PersistentProfileResult;
 try {
   preparedProfile = preparePersistentProfile({

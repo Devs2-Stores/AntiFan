@@ -3754,8 +3754,8 @@ export class NativeTabHost extends EventEmitter {
   }
 
   public bindTerminalAgentAffinity(terminalId: string, generation: number | string | undefined, tabId: string): boolean {
+    if (!this.terminalAgentAffinity) this.terminalAgentAffinity = new Map();
     if (!terminalId || !tabId) return false;
-    const tab = this.tabs.get(tabId);
     if (!tab) return false;
     const tm = TerminalManager.getInstance();
     const session = tm.getSession(terminalId);
@@ -3763,21 +3763,27 @@ export class NativeTabHost extends EventEmitter {
     const resolvedGen = generation !== undefined && generation !== '' ? generation : session.sessionGeneration;
     this.clearTerminalAgentAffinity(terminalId);
     this.terminalAgentAffinity.set(`${terminalId}@${resolvedGen}`, { tabId, lastUrl: tab.state.url });
+    tab.state.terminalSessionId = terminalId;
     return true;
   }
 
   public clearTerminalAgentAffinity(terminalId: string): void {
-    if (!terminalId) return;
+    if (!this.terminalAgentAffinity || !terminalId) return;
     const prefix = `${terminalId}@`;
     for (const key of Array.from(this.terminalAgentAffinity.keys())) {
       if (key === terminalId || key.startsWith(prefix)) {
         this.terminalAgentAffinity.delete(key);
       }
     }
+    for (const tab of this.tabs.values()) {
+      if (tab.state.terminalSessionId === terminalId) {
+        tab.state.terminalSessionId = undefined;
+      }
+    }
   }
 
   public tombstoneTerminalAgentAffinity(tabId: string, lastUrl?: string): void {
-    if (!tabId) return;
+    if (!this.terminalAgentAffinity || !tabId) return;
     for (const entry of this.terminalAgentAffinity.values()) {
       if (entry.tabId === tabId) {
         entry.closedAt = Date.now();
@@ -3787,7 +3793,7 @@ export class NativeTabHost extends EventEmitter {
   }
 
   public migrateTerminalAgentAffinityGeneration(terminalId: string, newGeneration: number): void {
-    if (!terminalId) return;
+    if (!this.terminalAgentAffinity || !terminalId) return;
     const prefix = `${terminalId}@`;
     let existingEntry: { tabId: string; lastUrl?: string; closedAt?: number } | undefined;
     for (const [key, entry] of this.terminalAgentAffinity.entries()) {
@@ -3802,7 +3808,7 @@ export class NativeTabHost extends EventEmitter {
   }
 
   public getTerminalAgentAffinity(terminalSessionId: string, generation?: number | string): { tabId: string; status: 'alive' | 'closed'; lastUrl?: string } | undefined {
-    if (!terminalSessionId) return undefined;
+    if (!this.terminalAgentAffinity || !terminalSessionId) return undefined;
     const normGen = generation !== undefined && generation !== '' ? String(generation).trim() : undefined;
     if (normGen) {
       const entry = this.terminalAgentAffinity.get(`${terminalSessionId}@${normGen}`);
@@ -3839,11 +3845,34 @@ export class NativeTabHost extends EventEmitter {
 
   public getTabTerminalSession(tabId: string): string | undefined {
     const tab = this.tabs.get(tabId);
-    if (!tab || !tab.state.terminalSessionId) return undefined;
+    if (!tab) return undefined;
+
+    const tm = TerminalManager.getInstance();
+    const liveSessions = tm.listSessions();
+
+    // 1. Check if the active terminal session has affinity to this tab
+    const activeSessionId = tm.getActiveSessionId();
+    if (activeSessionId) {
+      const activeGen = liveSessions.find((s) => s.id === activeSessionId)?.sessionGeneration;
+      const affinity = this.getTerminalAgentAffinity(activeSessionId, activeGen);
+      if (affinity && affinity.status === 'alive' && affinity.tabId === tabId) {
+        return activeSessionId;
+      }
+    }
+
+    // 2. Check if any other live terminal session has affinity to this tab
+    for (const session of liveSessions) {
+      const affinity = this.getTerminalAgentAffinity(session.id, session.sessionGeneration);
+      if (affinity && affinity.status === 'alive' && affinity.tabId === tabId) {
+        return session.id;
+      }
+    }
+
+    // 3. Fallback to remembered tab.state.terminalSessionId
+    if (!tab.state.terminalSessionId) return undefined;
     const sessionId = tab.state.terminalSessionId;
     if (sessionId === 'auto') return 'auto';
-    const tm = TerminalManager.getInstance();
-    const valid = tm.listSessions().some((s) => s.id === sessionId);
+    const valid = liveSessions.some((s) => s.id === sessionId);
     if (!valid) {
       tab.state.terminalSessionId = undefined;
       return undefined;

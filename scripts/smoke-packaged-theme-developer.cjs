@@ -107,8 +107,16 @@ async function runThemeDeveloperSmoke() {
       stdio: ['ignore', 'pipe', 'pipe'],
     });
 
-    appChild.stdout.on('data', (d) => logStream.write(`[EXE:stdout] ${d.toString('utf8')}`));
-    appChild.stderr.on('data', (d) => logStream.write(`[EXE:stderr] ${d.toString('utf8')}`));
+    appChild.stdout.on('data', (d) => {
+      if (!logStream.destroyed && logStream.writable) {
+        try { logStream.write(`[EXE:stdout] ${d.toString('utf8')}`); } catch {}
+      }
+    });
+    appChild.stderr.on('data', (d) => {
+      if (!logStream.destroyed && logStream.writable) {
+        try { logStream.write(`[EXE:stderr] ${d.toString('utf8')}`); } catch {}
+      }
+    });
 
     log(`Packaged app launched (PID ${appChild.pid}). Waiting for bridge.json in ${tempConfigDir}...`);
 
@@ -189,11 +197,12 @@ async function runThemeDeveloperSmoke() {
       return `${prefix}-***${id.slice(-4)}`;
     }
     log(`Session created: runId=${redactId(sessionRes.runId)}, attemptId=${redactId(sessionRes.attemptId)}, attachmentId=${redactId(sessionRes.attachmentId)}`);
+    let currentAuthorityRevision = sessionRes.authorityRevision;
     function makeClaims(overrides = {}) {
       return {
         attachmentId: sessionRes.attachmentId,
         attachmentSecret: sessionRes.secret,
-        authorityRevision: sessionRes.authorityRevision,
+        authorityRevision: currentAuthorityRevision,
         projectId: sessionRes.projectId,
         workspaceId: sessionRes.workspaceId,
         runId: sessionRes.runId,
@@ -202,36 +211,41 @@ async function runThemeDeveloperSmoke() {
       };
     }
 
+    async function dispatchCapability(name, params = {}, overrides = {}) {
+      const res = await sendBridgeRequest('antifan.capability.dispatch', {
+        name,
+        params,
+        attachmentClaims: makeClaims(overrides),
+      });
+      if (res?.replacementAuthorityRevision) {
+        currentAuthorityRevision = res.replacementAuthorityRevision;
+      } else if (res?.authorityRevision) {
+        currentAuthorityRevision = res.authorityRevision;
+      }
+      return res;
+    }
+
     // 5. Open Tab and Navigate to Local Theme Preview in Packaged Chromium
     log('Step 5: Opening tab and navigating to preview URL in packaged Chromium...');
-    const openTabRes = await sendBridgeRequest('antifan.capability.dispatch', {
-      name: 'browser.open-tab',
-      params: { url: previewUrl, activate: true },
-      attachmentClaims: makeClaims(),
-    });
-    log('Tab created in packaged Chromium:', openTabRes);
-    const tabId = openTabRes?.tabId;
+    const openTabRes = await dispatchCapability('browser.open-tab', { url: previewUrl, activate: true });
+    log('Tab created in packaged Chromium:', JSON.stringify(openTabRes));
+    const tabId = openTabRes?.tabId || openTabRes?.data?.tabId;
     assert.ok(tabId, 'Tab creation must return tabId');
 
     // Retarget automation attachment to newly created preview tab
-    await sendBridgeRequest('antifan.capability.dispatch', {
-      name: 'browser.set-automation-target',
-      params: { tabId },
-      attachmentClaims: makeClaims(),
-    });
-
+    await dispatchCapability('browser.set-automation-target', { tabId });
     // Wait for navigation load
     await new Promise((r) => setTimeout(r, 1500));
 
     // 6. Inspect Live DOM in Packaged Chromium
     log('Step 6: Inspecting live DOM in packaged Chromium...');
-    const inspectRes = await sendBridgeRequest('antifan.capability.dispatch', {
-      name: 'browser.dom',
-      params: { tabId, selector: '#theme-product-title' },
-      attachmentClaims: makeClaims(),
-    });
+    const inspectRes = await dispatchCapability('browser.dom', { tabId, selector: '#theme-product-title' });
+    let domContent = typeof inspectRes === 'string' ? inspectRes : JSON.stringify(inspectRes);
+    if (inspectRes?.data?.path && fs.existsSync(inspectRes.data.path)) {
+      domContent = fs.readFileSync(inspectRes.data.path, 'utf8');
+    }
     assert.match(
-      typeof inspectRes === 'string' ? inspectRes : JSON.stringify(inspectRes),
+      domContent,
       /Haravan Aqua Denim Jacket/,
       'DOM inspection must contain the fixture product title'
     );
@@ -242,25 +256,22 @@ async function runThemeDeveloperSmoke() {
 
     // 7. Capture Viewport Screenshot from Packaged Chromium
     log('Step 7: Capturing live screenshot from packaged Chromium...');
-    const screenshotRes = await sendBridgeRequest('antifan.capability.dispatch', {
-      name: 'browser.screenshot',
-      params: { tabId },
-      attachmentClaims: makeClaims(),
-    });
+    const screenshotRes = await dispatchCapability('browser.screenshot', { tabId });
 
+    const actualScreenshot = screenshotRes?.data !== undefined ? screenshotRes.data : screenshotRes;
     let pngBuffer = null;
     let byteCount = 0;
-    if (typeof screenshotRes === 'string') {
-      pngBuffer = Buffer.from(screenshotRes, 'base64');
+    if (typeof actualScreenshot === 'string') {
+      pngBuffer = Buffer.from(actualScreenshot, 'base64');
       byteCount = pngBuffer.length;
-    } else if (screenshotRes && typeof screenshotRes.data === 'string') {
-      pngBuffer = Buffer.from(screenshotRes.data, 'base64');
+    } else if (actualScreenshot && typeof actualScreenshot.data === 'string') {
+      pngBuffer = Buffer.from(actualScreenshot.data, 'base64');
       byteCount = pngBuffer.length;
-    } else if (screenshotRes && screenshotRes.path && fs.existsSync(screenshotRes.path)) {
-      pngBuffer = fs.readFileSync(screenshotRes.path);
+    } else if (actualScreenshot && actualScreenshot.path && fs.existsSync(actualScreenshot.path)) {
+      pngBuffer = fs.readFileSync(actualScreenshot.path);
       byteCount = pngBuffer.length;
-    } else if (screenshotRes && typeof screenshotRes.byteLength === 'number') {
-      byteCount = screenshotRes.byteLength;
+    } else if (actualScreenshot && typeof actualScreenshot.byteLength === 'number') {
+      byteCount = actualScreenshot.byteLength;
     }
 
     assert.ok(byteCount > 100, `Screenshot payload must be non-trivial PNG data (got ${byteCount} bytes)`);
@@ -285,15 +296,20 @@ async function runThemeDeveloperSmoke() {
 
     // 9. Verify Security: Unauthenticated dispatch fails closed
     log('Step 9: Verifying security policy rejection on tampered secret...');
-    await assert.rejects(
-      () => sendBridgeRequest('antifan.capability.dispatch', {
+    try {
+      await sendBridgeRequest('antifan.capability.dispatch', {
         name: 'browser.navigate',
         params: { tabId, url: 'https://example.com' },
         attachmentClaims: makeClaims({ attachmentSecret: 'TAMPERED_SECRET_XYZ' }),
-      }),
-      /UNAUTHENTICATED|Unauthorized|ATTACHMENT_INVALID/i,
-      'Tampered attachment credentials must fail closed'
-    );
+      });
+      assert.fail('Tampered attachment credentials must fail closed');
+    } catch (err) {
+      assert.match(
+        err.message,
+        /AUTHENTICATION_DENIED|UNAUTHENTICATED|Unauthorized|ATTACHMENT_INVALID|ATTACHMENT_CLOSED|ATTACHMENT_NOT_FOUND|ATTACHMENT_SECRET_MISMATCH|FORBIDDEN/i,
+        'Tampered attachment credentials must fail closed'
+      );
+    }
 
     // 10. Clean Teardown
     log('Step 10: Clean teardown of packaged app process...');

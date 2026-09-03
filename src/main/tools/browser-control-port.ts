@@ -482,12 +482,17 @@ export class BrowserControlPort {
     if (context.target) assertTarget(context.target);
     const list = this.host.getTabList() || [];
     const boundTabId = context.target?.tabId;
-    return list
-      .map((tab: any) => ({
-        ...tab,
-        isBoundTab: Boolean(boundTabId && tab.id === boundTabId),
-      }))
-      .sort((a: any, b: any) => (b.isBoundTab ? 1 : 0) - (a.isBoundTab ? 1 : 0));
+    if (boundTabId) {
+      const boundTab = list.find((tab: any) => tab && typeof tab === 'object' && tab.id === boundTabId);
+      if (boundTab) {
+        return [{
+          ...boundTab,
+          isBoundTab: true,
+        }];
+      }
+      return [];
+    }
+    return list;
   }
 
   async navigate(target: BrowserTarget, url: string, explicitTabId?: string): Promise<{ navigated: boolean; target: BrowserTarget }> {
@@ -775,13 +780,21 @@ export class BrowserControlPort {
     this.host.setAutomationTabId(cleanId);
     return { success: true, tabId: cleanId };
   }
-  closeTab(tabId: string): { closed: boolean } {
+  closeTab(tabId: string, context?: { target?: BrowserTarget }): { closed: boolean } {
     if (!this.host.closeTab) throw new CapabilityError('CAPABILITY_NOT_FOUND', 'closeTab is not supported by host');
+    const boundId = context?.target?.tabId;
+    if (boundId && tabId.trim() !== boundId.trim()) {
+      throw new CapabilityError('TARGET_MISMATCH', `Cannot close tab "${tabId}". This session is isolated to tab "${boundId}".`);
+    }
     return { closed: this.host.closeTab(tabId) };
   }
 
-  switchTab(tabId: string): { switched: boolean } {
+  switchTab(tabId: string, context?: { target?: BrowserTarget }): { switched: boolean } {
     if (!this.host.switchTab) throw new CapabilityError('CAPABILITY_NOT_FOUND', 'switchTab is not supported by host');
+    const boundId = context?.target?.tabId;
+    if (boundId && tabId.trim() !== boundId.trim()) {
+      throw new CapabilityError('TARGET_MISMATCH', `Cannot activate tab "${tabId}". This session is isolated to tab "${boundId}".`);
+    }
     return { switched: this.host.switchTab(tabId) };
   }
 
