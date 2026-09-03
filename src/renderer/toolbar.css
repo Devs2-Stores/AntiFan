@@ -298,6 +298,22 @@ body, html {
   border-radius: 4px 4px 0 0;
 }
 
+.tab-alias-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 5px;
+  border-radius: 4px;
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.3px;
+  flex-shrink: 0;
+  user-select: none;
+  background: #2563eb;
+  color: #ffffff;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+}
+
 .tab-agent-badge {
   display: inline-flex;
   align-items: center;

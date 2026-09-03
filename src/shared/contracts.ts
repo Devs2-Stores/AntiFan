@@ -31,6 +31,9 @@ export interface AntiFanTab {
   splitMobilePresetId?: string;
   splitFocusedPane?: 'desktop' | 'mobile';
   splitError?: string | null;
+  alias?: string;
+  role?: 'storefront' | 'admin' | 'feedback' | 'spec' | string;
+  aliasColor?: string;
 }
 
 export type SplitPaneId = 'desktop' | 'mobile';

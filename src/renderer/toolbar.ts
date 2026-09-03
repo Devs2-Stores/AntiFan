@@ -28,12 +28,16 @@ interface AntiFanTab {
   splitMobilePresetId?: string;
   splitFocusedPane?: 'desktop' | 'mobile';
   splitError?: string;
+  alias?: string;
+  role?: string;
+  aliasColor?: string;
 }
 interface ThemeQaState { status: 'idle' | 'running' | 'pass' | 'fail' | 'error'; issueCount: number; reportArtifactId?: string; report?: Record<string, unknown>; error?: string; updatedAt: number; }
 interface AntiFanToolbarApi {
   getInitialState: () => Promise<any>;
   createTab: (url?: string) => Promise<string>;
   switchTab: (tabId: string) => Promise<boolean>;
+  setTabAlias: (tabId: string, alias?: string, role?: string, aliasColor?: string) => Promise<boolean>;
   closeTab: (tabId: string) => Promise<boolean>;
   moveTab: (tabId: string, toIndex: number) => Promise<boolean>;
   duplicateTab: (tabId: string) => Promise<string>;
@@ -84,6 +88,10 @@ interface AntiFanToolbarApi {
   syncFromChromeCdp?: (port?: number) => Promise<{ success: boolean; count: number; message: string }>;
   getVaultStats?: (customPath?: string) => Promise<{ exists: boolean; count: number; lastModified?: number; filePath: string }>;
   checkUpdates?: () => Promise<void>;
+  launchChromeWithExtension?: (profileId?: string) => Promise<{ success: boolean; message: string; isRunning?: boolean }>;
+  launchChromeWithCdp?: (port?: number, profileId?: string) => Promise<{ success: boolean; message: string }>;
+  openExtensionFolder?: () => Promise<{ success: boolean; extensionDir: string; message: string }>;
+  isChromeRunning?: () => Promise<boolean>;
   popoutTerminal?: () => Promise<boolean>;
   getSuggestions: (query: string) => Promise<{ suggestions: Array<{ type: 'search' | 'url' | 'bookmark' | 'history' | 'tab'; text: string; url?: string; tabId?: string; subText?: string }> }>;
   toggleSplitReview: (tabId?: string, enabled?: boolean) => Promise<boolean>;
@@ -661,6 +669,7 @@ function renderTabs() {
       tabEl.innerHTML = `
         <span class="tab-spinner" style="display:none;"></span>
         <img class="tab-icon" src="" alt=""/>
+        <span class="tab-alias-badge" style="display:none;"></span>
         <span class="tab-agent-badge" style="display:none;">🤖 AGENT</span>
         <span class="tab-title"></span>
         <span class="tab-audio-btn" style="display:none;" title="Tắt tiếng tab"></span>
@@ -770,6 +779,20 @@ function renderTabs() {
     const statusDot = tabEl.querySelector('.tab-status-dot') as HTMLElement;
     const agentBadge = tabEl.querySelector('.tab-agent-badge') as HTMLElement;
     const titleSpan = tabEl.querySelector('.tab-title') as HTMLElement;
+    const aliasBadge = tabEl.querySelector('.tab-alias-badge') as HTMLElement;
+    if (aliasBadge) {
+      if (tab.alias) {
+        aliasBadge.style.display = 'inline-flex';
+        aliasBadge.textContent = tab.alias;
+        if (tab.aliasColor) {
+          aliasBadge.style.backgroundColor = tab.aliasColor;
+        } else {
+          aliasBadge.style.backgroundColor = '#2563eb';
+        }
+      } else {
+        aliasBadge.style.display = 'none';
+      }
+    }
     const audioBtn = tabEl.querySelector('.tab-audio-btn') as HTMLElement;
 
     // Keep the ownership badge visible for the automation target even when
@@ -1224,11 +1247,11 @@ function renderChromeProfiles() {
         activeProfileInfo = p;
         renderChromeProfiles();
         renderAppMenuProfiles();
-        if (res.isLocked) {
-          showToolbarToast(`⚠️ Chrome đang mở: Đã nạp ${res.bookmarksCount || 0} bookmarks. Hãy đóng Google Chrome rồi bấm Đồng bộ lại để nạp cookies!`, 5000);
+        if (res.hasLiveCookies === false && (!res.cookiesCount || res.cookiesCount === 0)) {
+          showToolbarToast(`ℹ️ Đã nạp ${res.bookmarksCount || 0} dấu trang. Vì Chrome bảo mật v20, hãy bấm "🚀 Mở Chrome để Đồng Bộ" bên dưới để nạp cookies!`, 7000);
         } else {
           const cookieNote = res.cookiesCount > 0 ? ` (${res.cookiesCount} cookies, ${res.bookmarksCount || 0} bookmarks)` : '';
-          showToolbarToast(`✅ Đã đồng bộ Chrome Profile: ${p.name || p.id}${cookieNote}`, 3000);
+          showToolbarToast(`✅ Đã đồng bộ Chrome Profile: ${p.name || p.id}${cookieNote}`, 4000);
         }
       } else {
         showToolbarToast(`⚠️ Không thể đồng bộ: ${res?.message || 'Lỗi profile'}`, 4000);
@@ -1242,6 +1265,39 @@ function renderChromeProfiles() {
   divider.style.background = 'rgba(255, 255, 255, 0.1)';
   divider.style.margin = '4px 0';
   profileDropdownList.appendChild(divider);
+  // 1-Click Launch Chrome with Extension
+  const launchExtItem = document.createElement('div');
+  launchExtItem.className = 'profile-dropdown-item';
+  launchExtItem.innerHTML = '<span>🚀 Mở Chrome Đồng Bộ Cookies</span><span style="font-size:10px;color:#38bdf8;">Tự động nạp Extension</span>';
+  launchExtItem.title = 'Khởi chạy Google Chrome với AntiFan Extension đã nạp sẵn để tự động đồng bộ cookies';
+  launchExtItem.onclick = async () => {
+    profileDropdownMenu.style.display = 'none';
+    getApi()?.setOverlay(false);
+    showToolbarToast('🚀 Đang mở Google Chrome với Extension đồng bộ...');
+    const res = await getApi()?.launchChromeWithExtension?.(activeProfileInfo?.id);
+    if (res?.success) {
+      showToolbarToast(`✅ ${res.message}`, 6000);
+    } else {
+      showToolbarToast(`⚠️ ${res?.message || 'Không thể mở Chrome'}`, 5000);
+    }
+  };
+  profileDropdownList.appendChild(launchExtItem);
+
+  // Open Extension Folder & Guide
+  const guideExtItem = document.createElement('div');
+  guideExtItem.className = 'profile-dropdown-item';
+  guideExtItem.innerHTML = '<span>🧩 Cài đặt Extension vào Chrome</span><span style="font-size:10px;color:#c084fc;">Hướng dẫn</span>';
+  guideExtItem.title = 'Mở thư mục Extension và trang chrome://extensions để cài vĩnh viễn vào Google Chrome';
+  guideExtItem.onclick = async () => {
+    profileDropdownMenu.style.display = 'none';
+    getApi()?.setOverlay(false);
+    const res = await getApi()?.openExtensionFolder?.();
+    if (res?.success) {
+      showToolbarToast('📋 Đã copy đường dẫn Extension & mở Chrome! Vào chrome://extensions -> Bật Developer mode -> Load unpacked -> Dán đường dẫn!', 8000);
+    }
+  };
+  profileDropdownList.appendChild(guideExtItem);
+
 
   // Backup Vault Item
   const backupItem = document.createElement('div');
@@ -1289,7 +1345,7 @@ function renderChromeProfiles() {
     if (res?.success) {
       showToolbarToast(`✅ ${res.message}`, 4000);
     } else {
-      showToolbarToast(`⚠️ ${res?.message || 'Không thể kết nối Chrome CDP'}`, 5000);
+      showToolbarToast(`⚠️ ${res?.message || 'Không thể kết nối Chrome CDP'}. Hãy thử bấm "🚀 Mở Chrome Đồng Bộ Cookies"!`, 6000);
     }
   };
   profileDropdownList.appendChild(cdpItem);
@@ -1354,11 +1410,11 @@ function renderAppMenuProfiles() {
       if (res && res.success !== false) {
         activeProfileInfo = p;
         renderChromeProfiles();
-        if (res.isLocked) {
-          showToolbarToast(`⚠️ Chrome đang mở: Đã nạp ${res.bookmarksCount || 0} bookmarks. Hãy đóng Google Chrome rồi bấm Đồng bộ lại để nạp cookies!`, 5000);
+        if (res.hasLiveCookies === false && (!res.cookiesCount || res.cookiesCount === 0)) {
+          showToolbarToast(`ℹ️ Đã nạp ${res.bookmarksCount || 0} dấu trang. Vì Chrome bảo mật v20, hãy bấm "🚀 Mở Chrome để Đồng Bộ" để nạp cookies!`, 7000);
         } else {
           const cookieNote = res.cookiesCount > 0 ? ` (${res.cookiesCount} cookies, ${res.bookmarksCount || 0} bookmarks)` : '';
-          showToolbarToast(`✅ Đã đồng bộ Chrome Profile: ${p.name || p.id}${cookieNote}`, 3000);
+          showToolbarToast(`✅ Đã đồng bộ Chrome Profile: ${p.name || p.id}${cookieNote}`, 4000);
         }
       } else {
         showToolbarToast(`⚠️ Không thể đồng bộ: ${res?.message || 'Lỗi profile'}`, 4000);
@@ -1366,6 +1422,43 @@ function renderAppMenuProfiles() {
     };
     menuProfileSubList.appendChild(item);
   });
+  // Divider
+  const appMenuDivider = document.createElement('div');
+  appMenuDivider.style.height = '1px';
+  appMenuDivider.style.background = 'rgba(255, 255, 255, 0.1)';
+  appMenuDivider.style.margin = '4px 0';
+  menuProfileSubList.appendChild(appMenuDivider);
+
+  // 1-Click Launch Chrome with Extension in App Menu
+  const appLaunchExt = document.createElement('div');
+  appLaunchExt.className = 'profile-sub-item';
+  appLaunchExt.innerHTML = '<span>🚀 Mở Chrome Đồng Bộ Cookies</span><span style="font-size:10px;color:#38bdf8;">Tự động nạp Extension</span>';
+  appLaunchExt.onclick = async (e) => {
+    e.stopPropagation();
+    closeAppMenu();
+    showToolbarToast('🚀 Đang mở Google Chrome với Extension đồng bộ...');
+    const res = await getApi()?.launchChromeWithExtension?.(activeProfileInfo?.id);
+    if (res?.success) {
+      showToolbarToast(`✅ ${res.message}`, 6000);
+    } else {
+      showToolbarToast(`⚠️ ${res?.message || 'Không thể mở Chrome'}`, 5000);
+    }
+  };
+  menuProfileSubList.appendChild(appLaunchExt);
+
+  // Guide in App Menu
+  const appGuideExt = document.createElement('div');
+  appGuideExt.className = 'profile-sub-item';
+  appGuideExt.innerHTML = '<span>🧩 Cài đặt Extension vào Chrome</span><span style="font-size:10px;color:#c084fc;">Hướng dẫn</span>';
+  appGuideExt.onclick = async (e) => {
+    e.stopPropagation();
+    closeAppMenu();
+    const res = await getApi()?.openExtensionFolder?.();
+    if (res?.success) {
+      showToolbarToast('📋 Đã copy đường dẫn Extension & mở Chrome! Vào chrome://extensions -> Bật Developer mode -> Load unpacked -> Dán đường dẫn!', 8000);
+    }
+  };
+  menuProfileSubList.appendChild(appGuideExt);
 }
 
 function closeAppMenu() {
@@ -1726,6 +1819,22 @@ if (menuItemBindTerminal) {
         showToolbarToast('🎯 Đã gán tab vào Terminal hoạt động');
       } else {
         showToolbarToast('Không thể gán tab vào Terminal');
+      }
+    }
+    hideTabContextMenu();
+  });
+}
+const menuItemSetAlias = document.getElementById('menuItemSetAlias');
+if (menuItemSetAlias) {
+  menuItemSetAlias.addEventListener('click', async () => {
+    if (contextMenuTargetTabId) {
+      const currentTab = currentTabs.find(t => t.id === contextMenuTargetTabId);
+      const alias = prompt('Đặt Alias cho tab (ví dụ: @admin, @feedback, @storefront):', currentTab?.alias || '@');
+      if (alias !== null) {
+        const trimmed = alias.trim();
+        const role = trimmed.startsWith('@') ? trimmed.slice(1).toLowerCase() : undefined;
+        await getApi()?.setTabAlias(contextMenuTargetTabId, trimmed || undefined, role);
+        showToolbarToast(trimmed ? `🏷️ Đã gán alias: ${trimmed}` : 'Đã xóa alias của tab');
       }
     }
     hideTabContextMenu();

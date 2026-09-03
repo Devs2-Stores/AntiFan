@@ -10,6 +10,7 @@ import type { ThemeQaWorkflow } from '../qa/theme-qa-workflow';
 import { ThemeQaRepairCoordinator } from '../qa/theme-qa-repair-coordinator';
 import { confineWorkspaceRoot } from '../qa/diagnostics-filter';
 import { recordFallbackTelemetry, FallbackTelemetryPayload } from '../telemetry/fallback-recorder';
+import { IssueRegister } from '../session/issue-register';
 function getThemeHierarchyScript(): string {
   return `(() => {
     const template = document.documentElement?.getAttribute('data-template')
@@ -1795,6 +1796,206 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
     },
     execute: (params: { baselineScreenshotRef?: string; comparisonTabId?: string; tolerance?: number; selector?: string; clipRect?: { x: number; y: number; width: number; height: number }; maskSelectors?: string[]; normalizeScroll?: boolean; tabId?: string; paneId?: 'desktop' | 'mobile'; fullPage?: boolean }, context) =>
       browser.visualCompare(context.browserTarget as BrowserTarget, context.runId || 'run-default', context.attemptId || 'att-default', params, params?.tabId, params?.paneId),
+  });
+
+  // ─── Issue Register & Diagnostics Capabilities ───
+  catalogue.register({
+    name: 'anti.diagnostics.list_issues',
+    description: 'List recorded issues, tool failures, and bypassed bugs from the durable issue register',
+    risk: 'read',
+    policy: makeBrowserPolicy({ effect: 'read', risk: 'read', requiresBrowserTarget: false, lane: 'unbounded' }),
+    inputSchema: {
+      type: 'object',
+      properties: {
+        status: { type: 'string', enum: ['OPEN', 'RESOLVED', 'BYPASSED'] },
+        severity: { type: 'string', enum: ['P0', 'P1', 'P2', 'P3'] },
+        limit: { type: 'number' },
+      },
+    },
+    execute: (params: { status?: string; severity?: string; limit?: number }) => {
+      const issues = IssueRegister.getInstance().list(params);
+      return { totalCount: issues.length, issues };
+    },
+  });
+  catalogue.register({
+    name: 'antifan_list_issues',
+    description: 'Alias for anti.diagnostics.list_issues',
+    risk: 'read',
+    policy: makeBrowserPolicy({ effect: 'read', risk: 'read', requiresBrowserTarget: false, lane: 'unbounded' }),
+    inputSchema: { type: 'object' },
+    execute: (params: { status?: string; severity?: string; limit?: number }) => {
+      const issues = IssueRegister.getInstance().list(params);
+      return { totalCount: issues.length, issues };
+    },
+  });
+
+  catalogue.register({
+    name: 'anti.diagnostics.record_issue',
+    description: 'Record an observed issue, error, or tool failure into the durable issue register',
+    risk: 'write',
+    policy: makeBrowserPolicy({ effect: 'idempotent-write', risk: 'write', requiresBrowserTarget: false, lane: 'unbounded' }),
+    inputSchema: {
+      type: 'object',
+      properties: {
+        toolName: { type: 'string' },
+        errorMessage: { type: 'string' },
+        severity: { type: 'string', enum: ['P0', 'P1', 'P2', 'P3'] },
+        errorCode: { type: 'string' },
+        targetUrl: { type: 'string' },
+        tabId: { type: 'string' },
+        workaroundApplied: { type: 'string' },
+        notes: { type: 'string' },
+      },
+      required: ['toolName', 'errorMessage'],
+    },
+    execute: (params: { toolName: string; errorMessage: string; severity?: 'P0' | 'P1' | 'P2' | 'P3'; errorCode?: string; targetUrl?: string; tabId?: string; workaroundApplied?: string; notes?: string }) => {
+      const recorded = IssueRegister.getInstance().record({
+        toolName: params.toolName,
+        errorMessage: params.errorMessage,
+        severity: params.severity || 'P2',
+        errorCode: params.errorCode,
+        targetUrl: params.targetUrl,
+        tabId: params.tabId,
+        workaroundApplied: params.workaroundApplied,
+        status: params.workaroundApplied ? 'BYPASSED' : 'OPEN',
+        notes: params.notes,
+      });
+      return { recorded: true, issue: recorded };
+    },
+  });
+
+  catalogue.register({
+    name: 'anti.diagnostics.resolve_issue',
+    description: 'Mark an issue in the durable issue register as RESOLVED',
+    risk: 'write',
+    policy: makeBrowserPolicy({ effect: 'idempotent-write', risk: 'write', requiresBrowserTarget: false, lane: 'unbounded' }),
+    inputSchema: {
+      type: 'object',
+      properties: {
+        id: { type: 'string' },
+        notes: { type: 'string' },
+      },
+      required: ['id'],
+    },
+    execute: (params: { id: string; notes?: string }) => {
+      const resolved = IssueRegister.getInstance().resolve(params.id, params.notes);
+      return { success: resolved };
+    },
+  });
+
+  // ─── Native Google Sheet Extraction Capability ───
+  catalogue.register({
+    name: 'anti.sheet.extract',
+    description: 'Directly extract row, range, or structured data from Google Sheets in <100ms via authenticated in-tab GViz protocol',
+    risk: 'read',
+    requiresBrowserTarget: true,
+    policy: makeBrowserPolicy({ effect: 'read', risk: 'read', requiresBrowserTarget: true, lane: 'viewport-gate' }),
+    inputSchema: {
+      type: 'object',
+      properties: {
+        tabId: { type: 'string', description: 'Tab ID or semantic alias (e.g. "@feedback")' },
+        row: { type: 'number', description: '1-indexed target row number (e.g. 34)' },
+        gid: { type: 'string', description: 'Optional sheet GID override' },
+      },
+    },
+    execute: async (params: { tabId?: string; row?: number; gid?: string }, context) => {
+      const targetTabId = params.tabId || '@feedback';
+      const targetRow = typeof params.row === 'number' && params.row > 0 ? params.row : undefined;
+      const script = `(async () => {
+        try {
+          const url = window.location.href;
+          const matchId = url.match(/\\/spreadsheets\\/d\\/([a-zA-Z0-9-_]+)/);
+          if (!matchId) return { success: false, error: 'Current tab is not a Google Spreadsheet' };
+          const sheetId = matchId[1];
+          const explicitGid = ${JSON.stringify(params.gid || '')};
+          const matchGid = explicitGid || (url.match(/[#&]gid=([0-9]+)/) || [])[1] || '0';
+
+          const gvizUrl = '/spreadsheets/d/' + sheetId + '/gviz/tq?tqx=out:csv&gid=' + matchGid;
+          const res = await fetch(gvizUrl, { credentials: 'include' });
+          if (!res.ok) return { success: false, status: res.status, error: 'GViz request returned HTTP ' + res.status };
+          const csv = await res.text();
+
+          function parseCsvRow(line) {
+            const cells = [];
+            let cur = '';
+            let inQuotes = false;
+            for (let i = 0; i < line.length; i++) {
+              const c = line[i];
+              if (c === '"') {
+                if (inQuotes && line[i+1] === '"') { cur += '"'; i++; }
+                else { inQuotes = !inQuotes; }
+              } else if (c === ',' && !inQuotes) {
+                cells.push(cur.trim());
+                cur = '';
+              } else {
+                cur += c;
+              }
+            }
+            cells.push(cur.trim());
+            return cells;
+          }
+
+          const lines = csv.split(/\\r?\\n/).filter(l => l.trim().length > 0);
+          const headers = lines[0] ? parseCsvRow(lines[0]) : [];
+
+          if (${JSON.stringify(targetRow)}) {
+            const rowIdx = ${JSON.stringify(targetRow)} - 1;
+            if (lines.length <= rowIdx) {
+              return { success: false, error: 'Row ' + ${JSON.stringify(targetRow)} + ' exceeds total rows (' + lines.length + ')' };
+            }
+            const rawRow = lines[rowIdx];
+            const cells = parseCsvRow(rawRow);
+            const mapped = {};
+            headers.forEach((h, idx) => {
+              mapped[h || ('col_' + (idx + 1))] = cells[idx] || '';
+            });
+            return {
+              success: true,
+              sheetId,
+              gid: matchGid,
+              targetRow: ${JSON.stringify(targetRow)},
+              totalRows: lines.length,
+              headers,
+              data: mapped,
+              raw: rawRow
+            };
+          }
+
+          return {
+            success: true,
+            sheetId,
+            gid: matchGid,
+            totalRows: lines.length,
+            headers,
+            rowsCount: lines.length
+          };
+        } catch (err) {
+          return { success: false, error: err.message };
+        }
+      })()`;
+
+      return await browser.eval(context.browserTarget as BrowserTarget, script, targetTabId);
+    },
+  });
+  catalogue.register({
+    name: 'antifan_sheet_extract',
+    description: 'Alias for anti.sheet.extract',
+    risk: 'read',
+    requiresBrowserTarget: true,
+    policy: makeBrowserPolicy({ effect: 'read', risk: 'read', requiresBrowserTarget: true, lane: 'viewport-gate' }),
+    inputSchema: {
+      type: 'object',
+      properties: {
+        tabId: { type: 'string' },
+        row: { type: 'number' },
+        gid: { type: 'string' },
+      },
+    },
+    execute: (params: { tabId?: string; row?: number; gid?: string }, context) => {
+      const extractCap = catalogue.get('anti.sheet.extract');
+      if (!extractCap) throw new CapabilityError('CAPABILITY_NOT_FOUND', 'anti.sheet.extract capability not found');
+      return extractCap.execute(params, context);
+    },
   });
 }
 

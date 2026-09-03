@@ -189,6 +189,119 @@ export interface BookmarkItem {
   createdAt: number;
 }
 
+export function inferTabSemanticRole(url?: string, title?: string): { alias?: string; role?: 'admin' | 'feedback' | 'pricing' | 'spec' | 'data' | 'storefront' | 'custom'; aliasColor?: string } {
+  if (!url || url === 'about:blank') return {};
+  const lowerUrl = url.toLowerCase();
+  const lowerTitle = (title || '').toLowerCase();
+
+  // 1. Admin / Management portals
+  if (
+    lowerUrl.includes('/admin') ||
+    lowerUrl.includes('admin.shopify.com') ||
+    lowerUrl.includes('.myshopify.com/admin') ||
+    lowerUrl.includes('.myharavan.com/admin') ||
+    lowerUrl.includes('.mysapo.vn/admin') ||
+    lowerUrl.includes('/wp-admin') ||
+    lowerTitle.includes('quản trị') ||
+    lowerTitle.includes('admin') ||
+    lowerTitle.includes('dashboard')
+  ) {
+    return { alias: '@admin', role: 'admin', aliasColor: '#2563eb' };
+  }
+
+  // 2. Documents / Spreadsheets / Data sources
+  const isDocOrSheet =
+    lowerUrl.includes('docs.google.com/spreadsheets') ||
+    lowerUrl.includes('docs.google.com/document') ||
+    lowerUrl.includes('airtable.com') ||
+    lowerUrl.includes('notion.so') ||
+    lowerUrl.endsWith('.xlsx') ||
+    lowerUrl.endsWith('.xls') ||
+    lowerUrl.endsWith('.docx') ||
+    lowerUrl.endsWith('.pdf') ||
+    lowerUrl.endsWith('.csv') ||
+    lowerTitle.includes('trang tính') ||
+    lowerTitle.includes('bảng tính') ||
+    lowerTitle.includes('spreadsheet') ||
+    lowerTitle.includes('document');
+
+  if (isDocOrSheet) {
+    // 2a. Báo giá / Pricing / Quotation / Cost
+    if (
+      lowerTitle.includes('báo giá') ||
+      lowerTitle.includes('bảng giá') ||
+      lowerTitle.includes('pricing') ||
+      lowerTitle.includes('price') ||
+      lowerTitle.includes('quote') ||
+      lowerTitle.includes('quotation') ||
+      lowerTitle.includes('cost') ||
+      lowerUrl.includes('bao-gia') ||
+      lowerUrl.includes('pricing')
+    ) {
+      return { alias: '@pricing', role: 'pricing', aliasColor: '#f59e0b' };
+    }
+
+    // 2b. Tài liệu / Spec / Brief / Requirements
+    if (
+      lowerTitle.includes('spec') ||
+      lowerTitle.includes('brief') ||
+      lowerTitle.includes('tài liệu') ||
+      lowerTitle.includes('guideline') ||
+      lowerTitle.includes('hướng dẫn') ||
+      lowerTitle.includes('requirement') ||
+      lowerUrl.includes('/document/') ||
+      lowerUrl.endsWith('.docx') ||
+      lowerUrl.endsWith('.pdf')
+    ) {
+      return { alias: '@spec', role: 'spec', aliasColor: '#06b6d4' };
+    }
+
+    // 2c. Feedback / Review / QA / Issue checklist
+    if (
+      lowerTitle.includes('feedback') ||
+      lowerTitle.includes('lỗi') ||
+      lowerTitle.includes('bug') ||
+      lowerTitle.includes('qa') ||
+      lowerTitle.includes('review') ||
+      lowerTitle.includes('checklist') ||
+      lowerTitle.includes('góp ý')
+    ) {
+      return { alias: '@feedback', role: 'feedback', aliasColor: '#16a34a' };
+    }
+
+    // 2d. Sản phẩm / Master data / Inventory
+    if (
+      lowerTitle.includes('sản phẩm') ||
+      lowerTitle.includes('product') ||
+      lowerTitle.includes('catalog') ||
+      lowerTitle.includes('danh mục') ||
+      lowerTitle.includes('sku')
+    ) {
+      return { alias: '@data', role: 'data', aliasColor: '#10b981' };
+    }
+
+    // 2e. Bảng tính Google Sheets / Excel chung
+    if (
+      lowerUrl.includes('docs.google.com/spreadsheets') ||
+      lowerUrl.endsWith('.xlsx') ||
+      lowerUrl.endsWith('.csv') ||
+      lowerTitle.includes('trang tính') ||
+      lowerTitle.includes('bảng tính')
+    ) {
+      return { alias: '@sheet', role: 'feedback', aliasColor: '#16a34a' };
+    }
+
+    return { alias: '@doc', role: 'spec', aliasColor: '#06b6d4' };
+  }
+
+  // 3. Storefront / Live Web
+  if (lowerUrl.startsWith('http://') || lowerUrl.startsWith('https://')) {
+    return { alias: '@storefront', role: 'storefront', aliasColor: '#9333ea' };
+  }
+
+  return {};
+}
+
 export interface NativeTabRecord {
   view: WebContentsView;
   mobileView?: WebContentsView;
@@ -719,6 +832,8 @@ export class NativeTabHost extends EventEmitter {
     ipcMain.handle(TOOLBAR_CHANNELS.CREATE_TAB, (_event, url?: string) => this.createTab(url));
     ipcMain.handle(TOOLBAR_CHANNELS.SWITCH_TAB, (_event, tabId: string) => this.switchTab(tabId));
     ipcMain.handle(TOOLBAR_CHANNELS.CLOSE_TAB, (_event, tabId: string) => this.closeTab(tabId));
+    ipcMain.handle('antifan:tab:set-alias', (_event, { tabId, alias, role, aliasColor }: { tabId?: string; alias?: string; role?: string; aliasColor?: string }) => this.setTabAlias(tabId || this.activeTabId, alias, role, aliasColor));
+    ipcMain.handle('antifan:tab:get-alias', (_event, alias: string) => this.resolveAliasToTabId(alias));
     ipcMain.handle(TOOLBAR_CHANNELS.MOVE_TAB, (_event, { tabId, toIndex }: { tabId: string; toIndex: number }) => this.moveTab(tabId, toIndex));
     ipcMain.handle(TOOLBAR_CHANNELS.DUPLICATE_TAB, (_event, tabId: string) => this.duplicateTab(tabId));
     ipcMain.handle(TOOLBAR_CHANNELS.CLOSE_OTHER_TABS, (_event, tabId: string) => this.closeOtherTabs(tabId));
@@ -801,6 +916,22 @@ export class NativeTabHost extends EventEmitter {
       this.updateLayout();
       this.broadcastState();
       return res;
+    });
+    ipcMain.removeHandler('antifan:chrome:launch-with-extension');
+    ipcMain.handle('antifan:chrome:launch-with-extension', async (_event, profileId?: string) => {
+      return await ChromeProfileSyncManager.getInstance().launchChromeWithCompanionExtension(profileId);
+    });
+    ipcMain.removeHandler('antifan:chrome:launch-with-cdp');
+    ipcMain.handle('antifan:chrome:launch-with-cdp', async (_event, params?: { port?: number; profileId?: string }) => {
+      return await ChromeProfileSyncManager.getInstance().launchChromeWithCdp(params?.port, params?.profileId);
+    });
+    ipcMain.removeHandler('antifan:chrome:open-extension-folder');
+    ipcMain.handle('antifan:chrome:open-extension-folder', async () => {
+      return await ChromeProfileSyncManager.getInstance().openExtensionFolderAndGuide();
+    });
+    ipcMain.removeHandler('antifan:chrome:is-running');
+    ipcMain.handle('antifan:chrome:is-running', () => {
+      return ChromeProfileSyncManager.getInstance().isChromeRunning();
     });
     ipcMain.handle(TOOLBAR_CHANNELS.TOGGLE_BOOKMARK_BAR, () => {
       this.isBookmarkBarVisible = !this.isBookmarkBarVisible;
@@ -2245,7 +2376,12 @@ export class NativeTabHost extends EventEmitter {
       }
       return false;
     }
-    if (clean === deriveCapsulePartition('default') || clean === 'persist:capsule-default') {
+    if (
+      clean === deriveCapsulePartition('default') ||
+      clean === 'persist:capsule-default' ||
+      clean.startsWith('persist:profile-') ||
+      clean.startsWith('persist:capsule-')
+    ) {
       return true;
     }
     const allCapsules = this.capsuleManager.list();
@@ -2489,6 +2625,14 @@ export class NativeTabHost extends EventEmitter {
         if (state.url && state.url !== 'about:blank' && !state.url.startsWith('view-source:')) {
           HistoryManager.getInstance().updateTitle(state.url, state.title);
         }
+        if (!state.alias) {
+          const inferred = inferTabSemanticRole(state.url, state.title);
+          if (inferred.alias) {
+            state.alias = inferred.alias;
+            state.role = inferred.role;
+            state.aliasColor = inferred.aliasColor;
+          }
+        }
         this.broadcastState();
 
       }
@@ -2527,6 +2671,14 @@ export class NativeTabHost extends EventEmitter {
         state.url = cleanUrl;
         if (state.url && state.url !== 'about:blank' && !state.url.startsWith('view-source:')) {
           HistoryManager.getInstance().recordVisit(state.url, state.title, state.favicon);
+        }
+        if (!state.alias) {
+          const inferred = inferTabSemanticRole(state.url, state.title);
+          if (inferred.alias) {
+            state.alias = inferred.alias;
+            state.role = inferred.role;
+            state.aliasColor = inferred.aliasColor;
+          }
         }
       }
       const decision = this.splitCoordinator.handleNavigationEvent(id, paneId, cleanUrl, false);
@@ -2804,13 +2956,14 @@ export class NativeTabHost extends EventEmitter {
   public switchTab(tabId: string): boolean {
     if (this.isDisposed) return false;
     try {
-      const target = this.tabs.get(tabId);
+      const targetId = typeof tabId === 'string' && tabId.startsWith('@') ? this.resolveAliasToTabId(tabId) || tabId : tabId;
+      const target = this.tabs.get(targetId);
       if (!target) return false;
       const switchStartMs = performance.now();
 
       // Guard against destroyed WebContents/WebContentsView
       if (!target.view || target.view.webContents.isDestroyed()) {
-        console.warn(`[native-tab-host] Target tab ${tabId} webContents is destroyed; recreating view`);
+        console.warn(`[native-tab-host] Target tab ${targetId} webContents is destroyed; recreating view`);
         target.view = new WebContentsView({
           webPreferences: getSecureWebPreferences(target.state.partition),
         });
@@ -2819,7 +2972,7 @@ export class NativeTabHost extends EventEmitter {
         this.setSafeUserAgent(target.view.webContents, this.defaultUserAgent);
         const isBlank = !target.state.url || target.state.url === 'about:blank';
         target.state.isLoading = !isBlank;
-        this.setupTabWebContentsEvents(tabId, target.view, target.state, 'desktop');
+        this.setupTabWebContentsEvents(targetId, target.view, target.state, 'desktop');
         if (!isBlank) {
           target.view.webContents.loadURL(target.state.url).catch((err: unknown) => {
             if (err && typeof err === 'object' && ('code' in err || 'errno' in err)) {
@@ -2837,7 +2990,7 @@ export class NativeTabHost extends EventEmitter {
         target.state.isLoading = false;
       }
 
-      this.activeTabId = tabId;
+      this.activeTabId = targetId;
 
       // Safely attach target active tab views FIRST before detaching old views
       // to maintain a continuous valid view hierarchy and avoid focus access violations
@@ -2849,7 +3002,7 @@ export class NativeTabHost extends EventEmitter {
       // Defensively ensure no other inactive tab views remain attached
       if (this.window && !this.window.isDestroyed() && this.window.contentView) {
         for (const [id, tab] of this.tabs.entries()) {
-          if (id !== tabId) {
+          if (id !== targetId) {
             if (tab.view && this.window.contentView.children.includes(tab.view)) {
               try { this.window.contentView.removeChildView(tab.view); } catch {}
             }
@@ -3875,8 +4028,57 @@ export class NativeTabHost extends EventEmitter {
     return this.getDevToolsHost().isInspectActive();
   }
 
+  public resolveAliasToTabId(alias: string): string | undefined {
+    if (!alias || typeof alias !== 'string' || !this.tabs) return undefined;
+    const lower = alias.trim().toLowerCase();
+    for (const [id, tab] of this.tabs.entries()) {
+      if (tab.state.alias?.toLowerCase() === lower || `@${tab.state.role?.toLowerCase()}` === lower) {
+        return id;
+      }
+    }
+
+    // Fallback for data/document/sheet synonyms
+    const dataSynonyms = new Set(['@feedback', '@sheet', '@data', '@pricing', '@spec', '@doc', '@baogia']);
+    if (dataSynonyms.has(lower)) {
+      for (const [id, tab] of this.tabs.entries()) {
+        if (tab.state.alias && dataSynonyms.has(tab.state.alias.toLowerCase())) {
+          return id;
+        }
+      }
+    }
+
+    // Fallback for web/storefront synonyms
+    const webSynonyms = new Set(['@storefront', '@web', '@store', '@live']);
+    if (webSynonyms.has(lower)) {
+      for (const [id, tab] of this.tabs.entries()) {
+        if (tab.state.alias && webSynonyms.has(tab.state.alias.toLowerCase())) {
+          return id;
+        }
+      }
+    }
+
+    return undefined;
+  }
+
+  public setTabAlias(tabId: string, alias?: string, role?: string, aliasColor?: string): boolean {
+    const targetId = typeof tabId === 'string' && tabId.startsWith('@') ? this.resolveAliasToTabId(tabId) || tabId : tabId;
+    const tab = this.tabs.get(targetId);
+    if (!tab) return false;
+    tab.state.alias = alias;
+    if (role) tab.state.role = role;
+    if (aliasColor) tab.state.aliasColor = aliasColor;
+    this.broadcastState();
+    this.schedulePersist();
+    return true;
+  }
+
   public hasTab(tabId?: string | null): boolean {
-    return Boolean(tabId && this.tabs && this.tabs.has(tabId));
+    if (!tabId || !this.tabs) return false;
+    if (this.tabs.has(tabId)) return true;
+    if (tabId.startsWith('@')) {
+      return Boolean(this.resolveAliasToTabId(tabId));
+    }
+    return false;
   }
 
   private resolveTerminalAffinityEntry(terminalId: string, generation?: number | string) {

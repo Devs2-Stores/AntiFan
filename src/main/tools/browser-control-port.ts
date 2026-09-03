@@ -806,7 +806,16 @@ export class BrowserControlPort {
 
   switchTab(tabId: string): { switched: boolean } {
     if (!this.host.switchTab) throw new CapabilityError('CAPABILITY_NOT_FOUND', 'switchTab is not supported by host');
-    return { switched: this.host.switchTab(tabId) };
+    let targetId = tabId;
+    if (typeof tabId === 'string' && tabId.startsWith('@')) {
+      const lower = tabId.toLowerCase();
+      const list = (this.host.getTabList ? this.host.getTabList() : []) as any[];
+      const matched = list.find((t) => t && typeof t === 'object' && (t.alias?.toLowerCase() === lower || `@${t.role?.toLowerCase()}` === lower));
+      if (matched && matched.id) {
+        targetId = matched.id;
+      }
+    }
+    return { switched: this.host.switchTab(targetId) };
   }
 
   diagnostics(tabId?: string, level?: number | string): { console: unknown[]; failures: unknown[] } {
@@ -1801,16 +1810,37 @@ export class BrowserControlPort {
     let resolved: string | undefined;
 
     if (explicitTabId && explicitTabId.trim().length > 0) {
-      if (!tabExists(explicitTabId.trim())) {
+      let candidate = explicitTabId.trim();
+      if (candidate.startsWith('@')) {
+        const lower = candidate.toLowerCase();
+        const list = (this.host.getTabList ? this.host.getTabList() : []) as any[];
+        let matched = list.find((t) => t && typeof t === 'object' && (t.alias?.toLowerCase() === lower || `@${t.role?.toLowerCase()}` === lower));
+        if (!matched) {
+          const dataSynonyms = new Set(['@feedback', '@sheet', '@data', '@pricing', '@spec', '@doc', '@baogia']);
+          if (dataSynonyms.has(lower)) {
+            matched = list.find((t) => t && typeof t === 'object' && t.alias && dataSynonyms.has(t.alias.toLowerCase()));
+          }
+          const webSynonyms = new Set(['@storefront', '@web', '@store', '@live']);
+          if (!matched && webSynonyms.has(lower)) {
+            matched = list.find((t) => t && typeof t === 'object' && t.alias && webSynonyms.has(t.alias.toLowerCase()));
+          }
+        }
+        if (matched && matched.id) {
+          candidate = matched.id;
+        } else {
+          throw new CapabilityError('CAPABILITY_NOT_FOUND', `Unknown tab alias: "${candidate}". No active tab matches this alias.`);
+        }
+      }
+      if (!tabExists(candidate)) {
         throw new CapabilityError('CAPABILITY_NOT_FOUND', `Unknown tab ID: ${explicitTabId}`);
       }
-      if (operationType === 'write' && target?.tabId && target.tabId.trim().length > 0 && explicitTabId.trim() !== target.tabId.trim()) {
-        const isAllowed = this.host.isTabAllowed ? this.host.isTabAllowed(target.tabId.trim(), explicitTabId.trim()) : false;
+      if (operationType === 'write' && target?.tabId && target.tabId.trim().length > 0 && candidate !== target.tabId.trim()) {
+        const isAllowed = this.host.isTabAllowed ? this.host.isTabAllowed(target.tabId.trim(), candidate) : false;
         if (!isAllowed) {
           throw new CapabilityError('TARGET_MISMATCH', `Explicit tabId "${explicitTabId}" does not match target tabId "${target.tabId}"`);
         }
       }
-      resolved = explicitTabId.trim();
+      resolved = candidate;
     } else if (target?.tabId && target.tabId.trim().length > 0) {
       if (!tabExists(target.tabId)) {
         const failoverTab = this.host.getFailoverTargetTab ? this.host.getFailoverTargetTab(target.tabId) : undefined;

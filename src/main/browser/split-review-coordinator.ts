@@ -696,6 +696,15 @@ export function sanitizeTabForPersistence(tab: AntiFanTab): Partial<AntiFanTab> 
   if (tab.userAgentMode) {
     clean.userAgentMode = tab.userAgentMode;
   }
+  if (tab.alias) {
+    clean.alias = tab.alias;
+  }
+  if (tab.role) {
+    clean.role = tab.role;
+  }
+  if (tab.aliasColor) {
+    clean.aliasColor = tab.aliasColor;
+  }
   if (tab.splitMode) {
     clean.splitMode = true;
     clean.splitDesktopPresetId = tab.splitDesktopPresetId || DEFAULT_SPLIT_DESKTOP_PRESET;
@@ -727,6 +736,9 @@ export function migratePersistedTab(raw: Partial<AntiFanTab> | null | undefined)
     devicePresetId: typeof raw.devicePresetId === 'string' ? raw.devicePresetId : undefined,
     capsuleId: typeof raw.capsuleId === 'string' ? raw.capsuleId : undefined,
     userAgentMode: raw.userAgentMode === 'native' ? 'native' : (raw.userAgentMode === 'clean' ? 'clean' : undefined),
+    alias: typeof raw.alias === 'string' ? raw.alias : undefined,
+    role: typeof raw.role === 'string' ? raw.role : undefined,
+    aliasColor: typeof raw.aliasColor === 'string' ? raw.aliasColor : undefined,
   };
   if (raw.splitMode === true) {
     result.splitMode = true;

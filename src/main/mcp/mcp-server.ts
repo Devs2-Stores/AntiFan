@@ -452,6 +452,48 @@ export class AntiFanMcpServer {
           required: ['primaryTool', 'fallbackTool', 'fallbackResult'],
         },
       },
+      {
+        name: 'anti.diagnostics.list_issues',
+        description: 'List recorded issues, tool failures, and bypassed bugs from the durable issue register',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            status: { type: 'string', enum: ['OPEN', 'RESOLVED', 'BYPASSED'], description: 'Filter by issue status' },
+            severity: { type: 'string', enum: ['P0', 'P1', 'P2', 'P3'], description: 'Filter by severity' },
+            limit: { type: 'number', description: 'Max number of issues to return' },
+          },
+        },
+      },
+      {
+        name: 'anti.diagnostics.record_issue',
+        description: 'Record an observed issue, error, or tool failure into the durable issue register',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            toolName: { type: 'string', description: 'Tool or capability that encountered the error' },
+            errorMessage: { type: 'string', description: 'Error message or exception details' },
+            severity: { type: 'string', enum: ['P0', 'P1', 'P2', 'P3'], description: 'Issue severity' },
+            errorCode: { type: 'string', description: 'Error code if available' },
+            targetUrl: { type: 'string', description: 'URL where issue occurred' },
+            tabId: { type: 'string', description: 'Tab ID or alias' },
+            workaroundApplied: { type: 'string', description: 'Description of workaround applied to continue work' },
+            notes: { type: 'string', description: 'Optional extra context' },
+          },
+          required: ['toolName', 'errorMessage'],
+        },
+      },
+      {
+        name: 'anti.sheet.extract',
+        description: 'Directly extract row or structured data from Google Sheets in <100ms via authenticated in-tab GViz protocol',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            tabId: { type: 'string', description: 'Tab ID or alias (e.g. "@feedback")' },
+            row: { type: 'number', description: '1-indexed target row number (e.g. 34)' },
+            gid: { type: 'string', description: 'Optional sheet GID override' },
+          },
+        },
+      },
     ];
 
     if (this.isHighRiskAllowed) {
@@ -558,6 +600,13 @@ export class AntiFanMcpServer {
       'anti.agent.drop': 'antifan_drop_files',
       'anti.agent.file_drop': 'antifan_drop_files',
       'anti.browser.drop_files': 'antifan_drop_files',
+      'anti.diagnostics.list_issues': 'antifan_list_issues',
+      'anti.diagnostics.list': 'antifan_list_issues',
+      'anti.diagnostics.record_issue': 'antifan_record_issue',
+      'anti.diagnostics.record': 'antifan_record_issue',
+      'anti.diagnostics.resolve_issue': 'antifan_resolve_issue',
+      'anti.sheet.extract': 'antifan_sheet_extract',
+      'sheet.extract': 'antifan_sheet_extract',
     };
     const name = aliasMap[toolName] || toolName;
     const a = (args || {}) as Record<string, unknown>;

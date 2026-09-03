@@ -849,7 +849,33 @@ export class TabDevToolsHost {
           throw err;
         }
       })()`;
-      return wc.executeJavaScript(wrapped, userGesture);
+      try {
+        return await wc.executeJavaScript(wrapped, userGesture);
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        if (
+          msg.includes('Trusted Type') ||
+          msg.includes('CSP') ||
+          msg.includes('Content Security Policy') ||
+          msg.includes('violates this document')
+        ) {
+          const cdpRes = await this.sendCdpCommand<{
+            result?: { value?: unknown };
+            exceptionDetails?: { text?: string; exception?: { description?: string } };
+          }>(wc, 'Runtime.evaluate', {
+            expression: `(${wrapped})`,
+            returnByValue: true,
+            awaitPromise: true,
+            userGesture,
+          });
+          if (cdpRes?.exceptionDetails) {
+            const detail = cdpRes.exceptionDetails.exception?.description || cdpRes.exceptionDetails.text || 'CDP evaluation exception';
+            throw new Error(detail);
+          }
+          return cdpRes?.result?.value;
+        }
+        throw err;
+      }
     });
   }
   // ─── Auto JSON Viewer & View Page Source ───
