@@ -10,6 +10,7 @@ import * as path from 'node:path';
 import { NativeTabHost } from './native-tab-host';
 import { ChromeProfileSyncManager } from './chrome-profile-sync';
 import { TerminalManager } from './terminal-manager';
+import { LocalSessionVault } from './local-session-vault';
 function getPendingSourceModifications(srcDir: string, compiledDir: string): string[] {
   const modifiedFiles: string[] = [];
   if (!fs.existsSync(srcDir)) return modifiedFiles;
@@ -115,25 +116,75 @@ export function buildApplicationMenu(mainWindow: BrowserWindow, tabHost?: Native
   const isMac = process.platform === 'darwin';
 
   const chromeProfiles = ChromeProfileSyncManager.getInstance().getAvailableProfiles();
-  const profileSubmenu: MenuItemConstructorOptions[] = chromeProfiles.length > 0
-    ? chromeProfiles.map((p) => ({
-        label: `Sync: ${p.name} (${p.id})`,
-        click: async () => {
-          const targetSession = tabHost?.getActiveTabSession();
-          const res = await ChromeProfileSyncManager.getInstance().syncProfile(p.id, targetSession);
-          const bm = ChromeProfileSyncManager.getInstance().getChromeBookmarks(p.id);
-          if (bm.length > 0 && tabHost) {
-            tabHost.bookmarks = bm.map((b) => ({ id: b.url, title: b.title, url: b.url, createdAt: Date.now() }));
-            tabHost.broadcastState();
-          }
-          dialog.showMessageBox(mainWindow, {
-            type: res.success ? 'info' : 'warning',
-            title: 'Chrome Profile Sync',
-            message: res.message,
-          });
-        },
-      }))
-    : [{ label: 'Không tìm thấy Chrome Profile', enabled: false }];
+  const profileSubmenu: MenuItemConstructorOptions[] = [
+    ...(chromeProfiles.length > 0
+      ? chromeProfiles.map((p) => ({
+          label: `Sync: ${p.name} (${p.id})`,
+          click: async () => {
+            const targetSession = tabHost?.getActiveTabSession();
+            if (!targetSession) return;
+            const res = await ChromeProfileSyncManager.getInstance().syncProfile(p.id, targetSession);
+            const bm = ChromeProfileSyncManager.getInstance().getChromeBookmarks(p.id);
+            if (bm.length > 0 && tabHost) {
+              tabHost.bookmarks = bm.map((b) => ({ id: b.url, title: b.title, url: b.url, createdAt: Date.now() }));
+              tabHost.broadcastState();
+            }
+            try {
+              await targetSession.cookies.flushStore();
+            } catch {}
+            dialog.showMessageBox(mainWindow, {
+              type: res.success ? 'info' : 'warning',
+              title: 'Chrome Profile Sync',
+              message: res.message,
+            });
+          },
+        }))
+      : [{ label: 'Không tìm thấy Chrome Profile', enabled: false }]),
+    { type: 'separator' },
+    {
+      label: '💾 Sao lưu Session Vault (Export JSON)',
+      click: async () => {
+        const targetSession = tabHost?.getActiveTabSession();
+        if (!targetSession) return;
+        const res = await LocalSessionVault.getInstance().exportVaultToFile(targetSession);
+        dialog.showMessageBox(mainWindow, {
+          type: res.success ? 'info' : 'error',
+          title: 'Session Vault Backup',
+          message: res.success
+            ? `Đã sao lưu thành công ${res.count} cookies vào:\n${res.filePath}`
+            : `Lỗi sao lưu: ${res.error}`,
+        });
+      },
+    },
+    {
+      label: '📥 Khôi phục Session Vault (Import JSON)',
+      click: async () => {
+        const targetSession = tabHost?.getActiveTabSession();
+        if (!targetSession) return;
+        const res = await LocalSessionVault.getInstance().importVaultFromFile(targetSession);
+        dialog.showMessageBox(mainWindow, {
+          type: res.success ? 'info' : 'warning',
+          title: 'Session Vault Restore',
+          message: res.success
+            ? `Đã nạp thành công ${res.importedCount} cookies vào phiên làm việc!`
+            : `Lỗi nạp: ${res.error || 'Không tìm thấy file session-vault.json'}`,
+        });
+      },
+    },
+    {
+      label: '⚡ Hút Cookies từ Chrome (CDP Port 9222)',
+      click: async () => {
+        const targetSession = tabHost?.getActiveTabSession();
+        if (!targetSession) return;
+        const res = await LocalSessionVault.getInstance().importFromLiveChromeCDP(targetSession, 9222);
+        dialog.showMessageBox(mainWindow, {
+          type: res.success ? 'info' : 'warning',
+          title: 'Chrome CDP Cookie Sync',
+          message: res.message,
+        });
+      },
+    },
+  ];
 
   const template: MenuItemConstructorOptions[] = [
     // 1. File Menu

@@ -40,6 +40,7 @@ import type { ControlPlaneRuntime } from '../control-plane/control-plane-runtime
 import type { BrowserTarget } from '../../shared/control-plane-contracts';
 import type { WorkflowDefinition } from '../workflow/workflow-schema';
 import { ChromeProfileSyncManager } from './chrome-profile-sync';
+import { LocalSessionVault } from './local-session-vault';
 import { HaravanUploader } from './haravan-uploader';
 import type { ActionSequenceParams, ActionSequenceResult } from './tab-automation-host';
 import { TerminalManager } from './terminal-manager';
@@ -232,6 +233,12 @@ export class NativeTabHost extends EventEmitter {
     tabId: string;
     primaryTabId: string;
     managedTabIds: Set<string>;
+    lineage?: Map<string, {
+      tabId: string;
+      parentTabId?: string;
+      source: 'agent_spawned' | 'native_window_open' | 'user_attached';
+      createdAt: number;
+    }>;
     lastUrls?: Map<string, string>;
     lastUrl?: string;
     closedAt?: number;
@@ -776,16 +783,20 @@ export class NativeTabHost extends EventEmitter {
     ipcMain.handle(TOOLBAR_CHANNELS.SET_OVERLAY, (_event, active: boolean, customHeight?: number) => this.setToolbarOverlay(active, customHeight));
     ipcMain.handle(TOOLBAR_CHANNELS.CLEAR_STORAGE, () => this.clearStorageForActiveTab());
     ipcMain.handle(TOOLBAR_CHANNELS.GET_CHROME_PROFILES, () => ChromeProfileSyncManager.getInstance().getAvailableProfiles());
+    LocalSessionVault.getInstance().registerIpcHandlers(() => this.getActiveTabSession());
     ipcMain.handle(TOOLBAR_CHANNELS.SYNC_CHROME_PROFILE, async (_event, profileId: string) => {
       const activeTab = this.activeTabId ? this.tabs.get(this.activeTabId) : undefined;
       const targetSession = activeTab?.view?.webContents && !activeTab.view.webContents.isDestroyed()
         ? activeTab.view.webContents.session
-        : (activeTab?.state.partition ? session.fromPartition(activeTab.state.partition) : session.defaultSession);
+        : (activeTab?.state.partition ? session.fromPartition(activeTab.state.partition) : this.getSharedProfileSession());
       const res = await ChromeProfileSyncManager.getInstance().syncProfile(profileId, targetSession);
       const bm = ChromeProfileSyncManager.getInstance().getChromeBookmarks(profileId);
       if (bm && bm.length > 0) {
         this.bookmarks = bm.map(b => ({ id: b.url, title: b.title, url: b.url, createdAt: Date.now() }));
       }
+      try {
+        await targetSession.cookies.flushStore();
+      } catch {}
       this.updateLayout();
       this.broadcastState();
       return res;
@@ -2213,12 +2224,15 @@ export class NativeTabHost extends EventEmitter {
       const activeSes = this.getTabSession(this.activeTabId);
       if (activeSes) return activeSes;
     }
-    return session.defaultSession;
+    return this.getSharedProfileSession();
   }
 
   public isValidCapsulePartition(partition: string): boolean {
     if (!partition || typeof partition !== 'string') return false;
     const clean = partition.trim();
+    if (clean.startsWith('persist:profile-') || clean.startsWith('ephemeral-profile-')) {
+      return true;
+    }
     if (clean.startsWith('ephemeral-')) {
       if (!/^ephemeral-[a-zA-Z0-9_-]+-[a-z0-9]+(-native)?$/.test(clean)) {
         return false;
@@ -2255,6 +2269,54 @@ export class NativeTabHost extends EventEmitter {
       return session.defaultSession;
     }
     return session.fromPartition(partition);
+  }
+
+  public getSharedProfilePartition(userAgentMode: BrowserSessionUserAgentMode = 'clean', ephemeral = false): string {
+    const activeProfileId = ChromeProfileSyncManager.getInstance().activeProfileId || 'default';
+    const safeProfileKey = activeProfileId.toLowerCase().replace(/[^a-z0-9_-]/g, '-');
+    if (ephemeral) {
+      const nonce = Math.random().toString(36).slice(2, 10);
+      return userAgentMode === 'native'
+        ? `ephemeral-profile-${safeProfileKey}-${nonce}-native`
+        : `ephemeral-profile-${safeProfileKey}-${nonce}`;
+    }
+    return userAgentMode === 'native'
+      ? `persist:profile-${safeProfileKey}-native`
+      : `persist:profile-${safeProfileKey}`;
+  }
+
+  public getSharedProfileSession(userAgentMode: BrowserSessionUserAgentMode = 'clean'): Electron.Session {
+    const partition = this.getSharedProfilePartition(userAgentMode);
+    configureBrowserSessionPartition(partition, userAgentMode);
+    return session.fromPartition(partition);
+  }
+
+  public async flushAllSessions(): Promise<void> {
+    const sessions = new Set<Electron.Session>();
+    try {
+      sessions.add(session.defaultSession);
+    } catch {}
+    try {
+      const sharedSes = this.getSharedProfileSession();
+      if (sharedSes) sessions.add(sharedSes);
+    } catch {}
+    for (const tab of this.tabs.values()) {
+      if (tab.view && !tab.view.webContents.isDestroyed()) {
+        sessions.add(tab.view.webContents.session);
+      } else if (tab.state.partition) {
+        sessions.add(session.fromPartition(tab.state.partition));
+      }
+    }
+    const promises = Array.from(sessions).map(async (s) => {
+      try {
+        if (s && s.cookies && typeof s.cookies.flushStore === 'function') {
+          await s.cookies.flushStore();
+        }
+      } catch (err) {
+        console.warn('[native-tab-host] Failed to flush cookie store for session:', err);
+      }
+    });
+    await Promise.allSettled(promises);
   }
 
 
@@ -2577,7 +2639,10 @@ export class NativeTabHost extends EventEmitter {
         {
           onNewTabRequested: (url: string) => {
             if (isAllowedNavigation(url)) {
-              this.createTab(url, true);
+              const newTabId = this.createTab(url, true);
+              if (newTabId) {
+                this.adoptChildTab(id, newTabId, undefined, 'native_window_open', id);
+              }
             }
           }
         }
@@ -2604,6 +2669,8 @@ export class NativeTabHost extends EventEmitter {
       capsuleId?: string;
       userAgentMode?: BrowserSessionUserAgentMode;
       ephemeral?: boolean;
+      isolateSession?: boolean;
+      partition?: string;
     }
   ): string {
     if (this.isDisposed) return '';
@@ -2650,7 +2717,14 @@ export class NativeTabHost extends EventEmitter {
 
     const userAgentMode: BrowserSessionUserAgentMode = options?.userAgentMode || 'clean';
     const isEphemeral = Boolean(options?.ephemeral);
-    const partition = deriveCapsulePartition(capsuleIdForTab, userAgentMode, isEphemeral);
+    let partition: string;
+    if (options?.partition && typeof options.partition === 'string') {
+      partition = options.partition.trim();
+    } else if (options?.isolateSession) {
+      partition = deriveCapsulePartition(capsuleIdForTab, userAgentMode, isEphemeral);
+    } else {
+      partition = this.getSharedProfilePartition(userAgentMode, isEphemeral);
+    }
     configureBrowserSessionPartition(partition, userAgentMode);
     const view = new WebContentsView({
       webPreferences: getSecureWebPreferences(partition),
@@ -3813,10 +3887,13 @@ export class NativeTabHost extends EventEmitter {
     this.clearTerminalAgentAffinity(terminalId);
     const managedTabIds = new Set<string>([tabId]);
     const lastUrls = new Map<string, string>([[tabId, tab.state.url || '']]);
+    const lineage = new Map<string, { tabId: string; parentTabId?: string; source: 'agent_spawned' | 'native_window_open' | 'user_attached'; createdAt: number }>();
+    lineage.set(tabId, { tabId, source: 'user_attached', createdAt: Date.now() });
     this.terminalAgentAffinity.set(`${terminalId}@${resolvedGen}`, {
       tabId,
       primaryTabId: tabId,
       managedTabIds,
+      lineage,
       lastUrls,
       lastUrl: tab.state.url,
       closedAt: undefined,
@@ -3825,12 +3902,33 @@ export class NativeTabHost extends EventEmitter {
     return true;
   }
 
-  public adoptChildTab(terminalId: string, childTabId: string, generation?: number | string): boolean {
-    if (!this.terminalAgentAffinity || !terminalId || !childTabId) return false;
+  public adoptChildTab(
+    identifier: string,
+    childTabId: string,
+    generation?: number | string,
+    source: 'agent_spawned' | 'native_window_open' | 'user_attached' = 'agent_spawned',
+    parentTabId?: string
+  ): boolean {
+    if (!this.terminalAgentAffinity || !identifier || !childTabId) return false;
     const childTab = this.tabs?.get(childTabId);
     if (!childTab) return false;
 
-    const entry = this.resolveTerminalAffinityEntry(terminalId, generation);
+    // 1. Try finding entry as terminalId
+    let entry = this.resolveTerminalAffinityEntry(identifier, generation);
+    let resolvedTerminalId = identifier;
+
+    // 2. If not found by terminalId, try finding by boundTabId
+    if (!entry) {
+      for (const [key, ent] of this.terminalAgentAffinity.entries()) {
+        if (ent.primaryTabId === identifier || ent.managedTabIds?.has(identifier)) {
+          entry = ent;
+          resolvedTerminalId = key.split('@')[0] || identifier;
+          if (!parentTabId) parentTabId = identifier;
+          break;
+        }
+      }
+    }
+
     if (!entry) return false;
 
     // Hard limit: max 5 tabs per terminal
@@ -3838,35 +3936,30 @@ export class NativeTabHost extends EventEmitter {
       return false;
     }
 
+    if (!entry.managedTabIds) entry.managedTabIds = new Set<string>([entry.tabId]);
     entry.managedTabIds.add(childTabId);
     if (!entry.lastUrls) entry.lastUrls = new Map();
     entry.lastUrls.set(childTabId, childTab.state.url || '');
-    childTab.state.terminalSessionId = terminalId;
+    if (!entry.lineage) entry.lineage = new Map();
+    entry.lineage.set(childTabId, {
+      tabId: childTabId,
+      parentTabId: parentTabId || entry.primaryTabId || entry.tabId,
+      source,
+      createdAt: Date.now(),
+    });
+
+    childTab.state.terminalSessionId = resolvedTerminalId;
     this.broadcastState();
     return true;
   }
 
-  public adoptChildTabForBoundTab(boundTabId: string, childTabId: string): boolean {
-    if (!boundTabId || !childTabId) return false;
-    for (const [key, entry] of this.terminalAgentAffinity.entries()) {
-      if (entry.primaryTabId === boundTabId || entry.managedTabIds?.has(boundTabId)) {
-        if (entry.managedTabIds && entry.managedTabIds.size >= 5 && !entry.managedTabIds.has(childTabId)) {
-          return false;
-        }
-        if (!entry.managedTabIds) entry.managedTabIds = new Set<string>([entry.tabId]);
-        entry.managedTabIds.add(childTabId);
-        const childTab = this.tabs?.get(childTabId);
-        if (childTab) {
-          if (!entry.lastUrls) entry.lastUrls = new Map();
-          entry.lastUrls.set(childTabId, childTab.state.url || '');
-          const terminalId = key.split('@')[0];
-          childTab.state.terminalSessionId = terminalId;
-        }
-        this.broadcastState();
-        return true;
-      }
-    }
-    return false;
+  public adoptChildTabForBoundTab(
+    boundTabId: string,
+    childTabId: string,
+    source: 'agent_spawned' | 'native_window_open' | 'user_attached' = 'agent_spawned',
+    parentTabId?: string
+  ): boolean {
+    return this.adoptChildTab(boundTabId, childTabId, undefined, source, parentTabId || boundTabId);
   }
 
   public getManagedTabIdsForBoundTab(boundTabId: string): Set<string> {
@@ -3879,17 +3972,51 @@ export class NativeTabHost extends EventEmitter {
     return new Set([boundTabId]);
   }
 
+  public getManagedTabIds(boundTabIdOrTerminalId: string): Set<string> {
+    return this.getManagedTabIdsForBoundTab(boundTabIdOrTerminalId);
+  }
+
   public isTabAllowedForPrimary(primaryTabId: string, requestedTabId: string): boolean {
     if (!primaryTabId || !requestedTabId) return false;
     if (primaryTabId === requestedTabId) return true;
     for (const entry of this.terminalAgentAffinity.values()) {
-      if ((entry.primaryTabId === primaryTabId || entry.managedTabIds?.has(primaryTabId)) && entry.managedTabIds?.has(requestedTabId)) {
+      const matchesSession =
+        entry.primaryTabId === primaryTabId ||
+        entry.managedTabIds?.has(primaryTabId) ||
+        entry.lineage?.has(primaryTabId) ||
+        entry.lastUrls?.has(primaryTabId);
+      if (matchesSession && (entry.managedTabIds?.has(requestedTabId) || entry.primaryTabId === requestedTabId)) {
         return !entry.closedAt;
       }
     }
     return false;
   }
 
+  public isTabAllowed(primaryOrBoundTabId: string, requestedTabId: string): boolean {
+    return this.isTabAllowedForPrimary(primaryOrBoundTabId, requestedTabId);
+  }
+
+  public getFailoverTargetTab(staleTabId: string): string | undefined {
+    if (!this.terminalAgentAffinity || !staleTabId) return undefined;
+    for (const entry of this.terminalAgentAffinity.values()) {
+      if (entry.primaryTabId && entry.primaryTabId !== staleTabId && this.hasTab(entry.primaryTabId)) {
+        if (entry.managedTabIds?.has(staleTabId) || entry.lineage?.has(staleTabId) || entry.lastUrls?.has(staleTabId)) {
+          return entry.primaryTabId;
+        }
+      }
+    }
+    return undefined;
+  }
+
+  public getTabLineage(tabId: string): { tabId: string; parentTabId?: string; source: string; createdAt: number } | undefined {
+    if (!this.terminalAgentAffinity || !tabId) return undefined;
+    for (const entry of this.terminalAgentAffinity.values()) {
+      if (entry.lineage?.has(tabId)) {
+        return entry.lineage.get(tabId);
+      }
+    }
+    return undefined;
+  }
   public removeManagedTab(terminalId: string, tabId: string, generation?: number | string): boolean {
     if (!this.terminalAgentAffinity || !terminalId || !tabId) return false;
     const entry = this.resolveTerminalAffinityEntry(terminalId, generation);
@@ -4969,6 +5096,7 @@ export class NativeTabHost extends EventEmitter {
   public dispose(): void {
     if (this.isDisposed) return;
     this.persistTabs();
+    this.flushAllSessions().catch(() => {});
     this.isDisposed = true;
     this.automationHost?.dispose();
     this.asyncQaQueue?.abortAll();

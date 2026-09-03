@@ -78,6 +78,11 @@ interface AntiFanToolbarApi {
   toggleBookmarkBar: () => Promise<boolean>;
   addBookmark: (title: string, url: string) => Promise<any>;
   removeBookmark: (url: string) => Promise<any>;
+  exportSessionVault?: (customPath?: string) => Promise<{ success: boolean; count: number; filePath: string; error?: string }>;
+  importSessionVault?: (customPath?: string) => Promise<{ success: boolean; importedCount: number; failedCount: number; error?: string }>;
+  importSessionVaultJson?: (json: string) => Promise<{ success: boolean; importedCount: number; failedCount: number; error?: string }>;
+  syncFromChromeCdp?: (port?: number) => Promise<{ success: boolean; count: number; message: string }>;
+  getVaultStats?: (customPath?: string) => Promise<{ exists: boolean; count: number; lastModified?: number; filePath: string }>;
   checkUpdates?: () => Promise<void>;
   popoutTerminal?: () => Promise<boolean>;
   getSuggestions: (query: string) => Promise<{ suggestions: Array<{ type: 'search' | 'url' | 'bookmark' | 'history' | 'tab'; text: string; url?: string; tabId?: string; subText?: string }> }>;
@@ -1231,6 +1236,63 @@ function renderChromeProfiles() {
     };
     profileDropdownList.appendChild(item);
   });
+  // Append Session Vault actions to the dropdown
+  const divider = document.createElement('div');
+  divider.style.height = '1px';
+  divider.style.background = 'rgba(255, 255, 255, 0.1)';
+  divider.style.margin = '4px 0';
+  profileDropdownList.appendChild(divider);
+
+  // Backup Vault Item
+  const backupItem = document.createElement('div');
+  backupItem.className = 'profile-dropdown-item';
+  backupItem.innerHTML = '<span>💾 Sao lưu Session Vault</span><span style="font-size:10px;color:#38bdf8;">Export</span>';
+  backupItem.onclick = async () => {
+    profileDropdownMenu.style.display = 'none';
+    getApi()?.setOverlay(false);
+    showToolbarToast('🔄 Đang sao lưu session cookies...');
+    const res = await getApi()?.exportSessionVault?.();
+    if (res?.success) {
+      showToolbarToast(`✅ Đã sao lưu ${res.count} cookies vào session-vault.json`, 4000);
+    } else {
+      showToolbarToast(`⚠️ Lỗi sao lưu: ${res?.error || 'Thất bại'}`, 4000);
+    }
+  };
+  profileDropdownList.appendChild(backupItem);
+
+  // Restore Vault Item
+  const restoreItem = document.createElement('div');
+  restoreItem.className = 'profile-dropdown-item';
+  restoreItem.innerHTML = '<span>📥 Khôi phục Session Vault</span><span style="font-size:10px;color:#4ade80;">Import</span>';
+  restoreItem.onclick = async () => {
+    profileDropdownMenu.style.display = 'none';
+    getApi()?.setOverlay(false);
+    showToolbarToast('🔄 Đang nạp cookies từ session-vault.json...');
+    const res = await getApi()?.importSessionVault?.();
+    if (res?.success) {
+      showToolbarToast(`✅ Đã khôi phục ${res.importedCount} cookies thành công!`, 4000);
+    } else {
+      showToolbarToast(`⚠️ Lỗi nạp: ${res?.error || 'Chưa có file session-vault.json'}`, 4000);
+    }
+  };
+  profileDropdownList.appendChild(restoreItem);
+
+  // CDP Sync Item
+  const cdpItem = document.createElement('div');
+  cdpItem.className = 'profile-dropdown-item';
+  cdpItem.innerHTML = '<span>⚡ Hút Cookies từ Chrome (CDP)</span><span style="font-size:10px;color:#f59e0b;">CDP 9222</span>';
+  cdpItem.onclick = async () => {
+    profileDropdownMenu.style.display = 'none';
+    getApi()?.setOverlay(false);
+    showToolbarToast('🔄 Đang kết nối Chrome CDP 9222...');
+    const res = await getApi()?.syncFromChromeCdp?.();
+    if (res?.success) {
+      showToolbarToast(`✅ ${res.message}`, 4000);
+    } else {
+      showToolbarToast(`⚠️ ${res?.message || 'Không thể kết nối Chrome CDP'}`, 5000);
+    }
+  };
+  profileDropdownList.appendChild(cdpItem);
 }
 
 if (btnChromeProfile) {

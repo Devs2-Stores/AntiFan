@@ -421,6 +421,11 @@ function shutdown(): Promise<void> {
       HistoryManager.getInstance().persistSync();
     } catch {}
     try {
+      if (tabHost) {
+        await tabHost.flushAllSessions();
+      }
+    } catch {}
+    try {
       await session.defaultSession.cookies.flushStore();
     } catch {}
     try {
