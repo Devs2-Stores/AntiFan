@@ -685,12 +685,16 @@ export class TabDevToolsHost {
               return (cdpRes && typeof cdpRes.data === 'string' && cdpRes.data.length > 0) ? cdpRes.data : null;
             };
 
-            const fullPageResult = await withTimeout(fullPageTask(), 5000, null);
+            const fullPageResult = await withTimeout(fullPageTask(), 20000, null);
             if (fullPageResult && fullPageResult.length > 0) {
               return fullPageResult;
             }
-          } catch {}
-          // Fall back gracefully to existing viewport capture below
+          } catch (err) {
+            console.error('[AntiFan DevTools] Full-page capture error:', err);
+          }
+          // Do NOT silently fall back to viewport capture when fullPage is explicitly requested!
+          // Falling back to viewport creates a fraudulent screenshot that triggers false parity reports.
+          throw new Error('FULLPAGE_CAPTURE_TIMEOUT: CDP full-page screenshot timed out after 20000ms. Consider freezing media or checking page complexity.');
         }
         // Tier 1: Fast webContents.capturePage() with 600ms race
         try {

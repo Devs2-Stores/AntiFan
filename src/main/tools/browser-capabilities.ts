@@ -1798,6 +1798,114 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
       browser.visualCompare(context.browserTarget as BrowserTarget, context.runId || 'run-default', context.attemptId || 'att-default', params, params?.tabId, params?.paneId),
   });
 
+  // ─── Semantic Sensory & Parity Capabilities ───
+  catalogue.register({
+    name: 'anti.media.freeze',
+    description: 'Freeze or unfreeze dynamic media (videos, audios, CSS animations, requestAnimationFrame) in tab to enable deterministic visual comparisons',
+    risk: 'write',
+    requiresBrowserTarget: true,
+    policy: makeBrowserPolicy({ effect: 'interactive-effect', risk: 'write', requiresBrowserTarget: true, lane: 'viewport-gate' }),
+    inputSchema: {
+      type: 'object',
+      properties: {
+        freeze: { type: 'boolean', description: 'True to freeze media and pause animations; false to resume' },
+        tabId: { type: 'string' },
+        paneId: { type: 'string', enum: ['desktop', 'mobile'] },
+      },
+    },
+    execute: (params: { freeze?: boolean; tabId?: string; paneId?: 'desktop' | 'mobile' }, context) =>
+      browser.freezeMedia(context.browserTarget as BrowserTarget, params, params?.tabId, params?.paneId),
+  });
+  catalogue.register({
+    name: 'browser.media-freeze',
+    description: 'Alias for anti.media.freeze',
+    risk: 'write',
+    requiresBrowserTarget: true,
+    policy: makeBrowserPolicy({ effect: 'interactive-effect', risk: 'write', requiresBrowserTarget: true, lane: 'viewport-gate' }),
+    inputSchema: {
+      type: 'object',
+      properties: {
+        freeze: { type: 'boolean' },
+        tabId: { type: 'string' },
+        paneId: { type: 'string', enum: ['desktop', 'mobile'] },
+      },
+    },
+    execute: (params: { freeze?: boolean; tabId?: string; paneId?: 'desktop' | 'mobile' }, context) =>
+      browser.freezeMedia(context.browserTarget as BrowserTarget, params, params?.tabId, params?.paneId),
+  });
+
+  catalogue.register({
+    name: 'anti.inspect.page_inventory',
+    description: 'Scan entire physical page structure from y=0 to scrollHeight, returning list of all sections, coordinates, heights, and layout groups (chống sót header/footer/newsletter)',
+    risk: 'read',
+    requiresBrowserTarget: true,
+    policy: makeBrowserPolicy({ effect: 'read', risk: 'read', requiresBrowserTarget: true, lane: 'short-passive' }),
+    inputSchema: {
+      type: 'object',
+      properties: {
+        tabId: { type: 'string' },
+        paneId: { type: 'string', enum: ['desktop', 'mobile'] },
+      },
+    },
+    execute: (params: { tabId?: string; paneId?: 'desktop' | 'mobile' }, context) =>
+      browser.pageInventory(context.browserTarget as BrowserTarget, params, params?.tabId, params?.paneId),
+  });
+  catalogue.register({
+    name: 'browser.page-inventory',
+    description: 'Alias for anti.inspect.page_inventory',
+    risk: 'read',
+    requiresBrowserTarget: true,
+    policy: makeBrowserPolicy({ effect: 'read', risk: 'read', requiresBrowserTarget: true, lane: 'short-passive' }),
+    inputSchema: {
+      type: 'object',
+      properties: {
+        tabId: { type: 'string' },
+        paneId: { type: 'string', enum: ['desktop', 'mobile'] },
+      },
+    },
+    execute: (params: { tabId?: string; paneId?: 'desktop' | 'mobile' }, context) =>
+      browser.pageInventory(context.browserTarget as BrowserTarget, params, params?.tabId, params?.paneId),
+  });
+
+  catalogue.register({
+    name: 'anti.inspect.style_diff',
+    description: 'Compare computed CSS styles and box-model metrics between elements on two tabs (or two selectors)',
+    risk: 'read',
+    requiresBrowserTarget: true,
+    policy: makeBrowserPolicy({ effect: 'read', risk: 'read', requiresBrowserTarget: true, lane: 'short-passive' }),
+    inputSchema: {
+      type: 'object',
+      properties: {
+        selector: { type: 'string', description: 'CSS selector of target element on tab 1' },
+        comparisonSelector: { type: 'string', description: 'CSS selector on tab 2 (defaults to selector)' },
+        tabId: { type: 'string' },
+        comparisonTabId: { type: 'string' },
+        properties: { type: 'array', items: { type: 'string' }, description: 'CSS properties to compare' },
+      },
+      required: ['selector'],
+    },
+    execute: (params: { selector: string; comparisonSelector?: string; tabId?: string; comparisonTabId?: string; properties?: string[] }, context) =>
+      browser.styleDiff(context.browserTarget as BrowserTarget, params),
+  });
+
+  catalogue.register({
+    name: 'anti.spec.validate_gate',
+    description: 'Validate HTML Specification against target page to certify HTML_SPEC_READY status before theme compilation',
+    risk: 'read',
+    requiresBrowserTarget: true,
+    policy: makeBrowserPolicy({ effect: 'read', risk: 'read', requiresBrowserTarget: true, lane: 'short-passive' }),
+    inputSchema: {
+      type: 'object',
+      properties: {
+        specTabId: { type: 'string', description: 'Tab ID or alias of HTML Spec (defaults to @spec)' },
+        targetTabId: { type: 'string', description: 'Tab ID or alias of Target Storefront (defaults to @storefront)' },
+        tolerance: { type: 'number', description: 'Visual/height tolerance percentage (default 5.0)' },
+      },
+    },
+    execute: (params: { specTabId?: string; targetTabId?: string; tolerance?: number }, context) =>
+      browser.validateSpecGate(context.browserTarget as BrowserTarget, params),
+  });
+
   // ─── Issue Register & Diagnostics Capabilities ───
   catalogue.register({
     name: 'anti.diagnostics.list_issues',

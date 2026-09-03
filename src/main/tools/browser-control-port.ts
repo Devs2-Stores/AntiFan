@@ -1795,6 +1795,239 @@ export class BrowserControlPort {
       };
     });
   }
+  async freezeMedia(
+    target: BrowserTarget,
+    params: { freeze?: boolean; tabId?: string; paneId?: 'desktop' | 'mobile' } = {},
+    explicitTabId?: string,
+    paneId?: 'desktop' | 'mobile'
+  ): Promise<{ frozen: boolean; mediaCount: number; tabId: string }> {
+    const tabId = this.resolveTargetTab(target, explicitTabId || params.tabId);
+    const effectivePane = paneId || params.paneId || 'desktop';
+    const freeze = params.freeze !== false;
+    return this.passivePool.execute(tabId, async () => {
+      const script = `(() => {
+        const freeze = ${Boolean(freeze)};
+        let mediaCount = 0;
+        document.querySelectorAll('video, audio').forEach(el => {
+          mediaCount++;
+          if (freeze) {
+            if (!el.paused) {
+              el.dataset.__antifanPaused = 'true';
+              el.pause();
+            }
+          } else if (el.dataset.__antifanPaused === 'true') {
+            delete el.dataset.__antifanPaused;
+            el.play().catch(() => {});
+          }
+        });
+        const freezeStyleId = '__antifan_freeze_media_style';
+        let styleEl = document.getElementById(freezeStyleId);
+        if (freeze) {
+          if (!styleEl) {
+            styleEl = document.createElement('style');
+            styleEl.id = freezeStyleId;
+            styleEl.textContent = '* { animation-play-state: paused !important; transition-duration: 0s !important; }';
+            document.head.appendChild(styleEl);
+          }
+        } else if (styleEl) {
+          styleEl.remove();
+        }
+        if (freeze) {
+          document.querySelectorAll('.slideshow, .carousel, [class*="slider"], [class*="slideshow"]').forEach(el => {
+            if (typeof el.scrollTo === 'function') {
+              el.scrollTo({ left: 0, top: 0, behavior: 'instant' });
+            }
+          });
+        }
+        return { frozen: freeze, mediaCount };
+      })()`;
+      const res = (await this.host.evalJs(script, tabId, effectivePane)) as { frozen?: boolean; mediaCount?: number } | undefined;
+      return {
+        frozen: Boolean(res?.frozen ?? freeze),
+        mediaCount: Number(res?.mediaCount || 0),
+        tabId,
+      };
+    });
+  }
+  async pageInventory(
+    target: BrowserTarget,
+    params: { tabId?: string; paneId?: 'desktop' | 'mobile' } = {},
+    explicitTabId?: string,
+    paneId?: 'desktop' | 'mobile'
+  ): Promise<{ scrollHeight: number; viewportHeight: number; sections: Array<{ index: number; id?: string; tag: string; selector: string; y: number; height: number; group: string; heading?: string }>; tabId: string }> {
+    const tabId = this.resolveTargetTab(target, explicitTabId || params.tabId);
+    const effectivePane = paneId || params.paneId || 'desktop';
+    return this.passivePool.execute(tabId, async () => {
+      const script = `(() => {
+        const scrollHeight = Math.max(
+          document.documentElement ? document.documentElement.scrollHeight : 0,
+          document.body ? document.body.scrollHeight : 0,
+          document.scrollingElement ? document.scrollingElement.scrollHeight : 0
+        );
+        const viewportHeight = window.innerHeight;
+        const candidateElements = Array.from(
+          document.querySelectorAll('header, [class*="header"], main > *, aside, [class*="newsletter"], footer, [class*="footer"], [id^="shopify-section-"]')
+        );
+        const seenRects = new Set();
+        const rawSections = [];
+        for (let i = 0; i < candidateElements.length; i++) {
+          const el = candidateElements[i];
+          const rect = el.getBoundingClientRect();
+          if (rect.width === 0 && rect.height === 0) continue;
+          const absY = Math.round(rect.top + window.scrollY);
+          const absH = Math.round(rect.height);
+          if (absH < 20) continue;
+          const key = absY + '_' + absH;
+          if (seenRects.has(key)) continue;
+          seenRects.add(key);
+          let group = 'main-content';
+          const elId = (el.id || '').toLowerCase();
+          const elCls = (typeof el.className === 'string' ? el.className : '').toLowerCase();
+          if (el.closest('header') || elCls.includes('announcement') || elId.includes('header')) {
+            group = 'header-group';
+          } else if (el.closest('footer') || elId.includes('footer') || elCls.includes('newsletter') || elId.includes('newsletter')) {
+            group = 'footer-group';
+          }
+          const h = el.querySelector('h1, h2, h3, h4, [class*="heading"], [class*="title"]');
+          const heading = h ? (h.textContent || '').trim().slice(0, 80) : undefined;
+          let selector = el.tagName.toLowerCase();
+          if (el.id) {
+            selector = '#' + el.id;
+          } else if (elCls.trim()) {
+            const firstClass = elCls.trim().split(/\\s+/)[0];
+            if (firstClass) selector = el.tagName.toLowerCase() + '.' + firstClass;
+          }
+          rawSections.push({
+            id: el.id || undefined,
+            tag: el.tagName.toLowerCase(),
+            selector,
+            y: absY,
+            height: absH,
+            group,
+            heading,
+          });
+        }
+        rawSections.sort((a, b) => a.y - b.y);
+        const sections = rawSections.map((s, idx) => ({ index: idx, ...s }));
+        return { scrollHeight, viewportHeight, sections };
+      })()`;
+      const res = (await this.host.evalJs(script, tabId, effectivePane)) as { scrollHeight?: number; viewportHeight?: number; sections?: Array<any> } | undefined;
+      return {
+        scrollHeight: res?.scrollHeight || 0,
+        viewportHeight: res?.viewportHeight || 1006,
+        sections: res?.sections || [],
+        tabId,
+      };
+    });
+  }
+  async styleDiff(
+    target: BrowserTarget,
+    params: { selector: string; comparisonSelector?: string; tabId?: string; comparisonTabId?: string; properties?: string[] }
+  ): Promise<{ selector: string; comparisonSelector: string; differences: Record<string, { tab1: string; tab2: string; status: 'MATCH' | 'MISMATCH' | 'MISSING' }>; match: boolean }> {
+    if (!params.selector) throw new CapabilityError('INVALID_ARGUMENT', 'selector is required for styleDiff');
+    const tab1Id = this.resolveTargetTab(target, params.tabId);
+    const tab2Id = this.resolveTargetTab(target, params.comparisonTabId);
+    const compSelector = params.comparisonSelector || params.selector;
+    const props = Array.isArray(params.properties) && params.properties.length > 0
+      ? params.properties
+      : ['width', 'height', 'padding', 'margin', 'font-family', 'font-size', 'font-weight', 'line-height', 'color', 'background-color', 'border', 'border-radius', 'box-shadow', 'display', 'position'];
+    const getStylesScript = (sel: string) => `(() => {
+      const el = document.querySelector(${JSON.stringify(sel)});
+      if (!el) return null;
+      const comp = window.getComputedStyle(el);
+      const props = ${JSON.stringify(props)};
+      const out = {};
+      for (const p of props) {
+        out[p] = comp.getPropertyValue(p);
+      }
+      return out;
+    })()`;
+    const styles1 = (await this.host.evalJs(getStylesScript(params.selector), tab1Id)) as Record<string, string> | null;
+    const styles2 = (await this.host.evalJs(getStylesScript(compSelector), tab2Id)) as Record<string, string> | null;
+    const differences: Record<string, { tab1: string; tab2: string; status: 'MATCH' | 'MISMATCH' | 'MISSING' }> = {};
+    let allMatch = true;
+    for (const p of props) {
+      const val1 = styles1 ? (styles1[p] || '') : 'NOT_FOUND';
+      const val2 = styles2 ? (styles2[p] || '') : 'NOT_FOUND';
+      let status: 'MATCH' | 'MISMATCH' | 'MISSING' = 'MATCH';
+      if (!styles1 || !styles2) {
+        status = 'MISSING';
+        allMatch = false;
+      } else if (val1 !== val2) {
+        status = 'MISMATCH';
+        allMatch = false;
+      }
+      differences[p] = { tab1: val1, tab2: val2, status };
+    }
+    return {
+      selector: params.selector,
+      comparisonSelector: compSelector,
+      differences,
+      match: allMatch,
+    };
+  }
+  async validateSpecGate(
+    target: BrowserTarget,
+    params: { specTabId?: string; targetTabId?: string; tolerance?: number } = {}
+  ): Promise<{ passed: boolean; criticalCount: number; checklist: Record<string, { status: 'PASS' | 'FAIL' | 'WARN'; message: string; details?: unknown }> }> {
+    const specTabId = this.resolveTargetTab(target, params.specTabId || '@spec');
+    const targetTabId = this.resolveTargetTab(target, params.targetTabId || '@storefront');
+    const tolerance = typeof params.tolerance === 'number' ? params.tolerance : 5.0;
+    const checklist: Record<string, { status: 'PASS' | 'FAIL' | 'WARN'; message: string; details?: unknown }> = {};
+    let criticalCount = 0;
+    const specInv = await this.pageInventory(target, { tabId: specTabId });
+    const targetInv = await this.pageInventory(target, { tabId: targetTabId });
+    if (specInv.sections.length < targetInv.sections.length) {
+      checklist.structuralSections = {
+        status: 'FAIL',
+        message: `Spec missing sections: spec has ${specInv.sections.length} sections vs target ${targetInv.sections.length}`,
+        details: { specCount: specInv.sections.length, targetCount: targetInv.sections.length },
+      };
+      criticalCount++;
+    } else {
+      checklist.structuralSections = {
+        status: 'PASS',
+        message: `Section count parity passed: ${specInv.sections.length} sections`,
+        details: { specCount: specInv.sections.length, targetCount: targetInv.sections.length },
+      };
+    }
+    const maxDelta = (tolerance > 0 ? tolerance : 5.0) / 100;
+    const heightDelta = targetInv.scrollHeight > 0 ? Math.abs(specInv.scrollHeight - targetInv.scrollHeight) / targetInv.scrollHeight : 0;
+    if (heightDelta > maxDelta) {
+      checklist.heightParity = {
+        status: 'FAIL',
+        message: `Height mismatch delta ${(heightDelta * 100).toFixed(1)}% exceeds ${tolerance}% threshold (${specInv.scrollHeight}px vs ${targetInv.scrollHeight}px)`,
+        details: { specHeight: specInv.scrollHeight, targetHeight: targetInv.scrollHeight, deltaPercent: Number((heightDelta * 100).toFixed(1)), tolerance },
+      };
+      criticalCount++;
+    } else {
+      checklist.heightParity = {
+        status: 'PASS',
+        message: `Height parity passed: delta ${(heightDelta * 100).toFixed(1)}% <= ${tolerance}% (${specInv.scrollHeight}px vs ${targetInv.scrollHeight}px)`,
+        details: { specHeight: specInv.scrollHeight, targetHeight: targetInv.scrollHeight, deltaPercent: Number((heightDelta * 100).toFixed(1)), tolerance },
+      };
+    }
+    const diag = this.diagnostics(specTabId);
+    const errors = (diag.console || []).filter((m: any) => m && (m.level === 3 || String(m.message).includes('Uncaught') || String(m.message).includes('SyntaxError')));
+    if (errors.length > 0) {
+      checklist.consoleErrors = {
+        status: 'FAIL',
+        message: `Spec runtime has ${errors.length} unhandled errors`,
+        details: errors,
+      };
+      criticalCount++;
+    } else {
+      checklist.consoleErrors = {
+        status: 'PASS',
+        message: 'No runtime console or syntax errors detected',
+      };
+    }
+    return {
+      passed: criticalCount === 0,
+      criticalCount,
+      checklist,
+    };
+  }
   private resolveTargetTab(target?: BrowserTarget, explicitTabId?: string, operationType: 'read' | 'lifecycle' | 'write' = 'read'): string {
     if (target) {
       assertTarget(target, true);
@@ -1820,7 +2053,7 @@ export class BrowserControlPort {
           if (dataSynonyms.has(lower)) {
             matched = list.find((t) => t && typeof t === 'object' && t.alias && dataSynonyms.has(t.alias.toLowerCase()));
           }
-          const webSynonyms = new Set(['@storefront', '@web', '@store', '@live']);
+          const webSynonyms = new Set(['@storefront', '@web', '@store', '@live', '@target']);
           if (!matched && webSynonyms.has(lower)) {
             matched = list.find((t) => t && typeof t === 'object' && t.alias && webSynonyms.has(t.alias.toLowerCase()));
           }
