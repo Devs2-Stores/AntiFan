@@ -304,7 +304,7 @@ app.whenReady().then(async () => {
 
     // 3. CleanTabProtocol restoration failure injection
     console.log('[Smoke Mutation QA] 1. Testing CleanTabProtocol restoration failure injection...');
-    const dummyTabId = browserHost.createTab(baseUrl);
+    const dummyTabId = browserHost.createTab(baseUrl, false, { ephemeral: true });
     activeHtml = STOREFRONT_HTML;
     await catalogue.dispatch('browser.navigate', { url: baseUrl }, makeInvocationContext(dummyTabId));
 
@@ -373,7 +373,7 @@ app.whenReady().then(async () => {
         }
 
         // Dedicated disposable preview tab guarantees zero DOM pollution across scenarios
-        const mutantTabId = browserHost.createTab(baseUrl);
+        const mutantTabId = browserHost.createTab(baseUrl, false, { ephemeral: true });
         browserHost.setViewportSize({ width: vp.width, height: vp.height, tabId: mutantTabId });
 
         try {

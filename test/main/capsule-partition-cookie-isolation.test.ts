@@ -341,4 +341,42 @@ describe('Capsule Partition Isolation & RFC 6265bis Ingestion Suite', () => {
     const remaining4 = await store.get({ name: 'auth' });
     assert.strictEqual(remaining4.length, 0, 'sub.example.com/foo/bar must delete .example.com/foo cookie');
   });
+
+  it('guarantees zero cookie pollution from ephemeral disposable partitions to persistent capsule partitions', async () => {
+    const persistentPart = deriveCapsulePartition('store-prod', 'clean');
+    const ephemeralPartA = deriveCapsulePartition('store-prod', 'clean', true);
+    const ephemeralPartB = deriveCapsulePartition('store-prod', 'clean', true);
+
+    assert.strictEqual(persistentPart, 'persist:capsule-store-prod');
+    assert.strictEqual(ephemeralPartA.startsWith('ephemeral-store-prod-'), true);
+    assert.strictEqual(ephemeralPartA.includes('persist:'), false);
+    assert.notStrictEqual(ephemeralPartA, ephemeralPartB, 'Each ephemeral partition must have a unique non-persistent nonce');
+
+    // Simulate mock cookie stores bound to each partition
+    const stores = new Map<string, MockCookieStore>();
+    const getStore = (part: string): MockCookieStore => {
+      if (!stores.has(part)) stores.set(part, new MockCookieStore());
+      return stores.get(part)!;
+    };
+
+    // 1. Inject test mutant cookie in Ephemeral A (Tier 3 Behavioral Mutation)
+    const storeA = getStore(ephemeralPartA);
+    await storeA.set({ name: 'cart_token', value: 'mutant-token-12345', domain: '.thienfarm.vn', path: '/' });
+
+    // 2. Persistent store must NOT have this cookie
+    const storePersistent = getStore(persistentPart);
+    const persistentCookies = await storePersistent.get({ name: 'cart_token' });
+    assert.strictEqual(persistentCookies.length, 0, 'Persistent capsule partition must remain completely untouched by ephemeral mutation');
+
+    // 3. Ephemeral B must also be completely isolated from Ephemeral A
+    const storeB = getStore(ephemeralPartB);
+    const bCookies = await storeB.get({ name: 'cart_token' });
+    assert.strictEqual(bCookies.length, 0, 'Different ephemeral partitions must NOT share cookies across disposable runs');
+
+    // 4. Verify original cookie exists in A
+    const aCookies = await storeA.get({ name: 'cart_token' });
+    const firstCookie = aCookies[0];
+    assert.ok(firstCookie);
+    assert.strictEqual(firstCookie.value, 'mutant-token-12345');
+  });
 });

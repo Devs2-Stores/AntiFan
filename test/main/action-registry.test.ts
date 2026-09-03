@@ -3,7 +3,7 @@ import * as assert from 'node:assert';
 import { EventEmitter } from 'node:events';
 import { BrowserActionRegistry } from '../../src/main/browser/browser-action-registry';
 import { NativeTabHost } from '../../src/main/browser/native-tab-host';
-
+import type { AntiFanTab } from '../../src/shared/contracts';
 class MockTabHost extends EventEmitter {
   private tabs = [{ id: 'tab-1', url: 'https://google.com', title: 'Google', isLoading: false, canGoBack: false, canGoForward: false, zoomFactor: 1.0 }];
   private activeTabId = 'tab-1';
@@ -14,9 +14,9 @@ class MockTabHost extends EventEmitter {
   getActiveTabId() {
     return this.activeTabId;
   }
-  createTab(url = 'https://google.com') {
-    const id = `tab-${Date.now()}`;
-    this.tabs.push({ id, url, title: 'New Tab', isLoading: false, canGoBack: false, canGoForward: false, zoomFactor: 1.0 });
+  createTab(url = 'https://google.com', activate = true, options?: { ephemeral?: boolean }) {
+    const id = `tab-${this.tabs.length + 1}`;
+    this.tabs.push({ id, url, title: 'New Tab', isLoading: false, canGoBack: false, canGoForward: false, zoomFactor: 1.0, ephemeral: Boolean(options?.ephemeral) } as unknown as AntiFanTab);
     this.activeTabId = id;
     return id;
   }
@@ -123,6 +123,10 @@ describe('BrowserActionRegistry (Extensibility Phase 1)', () => {
     assert.strictEqual(aliasRes.success, true);
     assert.ok(aliasRes.tabId);
 
+    // Test openTab with ephemeral: true
+    const ephRes = await registry.execute('openTab', { url: 'https://store.example.com', ephemeral: true });
+    assert.strictEqual(ephRes.success, true);
+    assert.ok(ephRes.tabId);
     // Test getDOM
     const domRes = await registry.execute('getDOM');
     assert.strictEqual(domRes.html, '<html><body><h1>AntiFan</h1></body></html>');

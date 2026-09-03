@@ -29,7 +29,7 @@ import {
   MAC_DESKTOP_USER_AGENT,
 } from './device-presets';
 import { chromeSessionUserAgent } from './google-auth-identity';
-import { configureBrowserSessionPartition, deriveCapsulePartition, type BrowserSessionUserAgentMode } from './browser-session-partition';
+import { configureBrowserSessionPartition, deriveCapsulePartition, unconfigureBrowserSessionPartition, type BrowserSessionUserAgentMode } from './browser-session-partition';
 import { TabDiagnosticsManager, computeOrigin } from './tab-diagnostics';
 import { buildKeyboardInputEvents } from './keyboard-normalizer';
 import { FirstPartyNetworkTracker } from './first-party-network-tracker';
@@ -2140,7 +2140,15 @@ export class NativeTabHost extends EventEmitter {
     if (!partition || typeof partition !== 'string') return false;
     const clean = partition.trim();
     if (clean.startsWith('ephemeral-')) {
-      return true;
+      if (!/^ephemeral-[a-zA-Z0-9_-]+-[a-z0-9]+(-native)?$/.test(clean)) {
+        return false;
+      }
+      for (const tab of this.tabs.values()) {
+        if (tab.state.partition === clean) {
+          return true;
+        }
+      }
+      return false;
     }
     if (clean === deriveCapsulePartition('default') || clean === 'persist:capsule-default') {
       return true;
@@ -2818,6 +2826,9 @@ export class NativeTabHost extends EventEmitter {
     this.documentGenerations?.delete(tabId);
     if (this.automationTabId === tabId) {
       this.automationTabId = null;
+    }
+    if (target.state.partition) {
+      unconfigureBrowserSessionPartition(target.state.partition);
     }
     if (this.isInspecting && this.inspectedTabId === tabId) {
       this.stopInspect(tabId);

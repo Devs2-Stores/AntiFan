@@ -89,10 +89,12 @@ export class BrowserActionRegistry {
         type: 'object',
         properties: {
           url: { type: 'string', description: 'URL to navigate to' },
+          activate: { type: 'boolean', description: 'Whether to switch to this tab visually (default: true)' },
+          ephemeral: { type: 'boolean', description: 'Whether to isolate this tab in an in-memory session partition (default: false)' },
         },
       },
-      handler: (params: { url?: string }, { tabHost }) => {
-        const tabId = tabHost.createTab(params?.url);
+      handler: (params: { url?: string; activate?: boolean; ephemeral?: boolean }, { tabHost }) => {
+        const tabId = tabHost.createTab(params?.url, params?.activate ?? true, { ephemeral: params?.ephemeral });
         return { tabId, success: true };
       },
     });

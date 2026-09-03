@@ -73,6 +73,12 @@ export function getBrowserSessionUserAgentMode(
  * In 'native' mode, authentic Chromium UA & Client Hints are preserved with zero header tampering.
  * In 'clean' mode, cleanElectronUserAgent is applied for Cloudflare / merchant storefront compatibility.
  */
+export function unconfigureBrowserSessionPartition(partition?: string): void {
+  if (partition && partition.startsWith('ephemeral-')) {
+    configuredPartitions.delete(partition);
+  }
+}
+
 export function configureBrowserSessionPartition(
   partition: string,
   mode: BrowserSessionUserAgentMode = 'clean'
@@ -86,7 +92,6 @@ export function configureBrowserSessionPartition(
   if (partition) {
     configuredPartitions.add(partition);
   }
-
   if (mode === 'native') {
     // In native mode, preserve 100% authentic Chromium runtime headers and UA.
     // Zero onBeforeSendHeaders interceptors are installed.

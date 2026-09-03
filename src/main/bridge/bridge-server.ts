@@ -974,7 +974,7 @@ export class BridgeServer {
 
         case 'openTab':
         case 'antifan.openTab': {
-          const tabId = this.tabHost.createTab(p.url);
+          const tabId = this.tabHost.createTab(p.url, p.activate ?? true, { ephemeral: Boolean(p.ephemeral) });
           respond(true, { tabId });
           break;
         }
