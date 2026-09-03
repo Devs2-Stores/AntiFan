@@ -16,8 +16,11 @@ function printUsage() {
   console.log(`
 AntiFan Agent Launcher (v1.0.0)
 Usage:
-  antifan <command> [args...]
-  antifan-agent <command> [args...]
+  antifan [--tab=<tabId>] <command> [args...]
+  antifan-agent [--tab=<tabId>] <command> [args...]
+
+Options:
+  --tab=<tabId>, -t <tabId>   Explicitly bind to a Chromium tab ID
 
 Examples:
   antifan mcp
@@ -146,7 +149,7 @@ function compareCandidates(a, b) {
 }
 
 
-async function acquireBridgeSession(candidates, boundPid) {
+async function acquireBridgeSession(candidates, boundPid, explicitTabId) {
   const errors = [];
   for (const candidate of candidates) {
     const sanitizedEndpoint = `ws://${candidate.host}:${candidate.port}`;
@@ -190,11 +193,16 @@ async function acquireBridgeSession(candidates, boundPid) {
         });
       });
 
+      const rawTerminalId = process.env.ANTIFAN_TERMINAL_AFFINITY_SESSION_ID || process.env.ANTIFAN_TERMINAL_PARENT_SESSION_ID || process.env.ANTIFAN_TERMINAL_SESSION_ID;
+      const rawGen = process.env.ANTIFAN_TERMINAL_AFFINITY_GENERATION || process.env.ANTIFAN_TERMINAL_GENERATION;
       const session = await rpcCall(ws, 'antifan.cli.startSession', {
         backendId: 'cli',
         grant: 'eval',
         ownerPid: boundPid,
         ttlMs: 3600000,
+        tabId: explicitTabId || undefined,
+        terminalSessionId: rawTerminalId ? String(rawTerminalId).trim() : undefined,
+        terminalGeneration: rawGen ? String(rawGen).trim() : undefined,
       }, 5000);
 
       if (!session || !session.attachmentId || !session.secret) {
@@ -239,12 +247,39 @@ function rpcCall(ws, method, params = {}, timeoutMs = 10000) {
 }
 
 async function main() {
-  const args = process.argv.slice(2);
-  if (args.length === 0 || args[0] === '-h' || args[0] === '--help') {
+  const rawArgs = process.argv.slice(2);
+  if (rawArgs.length === 0 || rawArgs[0] === '-h' || rawArgs[0] === '--help') {
     printUsage();
     process.exit(0);
   }
 
+  let explicitTabId = undefined;
+  const args = [];
+  for (let i = 0; i < rawArgs.length; i++) {
+    const arg = rawArgs[i];
+    if (arg.startsWith('--tab=')) {
+      const val = arg.slice('--tab='.length).trim();
+      if (!val) {
+        console.error('\x1b[31m[antifan-agent] Error: --tab requires a non-empty tabId.\x1b[0m');
+        process.exit(1);
+      }
+      explicitTabId = val;
+    } else if (arg === '--tab' || arg === '-t') {
+      if (i + 1 < rawArgs.length && !rawArgs[i + 1].startsWith('-')) {
+        explicitTabId = rawArgs[i + 1].trim();
+        i++;
+      } else {
+        console.error('\x1b[31m[antifan-agent] Error: --tab requires a non-empty tabId.\x1b[0m');
+        process.exit(1);
+      }
+    } else {
+      args.push(arg);
+    }
+  }
+  if (args.length === 0) {
+    printUsage();
+    process.exit(0);
+  }
   const candidates = resolveBridgeCandidates();
   if (candidates.length === 0) {
     console.error('\x1b[31m[antifan-agent] Error: AntiFan Browser is not running.\x1b[0m');
@@ -255,7 +290,7 @@ async function main() {
   const boundPid = process.pid;
   let bridgeAcquisition;
   try {
-    bridgeAcquisition = await acquireBridgeSession(candidates, boundPid);
+    bridgeAcquisition = await acquireBridgeSession(candidates, boundPid, explicitTabId);
   } catch (err) {
     console.error(`\x1b[31m[antifan-agent] Failed to connect to AntiFan Bridge:\x1b[0m\n${err.message}`);
     console.error('[antifan-agent] Please verify that AntiFan Browser Desktop is running and responsive.');

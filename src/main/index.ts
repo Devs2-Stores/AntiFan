@@ -217,6 +217,7 @@ async function createWindow(): Promise<void> {
   await controlPlane.initialize();
   tabHost.setControlPlane(controlPlane);
   const browserPort = new BrowserControlPort({
+    hasTab: (tabId) => tabHost!.hasTab(tabId),
     getTabList: () => tabHost!.getTabList(),
     getActiveTabId: () => tabHost!.getActiveTabId(),
     getAutomationTabId: () => tabHost!.getAutomationTabId(),

@@ -834,16 +834,35 @@ export class BridgeServer {
           try {
             let tabId = p.tabId;
             if (!tabId) {
-              const currentAutoTab = this.tabHost.getAutomationTabId ? this.tabHost.getAutomationTabId() : undefined;
-              if (currentAutoTab && this.tabHost.getTabList().some((tab: any) => tab && tab.id === currentAutoTab)) {
-                tabId = currentAutoTab;
-              } else if (p.allowUserTabFallback) {
-                const activeTab = this.tabHost.getActiveTab();
-                tabId = activeTab?.id;
+              const terminalSessionId = typeof p.terminalSessionId === 'string' && p.terminalSessionId.trim() ? p.terminalSessionId.trim() : undefined;
+              const terminalGen = typeof p.terminalGeneration === 'string' || typeof p.terminalGeneration === 'number' ? p.terminalGeneration : undefined;
+              if (terminalSessionId) {
+                if (typeof this.tabHost.getTerminalAgentAffinity === 'function') {
+                  const affinity = this.tabHost.getTerminalAgentAffinity(terminalSessionId, terminalGen);
+                  if (affinity) {
+                    if (affinity.status === 'alive' && this.tabHost.hasTab(affinity.tabId)) {
+                      tabId = affinity.tabId;
+                    } else {
+                      const closedNotice = affinity.lastUrl ? `(${affinity.lastUrl})` : `(${affinity.tabId})`;
+                      throw new Error(`TERMINAL_TAB_CLOSED: The tab previously attached to this terminal ${closedNotice} was closed. Please rebind or specify a tabId.`);
+                    }
+                  } else {
+                    const genNotice = terminalGen !== undefined ? ` at generation ${terminalGen}` : '';
+                    throw new Error(`TERMINAL_TAB_UNBOUND: No active tab is bound to terminal session '${terminalSessionId}'${genNotice}. Please attach a tab or specify tabId.`);
+                  }
+                }
               } else {
-                tabId = this.tabHost.createTab('about:blank', false);
-                if (this.tabHost.setAutomationTabId) {
-                  this.tabHost.setAutomationTabId(tabId);
+                const currentAutoTab = this.tabHost.getAutomationTabId ? this.tabHost.getAutomationTabId() : undefined;
+                if (currentAutoTab && this.tabHost.hasTab(currentAutoTab)) {
+                  tabId = currentAutoTab;
+                } else if (p.allowUserTabFallback) {
+                  const activeTab = this.tabHost.getActiveTab();
+                  tabId = activeTab?.id;
+                } else {
+                  tabId = this.tabHost.createTab('about:blank', false);
+                  if (this.tabHost.setAutomationTabId) {
+                    this.tabHost.setAutomationTabId(tabId);
+                  }
                 }
               }
             }

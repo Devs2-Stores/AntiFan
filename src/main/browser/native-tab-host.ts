@@ -228,6 +228,7 @@ export class NativeTabHost extends EventEmitter {
   private tabPreviewUnsubscribers: Map<string, () => void> = new Map();
   private recentlyClosedTabs: Array<{ url: string; title: string }> = [];
   private automationTabId: string | null = null;
+  private terminalAgentAffinity = new Map<string, { tabId: string; lastUrl?: string; closedAt?: number }>();
   private tabThemeQaStates = new Map<string, { status: 'idle' | 'running' | 'pass' | 'fail' | 'error'; issueCount: number; reportArtifactId?: string; report?: unknown; error?: string; updatedAt: number }>();
   private asyncQaQueue = new AsyncThemeQaQueue();
   public readonly semanticRefRegistry = new SemanticRefRegistry();
@@ -940,6 +941,12 @@ export class NativeTabHost extends EventEmitter {
         }
       }
     });
+    TerminalManager.getInstance().on('session-closed', ({ id }: { id: string }) => {
+      this.clearTerminalAgentAffinity(id);
+    });
+    TerminalManager.getInstance().on('session-restarted', ({ id, generation }: { id: string; generation: number }) => {
+      this.migrateTerminalAgentAffinityGeneration(id, generation);
+    });
 
     ipcMain.handle(TERMINAL_CHANNELS.GET_FULL_BUFFER, (_event, sessionId?: string) => {
       const tm = TerminalManager.getInstance();
@@ -947,9 +954,14 @@ export class NativeTabHost extends EventEmitter {
       return tm.getFullBuffer(targetId);
     });
     ipcMain.handle(TERMINAL_CHANNELS.START, (_event, cwd?: string) => {
-      return TerminalManager.getInstance().startTerminal(cwd);
+      const ok = TerminalManager.getInstance().startTerminal(cwd);
+      const activeSessionId = TerminalManager.getInstance().getActiveSessionId();
+      if (ok && activeSessionId && this.activeTabId) {
+        const session = TerminalManager.getInstance().getSession(activeSessionId);
+        this.bindTerminalAgentAffinity(activeSessionId, session?.sessionGeneration, this.activeTabId);
+      }
+      return ok;
     });
-
     ipcMain.handle(TERMINAL_CHANNELS.INPUT, (_event, input: string) => {
       TerminalManager.getInstance().write(input);
       return true;
@@ -984,7 +996,12 @@ export class NativeTabHost extends EventEmitter {
     });
 
     ipcMain.handle('antifan:terminal:new-session', (_event, cwd?: string) => {
-      return TerminalManager.getInstance().createSession(cwd);
+      const sessionId = TerminalManager.getInstance().createSession(cwd);
+      if (this.activeTabId) {
+        const session = TerminalManager.getInstance().getSession(sessionId);
+        this.bindTerminalAgentAffinity(sessionId, session?.sessionGeneration, this.activeTabId);
+      }
+      return sessionId;
     });
 
     ipcMain.handle('antifan:terminal:split-session', (_event, p: any) => {
@@ -1027,13 +1044,22 @@ export class NativeTabHost extends EventEmitter {
     });
 
     ipcMain.handle('antifan:terminal:close-session', (_event, id: string) => {
+      this.clearTerminalAgentAffinity(id);
       return TerminalManager.getInstance().closeSession(id);
     });
-
     ipcMain.handle('antifan:terminal:delete-session', (_event, id: string) => {
+      this.clearTerminalAgentAffinity(id);
       return TerminalManager.getInstance().closeSession(id);
     });
 
+    ipcMain.handle('antifan:terminal:rebind-affinity', (_event, { tabId, terminalId }: { tabId?: string; terminalId?: string }) => {
+      const targetTabId = tabId || this.activeTabId;
+      const targetTerminalId = terminalId || TerminalManager.getInstance().getActiveSessionId();
+      if (!this.hasTab(targetTabId)) return false;
+      const session = TerminalManager.getInstance().getSession(targetTerminalId);
+      if (!session) return false;
+      return this.bindTerminalAgentAffinity(targetTerminalId, session.sessionGeneration, targetTabId);
+    });
     ipcMain.handle(TERMINAL_CHANNELS.POPOUT, () => {
       return this.togglePopoutTerminal();
     });
@@ -2827,6 +2853,12 @@ export class NativeTabHost extends EventEmitter {
     if (this.automationTabId === tabId) {
       this.automationTabId = null;
     }
+    for (const entry of this.terminalAgentAffinity.values()) {
+      if (entry.tabId === tabId) {
+        entry.closedAt = Date.now();
+        entry.lastUrl = target.state.url || entry.lastUrl;
+      }
+    }
     if (target.state.partition) {
       unconfigureBrowserSessionPartition(target.state.partition);
     }
@@ -3680,10 +3712,6 @@ export class NativeTabHost extends EventEmitter {
     return this.getDevToolsHost().toggleInspect();
   }
 
-  public isInspectActive(): boolean {
-    return this.getDevToolsHost().isInspectActive();
-  }
-
   public startInspect(): void {
     this.getDevToolsHost().startInspect();
   }
@@ -3691,6 +3719,89 @@ export class NativeTabHost extends EventEmitter {
   public stopInspect(targetTabId?: string): void {
     this.getDevToolsHost().stopInspect(targetTabId);
   }
+
+  public isInspectActive(): boolean {
+    return this.getDevToolsHost().isInspectActive();
+  }
+
+  public hasTab(tabId?: string | null): boolean {
+    return Boolean(tabId && this.tabs && this.tabs.has(tabId));
+  }
+
+  public bindTerminalAgentAffinity(terminalId: string, generation: number | string | undefined, tabId: string): boolean {
+    if (!terminalId || !tabId) return false;
+    const tab = this.tabs.get(tabId);
+    if (!tab) return false;
+    const tm = TerminalManager.getInstance();
+    const session = tm.getSession(terminalId);
+    if (!session) return false;
+    const resolvedGen = generation !== undefined && generation !== '' ? generation : session.sessionGeneration;
+    this.clearTerminalAgentAffinity(terminalId);
+    this.terminalAgentAffinity.set(`${terminalId}@${resolvedGen}`, { tabId, lastUrl: tab.state.url });
+    return true;
+  }
+
+  public clearTerminalAgentAffinity(terminalId: string): void {
+    if (!terminalId) return;
+    const prefix = `${terminalId}@`;
+    for (const key of Array.from(this.terminalAgentAffinity.keys())) {
+      if (key === terminalId || key.startsWith(prefix)) {
+        this.terminalAgentAffinity.delete(key);
+      }
+    }
+  }
+
+  public migrateTerminalAgentAffinityGeneration(terminalId: string, newGeneration: number): void {
+    if (!terminalId) return;
+    const prefix = `${terminalId}@`;
+    let existingEntry: { tabId: string; lastUrl?: string; closedAt?: number } | undefined;
+    for (const [key, entry] of this.terminalAgentAffinity.entries()) {
+      if (key.startsWith(prefix)) {
+        existingEntry = entry;
+        this.terminalAgentAffinity.delete(key);
+      }
+    }
+    if (existingEntry) {
+      this.terminalAgentAffinity.set(`${terminalId}@${newGeneration}`, existingEntry);
+    }
+  }
+
+  public getTerminalAgentAffinity(terminalSessionId: string, generation?: number | string): { tabId: string; status: 'alive' | 'closed'; lastUrl?: string } | undefined {
+    if (!terminalSessionId) return undefined;
+    const normGen = generation !== undefined && generation !== '' ? String(generation).trim() : undefined;
+    if (normGen) {
+      const entry = this.terminalAgentAffinity.get(`${terminalSessionId}@${normGen}`);
+      if (!entry) return undefined;
+      const alive = this.hasTab(entry.tabId);
+      return {
+        tabId: entry.tabId,
+        status: alive && !entry.closedAt ? 'alive' : 'closed',
+        lastUrl: entry.lastUrl,
+      };
+    }
+    const prefix = `${terminalSessionId}@`;
+    let latestEntry: { tabId: string; lastUrl?: string; closedAt?: number } | undefined;
+    let maxGen = -1;
+    for (const [key, entry] of this.terminalAgentAffinity.entries()) {
+      if (key.startsWith(prefix)) {
+        const genNum = parseInt(key.slice(prefix.length), 10);
+        if (!isNaN(genNum) && genNum > maxGen) {
+          maxGen = genNum;
+          latestEntry = entry;
+        }
+      }
+    }
+    if (latestEntry) {
+      const alive = this.hasTab(latestEntry.tabId);
+      return {
+        tabId: latestEntry.tabId,
+        status: alive && !latestEntry.closedAt ? 'alive' : 'closed',
+        lastUrl: latestEntry.lastUrl,
+      };
+    }
+    return undefined;
+  }
+
   public getTabTerminalSession(tabId: string): string | undefined {
     const tab = this.tabs.get(tabId);
     if (!tab || !tab.state.terminalSessionId) return undefined;
@@ -3718,7 +3829,6 @@ export class NativeTabHost extends EventEmitter {
     this.broadcastState();
     return true;
   }
-
   public getLastAnnotationSessionId(tabId?: string): string | undefined {
     return this.getTabTerminalSession(tabId || this.activeTabId);
   }

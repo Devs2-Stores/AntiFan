@@ -443,7 +443,7 @@ export class TerminalManager extends EventEmitter {
     this.emitSession();
   }
 
-  private spawn(id: string, cwd: string, restoredBuffer = '', initialCols?: number, initialRows?: number, minimumRows = MIN_TERMINAL_ROWS): Session {
+  private spawn(id: string, cwd: string, restoredBuffer = '', initialCols?: number, initialRows?: number, minimumRows = MIN_TERMINAL_ROWS, parentSessionId?: string, parentGeneration?: number): Session {
     let validCwd = cwd || this.currentCwd;
     try {
       if (!validCwd || !fs.existsSync(validCwd) || !fs.statSync(validCwd).isDirectory()) {
@@ -460,6 +460,10 @@ export class TerminalManager extends EventEmitter {
     const pathDelimiter = process.platform === 'win32' ? ';' : ':';
     const currentPath = process.env.PATH || '';
     const envPath = scriptsDir ? (currentPath ? `${scriptsDir}${pathDelimiter}${currentPath}` : scriptsDir) : currentPath;
+    const generation = (this.sessionGenerations.get(id) || 0) + 1;
+    this.sessionGenerations.set(id, generation);
+    const affinitySessionId = parentSessionId || id;
+    const affinityGeneration = String(parentGeneration !== undefined ? parentGeneration : generation);
     const terminalEnv: Record<string, string> = {
       ...process.env,
       PATH: envPath,
@@ -467,6 +471,11 @@ export class TerminalManager extends EventEmitter {
       FORCE_COLOR: '1',
       ANTIFAN_CONFIG_DIR: process.env.ANTIFAN_CONFIG_DIR || StorageLocations.getConfigDir(),
       ANTIFAN_DATA_ROOT: process.env.ANTIFAN_DATA_ROOT || StorageLocations.getDataRoot(),
+      ANTIFAN_TERMINAL_SESSION_ID: id,
+      ANTIFAN_TERMINAL_GENERATION: String(generation),
+      ANTIFAN_TERMINAL_AFFINITY_SESSION_ID: affinitySessionId,
+      ANTIFAN_TERMINAL_AFFINITY_GENERATION: affinityGeneration,
+      ...(parentSessionId ? { ANTIFAN_TERMINAL_PARENT_SESSION_ID: parentSessionId } : {}),
     };
     const ptyOptions: pty.IPtyForkOptions = {
       cwd: validCwd,
@@ -480,8 +489,6 @@ export class TerminalManager extends EventEmitter {
     } catch {
       child = pty.spawn(shell, [], { ...ptyOptions, cwd: os.homedir() });
     }
-    const generation = (this.sessionGenerations.get(id) || 0) + 1;
-    this.sessionGenerations.set(id, generation);
     const s: Session = {
       id,
       name: `Terminal ${id.replace('terminal-', '')}`,
@@ -699,9 +706,10 @@ export class TerminalManager extends EventEmitter {
       await this.safelyKillSession(targetSession);
       this.sessions.delete(id);
     }
-    this.spawn(id, cwd || this.currentCwd);
+    const s = this.spawn(id, cwd || this.currentCwd);
     this.persist();
     this.emitSession();
+    this.emit('session-restarted', { id, generation: s.sessionGeneration });
   }
 
   public createSession(cwd?: string): string {
@@ -724,7 +732,7 @@ export class TerminalManager extends EventEmitter {
     const id = `split-${n}`;
     const targetCols = Math.max(40, initialCols || this.lastCols || 120);
     const targetRows = Math.max(MIN_SPLIT_TERMINAL_ROWS, initialRows || this.getInitialSplitRows(parent.pty?.rows));
-    const splitSession = this.spawn(id, cwd || parent.cwd, '', targetCols, targetRows, MIN_SPLIT_TERMINAL_ROWS);
+    const splitSession = this.spawn(id, cwd || parent.cwd, '', targetCols, targetRows, MIN_SPLIT_TERMINAL_ROWS, parentId, parent.sessionGeneration);
     splitSession.splitOf = parentId;
     splitSession.capsuleId = parent.capsuleId || this.currentCapsuleId;
     this.persist();
@@ -872,6 +880,7 @@ export class TerminalManager extends EventEmitter {
     if (this.activeSessionId === id) {
       this.activeSessionId = this.listSessions()[0]?.id || '';
     }
+    this.emit('session-closed', { id, generation: s.sessionGeneration });
     this.persist();
     this.emitSession();
     return true;
@@ -880,7 +889,6 @@ export class TerminalManager extends EventEmitter {
   public getActiveSessionId(): string {
     return this.activeSessionId;
   }
-
   public getSession(id: string) {
     return this.sessions.get(id);
   }
