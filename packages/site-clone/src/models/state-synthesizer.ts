@@ -18,16 +18,16 @@ export class StateSynthesizer {
     return `(() => {
   if (window.__antifan_rt) return;
   window.__antifan_rt = true;
+  const q = (s) => { try { return s ? document.querySelector(s) : null; } catch { return null; } };
   document.addEventListener('click', (e) => {
     const t = e.target.closest('[data-antifan-toggle]'); if (!t) return;
-    const sel = t.getAttribute('data-antifan-target') || t.getAttribute('data-antifan-toggle');
-    const target = sel ? document.querySelector(sel) : t.nextElementSibling; if (!target) return;
+    const target = q(t.getAttribute('data-antifan-target') || t.getAttribute('data-antifan-toggle')) || t.nextElementSibling; if (!target) return;
     const cls = t.getAttribute('data-antifan-class') || 'active', grp = t.getAttribute('data-antifan-group');
     if (grp) {
       document.querySelectorAll(\`[data-antifan-group="\${grp}"]\`).forEach((o) => {
         if (o !== t) {
           o.classList.remove(cls); o.setAttribute('aria-expanded', 'false');
-          const sib = document.querySelector(o.getAttribute('data-antifan-target') || o.getAttribute('data-antifan-toggle'));
+          const sib = q(o.getAttribute('data-antifan-target') || o.getAttribute('data-antifan-toggle'));
           if (sib) { sib.classList.remove(cls); sib.setAttribute('aria-hidden', 'true'); }
         }
       });
@@ -39,14 +39,12 @@ export class StateSynthesizer {
   document.addEventListener('mouseover', (e) => {
     const t = e.target.closest('[data-antifan-hover]'); if (!t) return;
     if (hTimer) { clearTimeout(hTimer); hTimer = null; }
-    const sel = t.getAttribute('data-antifan-target') || t.getAttribute('data-antifan-hover');
-    const p = sel ? document.querySelector(sel) : t.querySelector('[data-antifan-dropdown-panel]');
+    const p = q(t.getAttribute('data-antifan-target') || t.getAttribute('data-antifan-hover')) || t.querySelector('[data-antifan-dropdown-panel]');
     if (p) { p.classList.add('active'); t.classList.add('active'); }
   });
   document.addEventListener('mouseout', (e) => {
     const t = e.target.closest('[data-antifan-hover]'); if (!t) return;
-    const sel = t.getAttribute('data-antifan-target') || t.getAttribute('data-antifan-hover');
-    const p = sel ? document.querySelector(sel) : t.querySelector('[data-antifan-dropdown-panel]');
+    const p = q(t.getAttribute('data-antifan-target') || t.getAttribute('data-antifan-hover')) || t.querySelector('[data-antifan-dropdown-panel]');
     if (!p) return;
     hTimer = setTimeout(() => { p.classList.remove('active'); t.classList.remove('active'); }, 150);
   });
@@ -63,9 +61,7 @@ export class StateSynthesizer {
   document.addEventListener('click', (e) => {
     const o = e.target.closest('[data-antifan-modal]');
     if (o) {
-      const sel = o.getAttribute('data-antifan-target') || o.getAttribute('data-antifan-modal');
-      if (!sel || !sel.trim()) return;
-      const m = document.querySelector(sel);
+      const m = q(o.getAttribute('data-antifan-target') || o.getAttribute('data-antifan-modal'));
       if (m) {
         triggerEl = o; m.classList.add('active'); m.setAttribute('aria-hidden', 'false');
         m.querySelectorAll('iframe[data-antifan-src]').forEach((f) => f.setAttribute('src', f.getAttribute('data-antifan-src')));
@@ -78,7 +74,7 @@ export class StateSynthesizer {
     if (e.target.matches('[data-antifan-modal-dialog]')) closeModal(e.target);
   });
   document.addEventListener('keydown', (e) => {
-    const m = document.querySelector('[data-antifan-modal-dialog].active'); if (!m) return;
+    const m = q('[data-antifan-modal-dialog].active'); if (!m) return;
     if (e.key === 'Escape') { closeModal(m); return; }
     if (e.key === 'Tab') {
       const f = Array.from(m.querySelectorAll('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])')); if (!f.length) return;
@@ -106,7 +102,7 @@ export class StateSynthesizer {
     const n = e.target.closest('[data-antifan-slider-next]'), p = e.target.closest('[data-antifan-slider-prev]');
     if (n || p) {
       const btn = n || p, dir = n ? 1 : -1;
-      const s = btn.getAttribute('data-antifan-target') ? document.querySelector(btn.getAttribute('data-antifan-target')) : btn.closest('[data-antifan-slider]');
+      const s = q(btn.getAttribute('data-antifan-target')) || btn.closest('[data-antifan-slider]');
       const t = s ? (s.querySelector('[data-antifan-slider-track]') || s) : null;
       if (t) t.scrollBy({ left: dir * (t.children[0] ? t.children[0].getBoundingClientRect().width : 300), behavior: 'smooth' });
     }

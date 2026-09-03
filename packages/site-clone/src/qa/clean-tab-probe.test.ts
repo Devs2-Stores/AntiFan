@@ -96,5 +96,10 @@ describe('CleanTabProbe - Behavioral Interactive Verification', () => {
     assert.ok(runtimeCode.includes('data-antifan-slider-next'), 'Must handle data-antifan-slider-next');
     assert.ok(runtimeCode.includes('data-antifan-slider-prev'), 'Must handle data-antifan-slider-prev');
     assert.ok(runtimeCode.includes('data-antifan-src'), 'Must preserve and restore data-antifan-src on iframes');
+
+    // 4. Executable JavaScript syntax validation via node:vm
+    assert.doesNotThrow(() => {
+      new vm.Script(runtimeCode);
+    }, 'Generated runtime must compile as syntactically valid JavaScript without errors');
   });
 });

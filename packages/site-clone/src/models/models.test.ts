@@ -250,7 +250,7 @@ describe('Cognitive Models - Asset, Responsive & E-commerce Data', () => {
         </div>
       </div>
 
-      <!-- 9-10. POSITIVE: Product Link Pattern Anchors -->
+      <!-- 9-11. POSITIVE: Product Link Pattern Anchors with Repetition (>= 3 same-tag siblings) -->
       <div class="flash-sale-wrapper">
         <div class="col-sale">
           <a href="/san-pham/plc-mitsubishi"><img src="plc.jpg" alt="PLC" /></a>
@@ -262,13 +262,18 @@ describe('Cognitive Models - Asset, Responsive & E-commerce Data', () => {
           <h4>Màn Hình HMI Kinco 7 inch</h4>
           <span class="cost">2.600.000₫</span>
         </div>
+        <div class="col-sale">
+          <a href="/san-pham/inverter-fuji"><img src="fuji.jpg" alt="Inverter Fuji" /></a>
+          <h4>Biến Tần Fuji Frenic</h4>
+          <span class="cost">4.150.000₫</span>
+        </div>
       </div>
     `;
 
     const bundle = modeler.extractStorefrontData(corpusHtml);
 
     // Precision & Recall Assertions
-    assert.strictEqual(bundle.products.length, 10, `Must extract exactly 10 positive products (actual: ${bundle.products.length})`);
+    assert.strictEqual(bundle.products.length, 11, `Must extract exactly 11 positive products (actual: ${bundle.products.length})`);
 
     const titles = bundle.products.map(p => p.title);
     // Verify zero negative false positives
@@ -286,7 +291,7 @@ describe('Cognitive Models - Asset, Responsive & E-commerce Data', () => {
     assert.ok(titles.some(t => t.includes('Động Cơ Servo Delta A2')), 'Extracts microdata product');
     assert.ok(titles.some(t => t.includes('PLC Mitsubishi FX5U')), 'Extracts product url product 1');
     assert.ok(titles.some(t => t.includes('Màn Hình HMI Kinco 7 inch')), 'Extracts product url product 2');
-
+    assert.ok(titles.some(t => t.includes('Biến Tần Fuji Frenic')), 'Extracts product url product 3');
     // Verify compare-at price on ATV310
     const atv = bundle.products.find(p => p.title.includes('ATV310'));
     assert.strictEqual(atv?.price, 3450000);

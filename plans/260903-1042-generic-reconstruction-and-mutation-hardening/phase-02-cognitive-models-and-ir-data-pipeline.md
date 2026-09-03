@@ -27,6 +27,7 @@ Connect the currently disconnected cognitive models (`AssetHarvester` and `Respo
           email?: string;
           [key: string]: unknown;
         };
+      }
       ```
     - Extend `StorefrontControllerContract` in `packages/site-clone/src/models/clone-ir.ts` with stable ownership fields:
       ```typescript

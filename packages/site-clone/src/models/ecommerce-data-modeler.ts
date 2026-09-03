@@ -105,6 +105,15 @@ export class EcommerceDataModeler {
           const cTag = child.tag.toLowerCase();
           if (['script', 'style', 'noscript'].includes(cTag)) continue;
 
+          // Count siblings sharing identical tag and containing both <img> and <a>
+          const sameTagSiblings = childElements.filter(c => {
+            if (c.tag.toLowerCase() !== cTag) return false;
+            const imgs = DomTreeParser.findByTag(c, 'img');
+            const links = DomTreeParser.findByTag(c, 'a');
+            return imgs.length > 0 && links.length > 0;
+          });
+          const qualifyingCount = sameTagSiblings.length;
+
           // If child is itself a container with >= 2 card-like sub-children, recurse into it
           const subCardCount = child.children.filter(c => {
             if (typeof c === 'string') return false;
@@ -133,22 +142,19 @@ export class EcommerceDataModeler {
             continue;
           }
 
-          // 2. Hybrid Confidence Scoring (0.35 Class + 0.35 Repetition + 0.30 Price)
+          // 2. Orthogonal Hybrid Confidence Scoring (0.35 Class + 0.35 Repetition + 0.30 Price)
           let sClass = 0;
           if (/(?:^|\s)(?:product-item|product-card|card-product|item-product|product-grid__item|product-tile|product-box)(?:$|\s)/i.test(cCls) || hasMicrodata) {
             sClass = 1.0;
           } else if (/\bproduct\b|\bcard-product\b/i.test(cCls)) {
             sClass = 0.9;
-          } else if (hasProductUrl) {
-            sClass = 0.8;
           } else if (/prod-/i.test(cCls)) {
             sClass = 0.7;
           }
 
           let sRepetition = 0;
-          if (imgs.length > 0 && links.length > 0) {
-            if (qualifyingCount >= 3) sRepetition = 1.0;
-            else if (qualifyingCount === 2) sRepetition = 0.6;
+          if (qualifyingCount >= 3) {
+            sRepetition = 1.0;
           }
 
           const sPrice = hasCurrency ? 1.0 : 0.0;
