@@ -15,7 +15,7 @@
   "properties": {
     "version": {
       "type": "string",
-      "enum": ["1.0.0", "1.1.0"]
+      "enum": ["1.0.0", "1.1.0", "1.2.0"]
     },
     "metadata": {
       "type": "object",
@@ -65,6 +65,47 @@
       }
     },
     "sections": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "name", "archetype", "layoutType", "blocks"],
+        "properties": {
+          "id": { "type": "string" },
+          "name": { "type": "string" },
+          "archetype": {
+            "type": "string",
+            "enum": ["header", "hero_slider", "product_grid", "collection_list", "banner_grid", "rich_text", "footer", "custom_section"]
+          },
+          "layoutType": {
+            "type": "string",
+            "enum": ["grid", "flex", "scroll_snap_carousel", "column", "flow"]
+          },
+          "cssRules": {
+            "type": "object",
+            "additionalProperties": { "type": "string" }
+          },
+          "settings": { "type": "object" },
+          "blocks": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["type", "name", "settings"],
+              "properties": {
+                "type": { "type": "string" },
+                "name": { "type": "string" },
+                "limit": { "type": "number" },
+                "settings": { "type": "object" },
+                "dataBindings": {
+                  "type": "object",
+                  "additionalProperties": { "type": "string" }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "components": {
       "type": "array",
       "items": {
         "type": "object",
@@ -216,6 +257,7 @@
         "price": { "type": "number" },
         "compareAtPrice": { "type": "number" },
         "featuredImage": { "type": "string" },
+        "available": { "type": "boolean" },
         "url": { "type": "string" }
       }
     },

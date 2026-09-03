@@ -12,6 +12,7 @@ export interface NormalizedProduct {
   vendor: string;
   price: number;
   compareAtPrice?: number;
+  available?: boolean;
   featuredImage?: string;
   url: string;
 }
@@ -204,8 +205,11 @@ export class EcommerceDataModeler {
 
       // Price extraction
       const currentPrices = [
+        ...DomTreeParser.findByClass(node, 'special-price'),
         ...DomTreeParser.findByClass(node, 'price-current'),
         ...DomTreeParser.findByClass(node, 'current-price'),
+        ...DomTreeParser.findByClass(node, 'product-price'),
+        ...DomTreeParser.findByClass(node, 'price-now'),
         ...DomTreeParser.findByClass(node, 'price'),
         ...DomTreeParser.findByClass(node, 'amount')
       ];
@@ -237,12 +241,16 @@ export class EcommerceDataModeler {
       ];
       const vendor = vendors.length > 0 ? DomTreeParser.extractText(vendors[0]).trim() : '';
 
+      const fullText = DomTreeParser.extractText(node).toLowerCase();
+      const isOutOfStock = fullText.includes('hết hàng') || fullText.includes('out of stock') || fullText.includes('tam het hang');
+
       const product: NormalizedProduct = {
         id: `prod_${idx}`,
         title,
         handle: title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || `product-${idx}`,
         vendor,
         price,
+        available: !isOutOfStock,
         featuredImage: imgs[0]?.attributes['src'] || imgs[0]?.attributes['data-src'] || '',
         url: links[0]?.attributes['href'] || '#'
       };
@@ -340,8 +348,8 @@ export class EcommerceDataModeler {
 
   public static parseStructuredPrice(text: string): { price: number; compareAtPrice?: number } {
     if (!text || typeof text !== 'string') return { price: 0 };
-    const clean = text.trim();
-
+    // Strip discount percentages (e.g. -30%, 15%) so badges are not mistaken for prices
+    const clean = text.replace(/[-+]?\d+\s*%/g, ' ').trim();
     // Detect ranges: "1.299.000 - 1.599.000đ", "100k ~ 200k", "1.000.000 đến 2.000.000"
     const rangeParts = clean.split(/\s*(?:-|~|–|—|đến|to)\s*/i);
     if (rangeParts.length >= 2) {
@@ -360,7 +368,9 @@ export class EcommerceDataModeler {
 
   public static parseSinglePrice(raw: string): number {
     if (!raw || typeof raw !== 'string') return 0;
-    const match = raw.match(/[\d]+(?:[\.,]\d+)*/);
+    // Strip discount percentages (e.g. -30%, 15%)
+    const sanitized = raw.replace(/[-+]?\d+\s*%/g, ' ');
+    const match = sanitized.match(/[\d]+(?:[\.,]\d+)*/);
     if (!match) return 0;
 
     let numStr = match[0];

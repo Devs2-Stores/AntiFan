@@ -55,9 +55,9 @@ describe('Schemas - JSON Schema Validation & Integrity', () => {
     assert.ok(schema.required.includes('sections'));
     assert.ok(schema.required.includes('storefrontRuntime'));
 
-    // Dual-version support
-    assert.deepStrictEqual(schema.properties.version.enum, ['1.0.0', '1.1.0']);
-
+    // Multi-version support & neutral components alias
+    assert.deepStrictEqual(schema.properties.version.enum, ['1.0.0', '1.1.0', '1.2.0']);
+    assert.ok(schema.properties.components, 'Must define components alias');
     // Assets and responsive first-class references
     assert.strictEqual(schema.properties.assets['$ref'], '#/definitions/HarvestedAssetManifest');
     assert.strictEqual(schema.properties.responsive['$ref'], '#/definitions/ResponsiveBreakpointConfig');

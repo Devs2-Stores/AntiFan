@@ -16,11 +16,16 @@ function getThemeHierarchyScript(): string {
       || document.body?.getAttribute('data-template')
       || document.querySelector('meta[name="template"]')?.getAttribute('content')
       || undefined;
-    const sections = Array.from(document.querySelectorAll('[data-section-id], [data-section-type], section[id^="shopify-section-"], section[id^="haravan-section-"]'))
+    const selector = [
+      'header', 'nav', 'main', 'section', 'article', 'aside', 'footer',
+      '[data-section-id]', '[data-section-type]', '[data-component]', '[data-section]',
+      'section[id^="shopify-section-"]', 'section[id^="haravan-section-"]'
+    ].join(', ');
+    const sections = Array.from(document.querySelectorAll(selector))
       .slice(0, 200)
       .map((element) => ({
-        id: element.getAttribute('data-section-id') || element.id || undefined,
-        type: element.getAttribute('data-section-type') || undefined,
+        id: element.getAttribute('data-section-id') || element.getAttribute('data-component') || element.id || undefined,
+        type: element.getAttribute('data-section-type') || element.getAttribute('data-component') || element.tagName.toLowerCase(),
         tag: element.tagName.toLowerCase(),
       }));
     return { template, sections };
@@ -33,22 +38,40 @@ function getProductResolverScript(handle?: string): string {
       let targetHandle = ${handleJson};
       if (!targetHandle) {
         const pathSegments = window.location.pathname.split('/').filter(Boolean);
-        const prodIdx = pathSegments.indexOf('products');
+        const prodIdx = pathSegments.findIndex((seg) => seg === 'products' || seg === 'san-pham' || seg === 'product');
         if (prodIdx !== -1 && pathSegments[prodIdx + 1]) {
           targetHandle = pathSegments[prodIdx + 1].split('?')[0].split('#')[0];
         }
       }
       let productData = null;
-      if (targetHandle) {
+      // 1. Structured JSON-LD / schema.org detection (universal)
+      const ldScripts = Array.from(document.querySelectorAll('script[type="application/ld+json"]'));
+      for (const s of ldScripts) {
+        if (!s.textContent) continue;
         try {
-          const res = await fetch('/products/' + encodeURIComponent(targetHandle) + '.js');
-          if (res.ok) {
-            productData = await res.json();
+          const parsed = JSON.parse(s.textContent);
+          const items = Array.isArray(parsed) ? parsed : (parsed['@graph'] ? parsed['@graph'] : [parsed]);
+          const prod = items.find((it) => it && (it['@type'] === 'Product' || it['@type']?.includes?.('Product')));
+          if (prod) {
+            const priceVal = prod.offers ? (Array.isArray(prod.offers) ? prod.offers[0]?.price : prod.offers.price) : undefined;
+            const avail = prod.offers ? (Array.isArray(prod.offers) ? prod.offers[0]?.availability : prod.offers.availability) : undefined;
+            productData = {
+              handle: targetHandle || prod.sku || (prod.name ? prod.name.toLowerCase().replace(/[^a-z0-9]+/g, '-') : 'product'),
+              title: prod.name,
+              vendor: typeof prod.brand === 'object' ? prod.brand?.name : (prod.brand || prod.manufacturer),
+              price: priceVal ? (typeof priceVal === 'number' ? priceVal : parseFloat(String(priceVal).replace(/[^0-9.]/g, ''))) : undefined,
+              compare_at_price: undefined,
+              available: avail ? String(avail).includes('InStock') : true,
+              variants: [],
+              featured_image: Array.isArray(prod.image) ? prod.image[0] : (typeof prod.image === 'object' ? prod.image?.url : prod.image),
+            };
+            break;
           }
         } catch {}
       }
+      // 2. Standard e-commerce DOM JSON script blocks
       if (!productData) {
-        const scriptEl = document.querySelector('script[type="application/json"][data-product-json], script[type="application/ld+json"]');
+        const scriptEl = document.querySelector('script[type="application/json"][data-product-json], script[type="application/json"][id*="ProductJson"]');
         if (scriptEl && scriptEl.textContent) {
           try {
             const parsed = JSON.parse(scriptEl.textContent);
@@ -56,8 +79,24 @@ function getProductResolverScript(handle?: string): string {
           } catch {}
         }
       }
+      // 3. Storefront runtime window globals
       if (!productData && window.meta && window.meta.product) {
         productData = window.meta.product;
+      }
+      if (!productData && window.product) {
+        productData = window.product;
+      }
+      // 4. Delegated platform endpoint fallback if handle is detected
+      if (!productData && targetHandle) {
+        const isShopifyOrHaravan = Boolean(window.Shopify || window.Haravan || window.theme || document.querySelector('link[href*="hstatic.net"], link[href*="cdn.shopify.com"]'));
+        if (isShopifyOrHaravan) {
+          try {
+            const res = await fetch('/products/' + encodeURIComponent(targetHandle) + '.js');
+            if (res.ok) {
+              productData = await res.json();
+            }
+          } catch {}
+        }
       }
       if (productData) {
         return {
@@ -76,14 +115,14 @@ function getProductResolverScript(handle?: string): string {
             compare_at_price: v.compare_at_price,
             sku: v.sku,
             available: v.available,
-            featured_image: v.featured_image ? v.featured_image.src : undefined,
+            featured_image: v.featured_image ? (typeof v.featured_image === 'string' ? v.featured_image : v.featured_image.src) : undefined,
           })) : [],
           options: productData.options || [],
         };
       }
       return {
         ok: false,
-        error: 'No product metadata or /products/{handle}.js found on current page',
+        error: 'No product metadata or structured schema found on current page',
         url: window.location.href,
       };
     } catch (err) {

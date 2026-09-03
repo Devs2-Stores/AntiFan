@@ -33,6 +33,9 @@ export interface ComponentBlockContract {
   dataBindings?: Record<string, string>;
 }
 
+/** Platform-neutral alias for ComponentBlockContract */
+export type ComponentSlotContract = ComponentBlockContract;
+
 export interface ComponentSectionContract {
   id: string;
   name: string;
@@ -48,6 +51,9 @@ export interface ComponentSectionContract {
   rawHtml?: string;
   liquidTemplate?: string;
 }
+
+/** Platform-neutral alias for ComponentSectionContract */
+export type ComponentNodeContract = ComponentSectionContract;
 
 export interface StorefrontControllerContract {
   id?: string;
@@ -70,7 +76,7 @@ export interface NormalizedStorefrontData {
   };
 }
 export interface ComponentContractIR {
-  version: '1.0.0' | '1.1.0';
+  version: '1.0.0' | '1.1.0' | '1.2.0';
   metadata: {
     sourceUrl: string;
     extractedAt: string;
@@ -81,6 +87,8 @@ export interface ComponentContractIR {
   assets?: HarvestedAssetManifest;
   themeSettings: ThemeSettingContract[];
   sections: ComponentSectionContract[];
+  /** Neutral alias mirroring sections for universal consumers */
+  components?: ComponentNodeContract[];
   storefrontRuntime: {
     controllers: StorefrontControllerContract[];
   };

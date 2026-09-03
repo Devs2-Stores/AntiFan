@@ -58,6 +58,7 @@ export class CloneIRBuilder {
         { id: 'email', type: 'text', label: 'Support Email', default: dataBundle.siteSettings.email || '' }
       ],
       sections,
+      components: sections,
       storefrontRuntime: {
         controllers
       },

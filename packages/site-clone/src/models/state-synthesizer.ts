@@ -1,14 +1,32 @@
 /**
  * Model 4: State Synthesizer
- * Generates robust, reversible, vanilla JS controllers for storefront interactive widgets
+ * Decoupled interaction & state modeling and declarative storefront runtime generation
  */
+import type { StorefrontControllerContract } from './clone-ir.js';
+
+export interface StateTransitionModel {
+  id?: string;
+  sectionId?: string;
+  widgetType: 'carousel' | 'dropdown' | 'modal' | 'drawer' | 'tabs' | 'form_validation';
+  triggerEvent: 'click' | 'mouseover' | 'mouseout' | 'keydown' | 'focus';
+  targetSelector: string;
+  triggerSelector: string;
+  stateDelta: {
+    property?: string;
+    active: boolean;
+  };
+  ariaDelta?: {
+    attribute: 'aria-expanded' | 'aria-hidden' | 'aria-selected';
+    to: string;
+  };
+  effectType: 'class_toggle' | 'visibility_toggle' | 'media_pause' | 'focus_trap' | 'css_scroll_snap';
+}
 
 export interface SynthesizedWidgetContract {
   widgetType: 'slider' | 'tabs' | 'modal' | 'dropdown' | 'accordion' | 'search';
   selector: string;
   jsCode: string;
 }
-
 export class StateSynthesizer {
   /**
    * Generates the universal, event-delegated declarative micro-runtime
@@ -107,6 +125,59 @@ export class StateSynthesizer {
     }
   });
 })();`.trim();
+  }
+
+  /**
+   * Infers platform-neutral semantic state transitions from controllers without code generation
+   */
+  public inferStateTransitions(controllers: StorefrontControllerContract[] = []): StateTransitionModel[] {
+    return controllers.map((ctrl) => {
+      let triggerEvent: StateTransitionModel['triggerEvent'] = 'click';
+      let effectType: StateTransitionModel['effectType'] = 'class_toggle';
+      let ariaDelta: StateTransitionModel['ariaDelta'];
+
+      switch (ctrl.type) {
+        case 'dropdown':
+          triggerEvent = ctrl.behavior === 'hover_intent' ? 'mouseover' : 'click';
+          effectType = 'class_toggle';
+          ariaDelta = { attribute: 'aria-expanded', to: 'true' };
+          break;
+        case 'modal':
+        case 'drawer':
+          triggerEvent = 'click';
+          effectType = 'visibility_toggle';
+          ariaDelta = { attribute: 'aria-hidden', to: 'false' };
+          break;
+        case 'carousel':
+          triggerEvent = 'click';
+          effectType = 'css_scroll_snap';
+          break;
+        case 'tabs':
+          triggerEvent = 'click';
+          effectType = 'class_toggle';
+          ariaDelta = { attribute: 'aria-selected', to: 'true' };
+          break;
+        case 'form_validation':
+          triggerEvent = 'focus';
+          effectType = 'class_toggle';
+          break;
+      }
+
+      return {
+        id: ctrl.id,
+        sectionId: ctrl.sectionId,
+        widgetType: ctrl.type,
+        triggerEvent,
+        targetSelector: ctrl.targetSelector,
+        triggerSelector: ctrl.triggerSelector,
+        stateDelta: {
+          property: 'active',
+          active: true,
+        },
+        ariaDelta,
+        effectType,
+      };
+    });
   }
 
   /**

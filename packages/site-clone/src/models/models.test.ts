@@ -7,6 +7,7 @@ import { AssetHarvester } from './asset-harvester.js';
 import { ResponsiveScanner } from './responsive-scanner.js';
 import { EcommerceDataModeler } from './ecommerce-data-modeler.js';
 import { CloneIRBuilder } from './clone-ir-builder.js';
+import { StateSynthesizer } from './state-synthesizer.js';
 describe('Cognitive Models - Asset, Responsive & E-commerce Data', () => {
   it('1. AssetHarvester categorizes stylesheets, scripts, images, and font subsets', () => {
     const harvester = new AssetHarvester();
@@ -296,5 +297,52 @@ describe('Cognitive Models - Asset, Responsive & E-commerce Data', () => {
     const atv = bundle.products.find(p => p.title.includes('ATV310'));
     assert.strictEqual(atv?.price, 3450000);
     assert.strictEqual(atv?.compareAtPrice, 3900000);
+  });
+
+  it('7. StateSynthesizer infers semantic state transitions and generates declarative runtime', () => {
+    const synthesizer = new StateSynthesizer();
+    const transitions = synthesizer.inferStateTransitions([
+      {
+        id: 'c_dropdown_1',
+        sectionId: 'header_sec',
+        type: 'dropdown',
+        targetSelector: '.sub-menu',
+        triggerSelector: '.menu-item',
+        behavior: 'hover_intent'
+      },
+      {
+        id: 'c_modal_1',
+        sectionId: 'video_sec',
+        type: 'modal',
+        targetSelector: '#video-modal',
+        triggerSelector: '.open-video-btn',
+        behavior: 'dialog_native'
+      },
+      {
+        id: 'c_carousel_1',
+        sectionId: 'slider_sec',
+        type: 'carousel',
+        targetSelector: '.slide-track',
+        triggerSelector: '.next-btn',
+        behavior: 'css_scroll_snap'
+      }
+    ]);
+
+    assert.strictEqual(transitions.length, 3);
+    assert.strictEqual(transitions[0].triggerEvent, 'mouseover');
+    assert.strictEqual(transitions[0].effectType, 'class_toggle');
+    assert.strictEqual(transitions[0].ariaDelta?.attribute, 'aria-expanded');
+
+    assert.strictEqual(transitions[1].triggerEvent, 'click');
+    assert.strictEqual(transitions[1].effectType, 'visibility_toggle');
+    assert.strictEqual(transitions[1].ariaDelta?.attribute, 'aria-hidden');
+
+    assert.strictEqual(transitions[2].triggerEvent, 'click');
+    assert.strictEqual(transitions[2].effectType, 'css_scroll_snap');
+
+    const runtimeJs = synthesizer.generateDeclarativeRuntime();
+    assert.ok(runtimeJs.includes('window.__antifan_rt'), 'Must define runtime guard');
+    assert.ok(runtimeJs.includes('[data-antifan-toggle]'), 'Must support toggle');
+    assert.ok(runtimeJs.includes('[data-antifan-modal]'), 'Must support modal');
   });
 });
