@@ -204,7 +204,7 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
     risk: 'write',
     policy: makeBrowserPolicy({ effect: 'idempotent-write', risk: 'write', requiresBrowserTarget: false, lane: 'unbounded' }),
     inputSchema: { type: 'object', properties: { tabId: { type: 'string' } }, required: ['tabId'] },
-    execute: (params: { tabId: string }, context) => browser.switchTab(params.tabId, { target: context.browserTarget }),
+    execute: (params: { tabId: string }) => browser.switchTab(params.tabId),
   });
 
   catalogue.register({
@@ -812,7 +812,7 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
     risk: 'write',
     policy: makeBrowserPolicy({ effect: 'idempotent-write', risk: 'write', requiresBrowserTarget: false, lane: 'unbounded' }),
     inputSchema: { type: 'object', properties: { tabId: { type: 'string' } }, required: ['tabId'] },
-    execute: (params: { tabId: string }, context) => browser.switchTab(params.tabId, { target: context.browserTarget }),
+    execute: (params: { tabId: string }) => browser.switchTab(params.tabId),
   });
 
   catalogue.register({
@@ -1417,7 +1417,7 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
     risk: 'write',
     policy: makeBrowserPolicy({ effect: 'idempotent-write', risk: 'write', requiresBrowserTarget: false, lane: 'unbounded' }),
     inputSchema: { type: 'object', properties: { tabId: { type: 'string' } }, required: ['tabId'] },
-    execute: (params: { tabId: string }, context) => browser.switchTab(params.tabId, { target: context.browserTarget }),
+    execute: (params: { tabId: string }) => browser.switchTab(params.tabId),
   });
 
   catalogue.register({

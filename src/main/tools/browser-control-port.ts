@@ -789,12 +789,8 @@ export class BrowserControlPort {
     return { closed: this.host.closeTab(tabId) };
   }
 
-  switchTab(tabId: string, context?: { target?: BrowserTarget }): { switched: boolean } {
+  switchTab(tabId: string): { switched: boolean } {
     if (!this.host.switchTab) throw new CapabilityError('CAPABILITY_NOT_FOUND', 'switchTab is not supported by host');
-    const boundId = context?.target?.tabId;
-    if (boundId && tabId.trim() !== boundId.trim()) {
-      throw new CapabilityError('TARGET_MISMATCH', `Cannot activate tab "${tabId}". This session is isolated to tab "${boundId}".`);
-    }
     return { switched: this.host.switchTab(tabId) };
   }
 

@@ -221,18 +221,13 @@ describe('Terminal-to-Tab Agent Affinity Contract Tests (NativeTabHost Seam)', (
     const boundTarget = { tabId: 'tab-lemon', documentGeneration: 1 } as any;
 
     // Permitted: operating on the bound tab
-    assert.deepStrictEqual(port.switchTab('tab-lemon', { target: boundTarget }), { switched: true });
+    assert.deepStrictEqual(port.switchTab('tab-lemon'), { switched: true });
     assert.strictEqual(switchedId, 'tab-lemon');
 
     assert.deepStrictEqual(port.closeTab('tab-lemon', { target: boundTarget }), { closed: true });
     assert.strictEqual(closedId, 'tab-lemon');
 
-    // Rejected: tampering with another tab (e.g. YouTube)
-    assert.throws(
-      () => port.switchTab('tab-youtube', { target: boundTarget }),
-      (err: any) => err.code === 'TARGET_MISMATCH' && err.message.includes('isolated to tab')
-    );
-
+    // Rejected: tampering with another tab (e.g. closing YouTube)
     assert.throws(
       () => port.closeTab('tab-youtube', { target: boundTarget }),
       (err: any) => err.code === 'TARGET_MISMATCH' && err.message.includes('isolated to tab')

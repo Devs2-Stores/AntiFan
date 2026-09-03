@@ -267,7 +267,6 @@ describe('Two-Tier Concurrency Engine & ViewportGate Integration (Phase 03)', ()
       tabId: 'tab-sync',
     });
     assert.strictEqual(switchResult.isError, undefined);
-
     const attRecordAfterSwitch = attachmentRegistry.getAttachment(launch.attachmentId);
     assert.strictEqual(attRecordAfterSwitch?.tabId, 'tab-sync');
     assert.strictEqual(attRecordAfterSwitch?.documentGeneration, 8);
