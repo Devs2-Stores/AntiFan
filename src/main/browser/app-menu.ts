@@ -119,7 +119,8 @@ export function buildApplicationMenu(mainWindow: BrowserWindow, tabHost?: Native
     ? chromeProfiles.map((p) => ({
         label: `Sync: ${p.name} (${p.id})`,
         click: async () => {
-          const res = await ChromeProfileSyncManager.getInstance().syncProfile(p.id);
+          const targetSession = tabHost?.getActiveTabSession();
+          const res = await ChromeProfileSyncManager.getInstance().syncProfile(p.id, targetSession);
           const bm = ChromeProfileSyncManager.getInstance().getChromeBookmarks(p.id);
           if (bm.length > 0 && tabHost) {
             tabHost.bookmarks = bm.map((b) => ({ id: b.url, title: b.title, url: b.url, createdAt: Date.now() }));

@@ -373,6 +373,14 @@ if (typeof chrome !== 'undefined' && chrome.alarms) {
   } catch {}
 }
 
+if (typeof chrome !== 'undefined' && chrome.runtime?.onSuspend) {
+  try {
+    chrome.runtime.onSuspend.addListener(() => {
+      // Flush is suppressed on shutdown/suspension to avoid sending exit cleanup removals
+      debouncer.clear();
+    });
+  } catch {}
+}
 if (typeof chrome !== 'undefined' && chrome.runtime?.onStartup) {
   chrome.runtime.onStartup.addListener(() => {
     loadSettings().then(() => {

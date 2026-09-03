@@ -50,8 +50,17 @@ export class CookieDebouncer {
   }
 
   public addChange(changeInfo: CookieChangeEvent): void {
-    const { cookie, removed } = changeInfo;
+    const { cookie, removed, cause } = changeInfo;
     if (!cookie || !cookie.name) return;
+
+    // Never propagate removals caused by browser eviction, internal session expiration, or overwrite
+    // to AntiFan Desktop. AntiFan maintains its own persistent session lifetime.
+    // Only explicit user actions / website logouts (cause === 'explicit') should remove cookies in AntiFan.
+    if (removed) {
+      if (cause && cause !== 'explicit') {
+        return;
+      }
+    }
 
     // Drop expired cookies on arrival
     const nowSec = Date.now() / 1000;
@@ -114,6 +123,18 @@ export class CookieDebouncer {
 
     this.queue.clear();
     this.flushCallback({ upserted, removed });
+  }
+  public clear(): void {
+    if (this.timer) {
+      clearTimeout(this.timer as NodeJS.Timeout);
+      this.timer = null;
+    }
+    if (this.maxTimer) {
+      clearTimeout(this.maxTimer as NodeJS.Timeout);
+      this.maxTimer = null;
+    }
+    this.firstEventTime = null;
+    this.queue.clear();
   }
 
   public get pendingCount(): number {

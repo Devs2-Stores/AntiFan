@@ -62,6 +62,10 @@ export function isCookieInScope(
 ): boolean {
   const rawDomain = (cookie.domain || '').replace(/^\./, '').trim().toLowerCase();
   if (!rawDomain) return false;
+  // 0. Wildcard or all profiles enabled
+  if (enabledProfiles.includes('all') || enabledProfiles.includes('*')) {
+    return true;
+  }
 
   // 1. Active Tab eTLD+1 Isolation
   if (activeTabHostname) {

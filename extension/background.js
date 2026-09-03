@@ -819,6 +819,9 @@
   function isCookieInScope(cookie, enabledProfiles2 = ["google", "ecommerce"], activeTabHostname = null, customDomains = []) {
     const rawDomain = (cookie.domain || "").replace(/^\./, "").trim().toLowerCase();
     if (!rawDomain) return false;
+    if (enabledProfiles2.includes("all") || enabledProfiles2.includes("*")) {
+      return true;
+    }
     if (activeTabHostname) {
       const activeRoot = extractEtldPlusOne(activeTabHostname);
       const cookieRoot = extractEtldPlusOne(rawDomain);
@@ -856,8 +859,13 @@
       this.maxWaitMs = maxWaitMs;
     }
     addChange(changeInfo) {
-      const { cookie, removed } = changeInfo;
+      const { cookie, removed, cause } = changeInfo;
       if (!cookie || !cookie.name) return;
+      if (removed) {
+        if (cause && cause !== "explicit") {
+          return;
+        }
+      }
       const nowSec = Date.now() / 1e3;
       if (!removed && typeof cookie.expirationDate === "number" && cookie.expirationDate <= nowSec) {
         return;
@@ -910,6 +918,18 @@
       }
       this.queue.clear();
       this.flushCallback({ upserted, removed });
+    }
+    clear() {
+      if (this.timer) {
+        clearTimeout(this.timer);
+        this.timer = null;
+      }
+      if (this.maxTimer) {
+        clearTimeout(this.maxTimer);
+        this.maxTimer = null;
+      }
+      this.firstEventTime = null;
+      this.queue.clear();
     }
     get pendingCount() {
       return this.queue.size;
@@ -1231,6 +1251,14 @@
             connectNativeMessaging();
           }
         }
+      });
+    } catch {
+    }
+  }
+  if (typeof chrome !== "undefined" && chrome.runtime?.onSuspend) {
+    try {
+      chrome.runtime.onSuspend.addListener(() => {
+        debouncer.clear();
       });
     } catch {
     }

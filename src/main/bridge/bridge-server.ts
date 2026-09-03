@@ -503,9 +503,10 @@ export class BridgeServer {
             let skippedCount = 0;
             let failedCount = 0;
 
+            const persistSession = data.persistSessionCookies !== false;
             // 1. Process Upserts
             for (const cookie of rawCookies) {
-              const setDetails = extensionCookieImportSetDetails(cookie);
+              const setDetails = extensionCookieImportSetDetails(cookie, { persistSessionCookies: persistSession });
               if (!setDetails) {
                 skippedCount++;
                 continue;
@@ -910,6 +911,7 @@ export class BridgeServer {
               secret: res.launch.secret,
               projectId: res.launch.projectId,
               workspaceId: res.launch.workspaceId,
+              tabId: res.launch.tabId || tabId,
               authorityRevision: res.launch.authorityRevision,
               host: this.host,
               port: this.port,

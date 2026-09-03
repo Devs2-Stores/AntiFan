@@ -46,7 +46,8 @@ export function cookieImportSetDetails(
   secure: boolean,
   httpOnly: boolean,
   samesite: number,
-  expires?: number
+  expires?: number,
+  options?: { persistSessionCookies?: boolean; sessionTtlSeconds?: number }
 ): Electron.CookiesSetDetails | null {
   const scheme = secure ? 'https://' : 'http://';
   const domain = host.startsWith('.') ? host.substring(1) : host;
@@ -82,6 +83,9 @@ export function cookieImportSetDetails(
       }
       details.expirationDate = unixSeconds;
     }
+  } else if (options?.persistSessionCookies) {
+    const ttl = options.sessionTtlSeconds ?? 30 * 24 * 60 * 60;
+    details.expirationDate = Math.floor(Date.now() / 1000) + ttl;
   }
 
   return details;
@@ -97,6 +101,20 @@ export interface ExtensionCookieInput {
   httpOnly?: boolean;
   sameSite?: 'unspecified' | 'no_restriction' | 'lax' | 'strict' | string;
   expirationDate?: number;
+  persistSession?: boolean;
+}
+
+export const DEFAULT_PERSISTENT_SESSION_COOKIE_TTL_SECONDS = 30 * 24 * 60 * 60; // 30 days
+
+export interface ExtensionCookieImportOptions {
+  /**
+   * When true, session cookies without an explicit expiration date are assigned
+   * a durable expirationDate (default: 30 days) so Electron commits them to disk SQLite
+   * instead of dropping them from volatile RAM upon browser exit or restart.
+   */
+  persistSessionCookies?: boolean;
+  /** Custom TTL in seconds for persisted session cookies (defaults to 30 days) */
+  sessionTtlSeconds?: number;
 }
 
 /**
@@ -104,7 +122,8 @@ export interface ExtensionCookieInput {
  * Handles Unix epoch seconds for expirationDate, RFC 6265bis __Host- constraints, and sameSite mappings.
  */
 export function extensionCookieImportSetDetails(
-  cookie: ExtensionCookieInput
+  cookie: ExtensionCookieInput,
+  options?: ExtensionCookieImportOptions
 ): Electron.CookiesSetDetails | null {
   if (!cookie || !cookie.name || cookie.value === undefined || cookie.value === null) {
     return null;
@@ -140,14 +159,18 @@ export function extensionCookieImportSetDetails(
   }
 
   // Chrome Extension expirationDate is in Unix epoch seconds (float or integer)
+  const nowSeconds = Math.floor(Date.now() / 1000);
   if (typeof cookie.expirationDate === 'number' && cookie.expirationDate > 0) {
     const unixSeconds = Math.floor(cookie.expirationDate);
-    const nowSeconds = Math.floor(Date.now() / 1000);
     if (unixSeconds <= nowSeconds) {
       // Expired cookie: skip it
       return null;
     }
     details.expirationDate = unixSeconds;
+  } else if (options?.persistSessionCookies || cookie.persistSession) {
+    // Elevate volatile in-memory session cookie to persistent cookie so login survives restart
+    const ttl = options?.sessionTtlSeconds ?? DEFAULT_PERSISTENT_SESSION_COOKIE_TTL_SECONDS;
+    details.expirationDate = nowSeconds + ttl;
   }
 
   return details;
@@ -325,7 +348,7 @@ export class ChromeProfileSyncManager {
    * Synchronizes bookmarks from the selected Chrome profile.
    * Cookie synchronization is handled continuously in real-time via the AntiFan Chrome Sync Extension.
    */
-  public async syncProfile(profileId = 'Default', _targetSession?: Electron.Session): Promise<{
+  public async syncProfile(profileId = 'Default', targetSession?: Electron.Session): Promise<{
     success: boolean;
     cookiesCount: number;
     bookmarksCount: number;
@@ -340,11 +363,21 @@ export class ChromeProfileSyncManager {
     // 1. Import Bookmarks cleanly from Chrome's Bookmarks JSON file
     const bookmarks = this.getChromeBookmarks(profileId);
 
+    // 2. Query targetSession cookies to report live authenticated state
+    let cookiesCount = 0;
+    if (targetSession && targetSession.cookies) {
+      try {
+        const liveCookies = await targetSession.cookies.get({});
+        cookiesCount = liveCookies.length;
+      } catch {}
+    }
+
+    const cookieNote = cookiesCount > 0 ? ` (${cookiesCount} cookies hiện hữu)` : '';
     return {
       success: true,
-      cookiesCount: 0,
+      cookiesCount,
       bookmarksCount: bookmarks.length,
-      message: `Đã nạp ${bookmarks.length} dấu trang từ Chrome Profile '${profileId}'. Cookies được đồng bộ tự động qua AntiFan Chrome Extension!`,
+      message: `Đã nạp ${bookmarks.length} dấu trang từ Chrome Profile '${profileId}'${cookieNote}. Cookies được đồng bộ tự động liên tục qua AntiFan Chrome Extension!`,
     };
   }
 }
