@@ -18,6 +18,7 @@ interface TestHost {
   bindTerminalAgentAffinity(terminalId: string, generation: number | string | undefined, tabId: string): boolean;
   clearTerminalAgentAffinity(terminalId: string): void;
   migrateTerminalAgentAffinityGeneration(terminalId: string, newGeneration: number): void;
+  tombstoneTerminalAgentAffinity(tabId: string, lastUrl?: string): void;
   getTerminalAgentAffinity(terminalSessionId: string, generation?: number | string): { tabId: string; status: 'alive' | 'closed'; lastUrl?: string } | undefined;
   getTabTerminalSession(tabId: string): string | undefined;
   setTabTerminalSession(tabId: string, sessionId?: string): boolean;
@@ -62,6 +63,7 @@ describe('Terminal-to-Tab Agent Affinity Contract Tests (NativeTabHost Seam)', (
   const tm = TerminalManager.getInstance() as any;
   const originalListSessions = tm.listSessions;
   const originalGetSession = tm.getSession;
+  const originalGetActiveSessionId = tm.getActiveSessionId;
   let liveSessions: Array<{ id: string; name: string; cwd: string; sessionGeneration: number }> = [];
 
   before(() => {
@@ -77,6 +79,7 @@ describe('Terminal-to-Tab Agent Affinity Contract Tests (NativeTabHost Seam)', (
   after(() => {
     tm.listSessions = originalListSessions;
     tm.getSession = originalGetSession;
+    tm.getActiveSessionId = originalGetActiveSessionId;
   });
 
   it('1. Binds terminal to primary tab and retrieves affinity with exact generation', () => {
@@ -133,9 +136,8 @@ describe('Terminal-to-Tab Agent Affinity Contract Tests (NativeTabHost Seam)', (
     const host = createTestHost(['tab-1', 'tab-2']);
     host.bindTerminalAgentAffinity('terminal-1', 1, 'tab-1');
 
-    // Close tab-1
-    host.closeTab('tab-1');
-    assert.strictEqual(host.hasTab('tab-1'), false);
+    // Tombstone tab-1 via host method called during tab close
+    host.tombstoneTerminalAgentAffinity('tab-1', 'https://example.test/tab-1');
 
     const affinity = host.getTerminalAgentAffinity('terminal-1', 1);
     assert.ok(affinity);
@@ -175,7 +177,7 @@ describe('Terminal-to-Tab Agent Affinity Contract Tests (NativeTabHost Seam)', (
 });
 
 describe('Launcher CLI (antifan-agent.cjs) Argument Parsing & Syntax Tests', () => {
-  const scriptPath = path.resolve(__dirname, '../../../../scripts/antifan-agent.cjs');
+  const scriptPath = path.resolve(__dirname, '../../../scripts/antifan-agent.cjs');
 
   it('1. Passes syntax check (node -c)', () => {
     assert.doesNotThrow(() => {
@@ -203,5 +205,19 @@ describe('Launcher CLI (antifan-agent.cjs) Argument Parsing & Syntax Tests', () 
     const stdout = execFileSync(process.execPath, [scriptPath, '--tab=tab-123'], { encoding: 'utf8' });
     // Should display usage since no target command was provided
     assert.ok(stdout.includes('Usage:'));
+  });
+
+  it('5. Directly tests parseLauncherArgs unit function', () => {
+    const { parseLauncherArgs } = require(scriptPath);
+    const parsed1 = parseLauncherArgs(['--tab=tab-99', 'claude', '--print']);
+    assert.strictEqual(parsed1.tabId, 'tab-99');
+    assert.deepStrictEqual(parsed1.commandArgs, ['claude', '--print']);
+
+    const parsed2 = parseLauncherArgs(['-t', 'tab-101', 'npm', 'test']);
+    assert.strictEqual(parsed2.tabId, 'tab-101');
+    assert.deepStrictEqual(parsed2.commandArgs, ['npm', 'test']);
+
+    assert.throws(() => parseLauncherArgs(['--tab=']));
+    assert.throws(() => parseLauncherArgs(['--tab']));
   });
 });

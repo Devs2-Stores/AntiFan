@@ -68,6 +68,7 @@ const toolbarApi = {
   closeOtherTabs: (tabId: string) => ipcRenderer.invoke(CHANNELS.CLOSE_OTHER_TABS, tabId),
   closeTabsToRight: (tabId: string) => ipcRenderer.invoke(CHANNELS.CLOSE_TABS_TO_RIGHT, tabId),
   setTabTerminalSession: (tabId: string, terminalSessionId: string) => ipcRenderer.invoke(CHANNELS.SET_TAB_TERMINAL_SESSION, { tabId, terminalSessionId }),
+  rebindTerminalAffinity: (tabId?: string, terminalId?: string) => ipcRenderer.invoke('antifan:terminal:rebind-affinity', { tabId, terminalId }),
   navigate: (url: string, tabId?: string) => ipcRenderer.invoke(CHANNELS.NAVIGATE, { url, tabId }),
   reload: (tabId?: string) => ipcRenderer.invoke(CHANNELS.RELOAD, tabId),
   reloadWindow: () => ipcRenderer.invoke(CHANNELS.RELOAD_WINDOW),

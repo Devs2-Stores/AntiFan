@@ -1058,7 +1058,25 @@ export class NativeTabHost extends EventEmitter {
       if (!this.hasTab(targetTabId)) return false;
       const session = TerminalManager.getInstance().getSession(targetTerminalId);
       if (!session) return false;
-      return this.bindTerminalAgentAffinity(targetTerminalId, session.sessionGeneration, targetTabId);
+      const ok = this.bindTerminalAgentAffinity(targetTerminalId, session.sessionGeneration, targetTabId);
+      if (ok) {
+        this.broadcastState();
+      }
+      return ok;
+    });
+
+    ipcMain.handle('antifan:tabs:get-list', () => {
+      return this.getTabList().map((t) => ({
+        id: t.id,
+        title: t.title || 'Tab',
+        url: t.url || 'about:blank',
+      }));
+    });
+
+    ipcMain.handle('antifan:terminal:get-affinity', (_event, terminalId?: string) => {
+      const targetId = terminalId || TerminalManager.getInstance().getActiveSessionId();
+      if (!targetId) return undefined;
+      return this.getTerminalAgentAffinity(targetId);
     });
     ipcMain.handle(TERMINAL_CHANNELS.POPOUT, () => {
       return this.togglePopoutTerminal();
@@ -2853,12 +2871,7 @@ export class NativeTabHost extends EventEmitter {
     if (this.automationTabId === tabId) {
       this.automationTabId = null;
     }
-    for (const entry of this.terminalAgentAffinity.values()) {
-      if (entry.tabId === tabId) {
-        entry.closedAt = Date.now();
-        entry.lastUrl = target.state.url || entry.lastUrl;
-      }
-    }
+    this.tombstoneTerminalAgentAffinity(tabId, target.state.url);
     if (target.state.partition) {
       unconfigureBrowserSessionPartition(target.state.partition);
     }
@@ -3747,6 +3760,16 @@ export class NativeTabHost extends EventEmitter {
     for (const key of Array.from(this.terminalAgentAffinity.keys())) {
       if (key === terminalId || key.startsWith(prefix)) {
         this.terminalAgentAffinity.delete(key);
+      }
+    }
+  }
+
+  public tombstoneTerminalAgentAffinity(tabId: string, lastUrl?: string): void {
+    if (!tabId) return;
+    for (const entry of this.terminalAgentAffinity.values()) {
+      if (entry.tabId === tabId) {
+        entry.closedAt = Date.now();
+        entry.lastUrl = lastUrl || entry.lastUrl;
       }
     }
   }

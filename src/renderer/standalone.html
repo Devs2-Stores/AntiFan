@@ -94,6 +94,13 @@
         </svg>
         <span>Mở tab mới (New Tab)</span>
       </div>
+      <div class="context-item" data-action="rebind-tab">
+        <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+          <circle cx="8" cy="8" r="6"/>
+          <circle cx="8" cy="8" r="2"/>
+        </svg>
+        <span>🎯 Gán Tab Trình Duyệt... (Rebind Tab)</span>
+      </div>
       <div class="context-divider"></div>
       <div class="context-item danger" data-action="close">
         <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
@@ -110,6 +117,8 @@
         <span>Đóng các tab khác (Close Others)</span>
       </div>
     </div>
+    <!-- AFFINITY TAB PICKER POPOVER -->
+    <div id="affinityPickerPopover" class="terminal-affinity-picker" style="display:none;"></div>
   </main>
   <script src="../../../node_modules/@xterm/xterm/lib/xterm.js"></script>
   <script src="../../../node_modules/@xterm/addon-fit/lib/addon-fit.js"></script>

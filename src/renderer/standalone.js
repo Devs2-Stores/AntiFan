@@ -977,6 +977,92 @@ if (splitButton) {
     }
   };
 }
+async function updateAffinityBadges() {
+  if (!api?.getTerminalAffinity || !api?.getTabs) return;
+  try {
+    const tabs = await api.getTabs();
+    const tabsMap = new Map((tabs || []).map((t) => [t.id, t]));
+    const badges = document.querySelectorAll('.terminal-tab-affinity-badge');
+    for (const badge of badges) {
+      const sid = badge.getAttribute('data-session-id');
+      if (!sid) continue;
+      const affinity = await api.getTerminalAffinity(sid);
+      if (!affinity || !affinity.tabId) {
+        badge.className = 'terminal-tab-affinity-badge unbound';
+        badge.textContent = '🎯 Chưa gán';
+        badge.title = 'Terminal này chưa gán tab nào (Click để chọn tab)';
+      } else if (affinity.status === 'closed') {
+        badge.className = 'terminal-tab-affinity-badge closed';
+        badge.textContent = '🎯 Tab đã đóng';
+        badge.title = `Tab trước đó (${affinity.lastUrl || affinity.tabId}) đã bị đóng (Click để gán lại)`;
+      } else {
+        const boundTab = tabsMap.get(affinity.tabId);
+        const name = boundTab ? (boundTab.title || boundTab.url || affinity.tabId) : affinity.tabId;
+        badge.className = 'terminal-tab-affinity-badge';
+        badge.textContent = `🎯 ${name.slice(0, 14)}`;
+        badge.title = `Đang gắn với Tab: ${name} (${boundTab?.url || affinity.tabId}) (Click để đổi)`;
+      }
+    }
+  } catch {}
+}
+
+async function showAffinityPicker(sessionId, anchorEl) {
+  const popover = document.getElementById('affinityPickerPopover');
+  if (!popover || !api?.getTabs) return;
+
+  const tabs = await api.getTabs();
+  const currentAffinity = api.getTerminalAffinity ? await api.getTerminalAffinity(sessionId) : undefined;
+  popover.innerHTML = '';
+
+  const header = document.createElement('div');
+  header.className = 'terminal-affinity-picker-header';
+  header.textContent = 'Gán Tab Trình Duyệt cho Terminal';
+  popover.appendChild(header);
+
+  if (!tabs || tabs.length === 0) {
+    const empty = document.createElement('div');
+    empty.style.padding = '8px';
+    empty.style.color = '#94a3b8';
+    empty.textContent = 'Không có tab trình duyệt nào đang mở';
+    popover.appendChild(empty);
+  } else {
+    tabs.forEach((t) => {
+      const item = document.createElement('div');
+      item.className = `terminal-affinity-picker-item${currentAffinity?.tabId === t.id && currentAffinity?.status === 'alive' ? ' active' : ''}`;
+      const title = t.title || t.url || t.id;
+      const targetIcon = document.createElement('span');
+      targetIcon.textContent = '🎯';
+      const textSpan = document.createElement('span');
+      textSpan.style.overflow = 'hidden';
+      textSpan.style.textOverflow = 'ellipsis';
+      textSpan.textContent = title;
+      item.append(targetIcon, textSpan);
+      item.title = `${title} (${t.url})`;
+      item.onclick = async (ev) => {
+        ev.stopPropagation();
+        popover.style.display = 'none';
+        if (api?.rebindTerminalAffinity) {
+          await api.rebindTerminalAffinity(t.id, sessionId);
+          updateAffinityBadges();
+        }
+      };
+      popover.appendChild(item);
+    });
+  }
+
+  const rect = anchorEl.getBoundingClientRect();
+  popover.style.display = 'block';
+  popover.style.left = `${Math.max(10, Math.min(window.innerWidth - 240, rect.left))}px`;
+  popover.style.top = `${rect.bottom + 4}px`;
+
+  const closeHandler = (e) => {
+    if (!popover.contains(e.target) && e.target !== anchorEl) {
+      popover.style.display = 'none';
+      document.removeEventListener('click', closeHandler);
+    }
+  };
+  setTimeout(() => document.addEventListener('click', closeHandler), 10);
+}
 
 function showContextMenu(e, sessionId) {
   e.preventDefault();
@@ -1034,6 +1120,10 @@ contextMenu?.querySelectorAll('.context-item').forEach((item) => {
 
     if (action === 'open-folder') {
       api?.openWorkspace(targetId);
+    } else if (action === 'rebind-tab') {
+      const wrap = tabsEl.querySelector(`[data-session-id="${targetId}"]`);
+      const anchor = wrap?.querySelector('.terminal-tab-affinity-badge') || wrap || item;
+      showAffinityPicker(targetId, anchor);
     } else if (action === 'rename') {
       const wrap = tabsEl.querySelector(`[data-session-id="${targetId}"]`);
       const titleSpan = wrap?.querySelector('.terminal-tab-title');
@@ -1321,7 +1411,17 @@ function renderTabs() {
       const beacon = document.createElement('span');
       beacon.className = 'terminal-tab-status-beacon';
 
-      b.append(icon, titleSpan, beacon);
+      const affinityBadge = document.createElement('span');
+      affinityBadge.className = 'terminal-tab-affinity-badge unbound';
+      affinityBadge.setAttribute('data-session-id', s.id);
+      affinityBadge.textContent = '🎯 Gán Tab';
+      affinityBadge.title = 'Tab trình duyệt gắn với terminal này (Click để đổi)';
+      affinityBadge.onclick = (e) => {
+        e.stopPropagation();
+        showAffinityPicker(s.id, affinityBadge);
+      };
+
+      b.append(icon, titleSpan, affinityBadge, beacon);
       b.title = `${s.name} (Nhấp đúp hoặc chuột phải để đổi tên, kéo thả để sắp xếp)`;
 
       b.onclick = () => {
@@ -1373,9 +1473,25 @@ function renderTabs() {
       if (titleSpan && !wrap.classList.contains('renaming') && titleSpan.textContent !== s.name) {
         titleSpan.textContent = s.name;
       }
+      let affinityBadge = wrap.querySelector('.terminal-tab-affinity-badge');
+      if (!affinityBadge) {
+        affinityBadge = document.createElement('span');
+        affinityBadge.className = 'terminal-tab-affinity-badge unbound';
+        affinityBadge.setAttribute('data-session-id', s.id);
+        affinityBadge.textContent = '🎯 Gán Tab';
+        affinityBadge.title = 'Tab trình duyệt gắn với terminal này (Click để đổi)';
+        affinityBadge.onclick = (e) => {
+          e.stopPropagation();
+          showAffinityPicker(s.id, affinityBadge);
+        };
+        const btn = wrap.querySelector('.terminal-tab');
+        const beacon = wrap.querySelector('.terminal-tab-status-beacon');
+        if (btn && beacon) {
+          btn.insertBefore(affinityBadge, beacon);
+        }
+      }
       wrap.querySelector('.terminal-tab')?.setAttribute('title', `${s.name} (Nhấp đúp hoặc chuột phải để đổi tên, kéo thả để sắp xếp)`);
     }
-
     // Ensure DOM order matches sessions array before action buttons
     if (btnNewTerminal && btnNewTerminal.parentNode === tabsEl) {
       tabsEl.insertBefore(wrap, btnNewTerminal);
@@ -1398,6 +1514,7 @@ function renderTabs() {
       }
     }
   }
+  updateAffinityBadges();
 }
 
 api?.onTerminalSession((state) => {

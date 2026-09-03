@@ -246,6 +246,31 @@ function rpcCall(ws, method, params = {}, timeoutMs = 10000) {
   });
 }
 
+function parseLauncherArgs(argv) {
+  let explicitTabId = undefined;
+  const commandArgs = [];
+  for (let i = 0; i < argv.length; i++) {
+    const arg = argv[i];
+    if (arg.startsWith('--tab=')) {
+      const val = arg.slice('--tab='.length).trim();
+      if (!val) {
+        throw new Error('--tab requires a non-empty tabId.');
+      }
+      explicitTabId = val;
+    } else if (arg === '--tab' || arg === '-t') {
+      if (i + 1 < argv.length && !argv[i + 1].startsWith('-')) {
+        explicitTabId = argv[i + 1].trim();
+        i++;
+      } else {
+        throw new Error('--tab requires a non-empty tabId.');
+      }
+    } else {
+      commandArgs.push(arg);
+    }
+  }
+  return { tabId: explicitTabId, commandArgs };
+}
+
 async function main() {
   const rawArgs = process.argv.slice(2);
   if (rawArgs.length === 0 || rawArgs[0] === '-h' || rawArgs[0] === '--help') {
@@ -253,29 +278,16 @@ async function main() {
     process.exit(0);
   }
 
-  let explicitTabId = undefined;
-  const args = [];
-  for (let i = 0; i < rawArgs.length; i++) {
-    const arg = rawArgs[i];
-    if (arg.startsWith('--tab=')) {
-      const val = arg.slice('--tab='.length).trim();
-      if (!val) {
-        console.error('\x1b[31m[antifan-agent] Error: --tab requires a non-empty tabId.\x1b[0m');
-        process.exit(1);
-      }
-      explicitTabId = val;
-    } else if (arg === '--tab' || arg === '-t') {
-      if (i + 1 < rawArgs.length && !rawArgs[i + 1].startsWith('-')) {
-        explicitTabId = rawArgs[i + 1].trim();
-        i++;
-      } else {
-        console.error('\x1b[31m[antifan-agent] Error: --tab requires a non-empty tabId.\x1b[0m');
-        process.exit(1);
-      }
-    } else {
-      args.push(arg);
-    }
+  let parsed;
+  try {
+    parsed = parseLauncherArgs(rawArgs);
+  } catch (err) {
+    console.error(`\x1b[31m[antifan-agent] Error: ${err.message}\x1b[0m`);
+    process.exit(1);
   }
+
+  const explicitTabId = parsed.tabId;
+  const args = parsed.commandArgs;
   if (args.length === 0) {
     printUsage();
     process.exit(0);
@@ -425,6 +437,7 @@ if (require.main === module) {
     acquireBridgeSession,
     spawnAgentChild,
     resolveAgentCommand,
+    parseLauncherArgs,
   };
 }
 

@@ -40,6 +40,7 @@ interface AntiFanToolbarApi {
   closeOtherTabs: (tabId: string) => Promise<void>;
   closeTabsToRight: (tabId: string) => Promise<void>;
   setTabTerminalSession: (tabId: string, terminalSessionId: string) => Promise<boolean>;
+  rebindTerminalAffinity: (tabId?: string, terminalId?: string) => Promise<boolean>;
   navigate: (url: string, tabId?: string) => Promise<boolean>;
   reload: (tabId?: string) => Promise<boolean>;
   reloadWindow: () => Promise<boolean>;
@@ -1654,6 +1655,20 @@ if (menuItemCopyUrl) {
   });
 }
 
+const menuItemBindTerminal = document.getElementById('menuItemBindTerminal');
+if (menuItemBindTerminal) {
+  menuItemBindTerminal.addEventListener('click', async () => {
+    if (contextMenuTargetTabId) {
+      const ok = await getApi()?.rebindTerminalAffinity(contextMenuTargetTabId);
+      if (ok) {
+        showToolbarToast('🎯 Đã gán tab vào Terminal hoạt động');
+      } else {
+        showToolbarToast('Không thể gán tab vào Terminal');
+      }
+    }
+    hideTabContextMenu();
+  });
+}
 if (menuItemCloseTab) {
   menuItemCloseTab.addEventListener('click', () => {
     if (contextMenuTargetTabId) {

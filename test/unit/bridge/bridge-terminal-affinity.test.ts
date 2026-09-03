@@ -1,101 +1,155 @@
-import { describe, it } from 'node:test';
+import { describe, it, before, after } from 'node:test';
 import * as assert from 'node:assert/strict';
+import { EventEmitter } from 'node:events';
+import { WebSocket } from 'ws';
+import { BridgeServer } from '../../../src/main/bridge/bridge-server';
+import { NativeTabHost } from '../../../src/main/browser/native-tab-host';
+import { ControlPlaneRuntime } from '../../../src/main/control-plane/control-plane-runtime';
 
-describe('BridgeServer Terminal Affinity Resolution Contract Tests', () => {
-  function simulateStartSession(params: {
-    tabId?: string;
-    terminalSessionId?: string;
-    terminalGeneration?: string | number;
-    allowUserTabFallback?: boolean;
-  }, mockHost: {
-    hasTab: (id?: string | null) => boolean;
-    getTerminalAgentAffinity?: (id: string, gen?: string | number) => { tabId: string; status: 'alive' | 'closed'; lastUrl?: string } | undefined;
-    getAutomationTabId?: () => string | null;
-    getActiveTab?: () => { id: string } | null;
-    createTab?: (url: string, activate: boolean) => string;
-  }): string {
-    let tabId = params.tabId;
-    if (!tabId) {
-      const terminalSessionId = typeof params.terminalSessionId === 'string' && params.terminalSessionId.trim() ? params.terminalSessionId.trim() : undefined;
-      const terminalGen = typeof params.terminalGeneration === 'string' || typeof params.terminalGeneration === 'number' ? params.terminalGeneration : undefined;
-      if (terminalSessionId) {
-        if (typeof mockHost.getTerminalAgentAffinity === 'function') {
-          const affinity = mockHost.getTerminalAgentAffinity(terminalSessionId, terminalGen);
-          if (affinity) {
-            if (affinity.status === 'alive' && mockHost.hasTab(affinity.tabId)) {
-              tabId = affinity.tabId;
-            } else {
-              const closedNotice = affinity.lastUrl ? `(${affinity.lastUrl})` : `(${affinity.tabId})`;
-              throw new Error(`TERMINAL_TAB_CLOSED: The tab previously attached to this terminal ${closedNotice} was closed. Please rebind or specify a tabId.`);
-            }
-          } else {
-            const genNotice = terminalGen !== undefined ? ` at generation ${terminalGen}` : '';
-            throw new Error(`TERMINAL_TAB_UNBOUND: No active tab is bound to terminal session '${terminalSessionId}'${genNotice}. Please attach a tab or specify tabId.`);
-          }
-        }
-      } else {
-        const currentAutoTab = mockHost.getAutomationTabId ? mockHost.getAutomationTabId() : undefined;
-        if (currentAutoTab && mockHost.hasTab(currentAutoTab)) {
-          tabId = currentAutoTab;
-        } else if (params.allowUserTabFallback) {
-          const activeTab = mockHost.getActiveTab ? mockHost.getActiveTab() : null;
-          tabId = activeTab?.id;
-        } else if (mockHost.createTab) {
-          tabId = mockHost.createTab('about:blank', false);
-        }
+describe('BridgeServer Terminal Affinity Resolution Live RPC Contract Tests', () => {
+  let server: BridgeServer;
+  let port: number;
+  let ws: WebSocket;
+  let recordedAutomationTabId: string | null = null;
+  let lastSessionCreatedOpts: any = null;
+
+  class MockTabHost extends EventEmitter {
+    hasTab(id?: string | null) { return id === 'tab-alive' || id === 'tab-auto' || id === 'tab-active'; }
+    getAutomationTabId() { return 'tab-auto'; }
+    getActiveTabId() { return 'tab-active'; }
+    setAutomationTabId(id: string) { recordedAutomationTabId = id; }
+    getActiveTab() { return { id: 'tab-active' }; }
+    getTabList() { return [{ id: 'tab-alive' }, { id: 'tab-auto' }]; }
+    createTab() { return 'tab-created'; }
+    getTerminalAgentAffinity(termId: string, gen?: string | number) {
+      if (termId === 'term-alive' && (gen === undefined || String(gen) === '1')) {
+        return { tabId: 'tab-alive', status: 'alive' as const, lastUrl: 'https://alive.test' };
       }
+      if (termId === 'term-closed') {
+        return { tabId: 'tab-closed', status: 'closed' as const, lastUrl: 'https://closed.test' };
+      }
+      return undefined;
     }
-    return tabId || '';
   }
 
-  it('1. Successfully resolves tabId from alive terminal affinity', () => {
-    const mockHost = {
-      hasTab: (id?: string | null) => id === 'tab-bound',
-      getTerminalAgentAffinity: (id: string, gen?: string | number) => {
-        if (id === 'terminal-1' && (gen === 1 || gen === '1')) {
-          return { tabId: 'tab-bound', status: 'alive' as const, lastUrl: 'http://localhost:3000' };
+  const mockControlPlane = {
+    createCliSession: async (opts: any) => {
+      lastSessionCreatedOpts = opts;
+      return {
+        run: { id: 'run-test-123456789012' },
+        attempt: { id: 'attempt-test-123456789012' },
+        launch: {
+          attachmentId: 'binding-test-123456789012',
+          secret: 'secret-test-123456789012',
+          authorityRevision: 'rev-test-123456789012',
+          projectId: opts?.projectId || 'project-local',
+          workspaceId: opts?.workspaceId || 'workspace-local',
+          expiresAt: Date.now() + 3600000,
+        },
+      };
+    },
+  };
+
+  before(async () => {
+    const mockHost = new MockTabHost();
+    server = new BridgeServer(mockHost as unknown as NativeTabHost, 0);
+    server.setControlPlane(mockControlPlane as unknown as ControlPlaneRuntime);
+    port = await server.start();
+    const token = server.getToken();
+    ws = new WebSocket(`ws://127.0.0.1:${port}?token=${token}`);
+
+    const { promise, resolve, reject } = Promise.withResolvers<void>();
+    ws.once('open', () => resolve());
+    ws.once('error', reject);
+    await promise;
+  });
+
+  after(() => {
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.close();
+    }
+    if (server) {
+      server.dispose();
+    }
+  });
+
+  function rpcCall(method: string, params: any, timeoutMs = 5000): Promise<any> {
+    const id = `rpc-${Math.random().toString(36).slice(2)}`;
+    const { promise, resolve, reject } = Promise.withResolvers<any>();
+    const timer = setTimeout(() => {
+      ws.off('message', onMessage);
+      reject(new Error(`RPC timed out for method ${method}`));
+    }, timeoutMs);
+
+    const onMessage = (data: any) => {
+      try {
+        const parsed = JSON.parse(data.toString());
+        if (parsed.id === id) {
+          clearTimeout(timer);
+          ws.off('message', onMessage);
+          resolve(parsed);
         }
-        return undefined;
-      },
+      } catch {}
     };
+    ws.on('message', onMessage);
+    ws.send(JSON.stringify({ id, method, params }));
+    return promise;
+  }
 
-    const resolved = simulateStartSession({ terminalSessionId: 'terminal-1', terminalGeneration: 1 }, mockHost);
-    assert.strictEqual(resolved, 'tab-bound');
+  it('1. Successfully resolves alive terminal affinity and sets automation tab', async () => {
+    recordedAutomationTabId = null;
+    const resp = await rpcCall('antifan.cli.startSession', {
+      terminalSessionId: 'term-alive',
+      terminalGeneration: 1,
+    });
+
+    assert.strictEqual(resp.success, true);
+    assert.strictEqual(recordedAutomationTabId, 'tab-alive');
   });
 
-  it('2. Fails closed with TERMINAL_TAB_CLOSED when bound tab was closed', () => {
-    const mockHost = {
-      hasTab: () => false,
-      getTerminalAgentAffinity: () => ({ tabId: 'tab-closed', status: 'closed' as const, lastUrl: 'http://localhost:3000' }),
-    };
+  it('2. Fails closed with TERMINAL_TAB_CLOSED when bound tab was closed', async () => {
+    const resp = await rpcCall('antifan.cli.startSession', {
+      terminalSessionId: 'term-closed',
+    });
 
-    assert.throws(
-      () => simulateStartSession({ terminalSessionId: 'terminal-1', terminalGeneration: 1 }, mockHost),
-      (err: Error) => err.message.includes('TERMINAL_TAB_CLOSED')
-    );
+    assert.strictEqual(resp.success, false);
+    assert.ok(resp.error.includes('TERMINAL_TAB_CLOSED'));
   });
 
-  it('3. Fails closed with TERMINAL_TAB_UNBOUND when no affinity or generation mismatch (does NOT fallback to autoTab)', () => {
-    const mockHost = {
-      hasTab: (id?: string | null) => id === 'tab-auto',
-      getTerminalAgentAffinity: () => undefined,
-      getAutomationTabId: () => 'tab-auto',
-    };
+  it('3. Fails closed with TERMINAL_TAB_UNBOUND when terminal has no affinity or generation mismatch', async () => {
+    const resp = await rpcCall('antifan.cli.startSession', {
+      terminalSessionId: 'term-alive',
+      terminalGeneration: 999, // mismatch
+    });
 
-    // Even though automationTab exists, terminalSessionId was provided, so it MUST fail closed
-    assert.throws(
-      () => simulateStartSession({ terminalSessionId: 'terminal-unknown', terminalGeneration: 2 }, mockHost),
-      (err: Error) => err.message.includes('TERMINAL_TAB_UNBOUND')
-    );
+    assert.strictEqual(resp.success, false);
+    assert.ok(resp.error.includes('TERMINAL_TAB_UNBOUND'));
   });
 
-  it('4. Uses legacy fallback ONLY when no terminalSessionId was provided', () => {
-    const mockHost = {
-      hasTab: (id?: string | null) => id === 'tab-auto',
-      getAutomationTabId: () => 'tab-auto',
-    };
+  it('4. Validates explicit tabId and rejects non-existent tabId up front with TAB_NOT_FOUND', async () => {
+    const resp = await rpcCall('antifan.cli.startSession', {
+      tabId: 'tab-does-not-exist',
+    });
 
-    const resolved = simulateStartSession({}, mockHost);
-    assert.strictEqual(resolved, 'tab-auto');
+    assert.strictEqual(resp.success, false);
+    assert.ok(resp.error.includes('TAB_NOT_FOUND'));
+  });
+
+  it('5. Accepts valid explicit tabId and sets automation tab', async () => {
+    recordedAutomationTabId = null;
+    const resp = await rpcCall('antifan.cli.startSession', {
+      tabId: 'tab-alive',
+    });
+
+    assert.strictEqual(resp.success, true);
+    assert.strictEqual(recordedAutomationTabId, 'tab-alive');
+  });
+
+  it('6. Uses fallback only when terminalSessionId and tabId are omitted', async () => {
+    recordedAutomationTabId = null;
+    const resp = await rpcCall('antifan.cli.startSession', {});
+
+    assert.strictEqual(resp.success, true);
+    assert.strictEqual(recordedAutomationTabId, 'tab-auto');
   });
 });

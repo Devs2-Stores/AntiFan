@@ -832,8 +832,12 @@ export class BridgeServer {
             break;
           }
           try {
-            let tabId = p.tabId;
-            if (!tabId) {
+            let tabId = typeof p.tabId === 'string' && p.tabId.trim() ? p.tabId.trim() : undefined;
+            if (tabId) {
+              if (!this.tabHost.hasTab(tabId)) {
+                throw new Error(`TAB_NOT_FOUND: The specified tabId '${tabId}' does not exist or was closed.`);
+              }
+            } else {
               const terminalSessionId = typeof p.terminalSessionId === 'string' && p.terminalSessionId.trim() ? p.terminalSessionId.trim() : undefined;
               const terminalGen = typeof p.terminalGeneration === 'string' || typeof p.terminalGeneration === 'number' ? p.terminalGeneration : undefined;
               if (terminalSessionId) {
