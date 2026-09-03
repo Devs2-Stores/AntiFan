@@ -26,6 +26,7 @@ export interface AttachmentValidatorDelegate {
   getBackendId?: (attemptId: string) => string | undefined;
   getDocumentGeneration?: (tabId?: string) => number;
   getAutomationTabId?: () => string | null;
+  isTabAllowed?: (record: any, tabId: string) => boolean;
 }
 export interface IssueAttachmentOptions {
   chatId?: string;
@@ -633,9 +634,11 @@ export class AttachmentRegistry {
     if (claims.workspaceId && claims.workspaceId !== record.workspaceId) {
       throw new CapabilityError('LINEAGE_MISMATCH', `Workspace ID mismatch: expected ${record.workspaceId}, got ${claims.workspaceId}`);
     }
-
     if (claims.tabId && record.tabId && claims.tabId !== record.tabId) {
-      throw new CapabilityError('TARGET_MISMATCH', `Tab ID mismatch: expected ${record.tabId}, got ${claims.tabId}`);
+      const isAllowed = this.delegate?.isTabAllowed ? this.delegate.isTabAllowed(record as any, claims.tabId) : false;
+      if (!isAllowed) {
+        throw new CapabilityError('TARGET_MISMATCH', `Tab ID mismatch: expected ${record.tabId}, got ${claims.tabId}`);
+      }
     }
 
     if (claims.browserEpoch !== undefined && record.browserEpoch !== undefined && claims.browserEpoch !== record.browserEpoch) {

@@ -228,7 +228,14 @@ export class NativeTabHost extends EventEmitter {
   private tabPreviewUnsubscribers: Map<string, () => void> = new Map();
   private recentlyClosedTabs: Array<{ url: string; title: string }> = [];
   private automationTabId: string | null = null;
-  private terminalAgentAffinity = new Map<string, { tabId: string; lastUrl?: string; closedAt?: number }>();
+  private terminalAgentAffinity = new Map<string, {
+    tabId: string;
+    primaryTabId: string;
+    managedTabIds: Set<string>;
+    lastUrls?: Map<string, string>;
+    lastUrl?: string;
+    closedAt?: number;
+  }>();
   private tabThemeQaStates = new Map<string, { status: 'idle' | 'running' | 'pass' | 'fail' | 'error'; issueCount: number; reportArtifactId?: string; report?: unknown; error?: string; updatedAt: number }>();
   private asyncQaQueue = new AsyncThemeQaQueue();
   public readonly semanticRefRegistry = new SemanticRefRegistry();
@@ -1075,6 +1082,23 @@ export class NativeTabHost extends EventEmitter {
         this.broadcastState();
       }
       return ok;
+    });
+    ipcMain.handle('antifan:terminal:adopt-tab', (_event, { tabId, terminalId }: { tabId?: string; terminalId?: string }) => {
+      const targetTabId = tabId || this.activeTabId;
+      const targetTerminalId = terminalId || TerminalManager.getInstance().getActiveSessionId();
+      if (!targetTerminalId || !this.hasTab(targetTabId)) return false;
+      const session = TerminalManager.getInstance().getSession(targetTerminalId);
+      if (!session) return false;
+      return this.adoptChildTab(targetTerminalId, targetTabId, session.sessionGeneration);
+    });
+
+    ipcMain.handle('antifan:terminal:remove-tab', (_event, { tabId, terminalId }: { tabId?: string; terminalId?: string }) => {
+      const targetTabId = tabId || this.activeTabId;
+      const targetTerminalId = terminalId || TerminalManager.getInstance().getActiveSessionId();
+      if (!targetTerminalId) return false;
+      const session = TerminalManager.getInstance().getSession(targetTerminalId);
+      if (!session) return false;
+      return this.removeManagedTab(targetTerminalId, targetTabId, session.sessionGeneration);
     });
 
     ipcMain.handle('antifan:tabs:get-list', () => {
@@ -3757,6 +3781,26 @@ export class NativeTabHost extends EventEmitter {
     return Boolean(tabId && this.tabs && this.tabs.has(tabId));
   }
 
+  private resolveTerminalAffinityEntry(terminalId: string, generation?: number | string) {
+    const normGen = generation !== undefined && generation !== '' ? String(generation).trim() : undefined;
+    if (normGen) {
+      return this.terminalAgentAffinity.get(`${terminalId}@${normGen}`);
+    }
+    const prefix = `${terminalId}@`;
+    let latestEntry: any = undefined;
+    let maxGen = -1;
+    for (const [key, entry] of this.terminalAgentAffinity.entries()) {
+      if (key.startsWith(prefix)) {
+        const genNum = parseInt(key.slice(prefix.length), 10);
+        if (!isNaN(genNum) && genNum > maxGen) {
+          maxGen = genNum;
+          latestEntry = entry;
+        }
+      }
+    }
+    return latestEntry;
+  }
+
   public bindTerminalAgentAffinity(terminalId: string, generation: number | string | undefined, tabId: string): boolean {
     if (!this.terminalAgentAffinity) this.terminalAgentAffinity = new Map();
     if (!terminalId || !tabId) return false;
@@ -3767,8 +3811,114 @@ export class NativeTabHost extends EventEmitter {
     if (!session) return false;
     const resolvedGen = generation !== undefined && generation !== '' ? generation : session.sessionGeneration;
     this.clearTerminalAgentAffinity(terminalId);
-    this.terminalAgentAffinity.set(`${terminalId}@${resolvedGen}`, { tabId, lastUrl: tab.state.url });
+    const managedTabIds = new Set<string>([tabId]);
+    const lastUrls = new Map<string, string>([[tabId, tab.state.url || '']]);
+    this.terminalAgentAffinity.set(`${terminalId}@${resolvedGen}`, {
+      tabId,
+      primaryTabId: tabId,
+      managedTabIds,
+      lastUrls,
+      lastUrl: tab.state.url,
+      closedAt: undefined,
+    });
     tab.state.terminalSessionId = terminalId;
+    return true;
+  }
+
+  public adoptChildTab(terminalId: string, childTabId: string, generation?: number | string): boolean {
+    if (!this.terminalAgentAffinity || !terminalId || !childTabId) return false;
+    const childTab = this.tabs?.get(childTabId);
+    if (!childTab) return false;
+
+    const entry = this.resolveTerminalAffinityEntry(terminalId, generation);
+    if (!entry) return false;
+
+    // Hard limit: max 5 tabs per terminal
+    if (entry.managedTabIds.size >= 5 && !entry.managedTabIds.has(childTabId)) {
+      return false;
+    }
+
+    entry.managedTabIds.add(childTabId);
+    if (!entry.lastUrls) entry.lastUrls = new Map();
+    entry.lastUrls.set(childTabId, childTab.state.url || '');
+    childTab.state.terminalSessionId = terminalId;
+    this.broadcastState();
+    return true;
+  }
+
+  public adoptChildTabForBoundTab(boundTabId: string, childTabId: string): boolean {
+    if (!boundTabId || !childTabId) return false;
+    for (const [key, entry] of this.terminalAgentAffinity.entries()) {
+      if (entry.primaryTabId === boundTabId || entry.managedTabIds?.has(boundTabId)) {
+        if (entry.managedTabIds && entry.managedTabIds.size >= 5 && !entry.managedTabIds.has(childTabId)) {
+          return false;
+        }
+        if (!entry.managedTabIds) entry.managedTabIds = new Set<string>([entry.tabId]);
+        entry.managedTabIds.add(childTabId);
+        const childTab = this.tabs?.get(childTabId);
+        if (childTab) {
+          if (!entry.lastUrls) entry.lastUrls = new Map();
+          entry.lastUrls.set(childTabId, childTab.state.url || '');
+          const terminalId = key.split('@')[0];
+          childTab.state.terminalSessionId = terminalId;
+        }
+        this.broadcastState();
+        return true;
+      }
+    }
+    return false;
+  }
+
+  public getManagedTabIdsForBoundTab(boundTabId: string): Set<string> {
+    if (!boundTabId) return new Set();
+    for (const entry of this.terminalAgentAffinity.values()) {
+      if (entry.primaryTabId === boundTabId || entry.managedTabIds?.has(boundTabId)) {
+        return new Set(entry.managedTabIds);
+      }
+    }
+    return new Set([boundTabId]);
+  }
+
+  public isTabAllowedForPrimary(primaryTabId: string, requestedTabId: string): boolean {
+    if (!primaryTabId || !requestedTabId) return false;
+    if (primaryTabId === requestedTabId) return true;
+    for (const entry of this.terminalAgentAffinity.values()) {
+      if ((entry.primaryTabId === primaryTabId || entry.managedTabIds?.has(primaryTabId)) && entry.managedTabIds?.has(requestedTabId)) {
+        return !entry.closedAt;
+      }
+    }
+    return false;
+  }
+
+  public removeManagedTab(terminalId: string, tabId: string, generation?: number | string): boolean {
+    if (!this.terminalAgentAffinity || !terminalId || !tabId) return false;
+    const entry = this.resolveTerminalAffinityEntry(terminalId, generation);
+    if (!entry) return false;
+
+    entry.managedTabIds.delete(tabId);
+    if (entry.lastUrls) entry.lastUrls.delete(tabId);
+    const tab = this.tabs?.get(tabId);
+    if (tab && tab.state.terminalSessionId === terminalId) {
+      tab.state.terminalSessionId = undefined;
+    }
+
+    if (entry.primaryTabId === tabId) {
+      let nextPrimary: string | undefined;
+      for (const id of entry.managedTabIds) {
+        if (this.hasTab(id)) {
+          nextPrimary = id;
+          break;
+        }
+      }
+      if (nextPrimary) {
+        entry.primaryTabId = nextPrimary;
+        entry.tabId = nextPrimary;
+        entry.lastUrl = entry.lastUrls?.get(nextPrimary) || '';
+      } else {
+        entry.closedAt = Date.now();
+      }
+    }
+    this.broadcastState();
     return true;
   }
 
@@ -3790,7 +3940,27 @@ export class NativeTabHost extends EventEmitter {
   public tombstoneTerminalAgentAffinity(tabId: string, lastUrl?: string): void {
     if (!this.terminalAgentAffinity || !tabId) return;
     for (const entry of this.terminalAgentAffinity.values()) {
-      if (entry.tabId === tabId) {
+      if (entry.managedTabIds && entry.managedTabIds.has(tabId)) {
+        entry.managedTabIds.delete(tabId);
+        if (entry.lastUrls) entry.lastUrls.delete(tabId);
+        if (entry.primaryTabId === tabId) {
+          let nextPrimary: string | undefined;
+          for (const id of entry.managedTabIds) {
+            if (this.hasTab(id)) {
+              nextPrimary = id;
+              break;
+            }
+          }
+          if (nextPrimary) {
+            entry.primaryTabId = nextPrimary;
+            entry.tabId = nextPrimary;
+            entry.lastUrl = entry.lastUrls?.get(nextPrimary) || '';
+          } else {
+            entry.closedAt = Date.now();
+            entry.lastUrl = lastUrl || entry.lastUrl;
+          }
+        }
+      } else if (entry.tabId === tabId) {
         entry.closedAt = Date.now();
         entry.lastUrl = lastUrl || entry.lastUrl;
       }
@@ -3800,7 +3970,7 @@ export class NativeTabHost extends EventEmitter {
   public migrateTerminalAgentAffinityGeneration(terminalId: string, newGeneration: number): void {
     if (!this.terminalAgentAffinity || !terminalId) return;
     const prefix = `${terminalId}@`;
-    let existingEntry: { tabId: string; lastUrl?: string; closedAt?: number } | undefined;
+    let existingEntry: any = undefined;
     for (const [key, entry] of this.terminalAgentAffinity.entries()) {
       if (key.startsWith(prefix)) {
         existingEntry = entry;
@@ -3812,40 +3982,28 @@ export class NativeTabHost extends EventEmitter {
     }
   }
 
-  public getTerminalAgentAffinity(terminalSessionId: string, generation?: number | string): { tabId: string; status: 'alive' | 'closed'; lastUrl?: string } | undefined {
+  public getTerminalAgentAffinity(terminalSessionId: string, generation?: number | string): {
+    tabId: string;
+    primaryTabId: string;
+    managedTabIds: string[];
+    status: 'alive' | 'closed';
+    lastUrl?: string;
+  } | undefined {
     if (!this.terminalAgentAffinity || !terminalSessionId) return undefined;
-    const normGen = generation !== undefined && generation !== '' ? String(generation).trim() : undefined;
-    if (normGen) {
-      const entry = this.terminalAgentAffinity.get(`${terminalSessionId}@${normGen}`);
-      if (!entry) return undefined;
-      const alive = this.hasTab(entry.tabId);
-      return {
-        tabId: entry.tabId,
-        status: alive && !entry.closedAt ? 'alive' : 'closed',
-        lastUrl: entry.lastUrl,
-      };
-    }
-    const prefix = `${terminalSessionId}@`;
-    let latestEntry: { tabId: string; lastUrl?: string; closedAt?: number } | undefined;
-    let maxGen = -1;
-    for (const [key, entry] of this.terminalAgentAffinity.entries()) {
-      if (key.startsWith(prefix)) {
-        const genNum = parseInt(key.slice(prefix.length), 10);
-        if (!isNaN(genNum) && genNum > maxGen) {
-          maxGen = genNum;
-          latestEntry = entry;
-        }
-      }
-    }
-    if (latestEntry) {
-      const alive = this.hasTab(latestEntry.tabId);
-      return {
-        tabId: latestEntry.tabId,
-        status: alive && !latestEntry.closedAt ? 'alive' : 'closed',
-        lastUrl: latestEntry.lastUrl,
-      };
-    }
-    return undefined;
+    const entry = this.resolveTerminalAffinityEntry(terminalSessionId, generation);
+    if (!entry) return undefined;
+
+    const managedArr: string[] = Array.from(entry.managedTabIds ? entry.managedTabIds.values() : [entry.tabId]);
+    const hasAliveTab = managedArr.some((id) => this.hasTab(id)) || this.hasTab(entry.tabId);
+    const status: 'alive' | 'closed' = hasAliveTab && !entry.closedAt ? 'alive' : 'closed';
+
+    return {
+      tabId: entry.primaryTabId || entry.tabId,
+      primaryTabId: entry.primaryTabId || entry.tabId,
+      managedTabIds: managedArr,
+      status,
+      lastUrl: entry.lastUrl,
+    };
   }
 
   public getTabTerminalSession(tabId: string): string | undefined {
@@ -3855,21 +4013,25 @@ export class NativeTabHost extends EventEmitter {
     const tm = TerminalManager.getInstance();
     const liveSessions = tm.listSessions();
 
-    // 1. Check if the active terminal session has affinity to this tab
+    // 1. Check if the active terminal session has affinity to this tab (primary or managed)
     const activeSessionId = tm.getActiveSessionId();
     if (activeSessionId) {
       const activeGen = liveSessions.find((s) => s.id === activeSessionId)?.sessionGeneration;
       const affinity = this.getTerminalAgentAffinity(activeSessionId, activeGen);
-      if (affinity && affinity.status === 'alive' && affinity.tabId === tabId) {
-        return activeSessionId;
+      if (affinity && affinity.status === 'alive') {
+        if (affinity.tabId === tabId || (affinity.managedTabIds && affinity.managedTabIds.includes(tabId))) {
+          return activeSessionId;
+        }
       }
     }
 
     // 2. Check if any other live terminal session has affinity to this tab
     for (const session of liveSessions) {
       const affinity = this.getTerminalAgentAffinity(session.id, session.sessionGeneration);
-      if (affinity && affinity.status === 'alive' && affinity.tabId === tabId) {
-        return session.id;
+      if (affinity && affinity.status === 'alive') {
+        if (affinity.tabId === tabId || (affinity.managedTabIds && affinity.managedTabIds.includes(tabId))) {
+          return session.id;
+        }
       }
     }
 

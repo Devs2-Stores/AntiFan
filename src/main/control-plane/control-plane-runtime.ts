@@ -35,6 +35,7 @@ export interface ControlPlaneRuntimeOptions {
   workspaces?: WorkspaceRegistry;
   getDocumentGeneration?: (tabId?: string) => number;
   getAutomationTabId?: () => string | null;
+  isTabAllowed?: (primaryTabId: string, requestedTabId: string) => boolean;
 }
 
 export class ControlPlaneRuntime {
@@ -85,7 +86,13 @@ export class ControlPlaneRuntime {
       () => this.leaseState.hostEpoch,
       options.getDocumentGeneration,
       options.getAutomationTabId,
-      options.dataRoot
+      options.dataRoot,
+      (record: any, reqTabId: string) => {
+        if (!record?.tabId) return true;
+        if (record.tabId === reqTabId) return true;
+        if (record.allowedTabIds && record.allowedTabIds.has(reqTabId)) return true;
+        return options.isTabAllowed ? options.isTabAllowed(record.tabId, reqTabId) : false;
+      }
     );
     this.files = new WorkspaceFilePort();
     this.capabilities = new CapabilityCatalogue({
@@ -97,6 +104,7 @@ export class ControlPlaneRuntime {
       allowEval: options.allowEval ?? true,
       getActiveLease: () => this.getLease(),
       workspaceRegistry: this.workspaces,
+      isTabAllowed: options.isTabAllowed,
     });
     this.transport = new CapabilityTransportAdapter(this.capabilities, this.runs.attachments, this.ledger);
     this.terminal = new TerminalManager();

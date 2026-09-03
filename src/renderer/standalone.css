@@ -409,6 +409,18 @@ button {
   border-color: rgba(239, 68, 68, 0.3);
 }
 
+.terminal-tab-affinity-badge.multi {
+  background: rgba(168, 85, 247, 0.15);
+  color: #c084fc;
+  border-color: rgba(168, 85, 247, 0.35);
+  font-weight: 600;
+}
+.terminal-tab-affinity-badge.multi:hover {
+  background: rgba(168, 85, 247, 0.28);
+  border-color: rgba(168, 85, 247, 0.6);
+  color: #f3e8ff;
+}
+
 .terminal-affinity-picker {
   position: absolute;
   z-index: 10000;
@@ -455,6 +467,22 @@ button {
   background: rgba(56, 189, 248, 0.25);
   color: #38bdf8;
   font-weight: 600;
+}
+.terminal-affinity-picker-item.managed {
+  justify-content: space-between;
+}
+.affinity-item-remove-btn {
+  font-size: 11px;
+  color: #64748b;
+  padding: 1px 5px;
+  border-radius: 3px;
+  margin-left: 6px;
+  cursor: pointer;
+  transition: all 0.12s ease;
+}
+.affinity-item-remove-btn:hover {
+  background: rgba(239, 68, 68, 0.25);
+  color: #f87171;
 }
 .terminal-tab-rename-input {
   background: #040810;

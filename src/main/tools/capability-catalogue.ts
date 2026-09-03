@@ -23,6 +23,7 @@ export interface CapabilityCatalogueOptions {
   getActiveLease?: () => RuntimeLease;
   workspaceRegistry?: WorkspaceRegistry;
   allowEval?: boolean;
+  isTabAllowed?: (primaryTabId: string, requestedTabId: string) => boolean;
 }
 
 export class CapabilityCatalogue {
@@ -176,7 +177,10 @@ export class CapabilityCatalogue {
       if (params && typeof params === 'object' && typeof (params as Record<string, unknown>).tabId === 'string') {
         const reqTabId = ((params as Record<string, unknown>).tabId as string).trim();
         if (reqTabId && context.browserTarget?.tabId && reqTabId !== context.browserTarget.tabId) {
-          throw new CapabilityError('TARGET_MISMATCH', `Tab ID mismatch: expected ${context.browserTarget.tabId}, got ${reqTabId}`);
+          const isAllowed = this.options.isTabAllowed ? this.options.isTabAllowed(context.browserTarget.tabId, reqTabId) : false;
+          if (!isAllowed) {
+            throw new CapabilityError('TARGET_MISMATCH', `Tab ID mismatch: expected ${context.browserTarget.tabId}, got ${reqTabId}`);
+          }
         }
       }
     }

@@ -186,7 +186,7 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
     risk: 'write',
     policy: makeBrowserPolicy({ effect: 'idempotent-write', risk: 'write', requiresBrowserTarget: false, lane: 'unbounded' }),
     inputSchema: { type: 'object', properties: { url: { type: 'string' }, activate: { type: 'boolean' } } },
-    execute: (params: { url?: string; activate?: boolean }) => browser.openTab(params),
+    execute: (params: { url?: string; activate?: boolean }, context) => browser.openTab(params, { target: context?.browserTarget }),
   });
 
   catalogue.register({
@@ -794,7 +794,7 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
     risk: 'write',
     policy: makeBrowserPolicy({ effect: 'idempotent-write', risk: 'write', requiresBrowserTarget: false, lane: 'unbounded' }),
     inputSchema: { type: 'object', properties: { url: { type: 'string' }, activate: { type: 'boolean' } } },
-    execute: (params: { url?: string; activate?: boolean }) => browser.openTab(params),
+    execute: (params: { url?: string; activate?: boolean }, context) => browser.openTab(params, { target: context?.browserTarget }),
   });
 
   catalogue.register({
@@ -1408,7 +1408,7 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
     risk: 'write',
     policy: makeBrowserPolicy({ effect: 'idempotent-write', risk: 'write', requiresBrowserTarget: false, lane: 'unbounded' }),
     inputSchema: { type: 'object', properties: { url: { type: 'string' }, activate: { type: 'boolean' } } },
-    execute: (params: { url?: string; activate?: boolean }) => browser.openTab(params),
+    execute: (params: { url?: string; activate?: boolean }, context) => browser.openTab(params, { target: context?.browserTarget }),
   });
 
   catalogue.register({

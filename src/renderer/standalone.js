@@ -996,11 +996,22 @@ async function updateAffinityBadges() {
         badge.textContent = '🎯 Tab đã đóng';
         badge.title = `Tab trước đó (${affinity.lastUrl || affinity.tabId}) đã bị đóng (Click để gán lại)`;
       } else {
-        const boundTab = tabsMap.get(affinity.tabId);
-        const name = boundTab ? (boundTab.title || boundTab.url || affinity.tabId) : affinity.tabId;
-        badge.className = 'terminal-tab-affinity-badge';
-        badge.textContent = `🎯 ${name.slice(0, 14)}`;
-        badge.title = `Đang gắn với Tab: ${name} (${boundTab?.url || affinity.tabId}) (Click để đổi)`;
+        const managedCount = Array.isArray(affinity.managedTabIds) ? affinity.managedTabIds.length : 1;
+        if (managedCount > 1) {
+          badge.className = 'terminal-tab-affinity-badge multi';
+          badge.textContent = `🎯 ${managedCount} tabs`;
+          const tabNames = (affinity.managedTabIds || []).map((id) => {
+            const t = tabsMap.get(id);
+            return t ? (t.title || t.url || id) : id;
+          }).join('\n• ');
+          badge.title = `Terminal đang quản lý ${managedCount} tabs:\n• ${tabNames}\n(Click để quản lý nhóm tab)`;
+        } else {
+          const boundTab = tabsMap.get(affinity.tabId);
+          const name = boundTab ? (boundTab.title || boundTab.url || affinity.tabId) : affinity.tabId;
+          badge.className = 'terminal-tab-affinity-badge';
+          badge.textContent = `🎯 ${name.slice(0, 14)}`;
+          badge.title = `Đang gắn với Tab: ${name} (${boundTab?.url || affinity.tabId}) (Click để đổi/thêm)`;
+        }
       }
     }
   } catch {}
@@ -1014,29 +1025,52 @@ async function showAffinityPicker(sessionId, anchorEl) {
   const currentAffinity = api.getTerminalAffinity ? await api.getTerminalAffinity(sessionId) : undefined;
   popover.innerHTML = '';
 
-  const header = document.createElement('div');
-  header.className = 'terminal-affinity-picker-header';
-  header.textContent = 'Gán Tab Trình Duyệt cho Terminal';
-  popover.appendChild(header);
+  const managedSet = new Set(Array.isArray(currentAffinity?.managedTabIds) ? currentAffinity.managedTabIds : (currentAffinity?.tabId ? [currentAffinity.tabId] : []));
+  const primaryId = currentAffinity?.primaryTabId || currentAffinity?.tabId;
 
-  if (!tabs || tabs.length === 0) {
-    const empty = document.createElement('div');
-    empty.style.padding = '8px';
-    empty.style.color = '#94a3b8';
-    empty.textContent = 'Không có tab trình duyệt nào đang mở';
-    popover.appendChild(empty);
-  } else {
-    tabs.forEach((t) => {
+  // Section 1: Tab thuộc Terminal này
+  if (managedSet.size > 0) {
+    const secHeader = document.createElement('div');
+    secHeader.className = 'terminal-affinity-picker-header';
+    secHeader.textContent = `Tab thuộc Terminal này (${managedSet.size})`;
+    popover.appendChild(secHeader);
+
+    (tabs || []).filter((t) => managedSet.has(t.id)).forEach((t) => {
       const item = document.createElement('div');
-      item.className = `terminal-affinity-picker-item${currentAffinity?.tabId === t.id && currentAffinity?.status === 'alive' ? ' active' : ''}`;
+      const isPrimary = t.id === primaryId;
+      item.className = `terminal-affinity-picker-item managed${isPrimary ? ' active' : ''}`;
       const title = t.title || t.url || t.id;
+
+      const leftWrap = document.createElement('div');
+      leftWrap.style.display = 'flex';
+      leftWrap.style.alignItems = 'center';
+      leftWrap.style.gap = '6px';
+      leftWrap.style.overflow = 'hidden';
+
       const targetIcon = document.createElement('span');
-      targetIcon.textContent = '🎯';
+      targetIcon.textContent = isPrimary ? '⭐' : '🎯';
+      targetIcon.title = isPrimary ? 'Tab chính (Primary)' : 'Tab phụ (Child)';
+
       const textSpan = document.createElement('span');
       textSpan.style.overflow = 'hidden';
       textSpan.style.textOverflow = 'ellipsis';
       textSpan.textContent = title;
-      item.append(targetIcon, textSpan);
+      leftWrap.append(targetIcon, textSpan);
+
+      const removeBtn = document.createElement('span');
+      removeBtn.className = 'affinity-item-remove-btn';
+      removeBtn.textContent = '✕';
+      removeBtn.title = 'Gỡ tab này khỏi Terminal';
+      removeBtn.onclick = async (ev) => {
+        ev.stopPropagation();
+        if (api?.removeTabAffinity) {
+          await api.removeTabAffinity(t.id, sessionId);
+          updateAffinityBadges();
+          showAffinityPicker(sessionId, anchorEl);
+        }
+      };
+
+      item.append(leftWrap, removeBtn);
       item.title = `${title} (${t.url})`;
       item.onclick = async (ev) => {
         ev.stopPropagation();
@@ -1050,9 +1084,51 @@ async function showAffinityPicker(sessionId, anchorEl) {
     });
   }
 
+  // Section 2: Gán thêm Tab khác
+  const otherTabs = (tabs || []).filter((t) => !managedSet.has(t.id));
+  const addHeader = document.createElement('div');
+  addHeader.className = 'terminal-affinity-picker-header';
+  addHeader.style.marginTop = managedSet.size > 0 ? '6px' : '0';
+  addHeader.textContent = managedSet.size > 0 ? 'Gán thêm Tab khác vào Terminal' : 'Gán Tab Trình Duyệt cho Terminal';
+  popover.appendChild(addHeader);
+
+  if (otherTabs.length === 0) {
+    const empty = document.createElement('div');
+    empty.style.padding = '8px 12px';
+    empty.style.color = '#94a3b8';
+    empty.style.fontSize = '11px';
+    empty.textContent = managedSet.size > 0 ? 'Tất cả tab đang mở đều đã được gán' : 'Không có tab trình duyệt nào đang mở';
+    popover.appendChild(empty);
+  } else {
+    otherTabs.forEach((t) => {
+      const item = document.createElement('div');
+      item.className = 'terminal-affinity-picker-item';
+      const title = t.title || t.url || t.id;
+      const addIcon = document.createElement('span');
+      addIcon.textContent = managedSet.size > 0 ? '➕' : '🎯';
+      const textSpan = document.createElement('span');
+      textSpan.style.overflow = 'hidden';
+      textSpan.style.textOverflow = 'ellipsis';
+      textSpan.textContent = title;
+      item.append(addIcon, textSpan);
+      item.title = `Gán tab này: ${title} (${t.url})`;
+      item.onclick = async (ev) => {
+        ev.stopPropagation();
+        popover.style.display = 'none';
+        if (managedSet.size > 0 && api?.adoptTabAffinity) {
+          await api.adoptTabAffinity(t.id, sessionId);
+        } else if (api?.rebindTerminalAffinity) {
+          await api.rebindTerminalAffinity(t.id, sessionId);
+        }
+        updateAffinityBadges();
+      };
+      popover.appendChild(item);
+    });
+  }
+
   const rect = anchorEl.getBoundingClientRect();
   popover.style.display = 'block';
-  popover.style.left = `${Math.max(10, Math.min(window.innerWidth - 240, rect.left))}px`;
+  popover.style.left = `${Math.max(10, Math.min(window.innerWidth - 280, rect.left))}px`;
   popover.style.top = `${rect.bottom + 4}px`;
 
   const closeHandler = (e) => {

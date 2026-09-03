@@ -216,12 +216,16 @@ async function createWindow(): Promise<void> {
     allowEval: IS_MCP_HIGH_RISK,
     getAutomationTabId: () => tabHost!.getAutomationTabId(),
     getDocumentGeneration: (tabId) => tabHost!.getDocumentGeneration(tabId),
+    isTabAllowed: (primaryTabId, requestedTabId) => tabHost!.isTabAllowedForPrimary(primaryTabId, requestedTabId),
   });
   // 1. Initialize Control Plane Runtime (Ledger & Stores) before wiring tabs or bridge
   await controlPlane.initialize();
   tabHost.setControlPlane(controlPlane);
   const browserPort = new BrowserControlPort({
     hasTab: (tabId) => tabHost!.hasTab(tabId),
+    adoptChildTab: (primaryOrBoundTabId, childTabId) => tabHost!.adoptChildTabForBoundTab(primaryOrBoundTabId, childTabId),
+    getManagedTabIds: (primaryOrBoundTabId) => tabHost!.getManagedTabIdsForBoundTab(primaryOrBoundTabId),
+    isTabAllowed: (primaryOrBoundTabId, requestedTabId) => tabHost!.isTabAllowedForPrimary(primaryOrBoundTabId, requestedTabId),
     getTabList: () => tabHost!.getTabList(),
     getActiveTabId: () => tabHost!.getActiveTabId(),
     getAutomationTabId: () => tabHost!.getAutomationTabId(),

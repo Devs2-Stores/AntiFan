@@ -6,6 +6,9 @@ import { buildTreeWalkerSanitizerScript } from './adapters/tree-walker-sanitizer
 import { BrowserTarget, CapabilityError, ArtifactRef, assertExactBrowserTarget, digestText } from '../../shared/control-plane-contracts';
 export interface BrowserHostPort {
   hasTab?(tabId?: string | null): boolean;
+  adoptChildTab?(primaryOrBoundTabId: string, childTabId: string): boolean;
+  getManagedTabIds?(primaryOrBoundTabId: string): Set<string>;
+  isTabAllowed?(primaryOrBoundTabId: string, requestedTabId: string): boolean;
   getTabList(): unknown[];
   getActiveTabId?(): string;
   getAutomationTabId?(): string | null;
@@ -483,14 +486,12 @@ export class BrowserControlPort {
     const list = this.host.getTabList() || [];
     const boundTabId = context.target?.tabId;
     if (boundTabId) {
-      const boundTab = list.find((tab: any) => tab && typeof tab === 'object' && tab.id === boundTabId);
-      if (boundTab) {
-        return [{
-          ...boundTab,
-          isBoundTab: true,
-        }];
-      }
-      return [];
+      const allowedIds = this.host.getManagedTabIds ? this.host.getManagedTabIds(boundTabId) : new Set([boundTabId]);
+      return list.filter((tab: any) => tab && typeof tab === 'object' && allowedIds.has(tab.id)).map((tab: any) => ({
+        ...tab,
+        isBoundTab: true,
+        isPrimaryTab: tab.id === boundTabId,
+      }));
     }
     return list;
   }
@@ -760,9 +761,19 @@ export class BrowserControlPort {
       };
     }, { timeoutMs: params.timeoutMs, signal });
   }
-  openTab(options: { url?: string; activate?: boolean; ephemeral?: boolean } = {}): { tabId: string } {
+  openTab(options: { url?: string; activate?: boolean; ephemeral?: boolean } = {}, context?: { target?: BrowserTarget }): { tabId: string } {
     if (!this.host.createTab) throw new CapabilityError('CAPABILITY_NOT_FOUND', 'createTab is not supported by host');
+    const boundTabId = context?.target?.tabId;
+    if (boundTabId && this.host.getManagedTabIds) {
+      const currentTabs = this.host.getManagedTabIds(boundTabId);
+      if (currentTabs && currentTabs.size >= 5) {
+        throw new CapabilityError('POLICY_DENIED', 'Terminal tab limit reached (maximum 5 tabs per terminal session). Please close unused tabs.');
+      }
+    }
     const tabId = this.host.createTab(options.url || 'about:blank', options.activate ?? false, { ephemeral: options.ephemeral });
+    if (boundTabId && this.host.adoptChildTab) {
+      this.host.adoptChildTab(boundTabId, tabId);
+    }
     return { tabId };
   }
 
@@ -784,7 +795,10 @@ export class BrowserControlPort {
     if (!this.host.closeTab) throw new CapabilityError('CAPABILITY_NOT_FOUND', 'closeTab is not supported by host');
     const boundId = context?.target?.tabId;
     if (boundId && tabId.trim() !== boundId.trim()) {
-      throw new CapabilityError('TARGET_MISMATCH', `Cannot close tab "${tabId}". This session is isolated to tab "${boundId}".`);
+      const isAllowed = this.host.isTabAllowed ? this.host.isTabAllowed(boundId.trim(), tabId.trim()) : false;
+      if (!isAllowed) {
+        throw new CapabilityError('TARGET_MISMATCH', `Cannot close tab "${tabId}". This session is isolated to tab "${boundId}" and its managed tabs.`);
+      }
     }
     return { closed: this.host.closeTab(tabId) };
   }
@@ -1523,7 +1537,10 @@ export class BrowserControlPort {
         throw new CapabilityError('CAPABILITY_NOT_FOUND', `Unknown tab ID: ${explicitTabId}`);
       }
       if (operationType === 'write' && target?.tabId && target.tabId.trim().length > 0 && explicitTabId.trim() !== target.tabId.trim()) {
-        throw new CapabilityError('TARGET_MISMATCH', `Explicit tabId "${explicitTabId}" does not match target tabId "${target.tabId}"`);
+        const isAllowed = this.host.isTabAllowed ? this.host.isTabAllowed(target.tabId.trim(), explicitTabId.trim()) : false;
+        if (!isAllowed) {
+          throw new CapabilityError('TARGET_MISMATCH', `Explicit tabId "${explicitTabId}" does not match target tabId "${target.tabId}"`);
+        }
       }
       resolved = explicitTabId.trim();
     } else if (target?.tabId && target.tabId.trim().length > 0) {

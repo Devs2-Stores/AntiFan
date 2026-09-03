@@ -16,10 +16,15 @@ interface TestHost {
   activeTabId: string;
   hasTab(tabId?: string | null): boolean;
   bindTerminalAgentAffinity(terminalId: string, generation: number | string | undefined, tabId: string): boolean;
+  adoptChildTab(terminalId: string, childTabId: string, generation?: number | string): boolean;
+  adoptChildTabForBoundTab(boundTabId: string, childTabId: string): boolean;
+  getManagedTabIdsForBoundTab(boundTabId: string): Set<string>;
+  isTabAllowedForPrimary(primaryTabId: string, requestedTabId: string): boolean;
+  removeManagedTab(terminalId: string, tabId: string, generation?: number | string): boolean;
   clearTerminalAgentAffinity(terminalId: string): void;
   migrateTerminalAgentAffinityGeneration(terminalId: string, newGeneration: number): void;
   tombstoneTerminalAgentAffinity(tabId: string, lastUrl?: string): void;
-  getTerminalAgentAffinity(terminalSessionId: string, generation?: number | string): { tabId: string; status: 'alive' | 'closed'; lastUrl?: string } | undefined;
+  getTerminalAgentAffinity(terminalSessionId: string, generation?: number | string): { tabId: string; status: 'alive' | 'closed'; lastUrl?: string; managedTabIds?: string[] } | undefined;
   getTabTerminalSession(tabId: string): string | undefined;
   setTabTerminalSession(tabId: string, sessionId?: string): boolean;
   closeTab(tabId: string): boolean;
@@ -231,6 +236,134 @@ describe('Terminal-to-Tab Agent Affinity Contract Tests (NativeTabHost Seam)', (
     assert.throws(
       () => port.closeTab('tab-youtube', { target: boundTarget }),
       (err: any) => err.code === 'TARGET_MISMATCH' && err.message.includes('isolated to tab')
+    );
+  });
+  it('11. Multi-Tab Affinity: adoptChildTab allows terminal to manage multiple tabs (Primary + Child)', () => {
+    const host = createTestHost(['tab-live', 'tab-local', 'tab-unrelated']);
+
+    // 1. Initial bind to tab-live
+    assert.strictEqual(host.bindTerminalAgentAffinity('terminal-1', 1, 'tab-live'), true);
+    const initialAffinity = host.getTerminalAgentAffinity('terminal-1', 1);
+    assert.ok(initialAffinity);
+    assert.strictEqual(initialAffinity.tabId, 'tab-live');
+    assert.deepStrictEqual(initialAffinity.managedTabIds, ['tab-live']);
+
+    // 2. Adopt tab-local into the same terminal
+    assert.strictEqual(host.adoptChildTab('terminal-1', 'tab-local', 1), true);
+    const multiAffinity = host.getTerminalAgentAffinity('terminal-1', 1);
+    assert.ok(multiAffinity);
+    assert.strictEqual(multiAffinity.managedTabIds?.length, 2);
+    assert.ok(multiAffinity.managedTabIds?.includes('tab-live'));
+    assert.ok(multiAffinity.managedTabIds?.includes('tab-local'));
+
+    // 3. Permission verification: both tabs are allowed!
+    assert.strictEqual(host.isTabAllowedForPrimary('tab-live', 'tab-live'), true);
+    assert.strictEqual(host.isTabAllowedForPrimary('tab-live', 'tab-local'), true);
+    // Unrelated tab is rejected:
+    assert.strictEqual(host.isTabAllowedForPrimary('tab-live', 'tab-unrelated'), false);
+  });
+
+  it('12. Auto-Adoption in openTab and enforces max 5 tabs rate limit', () => {
+    let createdCount = 0;
+    const managedSet = new Set(['tab-primary']);
+    const mockHost = {
+      createTab: (_url?: string) => {
+        createdCount++;
+        return `tab-child-${createdCount}`;
+      },
+      getManagedTabIds: (_primaryId: string) => managedSet,
+      adoptChildTab: (_primaryId: string, childId: string) => {
+        managedSet.add(childId);
+        return true;
+      },
+      isTabAllowed: (_primaryId: string, targetId: string) => managedSet.has(targetId),
+    };
+    const port = new BrowserControlPort(mockHost as any);
+    const boundTarget = { tabId: 'tab-primary', projectId: 'proj-1', workspaceId: 'ws-1', runtimeId: 'rt-1', browserEpoch: 1, documentGeneration: 1 } as any;
+
+    // Spawn 4 child tabs (total 5 tabs: primary + 4 children)
+    for (let i = 1; i <= 4; i++) {
+      const res = port.openTab({ url: `http://localhost:${3000 + i}` }, { target: boundTarget });
+      assert.strictEqual(res.tabId, `tab-child-${i}`);
+    }
+    assert.strictEqual(managedSet.size, 5);
+
+    // Attempting 6th tab: throws POLICY_DENIED
+    assert.throws(
+      () => port.openTab({ url: 'http://localhost:3005' }, { target: boundTarget }),
+      (err: any) => err.code === 'POLICY_DENIED' && err.message.includes('maximum 5 tabs')
+    );
+  });
+
+  it('13. listTabs returns all managed tabs with isBoundTab: true and marks primary', () => {
+    const managedSet = new Set(['tab-live', 'tab-local']);
+    const mockHost = {
+      getTabList: () => [
+        { id: 'tab-live', title: 'Live Shop' },
+        { id: 'tab-local', title: 'Local Dev' },
+        { id: 'tab-music', title: 'YouTube Music' },
+      ],
+      getManagedTabIds: (_id: string) => managedSet,
+    };
+    const port = new BrowserControlPort(mockHost as any);
+    const boundTarget = { tabId: 'tab-live', projectId: 'proj-1', workspaceId: 'ws-1', runtimeId: 'rt-1', browserEpoch: 1, documentGeneration: 1 } as any;
+    const res = port.listTabs({ target: boundTarget }) as any[];
+
+    assert.strictEqual(res.length, 2);
+    assert.strictEqual(res[0].id, 'tab-live');
+    assert.strictEqual(res[0].isPrimaryTab, true);
+    assert.strictEqual(res[0].isBoundTab, true);
+
+    assert.strictEqual(res[1].id, 'tab-local');
+    assert.strictEqual(res[1].isPrimaryTab, false);
+    assert.strictEqual(res[1].isBoundTab, true);
+
+    // Private YouTube tab is NOT in list!
+    assert.strictEqual(res.some((t: any) => t.id === 'tab-music'), false);
+  });
+
+  it('14. Primary Tab Closure triggers Failover Promotion, keeping terminal session alive', () => {
+    const host = createTestHost(['tab-live', 'tab-local']);
+
+    host.bindTerminalAgentAffinity('terminal-1', 1, 'tab-live');
+    host.adoptChildTab('terminal-1', 'tab-local', 1);
+
+    // Close tab-live: tab-local must be promoted!
+    host.tabs.delete('tab-live');
+    host.tombstoneTerminalAgentAffinity('tab-live', 'https://roahtrip.com');
+    const afterAffinity = host.getTerminalAgentAffinity('terminal-1', 1);
+    assert.ok(afterAffinity);
+    assert.strictEqual(afterAffinity.status, 'alive', 'Terminal must stay alive after primary close if child exists');
+    assert.strictEqual(afterAffinity.tabId, 'tab-local', 'tab-local must be promoted to primary');
+    assert.deepStrictEqual(afterAffinity.managedTabIds, ['tab-local']);
+
+    // Now close tab-local as well: only now is the terminal tombstoned
+    host.tabs.delete('tab-local');
+    host.tombstoneTerminalAgentAffinity('tab-local', 'http://localhost:3000');
+    const closedAffinity = host.getTerminalAgentAffinity('terminal-1', 1);
+    assert.ok(closedAffinity);
+    assert.strictEqual(closedAffinity.status, 'closed', 'Terminal must be marked closed when all managed tabs are closed');
+  });
+
+  it('15. resolveTargetTab permits any managed child tab without TARGET_MISMATCH', () => {
+    const managedSet = new Set(['tab-primary', 'tab-child']);
+    const mockHost = {
+      hasTab: (id: string) => managedSet.has(id) || id === 'tab-youtube',
+      isTabAllowed: (primaryId: string, requestedId: string) => primaryId === 'tab-primary' && managedSet.has(requestedId),
+    };
+    const port = new BrowserControlPort(mockHost as any);
+    const boundTarget = { tabId: 'tab-primary', projectId: 'proj-1', workspaceId: 'ws-1', runtimeId: 'rt-1', browserEpoch: 1, documentGeneration: 1 } as any;
+
+    // 1. Write on primary tab: allowed
+    assert.strictEqual((port as any).resolveTargetTab(boundTarget, 'tab-primary', 'write'), 'tab-primary');
+
+    // 2. Write on child tab: allowed without TARGET_MISMATCH!
+    assert.strictEqual((port as any).resolveTargetTab(boundTarget, 'tab-child', 'write'), 'tab-child');
+
+    // 3. Write on unrelated tab: throws TARGET_MISMATCH
+    assert.throws(
+      () => (port as any).resolveTargetTab(boundTarget, 'tab-youtube', 'write'),
+      (err: any) => err.code === 'TARGET_MISMATCH' && err.message.includes('does not match')
     );
   });
 });
