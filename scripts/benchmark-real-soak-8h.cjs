@@ -27,6 +27,52 @@ const TOTAL_MINUTES = parseFloat(process.env.SOAK_DURATION_MINUTES || '480');
 const WARMUP_MINUTES = parseFloat(process.env.SOAK_WARMUP_MINUTES || '30');
 const RECOVERY_MINUTES = parseFloat(process.env.SOAK_RECOVERY_MINUTES || '30');
 const WORKLOAD_MINUTES = Math.max(0.1, TOTAL_MINUTES - WARMUP_MINUTES - RECOVERY_MINUTES);
+const SAMPLE_INTERVAL_SECONDS = parseFloat(process.env.SOAK_SAMPLE_INTERVAL_SECONDS || '60');
+const SAMPLE_INTERVAL_MS = SAMPLE_INTERVAL_SECONDS * 1000;
+function spawnKeepAwakeProcess() {
+  if (process.platform !== 'win32') return null;
+  const psScript = `
+    $code = @'
+    using System;
+    using System.Runtime.InteropServices;
+    public class KeepAwake {
+        [DllImport("kernel32.dll", SetLastError = true)]
+        public static extern int SetThreadExecutionState(int esFlags);
+    }
+'@
+    Add-Type -TypeDefinition $code
+    $ES_CONTINUOUS = [int]0x80000000
+    $ES_SYSTEM_REQUIRED = 0x00000001
+    $ES_AWAYMODE_REQUIRED = 0x00000040
+    $flags = $ES_CONTINUOUS -bor $ES_SYSTEM_REQUIRED -bor $ES_AWAYMODE_REQUIRED
+    $res = [KeepAwake]::SetThreadExecutionState($flags)
+    Write-Output "KEEP_AWAKE_ACTIVE:$res"
+    while ($true) {
+        Start-Sleep -Seconds 30
+        [KeepAwake]::SetThreadExecutionState($flags)
+    }
+  `;
+  try {
+    const p = spawn('powershell.exe', ['-NoLogo', '-NoProfile', '-Command', psScript], {
+      windowsHide: true,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    p.stdout.on('data', (d) => {
+      if (d.toString().includes('KEEP_AWAKE_ACTIVE')) {
+        console.log(`[soak] Windows keep-awake active (PID: ${p.pid}, SetThreadExecutionState ES_CONTINUOUS|ES_SYSTEM_REQUIRED|ES_AWAYMODE_REQUIRED)`);
+      }
+    });
+    p.on('exit', (code) => {
+      if (code !== 0 && code !== null) {
+        console.warn(`[soak] Windows keep-awake process exited with code ${code}`);
+      }
+    });
+    return p;
+  } catch (err) {
+    console.warn('[soak] Failed to spawn keep-awake process:', err.message);
+    return null;
+  }
+}
 const FREEZE_SLO = {
   overallSlopeMBPerMin: 0.35,
   rendererSlopeMBPerMin: 0.15,
@@ -80,10 +126,10 @@ function evaluateFreezeVerdict(meta, metrics, orphanPidsCount) {
     verdict: isPassed ? 'PASSED' : 'FAILED',
   };
 }
-function calculateSlope(samples, key) {
+function calculateSlope(samples, key, timeKey = 'activeAt') {
   if (!samples || samples.length < 2) return null;
-  const t0 = samples[0].at;
-  const xs = samples.map((s) => (s.at - t0) / 60000);
+  const t0 = samples[0][timeKey] ?? samples[0].at;
+  const xs = samples.map((s) => ((s[timeKey] ?? s.at) - t0) / 60000);
   const ys = samples.map((s) => Number(s[key] || 0));
   const mx = xs.reduce((a, b) => a + b, 0) / xs.length;
   const my = ys.reduce((a, b) => a + b, 0) / ys.length;
@@ -107,19 +153,24 @@ function execFilePromise(file, args, options = {}) {
 
 async function getWindowsProcessTable() {
   const cmd = "$p=Get-CimInstance Win32_Process | Select-Object ProcessId,ParentProcessId,Name,WorkingSetSize,CommandLine; $p | ConvertTo-Json -Compress";
-  try {
-    const raw = await execFilePromise('powershell.exe', ['-NoLogo', '-NoProfile', '-Command', cmd], {
-      windowsHide: true,
-      maxBuffer: 16 * 1024 * 1024,
-      timeout: 15000,
-    });
-    const parsed = JSON.parse(raw.trim() || '[]');
-    const rows = Array.isArray(parsed) ? parsed : [parsed];
-    return { ok: true, rows };
-  } catch (err) {
-    console.warn('[soak] Failed to query process table:', err.message);
-    return { ok: false, rows: [], error: err.message };
+  let lastError = null;
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try {
+      const raw = await execFilePromise('powershell.exe', ['-NoLogo', '-NoProfile', '-Command', cmd], {
+        windowsHide: true,
+        maxBuffer: 16 * 1024 * 1024,
+        timeout: 30000,
+      });
+      const parsed = JSON.parse(raw.trim() || '[]');
+      const rows = Array.isArray(parsed) ? parsed : [parsed];
+      return { ok: true, rows };
+    } catch (err) {
+      lastError = err;
+      console.warn(`[soak] Process table query attempt ${attempt}/3 failed: ${err.message}`);
+      if (attempt < 3) await sleep(2000);
+    }
   }
+  return { ok: false, rows: [], error: lastError?.message || 'Unknown error' };
 }
 
 function collectProcessTree(allProcesses, rootPid) {
@@ -155,10 +206,10 @@ function classifyProcess(row, rootPid) {
   return 'other';
 }
 
-async function sampleMetrics(rootPid, label) {
+async function sampleMetrics(rootPid, label, totalSuspendedMs = 0) {
   const procResult = await getWindowsProcessTable();
   if (!procResult.ok) {
-    throw new Error(`Process table query failed during sample (${label}): ${procResult.error}`);
+    return { ok: false, error: `Process table query failed during sample (${label}): ${procResult.error}` };
   }
   const all = procResult.rows;
   const tree = collectProcessTree(all, rootPid);
@@ -175,13 +226,18 @@ async function sampleMetrics(rootPid, label) {
   for (const k of Object.keys(byType)) {
     byType[k].workingSetMB = Number(byType[k].workingSetMB.toFixed(2));
   }
+  const now = Date.now();
   return {
-    at: Date.now(),
-    label,
-    totalWorkingSetMB: Number(totalMB.toFixed(2)),
-    processCount: tree.length,
-    byType,
-    pids: tree.map((r) => Number(r.ProcessId)),
+    ok: true,
+    sample: {
+      at: now,
+      activeAt: now - totalSuspendedMs,
+      label,
+      totalWorkingSetMB: Number(totalMB.toFixed(2)),
+      processCount: tree.length,
+      byType,
+      pids: tree.map((r) => Number(r.ProcessId)),
+    },
   };
 }
 
@@ -189,20 +245,24 @@ function calculateRollingSlopes(samples, windowMinutes = 60) {
   const windowMs = windowMinutes * 60 * 1000;
   const slopes = [];
   if (samples.length < 10) return slopes;
-  const startT = samples[0].at;
-  const endT = samples[samples.length - 1].at;
+  const startT = samples[0].activeAt ?? samples[0].at;
+  const endT = samples[samples.length - 1].activeAt ?? samples[samples.length - 1].at;
   for (let t = startT + windowMs; t <= endT; t += 10 * 60 * 1000) {
-    const windowSamples = samples.filter((s) => s.at >= t - windowMs && s.at <= t);
+    const windowSamples = samples.filter((s) => {
+      const sat = s.activeAt ?? s.at;
+      return sat >= t - windowMs && sat <= t;
+    });
     if (windowSamples.length >= 5) {
       slopes.push({
         at: new Date(t).toISOString(),
-        slopeMBPerMin: Number(calculateSlope(windowSamples, 'totalWorkingSetMB').toFixed(4)),
+        slopeMBPerMin: Number(calculateSlope(windowSamples, 'totalWorkingSetMB', 'activeAt').toFixed(4)),
         sampleCount: windowSamples.length,
       });
     }
   }
   return slopes;
 }
+
 
 function buildReportPayload(meta) {
   const {
@@ -251,19 +311,21 @@ function buildReportPayload(meta) {
       reloads,
       terminalEventsCount: terminalEvents.length,
       totalSamples: samples.length,
+      totalSuspendedMinutes: meta.totalSuspendedMinutes || 0,
+      activeWorkloadMinutes: meta.activeWorkloadMinutes || 0,
     },
     metrics: (() => {
       const rawMetrics = {
         switchLatencyMs: quantiles(switchLatencies.map((v) => Number(v.toFixed(3)))),
         activeWorkingSetMB: quantiles(totals),
         activeRendererWorkingSetMB: quantiles(rendererTotals),
-        overallActiveSlopeMBPerMin: calculateSlope(activeSamples, 'totalWorkingSetMB') !== null ? Number(calculateSlope(activeSamples, 'totalWorkingSetMB').toFixed(6)) : null,
-        overallActiveSlopeMBPerHour: calculateSlope(activeSamples, 'totalWorkingSetMB') !== null ? Number((calculateSlope(activeSamples, 'totalWorkingSetMB') * 60).toFixed(4)) : null,
-        rendererActiveSlopeMBPerMin: calculateSlope(activeSamples.map((s) => ({ at: s.at, rMB: s.byType?.renderer?.workingSetMB || 0 })), 'rMB') !== null
-          ? Number(calculateSlope(activeSamples.map((s) => ({ at: s.at, rMB: s.byType?.renderer?.workingSetMB || 0 })), 'rMB').toFixed(6))
+        overallActiveSlopeMBPerMin: calculateSlope(activeSamples, 'totalWorkingSetMB', 'activeAt') !== null ? Number(calculateSlope(activeSamples, 'totalWorkingSetMB', 'activeAt').toFixed(6)) : null,
+        overallActiveSlopeMBPerHour: calculateSlope(activeSamples, 'totalWorkingSetMB', 'activeAt') !== null ? Number((calculateSlope(activeSamples, 'totalWorkingSetMB', 'activeAt') * 60).toFixed(4)) : null,
+        rendererActiveSlopeMBPerMin: calculateSlope(activeSamples.map((s) => ({ activeAt: s.activeAt ?? s.at, rMB: s.byType?.renderer?.workingSetMB || 0 })), 'rMB', 'activeAt') !== null
+          ? Number(calculateSlope(activeSamples.map((s) => ({ activeAt: s.activeAt ?? s.at, rMB: s.byType?.renderer?.workingSetMB || 0 })), 'rMB', 'activeAt').toFixed(6))
           : null,
-        rendererActiveSlopeMBPerHour: calculateSlope(activeSamples.map((s) => ({ at: s.at, rMB: s.byType?.renderer?.workingSetMB || 0 })), 'rMB') !== null
-          ? Number((calculateSlope(activeSamples.map((s) => ({ at: s.at, rMB: s.byType?.renderer?.workingSetMB || 0 })), 'rMB') * 60).toFixed(4))
+        rendererActiveSlopeMBPerHour: calculateSlope(activeSamples.map((s) => ({ activeAt: s.activeAt ?? s.at, rMB: s.byType?.renderer?.workingSetMB || 0 })), 'rMB', 'activeAt') !== null
+          ? Number((calculateSlope(activeSamples.map((s) => ({ activeAt: s.activeAt ?? s.at, rMB: s.byType?.renderer?.workingSetMB || 0 })), 'rMB', 'activeAt') * 60).toFixed(4))
           : null,
         rolling60MinSlopes: calculateRollingSlopes(activeSamples, 60),
         initialLoadedMB: samples[0]?.totalWorkingSetMB || null,
@@ -306,6 +368,7 @@ async function main() {
   const configDir = path.join(soakDataDir, 'config');
   fs.mkdirSync(configDir, { recursive: true });
 
+  const keepAwakeProcess = spawnKeepAwakeProcess();
   // 1. Start Local Fixture Server
   let requestCount = 0;
   let fixturePort = null;
@@ -350,6 +413,8 @@ async function main() {
     switches: 0,
     bursts: 0,
     reloads: 0,
+    totalSuspendedMinutes: 0,
+    activeWorkloadMinutes: 0,
     stdout: '',
     stderr: '',
   };
@@ -539,12 +604,19 @@ async function main() {
     }
   };
 
-  samples.push(await sampleMetrics(child.pid, 'warmup'));
+  const initialRes = await sampleMetrics(child.pid, 'warmup');
+  if (initialRes.ok && initialRes.sample) {
+    samples.push(initialRes.sample);
+  } else {
+    console.warn('[soak] Initial sample warning:', initialRes.error);
+  }
 
   const startTime = Date.now();
-  const warmupEndTime = startTime + WARMUP_MINUTES * 60 * 1000;
-  const workloadEndTime = warmupEndTime + WORKLOAD_MINUTES * 60 * 1000;
-  const totalEndTime = workloadEndTime + RECOVERY_MINUTES * 60 * 1000;
+  let warmupEndTime = startTime + WARMUP_MINUTES * 60 * 1000;
+  let workloadEndTime = warmupEndTime + WORKLOAD_MINUTES * 60 * 1000;
+  let totalEndTime = workloadEndTime + RECOVERY_MINUTES * 60 * 1000;
+  let totalSuspendedMs = 0;
+  let consecutiveSampleErrors = 0;
 
   console.log(`[soak] Phase 1: Warmup started (until ${new Date(warmupEndTime).toLocaleTimeString()})`);
 
@@ -553,7 +625,6 @@ async function main() {
   let nextBurstTime = startTime;
   let nextReloadTime = startTime;
   let lastCheckpointTime = startTime;
-
   while (Date.now() < totalEndTime) {
     if (interruptedSignal) {
       throw new Error(`Interrupted by ${interruptedSignal}`);
@@ -567,8 +638,8 @@ async function main() {
       throw new Error(`Child process exited unexpectedly with code ${childExitCode}`);
     }
     const now = Date.now();
+    stateMeta.activeWorkloadMinutes = Number(((now - startTime - totalSuspendedMs) / 60000).toFixed(2));
     const currentPhase = now < warmupEndTime ? 'warmup' : now < workloadEndTime ? 'workload' : 'recovery';
-    // 1. Tab Switching (Active in warmup & workload)
     if (currentPhase !== 'recovery' && now >= nextSwitchTime && tabIds.length > 0) {
       const tabId = tabIds[switches % tabIds.length];
       const t0 = performance.now();
@@ -604,11 +675,26 @@ async function main() {
       nextReloadTime = now + 90000;
     }
 
-    // 4. Sample Metrics (every 10 seconds)
+    // 4. Sample Metrics (every SAMPLE_INTERVAL_MS, default 60s)
     if (now >= nextSampleTime) {
-      const s = await sampleMetrics(child.pid, currentPhase);
-      samples.push(s);
-      nextSampleTime = now + 10000;
+      try {
+        const res = await sampleMetrics(child.pid, currentPhase, totalSuspendedMs);
+        if (res.ok && res.sample) {
+          samples.push(res.sample);
+          consecutiveSampleErrors = 0;
+        } else {
+          consecutiveSampleErrors++;
+          console.warn(`[soak] Metric sample failure (${consecutiveSampleErrors} consecutive): ${res.error}`);
+          if (consecutiveSampleErrors >= 5) {
+            throw new Error(`Critical: Exceeded maximum consecutive sample failures (5): ${res.error}`);
+          }
+        }
+      } catch (err) {
+        if (consecutiveSampleErrors >= 5) {
+          throw err;
+        }
+      }
+      nextSampleTime = now + SAMPLE_INTERVAL_MS;
     }
 
     // 5. Periodic Checkpoint (every 10 minutes)
@@ -617,7 +703,19 @@ async function main() {
       lastCheckpointTime = now;
     }
 
+    const preSleep = Date.now();
     await sleep(100);
+    const postSleep = Date.now();
+    const sleepDelta = postSleep - preSleep;
+    if (sleepDelta > 5000) {
+      const suspendedMs = sleepDelta - 100;
+      totalSuspendedMs += suspendedMs;
+      warmupEndTime += suspendedMs;
+      workloadEndTime += suspendedMs;
+      totalEndTime += suspendedMs;
+      stateMeta.totalSuspendedMinutes = Number((totalSuspendedMs / 60000).toFixed(2));
+      console.warn(`[soak] Machine sleep/suspension detected! Sleep delta ${sleepDelta}ms (gap: ${(suspendedMs / 60000).toFixed(2)} min). Adjusted deadlines to guarantee full 8h active workload.`);
+    }
   }
   } catch (err) {
     executionError = err;
@@ -625,6 +723,9 @@ async function main() {
     process.removeListener('SIGINT', onSignal);
     process.removeListener('SIGTERM', onSignal);
     console.log('[soak] Soak workload phase concluded. Running guaranteed resource teardown...');
+    if (keepAwakeProcess && keepAwakeProcess.pid) {
+      try { process.kill(keepAwakeProcess.pid); } catch {}
+    }
     isIntentionalTeardown = true;
 
     if (ws && tabIds.length > 0) {
@@ -640,10 +741,14 @@ async function main() {
       try {
         console.log('[soak] Measuring final recovery state...');
         await sleep(10000);
-        samples.push(await sampleMetrics(child.pid, 'recovery'));
+        const recRes = await sampleMetrics(child.pid, 'recovery', totalSuspendedMs);
+        if (recRes.ok && recRes.sample) {
+          samples.push(recRes.sample);
+        } else {
+          console.warn('[soak] Recovery state sampling warning:', recRes.error);
+        }
       } catch (recErr) {
         console.error('[soak] Recovery state sampling failed:', recErr.message);
-        executionError = recErr;
       }
     }
     const pidsBeforeKill = [...new Set(samples.flatMap((s) => s.pids))];
