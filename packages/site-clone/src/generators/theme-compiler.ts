@@ -283,13 +283,22 @@ export class ThemeCompiler {
       throw new Error('ThemeCompiler: templates/index.json validation failed');
     }
 
-    // Verify valid JSON
+    // Verify valid JSON and theme graph connectivity
     try {
-      JSON.parse(fs.readFileSync(indexJson, 'utf-8'));
+      const parsedIndex = JSON.parse(fs.readFileSync(indexJson, 'utf-8'));
+      if (parsedIndex.sections && typeof parsedIndex.sections === 'object') {
+        for (const [secKey, secObj] of Object.entries(parsedIndex.sections)) {
+          const secType = (secObj as any)?.type || secKey;
+          const secPath = path.join(stagingDir, 'sections', `${secType}.liquid`);
+          if (!fs.existsSync(secPath)) {
+            throw new Error(`ThemeCompiler: orphaned section reference "${secKey}" (type: "${secType}") - file "${secType}.liquid" not found`);
+          }
+        }
+      }
     } catch (err: unknown) {
+      if (err instanceof Error && err.message.startsWith('ThemeCompiler:')) throw err;
       throw new Error(`ThemeCompiler: invalid templates/index.json: ${err instanceof Error ? err.message : String(err)}`);
     }
-
     const settingsSchema = path.join(stagingDir, 'config', 'settings_schema.json');
     if (!fs.existsSync(settingsSchema) || fs.statSync(settingsSchema).size === 0) {
       throw new Error('ThemeCompiler: config/settings_schema.json validation failed');

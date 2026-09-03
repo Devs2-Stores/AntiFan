@@ -256,6 +256,7 @@
         "vendor": { "type": "string" },
         "price": { "type": "number" },
         "compareAtPrice": { "type": "number" },
+        "currency": { "type": "string" },
         "featuredImage": { "type": "string" },
         "available": { "type": "boolean" },
         "url": { "type": "string" }

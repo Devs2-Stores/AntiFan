@@ -4,6 +4,14 @@
  */
 import type { StorefrontControllerContract } from './clone-ir.js';
 
+export interface StateTransitionLifecycle {
+  from: 'closed' | 'opening' | 'open' | 'closing' | 'default' | 'hover';
+  to: 'closed' | 'opening' | 'open' | 'closing' | 'default' | 'hover';
+  durationMs?: number;
+  easing?: string;
+  styleDeltas?: Record<string, [string, string]>;
+}
+
 export interface StateTransitionModel {
   id?: string;
   sectionId?: string;
@@ -11,6 +19,7 @@ export interface StateTransitionModel {
   triggerEvent: 'click' | 'mouseover' | 'mouseout' | 'keydown' | 'focus';
   targetSelector: string;
   triggerSelector: string;
+  lifecycle?: StateTransitionLifecycle[];
   stateDelta: {
     property?: string;
     active: boolean;
@@ -135,27 +144,79 @@ export class StateSynthesizer {
       let triggerEvent: StateTransitionModel['triggerEvent'] = 'click';
       let effectType: StateTransitionModel['effectType'] = 'class_toggle';
       let ariaDelta: StateTransitionModel['ariaDelta'];
+      let lifecycle: StateTransitionLifecycle[] = [];
 
       switch (ctrl.type) {
         case 'dropdown':
           triggerEvent = ctrl.behavior === 'hover_intent' ? 'mouseover' : 'click';
           effectType = 'class_toggle';
           ariaDelta = { attribute: 'aria-expanded', to: 'true' };
+          lifecycle = [
+            {
+              from: 'closed',
+              to: 'open',
+              durationMs: 150,
+              easing: 'ease-out',
+              styleDeltas: {
+                opacity: ['0', '1'],
+                transform: ['translateY(-4px)', 'translateY(0)']
+              }
+            }
+          ];
           break;
         case 'modal':
         case 'drawer':
           triggerEvent = 'click';
           effectType = 'visibility_toggle';
           ariaDelta = { attribute: 'aria-hidden', to: 'false' };
+          lifecycle = [
+            {
+              from: 'closed',
+              to: 'opening',
+              durationMs: 200,
+              easing: 'cubic-bezier(0.16, 1, 0.3, 1)',
+              styleDeltas: {
+                opacity: ['0', '1'],
+                transform: ['scale(0.95)', 'scale(1)']
+              }
+            },
+            {
+              from: 'open',
+              to: 'closing',
+              durationMs: 150,
+              easing: 'ease-in',
+              styleDeltas: {
+                opacity: ['1', '0']
+              }
+            }
+          ];
           break;
         case 'carousel':
           triggerEvent = 'click';
           effectType = 'css_scroll_snap';
+          lifecycle = [
+            {
+              from: 'default',
+              to: 'default',
+              durationMs: 300,
+              easing: 'smooth'
+            }
+          ];
           break;
         case 'tabs':
           triggerEvent = 'click';
           effectType = 'class_toggle';
           ariaDelta = { attribute: 'aria-selected', to: 'true' };
+          lifecycle = [
+            {
+              from: 'default',
+              to: 'open',
+              durationMs: 100,
+              styleDeltas: {
+                opacity: ['0', '1']
+              }
+            }
+          ];
           break;
         case 'form_validation':
           triggerEvent = 'focus';
@@ -170,6 +231,7 @@ export class StateSynthesizer {
         triggerEvent,
         targetSelector: ctrl.targetSelector,
         triggerSelector: ctrl.triggerSelector,
+        lifecycle,
         stateDelta: {
           property: 'active',
           active: true,

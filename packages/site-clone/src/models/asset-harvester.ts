@@ -73,23 +73,69 @@ export class AssetHarvester {
       jsIdx++;
     }
 
-    // 3. Extract remote images
-    const imgRegex = /<img\b[^>]*src=["']([^"']*)["'][^>]*>/gi;
+    // 3. Extract remote images (src, data-src, srcset, data-srcset, source tags, and inline background-image URLs)
+    const seenImageUrls = new Set<string>();
     let imgIdx = 1;
 
-    while ((match = imgRegex.exec(html)) !== null) {
-      const src = match[1];
-      const cleanUrl = src.split('?')[0];
-      const filename = path.basename(cleanUrl) || `image_${imgIdx}.png`;
+    const addImage = (rawUrl: string) => {
+      const trimmed = (rawUrl || '').trim();
+      if (!trimmed || trimmed.startsWith('data:') || trimmed.startsWith('#') || seenImageUrls.has(trimmed)) return;
+      seenImageUrls.add(trimmed);
+      const cleanUrl = trimmed.split('?')[0].split('#')[0];
+      const rawExt = path.extname(cleanUrl);
+      const ext = rawExt && rawExt.length <= 5 ? rawExt : '.png';
+      const base = path.basename(cleanUrl, rawExt) || `image_${imgIdx}`;
+      const filename = `${base}${ext}`;
       manifest.images.push({
         type: 'image',
-        sourceUrl: src,
+        sourceUrl: trimmed,
         filename,
         localPath: path.join(assetsDir, filename)
       });
       imgIdx++;
+    };
+
+    const parseSrcset = (srcsetValue: string) => {
+      if (!srcsetValue) return;
+      const candidates = srcsetValue.split(',');
+      for (const cand of candidates) {
+        const urlPart = cand.trim().split(/\s+/)[0];
+        if (urlPart) addImage(urlPart);
+      }
+    };
+
+    // 3a. <img> tags
+    const imgTagRegex = /<img\b([^>]*)>/gi;
+    while ((match = imgTagRegex.exec(html)) !== null) {
+      const attrs = match[1];
+      const srcMatch = attrs.match(/\bsrc=["']([^"']*)["']/i);
+      if (srcMatch) addImage(srcMatch[1]);
+      const dataSrcMatch = attrs.match(/\bdata-src=["']([^"']*)["']/i);
+      if (dataSrcMatch) addImage(dataSrcMatch[1]);
+      const srcsetMatch = attrs.match(/\bsrcset=["']([^"']*)["']/i);
+      if (srcsetMatch) parseSrcset(srcsetMatch[1]);
+      const dataSrcsetMatch = attrs.match(/\bdata-srcset=["']([^"']*)["']/i);
+      if (dataSrcsetMatch) parseSrcset(dataSrcsetMatch[1]);
     }
 
+    // 3b. <source> tags in <picture>
+    const sourceTagRegex = /<source\b([^>]*)>/gi;
+    while ((match = sourceTagRegex.exec(html)) !== null) {
+      const attrs = match[1];
+      const srcsetMatch = attrs.match(/\bsrcset=["']([^"']*)["']/i);
+      if (srcsetMatch) parseSrcset(srcsetMatch[1]);
+      const dataSrcsetMatch = attrs.match(/\bdata-srcset=["']([^"']*)["']/i);
+      if (dataSrcsetMatch) parseSrcset(dataSrcsetMatch[1]);
+    }
+
+    // 3c. CSS url(...) declarations (e.g. background-image)
+    const bgUrlRegex = /url\(\s*['"]?([^'")]+)['"]?\s*\)/gi;
+    while ((match = bgUrlRegex.exec(html)) !== null) {
+      const urlCandidate = match[1];
+      if (/\.(?:png|jpe?g|webp|gif|svg|avif)(?:[?#]|$)/i.test(urlCandidate)) {
+        addImage(urlCandidate);
+      }
+    }
     // 4. Default Vietnamese font subsets (Roboto 400, 500, 700)
     const fontSubsets = [
       { name: 'roboto-regular.woff2', weight: '400' },

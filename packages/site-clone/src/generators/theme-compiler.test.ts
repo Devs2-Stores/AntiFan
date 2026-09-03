@@ -395,4 +395,32 @@ describe('ThemeCompiler - End-to-End Haravan OS 2.0 Theme Compilation', () => {
       fs.rmSync(tempDir, { recursive: true, force: true });
     }
   });
+
+  it('7. ThemeCompiler validates theme graph connectivity and rejects orphaned sections', () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'haravan-connectivity-test-'));
+    try {
+      fs.mkdirSync(path.join(tempDir, 'layout'), { recursive: true });
+      fs.mkdirSync(path.join(tempDir, 'templates'), { recursive: true });
+      fs.mkdirSync(path.join(tempDir, 'sections'), { recursive: true });
+      fs.mkdirSync(path.join(tempDir, 'config'), { recursive: true });
+
+      fs.writeFileSync(path.join(tempDir, 'layout', 'theme.liquid'), '{{ content_for_layout }}');
+      fs.writeFileSync(path.join(tempDir, 'config', 'settings_schema.json'), '[]');
+
+      // templates/index.json referencing non-existent section "ghost_section"
+      fs.writeFileSync(path.join(tempDir, 'templates', 'index.json'), JSON.stringify({
+        sections: {
+          ghost_sec: { type: 'ghost_section' }
+        },
+        order: ['ghost_sec']
+      }));
+
+      assert.throws(
+        () => (compiler as any).validateStagingTheme(tempDir),
+        /orphaned section reference "ghost_sec"/
+      );
+    } finally {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
 });

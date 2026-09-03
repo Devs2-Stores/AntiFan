@@ -33,6 +33,33 @@ describe('Cognitive Models - Asset, Responsive & E-commerce Data', () => {
     }
   });
 
+  it('1b. AssetHarvester extracts srcset, picture sources, and background-images with deduplication', () => {
+    const harvester = new AssetHarvester();
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-assets-srcset-test-'));
+
+    const html = `
+      <picture>
+        <source srcset="https://example.com/images/hero-desktop.webp 1440w, https://example.com/images/hero-mobile.webp 480w">
+        <img data-src="https://example.com/images/hero-fallback.jpg" src="https://example.com/images/hero-desktop.webp" alt="Responsive Hero">
+      </picture>
+      <div style="background-image: url('https://example.com/images/pattern.png');">Pattern</div>
+    `;
+
+    try {
+      const manifest = harvester.harvestFromHtml(html, tempDir);
+      const imgUrls = manifest.images.map(img => img.sourceUrl);
+      assert.ok(imgUrls.includes('https://example.com/images/hero-desktop.webp'), 'Must harvest desktop webp');
+      assert.ok(imgUrls.includes('https://example.com/images/hero-mobile.webp'), 'Must harvest mobile webp');
+      assert.ok(imgUrls.includes('https://example.com/images/hero-fallback.jpg'), 'Must harvest data-src');
+      assert.ok(imgUrls.includes('https://example.com/images/pattern.png'), 'Must harvest background image');
+      // Assert deduplication: hero-desktop.webp appeared in both srcset and src
+      const desktopOccurrences = imgUrls.filter(u => u === 'https://example.com/images/hero-desktop.webp').length;
+      assert.strictEqual(desktopOccurrences, 1, 'Duplicate URLs must be deduplicated');
+    } finally {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
   it('2. ResponsiveScanner provides accurate dimensions for all 3 viewports', () => {
     const scanner = new ResponsiveScanner();
     const desktop = scanner.getViewport('desktop');
@@ -51,6 +78,22 @@ describe('Cognitive Models - Asset, Responsive & E-commerce Data', () => {
     assert.strictEqual(mobile.height, 844);
     assert.strictEqual(mobile.isMobile, true);
     assert.strictEqual(mobile.hasTouch, true);
+  });
+
+  it('2b. ResponsiveScanner infers layout constraints and generates responsive CSS', () => {
+    const scanner = new ResponsiveScanner();
+    const productGridConstraint = scanner.inferLayoutConstraints('product_grid', 4);
+    assert.strictEqual(productGridConstraint.desktop.columns, 4);
+    assert.strictEqual(productGridConstraint.tablet.columns, 2);
+    assert.strictEqual(productGridConstraint.mobile.columns, 1);
+    assert.strictEqual(productGridConstraint.desktop.gapPx, 24);
+    assert.strictEqual(productGridConstraint.mobile.gapPx, 12);
+
+    const css = scanner.generateResponsiveCss(productGridConstraint, '.product-grid');
+    assert.ok(css.includes('@media (min-width: 1025px)'));
+    assert.ok(css.includes('grid-template-columns: repeat(4, 1fr)'));
+    assert.ok(css.includes('@media (max-width: 767px)'));
+    assert.ok(css.includes('gap: 12px;'));
   });
 
   it('3. EcommerceDataModeler extracts products, pricing, and category tree', () => {
@@ -76,6 +119,61 @@ describe('Cognitive Models - Asset, Responsive & E-commerce Data', () => {
     assert.strictEqual(data.products.length, 1);
     assert.strictEqual(data.products[0].title, 'Contactor Schneider LC1D');
     assert.strictEqual(data.products[0].price, 450000);
+  });
+
+  it('3b. EcommerceDataModeler parses complex price ranges, discounts, currencies, and shorthands', () => {
+    // Shorthand "k" and "tr"
+    assert.strictEqual(EcommerceDataModeler.parseSinglePrice('150k'), 150000);
+    assert.strictEqual(EcommerceDataModeler.parseSinglePrice('250K'), 250000);
+    assert.strictEqual(EcommerceDataModeler.parseSinglePrice('1.5tr'), 1500000);
+    assert.strictEqual(EcommerceDataModeler.parseSinglePrice('2 triệu'), 2000000);
+
+    // Prefix and period stripping
+    assert.strictEqual(EcommerceDataModeler.parseSinglePrice('Từ 990.000₫ / tháng'), 990000);
+    assert.strictEqual(EcommerceDataModeler.parseSinglePrice('Giá chỉ: $1,299.99'), 1300);
+
+    // Structured price range with currency
+    const range = EcommerceDataModeler.parseStructuredPrice('1.299.000₫ - 1.599.000₫ (-20%)');
+    assert.strictEqual(range.price, 1299000);
+    assert.strictEqual(range.compareAtPrice, 1599000);
+    assert.strictEqual(range.currency, 'VND');
+
+    const rangeK = EcommerceDataModeler.parseStructuredPrice('100k ~ 200k');
+    assert.strictEqual(rangeK.price, 100000);
+    assert.strictEqual(rangeK.compareAtPrice, 200000);
+  });
+
+  it('3c. EcommerceDataModeler extracts deep 3-level taxonomy hierarchy', () => {
+    const modeler = new EcommerceDataModeler();
+    const html = `
+      <nav class="main-navigation">
+        <ul class="nav-list">
+          <li class="nav-item">
+            <a href="/dien">Thiết bị đóng cắt</a>
+            <ul class="sub-nav">
+              <li>
+                <a href="/aptomat">Aptomat MCB</a>
+                <ul class="sub-sub-nav">
+                  <li><a href="/mcb-1p">MCB 1 Pha</a></li>
+                  <li><a href="/mcb-2p">MCB 2 Pha</a></li>
+                </ul>
+              </li>
+            </ul>
+          </li>
+        </ul>
+      </nav>
+    `;
+
+    const data = modeler.extractStorefrontData(html);
+    assert.strictEqual(data.categories.length, 1);
+    assert.strictEqual(data.categories[0].title, 'Thiết bị đóng cắt');
+    assert.ok(data.categories[0].children, 'L1 must have children');
+    assert.strictEqual(data.categories[0].children?.length, 1);
+    assert.strictEqual(data.categories[0].children?.[0].title, 'Aptomat MCB');
+    assert.ok(data.categories[0].children?.[0].children, 'L2 must have children');
+    assert.strictEqual(data.categories[0].children?.[0].children?.length, 2);
+    assert.strictEqual(data.categories[0].children?.[0].children?.[0].title, 'MCB 1 Pha');
+    assert.strictEqual(data.categories[0].children?.[0].children?.[1].title, 'MCB 2 Pha');
   });
 
   it('4. CloneIRBuilder populates first-class assets, responsive, and controller ownership', () => {
@@ -332,11 +430,18 @@ describe('Cognitive Models - Asset, Responsive & E-commerce Data', () => {
     assert.strictEqual(transitions[0].triggerEvent, 'mouseover');
     assert.strictEqual(transitions[0].effectType, 'class_toggle');
     assert.strictEqual(transitions[0].ariaDelta?.attribute, 'aria-expanded');
+    assert.ok(transitions[0].lifecycle && transitions[0].lifecycle.length > 0);
+    assert.strictEqual(transitions[0].lifecycle[0].from, 'closed');
+    assert.strictEqual(transitions[0].lifecycle[0].to, 'open');
 
     assert.strictEqual(transitions[1].triggerEvent, 'click');
     assert.strictEqual(transitions[1].effectType, 'visibility_toggle');
     assert.strictEqual(transitions[1].ariaDelta?.attribute, 'aria-hidden');
-
+    assert.ok(transitions[1].lifecycle && transitions[1].lifecycle.length >= 2);
+    assert.strictEqual(transitions[1].lifecycle[0].from, 'closed');
+    assert.strictEqual(transitions[1].lifecycle[0].to, 'opening');
+    assert.strictEqual(transitions[1].lifecycle[1].from, 'open');
+    assert.strictEqual(transitions[1].lifecycle[1].to, 'closing');
     assert.strictEqual(transitions[2].triggerEvent, 'click');
     assert.strictEqual(transitions[2].effectType, 'css_scroll_snap');
 

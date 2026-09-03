@@ -6,7 +6,9 @@
 export interface PageSnapshotState {
   scrollX: number;
   scrollY: number;
+  bodyClassName?: string;
   injectedElementIds: string[];
+  openDialogIds?: string[];
 }
 
 export interface ReversibleExecutionResult<T> {
@@ -25,16 +27,20 @@ export class CleanTabProtocol {
       return {
         scrollX: window.scrollX || 0,
         scrollY: window.scrollY || 0,
-        injectedElementIds: Array.from(document.querySelectorAll('[data-antifan-probe]')).map(el => el.id).filter(Boolean)
+        bodyClassName: document.body ? document.body.className : '',
+        injectedElementIds: Array.from(document.querySelectorAll('[data-antifan-probe]')).map(el => el.id).filter(Boolean),
+        openDialogIds: Array.from(document.querySelectorAll('dialog[open]')).map(el => el.id).filter(Boolean)
       };
     })()`);
 
     if (raw && typeof raw === 'object') {
-      const candidate = raw as { scrollX?: unknown; scrollY?: unknown; injectedElementIds?: unknown };
+      const candidate = raw as { scrollX?: unknown; scrollY?: unknown; bodyClassName?: unknown; injectedElementIds?: unknown; openDialogIds?: unknown };
       return {
         scrollX: typeof candidate.scrollX === 'number' ? candidate.scrollX : 0,
         scrollY: typeof candidate.scrollY === 'number' ? candidate.scrollY : 0,
-        injectedElementIds: Array.isArray(candidate.injectedElementIds) ? candidate.injectedElementIds.filter((id): id is string => typeof id === 'string') : []
+        bodyClassName: typeof candidate.bodyClassName === 'string' ? candidate.bodyClassName : '',
+        injectedElementIds: Array.isArray(candidate.injectedElementIds) ? candidate.injectedElementIds.filter((id): id is string => typeof id === 'string') : [],
+        openDialogIds: Array.isArray(candidate.openDialogIds) ? candidate.openDialogIds.filter((id): id is string => typeof id === 'string') : []
       };
     }
 
@@ -45,17 +51,34 @@ export class CleanTabProtocol {
    * Restores page state back to snapshot
    */
   public static async restoreState(evaluator: (expr: string) => Promise<unknown>, snapshot: PageSnapshotState): Promise<boolean> {
+    const bodyClassJson = JSON.stringify(snapshot.bodyClassName ?? '');
     const res = await evaluator(`(() => {
       try {
         // 1. Remove any injected probe elements
         const probes = document.querySelectorAll('[data-antifan-probe]');
         probes.forEach(el => el.remove());
 
-        // 2. Restore scroll position
+        // 2. Remove freeze styles if injected
+        const freezeStyle = document.getElementById('antifan-qa-freeze');
+        if (freezeStyle) freezeStyle.remove();
+
+        // 3. Restore scroll position
         window.scrollTo(${Number(snapshot.scrollX) || 0}, ${Number(snapshot.scrollY) || 0});
 
-        // 3. Clear runtime initialization flag if present
+        // 4. Restore body classes
+        if (document.body && ${bodyClassJson} !== '""') {
+          document.body.className = ${bodyClassJson};
+        }
+
+        // 5. Close newly opened dialogs if any
+        const dialogs = document.querySelectorAll('dialog[open]');
+        dialogs.forEach(d => {
+          try { (d as any).close(); } catch {}
+        });
+
+        // 6. Clear runtime initialization flags
         if (window.__antifan_rt) delete window.__antifan_rt;
+        if (window.__antifanFreeze) delete window.__antifanFreeze;
         return true;
       } catch {
         return false;

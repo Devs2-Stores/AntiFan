@@ -12,6 +12,7 @@ export interface NormalizedProduct {
   vendor: string;
   price: number;
   compareAtPrice?: number;
+  currency?: string;
   available?: boolean;
   featuredImage?: string;
   url: string;
@@ -244,12 +245,14 @@ export class EcommerceDataModeler {
       const fullText = DomTreeParser.extractText(node).toLowerCase();
       const isOutOfStock = fullText.includes('hết hàng') || fullText.includes('out of stock') || fullText.includes('tam het hang');
 
+      const currency = EcommerceDataModeler.detectCurrency(priceText);
       const product: NormalizedProduct = {
         id: `prod_${idx}`,
         title,
         handle: title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || `product-${idx}`,
         vendor,
         price,
+        currency,
         available: !isOutOfStock,
         featuredImage: imgs[0]?.attributes['src'] || imgs[0]?.attributes['data-src'] || '',
         url: links[0]?.attributes['href'] || '#'
@@ -267,8 +270,48 @@ export class EcommerceDataModeler {
 
   private extractCategories(root: ParsedElementNode): NormalizedCategory[] {
     const categories: NormalizedCategory[] = [];
-    const catSections = DomTreeParser.findByClass(root, 'category-list');
 
+    const extractListItems = (ulNode: ParsedElementNode, parentId: string, depth = 1): NormalizedCategory[] => {
+      if (depth > 4) return [];
+      const result: NormalizedCategory[] = [];
+      let itemIdx = 1;
+
+      for (const child of ulNode.children) {
+        if (typeof child === 'string' || child.tag.toLowerCase() !== 'li') continue;
+        const links = DomTreeParser.findByTag(child, 'a');
+        if (links.length === 0) continue;
+        const title = DomTreeParser.extractText(links[0]).trim();
+        if (!title) continue;
+
+        const imgs = DomTreeParser.findByTag(child, 'img');
+        const currentId = `${parentId}_${itemIdx}`;
+        const cat: NormalizedCategory = {
+          id: currentId,
+          title,
+          handle: title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || `category-${currentId}`,
+          url: links[0].attributes['href'] || '#'
+        };
+        if (imgs.length > 0 && imgs[0].attributes['src']) {
+          cat.icon = imgs[0].attributes['src'];
+        }
+
+        // Sub-categories: find child <ul>
+        const subLists = DomTreeParser.findByTag(child, 'ul');
+        if (subLists.length > 0) {
+          const subItems = extractListItems(subLists[0], currentId, depth + 1);
+          if (subItems.length > 0) {
+            cat.children = subItems;
+          }
+        }
+
+        result.push(cat);
+        itemIdx++;
+      }
+
+      return result;
+    };
+
+    const catSections = DomTreeParser.findByClass(root, 'category-list');
     if (catSections.length > 0) {
       const items = DomTreeParser.findByClass(catSections[0], 'item');
       let idx = 1;
@@ -290,7 +333,7 @@ export class EcommerceDataModeler {
       return categories;
     }
 
-    // Hierarchical category extraction from <nav> or category-navigation
+    // Hierarchical category extraction from <nav>, category-navigation, or main-navigation
     const navNodes = [
       ...DomTreeParser.findByTag(root, 'nav'),
       ...DomTreeParser.findByClass(root, 'category-navigation'),
@@ -300,54 +343,25 @@ export class EcommerceDataModeler {
     if (navNodes.length > 0) {
       const topLists = DomTreeParser.findByTag(navNodes[0], 'ul');
       if (topLists.length > 0) {
-        let catIdx = 1;
-        for (const child of topLists[0].children) {
-          if (typeof child === 'string' || child.tag.toLowerCase() !== 'li') continue;
-          const links = DomTreeParser.findByTag(child, 'a');
-          if (links.length === 0) continue;
-          const title = DomTreeParser.extractText(links[0]).trim();
-          if (!title) continue;
-
-          const cat: NormalizedCategory = {
-            id: `cat_${catIdx}`,
-            title,
-            handle: title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || `category-${catIdx}`,
-            url: links[0].attributes['href'] || '#'
-          };
-
-          // Sub-categories
-          const subLists = DomTreeParser.findByTag(child, 'ul');
-          if (subLists.length > 0) {
-            cat.children = [];
-            let subIdx = 1;
-            for (const subChild of subLists[0].children) {
-              if (typeof subChild === 'string' || subChild.tag.toLowerCase() !== 'li') continue;
-              const subLinks = DomTreeParser.findByTag(subChild, 'a');
-              if (subLinks.length === 0) continue;
-              const subTitle = DomTreeParser.extractText(subLinks[0]).trim();
-              if (subTitle) {
-                cat.children.push({
-                  id: `cat_${catIdx}_${subIdx}`,
-                  title: subTitle,
-                  handle: subTitle.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || `subcat-${subIdx}`,
-                  url: subLinks[0].attributes['href'] || '#'
-                });
-                subIdx++;
-              }
-            }
-          }
-
-          categories.push(cat);
-          catIdx++;
-        }
+        return extractListItems(topLists[0], 'cat', 1);
       }
     }
 
     return categories;
   }
 
-  public static parseStructuredPrice(text: string): { price: number; compareAtPrice?: number } {
+  public static detectCurrency(raw: string): string | undefined {
+    if (!raw) return undefined;
+    if (/[₫đ]|vn[dđ]/i.test(raw)) return 'VND';
+    if (/\$|usd/i.test(raw)) return 'USD';
+    if (/€|eur/i.test(raw)) return 'EUR';
+    if (/¥|jpy|cny/i.test(raw)) return 'JPY';
+    return undefined;
+  }
+
+  public static parseStructuredPrice(text: string): { price: number; compareAtPrice?: number; currency?: string } {
     if (!text || typeof text !== 'string') return { price: 0 };
+    const currency = EcommerceDataModeler.detectCurrency(text);
     // Strip discount percentages (e.g. -30%, 15%) so badges are not mistaken for prices
     const clean = text.replace(/[-+]?\d+\s*%/g, ' ').trim();
     // Detect ranges: "1.299.000 - 1.599.000đ", "100k ~ 200k", "1.000.000 đến 2.000.000"
@@ -358,22 +372,49 @@ export class EcommerceDataModeler {
       if (p1 > 0 && p2 > 0) {
         return {
           price: Math.min(p1, p2),
-          compareAtPrice: Math.max(p1, p2)
+          compareAtPrice: Math.max(p1, p2),
+          currency
         };
       }
     }
 
-    return { price: EcommerceDataModeler.parseSinglePrice(clean) };
+    return { price: EcommerceDataModeler.parseSinglePrice(clean), currency };
   }
 
   public static parseSinglePrice(raw: string): number {
     if (!raw || typeof raw !== 'string') return 0;
     // Strip discount percentages (e.g. -30%, 15%)
-    const sanitized = raw.replace(/[-+]?\d+\s*%/g, ' ');
+    let sanitized = raw.replace(/[-+]?\d+\s*%/g, ' ');
+    // Strip common non-price prefixes
+    sanitized = sanitized.replace(/^(?:từ|from|giá\s*:?|chỉ\s*từ|chỉ|price\s*:?|đơn\s*giá\s*:?)\s*/i, '');
+    // Strip common period suffixes
+    sanitized = sanitized.replace(/\s*\/\s*(?:tháng|month|năm|year|ngày|day|cái|chiếc|bộ|sp|pcs|pc|item)\b/i, '');
+
+    // Check for "k" shorthand: e.g. "150k", "250K", "150.5k"
+    const kMatch = sanitized.match(/(\d+(?:[\.,]\d+)?)\s*[kK]\b/);
+    if (kMatch) {
+      const val = parseFloat(kMatch[1].replace(',', '.'));
+      if (!isNaN(val)) return Math.round(val * 1000);
+    }
+    // Check for "tr" / "triệu" shorthand: e.g. "1.5tr", "2 triệu"
+    const trMatch = sanitized.match(/(\d+(?:[\.,]\d+)?)\s*(?:tr|triệu)\b/i);
+    if (trMatch) {
+      const val = parseFloat(trMatch[1].replace(',', '.'));
+      if (!isNaN(val)) return Math.round(val * 1000000);
+    }
+
     const match = sanitized.match(/[\d]+(?:[\.,]\d+)*/);
     if (!match) return 0;
 
     let numStr = match[0];
+
+    // English currency pattern: thousands separator comma followed by 2-digit cents (e.g. 1,299.99 or 12,450.50)
+    if (/^\d{1,3}(,\d{3})+(\.\d{1,2})$/.test(numStr)) {
+      numStr = numStr.replace(/,/g, '');
+      const parsed = parseFloat(numStr);
+      return isNaN(parsed) ? 0 : Math.round(parsed);
+    }
+
     // Multiple dots/commas -> thousands separators (e.g. 1.299.000 or 1,299,000)
     if ((numStr.match(/[\.,]/g) || []).length > 1) {
       numStr = numStr.replace(/[\.,]/g, '');

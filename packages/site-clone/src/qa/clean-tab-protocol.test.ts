@@ -106,4 +106,32 @@ describe('CleanTabProtocol - Reversible State & Mutation Guard', () => {
     assert.strictEqual(cleanCheck.clean, true);
     assert.strictEqual(cleanCheck.leaks.length, 0);
   });
+
+  it('4. Captures and restores body class name and open dialog state', async () => {
+    let mockBodyClass = 'theme-dark overflow-hidden';
+    const mockEvaluator = async (expr: string): Promise<unknown> => {
+      if (expr.includes('bodyClassName: document.body')) {
+        return {
+          scrollX: 0,
+          scrollY: 0,
+          bodyClassName: 'theme-default',
+          injectedElementIds: [],
+          openDialogIds: ['modal-1']
+        };
+      }
+      if (expr.includes('document.body.className =')) {
+        mockBodyClass = 'theme-default';
+        return true;
+      }
+      return true;
+    };
+
+    const snapshot = await CleanTabProtocol.captureState(mockEvaluator);
+    assert.strictEqual(snapshot.bodyClassName, 'theme-default');
+    assert.deepStrictEqual(snapshot.openDialogIds, ['modal-1']);
+
+    const restored = await CleanTabProtocol.restoreState(mockEvaluator, snapshot);
+    assert.strictEqual(restored, true);
+    assert.strictEqual(mockBodyClass, 'theme-default');
+  });
 });
