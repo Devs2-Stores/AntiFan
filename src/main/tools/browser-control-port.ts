@@ -6,9 +6,10 @@ import { buildTreeWalkerSanitizerScript } from './adapters/tree-walker-sanitizer
 import { BrowserTarget, CapabilityError, ArtifactRef, assertExactBrowserTarget, digestText } from '../../shared/control-plane-contracts';
 export interface BrowserHostPort {
   hasTab?(tabId?: string | null): boolean;
-  adoptChildTab?(primaryOrBoundTabId: string, childTabId: string): boolean;
+  adoptChildTab?(primaryOrBoundTabId: string, childTabId: string, generation?: number | string, source?: 'agent_spawned' | 'native_window_open' | 'user_attached', parentTabId?: string): boolean;
   getManagedTabIds?(primaryOrBoundTabId: string): Set<string>;
   isTabAllowed?(primaryOrBoundTabId: string, requestedTabId: string): boolean;
+  getFailoverTargetTab?(staleTabId: string): string | undefined;
   getTabList(): unknown[];
   getActiveTabId?(): string;
   getAutomationTabId?(): string | null;
@@ -1143,7 +1144,11 @@ export class BrowserControlPort {
       // Synthesize Semantic Verdict and Evidence Delta
       const evaluation = this.evaluateBehaviorEvidence(beforeState, afterState, beforeStyles, afterStyles);
 
+      const isPrimaryTab = target?.tabId === tabId;
       return {
+        tabId,
+        isPrimaryTab,
+        role: isPrimaryTab ? 'primary' : 'managed_child',
         action: params.action,
         target: { selector: params.selector, ref: params.ref },
         durationMs,
@@ -1545,9 +1550,15 @@ export class BrowserControlPort {
       resolved = explicitTabId.trim();
     } else if (target?.tabId && target.tabId.trim().length > 0) {
       if (!tabExists(target.tabId)) {
-        throw new CapabilityError('TARGET_STALE', `Target tab no longer exists: ${target.tabId}`);
+        const failoverTab = this.host.getFailoverTargetTab ? this.host.getFailoverTargetTab(target.tabId) : undefined;
+        if (failoverTab && tabExists(failoverTab)) {
+          resolved = failoverTab;
+        } else {
+          throw new CapabilityError('TARGET_STALE', `Target tab no longer exists: ${target.tabId}`);
+        }
+      } else {
+        resolved = target.tabId;
       }
-      resolved = target.tabId;
     } else {
       const currentAutoTab = this.host.getAutomationTabId ? this.host.getAutomationTabId() : undefined;
       if (tabExists(currentAutoTab)) {
