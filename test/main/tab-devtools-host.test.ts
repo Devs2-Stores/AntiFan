@@ -203,7 +203,18 @@ describe('TabDevToolsHost (Sub-Controller Unit Tests)', () => {
     const skeleton = devTools.renderPageSourceSkeletonHtml();
     assert.ok(skeleton.includes('VIEW SOURCE'));
     assert.ok(skeleton.includes('__antifanRenderSource'));
+    assert.ok(skeleton.includes('id="srcSearchInput"'), 'Must include Ctrl+F search input');
+    assert.ok(skeleton.includes('id="btnFormat"'), 'Must include Format toggle button');
+    assert.ok(skeleton.includes('id="btnWrap"'), 'Must include Word Wrap toggle button');
+    assert.ok(skeleton.includes('id="srcTable"'), 'Must include line numbers table');
 
+    // Extract embedded script and ensure 100% valid ECMAScript without SyntaxError
+    const scriptMatch = skeleton.match(/<script>([\s\S]*?)<\/script>/i);
+    const scriptContent = (scriptMatch && scriptMatch[1]) || '';
+    assert.ok(scriptContent.length > 0, 'Must contain embedded client script');
+    assert.doesNotThrow(() => {
+      new vm.Script(scriptContent);
+    }, 'Embedded view-source script must be 100% valid ECMAScript without SyntaxError');
     devTools.dispose();
     assert.strictEqual(devTools.getIsInspecting(), false);
   });

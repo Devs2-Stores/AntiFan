@@ -941,21 +941,176 @@ export class TabDevToolsHost {
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>View Source</title>
   <style>
+    :root {
+      --bg-main: #0d1117;
+      --bg-header: #161b22;
+      --border-color: #30363d;
+      --gutter-text: #6e7681;
+      --gutter-border: #21262d;
+      --text-main: #e6edf3;
+      --tag-color: #7ee787;
+      --attr-color: #79c0ff;
+      --val-color: #a5d6ff;
+      --punct-color: #8b949e;
+      --comment-color: #8b949e;
+      --doctype-color: #ff7b72;
+      --link-color: #58a6ff;
+      --line-hover: rgba(110, 118, 129, 0.1);
+      --line-active: rgba(56, 189, 248, 0.18);
+      --match-bg: #9e6a03;
+      --match-active-bg: #d29922;
+    }
     * { box-sizing: border-box; margin: 0; padding: 0; }
-    body { background: #0d1117; color: #e6edf3; font-family: ui-monospace, "Cascadia Code", "Fira Code", Consolas, monospace; font-size: 13px; line-height: 1.5; height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
-    .src-header { flex-shrink: 0; display: flex; align-items: center; justify-content: space-between; padding: 8px 16px; background: #161b22; border-bottom: 1px solid #30363d; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; font-size: 12px; }
+    body {
+      background: var(--bg-main);
+      color: var(--text-main);
+      font-family: ui-monospace, "Cascadia Code", "Fira Code", Menlo, Consolas, monospace;
+      font-size: 12.5px;
+      line-height: 1.6;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+    .src-header {
+      flex-shrink: 0;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 8px 16px;
+      background: var(--bg-header);
+      border-bottom: 1px solid var(--border-color);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      font-size: 12px;
+      z-index: 100;
+    }
     .src-title-wrap { display: flex; align-items: center; gap: 10px; overflow: hidden; }
-    .src-badge { background: #238636; color: #fff; font-size: 10px; font-weight: 700; padding: 2px 6px; border-radius: 4px; text-transform: uppercase; }
-    .src-url { color: #58a6ff; font-weight: 600; text-decoration: none; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 600px; }
+    .src-badge {
+      background: #1f6feb;
+      color: #ffffff;
+      font-size: 10px;
+      font-weight: 700;
+      padding: 2px 7px;
+      border-radius: 4px;
+      letter-spacing: 0.5px;
+      text-transform: uppercase;
+      flex-shrink: 0;
+    }
+    .src-url {
+      color: var(--link-color);
+      font-weight: 600;
+      text-decoration: none;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      max-width: 480px;
+    }
     .src-url:hover { text-decoration: underline; }
-    .src-meta { color: #8b949e; font-size: 11px; margin-left: 8px; }
-    .src-actions { display: flex; align-items: center; gap: 8px; }
-    .src-btn { background: #21262d; color: #c9d1d9; border: 1px solid #30363d; border-radius: 6px; padding: 4px 10px; font-size: 12px; cursor: pointer; display: flex; align-items: center; gap: 4px; transition: all 0.15s ease; }
+    .src-meta { color: #8b949e; font-size: 11px; white-space: nowrap; }
+    .src-actions { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+    .src-search-box {
+      display: flex;
+      align-items: center;
+      background: #0d1117;
+      border: 1px solid var(--border-color);
+      border-radius: 6px;
+      padding: 2px 6px;
+      gap: 4px;
+      transition: border-color 0.15s ease;
+    }
+    .src-search-box:focus-within {
+      border-color: #58a6ff;
+      box-shadow: 0 0 0 1px #58a6ff;
+    }
+    .src-search-box input {
+      background: transparent;
+      border: none;
+      outline: none;
+      color: #e6edf3;
+      font-size: 11.5px;
+      width: 140px;
+      font-family: inherit;
+    }
+    .src-search-box input::placeholder { color: #6e7681; }
+    .src-search-count { color: #8b949e; font-size: 10px; min-width: 32px; text-align: center; }
+    .src-btn-icon {
+      background: transparent;
+      border: none;
+      color: #8b949e;
+      cursor: pointer;
+      font-size: 10px;
+      padding: 2px 4px;
+      border-radius: 3px;
+    }
+    .src-btn-icon:hover { background: #21262d; color: #ffffff; }
+    .src-btn {
+      background: #21262d;
+      color: #c9d1d9;
+      border: 1px solid var(--border-color);
+      border-radius: 6px;
+      padding: 4px 10px;
+      font-size: 11.5px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      user-select: none;
+      transition: all 0.15s ease;
+    }
     .src-btn:hover { background: #30363d; color: #ffffff; border-color: #8b949e; }
-    .src-container { flex: 1; overflow: auto; padding: 16px 20px; background: #0d1117; }
-    .src-code-pre { margin: 0; font-family: inherit; font-size: 12.5px; line-height: 1.6; white-space: pre-wrap; word-break: break-all; tab-size: 2; color: #e6edf3; }
-    .toast { position: fixed; bottom: 20px; right: 20px; background: #238636; color: #fff; padding: 8px 16px; border-radius: 6px; font-size: 12px; font-weight: 600; opacity: 0; transition: opacity 0.2s ease; pointer-events: none; }
-    .toast.show { opacity: 1; }
+    .src-btn.active { background: #1f6feb; color: #ffffff; border-color: #388bfd; font-weight: 600; }
+    .src-container { flex: 1; overflow: auto; background: var(--bg-main); position: relative; }
+    .src-table { width: 100%; border-collapse: collapse; font-family: inherit; font-size: 12px; line-height: 1.6; tab-size: 2; }
+    .src-line { transition: background 0.08s ease; }
+    .src-line:hover { background: var(--line-hover); }
+    .src-line.active-target, .src-line:target { background: var(--line-active) !important; }
+    .src-line.matched-active { background: rgba(210, 153, 34, 0.25) !important; }
+    .src-gutter {
+      width: 1%;
+      white-space: nowrap;
+      text-align: right;
+      padding: 0 16px 0 12px;
+      color: var(--gutter-text);
+      user-select: none;
+      border-right: 1px solid var(--gutter-border);
+      vertical-align: top;
+      font-size: 11.5px;
+      background: var(--bg-main);
+      position: sticky;
+      left: 0;
+      z-index: 1;
+    }
+    .src-gutter a { color: inherit; text-decoration: none; display: block; }
+    .src-gutter a:hover { color: #c9d1d9; }
+    .src-code { padding: 0 16px; white-space: pre; word-break: normal; vertical-align: top; color: var(--text-main); }
+    body.src-wrap-active .src-code { white-space: pre-wrap !important; word-break: break-all !important; }
+    .html-doctype { color: var(--doctype-color); font-weight: 600; }
+    .html-comment { color: var(--comment-color); font-style: italic; }
+    .html-tag { color: var(--tag-color); }
+    .html-attr { color: var(--attr-color); }
+    .html-punct { color: var(--punct-color); }
+    .html-val { color: var(--val-color); }
+    .html-link { color: inherit; text-decoration: none; }
+    .html-link .html-val { text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
+    .html-link:hover .html-val { color: #58a6ff; }
+    .src-loading { padding: 40px; text-align: center; color: #8b949e; font-size: 14px; }
+    .toast {
+      position: fixed;
+      bottom: 24px;
+      right: 24px;
+      background: #238636;
+      color: #ffffff;
+      padding: 8px 16px;
+      border-radius: 6px;
+      font-size: 12px;
+      font-weight: 600;
+      opacity: 0;
+      transform: translateY(8px);
+      transition: all 0.2s ease;
+      pointer-events: none;
+      z-index: 1000;
+    }
+    .toast.show { opacity: 1; transform: translateY(0); }
   </style>
 </head>
 <body>
@@ -966,41 +1121,437 @@ export class TabDevToolsHost {
       <span class="src-meta" id="srcMeta"></span>
     </div>
     <div class="src-actions">
-      <button class="src-btn" id="btnCopy">📋 Copy All</button>
-      <button class="src-btn" id="btnDownload">💾 Save HTML</button>
+      <div class="src-search-box" id="srcSearchBox">
+        <input type="text" id="srcSearchInput" placeholder="Find in source (Ctrl+F)..." spellcheck="false" autocomplete="off" />
+        <span class="src-search-count" id="srcSearchCount"></span>
+        <button type="button" class="src-btn-icon" id="srcSearchPrev" title="Previous (Shift+Enter)">▲</button>
+        <button type="button" class="src-btn-icon" id="srcSearchNext" title="Next (Enter)">▼</button>
+        <button type="button" class="src-btn-icon" id="srcSearchClose" title="Clear (Escape)">✕</button>
+      </div>
+      <button type="button" class="src-btn active" id="btnFormat">✨ Formatted</button>
+      <button type="button" class="src-btn" id="btnWrap">↩ Wrap</button>
+      <button type="button" class="src-btn" id="btnCopy">📋 Copy</button>
+      <button type="button" class="src-btn" id="btnDownload">💾 Save HTML</button>
     </div>
   </div>
-  <div class="src-container">
-    <pre class="src-code-pre" id="srcCode">Loading page source...</pre>
+  <div class="src-container" id="srcContainer">
+    <table class="src-table" id="srcTable">
+      <tbody id="srcTbody">
+        <tr><td class="src-loading">⏳ Loading and formatting page source...</td></tr>
+      </tbody>
+    </table>
   </div>
   <div class="toast" id="toast">Copied to clipboard!</div>
   <script>
     let rawStore = '';
+    let targetUrl = '';
+    let isFormatted = true;
+    let isWrapped = false;
+    let cachedFormattedRows = '';
+    let cachedRawRows = '';
+    let formattedLinesCount = 0;
+    let rawLinesCount = 0;
+    let sizeKb = '0.0';
+
+    let searchMatches = [];
+    let currentMatchIndex = -1;
+
+    const VOID_TAGS = new Set([
+      'area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input',
+      'link', 'meta', 'param', 'source', 'track', 'wbr', '!doctype'
+    ]);
+
+    const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+    function highlightTag(tagStr, base) {
+      if (tagStr.startsWith('<!--')) return '<span class="html-comment">' + esc(tagStr) + '</span>';
+      if (/^<!DOCTYPE/i.test(tagStr)) return '<span class="html-doctype">' + esc(tagStr) + '</span>';
+      if (tagStr.startsWith('</')) {
+        const m = tagStr.match(/^<\\/\\s*([a-zA-Z0-9:-]+)\\s*>$/);
+        return '<span class="html-tag">&lt;/' + (m ? m[1] : esc(tagStr.slice(2, -1))) + '&gt;</span>';
+      }
+      const tagMatch = tagStr.match(/^<([a-zA-Z0-9:-]+)([\\s\\S]*?)(\\/?>)$/);
+      if (!tagMatch) return esc(tagStr);
+      const [, tagName, rawAttrs, closing] = tagMatch;
+      let out = '<span class="html-tag">&lt;' + tagName + '</span>';
+      if (rawAttrs) {
+        const attrRegex = /([a-zA-Z0-9_:-]+)(?:\\s*=\\s*(?:"([^"]*)"|'([^']*)'|([^\\s"'=<>\\x60]+)))?/g;
+        let aMatch;
+        while ((aMatch = attrRegex.exec(rawAttrs)) !== null) {
+          const name = aMatch[1];
+          const val = aMatch[2] !== undefined ? aMatch[2] : (aMatch[3] !== undefined ? aMatch[3] : aMatch[4]);
+          const quote = aMatch[2] !== undefined ? '"' : (aMatch[3] !== undefined ? "'" : '');
+          out += ' ';
+          out += '<span class="html-attr">' + esc(name) + '</span>';
+          if (val !== undefined) {
+            out += '<span class="html-punct">=</span>';
+            const isLink = /^(href|src|action|poster|data-src)$/i.test(name) && val.trim().length > 0;
+            let resolvedUrl = val;
+            if (isLink && base) {
+              try { resolvedUrl = new URL(val, base).href; } catch {}
+            }
+            if (isLink) {
+              out += '<a class="html-link" href="' + esc(resolvedUrl) + '" target="_blank" rel="noopener noreferrer">' + quote + '<span class="html-val">' + esc(val) + '</span>' + quote + '</a>';
+            } else {
+              out += '<span class="html-val">' + quote + esc(val) + quote + '</span>';
+            }
+          }
+        }
+      }
+      out += '<span class="html-tag">' + esc(closing) + '</span>';
+      return out;
+    }
+
+    function tokenizeHtml(raw) {
+      const tokens = [];
+      let pos = 0;
+      const len = raw.length;
+
+      while (pos < len) {
+        if (raw.startsWith('<!--', pos)) {
+          const end = raw.indexOf('-->', pos + 4);
+          const closeIdx = end === -1 ? len : end + 3;
+          tokens.push({ type: 'comment', value: raw.slice(pos, closeIdx) });
+          pos = closeIdx;
+          continue;
+        }
+
+        if (raw.startsWith('<![CDATA[', pos)) {
+          const end = raw.indexOf(']]>', pos + 9);
+          const closeIdx = end === -1 ? len : end + 3;
+          tokens.push({ type: 'cdata', value: raw.slice(pos, closeIdx) });
+          pos = closeIdx;
+          continue;
+        }
+
+        if (raw.slice(pos, pos + 9).toUpperCase() === '<!DOCTYPE') {
+          const end = raw.indexOf('>', pos + 9);
+          const closeIdx = end === -1 ? len : end + 1;
+          tokens.push({ type: 'doctype', value: raw.slice(pos, closeIdx) });
+          pos = closeIdx;
+          continue;
+        }
+
+        const scriptMatch = raw.slice(pos).match(/^<script\\b([^>]*)>/i);
+        if (scriptMatch) {
+          const tagEnd = pos + scriptMatch[0].length;
+          const closeMatch = raw.slice(tagEnd).match(/<\\/script\\s*>/i);
+          if (closeMatch) {
+            const body = raw.slice(tagEnd, tagEnd + closeMatch.index);
+            tokens.push({ type: 'script_start', value: scriptMatch[0] });
+            if (body) tokens.push({ type: 'script_body', value: body });
+            tokens.push({ type: 'script_end', value: closeMatch[0] });
+            pos = tagEnd + closeMatch.index + closeMatch[0].length;
+            continue;
+          }
+        }
+
+        const styleMatch = raw.slice(pos).match(/^<style\\b([^>]*)>/i);
+        if (styleMatch) {
+          const tagEnd = pos + styleMatch[0].length;
+          const closeMatch = raw.slice(tagEnd).match(/<\\/style\\s*>/i);
+          if (closeMatch) {
+            const body = raw.slice(tagEnd, tagEnd + closeMatch.index);
+            tokens.push({ type: 'style_start', value: styleMatch[0] });
+            if (body) tokens.push({ type: 'style_body', value: body });
+            tokens.push({ type: 'style_end', value: closeMatch[0] });
+            pos = tagEnd + closeMatch.index + closeMatch[0].length;
+            continue;
+          }
+        }
+
+        if (raw[pos] === '<') {
+          const end = raw.indexOf('>', pos + 1);
+          const closeIdx = end === -1 ? len : end + 1;
+          const tagStr = raw.slice(pos, closeIdx);
+          if (tagStr.startsWith('</')) {
+            tokens.push({ type: 'tag_close', value: tagStr });
+          } else {
+            tokens.push({ type: 'tag_open', value: tagStr });
+          }
+          pos = closeIdx;
+          continue;
+        }
+
+        const nextTag = raw.indexOf('<', pos);
+        const textEnd = nextTag === -1 ? len : nextTag;
+        const text = raw.slice(pos, textEnd);
+        if (text) {
+          tokens.push({ type: 'text', value: text });
+        }
+        pos = textEnd;
+      }
+      return tokens;
+    }
+
+    function buildFormattedLines(raw, base) {
+      const tokens = tokenizeHtml(raw);
+      let indent = 0;
+      const indentStr = '  ';
+      const lines = [];
+      let currentLine = '';
+
+      function flushLine() {
+        if (currentLine !== '') {
+          lines.push(currentLine);
+          currentLine = '';
+        }
+      }
+
+      for (let i = 0; i < tokens.length; i++) {
+        const t = tokens[i];
+        if (t.type === 'doctype') {
+          flushLine();
+          lines.push(highlightTag(t.value, base));
+        } else if (t.type === 'comment') {
+          flushLine();
+          const commentLines = t.value.split('\\n');
+          for (const cl of commentLines) {
+            lines.push(indentStr.repeat(indent) + highlightTag(cl, base));
+          }
+        } else if (t.type === 'tag_open') {
+          const tagNameMatch = t.value.match(/^<([a-zA-Z0-9:-]+)/);
+          const tagName = tagNameMatch ? tagNameMatch[1].toLowerCase() : '';
+          const isSelfClosing = t.value.endsWith('/>') || VOID_TAGS.has(tagName);
+
+          flushLine();
+          currentLine = indentStr.repeat(indent) + highlightTag(t.value, base);
+
+          const next1 = tokens[i + 1];
+          const next2 = tokens[i + 2];
+          if (
+            next1 && next1.type === 'text' && !next1.value.includes('\\n') && next1.value.trim().length < 80 &&
+            next2 && next2.type === 'tag_close' && next2.value.toLowerCase() === ('</' + tagName + '>')
+          ) {
+            currentLine += esc(next1.value) + highlightTag(next2.value, base);
+            flushLine();
+            i += 2;
+            continue;
+          }
+
+          flushLine();
+          if (!isSelfClosing) {
+            indent++;
+          }
+        } else if (t.type === 'tag_close') {
+          indent = Math.max(0, indent - 1);
+          flushLine();
+          lines.push(indentStr.repeat(indent) + highlightTag(t.value, base));
+        } else if (t.type === 'script_start' || t.type === 'style_start') {
+          flushLine();
+          lines.push(indentStr.repeat(indent) + highlightTag(t.value, base));
+          indent++;
+        } else if (t.type === 'script_end' || t.type === 'style_end') {
+          indent = Math.max(0, indent - 1);
+          flushLine();
+          lines.push(indentStr.repeat(indent) + highlightTag(t.value, base));
+        } else if (t.type === 'script_body' || t.type === 'style_body') {
+          flushLine();
+          const rawLines = t.value.trim().split('\\n');
+          for (const rl of rawLines) {
+            if (rl.trim()) {
+              lines.push(indentStr.repeat(indent) + esc(rl));
+            }
+          }
+        } else if (t.type === 'text') {
+          const trimmed = t.value.trim();
+          if (trimmed) {
+            flushLine();
+            lines.push(indentStr.repeat(indent) + esc(trimmed));
+          }
+        }
+      }
+      flushLine();
+      return lines;
+    }
+
+    function buildRawLines(raw) {
+      const lines = raw.split('\\n');
+      return lines.map((l) => {
+        return esc(l)
+          .replace(/(&lt;!--[\\s\\S]*?--&gt;)/g, '<span class="html-comment">$1</span>')
+          .replace(/(&lt;!DOCTYPE[\\s\\S]*?&gt;)/gi, '<span class="html-doctype">$1</span>')
+          .replace(/(&lt;\\/?[a-zA-Z0-9:-]+(?:\\s+[^&]*?)?\\/?&gt;)/g, '<span class="html-tag">$1</span>');
+      });
+    }
+
+    function renderLinesToTable(lines) {
+      const rows = [];
+      for (let idx = 0; idx < lines.length; idx++) {
+        const lineNum = idx + 1;
+        rows.push(
+          '<tr class="src-line" id="L' + lineNum + '">' +
+            '<td class="src-gutter"><a href="#L' + lineNum + '" data-line="' + lineNum + '">' + lineNum + '</a></td>' +
+            '<td class="src-code">' + lines[idx] + '</td>' +
+          '</tr>'
+        );
+      }
+      return rows.join('');
+    }
+
+    function updateMeta() {
+      const metaEl = document.getElementById('srcMeta');
+      if (!metaEl) return;
+      if (isFormatted) {
+        metaEl.textContent = formattedLinesCount.toLocaleString() + ' lines (Formatted) · ' + sizeKb + ' KB';
+      } else {
+        metaEl.textContent = rawLinesCount.toLocaleString() + ' lines (Raw) · ' + sizeKb + ' KB';
+      }
+    }
+
+    function checkHashTarget() {
+      if (window.location.hash) {
+        const targetId = window.location.hash.slice(1);
+        const el = document.getElementById(targetId);
+        if (el) {
+          document.querySelectorAll('.src-line.active-target').forEach(e => e.classList.remove('active-target'));
+          el.classList.add('active-target');
+          el.scrollIntoView({ block: 'center' });
+        }
+      }
+    }
+    window.addEventListener('hashchange', checkHashTarget);
+
+    function doSearch(query) {
+      searchMatches = [];
+      currentMatchIndex = -1;
+      const countEl = document.getElementById('srcSearchCount');
+      document.querySelectorAll('.src-line.matched-active').forEach(e => e.classList.remove('matched-active'));
+
+      if (!query || query.trim() === '') {
+        if (countEl) countEl.textContent = '';
+        return;
+      }
+
+      const qLower = query.toLowerCase();
+      const rows = document.querySelectorAll('#srcTbody .src-line');
+      rows.forEach((row) => {
+        const codeCell = row.querySelector('.src-code');
+        if (!codeCell) return;
+        const text = codeCell.textContent || '';
+        if (text.toLowerCase().includes(qLower)) {
+          searchMatches.push(row);
+        }
+      });
+
+      if (searchMatches.length > 0) {
+        currentMatchIndex = 0;
+        updateActiveMatch();
+      } else {
+        if (countEl) countEl.textContent = '0/0';
+      }
+    }
+
+    function updateActiveMatch() {
+      const countEl = document.getElementById('srcSearchCount');
+      if (searchMatches.length === 0) {
+        if (countEl) countEl.textContent = '0/0';
+        return;
+      }
+      if (countEl) {
+        countEl.textContent = (currentMatchIndex + 1) + '/' + searchMatches.length;
+      }
+      document.querySelectorAll('.src-line.matched-active').forEach(e => e.classList.remove('matched-active'));
+      const target = searchMatches[currentMatchIndex];
+      if (target) {
+        target.classList.add('matched-active');
+        target.scrollIntoView({ block: 'center', behavior: 'smooth' });
+      }
+    }
+
+    function nextMatch() {
+      if (searchMatches.length === 0) return;
+      currentMatchIndex = (currentMatchIndex + 1) % searchMatches.length;
+      updateActiveMatch();
+    }
+
+    function prevMatch() {
+      if (searchMatches.length === 0) return;
+      currentMatchIndex = (currentMatchIndex - 1 + searchMatches.length) % searchMatches.length;
+      updateActiveMatch();
+    }
+
+    function clearSearch() {
+      const searchInput = document.getElementById('srcSearchInput');
+      if (searchInput) searchInput.value = '';
+      doSearch('');
+    }
+
     window.__antifanRenderSource = (url, content) => {
       rawStore = content || '';
-      document.title = 'view-source:' + url;
+      targetUrl = url || '';
+      document.title = 'view-source:' + targetUrl;
+
       const urlEl = document.getElementById('srcUrl');
       if (urlEl) {
-        urlEl.textContent = url;
-        urlEl.href = url;
-        urlEl.title = url;
+        urlEl.textContent = targetUrl;
+        urlEl.href = targetUrl;
+        urlEl.title = targetUrl;
       }
 
-      const linesCount = rawStore.split('\\n').length;
-      const sizeKb = (new Blob([rawStore]).size / 1024).toFixed(1);
-      const metaEl = document.getElementById('srcMeta');
-      if (metaEl) {
-        metaEl.textContent = linesCount.toLocaleString() + ' lines · ' + sizeKb + ' KB';
+      sizeKb = (new Blob([rawStore]).size / 1024).toFixed(1);
+      rawLinesCount = rawStore.split('\\n').length;
+
+      try {
+        const fLines = buildFormattedLines(rawStore, targetUrl);
+        formattedLinesCount = fLines.length;
+        cachedFormattedRows = renderLinesToTable(fLines);
+      } catch (err) {
+        console.warn('[view-source] Format error, fallback to raw:', err);
+        isFormatted = false;
       }
 
-      const codeEl = document.getElementById('srcCode');
-      if (codeEl) {
-        codeEl.textContent = rawStore;
+      try {
+        const rLines = buildRawLines(rawStore);
+        cachedRawRows = renderLinesToTable(rLines);
+      } catch (err) {
+        cachedRawRows = '<tr><td class="src-gutter">1</td><td class="src-code">' + esc(rawStore) + '</td></tr>';
       }
+
+      const tbody = document.getElementById('srcTbody');
+      if (tbody) {
+        tbody.innerHTML = isFormatted && cachedFormattedRows ? cachedFormattedRows : cachedRawRows;
+      }
+
+      const btnFormat = document.getElementById('btnFormat');
+      if (btnFormat) {
+        btnFormat.classList.toggle('active', isFormatted);
+      }
+
+      updateMeta();
+      checkHashTarget();
+    };
+
+    document.getElementById('btnFormat').onclick = () => {
+      isFormatted = !isFormatted;
+      const btn = document.getElementById('btnFormat');
+      if (btn) btn.classList.toggle('active', isFormatted);
+
+      const tbody = document.getElementById('srcTbody');
+      if (tbody) {
+        tbody.innerHTML = isFormatted ? cachedFormattedRows : cachedRawRows;
+      }
+      updateMeta();
+      clearSearch();
+      checkHashTarget();
+    };
+
+    document.getElementById('btnWrap').onclick = () => {
+      isWrapped = !isWrapped;
+      document.body.classList.toggle('src-wrap-active', isWrapped);
+      const btn = document.getElementById('btnWrap');
+      if (btn) btn.classList.toggle('active', isWrapped);
     };
 
     document.getElementById('btnCopy').onclick = () => {
-      navigator.clipboard.writeText(rawStore).then(() => {
+      let copyText = rawStore;
+      if (isFormatted) {
+        const rows = document.querySelectorAll('#srcTbody .src-code');
+        const textLines = [];
+        rows.forEach(r => textLines.push(r.textContent || ''));
+        copyText = textLines.join('\\n');
+      }
+      navigator.clipboard.writeText(copyText).then(() => {
         const t = document.getElementById('toast');
         if (t) {
           t.classList.add('show');
@@ -1008,13 +1559,56 @@ export class TabDevToolsHost {
         }
       });
     };
+
     document.getElementById('btnDownload').onclick = () => {
       const blob = new Blob([rawStore], { type: 'text/html;charset=utf-8' });
       const a = document.createElement('a');
       a.href = URL.createObjectURL(blob);
-      a.download = 'page-source.html';
+      a.download = (targetUrl.replace(/[^a-zA-Z0-9]/g, '_') || 'page-source') + '.html';
       a.click();
     };
+
+    let searchDebounce = null;
+    const searchInput = document.getElementById('srcSearchInput');
+    if (searchInput) {
+      searchInput.addEventListener('input', (e) => {
+        clearTimeout(searchDebounce);
+        searchDebounce = setTimeout(() => doSearch(e.target.value), 150);
+      });
+      searchInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          if (e.shiftKey) prevMatch(); else nextMatch();
+        } else if (e.key === 'Escape') {
+          clearSearch();
+          searchInput.blur();
+        }
+      });
+    }
+
+    document.getElementById('srcSearchPrev').onclick = prevMatch;
+    document.getElementById('srcSearchNext').onclick = nextMatch;
+    document.getElementById('srcSearchClose').onclick = () => {
+      clearSearch();
+      const input = document.getElementById('srcSearchInput');
+      if (input) input.focus();
+    };
+
+    window.addEventListener('keydown', (e) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'f') {
+        e.preventDefault();
+        const input = document.getElementById('srcSearchInput');
+        if (input) {
+          input.focus();
+          input.select();
+        }
+      } else if (e.key === 'Escape') {
+        clearSearch();
+      } else if ((e.altKey && e.key.toLowerCase() === 'z') || ((e.ctrlKey || e.metaKey) && e.altKey && e.key.toLowerCase() === 'w')) {
+        e.preventDefault();
+        document.getElementById('btnWrap').click();
+      }
+    });
   </script>
 </body>
 </html>`;
