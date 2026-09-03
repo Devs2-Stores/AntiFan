@@ -689,12 +689,11 @@ export class TabDevToolsHost {
             if (fullPageResult && fullPageResult.length > 0) {
               return fullPageResult;
             }
-          } catch (err) {
+            throw new Error('FULLPAGE_CAPTURE_TIMEOUT: CDP full-page screenshot timed out after 20000ms. Consider freezing media or checking page complexity.');
+          } catch (err: any) {
             console.error('[AntiFan DevTools] Full-page capture error:', err);
+            throw err;
           }
-          // Do NOT silently fall back to viewport capture when fullPage is explicitly requested!
-          // Falling back to viewport creates a fraudulent screenshot that triggers false parity reports.
-          throw new Error('FULLPAGE_CAPTURE_TIMEOUT: CDP full-page screenshot timed out after 20000ms. Consider freezing media or checking page complexity.');
         }
         // Tier 1: Fast webContents.capturePage() with 600ms race
         try {

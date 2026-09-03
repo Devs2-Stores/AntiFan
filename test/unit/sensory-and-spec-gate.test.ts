@@ -97,6 +97,18 @@ describe('AntiFan Sensory Engine & Quality Gate Suite', () => {
       assert.strictEqual(res.mediaCount, 2);
       assert.ok(executedScript.includes('const freeze = false'), 'Script must record freeze as false');
     });
+
+    test('throws CapabilityError when evalJs fails or returns undefined', async () => {
+      const host = createMockHost({
+        evalJs: async () => undefined,
+      });
+      const port = new BrowserControlPort(host);
+
+      await assert.rejects(
+        async () => port.freezeMedia(dummyTarget, { tabId: 'tab-1' }),
+        (err: any) => err.code === 'TARGET_STALE'
+      );
+    });
   });
 
   describe('pageInventory', () => {
@@ -233,6 +245,26 @@ describe('AntiFan Sensory Engine & Quality Gate Suite', () => {
       assert.strictEqual(res.passed, false);
       assert.strictEqual(res.checklist['consoleErrors']?.status, 'FAIL');
       assert.ok(res.checklist['consoleErrors']?.message.includes('1 unhandled errors'));
+    });
+
+    test('fails closed when target has 0 sections or 0 height', async () => {
+      const host = createMockHost({
+        evalJs: async (_expr: string, tabId?: string) => {
+          if (tabId === 'tab-1') {
+            return { scrollHeight: 0, viewportHeight: 500, sections: [] };
+          }
+          return { scrollHeight: 1000, viewportHeight: 500, sections: [{ index: 0 }] };
+        },
+        getDiagnostics: () => ({ console: [], failures: [] }),
+      });
+      const port = new BrowserControlPort(host);
+
+      const res = await port.validateSpecGate(dummyTarget, { specTabId: 'tab-2', targetTabId: 'tab-1' });
+      assert.strictEqual(res.passed, false);
+      assert.strictEqual(res.checklist['structuralSections']?.status, 'FAIL');
+      assert.strictEqual(res.checklist['heightParity']?.status, 'FAIL');
+      assert.ok(res.checklist['structuralSections']?.message.includes('Invalid section count'));
+      assert.ok(res.checklist['heightParity']?.message.includes('Invalid height measurement'));
     });
   });
 

@@ -1842,9 +1842,12 @@ export class BrowserControlPort {
         return { frozen: freeze, mediaCount };
       })()`;
       const res = (await this.host.evalJs(script, tabId, effectivePane)) as { frozen?: boolean; mediaCount?: number } | undefined;
+      if (!res || typeof res !== 'object') {
+        throw new CapabilityError('TARGET_STALE', `Failed to execute freezeMedia on tab ${tabId}`);
+      }
       return {
-        frozen: Boolean(res?.frozen ?? freeze),
-        mediaCount: Number(res?.mediaCount || 0),
+        frozen: Boolean(res.frozen),
+        mediaCount: Number(res.mediaCount || 0),
         tabId,
       };
     });
@@ -1971,13 +1974,20 @@ export class BrowserControlPort {
     params: { specTabId?: string; targetTabId?: string; tolerance?: number } = {}
   ): Promise<{ passed: boolean; criticalCount: number; checklist: Record<string, { status: 'PASS' | 'FAIL' | 'WARN'; message: string; details?: unknown }> }> {
     const specTabId = this.resolveTargetTab(target, params.specTabId || '@spec');
-    const targetTabId = this.resolveTargetTab(target, params.targetTabId || '@storefront');
+    const targetTabId = this.resolveTargetTab(target, params.targetTabId || target?.tabId || '@storefront');
     const tolerance = typeof params.tolerance === 'number' ? params.tolerance : 5.0;
     const checklist: Record<string, { status: 'PASS' | 'FAIL' | 'WARN'; message: string; details?: unknown }> = {};
     let criticalCount = 0;
     const specInv = await this.pageInventory(target, { tabId: specTabId });
     const targetInv = await this.pageInventory(target, { tabId: targetTabId });
-    if (specInv.sections.length < targetInv.sections.length) {
+    if (targetInv.sections.length === 0 || specInv.sections.length === 0) {
+      checklist.structuralSections = {
+        status: 'FAIL',
+        message: `Invalid section count: target has ${targetInv.sections.length} sections, spec has ${specInv.sections.length} sections`,
+        details: { specCount: specInv.sections.length, targetCount: targetInv.sections.length },
+      };
+      criticalCount++;
+    } else if (specInv.sections.length < targetInv.sections.length) {
       checklist.structuralSections = {
         status: 'FAIL',
         message: `Spec missing sections: spec has ${specInv.sections.length} sections vs target ${targetInv.sections.length}`,
@@ -1991,21 +2001,30 @@ export class BrowserControlPort {
         details: { specCount: specInv.sections.length, targetCount: targetInv.sections.length },
       };
     }
-    const maxDelta = (tolerance > 0 ? tolerance : 5.0) / 100;
-    const heightDelta = targetInv.scrollHeight > 0 ? Math.abs(specInv.scrollHeight - targetInv.scrollHeight) / targetInv.scrollHeight : 0;
-    if (heightDelta > maxDelta) {
+    if (targetInv.scrollHeight <= 0 || specInv.scrollHeight <= 0) {
       checklist.heightParity = {
         status: 'FAIL',
-        message: `Height mismatch delta ${(heightDelta * 100).toFixed(1)}% exceeds ${tolerance}% threshold (${specInv.scrollHeight}px vs ${targetInv.scrollHeight}px)`,
-        details: { specHeight: specInv.scrollHeight, targetHeight: targetInv.scrollHeight, deltaPercent: Number((heightDelta * 100).toFixed(1)), tolerance },
+        message: `Invalid height measurement: target height is ${targetInv.scrollHeight}px, spec height is ${specInv.scrollHeight}px`,
+        details: { specHeight: specInv.scrollHeight, targetHeight: targetInv.scrollHeight, tolerance },
       };
       criticalCount++;
     } else {
-      checklist.heightParity = {
-        status: 'PASS',
-        message: `Height parity passed: delta ${(heightDelta * 100).toFixed(1)}% <= ${tolerance}% (${specInv.scrollHeight}px vs ${targetInv.scrollHeight}px)`,
-        details: { specHeight: specInv.scrollHeight, targetHeight: targetInv.scrollHeight, deltaPercent: Number((heightDelta * 100).toFixed(1)), tolerance },
-      };
+      const maxDelta = (tolerance > 0 ? tolerance : 5.0) / 100;
+      const heightDelta = Math.abs(specInv.scrollHeight - targetInv.scrollHeight) / targetInv.scrollHeight;
+      if (heightDelta > maxDelta) {
+        checklist.heightParity = {
+          status: 'FAIL',
+          message: `Height mismatch delta ${(heightDelta * 100).toFixed(1)}% exceeds ${tolerance}% threshold (${specInv.scrollHeight}px vs ${targetInv.scrollHeight}px)`,
+          details: { specHeight: specInv.scrollHeight, targetHeight: targetInv.scrollHeight, deltaPercent: Number((heightDelta * 100).toFixed(1)), tolerance },
+        };
+        criticalCount++;
+      } else {
+        checklist.heightParity = {
+          status: 'PASS',
+          message: `Height parity passed: delta ${(heightDelta * 100).toFixed(1)}% <= ${tolerance}% (${specInv.scrollHeight}px vs ${targetInv.scrollHeight}px)`,
+          details: { specHeight: specInv.scrollHeight, targetHeight: targetInv.scrollHeight, deltaPercent: Number((heightDelta * 100).toFixed(1)), tolerance },
+        };
+      }
     }
     const diag = this.diagnostics(specTabId);
     const errors = (diag.console || []).filter((m: any) => m && (m.level === 3 || String(m.message).includes('Uncaught') || String(m.message).includes('SyntaxError')));
