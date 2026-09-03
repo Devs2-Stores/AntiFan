@@ -777,3 +777,174 @@ button {
 #terminal-divider.dragging::after {
   background: #38bdf8;
 }
+
+/* MULTILINE PASTE CONFIRMATION MODAL */
+.multiline-paste-backdrop {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(4, 7, 12, 0.78);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  z-index: 99999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.16s ease;
+}
+
+.multiline-paste-backdrop.active {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.multiline-paste-modal {
+  background: #0d1522;
+  border: 1px solid rgba(56, 189, 248, 0.35);
+  box-shadow: 0 20px 48px rgba(0, 0, 0, 0.85), 0 0 1px 1px rgba(255, 255, 255, 0.08);
+  border-radius: 9px;
+  width: 90%;
+  max-width: 520px;
+  padding: 18px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  transform: scale(0.95) translateY(6px);
+  transition: transform 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.multiline-paste-backdrop.active .multiline-paste-modal {
+  transform: scale(1) translateY(0);
+}
+
+.multiline-paste-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.multiline-paste-icon {
+  flex-shrink: 0;
+  width: 34px;
+  height: 34px;
+  border-radius: 8px;
+  background: rgba(245, 158, 11, 0.15);
+  border: 1px solid rgba(245, 158, 11, 0.35);
+  color: #fbbf24;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.multiline-paste-title-group {
+  flex: 1;
+}
+
+.multiline-paste-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: #f1f5f9;
+  letter-spacing: 0.02em;
+  margin: 0 0 4px 0;
+}
+
+.multiline-paste-desc {
+  font-size: 11.5px;
+  color: #94a3b8;
+  line-height: 1.45;
+  margin: 0;
+}
+
+.multiline-paste-preview {
+  background: #04070c;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 6px;
+  padding: 10px 12px;
+  max-height: 140px;
+  overflow-y: auto;
+  font-family: Consolas, "Cascadia Code", "Fira Code", monospace;
+  font-size: 11px;
+  color: #cbd5e1;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-all;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.2) transparent;
+}
+
+.multiline-paste-preview .line-num {
+  color: #64748b;
+  user-select: none;
+  margin-right: 8px;
+}
+
+.multiline-paste-preview .more-hint {
+  color: #38bdf8;
+  font-style: italic;
+  font-size: 10.5px;
+  margin-top: 4px;
+  user-select: none;
+}
+
+.multiline-paste-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.multiline-paste-btn {
+  padding: 7px 14px;
+  border-radius: 5px;
+  font-size: 11.5px;
+  font-weight: 600;
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition: all 0.12s ease;
+  user-select: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.multiline-paste-btn.primary {
+  background: #0284c7;
+  color: #ffffff;
+  border-color: #38bdf8;
+  box-shadow: 0 2px 8px rgba(2, 132, 199, 0.4);
+}
+
+.multiline-paste-btn.primary:hover,
+.multiline-paste-btn.primary:focus {
+  background: #0369a1;
+  box-shadow: 0 4px 12px rgba(2, 132, 199, 0.55);
+}
+
+.multiline-paste-btn.secondary {
+  background: rgba(255, 255, 255, 0.06);
+  color: #cbd5e1;
+  border-color: rgba(255, 255, 255, 0.12);
+}
+
+.multiline-paste-btn.secondary:hover,
+.multiline-paste-btn.secondary:focus {
+  background: rgba(255, 255, 255, 0.12);
+  color: #ffffff;
+}
+
+.multiline-paste-btn.tertiary {
+  background: transparent;
+  color: #94a3b8;
+  border-color: transparent;
+}
+
+.multiline-paste-btn.tertiary:hover,
+.multiline-paste-btn.tertiary:focus {
+  background: rgba(239, 68, 68, 0.15);
+  color: #fca5a5;
+}
