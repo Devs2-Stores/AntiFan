@@ -483,6 +483,52 @@ describe('Element Picker Resolution & Artifact Upgrades', () => {
       fs.rmSync(tempDir, { recursive: true, force: true });
     } catch {}
   });
+  it('AnnotationManager cleanly formats structured boxModel and parentLayout objects without [object Object]', async () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-test-boxmodel-'));
+    const manager = AnnotationManager.getInstance();
+
+    const payload = {
+      workspaceDir: tempDir,
+      url: 'https://myshop.com/products/t-shirt',
+      selector: '.product-summary',
+      tagName: 'div',
+      dimensions: '300 x 200 px',
+      userComment: 'Check summary box model',
+      boxModel: {
+        boxSizing: 'border-box',
+        margin: { top: 10, right: 20, bottom: 10, left: 20 },
+        border: { top: 1, right: 1, bottom: 1, left: 1 },
+        padding: { top: 15, right: 15, bottom: 15, left: 15 },
+        content: { width: 268, height: 168 },
+      },
+      parentLayout: {
+        tag: 'section',
+        classes: ['product-layout'],
+        display: 'flex',
+        flexDirection: 'column',
+        gap: '12px',
+      },
+      targetImageBase64: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==',
+    };
+
+    const res = await manager.processAnnotationPayload(payload as any);
+    assert.strictEqual(res.ok, true);
+    const content = fs.readFileSync(res.markdownPath, 'utf8');
+
+    assert.ok(!content.includes('[object Object]'), 'Markdown must NEVER contain [object Object]');
+    assert.ok(!content.includes('undefined x undefined'), 'Markdown must not contain undefined dimensions');
+    assert.ok(content.includes('Margin: `10px 20px`'));
+    assert.ok(content.includes('Border: `1px`'));
+    assert.ok(content.includes('Padding: `15px`'));
+    assert.ok(content.includes('Content Size: `268 x 168 px`'));
+    assert.ok(content.includes('Parent Tag: `section`'));
+    assert.ok(!content.includes('Parent Tag: `unknown`'));
+
+    try {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    } catch {}
+  });
+
 
 
   it('ELEMENT_PICKER_SCRIPT executes cleanly without reference errors', () => {

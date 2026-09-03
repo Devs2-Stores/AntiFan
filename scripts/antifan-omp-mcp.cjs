@@ -301,10 +301,18 @@ async function invoke(method, params = {}, callerRequestId) {
   const mapped = CAPABILITY_MAP[method] || method;
   let effectiveParams = { ...params };
   const boundTabId = bootstrap.tabId || process.env.ANTIFAN_BOUND_TAB_ID;
-  if (boundTabId && effectiveParams.tabId && effectiveParams.tabId !== boundTabId) {
+  if (effectiveParams.tabId && boundTabId && effectiveParams.tabId !== boundTabId) {
     if (mapped !== 'browser.switch-tab' && mapped !== 'browser.close-tab') {
-      effectiveParams.tabId = boundTabId;
+      try {
+        await invoke('anti.browser.tabs.activate', { tabId: effectiveParams.tabId }, callerRequestId);
+        bootstrap.tabId = effectiveParams.tabId;
+        process.env.ANTIFAN_BOUND_TAB_ID = effectiveParams.tabId;
+      } catch (switchErr) {
+        process.stderr.write(`[antifan-omp-mcp] Auto-rebinding to tab ${effectiveParams.tabId} failed: ${switchErr instanceof Error ? switchErr.message : String(switchErr)}\n`);
+      }
     }
+  } else if (!effectiveParams.tabId && boundTabId) {
+    effectiveParams.tabId = boundTabId;
   }
   if (mapped === 'artifact.read') {
     const rawLimit = typeof params.limit === 'number' && params.limit > 0 ? params.limit : 32768;
@@ -321,7 +329,20 @@ async function invoke(method, params = {}, callerRequestId) {
       reject(new Error(JSON.stringify({ code: 'TIMEOUT', message: `AntiFan RPC timed out: ${mapped}` })));
     }, timeoutMs);
 
-    pendingDispatchCalls.set(id, { resolve, reject, timer });
+    pendingDispatchCalls.set(id, {
+      resolve: (data) => {
+        if (mapped === 'browser.switch-tab' && effectiveParams.tabId) {
+          bootstrap.tabId = effectiveParams.tabId;
+          process.env.ANTIFAN_BOUND_TAB_ID = effectiveParams.tabId;
+        } else if (mapped === 'browser.open-tab' && data && typeof data === 'object' && typeof data.tabId === 'string') {
+          bootstrap.tabId = data.tabId;
+          process.env.ANTIFAN_BOUND_TAB_ID = data.tabId;
+        }
+        resolve(data);
+      },
+      reject,
+      timer,
+    });
 
     try {
       ws.send(JSON.stringify({

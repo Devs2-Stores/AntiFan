@@ -107,7 +107,7 @@ export class AntiFanMcpServer {
       },
       {
         name: 'antifan_switch_tab',
-        description: 'Switch the active tab visible to the user by its ID. Note: Automated background agent operations should not switch tabs and should instead pass tabId directly.',
+        description: 'Switch the active tab visible to the user and rebind agent automation focus by tab ID.',
         inputSchema: {
           type: 'object',
           properties: {

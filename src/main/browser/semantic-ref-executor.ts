@@ -312,7 +312,7 @@ export function buildIsolatedExecutorScript(request: RendererActionRequest): str
       let computedRect = undefined;
       if (targetElement) {
         if (typeof targetElement.scrollIntoView === 'function') {
-          targetElement.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+          targetElement.scrollIntoView({ block: 'center', inline: 'center' });
         }
 
         const style = window.getComputedStyle ? window.getComputedStyle(targetElement) : targetElement.style || {};

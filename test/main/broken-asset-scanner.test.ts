@@ -95,4 +95,42 @@ describe('BrokenAssetScanner', () => {
     assert.strictEqual(result.totalImagesScanned, 2);
     assert.strictEqual(result.totalStylesheetsScanned, 1);
   });
+
+  it('ignores empty src or placeholder src with lazyload data-src attributes without evaluating page URL', () => {
+    const scriptText = BrokenAssetScanner.getBrowserScanScript();
+    const script = new vm.Script(scriptText);
+
+    const mockDocument = {
+      querySelectorAll: (sel: string) => {
+        if (sel === 'img') {
+          return [
+            {
+              tagName: 'IMG',
+              className: 'lazyload',
+              classList: { contains: (c: string) => c === 'lazyload' },
+              // Simulated Chromium behavior: img.src returns page URL when attribute is empty
+              src: 'https://myshop.com/products/item-123',
+              naturalWidth: 0,
+              naturalHeight: 0,
+              complete: false,
+              getAttribute: (attr: string) => (attr === 'data-src' ? 'https://cdn.myshop.com/real.jpg' : null),
+              closest: (_sel: string) => null,
+            },
+          ];
+        }
+        return [];
+      },
+    };
+
+    const sandbox = {
+      document: mockDocument,
+      window: {},
+      console: { log: () => {}, error: () => {} },
+    };
+    const context = vm.createContext(sandbox);
+    const result = script.runInContext(context) as BrokenAssetScanResult;
+
+    assert.strictEqual(result.hasBrokenAssets, false, 'Lazyloaded image with data-src must NOT be flagged as broken');
+    assert.strictEqual(result.brokenAssets.length, 0);
+  });
 });

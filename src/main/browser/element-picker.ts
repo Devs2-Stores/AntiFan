@@ -502,6 +502,7 @@ export const ELEMENT_PICKER_SCRIPT = `(() => {
     const bt = parse(computed.borderTopWidth), br = parse(computed.borderRightWidth), bb = parse(computed.borderBottomWidth), bl = parse(computed.borderLeftWidth);
 
     return {
+      boxSizing: computed.boxSizing || 'border-box',
       margin: { top: mt, right: mr, bottom: mb, left: ml },
       padding: { top: pt, right: pr, bottom: pb, left: pl },
       border: { top: bt, right: br, bottom: bb, left: bl },
@@ -520,9 +521,12 @@ export const ELEMENT_PICKER_SCRIPT = `(() => {
       const display = pComp.display || 'block';
       return {
         tag: parent.tagName.toLowerCase(),
+        parentTag: parent.tagName.toLowerCase(),
         selector: parent.id ? '#' + parent.id : (parent.className && typeof parent.className === 'string' ? '.' + parent.className.trim().split(/\\s+/)[0] : parent.tagName.toLowerCase()),
         display: display,
         flexDirection: display.includes('flex') ? pComp.flexDirection : undefined,
+        justifyContent: display.includes('flex') ? pComp.justifyContent : undefined,
+        alignItems: display.includes('flex') ? pComp.alignItems : undefined,
         gap: (display.includes('flex') || display.includes('grid')) ? pComp.gap : undefined,
         gridTemplateColumns: display.includes('grid') ? pComp.gridTemplateColumns : undefined,
       };

@@ -230,20 +230,40 @@ ${isClone ? `- Canonical Counterpart: \`${canonicalEv.canonicalFound ? (canonica
 - Index Stability: \`${payload.indexStability || 'stable'}\` ${payload.indexStability === 'unstable-on-rerender' ? '(⚠️ Index will change when list re-orders or filters; do not hardcode :nth-of-type in code edits)' : ''}
 `;
 
+      const formatBoxEdge = (val: unknown): string => {
+        if (!val) return '0px';
+        if (typeof val === 'string') return val;
+        if (typeof val === 'object' && val !== null) {
+          const edge = val as { top?: number; right?: number; bottom?: number; left?: number };
+          const t = edge.top ?? 0, r = edge.right ?? 0, b = edge.bottom ?? 0, l = edge.left ?? 0;
+          if (t === b && r === l) {
+            return t === r ? `${t}px` : `${t}px ${r}px`;
+          }
+          return `${t}px ${r}px ${b}px ${l}px`;
+        }
+        return String(val);
+      };
+
+      const contentW = payload.boxModel?.content?.width ?? payload.boxModel?.contentWidth;
+      const contentH = payload.boxModel?.content?.height ?? payload.boxModel?.contentHeight;
+      const contentSizeStr = (contentW !== undefined && contentH !== undefined) ? `${contentW} x ${contentH} px` : `${dimensions}`;
+
       const boxModelSection = payload.boxModel ? `## 📐 Layout & Box Model Metrics
 - Dimensions: ${dimensions}
 - Box Sizing: \`${payload.boxModel.boxSizing || 'border-box'}\`
-- Margin: \`${payload.boxModel.margin || '0px'}\`
-- Border: \`${payload.boxModel.border || '0px'}\`
-- Padding: \`${payload.boxModel.padding || '0px'}\`
-- Content Size: \`${payload.boxModel.contentWidth} x ${payload.boxModel.contentHeight} px\`
+- Margin: \`${formatBoxEdge(payload.boxModel.margin)}\`
+- Border: \`${formatBoxEdge(payload.boxModel.border)}\`
+- Padding: \`${formatBoxEdge(payload.boxModel.padding)}\`
+- Content Size: \`${contentSizeStr}\`
 ` : '';
 
+      const parentTag = payload.parentLayout?.parentTag || payload.parentLayout?.tag || 'unknown';
+      const parentClasses = payload.parentLayout?.parentClasses || payload.parentLayout?.classes || (payload.parentLayout?.selector?.startsWith('.') ? [payload.parentLayout.selector.slice(1)] : []);
       const parentLayoutSection = payload.parentLayout ? `## 🧱 Parent Layout Context
-- Parent Tag: \`${payload.parentLayout.parentTag || 'unknown'}\`${payload.parentLayout.parentClasses?.length ? ` (\`.${payload.parentLayout.parentClasses.join(' .')}\`)` : ''}
+- Parent Tag: \`${parentTag}\`${parentClasses?.length ? ` (\`.${parentClasses.join(' .')}\`)` : ''}
 - Layout Mode: \`${payload.parentLayout.display || 'block'}\`
-${payload.parentLayout.display?.includes('flex') ? `- Flex Properties: \`flex-direction: ${payload.parentLayout.flexDirection}\`, \`justify-content: ${payload.parentLayout.justifyContent}\`, \`align-items: ${payload.parentLayout.alignItems}\`, \`gap: ${payload.parentLayout.gap}\`` : ''}
-${payload.parentLayout.display?.includes('grid') ? `- Grid Properties: \`grid-template-columns: ${payload.parentLayout.gridTemplateColumns}\`, \`gap: ${payload.parentLayout.gap}\`` : ''}
+${payload.parentLayout.display?.includes('flex') ? `- Flex Properties: \`flex-direction: ${payload.parentLayout.flexDirection || 'row'}\`, \`justify-content: ${payload.parentLayout.justifyContent || 'flex-start'}\`, \`align-items: ${payload.parentLayout.alignItems || 'stretch'}\`${payload.parentLayout.gap ? `, \`gap: ${payload.parentLayout.gap}\`` : ''}` : ''}
+${payload.parentLayout.display?.includes('grid') ? `- Grid Properties: \`grid-template-columns: ${payload.parentLayout.gridTemplateColumns || 'none'}\`${payload.parentLayout.gap ? `, \`gap: ${payload.parentLayout.gap}\`` : ''}` : ''}
 ` : '';
 
       const sourceHintsSection = payload.sourceHints && (payload.sourceHints.signals?.length || payload.sourceHints.framework !== 'unknown') ? `## 📍 Source Ownership & AST Code Locators

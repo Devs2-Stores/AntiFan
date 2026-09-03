@@ -3039,12 +3039,12 @@ export class NativeTabHost extends EventEmitter {
     }
     return true;
   }
-  public async reloadAndWait(tabId: string, timeoutMs: number = 3000): Promise<boolean> {
+  public async reloadAndWait(tabId: string, timeoutMs: number = 8000): Promise<boolean> {
     const tab = this.tabs.get(tabId);
     if (!tab) return false;
 
     const isBackground = tabId !== this.activeTabId;
-    const effectiveTimeoutMs = timeoutMs !== 3000 ? timeoutMs : (isBackground ? 8000 : 3000);
+    const effectiveTimeoutMs = timeoutMs !== 8000 ? timeoutMs : (isBackground ? 10000 : 8000);
     const isSplit = Boolean(tab.state.splitMode && tab.mobileView && !tab.mobileView.webContents.isDestroyed());
 
     // Reset inflight records for reload and ensure active debugger attachment
@@ -3094,7 +3094,7 @@ export class NativeTabHost extends EventEmitter {
     return this.networkTracker;
   }
 
-  private createLoadCompletionWaiter(wc: Electron.WebContents, timeoutMs: number = 3000): { promise: Promise<boolean>; cancel: () => void } {
+  private createLoadCompletionWaiter(wc: Electron.WebContents, timeoutMs: number = 8000): { promise: Promise<boolean>; cancel: () => void } {
     let cancelFn: () => void = () => {};
     const promise = new Promise<boolean>((resolve) => {
       if (!wc || wc.isDestroyed()) {
@@ -3102,6 +3102,10 @@ export class NativeTabHost extends EventEmitter {
         return;
       }
       let settled = false;
+      let domIsReady = false;
+      const onDomReady = () => {
+        domIsReady = true;
+      };
       const onFinish = () => {
         if (!settled) {
           settled = true;
@@ -3131,6 +3135,7 @@ export class NativeTabHost extends EventEmitter {
       }, timeoutMs);
       const cleanup = () => {
         clearTimeout(timer);
+        try { wc.removeListener('dom-ready', onDomReady); } catch {}
         try { wc.removeListener('did-finish-load', onFinish); } catch {}
         try { wc.removeListener('did-fail-load', onFail); } catch {}
       };
@@ -3141,6 +3146,7 @@ export class NativeTabHost extends EventEmitter {
           resolve(false);
         }
       };
+      try { wc.once('dom-ready', onDomReady); } catch {}
       wc.on('did-finish-load', onFinish);
       wc.on('did-fail-load', onFail);
     });
@@ -3695,12 +3701,11 @@ export class NativeTabHost extends EventEmitter {
   public async ensureAgentBrowserInjected(tabId?: string, paneId?: SplitPaneId): Promise<boolean> {
     return this.getAutomationHost().ensureAgentBrowserInjected(tabId, paneId);
   }
-  private async executeInIsolatedWorld(wc: Electron.WebContents, script: string): Promise<unknown> {
-    return this.getAutomationHost().executeInIsolatedWorld(wc, script);
-  }
-
   public async dispatchAgentAction(action: 'click' | 'type' | 'move' | 'hover' | 'scroll' | 'highlight' | 'clear' | 'trajectory', params: { selector?: string; ref?: string; x?: number; y?: number; text?: string; clear?: boolean; trusted?: boolean; deltaY?: number; label?: string; tabId?: string; paneId?: SplitPaneId; steps?: Array<Record<string, unknown>>; speed?: 'fast' | 'natural' | 'slow'; smoothScroll?: boolean }): Promise<{ success: boolean; data?: unknown; reason?: string }> {
     return this.getAutomationHost().dispatchAgentAction(action, params);
+  }
+  private async executeInIsolatedWorld(wc: Electron.WebContents, script: string): Promise<unknown> {
+    return this.getAutomationHost().executeInIsolatedWorld(wc, script);
   }
 
   public async agentClick(params: { selector?: string; ref?: string; x?: number; y?: number; label?: string; trusted?: boolean; tabId?: string; paneId?: SplitPaneId }): Promise<boolean> {
@@ -3710,7 +3715,6 @@ export class NativeTabHost extends EventEmitter {
   public async agentType(params: { selector?: string; ref?: string; text: string; clear?: boolean; trusted?: boolean; tabId?: string; paneId?: SplitPaneId }): Promise<boolean> {
     return this.getAutomationHost().agentType(params);
   }
-
   public async agentScroll(params: { deltaY?: number; selector?: string; ref?: string; tabId?: string; paneId?: SplitPaneId }): Promise<boolean> {
     return this.getAutomationHost().agentScroll(params);
   }

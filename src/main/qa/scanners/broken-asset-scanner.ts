@@ -28,11 +28,20 @@ export class BrokenAssetScanner {
 
       // 1. Check broken images
       for (const img of images) {
-        const src = img.getAttribute('src') || img.src;
-        if (!src) {
-          // Empty src is only flagged if not a lazy-loaded image with data-src
-          const lazySrc = img.getAttribute('data-src') || img.getAttribute('data-srcset');
-          if (!lazySrc && !img.closest('[data-lazy]')) {
+        const rawAttrSrc = img.getAttribute('src');
+        const isEmptyAttr = rawAttrSrc !== null && (rawAttrSrc.trim() === '' || rawAttrSrc.trim() === '#' || rawAttrSrc.trim() === 'about:blank');
+        const isPageUrl = typeof window !== 'undefined' && window.location && typeof window.location.href === 'string' && img.src === window.location.href;
+        const rawSrc = (isEmptyAttr || isPageUrl) ? '' : (rawAttrSrc || img.src || '');
+        const lazySrc = img.getAttribute('data-src') || img.getAttribute('data-srcset') || img.getAttribute('data-lazy-src') || img.getAttribute('srcset');
+
+        const hasLazyClass = Boolean(
+          (img.classList && typeof img.classList.contains === 'function' && (img.classList.contains('lazyload') || img.classList.contains('lazyloaded'))) ||
+          (typeof img.className === 'string' && /lazyload/i.test(img.className))
+        );
+
+        // If empty src or placeholder src, check lazy attributes without evaluating img.src (which resolves to page URL)
+        if (!rawSrc || rawSrc.trim() === '' || rawSrc.trim() === '#' || rawSrc.trim() === 'about:blank') {
+          if (!lazySrc && (!img.closest || !img.closest('[data-lazy]')) && !hasLazyClass) {
             findings.push({
               type: 'image',
               url: '(empty src)',
@@ -43,29 +52,47 @@ export class BrokenAssetScanner {
           continue;
         }
 
+        const src = rawSrc;
         // Ignore valid data URIs and blank placeholder SVGs
-        if (src.startsWith('data:image/svg+xml') || src.startsWith('data:image/gif;base64,R0lGODlhAQABA')) {
+        if (src.startsWith('data:image/svg+xml') || src.startsWith('data:image/gif;base64,R0lGODlhAQABA') || src.startsWith('data:image/png;base64,iVBORw0KGgo')) {
+          continue;
+        }
+
+        // If lazy loaded image that hasn't loaded yet, do not flag prematurely
+        if (lazySrc && !img.complete && img.naturalWidth === 0) {
           continue;
         }
 
         // Check if image failed to load in DOM
         if (img.complete && (img.naturalWidth === 0 || img.naturalHeight === 0)) {
+          if (lazySrc && hasLazyClass) {
+            continue;
+          }
           findings.push({
             type: 'image',
-            url: src,
+            url: rawSrc || src,
             elementSelector: getSelector(img),
             reason: 'Image completed loading with 0 natural width/height (load failure)'
           });
         }
       }
 
-
       function getSelector(el) {
         if (!el) return '';
         let s = el.tagName.toLowerCase();
-        if (el.id) s += '#' + el.id;
-        else if (el.className && typeof el.className === 'string') {
-          s += '.' + el.className.trim().split(/\\s+/).slice(0, 2).join('.');
+        if (el.id) return s + '#' + el.id;
+        if (el.className && typeof el.className === 'string' && el.className.trim().length > 0) {
+          const parts = el.className.trim().split(/\\s+/).filter(Boolean);
+          if (parts.length > 0) {
+            s += '.' + parts.slice(0, 2).join('.');
+          }
+        }
+        if (el.getAttribute('alt')) {
+          s += '[alt="' + el.getAttribute('alt').slice(0, 25).replace(/"/g, '') + '"]';
+        } else if (el.parentElement) {
+          const parent = el.parentElement;
+          const pSel = parent.id ? '#' + parent.id : (parent.className && typeof parent.className === 'string' && parent.className.trim() ? '.' + parent.className.trim().split(/\\s+/)[0] : parent.tagName.toLowerCase());
+          s = pSel + ' > ' + s;
         }
         return s;
       }
