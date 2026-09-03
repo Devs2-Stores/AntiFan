@@ -6,6 +6,14 @@ import type { NormalizedProduct, NormalizedCategory } from './ecommerce-data-mod
  * Model: Component Contract Intermediate Representation (ComponentContractIR)
  * Decoupled canonical representation for e-commerce storefront theme reconstruction
  */
+export interface LayoutRelationContract {
+  parent?: string;
+  child?: string;
+  type: 'fixed-width' | 'fill-remaining' | 'aspect-ratio' | 'column-count' | 'gap';
+  value: string | number;
+  viewport?: 'desktop' | 'tablet' | 'mobile' | 'all';
+}
+
 export interface LayoutConstraints {
   containerMaxWidth: number;
   containerPaddingPx: number;
@@ -16,6 +24,7 @@ export interface LayoutConstraints {
     tabletMax: number;
     desktopMin: number;
   };
+  relations?: LayoutRelationContract[];
 }
 
 export interface ThemeSettingContract {

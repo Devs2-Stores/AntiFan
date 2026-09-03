@@ -46,7 +46,13 @@ export class CloneIRBuilder {
           tabletMin: 768,
           tabletMax: 1024,
           desktopMin: 1025
-        }
+        },
+        relations: [
+          { type: 'column-count', value: 4, viewport: 'desktop' },
+          { type: 'column-count', value: 2, viewport: 'tablet' },
+          { type: 'column-count', value: 1, viewport: 'mobile' },
+          { type: 'gap', value: 20, viewport: 'all' }
+        ]
       },
       responsive: ResponsiveScanner.BREAKPOINTS,
       assets: harvestedAssets,

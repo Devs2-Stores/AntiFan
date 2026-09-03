@@ -450,4 +450,23 @@ describe('Cognitive Models - Asset, Responsive & E-commerce Data', () => {
     assert.ok(runtimeJs.includes('[data-antifan-toggle]'), 'Must support toggle');
     assert.ok(runtimeJs.includes('[data-antifan-modal]'), 'Must support modal');
   });
+
+  it('8. ResponsiveScanner infers CSS breakpoint column shifts and IR contains relational constraints', () => {
+    const scanner = new ResponsiveScanner();
+    const sampleCss = `
+      .product-grid { display: grid; grid-template-columns: repeat(4, 1fr); }
+      @media (max-width: 1024px) { .product-grid { grid-template-columns: repeat(2, 1fr); } }
+      @media (max-width: 767px) { .product-grid { grid-template-columns: repeat(1, 1fr); } }
+    `;
+    const constraints = scanner.inferConstraintsFromCssRules(sampleCss, 'product_grid');
+    assert.strictEqual(constraints.desktop.columns, 4);
+    assert.strictEqual(constraints.tablet.columns, 2);
+    assert.strictEqual(constraints.mobile.columns, 1);
+
+    const builder = new CloneIRBuilder();
+    const ir = builder.buildFromHtml('<div class="product-item">Product 1</div>');
+    assert.ok(ir.layout.relations && ir.layout.relations.length > 0, 'Layout relations must be present in IR');
+    assert.strictEqual(ir.layout.relations.find(r => r.viewport === 'desktop')?.value, 4);
+    assert.strictEqual(ir.layout.relations.find(r => r.viewport === 'mobile')?.value, 1);
+  });
 });

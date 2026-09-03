@@ -227,4 +227,26 @@ export class ResponsiveScanner {
       `}`
     ].join('\n');
   }
+
+  public inferConstraintsFromCssRules(cssText: string, defaultArchetype: string = 'product_grid'): ResponsiveLayoutConstraint {
+    const base = this.inferLayoutConstraints(defaultArchetype);
+    if (!cssText || typeof cssText !== 'string') return base;
+
+    const mobileMediaMatch = cssText.match(/@media[^{]*(?:max-width:\s*767px|max-width:\s*480px)[^{]*\{([^}]+)\}/i);
+    const tabletMediaMatch = cssText.match(/@media[^{]*(?:min-width:\s*768px|max-width:\s*1024px)[^{]*\{([^}]+)\}/i);
+
+    if (mobileMediaMatch && mobileMediaMatch[1]) {
+      const colMatch = mobileMediaMatch[1].match(/grid-template-columns:\s*repeat\((\d+)/i);
+      if (colMatch && colMatch[1]) {
+        base.mobile.columns = parseInt(colMatch[1], 10);
+      }
+    }
+    if (tabletMediaMatch && tabletMediaMatch[1]) {
+      const colMatch = tabletMediaMatch[1].match(/grid-template-columns:\s*repeat\((\d+)/i);
+      if (colMatch && colMatch[1]) {
+        base.tablet.columns = parseInt(colMatch[1], 10);
+      }
+    }
+    return base;
+  }
 }

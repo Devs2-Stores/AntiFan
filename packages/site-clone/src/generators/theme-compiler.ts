@@ -202,6 +202,34 @@ export class ThemeCompiler {
       const themeJsPath = path.join(stagingDir, 'assets', 'theme.js');
       fs.writeFileSync(themeJsPath, this.stateSynth.generateDeclarativeRuntime(), 'utf-8');
       filesWritten.push(themeJsPath);
+      // 9b. Generate assets/theme-responsive.css when layout relations are defined
+      if (ir.layout?.relations && ir.layout.relations.length > 0) {
+        const desktopCols = ir.layout.relations.find(r => r.viewport === 'desktop' && r.type === 'column-count')?.value || 4;
+        const tabletCols = ir.layout.relations.find(r => r.viewport === 'tablet' && r.type === 'column-count')?.value || 2;
+        const mobileCols = ir.layout.relations.find(r => r.viewport === 'mobile' && r.type === 'column-count')?.value || 1;
+        const gap = ir.layout.relations.find(r => r.type === 'gap')?.value || ir.layout.gridGapPx || 16;
+        
+        const responsiveCssContent = [
+          `/* Generated Responsive Layout Constraints */`,
+          `:root {`,
+          `  --antifan-container-max: ${ir.layout.containerMaxWidth}px;`,
+          `  --antifan-container-pad: ${ir.layout.containerPaddingPx}px;`,
+          `  --antifan-grid-gap: ${gap}px;`,
+          `}`,
+          `@media (min-width: 1025px) {`,
+          `  .antifan-responsive-grid { display: grid; grid-template-columns: repeat(${desktopCols}, 1fr); gap: var(--antifan-grid-gap); }`,
+          `}`,
+          `@media (min-width: 768px) and (max-width: 1024px) {`,
+          `  .antifan-responsive-grid { display: grid; grid-template-columns: repeat(${tabletCols}, 1fr); gap: var(--antifan-grid-gap); }`,
+          `}`,
+          `@media (max-width: 767px) {`,
+          `  .antifan-responsive-grid { display: grid; grid-template-columns: repeat(${mobileCols}, 1fr); gap: var(--antifan-grid-gap); }`,
+          `}`
+        ].join('\n');
+        const responsiveCssPath = path.join(stagingDir, 'assets', 'theme-responsive.css');
+        fs.writeFileSync(responsiveCssPath, responsiveCssContent, 'utf-8');
+        filesWritten.push(responsiveCssPath);
+      }
       if (ir.assets) {
         const allAssets = [
           ...(ir.assets.stylesheets || []),

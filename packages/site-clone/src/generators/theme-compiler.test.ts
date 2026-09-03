@@ -91,6 +91,13 @@ describe('ThemeCompiler - End-to-End Haravan OS 2.0 Theme Compilation', () => {
       assert.ok(fs.existsSync(schemaFile), 'settings_schema.json must exist');
       const schemaJson = JSON.parse(fs.readFileSync(schemaFile, 'utf-8'));
       assert.ok(Array.isArray(schemaJson), 'settings_schema.json must be an array');
+
+      // Verify assets/theme-responsive.css
+      const responsiveCssFile = path.join(tempDir, 'assets', 'theme-responsive.css');
+      assert.ok(fs.existsSync(responsiveCssFile), 'theme-responsive.css must be generated from layout relations');
+      const responsiveCssContent = fs.readFileSync(responsiveCssFile, 'utf-8');
+      assert.ok(responsiveCssContent.includes('@media (min-width: 1025px)'), 'Must contain desktop media query');
+      assert.ok(responsiveCssContent.includes('@media (max-width: 767px)'), 'Must contain mobile media query');
     } finally {
       fs.rmSync(tempDir, { recursive: true, force: true });
     }

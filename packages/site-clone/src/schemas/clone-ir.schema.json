@@ -42,6 +42,20 @@
             "tabletMax": { "type": "number" },
             "desktopMin": { "type": "number" }
           }
+        },
+        "relations": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["type", "value"],
+            "properties": {
+              "parent": { "type": "string" },
+              "child": { "type": "string" },
+              "type": { "type": "string", "enum": ["fixed-width", "fill-remaining", "aspect-ratio", "column-count", "gap"] },
+              "value": { "type": ["string", "number"] },
+              "viewport": { "type": "string", "enum": ["desktop", "tablet", "mobile", "all"] }
+            }
+          }
         }
       }
     },
