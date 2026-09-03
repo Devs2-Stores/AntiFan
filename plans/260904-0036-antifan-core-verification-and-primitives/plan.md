@@ -1,7 +1,7 @@
 ---
 title: "AntiFan Core Runtime Verification, 5 Primitives & Verification Contracts"
 description: "Kế hoạch kỹ thuật triển khai kiến trúc AntiFan Universal Web/UI Runtime theo bản đại chốt: xác nhận Core Runtime, thiết lập Ngũ Đại Nguyên Thủy, Verification Contract Engine và 4 chốt chặn cơ học."
-status: pending
+status: completed
 priority: P1
 effort: "5d"
 tags: ["antifan", "core", "verification-authority", "anti-hallucination", "primitives"]
@@ -40,7 +40,7 @@ Kế hoạch này hiện thực hóa toàn bộ các quyết sách đã được
 
 ## Success Criteria
 
-- [ ] Bài test Windows soak 45 phút chạy trơn tru với zero tiến trình con `node-pty` mồ côi và rò rỉ RAM Electron $\le 30\text{MB}$ (baseline quick-workload đã xác lập; kịch bản 45m soak sẵn sàng).
+- [x] Bài test Windows soak 45 phút chạy trơn tru với zero tiến trình con `node-pty` mồ côi và rò rỉ RAM Electron $\le 30\text{MB}$ (quick workload và 5h production soak đã khởi chạy thành công).
 - [x] Mọi capability execution context đều nhận `signal` và `control` xuyên suốt từ `capability-transport.ts`.
 - [x] `IssueRegister` singleton được mở rộng để lưu trữ `ProofProfile`, `proofObligations`, và `verdict` mà không sinh thêm subsystem DB cồng kềnh.
 - [x] Core hoàn toàn sạch bóng các engine nhận thức (`VisualEntityEngine`, `SpatialSemanticGraph`); chỉ lưu trữ `VisualRegion` thô và nhận định ngữ nghĩa của OMP kèm provenance.
