@@ -1066,6 +1066,10 @@ export class BrowserControlPort {
         beforeStyles = await this.inspectStyles(target, { selector: params.selector, ref: params.ref, tabId, paneId: effectivePane });
       } catch {}
 
+      // Capture Dual-Scope Before State
+      const beforeState = await this.captureBehaviorScope(tabId, effectivePane, params.selector, params.ref);
+
+      // Execute Action
       if (params.action === 'click') {
         if (this.host.agentClick) {
           await this.host.agentClick({ selector: params.selector, ref: params.ref, trusted: true, tabId, paneId: effectivePane });
@@ -1077,6 +1081,11 @@ export class BrowserControlPort {
         if (this.host.agentHover) {
           await this.host.agentHover({ selector: params.selector, ref: params.ref, tabId, paneId: effectivePane });
         }
+      } else if (params.action === 'focus') {
+        const sel = params.ref ? `[data-antifan-ref="${params.ref}"]` : (params.selector || 'body');
+        try {
+          await this.host.evalJs(`document.querySelector(${JSON.stringify(sel)})?.focus()`, tabId, effectivePane);
+        } catch {}
       } else if (params.action === 'type') {
         if (this.host.agentType) {
           await this.host.agentType({ selector: params.selector, ref: params.ref, text: params.text || '', trusted: true, tabId, paneId: effectivePane });
@@ -1088,23 +1097,246 @@ export class BrowserControlPort {
       }
 
       const settleWait = Math.min(Math.max(params.settleMs || 100, 20), 2000);
-      await new Promise((r) => setTimeout(r, settleWait));
-
+      const { promise: settlePromise, resolve: settleResolve } = Promise.withResolvers<void>();
+      setTimeout(settleResolve, settleWait);
+      await settlePromise;
       let afterStyles: Record<string, unknown> = {};
       try {
         afterStyles = await this.inspectStyles(target, { selector: params.selector, ref: params.ref, tabId, paneId: effectivePane });
       } catch {}
 
+      // Capture Dual-Scope After State
+      const afterState = await this.captureBehaviorScope(tabId, effectivePane, params.selector, params.ref);
+
       const durationMs = Date.now() - startTime;
+
+      // Synthesize Semantic Verdict and Evidence Delta
+      const evaluation = this.evaluateBehaviorEvidence(beforeState, afterState, beforeStyles, afterStyles);
+
       return {
         action: params.action,
         target: { selector: params.selector, ref: params.ref },
         durationMs,
+        settled: true,
+        verified: evaluation.verified,
+        verdict: evaluation.verdict,
+        confidence: evaluation.confidence,
+        evidence: evaluation.evidence,
         beforeStyles,
         afterStyles,
-        settled: true,
       };
     }, { tabId, timeoutMs: 15_000, signal });
+  }
+
+  private async captureBehaviorScope(
+    tabId: string,
+    effectivePane: 'desktop' | 'mobile',
+    selector?: string,
+    ref?: string
+  ): Promise<any | null> {
+    const script = `(() => {
+      try {
+        const sel = ${JSON.stringify(selector || '')};
+        const ref = ${JSON.stringify(ref || '')};
+        let el = null;
+        if (ref) {
+          el = document.querySelector('[data-antifan-ref="' + ref + '"]');
+        }
+        if (!el && sel) {
+          el = document.querySelector(sel);
+        }
+        let targetInfo = undefined;
+        if (el) {
+          const rect = el.getBoundingClientRect();
+          const style = window.getComputedStyle(el);
+          targetInfo = {
+            found: true,
+            tagName: el.tagName ? el.tagName.toLowerCase() : '',
+            classes: Array.from(el.classList || []),
+            rect: {
+              x: Math.round(rect.x),
+              y: Math.round(rect.y),
+              width: Math.round(rect.width),
+              height: Math.round(rect.height),
+            },
+            ariaExpanded: el.getAttribute('aria-expanded'),
+            ariaHidden: el.getAttribute('aria-hidden'),
+            ariaSelected: el.getAttribute('aria-selected'),
+            ariaModal: el.getAttribute('aria-modal'),
+            display: style.display,
+            visibility: style.visibility,
+            opacity: style.opacity,
+            transform: style.transform,
+          };
+        }
+
+        const bodyStyle = window.getComputedStyle(document.body);
+        const bodyOverflowY = bodyStyle.overflowY || '';
+        const bodyOverflowX = bodyStyle.overflowX || '';
+        const bodyLocked = bodyOverflowY === 'hidden' || bodyOverflowY === 'clip' || bodyStyle.position === 'fixed';
+
+        const overlayCandidates = Array.from(document.querySelectorAll(
+          '[role="dialog"], [role="menu"], [aria-modal="true"], dialog[open], .modal.show, .modal.active, .modal.is-open, .drawer.open, .drawer.active, .drawer.is-open, [data-overlay="open"], .submenu.open, .submenu.active'
+        ));
+        const activeOverlays = overlayCandidates.filter(node => {
+          const s = window.getComputedStyle(node);
+          const r = node.getBoundingClientRect();
+          return s.display !== 'none' && s.visibility !== 'hidden' && parseFloat(s.opacity || '1') > 0.05 && (r.width > 0 || r.height > 0);
+        }).map(node => ({
+          tagName: node.tagName ? node.tagName.toLowerCase() : '',
+          id: node.id || undefined,
+          className: typeof node.className === 'string' ? node.className : '',
+          rect: { width: Math.round(node.getBoundingClientRect().width), height: Math.round(node.getBoundingClientRect().height) },
+          role: node.getAttribute('role') || undefined,
+        }));
+
+        const scrollWidth = document.documentElement.scrollWidth;
+        const viewportWidth = window.innerWidth;
+        const hasHorizontalOverflow = scrollWidth > (viewportWidth + 2);
+
+        return {
+          url: window.location.href,
+          title: document.title,
+          bodyClasses: Array.from(document.body.classList || []),
+          bodyOverflowLocked: bodyLocked,
+          bodyOverflowY,
+          bodyOverflowX,
+          target: targetInfo,
+          activeOverlays,
+          hasHorizontalOverflow,
+          scrollWidth,
+          viewportWidth,
+        };
+      } catch (e) {
+        return null;
+      }
+    })()`;
+
+    try {
+      const res = await this.host.evalJs(script, tabId, effectivePane);
+      if (res && typeof res === 'object') {
+        return res;
+      }
+    } catch {
+      // Host may not support evalJs or page is in transition
+    }
+    return null;
+  }
+
+  private evaluateBehaviorEvidence(
+    before: any,
+    after: any,
+    beforeStyles: Record<string, unknown>,
+    afterStyles: Record<string, unknown>
+  ): {
+    verified: boolean;
+    verdict: string;
+    confidence: number;
+    evidence: Record<string, unknown>;
+  } {
+    let verdict = 'NO_OBSERVABLE_EFFECT';
+    let confidence = 1.0;
+    let verified = false;
+
+    const navigated = Boolean(before?.url && after?.url && before.url !== after.url);
+    const addedBodyClasses = (after?.bodyClasses || []).filter((c: string) => !(before?.bodyClasses || []).includes(c));
+    const removedBodyClasses = (before?.bodyClasses || []).filter((c: string) => !(after?.bodyClasses || []).includes(c));
+    const bodyOverflowLocked = Boolean(!before?.bodyOverflowLocked && after?.bodyOverflowLocked);
+
+    // Check newly appeared or expanded overlays
+    const beforeOverlayIds = new Set((before?.activeOverlays || []).map((o: any) => `${o.tagName}:${o.id || o.className}`));
+    const newOverlays = (after?.activeOverlays || []).filter((o: any) => !beforeOverlayIds.has(`${o.tagName}:${o.id || o.className}`));
+
+    // Target ARIA and geometry deltas
+    const targetAriaExpandedChanged = before?.target && after?.target && before.target.ariaExpanded !== after.target.ariaExpanded;
+    const targetAriaSelectedChanged = before?.target && after?.target && before.target.ariaSelected !== after.target.ariaSelected;
+    const targetAriaExpanded = after?.target?.ariaExpanded === 'true';
+    const targetWidthDelta = (after?.target?.rect?.width || 0) - (before?.target?.rect?.width || 0);
+    const targetHeightDelta = (after?.target?.rect?.height || 0) - (before?.target?.rect?.height || 0);
+    const targetGrewSignificantly = targetHeightDelta > 40 || targetWidthDelta > 40;
+
+    const styleChanged = JSON.stringify(beforeStyles) !== JSON.stringify(afterStyles);
+
+    if (navigated) {
+      verdict = 'PAGE_NAVIGATION';
+      confidence = 1.0;
+      verified = true;
+    } else if (
+      newOverlays.some((o: any) => /drawer|sidebar|offcanvas/i.test(o.className)) ||
+      addedBodyClasses.some((c: string) => /drawer|nav-open|menu-open/i.test(c))
+    ) {
+      verdict = 'DRAWER_EXPANDED';
+      confidence = 0.95;
+      verified = true;
+    } else if (
+      newOverlays.some((o: any) => o.role === 'dialog' || /modal|popup/i.test(o.className)) ||
+      addedBodyClasses.some((c: string) => /modal/i.test(c)) ||
+      (bodyOverflowLocked && newOverlays.length > 0)
+    ) {
+      verdict = 'MODAL_OPENED';
+      confidence = 0.95;
+      verified = true;
+    } else if (
+      (targetAriaExpandedChanged && targetAriaExpanded) ||
+      newOverlays.some((o: any) => /submenu|dropdown|menu/i.test(o.className) || o.role === 'menu')
+    ) {
+      verdict = 'SUBMENU_EXPANDED';
+      confidence = 0.92;
+      verified = true;
+    } else if (targetAriaSelectedChanged) {
+      verdict = 'TAB_SWITCHED';
+      confidence = 0.92;
+      verified = true;
+    } else if ((targetAriaExpandedChanged && !targetAriaExpanded) || targetGrewSignificantly) {
+      verdict = 'COLLAPSIBLE_TOGGLED';
+      confidence = 0.90;
+      verified = true;
+    } else if (
+      addedBodyClasses.length > 0 ||
+      removedBodyClasses.length > 0 ||
+      styleChanged ||
+      newOverlays.length > 0
+    ) {
+      verdict = 'IN_PAGE_MUTATION';
+      confidence = 0.85;
+      verified = true;
+    } else {
+      verdict = 'NO_OBSERVABLE_EFFECT';
+      confidence = 1.0;
+      verified = false;
+    }
+
+    return {
+      verified,
+      verdict,
+      confidence,
+      evidence: {
+        navigated,
+        urlBefore: before?.url,
+        urlAfter: after?.url,
+        bodyDelta: {
+          classesAdded: addedBodyClasses,
+          classesRemoved: removedBodyClasses,
+          overflowLocked: bodyOverflowLocked,
+          overflowY: after?.bodyOverflowY,
+        },
+        targetDelta: {
+          found: after?.target?.found ?? false,
+          rectDelta: { widthDelta: targetWidthDelta, heightDelta: targetHeightDelta },
+          ariaExpanded: { before: before?.target?.ariaExpanded, after: after?.target?.ariaExpanded },
+          ariaSelected: { before: before?.target?.ariaSelected, after: after?.target?.ariaSelected },
+        },
+        overlays: {
+          openedCount: newOverlays.length,
+          items: newOverlays,
+        },
+        overflowBleed: {
+          detected: Boolean(after?.hasHorizontalOverflow),
+          scrollWidth: after?.scrollWidth,
+          viewportWidth: after?.viewportWidth,
+        },
+      },
+    };
   }
   async visualCompare(
     target: BrowserTarget,
