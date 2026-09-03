@@ -45,7 +45,7 @@ export class HaravanLayoutGenerator {
 
     {% section 'footer' %}
 
-    {{ 'theme.js' | asset_url | script_tag }}
+    <script src="{{ 'theme.js' | asset_url }}" defer></script>
   </body>
 </html>
     `.trim();

@@ -6,7 +6,6 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
-import { BlueprintExtractor, ExtractedSectionBlueprint } from '../models/blueprint-extractor.js';
 import { ComponentContractIR } from '../models/clone-ir.js';
 import { CloneIRBuilder } from '../models/clone-ir-builder.js';
 import { HaravanLayoutGenerator } from './haravan-layout-generator.js';
@@ -21,10 +20,9 @@ export class ThemeCompiler {
   private schemaGen = new HaravanSchemaGenerator();
   private snippetGen = new HaravanSnippetGenerator();
   private stateSynth = new StateSynthesizer();
-  private extractor = new BlueprintExtractor();
   private irBuilder = new CloneIRBuilder();
 
-  public compileTheme(outputDir: string, input: string | ComponentContractIR): { sectionCount: number; filesWritten: string[] } {
+  public compileTheme(outputDir: string, input: string | ComponentContractIR): { success: boolean; sectionCount: number; filesWritten: string[] } {
     if (!input) {
       throw new Error('ThemeCompiler: input must be a valid non-empty string or ComponentContractIR');
     }
@@ -33,7 +31,7 @@ export class ThemeCompiler {
     return this.compileThemeFromIR(outputDir, ir);
   }
 
-  public compileThemeFromIR(outputDir: string, ir: ComponentContractIR): { sectionCount: number; filesWritten: string[] } {
+  public compileThemeFromIR(outputDir: string, ir: ComponentContractIR): { success: boolean; sectionCount: number; filesWritten: string[] } {
     // 1. Create temporary staging directory for atomic generation
     const stagingDir = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-theme-stage-'));
     const filesWritten: string[] = [];
@@ -122,6 +120,7 @@ export class ThemeCompiler {
       // 6. Generate sections/*.liquid from IR
       for (const sec of sections) {
         let sectionContent = '';
+        const sectionControllers = ir.storefrontRuntime?.controllers?.filter((c) => c.sectionId === sec.id) || [];
         if (sec.liquidTemplate) {
           sectionContent = this.sectionGen.generateSectionFile({
             id: sec.id,
@@ -132,9 +131,9 @@ export class ThemeCompiler {
             rawHtml: sec.rawHtml || '',
             liquidTemplate: sec.liquidTemplate,
             schemaSettings: sec.schemaSettings || [],
-            blockDefinitions: (sec.blockDefinitions as any) || [],
+            blockDefinitions: (sec.blockDefinitions as unknown as Array<{ type: string; name: string; settings: Array<{ type: string; id: string; label: string }> }>) || [],
             blockInstances: sec.blocks.map((b, bi) => ({ id: b.id || `${b.type}_${bi + 1}`, type: b.type, settings: b.settings }))
-          });
+          }, sectionControllers);
         } else {
           sectionContent = `
 <section class="${sec.className || sec.id}" id="{{ section.id }}">
@@ -172,19 +171,52 @@ export class ThemeCompiler {
       const snippetFiles = this.snippetGen.generateSnippets(path.join(stagingDir, 'snippets'));
       filesWritten.push(...snippetFiles);
       // 8. Generate config/settings_schema.json
-      const siteSettings = ir.normalizedData?.siteSettings as Record<string, any> | undefined;
-      const themeTitle = (siteSettings?.title as string) || 'Storefront Pro';
-      const hotline = (siteSettings?.hotline as string) || '';
-      const email = (siteSettings?.email as string) || '';
+      const siteSettings = ir.normalizedData?.siteSettings;
+      const themeTitle = (typeof siteSettings?.title === 'string' && siteSettings.title) || 'Storefront Pro';
+      const hotline = (typeof siteSettings?.hotline === 'string' && siteSettings.hotline) || '';
+      const email = (typeof siteSettings?.email === 'string' && siteSettings.email) || '';
       const schemaPath = path.join(stagingDir, 'config', 'settings_schema.json');
       fs.writeFileSync(schemaPath, this.schemaGen.generateSettingsSchema(themeTitle, hotline, email), 'utf-8');
       filesWritten.push(schemaPath);
 
-      // 9. Generate assets/theme.js
-      const themeJsPath = path.join(stagingDir, 'assets', 'theme.js');
-      fs.writeFileSync(themeJsPath, this.stateSynth.generateStorefrontJs(), 'utf-8');
-      filesWritten.push(themeJsPath);
+      // 8b. Generate config/settings_data.json
+      const settingsDataPath = path.join(stagingDir, 'config', 'settings_data.json');
+      const settingsData = {
+        current: {
+          theme_title: themeTitle,
+          hotline,
+          email
+        },
+        presets: {
+          Default: {
+            theme_title: themeTitle,
+            hotline,
+            email
+          }
+        }
+      };
+      fs.writeFileSync(settingsDataPath, JSON.stringify(settingsData, null, 2), 'utf-8');
+      filesWritten.push(settingsDataPath);
 
+      // 9. Generate assets/theme.js (universal declarative runtime)
+      const themeJsPath = path.join(stagingDir, 'assets', 'theme.js');
+      fs.writeFileSync(themeJsPath, this.stateSynth.generateDeclarativeRuntime(), 'utf-8');
+      filesWritten.push(themeJsPath);
+      if (ir.assets) {
+        const allAssets = [
+          ...(ir.assets.stylesheets || []),
+          ...(ir.assets.javascripts || []),
+          ...(ir.assets.images || []),
+          ...(ir.assets.fonts || [])
+        ];
+        for (const item of allAssets) {
+          if (item.localPath && fs.existsSync(item.localPath)) {
+            const destAssetPath = path.join(stagingDir, 'assets', item.filename);
+            fs.copyFileSync(item.localPath, destAssetPath);
+            filesWritten.push(destAssetPath);
+          }
+        }
+      }
       // 10. Validate staging integrity before swap
       this.validateStagingTheme(stagingDir);
 
@@ -202,6 +234,7 @@ export class ThemeCompiler {
       }
 
       return {
+        success: true,
         sectionCount: sections.length,
         filesWritten: filesWritten.map(f => path.join(outputDir, path.relative(stagingDir, f)))
       };

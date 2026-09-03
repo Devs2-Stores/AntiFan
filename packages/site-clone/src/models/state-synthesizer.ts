@@ -10,202 +10,114 @@ export interface SynthesizedWidgetContract {
 }
 
 export class StateSynthesizer {
-  public generateStorefrontJs(): string {
-    return `
-/**
- * Haravan Storefront Interactive Runtime
- * Clean, modular, reversible Vanilla JS controllers
- */
-
-document.addEventListener('DOMContentLoaded', () => {
-  initHeroSlider();
-  initCategorySubmenu();
-  initBrandTabs();
-  initBranchSelector();
-  initVideoModal();
-  initQuoteValidation();
-});
-
-// 1. Hero Slider Controller
-function initHeroSlider() {
-  const slider = document.querySelector('.slide-content__detail .s-content');
-  if (!slider) return;
-
-  const items = slider.querySelectorAll('.item, .s-content__item');
-  if (items.length <= 1) return;
-
-  let currentIndex = 0;
-  const total = items.length;
-  const getSlideWidth = () => {
-    return (slider.clientWidth / (parseInt(slider.dataset.slidesPerView, 10) || 1)) || (items[0] ? items[0].getBoundingClientRect().width : 0) || 300;
-  };
-
-  const goTo = (idx) => {
-    currentIndex = (idx + total) % total;
-    slider.style.transform = \`translateX(-\${currentIndex * getSlideWidth()}px)\`;
-    slider.style.transition = 'transform 0.4s cubic-bezier(0.25, 1, 0.5, 1)';
-  };
-
-  let timer = setInterval(() => goTo(currentIndex + 1), 5000);
-
-  slider.addEventListener('mouseenter', () => clearInterval(timer));
-  slider.addEventListener('mouseleave', () => {
-    clearInterval(timer);
-    timer = setInterval(() => goTo(currentIndex + 1), 5000);
-  });
-}
-
-// 2. Category Navigation Hover & Multi-Level Submenu
-function initCategorySubmenu() {
-  const items = document.querySelectorAll('.category-navigation__list ul li');
-  const subMenuContainer = document.getElementById('category-navigation__sub');
-  const subMenus = subMenuContainer ? Array.from(subMenuContainer.querySelectorAll('.sub-menu')) : [];
-  if (!items.length || !subMenuContainer) return;
-
-  let hideTimer = null;
-
-  const showSubMenu = (index) => {
-    if (hideTimer) {
-      clearTimeout(hideTimer);
-      hideTimer = null;
-    }
-    subMenuContainer.classList.add('active');
-    subMenus.forEach((sm, i) => {
-      if (i === index) {
-        sm.style.display = 'block';
-        sm.classList.add('active');
-      } else {
-        sm.style.display = 'none';
-        sm.classList.remove('active');
-      }
-    });
-  };
-
-  const hideAll = () => {
-    hideTimer = setTimeout(() => {
-      subMenuContainer.classList.remove('active');
-      subMenus.forEach(sm => {
-        sm.style.display = 'none';
-        sm.classList.remove('active');
+  /**
+   * Generates the universal, event-delegated declarative micro-runtime
+   * Replaces all hardcoded widget scripts with HTML data-attribute driven controllers
+   */
+  public generateDeclarativeRuntime(): string {
+    return `(() => {
+  if (window.__antifan_rt) return;
+  window.__antifan_rt = true;
+  document.addEventListener('click', (e) => {
+    const t = e.target.closest('[data-antifan-toggle]'); if (!t) return;
+    const sel = t.getAttribute('data-antifan-target') || t.getAttribute('data-antifan-toggle');
+    const target = sel ? document.querySelector(sel) : t.nextElementSibling; if (!target) return;
+    const cls = t.getAttribute('data-antifan-class') || 'active', grp = t.getAttribute('data-antifan-group');
+    if (grp) {
+      document.querySelectorAll(\`[data-antifan-group="\${grp}"]\`).forEach((o) => {
+        if (o !== t) {
+          o.classList.remove(cls); o.setAttribute('aria-expanded', 'false');
+          const sib = document.querySelector(o.getAttribute('data-antifan-target') || o.getAttribute('data-antifan-toggle'));
+          if (sib) { sib.classList.remove(cls); sib.setAttribute('aria-hidden', 'true'); }
+        }
       });
-    }, 120);
-  };
-
-  items.forEach((item, index) => {
-    item.addEventListener('mouseenter', () => showSubMenu(index));
-    item.addEventListener('mouseleave', () => hideAll());
-  });
-
-  subMenuContainer.addEventListener('mouseenter', () => {
-    if (hideTimer) {
-      clearTimeout(hideTimer);
-      hideTimer = null;
     }
+    const active = target.classList.toggle(cls);
+    t.classList.toggle(cls, active); t.setAttribute('aria-expanded', String(active)); target.setAttribute('aria-hidden', String(!active));
   });
-
-  subMenuContainer.addEventListener('mouseleave', () => hideAll());
-}
-
-// 3. Brand Tabs Switcher
-function initBrandTabs() {
-  const tabs = document.querySelectorAll('.tabs .tab-item, .accessory-tabs li');
-  if (!tabs.length) return;
-
-  tabs.forEach(tab => {
-    tab.addEventListener('click', (e) => {
-      e.preventDefault();
-      tabs.forEach(t => t.classList.remove('active'));
-      tab.classList.add('active');
+  let hTimer = null;
+  document.addEventListener('mouseover', (e) => {
+    const t = e.target.closest('[data-antifan-hover]'); if (!t) return;
+    if (hTimer) { clearTimeout(hTimer); hTimer = null; }
+    const sel = t.getAttribute('data-antifan-target') || t.getAttribute('data-antifan-hover');
+    const p = sel ? document.querySelector(sel) : t.querySelector('[data-antifan-dropdown-panel]');
+    if (p) { p.classList.add('active'); t.classList.add('active'); }
+  });
+  document.addEventListener('mouseout', (e) => {
+    const t = e.target.closest('[data-antifan-hover]'); if (!t) return;
+    const sel = t.getAttribute('data-antifan-target') || t.getAttribute('data-antifan-hover');
+    const p = sel ? document.querySelector(sel) : t.querySelector('[data-antifan-dropdown-panel]');
+    if (!p) return;
+    hTimer = setTimeout(() => { p.classList.remove('active'); t.classList.remove('active'); }, 150);
+  });
+  let triggerEl = null;
+  const closeModal = (m) => {
+    if (!m) return;
+    m.classList.remove('active'); m.setAttribute('aria-hidden', 'true');
+    m.querySelectorAll('video').forEach((v) => { try { v.pause(); } catch {} });
+    m.querySelectorAll('iframe').forEach((f) => {
+      const s = f.getAttribute('src'); if (s && s !== 'about:blank') { f.setAttribute('data-antifan-src', s); f.removeAttribute('src'); }
     });
-  });
-}
-
-// 4. Branch Selector Dropdown
-function initBranchSelector() {
-  const btn = document.querySelector('.systerm .item-cta');
-  const dropdown = document.getElementById('systerm-list');
-  if (!btn || !dropdown) return;
-
-  btn.addEventListener('click', (e) => {
-    e.stopPropagation();
-    const isVisible = dropdown.style.display === 'block';
-    dropdown.style.display = isVisible ? 'none' : 'block';
-  });
-
-  document.addEventListener('click', () => {
-    dropdown.style.display = 'none';
-  });
-}
-
-// 5. Video Popup Dialog (Click image, button, backdrop, close button, Esc key)
-function initVideoModal() {
-  const videoTriggers = document.querySelectorAll('.video-content, .video-content__button, .video-content__image');
-  const popup = document.getElementById('popup-video');
-  const closeBtn = popup ? popup.querySelector('.popup-close') : document.querySelector('.popup-close');
-  const iframe = popup ? popup.querySelector('iframe') : null;
-
-  const openModal = (e) => {
-    if (e) e.preventDefault();
-    if (!popup) return;
-    popup.classList.add('active');
-    popup.style.display = 'flex';
-    if (iframe) {
-      iframe.src = 'https://www.youtube.com/embed/Nt2J6ZXPuw0?autoplay=1';
-    }
+    if (triggerEl) { triggerEl.focus(); triggerEl = null; }
   };
-
-  const closeModal = (e) => {
-    if (e) e.preventDefault();
-    if (!popup) return;
-    popup.classList.remove('active');
-    popup.style.display = 'none';
-    if (iframe) {
-      iframe.src = '';
-    }
-  };
-
-  videoTriggers.forEach(trig => {
-    trig.addEventListener('click', (e) => {
-      // Avoid re-triggering if clicking inside popup
-      if (popup && popup.contains(e.target)) return;
-      openModal(e);
-    });
-  });
-
-  if (closeBtn) {
-    closeBtn.addEventListener('click', closeModal);
-  }
-
-  if (popup) {
-    // Backdrop click closes popup
-    popup.addEventListener('click', (e) => {
-      if (e.target === popup) {
-        closeModal(e);
+  document.addEventListener('click', (e) => {
+    const o = e.target.closest('[data-antifan-modal]');
+    if (o) {
+      const sel = o.getAttribute('data-antifan-target') || o.getAttribute('data-antifan-modal');
+      if (!sel || !sel.trim()) return;
+      const m = document.querySelector(sel);
+      if (m) {
+        triggerEl = o; m.classList.add('active'); m.setAttribute('aria-hidden', 'false');
+        m.querySelectorAll('iframe[data-antifan-src]').forEach((f) => f.setAttribute('src', f.getAttribute('data-antifan-src')));
+        const f = m.querySelectorAll('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])');
+        if (f.length > 0) f[0].focus();
       }
-    });
+      return;
+    }
+    const c = e.target.closest('[data-antifan-modal-close]'); if (c) { closeModal(c.closest('[data-antifan-modal-dialog]')); return; }
+    if (e.target.matches('[data-antifan-modal-dialog]')) closeModal(e.target);
+  });
+  document.addEventListener('keydown', (e) => {
+    const m = document.querySelector('[data-antifan-modal-dialog].active'); if (!m) return;
+    if (e.key === 'Escape') { closeModal(m); return; }
+    if (e.key === 'Tab') {
+      const f = Array.from(m.querySelectorAll('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])')); if (!f.length) return;
+      if (e.shiftKey && document.activeElement === f[0]) { f[f.length - 1].focus(); e.preventDefault(); }
+      else if (!e.shiftKey && document.activeElement === f[f.length - 1]) { f[0].focus(); e.preventDefault(); }
+    }
+  });
+  const initSlider = (s) => {
+    if (s.__rt_init) return; s.__rt_init = true;
+    const track = s.querySelector('[data-antifan-slider-track]') || s, iv = parseInt(s.getAttribute('data-antifan-autoplay'), 10) || 0;
+    const step = () => (track.children[0] ? track.children[0].getBoundingClientRect().width : 300);
+    if (iv > 0) {
+      const start = () => { stop(); s.__timer = setInterval(() => {
+        if (track.scrollLeft + track.clientWidth >= track.scrollWidth - 10) track.scrollTo({ left: 0, behavior: 'smooth' });
+        else track.scrollBy({ left: step(), behavior: 'smooth' });
+      }, iv); };
+      const stop = () => { if (s.__timer) { clearInterval(s.__timer); s.__timer = null; } };
+      s.addEventListener('mouseenter', stop); s.addEventListener('mouseleave', start); start();
+    }
+  };
+  const scanSliders = () => document.querySelectorAll('[data-antifan-slider]').forEach(initSlider);
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', scanSliders);
+  else scanSliders();
+  document.addEventListener('click', (e) => {
+    const n = e.target.closest('[data-antifan-slider-next]'), p = e.target.closest('[data-antifan-slider-prev]');
+    if (n || p) {
+      const btn = n || p, dir = n ? 1 : -1;
+      const s = btn.getAttribute('data-antifan-target') ? document.querySelector(btn.getAttribute('data-antifan-target')) : btn.closest('[data-antifan-slider]');
+      const t = s ? (s.querySelector('[data-antifan-slider-track]') || s) : null;
+      if (t) t.scrollBy({ left: dir * (t.children[0] ? t.children[0].getBoundingClientRect().width : 300), behavior: 'smooth' });
+    }
+  });
+})();`.trim();
   }
 
-  document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape' && popup && popup.classList.contains('active')) {
-      closeModal(e);
-    }
-  });
-}
-
-// 6. Fast Quote Form Validation
-function initQuoteValidation() {
-  const form = document.getElementById('quote-form');
-  if (!form) return;
-
-  form.addEventListener('submit', (e) => {
-    const phoneInput = form.querySelector('input[type="tel"]');
-    if (phoneInput && !/^[0-9]{9,11}$/.test(phoneInput.value.replace(/\\s+/g, ''))) {
-      e.preventDefault();
-      alert('Vui lòng nhập số điện thoại hợp lệ (9-11 chữ số).');
-      phoneInput.focus();
-    }
-  });
-}
-    `.trim();
+  /**
+   * Deprecated: Forwards directly to generateDeclarativeRuntime()
+   */
+  public generateStorefrontJs(): string {
+    return this.generateDeclarativeRuntime();
   }
 }

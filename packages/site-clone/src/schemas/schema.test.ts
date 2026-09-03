@@ -2,13 +2,13 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+const schemasDir = path.resolve(__dirname, '../../src/schemas');
 
 describe('Schemas - JSON Schema Validation & Integrity', () => {
   it('1. clone-spec.schema.json is valid and contains required StorefrontStateContract', () => {
-    const schemaPath = path.resolve('packages/site-clone/src/schemas/clone-spec.schema.json');
+    const schemaPath = path.join(schemasDir, 'clone-spec.schema.json');
     const schemaContent = fs.readFileSync(schemaPath, 'utf-8');
     const schema = JSON.parse(schemaContent);
-
     assert.strictEqual(schema.title, 'HaravanCloneSpec');
     assert.ok(schema.required.includes('metadata'));
     assert.ok(schema.required.includes('themeSettings'));
@@ -21,7 +21,7 @@ describe('Schemas - JSON Schema Validation & Integrity', () => {
   });
 
   it('2. qa-matrix.schema.json defines all 8 dimensions and 3 viewports', () => {
-    const schemaPath = path.resolve('packages/site-clone/src/schemas/qa-matrix.schema.json');
+    const schemaPath = path.join(schemasDir, 'qa-matrix.schema.json');
     const schemaContent = fs.readFileSync(schemaPath, 'utf-8');
     const schema = JSON.parse(schemaContent);
 
@@ -44,10 +44,9 @@ describe('Schemas - JSON Schema Validation & Integrity', () => {
   });
 
   it('3. clone-ir.schema.json validates ComponentContractIR and its core invariants', () => {
-    const schemaPath = path.resolve('packages/site-clone/src/schemas/clone-ir.schema.json');
+    const schemaPath = path.join(schemasDir, 'clone-ir.schema.json');
     assert.ok(fs.existsSync(schemaPath), 'clone-ir.schema.json must exist');
     const schema = JSON.parse(fs.readFileSync(schemaPath, 'utf-8'));
-
     assert.strictEqual(schema.title, 'AntiFan ComponentContractIR');
     assert.ok(schema.required.includes('version'));
     assert.ok(schema.required.includes('metadata'));
@@ -55,6 +54,24 @@ describe('Schemas - JSON Schema Validation & Integrity', () => {
     assert.ok(schema.required.includes('themeSettings'));
     assert.ok(schema.required.includes('sections'));
     assert.ok(schema.required.includes('storefrontRuntime'));
+
+    // Dual-version support
+    assert.deepStrictEqual(schema.properties.version.enum, ['1.0.0', '1.1.0']);
+
+    // Assets and responsive first-class references
+    assert.strictEqual(schema.properties.assets['$ref'], '#/definitions/HarvestedAssetManifest');
+    assert.strictEqual(schema.properties.responsive['$ref'], '#/definitions/ResponsiveBreakpointConfig');
+
+    // Controller sectionId & roleId
+    const controllerProps = schema.properties.storefrontRuntime.properties.controllers.items.properties;
+    assert.ok(controllerProps.sectionId, 'Must define sectionId');
+    assert.ok(controllerProps.roleId, 'Must define roleId');
+
+    // Definitions validation
+    assert.ok(schema.definitions.HarvestedAssetManifest, 'Must define HarvestedAssetManifest');
+    assert.ok(schema.definitions.ResponsiveBreakpointConfig, 'Must define ResponsiveBreakpointConfig');
+    assert.ok(schema.definitions.NormalizedProduct, 'Must define NormalizedProduct');
+    assert.ok(schema.definitions.NormalizedCategory, 'Must define NormalizedCategory');
 
     const layout = schema.properties.layout;
     assert.ok(layout.required.includes('containerMaxWidth'));

@@ -186,6 +186,24 @@ export class DomTreeParser {
     walk(root);
     return results;
   }
+  public static findByAttribute(root: ParsedElementNode, attrName: string, attrValue?: string): ParsedElementNode[] {
+    const target = attrName.toLowerCase();
+    const results: ParsedElementNode[] = [];
+    const walk = (node: ParsedElementNode) => {
+      if (node.attributes && Object.prototype.hasOwnProperty.call(node.attributes, target)) {
+        if (attrValue === undefined || node.attributes[target] === attrValue) {
+          results.push(node);
+        }
+      }
+      for (const child of node.children) {
+        if (typeof child !== 'string') {
+          walk(child);
+        }
+      }
+    };
+    walk(root);
+    return results;
+  }
 
   public static extractText(node: ParsedElementNode): string {
     let text = '';

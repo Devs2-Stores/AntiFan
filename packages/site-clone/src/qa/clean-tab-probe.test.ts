@@ -1,26 +1,27 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert';
+import * as vm from 'node:vm';
 import { CleanTabProbe } from './clean-tab-probe.js';
+import { StateSynthesizer } from '../models/state-synthesizer.js';
 
 describe('CleanTabProbe - Behavioral Interactive Verification', () => {
   it('1. Executes behavioral probes for tabs, navigation, branch dropdown, and modal', async () => {
     // Mock evaluator simulating successful DOM behavioral responses
     const mockEvaluator = async (expr: string): Promise<unknown> => {
-      if (expr.includes('brand_tabs') || expr.includes('tab-item')) {
+      if (expr.includes('brand_tabs') || expr.includes('tab-item') || expr.includes('data-antifan-toggle')) {
         return { passed: true, details: { tab2After: true, tab1After: false } };
       }
-      if (expr.includes('category-navigation') || expr.includes('submenu')) {
+      if (expr.includes('category-navigation') || expr.includes('submenu') || expr.includes('data-antifan-hover')) {
         return { passed: true, details: { activeAfterEnter: true } };
       }
-      if (expr.includes('systerm') || expr.includes('branch_selector')) {
+      if (expr.includes('systerm') || expr.includes('branch_selector') || expr.includes('branch_selector_toggle')) {
         return { passed: true, details: { openedDisplay: 'block', closedDisplay: 'none' } };
       }
-      if (expr.includes('popup-video') || expr.includes('video_modal')) {
+      if (expr.includes('popup-video') || expr.includes('video_modal') || expr.includes('data-antifan-modal')) {
         return { passed: true, details: { openedDisplay: 'flex', closedDisplay: 'none' } };
       }
       return { passed: true };
     };
-
     const results = await CleanTabProbe.verifyInteractiveChecks(mockEvaluator);
     assert.strictEqual(results.length, 4);
 
@@ -66,5 +67,34 @@ describe('CleanTabProbe - Behavioral Interactive Verification', () => {
     assert.strictEqual(check.passed, true);
     assert.strictEqual(check.breaks.length, 3);
     assert.ok(check.breaks.every(b => b.passed));
+  });
+
+  it('4. Real Declarative Runtime satisfies modularity and attribute contracts', () => {
+    const synth = new StateSynthesizer();
+    const runtimeCode = synth.generateDeclarativeRuntime();
+
+    // 1. Line count requirement (<100 lines)
+    const lineCount = runtimeCode.split('\n').length;
+    assert.ok(lineCount < 100, `Runtime must be < 100 lines (actual: ${lineCount} lines)`);
+
+    // 2. Zero benchmark class names or hardcoded selectors
+    assert.ok(!runtimeCode.includes('.category-navigation__sub'), 'Must not contain legacy navigation sub selector');
+    assert.ok(!runtimeCode.includes('.slide-content__detail'), 'Must not contain legacy slider selector');
+    assert.ok(!runtimeCode.includes('.systerm .item-cta'), 'Must not contain legacy branch selector');
+    assert.ok(!runtimeCode.includes('#popup-video'), 'Must not contain legacy modal selector');
+    assert.ok(!runtimeCode.includes('Nt2J6ZXPuw0'), 'Must not contain hardcoded YouTube embed ID');
+    assert.ok(!runtimeCode.includes('alert('), 'Must not contain blocking alert');
+
+    // 3. Declarative attribute handlers present
+    assert.ok(runtimeCode.includes('data-antifan-toggle'), 'Must handle data-antifan-toggle');
+    assert.ok(runtimeCode.includes('data-antifan-hover'), 'Must handle data-antifan-hover');
+    assert.ok(runtimeCode.includes('data-antifan-modal'), 'Must handle data-antifan-modal');
+    assert.ok(runtimeCode.includes('data-antifan-modal-dialog'), 'Must handle data-antifan-modal-dialog');
+    assert.ok(runtimeCode.includes('data-antifan-modal-close'), 'Must handle data-antifan-modal-close');
+    assert.ok(runtimeCode.includes('data-antifan-slider'), 'Must handle data-antifan-slider');
+    assert.ok(runtimeCode.includes('data-antifan-slider-track'), 'Must handle data-antifan-slider-track');
+    assert.ok(runtimeCode.includes('data-antifan-slider-next'), 'Must handle data-antifan-slider-next');
+    assert.ok(runtimeCode.includes('data-antifan-slider-prev'), 'Must handle data-antifan-slider-prev');
+    assert.ok(runtimeCode.includes('data-antifan-src'), 'Must preserve and restore data-antifan-src on iframes');
   });
 });

@@ -7,7 +7,7 @@
   "scripts": {
     "build": "tsc -p ./",
     "typecheck": "tsc -p ./ --noEmit",
-    "test": "node --test dist/**/*.test.js"
+    "test": "npm run build && node --test dist/**/*.test.js"
   },
   "dependencies": {
     "pixelmatch": "^5.3.0",

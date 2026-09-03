@@ -3,27 +3,39 @@
  * Transforms extracted blueprints and telemetry into a decoupled ComponentContractIR
  */
 
+import path from 'node:path';
+import os from 'node:os';
 import { BlueprintExtractor, ExtractedSectionBlueprint } from './blueprint-extractor.js';
 import { EcommerceDataModeler } from './ecommerce-data-modeler.js';
-import { ComponentContractIR, ComponentSectionContract, ComponentBlockContract, StorefrontControllerContract } from './clone-ir.js';
+import { AssetHarvester } from './asset-harvester.js';
+import { ResponsiveScanner } from './responsive-scanner.js';
+import {
+  ComponentContractIR,
+  ComponentSectionContract,
+  ComponentBlockContract,
+  StorefrontControllerContract
+} from './clone-ir.js';
 
 export class CloneIRBuilder {
   private extractor = new BlueprintExtractor();
   private dataModeler = new EcommerceDataModeler();
-
-  public buildFromHtml(html: string, sourceUrl: string = 'https://example.com'): ComponentContractIR {
+  private assetHarvester = new AssetHarvester();
+  private responsiveScanner = new ResponsiveScanner();
+  public buildFromHtml(html: string, sourceUrl: string = 'https://example.com', assetsDir?: string): ComponentContractIR {
     const blueprints = this.extractor.extractSections(html);
     const dataBundle = this.dataModeler.extractStorefrontData(html);
+    const targetAssetsDir = assetsDir ?? path.join(os.tmpdir(), 'antifan-assets');
+    const harvestedAssets = this.assetHarvester.harvestFromHtml(html, targetAssetsDir);
 
     const sections: ComponentSectionContract[] = blueprints.map(bp => this.mapBlueprintToSection(bp));
     const controllers: StorefrontControllerContract[] = this.inferControllers(sections);
 
     return {
-      version: '1.0.0',
+      version: '1.1.0',
       metadata: {
         sourceUrl,
         extractedAt: new Date().toISOString(),
-        engineVersion: '1.0.0-recon'
+        engineVersion: '1.1.0-recon'
       },
       layout: {
         containerMaxWidth: 1280,
@@ -36,6 +48,8 @@ export class CloneIRBuilder {
           desktopMin: 1025
         }
       },
+      responsive: ResponsiveScanner.BREAKPOINTS,
+      assets: harvestedAssets,
       themeSettings: [
         { id: 'color_primary', type: 'color', label: 'Primary Brand Color', default: '#005baa' },
         { id: 'color_bg', type: 'color', label: 'Page Background Color', default: '#ffffff' },
@@ -120,6 +134,9 @@ export class CloneIRBuilder {
     for (const sec of sections) {
       if (sec.archetype === 'hero_slider') {
         controllers.push({
+          id: `${sec.id}_controller_${controllers.length}`,
+          sectionId: sec.id,
+          roleId: 'slider_track',
           type: 'carousel',
           targetSelector: `.${sec.className} .s-content, .slider, .carousel`,
           triggerSelector: '.carousel-nav-btn',
@@ -128,6 +145,9 @@ export class CloneIRBuilder {
       }
       if (sec.archetype === 'header') {
         controllers.push({
+          id: `${sec.id}_controller_${controllers.length}`,
+          sectionId: sec.id,
+          roleId: 'dropdown_panel',
           type: 'dropdown',
           targetSelector: '.sub-menu, .category-navigation__sub',
           triggerSelector: '.menu-item-has-children, .category-navigation__list li',
@@ -135,7 +155,6 @@ export class CloneIRBuilder {
         });
       }
     }
-
     return controllers;
   }
 }

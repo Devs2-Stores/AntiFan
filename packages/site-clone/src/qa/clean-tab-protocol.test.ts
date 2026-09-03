@@ -56,6 +56,33 @@ describe('CleanTabProtocol - Reversible State & Mutation Guard', () => {
     assert.strictEqual(res.success, false);
     assert.strictEqual(res.error, 'Test probe failure');
     assert.strictEqual(restoredCalled, true, 'Restore must be called in finally');
+    assert.strictEqual(res.restored, true, 'res.restored must truthfully reflect successful restore');
+  });
+
+  it('2b. withReversibleState truthfully reports restored: true on successful action', async () => {
+    const mockEvaluator = async (expr: string): Promise<unknown> => {
+      if (expr.includes('window.scrollTo')) return true;
+      return { scrollX: 10, scrollY: 20, injectedElementIds: [] };
+    };
+
+    const res = await CleanTabProtocol.withReversibleState(mockEvaluator, async () => 'action_result');
+    assert.strictEqual(res.success, true);
+    assert.strictEqual(res.data, 'action_result');
+    assert.strictEqual(res.restored, true);
+  });
+
+  it('2c. withReversibleState truthfully reports restored: false when cleanup fails', async () => {
+    const failingEvaluator = async (expr: string): Promise<unknown> => {
+      if (expr.includes('window.scrollTo')) {
+        throw new Error('CDP evaluation failed during cleanup');
+      }
+      return { scrollX: 0, scrollY: 0, injectedElementIds: [] };
+    };
+
+    const res = await CleanTabProtocol.withReversibleState(failingEvaluator, async () => 'data_ok');
+    assert.strictEqual(res.success, true);
+    assert.strictEqual(res.data, 'data_ok');
+    assert.strictEqual(res.restored, false, 'res.restored must be false when cleanup evaluator throws');
   });
 
   it('3. assertCleanTab detects leaks and confirms clean environment', async () => {

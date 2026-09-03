@@ -1,8 +1,11 @@
+import type { HarvestedAssetManifest } from './asset-harvester.js';
+import { ResponsiveScanner, type ResponsiveBreakpointConfig } from './responsive-scanner.js';
+import type { NormalizedProduct, NormalizedCategory } from './ecommerce-data-modeler.js';
+
 /**
  * Model: Component Contract Intermediate Representation (ComponentContractIR)
  * Decoupled canonical representation for e-commerce storefront theme reconstruction
  */
-
 export interface LayoutConstraints {
   containerMaxWidth: number;
   containerPaddingPx: number;
@@ -47,30 +50,41 @@ export interface ComponentSectionContract {
 }
 
 export interface StorefrontControllerContract {
+  id?: string;
+  sectionId?: string;
+  roleId?: string;
   type: 'carousel' | 'dropdown' | 'modal' | 'drawer' | 'tabs' | 'form_validation';
   targetSelector: string;
   triggerSelector: string;
   behavior: 'css_scroll_snap' | 'class_toggle' | 'dialog_native' | 'hover_intent';
 }
 
+export interface NormalizedStorefrontData {
+  products?: NormalizedProduct[];
+  categories?: NormalizedCategory[];
+  siteSettings?: {
+    title?: string;
+    hotline?: string;
+    email?: string;
+    [key: string]: unknown;
+  };
+}
 export interface ComponentContractIR {
-  version: '1.0.0';
+  version: '1.0.0' | '1.1.0';
   metadata: {
     sourceUrl: string;
     extractedAt: string;
     engineVersion?: string;
   };
   layout: LayoutConstraints;
+  responsive?: ResponsiveBreakpointConfig;
+  assets?: HarvestedAssetManifest;
   themeSettings: ThemeSettingContract[];
   sections: ComponentSectionContract[];
   storefrontRuntime: {
     controllers: StorefrontControllerContract[];
   };
-  normalizedData?: {
-    products?: unknown[];
-    categories?: unknown[];
-    siteSettings?: Record<string, unknown>;
-  };
+  normalizedData?: NormalizedStorefrontData;
 }
 
 export function createDefaultComponentContractIR(sourceUrl: string = 'https://example.com'): ComponentContractIR {
@@ -91,6 +105,14 @@ export function createDefaultComponentContractIR(sourceUrl: string = 'https://ex
         tabletMax: 1024,
         desktopMin: 1025
       }
+    },
+    responsive: ResponsiveScanner.BREAKPOINTS,
+    assets: {
+      stylesheets: [],
+      javascripts: [],
+      images: [],
+      fonts: [],
+      totalBytes: 0
     },
     themeSettings: [
       { id: 'color_primary', type: 'color', label: 'Primary Color', default: '#3590ce' },

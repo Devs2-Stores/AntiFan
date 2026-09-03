@@ -15,7 +15,7 @@
   "properties": {
     "version": {
       "type": "string",
-      "enum": ["1.0.0"]
+      "enum": ["1.0.0", "1.1.0"]
     },
     "metadata": {
       "type": "object",
@@ -44,6 +44,12 @@
           }
         }
       }
+    },
+    "responsive": {
+      "$ref": "#/definitions/ResponsiveBreakpointConfig"
+    },
+    "assets": {
+      "$ref": "#/definitions/HarvestedAssetManifest"
     },
     "themeSettings": {
       "type": "array",
@@ -109,6 +115,9 @@
             "type": "object",
             "required": ["type", "targetSelector", "triggerSelector", "behavior"],
             "properties": {
+              "id": { "type": "string" },
+              "sectionId": { "type": "string" },
+              "roleId": { "type": "string" },
               "type": {
                 "type": "string",
                 "enum": ["carousel", "dropdown", "modal", "drawer", "tabs", "form_validation"]
@@ -127,9 +136,97 @@
     "normalizedData": {
       "type": "object",
       "properties": {
-        "products": { "type": "array" },
-        "categories": { "type": "array" },
+        "products": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/NormalizedProduct" }
+        },
+        "categories": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/NormalizedCategory" }
+        },
         "siteSettings": { "type": "object" }
+      }
+    }
+  },
+  "definitions": {
+    "HarvestedAssetItem": {
+      "type": "object",
+      "required": ["type", "sourceUrl", "filename", "localPath", "byteCount"],
+      "properties": {
+        "type": { "type": "string", "enum": ["css", "js", "image", "font"] },
+        "sourceUrl": { "type": "string" },
+        "filename": { "type": "string" },
+        "localPath": { "type": "string" },
+        "byteCount": { "type": "number", "minimum": 0 }
+      }
+    },
+    "HarvestedAssetManifest": {
+      "type": "object",
+      "required": ["stylesheets", "javascripts", "images", "fonts", "totalBytes"],
+      "properties": {
+        "stylesheets": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/HarvestedAssetItem" }
+        },
+        "javascripts": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/HarvestedAssetItem" }
+        },
+        "images": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/HarvestedAssetItem" }
+        },
+        "fonts": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/HarvestedAssetItem" }
+        },
+        "totalBytes": { "type": "number", "minimum": 0 }
+      }
+    },
+    "ViewportDefinition": {
+      "type": "object",
+      "required": ["name", "width", "height", "deviceScaleFactor", "isMobile", "hasTouch", "mediaQuery"],
+      "properties": {
+        "name": { "type": "string" },
+        "width": { "type": "number" },
+        "height": { "type": "number" },
+        "deviceScaleFactor": { "type": "number" },
+        "isMobile": { "type": "boolean" },
+        "hasTouch": { "type": "boolean" },
+        "mediaQuery": { "type": "string" }
+      }
+    },
+    "ResponsiveBreakpointConfig": {
+      "type": "object",
+      "required": ["desktop", "tablet", "mobile"],
+      "properties": {
+        "desktop": { "$ref": "#/definitions/ViewportDefinition" },
+        "tablet": { "$ref": "#/definitions/ViewportDefinition" },
+        "mobile": { "$ref": "#/definitions/ViewportDefinition" }
+      }
+    },
+    "NormalizedProduct": {
+      "type": "object",
+      "required": ["id", "title", "price"],
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "handle": { "type": "string" },
+        "vendor": { "type": "string" },
+        "price": { "type": "number" },
+        "compareAtPrice": { "type": "number" },
+        "featuredImage": { "type": "string" },
+        "url": { "type": "string" }
+      }
+    },
+    "NormalizedCategory": {
+      "type": "object",
+      "required": ["id", "title"],
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "url": { "type": "string" },
+        "count": { "type": "number" }
       }
     }
   }

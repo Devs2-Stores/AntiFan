@@ -14,3 +14,4 @@ export * from './generators/theme-compiler.js';
 export * from './qa/canvas-masking-helper.js';
 export * from './qa/clean-tab-probe.js';
 export * from './qa/clean-tab-protocol.js';
+export * from './qa/mutation-qa-harness.js';

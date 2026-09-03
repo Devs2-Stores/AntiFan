@@ -22,8 +22,8 @@ export interface NormalizedCategory {
   handle: string;
   icon?: string;
   url: string;
+  children?: NormalizedCategory[];
 }
-
 export interface StorefrontDataBundle {
   products: NormalizedProduct[];
   categories: NormalizedCategory[];
@@ -71,23 +71,116 @@ export class EcommerceDataModeler {
     };
   }
   private extractProducts(root: ParsedElementNode): NormalizedProduct[] {
-    const products: NormalizedProduct[] = [];
-    // Support generic product card class archetypes
-    const productNodes = [
-      ...DomTreeParser.findByClass(root, 'product-item'),
-      ...DomTreeParser.findByClass(root, 'product-card'),
-      ...DomTreeParser.findByClass(root, 'card-product'),
-      ...DomTreeParser.findByClass(root, 'item-product')
-    ];
+    const candidateNodes: ParsedElementNode[] = [];
+    const CURRENCY_REGEX = /\d+[\.,]?\d*\s*(?:₫|đ|VND|VNĐ|USD|\$|€)/i;
+    const PRODUCT_URL_REGEX = /\/(?:products?|san-pham|item|prod|p)\//i;
 
-    // Deduplicate nodes
+    // Recursive scanner tracking negative context ancestors
+    const scan = (node: ParsedElementNode, inNegativeContext: boolean) => {
+      const tag = node.tag.toLowerCase();
+      const cls = node.attributes['class'] || '';
+
+      // Exclude navigation, header, footer, blog, and news containers
+      const isNegative = inNegativeContext ||
+        ['header', 'nav', 'footer'].includes(tag) ||
+        /(?:^|\s)(?:header|nav|footer|menu|category-navigation|blog|news|article)(?:$|\s)/i.test(cls);
+
+      // Collect child element nodes
+      const childElements: ParsedElementNode[] = [];
+      for (const child of node.children) {
+        if (typeof child !== 'string') {
+          childElements.push(child);
+        }
+      }
+
+      if (!isNegative && childElements.length > 0) {
+        // Count siblings sharing the same tag and containing both <img> and <a>
+        const qualifyingCount = childElements.filter(c => {
+          const imgs = DomTreeParser.findByTag(c, 'img');
+          const links = DomTreeParser.findByTag(c, 'a');
+          return imgs.length > 0 && links.length > 0;
+        }).length;
+
+        for (const child of childElements) {
+          const cTag = child.tag.toLowerCase();
+          if (['script', 'style', 'noscript'].includes(cTag)) continue;
+
+          // If child is itself a container with >= 2 card-like sub-children, recurse into it
+          const subCardCount = child.children.filter(c => {
+            if (typeof c === 'string') return false;
+            const imgs = DomTreeParser.findByTag(c, 'img');
+            const links = DomTreeParser.findByTag(c, 'a');
+            return imgs.length > 0 && links.length > 0;
+          }).length;
+
+          if (subCardCount >= 2) {
+            scan(child, isNegative);
+            continue;
+          }
+
+          const cCls = child.attributes['class'] || '';
+          const text = DomTreeParser.extractText(child);
+          const links = DomTreeParser.findByTag(child, 'a');
+          const imgs = DomTreeParser.findByTag(child, 'img');
+          const hasProductUrl = links.some(l => PRODUCT_URL_REGEX.test(l.attributes['href'] || ''));
+          const hasCurrency = CURRENCY_REGEX.test(text);
+          const hasMicrodata = (child.attributes['itemtype'] || '').includes('Product');
+
+          // 1. Mandatory Commercial Anchor Gate
+          const hasAnchor = hasCurrency || hasProductUrl || hasMicrodata;
+          if (!hasAnchor || imgs.length === 0) {
+            scan(child, isNegative);
+            continue;
+          }
+
+          // 2. Hybrid Confidence Scoring (0.35 Class + 0.35 Repetition + 0.30 Price)
+          let sClass = 0;
+          if (/(?:^|\s)(?:product-item|product-card|card-product|item-product|product-grid__item|product-tile|product-box)(?:$|\s)/i.test(cCls) || hasMicrodata) {
+            sClass = 1.0;
+          } else if (/\bproduct\b|\bcard-product\b/i.test(cCls)) {
+            sClass = 0.9;
+          } else if (hasProductUrl) {
+            sClass = 0.8;
+          } else if (/prod-/i.test(cCls)) {
+            sClass = 0.7;
+          }
+
+          let sRepetition = 0;
+          if (imgs.length > 0 && links.length > 0) {
+            if (qualifyingCount >= 3) sRepetition = 1.0;
+            else if (qualifyingCount === 2) sRepetition = 0.6;
+          }
+
+          const sPrice = hasCurrency ? 1.0 : 0.0;
+
+          const confidence = 0.35 * sClass + 0.35 * sRepetition + 0.30 * sPrice;
+
+          // Candidate cluster accepted if confidence >= 0.60
+          if (confidence >= 0.60 && imgs.length > 0) {
+            candidateNodes.push(child);
+            continue;
+          }
+
+          scan(child, isNegative);
+        }
+      } else {
+        for (const child of childElements) {
+          scan(child, isNegative);
+        }
+      }
+    };
+
+    scan(root, false);
+
+    // Deduplicate candidate nodes
     const seen = new Set<ParsedElementNode>();
-    const uniqueNodes = productNodes.filter(n => {
+    const uniqueNodes = candidateNodes.filter(n => {
       if (seen.has(n)) return false;
       seen.add(n);
       return true;
     });
 
+    const products: NormalizedProduct[] = [];
     let idx = 1;
     for (const node of uniqueNodes) {
       const titles = [
@@ -95,36 +188,63 @@ export class EcommerceDataModeler {
         ...DomTreeParser.findByClass(node, 'product-title'),
         ...DomTreeParser.findByClass(node, 'name'),
         ...DomTreeParser.findByTag(node, 'h3'),
-        ...DomTreeParser.findByTag(node, 'h2')
+        ...DomTreeParser.findByTag(node, 'h2'),
+        ...DomTreeParser.findByTag(node, 'h4')
       ];
       const title = titles.length > 0 ? DomTreeParser.extractText(titles[0]).trim() : `Sản phẩm ${idx}`;
 
       const imgs = DomTreeParser.findByTag(node, 'img');
       const links = DomTreeParser.findByTag(node, 'a');
-      const prices = [
-        ...DomTreeParser.findByClass(node, 'price'),
+
+      // Price extraction
+      const currentPrices = [
         ...DomTreeParser.findByClass(node, 'price-current'),
+        ...DomTreeParser.findByClass(node, 'current-price'),
+        ...DomTreeParser.findByClass(node, 'price'),
         ...DomTreeParser.findByClass(node, 'amount')
       ];
-      const priceText = prices.length > 0 ? DomTreeParser.extractText(prices[0]) : '';
-      const price = this.parsePrice(priceText);
+      const oldPrices = [
+        ...DomTreeParser.findByClass(node, 'price-old'),
+        ...DomTreeParser.findByClass(node, 'compare-price'),
+        ...DomTreeParser.findByClass(node, 'old-price'),
+        ...DomTreeParser.findByTag(node, 'del'),
+        ...DomTreeParser.findByTag(node, 's')
+      ];
 
-      // Extract vendor dynamically if present
+      const priceText = currentPrices.length > 0 ? DomTreeParser.extractText(currentPrices[0]) : DomTreeParser.extractText(node);
+      const parsedPrice = EcommerceDataModeler.parseStructuredPrice(priceText);
+      let price = parsedPrice.price;
+      let compareAtPrice = parsedPrice.compareAtPrice;
+
+      if (oldPrices.length > 0) {
+        const oldText = DomTreeParser.extractText(oldPrices[0]);
+        const oldParsed = EcommerceDataModeler.parseSinglePrice(oldText);
+        if (oldParsed > price) {
+          compareAtPrice = oldParsed;
+        }
+      }
+
+      // Vendor extraction
       const vendors = [
         ...DomTreeParser.findByClass(node, 'vendor'),
         ...DomTreeParser.findByClass(node, 'brand')
       ];
       const vendor = vendors.length > 0 ? DomTreeParser.extractText(vendors[0]).trim() : '';
 
-      products.push({
+      const product: NormalizedProduct = {
         id: `prod_${idx}`,
         title,
         handle: title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || `product-${idx}`,
         vendor,
         price,
-        featuredImage: imgs[0]?.attributes['src'] || '',
+        featuredImage: imgs[0]?.attributes['src'] || imgs[0]?.attributes['data-src'] || '',
         url: links[0]?.attributes['href'] || '#'
-      });
+      };
+      if (compareAtPrice && compareAtPrice > price) {
+        product.compareAtPrice = compareAtPrice;
+      }
+
+      products.push(product);
       idx++;
     }
 
@@ -153,13 +273,114 @@ export class EcommerceDataModeler {
         });
         idx++;
       }
+      return categories;
+    }
+
+    // Hierarchical category extraction from <nav> or category-navigation
+    const navNodes = [
+      ...DomTreeParser.findByTag(root, 'nav'),
+      ...DomTreeParser.findByClass(root, 'category-navigation'),
+      ...DomTreeParser.findByClass(root, 'main-navigation')
+    ];
+
+    if (navNodes.length > 0) {
+      const topLists = DomTreeParser.findByTag(navNodes[0], 'ul');
+      if (topLists.length > 0) {
+        let catIdx = 1;
+        for (const child of topLists[0].children) {
+          if (typeof child === 'string' || child.tag.toLowerCase() !== 'li') continue;
+          const links = DomTreeParser.findByTag(child, 'a');
+          if (links.length === 0) continue;
+          const title = DomTreeParser.extractText(links[0]).trim();
+          if (!title) continue;
+
+          const cat: NormalizedCategory = {
+            id: `cat_${catIdx}`,
+            title,
+            handle: title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || `category-${catIdx}`,
+            url: links[0].attributes['href'] || '#'
+          };
+
+          // Sub-categories
+          const subLists = DomTreeParser.findByTag(child, 'ul');
+          if (subLists.length > 0) {
+            cat.children = [];
+            let subIdx = 1;
+            for (const subChild of subLists[0].children) {
+              if (typeof subChild === 'string' || subChild.tag.toLowerCase() !== 'li') continue;
+              const subLinks = DomTreeParser.findByTag(subChild, 'a');
+              if (subLinks.length === 0) continue;
+              const subTitle = DomTreeParser.extractText(subLinks[0]).trim();
+              if (subTitle) {
+                cat.children.push({
+                  id: `cat_${catIdx}_${subIdx}`,
+                  title: subTitle,
+                  handle: subTitle.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || `subcat-${subIdx}`,
+                  url: subLinks[0].attributes['href'] || '#'
+                });
+                subIdx++;
+              }
+            }
+          }
+
+          categories.push(cat);
+          catIdx++;
+        }
+      }
     }
 
     return categories;
   }
 
-  private parsePrice(text: string): number {
-    const clean = text.replace(/[^0-9]/g, '');
-    return clean ? parseInt(clean, 10) : 0;
+  public static parseStructuredPrice(text: string): { price: number; compareAtPrice?: number } {
+    if (!text || typeof text !== 'string') return { price: 0 };
+    const clean = text.trim();
+
+    // Detect ranges: "1.299.000 - 1.599.000đ", "100k ~ 200k", "1.000.000 đến 2.000.000"
+    const rangeParts = clean.split(/\s*(?:-|~|–|—|đến|to)\s*/i);
+    if (rangeParts.length >= 2) {
+      const p1 = EcommerceDataModeler.parseSinglePrice(rangeParts[0]);
+      const p2 = EcommerceDataModeler.parseSinglePrice(rangeParts[1]);
+      if (p1 > 0 && p2 > 0) {
+        return {
+          price: Math.min(p1, p2),
+          compareAtPrice: Math.max(p1, p2)
+        };
+      }
+    }
+
+    return { price: EcommerceDataModeler.parseSinglePrice(clean) };
+  }
+
+  public static parseSinglePrice(raw: string): number {
+    if (!raw || typeof raw !== 'string') return 0;
+    const match = raw.match(/[\d]+(?:[\.,]\d+)*/);
+    if (!match) return 0;
+
+    let numStr = match[0];
+    // Multiple dots/commas -> thousands separators (e.g. 1.299.000 or 1,299,000)
+    if ((numStr.match(/[\.,]/g) || []).length > 1) {
+      numStr = numStr.replace(/[\.,]/g, '');
+      return parseInt(numStr, 10) || 0;
+    }
+
+    // Single separator with 3 trailing digits -> thousands separator (e.g. 450.000 or 450,000)
+    if (/[\.,]\d{3}$/.test(numStr)) {
+      numStr = numStr.replace(/[\.,]/g, '');
+      return parseInt(numStr, 10) || 0;
+    }
+
+    // Single dot with 1-2 trailing digits -> decimal (e.g. 49.99)
+    if (/\.\d{1,2}$/.test(numStr)) {
+      const parsed = parseFloat(numStr);
+      return isNaN(parsed) ? 0 : Math.round(parsed);
+    }
+
+    const digits = numStr.replace(/[^0-9]/g, '');
+    return digits ? parseInt(digits, 10) : 0;
+  }
+
+  public parsePrice(text: string): number {
+    return EcommerceDataModeler.parseStructuredPrice(text).price;
   }
 }

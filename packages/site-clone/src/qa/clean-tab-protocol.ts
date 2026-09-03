@@ -73,24 +73,31 @@ export class CleanTabProtocol {
     const snapshot = await this.captureState(evaluator);
     let resultData: T | undefined;
     let executionError: string | undefined;
+    let success = false;
+    let restored = false;
 
     try {
       resultData = await action();
-      return {
-        success: true,
-        data: resultData,
-        restored: true
-      };
+      success = true;
     } catch (err) {
       executionError = err instanceof Error ? err.message : String(err);
-      return {
-        success: false,
-        error: executionError,
-        restored: false
-      };
+      success = false;
     } finally {
-      await this.restoreState(evaluator, snapshot).catch(() => {});
+      try {
+        restored = await this.restoreState(evaluator, snapshot);
+      } catch (err) {
+        restored = false;
+        const msg = err instanceof Error ? err.message : String(err);
+        executionError = executionError ? `${executionError}; Restoration error: ${msg}` : `Restoration error: ${msg}`;
+      }
     }
+
+    return {
+      success,
+      data: resultData,
+      error: executionError,
+      restored
+    };
   }
 
   /**

@@ -220,4 +220,179 @@ describe('ThemeCompiler - End-to-End Haravan OS 2.0 Theme Compilation', () => {
       fs.rmSync(tempDir, { recursive: true, force: true });
     }
   });
+
+  it('5. Compiles theme.js with universal declarative runtime and injects data-antifan attributes into sections', () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'haravan-runtime-test-'));
+    const ir = {
+      version: '1.1.0' as const,
+      metadata: {
+        sourceUrl: 'https://declarative-store.vn',
+        extractedAt: new Date().toISOString()
+      },
+      layout: {
+        containerMaxWidth: 1280,
+        containerPaddingPx: 16,
+        gridGapPx: 20,
+        breakpoints: {
+          mobileMax: 767,
+          tabletMin: 768,
+          tabletMax: 1024,
+          desktopMin: 1025
+        }
+      },
+      themeSettings: [],
+      sections: [
+        {
+          id: 'hero_slider_1',
+          name: 'Hero Slider',
+          archetype: 'hero_slider' as const,
+          layoutType: 'scroll_snap_carousel' as const,
+          className: 'hero-slider-wrap',
+          liquidTemplate: '<section class="hero-slider-wrap"><div class="slider"><div class="item">Slide 1</div></div></section>',
+          settings: {},
+          blocks: []
+        },
+        {
+          id: 'video_modal_sec',
+          name: 'Video Modal Section',
+          archetype: 'custom_section' as const,
+          layoutType: 'flow' as const,
+          className: 'video-sec',
+          liquidTemplate: '<section class="video-sec"><button class="modal-btn">Xem video</button></section>',
+          settings: {},
+          blocks: []
+        }
+      ],
+      storefrontRuntime: {
+        controllers: [
+          {
+            id: 'hero_ctrl_1',
+            sectionId: 'hero_slider_1',
+            roleId: 'slider_track',
+            type: 'carousel' as const,
+            targetSelector: '.hero-slider-wrap .slider',
+            triggerSelector: '.nav-btn',
+            behavior: 'css_scroll_snap' as const
+          },
+          {
+            id: 'modal_ctrl_1',
+            sectionId: 'video_modal_sec',
+            roleId: 'video_dialog',
+            type: 'modal' as const,
+            targetSelector: '#video-dialog-popup',
+            triggerSelector: '.modal-btn',
+            behavior: 'dialog_native' as const
+          }
+        ]
+      }
+    };
+
+    try {
+      compiler.compileTheme(tempDir, ir);
+
+      // 1. Verify assets/theme.js
+      const themeJsPath = path.join(tempDir, 'assets', 'theme.js');
+      assert.ok(fs.existsSync(themeJsPath), 'assets/theme.js must exist');
+      const themeJs = fs.readFileSync(themeJsPath, 'utf-8');
+      assert.ok(!themeJs.includes('.slide-content__detail'), 'Must not contain hardcoded hero selector');
+      assert.ok(!themeJs.includes('Nt2J6ZXPuw0'), 'Must not contain hardcoded YouTube ID');
+      assert.ok(!themeJs.includes('alert('), 'Must not contain blocking alert');
+      assert.ok(themeJs.includes('data-antifan-toggle'), 'Must contain declarative toggle handler');
+      assert.ok(themeJs.includes('data-antifan-modal'), 'Must contain declarative modal handler');
+      assert.ok(themeJs.includes('data-antifan-slider'), 'Must contain declarative slider handler');
+
+      // 2. Verify layout/theme.liquid has defer attribute
+      const layoutPath = path.join(tempDir, 'layout', 'theme.liquid');
+      const layoutContent = fs.readFileSync(layoutPath, 'utf-8');
+      assert.ok(layoutContent.includes('<script src="{{ \'theme.js\' | asset_url }}" defer></script>'), 'theme.js must have defer attribute');
+
+      // 3. Verify sections have injected data-antifan attributes
+      const heroPath = path.join(tempDir, 'sections', 'hero_slider_1.liquid');
+      const heroContent = fs.readFileSync(heroPath, 'utf-8');
+      assert.ok(heroContent.includes('data-antifan-slider'), 'Hero slider section must have data-antifan-slider');
+      assert.ok(heroContent.includes('data-antifan-slider-track'), 'Slider track must have data-antifan-slider-track');
+
+      const modalPath = path.join(tempDir, 'sections', 'video_modal_sec.liquid');
+      const modalContent = fs.readFileSync(modalPath, 'utf-8');
+      assert.ok(modalContent.includes('data-antifan-modal="#video-dialog-popup"'), 'Modal button must have data-antifan-modal target');
+      assert.ok(modalContent.includes('data-antifan-modal-dialog'), 'Modal dialog shell must be present with data-antifan-modal-dialog');
+    } finally {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it('6. Full End-to-End Pipeline compiles clean Haravan OS 2.0 theme with settings_schema, settings_data, templates, and runtime', () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-e2e-theme-test-'));
+    const sampleHtml = `
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <title>Cửa Hàng Thiết Bị Tự Động Hóa</title>
+          <link rel="stylesheet" href="https://example.com/theme.css" />
+        </head>
+        <body>
+          <header class="site-header">
+            <nav class="main-navigation">
+              <ul>
+                <li><a href="/dien">Thiết bị điện</a></li>
+              </ul>
+            </nav>
+          </header>
+          <div class="hero-slider">
+            <div class="slide-item">Slide 1</div>
+          </div>
+          <div class="catalog-grid">
+            <div class="product-card">
+              <a href="/products/plc-fx5u"><img src="https://example.com/plc.jpg" alt="PLC" /></a>
+              <h3 class="product-title">PLC Mitsubishi FX5U</h3>
+              <span class="price-current">5.400.000₫</span>
+              <span class="price-old">6.000.000₫</span>
+            </div>
+          </div>
+          <footer class="site-footer">
+            <p>© 2026 Cửa Hàng Tự Động Hóa</p>
+          </footer>
+        </body>
+      </html>
+    `;
+
+    try {
+      const res = compiler.compileTheme(tempDir, sampleHtml);
+      assert.strictEqual(res.success, true);
+      assert.ok(res.sectionCount >= 1);
+
+      // 1. Check layout/theme.liquid
+      const layoutPath = path.join(tempDir, 'layout', 'theme.liquid');
+      assert.ok(fs.existsSync(layoutPath), 'layout/theme.liquid must exist');
+      const layoutContent = fs.readFileSync(layoutPath, 'utf-8');
+      assert.ok(layoutContent.includes('content_for_layout'));
+      assert.ok(layoutContent.includes('theme.js'));
+
+      // 2. Check templates/index.json
+      const indexJsonPath = path.join(tempDir, 'templates', 'index.json');
+      assert.ok(fs.existsSync(indexJsonPath), 'templates/index.json must exist');
+      const indexJson = JSON.parse(fs.readFileSync(indexJsonPath, 'utf-8'));
+      assert.ok(Array.isArray(indexJson.order));
+
+      // 3. Check config/settings_schema.json
+      const schemaPath = path.join(tempDir, 'config', 'settings_schema.json');
+      assert.ok(fs.existsSync(schemaPath), 'config/settings_schema.json must exist');
+      const schemaObj = JSON.parse(fs.readFileSync(schemaPath, 'utf-8'));
+      assert.ok(Array.isArray(schemaObj));
+
+      // 4. Check config/settings_data.json
+      const dataPath = path.join(tempDir, 'config', 'settings_data.json');
+      assert.ok(fs.existsSync(dataPath), 'config/settings_data.json must exist');
+      const dataObj = JSON.parse(fs.readFileSync(dataPath, 'utf-8'));
+      assert.ok(dataObj.current && dataObj.presets);
+
+      // 5. Check assets/theme.js
+      const themeJsPath = path.join(tempDir, 'assets', 'theme.js');
+      assert.ok(fs.existsSync(themeJsPath), 'assets/theme.js must exist');
+      const themeJsContent = fs.readFileSync(themeJsPath, 'utf-8');
+      assert.ok(themeJsContent.includes('data-antifan-toggle'));
+    } finally {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
 });

@@ -31,16 +31,16 @@ function parseProbeResult(val: unknown): ProbeEvalResult | null {
 export class CleanTabProbe {
   public static async verifyInteractiveChecks(evaluator: (expr: string) => Promise<unknown>): Promise<InteractiveCheckResult[]> {
     return Promise.all([
-      // 1. Behavior: Brand Tabs Switching
+      // 1. Behavior: Universal Tabs / Toggle Switching
       evaluator(`(() => {
-        const tabs = document.querySelectorAll('.tabs .tab-item, .accessory-tabs li');
+        const tabs = document.querySelectorAll('[data-antifan-toggle], .tabs .tab-item, .accessory-tabs li');
         if (tabs.length < 2) return { passed: false, reason: 'Less than 2 tabs found' };
         
-        const initialActive = tabs[0].classList.contains('active');
+        const initialActive = tabs[0].classList.contains('active') || tabs[0].getAttribute('aria-expanded') === 'true';
         tabs[1].dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
         
-        const tab1After = tabs[0].classList.contains('active');
-        const tab2After = tabs[1].classList.contains('active');
+        const tab1After = tabs[0].classList.contains('active') || tabs[0].getAttribute('aria-expanded') === 'true';
+        const tab2After = tabs[1].classList.contains('active') || tabs[1].getAttribute('aria-expanded') === 'true';
         
         // Restore tab 0
         tabs[0].dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
@@ -56,23 +56,26 @@ export class CleanTabProbe {
           passed: Boolean(parsed?.passed),
           details: parsed?.details
         };
-      }).catch(err => ({
+      }).catch((err) => ({
         name: 'brand_tabs_switching',
         passed: false,
         error: String(err)
       })),
 
-      // 2. Behavior: Category Submenu Hover
+      // 2. Behavior: Dropdown Hover / Category Submenu
       evaluator(`(() => {
-        const item = document.querySelector('.category-navigation__list ul li');
-        const subMenu = document.getElementById('category-navigation__sub');
-        if (!item || !subMenu) return { passed: false, reason: 'Navigation item or subMenu missing' };
+        const item = document.querySelector('[data-antifan-hover], .category-navigation__list ul li');
+        if (!item) return { passed: false, reason: 'Hover item missing' };
+        const subMenuSel = item.getAttribute('data-antifan-target') || item.getAttribute('data-antifan-hover');
+        const subMenu = subMenuSel ? document.querySelector(subMenuSel) : (item.querySelector('[data-antifan-dropdown-panel]') || document.getElementById('category-navigation__sub'));
+        if (!subMenu) return { passed: false, reason: 'Dropdown subMenu missing' };
         
+        item.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
         item.dispatchEvent(new MouseEvent('mouseenter', { bubbles: true }));
         const activeAfterEnter = subMenu.classList.contains('active') || subMenu.style.display !== 'none';
         
-        const nav = document.querySelector('.category-navigation');
-        if (nav) nav.dispatchEvent(new MouseEvent('mouseleave', { bubbles: true }));
+        item.dispatchEvent(new MouseEvent('mouseout', { bubbles: true }));
+        item.dispatchEvent(new MouseEvent('mouseleave', { bubbles: true }));
         
         return {
           passed: activeAfterEnter,
@@ -85,28 +88,33 @@ export class CleanTabProbe {
           passed: Boolean(parsed?.passed),
           details: parsed?.details
         };
-      }).catch(err => ({
+      }).catch((err) => ({
         name: 'category_submenu_hover',
         passed: false,
         error: String(err)
       })),
 
-      // 3. Behavior: Branch Selector Dropdown Toggle
+      // 3. Behavior: Dropdown Toggle / Branch Selector
       evaluator(`(() => {
-        const btn = document.querySelector('.systerm .item-cta');
-        const list = document.getElementById('systerm-list');
-        if (!btn || !list) return { passed: false, reason: 'Branch selector elements missing' };
+        const btn = document.querySelector('[data-antifan-toggle], .systerm .item-cta');
+        if (!btn) return { passed: false, reason: 'Toggle button missing' };
+        const targetSel = btn.getAttribute('data-antifan-target') || btn.getAttribute('data-antifan-toggle');
+        const list = targetSel ? document.querySelector(targetSel) : (document.getElementById('systerm-list') || btn.nextElementSibling);
+        if (!list) return { passed: false, reason: 'Toggle target element missing' };
         
         const initialDisplay = window.getComputedStyle(list).display;
+        const initialActive = list.classList.contains('active');
         btn.dispatchEvent(new MouseEvent('click', { bubbles: true }));
         const openedDisplay = window.getComputedStyle(list).display;
+        const openedActive = list.classList.contains('active');
         
-        document.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+        btn.dispatchEvent(new MouseEvent('click', { bubbles: true }));
         const closedDisplay = window.getComputedStyle(list).display;
+        const closedActive = list.classList.contains('active');
         
         return {
-          passed: openedDisplay === 'block' && (closedDisplay === 'none' || initialDisplay === 'none'),
-          details: { initialDisplay, openedDisplay, closedDisplay }
+          passed: (openedActive || openedDisplay === 'block') && (!closedActive || closedDisplay === 'none' || initialDisplay === 'none'),
+          details: { initialDisplay, openedDisplay, closedDisplay, openedActive, closedActive }
         };
       })()`).then((res) => {
         const parsed = parseProbeResult(res);
@@ -115,29 +123,35 @@ export class CleanTabProbe {
           passed: Boolean(parsed?.passed),
           details: parsed?.details
         };
-      }).catch(err => ({
+      }).catch((err) => ({
         name: 'branch_selector_toggle',
         passed: false,
         error: String(err)
       })),
 
-      // 4. Behavior: Video Modal Open & Close
+      // 4. Behavior: Modal Dialog Open & Close
       evaluator(`(() => {
-        const videoBtn = document.querySelector('.video-content__button');
-        const popup = document.getElementById('popup-video');
-        const closeBtn = document.querySelector('.popup-close');
-        if (!videoBtn || !popup) return { passed: false, reason: 'Video modal elements missing' };
+        const modalBtn = document.querySelector('[data-antifan-modal], .video-content__button');
+        if (!modalBtn) return { passed: false, reason: 'Modal trigger button missing' };
+        const modalSel = modalBtn.getAttribute('data-antifan-target') || modalBtn.getAttribute('data-antifan-modal');
+        const popup = modalSel ? document.querySelector(modalSel) : (document.querySelector('[data-antifan-modal-dialog]') || document.getElementById('popup-video'));
+        if (!popup) return { passed: false, reason: 'Modal dialog missing' };
         
         const initialDisplay = window.getComputedStyle(popup).display;
-        videoBtn.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+        const initialActive = popup.classList.contains('active');
+        modalBtn.dispatchEvent(new MouseEvent('click', { bubbles: true }));
         const openedDisplay = window.getComputedStyle(popup).display;
+        const openedActive = popup.classList.contains('active');
         
+        const closeBtn = popup.querySelector('[data-antifan-modal-close], .popup-close, .close-btn');
         if (closeBtn) closeBtn.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+        else popup.dispatchEvent(new MouseEvent('click', { bubbles: true }));
         const closedDisplay = window.getComputedStyle(popup).display;
+        const closedActive = popup.classList.contains('active');
         
         return {
-          passed: openedDisplay === 'flex' && (closedDisplay === 'none' || initialDisplay === 'none'),
-          details: { initialDisplay, openedDisplay, closedDisplay }
+          passed: (openedActive || openedDisplay === 'flex' || openedDisplay === 'block') && (!closedActive || closedDisplay === 'none' || initialDisplay === 'none'),
+          details: { initialDisplay, openedDisplay, closedDisplay, openedActive, closedActive }
         };
       })()`).then((res) => {
         const parsed = parseProbeResult(res);
@@ -146,14 +160,13 @@ export class CleanTabProbe {
           passed: Boolean(parsed?.passed),
           details: parsed?.details
         };
-      }).catch(err => ({
+      }).catch((err) => ({
         name: 'video_modal_open_close',
         passed: false,
         error: String(err)
-      }))
+      })),
     ]);
   }
-
   public static async verifyCriticalBreaks(evaluator: (expr: string) => Promise<unknown>): Promise<{
     passed: boolean;
     breaks: Array<{ id: string; name: string; passed: boolean; details?: string }>;
