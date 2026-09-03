@@ -1,0 +1,18 @@
+{
+  "timestamp": "2026-09-03T09:07:48.085Z",
+  "platform": "win32",
+  "arch": "x64",
+  "electronVersion": "43.4.0",
+  "chromeVersion": "150.0.7871.224",
+  "verified": true,
+  "cookieIsolation": {
+    "ephemeralA_containsTokenA": true,
+    "ephemeralB_leakedTokenA": false,
+    "persistent_leakedTokenA": false
+  },
+  "lifecycle": {
+    "tabsCreated": 3,
+    "tabsClosed": 3,
+    "memoryRssMb": 247
+  }
+}
