@@ -2,10 +2,10 @@ import { describe, it, before, after } from 'node:test';
 import * as assert from 'node:assert/strict';
 import { NativeTabHost } from '../../../src/main/browser/native-tab-host';
 import { TerminalManager } from '../../../src/main/browser/terminal-manager';
+import { BrowserControlPort } from '../../../src/main/tools/browser-control-port';
 import { AntiFanTab } from '../../../src/shared/contracts';
 import { execFileSync } from 'node:child_process';
 import * as path from 'node:path';
-
 interface TabShell {
   state: AntiFanTab;
   view?: unknown;
@@ -173,6 +173,70 @@ describe('Terminal-to-Tab Agent Affinity Contract Tests (NativeTabHost Seam)', (
     assert.strictEqual(host.hasTab(null), false);
     assert.strictEqual(host.hasTab(undefined), false);
     assert.strictEqual(host.hasTab(''), false);
+  });
+
+  it('8. Synchronizes Annotation popup memory automatically when tab is bound to a terminal', () => {
+    const host = createTestHost(['tab-lemon', 'tab-youtube']);
+
+    // Terminal-2 is bound to tab-lemon
+    host.bindTerminalAgentAffinity('terminal-2', 1, 'tab-lemon');
+
+    // Annotation memory on tab-lemon automatically resolves to terminal-2
+    assert.strictEqual(host.getTabTerminalSession('tab-lemon'), 'terminal-2');
+
+    // Unbound tab-youtube remains undefined (falling back to auto in picker)
+    assert.strictEqual(host.getTabTerminalSession('tab-youtube'), undefined);
+  });
+
+  it('9. Scopes listTabs to ONLY the bound tab in an isolated session', () => {
+    const mockHost = {
+      getTabList: () => [
+        { id: 'tab-lemon', url: 'https://thienfarm.vn/lemon', title: 'Cây Chanh Vàng' },
+        { id: 'tab-youtube', url: 'https://youtube.com/watch', title: 'YouTube Music' },
+      ],
+    };
+    const port = new BrowserControlPort(mockHost as any);
+
+    // 1. When isolated to tab-lemon: ONLY tab-lemon is returned
+    const isolatedTabs = port.listTabs({
+      target: { tabId: 'tab-lemon', documentGeneration: 1, projectId: 'proj-1', workspaceId: 'ws-1', runtimeId: 'rt-1', browserEpoch: 1 },
+    }) as any[];
+    assert.strictEqual(isolatedTabs.length, 1);
+    assert.strictEqual(isolatedTabs[0].id, 'tab-lemon');
+    assert.strictEqual(isolatedTabs[0].isBoundTab, true);
+
+    // 2. When unbound (global view): all tabs are returned
+    const allTabs = port.listTabs({}) as any[];
+    assert.strictEqual(allTabs.length, 2);
+  });
+
+  it('10. Enforces isolation on switchTab and closeTab (throws TARGET_MISMATCH on cross-tab tampering)', () => {
+    let switchedId = '';
+    let closedId = '';
+    const mockHost = {
+      switchTab: (id: string) => { switchedId = id; return true; },
+      closeTab: (id: string) => { closedId = id; return true; },
+    };
+    const port = new BrowserControlPort(mockHost as any);
+    const boundTarget = { tabId: 'tab-lemon', documentGeneration: 1 } as any;
+
+    // Permitted: operating on the bound tab
+    assert.deepStrictEqual(port.switchTab('tab-lemon', { target: boundTarget }), { switched: true });
+    assert.strictEqual(switchedId, 'tab-lemon');
+
+    assert.deepStrictEqual(port.closeTab('tab-lemon', { target: boundTarget }), { closed: true });
+    assert.strictEqual(closedId, 'tab-lemon');
+
+    // Rejected: tampering with another tab (e.g. YouTube)
+    assert.throws(
+      () => port.switchTab('tab-youtube', { target: boundTarget }),
+      (err: any) => err.code === 'TARGET_MISMATCH' && err.message.includes('isolated to tab')
+    );
+
+    assert.throws(
+      () => port.closeTab('tab-youtube', { target: boundTarget }),
+      (err: any) => err.code === 'TARGET_MISMATCH' && err.message.includes('isolated to tab')
+    );
   });
 });
 
