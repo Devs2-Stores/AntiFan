@@ -3756,6 +3756,7 @@ export class NativeTabHost extends EventEmitter {
   public bindTerminalAgentAffinity(terminalId: string, generation: number | string | undefined, tabId: string): boolean {
     if (!this.terminalAgentAffinity) this.terminalAgentAffinity = new Map();
     if (!terminalId || !tabId) return false;
+    const tab = this.tabs?.get(tabId);
     if (!tab) return false;
     const tm = TerminalManager.getInstance();
     const session = tm.getSession(terminalId);
