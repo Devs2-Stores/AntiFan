@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import * as assert from 'node:assert';
-import { cookieImportSetDetails, extensionCookieImportSetDetails } from '../../src/main/browser/chrome-profile-sync';
+import { cookieImportSetDetails, extensionCookieImportSetDetails, ChromeProfileSyncManager } from '../../src/main/browser/chrome-profile-sync';
 import { CookieDebouncer } from '../../src/extension/cookie-debouncer';
 import { isCookieInScope } from '../../src/extension/domain-scoper';
 describe('ChromeProfileSync Cookie Import Semantics', () => {
@@ -166,5 +166,25 @@ describe('ChromeProfileSync Cookie Import Semantics', () => {
     assert.strictEqual(isCookieInScope(customDomainCookie, ['google', 'ecommerce']), false);
     assert.strictEqual(isCookieInScope(customDomainCookie, ['all']), true);
     assert.strictEqual(isCookieInScope(customDomainCookie, ['*']), true);
+  });
+
+  it('ChromeProfileSyncManager locates Chrome executable or returns null safely', () => {
+    const manager = ChromeProfileSyncManager.getInstance();
+    const chromePath = manager.getChromeExecutablePath();
+    if (chromePath) {
+      assert.ok(chromePath.toLowerCase().includes('chrome.exe'));
+    } else {
+      assert.strictEqual(chromePath, null);
+    }
+  });
+
+  it('ChromeProfileSyncManager.syncProfile reports hasLiveCookies and accurate status', async () => {
+    const manager = ChromeProfileSyncManager.getInstance();
+    const res = await manager.syncProfile('Default');
+    assert.strictEqual(typeof res.success, 'boolean');
+    assert.strictEqual(typeof res.bookmarksCount, 'number');
+    assert.strictEqual(typeof res.cookiesCount, 'number');
+    assert.strictEqual(typeof res.hasLiveCookies, 'boolean');
+    assert.ok(res.message.includes('dấu trang') || res.message.includes('not found'));
   });
 });
