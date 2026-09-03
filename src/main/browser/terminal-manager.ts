@@ -2,7 +2,7 @@ import * as pty from 'node-pty';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
-import { execFile } from 'node:child_process';
+import { execFile, spawn } from 'node:child_process';
 import { EventEmitter } from 'events';
 import { performance } from 'node:perf_hooks';
 import { isBenchmarkEnabled, recordBenchmark } from '../benchmark/telemetry';
@@ -48,13 +48,12 @@ export function killProcessTree(pid: number | undefined): Promise<void> {
 
     if (process.platform === 'win32') {
       try {
-        const child = execFile(
+        const child = spawn(
           'taskkill',
           ['/pid', String(Math.floor(pid)), '/T', '/F'],
-          { windowsHide: true, timeout: 1500 },
-          () => settle()
+          { windowsHide: true, stdio: 'ignore' }
         );
-        child.unref?.();
+        child.unref();
         child.on('error', settle);
         child.on('close', settle);
       } catch {
@@ -651,6 +650,12 @@ export class TerminalManager extends EventEmitter {
       try {
         if (typeof (ptyInstance as any).removeAllListeners === 'function') {
           (ptyInstance as any).removeAllListeners();
+        }
+        if (typeof (ptyInstance as any)._socket?.destroy === 'function') {
+          try { (ptyInstance as any)._socket.destroy(); } catch {}
+        }
+        if (typeof (ptyInstance as any).destroy === 'function') {
+          try { (ptyInstance as any).destroy(); } catch {}
         }
         ptyInstance.kill();
       } catch {}

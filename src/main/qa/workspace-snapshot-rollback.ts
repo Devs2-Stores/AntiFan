@@ -4,7 +4,7 @@ import * as crypto from 'node:crypto';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { assertNoReparseTraversal, assertWorkspaceContained, CapabilityError } from '../../shared/control-plane-contracts';
 
-const IGNORED_DIRECTORIES = new Set(['.git', 'node_modules', '.antifan', '.compiled', 'dist', 'build']);
+const IGNORED_DIRECTORIES = new Set(['.git', 'node_modules', '.antifan', '.compiled', 'dist', 'build', 'specs']);
 
 export interface FileSnapshotEntry {
   relativePath: string;

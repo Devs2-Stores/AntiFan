@@ -1267,6 +1267,9 @@ export class BrowserControlPort {
     let resolved: string | undefined;
 
     if (explicitTabId && explicitTabId.trim().length > 0) {
+      if (operationType === 'write' && target?.tabId && target.tabId.trim().length > 0 && explicitTabId.trim() !== target.tabId.trim()) {
+        throw new CapabilityError('TARGET_MISMATCH', `Explicit tabId "${explicitTabId}" does not match target tabId "${target.tabId}"`);
+      }
       if (!tabExists(explicitTabId.trim())) {
         throw new CapabilityError('CAPABILITY_NOT_FOUND', `Unknown tab ID: ${explicitTabId}`);
       }
