@@ -30,7 +30,7 @@ import {
 } from './device-presets';
 import { chromeSessionUserAgent } from './google-auth-identity';
 import { configureBrowserSessionPartition, deriveCapsulePartition, unconfigureBrowserSessionPartition, type BrowserSessionUserAgentMode } from './browser-session-partition';
-import { TabDiagnosticsManager, computeOrigin } from './tab-diagnostics';
+import { TabDiagnosticsManager, computeOrigin, normalizeConsoleLevel } from './tab-diagnostics';
 import { buildKeyboardInputEvents } from './keyboard-normalizer';
 import { FirstPartyNetworkTracker } from './first-party-network-tracker';
 import { WorkspaceCapsuleManager, type WorkspaceCapsule } from '../project/workspace-capsule';
@@ -2505,25 +2505,10 @@ export class NativeTabHost extends EventEmitter {
       const line = hasParams ? event.lineNumber : legacyArgs[2];
       const rawSource = hasParams ? event.sourceId : legacyArgs[3];
 
-      let levelNum = 0;
-      if (typeof rawLevel === 'number') {
-        levelNum = rawLevel;
-      } else if (typeof rawLevel === 'string') {
-        const lower = rawLevel.toLowerCase();
-        if (lower === 'error') levelNum = 3;
-        else if (lower === 'warning' || lower === 'warn') levelNum = 2;
-        else if (lower === 'info' || lower === 'log') levelNum = 1;
-        else if (lower === 'debug' || lower === 'verbose') levelNum = 0;
-        else {
-          const parsed = Number.parseInt(lower, 10);
-          levelNum = Number.isFinite(parsed) ? parsed : 0;
-        }
-      }
-
       const source = String(rawSource || '');
       const origin = computeOrigin(source, wc.getURL());
       this.diagnosticsManager.recordConsole(id, {
-        level: levelNum,
+        level: normalizeConsoleLevel(rawLevel),
         message: String(rawMessage || ''),
         source,
         line: Number(line || 0),

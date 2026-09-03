@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import * as assert from 'node:assert';
-import { TabDiagnosticsManager } from '../../src/main/browser/tab-diagnostics';
+import { TabDiagnosticsManager, normalizeConsoleLevel } from '../../src/main/browser/tab-diagnostics';
 
 describe('TabDiagnosticsManager buffer lifecycle', () => {
   it('clear(tabId) wipes only that tab and keeps other tabs intact', () => {
@@ -68,33 +68,22 @@ describe('TabDiagnosticsManager buffer lifecycle', () => {
     assert.strictEqual(snapshot.console[0]?.level, 3);
   });
 
-  it('maps string console levels ("error", "warning", "info", "debug") to numeric enum (3, 2, 1, 0)', () => {
-    const LEVEL_MAP: Record<string, number> = {
-      error: 3,
-      warning: 2,
-      warn: 2,
-      info: 1,
-      log: 1,
-      debug: 0,
-      verbose: 0,
-    };
-    const manager = new TabDiagnosticsManager();
-    for (const [lvlStr, expectedNum] of Object.entries(LEVEL_MAP)) {
-      manager.recordConsole('tab-map', {
-        level: expectedNum,
-        message: `msg for ${lvlStr}`,
-        source: 'app.js',
-        line: 1,
-        timestamp: Date.now(),
-        origin: 'theme.test',
-        isFirstParty: true,
-      });
-    }
-    const snapshot = manager.getDiagnostics('tab-map');
-    assert.strictEqual(snapshot.console.length, Object.keys(LEVEL_MAP).length);
-    assert.strictEqual(snapshot.console.find((c) => c.message === 'msg for error')?.level, 3);
-    assert.strictEqual(snapshot.console.find((c) => c.message === 'msg for warning')?.level, 2);
-    assert.strictEqual(snapshot.console.find((c) => c.message === 'msg for info')?.level, 1);
-    assert.strictEqual(snapshot.console.find((c) => c.message === 'msg for debug')?.level, 0);
+  it('normalizeConsoleLevel correctly maps string levels and preserves numeric levels', () => {
+    assert.strictEqual(normalizeConsoleLevel('error'), 3);
+    assert.strictEqual(normalizeConsoleLevel('ERROR'), 3);
+    assert.strictEqual(normalizeConsoleLevel('warning'), 2);
+    assert.strictEqual(normalizeConsoleLevel('warn'), 2);
+    assert.strictEqual(normalizeConsoleLevel('WARN'), 2);
+    assert.strictEqual(normalizeConsoleLevel('info'), 1);
+    assert.strictEqual(normalizeConsoleLevel('log'), 1);
+    assert.strictEqual(normalizeConsoleLevel('debug'), 0);
+    assert.strictEqual(normalizeConsoleLevel('verbose'), 0);
+    assert.strictEqual(normalizeConsoleLevel(3), 3);
+    assert.strictEqual(normalizeConsoleLevel(2), 2);
+    assert.strictEqual(normalizeConsoleLevel(1), 1);
+    assert.strictEqual(normalizeConsoleLevel(0), 0);
+    assert.strictEqual(normalizeConsoleLevel('unknown'), 0);
+    assert.strictEqual(normalizeConsoleLevel(undefined), 0);
+    assert.strictEqual(normalizeConsoleLevel(null), 0);
   });
 });

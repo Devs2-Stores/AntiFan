@@ -3,6 +3,29 @@
  * Tracks per-tab console logs and network failure events with bounded ring buffers.
  */
 
+/**
+ * Normalizes Electron console message level to numeric enum:
+ * 0: debug / verbose
+ * 1: info / log
+ * 2: warning / warn
+ * 3: error
+ */
+export function normalizeConsoleLevel(rawLevel: unknown): number {
+  if (typeof rawLevel === 'number') {
+    return Number.isFinite(rawLevel) ? rawLevel : 0;
+  }
+  if (typeof rawLevel === 'string') {
+    const lower = rawLevel.toLowerCase();
+    if (lower === 'error') return 3;
+    if (lower === 'warning' || lower === 'warn') return 2;
+    if (lower === 'info' || lower === 'log') return 1;
+    if (lower === 'debug' || lower === 'verbose') return 0;
+    const parsed = Number.parseInt(lower, 10);
+    return Number.isFinite(parsed) ? parsed : 0;
+  }
+  return 0;
+}
+
 export interface ConsoleDiagnosticEntry {
   level: number;
   message: string;
