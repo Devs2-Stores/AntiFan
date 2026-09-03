@@ -325,6 +325,7 @@ async function main() {
     ANTIFAN_PROJECT_ID: session.projectId,
     ANTIFAN_WORKSPACE_ID: session.workspaceId,
     ANTIFAN_OWNER_PID: String(boundPid),
+    ANTIFAN_BOUND_TAB_ID: session.tabId || explicitTabId || '',
     ANTIFAN_MCP_BOOTSTRAP: JSON.stringify({
       port: session.port || bridgeInfo.port,
       secret: session.secret,
@@ -334,6 +335,7 @@ async function main() {
       attemptId: session.attemptId,
       projectId: session.projectId,
       workspaceId: session.workspaceId,
+      tabId: session.tabId || explicitTabId,
       token: session.bridgeToken,
       ownerPid: boundPid,
     }),

@@ -53,6 +53,7 @@ function getBootstrap() {
       }
       return {
         ...b,
+        tabId: b.tabId || process.env.ANTIFAN_BOUND_TAB_ID || undefined,
         authorityRevision: currentAuthorityRevision || b.authorityRevision,
         ownerPid: b.ownerPid || (process.env.ANTIFAN_OWNER_PID ? parseInt(process.env.ANTIFAN_OWNER_PID, 10) : undefined),
       };
@@ -68,6 +69,7 @@ function getBootstrap() {
       port: parseInt(process.env.ANTIFAN_MCP_PORT || '20129', 10),
       secret: process.env.ANTIFAN_ATTACHMENT_SECRET,
       attachmentId: process.env.ANTIFAN_ATTACHMENT_ID,
+      tabId: process.env.ANTIFAN_BOUND_TAB_ID || undefined,
       authorityRevision: currentAuthorityRevision || process.env.ANTIFAN_AUTHORITY_REVISION,
       runId: process.env.ANTIFAN_RUN_ID,
       attemptId: process.env.ANTIFAN_ATTEMPT_ID,
@@ -297,11 +299,17 @@ async function invoke(method, params = {}, callerRequestId) {
   const id = crypto.randomUUID();
   const timeoutMs = (method === 'theme.qa_validate' || method === 'anti.theme.qa_validate') ? 60000 : 30000;
   const mapped = CAPABILITY_MAP[method] || method;
-  let effectiveParams = params;
+  let effectiveParams = { ...params };
+  const boundTabId = bootstrap.tabId || process.env.ANTIFAN_BOUND_TAB_ID;
+  if (boundTabId && effectiveParams.tabId && effectiveParams.tabId !== boundTabId) {
+    if (mapped !== 'browser.switch-tab' && mapped !== 'browser.close-tab') {
+      effectiveParams.tabId = boundTabId;
+    }
+  }
   if (mapped === 'artifact.read') {
     const rawLimit = typeof params.limit === 'number' && params.limit > 0 ? params.limit : 32768;
     effectiveParams = {
-      ...params,
+      ...effectiveParams,
       limit: Math.min(rawLimit, 32768), // Bounded chunk size: <= 32 KiB per frame
     };
   }
