@@ -5,6 +5,7 @@ import * as crypto from 'node:crypto';
 import { buildTreeWalkerSanitizerScript } from './adapters/tree-walker-sanitizer';
 import { BrowserTarget, CapabilityError, ArtifactRef, assertExactBrowserTarget, digestText } from '../../shared/control-plane-contracts';
 export interface BrowserHostPort {
+  hasTab?(tabId?: string | null): boolean;
   getTabList(): unknown[];
   getActiveTabId?(): string;
   getAutomationTabId?(): string | null;
@@ -1261,14 +1262,20 @@ export class BrowserControlPort {
     }
     const tabExists = (id?: string | null): id is string => {
       if (!id) return false;
+      if (typeof this.host.hasTab === 'function') {
+        return this.host.hasTab(id);
+      }
       const list = this.host.getTabList();
-      return Boolean(list && list.some((tab: unknown) => Boolean(tab && typeof tab === 'object' && 'id' in tab && (tab as { id?: unknown }).id === id)));
+      return Boolean(list && list.some((tab: unknown) => Boolean(tab && typeof tab === 'object' && 'id' in tab && tab.id === id)));
     };
     let resolved: string | undefined;
 
     if (explicitTabId && explicitTabId.trim().length > 0) {
       if (!tabExists(explicitTabId.trim())) {
         throw new CapabilityError('CAPABILITY_NOT_FOUND', `Unknown tab ID: ${explicitTabId}`);
+      }
+      if (operationType === 'write' && target?.tabId && target.tabId.trim().length > 0 && explicitTabId.trim() !== target.tabId.trim()) {
+        throw new CapabilityError('TARGET_MISMATCH', `Explicit tabId "${explicitTabId}" does not match target tabId "${target.tabId}"`);
       }
       resolved = explicitTabId.trim();
     } else if (target?.tabId && target.tabId.trim().length > 0) {
@@ -1281,11 +1288,11 @@ export class BrowserControlPort {
       if (tabExists(currentAutoTab)) {
         resolved = currentAutoTab;
       } else if (this.host.createTab) {
-        resolved = this.host.createTab('about:blank', false);
+        resolved = this.host.createTab('about:blank', false, { ephemeral: operationType === 'write' });
         if (this.host.setAutomationTabId) {
           this.host.setAutomationTabId(resolved);
         }
-      } else {
+      } else if (operationType !== 'write') {
         const activeTabId = this.host.getActiveTabId ? this.host.getActiveTabId() : undefined;
         if (tabExists(activeTabId)) {
           resolved = activeTabId;
@@ -1295,6 +1302,8 @@ export class BrowserControlPort {
             resolved = (fallbackList[0] as { id: string }).id;
           }
         }
+      } else {
+        throw new CapabilityError('TARGET_REQUIRED', 'Behavioral mutation requires an explicit target tabId or dedicated automation tab');
       }
     }
 
