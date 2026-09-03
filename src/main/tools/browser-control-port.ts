@@ -828,42 +828,42 @@ export class BrowserControlPort {
     return this.host.runResponsiveCheck(tabId);
   }
 
-  async agentTrajectory(args: { steps: Array<Record<string, unknown>>; speed?: 'fast' | 'natural' | 'slow'; smoothScroll?: boolean; tabId?: string; paneId?: 'desktop' | 'mobile' }, target?: BrowserTarget): Promise<Record<string, unknown>> {
+  async agentTrajectory(args: { steps: Array<Record<string, unknown>>; speed?: 'fast' | 'natural' | 'slow'; smoothScroll?: boolean; tabId?: string; paneId?: 'desktop' | 'mobile' }, target?: BrowserTarget, signal?: AbortSignal): Promise<Record<string, unknown>> {
     if (!this.host.agentTrajectory) throw new CapabilityError('CAPABILITY_NOT_FOUND', 'agentTrajectory is not supported by host');
     const tabId = this.resolveTargetTab(target, args.tabId, 'write');
     return this.viewportGate.withLock(async () => {
       this.revalidateTargetInsideLock(target, tabId);
       return (await this.host.agentTrajectory!({ ...args, tabId })) as Record<string, unknown>;
-    }, { tabId });
+    }, { tabId, signal });
   }
 
-  async agentMove(args: { selector?: string; ref?: string; x?: number; y?: number; label?: string; tabId?: string; paneId?: 'desktop' | 'mobile' }, target?: BrowserTarget): Promise<{ moved: boolean }> {
+  async agentMove(args: { selector?: string; ref?: string; x?: number; y?: number; label?: string; tabId?: string; paneId?: 'desktop' | 'mobile' }, target?: BrowserTarget, signal?: AbortSignal): Promise<{ moved: boolean }> {
     if (!this.host.agentMove) throw new CapabilityError('CAPABILITY_NOT_FOUND', 'agentMove is not supported by host');
     const tabId = this.resolveTargetTab(target, args.tabId, 'write');
     return this.viewportGate.withLock(async () => {
       this.revalidateTargetInsideLock(target, tabId);
       return { moved: await this.host.agentMove!({ ...args, tabId }) };
-    }, { tabId });
+    }, { tabId, signal });
   }
 
-  async agentClick(args: { selector?: string; ref?: string; x?: number; y?: number; label?: string; trusted?: boolean; tabId?: string; paneId?: 'desktop' | 'mobile' }, target?: BrowserTarget): Promise<{ clicked: boolean }> {
+  async agentClick(args: { selector?: string; ref?: string; x?: number; y?: number; label?: string; trusted?: boolean; tabId?: string; paneId?: 'desktop' | 'mobile' }, target?: BrowserTarget, signal?: AbortSignal): Promise<{ clicked: boolean }> {
     if (!this.host.agentClick) throw new CapabilityError('CAPABILITY_NOT_FOUND', 'agentClick is not supported by host');
     const tabId = this.resolveTargetTab(target, args.tabId, 'write');
     return this.viewportGate.withLock(async () => {
       this.revalidateTargetInsideLock(target, tabId);
       return { clicked: await this.host.agentClick!({ ...args, tabId }) };
-    }, { tabId });
+    }, { tabId, signal });
   }
 
-  async agentType(args: { selector?: string; ref?: string; text: string; clear?: boolean; trusted?: boolean; tabId?: string; paneId?: 'desktop' | 'mobile' }, target?: BrowserTarget): Promise<{ typed: boolean }> {
+  async agentType(args: { selector?: string; ref?: string; text: string; clear?: boolean; trusted?: boolean; tabId?: string; paneId?: 'desktop' | 'mobile' }, target?: BrowserTarget, signal?: AbortSignal): Promise<{ typed: boolean }> {
     if (!this.host.agentType) throw new CapabilityError('CAPABILITY_NOT_FOUND', 'agentType is not supported by host');
     const tabId = this.resolveTargetTab(target, args.tabId, 'write');
     return this.viewportGate.withLock(async () => {
       this.revalidateTargetInsideLock(target, tabId);
       return { typed: await this.host.agentType!({ ...args, tabId }) };
-    }, { tabId });
+    }, { tabId, signal });
   }
-  async keyboardPress(args: { key: string; modifiers?: string[]; tabId?: string }, target?: BrowserTarget): Promise<{ success: boolean; key: string; modifiers: string[] }> {
+  async keyboardPress(args: { key: string; modifiers?: string[]; tabId?: string }, target?: BrowserTarget, signal?: AbortSignal): Promise<{ success: boolean; key: string; modifiers: string[] }> {
     if (!this.host.sendKeyboardPress) throw new CapabilityError('CAPABILITY_NOT_FOUND', 'sendKeyboardPress is not supported by host');
     if (!args || typeof args.key !== 'string' || args.key.trim().length === 0) {
       throw new CapabilityError('INVALID_ARGUMENT', 'key must be a non-empty string');
@@ -881,33 +881,33 @@ export class BrowserControlPort {
         }
         throw new CapabilityError('INVALID_ARGUMENT', msg);
       }
-    }, { tabId: effectiveTabId });
+    }, { tabId: effectiveTabId, signal });
   }
-  async agentScroll(args: { deltaY?: number; selector?: string; ref?: string; tabId?: string; paneId?: 'desktop' | 'mobile' }, target?: BrowserTarget): Promise<{ scrolled: boolean }> {
+  async agentScroll(args: { deltaY?: number; selector?: string; ref?: string; tabId?: string; paneId?: 'desktop' | 'mobile' }, target?: BrowserTarget, signal?: AbortSignal): Promise<{ scrolled: boolean }> {
     if (!this.host.agentScroll) throw new CapabilityError('CAPABILITY_NOT_FOUND', 'agentScroll is not supported by host');
     const tabId = this.resolveTargetTab(target, args.tabId, 'write');
     return this.viewportGate.withLock(async () => {
       this.revalidateTargetInsideLock(target, tabId);
       return { scrolled: await this.host.agentScroll!({ ...args, tabId }) };
-    }, { tabId });
+    }, { tabId, signal });
   }
 
-  async agentHover(args: { selector?: string; ref?: string; x?: number; y?: number; label?: string; tabId?: string; paneId?: 'desktop' | 'mobile' }, target?: BrowserTarget): Promise<{ hovered: boolean }> {
+  async agentHover(args: { selector?: string; ref?: string; x?: number; y?: number; label?: string; tabId?: string; paneId?: 'desktop' | 'mobile' }, target?: BrowserTarget, signal?: AbortSignal): Promise<{ hovered: boolean }> {
     if (!this.host.agentHover) throw new CapabilityError('CAPABILITY_NOT_FOUND', 'agentHover is not supported by host');
     const tabId = this.resolveTargetTab(target, args.tabId, 'write');
     return this.viewportGate.withLock(async () => {
       this.revalidateTargetInsideLock(target, tabId);
       return { hovered: await this.host.agentHover!({ ...args, tabId }) };
-    }, { tabId });
+    }, { tabId, signal });
   }
 
-  async agentHighlight(args: { selector?: string; ref?: string; label?: string; tabId?: string; paneId?: 'desktop' | 'mobile' }, target?: BrowserTarget): Promise<{ highlighted: boolean }> {
+  async agentHighlight(args: { selector?: string; ref?: string; label?: string; tabId?: string; paneId?: 'desktop' | 'mobile' }, target?: BrowserTarget, signal?: AbortSignal): Promise<{ highlighted: boolean }> {
     if (!this.host.agentHighlight) throw new CapabilityError('CAPABILITY_NOT_FOUND', 'agentHighlight is not supported by host');
     const tabId = this.resolveTargetTab(target, args.tabId, 'write');
     return this.viewportGate.withLock(async () => {
       this.revalidateTargetInsideLock(target, tabId);
       return { highlighted: await this.host.agentHighlight!({ ...args, tabId }) };
-    }, { tabId });
+    }, { tabId, signal });
   }
   async agentClear(options?: { tabId?: string; paneId?: 'desktop' | 'mobile' } | string, target?: BrowserTarget): Promise<{ cleared: boolean }> {
     if (!this.host.agentClear) throw new CapabilityError('CAPABILITY_NOT_FOUND', 'agentClear is not supported by host');
@@ -931,7 +931,7 @@ export class BrowserControlPort {
     const effectiveTabId = this.resolveTargetTab(target, params.tabId);
     return await this.host.agentFind({ ...params, tabId: effectiveTabId });
   }
-  async sequence(args: { actions: Array<Record<string, unknown>>; tabId?: string; paneId?: 'desktop' | 'mobile'; stopOnError?: boolean }, target?: BrowserTarget): Promise<unknown> {
+  async sequence(args: { actions: Array<Record<string, unknown>>; tabId?: string; paneId?: 'desktop' | 'mobile'; stopOnError?: boolean }, target?: BrowserTarget, signal?: AbortSignal): Promise<unknown> {
     if (!this.host.executeActionSequence) throw new CapabilityError('CAPABILITY_NOT_FOUND', 'executeActionSequence is not supported by host');
     if (!args || !Array.isArray(args.actions) || args.actions.length === 0) {
       throw new CapabilityError('INVALID_ARGUMENT', 'actions must be a non-empty array');
@@ -940,26 +940,25 @@ export class BrowserControlPort {
     return this.viewportGate.withLock(async () => {
       this.revalidateTargetInsideLock(target, effectiveTabId);
       return await this.host.executeActionSequence!({ ...args, tabId: effectiveTabId });
-    }, { tabId: effectiveTabId });
+    }, { tabId: effectiveTabId, signal });
   }
 
-
-  async uploadFileInput(params: { refOrSelector: string; filePaths: string[]; tabId?: string; paneId?: 'desktop' | 'mobile' }, target?: BrowserTarget): Promise<{ success: boolean; uploadedCount: number; reason?: string }> {
+  async uploadFileInput(params: { refOrSelector: string; filePaths: string[]; tabId?: string; paneId?: 'desktop' | 'mobile' }, target?: BrowserTarget, signal?: AbortSignal): Promise<{ success: boolean; uploadedCount: number; reason?: string }> {
     if (!this.host.uploadFileInput) throw new CapabilityError('CAPABILITY_NOT_FOUND', 'uploadFileInput is not supported by host');
     const effectiveTabId = this.resolveTargetTab(target, params.tabId, 'write');
     return this.viewportGate.withLock(async () => {
       this.revalidateTargetInsideLock(target, effectiveTabId);
       return this.host.uploadFileInput!({ ...params, tabId: effectiveTabId });
-    }, { tabId: effectiveTabId });
+    }, { tabId: effectiveTabId, signal });
   }
 
-  async dropFiles(params: { refOrSelector: string; filePaths: string[]; tabId?: string; paneId?: 'desktop' | 'mobile' }, target?: BrowserTarget): Promise<{ success: boolean; droppedCount: number; reason?: string }> {
+  async dropFiles(params: { refOrSelector: string; filePaths: string[]; tabId?: string; paneId?: 'desktop' | 'mobile' }, target?: BrowserTarget, signal?: AbortSignal): Promise<{ success: boolean; droppedCount: number; reason?: string }> {
     if (!this.host.dropFiles) throw new CapabilityError('CAPABILITY_NOT_FOUND', 'dropFiles is not supported by host');
     const effectiveTabId = this.resolveTargetTab(target, params.tabId, 'write');
     return this.viewportGate.withLock(async () => {
       this.revalidateTargetInsideLock(target, effectiveTabId);
       return this.host.dropFiles!({ ...params, tabId: effectiveTabId });
-    }, { tabId: effectiveTabId });
+    }, { tabId: effectiveTabId, signal });
   }
 
   private revalidateTargetInsideLock(target?: BrowserTarget, tabId?: string): void {
@@ -2061,8 +2060,12 @@ export class BrowserControlPort {
   }
   async validateSpecGate(
     target: BrowserTarget,
-    params: { specTabId?: string; targetTabId?: string; tolerance?: number } = {}
+    params: { specTabId?: string; targetTabId?: string; tolerance?: number } = {},
+    signal?: AbortSignal
   ): Promise<{ passed: boolean; score: number; criticalCount: number; checklist: Record<string, { status: 'PASS' | 'FAIL' | 'WARN'; message: string; details?: unknown }> }> {
+    if (signal?.aborted) {
+      throw new CapabilityError('WAIT_ABORTED', 'Validation gate was aborted by execution control signal');
+    }
     const specTabId = this.resolveTargetTab(target, params.specTabId || '@spec');
     const targetTabId = this.resolveTargetTab(target, params.targetTabId || target?.tabId || '@storefront');
     const tolerance = typeof params.tolerance === 'number' ? params.tolerance : 5.0;

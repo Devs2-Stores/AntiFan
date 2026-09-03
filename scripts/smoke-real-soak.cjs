@@ -106,10 +106,41 @@ function startFixtureServer() {
 
 // 3. Main Real Soak Endurance Runner
 async function runSoakTest() {
-  console.log('===============================================================');
-  console.log('  AntiFan Browser Desktop - Real Multi-Process Soak Endurance');
-  console.log('===============================================================');
+  const durationArgIdx = process.argv.indexOf('--duration');
+  let rawDuration = undefined;
+  if (durationArgIdx !== -1) {
+    rawDuration = process.argv[durationArgIdx + 1];
+    if (!rawDuration || rawDuration.startsWith('--')) {
+      throw new Error('Flag --duration requires a positive numeric argument (e.g. --duration 30)');
+    }
+  } else if (process.env.SOAK_DURATION_MINUTES) {
+    rawDuration = process.env.SOAK_DURATION_MINUTES;
+  }
 
+  let soakDurationMinutes = 0;
+  let isExtendedSoak = false;
+
+  if (rawDuration !== undefined) {
+    const parsed = Number(rawDuration);
+    if (!Number.isFinite(parsed) || parsed <= 0) {
+      throw new Error(`Invalid --duration argument '${rawDuration}': must be a finite positive number of minutes.`);
+    }
+    if (parsed < 30 || parsed > 45) {
+      throw new Error(
+        `Extended soak baseline certification requires a duration between 30 and 45 minutes (received ${parsed}m). ` +
+        `Runs outside 30-45 minutes cannot certify the Phase 1 soak baseline. Omit --duration for smoke mode or specify 30-45.`
+      );
+    }
+    soakDurationMinutes = parsed;
+    isExtendedSoak = true;
+  }
+
+  const targetEnduranceMs = isExtendedSoak ? soakDurationMinutes * 60 * 1000 : 0;
+
+  console.log('===============================================================');
+  console.log(`  AntiFan Browser Desktop - Real Multi-Process Soak Endurance`);
+  console.log(`  Mode: ${isExtendedSoak ? `Extended Soak (${soakDurationMinutes} minutes)` : 'Quick Workload Smoke (~30s)'}`);
+  console.log('===============================================================');
   const fixture = await startFixtureServer();
   console.log(`[soak] Local fixture server running on ${fixture.url}`);
 
@@ -117,11 +148,11 @@ async function runSoakTest() {
   app.setPath('userData', soakDataDir);
 
   const allSamples = [];
+  const stage1Samples = [];
   const steadyStateSamples = [];
   let isSampling = true;
+  let inStage1 = false;
   let inSteadyState = false;
-
-  // Telemetry Poller: sample entire Electron multi-process tree (Main + GPU + Renderers + Utility)
   function sampleProcessTreeMemory() {
     try {
       const metrics = app.getAppMetrics();
@@ -152,6 +183,9 @@ async function runSoakTest() {
     if (!isSampling) return;
     const sample = sampleProcessTreeMemory();
     allSamples.push(sample);
+    if (inStage1) {
+      stage1Samples.push(sample);
+    }
     if (inSteadyState) {
       steadyStateSamples.push(sample);
     }
@@ -175,20 +209,38 @@ async function runSoakTest() {
 
     tabHost = new NativeTabHost(mainWindow);
     const initialTabId = tabHost.createTab(fixture.url, true);
+    const createdTabIds = [initialTabId];
+    for (let i = 1; i < 4; i++) {
+      const tid = tabHost.createTab(`${fixture.url}?tab=${i}`, false);
+      createdTabIds.push(tid);
+    }
 
-    // Settle initial load
+    // Warm up the fixed 4-tab topology: cycle tabs and settle DOM
+    console.log('[soak] Warming up fixed 4-tab topology...');
+    for (const tid of createdTabIds) {
+      tabHost.switchTab(tid);
+      await wait(200);
+      await tabHost.getDom(undefined, tid);
+    }
+    tabHost.switchTab(initialTabId);
     await wait(1000);
+
+    // Reset samples so baseline measures only the warmed 4-tab steady state
+    allSamples.length = 0;
+    stage1Samples.length = 0;
 
     const stageResults = {};
 
     // -------------------------------------------------------------
-    // Stage 1: Idle Baseline Sampling (5s)
+    // Stage 1: Idle Baseline Sampling (5s) on Fixed 4-Tab Topology
     // -------------------------------------------------------------
-    console.log('[soak] ---> Stage 1: Idle Baseline Sampling (5s)...');
+    console.log('[soak] ---> Stage 1: Idle Baseline Sampling (5s) on fixed 4-tab topology...');
     const s1Start = Date.now();
+    inStage1 = true;
     await wait(5000);
-    stageResults.stage1Idle = { durationMs: Date.now() - s1Start, samples: allSamples.length };
-    console.log(`[soak] Stage 1 completed. Recorded ${allSamples.length} telemetry samples.`);
+    inStage1 = false;
+    stageResults.stage1Idle = { durationMs: Date.now() - s1Start, samples: stage1Samples.length };
+    console.log(`[soak] Stage 1 completed. Recorded ${stage1Samples.length} telemetry samples.`);
 
     // -------------------------------------------------------------
     // Stage 2: Real PTY Streaming Stress (High-throughput chunks through node-pty)
@@ -207,41 +259,43 @@ async function runSoakTest() {
     };
     termMgr.on('data', onDataHandler);
 
-    // Stream >= 500KB of high frequency data payload through real PTY
+    // Stream >= 500KB through real PTY using 100 x 8KB paced writes to prevent Windows winpty buffer lockup
     const streamCommand = process.platform === 'win32'
-      ? '[Console]::Out.Write("A" * 600000 + "`r`n")\r\n'
-      : 'head -c 600000 /dev/zero | tr "\\0" "A"; echo ""\r\n';
+      ? '1..100 | ForEach-Object { [Console]::Out.Write("A" * 8192); Start-Sleep -Milliseconds 15 }\r\n'
+      : 'for i in $(seq 1 100); do head -c 8192 /dev/zero | tr "\\0" "A"; sleep 0.015; done\r\n';
 
     termMgr.writeTo(sessionId, streamCommand);
 
-    // Wait until at least 500KB is received through node-pty or timeout after 10s
+    // Wait until at least 500KB is received through node-pty or timeout after 30s with live instrumentation
     const ptyStartWait = Date.now();
-    while (ptyReceivedBytes < 500 * 1024 && Date.now() - ptyStartWait < 10000) {
+    let lastProgressLog = Date.now();
+    while (ptyReceivedBytes < 500 * 1024 && Date.now() - ptyStartWait < 30000) {
+      if (Date.now() - lastProgressLog >= 2000) {
+        console.log(`[soak] PTY streaming progress: ${ptyReceivedBytes} / ${500 * 1024} bytes (${((Date.now() - ptyStartWait) / 1000).toFixed(1)}s elapsed, sessionState: ${termSession?.state})...`);
+        lastProgressLog = Date.now();
+      }
       await wait(100);
     }
-
     termMgr.off('data', onDataHandler);
-    await termMgr.closeSession(sessionId);
 
     stageResults.stage2Streaming = {
       durationMs: Date.now() - s2Start,
       ptyReceivedBytes,
       sessionCreated: Boolean(sessionId),
+      termSessionState: termSession?.state,
+      exitCode: termSession?.exitCode,
     };
-    console.log(`[soak] Stage 2 completed. Streamed and processed ${ptyReceivedBytes} bytes through real PTY.`);
+
+    await termMgr.closeSession(sessionId);
+
+    console.log(`[soak] Stage 2 completed. Streamed and processed ${ptyReceivedBytes} bytes through real PTY (state: ${termSession?.state}).`);
     assert.ok(ptyReceivedBytes >= 500 * 1024, `Must stream >= 500KB through real PTY (got ${ptyReceivedBytes} bytes)`);
 
     // -------------------------------------------------------------
-    // Stage 3: Real Split Review & Tab Thrash (4 tabs, cycling switches)
+    // Stage 3: Real Split Review & Tab Thrash across existing 4 tabs
     // -------------------------------------------------------------
-    console.log('[soak] ---> Stage 3: Split Review & Tab Thrash (4 tabs)...');
+    console.log('[soak] ---> Stage 3: Split Review & Tab Thrash across existing 4 tabs...');
     const s3Start = Date.now();
-    const createdTabIds = [initialTabId];
-
-    for (let i = 1; i < 4; i++) {
-      const tid = tabHost.createTab(`${fixture.url}?tab=${i}`, false);
-      createdTabIds.push(tid);
-    }
 
     // Toggle real Split Review mode on primary tab
     tabHost.toggleSplitReview(initialTabId, true);
@@ -264,30 +318,45 @@ async function runSoakTest() {
       tabCount: createdTabIds.length,
     };
     console.log(`[soak] Stage 3 completed. Performed ${tabSwitches} active tab switches across ${createdTabIds.length} tabs.`);
-
     // -------------------------------------------------------------
-    // Stage 4: Concurrent QA Blast & Fixed-Topology Steady-State Endurance
+    // Stage 4: Concurrent QA Blast & Extended Endurance Loop
     // -------------------------------------------------------------
-    console.log('[soak] ---> Stage 4: Concurrent QA Blast & Steady-State Endurance...');
+    console.log('[soak] ---> Stage 4: Concurrent QA Blast & Endurance Cycling...');
     const s4Start = Date.now();
     let qaRuns = 0;
     let errorsFound = 0;
+    let enduranceCycles = 0;
 
-    for (let i = 0; i < 20; i++) {
-      const targetId = createdTabIds[i % createdTabIds.length];
-      tabHost.switchTab(targetId);
-      const liveHtml = await tabHost.getDom(undefined, targetId);
-      if (liveHtml) {
-        PlatformDetector.detectFromRuntime(fixture.url, liveHtml);
-        const scanResult = LiquidErrorScanner.scanHtmlString(liveHtml);
-        if (scanResult.hasErrors) errorsFound += scanResult.errors.length;
+    do {
+      enduranceCycles++;
+      for (let i = 0; i < 20; i++) {
+        const targetId = createdTabIds[i % createdTabIds.length];
+        tabHost.switchTab(targetId);
+        const liveHtml = await tabHost.getDom(undefined, targetId);
+        if (liveHtml) {
+          PlatformDetector.detectFromRuntime(fixture.url, liveHtml);
+          const scanResult = LiquidErrorScanner.scanHtmlString(liveHtml);
+          if (scanResult.hasErrors) errorsFound += scanResult.errors.length;
+        }
+        qaRuns++;
+        if (i % 4 === 0) {
+          tabHost.reload(targetId);
+        }
+        await wait(50);
       }
-      qaRuns++;
-      if (i % 4 === 0) {
-        tabHost.reload(targetId);
+
+      // If extended soak, interleave quick PTY chunk stream to stress terminal background
+      if (isExtendedSoak && Date.now() - s4Start < targetEnduranceMs) {
+        const subSessionId = termMgr.createSession(os.tmpdir());
+        const subTerm = termMgr.getSession(subSessionId);
+        if (subTerm && subTerm.pty && subTerm.pty.pid) {
+          trackedPtyPids.add(subTerm.pty.pid);
+        }
+        termMgr.writeTo(subSessionId, 'echo "endurance cycle"\r\n');
+        await wait(200);
+        await termMgr.closeSession(subSessionId);
       }
-      await wait(100);
-    }
+    } while (isExtendedSoak && Date.now() - s4Start < targetEnduranceMs);
 
     // Post-workload GC settle & fixed-topology steady-state sampling window (5s)
     console.log('[soak] Entering post-workload fixed-topology steady-state settle window (5s)...');
@@ -302,9 +371,10 @@ async function runSoakTest() {
       durationMs: Date.now() - s4Start,
       qaRuns,
       errorsFound,
+      enduranceCycles,
       steadyStateSamplesCount: steadyStateSamples.length,
     };
-    console.log(`[soak] Stage 4 completed. Dispatched ${qaRuns} live QA scans (${steadyStateSamples.length} steady-state samples).`);
+    console.log(`[soak] Stage 4 completed. Dispatched ${qaRuns} live QA scans across ${enduranceCycles} cycles (${steadyStateSamples.length} steady-state samples).`);
 
     // Teardown and check for any orphan PTY processes
     await termMgr.dispose();
@@ -322,10 +392,27 @@ async function runSoakTest() {
       }
     }
 
-    const baselineRssMB = allSamples.length > 0 ? allSamples[0].rssBytes / (1024 * 1024) : 0;
+    // Derive baseline from the settled Stage 1 window (mean across 5s idle window on fixed 4 tabs)
+    const baselineRssMB = stage1Samples.length > 0
+      ? (stage1Samples.reduce((acc, s) => acc + s.rssBytes, 0) / stage1Samples.length) / (1024 * 1024)
+      : (allSamples[0]?.rssBytes ?? 0) / (1024 * 1024);
+
+    // Derive final RSS from the settled post-workload steady-state window (mean across 5s window)
+    const finalRssMB = steadyStateSamples.length > 0
+      ? (steadyStateSamples.reduce((acc, s) => acc + s.rssBytes, 0) / steadyStateSamples.length) / (1024 * 1024)
+      : (allSamples[allSamples.length - 1]?.rssBytes ?? 0) / (1024 * 1024);
+
     const peakRssMB = allSamples.length > 0 ? Math.max(...allSamples.map((s) => s.rssBytes)) / (1024 * 1024) : 0;
-    const finalRssMB = allSamples.length > 0 ? allSamples[allSamples.length - 1].rssBytes / (1024 * 1024) : 0;
+    const rssGrowthMB = finalRssMB - baselineRssMB;
     const steadyStateSlope = calculateMemorySlope(steadyStateSamples);
+
+    const hasExplicitGc = typeof global.gc === 'function';
+    if (hasExplicitGc) {
+      try { global.gc(); } catch {}
+    }
+    const settleMethodology = hasExplicitGc
+      ? 'post-explicit-gc-settle'
+      : 'fixed-topology-quiescence-settle-window';
 
     // Functional workload validation criteria
     const passed = (
@@ -333,17 +420,24 @@ async function runSoakTest() {
       Boolean(stageResults.stage2Streaming && stageResults.stage2Streaming.ptyReceivedBytes >= 500 * 1024) &&
       Boolean(stageResults.stage3TabThrash && stageResults.stage3TabThrash.tabSwitches >= 20) &&
       Boolean(stageResults.stage4QaBlast && stageResults.stage4QaBlast.qaRuns >= 15) &&
-      orphanProcesses.length === 0
+      orphanProcesses.length === 0 &&
+      (!isExtendedSoak || rssGrowthMB <= 30)
     );
 
     const report = {
       timestamp: new Date().toISOString(),
-      type: 'functional-multi-process-workload-smoke',
+      type: isExtendedSoak ? 'extended-soak-endurance-baseline' : 'functional-multi-process-workload-smoke',
+      settleMethodology,
+      durationMinutes: isExtendedSoak ? soakDurationMinutes : Number(((Date.now() - s1Start) / 60000).toFixed(2)),
+      stage1BaselineWindowSeconds: Number((stageResults.stage1Idle.durationMs / 1000).toFixed(1)),
+      stage4SteadyStateWindowSeconds: 5.0,
       totalSamples: allSamples.length,
+      baselineSamplesCount: stage1Samples.length,
       steadyStateSamplesCount: steadyStateSamples.length,
       baselineRssMB: Number(baselineRssMB.toFixed(2)),
       peakRssMB: Number(peakRssMB.toFixed(2)),
       finalRssMB: Number(finalRssMB.toFixed(2)),
+      rssGrowthMB: Number(rssGrowthMB.toFixed(2)),
       observedSlopeMBPerMin: Number(steadyStateSlope.toFixed(4)),
       stageResults,
       orphanProcessesCount: orphanProcesses.length,
@@ -365,19 +459,25 @@ async function runSoakTest() {
     console.log(`  Overall Verdict: ${report.passed ? 'PASSED (VERIFIED)' : 'FAILED'}`);
     console.log('===============================================================\n');
 
-    // Save report artifact
-    const reportsDir = path.resolve(__dirname, '..', 'plans', '260830-1903-drive-e-migration-and-low-spec-hardening', 'reports', 'smoke');
-    try { fs.mkdirSync(reportsDir, { recursive: true }); } catch {}
-    fs.writeFileSync(path.join(reportsDir, 'real-smoke-workload-benchmark.json'), JSON.stringify(report, null, 2), 'utf8');
+    // Save report artifact in plan reports directory
+    const planReportsDir = path.resolve(__dirname, '..', 'plans', '260904-0036-antifan-core-verification-and-primitives', 'reports');
+    try { fs.mkdirSync(planReportsDir, { recursive: true }); } catch {}
+    const reportFilename = isExtendedSoak ? 'windows-soak-baseline-report.json' : 'smoke-soak-workload-benchmark.json';
+    fs.writeFileSync(path.join(planReportsDir, reportFilename), JSON.stringify(report, null, 2), 'utf8');
 
     assert.strictEqual(report.orphanProcessesCount, 0, 'Must have zero orphan processes');
-    assert.ok(report.passed, 'All 4 multi-process workload stages must complete successfully');
-
-    console.log('[soak] ALL REAL ELECTRON MULTI-PROCESS WORKLOAD SMOKE CHECKS PASSED.');
+    if (isExtendedSoak) {
+      assert.ok(
+        rssGrowthMB <= 30,
+        `Memory leak assertion failed: RSS growth of ${rssGrowthMB.toFixed(2)}MB exceeded 30MB threshold`
+      );
+    }
+    assert.ok(report.passed, 'All multi-process workload stages must complete successfully');
   } finally {
     isSampling = false;
     clearInterval(poller);
     try { await termMgr.dispose(); } catch {}
+    try { tabHost?.dispose(); } catch {}
     if (fixture && fixture.server) {
       try { fixture.server.closeAllConnections?.(); } catch {}
       try { fixture.server.close(); } catch {}

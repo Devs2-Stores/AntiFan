@@ -214,6 +214,11 @@ export class TerminalManager extends EventEmitter {
   private isDisposed = false;
   private benchmarkChunkSeq = 0;
   private benchmarkChunkBytes = 0;
+
+  constructor() {
+    super();
+    this.setMaxListeners(50);
+  }
   private getInitialSplitRows(parentRows = this.lastRows): number {
     return Math.max(MIN_SPLIT_TERMINAL_ROWS, Math.floor((parentRows || 30) * SPLIT_TERMINAL_FRACTION));
   }
@@ -660,13 +665,41 @@ export class TerminalManager extends EventEmitter {
         if (typeof (ptyInstance as any).removeAllListeners === 'function') {
           (ptyInstance as any).removeAllListeners();
         }
+        if (typeof (ptyInstance as any).on === 'function') {
+          (ptyInstance as any).on('error', () => {});
+        }
+        const agent = (ptyInstance as any)._agent;
+        const agentPid = agent?._pid;
+
+        // 1. Kill ptyInstance first while pipes are intact
+        try { ptyInstance.kill(); } catch {}
+
+        // 2. Dispose worker thread and close sockets
+        if (agent) {
+          try { agent._conoutSocketWorker?.dispose?.(); } catch {}
+          try { agent._cleanUpProcess?.(); } catch {}
+          try { agent._inSocket?.destroy?.(); } catch {}
+          try { agent._outSocket?.destroy?.(); } catch {}
+          try { agent._inSocket?.unref?.(); } catch {}
+          try { agent._outSocket?.unref?.(); } catch {}
+        }
         if (typeof (ptyInstance as any)._socket?.destroy === 'function') {
           try { (ptyInstance as any)._socket.destroy(); } catch {}
+        }
+        if (typeof (ptyInstance as any)._socket?.unref === 'function') {
+          try { (ptyInstance as any)._socket.unref(); } catch {}
         }
         if (typeof (ptyInstance as any).destroy === 'function') {
           try { (ptyInstance as any).destroy(); } catch {}
         }
-        ptyInstance.kill();
+        if (typeof (ptyInstance as any).unref === 'function') {
+          try { (ptyInstance as any).unref(); } catch {}
+        }
+
+        // 3. Kill agent process tree if separate
+        if (agentPid && typeof agentPid === 'number' && agentPid > 0 && agentPid !== pid) {
+          await killProcessTree(agentPid);
+        }
       } catch {}
     }
     if (pid && typeof pid === 'number' && pid > 0) {

@@ -283,7 +283,7 @@ describe('Priority 2: Behavior Verification Core & Dual-Scope Semantic Inference
           bodyClasses: callCount === 1 ? [] : ['broken-overflow'],
           bodyOverflowLocked: false,
           activeOverlays: [],
-          hasHorizontalOverflow: callCount === 2,
+          hasHorizontalOverflow: callCount > 1,
           scrollWidth: callCount === 1 ? 390 : 540,
           viewportWidth: 390,
         };

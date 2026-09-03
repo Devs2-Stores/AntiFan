@@ -219,8 +219,9 @@ app.whenReady().then(async () => {
     },
   });
 
-  win.webContents.on('console-message', (event, level, message) => {
-    const msg = (typeof event === 'object' && event?.message) ? event.message : (typeof message === 'string' ? message : (typeof level === 'string' ? level : String(message ?? level ?? event)));
+  win.webContents.on('console-message', (event, ...legacyArgs) => {
+    const hasParams = event && typeof event === 'object' && ('message' in event || 'level' in event);
+    const msg = hasParams ? event.message : (typeof legacyArgs[1] === 'string' ? legacyArgs[1] : (typeof legacyArgs[0] === 'string' ? legacyArgs[0] : String(legacyArgs[1] ?? legacyArgs[0] ?? event)));
     console.log('[RENDERER-CONSOLE]', msg);
   });
 

@@ -135,6 +135,7 @@ export interface CapabilityRequestContext {
   browserTarget?: BrowserTarget;
   grant?: 'read' | 'write' | 'execute' | 'eval';
   signal?: AbortSignal;
+  control?: CapabilityExecutionControl;
 }
 
 export interface McpAttachmentLaunch {

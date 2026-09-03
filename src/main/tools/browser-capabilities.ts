@@ -10,7 +10,9 @@ import type { ThemeQaWorkflow } from '../qa/theme-qa-workflow';
 import { ThemeQaRepairCoordinator } from '../qa/theme-qa-repair-coordinator';
 import { confineWorkspaceRoot } from '../qa/diagnostics-filter';
 import { recordFallbackTelemetry, FallbackTelemetryPayload } from '../telemetry/fallback-recorder';
-import { IssueRegister } from '../session/issue-register';
+import { IssueRegister, VerificationVerdict } from '../session/issue-register';
+import { VerificationEvaluator } from '../verification/verification-evaluator';
+import { VerificationClaim, EvidenceSampleBundle } from '../verification/verification-contract';
 function getThemeHierarchyScript(): string {
   return `(() => {
     const template = document.documentElement?.getAttribute('data-template')
@@ -367,7 +369,7 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
     requiresBrowserTarget: true,
     policy: makeBrowserPolicy({ effect: 'interactive-effect', risk: 'write', requiresBrowserTarget: true, lane: 'viewport-gate' }),
     inputSchema: { type: 'object', properties: { selector: { type: 'string' }, ref: { type: 'string' }, x: { type: 'number' }, y: { type: 'number' }, label: { type: 'string' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } } },
-    execute: (params: { selector?: string; ref?: string; x?: number; y?: number; label?: string; tabId?: string; paneId?: 'desktop' | 'mobile' }, context) => browser.agentMove(params, context.browserTarget),
+    execute: (params: { selector?: string; ref?: string; x?: number; y?: number; label?: string; tabId?: string; paneId?: 'desktop' | 'mobile' }, context) => browser.agentMove(params, context.browserTarget, context.signal),
   });
 
   catalogue.register({
@@ -377,7 +379,7 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
     requiresBrowserTarget: true,
     policy: makeBrowserPolicy({ effect: 'interactive-effect', risk: 'write', requiresBrowserTarget: true, lane: 'viewport-gate' }),
     inputSchema: { type: 'object', properties: { selector: { type: 'string' }, ref: { type: 'string' }, x: { type: 'number' }, y: { type: 'number' }, label: { type: 'string' }, trusted: { type: 'boolean' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } } },
-    execute: (params: { selector?: string; ref?: string; x?: number; y?: number; label?: string; trusted?: boolean; tabId?: string; paneId?: 'desktop' | 'mobile' }, context) => browser.agentClick(params, context.browserTarget),
+    execute: (params: { selector?: string; ref?: string; x?: number; y?: number; label?: string; trusted?: boolean; tabId?: string; paneId?: 'desktop' | 'mobile' }, context) => browser.agentClick(params, context.browserTarget, context.signal),
   });
 
   catalogue.register({
@@ -387,7 +389,7 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
     requiresBrowserTarget: true,
     policy: makeBrowserPolicy({ effect: 'interactive-effect', risk: 'write', requiresBrowserTarget: true, lane: 'viewport-gate' }),
     inputSchema: { type: 'object', properties: { selector: { type: 'string' }, ref: { type: 'string' }, text: { type: 'string' }, clear: { type: 'boolean' }, trusted: { type: 'boolean' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } }, required: ['text'] },
-    execute: (params: { selector?: string; ref?: string; text: string; clear?: boolean; trusted?: boolean; tabId?: string; paneId?: 'desktop' | 'mobile' }, context) => browser.agentType(params, context.browserTarget),
+    execute: (params: { selector?: string; ref?: string; text: string; clear?: boolean; trusted?: boolean; tabId?: string; paneId?: 'desktop' | 'mobile' }, context) => browser.agentType(params, context.browserTarget, context.signal),
   });
 
   catalogue.register({
@@ -397,7 +399,7 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
     requiresBrowserTarget: true,
     policy: makeBrowserPolicy({ effect: 'interactive-effect', risk: 'write', requiresBrowserTarget: true, lane: 'viewport-gate' }),
     inputSchema: { type: 'object', properties: { key: { type: 'string' }, modifiers: { type: 'array', items: { type: 'string' } }, tabId: { type: 'string' } }, required: ['key'] },
-    execute: (params: { key: string; modifiers?: string[]; tabId?: string }, context) => browser.keyboardPress(params, context.browserTarget),
+    execute: (params: { key: string; modifiers?: string[]; tabId?: string }, context) => browser.keyboardPress(params, context.browserTarget, context.signal),
   });
 
   catalogue.register({
@@ -407,7 +409,7 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
     requiresBrowserTarget: true,
     policy: makeBrowserPolicy({ effect: 'interactive-effect', risk: 'write', requiresBrowserTarget: true, lane: 'viewport-gate' }),
     inputSchema: { type: 'object', properties: { deltaY: { type: 'number' }, selector: { type: 'string' }, ref: { type: 'string' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } } },
-    execute: (params: { deltaY?: number; selector?: string; ref?: string; tabId?: string; paneId?: 'desktop' | 'mobile' }, context) => browser.agentScroll(params, context.browserTarget),
+    execute: (params: { deltaY?: number; selector?: string; ref?: string; tabId?: string; paneId?: 'desktop' | 'mobile' }, context) => browser.agentScroll(params, context.browserTarget, context.signal),
   });
 
   catalogue.register({
@@ -417,7 +419,7 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
     requiresBrowserTarget: true,
     policy: makeBrowserPolicy({ effect: 'interactive-effect', risk: 'write', requiresBrowserTarget: true, lane: 'viewport-gate' }),
     inputSchema: { type: 'object', properties: { selector: { type: 'string' }, ref: { type: 'string' }, x: { type: 'number' }, y: { type: 'number' }, label: { type: 'string' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } } },
-    execute: (params: { selector?: string; ref?: string; x?: number; y?: number; label?: string; tabId?: string; paneId?: 'desktop' | 'mobile' }, context) => browser.agentHover(params, context.browserTarget),
+    execute: (params: { selector?: string; ref?: string; x?: number; y?: number; label?: string; tabId?: string; paneId?: 'desktop' | 'mobile' }, context) => browser.agentHover(params, context.browserTarget, context.signal),
   });
 
   catalogue.register({
@@ -427,7 +429,7 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
     requiresBrowserTarget: true,
     policy: makeBrowserPolicy({ effect: 'interactive-effect', risk: 'write', requiresBrowserTarget: true, lane: 'viewport-gate' }),
     inputSchema: { type: 'object', properties: { selector: { type: 'string' }, ref: { type: 'string' }, label: { type: 'string' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } } },
-    execute: (params: { selector?: string; ref?: string; label?: string; tabId?: string; paneId?: 'desktop' | 'mobile' }, context) => browser.agentHighlight(params, context.browserTarget),
+    execute: (params: { selector?: string; ref?: string; label?: string; tabId?: string; paneId?: 'desktop' | 'mobile' }, context) => browser.agentHighlight(params, context.browserTarget, context.signal),
   });
 
   catalogue.register({
@@ -477,7 +479,7 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
     requiresBrowserTarget: true,
     policy: makeBrowserPolicy({ effect: 'interactive-effect', risk: 'write', requiresBrowserTarget: true, lane: 'viewport-gate' }),
     inputSchema: { type: 'object', properties: { steps: { type: 'array', items: { type: 'object' } }, speed: { type: 'string', enum: ['fast', 'natural', 'slow'] }, smoothScroll: { type: 'boolean' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } }, required: ['steps'] },
-    execute: (params: { steps: Array<Record<string, unknown>>; speed?: 'fast' | 'natural' | 'slow'; smoothScroll?: boolean; tabId?: string; paneId?: 'desktop' | 'mobile' }, context) => browser.agentTrajectory(params, context.browserTarget),
+    execute: (params: { steps: Array<Record<string, unknown>>; speed?: 'fast' | 'natural' | 'slow'; smoothScroll?: boolean; tabId?: string; paneId?: 'desktop' | 'mobile' }, context) => browser.agentTrajectory(params, context.browserTarget, context.signal),
   });
   catalogue.register({
     name: 'browser.agent-sequence',
@@ -520,7 +522,7 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
       required: ['actions'],
     },
     execute: (params: { actions: Array<Record<string, unknown>>; tabId?: string; paneId?: 'desktop' | 'mobile'; stopOnError?: boolean }, context) =>
-      browser.sequence(params, context.browserTarget),
+      browser.sequence(params, context.browserTarget, context.signal),
   });
 
   catalogue.register({
@@ -540,7 +542,7 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
       required: ['refOrSelector', 'filePaths'],
     },
     execute: (params: { refOrSelector: string; filePaths: string[]; tabId?: string; paneId?: 'desktop' | 'mobile' }, context) =>
-      browser.uploadFileInput(params, context.browserTarget),
+      browser.uploadFileInput(params, context.browserTarget, context.signal),
   });
 
   catalogue.register({
@@ -560,7 +562,7 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
       required: ['refOrSelector', 'filePaths'],
     },
     execute: (params: { refOrSelector: string; filePaths: string[]; tabId?: string; paneId?: 'desktop' | 'mobile' }, context) =>
-      browser.dropFiles(params, context.browserTarget),
+      browser.dropFiles(params, context.browserTarget, context.signal),
   });
 
   catalogue.register({
@@ -670,7 +672,7 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
     requiresBrowserTarget: true,
     policy: makeBrowserPolicy({ effect: 'interactive-effect', risk: 'write', requiresBrowserTarget: true, lane: 'viewport-gate' }),
     inputSchema: { type: 'object', properties: { refOrSelector: { type: 'string' }, filePaths: { type: 'array', items: { type: 'string' } }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } }, required: ['refOrSelector', 'filePaths'] },
-    execute: (params: { refOrSelector: string; filePaths: string[]; tabId?: string; paneId?: 'desktop' | 'mobile' }, context) => browser.uploadFileInput(params, context.browserTarget),
+    execute: (params: { refOrSelector: string; filePaths: string[]; tabId?: string; paneId?: 'desktop' | 'mobile' }, context) => browser.uploadFileInput(params, context.browserTarget, context.signal),
   });
 
   catalogue.register({
@@ -680,7 +682,7 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
     requiresBrowserTarget: true,
     policy: makeBrowserPolicy({ effect: 'interactive-effect', risk: 'write', requiresBrowserTarget: true, lane: 'viewport-gate' }),
     inputSchema: { type: 'object', properties: { refOrSelector: { type: 'string' }, filePaths: { type: 'array', items: { type: 'string' } }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } }, required: ['refOrSelector', 'filePaths'] },
-    execute: (params: { refOrSelector: string; filePaths: string[]; tabId?: string; paneId?: 'desktop' | 'mobile' }, context) => browser.dropFiles(params, context.browserTarget),
+    execute: (params: { refOrSelector: string; filePaths: string[]; tabId?: string; paneId?: 'desktop' | 'mobile' }, context) => browser.dropFiles(params, context.browserTarget, context.signal),
   });
 
   catalogue.register({
@@ -690,7 +692,7 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
     requiresBrowserTarget: true,
     policy: makeBrowserPolicy({ effect: 'interactive-effect', risk: 'write', requiresBrowserTarget: true, lane: 'viewport-gate' }),
     inputSchema: { type: 'object', properties: { refOrSelector: { type: 'string' }, filePaths: { type: 'array', items: { type: 'string' } }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } }, required: ['refOrSelector', 'filePaths'] },
-    execute: (params: { refOrSelector: string; filePaths: string[]; tabId?: string; paneId?: 'desktop' | 'mobile' }, context) => browser.uploadFileInput(params, context.browserTarget),
+    execute: (params: { refOrSelector: string; filePaths: string[]; tabId?: string; paneId?: 'desktop' | 'mobile' }, context) => browser.uploadFileInput(params, context.browserTarget, context.signal),
   });
 
   catalogue.register({
@@ -700,7 +702,7 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
     requiresBrowserTarget: true,
     policy: makeBrowserPolicy({ effect: 'interactive-effect', risk: 'write', requiresBrowserTarget: true, lane: 'viewport-gate' }),
     inputSchema: { type: 'object', properties: { refOrSelector: { type: 'string' }, filePaths: { type: 'array', items: { type: 'string' } }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } }, required: ['refOrSelector', 'filePaths'] },
-    execute: (params: { refOrSelector: string; filePaths: string[]; tabId?: string; paneId?: 'desktop' | 'mobile' }, context) => browser.dropFiles(params, context.browserTarget),
+    execute: (params: { refOrSelector: string; filePaths: string[]; tabId?: string; paneId?: 'desktop' | 'mobile' }, context) => browser.dropFiles(params, context.browserTarget, context.signal),
   });
 
   catalogue.register({
@@ -933,7 +935,7 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
     requiresBrowserTarget: true,
     policy: makeBrowserPolicy({ effect: 'interactive-effect', risk: 'write', requiresBrowserTarget: true, lane: 'viewport-gate' }),
     inputSchema: { type: 'object', properties: { selector: { type: 'string' }, ref: { type: 'string' }, x: { type: 'number' }, y: { type: 'number' }, label: { type: 'string' }, trusted: { type: 'boolean' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } } },
-    execute: (params: { selector?: string; ref?: string; x?: number; y?: number; label?: string; trusted?: boolean; tabId?: string; paneId?: 'desktop' | 'mobile' }, context) => browser.agentClick(params, context.browserTarget),
+    execute: (params: { selector?: string; ref?: string; x?: number; y?: number; label?: string; trusted?: boolean; tabId?: string; paneId?: 'desktop' | 'mobile' }, context) => browser.agentClick(params, context.browserTarget, context.signal),
   });
 
   catalogue.register({
@@ -943,7 +945,7 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
     requiresBrowserTarget: true,
     policy: makeBrowserPolicy({ effect: 'interactive-effect', risk: 'write', requiresBrowserTarget: true, lane: 'viewport-gate' }),
     inputSchema: { type: 'object', properties: { selector: { type: 'string' }, ref: { type: 'string' }, text: { type: 'string' }, clear: { type: 'boolean' }, trusted: { type: 'boolean' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } }, required: ['text'] },
-    execute: (params: { selector?: string; ref?: string; text: string; clear?: boolean; trusted?: boolean; tabId?: string; paneId?: 'desktop' | 'mobile' }, context) => browser.agentType(params, context.browserTarget),
+    execute: (params: { selector?: string; ref?: string; text: string; clear?: boolean; trusted?: boolean; tabId?: string; paneId?: 'desktop' | 'mobile' }, context) => browser.agentType(params, context.browserTarget, context.signal),
   });
 
   catalogue.register({
@@ -953,7 +955,7 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
     requiresBrowserTarget: true,
     policy: makeBrowserPolicy({ effect: 'interactive-effect', risk: 'write', requiresBrowserTarget: true, lane: 'viewport-gate' }),
     inputSchema: { type: 'object', properties: { key: { type: 'string' }, modifiers: { type: 'array', items: { type: 'string' } }, tabId: { type: 'string' } }, required: ['key'] },
-    execute: (params: { key: string; modifiers?: string[]; tabId?: string }, context) => browser.keyboardPress(params, context.browserTarget),
+    execute: (params: { key: string; modifiers?: string[]; tabId?: string }, context) => browser.keyboardPress(params, context.browserTarget, context.signal),
   });
   catalogue.register({
     name: 'antifan_agent_sequence',
@@ -995,7 +997,7 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
       required: ['actions'],
     },
     execute: (params: { actions: Array<Record<string, unknown>>; tabId?: string; paneId?: 'desktop' | 'mobile'; stopOnError?: boolean }, context) =>
-      browser.sequence(params, context.browserTarget),
+      browser.sequence(params, context.browserTarget, context.signal),
   });
 
   catalogue.register({
@@ -1005,7 +1007,7 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
     requiresBrowserTarget: true,
     policy: makeBrowserPolicy({ effect: 'interactive-effect', risk: 'write', requiresBrowserTarget: true, lane: 'viewport-gate' }),
     inputSchema: { type: 'object', properties: { key: { type: 'string' }, modifiers: { type: 'array', items: { type: 'string' } }, tabId: { type: 'string' } }, required: ['key'] },
-    execute: (params: { key: string; modifiers?: string[]; tabId?: string }, context) => browser.keyboardPress(params, context.browserTarget),
+    execute: (params: { key: string; modifiers?: string[]; tabId?: string }, context) => browser.keyboardPress(params, context.browserTarget, context.signal),
   });
   catalogue.register({
     name: 'browser_press_key',
@@ -1022,7 +1024,7 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
       },
       required: ['key'],
     },
-    execute: (params: { key: string; modifiers?: string[]; tabId?: string }, context) => browser.keyboardPress(params, context.browserTarget),
+    execute: (params: { key: string; modifiers?: string[]; tabId?: string }, context) => browser.keyboardPress(params, context.browserTarget, context.signal),
   });
 
 
@@ -1033,7 +1035,7 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
     requiresBrowserTarget: true,
     policy: makeBrowserPolicy({ effect: 'interactive-effect', risk: 'write', requiresBrowserTarget: true, lane: 'viewport-gate' }),
     inputSchema: { type: 'object', properties: { deltaY: { type: 'number' }, selector: { type: 'string' }, ref: { type: 'string' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } } },
-    execute: (params: { deltaY?: number; selector?: string; ref?: string; tabId?: string; paneId?: 'desktop' | 'mobile' }, context) => browser.agentScroll(params, context.browserTarget),
+    execute: (params: { deltaY?: number; selector?: string; ref?: string; tabId?: string; paneId?: 'desktop' | 'mobile' }, context) => browser.agentScroll(params, context.browserTarget, context.signal),
   });
 
   catalogue.register({
@@ -1043,7 +1045,7 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
     requiresBrowserTarget: true,
     policy: makeBrowserPolicy({ effect: 'interactive-effect', risk: 'write', requiresBrowserTarget: true, lane: 'viewport-gate' }),
     inputSchema: { type: 'object', properties: { selector: { type: 'string' }, ref: { type: 'string' }, x: { type: 'number' }, y: { type: 'number' }, label: { type: 'string' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } } },
-    execute: (params: { selector?: string; ref?: string; x?: number; y?: number; label?: string; tabId?: string; paneId?: 'desktop' | 'mobile' }, context) => browser.agentHover(params, context.browserTarget),
+    execute: (params: { selector?: string; ref?: string; x?: number; y?: number; label?: string; tabId?: string; paneId?: 'desktop' | 'mobile' }, context) => browser.agentHover(params, context.browserTarget, context.signal),
   });
 
   catalogue.register({
@@ -1053,7 +1055,7 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
     requiresBrowserTarget: true,
     policy: makeBrowserPolicy({ effect: 'interactive-effect', risk: 'write', requiresBrowserTarget: true, lane: 'viewport-gate' }),
     inputSchema: { type: 'object', properties: { selector: { type: 'string' }, ref: { type: 'string' }, label: { type: 'string' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } } },
-    execute: (params: { selector?: string; ref?: string; label?: string; tabId?: string; paneId?: 'desktop' | 'mobile' }, context) => browser.agentHighlight(params, context.browserTarget),
+    execute: (params: { selector?: string; ref?: string; label?: string; tabId?: string; paneId?: 'desktop' | 'mobile' }, context) => browser.agentHighlight(params, context.browserTarget, context.signal),
   });
 
   catalogue.register({
@@ -1073,7 +1075,7 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
     requiresBrowserTarget: true,
     policy: makeBrowserPolicy({ effect: 'interactive-effect', risk: 'write', requiresBrowserTarget: true, lane: 'viewport-gate' }),
     inputSchema: { type: 'object', properties: { steps: { type: 'array', items: { type: 'object' } }, speed: { type: 'string', enum: ['fast', 'natural', 'slow'] }, smoothScroll: { type: 'boolean' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } }, required: ['steps'] },
-    execute: (params: { steps: Array<Record<string, unknown>>; speed?: 'fast' | 'natural' | 'slow'; smoothScroll?: boolean; tabId?: string; paneId?: 'desktop' | 'mobile' }, context) => browser.agentTrajectory(params, context.browserTarget),
+    execute: (params: { steps: Array<Record<string, unknown>>; speed?: 'fast' | 'natural' | 'slow'; smoothScroll?: boolean; tabId?: string; paneId?: 'desktop' | 'mobile' }, context) => browser.agentTrajectory(params, context.browserTarget, context.signal),
   });
 
   catalogue.register({
@@ -1487,7 +1489,7 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
     requiresBrowserTarget: true,
     policy: makeBrowserPolicy({ effect: 'interactive-effect', risk: 'write', requiresBrowserTarget: true, lane: 'viewport-gate' }),
     inputSchema: { type: 'object', properties: { selector: { type: 'string' }, ref: { type: 'string' }, x: { type: 'number' }, y: { type: 'number' }, label: { type: 'string' }, trusted: { type: 'boolean' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } } },
-    execute: (params: { selector?: string; ref?: string; x?: number; y?: number; label?: string; trusted?: boolean; tabId?: string; paneId?: 'desktop' | 'mobile' }, context) => browser.agentClick(params, context.browserTarget),
+    execute: (params: { selector?: string; ref?: string; x?: number; y?: number; label?: string; trusted?: boolean; tabId?: string; paneId?: 'desktop' | 'mobile' }, context) => browser.agentClick(params, context.browserTarget, context.signal),
   });
 
   catalogue.register({
@@ -1497,7 +1499,7 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
     requiresBrowserTarget: true,
     policy: makeBrowserPolicy({ effect: 'interactive-effect', risk: 'write', requiresBrowserTarget: true, lane: 'viewport-gate' }),
     inputSchema: { type: 'object', properties: { selector: { type: 'string' }, ref: { type: 'string' }, text: { type: 'string' }, clear: { type: 'boolean' }, trusted: { type: 'boolean' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } }, required: ['text'] },
-    execute: (params: { selector?: string; ref?: string; text: string; clear?: boolean; trusted?: boolean; tabId?: string; paneId?: 'desktop' | 'mobile' }, context) => browser.agentType(params, context.browserTarget),
+    execute: (params: { selector?: string; ref?: string; text: string; clear?: boolean; trusted?: boolean; tabId?: string; paneId?: 'desktop' | 'mobile' }, context) => browser.agentType(params, context.browserTarget, context.signal),
   });
 
   catalogue.register({
@@ -1507,7 +1509,7 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
     requiresBrowserTarget: true,
     policy: makeBrowserPolicy({ effect: 'interactive-effect', risk: 'write', requiresBrowserTarget: true, lane: 'viewport-gate' }),
     inputSchema: { type: 'object', properties: { selector: { type: 'string' }, ref: { type: 'string' }, x: { type: 'number' }, y: { type: 'number' }, label: { type: 'string' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } } },
-    execute: (params: { selector?: string; ref?: string; x?: number; y?: number; label?: string; tabId?: string; paneId?: 'desktop' | 'mobile' }, context) => browser.agentHover(params, context.browserTarget),
+    execute: (params: { selector?: string; ref?: string; x?: number; y?: number; label?: string; tabId?: string; paneId?: 'desktop' | 'mobile' }, context) => browser.agentHover(params, context.browserTarget, context.signal),
   });
 
   catalogue.register({
@@ -1517,7 +1519,7 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
     requiresBrowserTarget: true,
     policy: makeBrowserPolicy({ effect: 'interactive-effect', risk: 'write', requiresBrowserTarget: true, lane: 'viewport-gate' }),
     inputSchema: { type: 'object', properties: { selector: { type: 'string' }, ref: { type: 'string' }, x: { type: 'number' }, y: { type: 'number' }, label: { type: 'string' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } } },
-    execute: (params: { selector?: string; ref?: string; x?: number; y?: number; label?: string; tabId?: string; paneId?: 'desktop' | 'mobile' }, context) => browser.agentHover(params, context.browserTarget),
+    execute: (params: { selector?: string; ref?: string; x?: number; y?: number; label?: string; tabId?: string; paneId?: 'desktop' | 'mobile' }, context) => browser.agentHover(params, context.browserTarget, context.signal),
   });
 
   catalogue.register({
@@ -1527,7 +1529,7 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
     requiresBrowserTarget: true,
     policy: makeBrowserPolicy({ effect: 'interactive-effect', risk: 'write', requiresBrowserTarget: true, lane: 'viewport-gate' }),
     inputSchema: { type: 'object', properties: { deltaY: { type: 'number' }, selector: { type: 'string' }, ref: { type: 'string' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } } },
-    execute: (params: { deltaY?: number; selector?: string; ref?: string; tabId?: string; paneId?: 'desktop' | 'mobile' }, context) => browser.agentScroll(params, context.browserTarget),
+    execute: (params: { deltaY?: number; selector?: string; ref?: string; tabId?: string; paneId?: 'desktop' | 'mobile' }, context) => browser.agentScroll(params, context.browserTarget, context.signal),
   });
 
   catalogue.register({
@@ -1537,7 +1539,7 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
     requiresBrowserTarget: true,
     policy: makeBrowserPolicy({ effect: 'interactive-effect', risk: 'write', requiresBrowserTarget: true, lane: 'viewport-gate' }),
     inputSchema: { type: 'object', properties: { selector: { type: 'string' }, ref: { type: 'string' }, label: { type: 'string' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } } },
-    execute: (params: { selector?: string; ref?: string; label?: string; tabId?: string; paneId?: 'desktop' | 'mobile' }, context) => browser.agentHighlight(params, context.browserTarget),
+    execute: (params: { selector?: string; ref?: string; label?: string; tabId?: string; paneId?: 'desktop' | 'mobile' }, context) => browser.agentHighlight(params, context.browserTarget, context.signal),
   });
 
   catalogue.register({
@@ -1589,7 +1591,7 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
       required: ['actions'],
     },
     execute: (params: { actions: Array<Record<string, unknown>>; tabId?: string; paneId?: 'desktop' | 'mobile'; stopOnError?: boolean }, context) =>
-      browser.sequence(params, context.browserTarget),
+      browser.sequence(params, context.browserTarget, context.signal),
   });
   catalogue.register({
     name: 'browser.inspect_styles',
@@ -1903,7 +1905,7 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
       },
     },
     execute: (params: { specTabId?: string; targetTabId?: string; tolerance?: number }, context) =>
-      browser.validateSpecGate(context.browserTarget as BrowserTarget, params),
+      browser.validateSpecGate(context.browserTarget as BrowserTarget, params, context.signal),
   });
 
   // ─── Issue Register & Diagnostics Capabilities ───
@@ -2103,6 +2105,278 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
       const extractCap = catalogue.get('anti.sheet.extract');
       if (!extractCap) throw new CapabilityError('CAPABILITY_NOT_FOUND', 'anti.sheet.extract capability not found');
       return extractCap.execute(params, context);
+    },
+  });
+  catalogue.register({
+    name: 'anti.verification.record_claim',
+    description: 'Record an agent or user claim into the durable register. All claims enter strictly as UNVERIFIED; callers cannot self-certify or pass forged verdicts.',
+    risk: 'write',
+    policy: makeBrowserPolicy({ effect: 'idempotent-write', risk: 'write', requiresBrowserTarget: false, lane: 'unbounded' }),
+    inputSchema: {
+      type: 'object',
+      properties: {
+        claim: { type: 'string' },
+        actor: { type: 'string', enum: ['agent', 'user'] },
+        tabId: { type: 'string' },
+        selector: { type: 'string' },
+        proofObligations: {
+          type: 'array',
+          maxItems: 50,
+          items: {
+            type: 'object',
+            properties: {
+              id: { type: 'string' },
+              metric: { type: 'string' },
+              tolerance: { type: 'number' },
+              critical: { type: 'boolean' },
+              expected: {},
+            },
+            required: ['metric'],
+          },
+        },
+        linkedIssueId: { type: 'string' },
+      },
+      required: ['claim', 'tabId'],
+    },
+    execute: (params: {
+      claim: string;
+      actor?: 'agent' | 'user';
+      tabId: string;
+      selector?: string;
+      proofObligations?: Array<{ id?: string; metric: string; tolerance?: number; critical?: boolean; expected?: unknown }>;
+      linkedIssueId?: string;
+    }) => {
+      if (!params.claim || !params.claim.trim()) {
+        throw new CapabilityError('INVALID_ARGUMENT', 'Claim description cannot be empty.');
+      }
+      if (!params.tabId || !params.tabId.trim()) {
+        throw new CapabilityError('INVALID_ARGUMENT', 'Target tabId is required.');
+      }
+
+      const validatedObligations: Array<{ id: string; metric: string; tolerance?: number; critical?: boolean; expected?: unknown }> = [];
+      if (Array.isArray(params.proofObligations)) {
+        if (params.proofObligations.length > 50) {
+          throw new CapabilityError('INVALID_ARGUMENT', 'Exceeded maximum of 50 proof obligations per claim.');
+        }
+        for (let i = 0; i < params.proofObligations.length; i++) {
+          const obl = params.proofObligations[i];
+          if (!obl || typeof obl.metric !== 'string' || !obl.metric.trim()) {
+            throw new CapabilityError('INVALID_ARGUMENT', `Obligation at index ${i} must have a non-empty metric string.`);
+          }
+          validatedObligations.push({
+            id: obl.id || `obl-${i + 1}`,
+            metric: obl.metric.trim(),
+            tolerance: typeof obl.tolerance === 'number' ? obl.tolerance : undefined,
+            expected: obl.expected,
+            critical: Boolean(obl.critical),
+          });
+        }
+      }
+
+      const claimObj: VerificationClaim = {
+        id: `CLM-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+        claim: params.claim.trim(),
+        actor: params.actor || 'agent',
+        scope: { tabId: params.tabId.trim(), selector: params.selector },
+        proofObligations: validatedObligations,
+      };
+
+      const record = IssueRegister.getInstance().recordVerification({
+        id: claimObj.id,
+        claim: claimObj.claim,
+        actor: claimObj.actor,
+        scope: claimObj.scope,
+        proofObligations: claimObj.proofObligations,
+        verdict: 'UNVERIFIED',
+        linkedIssueId: params.linkedIssueId,
+      });
+      return record;
+    },
+  });
+
+  catalogue.register({
+    name: 'anti.verification.verify_claim',
+    description: 'Authoritatively evaluate a registered claim against live browser ground-truth evidence. Computes verdict server-side via VerificationEvaluator.',
+    risk: 'write',
+    requiresBrowserTarget: true,
+    policy: makeBrowserPolicy({ effect: 'idempotent-write', risk: 'write', requiresBrowserTarget: true, lane: 'viewport-gate' }),
+    inputSchema: {
+      type: 'object',
+      properties: {
+        claimId: { type: 'string' },
+        witnessObservation: { type: 'string' },
+        semanticFailureObservation: { type: 'string' },
+      },
+      required: ['claimId'],
+    },
+    execute: async (
+      params: { claimId: string; witnessObservation?: string; semanticFailureObservation?: string },
+      context
+    ) => {
+      const claim = IssueRegister.getInstance().getVerification(params.claimId);
+      if (!claim) {
+        throw new CapabilityError('INVALID_ARGUMENT', `Claim with ID '${params.claimId}' was not found in register.`);
+      }
+
+      if (!context.browserTarget) {
+        throw new CapabilityError('TARGET_MISMATCH', 'Browser target is required for verification probe.');
+      }
+      if (context.browserTarget.tabId && claim.scope.tabId && context.browserTarget.tabId !== claim.scope.tabId) {
+        throw new CapabilityError(
+          'TARGET_MISMATCH',
+          `Claim target tab '${claim.scope.tabId}' does not match authorized browser target '${context.browserTarget.tabId}'.`
+        );
+      }
+
+      const target = context.browserTarget as BrowserTarget;
+      const runId = context.runId || 'run-unbound';
+      const attemptId = context.attemptId || 'attempt-unbound';
+      const tabId = claim.scope.tabId;
+      const currentDocGen = browser.getDocumentGeneration(tabId) ?? 1;
+
+      const samples: Array<{
+        metric: string;
+        actual: unknown;
+        expected?: unknown;
+        delta?: number;
+        passed: boolean;
+        message?: string;
+      }> = [];
+
+      for (const obl of claim.proofObligations) {
+        if (context.signal?.aborted) {
+          throw new CapabilityError('WAIT_ABORTED', 'Claim verification was aborted by execution control signal.');
+        }
+        try {
+          if (obl.metric.startsWith('dom.') || obl.metric === 'element.exists') {
+            const selector = claim.scope.selector || 'body';
+            let exists = false;
+            try {
+              const waitResult = await browser.wait(
+                target,
+                { condition: 'selector', selector, tabId, timeoutMs: 1500 },
+                tabId,
+                undefined,
+                context.signal
+              );
+              exists = Boolean(waitResult && waitResult.satisfied);
+            } catch (err: unknown) {
+              if (context.signal?.aborted || (err instanceof CapabilityError && err.code === 'WAIT_ABORTED')) {
+                throw err;
+              }
+              exists = false;
+            }
+            samples.push({
+              metric: obl.metric,
+              actual: exists,
+              expected: obl.expected ?? true,
+              passed: exists === (obl.expected ?? true),
+              message: exists ? 'DOM element found via live selector probe' : 'DOM element not found',
+            });
+          } else if (obl.metric.startsWith('style.')) {
+            const selector = claim.scope.selector || 'body';
+            const prop = obl.metric.replace(/^style\./, '').trim();
+            const camelProp = prop.replace(/-([a-z])/g, (_, c) => c.toUpperCase());
+            const styles = await browser.inspectStyles(target, { selector, tabId }, tabId);
+            const actualVal = styles[prop] ?? styles[camelProp];
+
+            if (actualVal === undefined) {
+              samples.push({
+                metric: obl.metric,
+                actual: undefined,
+                expected: obl.expected,
+                passed: false,
+                message: `CSS property '${prop}' not found in computed styles for selector '${selector}'`,
+              });
+            } else if (obl.expected !== undefined) {
+              const normActual = String(actualVal).trim().toLowerCase();
+              const normExpected = String(obl.expected).trim().toLowerCase();
+              const passed = normActual === normExpected;
+              samples.push({
+                metric: obl.metric,
+                actual: actualVal,
+                expected: obl.expected,
+                passed,
+                message: passed
+                  ? `Style '${prop}' matched expected '${obl.expected}'`
+                  : `Style '${prop}' mismatch: expected '${obl.expected}', got '${actualVal}'`,
+              });
+            } else {
+              samples.push({
+                metric: obl.metric,
+                actual: actualVal,
+                expected: obl.expected,
+                passed: false,
+                message: `Style obligation '${obl.metric}' is underspecified: missing required expected value`,
+              });
+            }
+          } else {
+            samples.push({
+              metric: obl.metric,
+              actual: 'unsupported_metric',
+              passed: false,
+              message: `Metric '${obl.metric}' is not directly verifiable by server probe.`,
+            });
+          }
+        } catch (err: unknown) {
+          if (context.signal?.aborted || (err instanceof CapabilityError && err.code === 'WAIT_ABORTED')) {
+            throw err;
+          }
+          samples.push({
+            metric: obl.metric,
+            actual: 'error',
+            passed: false,
+            message: String(err),
+          });
+        }
+      }
+      const bundle: EvidenceSampleBundle = {
+        documentGeneration: currentDocGen,
+        currentTabGeneration: currentDocGen,
+        captureTimestamp: Date.now(),
+        samples,
+        semanticWitness: params.semanticFailureObservation
+          ? { modelConfirmed: false, observations: [params.semanticFailureObservation] }
+          : params.witnessObservation
+            ? { modelConfirmed: true, observations: [params.witnessObservation] }
+            : undefined,
+      };
+
+      const evalResult = VerificationEvaluator.evaluate(claim, bundle);
+      const updated = IssueRegister.getInstance().updateVerificationVerdict(
+        claim.id,
+        evalResult.verdict,
+        evalResult.proofProfile,
+        evalResult.inconclusiveReason
+      );
+      return updated || claim;
+    },
+  });
+
+  catalogue.register({
+    name: 'anti.verification.list',
+    description: 'List recorded verification claims and their verdicts from the durable register',
+    risk: 'read',
+    policy: makeBrowserPolicy({ effect: 'read', risk: 'read', requiresBrowserTarget: false, lane: 'unbounded' }),
+    inputSchema: {
+      type: 'object',
+      properties: {
+        verdict: { type: 'string', enum: ['VERIFIED', 'PARTIAL', 'REJECTED', 'INCONCLUSIVE', 'UNVERIFIED'] },
+        actor: { type: 'string', enum: ['agent', 'user'] },
+        tabId: { type: 'string' },
+        stalemateState: { type: 'string', enum: ['ACTIVE', 'STALEMATE', 'EXEMPTION_WAIVED'] },
+        limit: { type: 'number' },
+      },
+    },
+    execute: (params: {
+      verdict?: 'VERIFIED' | 'PARTIAL' | 'REJECTED' | 'INCONCLUSIVE' | 'UNVERIFIED';
+      actor?: 'agent' | 'user';
+      tabId?: string;
+      stalemateState?: 'ACTIVE' | 'STALEMATE' | 'EXEMPTION_WAIVED';
+      limit?: number;
+    }) => {
+      const list = IssueRegister.getInstance().listVerifications(params);
+      return { totalCount: list.length, verifications: list };
     },
   });
 }

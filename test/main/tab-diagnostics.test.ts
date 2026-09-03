@@ -51,4 +51,50 @@ describe('TabDiagnosticsManager buffer lifecycle', () => {
     const manager = new TabDiagnosticsManager();
     assert.doesNotThrow(() => manager.clear('ghost-tab'));
   });
+
+  it('records numeric console error levels correctly for gate filtering (level >= 3)', () => {
+    const manager = new TabDiagnosticsManager();
+    manager.recordConsole('tab-err', {
+      level: 3,
+      message: 'Uncaught TypeError: Cannot read properties of undefined',
+      source: 'https://theme.test/assets/app.js',
+      line: 42,
+      timestamp: Date.now(),
+      origin: 'theme.test',
+      isFirstParty: true,
+    });
+    const snapshot = manager.getDiagnostics('tab-err');
+    assert.strictEqual(snapshot.console.length, 1);
+    assert.strictEqual(snapshot.console[0]?.level, 3);
+  });
+
+  it('maps string console levels ("error", "warning", "info", "debug") to numeric enum (3, 2, 1, 0)', () => {
+    const LEVEL_MAP: Record<string, number> = {
+      error: 3,
+      warning: 2,
+      warn: 2,
+      info: 1,
+      log: 1,
+      debug: 0,
+      verbose: 0,
+    };
+    const manager = new TabDiagnosticsManager();
+    for (const [lvlStr, expectedNum] of Object.entries(LEVEL_MAP)) {
+      manager.recordConsole('tab-map', {
+        level: expectedNum,
+        message: `msg for ${lvlStr}`,
+        source: 'app.js',
+        line: 1,
+        timestamp: Date.now(),
+        origin: 'theme.test',
+        isFirstParty: true,
+      });
+    }
+    const snapshot = manager.getDiagnostics('tab-map');
+    assert.strictEqual(snapshot.console.length, Object.keys(LEVEL_MAP).length);
+    assert.strictEqual(snapshot.console.find((c) => c.message === 'msg for error')?.level, 3);
+    assert.strictEqual(snapshot.console.find((c) => c.message === 'msg for warning')?.level, 2);
+    assert.strictEqual(snapshot.console.find((c) => c.message === 'msg for info')?.level, 1);
+    assert.strictEqual(snapshot.console.find((c) => c.message === 'msg for debug')?.level, 0);
+  });
 });

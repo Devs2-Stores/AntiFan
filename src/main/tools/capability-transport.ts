@@ -613,8 +613,8 @@ export class CapabilityTransportAdapter {
       return {
         state: 'unknown',
         code: typed?.code || 'ABORTED',
-        message: typed?.message || 'Execution was aborted with indeterminate effect state',
-        details: typed?.details,
+        message: 'Execution was aborted with indeterminate effect state',
+        details: typed?.details ?? (typed?.message ? { cause: typed.message } : undefined),
       };
     }
 

@@ -547,7 +547,7 @@ export class ChromeProfileSyncManager {
     const hasLiveCookies = cookiesCount > 0;
     const cookieNote = hasLiveCookies
       ? ` (${cookiesCount} cookies hiện hữu)`
-      : ' (0 cookies - Chrome 127+ bảo mật v20 cần mở Chrome với Extension hoặc CDP để nạp cookies)';
+      : ' (0 cookies - Chrome 127+ bảo mật v20 cần mở Chrome với AntiFan Chrome Extension hoặc CDP để nạp cookies)';
 
     return {
       success: true,
