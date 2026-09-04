@@ -53,5 +53,6 @@ const api = {
   getFullBuffer: (sessionId?: string) => ipcRenderer.invoke('antifan:terminal:get-full-buffer', sessionId),
   onTerminalData: (cb: (data: { sessionId: string; data: string; seq: number }) => void) => { const h = (_e: unknown, d: { sessionId: string; data: string; seq: number }) => cb(d); ipcRenderer.on('antifan:terminal:data', h); return () => ipcRenderer.removeListener('antifan:terminal:data', h); },
   onTerminalSession: (cb: (state: unknown) => void) => { const h = (_e: unknown, d: unknown) => cb(d); ipcRenderer.on('antifan:terminal:session', h); return () => ipcRenderer.removeListener('antifan:terminal:session', h); },
+  onTabsUpdated: (cb: (tabs: unknown[]) => void) => { const h = (_e: unknown, d: unknown) => cb(Array.isArray(d) ? d : []); ipcRenderer.on('antifan:tabs:updated', h); return () => ipcRenderer.removeListener('antifan:tabs:updated', h); },
 };
 contextBridge.exposeInMainWorld('antifanStandalone', api);

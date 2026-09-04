@@ -7,6 +7,13 @@ import { BrowserTarget, CapabilityError, ArtifactRef, assertExactBrowserTarget, 
 import { computeSparseInteractionDelta } from '../verification/interaction-delta.js';
 import { attributeMutations } from '../verification/mutation-attribution.js';
 import { ActionBoundary, RawBehaviorScope, ObservationIntegrity } from '../verification/interaction-contract.js';
+import type { AntiFanTab } from '../../shared/contracts';
+
+function isTabRecord(item: unknown): item is AntiFanTab {
+  if (typeof item !== 'object' || item === null || !('id' in item)) return false;
+  return typeof item.id === 'string';
+}
+
 export interface BrowserHostPort {
   hasTab?(tabId?: string | null): boolean;
   adoptChildTab?(primaryOrBoundTabId: string, childTabId: string, generation?: number | string, source?: 'agent_spawned' | 'native_window_open' | 'user_attached', parentTabId?: string): boolean;
@@ -529,7 +536,7 @@ export class BrowserControlPort {
     const boundTabId = context.target?.tabId;
     if (boundTabId) {
       const allowedIds = this.host.getManagedTabIds ? this.host.getManagedTabIds(boundTabId) : new Set([boundTabId]);
-      return list.filter((tab: any) => tab && typeof tab === 'object' && allowedIds.has(tab.id)).map((tab: any) => ({
+      return list.filter(isTabRecord).filter((tab) => allowedIds.has(tab.id)).map((tab) => ({
         ...tab,
         isBoundTab: true,
         isPrimaryTab: tab.id === boundTabId,
@@ -835,25 +842,50 @@ export class BrowserControlPort {
   }
   closeTab(tabId: string, context?: { target?: BrowserTarget }): { closed: boolean } {
     if (!this.host.closeTab) throw new CapabilityError('CAPABILITY_NOT_FOUND', 'closeTab is not supported by host');
-    const boundId = context?.target?.tabId;
-    if (boundId && tabId.trim() !== boundId.trim()) {
-      const isAllowed = this.host.isTabAllowed ? this.host.isTabAllowed(boundId.trim(), tabId.trim()) : false;
-      if (!isAllowed) {
-        throw new CapabilityError('TARGET_MISMATCH', `Cannot close tab "${tabId}". This session is isolated to tab "${boundId}" and its managed tabs.`);
+    let targetId = tabId;
+    if (typeof tabId === 'string' && (tabId.startsWith('#') || tabId.startsWith('@'))) {
+      const list = (this.host.getTabList ? this.host.getTabList() : []).filter(isTabRecord);
+      if (tabId.startsWith('#')) {
+        const num = parseInt(tabId.slice(1), 10);
+        const matchedTab = Number.isFinite(num) && num >= 1 && num <= list.length ? list[num - 1] : undefined;
+        if (matchedTab?.id) {
+          targetId = matchedTab.id;
+        }
+      } else {
+        const lower = tabId.toLowerCase();
+        const matched = list.find((t) => t.alias?.toLowerCase() === lower || `@${t.role?.toLowerCase()}` === lower);
+        if (matched && matched.id) {
+          targetId = matched.id;
+        }
       }
     }
-    return { closed: this.host.closeTab(tabId) };
+    const boundId = context?.target?.tabId;
+    if (boundId && targetId.trim() !== boundId.trim()) {
+      const isAllowed = this.host.isTabAllowed ? this.host.isTabAllowed(boundId.trim(), targetId.trim()) : false;
+      if (!isAllowed) {
+        throw new CapabilityError('TARGET_MISMATCH', `Cannot close tab "${targetId}". This session is isolated to tab "${boundId}" and its managed tabs.`);
+      }
+    }
+    return { closed: this.host.closeTab(targetId) };
   }
 
   switchTab(tabId: string): { switched: boolean } {
     if (!this.host.switchTab) throw new CapabilityError('CAPABILITY_NOT_FOUND', 'switchTab is not supported by host');
     let targetId = tabId;
-    if (typeof tabId === 'string' && tabId.startsWith('@')) {
-      const lower = tabId.toLowerCase();
-      const list = (this.host.getTabList ? this.host.getTabList() : []) as any[];
-      const matched = list.find((t) => t && typeof t === 'object' && (t.alias?.toLowerCase() === lower || `@${t.role?.toLowerCase()}` === lower));
-      if (matched && matched.id) {
-        targetId = matched.id;
+    if (typeof tabId === 'string' && (tabId.startsWith('#') || tabId.startsWith('@'))) {
+      const list = (this.host.getTabList ? this.host.getTabList() : []).filter(isTabRecord);
+      if (tabId.startsWith('#')) {
+        const num = parseInt(tabId.slice(1), 10);
+        const matchedTab = Number.isFinite(num) && num >= 1 && num <= list.length ? list[num - 1] : undefined;
+        if (matchedTab?.id) {
+          targetId = matchedTab.id;
+        }
+      } else {
+        const lower = tabId.toLowerCase();
+        const matched = list.find((t) => t.alias?.toLowerCase() === lower || `@${t.role?.toLowerCase()}` === lower);
+        if (matched && matched.id) {
+          targetId = matched.id;
+        }
       }
     }
     return { switched: this.host.switchTab(targetId) };
@@ -2551,24 +2583,32 @@ export class BrowserControlPort {
 
     if (explicitTabId && explicitTabId.trim().length > 0) {
       let candidate = explicitTabId.trim();
-      if (candidate.startsWith('@')) {
-        const lower = candidate.toLowerCase();
-        const list = (this.host.getTabList ? this.host.getTabList() : []) as any[];
-        let matched = list.find((t) => t && typeof t === 'object' && (t.alias?.toLowerCase() === lower || `@${t.role?.toLowerCase()}` === lower));
-        if (!matched) {
-          const dataSynonyms = new Set(['@feedback', '@sheet', '@data', '@pricing', '@spec', '@doc', '@baogia']);
-          if (dataSynonyms.has(lower)) {
-            matched = list.find((t) => t && typeof t === 'object' && t.alias && dataSynonyms.has(t.alias.toLowerCase()));
+      if (candidate.startsWith('#') || candidate.startsWith('@')) {
+        const list = (this.host.getTabList ? this.host.getTabList() : []).filter(isTabRecord);
+        if (candidate.startsWith('#')) {
+          const num = parseInt(candidate.slice(1), 10);
+          const matchedTab = Number.isFinite(num) && num >= 1 && num <= list.length ? list[num - 1] : undefined;
+          if (matchedTab?.id) {
+            candidate = matchedTab.id;
           }
-          const webSynonyms = new Set(['@storefront', '@web', '@store', '@live', '@target']);
-          if (!matched && webSynonyms.has(lower)) {
-            matched = list.find((t) => t && typeof t === 'object' && t.alias && webSynonyms.has(t.alias.toLowerCase()));
+        } else if (candidate.startsWith('@')) {
+          const lower = candidate.toLowerCase();
+          let matched = list.find((t) => t.alias?.toLowerCase() === lower || `@${t.role?.toLowerCase()}` === lower);
+          if (!matched) {
+            const dataSynonyms = new Set(['@feedback', '@sheet', '@data', '@pricing', '@spec', '@doc', '@baogia']);
+            if (dataSynonyms.has(lower)) {
+              matched = list.find((t) => t.alias && dataSynonyms.has(t.alias.toLowerCase()));
+            }
+            const webSynonyms = new Set(['@storefront', '@web', '@store', '@live', '@target']);
+            if (!matched && webSynonyms.has(lower)) {
+              matched = list.find((t) => t.alias && webSynonyms.has(t.alias.toLowerCase()));
+            }
           }
-        }
-        if (matched && matched.id) {
-          candidate = matched.id;
-        } else {
-          throw new CapabilityError('CAPABILITY_NOT_FOUND', `Unknown tab alias: "${candidate}". No active tab matches this alias.`);
+          if (matched && matched.id) {
+            candidate = matched.id;
+          } else {
+            throw new CapabilityError('CAPABILITY_NOT_FOUND', `Unknown tab alias: "${candidate}". No active tab matches this alias.`);
+          }
         }
       }
       if (!tabExists(candidate)) {

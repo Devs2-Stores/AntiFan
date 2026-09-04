@@ -16,7 +16,7 @@ interface TestHost {
   activeTabId: string;
   hasTab(tabId?: string | null): boolean;
   bindTerminalAgentAffinity(terminalId: string, generation: number | string | undefined, tabId: string): boolean;
-  adoptChildTab(terminalId: string, childTabId: string, generation?: number | string): boolean;
+  adoptChildTab(terminalId: string, childTabId: string, generation?: number | string, source?: string, parentTabId?: string): boolean;
   adoptChildTabForBoundTab(boundTabId: string, childTabId: string): boolean;
   getManagedTabIds(boundTabIdOrTerminalId: string): Set<string>;
   getManagedTabIdsForBoundTab(boundTabId: string): Set<string>;
@@ -30,6 +30,7 @@ interface TestHost {
   setTabTerminalSession(tabId: string, sessionId?: string): boolean;
   closeTab(tabId: string): boolean;
   broadcastState(): void;
+  resolveTargetTabId?(tabIdOrIdentifier?: string | null): string | undefined;
 }
 
 function createTestHost(tabIds: string[]): TestHost {
@@ -403,6 +404,80 @@ describe('Terminal-to-Tab Agent Affinity Contract Tests (NativeTabHost Seam)', (
     assert.strictEqual(host.getManagedTabIds('tab-primary').size, 10);
     // Rejected tab must NOT be allowed
     assert.strictEqual(host.isTabAllowedForPrimary('tab-primary', 'tab-sub-10'), false);
+  });
+  it('17. Multi-Tab Affinity Persistence & Remap: Correctly restores and adopts multiple tabs across ID remaps', () => {
+    const host = createTestHost(['old-tab-1', 'old-tab-2', 'old-tab-3']);
+
+    // Original setup before restart
+    assert.strictEqual(host.bindTerminalAgentAffinity('terminal-1', 1, 'old-tab-1'), true);
+    assert.strictEqual(host.adoptChildTab('terminal-1', 'old-tab-2'), true);
+    assert.strictEqual(host.adoptChildTab('terminal-1', 'old-tab-3'), true);
+
+    const beforeAffinity = host.getTerminalAgentAffinity('terminal-1', 1);
+    assert.deepStrictEqual(beforeAffinity?.managedTabIds, ['old-tab-1', 'old-tab-2', 'old-tab-3']);
+
+    // Simulate restart with new tab UUIDs and ID remap map
+    const newHost = createTestHost(['new-tab-1', 'new-tab-2', 'new-tab-3']);
+    const oldIdToNewId = new Map<string, string>([
+      ['old-tab-1', 'new-tab-1'],
+      ['old-tab-2', 'new-tab-2'],
+      ['old-tab-3', 'new-tab-3'],
+    ]);
+
+    const persistedAffinities = [
+      {
+        terminalId: 'terminal-1',
+        primaryTabId: 'old-tab-1',
+        managedTabIds: ['old-tab-1', 'old-tab-2', 'old-tab-3'],
+      },
+    ];
+
+    // Rebuild logic as in restoreTabs
+    for (const aff of persistedAffinities) {
+      const newPrimaryId = oldIdToNewId.get(aff.primaryTabId);
+      if (newPrimaryId && newHost.hasTab(newPrimaryId)) {
+        newHost.bindTerminalAgentAffinity(aff.terminalId, undefined, newPrimaryId);
+        for (const oldChildId of aff.managedTabIds) {
+          const newChildId = oldIdToNewId.get(oldChildId);
+          if (newChildId && newChildId !== newPrimaryId && newHost.hasTab(newChildId)) {
+            newHost.adoptChildTab(aff.terminalId, newChildId, undefined, 'user_attached', newPrimaryId);
+          }
+        }
+      }
+    }
+
+    const restoredAffinity = newHost.getTerminalAgentAffinity('terminal-1');
+    assert.ok(restoredAffinity);
+    assert.strictEqual(restoredAffinity.tabId, 'new-tab-1');
+    assert.strictEqual(restoredAffinity.status, 'alive');
+    assert.deepStrictEqual(restoredAffinity.managedTabIds, ['new-tab-1', 'new-tab-2', 'new-tab-3']);
+    assert.strictEqual(newHost.isTabAllowedForPrimary('new-tab-1', 'new-tab-2'), true);
+    assert.strictEqual(newHost.isTabAllowedForPrimary('new-tab-1', 'new-tab-3'), true);
+  });
+
+  it('18. Numeric #N Tab Reference Resolution in hasTab and resolveTargetTabId', () => {
+    const host = createTestHost(['tab-first', 'tab-second', 'tab-third']);
+
+    assert.strictEqual(host.hasTab('#1'), true);
+    assert.strictEqual(host.hasTab('#2'), true);
+    assert.strictEqual(host.hasTab('#3'), true);
+    assert.strictEqual(host.hasTab('#4'), false);
+    assert.strictEqual(host.hasTab('#0'), false);
+    assert.strictEqual(host.hasTab('#99'), false);
+    assert.strictEqual(host.hasTab('unknown-uuid'), false);
+
+    assert.strictEqual((host as any).resolveTargetTabId('#1'), 'tab-first');
+    assert.strictEqual((host as any).resolveTargetTabId('#2'), 'tab-second');
+    assert.strictEqual((host as any).resolveTargetTabId('#3'), 'tab-third');
+    assert.strictEqual((host as any).resolveTargetTabId('#0'), undefined);
+    assert.strictEqual((host as any).resolveTargetTabId('#4'), undefined);
+    assert.strictEqual((host as any).resolveTargetTabId('#99'), undefined);
+    assert.strictEqual((host as any).resolveTargetTabId('unknown-uuid'), undefined);
+
+    // Guard validation: switchTab and closeTab return false safely without throwing
+    assert.strictEqual(host.closeTab('#0'), false);
+    assert.strictEqual(host.closeTab('#99'), false);
+    assert.strictEqual(host.closeTab('unknown-uuid'), false);
   });
 });
 

@@ -238,7 +238,7 @@ html, body {
 .laptop-screen-frame {
   width: 100%;
   flex: 1;
-  background: #000000;
+  background: #ffffff;
   position: relative;
 }
 
@@ -566,7 +566,7 @@ html, body {
 .phone-screen-frame {
   width: 100%;
   flex: 1;
-  background: #000000;
+  background: #ffffff;
   position: relative;
 }
 

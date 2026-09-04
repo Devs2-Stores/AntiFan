@@ -1215,7 +1215,7 @@ async function showAffinityPicker(sessionId, anchorEl) {
   const tabs = await api.getTabs();
   const currentAffinity = api.getTerminalAffinity ? await api.getTerminalAffinity(sessionId) : undefined;
   popover.innerHTML = '';
-
+  popover.setAttribute('data-active-session-id', sessionId);
   const managedSet = new Set(Array.isArray(currentAffinity?.managedTabIds) ? currentAffinity.managedTabIds : (currentAffinity?.tabId ? [currentAffinity.tabId] : []));
   const primaryId = currentAffinity?.primaryTabId || currentAffinity?.tabId;
 
@@ -1230,7 +1230,9 @@ async function showAffinityPicker(sessionId, anchorEl) {
       const item = document.createElement('div');
       const isPrimary = t.id === primaryId;
       item.className = `terminal-affinity-picker-item managed${isPrimary ? ' active' : ''}`;
-      const title = t.title || t.url || t.id;
+      const tabIdx = (tabs || []).findIndex((x) => x.id === t.id);
+      const indexStr = tabIdx >= 0 ? `#${tabIdx + 1} ` : '';
+      const title = `${indexStr}${t.title || t.url || t.id}`;
 
       const leftWrap = document.createElement('div');
       leftWrap.style.display = 'flex';
@@ -1248,6 +1250,26 @@ async function showAffinityPicker(sessionId, anchorEl) {
       textSpan.textContent = title;
       leftWrap.append(targetIcon, textSpan);
 
+      const actionWrap = document.createElement('div');
+      actionWrap.style.display = 'flex';
+      actionWrap.style.alignItems = 'center';
+      actionWrap.style.gap = '4px';
+
+      const copyBtn = document.createElement('span');
+      copyBtn.className = 'affinity-item-copy-btn';
+      copyBtn.textContent = '📋';
+      copyBtn.title = `Sao chép Tab ID cho Agent (${t.id})`;
+      copyBtn.onclick = (ev) => {
+        ev.stopPropagation();
+        if (api?.copyToClipboard) {
+          api.copyToClipboard(t.id);
+        } else {
+          navigator.clipboard?.writeText(t.id);
+        }
+        copyBtn.textContent = '✅';
+        setTimeout(() => { copyBtn.textContent = '📋'; }, 1200);
+      };
+
       const removeBtn = document.createElement('span');
       removeBtn.className = 'affinity-item-remove-btn';
       removeBtn.textContent = '✕';
@@ -1261,8 +1283,9 @@ async function showAffinityPicker(sessionId, anchorEl) {
         }
       };
 
-      item.append(leftWrap, removeBtn);
-      item.title = `${title} (${t.url})`;
+      actionWrap.append(copyBtn, removeBtn);
+      item.append(leftWrap, actionWrap);
+      item.title = `${title} (${t.url}) - Click để chọn làm tab chính`;
       item.onclick = async (ev) => {
         ev.stopPropagation();
         popover.style.display = 'none';
@@ -1294,7 +1317,9 @@ async function showAffinityPicker(sessionId, anchorEl) {
     otherTabs.forEach((t) => {
       const item = document.createElement('div');
       item.className = 'terminal-affinity-picker-item';
-      const title = t.title || t.url || t.id;
+      const tabIdx = (tabs || []).findIndex((x) => x.id === t.id);
+      const indexStr = tabIdx >= 0 ? `#${tabIdx + 1} ` : '';
+      const title = `${indexStr}${t.title || t.url || t.id}`;
       const addIcon = document.createElement('span');
       addIcon.textContent = managedSet.size > 0 ? '➕' : '🎯';
       const textSpan = document.createElement('span');
@@ -1806,6 +1831,17 @@ api?.onTerminalSession((state) => {
   }
   renderTabs();
   syncTerminalPool(sessions, activeId, state.snapshot, state.snapshotThroughSeq || 0);
+});
+api?.onTabsUpdated?.(() => {
+  updateAffinityBadges();
+  const popover = document.getElementById('affinityPickerPopover');
+  if (popover && popover.style.display === 'block') {
+    const currentSid = popover.getAttribute('data-active-session-id') || activeId;
+    const anchor = document.querySelector(`.terminal-tab-affinity-badge[data-session-id="${currentSid}"]`);
+    if (anchor) {
+      showAffinityPicker(currentSid, anchor);
+    }
+  }
 });
 api?.onTerminalData(({ sessionId, data, seq }) => {
   notifySessionActivity(sessionId, data);

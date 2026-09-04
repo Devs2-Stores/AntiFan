@@ -667,6 +667,7 @@ function renderTabs() {
       tabEl.setAttribute('draggable', 'true');
       
       tabEl.innerHTML = `
+        <span class="tab-index-badge">#${index + 1}</span>
         <span class="tab-spinner" style="display:none;"></span>
         <img class="tab-icon" src="" alt=""/>
         <span class="tab-alias-badge" style="display:none;"></span>
@@ -774,6 +775,11 @@ function renderTabs() {
     tabEl.className = `tab ${isActive ? 'active' : ''} ${isAgentControlled ? 'agent-controlled' : ''} ${isAgentWorking ? 'agent-working' : isAiStreaming ? 'ai-streaming' : ''} ${hasThemeError ? 'tab-has-error' : ''}`;
     tabEl.setAttribute('aria-selected', isActive ? 'true' : 'false');
     // Update Spinner & Icon
+    const indexBadge = tabEl.querySelector('.tab-index-badge') as HTMLElement;
+    if (indexBadge) {
+      indexBadge.textContent = `#${index + 1}`;
+      indexBadge.title = `Tab #${index + 1} (ID: ${tab.id}) - Nhấp chuột phải để sao chép cho Agent`;
+    }
     const spinner = tabEl.querySelector('.tab-spinner') as HTMLElement;
     const icon = tabEl.querySelector('.tab-icon') as HTMLImageElement;
     const statusDot = tabEl.querySelector('.tab-status-dot') as HTMLElement;
@@ -1714,6 +1720,7 @@ const menuItemNewTabRight = document.getElementById('menuItemNewTabRight');
 const menuItemDuplicateTab = document.getElementById('menuItemDuplicateTab');
 const menuItemReloadTab = document.getElementById('menuItemReloadTab');
 const menuItemCopyUrl = document.getElementById('menuItemCopyUrl');
+const menuItemCopyTabId = document.getElementById('menuItemCopyTabId');
 const menuItemCloseTab = document.getElementById('menuItemCloseTab');
 const menuItemCloseOtherTabs = document.getElementById('menuItemCloseOtherTabs');
 const menuItemCloseTabsToRight = document.getElementById('menuItemCloseTabsToRight');
@@ -1809,6 +1816,24 @@ if (menuItemCopyUrl) {
     hideTabContextMenu();
   });
 }
+if (menuItemCopyTabId) {
+  menuItemCopyTabId.addEventListener('click', () => {
+    if (contextMenuTargetTabId) {
+      const targetTab = currentTabs.find((t) => t.id === contextMenuTargetTabId);
+      const tabIdx = currentTabs.findIndex((t) => t.id === contextMenuTargetTabId);
+      const tabNum = tabIdx !== -1 ? `#${tabIdx + 1}` : '';
+      if (targetTab && targetTab.id) {
+        navigator.clipboard.writeText(targetTab.id).then(() => {
+          showToolbarToast(`📋 Đã chép Tab ID (${tabNum}): ${targetTab.id}`);
+        }).catch(() => {
+          showToolbarToast(`📋 Tab ID (${tabNum}): ${targetTab.id}`);
+        });
+      }
+    }
+    hideTabContextMenu();
+  });
+}
+
 
 const menuItemBindTerminal = document.getElementById('menuItemBindTerminal');
 if (menuItemBindTerminal) {

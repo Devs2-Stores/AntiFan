@@ -13,7 +13,7 @@ import { AntiFanTab } from '../../src/shared/contracts';
 function createIntegrationHost() {
   const host = Object.create(NativeTabHost.prototype) as any;
   EventEmitter.call(host);
-
+  host.mutationRevisions = new Map();
   const isolatedCalls: Array<{ worldId: number; code: string }> = [];
 
   const createMockWc = (url = 'https://example.com/store') => {

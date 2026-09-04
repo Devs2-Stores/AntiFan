@@ -147,5 +147,30 @@ describe('Semantic Tab Aliasing & Durable Issue Register Suite', () => {
       const switchResult = port.switchTab('@admin');
       assert.strictEqual(switchResult.switched, true);
     });
+    test('resolves numeric #N tab references in switchTab and target resolution', () => {
+      let lastSwitchedId = '';
+      const mockHost: any = {
+        getTabList: () => [
+          { id: 'tab-1', url: 'https://store1.vn', alias: '@storefront', role: 'storefront' },
+          { id: 'tab-2', url: 'https://store2.vn', role: 'storefront' },
+          { id: 'tab-3', url: 'https://store3.vn', role: 'storefront' },
+        ],
+        hasTab: (id: string) => ['tab-1', 'tab-2', 'tab-3'].includes(id),
+        switchTab: (id: string) => { lastSwitchedId = id; return true; },
+      };
+      const port = new BrowserControlPort(mockHost);
+
+      const res1 = port.switchTab('#1');
+      assert.strictEqual(res1.switched, true);
+      assert.strictEqual(lastSwitchedId, 'tab-1');
+
+      const res2 = port.switchTab('#2');
+      assert.strictEqual(res2.switched, true);
+      assert.strictEqual(lastSwitchedId, 'tab-2');
+
+      const res3 = port.switchTab('#3');
+      assert.strictEqual(res3.switched, true);
+      assert.strictEqual(lastSwitchedId, 'tab-3');
+    });
   });
 });

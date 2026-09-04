@@ -723,7 +723,7 @@ export const ELEMENT_PICKER_SCRIPT = `(() => {
     modal.setAttribute('role', 'dialog');
     modal.setAttribute('aria-modal', 'true');
     // Compact on phones (92vw), scales with viewport on large screens (cap 400px).
-    modal.style.cssText = 'position:fixed;z-index:2147483647;inset:auto;box-sizing:border-box;background:#0b111b;color:#e5eef8;border:1px solid #2c6d98;border-radius:10px;padding:10px 11px;box-shadow:0 14px 36px rgba(0,0,0,0.72),0 0 0 1px rgba(88,180,232,.08);width:min(92vw,400px);margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;font-size:12px;display:flex;flex-direction:column;gap:8px;';
+    modal.style.cssText = 'position:fixed;z-index:2147483647;inset:auto;box-sizing:border-box;background:#0b111b;color:#e5eef8;border:1px solid #2c6d98;border-radius:10px;padding:10px 11px;box-shadow:0 14px 36px rgba(0,0,0,0.72),0 0 0 1px rgba(88,180,232,.08);width:min(92vw,400px);max-height:calc(100vh - 20px);overflow-y:auto;margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;font-size:12px;display:flex;flex-direction:column;gap:8px;';
 
     const r = el.getBoundingClientRect();
     const targetParent = document.body || document.documentElement;
@@ -799,6 +799,7 @@ export const ELEMENT_PICKER_SCRIPT = `(() => {
     textarea.placeholder = 'Mô tả / yêu cầu sửa...';
     textarea.style.cssText = 'width:100%;height:58px;min-height:58px;max-height:200px;background:#060a11;border:1px solid #263b50;border-radius:4px;color:#f8fafc;padding:8px;font-size:11.5px;font-family:inherit;outline:none;resize:none;box-sizing:border-box;line-height:1.4;overflow-y:auto;';
 
+    let repositionModal = () => {};
     const attachedImages = [];
     const previewContainer = document.createElement('div');
     previewContainer.style.cssText = 'display:none;flex-wrap:wrap;gap:6px;padding:4px 0;max-height:100px;overflow-y:auto;';
@@ -824,6 +825,7 @@ export const ELEMENT_PICKER_SCRIPT = `(() => {
         }
         previewContainer.appendChild(item);
       });
+      repositionModal();
     };
 
     const addImage = (name, dataUrl) => {
@@ -852,14 +854,35 @@ export const ELEMENT_PICKER_SCRIPT = `(() => {
     // Position against the measured modal box AFTER all children are appended:
     // the responsive width (min(92vw,400px)) and the real rendered height must
     // feed the collision math, or a bottom-edge clamp would use ~0 height.
-    const modalW = modal.offsetWidth || 310;
-    const modalH = modal.offsetHeight || 190;
-    let top = r.bottom + 6;
-    let left = r.left;
-    if (top + modalH > window.innerHeight) top = Math.max(10, r.top - modalH - 6);
-    if (left + modalW > window.innerWidth) left = Math.max(10, window.innerWidth - modalW - 10);
-    modal.style.top = Math.max(10, top) + 'px';
-    modal.style.left = Math.max(10, left) + 'px';
+    repositionModal = () => {
+      const modalW = modal.offsetWidth || 310;
+      const modalH = modal.offsetHeight || 190;
+      const vpW = window.innerWidth || document.documentElement.clientWidth || 400;
+      const vpH = window.innerHeight || document.documentElement.clientHeight || 600;
+
+      let top = r.bottom + 6;
+      let left = r.left;
+
+      if (top + modalH > vpH - 10) {
+        const topAbove = r.top - modalH - 6;
+        if (topAbove >= 10) {
+          top = topAbove;
+        } else {
+          top = Math.max(10, vpH - modalH - 10);
+        }
+      }
+
+      if (left + modalW > vpW - 10) {
+        left = Math.max(10, vpW - modalW - 10);
+      }
+      top = Math.max(10, Math.min(vpH - modalH - 10, top));
+      left = Math.max(10, Math.min(vpW - modalW - 10, left));
+
+      modal.style.top = top + 'px';
+      modal.style.left = left + 'px';
+    };
+
+    repositionModal();
     if (typeof modal.showModal === 'function') {
       try { modal.showModal(); } catch {}
     }
@@ -879,6 +902,7 @@ export const ELEMENT_PICKER_SCRIPT = `(() => {
       } else {
         textarea.style.height = '58px';
       }
+      repositionModal();
     };
     textareaAutoGrow();
     textarea.addEventListener('input', textareaAutoGrow);
@@ -1013,10 +1037,12 @@ export const ELEMENT_PICKER_SCRIPT = `(() => {
       }, 0);
     };
     window.addEventListener('focusin', onAnnotationFocusIn, true);
+    window.addEventListener('resize', repositionModal);
     const previousCleanupModalListeners = cleanupModalListeners;
     cleanupModalListeners = () => {
       previousCleanupModalListeners();
       window.removeEventListener('focusin', onAnnotationFocusIn, true);
+      window.removeEventListener('resize', repositionModal);
     };
 
     // Drag & Drop image files onto modal

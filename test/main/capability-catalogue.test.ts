@@ -1154,6 +1154,18 @@ describe('Capability catalogue', () => {
       assert.strictEqual(forgedRes.error?.code, 'AUTHENTICATION_DENIED');
 
       // 4. Test fine-grained execution control effect tracking:
+      type ExecutionGate = {
+        started: { promise: Promise<void>; resolve: () => void };
+        resume: { promise: Promise<void>; resolve: () => void };
+      };
+      const executionGates = new Map<string, ExecutionGate>();
+      const createExecutionGate = (key: string): ExecutionGate => {
+        const started = (Promise as any).withResolvers();
+        const resume = (Promise as any).withResolvers();
+        const gate: ExecutionGate = { started, resume };
+        executionGates.set(key, gate);
+        return gate;
+      };
       catalogue.register({
         name: 'test.effect-tracker',
         description: 'Test effect tracking capability',
@@ -1182,7 +1194,7 @@ describe('Capability catalogue', () => {
             shouldAbort: { type: 'boolean' },
             ackNoEffect: { type: 'boolean' },
             ignoreSignal: { type: 'boolean' },
-            delayMs: { type: 'number' },
+            gateKey: { type: 'string' },
           },
         },
         execute: async (rawParams: unknown, ctx: CapabilityRequestContext) => {
@@ -1192,14 +1204,16 @@ describe('Capability catalogue', () => {
             shouldAbort?: boolean;
             ackNoEffect?: boolean;
             ignoreSignal?: boolean;
-            delayMs?: number;
+            gateKey?: string;
           };
           const authCtx = ctx as AuthenticatedCapabilityContext;
           if (params.markEffect) {
             authCtx.control?.setEffectStage('effect-started');
           }
-          if (params.delayMs) {
-            await new Promise((resolve) => setTimeout(resolve, params.delayMs));
+          if (params.gateKey && executionGates.has(params.gateKey)) {
+            const gate = executionGates.get(params.gateKey)!;
+            gate.started.resolve();
+            await gate.resume.promise;
           }
           if (authCtx.signal?.aborted && !params.ignoreSignal) {
             if (params.ackNoEffect && authCtx.control?.cancellationId) {
@@ -1267,6 +1281,7 @@ describe('Capability catalogue', () => {
 
       // (c) Concurrent transport abort with effect marked (effect-started) without ack -> settles as 'unknown'
       const abortCtrl1 = new AbortController();
+      const gateC = createExecutionGate('gate-c');
       const effectAbortIntent = {
         requestId: 'req-effect-abort-1',
         idempotencyKey: 'idem-effect-abort-1',
@@ -1274,14 +1289,15 @@ describe('Capability catalogue', () => {
         attachmentSecret: launch.secret,
         authorityRevision: launch.authorityRevision,
         name: 'test.effect-tracker',
-        params: { markEffect: true, delayMs: 200 },
+        params: { markEffect: true, gateKey: 'gate-c' },
       };
       const effectAbortPromise = transport.dispatchIntent(effectAbortIntent, { signal: abortCtrl1.signal });
-      setTimeout(() => abortCtrl1.abort(), 50);
+      await gateC.started.promise;
+      abortCtrl1.abort();
+      gateC.resume.resolve();
       const effectAbortRes = await effectAbortPromise;
       assert.strictEqual(effectAbortRes.ok, false);
       assert.strictEqual(effectAbortRes.error?.code, 'ABORTED');
-
       const ledgerRecord3 = await ledger.getRecord(effectAbortRes.invocationId!);
       assert.strictEqual(ledgerRecord3?.state, 'unknown', 'Settlement must be classified as unknown when abort occurs after effect-started without no-effect ack');
 
@@ -1304,6 +1320,7 @@ describe('Capability catalogue', () => {
 
       // (e) Transport abort in-flight with explicit 'no-effect' acknowledgement -> settles as 'interrupted'
       const abortCtrl2 = new AbortController();
+      const gateE = createExecutionGate('gate-e');
       const ackNoEffectIntent = {
         requestId: 'req-ack-no-effect-1',
         idempotencyKey: 'idem-ack-no-effect-1',
@@ -1311,19 +1328,21 @@ describe('Capability catalogue', () => {
         attachmentSecret: launch.secret,
         authorityRevision: launch.authorityRevision,
         name: 'test.effect-tracker',
-        params: { markEffect: false, delayMs: 40, ackNoEffect: true },
+        params: { markEffect: false, ackNoEffect: true, gateKey: 'gate-e' },
       };
       const ackNoEffectPromise = transport.dispatchIntent(ackNoEffectIntent, { signal: abortCtrl2.signal });
-      setTimeout(() => abortCtrl2.abort(), 10);
+      await gateE.started.promise;
+      abortCtrl2.abort();
+      gateE.resume.resolve();
       const ackNoEffectRes = await ackNoEffectPromise;
       assert.strictEqual(ackNoEffectRes.ok, false);
       assert.strictEqual(ackNoEffectRes.error?.code, 'ABORTED');
-
       const ledgerRecord5 = await ledger.getRecord(ackNoEffectRes.invocationId!);
       assert.strictEqual(ledgerRecord5?.state, 'interrupted', 'In-flight transport abort with no-effect acknowledgement must settle as interrupted');
 
       // (f) Success race: handler ignores abort signal and resolves data without no-effect ack -> settles as 'unknown'
       const abortCtrl3 = new AbortController();
+      const gateF = createExecutionGate('gate-f');
       const raceIntent = {
         requestId: 'req-race-1',
         idempotencyKey: 'idem-race-1',
@@ -1331,14 +1350,15 @@ describe('Capability catalogue', () => {
         attachmentSecret: launch.secret,
         authorityRevision: launch.authorityRevision,
         name: 'test.effect-tracker',
-        params: { markEffect: true, delayMs: 200, ignoreSignal: true },
+        params: { markEffect: true, ignoreSignal: true, gateKey: 'gate-f' },
       };
       const racePromise = transport.dispatchIntent(raceIntent, { signal: abortCtrl3.signal });
-      setTimeout(() => abortCtrl3.abort(), 50);
+      await gateF.started.promise;
+      abortCtrl3.abort();
+      gateF.resume.resolve();
       const raceRes = await racePromise;
       assert.strictEqual(raceRes.ok, false);
       assert.strictEqual(raceRes.error?.code, 'ABORTED');
-
       const ledgerRecord6 = await ledger.getRecord(raceRes.invocationId!);
       assert.strictEqual(ledgerRecord6?.state, 'unknown', 'Late resolution under transport abort without no-effect ack must settle as unknown');
 

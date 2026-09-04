@@ -76,7 +76,16 @@ export class TabDevToolsHost {
     const active = this.ctx.getTabRecord(this.ctx.getActiveTabId());
     if (!active) return;
     this.isFontFinderActive = true;
-    active.view.webContents.executeJavaScript(FONT_FINDER_SCRIPT).catch(() => {});
+    const targetWcs: Electron.WebContents[] = [];
+    if (active.view && !active.view.webContents.isDestroyed()) {
+      targetWcs.push(active.view.webContents);
+    }
+    if (active.state.splitMode && active.mobileView && !active.mobileView.webContents.isDestroyed()) {
+      targetWcs.push(active.mobileView.webContents);
+    }
+    for (const wc of targetWcs) {
+      wc.executeJavaScript(FONT_FINDER_SCRIPT).catch(() => {});
+    }
     this.ctx.broadcastState();
   }
 
@@ -84,14 +93,21 @@ export class TabDevToolsHost {
     this.isFontFinderActive = false;
     const active = this.ctx.getTabRecord(this.ctx.getActiveTabId());
     if (active) {
-      active.view.webContents.executeJavaScript(`(() => {
+      const cleanScript = `(() => {
         const bg = document.getElementById('antifan-font-badge');
         if (bg) bg.remove();
         const ov = document.getElementById('antifan-font-overlay');
         if (ov) ov.remove();
+        if (typeof window.__antifanFontFinderCleanup === 'function') window.__antifanFontFinderCleanup();
         if (document.documentElement) document.documentElement.style.cursor = '';
         window.__antifanFontFinderActive = false;
-      })()`).catch(() => {});
+      })()`;
+      if (active.view && !active.view.webContents.isDestroyed()) {
+        active.view.webContents.executeJavaScript(cleanScript).catch(() => {});
+      }
+      if (active.state.splitMode && active.mobileView && !active.mobileView.webContents.isDestroyed()) {
+        active.mobileView.webContents.executeJavaScript(cleanScript).catch(() => {});
+      }
     }
     this.ctx.broadcastState();
   }

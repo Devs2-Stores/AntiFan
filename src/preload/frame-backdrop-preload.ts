@@ -56,6 +56,7 @@ export interface AntiFanFrameBackdropApi {
   onUpdateLayout: (callback: (payload: FrameBackdropUpdatePayload) => void) => () => void;
   focusPane: (paneId: SplitPaneId) => void;
   notifyReady: () => void;
+  reloadPane: (paneId: SplitPaneId) => void;
 }
 
 const api: AntiFanFrameBackdropApi = {
@@ -77,6 +78,9 @@ const api: AntiFanFrameBackdropApi = {
   },
   notifyReady: () => {
     ipcRenderer.send(FRAME_BACKDROP_CHANNELS.READY);
+  },
+  reloadPane: (paneId: SplitPaneId) => {
+    ipcRenderer.send(FRAME_BACKDROP_CHANNELS.RELOAD_PANE, paneId);
   },
 };
 

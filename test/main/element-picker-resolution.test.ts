@@ -537,5 +537,7 @@ describe('Element Picker Resolution & Artifact Upgrades', () => {
     });
     assert.ok(ELEMENT_PICKER_SCRIPT.includes('antifan-comment-modal'));
     assert.ok(ELEMENT_PICKER_SCRIPT.includes('selectorName'));
+    assert.ok(ELEMENT_PICKER_SCRIPT.includes('repositionModal'));
+    assert.ok(ELEMENT_PICKER_SCRIPT.includes('max-height:calc(100vh - 20px)'));
   });
 });

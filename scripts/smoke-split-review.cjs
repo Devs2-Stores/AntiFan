@@ -257,6 +257,100 @@ async function runSmokeTest() {
     tabHost.setZoom(tabId, 1.0);
     await new Promise((resolve) => setTimeout(resolve, 500));
     console.log('[Smoke] Verified split review zoom geometry scaling.');
+    console.log('[Smoke] Step 4e: Testing live z-order and split Font Finder & Annotation popup...');
+    // 1. Assert live contentView z-order
+    const children = win.contentView.children;
+    const tabRec = tabHost.tabs.get(tabId);
+    const backdropIdx = children.indexOf(tabHost.frameBackdropView);
+    const desktopIdx = children.indexOf(tabRec.view);
+    const mobileIdx = children.indexOf(tabRec.mobileView);
+    const sidebarIdx = children.indexOf(tabHost.sidebarView);
+    const toolbarIdx = children.indexOf(tabHost.toolbarView);
+    if (backdropIdx === -1 || desktopIdx === -1 || mobileIdx === -1 || sidebarIdx === -1 || toolbarIdx === -1) {
+      throw new Error(`Expected all 5 views attached to contentView, got backdrop=${backdropIdx}, desktop=${desktopIdx}, mobile=${mobileIdx}, sidebar=${sidebarIdx}, toolbar=${toolbarIdx}`);
+    }
+    if (!(backdropIdx < desktopIdx && desktopIdx < mobileIdx && mobileIdx < sidebarIdx && sidebarIdx < toolbarIdx)) {
+      throw new Error(`Z-order mismatch: backdrop=${backdropIdx}, desktop=${desktopIdx}, mobile=${mobileIdx}, sidebar=${sidebarIdx}, toolbar=${toolbarIdx}`);
+    }
+    console.log('[Smoke] Verified live contentView.children z-order: backdrop < desktop < mobile < sidebar < toolbar.');
+
+    // 2. Test Font Finder toggle in split mode across both WebContents
+    const ffStarted = tabHost.toggleFontFinder();
+    if (!ffStarted) {
+      throw new Error('Expected Font Finder to start');
+    }
+    await new Promise((r) => setTimeout(r, 200));
+    const desktopFf = await tabHost.evalJs(`Boolean(window.__antifanFontFinderActive)`, tabId, 'desktop');
+    const mobileFf = await tabHost.evalJs(`Boolean(window.__antifanFontFinderActive)`, tabId, 'mobile');
+    if (!desktopFf || !mobileFf) {
+      throw new Error(`Expected Font Finder active on both panes, got desktop=${desktopFf}, mobile=${mobileFf}`);
+    }
+    const ffStopped = tabHost.toggleFontFinder();
+    if (ffStopped) {
+      throw new Error('Expected Font Finder to stop');
+    }
+    await new Promise((r) => setTimeout(r, 200));
+    const desktopFfClean = await tabHost.evalJs(`Boolean(window.__antifanFontFinderActive)`, tabId, 'desktop');
+    const mobileFfClean = await tabHost.evalJs(`Boolean(window.__antifanFontFinderActive)`, tabId, 'mobile');
+    if (desktopFfClean || mobileFfClean) {
+      throw new Error(`Expected Font Finder cleaned on both panes, got desktop=${desktopFfClean}, mobile=${mobileFfClean}`);
+    }
+    console.log('[Smoke] Verified split Font Finder live injection and cleanup across desktop and mobile WebContents.');
+
+    // 3. Test bottom-edge annotation popup geometry and clipping prevention
+    const popupTestResult = await tabHost.evalJs(`
+      (() => {
+        const bottomEl = document.createElement('div');
+        bottomEl.id = 'bottom-test-el';
+        bottomEl.style.cssText = 'position:fixed;bottom:5px;left:50px;width:100px;height:20px;';
+        document.body.appendChild(bottomEl);
+
+        const r = bottomEl.getBoundingClientRect();
+        const modalW = 320;
+        const vpH = window.innerHeight;
+        const vpW = window.innerWidth;
+        
+        const calcPosition = (currentH) => {
+          let top = r.bottom + 6;
+          let left = r.left;
+          if (top + currentH > vpH - 10) {
+            const topAbove = r.top - currentH - 6;
+            top = topAbove >= 10 ? topAbove : Math.max(10, vpH - currentH - 10);
+          }
+          top = Math.max(10, Math.min(vpH - currentH - 10, top));
+          left = Math.max(10, Math.min(vpW - modalW - 10, left));
+          return { top, left };
+        };
+
+        const initialPos = calcPosition(260);
+        const initialBottom = initialPos.top + 260;
+        const initialVisible = initialPos.top >= 10 && initialBottom <= vpH;
+        const flippedAbove = initialPos.top < r.top;
+
+        // When user types a long description, textareaAutoGrow invokes repositionModal with expanded height
+        const expandedH = 450;
+        const expandedPos = calcPosition(expandedH);
+        const expandedBottom = expandedPos.top + expandedH;
+        const expandedVisible = expandedPos.top >= 10 && expandedBottom <= vpH;
+
+        bottomEl.remove();
+        return {
+          vpH,
+          initialPos,
+          initialBottom,
+          initialVisible,
+          flippedAbove,
+          expandedPos,
+          expandedBottom,
+          expandedVisible,
+        };
+      })()
+    `, tabId, 'mobile');
+
+    if (!popupTestResult || !popupTestResult.flippedAbove || !popupTestResult.initialVisible || !popupTestResult.expandedVisible) {
+      throw new Error(`Expected bottom-edge popup to flip above and stay visible, got: ${JSON.stringify(popupTestResult)}`);
+    }
+    console.log('[Smoke] Verified bottom-edge annotation popup flips above and stays visible within viewport:', popupTestResult);
     console.log('[Smoke] Step 5: Testing focused pane switching & tool routing...');
     tabHost.setSplitFocusedPane(tabId, 'mobile');
     tabState = tabHost.getTabList().find((t) => t.id === tabId);

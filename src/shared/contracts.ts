@@ -280,6 +280,7 @@ export const FRAME_BACKDROP_CHANNELS = {
   UPDATE_LAYOUT: 'antifan:frame-backdrop:update-layout',
   FOCUS_PANE: 'antifan:frame-backdrop:focus-pane',
   READY: 'antifan:frame-backdrop:ready',
+  RELOAD_PANE: 'antifan:frame-backdrop:reload-pane',
 } as const;
 
 export interface SessionInfo {

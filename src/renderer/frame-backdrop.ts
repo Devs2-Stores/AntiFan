@@ -180,6 +180,14 @@ function initFrameBackdrop() {
       window.antifanFrameBackdropApi?.focusPane('mobile');
     });
   }
+  const safariUrlPill = document.getElementById('safariUrlPill');
+  if (safariUrlPill) {
+    safariUrlPill.addEventListener('click', (e) => {
+      e.stopPropagation();
+      window.antifanFrameBackdropApi?.focusPane('mobile');
+      window.antifanFrameBackdropApi?.reloadPane('mobile');
+    });
+  }
   if (phoneBottomBezel) {
     phoneBottomBezel.addEventListener('click', () => {
       window.antifanFrameBackdropApi?.focusPane('mobile');

@@ -746,6 +746,7 @@ export class NativeTabHost extends EventEmitter {
     if (isBenchmarkEnabled()) {
       recordBenchmark({ surface: 'tabs', name: 'layout', value: performance.now() - layoutStartMs, extra: { width, height, attachedViews: this.countAttachedViews() } });
     }
+    this.enforceZOrder();
     this.syncFrameBackdrop();
   }
 
@@ -798,6 +799,18 @@ export class NativeTabHost extends EventEmitter {
 
     ipcMain.on(FRAME_BACKDROP_CHANNELS.READY, () => {
       this.syncFrameBackdrop();
+    });
+
+    ipcMain.on(FRAME_BACKDROP_CHANNELS.RELOAD_PANE, (_event, paneId: SplitPaneId) => {
+      if (this.activeTabId) {
+        const tab = this.tabs.get(this.activeTabId);
+        if (tab) {
+          const targetWc = paneId === 'mobile' ? tab.mobileView?.webContents : tab.view.webContents;
+          if (targetWc && !targetWc.isDestroyed()) {
+            targetWc.reload();
+          }
+        }
+      }
     });
   }
   public toggleSidebar(): boolean {
@@ -1116,7 +1129,10 @@ export class NativeTabHost extends EventEmitter {
         }
       }
       if (targetTab && this.hasTab(targetTab)) {
-        this.bindTerminalAgentAffinity(id, generation || 1, targetTab);
+        const existing = this.getTerminalAgentAffinity(id, generation);
+        if (!existing || existing.status === 'closed') {
+          this.bindTerminalAgentAffinity(id, generation || 1, targetTab);
+        }
       }
     });
 
@@ -1130,7 +1146,10 @@ export class NativeTabHost extends EventEmitter {
       const activeSessionId = TerminalManager.getInstance().getActiveSessionId();
       if (ok && activeSessionId && this.activeTabId) {
         const session = TerminalManager.getInstance().getSession(activeSessionId);
-        this.bindTerminalAgentAffinity(activeSessionId, session?.sessionGeneration, this.activeTabId);
+        const existingAffinity = this.getTerminalAgentAffinity(activeSessionId, session?.sessionGeneration);
+        if (!existingAffinity || existingAffinity.status === 'closed') {
+          this.bindTerminalAgentAffinity(activeSessionId, session?.sessionGeneration, this.activeTabId);
+        }
       }
       return ok;
     });
@@ -2199,7 +2218,6 @@ export class NativeTabHost extends EventEmitter {
     if (!view || !this.window || (typeof this.window.isDestroyed === 'function' && this.window.isDestroyed()) || !this.window.contentView) return;
     if (view.webContents && typeof view.webContents.isDestroyed === 'function' && view.webContents.isDestroyed()) return;
     try {
-      if (Array.isArray(this.window.contentView.children) && this.window.contentView.children.includes(view)) return;
       const children = Array.isArray(this.window.contentView.children) ? this.window.contentView.children : [];
       let insertIndex = 0;
       if (this.frameBackdropView && children.includes(this.frameBackdropView)) {
@@ -2212,17 +2230,85 @@ export class NativeTabHost extends EventEmitter {
         }
       }
       insertIndex = Math.max(0, Math.min(insertIndex, children.length));
-      this.window.contentView.addChildView(view, insertIndex);
+      if (!children.includes(view)) {
+        this.window.contentView.addChildView(view, insertIndex);
+      }
+      this.enforceZOrder();
     } catch (err) {
       console.error('[native-tab-host] attachTabView error:', err);
     }
   }
+
+  public enforceZOrder(): void {
+    if (!this.window || (typeof this.window.isDestroyed === 'function' && this.window.isDestroyed()) || !this.window.contentView) return;
+    const contentView = this.window.contentView;
+    const children = Array.isArray(contentView.children) ? contentView.children : [];
+    if (children.length <= 1) return;
+
+    // Strict z-stack order from bottom to top:
+    // 0: frameBackdropView (backdrop behind all web views)
+    // 1: activeTab.view (desktop view)
+    // 2: activeTab.mobileView (mobile view in split review)
+    // 3: sidebarView (shell sidebar workbench)
+    // 4: toolbarView (shell top toolbar and dropdown overlays)
+    const activeTab = this.activeTabId ? this.tabs.get(this.activeTabId) : null;
+    const desiredOrder: WebContentsView[] = [];
+
+    if (this.frameBackdropView && children.includes(this.frameBackdropView)) {
+      desiredOrder.push(this.frameBackdropView);
+    }
+    if (activeTab?.view && children.includes(activeTab.view)) {
+      desiredOrder.push(activeTab.view);
+    }
+    if (activeTab?.state.splitMode && activeTab.mobileView && children.includes(activeTab.mobileView)) {
+      desiredOrder.push(activeTab.mobileView);
+    }
+    if (this.sidebarView && children.includes(this.sidebarView)) {
+      desiredOrder.push(this.sidebarView);
+    }
+    if (this.toolbarView && children.includes(this.toolbarView)) {
+      desiredOrder.push(this.toolbarView);
+    }
+
+    // Check if relative order already matches
+    let needsReorder = false;
+    let lastSeenIndex = -1;
+    for (let i = 0; i < desiredOrder.length; i++) {
+      const v = desiredOrder[i]!;
+      const idx = children.indexOf(v);
+      if (idx === -1 || idx < lastSeenIndex) {
+        needsReorder = true;
+        break;
+      }
+      lastSeenIndex = idx;
+    }
+
+    if (!needsReorder) return;
+
+    // Re-stack by safely removing and re-adding from bottom to top
+    // In Electron, addChildView pushes the view to topmost, so sequential
+    // addChildView calls establish bottom-to-top order [0, 1, 2, ... N-1]
+    for (let i = 0; i < desiredOrder.length; i++) {
+      const v = desiredOrder[i]!;
+      try {
+        if (typeof contentView.removeChildView === 'function') {
+          contentView.removeChildView(v);
+        }
+        if (typeof contentView.addChildView === 'function') {
+          contentView.addChildView(v);
+        }
+      } catch (err) {
+        console.warn('[native-tab-host] enforceZOrder error:', err);
+      }
+    }
+  }
+
   public bringViewToFront(_view: WebContentsView | null | undefined): void {
-    // Shell views stay above tab views through attachTabView indexing.
+    this.enforceZOrder();
   }
 
   public ensureShellViewsZOrder(): void {
-    // Maintained by attachTabView indexing
+    this.enforceZOrder();
   }
 
   public setToolbarOverlay(active: boolean, customHeight?: number): void {
@@ -2569,7 +2655,9 @@ export class NativeTabHost extends EventEmitter {
         origin: origin.origin,
         isFirstParty: origin.isFirstParty,
       });
-      this.splitCoordinator.handleNavigationFailure(id, paneId, String(errorDescription || ''));
+      if (isMainFrame && errorCode !== -3) {
+        this.splitCoordinator.handleNavigationFailure(id, paneId, String(errorDescription || ''));
+      }
     });
 
     wc.on('did-finish-load', () => {
@@ -2648,9 +2736,20 @@ export class NativeTabHost extends EventEmitter {
         if (!state.alias) {
           const inferred = inferTabSemanticRole(state.url, state.title);
           if (inferred.alias) {
-            state.alias = inferred.alias;
+            let canAssignAlias = true;
+            if (inferred.alias === '@storefront') {
+              for (const [otherId, otherTab] of this.tabs.entries()) {
+                if (otherId !== id && otherTab.state.alias?.toLowerCase() === '@storefront') {
+                  canAssignAlias = false;
+                  break;
+                }
+              }
+            }
+            if (canAssignAlias) {
+              state.alias = inferred.alias;
+              state.aliasColor = inferred.aliasColor;
+            }
             state.role = inferred.role;
-            state.aliasColor = inferred.aliasColor;
           }
         }
         this.broadcastState();
@@ -2695,9 +2794,20 @@ export class NativeTabHost extends EventEmitter {
         if (!state.alias) {
           const inferred = inferTabSemanticRole(state.url, state.title);
           if (inferred.alias) {
-            state.alias = inferred.alias;
+            let canAssignAlias = true;
+            if (inferred.alias === '@storefront') {
+              for (const [otherId, otherTab] of this.tabs.entries()) {
+                if (otherId !== id && otherTab.state.alias?.toLowerCase() === '@storefront') {
+                  canAssignAlias = false;
+                  break;
+                }
+              }
+            }
+            if (canAssignAlias) {
+              state.alias = inferred.alias;
+              state.aliasColor = inferred.aliasColor;
+            }
             state.role = inferred.role;
-            state.aliasColor = inferred.aliasColor;
           }
         }
       }
@@ -2715,6 +2825,8 @@ export class NativeTabHost extends EventEmitter {
             const siblingUrl = cleanRestoredUrl(siblingView.webContents.getURL());
             if (siblingUrl !== decision.mirrorUrl) {
               siblingView.webContents.loadURL(decision.mirrorUrl).catch(() => {});
+            } else if (!siblingView.webContents.isLoading()) {
+              siblingView.webContents.reload();
             }
           }
         }
@@ -2752,6 +2864,8 @@ export class NativeTabHost extends EventEmitter {
               const siblingUrl = cleanRestoredUrl(siblingView.webContents.getURL());
               if (siblingUrl !== decision.mirrorUrl) {
                 siblingView.webContents.loadURL(decision.mirrorUrl).catch(() => {});
+              } else if (!siblingView.webContents.isLoading()) {
+                siblingView.webContents.reload();
               }
             }
           }
@@ -2976,7 +3090,7 @@ export class NativeTabHost extends EventEmitter {
   public switchTab(tabId: string): boolean {
     if (this.isDisposed) return false;
     try {
-      const targetId = typeof tabId === 'string' && tabId.startsWith('@') ? this.resolveAliasToTabId(tabId) || tabId : tabId;
+      const targetId = this.resolveTargetTabId(tabId) || tabId;
       const target = this.tabs.get(targetId);
       if (!target) return false;
       const switchStartMs = performance.now();
@@ -3008,6 +3122,25 @@ export class NativeTabHost extends EventEmitter {
         }
       } else if (!target.state.url || target.state.url === 'about:blank') {
         target.state.isLoading = false;
+      }
+
+      const previousTabId = this.activeTabId;
+      const previousTab = previousTabId ? this.tabs.get(previousTabId) : null;
+      if (previousTab && previousTabId !== targetId && this.isFontFinderActive) {
+        const cleanScript = `(() => {
+          if (typeof window.__antifanFontFinderCleanup === 'function') window.__antifanFontFinderCleanup();
+          const tip = document.getElementById('antifan-font-tooltip');
+          if (tip) tip.remove();
+          const outline = document.getElementById('antifan-font-hover-outline');
+          if (outline) outline.remove();
+          window.__antifanFontFinderActive = false;
+        })()`;
+        if (previousTab.view && !previousTab.view.webContents.isDestroyed()) {
+          previousTab.view.webContents.executeJavaScript(cleanScript).catch(() => {});
+        }
+        if (previousTab.mobileView && !previousTab.mobileView.webContents.isDestroyed()) {
+          previousTab.mobileView.webContents.executeJavaScript(cleanScript).catch(() => {});
+        }
       }
 
       this.activeTabId = targetId;
@@ -3123,8 +3256,10 @@ export class NativeTabHost extends EventEmitter {
 
   public closeTab(tabId: string): boolean {
     if (this.isDisposed) return false;
-    const target = this.tabs.get(tabId);
+    const targetId = this.resolveTargetTabId(tabId) || tabId;
+    const target = this.tabs.get(targetId);
     if (!target) return false;
+    tabId = targetId;
     this.viewportGate?.cleanupTab(tabId);
     this.semanticRefRegistry?.invalidateTab(tabId);
     if (this.semanticDocumentGenerations) {
@@ -3608,7 +3743,7 @@ export class NativeTabHost extends EventEmitter {
         const mobileView = new WebContentsView({
           webPreferences: getSecureWebPreferences(tab.state.partition),
         });
-        mobileView.setBackgroundColor('#00000000');
+        mobileView.setBackgroundColor('#ffffff');
         const mobilePreset = DEVICE_PRESETS.find((p) => p.id === tab.state.splitMobilePresetId) || DEVICE_PRESETS.find((p) => p.id === DEFAULT_SPLIT_MOBILE_PRESET);
         const mobileUA = getPresetUserAgent(mobilePreset, IPHONE_USER_AGENT);
         this.setSafeUserAgent(mobileView.webContents, mobileUA || IPHONE_USER_AGENT);
@@ -3691,8 +3826,8 @@ export class NativeTabHost extends EventEmitter {
           userZoom
         );
         // Ensure transparent view backgrounds so clipped corners do not render opaque white rectangles
-        try { tab.view.setBackgroundColor('#00000000'); } catch {}
-        try { tab.mobileView?.setBackgroundColor('#00000000'); } catch {}
+        try { tab.view.setBackgroundColor('#ffffff'); } catch {}
+        try { tab.mobileView?.setBackgroundColor('#ffffff'); } catch {}
 
         // Dynamic corner clipping for mobile pane, clear for desktop
         const splitMobilePreset = DEVICE_PRESETS.find((p) => p.id === tab.state.splitMobilePresetId) || DEVICE_PRESETS.find((p) => p.id === DEFAULT_SPLIT_MOBILE_PRESET);
@@ -4092,9 +4227,29 @@ export class NativeTabHost extends EventEmitter {
     return true;
   }
 
+  public resolveTargetTabId(tabIdOrIdentifier?: string | null): string | undefined {
+    if (!tabIdOrIdentifier || typeof tabIdOrIdentifier !== 'string') return undefined;
+    const trimmed = tabIdOrIdentifier.trim();
+    if (this.tabs && this.tabs.has(trimmed)) return trimmed;
+    if (trimmed.startsWith('#')) {
+      const idx = parseInt(trimmed.slice(1), 10) - 1;
+      if (idx >= 0 && idx < this.tabOrder.length) {
+        return this.tabOrder[idx];
+      }
+    }
+    if (trimmed.startsWith('@')) {
+      return this.resolveAliasToTabId(trimmed);
+    }
+    return undefined;
+  }
+
   public hasTab(tabId?: string | null): boolean {
     if (!tabId || !this.tabs) return false;
     if (this.tabs.has(tabId)) return true;
+    if (tabId.startsWith('#')) {
+      const idx = parseInt(tabId.slice(1), 10) - 1;
+      return idx >= 0 && idx < this.tabOrder.length;
+    }
     if (tabId.startsWith('@')) {
       return Boolean(this.resolveAliasToTabId(tabId));
     }
@@ -4725,6 +4880,26 @@ export class NativeTabHost extends EventEmitter {
         }
       }
 
+      const persistedAffinities: Array<{
+        terminalId: string;
+        primaryTabId: string;
+        managedTabIds: string[];
+      }> = [];
+
+      if (this.terminalAgentAffinity) {
+        const seenTerminals = new Set<string>();
+        for (const [key, entry] of this.terminalAgentAffinity.entries()) {
+          const terminalId = key.split('@')[0];
+          if (!terminalId || seenTerminals.has(terminalId) || entry.closedAt) continue;
+          seenTerminals.add(terminalId);
+          persistedAffinities.push({
+            terminalId,
+            primaryTabId: entry.primaryTabId || entry.tabId,
+            managedTabIds: Array.from(entry.managedTabIds || [entry.tabId]),
+          });
+        }
+      }
+
       const data = {
         activeTabId: this.activeTabId,
         tabs: tabList,
@@ -4736,6 +4911,7 @@ export class NativeTabHost extends EventEmitter {
         wasSidebarOpenBeforePopout: this.wasSidebarOpenBeforePopout,
         popoutSessionId: this.popoutWindow && !this.popoutWindow.isDestroyed() ? TerminalManager.getInstance().getActiveSessionId() : undefined,
         terminalWindows: openTerminalWindows,
+        terminalAffinities: persistedAffinities,
         updatedAt: Date.now(),
       };
       fs.writeFileSync(filePath, JSON.stringify(data, null, 2), 'utf8');
@@ -4785,6 +4961,7 @@ export class NativeTabHost extends EventEmitter {
           }
           if (Array.isArray(data.tabs) && data.tabs.length > 0) {
             let restoredActiveId = data.activeTabId;
+            const oldIdToNewId = new Map<string, string>();
             for (const rawTab of data.tabs) {
               const migrated = migratePersistedTab(rawTab);
               const safeUrl = cleanRestoredUrl(migrated.url || 'about:blank');
@@ -4792,11 +4969,20 @@ export class NativeTabHost extends EventEmitter {
                 capsuleId: migrated.capsuleId,
                 userAgentMode: migrated.userAgentMode,
               });
+              if (rawTab && typeof rawTab === 'object' && rawTab.id) {
+                oldIdToNewId.set(rawTab.id, id);
+              }
+              if (migrated && migrated.id) {
+                oldIdToNewId.set(migrated.id, id);
+              }
               const tab = this.tabs.get(id);
               if (tab) {
                 if (migrated.title) tab.state.title = migrated.title;
                 if (migrated.devicePresetId) this.setDevicePreset(id, migrated.devicePresetId);
                 if (typeof migrated.zoomFactor === 'number') tab.state.zoomFactor = migrated.zoomFactor;
+                if (migrated.alias) tab.state.alias = migrated.alias;
+                if (migrated.role) tab.state.role = migrated.role;
+                if (migrated.aliasColor) tab.state.aliasColor = migrated.aliasColor;
                 if (migrated.splitMode) {
                   this.toggleSplitReview(id, true);
                   if (migrated.splitDesktopPresetId) tab.state.splitDesktopPresetId = migrated.splitDesktopPresetId;
@@ -4818,6 +5004,25 @@ export class NativeTabHost extends EventEmitter {
                 restoredActiveId = id;
               }
             }
+
+            // Rebuild Terminal Multi-Tab Affinities
+            if (Array.isArray(data.terminalAffinities) && data.terminalAffinities.length > 0) {
+              for (const aff of data.terminalAffinities) {
+                const newPrimaryId = oldIdToNewId.get(aff.primaryTabId);
+                if (newPrimaryId && this.hasTab(newPrimaryId)) {
+                  this.bindTerminalAgentAffinity(aff.terminalId, undefined, newPrimaryId);
+                  if (Array.isArray(aff.managedTabIds)) {
+                    for (const oldChildId of aff.managedTabIds) {
+                      const newChildId = oldIdToNewId.get(oldChildId);
+                      if (newChildId && newChildId !== newPrimaryId && this.hasTab(newChildId)) {
+                        this.adoptChildTab(aff.terminalId, newChildId, undefined, 'user_attached', newPrimaryId);
+                      }
+                    }
+                  }
+                }
+              }
+            }
+
             if (restoredActiveId && this.tabs.has(restoredActiveId)) {
               this.switchTab(restoredActiveId);
             } else if (this.tabOrder.length > 0) {
@@ -4873,6 +5078,14 @@ export class NativeTabHost extends EventEmitter {
       themeQa: this.getThemeQaState(this.activeTabId),
     };
     safeSendWebContents(this.toolbarView?.webContents, TOOLBAR_CHANNELS.STATE_UPDATED, payload);
+    safeSendWebContents(this.sidebarView?.webContents, 'antifan:tabs:updated', payload.tabs);
+    if (this.terminalWindows) {
+      for (const win of this.terminalWindows.values()) {
+        if (win && !win.isDestroyed()) {
+          safeSendWebContents(win.webContents, 'antifan:tabs:updated', payload.tabs);
+        }
+      }
+    }
     this.schedulePersist();
   }
 

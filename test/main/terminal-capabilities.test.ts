@@ -17,12 +17,58 @@ describe('Terminal Capabilities, Generation Tracking & Wait Lifecycle (Phase 04)
   let projectId: string;
   let workspaceId: string;
   let lease: RuntimeLease;
+  let originalSpawn: any;
 
   before(() => {
     projectId = makeControlPlaneId('project');
     workspaceId = makeControlPlaneId('workspace');
     lease = issueRuntimeLease(projectId, workspaceId, 60_000, 1);
     terminalManager = TerminalManager.getInstance();
+    originalSpawn = (terminalManager as any).spawn.bind(terminalManager);
+    (terminalManager as any).spawn = function (
+      id: string,
+      cwd: string,
+      restoredBuffer = '',
+      initialCols?: number,
+      initialRows?: number,
+      minimumRows = 4
+    ) {
+      const cols = Math.max(40, initialCols || (terminalManager as any).lastCols || 120);
+      const rows = Math.max(minimumRows, initialRows || (terminalManager as any).lastRows || 30);
+      const generation = ((terminalManager as any).sessionGenerations.get(id) || 0) + 1;
+      (terminalManager as any).sessionGenerations.set(id, generation);
+      const mockPty = {
+        pid: undefined,
+        cols,
+        rows,
+        onData: () => ({ dispose: () => {} }),
+        onExit: () => ({ dispose: () => {} }),
+        kill: () => {},
+        write: (data: string) => {
+          s.buffer += data;
+          s.lastSeq = (s.lastSeq || 0) + 1;
+          terminalManager.emit('data', { sessionId: id, data, seq: s.lastSeq });
+        },
+        resize: (newCols: number, newRows: number) => {
+          mockPty.cols = newCols;
+          mockPty.rows = newRows;
+        },
+      };
+      const s = {
+        id,
+        name: `Terminal ${id.replace('terminal-', '')}`,
+        cwd: cwd || 'E:/Work/project',
+        pty: mockPty,
+        buffer: restoredBuffer || '',
+        capsuleId: (terminalManager as any).currentCapsuleId || 'default',
+        disposed: false,
+        lastSeq: 0,
+        sessionGeneration: generation,
+        state: 'running' as const,
+      };
+      (terminalManager as any).sessions.set(id, s);
+      return s;
+    };
     catalogue = new CapabilityCatalogue({
       runtime: { mode: 'standalone', lifecycle: 'active' },
       projectId,
@@ -37,6 +83,7 @@ describe('Terminal Capabilities, Generation Tracking & Wait Lifecycle (Phase 04)
   after(async () => {
     try {
       await terminalManager.dispose();
+      (terminalManager as any).spawn = originalSpawn;
       (TerminalManager as any).instance = undefined;
     } catch {}
   });
@@ -115,11 +162,9 @@ describe('Terminal Capabilities, Generation Tracking & Wait Lifecycle (Phase 04)
     const session = terminalManager.getSession(sessionId);
     assert.ok(session);
 
-    // Write a distinct marker to session buffer
-    terminalManager.write('echo FAST_PATH_MARKER_12345\r\n');
-
-    // Wait a brief moment for PTY to process echo (real clock needed for OS PTY child)
-    await new Promise((r) => setTimeout(r, 300));
+    // Ensure session buffer contains marker to exercise the already-buffered fast path
+    const marker = 'FAST_PATH_MARKER_12345';
+    session.buffer += `\r\n${marker}\r\n`;
 
     const waitRes = (await catalogue.dispatch(
       'terminal.wait',
@@ -128,10 +173,10 @@ describe('Terminal Capabilities, Generation Tracking & Wait Lifecycle (Phase 04)
         condition: 'output-match',
         pattern: 'FAST_PATH_MARKER_12345',
         sessionGeneration: session?.sessionGeneration,
+        timeoutMs: 2000,
       },
       { lease, leaseToken: lease.token, projectId, workspaceId, grant: 'read' }
     )) as TerminalWaitResult;
-
     assert.strictEqual(waitRes.satisfied, true);
     assert.strictEqual(waitRes.sessionGeneration, session?.sessionGeneration);
   });
@@ -161,7 +206,7 @@ describe('Terminal Capabilities, Generation Tracking & Wait Lifecycle (Phase 04)
     assert.ok(sessionId);
 
     const controller = new AbortController();
-    setTimeout(() => controller.abort(), 100);
+    setImmediate(() => controller.abort());
 
     await assert.rejects(
       () =>

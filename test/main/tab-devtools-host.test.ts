@@ -17,6 +17,7 @@ interface MockTabRecord {
       loadURL: (url: string) => Promise<void>;
     };
   };
+  mobileView?: any;
 }
 
 describe('TabDevToolsHost (Sub-Controller Unit Tests)', () => {
@@ -125,6 +126,30 @@ describe('TabDevToolsHost (Sub-Controller Unit Tests)', () => {
     assert.strictEqual(devTools.getIsFontFinderActive(), false);
     assert.strictEqual(getBroadcastCount(), 2);
     assert.ok(scriptsExecuted.some((s) => s.includes('__antifanFontFinderActive = false')));
+  });
+  it('1b. executes Font Finder on both desktop and mobile WebContents in split review mode', () => {
+    const { ctx, scriptsExecuted, tabs } = createMockContext();
+    const tab1 = tabs.get('tab-1')!;
+    const mobileScripts: string[] = [];
+    const mockMobileWc = {
+      isDestroyed: () => false,
+      executeJavaScript: async (script: string) => {
+        mobileScripts.push(script);
+        return undefined;
+      },
+    };
+    tab1.state.splitMode = true;
+    tab1.mobileView = { webContents: mockMobileWc } as any;
+
+    const devTools = new TabDevToolsHost(ctx);
+    devTools.startFontFinder();
+    assert.strictEqual(devTools.getIsFontFinderActive(), true);
+    assert.ok(scriptsExecuted.some((s) => s.includes('__antifanFontFinderActive')));
+    assert.ok(mobileScripts.some((s) => s.includes('__antifanFontFinderActive')));
+
+    devTools.stopFontFinder();
+    assert.strictEqual(devTools.getIsFontFinderActive(), false);
+    assert.ok(mobileScripts.some((s) => s.includes('__antifanFontFinderActive = false')));
   });
 
   it('2. toggles GPU Lens, captures snapshot, and cleans up', async () => {
