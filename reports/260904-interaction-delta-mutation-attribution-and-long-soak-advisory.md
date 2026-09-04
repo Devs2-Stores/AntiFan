@@ -3,7 +3,7 @@
 
 **Date:** 2026-09-04  
 **Project:** `antifan-browser-desktop`  
-**Current Audited HEAD:** `6960d88` (`feat(interaction): add action causality tracking to traceInteraction and sync advisory metadata`)  
+**Current Audited HEAD:** `7ec1d7e` (`fix(interaction): preserve tier in trusted type and add real host trace integration tests`)  
 **Methodology:** `ak:brainstorm` (Bounded Delivery Contract + Deep Empirical Dissection)  
 
 ---
