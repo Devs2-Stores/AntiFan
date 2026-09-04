@@ -163,4 +163,100 @@ describe('Advanced Inspection Browser Capabilities', () => {
     assert.deepStrictEqual((res.beforeStyles as { typography: { color: string } }).typography.color, 'black');
     assert.deepStrictEqual((res.afterStyles as { typography: { color: string } }).typography.color, 'red');
   });
+
+  it('registers and executes browser.inspect_layout and anti.inspect.layout via evalJs', async () => {
+    let executedScript: string | null = null;
+    let targetTab: string | null = null;
+    let targetPane: string | undefined = undefined;
+
+    const mockHost: BrowserHostPort = {
+      getTabList: () => [{ id: 'tab-123' }],
+      navigate: () => true,
+      reload: () => true,
+      getDom: async () => '<html></html>',
+      captureScreenshot: async () => 'base64img',
+      evalJs: async (script, tabId, paneId) => {
+        executedScript = script;
+        targetTab = tabId || null;
+        targetPane = paneId;
+        return {
+          ok: true,
+          viewport: { width: 1440, height: 900, scrollX: 0, scrollY: 0 },
+          selectors: {
+            '.item': [
+              {
+                tag: 'div',
+                className: 'item',
+                rect: { top: 10, left: 20, width: 200, height: 100 },
+                boxModel: {
+                  padding: { top: 10, right: 10, bottom: 10, left: 10 },
+                  margin: { top: 0, right: 0, bottom: 0, left: 0 },
+                  border: { top: 1, right: 1, bottom: 1, left: 1 },
+                },
+                typography: { fontSize: '16px', fontWeight: '400' },
+                layout: { display: 'flex', gap: '8px' },
+              },
+            ],
+          },
+        };
+      },
+    };
+
+    const catalogue = new CapabilityCatalogue(catalogueOptions);
+    const controlPort = new BrowserControlPort(mockHost);
+    registerBrowserCapabilities(catalogue, controlPort);
+
+    const cap = catalogue.get('browser.inspect_layout');
+    assert.ok(cap);
+    assert.strictEqual(cap.risk, 'read');
+
+    const res = await cap.execute({ selectors: ['.item'], paneId: 'mobile' }, mockContext) as Record<string, unknown>;
+    assert.ok(res);
+    assert.strictEqual((res as { ok: boolean }).ok, true);
+    assert.strictEqual(targetTab, 'tab-123');
+    assert.strictEqual(targetPane, 'mobile');
+    assert.ok(typeof executedScript === 'string' && (executedScript as string).includes('.item'));
+
+    const aliasCap = catalogue.get('anti.inspect.layout');
+    assert.ok(aliasCap);
+    assert.strictEqual(aliasCap.risk, 'read');
+  });
+
+  it('registers and executes browser.style_override and anti.browser.style_override', async () => {
+    let executedScript: string | null = null;
+    let targetTab: string | null = null;
+
+    const mockHost: BrowserHostPort = {
+      getTabList: () => [{ id: 'tab-123' }],
+      navigate: () => true,
+      reload: () => true,
+      getDom: async () => '<html></html>',
+      captureScreenshot: async () => 'base64img',
+      evalJs: async (script, tabId) => {
+        executedScript = script;
+        targetTab = tabId || null;
+        return { ok: true, action: 'apply', scopeId: 'test-scope', activeScopes: ['test-scope'] };
+      },
+    };
+
+    const catalogue = new CapabilityCatalogue(catalogueOptions);
+    const controlPort = new BrowserControlPort(mockHost);
+    registerBrowserCapabilities(catalogue, controlPort);
+
+    const cap = catalogue.get('browser.style_override');
+    assert.ok(cap);
+    assert.strictEqual(cap.risk, 'write');
+
+    const res = await cap.execute({ css: 'body { background: red; }', scopeId: 'test-scope', action: 'apply' }, mockContext) as Record<string, unknown>;
+    assert.ok(res);
+    assert.strictEqual((res as { ok: boolean }).ok, true);
+    assert.strictEqual((res as { scopeId: string }).scopeId, 'test-scope');
+    assert.strictEqual(targetTab, 'tab-123');
+    assert.ok(typeof executedScript === 'string' && (executedScript as string).includes('data-antifan-override'));
+
+    const aliasCap = catalogue.get('anti.browser.style_override');
+    assert.ok(aliasCap);
+    const previewCap = catalogue.get('anti.theme.preview_css');
+    assert.ok(previewCap);
+  });
 });

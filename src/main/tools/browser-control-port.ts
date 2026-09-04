@@ -1154,6 +1154,135 @@ export class BrowserControlPort {
     });
   }
 
+  async inspectLayout(
+    target: BrowserTarget,
+    params: { selector?: string; selectors?: string[]; tabId?: string; paneId?: 'desktop' | 'mobile' } = {},
+    explicitTabId?: string,
+    paneId?: 'desktop' | 'mobile'
+  ): Promise<Record<string, unknown>> {
+    const tabId = this.resolveTargetTab(target, explicitTabId || params.tabId);
+    const effectivePane = paneId || params.paneId || 'desktop';
+
+    const selectors = Array.from(new Set([
+      ...(params.selectors && Array.isArray(params.selectors) ? params.selectors : []),
+      ...(params.selector ? [params.selector] : [])
+    ])).filter((s): s is string => typeof s === 'string' && s.trim().length > 0);
+
+    const script = `(() => {
+      try {
+        const parsePx = (v) => { const n = parseFloat(v); return isNaN(n) ? 0 : Math.round(n * 100) / 100; };
+        const vp = {
+          width: window.innerWidth,
+          height: window.innerHeight,
+          scrollX: window.scrollX,
+          scrollY: window.scrollY
+        };
+        const targets = ${JSON.stringify(selectors)};
+        const results = {};
+
+        for (const sel of targets) {
+          const nodes = Array.from(document.querySelectorAll(sel)).slice(0, 5);
+          results[sel] = nodes.map((node) => {
+            const cs = window.getComputedStyle(node);
+            const r = node.getBoundingClientRect();
+            return {
+              tag: node.tagName.toLowerCase(),
+              className: typeof node.className === 'string' ? node.className : '',
+              textSnippet: (node.textContent || '').trim().slice(0, 80),
+              rect: {
+                top: Math.round(r.top * 100) / 100,
+                left: Math.round(r.left * 100) / 100,
+                bottom: Math.round(r.bottom * 100) / 100,
+                right: Math.round(r.right * 100) / 100,
+                width: Math.round(r.width * 100) / 100,
+                height: Math.round(r.height * 100) / 100
+              },
+              boxModel: {
+                padding: { top: parsePx(cs.paddingTop), right: parsePx(cs.paddingRight), bottom: parsePx(cs.paddingBottom), left: parsePx(cs.paddingLeft) },
+                margin: { top: parsePx(cs.marginTop), right: parsePx(cs.marginRight), bottom: parsePx(cs.marginBottom), left: parsePx(cs.marginLeft) },
+                border: { top: parsePx(cs.borderTopWidth), right: parsePx(cs.borderRightWidth), bottom: parsePx(cs.borderBottomWidth), left: parsePx(cs.borderLeftWidth) }
+              },
+              typography: {
+                fontSize: cs.fontSize,
+                fontWeight: cs.fontWeight,
+                lineHeight: cs.lineHeight,
+                fontFamily: cs.fontFamily,
+                color: cs.color
+              },
+              layout: {
+                display: cs.display,
+                position: cs.position,
+                zIndex: cs.zIndex,
+                gap: cs.gap || undefined,
+                overflow: cs.overflow
+              }
+            };
+          });
+        }
+        return { ok: true, viewport: vp, selectors: results };
+      } catch (err) {
+        return { ok: false, error: String(err) };
+      }
+    })()`;
+
+    return this.passivePool.execute(tabId, async () => {
+      const res = await this.host.evalJs(script, tabId, effectivePane);
+      return res as Record<string, unknown>;
+    });
+  }
+
+  async styleOverride(
+    target: BrowserTarget,
+    params: { css?: string; scopeId?: string; action?: 'apply' | 'remove' | 'clear'; tabId?: string; paneId?: 'desktop' | 'mobile' } = {},
+    explicitTabId?: string,
+    paneId?: 'desktop' | 'mobile'
+  ): Promise<Record<string, unknown>> {
+    const tabId = this.resolveTargetTab(target, explicitTabId || params.tabId);
+    const effectivePane = paneId || params.paneId || 'desktop';
+    const action = params.action || 'apply';
+    const scopeId = (params.scopeId || 'default').trim().replace(/[^a-zA-Z0-9_-]/g, '_');
+    const css = params.css || '';
+
+    const script = `(() => {
+      try {
+        const action = ${JSON.stringify(action)};
+        const scopeId = ${JSON.stringify(scopeId)};
+        const css = ${JSON.stringify(css)};
+        const ATTR = 'data-antifan-override';
+
+        if (action === 'clear') {
+          const all = document.querySelectorAll('style[' + ATTR + ']');
+          all.forEach(el => el.remove());
+          return { ok: true, action: 'clear', count: all.length };
+        }
+
+        if (action === 'remove') {
+          const el = document.querySelector('style[' + ATTR + '="' + scopeId + '"]');
+          const removed = !!el;
+          if (el) el.remove();
+          return { ok: true, action: 'remove', scopeId, removed };
+        }
+
+        let el = document.querySelector('style[' + ATTR + '="' + scopeId + '"]');
+        if (!el) {
+          el = document.createElement('style');
+          el.setAttribute(ATTR, scopeId);
+          document.head.appendChild(el);
+        }
+        el.textContent = css;
+        const active = Array.from(document.querySelectorAll('style[' + ATTR + ']')).map(s => s.getAttribute(ATTR));
+        return { ok: true, action: 'apply', scopeId, activeScopes: active };
+      } catch (err) {
+        return { ok: false, error: String(err) };
+      }
+    })()`;
+
+    return this.passivePool.execute(tabId, async () => {
+      const res = await this.host.evalJs(script, tabId, effectivePane);
+      return res as Record<string, unknown>;
+    });
+  }
+
   async traceInteraction(
     target: BrowserTarget,
     runId: string,
@@ -2617,7 +2746,7 @@ export class BrowserControlPort {
       if (operationType === 'write' && target?.tabId && target.tabId.trim().length > 0 && candidate !== target.tabId.trim()) {
         const isAllowed = this.host.isTabAllowed ? this.host.isTabAllowed(target.tabId.trim(), candidate) : false;
         if (!isAllowed) {
-          throw new CapabilityError('TARGET_MISMATCH', `Explicit tabId "${explicitTabId}" does not match target tabId "${target.tabId}"`);
+          throw new CapabilityError('TARGET_MISMATCH', `Explicit tabId "${explicitTabId}" does not match target tabId "${target.tabId}". Note: In split review mode, use the bound tabId with paneId: "mobile" to target the mobile pane.`);
         }
       }
       resolved = candidate;

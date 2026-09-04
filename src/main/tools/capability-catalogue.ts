@@ -179,7 +179,7 @@ export class CapabilityCatalogue {
         if (reqTabId && context.browserTarget?.tabId && reqTabId !== context.browserTarget.tabId) {
           const isAllowed = this.options.isTabAllowed ? this.options.isTabAllowed(context.browserTarget.tabId, reqTabId) : false;
           if (!isAllowed) {
-            throw new CapabilityError('TARGET_MISMATCH', `Tab ID mismatch: expected ${context.browserTarget.tabId}, got ${reqTabId}`);
+            throw new CapabilityError('TARGET_MISMATCH', `Tab ID mismatch: expected ${context.browserTarget.tabId}, got ${reqTabId}. Note: In split review mode, use the bound tabId with paneId: "mobile" to target the mobile pane.`);
           }
         }
       }

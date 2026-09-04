@@ -1635,6 +1635,104 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
   });
 
   catalogue.register({
+    name: 'browser.inspect_layout',
+    description: 'Inspect layout, box model (padding, margin, border), bounding rects, and typography for one or multiple selectors in a single atomic pass',
+    risk: 'read',
+    requiresBrowserTarget: true,
+    policy: makeBrowserPolicy({ effect: 'read', risk: 'read', requiresBrowserTarget: true, lane: 'short-passive' }),
+    inputSchema: {
+      type: 'object',
+      properties: {
+        selector: { type: 'string', description: 'Single CSS selector to inspect' },
+        selectors: { type: 'array', items: { type: 'string' }, description: 'Array of CSS selectors to inspect in a single pass' },
+        tabId: { type: 'string', description: 'Optional tab ID' },
+        paneId: { type: 'string', enum: ['desktop', 'mobile'], description: 'Optional split review pane' },
+      },
+    },
+    execute: (params: { selector?: string; selectors?: string[]; tabId?: string; paneId?: 'desktop' | 'mobile' }, context) =>
+      browser.inspectLayout(context.browserTarget as BrowserTarget, params, params?.tabId, params?.paneId),
+  });
+
+  catalogue.register({
+    name: 'anti.inspect.layout',
+    description: 'Alias for browser.inspect_layout',
+    risk: 'read',
+    requiresBrowserTarget: true,
+    policy: makeBrowserPolicy({ effect: 'read', risk: 'read', requiresBrowserTarget: true, lane: 'short-passive' }),
+    inputSchema: {
+      type: 'object',
+      properties: {
+        selector: { type: 'string', description: 'Single CSS selector to inspect' },
+        selectors: { type: 'array', items: { type: 'string' }, description: 'Array of CSS selectors to inspect in a single pass' },
+        tabId: { type: 'string', description: 'Optional tab ID' },
+        paneId: { type: 'string', enum: ['desktop', 'mobile'], description: 'Optional split review pane' },
+      },
+    },
+    execute: (params: { selector?: string; selectors?: string[]; tabId?: string; paneId?: 'desktop' | 'mobile' }, context) =>
+      browser.inspectLayout(context.browserTarget as BrowserTarget, params, params?.tabId, params?.paneId),
+  });
+
+  catalogue.register({
+    name: 'browser.style_override',
+    description: 'Safely inject, update, remove, or clear temporary CSS overrides in page for non-destructive layout/style testing',
+    risk: 'write',
+    requiresBrowserTarget: true,
+    policy: makeBrowserPolicy({ effect: 'idempotent-write', risk: 'write', requiresBrowserTarget: true, lane: 'viewport-gate' }),
+    inputSchema: {
+      type: 'object',
+      properties: {
+        css: { type: 'string', description: 'CSS rules to inject or update' },
+        scopeId: { type: 'string', description: 'Scope identifier for this override (default: "default")' },
+        action: { type: 'string', enum: ['apply', 'remove', 'clear'], description: 'Action: apply, remove, or clear' },
+        tabId: { type: 'string', description: 'Optional tab ID' },
+        paneId: { type: 'string', enum: ['desktop', 'mobile'], description: 'Optional split review pane' },
+      },
+    },
+    execute: (params: { css?: string; scopeId?: string; action?: 'apply' | 'remove' | 'clear'; tabId?: string; paneId?: 'desktop' | 'mobile' }, context) =>
+      browser.styleOverride(context.browserTarget as BrowserTarget, params, params?.tabId, params?.paneId),
+  });
+
+  catalogue.register({
+    name: 'anti.browser.style_override',
+    description: 'Alias for browser.style_override',
+    risk: 'write',
+    requiresBrowserTarget: true,
+    policy: makeBrowserPolicy({ effect: 'idempotent-write', risk: 'write', requiresBrowserTarget: true, lane: 'viewport-gate' }),
+    inputSchema: {
+      type: 'object',
+      properties: {
+        css: { type: 'string', description: 'CSS rules to inject or update' },
+        scopeId: { type: 'string', description: 'Scope identifier for this override (default: "default")' },
+        action: { type: 'string', enum: ['apply', 'remove', 'clear'], description: 'Action: apply, remove, or clear' },
+        tabId: { type: 'string', description: 'Optional tab ID' },
+        paneId: { type: 'string', enum: ['desktop', 'mobile'], description: 'Optional split review pane' },
+      },
+    },
+    execute: (params: { css?: string; scopeId?: string; action?: 'apply' | 'remove' | 'clear'; tabId?: string; paneId?: 'desktop' | 'mobile' }, context) =>
+      browser.styleOverride(context.browserTarget as BrowserTarget, params, params?.tabId, params?.paneId),
+  });
+
+  catalogue.register({
+    name: 'anti.theme.preview_css',
+    description: 'Alias for browser.style_override',
+    risk: 'write',
+    requiresBrowserTarget: true,
+    policy: makeBrowserPolicy({ effect: 'idempotent-write', risk: 'write', requiresBrowserTarget: true, lane: 'viewport-gate' }),
+    inputSchema: {
+      type: 'object',
+      properties: {
+        css: { type: 'string', description: 'CSS rules to inject or update' },
+        scopeId: { type: 'string', description: 'Scope identifier for this override (default: "default")' },
+        action: { type: 'string', enum: ['apply', 'remove', 'clear'], description: 'Action: apply, remove, or clear' },
+        tabId: { type: 'string', description: 'Optional tab ID' },
+        paneId: { type: 'string', enum: ['desktop', 'mobile'], description: 'Optional split review pane' },
+      },
+    },
+    execute: (params: { css?: string; scopeId?: string; action?: 'apply' | 'remove' | 'clear'; tabId?: string; paneId?: 'desktop' | 'mobile' }, context) =>
+      browser.styleOverride(context.browserTarget as BrowserTarget, params, params?.tabId, params?.paneId),
+  });
+
+  catalogue.register({
     name: 'browser.inspect_region',
     description: 'Inspect spatial region bounds, collecting intersecting visible DOM elements with coordinates and z-index',
     risk: 'read',
