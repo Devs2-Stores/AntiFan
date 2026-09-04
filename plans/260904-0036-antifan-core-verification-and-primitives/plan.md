@@ -1,7 +1,7 @@
 ---
 title: "AntiFan Core Runtime Verification, 5 Primitives & Verification Contracts"
 description: "Kế hoạch kỹ thuật triển khai kiến trúc AntiFan Universal Web/UI Runtime theo bản đại chốt: xác nhận Core Runtime, thiết lập Ngũ Đại Nguyên Thủy, Verification Contract Engine và 4 chốt chặn cơ học."
-status: completed
+status: in_progress
 priority: P1
 effort: "5d"
 tags: ["antifan", "core", "verification-authority", "anti-hallucination", "primitives"]
@@ -33,7 +33,7 @@ Kế hoạch này hiện thực hóa toàn bộ các quyết sách đã được
 
 | # | Phase | Status | Priority | Effort |
 |---|-------|--------|----------|--------|
-| 1 | [Phase 1: Core Runtime Verification & Soak Baseline](./phase-01-start.md) | Complete | P1 | 1d |
+| 1 | [Phase 1: Core Runtime Verification & Soak Baseline](./phase-01-start.md) | In Progress (Soak verification pending) | P1 | 1d |
 | 2 | [Phase 2: Verification Contracts & 5 Primitives](./phase-02-verification-contracts-and-5-primitives.md) | Complete | P1 | 1.5d |
 | 3 | [Phase 3: Semantic Evidence Lean & Mechanical Guardrails](./phase-03-semantic-evidence-and-mechanical-guardrails.md) | Complete | P1 | 1.5d |
 | 4 | [Phase 4: Modular Gates & Benchmark Certification](./phase-04-modular-gates-and-benchmark-certification.md) | Complete | P1 | 1d |

@@ -4,6 +4,9 @@ import * as os from 'node:os';
 import * as crypto from 'node:crypto';
 import { buildTreeWalkerSanitizerScript } from './adapters/tree-walker-sanitizer';
 import { BrowserTarget, CapabilityError, ArtifactRef, assertExactBrowserTarget, digestText } from '../../shared/control-plane-contracts';
+import { computeSparseInteractionDelta } from '../verification/interaction-delta.js';
+import { attributeMutations } from '../verification/mutation-attribution.js';
+import { ActionBoundary, RawBehaviorScope } from '../verification/interaction-contract.js';
 export interface BrowserHostPort {
   hasTab?(tabId?: string | null): boolean;
   adoptChildTab?(primaryOrBoundTabId: string, childTabId: string, generation?: number | string, source?: 'agent_spawned' | 'native_window_open' | 'user_attached', parentTabId?: string): boolean;
@@ -1177,26 +1180,72 @@ export class BrowserControlPort {
           if (!el && sel) el = document.querySelector(sel);
           if (!el) el = document.body;
           window.__antifanMotionSamples = [];
+          window.__antifanMutations = [];
+          window.__antifanMutationsTruncated = false;
           let active = true;
-          const startT = performance.now();
+          let actionStartT = null;
+          const armT = performance.now();
+          window.__antifanMarkAction = () => {
+            actionStartT = performance.now();
+            return actionStartT;
+          };
+
           const tick = () => {
             if (!active) return;
             const now = performance.now();
             const cs = window.getComputedStyle(el);
+            const baseT = actionStartT !== null ? actionStartT : armT;
             window.__antifanMotionSamples.push({
-              t: Math.round(now - startT),
+              t: Math.max(0, Math.round(now - baseT)),
               transform: cs.transform || 'none',
               opacity: cs.opacity || '1',
               width: cs.width || '0px',
               height: cs.height || '0px',
             });
-            if (now - startT < 2500) {
+            if (now - armT < 2500) {
               requestAnimationFrame(tick);
             }
           };
           requestAnimationFrame(tick);
+
+          let mo = null;
+          try {
+            mo = new MutationObserver((records) => {
+              const now = performance.now();
+              const baseT = actionStartT !== null ? actionStartT : armT;
+              for (const r of records) {
+                if (window.__antifanMutations.length >= 100) {
+                  window.__antifanMutationsTruncated = true;
+                  break;
+                }
+                const tgt = r.target;
+                window.__antifanMutations.push({
+                  t: Math.max(0, Math.round(now - baseT)),
+                  type: r.type,
+                  targetTag: tgt && tgt.nodeName ? tgt.nodeName.toLowerCase() : '',
+                  targetId: tgt && tgt.id ? tgt.id : undefined,
+                  targetClass: tgt && typeof tgt.className === 'string' ? tgt.className : undefined,
+                  attributeName: r.attributeName || undefined,
+                  addedCount: r.addedNodes ? r.addedNodes.length : 0,
+                  removedCount: r.removedNodes ? r.removedNodes.length : 0,
+                });
+              }
+            });
+            mo.observe(document.documentElement || document.body, {
+              subtree: true,
+              childList: true,
+              attributes: true,
+              characterData: true,
+            });
+          } catch {}
+
           window.__stopAntifanMotion = () => {
             active = false;
+            if (mo) {
+              try { mo.disconnect(); mo = null; } catch {}
+            }
+            const stopT = performance.now();
+            const baseT = actionStartT !== null ? actionStartT : armT;
             const cs = window.getComputedStyle(el);
             let animEasing = '';
             let animProps = [];
@@ -1221,12 +1270,24 @@ export class BrowserControlPort {
             } catch {}
             const res = {
               samples: window.__antifanMotionSamples || [],
+              mutations: window.__antifanMutations || [],
+              wasTruncated: Boolean(window.__antifanMutationsTruncated),
+              armT,
+              actionStartT: baseT,
+              stopT,
+              durationMs: Math.max(0, Math.round(stopT - baseT)),
               computedTimingFunction: cs.transitionTimingFunction || 'none',
               computedTransitionProperty: cs.transitionProperty || 'none',
               animEasing,
               animProps,
             };
-            try { delete window.__antifanMotionSamples; delete window.__stopAntifanMotion; } catch {}
+            try {
+              delete window.__stopAntifanMotion;
+              delete window.__antifanMotionSamples;
+              delete window.__antifanMutations;
+              delete window.__antifanMutationsTruncated;
+              delete window.__antifanMarkAction;
+            } catch {}
             return res;
           };
           return true;
@@ -1234,10 +1295,31 @@ export class BrowserControlPort {
           return false;
         }
       })()`;
+      let observerArmed = false;
       try {
-        await this.host.evalJs(observerScript, tabId, effectivePane);
-      } catch {}
+        const armRes = await this.host.evalJs(observerScript, tabId, effectivePane);
+        observerArmed = armRes === true;
+      } catch {
+        observerArmed = false;
+      }
 
+      let observerStopped = false;
+      const stopObserver = async (): Promise<any | null> => {
+        if (observerStopped) return null;
+        observerStopped = true;
+        if (!observerArmed) return null;
+        try {
+          return await this.host.evalJs('window.__stopAntifanMotion ? window.__stopAntifanMotion() : null', tabId, effectivePane);
+        } catch {
+          return null;
+        }
+      };
+
+      if (observerArmed) {
+        try {
+          await this.host.evalJs('window.__antifanMarkAction ? window.__antifanMarkAction() : null', tabId, effectivePane);
+        } catch {}
+      }
       // Execute Action with Causality Tracking
       let actionExecuted = false;
       let actionError: string | undefined;
@@ -1408,6 +1490,7 @@ export class BrowserControlPort {
       // If the base action failed to execute or dispatch, fail closed immediately.
       // Prevents ambient background mutations (e.g. carousel autoplay, clocks) from falsely certifying success.
       if (!actionExecuted) {
+        await stopObserver();
         const durationMs = Date.now() - startTime;
         const isPrimaryTab = target?.tabId === tabId;
         return {
@@ -1426,6 +1509,13 @@ export class BrowserControlPort {
           evidence: {
             causalityViolation: true,
             error: actionError || `Underlying action '${params.action}' reported failure or target was not actionable. Ambient page mutations cannot be attributed to this interaction.`,
+            observationIntegrity: {
+              status: 'UNAVAILABLE',
+              reason: observerArmed ? 'ACTION_ABORTED' : 'OBSERVER_SETUP_FAILED',
+              details: 'Action failed before execution; observation was aborted without settle.',
+              totalObserved: 0,
+              bufferLimit: 100,
+            },
           },
           beforeStyles,
           afterStyles: {},
@@ -1438,8 +1528,9 @@ export class BrowserControlPort {
       await settlePromise;
 
       let motionTrace: Record<string, unknown> | undefined;
+      let rawMotion: any = null;
       try {
-        const rawMotion = await this.host.evalJs('window.__stopAntifanMotion ? window.__stopAntifanMotion() : null', tabId, effectivePane) as any;
+        rawMotion = await stopObserver();
         if (rawMotion && Array.isArray(rawMotion.samples) && rawMotion.samples.length > 0) {
           const samples = rawMotion.samples as Array<{ t: number; transform: string; opacity: string; width: string; height: string }>;
           let firstChangeIndex = -1;
@@ -1600,6 +1691,34 @@ export class BrowserControlPort {
       // Synthesize Semantic Verdict and Evidence Delta
       const evaluation = this.evaluateBehaviorEvidence(beforeState, afterState, beforeStyles, afterStyles);
 
+      // Compute Sparse Interaction Delta (Pure Domain Function)
+      const sparseDelta = computeSparseInteractionDelta(beforeState as RawBehaviorScope, afterState as RawBehaviorScope);
+
+      // Compute Mutation Attribution (Pure Domain Function)
+      let mutationAttribution = undefined;
+      if (observerArmed && rawMotion) {
+        const pageActionStart = rawMotion.actionStartT ?? rawMotion.armT ?? 0;
+        const pageStop = rawMotion.stopT ?? pageActionStart;
+        const effectiveWindowMs = Math.max(settleWait + 100, Math.round(pageStop - pageActionStart) + 50);
+        const actionBoundary: ActionBoundary = {
+          armedAt: rawMotion.armT ?? pageActionStart,
+          actionStartedAt: pageActionStart,
+          settledAt: pageStop,
+          attributionWindowMs: effectiveWindowMs,
+          attributionDeadline: pageActionStart + effectiveWindowMs,
+        };
+        mutationAttribution = attributeMutations(
+          rawMotion.mutations || [],
+          actionBoundary,
+          { selector: params.selector, ref: params.ref },
+          { bufferLimit: 100, wasTruncated: Boolean(rawMotion.wasTruncated) }
+        );
+      }
+
+      const observationIntegrity = observerArmed
+        ? (mutationAttribution?.integrity ?? { status: 'COMPLETE', reason: 'CLEAN_OBSERVATION', totalObserved: 0, bufferLimit: 100 })
+        : { status: 'UNAVAILABLE', reason: 'OBSERVER_SETUP_FAILED', totalObserved: 0, bufferLimit: 100 };
+
       const isPrimaryTab = target?.tabId === tabId;
       return {
         tabId,
@@ -1614,7 +1733,12 @@ export class BrowserControlPort {
         verified: evaluation.verified,
         verdict: evaluation.verdict,
         confidence: evaluation.confidence,
-        evidence: evaluation.evidence,
+        evidence: {
+          ...evaluation.evidence,
+          delta: sparseDelta,
+          attribution: mutationAttribution,
+          observationIntegrity,
+        },
         beforeStyles,
         afterStyles,
         motion: motionTrace,

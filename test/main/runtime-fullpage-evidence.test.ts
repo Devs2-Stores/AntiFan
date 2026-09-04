@@ -149,8 +149,9 @@ describe('Runtime Full-Page Evidence & 5D Parity Tests', () => {
     const mockHost = {
       hasTab: () => true,
       getTabList: () => [{ id: 'tab-test' }],
+      agentHover: async () => true,
       evalJs: async (script: string) => {
-        if (script.includes('window.__stopAntifanMotion')) {
+        if (script.includes('window.__stopAntifanMotion ?')) {
           return {
             samples: [
               { t: 0, transform: 'scale(1)', opacity: '1', width: '100px', height: '50px' },
@@ -166,6 +167,7 @@ describe('Runtime Full-Page Evidence & 5D Parity Tests', () => {
           };
         }
         if (script.includes('__antifanMotionSamples')) {
+          assert.doesNotThrow(() => new Function(script), 'Emitted observerScript must be syntactically valid JavaScript');
           return true;
         }
         return {};
@@ -225,7 +227,7 @@ describe('Runtime Full-Page Evidence & 5D Parity Tests', () => {
       hasTab: () => true,
       getTabList: () => [{ id: 'tab-test' }],
       evalJs: async (script: string) => {
-        if (script.includes('window.__stopAntifanMotion')) {
+        if (script.includes('window.__stopAntifanMotion ?')) {
           return {
             samples: [
               { t: 0, transform: 'none', opacity: '0', width: '100px', height: '50px' },
@@ -271,7 +273,7 @@ describe('Runtime Full-Page Evidence & 5D Parity Tests', () => {
       getTabList: () => [{ id: 'tab-test' }],
       agentClick: async () => true,
       evalJs: async (script: string) => {
-        if (script.includes('window.__stopAntifanMotion')) {
+        if (script.includes('window.__stopAntifanMotion ?')) {
           return {
             samples: [
               { t: 0, transform: 'matrix3d(1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1)', opacity: '1', width: '100px', height: '50px' },
