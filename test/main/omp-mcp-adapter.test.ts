@@ -585,4 +585,117 @@ describe('OMP MCP stdio proxy security & bootstrap fail-closed contract', () => 
       await new Promise<void>((resolve) => wss.close(() => resolve()));
     }
   });
+
+  it('routes evaluate on background tab headlessly without invoking switch-tab', async () => {
+    const { spawn } = await import('node:child_process');
+    const { WebSocketServer } = await import('ws');
+    const scriptPath = fs.existsSync(path.resolve(__dirname, '../../../scripts/antifan-omp-mcp.cjs'))
+      ? path.resolve(__dirname, '../../../scripts/antifan-omp-mcp.cjs')
+      : path.resolve(__dirname, '../../scripts/antifan-omp-mcp.cjs');
+
+    const wss = new WebSocketServer({ host: '127.0.0.1', port: 0 });
+    await new Promise<void>((resolve) => wss.once('listening', () => resolve()));
+    const port = (wss.address() as any).port;
+
+    const dispatchedNames: string[] = [];
+    let evaluateReceivedParams: any = null;
+
+    wss.on('connection', (ws) => {
+      ws.on('message', (raw) => {
+        try {
+          const msg = JSON.parse(raw.toString());
+          if (msg.method === 'antifan.capability.dispatch') {
+            dispatchedNames.push(msg.params?.name);
+            if (msg.params?.name === 'anti.browser.evaluate') {
+              evaluateReceivedParams = msg.params?.params;
+              ws.send(JSON.stringify({
+                id: msg.id,
+                success: true,
+                data: {
+                  data: { result: 'evaluation-success' },
+                },
+              }));
+            } else {
+              ws.send(JSON.stringify({
+                id: msg.id,
+                success: true,
+                data: { data: { switched: true } },
+              }));
+            }
+          }
+        } catch {}
+      });
+    });
+
+    const bootstrap = {
+      port,
+      secret: 'secret-eval-no-switch',
+      attachmentId: 'att-eval-no-switch',
+      authorityRevision: 'rev-eval-1',
+      tabId: 'tab-user-foreground',
+    };
+
+    const child = spawn(process.execPath, [scriptPath], {
+      env: { ...process.env, ANTIFAN_MCP_BOOTSTRAP: JSON.stringify(bootstrap) },
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+
+    const sendJsonRpc = (msg: any) => child.stdin.write(JSON.stringify(msg) + '\n');
+
+    let received = '';
+    const responsePromise = new Promise<any>((resolve) => {
+      child.stdout.on('data', (chunk) => {
+        received += chunk.toString();
+        const lines = received.split('\n');
+        for (const line of lines) {
+          if (line.trim().length > 0) {
+            try {
+              const parsed = JSON.parse(line);
+              if (parsed.id === 40) resolve(parsed);
+            } catch {}
+          }
+        }
+      });
+    });
+
+    try {
+      sendJsonRpc({
+        jsonrpc: '2.0',
+        id: 0,
+        method: 'initialize',
+        params: {
+          protocolVersion: '2024-11-05',
+          capabilities: {},
+          clientInfo: { name: 'test', version: '1.0' },
+        },
+      });
+
+      // Execute evaluate on a different tabId (background tab)
+      sendJsonRpc({
+        jsonrpc: '2.0',
+        id: 40,
+        method: 'tools/call',
+        params: {
+          name: 'anti.browser.evaluate',
+          arguments: {
+            expression: 'document.title',
+            tabId: 'tab-agent-background',
+          },
+        },
+      });
+
+      const res = await responsePromise;
+      assert.strictEqual(res.result.isError, undefined);
+      assert.ok(evaluateReceivedParams, 'Evaluate capability must be dispatched');
+      assert.strictEqual(evaluateReceivedParams.tabId, 'tab-agent-background');
+      assert.strictEqual(
+        dispatchedNames.includes('browser.switch-tab'),
+        false,
+        `Expected zero switch-tab calls, but received: ${JSON.stringify(dispatchedNames)}`
+      );
+    } finally {
+      child.kill();
+      await new Promise<void>((resolve) => wss.close(() => resolve()));
+    }
+  });
 });

@@ -309,17 +309,7 @@ async function invoke(method, params = {}, callerRequestId) {
   const mapped = CAPABILITY_MAP[method] || method;
   let effectiveParams = { ...params };
   const boundTabId = bootstrap.tabId || process.env.ANTIFAN_BOUND_TAB_ID;
-  if (effectiveParams.tabId && boundTabId && effectiveParams.tabId !== boundTabId) {
-    if (mapped !== 'browser.switch-tab' && mapped !== 'browser.close-tab') {
-      try {
-        await invoke('anti.browser.tabs.activate', { tabId: effectiveParams.tabId }, callerRequestId);
-        bootstrap.tabId = effectiveParams.tabId;
-        process.env.ANTIFAN_BOUND_TAB_ID = effectiveParams.tabId;
-      } catch (switchErr) {
-        process.stderr.write(`[antifan-omp-mcp] Auto-rebinding to tab ${effectiveParams.tabId} failed: ${switchErr instanceof Error ? switchErr.message : String(switchErr)}\n`);
-      }
-    }
-  } else if (!effectiveParams.tabId && boundTabId) {
+  if (!effectiveParams.tabId && boundTabId) {
     effectiveParams.tabId = boundTabId;
   }
   if (mapped === 'artifact.read') {
