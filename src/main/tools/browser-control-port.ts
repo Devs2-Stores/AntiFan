@@ -6,7 +6,7 @@ import { buildTreeWalkerSanitizerScript } from './adapters/tree-walker-sanitizer
 import { BrowserTarget, CapabilityError, ArtifactRef, assertExactBrowserTarget, digestText } from '../../shared/control-plane-contracts';
 import { computeSparseInteractionDelta } from '../verification/interaction-delta.js';
 import { attributeMutations } from '../verification/mutation-attribution.js';
-import { ActionBoundary, RawBehaviorScope } from '../verification/interaction-contract.js';
+import { ActionBoundary, RawBehaviorScope, ObservationIntegrity } from '../verification/interaction-contract.js';
 export interface BrowserHostPort {
   hasTab?(tabId?: string | null): boolean;
   adoptChildTab?(primaryOrBoundTabId: string, childTabId: string, generation?: number | string, source?: 'agent_spawned' | 'native_window_open' | 'user_attached', parentTabId?: string): boolean;
@@ -1212,7 +1212,6 @@ export class BrowserControlPort {
           try {
             mo = new MutationObserver((records) => {
               const now = performance.now();
-              const baseT = actionStartT !== null ? actionStartT : armT;
               for (const r of records) {
                 if (window.__antifanMutations.length >= 100) {
                   window.__antifanMutationsTruncated = true;
@@ -1220,7 +1219,7 @@ export class BrowserControlPort {
                 }
                 const tgt = r.target;
                 window.__antifanMutations.push({
-                  t: Math.max(0, Math.round(now - baseT)),
+                  tPage: now,
                   type: r.type,
                   targetTag: tgt && tgt.nodeName ? tgt.nodeName.toLowerCase() : '',
                   targetId: tgt && tgt.id ? tgt.id : undefined,
@@ -1237,15 +1236,15 @@ export class BrowserControlPort {
               attributes: true,
               characterData: true,
             });
-          } catch {}
-
+          } catch {
+            mo = null;
+          }
           window.__stopAntifanMotion = () => {
             active = false;
             if (mo) {
               try { mo.disconnect(); mo = null; } catch {}
             }
             const stopT = performance.now();
-            const baseT = actionStartT !== null ? actionStartT : armT;
             const cs = window.getComputedStyle(el);
             let animEasing = '';
             let animProps = [];
@@ -1268,14 +1267,23 @@ export class BrowserControlPort {
                 }
               }
             } catch {}
+            const actionBaseT = typeof actionStartT === 'number' ? actionStartT : null;
+            const normalizedMutations = (window.__antifanMutations || []).map((m) => {
+              const itemPageT = typeof m.tPage === 'number' ? m.tPage : armT;
+              return {
+                ...m,
+                t: actionBaseT !== null ? Math.round(itemPageT - actionBaseT) : Math.round(itemPageT - armT),
+              };
+            });
             const res = {
               samples: window.__antifanMotionSamples || [],
-              mutations: window.__antifanMutations || [],
+              mutations: normalizedMutations,
               wasTruncated: Boolean(window.__antifanMutationsTruncated),
               armT,
-              actionStartT: baseT,
+              actionStartT,
+              markerConfirmed: typeof actionStartT === 'number',
               stopT,
-              durationMs: Math.max(0, Math.round(stopT - baseT)),
+              durationMs: typeof actionStartT === 'number' ? Math.max(0, Math.round(stopT - actionStartT)) : Math.max(0, Math.round(stopT - armT)),
               computedTimingFunction: cs.transitionTimingFunction || 'none',
               computedTransitionProperty: cs.transitionProperty || 'none',
               animEasing,
@@ -1290,15 +1298,19 @@ export class BrowserControlPort {
             } catch {}
             return res;
           };
-          return true;
+          return {
+            armed: Boolean(mo && window.__stopAntifanMotion),
+            mutationObserver: Boolean(mo),
+            motionObserver: true,
+          };
         } catch {
-          return false;
+          return { armed: false, mutationObserver: false, motionObserver: false };
         }
       })()`;
       let observerArmed = false;
       try {
-        const armRes = await this.host.evalJs(observerScript, tabId, effectivePane);
-        observerArmed = armRes === true;
+        const armRes = (await this.host.evalJs(observerScript, tabId, effectivePane)) as any;
+        observerArmed = armRes === true || (armRes && typeof armRes === 'object' && armRes.armed === true && armRes.mutationObserver === true);
       } catch {
         observerArmed = false;
       }
@@ -1315,9 +1327,19 @@ export class BrowserControlPort {
         }
       };
 
+      let actionMarkerConfirmed = false;
+      let pageActionStartT: number | null = null;
       if (observerArmed) {
         try {
-          await this.host.evalJs('window.__antifanMarkAction ? window.__antifanMarkAction() : null', tabId, effectivePane);
+          const markRes = (await this.host.evalJs(
+            'window.__antifanMarkAction ? window.__antifanMarkAction() : null',
+            tabId,
+            effectivePane
+          )) as any;
+          if (typeof markRes === 'number' && Number.isFinite(markRes) && markRes >= 0) {
+            actionMarkerConfirmed = true;
+            pageActionStartT = markRes;
+          }
         } catch {}
       }
       // Execute Action with Causality Tracking
@@ -1696,16 +1718,34 @@ export class BrowserControlPort {
 
       // Compute Mutation Attribution (Pure Domain Function)
       let mutationAttribution = undefined;
-      if (observerArmed && rawMotion) {
-        const pageActionStart = rawMotion.actionStartT ?? rawMotion.armT ?? 0;
+      let observationIntegrity: ObservationIntegrity;
+
+      if (!observerArmed) {
+        observationIntegrity = {
+          status: 'UNAVAILABLE',
+          reason: 'OBSERVER_SETUP_FAILED',
+          details: 'In-page observer setup failed or was not armed',
+          totalObserved: 0,
+          bufferLimit: 100,
+        };
+      } else if (!actionMarkerConfirmed || typeof rawMotion?.actionStartT !== 'number') {
+        observationIntegrity = {
+          status: 'UNAVAILABLE',
+          reason: 'ACTION_MARKER_FAILED',
+          details: 'Action marker was not confirmed; cannot reliably align mutation lineage to action start',
+          totalObserved: Array.isArray(rawMotion?.mutations) ? rawMotion.mutations.length : 0,
+          bufferLimit: 100,
+        };
+      } else {
+        const pageActionStart = rawMotion.actionStartT;
         const pageStop = rawMotion.stopT ?? pageActionStart;
-        const effectiveWindowMs = Math.max(settleWait + 100, Math.round(pageStop - pageActionStart) + 50);
+        const policyWindowMs = Math.min(Math.max((params as any).attributionWindowMs || params.settleMs || 1000, 100), 5000);
         const actionBoundary: ActionBoundary = {
           armedAt: rawMotion.armT ?? pageActionStart,
           actionStartedAt: pageActionStart,
           settledAt: pageStop,
-          attributionWindowMs: effectiveWindowMs,
-          attributionDeadline: pageActionStart + effectiveWindowMs,
+          attributionWindowMs: policyWindowMs,
+          attributionDeadline: pageActionStart + policyWindowMs,
         };
         mutationAttribution = attributeMutations(
           rawMotion.mutations || [],
@@ -1713,11 +1753,8 @@ export class BrowserControlPort {
           { selector: params.selector, ref: params.ref },
           { bufferLimit: 100, wasTruncated: Boolean(rawMotion.wasTruncated) }
         );
+        observationIntegrity = mutationAttribution.integrity;
       }
-
-      const observationIntegrity = observerArmed
-        ? (mutationAttribution?.integrity ?? { status: 'COMPLETE', reason: 'CLEAN_OBSERVATION', totalObserved: 0, bufferLimit: 100 })
-        : { status: 'UNAVAILABLE', reason: 'OBSERVER_SETUP_FAILED', totalObserved: 0, bufferLimit: 100 };
 
       const isPrimaryTab = target?.tabId === tabId;
       return {

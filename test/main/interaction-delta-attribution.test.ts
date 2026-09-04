@@ -12,7 +12,7 @@ import {
   ActionBoundary,
   RawBehaviorScope,
 } from '../../src/main/verification/interaction-contract.js';
-
+import { BrowserControlPort } from '../../src/main/tools/browser-control-port.js';
 describe('Verification Core - Sparse Interaction Delta & Mutation Attribution', () => {
   const dummyBaseline: RawBehaviorScope = {
     url: 'https://storefront.dev/products/item-1',
@@ -248,7 +248,7 @@ describe('Verification Core - Sparse Interaction Delta & Mutation Attribution', 
     // Record 3: AMBIENT scope, Causality is UNKNOWN
     const r3 = batch.records[2]!;
     assert.strictEqual(r3.classification.causality, 'UNKNOWN');
-    assert.strictEqual(r3.classification.scope, 'AMBIENT');
+    assert.strictEqual(r3.classification.scope, 'UNKNOWN');
     assert.strictEqual(r3.classification.method, 'TEMPORAL');
     assert.strictEqual(r3.inference?.reasonCode, 'WITHIN_ACTION_WINDOW');
     assert.strictEqual(r3.inference?.confidence, 0.5);
@@ -298,5 +298,128 @@ describe('Verification Core - Sparse Interaction Delta & Mutation Attribution', 
     assert.strictEqual(batch.outOfBoundsCount, 1);
     assert.strictEqual(batch.records[0]?.observation.timestampOffsetMs, 0);
     assert.strictEqual(batch.records[1]?.observation.timestampOffsetMs, 300);
+  });
+
+  it('10. Enforces pre-action boundary: strictly rejects mutations occurring before action trigger (t < 0)', () => {
+    const boundary: ActionBoundary = {
+      armedAt: 900,
+      actionStartedAt: 1000, // Action started at t=1000
+      settledAt: 1400,
+      attributionWindowMs: 400,
+      attributionDeadline: 1400,
+    };
+
+    const rawMutations: RawMutationInput[] = [
+      { t: -20, type: 'attributes', targetId: 'pre-action-noise' }, // Occurred before action trigger! -> EXCLUDED
+      { t: 0, type: 'attributes', targetId: 'at-action-el', attributeName: 'class' }, // At action -> INCLUDED
+      { t: 150, type: 'childList', targetId: 'post-action-el', addedCount: 1 },       // Post action -> INCLUDED
+    ];
+
+    const batch = attributeMutations(rawMutations, boundary, { id: 'at-action-el' });
+
+    assert.strictEqual(batch.records.length, 2, 'Pre-action mutation must not be attributed');
+    assert.strictEqual(batch.outOfBoundsCount, 1, 'Pre-action mutation must count as out-of-bounds');
+    assert.strictEqual(batch.records[0]?.observation.targetId, 'at-action-el');
+    assert.strictEqual(batch.records[0]?.observation.timestampOffsetMs, 0);
+    assert.strictEqual(batch.records[1]?.observation.targetId, 'post-action-el');
+    assert.strictEqual(batch.records[1]?.observation.timestampOffsetMs, 150);
+  });
+
+  it('11. Fails closed with ACTION_MARKER_FAILED and skips attribution when action marker fails', async () => {
+    const mockHost = {
+      getTabList: () => [{ id: 'tab-test' }],
+      agentHover: async () => true,
+      evalJs: async (script: string) => {
+        if (script.includes('window.__antifanMarkAction ?')) {
+          return null; // Simulate action marker failure!
+        }
+        if (script.includes('window.__stopAntifanMotion ?')) {
+          return {
+            samples: [],
+            mutations: [{ tPage: 1010, type: 'attributes', targetId: 'btn' }],
+            actionStartT: null, // Unconfirmed!
+            markerConfirmed: false,
+            armT: 1000,
+            stopT: 1200,
+            durationMs: 200,
+          };
+        }
+        if (script.includes('__antifanMotionSamples')) {
+          return { armed: true, mutationObserver: true, motionObserver: true };
+        }
+        return {};
+      },
+    };
+
+    const port = new BrowserControlPort(mockHost as any);
+    const target = {
+      tabId: 'tab-test',
+      projectId: 'p1',
+      workspaceId: 'w1',
+      runtimeId: 'r1',
+      browserEpoch: 1,
+      documentGeneration: 1,
+    };
+
+    const res = await port.traceInteraction(target as any, 'r1', 'a1', {
+      action: 'hover',
+      selector: 'button',
+      settleMs: 20,
+    });
+
+    const evidence = res.evidence as any;
+    assert.strictEqual(evidence.observationIntegrity.status, 'UNAVAILABLE');
+    assert.strictEqual(evidence.observationIntegrity.reason, 'ACTION_MARKER_FAILED');
+    assert.strictEqual(evidence.attribution, undefined, 'Must skip attribution when action marker is unconfirmed');
+  });
+
+  it('12. Accepts legitimate page timestamp 0 for action marker without false failure', async () => {
+    const mockHost = {
+      hasTab: () => true,
+      getTabList: () => [{ id: 'tab-test' }],
+      agentHover: async () => true,
+      evalJs: async (script: string) => {
+        if (script.includes('window.__antifanMarkAction ?')) {
+          return 0; // Page clock exactly 0!
+        }
+        if (script.includes('window.__stopAntifanMotion ?')) {
+          return {
+            samples: [],
+            mutations: [{ tPage: 25, type: 'attributes', targetId: 'btn' }],
+            actionStartT: 0,
+            markerConfirmed: true,
+            armT: 0,
+            stopT: 100,
+            durationMs: 100,
+          };
+        }
+        if (script.includes('__antifanMotionSamples')) {
+          return { armed: true, mutationObserver: true, motionObserver: true };
+        }
+        return {};
+      },
+    };
+
+    const port = new BrowserControlPort(mockHost as any);
+    const target = {
+      tabId: 'tab-test',
+      projectId: 'p1',
+      workspaceId: 'w1',
+      runtimeId: 'r1',
+      browserEpoch: 1,
+      documentGeneration: 1,
+    };
+
+    const res = await port.traceInteraction(target as any, 'r1', 'a1', {
+      action: 'hover',
+      selector: 'button',
+      settleMs: 20,
+    });
+
+    const evidence = res.evidence as any;
+    assert.strictEqual(evidence.observationIntegrity.status, 'COMPLETE');
+    assert.strictEqual(evidence.observationIntegrity.reason, 'CLEAN_OBSERVATION');
+    assert.ok(evidence.attribution, 'Must perform attribution when action marker is 0');
+    assert.strictEqual(evidence.attribution.records.length, 1);
   });
 });

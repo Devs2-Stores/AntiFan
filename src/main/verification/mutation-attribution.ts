@@ -83,7 +83,9 @@ export function attributeMutations(
   }
 ): MutationAttributionBatch {
   const bufferLimit = options?.bufferLimit ?? 100;
-  const isTruncated = Boolean(options?.wasTruncated || rawMutations.length >= bufferLimit);
+  const isTruncated = options?.wasTruncated !== undefined
+    ? Boolean(options.wasTruncated)
+    : rawMutations.length > bufferLimit;
 
   const integrity: ObservationIntegrity = {
     status: isTruncated ? 'TRUNCATED' : 'COMPLETE',
@@ -101,16 +103,17 @@ export function attributeMutations(
   for (let i = 0; i < rawMutations.length; i++) {
     const raw = rawMutations[i]!;
 
-    // Enforced Temporal Deadline Check
-    // If mutation occurred beyond the enforced relative window duration, it MUST NOT be attributed
-    if (raw.t > boundary.attributionWindowMs) {
+    // Enforced Temporal Boundary Check
+    // If mutation occurred before action trigger (raw.t < 0) or beyond window duration (raw.t > attributionWindowMs),
+    // it MUST NOT be attributed to this action.
+    if (raw.t < 0 || raw.t > boundary.attributionWindowMs) {
       outOfBoundsCount++;
       continue;
     }
 
     const observation: MutationObservationRecord = {
       sequence: i + 1,
-      timestampOffsetMs: Math.max(0, Math.round(raw.t)),
+      timestampOffsetMs: Math.round(raw.t),
       type: raw.type,
       targetTag: raw.targetTag,
       targetId: raw.targetId,
@@ -143,11 +146,11 @@ export function attributeMutations(
       inferenceConfidence = 0.75;
       details = 'Matched candidate disclosure/portal pattern within active causal window; action-handler lineage uninstrumented.';
     } else {
-      scope = 'AMBIENT';
+      scope = 'UNKNOWN';
       method = 'TEMPORAL';
       reasonCode = 'WITHIN_ACTION_WINDOW';
       inferenceConfidence = 0.5;
-      details = 'Uncorrelated ambient DOM mutation occurring within settle window; causality unproven.';
+      details = 'Uncorrelated in-window DOM mutation; scope and causality unproven.';
     }
 
     records.push({

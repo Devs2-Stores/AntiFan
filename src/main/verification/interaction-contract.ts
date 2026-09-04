@@ -83,9 +83,7 @@ export interface SparseInteractionDelta {
 export type CausalityRelation =
   | 'DIRECT'     // Target element state change directly associated with the action
   | 'INDIRECT'   // Related disclosure/overlay/component state change
-  | 'UNRELATED'  // Definitively ruled out by explicit causal exclusion
   | 'UNKNOWN';   // Unverified / correlation without listener-level lineage
-
 export type AttributionMethod =
   | 'TEMPORAL'   // Inferred from timestamp correlation within attribution window
   | 'HEURISTIC'  // Inferred from selector, ARIA, or class matching
@@ -112,12 +110,12 @@ export type IntegrityStatus =
 export type IntegrityReason =
   | 'BUFFER_LIMIT_EXCEEDED'
   | 'OBSERVER_SETUP_FAILED'
+  | 'ACTION_MARKER_FAILED'
   | 'ACTION_ABORTED'
   | 'DOCUMENT_CHANGED'
   | 'TARGET_DISAPPEARED'
   | 'TIMEOUT'
   | 'CLEAN_OBSERVATION';
-
 export interface ObservationIntegrity {
   status: IntegrityStatus;
   reason?: IntegrityReason;
