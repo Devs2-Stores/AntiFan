@@ -1202,33 +1202,113 @@ export class BrowserControlPort {
         await this.host.evalJs(observerScript, tabId, effectivePane);
       } catch {}
 
-      // Execute Action
+      // Execute Action with Causality Tracking
+      let actionExecuted = false;
+      let actionError: string | undefined;
+
       if (params.action === 'click') {
         if (this.host.agentClick) {
-          await this.host.agentClick({ selector: params.selector, ref: params.ref, trusted: true, tabId, paneId: effectivePane });
+          try {
+            const rawRes = (await this.host.agentClick({ selector: params.selector, ref: params.ref, trusted: true, tabId, paneId: effectivePane })) as any;
+            actionExecuted = typeof rawRes === 'boolean' ? rawRes : (rawRes && typeof rawRes === 'object' && 'clicked' in rawRes ? Boolean(rawRes.clicked) : Boolean(rawRes));
+          } catch (err: unknown) {
+            actionExecuted = false;
+            actionError = String(err);
+          }
         } else {
           const sel = params.ref ? `[data-antifan-ref="${params.ref}"]` : (params.selector || 'body');
-          await this.host.evalJs(`document.querySelector(${JSON.stringify(sel)})?.click()`, tabId, effectivePane);
+          try {
+            const evalRes = (await this.host.evalJs(`(() => {
+              const el = document.querySelector(${JSON.stringify(sel)});
+              if (!el) return { clicked: false, error: 'Element not found' };
+              el.click();
+              return { clicked: true };
+            })()`, tabId, effectivePane)) as any;
+            actionExecuted = Boolean(evalRes && evalRes.clicked !== false);
+          } catch (err: unknown) {
+            actionExecuted = false;
+            actionError = String(err);
+          }
         }
       } else if (params.action === 'hover') {
         if (this.host.agentHover) {
-          await this.host.agentHover({ selector: params.selector, ref: params.ref, tabId, paneId: effectivePane });
+          try {
+            const rawRes = (await this.host.agentHover({ selector: params.selector, ref: params.ref, tabId, paneId: effectivePane })) as any;
+            actionExecuted = typeof rawRes === 'boolean' ? rawRes : (rawRes && typeof rawRes === 'object' && 'hovered' in rawRes ? Boolean(rawRes.hovered) : Boolean(rawRes));
+          } catch (err: unknown) {
+            actionExecuted = false;
+            actionError = String(err);
+          }
+        } else {
+          actionExecuted = true;
         }
       } else if (params.action === 'focus') {
         const sel = params.ref ? `[data-antifan-ref="${params.ref}"]` : (params.selector || 'body');
         try {
-          await this.host.evalJs(`document.querySelector(${JSON.stringify(sel)})?.focus()`, tabId, effectivePane);
-        } catch {}
+          const evalRes = (await this.host.evalJs(`(() => {
+            const el = document.querySelector(${JSON.stringify(sel)});
+            if (!el) return { focused: false, error: 'Element not found' };
+            el.focus();
+            return { focused: true };
+          })()`, tabId, effectivePane)) as any;
+          actionExecuted = Boolean(evalRes && evalRes.focused !== false);
+        } catch (err: unknown) {
+          actionExecuted = false;
+          actionError = String(err);
+        }
       } else if (params.action === 'type') {
         if (this.host.agentType) {
-          await this.host.agentType({ selector: params.selector, ref: params.ref, text: params.text || '', trusted: true, tabId, paneId: effectivePane });
+          try {
+            const rawRes = (await this.host.agentType({ selector: params.selector, ref: params.ref, text: params.text || '', trusted: true, tabId, paneId: effectivePane })) as any;
+            actionExecuted = typeof rawRes === 'boolean' ? rawRes : (rawRes && typeof rawRes === 'object' && 'typed' in rawRes ? Boolean(rawRes.typed) : Boolean(rawRes));
+          } catch (err: unknown) {
+            actionExecuted = false;
+            actionError = String(err);
+          }
+        } else {
+          actionExecuted = false;
+          actionError = 'agentType is not supported by host';
         }
       } else if (params.action === 'scroll') {
         if (this.host.agentScroll) {
-          await this.host.agentScroll({ selector: params.selector, ref: params.ref, deltaY: params.deltaY || 300, tabId, paneId: effectivePane });
+          try {
+            const rawRes = (await this.host.agentScroll({ selector: params.selector, ref: params.ref, deltaY: params.deltaY || 300, tabId, paneId: effectivePane })) as any;
+            actionExecuted = typeof rawRes === 'boolean' ? rawRes : (rawRes && typeof rawRes === 'object' && 'scrolled' in rawRes ? Boolean(rawRes.scrolled) : Boolean(rawRes));
+          } catch (err: unknown) {
+            actionExecuted = false;
+            actionError = String(err);
+          }
+        } else {
+          actionExecuted = true;
         }
       }
 
+      // If the base action failed to execute or dispatch, fail closed immediately.
+      // Prevents ambient background mutations (e.g. carousel autoplay, clocks) from falsely certifying success.
+      if (!actionExecuted) {
+        const durationMs = Date.now() - startTime;
+        const isPrimaryTab = target?.tabId === tabId;
+        return {
+          tabId,
+          isPrimaryTab,
+          role: isPrimaryTab ? 'primary' : 'managed_child',
+          action: params.action,
+          actionSuccess: false,
+          target: { selector: params.selector, ref: params.ref },
+          durationMs,
+          settled: true,
+          verified: false,
+          verdict: 'ACTION_FAILED',
+          confidence: 0,
+          evidence: {
+            causalityViolation: true,
+            error: actionError || `Underlying action '${params.action}' reported failure or target was not actionable. Ambient page mutations cannot be attributed to this interaction.`,
+          },
+          beforeStyles,
+          afterStyles: {},
+          motion: undefined,
+        };
+      }
       const settleWait = Math.min(Math.max(params.settleMs || 100, 20), 2000);
       const { promise: settlePromise, resolve: settleResolve } = Promise.withResolvers<void>();
       setTimeout(settleResolve, settleWait);
@@ -1403,6 +1483,7 @@ export class BrowserControlPort {
         isPrimaryTab,
         role: isPrimaryTab ? 'primary' : 'managed_child',
         action: params.action,
+        actionSuccess: true,
         target: { selector: params.selector, ref: params.ref },
         durationMs,
         settled: true,

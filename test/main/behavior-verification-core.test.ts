@@ -298,4 +298,37 @@ describe('Priority 2: Behavior Verification Core & Dual-Scope Semantic Inference
     assert.strictEqual(evidence.overflowBleed.detected, true);
     assert.strictEqual(evidence.overflowBleed.scrollWidth, 540);
   });
+
+  it('9. Returns ACTION_FAILED and verified: false when underlying agentClick returns false, ignoring ambient mutations', async () => {
+    let callCount = 0;
+    const mockHost: Partial<BrowserHostPort> = {
+      getTabList: () => [{ id: 'tab-1' }],
+      getActiveTabId: () => 'tab-1',
+      getAutomationTabId: () => 'tab-1',
+      agentClick: async () => false, // Action failed / click was rejected
+      inspectStyles: async () => ({}),
+      evalJs: async () => {
+        callCount++;
+        // Ambient background change occurs (e.g. carousel autoplay or timer)
+        return {
+          url: 'https://storefront.dev/',
+          bodyClasses: callCount === 1 ? [] : ['carousel-slide-next'],
+          bodyOverflowLocked: false,
+          activeOverlays: callCount === 1 ? [] : [{ tagName: 'div', id: 'ambient-toast', className: 'toast show' }],
+          hasHorizontalOverflow: false,
+        };
+      },
+    };
+
+    const port = new BrowserControlPort(mockHost as BrowserHostPort);
+    const res = await port.traceInteraction(baseTarget, 'run-1', 'att-1', { action: 'click', selector: '.unresponsive-btn', settleMs: 10 });
+
+    assert.strictEqual(res.action, 'click');
+    assert.strictEqual(res.actionSuccess, false);
+    assert.strictEqual(res.verified, false);
+    assert.strictEqual(res.verdict, 'ACTION_FAILED');
+    assert.strictEqual(res.confidence, 0);
+    const evidence = res.evidence as Record<string, any>;
+    assert.strictEqual(evidence.causalityViolation, true);
+  });
 });

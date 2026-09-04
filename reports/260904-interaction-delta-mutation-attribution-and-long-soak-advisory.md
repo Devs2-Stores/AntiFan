@@ -3,7 +3,7 @@
 
 **Date:** 2026-09-04  
 **Project:** `antifan-browser-desktop`  
-**Current Audited HEAD:** `d5b3b2a` (`feat(verification): harden mutation barrier, baseline capture, anti-gaming, and soak resilience`)  
+**Current Audited HEAD:** `1a920af` (`docs(advisory): add interaction delta, mutation attribution, and long soak strategic blueprint`)  
 **Methodology:** `ak:brainstorm` (Bounded Delivery Contract + Deep Empirical Dissection)  
 
 ---
@@ -440,7 +440,7 @@ In accordance with strict empirical rules:
   1. `ProofTemplateRegistry.getLayoutTemplate` contract resolved with `LayoutTemplateOptions` and unambiguous positional overloads.
   2. `test/unit/semantic-evidence-and-guardrails.test.ts`: 12/12 passing.
   3. `test/unit/verification-capabilities.test.ts` & `test/unit/verification-evaluator.test.ts`: 20/20 passing.
-  4. `test/unit/*.test.js` & `test/benchmark/*.test.js`: 72/72 passing across 25 suites.
+  4. `test/unit/*.test.js` & `test/benchmark/*.test.js`: 73/73 passing across 25 suites.
   5. Multi-Process Workload Smoke Benchmark (`scripts/smoke-real-soak.cjs`): 41 samples, 0 orphans, PASSED.
 - **Unverified / Scope Boundary:**
   - Full 8-hour continuous endurance soak requires physical elapsed time (480 minutes) and is designed for scheduled CI/workstation execution via `scripts/benchmark-real-soak-8h.cjs`.
