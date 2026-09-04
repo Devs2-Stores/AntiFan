@@ -5471,11 +5471,13 @@ export class NativeTabHost extends EventEmitter {
   }
 
   public getMutationRevision(tabId?: string): number {
+    if (!this.mutationRevisions) this.mutationRevisions = new Map<string, number>();
     const id = tabId || this.activeTabId;
     return this.mutationRevisions.get(id) || 1;
   }
 
   public bumpMutationRevision(tabId?: string): number {
+    if (!this.mutationRevisions) this.mutationRevisions = new Map<string, number>();
     const id = tabId || this.activeTabId;
     const next = (this.mutationRevisions.get(id) || 1) + 1;
     this.mutationRevisions.set(id, next);

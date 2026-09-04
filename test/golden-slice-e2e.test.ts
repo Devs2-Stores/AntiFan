@@ -44,18 +44,18 @@ import { ReceiptStore } from '../src/main/session/receipt-store';
 
 describe('Phase 5: Golden Slice E2E & Architecture Gate Validation', () => {
   const originalFixtureThemeRoot = path.resolve(
-    __dirname,
-    'fixtures/golden-workflow/product-card/theme'
+    process.cwd(),
+    'test/fixtures/golden-workflow/product-card/theme'
   );
   const fixtureStorefrontHtml = path.resolve(
-    __dirname,
-    'fixtures/golden-workflow/product-card/storefront/index.html'
+    process.cwd(),
+    'test/fixtures/golden-workflow/product-card/storefront/index.html'
   );
 
   // Isolated workspace copy for mutation testing
   const tempWorkspaceDir = path.resolve(
-    __dirname,
-    'fixtures/golden-workflow/temp-e2e-workspace'
+    process.cwd(),
+    'test/fixtures/golden-workflow/temp-e2e-workspace'
   );
   const tempReceiptFile = path.resolve(
     tempWorkspaceDir,
@@ -203,6 +203,11 @@ describe('Phase 5: Golden Slice E2E & Architecture Gate Validation', () => {
           'desktop-laptop': { width: 1440, documentOverflowX: false, targetOverflowX: false },
         },
       }),
+      inspectStyles: async () => ({
+        'font-size': '10px',
+        'padding': '2px 6px',
+        'background-color': '#e53e3e',
+      }),
     };
 
     browserPort = new BrowserControlPort(mockHost);
@@ -276,7 +281,16 @@ describe('Phase 5: Golden Slice E2E & Architecture Gate Validation', () => {
     assert.strictEqual(context.targetRef, '@e1');
   });
 
-  it('Step 2: Dispatches anti.inspect.matched_styles via CapabilityCatalogue', async () => {
+  it('Step 2: Dispatches anti.inspect.styles and anti.inspect.matched_styles via CapabilityCatalogue', async () => {
+    // 1. Query computed styles via anti.inspect.styles
+    const computedStyles = await dispatchMonitoredCapability<Record<string, string>>(
+      'anti.inspect.styles',
+      { selector: '.card__badge', tabId: 'tab-e2e-1' }
+    );
+    assert.strictEqual(computedStyles['font-size'], '10px');
+    assert.strictEqual(computedStyles['padding'], '2px 6px');
+
+    // 2. Query causality-aware matched rules via anti.inspect.matched_styles
     const rawRes = await dispatchMonitoredCapability(
       'anti.inspect.matched_styles',
       {

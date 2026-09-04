@@ -48,6 +48,8 @@ describe('Full-Stack E2E Integration: OMP / MCP Multi-Tab Affinity, Lineage & Fa
     host.tabs = new Map<string, any>();
     host.terminalAgentAffinity = new Map();
     host.sessionTabPools = new Map();
+    host.targetOperationQueues = new Map();
+    host.mutationRevisions = new Map();
     host.broadcastState = () => {};
 
     // Helper to add tabs to mock host
