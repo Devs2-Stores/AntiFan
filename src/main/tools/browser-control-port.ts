@@ -1755,6 +1755,13 @@ export class BrowserControlPort {
         );
         observationIntegrity = mutationAttribution.integrity;
       }
+      // Observation Integrity Gate:
+      // If observation substrate is UNAVAILABLE (e.g. observer setup failed, action marker unconfirmed, target dropped),
+      // legacy heuristic evaluations MUST NOT certify completion. Fail closed to INCONCLUSIVE.
+      const isObservationValid = observationIntegrity.status !== 'UNAVAILABLE';
+      const finalVerified = isObservationValid ? evaluation.verified : false;
+      const finalVerdict = isObservationValid ? evaluation.verdict : 'INCONCLUSIVE';
+      const finalConfidence = isObservationValid ? evaluation.confidence : 0;
 
       const isPrimaryTab = target?.tabId === tabId;
       return {
@@ -1767,9 +1774,9 @@ export class BrowserControlPort {
         target: { selector: params.selector, ref: params.ref },
         durationMs,
         settled: true,
-        verified: evaluation.verified,
-        verdict: evaluation.verdict,
-        confidence: evaluation.confidence,
+        verified: finalVerified,
+        verdict: finalVerdict,
+        confidence: finalConfidence,
         evidence: {
           ...evaluation.evidence,
           delta: sparseDelta,

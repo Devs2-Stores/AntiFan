@@ -242,7 +242,7 @@ describe('Verification Core - Sparse Interaction Delta & Mutation Attribution', 
     assert.strictEqual(r2.classification.causality, 'UNKNOWN');
     assert.strictEqual(r2.classification.scope, 'RELATED');
     assert.strictEqual(r2.classification.method, 'HEURISTIC');
-    assert.strictEqual(r2.inference?.reasonCode, 'RELATED_OVERLAY_APPEARED');
+    assert.strictEqual(r2.inference?.reasonCode, 'RELATED_CANDIDATE_MATCH');
     assert.strictEqual(r2.inference?.confidence, 0.75);
 
     // Record 3: AMBIENT scope, Causality is UNKNOWN
@@ -326,6 +326,7 @@ describe('Verification Core - Sparse Interaction Delta & Mutation Attribution', 
   });
 
   it('11. Fails closed with ACTION_MARKER_FAILED and skips attribution when action marker fails', async () => {
+    let scopeCaptureCount = 0;
     const mockHost = {
       getTabList: () => [{ id: 'tab-test' }],
       agentHover: async () => true,
@@ -346,6 +347,31 @@ describe('Verification Core - Sparse Interaction Delta & Mutation Attribution', 
         }
         if (script.includes('__antifanMotionSamples')) {
           return { armed: true, mutationObserver: true, motionObserver: true };
+        }
+        if (script.includes('targetInfo')) {
+          scopeCaptureCount++;
+          if (scopeCaptureCount === 1) {
+            // Before state: clean baseline
+            return {
+              url: 'https://storefront.dev',
+              title: 'Store',
+              bodyClasses: ['theme-default'],
+              bodyOverflowLocked: false,
+              hasHorizontalOverflow: false,
+              activeOverlays: [],
+              target: { found: true, tagName: 'button', classes: [], rect: { x: 0, y: 0, width: 100, height: 40 }, style: { display: 'block', visibility: 'visible', opacity: '1', transform: 'none' }, aria: {} },
+            };
+          }
+          // After state: DRAWER_EXPANDED transition that would otherwise evaluate to verified: true!
+          return {
+            url: 'https://storefront.dev',
+            title: 'Store',
+            bodyClasses: ['theme-default', 'drawer-open'],
+            bodyOverflowLocked: true,
+            hasHorizontalOverflow: false,
+            activeOverlays: [{ role: 'dialog', rect: { width: 400, height: 800 } }],
+            target: { found: true, tagName: 'button', classes: [], rect: { x: 0, y: 0, width: 100, height: 40 }, style: { display: 'block', visibility: 'visible', opacity: '1', transform: 'none' }, aria: {} },
+          };
         }
         return {};
       },
@@ -371,6 +397,12 @@ describe('Verification Core - Sparse Interaction Delta & Mutation Attribution', 
     assert.strictEqual(evidence.observationIntegrity.status, 'UNAVAILABLE');
     assert.strictEqual(evidence.observationIntegrity.reason, 'ACTION_MARKER_FAILED');
     assert.strictEqual(evidence.attribution, undefined, 'Must skip attribution when action marker is unconfirmed');
+    // Crucial Pipeline Gate Check:
+    // Despite the after-scope containing a clear DRAWER_EXPANDED transition,
+    // the Observation Integrity Gate MUST override the legacy evaluator to INCONCLUSIVE.
+    assert.strictEqual(res.verified, false, 'Must fail-closed to verified: false when observation integrity is UNAVAILABLE');
+    assert.strictEqual(res.verdict, 'INCONCLUSIVE', 'Must return INCONCLUSIVE when observation integrity is UNAVAILABLE');
+    assert.strictEqual(res.confidence, 0, 'Confidence must drop to 0 when observation integrity is UNAVAILABLE');
   });
 
   it('12. Accepts legitimate page timestamp 0 for action marker without false failure', async () => {

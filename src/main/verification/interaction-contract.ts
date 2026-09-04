@@ -94,6 +94,7 @@ export type AttributionScope = 'TARGET' | 'RELATED' | 'AMBIENT' | 'UNKNOWN';
 export type AttributionReasonCode =
   | 'WITHIN_ACTION_WINDOW'
   | 'TARGET_MATCH'
+  | 'RELATED_CANDIDATE_MATCH'
   | 'RELATED_OVERLAY_APPEARED'
   | 'BODY_STATE_CHANGED'
   | 'ARIA_STATE_CHANGED'

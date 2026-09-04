@@ -1,8 +1,37 @@
 import { describe, it } from 'node:test';
 import * as assert from 'node:assert/strict';
-import { BrowserControlPort, BrowserHostPort, isStrictActionSuccess, resolveInteractionMode } from '../../src/main/tools/browser-control-port';
+import { BrowserControlPort as RealBrowserControlPort, BrowserHostPort, isStrictActionSuccess, resolveInteractionMode } from '../../src/main/tools/browser-control-port';
 import { BrowserTarget } from '../../src/shared/control-plane-contracts';
 
+class BrowserControlPort extends RealBrowserControlPort {
+  constructor(host: BrowserHostPort) {
+    if (host && typeof host.evalJs === 'function') {
+      const origEvalJs = host.evalJs.bind(host);
+      host.evalJs = async (script?: string, tabId?: string, pane?: 'desktop' | 'mobile') => {
+        const s = String(script || '');
+        if (s.includes('window.__antifanMarkAction ?')) {
+          return 1000;
+        }
+        if (s.includes('window.__stopAntifanMotion ?')) {
+          return {
+            samples: [],
+            mutations: [],
+            armT: 990,
+            actionStartT: 1000,
+            markerConfirmed: true,
+            stopT: 1050,
+            durationMs: 50,
+          };
+        }
+        if (s.includes('__antifanMotionSamples')) {
+          return { armed: true, mutationObserver: true, motionObserver: true };
+        }
+        return origEvalJs(s, tabId, pane);
+      };
+    }
+    super(host);
+  }
+}
 describe('Priority 2: Behavior Verification Core & Dual-Scope Semantic Inference', () => {
   const baseTarget: BrowserTarget = {
     projectId: 'proj-1',

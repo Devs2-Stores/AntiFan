@@ -142,7 +142,7 @@ export function attributeMutations(
     } else if (isRelatedCandidate(raw)) {
       scope = 'RELATED';
       method = 'HEURISTIC';
-      reasonCode = 'RELATED_OVERLAY_APPEARED';
+      reasonCode = 'RELATED_CANDIDATE_MATCH';
       inferenceConfidence = 0.75;
       details = 'Matched candidate disclosure/portal pattern within active causal window; action-handler lineage uninstrumented.';
     } else {
