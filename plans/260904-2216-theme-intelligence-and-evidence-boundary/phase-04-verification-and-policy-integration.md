@@ -58,7 +58,6 @@ Verdict: VERIFIED | PARTIAL | REJECTED | INCONCLUSIVE
 ReceiptStore (Immutable Audit Log)
 ```
 
-- Modify: `src/main/verification/verification-evaluator.ts` (theme sample extraction helper)
 - Create: `src/main/verification/theme-proof-helpers.ts` (bridge between `ThemeEvidenceEnvelope<T>` and `MetricSample[]`)
 - Modify: `src/main/tools/browser-capabilities.ts` (wire verification registration to theme tools)
 - Create: `test/theme-verification-integration.test.ts` (fail-closed verification tests)
