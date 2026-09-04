@@ -4167,6 +4167,10 @@ export class NativeTabHost extends EventEmitter {
     return this.getAutomationHost().inspectRegion(params);
   }
 
+  public async inspectFont(params: { selector?: string; ref?: string; tabId?: string; paneId?: SplitPaneId }): Promise<Record<string, unknown>> {
+    return this.getAutomationHost().inspectFont(params);
+  }
+
   public toggleInspect(): boolean {
     return this.getDevToolsHost().toggleInspect();
   }

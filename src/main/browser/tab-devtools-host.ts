@@ -562,6 +562,87 @@ export class TabDevToolsHost {
     }
   }
 
+  public async getPlatformFontsForNode(
+    wc: Electron.WebContents,
+    options: { selector?: string; objectId?: string } = {}
+  ): Promise<Array<{ familyName: string; isCustomFont: boolean; glyphCount: number }>> {
+    if (!wc || wc.isDestroyed()) return [];
+    try {
+      await this.sendCdpCommand(wc, 'DOM.enable');
+      await this.sendCdpCommand(wc, 'CSS.enable');
+
+      let targetNodeId: number | undefined;
+
+      // 1. Try resolving via objectId if provided
+      if (options.objectId) {
+        try {
+          const reqRes = await this.sendCdpCommand<{ nodeId?: number }>(wc, 'DOM.requestNode', {
+            objectId: options.objectId,
+          });
+          targetNodeId = reqRes?.nodeId;
+        } catch {}
+      }
+
+      // 2. Try resolving via window.__antifan_last_inspected_font_element if no targetNodeId yet
+      if (!targetNodeId) {
+        try {
+          const evalRes = await this.sendCdpCommand<{ result?: { objectId?: string } }>(wc, 'Runtime.evaluate', {
+            expression: 'window.__antifan_last_inspected_font_element',
+            returnByValue: false,
+          });
+          if (evalRes?.result?.objectId) {
+            const reqRes = await this.sendCdpCommand<{ nodeId?: number }>(wc, 'DOM.requestNode', {
+              objectId: evalRes.result.objectId,
+            });
+            targetNodeId = reqRes?.nodeId;
+          }
+        } catch {}
+      }
+
+      // 3. Try resolving via querySelector from DOM document root
+      if (!targetNodeId && options.selector) {
+        try {
+          const doc = await this.sendCdpCommand<{ root?: { nodeId?: number } }>(wc, 'DOM.getDocument', { depth: 0 });
+          const rootId = doc?.root?.nodeId;
+          if (rootId) {
+            const query = await this.sendCdpCommand<{ nodeId?: number }>(wc, 'DOM.querySelector', {
+              nodeId: rootId,
+              selector: options.selector,
+            });
+            targetNodeId = query?.nodeId;
+          }
+        } catch {}
+      }
+
+      // Cleanup window.__antifan_last_inspected_font_element
+      try {
+        await this.sendCdpCommand(wc, 'Runtime.evaluate', {
+          expression: 'delete window.__antifan_last_inspected_font_element',
+          returnByValue: true,
+        }).catch(() => {});
+      } catch {}
+
+      if (!targetNodeId) {
+        return [];
+      }
+
+      const res = await this.sendCdpCommand<{
+        fonts?: Array<{ familyName: string; isCustomFont: boolean; glyphCount: number }>;
+      }>(wc, 'CSS.getPlatformFontsForNode', { nodeId: targetNodeId });
+
+      if (Array.isArray(res?.fonts)) {
+        return res.fonts.map((f) => ({
+          familyName: String(f.familyName || ''),
+          isCustomFont: Boolean(f.isCustomFont),
+          glyphCount: Number(f.glyphCount || 0),
+        }));
+      }
+      return [];
+    } catch {
+      return [];
+    }
+  }
+
   public async getOrCreateIsolatedWorldContext(wc: Electron.WebContents): Promise<number | undefined> {
     if (!wc || wc.isDestroyed()) return undefined;
     const wcId = wc.id;

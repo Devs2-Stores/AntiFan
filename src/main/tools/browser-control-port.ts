@@ -62,6 +62,7 @@ export interface BrowserHostPort {
   executeActionSequence?(params: { actions: unknown[]; tabId?: string; paneId?: 'desktop' | 'mobile'; stopOnError?: boolean }): Promise<unknown>;
   inspectStyles?(params: { selector?: string; ref?: string; properties?: string[]; tabId?: string; paneId?: 'desktop' | 'mobile' }): Promise<Record<string, unknown>>;
   inspectRegion?(params: { x?: number; y?: number; width?: number; height?: number; selector?: string; ref?: string; tabId?: string; paneId?: 'desktop' | 'mobile' }): Promise<Record<string, unknown>>;
+  inspectFont?(params: { selector?: string; ref?: string; tabId?: string; paneId?: 'desktop' | 'mobile' }): Promise<Record<string, unknown>>;
   getNetworkTracker?(): { isAttached: (tabId: string, paneId?: string) => boolean; awaitQuiescence: (tabId: string, paneId?: string, options?: unknown, signal?: AbortSignal) => Promise<{ settled: boolean; durationMs: number; timedOut: boolean }> };
   wait?(params: BrowserWaitParams, signal?: AbortSignal): Promise<BrowserWaitResult>;
   observe?(params: BrowserObserveParams): Promise<BrowserObserveResult>;
@@ -1151,6 +1152,24 @@ export class BrowserControlPort {
 
     return this.passivePool.execute(tabId, async () => {
       return this.host.inspectRegion!({ ...params, tabId, paneId: effectivePane });
+    });
+  }
+
+  async inspectFont(
+    target: BrowserTarget,
+    params: { selector?: string; ref?: string; tabId?: string; paneId?: 'desktop' | 'mobile' } = {},
+    explicitTabId?: string,
+    paneId?: 'desktop' | 'mobile'
+  ): Promise<Record<string, unknown>> {
+    const tabId = this.resolveTargetTab(target, explicitTabId || params.tabId);
+    const effectivePane = paneId || params.paneId || 'desktop';
+
+    if (!this.host.inspectFont) {
+      throw new CapabilityError('CAPABILITY_NOT_FOUND', 'inspectFont is not supported by host');
+    }
+
+    return this.passivePool.execute(tabId, async () => {
+      return this.host.inspectFont!({ ...params, tabId, paneId: effectivePane });
     });
   }
 

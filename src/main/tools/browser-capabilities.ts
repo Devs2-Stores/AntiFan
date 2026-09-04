@@ -1673,6 +1673,44 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
   });
 
   catalogue.register({
+    name: 'browser.inspect_font',
+    description: 'Inspect 100% accurate rendered typography & platform fonts (Skia/HarfBuzz via CDP) with fallback detection and Vietnamese glyph analysis',
+    risk: 'read',
+    requiresBrowserTarget: true,
+    policy: makeBrowserPolicy({ effect: 'read', risk: 'read', requiresBrowserTarget: true, lane: 'short-passive' }),
+    inputSchema: {
+      type: 'object',
+      properties: {
+        selector: { type: 'string', description: 'CSS selector of the element to inspect' },
+        ref: { type: 'string', description: 'Semantic reference of the element (@e1..@eN)' },
+        tabId: { type: 'string', description: 'Optional target tab ID' },
+        paneId: { type: 'string', enum: ['desktop', 'mobile'], description: 'Optional split-pane ID' },
+      },
+    },
+    execute: (params: { selector?: string; ref?: string; tabId?: string; paneId?: 'desktop' | 'mobile' }, context) =>
+      browser.inspectFont(context.browserTarget as BrowserTarget, params, params?.tabId, params?.paneId),
+  });
+
+  catalogue.register({
+    name: 'anti.inspect.font',
+    description: 'Alias for browser.inspect_font',
+    risk: 'read',
+    requiresBrowserTarget: true,
+    policy: makeBrowserPolicy({ effect: 'read', risk: 'read', requiresBrowserTarget: true, lane: 'short-passive' }),
+    inputSchema: {
+      type: 'object',
+      properties: {
+        selector: { type: 'string', description: 'CSS selector of the element to inspect' },
+        ref: { type: 'string', description: 'Semantic reference of the element (@e1..@eN)' },
+        tabId: { type: 'string', description: 'Optional target tab ID' },
+        paneId: { type: 'string', enum: ['desktop', 'mobile'], description: 'Optional split-pane ID' },
+      },
+    },
+    execute: (params: { selector?: string; ref?: string; tabId?: string; paneId?: 'desktop' | 'mobile' }, context) =>
+      browser.inspectFont(context.browserTarget as BrowserTarget, params, params?.tabId, params?.paneId),
+  });
+
+  catalogue.register({
     name: 'browser.style_override',
     description: 'Safely inject, update, remove, or clear temporary CSS overrides in page for non-destructive layout/style testing',
     risk: 'write',

@@ -19,6 +19,7 @@ import {
 import {
   buildInspectStylesIsolatedScript,
   buildInspectRegionIsolatedScript,
+  buildInspectFontIsolatedScript,
 } from './scripts/advanced-inspection-scripts';
 import type { SemanticElementDescriptor } from './semantic-ref-types';
 import { generateCollectionNonce, validateCollectionEnvelope } from './semantic-ref-types';
@@ -1739,6 +1740,127 @@ export class TabAutomationHost {
       }
 
       return res.data || {};
+    });
+  }
+
+  public async inspectFont(params: {
+    selector?: string;
+    ref?: string;
+    tabId?: string;
+    paneId?: SplitPaneId;
+  }): Promise<Record<string, unknown>> {
+    const targetId = params.tabId || this.ctx.getAutomationTabId() || this.ctx.getActiveTabId();
+    const target = this.ctx.getTabRecord(targetId);
+    if (!target) {
+      throw new CapabilityError('CAPABILITY_NOT_FOUND', `Tab '${targetId}' not found`);
+    }
+
+    const splitHasLiveMobile = Boolean(target.state.splitMode && target.mobileView && !target.mobileView.webContents.isDestroyed());
+    const effectivePane: SplitPaneId = params.paneId || (splitHasLiveMobile ? (target.focusedPane || target.state.splitFocusedPane || 'desktop') : 'desktop');
+
+    return await this.ctx.runTargetOperation(targetId, effectivePane, async () => {
+      const wc = this.ctx.getTabWebContents(targetId, effectivePane);
+      if (!wc || wc.isDestroyed()) {
+        throw new CapabilityError('CAPABILITY_NOT_FOUND', 'Target WebContents is destroyed or unavailable');
+      }
+
+      let descriptor: SemanticElementDescriptor | undefined;
+      const curEpoch = this.ctx.getBrowserEpoch();
+      const curGen = this.ctx.getSemanticDocumentGeneration(targetId, effectivePane);
+      const curUrl = wc.getURL();
+
+      if (typeof params.ref === 'string' && params.ref.trim().length > 0) {
+        if (!this.ctx.semanticRefRegistry) {
+          throw new CapabilityError('RUNTIME_DRAINING', 'Semantic ref registry is not available');
+        }
+        const normRef = params.ref.trim().startsWith('@') ? params.ref.trim() : `@${params.ref.trim()}`;
+        try {
+          descriptor = this.ctx.semanticRefRegistry.resolveRef({
+            tabId: targetId,
+            paneId: effectivePane,
+            browserEpoch: curEpoch,
+            documentGeneration: curGen,
+            documentUrl: curUrl,
+          }, normRef);
+        } catch (err: unknown) {
+          const msg = err instanceof Error ? err.message : String(err);
+          throw new CapabilityError('REF_NOT_FOUND', msg);
+        }
+      }
+
+      const script = buildInspectFontIsolatedScript({
+        descriptor,
+        selector: params.selector,
+        documentUrl: curUrl,
+      });
+
+      const rawRes = await this.executeInIsolatedWorld(wc, script);
+      const res = rawRes as { ok: boolean; data?: Record<string, unknown>; error?: string; code?: string } | null;
+
+      if (!res || !res.ok) {
+        const errCode = res?.code === 'REF_NOT_FOUND' ? 'REF_NOT_FOUND'
+          : res?.code === 'INVALID_SELECTOR' ? 'INVALID_ARGUMENT'
+          : res?.code === 'REF_DOCUMENT_MUTATED' ? 'TARGET_STALE'
+          : 'NODE_DETACHED';
+        throw new CapabilityError(errCode, res?.error || 'Failed to inspect element font');
+      }
+
+      const inPageData = res.data || {};
+      const declared = (inPageData.declared as Record<string, unknown>) || {};
+      const textMetrics = (inPageData.textMetrics as Record<string, unknown>) || {};
+      const primaryDeclared = String(declared.primaryDeclared || '');
+
+      // Query Chromium rendering engine via CDP CSS.getPlatformFontsForNode
+      let cdpFonts: Array<{ familyName: string; isCustomFont: boolean; glyphCount: number }> = [];
+      if (this.ctx.tabDevToolsHost) {
+        try {
+          cdpFonts = await this.ctx.tabDevToolsHost.getPlatformFontsForNode(wc, { selector: params.selector });
+        } catch {}
+      }
+
+      const is100PercentAccurate = cdpFonts.length > 0;
+      const primaryRendered = cdpFonts.find((f) => f.familyName.toLowerCase() === primaryDeclared.toLowerCase());
+      const isPrimaryRendered = Boolean(primaryRendered && primaryRendered.glyphCount > 0);
+      const fallbackFonts = cdpFonts.filter((f) => f !== primaryRendered).map((f) => f.familyName);
+      const hasFallbackGlyphs = fallbackFonts.length > 0;
+
+      let verdict: 'PERFECT_MATCH' | 'FALLBACK_DETECTED' | 'FONT_MISSING_OR_FAILED' | 'NO_TEXT_OR_EMPTY' | 'CDP_UNAVAILABLE';
+      let summary = '';
+
+      if (!is100PercentAccurate) {
+        verdict = 'CDP_UNAVAILABLE';
+        summary = `Rendered platform fonts could not be queried via CDP. In-page CSS declares "${declared.fontFamily}".`;
+      } else if (cdpFonts.length === 0 || Number(textMetrics.glyphCount || 0) === 0) {
+        verdict = 'NO_TEXT_OR_EMPTY';
+        summary = 'Target element contains no rendered glyphs or text content.';
+      } else if (isPrimaryRendered && !hasFallbackGlyphs) {
+        verdict = 'PERFECT_MATCH';
+        summary = `100% of rendered glyphs (${primaryRendered?.glyphCount || 0}) are rendered with primary declared font "${primaryDeclared}".`;
+      } else if (isPrimaryRendered && hasFallbackGlyphs) {
+        verdict = 'FALLBACK_DETECTED';
+        const fallbackGlyphs = cdpFonts.filter((f) => f !== primaryRendered).reduce((sum, f) => sum + f.glyphCount, 0);
+        summary = `Primary font "${primaryDeclared}" rendered ${primaryRendered?.glyphCount || 0} glyphs, but ${fallbackGlyphs} glyphs fell back to ${fallbackFonts.join(', ')}.`;
+      } else {
+        verdict = 'FONT_MISSING_OR_FAILED';
+        summary = `Declared font "${primaryDeclared}" was NOT rendered! 100% of glyphs fell back to ${cdpFonts.map((f) => f.familyName).join(', ')}.`;
+      }
+
+      return {
+        target: inPageData.target,
+        declared,
+        textMetrics,
+        rendered: {
+          is100PercentAccurate,
+          isPrimaryRendered,
+          hasFallbackGlyphs,
+          primaryRenderedFont: primaryRendered ? primaryRendered.familyName : undefined,
+          renderedFonts: cdpFonts,
+          fallbackFonts,
+        },
+        fontFaceStatus: inPageData.fontFaceStatus,
+        verdict,
+        summary,
+      };
     });
   }
   public dispose(): void {

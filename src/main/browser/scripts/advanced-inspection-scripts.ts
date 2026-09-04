@@ -25,6 +25,12 @@ export interface InspectRegionRequest {
   documentUrl?: string;
 }
 
+export interface InspectFontRequest {
+  descriptor?: SemanticElementDescriptor;
+  selector?: string;
+  documentUrl?: string;
+}
+
 export function buildInspectStylesIsolatedScript(request: InspectStylesRequest): string {
   const reqJson = JSON.stringify(request);
 
@@ -369,6 +375,210 @@ export function buildInspectRegionIsolatedScript(request: InspectRegionRequest):
           region,
           elementCount: matched.length,
           elements: matched
+        }
+      };
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : String(err), code: 'EVALUATION_FAILED' };
+    }
+  })()`;
+}
+
+export function buildInspectFontIsolatedScript(request: InspectFontRequest): string {
+  const reqJson = JSON.stringify(request);
+
+  return `(async () => {
+    try {
+      const req = ${reqJson};
+
+      if (typeof req.documentUrl === 'string' && req.documentUrl.trim() && window.location.href !== req.documentUrl.trim()) {
+        return {
+          ok: false,
+          error: 'Document URL mutated: expected "' + req.documentUrl + '", current "' + window.location.href + '"',
+          code: 'REF_DOCUMENT_MUTATED'
+        };
+      }
+
+      function matchesFingerprint(el, fp) {
+        if (!el || !(el instanceof Element) || !fp || typeof fp !== 'object') return false;
+        if (fp.tag && el.tagName.toLowerCase() !== String(fp.tag).toLowerCase()) return false;
+        if (fp.id && el.id !== fp.id) return false;
+        if (fp.role && el.getAttribute('role') !== fp.role) return false;
+        if (fp.type && el.getAttribute('type') !== fp.type && el.type !== fp.type) return false;
+        if (fp.name && el.getAttribute('name') !== fp.name) return false;
+        if (fp.classHint) {
+          const cls = typeof el.className === 'string' ? el.className : (el.getAttribute('class') || '');
+          if (!cls.includes(fp.classHint)) return false;
+        }
+        return true;
+      }
+
+      function resolveTraversalPath(path) {
+        if (!Array.isArray(path) || path.length === 0) return { element: null, deepestRoot: document };
+        let current = document;
+        let deepestRoot = document;
+        for (let i = 0; i < path.length; i++) {
+          const step = path[i];
+          if (!step || typeof step !== 'object') return { element: null, deepestRoot };
+          const tag = (step.tag || '').toLowerCase();
+          const children = current.children || current.childNodes;
+          let match = null;
+          let matchCount = 0;
+          for (let j = 0; j < children.length; j++) {
+            const child = children[j];
+            if (child.nodeType === 1) {
+              if (!tag || child.tagName.toLowerCase() === tag) {
+                if (matchCount === (step.childIndex || 0)) {
+                  match = child;
+                  break;
+                }
+                matchCount++;
+              }
+            }
+          }
+          if (!match) return { element: null, deepestRoot };
+          if (step.shadowRoot && match.shadowRoot) {
+            current = match.shadowRoot;
+            deepestRoot = match.shadowRoot;
+          } else {
+            current = match;
+          }
+        }
+        return { element: current, deepestRoot };
+      }
+
+      let targetElement = null;
+
+      if (req.descriptor && typeof req.descriptor === 'object') {
+        const desc = req.descriptor;
+        if (Array.isArray(desc.traversalPath) && desc.traversalPath.length > 0) {
+          const resolved = resolveTraversalPath(desc.traversalPath);
+          if (resolved.element && matchesFingerprint(resolved.element, desc.fingerprint)) {
+            targetElement = resolved.element;
+          }
+        }
+        if (!targetElement && desc.fingerprint && desc.fingerprint.id) {
+          const el = document.getElementById(desc.fingerprint.id);
+          if (el && matchesFingerprint(el, desc.fingerprint)) {
+            targetElement = el;
+          }
+        }
+        if (!targetElement && desc.selector) {
+          try {
+            const el = document.querySelector(desc.selector);
+            if (el && matchesFingerprint(el, desc.fingerprint)) {
+              targetElement = el;
+            }
+          } catch {}
+        }
+      }
+
+      if (!targetElement && typeof req.selector === 'string' && req.selector.trim()) {
+        try {
+          targetElement = document.querySelector(req.selector);
+        } catch (selErr) {
+          return { ok: false, error: 'Invalid selector: ' + req.selector, code: 'INVALID_SELECTOR' };
+        }
+      }
+
+      if (!targetElement) {
+        return { ok: false, error: 'Element not found', code: 'REF_NOT_FOUND' };
+      }
+
+      // Save reference on window so CDP Runtime.evaluate can access objectId directly
+      try {
+        window.__antifan_last_inspected_font_element = targetElement;
+      } catch {}
+
+      const style = window.getComputedStyle(targetElement);
+      const fontFamily = style.fontFamily || '';
+      const fontSize = style.fontSize || '';
+      const fontWeight = style.fontWeight || '';
+      const fontStyle = style.fontStyle || '';
+      const lineHeight = style.lineHeight || '';
+      const letterSpacing = style.letterSpacing || '';
+      const color = style.color || '';
+
+      const primaryDeclared = fontFamily.split(',')[0].replace(/['"]/g, '').trim() || 'sans-serif';
+      const declaredStack = fontFamily.split(',').map(f => f.replace(/['"]/g, '').trim()).filter(Boolean);
+
+      const fullText = (targetElement.textContent || '').trim();
+      const sampleText = fullText.slice(0, 160);
+      const characterCount = fullText.length;
+      const glyphCount = fullText.replace(/\\s+/g, '').length;
+      const hasVietnameseDiacritics = /[àáạảãâầấậẩẫăằắặẳẵèéẹẻẽêềếệểễìíịỉĩòóọỏõôồốộổỗơờớợởỡùúụủũưừứựửữỳýỵỷỹđĐ]/i.test(fullText);
+      const hasNonAscii = /[^\\x00-\\x7F]/.test(fullText);
+
+      let fontFaceLoaded = undefined;
+      if (document.fonts && typeof document.fonts.check === 'function') {
+        try {
+          const checkQuery = (fontStyle ? fontStyle + ' ' : '') + (fontWeight ? fontWeight + ' ' : '') + (fontSize || '16px') + ' ' + (fontFamily || 'sans-serif');
+          fontFaceLoaded = document.fonts.check(checkQuery, sampleText || 'A');
+        } catch {}
+      }
+
+      let matchingFontFaceRule = null;
+      try {
+        const sheets = document.styleSheets;
+        for (let i = 0; i < sheets.length; i++) {
+          try {
+            const rules = sheets[i].cssRules || sheets[i].rules;
+            if (!rules) continue;
+            for (let j = 0; j < rules.length; j++) {
+              const rule = rules[j];
+              if (rule.type === CSSRule.FONT_FACE_RULE || (typeof CSSFontFaceRule !== 'undefined' && rule instanceof CSSFontFaceRule)) {
+                const rFamily = (rule.style.fontFamily || '').replace(/['"]/g, '').trim();
+                if (rFamily.toLowerCase() === primaryDeclared.toLowerCase()) {
+                  matchingFontFaceRule = {
+                    fontFamily: rFamily,
+                    src: rule.style.getPropertyValue('src') || '',
+                    fontWeight: rule.style.getPropertyValue('font-weight') || '',
+                    fontStyle: rule.style.getPropertyValue('font-style') || '',
+                    fontDisplay: rule.style.getPropertyValue('font-display') || '',
+                    unicodeRange: rule.style.getPropertyValue('unicode-range') || ''
+                  };
+                  break;
+                }
+              }
+            }
+            if (matchingFontFaceRule) break;
+          } catch {}
+        }
+      } catch {}
+
+      const rect = targetElement.getBoundingClientRect();
+
+      return {
+        ok: true,
+        data: {
+          target: {
+            tag: targetElement.tagName.toLowerCase(),
+            id: targetElement.id || undefined,
+            className: typeof targetElement.className === 'string' ? targetElement.className : undefined,
+            rect: { left: rect.left, top: rect.top, width: rect.width, height: rect.height }
+          },
+          declared: {
+            fontFamily,
+            primaryDeclared,
+            declaredStack,
+            fontSize,
+            fontWeight,
+            fontStyle,
+            lineHeight,
+            letterSpacing,
+            color
+          },
+          textMetrics: {
+            sampleText,
+            characterCount,
+            glyphCount,
+            hasVietnameseDiacritics,
+            hasNonAscii
+          },
+          fontFaceStatus: {
+            isLoaded: fontFaceLoaded,
+            ruleFound: !!matchingFontFaceRule,
+            rule: matchingFontFaceRule || undefined
+          }
         }
       };
     } catch (err) {
