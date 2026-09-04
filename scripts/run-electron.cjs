@@ -6,13 +6,22 @@
  * the `app` API). This spawns Electron with the variable stripped so the app
  * entry or e2e runner gets a real GUI runtime.
  */
-const { spawn } = require('node:child_process');
+const { spawn, execSync } = require('node:child_process');
 const path = require('node:path');
+const fs = require('node:fs');
 
 const script = process.argv[2];
 if (!script) {
   console.error('usage: node scripts/run-electron.cjs <app-dir-or-entry> [...args]');
   process.exit(1);
+}
+
+const ROOT = path.resolve(__dirname, '..');
+const compiledMain = path.join(ROOT, '.compiled', 'src', 'main', 'index.js');
+const resolvedTarget = path.resolve(script);
+if ((script === '.' || resolvedTarget === ROOT) && !fs.existsSync(compiledMain)) {
+  console.log('[run-electron] Missing compiled bundle. Running npm run compile...');
+  execSync('npm run compile', { cwd: ROOT, stdio: 'inherit' });
 }
 
 const env = { ...process.env };
