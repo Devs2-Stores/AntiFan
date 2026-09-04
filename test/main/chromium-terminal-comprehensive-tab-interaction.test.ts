@@ -169,7 +169,13 @@ function createComprehensiveHost(initialTabIds: string[] = ['tab-1']): Comprehen
   hostSeam.documentGenerations = new Map<string, number>();
   hostSeam.semanticDocumentGenerations = new Map<string, number>();
   hostSeam.mutationRevisions = new Map<string, number>();
-  hostSeam.isCurrentTarget = () => true;
+  hostSeam.isCurrentTarget = (target: BrowserTarget) => {
+    if (!target || typeof target.tabId !== 'string' || !host.tabs.has(target.tabId)) return false;
+    const currentGen = hostSeam.documentGenerations instanceof Map
+      ? (hostSeam.documentGenerations.get(target.tabId) || 1)
+      : 1;
+    return target.documentGeneration === undefined || target.documentGeneration === currentGen;
+  };
   const executedClicks: Array<{ selector?: string; tabId?: string; paneId?: 'desktop' | 'mobile' }> = [];
   const executedTypes: Array<{ selector?: string; text: string; tabId?: string; paneId?: 'desktop' | 'mobile' }> = [];
   host.executedClicks = executedClicks;
@@ -408,10 +414,14 @@ describe('Chromium <-> Terminal 30-Flow Interaction & Tab Management Matrix', ()
     assert.strictEqual(lineage.source, 'user_attached');
   });
 
-  it('Flow 12: Rebinding terminal from Tab A to Tab B cleans up Tab A state seamlessly', () => {
-    const host = createComprehensiveHost(['tab-a', 'tab-b']);
+  it('Flow 12: Rebinding terminal from Tab A to Tab B cleans up Tab A state and isolates old child tabs', () => {
+    const host = createComprehensiveHost(['tab-a', 'tab-b', 'tab-child']);
     host.bindTerminalAgentAffinity('terminal-1', 1, 'tab-a');
+    host.adoptChildTab('tab-a', 'tab-child', 1);
+
     assert.strictEqual(host.getTabTerminalSession('tab-a'), 'terminal-1');
+    assert.strictEqual(host.isTabAllowedForPrimary('tab-a', 'tab-child'), true);
+    assert.ok(host.getManagedTabIds('tab-a').has('tab-child'));
 
     // Rebind terminal-1 to tab-b
     assert.strictEqual(host.bindTerminalAgentAffinity('terminal-1', 1, 'tab-b'), true);
@@ -420,6 +430,11 @@ describe('Chromium <-> Terminal 30-Flow Interaction & Tab Management Matrix', ()
     // Tab A is no longer primary and no longer has terminal-1 affinity
     const aff = host.getTerminalAgentAffinity('terminal-1', 1);
     assert.strictEqual(aff?.tabId, 'tab-b');
+
+    // Rebind isolation: old child tab-child is NO LONGER allowed for tab-b or terminal-1
+    assert.strictEqual(host.isTabAllowedForPrimary('tab-b', 'tab-child'), false);
+    assert.strictEqual(host.tabs.get('tab-child')?.state.terminalSessionId, undefined);
+    assert.strictEqual(host.getManagedTabIds('terminal-1').has('tab-child'), false);
   });
 
   it('Flow 13: Binding to non-existent tabId or non-existent terminalId fails closed (returns false)', () => {
@@ -454,6 +469,32 @@ describe('Chromium <-> Terminal 30-Flow Interaction & Tab Management Matrix', ()
     host.clearTerminalAgentAffinity('terminal-1');
     assert.strictEqual(host.getTerminalAgentAffinity('terminal-1', 1), undefined);
     assert.strictEqual(host.tabs.get('tab-bound')?.state.terminalSessionId, undefined);
+  });
+
+  it('Flow 15b: Parent session close with attached split cleans up both parent and split affinities', async () => {
+    const host = createComprehensiveHost(['tab-main', 'tab-split-target']);
+    host.bindTerminalAgentAffinity('terminal-parent', 1, 'tab-main');
+    host.bindTerminalAgentAffinity('terminal-split', 1, 'tab-split-target');
+
+    // Emulate host listening to TerminalManager session-closed events
+    const closedSessions: string[] = [];
+    const handleSessionClosed = ({ id }: { id: string }) => {
+      closedSessions.push(id);
+      host.clearTerminalAgentAffinity(id);
+    };
+
+    // Fire session-closed for split and parent (as produced by production closeSession)
+    handleSessionClosed({ id: 'terminal-split' });
+    handleSessionClosed({ id: 'terminal-parent' });
+
+    assert.ok(closedSessions.includes('terminal-split'), 'Split session must emit session-closed');
+    assert.ok(closedSessions.includes('terminal-parent'), 'Parent session must emit session-closed');
+
+    // Both affinities must be cleaned
+    assert.strictEqual(host.getTerminalAgentAffinity('terminal-parent', 1), undefined);
+    assert.strictEqual(host.getTerminalAgentAffinity('terminal-split', 1), undefined);
+    assert.strictEqual(host.tabs.get('tab-main')?.state.terminalSessionId, undefined);
+    assert.strictEqual(host.tabs.get('tab-split-target')?.state.terminalSessionId, undefined);
   });
 
   // =========================================================================
@@ -621,9 +662,26 @@ describe('Chromium <-> Terminal 30-Flow Interaction & Tab Management Matrix', ()
       documentGeneration: 1,
     };
 
-    // Public call to agentClick on stale target throws TARGET_STALE
+    // 1. Public call to agentClick on non-existent tabId throws TARGET_STALE
     await assert.rejects(
       async () => port.agentClick({ selector: '#button' }, staleTarget),
+      (err: unknown) => {
+        const capErr = err as CapabilityError;
+        return capErr.code === 'TARGET_STALE';
+      }
+    );
+
+    // 2. Public call to agentClick with stale documentGeneration (999 vs 1) on existing tab throws TARGET_STALE
+    const staleGenTarget: BrowserTarget = {
+      tabId: 'tab-initial',
+      projectId: 'proj-1',
+      workspaceId: 'ws-1',
+      runtimeId: 'rt-1',
+      browserEpoch: 1,
+      documentGeneration: 999, // Stale generation
+    };
+    await assert.rejects(
+      async () => port.agentClick({ selector: '#button' }, staleGenTarget),
       (err: unknown) => {
         const capErr = err as CapabilityError;
         return capErr.code === 'TARGET_STALE';

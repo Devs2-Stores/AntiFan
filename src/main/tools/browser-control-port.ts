@@ -1063,7 +1063,8 @@ export class BrowserControlPort {
         `Browser target document generation (${target.documentGeneration}) is stale compared to live document generation (${liveDocGen}) after acquiring viewport lock`
       );
     }
-    if (this.host.isCurrentTarget && !this.host.isCurrentTarget(target)) {
+    const targetToCheck = target && tabId && target.tabId !== tabId ? { ...target, tabId } : target;
+    if (this.host.isCurrentTarget && !this.host.isCurrentTarget(targetToCheck)) {
       throw new CapabilityError('TARGET_STALE', 'Browser target no longer matches current tab document after acquiring viewport lock');
     }
   }

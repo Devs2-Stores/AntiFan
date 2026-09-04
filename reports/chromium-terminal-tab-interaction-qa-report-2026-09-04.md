@@ -146,11 +146,27 @@ File: `test/main/chromium-terminal-comprehensive-tab-interaction.test.ts`
 
 ---
 
-## 5. KongMing Final Review & Sign-Off
+## 5. Production Code Defect Fixes & Patches
 
-- **Audit Verdict:** **APPROVED WITH QUALIFIED TIER PARTITIONING.**
+1. **Split Session Affinity Leak on Parent Close (`src/main/browser/terminal-manager.ts`):**
+   - *Issue:* `TerminalManager.closeSession(id)` killed attached split session but never emitted `session-closed` for `split.id`, leaving split affinity alive in `NativeTabHost`.
+   - *Fix:* Added `this.emit('session-closed', { id: split.id, generation: split.sessionGeneration })` prior to killing parent.
+
+2. **Rebind Isolation & Stale Session Pool Retention (`src/main/browser/native-tab-host.ts`):**
+   - *Issue:* `clearTerminalAgentAffinity(terminalId)` did not prune `this.sessionTabPools.delete(terminalId)`, allowing adopted child tabs to survive rebinds.
+   - *Fix:* Added explicit `this.sessionTabPools.delete(terminalId)` inside `clearTerminalAgentAffinity`.
+
+3. **Failover Target In-Lock Revalidation (`src/main/tools/browser-control-port.ts`):**
+   - *Issue:* When primary tab closed and failed over to child, `revalidateTargetInsideLock` passed raw dead target to `this.host.isCurrentTarget`, failing with spurious stale target errors.
+   - *Fix:* Passed `targetToCheck = { ...target, tabId }` using effective resolved tab ID to `isCurrentTarget`.
+
+---
+
+## 6. KongMing Final Review & Sign-Off
+
+- **Audit Verdict:** **SYNTHETIC CONTRACT + RENDERER SMOKE PASS; PRODUCTION NATIVETABHOST <-> REAL PTY MULTI-WINDOW E2E REQUIRES LIVE DESKTOP OS SESSION.**
 - **Key Invariants Certified:**
-  1. *Affinity Fail-Closed:* Alien tabs cannot be mutated by an unattached agent.
-  2. *Automatic Failover:* Primary tab closure never terminates active agent sessions as long as child tabs exist in the pool.
-  3. *Quota Enforcement:* Maximum 10-tab boundary strictly rejects runaways.
+  1. *Affinity Fail-Closed & Rebind Isolation:* Alien tabs and stale child tabs from prior bindings are strictly rejected (`TARGET_MISMATCH`).
+  2. *Automatic Failover:* Primary tab closure promotes active child tabs seamlessly without losing agent control.
+  3. *Quota Enforcement:* Maximum 10-tab pool limit prevents memory leaks.
   4. *Zero Workspace Regression:* Existing 125 unit/integration tests remain 100% green.

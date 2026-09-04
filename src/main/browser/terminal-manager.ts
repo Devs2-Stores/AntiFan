@@ -911,6 +911,7 @@ export class TerminalManager extends EventEmitter {
     if (split) {
       await this.safelyKillSession(split);
       this.sessions.delete(split.id);
+      this.emit('session-closed', { id: split.id, generation: split.sessionGeneration });
     }
     await this.safelyKillSession(s);
     this.sessions.delete(id);

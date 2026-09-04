@@ -4573,6 +4573,9 @@ export class NativeTabHost extends EventEmitter {
         tab.state.terminalSessionId = undefined;
       }
     }
+    if (this.sessionTabPools) {
+      this.sessionTabPools.delete(terminalId);
+    }
   }
 
   public tombstoneTerminalAgentAffinity(tabId: string, lastUrl?: string): void {
