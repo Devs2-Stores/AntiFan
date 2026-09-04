@@ -15,6 +15,7 @@ import { dispatchAnnotationToTerminal, stripDeliveryMode } from './annotation-di
 import { AnnotationManager } from '../bridge/annotation-manager';
 import { TerminalManager } from './terminal-manager';
 import type { NativeTabRecord } from './native-tab-host';
+import type { SemanticElementDescriptor } from './semantic-ref-types';
 
 export interface TabDevToolsContext {
   getTabWebContents: (tabId?: string, paneId?: SplitPaneId) => Electron.WebContents | null;
@@ -640,6 +641,130 @@ export class TabDevToolsHost {
       return [];
     } catch {
       return [];
+    }
+  }
+
+  public async getMatchedStylesForNode(
+    wc: Electron.WebContents,
+    options: { nodeId?: number; selector?: string; objectId?: string; descriptor?: SemanticElementDescriptor } = {}
+  ): Promise<Record<string, unknown> | null> {
+    if (!wc || wc.isDestroyed()) return null;
+    try {
+      await this.sendCdpCommand(wc, 'DOM.enable');
+      await this.sendCdpCommand(wc, 'CSS.enable');
+
+      let targetNodeId = options.nodeId;
+
+      if (!targetNodeId && options.objectId) {
+        try {
+          const reqRes = await this.sendCdpCommand<{ nodeId?: number }>(wc, 'DOM.requestNode', {
+            objectId: options.objectId,
+          });
+          targetNodeId = reqRes?.nodeId;
+        } catch {}
+      }
+
+      if (!targetNodeId && options.descriptor) {
+        try {
+          const contextId = await this.getOrCreateIsolatedWorldContext(wc);
+          const descJson = JSON.stringify(options.descriptor);
+          const evalExpr = `(() => {
+            const desc = ${descJson};
+            function matchesFingerprint(el, fp) {
+              if (!el || !(el instanceof Element) || !fp || typeof fp !== 'object') return false;
+              if (fp.tag && el.tagName.toLowerCase() !== String(fp.tag).toLowerCase()) return false;
+              if (fp.id && el.id !== fp.id) return false;
+              if (fp.role && el.getAttribute('role') !== fp.role) return false;
+              if (fp.type && el.getAttribute('type') !== fp.type && el.type !== fp.type) return false;
+              if (fp.name && el.getAttribute('name') !== fp.name) return false;
+              if (fp.classHint) {
+                const cls = typeof el.className === 'string' ? el.className : (el.getAttribute('class') || '');
+                if (!cls.includes(fp.classHint)) return false;
+              }
+              return true;
+            }
+            function resolveTraversalPath(path) {
+              if (!Array.isArray(path) || path.length === 0) return null;
+              let current = document;
+              for (let i = 0; i < path.length; i++) {
+                const step = path[i];
+                if (!step || typeof step !== 'object') return null;
+                if (step.kind === 'dom') {
+                  const children = Array.from(current.children || []);
+                  let candidate = children[step.index] || null;
+                  if (!candidate && step.id) {
+                    if (typeof current.getElementById === 'function') {
+                      candidate = current.getElementById(step.id);
+                    }
+                  }
+                  if (!candidate) return null;
+                  current = candidate;
+                } else if (step.kind === 'shadow') {
+                  if (!current.shadowRoot) return null;
+                  current = current.shadowRoot;
+                } else if (step.kind === 'iframe') {
+                  try {
+                    if (!current.contentDocument) return null;
+                    current = current.contentDocument;
+                  } catch {
+                    return null;
+                  }
+                } else {
+                  return null;
+                }
+              }
+              return current instanceof Element ? current : null;
+            }
+            let el = resolveTraversalPath(desc.path);
+            if (!el && desc.id) el = document.getElementById(desc.id);
+            if (!el && desc.fingerprint && desc.fingerprint.id) el = document.getElementById(desc.fingerprint.id);
+            return (el && matchesFingerprint(el, desc.fingerprint)) ? el : null;
+          })()`;
+
+          const evalRes = await this.sendCdpCommand<{ result?: { objectId?: string; subtype?: string } }>(
+            wc,
+            'Runtime.evaluate',
+            {
+              expression: evalExpr,
+              contextId,
+              returnByValue: false,
+            }
+          );
+
+          if (evalRes?.result?.objectId && evalRes.result.subtype !== 'null') {
+            const reqRes = await this.sendCdpCommand<{ nodeId?: number }>(wc, 'DOM.requestNode', {
+              objectId: evalRes.result.objectId,
+            });
+            targetNodeId = reqRes?.nodeId;
+          }
+        } catch {}
+      }
+
+      if (!targetNodeId && options.selector) {
+        try {
+          const doc = await this.sendCdpCommand<{ root?: { nodeId?: number } }>(wc, 'DOM.getDocument', { depth: 0 });
+          const rootId = doc?.root?.nodeId;
+          if (rootId) {
+            const query = await this.sendCdpCommand<{ nodeId?: number }>(wc, 'DOM.querySelector', {
+              nodeId: rootId,
+              selector: options.selector,
+            });
+            targetNodeId = query?.nodeId;
+          }
+        } catch {}
+      }
+
+      if (!targetNodeId) {
+        return null;
+      }
+
+      const res = await this.sendCdpCommand<Record<string, unknown>>(wc, 'CSS.getMatchedStylesForNode', {
+        nodeId: targetNodeId,
+      });
+
+      return res || null;
+    } catch {
+      return null;
     }
   }
 

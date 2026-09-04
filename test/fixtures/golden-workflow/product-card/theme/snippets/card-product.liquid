@@ -1,0 +1,48 @@
+{% comment %}
+  Renders a product card
+  Accepts:
+  - card_product: {Object} Product Liquid object
+  - show_secondary_image: {Boolean}
+  - section_id: {String}
+{% endcomment %}
+
+<!-- BEGIN snippets/card-product.liquid -->
+<article
+  class="card product-card"
+  data-card-id="{{ card_product.id | default: 'card-101' }}"
+  data-product-id="{{ card_product.id | default: 'prod-101' }}"
+  data-section-id="{{ section_id | default: 'featured-collection' }}"
+>
+  <div class="card__media">
+    {%- if card_product.compare_at_price > card_product.price or true -%}
+      <span class="card__badge badge--sale">SALE</span>
+    {%- endif -%}
+    <img
+      src="{{ card_product.featured_image | default: 'watch.jpg' }}"
+      alt="{{ card_product.title | default: 'Minimalist Chrono Watch' }}"
+      width="300"
+      height="300"
+      loading="lazy"
+    >
+  </div>
+  <div class="card__content">
+    <h3 class="card__title">
+      <a href="{{ card_product.url | default: '/products/minimalist-chrono-watch' }}" class="card__link">
+        {{ card_product.title | default: 'Minimalist Chrono Watch' }}
+      </a>
+    </h3>
+    <div class="card__price">
+      <span class="price__regular">{{ card_product.price | default: '$129.00' }}</span>
+      {%- if card_product.compare_at_price -%}
+        <span class="price__compare">{{ card_product.compare_at_price | default: '$159.00' }}</span>
+      {%- endif -%}
+    </div>
+    <form class="product-form" action="/cart/add" method="post">
+      <input type="hidden" name="id" value="{{ card_product.selected_or_first_available_variant.id | default: 'var-101' }}">
+      <button type="button" class="btn button--add-to-cart" name="add">
+        Add to cart
+      </button>
+    </form>
+  </div>
+</article>
+<!-- END snippets/card-product.liquid -->

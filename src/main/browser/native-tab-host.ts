@@ -307,6 +307,7 @@ export interface NativeTabRecord {
   mobileView?: WebContentsView;
   state: AntiFanTab;
   focusedPane?: SplitPaneId;
+  customViewport?: { width: number; height: number; mobile?: boolean; deviceScaleFactor?: number };
 }
 
 export class NativeTabHost extends EventEmitter {
@@ -3899,8 +3900,33 @@ export class NativeTabHost extends EventEmitter {
       }
 
       // Case B: Standard Single-View Preset or Fluid Responsive
-      const preset = DEVICE_PRESETS.find((p) => p.id === tab.state.devicePresetId);
-
+      let preset: DevicePreset | undefined = DEVICE_PRESETS.find((p) => p.id === tab.state.devicePresetId);
+      if (!preset && tab.customViewport && tab.customViewport.width > 0 && tab.customViewport.height > 0) {
+        preset = {
+          id: tab.state.devicePresetId || `custom-${tab.customViewport.width}x${tab.customViewport.height}`,
+          name: `Custom (${tab.customViewport.width}x${tab.customViewport.height})`,
+          width: tab.customViewport.width,
+          height: tab.customViewport.height,
+          deviceScaleFactor: tab.customViewport.deviceScaleFactor ?? (tab.customViewport.mobile ? 2 : 1),
+          mobile: tab.customViewport.mobile ?? (tab.customViewport.width < 768),
+          category: tab.customViewport.mobile ? 'mobile' : (tab.customViewport.width < 1024 ? 'tablet' : 'desktop'),
+        };
+      } else if (!preset && tab.state.devicePresetId && /^\d+x\d+$/.test(tab.state.devicePresetId)) {
+        const parts = tab.state.devicePresetId.split('x').map(Number);
+        const w = parts[0];
+        const h = parts[1];
+        if (typeof w === 'number' && typeof h === 'number' && !Number.isNaN(w) && !Number.isNaN(h) && w > 0 && h > 0) {
+          preset = {
+            id: tab.state.devicePresetId,
+            name: `Custom (${w}x${h})`,
+            width: w,
+            height: h,
+            deviceScaleFactor: w < 768 ? 2 : 1,
+            mobile: w < 768,
+            category: w < 768 ? 'mobile' : (w < 1024 ? 'tablet' : 'desktop'),
+          };
+        }
+      }
       if (preset && preset.width && preset.height) {
         const userZoom = tab.state.zoomFactor || 1.0;
         const maxW = Math.max(100, availableWidth);
@@ -4056,6 +4082,7 @@ export class NativeTabHost extends EventEmitter {
   public setDevicePreset(tabId: string, presetId: string): boolean {
     const tab = this.tabs.get(tabId);
     if (!tab) return false;
+    tab.customViewport = undefined;
     tab.state.devicePresetId = presetId;
     this.updateLayout();
     return true;
@@ -4169,6 +4196,46 @@ export class NativeTabHost extends EventEmitter {
 
   public async inspectFont(params: { selector?: string; ref?: string; tabId?: string; paneId?: SplitPaneId }): Promise<Record<string, unknown>> {
     return this.getAutomationHost().inspectFont(params);
+  }
+
+  public async getMatchedStylesForNode(params: {
+    nodeId?: number;
+    selector?: string;
+    ref?: string;
+    tabId?: string;
+    paneId?: SplitPaneId;
+  }): Promise<Record<string, unknown> | null> {
+    const targetId = params.tabId || this.activeTabId;
+    const tab = this.tabs.get(targetId);
+    if (!tab) return null;
+    const effectivePane: SplitPaneId = params.paneId || 'desktop';
+    const wc = this.getTabWebContents(targetId, effectivePane);
+    if (!wc || wc.isDestroyed()) return null;
+
+    let targetNodeId = params.nodeId;
+    let selector = params.selector;
+    let descriptor: SemanticElementDescriptor | undefined;
+    if (!targetNodeId && params.ref) {
+      const normRef = params.ref.trim().startsWith('@') ? params.ref.trim() : `@${params.ref.trim()}`;
+      try {
+        const curEpoch = this.browserEpoch;
+        const curGen = this.getSemanticDocumentGeneration(targetId, effectivePane);
+        const curUrl = wc.getURL();
+        descriptor = this.semanticRefRegistry?.resolveRef({
+          tabId: targetId,
+          paneId: effectivePane,
+          browserEpoch: curEpoch,
+          documentGeneration: curGen,
+          documentUrl: curUrl,
+        }, normRef);
+      } catch {}
+    }
+
+    return this.getDevToolsHost().getMatchedStylesForNode(wc, {
+      nodeId: targetNodeId,
+      selector,
+      descriptor,
+    });
   }
 
   public toggleInspect(): boolean {
@@ -5182,20 +5249,28 @@ export class NativeTabHost extends EventEmitter {
     return this.diagnosticsManager.getDiagnostics(targetId, level);
   }
 
-  public async runResponsiveCheck(tabId?: string): Promise<Record<string, unknown>> {
-    const targetId = tabId || this.activeTabId;
+  public async runResponsiveCheck(params?: {
+    tabId?: string;
+    selector?: string;
+    customBreakpoints?: Array<{ id: string; name: string; width: number; height: number; mobile: boolean; deviceScaleFactor?: number }>;
+  } | string): Promise<Record<string, unknown>> {
+    const opts = typeof params === 'string' ? { tabId: params } : (params || {});
+    const targetId = opts.tabId || this.activeTabId;
     const tab = this.tabs.get(targetId);
     if (!tab || tab.view.webContents.isDestroyed()) return { ok: false, error: 'Tab not found or destroyed' };
 
     const wc = tab.view.webContents;
     const previousPreset = tab.state.devicePresetId;
-    const testBreakpoints = [
-      { id: 'mobile-iphone15', name: 'Mobile iPhone 15', width: 393, height: 852, deviceScaleFactor: 3, mobile: true },
-      { id: 'tablet-ipad-air', name: 'Tablet iPad Air', width: 820, height: 1180, deviceScaleFactor: 2, mobile: true },
-      { id: 'desktop-laptop', name: 'Desktop Laptop 14"', width: 1440, height: 900, deviceScaleFactor: 1, mobile: false },
+    const testBreakpoints = opts.customBreakpoints || [
+      { id: 'mobile-small', name: 'Mobile Small (320px)', width: 320, height: 568, deviceScaleFactor: 2, mobile: true },
+      { id: 'mobile-standard', name: 'Mobile Standard (375px)', width: 375, height: 667, deviceScaleFactor: 2, mobile: true },
+      { id: 'tablet-portrait', name: 'Tablet Portrait (768px)', width: 768, height: 1024, deviceScaleFactor: 2, mobile: false },
+      { id: 'tablet-landscape', name: 'Tablet Landscape (1024px)', width: 1024, height: 768, deviceScaleFactor: 2, mobile: false },
+      { id: 'desktop-laptop', name: 'Desktop Laptop (1440px)', width: 1440, height: 900, deviceScaleFactor: 1, mobile: false },
     ];
 
     const results: Record<string, unknown> = {};
+    const targetSelector = opts.selector ? JSON.stringify(opts.selector) : 'null';
 
     try {
       for (const bp of testBreakpoints) {
@@ -5203,7 +5278,7 @@ export class NativeTabHost extends EventEmitter {
           screenPosition: bp.mobile ? 'mobile' : 'desktop',
           screenSize: { width: bp.width, height: bp.height },
           viewPosition: { x: 0, y: 0 },
-          deviceScaleFactor: bp.deviceScaleFactor,
+          deviceScaleFactor: bp.deviceScaleFactor || (bp.mobile ? 2 : 1),
           viewSize: { width: bp.width, height: bp.height },
           scale: 1,
         });
@@ -5217,14 +5292,47 @@ export class NativeTabHost extends EventEmitter {
           const clientW = docEl ? docEl.clientWidth : window.innerWidth;
           const scrollH = Math.max(docEl ? docEl.scrollHeight : 0, body ? body.scrollHeight : 0);
           const clientH = docEl ? docEl.clientHeight : window.innerHeight;
-          const hasHorizontalOverflow = scrollW > clientW + 1;
+          const documentOverflowX = scrollW > clientW + 1;
           const viewportMeta = document.querySelector('meta[name="viewport"]');
+
+          let targetData = null;
+          const sel = ${targetSelector};
+          if (sel) {
+            try {
+              const el = document.querySelector(sel);
+              if (el) {
+                const rect = el.getBoundingClientRect();
+                const parent = el.parentElement;
+                const parentRect = parent ? parent.getBoundingClientRect() : null;
+                const cs = window.getComputedStyle(el);
+                const targetOverflowX = parentRect
+                  ? (rect.right > parentRect.right + 1 || rect.width > parentRect.width + 1)
+                  : (rect.right > clientW + 1);
+                targetData = {
+                  found: true,
+                  targetOverflowX,
+                  rect: { x: Math.round(rect.x), y: Math.round(rect.y), width: Math.round(rect.width), height: Math.round(rect.height) },
+                  display: cs.display,
+                  visibility: cs.visibility,
+                  isVisible: cs.display !== 'none' && cs.visibility !== 'hidden' && rect.width > 0 && rect.height > 0
+                };
+              } else {
+                targetData = { found: false, targetOverflowX: false };
+              }
+            } catch (err) {
+              targetData = { found: false, error: String(err) };
+            }
+          }
+
           return {
             scrollWidth: scrollW,
             clientWidth: clientW,
             scrollHeight: scrollH,
             clientHeight: clientH,
-            hasHorizontalOverflow,
+            documentOverflowX,
+            hasHorizontalOverflow: documentOverflowX,
+            targetOverflowX: targetData ? Boolean(targetData.targetOverflowX) : false,
+            target: targetData,
             hasViewportMeta: Boolean(viewportMeta),
             viewportContent: viewportMeta ? viewportMeta.getAttribute('content') : null,
           };
@@ -5238,7 +5346,7 @@ export class NativeTabHost extends EventEmitter {
           width: bp.width,
           height: bp.height,
           mobile: bp.mobile,
-          ...evaluation,
+          ...(typeof evaluation === 'object' && evaluation !== null ? evaluation : {}),
         };
       }
     } finally {
@@ -5299,7 +5407,16 @@ export class NativeTabHost extends EventEmitter {
     const targetId = options.tabId || this.activeTabId;
     const tab = this.tabs.get(targetId);
     if (!tab) return false;
-    tab.state.devicePresetId = `${options.width}x${options.height}`;
+    const w = Math.round(options.width);
+    const h = Math.round(options.height);
+    if (w <= 0 || h <= 0) return false;
+    tab.customViewport = {
+      width: w,
+      height: h,
+      mobile: options.mobile ?? (w < 768),
+      deviceScaleFactor: options.deviceScaleFactor ?? (w < 768 ? 2 : 1),
+    };
+    tab.state.devicePresetId = `custom-${w}x${h}`;
     this.updateLayout();
     return true;
   }

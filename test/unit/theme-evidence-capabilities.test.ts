@@ -1,0 +1,203 @@
+import { describe, it } from 'node:test';
+import * as assert from 'node:assert';
+import * as path from 'node:path';
+import { CapabilityCatalogue } from '../../src/main/tools/capability-catalogue';
+import { registerBrowserCapabilities } from '../../src/main/tools/browser-capabilities';
+import { BrowserControlPort, BrowserHostPort } from '../../src/main/tools/browser-control-port';
+import { issueRuntimeLease, makeControlPlaneId, BrowserTarget } from '../../src/shared/control-plane-contracts';
+import { ThemeEvidenceEnvelope, isThemeEvidenceEnvelope } from '../../src/main/tools/theme-evidence-envelope';
+import { ThemeSourceMapper } from '../../src/main/browser/theme-source-mapper';
+import { CssCascadeAnalyzer, RawCdpMatchedStylesPayload } from '../../src/main/browser/css-cascade-analyzer';
+
+describe('Phase 3: Theme Evidence Capabilities', () => {
+  const fixtureThemeRoot = path.resolve(process.cwd(), 'test/fixtures/golden-workflow/product-card/theme');
+
+  it('verifies ThemeEvidenceEnvelope schema and type guard', () => {
+    const validEnvelope: ThemeEvidenceEnvelope<{ count: number }> = {
+      success: true,
+      data: { count: 42 },
+      evidenceQuality: 'HIGH',
+      signals: { markupClassMatch: true, renderCallMatch: true },
+      timestamp: Date.now(),
+    };
+
+    assert.strictEqual(isThemeEvidenceEnvelope(validEnvelope), true);
+    assert.strictEqual(isThemeEvidenceEnvelope(null), false);
+    assert.strictEqual(isThemeEvidenceEnvelope({ success: true }), false);
+  });
+
+  it('maps element hints to snippets/card-product.liquid with HIGH confidence (2-signal rule)', () => {
+    const envelope = ThemeSourceMapper.mapElementToSource(fixtureThemeRoot, {
+      tagName: 'article',
+      classes: ['card', 'product-card', 'card__badge'],
+      attributes: {
+        'data-section-id': 'featured-collection',
+        'data-card-id': 'card-101',
+      },
+    });
+
+    assert.strictEqual(envelope.success, true);
+    assert.strictEqual(envelope.evidenceQuality, 'HIGH');
+    assert.strictEqual(envelope.signals.markupClassMatch, true);
+    assert.strictEqual(envelope.signals.renderCallMatch, true);
+    assert.strictEqual(envelope.signals.referencedBySection, true);
+
+    const primary = envelope.data?.primaryCandidate;
+    assert.ok(primary);
+    assert.strictEqual(primary.file, 'snippets/card-product.liquid');
+    assert.strictEqual(primary.type, 'snippet');
+    assert.strictEqual(primary.confidence, 'HIGH');
+    assert.ok(primary.matchCount >= 3);
+  });
+
+  it('analyzes CSS cascade and isolates ACTIVE declarations from OVERRIDDEN rules', () => {
+    const mockCdpPayload: RawCdpMatchedStylesPayload = {
+      matchedCSSRules: [
+        {
+          rule: {
+            selectorList: { selectors: [{ text: '.card' }] },
+            style: {
+              cssProperties: [
+                { name: 'margin-top', value: '16px' },
+                { name: 'display', value: 'flex' },
+              ],
+              styleSheetId: 'sheet-1',
+            },
+          },
+        },
+        {
+          rule: {
+            selectorList: { selectors: [{ text: '.product-card' }] },
+            style: {
+              cssProperties: [
+                { name: 'margin-top', value: '24px' },
+                { name: '--card-badge-bg', value: '#e53e3e' },
+              ],
+              styleSheetId: 'sheet-1',
+            },
+          },
+        },
+      ],
+    };
+
+    const envelope = CssCascadeAnalyzer.analyze(mockCdpPayload, {
+      'sheet-1': 'assets/component-card.css',
+    });
+
+    assert.strictEqual(envelope.success, true);
+    assert.strictEqual(envelope.evidenceQuality, 'HIGH');
+    assert.strictEqual(envelope.data?.definitionOfDone, 'STRONG PASS');
+
+    const active = envelope.data?.activeRules || [];
+    const overridden = envelope.data?.overriddenRules || [];
+
+    const activeMarginTop = active.find((r) => r.property === 'margin-top');
+    assert.ok(activeMarginTop);
+    assert.strictEqual(activeMarginTop.value, '24px');
+    assert.strictEqual(activeMarginTop.selector, '.product-card');
+    assert.strictEqual(activeMarginTop.status, 'ACTIVE');
+    assert.strictEqual(activeMarginTop.sourceUrl, 'assets/component-card.css');
+
+    const overriddenMarginTop = overridden.find((r) => r.property === 'margin-top');
+    assert.ok(overriddenMarginTop);
+    assert.strictEqual(overriddenMarginTop.value, '16px');
+    assert.strictEqual(overriddenMarginTop.selector, '.card');
+    assert.strictEqual(overriddenMarginTop.status, 'OVERRIDDEN');
+
+    assert.strictEqual(envelope.data?.cssVariables['--card-badge-bg'], '#e53e3e');
+  });
+
+  it('dispatches anti.theme.resolve_element, anti.inspect.matched_styles, and anti.inspect.responsive_matrix through CapabilityCatalogue', async () => {
+    const projectId = makeControlPlaneId('project');
+    const workspaceId = makeControlPlaneId('workspace');
+    const lease = issueRuntimeLease(projectId, workspaceId, 30_000, 1);
+    const catalogue = new CapabilityCatalogue({
+      runtime: { mode: 'standalone', lifecycle: 'active' },
+      projectId,
+      workspaceId,
+      runtimeId: lease.runtimeId,
+      hostEpoch: 1,
+    });
+
+    const mockHost: BrowserHostPort = {
+      navigate: () => true,
+      reload: () => true,
+      getDom: async () => '<html></html>',
+      captureScreenshot: async () => 'data:image/png;base64,mock',
+      getTabList: () => [{ id: 'tab-1' }],
+      evalJs: async () => ({
+        classes: ['product-card', 'card__badge'],
+        attributes: { 'data-section-id': 'featured-collection' },
+        tagName: 'article',
+      }),
+      getMatchedStylesForNode: async () => ({
+        matchedCSSRules: [
+          {
+            rule: {
+              selectorList: { selectors: [{ text: '.product-card' }] },
+              style: { cssProperties: [{ name: 'margin-top', value: '24px' }] },
+              styleSheetId: 'sheet-1',
+            },
+          },
+        ],
+      }),
+      runResponsiveCheck: async () => ({
+        ok: true,
+        tabId: 'tab-1',
+        breakpoints: {
+          'mobile-small': { width: 320, documentOverflowX: false, targetOverflowX: false },
+          'mobile-standard': { width: 375, documentOverflowX: false, targetOverflowX: false },
+          'tablet-portrait': { width: 768, documentOverflowX: false, targetOverflowX: false },
+          'tablet-landscape': { width: 1024, documentOverflowX: false, targetOverflowX: false },
+          'desktop-laptop': { width: 1440, documentOverflowX: false, targetOverflowX: false },
+        },
+      }),
+    };
+
+    const port = new BrowserControlPort(mockHost);
+    registerBrowserCapabilities(catalogue, port, undefined, () => fixtureThemeRoot);
+
+    assert.ok(catalogue.get('anti.theme.resolve_element'));
+    assert.ok(catalogue.get('anti.inspect.matched_styles'));
+    assert.ok(catalogue.get('anti.inspect.responsive_matrix'));
+
+    const target: BrowserTarget = {
+      tabId: 'tab-1',
+      browserEpoch: 1,
+      documentGeneration: 1,
+      runtimeId: lease.runtimeId,
+      projectId,
+      workspaceId,
+    };
+
+    // 1. Dispatch resolve_element
+    const resolveRes = await catalogue.dispatch(
+      'anti.theme.resolve_element',
+      { selector: '.product-card', workspaceRoot: fixtureThemeRoot, tabId: 'tab-1' },
+      { lease, leaseToken: lease.token, projectId, workspaceId, browserTarget: target }
+    );
+    assert.ok(isThemeEvidenceEnvelope(resolveRes));
+    assert.strictEqual(resolveRes.evidenceQuality, 'HIGH');
+
+    // 2. Dispatch matched_styles
+    const stylesRes = await catalogue.dispatch(
+      'anti.inspect.matched_styles',
+      { selector: '.product-card', tabId: 'tab-1' },
+      { lease, leaseToken: lease.token, projectId, workspaceId, browserTarget: target }
+    );
+    assert.ok(isThemeEvidenceEnvelope(stylesRes));
+    assert.strictEqual(stylesRes.evidenceQuality, 'MEDIUM'); // 'PASS' because stylesheetUrlMap is empty by default
+
+    // 3. Dispatch responsive_matrix
+    const matrixRes = await catalogue.dispatch(
+      'anti.inspect.responsive_matrix',
+      { selector: '.product-card', tabId: 'tab-1' },
+      { lease, leaseToken: lease.token, projectId, workspaceId, browserTarget: target }
+    );
+    assert.ok(isThemeEvidenceEnvelope(matrixRes));
+    assert.strictEqual(matrixRes.evidenceQuality, 'HIGH');
+    assert.strictEqual(matrixRes.signals.hasDocOverflow, false);
+    assert.strictEqual(matrixRes.signals.hasTargetOverflow, false);
+    assert.strictEqual(matrixRes.signals.allBreakpointsTested, true);
+  });
+});

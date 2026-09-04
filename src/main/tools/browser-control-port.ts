@@ -13,6 +13,14 @@ function isTabRecord(item: unknown): item is AntiFanTab {
   if (typeof item !== 'object' || item === null || !('id' in item)) return false;
   return typeof item.id === 'string';
 }
+export interface ResponsiveBreakpointOption {
+  id: string;
+  name: string;
+  width: number;
+  height: number;
+  mobile: boolean;
+  deviceScaleFactor?: number;
+}
 
 export interface BrowserHostPort {
   hasTab?(tabId?: string | null): boolean;
@@ -33,7 +41,7 @@ export interface BrowserHostPort {
   captureScreenshot(rect?: unknown, tabId?: string, paneId?: 'desktop' | 'mobile', options?: { format?: 'png' | 'jpeg'; quality?: number; fullPage?: boolean }): Promise<string>;
   evalJs(expression: string, tabId?: string, paneId?: 'desktop' | 'mobile'): Promise<unknown>;
   getDiagnostics?(tabId?: string, level?: number | string): { console: unknown[]; failures: unknown[] };
-  runResponsiveCheck?(tabId: string): Promise<Record<string, unknown>>;
+  runResponsiveCheck?(params?: { tabId?: string; selector?: string; customBreakpoints?: ResponsiveBreakpointOption[] } | string): Promise<Record<string, unknown>>;
   agentTrajectory?(params: { steps: Array<Record<string, unknown>>; speed?: 'fast' | 'natural' | 'slow'; smoothScroll?: boolean; tabId?: string; paneId?: 'desktop' | 'mobile' }): Promise<Record<string, unknown>>;
   dispatchAgentAction?(action: 'click' | 'type' | 'move' | 'hover' | 'scroll' | 'highlight' | 'clear' | 'trajectory', params: Record<string, unknown>): Promise<{ success: boolean; data?: unknown; reason?: string }>;
   agentMove?(args: { selector?: string; ref?: string; x?: number; y?: number; label?: string; tabId?: string; paneId?: 'desktop' | 'mobile' }): Promise<boolean>;
@@ -63,6 +71,7 @@ export interface BrowserHostPort {
   inspectStyles?(params: { selector?: string; ref?: string; properties?: string[]; tabId?: string; paneId?: 'desktop' | 'mobile' }): Promise<Record<string, unknown>>;
   inspectRegion?(params: { x?: number; y?: number; width?: number; height?: number; selector?: string; ref?: string; tabId?: string; paneId?: 'desktop' | 'mobile' }): Promise<Record<string, unknown>>;
   inspectFont?(params: { selector?: string; ref?: string; tabId?: string; paneId?: 'desktop' | 'mobile' }): Promise<Record<string, unknown>>;
+  getMatchedStylesForNode?(params: { nodeId?: number; selector?: string; ref?: string; tabId?: string; paneId?: 'desktop' | 'mobile' }): Promise<Record<string, unknown> | null>;
   getNetworkTracker?(): { isAttached: (tabId: string, paneId?: string) => boolean; awaitQuiescence: (tabId: string, paneId?: string, options?: unknown, signal?: AbortSignal) => Promise<{ settled: boolean; durationMs: number; timedOut: boolean }> };
   wait?(params: BrowserWaitParams, signal?: AbortSignal): Promise<BrowserWaitResult>;
   observe?(params: BrowserObserveParams): Promise<BrowserObserveResult>;
@@ -897,9 +906,11 @@ export class BrowserControlPort {
     return this.host.getDiagnostics(tabId, level);
   }
 
-  async responsiveCheck(tabId: string): Promise<Record<string, unknown>> {
+  async responsiveCheck(params?: { tabId?: string; selector?: string; customBreakpoints?: ResponsiveBreakpointOption[] } | string, target?: BrowserTarget): Promise<Record<string, unknown>> {
     if (!this.host.runResponsiveCheck) throw new CapabilityError('CAPABILITY_NOT_FOUND', 'runResponsiveCheck is not supported by host');
-    return this.host.runResponsiveCheck(tabId);
+    const opts = typeof params === 'string' ? { tabId: params } : (params || {});
+    const effectiveTabId = this.resolveTargetTab(target, opts.tabId);
+    return this.host.runResponsiveCheck({ ...opts, tabId: effectiveTabId });
   }
 
   async agentTrajectory(args: { steps: Array<Record<string, unknown>>; speed?: 'fast' | 'natural' | 'slow'; smoothScroll?: boolean; tabId?: string; paneId?: 'desktop' | 'mobile' }, target?: BrowserTarget, signal?: AbortSignal): Promise<Record<string, unknown>> {
@@ -1171,6 +1182,24 @@ export class BrowserControlPort {
 
     return this.passivePool.execute(tabId, async () => {
       return this.host.inspectFont!({ ...params, tabId, paneId: effectivePane });
+    });
+  }
+
+  async getMatchedStylesForNode(
+    target: BrowserTarget,
+    params: { nodeId?: number; selector?: string; ref?: string; tabId?: string; paneId?: 'desktop' | 'mobile' } = {},
+    explicitTabId?: string,
+    paneId?: 'desktop' | 'mobile'
+  ): Promise<Record<string, unknown> | null> {
+    const tabId = this.resolveTargetTab(target, explicitTabId || params.tabId);
+    const effectivePane = paneId || params.paneId || 'desktop';
+
+    if (!this.host.getMatchedStylesForNode) {
+      throw new CapabilityError('CAPABILITY_NOT_FOUND', 'getMatchedStylesForNode is not supported by host');
+    }
+
+    return this.passivePool.execute(tabId, async () => {
+      return this.host.getMatchedStylesForNode!({ ...params, tabId, paneId: effectivePane });
     });
   }
 

@@ -1,0 +1,35 @@
+{% comment %}
+  Main collection product grid section
+{% endcomment %}
+
+<!-- sections/main-collection.liquid -->
+<section id="shopify-section-{{ section.id | default: 'featured-collection' }}" class="collection-section" data-section-id="{{ section.id | default: 'featured-collection' }}" data-section-type="collection-grid">
+  <div class="product-grid">
+    {% for product in collection.products %}
+      {% render 'card-product', card_product: product, section_id: section.id %}
+    {% else %}
+      {% render 'card-product', section_id: 'featured-collection' %}
+    {% endfor %}
+  </div>
+</section>
+
+{% schema %}
+{
+  "name": "Featured Collection",
+  "tag": "section",
+  "class": "section",
+  "settings": [
+    {
+      "type": "text",
+      "id": "title",
+      "label": "Heading",
+      "default": "Featured Collection"
+    }
+  ],
+  "presets": [
+    {
+      "name": "Featured Collection"
+    }
+  ]
+}
+{% endschema %}

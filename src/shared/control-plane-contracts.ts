@@ -4,6 +4,7 @@ import * as path from 'node:path';
 
 export const CONTROL_PLANE_PROTOCOL_VERSION = 1;
 export const SESSION_FORMAT_VERSION = 1;
+export * from './theme-task-context';
 
 export type ControlPlaneEntity = 'project' | 'workspace' | 'chat' | 'run' | 'attempt' | 'tool' | 'artifact' | 'binding' | 'invocation' | 'event' | 'message' | 'request' | 'idempotency' | 'attachment';
 export type LifecycleState = 'open' | 'closed' | 'interrupted' | 'completed' | 'failed' | 'unknown';

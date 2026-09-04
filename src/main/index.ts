@@ -239,7 +239,7 @@ async function createWindow(): Promise<void> {
     captureScreenshot: (rect, tabId, paneId, options) => tabHost!.captureScreenshot(rect as any, tabId, paneId, options),
     evalJs: (expression, tabId, paneId) => tabHost!.evalJs(expression, tabId, paneId),
     getDiagnostics: (tabId, level) => tabHost!.getDiagnostics(tabId, level),
-    runResponsiveCheck: (tabId) => tabHost!.runResponsiveCheck(tabId),
+    runResponsiveCheck: (params) => tabHost!.runResponsiveCheck(params),
     agentTrajectory: (params) => tabHost!.agentTrajectory(params),
     dispatchAgentAction: (action, params) => tabHost!.dispatchAgentAction(action as any, params as any),
     agentMove: (args) => tabHost!.agentMove(args),

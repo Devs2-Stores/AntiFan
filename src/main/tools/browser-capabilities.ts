@@ -1,5 +1,5 @@
 import * as path from 'node:path';
-import { BrowserTarget, CapabilityRequestContext, CapabilityError, CapabilityEffectPolicyInput, CapabilityRisk } from '../../shared/control-plane-contracts';
+import { BrowserTarget, CapabilityRequestContext, CapabilityError, CapabilityEffectPolicyInput, CapabilityRisk, ReceiptBinding } from '../../shared/control-plane-contracts';
 import { BrowserControlPort } from './browser-control-port';
 import { CapabilityCatalogue } from './capability-catalogue';
 import { PlatformDetector } from '../qa/scanners/platform-detector';
@@ -12,8 +12,12 @@ import { confineWorkspaceRoot } from '../qa/diagnostics-filter';
 import { recordFallbackTelemetry, FallbackTelemetryPayload } from '../telemetry/fallback-recorder';
 import { IssueRegister, VerificationVerdict } from '../session/issue-register';
 import { VerificationEvaluator } from '../verification/verification-evaluator';
-import { VerificationClaim, EvidenceSampleBundle, InteractionBaseline } from '../verification/verification-contract';
+import { VerificationClaim, EvidenceSampleBundle, InteractionBaseline, THEME_METRICS } from '../verification/verification-contract';
 import { ProofTemplateRegistry, ClaimCategory } from '../verification/proof-templates';
+import { ThemeSourceMapper } from '../browser/theme-source-mapper';
+import { CssCascadeAnalyzer } from '../browser/css-cascade-analyzer';
+import { createThemeEvidenceEnvelope } from './theme-evidence-envelope';
+import { ReceiptStore } from '../session/receipt-store';
 function getThemeHierarchyScript(): string {
   return `(() => {
     const template = document.documentElement?.getAttribute('data-template')
@@ -171,7 +175,7 @@ function makeBrowserPolicy(options: {
   };
 }
 
-export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, browser: BrowserControlPort, themeQaWorkflow?: ThemeQaWorkflow, getWorkspaceRoot?: () => string): void {
+export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, browser: BrowserControlPort, themeQaWorkflow?: ThemeQaWorkflow, getWorkspaceRoot?: () => string, receipts?: ReceiptStore, getStylesheetUrlMap?: () => Record<string, string>): void {
   const coordinator = themeQaWorkflow ? new ThemeQaRepairCoordinator(themeQaWorkflow) : undefined;
 
   // 1. Standard canonical capabilities
@@ -1711,6 +1715,164 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
   });
 
   catalogue.register({
+    name: 'browser.get-matched-styles',
+    description: 'Retrieve low-level Chromium CDP CSS.getMatchedStylesForNode response containing matched CSS rules and stylesheet IDs',
+    risk: 'read',
+    requiresBrowserTarget: true,
+    policy: makeBrowserPolicy({ effect: 'read', risk: 'read', requiresBrowserTarget: true, lane: 'short-passive' }),
+    inputSchema: {
+      type: 'object',
+      properties: {
+        nodeId: { type: 'number', description: 'CDP DOM Node ID if already known' },
+        selector: { type: 'string', description: 'CSS selector of the element' },
+        ref: { type: 'string', description: 'Semantic reference of the element (@e1..@eN)' },
+        tabId: { type: 'string', description: 'Optional target tab ID' },
+        paneId: { type: 'string', enum: ['desktop', 'mobile'], description: 'Optional split-pane ID' },
+      },
+    },
+    execute: (params: { nodeId?: number; selector?: string; ref?: string; tabId?: string; paneId?: 'desktop' | 'mobile' }, context) =>
+      browser.getMatchedStylesForNode(context.browserTarget as BrowserTarget, params, params?.tabId, params?.paneId),
+  });
+
+  catalogue.register({
+    name: 'anti.inspect.cdp_matched_styles',
+    description: 'Alias for browser.get-matched-styles',
+    risk: 'read',
+    requiresBrowserTarget: true,
+    policy: makeBrowserPolicy({ effect: 'read', risk: 'read', requiresBrowserTarget: true, lane: 'short-passive' }),
+    inputSchema: {
+      type: 'object',
+      properties: {
+        nodeId: { type: 'number', description: 'CDP DOM Node ID if already known' },
+        selector: { type: 'string', description: 'CSS selector of the element' },
+        ref: { type: 'string', description: 'Semantic reference of the element (@e1..@eN)' },
+        tabId: { type: 'string', description: 'Optional target tab ID' },
+        paneId: { type: 'string', enum: ['desktop', 'mobile'], description: 'Optional split-pane ID' },
+      },
+    },
+    execute: (params: { nodeId?: number; selector?: string; ref?: string; tabId?: string; paneId?: 'desktop' | 'mobile' }, context) =>
+      browser.getMatchedStylesForNode(context.browserTarget as BrowserTarget, params, params?.tabId, params?.paneId),
+  });
+
+  catalogue.register({
+    name: 'anti.theme.resolve_element',
+    description: 'Map rendered DOM element to local theme Liquid source template/snippet files with tri-state evidence and 2-signal confidence verification',
+    risk: 'read',
+    requiresBrowserTarget: true,
+    policy: makeBrowserPolicy({ effect: 'read', risk: 'read', requiresBrowserTarget: true, lane: 'short-passive' }),
+    inputSchema: {
+      type: 'object',
+      properties: {
+        selector: { type: 'string', description: 'CSS selector of the target element' },
+        ref: { type: 'string', description: 'Semantic reference of the target element (@e1..@eN)' },
+        workspaceRoot: { type: 'string', description: 'Optional local theme workspace directory' },
+        tabId: { type: 'string', description: 'Optional target tab ID' },
+        paneId: { type: 'string', enum: ['desktop', 'mobile'], description: 'Optional split-pane ID' },
+      },
+    },
+    execute: async (params: { selector?: string; ref?: string; workspaceRoot?: string; tabId?: string; paneId?: 'desktop' | 'mobile' }, context) => {
+      const root = params.workspaceRoot || (getWorkspaceRoot ? getWorkspaceRoot() : process.cwd());
+      let classes: string[] = [];
+      const attributes: Record<string, string> = {};
+      const commentHints: string[] = [];
+
+      try {
+        const sel = params.selector ? JSON.stringify(params.selector) : 'null';
+        const inspectScript = `(() => {
+          let el = null;
+          const s = ${sel};
+          if (s) {
+            try { el = document.querySelector(s); } catch {}
+          }
+          if (!el) return null;
+          const cls = typeof el.className === 'string' ? el.className.split(/\\s+/).filter(Boolean) : [];
+          const attrs = {};
+          for (let i = 0; i < el.attributes.length; i++) {
+            const a = el.attributes[i];
+            if (a.name.startsWith('data-') || a.name === 'id' || a.name === 'class') {
+              attrs[a.name] = a.value;
+            }
+          }
+          return { classes: cls, attributes: attrs, tagName: el.tagName.toLowerCase() };
+        })()`;
+        const raw = await browser.eval(context.browserTarget as BrowserTarget, inspectScript, params?.tabId, params?.paneId);
+        if (raw && typeof raw === 'object') {
+          const typedRaw = raw as { classes?: string[]; attributes?: Record<string, string> };
+          if (Array.isArray(typedRaw.classes)) classes = typedRaw.classes;
+          if (typedRaw.attributes) Object.assign(attributes, typedRaw.attributes);
+        }
+      } catch {}
+
+      return ThemeSourceMapper.mapElementToSource(root, {
+        classes,
+        attributes,
+        commentHints,
+      });
+    },
+  });
+
+  catalogue.register({
+    name: 'anti.inspect.matched_styles',
+    description: 'Retrieve causality-aware CSS matched rules categorized into ACTIVE vs OVERRIDDEN with specificity calculation and Tiered DoD (PASS vs STRONG PASS)',
+    risk: 'read',
+    requiresBrowserTarget: true,
+    policy: makeBrowserPolicy({ effect: 'read', risk: 'read', requiresBrowserTarget: true, lane: 'short-passive' }),
+    inputSchema: {
+      type: 'object',
+      properties: {
+        nodeId: { type: 'number', description: 'CDP DOM Node ID if already known' },
+        selector: { type: 'string', description: 'CSS selector of the target element' },
+        ref: { type: 'string', description: 'Semantic reference of the target element (@e1..@eN)' },
+        tabId: { type: 'string', description: 'Optional target tab ID' },
+        paneId: { type: 'string', enum: ['desktop', 'mobile'], description: 'Optional split-pane ID' },
+        stylesheetUrlMap: { type: 'object', description: 'Optional mapping of styleSheetId to source URL' },
+      },
+    },
+    execute: async (params: { nodeId?: number; selector?: string; ref?: string; tabId?: string; paneId?: 'desktop' | 'mobile'; stylesheetUrlMap?: Record<string, string> }, context) => {
+      const rawCdp = await browser.getMatchedStylesForNode(context.browserTarget as BrowserTarget, params, params?.tabId, params?.paneId);
+      return CssCascadeAnalyzer.analyze(rawCdp, params?.stylesheetUrlMap);
+    },
+  });
+
+  catalogue.register({
+    name: 'anti.inspect.responsive_matrix',
+    description: 'Probe 5 standard responsive breakpoints (320, 375, 768, 1024, 1440px) in one atomic call, disambiguating documentOverflowX from targetOverflowX',
+    risk: 'read',
+    requiresBrowserTarget: true,
+    policy: makeBrowserPolicy({ effect: 'read', risk: 'read', requiresBrowserTarget: true, lane: 'viewport-gate' }),
+    inputSchema: {
+      type: 'object',
+      properties: {
+        selector: { type: 'string', description: 'Optional CSS selector of the component to measure across breakpoints' },
+        tabId: { type: 'string', description: 'Optional target tab ID' },
+      },
+    },
+    execute: async (params: { selector?: string; tabId?: string }, context) => {
+      const rawRes = await browser.responsiveCheck(params, context.browserTarget as BrowserTarget);
+      const typedRaw = (rawRes && typeof rawRes === 'object') ? (rawRes as Record<string, unknown>) : {};
+      const isOk = typedRaw.ok !== false;
+      const breakpoints = (typedRaw.breakpoints && typeof typedRaw.breakpoints === 'object')
+        ? (typedRaw.breakpoints as Record<string, Record<string, unknown>>)
+        : {};
+      const bpEntries = Object.values(breakpoints);
+
+      const hasDocOverflow = bpEntries.some((b) => Boolean(b.documentOverflowX || b.hasHorizontalOverflow));
+      const hasTargetOverflow = bpEntries.some((b) => Boolean(b.targetOverflowX));
+
+      return createThemeEvidenceEnvelope({
+        success: isOk,
+        evidenceQuality: isOk ? 'HIGH' : 'LOW',
+        data: rawRes,
+        signals: {
+          hasDocOverflow,
+          hasTargetOverflow,
+          allBreakpointsTested: bpEntries.length >= 5,
+        },
+      });
+    },
+  });
+
+  catalogue.register({
     name: 'browser.style_override',
     description: 'Safely inject, update, remove, or clear temporary CSS overrides in page for non-destructive layout/style testing',
     risk: 'write',
@@ -2760,6 +2922,135 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
                 message: `Style obligation '${obl.metric}' is underspecified: missing required expected value`,
               });
             }
+          } else if (obl.metric.startsWith('theme.')) {
+            if (obl.metric === THEME_METRICS.SOURCE_FILE_IDENTIFIED) {
+              const root = typeof getWorkspaceRoot === 'function' ? getWorkspaceRoot() : process.cwd();
+              const sel = JSON.stringify(claim.scope.selector || 'body');
+              let classes: string[] = [];
+              let attributes: Record<string, string> = {};
+              try {
+                const raw = await browser.eval(
+                  target,
+                  `(() => {
+                    const el = document.querySelector(${sel});
+                    if (!el) return null;
+                    const cls = typeof el.className === 'string' ? el.className.split(/\\s+/).filter(Boolean) : [];
+                    const attrs = {};
+                    for (let i = 0; i < el.attributes.length; i++) {
+                      const a = el.attributes[i];
+                      if (a.name.startsWith('data-') || a.name === 'id' || a.name === 'class') attrs[a.name] = a.value;
+                    }
+                    return { classes: cls, attributes: attrs };
+                  })()`,
+                  tabId
+                );
+                if (raw && typeof raw === 'object') {
+                  const typed = raw as { classes?: string[]; attributes?: Record<string, string> };
+                  if (Array.isArray(typed.classes)) classes = typed.classes;
+                  if (typed.attributes) Object.assign(attributes, typed.attributes);
+                }
+              } catch {}
+              const envelope = ThemeSourceMapper.mapElementToSource(root, { classes, attributes });
+              const identified = envelope.success && Boolean(envelope.data?.primaryCandidate?.file);
+              samples.push({
+                metric: obl.metric,
+                actual: envelope.data?.primaryCandidate?.file || 'none',
+                expected: obl.expected ?? true,
+                passed: identified,
+                message: identified
+                  ? `Theme source identified: ${envelope.data?.primaryCandidate?.file} (confidence: ${envelope.data?.primaryCandidate?.confidence})`
+                  : `Failed to identify theme source file for selector ${claim.scope.selector}`,
+              });
+            } else if (obl.metric === THEME_METRICS.CSS_ACTIVE_RULE_MATCHED || obl.metric === THEME_METRICS.CSS_STRONG_PASS_RESOLVED) {
+              const urlMap = typeof getStylesheetUrlMap === 'function' ? getStylesheetUrlMap() : undefined;
+              const styles = await browser.getMatchedStylesForNode(target, { selector: claim.scope.selector, tabId }, tabId);
+              const envelope = CssCascadeAnalyzer.analyze(styles, urlMap);
+              if (obl.metric === THEME_METRICS.CSS_ACTIVE_RULE_MATCHED) {
+                const passed = envelope.success && (envelope.data?.activeRules.length ?? 0) > 0;
+                samples.push({
+                  metric: obl.metric,
+                  actual: envelope.data?.activeRules.length ?? 0,
+                  expected: obl.expected ?? true,
+                  passed,
+                  message: passed
+                    ? `Isolated ${envelope.data?.activeRules.length} active CSS declarations`
+                    : 'No active CSS declarations matched for selector',
+                });
+              } else {
+                const passed = envelope.success && envelope.data?.definitionOfDone === 'STRONG PASS';
+                samples.push({
+                  metric: obl.metric,
+                  actual: envelope.data?.definitionOfDone || 'FAILED',
+                  expected: 'STRONG PASS',
+                  passed,
+                  message: passed ? 'CSS cascade resolved to STRONG PASS' : `CSS cascade DoD was ${envelope.data?.definitionOfDone}`,
+                });
+              }
+            } else if (obl.metric === THEME_METRICS.RESPONSIVE_NO_TARGET_OVERFLOW || obl.metric === THEME_METRICS.RESPONSIVE_NO_DOC_OVERFLOW) {
+              const res = await browser.responsiveCheck({ selector: claim.scope.selector, tabId }, target);
+              const standardWidths = [320, 375, 768, 1024, 1440];
+              let hasTargetOverflow = false;
+              let hasDocOverflow = false;
+              let complete = false;
+
+              if (res && typeof res === 'object' && 'breakpoints' in res && res.breakpoints && typeof res.breakpoints === 'object') {
+                const bpValues = Object.values(res.breakpoints as Record<string, Record<string, unknown>>);
+                const standardBpMap = new Map<number, Record<string, unknown>>();
+                for (const bp of bpValues) {
+                  if (typeof bp.width === 'number') {
+                    standardBpMap.set(bp.width, bp);
+                  }
+                }
+
+                let allValid = standardWidths.every((w) => standardBpMap.has(w));
+                if (allValid) {
+                  for (const w of standardWidths) {
+                    const bp = standardBpMap.get(w)!;
+                    const hasValidTarget = typeof bp.targetOverflowX === 'boolean';
+                    const hasValidDoc = typeof bp.documentOverflowX === 'boolean' || typeof bp.hasHorizontalOverflow === 'boolean';
+                    if (!hasValidTarget || !hasValidDoc) {
+                      allValid = false;
+                      break;
+                    }
+                  }
+                }
+
+                if (allValid) {
+                  complete = true;
+                  for (const w of standardWidths) {
+                    const bp = standardBpMap.get(w)!;
+                    if (bp.targetOverflowX === true) hasTargetOverflow = true;
+                    if (bp.documentOverflowX === true || bp.hasHorizontalOverflow === true) hasDocOverflow = true;
+                  }
+                }
+              }
+
+              if (!complete) {
+                samples.push({
+                  metric: obl.metric,
+                  actual: 'missing',
+                  expected: true,
+                  passed: false,
+                  message: 'Incomplete responsive telemetry: not all 5 standard breakpoints (320, 375, 768, 1024, 1440) have explicit boolean overflow signals',
+                });
+              } else if (obl.metric === THEME_METRICS.RESPONSIVE_NO_TARGET_OVERFLOW) {
+                samples.push({
+                  metric: obl.metric,
+                  actual: !hasTargetOverflow,
+                  expected: true,
+                  passed: !hasTargetOverflow,
+                  message: !hasTargetOverflow ? 'Zero target horizontal overflow across all 5 standard breakpoints' : 'Target horizontal overflow detected',
+                });
+              } else {
+                samples.push({
+                  metric: obl.metric,
+                  actual: !hasDocOverflow,
+                  expected: true,
+                  passed: !hasDocOverflow,
+                  message: !hasDocOverflow ? 'Zero document horizontal overflow across all 5 standard breakpoints' : 'Document horizontal overflow detected',
+                });
+              }
+            }
           } else {
             samples.push({
               metric: obl.metric,
@@ -2801,6 +3092,25 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
         evalResult.proofProfile,
         evalResult.inconclusiveReason
       );
+      if (receipts) {
+        const canonicalWorkspace = typeof getWorkspaceRoot === 'function' ? getWorkspaceRoot() : process.cwd();
+        const runId = context.runId || 'run-verification';
+        const attemptId = context.attemptId || 'attempt-verification';
+        const binding: ReceiptBinding = {
+          commandId: claim.id,
+          promptDigest: 'sha256-authoritative-verification-digest',
+          projectId: context.projectId || 'project-unbound',
+          workspaceId: context.workspaceId || 'workspace-unbound',
+          canonicalWorkspace,
+          hostInstanceId: 'host-verification-engine',
+          hostEpoch: 1,
+          attemptId,
+          backendSessionRef: runId,
+        };
+        const deliveryState = evalResult.verdict === 'VERIFIED' ? 'accepted-exact' : 'failed';
+        const receiptState = evalResult.verdict === 'VERIFIED' ? 'completed' : 'failed';
+        receipts.put(binding, receiptState, deliveryState);
+      }
       return updated || claim;
     },
   });

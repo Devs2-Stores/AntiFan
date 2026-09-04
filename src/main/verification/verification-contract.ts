@@ -127,3 +127,18 @@ export interface EvidenceSampleBundle {
     observations?: string[];
   };
 }
+
+export type ThemeMetricName =
+  | 'theme.source_mapping.file_identified'
+  | 'theme.css.active_rule_matched'
+  | 'theme.css.strong_pass_resolved'
+  | 'theme.responsive.no_target_overflow'
+  | 'theme.responsive.no_doc_overflow';
+
+export const THEME_METRICS = {
+  SOURCE_FILE_IDENTIFIED: 'theme.source_mapping.file_identified',
+  CSS_ACTIVE_RULE_MATCHED: 'theme.css.active_rule_matched',
+  CSS_STRONG_PASS_RESOLVED: 'theme.css.strong_pass_resolved',
+  RESPONSIVE_NO_TARGET_OVERFLOW: 'theme.responsive.no_target_overflow',
+  RESPONSIVE_NO_DOC_OVERFLOW: 'theme.responsive.no_doc_overflow',
+} as const;
