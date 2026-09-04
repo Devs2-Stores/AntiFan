@@ -3,7 +3,7 @@ import * as assert from 'node:assert/strict';
 import { CapabilityCatalogue } from '../../src/main/tools/capability-catalogue';
 import { registerBrowserCapabilities } from '../../src/main/tools/browser-capabilities';
 import { BrowserControlPort, BrowserHostPort } from '../../src/main/tools/browser-control-port';
-import { BrowserTarget, CapabilityRequestContext, RuntimeLease } from '../../src/shared/control-plane-contracts';
+import { BrowserTarget, CapabilityRequestContext, RuntimeLease, AuthenticatedCapabilityContext, CapabilityError } from '../../src/shared/control-plane-contracts';
 
 describe('Advanced Inspection Browser Capabilities', () => {
   const projectId = 'proj-1';
@@ -258,5 +258,137 @@ describe('Advanced Inspection Browser Capabilities', () => {
     assert.ok(aliasCap);
     const previewCap = catalogue.get('anti.theme.preview_css');
     assert.ok(previewCap);
+  });
+
+  it('handles edge cases in inspect_layout: single selector, empty selectors, and whitespace filtering', async () => {
+    let executedScript = '';
+
+    const mockHost: BrowserHostPort = {
+      getTabList: () => [{ id: 'tab-123' }],
+      navigate: () => true,
+      reload: () => true,
+      getDom: async () => '<html></html>',
+      captureScreenshot: async () => 'base64img',
+      evalJs: async (script) => {
+        executedScript = script;
+        return { ok: true, viewport: { width: 1024, height: 768, scrollX: 0, scrollY: 0 }, selectors: {} };
+      },
+    };
+
+    const catalogue = new CapabilityCatalogue(catalogueOptions);
+    const controlPort = new BrowserControlPort(mockHost);
+    registerBrowserCapabilities(catalogue, controlPort);
+
+    const cap = catalogue.get('browser.inspect_layout');
+    assert.ok(cap);
+
+    // 1. Single selector passed in 'selector' property
+    await cap.execute({ selector: '#header' }, mockContext);
+    assert.ok(executedScript.includes('#header'));
+
+    // 2. Array of selectors with whitespace and duplicates
+    await cap.execute({ selectors: [' .card ', ' ', '', '.card', '.footer'] }, mockContext);
+    assert.ok(executedScript.includes('.card') && executedScript.includes('.footer'));
+
+    // 3. Omitted selectors should safely produce empty targets array without throwing
+    await cap.execute({}, mockContext);
+    assert.ok(executedScript.includes('const targets = []'));
+  });
+
+  it('handles all actions in style_override: default scopeId, remove, clear, and character sanitization', async () => {
+    let executedScript = '';
+
+    const mockHost: BrowserHostPort = {
+      getTabList: () => [{ id: 'tab-123' }],
+      navigate: () => true,
+      reload: () => true,
+      getDom: async () => '<html></html>',
+      captureScreenshot: async () => 'base64img',
+      evalJs: async (script) => {
+        executedScript = script;
+        return { ok: true };
+      },
+    };
+
+    const catalogue = new CapabilityCatalogue(catalogueOptions);
+    const controlPort = new BrowserControlPort(mockHost);
+    registerBrowserCapabilities(catalogue, controlPort);
+
+    const cap = catalogue.get('browser.style_override');
+    assert.ok(cap);
+
+    // 1. Action: remove
+    await cap.execute({ action: 'remove', scopeId: 'banner-test' }, mockContext);
+    assert.ok(executedScript.includes('action = "remove"') && executedScript.includes('scopeId = "banner-test"'));
+
+    // 2. Action: clear
+    await cap.execute({ action: 'clear' }, mockContext);
+    assert.ok(executedScript.includes('action = "clear"'));
+
+    // 3. Sanitizing scopeId with special characters and spaces
+    await cap.execute({ css: 'a { color: blue; }', scopeId: 'my scope@v1.0!' }, mockContext);
+    assert.ok(executedScript.includes('scopeId = "my_scope_v1_0_"'));
+
+    // 4. Default scopeId when omitted
+    await cap.execute({ css: 'body { margin: 0; }' }, mockContext);
+    assert.ok(executedScript.includes('scopeId = "default"'));
+  });
+
+  it('provides actionable split-pane hint in TARGET_MISMATCH when tabId mismatches', async () => {
+    const mockHost: BrowserHostPort = {
+      getTabList: () => [{ id: 'tab-123' }, { id: 'tab-456' }],
+      navigate: () => true,
+      reload: () => true,
+      getDom: async () => '<html></html>',
+      captureScreenshot: async () => 'base64img',
+      evalJs: async () => ({}),
+      agentClick: async () => true,
+      isTabAllowed: () => false,
+    };
+
+    const catalogue = new CapabilityCatalogue({
+      ...catalogueOptions,
+      isTabAllowed: () => false,
+    });
+    const controlPort = new BrowserControlPort(mockHost);
+    registerBrowserCapabilities(catalogue, controlPort);
+
+    // 1. Dispatch through capability catalogue with mismatched tabId
+    const authContext: AuthenticatedCapabilityContext = {
+      ...mockContext,
+      runId: 'run-123',
+      attemptId: 'att-1',
+      attachmentId: 'att-123',
+      backendId: 'be-123',
+      hostEpoch: 1,
+      invocationId: 'inv-123',
+      browserTarget: { ...mockTarget, tabId: 'tab-123' },
+    };
+    await assert.rejects(
+      async () => {
+        await catalogue.dispatchAuthenticated('browser.inspect_layout', { tabId: 'tab-456' }, authContext);
+      },
+      (err: unknown) => {
+        assert.ok(err instanceof CapabilityError);
+        assert.strictEqual(err.code, 'TARGET_MISMATCH');
+        assert.ok(err.message.includes('expected tab-123, got tab-456'));
+        assert.ok(err.message.includes('Note: In split review mode, use the bound tabId with paneId: "mobile"'));
+        return true;
+      }
+    );
+
+    // 2. Resolve target tab through BrowserControlPort write operation with mismatched explicitTabId
+    await assert.rejects(
+      async () => {
+        await controlPort.agentClick({ selector: 'button', tabId: 'tab-456' }, { ...mockTarget, tabId: 'tab-123' });
+      },
+      (err: unknown) => {
+        assert.ok(err instanceof CapabilityError);
+        assert.strictEqual(err.code, 'TARGET_MISMATCH');
+        assert.ok(err.message.includes('does not match target tabId "tab-123"'));
+        assert.ok(err.message.includes('Note: In split review mode, use the bound tabId with paneId: "mobile"'));
+        return true;
+      }
+    );
   });
 });
