@@ -552,15 +552,50 @@ describe('Priority 2: Behavior Verification Core & Dual-Scope Semantic Inference
     assert.strictEqual(res.verified, true);
   });
 
-  it('17. resolveInteractionMode contract correctly derives tiers and defaults unconfirmed mocks to unknown', () => {
+  it('17. resolveInteractionMode contract correctly derives tiers from both executionTier and tier and defaults unconfirmed mocks to unknown', () => {
     assert.strictEqual(resolveInteractionMode({ executionTier: 'cdp_trusted' }), 'trusted_cdp');
     assert.strictEqual(resolveInteractionMode({ data: { executionTier: 'cdp_trusted' } }), 'trusted_cdp');
+    assert.strictEqual(resolveInteractionMode({ tier: 'cdp_trusted' }), 'trusted_cdp');
+    assert.strictEqual(resolveInteractionMode({ data: { tier: 'cdp_trusted' } }), 'trusted_cdp');
     assert.strictEqual(resolveInteractionMode({ executionTier: 'isolated_synthetic' }), 'programmatic_dom');
     assert.strictEqual(resolveInteractionMode({ data: { executionTier: 'isolated_synthetic' } }), 'programmatic_dom');
+    assert.strictEqual(resolveInteractionMode({ tier: 'isolated_synthetic' }), 'programmatic_dom');
+    assert.strictEqual(resolveInteractionMode({ data: { tier: 'isolated_synthetic' } }), 'programmatic_dom');
     assert.strictEqual(resolveInteractionMode({ executionTier: 'programmatic_dom' }), 'programmatic_dom');
     assert.strictEqual(resolveInteractionMode(true), 'unknown');
     assert.strictEqual(resolveInteractionMode(false), 'unknown');
     assert.strictEqual(resolveInteractionMode({}), 'unknown');
     assert.strictEqual(resolveInteractionMode(undefined, 'none'), 'none');
+  });
+
+  it('18. Accurately classifies interactionMode as trusted_cdp when tracing trusted type action with data.tier: cdp_trusted', async () => {
+    let callCount = 0;
+    const mockHost: Partial<BrowserHostPort> = {
+      getTabList: () => [{ id: 'tab-1' }],
+      getActiveTabId: () => 'tab-1',
+      getAutomationTabId: () => 'tab-1',
+      dispatchAgentAction: async () => ({
+        success: true,
+        data: { ok: true, executed: true, tier: 'cdp_trusted', rect: { x: 10, y: 10, width: 100, height: 30 } },
+      }),
+      inspectStyles: async () => ({}),
+      evalJs: async () => {
+        callCount++;
+        return {
+          url: 'https://storefront.dev/',
+          bodyClasses: [],
+          bodyOverflowLocked: false,
+          activeOverlays: [],
+          hasHorizontalOverflow: false,
+        };
+      },
+    };
+
+    const port = new BrowserControlPort(mockHost as BrowserHostPort);
+    const res = await port.traceInteraction(baseTarget, 'run-1', 'att-1', { action: 'type', selector: '.search-input', text: 'AntiFan', settleMs: 10 });
+
+    assert.strictEqual(res.action, 'type');
+    assert.strictEqual(res.actionSuccess, true);
+    assert.strictEqual(res.interactionMode, 'trusted_cdp');
   });
 });

@@ -301,7 +301,7 @@ export class TabAutomationHost {
     focusScript: string,
     text: string,
     clear?: boolean
-  ): Promise<{ success: boolean; data?: unknown; reason?: string }> {
+  ): Promise<{ success: boolean; data?: unknown; reason?: string; executionTier?: 'cdp_trusted' | 'isolated_synthetic' }> {
     // 1. Focus element and select in isolated world
     const rawRes = await this.executeInIsolatedWorld(wc, focusScript);
     const res = validateActionResponse(rawRes);
@@ -365,7 +365,7 @@ export class TabAutomationHost {
     // 4. Issue CDP Input.insertText exactly once
     try {
       await wc.debugger.sendCommand('Input.insertText', { text });
-      return { success: true, data: { ok: true, executed: true, tier: 'cdp_trusted', rect: res.rect } };
+      return { success: true, executionTier: 'cdp_trusted', data: { ok: true, executed: true, tier: 'cdp_trusted', executionTier: 'cdp_trusted', rect: res.rect } };
     } catch (cdpErr) {
       return {
         success: false,

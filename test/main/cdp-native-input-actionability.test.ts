@@ -4,6 +4,7 @@ import * as vm from 'node:vm';
 import { EventEmitter } from 'node:events';
 import { TabAutomationHost, TabAutomationContext } from '../../src/main/browser/tab-automation-host';
 import { buildIsolatedExecutorScript } from '../../src/main/browser/semantic-ref-executor';
+import { BrowserControlPort, BrowserHostPort } from '../../src/main/tools/browser-control-port';
 
 describe('Phase 03: Pure CSS-Pixel CDP Input & Actionability Gate', () => {
   // --- Section A: In-Renderer Actionability & Auto-Wait Script Tests ---
@@ -371,8 +372,9 @@ describe('Phase 03: Pure CSS-Pixel CDP Input & Actionability Gate', () => {
     });
 
     assert.strictEqual(result.success, true);
+    assert.strictEqual((result as any)?.executionTier, 'cdp_trusted');
     assert.strictEqual((result.data as any)?.tier, 'cdp_trusted');
-
+    assert.strictEqual((result.data as any)?.executionTier, 'cdp_trusted');
     const insertTextCmd = cdpSentCommands.find((c) => c.method === 'Input.insertText');
     assert.ok(insertTextCmd, 'Must issue CDP Input.insertText');
     assert.strictEqual(insertTextCmd?.params?.text, 'Fragile handling please');
@@ -389,6 +391,7 @@ describe('Phase 03: Pure CSS-Pixel CDP Input & Actionability Gate', () => {
     });
 
     assert.strictEqual(result.success, true);
+    assert.strictEqual((result.data as any)?.executionTier, 'isolated_synthetic');
     assert.strictEqual(cdpSentCommands.length, 0, 'No CDP commands should be sent when debugger is busy');
   });
 
@@ -417,5 +420,64 @@ describe('Phase 03: Pure CSS-Pixel CDP Input & Actionability Gate', () => {
     const result = await executionPromise;
     assert.strictEqual(result.ok, true, 'Must successfully resolve element once it becomes visible');
     assert.strictEqual(result.executed, true);
+  });
+
+  it('10. Exercises traceInteraction with TabAutomationHost verifying trusted_cdp on CDP type and isolated_synthetic fallback', async () => {
+    cdpSentCommands = [];
+    isDebuggerAttached = true;
+    debuggerAttachThrows = false;
+
+    const mockControlHost: Partial<BrowserHostPort> = {
+      getTabList: () => [{ id: 'tab-1' }],
+      getActiveTabId: () => 'tab-1',
+      getAutomationTabId: () => 'tab-1',
+      dispatchAgentAction: (action, params) => automationHost.dispatchAgentAction(action as any, params as any),
+      evalJs: async () => ({
+        url: 'https://storefront-test.com/products/jacket',
+        bodyClasses: [],
+        bodyOverflowLocked: false,
+        activeOverlays: [],
+        hasHorizontalOverflow: false,
+      }),
+      inspectStyles: async () => ({}),
+    };
+
+    const port = new BrowserControlPort(mockControlHost as BrowserHostPort);
+    const res = await port.traceInteraction(
+      { projectId: 'p1', workspaceId: 'w1', runtimeId: 'r1', tabId: 'tab-1', browserEpoch: 1, documentGeneration: 1 },
+      'run-1',
+      'att-1',
+      { action: 'type', selector: '#customer-note', text: 'Real host verified' }
+    );
+
+    assert.strictEqual(res.action, 'type');
+    assert.strictEqual(res.actionSuccess, true);
+    assert.strictEqual(res.interactionMode, 'trusted_cdp');
+
+    // For click, when debugger is busy, executeTrustedClick falls back to isolated_synthetic
+    isDebuggerAttached = false;
+    debuggerAttachThrows = true;
+    const fallbackClickRes = await port.traceInteraction(
+      { projectId: 'p1', workspaceId: 'w1', runtimeId: 'r1', tabId: 'tab-1', browserEpoch: 1, documentGeneration: 1 },
+      'run-1',
+      'att-1',
+      { action: 'click', selector: '#add-to-cart-button' }
+    );
+
+    assert.strictEqual(fallbackClickRes.action, 'click');
+    assert.strictEqual(fallbackClickRes.actionSuccess, true);
+    assert.strictEqual(fallbackClickRes.interactionMode, 'programmatic_dom');
+
+    // For type, when debugger fails, executeTrustedType fails closed (no synthetic fallback)
+    const fallbackTypeRes = await port.traceInteraction(
+      { projectId: 'p1', workspaceId: 'w1', runtimeId: 'r1', tabId: 'tab-1', browserEpoch: 1, documentGeneration: 1 },
+      'run-1',
+      'att-1',
+      { action: 'type', selector: '#customer-note', text: 'Fail closed' }
+    );
+
+    assert.strictEqual(fallbackTypeRes.action, 'type');
+    assert.strictEqual(fallbackTypeRes.actionSuccess, false);
+    assert.strictEqual(fallbackTypeRes.verdict, 'ACTION_FAILED');
   });
 });

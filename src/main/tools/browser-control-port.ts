@@ -479,7 +479,8 @@ export type InteractionExecutionMode = 'trusted_cdp' | 'programmatic_dom' | 'unk
 export function resolveInteractionMode(rawRes: unknown, fallbackMode: InteractionExecutionMode = 'unknown'): InteractionExecutionMode {
   if (rawRes && typeof rawRes === 'object' && !Array.isArray(rawRes)) {
     const obj = rawRes as Record<string, unknown>;
-    const tier = obj.executionTier || (obj.data && typeof obj.data === 'object' ? (obj.data as Record<string, unknown>).executionTier : undefined);
+    const dataObj = obj.data && typeof obj.data === 'object' && !Array.isArray(obj.data) ? (obj.data as Record<string, unknown>) : undefined;
+    const tier = obj.executionTier || obj.tier || dataObj?.executionTier || dataObj?.tier;
     if (tier === 'cdp_trusted' || tier === 'trusted_cdp') {
       return 'trusted_cdp';
     }

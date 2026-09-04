@@ -440,7 +440,7 @@ In accordance with strict empirical rules:
   1. `ProofTemplateRegistry.getLayoutTemplate` contract resolved with `LayoutTemplateOptions` and unambiguous positional overloads.
   2. `test/unit/semantic-evidence-and-guardrails.test.ts`: 12/12 passing.
   3. `test/unit/verification-capabilities.test.ts` & `test/unit/verification-evaluator.test.ts`: 20/20 passing.
-  4. `test/unit/*.test.js` & `test/benchmark/*.test.js`: 73/73 passing across 25 suites; `test/main/behavior-verification-core.test.ts`: 17/17 passing.
+  4. `test/unit/*.test.js` & `test/benchmark/*.test.js`: 73/73 passing across 25 suites; `test/main/behavior-verification-core.test.ts`: 18/18 passing.
   5. Multi-Process Workload Smoke Benchmark (`scripts/smoke-real-soak.cjs`): 41 samples, 0 orphans, PASSED.
 - **Unverified / Scope Boundary:**
   - Full 8-hour continuous endurance soak requires physical elapsed time (480 minutes) and is designed for scheduled CI/workstation execution via `scripts/benchmark-real-soak-8h.cjs`.
