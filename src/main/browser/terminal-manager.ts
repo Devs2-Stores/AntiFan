@@ -713,8 +713,16 @@ export class TerminalManager extends EventEmitter {
       if (split) {
         await this.safelyKillSession(split);
         this.sessions.delete(split.id);
+        this.emit('session-closed', { id: split.id, generation: split.sessionGeneration });
       }
       await this.safelyKillSession(s);
+      this.sessions.delete(s.id);
+      this.emit('session-closed', { id: s.id, generation: s.sessionGeneration });
+      if (this.activeSessionId === s.id) {
+        this.activeSessionId = this.listSessions()[0]?.id || '';
+      }
+      this.persist();
+      this.emitSession();
     }
   }
 
@@ -735,6 +743,7 @@ export class TerminalManager extends EventEmitter {
     if (split) {
       await this.safelyKillSession(split);
       this.sessions.delete(split.id);
+      this.emit('session-closed', { id: split.id, generation: split.sessionGeneration });
     }
     const targetSession = this.sessions.get(id);
     if (targetSession) {
@@ -788,6 +797,7 @@ export class TerminalManager extends EventEmitter {
     if (!split) return false;
     await this.safelyKillSession(split);
     this.sessions.delete(split.id);
+    this.emit('session-closed', { id: split.id, generation: split.sessionGeneration });
     this.persist();
     this.emitSession();
     return true;

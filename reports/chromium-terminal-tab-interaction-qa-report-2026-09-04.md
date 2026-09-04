@@ -148,10 +148,9 @@ File: `test/main/chromium-terminal-comprehensive-tab-interaction.test.ts`
 
 ## 5. Production Code Defect Fixes & Patches
 
-1. **Split Session Affinity Leak on Parent Close (`src/main/browser/terminal-manager.ts`):**
-   - *Issue:* `TerminalManager.closeSession(id)` killed attached split session but never emitted `session-closed` for `split.id`, leaving split affinity alive in `NativeTabHost`.
-   - *Fix:* Added `this.emit('session-closed', { id: split.id, generation: split.sessionGeneration })` prior to killing parent.
-
+1. **Split Session Affinity Leak on Parent Close, Direct Close, Kill, and Restart (`src/main/browser/terminal-manager.ts`):**
+   - *Issue:* `TerminalManager.closeSession(id)`, `closeSplitSession(...)`, `kill()`, and `restart(...)` killed/deleted attached split sessions without emitting `session-closed` for `split.id`. This left orphaned split affinities permanently alive in `NativeTabHost`.
+   - *Fix:* Added `this.emit('session-closed', { id: split.id, generation: split.sessionGeneration })` across all four split destruction paths (`closeSession`, `closeSplitSession`, `kill`, `restart`).
 2. **Rebind Isolation & Stale Session Pool Retention (`src/main/browser/native-tab-host.ts`):**
    - *Issue:* `clearTerminalAgentAffinity(terminalId)` did not prune `this.sessionTabPools.delete(terminalId)`, allowing adopted child tabs to survive rebinds.
    - *Fix:* Added explicit `this.sessionTabPools.delete(terminalId)` inside `clearTerminalAgentAffinity`.

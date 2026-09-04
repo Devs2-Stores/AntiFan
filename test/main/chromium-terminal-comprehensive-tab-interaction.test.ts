@@ -471,30 +471,103 @@ describe('Chromium <-> Terminal 30-Flow Interaction & Tab Management Matrix', ()
     assert.strictEqual(host.tabs.get('tab-bound')?.state.terminalSessionId, undefined);
   });
 
-  it('Flow 15b: Parent session close with attached split cleans up both parent and split affinities', async () => {
-    const host = createComprehensiveHost(['tab-main', 'tab-split-target']);
-    host.bindTerminalAgentAffinity('terminal-parent', 1, 'tab-main');
-    host.bindTerminalAgentAffinity('terminal-split', 1, 'tab-split-target');
+  it('Flow 15b: Parent session close with attached split cleans up both parent and split affinities via real TerminalManager', async () => {
+    const host = createComprehensiveHost(['tab-main', 'tab-split-target', 'tab-split-direct', 'tab-parent-child', 'tab-split-child']);
+    const tmReal = TerminalManager.getInstance() as any;
 
-    // Emulate host listening to TerminalManager session-closed events
+    // 1. Seed sessions into both liveSessions (for host lookup) and tmReal.sessions (for manager execution)
+    const parentSession = {
+      id: 'terminal-parent',
+      name: 'Parent',
+      cwd: tempDir,
+      sessionGeneration: 1,
+      pty: null,
+      disposed: false,
+    };
+    const splitSession = {
+      id: 'terminal-split',
+      name: 'Split',
+      cwd: tempDir,
+      splitOf: 'terminal-parent',
+      sessionGeneration: 1,
+      pty: null,
+      disposed: false,
+    };
+    const splitDirectSession = {
+      id: 'terminal-split-direct',
+      name: 'Split Direct',
+      cwd: tempDir,
+      splitOf: 'parent-dummy',
+      sessionGeneration: 1,
+      pty: null,
+      disposed: false,
+    };
+
+    liveSessions.push(parentSession as any, splitSession as any, splitDirectSession as any);
+    tmReal.sessions.set('terminal-parent', parentSession);
+    tmReal.sessions.set('terminal-split', splitSession);
+    tmReal.sessions.set('terminal-split-direct', splitDirectSession);
+
+    // 2. Wire host listener for session-closed
     const closedSessions: string[] = [];
     const handleSessionClosed = ({ id }: { id: string }) => {
       closedSessions.push(id);
       host.clearTerminalAgentAffinity(id);
     };
+    tmReal.on('session-closed', handleSessionClosed);
 
-    // Fire session-closed for split and parent (as produced by production closeSession)
-    handleSessionClosed({ id: 'terminal-split' });
-    handleSessionClosed({ id: 'terminal-parent' });
+    try {
+      // 3. Bind affinities and assert each bind succeeds (returns true)
+      assert.strictEqual(host.bindTerminalAgentAffinity('terminal-parent', 1, 'tab-main'), true, 'Parent bind must succeed');
+      assert.strictEqual(host.bindTerminalAgentAffinity('terminal-split', 1, 'tab-split-target'), true, 'Split bind must succeed');
+      assert.strictEqual(host.bindTerminalAgentAffinity('terminal-split-direct', 1, 'tab-split-direct'), true, 'Direct split bind must succeed');
 
-    assert.ok(closedSessions.includes('terminal-split'), 'Split session must emit session-closed');
-    assert.ok(closedSessions.includes('terminal-parent'), 'Parent session must emit session-closed');
+      // Adopt child tabs to test pool cleanup
+      assert.strictEqual(host.adoptChildTab('terminal-parent', 'tab-parent-child', 1), true);
+      assert.strictEqual(host.adoptChildTab('terminal-split-direct', 'tab-split-child', 1), true);
 
-    // Both affinities must be cleaned
-    assert.strictEqual(host.getTerminalAgentAffinity('terminal-parent', 1), undefined);
-    assert.strictEqual(host.getTerminalAgentAffinity('terminal-split', 1), undefined);
-    assert.strictEqual(host.tabs.get('tab-main')?.state.terminalSessionId, undefined);
-    assert.strictEqual(host.tabs.get('tab-split-target')?.state.terminalSessionId, undefined);
+      // Assert affinities and pools are alive BEFORE closing
+      assert.strictEqual(host.getTerminalAgentAffinity('terminal-parent', 1)?.status, 'alive');
+      assert.strictEqual(host.getTerminalAgentAffinity('terminal-split', 1)?.status, 'alive');
+      assert.strictEqual(host.getTerminalAgentAffinity('terminal-split-direct', 1)?.status, 'alive');
+      assert.strictEqual(host.tabs.get('tab-main')?.state.terminalSessionId, 'terminal-parent');
+      assert.strictEqual(host.tabs.get('tab-split-target')?.state.terminalSessionId, 'terminal-split');
+      assert.ok(host.getManagedTabIds('terminal-parent').has('tab-parent-child'));
+      assert.ok(host.getManagedTabIds('terminal-split-direct').has('tab-split-child'));
+
+      // 4. Close parent session via real TerminalManager.closeSession
+      const closeParentResult = await tmReal.closeSession('terminal-parent');
+      assert.strictEqual(closeParentResult, true);
+
+      // Assert real TerminalManager emitted session-closed for BOTH split and parent
+      assert.ok(closedSessions.includes('terminal-split'), 'Real closeSession must emit session-closed for attached split');
+      assert.ok(closedSessions.includes('terminal-parent'), 'Real closeSession must emit session-closed for parent');
+      assert.strictEqual(tmReal.sessions.has('terminal-split'), false);
+      assert.strictEqual(tmReal.sessions.has('terminal-parent'), false);
+
+      // Host affinities and pools must be cleaned for both
+      assert.strictEqual(host.getTerminalAgentAffinity('terminal-parent', 1), undefined);
+      assert.strictEqual(host.getTerminalAgentAffinity('terminal-split', 1), undefined);
+      assert.strictEqual(host.tabs.get('tab-main')?.state.terminalSessionId, undefined);
+      assert.strictEqual(host.tabs.get('tab-split-target')?.state.terminalSessionId, undefined);
+      assert.strictEqual(host.getManagedTabIds('terminal-parent').has('tab-parent-child'), false, 'Parent pool must be cleared');
+
+      // 5. Test direct closeSplitSession
+      const closeSplitResult = await tmReal.closeSplitSession('terminal-split-direct');
+      assert.strictEqual(closeSplitResult, true);
+      assert.ok(closedSessions.includes('terminal-split-direct'), 'Real closeSplitSession must emit session-closed');
+      assert.strictEqual(tmReal.sessions.has('terminal-split-direct'), false);
+      assert.strictEqual(host.getTerminalAgentAffinity('terminal-split-direct', 1), undefined);
+      assert.strictEqual(host.tabs.get('tab-split-direct')?.state.terminalSessionId, undefined);
+      assert.strictEqual(host.getManagedTabIds('terminal-split-direct').has('tab-split-child'), false, 'Split pool must be cleared');
+    } finally {
+      tmReal.removeListener('session-closed', handleSessionClosed);
+      tmReal.sessions.delete('terminal-parent');
+      tmReal.sessions.delete('terminal-split');
+      tmReal.sessions.delete('terminal-split-direct');
+      const idsToRemove = new Set(['terminal-parent', 'terminal-split', 'terminal-split-direct']);
+      liveSessions = liveSessions.filter((s) => !idsToRemove.has(s.id));
+    }
   });
 
   // =========================================================================
