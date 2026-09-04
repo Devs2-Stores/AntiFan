@@ -17,6 +17,12 @@ export interface CanonicalProofSpec {
   obligations: ProofObligation[];
 }
 
+export interface LayoutTemplateOptions {
+  expectedHeight?: number;
+  expectedSectionCount?: number;
+  tolerance?: number;
+}
+
 export class ProofTemplateRegistry {
   /**
    * Returns canonical obligations for interaction claims.
@@ -56,26 +62,34 @@ export class ProofTemplateRegistry {
    * 2. Height parity delta <= 5% (or custom tolerance)
    * 3. No horizontal scroll bleed
    */
+  /**
+   * Returns canonical obligations for layout claims.
+   * Supports either:
+   * 1. Named options object: { expectedHeight, expectedSectionCount, tolerance }
+   * 2. Strict positional parameters: (expectedHeight?, expectedSectionCount?, tolerance?)
+   */
+  public static getLayoutTemplate(options: LayoutTemplateOptions): ProofObligation[];
   public static getLayoutTemplate(
-    expectedHeightOrSectionCount?: number,
-    expectedSectionCountOrTolerance?: number,
+    expectedHeight?: number,
+    expectedSectionCount?: number,
+    tolerance?: number
+  ): ProofObligation[];
+  public static getLayoutTemplate(
+    optionsOrHeight?: number | LayoutTemplateOptions,
+    expectedSectionCount?: number,
     tolerance = 0.05
   ): ProofObligation[] {
     let expectedHeight: number | undefined;
-    let expectedSectionCount: number | undefined;
+    let expectedSections: number | undefined;
     let effectiveTolerance = tolerance;
 
-    if (
-      typeof expectedSectionCountOrTolerance === 'number' &&
-      expectedSectionCountOrTolerance < 1 &&
-      tolerance === 0.05
-    ) {
-      // Called with (expectedSectionCount, tolerance) signature
-      expectedSectionCount = expectedHeightOrSectionCount;
-      effectiveTolerance = expectedSectionCountOrTolerance;
+    if (typeof optionsOrHeight === 'object' && optionsOrHeight !== null) {
+      expectedHeight = optionsOrHeight.expectedHeight;
+      expectedSections = optionsOrHeight.expectedSectionCount;
+      effectiveTolerance = optionsOrHeight.tolerance ?? 0.05;
     } else {
-      expectedHeight = expectedHeightOrSectionCount;
-      expectedSectionCount = expectedSectionCountOrTolerance;
+      expectedHeight = optionsOrHeight;
+      expectedSections = expectedSectionCount;
       effectiveTolerance = tolerance;
     }
 
@@ -95,14 +109,14 @@ export class ProofTemplateRegistry {
         description: 'Page layout must not bleed horizontally outside viewport boundary',
       },
     ];
-    if (expectedSectionCount !== undefined && expectedSectionCount > 0) {
+    if (expectedSections !== undefined && expectedSections > 0) {
       obligations.unshift({
         id: 'obl-layout-section-count',
         metric: 'section_inventory_count',
-        expected: expectedSectionCount,
+        expected: expectedSections,
         tolerance: 0,
         source: 'deterministic',
-        description: `Page must contain exactly ${expectedSectionCount} visual sections`,
+        description: `Page must contain exactly ${expectedSections} visual sections`,
       });
     }
 
@@ -175,7 +189,11 @@ export class ProofTemplateRegistry {
         canonical = this.getInteractionTemplate(options?.targetSelector || 'body');
         break;
       case 'LAYOUT':
-        canonical = this.getLayoutTemplate(resolvedHeight, resolvedSections, resolvedTolerance);
+        canonical = this.getLayoutTemplate({
+          expectedHeight: resolvedHeight,
+          expectedSectionCount: resolvedSections,
+          tolerance: resolvedTolerance,
+        });
         break;
       case 'RESPONSIVE':
         canonical = this.getResponsiveTemplate();

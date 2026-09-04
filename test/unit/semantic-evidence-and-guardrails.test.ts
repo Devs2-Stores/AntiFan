@@ -103,14 +103,29 @@ describe('Phase 3: Semantic Evidence & Mechanical Guardrails Suite', () => {
       assert.ok(obligations.some((o) => o.metric === 'no_layout_overflow_bleed'));
     });
 
-    it('enforces canonical proof obligations for layout claims with section counts', () => {
-      const obligations = ProofTemplateRegistry.getLayoutTemplate(5, 0.03);
+    it('enforces canonical proof obligations for layout claims with named options', () => {
+      const obligations = ProofTemplateRegistry.getLayoutTemplate({
+        expectedHeight: 1800,
+        expectedSectionCount: 5,
+        tolerance: 0.03,
+      });
       assert.strictEqual(obligations.length, 3);
-      assert.ok(obligations.some((o) => o.metric === 'section_inventory_count' && o.tolerance === 0));
-      assert.ok(obligations.some((o) => o.metric === 'height_parity_delta' && o.tolerance === 0.03));
+      const sectionObl = obligations.find((o) => o.metric === 'section_inventory_count');
+      const heightObl = obligations.find((o) => o.metric === 'height_parity_delta');
+      assert.ok(sectionObl && sectionObl.expected === 5 && sectionObl.tolerance === 0);
+      assert.ok(heightObl && heightObl.expected === 1800 && heightObl.tolerance === 0.03);
       assert.ok(obligations.some((o) => o.metric === 'no_layout_overflow_bleed'));
     });
 
+    it('enforces canonical proof obligations for layout claims with positional arguments', () => {
+      const obligations = ProofTemplateRegistry.getLayoutTemplate(2400, 8, 0.04);
+      assert.strictEqual(obligations.length, 3);
+      const sectionObl = obligations.find((o) => o.metric === 'section_inventory_count');
+      const heightObl = obligations.find((o) => o.metric === 'height_parity_delta');
+      assert.ok(sectionObl && sectionObl.expected === 8 && sectionObl.tolerance === 0);
+      assert.ok(heightObl && heightObl.expected === 2400 && heightObl.tolerance === 0.04);
+      assert.ok(obligations.some((o) => o.metric === 'no_layout_overflow_bleed'));
+    });
     it('augments custom obligations without creating duplicate obligation IDs', () => {
       const custom = [
         { id: 'custom-obl-1', metric: 'font_family_check', source: 'deterministic' as const },
