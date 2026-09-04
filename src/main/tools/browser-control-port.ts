@@ -25,6 +25,7 @@ export interface BrowserHostPort {
   getDiagnostics?(tabId?: string, level?: number | string): { console: unknown[]; failures: unknown[] };
   runResponsiveCheck?(tabId: string): Promise<Record<string, unknown>>;
   agentTrajectory?(params: { steps: Array<Record<string, unknown>>; speed?: 'fast' | 'natural' | 'slow'; smoothScroll?: boolean; tabId?: string; paneId?: 'desktop' | 'mobile' }): Promise<Record<string, unknown>>;
+  dispatchAgentAction?(action: 'click' | 'type' | 'move' | 'hover' | 'scroll' | 'highlight' | 'clear' | 'trajectory', params: Record<string, unknown>): Promise<{ success: boolean; data?: unknown; reason?: string }>;
   agentMove?(args: { selector?: string; ref?: string; x?: number; y?: number; label?: string; tabId?: string; paneId?: 'desktop' | 'mobile' }): Promise<boolean>;
   agentClick?(params: { selector?: string; ref?: string; x?: number; y?: number; label?: string; trusted?: boolean; tabId?: string; paneId?: 'desktop' | 'mobile' }): Promise<boolean>;
   agentType?(params: { selector?: string; ref?: string; text: string; clear?: boolean; trusted?: boolean; tabId?: string; paneId?: 'desktop' | 'mobile' }): Promise<boolean>;
@@ -467,6 +468,39 @@ export class ViewportGate {
   public getQueueLength(): number {
     return this.queue.length;
   }
+}
+export type InteractionExecutionMode = 'trusted_cdp' | 'programmatic_dom' | 'unknown' | 'none';
+
+/**
+ * Resolves verified execution mode from host action result.
+ * Derives execution tier from data.executionTier (cdp_trusted -> trusted_cdp, isolated_synthetic -> programmatic_dom).
+ * Keeps direct agent* mocks or unconfirmed tiers classified honestly as 'unknown'.
+ */
+export function resolveInteractionMode(rawRes: unknown, fallbackMode: InteractionExecutionMode = 'unknown'): InteractionExecutionMode {
+  if (rawRes && typeof rawRes === 'object' && !Array.isArray(rawRes)) {
+    const obj = rawRes as Record<string, unknown>;
+    const tier = obj.executionTier || (obj.data && typeof obj.data === 'object' ? (obj.data as Record<string, unknown>).executionTier : undefined);
+    if (tier === 'cdp_trusted' || tier === 'trusted_cdp') {
+      return 'trusted_cdp';
+    }
+    if (tier === 'isolated_synthetic' || tier === 'programmatic_dom') {
+      return 'programmatic_dom';
+    }
+  }
+  return fallbackMode;
+}
+
+/**
+ * Strict fail-closed normalizer for agent interaction results.
+ * Only boolean true or explicit { [actionKey]: true } is accepted as success.
+ * Objects like {}, { [actionKey]: undefined/null/false }, primitives, null, and undefined are fail-closed (false).
+ */
+export function isStrictActionSuccess(rawRes: unknown, actionKey: string): boolean {
+  if (rawRes === true) return true;
+  if (rawRes && typeof rawRes === 'object' && !Array.isArray(rawRes)) {
+    return (rawRes as Record<string, unknown>)[actionKey] === true;
+  }
+  return false;
 }
 
 export class BrowserControlPort {
@@ -1093,6 +1127,7 @@ export class BrowserControlPort {
       selector?: string;
       ref?: string;
       text?: string;
+      clear?: boolean;
       deltaY?: number;
       settleMs?: number;
       tabId?: string;
@@ -1205,17 +1240,37 @@ export class BrowserControlPort {
       // Execute Action with Causality Tracking
       let actionExecuted = false;
       let actionError: string | undefined;
+      let interactionMode: InteractionExecutionMode = 'none';
 
       if (params.action === 'click') {
-        if (this.host.agentClick) {
+        if (this.host.dispatchAgentAction) {
           try {
-            const rawRes = (await this.host.agentClick({ selector: params.selector, ref: params.ref, trusted: true, tabId, paneId: effectivePane })) as any;
-            actionExecuted = typeof rawRes === 'boolean' ? rawRes : (rawRes && typeof rawRes === 'object' && 'clicked' in rawRes ? Boolean(rawRes.clicked) : Boolean(rawRes));
+            const rawRes = await this.host.dispatchAgentAction('click', { selector: params.selector, ref: params.ref, trusted: true, tabId, paneId: effectivePane });
+            actionExecuted = rawRes?.success === true;
+            interactionMode = resolveInteractionMode(rawRes, 'unknown');
+            if (!actionExecuted && rawRes && typeof rawRes === 'object' && typeof (rawRes as any).reason === 'string') {
+              actionError = (rawRes as any).reason;
+            }
           } catch (err: unknown) {
             actionExecuted = false;
             actionError = String(err);
+            interactionMode = 'none';
+          }
+        } else if (this.host.agentClick) {
+          try {
+            const rawRes = (await this.host.agentClick({ selector: params.selector, ref: params.ref, trusted: true, tabId, paneId: effectivePane })) as any;
+            actionExecuted = isStrictActionSuccess(rawRes, 'clicked');
+            interactionMode = resolveInteractionMode(rawRes, 'unknown');
+            if (!actionExecuted && rawRes && typeof rawRes === 'object' && typeof (rawRes as any).error === 'string') {
+              actionError = (rawRes as any).error;
+            }
+          } catch (err: unknown) {
+            actionExecuted = false;
+            actionError = String(err);
+            interactionMode = 'none';
           }
         } else {
+          interactionMode = 'programmatic_dom';
           const sel = params.ref ? `[data-antifan-ref="${params.ref}"]` : (params.selector || 'body');
           try {
             const evalRes = (await this.host.evalJs(`(() => {
@@ -1224,25 +1279,49 @@ export class BrowserControlPort {
               el.click();
               return { clicked: true };
             })()`, tabId, effectivePane)) as any;
-            actionExecuted = Boolean(evalRes && evalRes.clicked !== false);
+            actionExecuted = isStrictActionSuccess(evalRes, 'clicked');
+            if (!actionExecuted && evalRes && typeof evalRes === 'object' && typeof (evalRes as any).error === 'string') {
+              actionError = (evalRes as any).error;
+            }
           } catch (err: unknown) {
             actionExecuted = false;
             actionError = String(err);
           }
         }
       } else if (params.action === 'hover') {
-        if (this.host.agentHover) {
+        if (this.host.dispatchAgentAction) {
           try {
-            const rawRes = (await this.host.agentHover({ selector: params.selector, ref: params.ref, tabId, paneId: effectivePane })) as any;
-            actionExecuted = typeof rawRes === 'boolean' ? rawRes : (rawRes && typeof rawRes === 'object' && 'hovered' in rawRes ? Boolean(rawRes.hovered) : Boolean(rawRes));
+            const rawRes = await this.host.dispatchAgentAction('hover', { selector: params.selector, ref: params.ref, tabId, paneId: effectivePane });
+            actionExecuted = rawRes?.success === true;
+            interactionMode = resolveInteractionMode(rawRes, 'unknown');
+            if (!actionExecuted && rawRes && typeof rawRes === 'object' && typeof (rawRes as any).reason === 'string') {
+              actionError = (rawRes as any).reason;
+            }
           } catch (err: unknown) {
             actionExecuted = false;
             actionError = String(err);
+            interactionMode = 'none';
+          }
+        } else if (this.host.agentHover) {
+          try {
+            const rawRes = (await this.host.agentHover({ selector: params.selector, ref: params.ref, tabId, paneId: effectivePane })) as any;
+            actionExecuted = isStrictActionSuccess(rawRes, 'hovered');
+            interactionMode = resolveInteractionMode(rawRes, 'unknown');
+            if (!actionExecuted && rawRes && typeof rawRes === 'object' && typeof (rawRes as any).error === 'string') {
+              actionError = (rawRes as any).error;
+            }
+          } catch (err: unknown) {
+            actionExecuted = false;
+            actionError = String(err);
+            interactionMode = 'none';
           }
         } else {
-          actionExecuted = true;
+          interactionMode = 'none';
+          actionExecuted = false;
+          actionError = 'agentHover is not supported by host';
         }
       } else if (params.action === 'focus') {
+        interactionMode = 'programmatic_dom';
         const sel = params.ref ? `[data-antifan-ref="${params.ref}"]` : (params.selector || 'body');
         try {
           const evalRes = (await this.host.evalJs(`(() => {
@@ -1251,35 +1330,77 @@ export class BrowserControlPort {
             el.focus();
             return { focused: true };
           })()`, tabId, effectivePane)) as any;
-          actionExecuted = Boolean(evalRes && evalRes.focused !== false);
+          actionExecuted = isStrictActionSuccess(evalRes, 'focused');
+          if (!actionExecuted && evalRes && typeof evalRes === 'object' && typeof (evalRes as any).error === 'string') {
+            actionError = (evalRes as any).error;
+          }
         } catch (err: unknown) {
           actionExecuted = false;
           actionError = String(err);
         }
       } else if (params.action === 'type') {
-        if (this.host.agentType) {
+        if (this.host.dispatchAgentAction) {
           try {
-            const rawRes = (await this.host.agentType({ selector: params.selector, ref: params.ref, text: params.text || '', trusted: true, tabId, paneId: effectivePane })) as any;
-            actionExecuted = typeof rawRes === 'boolean' ? rawRes : (rawRes && typeof rawRes === 'object' && 'typed' in rawRes ? Boolean(rawRes.typed) : Boolean(rawRes));
+            const rawRes = await this.host.dispatchAgentAction('type', { selector: params.selector, ref: params.ref, text: params.text || '', clear: params.clear, trusted: true, tabId, paneId: effectivePane });
+            actionExecuted = rawRes?.success === true;
+            interactionMode = resolveInteractionMode(rawRes, 'unknown');
+            if (!actionExecuted && rawRes && typeof rawRes === 'object' && typeof (rawRes as any).reason === 'string') {
+              actionError = (rawRes as any).reason;
+            }
           } catch (err: unknown) {
             actionExecuted = false;
             actionError = String(err);
+            interactionMode = 'none';
+          }
+        } else if (this.host.agentType) {
+          try {
+            const rawRes = (await this.host.agentType({ selector: params.selector, ref: params.ref, text: params.text || '', trusted: true, tabId, paneId: effectivePane })) as any;
+            actionExecuted = isStrictActionSuccess(rawRes, 'typed');
+            interactionMode = resolveInteractionMode(rawRes, 'unknown');
+            if (!actionExecuted && rawRes && typeof rawRes === 'object' && typeof (rawRes as any).error === 'string') {
+              actionError = (rawRes as any).error;
+            }
+          } catch (err: unknown) {
+            actionExecuted = false;
+            actionError = String(err);
+            interactionMode = 'none';
           }
         } else {
+          interactionMode = 'none';
           actionExecuted = false;
           actionError = 'agentType is not supported by host';
         }
       } else if (params.action === 'scroll') {
-        if (this.host.agentScroll) {
+        if (this.host.dispatchAgentAction) {
           try {
-            const rawRes = (await this.host.agentScroll({ selector: params.selector, ref: params.ref, deltaY: params.deltaY || 300, tabId, paneId: effectivePane })) as any;
-            actionExecuted = typeof rawRes === 'boolean' ? rawRes : (rawRes && typeof rawRes === 'object' && 'scrolled' in rawRes ? Boolean(rawRes.scrolled) : Boolean(rawRes));
+            const rawRes = await this.host.dispatchAgentAction('scroll', { selector: params.selector, ref: params.ref, deltaY: params.deltaY || 300, tabId, paneId: effectivePane });
+            actionExecuted = rawRes?.success === true;
+            interactionMode = resolveInteractionMode(rawRes, 'unknown');
+            if (!actionExecuted && rawRes && typeof rawRes === 'object' && typeof (rawRes as any).reason === 'string') {
+              actionError = (rawRes as any).reason;
+            }
           } catch (err: unknown) {
             actionExecuted = false;
             actionError = String(err);
+            interactionMode = 'none';
+          }
+        } else if (this.host.agentScroll) {
+          try {
+            const rawRes = (await this.host.agentScroll({ selector: params.selector, ref: params.ref, deltaY: params.deltaY || 300, tabId, paneId: effectivePane })) as any;
+            actionExecuted = isStrictActionSuccess(rawRes, 'scrolled');
+            interactionMode = resolveInteractionMode(rawRes, 'unknown');
+            if (!actionExecuted && rawRes && typeof rawRes === 'object' && typeof (rawRes as any).error === 'string') {
+              actionError = (rawRes as any).error;
+            }
+          } catch (err: unknown) {
+            actionExecuted = false;
+            actionError = String(err);
+            interactionMode = 'none';
           }
         } else {
-          actionExecuted = true;
+          interactionMode = 'none';
+          actionExecuted = false;
+          actionError = 'agentScroll is not supported by host';
         }
       }
 
@@ -1293,6 +1414,7 @@ export class BrowserControlPort {
           isPrimaryTab,
           role: isPrimaryTab ? 'primary' : 'managed_child',
           action: params.action,
+          interactionMode,
           actionSuccess: false,
           target: { selector: params.selector, ref: params.ref },
           durationMs,
@@ -1483,6 +1605,7 @@ export class BrowserControlPort {
         isPrimaryTab,
         role: isPrimaryTab ? 'primary' : 'managed_child',
         action: params.action,
+        interactionMode,
         actionSuccess: true,
         target: { selector: params.selector, ref: params.ref },
         durationMs,

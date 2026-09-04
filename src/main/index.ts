@@ -241,6 +241,7 @@ async function createWindow(): Promise<void> {
     getDiagnostics: (tabId, level) => tabHost!.getDiagnostics(tabId, level),
     runResponsiveCheck: (tabId) => tabHost!.runResponsiveCheck(tabId),
     agentTrajectory: (params) => tabHost!.agentTrajectory(params),
+    dispatchAgentAction: (action, params) => tabHost!.dispatchAgentAction(action as any, params as any),
     agentMove: (args) => tabHost!.agentMove(args),
     agentClick: (params) => tabHost!.agentClick(params),
     agentType: (params) => tabHost!.agentType(params),

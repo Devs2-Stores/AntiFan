@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import * as assert from 'node:assert/strict';
-import { BrowserControlPort, BrowserHostPort } from '../../src/main/tools/browser-control-port';
+import { BrowserControlPort, BrowserHostPort, isStrictActionSuccess, resolveInteractionMode } from '../../src/main/tools/browser-control-port';
 import { BrowserTarget } from '../../src/shared/control-plane-contracts';
 
 describe('Priority 2: Behavior Verification Core & Dual-Scope Semantic Inference', () => {
@@ -330,5 +330,237 @@ describe('Priority 2: Behavior Verification Core & Dual-Scope Semantic Inference
     assert.strictEqual(res.confidence, 0);
     const evidence = res.evidence as Record<string, any>;
     assert.strictEqual(evidence.causalityViolation, true);
+  });
+
+  it('10. isStrictActionSuccess normalizer strictly accepts only true or explicit { [actionKey]: true }', () => {
+    assert.strictEqual(isStrictActionSuccess(true, 'clicked'), true);
+    assert.strictEqual(isStrictActionSuccess({ clicked: true }, 'clicked'), true);
+    assert.strictEqual(isStrictActionSuccess({ hovered: true }, 'hovered'), true);
+    assert.strictEqual(isStrictActionSuccess({ typed: true }, 'typed'), true);
+    assert.strictEqual(isStrictActionSuccess({ scrolled: true }, 'scrolled'), true);
+    assert.strictEqual(isStrictActionSuccess({ focused: true }, 'focused'), true);
+
+    // Fail-closed against ambiguous or unconfirmed payloads
+    assert.strictEqual(isStrictActionSuccess(false, 'clicked'), false);
+    assert.strictEqual(isStrictActionSuccess({}, 'clicked'), false);
+    assert.strictEqual(isStrictActionSuccess({ clicked: false }, 'clicked'), false);
+    assert.strictEqual(isStrictActionSuccess({ clicked: undefined }, 'clicked'), false);
+    assert.strictEqual(isStrictActionSuccess({ clicked: null }, 'clicked'), false);
+    assert.strictEqual(isStrictActionSuccess({ otherKey: true }, 'clicked'), false);
+    assert.strictEqual(isStrictActionSuccess(undefined, 'clicked'), false);
+    assert.strictEqual(isStrictActionSuccess(null, 'clicked'), false);
+    assert.strictEqual(isStrictActionSuccess('true', 'clicked'), false);
+    assert.strictEqual(isStrictActionSuccess(1, 'clicked'), false);
+    assert.strictEqual(isStrictActionSuccess([], 'clicked'), false);
+  });
+
+  it('11. Fails closed when agentClick returns ambiguous objects like {} or { clicked: undefined }, ignoring ambient mutations', async () => {
+    let callCount = 0;
+    const mockHost: Partial<BrowserHostPort> = {
+      getTabList: () => [{ id: 'tab-1' }],
+      getActiveTabId: () => 'tab-1',
+      getAutomationTabId: () => 'tab-1',
+      agentClick: async () => ({}) as any, // Ambiguous unconfirmed object
+      inspectStyles: async () => ({}),
+      evalJs: async () => {
+        callCount++;
+        return {
+          url: 'https://storefront.dev/',
+          bodyClasses: callCount === 1 ? [] : ['carousel-slide-next'],
+          bodyOverflowLocked: false,
+          activeOverlays: callCount === 1 ? [] : [{ tagName: 'div', id: 'ambient-toast', className: 'toast show' }],
+          hasHorizontalOverflow: false,
+        };
+      },
+    };
+
+    const port = new BrowserControlPort(mockHost as BrowserHostPort);
+    const res = await port.traceInteraction(baseTarget, 'run-1', 'att-1', { action: 'click', selector: '.ambiguous-btn', settleMs: 10 });
+
+    assert.strictEqual(res.action, 'click');
+    assert.strictEqual(res.interactionMode, 'unknown');
+    assert.strictEqual(res.actionSuccess, false);
+    assert.strictEqual(res.verified, false);
+    assert.strictEqual(res.verdict, 'ACTION_FAILED');
+    assert.strictEqual(res.confidence, 0);
+    const evidence = res.evidence as Record<string, any>;
+    assert.strictEqual(evidence.causalityViolation, true);
+  });
+
+  it('12. Fails closed with ACTION_FAILED when host does not support agentHover, refusing to forge success', async () => {
+    let callCount = 0;
+    const mockHost: Partial<BrowserHostPort> = {
+      getTabList: () => [{ id: 'tab-1' }],
+      getActiveTabId: () => 'tab-1',
+      getAutomationTabId: () => 'tab-1',
+      // agentHover is undefined on host
+      inspectStyles: async () => ({}),
+      evalJs: async () => {
+        callCount++;
+        return {
+          url: 'https://storefront.dev/',
+          bodyClasses: callCount === 1 ? [] : ['dropdown-hover-active'],
+          bodyOverflowLocked: false,
+          activeOverlays: [],
+          hasHorizontalOverflow: false,
+        };
+      },
+    };
+
+    const port = new BrowserControlPort(mockHost as BrowserHostPort);
+    const res = await port.traceInteraction(baseTarget, 'run-1', 'att-1', { action: 'hover', selector: '.nav-hover-item', settleMs: 10 });
+
+    assert.strictEqual(res.action, 'hover');
+    assert.strictEqual(res.interactionMode, 'none');
+    assert.strictEqual(res.actionSuccess, false);
+    assert.strictEqual(res.verified, false);
+    assert.strictEqual(res.verdict, 'ACTION_FAILED');
+    assert.strictEqual(res.confidence, 0);
+    const evidence = res.evidence as Record<string, any>;
+    assert.strictEqual(evidence.causalityViolation, true);
+    assert.match(evidence.error, /agentHover is not supported by host/);
+  });
+
+  it('13. Fails closed with ACTION_FAILED when host does not support agentScroll', async () => {
+    let callCount = 0;
+    const mockHost: Partial<BrowserHostPort> = {
+      getTabList: () => [{ id: 'tab-1' }],
+      getActiveTabId: () => 'tab-1',
+      getAutomationTabId: () => 'tab-1',
+      // agentScroll is undefined on host
+      inspectStyles: async () => ({}),
+      evalJs: async () => {
+        callCount++;
+        return {
+          url: 'https://storefront.dev/',
+          bodyClasses: [],
+          bodyOverflowLocked: false,
+          activeOverlays: [],
+          hasHorizontalOverflow: false,
+        };
+      },
+    };
+
+    const port = new BrowserControlPort(mockHost as BrowserHostPort);
+    const res = await port.traceInteraction(baseTarget, 'run-1', 'att-1', { action: 'scroll', selector: '.scroll-area', settleMs: 10 });
+
+    assert.strictEqual(res.action, 'scroll');
+    assert.strictEqual(res.interactionMode, 'none');
+    assert.strictEqual(res.actionSuccess, false);
+    assert.strictEqual(res.verified, false);
+    assert.strictEqual(res.verdict, 'ACTION_FAILED');
+    assert.strictEqual(res.confidence, 0);
+    const evidence = res.evidence as Record<string, any>;
+    assert.strictEqual(evidence.causalityViolation, true);
+    assert.match(evidence.error, /agentScroll is not supported by host/);
+  });
+
+  it('14. Sets interactionMode to programmatic_dom on fallback click and reports actionSuccess: true on explicit { clicked: true }', async () => {
+    let callCount = 0;
+    const mockHost: Partial<BrowserHostPort> = {
+      getTabList: () => [{ id: 'tab-1' }],
+      getActiveTabId: () => 'tab-1',
+      getAutomationTabId: () => 'tab-1',
+      // agentClick is undefined -> triggers fallback el.click()
+      inspectStyles: async () => ({}),
+      evalJs: async (code: string) => {
+        if (code.includes('el.click()')) {
+          return { clicked: true };
+        }
+        callCount++;
+        return {
+          url: 'https://storefront.dev/',
+          bodyClasses: callCount === 1 ? [] : ['modal-open'],
+          bodyOverflowLocked: callCount > 1,
+          activeOverlays: callCount === 1 ? [] : [{ tagName: 'div', id: 'modal', className: 'modal' }],
+          hasHorizontalOverflow: false,
+        };
+      },
+    };
+
+    const port = new BrowserControlPort(mockHost as BrowserHostPort);
+    const res = await port.traceInteraction(baseTarget, 'run-1', 'att-1', { action: 'click', selector: '.trigger-btn', settleMs: 10 });
+
+    assert.strictEqual(res.action, 'click');
+    assert.strictEqual(res.interactionMode, 'programmatic_dom');
+    assert.strictEqual(res.actionSuccess, true);
+    assert.strictEqual(res.verified, true);
+    assert.strictEqual(res.verdict, 'MODAL_OPENED');
+  });
+
+  it('15. Accurately classifies interactionMode as programmatic_dom when dispatchAgentAction falls back from CDP to isolated_synthetic', async () => {
+    let callCount = 0;
+    const mockHost: Partial<BrowserHostPort> = {
+      getTabList: () => [{ id: 'tab-1' }],
+      getActiveTabId: () => 'tab-1',
+      getAutomationTabId: () => 'tab-1',
+      dispatchAgentAction: async () => ({
+        success: true,
+        data: { ok: true, executed: true, executionTier: 'isolated_synthetic' },
+      }),
+      inspectStyles: async () => ({}),
+      evalJs: async () => {
+        callCount++;
+        return {
+          url: 'https://storefront.dev/',
+          bodyClasses: callCount === 1 ? [] : ['modal-open'],
+          bodyOverflowLocked: callCount > 1,
+          activeOverlays: callCount === 1 ? [] : [{ tagName: 'div', id: 'modal', className: 'modal' }],
+          hasHorizontalOverflow: false,
+        };
+      },
+    };
+
+    const port = new BrowserControlPort(mockHost as BrowserHostPort);
+    const res = await port.traceInteraction(baseTarget, 'run-1', 'att-1', { action: 'click', selector: '.fallback-btn', settleMs: 10 });
+
+    assert.strictEqual(res.action, 'click');
+    assert.strictEqual(res.actionSuccess, true);
+    assert.strictEqual(res.interactionMode, 'programmatic_dom');
+    assert.strictEqual(res.verified, true);
+  });
+
+  it('16. Accurately classifies interactionMode as trusted_cdp when dispatchAgentAction confirms cdp_trusted tier', async () => {
+    let callCount = 0;
+    const mockHost: Partial<BrowserHostPort> = {
+      getTabList: () => [{ id: 'tab-1' }],
+      getActiveTabId: () => 'tab-1',
+      getAutomationTabId: () => 'tab-1',
+      dispatchAgentAction: async () => ({
+        success: true,
+        data: { ok: true, executed: true, executionTier: 'cdp_trusted' },
+      }),
+      inspectStyles: async () => ({}),
+      evalJs: async () => {
+        callCount++;
+        return {
+          url: 'https://storefront.dev/',
+          bodyClasses: callCount === 1 ? [] : ['modal-open'],
+          bodyOverflowLocked: callCount > 1,
+          activeOverlays: callCount === 1 ? [] : [{ tagName: 'div', id: 'modal', className: 'modal' }],
+          hasHorizontalOverflow: false,
+        };
+      },
+    };
+
+    const port = new BrowserControlPort(mockHost as BrowserHostPort);
+    const res = await port.traceInteraction(baseTarget, 'run-1', 'att-1', { action: 'click', selector: '.trusted-btn', settleMs: 10 });
+
+    assert.strictEqual(res.action, 'click');
+    assert.strictEqual(res.actionSuccess, true);
+    assert.strictEqual(res.interactionMode, 'trusted_cdp');
+    assert.strictEqual(res.verified, true);
+  });
+
+  it('17. resolveInteractionMode contract correctly derives tiers and defaults unconfirmed mocks to unknown', () => {
+    assert.strictEqual(resolveInteractionMode({ executionTier: 'cdp_trusted' }), 'trusted_cdp');
+    assert.strictEqual(resolveInteractionMode({ data: { executionTier: 'cdp_trusted' } }), 'trusted_cdp');
+    assert.strictEqual(resolveInteractionMode({ executionTier: 'isolated_synthetic' }), 'programmatic_dom');
+    assert.strictEqual(resolveInteractionMode({ data: { executionTier: 'isolated_synthetic' } }), 'programmatic_dom');
+    assert.strictEqual(resolveInteractionMode({ executionTier: 'programmatic_dom' }), 'programmatic_dom');
+    assert.strictEqual(resolveInteractionMode(true), 'unknown');
+    assert.strictEqual(resolveInteractionMode(false), 'unknown');
+    assert.strictEqual(resolveInteractionMode({}), 'unknown');
+    assert.strictEqual(resolveInteractionMode(undefined, 'none'), 'none');
   });
 });
