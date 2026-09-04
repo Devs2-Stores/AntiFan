@@ -40,7 +40,7 @@ Kế hoạch này hiện thực hóa toàn bộ các quyết sách đã được
 
 ## Success Criteria
 
-- [x] Bài test Windows soak 45 phút chạy trơn tru với zero tiến trình con `node-pty` mồ côi và rò rỉ RAM Electron $\le 30\text{MB}$ (quick workload và 5h production soak đã khởi chạy thành công).
+- [ ] Bài test Windows soak 45 phút / 5h: Quick workload 4-stage soak đã PASS với 0 tiến trình mồ côi; tiến trình 5h soak đã chạy 300 phút (5,450 switches, overall slope 0.28 MB/min <= 0.35 SLO, 0 orphans), nhưng renderer slope chạm 0.156 MB/min (vượt nhẹ SLO 0.15) và gặp lỗi scope `totalSuspendedMs` tại teardown. Đã khắc phục teardown lifecycle (đóng tab/terminal khi bắt đầu recovery) và sửa scope biến; phán quyết chính thức đang chờ lượt chạy soak tiếp theo đạt PASSED.
 - [x] Mọi capability execution context đều nhận `signal` và `control` xuyên suốt từ `capability-transport.ts`.
 - [x] `IssueRegister` singleton được mở rộng để lưu trữ `ProofProfile`, `proofObligations`, và `verdict` mà không sinh thêm subsystem DB cồng kềnh.
 - [x] Core hoàn toàn sạch bóng các engine nhận thức (`VisualEntityEngine`, `SpatialSemanticGraph`); chỉ lưu trữ `VisualRegion` thô và nhận định ngữ nghĩa của OMP kèm provenance.

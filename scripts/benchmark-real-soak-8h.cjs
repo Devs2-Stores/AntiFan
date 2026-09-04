@@ -393,6 +393,8 @@ async function main() {
   let seq = 0;
   const pending = new Map();
 
+  let recoveryTeardownDone = false;
+  let totalSuspendedMs = 0;
   const onSignal = (sig) => {
     if (!interruptedSignal) {
       interruptedSignal = sig;
@@ -615,7 +617,7 @@ async function main() {
   let warmupEndTime = startTime + WARMUP_MINUTES * 60 * 1000;
   let workloadEndTime = warmupEndTime + WORKLOAD_MINUTES * 60 * 1000;
   let totalEndTime = workloadEndTime + RECOVERY_MINUTES * 60 * 1000;
-  let totalSuspendedMs = 0;
+  totalSuspendedMs = 0;
   let consecutiveSampleErrors = 0;
 
   console.log(`[soak] Phase 1: Warmup started (until ${new Date(warmupEndTime).toLocaleTimeString()})`);
@@ -640,6 +642,18 @@ async function main() {
     const now = Date.now();
     stateMeta.activeWorkloadMinutes = Number(((now - startTime - totalSuspendedMs) / 60000).toFixed(2));
     const currentPhase = now < warmupEndTime ? 'warmup' : now < workloadEndTime ? 'workload' : 'recovery';
+    if (currentPhase === 'recovery' && !recoveryTeardownDone) {
+      recoveryTeardownDone = true;
+      console.log('[soak] Phase 3: Recovery started. Closing tabs and terminal session to measure clean idle recovery...');
+      if (ws && tabIds.length > 0) {
+        for (const id of tabIds) {
+          try { await rpc('antifan.closeTab', { tabId: id }); } catch {}
+        }
+      }
+      if (ws && sessionId) {
+        try { await rpc('antifan.terminalCloseSession', { sessionId }); } catch {}
+      }
+    }
     if (currentPhase !== 'recovery' && now >= nextSwitchTime && tabIds.length > 0) {
       const tabId = tabIds[switches % tabIds.length];
       const t0 = performance.now();
