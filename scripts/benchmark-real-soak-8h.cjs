@@ -52,26 +52,48 @@ function spawnKeepAwakeProcess() {
         [KeepAwake]::SetThreadExecutionState($flags)
     }
   `;
-  try {
-    const p = spawn('powershell.exe', ['-NoLogo', '-NoProfile', '-Command', psScript], {
-      windowsHide: true,
-      stdio: ['ignore', 'pipe', 'pipe'],
-    });
-    p.stdout.on('data', (d) => {
-      if (d.toString().includes('KEEP_AWAKE_ACTIVE')) {
-        console.log(`[soak] Windows keep-awake active (PID: ${p.pid}, SetThreadExecutionState ES_CONTINUOUS|ES_SYSTEM_REQUIRED|ES_AWAYMODE_REQUIRED)`);
-      }
-    });
-    p.on('exit', (code) => {
-      if (code !== 0 && code !== null) {
-        console.warn(`[soak] Windows keep-awake process exited with code ${code}`);
-      }
-    });
-    return p;
-  } catch (err) {
-    console.warn('[soak] Failed to spawn keep-awake process:', err.message);
-    return null;
+  let keepAlive = true;
+  let currentProcess = null;
+
+  function launch() {
+    if (!keepAlive) return;
+    try {
+      const p = spawn('powershell.exe', ['-NoLogo', '-NoProfile', '-Command', psScript], {
+        windowsHide: true,
+        stdio: ['ignore', 'pipe', 'pipe'],
+      });
+      currentProcess = p;
+      p.stdout.on('data', (d) => {
+        if (d.toString().includes('KEEP_AWAKE_ACTIVE')) {
+          console.log(`[soak] Windows keep-awake active (PID: ${p.pid}, SetThreadExecutionState ES_CONTINUOUS|ES_SYSTEM_REQUIRED|ES_AWAYMODE_REQUIRED)`);
+        }
+      });
+      p.on('exit', (code) => {
+        if (keepAlive) {
+          console.warn(`[soak] Windows keep-awake process exited with code ${code}, auto-respawning in 2s...`);
+          setTimeout(launch, 2000);
+        }
+      });
+    } catch (err) {
+      console.warn('[soak] Failed to spawn keep-awake process:', err.message);
+    }
   }
+
+  launch();
+
+  return {
+    get pid() {
+      return currentProcess?.pid;
+    },
+    kill() {
+      keepAlive = false;
+      if (currentProcess) {
+        try {
+          currentProcess.kill();
+        } catch (_) {}
+      }
+    },
+  };
 }
 const FREEZE_SLO = {
   overallSlopeMBPerMin: 0.35,
@@ -114,16 +136,22 @@ function evaluateFreezeVerdict(meta, metrics, orphanPidsCount) {
   const latencyOk = switchP50 <= FREEZE_SLO.switchLatencyP50Ms && switchP95 <= FREEZE_SLO.switchLatencyP95Ms && switchMax <= FREEZE_SLO.switchLatencyMaxMs;
   const processOk = meta.processQuerySuccess === true && (orphanPidsCount || 0) <= FREEZE_SLO.maxOrphans;
   const executionOk = !meta.executionError && !meta.childExitedPrematurely;
+  const teardownOk = !meta.teardownTelemetry?.teardownDegraded;
 
-  const isPassed = slopeOk && memoryOk && latencyOk && processOk && executionOk;
+  const isPassed = slopeOk && memoryOk && latencyOk && processOk && executionOk && teardownOk;
+  const isDegraded = slopeOk && memoryOk && latencyOk && processOk && executionOk && !teardownOk;
+  const verdict = isPassed ? 'PASSED' : (isDegraded ? 'TEARDOWN_DEGRADED' : 'FAILED');
+
   return {
     isPassed,
+    isDegraded,
     slopeOk,
     memoryOk,
     latencyOk,
     processOk,
     executionOk,
-    verdict: isPassed ? 'PASSED' : 'FAILED',
+    teardownOk,
+    verdict,
   };
 }
 function calculateSlope(samples, key, timeKey = 'activeAt') {
@@ -253,9 +281,17 @@ function calculateRollingSlopes(samples, windowMinutes = 60) {
       return sat >= t - windowMs && sat <= t;
     });
     if (windowSamples.length >= 5) {
+      const totalSlope = calculateSlope(windowSamples, 'totalWorkingSetMB', 'activeAt');
+      const rendererSlope = calculateSlope(
+        windowSamples.map((s) => ({ activeAt: s.activeAt ?? s.at, rMB: s.byType?.renderer?.workingSetMB || 0 })),
+        'rMB',
+        'activeAt'
+      );
       slopes.push({
         at: new Date(t).toISOString(),
-        slopeMBPerMin: Number(calculateSlope(windowSamples, 'totalWorkingSetMB', 'activeAt').toFixed(4)),
+        totalSlopeMBPerMin: totalSlope !== null ? Number(totalSlope.toFixed(4)) : null,
+        rendererSlopeMBPerMin: rendererSlope !== null ? Number(rendererSlope.toFixed(4)) : null,
+        slopeMBPerMin: totalSlope !== null ? Number(totalSlope.toFixed(4)) : null,
         sampleCount: windowSamples.length,
       });
     }
@@ -282,8 +318,8 @@ function buildReportPayload(meta) {
     stdout,
     stderr,
     status,
+    teardownTelemetry,
   } = meta;
-
   const warmupSamples = samples.filter((s) => s.label === 'warmup');
   const activeSamples = samples.filter((s) => s.label === 'workload');
   const recoverySamples = samples.filter((s) => s.label === 'recovery');
@@ -313,6 +349,14 @@ function buildReportPayload(meta) {
       totalSamples: samples.length,
       totalSuspendedMinutes: meta.totalSuspendedMinutes || 0,
       activeWorkloadMinutes: meta.activeWorkloadMinutes || 0,
+      teardownTelemetry: teardownTelemetry || {
+        tabsClosedRequested: 0,
+        tabsClosedSuccess: 0,
+        tabsClosedFailed: 0,
+        terminalClosedRequested: 0,
+        terminalClosedSuccess: 0,
+        terminalClosedFailed: 0,
+      },
     },
     metrics: (() => {
       const rawMetrics = {
@@ -341,6 +385,7 @@ function buildReportPayload(meta) {
         latencySloSatisfied: evaluation.latencyOk,
         orphanSloSatisfied: evaluation.processOk,
         executionSloSatisfied: evaluation.executionOk,
+        teardownSloSatisfied: evaluation.teardownOk,
         verdict: evaluation.verdict,
       };
     })(),
@@ -395,6 +440,53 @@ async function main() {
 
   let recoveryTeardownDone = false;
   let totalSuspendedMs = 0;
+  const teardownTelemetry = {
+    tabsToClose: 0,
+    tabsClosedSuccess: 0,
+    tabsClosedFailed: 0,
+    terminalClosedSuccess: false,
+    terminalClosedFailed: false,
+    teardownDegraded: false,
+  };
+
+  const performRecoveryTeardown = async (phaseLabel) => {
+    if (recoveryTeardownDone) return;
+    recoveryTeardownDone = true;
+    console.log(`[soak] ${phaseLabel}: Running recovery teardown (closing tabs & terminal session)...`);
+    if (ws && tabIds.length > 0) {
+      teardownTelemetry.tabsToClose = tabIds.length;
+      for (const id of tabIds) {
+        try {
+          const res = await rpc('antifan.closeTab', { tabId: id });
+          if (res && res.closed !== false) {
+            teardownTelemetry.tabsClosedSuccess++;
+          } else {
+            teardownTelemetry.tabsClosedFailed++;
+          }
+        } catch (err) {
+          teardownTelemetry.tabsClosedFailed++;
+          console.warn(`[soak] Failed to close tab ${id}:`, err.message);
+        }
+      }
+    }
+    if (ws && sessionId) {
+      try {
+        const res = await rpc('antifan.terminalCloseSession', { sessionId });
+        if (res && res.closed !== false) {
+          teardownTelemetry.terminalClosedSuccess = true;
+        } else {
+          teardownTelemetry.terminalClosedFailed = true;
+        }
+      } catch (err) {
+        teardownTelemetry.terminalClosedFailed = true;
+        console.warn(`[soak] Failed to close terminal session ${sessionId}:`, err.message);
+      }
+    }
+    if (teardownTelemetry.tabsClosedFailed > 0 || teardownTelemetry.terminalClosedFailed) {
+      teardownTelemetry.teardownDegraded = true;
+      console.warn(`[soak] Teardown degraded: tabsFailed=${teardownTelemetry.tabsClosedFailed}, terminalFailed=${teardownTelemetry.terminalClosedFailed}`);
+    }
+  };
   const onSignal = (sig) => {
     if (!interruptedSignal) {
       interruptedSignal = sig;
@@ -419,6 +511,7 @@ async function main() {
     activeWorkloadMinutes: 0,
     stdout: '',
     stderr: '',
+    teardownTelemetry,
   };
 
   const rpc = (method, params = {}) => new Promise((resolve, reject) => {
@@ -642,17 +735,8 @@ async function main() {
     const now = Date.now();
     stateMeta.activeWorkloadMinutes = Number(((now - startTime - totalSuspendedMs) / 60000).toFixed(2));
     const currentPhase = now < warmupEndTime ? 'warmup' : now < workloadEndTime ? 'workload' : 'recovery';
-    if (currentPhase === 'recovery' && !recoveryTeardownDone) {
-      recoveryTeardownDone = true;
-      console.log('[soak] Phase 3: Recovery started. Closing tabs and terminal session to measure clean idle recovery...');
-      if (ws && tabIds.length > 0) {
-        for (const id of tabIds) {
-          try { await rpc('antifan.closeTab', { tabId: id }); } catch {}
-        }
-      }
-      if (ws && sessionId) {
-        try { await rpc('antifan.terminalCloseSession', { sessionId }); } catch {}
-      }
+    if (currentPhase === 'recovery') {
+      await performRecoveryTeardown('Phase 3 Recovery');
     }
     if (currentPhase !== 'recovery' && now >= nextSwitchTime && tabIds.length > 0) {
       const tabId = tabIds[switches % tabIds.length];
@@ -737,19 +821,18 @@ async function main() {
     process.removeListener('SIGINT', onSignal);
     process.removeListener('SIGTERM', onSignal);
     console.log('[soak] Soak workload phase concluded. Running guaranteed resource teardown...');
-    if (keepAwakeProcess && keepAwakeProcess.pid) {
-      try { process.kill(keepAwakeProcess.pid); } catch {}
+    if (keepAwakeProcess) {
+      try {
+        if (typeof keepAwakeProcess.kill === 'function') {
+          keepAwakeProcess.kill();
+        } else if (keepAwakeProcess.pid) {
+          process.kill(keepAwakeProcess.pid);
+        }
+      } catch {}
     }
     isIntentionalTeardown = true;
 
-    if (ws && tabIds.length > 0) {
-      for (const id of tabIds) {
-        try { await rpc('antifan.closeTab', { tabId: id }); } catch {}
-      }
-    }
-    if (ws && sessionId) {
-      try { await rpc('antifan.terminalCloseSession', { sessionId }); } catch {}
-    }
+    await performRecoveryTeardown('Final Guaranteed Teardown');
 
     if (child && child.pid && !executionError) {
       try {
@@ -809,12 +892,13 @@ async function main() {
       executionError: executionError ? executionError.message : (childExitedPrematurely ? 'child_exited_prematurely' : undefined),
     });
     const isPassed = finalPayload.metrics.verdict === 'PASSED';
-    finalPayload.status = isPassed ? 'completed' : 'failed';
+    const isDegraded = finalPayload.metrics.verdict === 'TEARDOWN_DEGRADED';
+    finalPayload.status = isPassed ? 'completed' : (isDegraded ? 'degraded' : 'failed');
     fs.writeFileSync(FINAL_REPORT_PATH, JSON.stringify(finalPayload, null, 2), 'utf8');
     console.log(`[soak] Final report saved to ${FINAL_REPORT_PATH}`);
 
     console.log('========================================================================');
-    console.log(`  AntiFan 8-Hour Soak Verdict: ${isPassed ? 'PASSED' : 'FAILED'}`);
+    console.log(`  AntiFan 8-Hour Soak Verdict: ${finalPayload.metrics.verdict}`);
     if (executionError) {
       console.error(`  Execution Error: ${executionError.message}`);
     }
@@ -827,9 +911,14 @@ async function main() {
     console.log(`  Tab Switch Latency: p50=${finalPayload.metrics.switchLatencyMs.p50}ms (SLO <= ${FREEZE_SLO.switchLatencyP50Ms}ms), p95=${finalPayload.metrics.switchLatencyMs.p95}ms (SLO <= ${FREEZE_SLO.switchLatencyP95Ms}ms), max=${finalPayload.metrics.switchLatencyMs.max}ms (SLO <= ${FREEZE_SLO.switchLatencyMaxMs}ms)`);
     console.log(`  Orphan Processes: ${orphanPids.length} (Query OK: ${processQuerySuccess}, SLO = ${FREEZE_SLO.maxOrphans})`);
     console.log('========================================================================');
-
     if (!isPassed) {
-      console.error(`[soak] FAILED: SLO violations or execution failure detected (slopeOk: ${finalPayload.metrics.slopeSloSatisfied}, memoryOk: ${finalPayload.metrics.memorySloSatisfied}, latencyOk: ${finalPayload.metrics.latencySloSatisfied}, processOk: ${finalPayload.metrics.orphanSloSatisfied}, executionOk: ${finalPayload.metrics.executionSloSatisfied})`);
+      if (isDegraded) {
+        const tFailed = finalPayload.stats.teardownTelemetry?.tabsClosedFailed ?? 0;
+        const termFailed = finalPayload.stats.teardownTelemetry?.terminalClosedFailed ?? 0;
+        console.error(`[soak] FAILED (TEARDOWN_DEGRADED): Required tab/terminal cleanup failed during teardown (tabsFailed: ${tFailed}, terminalFailed: ${termFailed}).`);
+      } else {
+        console.error(`[soak] FAILED: SLO violations or execution failure detected (slopeOk: ${finalPayload.metrics.slopeSloSatisfied}, memoryOk: ${finalPayload.metrics.memorySloSatisfied}, latencyOk: ${finalPayload.metrics.latencySloSatisfied}, processOk: ${finalPayload.metrics.orphanSloSatisfied}, executionOk: ${finalPayload.metrics.executionSloSatisfied}, teardownOk: ${finalPayload.metrics.teardownSloSatisfied})`);
+      }
       process.exitCode = 1;
     }
   }

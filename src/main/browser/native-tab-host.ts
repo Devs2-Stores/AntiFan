@@ -338,6 +338,7 @@ export class NativeTabHost extends EventEmitter {
   private controlPlane: ControlPlaneRuntime | null = null;
   private activeWorkflowAbortController: AbortController | null = null;
   private documentGenerations: Map<string, number> = new Map();
+  private mutationRevisions: Map<string, number> = new Map();
   private browserEpoch: number = 1;
   private tabPreviewUnsubscribers: Map<string, () => void> = new Map();
   private recentlyClosedTabs: Array<{ url: string; title: string }> = [];
@@ -865,6 +866,15 @@ export class NativeTabHost extends EventEmitter {
             ? Math.min(5.0, Number((current + step).toFixed(2)))
             : Math.max(0.25, Number((current - step).toFixed(2)));
           this.setZoom(id, nextZoom);
+          break;
+        }
+      }
+    });
+    ipcMain.on('antifan:dom-mutation', (event) => {
+      const senderWc = event.sender;
+      for (const [id, t] of this.tabs.entries()) {
+        if (t.view.webContents === senderWc || (t.mobileView && t.mobileView.webContents === senderWc)) {
+          this.bumpMutationRevision(id);
           break;
         }
       }
@@ -2538,8 +2548,12 @@ export class NativeTabHost extends EventEmitter {
         }
       }
     });
+    wc.on('did-navigate-in-page', (_event, _url, isMainFrame) => {
+      if (isMainFrame) {
+        this.bumpMutationRevision(id);
+      }
+    });
     wc.on('will-redirect', (_event, _redirectUrl) => {});
-
     wc.on('did-fail-load', (_event, errorCode, errorDescription, validatedURL, isMainFrame) => {
       clearLoadingTimer();
       state.isLoading = false;
@@ -5110,6 +5124,25 @@ export class NativeTabHost extends EventEmitter {
   public getDocumentGeneration(tabId?: string): number {
     const id = tabId || this.activeTabId;
     return this.documentGenerations.get(id) || 1;
+  }
+
+  public bumpDocumentGeneration(tabId?: string): number {
+    const id = tabId || this.activeTabId;
+    const next = (this.documentGenerations.get(id) || 1) + 1;
+    this.documentGenerations.set(id, next);
+    return next;
+  }
+
+  public getMutationRevision(tabId?: string): number {
+    const id = tabId || this.activeTabId;
+    return this.mutationRevisions.get(id) || 1;
+  }
+
+  public bumpMutationRevision(tabId?: string): number {
+    const id = tabId || this.activeTabId;
+    const next = (this.mutationRevisions.get(id) || 1) + 1;
+    this.mutationRevisions.set(id, next);
+    return next;
   }
 
   public toggleFullScreen(): void {

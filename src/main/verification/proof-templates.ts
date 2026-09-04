@@ -56,14 +56,37 @@ export class ProofTemplateRegistry {
    * 2. Height parity delta <= 5% (or custom tolerance)
    * 3. No horizontal scroll bleed
    */
-  public static getLayoutTemplate(expectedSectionCount?: number, tolerance = 0.05): ProofObligation[] {
+  public static getLayoutTemplate(
+    expectedHeightOrSectionCount?: number,
+    expectedSectionCountOrTolerance?: number,
+    tolerance = 0.05
+  ): ProofObligation[] {
+    let expectedHeight: number | undefined;
+    let expectedSectionCount: number | undefined;
+    let effectiveTolerance = tolerance;
+
+    if (
+      typeof expectedSectionCountOrTolerance === 'number' &&
+      expectedSectionCountOrTolerance < 1 &&
+      tolerance === 0.05
+    ) {
+      // Called with (expectedSectionCount, tolerance) signature
+      expectedSectionCount = expectedHeightOrSectionCount;
+      effectiveTolerance = expectedSectionCountOrTolerance;
+    } else {
+      expectedHeight = expectedHeightOrSectionCount;
+      expectedSectionCount = expectedSectionCountOrTolerance;
+      effectiveTolerance = tolerance;
+    }
+
     const obligations: ProofObligation[] = [
       {
         id: 'obl-layout-height-parity',
         metric: 'height_parity_delta',
-        tolerance,
+        expected: expectedHeight,
+        tolerance: effectiveTolerance,
         source: 'deterministic',
-        description: `Total scroll height must match target within ${Math.round(tolerance * 100)}% tolerance`,
+        description: `Total scroll height must match target within ${Math.round(effectiveTolerance * 100)}% tolerance`,
       },
       {
         id: 'obl-layout-no-horizontal-overflow',
@@ -72,7 +95,6 @@ export class ProofTemplateRegistry {
         description: 'Page layout must not bleed horizontally outside viewport boundary',
       },
     ];
-
     if (expectedSectionCount !== undefined && expectedSectionCount > 0) {
       obligations.unshift({
         id: 'obl-layout-section-count',
@@ -123,8 +145,29 @@ export class ProofTemplateRegistry {
   public static augmentObligations(
     category: ClaimCategory,
     customObligations: ProofObligation[] = [],
-    options?: { targetSelector?: string; expectedSections?: number; tolerance?: number }
+    options?: {
+      targetSelector?: string;
+      expectedSections?: number;
+      expectedHeight?: number;
+      tolerance?: number;
+    }
   ): ProofObligation[] {
+    const customHeightObl = customObligations.find(
+      (o) => o.id === 'obl-layout-height-parity' || o.metric === 'height_parity_delta'
+    );
+    const resolvedHeight =
+      options?.expectedHeight ?? (typeof customHeightObl?.expected === 'number' ? customHeightObl.expected : undefined);
+
+    const customSectionObl = customObligations.find(
+      (o) => o.id === 'obl-layout-section-count' || o.metric === 'section_inventory_count'
+    );
+    const resolvedSections =
+      options?.expectedSections ??
+      (typeof customSectionObl?.expected === 'number' ? customSectionObl.expected : undefined);
+
+    const resolvedTolerance =
+      options?.tolerance ?? (typeof customHeightObl?.tolerance === 'number' ? customHeightObl.tolerance : 0.05);
+
     let canonical: ProofObligation[] = [];
 
     switch (category) {
@@ -132,7 +175,7 @@ export class ProofTemplateRegistry {
         canonical = this.getInteractionTemplate(options?.targetSelector || 'body');
         break;
       case 'LAYOUT':
-        canonical = this.getLayoutTemplate(options?.expectedSections, options?.tolerance);
+        canonical = this.getLayoutTemplate(resolvedHeight, resolvedSections, resolvedTolerance);
         break;
       case 'RESPONSIVE':
         canonical = this.getResponsiveTemplate();
@@ -145,16 +188,29 @@ export class ProofTemplateRegistry {
       return canonical;
     }
 
-    // Merge without duplicating IDs
-    const existingIds = new Set(customObligations.map((o) => o.id));
-    const merged = [...customObligations];
-    for (const obl of canonical) {
-      if (!existingIds.has(obl.id)) {
-        merged.push(obl);
-        existingIds.add(obl.id);
-      }
-    }
+    // Canonical obligations ALWAYS win and cannot be overridden or shadowed by caller IDs.
+    const canonicalIds = new Set(canonical.map((o) => o.id));
+    const safeCustom = customObligations.filter((o) => !canonicalIds.has(o.id));
+    return [...canonical, ...safeCustom];
+  }
 
-    return merged;
+  /**
+   * Detects whether an obligation list contains only non-discriminating DOM presence checks
+   * (e.g. element_present:*, element.exists, dom.exists, dom.*) without any behavioral,
+   * mutation, style, or layout metric.
+   */
+  public static isPurePresenceCheck(obligations: ProofObligation[]): boolean {
+    if (!obligations || obligations.length === 0) return true;
+    return obligations.every((o) => {
+      const m = o.metric.trim().toLowerCase();
+      return (
+        m.startsWith('element_present:') ||
+        m === 'element.exists' ||
+        m === 'dom.exists' ||
+        m === 'element_exists' ||
+        m === 'dom.present' ||
+        m.startsWith('dom.')
+      );
+    });
   }
 }

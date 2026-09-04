@@ -1,36 +1,36 @@
 {
-  "timestamp": "2026-09-03T19:38:24.310Z",
+  "timestamp": "2026-09-04T02:57:10.908Z",
   "type": "functional-multi-process-workload-smoke",
   "settleMethodology": "fixed-topology-quiescence-settle-window",
-  "durationMinutes": 0.29,
+  "durationMinutes": 0.35,
   "stage1BaselineWindowSeconds": 5,
   "stage4SteadyStateWindowSeconds": 5,
-  "totalSamples": 34,
+  "totalSamples": 41,
   "baselineSamplesCount": 10,
   "steadyStateSamplesCount": 10,
-  "baselineRssMB": 784.06,
-  "peakRssMB": 895.89,
-  "finalRssMB": 816.34,
-  "rssGrowthMB": 32.29,
-  "observedSlopeMBPerMin": -0.1917,
+  "baselineRssMB": 1488.09,
+  "peakRssMB": 1648.43,
+  "finalRssMB": 1523.64,
+  "rssGrowthMB": 35.55,
+  "observedSlopeMBPerMin": -0.0419,
   "stageResults": {
     "stage1Idle": {
-      "durationMs": 5012,
+      "durationMs": 5015,
       "samples": 10
     },
     "stage2Streaming": {
-      "durationMs": 3848,
-      "ptyReceivedBytes": 531561,
+      "durationMs": 6685,
+      "ptyReceivedBytes": 529732,
       "sessionCreated": true,
       "termSessionState": "running"
     },
     "stage3TabThrash": {
-      "durationMs": 2012,
+      "durationMs": 2041,
       "tabSwitches": 20,
       "tabCount": 4
     },
     "stage4QaBlast": {
-      "durationMs": 6221,
+      "durationMs": 6270,
       "qaRuns": 20,
       "errorsFound": 20,
       "enduranceCycles": 1,

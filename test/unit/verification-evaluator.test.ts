@@ -322,4 +322,83 @@ describe('Verification Evaluator & Contract Engine Suite (Phase 2)', () => {
     assert.strictEqual(result.proofProfile.violations.length, 1);
     assert.match(result.proofProfile.violations[0]?.message || '', /failed validation threshold/);
   });
+
+  it('rejects tautological claims where all obligations are purely DOM presence checks (Anti-Gaming)', () => {
+    const claim: VerificationClaim = {
+      id: 'claim-tautology',
+      claim: 'Tautological claim with universal presence obligations',
+      actor: 'agent',
+      scope: { tabId: 'tab-1' },
+      proofObligations: [
+        { id: 'obl-1', metric: 'element_present:html' },
+        { id: 'obl-2', metric: 'element_present:body' },
+      ],
+    };
+
+    const bundle: EvidenceSampleBundle = {
+      documentGeneration: 1,
+      captureTimestamp: Date.now(),
+      samples: [
+        { metric: 'element_present:html', actual: true, passed: true },
+        { metric: 'element_present:body', actual: true, passed: true },
+      ],
+    };
+
+    const result = VerificationEvaluator.evaluate(claim, bundle);
+    assert.strictEqual(result.verdict, 'REJECTED');
+    assert.strictEqual(result.inconclusiveReason, 'UNOBSERVABLE');
+    assert.strictEqual(result.proofProfile.completeness, 'EMPTY');
+    assert.match(result.summary, /Tautological obligations detected/);
+  });
+
+  it('rejects evidence when mutationRevision is behind targetMutationRevision (Mutation Barrier)', () => {
+    const claim: VerificationClaim = {
+      id: 'claim-mutation',
+      claim: 'Interaction state requires post-action mutation',
+      actor: 'agent',
+      scope: { tabId: 'tab-1' },
+      targetGeneration: 1,
+      targetMutationRevision: 5,
+      proofObligations: [
+        { id: 'obl-1', metric: 'observable_mutation_effect', critical: true },
+      ],
+    };
+
+    // Case A: mutationRevision is stale (3 < 5)
+    const staleBundle: EvidenceSampleBundle = {
+      documentGeneration: 1,
+      mutationRevision: 3,
+      captureTimestamp: Date.now(),
+      samples: [{ metric: 'observable_mutation_effect', actual: true, passed: true }],
+    };
+
+    const staleResult = VerificationEvaluator.evaluate(claim, staleBundle);
+    assert.strictEqual(staleResult.verdict, 'INCONCLUSIVE');
+    assert.strictEqual(staleResult.inconclusiveReason, 'RESAMPLE');
+    assert.strictEqual(staleResult.proofProfile.freshness, 'STALE');
+
+    // Case B: mutationRevision is undefined (missing evidence for required barrier)
+    const missingBundle: EvidenceSampleBundle = {
+      documentGeneration: 1,
+      captureTimestamp: Date.now(),
+      samples: [{ metric: 'observable_mutation_effect', actual: true, passed: true }],
+    };
+
+    const missingResult = VerificationEvaluator.evaluate(claim, missingBundle);
+    assert.strictEqual(missingResult.verdict, 'INCONCLUSIVE');
+    assert.strictEqual(missingResult.inconclusiveReason, 'RESAMPLE');
+    assert.strictEqual(missingResult.proofProfile.freshness, 'STALE');
+
+    // Case C: mutationRevision is fresh (5 >= 5)
+    const freshBundle: EvidenceSampleBundle = {
+      documentGeneration: 1,
+      mutationRevision: 5,
+      captureTimestamp: Date.now(),
+      samples: [{ metric: 'observable_mutation_effect', actual: true, passed: true }],
+    };
+
+    const freshResult = VerificationEvaluator.evaluate(claim, freshBundle);
+    assert.strictEqual(freshResult.verdict, 'VERIFIED');
+    assert.strictEqual(freshResult.proofProfile.freshness, 'FRESH');
+  });
 });

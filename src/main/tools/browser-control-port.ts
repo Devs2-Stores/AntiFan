@@ -43,6 +43,9 @@ export interface BrowserHostPort {
   isCurrentTarget?(target: BrowserTarget): boolean;
   clearAllAgentWorking?(): void;
   getDocumentGeneration?(tabId?: string): number;
+  bumpDocumentGeneration?(tabId?: string): number;
+  getMutationRevision?(tabId?: string): number;
+  bumpMutationRevision?(tabId?: string): number;
   uploadFileInput?(params: { refOrSelector: string; filePaths: string[]; tabId?: string; paneId?: 'desktop' | 'mobile' }): Promise<{ success: boolean; uploadedCount: number; reason?: string }>;
   dropFiles?(params: { refOrSelector: string; filePaths: string[]; tabId?: string; paneId?: 'desktop' | 'mobile' }): Promise<{ success: boolean; droppedCount: number; reason?: string }>;
   executeActionSequence?(params: { actions: unknown[]; tabId?: string; paneId?: 'desktop' | 'mobile'; stopOnError?: boolean }): Promise<unknown>;
@@ -851,7 +854,11 @@ export class BrowserControlPort {
     const tabId = this.resolveTargetTab(target, args.tabId, 'write');
     return this.viewportGate.withLock(async () => {
       this.revalidateTargetInsideLock(target, tabId);
-      return { clicked: await this.host.agentClick!({ ...args, tabId }) };
+      const clicked = Boolean(await this.host.agentClick!({ ...args, tabId }));
+      if (clicked) {
+        this.bumpMutationRevision(tabId);
+      }
+      return { clicked };
     }, { tabId, signal });
   }
 
@@ -860,7 +867,11 @@ export class BrowserControlPort {
     const tabId = this.resolveTargetTab(target, args.tabId, 'write');
     return this.viewportGate.withLock(async () => {
       this.revalidateTargetInsideLock(target, tabId);
-      return { typed: await this.host.agentType!({ ...args, tabId }) };
+      const typed = Boolean(await this.host.agentType!({ ...args, tabId }));
+      if (typed) {
+        this.bumpMutationRevision(tabId);
+      }
+      return { typed };
     }, { tabId, signal });
   }
   async keyboardPress(args: { key: string; modifiers?: string[]; tabId?: string }, target?: BrowserTarget, signal?: AbortSignal): Promise<{ success: boolean; key: string; modifiers: string[] }> {
@@ -872,7 +883,11 @@ export class BrowserControlPort {
     return this.viewportGate.withLock(async () => {
       this.revalidateTargetInsideLock(target, effectiveTabId);
       try {
-        return await this.host.sendKeyboardPress!({ ...args, tabId: effectiveTabId });
+        const pressResult = await this.host.sendKeyboardPress!({ ...args, tabId: effectiveTabId });
+        if (pressResult && pressResult.success) {
+          this.bumpMutationRevision(effectiveTabId);
+        }
+        return pressResult;
       } catch (err: unknown) {
         if (err instanceof CapabilityError) throw err;
         const msg = err instanceof Error ? err.message : String(err);
@@ -888,10 +903,10 @@ export class BrowserControlPort {
     const tabId = this.resolveTargetTab(target, args.tabId, 'write');
     return this.viewportGate.withLock(async () => {
       this.revalidateTargetInsideLock(target, tabId);
-      return { scrolled: await this.host.agentScroll!({ ...args, tabId }) };
+      const scrolled = await this.host.agentScroll!({ ...args, tabId });
+      return { scrolled };
     }, { tabId, signal });
   }
-
   async agentHover(args: { selector?: string; ref?: string; x?: number; y?: number; label?: string; tabId?: string; paneId?: 'desktop' | 'mobile' }, target?: BrowserTarget, signal?: AbortSignal): Promise<{ hovered: boolean }> {
     if (!this.host.agentHover) throw new CapabilityError('CAPABILITY_NOT_FOUND', 'agentHover is not supported by host');
     const tabId = this.resolveTargetTab(target, args.tabId, 'write');
@@ -2258,6 +2273,17 @@ export class BrowserControlPort {
     return this.host.getDocumentGeneration ? this.host.getDocumentGeneration(tabId) : 1;
   }
 
+  bumpDocumentGeneration(tabId?: string): number {
+    return this.host.bumpDocumentGeneration ? this.host.bumpDocumentGeneration(tabId) : 1;
+  }
+
+  getMutationRevision(tabId?: string): number {
+    return this.host.getMutationRevision ? this.host.getMutationRevision(tabId) : 1;
+  }
+
+  bumpMutationRevision(tabId?: string): number {
+    return this.host.bumpMutationRevision ? this.host.bumpMutationRevision(tabId) : 1;
+  }
   private assertCurrent(target: BrowserTarget): void {
     if (this.host.isCurrentTarget && !this.host.isCurrentTarget(target)) throw new CapabilityError('TARGET_STALE', 'Browser target no longer matches the current tab document');
   }

@@ -44,9 +44,10 @@ describe('Verification Capabilities & Anti-Hallucination Barrier Suite (Phase 2)
     const result = (await recordClaimCap.execute(
       {
         claim: 'Hero banner is rendered and styled',
+        category: 'CUSTOM',
         tabId: 'tab-1',
         selector: '.hero',
-        proofObligations: [{ id: 'obl-1', metric: 'element.exists' }],
+        proofObligations: [{ id: 'obl-1', metric: 'style.display', expected: 'block' }],
       },
       { browserTarget: dummyTarget } as any
     )) as any;
@@ -239,7 +240,7 @@ describe('Verification Capabilities & Anti-Hallucination Barrier Suite (Phase 2)
     await assert.rejects(
       async () => {
         await recordClaimCap.execute(
-          { claim: '   ', tabId: 'tab-1' },
+          { claim: '   ', tabId: 'tab-1', category: 'CUSTOM' },
           { browserTarget: dummyTarget } as any
         );
       },
@@ -255,11 +256,161 @@ describe('Verification Capabilities & Anti-Hallucination Barrier Suite (Phase 2)
     await assert.rejects(
       async () => {
         await recordClaimCap.execute(
-          { claim: 'Valid claim with too many obligations', tabId: 'tab-1', proofObligations: tooManyObligations },
+          { claim: 'Valid claim with too many obligations', tabId: 'tab-1', category: 'CUSTOM', proofObligations: tooManyObligations },
           { browserTarget: dummyTarget } as any
         );
       },
       (err: any) => err.code === 'INVALID_ARGUMENT' && err.message.includes('Exceeded maximum of 50')
     );
+
+    // 3. Rejects CUSTOM claims with only element_present checks (Anti-Gaming Invariant)
+    await assert.rejects(
+      async () => {
+        await recordClaimCap.execute(
+          {
+            claim: 'Tautological claim',
+            tabId: 'tab-1',
+            category: 'CUSTOM',
+            proofObligations: [{ id: 'obl-1', metric: 'element_present:body' }],
+          },
+          { browserTarget: dummyTarget } as any
+        );
+      },
+      (err: any) => err.code === 'INVALID_ARGUMENT' && err.message.includes('pure DOM presence checks')
+    );
+
+    // 3b. Rejects CUSTOM claims with element.exists or dom.exists
+    await assert.rejects(
+      async () => {
+        await recordClaimCap.execute(
+          {
+            claim: 'Tautological element.exists claim',
+            tabId: 'tab-1',
+            category: 'CUSTOM',
+            proofObligations: [{ id: 'obl-1', metric: 'element.exists' }],
+          },
+          { browserTarget: dummyTarget } as any
+        );
+      },
+      (err: any) => err.code === 'INVALID_ARGUMENT' && err.message.includes('pure DOM presence checks')
+    );
+    // 4. Rejects LAYOUT claims without expectedHeight
+    await assert.rejects(
+      async () => {
+        await recordClaimCap.execute(
+          {
+            claim: 'Layout claim without height baseline',
+            tabId: 'tab-1',
+            category: 'LAYOUT',
+          },
+          { browserTarget: dummyTarget } as any
+        );
+      },
+      (err: any) => err.code === 'INVALID_ARGUMENT' && err.message.includes('expectedHeight')
+    );
+
+    // 5. Rejects record_claim without authorized browserTarget
+    await assert.rejects(
+      async () => {
+        await recordClaimCap.execute(
+          {
+            claim: 'Unbound claim',
+            tabId: 'tab-1',
+            category: 'CUSTOM',
+            proofObligations: [{ id: 'obl-1', metric: 'element.exists' }],
+          },
+          {} as any
+        );
+      },
+      (err: any) => err.code === 'TARGET_MISMATCH'
+    );
+  });
+
+  test('end-to-end INTERACTION: baseline capture + differential probe rejects unchanged post-state and verifies genuine state transition', async () => {
+    const catalogue = new CapabilityCatalogue({ runtime: { allowEval: true } as any, projectId: 'proj-1', workspaceId: 'ws-1', runtimeId: 'rt-1' });
+
+    let currentMutationRev = 1;
+    let evalJsResponse: any = {
+      selector: '.menu-toggle',
+      hasActive: false,
+      hasOverlay: false,
+      classSnapshot: 'menu-toggle',
+      url: 'https://store.example.com/',
+    };
+
+    const host = createMockHost({
+      evalJs: async (expr: string) => {
+        if (expr.includes('document.documentElement.scrollWidth')) return 0;
+        return evalJsResponse;
+      },
+      getMutationRevision: () => currentMutationRev,
+      bumpMutationRevision: () => ++currentMutationRev,
+    });
+    const port = new BrowserControlPort(host);
+    port.wait = async () => ({ satisfied: true, condition: 'selector', durationMs: 5, documentGeneration: 1 });
+
+    registerBrowserCapabilities(catalogue, port);
+
+    const recordClaimCap = catalogue.get('anti.verification.record_claim');
+    const verifyCap = catalogue.get('anti.verification.verify_claim');
+    assert.ok(recordClaimCap && verifyCap);
+
+    // 1. Record INTERACTION claim with authorized target
+    // At record time: evalJs returns baseline with hasActive: false, classSnapshot: 'menu-toggle'
+    const recordResult = (await recordClaimCap.execute(
+      {
+        claim: 'Menu toggle opens drawer',
+        category: 'INTERACTION',
+        tabId: 'tab-1',
+        selector: '.menu-toggle',
+      },
+      { browserTarget: dummyTarget } as any
+    )) as any;
+
+    assert.ok(recordResult.id);
+    assert.strictEqual(recordResult.targetMutationRevision, 2);
+    assert.ok(recordResult.interactionBaseline);
+    assert.strictEqual(recordResult.interactionBaseline.hasActive, false);
+    assert.strictEqual(recordResult.interactionBaseline.classSnapshot, 'menu-toggle');
+
+    // 2. Case A: Mutation revision advances, but DOM state is UNCHANGED from baseline
+    currentMutationRev = 2; // Revision advanced, but click was a no-op
+    evalJsResponse = {
+      selector: '.menu-toggle',
+      hasActive: false,
+      hasOverlay: false,
+      classSnapshot: 'menu-toggle',
+      url: 'https://store.example.com/',
+    };
+
+    const unChangedResult = (await verifyCap.execute(
+      { claimId: recordResult.id },
+      { browserTarget: dummyTarget } as any
+    )) as any;
+
+    assert.strictEqual(unChangedResult.verdict, 'REJECTED', 'Unchanged DOM state must be REJECTED even if revision advanced');
+    assert.match(
+      unChangedResult.proofProfile.violations[0]?.message || '',
+      /identical to pre-action baseline/
+    );
+
+    // 3. Case B: Mutation revision advances AND DOM state transitioned to active / open
+    currentMutationRev = 2;
+    evalJsResponse = {
+      selector: '.menu-toggle',
+      hasActive: true,
+      hasOverlay: true,
+      classSnapshot: 'menu-toggle active open',
+      url: 'https://store.example.com/',
+    };
+
+    const changedResult = (await verifyCap.execute(
+      { claimId: recordResult.id },
+      { browserTarget: dummyTarget } as any
+    )) as any;
+
+    assert.strictEqual(changedResult.verdict, 'VERIFIED', 'Genuine state transition matching canonical obligations must be VERIFIED');
+    assert.strictEqual(changedResult.proofProfile.completeness, 'FULL');
+    assert.strictEqual(changedResult.proofProfile.violations.length, 0);
   });
 });

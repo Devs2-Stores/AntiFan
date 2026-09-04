@@ -27,6 +27,7 @@ export interface ProofProfile {
   passedMetricsCount: number;
   violations: ProofViolation[];
   documentGeneration?: number;
+  mutationRevision?: number;
   captureTimestamp?: number;
 }
 
@@ -47,6 +48,13 @@ export interface VerificationScope {
   paneId?: 'desktop' | 'mobile';
 }
 
+export interface InteractionBaseline {
+  selector?: string;
+  hasActive?: boolean;
+  hasOverlay?: boolean;
+  classSnapshot?: string;
+  url?: string;
+}
 export interface VerificationClaim {
   id: string;
   claim: string;
@@ -54,6 +62,8 @@ export interface VerificationClaim {
   scope: VerificationScope;
   proofObligations: ProofObligation[];
   targetGeneration?: number;
+  targetMutationRevision?: number;
+  interactionBaseline?: InteractionBaseline;
   confidence?: number;
 }
 
@@ -77,6 +87,9 @@ export interface VerificationRecord {
   claim: string;
   actor: 'agent' | 'user';
   scope: VerificationScope;
+  targetGeneration?: number;
+  targetMutationRevision?: number;
+  interactionBaseline?: InteractionBaseline;
   proofObligations: ProofObligation[];
   proofProfile?: ProofProfile;
   verdict: VerificationVerdict;
@@ -104,6 +117,7 @@ export interface EvidenceSampleBundle {
   claimId?: string;
   tabId?: string;
   documentGeneration: number;
+  mutationRevision?: number;
   currentTabGeneration?: number;
   captureTimestamp?: number;
   samples: MetricSample[];

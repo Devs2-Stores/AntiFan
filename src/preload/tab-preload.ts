@@ -365,4 +365,28 @@ window.addEventListener(
     { passive: true }
   );
 })();
+
+// 7. Authoritative Client-Side DOM Mutation Tracker for Verification Freshness
+(() => {
+  let mutationDebounceTimer: any = null;
+  const notifyMutation = () => {
+    if (mutationDebounceTimer) return;
+    mutationDebounceTimer = setTimeout(() => {
+      mutationDebounceTimer = null;
+      try {
+        ipcRenderer.send('antifan:dom-mutation');
+      } catch {}
+    }, 150);
+  };
+
+  try {
+    const observer = new MutationObserver(() => notifyMutation());
+    observer.observe(document.documentElement, {
+      childList: true,
+      subtree: true,
+      attributes: true,
+      attributeFilter: ['class', 'style', 'open', 'aria-expanded', 'aria-hidden'],
+    });
+  } catch {}
+})();
 }

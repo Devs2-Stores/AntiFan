@@ -12,7 +12,8 @@ import { confineWorkspaceRoot } from '../qa/diagnostics-filter';
 import { recordFallbackTelemetry, FallbackTelemetryPayload } from '../telemetry/fallback-recorder';
 import { IssueRegister, VerificationVerdict } from '../session/issue-register';
 import { VerificationEvaluator } from '../verification/verification-evaluator';
-import { VerificationClaim, EvidenceSampleBundle } from '../verification/verification-contract';
+import { VerificationClaim, EvidenceSampleBundle, InteractionBaseline } from '../verification/verification-contract';
+import { ProofTemplateRegistry, ClaimCategory } from '../verification/proof-templates';
 function getThemeHierarchyScript(): string {
   return `(() => {
     const template = document.documentElement?.getAttribute('data-template')
@@ -2111,14 +2112,18 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
     name: 'anti.verification.record_claim',
     description: 'Record an agent or user claim into the durable register. All claims enter strictly as UNVERIFIED; callers cannot self-certify or pass forged verdicts.',
     risk: 'write',
-    policy: makeBrowserPolicy({ effect: 'idempotent-write', risk: 'write', requiresBrowserTarget: false, lane: 'unbounded' }),
+    requiresBrowserTarget: true,
+    policy: makeBrowserPolicy({ effect: 'idempotent-write', risk: 'write', requiresBrowserTarget: true, lane: 'viewport-gate' }),
     inputSchema: {
-      type: 'object',
       properties: {
         claim: { type: 'string' },
+        category: { type: 'string', enum: ['INTERACTION', 'LAYOUT', 'RESPONSIVE', 'CUSTOM'] },
         actor: { type: 'string', enum: ['agent', 'user'] },
         tabId: { type: 'string' },
         selector: { type: 'string' },
+        expectedHeight: { type: 'number', description: 'Expected full page scroll height in pixels for LAYOUT parity verification' },
+        expectedSections: { type: 'number', description: 'Expected number of visual structural sections for LAYOUT parity verification' },
+        tolerance: { type: 'number', description: 'Allowed tolerance ratio (e.g. 0.05 for 5%)' },
         proofObligations: {
           type: 'array',
           maxItems: 50,
@@ -2136,21 +2141,37 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
         },
         linkedIssueId: { type: 'string' },
       },
-      required: ['claim', 'tabId'],
+      required: ['claim', 'tabId', 'category'],
     },
-    execute: (params: {
-      claim: string;
-      actor?: 'agent' | 'user';
-      tabId: string;
-      selector?: string;
-      proofObligations?: Array<{ id?: string; metric: string; tolerance?: number; critical?: boolean; expected?: unknown }>;
-      linkedIssueId?: string;
-    }) => {
+    execute: async (
+      params: {
+        claim: string;
+        category?: ClaimCategory;
+        actor?: 'agent' | 'user';
+        tabId: string;
+        selector?: string;
+        expectedHeight?: number;
+        expectedSections?: number;
+        tolerance?: number;
+        proofObligations?: Array<{ id?: string; metric: string; tolerance?: number; critical?: boolean; expected?: unknown }>;
+        linkedIssueId?: string;
+      },
+      context
+    ) => {
+      if (!context.browserTarget) {
+        throw new CapabilityError('TARGET_MISMATCH', 'Browser target is required to record and baseline a verification claim.');
+      }
+      if (context.browserTarget.tabId && params.tabId && context.browserTarget.tabId !== params.tabId) {
+        throw new CapabilityError('TARGET_MISMATCH', `Claim target tab '${params.tabId}' does not match authorized browser target '${context.browserTarget.tabId}'.`);
+      }
       if (!params.claim || !params.claim.trim()) {
         throw new CapabilityError('INVALID_ARGUMENT', 'Claim description cannot be empty.');
       }
       if (!params.tabId || !params.tabId.trim()) {
         throw new CapabilityError('INVALID_ARGUMENT', 'Target tabId is required.');
+      }
+      if (!params.category || !['INTERACTION', 'LAYOUT', 'RESPONSIVE', 'CUSTOM'].includes(params.category)) {
+        throw new CapabilityError('INVALID_ARGUMENT', 'Claim category is required and must be one of: INTERACTION, LAYOUT, RESPONSIVE, CUSTOM.');
       }
 
       const validatedObligations: Array<{ id: string; metric: string; tolerance?: number; critical?: boolean; expected?: unknown }> = [];
@@ -2173,11 +2194,81 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
         }
       }
 
+      if (params.category === 'CUSTOM') {
+        if (ProofTemplateRegistry.isPurePresenceCheck(validatedObligations)) {
+          throw new CapabilityError(
+            'INVALID_ARGUMENT',
+            'CUSTOM claims must include at least one discriminating behavioral, layout, or mutation metric; pure DOM presence checks (element_present:*) cannot prove completion.'
+          );
+        }
+      } else {
+        if (params.category === 'LAYOUT') {
+          const customHeight = validatedObligations.find(
+            (o) => o.id === 'obl-layout-height-parity' || o.metric === 'height_parity_delta'
+          );
+          const hasExpectedHeight =
+            typeof params.expectedHeight === 'number' || typeof customHeight?.expected === 'number';
+          if (!hasExpectedHeight) {
+            throw new CapabilityError(
+              'INVALID_ARGUMENT',
+              'LAYOUT claims require expectedHeight (either via params.expectedHeight or within a height_parity_delta obligation) to establish a verifiable baseline.'
+            );
+          }
+        }
+        const augmented = ProofTemplateRegistry.augmentObligations(params.category, validatedObligations, {
+          targetSelector: params.selector,
+          expectedHeight: params.expectedHeight,
+          expectedSections: params.expectedSections,
+          tolerance: params.tolerance,
+        });
+        validatedObligations.length = 0;
+        validatedObligations.push(...augmented);
+      }
+      const currentDocGen = browser.getDocumentGeneration(params.tabId) ?? 1;
+      const currentMutationRev = browser.getMutationRevision ? (browser.getMutationRevision(params.tabId) ?? 1) : 1;
+      const targetMutationRevision = params.category === 'INTERACTION' ? currentMutationRev + 1 : undefined;
+
+      let interactionBaseline: InteractionBaseline | undefined;
+      if (params.category === 'INTERACTION') {
+        try {
+          const sel = params.selector || '';
+          interactionBaseline = (await browser.eval(
+            context.browserTarget,
+            `(() => {
+              const sel = ${JSON.stringify(sel)};
+              const el = sel ? document.querySelector(sel) : null;
+              const hasActive = el ? (el.classList.contains('active') || el.classList.contains('open') || el.classList.contains('expanded') || el.getAttribute('aria-expanded') === 'true' || el.getAttribute('aria-selected') === 'true') : false;
+              const hasOverlay = Boolean(document.querySelector('.modal.open, .modal.active, .drawer.open, .drawer.active, [aria-modal="true"], dialog[open], .popup.show, .dropdown-menu.show'));
+              return {
+                selector: sel,
+                hasActive,
+                hasOverlay,
+                classSnapshot: el ? el.className : '',
+                url: window.location.href,
+              };
+            })()`,
+            params.tabId
+          )) as InteractionBaseline;
+        } catch (err: unknown) {
+          if (context.signal?.aborted) throw err;
+          throw new CapabilityError(
+            'TARGET_STALE',
+            `Failed to capture live interaction baseline for INTERACTION claim: ${String(err)}`
+          );
+        }
+        if (!interactionBaseline) {
+          throw new CapabilityError('TARGET_STALE', 'Interaction baseline probe returned empty state.');
+        }
+      }
+
       const claimObj: VerificationClaim = {
         id: `CLM-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
         claim: params.claim.trim(),
         actor: params.actor || 'agent',
         scope: { tabId: params.tabId.trim(), selector: params.selector },
+        targetGeneration: currentDocGen,
+        targetMutationRevision,
+        interactionBaseline,
         proofObligations: validatedObligations,
       };
 
@@ -2186,6 +2277,9 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
         claim: claimObj.claim,
         actor: claimObj.actor,
         scope: claimObj.scope,
+        targetGeneration: claimObj.targetGeneration,
+        targetMutationRevision: claimObj.targetMutationRevision,
+        interactionBaseline: claimObj.interactionBaseline,
         proofObligations: claimObj.proofObligations,
         verdict: 'UNVERIFIED',
         linkedIssueId: params.linkedIssueId,
@@ -2248,8 +2342,10 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
           throw new CapabilityError('WAIT_ABORTED', 'Claim verification was aborted by execution control signal.');
         }
         try {
-          if (obl.metric.startsWith('dom.') || obl.metric === 'element.exists') {
-            const selector = claim.scope.selector || 'body';
+          if (obl.metric.startsWith('element_present:') || obl.metric.startsWith('dom.') || obl.metric === 'element.exists') {
+            const selector = obl.metric.startsWith('element_present:')
+              ? obl.metric.substring('element_present:'.length).trim() || claim.scope.selector || 'body'
+              : claim.scope.selector || 'body';
             let exists = false;
             try {
               const waitResult = await browser.wait(
@@ -2271,7 +2367,225 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
               actual: exists,
               expected: obl.expected ?? true,
               passed: exists === (obl.expected ?? true),
-              message: exists ? 'DOM element found via live selector probe' : 'DOM element not found',
+              message: exists ? `Element '${selector}' verified present in live DOM` : `Element '${selector}' not found in live DOM`,
+            });
+          } else if (obl.metric === 'observable_mutation_effect') {
+            const targetMutationRev = claim.targetMutationRevision ?? 0;
+            const currentMutationRev = browser.getMutationRevision ? (browser.getMutationRevision(tabId) ?? 1) : 1;
+            const hasMutationAdvanced = currentMutationRev >= targetMutationRev;
+
+            let currentState: InteractionBaseline | undefined;
+            try {
+              const selector = claim.scope.selector || '';
+              currentState = (await browser.eval(
+                target,
+                `(() => {
+                  const sel = ${JSON.stringify(selector)};
+                  const el = sel ? document.querySelector(sel) : null;
+                  const hasActive = el ? (el.classList.contains('active') || el.classList.contains('open') || el.classList.contains('expanded') || el.getAttribute('aria-expanded') === 'true' || el.getAttribute('aria-selected') === 'true') : false;
+                  const hasOverlay = Boolean(document.querySelector('.modal.open, .modal.active, .drawer.open, .drawer.active, [aria-modal="true"], dialog[open], .popup.show, .dropdown-menu.show'));
+                  return {
+                    selector,
+                    hasActive,
+                    hasOverlay,
+                    classSnapshot: el ? el.className : '',
+                    url: window.location.href,
+                  };
+                })()`,
+                tabId
+              )) as InteractionBaseline;
+            } catch (err: unknown) {
+              if (context.signal?.aborted) throw err;
+              currentState = undefined;
+            }
+            const baseline = claim.interactionBaseline;
+            const domChanged = Boolean(baseline) && (
+              Boolean(currentState?.hasActive) !== Boolean(baseline?.hasActive) ||
+              Boolean(currentState?.hasOverlay) !== Boolean(baseline?.hasOverlay) ||
+              String(currentState?.classSnapshot || '') !== String(baseline?.classSnapshot || '') ||
+              String(currentState?.url || '') !== String(baseline?.url || '')
+            );
+
+            const hasActiveTransition = Boolean(currentState?.hasActive || currentState?.hasOverlay);
+            const passed = hasMutationAdvanced && domChanged && hasActiveTransition;
+
+            samples.push({
+              metric: obl.metric,
+              actual: { generationAdvanced: hasMutationAdvanced, domChanged, hasActiveTransition, targetMutationRev, currentMutationRev, currentState },
+              expected: true,
+              passed,
+              message: passed
+                ? `Observable mutation confirmed: state transitioned from baseline (classes: '${baseline?.classSnapshot || 'none'}', overlay: ${baseline?.hasOverlay}) to active state (classes: '${currentState?.classSnapshot || 'none'}', overlay: ${currentState?.hasOverlay})`
+                : (!hasMutationAdvanced
+                    ? `No new gesture or mutation observed since claim was recorded (target revision: ${targetMutationRev}, current: ${currentMutationRev})`
+                    : (!domChanged
+                        ? 'Target DOM element and overlay state are identical to pre-action baseline (no transition occurred)'
+                        : 'State changed but target did not reach active or overlay state')),
+            });
+          } else if (obl.metric === 'no_layout_overflow_bleed') {
+            let bleedDelta = 999;
+            try {
+              const overflowRes = await browser.eval(
+                target,
+                `Math.max(0, document.documentElement.scrollWidth - document.documentElement.clientWidth)`,
+                tabId
+              );
+              bleedDelta = typeof overflowRes === 'number' ? overflowRes : 999;
+            } catch (err: unknown) {
+              if (context.signal?.aborted) throw err;
+              bleedDelta = 999;
+            }
+            const passed = bleedDelta <= 2;
+            samples.push({
+              metric: obl.metric,
+              actual: bleedDelta,
+              expected: 0,
+              delta: bleedDelta,
+              passed,
+              message: passed ? 'Zero horizontal layout overflow bleed satisfied' : `Layout overflow bleed detected: ${bleedDelta}px`,
+            });
+          } else if (obl.metric === 'desktop_zero_overflow_bleed') {
+            let passed = false;
+            let msg = '';
+            try {
+              const resp = (await browser.responsiveCheck(tabId)) as Record<string, any>;
+              const desktop = resp['desktop-laptop'];
+              if (desktop && typeof desktop === 'object') {
+                passed = !desktop.hasHorizontalOverflow;
+                msg = passed
+                  ? `Desktop (1440px) zero horizontal overflow confirmed (scrollW: ${desktop.scrollWidth}px, clientW: ${desktop.clientWidth}px)`
+                  : `Desktop (1440px) layout overflow detected: scrollWidth ${desktop.scrollWidth}px > clientWidth ${desktop.clientWidth}px`;
+              } else {
+                passed = false;
+                msg = 'Failed to obtain desktop emulation results from responsiveCheck';
+              }
+            } catch (err: unknown) {
+              if (context.signal?.aborted) throw err;
+              passed = false;
+              msg = `Desktop responsive check failed: ${String(err)}`;
+            }
+            samples.push({
+              metric: obl.metric,
+              actual: passed,
+              expected: true,
+              passed,
+              message: msg,
+            });
+          } else if (obl.metric === 'mobile_zero_overflow_bleed') {
+            let passed = false;
+            let msg = '';
+            try {
+              const resp = (await browser.responsiveCheck(tabId)) as Record<string, any>;
+              const mobile = resp['mobile-iphone15'];
+              if (mobile && typeof mobile === 'object') {
+                passed = !mobile.hasHorizontalOverflow;
+                msg = passed
+                  ? `Mobile iPhone 15 (393px) zero horizontal overflow confirmed (scrollW: ${mobile.scrollWidth}px, clientW: ${mobile.clientWidth}px)`
+                  : `Mobile iPhone 15 (393px) layout overflow detected: scrollWidth ${mobile.scrollWidth}px > clientWidth ${mobile.clientWidth}px`;
+              } else {
+                passed = false;
+                msg = 'Failed to obtain mobile emulation results from responsiveCheck';
+              }
+            } catch (err: unknown) {
+              if (context.signal?.aborted) throw err;
+              passed = false;
+              msg = `Mobile responsive check failed: ${String(err)}`;
+            }
+            samples.push({
+              metric: obl.metric,
+              actual: passed,
+              expected: true,
+              passed,
+              message: msg,
+            });
+          } else if (obl.metric === 'section_inventory_count') {
+            if (obl.expected === undefined || typeof obl.expected !== 'number') {
+              samples.push({
+                metric: obl.metric,
+                actual: undefined,
+                expected: undefined,
+                passed: false,
+                message: "Missing required 'expected' baseline for section_inventory_count obligation.",
+              });
+            } else {
+              let count = 0;
+              try {
+                const inv = await browser.pageInventory(target, { tabId });
+                count = Array.isArray(inv?.sections) ? inv.sections.length : 0;
+              } catch (err: unknown) {
+                if (context.signal?.aborted) throw err;
+                count = 0;
+              }
+              const expected = obl.expected;
+              const passed = count === expected;
+              samples.push({
+                metric: obl.metric,
+                actual: count,
+                expected,
+                delta: Math.abs(count - expected),
+                passed,
+                message: passed ? `Section count matches expected (${count})` : `Section count mismatch: expected ${expected}, got ${count}`,
+              });
+            }
+          } else if (obl.metric === 'height_parity_delta') {
+            if (obl.expected === undefined || typeof obl.expected !== 'number') {
+              samples.push({
+                metric: obl.metric,
+                actual: undefined,
+                expected: undefined,
+                passed: false,
+                message: "Missing required 'expected' baseline for height_parity_delta obligation.",
+              });
+            } else {
+              let scrollH = 0;
+              try {
+                const hRes = await browser.eval(target, `document.documentElement.scrollHeight`, tabId);
+                scrollH = typeof hRes === 'number' ? hRes : 0;
+              } catch (err: unknown) {
+                if (context.signal?.aborted) throw err;
+                scrollH = 0;
+              }
+              const expectedH = obl.expected;
+              const delta = expectedH > 0 ? Math.abs(scrollH - expectedH) / expectedH : 0;
+              const tolerance = obl.tolerance ?? 0.05;
+              const passed = delta <= tolerance;
+              samples.push({
+                metric: obl.metric,
+                actual: scrollH,
+                expected: expectedH,
+                delta,
+                passed,
+                message: passed
+                  ? `Height parity within tolerance (${(delta * 100).toFixed(1)}% <= ${(tolerance * 100).toFixed(1)}%)`
+                  : `Height parity delta exceeded: ${(delta * 100).toFixed(1)}% > ${(tolerance * 100).toFixed(1)}%`,
+              });
+            }
+          } else if (obl.metric === 'touch_targets_actionable') {
+            let actionable = false;
+            try {
+              const actRes = await browser.eval(
+                target,
+                `(() => {
+                  const targets = Array.from(document.querySelectorAll('a, button, input, [role="button"]'));
+                  if (targets.length === 0) return false;
+                  return targets.some(t => {
+                    const r = t.getBoundingClientRect();
+                    return r.width > 0 && r.height > 0;
+                  });
+                })()`,
+                tabId
+              );
+              actionable = Boolean(actRes);
+            } catch (err: unknown) {
+              if (context.signal?.aborted) throw err;
+              actionable = false;
+            }
+            samples.push({
+              metric: obl.metric,
+              actual: actionable,
+              expected: true,
+              passed: actionable,
+              message: actionable ? 'Touch and interaction targets are actionable' : 'No actionable interaction targets found',
             });
           } else if (obl.metric.startsWith('style.')) {
             const selector = claim.scope.selector || 'body';
@@ -2330,8 +2644,10 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
           });
         }
       }
+      const currentMutationRev = browser.getMutationRevision ? (browser.getMutationRevision(tabId) ?? 1) : 1;
       const bundle: EvidenceSampleBundle = {
         documentGeneration: currentDocGen,
+        mutationRevision: currentMutationRev,
         currentTabGeneration: currentDocGen,
         captureTimestamp: Date.now(),
         samples,

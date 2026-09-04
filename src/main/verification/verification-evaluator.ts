@@ -18,7 +18,7 @@ import {
   VerificationVerdict,
   InconclusiveReason,
 } from './verification-contract';
-
+import { ProofTemplateRegistry } from './proof-templates';
 export interface EvaluationResult {
   verdict: VerificationVerdict;
   proofProfile: ProofProfile;
@@ -41,19 +41,36 @@ export class VerificationEvaluator {
     const violations: ProofViolation[] = [];
     const obligations = claim.proofObligations || [];
 
-    // ─── 1. Freshness Check (DocumentGeneration Barrier) ───
+    // ─── 1. Freshness Check (DocumentGeneration & MutationRevision Barrier) ───
     let freshness: ProofFreshness = 'FRESH';
+    let staleMetric: string = 'documentGeneration';
+    let expectedFresh: unknown = claim.targetGeneration ?? bundle.currentTabGeneration;
+    let actualFresh: unknown = bundle.documentGeneration;
 
     if (
       claim.targetGeneration !== undefined &&
-      bundle.documentGeneration < claim.targetGeneration
+      (bundle.documentGeneration === undefined || bundle.documentGeneration < claim.targetGeneration)
     ) {
       freshness = 'STALE';
+      staleMetric = 'documentGeneration';
+      expectedFresh = claim.targetGeneration;
+      actualFresh = bundle.documentGeneration ?? 'missing';
     } else if (
       bundle.currentTabGeneration !== undefined &&
       bundle.documentGeneration < bundle.currentTabGeneration
     ) {
       freshness = 'STALE';
+      staleMetric = 'currentTabGeneration';
+      expectedFresh = bundle.currentTabGeneration;
+      actualFresh = bundle.documentGeneration;
+    } else if (
+      claim.targetMutationRevision !== undefined &&
+      (bundle.mutationRevision === undefined || bundle.mutationRevision < claim.targetMutationRevision)
+    ) {
+      freshness = 'STALE';
+      staleMetric = 'mutationRevision';
+      expectedFresh = claim.targetMutationRevision;
+      actualFresh = bundle.mutationRevision ?? 'missing';
     }
 
     if (freshness === 'STALE' && !options?.allowStale) {
@@ -65,13 +82,14 @@ export class VerificationEvaluator {
         passedMetricsCount: 0,
         violations: [
           {
-            metric: 'documentGeneration',
-            expected: claim.targetGeneration ?? bundle.currentTabGeneration,
-            actual: bundle.documentGeneration,
-            message: 'Evidence was captured on an obsolete documentGeneration',
+            metric: staleMetric,
+            expected: expectedFresh,
+            actual: actualFresh,
+            message: `Evidence was captured before required ${staleMetric} barrier (expected >= ${expectedFresh}, got ${actualFresh})`,
           },
         ],
         documentGeneration: bundle.documentGeneration,
+        mutationRevision: bundle.mutationRevision,
         captureTimestamp: bundle.captureTimestamp,
       };
 
@@ -174,6 +192,7 @@ export class VerificationEvaluator {
       passedMetricsCount,
       violations,
       documentGeneration: bundle.documentGeneration,
+      mutationRevision: bundle.mutationRevision,
       captureTimestamp: bundle.captureTimestamp,
     };
 
@@ -187,6 +206,21 @@ export class VerificationEvaluator {
       };
     }
 
+    // Anti-Gaming Invariant: Tautological Obligation Detection
+    // Anti-Gaming Invariant: Pure Presence / Tautological Obligation Detection
+    // An agent cannot obtain VERIFIED if all obligations are purely DOM presence checks (e.g. element_present:*)
+    // without any discriminating behavioral, mutation, style, or layout metric.
+    if (obligations.length > 0 && ProofTemplateRegistry.isPurePresenceCheck(obligations)) {
+      return {
+        verdict: 'REJECTED',
+        inconclusiveReason: 'UNOBSERVABLE',
+        proofProfile: {
+          ...proofProfile,
+          completeness: 'EMPTY',
+        },
+        summary: 'Verification REJECTED: Tautological obligations detected. Claim contains only element presence checks without any discriminating proof obligations.',
+      };
+    }
     if (hasCriticalFailure) {
       return {
         verdict: 'REJECTED',
