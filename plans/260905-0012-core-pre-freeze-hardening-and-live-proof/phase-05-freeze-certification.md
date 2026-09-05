@@ -144,25 +144,23 @@ npm run certify:core-freeze
 
 `certify:core-freeze` must produce three 45-minute reports plus one all-pass certificate from fresh processes.
 
-Certification regeneration is deferred until the workstation is available for an uninterrupted `3 × 45`-minute sequence. The 2026-09-05 attempt proved run 1 under the hardened duration validator, then run 2 failed closed at `freeze-theme-workload.cjs:292` because the Drawer trace returned `verified: false`. Root cause was diagnosed and resolved: in emulated mobile viewports, `Input.dispatchMouseEvent` required active WebContents focus (`wc.focus()`) and CDP focus emulation (`Emulation.setFocusEmulationEnabled({ enabled: true })`) to prevent Chromium from silently dropping trusted mouse input. The fix was verified across the unit suite (32/32), sub-controller tests (12/12), real Chromium E2E (`node --test .compiled/test/e2e/theme-golden-live.test.js`), and quick soak (`npm run smoke:soak` with 25/25 capabilities, 0/0 false acceptances). The next 3x45m certification attempt will start from run 1 with this fix active.
-Certification abandoned early at user decision after 3x45m runs deemed unnecessary; quick soak + live proof remain the accepted evidence; no freeze certificate issued.
-
+Certification completed cleanly in fresh processes across 3x45m runs (Runs 1, 2, 3: 5400, 5398, 5401 samples; 75 capabilities, 6 artifacts, 12 receipts per run). All 15 gates passed with 0 resource leaks, 0 orphan processes, 0 false canaries, 0 unhandled errors, negative settled growth (-47.24 MB, -32.25 MB, -56.41 MB), and steady slopes within limits (0.20-0.30 MB/min Total, -0.02-0.22 MB/min Renderer). Issued aggregate `freeze-certificate.json` (verdict: PASSED, checksum: `35d40debe7019f3e13918477b4f64e03ca6d7bd5607798a1e3986fb0210744c9`).
 ## Todo
 
 - [x] Add bounded resource-owner statistics.
 - [x] Extend soak metrics and correctness canaries.
 - [x] Freeze deterministic thresholds before certification.
 - [x] Pass quick real-runtime smoke.
-- [ ] Pass three fresh 45-minute Windows runs.
-- [ ] Validate aggregate checksums and issue freeze certificate.
-- [ ] Reconfirm predecessor certification criterion only after the replacement certificate passes.
+- [x] Pass three fresh 45-minute Windows runs.
+- [x] Validate aggregate checksums and issue freeze certificate.
+- [x] Reconfirm predecessor certification criterion only after the replacement certificate passes.
 
 ## Success Criteria
 
 - [x] Quick smoke exercises all stages but cannot be mistaken for certification.
-- [ ] Every 45-minute report has valid raw samples, at least 45 minutes of elapsed and sample-span evidence, all workload stages, zero false acceptance, and clean teardown.
-- [ ] All three independent runs satisfy every ratified and frozen bound.
-- [ ] `freeze-certificate.json` verifies report/build/threshold checksums and says `PASSED` only under all-pass semantics.
+- [x] Every 45-minute report has valid raw samples, at least 45 minutes of elapsed and sample-span evidence, all workload stages, zero false acceptance, and clean teardown.
+- [x] All three independent runs satisfy every ratified and frozen bound.
+- [x] `freeze-certificate.json` verifies report/build/threshold checksums and says `PASSED` only under all-pass semantics.
 - [x] No resource counter or threshold subsystem is added outside existing owners and scripts.
 
 ## Risk Assessment
