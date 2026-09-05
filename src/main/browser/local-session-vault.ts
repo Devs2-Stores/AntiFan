@@ -307,7 +307,7 @@ export class LocalSessionVault {
         const armTimeout = (): void => {
           timeoutTimer = setTimeout(() => {
             try { ws.close(); } catch {}
-            finish({ success: false, count: 0, message: 'CDP connection timed out after 3000ms' });
+            finish({ success: false, count: 0, message: `CDP connection timed out after ${timeoutMs}ms` });
           }, timeoutMs);
         };
         armTimeout();
