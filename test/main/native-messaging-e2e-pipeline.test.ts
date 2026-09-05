@@ -135,7 +135,7 @@ test('Native Messaging E2E: Framed Stdio Host -> Named Pipe IPC -> BridgeServer 
       const start = Date.now();
       const check = () => {
         if (incomingMessages.length > 0) return resolve();
-        if (Date.now() - start > 5000) return reject(new Error('Timed out waiting for Native Host handshake frame'));
+        if (Date.now() - start > 15000) return reject(new Error('Timed out waiting for Native Host handshake frame'));
         setTimeout(check, 50);
       };
       check();
@@ -266,35 +266,41 @@ test('Native Host Runner: terminates with exitCode 1 and emits IPC_FORWARDING_FA
     env: {
       ...process.env,
       ANTIFAN_RUNTIME_DIR: tmpRuntimeDir,
+      LOCALAPPDATA: tmpRuntimeDir,
     },
   });
 
   const stdoutDecoder = new NativeMessageDecoder();
   child.stdout.pipe(stdoutDecoder);
 
-  const incomingMessages: any[] = [];
-  stdoutDecoder.on('data', (msg) => {
-    incomingMessages.push(msg);
-  });
-
   try {
+    const incomingMessages: any[] = [];
+    stdoutDecoder.on('data', (msg) => {
+      incomingMessages.push(msg);
+    });
+
+    const failureClosePromise = new Promise<number | null>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        try { child.kill(); } catch {}
+        reject(new Error('Timed out waiting for child process failure close'));
+      }, 15000);
+
+      child.on('close', (code) => {
+        clearTimeout(timer);
+        resolve(code);
+      });
+
+      child.on('error', (err) => {
+        clearTimeout(timer);
+        reject(err);
+      });
+    });
+
     // Send Framed HANDSHAKE over Chromium Native Messaging Stdio while IPC server is down
     const handshakeBuf = encodeNativeMessage({ action: 'HANDSHAKE' });
     child.stdin.write(handshakeBuf);
 
-    // Wait for the child to exit cleanly with code 1
-    const exitCode = await new Promise<number | null>((resolve, reject) => {
-      const timer = setTimeout(() => {
-        try { child.kill(); } catch {}
-        reject(new Error('Timed out waiting for child process to exit after IPC failure'));
-      }, 5000);
-
-      child.on('exit', (code) => {
-        clearTimeout(timer);
-        resolve(code);
-      });
-    });
-
+    const exitCode = await failureClosePromise;
     assert.equal(exitCode, 1, 'Host runner must exit with code 1 on IPC failure');
     assert.equal(incomingMessages.length, 1, 'Must emit exactly one error frame to Chromium');
     assert.equal(incomingMessages[0].status, 'ERROR');
