@@ -390,3 +390,93 @@ window.addEventListener(
   } catch {}
 })();
 }
+
+// 8. Local Password Vault — Autofill + Form-Submit Capture (100% local, safeStorage-backed, no extension)
+(() => {
+  if (typeof window === 'undefined' || typeof document === 'undefined') return;
+  if (location.protocol !== 'https:' && location.protocol !== 'http:') return;
+
+  const findUsernameInput = (scope: Document | HTMLFormElement): HTMLInputElement | null => {
+    const inputs = Array.from(scope.querySelectorAll<HTMLInputElement>('input'));
+    const passwordIndex = inputs.findIndex((input) => input.type === 'password');
+    if (passwordIndex === -1) return null;
+    const candidates = [...inputs.slice(0, passwordIndex).reverse(), ...inputs.slice(passwordIndex + 1)];
+    for (const input of candidates) {
+      const type = (input.type || 'text').toLowerCase();
+      const semantics = `${input.name || ''} ${input.id || ''} ${input.autocomplete || ''}`.toLowerCase();
+      if (type === 'email') return input;
+      if ((type === 'text' || type === 'tel') && /user|email|login|account|phone/.test(semantics)) return input;
+    }
+    return null;
+  };
+
+  const captureFromForm = (form: HTMLFormElement): void => {
+    try {
+      const passwordInput = Array.from(form.querySelectorAll<HTMLInputElement>('input')).find((input) => input.type === 'password');
+      if (!passwordInput || !passwordInput.value) return;
+      const usernameInput = findUsernameInput(form);
+      const username = usernameInput && usernameInput.value ? usernameInput.value.trim() : '';
+      ipcRenderer.send('antifan:password:save', {
+        origin: location.origin,
+        username,
+        password: passwordInput.value,
+      });
+    } catch {}
+  };
+
+  const setupCapture = (): void => {
+    const forms = Array.from(document.forms || []);
+    for (const form of forms) {
+      if (form.dataset.antifanPwHooked === '1') continue;
+      if (!form.querySelector('input[type="password"]')) continue;
+      form.dataset.antifanPwHooked = '1';
+      form.addEventListener('submit', (event) => captureFromForm(event.target as HTMLFormElement), { capture: true });
+    }
+  };
+
+  const attemptAutofill = (): void => {
+    void (async () => {
+      try {
+        const credentials = (await ipcRenderer.invoke(
+          'antifan:password:get-for-origin',
+          location.origin
+        )) as Array<{ id: string; origin: string; username: string; password: string }>;
+        if (!Array.isArray(credentials) || credentials.length === 0) return;
+        const passwordInputs = Array.from(document.querySelectorAll<HTMLInputElement>('input[type="password"]'))
+          .filter((input) => !input.value && input.offsetParent !== null);
+        if (passwordInputs.length !== 1) return;
+        const passwordInput = passwordInputs[0];
+        const credential = credentials[0];
+        if (!passwordInput || !credential) return;
+        const usernameInput = passwordInput.form ? findUsernameInput(passwordInput.form) : null;
+        if (usernameInput && !usernameInput.value) {
+          usernameInput.value = credential.username;
+        }
+        passwordInput.value = credential.password;
+        try {
+          usernameInput?.dispatchEvent(new Event('input', { bubbles: true }));
+          passwordInput.dispatchEvent(new Event('input', { bubbles: true }));
+        } catch {}
+      } catch {}
+    })();
+  };
+
+  const onReady = (): void => {
+    setupCapture();
+    attemptAutofill();
+  };
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', onReady, { once: true });
+  } else {
+    onReady();
+  }
+  window.addEventListener('load', () => {
+    setupCapture();
+    setTimeout(attemptAutofill, 800);
+  });
+  // Re-hook dynamically injected forms (SPA login overlays).
+  try {
+    const spawnObserver = new MutationObserver(() => setupCapture());
+    spawnObserver.observe(document.documentElement, { childList: true, subtree: true });
+  } catch {}
+})();

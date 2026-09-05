@@ -201,7 +201,7 @@ describe('Capsule Partition Isolation & RFC 6265bis Ingestion Suite', () => {
       assert.strictEqual(cookiesInB[0].value, 'secret_token_b');
       assert.strictEqual(cookiesInDefault.length, 0, 'Default session must remain clean');
 
-      // 4. Test Delta Removal on Capsule A
+      // 4. Test Delta Removal Rejection (strictly additive one-way import)
       const respRemove = await sendRequest(
         port,
         'POST',
@@ -215,25 +215,24 @@ describe('Capsule Partition Isolation & RFC 6265bis Ingestion Suite', () => {
             { name: 'session_auth', domain: '.haravan.com', path: '/', secure: true },
           ],
           partition: 'persist:capsule-store-a',
-          source: 'chrome-extension-delta',
         })
       );
 
-      assert.strictEqual(respRemove.status, 200);
+      assert.strictEqual(respRemove.status, 400);
       const jsonRemove = JSON.parse(respRemove.body);
-      assert.strictEqual(jsonRemove.removedCount, 1);
+      assert.strictEqual(jsonRemove.error, 'REMOVALS_UNSUPPORTED');
 
-      // Verify removed from A, but B still has its cookie
+      // Verify that removal was rejected and not applied to A
       const afterRemoveA = await mockHost.capsuleASession.cookies.get({ name: 'session_auth' });
       const afterRemoveB = await mockHost.capsuleBSession.cookies.get({ name: 'session_auth' });
-      assert.strictEqual(afterRemoveA.length, 0);
+      assert.strictEqual(afterRemoveA.length, 1);
       assert.strictEqual(afterRemoveB.length, 1);
     } finally {
       server.dispose();
     }
   });
 
-  it('rejects missing partition for background delta sync with 400 MISSING_TARGET_PARTITION', async () => {
+  it('defaults to active tab session when neither tabId nor partition is provided', async () => {
     const mockHost = new MockTabHostWithCapsulePartitions();
     const server = new BridgeServer(mockHost as unknown as NativeTabHost, 0);
     const port = await server.start();
@@ -249,14 +248,16 @@ describe('Capsule Partition Isolation & RFC 6265bis Ingestion Suite', () => {
           'Authorization': `Bearer ${token}`,
         },
         JSON.stringify({
-          upserted: [{ name: 'foo', value: 'bar', domain: '.google.com' }],
-          source: 'chrome-extension-delta',
+          cookies: [{ name: 'foo', value: 'bar', domain: '.google.com' }],
         })
       );
 
-      assert.strictEqual(resp.status, 400);
+      assert.strictEqual(resp.status, 200);
       const json = JSON.parse(resp.body);
-      assert.strictEqual(json.error, 'MISSING_TARGET_PARTITION');
+      assert.strictEqual(json.success, true);
+      assert.strictEqual(json.importedCount, 1);
+      const defaultCookies = await mockHost.defaultSession.cookies.get({ name: 'foo' });
+      assert.strictEqual(defaultCookies.length, 1);
     } finally {
       server.dispose();
     }

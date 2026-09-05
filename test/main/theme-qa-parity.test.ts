@@ -332,12 +332,13 @@ describe('ThemeQaWorkflow Canonical Validation & Capability Alias Delegation', (
 
       const target = makeTarget();
       const lease = issueRuntimeLease(target.projectId, target.workspaceId, 60_000, 1);
+      target.runtimeId = lease.runtimeId;
 
       const catalogue = new CapabilityCatalogue({
         runtime: { mode: 'standalone', lifecycle: 'active' },
         projectId: target.projectId,
         workspaceId: target.workspaceId,
-        runtimeId: target.runtimeId,
+        runtimeId: lease.runtimeId,
         hostEpoch: 1,
         getActiveLease: () => lease,
       });
@@ -356,7 +357,7 @@ describe('ThemeQaWorkflow Canonical Validation & Capability Alias Delegation', (
 
       await assert.rejects(
         async () => {
-          await catalogue.get('theme.qa_validate')!.execute({ tabId: 'alien-tab' }, context);
+          await catalogue.dispatchTrusted('theme.qa_validate', { tabId: 'alien-tab' }, context);
         },
         (err: unknown) => {
           assert.ok(err instanceof CapabilityError);

@@ -125,16 +125,6 @@ describe('Fast-Path Tab Lease Rebinding & Explicit TabId Routing (Phase 02)', ()
     const projectId = makeControlPlaneId('project');
     const workspaceId = makeControlPlaneId('workspace');
     const lease = issueRuntimeLease(projectId, workspaceId, 30_000, 1);
-
-    const catalogue = new CapabilityCatalogue({
-      runtime: { mode: 'standalone', lifecycle: 'active' },
-      projectId,
-      workspaceId,
-      runtimeId: lease.runtimeId,
-      hostEpoch: 1,
-      getActiveLease: () => lease,
-    });
-
     let currentAutoTab = 'tab-ws-1';
     let docGen = 1;
     const tabList = [
@@ -177,10 +167,25 @@ describe('Fast-Path Tab Lease Rebinding & Explicit TabId Routing (Phase 02)', ()
       evalJs() { return null; }
     }
 
+    let managedTabs = new Set<string>();
     const mockHost = new MockHost() as unknown as NativeTabHost;
+    (mockHost as any).isTabAllowed = (bound: string, req: string) => bound === req || managedTabs.has(req);
+    (mockHost as any).resolveTargetTabId = (id: string) => tabList.some(t => t.id === id) ? id : undefined;
+
+    const catalogue = new CapabilityCatalogue({
+      runtime: { mode: 'standalone', lifecycle: 'active' },
+      projectId,
+      workspaceId,
+      runtimeId: lease.runtimeId,
+      hostEpoch: 1,
+      getActiveLease: () => lease,
+      isTabAllowed: (bound: string, req: string) => (mockHost as any).isTabAllowed(bound, req),
+      resolveTabId: (id: string) => (mockHost as any).resolveTargetTabId(id),
+      getDocumentGeneration: (id?: string) => (mockHost as any).getDocumentGeneration(id),
+    });
+
     const browserPort = new BrowserControlPort(mockHost as any);
     registerBrowserCapabilities(catalogue, browserPort, undefined, () => '');
-
     const attachmentRegistry = new AttachmentRegistry({
       getHostEpoch: () => 1,
       getDocumentGeneration: () => docGen,
@@ -250,6 +255,7 @@ describe('Fast-Path Tab Lease Rebinding & Explicit TabId Routing (Phase 02)', ()
       assert.strictEqual(alienObserve.success, false);
       assert.ok(alienObserve.error?.includes('TARGET_MISMATCH'));
 
+      managedTabs.add('tab-ws-2');
       // 3. Explicitly switch/activate tab-ws-2
       const switchResp = await sendRpc('req-ws-switch', 'antifan.capability.dispatch', {
         name: 'browser.switch-tab',

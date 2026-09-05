@@ -210,93 +210,150 @@ export class LocalSessionVault {
     targetSession: Electron.Session,
     cdpPort = 9222
   ): Promise<{ success: boolean; count: number; message: string }> {
-    return new Promise((resolve) => {
-      const probeReq = http.get(`http://127.0.0.1:${cdpPort}/json/version`, { timeout: 1500 }, (res) => {
+    const { promise, resolve } = Promise.withResolvers<{ success: boolean; count: number; message: string }>();
+    const timeoutMs = 3000;
+      const finish = (payload: { success: boolean; count: number; message: string }): void => resolve(payload);
+      const offlineMessage = `Không thể kết nối Chrome CDP trên cổng ${cdpPort}. Hãy dùng Import JSON hoặc mở Chrome với --remote-debugging-port=${cdpPort}.`;
+
+      // 1. Prefer a PAGE target — Network.getAllCookies only exists on page targets.
+      const listReq = http.get(`http://127.0.0.1:${cdpPort}/json/list`, { timeout: 1500 }, (res) => {
         let body = '';
         res.on('data', (c) => (body += c));
-        res.on('end', async () => {
+        res.on('end', () => {
+          let wsUrl: string | undefined;
           try {
-            const data = JSON.parse(body || '{}');
-            const wsUrl = data.webSocketDebuggerUrl;
-            if (!wsUrl) {
-              resolve({
-                success: false,
-                count: 0,
-                message: `Chrome DevTools active on port ${cdpPort} but missing webSocketDebuggerUrl`,
-              });
-              return;
-            }
-
-            const ws = new WebSocket(wsUrl);
-            const timeoutTimer = setTimeout(() => {
-              try { ws.close(); } catch {}
-              resolve({ success: false, count: 0, message: 'CDP connection timed out after 3000ms' });
-            }, 3000);
-
-            ws.on('open', () => {
-              ws.send(JSON.stringify({ id: 100, method: 'Network.getAllCookies' }));
-            });
-
-            ws.on('message', async (rawMsg: string | Buffer) => {
-              try {
-                const response = JSON.parse(rawMsg.toString());
-                if (response.id === 100) {
-                  clearTimeout(timeoutTimer);
-                  if (response.error) {
-                    try { ws.close(); } catch {}
-                    resolve({ success: false, count: 0, message: `Lỗi CDP từ Chrome: ${response.error.message || JSON.stringify(response.error)}` });
-                    return;
-                  }
-                  if (response.result?.cookies) {
-                    const chromeCookies = response.result.cookies;
-                    const res = await this.importVaultFromJson(targetSession, chromeCookies);
-                    // Also backup to vault file
-                    await this.exportVaultToFile(targetSession).catch(() => {});
-                    try { ws.close(); } catch {}
-                    resolve({
-                      success: res.success,
-                      count: res.importedCount,
-                      message: `Đã nạp ${res.importedCount} cookies trực tiếp từ Chrome qua CDP Port ${cdpPort}!`,
-                    });
-                    return;
-                  }
-                  try { ws.close(); } catch {}
-                  resolve({ success: false, count: 0, message: 'Phản hồi CDP không chứa cookies' });
-                }
-              } catch (err: unknown) {
-                clearTimeout(timeoutTimer);
-                try { ws.close(); } catch {}
-                resolve({ success: false, count: 0, message: `Lỗi đọc CDP cookies: ${err}` });
-              }
-            });
-
-            ws.on('error', (err) => {
-              clearTimeout(timeoutTimer);
-              resolve({ success: false, count: 0, message: `CDP WebSocket error: ${err.message}` });
-            });
-          } catch (err: unknown) {
-            resolve({ success: false, count: 0, message: `Lỗi parse version: ${err}` });
+            const targets = JSON.parse(body || '[]') as Array<{ type?: string; webSocketDebuggerUrl?: string }> | null;
+            const page = Array.isArray(targets)
+              ? targets.find((t) => t && t.type === 'page' && typeof t.webSocketDebuggerUrl === 'string')
+              : undefined;
+            wsUrl = page ? page.webSocketDebuggerUrl : undefined;
+          } catch {}
+          if (wsUrl) {
+            useWebSocket(wsUrl, true);
+          } else {
+            fallbackToBrowserEndpoint();
           }
         });
       });
-
-      probeReq.on('timeout', () => {
-        probeReq.destroy();
-        resolve({
-          success: false,
-          count: 0,
-          message: `Chrome không chạy với --remote-debugging-port=${cdpPort}. Hãy mở Chrome với cờ này hoặc dùng tính năng Import JSON.`,
-        });
+      listReq.on('timeout', () => {
+        listReq.destroy();
+        fallbackToBrowserEndpoint();
       });
+      listReq.on('error', () => fallbackToBrowserEndpoint());
 
-      probeReq.on('error', () => {
-        resolve({
-          success: false,
-          count: 0,
-          message: `Không thể kết nối Chrome CDP trên cổng ${cdpPort}. Hãy dùng Import JSON hoặc mở Chrome với --remote-debugging-port=${cdpPort}.`,
+      // 2. Fallback: the browser-level endpoint (Storage.getCookies instead of Network).
+      const fallbackToBrowserEndpoint = (): void => {
+        const versionReq = http.get(`http://127.0.0.1:${cdpPort}/json/version`, { timeout: 1500 }, (res) => {
+          let body = '';
+          res.on('data', (c) => (body += c));
+          res.on('end', () => {
+            try {
+              const data = JSON.parse(body || '{}') as { webSocketDebuggerUrl?: string };
+              if (data.webSocketDebuggerUrl) {
+                useWebSocket(data.webSocketDebuggerUrl, false);
+              } else {
+                finish({
+                  success: false,
+                  count: 0,
+                  message: `Chrome DevTools active on port ${cdpPort} but missing webSocketDebuggerUrl`,
+                });
+              }
+            } catch (err: unknown) {
+              finish({ success: false, count: 0, message: `Lỗi parse version: ${err}` });
+            }
+          });
         });
-      });
-    });
+        versionReq.on('timeout', () => {
+          versionReq.destroy();
+          finish({ success: false, count: 0, message: offlineMessage });
+        });
+        versionReq.on('error', () => {
+          finish({ success: false, count: 0, message: offlineMessage });
+        });
+      };
+
+      // 3. Shared WebSocket cookie fetch: Network.getAllCookies on page targets,
+      //    Storage.getCookies on the browser endpoint.
+      const useWebSocket = (wsUrl: string, hasNetworkApi: boolean): void => {
+        let ws: WebSocket;
+        try {
+          ws = new WebSocket(wsUrl);
+        } catch (err: unknown) {
+          finish({ success: false, count: 0, message: `Không mở được CDP WebSocket: ${err}` });
+          return;
+        }
+        let timeoutTimer: NodeJS.Timeout;
+        const armTimeout = (): void => {
+          timeoutTimer = setTimeout(() => {
+            try { ws.close(); } catch {}
+            finish({ success: false, count: 0, message: 'CDP connection timed out after 3000ms' });
+          }, timeoutMs);
+        };
+        armTimeout();
+        let triedStorageApi = false;
+
+        ws.on('open', () => {
+          ws.send(JSON.stringify({ id: 100, method: hasNetworkApi ? 'Network.getAllCookies' : 'Storage.getCookies' }));
+        });
+
+        ws.on('message', async (rawMsg: string | Buffer) => {
+          try {
+            const response = JSON.parse(rawMsg.toString()) as {
+              id?: number;
+              error?: { message?: string; code?: string };
+              result?: { cookies?: unknown };
+            };
+            if (response.id !== 100) return;
+            clearTimeout(timeoutTimer);
+            if (response.error) {
+              const errText = `${response.error.message || ''} ${response.error.code || ''}`;
+              // Browser endpoint (or locked-down page) may reject Network.getAllCookies —
+              // retry once with Storage.getCookies which also returns {cookies: []}.
+              if (!triedStorageApi && errText.includes("wasn't found")) {
+                triedStorageApi = true;
+                // Retry must stay bounded: re-arm the timeout before issuing the fallback call.
+                clearTimeout(timeoutTimer);
+                armTimeout();
+                ws.send(JSON.stringify({ id: 100, method: 'Storage.getCookies' }));
+                return;
+              }
+              try { ws.close(); } catch {}
+              finish({
+                success: false,
+                count: 0,
+                message: `Lỗi CDP từ Chrome: ${response.error.message || JSON.stringify(response.error)}`,
+              });
+              return;
+            }
+            if (response.result && Array.isArray(response.result.cookies)) {
+              const chromeCookies = response.result.cookies;
+              const res = await this.importVaultFromJson(targetSession, chromeCookies);
+              // Also backup to vault file
+              await this.exportVaultToFile(targetSession).catch(() => {});
+              try { ws.close(); } catch {}
+              finish({
+                success: res.success,
+                count: res.importedCount,
+                message: `Đã nạp ${res.importedCount} cookies trực tiếp từ Chrome qua CDP Port ${cdpPort}!`,
+              });
+              return;
+            }
+            try { ws.close(); } catch {}
+            finish({ success: false, count: 0, message: 'Phản hồi CDP không chứa cookies' });
+          } catch (err: unknown) {
+            clearTimeout(timeoutTimer);
+            try { ws.close(); } catch {}
+            finish({ success: false, count: 0, message: `Lỗi đọc CDP cookies: ${err}` });
+          }
+        });
+
+        ws.on('error', (err) => {
+          clearTimeout(timeoutTimer);
+          finish({ success: false, count: 0, message: `CDP WebSocket error: ${err.message}` });
+        });
+      };
+
+    return promise;
   }
 
   /**

@@ -171,16 +171,6 @@ describe('Two-Tier Concurrency Engine & ViewportGate Integration (Phase 03)', ()
     const projectId = makeControlPlaneId('project');
     const workspaceId = makeControlPlaneId('workspace');
     const lease = issueRuntimeLease(projectId, workspaceId, 30_000, 1);
-    const catalogue = new CapabilityCatalogue({
-      runtime: { mode: 'standalone', lifecycle: 'active' },
-      projectId,
-      workspaceId,
-      runtimeId: lease.runtimeId,
-      hostEpoch: 1,
-      allowEval: true,
-      getActiveLease: () => lease,
-    });
-
     let currentDocGen = 1;
     const tabList = [
       { id: 'tab-sync', url: 'https://example.com' },
@@ -204,7 +194,24 @@ describe('Two-Tier Concurrency Engine & ViewportGate Integration (Phase 03)', ()
         return true;
       },
       getDom: async () => '<div>test</div>',
+      isTabAllowed: (bound: string, req: string) => {
+        return ['tab-sync', 'tab-created'].includes(bound) && ['tab-sync', 'tab-created'].includes(req);
+      },
+      resolveTargetTabId: (id: string) => tabList.some(t => t.id === id) ? id : undefined,
     } as unknown as NativeTabHost;
+
+    const catalogue = new CapabilityCatalogue({
+      runtime: { mode: 'standalone', lifecycle: 'active' },
+      projectId,
+      workspaceId,
+      runtimeId: lease.runtimeId,
+      hostEpoch: 1,
+      allowEval: true,
+      getActiveLease: () => lease,
+      isTabAllowed: (bound: string, req: string) => (mockHost as any).isTabAllowed(bound, req),
+      resolveTabId: (id: string) => (mockHost as any).resolveTargetTabId(id),
+      getDocumentGeneration: (id?: string) => (mockHost as any).getDocumentGeneration(id),
+    });
     const browserPort = new BrowserControlPort(mockHost as any);
     registerBrowserCapabilities(catalogue, browserPort, undefined, () => '');
 

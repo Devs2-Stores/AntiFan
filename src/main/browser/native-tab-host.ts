@@ -4,7 +4,7 @@
  * Multi-tab, Docked DevTools, GPU Lens, Font Finder, Device Emulation, Bookmarks,
  * AI Chat Sidebar (WebSocket Relay with Antigravity IDE), Global Shortcuts, and Context Menu.
  */
-import { app, BrowserWindow, WebContentsView, Menu, MenuItem, clipboard, Rectangle, ipcMain, shell, dialog, net, session } from 'electron';
+import { app, BrowserWindow, WebContentsView, Menu, MenuItem, clipboard, Rectangle, ipcMain, shell, dialog, net, session, safeStorage } from 'electron';
 import { spawn } from 'node:child_process';
 import * as path from 'node:path';
 import * as fs from 'node:fs';
@@ -41,6 +41,7 @@ import type { BrowserTarget } from '../../shared/control-plane-contracts';
 import type { WorkflowDefinition } from '../workflow/workflow-schema';
 import { ChromeProfileSyncManager } from './chrome-profile-sync';
 import { LocalSessionVault } from './local-session-vault';
+import { LocalCredentialVault } from './local-credential-vault';
 import { HaravanUploader } from './haravan-uploader';
 import type { ActionSequenceParams, ActionSequenceResult } from './tab-automation-host';
 import { TerminalManager, type TerminalManagerStats } from './terminal-manager';
@@ -980,34 +981,24 @@ export class NativeTabHost extends EventEmitter {
     ipcMain.handle(TOOLBAR_CHANNELS.CLEAR_STORAGE, () => this.clearStorageForActiveTab());
     ipcMain.handle(TOOLBAR_CHANNELS.GET_CHROME_PROFILES, () => ChromeProfileSyncManager.getInstance().getAvailableProfiles());
     LocalSessionVault.getInstance().registerIpcHandlers(() => this.getActiveTabSession());
+    LocalCredentialVault.getInstance({
+      safeStorage,
+      filePath: path.join(StorageLocations.getConfigDir(), LocalCredentialVault.DEFAULT_VAULT_FILENAME),
+      ipc: ipcMain,
+    }).registerIpcHandlers();
     ipcMain.handle(TOOLBAR_CHANNELS.SYNC_CHROME_PROFILE, async (_event, profileId: string) => {
       const activeTab = this.activeTabId ? this.tabs.get(this.activeTabId) : undefined;
       const targetSession = activeTab?.view?.webContents && !activeTab.view.webContents.isDestroyed()
         ? activeTab.view.webContents.session
-        : (activeTab?.state.partition ? session.fromPartition(activeTab.state.partition) : this.getSharedProfileSession());
+        : this.getSharedProfileSession();
       const res = await ChromeProfileSyncManager.getInstance().syncProfile(profileId, targetSession);
       const bm = ChromeProfileSyncManager.getInstance().getChromeBookmarks(profileId);
       if (bm && bm.length > 0) {
         this.bookmarks = bm.map(b => ({ id: b.url, title: b.title, url: b.url, createdAt: Date.now() }));
       }
-      try {
-        await targetSession.cookies.flushStore();
-      } catch {}
       this.updateLayout();
       this.broadcastState();
       return res;
-    });
-    ipcMain.removeHandler('antifan:chrome:launch-with-extension');
-    ipcMain.handle('antifan:chrome:launch-with-extension', async (_event, profileId?: string) => {
-      return await ChromeProfileSyncManager.getInstance().launchChromeWithCompanionExtension(profileId);
-    });
-    ipcMain.removeHandler('antifan:chrome:launch-with-cdp');
-    ipcMain.handle('antifan:chrome:launch-with-cdp', async (_event, params?: { port?: number; profileId?: string }) => {
-      return await ChromeProfileSyncManager.getInstance().launchChromeWithCdp(params?.port, params?.profileId);
-    });
-    ipcMain.removeHandler('antifan:chrome:open-extension-folder');
-    ipcMain.handle('antifan:chrome:open-extension-folder', async () => {
-      return await ChromeProfileSyncManager.getInstance().openExtensionFolderAndGuide();
     });
     ipcMain.removeHandler('antifan:chrome:is-running');
     ipcMain.handle('antifan:chrome:is-running', () => {
@@ -1025,11 +1016,6 @@ export class NativeTabHost extends EventEmitter {
         this.bookmarks.push({ id: url, title: title || url, url, createdAt: Date.now() });
         this.updateLayout();
         this.broadcastState();
-
-        const activeProfile = ChromeProfileSyncManager.getInstance().getActiveProfile();
-        if (activeProfile) {
-          ChromeProfileSyncManager.getInstance().saveChromeBookmark(activeProfile.id, title || url, url);
-        }
       }
       return { ok: true, bookmarks: this.bookmarks };
     });
@@ -1137,11 +1123,6 @@ export class NativeTabHost extends EventEmitter {
       this.bookmarks = this.bookmarks.filter(b => b.url !== url);
       this.updateLayout();
       this.broadcastState();
-
-      const activeProfile = ChromeProfileSyncManager.getInstance().getActiveProfile();
-      if (activeProfile) {
-        ChromeProfileSyncManager.getInstance().removeChromeBookmark(activeProfile.id, url);
-      }
       return { ok: true, bookmarks: this.bookmarks };
     });
 
@@ -2093,7 +2074,7 @@ export class NativeTabHost extends EventEmitter {
       ? chromeProfiles.map((p) => ({
           label: `Sync: ${p.name} (${p.id})`,
           click: async () => {
-            const res = await ChromeProfileSyncManager.getInstance().syncProfile(p.id);
+            const res = await ChromeProfileSyncManager.getInstance().syncProfile(p.id, this.getActiveTabSession());
             const bm = ChromeProfileSyncManager.getInstance().getChromeBookmarks(p.id);
             if (bm.length > 0) {
               this.bookmarks = bm.map((b) => ({ id: b.url, title: b.title, url: b.url, createdAt: Date.now() }));
@@ -2120,7 +2101,7 @@ export class NativeTabHost extends EventEmitter {
         submenu: profileSubmenu,
       },
       {
-        label: '🔑 Copy Bridge Token (for Extension)',
+        label: '🔑 Copy Bridge Token',
         click: () => {
           const bridge = BridgeServer.getInstance();
           if (bridge) {
@@ -2129,7 +2110,7 @@ export class NativeTabHost extends EventEmitter {
             dialog.showMessageBox(this.window, {
               type: 'info',
               title: 'Bridge Token',
-              message: 'Đã sao chép mã Bridge Token vào Clipboard.\nBạn có thể dán vào Chrome Extension.',
+              message: 'Đã sao chép mã Bridge Token vào Clipboard.',
             });
           }
         },
@@ -2390,7 +2371,17 @@ export class NativeTabHost extends EventEmitter {
     if (activeTab) {
       try {
         const ses = activeTab.view.webContents.session;
-        await ses.clearStorageData({ storages: ['cookies', 'localstorage', 'cachestorage'] });
+        // Scope the clear to the active tab's origin: without `origin`, Electron
+        // wipes cookies/localStorage/cache for the ENTIRE partition (all sites).
+        const currentUrl = activeTab.view.webContents.getURL();
+        let origin: string | undefined;
+        try {
+          origin = new URL(currentUrl).origin;
+        } catch {}
+        await ses.clearStorageData({
+          ...(origin && origin !== 'null' ? { origin } : {}),
+          storages: ['cookies', 'localstorage', 'cachestorage'],
+        });
         if (!activeTab.view.webContents.isDestroyed()) {
           activeTab.view.webContents.reload();
         }
@@ -4068,7 +4059,6 @@ export class NativeTabHost extends EventEmitter {
   }
   private applyCdpTouchEmulation(wc: Electron.WebContents, enableTouch: boolean): Promise<void> {
     if (!wc || (wc as unknown as { isDestroyed?: () => boolean }).isDestroyed?.()) return Promise.resolve();
-
     const current = this.touchEmulationStates.get(wc);
     if (
       current &&
@@ -5100,10 +5090,6 @@ export class NativeTabHost extends EventEmitter {
           }
           if (data.activeChromeProfileId) {
             ChromeProfileSyncManager.getInstance().activeProfileId = data.activeChromeProfileId;
-            const activeCapsule = this.capsuleManager.getActive();
-            const partition = deriveCapsulePartition(activeCapsule?.id);
-            const targetSession = session.fromPartition(partition);
-            ChromeProfileSyncManager.getInstance().syncProfile(data.activeChromeProfileId, targetSession).catch(() => {});
           }
           if (Array.isArray(data.bookmarks) && data.bookmarks.length > 0) {
             this.bookmarks = data.bookmarks;

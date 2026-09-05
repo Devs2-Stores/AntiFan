@@ -584,16 +584,31 @@ export class BrowserControlPort {
     const tabId = this.resolveTargetTab(target, explicitTabId, 'lifecycle');
     let urlBefore: string | undefined;
     try {
-      urlBefore = typeof this.host.evalJs === 'function' ? String(await this.host.evalJs('window.location.href', tabId) || '') : undefined;
+      const tabs = typeof this.host.getTabList === 'function' ? this.host.getTabList() : [];
+      const match = Array.isArray(tabs) ? tabs.find((t: any) => t && typeof t === 'object' && t.id === tabId) : undefined;
+      if (match && typeof (match as any).url === 'string') {
+        urlBefore = (match as any).url;
+      } else if (typeof this.host.evalJs === 'function') {
+        urlBefore = String(await this.host.evalJs('window.location.href', tabId) || '') || undefined;
+      }
     } catch {}
+
     const reloaded = typeof this.host.reloadAndWait === 'function'
       ? await this.host.reloadAndWait(tabId)
       : await this.host.reload(tabId);
     if (!reloaded) throw new CapabilityError('TARGET_STALE', 'Reload failed or timed out before a load-complete document was available');
+
     let urlAfter: string | undefined;
     try {
-      urlAfter = typeof this.host.evalJs === 'function' ? String(await this.host.evalJs('window.location.href', tabId) || '') : undefined;
+      const tabs = typeof this.host.getTabList === 'function' ? this.host.getTabList() : [];
+      const match = Array.isArray(tabs) ? tabs.find((t: any) => t && typeof t === 'object' && t.id === tabId) : undefined;
+      if (match && typeof (match as any).url === 'string') {
+        urlAfter = (match as any).url;
+      } else if (typeof this.host.evalJs === 'function') {
+        urlAfter = String(await this.host.evalJs('window.location.href', tabId) || '') || undefined;
+      }
     } catch {}
+
     const docGen = this.host.getDocumentGeneration ? this.host.getDocumentGeneration(tabId) : (target.documentGeneration || 1);
     const redirected = (urlBefore && urlAfter && urlBefore !== urlAfter) ? true : false;
     return {
@@ -936,7 +951,15 @@ export class BrowserControlPort {
         }
       }
     }
-    const boundId = context?.target?.tabId;
+    const rawBoundId = context?.target?.tabId;
+    let boundId = rawBoundId;
+    if (rawBoundId && this.host.hasTab && !this.host.hasTab(rawBoundId) && this.host.getFailoverTargetTab) {
+      const failover = this.host.getFailoverTargetTab(rawBoundId);
+      if (failover && typeof failover === 'string' && failover.trim().length > 0) {
+        boundId = failover.trim();
+      }
+    }
+
     if (boundId && targetId.trim() !== boundId.trim()) {
       const isAllowed = this.host.isTabAllowed ? this.host.isTabAllowed(boundId.trim(), targetId.trim()) : false;
       if (!isAllowed) {
@@ -945,9 +968,14 @@ export class BrowserControlPort {
     }
     const closed = Boolean(this.host.closeTab(targetId));
     let failoverTabId: string | undefined;
-    if (closed && boundId && targetId.trim() === boundId.trim() && this.host.getFailoverTargetTab) {
+    if (closed && rawBoundId && targetId.trim() === rawBoundId.trim() && this.host.getFailoverTargetTab) {
       const candidate = this.host.getFailoverTargetTab(targetId);
-      if (candidate && typeof candidate === 'string' && candidate.trim().length > 0) {
+      if (
+        candidate &&
+        typeof candidate === 'string' &&
+        candidate.trim().length > 0 &&
+        (!this.host.hasTab || this.host.hasTab(candidate.trim()))
+      ) {
         failoverTabId = candidate.trim();
       }
     }

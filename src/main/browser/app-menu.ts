@@ -3,7 +3,7 @@
  * Clean, organized top menubar tailored for AntiFan Browser Desktop:
  * File, Edit, View, Browser, Tools, Terminal, Help
  */
-import { app, dialog, Menu, MenuItemConstructorOptions, BrowserWindow, shell, clipboard } from 'electron';
+import { app, dialog, Menu, MenuItemConstructorOptions, BrowserWindow, shell, clipboard, safeStorage } from 'electron';
 import * as cp from 'node:child_process';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
@@ -11,6 +11,8 @@ import { NativeTabHost } from './native-tab-host';
 import { ChromeProfileSyncManager } from './chrome-profile-sync';
 import { TerminalManager } from './terminal-manager';
 import { LocalSessionVault } from './local-session-vault';
+import { LocalCredentialVault } from './local-credential-vault';
+import { StorageLocations } from '../config/storage-locations';
 function getPendingSourceModifications(srcDir: string, compiledDir: string): string[] {
   const modifiedFiles: string[] = [];
   if (!fs.existsSync(srcDir)) return modifiedFiles;
@@ -115,23 +117,66 @@ export function checkForUpdatesAndRestart(window?: BrowserWindow | null): void {
 export function buildApplicationMenu(mainWindow: BrowserWindow, tabHost?: NativeTabHost | null): Menu {
   const isMac = process.platform === 'darwin';
 
+
+  const managePasswordVault = async (window: BrowserWindow | null): Promise<void> => {
+    const targetWindow = window || BrowserWindow.getFocusedWindow();
+    if (!targetWindow) return;
+    const vault = LocalCredentialVault.getInstance({
+      safeStorage,
+      filePath: path.join(StorageLocations.getConfigDir(), LocalCredentialVault.DEFAULT_VAULT_FILENAME),
+    });
+    const entries = vault.list();
+    if (entries.length === 0) {
+      dialog.showMessageBox(targetWindow, {
+        type: 'info',
+        title: 'Password Vault',
+        message: 'Chưa có mật khẩu nào được lưu.',
+        detail: 'Mật khẩu sẽ tự động được lưu (mã hoá DPAPI) khi bạn đăng nhập trên một trang web có form mật khẩu — hoàn toàn local, không có extension.',
+      });
+      return;
+    }
+    const detail =
+      entries.slice(0, 25).map((entry) => `${entry.origin} — ${entry.username}`).join('\n') +
+      (entries.length > 25 ? `\n… và ${entries.length - 25} mật khẩu khác` : '');
+    const res = await dialog.showMessageBox(targetWindow, {
+      type: 'info',
+      title: `Password Vault (${entries.length} tài khoản)`,
+      message: 'Autofill tự động khi mở trang đăng nhập. Mật khẩu được mã hoá bằng safeStorage (DPAPI), chỉ lưu trên máy này.',
+      detail,
+      buttons: ['Đóng', 'Xoá tất cả'],
+      cancelId: 0,
+    });
+    if (res.response === 1) {
+      const confirm = await dialog.showMessageBox(targetWindow, {
+        type: 'warning',
+        title: 'Xác nhận xoá',
+        message: `Xoá toàn bộ ${entries.length} mật khẩu đã lưu?`,
+        buttons: ['Huỷ', 'Xoá'],
+        cancelId: 0,
+      });
+      if (confirm.response === 1) {
+        const cleared = vault.clear();
+        dialog.showMessageBox(targetWindow, {
+          type: 'info',
+          title: 'Password Vault',
+          message: cleared.ok ? `Đã xoá ${cleared.data?.removedCount ?? 0} mật khẩu.` : 'Không có mật khẩu nào được xoá.',
+        });
+      }
+    }
+  };
+
   const chromeProfiles = ChromeProfileSyncManager.getInstance().getAvailableProfiles();
   const profileSubmenu: MenuItemConstructorOptions[] = [
     ...(chromeProfiles.length > 0
       ? chromeProfiles.map((p) => ({
           label: `Sync: ${p.name} (${p.id})`,
           click: async () => {
-            const targetSession = tabHost?.getActiveTabSession();
-            if (!targetSession) return;
-            const res = await ChromeProfileSyncManager.getInstance().syncProfile(p.id, targetSession);
+            const res = await ChromeProfileSyncManager.getInstance().syncProfile(p.id, tabHost?.getActiveTabSession());
             const bm = ChromeProfileSyncManager.getInstance().getChromeBookmarks(p.id);
             if (bm.length > 0 && tabHost) {
               tabHost.bookmarks = bm.map((b) => ({ id: b.url, title: b.title, url: b.url, createdAt: Date.now() }));
               tabHost.broadcastState();
             }
-            try {
-              await targetSession.cookies.flushStore();
-            } catch {}
             dialog.showMessageBox(mainWindow, {
               type: res.success ? 'info' : 'warning',
               title: 'Chrome Profile Sync',
@@ -172,7 +217,7 @@ export function buildApplicationMenu(mainWindow: BrowserWindow, tabHost?: Native
       },
     },
     {
-      label: '⚡ Hút Cookies từ Chrome (CDP Port 9222)',
+      label: '⚡ Hút Cookies từ Chrome (CDP)',
       click: async () => {
         const targetSession = tabHost?.getActiveTabSession();
         if (!targetSession) return;
@@ -365,6 +410,11 @@ export function buildApplicationMenu(mainWindow: BrowserWindow, tabHost?: Native
           label: 'Find in Page...',
           accelerator: 'CmdOrCtrl+F',
           click: () => tabHost?.focusFindBar(),
+        },
+        { type: 'separator' },
+        {
+          label: '🔑 Quản lý mật khẩu đã lưu (Password Vault)',
+          click: () => void managePasswordVault(mainWindow),
         },
       ],
     },

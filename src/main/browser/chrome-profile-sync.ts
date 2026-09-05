@@ -1,15 +1,14 @@
 /**
- * AntiFan Browser Desktop — Chrome Profile & Companion Extension Sync
- * Provides Chrome profile & bookmark integration, with cookie synchronization
- * unified via the AntiFan Chrome Companion Extension & Native Messaging Bridge.
+ * AntiFan Browser Desktop — Chrome Profile & Bookmark Sync
+ * Provides Chrome profile & bookmark integration (read-only, local-first).
+ * Cookie hydration is handled securely via LocalSessionVault / CDP.
  */
 
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import { spawn, execSync } from 'child_process';
-import { session } from 'electron';
-import { getPermanentExtensionDir } from '../native-messaging/manifest-installer';
+import { LocalSessionVault } from './local-session-vault';
 export interface ChromeProfileInfo {
   id: string; // 'Default', 'Profile 1', etc.
   name: string; // 'Personal', 'Work', etc.
@@ -296,57 +295,6 @@ export class ChromeProfileSyncManager {
     }
   }
   /**
-   * Syncs a new bookmark back to the active Chrome Profile Bookmarks file
-   */
-  public async saveChromeBookmark(profileId: string, title: string, url: string): Promise<boolean> {
-    const bookmarksPath = path.join(this.chromeUserDataPath, profileId, 'Bookmarks');
-    if (!fs.existsSync(bookmarksPath)) return false;
-    try {
-      const raw = await fs.promises.readFile(bookmarksPath, 'utf8');
-      const data = JSON.parse(raw);
-      if (!data.roots) data.roots = {};
-      if (!data.roots.bookmark_bar) data.roots.bookmark_bar = { children: [], name: 'Bookmarks bar', type: 'folder' };
-      if (!Array.isArray(data.roots.bookmark_bar.children)) data.roots.bookmark_bar.children = [];
-
-      const exists = data.roots.bookmark_bar.children.some((c: any) => c.url === url);
-      if (!exists) {
-        data.roots.bookmark_bar.children.push({
-          date_added: String(Date.now() * 1000),
-          id: String(Date.now()),
-          name: title,
-          type: 'url',
-          url: url,
-        });
-        await fs.promises.writeFile(bookmarksPath, JSON.stringify(data, null, 2), 'utf8');
-      }
-      return true;
-    } catch (err) {
-      console.warn('[ChromeProfileSync] Failed to sync bookmark back to Chrome:', err);
-      return false;
-    }
-  }
-
-  /**
-   * Removes a bookmark from the Chrome Profile Bookmarks file asynchronously
-   */
-  public async removeChromeBookmark(profileId: string, url: string): Promise<boolean> {
-    const bookmarksPath = path.join(this.chromeUserDataPath, profileId, 'Bookmarks');
-    if (!fs.existsSync(bookmarksPath)) return false;
-    try {
-      const raw = await fs.promises.readFile(bookmarksPath, 'utf8');
-      const data = JSON.parse(raw);
-      if (data.roots && data.roots.bookmark_bar && Array.isArray(data.roots.bookmark_bar.children)) {
-        data.roots.bookmark_bar.children = data.roots.bookmark_bar.children.filter((c: any) => c.url !== url);
-        await fs.promises.writeFile(bookmarksPath, JSON.stringify(data, null, 2), 'utf8');
-      }
-      return true;
-    } catch (err) {
-      return false;
-    }
-  }
-
-
-  /**
    * Discovers the Google Chrome executable path on the host system
    */
   public getChromeExecutablePath(): string | null {
@@ -376,52 +324,33 @@ export class ChromeProfileSyncManager {
     return false;
   }
 
+
   /**
-   * Launches Google Chrome with the AntiFan Companion Extension pre-loaded
+   * Launches Google Chrome with remote debugging port enabled (for live CDP cookie extraction).
+   * Extension-free: cookies are pulled later via CDP Network.getAllCookies (LocalSessionVault).
    */
-  public async launchChromeWithCompanionExtension(profileId?: string): Promise<{
-    success: boolean;
-    message: string;
-    isRunning?: boolean;
-  }> {
+  public launchChromeWithCdp(port = 9222, profileId?: string): { success: boolean; message: string; isRunning?: boolean } {
     const chromeExe = this.getChromeExecutablePath();
     if (!chromeExe) {
       return { success: false, message: 'Không tìm thấy Google Chrome trên máy tính.' };
     }
-    const extensionDir = getPermanentExtensionDir();
-    if (!fs.existsSync(path.join(extensionDir, 'manifest.json'))) {
-      return { success: false, message: 'Chưa tìm thấy thư mục AntiFan Extension tại: ' + extensionDir };
-    }
-
     const isRunning = this.isChromeRunning();
     const targetProfile = profileId || this.activeProfileId || 'Default';
-
     const args = [
-      `--load-extension=${extensionDir}`,
+      `--remote-debugging-port=${port}`,
       `--profile-directory=${targetProfile}`,
       '--no-first-run',
       '--no-default-browser-check',
     ];
-
     try {
-      const child = spawn(chromeExe, args, {
-        detached: true,
-        stdio: 'ignore',
-      });
+      const child = spawn(chromeExe, args, { detached: true, stdio: 'ignore' });
       child.unref();
-
-      if (isRunning) {
-        return {
-          success: true,
-          isRunning: true,
-          message: `Đã gọi mở Chrome. Chú ý: Chrome đang chạy sẵn, nếu chưa thấy Extension hãy đóng hẳn Google Chrome rồi mở lại, hoặc vào chrome://extensions bấm 'Tải tiện ích đã giải nén' (Load unpacked)!`,
-        };
-      }
-
       return {
         success: true,
-        isRunning: false,
-        message: `Đã mở Google Chrome với AntiFan Extension (Profile: ${targetProfile}). Cookies sẽ tự động đồng bộ sang AntiFan!`,
+        isRunning,
+        message: isRunning
+          ? `Chrome đang chạy sẵn — cờ --remote-debugging-port=${port} chỉ có hiệu lực khi khởi động mới. Hãy đóng hẳn Chrome rồi mở lại qua nút này!`
+          : `Đã mở Google Chrome với CDP port ${port} (Profile: ${targetProfile}). Giờ bấm 'Hút Cookies từ Chrome (CDP)' để nạp cookies!`,
       };
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -430,94 +359,9 @@ export class ChromeProfileSyncManager {
   }
 
   /**
-   * Launches Google Chrome with remote debugging port enabled (for live CDP cookie extraction)
-   */
-  public async launchChromeWithCdp(port = 9222, profileId?: string): Promise<{
-    success: boolean;
-    message: string;
-  }> {
-    const chromeExe = this.getChromeExecutablePath();
-    if (!chromeExe) {
-      return { success: false, message: 'Không tìm thấy Google Chrome trên máy tính.' };
-    }
-
-    const targetProfile = profileId || this.activeProfileId || 'Default';
-    const isRunning = this.isChromeRunning();
-    if (isRunning) {
-      return {
-        success: false,
-        message: `Google Chrome đang chạy. Vui lòng đóng hoàn toàn Chrome (tắt hết cửa sổ) rồi thử lại để mở được cổng CDP ${port}!`,
-      };
-    }
-
-    const args = [
-      `--remote-debugging-port=${port}`,
-      `--profile-directory=${targetProfile}`,
-      '--no-first-run',
-      '--no-default-browser-check',
-    ];
-
-    try {
-      const child = spawn(chromeExe, args, {
-        detached: true,
-        stdio: 'ignore',
-      });
-      child.unref();
-
-      return {
-        success: true,
-        message: `Đã mở Google Chrome với cổng CDP ${port} (Profile: ${targetProfile}). Hãy đăng nhập rồi bấm "⚡ Hút Cookies từ Chrome (CDP)"!`,
-      };
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : String(err);
-      return { success: false, message: `Lỗi mở Chrome với CDP: ${msg}` };
-    }
-  }
-
-  /**
-   * Opens the Companion Extension directory and launches chrome://extensions in Chrome with clipboard path
-   */
-  public async openExtensionFolderAndGuide(): Promise<{
-    success: boolean;
-    extensionDir: string;
-    message: string;
-  }> {
-    const extensionDir = getPermanentExtensionDir();
-    if (!fs.existsSync(extensionDir)) {
-      try {
-        fs.mkdirSync(extensionDir, { recursive: true });
-      } catch {}
-    }
-
-    try {
-      // eslint-disable-next-line @typescript-eslint/no-var-requires
-      const electronMod = require('electron');
-      if (electronMod?.clipboard) {
-        electronMod.clipboard.writeText(extensionDir);
-      }
-      if (electronMod?.shell) {
-        await electronMod.shell.openPath(extensionDir);
-      }
-    } catch {}
-
-    const chromeExe = this.getChromeExecutablePath();
-    if (chromeExe) {
-      try {
-        const child = spawn(chromeExe, ['chrome://extensions'], { detached: true, stdio: 'ignore' });
-        child.unref();
-      } catch {}
-    }
-
-    return {
-      success: true,
-      extensionDir,
-      message: `Đã sao chép đường dẫn Extension (${extensionDir}) và mở Chrome. Hãy bật Developer mode rồi bấm 'Load unpacked'!`,
-    };
-  }
-
-  /**
-   * Synchronizes bookmarks from the selected Chrome profile.
-   * Cookie synchronization is handled continuously in real-time via the AntiFan Chrome Sync Extension.
+   * Synchronizes a Chrome profile: imports bookmarks (read-only) and, when a
+   * Chrome instance is reachable via CDP (--remote-debugging-port), hydrates
+   * cookies directly into the target session — fully extension-free & local-first.
    */
   public async syncProfile(profileId = 'Default', targetSession?: Electron.Session): Promise<{
     success: boolean;
@@ -528,33 +372,43 @@ export class ChromeProfileSyncManager {
   }> {
     this.activeProfileId = profileId;
     const profilePath = path.join(this.chromeUserDataPath, profileId);
-    if (!fs.existsSync(profilePath)) {
-      return { success: false, cookiesCount: 0, bookmarksCount: 0, hasLiveCookies: false, message: `Profile '${profileId}' not found.` };
-    }
+    const profileMissing = !fs.existsSync(profilePath);
 
-    // 1. Import Bookmarks cleanly from Chrome's Bookmarks JSON file
-    const bookmarks = this.getChromeBookmarks(profileId);
+    // 1. Bookmarks — read-only import from Chrome's Bookmarks JSON
+    const bookmarks = profileMissing ? [] : this.getChromeBookmarks(profileId);
 
-    // 2. Query targetSession cookies to report live authenticated state
+    // 2. Extension-free cookie hydration via CDP (when Chrome exposes a debug port)
     let cookiesCount = 0;
+    let cdpNote = '';
     if (targetSession && targetSession.cookies) {
       try {
-        const liveCookies = await targetSession.cookies.get({});
-        cookiesCount = liveCookies.length;
-      } catch {}
+        const cdpRes = await LocalSessionVault.getInstance().importFromLiveChromeCDP(targetSession, 9222);
+        if (cdpRes.success) {
+          const liveCookies = await targetSession.cookies.get({});
+          cookiesCount = liveCookies.length;
+          cdpNote = ` Đã hút ${cdpRes.count} cookies trực tiếp từ Chrome qua CDP!`;
+        } else {
+          try {
+            const liveCookies = await targetSession.cookies.get({});
+            cookiesCount = liveCookies.length;
+          } catch {}
+          cdpNote = ` Chưa hút được cookies qua CDP: ${cdpRes.message}`;
+        }
+      } catch (err: unknown) {
+        cdpNote = ` Lỗi hút cookies qua CDP: ${err instanceof Error ? err.message : String(err)}`;
+      }
     }
 
-    const hasLiveCookies = cookiesCount > 0;
-    const cookieNote = hasLiveCookies
-      ? ` (${cookiesCount} cookies hiện hữu)`
-      : ' (0 cookies - Chrome 127+ bảo mật v20 cần mở Chrome với AntiFan Chrome Extension hoặc CDP để nạp cookies)';
+    if (profileMissing) {
+      return { success: false, cookiesCount: 0, bookmarksCount: 0, hasLiveCookies: false, message: `Profile '${profileId}' not found.` };
+    }
 
     return {
       success: true,
       cookiesCount,
       bookmarksCount: bookmarks.length,
-      hasLiveCookies,
-      message: `Đã nạp ${bookmarks.length} dấu trang từ Chrome Profile '${profileId}'${cookieNote}.`,
+      hasLiveCookies: cookiesCount > 0,
+      message: `Đã nạp ${bookmarks.length} dấu trang từ Chrome Profile '${profileId}'.${cdpNote}`,
     };
   }
 }

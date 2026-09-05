@@ -1,8 +1,6 @@
 import { describe, it } from 'node:test';
 import * as assert from 'node:assert';
 import { cookieImportSetDetails, extensionCookieImportSetDetails, ChromeProfileSyncManager } from '../../src/main/browser/chrome-profile-sync';
-import { CookieDebouncer } from '../../src/extension/cookie-debouncer';
-import { isCookieInScope } from '../../src/extension/domain-scoper';
 describe('ChromeProfileSync Cookie Import Semantics', () => {
   it('omits Domain for host-only cookies (bare SQLite host_key) and __Host- prefixed names', () => {
     const domainCookie = cookieImportSetDetails('SID', '.google.com', 'v', '/', false, false, 0);
@@ -110,63 +108,6 @@ describe('ChromeProfileSync Cookie Import Semantics', () => {
     assert.strictEqual(chromePersistent.expirationDate, futureTimestamp);
   });
 
-  it('CookieDebouncer ignores non-explicit removals (expired, evicted, overwrite) and flushes explicit removals', async () => {
-    const batches: any[] = [];
-    const debouncer = new CookieDebouncer((b) => { batches.push(b); }, 10, 50);
-    // 1. Non-explicit causes must NOT enter the queue as removals
-    debouncer.addChange({
-      cookie: { name: 'EXPIRED_ON_EXIT', value: '1', domain: '.google.com', path: '/', secure: true, httpOnly: true },
-      removed: true,
-      cause: 'expired',
-    });
-    debouncer.addChange({
-      cookie: { name: 'EVICTED_COOKIE', value: '2', domain: '.google.com', path: '/', secure: true, httpOnly: true },
-      removed: true,
-      cause: 'evicted',
-    });
-    debouncer.addChange({
-      cookie: { name: 'OVERWRITTEN_COOKIE', value: '3', domain: '.google.com', path: '/', secure: true, httpOnly: true },
-      removed: true,
-      cause: 'overwrite',
-    });
-
-    assert.strictEqual(debouncer.pendingCount, 0, 'non-explicit removals must be dropped immediately');
-
-    // 2. Explicit removals must be queued and dispatched
-    debouncer.addChange({
-      cookie: { name: 'EXPLICIT_LOGOUT', value: 'logged_out', domain: '.google.com', path: '/', secure: true, httpOnly: true },
-      removed: true,
-      cause: 'explicit',
-    });
-    assert.strictEqual(debouncer.pendingCount, 1);
-
-    debouncer.flush();
-    assert.strictEqual(batches.length, 1);
-    assert.strictEqual(batches[0].removed.length, 1);
-    assert.strictEqual(batches[0].removed[0].name, 'EXPLICIT_LOGOUT');
-
-    // 3. clear() on suspend/shutdown wipes queue and timers without dispatch
-    batches.length = 0;
-    debouncer.addChange({
-      cookie: { name: 'PENDING_EVENT', value: 'val', domain: '.google.com', path: '/', secure: true, httpOnly: true },
-      removed: true,
-      cause: 'explicit',
-    });
-    assert.strictEqual(debouncer.pendingCount, 1);
-    debouncer.clear();
-    assert.strictEqual(debouncer.pendingCount, 0);
-    assert.strictEqual((debouncer as any).timer, null, 'active timer must be cancelled');
-    assert.strictEqual((debouncer as any).maxTimer, null, 'max timer must be cancelled');
-    debouncer.flush();
-    assert.strictEqual(batches.length, 0, 'cleared debouncer must not dispatch any batches');
-  });
-
-  it('isCookieInScope supports wildcard and all-profiles configuration', () => {
-    const customDomainCookie = { domain: 'my-custom-store.vn', name: 'cart_token' };
-    assert.strictEqual(isCookieInScope(customDomainCookie, ['google', 'ecommerce']), false);
-    assert.strictEqual(isCookieInScope(customDomainCookie, ['all']), true);
-    assert.strictEqual(isCookieInScope(customDomainCookie, ['*']), true);
-  });
 
   it('ChromeProfileSyncManager locates Chrome executable or returns null safely', () => {
     const manager = ChromeProfileSyncManager.getInstance();
@@ -178,13 +119,16 @@ describe('ChromeProfileSync Cookie Import Semantics', () => {
     }
   });
 
-  it('ChromeProfileSyncManager.syncProfile reports hasLiveCookies and accurate status', async () => {
+  it('ChromeProfileSyncManager.syncProfile reports accurate status', async () => {
     const manager = ChromeProfileSyncManager.getInstance();
     const res = await manager.syncProfile('Default');
     assert.strictEqual(typeof res.success, 'boolean');
     assert.strictEqual(typeof res.bookmarksCount, 'number');
     assert.strictEqual(typeof res.cookiesCount, 'number');
     assert.strictEqual(typeof res.hasLiveCookies, 'boolean');
+    // No target session was passed — CDP hydration cannot run, so counts are real zeros, never fabricated.
+    assert.strictEqual(res.cookiesCount, 0);
+    assert.strictEqual(res.hasLiveCookies, false);
     assert.ok(res.message.includes('dấu trang') || res.message.includes('not found'));
   });
 });

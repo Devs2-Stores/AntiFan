@@ -19,7 +19,7 @@ import { InvocationLedger } from '../session/invocation-ledger';
 type EffectMarker = 'not-started' | 'effect-started' | 'effect-committed';
 type EffectAcknowledgement = 'no-effect' | 'effect-possible' | 'effect-committed';
 
-const CANONICAL_UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const CANONICAL_TAB_PATTERN = /^(tab-[a-zA-Z0-9_\-]+|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i;
 export interface CapabilityListItem {
   name: string;
   description: string;
@@ -495,7 +495,7 @@ export class CapabilityTransportAdapter {
           if (
             resObj.switched === true &&
             typeof resObj.tabId === 'string' &&
-            CANONICAL_UUID_PATTERN.test(resObj.tabId.trim())
+            CANONICAL_TAB_PATTERN.test(resObj.tabId.trim())
           ) {
             const newRev = await this.attachmentRegistry.updateAttachmentTab(authority.attachmentId, resObj.tabId.trim());
             if (newRev) replacementAuthorityRevision = newRev;

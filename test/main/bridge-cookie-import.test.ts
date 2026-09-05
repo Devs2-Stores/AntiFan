@@ -306,37 +306,106 @@ describe('Bridge Cookie Import Endpoint & Target Isolation', () => {
     server.dispose();
   });
 
-  it('handles CORS OPTIONS preflight correctly with allowed extension origins', async () => {
+  it('handles CORS OPTIONS preflight correctly with allowed loopback origins', async () => {
     const mockHost = new MockTabHostWithSessions() as unknown as NativeTabHost;
     const server = new BridgeServer(mockHost, 0);
     const port = await server.start();
 
     const preflight = await requestHttp(port, 'OPTIONS', '/api/cookies/import', {
-      Origin: 'chrome-extension://bnhjdjiikfahdpfmfhnfhmfjpcmannpm',
+      Origin: 'http://localhost:3000',
       'Access-Control-Request-Method': 'POST',
       'Access-Control-Request-Headers': 'Content-Type, Authorization',
     });
 
     assert.strictEqual(preflight.status, 204);
-    assert.strictEqual(preflight.headers['access-control-allow-origin'], 'chrome-extension://bnhjdjiikfahdpfmfhnfhmfjpcmannpm');
+    assert.strictEqual(preflight.headers['access-control-allow-origin'], 'http://localhost:3000');
     assert.ok(String(preflight.headers['access-control-allow-methods']).includes('POST'));
 
     server.dispose();
   });
 
-  it('rejects unauthorized web origins on CORS OPTIONS preflight', async () => {
+  it('rejects unauthorized web origins and extension origins on CORS OPTIONS preflight with 403', async () => {
     const mockHost = new MockTabHostWithSessions() as unknown as NativeTabHost;
     const server = new BridgeServer(mockHost, 0);
     const port = await server.start();
 
+    // 1. External domain rejected with 403
     const preflight = await requestHttp(port, 'OPTIONS', '/api/cookies/import', {
       Origin: 'http://malicious-attacker.com',
       'Access-Control-Request-Method': 'POST',
       'Access-Control-Request-Headers': 'Content-Type, Authorization',
     });
+    assert.strictEqual(preflight.status, 403);
+    const body1 = JSON.parse(preflight.body);
+    assert.strictEqual(body1.error, 'FORBIDDEN_ORIGIN');
 
-    assert.strictEqual(preflight.status, 204);
-    assert.strictEqual(preflight.headers['access-control-allow-origin'], undefined, 'Unauthorized origins must NOT receive Access-Control-Allow-Origin');
+    // 2. Extension origins are also rejected with 403
+    const extPreflight = await requestHttp(port, 'OPTIONS', '/api/cookies/import', {
+      Origin: 'chrome-extension://bnhjdjiikfahdpfmfhnfhmfjpcmannpm',
+      'Access-Control-Request-Method': 'POST',
+      'Access-Control-Request-Headers': 'Content-Type, Authorization',
+    });
+    assert.strictEqual(extPreflight.status, 403);
+    const body2 = JSON.parse(extPreflight.body);
+    assert.strictEqual(body2.error, 'FORBIDDEN_ORIGIN');
+
+    server.dispose();
+  });
+
+  it('rejects POST with nonempty removed array with 400 REMOVALS_UNSUPPORTED', async () => {
+    const mockHost = new MockTabHostWithSessions();
+    const server = new BridgeServer(mockHost as unknown as NativeTabHost, 0);
+    const port = await server.start();
+    try {
+      const token = server.getToken();
+
+      const res = await requestHttp(
+        port,
+        'POST',
+        '/api/cookies/import',
+        {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        JSON.stringify({
+          tabId: 'tab-1',
+          cookies: [{ name: 'A', value: '1', domain: '.google.com' }],
+          removed: [{ name: 'B', domain: '.google.com' }],
+        })
+      );
+
+      assert.strictEqual(res.status, 400);
+      const body = JSON.parse(res.body) as { success: boolean; error: string };
+      assert.strictEqual(body.success, false);
+      assert.strictEqual(body.error, 'REMOVALS_UNSUPPORTED');
+      assert.strictEqual(mockHost.tab1Session.cookiesList.length, 0);
+      assert.strictEqual(mockHost.tab1Session.flushed, false);
+    } finally {
+      server.dispose();
+    }
+  });
+
+  it('rejects POST with non-loopback Origin with 403 FORBIDDEN_ORIGIN', async () => {
+    const mockHost = new MockTabHostWithSessions();
+    const server = new BridgeServer(mockHost as unknown as NativeTabHost, 0);
+    const port = await server.start();
+    const token = server.getToken();
+
+    const res = await requestHttp(
+      port,
+      'POST',
+      '/api/cookies/import',
+      {
+        Authorization: `Bearer ${token}`,
+        Origin: 'https://attacker.com',
+        'Content-Type': 'application/json',
+      },
+      JSON.stringify({ tabId: 'tab-1', cookies: [] })
+    );
+
+    assert.strictEqual(res.status, 403);
+    const body = JSON.parse(res.body) as { success: boolean; error: string };
+    assert.strictEqual(body.error, 'FORBIDDEN_ORIGIN');
 
     server.dispose();
   });
@@ -345,56 +414,57 @@ describe('Bridge Cookie Import Endpoint & Target Isolation', () => {
     const mockHost = new MockTabHostWithSessions();
     const server = new BridgeServer(mockHost as unknown as NativeTabHost, 0);
     const port = await server.start();
-    const token = server.getToken();
+    try {
+      const token = server.getToken();
+      const futureUnix = Math.floor(Date.now() / 1000) + 7200;
+      const payload = {
+        tabId: 'tab-2',
+        cookies: [
+          {
+            name: 'SESSION_ID',
+            value: 'secret_github_session',
+            domain: '.github.com',
+            path: '/',
+            secure: true,
+            httpOnly: true,
+            expirationDate: futureUnix,
+          },
+        ],
+      };
 
-    const futureUnix = Math.floor(Date.now() / 1000) + 7200;
-    const payload = {
-      tabId: 'tab-2',
-      cookies: [
+      const res = await requestHttp(
+        port,
+        'POST',
+        '/api/cookies/import',
         {
-          name: 'SESSION_ID',
-          value: 'secret_github_session',
-          domain: '.github.com',
-          path: '/',
-          secure: true,
-          httpOnly: true,
-          expirationDate: futureUnix,
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+          Origin: `http://127.0.0.1:${port}`,
         },
-      ],
-    };
+        JSON.stringify(payload)
+      );
 
-    const res = await requestHttp(
-      port,
-      'POST',
-      '/api/cookies/import',
-      {
-        Authorization: `Bearer ${token}`,
-        'Content-Type': 'application/json',
-        Origin: 'chrome-extension://bnhjdjiikfahdpfmfhnfhmfjpcmannpm',
-      },
-      JSON.stringify(payload)
-    );
+      assert.strictEqual(res.status, 200);
+      const body = JSON.parse(res.body) as { success: boolean; importedCount: number; targetTabId: string };
+      assert.strictEqual(body.success, true);
+      assert.strictEqual(body.importedCount, 1);
+      assert.strictEqual(body.targetTabId, 'tab-2');
 
-    assert.strictEqual(res.status, 200);
-    const body = JSON.parse(res.body) as { success: boolean; importedCount: number; targetTabId: string };
-    assert.strictEqual(body.success, true);
-    assert.strictEqual(body.importedCount, 1);
-    assert.strictEqual(body.targetTabId, 'tab-2');
+      // VERIFICATION OF ISOLATION:
+      // Tab-2 received the cookie
+      assert.strictEqual(mockHost.tab2Session.cookiesList.length, 1);
+      const firstCookie = mockHost.tab2Session.cookiesList[0];
+      assert.ok(firstCookie);
+      assert.strictEqual(firstCookie['name'], 'SESSION_ID');
+      assert.strictEqual(mockHost.tab2Session.flushed, true);
 
-    // VERIFICATION OF ISOLATION:
-    // Tab-2 received the cookie
-    assert.strictEqual(mockHost.tab2Session.cookiesList.length, 1);
-    const firstCookie = mockHost.tab2Session.cookiesList[0];
-    assert.ok(firstCookie);
-    assert.strictEqual(firstCookie['name'], 'SESSION_ID');
-    assert.strictEqual(mockHost.tab2Session.flushed, true);
-
-    // Tab-1 and other sessions MUST be completely untouched (0 cookies)
-    assert.strictEqual(mockHost.tab1Session.cookiesList.length, 0);
-    assert.strictEqual(mockHost.activeSession.cookiesList.length, 0);
-    assert.strictEqual(mockHost.partitionSession.cookiesList.length, 0);
-
-    server.dispose();
+      // Tab-1 and other sessions MUST be completely untouched (0 cookies)
+      assert.strictEqual(mockHost.tab1Session.cookiesList.length, 0);
+      assert.strictEqual(mockHost.activeSession.cookiesList.length, 0);
+      assert.strictEqual(mockHost.partitionSession.cookiesList.length, 0);
+    } finally {
+      server.dispose();
+    }
   });
 
   it('rejects invalid or destroyed tabId with 400', async () => {

@@ -85,7 +85,7 @@ describe('Capability catalogue', () => {
       runtimeId: lease.runtimeId,
       hostEpoch: 1,
       isTabAllowed: (bound: string, req: string) => (bound === 'tab-1' && req === 'tab-2') || bound === req,
-      resolveTabId: (id: string) => (id === 'tab-invalid' ? undefined : id),
+      resolveTabId: (id: string) => (['tab-1', 'tab-2', 'tab-new'].includes(id) ? id : undefined),
       getDocumentGeneration: () => 1,
     });
 
@@ -152,7 +152,7 @@ describe('Capability catalogue', () => {
 
     // 4. Close tab & Switch tab
     const boundTarget: BrowserTarget = { projectId, workspaceId, runtimeId: lease.runtimeId, browserEpoch: 1, documentGeneration: 1, tabId: 'tab-1' };
-    await catalogue.dispatch('browser.close-tab', { tabId: 'tab-1' }, { lease, leaseToken: lease.token, projectId, workspaceId, grant: 'write', browserTarget: boundTarget });
+    await catalogue.dispatch('browser.close-tab', { tabId: 'tab-1' }, { lease, leaseToken: lease.token, projectId, workspaceId, grant: 'write' });
     assert.strictEqual(closedTabId, 'tab-1');
     await catalogue.dispatch('browser.switch-tab', { tabId: 'tab-2' }, { lease, leaseToken: lease.token, projectId, workspaceId, grant: 'write', browserTarget: boundTarget });
     assert.strictEqual(switchedTabId, 'tab-2');
@@ -164,9 +164,9 @@ describe('Capability catalogue', () => {
     );
     await catalogue.dispatch('browser.agent-move', { x: 100, y: 200, label: 'test' }, { lease, leaseToken: lease.token, projectId, workspaceId, grant: 'write', browserTarget: boundTarget });
     assert.deepStrictEqual(movedParams, { x: 100, y: 200, label: 'test', tabId: 'tab-1' });
+    // 6. Diagnostics
     const diag = await catalogue.dispatch('browser.diagnostics', { tabId: 'tab-1' }, { lease, leaseToken: lease.token, projectId, workspaceId });
     assert.deepStrictEqual(diag, { console: [], failures: [] });
-
     // 7. Toggle inspect
     const inspect = await catalogue.dispatch('antifan_toggle_inspect', {}, { lease, leaseToken: lease.token, projectId, workspaceId, grant: 'write' });
     assert.deepStrictEqual(inspect, { inspecting: true });
@@ -181,9 +181,8 @@ describe('Capability catalogue', () => {
     // 9. Rejection on invalid explicit tabId
     await assert.rejects(
       () => catalogue.dispatch('browser.navigate', { url: 'https://apshop.vn', tabId: 'tab-invalid' }, { lease, leaseToken: lease.token, projectId, workspaceId, grant: 'write', browserTarget: boundTarget }),
-      (error: unknown) => error instanceof CapabilityError && (error.code === 'CAPABILITY_NOT_FOUND' || error.code === 'TARGET_MISMATCH')
+      (error: unknown) => error instanceof CapabilityError && error.code === 'TARGET_MISMATCH'
     );
-
     // 10. Agent trajectory registration and execution with tabId
     const trajResult = await catalogue.dispatch('browser.agent-trajectory', { steps: [{ action: 'move', x: 50, y: 50 }], tabId: 'tab-2' }, { lease, leaseToken: lease.token, projectId, workspaceId, grant: 'write', browserTarget: { ...boundTarget, tabId: 'tab-2' } });
     assert.deepStrictEqual(trajResult, { success: true, executedSteps: 1, totalSteps: 1 });

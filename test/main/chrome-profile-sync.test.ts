@@ -65,7 +65,7 @@ describe('ChromeProfileSyncManager Invariants', () => {
     }
   });
 
-  it('synchronizes bookmarks cleanly and reports companion extension integration', async () => {
+  it('synchronizes bookmarks cleanly and reports status', async () => {
     const manager = ChromeProfileSyncManager.getInstance();
     const origPath = (manager as any).chromeUserDataPath;
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-chrome-bm-test-'));
@@ -97,7 +97,10 @@ describe('ChromeProfileSyncManager Invariants', () => {
       const res = await manager.syncProfile('Default');
       assert.strictEqual(res.success, true);
       assert.strictEqual(res.bookmarksCount, 2);
-      assert.match(res.message, /AntiFan Chrome Extension/);
+      assert.match(res.message, /dấu trang/);
+      assert.doesNotMatch(res.message, /Extension|cookie/i);
+      assert.strictEqual(res.cookiesCount, 0);
+      assert.strictEqual(res.hasLiveCookies, false);
     } finally {
       (manager as any).chromeUserDataPath = origPath;
       fs.rmSync(tempDir, { recursive: true, force: true });

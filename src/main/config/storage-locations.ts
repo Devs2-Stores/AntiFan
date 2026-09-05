@@ -6,7 +6,7 @@
 import * as path from 'node:path';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
-import { enforceProtectedDirectoryDacl, resolveCurrentUserSid } from '../native-messaging/windows-acl';
+import { enforceProtectedDirectoryDacl, resolveCurrentUserSid } from '../security/windows-acl';
 export function validateDataRootPath(inputPath: string): string {
   const trimmed = (inputPath || '').trim();
   if (!trimmed) {

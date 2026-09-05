@@ -30,10 +30,8 @@ import { TerminalManager } from './browser/terminal-manager';
 import { buildApplicationMenu } from './browser/app-menu';
 import { WindowStateManager } from './browser/window-state';
 import { HistoryManager } from './browser/history-manager';
-import { configureBrowserSessionPartition, deriveCapsulePartition } from './browser/browser-session-partition';
+import { configureBrowserSessionPartition } from './browser/browser-session-partition';
 import { chromeSessionUserAgent } from './browser/google-auth-identity';
-import { LocalIpcServer } from './native-messaging/local-ipc-server';
-import { installNativeHost, COMPANION_EXTENSION_ID } from './native-messaging/manifest-installer';
 import { ControlPlaneRuntime } from './control-plane/control-plane-runtime';
 import { BrowserControlPort } from './tools/browser-control-port';
 import { CapabilityTransportAdapter } from './tools/capability-transport';
@@ -124,7 +122,6 @@ let mainWindow: BrowserWindow | null = null;
 let tabHost: NativeTabHost | null = null;
 let capsuleManager: WorkspaceCapsuleManager | null = null;
 let bridgeServer: BridgeServer | null = null;
-let localIpcServer: LocalIpcServer | null = null;
 let mcpServer: AntiFanMcpServer | null = null;
 let windowStateManager: WindowStateManager | null = null;
 let controlPlane: ControlPlaneRuntime | null = null;
@@ -285,7 +282,7 @@ async function createWindow(): Promise<void> {
   // Start Bridge Server
   bridgeServer = new BridgeServer(
     tabHost,
-    IS_PROD ? 20129 : 20130,
+    Number(process.env.ANTIFAN_BRIDGE_PORT) || (IS_PROD ? 20129 : 20130),
     IS_DEV,
     capabilityTransport,
     () => {
@@ -314,32 +311,6 @@ async function createWindow(): Promise<void> {
   const bridgePort = await bridgeServer.start();
   console.log(`[antifan] Bridge Server running on 127.0.0.1:${bridgePort} (${IS_DEV ? 'DEV' : 'PROD'})`);
 
-  // Start Windows Native Messaging Local IPC Server
-  if (process.platform === 'win32') {
-    try {
-      localIpcServer = new LocalIpcServer();
-      await localIpcServer.start(bridgePort, () => {
-        const activeCapsule = capsuleManager?.getActive();
-        const activePartition = activeCapsule
-          ? deriveCapsulePartition(activeCapsule.id)
-          : deriveCapsulePartition('default');
-        return {
-          token: bridgeServer!.getToken(),
-          port: bridgePort,
-          activeCapsuleId: activeCapsule?.id,
-          activePartition,
-        };
-      }, StorageLocations.getRuntimeDir());
-      console.log(`[antifan] Native Messaging Local IPC Server listening at ${localIpcServer.getSocketPath()}`);
-
-      // Auto-register Chrome/Edge/Brave native messaging manifest on Windows
-      installNativeHost(COMPANION_EXTENSION_ID).catch((err) => {
-        console.warn('[antifan] Native messaging manifest registration notice:', err?.message || err);
-      });
-    } catch (err) {
-      console.warn('[antifan] Failed to start Native Messaging Local IPC Server:', err);
-    }
-  }
   if (IS_MCP_SERVER) {
     console.log('[antifan] Starting stdio MCP server...');
     mcpServer = new AntiFanMcpServer(tabHost, IS_MCP_HIGH_RISK, capabilityTransport);
@@ -442,9 +413,6 @@ function shutdown(): Promise<void> {
       bridgeServer?.dispose();
     } catch {}
     try {
-      localIpcServer?.close();
-    } catch {}
-    try {
       await mcpServer?.stop();
     } catch {}
     try {
@@ -477,7 +445,6 @@ app.on('before-quit', (event) => {
 });
 app.on('will-quit', () => {
   bridgeServer?.dispose();
-  localIpcServer?.close();
   tabHost?.dispose();
   profileLease?.release();
   profileLease = null;

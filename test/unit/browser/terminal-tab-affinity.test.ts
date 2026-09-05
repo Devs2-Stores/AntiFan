@@ -247,6 +247,40 @@ describe('Terminal-to-Tab Agent Affinity Contract Tests (NativeTabHost Seam)', (
       (err: any) => err.code === 'TARGET_MISMATCH' && err.message.includes('isolated to tab')
     );
   });
+  it('10b. BrowserControlPort.closeTab resolves alias to canonical tabId and computes failover', () => {
+    let closedId = '';
+    const mockHost = {
+      getTabList: () => [
+        { id: 'tab-primary', role: 'primary', alias: '@primary' },
+        { id: 'tab-child', role: 'child', alias: '@child' },
+        { id: 'tab-fallback', role: 'fallback' },
+      ],
+      hasTab: (id: string) => ['tab-primary', 'tab-child', 'tab-fallback'].includes(id),
+      resolveTargetTabId: (id: string) => {
+        if (id === '@primary' || id === '#1') return 'tab-primary';
+        if (id === '@child' || id === '#2') return 'tab-child';
+        return id;
+      },
+      isTabAllowed: (bound: string, req: string) => ['tab-primary', 'tab-child'].includes(bound) && ['tab-primary', 'tab-child'].includes(req),
+      getFailoverTargetTab: (closedTabId: string) => {
+        if (closedTabId === 'tab-primary') return 'tab-fallback';
+        return undefined;
+      },
+      closeTab: (id: string) => { closedId = id; return true; },
+    };
+    const port = new BrowserControlPort(mockHost as any);
+    const boundTarget = { projectId: 'p', workspaceId: 'w', runtimeId: 'r', tabId: 'tab-primary', browserEpoch: 1, documentGeneration: 1 } as any;
+
+    // 1. Alias input resolves to canonical returned tabId and bound-primary closure returns failover
+    const primaryResult = port.closeTab('@primary', { target: boundTarget });
+    assert.deepStrictEqual(primaryResult, { closed: true, tabId: 'tab-primary', failoverTabId: 'tab-fallback' });
+    assert.strictEqual(closedId, 'tab-primary');
+
+    // 2. Child closure resolves to canonical returned tabId and child closure does not return primary failover
+    const childResult = port.closeTab('#2', { target: boundTarget });
+    assert.deepStrictEqual(childResult, { closed: true, tabId: 'tab-child', failoverTabId: undefined });
+    assert.strictEqual(closedId, 'tab-child');
+  });
   it('11. Multi-Tab Affinity: adoptChildTab allows terminal to manage multiple tabs (Primary + Child)', () => {
     const host = createTestHost(['tab-live', 'tab-local', 'tab-unrelated']);
 

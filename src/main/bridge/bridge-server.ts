@@ -179,18 +179,19 @@ export class BridgeServer {
       const rawOrigin = typeof req.headers.origin === 'string' ? req.headers.origin : '';
       let isAllowedOrigin = false;
       if (rawOrigin) {
-        if (rawOrigin.startsWith('chrome-extension://')) {
-          isAllowedOrigin = true;
-        } else {
-          try {
-            const parsedOrigin = new URL(rawOrigin);
-            isAllowedOrigin = parsedOrigin.hostname === 'localhost' || parsedOrigin.hostname === '127.0.0.1';
-          } catch {
-            isAllowedOrigin = false;
-          }
+        try {
+          const parsedOrigin = new URL(rawOrigin);
+          isAllowedOrigin = parsedOrigin.hostname === 'localhost' || parsedOrigin.hostname === '127.0.0.1';
+        } catch {
+          isAllowedOrigin = false;
         }
       }
       if (req.method === 'OPTIONS') {
+        if (pathname === '/api/cookies/import' && rawOrigin && !isAllowedOrigin) {
+          res.writeHead(403, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'FORBIDDEN_ORIGIN', message: 'Cross-origin requests from non-loopback origins are forbidden.' }));
+          return;
+        }
         const preflightHeaders: Record<string, string> = {
           'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
           'Access-Control-Allow-Headers': 'Content-Type, Authorization, x-antifan-attachment-secret',
@@ -409,6 +410,11 @@ export class BridgeServer {
         return;
       }
       if (pathname === '/api/cookies/import' && req.method === 'POST') {
+        if (rawOrigin && !isAllowedOrigin) {
+          res.writeHead(403, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ success: false, error: 'FORBIDDEN_ORIGIN', message: 'Cross-origin requests from non-loopback origins are forbidden.' }));
+          return;
+        }
         let body = '';
         let size = 0;
         const MAX_BODY_SIZE = 10 * 1024 * 1024; // 10MB
@@ -433,12 +439,19 @@ export class BridgeServer {
 
           try {
             const data = JSON.parse(body || '{}');
+            const rawRemoved = Array.isArray(data.removed) ? data.removed : [];
+            if (rawRemoved.length > 0) {
+              res.writeHead(400, responseHeaders);
+              res.end(JSON.stringify({
+                success: false,
+                error: 'REMOVALS_UNSUPPORTED',
+                message: 'Cookie removal propagation is unsupported. This endpoint only supports one-way additive cookie hydration.',
+              }));
+              return;
+            }
             const rawCookies: ExtensionCookieInput[] = Array.isArray(data.cookies)
               ? data.cookies
               : (Array.isArray(data.upserted) ? data.upserted : []);
-            const rawRemoved: Array<{ name: string; domain?: string; host?: string; path?: string; secure?: boolean }> =
-              Array.isArray(data.removed) ? data.removed : [];
-
             const requestedPartition = typeof data.partition === 'string' && data.partition.trim()
               ? data.partition.trim()
               : (typeof data.targetPartition === 'string' && data.targetPartition.trim()
@@ -472,11 +485,6 @@ export class BridgeServer {
               targetSession = tabSession;
             } else {
               // Master bridge token: allow explicit tabId, partition, or default to active tab
-              if (data.source === 'chrome-extension-delta' && !requestedPartition) {
-                res.writeHead(400, responseHeaders);
-                res.end(JSON.stringify({ success: false, error: 'MISSING_TARGET_PARTITION', message: 'Explicit targetPartition or targetCapsuleId is required for background delta sync.' }));
-                return;
-              }
 
               if (typeof data.tabId === 'string' && data.tabId.trim()) {
                 const tabSession = this.tabHost.getTabSession(data.tabId.trim());
@@ -519,28 +527,6 @@ export class BridgeServer {
                 failedCount++;
               }
             }
-
-            // 2. Process Delta Removals
-            for (const rem of rawRemoved) {
-              if (!rem || !rem.name) continue;
-              const host = rem.domain || rem.host || '';
-              if (!host) {
-                skippedCount++;
-                continue;
-              }
-              const secure = Boolean(rem.secure);
-              const scheme = secure ? 'https://' : 'http://';
-              const domain = host.startsWith('.') ? host.substring(1) : host;
-              const cookiePath = rem.path || '/';
-              const cookieUrl = `${scheme}${domain}${cookiePath}`;
-              try {
-                await targetSession.cookies.remove(cookieUrl, rem.name);
-                removedCount++;
-              } catch {
-                failedCount++;
-              }
-            }
-
             try {
               await targetSession.cookies.flushStore();
             } catch {}
@@ -549,10 +535,10 @@ export class BridgeServer {
             res.end(JSON.stringify({
               success: true,
               importedCount,
-              removedCount,
+              removedCount: 0,
               skippedCount,
               failedCount,
-              totalReceived: rawCookies.length + rawRemoved.length,
+              totalReceived: rawCookies.length,
               targetTabId: data.tabId || this.tabHost.getActiveTab()?.id || null,
               targetPartition: requestedPartition || 'activeTab',
             }));

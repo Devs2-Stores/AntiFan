@@ -16,6 +16,7 @@ function createTestHost() {
   const host = Object.create(NativeTabHost.prototype) as TestHost;
   EventEmitter.call(host);
   const desktopWc = Object.assign(new EventEmitter(), {
+    id: 101,
     isDestroyed: (): boolean => false,
     getUserAgent: (): string => '',
     loadURL: async () => {},
@@ -39,6 +40,7 @@ function createTestHost() {
     destroy: () => {},
   });
   const mobileWc = Object.assign(new EventEmitter(), {
+    id: 102,
     isDestroyed: (): boolean => false,
     getUserAgent: (): string => '',
     loadURL: async () => {},
@@ -82,6 +84,7 @@ function createTestHost() {
     devicePresetId: 'responsive',
   };
 
+  host.touchEmulationStates = new WeakMap();
   host.activeTabId = 'tab-split-1';
   host.tabs = new Map([['tab-split-1', { state, view: desktopView, focusedPane: 'desktop' }]]);
   host.tabOrder = ['tab-split-1'];
@@ -518,11 +521,11 @@ describe('NativeTabHost Split Review Integration', () => {
       if (script.includes('antifan-device-clip')) mobileClippingScript = script;
       return '';
     };
-    mobileWc.debugger = {
+    mobileWc.debugger = Object.assign(new EventEmitter(), {
       isAttached: () => true,
       attach: () => {},
       sendCommand: async (cmd: string, params: any) => { cdpCalls.push({ cmd, params }); },
-    } as any;
+    }) as any;
 
     (NativeTabHost.prototype as any).applyTabDeviceEmulation.call(host, tab, 1600, 900, 74);
 

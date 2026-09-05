@@ -88,9 +88,6 @@ interface AntiFanToolbarApi {
   syncFromChromeCdp?: (port?: number) => Promise<{ success: boolean; count: number; message: string }>;
   getVaultStats?: (customPath?: string) => Promise<{ exists: boolean; count: number; lastModified?: number; filePath: string }>;
   checkUpdates?: () => Promise<void>;
-  launchChromeWithExtension?: (profileId?: string) => Promise<{ success: boolean; message: string; isRunning?: boolean }>;
-  launchChromeWithCdp?: (port?: number, profileId?: string) => Promise<{ success: boolean; message: string }>;
-  openExtensionFolder?: () => Promise<{ success: boolean; extensionDir: string; message: string }>;
   isChromeRunning?: () => Promise<boolean>;
   popoutTerminal?: () => Promise<boolean>;
   getSuggestions: (query: string) => Promise<{ suggestions: Array<{ type: 'search' | 'url' | 'bookmark' | 'history' | 'tab'; text: string; url?: string; tabId?: string; subText?: string }> }>;
@@ -1234,39 +1231,6 @@ function renderChromeProfiles() {
   divider.style.background = 'rgba(255, 255, 255, 0.1)';
   divider.style.margin = '4px 0';
   profileDropdownList.appendChild(divider);
-  // 1-Click Launch Chrome with Extension
-  const launchExtItem = document.createElement('div');
-  launchExtItem.className = 'profile-dropdown-item';
-  launchExtItem.innerHTML = '<span>🚀 Mở Chrome Đồng Bộ Cookies</span><span style="font-size:10px;color:#38bdf8;">Tự động nạp Extension</span>';
-  launchExtItem.title = 'Khởi chạy Google Chrome với AntiFan Extension đã nạp sẵn để tự động đồng bộ cookies';
-  launchExtItem.onclick = async () => {
-    profileDropdownMenu.style.display = 'none';
-    getApi()?.setOverlay(false);
-    showToolbarToast('🚀 Đang mở Google Chrome với Extension đồng bộ...');
-    const res = await getApi()?.launchChromeWithExtension?.(activeProfileInfo?.id);
-    if (res?.success) {
-      showToolbarToast(`✅ ${res.message}`, 6000);
-    } else {
-      showToolbarToast(`⚠️ ${res?.message || 'Không thể mở Chrome'}`, 5000);
-    }
-  };
-  profileDropdownList.appendChild(launchExtItem);
-
-  // Open Extension Folder & Guide
-  const guideExtItem = document.createElement('div');
-  guideExtItem.className = 'profile-dropdown-item';
-  guideExtItem.innerHTML = '<span>🧩 Cài đặt Extension vào Chrome</span><span style="font-size:10px;color:#c084fc;">Hướng dẫn</span>';
-  guideExtItem.title = 'Mở thư mục Extension và trang chrome://extensions để cài vĩnh viễn vào Google Chrome';
-  guideExtItem.onclick = async () => {
-    profileDropdownMenu.style.display = 'none';
-    getApi()?.setOverlay(false);
-    const res = await getApi()?.openExtensionFolder?.();
-    if (res?.success) {
-      showToolbarToast('📋 Đã copy đường dẫn Extension & mở Chrome! Vào chrome://extensions -> Bật Developer mode -> Load unpacked -> Dán đường dẫn!', 8000);
-    }
-  };
-  profileDropdownList.appendChild(guideExtItem);
-
 
   // Backup Vault Item
   const backupItem = document.createElement('div');
@@ -1314,7 +1278,7 @@ function renderChromeProfiles() {
     if (res?.success) {
       showToolbarToast(`✅ ${res.message}`, 4000);
     } else {
-      showToolbarToast(`⚠️ ${res?.message || 'Không thể kết nối Chrome CDP'}. Hãy thử bấm "🚀 Mở Chrome Đồng Bộ Cookies"!`, 6000);
+      showToolbarToast(`⚠️ ${res?.message || 'Không thể kết nối Chrome CDP'}. Hãy mở Chrome với cờ --remote-debugging-port=9222!`, 6000);
     }
   };
   profileDropdownList.appendChild(cdpItem);
@@ -1398,36 +1362,22 @@ function renderAppMenuProfiles() {
   appMenuDivider.style.margin = '4px 0';
   menuProfileSubList.appendChild(appMenuDivider);
 
-  // 1-Click Launch Chrome with Extension in App Menu
-  const appLaunchExt = document.createElement('div');
-  appLaunchExt.className = 'profile-sub-item';
-  appLaunchExt.innerHTML = '<span>🚀 Mở Chrome Đồng Bộ Cookies</span><span style="font-size:10px;color:#38bdf8;">Tự động nạp Extension</span>';
-  appLaunchExt.onclick = async (e) => {
+  // CDP Sync in App Menu
+  const appCdpSync = document.createElement('div');
+  appCdpSync.className = 'profile-sub-item';
+  appCdpSync.innerHTML = '<span>⚡ Hút Cookies (CDP)</span><span style="font-size:10px;color:#f59e0b;">CDP 9222</span>';
+  appCdpSync.onclick = async (e) => {
     e.stopPropagation();
     closeAppMenu();
-    showToolbarToast('🚀 Đang mở Google Chrome với Extension đồng bộ...');
-    const res = await getApi()?.launchChromeWithExtension?.(activeProfileInfo?.id);
+    showToolbarToast('🔄 Đang kết nối Chrome CDP 9222...');
+    const res = await getApi()?.syncFromChromeCdp?.();
     if (res?.success) {
-      showToolbarToast(`✅ ${res.message}`, 6000);
+      showToolbarToast(`✅ ${res.message}`, 4000);
     } else {
-      showToolbarToast(`⚠️ ${res?.message || 'Không thể mở Chrome'}`, 5000);
+      showToolbarToast(`⚠️ ${res?.message || 'Không thể kết nối Chrome CDP'}`, 5000);
     }
   };
-  menuProfileSubList.appendChild(appLaunchExt);
-
-  // Guide in App Menu
-  const appGuideExt = document.createElement('div');
-  appGuideExt.className = 'profile-sub-item';
-  appGuideExt.innerHTML = '<span>🧩 Cài đặt Extension vào Chrome</span><span style="font-size:10px;color:#c084fc;">Hướng dẫn</span>';
-  appGuideExt.onclick = async (e) => {
-    e.stopPropagation();
-    closeAppMenu();
-    const res = await getApi()?.openExtensionFolder?.();
-    if (res?.success) {
-      showToolbarToast('📋 Đã copy đường dẫn Extension & mở Chrome! Vào chrome://extensions -> Bật Developer mode -> Load unpacked -> Dán đường dẫn!', 8000);
-    }
-  };
-  menuProfileSubList.appendChild(appGuideExt);
+  menuProfileSubList.appendChild(appCdpSync);
 }
 
 function closeAppMenu() {

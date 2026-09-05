@@ -10,6 +10,7 @@ export interface TabContextMenuHostDelegate {
   getWindow(): BrowserWindow;
   getActiveTabId(): string;
   getActiveTab(): { url?: string; id?: string } | null | undefined;
+  getActiveTabSession(): Electron.Session | undefined;
   startInspect(): void;
   toggleInspect(): boolean;
   toggleFontFinder(): void;
@@ -268,7 +269,7 @@ export class TabContextMenuBuilder {
         ? chromeProfiles.map((p) => ({
             label: `Sync: ${p.name} (${p.id})`,
             click: async () => {
-              const res = await ChromeProfileSyncManager.getInstance().syncProfile(p.id);
+              const res = await ChromeProfileSyncManager.getInstance().syncProfile(p.id, this.host.getActiveTabSession());
               this.host.onProfileSynced?.();
               dialog.showMessageBox(win, {
                 type: res.success ? 'info' : 'warning',
