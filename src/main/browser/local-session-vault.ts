@@ -211,7 +211,12 @@ export class LocalSessionVault {
     cdpPort = 9222
   ): Promise<{ success: boolean; count: number; message: string }> {
     const { promise, resolve } = Promise.withResolvers<{ success: boolean; count: number; message: string }>();
-    const timeoutMs = 3000;
+    // Owned one-shot Chrome cold start (temp clone + fresh process on a busy
+    // machine + AV scan) can take seconds before the page-target WebSocket
+    // answers Network.getAllCookies. A tight 3s budget turned a WORKING sync
+    // into "CDP connection timed out after 3000ms" (reported on Profile 2);
+    // 12s keeps the failure mode real (never hangs) while covering cold start.
+    const timeoutMs = 12000;
       // Serialize all terminal paths: finish/fallback may only fire once, so a
       // listReq timeout + error double-trigger can never open two connections
       // or resolve the outer promise twice.
@@ -231,7 +236,7 @@ export class LocalSessionVault {
       const offlineMessage = `Không thể kết nối Chrome CDP trên cổng ${cdpPort}. Hãy dùng Import JSON hoặc mở Chrome với --remote-debugging-port=${cdpPort}.`;
 
       // 1. Prefer a PAGE target — Network.getAllCookies only exists on page targets.
-      const listReq = http.get(`http://127.0.0.1:${cdpPort}/json/list`, { timeout: 1500 }, (res) => {
+      const listReq = http.get(`http://127.0.0.1:${cdpPort}/json/list`, { timeout: 4000 }, (res) => {
         let body = '';
         res.on('data', (c) => (body += c));
         res.on('end', () => {
@@ -258,7 +263,7 @@ export class LocalSessionVault {
 
       // 2. Fallback: the browser-level endpoint (Storage.getCookies instead of Network).
       const fallbackToBrowserEndpoint = (): void => {
-        const versionReq = http.get(`http://127.0.0.1:${cdpPort}/json/version`, { timeout: 1500 }, (res) => {
+        const versionReq = http.get(`http://127.0.0.1:${cdpPort}/json/version`, { timeout: 4000 }, (res) => {
           let body = '';
           res.on('data', (c) => (body += c));
           res.on('end', () => {

@@ -1213,7 +1213,7 @@ function renderChromeProfiles() {
         renderChromeProfiles();
         renderAppMenuProfiles();
         if (res.hasLiveCookies === false && (!res.cookiesCount || res.cookiesCount === 0)) {
-          showToolbarToast(`ℹ️ Đã nạp ${res.bookmarksCount || 0} dấu trang, chưa nạp được cookies: ${res?.message || 'vui lòng thử lại sau khi đóng hẳn Chrome'}. App sẽ tự chạy Chrome headless riêng (không đụng Chrome đang mở).`, 7000);
+          showToolbarToast(`ℹ️ Đã nạp ${res.bookmarksCount || 0} dấu trang, chưa nạp được cookies: ${res?.message || 'Chrome đang bảo vệ cookies (App-Bound Encryption) hoặc đang mở. Hãy đóng hẳn Chrome rồi thử lại, hoặc dùng 💾 Sao lưu / 📥 Khôi phục Session Vault.'}`, 9000);
         } else {
           const cookieNote = res.cookiesCount > 0 ? ` (${res.cookiesCount} cookies, ${res.bookmarksCount || 0} bookmarks)` : '';
           showToolbarToast(`✅ Đã đồng bộ Chrome Profile: ${p.name || p.id}${cookieNote}`, 4000);
@@ -1327,7 +1327,7 @@ function renderAppMenuProfiles() {
         activeProfileInfo = p;
         renderChromeProfiles();
         if (res.hasLiveCookies === false && (!res.cookiesCount || res.cookiesCount === 0)) {
-          showToolbarToast(`ℹ️ Đã nạp ${res.bookmarksCount || 0} dấu trang, chưa nạp được cookies: ${res?.message || 'vui lòng thử lại sau khi đóng hẳn Chrome'}. App sẽ tự chạy Chrome headless riêng (không đụng Chrome đang mở).`, 7000);
+          showToolbarToast(`ℹ️ Đã nạp ${res.bookmarksCount || 0} dấu trang, chưa nạp được cookies: ${res?.message || 'Chrome đang bảo vệ cookies (App-Bound Encryption) hoặc đang mở. Hãy đóng hẳn Chrome rồi thử lại, hoặc dùng 💾 Sao lưu / 📥 Khôi phục Session Vault.'}`, 9000);
         } else {
           const cookieNote = res.cookiesCount > 0 ? ` (${res.cookiesCount} cookies, ${res.bookmarksCount || 0} bookmarks)` : '';
           showToolbarToast(`✅ Đã đồng bộ Chrome Profile: ${p.name || p.id}${cookieNote}`, 4000);

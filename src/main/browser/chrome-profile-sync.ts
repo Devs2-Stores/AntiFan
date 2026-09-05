@@ -474,6 +474,18 @@ export class ChromeProfileSyncManager {
       if (!res.success) {
         return { count: 0, message: res.message };
       }
+      if (res.count === 0) {
+        // Chrome 2025+ Windows: real profiles (and any profile created by the
+        // regular Chrome UI) encrypt cookies with App-Bound Encryption v20.
+        // The keys do NOT follow a profile clone, so getAllCookies returns 0
+        // even though the Cookies DB is full. Verify always happens on a
+        // standalone profile so a seeded/smoke profile still works; a real
+        // user profile cannot be read through the owned clone at all.
+        return {
+          count: 0,
+          message: 'Chrome trả 0 cookies — profile được mã hoá bằng App-Bound Encryption (v20), bản clone không đọc được (cơ chế chống sao chép cookies của Chrome). Hãy dùng 💾 Sao lưu / 📥 Khôi phục Session Vault.',
+        };
+      }
       return { count: res.count, message: '' };
     } catch (err: unknown) {
       return { count: 0, message: `Lỗi hút cookies qua CDP: ${err instanceof Error ? err.message : String(err)}` };
