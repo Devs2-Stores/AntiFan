@@ -443,11 +443,13 @@ export class TabAutomationHost {
         return { success: false, fallbackNeeded: true, reason: 'Debugger busy' };
       }
     }
+    let focusEmulationEnabled = false;
     try {
       if (typeof wc.focus === 'function') {
         wc.focus();
       }
       await this.sendCdpInputCommand(wc, 'Emulation.setFocusEmulationEnabled', { enabled: true });
+      focusEmulationEnabled = true;
     } catch {}
 
     let dispatchStage: 'none' | 'moved' | 'pressed' | 'released' = 'none';
@@ -517,6 +519,12 @@ export class TabAutomationHost {
         executionTier: 'cdp_trusted',
         reason: `CDP dispatch failed: ${errMsg}`,
       };
+    } finally {
+      if (focusEmulationEnabled) {
+        try {
+          await this.sendCdpInputCommand(wc, 'Emulation.setFocusEmulationEnabled', { enabled: false }, 1000);
+        } catch {}
+      }
     }
   }
 
@@ -561,11 +569,13 @@ export class TabAutomationHost {
       }
     }
 
+    let focusEmulationEnabled = false;
     try {
       if (typeof wc.focus === 'function') {
         wc.focus();
       }
       await this.sendCdpInputCommand(wc, 'Emulation.setFocusEmulationEnabled', { enabled: true });
+      focusEmulationEnabled = true;
     } catch {}
     try {
       await this.sendCdpInputCommand(wc, 'Input.dispatchMouseEvent', {
@@ -586,6 +596,12 @@ export class TabAutomationHost {
         executionTier: 'cdp_trusted',
         reason: `CDP dispatch failed: ${cdpErr instanceof Error ? cdpErr.message : String(cdpErr)}`,
       };
+    } finally {
+      if (focusEmulationEnabled) {
+        try {
+          await this.sendCdpInputCommand(wc, 'Emulation.setFocusEmulationEnabled', { enabled: false }, 1000);
+        } catch {}
+      }
     }
   }
   public async dispatchAgentAction(

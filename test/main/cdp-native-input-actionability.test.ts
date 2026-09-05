@@ -381,6 +381,7 @@ describe('Phase 03: Pure CSS-Pixel CDP Input & Actionability Gate', () => {
     assert.strictEqual((result.data as any)?.tier, 'cdp_trusted');
     assert.strictEqual((result.data as any)?.inputType, 'touch');
     assert.ok(cdpSentCommands.some((c) => c.method === 'Emulation.setFocusEmulationEnabled' && c.params?.enabled === true));
+    assert.ok(cdpSentCommands.some((c) => c.method === 'Emulation.setFocusEmulationEnabled' && c.params?.enabled === false));
     const mouseEvents = cdpSentCommands.filter((c) => c.method === 'Input.dispatchMouseEvent');
     assert.deepStrictEqual(mouseEvents.map((c) => c.params?.type), ['mouseMoved', 'mousePressed', 'mouseReleased']);
     assert.strictEqual(mouseEvents[1]?.params?.x, 140);
@@ -419,11 +420,13 @@ describe('Phase 03: Pure CSS-Pixel CDP Input & Actionability Gate', () => {
 
     assert.strictEqual(result.success, false);
     assert.match(result.reason || '', /mouse release failed after mousePressed/);
+    const mouseEvents = cdpSentCommands.filter((command) => command.method === 'Input.dispatchMouseEvent');
     assert.deepStrictEqual(
-      cdpSentCommands.filter((command) => command.method === 'Input.dispatchMouseEvent').map((command) => command.params?.type),
+      mouseEvents.map((command) => command.params?.type),
       ['mouseMoved', 'mousePressed', 'mouseReleased', 'mouseReleased']
     );
-    assert.strictEqual(cdpSentCommands.at(-1)?.params?.buttons, 0);
+    assert.strictEqual(mouseEvents.at(-1)?.params?.buttons, 0);
+    assert.ok(cdpSentCommands.some((c) => c.method === 'Emulation.setFocusEmulationEnabled' && c.params?.enabled === false));
   });
 
   it('6. Dispatches CDP mouse hover (mouseMoved) event to element center', async () => {
@@ -444,6 +447,8 @@ describe('Phase 03: Pure CSS-Pixel CDP Input & Actionability Gate', () => {
     assert.ok(mouseMoved, 'Must dispatch CDP mouseMoved for hover');
     assert.strictEqual(mouseMoved?.params?.x, 140);
     assert.strictEqual(mouseMoved?.params?.y, 170);
+    assert.ok(cdpSentCommands.some((c) => c.method === 'Emulation.setFocusEmulationEnabled' && c.params?.enabled === true));
+    assert.ok(cdpSentCommands.some((c) => c.method === 'Emulation.setFocusEmulationEnabled' && c.params?.enabled === false));
   });
 
   it('7. Dispatches CDP keyboard text insertion for trusted typing', async () => {
