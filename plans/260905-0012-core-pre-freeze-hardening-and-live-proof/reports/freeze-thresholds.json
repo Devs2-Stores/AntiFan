@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "type": "antifan-core-freeze-thresholds",
-  "buildIdentity": "7e92d354a292c83eefc94b6ccb1e044cba11ba09a347747bc23d0856981fb446",
+  "buildIdentity": "a2003a251b08d2fa6302efa2bb562441ce1d49d03594a11f05446e46ed4d4002",
   "certificationDurationMinutes": 45,
   "sampleIntervalMs": 500,
   "resourceSampleIntervalMs": 5000,
@@ -33,5 +33,5 @@
     "maxReceiptBytes": 65536,
     "invocationFramesPerCapability": 3
   },
-  "thresholdChecksum": "4f19a37bb8a3b5180081110453c92043582369e284aed3e015023cfef8f68b20"
+  "thresholdChecksum": "339cfda0d677937fe62b3238243798fb0c5593f5d0cc13af615d7ba03da16e7e"
 }
