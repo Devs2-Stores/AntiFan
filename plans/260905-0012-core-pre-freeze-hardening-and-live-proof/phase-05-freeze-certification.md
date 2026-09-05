@@ -145,6 +145,7 @@ npm run certify:core-freeze
 `certify:core-freeze` must produce three 45-minute reports plus one all-pass certificate from fresh processes.
 
 Certification regeneration is deferred until the workstation is available for an uninterrupted `3 × 45`-minute sequence. The 2026-09-05 attempt proved run 1 under the hardened duration validator, then run 2 failed closed at `freeze-theme-workload.cjs:292` because the Drawer trace returned `verified: false`. Root cause was diagnosed and resolved: in emulated mobile viewports, `Input.dispatchMouseEvent` required active WebContents focus (`wc.focus()`) and CDP focus emulation (`Emulation.setFocusEmulationEnabled({ enabled: true })`) to prevent Chromium from silently dropping trusted mouse input. The fix was verified across the unit suite (32/32), sub-controller tests (12/12), real Chromium E2E (`node --test .compiled/test/e2e/theme-golden-live.test.js`), and quick soak (`npm run smoke:soak` with 25/25 capabilities, 0/0 false acceptances). The next 3x45m certification attempt will start from run 1 with this fix active.
+Certification abandoned early at user decision after 3x45m runs deemed unnecessary; quick soak + live proof remain the accepted evidence; no freeze certificate issued.
 
 ## Todo
 
