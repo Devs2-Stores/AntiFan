@@ -604,7 +604,10 @@ app.whenReady().then(async () => {
         const splitTextarea = splitHostEl?.querySelector('textarea');
         if (splitTextarea) {
           splitTextarea.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowUp', altKey: true, bubbles: true, cancelable: true }));
-          await sleep(150);
+          for (let i = 0; i < 10; i++) {
+            if (mainPane.classList.contains('focused-pane')) break;
+            await sleep(50);
+          }
           if (!mainPane.classList.contains('focused-pane')) {
             throw new Error('Alt+Up failed to focus main pane');
           }

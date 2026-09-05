@@ -670,8 +670,6 @@ function renderTabs() {
         <span class="tab-index-badge">#${index + 1}</span>
         <span class="tab-spinner" style="display:none;"></span>
         <img class="tab-icon" src="" alt=""/>
-        <span class="tab-alias-badge" style="display:none;"></span>
-        <span class="tab-agent-badge" style="display:none;">🤖 AGENT</span>
         <span class="tab-title"></span>
         <span class="tab-audio-btn" style="display:none;" title="Tắt tiếng tab"></span>
         <span class="tab-status-dot done" title="Ready"></span>
@@ -783,43 +781,8 @@ function renderTabs() {
     const spinner = tabEl.querySelector('.tab-spinner') as HTMLElement;
     const icon = tabEl.querySelector('.tab-icon') as HTMLImageElement;
     const statusDot = tabEl.querySelector('.tab-status-dot') as HTMLElement;
-    const agentBadge = tabEl.querySelector('.tab-agent-badge') as HTMLElement;
     const titleSpan = tabEl.querySelector('.tab-title') as HTMLElement;
-    const aliasBadge = tabEl.querySelector('.tab-alias-badge') as HTMLElement;
-    if (aliasBadge) {
-      if (tab.alias) {
-        aliasBadge.style.display = 'inline-flex';
-        aliasBadge.textContent = tab.alias;
-        if (tab.aliasColor) {
-          aliasBadge.style.backgroundColor = tab.aliasColor;
-        } else {
-          aliasBadge.style.backgroundColor = '#2563eb';
-        }
-      } else {
-        aliasBadge.style.display = 'none';
-      }
-    }
     const audioBtn = tabEl.querySelector('.tab-audio-btn') as HTMLElement;
-
-    // Keep the ownership badge visible for the automation target even when
-    // the short-lived activity state has returned to idle.
-    if (agentBadge) {
-      if (isAgentWorking) {
-        agentBadge.style.display = 'inline-flex';
-        agentBadge.className = 'tab-agent-badge agent';
-        agentBadge.textContent = '🤖 AGENT';
-      } else if (isAgentControlled) {
-        agentBadge.style.display = 'inline-flex';
-        agentBadge.className = 'tab-agent-badge controlled';
-        agentBadge.textContent = '🎯 AGENT TAB';
-      } else if (isAiStreaming) {
-        agentBadge.style.display = 'inline-flex';
-        agentBadge.className = 'tab-agent-badge ai';
-        agentBadge.textContent = '⚡ AI';
-      } else {
-        agentBadge.style.display = 'none';
-      }
-    }
     // Update Audio & Mute State
     if (audioBtn) {
       if (tab.isAudible || tab.isMuted) {

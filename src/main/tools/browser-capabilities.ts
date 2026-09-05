@@ -1335,7 +1335,10 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
       try { templateHierarchy = await browser.eval(target, getThemeHierarchyScript(), params.tabId) || templateHierarchy; } catch {}
       let cartTelemetry = hsRules.cartTelemetry;
       if (!cartTelemetry) { try { const value = await browser.eval(target, HsGateRules.getBrowserCartAssertionScript(), params.tabId); cartTelemetry = HsGateRules.evaluateCartTelemetry(value); } catch {} }
-      return { target, platform, templateHierarchy, liquid, overflow, cartTelemetry, hsRules, timestamp: Date.now() };
+      const effectiveTarget = params.tabId && typeof params.tabId === 'string' && params.tabId.trim().length > 0 && params.tabId.trim() !== target?.tabId
+        ? { ...target, tabId: params.tabId.trim() }
+        : target;
+      return { target: effectiveTarget, platform, templateHierarchy, liquid, overflow, cartTelemetry, hsRules, timestamp: Date.now() };
     },
   });
 

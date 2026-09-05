@@ -2353,11 +2353,34 @@ export class BrowserControlPort {
         }
       }
 
+      // Resolve target rectangle from clipRect or selector for focused visual compare
+      let resolvedRect: { x: number; y: number; width: number; height: number } | undefined = params.clipRect
+        ? { x: Math.round(params.clipRect.x), y: Math.round(params.clipRect.y), width: Math.round(params.clipRect.width), height: Math.round(params.clipRect.height) }
+        : undefined;
+
+      if (!resolvedRect && params.selector && typeof this.host.evalJs === 'function') {
+        try {
+          const rawRect = await this.host.evalJs(`(() => {
+            const el = document.querySelector(${JSON.stringify(params.selector)});
+            if (!el) return null;
+            const r = el.getBoundingClientRect();
+            if (r.width <= 0 || r.height <= 0) return null;
+            return { x: Math.max(0, Math.round(r.x)), y: Math.max(0, Math.round(r.y)), width: Math.round(r.width), height: Math.round(r.height) };
+          })()`, tabId, effectivePane);
+          if (rawRect && typeof rawRect === 'object' && 'width' in rawRect && 'height' in rawRect) {
+            const cast = rawRect as { x: number; y: number; width: number; height: number };
+            if (cast.width > 0 && cast.height > 0) {
+              resolvedRect = cast;
+            }
+          }
+        } catch {}
+      }
+
       const captureOpts = { format: 'png' as const, fullPage: Boolean(params.fullPage) };
-      let curBase64 = await this.host.captureScreenshot(undefined, tabId, effectivePane, captureOpts);
+      let curBase64 = await this.host.captureScreenshot(resolvedRect, tabId, effectivePane, captureOpts);
       if (!curBase64 || curBase64.length === 0) {
         await new Promise((r) => setTimeout(r, 150));
-        curBase64 = await this.host.captureScreenshot(undefined, tabId, effectivePane, captureOpts);
+        curBase64 = await this.host.captureScreenshot(resolvedRect, tabId, effectivePane, captureOpts);
       }
       if (!curBase64 || curBase64.length === 0) {
         throw new CapabilityError('TARGET_STALE', `Failed to capture non-empty viewport screenshot on tab '${tabId}' (document may still be rendering)`);
@@ -2405,10 +2428,28 @@ export class BrowserControlPort {
             // Non-blocking normalization
           }
         }
-        let compBase64 = await this.host.captureScreenshot(undefined, compTabId, effectivePane, captureOpts);
+        let compRect = resolvedRect;
+        if (params.selector && typeof this.host.evalJs === 'function') {
+          try {
+            const rawRect = await this.host.evalJs(`(() => {
+              const el = document.querySelector(${JSON.stringify(params.selector)});
+              if (!el) return null;
+              const r = el.getBoundingClientRect();
+              if (r.width <= 0 || r.height <= 0) return null;
+              return { x: Math.max(0, Math.round(r.x)), y: Math.max(0, Math.round(r.y)), width: Math.round(r.width), height: Math.round(r.height) };
+            })()`, compTabId, effectivePane);
+            if (rawRect && typeof rawRect === 'object' && 'width' in rawRect && 'height' in rawRect) {
+              const cast = rawRect as { x: number; y: number; width: number; height: number };
+              if (cast.width > 0 && cast.height > 0) {
+                compRect = cast;
+              }
+            }
+          } catch {}
+        }
+        let compBase64 = await this.host.captureScreenshot(compRect, compTabId, effectivePane, captureOpts);
         if (!compBase64 || compBase64.length === 0) {
           await new Promise((r) => setTimeout(r, 150));
-          compBase64 = await this.host.captureScreenshot(undefined, compTabId, effectivePane, captureOpts);
+          compBase64 = await this.host.captureScreenshot(compRect, compTabId, effectivePane, captureOpts);
         }
         if (!compBase64 || compBase64.length === 0) {
           throw new CapabilityError('TARGET_STALE', `Failed to capture non-empty baseline screenshot on comparison tab '${compTabId}'`);

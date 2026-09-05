@@ -302,4 +302,107 @@ describe('Phase 3: Theme Evidence Capabilities', () => {
     assert.strictEqual(matrixRes.signals.hasTargetOverflow, false);
     assert.strictEqual(matrixRes.signals.allBreakpointsTested, true);
   });
+
+  it('verifies theme.debug_bundle synchronizes target.tabId with params.tabId', async () => {
+    const projectId = makeControlPlaneId('project');
+    const workspaceId = makeControlPlaneId('workspace');
+    const lease = issueRuntimeLease(projectId, workspaceId, 30_000, 1);
+    const catalogue = new CapabilityCatalogue({
+      runtime: { mode: 'standalone', lifecycle: 'active' },
+      projectId,
+      workspaceId,
+      runtimeId: lease.runtimeId,
+      hostEpoch: 1,
+    });
+
+    const mockHost: BrowserHostPort = {
+      navigate: () => true,
+      reload: () => true,
+      captureScreenshot: async () => 'data:image/png;base64,mock',
+      getTabList: () => [{ id: 'tab-policy' }, { id: 'tab-product' }],
+      hasTab: (id) => id === 'tab-policy' || id === 'tab-product',
+      getDom: async () => '<html><body><div>No error</div></body></html>',
+      evalJs: async () => ({ hasOverflow: false, deltaX: 0, culprits: [] }),
+    };
+
+    const port = new BrowserControlPort(mockHost);
+    registerBrowserCapabilities(catalogue, port, undefined, () => fixtureThemeRoot);
+
+    const target: BrowserTarget = {
+      tabId: 'tab-policy',
+      browserEpoch: 1,
+      documentGeneration: 1,
+      runtimeId: lease.runtimeId,
+      projectId,
+      workspaceId,
+    };
+
+    // When tabId is not supplied, target remains tab-policy
+    const defaultRes = (await catalogue.dispatch(
+      'theme.debug_bundle',
+      {},
+      { lease, leaseToken: lease.token, projectId, workspaceId, browserTarget: target }
+    )) as { target: BrowserTarget };
+    assert.strictEqual(defaultRes.target.tabId, 'tab-policy');
+
+    // When tabId is specified as tab-product, target.tabId is synchronized to tab-product
+    const customRes = (await catalogue.dispatch(
+      'theme.debug_bundle',
+      { tabId: 'tab-product' },
+      { lease, leaseToken: lease.token, projectId, workspaceId, browserTarget: target }
+    )) as { target: BrowserTarget };
+    assert.strictEqual(customRes.target.tabId, 'tab-product');
+  });
+
+  it('verifies visualCompare resolves selector bounding rect and passes rect to captureScreenshot', async () => {
+    let capturedRect: any = undefined;
+    const mockHost: BrowserHostPort = {
+      navigate: () => true,
+      reload: () => true,
+      getDom: async () => '',
+      getTabList: () => [{ id: 'tab-live' }, { id: 'tab-comp' }],
+      hasTab: (id) => id === 'tab-live' || id === 'tab-comp',
+      isTabAllowed: () => true,
+      captureScreenshot: async (rect) => {
+        capturedRect = rect;
+        // 1x1 base64 png
+        return 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+      },
+      evalJs: async (expr) => {
+        if (typeof expr === 'string' && expr.includes('getBoundingClientRect')) {
+          return { x: 100, y: 200, width: 300, height: 400 };
+        }
+        return null;
+      },
+    };
+
+    const port = new BrowserControlPort(mockHost);
+    const target: BrowserTarget = {
+      tabId: 'tab-live',
+      browserEpoch: 1,
+      documentGeneration: 1,
+      runtimeId: 'rt-1',
+      projectId: 'proj-1',
+      workspaceId: 'ws-1',
+    };
+
+    // Run visual compare with selector (in pure Node.js without Electron runtime, computePixelDiff rejects on nativeImage)
+    await assert.rejects(
+      async () => port.visualCompare(
+        target,
+        'run-1',
+        'att-1',
+        {
+          comparisonTabId: 'tab-comp',
+          selector: '.toda-catalogue-block',
+        }
+      ),
+      (err: any) => err.code === 'CAPABILITY_NOT_FOUND' && err.message.includes('nativeImage')
+    );
+    assert.ok(capturedRect);
+    assert.strictEqual(capturedRect.x, 100);
+    assert.strictEqual(capturedRect.y, 200);
+    assert.strictEqual(capturedRect.width, 300);
+    assert.strictEqual(capturedRect.height, 400);
+  });
 });

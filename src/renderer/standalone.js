@@ -2076,7 +2076,21 @@ window.addEventListener('keydown', (e) => {
     e.preventDefault();
     openNewWin();
   }
-});
+  // Alt+Up / Ctrl+Alt+Up: Focus Main Pane
+  if ((e.altKey && (e.key === 'ArrowUp' || e.key === 'Up')) ||
+      ((e.ctrlKey || e.metaKey) && e.altKey && (e.key === 'ArrowUp' || e.key === 'Up'))) {
+    e.preventDefault();
+    focusMainPane();
+  }
+  // Alt+Down / Ctrl+Alt+Down: Focus Split Pane
+  if ((e.altKey && (e.key === 'ArrowDown' || e.key === 'Down')) ||
+      ((e.ctrlKey || e.metaKey) && e.altKey && (e.key === 'ArrowDown' || e.key === 'Down'))) {
+    if (splitEnabled) {
+      e.preventDefault();
+      focusSplitPane();
+    }
+  }
+}, true);
 
 window.addEventListener('focus', () => {
   fitCurrentTerminal();

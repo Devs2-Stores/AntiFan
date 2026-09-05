@@ -914,8 +914,9 @@ export class TabDevToolsHost {
     const format = options?.format === 'jpeg' ? 'jpeg' : 'png';
     const rawQuality = typeof options?.quality === 'number' ? options.quality : 80;
     const quality = Math.max(1, Math.min(100, Math.round(rawQuality <= 1 && rawQuality > 0 ? rawQuality * 100 : rawQuality)));
-    const isFullPage = Boolean(options?.fullPage);
-    return this.ctx.withTabAgentWorking(targetId, async () => {
+     const isFullPage = Boolean(options?.fullPage);
+    const isForeground = targetId === this.ctx.getActiveTabId();
+     return this.ctx.withTabAgentWorking(targetId, async () => {
       let maskStyleInjected = false;
       const maskStyleId = '__antifan_screenshot_mask_style';
       if (options?.maskSelectors && Array.isArray(options.maskSelectors) && options.maskSelectors.length > 0) {
@@ -1018,26 +1019,28 @@ export class TabDevToolsHost {
             throw err;
           }
         }
-        // Tier 1: Fast webContents.capturePage() with 600ms race
-        try {
-          const img = await withTimeout(wc.capturePage(rect), 600, null);
-          if (img && typeof img.isEmpty === 'function' && !img.isEmpty()) {
-            if (format === 'jpeg' && typeof img.toJPEG === 'function') {
-              return img.toJPEG(quality).toString('base64');
+        if (isForeground) {
+          // Tier 1: Fast webContents.capturePage() with 600ms race (foreground tab only to avoid compositor surface bleed)
+          try {
+            const img = await withTimeout(wc.capturePage(rect), 600, null);
+            if (img && typeof img.isEmpty === 'function' && !img.isEmpty()) {
+              if (format === 'jpeg' && typeof img.toJPEG === 'function') {
+                return img.toJPEG(quality).toString('base64');
+              }
+              return img.toPNG().toString('base64');
             }
-            return img.toPNG().toString('base64');
-          }
-          if (img && typeof img.toPNG === 'function') {
-            if (format === 'jpeg' && typeof img.toJPEG === 'function') {
-              const jpegBuf = img.toJPEG(quality);
-              if (jpegBuf.length > 0) return jpegBuf.toString('base64');
+            if (img && typeof img.toPNG === 'function') {
+              if (format === 'jpeg' && typeof img.toJPEG === 'function') {
+                const jpegBuf = img.toJPEG(quality);
+                if (jpegBuf.length > 0) return jpegBuf.toString('base64');
+              }
+              const pngBuf = img.toPNG();
+              if (pngBuf.length > 0) {
+                return pngBuf.toString('base64');
+              }
             }
-            const pngBuf = img.toPNG();
-            if (pngBuf.length > 0) {
-              return pngBuf.toString('base64');
-            }
-          }
-        } catch {}
+          } catch {}
+        }
 
         // Tier 2: CDP Page.captureScreenshot with surface sync & compositor wake kick (800ms race)
         try {
@@ -1047,8 +1050,8 @@ export class TabDevToolsHost {
             const cdpRes = await this.sendCdpCommand<{ data?: string }>(wc, 'Page.captureScreenshot', {
               format,
               quality: format === 'jpeg' ? quality : undefined,
-              fromSurface: true,
-              captureBeyondViewport: false,
+              fromSurface: isForeground,
+              captureBeyondViewport: !isForeground,
               clip: rect
                 ? { x: rect.x, y: rect.y, width: rect.width, height: rect.height, scale: 1 }
                 : undefined,
