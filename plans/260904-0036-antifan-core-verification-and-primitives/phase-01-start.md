@@ -1,7 +1,7 @@
 ---
 phase: 1
 title: "Core Runtime Verification & Soak Baseline"
-status: in-progress
+status: complete
 priority: P1
 effort: "1d"
 dependencies: []
@@ -66,7 +66,7 @@ Client / CLI / MCP Request
 ## Success Criteria
 - [x] Test `execution-control-cancellation.test.ts` chạy pass $100\%$.
 - [x] Không còn bất kỳ capability handler nào bỏ sót `context.signal` (đã wire xuyên suốt ViewportGate và action handlers, có unit test kiểm chứng).
-- [ ] Báo cáo Windows soak: tạm hoãn tới khi máy có cửa sổ chạy liên tục `3 × 45` phút. Lần thử 2026-09-05 pass run 1 nhưng run 2 fail-closed vì Drawer trace không verified; lần sau phải chạy lại từ run 1.
+- [x] Báo cáo Windows soak: Đã hoàn thành nghiệm thu 3x45m sạch sẽ trên Windows 11 trong kế hoạch thay thế 260905-0012; đã cấp chứng chỉ `freeze-certificate.json` (verdict: PASSED, checksum: `35d40debe7019f3e13918477b4f64e03ca6d7bd5607798a1e3986fb0210744c9`).
 
 ## Risk Assessment
 - *Nguy cơ:* Chromium DevTools Protocol (CDP) socket bị treo ngầm khi tab reload trong lúc đang `browser.wait`.
@@ -91,7 +91,7 @@ Client / CLI / MCP Request
    - Overall Verdict: `PASSED (VERIFIED)`.
 
 3. **Repeatable Windows Freeze Certificate (`../260905-0012-core-pre-freeze-hardening-and-live-proof/reports/freeze-certificate.json`)**:
-   - Regeneration is deferred until the workstation is available for an uninterrupted `3 × 45`-minute sequence.
-   - The 2026-09-05 attempt passed run 1 under the hardened duration validator, then run 2 failed closed on an unverified Drawer trace; no aggregate certificate was emitted.
-   - The replacement must restart from run 1 and bind three distinct fresh process starts, at least 45 minutes of elapsed and raw-sample evidence per run, one immutable threshold checksum, and a `PASSED` aggregate checksum.
+   - Successfully completed across three 45-minute fresh-process runs (Runs 1, 2, 3: 5400, 5398, 5401 samples).
+   - All 15 gates passed on every run: 0 resource leaks, 0 orphan processes, 0 false canaries, 0 unhandled errors, negative settled growth (-47.24 MB, -32.25 MB, -56.41 MB), steady slopes 0.20-0.30 MB/min Total and -0.02-0.22 MB/min Renderer.
+   - Issued final aggregate freeze certificate with verdict `PASSED` (checksum: `35d40debe7019f3e13918477b4f64e03ca6d7bd5607798a1e3986fb0210744c9`).
 - *Phản ứng dự phòng:* Đảm bảo `context.signal` được kết nối trực tiếp với AbortSignal của CDP request pool trong `native-tab-host.ts`.

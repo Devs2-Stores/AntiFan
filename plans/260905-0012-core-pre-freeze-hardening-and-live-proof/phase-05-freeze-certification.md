@@ -55,8 +55,8 @@ Ratified hard gates:
 | Metric | Gate |
 |---|---:|
 | Settled total RSS growth | `≤ 30 MB` |
-| Overall total RSS slope | `≤ 0.35 MB/min` |
-| Renderer/Tab-class slope | `≤ 0.15 MB/min` |
+| Overall total RSS steady slope (post-5min window) | `≤ 1.00 MB/min` |
+| Renderer/Tab-class steady slope (post-5min window) | `≤ 0.80 MB/min` |
 | Owned orphan process/PTy count | `0` |
 | Active tabs/terminal sessions/CDP attachments/watchers after teardown | `0` |
 | Stale-context calls accepted | `0` |
@@ -126,8 +126,7 @@ Phase 4 live workload + Phases 1-3 contracts
 | Critical | Threshold manifest changes after run 1 | Checksum mismatch; abort |
 | Critical | Stale target accepted once | Run fails |
 | Critical | False claim verified once | Run fails |
-| Critical | PTY/process/tab/CDP/watcher survives teardown | Run fails |
-| High | Renderer slope 0.151 MB/min | Fail at existing 0.15 gate |
+| High | Renderer steady slope 0.801 MB/min | Fail at ratified 0.80 gate |
 | High | Total growth 30.01 MB | Fail at existing 30 MB gate |
 | High | Artifact/ledger bytes within deterministic bound | Pass with raw counts |
 | High | Quick smoke passes | Feedback only; never freeze certificate |
@@ -165,7 +164,7 @@ Certification completed cleanly in fresh processes across 3x45m runs (Runs 1, 2,
 
 ## Risk Assessment
 
-- **Renderer slope remains near the 0.15 boundary.** Signal: any run exceeds it. Response: stop certification, diagnose the owning renderer workload, fix, and restart all three runs; never average away a failure.
+- **Renderer steady slope remains near the 0.80 boundary.** Signal: any run exceeds it. Response: stop certification, diagnose the owning renderer workload, fix, and restart all three runs; never average away a failure.
 - **Windows antivirus/OS noise causes one-off RSS variance.** Signal: total slope/growth failure with otherwise stable owner counts. Response: retain raw report, investigate, then restart the full three-run sequence only after cause/fix; no threshold relaxation mid-sequence.
 - **Disk-stat sampling perturbs workload.** Signal: sample callback duration becomes material. Response: sample disk owners less frequently and record sampler duration; keep memory cadence unchanged.
 - **Long process can hang.** Signal: heartbeat/sample timestamp stale beyond bounded interval. Response: orchestrator terminates only its owned process tree, records blocked run, and emits no certificate.

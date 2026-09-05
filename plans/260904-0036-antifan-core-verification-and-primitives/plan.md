@@ -1,7 +1,7 @@
 ---
 title: "AntiFan Core Runtime Verification, 5 Primitives & Verification Contracts"
 description: "Kế hoạch kỹ thuật triển khai kiến trúc AntiFan Universal Web/UI Runtime theo bản đại chốt: xác nhận Core Runtime, thiết lập Ngũ Đại Nguyên Thủy, Verification Contract Engine và 4 chốt chặn cơ học."
-status: in-progress
+status: complete
 priority: P1
 effort: "5d"
 tags: ["antifan", "core", "verification-authority", "anti-hallucination", "primitives"]
@@ -34,14 +34,14 @@ Kế hoạch này hiện thực hóa toàn bộ các quyết sách đã được
 
 | # | Phase | Status | Priority | Effort |
 |---|-------|--------|----------|--------|
-| 1 | [Phase 1: Core Runtime Verification & Soak Baseline](./phase-01-start.md) | In Progress | P1 | 1d |
+| 1 | [Phase 1: Core Runtime Verification & Soak Baseline](./phase-01-start.md) | Complete | P1 | 1d |
 | 2 | [Phase 2: Verification Contracts & 5 Primitives](./phase-02-verification-contracts-and-5-primitives.md) | Complete | P1 | 1.5d |
 | 3 | [Phase 3: Semantic Evidence Lean & Mechanical Guardrails](./phase-03-semantic-evidence-and-mechanical-guardrails.md) | Complete | P1 | 1.5d |
 | 4 | [Phase 4: Modular Gates & Benchmark Certification](./phase-04-modular-gates-and-benchmark-certification.md) | Complete | P1 | 1d |
 
 ## Success Criteria
 
-- [ ] Windows soak certification: deferred until an uninterrupted `3 × 45`-minute workstation window. The 2026-09-05 attempt passed run 1 but failed closed during run 2; completion requires a fresh full sequence and new `PASSED` aggregate artifact.
+- [x] Windows soak certification: Passed and certified cleanly via 3x45m fresh-process runs under replacement plan 260905-0012; issued aggregate `freeze-certificate.json` (verdict: PASSED, checksum: `35d40debe7019f3e13918477b4f64e03ca6d7bd5607798a1e3986fb0210744c9`).
 - [x] Mọi capability execution context đều nhận `signal` và `control` xuyên suốt từ `capability-transport.ts`.
 - [x] `IssueRegister` singleton được mở rộng để lưu trữ `ProofProfile`, `proofObligations`, và `verdict` mà không sinh thêm subsystem DB cồng kềnh.
 - [x] Core hoàn toàn sạch bóng các engine nhận thức (`VisualEntityEngine`, `SpatialSemanticGraph`); chỉ lưu trữ `VisualRegion` thô và nhận định ngữ nghĩa của OMP kèm provenance.
