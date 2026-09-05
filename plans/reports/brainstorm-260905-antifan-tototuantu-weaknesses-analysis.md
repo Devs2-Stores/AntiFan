@@ -1,9 +1,9 @@
 # Báo Cáo Phân Tích Điểm Yếu AntiFan Browser Desktop (Session Tototuantu)
 
 **Ngày thực hiện:** 2026-09-05  
-**File log phân tích:** `C:/Users/Admin/.omp/agent/sessions/--E--Work-customizes-Tototuantu--/2026-09-05T04-42-44-030Z_01a06fe0-45be-70f8-bad9-ae99b06187a1.jsonl`  
+**File log phân tích:** `<omp-sessions-dir>/--E--Work-customizes-Tototuantu--/2026-09-05T04-42-44-030Z_01a06fe0-45be-70f8-bad9-ae99b06187a1.jsonl`  
 **Quy mô session:** 429 records, 281 messages, 125 sự kiện công cụ liên quan đến AntiFan/Browser.  
-**Mục tiêu session gốc:** Sửa giao diện storefront Haravan `https://tototuantu.vn/` (cố định Header đen, Menu trắng và thanh Breadcrumb phân tầng sản phẩm khi cuộn trang).  
+**Mục tiêu session gốc:** Sửa giao diện storefront Haravan `https://<customer-storefront-domain>/` (cố định Header đen, Menu trắng và thanh Breadcrumb phân tầng sản phẩm khi cuộn trang).  
 **Môi trường client:** Windows 11 Pro, chạy ngầm `hrv theme dev` (Haravan CLI file watcher).
 
 ---

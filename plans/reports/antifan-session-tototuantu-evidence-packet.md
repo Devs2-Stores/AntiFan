@@ -2,8 +2,8 @@
 
 ## 1. Context & Scope
 - **Target App:** AntiFan Browser Desktop (Electron + MCP Companion for Theme & Web Application Engineering).
-- **Target Session Log:** `C:/Users/Admin/.omp/agent/sessions/--E--Work-customizes-Tototuantu--/2026-09-05T04-42-44-030Z_01a06fe0-45be-70f8-bad9-ae99b06187a1.jsonl` (429 JSONL records, 281 messages, ~1MB).
-- **Target Store:** Haravan Storefront (`https://tototuantu.vn/`), customizing sticky header and breadcrumb navigation across Homepage, Collection, and Product pages.
+- **Target Session Log:** `<omp-sessions-dir>/--E--Work-customizes-Tototuantu--/2026-09-05T04-42-44-030Z_01a06fe0-45be-70f8-bad9-ae99b06187a1.jsonl` (429 JSONL records, 281 messages, ~1MB).
+- **Target Store:** Haravan Storefront (`https://<customer-storefront-domain>/`), customizing sticky header and breadcrumb navigation across Homepage, Collection, and Product pages.
 - **Workstation Environment:** Windows 11 Pro, running active `hrv theme dev` watcher in an external terminal.
 
 ---
@@ -57,7 +57,7 @@
 ### Weakness 3: Reload Returns Before Completion; the Observed Homepage Redirect Is Unexplained
 - **Empirical Telemetry:**
   - The tab had previously visited `/collections/bo-sen-am-tuong-2-duong-ra` at call [269].
-  - Call [380] returned `reloaded: true`; later call [386] observed `https://tototuantu.vn/`, and the agent re-navigated at [389].
+  - Call [380] returned `reloaded: true`; later call [386] observed `https://<customer-storefront-domain>/`, and the agent re-navigated at [389].
 - **Verified In-Repo Gap:**
   - `BrowserControlPort.reload()` calls the fire-and-forget host `reload()` and immediately reports success (`src/main/tools/browser-control-port.ts:581-586`).
   - `NativeTabHost.reloadAndWait()` already provides load completion and network-quiescence semantics but is unused by that public capability (`src/main/browser/native-tab-host.ts:3518-3568`).
