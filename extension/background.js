@@ -1007,11 +1007,19 @@
             chrome.storage.local.remove(["bridgeAuth"]).catch(() => {
             });
           }
+          tryHttpHandshake().then((auth) => {
+            if (auth) {
+              lastNativeError = null;
+              triggerAutoHydration().catch(() => {
+              });
+            }
+          }).catch(() => {
+          });
           setTimeout(() => {
-            if (!nativePort) {
+            if (!nativePort && !bridgeAuth) {
               connectNativeMessaging();
             }
-          }, 5e3);
+          }, 1e4);
         }
       });
       port.postMessage({ action: "HANDSHAKE" });
@@ -1056,30 +1064,35 @@
       await new Promise((r) => setTimeout(r, 100));
     }
     if (!bridgeAuth?.token || !bridgeAuth?.port) {
-      const candidatePorts = [20129, 20130, 20137];
-      for (const p of candidatePorts) {
-        try {
-          const res = await (typeof fetch !== "undefined" ? fetch : globalThis.fetch)(`http://127.0.0.1:${p}/api/extension/handshake`);
-          if (res.ok) {
-            const data = await res.json();
-            if (data && data.status === "SUCCESS" && data.token && data.port) {
-              bridgeAuth = {
-                token: data.token,
-                port: data.port,
-                activeCapsuleId: data.activeCapsuleId,
-                activePartition: data.activePartition
-              };
-              if (typeof chrome !== "undefined" && chrome.storage?.local) {
-                await chrome.storage.local.set({ bridgeAuth });
-              }
-              return bridgeAuth;
-            }
-          }
-        } catch {
-        }
-      }
+      await tryHttpHandshake();
     }
     return bridgeAuth;
+  }
+  async function tryHttpHandshake() {
+    const candidatePorts = [20130, 20129, 20137];
+    for (const p of candidatePorts) {
+      try {
+        const res = await (typeof fetch !== "undefined" ? fetch : globalThis.fetch)(`http://127.0.0.1:${p}/api/extension/handshake`);
+        if (res.ok) {
+          const data = await res.json();
+          if (data && data.status === "SUCCESS" && data.token && data.port) {
+            bridgeAuth = {
+              token: data.token,
+              port: data.port,
+              activeCapsuleId: data.activeCapsuleId,
+              activePartition: data.activePartition
+            };
+            lastNativeError = null;
+            if (typeof chrome !== "undefined" && chrome.storage?.local) {
+              await chrome.storage.local.set({ bridgeAuth });
+            }
+            return bridgeAuth;
+          }
+        }
+      } catch {
+      }
+    }
+    return null;
   }
   async function executeAuthenticatedCookieImport(payload, authSupplier, reauthSupplier, fetchFn = fetch) {
     let auth = await authSupplier();
@@ -1248,15 +1261,20 @@
         return true;
       }
       if (request.action === "GET_STATUS") {
-        sendResponse({
-          connected: !!(nativePort && bridgeAuth?.token),
-          auth: bridgeAuth,
-          lastError: lastNativeError,
-          enabledProfiles,
-          syncActiveTabOnly,
-          isDeltaSyncEnabled
-        });
-        return false;
+        (async () => {
+          if (!bridgeAuth?.token) {
+            await ensureBridgeAuth(false, 800);
+          }
+          sendResponse({
+            connected: Boolean(bridgeAuth?.token && bridgeAuth?.port),
+            auth: bridgeAuth,
+            lastError: bridgeAuth?.token ? null : lastNativeError,
+            enabledProfiles,
+            syncActiveTabOnly,
+            isDeltaSyncEnabled
+          });
+        })();
+        return true;
       }
       if (request.action === "RECONNECT") {
         connectNativeMessaging();
@@ -1289,12 +1307,14 @@
   }
   if (typeof chrome !== "undefined" && chrome.runtime?.onStartup) {
     chrome.runtime.onStartup.addListener(() => {
-      loadSettings().then(() => {
+      loadSettings().then(async () => {
         connectNativeMessaging();
+        await ensureBridgeAuth();
       });
     });
   }
-  loadSettings().then(() => {
+  loadSettings().then(async () => {
     connectNativeMessaging();
+    await ensureBridgeAuth();
   });
 })();
