@@ -108,6 +108,8 @@ describe('Full-Stack E2E Integration: OMP / MCP Multi-Tab Affinity, Lineage & Fa
       allowEval: true,
       getActiveLease: () => lease,
       isTabAllowed: (primaryId, targetId) => host.isTabAllowed(primaryId, targetId),
+      resolveTabId: (id) => (host.tabs.has(id) ? id : host.resolveTargetTabId?.(id)),
+      getDocumentGeneration: () => 1,
     });
 
     const browserPort = new BrowserControlPort(host as unknown as BrowserHostPort);

@@ -143,6 +143,9 @@ describe('Phase 5: Golden Slice E2E & Architecture Gate Validation', () => {
       workspaceId,
       runtimeId: runtimeLease.runtimeId,
       hostEpoch: 1,
+      resolveTabId: (id) => (id === 'tab-e2e-1' ? 'tab-e2e-1' : undefined),
+      isTabAllowed: () => true,
+      getDocumentGeneration: () => 1,
     });
 
     // Mock host backed by real fixture DOM data and CSS rules

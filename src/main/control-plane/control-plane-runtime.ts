@@ -36,6 +36,7 @@ export interface ControlPlaneRuntimeOptions {
   getDocumentGeneration?: (tabId?: string) => number;
   getAutomationTabId?: () => string | null;
   isTabAllowed?: (primaryTabId: string, requestedTabId: string) => boolean;
+  resolveTabId?: (tabIdOrIdentifier: string) => string | undefined;
 }
 export interface ControlPlaneResourceStats {
   artifacts: ArtifactStoreStats;
@@ -112,6 +113,8 @@ export class ControlPlaneRuntime {
       getActiveLease: () => this.getLease(),
       workspaceRegistry: this.workspaces,
       isTabAllowed: options.isTabAllowed,
+      resolveTabId: options.resolveTabId,
+      getDocumentGeneration: options.getDocumentGeneration,
     });
     this.transport = new CapabilityTransportAdapter(this.capabilities, this.runs.attachments, this.ledger);
     this.terminal = new TerminalManager();

@@ -36,6 +36,7 @@ function sameObservationIdentity(left: ObservationIdentity, right: ObservationId
 export interface BrowserHostPort {
 
   hasTab?(tabId?: string | null): boolean;
+  resolveTargetTabId?(tabIdOrIdentifier?: string | null): string | undefined;
   adoptChildTab?(primaryOrBoundTabId: string, childTabId: string, generation?: number | string, source?: 'agent_spawned' | 'native_window_open' | 'user_attached', parentTabId?: string): boolean;
   getManagedTabIds?(primaryOrBoundTabId: string): Set<string>;
   isTabAllowed?(primaryOrBoundTabId: string, requestedTabId: string): boolean;
@@ -916,7 +917,7 @@ export class BrowserControlPort {
     this.host.setAutomationTabId(cleanId);
     return { success: true, tabId: cleanId };
   }
-  closeTab(tabId: string, context?: { target?: BrowserTarget }): { closed: boolean } {
+  closeTab(tabId: string, context?: { target?: BrowserTarget }): { closed: boolean; tabId: string; failoverTabId?: string } {
     if (!this.host.closeTab) throw new CapabilityError('CAPABILITY_NOT_FOUND', 'closeTab is not supported by host');
     let targetId = tabId;
     if (typeof tabId === 'string' && (tabId.startsWith('#') || tabId.startsWith('@'))) {
@@ -942,29 +943,76 @@ export class BrowserControlPort {
         throw new CapabilityError('TARGET_MISMATCH', `Cannot close tab "${targetId}". This session is isolated to tab "${boundId}" and its managed tabs.`);
       }
     }
-    return { closed: this.host.closeTab(targetId) };
+    const closed = Boolean(this.host.closeTab(targetId));
+    let failoverTabId: string | undefined;
+    if (closed && boundId && targetId.trim() === boundId.trim() && this.host.getFailoverTargetTab) {
+      const candidate = this.host.getFailoverTargetTab(targetId);
+      if (candidate && typeof candidate === 'string' && candidate.trim().length > 0) {
+        failoverTabId = candidate.trim();
+      }
+    }
+    return { closed, tabId: targetId, failoverTabId };
   }
 
-  switchTab(tabId: string): { switched: boolean } {
+  switchTab(tabId: string, context: { target: BrowserTarget }): { switched: boolean; tabId: string } {
     if (!this.host.switchTab) throw new CapabilityError('CAPABILITY_NOT_FOUND', 'switchTab is not supported by host');
-    let targetId = tabId;
-    if (typeof tabId === 'string' && (tabId.startsWith('#') || tabId.startsWith('@'))) {
-      const list = (this.host.getTabList ? this.host.getTabList() : []).filter(isTabRecord);
-      if (tabId.startsWith('#')) {
-        const num = parseInt(tabId.slice(1), 10);
-        const matchedTab = Number.isFinite(num) && num >= 1 && num <= list.length ? list[num - 1] : undefined;
-        if (matchedTab?.id) {
-          targetId = matchedTab.id;
+    if (!context || !context.target) {
+      throw new CapabilityError('TARGET_REQUIRED', 'Browser target is required to switch tab');
+    }
+    assertTarget(context.target);
+    if (!tabId || typeof tabId !== 'string') {
+      throw new CapabilityError('TARGET_MISMATCH', 'Cannot switch tab: tabId must be a non-empty string');
+    }
+    const rawId = tabId.trim();
+    if (rawId.length === 0) {
+      throw new CapabilityError('TARGET_MISMATCH', 'Cannot switch tab: tabId must be a non-empty string');
+    }
+    let targetId: string | undefined;
+    if (this.host.resolveTargetTabId) {
+      targetId = this.host.resolveTargetTabId(rawId);
+    } else {
+      if (typeof rawId === 'string' && (rawId.startsWith('#') || rawId.startsWith('@'))) {
+        const list = (this.host.getTabList ? this.host.getTabList() : []).filter(isTabRecord);
+        if (/^#\d+$/.test(rawId)) {
+          const num = parseInt(rawId.slice(1), 10);
+          const matchedTab = Number.isFinite(num) && num >= 1 && num <= list.length ? list[num - 1] : undefined;
+          if (matchedTab?.id) {
+            targetId = matchedTab.id;
+          }
+        } else if (rawId.startsWith('@')) {
+          const lower = rawId.toLowerCase();
+          const matched = list.find((t) => t.alias?.toLowerCase() === lower || `@${t.role?.toLowerCase()}` === lower);
+          if (matched && matched.id) {
+            targetId = matched.id;
+          }
         }
       } else {
-        const lower = tabId.toLowerCase();
-        const matched = list.find((t) => t.alias?.toLowerCase() === lower || `@${t.role?.toLowerCase()}` === lower);
-        if (matched && matched.id) {
-          targetId = matched.id;
+        const tabExists = this.host.hasTab
+          ? this.host.hasTab(rawId)
+          : Boolean(this.host.getTabList?.().some((tab: any) => tab?.id === rawId));
+        if (tabExists) {
+          targetId = rawId;
         }
       }
     }
-    return { switched: this.host.switchTab(targetId) };
+
+    if (!targetId) {
+      throw new CapabilityError('TARGET_MISMATCH', `Cannot switch to unknown tab '${tabId}'.`);
+    }
+
+    const boundId = context.target.tabId;
+    if (targetId.trim() !== boundId.trim()) {
+      const isAllowed = this.host.isTabAllowed ? this.host.isTabAllowed(boundId, targetId) : false;
+      if (!isAllowed) {
+        throw new CapabilityError(
+          'TARGET_MISMATCH',
+          `Cannot switch to tab '${tabId}'. This session is isolated to tab '${boundId}'.`
+        );
+      }
+    }
+
+    const switched = Boolean(this.host.switchTab(targetId));
+    return { switched, tabId: targetId };
   }
 
   diagnostics(tabId?: string, level?: number | string): { console: unknown[]; failures: unknown[] } {

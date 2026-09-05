@@ -213,6 +213,9 @@ describe('Phase 1: Viewport Emulation & CDP Matched Styles Gateway', () => {
       workspaceId,
       runtimeId: lease.runtimeId,
       hostEpoch: 1,
+      resolveTabId: (id) => (id === 'tab-1' ? 'tab-1' : undefined),
+      isTabAllowed: () => true,
+      getDocumentGeneration: () => 1,
     });
 
     const receivedCalls: Array<{ selector?: string; ref?: string; tabId?: string }> = [];

@@ -24,6 +24,8 @@ export interface CapabilityCatalogueOptions {
   workspaceRegistry?: WorkspaceRegistry;
   allowEval?: boolean;
   isTabAllowed?: (primaryTabId: string, requestedTabId: string) => boolean;
+  resolveTabId?: (tabIdOrIdentifier: string) => string | undefined;
+  getDocumentGeneration?: (tabId?: string) => number;
 }
 
 export class CapabilityCatalogue {
@@ -169,22 +171,8 @@ export class CapabilityCatalogue {
     if (!this.isVisible(definition, context.grant)) throw new CapabilityError('POLICY_DENIED', `Capability ${name} is not enabled by the current policy`);
 
     if (definition.requiresBrowserTarget) {
-      assertExactBrowserTarget(context.browserTarget, {
-        projectId: authoritativeWs.projectId,
-        workspaceId: authoritativeWs.id,
-        runtimeId: this.options.runtimeId
-      }, true);
-      if (params && typeof params === 'object' && typeof (params as Record<string, unknown>).tabId === 'string') {
-        const reqTabId = ((params as Record<string, unknown>).tabId as string).trim();
-        if (reqTabId && context.browserTarget?.tabId && reqTabId !== context.browserTarget.tabId) {
-          const isAllowed = this.options.isTabAllowed ? this.options.isTabAllowed(context.browserTarget.tabId, reqTabId) : false;
-          if (!isAllowed) {
-            throw new CapabilityError('TARGET_MISMATCH', `Tab ID mismatch: expected ${context.browserTarget.tabId}, got ${reqTabId}. Note: In split review mode, use the bound tabId with paneId: "mobile" to target the mobile pane.`);
-          }
-        }
-      }
+      this.authorizeAndResolveEffectiveTarget(params, context, authoritativeWs);
     }
-
     return definition.execute(params, context);
   }
 
@@ -215,22 +203,8 @@ export class CapabilityCatalogue {
     if (!this.isVisible(definition, context.grant)) throw new CapabilityError('POLICY_DENIED', `Capability ${name} is not enabled by the current policy`);
 
     if (definition.requiresBrowserTarget) {
-      assertExactBrowserTarget(context.browserTarget, {
-        projectId: authoritativeWs.projectId,
-        workspaceId: authoritativeWs.id,
-        runtimeId: this.options.runtimeId
-      }, true);
-      if (params && typeof params === 'object' && typeof (params as Record<string, unknown>).tabId === 'string') {
-        const reqTabId = ((params as Record<string, unknown>).tabId as string).trim();
-        if (reqTabId && context.browserTarget?.tabId && reqTabId !== context.browserTarget.tabId) {
-          context.browserTarget = {
-            ...context.browserTarget,
-            tabId: reqTabId,
-          };
-        }
-      }
+      this.authorizeAndResolveEffectiveTarget(params, context, authoritativeWs);
     }
-
     return definition.execute(params, context);
   }
   async dispatch(name: string, params: Record<string, unknown>, context: CapabilityRequestContext | AuthenticatedCapabilityContext): Promise<unknown> {
@@ -258,5 +232,67 @@ export class CapabilityCatalogue {
     if (grant === 'execute') return definition.risk === 'execute';
     if (grant === 'eval') return this.options.allowEval === true && (definition.risk === 'eval' || definition.risk === 'write');
     return false;
+  }
+
+  private authorizeAndResolveEffectiveTarget(
+    params: Record<string, unknown>,
+    context: CapabilityRequestContext,
+    authoritativeWs: WorkspaceRecord
+  ): void {
+    assertExactBrowserTarget(context.browserTarget, {
+      projectId: authoritativeWs.projectId,
+      workspaceId: authoritativeWs.id,
+      runtimeId: this.options.runtimeId
+    }, true);
+
+    if (params && typeof params === 'object' && typeof (params as Record<string, unknown>).tabId === 'string') {
+      const reqTabId = ((params as Record<string, unknown>).tabId as string).trim();
+      if (!reqTabId) return;
+
+      if (!context.browserTarget?.tabId) {
+        throw new CapabilityError('TARGET_MISMATCH', 'Cannot target tab: context has no bound browser target.');
+      }
+
+      // Short-circuit exact bound-ID equality: caller explicitly passed the currently bound tabId
+      if (reqTabId === context.browserTarget.tabId) {
+        return;
+      }
+
+      const canonicalTargetId = this.options.resolveTabId ? this.options.resolveTabId(reqTabId) : reqTabId;
+
+      if (!canonicalTargetId || typeof canonicalTargetId !== 'string' || canonicalTargetId.trim().length === 0) {
+        throw new CapabilityError('TARGET_MISMATCH', `Unknown browser target: ${reqTabId}`);
+      }
+      const canonicalId = canonicalTargetId.trim();
+
+      if (canonicalId !== context.browserTarget.tabId) {
+        const isAllowed = this.options.isTabAllowed
+          ? this.options.isTabAllowed(context.browserTarget.tabId, canonicalId) === true
+          : false;
+
+        if (!isAllowed) {
+          throw new CapabilityError(
+            'TARGET_MISMATCH',
+            `Tab ID mismatch: expected ${context.browserTarget.tabId}, got ${reqTabId}. Note: In split review mode, use the bound tabId with paneId: "mobile" to target the mobile pane.`
+          );
+        }
+
+        const liveDocGen = this.options.getDocumentGeneration
+          ? this.options.getDocumentGeneration(canonicalId)
+          : context.browserTarget.documentGeneration;
+        if (typeof liveDocGen !== 'number' || liveDocGen < 1) {
+          throw new CapabilityError('TARGET_STALE', `Cannot target tab '${reqTabId}': live document generation is unavailable.`);
+        }
+
+        context.browserTarget = {
+          projectId: context.browserTarget.projectId,
+          workspaceId: context.browserTarget.workspaceId,
+          runtimeId: context.browserTarget.runtimeId,
+          tabId: canonicalId,
+          browserEpoch: context.browserTarget.browserEpoch,
+          documentGeneration: liveDocGen,
+        };
+      }
+    }
   }
 }

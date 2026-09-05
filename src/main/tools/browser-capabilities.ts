@@ -141,7 +141,7 @@ function getProductResolverScript(handle?: string): string {
 }
 
 
-function makeBrowserPolicy(options: {
+export function makeBrowserPolicy(options: {
   effect: CapabilityEffectPolicyInput['effect'];
   risk: CapabilityRisk;
   requiresBrowserTarget?: boolean;
@@ -211,9 +211,10 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
     name: 'browser.switch-tab',
     description: 'Switch to a Chromium browser tab by ID',
     risk: 'write',
-    policy: makeBrowserPolicy({ effect: 'idempotent-write', risk: 'write', requiresBrowserTarget: false, lane: 'unbounded' }),
+    requiresBrowserTarget: true,
+    policy: makeBrowserPolicy({ effect: 'idempotent-write', risk: 'write', requiresBrowserTarget: true, lane: 'unbounded' }),
     inputSchema: { type: 'object', properties: { tabId: { type: 'string' } }, required: ['tabId'] },
-    execute: (params: { tabId: string }) => browser.switchTab(params.tabId),
+    execute: (params: { tabId: string }, context) => browser.switchTab(params.tabId, { target: context.browserTarget as BrowserTarget }),
   });
 
   catalogue.register({
@@ -819,9 +820,10 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
     name: 'antifan_switch_tab',
     description: 'Alias for browser.switch-tab',
     risk: 'write',
-    policy: makeBrowserPolicy({ effect: 'idempotent-write', risk: 'write', requiresBrowserTarget: false, lane: 'unbounded' }),
+    requiresBrowserTarget: true,
+    policy: makeBrowserPolicy({ effect: 'idempotent-write', risk: 'write', requiresBrowserTarget: true, lane: 'unbounded' }),
     inputSchema: { type: 'object', properties: { tabId: { type: 'string' } }, required: ['tabId'] },
-    execute: (params: { tabId: string }) => browser.switchTab(params.tabId),
+    execute: (params: { tabId: string }, context) => browser.switchTab(params.tabId, { target: context.browserTarget as BrowserTarget }),
   });
 
   catalogue.register({
@@ -1165,8 +1167,8 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
     inputSchema: { type: 'object', properties: { tabId: { type: 'string' }, workspaceRoot: { type: 'string' }, multiBreakpoint: { type: 'boolean' } } },
     execute: async (params: { tabId?: string; workspaceRoot?: string; multiBreakpoint?: boolean }, context) => {
       const target = context.browserTarget as BrowserTarget;
-      if (params.tabId && params.tabId !== target?.tabId) {
-        throw new CapabilityError('TARGET_MISMATCH', `Tab ID mismatch: expected ${target?.tabId || 'unbound'}, got ${params.tabId}`);
+      if (!target?.tabId) {
+        throw new CapabilityError('TARGET_MISMATCH', 'No valid browser target bound to context');
       }
       if (!themeQaWorkflow) {
         throw new CapabilityError('CAPABILITY_NOT_FOUND', 'Theme QA workflow is not available');
@@ -1490,11 +1492,11 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
     name: 'anti.browser.tabs.activate',
     description: 'Alias for browser.switch-tab',
     risk: 'write',
-    policy: makeBrowserPolicy({ effect: 'idempotent-write', risk: 'write', requiresBrowserTarget: false, lane: 'unbounded' }),
+    requiresBrowserTarget: true,
+    policy: makeBrowserPolicy({ effect: 'idempotent-write', risk: 'write', requiresBrowserTarget: true, lane: 'unbounded' }),
     inputSchema: { type: 'object', properties: { tabId: { type: 'string' } }, required: ['tabId'] },
-    execute: (params: { tabId: string }) => browser.switchTab(params.tabId),
+    execute: (params: { tabId: string }, context) => browser.switchTab(params.tabId, { target: context.browserTarget as BrowserTarget }),
   });
-
   catalogue.register({
     name: 'anti.browser.tabs.close',
     description: 'Alias for browser.close-tab',

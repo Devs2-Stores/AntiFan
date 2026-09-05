@@ -19,6 +19,7 @@ import { InvocationLedger } from '../session/invocation-ledger';
 type EffectMarker = 'not-started' | 'effect-started' | 'effect-committed';
 type EffectAcknowledgement = 'no-effect' | 'effect-possible' | 'effect-committed';
 
+const CANONICAL_UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 export interface CapabilityListItem {
   name: string;
   description: string;
@@ -475,23 +476,30 @@ export class CapabilityTransportAdapter {
       const isSwitchTab = intent.name === 'browser.switch-tab' || intent.name === 'antifan_switch_tab' || intent.name === 'anti.browser.tabs.activate';
       const isNavigate = intent.name === 'browser.navigate' || intent.name === 'antifan_navigate' || intent.name === 'anti.browser.navigate';
       const isReload = intent.name === 'browser.reload' || intent.name === 'antifan_reload' || intent.name === 'anti.browser.reload';
-
+      const isCloseTab = intent.name === 'browser.close-tab' || intent.name === 'antifan_close_tab' || intent.name === 'anti.browser.tabs.close';
       if (isSetTarget || isOpenTab) {
         let newTabId: string | undefined;
         if (data && typeof data === 'object' && 'tabId' in data && typeof (data as { tabId: unknown }).tabId === 'string') {
-          newTabId = (data as { tabId: string }).tabId;
-        } else if (p && typeof p.tabId === 'string' && p.tabId.trim().length > 0) {
-          newTabId = p.tabId.trim();
+          const candidate = (data as { tabId: string }).tabId.trim();
+          if (candidate.length > 0) {
+            newTabId = candidate;
+          }
         }
         if (newTabId) {
           const newRev = await this.attachmentRegistry.updateAttachmentTab(authority.attachmentId, newTabId);
           if (newRev) replacementAuthorityRevision = newRev;
         }
       } else if (isSwitchTab) {
-        const switchedTabId = p && typeof p.tabId === 'string' && p.tabId.trim().length > 0 ? p.tabId.trim() : undefined;
-        if (switchedTabId) {
-          const newRev = await this.attachmentRegistry.updateAttachmentTab(authority.attachmentId, switchedTabId);
-          if (newRev) replacementAuthorityRevision = newRev;
+        if (data && typeof data === 'object') {
+          const resObj = data as { switched?: unknown; tabId?: unknown };
+          if (
+            resObj.switched === true &&
+            typeof resObj.tabId === 'string' &&
+            CANONICAL_UUID_PATTERN.test(resObj.tabId.trim())
+          ) {
+            const newRev = await this.attachmentRegistry.updateAttachmentTab(authority.attachmentId, resObj.tabId.trim());
+            if (newRev) replacementAuthorityRevision = newRev;
+          }
         }
       } else if (isNavigate || isReload) {
         if (data && typeof data === 'object' && 'target' in data) {
@@ -502,6 +510,27 @@ export class CapabilityTransportAdapter {
               targetObj.tabId,
               targetObj.documentGeneration
             );
+            if (newRev) replacementAuthorityRevision = newRev;
+          }
+        }
+      } else if (isCloseTab) {
+        if (data && typeof data === 'object') {
+          const resObj = data as { closed?: unknown; tabId?: unknown; failoverTabId?: unknown };
+          const closedCanonicalId = typeof resObj.tabId === 'string' && resObj.tabId.trim().length > 0
+            ? resObj.tabId.trim()
+            : undefined;
+          const boundTabId = authority.browserTarget?.tabId;
+          const isBoundTabClosed = Boolean(closedCanonicalId && boundTabId && closedCanonicalId === boundTabId);
+          const failoverCandidate = typeof resObj.failoverTabId === 'string' ? resObj.failoverTabId.trim() : '';
+          if (
+            resObj.closed === true &&
+            isBoundTabClosed &&
+            failoverCandidate.length > 0 &&
+            !failoverCandidate.startsWith('#') &&
+            !failoverCandidate.startsWith('@') &&
+            failoverCandidate !== closedCanonicalId
+          ) {
+            const newRev = await this.attachmentRegistry.updateAttachmentTab(authority.attachmentId, failoverCandidate);
             if (newRev) replacementAuthorityRevision = newRev;
           }
         }

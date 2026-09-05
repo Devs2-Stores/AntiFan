@@ -219,6 +219,9 @@ describe('Phase 3: Theme Evidence Capabilities', () => {
       workspaceId,
       runtimeId: lease.runtimeId,
       hostEpoch: 1,
+      resolveTabId: (id) => (id === 'tab-1' ? 'tab-1' : undefined),
+      isTabAllowed: () => true,
+      getDocumentGeneration: () => 1,
     });
 
     const mockHost: BrowserHostPort = {
@@ -313,6 +316,9 @@ describe('Phase 3: Theme Evidence Capabilities', () => {
       workspaceId,
       runtimeId: lease.runtimeId,
       hostEpoch: 1,
+      resolveTabId: (id) => (id === 'tab-policy' || id === 'tab-product' ? id : undefined),
+      isTabAllowed: () => true,
+      getDocumentGeneration: () => 1,
     });
 
     const mockHost: BrowserHostPort = {

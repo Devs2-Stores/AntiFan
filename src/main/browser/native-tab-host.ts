@@ -4374,7 +4374,7 @@ export class NativeTabHost extends EventEmitter {
     if (!tabIdOrIdentifier || typeof tabIdOrIdentifier !== 'string') return undefined;
     const trimmed = tabIdOrIdentifier.trim();
     if (this.tabs && this.tabs.has(trimmed)) return trimmed;
-    if (trimmed.startsWith('#')) {
+    if (/^#\d+$/.test(trimmed)) {
       const idx = parseInt(trimmed.slice(1), 10) - 1;
       if (idx >= 0 && idx < this.tabOrder.length) {
         return this.tabOrder[idx];
@@ -4389,7 +4389,7 @@ export class NativeTabHost extends EventEmitter {
   public hasTab(tabId?: string | null): boolean {
     if (!tabId || !this.tabs) return false;
     if (this.tabs.has(tabId)) return true;
-    if (tabId.startsWith('#')) {
+    if (/^#\d+$/.test(tabId)) {
       const idx = parseInt(tabId.slice(1), 10) - 1;
       return idx >= 0 && idx < this.tabOrder.length;
     }
@@ -4619,10 +4619,13 @@ export class NativeTabHost extends EventEmitter {
 
   public isTabAllowedForPrimary(primaryTabId: string, requestedTabId: string): boolean {
     if (!primaryTabId || !requestedTabId) return false;
-    if (primaryTabId === requestedTabId) return true;
+    const pId = this.resolveTargetTabId(primaryTabId);
+    const rId = this.resolveTargetTabId(requestedTabId);
+    if (!pId || !rId) return false;
+    if (pId === rId) return true;
     if (this.sessionTabPools) {
       for (const pool of this.sessionTabPools.values()) {
-        if (pool.has(primaryTabId) && pool.has(requestedTabId)) {
+        if (pool.has(pId) && pool.has(rId)) {
           return true;
         }
       }
@@ -4630,11 +4633,11 @@ export class NativeTabHost extends EventEmitter {
     if (this.terminalAgentAffinity) {
       for (const entry of this.terminalAgentAffinity.values()) {
         const matchesSession =
-          entry.primaryTabId === primaryTabId ||
-          entry.managedTabIds?.has(primaryTabId) ||
-          entry.lineage?.has(primaryTabId) ||
-          entry.lastUrls?.has(primaryTabId);
-        if (matchesSession && (entry.managedTabIds?.has(requestedTabId) || entry.primaryTabId === requestedTabId)) {
+          entry.primaryTabId === pId ||
+          entry.managedTabIds?.has(pId) ||
+          entry.lineage?.has(pId) ||
+          entry.lastUrls?.has(pId);
+        if (matchesSession && (entry.managedTabIds?.has(rId) || entry.primaryTabId === rId)) {
           return !entry.closedAt;
         }
       }

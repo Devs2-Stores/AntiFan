@@ -222,20 +222,26 @@ describe('Terminal-to-Tab Agent Affinity Contract Tests (NativeTabHost Seam)', (
     let switchedId = '';
     let closedId = '';
     const mockHost = {
+      hasTab: (id: string) => id === 'tab-lemon' || id === 'tab-youtube',
+      isTabAllowed: (bound: string, req: string) => bound === req,
       switchTab: (id: string) => { switchedId = id; return true; },
       closeTab: (id: string) => { closedId = id; return true; },
     };
     const port = new BrowserControlPort(mockHost as any);
-    const boundTarget = { tabId: 'tab-lemon', documentGeneration: 1 } as any;
+    const boundTarget = { projectId: 'project-test', workspaceId: 'workspace-test', runtimeId: 'runtime-test', tabId: 'tab-lemon', browserEpoch: 1, documentGeneration: 1 } as any;
 
     // Permitted: operating on the bound tab
-    assert.deepStrictEqual(port.switchTab('tab-lemon'), { switched: true });
+    assert.deepStrictEqual(port.switchTab('tab-lemon', { target: boundTarget }), { switched: true, tabId: 'tab-lemon' });
     assert.strictEqual(switchedId, 'tab-lemon');
 
-    assert.deepStrictEqual(port.closeTab('tab-lemon', { target: boundTarget }), { closed: true });
+    assert.deepStrictEqual(port.closeTab('tab-lemon', { target: boundTarget }), { closed: true, tabId: 'tab-lemon', failoverTabId: undefined });
     assert.strictEqual(closedId, 'tab-lemon');
 
-    // Rejected: tampering with another tab (e.g. closing YouTube)
+    // Rejected: tampering with another tab (e.g. switching to or closing YouTube)
+    assert.throws(
+      () => port.switchTab('tab-youtube', { target: boundTarget }),
+      (err: any) => err.code === 'TARGET_MISMATCH' && err.message.includes('isolated to tab')
+    );
     assert.throws(
       () => port.closeTab('tab-youtube', { target: boundTarget }),
       (err: any) => err.code === 'TARGET_MISMATCH' && err.message.includes('isolated to tab')

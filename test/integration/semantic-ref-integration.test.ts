@@ -148,7 +148,16 @@ describe('Semantic Ref Integration Pipeline (World 1004 & Control Plane Parity)'
     const projectId = makeControlPlaneId('project');
     const workspaceId = makeControlPlaneId('workspace');
     const lease = issueRuntimeLease(projectId, workspaceId, 30_000, 1);
-    const catalogue = new CapabilityCatalogue({ runtime: { mode: 'standalone', lifecycle: 'active' }, projectId, workspaceId, runtimeId: lease.runtimeId, hostEpoch: 1 });
+    const catalogue = new CapabilityCatalogue({
+      runtime: { mode: 'standalone', lifecycle: 'active' },
+      projectId,
+      workspaceId,
+      runtimeId: lease.runtimeId,
+      hostEpoch: 1,
+      resolveTabId: (id) => (id === 'tab-integration-1' ? 'tab-integration-1' : undefined),
+      isTabAllowed: () => true,
+      getDocumentGeneration: () => 1,
+    });
     registerBrowserCapabilities(catalogue, port);
 
     const snapCap = catalogue.get('antifan_agent_snapshot');

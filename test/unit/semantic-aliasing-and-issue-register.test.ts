@@ -148,6 +148,7 @@ describe('Semantic Tab Aliasing & Durable Issue Register Suite', () => {
           { id: 'tab-3', url: 'https://store.vn', alias: '@storefront', role: 'storefront' },
         ],
         hasTab: (id: string) => ['tab-1', 'tab-2', 'tab-3'].includes(id),
+        isTabAllowed: () => true,
         switchTab: (id: string) => true,
         evalJs: async () => ({ success: true, targetRow: 34 }),
       };
@@ -161,8 +162,17 @@ describe('Semantic Tab Aliasing & Durable Issue Register Suite', () => {
       assert.ok(catalogue.get('antifan_sheet_extract'));
 
       // Test switchTab with alias
-      const switchResult = port.switchTab('@admin');
+      const mockTarget = {
+        projectId: 'p1',
+        workspaceId: 'w1',
+        runtimeId: 'r1',
+        tabId: 'tab-1',
+        browserEpoch: 1,
+        documentGeneration: 1,
+      };
+      const switchResult = port.switchTab('@admin', { target: mockTarget });
       assert.strictEqual(switchResult.switched, true);
+      assert.strictEqual(switchResult.tabId, 'tab-1');
     });
     test('resolves numeric #N tab references in switchTab and target resolution', () => {
       let lastSwitchedId = '';
@@ -173,20 +183,32 @@ describe('Semantic Tab Aliasing & Durable Issue Register Suite', () => {
           { id: 'tab-3', url: 'https://store3.vn', role: 'storefront' },
         ],
         hasTab: (id: string) => ['tab-1', 'tab-2', 'tab-3'].includes(id),
+        isTabAllowed: () => true,
         switchTab: (id: string) => { lastSwitchedId = id; return true; },
       };
       const port = new BrowserControlPort(mockHost);
+      const testTarget = {
+        projectId: 'p1',
+        workspaceId: 'w1',
+        runtimeId: 'r1',
+        tabId: 'tab-1',
+        browserEpoch: 1,
+        documentGeneration: 1,
+      };
 
-      const res1 = port.switchTab('#1');
+      const res1 = port.switchTab('#1', { target: testTarget });
       assert.strictEqual(res1.switched, true);
+      assert.strictEqual(res1.tabId, 'tab-1');
       assert.strictEqual(lastSwitchedId, 'tab-1');
 
-      const res2 = port.switchTab('#2');
+      const res2 = port.switchTab('#2', { target: testTarget });
       assert.strictEqual(res2.switched, true);
+      assert.strictEqual(res2.tabId, 'tab-2');
       assert.strictEqual(lastSwitchedId, 'tab-2');
 
-      const res3 = port.switchTab('#3');
+      const res3 = port.switchTab('#3', { target: testTarget });
       assert.strictEqual(res3.switched, true);
+      assert.strictEqual(res3.tabId, 'tab-3');
       assert.strictEqual(lastSwitchedId, 'tab-3');
     });
   });

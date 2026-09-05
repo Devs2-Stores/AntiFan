@@ -553,22 +553,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
         (typeof data.mime === 'string' && data.mime.startsWith('image/'));
       if (isImage) {
         const artifactPayload = await fetchArtifactBinary(bootstrap, data.id);
-        const detectedMime = artifactPayload.data.startsWith('/9j/')
-          ? 'image/jpeg'
-          : artifactPayload.data.startsWith('iVBORw0KGgo')
-          ? 'image/png'
-          : artifactPayload.data.startsWith('UklGR')
-          ? 'image/webp'
-          : (artifactPayload.mimeType || data.mime || 'image/png');
-        return {
-          content: [
-            {
-              type: 'image',
-              data: artifactPayload.data,
-              mimeType: detectedMime,
-            },
-          ],
-        };
+        return resolveImageArtifactResponse(data, artifactPayload);
       }
 
       // If text artifact exceeds 64 KiB, return ArtifactRef metadata to prevent stdio pipe saturation
@@ -625,14 +610,51 @@ server.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
     return { isError: true, content: [{ type: 'text', text: error instanceof Error ? error.message : String(error) }] };
   }
 });
+function resolveImageArtifactResponse(data, artifactPayload) {
+  if (!artifactPayload || !artifactPayload.data || artifactPayload.data.length === 0) {
+    return {
+      isError: true,
+      content: [
+        {
+          type: 'text',
+          text: `Error: EMPTY_ARTIFACT: Image artifact payload is empty (0 bytes) for artifact '${data && data.id ? data.id : 'unknown'}'.`,
+        },
+      ],
+    };
+  }
+  const detectedMime = artifactPayload.data.startsWith('/9j/')
+    ? 'image/jpeg'
+    : artifactPayload.data.startsWith('iVBORw0KGgo')
+    ? 'image/png'
+    : artifactPayload.data.startsWith('UklGR')
+    ? 'image/webp'
+    : (artifactPayload.mimeType || (data && data.mime) || 'image/png');
+  return {
+    content: [
+      {
+        type: 'image',
+        data: artifactPayload.data,
+        mimeType: detectedMime,
+      },
+    ],
+  };
+}
 
-server.connect(new StdioServerTransport())
-  .then(() => startHeartbeat(getBootstrap()))
-  .catch((error) => {
-    stopHeartbeat();
-    process.stderr.write(`${error}\n`);
-    process.exitCode = 1;
-  });
+if (require.main === module) {
+  server.connect(new StdioServerTransport())
+    .then(() => startHeartbeat(getBootstrap()))
+    .catch((error) => {
+      stopHeartbeat();
+      process.stderr.write(`${error}\n`);
+      process.exitCode = 1;
+    });
+}
+
+module.exports = {
+  resolveImageArtifactResponse,
+  fetchArtifactBinary,
+  definitions,
+};
 
 function shutdown() {
   stopHeartbeat();
