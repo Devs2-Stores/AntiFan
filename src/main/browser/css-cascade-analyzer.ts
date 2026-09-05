@@ -32,12 +32,20 @@ export interface MatchedStylesResult {
   totalRulesAnalyzed: number;
 }
 
+export interface RawCdpSourceRange {
+  startLine: number;
+  startColumn: number;
+  endLine?: number;
+  endColumn?: number;
+}
+
 export interface RawCdpProperty {
   name: string;
   value: string;
   important?: boolean;
   disabled?: boolean;
   parsedOk?: boolean;
+  range?: RawCdpSourceRange;
 }
 
 export interface RawCdpRule {
@@ -48,6 +56,7 @@ export interface RawCdpRule {
   style?: {
     cssProperties?: RawCdpProperty[];
     styleSheetId?: string;
+    range?: RawCdpSourceRange;
   };
   styleSheetId?: string;
   sourceUrl?: string;
@@ -149,10 +158,13 @@ export class CssCascadeAnalyzer {
     const allDeclarations: Array<Omit<CssDeclaration, 'status'> & { order: number }> = [];
     const cssVariables: Record<string, string> = {};
     let orderCounter = 0;
+    let authoredRulesAnalyzed = 0;
 
     for (const item of rawRules) {
       const rule = item.rule;
       if (!rule || !rule.style || !Array.isArray(rule.style.cssProperties)) continue;
+      if (rule.origin && rule.origin !== 'regular') continue;
+      authoredRulesAnalyzed++;
 
       const selectors = rule.selectorList?.selectors?.map((s) => s.text) || [rule.selectorList?.text || ''];
       const primarySelector = selectors[0] || '*';
@@ -173,6 +185,7 @@ export class CssCascadeAnalyzer {
           }
         }
 
+        const sourceRange = prop.range || rule.style.range;
         allDeclarations.push({
           property: propName,
           value: propVal,
@@ -180,6 +193,8 @@ export class CssCascadeAnalyzer {
           specificity,
           styleSheetId: sheetId,
           sourceUrl,
+          line: sourceRange?.startLine,
+          column: sourceRange?.startColumn,
           important: Boolean(prop.important),
           order: orderCounter++,
         });
@@ -223,6 +238,8 @@ export class CssCascadeAnalyzer {
           specificity: winner.specificity,
           styleSheetId: winner.styleSheetId,
           sourceUrl: winner.sourceUrl,
+          line: winner.line,
+          column: winner.column,
           important: winner.important,
           status: 'ACTIVE',
         });
@@ -238,6 +255,8 @@ export class CssCascadeAnalyzer {
             specificity: loser.specificity,
             styleSheetId: loser.styleSheetId,
             sourceUrl: loser.sourceUrl,
+            line: loser.line,
+            column: loser.column,
             important: loser.important,
             status: 'OVERRIDDEN',
           });
@@ -248,10 +267,11 @@ export class CssCascadeAnalyzer {
     // Evaluate Tiered Definition of Done
     let definitionOfDone: 'STRONG PASS' | 'PASS' | 'PARTIAL' = 'PARTIAL';
     const hasActiveRules = activeRules.length > 0;
-    const hasStylesheetIds = activeRules.some((r) => Boolean(r.styleSheetId));
-    const hasResolvedUrls = activeRules.some((r) => Boolean(r.sourceUrl));
+    const hasStylesheetIds = activeRules.length > 0 && activeRules.every((r) => Boolean(r.styleSheetId));
+    const hasResolvedUrls = activeRules.length > 0 && activeRules.every((r) => Boolean(r.sourceUrl));
+    const hasSourceRanges = activeRules.length > 0 && activeRules.every((r) => Number.isInteger(r.line) && Number.isInteger(r.column));
 
-    if (hasActiveRules && hasStylesheetIds && hasResolvedUrls) {
+    if (hasActiveRules && hasStylesheetIds && hasResolvedUrls && hasSourceRanges) {
       definitionOfDone = 'STRONG PASS';
     } else if (hasActiveRules && hasStylesheetIds) {
       definitionOfDone = 'PASS';
@@ -269,12 +289,13 @@ export class CssCascadeAnalyzer {
         overriddenRules,
         cssVariables,
         definitionOfDone,
-        totalRulesAnalyzed: rawRules.length,
+        totalRulesAnalyzed: authoredRulesAnalyzed,
       },
       signals: {
         hasMatchedRules: hasActiveRules,
         hasStylesheetId: hasStylesheetIds,
         hasResolvedUrl: hasResolvedUrls,
+        hasSourceRange: hasSourceRanges,
       },
       timestamp: startTime,
     });

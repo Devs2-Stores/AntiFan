@@ -34,6 +34,15 @@ export interface TabDevToolsContext {
   withTabAgentWorking: <T>(tabId: string, action: () => Promise<T>) => Promise<T>;
   runWithAttachedTabView?: <T>(view: Electron.WebContentsView | null | undefined, action: () => Promise<T>, isMobile?: boolean) => Promise<T>;
 }
+export interface TabDevToolsStats {
+  attachedWebContentsCount: number;
+  hostOwnedAttachmentCount: number;
+  listenerTargetCount: number;
+  queuedTargetCount: number;
+  stylesheetTargetCount: number;
+  isolatedContextCount: number;
+}
+
 export class TabDevToolsHost {
   private readonly ctx: TabDevToolsContext;
   private isFontFinderActive: boolean = false;
@@ -47,7 +56,8 @@ export class TabDevToolsHost {
   private cdpAttachedWebContents = new Set<number>();
   private cdpAttachedByHost = new Set<number>();
   private cdpWebContentsRefs = new Map<number, Electron.WebContents>();
-  private cdpListeners = new Map<number, { onDetach: () => void; onNavigate?: () => void }>();
+  private cdpListeners = new Map<number, { onDetach: () => void; onNavigate?: () => void; onMessage?: (_event: Electron.Event, method: string, params: Record<string, unknown>) => void }>();
+  private stylesheetUrls = new Map<number, Map<string, string>>();
   private isolatedContextIds = new Map<number, number>();
   constructor(ctx: TabDevToolsContext) {
     this.ctx = ctx;
@@ -62,6 +72,17 @@ export class TabDevToolsHost {
   public setIsInspecting(val: boolean): void { this.isInspecting = val; }
   public getInspectedTabId(): string | null { return this.inspectedTabId; }
   public setInspectedTabId(val: string | null): void { this.inspectedTabId = val; }
+  public getStats(): TabDevToolsStats {
+    return {
+      attachedWebContentsCount: this.cdpAttachedWebContents.size,
+      hostOwnedAttachmentCount: this.cdpAttachedByHost.size,
+      listenerTargetCount: this.cdpListeners.size,
+      queuedTargetCount: this.cdpQueues.size,
+      stylesheetTargetCount: this.stylesheetUrls.size,
+      isolatedContextCount: this.isolatedContextIds.size,
+    };
+  }
+
 
   // ─── Font Finder ───
   public toggleFontFinder(): boolean {
@@ -487,7 +508,8 @@ export class TabDevToolsHost {
   public async sendCdpCommand<T = unknown>(
     wc: Electron.WebContents,
     method: string,
-    params: Record<string, unknown> = {}
+    params: Record<string, unknown> = {},
+    timeoutMs = 10_000
   ): Promise<T> {
     if (!wc || wc.isDestroyed()) {
       throw new Error(`WebContents is destroyed or unavailable for CDP method ${method}`);
@@ -513,30 +535,65 @@ export class TabDevToolsHost {
         this.cdpAttachedByHost.delete(wcId);
         this.cdpWebContentsRefs.delete(wcId);
         this.cdpQueues.delete(wcId);
+        this.stylesheetUrls.delete(wcId);
         this.isolatedContextIds.delete(wcId);
         const l = this.cdpListeners.get(wcId);
-        if (l && l.onNavigate && typeof wc.removeListener === 'function') {
+        if (l?.onNavigate && typeof wc.removeListener === 'function') {
           try { wc.removeListener('did-navigate', l.onNavigate); } catch {}
+        }
+        if (l?.onMessage && typeof wc.debugger.removeListener === 'function') {
+          try { wc.debugger.removeListener('message', l.onMessage); } catch {}
         }
         this.cdpListeners.delete(wcId);
       };
 
       const onNavigate = () => {
         this.isolatedContextIds.delete(wcId);
+        this.stylesheetUrls.delete(wcId);
+      };
+
+      const onMessage = (_event: Electron.Event, method: string, params: Record<string, unknown>) => {
+        if (method !== 'CSS.styleSheetAdded') return;
+        const header = params?.header;
+        if (!header || typeof header !== 'object') return;
+        const typedHeader = header as { styleSheetId?: unknown; sourceURL?: unknown };
+        if (typeof typedHeader.styleSheetId !== 'string' || typeof typedHeader.sourceURL !== 'string' || !typedHeader.sourceURL) return;
+        const urls = this.stylesheetUrls.get(wcId) || new Map<string, string>();
+        urls.set(typedHeader.styleSheetId, typedHeader.sourceURL);
+        this.stylesheetUrls.set(wcId, urls);
       };
 
       wc.debugger.once('detach', onDetach);
+      if (typeof wc.debugger.on === 'function') {
+        wc.debugger.on('message', onMessage);
+      }
       if (typeof wc.on === 'function') {
         wc.on('did-navigate', onNavigate);
       }
-      this.cdpListeners.set(wcId, { onDetach, onNavigate });
+      this.cdpListeners.set(wcId, { onDetach, onNavigate, onMessage });
     }
     const currentQueue = this.cdpQueues.get(wcId) || Promise.resolve();
     const nextPromise = currentQueue.then(async () => {
       if (wc.isDestroyed()) {
         throw new Error(`WebContents destroyed before executing CDP method ${method}`);
       }
-      return wc.debugger.sendCommand(method, params);
+      const boundedTimeoutMs = Math.min(30_000, Math.max(1, timeoutMs));
+      let timer: NodeJS.Timeout | undefined;
+      const command = wc.debugger.sendCommand(method, params);
+      command.catch(() => {});
+      return Promise.race([
+        command,
+        (() => {
+          const { promise, reject } = Promise.withResolvers<never>();
+          timer = setTimeout(
+            () => reject(new Error(`CDP command ${method} timed out after ${boundedTimeoutMs}ms`)),
+            boundedTimeoutMs
+          );
+          return promise;
+        })(),
+      ]).finally(() => {
+        if (timer) clearTimeout(timer);
+      });
     });
 
     this.cdpQueues.set(
@@ -761,8 +818,25 @@ export class TabDevToolsHost {
       const res = await this.sendCdpCommand<Record<string, unknown>>(wc, 'CSS.getMatchedStylesForNode', {
         nodeId: targetNodeId,
       });
+      if (!res) return null;
 
-      return res || null;
+      const urls = this.stylesheetUrls.get(wc.id);
+      if (!urls || urls.size === 0 || !Array.isArray(res.matchedCSSRules)) return res;
+      return {
+        ...res,
+        matchedCSSRules: res.matchedCSSRules.map((item: unknown) => {
+          if (!item || typeof item !== 'object') return item;
+          const typedItem = item as { rule?: Record<string, unknown> };
+          const rule = typedItem.rule;
+          if (!rule || typeof rule !== 'object' || typeof rule.sourceUrl === 'string') return item;
+          const style = rule.style && typeof rule.style === 'object' ? rule.style as Record<string, unknown> : undefined;
+          const styleSheetId = typeof rule.styleSheetId === 'string'
+            ? rule.styleSheetId
+            : typeof style?.styleSheetId === 'string' ? style.styleSheetId : undefined;
+          const sourceUrl = styleSheetId ? urls.get(styleSheetId) : undefined;
+          return sourceUrl ? { ...typedItem, rule: { ...rule, sourceUrl } } : item;
+        }),
+      };
     } catch {
       return null;
     }
@@ -2079,6 +2153,9 @@ export class TabDevToolsHost {
           if (listeners.onDetach && wc.debugger && typeof wc.debugger.removeListener === 'function') {
             wc.debugger.removeListener('detach', listeners.onDetach);
           }
+          if (listeners.onMessage && wc.debugger && typeof wc.debugger.removeListener === 'function') {
+            wc.debugger.removeListener('message', listeners.onMessage);
+          }
         } catch {}
       }
     }
@@ -2099,6 +2176,7 @@ export class TabDevToolsHost {
     this.cdpWebContentsRefs.clear();
     this.cdpListeners.clear();
     this.cdpQueues.clear();
+    this.stylesheetUrls.clear();
     this.isolatedContextIds.clear();
   }
 }

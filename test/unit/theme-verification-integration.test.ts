@@ -10,7 +10,7 @@ import {
 } from '../../src/main/verification/verification-contract';
 import { ThemeProofHelpers } from '../../src/main/verification/theme-proof-helpers';
 import { createThemeEvidenceEnvelope } from '../../src/main/tools/theme-evidence-envelope';
-import { SourceMappingResult } from '../../src/main/browser/theme-source-mapper';
+import { CandidateTemplate, SourceMappingResult } from '../../src/main/browser/theme-source-mapper';
 import { MatchedStylesResult } from '../../src/main/browser/css-cascade-analyzer';
 
 describe('Phase 4: Verification Integration & Policy Ordering', () => {
@@ -22,6 +22,24 @@ describe('Phase 4: Verification Integration & Policy Ordering', () => {
       actor: 'agent',
       scope: { tabId: 'tab-1' },
       proofObligations: obligations,
+    };
+  }
+
+  function createAuthoritativeSourceCandidate(): CandidateTemplate {
+    return {
+      file: 'snippets/card-product.liquid',
+      type: 'snippet',
+      confidence: 'HIGH',
+      score: 9,
+      correlated: true,
+      evidence: [
+        { kind: 'class_token', file: 'snippets/card-product.liquid', line: 11, matched: 'product-card', weight: 3 },
+        { kind: 'render_edge', file: 'snippets/card-product.liquid', line: 9, matched: 'card-product', weight: 2, parentFile: 'sections/main-collection.liquid' },
+        { kind: 'section_lineage', file: 'snippets/card-product.liquid', line: 9, matched: 'featured-collection', weight: 2, parentFile: 'sections/main-collection.liquid' },
+        { kind: 'tag', file: 'snippets/card-product.liquid', line: 10, matched: 'article', weight: 1 },
+      ],
+      signals: { markupClassMatch: true, renderCallMatch: true, referencedBySection: true },
+      matchCount: 4,
     };
   }
 
@@ -48,8 +66,10 @@ describe('Phase 4: Verification Integration & Policy Ordering', () => {
       success: true,
       evidenceQuality: 'HIGH',
       data: {
-        candidates: [{ file: 'snippets/card-product.liquid', type: 'snippet', confidence: 'HIGH', signals: { markupClassMatch: true, renderCallMatch: true, referencedBySection: true }, matchCount: 3 }],
-        primaryCandidate: { file: 'snippets/card-product.liquid', type: 'snippet', confidence: 'HIGH', signals: { markupClassMatch: true, renderCallMatch: true, referencedBySection: true }, matchCount: 3 },
+        candidates: [createAuthoritativeSourceCandidate()],
+        primaryCandidate: createAuthoritativeSourceCandidate(),
+        ambiguous: false,
+        selectionReason: 'Unique correlated HIGH candidate.',
         querySummary: { classesQueried: ['product-card'], attributesQueried: [], workspaceRoot: '/app', filesScannedCount: 1 },
       },
       signals: { markupClassMatch: true, renderCallMatch: true, referencedBySection: true },
@@ -95,8 +115,10 @@ describe('Phase 4: Verification Integration & Policy Ordering', () => {
       success: true,
       evidenceQuality: 'HIGH',
       data: {
-        candidates: [{ file: 'snippets/card-product.liquid', type: 'snippet', confidence: 'HIGH', signals: { markupClassMatch: true, renderCallMatch: true, referencedBySection: true }, matchCount: 3 }],
-        primaryCandidate: { file: 'snippets/card-product.liquid', type: 'snippet', confidence: 'HIGH', signals: { markupClassMatch: true, renderCallMatch: true, referencedBySection: true }, matchCount: 3 },
+        candidates: [createAuthoritativeSourceCandidate()],
+        primaryCandidate: createAuthoritativeSourceCandidate(),
+        ambiguous: false,
+        selectionReason: 'Unique correlated HIGH candidate.',
         querySummary: { classesQueried: ['product-card'], attributesQueried: [], workspaceRoot: '/app', filesScannedCount: 1 },
       },
       signals: { markupClassMatch: true, renderCallMatch: true, referencedBySection: true },
@@ -142,8 +164,10 @@ describe('Phase 4: Verification Integration & Policy Ordering', () => {
       success: true,
       evidenceQuality: 'HIGH',
       data: {
-        candidates: [{ file: 'snippets/card-product.liquid', type: 'snippet', confidence: 'HIGH', signals: { markupClassMatch: true, renderCallMatch: true, referencedBySection: true }, matchCount: 3 }],
-        primaryCandidate: { file: 'snippets/card-product.liquid', type: 'snippet', confidence: 'HIGH', signals: { markupClassMatch: true, renderCallMatch: true, referencedBySection: true }, matchCount: 3 },
+        candidates: [createAuthoritativeSourceCandidate()],
+        primaryCandidate: createAuthoritativeSourceCandidate(),
+        ambiguous: false,
+        selectionReason: 'Unique correlated HIGH candidate.',
         querySummary: { classesQueried: ['product-card'], attributesQueried: [], workspaceRoot: '/app', filesScannedCount: 1 },
       },
       signals: { markupClassMatch: true, renderCallMatch: true, referencedBySection: true },

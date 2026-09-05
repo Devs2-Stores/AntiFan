@@ -13,124 +13,97 @@
  */
 
 import { IssueRegister } from '../session/issue-register';
-import { StalemateState, VerificationVerdict } from './verification-contract';
+import {
+  InconclusiveReason,
+  StalemateState,
+  VerificationBatchLifecycle,
+  VerificationVerdict,
+} from './verification-contract';
 
-export interface CircuitBreakerConfig {
-  maxRetries: number;
-  perClaimBudget?: Map<string, number>;
+export const DEFAULT_MAX_RESAMPLES = 3;
+export const DEFAULT_MAX_REPAIRS = 3;
+
+export interface VerificationBatchKey {
+  runId: string;
+  attemptId: string;
+  claimId: string;
 }
 
-export interface RetryBudgetStatus {
-  claimId: string;
-  attempts: number;
-  maxRetries: number;
-  remaining: number;
+export interface VerificationTransitionResult {
+  lifecycle: VerificationBatchLifecycle;
+  consumed: 'resample' | 'repair' | null;
+  remainingResamples: number;
+  remainingRepairs: number;
   tripped: boolean;
-  state: StalemateState;
+  halted: boolean;
 }
 
 export class VerificationCircuitBreaker {
   private static instance: VerificationCircuitBreaker;
-  private readonly attemptsByClaim = new Map<string, number>();
-  private readonly stateByClaim = new Map<string, StalemateState>();
-  private defaultMaxRetries = 3;
-  private static readonly MAX_TRACKED_CLAIMS = 2000;
 
   private constructor() {}
 
-  private pruneStaleEntries(): void {
-    const maxSize = VerificationCircuitBreaker.MAX_TRACKED_CLAIMS;
-    if (this.attemptsByClaim.size > maxSize || this.stateByClaim.size > maxSize) {
-      let count = 0;
-      for (const k of this.attemptsByClaim.keys()) {
-        this.attemptsByClaim.delete(k);
-        this.stateByClaim.delete(k);
-        count++;
-        if (count >= 500) break;
-      }
-      if (this.stateByClaim.size > maxSize) {
-        let scount = 0;
-        for (const k of this.stateByClaim.keys()) {
-          this.stateByClaim.delete(k);
-          scount++;
-          if (scount >= 500) break;
-        }
-      }
-    }
-  }
-
   public static getInstance(): VerificationCircuitBreaker {
-    if (!this.instance) {
-      this.instance = new VerificationCircuitBreaker();
-    }
+    if (!this.instance) this.instance = new VerificationCircuitBreaker();
     return this.instance;
   }
 
-  public setMaxRetries(max: number): void {
-    if (max > 0) {
-      this.defaultMaxRetries = max;
-    }
-  }
-
-  /**
-   * Records a verification attempt and checks if the circuit breaker trips.
-   * If verdict is REJECTED and retries are exhausted, trips to STALEMATE.
-   */
-  public recordAttempt(
-    claimId: string,
-    verdict: VerificationVerdict,
-    linkedIssueId?: string
-  ): { tripped: boolean; attempts: number; state: StalemateState } {
-    this.pruneStaleEntries();
-    if (verdict === 'VERIFIED') {
-      // Success resets retry counter
-      this.attemptsByClaim.set(claimId, 0);
-      this.stateByClaim.set(claimId, 'ACTIVE');
-      return { tripped: false, attempts: 0, state: 'ACTIVE' };
-    }
-
-    const currentAttempts = (this.attemptsByClaim.get(claimId) || 0) + 1;
-    this.attemptsByClaim.set(claimId, currentAttempts);
-
-    if (currentAttempts >= this.defaultMaxRetries) {
-      this.stateByClaim.set(claimId, 'STALEMATE');
-      // Update IssueRegister singleton
-      try {
-        IssueRegister.getInstance().updateVerificationStalemate(claimId, 'STALEMATE');
-      } catch {}
-
-      return { tripped: true, attempts: currentAttempts, state: 'STALEMATE' };
-    }
-
-    return { tripped: false, attempts: currentAttempts, state: 'ACTIVE' };
-  }
-
-  /**
-   * Returns current budget status for a given claim.
-   */
-  public getBudgetStatus(claimId: string): RetryBudgetStatus {
-    const attempts = this.attemptsByClaim.get(claimId) || 0;
-    const state = this.stateByClaim.get(claimId) || 'ACTIVE';
-    const remaining = Math.max(0, this.defaultMaxRetries - attempts);
-
+  public createLifecycle(key: VerificationBatchKey): VerificationBatchLifecycle {
     return {
-      claimId,
-      attempts,
-      maxRetries: this.defaultMaxRetries,
-      remaining,
-      tripped: state === 'STALEMATE',
-      state,
+      runId: key.runId,
+      attemptId: key.attemptId,
+      resampleAttempts: 0,
+      repairAttempts: 0,
+      maxResamples: DEFAULT_MAX_RESAMPLES,
+      maxRepairs: DEFAULT_MAX_REPAIRS,
+      state: 'ACTIVE',
     };
   }
 
-  /**
-   * Applies a human exemption to unblock workflow without faking evidence.
-   *
-   * Invariant:
-   * VerificationRecord.stalemateState -> 'EXEMPTION_WAIVED'
-   * VerificationRecord.verdict stays truthful (NEVER converted to VERIFIED).
-   * Linked IssueRecord (if any) can be marked RESOLVED with audit note.
-   */
+  public recordAttempt(
+    key: VerificationBatchKey,
+    verdict: VerificationVerdict,
+    inconclusiveReason?: InconclusiveReason,
+    previous?: VerificationBatchLifecycle,
+    invocationId?: string
+  ): VerificationTransitionResult {
+    const sameBatch = previous?.runId === key.runId && previous.attemptId === key.attemptId;
+    const lifecycle: VerificationBatchLifecycle = sameBatch
+      ? { ...previous, lastInvocationId: invocationId || previous.lastInvocationId }
+      : { ...this.createLifecycle(key), lastInvocationId: invocationId };
+    let consumed: VerificationTransitionResult['consumed'] = null;
+
+    if (lifecycle.state === 'STALEMATE' || lifecycle.state === 'EXEMPTION_WAIVED') {
+      return this.result(lifecycle, consumed);
+    }
+
+    if (verdict === 'VERIFIED') {
+      lifecycle.state = 'VERIFIED';
+      delete lifecycle.haltReason;
+      return this.result(lifecycle, consumed);
+    }
+
+    if (inconclusiveReason === 'NEED_INPUT' || inconclusiveReason === 'UNOBSERVABLE' || inconclusiveReason === 'UNSUPPORTED') {
+      lifecycle.state = 'HALTED';
+      lifecycle.haltReason = inconclusiveReason;
+      return this.result(lifecycle, consumed);
+    }
+
+    if (verdict === 'INCONCLUSIVE' && inconclusiveReason === 'RESAMPLE') {
+      lifecycle.resampleAttempts++;
+      consumed = 'resample';
+      if (lifecycle.resampleAttempts >= lifecycle.maxResamples) lifecycle.state = 'STALEMATE';
+      return this.result(lifecycle, consumed);
+    }
+
+    if (verdict === 'REJECTED' || verdict === 'PARTIAL') {
+      lifecycle.repairAttempts++;
+      consumed = 'repair';
+      if (lifecycle.repairAttempts >= lifecycle.maxRepairs) lifecycle.state = 'STALEMATE';
+    }
+    return this.result(lifecycle, consumed);
+  }
+
   public applyHumanExemption(
     claimId: string,
     reason: string,
@@ -139,31 +112,27 @@ export class VerificationCircuitBreaker {
     if (!reason || reason.trim().length === 0) {
       throw new Error('Exemption reason is mandatory for human waiver');
     }
-    this.pruneStaleEntries();
-    this.stateByClaim.set(claimId, 'EXEMPTION_WAIVED');
     const issueRegister = IssueRegister.getInstance();
-
-    // Update IssueRegister verification record
     issueRegister.updateVerificationStalemate(claimId, 'EXEMPTION_WAIVED', reason);
+    if (linkedIssueId) issueRegister.resolve(linkedIssueId, `[HUMAN_EXEMPTION]: ${reason}`);
+    return { success: true, claimId, state: 'EXEMPTION_WAIVED', exemptionReason: reason };
+  }
 
-    // If there is a linked issue, resolve it and persist to disk via issueRegister.resolve
-    if (linkedIssueId) {
-      issueRegister.resolve(linkedIssueId, `[HUMAN_EXEMPTION]: ${reason}`);
-    }
-
+  private result(
+    lifecycle: VerificationBatchLifecycle,
+    consumed: VerificationTransitionResult['consumed']
+  ): VerificationTransitionResult {
     return {
-      success: true,
-      claimId,
-      state: 'EXEMPTION_WAIVED',
-      exemptionReason: reason,
+      lifecycle,
+      consumed,
+      remainingResamples: Math.max(0, lifecycle.maxResamples - lifecycle.resampleAttempts),
+      remainingRepairs: Math.max(0, lifecycle.maxRepairs - lifecycle.repairAttempts),
+      tripped: lifecycle.state === 'STALEMATE',
+      halted: lifecycle.state === 'HALTED',
     };
   }
 
-  /**
-   * Resets circuit breaker state (useful for tests).
-   */
   public reset(): void {
-    this.attemptsByClaim.clear();
-    this.stateByClaim.clear();
+    // Stateless by design. Persisted lifecycle belongs to VerificationRecord.
   }
 }

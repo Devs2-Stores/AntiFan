@@ -1,7 +1,7 @@
 ---
 phase: 1
 title: "Core Runtime Verification & Soak Baseline"
-status: complete
+status: in-progress
 priority: P1
 effort: "1d"
 dependencies: []
@@ -66,7 +66,7 @@ Client / CLI / MCP Request
 ## Success Criteria
 - [x] Test `execution-control-cancellation.test.ts` chạy pass $100\%$.
 - [x] Không còn bất kỳ capability handler nào bỏ sót `context.signal` (đã wire xuyên suốt ViewportGate và action handlers, có unit test kiểm chứng).
-- [ ] Báo cáo đo đạc soak test kéo dài 30–45 phút (Đã xác lập benchmark baseline 4 tab cố định qua quick workload smoke; kịch bản `scripts/smoke-real-soak.cjs --duration=30` đã sẵn sàng).
+- [ ] Báo cáo Windows soak: tạm hoãn tới khi máy có cửa sổ chạy liên tục `3 × 45` phút. Lần thử 2026-09-05 pass run 1 nhưng run 2 fail-closed vì Drawer trace không verified; lần sau phải chạy lại từ run 1.
 
 ## Risk Assessment
 - *Nguy cơ:* Chromium DevTools Protocol (CDP) socket bị treo ngầm khi tab reload trong lúc đang `browser.wait`.
@@ -89,4 +89,9 @@ Client / CLI / MCP Request
    - QA blast: 20 live scans completed.
    - Orphan processes: 0.
    - Overall Verdict: `PASSED (VERIFIED)`.
+
+3. **Repeatable Windows Freeze Certificate (`../260905-0012-core-pre-freeze-hardening-and-live-proof/reports/freeze-certificate.json`)**:
+   - Regeneration is deferred until the workstation is available for an uninterrupted `3 × 45`-minute sequence.
+   - The 2026-09-05 attempt passed run 1 under the hardened duration validator, then run 2 failed closed on an unverified Drawer trace; no aggregate certificate was emitted.
+   - The replacement must restart from run 1 and bind three distinct fresh process starts, at least 45 minutes of elapsed and raw-sample evidence per run, one immutable threshold checksum, and a `PASSED` aggregate checksum.
 - *Phản ứng dự phòng:* Đảm bảo `context.signal` được kết nối trực tiếp với AbortSignal của CDP request pool trong `native-tab-host.ts`.

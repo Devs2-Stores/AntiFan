@@ -4,9 +4,9 @@ import { ProjectRegistry } from '../project/project-registry';
 import { WorkspaceRegistry } from '../project/workspace-registry';
 import { RunService } from '../run/run-service';
 import { EventStore } from '../session/event-store';
-import { ReceiptStore } from '../session/receipt-store';
-import { InvocationLedger } from '../session/invocation-ledger';
-import { ArtifactStore } from '../tools/artifact-store';
+import { ReceiptStore, type ReceiptStoreStats } from '../session/receipt-store';
+import { InvocationLedger, type InvocationLedgerStats } from '../session/invocation-ledger';
+import { ArtifactStore, type ArtifactStoreStats } from '../tools/artifact-store';
 import { CapabilityCatalogue } from '../tools/capability-catalogue';
 import { CapabilityTransportAdapter } from '../tools/capability-transport';
 import { BrowserControlPort } from '../tools/browser-control-port';
@@ -17,7 +17,7 @@ import { registerArtifactCapabilities } from '../tools/artifact-capabilities';
 import { registerTerminalCapabilities } from '../tools/terminal-capabilities';
 import { registerWorkflowCapabilities } from '../workflow/workflow-capabilities';
 import { WorkflowRegistry } from '../workflow/workflow-registry';
-import { TerminalManager } from '../browser/terminal-manager';
+import { TerminalManager, type TerminalManagerStats } from '../browser/terminal-manager';
 import { WorkflowEngine } from '../workflow/workflow-engine';
 import { assertExactBrowserTarget, BrowserTarget, CapabilityError, CapabilityRequestContext, issueRuntimeLease, RuntimeFeatureSwitch, RuntimeLease, WorkspaceRecord } from '../../shared/control-plane-contracts';
 import { WorkflowDefinition, WorkflowExecutionResult, WorkflowEventListener } from '../workflow/workflow-schema';
@@ -37,6 +37,13 @@ export interface ControlPlaneRuntimeOptions {
   getAutomationTabId?: () => string | null;
   isTabAllowed?: (primaryTabId: string, requestedTabId: string) => boolean;
 }
+export interface ControlPlaneResourceStats {
+  artifacts: ArtifactStoreStats;
+  invocations: InvocationLedgerStats;
+  receipts: ReceiptStoreStats;
+  terminal: TerminalManagerStats;
+}
+
 
 export class ControlPlaneRuntime {
   readonly projects: ProjectRegistry;
@@ -124,6 +131,15 @@ export class ControlPlaneRuntime {
     await this.runs.attachments.initialize();
     await this.ledger.initialize();
   }
+  public getResourceStats(): ControlPlaneResourceStats {
+    return {
+      artifacts: this.artifacts.getStats(),
+      invocations: this.ledger.getStats(),
+      receipts: this.receipts.getStats(),
+      terminal: this.terminal.getStats(),
+    };
+  }
+
 
   getWorkspaceRoot(): string {
     if (this.leaseState.workspaceId) {

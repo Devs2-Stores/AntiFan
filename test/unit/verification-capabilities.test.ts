@@ -1,11 +1,15 @@
 import { test, describe } from 'node:test';
 import * as assert from 'node:assert';
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
 import { CapabilityCatalogue } from '../../src/main/tools/capability-catalogue';
 import { registerBrowserCapabilities } from '../../src/main/tools/browser-capabilities';
 import { BrowserControlPort, BrowserHostPort } from '../../src/main/tools/browser-control-port';
-import { BrowserTarget, ArtifactRef } from '../../src/shared/control-plane-contracts';
+import { AuthenticatedCapabilityContext, BrowserTarget, CapabilityRequestContext, ArtifactRef, issueRuntimeLease } from '../../src/shared/control-plane-contracts';
 import { IssueRegister } from '../../src/main/session/issue-register';
-
+import { ReceiptStore } from '../../src/main/session/receipt-store';
+import type { VerificationRecord } from '../../src/main/verification/verification-contract';
 describe('Verification Capabilities & Anti-Hallucination Barrier Suite (Phase 2)', () => {
   const dummyTarget: BrowserTarget = {
     projectId: 'proj-1',
@@ -412,5 +416,65 @@ describe('Verification Capabilities & Anti-Hallucination Barrier Suite (Phase 2)
     assert.strictEqual(changedResult.verdict, 'VERIFIED', 'Genuine state transition matching canonical obligations must be VERIFIED');
     assert.strictEqual(changedResult.proofProfile.completeness, 'FULL');
     assert.strictEqual(changedResult.proofProfile.violations.length, 0);
+  });
+
+  test('receipt-enabled verification requires invocation identity and records non-pass as completed execution', async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-verification-receipts-'));
+    const receipts = new ReceiptStore({ filePath: path.join(root, 'receipts.jsonl') });
+    const projectId = 'project-12345678901234567890';
+    const workspaceId = 'workspace-12345678901234567890';
+    const lease = issueRuntimeLease(projectId, workspaceId, 30_000, 1);
+    const catalogue = new CapabilityCatalogue({ runtime: { mode: 'standalone', lifecycle: 'active' }, projectId, workspaceId, runtimeId: lease.runtimeId, hostEpoch: 1 });
+    const target = { ...dummyTarget, projectId, workspaceId, runtimeId: lease.runtimeId };
+    const port = new BrowserControlPort(createMockHost({ inspectStyles: async () => ({ color: 'green' }) }));
+    registerBrowserCapabilities(catalogue, port, undefined, () => root, receipts);
+    const claim = IssueRegister.getInstance().recordVerification({
+      claim: 'Receipt rejection remains a completed capability execution',
+      actor: 'agent',
+      scope: { tabId: 'tab-1', selector: '.cta' },
+      proofObligations: [{ id: 'color', metric: 'style.color', expected: 'red', critical: true }],
+      verdict: 'UNVERIFIED',
+    });
+    const capability = catalogue.get('anti.verification.verify_claim')!;
+
+    const trustedContext: CapabilityRequestContext = {
+      lease,
+      leaseToken: lease.token,
+      projectId,
+      workspaceId,
+      runId: 'run-receipt',
+      attemptId: 'attempt-receipt',
+      browserTarget: target,
+      grant: 'write',
+    };
+    await assert.rejects(
+      async () => capability.execute({ claimId: claim.id }, trustedContext),
+      (err: unknown) => err instanceof Error && 'code' in err && err.code === 'MCP_CONTEXT_REQUIRED'
+    );
+
+    const makeContext = (invocationId: string): AuthenticatedCapabilityContext => ({
+      attachmentId: 'binding-receipt-test',
+      runId: 'run-receipt',
+      attemptId: 'attempt-receipt',
+      projectId,
+      workspaceId,
+      backendId: 'test-backend',
+      hostEpoch: 1,
+      invocationId,
+      lease,
+      leaseToken: lease.token,
+      browserTarget: target,
+      grant: 'write',
+    });
+    const first = await capability.execute({ claimId: claim.id }, makeContext('invocation-rejected-1')) as VerificationRecord;
+    assert.strictEqual(first.verdict, 'REJECTED');
+    assert.strictEqual(first.lifecycle?.repairAttempts, 1);
+    assert.strictEqual(receipts.findByCommand('invocation-rejected-1')?.state, 'completed');
+    assert.strictEqual(receipts.findByCommand('invocation-rejected-1')?.deliveryState, 'accepted-exact');
+
+    const second = await capability.execute({ claimId: claim.id }, makeContext('invocation-rejected-2')) as VerificationRecord;
+    assert.strictEqual(second.lifecycle?.repairAttempts, 2);
+    assert.ok(receipts.findByCommand('invocation-rejected-1'));
+    assert.ok(receipts.findByCommand('invocation-rejected-2'));
   });
 });

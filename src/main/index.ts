@@ -227,6 +227,7 @@ async function createWindow(): Promise<void> {
     getManagedTabIds: (primaryOrBoundTabId) => tabHost!.getManagedTabIdsForBoundTab(primaryOrBoundTabId),
     isTabAllowed: (primaryOrBoundTabId, requestedTabId) => tabHost!.isTabAllowedForPrimary(primaryOrBoundTabId, requestedTabId),
     getTabList: () => tabHost!.getTabList(),
+    getBrowserEpoch: () => tabHost!.getBrowserEpoch(),
     getActiveTabId: () => tabHost!.getActiveTabId(),
     getAutomationTabId: () => tabHost!.getAutomationTabId(),
     setAutomationTabId: (tabId) => tabHost!.setAutomationTabId(tabId),

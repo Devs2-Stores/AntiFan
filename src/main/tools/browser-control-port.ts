@@ -22,13 +22,26 @@ export interface ResponsiveBreakpointOption {
   deviceScaleFactor?: number;
 }
 
+interface ObservationIdentity {
+  browserEpoch: number;
+  documentGeneration: number;
+  mutationRevision: number;
+}
+
+function sameObservationIdentity(left: ObservationIdentity, right: ObservationIdentity): boolean {
+  return left.browserEpoch === right.browserEpoch
+    && left.documentGeneration === right.documentGeneration
+    && left.mutationRevision === right.mutationRevision;
+}
 export interface BrowserHostPort {
+
   hasTab?(tabId?: string | null): boolean;
   adoptChildTab?(primaryOrBoundTabId: string, childTabId: string, generation?: number | string, source?: 'agent_spawned' | 'native_window_open' | 'user_attached', parentTabId?: string): boolean;
   getManagedTabIds?(primaryOrBoundTabId: string): Set<string>;
   isTabAllowed?(primaryOrBoundTabId: string, requestedTabId: string): boolean;
   getFailoverTargetTab?(staleTabId: string): string | undefined;
   getTabList(): unknown[];
+  getBrowserEpoch?(): number;
   getActiveTabId?(): string;
   getAutomationTabId?(): string | null;
   setAutomationTabId?(tabId?: string): void;
@@ -90,6 +103,7 @@ export interface BrowserObserveResult {
     paneId: 'desktop' | 'mobile';
     browserEpoch: number;
     documentGeneration: number;
+    mutationRevision: number;
     documentUrl?: string;
   };
   components: {
@@ -689,12 +703,30 @@ export class BrowserControlPort {
     }
 
     return this.passivePool.execute(tabId, async () => {
-      const initialDocGen = this.host.getDocumentGeneration ? this.host.getDocumentGeneration(tabId) : (target.documentGeneration || 1);
-      const initialEpoch = target.browserEpoch;
+      const readIdentity = (): ObservationIdentity => ({
+        browserEpoch: this.host.getBrowserEpoch ? this.host.getBrowserEpoch() : target.browserEpoch,
+        documentGeneration: this.host.getDocumentGeneration ? this.host.getDocumentGeneration(tabId) : (target.documentGeneration || 1),
+        mutationRevision: this.host.getMutationRevision ? this.host.getMutationRevision(tabId) : 1,
+      });
+      const initialIdentity = readIdentity();
+      const assertCoherent = (): void => {
+        const current = readIdentity();
+        if (current.browserEpoch !== initialIdentity.browserEpoch || current.documentGeneration !== initialIdentity.documentGeneration) {
+          throw new CapabilityError('TARGET_STALE', 'Browser or document identity changed during observation');
+        }
+        if (!sameObservationIdentity(current, initialIdentity)) {
+          throw new CapabilityError('INTEGRITY_COMPROMISED', 'DOM mutation revision changed during observation');
+        }
+      };
       const startAll = Date.now();
       const perComponent: Record<string, { start: number; end: number }> = {};
       const sequence: number[] = [];
-      const resultComponents: BrowserObserveResult['components'] = {};
+      const buffered: {
+        dom?: string;
+        screenshot?: Buffer;
+        snapshot?: string;
+        diagnostics?: { console: unknown[]; failures: unknown[] };
+      } = {};
 
       for (let i = 0; i < requested.length; i++) {
         const comp = requested[i]!;
@@ -702,40 +734,44 @@ export class BrowserControlPort {
         const compStart = Date.now();
 
         if (comp === 'dom') {
-          const html = await this.host.getDom(params.selector, tabId, effectivePane);
-          resultComponents.dom = this.artifacts
-            ? await this.artifacts.stage({ kind: 'dom', mime: 'text/html', data: html, runId, attemptId, projectId: target.projectId, workspaceId: target.workspaceId, maxBytes: 8 * 1024 * 1024 })
-            : limit(html, 512 * 1024);
+          buffered.dom = await this.host.getDom(params.selector, tabId, effectivePane);
         } else if (comp === 'screenshot') {
           const base64 = await this.host.captureScreenshot(undefined, tabId, effectivePane);
-          const buffer = Buffer.from(base64, 'base64');
-          resultComponents.screenshot = this.artifacts
-            ? await this.artifacts.stage({ kind: 'screenshot', mime: 'image/png', data: buffer, runId, attemptId, projectId: target.projectId, workspaceId: target.workspaceId, maxBytes: 8 * 1024 * 1024 })
-            : limit(base64, 512 * 1024);
+          buffered.screenshot = Buffer.from(base64, 'base64');
         } else if (comp === 'snapshot') {
           const snapshotText = this.host.agentSnapshot ? await this.host.agentSnapshot(tabId, effectivePane) : '';
-          resultComponents.snapshot = limit(snapshotText, 128 * 1024);
+          buffered.snapshot = limit(snapshotText, 128 * 1024);
         } else if (comp === 'diagnostics') {
-          resultComponents.diagnostics = this.host.getDiagnostics ? this.host.getDiagnostics(tabId) : { console: [], failures: [] };
+          buffered.diagnostics = this.host.getDiagnostics ? this.host.getDiagnostics(tabId) : { console: [], failures: [] };
         }
 
-        const compEnd = Date.now();
-        perComponent[comp] = { start: compStart, end: compEnd };
-
-        // Revalidate document generation across components
-        const currentDocGen = this.host.getDocumentGeneration ? this.host.getDocumentGeneration(tabId) : initialDocGen;
-        if (currentDocGen !== initialDocGen) {
-          throw new CapabilityError('TARGET_STALE', 'Document navigated or reloaded during observation; observation crossed document identity');
-        }
+        perComponent[comp] = { start: compStart, end: Date.now() };
+        assertCoherent();
       }
+
+      assertCoherent();
+      const resultComponents: BrowserObserveResult['components'] = {};
+      if (buffered.dom !== undefined) {
+        resultComponents.dom = this.artifacts
+          ? await this.artifacts.stage({ kind: 'dom', mime: 'text/html', data: buffered.dom, runId, attemptId, projectId: target.projectId, workspaceId: target.workspaceId, maxBytes: 8 * 1024 * 1024 })
+          : limit(buffered.dom, 512 * 1024);
+      }
+      if (buffered.screenshot !== undefined) {
+        resultComponents.screenshot = this.artifacts
+          ? await this.artifacts.stage({ kind: 'screenshot', mime: 'image/png', data: buffered.screenshot, runId, attemptId, projectId: target.projectId, workspaceId: target.workspaceId, maxBytes: 8 * 1024 * 1024 })
+          : limit(buffered.screenshot.toString('base64'), 512 * 1024);
+      }
+      if (buffered.snapshot !== undefined) resultComponents.snapshot = buffered.snapshot;
+      if (buffered.diagnostics !== undefined) resultComponents.diagnostics = buffered.diagnostics;
 
       const endAll = Date.now();
       return {
         target: {
           tabId,
           paneId: effectivePane,
-          browserEpoch: initialEpoch,
-          documentGeneration: initialDocGen,
+          browserEpoch: initialIdentity.browserEpoch,
+          documentGeneration: initialIdentity.documentGeneration,
+          mutationRevision: initialIdentity.mutationRevision,
         },
         components: resultComponents,
         metadata: {
@@ -1754,6 +1790,7 @@ export class BrowserControlPort {
           motion: undefined,
         };
       }
+      this.bumpMutationRevision(tabId);
       const settleWait = Math.min(Math.max(params.settleMs || 100, 20), 2000);
       const { promise: settlePromise, resolve: settleResolve } = Promise.withResolvers<void>();
       setTimeout(settleResolve, settleWait);

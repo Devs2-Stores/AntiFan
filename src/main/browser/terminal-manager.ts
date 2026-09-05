@@ -115,6 +115,14 @@ export interface SessionSummary {
   exitedAt?: number;
   closedAt?: number;
 }
+export interface TerminalManagerStats {
+  sessionCount: number;
+  runningPtyCount: number;
+  transcriptBytes: number;
+  dataSubscriptionCount: number;
+  exitSubscriptionCount: number;
+}
+
 function safeSliceTail(str: string, maxBytes: number): string {
   if (!str || str.length <= maxBytes) return str || '';
   let raw = str.slice(-maxBytes);
@@ -865,6 +873,26 @@ export class TerminalManager extends EventEmitter {
         closedAt: s.closedAt,
       };
     });
+  }
+
+  public getStats(): TerminalManagerStats {
+    let runningPtyCount = 0;
+    let transcriptBytes = 0;
+    let dataSubscriptionCount = 0;
+    let exitSubscriptionCount = 0;
+    for (const session of this.sessions.values()) {
+      if (session.state === 'running' && !session.disposed) runningPtyCount++;
+      transcriptBytes += Buffer.byteLength(session.buffer, 'utf8');
+      if (session.dataSubscription) dataSubscriptionCount++;
+      if (session.exitSubscription) exitSubscriptionCount++;
+    }
+    return {
+      sessionCount: this.sessions.size,
+      runningPtyCount,
+      transcriptBytes,
+      dataSubscriptionCount,
+      exitSubscriptionCount,
+    };
   }
 
   public getFullBuffer(sessionId: string): { sessionId: string; buffer: string; snapshotThroughSeq: number } {

@@ -1,0 +1,18 @@
+* { box-sizing: border-box; }
+html, body { margin: 0; min-height: 100%; }
+body { font-family: system-ui, sans-serif; color: #172033; background: #f7f8fb; overflow-x: hidden; }
+body.drawer-open { overflow: hidden; }
+.site-header { display: flex; align-items: center; justify-content: space-between; min-height: 64px; padding: 12px 20px; background: #fff; border-bottom: 1px solid #dce1ea; }
+.brand { color: #172033; font-weight: 700; text-decoration: none; }
+.menu-toggle { display: inline-flex; align-items: center; gap: 8px; min-width: 88px; min-height: 44px; border: 0; border-radius: 8px; padding: 10px 14px; color: #fff; background: #2457d6; cursor: pointer; }
+main { max-width: 760px; padding: 32px 20px; }
+.drawer { position: fixed; z-index: 20; top: 0; right: 0; width: min(84vw, 360px); height: 100vh; padding: 88px 24px 24px; background: #fff; box-shadow: -14px 0 40px rgba(23, 32, 51, 0.2); transform: translateX(105%); visibility: hidden; transition: transform 120ms ease, visibility 0s linear 120ms; }
+.drawer.open { transform: translateX(0); visibility: visible; transition: transform 120ms ease; }
+.drawer nav { display: grid; gap: 16px; }
+.drawer a { color: #172033; font-size: 18px; text-decoration: none; }
+.drawer-scrim { position: fixed; z-index: 10; inset: 0; background: rgba(23, 32, 51, 0.38); opacity: 0; visibility: hidden; pointer-events: none; transition: opacity 120ms ease, visibility 0s linear 120ms; }
+.drawer-scrim.open { opacity: 1; visibility: visible; pointer-events: auto; transition: opacity 120ms ease; }
+@media (max-width: 375px) {
+  .site-header { padding-inline: 12px; }
+  main { padding-inline: 12px; }
+}

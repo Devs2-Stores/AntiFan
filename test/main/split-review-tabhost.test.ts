@@ -91,11 +91,13 @@ function createTestHost() {
   host.agentWorkingTimers = new Map();
   host.agentWorkingRefs = new Map();
   host.terminalWindows = new Map();
+  host.terminalWindowMeta = new Map();
   host.documentGenerations = new Map();
   host.semanticDocumentGenerations = new Map();
   host.semanticRefRegistry = new SemanticRefRegistry();
   host.targetOperationQueues = new Map();
   host.networkTracker = new FirstPartyNetworkTracker();
+  host.previewWatcherPool = { clear: () => {} };
   host.persistTabs = () => {};
   host.inspectGeneration = 0;
   host.isInspecting = false;
@@ -354,27 +356,42 @@ describe('NativeTabHost Split Review Integration', () => {
     assert.doesNotMatch(executedScripts[2] || '', /contain:\s*paint/);
   });
 
-  it('cleans up and destroys frameBackdropView during dispose', () => {
-    const { host } = createTestHost();
+  it('detaches and destroys every owned WebContentsView during dispose', () => {
+    const { host, desktopWc, mobileWc, mobileView } = createTestHost();
     const removedViews: any[] = [];
-    let destroyed = false;
+    const destroyed = new Set<string>();
     const mockBackdropView: any = {
       webContents: {
-        isDestroyed: () => destroyed,
-        destroy: () => { destroyed = true; },
+        isDestroyed: () => destroyed.has('backdrop'),
+        destroy: () => { destroyed.add('backdrop'); },
         send: () => {},
       },
       setBounds: () => {},
     };
+    const mockToolbarView: any = {
+      webContents: {
+        isDestroyed: () => destroyed.has('toolbar'),
+        destroy: () => { destroyed.add('toolbar'); },
+        send: () => {},
+      },
+    };
+    desktopWc.isDestroyed = () => destroyed.has('desktop');
+    desktopWc.destroy = () => { destroyed.add('desktop'); };
+    mobileWc.isDestroyed = () => destroyed.has('mobile');
+    mobileWc.destroy = () => { destroyed.add('mobile'); };
+    host.tabs.get('tab-split-1').mobileView = mobileView;
     host.window.contentView.removeChildView = (view: any) => {
       removedViews.push(view);
     };
-    (host as any).frameBackdropView = mockBackdropView;
+    host.toolbarView = mockToolbarView;
+    host.frameBackdropView = mockBackdropView;
 
-    (NativeTabHost.prototype as any).dispose.call(host);
+    NativeTabHost.prototype.dispose.call(host);
+
+    assert.ok(removedViews.includes(mockToolbarView));
     assert.ok(removedViews.includes(mockBackdropView));
-    assert.strictEqual(destroyed, true);
-    assert.strictEqual((host as any).frameBackdropView, null);
+    assert.deepStrictEqual([...destroyed].sort(), ['backdrop', 'desktop', 'mobile', 'toolbar']);
+    assert.strictEqual(host.frameBackdropView, null);
   });
 
   it('injects inspect picker into both desktop and mobile webContents in split mode and auto-focuses picked pane', async () => {

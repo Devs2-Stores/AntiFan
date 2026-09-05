@@ -1,62 +1,73 @@
 #!/usr/bin/env node
-/**
- * AntiFan Browser Desktop - Real Multi-Process Runtime Soak Test (Phase 4)
- * Executes an authentic 4-stage endurance sequence against a live Electron multi-process binary:
- * 1. Stage 1: Idle Baseline (Real multi-process OS working set sampling via app.getAppMetrics())
- * 2. Stage 2: PTY Streaming Stress (High-throughput ANSI chunk streaming through real node-pty TerminalManager)
- * 3. Stage 3: Split Review & Tab Thrash (Real NativeTabHost 4-tab concurrency, toggleSplitReview, cycling switches)
- * 4. Stage 4: Concurrent QA Blast & Live Storefront Inspection
- *
- * Asserts:
- * - Successful completion of all 4 multi-process workload stages
- * - Clean graceful teardown with zero orphaned ConPTY / Electron processes
- */
+'use strict';
 
 const { app, BrowserWindow } = require('electron');
-const http = require('node:http');
-const path = require('node:path');
-const os = require('node:os');
+const assert = require('node:assert/strict');
+const crypto = require('node:crypto');
 const fs = require('node:fs');
-const assert = require('node:assert');
+const os = require('node:os');
+const path = require('node:path');
 
 app.commandLine.appendSwitch('no-sandbox');
+app.on('window-all-closed', (event) => {
+  event.preventDefault();
+});
 
+
+const rootDir = path.resolve(__dirname, '..');
+const reportsDir = path.join(rootDir, 'plans', '260905-0012-core-pre-freeze-hardening-and-live-proof', 'reports');
+const freezeCore = require('./freeze-certification-core.cjs');
+const themeWorkload = require('./freeze-theme-workload.cjs');
 const { NativeTabHost } = require('../.compiled/src/main/browser/native-tab-host.js');
 const { TerminalManager } = require('../.compiled/src/main/browser/terminal-manager.js');
+const { ControlPlaneRuntime } = require('../.compiled/src/main/control-plane/control-plane-runtime.js');
+const { DEFAULT_MAX_ARTIFACT_BYTES } = require('../.compiled/src/main/tools/artifact-store.js');
+const { DEFAULT_MAX_INVOCATION_FRAME_BYTES } = require('../.compiled/src/main/session/invocation-ledger.js');
+const { DEFAULT_MAX_RECEIPT_BYTES } = require('../.compiled/src/main/session/receipt-store.js');
+
+const { makeControlPlaneId } = require('../.compiled/src/shared/control-plane-contracts.js');
 const { LiquidErrorScanner } = require('../.compiled/src/main/qa/scanners/liquid-error-scanner.js');
 const { PlatformDetector } = require('../.compiled/src/main/qa/scanners/platform-detector.js');
 
-// 1. Calculate linear regression slope: Beta = Cov(t, RAM) / Var(t) in MB/min
-function calculateMemorySlope(samples) {
-  const n = samples.length;
-  if (n < 2) return 0;
-
-  const firstT = samples[0].timestamp;
-  const tMinutes = samples.map((s) => (s.timestamp - firstT) / 60000);
-  const rMB = samples.map((s) => s.rssBytes / (1024 * 1024));
-
-  const meanT = tMinutes.reduce((acc, t) => acc + t, 0) / n;
-  const meanM = rMB.reduce((acc, m) => acc + m, 0) / n;
-
-  let num = 0;
-  let den = 0;
-
-  for (let i = 0; i < n; i++) {
-    const dt = tMinutes[i] - meanT;
-    const dm = rMB[i] - meanM;
-    num += dt * dm;
-    den += dt * dt;
-  }
-
-  return den === 0 ? 0 : num / den;
+function wait(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+function stage(label) {
+  console.log(`[core-freeze] stage: ${label}`);
 }
 
-function wait(ms) {
-  return new Promise((r) => setTimeout(r, ms));
+function bounded(label, promise, timeoutMs = 30_000) {
+  return themeWorkload.withTimeout(label, promise, timeoutMs);
+}
+
+
+function parseArgs(argv) {
+  const certification = argv.includes('--certification');
+  const durationIndex = argv.indexOf('--duration');
+  const runIndex = argv.indexOf('--run');
+  const reportIndex = argv.indexOf('--report');
+  const durationMinutes = durationIndex >= 0 ? Number(argv[durationIndex + 1]) : 0;
+  const runNumber = runIndex >= 0 ? Number(argv[runIndex + 1]) : 0;
+  const reportPath = reportIndex >= 0 ? path.resolve(argv[reportIndex + 1]) : undefined;
+  if (durationIndex >= 0 && (!Number.isFinite(durationMinutes) || durationMinutes <= 0)) {
+    throw new Error('--duration requires a finite positive number of minutes');
+  }
+  if (certification) {
+    if (durationMinutes !== freezeCore.CERTIFICATION_DURATION_MINUTES) {
+      throw new Error('Certification mode requires exactly --duration 45');
+    }
+    if (!Number.isInteger(runNumber) || runNumber < 1 || runNumber > 3) {
+      throw new Error('Certification mode requires --run 1, 2, or 3');
+    }
+    if (!reportPath) throw new Error('Certification mode requires --report <path>');
+  } else if (durationIndex >= 0) {
+    throw new Error('--duration is reserved for exact 45-minute certification mode');
+  }
+  return { certification, durationMinutes, runNumber, reportPath };
 }
 
 function isProcessAlive(pid) {
-  if (!pid || typeof pid !== 'number') return false;
+  if (!Number.isInteger(pid) || pid <= 0) return false;
   try {
     process.kill(pid, 0);
     return true;
@@ -65,440 +76,524 @@ function isProcessAlive(pid) {
   }
 }
 
-// 2. Local HTTP Fixture Server (Storefront Mock)
-function startFixtureServer() {
-  const server = http.createServer((req, res) => {
-    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-    res.end(`<!DOCTYPE html>
-      <html lang="vi">
-      <head>
-        <meta charset="utf-8" />
-        <title>Soak Test Storefront Fixture</title>
-        <style>
-          body { font-family: sans-serif; margin: 20px; background: #f4f4f5; color: #18181b; }
-          .hero { padding: 40px; background: #fff; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
-          .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-top: 20px; }
-          .card { padding: 16px; background: #fff; border-radius: 6px; }
-        </style>
-      </head>
-      <body>
-        <div class="hero">
-          <h1>Soak Test Storefront</h1>
-          <p>Mock e-commerce theme for endurance load testing.</p>
-          <div class="liquid-err">Liquid error: Could not find snippet 'cart-drawer'</div>
-        </div>
-        <div class="grid">
-          <div class="card"><h3>Product 1</h3><p>Price: 100.000₫</p></div>
-          <div class="card"><h3>Product 2</h3><p>Price: 200.000₫</p></div>
-          <div class="card"><h3>Product 3</h3><p>Price: 300.000₫</p></div>
-        </div>
-      </body>
-      </html>`);
-  });
-
-  return new Promise((resolve) => {
-    server.listen(0, '127.0.0.1', () => {
-      const port = server.address().port;
-      resolve({ server, port, url: `http://127.0.0.1:${port}` });
-    });
-  });
+function atomicWriteJson(filePath, value) {
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  const tempPath = `${filePath}.tmp-${process.pid}-${Date.now()}`;
+  fs.writeFileSync(tempPath, `${JSON.stringify(value, null, 2)}\n`, 'utf8');
+  fs.renameSync(tempPath, filePath);
 }
 
-// 3. Main Real Soak Endurance Runner
-async function runSoakTest() {
-  const durationArgIdx = process.argv.indexOf('--duration');
-  let rawDuration = undefined;
-  if (durationArgIdx !== -1) {
-    rawDuration = process.argv[durationArgIdx + 1];
-    if (!rawDuration || rawDuration.startsWith('--')) {
-      throw new Error('Flag --duration requires a positive numeric argument (e.g. --duration 30)');
-    }
-  } else if (process.env.SOAK_DURATION_MINUTES) {
-    rawDuration = process.env.SOAK_DURATION_MINUTES;
+function environmentFingerprint() {
+  const cpus = os.cpus();
+  return {
+    platform: process.platform,
+    arch: process.arch,
+    osRelease: os.release(),
+    cpuModel: cpus[0]?.model || 'unknown',
+    cpuCount: cpus.length,
+    totalMemoryBytes: os.totalmem(),
+    nodeVersion: process.versions.node,
+    electronVersion: process.versions.electron,
+    chromeVersion: process.versions.chrome,
+  };
+}
+
+function processIdentity(metric) {
+  if (!Number.isInteger(metric?.pid) || !Number.isFinite(metric?.creationTime)) return null;
+  return `${metric.pid}:${metric.creationTime}`;
+}
+
+function appMetrics() {
+  try {
+    return app.getAppMetrics();
+  } catch {
+    return [];
   }
+}
 
-  let soakDurationMinutes = 0;
-  let isExtendedSoak = false;
-
-  if (rawDuration !== undefined) {
-    const parsed = Number(rawDuration);
-    if (!Number.isFinite(parsed) || parsed <= 0) {
-      throw new Error(`Invalid --duration argument '${rawDuration}': must be a finite positive number of minutes.`);
-    }
-    if (parsed < 30 || parsed > 45) {
-      throw new Error(
-        `Extended soak baseline certification requires a duration between 30 and 45 minutes (received ${parsed}m). ` +
-        `Runs outside 30-45 minutes cannot certify the Phase 1 soak baseline. Omit --duration for smoke mode or specify 30-45.`
-      );
-    }
-    soakDurationMinutes = parsed;
-    isExtendedSoak = true;
+function countSurvivingRenderers(ownedRenderers) {
+  const live = new Set(appMetrics()
+    .filter((metric) => metric?.type === 'Tab')
+    .map(processIdentity)
+    .filter(Boolean));
+  let count = 0;
+  for (const identity of ownedRenderers) {
+    if (live.has(identity)) count += 1;
   }
+  return count;
+}
 
-  const targetEnduranceMs = isExtendedSoak ? soakDurationMinutes * 60 * 1000 : 0;
+function sampleProcessTree(tabHost, ownedRenderers) {
+  const started = performance.now();
+  const metrics = appMetrics();
+  for (const metric of metrics) {
+    const identity = processIdentity(metric);
+    if (metric?.type === 'Tab' && identity) ownedRenderers.add(identity);
+  }
+  const classified = freezeCore.classifyAppMetrics(metrics);
+  if (classified.totalWorkingSetBytes === 0) {
+    classified.totalWorkingSetBytes = process.memoryUsage().rss;
+    classified.processCount = Math.max(1, classified.processCount);
+    classified.classes.browser.processCount = Math.max(1, classified.classes.browser.processCount);
+    classified.classes.browser.workingSetBytes = classified.totalWorkingSetBytes;
+  }
+  const memory = process.memoryUsage();
+  return {
+    timestamp: Date.now(),
+    totalWorkingSetBytes: classified.totalWorkingSetBytes,
+    processCount: classified.processCount,
+    classes: classified.classes,
+    mainHeap: {
+      heapUsed: memory.heapUsed,
+      heapTotal: memory.heapTotal,
+      external: memory.external,
+      arrayBuffers: memory.arrayBuffers,
+    },
+    tabCount: tabHost ? tabHost.getResourceStats().tabCount : 0,
+    samplerDurationMs: Number((performance.now() - started).toFixed(3)),
+  };
+}
 
-  console.log('===============================================================');
-  console.log(`  AntiFan Browser Desktop - Real Multi-Process Soak Endurance`);
-  console.log(`  Mode: ${isExtendedSoak ? `Extended Soak (${soakDurationMinutes} minutes)` : 'Quick Workload Smoke (~30s)'}`);
-  console.log('===============================================================');
-  const fixture = await startFixtureServer();
-  console.log(`[soak] Local fixture server running on ${fixture.url}`);
+function feedbackGatesPassed(gates) {
+  const certificationOnly = new Set([
+    'settledTotalRssGrowthMb',
+    'overallTotalRssSlopeMbPerMin',
+    'rendererRssSlopeMbPerMin',
+  ]);
+  return Object.entries(gates).every(([name, gate]) => certificationOnly.has(name) || gate.passed);
+}
 
-  const soakDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-soak-'));
-  app.setPath('userData', soakDataDir);
+function storageSnapshot(tabHost) {
+  const controlPlane = tabHost.getResourceStats().controlPlane;
+  if (!controlPlane) throw new Error('Control-plane resource owners are unavailable');
+  return {
+    artifacts: { ...controlPlane.artifacts },
+    receipts: { ...controlPlane.receipts },
+    invocations: { ...controlPlane.invocations },
+  };
+}
+
+function sumCounters(total, next) {
+  total.capabilityInvocations += next.capabilityInvocations;
+  total.artifactWrites += next.artifactWrites;
+  total.receiptWrites += next.receiptWrites;
+}
+
+function sumCanaries(total, next) {
+  total.staleAuthorityAcceptedCount += next.staleAuthorityAcceptedCount;
+  total.staleDocumentAcceptedCount += next.staleDocumentAcceptedCount;
+  total.staleMutationVerifiedCount += next.staleMutationVerifiedCount;
+  total.falseClaimVerifiedCount += next.falseClaimVerifiedCount;
+}
+
+async function runSoak() {
+  const args = parseArgs(process.argv.slice(2));
+  const processStartId = `process-start-${crypto.randomUUID()}`;
+  const startedAt = Date.now();
+  const orchestratorTempRoot = process.env.ANTIFAN_FREEZE_TEMP_ROOT;
+  const tempRoot = orchestratorTempRoot ? path.resolve(orchestratorTempRoot) : fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-core-freeze-'));
+  const userDataRoot = path.join(tempRoot, 'user-data');
+  app.setPath('userData', userDataRoot);
+
+  assert.equal(freezeCore.MAX_ARTIFACT_BYTES, DEFAULT_MAX_ARTIFACT_BYTES, 'Artifact owner ceiling mismatch');
+  assert.equal(freezeCore.MAX_INVOCATION_FRAME_BYTES, DEFAULT_MAX_INVOCATION_FRAME_BYTES, 'Ledger owner ceiling mismatch');
+  assert.equal(freezeCore.MAX_RECEIPT_BYTES, DEFAULT_MAX_RECEIPT_BYTES, 'Receipt owner ceiling mismatch');
+  const buildIdentity = process.env.ANTIFAN_FREEZE_BUILD_IDENTITY || freezeCore.sha256(
+    fs.readFileSync(path.join(rootDir, '.compiled', 'src', 'main', 'browser', 'native-tab-host.js'))
+  );
+  const workloadCounts = args.certification
+    ? themeWorkload.certificationWorkloadCounts()
+    : {
+        capabilityInvocations: themeWorkload.CAPABILITY_INVOCATIONS_PER_BATCH,
+        artifactWrites: themeWorkload.ARTIFACT_WRITES_PER_BATCH,
+        receiptWrites: themeWorkload.RECEIPT_WRITES_PER_BATCH,
+      };
+  const thresholdPath = process.env.ANTIFAN_FREEZE_THRESHOLD_PATH;
+  const thresholdManifest = args.certification
+    ? freezeCore.validateThresholdManifest(JSON.parse(fs.readFileSync(thresholdPath, 'utf8')))
+    : freezeCore.buildThresholdManifest({ buildIdentity, workload: workloadCounts });
+  if (thresholdManifest.buildIdentity !== buildIdentity) throw new Error('Runner build identity does not match frozen thresholds');
 
   const allSamples = [];
-  const stage1Samples = [];
+  const baselineSamples = [];
   const steadyStateSamples = [];
-  let isSampling = true;
-  let inStage1 = false;
-  let inSteadyState = false;
-  function sampleProcessTreeMemory() {
-    try {
-      const metrics = app.getAppMetrics();
-      let totalWorkingSetBytes = 0;
-      for (const m of metrics) {
-        if (m.memory && typeof m.memory.workingSetSize === 'number') {
-          totalWorkingSetBytes += m.memory.workingSetSize * 1024;
-        }
-      }
-      if (totalWorkingSetBytes === 0) {
-        totalWorkingSetBytes = process.memoryUsage().rss;
-      }
-      return {
-        timestamp: Date.now(),
-        rssBytes: totalWorkingSetBytes,
-        processCount: metrics.length,
-      };
-    } catch {
-      return {
-        timestamp: Date.now(),
-        rssBytes: process.memoryUsage().rss,
-        processCount: 1,
-      };
-    }
-  }
-
-  const poller = setInterval(() => {
-    if (!isSampling) return;
-    const sample = sampleProcessTreeMemory();
-    allSamples.push(sample);
-    if (inStage1) {
-      stage1Samples.push(sample);
-    }
-    if (inSteadyState) {
-      steadyStateSamples.push(sample);
-    }
-  }, 500);
-
-  let mainWindow = null;
-  let tabHost = null;
+  const resourceSamples = [];
   const trackedPtyPids = new Set();
-  const termMgr = TerminalManager.getInstance();
+  const ownedRendererProcesses = new Set();
+  const workloadCounters = { capabilityInvocations: 0, artifactWrites: 0, receiptWrites: 0 };
+  const canaries = {
+    staleAuthorityAcceptedCount: 0,
+    staleDocumentAcceptedCount: 0,
+    staleMutationVerifiedCount: 0,
+    falseClaimVerifiedCount: 0,
+    staleContextAcceptedCount: 0,
+  };
+  const stageResults = {};
+  const unhandledErrors = [];
+  let sampling = false;
+  let baselineSampling = false;
+  let steadySampling = false;
+  let sampleTimer;
+  let resourceTimer;
+  let mainWindow;
+  let tabHost;
+  let fixture;
+  let runtime;
+  let session;
+  let storageBaseline;
+  let storageFinal;
+  let teardownResources;
+  let ownedOrphanProcessCount = 0;
+  let sessionOutcome = 'failed';
+
+  const onUnhandledRejection = (reason) => unhandledErrors.push(`unhandledRejection:${reason instanceof Error ? reason.message : String(reason)}`);
+  const onUncaughtExceptionMonitor = (error) => unhandledErrors.push(`uncaughtException:${error.message}`);
+  process.on('unhandledRejection', onUnhandledRejection);
+  process.on('uncaughtExceptionMonitor', onUncaughtExceptionMonitor);
 
   try {
+    stage('prepare fixture');
+    const workspaceRoot = themeWorkload.prepareFreezeFixture(rootDir, tempRoot);
+    fixture = await bounded('Start freeze fixture server', themeWorkload.startFreezeFixtureServer(workspaceRoot));
     mainWindow = new BrowserWindow({
       width: 1280,
-      height: 800,
-      show: false,
-      webPreferences: {
-        nodeIntegration: false,
-        contextIsolation: true,
-      },
+      height: 900,
+      show: true,
+      webPreferences: { nodeIntegration: false, contextIsolation: true },
     });
-
     tabHost = new NativeTabHost(mainWindow);
-    const initialTabId = tabHost.createTab(fixture.url, true);
+    const initialTabId = tabHost.createTab(fixture.productUrl, true);
+    tabHost.setAutomationTabId(initialTabId);
     const createdTabIds = [initialTabId];
-    for (let i = 1; i < 4; i++) {
-      const tid = tabHost.createTab(`${fixture.url}?tab=${i}`, false);
-      createdTabIds.push(tid);
+    for (let index = 1; index < 4; index += 1) {
+      createdTabIds.push(tabHost.createTab(`${fixture.productUrl}?tab=${index}`, false));
     }
 
-    // Warm up the fixed 4-tab topology: cycle tabs and settle DOM
-    console.log('[soak] Warming up fixed 4-tab topology...');
-    for (const tid of createdTabIds) {
-      tabHost.switchTab(tid);
-      await wait(200);
-      await tabHost.getDom(undefined, tid);
+    stage('load initial tabs');
+    for (const tabId of createdTabIds) {
+      tabHost.switchTab(tabId);
+      await bounded(`Initial DOM readiness (${tabId})`, tabHost.getDom(undefined, tabId));
     }
     tabHost.switchTab(initialTabId);
     await wait(1000);
 
-    // Reset samples so baseline measures only the warmed 4-tab steady state
-    allSamples.length = 0;
-    stage1Samples.length = 0;
+    stage('initialize control plane');
+    const projectId = makeControlPlaneId('project');
+    const workspaceId = makeControlPlaneId('workspace');
+    runtime = new ControlPlaneRuntime({
+      dataRoot: userDataRoot,
+      workspaceRoot,
+      projectId,
+      workspaceId,
+      allowEval: false,
+      hostEpoch: tabHost.getBrowserEpoch(),
+      getAutomationTabId: () => tabHost.getAutomationTabId(),
+      getDocumentGeneration: (id) => tabHost.getDocumentGeneration(id),
+    });
+    await bounded('Initialize control plane runtime', runtime.initialize());
+    tabHost.setControlPlane(runtime);
+    themeWorkload.createBrowserControl(rootDir, tabHost, runtime);
+    session = await bounded('Create control-plane session', runtime.createCliSession({
+      projectId,
+      workspaceId,
+      backendId: 'core-freeze-certification',
+      tabId: initialTabId,
+      browserEpoch: tabHost.getBrowserEpoch(),
+      grant: 'write',
+      ownerPid: process.pid,
+    }));
 
-    const stageResults = {};
-
-    // -------------------------------------------------------------
-    // Stage 1: Idle Baseline Sampling (5s) on Fixed 4-Tab Topology
-    // -------------------------------------------------------------
-    console.log('[soak] ---> Stage 1: Idle Baseline Sampling (5s) on fixed 4-tab topology...');
-    const s1Start = Date.now();
-    inStage1 = true;
-    await wait(5000);
-    inStage1 = false;
-    stageResults.stage1Idle = { durationMs: Date.now() - s1Start, samples: stage1Samples.length };
-    console.log(`[soak] Stage 1 completed. Recorded ${stage1Samples.length} telemetry samples.`);
-
-    // -------------------------------------------------------------
-    // Stage 2: Real PTY Streaming Stress (High-throughput chunks through node-pty)
-    // -------------------------------------------------------------
-    console.log('[soak] ---> Stage 2: PTY Streaming Stress through node-pty TerminalManager...');
-    const s2Start = Date.now();
-    const sessionId = termMgr.createSession(os.tmpdir());
-    const termSession = termMgr.getSession(sessionId);
-    if (termSession && termSession.pty && termSession.pty.pid) {
-      trackedPtyPids.add(termSession.pty.pid);
-    }
-
-    let ptyReceivedBytes = 0;
-    const onDataHandler = ({ data }) => {
-      if (data) ptyReceivedBytes += Buffer.byteLength(data, 'utf8');
-    };
-    termMgr.on('data', onDataHandler);
-
-    // Stream >= 500KB through real PTY using 100 x 8KB paced writes to prevent Windows winpty buffer lockup
-    const streamCommand = process.platform === 'win32'
-      ? '1..100 | ForEach-Object { [Console]::Out.Write("A" * 8192); Start-Sleep -Milliseconds 15 }\r\n'
-      : 'for i in $(seq 1 100); do head -c 8192 /dev/zero | tr "\\0" "A"; sleep 0.015; done\r\n';
-
-    termMgr.writeTo(sessionId, streamCommand);
-
-    // Wait until at least 500KB is received through node-pty or timeout after 30s with live instrumentation
-    const ptyStartWait = Date.now();
-    let lastProgressLog = Date.now();
-    while (ptyReceivedBytes < 500 * 1024 && Date.now() - ptyStartWait < 30000) {
-      if (Date.now() - lastProgressLog >= 2000) {
-        console.log(`[soak] PTY streaming progress: ${ptyReceivedBytes} / ${500 * 1024} bytes (${((Date.now() - ptyStartWait) / 1000).toFixed(1)}s elapsed, sessionState: ${termSession?.state})...`);
-        lastProgressLog = Date.now();
-      }
-      await wait(100);
-    }
-    termMgr.off('data', onDataHandler);
-
-    stageResults.stage2Streaming = {
-      durationMs: Date.now() - s2Start,
-      ptyReceivedBytes,
-      sessionCreated: Boolean(sessionId),
-      termSessionState: termSession?.state,
-      exitCode: termSession?.exitCode,
-    };
-
-    await termMgr.closeSession(sessionId);
-
-    console.log(`[soak] Stage 2 completed. Streamed and processed ${ptyReceivedBytes} bytes through real PTY (state: ${termSession?.state}).`);
-    assert.ok(ptyReceivedBytes >= 500 * 1024, `Must stream >= 500KB through real PTY (got ${ptyReceivedBytes} bytes)`);
-
-    // -------------------------------------------------------------
-    // Stage 3: Real Split Review & Tab Thrash across existing 4 tabs
-    // -------------------------------------------------------------
-    console.log('[soak] ---> Stage 3: Split Review & Tab Thrash across existing 4 tabs...');
-    const s3Start = Date.now();
-
-    // Toggle real Split Review mode on primary tab
-    tabHost.toggleSplitReview(initialTabId, true);
-    await wait(500);
-
-    let tabSwitches = 0;
-    for (let i = 0; i < 20; i++) {
-      const targetId = createdTabIds[i % createdTabIds.length];
-      tabHost.switchTab(targetId);
-      tabSwitches++;
-      await wait(50);
-    }
-
-    tabHost.toggleSplitReview(initialTabId, false);
-    await wait(300);
-
-    stageResults.stage3TabThrash = {
-      durationMs: Date.now() - s3Start,
-      tabSwitches,
-      tabCount: createdTabIds.length,
-    };
-    console.log(`[soak] Stage 3 completed. Performed ${tabSwitches} active tab switches across ${createdTabIds.length} tabs.`);
-    // -------------------------------------------------------------
-    // Stage 4: Concurrent QA Blast & Extended Endurance Loop
-    // -------------------------------------------------------------
-    console.log('[soak] ---> Stage 4: Concurrent QA Blast & Endurance Cycling...');
-    const s4Start = Date.now();
+    const requiredBatches = args.certification ? themeWorkload.CERTIFICATION_BATCH_COUNT : 1;
+    const batchFractions = args.certification ? [0, 1 / 3, 2 / 3] : [0];
+    let completedBatches = 0;
     let qaRuns = 0;
     let errorsFound = 0;
     let enduranceCycles = 0;
-
-    do {
-      enduranceCycles++;
-      for (let i = 0; i < 20; i++) {
-        const targetId = createdTabIds[i % createdTabIds.length];
-        tabHost.switchTab(targetId);
-        const liveHtml = await tabHost.getDom(undefined, targetId);
-        if (liveHtml) {
-          PlatformDetector.detectFromRuntime(fixture.url, liveHtml);
-          const scanResult = LiquidErrorScanner.scanHtmlString(liveHtml);
-          if (scanResult.hasErrors) errorsFound += scanResult.errors.length;
-        }
-        qaRuns++;
-        if (i % 4 === 0) {
-          tabHost.reload(targetId);
-        }
+    const terminal = TerminalManager.getInstance();
+    const runTerminalStreaming = async () => {
+      const started = Date.now();
+      const sessionId = terminal.createSession(os.tmpdir());
+      const terminalSession = terminal.getSession(sessionId);
+      if (terminalSession?.pty?.pid) trackedPtyPids.add(terminalSession.pty.pid);
+      let ptyReceivedBytes = 0;
+      const onTerminalData = ({ data }) => { if (data) ptyReceivedBytes += Buffer.byteLength(data, 'utf8'); };
+      terminal.on('data', onTerminalData);
+      try {
+        terminal.writeTo(sessionId, process.platform === 'win32'
+          ? '1..100 | ForEach-Object { [Console]::Out.Write("A" * 8192); Start-Sleep -Milliseconds 15 }\r\n'
+          : 'for i in $(seq 1 100); do head -c 8192 /dev/zero | tr "\\0" "A"; sleep 0.015; done\r\n');
+        const deadline = Date.now() + 30_000;
+        while (ptyReceivedBytes < 500 * 1024 && Date.now() < deadline) await wait(100);
+      } finally {
+        terminal.off('data', onTerminalData);
+        await bounded('Close PTY session', terminal.closeSession(sessionId), 10_000);
+      }
+      assert.ok(ptyReceivedBytes >= 500 * 1024, `PTY workload produced only ${ptyReceivedBytes} bytes`);
+      return { status: 'completed', durationMs: Date.now() - started, ptyReceivedBytes };
+    };
+    const runTabThrash = async () => {
+      const started = Date.now();
+      tabHost.toggleSplitReview(initialTabId, true);
+      await wait(500);
+      let tabSwitches = 0;
+      for (let index = 0; index < 20; index += 1) {
+        tabHost.switchTab(createdTabIds[index % createdTabIds.length]);
+        tabSwitches += 1;
         await wait(50);
       }
+      tabHost.toggleSplitReview(initialTabId, false);
+      tabHost.switchTab(initialTabId);
+      await wait(300);
+      return { status: 'completed', durationMs: Date.now() - started, tabSwitches, tabCount: createdTabIds.length };
+    };
 
-      // If extended soak, interleave quick PTY chunk stream to stress terminal background
-      if (isExtendedSoak && Date.now() - s4Start < targetEnduranceMs) {
-        const subSessionId = termMgr.createSession(os.tmpdir());
-        const subTerm = termMgr.getSession(subSessionId);
-        if (subTerm && subTerm.pty && subTerm.pty.pid) {
-          trackedPtyPids.add(subTerm.pty.pid);
-        }
-        termMgr.writeTo(subSessionId, 'echo "endurance cycle"\r\n');
-        await wait(200);
-        await termMgr.closeSession(subSessionId);
-      }
-    } while (isExtendedSoak && Date.now() - s4Start < targetEnduranceMs);
 
-    // Post-workload GC settle & fixed-topology steady-state sampling window (5s)
-    console.log('[soak] Entering post-workload fixed-topology steady-state settle window (5s)...');
-    steadyStateSamples.length = 0;
-    inSteadyState = true;
+    storageBaseline = storageSnapshot(tabHost);
+    stage('warm theme workload');
+    const warmBatch = await themeWorkload.runThemeProbeBatch({
+      runtime,
+      session,
+      tabHost,
+      tabId: initialTabId,
+      productUrl: fixture.productUrl,
+      drawerUrl: fixture.drawerUrl,
+      workspaceRoot,
+      batchIndex: 1,
+    });
+    sumCounters(workloadCounters, warmBatch.counters);
+    sumCanaries(canaries, warmBatch.canaries);
+    completedBatches = 1;
+    stageResults.warmThemeWorkload = { status: 'completed', completedBatches };
+    stage('warm terminal and tab workload');
+    const warmTerminalStreaming = await runTerminalStreaming();
+    const warmTabThrash = await runTabThrash();
     await wait(5000);
-    inSteadyState = false;
-    isSampling = false;
-    clearInterval(poller);
+    stageResults.warmRuntimeWorkload = {
+      status: 'completed',
+      settleDurationMs: 5000,
+      terminalStreaming: warmTerminalStreaming,
+      tabThrash: warmTabThrash,
+    };
 
-    stageResults.stage4QaBlast = {
-      durationMs: Date.now() - s4Start,
+
+    const takeSample = () => {
+      if (!sampling) return;
+      const sample = sampleProcessTree(tabHost, ownedRendererProcesses);
+      allSamples.push(sample);
+      if (baselineSampling) baselineSamples.push(sample);
+      if (steadySampling) steadyStateSamples.push(sample);
+    };
+    const takeResourceSample = () => {
+      if (!sampling) return;
+      const started = performance.now();
+      resourceSamples.push({
+        timestamp: Date.now(),
+        resources: tabHost.getResourceStats(),
+        samplerDurationMs: Number((performance.now() - started).toFixed(3)),
+      });
+    };
+    sampling = true;
+    sampleTimer = setInterval(takeSample, freezeCore.SAMPLE_INTERVAL_MS);
+    resourceTimer = setInterval(takeResourceSample, freezeCore.RESOURCE_SAMPLE_INTERVAL_MS);
+    takeSample();
+    takeResourceSample();
+
+    stage('warmed idle baseline');
+    const baselineStart = Date.now();
+    baselineSampling = true;
+    await wait(5000);
+    baselineSampling = false;
+    stageResults.idleBaseline = { status: 'completed', durationMs: Date.now() - baselineStart, samples: baselineSamples.length };
+
+    stage('terminal streaming');
+    stageResults.terminalStreaming = await runTerminalStreaming();
+
+    stage('tab thrash');
+    stageResults.tabThrash = await runTabThrash();
+
+    stage('theme endurance workload');
+    const enduranceStart = Date.now();
+    const enduranceDurationMs = args.certification ? freezeCore.CERTIFICATION_DURATION_MINUTES * 60 * 1000 : 0;
+    let enduranceSwitches = 0;
+    let nextSwitchAt = enduranceStart;
+    let nextQaAt = enduranceStart;
+    let nextSwitchIndex = 0;
+    let nextQaIndex = 1;
+
+
+    do {
+      const elapsed = Date.now() - enduranceStart;
+      while (completedBatches < requiredBatches && elapsed >= batchFractions[completedBatches] * enduranceDurationMs) {
+        tabHost.switchTab(initialTabId);
+        const batch = await themeWorkload.runThemeProbeBatch({
+          runtime,
+          session,
+          tabHost,
+          tabId: initialTabId,
+          productUrl: fixture.productUrl,
+          drawerUrl: fixture.drawerUrl,
+          workspaceRoot,
+          batchIndex: completedBatches + 1,
+        });
+        sumCounters(workloadCounters, batch.counters);
+        sumCanaries(canaries, batch.canaries);
+        completedBatches += 1;
+      }
+
+      const now = Date.now();
+      if (now >= nextSwitchAt) {
+        tabHost.switchTab(createdTabIds[nextSwitchIndex % createdTabIds.length]);
+        nextSwitchIndex += 1;
+        enduranceSwitches += 1;
+        nextSwitchAt = now + 3000;
+      }
+      if (now >= nextQaAt) {
+        const targetId = createdTabIds[nextQaIndex];
+        const html = await bounded(`Endurance DOM readiness (${targetId})`, tabHost.getDom(undefined, targetId));
+        PlatformDetector.detectFromRuntime(fixture.productUrl, html);
+        const scan = LiquidErrorScanner.scanHtmlString(html);
+        if (scan.hasErrors) errorsFound += scan.errors.length;
+        qaRuns += 1;
+        nextQaIndex = nextQaIndex >= createdTabIds.length - 1 ? 1 : nextQaIndex + 1;
+        nextQaAt = now + 30_000;
+      }
+      enduranceCycles += 1;
+      if (args.certification) await wait(100);
+    } while (args.certification && Date.now() - enduranceStart < enduranceDurationMs);
+
+    assert.equal(completedBatches, requiredBatches, 'All scheduled theme probe batches must complete');
+    assert.deepEqual(workloadCounters, workloadCounts, 'Runtime workload counters must match frozen configured counts');
+    canaries.staleContextAcceptedCount = canaries.staleAuthorityAcceptedCount + canaries.staleDocumentAcceptedCount + canaries.staleMutationVerifiedCount;
+    stageResults.endurance = {
+      status: 'completed',
+      durationMs: Date.now() - enduranceStart,
       qaRuns,
       errorsFound,
       enduranceCycles,
-      steadyStateSamplesCount: steadyStateSamples.length,
+      enduranceSwitches,
+      completedBatches,
     };
-    console.log(`[soak] Stage 4 completed. Dispatched ${qaRuns} live QA scans across ${enduranceCycles} cycles (${steadyStateSamples.length} steady-state samples).`);
+    stage('steady-state quiescence');
+    await wait(5000);
 
-    // Teardown and check for any orphan PTY processes
-    await termMgr.dispose();
-    const orphanProcesses = [];
-    for (const pid of trackedPtyPids) {
-      if (isProcessAlive(pid)) {
-        orphanProcesses.push(pid);
-        try {
-          if (process.platform === 'win32') {
-            require('node:child_process').execSync(`taskkill /PID ${pid} /F /T`, { stdio: 'ignore' });
-          } else {
-            process.kill(pid, 'SIGKILL');
-          }
-        } catch {}
-      }
+
+    stage('settled steady-state sample');
+    steadySampling = true;
+    await wait(5000);
+    steadySampling = false;
+    takeResourceSample();
+    storageFinal = storageSnapshot(tabHost);
+    stageResults.steadyState = { status: 'completed', settleDurationMs: 5000, samples: steadyStateSamples.length, durationMs: 5000 };
+
+    stage('teardown');
+    await bounded('Drain invocation ledger', runtime.ledger.drain());
+    sessionOutcome = 'completed';
+    await bounded('End control-plane session', runtime.endCliSession(session.run.id, session.attempt.id, sessionOutcome));
+    await bounded('Dispose control-plane terminal', runtime.terminal.dispose());
+    await bounded('Dispose singleton terminal', terminal.dispose());
+    tabHost.dispose();
+    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.destroy();
+    await wait(250);
+    teardownResources = tabHost.getResourceStats();
+
+    const orphanPtyCount = [...trackedPtyPids].filter(isProcessAlive).length;
+    let orphanRendererCount = countSurvivingRenderers(ownedRendererProcesses);
+    const rendererExitDeadline = Date.now() + 5000;
+    while (orphanRendererCount > 0 && Date.now() < rendererExitDeadline) {
+      await wait(100);
+      orphanRendererCount = countSurvivingRenderers(ownedRendererProcesses);
     }
+    ownedOrphanProcessCount = orphanPtyCount + orphanRendererCount;
+    sampling = false;
+    clearInterval(sampleTimer);
+    clearInterval(resourceTimer);
 
-    // Derive baseline from the settled Stage 1 window (mean across 5s idle window on fixed 4 tabs)
-    const baselineRssMB = stage1Samples.length > 0
-      ? (stage1Samples.reduce((acc, s) => acc + s.rssBytes, 0) / stage1Samples.length) / (1024 * 1024)
-      : (allSamples[0]?.rssBytes ?? 0) / (1024 * 1024);
-
-    // Derive final RSS from the settled post-workload steady-state window (mean across 5s window)
-    const finalRssMB = steadyStateSamples.length > 0
-      ? (steadyStateSamples.reduce((acc, s) => acc + s.rssBytes, 0) / steadyStateSamples.length) / (1024 * 1024)
-      : (allSamples[allSamples.length - 1]?.rssBytes ?? 0) / (1024 * 1024);
-
-    const peakRssMB = allSamples.length > 0 ? Math.max(...allSamples.map((s) => s.rssBytes)) / (1024 * 1024) : 0;
-    const rssGrowthMB = finalRssMB - baselineRssMB;
-    const steadyStateSlope = calculateMemorySlope(steadyStateSamples);
-
-    const hasExplicitGc = typeof global.gc === 'function';
-    if (hasExplicitGc) {
-      try { global.gc(); } catch {}
-    }
-    const settleMethodology = hasExplicitGc
-      ? 'post-explicit-gc-settle'
-      : 'fixed-topology-quiescence-settle-window';
-
-    // Functional workload validation criteria
-    const passed = (
-      Boolean(stageResults.stage1Idle) &&
-      Boolean(stageResults.stage2Streaming && stageResults.stage2Streaming.ptyReceivedBytes >= 500 * 1024) &&
-      Boolean(stageResults.stage3TabThrash && stageResults.stage3TabThrash.tabSwitches >= 20) &&
-      Boolean(stageResults.stage4QaBlast && stageResults.stage4QaBlast.qaRuns >= 15) &&
-      orphanProcesses.length === 0 &&
-      (!isExtendedSoak || rssGrowthMB <= 30)
-    );
-
-    const report = {
-      timestamp: new Date().toISOString(),
-      type: isExtendedSoak ? 'extended-soak-endurance-baseline' : 'functional-multi-process-workload-smoke',
-      settleMethodology,
-      durationMinutes: isExtendedSoak ? soakDurationMinutes : Number(((Date.now() - s1Start) / 60000).toFixed(2)),
-      stage1BaselineWindowSeconds: Number((stageResults.stage1Idle.durationMs / 1000).toFixed(1)),
-      stage4SteadyStateWindowSeconds: 5.0,
-      totalSamples: allSamples.length,
-      baselineSamplesCount: stage1Samples.length,
-      steadyStateSamplesCount: steadyStateSamples.length,
-      baselineRssMB: Number(baselineRssMB.toFixed(2)),
-      peakRssMB: Number(peakRssMB.toFixed(2)),
-      finalRssMB: Number(finalRssMB.toFixed(2)),
-      rssGrowthMB: Number(rssGrowthMB.toFixed(2)),
-      observedSlopeMBPerMin: Number(steadyStateSlope.toFixed(4)),
+    const incompleteStageCount = Object.values(stageResults).filter((stage) => stage.status !== 'completed').length;
+    const baseReport = {
+      schemaVersion: freezeCore.SCHEMA_VERSION,
+      type: 'antifan-core-freeze-run',
+      mode: args.certification ? 'certification' : 'quick-smoke',
+      durationMinutes: args.certification ? freezeCore.CERTIFICATION_DURATION_MINUTES : Number(((Date.now() - startedAt) / 60000).toFixed(3)),
+      runNumber: args.certification ? args.runNumber : 0,
+      processStartId,
+      processPid: process.pid,
+      startedAt: new Date(startedAt).toISOString(),
+      completedAt: new Date().toISOString(),
+      buildIdentity,
+      thresholdChecksum: thresholdManifest.thresholdChecksum,
+      environment: environmentFingerprint(),
+      sampleIntervalMs: freezeCore.SAMPLE_INTERVAL_MS,
+      resourceSampleIntervalMs: freezeCore.RESOURCE_SAMPLE_INTERVAL_MS,
+      samples: allSamples,
+      baselineSamples,
+      steadyStateSamples,
+      resourceSamples,
+      workloadCounters,
       stageResults,
-      orphanProcessesCount: orphanProcesses.length,
-      passed: Boolean(passed),
+      storageBaseline,
+      storageFinal,
+      canaries,
+      teardown: { ownedOrphanProcessCount, resources: teardownResources },
+      unhandledErrorCount: unhandledErrors.length,
+      incompleteStageCount,
     };
+    const evaluated = freezeCore.evaluateRunReport(baseReport, thresholdManifest);
+    const feedbackPassed = feedbackGatesPassed(evaluated.gates);
+    const report = {
+      ...baseReport,
+      metrics: evaluated.metrics,
+      gates: evaluated.gates,
+      passed: args.certification ? evaluated.passed : false,
+      feedbackPassed: args.certification ? undefined : feedbackPassed,
+      verdict: args.certification
+        ? (evaluated.passed ? 'PASSED' : 'FAILED')
+        : (feedbackPassed ? 'FEEDBACK_FUNCTIONAL_PASS' : 'FEEDBACK_FUNCTIONAL_FAIL'),
+    };
+    report.reportChecksum = freezeCore.checksumObject(report, 'reportChecksum');
+    const outputPath = args.reportPath || path.join(reportsDir, 'quick-freeze-smoke-report.json');
+    atomicWriteJson(outputPath, report);
 
-    console.log('\n===============================================================');
-    console.log('  MULTI-PROCESS WORKLOAD SMOKE REPORT');
-    console.log('===============================================================');
-    console.log(`  Total Samples : ${report.totalSamples}`);
-    console.log(`  Steady Samples: ${report.steadyStateSamplesCount}`);
-    console.log(`  Baseline RSS  : ${report.baselineRssMB} MB (Multi-Process Tree)`);
-    console.log(`  Peak RSS      : ${report.peakRssMB} MB`);
-    console.log(`  Final RSS     : ${report.finalRssMB} MB`);
-    console.log(`  Stage 2 PTY   : ${stageResults.stage2Streaming.ptyReceivedBytes} bytes (>= 500KB verified)`);
-    console.log(`  Stage 3 Thrash: ${stageResults.stage3TabThrash.tabSwitches} switches (4 tabs + split review verified)`);
-    console.log(`  Stage 4 QA    : ${stageResults.stage4QaBlast.qaRuns} live scans (live DOM extraction verified)`);
-    console.log(`  Orphan Procs  : ${report.orphanProcessesCount}`);
-    console.log(`  Overall Verdict: ${report.passed ? 'PASSED (VERIFIED)' : 'FAILED'}`);
-    console.log('===============================================================\n');
+    console.log(JSON.stringify({
+      type: report.type,
+      mode: report.mode,
+      runNumber: report.runNumber,
+      verdict: report.verdict,
+      reportChecksum: report.reportChecksum,
+      samples: report.samples.length,
+      rendererSlope: report.metrics.rendererRssSlopeMbPerMin,
+      totalSlope: report.metrics.overallTotalRssSlopeMbPerMin,
+      settledGrowthMb: report.metrics.settledGrowthMb,
+      teardownResources: freezeCore.activeResourceCount(teardownResources),
+      canaries,
+      workloadCounters,
+      outputPath: path.relative(rootDir, outputPath).replace(/\\/g, '/'),
+    }, null, 2));
 
-    // Save report artifact in plan reports directory
-    const planReportsDir = path.resolve(__dirname, '..', 'plans', '260904-0036-antifan-core-verification-and-primitives', 'reports');
-    try { fs.mkdirSync(planReportsDir, { recursive: true }); } catch {}
-    const reportFilename = isExtendedSoak ? 'windows-soak-baseline-report.json' : 'smoke-soak-workload-benchmark.json';
-    fs.writeFileSync(path.join(planReportsDir, reportFilename), JSON.stringify(report, null, 2), 'utf8');
-
-    assert.strictEqual(report.orphanProcessesCount, 0, 'Must have zero orphan processes');
-    if (isExtendedSoak) {
-      assert.ok(
-        rssGrowthMB <= 30,
-        `Memory leak assertion failed: RSS growth of ${rssGrowthMB.toFixed(2)}MB exceeded 30MB threshold`
-      );
-    }
-    assert.ok(report.passed, 'All multi-process workload stages must complete successfully');
+    if (args.certification ? !evaluated.passed : !feedbackPassed) throw new Error(`Freeze ${report.mode} gates failed`);
+    return report;
   } finally {
-    isSampling = false;
-    clearInterval(poller);
-    try { await termMgr.dispose(); } catch {}
-    try { tabHost?.dispose(); } catch {}
-    if (fixture && fixture.server) {
-      try { fixture.server.closeAllConnections?.(); } catch {}
-      try { fixture.server.close(); } catch {}
+    sampling = false;
+    clearInterval(sampleTimer);
+    clearInterval(resourceTimer);
+    if (runtime && session && sessionOutcome !== 'completed') {
+      try { await runtime.endCliSession(session.run.id, session.attempt.id, 'failed', 'runner failed'); } catch {}
     }
-    try {
-      if (mainWindow && !mainWindow.isDestroyed()) {
-        mainWindow.destroy();
-      }
-    } catch {}
-    try { fs.rmSync(soakDataDir, { recursive: true, force: true }); } catch {}
+    try { await runtime?.terminal?.dispose(); } catch {}
+    try { await TerminalManager.getInstance().dispose(); } catch {}
+    try { tabHost?.dispose(); } catch {}
+    try { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.destroy(); } catch {}
+    try { await themeWorkload.closeFreezeFixtureServer(fixture?.server); } catch {}
+    if (!orchestratorTempRoot) {
+      try { fs.rmSync(tempRoot, { recursive: true, force: true }); } catch {}
+    }
+    process.removeListener('unhandledRejection', onUnhandledRejection);
+    process.removeListener('uncaughtExceptionMonitor', onUncaughtExceptionMonitor);
   }
 }
 
-app.whenReady().then(async () => {
-  try {
-    await runSoakTest();
-    app.quit();
-    process.exit(0);
-  } catch (err) {
-    console.error('[soak] Test runner failed with error:', err);
-    app.quit();
-    process.exit(1);
-  }
-});
+app.whenReady().then(() => runSoak()
+  .then(() => app.exit(0))
+  .catch((error) => {
+    console.error('[core-freeze-runner] failed:', error);
+    app.exit(1);
+  }));

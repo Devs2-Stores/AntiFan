@@ -82,6 +82,20 @@ export type InconclusiveReason =
 
 export type StalemateState = 'ACTIVE' | 'STALEMATE' | 'EXEMPTION_WAIVED';
 
+export type VerificationLifecycleState = 'ACTIVE' | 'HALTED' | 'STALEMATE' | 'EXEMPTION_WAIVED' | 'VERIFIED';
+
+export interface VerificationBatchLifecycle {
+  runId: string;
+  attemptId: string;
+  resampleAttempts: number;
+  repairAttempts: number;
+  maxResamples: number;
+  maxRepairs: number;
+  state: VerificationLifecycleState;
+  lastInvocationId?: string;
+  haltReason?: InconclusiveReason;
+}
+
 export interface VerificationRecord {
   id: string;
   claim: string;
@@ -95,6 +109,8 @@ export interface VerificationRecord {
   verdict: VerificationVerdict;
   inconclusiveReason?: InconclusiveReason;
   stalemateState?: StalemateState;
+  lifecycle?: VerificationBatchLifecycle;
+  lifecycleHistory?: VerificationBatchLifecycle[];
   exemptionReason?: string;
   timestamp: number;
   timeFormatted: string;

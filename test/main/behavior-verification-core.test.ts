@@ -385,6 +385,7 @@ describe('Priority 2: Behavior Verification Core & Dual-Scope Semantic Inference
 
   it('11. Fails closed when agentClick returns ambiguous objects like {} or { clicked: undefined }, ignoring ambient mutations', async () => {
     let callCount = 0;
+    let revision = 1;
     const mockHost: Partial<BrowserHostPort> = {
       getTabList: () => [{ id: 'tab-1' }],
       getActiveTabId: () => 'tab-1',
@@ -401,6 +402,7 @@ describe('Priority 2: Behavior Verification Core & Dual-Scope Semantic Inference
           hasHorizontalOverflow: false,
         };
       },
+      bumpMutationRevision: () => ++revision,
     };
 
     const port = new BrowserControlPort(mockHost as BrowserHostPort);
@@ -414,6 +416,7 @@ describe('Priority 2: Behavior Verification Core & Dual-Scope Semantic Inference
     assert.strictEqual(res.confidence, 0);
     const evidence = res.evidence as Record<string, any>;
     assert.strictEqual(evidence.causalityViolation, true);
+    assert.strictEqual(revision, 1, 'Failed trace must not advance mutation revision');
   });
 
   it('12. Fails closed with ACTION_FAILED when host does not support agentHover, refusing to forge success', async () => {
@@ -551,6 +554,7 @@ describe('Priority 2: Behavior Verification Core & Dual-Scope Semantic Inference
 
   it('16. Accurately classifies interactionMode as trusted_cdp when dispatchAgentAction confirms cdp_trusted tier', async () => {
     let callCount = 0;
+    let revision = 1;
     const mockHost: Partial<BrowserHostPort> = {
       getTabList: () => [{ id: 'tab-1' }],
       getActiveTabId: () => 'tab-1',
@@ -570,6 +574,7 @@ describe('Priority 2: Behavior Verification Core & Dual-Scope Semantic Inference
           hasHorizontalOverflow: false,
         };
       },
+      bumpMutationRevision: () => ++revision,
     };
 
     const port = new BrowserControlPort(mockHost as BrowserHostPort);
@@ -579,6 +584,7 @@ describe('Priority 2: Behavior Verification Core & Dual-Scope Semantic Inference
     assert.strictEqual(res.actionSuccess, true);
     assert.strictEqual(res.interactionMode, 'trusted_cdp');
     assert.strictEqual(res.verified, true);
+    assert.strictEqual(revision, 2, 'Successful trusted trace must advance mutation revision exactly once');
   });
 
   it('17. resolveInteractionMode contract correctly derives tiers from both executionTier and tier and defaults unconfirmed mocks to unknown', () => {

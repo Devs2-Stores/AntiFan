@@ -382,4 +382,107 @@ describe('TabDevToolsHost (Sub-Controller Unit Tests)', () => {
     assert.strictEqual(params.clip?.width, 1200);
     assert.strictEqual(params.clip?.height, 5800, 'Height must be evaluated from DOM scrollHeight 5800, not truncated 800');
   });
+
+  it('releases the serialized CDP queue after a command timeout', async () => {
+    const { ctx } = createMockContext();
+    let attached = false;
+    const calls: string[] = [];
+    const mockWc: any = {
+      id: 500,
+      isDestroyed: () => false,
+      on: () => {},
+      removeListener: () => {},
+      debugger: {
+        isAttached: () => attached,
+        attach: () => { attached = true; },
+        once: () => {},
+        on: () => {},
+        removeListener: () => {},
+        sendCommand: (method: string) => {
+          calls.push(method);
+          return method === 'Page.captureScreenshot'
+            ? Promise.withResolvers<unknown>().promise
+            : Promise.resolve({ ok: true });
+        },
+      },
+    };
+    ctx.getTabWebContents = () => mockWc;
+    const devTools = new TabDevToolsHost(ctx);
+
+    await assert.rejects(
+      devTools.sendCdpCommand(mockWc, 'Page.captureScreenshot', {}, 5),
+      /timed out/
+    );
+    const next = await devTools.sendCdpCommand(mockWc, 'DOM.enable', {}, 50) as { ok: boolean };
+
+    assert.deepStrictEqual(calls, ['Page.captureScreenshot', 'DOM.enable']);
+    assert.strictEqual(next.ok, true);
+  });
+
+  it('12. enriches matched rules from live stylesheet headers and clears provenance on navigation', async () => {
+    const { ctx } = createMockContext();
+    let attached = false;
+    let onMessage: ((event: unknown, method: string, params: Record<string, unknown>) => void) | undefined;
+    let onNavigate: (() => void) | undefined;
+    let removedMessage: unknown;
+    let removedNavigate: unknown;
+    let matchedCalls = 0;
+    const mockWc: any = {
+      id: 501,
+      isDestroyed: () => false,
+      on: (event: string, callback: () => void) => {
+        if (event === 'did-navigate') onNavigate = callback;
+      },
+      removeListener: (event: string, callback: unknown) => {
+        if (event === 'did-navigate') removedNavigate = callback;
+      },
+      debugger: {
+        isAttached: () => attached,
+        attach: () => { attached = true; },
+        detach: () => { attached = false; },
+        once: () => {},
+        on: (event: string, callback: typeof onMessage) => {
+          if (event === 'message') onMessage = callback;
+        },
+        removeListener: (event: string, callback: unknown) => {
+          if (event === 'message') removedMessage = callback;
+        },
+        sendCommand: async (method: string) => {
+          if (method === 'DOM.getDocument') return { root: { nodeId: 1 } };
+          if (method === 'DOM.querySelector') return { nodeId: 2 };
+          if (method === 'CSS.getMatchedStylesForNode') {
+            matchedCalls++;
+            return {
+              matchedCSSRules: [{
+                rule: {
+                  styleSheetId: 'sheet-live',
+                  selectorList: { selectors: [{ text: '.card' }] },
+                  style: { cssProperties: [{ name: 'color', value: 'red', range: { startLine: 3, startColumn: 1 } }] },
+                },
+              }],
+            };
+          }
+          return {};
+        },
+      },
+    };
+    ctx.getTabWebContents = () => mockWc;
+    const devTools = new TabDevToolsHost(ctx);
+
+    await devTools.sendCdpCommand(mockWc, 'CSS.enable');
+    assert.ok(onMessage);
+    onMessage({}, 'CSS.styleSheetAdded', { header: { styleSheetId: 'sheet-live', sourceURL: 'http://127.0.0.1/assets/card.css' } });
+    const enriched = await devTools.getMatchedStylesForNode(mockWc, { selector: '.card' }) as any;
+    assert.strictEqual(enriched.matchedCSSRules[0].rule.sourceUrl, 'http://127.0.0.1/assets/card.css');
+
+    assert.ok(onNavigate);
+    onNavigate();
+    const afterNavigation = await devTools.getMatchedStylesForNode(mockWc, { selector: '.card' }) as any;
+    assert.strictEqual(afterNavigation.matchedCSSRules[0].rule.sourceUrl, undefined);
+    assert.strictEqual(matchedCalls, 2);
+
+    devTools.dispose();
+    assert.strictEqual(removedMessage, onMessage);
+    assert.strictEqual(removedNavigate, onNavigate);
+  });
 });

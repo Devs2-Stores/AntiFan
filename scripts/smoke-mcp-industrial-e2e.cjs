@@ -170,6 +170,7 @@ async function runMcpLiveE2ETest() {
     tabHost.setControlPlane(controlPlaneRuntime);
     const browserPort = new BrowserControlPort({
       getTabList: () => tabHost.getTabList(),
+      getBrowserEpoch: () => tabHost.getBrowserEpoch(),
       getActiveTabId: () => tabHost.getActiveTabId(),
       getAutomationTabId: () => tabHost.getAutomationTabId(),
       setAutomationTabId: (id) => tabHost.setAutomationTabId(id),
@@ -182,6 +183,7 @@ async function runMcpLiveE2ETest() {
       captureScreenshot: (rect, id, paneId) => tabHost.captureScreenshot(rect, id, paneId),
       evalJs: (expression, id, paneId) => tabHost.evalJs(expression, id, paneId),
       getDocumentGeneration: (id) => tabHost.getDocumentGeneration(id),
+      getMutationRevision: (id) => tabHost.getMutationRevision(id),
       isCurrentTarget: (target) => tabHost.isCurrentTarget(target),
       getDiagnostics: (id, level) => tabHost.getDiagnostics(id, level),
       agentTrajectory: (params) => tabHost.agentTrajectory(params),

@@ -34,8 +34,8 @@ import {
   BrowserHostPort,
 } from '../src/main/tools/browser-control-port';
 import {
+  AuthenticatedCapabilityContext,
   BrowserTarget,
-  ReceiptBinding,
   RuntimeLease,
   issueRuntimeLease,
   makeControlPlaneId,
@@ -79,6 +79,7 @@ describe('Phase 5: Golden Slice E2E & Architecture Gate Validation', () => {
   let matchedStylesEnvelope: ThemeEvidenceEnvelope<MatchedStylesResult>;
   let responsiveMatrixEnvelope: ThemeEvidenceEnvelope<Record<string, unknown>>;
   let claimIdForGate = '';
+  let lastInvocationId = '';
   before(async () => {
     // 1. Prepare isolated workspace directory
     if (fs.existsSync(tempWorkspaceDir)) {
@@ -169,6 +170,7 @@ describe('Phase 5: Golden Slice E2E & Architecture Gate Validation', () => {
                   { name: 'font-size', value: '14px' },
                   { name: 'margin-top', value: '16px' },
                 ],
+                range: { startLine: 1, startColumn: 0, endLine: 4, endColumn: 1 },
               },
               origin: 'regular',
               styleSheetId: 'sheet-card-css',
@@ -184,6 +186,7 @@ describe('Phase 5: Golden Slice E2E & Architecture Gate Validation', () => {
                   { name: 'padding', value: '2px 6px' },
                   { name: 'background-color', value: 'var(--card-badge-bg)' },
                 ],
+                range: { startLine: 10, startColumn: 0, endLine: 14, endColumn: 1 },
               },
               origin: 'regular',
               styleSheetId: 'sheet-card-css',
@@ -243,19 +246,22 @@ describe('Phase 5: Golden Slice E2E & Architecture Gate Validation', () => {
 
   async function dispatchMonitoredCapability<T>(capabilityName: string, params: Record<string, unknown>, grant: 'read' | 'write' = 'write'): Promise<T> {
     capabilityCallCount++;
-    const res = await catalogue.dispatch(
-      capabilityName,
-      params,
-      {
-        lease: runtimeLease,
-        leaseToken,
-        projectId,
-        workspaceId,
-        browserTarget: target,
-        grant,
-      }
-    );
-    return res as T;
+    lastInvocationId = makeControlPlaneId('invocation');
+    const context: AuthenticatedCapabilityContext = {
+      attachmentId: makeControlPlaneId('binding'),
+      runId: 'run-golden-slice',
+      attemptId: 'attempt-golden-slice',
+      projectId,
+      workspaceId,
+      backendId: 'golden-integration',
+      hostEpoch: 1,
+      invocationId: lastInvocationId,
+      lease: runtimeLease,
+      leaseToken,
+      browserTarget: target,
+      grant,
+    };
+    return await catalogue.dispatch(capabilityName, params, context) as T;
   }
 
   it('Step 1: Local HTTP server serves storefront fixture & ThemeTaskContext initializes', async () => {
@@ -425,14 +431,15 @@ describe('Phase 5: Golden Slice E2E & Architecture Gate Validation', () => {
     assert.strictEqual(evaluationResult.proofProfile.completeness, 'FULL');
     assert.strictEqual(evaluationResult.proofProfile.violations.length, 0);
 
-    // 5. Verify that anti.verification.verify_claim directly persisted the Authoritative Receipt to ReceiptStore
-    const persistedReceipt = receiptStore.findByCommand(recordedClaimId);
+    // 5. Verify that anti.verification.verify_claim persisted a receipt under invocation identity
+    const persistedReceipt = receiptStore.findByCommand(lastInvocationId);
     assert.ok(persistedReceipt, 'ReceiptStore must contain the authoritative receipt created by verify_claim');
     assert.ok(persistedReceipt.id.startsWith('receipt-'));
     assert.strictEqual(persistedReceipt.state, 'completed');
     assert.strictEqual(persistedReceipt.deliveryState, 'accepted-exact');
-    assert.strictEqual(persistedReceipt.binding.commandId, recordedClaimId);
+    assert.strictEqual(persistedReceipt.binding.commandId, lastInvocationId);
     assert.strictEqual(persistedReceipt.binding.canonicalWorkspace, tempWorkspaceDir);
+    claimIdForGate = lastInvocationId;
   });
 
   it('Step 7: Validates all 5 Architecture Gate Criteria for P1 Capability Unlock', () => {
@@ -464,7 +471,7 @@ describe('Phase 5: Golden Slice E2E & Architecture Gate Validation', () => {
     assert.strictEqual(matrixSamples.length, 2);
     assert.strictEqual(matrixSamples[0]?.metric, THEME_METRICS.RESPONSIVE_NO_TARGET_OVERFLOW);
     assert.strictEqual(matrixSamples[1]?.metric, THEME_METRICS.RESPONSIVE_NO_DOC_OVERFLOW);
-    // Criterion 4: Live Verification Receipt Stored in ReceiptStore
+    // Criterion 4: Verification receipt is keyed by invocation, not claim identity
     const receiptOnDisk = receiptStore.findByCommand(claimIdForGate);
     assert.ok(receiptOnDisk, 'Receipt must exist in ReceiptStore');
     assert.strictEqual(receiptOnDisk.state, 'completed');

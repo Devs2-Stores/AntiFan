@@ -12,7 +12,7 @@ import {
   THEME_METRICS,
 } from './verification-contract';
 import { ThemeEvidenceEnvelope } from '../tools/theme-evidence-envelope';
-import { SourceMappingResult } from '../browser/theme-source-mapper';
+import { SourceMappingResult, isAuthoritativeSourceCandidate } from '../browser/theme-source-mapper';
 import { MatchedStylesResult } from '../browser/css-cascade-analyzer';
 
 export interface ThemeEvidenceBundleInput {
@@ -95,16 +95,16 @@ export class ThemeProofHelpers {
     }
 
     const primary = envelope.data?.primaryCandidate;
-    const hasCandidate = Boolean(primary && primary.file);
-    const hasConfidence = envelope.evidenceQuality === 'HIGH' || envelope.evidenceQuality === 'MEDIUM';
-    const passed = hasCandidate && hasConfidence;
+    const passed = isAuthoritativeSourceCandidate(envelope.data);
 
     return {
       metric: THEME_METRICS.SOURCE_FILE_IDENTIFIED,
       expected: true,
       actual: passed,
       passed,
-      message: primary ? `Candidate file: ${primary.file} (${primary.confidence})` : 'No candidate file identified',
+      message: primary
+        ? `Candidate file: ${primary.file} (${primary.confidence}, score ${primary.score}; ${envelope.data?.selectionReason})`
+        : envelope.data?.selectionReason || 'No authoritative candidate file identified',
       source: 'deterministic',
     };
   }

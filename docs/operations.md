@@ -77,9 +77,17 @@ The Theme QA verification engine runs automated quality gates against e-commerce
 # Run automated Theme QA verification gate smoke suite
 npm run smoke:theme-qa
 
+# Run real Chromium Product Card + Drawer proof and publish only after teardown
+npm run smoke:theme-golden-live
+
+# Run three sequential 45-minute Windows freeze certifications
+npm run certify:core-freeze
+
 # Run full typecheck and test suite
 npm run verify
 ```
+
+`smoke:theme-golden-live` writes `plans/260905-0012-core-pre-freeze-hardening-and-live-proof/reports/live-theme-proof.json` only after Core owners reach zero, Electron exits, and its process-bound temporary profile is removed. `certify:core-freeze` writes `freeze-certificate.json` only when all three raw reports validate against one frozen build/threshold identity.
 
 ### MCP Capabilities for Coding Agents
 

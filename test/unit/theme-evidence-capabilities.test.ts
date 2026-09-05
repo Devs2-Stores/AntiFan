@@ -1,12 +1,14 @@
 import { describe, it } from 'node:test';
 import * as assert from 'node:assert';
+import * as fs from 'node:fs';
+import * as os from 'node:os';
 import * as path from 'node:path';
 import { CapabilityCatalogue } from '../../src/main/tools/capability-catalogue';
 import { registerBrowserCapabilities } from '../../src/main/tools/browser-capabilities';
 import { BrowserControlPort, BrowserHostPort } from '../../src/main/tools/browser-control-port';
 import { issueRuntimeLease, makeControlPlaneId, BrowserTarget } from '../../src/shared/control-plane-contracts';
 import { ThemeEvidenceEnvelope, isThemeEvidenceEnvelope } from '../../src/main/tools/theme-evidence-envelope';
-import { ThemeSourceMapper } from '../../src/main/browser/theme-source-mapper';
+import { ThemeSourceMapper, isAuthoritativeSourceCandidate } from '../../src/main/browser/theme-source-mapper';
 import { CssCascadeAnalyzer, RawCdpMatchedStylesPayload } from '../../src/main/browser/css-cascade-analyzer';
 
 describe('Phase 3: Theme Evidence Capabilities', () => {
@@ -26,7 +28,7 @@ describe('Phase 3: Theme Evidence Capabilities', () => {
     assert.strictEqual(isThemeEvidenceEnvelope({ success: true }), false);
   });
 
-  it('maps element hints to snippets/card-product.liquid with HIGH confidence (2-signal rule)', () => {
+  it('maps element hints to a unique correlated HIGH candidate with evidence locators', () => {
     const envelope = ThemeSourceMapper.mapElementToSource(fixtureThemeRoot, {
       tagName: 'article',
       classes: ['card', 'product-card', 'card__badge'],
@@ -38,16 +40,64 @@ describe('Phase 3: Theme Evidence Capabilities', () => {
 
     assert.strictEqual(envelope.success, true);
     assert.strictEqual(envelope.evidenceQuality, 'HIGH');
-    assert.strictEqual(envelope.signals.markupClassMatch, true);
-    assert.strictEqual(envelope.signals.renderCallMatch, true);
-    assert.strictEqual(envelope.signals.referencedBySection, true);
-
+    assert.strictEqual(envelope.data?.ambiguous, false);
+    assert.strictEqual(isAuthoritativeSourceCandidate(envelope.data), true);
     const primary = envelope.data?.primaryCandidate;
     assert.ok(primary);
     assert.strictEqual(primary.file, 'snippets/card-product.liquid');
     assert.strictEqual(primary.type, 'snippet');
     assert.strictEqual(primary.confidence, 'HIGH');
-    assert.ok(primary.matchCount >= 3);
+    assert.ok(primary.score >= 7);
+    assert.strictEqual(primary.correlated, true);
+    assert.ok(primary.evidence.every((item) => item.file === primary.file && item.line > 0));
+    assert.ok(primary.evidence.some((item) => item.kind === 'class_token' && item.matched.includes('product-card')));
+    assert.ok(primary.evidence.some((item) => item.kind === 'render_edge' && item.parentFile === 'sections/main-collection.liquid'));
+  });
+
+  it('rejects substring collisions and unrelated global render signals', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-source-substring-'));
+    fs.mkdirSync(path.join(root, 'snippets'), { recursive: true });
+    fs.mkdirSync(path.join(root, 'sections'), { recursive: true });
+    fs.writeFileSync(path.join(root, 'snippets', 'target-copy.liquid'), '<article class="product-card-copy"></article>');
+    fs.writeFileSync(path.join(root, 'snippets', 'unrelated.liquid'), '<aside class="other"></aside>');
+    fs.writeFileSync(path.join(root, 'sections', 'main.liquid'), "{% render 'unrelated' %}");
+
+    const envelope = ThemeSourceMapper.mapElementToSource(root, { tagName: 'article', classes: ['product-card'] });
+    assert.strictEqual(envelope.data?.candidates.some((candidate) => candidate.signals.markupClassMatch), false);
+    assert.strictEqual(isAuthoritativeSourceCandidate(envelope.data), false);
+  });
+
+  it('keeps tied candidates ambiguous with deterministic path ordering', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-source-tie-'));
+    fs.mkdirSync(path.join(root, 'snippets'), { recursive: true });
+    fs.mkdirSync(path.join(root, 'sections'), { recursive: true });
+    fs.writeFileSync(path.join(root, 'snippets', 'beta.liquid'), '<article class="target-card"></article>');
+    fs.writeFileSync(path.join(root, 'snippets', 'alpha.liquid'), '<article class="target-card"></article>');
+    fs.writeFileSync(path.join(root, 'sections', 'main.liquid'), "{% render 'alpha' %}\n{% render 'beta' %}");
+
+    const envelope = ThemeSourceMapper.mapElementToSource(root, { tagName: 'article', classes: ['target-card'] });
+    assert.strictEqual(envelope.data?.ambiguous, true);
+    assert.strictEqual(envelope.data?.primaryCandidate, undefined);
+    assert.deepStrictEqual(envelope.data?.candidates.slice(0, 2).map((candidate) => candidate.file), [
+      'snippets/alpha.liquid',
+      'snippets/beta.liquid',
+    ]);
+    assert.strictEqual(isAuthoritativeSourceCandidate(envelope.data), false);
+  });
+
+  it('uses a direct breadcrumb with exact markup as correlated candidate evidence', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-source-breadcrumb-'));
+    fs.mkdirSync(path.join(root, 'snippets'), { recursive: true });
+    fs.writeFileSync(path.join(root, 'snippets', 'focus.liquid'), '<article class="focus-card"></article>');
+
+    const envelope = ThemeSourceMapper.mapElementToSource(root, {
+      tagName: 'article',
+      classes: ['focus-card'],
+      commentHints: ['<!-- snippets/focus.liquid -->'],
+    });
+    assert.strictEqual(envelope.data?.primaryCandidate?.confidence, 'HIGH');
+    assert.strictEqual(envelope.data?.primaryCandidate?.score, 9);
+    assert.strictEqual(isAuthoritativeSourceCandidate(envelope.data), true);
   });
 
   it('analyzes CSS cascade and isolates ACTIVE declarations from OVERRIDDEN rules', () => {
@@ -62,6 +112,7 @@ describe('Phase 3: Theme Evidence Capabilities', () => {
                 { name: 'display', value: 'flex' },
               ],
               styleSheetId: 'sheet-1',
+              range: { startLine: 10, startColumn: 2, endLine: 13, endColumn: 3 },
             },
           },
         },
@@ -74,6 +125,7 @@ describe('Phase 3: Theme Evidence Capabilities', () => {
                 { name: '--card-badge-bg', value: '#e53e3e' },
               ],
               styleSheetId: 'sheet-1',
+              range: { startLine: 20, startColumn: 2, endLine: 23, endColumn: 3 },
             },
           },
         },
@@ -97,6 +149,8 @@ describe('Phase 3: Theme Evidence Capabilities', () => {
     assert.strictEqual(activeMarginTop.selector, '.product-card');
     assert.strictEqual(activeMarginTop.status, 'ACTIVE');
     assert.strictEqual(activeMarginTop.sourceUrl, 'assets/component-card.css');
+    assert.strictEqual(activeMarginTop.line, 20);
+    assert.strictEqual(activeMarginTop.column, 2);
 
     const overriddenMarginTop = overridden.find((r) => r.property === 'margin-top');
     assert.ok(overriddenMarginTop);
@@ -105,6 +159,54 @@ describe('Phase 3: Theme Evidence Capabilities', () => {
     assert.strictEqual(overriddenMarginTop.status, 'OVERRIDDEN');
 
     assert.strictEqual(envelope.data?.cssVariables['--card-badge-bg'], '#e53e3e');
+  });
+
+
+  it('ignores non-author Chromium origins when grading theme CSS provenance', () => {
+    const envelope = CssCascadeAnalyzer.analyze({
+      matchedCSSRules: [
+        {
+          rule: {
+            origin: 'user-agent',
+            selectorList: { selectors: [{ text: 'address' }] },
+            style: { cssProperties: [{ name: 'unicode-bidi', value: 'isolate' }] },
+          },
+        },
+        {
+          rule: {
+            origin: 'regular',
+            selectorList: { selectors: [{ text: '.product-card' }] },
+            styleSheetId: 'sheet-theme',
+            sourceUrl: 'assets/component-card.css',
+            style: {
+              cssProperties: [{ name: 'margin-top', value: '24px', range: { startLine: 18, startColumn: 2 } }],
+            },
+          },
+        },
+      ],
+    });
+
+    assert.strictEqual(envelope.data?.definitionOfDone, 'STRONG PASS');
+    assert.deepStrictEqual(envelope.data?.activeRules.map((rule) => rule.property), ['margin-top']);
+    assert.strictEqual(envelope.data?.totalRulesAnalyzed, 1);
+  });
+  it('does not mint STRONG PASS from a stylesheet URL without a CDP source range', () => {
+    const envelope = CssCascadeAnalyzer.analyze({
+      matchedCSSRules: [{
+        rule: {
+          selectorList: { selectors: [{ text: '.product-card' }] },
+          style: {
+            cssProperties: [{ name: 'margin-top', value: '24px' }],
+            styleSheetId: 'sheet-1',
+          },
+          sourceUrl: 'assets/component-card.css',
+        },
+      }],
+    });
+
+    assert.strictEqual(envelope.data?.definitionOfDone, 'PASS');
+    assert.strictEqual(envelope.evidenceQuality, 'MEDIUM');
+    assert.strictEqual(envelope.signals.hasSourceRange, false);
   });
 
   it('dispatches anti.theme.resolve_element, anti.inspect.matched_styles, and anti.inspect.responsive_matrix through CapabilityCatalogue', async () => {

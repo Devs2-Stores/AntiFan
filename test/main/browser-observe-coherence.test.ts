@@ -25,6 +25,8 @@ describe('Phase 03: Browser Observe Coherence & Bounded Evidence Invariants', ()
     agentSnapshot: async () => '@e1 [button] "Add to Cart"\n@e2 [link] "Checkout"',
     getDiagnostics: () => ({ console: [], failures: [] }),
     getDocumentGeneration: () => 1,
+    getBrowserEpoch: () => 1,
+    getMutationRevision: () => 1,
     isCurrentTarget: () => true,
     ...overrides,
   });
@@ -39,6 +41,8 @@ describe('Phase 03: Browser Observe Coherence & Bounded Evidence Invariants', ()
 
     assert.strictEqual(res.target.tabId, 'tab-obs-1');
     assert.strictEqual(res.target.documentGeneration, 1);
+    assert.strictEqual(res.target.browserEpoch, 1);
+    assert.strictEqual(res.target.mutationRevision, 1);
     assert.ok(res.components.dom && typeof res.components.dom === 'string' && res.components.dom.includes('Storefront Observe'));
     assert.ok(res.components.screenshot && typeof res.components.screenshot === 'string');
     assert.ok(res.components.snapshot && typeof res.components.snapshot === 'string' && res.components.snapshot.includes('@e1'));
@@ -95,6 +99,66 @@ describe('Phase 03: Browser Observe Coherence & Bounded Evidence Invariants', ()
         return true;
       }
     );
+  });
+
+  it('fails with INTEGRITY_COMPROMISED if mutation revision advances during capture', async () => {
+    let mutationRevision = 1;
+    const host = createMockHost({
+      getMutationRevision: () => mutationRevision,
+      getDom: async () => {
+        mutationRevision = 2;
+        return '<html><body>Mutated</body></html>';
+      },
+    });
+    const port = new BrowserControlPort(host);
+
+    await assert.rejects(
+      port.observe(baseTarget, 'run-1', 'att-1', { components: ['dom', 'screenshot'] }),
+      (err: unknown) => err instanceof CapabilityError && err.code === 'INTEGRITY_COMPROMISED'
+    );
+  });
+
+  it('returns live epoch and fails closed if it changes during capture', async () => {
+    let browserEpoch = 3;
+    const stablePort = new BrowserControlPort(createMockHost({ getBrowserEpoch: () => browserEpoch }));
+    const stable = await stablePort.observe(baseTarget, 'run-1', 'att-1', { components: ['dom'] });
+    assert.strictEqual(stable.target.browserEpoch, 3);
+
+    const driftingPort = new BrowserControlPort(createMockHost({
+      getBrowserEpoch: () => browserEpoch,
+      getDom: async () => {
+        browserEpoch = 4;
+        return '<html><body>Restarted host</body></html>';
+      },
+    }));
+    await assert.rejects(
+      driftingPort.observe(baseTarget, 'run-1', 'att-1', { components: ['dom'] }),
+      (err: unknown) => err instanceof CapabilityError && err.code === 'TARGET_STALE'
+    );
+  });
+
+  it('publishes no artifacts when the final component fails the identity fence', async () => {
+    let mutationRevision = 1;
+    const staged: unknown[] = [];
+    const host = createMockHost({
+      getMutationRevision: () => mutationRevision,
+      captureScreenshot: async () => {
+        mutationRevision = 2;
+        return Buffer.from('unstable').toString('base64');
+      },
+    });
+    const port = new BrowserControlPort(host, {
+      stage: (input) => {
+        staged.push(input);
+        throw new Error('stage must not be reached for incoherent capture');
+      },
+    });
+
+    await assert.rejects(
+      port.observe(baseTarget, 'run-1', 'att-1', { components: ['dom', 'screenshot'] }),
+      (err: unknown) => err instanceof CapabilityError && err.code === 'INTEGRITY_COMPROMISED'
+    );
+    assert.deepStrictEqual(staged, []);
   });
 
   it('truncates oversized payloads to prevent unbounded memory retention', async () => {

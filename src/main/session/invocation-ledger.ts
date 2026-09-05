@@ -10,6 +10,8 @@ import {
   canonicalJsonStringify,
   makeControlPlaneId,
 } from '../../shared/control-plane-contracts';
+export const DEFAULT_MAX_INVOCATION_FRAME_BYTES = 64 * 1024 * 1024;
+
 
 export type InvocationState = 'claiming' | 'in_progress' | 'completed' | 'failed' | 'interrupted' | 'unknown';
 export { InvocationDispatchStage };
@@ -52,7 +54,19 @@ export interface InvocationClaimResult {
 export interface InvocationLedgerOptions {
   dataRoot: string;
   maxHotRecordsPerPartition?: number;
+  maxFrameBytes?: number;
 }
+export interface InvocationLedgerStats {
+  partitionCount: number;
+  hotRecordCount: number;
+  inFlightCount: number;
+  queuedIoCount: number;
+  frameCount: number;
+  persistedBytes: number;
+  quarantinedPartitionCount: number;
+  poisonedPartitionCount: number;
+}
+
 
 interface InFlightClaim {
   record: InvocationRecord;
@@ -69,6 +83,7 @@ function computeFrameChecksum(frame: Omit<InvocationRecord, 'checksum'>): string
 export class InvocationLedger {
   private readonly partitionsDir: string;
   private readonly maxHotRecords: number;
+  private readonly maxFrameBytes: number;
   // attachmentId -> Map(idempotencyKey, InvocationRecord)
   private readonly hotPartitions = new Map<string, Map<string, InvocationRecord>>();
   // invocationId -> InFlightClaim
@@ -79,10 +94,13 @@ export class InvocationLedger {
   private readonly poisonedPartitions = new Set<string>();
   private readonly ioQueues = new Map<string, Promise<void>>();
   private readonly uncompactedFrameCounts = new Map<string, number>();
+  private readonly persistedFrameCounts = new Map<string, number>();
+
 
   constructor(private readonly options: InvocationLedgerOptions) {
     this.partitionsDir = path.join(options.dataRoot, 'invocations');
     this.maxHotRecords = options.maxHotRecordsPerPartition ?? 200;
+    this.maxFrameBytes = options.maxFrameBytes ?? DEFAULT_MAX_INVOCATION_FRAME_BYTES;
   }
 
   public async initialize(): Promise<void> {
@@ -116,6 +134,11 @@ export class InvocationLedger {
     const partitionMap = new Map<string, InvocationRecord>();
     const raw = fs.readFileSync(filePath, 'utf8');
     const lines = raw.split(/\r?\n/).filter((line) => line.trim().length > 0);
+    if (lines.some((line) => Buffer.byteLength(line, 'utf8') + 1 > this.maxFrameBytes)) {
+      this.quarantinePartition(attachmentId, filePath);
+      return;
+    }
+
 
     let needsCompaction = false;
     for (const line of lines) {
@@ -166,6 +189,8 @@ export class InvocationLedger {
     }
     this.hotPartitions.set(attachmentId, partitionMap);
     this.uncompactedFrameCounts.set(attachmentId, Math.max(0, lines.length - partitionMap.size));
+    this.persistedFrameCounts.set(attachmentId, lines.length);
+
     if (needsCompaction) {
       await this.compactPartitionUnlocked(attachmentId);
     }
@@ -174,6 +199,8 @@ export class InvocationLedger {
   private quarantinePartition(attachmentId: string, filePath: string): void {
     this.quarantinedPartitions.add(attachmentId);
     this.hotPartitions.delete(attachmentId);
+    this.persistedFrameCounts.delete(attachmentId);
+
     const quarantinePath = `${filePath}.quarantine-${Date.now()}`;
     try {
       if (fs.existsSync(filePath)) {
@@ -570,6 +597,29 @@ export class InvocationLedger {
     }
     return undefined;
   }
+  public getStats(): InvocationLedgerStats {
+    let hotRecordCount = 0;
+    let persistedBytes = 0;
+    let frameCount = 0;
+    for (const [attachmentId, partition] of this.hotPartitions.entries()) {
+      hotRecordCount += partition.size;
+      frameCount += this.persistedFrameCounts.get(attachmentId) || 0;
+      try {
+        persistedBytes += fs.statSync(this.getPartitionPath(attachmentId)).size;
+      } catch {}
+    }
+    return {
+      partitionCount: this.hotPartitions.size,
+      hotRecordCount,
+      inFlightCount: this.inFlight.size,
+      queuedIoCount: this.ioQueues.size,
+      frameCount,
+      persistedBytes,
+      quarantinedPartitionCount: this.quarantinedPartitions.size,
+      poisonedPartitionCount: this.poisonedPartitions.size,
+    };
+  }
+
 
   public async drain(attachmentId?: string): Promise<void> {
     if (attachmentId) {
@@ -612,9 +662,14 @@ export class InvocationLedger {
     };
 
     const line = JSON.stringify(frameWithChecksum) + '\n';
+    if (Buffer.byteLength(line, 'utf8') > this.maxFrameBytes) {
+      throw new CapabilityError('DURABILITY_FAILED', `Invocation frame exceeds ${this.maxFrameBytes} byte persistence limit`);
+    }
     await fs.promises.appendFile(filePath, line, 'utf8');
     const count = (this.uncompactedFrameCounts.get(record.attachmentId) || 0) + 1;
     this.uncompactedFrameCounts.set(record.attachmentId, count);
+    this.persistedFrameCounts.set(record.attachmentId, (this.persistedFrameCounts.get(record.attachmentId) || 0) + 1);
+
   }
 
   private async appendFrame(record: InvocationRecord): Promise<void> {
@@ -636,17 +691,21 @@ export class InvocationLedger {
     const tempFile = `${filePath}.tmp-${process.pid}-${Date.now()}`;
 
     try {
-      const content = records
-        .map((rec) => {
-          const { checksum, ...rest } = rec;
-          const calc = computeFrameChecksum(rest);
-          return JSON.stringify({ ...rest, checksum: calc });
-        })
-        .join('\n') + (records.length > 0 ? '\n' : '');
+      const rows = records.map((rec) => {
+        const { checksum, ...rest } = rec;
+        const calc = computeFrameChecksum(rest);
+        const row = JSON.stringify({ ...rest, checksum: calc });
+        if (Buffer.byteLength(row, 'utf8') + 1 > this.maxFrameBytes) {
+          throw new CapabilityError('DURABILITY_FAILED', `Invocation frame exceeds ${this.maxFrameBytes} byte persistence limit`);
+        }
+        return row;
+      });
+      const content = rows.join('\n') + (rows.length > 0 ? '\n' : '');
 
       await fs.promises.writeFile(tempFile, content, 'utf8');
       await fs.promises.rename(tempFile, filePath);
       this.uncompactedFrameCounts.set(attachmentId, 0);
+      this.persistedFrameCounts.set(attachmentId, records.length);
     } catch (err) {
       try {
         if (fs.existsSync(tempFile)) await fs.promises.unlink(tempFile);

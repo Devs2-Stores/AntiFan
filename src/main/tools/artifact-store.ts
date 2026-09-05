@@ -5,6 +5,8 @@ import { performance } from 'node:perf_hooks';
 import { recordBenchmark } from '../benchmark/telemetry';
 import { ArtifactRef, CapabilityError, ArtifactReadResult, CapabilityRequestContext, AuthenticatedCapabilityContext } from '../../shared/control-plane-contracts';
 import { ArtifactRetentionCleaner, RetentionSweepOptions, RetentionSweepResult } from './artifact-retention-cleaner';
+export const DEFAULT_MAX_ARTIFACT_BYTES = 8 * 1024 * 1024;
+
 
 export interface ArtifactStoreOptions {
   root: string;
@@ -13,6 +15,14 @@ export interface ArtifactStoreOptions {
   enableRetentionCleaner?: boolean;
   retentionOptions?: RetentionSweepOptions;
 }
+export interface ArtifactStoreStats {
+  artifactCount: number;
+  storedBytes: number;
+  runCount: number;
+  hotCacheItems: number;
+  hotCacheBytes: number;
+}
+
 export class ArtifactStore {
   private readonly maxArtifactBytes: number;
   private readonly maxRunBytes: number;
@@ -21,7 +31,7 @@ export class ArtifactStore {
   private readonly hotDataCache = new Map<string, Buffer>();
   private readonly MAX_HOT_CACHE_ITEMS = 32;
   constructor(private readonly options: ArtifactStoreOptions) {
-    this.maxArtifactBytes = options.maxArtifactBytes ?? 8 * 1024 * 1024;
+    this.maxArtifactBytes = options.maxArtifactBytes ?? DEFAULT_MAX_ARTIFACT_BYTES;
     this.maxRunBytes = options.maxRunBytes ?? 256 * 1024 * 1024;
     this.rehydrateIndex();
     if (options.enableRetentionCleaner) {
@@ -295,6 +305,20 @@ export class ArtifactStore {
     }
     return ref;
   }
+  public getStats(): ArtifactStoreStats {
+    let storedBytes = 0;
+    for (const bytes of this.runBytes.values()) storedBytes += bytes;
+    let hotCacheBytes = 0;
+    for (const data of this.hotDataCache.values()) hotCacheBytes += data.byteLength;
+    return {
+      artifactCount: this.artifacts.size,
+      storedBytes,
+      runCount: this.runBytes.size,
+      hotCacheItems: this.hotDataCache.size,
+      hotCacheBytes,
+    };
+  }
+
 
   sweepRetention(options?: RetentionSweepOptions): RetentionSweepResult {
     return ArtifactRetentionCleaner.sweep(this.options.root, options ?? this.options.retentionOptions);

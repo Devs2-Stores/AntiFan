@@ -7,6 +7,7 @@ import {
   StalemateState,
   InconclusiveReason,
   ProofProfile,
+  VerificationBatchLifecycle,
 } from '../verification/verification-contract';
 
 export {
@@ -15,6 +16,7 @@ export {
   StalemateState,
   InconclusiveReason,
   ProofProfile,
+  VerificationBatchLifecycle,
 };
 export interface IssueRecord {
   id: string;
@@ -215,6 +217,10 @@ export class IssueRegister {
     if (exemptionReason) {
       item.exemptionReason = exemptionReason;
     }
+    if (item.lifecycle) {
+      item.lifecycle = { ...item.lifecycle, state };
+      item.lifecycleHistory = this.mergeLifecycleHistory(item.lifecycleHistory, item.lifecycle);
+    }
 
     // If human exemption waived and there is a linked issue, record resolution in issue log
     if (state === 'EXEMPTION_WAIVED' && item.linkedIssueId) {
@@ -231,27 +237,57 @@ export class IssueRegister {
     id: string,
     verdict: VerificationVerdict,
     proofProfile?: ProofProfile,
-    inconclusiveReason?: InconclusiveReason
+    inconclusiveReason?: InconclusiveReason,
+    lifecycle?: VerificationBatchLifecycle
   ): VerificationRecord | undefined {
     const item = this.verifications.find((v) => v.id === id);
     if (!item) return undefined;
+    const previous = { ...item, lifecycleHistory: item.lifecycleHistory?.map((entry) => ({ ...entry })) };
 
     item.verdict = verdict;
     item.proofProfile = proofProfile;
     item.inconclusiveReason = inconclusiveReason;
+    if (lifecycle) {
+      item.lifecycle = { ...lifecycle };
+      item.lifecycleHistory = this.mergeLifecycleHistory(item.lifecycleHistory, lifecycle);
+      item.stalemateState = lifecycle.state === 'STALEMATE'
+        ? 'STALEMATE'
+        : lifecycle.state === 'EXEMPTION_WAIVED'
+          ? 'EXEMPTION_WAIVED'
+          : 'ACTIVE';
+    }
 
-    this.rewriteVerificationsFile();
+    try {
+      this.rewriteVerificationsFile();
+    } catch (err) {
+      Object.assign(item, previous);
+      throw err;
+    }
     return item;
   }
 
+  private mergeLifecycleHistory(
+    history: VerificationBatchLifecycle[] | undefined,
+    lifecycle: VerificationBatchLifecycle
+  ): VerificationBatchLifecycle[] {
+    const next = (history || []).filter((entry) => entry.runId !== lifecycle.runId || entry.attemptId !== lifecycle.attemptId);
+    next.push({ ...lifecycle });
+    return next.slice(-32);
+  }
+
   private rewriteVerificationsFile(): void {
+    const lines =
+      this.verifications.map((v) => JSON.stringify(v)).join('\n') +
+      (this.verifications.length > 0 ? '\n' : '');
+    const tempPath = `${this.verificationsPath}.tmp-${process.pid}-${Date.now()}`;
     try {
-      const lines =
-        this.verifications.map((v) => JSON.stringify(v)).join('\n') +
-        (this.verifications.length > 0 ? '\n' : '');
-      fs.writeFileSync(this.verificationsPath, lines, 'utf8');
+      fs.writeFileSync(tempPath, lines, 'utf8');
+      fs.renameSync(tempPath, this.verificationsPath);
     } catch (err) {
-      console.warn('[IssueRegister] Failed to rewrite verification register:', err);
+      try { fs.unlinkSync(tempPath); } catch {}
+      const failure = new Error(`Failed to persist verification register: ${String(err)}`);
+      failure.name = 'DURABILITY_FAILED';
+      throw failure;
     }
   }
 

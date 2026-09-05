@@ -32,18 +32,18 @@ import { chromeSessionUserAgent } from './google-auth-identity';
 import { configureBrowserSessionPartition, deriveCapsulePartition, unconfigureBrowserSessionPartition, type BrowserSessionUserAgentMode } from './browser-session-partition';
 import { TabDiagnosticsManager, computeOrigin, normalizeConsoleLevel } from './tab-diagnostics';
 import { buildKeyboardInputEvents } from './keyboard-normalizer';
-import { FirstPartyNetworkTracker } from './first-party-network-tracker';
+import { FirstPartyNetworkTracker, type NetworkTrackerStats } from './first-party-network-tracker';
 import { WorkspaceCapsuleManager, type WorkspaceCapsule } from '../project/workspace-capsule';
 import { PreviewWatcherPool, type PreviewChangeEvent } from '../server/preview-watcher-pool';
 import { buildPreviewUrl, parsePreviewUrl } from '../server/preview-url-codec';
-import type { ControlPlaneRuntime } from '../control-plane/control-plane-runtime';
+import type { ControlPlaneResourceStats, ControlPlaneRuntime } from '../control-plane/control-plane-runtime';
 import type { BrowserTarget } from '../../shared/control-plane-contracts';
 import type { WorkflowDefinition } from '../workflow/workflow-schema';
 import { ChromeProfileSyncManager } from './chrome-profile-sync';
 import { LocalSessionVault } from './local-session-vault';
 import { HaravanUploader } from './haravan-uploader';
 import type { ActionSequenceParams, ActionSequenceResult } from './tab-automation-host';
-import { TerminalManager } from './terminal-manager';
+import { TerminalManager, type TerminalManagerStats } from './terminal-manager';
 import { checkForUpdatesAndRestart } from './app-menu';
 import { SkillScanner } from './skill-scanner';
 import { WindowStateManager, WindowState } from './window-state';
@@ -54,7 +54,7 @@ import { HistoryManager } from './history-manager';
 import { OAuthPopupManager } from './oauth-popup-manager';
 import { SemanticRefRegistry, makeTargetKey } from './semantic-ref-registry';
 import { TabAutomationHost } from './tab-automation-host';
-import { TabDevToolsHost } from './tab-devtools-host';
+import { TabDevToolsHost, type TabDevToolsStats } from './tab-devtools-host';
 import {
   buildIsolatedExecutorScript,
   buildIsolatedCollectorScript,
@@ -74,6 +74,23 @@ import {
   sanitizeTabForPersistence,
   migratePersistedTab,
 } from './split-review-coordinator';
+export interface NativeTabHostResourceStats {
+  disposed: boolean;
+  tabCount: number;
+  attachedTabViewCount: number;
+  terminalWindowCount: number;
+  terminalWindowMetadataCount: number;
+  previewWatcherCount: number;
+  previewSubscriptionCount: number;
+  targetOperationQueueCount: number;
+  agentWorkingTimerCount: number;
+  agentWorkingRefCount: number;
+  network: NetworkTrackerStats;
+  devTools: TabDevToolsStats;
+  terminal: TerminalManagerStats;
+  controlPlane: ControlPlaneResourceStats | null;
+}
+
 export const TOOLBAR_HEIGHT_WITH_BOOKMARKS = 102;
 export const TOOLBAR_HEIGHT_COMPACT = 74;
 /**
@@ -481,6 +498,13 @@ export class NativeTabHost extends EventEmitter {
   }
   private appliedClipRadius = new WeakMap<Electron.WebContents, number>();
   private emulatedWebContents = new WeakSet<Electron.WebContents>();
+  private destroyOwnedWebContents(wc: Electron.WebContents | null | undefined): void {
+    if (!wc || wc.isDestroyed()) return;
+    // Electron 43 exposes destroy() at runtime but omits it from the WebContents declaration.
+    const destroyableWebContents = wc as Electron.WebContents & { destroy?: () => void };
+    destroyableWebContents.destroy?.();
+  }
+
 
   private safeEnableDeviceEmulation(
     wc: Electron.WebContents | null | undefined,
@@ -510,6 +534,33 @@ export class NativeTabHost extends EventEmitter {
     }
     return count;
   }
+  public getResourceStats(): NativeTabHostResourceStats {
+    const devTools = this.devToolsHost?.getStats() ?? {
+      attachedWebContentsCount: 0,
+      hostOwnedAttachmentCount: 0,
+      listenerTargetCount: 0,
+      queuedTargetCount: 0,
+      stylesheetTargetCount: 0,
+      isolatedContextCount: 0,
+    };
+    return {
+      disposed: this.isDisposed,
+      tabCount: this.tabs.size,
+      attachedTabViewCount: this.countAttachedViews(),
+      terminalWindowCount: this.terminalWindows.size,
+      terminalWindowMetadataCount: this.terminalWindowMeta.size,
+      previewWatcherCount: this.previewWatcherPool.getActiveWatcherCount(),
+      previewSubscriptionCount: this.tabPreviewUnsubscribers.size,
+      targetOperationQueueCount: this.targetOperationQueues.size,
+      agentWorkingTimerCount: this.automationHost?.agentWorkingTimers.size ?? 0,
+      agentWorkingRefCount: this.automationHost?.agentWorkingRefs.size ?? 0,
+      network: this.networkTracker.getStats(),
+      devTools,
+      terminal: TerminalManager.getInstance().getStats(),
+      controlPlane: this.controlPlane?.getResourceStats() ?? null,
+    };
+  }
+
 
   public getSemanticDocumentGeneration(tabId: string, paneId?: string): number {
     const key = makeTargetKey(tabId, paneId);
@@ -3320,15 +3371,11 @@ export class NativeTabHost extends EventEmitter {
       }
     }
     try {
-      if (!target.view.webContents.isDestroyed()) {
-        (target.view.webContents as unknown as { destroy?: () => void })?.destroy?.();
-      }
+      this.destroyOwnedWebContents(target.view.webContents);
     } catch {}
     if (target.mobileView) {
       try {
-        if (!target.mobileView.webContents.isDestroyed()) {
-          (target.mobileView.webContents as unknown as { destroy?: () => void })?.destroy?.();
-        }
+        this.destroyOwnedWebContents(target.mobileView.webContents);
       } catch {}
     }
     this.splitCoordinator?.cleanupTab(tabId);
@@ -3767,7 +3814,7 @@ export class NativeTabHost extends EventEmitter {
           } catch {}
         }
         try {
-          (tab.mobileView.webContents as unknown as { destroy?: () => void })?.destroy?.();
+          this.destroyOwnedWebContents(tab.mobileView.webContents);
         } catch {}
         tab.mobileView = undefined;
       }
@@ -5814,14 +5861,18 @@ export class NativeTabHost extends EventEmitter {
     this.targetOperationQueues?.clear();
     this.semanticDocumentGenerations?.clear();
     this.sessionTabPools?.clear();
+    try {
+      this.window.contentView.removeChildView(this.toolbarView);
+    } catch {}
+    try {
+      this.destroyOwnedWebContents(this.toolbarView.webContents);
+    } catch {}
     if (this.frameBackdropView) {
       try {
         this.window.contentView.removeChildView(this.frameBackdropView);
       } catch {}
       try {
-        if (!this.frameBackdropView.webContents.isDestroyed()) {
-          (this.frameBackdropView.webContents as any).destroy?.();
-        }
+        this.destroyOwnedWebContents(this.frameBackdropView.webContents);
       } catch {}
       this.frameBackdropView = null;
     }
@@ -5830,15 +5881,15 @@ export class NativeTabHost extends EventEmitter {
         this.window.contentView.removeChildView(this.sidebarView);
       } catch {}
       try {
-        if (!this.sidebarView.webContents.isDestroyed()) {
-          (this.sidebarView.webContents as any).destroy?.();
-        }
+        this.destroyOwnedWebContents(this.sidebarView.webContents);
       } catch {}
       this.sidebarView = null;
     }
     if (this.devToolsHost) {
       this.devToolsHost.dispose();
     }
+    this.networkTracker.dispose();
+    this.previewWatcherPool.clear();
     if (this.persistTimer) {
       clearTimeout(this.persistTimer);
       this.persistTimer = null;
@@ -5849,6 +5900,7 @@ export class NativeTabHost extends EventEmitter {
       }
     }
     this.terminalWindows.clear();
+    this.terminalWindowMeta.clear();
     this.popoutWindow = null;
     for (const unsub of this.tabPreviewUnsubscribers.values()) {
       try { unsub(); } catch {}
@@ -5859,21 +5911,17 @@ export class NativeTabHost extends EventEmitter {
     this.tabOrder = [];
     for (const [id, tab] of tabsToClean) {
       try {
-        if (!tab.view.webContents.isDestroyed()) {
-          tab.view.webContents.stop();
-        }
+        this.window.contentView.removeChildView(tab.view);
       } catch {}
       try {
-        this.window.contentView.removeChildView(tab.view);
+        this.destroyOwnedWebContents(tab.view.webContents);
       } catch {}
       if (tab.mobileView) {
         try {
-          if (!tab.mobileView.webContents.isDestroyed()) {
-            tab.mobileView.webContents.stop();
-          }
+          this.window.contentView.removeChildView(tab.mobileView);
         } catch {}
         try {
-          this.window.contentView.removeChildView(tab.mobileView);
+          this.destroyOwnedWebContents(tab.mobileView.webContents);
         } catch {}
       }
       this.splitCoordinator.cleanupTab(id);

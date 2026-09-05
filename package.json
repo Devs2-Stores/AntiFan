@@ -42,6 +42,8 @@
     "benchmark:artifacts": "node scripts/benchmark-antigravity-artifacts.mjs",
     "benchmark:soak": "node scripts/benchmark-electron-performance.mjs --scenario soak",
     "smoke:soak": "npm run compile && node scripts/run-electron.cjs scripts/smoke-real-soak.cjs",
+    "smoke:theme-golden-live": "npm run compile && node scripts/run-theme-golden-live-proof.cjs",
+    "certify:core-freeze": "node scripts/certify-core-freeze.cjs",
     "smoke:multitasking": "npm run compile && node scripts/run-electron.cjs scripts/smoke-background-multitasking.cjs",
     "smoke:parity": "npm run compile && node scripts/run-electron.cjs scripts/smoke-playwright-parity.cjs",
     "smoke:terminal": "npm run compile && node scripts/run-electron.cjs test/e2e/terminal-renderer-smoke.cjs",

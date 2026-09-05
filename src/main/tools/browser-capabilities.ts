@@ -1,5 +1,5 @@
 import * as path from 'node:path';
-import { BrowserTarget, CapabilityRequestContext, CapabilityError, CapabilityEffectPolicyInput, CapabilityRisk, ReceiptBinding } from '../../shared/control-plane-contracts';
+import { BrowserTarget, CapabilityRequestContext, CapabilityError, CapabilityEffectPolicyInput, CapabilityRisk, ReceiptBinding, digestText } from '../../shared/control-plane-contracts';
 import { BrowserControlPort } from './browser-control-port';
 import { CapabilityCatalogue } from './capability-catalogue';
 import { PlatformDetector } from '../qa/scanners/platform-detector';
@@ -14,10 +14,11 @@ import { IssueRegister, VerificationVerdict } from '../session/issue-register';
 import { VerificationEvaluator } from '../verification/verification-evaluator';
 import { VerificationClaim, EvidenceSampleBundle, InteractionBaseline, THEME_METRICS } from '../verification/verification-contract';
 import { ProofTemplateRegistry, ClaimCategory } from '../verification/proof-templates';
-import { ThemeSourceMapper } from '../browser/theme-source-mapper';
+import { ThemeSourceMapper, isAuthoritativeSourceCandidate } from '../browser/theme-source-mapper';
 import { CssCascadeAnalyzer } from '../browser/css-cascade-analyzer';
 import { createThemeEvidenceEnvelope } from './theme-evidence-envelope';
 import { ReceiptStore } from '../session/receipt-store';
+import { VerificationCircuitBreaker } from '../verification/circuit-breaker';
 function getThemeHierarchyScript(): string {
   return `(() => {
     const template = document.documentElement?.getAttribute('data-template')
@@ -2623,6 +2624,38 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
       const target = context.browserTarget as BrowserTarget;
       const runId = context.runId || 'run-unbound';
       const attemptId = context.attemptId || 'attempt-unbound';
+      const invocationId = 'invocationId' in context && typeof context.invocationId === 'string' && context.invocationId.trim()
+        ? context.invocationId
+        : undefined;
+      if (receipts && !invocationId) {
+        throw new CapabilityError('MCP_CONTEXT_REQUIRED', 'Receipt-enabled verification requires authenticated invocation identity.');
+      }
+      const receiptBinding: ReceiptBinding | undefined = receipts && invocationId
+        ? {
+            commandId: invocationId,
+            promptDigest: digestText(`anti.verification.verify_claim:${claim.id}`),
+            projectId: context.projectId,
+            workspaceId: context.workspaceId,
+            canonicalWorkspace: typeof getWorkspaceRoot === 'function' ? getWorkspaceRoot() : process.cwd(),
+            hostInstanceId: 'verification-engine',
+            hostEpoch: 'hostEpoch' in context && typeof context.hostEpoch === 'number' ? context.hostEpoch : context.lease.hostEpoch,
+            attemptId,
+            backendSessionRef: `${'backendId' in context && typeof context.backendId === 'string' ? context.backendId : 'trusted'}:${runId}`,
+          }
+        : undefined;
+      const previousLifecycle = claim.lifecycle?.runId === runId && claim.lifecycle.attemptId === attemptId
+        ? claim.lifecycle
+        : claim.lifecycleHistory?.find((entry) => entry.runId === runId && entry.attemptId === attemptId);
+      if (previousLifecycle?.state === 'STALEMATE' || previousLifecycle?.state === 'HALTED') {
+        throw new CapabilityError('POLICY_DENIED', `Verification batch is ${previousLifecycle.state} and cannot be retried in the same run attempt.`, {
+          claimId: claim.id,
+          lifecycle: previousLifecycle,
+        });
+      }
+      if (previousLifecycle?.state === 'VERIFIED' || previousLifecycle?.state === 'EXEMPTION_WAIVED') {
+        if (receipts && receiptBinding) receipts.put(receiptBinding, 'completed', 'accepted-exact');
+        return claim;
+      }
       const tabId = claim.scope.tabId;
       const currentDocGen = browser.getDocumentGeneration(tabId) ?? 1;
 
@@ -2683,7 +2716,7 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
                   const hasActive = el ? (el.classList.contains('active') || el.classList.contains('open') || el.classList.contains('expanded') || el.getAttribute('aria-expanded') === 'true' || el.getAttribute('aria-selected') === 'true') : false;
                   const hasOverlay = Boolean(document.querySelector('.modal.open, .modal.active, .drawer.open, .drawer.active, [aria-modal="true"], dialog[open], .popup.show, .dropdown-menu.show'));
                   return {
-                    selector,
+                    selector: sel,
                     hasActive,
                     hasOverlay,
                     classSnapshot: el ? el.className : '',
@@ -2951,15 +2984,15 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
                 }
               } catch {}
               const envelope = ThemeSourceMapper.mapElementToSource(root, { classes, attributes });
-              const identified = envelope.success && Boolean(envelope.data?.primaryCandidate?.file);
+              const identified = envelope.success && isAuthoritativeSourceCandidate(envelope.data);
               samples.push({
                 metric: obl.metric,
-                actual: envelope.data?.primaryCandidate?.file || 'none',
+                actual: identified ? envelope.data?.primaryCandidate?.file : envelope.data?.selectionReason || 'none',
                 expected: obl.expected ?? true,
                 passed: identified,
                 message: identified
-                  ? `Theme source identified: ${envelope.data?.primaryCandidate?.file} (confidence: ${envelope.data?.primaryCandidate?.confidence})`
-                  : `Failed to identify theme source file for selector ${claim.scope.selector}`,
+                  ? `Theme source identified: ${envelope.data?.primaryCandidate?.file} (unique correlated HIGH)`
+                  : `Theme source remains candidate-only for selector ${claim.scope.selector}: ${envelope.data?.selectionReason || 'no evidence'}`,
               });
             } else if (obl.metric === THEME_METRICS.CSS_ACTIVE_RULE_MATCHED || obl.metric === THEME_METRICS.CSS_STRONG_PASS_RESOLVED) {
               const urlMap = typeof getStylesheetUrlMap === 'function' ? getStylesheetUrlMap() : undefined;
@@ -3086,30 +3119,22 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
       };
 
       const evalResult = VerificationEvaluator.evaluate(claim, bundle);
+      const transition = VerificationCircuitBreaker.getInstance().recordAttempt(
+        { runId, attemptId, claimId: claim.id },
+        evalResult.verdict,
+        evalResult.inconclusiveReason,
+        previousLifecycle,
+        invocationId
+      );
       const updated = IssueRegister.getInstance().updateVerificationVerdict(
         claim.id,
         evalResult.verdict,
         evalResult.proofProfile,
-        evalResult.inconclusiveReason
+        evalResult.inconclusiveReason,
+        transition.lifecycle
       );
-      if (receipts) {
-        const canonicalWorkspace = typeof getWorkspaceRoot === 'function' ? getWorkspaceRoot() : process.cwd();
-        const runId = context.runId || 'run-verification';
-        const attemptId = context.attemptId || 'attempt-verification';
-        const binding: ReceiptBinding = {
-          commandId: claim.id,
-          promptDigest: 'sha256-authoritative-verification-digest',
-          projectId: context.projectId || 'project-unbound',
-          workspaceId: context.workspaceId || 'workspace-unbound',
-          canonicalWorkspace,
-          hostInstanceId: 'host-verification-engine',
-          hostEpoch: 1,
-          attemptId,
-          backendSessionRef: runId,
-        };
-        const deliveryState = evalResult.verdict === 'VERIFIED' ? 'accepted-exact' : 'failed';
-        const receiptState = evalResult.verdict === 'VERIFIED' ? 'completed' : 'failed';
-        receipts.put(binding, receiptState, deliveryState);
+      if (receipts && receiptBinding) {
+        receipts.put(receiptBinding, 'completed', 'accepted-exact');
       }
       return updated || claim;
     },

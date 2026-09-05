@@ -258,9 +258,11 @@ describe('Phase 1: Viewport Emulation & CDP Matched Styles Gateway', () => {
       sendCdpCommand: (wc: unknown, method: string, params?: Record<string, unknown>) => Promise<unknown>;
       getOrCreateIsolatedWorldContext: (wc: unknown) => Promise<number | undefined>;
       getMatchedStylesForNode: typeof TabDevToolsHost.prototype.getMatchedStylesForNode;
+      stylesheetUrls: Map<number, Map<string, string>>;
     };
 
     host.getOrCreateIsolatedWorldContext = async () => 1004;
+    host.stylesheetUrls = new Map();
 
     host.sendCdpCommand = async (_wc, method, params = {}) => {
       sentCdpCommands.push({ method, params });

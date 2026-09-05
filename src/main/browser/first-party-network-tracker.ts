@@ -6,6 +6,12 @@ export interface NetworkTrackerOptions {
   maxCeilingMs?: number; // default 2000ms
   requireAttached?: boolean;
 }
+export interface NetworkTrackerStats {
+  attachedTargetCount: number;
+  listenerCount: number;
+  inflightRequestCount: number;
+}
+
 const CRITICAL_RESOURCE_TYPES = new Set([
   'mainframe',
   'document',
@@ -78,6 +84,27 @@ export class FirstPartyNetworkTracker {
   public isAttached(tabId: string, paneId: string = 'desktop'): boolean {
     return this.attachedTargets.has(this.makeKey(tabId, paneId));
   }
+  public getStats(): NetworkTrackerStats {
+    let listenerCount = 0;
+    for (const listeners of this.listenersByTarget.values()) listenerCount += listeners.size;
+    let inflightRequestCount = 0;
+    for (const requests of this.inflightByTarget.values()) inflightRequestCount += requests.size;
+    return {
+      attachedTargetCount: this.attachedTargets.size,
+      listenerCount,
+      inflightRequestCount,
+    };
+  }
+
+  public dispose(): void {
+    for (const attached of this.attachedTargets.values()) {
+      try { attached.detach(); } catch {}
+    }
+    this.attachedTargets.clear();
+    this.listenersByTarget.clear();
+    this.inflightByTarget.clear();
+  }
+
   /**
    * Resets active inflight tracking for a navigation/reload without detaching listeners.
    */

@@ -193,39 +193,63 @@ describe('Phase 3: Semantic Evidence & Mechanical Guardrails Suite', () => {
   });
 
   describe('4. Circuit Breaker & Human Exemption Protocol', () => {
-    it('trips to STALEMATE when retries reach maxRetries limit', () => {
+    it('tracks resample and repair budgets independently per run attempt', () => {
       const cb = VerificationCircuitBreaker.getInstance();
-      cb.setMaxRetries(3);
+      const key = { runId: 'run-1', attemptId: 'attempt-1', claimId: 'claim-101' };
 
-      const r1 = cb.recordAttempt('claim-101', 'REJECTED');
-      assert.strictEqual(r1.tripped, false);
-      assert.strictEqual(r1.attempts, 1);
-      assert.strictEqual(r1.state, 'ACTIVE');
+      const resample = cb.recordAttempt(key, 'INCONCLUSIVE', 'RESAMPLE');
+      assert.strictEqual(resample.consumed, 'resample');
+      assert.strictEqual(resample.lifecycle.resampleAttempts, 1);
+      assert.strictEqual(resample.lifecycle.repairAttempts, 0);
+      assert.strictEqual(resample.lifecycle.state, 'ACTIVE');
 
-      const r2 = cb.recordAttempt('claim-101', 'REJECTED');
-      assert.strictEqual(r2.tripped, false);
-      assert.strictEqual(r2.attempts, 2);
+      const repair = cb.recordAttempt(key, 'REJECTED', undefined, resample.lifecycle);
+      assert.strictEqual(repair.consumed, 'repair');
+      assert.strictEqual(repair.lifecycle.resampleAttempts, 1);
+      assert.strictEqual(repair.lifecycle.repairAttempts, 1);
+      assert.strictEqual(repair.remainingResamples, 2);
+      assert.strictEqual(repair.remainingRepairs, 2);
 
-      const r3 = cb.recordAttempt('claim-101', 'REJECTED');
-      assert.strictEqual(r3.tripped, true);
-      assert.strictEqual(r3.attempts, 3);
-      assert.strictEqual(r3.state, 'STALEMATE');
-
-      const status = cb.getBudgetStatus('claim-101');
-      assert.strictEqual(status.tripped, true);
-      assert.strictEqual(status.remaining, 0);
+      const otherAttempt = cb.recordAttempt(
+        { ...key, attemptId: 'attempt-2' },
+        'REJECTED',
+        undefined,
+        repair.lifecycle
+      );
+      assert.strictEqual(otherAttempt.lifecycle.resampleAttempts, 0);
+      assert.strictEqual(otherAttempt.lifecycle.repairAttempts, 1);
     });
 
-    it('resets attempt counter upon VERIFIED outcome', () => {
+    it('preserves counters when VERIFIED closes a batch and halts non-retryable inconclusive outcomes', () => {
       const cb = VerificationCircuitBreaker.getInstance();
-      cb.setMaxRetries(3);
+      const key = { runId: 'run-2', attemptId: 'attempt-1', claimId: 'claim-102' };
+      const failed = cb.recordAttempt(key, 'REJECTED');
+      const verified = cb.recordAttempt(key, 'VERIFIED', undefined, failed.lifecycle);
 
-      cb.recordAttempt('claim-102', 'REJECTED');
-      assert.strictEqual(cb.getBudgetStatus('claim-102').attempts, 1);
+      assert.strictEqual(verified.lifecycle.state, 'VERIFIED');
+      assert.strictEqual(verified.lifecycle.repairAttempts, 1);
 
-      cb.recordAttempt('claim-102', 'VERIFIED');
-      assert.strictEqual(cb.getBudgetStatus('claim-102').attempts, 0);
-      assert.strictEqual(cb.getBudgetStatus('claim-102').state, 'ACTIVE');
+      const halted = cb.recordAttempt(
+        { runId: 'run-3', attemptId: 'attempt-1', claimId: 'claim-103' },
+        'INCONCLUSIVE',
+        'UNOBSERVABLE'
+      );
+      assert.strictEqual(halted.lifecycle.state, 'HALTED');
+      assert.strictEqual(halted.lifecycle.resampleAttempts, 0);
+      assert.strictEqual(halted.lifecycle.repairAttempts, 0);
+    });
+
+    it('trips only the exhausted budget to STALEMATE', () => {
+      const cb = VerificationCircuitBreaker.getInstance();
+      const key = { runId: 'run-4', attemptId: 'attempt-1', claimId: 'claim-104' };
+      let state = cb.recordAttempt(key, 'INCONCLUSIVE', 'RESAMPLE');
+      state = cb.recordAttempt(key, 'INCONCLUSIVE', 'RESAMPLE', state.lifecycle);
+      state = cb.recordAttempt(key, 'INCONCLUSIVE', 'RESAMPLE', state.lifecycle);
+
+      assert.strictEqual(state.tripped, true);
+      assert.strictEqual(state.lifecycle.state, 'STALEMATE');
+      assert.strictEqual(state.lifecycle.resampleAttempts, 3);
+      assert.strictEqual(state.lifecycle.repairAttempts, 0);
     });
 
     it('applies human exemption cleanly without forging VERIFIED verdict', () => {

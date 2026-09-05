@@ -8,7 +8,7 @@
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #f8fafc; color: #1e293b; padding: 24px; }
-    .product-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 24px; max-width: 1200px; margin: 0 auto; }
+    .product-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(280px, 100%), 1fr)); gap: 24px; max-width: 1200px; margin: 0 auto; }
   </style>
 </head>
 <body>
@@ -16,6 +16,7 @@
   <section id="shopify-section-featured-collection" class="collection-section" data-section-id="featured-collection" data-section-type="collection-grid">
     <div class="product-grid">
       <!-- BEGIN snippets/card-product.liquid -->
+      <!-- BEGIN snippets/card-product-copy.liquid -->
       <article
         class="card product-card"
         data-card-id="card-101"

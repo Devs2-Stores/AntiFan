@@ -1094,6 +1094,12 @@ describe('Phase 5: Playwright Parity Kernel & Gap Telemetry Verification', () =>
     assert.ok(ompScript.includes("'browser_press_key'"), 'Must declare browser_press_key in OMP MCP tools');
     assert.ok(ompScript.includes("['anti.agent.cursor.type'"), 'Must declare anti.agent.cursor.type');
     assert.ok(ompScript.includes("ref: { type: 'string' }"), 'Cursor tools must include ref: { type: "string" }');
+    assert.ok(ompScript.includes("['file.write'"), 'Must expose authenticated workspace mutation');
+    assert.ok(ompScript.includes("['anti.theme.resolve_element'"), 'Must expose live source resolution');
+    assert.ok(ompScript.includes("['anti.inspect.matched_styles'"), 'Must expose live matched CSS evidence');
+    assert.ok(ompScript.includes("['anti.inspect.responsive_matrix'"), 'Must expose live responsive evidence');
+    assert.ok(ompScript.includes("['anti.verification.record_claim'"), 'Must expose claim recording');
+    assert.ok(ompScript.includes("['anti.verification.verify_claim'"), 'Must expose authoritative verification');
   });
 
   it('20. anti.agent.sequence executes multi-step action sequence with navigation guard', async () => {

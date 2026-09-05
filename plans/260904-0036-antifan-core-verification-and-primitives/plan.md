@@ -1,11 +1,12 @@
 ---
 title: "AntiFan Core Runtime Verification, 5 Primitives & Verification Contracts"
 description: "Kế hoạch kỹ thuật triển khai kiến trúc AntiFan Universal Web/UI Runtime theo bản đại chốt: xác nhận Core Runtime, thiết lập Ngũ Đại Nguyên Thủy, Verification Contract Engine và 4 chốt chặn cơ học."
-status: in_progress
+status: in-progress
 priority: P1
 effort: "5d"
 tags: ["antifan", "core", "verification-authority", "anti-hallucination", "primitives"]
 created: 2026-09-04
+blockedBy: []
 ---
 
 # AntiFan Core Runtime Verification, 5 Primitives & Verification Contracts
@@ -33,14 +34,14 @@ Kế hoạch này hiện thực hóa toàn bộ các quyết sách đã được
 
 | # | Phase | Status | Priority | Effort |
 |---|-------|--------|----------|--------|
-| 1 | [Phase 1: Core Runtime Verification & Soak Baseline](./phase-01-start.md) | In Progress (Soak verification pending) | P1 | 1d |
+| 1 | [Phase 1: Core Runtime Verification & Soak Baseline](./phase-01-start.md) | In Progress | P1 | 1d |
 | 2 | [Phase 2: Verification Contracts & 5 Primitives](./phase-02-verification-contracts-and-5-primitives.md) | Complete | P1 | 1.5d |
 | 3 | [Phase 3: Semantic Evidence Lean & Mechanical Guardrails](./phase-03-semantic-evidence-and-mechanical-guardrails.md) | Complete | P1 | 1.5d |
 | 4 | [Phase 4: Modular Gates & Benchmark Certification](./phase-04-modular-gates-and-benchmark-certification.md) | Complete | P1 | 1d |
 
 ## Success Criteria
 
-- [ ] Bài test Windows soak 45 phút / 5h: Quick workload 4-stage soak đã PASS với 0 tiến trình mồ côi; tiến trình 5h soak đã chạy 300 phút (5,450 switches, overall slope 0.28 MB/min <= 0.35 SLO, 0 orphans), nhưng renderer slope chạm 0.156 MB/min (vượt nhẹ SLO 0.15) và gặp lỗi scope `totalSuspendedMs` tại teardown. Đã khắc phục teardown lifecycle (đóng tab/terminal khi bắt đầu recovery) và sửa scope biến; phán quyết chính thức đang chờ lượt chạy soak tiếp theo đạt PASSED.
+- [ ] Windows soak certification: deferred until an uninterrupted `3 × 45`-minute workstation window. The 2026-09-05 attempt passed run 1 but failed closed during run 2; completion requires a fresh full sequence and new `PASSED` aggregate artifact.
 - [x] Mọi capability execution context đều nhận `signal` và `control` xuyên suốt từ `capability-transport.ts`.
 - [x] `IssueRegister` singleton được mở rộng để lưu trữ `ProofProfile`, `proofObligations`, và `verdict` mà không sinh thêm subsystem DB cồng kềnh.
 - [x] Core hoàn toàn sạch bóng các engine nhận thức (`VisualEntityEngine`, `SpatialSemanticGraph`); chỉ lưu trữ `VisualRegion` thô và nhận định ngữ nghĩa của OMP kèm provenance.
