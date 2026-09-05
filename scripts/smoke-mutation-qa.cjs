@@ -336,7 +336,7 @@ app.whenReady().then(async () => {
 
       // Create base tab for viewport
       const baseTabId = browserHost.createTab(baseUrl);
-      browserHost.setViewportSize({ width: vp.width, height: vp.height, tabId: baseTabId });
+      await browserHost.setViewportSize({ width: vp.width, height: vp.height, tabId: baseTabId });
       activeHtml = STOREFRONT_HTML;
       await catalogue.dispatch('browser.navigate', { url: baseUrl }, makeInvocationContext(baseTabId));
 
@@ -374,7 +374,7 @@ app.whenReady().then(async () => {
 
         // Dedicated disposable preview tab guarantees zero DOM pollution across scenarios
         const mutantTabId = browserHost.createTab(baseUrl, false, { ephemeral: true });
-        browserHost.setViewportSize({ width: vp.width, height: vp.height, tabId: mutantTabId });
+        await browserHost.setViewportSize({ width: vp.width, height: vp.height, tabId: mutantTabId });
 
         try {
           activeHtml = mutantHtml;

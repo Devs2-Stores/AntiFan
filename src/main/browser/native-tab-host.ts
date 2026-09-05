@@ -498,6 +498,11 @@ export class NativeTabHost extends EventEmitter {
   }
   private appliedClipRadius = new WeakMap<Electron.WebContents, number>();
   private emulatedWebContents = new WeakSet<Electron.WebContents>();
+  private touchEmulationStates = new WeakMap<Electron.WebContents, {
+    desired: boolean;
+    settled: boolean;
+    promise: Promise<void>;
+  }>();
   private destroyOwnedWebContents(wc: Electron.WebContents | null | undefined): void {
     if (!wc || wc.isDestroyed()) return;
     // Electron 43 exposes destroy() at runtime but omits it from the WebContents declaration.
@@ -4061,37 +4066,57 @@ export class NativeTabHost extends EventEmitter {
     this.broadcastState();
     return true;
   }
-  private async applyCdpTouchEmulation(wc: Electron.WebContents, enableTouch: boolean): Promise<void> {
-    if (!wc || (wc as unknown as { isDestroyed?: () => boolean }).isDestroyed?.()) return;
+  private applyCdpTouchEmulation(wc: Electron.WebContents, enableTouch: boolean): Promise<void> {
+    if (!wc || (wc as unknown as { isDestroyed?: () => boolean }).isDestroyed?.()) return Promise.resolve();
+
+    const current = this.touchEmulationStates.get(wc);
+    if (
+      current &&
+      current.desired === enableTouch &&
+      (!current.settled || !enableTouch || Boolean(wc.debugger?.isAttached()))
+    ) {
+      return current.promise;
+    }
+
+    const state = {
+      desired: enableTouch,
+      settled: false,
+      promise: Promise.resolve(),
+    };
+    state.promise = this.applyCdpTouchEmulationState(wc, enableTouch).finally(() => {
+      state.settled = true;
+    });
+    this.touchEmulationStates.set(wc, state);
+    return state.promise;
+  }
+
+  private async applyCdpTouchEmulationState(wc: Electron.WebContents, enableTouch: boolean): Promise<void> {
     try {
       if (!wc.debugger) return;
       if (!enableTouch) {
         if (wc.debugger.isAttached()) {
-          try {
-            await wc.debugger.sendCommand('Emulation.setTouchEmulationEnabled', {
-              enabled: false,
-            }).catch(() => {});
-            await wc.debugger.sendCommand('Emulation.setEmitTouchEventsForMouse', {
-              enabled: false,
-            }).catch(() => {});
-          } catch {}
+          await this.getDevToolsHost().sendCdpCommand(wc, 'Emulation.setTouchEmulationEnabled', {
+            enabled: false,
+          }).catch(() => {});
+          await this.getDevToolsHost().sendCdpCommand(wc, 'Emulation.setEmitTouchEventsForMouse', {
+            enabled: false,
+          }).catch(() => {});
         }
         return;
       }
 
-      // enableTouch === true: only attach if necessary
       if (!wc.debugger.isAttached()) {
         try {
           wc.debugger.attach('1.3');
         } catch {}
       }
       if (wc.debugger.isAttached()) {
-        await wc.debugger.sendCommand('Emulation.setTouchEmulationEnabled', {
+        await this.getDevToolsHost().sendCdpCommand(wc, 'Emulation.setTouchEmulationEnabled', {
           enabled: true,
           maxTouchPoints: 5,
         }).catch(() => {});
         // Keep touch capability without hijacking mouse movements so hover, context menu, and annotation picker work smoothly
-        await wc.debugger.sendCommand('Emulation.setEmitTouchEventsForMouse', {
+        await this.getDevToolsHost().sendCdpCommand(wc, 'Emulation.setEmitTouchEventsForMouse', {
           enabled: false,
         }).catch(() => {});
       }
@@ -5450,21 +5475,24 @@ export class NativeTabHost extends EventEmitter {
       return { success: true, key: params.key, modifiers: params.modifiers || [] };
     });
   }
-  public setViewportSize(options: { width: number; height: number; mobile?: boolean; deviceScaleFactor?: number; tabId?: string }): boolean {
+  public async setViewportSize(options: { width: number; height: number; mobile?: boolean; deviceScaleFactor?: number; tabId?: string }): Promise<boolean> {
     const targetId = options.tabId || this.activeTabId;
     const tab = this.tabs.get(targetId);
     if (!tab) return false;
     const w = Math.round(options.width);
     const h = Math.round(options.height);
     if (w <= 0 || h <= 0) return false;
+    const mobile = options.mobile ?? (w < 768);
     tab.customViewport = {
       width: w,
       height: h,
-      mobile: options.mobile ?? (w < 768),
+      mobile,
       deviceScaleFactor: options.deviceScaleFactor ?? (w < 768 ? 2 : 1),
     };
     tab.state.devicePresetId = `custom-${w}x${h}`;
     this.updateLayout();
+
+    await this.applyCdpTouchEmulation(tab.view.webContents, mobile);
     return true;
   }
 

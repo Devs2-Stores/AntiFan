@@ -116,7 +116,7 @@ npm run smoke:theme-golden-live
 node --test .compiled/test/e2e/theme-golden-live.test.js
 ```
 
-Live proof evidence: `reports/live-theme-proof.json` is `PASSED` with proof checksum `87dffb56d1872c1086c5fb2f6e17af7385d59b9c0eb5b25e5da7f2103df3235c`. It records real PNG/CDP/source/file-write/reload/five-width Product Card proof, trusted CDP Drawer mutation/visibility/five-width proof, distinct completed verification receipts, rejected no-op and ambiguous-source canaries, denied stale authority, zero Core resource owners after teardown, and completed process-bound temp cleanup after Electron exit.
+Live proof evidence: generated `reports/live-theme-proof.json` is `PASSED` and carries a validator-checked `proofChecksum`. It records real PNG/CDP/source/file-write/reload/five-width Product Card proof, trusted CDP Drawer mutation/visibility/five-width proof, distinct completed verification receipts, rejected no-op and ambiguous-source canaries, denied stale authority, zero Core resource owners after teardown, and completed process-bound temp cleanup after Electron exit.
 
 ## Todo
 

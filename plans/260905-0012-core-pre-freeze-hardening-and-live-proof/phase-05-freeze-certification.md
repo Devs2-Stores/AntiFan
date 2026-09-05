@@ -63,7 +63,7 @@ Ratified hard gates:
 | Injected false claims reaching `VERIFIED` | `0` |
 | Unhandled errors / incomplete stages | `0` |
 
-New artifact/ledger/receipt growth gates are derived before run 1 from the deterministic workload count: bounded bytes per operation plus constant overhead, written to `freeze-thresholds.json`, then immutable across all three runs. A threshold without an implementation-derived bound blocks certification rather than being guessed from one run.
+New artifact/ledger/receipt growth gates are derived before run 1 from the deterministic workload count: bounded bytes per operation plus constant overhead, written to `freeze-thresholds.json`, then immutable across all three runs. Ledger persistence keeps its separate 64 MiB hard frame ceiling for corruption/DoS containment, while certification permits at most 1 MiB per expected frame because large browser payloads are staged as bounded artifacts rather than persisted inline. A threshold without an implementation-derived bound blocks certification rather than being guessed from one run.
 
 ## File Inventory
 
@@ -144,7 +144,7 @@ npm run certify:core-freeze
 
 `certify:core-freeze` must produce three 45-minute reports plus one all-pass certificate from fresh processes.
 
-Certification regeneration is deferred until the workstation is available for an uninterrupted `3 × 45`-minute sequence. The 2026-09-05 attempt proved run 1 under the hardened duration validator, then run 2 failed closed at `freeze-theme-workload.cjs:292` because the Drawer trace returned `verified: false`; no run-2 report or aggregate certificate was published. The next attempt must restart from run 1 and replace this note only after all three fresh processes pass.
+Certification regeneration is deferred until the workstation is available for an uninterrupted `3 × 45`-minute sequence. The 2026-09-05 attempt proved run 1 under the hardened duration validator, then run 2 failed closed at `freeze-theme-workload.cjs:292` because the Drawer trace returned `verified: false`. Root cause was diagnosed and resolved: in emulated mobile viewports, `Input.dispatchMouseEvent` required active WebContents focus (`wc.focus()`) and CDP focus emulation (`Emulation.setFocusEmulationEnabled({ enabled: true })`) to prevent Chromium from silently dropping trusted mouse input. The fix was verified across the unit suite (32/32), sub-controller tests (12/12), real Chromium E2E (`node --test .compiled/test/e2e/theme-golden-live.test.js`), and quick soak (`npm run smoke:soak` with 25/25 capabilities, 0/0 false acceptances). The next 3x45m certification attempt will start from run 1 with this fix active.
 
 ## Todo
 

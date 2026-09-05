@@ -124,9 +124,19 @@ describe('freeze certification contracts', () => {
     assert.strictEqual(policy.gates.artifactBytesGrowth, 2 * 8 * 1024 * 1024);
     assert.strictEqual(policy.gates.receiptBytesGrowth, 4 * 64 * 1024);
     assert.strictEqual(policy.gates.ledgerFrameGrowth, 24 * 3);
+    assert.strictEqual(policy.gates.ledgerBytesGrowth, 24 * 3 * 1024 * 1024);
+    assert.strictEqual(policy.bounds.maxInvocationFrameBytes, 64 * 1024 * 1024);
+    assert.strictEqual(policy.bounds.maxCertificationInvocationFrameBytes, 1024 * 1024);
     freeze.validateThresholdManifest(policy);
     const tampered = { ...policy, gates: { ...policy.gates, rendererRssSlopeMbPerMin: 0.2 } };
     assert.throws(() => freeze.validateThresholdManifest(tampered), /checksum mismatch/);
+  });
+
+  it('fails ledger byte growth above the certification workload budget', () => {
+    const { report, policy } = passingReport(1);
+    report.storageFinal.invocations.persistedBytes = policy.gates.ledgerBytesGrowth + 1;
+    const evaluated = freeze.evaluateRunReport(report, policy);
+    assert.strictEqual(evaluated.gates.ledgerBytesGrowth.passed, false);
   });
 
   it('recomputes raw evidence and rejects a forged all-pass report', () => {

@@ -2,14 +2,14 @@
   "schemaVersion": 1,
   "type": "antifan-core-freeze-run",
   "mode": "quick-smoke",
-  "durationMinutes": 0.659,
+  "durationMinutes": 0.98,
   "runNumber": 0,
-  "processStartId": "process-start-f4ed65ee-626b-4219-8730-7e44805e84d2",
-  "processPid": 12604,
-  "startedAt": "2026-09-04T22:23:49.883Z",
-  "completedAt": "2026-09-04T22:24:29.404Z",
-  "buildIdentity": "e7ebe915c75802fbed79738945a126bc0f325a493e51969e33d857b6aed5092a",
-  "thresholdChecksum": "4878834d45bcbcc0e2c7c7775c5f0902033e16435571a08edb0194c661da37a9",
+  "processStartId": "process-start-e171e163-49c1-4f4c-a26c-1734439902ec",
+  "processPid": 15140,
+  "startedAt": "2026-09-05T05:32:16.498Z",
+  "completedAt": "2026-09-05T05:33:15.269Z",
+  "buildIdentity": "b69fc77256c1b004e03aec8e232c0742c8ee249afd8f2dc9b4bc89f10255dec7",
+  "thresholdChecksum": "a6c5d6eb90d5ec6c6ecac494506ebf01091b80ded956d08b212f06f4d7d9a497",
   "environment": {
     "platform": "win32",
     "arch": "x64",
@@ -25,28 +25,28 @@
   "resourceSampleIntervalMs": 5000,
   "samples": [
     {
-      "timestamp": 1788560647337,
-      "totalWorkingSetBytes": 1070895104,
+      "timestamp": 1788586367662,
+      "totalWorkingSetBytes": 1685487616,
       "processCount": 10,
       "classes": {
         "browser": {
           "processCount": 1,
-          "workingSetBytes": 158617600,
+          "workingSetBytes": 259440640,
           "cpuPercent": 0
         },
         "tab": {
           "processCount": 7,
-          "workingSetBytes": 704028672,
+          "workingSetBytes": 1093660672,
           "cpuPercent": 0
         },
         "gpu": {
           "processCount": 1,
-          "workingSetBytes": 161419264,
+          "workingSetBytes": 192147456,
           "cpuPercent": 0
         },
         "utility": {
           "processCount": 1,
-          "workingSetBytes": 46829568,
+          "workingSetBytes": 140238848,
           "cpuPercent": 0
         },
         "other": {
@@ -56,37 +56,37 @@
         }
       },
       "mainHeap": {
-        "heapUsed": 22722056,
-        "heapTotal": 37367808,
-        "external": 4265746,
+        "heapUsed": 18210988,
+        "heapTotal": 21286912,
+        "external": 4349876,
         "arrayBuffers": 0
       },
       "tabCount": 4,
-      "samplerDurationMs": 1.299
+      "samplerDurationMs": 3.226
     },
     {
-      "timestamp": 1788560647839,
-      "totalWorkingSetBytes": 1071267840,
+      "timestamp": 1788586368170,
+      "totalWorkingSetBytes": 1681248256,
       "processCount": 10,
       "classes": {
         "browser": {
           "processCount": 1,
-          "workingSetBytes": 158797824,
-          "cpuPercent": 0.05293026735754595
+          "workingSetBytes": 259596288,
+          "cpuPercent": 0.11340555179417738
         },
         "tab": {
           "processCount": 7,
-          "workingSetBytes": 704040960,
-          "cpuPercent": 2.957644731589003
+          "workingSetBytes": 1089552384,
+          "cpuPercent": 1.249619850564079
         },
         "gpu": {
           "processCount": 1,
-          "workingSetBytes": 161599488,
-          "cpuPercent": 8.795921352160208
+          "workingSetBytes": 191860736,
+          "cpuPercent": 0.010382019030265427
         },
         "utility": {
           "processCount": 1,
-          "workingSetBytes": 46829568,
+          "workingSetBytes": 140238848,
           "cpuPercent": 0
         },
         "other": {
@@ -96,37 +96,37 @@
         }
       },
       "mainHeap": {
-        "heapUsed": 22756156,
-        "heapTotal": 37367808,
-        "external": 4265786,
+        "heapUsed": 18535280,
+        "heapTotal": 21286912,
+        "external": 3373014,
         "arrayBuffers": 0
       },
       "tabCount": 4,
-      "samplerDurationMs": 0.732
+      "samplerDurationMs": 1.013
     },
     {
-      "timestamp": 1788560648355,
-      "totalWorkingSetBytes": 1071116288,
+      "timestamp": 1788586368677,
+      "totalWorkingSetBytes": 1677467648,
       "processCount": 10,
       "classes": {
         "browser": {
           "processCount": 1,
-          "workingSetBytes": 158806016,
-          "cpuPercent": 0.028108090279596678
+          "workingSetBytes": 259608576,
+          "cpuPercent": 0.0416092603830424
         },
         "tab": {
           "processCount": 7,
-          "workingSetBytes": 704040960,
-          "cpuPercent": 2.9673974451102696
+          "workingSetBytes": 1085759488,
+          "cpuPercent": 1.9956398179471233
         },
         "gpu": {
           "processCount": 1,
-          "workingSetBytes": 161439744,
-          "cpuPercent": 8.71838672378203
+          "workingSetBytes": 191860736,
+          "cpuPercent": 0.010550650038644535
         },
         "utility": {
           "processCount": 1,
-          "workingSetBytes": 46829568,
+          "workingSetBytes": 140238848,
           "cpuPercent": 0
         },
         "other": {
@@ -136,37 +136,37 @@
         }
       },
       "mainHeap": {
-        "heapUsed": 22776120,
-        "heapTotal": 37367808,
-        "external": 4265786,
+        "heapUsed": 18272308,
+        "heapTotal": 21286912,
+        "external": 3373014,
         "arrayBuffers": 0
       },
       "tabCount": 4,
-      "samplerDurationMs": 1.105
+      "samplerDurationMs": 2.162
     },
     {
-      "timestamp": 1788560648855,
-      "totalWorkingSetBytes": 1071001600,
+      "timestamp": 1788586369180,
+      "totalWorkingSetBytes": 1677176832,
       "processCount": 10,
       "classes": {
         "browser": {
           "processCount": 1,
-          "workingSetBytes": 158814208,
-          "cpuPercent": 0.041053323845009836
+          "workingSetBytes": 259612672,
+          "cpuPercent": 0.1004978170800563
         },
         "tab": {
           "processCount": 7,
-          "workingSetBytes": 704040960,
-          "cpuPercent": 2.9702470555638456
+          "workingSetBytes": 1086029824,
+          "cpuPercent": 1.8267844837433445
         },
         "gpu": {
           "processCount": 1,
-          "workingSetBytes": 161316864,
-          "cpuPercent": 8.827284556680672
+          "workingSetBytes": 191295488,
+          "cpuPercent": 0.011872000953733967
         },
         "utility": {
           "processCount": 1,
-          "workingSetBytes": 46829568,
+          "workingSetBytes": 140238848,
           "cpuPercent": 0
         },
         "other": {
@@ -176,37 +176,37 @@
         }
       },
       "mainHeap": {
-        "heapUsed": 22795896,
-        "heapTotal": 37367808,
-        "external": 4265786,
+        "heapUsed": 18293168,
+        "heapTotal": 21286912,
+        "external": 3373014,
         "arrayBuffers": 0
       },
       "tabCount": 4,
-      "samplerDurationMs": 0.927
+      "samplerDurationMs": 2.738
     },
     {
-      "timestamp": 1788560649363,
-      "totalWorkingSetBytes": 1070772224,
+      "timestamp": 1788586369682,
+      "totalWorkingSetBytes": 1673371648,
       "processCount": 10,
       "classes": {
         "browser": {
           "processCount": 1,
-          "workingSetBytes": 158818304,
-          "cpuPercent": 0.029819888856275522
+          "workingSetBytes": 255807488,
+          "cpuPercent": 1.1262079578892044
         },
         "tab": {
           "processCount": 7,
-          "workingSetBytes": 703807488,
-          "cpuPercent": 2.9996262372360967
+          "workingSetBytes": 1086029824,
+          "cpuPercent": 0.0015440092441327648
         },
         "gpu": {
           "processCount": 1,
-          "workingSetBytes": 161316864,
-          "cpuPercent": 9.442463937145627
+          "workingSetBytes": 191295488,
+          "cpuPercent": 0.009853216926035186
         },
         "utility": {
           "processCount": 1,
-          "workingSetBytes": 46829568,
+          "workingSetBytes": 140238848,
           "cpuPercent": 0
         },
         "other": {
@@ -216,37 +216,77 @@
         }
       },
       "mainHeap": {
-        "heapUsed": 22815408,
-        "heapTotal": 37367808,
-        "external": 4265786,
+        "heapUsed": 18313044,
+        "heapTotal": 21286912,
+        "external": 3373014,
         "arrayBuffers": 0
       },
       "tabCount": 4,
-      "samplerDurationMs": 0.914
+      "samplerDurationMs": 1.381
     },
     {
-      "timestamp": 1788560649864,
-      "totalWorkingSetBytes": 1070686208,
+      "timestamp": 1788586370186,
+      "totalWorkingSetBytes": 1659846656,
       "processCount": 10,
       "classes": {
         "browser": {
           "processCount": 1,
-          "workingSetBytes": 158818304,
-          "cpuPercent": 0.034396410392608316
+          "workingSetBytes": 243310592,
+          "cpuPercent": 2.848179328873954
         },
         "tab": {
           "processCount": 7,
-          "workingSetBytes": 703807488,
-          "cpuPercent": 3.0269953411388
+          "workingSetBytes": 1085169664,
+          "cpuPercent": 0.5187897690472726
         },
         "gpu": {
           "processCount": 1,
-          "workingSetBytes": 161230848,
-          "cpuPercent": 9.005726288215188
+          "workingSetBytes": 191139840,
+          "cpuPercent": 0.011747887363040452
         },
         "utility": {
           "processCount": 1,
-          "workingSetBytes": 46829568,
+          "workingSetBytes": 140226560,
+          "cpuPercent": 0.007014562529247999
+        },
+        "other": {
+          "processCount": 0,
+          "workingSetBytes": 0,
+          "cpuPercent": 0
+        }
+      },
+      "mainHeap": {
+        "heapUsed": 14975788,
+        "heapTotal": 15884288,
+        "external": 3372598,
+        "arrayBuffers": 0
+      },
+      "tabCount": 4,
+      "samplerDurationMs": 1.141
+    },
+    {
+      "timestamp": 1788586370719,
+      "totalWorkingSetBytes": 1653223424,
+      "processCount": 10,
+      "classes": {
+        "browser": {
+          "processCount": 1,
+          "workingSetBytes": 236687360,
+          "cpuPercent": 3.6559363449229196
+        },
+        "tab": {
+          "processCount": 7,
+          "workingSetBytes": 1085169664,
+          "cpuPercent": 0.004411323021474696
+        },
+        "gpu": {
+          "processCount": 1,
+          "workingSetBytes": 191139840,
+          "cpuPercent": 0.009577105085255014
+        },
+        "utility": {
+          "processCount": 1,
+          "workingSetBytes": 140226560,
           "cpuPercent": 0
         },
         "other": {
@@ -256,37 +296,37 @@
         }
       },
       "mainHeap": {
-        "heapUsed": 22828492,
-        "heapTotal": 37367808,
-        "external": 4265786,
+        "heapUsed": 14963520,
+        "heapTotal": 15884288,
+        "external": 3372598,
         "arrayBuffers": 0
       },
       "tabCount": 4,
-      "samplerDurationMs": 0.831
+      "samplerDurationMs": 2.175
     },
     {
-      "timestamp": 1788560650365,
-      "totalWorkingSetBytes": 1069395968,
+      "timestamp": 1788586371232,
+      "totalWorkingSetBytes": 1652453376,
       "processCount": 10,
       "classes": {
         "browser": {
           "processCount": 1,
-          "workingSetBytes": 158818304,
-          "cpuPercent": 0.10729067969879819
+          "workingSetBytes": 235917312,
+          "cpuPercent": 0.6985821539036511
         },
         "tab": {
           "processCount": 7,
-          "workingSetBytes": 703827968,
-          "cpuPercent": 2.8458446289083765
+          "workingSetBytes": 1085169664,
+          "cpuPercent": 0.0034321199693884107
         },
         "gpu": {
           "processCount": 1,
-          "workingSetBytes": 159920128,
-          "cpuPercent": 8.769670979918045
+          "workingSetBytes": 191139840,
+          "cpuPercent": 0.010148217515482724
         },
         "utility": {
           "processCount": 1,
-          "workingSetBytes": 46829568,
+          "workingSetBytes": 140226560,
           "cpuPercent": 0
         },
         "other": {
@@ -296,37 +336,37 @@
         }
       },
       "mainHeap": {
-        "heapUsed": 22841092,
-        "heapTotal": 37367808,
-        "external": 4265786,
+        "heapUsed": 14986240,
+        "heapTotal": 15884288,
+        "external": 3372598,
         "arrayBuffers": 0
       },
       "tabCount": 4,
-      "samplerDurationMs": 0.741
+      "samplerDurationMs": 1.127
     },
     {
-      "timestamp": 1788560650869,
-      "totalWorkingSetBytes": 1069236224,
+      "timestamp": 1788586371735,
+      "totalWorkingSetBytes": 1652453376,
       "processCount": 10,
       "classes": {
         "browser": {
           "processCount": 1,
-          "workingSetBytes": 158822400,
-          "cpuPercent": 0.03533800403806181
+          "workingSetBytes": 235917312,
+          "cpuPercent": 0.1073468534808741
         },
         "tab": {
           "processCount": 7,
-          "workingSetBytes": 703664128,
-          "cpuPercent": 2.9544037998527704
+          "workingSetBytes": 1085169664,
+          "cpuPercent": 0
         },
         "gpu": {
           "processCount": 1,
-          "workingSetBytes": 159920128,
-          "cpuPercent": 8.906062037724462
+          "workingSetBytes": 191139840,
+          "cpuPercent": 0.0095778196603531
         },
         "utility": {
           "processCount": 1,
-          "workingSetBytes": 46829568,
+          "workingSetBytes": 140226560,
           "cpuPercent": 0
         },
         "other": {
@@ -336,37 +376,37 @@
         }
       },
       "mainHeap": {
-        "heapUsed": 22860076,
-        "heapTotal": 37367808,
-        "external": 4265786,
+        "heapUsed": 14999748,
+        "heapTotal": 15884288,
+        "external": 3372598,
         "arrayBuffers": 0
       },
       "tabCount": 4,
-      "samplerDurationMs": 0.96
+      "samplerDurationMs": 0.902
     },
     {
-      "timestamp": 1788560651378,
-      "totalWorkingSetBytes": 1068564480,
+      "timestamp": 1788586372240,
+      "totalWorkingSetBytes": 1652453376,
       "processCount": 10,
       "classes": {
         "browser": {
           "processCount": 1,
-          "workingSetBytes": 158822400,
-          "cpuPercent": 0.024684402794490322
+          "workingSetBytes": 235917312,
+          "cpuPercent": 0.07121199794425274
         },
         "tab": {
           "processCount": 7,
-          "workingSetBytes": 702959616,
-          "cpuPercent": 3.0589543055088053
+          "workingSetBytes": 1085169664,
+          "cpuPercent": 0.005674833575679855
         },
         "gpu": {
           "processCount": 1,
-          "workingSetBytes": 159952896,
-          "cpuPercent": 8.730704067189013
+          "workingSetBytes": 191139840,
+          "cpuPercent": 0.012424978919696444
         },
         "utility": {
           "processCount": 1,
-          "workingSetBytes": 46829568,
+          "workingSetBytes": 140226560,
           "cpuPercent": 0
         },
         "other": {
@@ -376,37 +416,37 @@
         }
       },
       "mainHeap": {
-        "heapUsed": 22873264,
-        "heapTotal": 37367808,
-        "external": 4265786,
+        "heapUsed": 15012864,
+        "heapTotal": 15884288,
+        "external": 3372598,
         "arrayBuffers": 0
       },
       "tabCount": 4,
-      "samplerDurationMs": 0.851
+      "samplerDurationMs": 1.88
     },
     {
-      "timestamp": 1788560651886,
-      "totalWorkingSetBytes": 1068601344,
+      "timestamp": 1788586372870,
+      "totalWorkingSetBytes": 1652748288,
       "processCount": 10,
       "classes": {
         "browser": {
           "processCount": 1,
-          "workingSetBytes": 158822400,
-          "cpuPercent": 0.036391533558895274
+          "workingSetBytes": 236212224,
+          "cpuPercent": 0.40939323313039067
         },
         "tab": {
           "processCount": 7,
-          "workingSetBytes": 702959616,
-          "cpuPercent": 3.0072048883690448
+          "workingSetBytes": 1085169664,
+          "cpuPercent": 0.010712817096870702
         },
         "gpu": {
           "processCount": 1,
-          "workingSetBytes": 159989760,
-          "cpuPercent": 8.60959866082581
+          "workingSetBytes": 191139840,
+          "cpuPercent": 0.011813320986166522
         },
         "utility": {
           "processCount": 1,
-          "workingSetBytes": 46829568,
+          "workingSetBytes": 140226560,
           "cpuPercent": 0
         },
         "other": {
@@ -416,37 +456,37 @@
         }
       },
       "mainHeap": {
-        "heapUsed": 22886040,
-        "heapTotal": 37367808,
-        "external": 4265786,
+        "heapUsed": 15218572,
+        "heapTotal": 15884288,
+        "external": 3372598,
         "arrayBuffers": 0
       },
       "tabCount": 4,
-      "samplerDurationMs": 0.73
+      "samplerDurationMs": 0.945
     },
     {
-      "timestamp": 1788560652461,
-      "totalWorkingSetBytes": 1069981696,
+      "timestamp": 1788586373377,
+      "totalWorkingSetBytes": 1661067264,
       "processCount": 10,
       "classes": {
         "browser": {
           "processCount": 1,
-          "workingSetBytes": 159236096,
-          "cpuPercent": 0.25028362722682174
+          "workingSetBytes": 243040256,
+          "cpuPercent": 2.3730943206567265
         },
         "tab": {
           "processCount": 7,
-          "workingSetBytes": 703451136,
-          "cpuPercent": 3.016671861451873
+          "workingSetBytes": 1086660608,
+          "cpuPercent": 0.6773578324367037
         },
         "gpu": {
           "processCount": 1,
-          "workingSetBytes": 160464896,
-          "cpuPercent": 9.297370380939785
+          "workingSetBytes": 191139840,
+          "cpuPercent": 0.010371706182620864
         },
         "utility": {
           "processCount": 1,
-          "workingSetBytes": 46829568,
+          "workingSetBytes": 140226560,
           "cpuPercent": 0
         },
         "other": {
@@ -456,37 +496,37 @@
         }
       },
       "mainHeap": {
-        "heapUsed": 23067224,
-        "heapTotal": 37367808,
-        "external": 4265786,
+        "heapUsed": 15256432,
+        "heapTotal": 16146432,
+        "external": 3372613,
         "arrayBuffers": 0
       },
       "tabCount": 4,
-      "samplerDurationMs": 0.625
+      "samplerDurationMs": 1.146
     },
     {
-      "timestamp": 1788560652962,
-      "totalWorkingSetBytes": 1073700864,
+      "timestamp": 1788586373880,
+      "totalWorkingSetBytes": 1661104128,
       "processCount": 10,
       "classes": {
         "browser": {
           "processCount": 1,
-          "workingSetBytes": 161857536,
-          "cpuPercent": 1.452390751047839
+          "workingSetBytes": 243064832,
+          "cpuPercent": 0.25130159171750494
         },
         "tab": {
           "processCount": 7,
-          "workingSetBytes": 703979520,
-          "cpuPercent": 4.731032870990848
+          "workingSetBytes": 1086672896,
+          "cpuPercent": 0.049714878587371975
         },
         "gpu": {
           "processCount": 1,
-          "workingSetBytes": 161034240,
-          "cpuPercent": 12.216449381907099
+          "workingSetBytes": 191139840,
+          "cpuPercent": 0.010681595065202443
         },
         "utility": {
           "processCount": 1,
-          "workingSetBytes": 46829568,
+          "workingSetBytes": 140226560,
           "cpuPercent": 0
         },
         "other": {
@@ -496,37 +536,37 @@
         }
       },
       "mainHeap": {
-        "heapUsed": 23097896,
-        "heapTotal": 37367808,
-        "external": 4266023,
+        "heapUsed": 15276752,
+        "heapTotal": 16146432,
+        "external": 3372847,
         "arrayBuffers": 0
       },
       "tabCount": 4,
-      "samplerDurationMs": 0.8
+      "samplerDurationMs": 1.062
     },
     {
-      "timestamp": 1788560653462,
-      "totalWorkingSetBytes": 1073704960,
+      "timestamp": 1788586374391,
+      "totalWorkingSetBytes": 1661136896,
       "processCount": 10,
       "classes": {
         "browser": {
           "processCount": 1,
-          "workingSetBytes": 161857536,
-          "cpuPercent": 0.06418989205495675
+          "workingSetBytes": 243093504,
+          "cpuPercent": 0.19293376715102686
         },
         "tab": {
           "processCount": 7,
-          "workingSetBytes": 703979520,
-          "cpuPercent": 3.4130707962135274
+          "workingSetBytes": 1086676992,
+          "cpuPercent": 0.01120064440702851
         },
         "gpu": {
           "processCount": 1,
-          "workingSetBytes": 161038336,
-          "cpuPercent": 12.148115547731456
+          "workingSetBytes": 191139840,
+          "cpuPercent": 0.010858421831101651
         },
         "utility": {
           "processCount": 1,
-          "workingSetBytes": 46829568,
+          "workingSetBytes": 140226560,
           "cpuPercent": 0
         },
         "other": {
@@ -536,37 +576,37 @@
         }
       },
       "mainHeap": {
-        "heapUsed": 23114684,
-        "heapTotal": 37367808,
-        "external": 4266023,
+        "heapUsed": 15304276,
+        "heapTotal": 16146432,
+        "external": 3372847,
         "arrayBuffers": 0
       },
       "tabCount": 4,
-      "samplerDurationMs": 0.766
+      "samplerDurationMs": 1.435
     },
     {
-      "timestamp": 1788560653971,
-      "totalWorkingSetBytes": 1073704960,
+      "timestamp": 1788586374912,
+      "totalWorkingSetBytes": 1661177856,
       "processCount": 10,
       "classes": {
         "browser": {
           "processCount": 1,
-          "workingSetBytes": 161857536,
-          "cpuPercent": 0.05552980639687658
+          "workingSetBytes": 243134464,
+          "cpuPercent": 0.22103556144088127
         },
         "tab": {
           "processCount": 7,
-          "workingSetBytes": 703979520,
-          "cpuPercent": 3.3734723711658923
+          "workingSetBytes": 1086676992,
+          "cpuPercent": 0
         },
         "gpu": {
           "processCount": 1,
-          "workingSetBytes": 161038336,
-          "cpuPercent": 11.026929414375578
+          "workingSetBytes": 191139840,
+          "cpuPercent": 0.01285793516913942
         },
         "utility": {
           "processCount": 1,
-          "workingSetBytes": 46829568,
+          "workingSetBytes": 140226560,
           "cpuPercent": 0
         },
         "other": {
@@ -576,37 +616,37 @@
         }
       },
       "mainHeap": {
-        "heapUsed": 23130924,
-        "heapTotal": 37367808,
-        "external": 4266023,
+        "heapUsed": 15348228,
+        "heapTotal": 16146432,
+        "external": 3373471,
         "arrayBuffers": 0
       },
       "tabCount": 4,
-      "samplerDurationMs": 0.651
+      "samplerDurationMs": 0.99
     },
     {
-      "timestamp": 1788560654470,
-      "totalWorkingSetBytes": 1073721344,
+      "timestamp": 1788586375414,
+      "totalWorkingSetBytes": 1661194240,
       "processCount": 10,
       "classes": {
         "browser": {
           "processCount": 1,
-          "workingSetBytes": 161861632,
-          "cpuPercent": 0.09358824177254478
+          "workingSetBytes": 243146752,
+          "cpuPercent": 0.11241513441990503
         },
         "tab": {
           "processCount": 7,
-          "workingSetBytes": 703987712,
-          "cpuPercent": 3.347524149752495
+          "workingSetBytes": 1086681088,
+          "cpuPercent": 0.003935760418804764
         },
         "gpu": {
           "processCount": 1,
-          "workingSetBytes": 161042432,
-          "cpuPercent": 11.315532318363767
+          "workingSetBytes": 191139840,
+          "cpuPercent": 0.01335148071906691
         },
         "utility": {
           "processCount": 1,
-          "workingSetBytes": 46829568,
+          "workingSetBytes": 140226560,
           "cpuPercent": 0
         },
         "other": {
@@ -616,37 +656,37 @@
         }
       },
       "mainHeap": {
-        "heapUsed": 23159864,
-        "heapTotal": 37367808,
-        "external": 4266277,
+        "heapUsed": 15364180,
+        "heapTotal": 16146432,
+        "external": 3373471,
         "arrayBuffers": 0
       },
       "tabCount": 4,
-      "samplerDurationMs": 0.745
+      "samplerDurationMs": 0.957
     },
     {
-      "timestamp": 1788560654986,
-      "totalWorkingSetBytes": 1074876416,
+      "timestamp": 1788586375939,
+      "totalWorkingSetBytes": 1661222912,
       "processCount": 10,
       "classes": {
         "browser": {
           "processCount": 1,
-          "workingSetBytes": 161882112,
-          "cpuPercent": 0.1353321648493121
+          "workingSetBytes": 243167232,
+          "cpuPercent": 0.17492693317481547
         },
         "tab": {
           "processCount": 7,
-          "workingSetBytes": 704401408,
-          "cpuPercent": 4.669423478380635
+          "workingSetBytes": 1086689280,
+          "cpuPercent": 0.004763045715638758
         },
         "gpu": {
           "processCount": 1,
-          "workingSetBytes": 161763328,
-          "cpuPercent": 12.348168325949766
+          "workingSetBytes": 191139840,
+          "cpuPercent": 0.01193175322943261
         },
         "utility": {
           "processCount": 1,
-          "workingSetBytes": 46829568,
+          "workingSetBytes": 140226560,
           "cpuPercent": 0
         },
         "other": {
@@ -656,37 +696,37 @@
         }
       },
       "mainHeap": {
-        "heapUsed": 23194180,
-        "heapTotal": 37367808,
-        "external": 4276619,
+        "heapUsed": 15382620,
+        "heapTotal": 16146432,
+        "external": 3373471,
         "arrayBuffers": 0
       },
       "tabCount": 4,
-      "samplerDurationMs": 0.873
+      "samplerDurationMs": 0.872
     },
     {
-      "timestamp": 1788560655486,
-      "totalWorkingSetBytes": 1074229248,
+      "timestamp": 1788586376439,
+      "totalWorkingSetBytes": 1661243392,
       "processCount": 10,
       "classes": {
         "browser": {
           "processCount": 1,
-          "workingSetBytes": 162111488,
-          "cpuPercent": 0.2718586115374776
+          "workingSetBytes": 243183616,
+          "cpuPercent": 0.1301682312519749
         },
         "tab": {
           "processCount": 7,
-          "workingSetBytes": 703287296,
-          "cpuPercent": 9.413306548351004
+          "workingSetBytes": 1086693376,
+          "cpuPercent": 0.011974299091106883
         },
         "gpu": {
           "processCount": 1,
-          "workingSetBytes": 162000896,
-          "cpuPercent": 13.417035869089514
+          "workingSetBytes": 191139840,
+          "cpuPercent": 0.010724184961942893
         },
         "utility": {
           "processCount": 1,
-          "workingSetBytes": 46829568,
+          "workingSetBytes": 140226560,
           "cpuPercent": 0
         },
         "other": {
@@ -696,37 +736,37 @@
         }
       },
       "mainHeap": {
-        "heapUsed": 23374512,
-        "heapTotal": 37367808,
-        "external": 4415771,
+        "heapUsed": 15407980,
+        "heapTotal": 16146432,
+        "external": 3373471,
         "arrayBuffers": 0
       },
       "tabCount": 4,
-      "samplerDurationMs": 1.071
+      "samplerDurationMs": 0.924
     },
     {
-      "timestamp": 1788560655996,
-      "totalWorkingSetBytes": 1077297152,
+      "timestamp": 1788586376961,
+      "totalWorkingSetBytes": 1661263872,
       "processCount": 10,
       "classes": {
         "browser": {
           "processCount": 1,
-          "workingSetBytes": 162545664,
-          "cpuPercent": 0.26696389201900933
+          "workingSetBytes": 243204096,
+          "cpuPercent": 0.1617287501797785
         },
         "tab": {
           "processCount": 7,
-          "workingSetBytes": 705912832,
-          "cpuPercent": 8.46794293012515
+          "workingSetBytes": 1086693376,
+          "cpuPercent": 0
         },
         "gpu": {
           "processCount": 1,
-          "workingSetBytes": 162009088,
-          "cpuPercent": 12.19240727383911
+          "workingSetBytes": 191139840,
+          "cpuPercent": 0.010355282056789135
         },
         "utility": {
           "processCount": 1,
-          "workingSetBytes": 46829568,
+          "workingSetBytes": 140226560,
           "cpuPercent": 0
         },
         "other": {
@@ -736,37 +776,37 @@
         }
       },
       "mainHeap": {
-        "heapUsed": 23732156,
-        "heapTotal": 37519360,
-        "external": 4583809,
+        "heapUsed": 15425824,
+        "heapTotal": 16146432,
+        "external": 3373471,
         "arrayBuffers": 0
       },
       "tabCount": 4,
-      "samplerDurationMs": 0.877
+      "samplerDurationMs": 0.913
     },
     {
-      "timestamp": 1788560656502,
-      "totalWorkingSetBytes": 1081950208,
+      "timestamp": 1788586377475,
+      "totalWorkingSetBytes": 1661288448,
       "processCount": 10,
       "classes": {
         "browser": {
           "processCount": 1,
-          "workingSetBytes": 163262464,
-          "cpuPercent": 0.24304965015880298
+          "workingSetBytes": 243220480,
+          "cpuPercent": 0.21805322161539778
         },
         "tab": {
           "processCount": 7,
-          "workingSetBytes": 709677056,
-          "cpuPercent": 8.053620763646215
+          "workingSetBytes": 1086701568,
+          "cpuPercent": 0.010843310055288055
         },
         "gpu": {
           "processCount": 1,
-          "workingSetBytes": 162181120,
-          "cpuPercent": 12.360305227269132
+          "workingSetBytes": 191139840,
+          "cpuPercent": 0.010843392240993663
         },
         "utility": {
           "processCount": 1,
-          "workingSetBytes": 46829568,
+          "workingSetBytes": 140226560,
           "cpuPercent": 0
         },
         "other": {
@@ -776,38 +816,358 @@
         }
       },
       "mainHeap": {
-        "heapUsed": 24263220,
-        "heapTotal": 37838848,
-        "external": 4768892,
+        "heapUsed": 15443204,
+        "heapTotal": 16146432,
+        "external": 3373517,
         "arrayBuffers": 0
       },
       "tabCount": 4,
-      "samplerDurationMs": 0.976
+      "samplerDurationMs": 0.921
     },
     {
-      "timestamp": 1788560657008,
-      "totalWorkingSetBytes": 1195667456,
+      "timestamp": 1788586378034,
+      "totalWorkingSetBytes": 1661313024,
+      "processCount": 10,
+      "classes": {
+        "browser": {
+          "processCount": 1,
+          "workingSetBytes": 243245056,
+          "cpuPercent": 0.14732796977227228
+        },
+        "tab": {
+          "processCount": 7,
+          "workingSetBytes": 1086701568,
+          "cpuPercent": 0
+        },
+        "gpu": {
+          "processCount": 1,
+          "workingSetBytes": 191139840,
+          "cpuPercent": 0.009929260726285168
+        },
+        "utility": {
+          "processCount": 1,
+          "workingSetBytes": 140226560,
+          "cpuPercent": 0
+        },
+        "other": {
+          "processCount": 0,
+          "workingSetBytes": 0,
+          "cpuPercent": 0
+        }
+      },
+      "mainHeap": {
+        "heapUsed": 15466268,
+        "heapTotal": 16146432,
+        "external": 3373517,
+        "arrayBuffers": 0
+      },
+      "tabCount": 4,
+      "samplerDurationMs": 0.896
+    },
+    {
+      "timestamp": 1788586378539,
+      "totalWorkingSetBytes": 1661378560,
+      "processCount": 10,
+      "classes": {
+        "browser": {
+          "processCount": 1,
+          "workingSetBytes": 243290112,
+          "cpuPercent": 0.24017054607197844
+        },
+        "tab": {
+          "processCount": 7,
+          "workingSetBytes": 1086722048,
+          "cpuPercent": 0.05169969969106022
+        },
+        "gpu": {
+          "processCount": 1,
+          "workingSetBytes": 191139840,
+          "cpuPercent": 0.01009243482958627
+        },
+        "utility": {
+          "processCount": 1,
+          "workingSetBytes": 140226560,
+          "cpuPercent": 0
+        },
+        "other": {
+          "processCount": 0,
+          "workingSetBytes": 0,
+          "cpuPercent": 0
+        }
+      },
+      "mainHeap": {
+        "heapUsed": 15487692,
+        "heapTotal": 16146432,
+        "external": 3374154,
+        "arrayBuffers": 0
+      },
+      "tabCount": 4,
+      "samplerDurationMs": 1.192
+    },
+    {
+      "timestamp": 1788586379051,
+      "totalWorkingSetBytes": 1662267392,
+      "processCount": 10,
+      "classes": {
+        "browser": {
+          "processCount": 1,
+          "workingSetBytes": 243425280,
+          "cpuPercent": 0.3174102680244908
+        },
+        "tab": {
+          "processCount": 7,
+          "workingSetBytes": 1087475712,
+          "cpuPercent": 0.309794133291453
+        },
+        "gpu": {
+          "processCount": 1,
+          "workingSetBytes": 191139840,
+          "cpuPercent": 0.009713192370018938
+        },
+        "utility": {
+          "processCount": 1,
+          "workingSetBytes": 140226560,
+          "cpuPercent": 0
+        },
+        "other": {
+          "processCount": 0,
+          "workingSetBytes": 0,
+          "cpuPercent": 0
+        }
+      },
+      "mainHeap": {
+        "heapUsed": 15558912,
+        "heapTotal": 16408576,
+        "external": 3384070,
+        "arrayBuffers": 0
+      },
+      "tabCount": 4,
+      "samplerDurationMs": 0.888
+    },
+    {
+      "timestamp": 1788586379557,
+      "totalWorkingSetBytes": 1661874176,
+      "processCount": 10,
+      "classes": {
+        "browser": {
+          "processCount": 1,
+          "workingSetBytes": 242831360,
+          "cpuPercent": 0.8216139963779291
+        },
+        "tab": {
+          "processCount": 7,
+          "workingSetBytes": 1087676416,
+          "cpuPercent": 0.18079692019923005
+        },
+        "gpu": {
+          "processCount": 1,
+          "workingSetBytes": 191139840,
+          "cpuPercent": 0.010157538227932193
+        },
+        "utility": {
+          "processCount": 1,
+          "workingSetBytes": 140226560,
+          "cpuPercent": 0
+        },
+        "other": {
+          "processCount": 0,
+          "workingSetBytes": 0,
+          "cpuPercent": 0
+        }
+      },
+      "mainHeap": {
+        "heapUsed": 15677276,
+        "heapTotal": 16408576,
+        "external": 3476834,
+        "arrayBuffers": 0
+      },
+      "tabCount": 4,
+      "samplerDurationMs": 1.314
+    },
+    {
+      "timestamp": 1788586380066,
+      "totalWorkingSetBytes": 1664172032,
+      "processCount": 10,
+      "classes": {
+        "browser": {
+          "processCount": 1,
+          "workingSetBytes": 243384320,
+          "cpuPercent": 0.3110240783962405
+        },
+        "tab": {
+          "processCount": 7,
+          "workingSetBytes": 1089421312,
+          "cpuPercent": 1.4769079821834796
+        },
+        "gpu": {
+          "processCount": 1,
+          "workingSetBytes": 191139840,
+          "cpuPercent": 0.010780773583126395
+        },
+        "utility": {
+          "processCount": 1,
+          "workingSetBytes": 140226560,
+          "cpuPercent": 0
+        },
+        "other": {
+          "processCount": 0,
+          "workingSetBytes": 0,
+          "cpuPercent": 0
+        }
+      },
+      "mainHeap": {
+        "heapUsed": 15323168,
+        "heapTotal": 17195008,
+        "external": 3428304,
+        "arrayBuffers": 0
+      },
+      "tabCount": 4,
+      "samplerDurationMs": 1.014
+    },
+    {
+      "timestamp": 1788586380574,
+      "totalWorkingSetBytes": 1666334720,
+      "processCount": 10,
+      "classes": {
+        "browser": {
+          "processCount": 1,
+          "workingSetBytes": 244080640,
+          "cpuPercent": 0.3705348701626119
+        },
+        "tab": {
+          "processCount": 7,
+          "workingSetBytes": 1090887680,
+          "cpuPercent": 0.3136334815433268
+        },
+        "gpu": {
+          "processCount": 1,
+          "workingSetBytes": 191139840,
+          "cpuPercent": 0.010585480462649502
+        },
+        "utility": {
+          "processCount": 1,
+          "workingSetBytes": 140226560,
+          "cpuPercent": 0
+        },
+        "other": {
+          "processCount": 0,
+          "workingSetBytes": 0,
+          "cpuPercent": 0
+        }
+      },
+      "mainHeap": {
+        "heapUsed": 15730068,
+        "heapTotal": 17428480,
+        "external": 3569255,
+        "arrayBuffers": 0
+      },
+      "tabCount": 4,
+      "samplerDurationMs": 1.731
+    },
+    {
+      "timestamp": 1788586381085,
+      "totalWorkingSetBytes": 1670443008,
+      "processCount": 10,
+      "classes": {
+        "browser": {
+          "processCount": 1,
+          "workingSetBytes": 245301248,
+          "cpuPercent": 0.3293991962150888
+        },
+        "tab": {
+          "processCount": 7,
+          "workingSetBytes": 1093775360,
+          "cpuPercent": 1.2214636548815425
+        },
+        "gpu": {
+          "processCount": 1,
+          "workingSetBytes": 191139840,
+          "cpuPercent": 0.011740419328643689
+        },
+        "utility": {
+          "processCount": 1,
+          "workingSetBytes": 140226560,
+          "cpuPercent": 0
+        },
+        "other": {
+          "processCount": 0,
+          "workingSetBytes": 0,
+          "cpuPercent": 0
+        }
+      },
+      "mainHeap": {
+        "heapUsed": 16281568,
+        "heapTotal": 18067456,
+        "external": 3706876,
+        "arrayBuffers": 0
+      },
+      "tabCount": 4,
+      "samplerDurationMs": 2.776
+    },
+    {
+      "timestamp": 1788586381600,
+      "totalWorkingSetBytes": 1671876608,
+      "processCount": 10,
+      "classes": {
+        "browser": {
+          "processCount": 1,
+          "workingSetBytes": 246734848,
+          "cpuPercent": 0.5939792238360746
+        },
+        "tab": {
+          "processCount": 7,
+          "workingSetBytes": 1093775360,
+          "cpuPercent": 0.04309239786980318
+        },
+        "gpu": {
+          "processCount": 1,
+          "workingSetBytes": 191139840,
+          "cpuPercent": 0.010827450256848484
+        },
+        "utility": {
+          "processCount": 1,
+          "workingSetBytes": 140226560,
+          "cpuPercent": 0
+        },
+        "other": {
+          "processCount": 0,
+          "workingSetBytes": 0,
+          "cpuPercent": 0
+        }
+      },
+      "mainHeap": {
+        "heapUsed": 16441420,
+        "heapTotal": 18616320,
+        "external": 3675348,
+        "arrayBuffers": 0
+      },
+      "tabCount": 4,
+      "samplerDurationMs": 1.147
+    },
+    {
+      "timestamp": 1788586382107,
+      "totalWorkingSetBytes": 1824604160,
       "processCount": 11,
       "classes": {
         "browser": {
           "processCount": 1,
-          "workingSetBytes": 166473728,
-          "cpuPercent": 3.5928685229038266
+          "workingSetBytes": 246427648,
+          "cpuPercent": 4.4863617992370095
         },
         "tab": {
           "processCount": 8,
-          "workingSetBytes": 818479104,
-          "cpuPercent": 9.43670305758528
+          "workingSetBytes": 1245847552,
+          "cpuPercent": 2.491658437616104
         },
         "gpu": {
           "processCount": 1,
-          "workingSetBytes": 163835904,
-          "cpuPercent": 14.712049362119338
+          "workingSetBytes": 192053248,
+          "cpuPercent": 1.5560339813768806
         },
         "utility": {
           "processCount": 1,
-          "workingSetBytes": 46878720,
-          "cpuPercent": 0.27646328615000226
+          "workingSetBytes": 140275712,
+          "cpuPercent": 0.49494922611971637
         },
         "other": {
           "processCount": 0,
@@ -816,37 +1176,37 @@
         }
       },
       "mainHeap": {
-        "heapUsed": 26714304,
-        "heapTotal": 39477248,
-        "external": 5098115,
+        "heapUsed": 17440656,
+        "heapTotal": 19435520,
+        "external": 3675348,
         "arrayBuffers": 0
       },
       "tabCount": 4,
-      "samplerDurationMs": 0.718
+      "samplerDurationMs": 1.155
     },
     {
-      "timestamp": 1788560657509,
-      "totalWorkingSetBytes": 1203912704,
+      "timestamp": 1788586382641,
+      "totalWorkingSetBytes": 1822908416,
       "processCount": 11,
       "classes": {
         "browser": {
           "processCount": 1,
-          "workingSetBytes": 166592512,
-          "cpuPercent": 1.7106804116306815
+          "workingSetBytes": 244301824,
+          "cpuPercent": 1.7738535194699863
         },
         "tab": {
           "processCount": 8,
-          "workingSetBytes": 825790464,
-          "cpuPercent": 10.275776122535765
+          "workingSetBytes": 1246248960,
+          "cpuPercent": 0.8737059969226999
         },
         "gpu": {
           "processCount": 1,
-          "workingSetBytes": 164651008,
-          "cpuPercent": 11.499105351137212
+          "workingSetBytes": 192081920,
+          "cpuPercent": 0.5551044605028039
         },
         "utility": {
           "processCount": 1,
-          "workingSetBytes": 46878720,
+          "workingSetBytes": 140275712,
           "cpuPercent": 0
         },
         "other": {
@@ -856,37 +1216,37 @@
         }
       },
       "mainHeap": {
-        "heapUsed": 26828484,
-        "heapTotal": 39477248,
-        "external": 5098115,
+        "heapUsed": 17606476,
+        "heapTotal": 19959808,
+        "external": 3675348,
         "arrayBuffers": 0
       },
       "tabCount": 4,
-      "samplerDurationMs": 0.96
+      "samplerDurationMs": 1.161
     },
     {
-      "timestamp": 1788560658013,
-      "totalWorkingSetBytes": 1204031488,
+      "timestamp": 1788586383153,
+      "totalWorkingSetBytes": 1826537472,
       "processCount": 11,
       "classes": {
         "browser": {
           "processCount": 1,
-          "workingSetBytes": 160944128,
-          "cpuPercent": 4.021478718779836
+          "workingSetBytes": 247349248,
+          "cpuPercent": 3.48902518697649
         },
         "tab": {
           "processCount": 8,
-          "workingSetBytes": 830586880,
-          "cpuPercent": 14.559042926525883
+          "workingSetBytes": 1246822400,
+          "cpuPercent": 1.3019824191478193
         },
         "gpu": {
           "processCount": 1,
-          "workingSetBytes": 165621760,
-          "cpuPercent": 16.82464196236783
+          "workingSetBytes": 192090112,
+          "cpuPercent": 0.8879882667748453
         },
         "utility": {
           "processCount": 1,
-          "workingSetBytes": 46878720,
+          "workingSetBytes": 140275712,
           "cpuPercent": 0
         },
         "other": {
@@ -896,78 +1256,38 @@
         }
       },
       "mainHeap": {
-        "heapUsed": 18247084,
-        "heapTotal": 20140032,
-        "external": 5098115,
+        "heapUsed": 19240072,
+        "heapTotal": 22458368,
+        "external": 3675348,
         "arrayBuffers": 0
       },
       "tabCount": 4,
-      "samplerDurationMs": 0.899
+      "samplerDurationMs": 0.881
     },
     {
-      "timestamp": 1788560658518,
-      "totalWorkingSetBytes": 1209982976,
-      "processCount": 11,
-      "classes": {
-        "browser": {
-          "processCount": 1,
-          "workingSetBytes": 161054720,
-          "cpuPercent": 3.3284146686757126
-        },
-        "tab": {
-          "processCount": 8,
-          "workingSetBytes": 835231744,
-          "cpuPercent": 14.59907973312871
-        },
-        "gpu": {
-          "processCount": 1,
-          "workingSetBytes": 166817792,
-          "cpuPercent": 17.2699521034676
-        },
-        "utility": {
-          "processCount": 1,
-          "workingSetBytes": 46878720,
-          "cpuPercent": 0
-        },
-        "other": {
-          "processCount": 0,
-          "workingSetBytes": 0,
-          "cpuPercent": 0
-        }
-      },
-      "mainHeap": {
-        "heapUsed": 18426668,
-        "heapTotal": 20140032,
-        "external": 5098115,
-        "arrayBuffers": 0
-      },
-      "tabCount": 4,
-      "samplerDurationMs": 0.84
-    },
-    {
-      "timestamp": 1788560659025,
-      "totalWorkingSetBytes": 1106272256,
+      "timestamp": 1788586383659,
+      "totalWorkingSetBytes": 1675722752,
       "processCount": 10,
       "classes": {
         "browser": {
           "processCount": 1,
-          "workingSetBytes": 161124352,
-          "cpuPercent": 1.2563334163297408
+          "workingSetBytes": 247148544,
+          "cpuPercent": 2.8936708258684383
         },
         "tab": {
           "processCount": 7,
-          "workingSetBytes": 731590656,
-          "cpuPercent": 8.04588422944153
+          "workingSetBytes": 1096298496,
+          "cpuPercent": 1.2837136492146528
         },
         "gpu": {
           "processCount": 1,
-          "workingSetBytes": 166686720,
-          "cpuPercent": 11.894431446784463
+          "workingSetBytes": 192008192,
+          "cpuPercent": 0.9348252496433667
         },
         "utility": {
           "processCount": 1,
-          "workingSetBytes": 46870528,
-          "cpuPercent": 0.013979036385011311
+          "workingSetBytes": 140267520,
+          "cpuPercent": 0.013521009568714463
         },
         "other": {
           "processCount": 0,
@@ -976,37 +1296,37 @@
         }
       },
       "mainHeap": {
-        "heapUsed": 18629148,
-        "heapTotal": 20140032,
-        "external": 3439576,
+        "heapUsed": 19465996,
+        "heapTotal": 22458368,
+        "external": 3675348,
         "arrayBuffers": 0
       },
       "tabCount": 4,
-      "samplerDurationMs": 1
+      "samplerDurationMs": 1.963
     },
     {
-      "timestamp": 1788560659528,
-      "totalWorkingSetBytes": 1106436096,
+      "timestamp": 1788586384172,
+      "totalWorkingSetBytes": 1675829248,
       "processCount": 10,
       "classes": {
         "browser": {
           "processCount": 1,
-          "workingSetBytes": 161157120,
-          "cpuPercent": 0.07459503427205365
+          "workingSetBytes": 247255040,
+          "cpuPercent": 0.44700288627530355
         },
         "tab": {
           "processCount": 7,
-          "workingSetBytes": 731590656,
-          "cpuPercent": 2.865924324825836
+          "workingSetBytes": 1096298496,
+          "cpuPercent": 0.35922502996664324
         },
         "gpu": {
           "processCount": 1,
-          "workingSetBytes": 166817792,
-          "cpuPercent": 8.737285008263381
+          "workingSetBytes": 192008192,
+          "cpuPercent": 0.10789917340570089
         },
         "utility": {
           "processCount": 1,
-          "workingSetBytes": 46870528,
+          "workingSetBytes": 140267520,
           "cpuPercent": 0
         },
         "other": {
@@ -1016,38 +1336,38 @@
         }
       },
       "mainHeap": {
-        "heapUsed": 18665860,
-        "heapTotal": 20402176,
-        "external": 3439576,
+        "heapUsed": 19630348,
+        "heapTotal": 22458368,
+        "external": 3373229,
         "arrayBuffers": 0
       },
       "tabCount": 4,
-      "samplerDurationMs": 0.669
+      "samplerDurationMs": 0.806
     },
     {
-      "timestamp": 1788560660030,
-      "totalWorkingSetBytes": 1082875904,
+      "timestamp": 1788586384675,
+      "totalWorkingSetBytes": 1675829248,
       "processCount": 10,
       "classes": {
         "browser": {
           "processCount": 1,
-          "workingSetBytes": 137535488,
-          "cpuPercent": 1.0505645508294952
+          "workingSetBytes": 247255040,
+          "cpuPercent": 0.1271660256550555
         },
         "tab": {
           "processCount": 7,
-          "workingSetBytes": 731639808,
-          "cpuPercent": 3.002643256762329
+          "workingSetBytes": 1096298496,
+          "cpuPercent": 0.0009442438892511251
         },
         "gpu": {
           "processCount": 1,
-          "workingSetBytes": 166871040,
-          "cpuPercent": 9.043509484177102
+          "workingSetBytes": 192008192,
+          "cpuPercent": 0.010495507325963598
         },
         "utility": {
           "processCount": 1,
-          "workingSetBytes": 46829568,
-          "cpuPercent": 0.007893504915387603
+          "workingSetBytes": 140267520,
+          "cpuPercent": 0
         },
         "other": {
           "processCount": 0,
@@ -1056,38 +1376,38 @@
         }
       },
       "mainHeap": {
-        "heapUsed": 14654832,
-        "heapTotal": 16404480,
-        "external": 3372570,
+        "heapUsed": 19653548,
+        "heapTotal": 22458368,
+        "external": 3373229,
         "arrayBuffers": 0
       },
       "tabCount": 4,
-      "samplerDurationMs": 0.751
+      "samplerDurationMs": 1.562
     },
     {
-      "timestamp": 1788560660540,
-      "totalWorkingSetBytes": 1083830272,
+      "timestamp": 1788586385179,
+      "totalWorkingSetBytes": 1675796480,
       "processCount": 10,
       "classes": {
         "browser": {
           "processCount": 1,
-          "workingSetBytes": 137551872,
-          "cpuPercent": 0.03118741676000008
+          "workingSetBytes": 247255040,
+          "cpuPercent": 0.10200614562881749
         },
         "tab": {
           "processCount": 7,
-          "workingSetBytes": 732119040,
-          "cpuPercent": 2.975010976259394
+          "workingSetBytes": 1096282112,
+          "cpuPercent": 0.012142031452070143
         },
         "gpu": {
           "processCount": 1,
-          "workingSetBytes": 167325696,
-          "cpuPercent": 8.787446700846118
+          "workingSetBytes": 191991808,
+          "cpuPercent": 0.01882142234479261
         },
         "utility": {
           "processCount": 1,
-          "workingSetBytes": 46833664,
-          "cpuPercent": 0.0008580248366320711
+          "workingSetBytes": 140267520,
+          "cpuPercent": 0
         },
         "other": {
           "processCount": 0,
@@ -1096,37 +1416,37 @@
         }
       },
       "mainHeap": {
-        "heapUsed": 14669300,
-        "heapTotal": 16404480,
-        "external": 3372570,
+        "heapUsed": 19666504,
+        "heapTotal": 22458368,
+        "external": 3373229,
         "arrayBuffers": 0
       },
       "tabCount": 4,
-      "samplerDurationMs": 1.073
+      "samplerDurationMs": 0.713
     },
     {
-      "timestamp": 1788560661052,
-      "totalWorkingSetBytes": 1084907520,
+      "timestamp": 1788586385684,
+      "totalWorkingSetBytes": 1675796480,
       "processCount": 10,
       "classes": {
         "browser": {
           "processCount": 1,
-          "workingSetBytes": 137551872,
-          "cpuPercent": 0.9678498520204338
+          "workingSetBytes": 247255040,
+          "cpuPercent": 0.14250567939446246
         },
         "tab": {
           "processCount": 7,
-          "workingSetBytes": 732852224,
-          "cpuPercent": 3.2790803109664206
+          "workingSetBytes": 1096282112,
+          "cpuPercent": 0
         },
         "gpu": {
           "processCount": 1,
-          "workingSetBytes": 167669760,
-          "cpuPercent": 9.00959928574359
+          "workingSetBytes": 191991808,
+          "cpuPercent": 0.011061156788673376
         },
         "utility": {
           "processCount": 1,
-          "workingSetBytes": 46833664,
+          "workingSetBytes": 140267520,
           "cpuPercent": 0
         },
         "other": {
@@ -1136,37 +1456,37 @@
         }
       },
       "mainHeap": {
-        "heapUsed": 14609688,
-        "heapTotal": 16404480,
-        "external": 3372570,
+        "heapUsed": 19680284,
+        "heapTotal": 22458368,
+        "external": 3373229,
         "arrayBuffers": 0
       },
       "tabCount": 4,
-      "samplerDurationMs": 0.666
+      "samplerDurationMs": 1.587
     },
     {
-      "timestamp": 1788560661556,
-      "totalWorkingSetBytes": 1083035648,
+      "timestamp": 1788586386186,
+      "totalWorkingSetBytes": 1675689984,
       "processCount": 10,
       "classes": {
         "browser": {
           "processCount": 1,
-          "workingSetBytes": 136708096,
-          "cpuPercent": 0.3023315779556296
+          "workingSetBytes": 247218176,
+          "cpuPercent": 0.07426382809391166
         },
         "tab": {
           "processCount": 7,
-          "workingSetBytes": 731734016,
-          "cpuPercent": 3.21322704924105
+          "workingSetBytes": 1096286208,
+          "cpuPercent": 0.013248932293218982
         },
         "gpu": {
           "processCount": 1,
-          "workingSetBytes": 167759872,
-          "cpuPercent": 9.623506999401014
+          "workingSetBytes": 191918080,
+          "cpuPercent": 0.10574967867218993
         },
         "utility": {
           "processCount": 1,
-          "workingSetBytes": 46833664,
+          "workingSetBytes": 140267520,
           "cpuPercent": 0
         },
         "other": {
@@ -1176,37 +1496,237 @@
         }
       },
       "mainHeap": {
-        "heapUsed": 14623896,
-        "heapTotal": 16404480,
-        "external": 3372570,
+        "heapUsed": 19693548,
+        "heapTotal": 22458368,
+        "external": 3373229,
+        "arrayBuffers": 0
+      },
+      "tabCount": 4,
+      "samplerDurationMs": 0.763
+    },
+    {
+      "timestamp": 1788586386692,
+      "totalWorkingSetBytes": 1675689984,
+      "processCount": 10,
+      "classes": {
+        "browser": {
+          "processCount": 1,
+          "workingSetBytes": 247218176,
+          "cpuPercent": 0.03928019111580463
+        },
+        "tab": {
+          "processCount": 7,
+          "workingSetBytes": 1096286208,
+          "cpuPercent": 0
+        },
+        "gpu": {
+          "processCount": 1,
+          "workingSetBytes": 191918080,
+          "cpuPercent": 0.01095101263494713
+        },
+        "utility": {
+          "processCount": 1,
+          "workingSetBytes": 140267520,
+          "cpuPercent": 0
+        },
+        "other": {
+          "processCount": 0,
+          "workingSetBytes": 0,
+          "cpuPercent": 0
+        }
+      },
+      "mainHeap": {
+        "heapUsed": 19706236,
+        "heapTotal": 22458368,
+        "external": 3373229,
+        "arrayBuffers": 0
+      },
+      "tabCount": 4,
+      "samplerDurationMs": 1.432
+    },
+    {
+      "timestamp": 1788586387201,
+      "totalWorkingSetBytes": 1675689984,
+      "processCount": 10,
+      "classes": {
+        "browser": {
+          "processCount": 1,
+          "workingSetBytes": 247218176,
+          "cpuPercent": 0.07043739389002836
+        },
+        "tab": {
+          "processCount": 7,
+          "workingSetBytes": 1096286208,
+          "cpuPercent": 0.013543927823430325
+        },
+        "gpu": {
+          "processCount": 1,
+          "workingSetBytes": 191918080,
+          "cpuPercent": 0.00927327001995961
+        },
+        "utility": {
+          "processCount": 1,
+          "workingSetBytes": 140267520,
+          "cpuPercent": 0
+        },
+        "other": {
+          "processCount": 0,
+          "workingSetBytes": 0,
+          "cpuPercent": 0
+        }
+      },
+      "mainHeap": {
+        "heapUsed": 19719024,
+        "heapTotal": 22458368,
+        "external": 3373229,
+        "arrayBuffers": 0
+      },
+      "tabCount": 4,
+      "samplerDurationMs": 2.043
+    },
+    {
+      "timestamp": 1788586387704,
+      "totalWorkingSetBytes": 1675689984,
+      "processCount": 10,
+      "classes": {
+        "browser": {
+          "processCount": 1,
+          "workingSetBytes": 247218176,
+          "cpuPercent": 0.08990514932115891
+        },
+        "tab": {
+          "processCount": 7,
+          "workingSetBytes": 1096286208,
+          "cpuPercent": 0
+        },
+        "gpu": {
+          "processCount": 1,
+          "workingSetBytes": 191918080,
+          "cpuPercent": 0.011369494129659005
+        },
+        "utility": {
+          "processCount": 1,
+          "workingSetBytes": 140267520,
+          "cpuPercent": 0
+        },
+        "other": {
+          "processCount": 0,
+          "workingSetBytes": 0,
+          "cpuPercent": 0
+        }
+      },
+      "mainHeap": {
+        "heapUsed": 19738720,
+        "heapTotal": 22458368,
+        "external": 3373229,
+        "arrayBuffers": 0
+      },
+      "tabCount": 4,
+      "samplerDurationMs": 1.101
+    },
+    {
+      "timestamp": 1788586388206,
+      "totalWorkingSetBytes": 1675689984,
+      "processCount": 10,
+      "classes": {
+        "browser": {
+          "processCount": 1,
+          "workingSetBytes": 247218176,
+          "cpuPercent": 0.09580450903299656
+        },
+        "tab": {
+          "processCount": 7,
+          "workingSetBytes": 1096286208,
+          "cpuPercent": 0.00403162385845317
+        },
+        "gpu": {
+          "processCount": 1,
+          "workingSetBytes": 191918080,
+          "cpuPercent": 0.010301849157039996
+        },
+        "utility": {
+          "processCount": 1,
+          "workingSetBytes": 140267520,
+          "cpuPercent": 0
+        },
+        "other": {
+          "processCount": 0,
+          "workingSetBytes": 0,
+          "cpuPercent": 0
+        }
+      },
+      "mainHeap": {
+        "heapUsed": 19761240,
+        "heapTotal": 22458368,
+        "external": 3373229,
+        "arrayBuffers": 0
+      },
+      "tabCount": 4,
+      "samplerDurationMs": 0.824
+    },
+    {
+      "timestamp": 1788586388711,
+      "totalWorkingSetBytes": 1675689984,
+      "processCount": 10,
+      "classes": {
+        "browser": {
+          "processCount": 1,
+          "workingSetBytes": 247218176,
+          "cpuPercent": 0.048551753598367234
+        },
+        "tab": {
+          "processCount": 7,
+          "workingSetBytes": 1096286208,
+          "cpuPercent": 0.014808727606434948
+        },
+        "gpu": {
+          "processCount": 1,
+          "workingSetBytes": 191918080,
+          "cpuPercent": 0.029715580853079442
+        },
+        "utility": {
+          "processCount": 1,
+          "workingSetBytes": 140267520,
+          "cpuPercent": 0
+        },
+        "other": {
+          "processCount": 0,
+          "workingSetBytes": 0,
+          "cpuPercent": 0
+        }
+      },
+      "mainHeap": {
+        "heapUsed": 19773980,
+        "heapTotal": 22458368,
+        "external": 3373229,
         "arrayBuffers": 0
       },
       "tabCount": 4,
       "samplerDurationMs": 0.693
     },
     {
-      "timestamp": 1788560662060,
-      "totalWorkingSetBytes": 1082408960,
+      "timestamp": 1788586389218,
+      "totalWorkingSetBytes": 1675689984,
       "processCount": 10,
       "classes": {
         "browser": {
           "processCount": 1,
-          "workingSetBytes": 136077312,
-          "cpuPercent": 0.25627339003162986
+          "workingSetBytes": 247218176,
+          "cpuPercent": 0.04067777867734031
         },
         "tab": {
           "processCount": 7,
-          "workingSetBytes": 731738112,
-          "cpuPercent": 2.9932995833071767
+          "workingSetBytes": 1096286208,
+          "cpuPercent": 0.002986551140615713
         },
         "gpu": {
           "processCount": 1,
-          "workingSetBytes": 167759872,
-          "cpuPercent": 9.012669745215979
+          "workingSetBytes": 191918080,
+          "cpuPercent": 0.024534680288926716
         },
         "utility": {
           "processCount": 1,
-          "workingSetBytes": 46833664,
+          "workingSetBytes": 140267520,
           "cpuPercent": 0
         },
         "other": {
@@ -1216,37 +1736,37 @@
         }
       },
       "mainHeap": {
-        "heapUsed": 14636468,
-        "heapTotal": 16404480,
-        "external": 3372570,
+        "heapUsed": 19787732,
+        "heapTotal": 22458368,
+        "external": 3373229,
         "arrayBuffers": 0
       },
       "tabCount": 4,
-      "samplerDurationMs": 0.731
+      "samplerDurationMs": 0.984
     },
     {
-      "timestamp": 1788560662566,
-      "totalWorkingSetBytes": 1083621376,
+      "timestamp": 1788586389725,
+      "totalWorkingSetBytes": 1675689984,
       "processCount": 10,
       "classes": {
         "browser": {
           "processCount": 1,
-          "workingSetBytes": 136077312,
-          "cpuPercent": 0.06045184793001809
+          "workingSetBytes": 247218176,
+          "cpuPercent": 0.05867503783579266
         },
         "tab": {
           "processCount": 7,
-          "workingSetBytes": 732950528,
-          "cpuPercent": 3.463429939612554
+          "workingSetBytes": 1096286208,
+          "cpuPercent": 0.002167500497539887
         },
         "gpu": {
           "processCount": 1,
-          "workingSetBytes": 167759872,
-          "cpuPercent": 8.802863853846063
+          "workingSetBytes": 191918080,
+          "cpuPercent": 0.01046866101638136
         },
         "utility": {
           "processCount": 1,
-          "workingSetBytes": 46833664,
+          "workingSetBytes": 140267520,
           "cpuPercent": 0
         },
         "other": {
@@ -1256,37 +1776,37 @@
         }
       },
       "mainHeap": {
-        "heapUsed": 14656352,
-        "heapTotal": 16404480,
-        "external": 3372570,
+        "heapUsed": 19800480,
+        "heapTotal": 22458368,
+        "external": 3373229,
         "arrayBuffers": 0
       },
       "tabCount": 4,
-      "samplerDurationMs": 0.88
+      "samplerDurationMs": 0.939
     },
     {
-      "timestamp": 1788560663070,
-      "totalWorkingSetBytes": 1083457536,
+      "timestamp": 1788586390245,
+      "totalWorkingSetBytes": 1675689984,
       "processCount": 10,
       "classes": {
         "browser": {
           "processCount": 1,
-          "workingSetBytes": 136081408,
-          "cpuPercent": 0.05401343407231989
+          "workingSetBytes": 247218176,
+          "cpuPercent": 0.1285353846390713
         },
         "tab": {
           "processCount": 7,
-          "workingSetBytes": 732954624,
-          "cpuPercent": 3.0039806611565267
+          "workingSetBytes": 1096286208,
+          "cpuPercent": 0.0027184948103212347
         },
         "gpu": {
           "processCount": 1,
-          "workingSetBytes": 167587840,
-          "cpuPercent": 9.060116020343292
+          "workingSetBytes": 191918080,
+          "cpuPercent": 0.010585045063423665
         },
         "utility": {
           "processCount": 1,
-          "workingSetBytes": 46833664,
+          "workingSetBytes": 140267520,
           "cpuPercent": 0
         },
         "other": {
@@ -1296,38 +1816,38 @@
         }
       },
       "mainHeap": {
-        "heapUsed": 14672144,
-        "heapTotal": 16404480,
-        "external": 3372570,
+        "heapUsed": 19813488,
+        "heapTotal": 22458368,
+        "external": 3373229,
         "arrayBuffers": 0
       },
       "tabCount": 4,
-      "samplerDurationMs": 0.811
+      "samplerDurationMs": 1.096
     },
     {
-      "timestamp": 1788560663572,
-      "totalWorkingSetBytes": 1082822656,
+      "timestamp": 1788586390760,
+      "totalWorkingSetBytes": 1675689984,
       "processCount": 10,
       "classes": {
         "browser": {
           "processCount": 1,
-          "workingSetBytes": 136093696,
-          "cpuPercent": 0.04858270963526363
+          "workingSetBytes": 247218176,
+          "cpuPercent": 0.10080136356047693
         },
         "tab": {
           "processCount": 7,
-          "workingSetBytes": 732332032,
-          "cpuPercent": 3.1634540250868675
+          "workingSetBytes": 1096286208,
+          "cpuPercent": 0
         },
         "gpu": {
           "processCount": 1,
-          "workingSetBytes": 167587840,
-          "cpuPercent": 8.902411208213726
+          "workingSetBytes": 191918080,
+          "cpuPercent": 0.01155066178497521
         },
         "utility": {
           "processCount": 1,
-          "workingSetBytes": 46809088,
-          "cpuPercent": 0.003635494377434038
+          "workingSetBytes": 140267520,
+          "cpuPercent": 0
         },
         "other": {
           "processCount": 0,
@@ -1336,37 +1856,37 @@
         }
       },
       "mainHeap": {
-        "heapUsed": 14685052,
-        "heapTotal": 16404480,
-        "external": 3372570,
+        "heapUsed": 19826204,
+        "heapTotal": 22458368,
+        "external": 3373229,
         "arrayBuffers": 0
       },
       "tabCount": 4,
-      "samplerDurationMs": 0.85
+      "samplerDurationMs": 0.988
     },
     {
-      "timestamp": 1788560664081,
-      "totalWorkingSetBytes": 1048100864,
+      "timestamp": 1788586391264,
+      "totalWorkingSetBytes": 1675689984,
       "processCount": 10,
       "classes": {
         "browser": {
           "processCount": 1,
-          "workingSetBytes": 136105984,
-          "cpuPercent": 0.03887165625178029
+          "workingSetBytes": 247218176,
+          "cpuPercent": 0.1004568477505214
         },
         "tab": {
           "processCount": 7,
-          "workingSetBytes": 697786368,
-          "cpuPercent": 4.040180762719949
+          "workingSetBytes": 1096286208,
+          "cpuPercent": 0.012409659419515218
         },
         "gpu": {
           "processCount": 1,
-          "workingSetBytes": 167399424,
-          "cpuPercent": 9.307523749283003
+          "workingSetBytes": 191918080,
+          "cpuPercent": 0.010724797718398588
         },
         "utility": {
           "processCount": 1,
-          "workingSetBytes": 46809088,
+          "workingSetBytes": 140267520,
           "cpuPercent": 0
         },
         "other": {
@@ -1376,37 +1896,37 @@
         }
       },
       "mainHeap": {
-        "heapUsed": 14698648,
-        "heapTotal": 16404480,
-        "external": 3372570,
+        "heapUsed": 19838912,
+        "heapTotal": 22458368,
+        "external": 3373229,
         "arrayBuffers": 0
       },
       "tabCount": 4,
-      "samplerDurationMs": 0.999
+      "samplerDurationMs": 1.165
     },
     {
-      "timestamp": 1788560664595,
-      "totalWorkingSetBytes": 1044668416,
+      "timestamp": 1788586391769,
+      "totalWorkingSetBytes": 1675689984,
       "processCount": 10,
       "classes": {
         "browser": {
           "processCount": 1,
-          "workingSetBytes": 136122368,
-          "cpuPercent": 0.029331875333206213
+          "workingSetBytes": 247218176,
+          "cpuPercent": 0.1768874918450863
         },
         "tab": {
           "processCount": 7,
-          "workingSetBytes": 694337536,
-          "cpuPercent": 3.8500376953668023
+          "workingSetBytes": 1096286208,
+          "cpuPercent": 0
         },
         "gpu": {
           "processCount": 1,
-          "workingSetBytes": 167399424,
-          "cpuPercent": 9.637001681169346
+          "workingSetBytes": 191918080,
+          "cpuPercent": 0.011294793619158342
         },
         "utility": {
           "processCount": 1,
-          "workingSetBytes": 46809088,
+          "workingSetBytes": 140267520,
           "cpuPercent": 0
         },
         "other": {
@@ -1416,37 +1936,37 @@
         }
       },
       "mainHeap": {
-        "heapUsed": 14711248,
-        "heapTotal": 16404480,
-        "external": 3372570,
+        "heapUsed": 19851600,
+        "heapTotal": 22458368,
+        "external": 3373229,
         "arrayBuffers": 0
       },
       "tabCount": 4,
-      "samplerDurationMs": 0.64
+      "samplerDurationMs": 0.774
     },
     {
-      "timestamp": 1788560665096,
-      "totalWorkingSetBytes": 1043107840,
+      "timestamp": 1788586392285,
+      "totalWorkingSetBytes": 1675550720,
       "processCount": 10,
       "classes": {
         "browser": {
           "processCount": 1,
-          "workingSetBytes": 136134656,
-          "cpuPercent": 0.026840682092575407
+          "workingSetBytes": 247218176,
+          "cpuPercent": 0.05274916522930244
         },
         "tab": {
           "processCount": 7,
-          "workingSetBytes": 693288960,
-          "cpuPercent": 2.8956532578921923
+          "workingSetBytes": 1096286208,
+          "cpuPercent": 0.015295609402315623
         },
         "gpu": {
           "processCount": 1,
-          "workingSetBytes": 166875136,
-          "cpuPercent": 8.947633901308778
+          "workingSetBytes": 191778816,
+          "cpuPercent": 0.010135456250715302
         },
         "utility": {
           "processCount": 1,
-          "workingSetBytes": 46809088,
+          "workingSetBytes": 140267520,
           "cpuPercent": 0
         },
         "other": {
@@ -1456,37 +1976,37 @@
         }
       },
       "mainHeap": {
-        "heapUsed": 14723884,
-        "heapTotal": 16404480,
-        "external": 3372570,
+        "heapUsed": 19864308,
+        "heapTotal": 22458368,
+        "external": 3373229,
         "arrayBuffers": 0
       },
       "tabCount": 4,
-      "samplerDurationMs": 0.736
+      "samplerDurationMs": 1.59
     },
     {
-      "timestamp": 1788560665609,
-      "totalWorkingSetBytes": 1043103744,
+      "timestamp": 1788586392788,
+      "totalWorkingSetBytes": 1675554816,
       "processCount": 10,
       "classes": {
         "browser": {
           "processCount": 1,
-          "workingSetBytes": 136146944,
-          "cpuPercent": 0.02266600965265253
+          "workingSetBytes": 247222272,
+          "cpuPercent": 0.10173491072972807
         },
         "tab": {
           "processCount": 7,
-          "workingSetBytes": 693288960,
-          "cpuPercent": 2.8464536964350677
+          "workingSetBytes": 1096286208,
+          "cpuPercent": 0
         },
         "gpu": {
           "processCount": 1,
-          "workingSetBytes": 166858752,
-          "cpuPercent": 8.622840504060923
+          "workingSetBytes": 191778816,
+          "cpuPercent": 0.011184992821720162
         },
         "utility": {
           "processCount": 1,
-          "workingSetBytes": 46809088,
+          "workingSetBytes": 140267520,
           "cpuPercent": 0
         },
         "other": {
@@ -1496,37 +2016,37 @@
         }
       },
       "mainHeap": {
-        "heapUsed": 14736368,
-        "heapTotal": 16404480,
-        "external": 3372570,
+        "heapUsed": 19884140,
+        "heapTotal": 22458368,
+        "external": 3373229,
         "arrayBuffers": 0
       },
       "tabCount": 4,
-      "samplerDurationMs": 0.645
+      "samplerDurationMs": 0.617
     },
     {
-      "timestamp": 1788560666111,
-      "totalWorkingSetBytes": 1043132416,
+      "timestamp": 1788586393290,
+      "totalWorkingSetBytes": 1675554816,
       "processCount": 10,
       "classes": {
         "browser": {
           "processCount": 1,
-          "workingSetBytes": 136175616,
-          "cpuPercent": 0.029248937081180114
+          "workingSetBytes": 247222272,
+          "cpuPercent": 0.02234057585944046
         },
         "tab": {
           "processCount": 7,
-          "workingSetBytes": 693420032,
-          "cpuPercent": 2.9007680520368133
+          "workingSetBytes": 1096286208,
+          "cpuPercent": 0.00231352031221081
         },
         "gpu": {
           "processCount": 1,
-          "workingSetBytes": 166727680,
-          "cpuPercent": 9.120332569949218
+          "workingSetBytes": 191778816,
+          "cpuPercent": 0.010722161189657369
         },
         "utility": {
           "processCount": 1,
-          "workingSetBytes": 46809088,
+          "workingSetBytes": 140267520,
           "cpuPercent": 0
         },
         "other": {
@@ -1536,37 +2056,37 @@
         }
       },
       "mainHeap": {
-        "heapUsed": 14749776,
-        "heapTotal": 16404480,
-        "external": 3372570,
+        "heapUsed": 19896824,
+        "heapTotal": 22458368,
+        "external": 3373229,
         "arrayBuffers": 0
       },
       "tabCount": 4,
-      "samplerDurationMs": 0.676
+      "samplerDurationMs": 0.797
     },
     {
-      "timestamp": 1788560666611,
-      "totalWorkingSetBytes": 1039699968,
+      "timestamp": 1788586393794,
+      "totalWorkingSetBytes": 1675554816,
       "processCount": 10,
       "classes": {
         "browser": {
           "processCount": 1,
-          "workingSetBytes": 136187904,
-          "cpuPercent": 0.022423340672790212
+          "workingSetBytes": 247222272,
+          "cpuPercent": 0.05477773054322822
         },
         "tab": {
           "processCount": 7,
-          "workingSetBytes": 689975296,
-          "cpuPercent": 3.658445572121576
+          "workingSetBytes": 1096286208,
+          "cpuPercent": 0.005635882753038786
         },
         "gpu": {
           "processCount": 1,
-          "workingSetBytes": 166727680,
-          "cpuPercent": 9.058154696552455
+          "workingSetBytes": 191778816,
+          "cpuPercent": 0.011497027161788749
         },
         "utility": {
           "processCount": 1,
-          "workingSetBytes": 46809088,
+          "workingSetBytes": 140267520,
           "cpuPercent": 0
         },
         "other": {
@@ -1576,37 +2096,37 @@
         }
       },
       "mainHeap": {
-        "heapUsed": 14762068,
-        "heapTotal": 16404480,
-        "external": 3372570,
+        "heapUsed": 19909504,
+        "heapTotal": 22458368,
+        "external": 3373229,
         "arrayBuffers": 0
       },
       "tabCount": 4,
-      "samplerDurationMs": 0.667
+      "samplerDurationMs": 0.836
     },
     {
-      "timestamp": 1788560667117,
-      "totalWorkingSetBytes": 1039466496,
+      "timestamp": 1788586394310,
+      "totalWorkingSetBytes": 1674506240,
       "processCount": 10,
       "classes": {
         "browser": {
           "processCount": 1,
-          "workingSetBytes": 136200192,
-          "cpuPercent": 0.10004372739432217
+          "workingSetBytes": 246173696,
+          "cpuPercent": 1.3980634229000242
         },
         "tab": {
           "processCount": 7,
-          "workingSetBytes": 690044928,
-          "cpuPercent": 3.3932026293206072
+          "workingSetBytes": 1096286208,
+          "cpuPercent": 0.0074788373797700525
         },
         "gpu": {
           "processCount": 1,
-          "workingSetBytes": 166412288,
-          "cpuPercent": 9.021091786866108
+          "workingSetBytes": 191778816,
+          "cpuPercent": 0.010263580362865978
         },
         "utility": {
           "processCount": 1,
-          "workingSetBytes": 46809088,
+          "workingSetBytes": 140267520,
           "cpuPercent": 0
         },
         "other": {
@@ -1616,37 +2136,37 @@
         }
       },
       "mainHeap": {
-        "heapUsed": 14774464,
-        "heapTotal": 16404480,
-        "external": 3372570,
+        "heapUsed": 20542504,
+        "heapTotal": 22982656,
+        "external": 3373645,
         "arrayBuffers": 0
       },
       "tabCount": 4,
-      "samplerDurationMs": 0.839
+      "samplerDurationMs": 1.715
     },
     {
-      "timestamp": 1788560667621,
-      "totalWorkingSetBytes": 1038192640,
+      "timestamp": 1788586394835,
+      "totalWorkingSetBytes": 1667727360,
       "processCount": 10,
       "classes": {
         "browser": {
           "processCount": 1,
-          "workingSetBytes": 136216576,
-          "cpuPercent": 0.036566307234327806
+          "workingSetBytes": 239394816,
+          "cpuPercent": 0.7690302398331595
         },
         "tab": {
           "processCount": 7,
-          "workingSetBytes": 688754688,
-          "cpuPercent": 3.1886171677948685
+          "workingSetBytes": 1096286208,
+          "cpuPercent": 0
         },
         "gpu": {
           "processCount": 1,
-          "workingSetBytes": 166412288,
-          "cpuPercent": 9.672651804961438
+          "workingSetBytes": 191778816,
+          "cpuPercent": 0.009317030674238481
         },
         "utility": {
           "processCount": 1,
-          "workingSetBytes": 46809088,
+          "workingSetBytes": 140267520,
           "cpuPercent": 0
         },
         "other": {
@@ -1656,159 +2176,39 @@
         }
       },
       "mainHeap": {
-        "heapUsed": 14793836,
-        "heapTotal": 16404480,
-        "external": 3372570,
+        "heapUsed": 16872092,
+        "heapTotal": 18366464,
+        "external": 3373645,
         "arrayBuffers": 0
       },
       "tabCount": 4,
-      "samplerDurationMs": 0.95
-    },
-    {
-      "timestamp": 1788560668124,
-      "totalWorkingSetBytes": 1038204928,
-      "processCount": 10,
-      "classes": {
-        "browser": {
-          "processCount": 1,
-          "workingSetBytes": 136228864,
-          "cpuPercent": 0.03309893427887528
-        },
-        "tab": {
-          "processCount": 7,
-          "workingSetBytes": 688754688,
-          "cpuPercent": 2.9559172201743995
-        },
-        "gpu": {
-          "processCount": 1,
-          "workingSetBytes": 166412288,
-          "cpuPercent": 8.395368955934265
-        },
-        "utility": {
-          "processCount": 1,
-          "workingSetBytes": 46809088,
-          "cpuPercent": 0
-        },
-        "other": {
-          "processCount": 0,
-          "workingSetBytes": 0,
-          "cpuPercent": 0
-        }
-      },
-      "mainHeap": {
-        "heapUsed": 14806252,
-        "heapTotal": 16404480,
-        "external": 3372570,
-        "arrayBuffers": 0
-      },
-      "tabCount": 4,
-      "samplerDurationMs": 0.821
-    },
-    {
-      "timestamp": 1788560668639,
-      "totalWorkingSetBytes": 1038352384,
-      "processCount": 10,
-      "classes": {
-        "browser": {
-          "processCount": 1,
-          "workingSetBytes": 136241152,
-          "cpuPercent": 0.025890678190042437
-        },
-        "tab": {
-          "processCount": 7,
-          "workingSetBytes": 688889856,
-          "cpuPercent": 3.076296055464118
-        },
-        "gpu": {
-          "processCount": 1,
-          "workingSetBytes": 166412288,
-          "cpuPercent": 8.86134112554449
-        },
-        "utility": {
-          "processCount": 1,
-          "workingSetBytes": 46809088,
-          "cpuPercent": 0
-        },
-        "other": {
-          "processCount": 0,
-          "workingSetBytes": 0,
-          "cpuPercent": 0
-        }
-      },
-      "mainHeap": {
-        "heapUsed": 14818696,
-        "heapTotal": 16404480,
-        "external": 3372570,
-        "arrayBuffers": 0
-      },
-      "tabCount": 4,
-      "samplerDurationMs": 0.991
-    },
-    {
-      "timestamp": 1788560669148,
-      "totalWorkingSetBytes": 1034366976,
-      "processCount": 10,
-      "classes": {
-        "browser": {
-          "processCount": 1,
-          "workingSetBytes": 136671232,
-          "cpuPercent": 0.6873029335657883
-        },
-        "tab": {
-          "processCount": 7,
-          "workingSetBytes": 688943104,
-          "cpuPercent": 3.0390813356389987
-        },
-        "gpu": {
-          "processCount": 1,
-          "workingSetBytes": 161943552,
-          "cpuPercent": 9.834466962117032
-        },
-        "utility": {
-          "processCount": 1,
-          "workingSetBytes": 46809088,
-          "cpuPercent": 0.002921019558557851
-        },
-        "other": {
-          "processCount": 0,
-          "workingSetBytes": 0,
-          "cpuPercent": 0
-        }
-      },
-      "mainHeap": {
-        "heapUsed": 15145136,
-        "heapTotal": 16666624,
-        "external": 3372986,
-        "arrayBuffers": 0
-      },
-      "tabCount": 0,
-      "samplerDurationMs": 0.751
+      "samplerDurationMs": 0.982
     }
   ],
   "baselineSamples": [
     {
-      "timestamp": 1788560647839,
-      "totalWorkingSetBytes": 1071267840,
+      "timestamp": 1788586368170,
+      "totalWorkingSetBytes": 1681248256,
       "processCount": 10,
       "classes": {
         "browser": {
           "processCount": 1,
-          "workingSetBytes": 158797824,
-          "cpuPercent": 0.05293026735754595
+          "workingSetBytes": 259596288,
+          "cpuPercent": 0.11340555179417738
         },
         "tab": {
           "processCount": 7,
-          "workingSetBytes": 704040960,
-          "cpuPercent": 2.957644731589003
+          "workingSetBytes": 1089552384,
+          "cpuPercent": 1.249619850564079
         },
         "gpu": {
           "processCount": 1,
-          "workingSetBytes": 161599488,
-          "cpuPercent": 8.795921352160208
+          "workingSetBytes": 191860736,
+          "cpuPercent": 0.010382019030265427
         },
         "utility": {
           "processCount": 1,
-          "workingSetBytes": 46829568,
+          "workingSetBytes": 140238848,
           "cpuPercent": 0
         },
         "other": {
@@ -1818,37 +2218,37 @@
         }
       },
       "mainHeap": {
-        "heapUsed": 22756156,
-        "heapTotal": 37367808,
-        "external": 4265786,
+        "heapUsed": 18535280,
+        "heapTotal": 21286912,
+        "external": 3373014,
         "arrayBuffers": 0
       },
       "tabCount": 4,
-      "samplerDurationMs": 0.732
+      "samplerDurationMs": 1.013
     },
     {
-      "timestamp": 1788560648355,
-      "totalWorkingSetBytes": 1071116288,
+      "timestamp": 1788586368677,
+      "totalWorkingSetBytes": 1677467648,
       "processCount": 10,
       "classes": {
         "browser": {
           "processCount": 1,
-          "workingSetBytes": 158806016,
-          "cpuPercent": 0.028108090279596678
+          "workingSetBytes": 259608576,
+          "cpuPercent": 0.0416092603830424
         },
         "tab": {
           "processCount": 7,
-          "workingSetBytes": 704040960,
-          "cpuPercent": 2.9673974451102696
+          "workingSetBytes": 1085759488,
+          "cpuPercent": 1.9956398179471233
         },
         "gpu": {
           "processCount": 1,
-          "workingSetBytes": 161439744,
-          "cpuPercent": 8.71838672378203
+          "workingSetBytes": 191860736,
+          "cpuPercent": 0.010550650038644535
         },
         "utility": {
           "processCount": 1,
-          "workingSetBytes": 46829568,
+          "workingSetBytes": 140238848,
           "cpuPercent": 0
         },
         "other": {
@@ -1858,37 +2258,37 @@
         }
       },
       "mainHeap": {
-        "heapUsed": 22776120,
-        "heapTotal": 37367808,
-        "external": 4265786,
+        "heapUsed": 18272308,
+        "heapTotal": 21286912,
+        "external": 3373014,
         "arrayBuffers": 0
       },
       "tabCount": 4,
-      "samplerDurationMs": 1.105
+      "samplerDurationMs": 2.162
     },
     {
-      "timestamp": 1788560648855,
-      "totalWorkingSetBytes": 1071001600,
+      "timestamp": 1788586369180,
+      "totalWorkingSetBytes": 1677176832,
       "processCount": 10,
       "classes": {
         "browser": {
           "processCount": 1,
-          "workingSetBytes": 158814208,
-          "cpuPercent": 0.041053323845009836
+          "workingSetBytes": 259612672,
+          "cpuPercent": 0.1004978170800563
         },
         "tab": {
           "processCount": 7,
-          "workingSetBytes": 704040960,
-          "cpuPercent": 2.9702470555638456
+          "workingSetBytes": 1086029824,
+          "cpuPercent": 1.8267844837433445
         },
         "gpu": {
           "processCount": 1,
-          "workingSetBytes": 161316864,
-          "cpuPercent": 8.827284556680672
+          "workingSetBytes": 191295488,
+          "cpuPercent": 0.011872000953733967
         },
         "utility": {
           "processCount": 1,
-          "workingSetBytes": 46829568,
+          "workingSetBytes": 140238848,
           "cpuPercent": 0
         },
         "other": {
@@ -1898,37 +2298,37 @@
         }
       },
       "mainHeap": {
-        "heapUsed": 22795896,
-        "heapTotal": 37367808,
-        "external": 4265786,
+        "heapUsed": 18293168,
+        "heapTotal": 21286912,
+        "external": 3373014,
         "arrayBuffers": 0
       },
       "tabCount": 4,
-      "samplerDurationMs": 0.927
+      "samplerDurationMs": 2.738
     },
     {
-      "timestamp": 1788560649363,
-      "totalWorkingSetBytes": 1070772224,
+      "timestamp": 1788586369682,
+      "totalWorkingSetBytes": 1673371648,
       "processCount": 10,
       "classes": {
         "browser": {
           "processCount": 1,
-          "workingSetBytes": 158818304,
-          "cpuPercent": 0.029819888856275522
+          "workingSetBytes": 255807488,
+          "cpuPercent": 1.1262079578892044
         },
         "tab": {
           "processCount": 7,
-          "workingSetBytes": 703807488,
-          "cpuPercent": 2.9996262372360967
+          "workingSetBytes": 1086029824,
+          "cpuPercent": 0.0015440092441327648
         },
         "gpu": {
           "processCount": 1,
-          "workingSetBytes": 161316864,
-          "cpuPercent": 9.442463937145627
+          "workingSetBytes": 191295488,
+          "cpuPercent": 0.009853216926035186
         },
         "utility": {
           "processCount": 1,
-          "workingSetBytes": 46829568,
+          "workingSetBytes": 140238848,
           "cpuPercent": 0
         },
         "other": {
@@ -1938,38 +2338,38 @@
         }
       },
       "mainHeap": {
-        "heapUsed": 22815408,
-        "heapTotal": 37367808,
-        "external": 4265786,
+        "heapUsed": 18313044,
+        "heapTotal": 21286912,
+        "external": 3373014,
         "arrayBuffers": 0
       },
       "tabCount": 4,
-      "samplerDurationMs": 0.914
+      "samplerDurationMs": 1.381
     },
     {
-      "timestamp": 1788560649864,
-      "totalWorkingSetBytes": 1070686208,
+      "timestamp": 1788586370186,
+      "totalWorkingSetBytes": 1659846656,
       "processCount": 10,
       "classes": {
         "browser": {
           "processCount": 1,
-          "workingSetBytes": 158818304,
-          "cpuPercent": 0.034396410392608316
+          "workingSetBytes": 243310592,
+          "cpuPercent": 2.848179328873954
         },
         "tab": {
           "processCount": 7,
-          "workingSetBytes": 703807488,
-          "cpuPercent": 3.0269953411388
+          "workingSetBytes": 1085169664,
+          "cpuPercent": 0.5187897690472726
         },
         "gpu": {
           "processCount": 1,
-          "workingSetBytes": 161230848,
-          "cpuPercent": 9.005726288215188
+          "workingSetBytes": 191139840,
+          "cpuPercent": 0.011747887363040452
         },
         "utility": {
           "processCount": 1,
-          "workingSetBytes": 46829568,
-          "cpuPercent": 0
+          "workingSetBytes": 140226560,
+          "cpuPercent": 0.007014562529247999
         },
         "other": {
           "processCount": 0,
@@ -1978,37 +2378,37 @@
         }
       },
       "mainHeap": {
-        "heapUsed": 22828492,
-        "heapTotal": 37367808,
-        "external": 4265786,
+        "heapUsed": 14975788,
+        "heapTotal": 15884288,
+        "external": 3372598,
         "arrayBuffers": 0
       },
       "tabCount": 4,
-      "samplerDurationMs": 0.831
+      "samplerDurationMs": 1.141
     },
     {
-      "timestamp": 1788560650365,
-      "totalWorkingSetBytes": 1069395968,
+      "timestamp": 1788586370719,
+      "totalWorkingSetBytes": 1653223424,
       "processCount": 10,
       "classes": {
         "browser": {
           "processCount": 1,
-          "workingSetBytes": 158818304,
-          "cpuPercent": 0.10729067969879819
+          "workingSetBytes": 236687360,
+          "cpuPercent": 3.6559363449229196
         },
         "tab": {
           "processCount": 7,
-          "workingSetBytes": 703827968,
-          "cpuPercent": 2.8458446289083765
+          "workingSetBytes": 1085169664,
+          "cpuPercent": 0.004411323021474696
         },
         "gpu": {
           "processCount": 1,
-          "workingSetBytes": 159920128,
-          "cpuPercent": 8.769670979918045
+          "workingSetBytes": 191139840,
+          "cpuPercent": 0.009577105085255014
         },
         "utility": {
           "processCount": 1,
-          "workingSetBytes": 46829568,
+          "workingSetBytes": 140226560,
           "cpuPercent": 0
         },
         "other": {
@@ -2018,37 +2418,37 @@
         }
       },
       "mainHeap": {
-        "heapUsed": 22841092,
-        "heapTotal": 37367808,
-        "external": 4265786,
+        "heapUsed": 14963520,
+        "heapTotal": 15884288,
+        "external": 3372598,
         "arrayBuffers": 0
       },
       "tabCount": 4,
-      "samplerDurationMs": 0.741
+      "samplerDurationMs": 2.175
     },
     {
-      "timestamp": 1788560650869,
-      "totalWorkingSetBytes": 1069236224,
+      "timestamp": 1788586371232,
+      "totalWorkingSetBytes": 1652453376,
       "processCount": 10,
       "classes": {
         "browser": {
           "processCount": 1,
-          "workingSetBytes": 158822400,
-          "cpuPercent": 0.03533800403806181
+          "workingSetBytes": 235917312,
+          "cpuPercent": 0.6985821539036511
         },
         "tab": {
           "processCount": 7,
-          "workingSetBytes": 703664128,
-          "cpuPercent": 2.9544037998527704
+          "workingSetBytes": 1085169664,
+          "cpuPercent": 0.0034321199693884107
         },
         "gpu": {
           "processCount": 1,
-          "workingSetBytes": 159920128,
-          "cpuPercent": 8.906062037724462
+          "workingSetBytes": 191139840,
+          "cpuPercent": 0.010148217515482724
         },
         "utility": {
           "processCount": 1,
-          "workingSetBytes": 46829568,
+          "workingSetBytes": 140226560,
           "cpuPercent": 0
         },
         "other": {
@@ -2058,37 +2458,37 @@
         }
       },
       "mainHeap": {
-        "heapUsed": 22860076,
-        "heapTotal": 37367808,
-        "external": 4265786,
+        "heapUsed": 14986240,
+        "heapTotal": 15884288,
+        "external": 3372598,
         "arrayBuffers": 0
       },
       "tabCount": 4,
-      "samplerDurationMs": 0.96
+      "samplerDurationMs": 1.127
     },
     {
-      "timestamp": 1788560651378,
-      "totalWorkingSetBytes": 1068564480,
+      "timestamp": 1788586371735,
+      "totalWorkingSetBytes": 1652453376,
       "processCount": 10,
       "classes": {
         "browser": {
           "processCount": 1,
-          "workingSetBytes": 158822400,
-          "cpuPercent": 0.024684402794490322
+          "workingSetBytes": 235917312,
+          "cpuPercent": 0.1073468534808741
         },
         "tab": {
           "processCount": 7,
-          "workingSetBytes": 702959616,
-          "cpuPercent": 3.0589543055088053
+          "workingSetBytes": 1085169664,
+          "cpuPercent": 0
         },
         "gpu": {
           "processCount": 1,
-          "workingSetBytes": 159952896,
-          "cpuPercent": 8.730704067189013
+          "workingSetBytes": 191139840,
+          "cpuPercent": 0.0095778196603531
         },
         "utility": {
           "processCount": 1,
-          "workingSetBytes": 46829568,
+          "workingSetBytes": 140226560,
           "cpuPercent": 0
         },
         "other": {
@@ -2098,37 +2498,37 @@
         }
       },
       "mainHeap": {
-        "heapUsed": 22873264,
-        "heapTotal": 37367808,
-        "external": 4265786,
+        "heapUsed": 14999748,
+        "heapTotal": 15884288,
+        "external": 3372598,
         "arrayBuffers": 0
       },
       "tabCount": 4,
-      "samplerDurationMs": 0.851
+      "samplerDurationMs": 0.902
     },
     {
-      "timestamp": 1788560651886,
-      "totalWorkingSetBytes": 1068601344,
+      "timestamp": 1788586372240,
+      "totalWorkingSetBytes": 1652453376,
       "processCount": 10,
       "classes": {
         "browser": {
           "processCount": 1,
-          "workingSetBytes": 158822400,
-          "cpuPercent": 0.036391533558895274
+          "workingSetBytes": 235917312,
+          "cpuPercent": 0.07121199794425274
         },
         "tab": {
           "processCount": 7,
-          "workingSetBytes": 702959616,
-          "cpuPercent": 3.0072048883690448
+          "workingSetBytes": 1085169664,
+          "cpuPercent": 0.005674833575679855
         },
         "gpu": {
           "processCount": 1,
-          "workingSetBytes": 159989760,
-          "cpuPercent": 8.60959866082581
+          "workingSetBytes": 191139840,
+          "cpuPercent": 0.012424978919696444
         },
         "utility": {
           "processCount": 1,
-          "workingSetBytes": 46829568,
+          "workingSetBytes": 140226560,
           "cpuPercent": 0
         },
         "other": {
@@ -2138,39 +2538,39 @@
         }
       },
       "mainHeap": {
-        "heapUsed": 22886040,
-        "heapTotal": 37367808,
-        "external": 4265786,
+        "heapUsed": 15012864,
+        "heapTotal": 15884288,
+        "external": 3372598,
         "arrayBuffers": 0
       },
       "tabCount": 4,
-      "samplerDurationMs": 0.73
+      "samplerDurationMs": 1.88
     }
   ],
   "steadyStateSamples": [
     {
-      "timestamp": 1788560664081,
-      "totalWorkingSetBytes": 1048100864,
+      "timestamp": 1788586389218,
+      "totalWorkingSetBytes": 1675689984,
       "processCount": 10,
       "classes": {
         "browser": {
           "processCount": 1,
-          "workingSetBytes": 136105984,
-          "cpuPercent": 0.03887165625178029
+          "workingSetBytes": 247218176,
+          "cpuPercent": 0.04067777867734031
         },
         "tab": {
           "processCount": 7,
-          "workingSetBytes": 697786368,
-          "cpuPercent": 4.040180762719949
+          "workingSetBytes": 1096286208,
+          "cpuPercent": 0.002986551140615713
         },
         "gpu": {
           "processCount": 1,
-          "workingSetBytes": 167399424,
-          "cpuPercent": 9.307523749283003
+          "workingSetBytes": 191918080,
+          "cpuPercent": 0.024534680288926716
         },
         "utility": {
           "processCount": 1,
-          "workingSetBytes": 46809088,
+          "workingSetBytes": 140267520,
           "cpuPercent": 0
         },
         "other": {
@@ -2180,37 +2580,37 @@
         }
       },
       "mainHeap": {
-        "heapUsed": 14698648,
-        "heapTotal": 16404480,
-        "external": 3372570,
+        "heapUsed": 19787732,
+        "heapTotal": 22458368,
+        "external": 3373229,
         "arrayBuffers": 0
       },
       "tabCount": 4,
-      "samplerDurationMs": 0.999
+      "samplerDurationMs": 0.984
     },
     {
-      "timestamp": 1788560664595,
-      "totalWorkingSetBytes": 1044668416,
+      "timestamp": 1788586389725,
+      "totalWorkingSetBytes": 1675689984,
       "processCount": 10,
       "classes": {
         "browser": {
           "processCount": 1,
-          "workingSetBytes": 136122368,
-          "cpuPercent": 0.029331875333206213
+          "workingSetBytes": 247218176,
+          "cpuPercent": 0.05867503783579266
         },
         "tab": {
           "processCount": 7,
-          "workingSetBytes": 694337536,
-          "cpuPercent": 3.8500376953668023
+          "workingSetBytes": 1096286208,
+          "cpuPercent": 0.002167500497539887
         },
         "gpu": {
           "processCount": 1,
-          "workingSetBytes": 167399424,
-          "cpuPercent": 9.637001681169346
+          "workingSetBytes": 191918080,
+          "cpuPercent": 0.01046866101638136
         },
         "utility": {
           "processCount": 1,
-          "workingSetBytes": 46809088,
+          "workingSetBytes": 140267520,
           "cpuPercent": 0
         },
         "other": {
@@ -2220,37 +2620,37 @@
         }
       },
       "mainHeap": {
-        "heapUsed": 14711248,
-        "heapTotal": 16404480,
-        "external": 3372570,
+        "heapUsed": 19800480,
+        "heapTotal": 22458368,
+        "external": 3373229,
         "arrayBuffers": 0
       },
       "tabCount": 4,
-      "samplerDurationMs": 0.64
+      "samplerDurationMs": 0.939
     },
     {
-      "timestamp": 1788560665096,
-      "totalWorkingSetBytes": 1043107840,
+      "timestamp": 1788586390245,
+      "totalWorkingSetBytes": 1675689984,
       "processCount": 10,
       "classes": {
         "browser": {
           "processCount": 1,
-          "workingSetBytes": 136134656,
-          "cpuPercent": 0.026840682092575407
+          "workingSetBytes": 247218176,
+          "cpuPercent": 0.1285353846390713
         },
         "tab": {
           "processCount": 7,
-          "workingSetBytes": 693288960,
-          "cpuPercent": 2.8956532578921923
+          "workingSetBytes": 1096286208,
+          "cpuPercent": 0.0027184948103212347
         },
         "gpu": {
           "processCount": 1,
-          "workingSetBytes": 166875136,
-          "cpuPercent": 8.947633901308778
+          "workingSetBytes": 191918080,
+          "cpuPercent": 0.010585045063423665
         },
         "utility": {
           "processCount": 1,
-          "workingSetBytes": 46809088,
+          "workingSetBytes": 140267520,
           "cpuPercent": 0
         },
         "other": {
@@ -2260,37 +2660,37 @@
         }
       },
       "mainHeap": {
-        "heapUsed": 14723884,
-        "heapTotal": 16404480,
-        "external": 3372570,
+        "heapUsed": 19813488,
+        "heapTotal": 22458368,
+        "external": 3373229,
         "arrayBuffers": 0
       },
       "tabCount": 4,
-      "samplerDurationMs": 0.736
+      "samplerDurationMs": 1.096
     },
     {
-      "timestamp": 1788560665609,
-      "totalWorkingSetBytes": 1043103744,
+      "timestamp": 1788586390760,
+      "totalWorkingSetBytes": 1675689984,
       "processCount": 10,
       "classes": {
         "browser": {
           "processCount": 1,
-          "workingSetBytes": 136146944,
-          "cpuPercent": 0.02266600965265253
+          "workingSetBytes": 247218176,
+          "cpuPercent": 0.10080136356047693
         },
         "tab": {
           "processCount": 7,
-          "workingSetBytes": 693288960,
-          "cpuPercent": 2.8464536964350677
+          "workingSetBytes": 1096286208,
+          "cpuPercent": 0
         },
         "gpu": {
           "processCount": 1,
-          "workingSetBytes": 166858752,
-          "cpuPercent": 8.622840504060923
+          "workingSetBytes": 191918080,
+          "cpuPercent": 0.01155066178497521
         },
         "utility": {
           "processCount": 1,
-          "workingSetBytes": 46809088,
+          "workingSetBytes": 140267520,
           "cpuPercent": 0
         },
         "other": {
@@ -2300,37 +2700,37 @@
         }
       },
       "mainHeap": {
-        "heapUsed": 14736368,
-        "heapTotal": 16404480,
-        "external": 3372570,
+        "heapUsed": 19826204,
+        "heapTotal": 22458368,
+        "external": 3373229,
         "arrayBuffers": 0
       },
       "tabCount": 4,
-      "samplerDurationMs": 0.645
+      "samplerDurationMs": 0.988
     },
     {
-      "timestamp": 1788560666111,
-      "totalWorkingSetBytes": 1043132416,
+      "timestamp": 1788586391264,
+      "totalWorkingSetBytes": 1675689984,
       "processCount": 10,
       "classes": {
         "browser": {
           "processCount": 1,
-          "workingSetBytes": 136175616,
-          "cpuPercent": 0.029248937081180114
+          "workingSetBytes": 247218176,
+          "cpuPercent": 0.1004568477505214
         },
         "tab": {
           "processCount": 7,
-          "workingSetBytes": 693420032,
-          "cpuPercent": 2.9007680520368133
+          "workingSetBytes": 1096286208,
+          "cpuPercent": 0.012409659419515218
         },
         "gpu": {
           "processCount": 1,
-          "workingSetBytes": 166727680,
-          "cpuPercent": 9.120332569949218
+          "workingSetBytes": 191918080,
+          "cpuPercent": 0.010724797718398588
         },
         "utility": {
           "processCount": 1,
-          "workingSetBytes": 46809088,
+          "workingSetBytes": 140267520,
           "cpuPercent": 0
         },
         "other": {
@@ -2340,37 +2740,37 @@
         }
       },
       "mainHeap": {
-        "heapUsed": 14749776,
-        "heapTotal": 16404480,
-        "external": 3372570,
+        "heapUsed": 19838912,
+        "heapTotal": 22458368,
+        "external": 3373229,
         "arrayBuffers": 0
       },
       "tabCount": 4,
-      "samplerDurationMs": 0.676
+      "samplerDurationMs": 1.165
     },
     {
-      "timestamp": 1788560666611,
-      "totalWorkingSetBytes": 1039699968,
+      "timestamp": 1788586391769,
+      "totalWorkingSetBytes": 1675689984,
       "processCount": 10,
       "classes": {
         "browser": {
           "processCount": 1,
-          "workingSetBytes": 136187904,
-          "cpuPercent": 0.022423340672790212
+          "workingSetBytes": 247218176,
+          "cpuPercent": 0.1768874918450863
         },
         "tab": {
           "processCount": 7,
-          "workingSetBytes": 689975296,
-          "cpuPercent": 3.658445572121576
+          "workingSetBytes": 1096286208,
+          "cpuPercent": 0
         },
         "gpu": {
           "processCount": 1,
-          "workingSetBytes": 166727680,
-          "cpuPercent": 9.058154696552455
+          "workingSetBytes": 191918080,
+          "cpuPercent": 0.011294793619158342
         },
         "utility": {
           "processCount": 1,
-          "workingSetBytes": 46809088,
+          "workingSetBytes": 140267520,
           "cpuPercent": 0
         },
         "other": {
@@ -2380,37 +2780,37 @@
         }
       },
       "mainHeap": {
-        "heapUsed": 14762068,
-        "heapTotal": 16404480,
-        "external": 3372570,
+        "heapUsed": 19851600,
+        "heapTotal": 22458368,
+        "external": 3373229,
         "arrayBuffers": 0
       },
       "tabCount": 4,
-      "samplerDurationMs": 0.667
+      "samplerDurationMs": 0.774
     },
     {
-      "timestamp": 1788560667117,
-      "totalWorkingSetBytes": 1039466496,
+      "timestamp": 1788586392285,
+      "totalWorkingSetBytes": 1675550720,
       "processCount": 10,
       "classes": {
         "browser": {
           "processCount": 1,
-          "workingSetBytes": 136200192,
-          "cpuPercent": 0.10004372739432217
+          "workingSetBytes": 247218176,
+          "cpuPercent": 0.05274916522930244
         },
         "tab": {
           "processCount": 7,
-          "workingSetBytes": 690044928,
-          "cpuPercent": 3.3932026293206072
+          "workingSetBytes": 1096286208,
+          "cpuPercent": 0.015295609402315623
         },
         "gpu": {
           "processCount": 1,
-          "workingSetBytes": 166412288,
-          "cpuPercent": 9.021091786866108
+          "workingSetBytes": 191778816,
+          "cpuPercent": 0.010135456250715302
         },
         "utility": {
           "processCount": 1,
-          "workingSetBytes": 46809088,
+          "workingSetBytes": 140267520,
           "cpuPercent": 0
         },
         "other": {
@@ -2420,37 +2820,37 @@
         }
       },
       "mainHeap": {
-        "heapUsed": 14774464,
-        "heapTotal": 16404480,
-        "external": 3372570,
+        "heapUsed": 19864308,
+        "heapTotal": 22458368,
+        "external": 3373229,
         "arrayBuffers": 0
       },
       "tabCount": 4,
-      "samplerDurationMs": 0.839
+      "samplerDurationMs": 1.59
     },
     {
-      "timestamp": 1788560667621,
-      "totalWorkingSetBytes": 1038192640,
+      "timestamp": 1788586392788,
+      "totalWorkingSetBytes": 1675554816,
       "processCount": 10,
       "classes": {
         "browser": {
           "processCount": 1,
-          "workingSetBytes": 136216576,
-          "cpuPercent": 0.036566307234327806
+          "workingSetBytes": 247222272,
+          "cpuPercent": 0.10173491072972807
         },
         "tab": {
           "processCount": 7,
-          "workingSetBytes": 688754688,
-          "cpuPercent": 3.1886171677948685
+          "workingSetBytes": 1096286208,
+          "cpuPercent": 0
         },
         "gpu": {
           "processCount": 1,
-          "workingSetBytes": 166412288,
-          "cpuPercent": 9.672651804961438
+          "workingSetBytes": 191778816,
+          "cpuPercent": 0.011184992821720162
         },
         "utility": {
           "processCount": 1,
-          "workingSetBytes": 46809088,
+          "workingSetBytes": 140267520,
           "cpuPercent": 0
         },
         "other": {
@@ -2460,37 +2860,37 @@
         }
       },
       "mainHeap": {
-        "heapUsed": 14793836,
-        "heapTotal": 16404480,
-        "external": 3372570,
+        "heapUsed": 19884140,
+        "heapTotal": 22458368,
+        "external": 3373229,
         "arrayBuffers": 0
       },
       "tabCount": 4,
-      "samplerDurationMs": 0.95
+      "samplerDurationMs": 0.617
     },
     {
-      "timestamp": 1788560668124,
-      "totalWorkingSetBytes": 1038204928,
+      "timestamp": 1788586393290,
+      "totalWorkingSetBytes": 1675554816,
       "processCount": 10,
       "classes": {
         "browser": {
           "processCount": 1,
-          "workingSetBytes": 136228864,
-          "cpuPercent": 0.03309893427887528
+          "workingSetBytes": 247222272,
+          "cpuPercent": 0.02234057585944046
         },
         "tab": {
           "processCount": 7,
-          "workingSetBytes": 688754688,
-          "cpuPercent": 2.9559172201743995
+          "workingSetBytes": 1096286208,
+          "cpuPercent": 0.00231352031221081
         },
         "gpu": {
           "processCount": 1,
-          "workingSetBytes": 166412288,
-          "cpuPercent": 8.395368955934265
+          "workingSetBytes": 191778816,
+          "cpuPercent": 0.010722161189657369
         },
         "utility": {
           "processCount": 1,
-          "workingSetBytes": 46809088,
+          "workingSetBytes": 140267520,
           "cpuPercent": 0
         },
         "other": {
@@ -2500,37 +2900,37 @@
         }
       },
       "mainHeap": {
-        "heapUsed": 14806252,
-        "heapTotal": 16404480,
-        "external": 3372570,
+        "heapUsed": 19896824,
+        "heapTotal": 22458368,
+        "external": 3373229,
         "arrayBuffers": 0
       },
       "tabCount": 4,
-      "samplerDurationMs": 0.821
+      "samplerDurationMs": 0.797
     },
     {
-      "timestamp": 1788560668639,
-      "totalWorkingSetBytes": 1038352384,
+      "timestamp": 1788586393794,
+      "totalWorkingSetBytes": 1675554816,
       "processCount": 10,
       "classes": {
         "browser": {
           "processCount": 1,
-          "workingSetBytes": 136241152,
-          "cpuPercent": 0.025890678190042437
+          "workingSetBytes": 247222272,
+          "cpuPercent": 0.05477773054322822
         },
         "tab": {
           "processCount": 7,
-          "workingSetBytes": 688889856,
-          "cpuPercent": 3.076296055464118
+          "workingSetBytes": 1096286208,
+          "cpuPercent": 0.005635882753038786
         },
         "gpu": {
           "processCount": 1,
-          "workingSetBytes": 166412288,
-          "cpuPercent": 8.86134112554449
+          "workingSetBytes": 191778816,
+          "cpuPercent": 0.011497027161788749
         },
         "utility": {
           "processCount": 1,
-          "workingSetBytes": 46809088,
+          "workingSetBytes": 140267520,
           "cpuPercent": 0
         },
         "other": {
@@ -2540,18 +2940,18 @@
         }
       },
       "mainHeap": {
-        "heapUsed": 14818696,
-        "heapTotal": 16404480,
-        "external": 3372570,
+        "heapUsed": 19909504,
+        "heapTotal": 22458368,
+        "external": 3373229,
         "arrayBuffers": 0
       },
       "tabCount": 4,
-      "samplerDurationMs": 0.991
+      "samplerDurationMs": 0.836
     }
   ],
   "resourceSamples": [
     {
-      "timestamp": 1788560647338,
+      "timestamp": 1788586367664,
       "resources": {
         "disposed": false,
         "tabCount": 4,
@@ -2569,19 +2969,19 @@
           "inflightRequestCount": 3
         },
         "devTools": {
-          "attachedWebContentsCount": 1,
+          "attachedWebContentsCount": 4,
           "hostOwnedAttachmentCount": 0,
-          "listenerTargetCount": 1,
-          "queuedTargetCount": 1,
+          "listenerTargetCount": 4,
+          "queuedTargetCount": 4,
           "stylesheetTargetCount": 1,
           "isolatedContextCount": 0
         },
         "terminal": {
-          "sessionCount": 1,
-          "runningPtyCount": 1,
-          "transcriptBytes": 279,
-          "dataSubscriptionCount": 1,
-          "exitSubscriptionCount": 1
+          "sessionCount": 5,
+          "runningPtyCount": 5,
+          "transcriptBytes": 2357,
+          "dataSubscriptionCount": 5,
+          "exitSubscriptionCount": 5
         },
         "controlPlane": {
           "artifacts": {
@@ -2597,7 +2997,7 @@
             "inFlightCount": 0,
             "queuedIoCount": 0,
             "frameCount": 75,
-            "persistedBytes": 186852,
+            "persistedBytes": 186871,
             "quarantinedPartitionCount": 0,
             "poisonedPartitionCount": 0
           },
@@ -2615,10 +3015,10 @@
           }
         }
       },
-      "samplerDurationMs": 0.249
+      "samplerDurationMs": 0.606
     },
     {
-      "timestamp": 1788560652339,
+      "timestamp": 1788586372667,
       "resources": {
         "disposed": false,
         "tabCount": 4,
@@ -2636,19 +3036,19 @@
           "inflightRequestCount": 3
         },
         "devTools": {
-          "attachedWebContentsCount": 1,
+          "attachedWebContentsCount": 4,
           "hostOwnedAttachmentCount": 0,
-          "listenerTargetCount": 1,
-          "queuedTargetCount": 1,
+          "listenerTargetCount": 4,
+          "queuedTargetCount": 4,
           "stylesheetTargetCount": 1,
           "isolatedContextCount": 0
         },
         "terminal": {
-          "sessionCount": 1,
-          "runningPtyCount": 1,
-          "transcriptBytes": 279,
-          "dataSubscriptionCount": 1,
-          "exitSubscriptionCount": 1
+          "sessionCount": 5,
+          "runningPtyCount": 5,
+          "transcriptBytes": 2357,
+          "dataSubscriptionCount": 5,
+          "exitSubscriptionCount": 5
         },
         "controlPlane": {
           "artifacts": {
@@ -2664,7 +3064,7 @@
             "inFlightCount": 0,
             "queuedIoCount": 0,
             "frameCount": 75,
-            "persistedBytes": 186852,
+            "persistedBytes": 186871,
             "quarantinedPartitionCount": 0,
             "poisonedPartitionCount": 0
           },
@@ -2682,14 +3082,81 @@
           }
         }
       },
-      "samplerDurationMs": 0.335
+      "samplerDurationMs": 0.483
     },
     {
-      "timestamp": 1788560657340,
+      "timestamp": 1788586377668,
       "resources": {
         "disposed": false,
         "tabCount": 4,
-        "attachedTabViewCount": 2,
+        "attachedTabViewCount": 1,
+        "terminalWindowCount": 0,
+        "terminalWindowMetadataCount": 0,
+        "previewWatcherCount": 0,
+        "previewSubscriptionCount": 0,
+        "targetOperationQueueCount": 0,
+        "agentWorkingTimerCount": 0,
+        "agentWorkingRefCount": 0,
+        "network": {
+          "attachedTargetCount": 4,
+          "listenerCount": 0,
+          "inflightRequestCount": 3
+        },
+        "devTools": {
+          "attachedWebContentsCount": 4,
+          "hostOwnedAttachmentCount": 0,
+          "listenerTargetCount": 4,
+          "queuedTargetCount": 4,
+          "stylesheetTargetCount": 1,
+          "isolatedContextCount": 0
+        },
+        "terminal": {
+          "sessionCount": 6,
+          "runningPtyCount": 6,
+          "transcriptBytes": 2645,
+          "dataSubscriptionCount": 6,
+          "exitSubscriptionCount": 6
+        },
+        "controlPlane": {
+          "artifacts": {
+            "artifactCount": 2,
+            "storedBytes": 11837,
+            "runCount": 1,
+            "hotCacheItems": 2,
+            "hotCacheBytes": 11837
+          },
+          "invocations": {
+            "partitionCount": 1,
+            "hotRecordCount": 25,
+            "inFlightCount": 0,
+            "queuedIoCount": 0,
+            "frameCount": 75,
+            "persistedBytes": 186871,
+            "quarantinedPartitionCount": 0,
+            "poisonedPartitionCount": 0
+          },
+          "receipts": {
+            "receiptCount": 4,
+            "pendingCount": 0,
+            "persistedBytes": 3036
+          },
+          "terminal": {
+            "sessionCount": 0,
+            "runningPtyCount": 0,
+            "transcriptBytes": 0,
+            "dataSubscriptionCount": 0,
+            "exitSubscriptionCount": 0
+          }
+        }
+      },
+      "samplerDurationMs": 0.541
+    },
+    {
+      "timestamp": 1788586382681,
+      "resources": {
+        "disposed": false,
+        "tabCount": 4,
+        "attachedTabViewCount": 1,
         "terminalWindowCount": 0,
         "terminalWindowMetadataCount": 0,
         "previewWatcherCount": 0,
@@ -2703,19 +3170,19 @@
           "inflightRequestCount": 3
         },
         "devTools": {
-          "attachedWebContentsCount": 1,
+          "attachedWebContentsCount": 5,
           "hostOwnedAttachmentCount": 0,
-          "listenerTargetCount": 1,
-          "queuedTargetCount": 1,
+          "listenerTargetCount": 5,
+          "queuedTargetCount": 5,
           "stylesheetTargetCount": 1,
           "isolatedContextCount": 0
         },
         "terminal": {
-          "sessionCount": 1,
-          "runningPtyCount": 1,
-          "transcriptBytes": 279,
-          "dataSubscriptionCount": 1,
-          "exitSubscriptionCount": 1
+          "sessionCount": 5,
+          "runningPtyCount": 5,
+          "transcriptBytes": 2357,
+          "dataSubscriptionCount": 5,
+          "exitSubscriptionCount": 5
         },
         "controlPlane": {
           "artifacts": {
@@ -2731,7 +3198,7 @@
             "inFlightCount": 0,
             "queuedIoCount": 0,
             "frameCount": 75,
-            "persistedBytes": 186852,
+            "persistedBytes": 186871,
             "quarantinedPartitionCount": 0,
             "poisonedPartitionCount": 0
           },
@@ -2749,10 +3216,10 @@
           }
         }
       },
-      "samplerDurationMs": 0.525
+      "samplerDurationMs": 0.899
     },
     {
-      "timestamp": 1788560662350,
+      "timestamp": 1788586387688,
       "resources": {
         "disposed": false,
         "tabCount": 4,
@@ -2770,19 +3237,19 @@
           "inflightRequestCount": 3
         },
         "devTools": {
-          "attachedWebContentsCount": 1,
+          "attachedWebContentsCount": 4,
           "hostOwnedAttachmentCount": 0,
-          "listenerTargetCount": 1,
-          "queuedTargetCount": 1,
+          "listenerTargetCount": 4,
+          "queuedTargetCount": 4,
           "stylesheetTargetCount": 1,
           "isolatedContextCount": 0
         },
         "terminal": {
-          "sessionCount": 1,
-          "runningPtyCount": 1,
-          "transcriptBytes": 279,
-          "dataSubscriptionCount": 1,
-          "exitSubscriptionCount": 1
+          "sessionCount": 5,
+          "runningPtyCount": 5,
+          "transcriptBytes": 2357,
+          "dataSubscriptionCount": 5,
+          "exitSubscriptionCount": 5
         },
         "controlPlane": {
           "artifacts": {
@@ -2798,7 +3265,7 @@
             "inFlightCount": 0,
             "queuedIoCount": 0,
             "frameCount": 75,
-            "persistedBytes": 186852,
+            "persistedBytes": 186871,
             "quarantinedPartitionCount": 0,
             "poisonedPartitionCount": 0
           },
@@ -2816,10 +3283,10 @@
           }
         }
       },
-      "samplerDurationMs": 0.517
+      "samplerDurationMs": 0.479
     },
     {
-      "timestamp": 1788560667365,
+      "timestamp": 1788586392705,
       "resources": {
         "disposed": false,
         "tabCount": 4,
@@ -2837,19 +3304,19 @@
           "inflightRequestCount": 3
         },
         "devTools": {
-          "attachedWebContentsCount": 1,
+          "attachedWebContentsCount": 4,
           "hostOwnedAttachmentCount": 0,
-          "listenerTargetCount": 1,
-          "queuedTargetCount": 1,
+          "listenerTargetCount": 4,
+          "queuedTargetCount": 4,
           "stylesheetTargetCount": 1,
           "isolatedContextCount": 0
         },
         "terminal": {
-          "sessionCount": 1,
-          "runningPtyCount": 1,
-          "transcriptBytes": 279,
-          "dataSubscriptionCount": 1,
-          "exitSubscriptionCount": 1
+          "sessionCount": 5,
+          "runningPtyCount": 5,
+          "transcriptBytes": 2357,
+          "dataSubscriptionCount": 5,
+          "exitSubscriptionCount": 5
         },
         "controlPlane": {
           "artifacts": {
@@ -2865,7 +3332,7 @@
             "inFlightCount": 0,
             "queuedIoCount": 0,
             "frameCount": 75,
-            "persistedBytes": 186852,
+            "persistedBytes": 186871,
             "quarantinedPartitionCount": 0,
             "poisonedPartitionCount": 0
           },
@@ -2883,10 +3350,10 @@
           }
         }
       },
-      "samplerDurationMs": 0.279
+      "samplerDurationMs": 0.395
     },
     {
-      "timestamp": 1788560668905,
+      "timestamp": 1788586393948,
       "resources": {
         "disposed": false,
         "tabCount": 4,
@@ -2904,19 +3371,19 @@
           "inflightRequestCount": 3
         },
         "devTools": {
-          "attachedWebContentsCount": 1,
+          "attachedWebContentsCount": 4,
           "hostOwnedAttachmentCount": 0,
-          "listenerTargetCount": 1,
-          "queuedTargetCount": 1,
+          "listenerTargetCount": 4,
+          "queuedTargetCount": 4,
           "stylesheetTargetCount": 1,
           "isolatedContextCount": 0
         },
         "terminal": {
-          "sessionCount": 1,
-          "runningPtyCount": 1,
-          "transcriptBytes": 279,
-          "dataSubscriptionCount": 1,
-          "exitSubscriptionCount": 1
+          "sessionCount": 5,
+          "runningPtyCount": 5,
+          "transcriptBytes": 2357,
+          "dataSubscriptionCount": 5,
+          "exitSubscriptionCount": 5
         },
         "controlPlane": {
           "artifacts": {
@@ -2932,7 +3399,7 @@
             "inFlightCount": 0,
             "queuedIoCount": 0,
             "frameCount": 75,
-            "persistedBytes": 186852,
+            "persistedBytes": 186871,
             "quarantinedPartitionCount": 0,
             "poisonedPartitionCount": 0
           },
@@ -2950,7 +3417,7 @@
           }
         }
       },
-      "samplerDurationMs": 0.241
+      "samplerDurationMs": 1.365
     }
   ],
   "workloadCounters": {
@@ -2968,35 +3435,35 @@
       "settleDurationMs": 5000,
       "terminalStreaming": {
         "status": "completed",
-        "durationMs": 4288,
-        "ptyReceivedBytes": 520256
+        "durationMs": 7955,
+        "ptyReceivedBytes": 539084
       },
       "tabThrash": {
         "status": "completed",
-        "durationMs": 2120,
+        "durationMs": 2168,
         "tabSwitches": 20,
         "tabCount": 4
       }
     },
     "idleBaseline": {
       "status": "completed",
-      "durationMs": 5001,
+      "durationMs": 5004,
       "samples": 9
     },
     "terminalStreaming": {
       "status": "completed",
-      "durationMs": 4465,
-      "ptyReceivedBytes": 532622
+      "durationMs": 9022,
+      "ptyReceivedBytes": 530345
     },
     "tabThrash": {
       "status": "completed",
-      "durationMs": 2084,
+      "durationMs": 2243,
       "tabSwitches": 20,
       "tabCount": 4
     },
     "endurance": {
       "status": "completed",
-      "durationMs": 3,
+      "durationMs": 6,
       "qaRuns": 1,
       "errorsFound": 0,
       "enduranceCycles": 1,
@@ -3053,7 +3520,7 @@
       "inFlightCount": 0,
       "queuedIoCount": 0,
       "frameCount": 75,
-      "persistedBytes": 186852,
+      "persistedBytes": 186871,
       "quarantinedPartitionCount": 0,
       "poisonedPartitionCount": 0
     }
@@ -3112,7 +3579,7 @@
           "inFlightCount": 0,
           "queuedIoCount": 0,
           "frameCount": 75,
-          "persistedBytes": 186852,
+          "persistedBytes": 186871,
           "quarantinedPartitionCount": 0,
           "poisonedPartitionCount": 0
         },
@@ -3134,35 +3601,35 @@
   "unhandledErrorCount": 0,
   "incompleteStageCount": 0,
   "metrics": {
-    "baselineRssMb": 1020.4995659722222,
-    "settledRssMb": 993.35,
-    "settledGrowthMb": -27.14956597222215,
-    "overallTotalRssSlopeMbPerMin": -84.42001552725691,
-    "rendererRssSlopeMbPerMin": -17.10615717002771,
+    "baselineRssMb": 1587.3055555555557,
+    "settledRssMb": 1598.010546875,
+    "settledGrowthMb": 10.704991319444389,
+    "overallTotalRssSlopeMbPerMin": 40.69160670091834,
+    "rendererRssSlopeMbPerMin": 39.29386466597612,
     "storageGrowth": {
       "artifactCount": 2,
       "artifactBytes": 11837,
       "receiptCount": 4,
       "receiptBytes": 3036,
       "ledgerFrames": 75,
-      "ledgerBytes": 186852
+      "ledgerBytes": 186871
     }
   },
   "gates": {
     "settledTotalRssGrowthMb": {
-      "actual": -27.14956597222215,
+      "actual": 10.704991319444389,
       "limit": 30,
       "passed": true
     },
     "overallTotalRssSlopeMbPerMin": {
-      "actual": -84.42001552725691,
+      "actual": 40.69160670091834,
       "limit": 0.35,
-      "passed": true
+      "passed": false
     },
     "rendererRssSlopeMbPerMin": {
-      "actual": -17.10615717002771,
+      "actual": 39.29386466597612,
       "limit": 0.15,
-      "passed": true
+      "passed": false
     },
     "ownedOrphanProcessCount": {
       "actual": 0,
@@ -3220,8 +3687,8 @@
       "passed": true
     },
     "ledgerBytesGrowth": {
-      "actual": 186852,
-      "limit": 5033164800,
+      "actual": 186871,
+      "limit": 78643200,
       "passed": true
     },
     "workloadContract": {
@@ -3233,5 +3700,5 @@
   "passed": false,
   "feedbackPassed": true,
   "verdict": "FEEDBACK_FUNCTIONAL_PASS",
-  "reportChecksum": "90e0f25a333807929f2fc8f6ef51e64bacf8bca956267ce3b98b1cd29096c27d"
+  "reportChecksum": "a6d23ed6066094cdf9288a8729960481684d7c1ec3a89ff953bf8ebe7b89b8be"
 }

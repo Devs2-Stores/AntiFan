@@ -9,6 +9,7 @@ const CERTIFICATION_DURATION_MS = CERTIFICATION_DURATION_MINUTES * 60 * 1000;
 const RESOURCE_SAMPLE_INTERVAL_MS = 5000;
 const MAX_ARTIFACT_BYTES = 8 * 1024 * 1024;
 const MAX_INVOCATION_FRAME_BYTES = 64 * 1024 * 1024;
+const MAX_CERTIFICATION_INVOCATION_FRAME_BYTES = 1024 * 1024;
 const MAX_RECEIPT_BYTES = 64 * 1024;
 const INVOCATION_FRAMES_PER_CAPABILITY = 3;
 const PROCESS_CLASSES = ['browser', 'tab', 'gpu', 'utility', 'other'];
@@ -131,11 +132,12 @@ function buildThresholdManifest(input) {
       receiptCountGrowth: workload.receiptWrites,
       receiptBytesGrowth: workload.receiptWrites * MAX_RECEIPT_BYTES,
       ledgerFrameGrowth: maxLedgerFrameGrowth,
-      ledgerBytesGrowth: maxLedgerFrameGrowth * MAX_INVOCATION_FRAME_BYTES,
+      ledgerBytesGrowth: maxLedgerFrameGrowth * MAX_CERTIFICATION_INVOCATION_FRAME_BYTES,
     },
     bounds: {
       maxArtifactBytes: MAX_ARTIFACT_BYTES,
       maxInvocationFrameBytes: MAX_INVOCATION_FRAME_BYTES,
+      maxCertificationInvocationFrameBytes: MAX_CERTIFICATION_INVOCATION_FRAME_BYTES,
       maxReceiptBytes: MAX_RECEIPT_BYTES,
       invocationFramesPerCapability: INVOCATION_FRAMES_PER_CAPABILITY,
     },
@@ -152,9 +154,10 @@ function validateThresholdManifest(manifest) {
   }
   if (manifest.bounds?.maxArtifactBytes !== MAX_ARTIFACT_BYTES ||
       manifest.bounds?.maxInvocationFrameBytes !== MAX_INVOCATION_FRAME_BYTES ||
+      manifest.bounds?.maxCertificationInvocationFrameBytes !== MAX_CERTIFICATION_INVOCATION_FRAME_BYTES ||
       manifest.bounds?.maxReceiptBytes !== MAX_RECEIPT_BYTES ||
       manifest.bounds?.invocationFramesPerCapability !== INVOCATION_FRAMES_PER_CAPABILITY) {
-    throw new Error('Threshold owner bounds do not match the implementation contract');
+    throw new Error('Threshold owner and certification bounds do not match the implementation contract');
   }
   for (const [key, value] of Object.entries(manifest.gates || {})) assertFiniteNonNegative(value, `gates.${key}`);
   const expected = checksumObject(manifest, 'thresholdChecksum');
@@ -348,6 +351,7 @@ module.exports = {
   RESOURCE_SAMPLE_INTERVAL_MS,
   MAX_ARTIFACT_BYTES,
   MAX_INVOCATION_FRAME_BYTES,
+  MAX_CERTIFICATION_INVOCATION_FRAME_BYTES,
   MAX_RECEIPT_BYTES,
   INVOCATION_FRAMES_PER_CAPABILITY,
   PROCESS_CLASSES,

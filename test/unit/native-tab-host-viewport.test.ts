@@ -50,9 +50,10 @@ interface TestHostShape {
   safeEnableDeviceEmulation: (wc: unknown, params: EmulationParams) => void;
   safeDisableDeviceEmulation: (wc: unknown) => void;
   setSafeUserAgent: (wc: unknown, ua: string) => void;
-  applyCdpTouchEmulation: (wc: unknown, enabled: boolean) => void;
+  touchEmulationPromise: Promise<void>;
+  applyCdpTouchEmulation: (wc: unknown, enabled: boolean) => Promise<void>;
   applyDeviceCornerClipping: (wc: unknown, radius: number) => void;
-  setViewportSize: (options: { width: number; height: number; mobile?: boolean; deviceScaleFactor?: number; tabId?: string }) => boolean;
+  setViewportSize: (options: { width: number; height: number; mobile?: boolean; deviceScaleFactor?: number; tabId?: string }) => Promise<boolean>;
   setDevicePreset: (tabId: string, presetId: string) => boolean;
 }
 
@@ -101,7 +102,8 @@ function createTestHost(): TestHostShape {
     host.disabledEmulationCount++;
   };
   host.setSafeUserAgent = (_wc: unknown, _ua: string) => {};
-  host.applyCdpTouchEmulation = (_wc: unknown, _enabled: boolean) => {};
+  host.touchEmulationPromise = Promise.resolve();
+  host.applyCdpTouchEmulation = (_wc: unknown, _enabled: boolean) => host.touchEmulationPromise;
   host.applyDeviceCornerClipping = (_wc: unknown, _radius: number) => {};
 
   host.updateLayout = () => {
@@ -119,14 +121,20 @@ function createTestHost(): TestHostShape {
 }
 
 describe('Phase 1: Viewport Emulation & CDP Matched Styles Gateway', () => {
-  it('exercises NativeTabHost.setViewportSize and triggers safeEnableDeviceEmulation with dynamic preset', () => {
+  it('applies a dynamic viewport and resolves only after touch emulation settles', async () => {
     const host = createTestHost();
     const tab = createTestTabRecord('tab-1');
     host.tabs.set('tab-1', tab);
+    const deferred = Promise.withResolvers<void>();
+    host.touchEmulationPromise = deferred.promise;
 
-    // Call real setViewportSize with custom mobile dimensions
-    const success = host.setViewportSize({ width: 375, height: 667, mobile: true, deviceScaleFactor: 2 });
-    assert.strictEqual(success, true);
+    let settled = false;
+    const viewportPromise = host.setViewportSize({ width: 375, height: 667, mobile: true, deviceScaleFactor: 2 });
+    viewportPromise.finally(() => { settled = true; });
+    await Promise.resolve();
+    assert.strictEqual(settled, false, 'Viewport setter must wait for touch emulation readiness');
+    deferred.resolve();
+    assert.strictEqual(await viewportPromise, true);
 
     // Verify customViewport state was recorded
     assert.deepStrictEqual(tab.customViewport, {
@@ -147,13 +155,13 @@ describe('Phase 1: Viewport Emulation & CDP Matched Styles Gateway', () => {
     assert.strictEqual(host.disabledEmulationCount, 0, 'Must NOT fall back to disabling device emulation');
   });
 
-  it('clears customViewport when switching to a standard device preset', () => {
+  it('clears customViewport when switching to a standard device preset', async () => {
     const host = createTestHost();
     const tab = createTestTabRecord('tab-1');
     host.tabs.set('tab-1', tab);
 
     // First apply custom viewport
-    host.setViewportSize({ width: 320, height: 568 });
+    await host.setViewportSize({ width: 320, height: 568 });
     assert.ok(tab.customViewport);
 
     // Now switch to standard preset
@@ -163,13 +171,13 @@ describe('Phase 1: Viewport Emulation & CDP Matched Styles Gateway', () => {
     assert.strictEqual(tab.state.devicePresetId, 'desktop-laptop');
   });
 
-  it('rejects invalid viewport dimensions', () => {
+  it('rejects invalid viewport dimensions', async () => {
     const host = createTestHost();
     const tab = createTestTabRecord('tab-1');
     host.tabs.set('tab-1', tab);
 
-    assert.strictEqual(host.setViewportSize({ width: 0, height: 667 }), false);
-    assert.strictEqual(host.setViewportSize({ width: -100, height: -200 }), false);
+    assert.strictEqual(await host.setViewportSize({ width: 0, height: 667 }), false);
+    assert.strictEqual(await host.setViewportSize({ width: -100, height: -200 }), false);
   });
 
   it('registers and dispatches browser.get-matched-styles by selector and ref', async () => {

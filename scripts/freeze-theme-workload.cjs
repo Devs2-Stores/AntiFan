@@ -188,7 +188,7 @@ async function runThemeProbeBatch(options) {
   };
 
   assert.equal(
-    tabHost.setViewportSize({ width: 1024, height: 900, mobile: false, deviceScaleFactor: 1, tabId }),
+    await tabHost.setViewportSize({ width: 1024, height: 900, mobile: false, deviceScaleFactor: 1, tabId }),
     true,
     'Product Card viewport must be configured'
   );
@@ -228,7 +228,7 @@ async function runThemeProbeBatch(options) {
   const reload = await dispatch('anti.browser.reload', { tabId });
   assert.equal(reload.data?.reloaded, true);
   assert.equal(
-    tabHost.setViewportSize({ width: 1024, height: 900, mobile: false, deviceScaleFactor: 1, tabId }),
+    await tabHost.setViewportSize({ width: 1024, height: 900, mobile: false, deviceScaleFactor: 1, tabId }),
     true,
     'Product Card viewport must be restored after reload'
   );
@@ -289,7 +289,14 @@ async function runThemeProbeBatch(options) {
   });
   const drawerTrace = await dispatch('anti.trace.interaction', { action: 'click', selector: '#menu-toggle', settleMs: 180, tabId });
   assert.equal(drawerTrace.data?.interactionMode, 'trusted_cdp');
-  assert.equal(drawerTrace.data?.verified, true);
+  assert.equal(drawerTrace.data?.verified, true, JSON.stringify({
+    verdict: drawerTrace.data?.verdict,
+    actionSuccess: drawerTrace.data?.actionSuccess,
+    observationIntegrity: drawerTrace.data?.evidence?.observationIntegrity,
+    bodyDelta: drawerTrace.data?.evidence?.bodyDelta,
+    targetDelta: drawerTrace.data?.evidence?.targetDelta,
+    overlays: drawerTrace.data?.evidence?.overlays,
+  }));
   assert.equal(drawerTrace.data?.verdict, 'DRAWER_EXPANDED');
   const drawerVerification = await dispatch('anti.verification.verify_claim', { claimId: drawerClaim.data?.id });
   counters.receiptWrites += 1;

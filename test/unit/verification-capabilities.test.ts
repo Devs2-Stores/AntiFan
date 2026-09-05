@@ -1,4 +1,4 @@
-import { test, describe } from 'node:test';
+import { after, test, describe } from 'node:test';
 import * as assert from 'node:assert';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
@@ -10,6 +10,20 @@ import { AuthenticatedCapabilityContext, BrowserTarget, CapabilityRequestContext
 import { IssueRegister } from '../../src/main/session/issue-register';
 import { ReceiptStore } from '../../src/main/session/receipt-store';
 import type { VerificationRecord } from '../../src/main/verification/verification-contract';
+import { StorageLocations } from '../../src/main/config/storage-locations';
+
+const originalDataRoot = process.env.ANTIFAN_DATA_ROOT;
+const issueRegisterDataRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-verification-capabilities-'));
+process.env.ANTIFAN_DATA_ROOT = issueRegisterDataRoot;
+StorageLocations.resetCache();
+
+after(() => {
+  (IssueRegister as unknown as { instance: IssueRegister | null }).instance = null;
+  if (originalDataRoot === undefined) delete process.env.ANTIFAN_DATA_ROOT;
+  else process.env.ANTIFAN_DATA_ROOT = originalDataRoot;
+  StorageLocations.resetCache();
+  fs.rmSync(issueRegisterDataRoot, { recursive: true, force: true });
+});
 describe('Verification Capabilities & Anti-Hallucination Barrier Suite (Phase 2)', () => {
   const dummyTarget: BrowserTarget = {
     projectId: 'proj-1',

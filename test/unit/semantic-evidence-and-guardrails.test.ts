@@ -1,10 +1,27 @@
-import { describe, it, beforeEach } from 'node:test';
+import { after, describe, it, beforeEach } from 'node:test';
 import * as assert from 'node:assert';
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
 import { normalizeVisualRegions, RawElementSensoryData } from '../../src/main/verification/visual-region';
 import { ProofTemplateRegistry } from '../../src/main/verification/proof-templates';
 import { StabilityPolicyEvaluator, DEFAULT_STABILITY_POLICY } from '../../src/main/verification/stability-policy';
 import { VerificationCircuitBreaker } from '../../src/main/verification/circuit-breaker';
 import { IssueRegister } from '../../src/main/session/issue-register';
+import { StorageLocations } from '../../src/main/config/storage-locations';
+
+const originalDataRoot = process.env.ANTIFAN_DATA_ROOT;
+const issueRegisterDataRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-guardrails-'));
+process.env.ANTIFAN_DATA_ROOT = issueRegisterDataRoot;
+StorageLocations.resetCache();
+
+after(() => {
+  (IssueRegister as unknown as { instance: IssueRegister | null }).instance = null;
+  if (originalDataRoot === undefined) delete process.env.ANTIFAN_DATA_ROOT;
+  else process.env.ANTIFAN_DATA_ROOT = originalDataRoot;
+  StorageLocations.resetCache();
+  fs.rmSync(issueRegisterDataRoot, { recursive: true, force: true });
+});
 
 describe('Phase 3: Semantic Evidence & Mechanical Guardrails Suite', () => {
   beforeEach(() => {

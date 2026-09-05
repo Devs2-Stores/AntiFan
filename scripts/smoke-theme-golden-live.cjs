@@ -477,6 +477,7 @@ async function run() {
     assert.equal(drawerNavigation.navigated, true);
     assert.equal(drawerNavigation.target.documentGeneration, tabHost.getDocumentGeneration(tabId));
 
+
     const drawerClaim = parseTextResult(await tool('anti.verification.record_claim', {
       claim: 'Hamburger control opens the navigation drawer from a trusted Chromium gesture without layout overflow',
       category: 'INTERACTION',
@@ -495,8 +496,19 @@ async function run() {
       settleMs: 180,
       tabId,
     }, 40_000), 'anti.trace.interaction drawer');
-    assert.equal(drawerTrace.interactionMode, 'trusted_cdp');
-    assert.equal(drawerTrace.verified, true);
+    assert.equal(drawerTrace.interactionMode, 'trusted_cdp', JSON.stringify({
+      interactionMode: drawerTrace.interactionMode,
+      actionSuccess: drawerTrace.actionSuccess,
+      actionError: drawerTrace.evidence?.error,
+    }));
+    assert.equal(drawerTrace.verified, true, JSON.stringify({
+      verdict: drawerTrace.verdict,
+      actionSuccess: drawerTrace.actionSuccess,
+      observationIntegrity: drawerTrace.evidence?.observationIntegrity,
+      bodyDelta: drawerTrace.evidence?.bodyDelta,
+      targetDelta: drawerTrace.evidence?.targetDelta,
+      overlays: drawerTrace.evidence?.overlays,
+    }));
     assert.equal(drawerTrace.verdict, 'DRAWER_EXPANDED');
     assert.equal(drawerTrace.evidence.observationIntegrity.status, 'COMPLETE');
     assert.equal(tabHost.getMutationRevision(tabId), drawerRevisionBefore + 1);

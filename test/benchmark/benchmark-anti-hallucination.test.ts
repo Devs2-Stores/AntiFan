@@ -1,9 +1,26 @@
-import { describe, it } from 'node:test';
+import { after, describe, it } from 'node:test';
 import * as assert from 'node:assert';
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
 import { VerificationEvaluator } from '../../src/main/verification/verification-evaluator';
 import { VerificationClaim, EvidenceSampleBundle } from '../../src/main/verification/verification-contract';
 import { IssueRegister } from '../../src/main/session/issue-register';
 import { VerificationCircuitBreaker } from '../../src/main/verification/circuit-breaker';
+import { StorageLocations } from '../../src/main/config/storage-locations';
+
+const originalDataRoot = process.env.ANTIFAN_DATA_ROOT;
+const issueRegisterDataRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-benchmark-verification-'));
+process.env.ANTIFAN_DATA_ROOT = issueRegisterDataRoot;
+StorageLocations.resetCache();
+
+after(() => {
+  (IssueRegister as unknown as { instance: IssueRegister | null }).instance = null;
+  if (originalDataRoot === undefined) delete process.env.ANTIFAN_DATA_ROOT;
+  else process.env.ANTIFAN_DATA_ROOT = originalDataRoot;
+  StorageLocations.resetCache();
+  fs.rmSync(issueRegisterDataRoot, { recursive: true, force: true });
+});
 
 describe('Benchmark F: Anti-Hallucination Barrier & Authority Verification Suite', () => {
   it('Scenario 1: High confidence (0.99) with ZERO proof MUST yield UNVERIFIED or INCONCLUSIVE', () => {

@@ -9,7 +9,11 @@ import { BrowserControlPort, BrowserHostPort } from '../../src/main/tools/browse
 describe('Phase 03: Pure CSS-Pixel CDP Input & Actionability Gate', () => {
   // --- Section A: In-Renderer Actionability & Auto-Wait Script Tests ---
 
-  function createMockDomContext(initialHtml: string = '', currentUrl: string = 'https://storefront-test.com/products/jacket') {
+  function createMockDomContext(
+    initialHtml: string = '',
+    currentUrl: string = 'https://storefront-test.com/products/jacket',
+    maxTouchPoints: number = 0
+  ) {
     const listeners: Record<string, Function[]> = {};
     const mutationObservers: any[] = [];
 
@@ -129,6 +133,7 @@ describe('Phase 03: Pure CSS-Pixel CDP Input & Actionability Gate', () => {
         location: { href: currentUrl },
         querySelector: (sel: string) => documentElement.querySelector(sel),
       },
+      navigator: { maxTouchPoints },
       Element: MockElement,
       MutationObserver: MockMutationObserver,
       MouseEvent: MockMouseEvent,
@@ -245,6 +250,8 @@ describe('Phase 03: Pure CSS-Pixel CDP Input & Actionability Gate', () => {
   let cdpSentCommands: Array<{ method: string; params: any }> = [];
   let isDebuggerAttached = false;
   let debuggerAttachThrows = false;
+  let emulatedMaxTouchPoints = 0;
+  let rejectedCdpCommand: { method: string; type: string } | null = null;
 
   const mockWebContents = {
     isDestroyed: () => false,
@@ -253,7 +260,11 @@ describe('Phase 03: Pure CSS-Pixel CDP Input & Actionability Gate', () => {
     mainFrame: {
       executeJavaScriptInIsolatedWorld: async (_worldId: number, scripts: Array<{ code: string }>) => {
         // Execute real buildIsolatedExecutorScript against simulated DOM
-        const { context, body, MockElement } = createMockDomContext();
+        const { context, body, MockElement } = createMockDomContext(
+          '',
+          'https://storefront-test.com/products/jacket',
+          emulatedMaxTouchPoints
+        );
         const btn = new MockElement('BUTTON', 'add-to-cart-button');
         btn.rect = { x: 100, y: 200, width: 80, height: 40 };
         body.appendChild(btn);
@@ -275,9 +286,8 @@ describe('Phase 03: Pure CSS-Pixel CDP Input & Actionability Gate', () => {
       detach: () => {
         isDebuggerAttached = false;
       },
-      sendCommand: async (method: string, params: any) => {
-        cdpSentCommands.push({ method, params });
-        return {};
+      sendCommand: async (method: string) => {
+        throw new Error(`Raw debugger command bypassed shared CDP transport: ${method}`);
       },
     },
   };
@@ -306,6 +316,16 @@ describe('Phase 03: Pure CSS-Pixel CDP Input & Actionability Gate', () => {
     broadcastState: () => {},
     syncFrameBackdrop: () => {},
     semanticRefRegistry: null as any,
+    tabDevToolsHost: {
+      sendCdpCommand: async (_wc: unknown, method: string, params: any) => {
+        cdpSentCommands.push({ method, params });
+        if (rejectedCdpCommand?.method === method && rejectedCdpCommand.type === params?.type) {
+          rejectedCdpCommand = null;
+          throw new Error(`Injected ${method} ${params.type} failure`);
+        }
+        return {};
+      },
+    },
   } as unknown as TabAutomationContext;
 
   let automationHost: TabAutomationHost;
@@ -318,6 +338,8 @@ describe('Phase 03: Pure CSS-Pixel CDP Input & Actionability Gate', () => {
     cdpSentCommands = [];
     isDebuggerAttached = false;
     debuggerAttachThrows = false;
+    emulatedMaxTouchPoints = 0;
+    rejectedCdpCommand = null;
 
     const result = await automationHost.dispatchAgentAction('click', {
       selector: '#add-to-cart-button',
@@ -339,6 +361,69 @@ describe('Phase 03: Pure CSS-Pixel CDP Input & Actionability Gate', () => {
     assert.ok(mouseReleased, 'Must dispatch CDP mouseReleased');
     assert.strictEqual(mousePressed?.params?.x, 140);
     assert.strictEqual(mousePressed?.params?.y, 170);
+    assert.strictEqual(mousePressed?.params?.buttons, 1);
+    assert.strictEqual(mouseReleased?.params?.buttons, 0);
+  });
+
+  it('5b. Dispatches focused CDP mouse events and preserves touch inputType on touch-capable viewports', async () => {
+    cdpSentCommands = [];
+    isDebuggerAttached = true;
+    debuggerAttachThrows = false;
+    emulatedMaxTouchPoints = 5;
+    rejectedCdpCommand = null;
+
+    const result = await automationHost.dispatchAgentAction('click', {
+      selector: '#add-to-cart-button',
+      trusted: true,
+    });
+
+    assert.strictEqual(result.success, true);
+    assert.strictEqual((result.data as any)?.tier, 'cdp_trusted');
+    assert.strictEqual((result.data as any)?.inputType, 'touch');
+    assert.ok(cdpSentCommands.some((c) => c.method === 'Emulation.setFocusEmulationEnabled' && c.params?.enabled === true));
+    const mouseEvents = cdpSentCommands.filter((c) => c.method === 'Input.dispatchMouseEvent');
+    assert.deepStrictEqual(mouseEvents.map((c) => c.params?.type), ['mouseMoved', 'mousePressed', 'mouseReleased']);
+    assert.strictEqual(mouseEvents[1]?.params?.x, 140);
+    assert.strictEqual(mouseEvents[1]?.params?.y, 170);
+  });
+
+  it('5c. Releases a partial mouse press on touch viewports and never crosses tiers after mousePressed', async () => {
+    cdpSentCommands = [];
+    isDebuggerAttached = true;
+    debuggerAttachThrows = false;
+    emulatedMaxTouchPoints = 5;
+    rejectedCdpCommand = { method: 'Input.dispatchMouseEvent', type: 'mouseReleased' };
+
+    const result = await automationHost.dispatchAgentAction('click', {
+      selector: '#add-to-cart-button',
+      trusted: true,
+    });
+
+    assert.strictEqual(result.success, false);
+    assert.match(result.reason || '', /mouse release failed after mousePressed/);
+    const mouseEvents = cdpSentCommands.filter((c) => c.method === 'Input.dispatchMouseEvent');
+    assert.deepStrictEqual(mouseEvents.map((c) => c.params?.type), ['mouseMoved', 'mousePressed', 'mouseReleased', 'mouseReleased']);
+    assert.strictEqual(mouseEvents.at(-1)?.params?.buttons, 0);
+  });
+  it('5d. Releases a partial mouse press and never crosses to synthetic click after mousePressed', async () => {
+    cdpSentCommands = [];
+    isDebuggerAttached = true;
+    debuggerAttachThrows = false;
+    emulatedMaxTouchPoints = 0;
+    rejectedCdpCommand = { method: 'Input.dispatchMouseEvent', type: 'mouseReleased' };
+
+    const result = await automationHost.dispatchAgentAction('click', {
+      selector: '#add-to-cart-button',
+      trusted: true,
+    });
+
+    assert.strictEqual(result.success, false);
+    assert.match(result.reason || '', /mouse release failed after mousePressed/);
+    assert.deepStrictEqual(
+      cdpSentCommands.filter((command) => command.method === 'Input.dispatchMouseEvent').map((command) => command.params?.type),
+      ['mouseMoved', 'mousePressed', 'mouseReleased', 'mouseReleased']
+    );
+    assert.strictEqual(cdpSentCommands.at(-1)?.params?.buttons, 0);
   });
 
   it('6. Dispatches CDP mouse hover (mouseMoved) event to element center', async () => {

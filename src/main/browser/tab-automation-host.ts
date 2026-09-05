@@ -297,6 +297,31 @@ export class TabAutomationHost {
     }
     throw new CapabilityError('CAPABILITY_NOT_FOUND', 'Isolated world execution (world 1004) is not supported in this WebContents environment');
   }
+  private async sendCdpInputCommand(
+    wc: Electron.WebContents,
+    method: string,
+    params: Record<string, unknown>,
+    timeoutMs = 10_000
+  ): Promise<unknown> {
+    if (this.ctx.tabDevToolsHost) {
+      return this.ctx.tabDevToolsHost.sendCdpCommand(wc, method, params, timeoutMs);
+    }
+
+    const command = wc.debugger.sendCommand(method, params);
+    command.catch(() => {});
+    let timer: NodeJS.Timeout | undefined;
+    try {
+      return await Promise.race([
+        command,
+        new Promise<never>((_, reject) => {
+          timer = setTimeout(() => reject(new Error(`CDP input command ${method} timed out after ${timeoutMs}ms`)), timeoutMs);
+        }),
+      ]);
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+  }
+
   private async executeTrustedType(
     wc: Electron.WebContents,
     focusScript: string,
@@ -330,27 +355,27 @@ export class TabAutomationHost {
       try {
         const isMac = process.platform === 'darwin';
         const modifierFlag = isMac ? 4 : 2; // Meta (4) on Darwin, Control (2) on Win/Linux
-        await wc.debugger.sendCommand('Input.dispatchKeyEvent', {
+        await this.sendCdpInputCommand(wc, 'Input.dispatchKeyEvent', {
           type: 'keyDown',
           modifiers: modifierFlag,
           windowsVirtualKeyCode: 65,
           code: 'KeyA',
           key: 'a',
         });
-        await wc.debugger.sendCommand('Input.dispatchKeyEvent', {
+        await this.sendCdpInputCommand(wc, 'Input.dispatchKeyEvent', {
           type: 'keyUp',
           modifiers: modifierFlag,
           windowsVirtualKeyCode: 65,
           code: 'KeyA',
           key: 'a',
         });
-        await wc.debugger.sendCommand('Input.dispatchKeyEvent', {
+        await this.sendCdpInputCommand(wc, 'Input.dispatchKeyEvent', {
           type: 'keyDown',
           windowsVirtualKeyCode: 8,
           code: 'Backspace',
           key: 'Backspace',
         });
-        await wc.debugger.sendCommand('Input.dispatchKeyEvent', {
+        await this.sendCdpInputCommand(wc, 'Input.dispatchKeyEvent', {
           type: 'keyUp',
           windowsVirtualKeyCode: 8,
           code: 'Backspace',
@@ -365,7 +390,7 @@ export class TabAutomationHost {
     }
     // 4. Issue CDP Input.insertText exactly once
     try {
-      await wc.debugger.sendCommand('Input.insertText', { text });
+      await this.sendCdpInputCommand(wc, 'Input.insertText', { text });
       return { success: true, executionTier: 'cdp_trusted', data: { ok: true, executed: true, tier: 'cdp_trusted', executionTier: 'cdp_trusted', rect: res.rect } };
     } catch (cdpErr) {
       return {
@@ -384,6 +409,7 @@ export class TabAutomationHost {
     let clickX = x;
     let clickY = y;
     let rect: { x: number; y: number; width: number; height: number; centerX?: number; centerY?: number } | undefined = undefined;
+    let touchCapable = false;
 
     if (focusScript) {
       const rawRes = await this.executeInIsolatedWorld(wc, focusScript);
@@ -392,6 +418,7 @@ export class TabAutomationHost {
         return { success: false, reason: res.error || 'Failed to resolve element for trusted click', fallbackNeeded: true };
       }
       rect = res.rect;
+      touchCapable = res.metadata?.touchCapable === true;
       if (typeof clickX !== 'number' || typeof clickY !== 'number') {
         if (rect && typeof rect.centerX === 'number' && typeof rect.centerY === 'number') {
           clickX = rect.centerX;
@@ -416,30 +443,38 @@ export class TabAutomationHost {
         return { success: false, fallbackNeeded: true, reason: 'Debugger busy' };
       }
     }
+    try {
+      if (typeof wc.focus === 'function') {
+        wc.focus();
+      }
+      await this.sendCdpInputCommand(wc, 'Emulation.setFocusEmulationEnabled', { enabled: true });
+    } catch {}
 
     let dispatchStage: 'none' | 'moved' | 'pressed' | 'released' = 'none';
     try {
-      await wc.debugger.sendCommand('Input.dispatchMouseEvent', {
+      await this.sendCdpInputCommand(wc, 'Input.dispatchMouseEvent', {
         type: 'mouseMoved',
         x: clickX,
         y: clickY,
       });
       dispatchStage = 'moved';
 
-      await wc.debugger.sendCommand('Input.dispatchMouseEvent', {
+      await this.sendCdpInputCommand(wc, 'Input.dispatchMouseEvent', {
         type: 'mousePressed',
         x: clickX,
         y: clickY,
         button: 'left',
+        buttons: 1,
         clickCount: 1,
       });
       dispatchStage = 'pressed';
 
-      await wc.debugger.sendCommand('Input.dispatchMouseEvent', {
+      await this.sendCdpInputCommand(wc, 'Input.dispatchMouseEvent', {
         type: 'mouseReleased',
         x: clickX,
         y: clickY,
         button: 'left',
+        buttons: 0,
         clickCount: 1,
       });
       dispatchStage = 'released';
@@ -447,26 +482,27 @@ export class TabAutomationHost {
       return {
         success: true,
         executionTier: 'cdp_trusted',
-        data: { ok: true, executed: true, tier: 'cdp_trusted', executionTier: 'cdp_trusted', x: clickX, y: clickY, rect },
+        data: { ok: true, executed: true, tier: 'cdp_trusted', executionTier: 'cdp_trusted', inputType: touchCapable ? 'touch' : undefined, x: clickX, y: clickY, rect },
       };
     } catch (cdpErr) {
       const errMsg = cdpErr instanceof Error ? cdpErr.message : String(cdpErr);
+      console.warn(`[tab-automation-host] Trusted click CDP failure at stage '${dispatchStage}': ${errMsg}`);
       if (dispatchStage === 'pressed') {
         try {
           await Promise.race([
-            wc.debugger.sendCommand('Input.dispatchMouseEvent', {
+            this.sendCdpInputCommand(wc, 'Input.dispatchMouseEvent', {
               type: 'mouseReleased',
               x: clickX,
               y: clickY,
               button: 'left',
+              buttons: 0,
               clickCount: 1,
             }),
-            new Promise((_, reject) => setTimeout(() => reject(new Error('Cleanup release timed out')), 1000)),
+            new Promise((_, reject) => setTimeout(() => reject(new Error('Cleanup mouse release timed out')), 1000)),
           ]);
         } catch {
           // Bounded cleanup error ignored
         }
-        // Never cross tiers after button press emitted
         return {
           success: false,
           fallbackNeeded: false,
@@ -526,7 +562,13 @@ export class TabAutomationHost {
     }
 
     try {
-      await wc.debugger.sendCommand('Input.dispatchMouseEvent', {
+      if (typeof wc.focus === 'function') {
+        wc.focus();
+      }
+      await this.sendCdpInputCommand(wc, 'Emulation.setFocusEmulationEnabled', { enabled: true });
+    } catch {}
+    try {
+      await this.sendCdpInputCommand(wc, 'Input.dispatchMouseEvent', {
         type: 'mouseMoved',
         x: hoverX,
         y: hoverY,

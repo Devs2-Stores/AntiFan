@@ -1,0 +1,37 @@
+{
+  "schemaVersion": 1,
+  "type": "antifan-core-freeze-thresholds",
+  "buildIdentity": "7e92d354a292c83eefc94b6ccb1e044cba11ba09a347747bc23d0856981fb446",
+  "certificationDurationMinutes": 45,
+  "sampleIntervalMs": 500,
+  "resourceSampleIntervalMs": 5000,
+  "workload": {
+    "capabilityInvocations": 75,
+    "artifactWrites": 6,
+    "receiptWrites": 12
+  },
+  "gates": {
+    "settledTotalRssGrowthMb": 30,
+    "overallTotalRssSlopeMbPerMin": 0.35,
+    "rendererRssSlopeMbPerMin": 0.15,
+    "ownedOrphanProcessCount": 0,
+    "activeResourceCountAfterTeardown": 0,
+    "staleContextAcceptedCount": 0,
+    "falseClaimVerifiedCount": 0,
+    "unhandledErrorCount": 0,
+    "artifactCountGrowth": 6,
+    "artifactBytesGrowth": 50331648,
+    "receiptCountGrowth": 12,
+    "receiptBytesGrowth": 786432,
+    "ledgerFrameGrowth": 225,
+    "ledgerBytesGrowth": 235929600
+  },
+  "bounds": {
+    "maxArtifactBytes": 8388608,
+    "maxInvocationFrameBytes": 67108864,
+    "maxCertificationInvocationFrameBytes": 1048576,
+    "maxReceiptBytes": 65536,
+    "invocationFramesPerCapability": 3
+  },
+  "thresholdChecksum": "4f19a37bb8a3b5180081110453c92043582369e284aed3e015023cfef8f68b20"
+}

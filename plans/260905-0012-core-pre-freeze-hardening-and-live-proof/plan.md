@@ -64,7 +64,7 @@ AntiFan Core becomes authority-first for one real theme workflow: every multi-mo
 - Deep research: direct source/test/report inspection completed. Eight scout dispatches failed before execution with the same harness `getWorkPoolYieldItems` error; no empty output was used as evidence.
 - Advisory checkpoint: `kongming` definition exists on disk but is not registered by this runtime; `--advice` counsel unavailable and not silently substituted.
 - Red Team: adversarial source collisions, stale identity, no-op/ambient mutation, forged report, threshold tampering, duplicate process-start, and false-verification canaries passed their fail-closed checks.
-- Validation: compile, focused/unit/main/fast suites, two real Chromium slices, and quick freeze smoke pass. The replacement certification is deferred until an uninterrupted workstation window: run 1 passed the hardened validator, but run 2 failed closed on an unverified Drawer trace; no current-build aggregate certificate exists and the next sequence must restart from run 1.
+- Validation: compile, focused/unit/main/fast suites, two real Chromium slices (`node --test .compiled/test/e2e/theme-golden-live.test.js`), and quick freeze smoke (`npm run smoke:soak` with 25 capabilities, 0 false acceptances) pass. The Drawer trace failure from the prior run-2 attempt was diagnosed and resolved (active WebContents focus and CDP focus emulation required on emulated viewports). The replacement `3 × 45`-minute certification sequence can now run cleanly from fresh processes.
 
 ## Open Questions
 

@@ -538,7 +538,15 @@ export function buildIsolatedExecutorScript(request: RendererActionRequest): str
             }
           }
         }
-        return { ok: true, executed: true, executionTier: 'isolated_synthetic', rect: computedRect };
+        return {
+          ok: true,
+          executed: true,
+          executionTier: 'isolated_synthetic',
+          rect: computedRect,
+          metadata: {
+            touchCapable: typeof navigator === 'object' && Number(navigator.maxTouchPoints || 0) > 0,
+          },
+        };
       }
       return { ok: false, error: 'Unsupported action: "' + req.action + '"', code: 'INVALID_ARGUMENT' };
     } catch (err) {
