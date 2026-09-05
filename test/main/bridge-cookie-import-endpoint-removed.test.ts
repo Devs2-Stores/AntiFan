@@ -21,6 +21,43 @@ import { BridgeServer } from '../../src/main/bridge/bridge-server';
 class StubHost extends EventEmitter {
   public cookieWriteCalls = 0;
   public cookieReadCalls = 0;
+  /** The exact session accessors the removed route could have reached. */
+  public sessionAccessorCalls: { getActiveTabSession: number; getTabSession: number; getPartitionSession: number } = {
+    getActiveTabSession: 0,
+    getTabSession: 0,
+    getPartitionSession: 0,
+  };
+  /**
+   * The removed route reached the session through exactly these accessors
+   * (verified against 32a0adc's handler): default → getActiveTabSession,
+   * explicit tabId → getTabSession, explicit partition → getPartitionSession.
+   * Each bumps its own counter and the write counter, so a resurrected route
+   * trips the assert no matter which path it took.
+   */
+  private readonly session = {
+    cookies: {
+      set: async () => {
+        this.cookieWriteCalls += 1;
+        return {};
+      },
+      get: async () => {
+        this.cookieReadCalls += 1;
+        return [];
+      },
+    },
+  };
+  public getActiveTabSession(): typeof this.session {
+    this.sessionAccessorCalls.getActiveTabSession += 1;
+    return this.session;
+  }
+  public getTabSession(): typeof this.session {
+    this.sessionAccessorCalls.getTabSession += 1;
+    return this.session;
+  }
+  public getPartitionSession(): typeof this.session {
+    this.sessionAccessorCalls.getPartitionSession += 1;
+    return this.session;
+  }
 }
 
 function requestHttp(port: number, method: string, path: string, headers: Record<string, string> = {}, body?: string): Promise<{ status: number; body: string }> {
@@ -39,19 +76,6 @@ function requestHttp(port: number, method: string, path: string, headers: Record
 describe('Bridge cookie import endpoint removal', () => {
   it('POST /api/cookies/import answers 404 and mutates no session', async () => {
     const host = new StubHost();
-    // Session accessor: any writer path would land here and bump the counter.
-    (host as unknown as { getSessionForTarget?: unknown }).getSessionForTarget = () => ({
-      cookies: {
-        set: async () => {
-          host.cookieWriteCalls += 1;
-          return {};
-        },
-        get: async () => {
-          host.cookieReadCalls += 1;
-          return [];
-        },
-      },
-    });
     const server = new BridgeServer(host as never, 0);
     const port = await server.start();
     try {
@@ -65,6 +89,7 @@ describe('Bridge cookie import endpoint removal', () => {
       assert.strictEqual(res.status, 404, 'removed endpoint must 404, not ingest');
       assert.strictEqual(host.cookieWriteCalls, 0, 'removed route must never write cookies');
       assert.strictEqual(host.cookieReadCalls, 0, 'removed route must never read cookies either');
+      assert.deepStrictEqual(host.sessionAccessorCalls, { getActiveTabSession: 0, getTabSession: 0, getPartitionSession: 0 }, 'removed route must never reach a session accessor');
     } finally {
       server.dispose();
     }
@@ -78,6 +103,7 @@ describe('Bridge cookie import endpoint removal', () => {
       const res = await requestHttp(port, 'OPTIONS', '/api/cookies/import', { Origin: 'http://localhost:8080' });
       assert.strictEqual(res.status, 204);
       assert.strictEqual(host.cookieWriteCalls, 0);
+      assert.deepStrictEqual(host.sessionAccessorCalls, { getActiveTabSession: 0, getTabSession: 0, getPartitionSession: 0 });
     } finally {
       server.dispose();
     }

@@ -25,7 +25,6 @@ const os = require('node:os');
 const { spawn, spawnSync, execSync } = require('node:child_process');
 
 const ROOT = path.resolve(__dirname, '..');
-const APP_PORT = 18474;
 
 const CHROME_CANDIDATES = [
   path.join(process.env.PROGRAMFILES || 'C:\\Program Files', 'Google', 'Chrome', 'Application', 'chrome.exe'),
@@ -104,10 +103,28 @@ async function closeChromeGracefully(child, userDataDir) {
   const WebSocketClient = require('ws');
   await new Promise((resolve, reject) => {
     const ws = new WebSocketClient(wsUrl);
+    let settled = false;
+    // Bounded backstop; cleared on settle so no timer is left dangling.
+    const guard = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      resolve();
+    }, 5000);
     ws.on('open', () => ws.send(JSON.stringify({ id: 1, method: 'Browser.close' })));
-    ws.on('close', () => resolve());
-    ws.on('error', (e) => reject(new Error(`Browser.close ws error: ${e.message}`)));
-    setTimeout(() => resolve(), 4000);
+    ws.on('close', () => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(guard);
+      resolve();
+    });
+    // Browser.close makes the server drop the socket — the resulting error
+    // after 'close' is expected. Only a pre-close error is a real failure.
+    ws.on('error', (e) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(guard);
+      reject(new Error(`Browser.close ws error: ${e.message}`));
+    });
   });
   await Promise.race([
     new Promise((resolve) => child.once('exit', resolve)),
@@ -162,16 +179,19 @@ async function ownedChromeLaunch(userDataDir, extraArgs) {
   let beforeDirs = new Set();
 
   try {
+    // Bind to port 0 (OS-assigned) — no fixed port to collide with an
+    // unrelated local process and make the proof flaky.
     await new Promise((resolve, reject) => {
-      server.listen(APP_PORT, '127.0.0.1', (err) => (err ? reject(err) : resolve()));
+      server.listen(0, '127.0.0.1', (err) => (err ? reject(err) : resolve()));
     });
+    const seedAppPort = server.address().port;
 
     // ---- SEED: real Chrome writes persistent cookies into seedProfileDir ----
     seedChrome = await ownedChromeLaunch(seedUserData, ['--remote-debugging-port=0', 'about:blank']);
     check('seed Chrome spawned', Boolean(seedChrome && seedChrome.pid), CHROME_EXE);
     const seedPort = await waitForDevToolsPort(seedUserData, 15000);
     check('seed Chrome CDP port assigned from DevToolsActivePort', Number.isInteger(seedPort) && seedPort > 0, `port=${seedPort}`);
-    await createTarget(seedPort, `http://127.0.0.1:${APP_PORT}/set`);
+    await createTarget(seedPort, `http://127.0.0.1:${seedAppPort}/set`);
     await sleep(1800);
     // Graceful close so the cookie store flushes to disk: CDP Browser.close,
     // then await the process exit. A hard kill (taskkill /F) drops pending
