@@ -3,13 +3,25 @@
  *
  * Regression for review finding 7: `/api/cookies/import` was removed as part
  * of eliminating the extension delta architecture. A POST must now answer 404
- * (unknown route), never perform cookie ingestion.
+ * (unknown route) and MUST NOT mutate any session — the stub host's cookie
+ * write counter must stay at zero even though the payload looks like a
+ * legitimate import request. The preflight is a generic 204, not an
+ * import-specific origin gate (the route has no CORS boundary of its own).
+ *
+ * Servers are torn down with BridgeServer.dispose() (closes WSS + HTTP) so
+ * no listener leaks keep the node --test child process alive.
  */
 import { describe, it } from 'node:test';
 import * as assert from 'node:assert';
 import * as http from 'node:http';
 import { EventEmitter } from 'node:events';
 import { BridgeServer } from '../../src/main/bridge/bridge-server';
+
+/** EventEmitter stand-in for NativeTabHost that records cookie writes. */
+class StubHost extends EventEmitter {
+  public cookieWriteCalls = 0;
+  public cookieReadCalls = 0;
+}
 
 function requestHttp(port: number, method: string, path: string, headers: Record<string, string> = {}, body?: string): Promise<{ status: number; body: string }> {
   return new Promise((resolve, reject) => {
@@ -24,22 +36,23 @@ function requestHttp(port: number, method: string, path: string, headers: Record
   });
 }
 
-async function stopServer(server: BridgeServer): Promise<void> {
-  // Close the listening HTTP server so the test child process can exit
-  // (an open server keeps the event loop alive and node --test hangs).
-  const httpServer = (server as unknown as { httpServer?: http.Server }).httpServer;
-  if (!httpServer) return;
-  await new Promise<void>((resolve) => {
-    httpServer.close(() => resolve());
-    httpServer.closeAllConnections?.();
-  });
-}
-
 describe('Bridge cookie import endpoint removal', () => {
-  it('POST /api/cookies/import answers 404 (route removed)', async () => {
-    // Minimal host: the removed route never reaches tabHost; an EventEmitter
-    // satisfies wireTabHostEvents() listeners.
-    const server = new BridgeServer(new EventEmitter() as never, 0);
+  it('POST /api/cookies/import answers 404 and mutates no session', async () => {
+    const host = new StubHost();
+    // Session accessor: any writer path would land here and bump the counter.
+    (host as unknown as { getSessionForTarget?: unknown }).getSessionForTarget = () => ({
+      cookies: {
+        set: async () => {
+          host.cookieWriteCalls += 1;
+          return {};
+        },
+        get: async () => {
+          host.cookieReadCalls += 1;
+          return [];
+        },
+      },
+    });
+    const server = new BridgeServer(host as never, 0);
     const port = await server.start();
     try {
       const res = await requestHttp(
@@ -50,19 +63,23 @@ describe('Bridge cookie import endpoint removal', () => {
         JSON.stringify({ cookies: [{ name: 'SID', value: 'v', domain: '.example.com' }] })
       );
       assert.strictEqual(res.status, 404, 'removed endpoint must 404, not ingest');
+      assert.strictEqual(host.cookieWriteCalls, 0, 'removed route must never write cookies');
+      assert.strictEqual(host.cookieReadCalls, 0, 'removed route must never read cookies either');
     } finally {
-      await stopServer(server);
+      server.dispose();
     }
   });
 
   it('OPTIONS preflight for the removed route is a generic 204 (no import-specific origin gate)', async () => {
-    const server = new BridgeServer(new EventEmitter() as never, 0);
+    const host = new StubHost();
+    const server = new BridgeServer(host as never, 0);
     const port = await server.start();
     try {
       const res = await requestHttp(port, 'OPTIONS', '/api/cookies/import', { Origin: 'http://localhost:8080' });
       assert.strictEqual(res.status, 204);
+      assert.strictEqual(host.cookieWriteCalls, 0);
     } finally {
-      await stopServer(server);
+      server.dispose();
     }
   });
 });

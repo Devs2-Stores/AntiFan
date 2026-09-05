@@ -7,6 +7,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
+import * as http from 'http';
 import { spawn, execSync, type ChildProcess } from 'child_process';
 import { LocalSessionVault } from './local-session-vault';
 export interface ChromeProfileInfo {
@@ -336,6 +337,8 @@ export class ChromeProfileSyncManager {
    * the user-data-dir's Local State (where App-Bound Encryption keys live).
    * The real profile is never opened for writing, so a running Chrome cannot
    * race us — but we still refuse to run while Chrome is open (see caller).
+   * NOTE: cookie rows only exist on disk if Chrome was shut down normally;
+   * a hard-killed Chrome never gets to flush its cookie store.
    */
   private cloneMinimalProfile(profileId: string, profilePath: string, tempDir: string): void {
     const localStateSrc = path.join(this.chromeUserDataPath, 'Local State');
@@ -350,7 +353,9 @@ export class ChromeProfileSyncManager {
   /**
    * Waits for Chrome (launched with --remote-debugging-port=0) to write its
    * DevToolsActivePort file in the owned user-data-dir. Returns the OS-assigned
-   * ephemeral port, or null on timeout.
+   * ephemeral port, or null on timeout. NOTE: callers must remove any stale
+   * DevToolsActivePort BEFORE spawning — an old file from a previous launch
+   * would be read before the new Chrome overwrites it.
    */
   private async waitForDevToolsPort(tempDir: string, timeoutMs: number): Promise<number | null> {
     const devtoolsFile = path.join(tempDir, 'DevToolsActivePort');
@@ -364,6 +369,31 @@ export class ChromeProfileSyncManager {
       await new Promise((resolve) => setTimeout(resolve, 200));
     }
     return null;
+  }
+
+  /**
+   * Confirms the DevTools HTTP endpoint actually answers before the CDP WS
+   * import (DevToolsActivePort is written at bind time; this guards against
+   * races and stale-file reads). Bounded retries, then false.
+   */
+  private async probeCdpReachable(port: number, timeoutMs: number): Promise<boolean> {
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+      const ok = await new Promise<boolean>((resolve) => {
+        const req = http.get({ host: '127.0.0.1', port, path: '/json/version', timeout: 600 }, (res) => {
+          res.resume();
+          res.on('end', () => resolve(true));
+        });
+        req.on('error', () => resolve(false));
+        req.on('timeout', () => {
+          req.destroy();
+          resolve(false);
+        });
+      });
+      if (ok) return true;
+      await new Promise((resolve) => setTimeout(resolve, 300));
+    }
+    return false;
   }
   /**
    * Terminates the owned Chrome process tree. Only ever called on processes
@@ -405,12 +435,18 @@ export class ChromeProfileSyncManager {
     let child: ChildProcess | null = null;
     try {
       this.cloneMinimalProfile(profileId, profilePath, tempDir);
+      // Remove any stale DevToolsActivePort BEFORE spawn: a leftover file from
+      // a previous launch would be read before the new Chrome overwrites it.
+      try {
+        fs.rmSync(path.join(tempDir, 'DevToolsActivePort'), { force: true });
+      } catch {}
       child = spawn(
         chromeExe,
         [
           '--headless=new',
           `--user-data-dir=${tempDir}`,
           '--remote-debugging-port=0',
+          '--remote-debugging-address=127.0.0.1',
           `--profile-directory=${profileId}`,
           '--no-first-run',
           '--no-default-browser-check',
@@ -422,9 +458,17 @@ export class ChromeProfileSyncManager {
         ],
         { stdio: 'ignore', windowsHide: true }
       );
+      if (child.exitCode !== null) {
+        return { count: 0, message: 'Chrome headless thoát sớm trước khi mở cổng CDP.' };
+      }
       const port = await this.waitForDevToolsPort(tempDir, 15000);
       if (port === null) {
         return { count: 0, message: 'Chrome headless không mở được cổng CDP (hết thời gian chờ).' };
+      }
+      // DevToolsActivePort can predate the HTTP bind — confirm real readiness.
+      const reachable = await this.probeCdpReachable(port, 6000);
+      if (!reachable) {
+        return { count: 0, message: 'Chrome headless CDP không phản hồi (hết thời gian chờ).' };
       }
       const res = await LocalSessionVault.getInstance().importFromLiveChromeCDP(targetSession, port);
       if (!res.success) {
@@ -434,13 +478,28 @@ export class ChromeProfileSyncManager {
     } catch (err: unknown) {
       return { count: 0, message: `Lỗi hút cookies qua CDP: ${err instanceof Error ? err.message : String(err)}` };
     } finally {
+      // Deterministic teardown — no untracked timers: kill the process tree,
+      // wait for the child to actually exit, then retry-remove the temp dir.
       this.killOwnedChrome(child);
-      // Chrome may still hold temp-file handles briefly; retry removal later.
-      setTimeout(() => {
+      if (child && child.exitCode === null) {
+        try {
+          await new Promise<void>((resolve) => {
+            const guard = setTimeout(resolve, 2000);
+            child!.once('exit', () => {
+              clearTimeout(guard);
+              resolve();
+            });
+          });
+        } catch {}
+      }
+      for (let attempt = 0; attempt < 5; attempt++) {
         try {
           fs.rmSync(tempDir, { recursive: true, force: true });
-        } catch {}
-      }, 2500);
+          break;
+        } catch {
+          await new Promise((resolve) => setTimeout(resolve, 200));
+        }
+      }
     }
   }
 

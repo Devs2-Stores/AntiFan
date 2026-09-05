@@ -416,12 +416,14 @@ window.addEventListener(
       if (!passwordInput || !passwordInput.value) return;
       const usernameInput = findUsernameInput(form);
       const username = usernameInput && usernameInput.value ? usernameInput.value.trim() : '';
-      // Origin is intentionally NOT sent: the main process derives it from the
-      // sender frame (top frame only), so page JS can never direct where the
-      // password is stored.
+      // Send the frame's own origin as a cross-check: the main process still
+      // derives the authoritative origin from the sender frame and REJECTS
+      // (ORIGIN_MISMATCH) if the renderer-supplied value disagrees — page JS
+      // can never direct where the password is stored.
       void ipcRenderer.invoke('antifan:password:save', {
         username,
         password: passwordInput.value,
+        origin: window.location.origin || undefined,
       });
     } catch {}
   };

@@ -40,6 +40,7 @@ import type { ControlPlaneResourceStats, ControlPlaneRuntime } from '../control-
 import type { BrowserTarget } from '../../shared/control-plane-contracts';
 import type { WorkflowDefinition } from '../workflow/workflow-schema';
 import { ChromeProfileSyncManager } from './chrome-profile-sync';
+import { buildCookieSetDetails, runCapsuleToProfileMigration, type CapsuleMigrationCookie, type CapsuleMigrationDeps } from './capsule-partition-migration';
 import { LocalSessionVault } from './local-session-vault';
 import { LocalCredentialVault, resolveSenderFrameOrigin } from './local-credential-vault';
 import { HaravanUploader } from './haravan-uploader';
@@ -2615,7 +2616,8 @@ export class NativeTabHost extends EventEmitter {
    * the unified `persist:profile-*` partitions. Cookie data is COPIED — the
    * legacy partition is only ever deleted after manual verification, never
    * here. A marker file in the config dir guarantees exactly one run per
-   * install. Local-only: never touches a Chrome profile.
+   * install. Local-only: never touches a Chrome profile. The copy/failure
+   * logic is delegated to the Electron-free `runCapsuleToProfileMigration`.
    */
   public async migrateLegacyCapsuleToProfile(): Promise<{ migrated: number; legacyPartitions: string[] }> {
     const markerPath = path.join(StorageLocations.getConfigDir(), 'antifan-migration-capsule-to-profile.done');
@@ -2626,72 +2628,46 @@ export class NativeTabHost extends EventEmitter {
     try {
       partitionsDir = path.join(app.getPath('userData'), 'Partitions');
     } catch {}
-    let keys: string[] = [];
-    if (partitionsDir && fs.existsSync(partitionsDir)) {
-      try {
-        keys = fs.readdirSync(partitionsDir).filter((n) => n.startsWith('capsule-'));
-      } catch (err) {
-        console.warn('[PartitionMigration] Cannot list legacy capsule partitions:', err);
-      }
-    }
-    // Always attempt the canonical default mapping even when the on-disk
-    // enumeration finds nothing (layout differences across Electron versions).
-    const candidateKeys = keys.length > 0 ? keys : ['capsule-default'];
-    let migrated = 0;
-    let failed = false;
-    const legacyPartitions: string[] = [];
-    for (const key of candidateKeys) {
-      const legacy = `persist:${key}`;
-      const target = `persist:${key.replace(/^capsule-/, 'profile-')}`;
-      if (legacy === target) continue;
-      try {
-        const legacySes = configureBrowserSessionPartition(legacy);
-        const cookies = await legacySes.cookies.get({});
-        if (cookies.length === 0) continue;
-        const targetSes = configureBrowserSessionPartition(target);
-        let copied = 0;
-        for (const c of cookies) {
-          try {
-            const domain = String(c.domain || '').replace(/^\./, '');
-            await targetSes.cookies.set({
-              url: `${c.secure ? 'https://' : 'http://'}${domain}${c.path || '/'}`,
-              name: c.name,
-              value: c.value,
-              domain: String(c.domain || '').startsWith('.') ? c.domain : undefined,
-              path: c.path || '/',
-              secure: c.secure,
-              httpOnly: c.httpOnly,
-              ...(typeof c.expirationDate === 'number' ? { expirationDate: c.expirationDate } : {}),
-              ...(c.sameSite ? { sameSite: c.sameSite as 'unspecified' | 'no_restriction' | 'lax' | 'strict' } : {}),
-            });
-            copied++;
-          } catch {
-            // A single unimportable cookie means the migration is NOT complete:
-            // the done marker stays unset so the next launch retries (legacy
-            // partition data is never removed, so retry is always safe).
-            failed = true;
-          }
-        }
-        if (copied > 0) {
-          await targetSes.cookies.flushStore();
-          migrated += copied;
-          legacyPartitions.push(legacy);
-        }
-      } catch (err) {
-        failed = true;
-        console.warn(`[PartitionMigration] failed for ${legacy}:`, err);
-      }
-    }
+    const deps: CapsuleMigrationDeps = {
+      listLegacyPartitionKeys: () => {
+        if (!partitionsDir || !fs.existsSync(partitionsDir)) return [];
+        return fs.readdirSync(partitionsDir).filter((n) => n.startsWith('capsule-'));
+      },
+      readCookies: async (partition) => {
+        const cookies = await configureBrowserSessionPartition(partition).cookies.get({});
+        return cookies.map((c) => ({
+          domain: c.domain,
+          path: c.path,
+          secure: c.secure === true,
+          httpOnly: c.httpOnly === true,
+          name: c.name,
+          value: c.value,
+          expirationDate: typeof c.expirationDate === 'number' ? c.expirationDate : undefined,
+          sameSite: c.sameSite ? (c.sameSite as CapsuleMigrationCookie['sameSite']) : undefined,
+        }));
+      },
+      writeCookie: async (target, c) => {
+        await configureBrowserSessionPartition(target).cookies.set(buildCookieSetDetails(c));
+      },
+      flushStore: async (partition) => {
+        await configureBrowserSessionPartition(partition).cookies.flushStore();
+      },
+    };
+    const res = await runCapsuleToProfileMigration(deps);
     // Marker only marks the migration DONE when every legacy partition was
     // processed without error — a partial failure must retry on next launch.
-    if (!failed) {
+    if (res.markerReady) {
       try {
-        fs.writeFileSync(markerPath, JSON.stringify({ version: 1, migrated, legacyPartitions, at: new Date().toISOString() }, null, 2), 'utf8');
+        fs.writeFileSync(
+          markerPath,
+          JSON.stringify({ version: 1, migrated: res.migrated, legacyPartitions: res.legacyPartitions, at: new Date().toISOString() }, null, 2),
+          'utf8'
+        );
       } catch (err) {
         console.warn('[PartitionMigration] Cannot write marker file:', err);
       }
     }
-    return { migrated, legacyPartitions };
+    return { migrated: res.migrated, legacyPartitions: res.legacyPartitions };
   }
 
   public async flushAllSessions(): Promise<void> {

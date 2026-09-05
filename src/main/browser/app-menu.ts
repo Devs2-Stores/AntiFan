@@ -121,10 +121,22 @@ export function buildApplicationMenu(mainWindow: BrowserWindow, tabHost?: Native
   const managePasswordVault = async (window: BrowserWindow | null): Promise<void> => {
     const targetWindow = window || BrowserWindow.getFocusedWindow();
     if (!targetWindow) return;
-    const vault = LocalCredentialVault.getInstance({
-      safeStorage,
-      filePath: path.join(StorageLocations.getConfigDir(), LocalCredentialVault.DEFAULT_VAULT_FILENAME),
-    });
+    // Use the instance bootstrapped by NativeTabHost (constructor →
+    // setupToolbarIpc) WITH its security hooks. NEVER construct via
+    // getInstance(options) here: a bare-instance created this late would lack
+    // resolveEventOrigin/requestSaveConsent and could never be re-hooked.
+    let vault: LocalCredentialVault;
+    try {
+      vault = LocalCredentialVault.getInstance();
+    } catch {
+      dialog.showMessageBox(targetWindow, {
+        type: 'info',
+        title: 'Password Vault',
+        message: 'Kho mật khẩu chưa được khởi tạo.',
+        detail: 'Vui lòng mở lại ứng dụng để khởi tạo kho mật khẩu.',
+      });
+      return;
+    }
     const entries = vault.list();
     if (entries.length === 0) {
       dialog.showMessageBox(targetWindow, {

@@ -290,9 +290,10 @@ export class LocalCredentialVault {
 
     // Save: object payload; the target origin is derived from the (main-process)
     // sender frame — the renderer never chooses which site the password is
-    // stored for. Renderer-supplied origin was removed from the contract; if a
-    // legacy payload still carries one it is ignored. Consent (if wired) gates
-    // the write with a trusted main-process dialog.
+    // stored for. The renderer SHOULD send `origin` (its own location.origin)
+    // as a cross-check: if it disagrees with the sender frame the payload is
+    // rejected (ORIGIN_MISMATCH) because the frame is authoritative. Consent
+    // (if wired) gates the write with a trusted main-process dialog.
     this.ipc.removeHandler('antifan:password:save');
     this.ipc.handle('antifan:password:save', async (event: unknown, payload: unknown) => {
       const origin = this.resolveEventOrigin ? this.resolveEventOrigin(event) : null;
@@ -304,8 +305,8 @@ export class LocalCredentialVault {
         username?: unknown;
         password?: unknown;
       };
-      // A legacy/malicious payload that still carries an origin gets rejected
-      // when it disagrees with the sender frame — the frame is authoritative.
+      // An origin supplied by the renderer that disagrees with the sender
+      // frame gets rejected — the frame is authoritative.
       if (typeof p.origin === 'string' && p.origin.length > 0 && p.origin !== origin) {
         return { ok: false, error: 'ORIGIN_MISMATCH' };
       }

@@ -46,9 +46,9 @@ describe('migrateLegacyCapsuleToProfile', () => {
     });
   });
 
-  // NOTE: the "clean pass writes the marker" and "partial failure leaves the
-  // marker unset" behaviors require a real Electron session (`session.fromPartition`
-  // on `app.getPath('userData')`), which node --test does not provide. They are
-  // covered by code review plus the hermetic Electron boot smoke; the marker
-  // GATE (the only Electron-free branch) is asserted here.
+  // The Electron-dependent branches (clean pass, per-cookie failure,
+  // enumeration failure, flush failure, default fallback) are fully covered by
+  // the dependency-injected pure function in
+  // test/main/capsule-partition-migration-pure.test.ts (no Electron needed).
+  // This file asserts the only Electron-free integration branch: the GATE.
 });

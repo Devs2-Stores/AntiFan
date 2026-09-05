@@ -37,6 +37,7 @@
     "smoke:persistence": "npm run compile && node scripts/smoke-profile-persistence-runner.cjs",
     "smoke:google": "npm run compile && node scripts/run-electron.cjs scripts/smoke-google-cookies.cjs",
     "smoke:cdp": "npm run compile && node scripts/smoke-cdp-hydration.cjs",
+    "smoke:owned-cdp": "npm run compile && node scripts/smoke-owned-cdp.cjs",
     "smoke:vault": "npm run compile && node scripts/run-electron.cjs scripts/smoke-vault.cjs",
     "benchmark:artifacts": "node scripts/benchmark-antigravity-artifacts.mjs",
     "benchmark:soak": "node scripts/benchmark-electron-performance.mjs --scenario soak",
