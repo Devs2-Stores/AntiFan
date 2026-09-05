@@ -24,7 +24,7 @@ import { registerPreviewProtocolHandler } from './server/preview-protocol-handle
 import { StorageLocations } from './config/storage-locations';
 import { WorkspaceCapsuleManager } from './project/workspace-capsule';
 import { NativeTabHost } from './browser/native-tab-host';
-import { BridgeServer } from './bridge/bridge-server';
+import { BridgeServer, DEFAULT_EXTENSION_ALLOWED_DOMAINS } from './bridge/bridge-server';
 import { AntiFanMcpServer } from './mcp/mcp-server';
 import { TerminalManager } from './browser/terminal-manager';
 import { buildApplicationMenu } from './browser/app-menu';
@@ -332,8 +332,9 @@ async function createWindow(): Promise<void> {
       await localIpcServer.start(bridgePort, () => {
         const activeCapsule = capsuleManager?.getActive();
         const activePartition = tabHost!.getSharedProfilePartition('clean');
+        const grant = bridgeServer!.issueExtensionGrant(activePartition, DEFAULT_EXTENSION_ALLOWED_DOMAINS);
         return {
-          token: bridgeServer!.getToken(),
+          token: grant.grantToken,
           port: bridgePort,
           activeCapsuleId: activeCapsule?.id,
           activePartition,

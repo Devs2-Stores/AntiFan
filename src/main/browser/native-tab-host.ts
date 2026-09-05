@@ -13,7 +13,7 @@ import { randomUUID, createHash } from 'node:crypto';
 import { EventEmitter } from 'node:events';
 import { performance } from 'node:perf_hooks';
 import { StorageLocations } from '../config/storage-locations';
-import { AntiFanTab, SplitPaneId, AntiFanPickedElement, TOOLBAR_CHANNELS, SIDEBAR_CHANNELS, TERMINAL_CHANNELS, FRAME_BACKDROP_CHANNELS } from '../../shared/contracts';
+import { AntiFanTab, SplitPaneId, AntiFanPickedElement, TOOLBAR_CHANNELS, SIDEBAR_CHANNELS, TERMINAL_CHANNELS, FRAME_BACKDROP_CHANNELS, TerminalAckPayload } from '../../shared/contracts';
 import { getSecureWebPreferences, sanitizeUrl, isAllowedNavigation, cleanRestoredUrl, isInternalWidgetOrSubframeUrl } from '../security/security-policy';
 import { ELEMENT_PICKER_SCRIPT } from './element-picker';
 import { resolveWorkspaceFromUrl, DEFAULT_WORKSPACE_ROOTS } from './workspace-resolver';
@@ -1160,8 +1160,8 @@ export class NativeTabHost extends EventEmitter {
     });
 
     // Terminal IPC Handlers
-    TerminalManager.getInstance().on('data', (payload: { sessionId: string; data: string; seq: number }) => {
-      if (this.isSidebarOpen && this.sidebarView && !this.sidebarView.webContents.isDestroyed()) {
+    TerminalManager.getInstance().on('data', (payload: { sessionId: string; data: string; seq: number; generation?: number }) => {
+      if (this.sidebarView && !this.sidebarView.webContents.isDestroyed()) {
         safeSendWebContents(this.sidebarView.webContents, 'antifan:terminal:data', payload);
       }
       for (const [id, win] of this.terminalWindows.entries()) {
@@ -1174,7 +1174,7 @@ export class NativeTabHost extends EventEmitter {
     });
 
     TerminalManager.getInstance().on('session', (state: unknown) => {
-      if (this.isSidebarOpen && this.sidebarView && !this.sidebarView.webContents.isDestroyed()) {
+      if (this.sidebarView && !this.sidebarView.webContents.isDestroyed()) {
         safeSendWebContents(this.sidebarView.webContents, 'antifan:terminal:session', state);
       }
       for (const [id, win] of this.terminalWindows.entries()) {
@@ -1211,6 +1211,25 @@ export class NativeTabHost extends EventEmitter {
       const tm = TerminalManager.getInstance();
       const targetId = sessionId || tm.getActiveSessionId();
       return tm.getFullBuffer(targetId);
+    });
+    ipcMain.handle(TERMINAL_CHANNELS.DUMP_DIAGNOSTICS, () => {
+      return TerminalManager.getInstance().getDiagnostics();
+    });
+    ipcMain.handle(TERMINAL_CHANNELS.GET_DELTA, (_event, query: { sessionId: string; generation: number; fromSeq: number }) => {
+      if (!query || !query.sessionId) {
+        return { status: 'SESSION_CLOSED', finalSeq: 0 };
+      }
+      const tm = TerminalManager.getInstance();
+      return tm.getTerminalDelta(query.sessionId, query.generation || 0, Math.max(1, query.fromSeq || 0));
+    });
+    ipcMain.handle(TERMINAL_CHANNELS.SYNC_VIEW, (_event, query: { sessionId: string; knownGeneration: number; lastAppliedSeq: number }) => {
+      if (!query || !query.sessionId) {
+        return { status: 'SESSION_CLOSED', finalSeq: 0 };
+      }
+      return TerminalManager.getInstance().syncTerminalView(query);
+    });
+    ipcMain.on(TERMINAL_CHANNELS.ACK, (_event, payload: TerminalAckPayload) => {
+      TerminalManager.getInstance().recordSubscriberAck(payload);
     });
     ipcMain.handle(TERMINAL_CHANNELS.START, (_event, cwd?: string) => {
       const ok = TerminalManager.getInstance().startTerminal(cwd);

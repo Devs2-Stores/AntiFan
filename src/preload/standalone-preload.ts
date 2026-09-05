@@ -51,7 +51,14 @@ const api = {
     return () => ipcRenderer.removeListener('antifan:terminal:popout-state-changed', h);
   },
   getFullBuffer: (sessionId?: string) => ipcRenderer.invoke('antifan:terminal:get-full-buffer', sessionId),
-  onTerminalData: (cb: (data: { sessionId: string; data: string; seq: number }) => void) => { const h = (_e: unknown, d: { sessionId: string; data: string; seq: number }) => cb(d); ipcRenderer.on('antifan:terminal:data', h); return () => ipcRenderer.removeListener('antifan:terminal:data', h); },
+  getTerminalDelta: (sessionId: string, generation: number, fromSeq: number) =>
+    ipcRenderer.invoke('antifan:terminal:get-delta', { sessionId, generation, fromSeq }),
+  dumpTerminalDiagnostics: () => ipcRenderer.invoke('antifan:terminal:dump-diagnostics'),
+  syncTerminalView: (query: { sessionId: string; knownGeneration: number; lastAppliedSeq: number }) =>
+    ipcRenderer.invoke('antifan:terminal:sync-view', query),
+  ackTerminalChunk: (payload: { rendererInstanceId: string; sessionId: string; generation: number; seq: number; role?: 'DOCK' | 'POPOUT' }) =>
+    ipcRenderer.send('antifan:terminal:ack', payload),
+  onTerminalData: (cb: (data: { sessionId: string; data: string; seq: number; generation?: number }) => void) => { const h = (_e: unknown, d: { sessionId: string; data: string; seq: number; generation?: number }) => cb(d); ipcRenderer.on('antifan:terminal:data', h); return () => ipcRenderer.removeListener('antifan:terminal:data', h); },
   onTerminalSession: (cb: (state: unknown) => void) => { const h = (_e: unknown, d: unknown) => cb(d); ipcRenderer.on('antifan:terminal:session', h); return () => ipcRenderer.removeListener('antifan:terminal:session', h); },
   onTabsUpdated: (cb: (tabs: unknown[]) => void) => { const h = (_e: unknown, d: unknown) => cb(Array.isArray(d) ? d : []); ipcRenderer.on('antifan:tabs:updated', h); return () => ipcRenderer.removeListener('antifan:tabs:updated', h); },
 };

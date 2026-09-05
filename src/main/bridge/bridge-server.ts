@@ -33,6 +33,27 @@ import { deriveCapsulePartition } from '../browser/browser-session-partition';
 import { extensionCookieImportSetDetails, type ExtensionCookieInput } from '../browser/chrome-profile-sync';
 export const OFFICIAL_COMPANION_EXTENSION_ID = 'khjcaadjohoclofjkkfblkbfbpmjjedp';
 
+export const DEFAULT_EXTENSION_ALLOWED_DOMAINS: string[] = [
+  'haravan.com',
+  'myharavan.com',
+  'hstatic.net',
+  'sapo.vn',
+  'mysapo.net',
+  'mysapo.vn',
+  'bizwebvietnam.net',
+  'dktcdn.net',
+  'shopify.com',
+  'myshopify.com',
+];
+
+export interface ExtensionSessionGrant {
+  grantToken: string;
+  targetPartitionId: string;
+  capabilities: ['session.cookies.import'];
+  allowedDomains: string[];
+  expiresAt: number;
+}
+
 export function isAuthorizedCompanionOrigin(rawOrigin: string): boolean {
   if (!rawOrigin || typeof rawOrigin !== 'string') return false;
   if (!rawOrigin.startsWith('chrome-extension://')) return false;
@@ -108,6 +129,40 @@ export class BridgeServer {
   private readonly clientCongestion: WeakMap<WebSocket, BridgeCongestionState> = new WeakMap();
   private drainTimer: NodeJS.Timeout | null = null;
   private heartbeatTimer: NodeJS.Timeout | null = null;
+  private readonly extensionGrants: Map<string, ExtensionSessionGrant> = new Map();
+
+  public issueExtensionGrant(targetPartitionId: string, allowedDomains: string[] = DEFAULT_EXTENSION_ALLOWED_DOMAINS, ttlMs = 3600_000): ExtensionSessionGrant {
+    this.pruneExpiredGrants();
+    const grantToken = randomUUID();
+    const grant: ExtensionSessionGrant = {
+      grantToken,
+      targetPartitionId,
+      capabilities: ['session.cookies.import'],
+      allowedDomains,
+      expiresAt: Date.now() + ttlMs,
+    };
+    this.extensionGrants.set(grantToken, grant);
+    return grant;
+  }
+
+  public getExtensionGrant(token: string): { grant: ExtensionSessionGrant; isExpired: boolean } | null {
+    if (!token) return null;
+    const grant = this.extensionGrants.get(token);
+    if (!grant) return null;
+    if (Date.now() > grant.expiresAt) {
+      return { grant, isExpired: true };
+    }
+    return { grant, isExpired: false };
+  }
+
+  public pruneExpiredGrants(): void {
+    const now = Date.now();
+    for (const [token, grant] of this.extensionGrants.entries()) {
+      if (now - grant.expiresAt > 300_000) { // Prune 5 mins after expiry
+        this.extensionGrants.delete(token);
+      }
+    }
+  }
 
   constructor(
     tabHost: NativeTabHost,
@@ -183,6 +238,9 @@ export class BridgeServer {
       const clientToken = extractAuthToken(req, reqUrl);
       const isBridgeToken = Boolean(clientToken && clientToken === this.token);
       const verifiedAttachmentId = clientToken ? (this.attachmentRegistry?.verifyConnectionToken(clientToken) ?? null) : null;
+      const extensionGrantLookup = clientToken ? this.getExtensionGrant(clientToken) : null;
+      const isExpiredGrant = Boolean(extensionGrantLookup?.isExpired);
+      const verifiedExtensionGrant = extensionGrantLookup && !extensionGrantLookup.isExpired ? extensionGrantLookup.grant : null;
 
       const rawOrigin = typeof req.headers.origin === 'string' ? req.headers.origin : '';
       let isAllowedOrigin = false;
@@ -225,7 +283,21 @@ export class BridgeServer {
         pathname === '/api/lan-ips' ||
         pathname === '/status'
       ) {
-        if (!isBridgeToken && !verifiedAttachmentId) {
+        if (isExpiredGrant) {
+          const expiredHeaders: Record<string, string> = { 'Content-Type': 'application/json' };
+          if (isAllowedOrigin) expiredHeaders['Access-Control-Allow-Origin'] = rawOrigin;
+          res.writeHead(401, expiredHeaders);
+          res.end(JSON.stringify({ error: 'EXPIRED_GRANT', message: 'Extension session grant has expired. Please re-authenticate via Native Host.' }));
+          return;
+        }
+        if (verifiedExtensionGrant && pathname !== '/api/cookies/import' && pathname !== '/status') {
+          const forbiddenHeaders: Record<string, string> = { 'Content-Type': 'application/json' };
+          if (isAllowedOrigin) forbiddenHeaders['Access-Control-Allow-Origin'] = rawOrigin;
+          res.writeHead(403, forbiddenHeaders);
+          res.end(JSON.stringify({ error: 'FORBIDDEN', message: 'Extension grants are restricted to cookie importation and status checks.' }));
+          return;
+        }
+        if (!isBridgeToken && !verifiedAttachmentId && !verifiedExtensionGrant) {
           const unauthHeaders: Record<string, string> = { 'Content-Type': 'application/json' };
           if (isAllowedOrigin) unauthHeaders['Access-Control-Allow-Origin'] = rawOrigin;
           res.writeHead(401, unauthHeaders);
@@ -486,7 +558,24 @@ export class BridgeServer {
               return;
             }
             let targetSession: Electron.Session;
-            if (verifiedAttachmentId && !isBridgeToken) {
+            if (verifiedExtensionGrant) {
+              if (requestedPartition && requestedPartition !== verifiedExtensionGrant.targetPartitionId) {
+                res.writeHead(403, responseHeaders);
+                res.end(JSON.stringify({
+                  success: false,
+                  error: 'FORBIDDEN_PARTITION',
+                  message: `Extension grant is strictly bound to partition "${verifiedExtensionGrant.targetPartitionId}", cannot target "${requestedPartition}".`,
+                }));
+                return;
+              }
+              const pinnedPartition = verifiedExtensionGrant.targetPartitionId;
+              if (!this.tabHost.isValidCapsulePartition(pinnedPartition)) {
+                res.writeHead(404, responseHeaders);
+                res.end(JSON.stringify({ success: false, error: 'UNKNOWN_TARGET_PARTITION', message: `Partition "${pinnedPartition}" is not an active or registered capsule session.` }));
+                return;
+              }
+              targetSession = this.tabHost.getPartitionSession(pinnedPartition);
+            } else if (verifiedAttachmentId && !isBridgeToken) {
               if (requestedPartition) {
                 res.writeHead(403, responseHeaders);
                 res.end(JSON.stringify({ success: false, error: 'Forbidden: attachment tokens cannot target arbitrary partitions' }));
@@ -532,7 +621,18 @@ export class BridgeServer {
             let failedCount = 0;
 
             const persistSession = data.persistSessionCookies !== false;
-            for (const cookie of rawCookies) {
+            const candidateCookies = verifiedExtensionGrant
+              ? (verifiedExtensionGrant.allowedDomains && verifiedExtensionGrant.allowedDomains.length > 0
+                  ? rawCookies.filter((c: ExtensionCookieInput) => {
+                      const domain = c.domain ? (c.domain.startsWith('.') ? c.domain.slice(1) : c.domain) : '';
+                      return verifiedExtensionGrant.allowedDomains.some(rawAllowed => {
+                        const allowed = rawAllowed.startsWith('.') ? rawAllowed.slice(1) : rawAllowed;
+                        return domain === allowed || domain.endsWith('.' + allowed);
+                      });
+                    })
+                  : [])
+              : rawCookies;
+            for (const cookie of candidateCookies) {
               const setDetails = extensionCookieImportSetDetails(cookie, { persistSessionCookies: persistSession });
               if (!setDetails) {
                 skippedCount++;
@@ -1383,6 +1483,7 @@ export class BridgeServer {
         hbClient.isAlive = false;
         try { client.ping(); } catch {}
       }
+      this.pruneExpiredGrants();
     }, BRIDGE_HEARTBEAT_INTERVAL_MS);
     this.heartbeatTimer.unref?.();
   }

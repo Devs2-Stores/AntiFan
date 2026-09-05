@@ -2,7 +2,7 @@
   "name": "antifan-browser-desktop",
   "displayName": "AntiFan Browser Desktop",
   "description": "Ultra-lightweight Chromium companion & Extension Bridge for AntiFan Browser",
-  "version": "1.3.5",
+  "version": "1.3.6",
   "publisher": "antifan",
   "author": "AntiFan Team",
   "main": "./main.cjs",
@@ -49,6 +49,7 @@
     "smoke:multitasking": "npm run compile && node scripts/run-electron.cjs scripts/smoke-background-multitasking.cjs",
     "smoke:parity": "npm run compile && node scripts/run-electron.cjs scripts/smoke-playwright-parity.cjs",
     "smoke:terminal": "npm run compile && node scripts/run-electron.cjs test/e2e/terminal-recovery-smoke.cjs && node scripts/run-electron.cjs test/e2e/terminal-renderer-smoke.cjs",
+    "test:terminal-transport": "npm run compile && node scripts/run-electron.cjs test/e2e/terminal-transport-sync.cjs",
     "install:shortcut": "node scripts/install-windows-shortcut.mjs"
   },
   "dependencies": {

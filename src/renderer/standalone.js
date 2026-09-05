@@ -442,6 +442,54 @@ if (typeof window !== 'undefined') {
   window.__antifanShowMultilinePasteModal = showMultilinePasteModal;
 }
 window.__antifanTerminalPool = terminalPool;
+const rendererInstanceId = (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : `renderer-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+window.__antifanRendererInstanceId = rendererInstanceId;
+window.__antifanTerminalHealth = function getTerminalHealthSnapshot() {
+  const views = [];
+  for (const [id, item] of terminalPool.entries()) {
+    const s = Array.isArray(sessions) ? sessions.find((x) => x.id === id) : null;
+    views.push({
+      sessionId: id,
+      generation: s?.sessionGeneration || 0,
+      lastRenderedSeq: item.lastRenderedSeq || 0,
+      lastAckedSeq: item.lastAckedSeq || item.lastRenderedSeq || 0,
+      gapCount: item.gapCount || 0,
+      resyncCount: item.resyncCount || 0,
+      degradedCount: item.degradedCount || 0,
+      recoveryQueueBytes: (item.liveQueue || []).reduce((acc, c) => acc + (c.data ? c.data.length : 0), 0),
+      recoveryQueueChunks: (item.liveQueue || []).length,
+      health: item.syncState === 'READY' ? 'SYNCED' : (item.syncState || 'SYNCED'),
+      authority: {
+        inputOwner: id === activeId && !splitEnabled,
+        geometryOwner: id === activeId && !splitEnabled,
+      },
+    });
+  }
+  if (splitEnabled && splitId) {
+    const s = Array.isArray(sessions) ? sessions.find((x) => x.id === splitId) : null;
+    views.push({
+      sessionId: splitId,
+      generation: s?.sessionGeneration || 0,
+      lastRenderedSeq: splitSessionState.lastRenderedSeq || 0,
+      lastAckedSeq: splitSessionState.lastAckedSeq || splitSessionState.lastRenderedSeq || 0,
+      gapCount: splitSessionState.gapCount || 0,
+      resyncCount: splitSessionState.resyncCount || 0,
+      degradedCount: splitSessionState.degradedCount || 0,
+      recoveryQueueBytes: (splitSessionState.liveQueue || []).reduce((acc, c) => acc + (c.data ? c.data.length : 0), 0),
+      recoveryQueueChunks: (splitSessionState.liveQueue || []).length,
+      health: splitSessionState.syncState === 'READY' ? 'SYNCED' : (splitSessionState.syncState || 'SYNCED'),
+      authority: {
+        inputOwner: document.getElementById('terminal-split')?.classList.contains('focused-pane') || false,
+        geometryOwner: true,
+      },
+    });
+  }
+  return {
+    rendererInstanceId,
+    timestamp: Date.now(),
+    views,
+  };
+};
 let splitEnabled = false;
 let splitId = '';
 let splitTerm = null;
@@ -473,13 +521,324 @@ function focusMainPane() {
   }
 }
 
+const MAX_RECOVERY_QUEUE_BYTES = 1024 * 1024; // 1 MiB hard bound
+const MAX_RECOVERY_QUEUE_CHUNKS = 2048; // 2,048 chunks hard bound
+const coalescedAckMap = new Map();
+
+function scheduleCoalescedAck(sessionId, generation, seq, role) {
+  if (!sessionId || typeof seq !== 'number' || seq <= 0) return;
+  const currentRole = role || (isPopoutMode ? 'POPOUT' : 'DOCK');
+  let state = coalescedAckMap.get(sessionId);
+  if (!state) {
+    state = {
+      pendingSeq: seq,
+      generation: typeof generation === 'number' ? generation : 0,
+      role: currentRole,
+      unackedCount: 0,
+      lastFlushTime: 0,
+      timer: null,
+    };
+    coalescedAckMap.set(sessionId, state);
+  }
+
+  if (seq > state.pendingSeq) {
+    state.pendingSeq = seq;
+  }
+  if (typeof generation === 'number' && generation > state.generation) {
+    state.generation = generation;
+  }
+  state.role = currentRole;
+  state.unackedCount++;
+
+  const flush = () => {
+    if (state.timer) {
+      clearTimeout(state.timer);
+      state.timer = null;
+    }
+    const rId = window.__antifanRendererInstanceId || 'unknown';
+    try {
+      api?.ackTerminalChunk?.({
+        rendererInstanceId: rId,
+        sessionId,
+        generation: state.generation,
+        seq: state.pendingSeq,
+        role: state.role,
+      });
+    } catch {}
+    state.unackedCount = 0;
+    state.lastFlushTime = Date.now();
+  };
+
+  const now = Date.now();
+  if (state.unackedCount >= 64 || (state.lastFlushTime > 0 && now - state.lastFlushTime >= 50)) {
+    flush();
+  } else if (!state.timer) {
+    state.timer = setTimeout(flush, 50);
+  }
+}
+
+function showDegradedBanner(viewState, sessionId) {
+  if (!viewState || !viewState.paneEl) return;
+  let banner = viewState.paneEl.querySelector('.terminal-degraded-banner');
+  if (!banner) {
+    banner = document.createElement('div');
+    banner.className = 'terminal-degraded-banner';
+    banner.style.cssText = 'position:absolute;top:0;left:0;right:0;background:#451a03;color:#fbbf24;border-bottom:1px solid #b45309;padding:6px 12px;font-size:12px;font-family:sans-serif;z-index:100;display:flex;align-items:center;justify-content:space-between;cursor:pointer;';
+    banner.innerHTML = '<span>⚠️ Terminal Display Out of Sync — Process is Active</span><button style="background:#b45309;color:#fff;border:none;padding:2px 8px;border-radius:4px;cursor:pointer;font-size:11px;">Resync View</button>';
+    banner.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      await forceResyncPane(viewState, sessionId);
+    });
+    viewState.paneEl.appendChild(banner);
+  }
+}
+
+function hideDegradedBanner(viewState) {
+  if (!viewState || !viewState.paneEl) return;
+  const banner = viewState.paneEl.querySelector('.terminal-degraded-banner');
+  if (banner) {
+    banner.remove();
+  }
+}
+
+async function forceResyncPane(viewState, sessionId) {
+  try {
+    const fullBuffer = await api?.getFullBuffer?.(sessionId);
+    if (viewState.term) {
+      viewState.term.reset();
+      if (fullBuffer) {
+        const bufText = typeof fullBuffer === 'string' ? fullBuffer : (fullBuffer?.buffer || '');
+        if (bufText) await writeTermAsync(viewState.term, bufText);
+      }
+    }
+    if (fullBuffer && typeof fullBuffer.snapshotThroughSeq === 'number') {
+      viewState.lastRenderedSeq = fullBuffer.snapshotThroughSeq;
+      viewState.pendingWriteAckSeq = fullBuffer.snapshotThroughSeq;
+    }
+    viewState.syncState = 'READY';
+    viewState.liveQueue = [];
+    hideDegradedBanner(viewState);
+  } catch {}
+}
+
 const splitSessionState = {
   id: '',
   lastRenderedSeq: 0,
+  sessionGeneration: 0,
   hydrationEpoch: 0,
   activeHydratingEpoch: null,
   liveQueue: [],
+  syncState: 'READY',
+  isFetchingDelta: false,
+  pendingWriteAckSeq: 0,
+  lastAckedSeq: 0,
+  gapCount: 0,
+  resyncCount: 0,
+  degradedCount: 0,
 };
+
+function writeChunk(viewState, chunkData, isSplit) {
+  if (isSplit) {
+    writeToSplitPane(chunkData);
+  } else {
+    writeToTerminalPane(viewState, chunkData);
+  }
+}
+
+async function processIncomingChunk(viewState, chunk, isSplit) {
+  const chunkSeq = typeof chunk.seq === 'number' ? chunk.seq : 0;
+  const chunkGen = typeof chunk.generation === 'number' ? chunk.generation : 0;
+  const chunkData = chunk.data || '';
+
+  if (chunkGen > 0) {
+    if (viewState.sessionGeneration > 0 && chunkGen !== viewState.sessionGeneration) {
+      // Generational leap: session respawned
+      viewState.sessionGeneration = chunkGen;
+      viewState.lastRenderedSeq = 0;
+      viewState.syncState = 'READY';
+      viewState.liveQueue = [];
+      hideDegradedBanner(viewState);
+    } else {
+      viewState.sessionGeneration = chunkGen;
+    }
+  }
+
+  if (viewState.activeHydratingEpoch !== null) {
+    viewState.liveQueue.push({
+      seq: chunkSeq,
+      generation: chunkGen,
+      data: chunkData,
+      epoch: viewState.hydrationEpoch,
+    });
+    return;
+  }
+
+  if (viewState.syncState === 'DEGRADED') {
+    return;
+  }
+
+  if (chunkSeq > 0 && chunkSeq <= viewState.lastRenderedSeq) {
+    return; // Dedup
+  }
+
+  if (chunkSeq === viewState.lastRenderedSeq + 1 || (viewState.lastRenderedSeq === 0 && chunkSeq === 1)) {
+    viewState.lastRenderedSeq = chunkSeq;
+    viewState.pendingWriteAckSeq = chunkSeq;
+    writeChunk(viewState, chunkData, isSplit);
+    return;
+  }
+
+  // Sequence gap detected: chunkSeq > viewState.lastRenderedSeq + 1
+  await handleSequenceGap(viewState, chunk, isSplit);
+}
+
+async function handleSequenceGap(viewState, chunk, isSplit) {
+  viewState.gapCount = (viewState.gapCount || 0) + 1;
+  const chunkBytes = (chunk.data || '').length;
+  const currentQueueBytes = viewState.liveQueue.reduce((acc, c) => acc + (c.data ? c.data.length : 0), 0);
+
+  if (
+    currentQueueBytes + chunkBytes > MAX_RECOVERY_QUEUE_BYTES ||
+    viewState.liveQueue.length >= MAX_RECOVERY_QUEUE_CHUNKS
+  ) {
+    viewState.syncState = 'DEGRADED';
+    viewState.degradedCount = (viewState.degradedCount || 0) + 1;
+    viewState.liveQueue = [];
+    showDegradedBanner(viewState, viewState.id || (isSplit ? splitId : activeId));
+    return;
+  }
+
+  if (chunk && !viewState.liveQueue.some((c) => c.seq === chunk.seq)) {
+    viewState.liveQueue.push(chunk);
+  }
+  if (viewState.isFetchingDelta) {
+    return; // Single-flight delta fetch
+  }
+
+  viewState.isFetchingDelta = true;
+  viewState.syncState = 'GAPPED';
+
+  const targetSessionId = viewState.id || (isSplit ? splitId : activeId);
+  const fromSeq = viewState.lastRenderedSeq + 1;
+
+  try {
+    const deltaResult = await api?.getTerminalDelta?.(targetSessionId, viewState.sessionGeneration || 0, fromSeq);
+    if (!deltaResult) {
+      viewState.syncState = 'READY';
+      while (viewState.liveQueue.length > 0) {
+        const item = viewState.liveQueue.shift();
+        if (item) {
+          viewState.lastRenderedSeq = item.seq;
+          viewState.pendingWriteAckSeq = item.seq;
+          writeChunk(viewState, item.data, isSplit);
+        }
+      }
+      return;
+    }
+
+    if (deltaResult.status === 'GENERATION_MISMATCH') {
+      if (deltaResult.currentGeneration) {
+        viewState.sessionGeneration = deltaResult.currentGeneration;
+      }
+      viewState.lastRenderedSeq = 0;
+      viewState.syncState = 'READY';
+      viewState.liveQueue = [];
+      return;
+    }
+
+    if (deltaResult.status === 'DELTA_EXPIRED') {
+      viewState.syncState = 'DEGRADED';
+      viewState.degradedCount = (viewState.degradedCount || 0) + 1;
+      viewState.liveQueue = [];
+      showDegradedBanner(viewState, targetSessionId);
+      return;
+    }
+
+    if (deltaResult.status === 'OK') {
+      viewState.syncState = 'RESYNCING';
+      if (Array.isArray(deltaResult.chunks)) {
+        for (const deltaChunk of deltaResult.chunks) {
+          if (deltaChunk.seq === viewState.lastRenderedSeq + 1) {
+            viewState.lastRenderedSeq = deltaChunk.seq;
+            viewState.pendingWriteAckSeq = deltaChunk.seq;
+            writeChunk(viewState, deltaChunk.data, isSplit);
+          }
+        }
+      }
+
+      // Drain buffered liveQueue
+      viewState.liveQueue.sort((a, b) => a.seq - b.seq);
+      while (viewState.liveQueue.length > 0) {
+        const next = viewState.liveQueue[0];
+        if (next.seq <= viewState.lastRenderedSeq) {
+          viewState.liveQueue.shift();
+        } else if (next.seq === viewState.lastRenderedSeq + 1) {
+          viewState.liveQueue.shift();
+          viewState.lastRenderedSeq = next.seq;
+          viewState.pendingWriteAckSeq = next.seq;
+          writeChunk(viewState, next.data, isSplit);
+        } else {
+          break;
+        }
+      }
+
+      if (viewState.liveQueue.length === 0) {
+        viewState.syncState = 'READY';
+        viewState.resyncCount = (viewState.resyncCount || 0) + 1;
+      }
+    }
+  } catch (err) {
+  } finally {
+    viewState.isFetchingDelta = false;
+    if (viewState.liveQueue.length > 0 && viewState.syncState !== 'DEGRADED') {
+      const nextHead = viewState.liveQueue[0];
+      if (nextHead && nextHead.seq > viewState.lastRenderedSeq + 1) {
+        setTimeout(() => {
+          handleSequenceGap(viewState, null, isSplit);
+        }, 20);
+      }
+    }
+  }
+}
+
+async function syncPaneWithBackend(item, sessionId) {
+  if (!item || !sessionId) return;
+  try {
+    const res = await api?.syncTerminalView?.({
+      sessionId,
+      knownGeneration: item.sessionGeneration || 0,
+      lastAppliedSeq: item.lastRenderedSeq || 0,
+    });
+    if (!res) return;
+
+    if (res.status === 'UP_TO_DATE') {
+      item.syncState = 'READY';
+      hideDegradedBanner(item);
+    } else if (res.status === 'DELTA') {
+      item.syncState = 'RESYNCING';
+      if (Array.isArray(res.chunks)) {
+        for (const c of res.chunks) {
+          if (c.seq === item.lastRenderedSeq + 1) {
+            item.lastRenderedSeq = c.seq;
+            item.pendingWriteAckSeq = c.seq;
+            writeToTerminalPane(item, c.data);
+          }
+        }
+      }
+      item.syncState = 'READY';
+      hideDegradedBanner(item);
+    } else if (res.status === 'DELTA_EXPIRED') {
+      item.syncState = 'DEGRADED';
+      item.degradedCount = (item.degradedCount || 0) + 1;
+      showDegradedBanner(item, sessionId);
+    } else if (res.status === 'GENERATION_CHANGED') {
+      item.sessionGeneration = res.currentGeneration;
+      item.lastRenderedSeq = 0;
+      item.syncState = 'READY';
+      hideDegradedBanner(item);
+    }
+  } catch {}
+}
 
 function writeTermAsync(term, data) {
   return new Promise((resolve) => {
@@ -650,9 +1009,19 @@ function writeToTerminalPane(item, chunk) {
       if (!item.isUserScrolledUp && item.paneEl && item.paneEl.classList.contains('active')) {
         item.term.scrollToBottom();
       }
+      if (item.pendingWriteAckSeq > 0) {
+        scheduleCoalescedAck(item.id, item.sessionGeneration || 0, item.pendingWriteAckSeq);
+        item.lastAckedSeq = item.pendingWriteAckSeq;
+      }
     });
   } catch {
-    try { item.term.write(chunk); } catch {}
+    try {
+      item.term.write(chunk);
+      if (item.pendingWriteAckSeq > 0) {
+        scheduleCoalescedAck(item.id, item.sessionGeneration || 0, item.pendingWriteAckSeq);
+        item.lastAckedSeq = item.pendingWriteAckSeq;
+      }
+    } catch {}
   }
 }
 
@@ -663,6 +1032,10 @@ function getWriteTargetFor(item) {
   item.writeTarget = dispatcher.createTarget(item.term, () => {
     if (!item.isUserScrolledUp && item.paneEl && item.paneEl.classList.contains('active')) {
       item.term.scrollToBottom();
+    }
+    if (item.pendingWriteAckSeq > 0) {
+      scheduleCoalescedAck(item.id, item.sessionGeneration || 0, item.pendingWriteAckSeq);
+      item.lastAckedSeq = item.pendingWriteAckSeq;
     }
   });
   return item.writeTarget;
@@ -677,6 +1050,10 @@ function writeToSplitPane(chunk) {
         if (!isSplitUserScrolledUp && splitTerm) {
           splitTerm.scrollToBottom();
         }
+        if (splitSessionState.pendingWriteAckSeq > 0) {
+          scheduleCoalescedAck(splitId, splitSessionState.sessionGeneration || 0, splitSessionState.pendingWriteAckSeq);
+          splitSessionState.lastAckedSeq = splitSessionState.pendingWriteAckSeq;
+        }
       });
     }
     try {
@@ -689,9 +1066,19 @@ function writeToSplitPane(chunk) {
       if (!isSplitUserScrolledUp && splitTerm) {
         splitTerm.scrollToBottom();
       }
+      if (splitSessionState.pendingWriteAckSeq > 0) {
+        scheduleCoalescedAck(splitId, splitSessionState.sessionGeneration || 0, splitSessionState.pendingWriteAckSeq);
+        splitSessionState.lastAckedSeq = splitSessionState.pendingWriteAckSeq;
+      }
     });
   } catch {
-    try { splitTerm.write(chunk); } catch {}
+    try {
+      splitTerm.write(chunk);
+      if (splitSessionState.pendingWriteAckSeq > 0) {
+        scheduleCoalescedAck(splitId, splitSessionState.sessionGeneration || 0, splitSessionState.pendingWriteAckSeq);
+        splitSessionState.lastAckedSeq = splitSessionState.pendingWriteAckSeq;
+      }
+    } catch {}
   }
 }
 function getOrCreateTerminalPane(sessionId, snapshot, snapshotSeq = 0, isAuthoritative = false) {
@@ -743,15 +1130,24 @@ function getOrCreateTerminalPane(sessionId, snapshot, snapshotSeq = 0, isAuthori
 
 
   item = {
+    id: sessionId,
     term: sTerm,
     fit: sFit,
     paneEl,
     webglAddon,
     webLinksAddon,
     lastRenderedSeq: 0,
+    sessionGeneration: 0,
     hydrationEpoch: 0,
     activeHydratingEpoch: null,
     liveQueue: [],
+    syncState: 'READY',
+    isFetchingDelta: false,
+    pendingWriteAckSeq: 0,
+    lastAckedSeq: 0,
+    gapCount: 0,
+    resyncCount: 0,
+    degradedCount: 0,
     hasAuthoritativeState: isAuthoritative,
     writeTarget: null,
     savedViewportY: null,
@@ -805,6 +1201,7 @@ function getOrCreateTerminalPane(sessionId, snapshot, snapshotSeq = 0, isAuthori
 
   terminalPool.set(sessionId, item);
   atomicHydratePane(item, sessionId, snapshot, snapshotSeq);
+  syncPaneWithBackend(item, sessionId);
   return item;
 }
 
@@ -1063,6 +1460,10 @@ function unmountSplit() {
   splitSessionState.activeHydratingEpoch = null;
   splitSessionState.liveQueue = [];
   splitSessionState.lastRenderedSeq = 0;
+  splitSessionState.syncState = 'READY';
+  splitSessionState.isFetchingDelta = false;
+  splitSessionState.pendingWriteAckSeq = 0;
+  splitSessionState.lastAckedSeq = 0;
   try { splitWebLinksAddon?.dispose(); } catch {}
   splitWebLinksAddon = null;
   try { splitWebglAddon?.dispose(); } catch {}
@@ -1880,26 +2281,13 @@ api?.onTabsUpdated?.(() => {
     }
   }
 });
-api?.onTerminalData(({ sessionId, data, seq }) => {
+api?.onTerminalData(({ sessionId, data, seq, generation }) => {
   notifySessionActivity(sessionId, data);
   const chunkSeq = typeof seq === 'number' ? seq : 0;
+  const chunkGen = typeof generation === 'number' ? generation : 0;
 
   if (sessionId === splitId && splitTerm) {
-    if (splitSessionState.activeHydratingEpoch !== null) {
-      splitSessionState.liveQueue.push({
-        seq: chunkSeq,
-        data,
-        epoch: splitSessionState.hydrationEpoch,
-      });
-      return;
-    }
-    if (chunkSeq > 0 && chunkSeq <= splitSessionState.lastRenderedSeq) {
-      return;
-    }
-    if (chunkSeq > 0) {
-      splitSessionState.lastRenderedSeq = chunkSeq;
-    }
-    writeToSplitPane(data);
+    processIncomingChunk(splitSessionState, { seq: chunkSeq, generation: chunkGen, data }, true);
     return;
   }
 
@@ -1913,21 +2301,7 @@ api?.onTerminalData(({ sessionId, data, seq }) => {
     }
   }
   if (item) {
-    if (item.activeHydratingEpoch !== null) {
-      item.liveQueue.push({
-        seq: chunkSeq,
-        data,
-        epoch: item.hydrationEpoch,
-      });
-      return;
-    }
-    if (chunkSeq > 0 && chunkSeq <= item.lastRenderedSeq) {
-      return;
-    }
-    if (chunkSeq > 0) {
-      item.lastRenderedSeq = chunkSeq;
-    }
-    writeToTerminalPane(item, data);
+    processIncomingChunk(item, { seq: chunkSeq, generation: chunkGen, data }, false);
   }
 });
 async function bootstrapTerminalState() {

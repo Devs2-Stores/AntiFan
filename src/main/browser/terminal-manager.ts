@@ -8,6 +8,7 @@ import { performance } from 'node:perf_hooks';
 import { isBenchmarkEnabled, recordBenchmark } from '../benchmark/telemetry';
 import { StorageLocations } from '../config/storage-locations';
 import { TerminalWaitInput, TerminalWaitResult, CapabilityError } from '../../shared/control-plane-contracts';
+import { TerminalDeltaResult, TerminalJournalEntry, TerminalAckPayload, TerminalSyncViewResult } from '../../shared/contracts';
 export function resolveScriptsDir(): string | undefined {
   let dir = __dirname;
   for (let i = 0; i < 6; i++) {
@@ -71,6 +72,101 @@ export function killProcessTree(pid: number | undefined): Promise<void> {
     }
   });
 }
+
+export class SessionDeliveryJournal {
+  private entries: TerminalJournalEntry[] = [];
+  private totalBytes = 0;
+  private readonly MAX_BYTES = 2 * 1024 * 1024; // 2 MiB hard bound
+  private readonly MAX_CHUNKS = 4096; // 4,096 chunks hard bound
+
+  public append(generation: number, seq: number, data: string): void {
+    const byteLength = Buffer.byteLength(data, 'utf8');
+    const entry: TerminalJournalEntry = {
+      seq,
+      generation,
+      data,
+      byteLength,
+      timestamp: Date.now(),
+    };
+    this.entries.push(entry);
+    this.totalBytes += byteLength;
+
+    // Dual-bound eviction: evict oldest while over bytes or chunks
+    while (
+      this.entries.length > 1 &&
+      (this.totalBytes > this.MAX_BYTES || this.entries.length > this.MAX_CHUNKS)
+    ) {
+      const removed = this.entries.shift();
+      if (removed) {
+        this.totalBytes -= removed.byteLength;
+      }
+    }
+  }
+
+  public getDelta(generation: number, fromSeq: number): TerminalDeltaResult {
+    if (this.entries.length === 0) {
+      return {
+        status: 'OK',
+        generation,
+        fromSeq,
+        throughSeq: fromSeq - 1,
+        chunks: [],
+      };
+    }
+
+    const currentGen = this.entries[this.entries.length - 1]?.generation ?? generation;
+    if (generation > 0 && generation !== currentGen) {
+      return {
+        status: 'GENERATION_MISMATCH',
+        currentGeneration: currentGen,
+      };
+    }
+
+    const retainedFromSeq = this.entries[0]?.seq ?? 0;
+    const retainedThroughSeq = this.entries[this.entries.length - 1]?.seq ?? 0;
+
+    const effectiveFromSeq = Math.max(1, fromSeq);
+    // Only consider expired if chunks were actually evicted and requested sequence is before retention window
+    if (retainedFromSeq > 1 && effectiveFromSeq < retainedFromSeq) {
+      return {
+        status: 'DELTA_EXPIRED',
+        generation: currentGen,
+        retainedFromSeq,
+        retainedThroughSeq,
+      };
+    }
+
+    const chunks = this.entries
+      .filter((e) => e.seq >= effectiveFromSeq)
+      .map((e) => ({ seq: e.seq, data: e.data }));
+
+    return {
+      status: 'OK',
+      generation: currentGen,
+      fromSeq: effectiveFromSeq,
+      throughSeq: retainedThroughSeq,
+      chunks,
+    };
+  }
+
+  public getRetainedRange(): { fromSeq: number; throughSeq: number; bytes: number; chunks: number } {
+    if (this.entries.length === 0) {
+      return { fromSeq: 0, throughSeq: 0, bytes: 0, chunks: 0 };
+    }
+    return {
+      fromSeq: this.entries[0]?.seq ?? 0,
+      throughSeq: this.entries[this.entries.length - 1]?.seq ?? 0,
+      bytes: this.totalBytes,
+      chunks: this.entries.length,
+    };
+  }
+
+  public clear(): void {
+    this.entries = [];
+    this.totalBytes = 0;
+  }
+}
+
 type Session = {
   id: string;
   name: string;
@@ -83,6 +179,7 @@ type Session = {
   lastSeq: number;
   sessionGeneration: number;
   state: 'running' | 'exited' | 'closed';
+  deliveryJournal: SessionDeliveryJournal;
   exitCode?: number;
   exitSignal?: number;
   exitedAt?: number;
@@ -121,6 +218,32 @@ export interface TerminalManagerStats {
   transcriptBytes: number;
   dataSubscriptionCount: number;
   exitSubscriptionCount: number;
+}
+export interface TerminalSessionDiagnostics {
+  sessionId: string;
+  generation: number;
+  lastSeq: number;
+  bufferBytes: number;
+  state: 'running' | 'exited' | 'closed';
+  splitOf?: string;
+  capsuleId: string;
+}
+
+export interface TerminalSubscriberState {
+  rendererInstanceId: string;
+  sessionId: string;
+  generation: number;
+  lastAckedSeq: number;
+  role: 'DOCK' | 'POPOUT';
+  lastHeartbeatAt: number;
+}
+
+export interface TerminalDiagnosticsReport {
+  timestamp: number;
+  sessionCount: number;
+  activeSessionId: string;
+  sessions: TerminalSessionDiagnostics[];
+  subscribers?: TerminalSubscriberState[];
 }
 
 function safeSliceTail(str: string, maxBytes: number): string {
@@ -223,6 +346,7 @@ export class TerminalManager extends EventEmitter {
   private benchmarkChunkSeq = 0;
   private benchmarkChunkBytes = 0;
 
+  private subscribers = new Map<string, TerminalSubscriberState>();
   constructor() {
     super();
     this.setMaxListeners(50);
@@ -514,6 +638,7 @@ export class TerminalManager extends EventEmitter {
       lastSeq: 0,
       sessionGeneration: generation,
       state: 'running',
+      deliveryJournal: new SessionDeliveryJournal(),
     };
     const dataSub = child.onData(data => {
       if (s.disposed) return;
@@ -552,12 +677,13 @@ export class TerminalManager extends EventEmitter {
   private appendData(s: Session, data: string): void {
     if (s.disposed) return;
     s.lastSeq = (s.lastSeq || 0) + 1;
+    s.deliveryJournal.append(s.sessionGeneration, s.lastSeq, data);
     s.buffer += data;
     if (s.buffer.length > MAX_TRANSCRIPT_BYTES + 65536) {
       s.buffer = safeSliceTail(s.buffer, MAX_TRANSCRIPT_BYTES);
     }
     this.schedulePersist();
-    this.emit('data', { sessionId: s.id, data, seq: s.lastSeq });
+    this.emit('data', { sessionId: s.id, data, seq: s.lastSeq, generation: s.sessionGeneration });
   }
 
   public startTerminal(cwd?: string): boolean {
@@ -901,6 +1027,127 @@ export class TerminalManager extends EventEmitter {
       sessionId,
       buffer: s ? s.buffer : '',
       snapshotThroughSeq: s ? (s.lastSeq || 0) : 0,
+    };
+  }
+
+  public getDiagnostics(): TerminalDiagnosticsReport {
+    return {
+      timestamp: Date.now(),
+      sessionCount: this.sessions.size,
+      activeSessionId: this.activeSessionId,
+      sessions: [...this.sessions.values()].map(s => ({
+        sessionId: s.id,
+        generation: s.sessionGeneration || 0,
+        lastSeq: s.lastSeq || 0,
+        bufferBytes: Buffer.byteLength(s.buffer || '', 'utf8'),
+        state: s.state,
+        splitOf: s.splitOf,
+        capsuleId: s.capsuleId,
+      })),
+      subscribers: this.getSubscribers(),
+    };
+  }
+
+  public recordSubscriberAck(ack: TerminalAckPayload): void {
+    if (!ack || !ack.rendererInstanceId || !ack.sessionId) return;
+    const key = `${ack.rendererInstanceId}:${ack.sessionId}`;
+    const existing = this.subscribers.get(key);
+    const ackGen = ack.generation || 0;
+    const existingGen = existing?.generation || 0;
+
+    // Reject stale ACKs from an older generation
+    if (ackGen < existingGen) {
+      return;
+    }
+
+    // If generation advanced, reset lastAckedSeq to current ack.seq; otherwise take maximum
+    const newLastAckedSeq = (ackGen > existingGen)
+      ? (ack.seq || 0)
+      : Math.max(existing?.lastAckedSeq || 0, ack.seq || 0);
+
+    this.subscribers.set(key, {
+      rendererInstanceId: ack.rendererInstanceId,
+      sessionId: ack.sessionId,
+      generation: ackGen,
+      lastAckedSeq: newLastAckedSeq,
+      role: ack.role || existing?.role || 'DOCK',
+      lastHeartbeatAt: Date.now(),
+    });
+    this.pruneStaleSubscribers();
+  }
+
+  public pruneStaleSubscribers(maxAgeMs = 30000): void {
+    const now = Date.now();
+    for (const [key, sub] of this.subscribers.entries()) {
+      if (now - sub.lastHeartbeatAt >= maxAgeMs) {
+        this.subscribers.delete(key);
+      }
+    }
+  }
+
+  public getSubscribers(maxAgeMs = 30000): TerminalSubscriberState[] {
+    this.pruneStaleSubscribers(maxAgeMs);
+    return [...this.subscribers.values()];
+  }
+
+  public getTerminalDelta(sessionId: string, generation: number, fromSeq: number): TerminalDeltaResult {
+    const s = this.sessions.get(sessionId);
+    if (!s || s.state === 'closed') {
+      return { status: 'SESSION_CLOSED', finalSeq: s?.lastSeq || 0 };
+    }
+    if (generation > 0 && s.sessionGeneration !== generation) {
+      return { status: 'GENERATION_MISMATCH', currentGeneration: s.sessionGeneration };
+    }
+    return s.deliveryJournal.getDelta(generation || s.sessionGeneration, fromSeq);
+  }
+
+  public syncTerminalView(query: { sessionId: string; knownGeneration: number; lastAppliedSeq: number }): TerminalSyncViewResult {
+    const s = this.sessions.get(query.sessionId);
+    if (!s || s.state === 'closed') {
+      return { status: 'SESSION_CLOSED', finalSeq: s?.lastSeq || 0 };
+    }
+    if (query.knownGeneration > 0 && query.knownGeneration !== s.sessionGeneration) {
+      return { status: 'GENERATION_CHANGED', currentGeneration: s.sessionGeneration };
+    }
+    if (query.lastAppliedSeq >= s.lastSeq) {
+      return { status: 'UP_TO_DATE', generation: s.sessionGeneration, lastSeq: s.lastSeq };
+    }
+    const delta = s.deliveryJournal.getDelta(s.sessionGeneration, query.lastAppliedSeq + 1);
+    if (delta.status === 'OK') {
+      return {
+        status: 'DELTA',
+        generation: s.sessionGeneration,
+        fromSeq: delta.fromSeq,
+        throughSeq: delta.throughSeq,
+        chunks: delta.chunks,
+      };
+    }
+    if (delta.status === 'DELTA_EXPIRED') {
+      return {
+        status: 'DELTA_EXPIRED',
+        generation: s.sessionGeneration,
+        retainedFromSeq: delta.retainedFromSeq,
+        retainedThroughSeq: delta.retainedThroughSeq,
+      };
+    }
+    if (delta.status === 'GENERATION_MISMATCH') {
+      return { status: 'GENERATION_CHANGED', currentGeneration: delta.currentGeneration };
+    }
+    return { status: 'UP_TO_DATE', generation: s.sessionGeneration, lastSeq: s.lastSeq };
+  }
+
+  public captureBaselineSeq(sessionId: string): { sessionId: string; sessionGeneration: number; baselineSeq: number } {
+    const s = this.sessions.get(sessionId);
+    if (!s) {
+      throw new CapabilityError('INVALID_ARGUMENT', `Terminal session "${sessionId}" not found`);
+    }
+    if (s.disposed || s.state !== 'running') {
+      throw new CapabilityError('SESSION_CLOSED', `Terminal session "${sessionId}" is not running (state: ${s.state})`);
+    }
+    return {
+      sessionId,
+      sessionGeneration: s.sessionGeneration,
+      baselineSeq: s.lastSeq || 0,
     };
   }
 

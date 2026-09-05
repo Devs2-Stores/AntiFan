@@ -96,10 +96,11 @@ test('Companion Pipeline: validateBridgeAuth validates liveness against authenti
     };
     assert.strictEqual(await validateBridgeAuth(invalidAuth), false);
 
-    // 3. Valid master token -> /status responds with 200 -> validateBridgeAuth returns true
+    // 3. Valid grant token -> /status responds with 200 -> validateBridgeAuth returns true
+    const grant = server.issueExtensionGrant('persist:profile-default');
     const validAuth: BridgeAuth = {
       port,
-      token: server.getToken(),
+      token: grant.grantToken,
       activePartition: 'persist:profile-default',
     };
     assert.strictEqual(await validateBridgeAuth(validAuth), true);
@@ -489,5 +490,113 @@ test('Companion Pipeline: dispatchDeltaSync with mixed batch strips removals and
     __resetExtensionStateForTesting();
     globalThis.fetch = originalFetch;
     (globalThis as any).chrome = originalChrome;
+  }
+});
+
+test('Companion Pipeline: ExtensionSessionGrant enforces least authority, capability denial, and partition pinning', async () => {
+  const host = new MockTabHost();
+  const server = new BridgeServer(host as unknown as NativeTabHost, 0);
+  const port = await server.start();
+  const masterToken = server.getToken();
+  const targetPartition = 'persist:profile-default';
+  const foreignPartition = 'persist:profile-foreign';
+  const grant = server.issueExtensionGrant(targetPartition, ['haravan.com', 'myharavan.com']);
+
+  try {
+    // 1. Extension grant token must NOT equal master bridge token
+    assert.notStrictEqual(grant.grantToken, masterToken, 'Grant token must be distinct from master token');
+
+    // 2. /status with extension grant -> 200 OK, read-only payload, no master token leak
+    const statusRes = await fetch(`http://127.0.0.1:${port}/status`, {
+      headers: { Authorization: `Bearer ${grant.grantToken}` },
+    });
+    assert.strictEqual(statusRes.status, 200);
+    const statusData = (await statusRes.json()) as Record<string, unknown>;
+    assert.strictEqual(statusData.active, true);
+    assert.strictEqual('token' in statusData, false, 'Status must never leak token');
+
+    // 3. Capability Denial: /api/screenshot with extension grant -> 403 Forbidden
+    const screenshotRes = await fetch(`http://127.0.0.1:${port}/api/screenshot`, {
+      headers: { Authorization: `Bearer ${grant.grantToken}` },
+    });
+    assert.strictEqual(screenshotRes.status, 403);
+    const screenshotData = (await screenshotRes.json()) as Record<string, unknown>;
+    assert.strictEqual(screenshotData.error, 'FORBIDDEN');
+
+    // 4. Capability Denial: /api/remote-info and /api/lan-ips with extension grant -> 403 Forbidden
+    const remoteInfoRes = await fetch(`http://127.0.0.1:${port}/api/remote-info`, {
+      headers: { Authorization: `Bearer ${grant.grantToken}` },
+    });
+    assert.strictEqual(remoteInfoRes.status, 403);
+
+    const lanIpsRes = await fetch(`http://127.0.0.1:${port}/api/lan-ips`, {
+      headers: { Authorization: `Bearer ${grant.grantToken}` },
+    });
+    assert.strictEqual(lanIpsRes.status, 403);
+
+    // 5. Partition Pinning Denial: Grant A targeting Partition B -> 403 Forbidden
+    const forbiddenPartitionRes = await fetch(`http://127.0.0.1:${port}/api/cookies/import`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${grant.grantToken}`,
+      },
+      body: JSON.stringify({
+        targetPartition: foreignPartition,
+        cookies: [{ name: 'test_cookie', value: 'val', domain: '.haravan.com' }],
+      }),
+    });
+    assert.strictEqual(forbiddenPartitionRes.status, 403);
+    const forbiddenData = (await forbiddenPartitionRes.json()) as Record<string, unknown>;
+    assert.strictEqual(forbiddenData.error, 'FORBIDDEN_PARTITION');
+
+    // 6. Valid Cookie Import: Grant A targeting Partition A -> 200 OK + domain scoping
+    const validImportRes = await fetch(`http://127.0.0.1:${port}/api/cookies/import`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${grant.grantToken}`,
+      },
+      body: JSON.stringify({
+        targetPartition,
+        cookies: [
+          { name: 'allowed_cookie', value: 'secret1', domain: '.haravan.com' },
+          { name: 'disallowed_cookie', value: 'secret2', domain: '.facebook.com' },
+        ],
+      }),
+    });
+    assert.strictEqual(validImportRes.status, 200);
+    const validImportData = (await validImportRes.json()) as Record<string, unknown>;
+    assert.strictEqual(validImportData.success, true);
+    assert.strictEqual(validImportData.importedCount, 1, 'Only the cookie in allowedDomains must be imported');
+
+    // 6b. Empty Allowlist Denial: Grant with allowedDomains=[] denies all cookies by default
+    const emptyDomainGrant = server.issueExtensionGrant(targetPartition, []);
+    const emptyDomainRes = await fetch(`http://127.0.0.1:${port}/api/cookies/import`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${emptyDomainGrant.grantToken}`,
+      },
+      body: JSON.stringify({
+        targetPartition,
+        cookies: [{ name: 'test_cookie', value: 'secret', domain: '.haravan.com' }],
+      }),
+    });
+    assert.strictEqual(emptyDomainRes.status, 200);
+    const emptyDomainData = (await emptyDomainRes.json()) as Record<string, unknown>;
+    assert.strictEqual(emptyDomainData.success, true);
+    assert.strictEqual(emptyDomainData.importedCount, 0, 'Empty allowedDomains must deny all cookie imports');
+
+    // 7. Expired Grant Denial: Grant with negative TTL -> 401 Unauthorized EXPIRED_GRANT
+    const expiredGrant = server.issueExtensionGrant(targetPartition, [], -1000);
+    const expiredRes = await fetch(`http://127.0.0.1:${port}/status`, {
+      headers: { Authorization: `Bearer ${expiredGrant.grantToken}` },
+    });
+    assert.strictEqual(expiredRes.status, 401);
+    const expiredData = (await expiredRes.json()) as Record<string, unknown>;
+    assert.strictEqual(expiredData.error, 'EXPIRED_GRANT');
+  } finally {
+    server.dispose();
   }
 });

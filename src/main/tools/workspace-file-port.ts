@@ -31,7 +31,26 @@ export class WorkspaceFilePort {
     return { path: target, byteLength: data.byteLength, sha256: crypto.createHash('sha256').update(data).digest('hex') };
   }
 
-  private async writeAtomicWithRetry(target: string, data: Buffer, maxRetries = 5): Promise<void> {
+  async writeCAS(
+    root: string,
+    relativePath: string,
+    content: string | Buffer,
+    expectedSha256?: string
+  ): Promise<{ path: string; byteLength: number; sha256: string; previousSha256?: string }> {
+    const target = this.resolve(root, relativePath);
+    const data = Buffer.isBuffer(content) ? content : Buffer.from(content, 'utf8');
+    if (data.byteLength > this.maxBytes) throw new CapabilityError('ARTIFACT_TOO_LARGE', `File exceeds ${this.maxBytes} byte limit`);
+    fs.mkdirSync(path.dirname(target), { recursive: true });
+    const previousSha256 = await this.writeAtomicWithRetry(target, data, expectedSha256);
+    return {
+      path: target,
+      byteLength: data.byteLength,
+      sha256: crypto.createHash('sha256').update(data).digest('hex'),
+      previousSha256,
+    };
+  }
+
+  private async writeAtomicWithRetry(target: string, data: Buffer, expectedSha256?: string, maxRetries = 5): Promise<string | undefined> {
     const delays = [10, 25, 50, 100, 200];
     const temp = `${target}.tmp-${process.pid}-${Date.now()}-${crypto.randomBytes(4).toString('hex')}`;
     fs.writeFileSync(temp, data);
@@ -39,9 +58,34 @@ export class WorkspaceFilePort {
     try {
       for (let attempt = 0; attempt <= maxRetries; attempt++) {
         try {
+          let currentTargetSha: string | undefined;
+          if (fs.existsSync(target)) {
+            const stat = fs.lstatSync(target);
+            if (stat.isDirectory()) {
+              throw new CapabilityError(
+                'INVALID_ARGUMENT',
+                `Target path is a directory, cannot overwrite with file: "${target}"`,
+                { target }
+              );
+            }
+            if (stat.isFile()) {
+              const existing = fs.readFileSync(target);
+              currentTargetSha = crypto.createHash('sha256').update(existing).digest('hex');
+            }
+          }
+          if (expectedSha256 !== undefined && (currentTargetSha || '').toLowerCase() !== expectedSha256.toLowerCase()) {
+            throw new CapabilityError(
+              'CAS_MISMATCH',
+              `Atomic CAS mismatch for "${target}": expected "${expectedSha256}", actual is "${currentTargetSha || 'FILE_NOT_FOUND'}"`,
+              { target, expectedSha256, actualSha256: currentTargetSha }
+            );
+          }
           fs.renameSync(temp, target);
-          return;
+          return currentTargetSha;
         } catch (err: unknown) {
+          if (err instanceof CapabilityError) {
+            throw err;
+          }
           let errCode = '';
           if (err && typeof err === 'object' && 'code' in err) {
             const codeVal = err.code;
@@ -63,6 +107,7 @@ export class WorkspaceFilePort {
           await sleep(delayMs);
         }
       }
+      throw new CapabilityError('FILE_LOCK_TIMEOUT', `Failed to write file ${target} after ${maxRetries} attempts`);
     } finally {
       try {
         if (fs.existsSync(temp)) fs.unlinkSync(temp);

@@ -320,7 +320,57 @@ export const TERMINAL_CHANNELS = {
   GET_POPOUT_STATE: 'antifan:terminal:get-popout-state',
   POPOUT_STATE_CHANGED: 'antifan:terminal:popout-state-changed',
   OPEN_IN_VSCODE: 'antifan:terminal:open-in-vscode',
+  DUMP_DIAGNOSTICS: 'antifan:terminal:dump-diagnostics',
+  GET_DELTA: 'antifan:terminal:get-delta',
+  ACK: 'antifan:terminal:ack',
+  SYNC_VIEW: 'antifan:terminal:sync-view',
 } as const;
+
+export type TerminalSyncViewResult =
+  | { status: 'UP_TO_DATE'; generation: number; lastSeq: number }
+  | { status: 'DELTA'; generation: number; fromSeq: number; throughSeq: number; chunks: Array<{ seq: number; data: string }> }
+  | { status: 'DELTA_EXPIRED'; generation: number; retainedFromSeq: number; retainedThroughSeq: number }
+  | { status: 'GENERATION_CHANGED'; currentGeneration: number }
+  | { status: 'SESSION_CLOSED'; finalSeq: number };
+
+export interface TerminalAckPayload {
+  rendererInstanceId: string;
+  sessionId: string;
+  generation: number;
+  seq: number;
+  role?: 'DOCK' | 'POPOUT';
+}
+
+export interface TerminalJournalEntry {
+  seq: number;
+  generation: number;
+  data: string;
+  byteLength: number;
+  timestamp: number;
+}
+
+export type TerminalDeltaResult =
+  | {
+      status: 'OK';
+      generation: number;
+      fromSeq: number;
+      throughSeq: number;
+      chunks: Array<{ seq: number; data: string }>;
+    }
+  | {
+      status: 'DELTA_EXPIRED';
+      generation: number;
+      retainedFromSeq: number;
+      retainedThroughSeq: number;
+    }
+  | {
+      status: 'GENERATION_MISMATCH';
+      currentGeneration: number;
+    }
+  | {
+      status: 'SESSION_CLOSED';
+      finalSeq: number;
+    };
 
 export type {
   ClientInvocationIntent,

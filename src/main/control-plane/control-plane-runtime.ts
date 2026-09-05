@@ -22,7 +22,8 @@ import { WorkflowEngine } from '../workflow/workflow-engine';
 import { assertExactBrowserTarget, BrowserTarget, CapabilityError, CapabilityRequestContext, issueRuntimeLease, RuntimeFeatureSwitch, RuntimeLease, WorkspaceRecord } from '../../shared/control-plane-contracts';
 import { WorkflowDefinition, WorkflowExecutionResult, WorkflowEventListener } from '../workflow/workflow-schema';
 import { ThemeQaWorkflow, ThemeQaReport } from '../qa/theme-qa-workflow';
-
+import { ThemeTransactionRegistry } from '../qa/theme-transaction-registry';
+import { registerThemeTransactionCapabilities } from '../tools/theme-transaction-capabilities';
 export interface ControlPlaneRuntimeOptions {
   projectId: string;
   workspaceId: string;
@@ -37,6 +38,7 @@ export interface ControlPlaneRuntimeOptions {
   getAutomationTabId?: () => string | null;
   isTabAllowed?: (primaryTabId: string, requestedTabId: string) => boolean;
   resolveTabId?: (tabIdOrIdentifier: string) => string | undefined;
+  browserControlPort?: BrowserControlPort;
 }
 export interface ControlPlaneResourceStats {
   artifacts: ArtifactStoreStats;
@@ -59,6 +61,7 @@ export class ControlPlaneRuntime {
   readonly capabilities: CapabilityCatalogue;
   readonly transport: CapabilityTransportAdapter;
   readonly terminal: TerminalManager;
+  readonly themeTransactions: ThemeTransactionRegistry;
   readonly workflowEngine: WorkflowEngine;
   readonly workflowRegistry: WorkflowRegistry;
   private leaseState: RuntimeLease;
@@ -118,7 +121,14 @@ export class ControlPlaneRuntime {
     });
     this.transport = new CapabilityTransportAdapter(this.capabilities, this.runs.attachments, this.ledger);
     this.terminal = new TerminalManager();
-    registerFileCapabilities(this.capabilities, this.files, () => this.getWorkspaceRoot());
+    this.themeTransactions = new ThemeTransactionRegistry(
+      { projectId: options.projectId, workspaceId: options.workspaceId, runtimeId: this.leaseState.runtimeId },
+      this.files,
+      this.terminal,
+      options.browserControlPort
+    );
+    registerFileCapabilities(this.capabilities, this.files, () => this.getWorkspaceRoot(), this.themeTransactions);
+    registerThemeTransactionCapabilities(this.capabilities, this.themeTransactions, () => this.getWorkspaceRoot());
     registerArtifactCapabilities(this.capabilities, this.artifacts);
     registerTerminalCapabilities(this.capabilities, this.terminal);
     this.workflowRegistry = new WorkflowRegistry(path.join(options.dataRoot, 'workflows'));
@@ -161,6 +171,7 @@ export class ControlPlaneRuntime {
   completeDrain(): void { this.switchState = { ...this.switchState, lifecycle: 'drained' }; this.capabilities.completeDrain(); }
   rollbackLegacy(): void { this.switchState = { mode: 'legacy', lifecycle: 'legacy' }; this.capabilities.switchToLegacy(); }
   registerBrowser(browser: BrowserControlPort): void {
+    this.themeTransactions.bindBrowserPort(browser);
     this.themeQaWorkflow = new ThemeQaWorkflow({ browser, artifacts: this.artifacts, reload: (target) => browser.reload(target) });
     registerBrowserCapabilities(this.capabilities, browser, this.themeQaWorkflow, () => this.getWorkspaceRoot(), this.receipts);
   }

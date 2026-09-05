@@ -1,11 +1,13 @@
 import { CapabilityCatalogue } from './capability-catalogue';
 import { WorkspaceFilePort } from './workspace-file-port';
-import { CapabilityError, CapabilityRequestContext, AuthenticatedCapabilityContext } from '../../shared/control-plane-contracts';
+import { CapabilityError, CapabilityRequestContext, AuthenticatedCapabilityContext, canonicalizeWorkspaceRoot } from '../../shared/control-plane-contracts';
+import { ThemeTransactionRegistry } from '../qa/theme-transaction-registry';
 
 export function registerFileCapabilities(
   catalogue: CapabilityCatalogue,
   files: WorkspaceFilePort,
-  getAuthoritativeWorkspaceRoot?: () => string
+  getAuthoritativeWorkspaceRoot?: () => string,
+  transactionRegistry?: ThemeTransactionRegistry
 ): void {
   const resolveRoot = (context?: CapabilityRequestContext | AuthenticatedCapabilityContext): string => {
     if (!context || !context.projectId || !context.workspaceId) {
@@ -90,19 +92,33 @@ export function registerFileCapabilities(
       properties: {
         path: { type: 'string', description: 'Relative path within the workspace' },
         content: { type: 'string', description: 'File content to write' },
+        expectedSha256: { type: 'string', description: 'Optional expected SHA256 of existing file for Compare-And-Swap (CAS)' },
       },
       required: ['path', 'content'],
     },
-    execute: (params: { path: string; content: string }, context?: CapabilityRequestContext | AuthenticatedCapabilityContext) => {
+    execute: (params: { path: string; content: string; expectedSha256?: string }, context?: CapabilityRequestContext | AuthenticatedCapabilityContext) => {
       const root = resolveRoot(context);
       if (!root) throw new CapabilityError('WORKSPACE_MISMATCH', 'No authoritative workspace attached');
       if (!params.path || typeof params.path !== 'string' || typeof params.content !== 'string') {
         throw new CapabilityError('INVALID_ARGUMENT', 'Relative file path and content are required');
       }
+      if (transactionRegistry) {
+        const canonical = canonicalizeWorkspaceRoot(root);
+        if (transactionRegistry.isLocked(canonical)) {
+          const active = transactionRegistry.getActiveSession(canonical);
+          throw new CapabilityError(
+            'TRANSACTION_CONFLICT',
+            `Workspace "${canonical}" is locked by active ThemeMutationSession "${active?.sessionId || 'in-flight'}". Direct file.write calls are rejected while a transaction is active. Mutations must be executed through theme transaction capabilities.`,
+            { workspaceRoot: canonical, activeSessionId: active?.sessionId }
+          );
+        }
+      }
+      if (typeof params.expectedSha256 === 'string') {
+        return files.writeCAS(root, params.path, params.content, params.expectedSha256);
+      }
       return files.write(root, params.path, params.content);
     },
   });
-
   catalogue.register({
     name: 'file.assert_not_contains',
     description: 'Assert that a workspace file does not contain a forbidden pattern',

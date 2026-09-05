@@ -560,7 +560,11 @@ export type CapabilityErrorCode =
   | 'SESSION_STALE'
   | 'SESSION_CLOSED'
   | 'WAIT_TIMEOUT'
-  | 'WAIT_ABORTED';
+  | 'WAIT_ABORTED'
+  | 'STORE_CONTEXT_MISMATCH'
+  | 'CAS_MISMATCH'
+  | 'STALE_LINEAGE'
+  | 'TRANSACTION_CONFLICT';
 
 export class CapabilityError extends Error {
   readonly code: CapabilityErrorCode;

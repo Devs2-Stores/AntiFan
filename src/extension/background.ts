@@ -342,18 +342,6 @@ if (typeof chrome !== 'undefined' && chrome.cookies?.onChanged) {
 // Runtime messages from popup
 if (typeof chrome !== 'undefined' && chrome.runtime?.onMessage) {
   chrome.runtime.onMessage.addListener((request: any, sender: any, sendResponse: (res: any) => void) => {
-    if (request.action === 'SYNC_ALL_COOKIES') {
-      (async () => {
-        try {
-          const allCookies = await chrome.cookies.getAll({});
-          const result = await dispatchFullSync(allCookies);
-          sendResponse(result);
-        } catch (err: any) {
-          sendResponse({ success: false, count: 0, error: err.message });
-        }
-      })();
-      return true;
-    }
 
     if (request.action === 'SYNC_ACTIVE_TAB') {
       (async () => {

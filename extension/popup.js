@@ -121,7 +121,7 @@ async function syncCookies() {
   try {
     if (typeof chrome !== 'undefined' && chrome.runtime?.sendMessage) {
       const syncResult = await new Promise((resolve) => {
-        chrome.runtime.sendMessage({ action: 'SYNC_ALL_COOKIES' }, (res) => {
+        chrome.runtime.sendMessage({ action: 'SYNC_ACTIVE_TAB' }, (res) => {
           if (chrome.runtime.lastError) {
             resolve({ success: false, error: chrome.runtime.lastError.message });
           } else {
@@ -133,7 +133,7 @@ async function syncCookies() {
       if (syncResult && syncResult.success) {
         showMessage(
           'success',
-          `✅ Đã đồng bộ thành công ${syncResult.count.toLocaleString()} cookies sang AntiFan! Hãy mở Google/Gmail trên AntiFan Desktop.`
+          `✅ Đã đồng bộ thành công ${syncResult.count.toLocaleString()} cookies của tab hiện tại sang AntiFan!`
         );
         setStatus('connected', 'AntiFan Online (Đã đồng bộ)');
         return;

@@ -1,0 +1,35 @@
+{
+  "timestamp": "2026-09-05T18:13:48.366Z",
+  "platform": "win32",
+  "arch": "x64",
+  "electronVersion": "43.4.0",
+  "chromeVersion": "150.0.7871.224",
+  "gates": {
+    "GATE-B": {
+      "status": "PASS",
+      "latencyMs": 64
+    },
+    "GATE-C1": {
+      "status": "PASS",
+      "totalChunksRendered": 60
+    },
+    "GATE-C2": {
+      "status": "PASS",
+      "honestDegradationEnforced": true
+    },
+    "GATE-J": {
+      "status": "PASS",
+      "bannerRecoveryVerified": true
+    },
+    "GATE-I": {
+      "status": "PASS",
+      "backlogChunksRecovered": 10
+    },
+    "COALESCED_ACK": {
+      "status": "PASS",
+      "totalAcksReceived": 3,
+      "lastAckedSeq": 60
+    }
+  },
+  "verdict": "[P0-Transport Certified]"
+}

@@ -1240,18 +1240,6 @@
   }
   if (typeof chrome !== "undefined" && chrome.runtime?.onMessage) {
     chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
-      if (request.action === "SYNC_ALL_COOKIES") {
-        (async () => {
-          try {
-            const allCookies = await chrome.cookies.getAll({});
-            const result = await dispatchFullSync(allCookies);
-            sendResponse(result);
-          } catch (err) {
-            sendResponse({ success: false, count: 0, error: err.message });
-          }
-        })();
-        return true;
-      }
       if (request.action === "SYNC_ACTIVE_TAB") {
         (async () => {
           try {
