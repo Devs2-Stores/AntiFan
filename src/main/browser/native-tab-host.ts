@@ -398,6 +398,9 @@ export class NativeTabHost extends EventEmitter {
       this.agentInputInFlight = Math.max(0, this.agentInputInFlight - 1);
     }
   }
+  public getActiveCapsule(): WorkspaceCapsule | null {
+    return this.capsuleManager ? this.capsuleManager.getActive() : null;
+  }
 
   public get isInspecting(): boolean {
     return this.devToolsHost ? this.devToolsHost.getIsInspecting() : false;
