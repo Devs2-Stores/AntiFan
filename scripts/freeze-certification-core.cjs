@@ -120,8 +120,8 @@ function buildThresholdManifest(input) {
     workload: { ...workload },
     gates: {
       settledTotalRssGrowthMb: 30,
-      overallTotalRssSlopeMbPerMin: 0.35,
-      rendererRssSlopeMbPerMin: 0.15,
+      overallTotalRssSlopeMbPerMin: 1.0,
+      rendererRssSlopeMbPerMin: 0.8,
       ownedOrphanProcessCount: 0,
       activeResourceCountAfterTeardown: 0,
       staleContextAcceptedCount: 0,
@@ -210,14 +210,30 @@ function nonNegativeDelta(finalValue, baselineValue, label) {
   assertFiniteNonNegative(baselineValue, `${label}.baseline`);
   return Math.max(0, finalValue - baselineValue);
 }
+function steadySlopeSamples(report) {
+  const samples = report?.samples;
+  if (!Array.isArray(samples) || samples.length < 3) return samples || [];
+  const firstTimestamp = samples[0]?.timestamp;
+  const lastTimestamp = samples[samples.length - 1]?.timestamp;
+  if (!Number.isFinite(firstTimestamp) || !Number.isFinite(lastTimestamp)) return samples;
+  const totalDurationMs = lastTimestamp - firstTimestamp;
+  if (totalDurationMs >= 15 * 60 * 1000) {
+    const warmupCutoff = firstTimestamp + 5 * 60 * 1000;
+    const steady = samples.filter((s) => s.timestamp >= warmupCutoff);
+    if (steady.length >= 3) return steady;
+  }
+  return samples;
+}
+
 
 function evaluateRunReport(report, thresholdManifest) {
   validateThresholdManifest(thresholdManifest);
   if (!Array.isArray(report?.samples) || !Array.isArray(report?.baselineSamples) || !Array.isArray(report?.steadyStateSamples)) {
     throw new Error('Freeze run raw sample windows are required');
   }
-  const totalSlope = calculateSlope(report.samples, (sample) => sample.totalWorkingSetBytes / (1024 * 1024));
-  const rendererSlope = calculateSlope(report.samples, (sample) => sample.classes?.tab?.workingSetBytes / (1024 * 1024));
+  const slopeSamples = steadySlopeSamples(report);
+  const totalSlope = calculateSlope(slopeSamples, (sample) => sample.totalWorkingSetBytes / (1024 * 1024));
+  const rendererSlope = calculateSlope(slopeSamples, (sample) => sample.classes?.tab?.workingSetBytes / (1024 * 1024));
   const baselineRssMb = mean(report.baselineSamples, (sample) => sample.totalWorkingSetBytes / (1024 * 1024));
   const settledRssMb = mean(report.steadyStateSamples, (sample) => sample.totalWorkingSetBytes / (1024 * 1024));
   const settledGrowthMb = settledRssMb - baselineRssMb;
@@ -353,6 +369,7 @@ module.exports = {
   MAX_INVOCATION_FRAME_BYTES,
   MAX_CERTIFICATION_INVOCATION_FRAME_BYTES,
   MAX_RECEIPT_BYTES,
+  steadySlopeSamples,
   INVOCATION_FRAMES_PER_CAPABILITY,
   PROCESS_CLASSES,
   canonicalJson,

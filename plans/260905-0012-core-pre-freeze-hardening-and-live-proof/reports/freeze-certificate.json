@@ -1,0 +1,29 @@
+{
+  "schemaVersion": 1,
+  "type": "antifan-core-freeze-certificate",
+  "verdict": "PASSED",
+  "buildIdentity": "17ba4f2c426f12a9b4ef70950de4d6b416247f8b6375b2b5ca77583e8fa9c07c",
+  "thresholdChecksum": "117ca84a88603bb2ed5f860313512654a64e17c77d33230327755cb4da2d9bba",
+  "issuedAt": "2026-09-05T21:30:36.225Z",
+  "runs": [
+    {
+      "runNumber": 1,
+      "processStartId": "process-start-829ca1f7-b93d-4302-a9e3-0169a9444ed9",
+      "processPid": 16696,
+      "reportChecksum": "b9af05e1e0ed69d9b0e574f0d4c65003201d73acf63194f11c43d8db5a497fa2"
+    },
+    {
+      "runNumber": 2,
+      "processStartId": "process-start-4a92cdfb-b9f9-4595-b5b7-80391c0f206d",
+      "processPid": 24816,
+      "reportChecksum": "bca731bf5a31a1e5af25facb128194ec124603b0eaae631682bc5451d2b77da0"
+    },
+    {
+      "runNumber": 3,
+      "processStartId": "process-start-1dbf7fa0-7825-44ef-9fbb-0159f378db3e",
+      "processPid": 25660,
+      "reportChecksum": "1d9ca19b20cf0ad567ba2c9025b1f272af867d9ac424ab86264a0b3cc5d908ee"
+    }
+  ],
+  "certificateChecksum": "35d40debe7019f3e13918477b4f64e03ca6d7bd5607798a1e3986fb0210744c9"
+}

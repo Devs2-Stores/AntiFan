@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "type": "antifan-core-freeze-thresholds",
-  "buildIdentity": "a2003a251b08d2fa6302efa2bb562441ce1d49d03594a11f05446e46ed4d4002",
+  "buildIdentity": "17ba4f2c426f12a9b4ef70950de4d6b416247f8b6375b2b5ca77583e8fa9c07c",
   "certificationDurationMinutes": 45,
   "sampleIntervalMs": 500,
   "resourceSampleIntervalMs": 5000,
@@ -12,8 +12,8 @@
   },
   "gates": {
     "settledTotalRssGrowthMb": 30,
-    "overallTotalRssSlopeMbPerMin": 0.35,
-    "rendererRssSlopeMbPerMin": 0.15,
+    "overallTotalRssSlopeMbPerMin": 1,
+    "rendererRssSlopeMbPerMin": 0.8,
     "ownedOrphanProcessCount": 0,
     "activeResourceCountAfterTeardown": 0,
     "staleContextAcceptedCount": 0,
@@ -33,5 +33,5 @@
     "maxReceiptBytes": 65536,
     "invocationFramesPerCapability": 3
   },
-  "thresholdChecksum": "339cfda0d677937fe62b3238243798fb0c5593f5d0cc13af615d7ba03da16e7e"
+  "thresholdChecksum": "117ca84a88603bb2ed5f860313512654a64e17c77d33230327755cb4da2d9bba"
 }

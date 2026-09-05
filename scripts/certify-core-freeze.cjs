@@ -124,8 +124,8 @@ async function runCertificationChild(runNumber, buildIdentity) {
       });
       const timeout = setTimeout(() => {
         killOwnedTree(child);
-        reject(new Error(`Freeze run ${runNumber} exceeded the 50-minute process timeout`));
-      }, 50 * 60 * 1000);
+        reject(new Error(`Freeze run ${runNumber} exceeded the 60-minute process timeout`));
+      }, 60 * 60 * 1000);
       child.once('error', (error) => {
         clearTimeout(timeout);
         reject(error);

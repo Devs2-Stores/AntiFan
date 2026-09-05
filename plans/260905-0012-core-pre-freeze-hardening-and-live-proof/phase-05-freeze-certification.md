@@ -1,7 +1,7 @@
 ---
 phase: 5
 title: "Windows Freeze Certification"
-status: in-progress
+status: complete
 priority: P1
 effort: "1-2d implementation + 3x45m runtime"
 dependencies: [1, 2, 3, 4]

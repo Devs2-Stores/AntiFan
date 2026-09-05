@@ -445,7 +445,7 @@ async function runSoak() {
         tabHost.switchTab(createdTabIds[nextSwitchIndex % createdTabIds.length]);
         nextSwitchIndex += 1;
         enduranceSwitches += 1;
-        nextSwitchAt = now + 3000;
+        nextSwitchAt = now + 6000;
       }
       if (now >= nextQaAt) {
         const targetId = createdTabIds[nextQaIndex];

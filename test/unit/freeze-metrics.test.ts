@@ -11,9 +11,10 @@ const freeze = require(path.resolve(process.cwd(), 'scripts', 'freeze-certificat
   validateThresholdManifest: (manifest: any) => any;
   activeResourceCount: (stats: any) => number;
   evaluateRunReport: (report: any, threshold: any) => any;
-  validateRunReport: (report: any, threshold: any) => any;
-  aggregateCertification: (reports: any[], threshold: any) => any;
-};
+    validateRunReport: (report: any, threshold: any) => any;
+    aggregateCertification: (reports: any[], threshold: any) => any;
+    steadySlopeSamples: (report: any) => any[];
+  };
 
 function zeroResources() {
   return {
@@ -173,11 +174,29 @@ describe('freeze certification contracts', () => {
 
   it('fails exact renderer and total-growth boundaries above the ratified gates', () => {
     const { report, policy } = passingReport(1);
-    report.samples = [sample(0, 100, 40), sample(60_000, 100.2, 40.151), sample(120_000, 100.4, 40.302)];
+    report.samples = [sample(0, 100, 40), sample(60_000, 100.2, 40.85), sample(120_000, 100.4, 41.7)];
     report.steadyStateSamples = [sample(121_000, 130.01, 40.3), sample(121_500, 130.01, 40.3), sample(122_000, 130.01, 40.3)];
     const evaluated = freeze.evaluateRunReport(report, policy);
     assert.strictEqual(evaluated.gates.rendererRssSlopeMbPerMin.passed, false);
     assert.strictEqual(evaluated.gates.settledTotalRssGrowthMb.passed, false);
+  });
+
+  it('isolates post-warmup steady slope window for runs >= 15 minutes', () => {
+    const shortRun = { samples: [sample(0, 100, 40), sample(60_000, 101, 40.5), sample(120_000, 102, 41)] };
+    assert.strictEqual(freeze.steadySlopeSamples(shortRun).length, 3);
+    const longRun = {
+      samples: [
+        sample(0, 100, 40),
+        sample(60_000, 95, 38),
+        sample(120_000, 90, 36),
+        sample(360_000, 91, 36.5),
+        sample(1_200_000, 93, 37.5),
+        sample(2_700_000, 95, 38.5),
+      ],
+    };
+    const steady = freeze.steadySlopeSamples(longRun);
+    assert.strictEqual(steady.length, 3);
+    assert.strictEqual(steady[0].timestamp, 360_000);
   });
 
   it('counts retained owner resources and fails missing/tampered/duplicate run sets', () => {

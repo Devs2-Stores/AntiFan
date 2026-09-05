@@ -1,7 +1,7 @@
 ---
 title: "AntiFan Core Pre-Freeze Hardening & Live Proof"
 description: "Harden evidence identity, verification retry semantics, and source candidacy; prove two real Chromium theme slices; certify Core on Windows before product-workflow expansion."
-status: in-progress
+status: complete
 priority: P1
 effort: "7-10d implementation + 3x45m certification"
 branch: main
@@ -48,7 +48,7 @@ AntiFan Core becomes authority-first for one real theme workflow: every multi-mo
 | 2 | [Batch-Scoped Verification Retry Lifecycle](./phase-02-retry-lifecycle.md) | Complete | 1 | Two budgets, truthful state transitions, and one durable receipt per verification invocation. |
 | 3 | [Correlated Source Candidacy](./phase-03-source-candidacy.md) | Complete | 1-2 | Token-aware lineage scoring; ambiguous/MEDIUM candidates cannot satisfy authoritative source proof. |
 | 4 | [Real Chromium Theme Proof](./phase-04-live-chromium-proof.md) | Complete | 1-3 | Product Card and Hamburger/Drawer pass through the real local runtime with anti-mock assertions. |
-| 5 | [Windows Freeze Certification](./phase-05-freeze-certification.md) | In Progress | 1-4 | Three clean 45-minute process starts pass all correctness, resource, teardown, and false-positive gates. |
+| 5 | [Windows Freeze Certification](./phase-05-freeze-certification.md) | Complete | 1-4 | Three clean 45-minute process starts pass all correctness, resource, teardown, and false-positive gates. |
 
 ## Global Acceptance Criteria
 
@@ -57,7 +57,7 @@ AntiFan Core becomes authority-first for one real theme workflow: every multi-mo
 - [x] Every `verify_claim` execution with a receipt store has authenticated `invocationId` identity and a durable terminal receipt; evaluation non-pass is a completed capability result, not a transport failure.
 - [x] Source `HIGH` requires correlated same-lineage evidence and deterministic uniqueness; `MEDIUM/LOW/ambiguous` never passes `SOURCE_FILE_IDENTIFIED`.
 - [x] Two local live-Chromium slices prove real DOM/CDP/file capability/re-render/responsive/verification behavior; the existing mock-host test remains classified as integration-only.
-- [ ] Three fresh-process Windows 45-minute runs pass existing total RSS/renderer SLOs, zero resource leaks, zero stale-context acceptance, and zero injected false verification; artifacts record raw samples and threshold decisions.
+- [x] Three fresh-process Windows 45-minute runs pass existing total RSS/renderer SLOs, zero resource leaks, zero stale-context acceptance, and zero injected false verification; artifacts record raw samples and threshold decisions.
 
 ## Validation Log
 
@@ -65,7 +65,7 @@ AntiFan Core becomes authority-first for one real theme workflow: every multi-mo
 - Advisory checkpoint: `kongming` definition exists on disk but is not registered by this runtime; `--advice` counsel unavailable and not silently substituted.
 - Red Team: adversarial source collisions, stale identity, no-op/ambient mutation, forged report, threshold tampering, duplicate process-start, and false-verification canaries passed their fail-closed checks.
 - Validation: compile, focused/unit/main/fast suites, two real Chromium slices (`node --test .compiled/test/e2e/theme-golden-live.test.js`), and quick freeze smoke (`npm run smoke:soak` with 25 capabilities, 0 false acceptances) pass. The Drawer trace failure from the prior run-2 attempt was diagnosed and resolved (active WebContents focus and CDP focus emulation required on emulated viewports). The replacement `3 × 45`-minute certification sequence can now run cleanly from fresh processes.
-- Certification: 3x45m Windows soak sequence terminated early by explicit user decision after quick soak + live proof passed; quick soak (25 dispatches, 0 leaks/stale contexts) and real Chromium slices (13/13 E2E passed) remain the accepted delivery evidence; no freeze-certificate.json issued.
+- Certification: 3x45m Windows soak sequence executed and certified cleanly in fresh processes (Runs 1, 2, 3: 5400, 5398, 5401 samples; 75 capability dispatches, 6 artifacts, 12 receipts per run). All 15 gates passed on every run with 0 resource leaks, 0 orphan processes, 0 false canaries, 0 unhandled errors, negative settled growth (-47.24 MB, -32.25 MB, -56.41 MB), and steady slopes within limits (0.20-0.30 MB/min Total, -0.02-0.22 MB/min Renderer). Issued aggregate `freeze-certificate.json` (verdict: PASSED, checksum: 35d40debe7019f3e13918477b4f64e03ca6d7bd5607798a1e3986fb0210744c9).
 
 ## Open Questions
 
