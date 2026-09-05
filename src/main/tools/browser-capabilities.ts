@@ -1400,6 +1400,69 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
     inputSchema: { type: 'object', properties: { handle: { type: 'string' }, tabId: { type: 'string' } } },
     execute: (params: Record<string, unknown>, context) => catalogue.get('theme.resolve_product')!.execute(params, context),
   });
+  catalogue.register({
+    name: 'theme.style_override',
+    description: 'In-memory ephemeral CSS stylesheet override for safe theme testing without writing files to disk (bypasses CLI watchers). Automatically scoped to page memory.',
+    risk: 'write',
+    requiresBrowserTarget: true,
+    policy: makeBrowserPolicy({ effect: 'idempotent-write', risk: 'write', requiresBrowserTarget: true, lane: 'viewport-gate' }),
+    inputSchema: {
+      type: 'object',
+      properties: {
+        operation: { type: 'string', enum: ['apply', 'clear'], description: 'Whether to inject/replace or remove the override' },
+        id: { type: 'string', description: 'Unique identifier for the stylesheet element (e.g. "sticky-header-fix")' },
+        css: { type: 'string', description: 'CSS rules to inject when operation is apply' },
+        tabId: { type: 'string', description: 'Target tab ID' },
+        paneId: { type: 'string', enum: ['desktop', 'mobile'], description: 'Target pane ID in split review mode' },
+      },
+      required: ['operation', 'id'],
+    },
+    execute: async (params: { operation: 'apply' | 'clear'; id: string; css?: string; tabId?: string; paneId?: 'desktop' | 'mobile' }, context) => {
+      const target = context.browserTarget as BrowserTarget;
+      const styleId = `__antifan_override_${params.id.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
+      if (params.operation === 'clear') {
+        const script = `(() => {
+          const el = document.getElementById(${JSON.stringify(styleId)});
+          if (el) { el.remove(); return { cleared: true, id: ${JSON.stringify(params.id)} }; }
+          return { cleared: false, id: ${JSON.stringify(params.id)}, message: 'Override element not found' };
+        })()`;
+        return browser.eval(target, script, params.tabId, params.paneId);
+      }
+      const cssContent = params.css || '';
+      const script = `(() => {
+        let el = document.getElementById(${JSON.stringify(styleId)});
+        if (!el) {
+          el = document.createElement('style');
+          el.id = ${JSON.stringify(styleId)};
+          el.setAttribute('data-antifan-override', 'true');
+          (document.head || document.documentElement).appendChild(el);
+        }
+        el.textContent = ${JSON.stringify(cssContent)};
+        return { applied: true, id: ${JSON.stringify(params.id)}, byteLength: ${cssContent.length} };
+      })()`;
+      return browser.eval(target, script, params.tabId, params.paneId);
+    },
+  });
+
+  catalogue.register({
+    name: 'anti.theme.style_override',
+    description: 'Alias for theme.style_override: in-memory ephemeral CSS stylesheet override for safe theme testing without writing files to disk',
+    risk: 'write',
+    requiresBrowserTarget: true,
+    policy: makeBrowserPolicy({ effect: 'idempotent-write', risk: 'write', requiresBrowserTarget: true, lane: 'viewport-gate' }),
+    inputSchema: {
+      type: 'object',
+      properties: {
+        operation: { type: 'string', enum: ['apply', 'clear'], description: 'Whether to inject/replace or remove the override' },
+        id: { type: 'string', description: 'Unique identifier for the stylesheet element' },
+        css: { type: 'string', description: 'CSS rules to inject when operation is apply' },
+        tabId: { type: 'string', description: 'Target tab ID' },
+        paneId: { type: 'string', enum: ['desktop', 'mobile'], description: 'Target pane ID in split review mode' },
+      },
+      required: ['operation', 'id'],
+    },
+    execute: (params: Record<string, unknown>, context) => catalogue.get('theme.style_override')!.execute(params as any, context),
+  });
 
   // 3. anti.* aliases for unified client / bridge execution
   catalogue.register({

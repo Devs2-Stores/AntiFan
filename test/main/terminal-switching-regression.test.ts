@@ -190,6 +190,13 @@ describe('Terminal Switching Regression & Viewport Integrity', () => {
     // 13. Ensure context menu dynamically updates split/unsplit label
     assert.match(jsContent, /Đóng chia đôi \(Unsplit\)/);
     assert.match(jsContent, /Chia đôi tab \(Split\)/);
+    // 14. Ensure empty-state UI and pull-based bootstrap contracts prevent dead/unresponsive black void
+    assert.match(cssContent, /\.terminal-empty-state/);
+    assert.match(cssContent, /\.empty-state-card/);
+    assert.match(jsContent, /updateEmptyStateDisplay/);
+    assert.match(jsContent, /bootstrapTerminalState/);
+    assert.match(jsContent, /api\?\.listTerminals/);
+    assert.match(jsContent, /btnEmptyCreateTerminal/);
   });
   it('verifies split terminal lifecycle: resizeTo custom ratios, session events, close persistence, switch normalization, and recreate', async () => {
     const p1 = tm.createSession();

@@ -5490,7 +5490,17 @@ export class NativeTabHost extends EventEmitter {
       deviceScaleFactor: options.deviceScaleFactor ?? (w < 768 ? 2 : 1),
     };
     tab.state.devicePresetId = `custom-${w}x${h}`;
-    this.updateLayout();
+    if (targetId === this.activeTabId) {
+      this.updateLayout();
+    } else {
+      const bounds = this.window && typeof this.window.getContentBounds === 'function'
+        ? this.window.getContentBounds()
+        : { width: 1440, height: 900 };
+      const toolbarHeight = typeof this.getToolbarHeight === 'function' ? this.getToolbarHeight() : 40;
+      const availableWidth = this.isSidebarOpen ? Math.max(400, bounds.width - this.sidebarWidth) : bounds.width;
+      const availableHeight = Math.max(0, bounds.height - toolbarHeight);
+      this.applyTabDeviceEmulation(tab, availableWidth, availableHeight, toolbarHeight);
+    }
 
     await this.applyCdpTouchEmulation(tab.view.webContents, mobile);
     return true;

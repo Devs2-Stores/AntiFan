@@ -16,6 +16,7 @@ const api = {
   resizeTerminalSession: (id, cols, rows) => ipcRenderer.invoke('antifan:terminal:resize-session', { id, cols, rows }),
   resizeTerminalTo: (id, cols, rows) => ipcRenderer.invoke('antifan:terminal:resize-session', { id, cols, rows }),
   listSessions: () => ipcRenderer.invoke('antifan:terminal:list-sessions'),
+  listTerminals: () => ipcRenderer.invoke('antifan:terminal:list-sessions'),
   switchTerminal: (id) => ipcRenderer.invoke('antifan:terminal:switch-session', id),
   setActiveSession: (sessionId) => ipcRenderer.invoke('antifan:terminal:set-active-session', { sessionId }),
   newTerminal: () => ipcRenderer.invoke('antifan:terminal:new-session'),

@@ -597,6 +597,8 @@ export class AntiFanMcpServer {
       'anti.theme.resolve_product': 'theme.resolve_product',
       'storefront.resolve_product': 'theme.resolve_product',
       'theme.resolve_product': 'theme.resolve_product',
+      'anti.theme.style_override': 'theme.style_override',
+      'theme.style_override': 'theme.style_override',
       'anti.theme.qa_repair.begin': 'antifan_theme_qa_repair_begin',
       'theme.qa_repair.begin': 'antifan_theme_qa_repair_begin',
       'anti.theme.qa_repair.verify': 'antifan_theme_qa_repair_verify',
@@ -788,6 +790,7 @@ export function buildMcpToolList(staticTools: Tool[], transport?: CapabilityTran
     if (item.name === 'antifan_theme_qa_rollback') generated.push({ ...item, name: 'anti.theme.qa_rollback' }, { ...item, name: 'theme.qa_rollback' });
     if (item.name === 'theme.assert_cart') generated.push({ ...item, name: 'anti.theme.assert_cart' });
     if (item.name === 'theme.resolve_product' || item.name === 'antifan_theme_resolve_product') generated.push({ ...item, name: 'anti.theme.resolve_product' }, { ...item, name: 'storefront.resolve_product' });
+    if (item.name === 'theme.style_override') generated.push({ ...item, name: 'anti.theme.style_override' });
     if (item.name === 'antifan_set_zoom') generated.push({ ...item, name: 'anti.browser.set_zoom' }, { ...item, name: 'anti.browser.zoom.set' });
     if (item.name === 'antifan_agent_snapshot') generated.push({ ...item, name: 'anti.inspect.snapshot' });
     if (item.name === 'antifan_eval_js') generated.push({ ...item, name: 'anti.browser.evaluate' }, { ...item, name: 'anti.inspect.eval' });

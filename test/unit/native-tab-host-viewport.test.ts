@@ -179,6 +179,29 @@ describe('Phase 1: Viewport Emulation & CDP Matched Styles Gateway', () => {
     assert.strictEqual(await host.setViewportSize({ width: 0, height: 667 }), false);
     assert.strictEqual(await host.setViewportSize({ width: -100, height: -200 }), false);
   });
+  it('applies device emulation to an explicit background tab without switching active tab', async () => {
+    const host = createTestHost();
+    const activeTab = createTestTabRecord('tab-active');
+    const backgroundTab = createTestTabRecord('tab-bg');
+    host.tabs.set('tab-active', activeTab);
+    host.tabs.set('tab-bg', backgroundTab);
+    host.activeTabId = 'tab-active';
+
+    const success = await host.setViewportSize({ width: 375, height: 812, mobile: true, tabId: 'tab-bg' });
+    assert.strictEqual(success, true);
+    assert.strictEqual(host.activeTabId, 'tab-active', 'Active tab must not be altered');
+    assert.deepStrictEqual(backgroundTab.customViewport, {
+      width: 375,
+      height: 812,
+      mobile: true,
+      deviceScaleFactor: 2,
+    });
+    assert.strictEqual(backgroundTab.state.devicePresetId, 'custom-375x812');
+    assert.strictEqual(host.emulationCalls.length, 1);
+    const emu = host.emulationCalls[0];
+    assert.strictEqual(emu?.screenPosition, 'mobile');
+    assert.deepStrictEqual(emu?.screenSize, { width: 375, height: 812 });
+  });
 
   it('registers and dispatches browser.get-matched-styles by selector and ref', async () => {
     const projectId = makeControlPlaneId('project');

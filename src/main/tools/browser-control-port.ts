@@ -50,6 +50,7 @@ export interface BrowserHostPort {
   switchTab?(tabId: string): boolean;
   navigate(tabId: string, url: string): Promise<boolean> | boolean;
   reload(tabId: string): Promise<boolean> | boolean;
+  reloadAndWait?(tabId: string, timeoutMs?: number): Promise<boolean>;
   getDom(selector?: string, tabId?: string, paneId?: 'desktop' | 'mobile'): Promise<string>;
   captureScreenshot(rect?: unknown, tabId?: string, paneId?: 'desktop' | 'mobile', options?: { format?: 'png' | 'jpeg'; quality?: number; fullPage?: boolean }): Promise<string>;
   evalJs(expression: string, tabId?: string, paneId?: 'desktop' | 'mobile'): Promise<unknown>;
@@ -578,12 +579,29 @@ export class BrowserControlPort {
     return { navigated: true, target: { ...target, tabId, documentGeneration: docGen } };
   }
 
-  async reload(target: BrowserTarget, explicitTabId?: string): Promise<{ reloaded: boolean; target: BrowserTarget }> {
+  async reload(target: BrowserTarget, explicitTabId?: string): Promise<{ reloaded: boolean; target: BrowserTarget; urlBefore?: string; urlAfter?: string; redirected?: boolean }> {
     const tabId = this.resolveTargetTab(target, explicitTabId, 'lifecycle');
-    const reloaded = await this.host.reload(tabId);
+    let urlBefore: string | undefined;
+    try {
+      urlBefore = typeof this.host.evalJs === 'function' ? String(await this.host.evalJs('window.location.href', tabId) || '') : undefined;
+    } catch {}
+    const reloaded = typeof this.host.reloadAndWait === 'function'
+      ? await this.host.reloadAndWait(tabId)
+      : await this.host.reload(tabId);
     if (!reloaded) throw new CapabilityError('TARGET_STALE', 'Reload failed or timed out before a load-complete document was available');
+    let urlAfter: string | undefined;
+    try {
+      urlAfter = typeof this.host.evalJs === 'function' ? String(await this.host.evalJs('window.location.href', tabId) || '') : undefined;
+    } catch {}
     const docGen = this.host.getDocumentGeneration ? this.host.getDocumentGeneration(tabId) : (target.documentGeneration || 1);
-    return { reloaded: true, target: { ...target, tabId, documentGeneration: docGen } };
+    const redirected = (urlBefore && urlAfter && urlBefore !== urlAfter) ? true : false;
+    return {
+      reloaded: true,
+      target: { ...target, tabId, documentGeneration: docGen },
+      ...(urlBefore ? { urlBefore } : {}),
+      ...(urlAfter ? { urlAfter } : {}),
+      ...(urlBefore && urlAfter ? { redirected } : {}),
+    };
   }
 
   async dom(target: BrowserTarget, runId: string, attemptId: string, selector?: string, explicitTabId?: string, paneId?: 'desktop' | 'mobile'): Promise<ArtifactRef | string> {
@@ -671,7 +689,13 @@ export class BrowserControlPort {
       const format = options?.format === 'jpeg' ? 'jpeg' : 'png';
       const mime = format === 'jpeg' ? 'image/jpeg' : 'image/png';
       const base64 = await this.host.captureScreenshot(undefined, tabId, paneId, options);
+      if (!base64 || base64.length === 0) {
+        throw new CapabilityError('TARGET_STALE', `Failed to capture non-empty viewport screenshot on tab '${tabId}' (document may still be rendering or target unavailable)`);
+      }
       const buffer = Buffer.from(base64, 'base64');
+      if (buffer.length === 0) {
+        throw new CapabilityError('TARGET_STALE', `Failed to decode non-empty viewport screenshot buffer on tab '${tabId}'`);
+      }
       return this.artifacts ? await this.artifacts.stage({ kind: 'screenshot', mime, data: buffer, runId, attemptId, projectId: target.projectId, workspaceId: target.workspaceId, maxBytes: 8 * 1024 * 1024 }) : limit(base64, 8 * 1024 * 1024);
     });
   }
@@ -737,7 +761,13 @@ export class BrowserControlPort {
           buffered.dom = await this.host.getDom(params.selector, tabId, effectivePane);
         } else if (comp === 'screenshot') {
           const base64 = await this.host.captureScreenshot(undefined, tabId, effectivePane);
+          if (!base64 || base64.length === 0) {
+            throw new CapabilityError('TARGET_STALE', `Failed to capture non-empty screenshot component for observe on tab '${tabId}'`);
+          }
           buffered.screenshot = Buffer.from(base64, 'base64');
+          if (buffered.screenshot.length === 0) {
+            throw new CapabilityError('TARGET_STALE', `Failed to decode screenshot component for observe on tab '${tabId}'`);
+          }
         } else if (comp === 'snapshot') {
           const snapshotText = this.host.agentSnapshot ? await this.host.agentSnapshot(tabId, effectivePane) : '';
           buffered.snapshot = limit(snapshotText, 128 * 1024);
@@ -1123,12 +1153,24 @@ export class BrowserControlPort {
     const effectiveTabId = this.resolveTargetTab(target, options.tabId);
     const ok = await this.host.setViewportSize({ ...options, tabId: effectiveTabId });
     if (!ok) throw new CapabilityError('CAPABILITY_NOT_FOUND', `Failed to set viewport on tab ${effectiveTabId}`);
+    let observedWidth: number | undefined;
+    let observedHeight: number | undefined;
+    if (typeof this.host.evalJs === 'function') {
+      try {
+        const metrics = await this.host.evalJs('({ innerWidth: window.innerWidth, innerHeight: window.innerHeight })', effectiveTabId) as { innerWidth?: number; innerHeight?: number } | null;
+        if (metrics && typeof metrics.innerWidth === 'number') {
+          observedWidth = metrics.innerWidth;
+          observedHeight = metrics.innerHeight;
+        }
+      } catch {}
+    }
     return {
       success: ok,
       width: options.width,
       height: options.height,
-      mobile: options.mobile ?? (options.width < 600),
+      mobile: options.mobile ?? (options.width < 768),
       presetId: `custom-${options.width}x${options.height}`,
+      ...(observedWidth !== undefined ? { observedWidth, observedHeight } : {}),
     };
   }
 

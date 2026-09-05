@@ -905,6 +905,43 @@ function syncTerminalPool(allSessions, currentActiveId, snapshot, snapshotThroug
       item.paneEl.classList.remove('active');
     }
   }
+  updateEmptyStateDisplay(allSessions && allSessions.length > 0);
+}
+
+function updateEmptyStateDisplay(hasSessions) {
+  let emptyEl = document.getElementById('terminalEmptyState');
+  if (hasSessions) {
+    if (emptyEl) emptyEl.remove();
+    return;
+  }
+  if (!emptyEl && mainPane) {
+    emptyEl = document.createElement('div');
+    emptyEl.id = 'terminalEmptyState';
+    emptyEl.className = 'terminal-empty-state';
+    emptyEl.innerHTML = `
+      <div class="empty-state-card">
+        <div class="empty-state-icon">
+          <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="#38bdf8" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="4 17 10 11 4 5"/>
+            <line x1="12" y1="19" x2="20" y2="19"/>
+          </svg>
+        </div>
+        <h3 class="empty-state-title">Chưa có Terminal nào</h3>
+        <p class="empty-state-desc">Tất cả phiên dòng lệnh đã đóng. Bạn có thể tạo phiên mới bất kỳ lúc nào.</p>
+        <button id="btnEmptyCreateTerminal" class="empty-state-action-btn" type="button">
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+            <line x1="8" y1="2" x2="8" y2="14"/>
+            <line x1="2" y1="8" x2="14" y2="8"/>
+          </svg>
+          Tạo Terminal mới
+        </button>
+      </div>
+    `;
+    mainPane.appendChild(emptyEl);
+    emptyEl.querySelector('#btnEmptyCreateTerminal')?.addEventListener('click', () => {
+      api?.newTerminal();
+    });
+  }
 }
 
 const btnNewTerminal = document.getElementById('btnNewTerminal');
@@ -1893,9 +1930,37 @@ api?.onTerminalData(({ sessionId, data, seq }) => {
     writeToTerminalPane(item, data);
   }
 });
-api?.getInitialState().then((s) => {
-  api.startTerminal(s?.workspacePath || s?.activeWorkspace);
-});
+async function bootstrapTerminalState() {
+  let initialCwd = undefined;
+  try {
+    const s = await api?.getInitialState?.();
+    initialCwd = s?.workspacePath || s?.activeWorkspace;
+  } catch {}
+  try {
+    await api?.startTerminal?.(initialCwd);
+  } catch {}
+
+  try {
+    const listFn = api?.listTerminals || api?.listSessions;
+    const sessionList = await listFn?.();
+    if (Array.isArray(sessionList) && sessionList.length > 0) {
+      sessions = sessionList;
+      if (!activeId || !sessions.some((item) => item.id === activeId)) {
+        const initialSessionId = urlParams.get('sessionId');
+        if (initialSessionId && sessions.some((item) => item.id === initialSessionId)) {
+          activeId = initialSessionId;
+        } else {
+          activeId = sessions[0]?.id || '';
+        }
+      }
+      renderTabs();
+      syncTerminalPool(sessions, activeId);
+    } else if (api?.newTerminal) {
+      await api.newTerminal();
+    }
+  } catch {}
+}
+bootstrapTerminalState();
 
 function fitCurrentTerminal() {
   if (activeId) {

@@ -987,6 +987,120 @@ describe('Capability catalogue', () => {
     );
   });
 
+  it('fails closed with TARGET_STALE on empty screenshot capture without staging an artifact', async () => {
+    let stagedCount = 0;
+    const mockHost = {
+      getTabList: () => [{ id: 'tab-1' }],
+      getActiveTabId: () => 'tab-1',
+      captureScreenshot: async () => '',
+      isCurrentTarget: () => true,
+    };
+    const mockArtifacts = {
+      stage: async () => { stagedCount++; return {} as any; },
+    };
+    const browser = new BrowserControlPort(mockHost as any, mockArtifacts as any);
+    const target: BrowserTarget = {
+      projectId: makeControlPlaneId('project'),
+      workspaceId: makeControlPlaneId('workspace'),
+      runtimeId: crypto.randomUUID(),
+      tabId: 'tab-1',
+      browserEpoch: 1,
+      documentGeneration: 1,
+    };
+    await assert.rejects(
+      async () => browser.screenshot(target, 'run-1', 'attempt-1'),
+      (err: any) => {
+        assert.ok(err instanceof CapabilityError);
+        assert.strictEqual(err.code, 'TARGET_STALE');
+        return true;
+      }
+    );
+    assert.strictEqual(stagedCount, 0, 'Must not stage artifact when screenshot is empty');
+  });
+
+  it('prefers reloadAndWait and reports urlBefore, urlAfter, and redirected flag', async () => {
+    let reloadAndWaitCalled = false;
+    let currentUrl = 'https://example.com/collections/products';
+    const mockHost = {
+      getTabList: () => [{ id: 'tab-1' }],
+      getActiveTabId: () => 'tab-1',
+      reloadAndWait: async (_tabId: string) => {
+        reloadAndWaitCalled = true;
+        currentUrl = 'https://example.com/';
+        return true;
+      },
+      reload: () => { throw new Error('reload must not be called when reloadAndWait is present'); },
+      evalJs: async () => currentUrl,
+      getDocumentGeneration: () => 3,
+      isCurrentTarget: () => true,
+    };
+    const browser = new BrowserControlPort(mockHost as any);
+    const target: BrowserTarget = {
+      projectId: makeControlPlaneId('project'),
+      workspaceId: makeControlPlaneId('workspace'),
+      runtimeId: crypto.randomUUID(),
+      tabId: 'tab-1',
+      browserEpoch: 1,
+      documentGeneration: 2,
+    };
+    const res = await browser.reload(target);
+    assert.strictEqual(res.reloaded, true);
+    assert.strictEqual(reloadAndWaitCalled, true);
+    assert.strictEqual(res.urlBefore, 'https://example.com/collections/products');
+    assert.strictEqual(res.urlAfter, 'https://example.com/');
+    assert.strictEqual(res.redirected, true);
+    assert.strictEqual(res.target.documentGeneration, 3);
+  });
+
+  it('dispatches theme.style_override and anti.theme.style_override apply and clear', async () => {
+    let evaluatedScript = '';
+    const mockHost = {
+      getTabList: () => [{ id: 'tab-1' }],
+      getActiveTabId: () => 'tab-1',
+      evalJs: async (script: string) => {
+        evaluatedScript = script;
+        if (script.includes('el.remove()')) {
+          return { cleared: true, id: 'test-fix' };
+        }
+        return { applied: true, id: 'test-fix', byteLength: 50 };
+      },
+      isCurrentTarget: () => true,
+    };
+    const browser = new BrowserControlPort(mockHost as any);
+    const projectId = makeControlPlaneId('project');
+    const workspaceId = makeControlPlaneId('workspace');
+    const lease = issueRuntimeLease(projectId, workspaceId, 30_000, 1);
+    const catalogue = new CapabilityCatalogue({ runtime: { mode: 'standalone', lifecycle: 'active' }, projectId, workspaceId, runtimeId: lease.runtimeId, hostEpoch: 1 });
+    registerBrowserCapabilities(catalogue, browser);
+
+    const target: BrowserTarget = {
+      projectId,
+      workspaceId,
+      runtimeId: lease.runtimeId,
+      tabId: 'tab-1',
+      browserEpoch: 1,
+      documentGeneration: 1,
+    };
+
+    // 1. Apply override
+    const applyRes = await catalogue.dispatch('theme.style_override', {
+      operation: 'apply',
+      id: 'test-fix',
+      css: '.header { position: sticky; top: 0; }',
+    }, { lease, leaseToken: lease.token, projectId, workspaceId, grant: 'write', browserTarget: target }) as any;
+    assert.strictEqual(applyRes.applied, true);
+    assert.strictEqual(applyRes.id, 'test-fix');
+    assert.ok(evaluatedScript.includes('data-antifan-override'));
+
+    // 2. Clear override via alias anti.theme.style_override
+    const clearRes = await catalogue.dispatch('anti.theme.style_override', {
+      operation: 'clear',
+      id: 'test-fix',
+    }, { lease, leaseToken: lease.token, projectId, workspaceId, grant: 'write', browserTarget: target }) as any;
+    assert.strictEqual(clearRes.cleared, true);
+    assert.strictEqual(clearRes.id, 'test-fix');
+  });
+
   it('rebinds host automation target upon antifan_set_automation_target and fails closed on unknown tabs', async () => {
     let currentAutomationTab: string | null = 'tab-1';
     const mockHost = {
