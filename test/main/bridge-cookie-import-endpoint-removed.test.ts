@@ -2,7 +2,7 @@
  * Bridge cookie import & extension handshake endpoints.
  *
  * Verifies the Companion Extension endpoints:
- * 1. GET /api/extension/handshake returns token, port, and active partition.
+ * 1. GET /api/extension/handshake is removed (returns 404); tokens are issued exclusively via Chromium Native Messaging.
  * 2. POST /api/cookies/import requires authentication (401 without token, mutates no session).
  * 3. POST /api/cookies/import enforces origin gate (403 for unauthorized cross-origin).
  * 4. POST /api/cookies/import with token successfully writes cookies to target session.
@@ -28,6 +28,12 @@ class StubHost extends EventEmitter {
   }
   public getActiveTab(): { id: string } | null {
     return null;
+  }
+  public getActiveTabId(): string | null {
+    return null;
+  }
+  public getTabList(): any[] {
+    return [];
   }
   public getSharedProfilePartition(): string {
     return 'persist:profile-default';
@@ -95,19 +101,46 @@ function requestHttp(
 }
 
 describe('Bridge cookie import & companion extension endpoints', () => {
-  it('GET /api/extension/handshake returns token, port, and active capsule details', async () => {
+  const OFFICIAL_ORIGIN = 'chrome-extension://khjcaadjohoclofjkkfblkbfbpmjjedp';
+
+  it('GET /api/extension/handshake is removed (returns 404) to prevent unauthenticated token theft', async () => {
     const host = new StubHost();
     const server = new BridgeServer(host as never, 0);
     const port = await server.start();
     try {
-      const res = await requestHttp(port, 'GET', '/api/extension/handshake');
-      assert.strictEqual(res.status, 200);
-      const payload = JSON.parse(res.body);
-      assert.strictEqual(payload.status, 'SUCCESS');
-      assert.strictEqual(typeof payload.token, 'string');
+      const res = await requestHttp(port, 'GET', '/api/extension/handshake', {
+        Origin: OFFICIAL_ORIGIN,
+      });
+      assert.strictEqual(res.status, 404, 'unauthenticated handshake endpoint must not exist');
+    } finally {
+      server.dispose();
+    }
+  });
+  it('GET /status without token or with invalid token returns 401 to prevent unauthenticated validation', async () => {
+    const host = new StubHost();
+    const server = new BridgeServer(host as never, 0);
+    const port = await server.start();
+    try {
+      const noTokenRes = await requestHttp(port, 'GET', '/status');
+      assert.strictEqual(noTokenRes.status, 401, 'unauthenticated status probe must be rejected with 401');
+
+      const badTokenRes = await requestHttp(port, 'GET', '/status?token=fake-or-stale-token-12345');
+      assert.strictEqual(badTokenRes.status, 401, 'status probe with invalid token must be rejected with 401');
+    } finally {
+      server.dispose();
+    }
+  });
+
+  it('GET /status with valid bridge token returns 200 OK with server status payload', async () => {
+    const host = new StubHost();
+    const server = new BridgeServer(host as never, 0);
+    const port = await server.start();
+    try {
+      const validRes = await requestHttp(port, 'GET', `/status?token=${server.getToken()}`);
+      assert.strictEqual(validRes.status, 200, 'authenticated status probe must return 200');
+      const payload = JSON.parse(validRes.body);
+      assert.strictEqual(payload.active, true);
       assert.strictEqual(payload.port, port);
-      assert.strictEqual(payload.activeCapsuleId, 'default-capsule');
-      assert.strictEqual(payload.activePartition, 'persist:profile-default');
     } finally {
       server.dispose();
     }
@@ -122,7 +155,7 @@ describe('Bridge cookie import & companion extension endpoints', () => {
         port,
         'POST',
         '/api/cookies/import',
-        { 'Content-Type': 'application/json' },
+        { 'Content-Type': 'application/json', Origin: OFFICIAL_ORIGIN },
         JSON.stringify({ cookies: [{ name: 'SID', value: 'secret123', domain: '.example.com' }] })
       );
       assert.strictEqual(res.status, 401, 'unauthenticated import must return 401');
@@ -163,7 +196,7 @@ describe('Bridge cookie import & companion extension endpoints', () => {
         `/api/cookies/import?token=${server.getToken()}`,
         {
           'Content-Type': 'application/json',
-          Origin: 'chrome-extension://abcdefghijklmnopqrstuvwxyz123456',
+          Origin: OFFICIAL_ORIGIN,
         },
         JSON.stringify({
           cookies: [
@@ -183,16 +216,20 @@ describe('Bridge cookie import & companion extension endpoints', () => {
     }
   });
 
-  it('OPTIONS preflight allows chrome-extension:// origins', async () => {
+  it('OPTIONS preflight allows authorized companion origin and blocks unauthorized', async () => {
     const host = new StubHost();
     const server = new BridgeServer(host as never, 0);
     const port = await server.start();
     try {
-      const extensionOrigin = 'chrome-extension://abcdefghijklmnopqrstuvwxyz123456';
-      const res = await requestHttp(port, 'OPTIONS', '/api/cookies/import', { Origin: extensionOrigin });
-      assert.strictEqual(res.status, 204);
-      assert.strictEqual(res.headers['access-control-allow-origin'], extensionOrigin);
+      // Authorized
+      const resOk = await requestHttp(port, 'OPTIONS', '/api/cookies/import', { Origin: OFFICIAL_ORIGIN });
+      assert.strictEqual(resOk.status, 204);
+      assert.strictEqual(resOk.headers['access-control-allow-origin'], OFFICIAL_ORIGIN);
       assert.strictEqual(host.cookieWriteCalls, 0);
+
+      // Unauthorized
+      const resBad = await requestHttp(port, 'OPTIONS', '/api/cookies/import', { Origin: 'chrome-extension://unauthorizedrandomid123' });
+      assert.strictEqual(resBad.status, 403);
     } finally {
       server.dispose();
     }

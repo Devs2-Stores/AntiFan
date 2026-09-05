@@ -31,7 +31,7 @@ async function build() {
     overwrite: true,
     asar: {
       unpack: '*.node',
-      unpackDir: 'node_modules/node-pty',
+      unpackDir: '{node_modules/node-pty,.compiled/src/main/native-messaging,.compiled/src/main/config,.compiled/src/main/security}',
     },
     icon: fs.existsSync(path.join(ROOT, 'assets', 'icon.ico')) ? path.join(ROOT, 'assets', 'icon.ico') : undefined,
     ignore: [
@@ -102,6 +102,30 @@ async function build() {
     }
     const addonStat = fs.statSync(addonPath);
     console.log(`[package] Verified native addon: ${addon} (${addonStat.size} bytes)`);
+  }
+  // Ensure native messaging runner and its required config files exist in app.asar.unpacked
+  const unpackedCompiledDir = path.join(outDir, 'resources', 'app.asar.unpacked', '.compiled', 'src', 'main');
+  const srcCompiledDir = path.join(ROOT, '.compiled', 'src', 'main');
+
+  const dirsToUnpack = ['native-messaging', 'config', 'security'];
+  for (const dirName of dirsToUnpack) {
+    const srcDir = path.join(srcCompiledDir, dirName);
+    const destDir = path.join(unpackedCompiledDir, dirName);
+    if (fs.existsSync(srcDir)) {
+      fs.mkdirSync(destDir, { recursive: true });
+      fs.cpSync(srcDir, destDir, { recursive: true });
+      console.log(`[package] Copied unpacked main module: ${dirName} -> ${destDir}`);
+    }
+  }
+
+  // Copy native host binary antifan-bridge-host.exe to package root
+  const srcBridgeHostExe = path.join(ROOT, 'bin', 'antifan-bridge-host.exe');
+  const destBridgeHostExe = path.join(outDir, 'antifan-bridge-host.exe');
+  if (fs.existsSync(srcBridgeHostExe)) {
+    fs.copyFileSync(srcBridgeHostExe, destBridgeHostExe);
+    console.log(`[package] Copied native host binary to package root: ${destBridgeHostExe}`);
+  } else {
+    throw new Error(`[package] Missing required host binary: ${srcBridgeHostExe}. Build it first!`);
   }
 
   let gitRevision = 'unknown';

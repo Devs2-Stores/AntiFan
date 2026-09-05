@@ -59,6 +59,7 @@ async function discoverBridge() {
           }
         });
       });
+
       if (bgStatus && bgStatus.connected && bgStatus.auth?.token) {
         const port = bgStatus.auth.port || 20130;
         setStatus('connected', 'AntiFan Online (Tự động)');
@@ -68,27 +69,7 @@ async function discoverBridge() {
         return true;
       }
 
-      // Fallback: Probe local loopback ports directly from popup
-      const candidatePorts = [20130, 20129, 20137];
-      for (const p of candidatePorts) {
-        try {
-          const res = await fetch(`http://127.0.0.1:${p}/api/extension/handshake`);
-          if (res.ok) {
-            const data = await res.json();
-            if (data && data.status === 'SUCCESS' && data.token && data.port) {
-              setStatus('connected', 'AntiFan Online (Tự động)');
-              portIndicator.textContent = `Port: ${data.port}`;
-              updateZeroTouchBanner(true, data.port);
-              syncBtn.disabled = false;
-              // Notify background to re-bind
-              chrome.runtime.sendMessage({ action: 'RECONNECT' }, () => {});
-              return true;
-            }
-          }
-        } catch {}
-      }
-
-      if (bgStatus && bgStatus.lastError && !bgStatus.lastError.includes('native messaging host not found')) {
+      if (bgStatus && bgStatus.lastError) {
         setStatus('disconnected', 'Chưa mở AntiFan');
         portIndicator.textContent = `Port: --`;
         updateZeroTouchBanner(false, null, bgStatus.lastError);

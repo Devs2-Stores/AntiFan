@@ -940,25 +940,44 @@
   var HOST_NAME = "com.antifan.bridge";
   var nativePort = null;
   var bridgeAuth = null;
+  var activeOperationToken = null;
+  var inFlightHandshakePromise = null;
   var enabledProfiles = ["google", "ecommerce"];
   var syncActiveTabOnly = false;
   var isDeltaSyncEnabled = true;
-  var lastNativeError = null;
+  var lastBridgeError = null;
   var debouncer = new CookieDebouncer(async (batch) => {
     await dispatchDeltaSync(batch);
   }, 300, 1e3);
   async function loadSettings() {
     if (typeof chrome === "undefined" || !chrome.storage?.local) return;
     const stored = await chrome.storage.local.get([
-      "bridgeAuth",
       "enabledProfiles",
       "syncActiveTabOnly",
       "isDeltaSyncEnabled"
     ]);
-    if (stored.bridgeAuth) bridgeAuth = stored.bridgeAuth;
     if (stored.enabledProfiles) enabledProfiles = stored.enabledProfiles;
     if (typeof stored.syncActiveTabOnly === "boolean") syncActiveTabOnly = stored.syncActiveTabOnly;
     if (typeof stored.isDeltaSyncEnabled === "boolean") isDeltaSyncEnabled = stored.isDeltaSyncEnabled;
+  }
+  async function validateBridgeAuth(auth) {
+    if (!auth?.token || !auth?.port) return false;
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 1e3);
+    try {
+      const res = await (typeof fetch !== "undefined" ? fetch : globalThis.fetch)(
+        `http://127.0.0.1:${auth.port}/status?token=${encodeURIComponent(auth.token)}`,
+        { signal: controller.signal }
+      );
+      if (res.ok) {
+        lastBridgeError = null;
+        return true;
+      }
+    } catch {
+    } finally {
+      clearTimeout(timeoutId);
+    }
+    return false;
   }
   function connectNativeMessaging() {
     if (typeof chrome === "undefined" || !chrome.runtime?.connectNative) return;
@@ -975,51 +994,36 @@
       nativePort = port;
       port.onMessage.addListener(async (msg) => {
         if (nativePort !== port) return;
-        console.log("[AntiFan Extension] Received from Native Host:", msg);
         if (msg.status === "SUCCESS" && msg.token) {
-          lastNativeError = null;
+          lastBridgeError = null;
           bridgeAuth = {
             token: msg.token,
             port: msg.port,
             activeCapsuleId: msg.activeCapsuleId,
             activePartition: msg.activePartition
           };
-          if (chrome.storage?.local) {
-            await chrome.storage.local.set({ bridgeAuth });
-          }
           triggerAutoHydration().catch(() => {
           });
         } else if (msg.status === "ERROR") {
-          lastNativeError = msg.message || msg.error || "NATIVE_IPC_ERROR";
-          console.warn("[AntiFan Extension] Native Host reported error:", lastNativeError);
+          lastBridgeError = msg.message || msg.error || "NATIVE_IPC_ERROR";
+          bridgeAuth = null;
+          if (nativePort === port) {
+            try {
+              nativePort.disconnect();
+            } catch {
+            }
+            nativePort = null;
+          }
         }
       });
       port.onDisconnect.addListener(() => {
         if (nativePort === port) {
           const disconnectMsg = chrome.runtime.lastError?.message;
-          console.warn("[AntiFan Extension] Native Host disconnected:", disconnectMsg);
           if (typeof disconnectMsg === "string" && disconnectMsg.length > 0) {
-            lastNativeError = disconnectMsg;
+            lastBridgeError = disconnectMsg;
           }
           nativePort = null;
           bridgeAuth = null;
-          if (typeof chrome !== "undefined" && chrome.storage?.local) {
-            chrome.storage.local.remove(["bridgeAuth"]).catch(() => {
-            });
-          }
-          tryHttpHandshake().then((auth) => {
-            if (auth) {
-              lastNativeError = null;
-              triggerAutoHydration().catch(() => {
-              });
-            }
-          }).catch(() => {
-          });
-          setTimeout(() => {
-            if (!nativePort && !bridgeAuth) {
-              connectNativeMessaging();
-            }
-          }, 1e4);
         }
       });
       port.postMessage({ action: "HANDSHAKE" });
@@ -1027,72 +1031,79 @@
       console.error("[AntiFan Extension] Failed to connect native messaging:", err);
     }
   }
-  async function ensureBridgeAuth(forceRefresh = false, timeoutMs = 2500) {
+  async function ensureBridgeAuth(forceRefresh = false) {
     if (forceRefresh) {
       bridgeAuth = null;
-      if (typeof chrome !== "undefined" && chrome.storage?.local) {
+      activeOperationToken = null;
+      inFlightHandshakePromise = null;
+      if (nativePort) {
         try {
-          await chrome.storage.local.remove(["bridgeAuth"]);
+          nativePort.disconnect();
         } catch {
         }
+        nativePort = null;
       }
+    } else if (inFlightHandshakePromise) {
+      return inFlightHandshakePromise;
     }
-    if (!forceRefresh && bridgeAuth?.token && bridgeAuth?.port) {
-      return bridgeAuth;
-    }
-    if (!forceRefresh && typeof chrome !== "undefined" && chrome.storage?.local) {
-      const stored = await chrome.storage.local.get(["bridgeAuth"]);
-      if (stored.bridgeAuth?.token && stored.bridgeAuth?.port) {
-        bridgeAuth = stored.bridgeAuth;
-        return bridgeAuth;
-      }
-    }
-    if (!nativePort) {
-      connectNativeMessaging();
-    }
-    if (nativePort) {
+    const token = {};
+    activeOperationToken = token;
+    const operation = (async () => {
+      await Promise.resolve();
       try {
-        nativePort.postMessage({ action: "HANDSHAKE" });
-      } catch {
-      }
-    }
-    const start = Date.now();
-    while (Date.now() - start < timeoutMs) {
-      if (bridgeAuth?.token && bridgeAuth?.port) {
-        return bridgeAuth;
-      }
-      await new Promise((r) => setTimeout(r, 100));
-    }
-    if (!bridgeAuth?.token || !bridgeAuth?.port) {
-      await tryHttpHandshake();
-    }
-    return bridgeAuth;
-  }
-  async function tryHttpHandshake() {
-    const candidatePorts = [20130, 20129, 20137];
-    for (const p of candidatePorts) {
-      try {
-        const res = await (typeof fetch !== "undefined" ? fetch : globalThis.fetch)(`http://127.0.0.1:${p}/api/extension/handshake`);
-        if (res.ok) {
-          const data = await res.json();
-          if (data && data.status === "SUCCESS" && data.token && data.port) {
-            bridgeAuth = {
-              token: data.token,
-              port: data.port,
-              activeCapsuleId: data.activeCapsuleId,
-              activePartition: data.activePartition
-            };
-            lastNativeError = null;
-            if (typeof chrome !== "undefined" && chrome.storage?.local) {
-              await chrome.storage.local.set({ bridgeAuth });
+        bridgeAuth = null;
+        lastBridgeError = null;
+        if (!nativePort) {
+          connectNativeMessaging();
+        } else {
+          try {
+            nativePort.postMessage({ action: "HANDSHAKE" });
+          } catch {
+            try {
+              nativePort.disconnect();
+            } catch {
             }
-            return bridgeAuth;
+            nativePort = null;
+            connectNativeMessaging();
           }
         }
+        const start = Date.now();
+        while (Date.now() - start < 1500) {
+          if (activeOperationToken !== token) {
+            return null;
+          }
+          const currentAuth = bridgeAuth;
+          if (currentAuth && typeof currentAuth.token === "string" && typeof currentAuth.port === "number") {
+            return currentAuth;
+          }
+          if (lastBridgeError) {
+            return null;
+          }
+          await new Promise((r) => setTimeout(r, 40));
+        }
+        return null;
+      } finally {
+        if (activeOperationToken === token) {
+          activeOperationToken = null;
+          inFlightHandshakePromise = null;
+        }
+      }
+    })();
+    inFlightHandshakePromise = operation;
+    return operation;
+  }
+  function __resetExtensionStateForTesting() {
+    if (nativePort) {
+      try {
+        nativePort.disconnect();
       } catch {
       }
+      nativePort = null;
     }
-    return null;
+    bridgeAuth = null;
+    activeOperationToken = null;
+    inFlightHandshakePromise = null;
+    lastBridgeError = null;
   }
   async function executeAuthenticatedCookieImport(payload, authSupplier, reauthSupplier, fetchFn = fetch) {
     let auth = await authSupplier();
@@ -1116,7 +1127,7 @@
     try {
       let resp = await postImport(auth);
       if (resp.status === 401) {
-        console.warn("[AntiFan Extension] Received 401 Unauthorized, re-authenticating with Native Host...");
+        console.warn("[AntiFan Extension] Received 401 Unauthorized, refreshing authentication with Desktop Bridge...");
         auth = await reauthSupplier();
         if (!auth?.token || !auth?.port) {
           return { success: false, count: 0, error: "REAUTH_FAILED_AFTER_401" };
@@ -1159,14 +1170,15 @@
     );
   }
   async function dispatchDeltaSync(batch) {
-    if (batch.upserted.length === 0 && batch.removed.length === 0) return;
+    if (!batch.upserted || batch.upserted.length === 0) {
+      return { success: true, count: 0 };
+    }
     const payload = {
       cookies: batch.upserted,
-      removed: batch.removed,
       source: "chrome-extension-delta",
       timestamp: Date.now()
     };
-    await executeAuthenticatedCookieImport(
+    return await executeAuthenticatedCookieImport(
       payload,
       () => ensureBridgeAuth(false),
       () => ensureBridgeAuth(true)
@@ -1262,13 +1274,11 @@
       }
       if (request.action === "GET_STATUS") {
         (async () => {
-          if (!bridgeAuth?.token) {
-            await ensureBridgeAuth(false, 800);
-          }
+          const auth = await ensureBridgeAuth(false);
           sendResponse({
-            connected: Boolean(bridgeAuth?.token && bridgeAuth?.port),
-            auth: bridgeAuth,
-            lastError: bridgeAuth?.token ? null : lastNativeError,
+            connected: Boolean(auth?.token && auth?.port),
+            auth,
+            lastError: auth?.token ? null : lastBridgeError,
             enabledProfiles,
             syncActiveTabOnly,
             isDeltaSyncEnabled
@@ -1277,9 +1287,11 @@
         return true;
       }
       if (request.action === "RECONNECT") {
-        connectNativeMessaging();
-        sendResponse({ status: "RECONNECTING" });
-        return false;
+        (async () => {
+          const auth = await ensureBridgeAuth(true);
+          sendResponse({ status: "RECONNECTED", connected: Boolean(auth?.token), auth });
+        })();
+        return true;
       }
       return false;
     });
@@ -1289,8 +1301,9 @@
       chrome.alarms.create("antifan-bridge-watchdog", { periodInMinutes: 1 });
       chrome.alarms.onAlarm.addListener((alarm) => {
         if (alarm && alarm.name === "antifan-bridge-watchdog") {
-          if (!nativePort || !bridgeAuth) {
-            connectNativeMessaging();
+          if (!bridgeAuth?.token) {
+            ensureBridgeAuth().catch(() => {
+            });
           }
         }
       });
@@ -1308,13 +1321,11 @@
   if (typeof chrome !== "undefined" && chrome.runtime?.onStartup) {
     chrome.runtime.onStartup.addListener(() => {
       loadSettings().then(async () => {
-        connectNativeMessaging();
         await ensureBridgeAuth();
       });
     });
   }
   loadSettings().then(async () => {
-    connectNativeMessaging();
     await ensureBridgeAuth();
   });
 })();

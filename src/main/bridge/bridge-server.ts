@@ -31,6 +31,14 @@ import { AttachmentRegistry } from '../run/attachment-registry';
 import { ControlPlaneRuntime } from '../control-plane/control-plane-runtime';
 import { deriveCapsulePartition } from '../browser/browser-session-partition';
 import { extensionCookieImportSetDetails, type ExtensionCookieInput } from '../browser/chrome-profile-sync';
+export const OFFICIAL_COMPANION_EXTENSION_ID = 'khjcaadjohoclofjkkfblkbfbpmjjedp';
+
+export function isAuthorizedCompanionOrigin(rawOrigin: string): boolean {
+  if (!rawOrigin || typeof rawOrigin !== 'string') return false;
+  if (!rawOrigin.startsWith('chrome-extension://')) return false;
+  const extId = rawOrigin.replace('chrome-extension://', '').replace(/\/.*$/, '').trim().toLowerCase();
+  return extId === OFFICIAL_COMPANION_EXTENSION_ID;
+}
 // Slow-client bounds. A WebSocket whose kernel backlog exceeds the soft high-water
 // mark routes events through a per-client FIFO (consecutive terminal-data frames
 // coalesce losslessly: same bytes, same order) instead of unbounded ws.send buffering.
@@ -180,7 +188,7 @@ export class BridgeServer {
       let isAllowedOrigin = false;
       if (rawOrigin) {
         if (rawOrigin.startsWith('chrome-extension://')) {
-          isAllowedOrigin = true;
+          isAllowedOrigin = isAuthorizedCompanionOrigin(rawOrigin);
         } else {
           try {
             const parsedOrigin = new URL(rawOrigin);
@@ -193,7 +201,7 @@ export class BridgeServer {
       if (req.method === 'OPTIONS') {
         if (pathname === '/api/cookies/import' && rawOrigin && !isAllowedOrigin) {
           res.writeHead(403, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ error: 'FORBIDDEN_ORIGIN', message: 'Cross-origin requests from non-loopback origins are forbidden.' }));
+          res.end(JSON.stringify({ error: 'FORBIDDEN_ORIGIN', message: 'Cross-origin requests from unauthorized origins are forbidden.' }));
           return;
         }
         const preflightHeaders: Record<string, string> = {
@@ -208,26 +216,14 @@ export class BridgeServer {
         return;
       }
 
-      if (pathname === '/api/extension/handshake' && (req.method === 'GET' || req.method === 'POST')) {
-        const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-        if (isAllowedOrigin) headers['Access-Control-Allow-Origin'] = rawOrigin;
-        res.writeHead(200, headers);
-        res.end(JSON.stringify({
-          status: 'SUCCESS',
-          token: this.token,
-          port: this.port,
-          activeCapsuleId: this.tabHost.getActiveCapsule()?.id || null,
-          activePartition: this.tabHost.getSharedProfilePartition('clean'),
-        }));
-        return;
-      }
 
       if (
         pathname === '/api/screenshot' ||
         pathname === '/api/remote-info' ||
         pathname === '/api/qr' ||
         pathname === '/api/cookies/import' ||
-        pathname === '/api/lan-ips'
+        pathname === '/api/lan-ips' ||
+        pathname === '/status'
       ) {
         if (!isBridgeToken && !verifiedAttachmentId) {
           const unauthHeaders: Record<string, string> = { 'Content-Type': 'application/json' };
@@ -480,6 +476,15 @@ export class BridgeServer {
                   : (typeof data.capsuleId === 'string' && data.capsuleId.trim()
                     ? deriveCapsulePartition(data.capsuleId.trim())
                     : null)));
+            if (data.source === 'chrome-extension-delta' && !requestedPartition) {
+              res.writeHead(400, responseHeaders);
+              res.end(JSON.stringify({
+                success: false,
+                error: 'MISSING_TARGET_PARTITION',
+                message: 'Explicit targetPartition or targetCapsuleId is required for background delta sync.',
+              }));
+              return;
+            }
             let targetSession: Electron.Session;
             if (verifiedAttachmentId && !isBridgeToken) {
               if (requestedPartition) {

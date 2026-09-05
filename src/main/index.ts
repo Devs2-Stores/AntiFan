@@ -31,6 +31,8 @@ import { buildApplicationMenu } from './browser/app-menu';
 import { WindowStateManager } from './browser/window-state';
 import { HistoryManager } from './browser/history-manager';
 import { configureBrowserSessionPartition } from './browser/browser-session-partition';
+import { LocalIpcServer } from './native-messaging/local-ipc-server';
+import { installNativeHost, COMPANION_EXTENSION_ID } from './native-messaging/manifest-installer';
 import { chromeSessionUserAgent } from './browser/google-auth-identity';
 import { ControlPlaneRuntime } from './control-plane/control-plane-runtime';
 import { BrowserControlPort } from './tools/browser-control-port';
@@ -126,6 +128,7 @@ let mcpServer: AntiFanMcpServer | null = null;
 let windowStateManager: WindowStateManager | null = null;
 let controlPlane: ControlPlaneRuntime | null = null;
 let profileLease: ProfileLease | null = null;
+let localIpcServer: LocalIpcServer | null = null;
 // Enforce single instance lock (except in pure MCP server child mode)
 if (!IS_MCP_SERVER) {
   const gotTheLock = app.requestSingleInstanceLock();
@@ -322,6 +325,30 @@ async function createWindow(): Promise<void> {
   const bridgePort = await bridgeServer.start();
   console.log(`[antifan] Bridge Server running on 127.0.0.1:${bridgePort} (${IS_DEV ? 'DEV' : 'PROD'})`);
 
+  // Start Windows Native Messaging Local IPC Server
+  if (process.platform === 'win32') {
+    try {
+      localIpcServer = new LocalIpcServer();
+      await localIpcServer.start(bridgePort, () => {
+        const activeCapsule = capsuleManager?.getActive();
+        const activePartition = tabHost!.getSharedProfilePartition('clean');
+        return {
+          token: bridgeServer!.getToken(),
+          port: bridgePort,
+          activeCapsuleId: activeCapsule?.id,
+          activePartition,
+        };
+      }, StorageLocations.getRuntimeDir());
+      console.log(`[antifan] Native Messaging Local IPC Server listening at ${localIpcServer.getSocketPath()}`);
+
+      // Auto-register Chrome/Edge/Brave native messaging manifest on Windows
+      installNativeHost(COMPANION_EXTENSION_ID).catch((err) => {
+        console.warn('[antifan] Native messaging manifest registration notice:', err?.message || err);
+      });
+    } catch (err) {
+      console.warn('[antifan] Failed to start Native Messaging Local IPC Server:', err);
+    }
+  }
   if (IS_MCP_SERVER) {
     console.log('[antifan] Starting stdio MCP server...');
     mcpServer = new AntiFanMcpServer(tabHost, IS_MCP_HIGH_RISK, capabilityTransport);
@@ -422,6 +449,9 @@ function shutdown(): Promise<void> {
     } catch {}
     try {
       bridgeServer?.dispose();
+    } catch {}
+    try {
+      localIpcServer?.close();
     } catch {}
     try {
       await mcpServer?.stop();

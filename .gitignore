@@ -2,6 +2,7 @@ node_modules/
 .compiled/
 out/
 dist/
+bin/
 contracts/dist/
 *.tsbuildinfo
 .DS_Store
