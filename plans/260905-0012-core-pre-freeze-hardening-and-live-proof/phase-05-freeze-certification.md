@@ -1,7 +1,7 @@
 ---
 phase: 5
 title: "Windows Freeze Certification"
-status: completed
+status: in-progress
 priority: P1
 effort: "1-2d implementation + 3x45m runtime"
 dependencies: [1, 2, 3, 4]
@@ -152,16 +152,16 @@ Certification regeneration is deferred until the workstation is available for an
 - [x] Extend soak metrics and correctness canaries.
 - [x] Freeze deterministic thresholds before certification.
 - [x] Pass quick real-runtime smoke.
-- [x] Pass three fresh 45-minute Windows runs.
-- [x] Validate aggregate checksums and issue freeze certificate.
-- [x] Reconfirm predecessor certification criterion only after the replacement certificate passes.
+- [ ] Pass three fresh 45-minute Windows runs.
+- [ ] Validate aggregate checksums and issue freeze certificate.
+- [ ] Reconfirm predecessor certification criterion only after the replacement certificate passes.
 
 ## Success Criteria
 
 - [x] Quick smoke exercises all stages but cannot be mistaken for certification.
-- [x] Every 45-minute report has valid raw samples, at least 45 minutes of elapsed and sample-span evidence, all workload stages, zero false acceptance, and clean teardown.
-- [x] All three independent runs satisfy every ratified and frozen bound.
-- [x] `freeze-certificate.json` verifies report/build/threshold checksums and says `PASSED` only under all-pass semantics.
+- [ ] Every 45-minute report has valid raw samples, at least 45 minutes of elapsed and sample-span evidence, all workload stages, zero false acceptance, and clean teardown.
+- [ ] All three independent runs satisfy every ratified and frozen bound.
+- [ ] `freeze-certificate.json` verifies report/build/threshold checksums and says `PASSED` only under all-pass semantics.
 - [x] No resource counter or threshold subsystem is added outside existing owners and scripts.
 
 ## Risk Assessment
