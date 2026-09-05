@@ -7,7 +7,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
-import { spawn, execSync } from 'child_process';
+import { spawn, execSync, type ChildProcess } from 'child_process';
 import { LocalSessionVault } from './local-session-vault';
 export interface ChromeProfileInfo {
   id: string; // 'Default', 'Profile 1', etc.
@@ -261,6 +261,11 @@ export class ChromeProfileSyncManager {
     this.cacheTimestamp = 0;
   }
 
+  /** True when the named profile directory exists on disk (fail-closed partition routing). */
+  public hasProfile(profileId: string): boolean {
+    return fs.existsSync(path.join(this.chromeUserDataPath, profileId));
+  }
+
   /**
    * Reads Bookmarks from selected Chrome profile
    */
@@ -326,42 +331,123 @@ export class ChromeProfileSyncManager {
 
 
   /**
-   * Launches Google Chrome with remote debugging port enabled (for live CDP cookie extraction).
-   * Extension-free: cookies are pulled later via CDP Network.getAllCookies (LocalSessionVault).
+   * Copies just enough of a Chrome profile for a one-shot cookie pull into an
+   * owned temp user-data-dir: the profile's Network cookie store (LevelDB) and
+   * the user-data-dir's Local State (where App-Bound Encryption keys live).
+   * The real profile is never opened for writing, so a running Chrome cannot
+   * race us — but we still refuse to run while Chrome is open (see caller).
    */
-  public launchChromeWithCdp(port = 9222, profileId?: string): { success: boolean; message: string; isRunning?: boolean } {
+  private cloneMinimalProfile(profileId: string, profilePath: string, tempDir: string): void {
+    const localStateSrc = path.join(this.chromeUserDataPath, 'Local State');
+    if (fs.existsSync(localStateSrc)) {
+      fs.copyFileSync(localStateSrc, path.join(tempDir, 'Local State'));
+    }
+    const networkSrc = path.join(profilePath, 'Network');
+    if (fs.existsSync(networkSrc)) {
+      fs.cpSync(networkSrc, path.join(tempDir, profileId, 'Network'), { recursive: true });
+    }
+  }
+  /**
+   * Waits for Chrome (launched with --remote-debugging-port=0) to write its
+   * DevToolsActivePort file in the owned user-data-dir. Returns the OS-assigned
+   * ephemeral port, or null on timeout.
+   */
+  private async waitForDevToolsPort(tempDir: string, timeoutMs: number): Promise<number | null> {
+    const devtoolsFile = path.join(tempDir, 'DevToolsActivePort');
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+      try {
+        const raw = fs.readFileSync(devtoolsFile, 'utf8');
+        const port = Number.parseInt((raw.split(/\r?\n/)[0] || '').trim(), 10);
+        if (Number.isInteger(port) && port > 0) return port;
+      } catch {}
+      await new Promise((resolve) => setTimeout(resolve, 200));
+    }
+    return null;
+  }
+  /**
+   * Terminates the owned Chrome process tree. Only ever called on processes
+   * this class spawned — never on the user's running Chrome.
+   */
+  private killOwnedChrome(child: ChildProcess | null): void {
+    if (!child || child.pid === undefined || child.pid <= 0) return;
+    if (process.platform === 'win32') {
+      try {
+        execSync(`taskkill /PID ${child.pid} /T /F`, { stdio: 'ignore' });
+      } catch {}
+    } else {
+      try {
+        child.kill('SIGTERM');
+      } catch {}
+    }
+  }
+  /**
+   * One-shot cookie hydration with an app-owned headless Chrome:
+   *  1. refuse while the user's Chrome is running (never touch a live profile),
+   *  2. clone the minimal profile into a temp user-data-dir,
+   *  3. launch `--headless=new --remote-debugging-port=0` (OS-assigned port),
+   *  4. pull cookies once via CDP, kill Chrome, remove the temp dir.
+   * Fully local & independent: no extension, no fixed port, no leftover process.
+   */
+  private async hydrateCookiesViaOwnedChrome(
+    profileId: string,
+    profilePath: string,
+    targetSession: Electron.Session
+  ): Promise<{ count: number; message: string }> {
+    if (this.isChromeRunning()) {
+      return { count: 0, message: 'Chrome đang chạy — app không đụng profile đang mở. Hãy đóng hẳn Chrome rồi đồng bộ lại.' };
+    }
     const chromeExe = this.getChromeExecutablePath();
     if (!chromeExe) {
-      return { success: false, message: 'Không tìm thấy Google Chrome trên máy tính.' };
+      return { count: 0, message: 'Không tìm thấy Google Chrome trên máy tính.' };
     }
-    const isRunning = this.isChromeRunning();
-    const targetProfile = profileId || this.activeProfileId || 'Default';
-    const args = [
-      `--remote-debugging-port=${port}`,
-      `--profile-directory=${targetProfile}`,
-      '--no-first-run',
-      '--no-default-browser-check',
-    ];
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-cdp-'));
+    let child: ChildProcess | null = null;
     try {
-      const child = spawn(chromeExe, args, { detached: true, stdio: 'ignore' });
-      child.unref();
-      return {
-        success: true,
-        isRunning,
-        message: isRunning
-          ? `Chrome đang chạy sẵn — cờ --remote-debugging-port=${port} chỉ có hiệu lực khi khởi động mới. Hãy đóng hẳn Chrome rồi mở lại qua nút này!`
-          : `Đã mở Google Chrome với CDP port ${port} (Profile: ${targetProfile}). Giờ bấm 'Hút Cookies từ Chrome (CDP)' để nạp cookies!`,
-      };
+      this.cloneMinimalProfile(profileId, profilePath, tempDir);
+      child = spawn(
+        chromeExe,
+        [
+          '--headless=new',
+          `--user-data-dir=${tempDir}`,
+          '--remote-debugging-port=0',
+          `--profile-directory=${profileId}`,
+          '--no-first-run',
+          '--no-default-browser-check',
+          '--disable-background-networking',
+          '--disable-component-update',
+          '--disable-sync',
+          '--mute-audio',
+          'about:blank',
+        ],
+        { stdio: 'ignore', windowsHide: true }
+      );
+      const port = await this.waitForDevToolsPort(tempDir, 15000);
+      if (port === null) {
+        return { count: 0, message: 'Chrome headless không mở được cổng CDP (hết thời gian chờ).' };
+      }
+      const res = await LocalSessionVault.getInstance().importFromLiveChromeCDP(targetSession, port);
+      if (!res.success) {
+        return { count: 0, message: res.message };
+      }
+      return { count: res.count, message: '' };
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : String(err);
-      return { success: false, message: `Lỗi khởi chạy Google Chrome: ${msg}` };
+      return { count: 0, message: `Lỗi hút cookies qua CDP: ${err instanceof Error ? err.message : String(err)}` };
+    } finally {
+      this.killOwnedChrome(child);
+      // Chrome may still hold temp-file handles briefly; retry removal later.
+      setTimeout(() => {
+        try {
+          fs.rmSync(tempDir, { recursive: true, force: true });
+        } catch {}
+      }, 2500);
     }
   }
 
   /**
-   * Synchronizes a Chrome profile: imports bookmarks (read-only) and, when a
-   * Chrome instance is reachable via CDP (--remote-debugging-port), hydrates
-   * cookies directly into the target session — fully extension-free & local-first.
+   * Synchronizes a Chrome profile: imports bookmarks (read-only) and hydrates
+   * cookies once via an app-owned headless Chrome clone — fully extension-free,
+   * local-first & independent of any Chrome the user keeps open.
    */
   public async syncProfile(profileId = 'Default', targetSession?: Electron.Session): Promise<{
     success: boolean;
@@ -370,37 +456,38 @@ export class ChromeProfileSyncManager {
     hasLiveCookies: boolean;
     message: string;
   }> {
-    this.activeProfileId = profileId;
     const profilePath = path.join(this.chromeUserDataPath, profileId);
-    const profileMissing = !fs.existsSync(profilePath);
+
+    // Fail fast BEFORE any CDP work and BEFORE mutating the active profile:
+    // a missing profile must never change activeProfileId or create a partition.
+    if (!this.hasProfile(profileId)) {
+      return { success: false, cookiesCount: 0, bookmarksCount: 0, hasLiveCookies: false, message: `Profile '${profileId}' not found.` };
+    }
+    this.activeProfileId = profileId;
 
     // 1. Bookmarks — read-only import from Chrome's Bookmarks JSON
-    const bookmarks = profileMissing ? [] : this.getChromeBookmarks(profileId);
+    const bookmarks = this.getChromeBookmarks(profileId);
 
-    // 2. Extension-free cookie hydration via CDP (when Chrome exposes a debug port)
+    // 2. One-shot cookie hydration via owned headless Chrome (profile-bound)
     let cookiesCount = 0;
     let cdpNote = '';
     if (targetSession && targetSession.cookies) {
       try {
-        const cdpRes = await LocalSessionVault.getInstance().importFromLiveChromeCDP(targetSession, 9222);
-        if (cdpRes.success) {
-          const liveCookies = await targetSession.cookies.get({});
-          cookiesCount = liveCookies.length;
-          cdpNote = ` Đã hút ${cdpRes.count} cookies trực tiếp từ Chrome qua CDP!`;
-        } else {
+        const cdp = await this.hydrateCookiesViaOwnedChrome(profileId, profilePath, targetSession);
+        if (cdp.count > 0) {
           try {
             const liveCookies = await targetSession.cookies.get({});
             cookiesCount = liveCookies.length;
-          } catch {}
-          cdpNote = ` Chưa hút được cookies qua CDP: ${cdpRes.message}`;
+          } catch {
+            cookiesCount = cdp.count;
+          }
+        }
+        if (cdp.message) {
+          cdpNote = ` ${cdp.message}`;
         }
       } catch (err: unknown) {
         cdpNote = ` Lỗi hút cookies qua CDP: ${err instanceof Error ? err.message : String(err)}`;
       }
-    }
-
-    if (profileMissing) {
-      return { success: false, cookiesCount: 0, bookmarksCount: 0, hasLiveCookies: false, message: `Profile '${profileId}' not found.` };
     }
 
     return {

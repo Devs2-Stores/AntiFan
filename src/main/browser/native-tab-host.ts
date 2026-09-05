@@ -41,7 +41,7 @@ import type { BrowserTarget } from '../../shared/control-plane-contracts';
 import type { WorkflowDefinition } from '../workflow/workflow-schema';
 import { ChromeProfileSyncManager } from './chrome-profile-sync';
 import { LocalSessionVault } from './local-session-vault';
-import { LocalCredentialVault } from './local-credential-vault';
+import { LocalCredentialVault, resolveSenderFrameOrigin } from './local-credential-vault';
 import { HaravanUploader } from './haravan-uploader';
 import type { ActionSequenceParams, ActionSequenceResult } from './tab-automation-host';
 import { TerminalManager, type TerminalManagerStats } from './terminal-manager';
@@ -985,13 +985,42 @@ export class NativeTabHost extends EventEmitter {
       safeStorage,
       filePath: path.join(StorageLocations.getConfigDir(), LocalCredentialVault.DEFAULT_VAULT_FILENAME),
       ipc: ipcMain,
+      // Security: the page origin is derived from the sender frame (fail-closed
+      // top-frame check), never from renderer-supplied arguments.
+      resolveEventOrigin: (event: unknown): string | null => resolveSenderFrameOrigin(event),
+      // Trusted main-process consent dialog before persisting a password.
+      requestSaveConsent: async (entry: { origin: string; username: string }): Promise<boolean> => {
+        const targetWindow = BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0] ?? null;
+        if (!targetWindow) return false; // fail-closed: no window, no save
+        const res = await dialog.showMessageBox(targetWindow, {
+          type: 'question',
+          title: 'AntiFan — Lưu mật khẩu?',
+          message: `Lưu mật khẩu đăng nhập cho ${entry.origin}?`,
+          detail: entry.username ? `Tài khoản: ${entry.username}\nMật khẩu sẽ được mã hoá bằng safeStorage (DPAPI), chỉ lưu trên máy này.` : 'Mật khẩu sẽ được mã hoá bằng safeStorage (DPAPI), chỉ lưu trên máy này.',
+          buttons: ['Không lưu', 'Lưu mật khẩu'],
+          defaultId: 1,
+          cancelId: 0,
+          noLink: true,
+        });
+        return res.response === 1;
+      },
     }).registerIpcHandlers();
     ipcMain.handle(TOOLBAR_CHANNELS.SYNC_CHROME_PROFILE, async (_event, profileId: string) => {
-      const activeTab = this.activeTabId ? this.tabs.get(this.activeTabId) : undefined;
-      const targetSession = activeTab?.view?.webContents && !activeTab.view.webContents.isDestroyed()
-        ? activeTab.view.webContents.session
-        : this.getSharedProfileSession();
-      const res = await ChromeProfileSyncManager.getInstance().syncProfile(profileId, targetSession);
+      // Partition unification: cookies always hydrate the shared profile
+      // partition (persist:profile-*), never a workspace capsule session, so
+      // regular tabs and imports stay on one stable cookie store per profile.
+      // Select the profile FIRST: getSharedProfileSession() derives the
+      // partition from activeProfileId, so syncing 'Profile 1' must target
+      // persist:profile-profile-1, never the previously active profile.
+      const manager = ChromeProfileSyncManager.getInstance();
+      // Validate BEFORE mutating global state or deriving a partition: a
+      // missing profile must leave activeProfileId and partitions untouched.
+      if (!manager.hasProfile(profileId)) {
+        return { success: false, cookiesCount: 0, bookmarksCount: 0, hasLiveCookies: false, message: `Profile '${profileId}' not found.` };
+      }
+      manager.activeProfileId = profileId;
+      const targetSession = this.getSharedProfileSession('clean', profileId);
+      const res = await manager.syncProfile(profileId, targetSession);
       const bm = ChromeProfileSyncManager.getInstance().getChromeBookmarks(profileId);
       if (bm && bm.length > 0) {
         this.bookmarks = bm.map(b => ({ id: b.url, title: b.title, url: b.url, createdAt: Date.now() }));
@@ -2366,31 +2395,38 @@ export class NativeTabHost extends EventEmitter {
   private ensureToolbarOnTop(): void {
     // Retained for API compatibility; shell views are permanently ordered above tab views
   }
-  public async clearStorageForActiveTab(): Promise<void> {
+  public async clearStorageForActiveTab(): Promise<{ success: boolean; cleared: boolean; reason?: string; origin?: string }> {
     const activeTab = this.tabs.get(this.activeTabId);
-    if (activeTab) {
-      try {
-        const ses = activeTab.view.webContents.session;
-        // Scope the clear to the active tab's origin: without `origin`, Electron
-        // wipes cookies/localStorage/cache for the ENTIRE partition (all sites).
-        const currentUrl = activeTab.view.webContents.getURL();
-        let origin: string | undefined;
-        try {
-          origin = new URL(currentUrl).origin;
-        } catch {}
-        await ses.clearStorageData({
-          ...(origin && origin !== 'null' ? { origin } : {}),
-          storages: ['cookies', 'localstorage', 'cachestorage'],
-        });
-        if (!activeTab.view.webContents.isDestroyed()) {
-          activeTab.view.webContents.reload();
-        }
-        if (activeTab.state.splitMode && activeTab.mobileView && !activeTab.mobileView.webContents.isDestroyed()) {
-          activeTab.mobileView.webContents.reload();
-        }
-      } catch (err) {
-        console.error('[native-tab-host] Failed to clear storage:', err);
+    if (!activeTab) {
+      return { success: false, cleared: false, reason: 'NO_ACTIVE_TAB' };
+    }
+    // Fail-closed: only an http(s) origin can be scoped. Without `origin`,
+    // Electron's clearStorageData wipes the ENTIRE partition (every site),
+    // so about:blank / file: / chrome:// pages REFUSE instead.
+    const currentUrl = activeTab.view.webContents.getURL();
+    let origin: string | null = null;
+    try {
+      const parsed = new URL(currentUrl);
+      if (parsed.protocol === 'https:' || parsed.protocol === 'http:') {
+        origin = parsed.origin;
       }
+    } catch {}
+    if (!origin) {
+      return { success: false, cleared: false, reason: 'UNSUPPORTED_ORIGIN', origin: currentUrl };
+    }
+    try {
+      const ses = activeTab.view.webContents.session;
+      await ses.clearStorageData({ origin, storages: ['cookies', 'localstorage', 'cachestorage'] });
+      if (!activeTab.view.webContents.isDestroyed()) {
+        activeTab.view.webContents.reload();
+      }
+      if (activeTab.state.splitMode && activeTab.mobileView && !activeTab.mobileView.webContents.isDestroyed()) {
+        activeTab.mobileView.webContents.reload();
+      }
+      return { success: true, cleared: true, origin };
+    } catch (err) {
+      console.error('[native-tab-host] Failed to clear storage:', err);
+      return { success: false, cleared: false, reason: err instanceof Error ? err.message : String(err) };
     }
   }
 
@@ -2552,8 +2588,10 @@ export class NativeTabHost extends EventEmitter {
     return session.fromPartition(partition);
   }
 
-  public getSharedProfilePartition(userAgentMode: BrowserSessionUserAgentMode = 'clean', ephemeral = false): string {
-    const activeProfileId = ChromeProfileSyncManager.getInstance().activeProfileId || 'default';
+  public getSharedProfilePartition(userAgentMode: BrowserSessionUserAgentMode = 'clean', ephemeral = false, profileId?: string): string {
+    // Explicit profileId (when given) wins — the caller decides which profile's
+    // cookies a hydration targets, without depending on prior mutable state.
+    const activeProfileId = profileId ?? ChromeProfileSyncManager.getInstance().activeProfileId ?? 'default';
     const safeProfileKey = activeProfileId.toLowerCase().replace(/[^a-z0-9_-]/g, '-');
     if (ephemeral) {
       const nonce = Math.random().toString(36).slice(2, 10);
@@ -2566,10 +2604,94 @@ export class NativeTabHost extends EventEmitter {
       : `persist:profile-${safeProfileKey}`;
   }
 
-  public getSharedProfileSession(userAgentMode: BrowserSessionUserAgentMode = 'clean'): Electron.Session {
-    const partition = this.getSharedProfilePartition(userAgentMode);
+  public getSharedProfileSession(userAgentMode: BrowserSessionUserAgentMode = 'clean', profileId?: string): Electron.Session {
+    const partition = this.getSharedProfilePartition(userAgentMode, false, profileId);
     configureBrowserSessionPartition(partition, userAgentMode);
     return session.fromPartition(partition);
+  }
+
+  /**
+   * One-time, idempotent migration of legacy `persist:capsule-*` partitions to
+   * the unified `persist:profile-*` partitions. Cookie data is COPIED — the
+   * legacy partition is only ever deleted after manual verification, never
+   * here. A marker file in the config dir guarantees exactly one run per
+   * install. Local-only: never touches a Chrome profile.
+   */
+  public async migrateLegacyCapsuleToProfile(): Promise<{ migrated: number; legacyPartitions: string[] }> {
+    const markerPath = path.join(StorageLocations.getConfigDir(), 'antifan-migration-capsule-to-profile.done');
+    if (fs.existsSync(markerPath)) {
+      return { migrated: 0, legacyPartitions: [] };
+    }
+    let partitionsDir = '';
+    try {
+      partitionsDir = path.join(app.getPath('userData'), 'Partitions');
+    } catch {}
+    let keys: string[] = [];
+    if (partitionsDir && fs.existsSync(partitionsDir)) {
+      try {
+        keys = fs.readdirSync(partitionsDir).filter((n) => n.startsWith('capsule-'));
+      } catch (err) {
+        console.warn('[PartitionMigration] Cannot list legacy capsule partitions:', err);
+      }
+    }
+    // Always attempt the canonical default mapping even when the on-disk
+    // enumeration finds nothing (layout differences across Electron versions).
+    const candidateKeys = keys.length > 0 ? keys : ['capsule-default'];
+    let migrated = 0;
+    let failed = false;
+    const legacyPartitions: string[] = [];
+    for (const key of candidateKeys) {
+      const legacy = `persist:${key}`;
+      const target = `persist:${key.replace(/^capsule-/, 'profile-')}`;
+      if (legacy === target) continue;
+      try {
+        const legacySes = configureBrowserSessionPartition(legacy);
+        const cookies = await legacySes.cookies.get({});
+        if (cookies.length === 0) continue;
+        const targetSes = configureBrowserSessionPartition(target);
+        let copied = 0;
+        for (const c of cookies) {
+          try {
+            const domain = String(c.domain || '').replace(/^\./, '');
+            await targetSes.cookies.set({
+              url: `${c.secure ? 'https://' : 'http://'}${domain}${c.path || '/'}`,
+              name: c.name,
+              value: c.value,
+              domain: String(c.domain || '').startsWith('.') ? c.domain : undefined,
+              path: c.path || '/',
+              secure: c.secure,
+              httpOnly: c.httpOnly,
+              ...(typeof c.expirationDate === 'number' ? { expirationDate: c.expirationDate } : {}),
+              ...(c.sameSite ? { sameSite: c.sameSite as 'unspecified' | 'no_restriction' | 'lax' | 'strict' } : {}),
+            });
+            copied++;
+          } catch {
+            // A single unimportable cookie means the migration is NOT complete:
+            // the done marker stays unset so the next launch retries (legacy
+            // partition data is never removed, so retry is always safe).
+            failed = true;
+          }
+        }
+        if (copied > 0) {
+          await targetSes.cookies.flushStore();
+          migrated += copied;
+          legacyPartitions.push(legacy);
+        }
+      } catch (err) {
+        failed = true;
+        console.warn(`[PartitionMigration] failed for ${legacy}:`, err);
+      }
+    }
+    // Marker only marks the migration DONE when every legacy partition was
+    // processed without error — a partial failure must retry on next launch.
+    if (!failed) {
+      try {
+        fs.writeFileSync(markerPath, JSON.stringify({ version: 1, migrated, legacyPartitions, at: new Date().toISOString() }, null, 2), 'utf8');
+      } catch (err) {
+        console.warn('[PartitionMigration] Cannot write marker file:', err);
+      }
+    }
+    return { migrated, legacyPartitions };
   }
 
   public async flushAllSessions(): Promise<void> {

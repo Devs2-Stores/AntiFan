@@ -4,8 +4,6 @@
  * Includes Mobile Remote Companion Web App, Live Viewport streaming, and Terminal RPC.
  */
 import { app, session } from 'electron';
-import { cookieImportSetDetails, extensionCookieImportSetDetails, ExtensionCookieInput } from '../browser/chrome-profile-sync';
-import { deriveCapsulePartition } from '../browser/browser-session-partition';
 import { WebSocketServer, WebSocket } from 'ws';
 import * as http from 'node:http';
 import * as fs from 'node:fs';
@@ -187,11 +185,6 @@ export class BridgeServer {
         }
       }
       if (req.method === 'OPTIONS') {
-        if (pathname === '/api/cookies/import' && rawOrigin && !isAllowedOrigin) {
-          res.writeHead(403, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ error: 'FORBIDDEN_ORIGIN', message: 'Cross-origin requests from non-loopback origins are forbidden.' }));
-          return;
-        }
         const preflightHeaders: Record<string, string> = {
           'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
           'Access-Control-Allow-Headers': 'Content-Type, Authorization, x-antifan-attachment-secret',
@@ -208,7 +201,6 @@ export class BridgeServer {
         pathname === '/api/screenshot' ||
         pathname === '/api/remote-info' ||
         pathname === '/api/qr' ||
-        pathname === '/api/cookies/import' ||
         pathname === '/api/lan-ips'
       ) {
         if (!isBridgeToken && !verifiedAttachmentId) {
@@ -407,146 +399,6 @@ export class BridgeServer {
         const html = renderMobileRemoteHtml(this.token, this.port);
         res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
         res.end(html);
-        return;
-      }
-      if (pathname === '/api/cookies/import' && req.method === 'POST') {
-        if (rawOrigin && !isAllowedOrigin) {
-          res.writeHead(403, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ success: false, error: 'FORBIDDEN_ORIGIN', message: 'Cross-origin requests from non-loopback origins are forbidden.' }));
-          return;
-        }
-        let body = '';
-        let size = 0;
-        const MAX_BODY_SIZE = 10 * 1024 * 1024; // 10MB
-        let isTooLarge = false;
-
-        req.on('data', (chunk) => {
-          size += chunk.length;
-          if (size > MAX_BODY_SIZE) {
-            isTooLarge = true;
-            res.writeHead(413, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ success: false, error: 'Payload Too Large (max 10MB)' }));
-            req.destroy();
-            return;
-          }
-          body += chunk;
-        });
-
-        req.on('end', async () => {
-          if (isTooLarge) return;
-          const responseHeaders: Record<string, string> = { 'Content-Type': 'application/json' };
-          if (isAllowedOrigin) responseHeaders['Access-Control-Allow-Origin'] = rawOrigin;
-
-          try {
-            const data = JSON.parse(body || '{}');
-            const rawRemoved = Array.isArray(data.removed) ? data.removed : [];
-            if (rawRemoved.length > 0) {
-              res.writeHead(400, responseHeaders);
-              res.end(JSON.stringify({
-                success: false,
-                error: 'REMOVALS_UNSUPPORTED',
-                message: 'Cookie removal propagation is unsupported. This endpoint only supports one-way additive cookie hydration.',
-              }));
-              return;
-            }
-            const rawCookies: ExtensionCookieInput[] = Array.isArray(data.cookies)
-              ? data.cookies
-              : (Array.isArray(data.upserted) ? data.upserted : []);
-            const requestedPartition = typeof data.partition === 'string' && data.partition.trim()
-              ? data.partition.trim()
-              : (typeof data.targetPartition === 'string' && data.targetPartition.trim()
-                ? data.targetPartition.trim()
-                : (typeof data.targetCapsuleId === 'string' && data.targetCapsuleId.trim()
-                  ? deriveCapsulePartition(data.targetCapsuleId.trim())
-                  : (typeof data.capsuleId === 'string' && data.capsuleId.trim()
-                    ? deriveCapsulePartition(data.capsuleId.trim())
-                    : null)));
-            let targetSession: Electron.Session;
-            if (verifiedAttachmentId && !isBridgeToken) {
-              // Attachment token: enforce attachment-scoped boundary
-              if (requestedPartition) {
-                res.writeHead(403, responseHeaders);
-                res.end(JSON.stringify({ success: false, error: 'Forbidden: attachment tokens cannot target arbitrary partitions' }));
-                return;
-              }
-              const boundTabId = this.attachmentRegistry?.getRecord(verifiedAttachmentId)?.tabId;
-              if (typeof data.tabId === 'string' && data.tabId.trim() && boundTabId && data.tabId.trim() !== boundTabId) {
-                res.writeHead(403, responseHeaders);
-                res.end(JSON.stringify({ success: false, error: `Forbidden: attachment token bound to tab "${boundTabId}", cannot target "${data.tabId}"` }));
-                return;
-              }
-              const targetTabId = boundTabId || (typeof data.tabId === 'string' ? data.tabId.trim() : this.tabHost.getActiveTab()?.id);
-              const tabSession = targetTabId ? this.tabHost.getTabSession(targetTabId) : null;
-              if (!tabSession) {
-                res.writeHead(400, responseHeaders);
-                res.end(JSON.stringify({ success: false, error: `Target tab "${targetTabId || 'none'}" not found or destroyed` }));
-                return;
-              }
-              targetSession = tabSession;
-            } else {
-              // Master bridge token: allow explicit tabId, partition, or default to active tab
-
-              if (typeof data.tabId === 'string' && data.tabId.trim()) {
-                const tabSession = this.tabHost.getTabSession(data.tabId.trim());
-                if (!tabSession) {
-                  res.writeHead(400, responseHeaders);
-                  res.end(JSON.stringify({ success: false, error: `Target tabId "${data.tabId}" not found or destroyed` }));
-                  return;
-                }
-                targetSession = tabSession;
-              } else if (requestedPartition) {
-                if (!this.tabHost.isValidCapsulePartition(requestedPartition)) {
-                  res.writeHead(404, responseHeaders);
-                  res.end(JSON.stringify({ success: false, error: 'UNKNOWN_TARGET_PARTITION', message: `Partition "${requestedPartition}" is not an active or registered capsule session.` }));
-                  return;
-                }
-                targetSession = this.tabHost.getPartitionSession(requestedPartition);
-              } else {
-                targetSession = this.tabHost.getActiveTabSession();
-              }
-            }
-
-            let importedCount = 0;
-            let removedCount = 0;
-            let skippedCount = 0;
-            let failedCount = 0;
-
-            const persistSession = data.persistSessionCookies !== false;
-            // 1. Process Upserts
-            for (const cookie of rawCookies) {
-              const setDetails = extensionCookieImportSetDetails(cookie, { persistSessionCookies: persistSession });
-              if (!setDetails) {
-                skippedCount++;
-                continue;
-              }
-
-              try {
-                await targetSession.cookies.set(setDetails);
-                importedCount++;
-              } catch {
-                failedCount++;
-              }
-            }
-            try {
-              await targetSession.cookies.flushStore();
-            } catch {}
-
-            res.writeHead(200, responseHeaders);
-            res.end(JSON.stringify({
-              success: true,
-              importedCount,
-              removedCount: 0,
-              skippedCount,
-              failedCount,
-              totalReceived: rawCookies.length,
-              targetTabId: data.tabId || this.tabHost.getActiveTab()?.id || null,
-              targetPartition: requestedPartition || 'activeTab',
-            }));
-          } catch (err: unknown) {
-            res.writeHead(400, responseHeaders);
-            res.end(JSON.stringify({ success: false, error: err instanceof Error ? err.message : String(err) }));
-          }
-        });
         return;
       }
 

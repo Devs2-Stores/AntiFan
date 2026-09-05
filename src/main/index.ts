@@ -279,6 +279,17 @@ async function createWindow(): Promise<void> {
   // Check URL from command line arguments or restore tabs
   const initialUrl = process.argv.find((arg) => (arg.startsWith('http://') || arg.startsWith('https://')) && !arg.includes('localhost:20128') && !arg.includes('localhost:20129') && !arg.includes('localhost:20130'));
   tabHost.restoreTabs(initialUrl);
+  // One-time migration of legacy capsule partitions to the unified profile
+  // partitions (persist:capsule-* -> persist:profile-*). Marker-gated and
+  // local-only; never touches a Chrome profile.
+  void tabHost
+    .migrateLegacyCapsuleToProfile()
+    .then((res) => {
+      if (res.migrated > 0) {
+        console.log(`[antifan] Migrated ${res.migrated} cookies from legacy capsule partitions to profile partitions`);
+      }
+    })
+    .catch((err) => console.warn('[antifan] Capsule->profile migration failed:', err));
   // Start Bridge Server
   bridgeServer = new BridgeServer(
     tabHost,

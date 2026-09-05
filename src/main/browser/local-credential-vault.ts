@@ -51,12 +51,55 @@ export interface CredentialVaultOptions {
   safeStorage: SafeStorageLike;
   filePath: string;
   ipc?: IpcMainLike;
+  /**
+   * Main-process only: derives the REAL page origin from the IPC event
+   * (`event.senderFrame.url`, top frame, HTTP(S) only). When provided, the
+   * renderer-supplied origin is never trusted — save/get-for-origin resolve
+   * the target origin exclusively from this resolver.
+   */
+  resolveEventOrigin?: (event: unknown) => string | null;
+  /**
+   * Main-process consent gate shown before persisting a password. Returning
+   * false aborts the save (`CONSENT_DENIED`). Absent in unit tests means
+   * save proceeds after origin validation.
+   */
+  requestSaveConsent?: (entry: { origin: string; username: string }) => boolean | Promise<boolean>;
 }
 
 export interface VaultResult<T> {
   ok: boolean;
   error?: string;
   data?: T;
+}
+
+interface SenderFrameLike {
+  url?: string;
+}
+
+/**
+ * Fail-closed derivation of the page origin for an IPC event. Requires a TOP
+ * frame (`event.senderFrame === event.sender.mainFrame`) with an http(s) URL.
+ * Subframes, opaque frames (about:/file:/chrome:), and events missing a
+ * mainFrame all resolve to null so callers refuse rather than trust the
+ * renderer. Electron-free: typed against the event shape only.
+ */
+export function resolveSenderFrameOrigin(event: unknown): string | null {
+  const ipcEvent = (event ?? null) as {
+    senderFrame?: SenderFrameLike | null;
+    sender?: { mainFrame?: unknown } | null;
+  } | null;
+  if (!ipcEvent) return null;
+  const frame = ipcEvent.senderFrame;
+  if (!frame || typeof frame.url !== 'string') return null;
+  const mainFrame = ipcEvent.sender?.mainFrame;
+  if (mainFrame === undefined || frame !== mainFrame) return null;
+  try {
+    const parsed = new URL(frame.url);
+    if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') return null;
+    return parsed.origin;
+  } catch {
+    return null;
+  }
 }
 
 export class LocalCredentialVault {
@@ -66,12 +109,16 @@ export class LocalCredentialVault {
   private readonly safeStorage: SafeStorageLike;
   private readonly filePath: string;
   private readonly ipc?: IpcMainLike;
+  private readonly resolveEventOrigin?: (event: unknown) => string | null;
+  private readonly requestSaveConsent?: (entry: { origin: string; username: string }) => boolean | Promise<boolean>;
   private entries: VaultEntry[] = [];
 
   public constructor(options: CredentialVaultOptions) {
     this.safeStorage = options.safeStorage;
     this.filePath = options.filePath;
     this.ipc = options.ipc;
+    this.resolveEventOrigin = options.resolveEventOrigin;
+    this.requestSaveConsent = options.requestSaveConsent;
     this.loadStore();
   }
 
@@ -240,9 +287,37 @@ export class LocalCredentialVault {
 
   public registerIpcHandlers(): void {
     if (!this.ipc) return;
+
+    // Save: object payload; the target origin is derived from the (main-process)
+    // sender frame — the renderer never chooses which site the password is
+    // stored for. Renderer-supplied origin was removed from the contract; if a
+    // legacy payload still carries one it is ignored. Consent (if wired) gates
+    // the write with a trusted main-process dialog.
     this.ipc.removeHandler('antifan:password:save');
-    this.ipc.handle('antifan:password:save', (_event, origin: unknown, username: unknown, password: unknown) => {
-      return this.save(String(origin ?? ''), String(username ?? ''), String(password ?? ''));
+    this.ipc.handle('antifan:password:save', async (event: unknown, payload: unknown) => {
+      const origin = this.resolveEventOrigin ? this.resolveEventOrigin(event) : null;
+      if (origin === null) {
+        return { ok: false, error: 'UNVERIFIED_ORIGIN' };
+      }
+      const p = (payload && typeof payload === 'object' ? payload : {}) as {
+        origin?: unknown;
+        username?: unknown;
+        password?: unknown;
+      };
+      // A legacy/malicious payload that still carries an origin gets rejected
+      // when it disagrees with the sender frame — the frame is authoritative.
+      if (typeof p.origin === 'string' && p.origin.length > 0 && p.origin !== origin) {
+        return { ok: false, error: 'ORIGIN_MISMATCH' };
+      }
+      const username = typeof p.username === 'string' ? p.username : '';
+      const password = typeof p.password === 'string' ? p.password : '';
+      if (this.requestSaveConsent) {
+        const granted = await this.requestSaveConsent({ origin, username });
+        if (!granted) {
+          return { ok: false, error: 'CONSENT_DENIED' };
+        }
+      }
+      return this.save(origin, username, password);
     });
 
     this.ipc.removeHandler('antifan:password:list');
@@ -250,9 +325,12 @@ export class LocalCredentialVault {
       return this.list(typeof origin === 'string' ? origin : undefined);
     });
 
+    // Autofill: origin is always the sender frame's origin — no renderer
+    // argument can request another site's decrypted credential.
     this.ipc.removeHandler('antifan:password:get-for-origin');
-    this.ipc.handle('antifan:password:get-for-origin', (_event, origin: unknown) => {
-      return this.getForOrigin(String(origin ?? ''));
+    this.ipc.handle('antifan:password:get-for-origin', (event: unknown) => {
+      const origin = this.resolveEventOrigin ? this.resolveEventOrigin(event) : null;
+      return origin ? this.getForOrigin(origin) : [];
     });
 
     this.ipc.removeHandler('antifan:password:remove');

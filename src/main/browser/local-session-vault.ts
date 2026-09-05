@@ -212,7 +212,22 @@ export class LocalSessionVault {
   ): Promise<{ success: boolean; count: number; message: string }> {
     const { promise, resolve } = Promise.withResolvers<{ success: boolean; count: number; message: string }>();
     const timeoutMs = 3000;
-      const finish = (payload: { success: boolean; count: number; message: string }): void => resolve(payload);
+      // Serialize all terminal paths: finish/fallback may only fire once, so a
+      // listReq timeout + error double-trigger can never open two connections
+      // or resolve the outer promise twice.
+      let finished = false;
+      const finish = (payload: { success: boolean; count: number; message: string }): void => {
+        if (finished) return;
+        finished = true;
+        resolve(payload);
+      };
+      let wsInProgress = false;
+      let fallbackArmed = false;
+      const armFallback = (): void => {
+        if (wsInProgress || fallbackArmed) return;
+        fallbackArmed = true;
+        fallbackToBrowserEndpoint();
+      };
       const offlineMessage = `Không thể kết nối Chrome CDP trên cổng ${cdpPort}. Hãy dùng Import JSON hoặc mở Chrome với --remote-debugging-port=${cdpPort}.`;
 
       // 1. Prefer a PAGE target — Network.getAllCookies only exists on page targets.
@@ -231,15 +246,15 @@ export class LocalSessionVault {
           if (wsUrl) {
             useWebSocket(wsUrl, true);
           } else {
-            fallbackToBrowserEndpoint();
+            armFallback();
           }
         });
       });
       listReq.on('timeout', () => {
         listReq.destroy();
-        fallbackToBrowserEndpoint();
+        armFallback();
       });
-      listReq.on('error', () => fallbackToBrowserEndpoint());
+      listReq.on('error', () => armFallback());
 
       // 2. Fallback: the browser-level endpoint (Storage.getCookies instead of Network).
       const fallbackToBrowserEndpoint = (): void => {
@@ -275,6 +290,7 @@ export class LocalSessionVault {
       // 3. Shared WebSocket cookie fetch: Network.getAllCookies on page targets,
       //    Storage.getCookies on the browser endpoint.
       const useWebSocket = (wsUrl: string, hasNetworkApi: boolean): void => {
+        wsInProgress = true;
         let ws: WebSocket;
         try {
           ws = new WebSocket(wsUrl);
@@ -328,8 +344,10 @@ export class LocalSessionVault {
             if (response.result && Array.isArray(response.result.cookies)) {
               const chromeCookies = response.result.cookies;
               const res = await this.importVaultFromJson(targetSession, chromeCookies);
-              // Also backup to vault file
-              await this.exportVaultToFile(targetSession).catch(() => {});
+              // NO plaintext backup here: session-vault.json must only ever be
+              // written by explicit user action (export menu item). CDP cookies
+              // (incl. HttpOnly auth cookies) stay in the in-memory Electron
+              // session only.
               try { ws.close(); } catch {}
               finish({
                 success: res.success,
@@ -396,12 +414,6 @@ export class LocalSessionVault {
     ipcMain.handle('antifan:vault:import-json', async (_event, jsonContent: string) => {
       const targetSession = getSessionFn();
       return await this.importVaultFromJson(targetSession, jsonContent);
-    });
-
-    ipcMain.removeHandler('antifan:vault:cdp-sync');
-    ipcMain.handle('antifan:vault:cdp-sync', async (_event, port = 9222) => {
-      const targetSession = getSessionFn();
-      return await this.importFromLiveChromeCDP(targetSession, port);
     });
 
     ipcMain.removeHandler('antifan:vault:get-stats');

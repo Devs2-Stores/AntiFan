@@ -76,7 +76,7 @@ interface AntiFanToolbarApi {
   deleteWorkflow: (id: string) => Promise<boolean>;
   getWorkflowArtifact: (artifactId: string) => Promise<any>;
   onWorkflowEvent: (callback: (event: any) => void) => () => void;
-  clearStorage: () => Promise<void>;
+  clearStorage: () => Promise<{ success: boolean; cleared: boolean; reason?: string; origin?: string }>;
   getChromeProfiles: () => Promise<any>;
   syncChromeProfile: (profileId: string) => Promise<any>;
   toggleBookmarkBar: () => Promise<boolean>;
@@ -85,7 +85,6 @@ interface AntiFanToolbarApi {
   exportSessionVault?: (customPath?: string) => Promise<{ success: boolean; count: number; filePath: string; error?: string }>;
   importSessionVault?: (customPath?: string) => Promise<{ success: boolean; importedCount: number; failedCount: number; error?: string }>;
   importSessionVaultJson?: (json: string) => Promise<{ success: boolean; importedCount: number; failedCount: number; error?: string }>;
-  syncFromChromeCdp?: (port?: number) => Promise<{ success: boolean; count: number; message: string }>;
   getVaultStats?: (customPath?: string) => Promise<{ exists: boolean; count: number; lastModified?: number; filePath: string }>;
   checkUpdates?: () => Promise<void>;
   isChromeRunning?: () => Promise<boolean>;
@@ -1214,7 +1213,7 @@ function renderChromeProfiles() {
         renderChromeProfiles();
         renderAppMenuProfiles();
         if (res.hasLiveCookies === false && (!res.cookiesCount || res.cookiesCount === 0)) {
-          showToolbarToast(`ℹ️ Đã nạp ${res.bookmarksCount || 0} dấu trang. Vì Chrome bảo mật v20, hãy bấm "🚀 Mở Chrome để Đồng Bộ" bên dưới để nạp cookies!`, 7000);
+          showToolbarToast(`ℹ️ Đã nạp ${res.bookmarksCount || 0} dấu trang, chưa nạp được cookies: ${res?.message || 'vui lòng thử lại sau khi đóng hẳn Chrome'}. App sẽ tự chạy Chrome headless riêng (không đụng Chrome đang mở).`, 7000);
         } else {
           const cookieNote = res.cookiesCount > 0 ? ` (${res.cookiesCount} cookies, ${res.bookmarksCount || 0} bookmarks)` : '';
           showToolbarToast(`✅ Đã đồng bộ Chrome Profile: ${p.name || p.id}${cookieNote}`, 4000);
@@ -1266,22 +1265,6 @@ function renderChromeProfiles() {
   };
   profileDropdownList.appendChild(restoreItem);
 
-  // CDP Sync Item
-  const cdpItem = document.createElement('div');
-  cdpItem.className = 'profile-dropdown-item';
-  cdpItem.innerHTML = '<span>⚡ Hút Cookies từ Chrome (CDP)</span><span style="font-size:10px;color:#f59e0b;">CDP 9222</span>';
-  cdpItem.onclick = async () => {
-    profileDropdownMenu.style.display = 'none';
-    getApi()?.setOverlay(false);
-    showToolbarToast('🔄 Đang kết nối Chrome CDP 9222...');
-    const res = await getApi()?.syncFromChromeCdp?.();
-    if (res?.success) {
-      showToolbarToast(`✅ ${res.message}`, 4000);
-    } else {
-      showToolbarToast(`⚠️ ${res?.message || 'Không thể kết nối Chrome CDP'}. Hãy mở Chrome với cờ --remote-debugging-port=9222!`, 6000);
-    }
-  };
-  profileDropdownList.appendChild(cdpItem);
 }
 
 if (btnChromeProfile) {
@@ -1344,7 +1327,7 @@ function renderAppMenuProfiles() {
         activeProfileInfo = p;
         renderChromeProfiles();
         if (res.hasLiveCookies === false && (!res.cookiesCount || res.cookiesCount === 0)) {
-          showToolbarToast(`ℹ️ Đã nạp ${res.bookmarksCount || 0} dấu trang. Vì Chrome bảo mật v20, hãy bấm "🚀 Mở Chrome để Đồng Bộ" để nạp cookies!`, 7000);
+          showToolbarToast(`ℹ️ Đã nạp ${res.bookmarksCount || 0} dấu trang, chưa nạp được cookies: ${res?.message || 'vui lòng thử lại sau khi đóng hẳn Chrome'}. App sẽ tự chạy Chrome headless riêng (không đụng Chrome đang mở).`, 7000);
         } else {
           const cookieNote = res.cookiesCount > 0 ? ` (${res.cookiesCount} cookies, ${res.bookmarksCount || 0} bookmarks)` : '';
           showToolbarToast(`✅ Đã đồng bộ Chrome Profile: ${p.name || p.id}${cookieNote}`, 4000);
@@ -1362,22 +1345,6 @@ function renderAppMenuProfiles() {
   appMenuDivider.style.margin = '4px 0';
   menuProfileSubList.appendChild(appMenuDivider);
 
-  // CDP Sync in App Menu
-  const appCdpSync = document.createElement('div');
-  appCdpSync.className = 'profile-sub-item';
-  appCdpSync.innerHTML = '<span>⚡ Hút Cookies (CDP)</span><span style="font-size:10px;color:#f59e0b;">CDP 9222</span>';
-  appCdpSync.onclick = async (e) => {
-    e.stopPropagation();
-    closeAppMenu();
-    showToolbarToast('🔄 Đang kết nối Chrome CDP 9222...');
-    const res = await getApi()?.syncFromChromeCdp?.();
-    if (res?.success) {
-      showToolbarToast(`✅ ${res.message}`, 4000);
-    } else {
-      showToolbarToast(`⚠️ ${res?.message || 'Không thể kết nối Chrome CDP'}`, 5000);
-    }
-  };
-  menuProfileSubList.appendChild(appCdpSync);
 }
 
 function closeAppMenu() {
@@ -1510,8 +1477,12 @@ document.getElementById('menuItemDevTools')?.addEventListener('click', (e) => {
 document.getElementById('menuItemClearStorage')?.addEventListener('click', async (e) => {
   e.stopPropagation();
   closeAppMenu();
-  await getApi()?.clearStorage();
-  showToolbarToast('Đã xóa Cookies & Cache của trang này');
+  const clearRes = await getApi()?.clearStorage();
+  if (clearRes && clearRes.success !== false) {
+    showToolbarToast('Đã xóa Cookies & Cache của trang này');
+  } else {
+    showToolbarToast(`⚠️ Không thể xóa: chỉ hỗ trợ trang http(s). ${clearRes?.reason || ''}`, 5000);
+  }
 });
 
 document.getElementById('menuItemShortcuts')?.addEventListener('click', (e) => {

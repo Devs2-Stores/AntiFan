@@ -171,7 +171,16 @@ export function buildApplicationMenu(mainWindow: BrowserWindow, tabHost?: Native
       ? chromeProfiles.map((p) => ({
           label: `Sync: ${p.name} (${p.id})`,
           click: async () => {
-            const res = await ChromeProfileSyncManager.getInstance().syncProfile(p.id, tabHost?.getActiveTabSession());
+            // Unified target: shared profile partition (explicit profileId — no
+            // dependence on prior active state). Menu items only exist for
+            // discovered profiles, but the sync itself validates again.
+            const manager = ChromeProfileSyncManager.getInstance();
+            if (!manager.hasProfile(p.id)) {
+              dialog.showMessageBox(mainWindow, { type: 'warning', title: 'Chrome Profile Sync', message: `Profile '${p.id}' not found.` });
+              return;
+            }
+            manager.activeProfileId = p.id;
+            const res = await manager.syncProfile(p.id, tabHost?.getSharedProfileSession('clean', p.id));
             const bm = ChromeProfileSyncManager.getInstance().getChromeBookmarks(p.id);
             if (bm.length > 0 && tabHost) {
               tabHost.bookmarks = bm.map((b) => ({ id: b.url, title: b.title, url: b.url, createdAt: Date.now() }));
@@ -213,19 +222,6 @@ export function buildApplicationMenu(mainWindow: BrowserWindow, tabHost?: Native
           message: res.success
             ? `Đã nạp thành công ${res.importedCount} cookies vào phiên làm việc!`
             : `Lỗi nạp: ${res.error || 'Không tìm thấy file session-vault.json'}`,
-        });
-      },
-    },
-    {
-      label: '⚡ Hút Cookies từ Chrome (CDP)',
-      click: async () => {
-        const targetSession = tabHost?.getActiveTabSession();
-        if (!targetSession) return;
-        const res = await LocalSessionVault.getInstance().importFromLiveChromeCDP(targetSession, 9222);
-        dialog.showMessageBox(mainWindow, {
-          type: res.success ? 'info' : 'warning',
-          title: 'Chrome CDP Cookie Sync',
-          message: res.message,
         });
       },
     },

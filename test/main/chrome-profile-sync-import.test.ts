@@ -131,4 +131,17 @@ describe('ChromeProfileSync Cookie Import Semantics', () => {
     assert.strictEqual(res.hasLiveCookies, false);
     assert.ok(res.message.includes('dấu trang') || res.message.includes('not found'));
   });
+
+  it('syncProfile fails fast BEFORE any CDP work when the profile directory is missing', async () => {
+    const manager = ChromeProfileSyncManager.getInstance();
+    const activeBefore = manager.activeProfileId;
+    const res = await manager.syncProfile('__profile_that_does_not_exist__');
+    assert.strictEqual(res.success, false);
+    assert.strictEqual(res.cookiesCount, 0, 'no CDP pull may run for an unverifiable profile');
+    assert.strictEqual(res.bookmarksCount, 0);
+    assert.strictEqual(res.hasLiveCookies, false);
+    assert.ok(res.message.includes('not found'), `expected not-found message, got: ${res.message}`);
+    assert.strictEqual(manager.activeProfileId, activeBefore, 'a missing profile must never mutate the active profile');
+    assert.strictEqual(manager.hasProfile('__profile_that_does_not_exist__'), false);
+  });
 });

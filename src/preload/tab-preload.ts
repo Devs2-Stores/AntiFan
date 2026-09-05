@@ -416,8 +416,10 @@ window.addEventListener(
       if (!passwordInput || !passwordInput.value) return;
       const usernameInput = findUsernameInput(form);
       const username = usernameInput && usernameInput.value ? usernameInput.value.trim() : '';
-      ipcRenderer.send('antifan:password:save', {
-        origin: location.origin,
+      // Origin is intentionally NOT sent: the main process derives it from the
+      // sender frame (top frame only), so page JS can never direct where the
+      // password is stored.
+      void ipcRenderer.invoke('antifan:password:save', {
         username,
         password: passwordInput.value,
       });
@@ -437,9 +439,10 @@ window.addEventListener(
   const attemptAutofill = (): void => {
     void (async () => {
       try {
+        // Origin is derived by the main process from the sender frame — the
+        // renderer cannot request another site's decrypted credential.
         const credentials = (await ipcRenderer.invoke(
-          'antifan:password:get-for-origin',
-          location.origin
+          'antifan:password:get-for-origin'
         )) as Array<{ id: string; origin: string; username: string; password: string }>;
         if (!Array.isArray(credentials) || credentials.length === 0) return;
         const passwordInputs = Array.from(document.querySelectorAll<HTMLInputElement>('input[type="password"]'))
