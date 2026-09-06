@@ -70,19 +70,23 @@ app.whenReady().then(async () => {
     let queueDrainDeleteCount = 0;
     const originalQueueDelete = devTools.cdpQueues.delete.bind(devTools.cdpQueues);
     devTools.cdpQueues.delete = function (key) {
-      if (key === targetWcId && devTools.cdpQueues.has(key)) {
+      const existed = key === targetWcId && devTools.cdpQueues.has(key);
+      const deleted = originalQueueDelete(key);
+      if (existed && deleted) {
         queueDrainDeleteCount++;
       }
-      return originalQueueDelete(key);
+      return deleted;
     };
 
     let drainingDeleteCount = 0;
     const originalDrainingDelete = devTools.cdpDrainingTargets.delete.bind(devTools.cdpDrainingTargets);
     devTools.cdpDrainingTargets.delete = function (key) {
-      if (key === targetWcId && devTools.cdpDrainingTargets.has(key)) {
+      const existed = key === targetWcId && devTools.cdpDrainingTargets.has(key);
+      const deleted = originalDrainingDelete(key);
+      if (existed && deleted) {
         drainingDeleteCount++;
       }
-      return originalDrainingDelete(key);
+      return deleted;
     };
     console.log('\n=== REAL CHROMIUM IN-FLIGHT TIMEOUT & ADMISSION INVARIANT PROBE ===\n');
 
