@@ -80,6 +80,26 @@ describe('Live Chromium E2E: Theme Golden Product Card and Drawer', () => {
     assert.equal(report.productCard.sourceCandidate, 'snippets/card-product.liquid');
     assert.equal(report.productCard.matchedCssDefinitionOfDone, 'STRONG PASS');
     assert.equal(report.productCard.verificationVerdict, 'VERIFIED');
+
+    // P0.4 Rendered Mutation schema and factual non-judgmental telemetry assertions
+    assert.ok(report.productCard.p04RenderedMutations, 'Must persist p04RenderedMutations in proof report');
+    const { mutationA, mutationB, mutationC } = report.productCard.p04RenderedMutations;
+    assert.equal(mutationA.geometryWithinTolerance, false);
+    assert.ok(mutationA.structuralDelta >= 10);
+    assert.equal(mutationA.expectedPolicyOutcome, 'REJECTED');
+    assert.equal('measurementClassification' in mutationA, false);
+
+    assert.equal(mutationB.geometryWithinTolerance, true);
+    assert.equal(mutationB.cardinalityMatch, true);
+    assert.equal(mutationB.structuralDelta, 0);
+    assert.equal(mutationB.expectedPolicyOutcome, 'VERIFIED');
+    assert.equal('measurementClassification' in mutationB, false);
+
+    assert.equal(mutationC.hasScrollOverflow, true);
+    assert.equal(mutationC.buttonClippedOutOfView, true);
+    assert.equal(mutationC.diagnosticStatus, 'INCONCLUSIVE');
+    assert.equal('verdict' in mutationC, false);
+
     assert.deepEqual(report.drawer.responsiveWidths, [320, 375, 768, 1024, 1440]);
     assert.equal(report.drawer.mutationRevisionAdvanced, true);
     assert.equal(report.drawer.trustedClick, true);
