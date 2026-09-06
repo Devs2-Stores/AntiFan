@@ -70,14 +70,47 @@ function parseArgs() {
     printUsageAndExit(`Output path escapes root directory: ${resolvedOutput}`);
   }
 
-  // 2. If output path already exists (e.g. symlink file), verify canonical target stays under root
-  if (fs.existsSync(resolvedOutput)) {
-    const realExistingOutput = fs.realpathSync(resolvedOutput);
-    if (!realExistingOutput.startsWith(realRootPrefix)) {
-      printUsageAndExit(`Output symlink escapes root directory: ${resolvedOutput}`);
-    }
+  // 2. Check output path with lstatSync to detect dangling symlinks as well as existing files
+  let outputLstat = null;
+  try {
+    outputLstat = fs.lstatSync(resolvedOutput);
+  } catch {
+    // Entry does not exist
   }
 
+  if (outputLstat) {
+    if (outputLstat.isSymbolicLink()) {
+      let realTarget;
+      try {
+        realTarget = fs.realpathSync(resolvedOutput);
+      } catch {
+        // Dangling symlink: target does not exist yet. Read the link and resolve against dirname.
+        const rawLink = fs.readlinkSync(resolvedOutput);
+        const resolvedLink = path.resolve(path.dirname(resolvedOutput), rawLink);
+        let anc = path.dirname(resolvedLink);
+        while (anc && !fs.existsSync(anc)) {
+          const parent = path.dirname(anc);
+          if (parent === anc) break;
+          anc = parent;
+        }
+        if (fs.existsSync(anc)) {
+          const realAnc = fs.realpathSync(anc);
+          const rel = path.relative(anc, resolvedLink);
+          realTarget = path.resolve(realAnc, rel);
+        } else {
+          realTarget = resolvedLink;
+        }
+      }
+      if (!realTarget.startsWith(realRootPrefix)) {
+        printUsageAndExit(`Output symlink escapes root directory: ${resolvedOutput}`);
+      }
+    } else {
+      const realExistingOutput = fs.realpathSync(resolvedOutput);
+      if (!realExistingOutput.startsWith(realRootPrefix)) {
+        printUsageAndExit(`Output file escapes root directory: ${resolvedOutput}`);
+      }
+    }
+  }
   // 3. Nearest existing ancestor canonicalization (guards against in-path directory symlinks)
   let cur = path.dirname(resolvedOutput);
   while (cur && !fs.existsSync(cur)) {

@@ -279,6 +279,26 @@ describe('Cognitive Models - Asset, Responsive & E-commerce Data', () => {
       } finally {
         if (fs.existsSync(outsideTargetOut)) fs.unlinkSync(outsideTargetOut);
       }
+
+      // Test 8: dangling output symlink escaping root directory -> status 1
+      const nonExistentOutsideTarget = path.join(os.tmpdir(), 'non-existent-outside-target-' + Date.now() + '.json');
+      const danglingSymlinkOut = path.join(tempDir, 'dangling-manifest.json');
+      let danglingCreated = false;
+      try {
+        fs.symlinkSync(nonExistentOutsideTarget, danglingSymlinkOut);
+        danglingCreated = true;
+      } catch {
+        // Gracefully skip if environment prohibits symlink creation
+      }
+      try {
+        if (danglingCreated) {
+          const res8 = spawnSync(nodeBin, [runnerScript, '--root', tempDir, '--files', 'valid.liquid', '--output', danglingSymlinkOut], { encoding: 'utf8' });
+          assert.strictEqual(res8.status, 1);
+          assert.ok(res8.stderr.includes('Output symlink escapes root directory'));
+        }
+      } finally {
+        try { fs.unlinkSync(danglingSymlinkOut); } catch {}
+      }
     } finally {
       fs.rmSync(tempDir, { recursive: true, force: true });
     }
