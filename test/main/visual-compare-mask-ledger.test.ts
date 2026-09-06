@@ -1,7 +1,7 @@
 import { describe, it, before, after } from 'node:test';
 import * as assert from 'node:assert/strict';
 import { BrowserControlPort, computePixelDiff } from '../../src/main/tools/browser-control-port';
-import { BrowserTarget } from '../../src/shared/control-plane-contracts';
+import { BrowserTarget, CapabilityError } from '../../src/shared/control-plane-contracts';
 import { CapabilityCatalogue } from '../../src/main/tools/capability-catalogue';
 import { registerBrowserCapabilities } from '../../src/main/tools/browser-capabilities';
 
@@ -48,6 +48,16 @@ interface MockHostOptions {
   captureThrowsFor?: string;
   /** restore returns `false` (style still present) for a tab (restore-failure path) */
   restoreFailsFor?: Set<string>;
+  /** per-tab documentGeneration */
+  docGenFor?: (tabId: string) => number;
+  /** per-tab mutationRevision */
+  mutationRevFor?: (tabId: string) => number;
+  /** hook fired after each capture (tests mutate identity clocks here) */
+  onCapture?: (tabId: string) => void;
+  /** inject evalJs result per tab (presence and ownership consistency) */
+  injectResultFor?: (tabId: string) => boolean | { owned: boolean; present: boolean };
+  /** inject evalJs throws for a tab */
+  injectThrowsFor?: Set<string>;
   evalLog: EvalLogEntry[];
 }
 
@@ -63,7 +73,11 @@ function buildMockHost(opts: MockHostOptions) {
         if (tabId && opts.restoreFailsFor?.has(tabId)) return false;
         return true;
       }
-      if (script.includes('__antifan_normalize_scroll')) return true;
+      if (script.includes('__antifan_normalize_scroll')) {
+        if (tabId && opts.injectThrowsFor?.has(tabId)) throw new Error('simulated inject failure');
+        if (opts.injectResultFor) return opts.injectResultFor(tabId || '');
+        return true;
+      }
       if (script.includes('innerWidth')) return { vw: 800, vh: 600, dh: 1600, sx: 0, sy: 0 };
       if (script.includes('querySelectorAll')) {
         if (!tabId) return [];
@@ -73,11 +87,15 @@ function buildMockHost(opts: MockHostOptions) {
       return null;
     },
     captureScreenshot: async (_rect: unknown, tabId?: string): Promise<string> => {
+      if (tabId) opts.onCapture?.(tabId);
       if (tabId && opts.captureThrowsFor === tabId) {
         throw new Error('simulated capture failure');
       }
       return (tabId === 'tab-b' ? basePng : curPng).toString('base64');
     },
+    getBrowserEpoch: () => 1,
+    getDocumentGeneration: (tabId?: string) => (opts.docGenFor ? opts.docGenFor(tabId || '') : 1),
+    getMutationRevision: (tabId?: string) => (opts.mutationRevFor ? opts.mutationRevFor(tabId || '') : 1),
   };
 }
 
@@ -129,7 +147,7 @@ after(() => {
   }
 });
 
-describe('visualCompare fail-closed mask ledger & normalization transaction (V-11, V-12, V-01)', () => {
+describe('visualCompare fail-closed mask ledger & normalization transaction', () => {
   it('V-11: normalizeScroll style is injected before capture and verified-removed after success', async () => {
     const evalLog: EvalLogEntry[] = [];
     const host = buildMockHost({ evalLog });
@@ -230,6 +248,10 @@ describe('visualCompare fail-closed mask ledger & normalization transaction (V-1
     assert.strictEqual(result.match, false);
     assert.strictEqual((result.maskResolution as any).status, 'MASK_RESOLUTION_FAILED');
     assert.ok(String(result.reason).includes('.never-present'));
+    const coh = (result as any).coherence;
+    assert.strictEqual(coh.identityCoherent, false);
+    assert.strictEqual(coh.captureStateCompatible, false);
+    assert.strictEqual(coh.resampleCount, 0);
   });
 
   it('optional zero-match records optionalUnmatched without failing the compare', async () => {
@@ -280,6 +302,8 @@ describe('visualCompare fail-closed mask ledger & normalization transaction (V-1
     assert.strictEqual(norm.target.owned, true);
     assert.strictEqual(norm.target.restored, false);
     assert.ok(norm.target.restoreError && norm.target.restoreError.includes('still present'));
+    assert.ok((result as any).coherence);
+    assert.strictEqual((result as any).coherence.identityCoherent, true);
   });
 
   it('maskOptionalSelectors is additive in both capability schemas (R3 contract)', () => {
@@ -332,5 +356,133 @@ describe('computePixelDiff mask bounds are half-open (exclusive right/bottom edg
     const diff = computePixelDiff(a, b, 5, [{ x: 0, y: 0, width: 4, height: 4 }]);
     // (0,0) and (2,2) are inside the mask; (0,4) is on the bottom edge -> counts.
     assert.strictEqual(diff.diffPixels, 1);
+  });
+});
+
+describe('visualCompare capture coherence transaction', () => {
+  it('resamples when DOM mutation occurs during capture, settling with a coherence receipt', async () => {
+    const evalLog: EvalLogEntry[] = [];
+    let revA = 1;
+    let bumped = false;
+    const host = buildMockHost({
+      evalLog,
+      mutationRevFor: (t) => (t === 'tab-a' ? revA : 1),
+      onCapture: (t) => {
+        if (t === 'tab-a' && !bumped) {
+          bumped = true;
+          revA += 1;
+        }
+      },
+    });
+    const port = new BrowserControlPort(host as any);
+    const res = (await port.visualCompare(dummyTarget, 'run', 'att', { comparisonTabId: 'tab-b', normalizeScroll: true })) as any;
+    assert.strictEqual(res.match, true);
+    assert.strictEqual(res.coherence.identityCoherent, true);
+    assert.strictEqual(res.coherence.captureStateCompatible, true);
+    assert.strictEqual(res.coherence.resampleCount, 1);
+    // Both attempts injected and restored normalization on both tabs (per-attempt cleanup).
+    const injectCount = evalLog.filter((e) => e.script.includes('createElement')).length;
+    const restoreCount = evalLog.filter((e) => e.script.includes('el.remove')).length;
+    assert.strictEqual(injectCount, 4);
+    assert.strictEqual(restoreCount, 4);
+  });
+
+  it('settles INCONCLUSIVE without a diff when capture mutation never coheres within retry limit', async () => {
+    const evalLog: EvalLogEntry[] = [];
+    let revA = 1;
+    const host = buildMockHost({
+      evalLog,
+      mutationRevFor: (t) => (t === 'tab-a' ? revA : 1),
+      onCapture: (t) => {
+        if (t === 'tab-a') revA += 1;
+      },
+    });
+    const port = new BrowserControlPort(host as any);
+    const res = (await port.visualCompare(dummyTarget, 'run', 'att', { comparisonTabId: 'tab-b' })) as any;
+    assert.strictEqual(res.ok, false);
+    assert.strictEqual(res.status, 'INCONCLUSIVE');
+    assert.strictEqual(res.coherence.resampleCount, 2);
+    assert.strictEqual(res.match, false);
+    assert.strictEqual('diffPixels' in res, false);
+  });
+
+  it('fails closed with TARGET_STALE when document generation advances mid-transaction', async () => {
+    const evalLog: EvalLogEntry[] = [];
+    let genA = 1;
+    const host = buildMockHost({
+      evalLog,
+      docGenFor: (t) => (t === 'tab-a' ? genA : 1),
+      onCapture: (t) => {
+        if (t === 'tab-a') genA = 2;
+      },
+    });
+    const port = new BrowserControlPort(host as any);
+    await assert.rejects(
+      port.visualCompare(dummyTarget, 'run', 'att', { comparisonTabId: 'tab-b' }),
+      (err: unknown) => err instanceof CapabilityError && err.code === 'TARGET_STALE'
+    );
+  });
+
+  it('cancels the pixel diff with INCONCLUSIVE when comparison-side normalization fails to inject', async () => {
+    const evalLog: EvalLogEntry[] = [];
+    const host = buildMockHost({ evalLog, injectThrowsFor: new Set(['tab-b']) });
+    const port = new BrowserControlPort(host as any);
+    const res = (await port.visualCompare(dummyTarget, 'run', 'att', { comparisonTabId: 'tab-b', normalizeScroll: true })) as any;
+    assert.strictEqual(res.ok, false);
+    assert.strictEqual(res.status, 'INCONCLUSIVE');
+    assert.strictEqual('diffPixels' in res, false);
+    assert.strictEqual(res.coherence.identityCoherent, true);
+    assert.strictEqual(res.coherence.captureStateCompatible, false);
+    assert.strictEqual(res.maskResolution.status, 'NORMALIZATION_ASYMMETRIC');
+    assert.ok(res.normalization.comparison.injectError);
+  });
+
+  it('settles INCONCLUSIVE when pre-existing unowned comparison style leaves CSS unverified', async () => {
+    const evalLog: EvalLogEntry[] = [];
+    const host = buildMockHost({
+      evalLog,
+      injectResultFor: (t) => (t === 'tab-b' ? { owned: false, present: true } : true),
+    });
+    const port = new BrowserControlPort(host as any);
+    const res = (await port.visualCompare(dummyTarget, 'run', 'att', { comparisonTabId: 'tab-b', normalizeScroll: true })) as any;
+    assert.strictEqual(res.status, 'INCONCLUSIVE');
+    assert.strictEqual(res.normalization.comparison.owned, false);
+    assert.strictEqual(res.normalization.comparison.injected, true);
+    assert.strictEqual(res.coherence.captureStateCompatible, false);
+    assert.strictEqual('diffPixels' in res, false);
+  });
+
+  it('carries identityCoherent receipts for both sides on settled comparison', async () => {
+    const evalLog: EvalLogEntry[] = [];
+    const host = buildMockHost({ evalLog });
+    const port = new BrowserControlPort(host as any);
+    const res = (await port.visualCompare(dummyTarget, 'run', 'att', { comparisonTabId: 'tab-b', normalizeScroll: true })) as any;
+    assert.strictEqual(res.coherence.identityCoherent, true);
+    assert.strictEqual(res.coherence.captureStateCompatible, true);
+    assert.strictEqual(res.coherence.resampleCount, 0);
+    assert.strictEqual(res.coherence.target.identity, 'COHERENT');
+    assert.strictEqual(res.coherence.baseline.identity, 'COHERENT');
+    assert.strictEqual(res.coherence.target.afterCapture.mutationRevision, 1);
+    assert.strictEqual(res.coherence.baseline.afterCapture.mutationRevision, 1);
+  });
+});
+
+describe('visualCompare pair lock serializes capture transactions', () => {
+  it('two concurrent compares on the same tab pair serialize inject/restore transactions', async () => {
+    const evalLog: EvalLogEntry[] = [];
+    const host = buildMockHost({ evalLog });
+    const port = new BrowserControlPort(host as any);
+    const [a, b] = await Promise.all([
+      port.visualCompare(dummyTarget, 'run1', 'att1', { comparisonTabId: 'tab-b', normalizeScroll: true }),
+      port.visualCompare(dummyTarget, 'run2', 'att2', { comparisonTabId: 'tab-b', normalizeScroll: true }),
+    ]);
+    assert.strictEqual((a as any).match, true);
+    assert.strictEqual((b as any).match, true);
+    // A serialized job emits target-inject, comp-inject, then both restores as one
+    // contiguous block. Without the pair lock the two jobs interleave instead.
+    const normEvents = evalLog
+      .filter((e) => e.script.includes('__antifan_normalize_scroll'))
+      .map((e) => (e.script.includes('createElement') ? 'inject' : 'restore'));
+    assert.deepStrictEqual(normEvents, ['inject', 'inject', 'restore', 'restore', 'inject', 'inject', 'restore', 'restore']);
   });
 });

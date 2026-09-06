@@ -10,12 +10,17 @@ import { ActionBoundary, RawBehaviorScope, ObservationIntegrity } from '../verif
 import {
   MaskLedger,
   MaskResolutionError,
+  MultiKeyLock,
   NormalizationTransaction,
+  TwoSourceCoherenceGuard,
+  coherencePairReceipt,
   emptyMaskLedgerResult,
+  emptyNormalizationReceipt,
   maskEntryReceipt,
   materializeRasterMasks,
   visualCaptureSpaceFromMeasured,
-  emptyNormalizationReceipt,
+  type CaptureIdentitySnapshot,
+  type CoherencePairCheck,
   type MaskResolutionEntry,
   type NormalizationReceipt,
 } from '../verification/visual-capture.js';
@@ -552,10 +557,32 @@ export function isStrictActionSuccess(rawRes: unknown, actionKey: string): boole
   return false;
 }
 
+interface VisualCompareParams {
+  baselineScreenshotRef?: string;
+  comparisonTabId?: string;
+  tolerance?: number;
+  selector?: string;
+  clipRect?: { x: number; y: number; width: number; height: number };
+  maskSelectors?: string[];
+  /** Additive: selectors that MAY match zero elements without failing the compare */
+  maskOptionalSelectors?: string[];
+  normalizeScroll?: boolean;
+  tabId?: string;
+  paneId?: 'desktop' | 'mobile';
+  fullPage?: boolean;
+}
+
+/** Bounded visual-compare capture outcome: either settles with a result or asks for another attempt. */
+type VisualCompareAttemptOutcome =
+  | { settle: true; result: Record<string, unknown> }
+  | { settle: false; resampleCount: number };
+
 export class BrowserControlPort {
   public readonly passivePool = new PassiveExecutionPool();
   public readonly waitRegistry = new WaitRegistry();
   public readonly viewportGate = new ViewportGate();
+  /** Joint mutual exclusion for visualCompare tab pairs (passivePool keeps capacity accounting) */
+  private readonly comparePairLock = new MultiKeyLock();
   constructor(private readonly host: BrowserHostPort, public readonly artifacts?: BrowserArtifactSink) {
     this.viewportGate.setCancellationHandler(async (tabId) => {
       if (this.host.agentClear) {
@@ -2381,20 +2408,7 @@ export class BrowserControlPort {
     target: BrowserTarget,
     runId: string,
     attemptId: string,
-    params: {
-      baselineScreenshotRef?: string;
-      comparisonTabId?: string;
-      tolerance?: number;
-      selector?: string;
-      clipRect?: { x: number; y: number; width: number; height: number };
-      maskSelectors?: string[];
-      /** Additive: selectors that MAY match zero elements without failing the compare */
-      maskOptionalSelectors?: string[];
-      normalizeScroll?: boolean;
-      tabId?: string;
-      paneId?: 'desktop' | 'mobile';
-      fullPage?: boolean;
-    } = {},
+    params: VisualCompareParams = {},
     explicitTabId?: string,
     paneId?: 'desktop' | 'mobile'
   ): Promise<Record<string, unknown>> {
@@ -2403,61 +2417,138 @@ export class BrowserControlPort {
     }
     const tabId = this.resolveTargetTab(target, explicitTabId || params.tabId);
     const effectivePane = paneId || params.paneId || 'desktop';
+    const compTabTarget = params.comparisonTabId && !params.baselineScreenshotRef
+      ? this.resolveTargetTab(target, params.comparisonTabId)
+      : null;
 
     return this.passivePool.execute(tabId, async () => {
       const requiredMasks = Array.isArray(params.maskSelectors) ? params.maskSelectors : [];
       const optionalMasks = Array.isArray(params.maskOptionalSelectors) ? params.maskOptionalSelectors : [];
 
-      const readCssMetrics = async (t: string): Promise<{ vw: number; vh: number; dh: number; sx: number; sy: number } | null> => {
-        try {
-          const raw = await this.host.evalJs(`(() => ({
-            vw: window.innerWidth || document.documentElement.clientWidth || 0,
-            vh: window.innerHeight || document.documentElement.clientHeight || 0,
-            dh: document.documentElement.scrollHeight || document.body.scrollHeight || 0,
-            sx: window.scrollX || window.pageXOffset || 0,
-            sy: window.scrollY || window.pageYOffset || 0,
-          }))()`, t, effectivePane);
-          const o = raw as { vw?: unknown; vh?: unknown; dh?: unknown; sx?: unknown; sy?: unknown };
-          if (typeof o.vw === 'number' && Number.isFinite(o.vw) && o.vw > 0) {
-            return {
-              vw: o.vw,
-              vh: typeof o.vh === 'number' && Number.isFinite(o.vh) ? o.vh : 0,
-              dh: typeof o.dh === 'number' && Number.isFinite(o.dh) && o.dh > 0 ? o.dh : 0,
-              sx: typeof o.sx === 'number' && Number.isFinite(o.sx) ? o.sx : 0,
-              sy: typeof o.sy === 'number' && Number.isFinite(o.sy) ? o.sy : 0,
-            };
-          }
-          return null;
-        } catch {
-          return null;
-        }
-      };
-
-      let targetMaskEntries: MaskResolutionEntry[] = [];
-      let compMaskEntries: MaskResolutionEntry[] = [];
-      let targetMetrics: { vw: number; vh: number; dh: number; sx: number; sy: number } | null = null;
-      let compMetrics: { vw: number; vh: number; dh: number; sx: number; sy: number } | null = null;
-      const targetNormalize: NormalizationReceipt = emptyNormalizationReceipt(Boolean(params.normalizeScroll));
-      let compNormalize: NormalizationReceipt = emptyNormalizationReceipt(Boolean(params.normalizeScroll));
-      let compTabId: string | null = null;
-      /** independently resolved comparison rect (selector may resolve to different coords on A/B) */
-      let comparisonRect: { x: number; y: number; width: number; height: number } | undefined;
-
+      // passivePool keeps capacity accounting (4/tab, 16/global). The pair
+      // lock is the actual mutual exclusion for the capture transaction; keys are
+      // sorted inside MultiKeyLock so (A,B) and (B,A) serialize on the same order.
+      const lockKeys = compTabTarget && compTabTarget !== tabId ? [tabId, compTabTarget] : [tabId];
+      const releasePairLock = await this.comparePairLock.acquire(lockKeys);
       try {
-        // Normalization FIRST: scrollbar-gutter style shifts the viewport, so all
-        // geometry captured after this point (metrics, rect, masks) stays consistent
-        // with the normalized screenshot.
-        if (params.normalizeScroll) {
-          const outcome = await NormalizationTransaction.inject(this.host, tabId, effectivePane);
-          targetNormalize.injected = outcome.owned;
-          targetNormalize.owned = outcome.owned;
-          if (!outcome.ok && outcome.error) targetNormalize.injectError = outcome.error;
+        const MAX_CAPTURE_ATTEMPTS = 2;
+        let resampleCount = 0;
+        for (let attempt = 1; attempt <= MAX_CAPTURE_ATTEMPTS; attempt++) {
+          const outcome = await this.executeVisualCompareAttempt({
+            target,
+            runId,
+            attemptId,
+            params,
+            tabId,
+            compTabTarget,
+            effectivePane,
+            requiredMasks,
+            optionalMasks,
+            attempt,
+            maxAttempts: MAX_CAPTURE_ATTEMPTS,
+            resampleCount,
+          });
+          if (outcome.settle) return outcome.result;
+          resampleCount = outcome.resampleCount;
         }
-        targetMetrics = await readCssMetrics(tabId);
-        // Fail-closed mask ledger: required selectors MUST resolve, optional may be absent
-        if (requiredMasks.length > 0 || optionalMasks.length > 0) {
-          targetMaskEntries = await MaskLedger.resolve(this.host, tabId, effectivePane, requiredMasks, optionalMasks);
+        // Every terminal branch settles inside executeVisualCompareAttempt; the
+        // resample-exhausted case settles INCONCLUSIVE there. Fail closed here.
+        throw new CapabilityError('INTEGRITY_COMPROMISED', 'Visual comparison attempts exhausted without a definitive verdict');
+      } finally {
+        await releasePairLock();
+      }
+    });
+  }
+
+  /**
+   * One capture attempt inside a visual compare transaction. Coherence gate
+   * order per side: recordPreInject (navigation span) -> normalize inject ->
+   * openMutationWindow (strict DOM span) -> metrics/masks/rect/capture -> check.
+   * DOM mutation in the strict span returns {settle:false} (resample); navigation
+   * throws TARGET_STALE; asymmetric normalization settles INCONCLUSIVE with no
+   * pixel diff.
+   */
+  private async executeVisualCompareAttempt(args: {
+    target: BrowserTarget;
+    runId: string;
+    attemptId: string;
+    params: VisualCompareParams;
+    tabId: string;
+    compTabTarget: string | null;
+    effectivePane: 'desktop' | 'mobile';
+    requiredMasks: string[];
+    optionalMasks: string[];
+    attempt: number;
+    maxAttempts: number;
+    resampleCount: number;
+  }): Promise<VisualCompareAttemptOutcome> {
+    const { target, runId, attemptId, params, tabId, compTabTarget, effectivePane, requiredMasks, optionalMasks, attempt, maxAttempts, resampleCount } = args;
+
+    const readCssMetrics = async (t: string): Promise<{ vw: number; vh: number; dh: number; sx: number; sy: number } | null> => {
+      try {
+        const raw = await this.host.evalJs(`(() => ({
+          vw: window.innerWidth || document.documentElement.clientWidth || 0,
+          vh: window.innerHeight || document.documentElement.clientHeight || 0,
+          dh: document.documentElement.scrollHeight || document.body.scrollHeight || 0,
+          sx: window.scrollX || window.pageXOffset || 0,
+          sy: window.scrollY || window.pageYOffset || 0,
+        }))()`, t, effectivePane);
+        const o = raw as { vw?: unknown; vh?: unknown; dh?: unknown; sx?: unknown; sy?: unknown };
+        if (typeof o.vw === 'number' && Number.isFinite(o.vw) && o.vw > 0) {
+          return {
+            vw: o.vw,
+            vh: typeof o.vh === 'number' && Number.isFinite(o.vh) ? o.vh : 0,
+            dh: typeof o.dh === 'number' && Number.isFinite(o.dh) && o.dh > 0 ? o.dh : 0,
+            sx: typeof o.sx === 'number' && Number.isFinite(o.sx) ? o.sx : 0,
+            sy: typeof o.sy === 'number' && Number.isFinite(o.sy) ? o.sy : 0,
+          };
         }
+        return null;
+      } catch {
+        return null;
+      }
+    };
+
+    const readIdentity = (t: string): CaptureIdentitySnapshot => ({
+      browserEpoch: this.host.getBrowserEpoch ? this.host.getBrowserEpoch() : target.browserEpoch,
+      documentGeneration: this.host.getDocumentGeneration ? this.host.getDocumentGeneration(t) : (target.documentGeneration || 1),
+      mutationRevision: this.host.getMutationRevision ? this.host.getMutationRevision(t) : 1,
+    });
+
+    let targetMaskEntries: MaskResolutionEntry[] = [];
+    let compMaskEntries: MaskResolutionEntry[] = [];
+    let targetMetrics: { vw: number; vh: number; dh: number; sx: number; sy: number } | null = null;
+    let compMetrics: { vw: number; vh: number; dh: number; sx: number; sy: number } | null = null;
+    let targetNormalize: NormalizationReceipt = emptyNormalizationReceipt(Boolean(params.normalizeScroll));
+    let compNormalize: NormalizationReceipt = emptyNormalizationReceipt(Boolean(params.normalizeScroll));
+    /** independently resolved comparison rect (selector may resolve to different coords on A/B) */
+    let comparisonRect: { x: number; y: number; width: number; height: number } | undefined;
+    let targetCoh: CoherencePairCheck | undefined;
+    let baselineCoh: CoherencePairCheck | null = null;
+    const guard = new TwoSourceCoherenceGuard();
+
+    try {
+      // Pre-inject identity (navigation span). Our own style insert legitimately
+      // moves mutationRevision, so strict DOM tracking opens a fresh window after
+      // each normalize inject below.
+      guard.recordPreInject('target', readIdentity(tabId));
+      if (compTabTarget) guard.recordPreInject('baseline', readIdentity(compTabTarget));
+
+      // Normalization FIRST: scrollbar-gutter style shifts the viewport, so all
+      // geometry captured after this point (metrics, rect, masks) stays consistent
+      // with the normalized screenshot.
+      if (params.normalizeScroll) {
+        const outcome = await NormalizationTransaction.inject(this.host, tabId, effectivePane);
+        targetNormalize.injected = outcome.present === true;
+        targetNormalize.owned = outcome.owned;
+        if (!outcome.ok && outcome.error) targetNormalize.injectError = outcome.error;
+      }
+      guard.openMutationWindow('target', readIdentity(tabId));
+      targetMetrics = await readCssMetrics(tabId);
+      // Fail-closed mask ledger: required selectors MUST resolve, optional may be absent
+      if (requiredMasks.length > 0 || optionalMasks.length > 0) {
+        targetMaskEntries = await MaskLedger.resolve(this.host, tabId, effectivePane, requiredMasks, optionalMasks);
+      }
 
       // Resolve target rectangle from clipRect or selector for focused visual compare
       let resolvedRect: { x: number; y: number; width: number; height: number } | undefined = params.clipRect
@@ -2520,18 +2611,18 @@ export class BrowserControlPort {
           if (err instanceof CapabilityError) throw err;
           throw new CapabilityError('INVALID_ARGUMENT', `Baseline screenshot artifact '${params.baselineScreenshotRef}' not found: ${err instanceof Error ? err.message : String(err)}`);
         }
-      } else if (params.comparisonTabId) {
-        compTabId = this.resolveTargetTab(target, params.comparisonTabId);
+      } else if (params.comparisonTabId && compTabTarget) {
         // Normalization FIRST (same rationale as the target side)
         if (params.normalizeScroll) {
-          const outcome = await NormalizationTransaction.inject(this.host, compTabId, effectivePane);
-          compNormalize.injected = outcome.owned;
+          const outcome = await NormalizationTransaction.inject(this.host, compTabTarget, effectivePane);
+          compNormalize.injected = outcome.present === true;
           compNormalize.owned = outcome.owned;
           if (!outcome.ok && outcome.error) compNormalize.injectError = outcome.error;
         }
-        compMetrics = await readCssMetrics(compTabId);
+        guard.openMutationWindow('baseline', readIdentity(compTabTarget));
+        compMetrics = await readCssMetrics(compTabTarget);
         if (requiredMasks.length > 0 || optionalMasks.length > 0) {
-          compMaskEntries = await MaskLedger.resolve(this.host, compTabId, effectivePane, requiredMasks, optionalMasks);
+          compMaskEntries = await MaskLedger.resolve(this.host, compTabTarget, effectivePane, requiredMasks, optionalMasks);
         }
         comparisonRect = resolvedRect;
         if (params.selector && typeof this.host.evalJs === 'function') {
@@ -2542,7 +2633,7 @@ export class BrowserControlPort {
               const r = el.getBoundingClientRect();
               if (r.width <= 0 || r.height <= 0) return null;
               return { x: Math.max(0, Math.round(r.x)), y: Math.max(0, Math.round(r.y)), width: Math.round(r.width), height: Math.round(r.height) };
-            })()`, compTabId, effectivePane);
+            })()`, compTabTarget, effectivePane);
             if (rawRect && typeof rawRect === 'object' && 'width' in rawRect && 'height' in rawRect) {
               const cast = rawRect as { x: number; y: number; width: number; height: number };
               if (cast.width > 0 && cast.height > 0) {
@@ -2551,19 +2642,77 @@ export class BrowserControlPort {
             }
           } catch {}
         }
-        let compBase64 = await this.host.captureScreenshot(comparisonRect, compTabId, effectivePane, captureOpts);
+        let compBase64 = await this.host.captureScreenshot(comparisonRect, compTabTarget, effectivePane, captureOpts);
         if (!compBase64 || compBase64.length === 0) {
           await new Promise((r) => setTimeout(r, 150));
-          compBase64 = await this.host.captureScreenshot(comparisonRect, compTabId, effectivePane, captureOpts);
+          compBase64 = await this.host.captureScreenshot(comparisonRect, compTabTarget, effectivePane, captureOpts);
         }
         if (!compBase64 || compBase64.length === 0) {
-          throw new CapabilityError('TARGET_STALE', `Failed to capture non-empty baseline screenshot on comparison tab '${compTabId}'`);
+          throw new CapabilityError('TARGET_STALE', `Failed to capture non-empty baseline screenshot on comparison tab '${compTabTarget}'`);
         }
         baselineBuffer = Buffer.from(compBase64, 'base64');
         const compArtifact = this.artifacts
           ? await this.artifacts.stage({ kind: 'screenshot', mime: 'image/png', data: baselineBuffer, runId, attemptId, projectId: target.projectId, workspaceId: target.workspaceId, maxBytes: 8 * 1024 * 1024 })
           : limit(compBase64, 8 * 1024 * 1024);
         baselineArtifactRef = typeof compArtifact === 'object' && compArtifact && 'id' in compArtifact ? (compArtifact as { id: string }).id : (typeof compArtifact === 'string' ? compArtifact : undefined);
+      }
+
+      // ----- post-capture coherence check -----
+      targetCoh = guard.check('target', readIdentity(tabId));
+      if (compTabTarget) baselineCoh = guard.check('baseline', readIdentity(compTabTarget));
+      if (targetCoh.identity !== 'COHERENT' || (baselineCoh && baselineCoh.identity !== 'COHERENT')) {
+        throw new CapabilityError('TARGET_STALE', 'Browser or document identity changed during visual compare capture');
+      }
+      if (targetCoh.mutation === 'RESAMPLE' || (baselineCoh && baselineCoh.mutation === 'RESAMPLE')) {
+        const nextCount = resampleCount + 1;
+        if (attempt < maxAttempts) {
+          return { settle: false, resampleCount: nextCount };
+        }
+        return {
+          settle: true,
+          result: {
+            ok: false,
+            status: 'INCONCLUSIVE',
+            reason: `Capture transaction was never coherent across ${maxAttempts} attempts (resampleCount: ${nextCount})`,
+            match: false,
+            mismatchPercentage: 100,
+            totalPixels: 0,
+            normalization: { target: targetNormalize, comparison: compTabTarget ? compNormalize : undefined },
+            maskResolution: { status: 'RESAMPLE_EXHAUSTED', maskedAreaRatio: 0, optionalUnmatched: [] },
+            coherence: {
+              identityCoherent: true,
+              captureStateCompatible: false,
+              resampleCount: nextCount,
+              target: coherencePairReceipt(targetCoh),
+              baseline: baselineCoh ? coherencePairReceipt(baselineCoh) : undefined,
+            },
+          },
+        };
+      }
+      // Asymmetric normalization cancels the pixel diff — never a numeric
+      // verdict over differently normalized (incomparable) layouts.
+      if (params.normalizeScroll && compTabTarget && !TwoSourceCoherenceGuard.normalizationSymmetric(targetNormalize, compNormalize)) {
+        return {
+          settle: true,
+          result: {
+            ok: false,
+            status: 'INCONCLUSIVE',
+            reason: `Normalization is asymmetric across the pair (target owned=${targetNormalize.owned} injectError=${targetNormalize.injectError || 'none'}; comparison owned=${compNormalize.owned} injectError=${compNormalize.injectError || 'none'}) — pixel diff cancelled`,
+            match: false,
+            mismatchPercentage: 100,
+            totalPixels: 0,
+            normalization: { target: targetNormalize, comparison: compNormalize },
+            maskResolution: { status: 'NORMALIZATION_ASYMMETRIC', maskedAreaRatio: 0, optionalUnmatched: [] },
+            coherence: {
+              identityCoherent: targetCoh ? targetCoh.identity === 'COHERENT' && (!baselineCoh || baselineCoh.identity === 'COHERENT') : true,
+              captureStateCompatible: false,
+              resampleCount,
+              normalizationSymmetric: false,
+              target: targetCoh ? coherencePairReceipt(targetCoh) : undefined,
+              baseline: baselineCoh ? coherencePairReceipt(baselineCoh) : undefined,
+            },
+          },
+        };
       }
 
       if (!baselineBuffer) {
@@ -2585,16 +2734,27 @@ export class BrowserControlPort {
         const heightDelta = Math.abs(curDims.height - baseDims.height) / baseDims.height;
         if (heightDelta > 0.10) {
           return {
-            match: false,
-            mismatchPercentage: 100,
-            verdict: 'STRUCTURAL_TRUNCATION_DETECTED',
-            reason: `Structural height mismatch exceeds 10% tolerance (current: ${curDims.height}px, baseline: ${baseDims.height}px, delta: ${(heightDelta * 100).toFixed(1)}%). Potential DOM truncation or viewport-only capture detected.`,
-            dimensions: {
-              visual: { verdict: 'FAIL', mismatchPercentage: 100, heightRatio: curDims.height / baseDims.height },
-              layout: { verdict: 'FAIL', currentHeight: curDims.height, baselineHeight: baseDims.height, deltaPx: Math.abs(curDims.height - baseDims.height) },
+            settle: true,
+            result: {
+              match: false,
+              mismatchPercentage: 100,
+              verdict: 'STRUCTURAL_TRUNCATION_DETECTED',
+              reason: `Structural height mismatch exceeds 10% tolerance (current: ${curDims.height}px, baseline: ${baseDims.height}px, delta: ${(heightDelta * 100).toFixed(1)}%). Potential DOM truncation or viewport-only capture detected.`,
+              dimensions: {
+                visual: { verdict: 'FAIL', mismatchPercentage: 100, heightRatio: curDims.height / baseDims.height },
+                layout: { verdict: 'FAIL', currentHeight: curDims.height, baselineHeight: baseDims.height, deltaPx: Math.abs(curDims.height - baseDims.height) },
+              },
+              normalization: { target: targetNormalize, comparison: compTabTarget ? compNormalize : undefined },
+              coherence: {
+                identityCoherent: targetCoh ? targetCoh.identity === 'COHERENT' && (!baselineCoh || baselineCoh.identity === 'COHERENT') : false,
+                captureStateCompatible: false,
+                resampleCount,
+                target: targetCoh ? coherencePairReceipt(targetCoh) : undefined,
+                baseline: baselineCoh ? coherencePairReceipt(baselineCoh) : undefined,
+              },
+              currentScreenshot: curArtifact,
+              baselineScreenshot: baselineArtifactRef,
             },
-            currentScreenshot: curArtifact,
-            baselineScreenshot: baselineArtifactRef,
           };
         }
       }
@@ -2617,7 +2777,7 @@ export class BrowserControlPort {
         ? materializeRasterMasks(targetMaskEntries, targetSpace, curDims ? curDims.width : 0, curDims ? curDims.height : 0)
         : emptyMaskLedgerResult();
       let compMask = emptyMaskLedgerResult();
-      if (compTabId) {
+      if (compTabTarget) {
         const compSpace = baseDims && compMetrics
           ? visualCaptureSpaceFromMeasured({
               pngWidth: baseDims.width,
@@ -2641,90 +2801,121 @@ export class BrowserControlPort {
       const tolerance = typeof params.tolerance === 'number' ? params.tolerance : 5.0;
       const diffResult = computePixelDiff(curBuffer, baselineBuffer, tolerance, maskBoxes);
 
-      // Restore injected normalization BEFORE claiming success (V-11). An owned
+      // Restore injected normalization BEFORE claiming success. An owned
       // style that cannot be restored is an operational failure — never a clean run.
       if (targetNormalize.owned && !targetNormalize.restored) {
         const restored = await NormalizationTransaction.restore(this.host, tabId, effectivePane, true);
         targetNormalize.restored = restored.ok;
         if (restored.error && !targetNormalize.restoreError) targetNormalize.restoreError = restored.error;
       }
-      if (compNormalize.owned && compTabId && !compNormalize.restored) {
-        const restored = await NormalizationTransaction.restore(this.host, compTabId, effectivePane, true);
+      if (compNormalize.owned && compTabTarget && !compNormalize.restored) {
+        const restored = await NormalizationTransaction.restore(this.host, compTabTarget, effectivePane, true);
         compNormalize.restored = restored.ok;
         if (restored.error && !compNormalize.restoreError) compNormalize.restoreError = restored.error;
       }
       if ((targetNormalize.owned && !targetNormalize.restored) || (compNormalize.owned && !compNormalize.restored)) {
         return {
-          ok: false,
-          status: 'NORMALIZATION_RESTORE_FAILED',
-          reason: `Owned normalizeScroll style could not be restored (target: ${targetNormalize.restoreError || 'unknown'}, comparison: ${compNormalize.restoreError || 'n/a'})`,
-          match: false,
-          mismatchPercentage: 100,
-          totalPixels: 0,
-          normalization: { target: targetNormalize, comparison: compTabId ? compNormalize : undefined },
-          maskResolution: {
-            status: 'ok',
-            maskedAreaRatio,
-            optionalUnmatched: [...targetMask.optionalUnmatched, ...compMask.optionalUnmatched],
+          settle: true,
+          result: {
+            ok: false,
+            status: 'NORMALIZATION_RESTORE_FAILED',
+            reason: `Owned normalizeScroll style could not be restored (target: ${targetNormalize.restoreError || 'unknown'}, comparison: ${compNormalize.restoreError || 'n/a'})`,
+            match: false,
+            mismatchPercentage: 100,
+            totalPixels: 0,
+            normalization: { target: targetNormalize, comparison: compTabTarget ? compNormalize : undefined },
+            maskResolution: {
+              status: 'ok',
+              maskedAreaRatio,
+              optionalUnmatched: [...targetMask.optionalUnmatched, ...compMask.optionalUnmatched],
+            },
+            coherence: {
+              identityCoherent: targetCoh ? targetCoh.identity === 'COHERENT' && (!baselineCoh || baselineCoh.identity === 'COHERENT') : false,
+              captureStateCompatible: true,
+              resampleCount,
+              target: targetCoh ? coherencePairReceipt(targetCoh) : undefined,
+              baseline: baselineCoh ? coherencePairReceipt(baselineCoh) : undefined,
+            },
           },
         };
       }
 
       return {
-        match: diffResult.match,
-        mismatchPercentage: diffResult.mismatchPercentage,
-        diffPixels: diffResult.diffPixels,
-        totalPixels: diffResult.totalPixels,
-        dimensionsMatch: diffResult.dimensionsMatch,
-        tolerance,
-        diffBoundingBoxes: diffResult.diffBoundingBoxes,
-        currentScreenshot: curArtifact,
-        baselineScreenshot: baselineArtifactRef,
-        normalization: { target: targetNormalize, comparison: compTabId ? compNormalize : undefined },
-        maskResolution: {
-          status: 'ok',
-          maskedAreaRatio,
-          optionalUnmatched: [...targetMask.optionalUnmatched, ...compMask.optionalUnmatched],
-          target: {
-            entries: targetMask.entries.map(maskEntryReceipt),
-            maskedAreaRatio: targetMask.maskedAreaRatio,
+        settle: true,
+        result: {
+          match: diffResult.match,
+          mismatchPercentage: diffResult.mismatchPercentage,
+          diffPixels: diffResult.diffPixels,
+          totalPixels: diffResult.totalPixels,
+          dimensionsMatch: diffResult.dimensionsMatch,
+          tolerance,
+          diffBoundingBoxes: diffResult.diffBoundingBoxes,
+          currentScreenshot: curArtifact,
+          baselineScreenshot: baselineArtifactRef,
+          normalization: { target: targetNormalize, comparison: compTabTarget ? compNormalize : undefined },
+          maskResolution: {
+            status: 'ok',
+            maskedAreaRatio,
+            optionalUnmatched: [...targetMask.optionalUnmatched, ...compMask.optionalUnmatched],
+            target: {
+              entries: targetMask.entries.map(maskEntryReceipt),
+              maskedAreaRatio: targetMask.maskedAreaRatio,
+            },
+            baseline: compTabTarget
+              ? {
+                  entries: compMask.entries.map(maskEntryReceipt),
+                  maskedAreaRatio: compMask.maskedAreaRatio,
+                }
+              : undefined,
           },
-          baseline: compTabId
-            ? {
-                entries: compMask.entries.map(maskEntryReceipt),
-                maskedAreaRatio: compMask.maskedAreaRatio,
-              }
-            : undefined,
+          coherence: {
+            identityCoherent: true,
+            captureStateCompatible: true,
+            resampleCount,
+            target: coherencePairReceipt(targetCoh),
+            baseline: baselineCoh ? coherencePairReceipt(baselineCoh) : undefined,
+          },
+          notes: diffResult.match ? 'Visual comparison passed within tolerance' : `Visual discrepancies detected (${diffResult.mismatchPercentage}% mismatch exceeds ${tolerance}% tolerance)`,
         },
-        notes: diffResult.match ? 'Visual comparison passed within tolerance' : `Visual discrepancies detected (${diffResult.mismatchPercentage}% mismatch exceeds ${tolerance}% tolerance)`,
       };
-      } catch (err: unknown) {
-        if (err instanceof MaskResolutionError) {
-          return {
+    } catch (err: unknown) {
+      if (err instanceof MaskResolutionError) {
+        return {
+          settle: true,
+          result: {
             ok: false,
             status: err.status,
             reason: err.message,
             match: false,
             mismatchPercentage: 100,
             totalPixels: 0,
-            normalization: { target: targetNormalize, comparison: compTabId ? compNormalize : undefined },
+            normalization: { target: targetNormalize, comparison: compTabTarget ? compNormalize : undefined },
             maskResolution: { status: err.status, reason: err.message, maskedAreaRatio: err.maskedAreaRatio, entries: err.entries.map(maskEntryReceipt) },
-          };
-        }
-        throw err;
-      } finally {
-        if (targetNormalize.owned && !targetNormalize.restored) {
-          const restored = await NormalizationTransaction.restore(this.host, tabId, effectivePane, true);
-          targetNormalize.restored = restored.ok;
-          if (restored.error && !targetNormalize.restoreError) targetNormalize.restoreError = restored.error;
-        }
-        if (compNormalize.owned && compTabId && !compNormalize.restored) {
-          const restored = await NormalizationTransaction.restore(this.host, compTabId, effectivePane, true);
-          compNormalize.restored = restored.ok;
-          if (restored.error && !compNormalize.restoreError) compNormalize.restoreError = restored.error;
-        }
+            coherence: {
+              identityCoherent: targetCoh ? targetCoh.identity === 'COHERENT' && (!baselineCoh || baselineCoh.identity === 'COHERENT') : false,
+              captureStateCompatible: false,
+              resampleCount,
+              target: targetCoh ? coherencePairReceipt(targetCoh) : undefined,
+              baseline: baselineCoh ? coherencePairReceipt(baselineCoh) : undefined,
+            },
+          },
+        };
       }
-    });
+      throw err;
+    } finally {
+      // Restore also runs when the attempt throws or is resampled; the receipt
+      // flags make the restore calls idempotent.
+      if (targetNormalize.owned && !targetNormalize.restored) {
+        const restored = await NormalizationTransaction.restore(this.host, tabId, effectivePane, true);
+        targetNormalize.restored = restored.ok;
+        if (restored.error && !targetNormalize.restoreError) targetNormalize.restoreError = restored.error;
+      }
+      if (compNormalize.owned && compTabTarget && !compNormalize.restored) {
+        const restored = await NormalizationTransaction.restore(this.host, compTabTarget, effectivePane, true);
+        compNormalize.restored = restored.ok;
+        if (restored.error && !compNormalize.restoreError) compNormalize.restoreError = restored.error;
+      }
+    }
   }
   async freezeMedia(
     target: BrowserTarget,

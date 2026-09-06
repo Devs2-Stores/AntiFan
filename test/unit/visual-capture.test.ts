@@ -5,11 +5,17 @@ import {
   MaskResolutionError,
   MultiKeyLock,
   NormalizationTransaction,
+  TwoSourceCoherenceGuard,
+  classifyCoherence,
+  classifyIdentity,
+  classifyMutation,
+  coherencePairReceipt,
   maskEntryReceipt,
   materializeRasterMasks,
   transformMaskBoxToRaster,
   visualCaptureSpaceFromMeasured,
   visualCaptureSpaceFromMetrics,
+  type CaptureIdentitySnapshot,
 } from '../../src/main/verification/visual-capture';
 
 interface EvalCall {
@@ -41,7 +47,7 @@ function errorEntry(selector: string, message: string): unknown {
   return { selector, error: message, boxes: [] };
 }
 
-describe('VisualCaptureSpace & MaskLedger (V-01..V-08, V-23)', () => {
+describe('VisualCaptureSpace & MaskLedger', () => {
   it('V-01: required mask selector with zero matches fails closed (MASK_RESOLUTION_FAILED)', async () => {
     const { host } = maskHost([[emptyEntry('.must-exist')]]);
     await assert.rejects(
@@ -285,7 +291,7 @@ describe('VisualCaptureSpace & MaskLedger (V-01..V-08, V-23)', () => {
   });
 });
 
-describe('NormalizationTransaction (V-11/V-12 primitives)', () => {
+describe('NormalizationTransaction', () => {
   it('inject reports ownership when it creates the style element', async () => {
     const calls: EvalCall[] = [];
     const host = {
@@ -295,16 +301,16 @@ describe('NormalizationTransaction (V-11/V-12 primitives)', () => {
       },
     };
     const outcome = await NormalizationTransaction.inject(host, 'tab-1', 'desktop');
-    assert.deepEqual(outcome, { ok: true, owned: true });
+    assert.deepEqual(outcome, { ok: true, owned: true, present: true });
     assert.strictEqual(calls.length, 1);
     assert.ok(calls[0]!.script.includes('__antifan_normalize_scroll'));
     assert.strictEqual(calls[0]!.tabId, 'tab-1');
   });
 
   it('inject does not claim ownership of a pre-existing style element', async () => {
-    const host = { evalJs: async (): Promise<unknown> => false };
+    const host = { evalJs: async (): Promise<unknown> => ({ owned: false, present: true }) };
     const outcome = await NormalizationTransaction.inject(host, 'tab-1', 'desktop');
-    assert.deepEqual(outcome, { ok: true, owned: false });
+    assert.deepEqual(outcome, { ok: true, owned: false, present: true });
   });
 
   it('inject surfaces eval failure without throwing', async () => {
@@ -422,5 +428,134 @@ describe('MultiKeyLock', () => {
     const lock = new MultiKeyLock();
     const release = await lock.acquire([]);
     await release();
+  });
+});
+
+describe('TwoSourceCoherenceGuard (identity and mutation spans)', () => {
+  const snap = (over: Partial<CaptureIdentitySnapshot> = {}): CaptureIdentitySnapshot => ({
+    browserEpoch: 1,
+    documentGeneration: 1,
+    mutationRevision: 1,
+    ...over,
+  });
+
+  it('identity span: documentGeneration advance settles TARGET_STALE', () => {
+    const guard = new TwoSourceCoherenceGuard();
+    guard.recordPreInject('target', snap());
+    guard.openMutationWindow('target', snap());
+    const check = guard.check('target', snap({ documentGeneration: 2 }));
+    assert.strictEqual(check.identity, 'TARGET_STALE');
+    assert.strictEqual(check.mutation, 'COHERENT');
+  });
+
+  it('mutation window: revision bump settles RESAMPLE with coherent identity', () => {
+    const guard = new TwoSourceCoherenceGuard();
+    guard.recordPreInject('target', snap({ mutationRevision: 5 }));
+    guard.openMutationWindow('target', snap({ mutationRevision: 5 }));
+    const check = guard.check('target', snap({ mutationRevision: 6 }));
+    assert.strictEqual(check.mutation, 'RESAMPLE');
+    assert.strictEqual(check.identity, 'COHERENT');
+  });
+
+  it('browserEpoch bump settles TARGET_STALE on identity span', () => {
+    const guard = new TwoSourceCoherenceGuard();
+    guard.recordPreInject('baseline', snap());
+    guard.openMutationWindow('baseline', snap());
+    const check = guard.check('baseline', snap({ browserEpoch: 2 }));
+    assert.strictEqual(check.identity, 'TARGET_STALE');
+    assert.strictEqual(check.mutation, 'COHERENT');
+  });
+
+  it('stable snapshots settle COHERENT on both spans', () => {
+    const guard = new TwoSourceCoherenceGuard();
+    guard.recordPreInject('target', snap());
+    guard.openMutationWindow('target', snap());
+    const check = guard.check('target', snap());
+    assert.strictEqual(check.identity, 'COHERENT');
+    assert.strictEqual(check.mutation, 'COHERENT');
+  });
+
+  it('openMutationWindow without recordPreInject throws', () => {
+    const guard = new TwoSourceCoherenceGuard();
+    assert.throws(() => guard.openMutationWindow('target', snap()), /recordPreInject/);
+  });
+
+  it('check without an open mutation window throws', () => {
+    const guard = new TwoSourceCoherenceGuard();
+    guard.recordPreInject('target', snap());
+    assert.throws(() => guard.check('target', snap()), /window not open/);
+  });
+
+  it('classifyIdentity ignores mutationRevision but catches documentGeneration', () => {
+    assert.strictEqual(classifyIdentity(snap(), snap({ mutationRevision: 9 })), 'COHERENT');
+    assert.strictEqual(classifyIdentity(snap(), snap({ documentGeneration: 3 })), 'TARGET_STALE');
+    assert.strictEqual(classifyCoherence(snap(), snap({ mutationRevision: 9 })), 'RESAMPLE');
+    assert.strictEqual(classifyMutation(snap(), snap({ mutationRevision: 9 })), 'RESAMPLE');
+    assert.strictEqual(classifyMutation(snap(), snap({ documentGeneration: 3 })), 'COHERENT');
+  });
+
+  it('coherencePairReceipt projects the stable receipt shape', () => {
+    const check = { preInject: snap(), postInject: snap(), afterCapture: snap({ mutationRevision: 2 }), identity: 'COHERENT' as const, mutation: 'RESAMPLE' as const };
+    const receipt = coherencePairReceipt(check);
+    assert.deepStrictEqual(receipt, check);
+  });
+});
+
+describe('normalizationSymmetric (presence and ownership consistency)', () => {
+  const receipt = (over: Record<string, unknown> = {}) => ({
+    requested: true,
+    injected: true,
+    owned: true,
+    restored: false,
+    ...over,
+  });
+
+  it('symmetric owned+present pair is comparable', () => {
+    assert.strictEqual(TwoSourceCoherenceGuard.normalizationSymmetric(receipt(), receipt()), true);
+  });
+
+  it('either-side inject failure is asymmetric', () => {
+    assert.strictEqual(TwoSourceCoherenceGuard.normalizationSymmetric(receipt({ injectError: 'denied' }), receipt()), false);
+    assert.strictEqual(TwoSourceCoherenceGuard.normalizationSymmetric(receipt(), receipt({ injectError: 'denied' })), false);
+  });
+
+  it('presence asymmetry (absent vs present) is asymmetric', () => {
+    assert.strictEqual(TwoSourceCoherenceGuard.normalizationSymmetric(receipt({ injected: false }), receipt()), false);
+  });
+
+  it('both verified absent is comparable (unnormalized layout, symmetric)', () => {
+    assert.strictEqual(TwoSourceCoherenceGuard.normalizationSymmetric(receipt({ injected: false, owned: false }), receipt({ injected: false, owned: false })), true);
+  });
+
+  it('present-but-unowned on one side stays fail-closed (unverified CSS content)', () => {
+    assert.strictEqual(TwoSourceCoherenceGuard.normalizationSymmetric(receipt(), receipt({ owned: false })), false);
+  });
+
+  it('not-requested normalization is not symmetric for a requested compare', () => {
+    assert.strictEqual(TwoSourceCoherenceGuard.normalizationSymmetric(receipt({ requested: false }), receipt()), false);
+  });
+});
+
+describe('MultiKeyLock release discipline', () => {
+  it('release in finally after an action throw unblocks the next waiter', async () => {
+    const lock = new MultiKeyLock();
+    const releaseFirst = await lock.acquire(['a']);
+    let waiterResolved = false;
+    const waiter = lock.acquire(['a']).then((release) => {
+      waiterResolved = true;
+      return release;
+    });
+    await Promise.resolve();
+    assert.strictEqual(waiterResolved, false);
+    await assert.rejects(async () => {
+      try {
+        throw new Error('boom');
+      } finally {
+        await releaseFirst();
+      }
+    }, /boom/);
+    const releaseWaiter = await waiter;
+    assert.strictEqual(waiterResolved, true);
+    await releaseWaiter();
   });
 });

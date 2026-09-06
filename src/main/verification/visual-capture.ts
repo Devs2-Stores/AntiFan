@@ -416,13 +416,13 @@ export const NORMALIZE_SCROLL_STYLE_ID = '__antifan_normalize_scroll';
 
 const normalizeScrollInjectScript = (): string => `(() => {
   const ID = ${JSON.stringify(NORMALIZE_SCROLL_STYLE_ID)};
-  if (document.getElementById(ID)) return false;
+  if (document.getElementById(ID)) return { owned: false, present: true };
   const style = document.createElement('style');
   style.id = ID;
   style.dataset.antifanOwned = '1';
   style.textContent = 'html { overflow-y: scroll !important; scrollbar-gutter: stable !important; }';
   document.head.appendChild(style);
-  return true;
+  return { owned: true, present: !!document.getElementById(ID) };
 })()`;
 
 const normalizeScrollRestoreScript = (): string => `(() => {
@@ -454,8 +454,15 @@ export function emptyNormalizationReceipt(requested: boolean): NormalizationRece
 
 export interface NormalizationOutcome {
   ok: boolean;
-  /** true when this caller created the style element (and therefore owns cleanup) */
+  /** true when THIS caller created the style element (and therefore owns cleanup) */
   owned: boolean;
+  /**
+   * true when the style element was PRESENT after the inject call (created by us
+   * or pre-existing). Presence is what symmetry classification needs; ownership
+   * only gates restore (we never remove a style we did not create). Populated
+   * by inject(); restore() outcomes omit it.
+   */
+  present?: boolean;
   error?: string;
 }
 
@@ -466,16 +473,21 @@ export interface NormalizationOutcome {
  * auditable (receipt fields), so a failed restore is recorded, not hidden:
  * callers must surface normalizeInjected/normalizeRestored on the receipt and
  * treat an injected-but-not-restored pair as an operational flag, never a clean
- * run. V-12 requires the restore call itself to run from finally — the outcome
- * proves it executed.
+ * run. The restore call itself runs from finally — the outcome proves it executed.
  */
 export class NormalizationTransaction {
   static async inject(host: EvalHostLike, tabId: string | undefined, paneId: 'desktop' | 'mobile' | undefined): Promise<NormalizationOutcome> {
     try {
-      const owned = (await host.evalJs(normalizeScrollInjectScript(), tabId, paneId)) === true;
-      return { ok: true, owned };
+      const raw = await host.evalJs(normalizeScrollInjectScript(), tabId, paneId);
+      if (raw === true) return { ok: true, owned: true, present: true };
+      if (raw && typeof raw === 'object') {
+        const o = raw as { owned?: unknown; present?: unknown };
+        return { ok: true, owned: o.owned === true, present: o.present === true };
+      }
+      // Unknown/absent payloads fail closed: not owned, assumed not normalized.
+      return { ok: true, owned: false, present: false };
     } catch (err: unknown) {
-      return { ok: false, owned: false, error: err instanceof Error ? err.message : String(err) };
+      return { ok: false, owned: false, present: false, error: err instanceof Error ? err.message : String(err) };
     }
   }
 
@@ -526,4 +538,135 @@ export class MultiKeyLock {
       for (const release of releases.reverse()) release();
     };
   }
+}
+
+/**
+ * Two-source capture coherence primitives. A capture transaction is coherent
+ * when, per side, the browser/document identity is unchanged and the DOM
+ * mutation revision is stable across the capture window.
+ */
+export interface CaptureIdentitySnapshot {
+  browserEpoch: number;
+  documentGeneration: number;
+  mutationRevision: number;
+}
+
+export type CoherenceVerdict = 'COHERENT' | 'RESAMPLE' | 'TARGET_STALE';
+
+/**
+ * Full classification between two snapshots:
+ *  - browserEpoch or documentGeneration changed -> TARGET_STALE (navigation)
+ *  - only mutationRevision changed -> RESAMPLE (same document, DOM mutated)
+ *  - identical -> COHERENT
+ */
+export function classifyCoherence(before: CaptureIdentitySnapshot, after: CaptureIdentitySnapshot): CoherenceVerdict {
+  if (after.browserEpoch !== before.browserEpoch || after.documentGeneration !== before.documentGeneration) {
+    return 'TARGET_STALE';
+  }
+  if (after.mutationRevision !== before.mutationRevision) {
+    return 'RESAMPLE';
+  }
+  return 'COHERENT';
+}
+
+/**
+ * Identity-only classification (revision-insensitive): used across the
+ * normalization-inject span, where our own style insertion legitimately moves
+ * the mutation revision.
+ */
+export function classifyIdentity(preInject: CaptureIdentitySnapshot, after: CaptureIdentitySnapshot): CoherenceVerdict {
+  if (after.browserEpoch !== preInject.browserEpoch || after.documentGeneration !== preInject.documentGeneration) {
+    return 'TARGET_STALE';
+  }
+  return 'COHERENT';
+}
+/**
+ * Mutation-only classification (identity-insensitive): checks whether the DOM
+ * mutation revision advanced during the strict capture window.
+ */
+export function classifyMutation(window: CaptureIdentitySnapshot, after: CaptureIdentitySnapshot): CoherenceVerdict {
+  return after.mutationRevision !== window.mutationRevision ? 'RESAMPLE' : 'COHERENT';
+}
+
+export interface CoherencePairCheck {
+  preInject: CaptureIdentitySnapshot;
+  postInject: CaptureIdentitySnapshot;
+  afterCapture: CaptureIdentitySnapshot;
+  /** TARGET_STALE when epoch/documentGeneration moved (identity span) */
+  identity: CoherenceVerdict;
+  /** RESAMPLE when mutationRevision moved after our inject (strict capture window) */
+  mutation: CoherenceVerdict;
+}
+
+/**
+ * Two coherence spans per side, so the check is not fooled by mutations our
+ * own normalization inject introduces:
+ *  1. recordPreInject   -> snapshot BEFORE any DOM write (navigation span)
+ *  2. openMutationWindow-> snapshot AFTER the inject, BEFORE geometry/capture
+ *  3. check             -> classify both spans against the post-capture snapshot
+ */
+export class TwoSourceCoherenceGuard {
+  private readonly pairs = new Map<'target' | 'baseline', { pre: CaptureIdentitySnapshot; window: CaptureIdentitySnapshot | null }>();
+
+  recordPreInject(side: 'target' | 'baseline', snapshot: CaptureIdentitySnapshot): void {
+    this.pairs.set(side, { pre: { ...snapshot }, window: null });
+  }
+
+  openMutationWindow(side: 'target' | 'baseline', snapshot: CaptureIdentitySnapshot): void {
+    const pair = this.pairs.get(side);
+    if (!pair) {
+      throw new Error(`TwoSourceCoherenceGuard: recordPreInject('${side}') is required before openMutationWindow`);
+    }
+    pair.window = { ...snapshot };
+  }
+
+  check(side: 'target' | 'baseline', after: CaptureIdentitySnapshot): CoherencePairCheck {
+    const pair = this.pairs.get(side);
+    if (!pair || !pair.window) {
+      throw new Error(`TwoSourceCoherenceGuard: capture coherence window not open for side '${side}'`);
+    }
+    return {
+      preInject: { ...pair.pre },
+      postInject: { ...pair.window },
+      afterCapture: { ...after },
+      identity: classifyIdentity(pair.pre, after),
+      mutation: classifyMutation(pair.window, after),
+    };
+  }
+
+  /**
+   * A pixel diff is only meaningful when both sides were captured under
+   * symmetric normalization. Symmetry follows PRESENCE (both normalize-scroll
+   * styles present, or both absent, free of inject errors). When the style is
+   * present, ownership must also be symmetric on both sides: a pre-existing
+   * element with our reserved ID carries unverified CSS content, so any
+   * presence/ownership asymmetry cancels the diff with INCONCLUSIVE.
+   */
+  static normalizationSymmetric(target: NormalizationReceipt, baseline: NormalizationReceipt): boolean {
+    if (!target.requested || !baseline.requested) return false;
+    if (target.injectError || baseline.injectError) return false;
+    if (target.injected !== baseline.injected) return false;
+    if (!target.injected) return true; // both verified absent: comparable unnormalized layout
+    return target.owned === baseline.owned && target.owned;
+  }
+}
+
+/**
+ * Receipt projection for a completed coherence check. The port's visualCompare
+ * embeds this shape under `coherence` in every settled result.
+ */
+export function coherencePairReceipt(c: CoherencePairCheck): {
+  preInject: CaptureIdentitySnapshot;
+  postInject: CaptureIdentitySnapshot;
+  afterCapture: CaptureIdentitySnapshot;
+  identity: CoherenceVerdict;
+  mutation: CoherenceVerdict;
+} {
+  return {
+    preInject: c.preInject,
+    postInject: c.postInject,
+    afterCapture: c.afterCapture,
+    identity: c.identity,
+    mutation: c.mutation,
+  };
 }
