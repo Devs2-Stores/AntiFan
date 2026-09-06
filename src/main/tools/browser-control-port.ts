@@ -4075,7 +4075,7 @@ export function computePixelDiff(
   const blockSize = 32;
   const gridW = Math.ceil(minW / blockSize);
   const gridH = Math.ceil(minH / blockSize);
-  const gridCounts = new Map<string, number>();
+  const gridCounts = new Uint32Array(gridW * gridH);
 
   const isMasked = (x: number, y: number): boolean => {
     for (let i = 0; i < maskBoxes.length; i++) {
@@ -4102,27 +4102,27 @@ export function computePixelDiff(
       const colorDelta = Math.sqrt(rDiff * rDiff + gDiff * gDiff + bDiff * bDiff + aDiff * aDiff) / 510;
       if (colorDelta > 0.05) {
         diffPixels++;
-        const gx = Math.floor(x / blockSize);
-        const gy = Math.floor(y / blockSize);
-        const key = `${gx},${gy}`;
-        gridCounts.set(key, (gridCounts.get(key) || 0) + 1);
+        const gx = (x / blockSize) | 0;
+        const gy = (y / blockSize) | 0;
+        const gIdx = gy * gridW + gx;
+        gridCounts[gIdx] = (gridCounts[gIdx] || 0) + 1;
       }
     }
   }
 
   const diffBoundingBoxes: Array<{ x: number; y: number; width: number; height: number; pixelCount: number }> = [];
-  for (const [key, count] of gridCounts.entries()) {
-    if (count > 4) {
-      const [gxStr, gyStr] = key.split(',');
-      const gx = parseInt(gxStr || '0', 10);
-      const gy = parseInt(gyStr || '0', 10);
-      diffBoundingBoxes.push({
-        x: gx * blockSize,
-        y: gy * blockSize,
-        width: Math.min(blockSize, minW - gx * blockSize),
-        height: Math.min(blockSize, minH - gy * blockSize),
-        pixelCount: count,
-      });
+  for (let gy = 0; gy < gridH; gy++) {
+    for (let gx = 0; gx < gridW; gx++) {
+      const count = gridCounts[gy * gridW + gx]!;
+      if (count > 4) {
+        diffBoundingBoxes.push({
+          x: gx * blockSize,
+          y: gy * blockSize,
+          width: Math.min(blockSize, minW - gx * blockSize),
+          height: Math.min(blockSize, minH - gy * blockSize),
+          pixelCount: count,
+        });
+      }
     }
   }
 

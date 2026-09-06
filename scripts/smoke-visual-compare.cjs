@@ -106,10 +106,34 @@ app.whenReady().then(async () => {
       });
 
       const mockHost = {
-        getTabList: () => [{ id: 'tab-1' }],
+        hasTab: () => true,
+        getTabList: () => [{ id: 'tab-1' }, { id: 'tab-2' }],
         isCurrentTarget: () => true,
         getDocumentGeneration: () => 1,
+        getMutationRevision: () => 1,
+        getBrowserEpoch: () => 1,
+        getNetworkTracker: () => ({
+          isAttached: () => true,
+          awaitQuiescence: async () => ({ settled: true, durationMs: 5, timedOut: false }),
+        }),
+        evalJs: async (script) => {
+          if (script.includes('document.fonts.ready')) return true;
+          if (script.includes('img.decode') || script.includes('document.images')) return { settled: true, brokenImages: [] };
+          if (script.includes('requestAnimationFrame')) return true;
+          if (script.includes('innerWidth')) return { vw: 800, vh: 600, dh: 800, sx: 0, sy: 0 };
+          if (script.includes('querySelectorAll')) return [];
+          return null;
+        },
         captureScreenshot: async () => png1x1.toString('base64'),
+        captureVerificationScreenshot: async () => ({
+          data: png1x1.toString('base64'),
+          backend: 'cdp',
+          dpr: 1,
+          zoom: 1.0,
+          cssViewport: { width: 800, height: 600 },
+          rasterSize: { width: 1, height: 1 },
+          timestamp: Date.now(),
+        }),
       };
 
       const controlPort = new BrowserControlPort(mockHost, artifactStore);
@@ -121,10 +145,7 @@ app.whenReady().then(async () => {
       });
       registerBrowserCapabilities(catalogue, controlPort);
 
-      const res = await catalogue.dispatch('browser.visual_compare', {
-        baselineScreenshotRef: baselineRef.id,
-        tolerance: 2.0,
-      }, {
+      const baseContext = {
         attachmentId: 'att-1',
         runId: 'run-vis-smoke',
         attemptId: 'att-vis-smoke',
@@ -144,12 +165,39 @@ app.whenReady().then(async () => {
           documentGeneration: 1,
         },
         grant: 'read',
-      });
+      };
 
-      assert.ok(res);
-      assert.strictEqual(res.match, true);
-      assert.strictEqual(res.mismatchPercentage, 0);
-      console.log('[Smoke] 3. End-to-end browser.visual_compare via ArtifactStore passed.');
+      // 3a. Live tab-to-tab comparison
+      const resLive = await catalogue.dispatch('browser.visual_compare', {
+        comparisonTabId: 'tab-2',
+        tolerance: 2.0,
+      }, baseContext);
+      assert.ok(resLive);
+      assert.strictEqual(resLive.match, true);
+      assert.strictEqual(resLive.mismatchPercentage, 0);
+      console.log('[Smoke] 3a. Live tab-to-tab visual_compare passed (0% mismatch).');
+
+      // 3b. Stored baseline fail-closed certification barrier
+      const resStored = await catalogue.dispatch('browser.visual_compare', {
+        baselineScreenshotRef: baselineRef.id,
+        tolerance: 2.0,
+      }, baseContext);
+      assert.ok(resStored);
+      assert.strictEqual(resStored.match, false);
+      assert.strictEqual(resStored.mismatchPercentage, 100);
+      assert.strictEqual(resStored.status, 'INCONCLUSIVE');
+      console.log('[Smoke] 3b. Stored baseline fail-closed barrier passed (100% inconclusive).');
+
+      // 3c. Promoted authoritative baseline comparison
+      const promoted = await controlPort.promoteBaseline(baseContext, { tabId: 'tab-1' });
+      const resPromoted = await catalogue.dispatch('browser.visual_compare', {
+        baselineRef: promoted.id,
+        tolerance: 2.0,
+      }, baseContext);
+      assert.ok(resPromoted);
+      assert.strictEqual(resPromoted.match, true);
+      assert.strictEqual(resPromoted.mismatchPercentage, 0);
+      console.log('[Smoke] 3c. Promoted baseline authoritative visual_compare passed (0% mismatch).');
     } finally {
       fs.rmSync(tmpDir, { recursive: true, force: true });
     }

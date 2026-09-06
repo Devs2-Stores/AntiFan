@@ -1,6 +1,6 @@
 import { describe, it, before, after } from 'node:test';
 import * as assert from 'node:assert/strict';
-import { BrowserControlPort, computePixelDiff } from '../../src/main/tools/browser-control-port';
+import { BrowserControlPort, BrowserHostPort, computePixelDiff } from '../../src/main/tools/browser-control-port';
 import { BrowserTarget, CapabilityError } from '../../src/shared/control-plane-contracts';
 import { CapabilityCatalogue } from '../../src/main/tools/capability-catalogue';
 import { registerBrowserCapabilities } from '../../src/main/tools/browser-capabilities';
@@ -183,9 +183,9 @@ const bitmapByBuffer = new WeakMap<Buffer, Buffer>();
 const fakeNativeImageFactory = () => ({
   nativeImage: {
     createFromBuffer: (buf: Buffer) => ({
-      getSize: () => ({ width: 800, height: 600 }),
-      isEmpty: () => false,
-      getBitmap: () => bitmapByBuffer.get(buf) ?? Buffer.alloc(800 * 600 * 4),
+      getSize: () => (buf.length === 0 ? { width: 0, height: 0 } : { width: 800, height: 600 }),
+      isEmpty: () => buf.length === 0,
+      getBitmap: () => (buf.length === 0 ? null : (bitmapByBuffer.get(buf) ?? Buffer.alloc(800 * 600 * 4))),
     }),
   },
 });
@@ -1116,6 +1116,171 @@ describe('visualCompare evaluator structural primacy & receipts (Phase 5 R1, R2,
         assert.strictEqual(settleSample.passed, false);
         return true;
       }
+    );
+  });
+});
+
+describe('computePixelDiff & visualCompare comprehensive edge cases', () => {
+  const W = 800;
+  const H = 600;
+  const mkBitmap = (pixels: Array<[number, number]>): Buffer => {
+    const buf = Buffer.alloc(W * H * 4);
+    for (const [px, py] of pixels) {
+      const idx = (py * W + px) * 4;
+      buf[idx] = 255;
+    }
+    return buf;
+  };
+
+  it('rejects negative tolerance with INVALID_ARGUMENT', () => {
+    const a = Buffer.alloc(33);
+    assert.throws(
+      () => computePixelDiff(a, a, -1),
+      (err: unknown) => err instanceof CapabilityError && err.code === 'INVALID_ARGUMENT'
+    );
+  });
+
+  it('rejects tolerance > 100 with INVALID_ARGUMENT', () => {
+    const a = Buffer.alloc(33);
+    assert.throws(
+      () => computePixelDiff(a, a, 100.1),
+      (err: unknown) => err instanceof CapabilityError && err.code === 'INVALID_ARGUMENT'
+    );
+  });
+
+  it('rejects NaN tolerance with INVALID_ARGUMENT', () => {
+    const a = Buffer.alloc(33);
+    assert.throws(
+      () => computePixelDiff(a, a, NaN),
+      (err: unknown) => err instanceof CapabilityError && err.code === 'INVALID_ARGUMENT'
+    );
+  });
+
+  it('rejects non-finite tolerance with INVALID_ARGUMENT', () => {
+    const a = Buffer.alloc(33);
+    assert.throws(
+      () => computePixelDiff(a, a, Infinity),
+      (err: unknown) => err instanceof CapabilityError && err.code === 'INVALID_ARGUMENT'
+    );
+  });
+
+  it('rejects empty buffer with INVALID_ARGUMENT', () => {
+    assert.throws(
+      () => computePixelDiff(Buffer.alloc(0), Buffer.alloc(0), 5.0),
+      (err: unknown) => err instanceof CapabilityError && err.code === 'INVALID_ARGUMENT'
+    );
+  });
+
+  it('returns empty diffBoundingBoxes when diffPixels is 0', () => {
+    const a = mkBitmap([]);
+    bitmapByBuffer.set(a, a);
+    const res = computePixelDiff(a, a, 5.0);
+    assert.strictEqual(res.match, true);
+    assert.strictEqual(res.diffPixels, 0);
+    assert.strictEqual(res.mismatchPercentage, 0);
+    assert.deepStrictEqual(res.diffBoundingBoxes, []);
+  });
+
+  it('excludes grid block with <= 4 diff pixels from diffBoundingBoxes', () => {
+    // 4 diff pixels in block (0, 0)
+    const a = mkBitmap([[0, 0], [1, 0], [2, 0], [3, 0]]);
+    const b = mkBitmap([]);
+    bitmapByBuffer.set(a, a);
+    bitmapByBuffer.set(b, b);
+    const res = computePixelDiff(a, b, 5.0);
+    assert.strictEqual(res.diffPixels, 4);
+    assert.strictEqual(res.diffBoundingBoxes.length, 0);
+  });
+
+  it('includes grid block with > 4 diff pixels in diffBoundingBoxes', () => {
+    // 5 diff pixels in block (0, 0)
+    const a = mkBitmap([[0, 0], [1, 0], [2, 0], [3, 0], [4, 0]]);
+    const b = mkBitmap([]);
+    bitmapByBuffer.set(a, a);
+    bitmapByBuffer.set(b, b);
+    const res = computePixelDiff(a, b, 5.0);
+    assert.strictEqual(res.diffPixels, 5);
+    assert.strictEqual(res.diffBoundingBoxes.length, 1);
+    assert.deepStrictEqual(res.diffBoundingBoxes[0], {
+      x: 0,
+      y: 0,
+      width: 32,
+      height: 32,
+      pixelCount: 5,
+    });
+  });
+
+  it('caps diffBoundingBoxes at 50 even when many blocks differ', () => {
+    // Create 60 blocks with 5 diff pixels each
+    const pixels: Array<[number, number]> = [];
+    for (let i = 0; i < 60; i++) {
+      const bx = (i % 20) * 32;
+      const by = Math.floor(i / 20) * 32;
+      for (let p = 0; p < 5; p++) {
+        pixels.push([bx + p, by]);
+      }
+    }
+    const a = mkBitmap(pixels);
+    const b = mkBitmap([]);
+    bitmapByBuffer.set(a, a);
+    bitmapByBuffer.set(b, b);
+    const res = computePixelDiff(a, b, 5.0);
+    assert.strictEqual(res.diffPixels, 300);
+    assert.strictEqual(res.diffBoundingBoxes.length, 50);
+  });
+
+  it('visualCompare rejects missing baseline sources with INVALID_ARGUMENT', async () => {
+    const host = buildMockHost({ evalLog: [] });
+    const port = new BrowserControlPort(host as unknown as BrowserHostPort);
+    await assert.rejects(
+      async () => {
+        await port.visualCompare(dummyTarget, 'run-1', 'att-1', {});
+      },
+      (err: unknown) => err instanceof CapabilityError && err.code === 'INVALID_ARGUMENT'
+    );
+  });
+
+  it('visualCompare rejects conflicting baseline sources with INVALID_ARGUMENT', async () => {
+    const host = buildMockHost({ evalLog: [] });
+    const port = new BrowserControlPort(host as unknown as BrowserHostPort);
+    await assert.rejects(
+      async () => {
+        await port.visualCompare(dummyTarget, 'run-1', 'att-1', {
+          comparisonTabId: 'tab-b',
+          baselineScreenshotRef: 'art-1',
+        });
+      },
+      (err: unknown) => err instanceof CapabilityError && err.code === 'INVALID_ARGUMENT'
+    );
+  });
+
+  it('visualCompare rejects baselineRef without workspace context with WORKSPACE_UNBOUND', async () => {
+    const host = buildMockHost({ evalLog: [] });
+    const port = new BrowserControlPort(host as unknown as BrowserHostPort);
+    const unboundTarget = { ...dummyTarget, workspaceId: '' };
+    await assert.rejects(
+      async () => {
+        await port.visualCompare(unboundTarget, 'run-1', 'att-1', {
+          baselineRef: 'base-1',
+        });
+      },
+      (err: unknown) => err instanceof CapabilityError && err.code === 'WORKSPACE_UNBOUND'
+    );
+  });
+
+  it('visualCompare rejects host lacking captureVerificationScreenshot with CAPABILITY_NOT_FOUND', async () => {
+    const host = {
+      getTabList: () => [{ id: 'tab-a' }, { id: 'tab-b' }],
+      isCurrentTarget: () => true,
+    };
+    const port = new BrowserControlPort(host as unknown as BrowserHostPort);
+    await assert.rejects(
+      async () => {
+        await port.visualCompare(dummyTarget, 'run-1', 'att-1', {
+          comparisonTabId: 'tab-b',
+        });
+      },
+      (err: unknown) => err instanceof CapabilityError && err.code === 'CAPABILITY_NOT_FOUND'
     );
   });
 });
