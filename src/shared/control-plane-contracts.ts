@@ -564,7 +564,11 @@ export type CapabilityErrorCode =
   | 'STORE_CONTEXT_MISMATCH'
   | 'CAS_MISMATCH'
   | 'STALE_LINEAGE'
-  | 'TRANSACTION_CONFLICT';
+  | 'CAPTURE_BACKEND_SWITCH'
+  | 'RESOURCE_FAILURE'
+  | 'SETTLE_INCOMPLETE'
+  | 'TRANSACTION_CONFLICT'
+  | 'BASELINE_TAMPERED';
 
 export class CapabilityError extends Error {
   readonly code: CapabilityErrorCode;

@@ -51,15 +51,25 @@ class MockBrowserHost implements BrowserHostPort {
     return 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
   }
 
+  getNetworkTracker(): any {
+    return {
+      isAttached: () => true,
+      awaitQuiescence: async () => ({ settled: true, durationMs: 1, timedOut: false }),
+    };
+  }
+
   async evalJs(expression: string, _tabId?: string): Promise<unknown> {
+    if (expression.includes('img.decode') || expression.includes('relevantImages')) {
+      return { settled: true, brokenImages: [] };
+    }
+    if (expression.includes('document.fonts') || expression.includes('requestAnimationFrame') || expression.includes('rafPromise') || expression.includes('settleScript')) {
+      return true;
+    }
     if (expression.includes('LayoutOverflowEngine') || expression.includes('window.innerWidth')) {
       return { hasOverflow: false, deltaX: 0, culprits: [] };
     }
     if (expression.includes('HsGateRules') || expression.includes('violations')) {
       return { passed: true, totalViolations: 0, errorsCount: 0, warningsCount: 0, violations: [] };
-    }
-    if (expression.includes('document.fonts') || expression.includes('rafPromise') || expression.includes('settleScript')) {
-      return true;
     }
     return {};
   }

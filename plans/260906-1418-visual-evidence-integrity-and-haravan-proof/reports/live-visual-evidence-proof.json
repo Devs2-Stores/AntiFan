@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 1,
+  "type": "antifan-live-visual-evidence-proof",
+  "verdict": "BLOCKED",
+  "v25Status": "BLOCKED",
+  "freezeChecklist18": "PENDING_REAL_SAPO_SYNC",
+  "sapoPrerequisites": {
+    "available": false,
+    "hasCli": false,
+    "hasPreviewUrl": false,
+    "missing": [
+      "SAPO_THEME_CLI_WATCHER (sapo/themekit CLI binary not found on PATH)",
+      "SAPO_THEME_PREVIEW_URL (Environment variable not set)"
+    ]
+  },
+  "blockerDetails": {
+    "reason": "Missing real Sapo Theme CLI sync watcher and live Sapo preview store URL.",
+    "requirement": "Audit v5 §25 / Freeze #18 strictly mandates real Sapo sync attestation. Local/Haravan paths never count as V-25 evidence.",
+    "resolution": "Install Sapo CLI binary on PATH and provide authenticated Sapo preview URL in SAPO_THEME_PREVIEW_URL."
+  },
+  "substituteEvidenceEmitted": false,
+  "timestamp": "2026-09-06T11:39:33.040Z",
+  "teardown": {
+    "passed": true,
+    "processBoundTempCleanup": "completed",
+    "resourceOwners": {}
+  },
+  "proofChecksum": "86188beefa0cceeeb92fc8622c06b386052d43408f1d53c42f09a7356ced397b",
+  "completedAt": "2026-09-06T11:39:33.055Z"
+}

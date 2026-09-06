@@ -2106,6 +2106,7 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
       type: 'object',
       properties: {
         baselineScreenshotRef: { type: 'string' },
+        baselineRef: { type: 'string', description: 'Promoted baseline authority reference ID (Phase 6)' },
         comparisonTabId: { type: 'string' },
         tolerance: { type: 'number' },
         selector: { type: 'string' },
@@ -2133,7 +2134,7 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
         fullPage: { type: 'boolean', description: 'Capture entire document scroll height for full-page visual comparison' },
       },
     },
-    execute: (params: { baselineScreenshotRef?: string; comparisonTabId?: string; tolerance?: number; selector?: string; clipRect?: { x: number; y: number; width: number; height: number };       maskSelectors?: string[]; maskOptionalSelectors?: string[]; normalizeScroll?: boolean; tabId?: string; paneId?: 'desktop' | 'mobile'; fullPage?: boolean }, context) =>
+    execute: (params: { baselineScreenshotRef?: string; baselineRef?: string; comparisonTabId?: string; tolerance?: number; selector?: string; clipRect?: { x: number; y: number; width: number; height: number };       maskSelectors?: string[]; maskOptionalSelectors?: string[]; normalizeScroll?: boolean; tabId?: string; paneId?: 'desktop' | 'mobile'; fullPage?: boolean }, context) =>
       browser.visualCompare(context.browserTarget as BrowserTarget, context.runId || 'run-default', context.attemptId || 'att-default', params, params?.tabId, params?.paneId),
   });
 
@@ -2147,6 +2148,7 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
       type: 'object',
       properties: {
         baselineScreenshotRef: { type: 'string' },
+        baselineRef: { type: 'string', description: 'Promoted baseline authority reference ID (Phase 6)' },
         comparisonTabId: { type: 'string' },
         tolerance: { type: 'number' },
         selector: { type: 'string' },
@@ -2174,8 +2176,61 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
         fullPage: { type: 'boolean', description: 'Capture entire document scroll height for full-page visual comparison' },
       },
     },
-    execute: (params: { baselineScreenshotRef?: string; comparisonTabId?: string; tolerance?: number; selector?: string; clipRect?: { x: number; y: number; width: number; height: number };       maskSelectors?: string[]; maskOptionalSelectors?: string[]; normalizeScroll?: boolean; tabId?: string; paneId?: 'desktop' | 'mobile'; fullPage?: boolean }, context) =>
+    execute: (params: { baselineScreenshotRef?: string; baselineRef?: string; comparisonTabId?: string; tolerance?: number; selector?: string; clipRect?: { x: number; y: number; width: number; height: number };       maskSelectors?: string[]; maskOptionalSelectors?: string[]; normalizeScroll?: boolean; tabId?: string; paneId?: 'desktop' | 'mobile'; fullPage?: boolean }, context) =>
       browser.visualCompare(context.browserTarget as BrowserTarget, context.runId || 'run-default', context.attemptId || 'att-default', params, params?.tabId, params?.paneId),
+  });
+  catalogue.register({
+    name: 'browser.promote-baseline',
+    description: 'Canonically capture the current tab (or specified tabId) via CDP, stage screenshot artifact, and promote to an authoritative, immutable visual baseline reference (Phase 6, V-22)',
+    risk: 'write',
+    requiresBrowserTarget: true,
+    policy: makeBrowserPolicy({ effect: 'idempotent-write', risk: 'write', requiresBrowserTarget: true, lane: 'viewport-gate' }),
+    inputSchema: {
+      type: 'object',
+      properties: {
+        tabId: { type: 'string', description: 'Tab ID to capture and promote (defaults to bound tab)' },
+        paneId: { type: 'string', enum: ['desktop', 'mobile'] },
+        clipRect: {
+          type: 'object',
+          properties: {
+            x: { type: 'number' },
+            y: { type: 'number' },
+            width: { type: 'number' },
+            height: { type: 'number' },
+          },
+        },
+      },
+    },
+    execute: (params: { tabId?: string; paneId?: 'desktop' | 'mobile'; clipRect?: { x: number; y: number; width: number; height: number } }, context) => {
+      return browser.promoteBaseline(context, params);
+    },
+  });
+
+  catalogue.register({
+    name: 'anti.visual.promote_baseline',
+    description: 'Alias for browser.promote-baseline: canonically capture and promote current tab to an authoritative visual baseline reference',
+    risk: 'write',
+    requiresBrowserTarget: true,
+    policy: makeBrowserPolicy({ effect: 'idempotent-write', risk: 'write', requiresBrowserTarget: true, lane: 'viewport-gate' }),
+    inputSchema: {
+      type: 'object',
+      properties: {
+        tabId: { type: 'string', description: 'Tab ID to capture and promote (defaults to bound tab)' },
+        paneId: { type: 'string', enum: ['desktop', 'mobile'] },
+        clipRect: {
+          type: 'object',
+          properties: {
+            x: { type: 'number' },
+            y: { type: 'number' },
+            width: { type: 'number' },
+            height: { type: 'number' },
+          },
+        },
+      },
+    },
+    execute: (params: { tabId?: string; paneId?: 'desktop' | 'mobile'; clipRect?: { x: number; y: number; width: number; height: number } }, context) => {
+      return browser.promoteBaseline(context, params);
+    },
   });
 
   // ─── Semantic Sensory & Parity Capabilities ───
@@ -2494,7 +2549,7 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
     inputSchema: {
       properties: {
         claim: { type: 'string' },
-        category: { type: 'string', enum: ['INTERACTION', 'LAYOUT', 'RESPONSIVE', 'CUSTOM'] },
+        category: { type: 'string', enum: ['INTERACTION', 'LAYOUT', 'RESPONSIVE', 'CUSTOM', 'VISUAL'] },
         actor: { type: 'string', enum: ['agent', 'user'] },
         tabId: { type: 'string' },
         selector: { type: 'string' },
@@ -2547,8 +2602,8 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
       if (!params.tabId || !params.tabId.trim()) {
         throw new CapabilityError('INVALID_ARGUMENT', 'Target tabId is required.');
       }
-      if (!params.category || !['INTERACTION', 'LAYOUT', 'RESPONSIVE', 'CUSTOM'].includes(params.category)) {
-        throw new CapabilityError('INVALID_ARGUMENT', 'Claim category is required and must be one of: INTERACTION, LAYOUT, RESPONSIVE, CUSTOM.');
+      if (!params.category || !['INTERACTION', 'LAYOUT', 'RESPONSIVE', 'CUSTOM', 'VISUAL'].includes(params.category)) {
+        throw new CapabilityError('INVALID_ARGUMENT', 'Claim category is required and must be one of: INTERACTION, LAYOUT, RESPONSIVE, CUSTOM, VISUAL.');
       }
 
       const validatedObligations: Array<{ id: string; metric: string; tolerance?: number; critical?: boolean; expected?: unknown }> = [];

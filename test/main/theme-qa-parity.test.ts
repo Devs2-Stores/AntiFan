@@ -19,7 +19,21 @@ const TAB_HOST: BrowserHostPort = {
   reload: () => true,
   getDom: async () => '<html><body><h1>Storefront</h1></body></html>',
   captureScreenshot: async () => Buffer.from('png').toString('base64'),
-  evalJs: async () => null,
+  getNetworkTracker: (() => ({
+    isAttached: () => true,
+    awaitQuiescence: async () => ({ settled: true, durationMs: 1, timedOut: false }),
+  })) as any,
+  evalJs: async (expr: unknown) => {
+    if (typeof expr === 'string') {
+      if (expr.includes('naturalWidth') || expr.includes('img.decode')) {
+        return { settled: true, brokenImages: [] };
+      }
+      if (expr.includes('document.fonts') || expr.includes('requestAnimationFrame')) {
+        return true;
+      }
+    }
+    return null;
+  },
 };
 
 function makeTarget(): BrowserTarget {
@@ -149,7 +163,7 @@ describe('ThemeQaWorkflow Canonical Validation & Capability Alias Delegation', (
           if (expression.includes('const platform =')) {
             return { passed: false, totalViolations: 1, errorsCount: 1, warningsCount: 0, violations: [{ ruleId: 'HS-01', ruleTitle: 't', severity: 'error', message: 'm', recommendation: 'r', selector: 'form' }] };
           }
-          return null;
+          return (TAB_HOST.evalJs as any)(expression);
         },
       };
       const fullBrowser = new BrowserControlPort(overflowingHost, new ArtifactStore({ root: path.join(root, 'artifacts') }));
@@ -220,7 +234,7 @@ describe('ThemeQaWorkflow Canonical Validation & Capability Alias Delegation', (
               culprits: [{ tag: 'div', id: 'wide', className: '', selector: 'div#wide', width: 1560 }],
             };
           }
-          return null;
+          return (TAB_HOST.evalJs as any)(expr);
         },
       };
 

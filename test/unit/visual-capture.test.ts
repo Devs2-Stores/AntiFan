@@ -6,6 +6,7 @@ import {
   MultiKeyLock,
   NormalizationTransaction,
   TwoSourceCoherenceGuard,
+  checkCaptureStateCompatibility,
   classifyCoherence,
   classifyIdentity,
   classifyMutation,
@@ -16,6 +17,7 @@ import {
   visualCaptureSpaceFromMeasured,
   visualCaptureSpaceFromMetrics,
   type CaptureIdentitySnapshot,
+  type VerificationCaptureReceipt,
 } from '../../src/main/verification/visual-capture';
 
 interface EvalCall {
@@ -557,5 +559,71 @@ describe('MultiKeyLock release discipline', () => {
     const releaseWaiter = await waiter;
     assert.strictEqual(waiterResolved, true);
     await releaseWaiter();
+  });
+});
+
+describe('checkCaptureStateCompatibility (pure Tier 1 compatibility gate)', () => {
+  const mkReceipt = (over: Partial<VerificationCaptureReceipt> = {}): VerificationCaptureReceipt => ({
+    backend: 'cdp',
+    dpr: 2,
+    zoom: 1.0,
+    cssViewport: { width: 1200, height: 800 },
+    rasterSize: { width: 2400, height: 1600 },
+    timestamp: 1000,
+    ...over,
+  });
+
+  it('identical receipts are compatible', () => {
+    const res = checkCaptureStateCompatibility(mkReceipt(), mkReceipt());
+    assert.strictEqual(res.compatible, true);
+    assert.strictEqual(res.reason, undefined);
+  });
+
+  it('null or missing receipt returns incompatible', () => {
+    assert.strictEqual(checkCaptureStateCompatibility(null as any, mkReceipt()).compatible, false);
+    assert.strictEqual(checkCaptureStateCompatibility(mkReceipt(), undefined as any).compatible, false);
+  });
+
+  it('backend mismatch returns incompatible', () => {
+    const res = checkCaptureStateCompatibility(mkReceipt({ backend: 'cdp' }), mkReceipt({ backend: 'other' }));
+    assert.strictEqual(res.compatible, false);
+    assert.ok(res.reason?.includes('Capture backend mismatch'));
+  });
+
+  it('NaN, negative or non-finite DPR returns incompatible', () => {
+    assert.strictEqual(checkCaptureStateCompatibility(mkReceipt({ dpr: NaN }), mkReceipt()).compatible, false);
+    assert.strictEqual(checkCaptureStateCompatibility(mkReceipt({ dpr: -1 }), mkReceipt()).compatible, false);
+    assert.strictEqual(checkCaptureStateCompatibility(mkReceipt({ dpr: Infinity }), mkReceipt()).compatible, false);
+  });
+
+  it('DPR mismatch > 0.01 returns incompatible', () => {
+    const res = checkCaptureStateCompatibility(mkReceipt({ dpr: 2.0 }), mkReceipt({ dpr: 2.05 }));
+    assert.strictEqual(res.compatible, false);
+    assert.ok(res.reason?.includes('Device pixel ratio mismatch'));
+  });
+
+  it('NaN, negative or non-finite zoom returns incompatible', () => {
+    assert.strictEqual(checkCaptureStateCompatibility(mkReceipt({ zoom: NaN }), mkReceipt()).compatible, false);
+    assert.strictEqual(checkCaptureStateCompatibility(mkReceipt({ zoom: 0 }), mkReceipt()).compatible, false);
+  });
+
+  it('zoom mismatch > 0.01 returns incompatible', () => {
+    const res = checkCaptureStateCompatibility(mkReceipt({ zoom: 1.0 }), mkReceipt({ zoom: 1.25 }));
+    assert.strictEqual(res.compatible, false);
+    assert.ok(res.reason?.includes('Zoom level mismatch'));
+  });
+
+  it('CSS viewport dimension mismatch returns incompatible', () => {
+    const res = checkCaptureStateCompatibility(
+      mkReceipt({ cssViewport: { width: 1200, height: 800 } }),
+      mkReceipt({ cssViewport: { width: 1205, height: 800 } })
+    );
+    assert.strictEqual(res.compatible, false);
+    assert.ok(res.reason?.includes('CSS viewport dimension mismatch'));
+  });
+
+  it('CSS viewport with NaN or zero dimensions returns incompatible', () => {
+    assert.strictEqual(checkCaptureStateCompatibility(mkReceipt({ cssViewport: { width: NaN, height: 800 } }), mkReceipt()).compatible, false);
+    assert.strictEqual(checkCaptureStateCompatibility(mkReceipt({ cssViewport: { width: 0, height: 800 } }), mkReceipt()).compatible, false);
   });
 });

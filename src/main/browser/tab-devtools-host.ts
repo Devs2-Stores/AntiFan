@@ -16,6 +16,7 @@ import { AnnotationManager } from '../bridge/annotation-manager';
 import { TerminalManager } from './terminal-manager';
 import type { NativeTabRecord } from './native-tab-host';
 import type { SemanticElementDescriptor } from './semantic-ref-types';
+import type { VerificationCaptureEnvelope } from '../verification/visual-capture';
 
 export interface TabDevToolsContext {
   getTabWebContents: (tabId?: string, paneId?: SplitPaneId) => Electron.WebContents | null;
@@ -1116,6 +1117,107 @@ export class TabDevToolsHost {
       }
     }
   });
+  }
+
+  public async captureVerificationScreenshot(
+    rect?: Rectangle,
+    tabId?: string,
+    paneId?: SplitPaneId,
+    options?: { format?: 'png' | 'jpeg'; quality?: number; fullPage?: boolean }
+  ): Promise<VerificationCaptureEnvelope> {
+    const targetId = tabId || this.ctx.getActiveTabId();
+    const target = this.ctx.getTabRecord(targetId);
+    if (!target) {
+      throw new Error(`Target tab '${targetId}' not found for verification capture`);
+    }
+    const wc = this.ctx.getTabWebContents(targetId, paneId || target.focusedPane);
+    if (!wc || wc.isDestroyed()) {
+      throw new Error(`WebContents not available for tab '${targetId}'`);
+    }
+    if (target.view && typeof target.view.getBounds === 'function') {
+      const bounds = target.view.getBounds();
+      if (!bounds || bounds.width === 0 || bounds.height === 0) {
+        const ctxAny = this.ctx as unknown as { getTabContentBounds?: (id: string, pane?: SplitPaneId) => { width: number; height: number } };
+        const mainBounds = ctxAny.getTabContentBounds ? ctxAny.getTabContentBounds(targetId, paneId || target.focusedPane) : { width: 1200, height: 800 };
+        target.view.setBounds({ x: 0, y: 0, width: mainBounds.width || 1200, height: mainBounds.height || 800 });
+      }
+    }
+
+    const isFullPage = Boolean(options?.fullPage);
+    const isForeground = targetId === this.ctx.getActiveTabId();
+
+    return this.ctx.withTabAgentWorking(targetId, async () => {
+      // Derive zoom and DPR directly from browser/CDP state inside agent working block (atomic with capture, non-nesting)
+      const zoom = typeof wc.getZoomFactor === 'function' ? wc.getZoomFactor() : 1.0;
+      const metricsRes = await this.sendCdpCommand<{ result?: { value?: { dpr?: number; vw?: number; vh?: number } } }>(
+        wc,
+        'Runtime.evaluate',
+        {
+          expression: '({ dpr: window.devicePixelRatio || 1, vw: window.innerWidth || 0, vh: window.innerHeight || 0 })',
+          returnByValue: true,
+        }
+      ).catch(() => null);
+      const metrics = metricsRes?.result?.value;
+
+      const dpr = Number(metrics?.dpr) || 1;
+      const cssViewport = {
+        width: Number(metrics?.vw) || 1200,
+        height: Number(metrics?.vh) || 800,
+      };
+
+      await this.sendCdpCommand(wc, 'Page.enable');
+      await this.sendCdpCommand(wc, 'DOM.getDocument', { depth: 1 }).catch(() => {});
+
+      let clip = rect
+        ? { x: rect.x, y: rect.y, width: rect.width, height: rect.height, scale: 1 }
+        : undefined;
+
+      if (isFullPage) {
+        const docMetricsRes = await this.sendCdpCommand<{ result?: { value?: { dh?: number; dw?: number } } }>(
+          wc,
+          'Runtime.evaluate',
+          {
+            expression: '({ dh: Math.max(document.documentElement ? document.documentElement.scrollHeight : 0, document.body ? document.body.scrollHeight : 0), dw: Math.max(document.documentElement ? document.documentElement.scrollWidth : 0, document.body ? document.body.scrollWidth : 0) })',
+            returnByValue: true,
+          }
+        ).catch(() => null);
+        const docMetrics = docMetricsRes?.result?.value;
+
+        const safeWidth = Math.max(1, Math.min(Number(docMetrics?.dw) || cssViewport.width, 16384));
+        const safeHeight = Math.max(1, Math.min(Number(docMetrics?.dh) || cssViewport.height, 16384));
+        clip = { x: 0, y: 0, width: safeWidth, height: safeHeight, scale: 1 };
+      }
+
+      // Canonical CDP Page.captureScreenshot: foreground and background both use CDP
+      const cdpRes = await this.sendCdpCommand<{ data?: string }>(wc, 'Page.captureScreenshot', {
+        format: 'png',
+        fromSurface: isForeground,
+        captureBeyondViewport: !isForeground || isFullPage,
+        clip,
+      });
+
+      if (!cdpRes || typeof cdpRes.data !== 'string' || cdpRes.data.length === 0) {
+        throw new Error(`CDP Page.captureScreenshot returned empty payload on tab '${targetId}'`);
+      }
+
+      let rasterWidth = 0;
+      let rasterHeight = 0;
+      const buf = Buffer.from(cdpRes.data, 'base64');
+      if (buf.length >= 24 && buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4e && buf[3] === 0x47) {
+        rasterWidth = buf.readUInt32BE(16);
+        rasterHeight = buf.readUInt32BE(20);
+      }
+
+      return {
+        data: cdpRes.data,
+        backend: 'cdp',
+        dpr,
+        zoom,
+        cssViewport,
+        rasterSize: { width: rasterWidth, height: rasterHeight },
+        timestamp: Date.now(),
+      };
+    });
   }
 
   public async getDom(selector?: string, tabId?: string, paneId?: SplitPaneId): Promise<string> {

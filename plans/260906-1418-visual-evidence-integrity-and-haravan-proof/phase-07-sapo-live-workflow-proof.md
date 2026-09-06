@@ -1,6 +1,6 @@
 ---
 title: "Phase 7: Sapo-first live workflow proof"
-status: todo
+status: blocked
 ---
 
 # Phase 7: Sapo-first live workflow proof
@@ -15,19 +15,15 @@ thiếu chính xác được nêu, KHÔNG làm proof giả.
 
 ## Requirements
 
-- [ ] R1. Scout hiện hữu: `scripts/smoke-theme-golden-live.cjs`,
+- [x] R1. Scout hiện hữu: `scripts/smoke-theme-golden-live.cjs`,
   `scripts/smoke-visual-compare.cjs`, `scripts/run-theme-golden-live-proof.cjs`,
   `src/main/qa/haravan-sync-barrier.ts` — tái sử dụng, không xây mới song song.
-- [ ] R2. Script `scripts/smoke-visual-evidence-live.cjs` (hoặc mở rộng golden-live):
-  fixture theme → sync attestation → chờ documentGeneration advance →
-  `CaptureSettleGate` → capture (canonical backend) → compare (mask fail-closed +
-  coherence) → `MetricSample[]` → `VerificationEvaluator` → VERIFIED/REJECTED +
-  receipt in ra. V-25 EVIDENCE BẮT BUỘC từ đường sync Sapo thật (Sapo CLI
-  event/output hoặc preview store Sapo); chạy qua `haravan-sync-barrier` chỉ là
-  chạy phụ trợ, KHÔNG bao giờ tính là evidence V-25/freeze #18.
-- [ ] R3. Không hardcode credential; đọc từ env/CLI hiện hữu; không commit secret.
-- [ ] R4. Xác định store identity qua kiểm tra an toàn (storefront URL thật, không
-  production tuỳ tiện) — bám bất biến "StoreIdentityGuard" nếu có sẵn.
+- [ ] R2. Script `scripts/smoke-visual-evidence-live.cjs` và runner
+  `scripts/run-visual-evidence-live-proof.cjs`: fail-closed trước Chromium khi thiếu
+  prerequisites, xuất sanitized blocker report, không phát receipt giả; V-25 EVIDENCE
+  BẮT BUỘC từ đường sync Sapo thật (Sapo CLI event/output hoặc preview store Sapo).
+- [ ] R3. Không hardcode credential; kiểm tra hiện diện qua presence-only; không commit secret (Transcript đã xuất hiện biến môi trường chứa credential từ lệnh env trước đó; yêu cầu rotate ngay, giữ pending).
+- [ ] R4. Xác định store identity qua kiểm tra an toàn — không production tuỳ tiện.
 
 ## Implementation Steps
 
@@ -37,10 +33,11 @@ thiếu chính xác được nêu, KHÔNG làm proof giả.
 
 ## Todo
 
-- [ ] Scout prerequisites (golden-live scripts, Sapo/Haravan CLI evidence, preview URL)
-- [ ] Smoke script end-to-end V-25
-- [ ] Chạy live proof, thu evidence receipt
-- [ ] Checklist 18/18 freeze hoàn tất từ evidence
+- [x] Scout prerequisites (golden-live scripts, Sapo/Haravan CLI evidence, preview URL)
+- [x] Blocker probe xác thực thiếu sót prerequisites (Sapo CLI, preview URL) và xuất sanitized blocker report
+- [ ] Smoke script end-to-end V-25 chạy qua live Sapo sync thật
+- [ ] Chạy live proof, thu evidence receipt (BLOCKED: Thiếu Sapo Theme CLI watcher & live preview URL)
+- [ ] Checklist 18/18 freeze hoàn tất từ evidence (mục 18 phụ thuộc V-25 xanh)
 
 ## Success Criteria
 

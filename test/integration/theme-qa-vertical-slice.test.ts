@@ -10,6 +10,25 @@ import { ArtifactStore } from '../../src/main/tools/artifact-store';
 import { BrowserTarget } from '../../src/shared/control-plane-contracts';
 
 describe('Theme QA vertical slice', () => {
+  const createSettleHost = (overrides: Record<string, unknown>): any => ({
+    getNetworkTracker: (() => ({
+      isAttached: () => true,
+      awaitQuiescence: async () => ({ settled: true, durationMs: 1, timedOut: false }),
+    })) as any,
+    evalJs: async (expr: unknown) => {
+      if (typeof expr === 'string') {
+        if (expr.includes('naturalWidth') || expr.includes('img.decode')) {
+          return { settled: true, brokenImages: [] };
+        }
+        if (expr.includes('document.fonts') || expr.includes('requestAnimationFrame')) {
+          return true;
+        }
+      }
+      return null;
+    },
+    ...overrides,
+  });
+
   it('inspects, edits, reloads, and emits bounded durable evidence for one exact target', async () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-qa-'));
     const target: BrowserTarget = {
@@ -24,7 +43,7 @@ describe('Theme QA vertical slice', () => {
     let currentGen = 1;
     const artifacts = new ArtifactStore({ root: path.join(root, 'artifacts') });
     const browser = new BrowserControlPort(
-      {
+      createSettleHost({
         getTabList: () => [{ id: 'tab-1' }],
         navigate: () => true,
         reload: () => {
@@ -33,11 +52,10 @@ describe('Theme QA vertical slice', () => {
           return true;
         },
         getDocumentGeneration: () => currentGen,
-        isCurrentTarget: (t) => t.tabId === 'tab-1' && t.documentGeneration === currentGen,
+        isCurrentTarget: (t: any) => t.tabId === 'tab-1' && t.documentGeneration === currentGen,
         getDom: async () => `<main>fixture-gen-${currentGen}</main>`,
         captureScreenshot: async () => Buffer.from(`png-gen-${currentGen}`).toString('base64'),
-        evalJs: async () => null,
-      },
+      }),
       artifacts
     );
     const filePort = new WorkspaceFilePort();
@@ -80,7 +98,7 @@ describe('Theme QA vertical slice', () => {
     const artifactStore = new ArtifactStore({ root: path.join(root, 'artifacts') });
     let currentGen = 1;
     const browser = new BrowserControlPort(
-      {
+      createSettleHost({
         getTabList: () => [{ id: 'tab-1' }],
         navigate: () => true,
         reload: () => {
@@ -88,11 +106,10 @@ describe('Theme QA vertical slice', () => {
           return true;
         },
         getDocumentGeneration: () => currentGen,
-        isCurrentTarget: (t) => t.tabId === 'tab-1' && t.documentGeneration === currentGen,
+        isCurrentTarget: (t: any) => t.tabId === 'tab-1' && t.documentGeneration === currentGen,
         getDom: async () => htmlWithLiquidError,
         captureScreenshot: async () => Buffer.from('png').toString('base64'),
-        evalJs: async () => null,
-      },
+      }),
       artifactStore
     );
     const workflow = new ThemeQaWorkflow({
@@ -129,7 +146,7 @@ describe('Theme QA vertical slice', () => {
     const artifactStore = new ArtifactStore({ root: path.join(root, 'artifacts') });
     let currentGen = 1;
     const browser = new BrowserControlPort(
-      {
+      createSettleHost({
         getTabList: () => [{ id: 'tab-1' }],
         navigate: () => true,
         reload: () => {
@@ -137,11 +154,10 @@ describe('Theme QA vertical slice', () => {
           return true;
         },
         getDocumentGeneration: () => currentGen,
-        isCurrentTarget: (t) => t.tabId === 'tab-1' && t.documentGeneration === currentGen,
+        isCurrentTarget: (t: any) => t.tabId === 'tab-1' && t.documentGeneration === currentGen,
         getDom: async () => htmlWithPii,
         captureScreenshot: async () => Buffer.from('png').toString('base64'),
-        evalJs: async () => null,
-      },
+      }),
       artifactStore
     );
     const workflow = new ThemeQaWorkflow({

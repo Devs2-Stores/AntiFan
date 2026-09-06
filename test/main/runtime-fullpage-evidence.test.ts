@@ -59,6 +59,26 @@ describe('Runtime Full-Page Evidence & 5D Parity Tests', () => {
         if (tabId === 'tab-baseline') return basePng.toString('base64');
         return curPng.toString('base64');
       },
+      captureVerificationScreenshot: async (_rect: unknown, tabId?: string) => {
+        const data = tabId === 'tab-baseline' ? basePng.toString('base64') : curPng.toString('base64');
+        return {
+          data,
+          backend: 'cdp',
+          dpr: 1,
+          zoom: 1.0,
+          cssViewport: { width: 1200, height: 800 },
+          rasterSize: { width: 1200, height: tabId === 'tab-baseline' ? 3000 : 1000 },
+          timestamp: Date.now(),
+        };
+      },
+      evalJs: async (script: string) => {
+        if (script.includes('img.decode')) return { settled: true, brokenImages: [] };
+        return true;
+      },
+      getNetworkTracker: () => ({
+        isAttached: () => true,
+        awaitQuiescence: async () => ({ settled: true, durationMs: 0, timedOut: false }),
+      }),
     };
 
     const port = new BrowserControlPort(mockHost as any);

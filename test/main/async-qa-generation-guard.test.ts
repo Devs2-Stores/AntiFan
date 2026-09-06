@@ -36,6 +36,12 @@ describe('Async QA Generation Guard & Race-Condition Defense', () => {
           diagnostics: () => ({ console: [], failures: [] }),
           listTabs: () => [{ id: 'tab-guard-1', url: 'https://demo.haravan.com' }],
           getDocumentGeneration: () => currentDocGen,
+          settleCapture: async () => ({
+            settleComplete: true,
+            gates: { network: true, fonts: true, images: true, dom: true },
+            timingsMs: { network: 0, fonts: 0, images: 0, dom: 0, total: 0 },
+            brokenImages: [],
+          }),
         },
         reload: async (target: BrowserTarget) => {
           // Synthetic reload advances document generation to post-reload state

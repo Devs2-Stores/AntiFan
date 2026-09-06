@@ -201,35 +201,22 @@ export class ThemeQaWorkflow {
       }
     };
 
-    // Stage 2 & 3: Bounded Font Readiness (400ms race) + Resilient Visual Layout Settle (rAF with background timeout race)
-    const settleScript = `(() => {
-      const fontPromise = (document.fonts && typeof document.fonts.ready === 'object' && typeof document.fonts.ready.then === 'function')
-        ? Promise.race([document.fonts.ready, new Promise(r => setTimeout(r, 400))]).catch(() => {})
-        : Promise.resolve();
-      const rafPromise = new Promise(resolve => {
-        let settled = false;
-        const finish = () => { if (!settled) { settled = true; resolve(true); } };
-        // Fallback timer ensures settle gate completes even if background tab freezes rAF
-        const timer = setTimeout(finish, 150);
-        if (typeof requestAnimationFrame === 'function') {
-          requestAnimationFrame(() => {
-            requestAnimationFrame(() => {
-              clearTimeout(timer);
-              finish();
-            });
-          });
-        } else {
-          finish();
-        }
-      });
-      return Promise.all([fontPromise, rafPromise]).then(() => true);
-    })()`;
+    // Stage 2 & 3: Composed Settle Barrier (Phase 4: settleCapture)
     try {
-      await this.ports.browser.eval(activeTarget, settleScript);
+      if (typeof this.ports.browser.settleCapture === 'function') {
+        const settleReceipt = await this.ports.browser.settleCapture(activeTarget);
+        if (!settleReceipt.settleComplete) {
+          throw new CapabilityError(
+            'SETTLE_INCOMPLETE',
+            `Theme QA settle gate incomplete: gates not all settled (network=${settleReceipt.gates.network}, fonts=${settleReceipt.gates.fonts}, images=${settleReceipt.gates.images}, dom=${settleReceipt.gates.dom})`
+          );
+        }
+      }
     } catch (err) {
       rethrowTargetLifecycleError(err);
+      if (err instanceof CapabilityError) throw err;
       throw new CapabilityError(
-        'TARGET_STALE',
+        'SETTLE_INCOMPLETE',
         `Theme QA settle gate failed: ${err instanceof Error ? err.message : String(err)}`
       );
     }

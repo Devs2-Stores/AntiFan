@@ -64,11 +64,11 @@ nạp `MetricSample[]` vào `VerificationEvaluator` (cơ quan phán quyết duy 
 |---|-------|--------|
 | 1 | [Phase 1: Mask space & fail-closed](./phase-01-mask-space-and-fail-closed.md) | Done |
 | 2 | [Phase 2: Capture coherence transaction](./phase-02-capture-coherence-transaction.md) | Done |
-| 3 | [Phase 3: Canonical capture receipts](./phase-03-canonical-capture-receipts.md) | Pending |
-| 4 | [Phase 4: Composed settle barrier](./phase-04-composed-settle-barrier.md) | Pending |
-| 5 | [Phase 5: Evaluator integration & structural primacy](./phase-05-evaluator-integration-and-structural-primacy.md) | Pending |
-| 6 | [Phase 6: Promoted baseline authority](./phase-06-promoted-baseline-authority.md) | Pending |
-| 7 | [Phase 7: Sapo-first live workflow proof](./phase-07-sapo-live-workflow-proof.md) | Pending |
+| 3 | [Phase 3: Canonical capture receipts](./phase-03-canonical-capture-receipts.md) | Done |
+| 4 | [Phase 4: Composed settle barrier](./phase-04-composed-settle-barrier.md) | Done |
+| 5 | [Phase 5: Evaluator integration & structural primacy](./phase-05-evaluator-integration-and-structural-primacy.md) | Done |
+| 6 | [Phase 6: Promoted baseline authority](./phase-06-promoted-baseline-authority.md) | Done |
+| 7 | [Phase 7: Sapo-first live workflow proof](./phase-07-sapo-live-workflow-proof.md) | Blocked |
 
 Ghi chú ownership: Phase 5 là integration owner cuối cho `BrowserControlPort.visualCompare`
 (Phase 1-4 sửa theo phần, Phase 5 chốt toàn cục + rà mọi callers).
@@ -77,10 +77,10 @@ Ghi chú ownership: Phase 5 là integration owner cuối cho `BrowserControlPort
 
 - [x] V-01..V-08, V-11, V-12, V-23 xanh (Phase 1) — unit 31/31, Tier 2 8/8, regress 26/26
 - [x] V-13, V-14, V-15 xanh (Phase 2) — unit 46/46, Tier 2 15/15, regress 26/26
-- [ ] V-19, V-20, V-21 xanh (Phase 3)
-- [ ] V-16, V-17, V-18 xanh (Phase 4)
-- [ ] V-09, V-10 xanh (Phase 5)
-- [ ] V-22, V-24 xanh (Phase 6)
+- [x] V-19, V-20, V-21 xanh (Phase 3) — canonical CDP backend, capture receipts, compat gate
+- [x] V-16, V-17, V-18 xanh (Phase 4) — font settle, image decode, broken image assertion, DOM quiet
+- [x] V-09, V-10 xanh (Phase 5) — evaluator visual metrics, structural primacy
+- [x] V-22, V-24 xanh (Phase 6) — promoted baseline authority, tamper detection, 3-run determinism
 - [ ] V-25 xanh (Phase 7) — thiếu credential/preview thật → phase giữ BLOCKED, không tính hoàn thành
 - [ ] 18/18 freeze checklist (Audit v5 §26)
 - [ ] Toàn bộ test suite + `tsc --noEmit` sạch; `VerificationEvaluator` là thẩm quyền duy nhất; `ArtifactStore` không đổi ràng buộc

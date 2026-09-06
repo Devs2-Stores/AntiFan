@@ -273,7 +273,21 @@ describe('ThemeQaWorkflow Integration with ServerCrashScanner', () => {
         reload: () => true,
         getDom: async () => crashHtml,
         captureScreenshot: async () => Buffer.from('fake-png').toString('base64'),
-        evalJs: async () => null,
+        getNetworkTracker: (() => ({
+          isAttached: () => true,
+          awaitQuiescence: async () => ({ settled: true, durationMs: 1, timedOut: false }),
+        })) as any,
+        evalJs: async (expr: unknown) => {
+          if (typeof expr === 'string') {
+            if (expr.includes('naturalWidth') || expr.includes('img.decode')) {
+              return { settled: true, brokenImages: [] };
+            }
+            if (expr.includes('document.fonts') || expr.includes('requestAnimationFrame')) {
+              return true;
+            }
+          }
+          return null;
+        },
         getDocumentGeneration: () => 1,
         isCurrentTarget: () => true,
         getDiagnostics: () => ({ console: [], failures: [] }),

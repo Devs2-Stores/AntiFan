@@ -31,6 +31,7 @@ import {
 import { chromeSessionUserAgent } from './google-auth-identity';
 import { configureBrowserSessionPartition, deriveCapsulePartition, unconfigureBrowserSessionPartition, type BrowserSessionUserAgentMode } from './browser-session-partition';
 import { TabDiagnosticsManager, computeOrigin, normalizeConsoleLevel } from './tab-diagnostics';
+import type { VerificationCaptureEnvelope } from '../verification/visual-capture';
 import { buildKeyboardInputEvents } from './keyboard-normalizer';
 import { FirstPartyNetworkTracker, type NetworkTrackerStats } from './first-party-network-tracker';
 import { WorkspaceCapsuleManager, type WorkspaceCapsule } from '../project/workspace-capsule';
@@ -5041,6 +5042,10 @@ export class NativeTabHost extends EventEmitter {
 
   public async captureScreenshot(rect?: Rectangle, tabId?: string, paneId?: SplitPaneId, options?: { format?: 'png' | 'jpeg'; quality?: number; fullPage?: boolean }): Promise<string> {
     return this.getDevToolsHost().captureScreenshot(rect, tabId, paneId, options);
+  }
+
+  public async captureVerificationScreenshot(rect?: Rectangle, tabId?: string, paneId?: SplitPaneId, options?: { format?: 'png' | 'jpeg'; quality?: number; fullPage?: boolean }): Promise<VerificationCaptureEnvelope> {
+    return this.getDevToolsHost().captureVerificationScreenshot(rect, tabId, paneId, options);
   }
 
   public async getDom(selector?: string, tabId?: string, paneId?: SplitPaneId): Promise<string> {

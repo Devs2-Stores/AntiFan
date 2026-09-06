@@ -92,14 +92,28 @@ class StatefulBrowserHost implements BrowserHostPort {
     return Buffer.from(`screenshot-gen-${this.documentGeneration}`).toString('base64');
   }
 
+  getNetworkTracker(): any {
+    return {
+      isAttached: () => true,
+      awaitQuiescence: async () => ({ settled: true, durationMs: 1, timedOut: false }),
+    };
+  }
+
   async evalJs(expression: string, tabId?: string): Promise<unknown> {
     this.calls.push({ method: 'evalJs', targetGen: this.documentGeneration, args: [expression] });
     if (this.evalJsOverride) {
       return this.evalJsOverride(expression, tabId);
     }
+    if (typeof expression === 'string') {
+      if (expression.includes('naturalWidth') || expression.includes('img.decode')) {
+        return { settled: true, brokenImages: [] };
+      }
+      if (expression.includes('document.fonts') || expression.includes('requestAnimationFrame')) {
+        return true;
+      }
+    }
     return null;
   }
-
   getDiagnostics(tabId?: string): { console: unknown[]; failures: unknown[] } {
     this.calls.push({ method: 'getDiagnostics', targetGen: this.documentGeneration });
     if (this.diagnosticsProvider) {
@@ -321,8 +335,11 @@ describe('Theme QA Fresh Target Reliability', () => {
     for (const sc of scannerCases) {
       const host = new StatefulBrowserHost();
       host.evalJsOverride = async (expr: string) => {
-        if (expr.includes('document.fonts') || expr.includes('rafPromise') || expr.includes('settleScript')) {
+        if (expr.includes('document.fonts') || expr.includes('rafPromise') || expr.includes('settleScript') || expr.includes('requestAnimationFrame')) {
           return true;
+        }
+        if (expr.includes('img.decode')) {
+          return { settled: true, brokenImages: [] };
         }
         if (sc.isTarget(expr)) {
           throw new CapabilityError('TARGET_STALE', `Document generation is stale in ${sc.name}`);
@@ -391,7 +408,13 @@ describe('Theme QA Fresh Target Reliability', () => {
     ];
     for (const oc of otherCodes) {
       const hostOther = new StatefulBrowserHost();
-      hostOther.evalJsOverride = async () => {
+      hostOther.evalJsOverride = async (expr: string) => {
+        if (expr.includes('document.fonts') || expr.includes('requestAnimationFrame')) {
+          return true;
+        }
+        if (expr.includes('img.decode') || expr.includes('relevantImages')) {
+          return { settled: true, brokenImages: [] };
+        }
         throw oc.error;
       };
       const artifactStoreOther = new ArtifactStore({ root: path.join(root, `artifacts-${oc.name}`) });
@@ -421,8 +444,11 @@ describe('Theme QA Fresh Target Reliability', () => {
     // Assert: Non-target error (e.g. generic script eval error) retains static analysis fallback
     const hostNonTarget = new StatefulBrowserHost();
     hostNonTarget.evalJsOverride = async (expr: string) => {
-      if (expr.includes('document.fonts') || expr.includes('rafPromise') || expr.includes('settleScript')) {
+      if (expr.includes('document.fonts') || expr.includes('requestAnimationFrame')) {
         return true;
+      }
+      if (expr.includes('img.decode') || expr.includes('relevantImages')) {
+        return { settled: true, brokenImages: [] };
       }
       throw new Error('Some arbitrary non-target DOM execution error');
     };

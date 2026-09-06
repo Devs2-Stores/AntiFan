@@ -121,3 +121,73 @@ export function normalizeVisualRegions(
     maskedCount,
   };
 }
+
+/**
+ * Structural parity check between target regions and baseline regions (Audit v5 §16, §25, Freeze #13/#14).
+ * Compares geometry of matched selectors and cardinality of visible elements with strict O(N) performance.
+ */
+export function computeStructuralMetrics(
+  targetBundle: VisualRegionBundle,
+  baselineBundle: VisualRegionBundle,
+  options: {
+    maxGeometryDeltaPx?: number;
+    trackedSelectors?: string[];
+  } = {}
+): {
+  geometryWithinTolerance: boolean;
+  deltaGeometry: number;
+  cardinalityMatch: boolean;
+  deltaCardinality: number;
+  cardinality: { target: number; baseline: number };
+  maxGeometryShift: { selector?: string; deltaPx: number };
+} {
+  const maxTol = options.maxGeometryDeltaPx ?? 2;
+  const targetRegions = targetBundle.regions;
+  const baselineRegions = baselineBundle.regions;
+
+  // Cardinality comparison
+  const targetCount = targetRegions.length;
+  const baselineCount = baselineRegions.length;
+  const deltaCardinality = Math.abs(targetCount - baselineCount);
+  const cardinalityMatch = deltaCardinality === 0;
+
+  // Geometry comparison for elements with selectors
+  let maxDelta = 0;
+  let maxShiftSelector: string | undefined = undefined;
+
+  const baselineBySelector = new Map<string, VisualRegion>();
+  for (let i = 0; i < baselineRegions.length; i++) {
+    const br = baselineRegions[i]!;
+    if (br.selector) {
+      baselineBySelector.set(br.selector, br);
+    }
+  }
+
+  for (let i = 0; i < targetRegions.length; i++) {
+    const tr = targetRegions[i]!;
+    if (tr.selector && baselineBySelector.has(tr.selector)) {
+      if (options.trackedSelectors && !options.trackedSelectors.includes(tr.selector)) {
+        continue;
+      }
+      const br = baselineBySelector.get(tr.selector)!;
+      const dx = Math.abs(tr.bounds.x - br.bounds.x);
+      const dy = Math.abs(tr.bounds.y - br.bounds.y);
+      const dw = Math.abs(tr.bounds.width - br.bounds.width);
+      const dh = Math.abs(tr.bounds.height - br.bounds.height);
+      const shift = Math.max(dx, dy, dw, dh);
+      if (shift > maxDelta) {
+        maxDelta = shift;
+        maxShiftSelector = tr.selector;
+      }
+    }
+  }
+
+  return {
+    geometryWithinTolerance: maxDelta <= maxTol,
+    deltaGeometry: maxDelta,
+    cardinalityMatch,
+    deltaCardinality,
+    cardinality: { target: targetCount, baseline: baselineCount },
+    maxGeometryShift: { selector: maxShiftSelector, deltaPx: maxDelta },
+  };
+}

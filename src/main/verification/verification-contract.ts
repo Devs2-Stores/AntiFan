@@ -158,3 +158,36 @@ export const THEME_METRICS = {
   RESPONSIVE_NO_TARGET_OVERFLOW: 'theme.responsive.no_target_overflow',
   RESPONSIVE_NO_DOC_OVERFLOW: 'theme.responsive.no_doc_overflow',
 } as const;
+
+export type VisualMetricName =
+  | 'visual.pixel_mismatch_pct'
+  | 'visual.dimensions_match'
+  | 'visual.capture_state_compatible'
+  | 'visual.mask_resolution_complete'
+  | 'visual.geometry_within_tolerance'
+  | 'visual.cardinality_match'
+  | 'visual.settle_complete'
+  | 'visual.critical_regions_pass'; // Deferred: producer not yet wired; see Audit v5 §25
+
+export const VISUAL_METRICS = {
+  PIXEL_MISMATCH_PCT: 'visual.pixel_mismatch_pct',
+  DIMENSIONS_MATCH: 'visual.dimensions_match',
+  CAPTURE_STATE_COMPATIBLE: 'visual.capture_state_compatible',
+  MASK_RESOLUTION_COMPLETE: 'visual.mask_resolution_complete',
+  GEOMETRY_WITHIN_TOLERANCE: 'visual.geometry_within_tolerance',
+  CARDINALITY_MATCH: 'visual.cardinality_match',
+  SETTLE_COMPLETE: 'visual.settle_complete',
+  CRITICAL_REGIONS_PASS: 'visual.critical_regions_pass', // Deferred: see Audit v5 §25
+} as const;
+
+export interface VisualEvidenceReceipt {
+  match: boolean;
+  mismatchPercentage: number;
+  dimensionsMatch: boolean;
+  captureStateCompatible: boolean;
+  maskResolutionStatus: string;
+  maskedAreaRatio: number;
+  settleComplete: boolean;
+  metricSamples: MetricSample[];
+  notes?: string;
+}

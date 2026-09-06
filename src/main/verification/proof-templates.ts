@@ -9,7 +9,7 @@
 
 import { ProofObligation } from './verification-contract';
 
-export type ClaimCategory = 'INTERACTION' | 'LAYOUT' | 'RESPONSIVE' | 'CUSTOM';
+export type ClaimCategory = 'INTERACTION' | 'LAYOUT' | 'RESPONSIVE' | 'VISUAL' | 'CUSTOM';
 
 export interface CanonicalProofSpec {
   category: ClaimCategory;
@@ -153,6 +153,71 @@ export class ProofTemplateRegistry {
   public static getResponsiveTemplate(): ProofObligation[] {
     return this.CANONICAL_RESPONSIVE_TEMPLATE.map((o) => ({ ...o }));
   }
+
+  /**
+   * Returns canonical obligations for visual parity claims (Audit v5 §16, §25, Freeze #13/#14).
+   * Enforces structural primacy: visual paint matching alone cannot satisfy a claim
+   * if geometry or cardinality obligations fail.
+   */
+  public static getVisualTemplate(options: {
+    maxMismatchPct?: number;
+    requireStructuralPrimacy?: boolean;
+  } = {}): ProofObligation[] {
+    // Default 5.0% mismatch tolerance aligns with BrowserControlPort.visualCompare default (tolerance = 5)
+    const maxMismatch = options.maxMismatchPct ?? 5.0;
+    const obligations: ProofObligation[] = [
+      {
+        id: 'obl-visual-pixel-mismatch',
+        metric: 'visual.pixel_mismatch_pct',
+        expected: 0,
+        tolerance: maxMismatch,
+        critical: true,
+      },
+      {
+        id: 'obl-visual-dimensions-match',
+        metric: 'visual.dimensions_match',
+        expected: true,
+        critical: true,
+      },
+      {
+        id: 'obl-visual-capture-state-compatible',
+        metric: 'visual.capture_state_compatible',
+        expected: true,
+        critical: true,
+      },
+      {
+        id: 'obl-visual-mask-resolution-complete',
+        metric: 'visual.mask_resolution_complete',
+        expected: true,
+        critical: true,
+      },
+      {
+        id: 'obl-visual-settle-complete',
+        metric: 'visual.settle_complete',
+        expected: true,
+        critical: true,
+      },
+    ];
+
+    if (options.requireStructuralPrimacy !== false) {
+      obligations.push(
+        {
+          id: 'obl-visual-geometry-tolerance',
+          metric: 'visual.geometry_within_tolerance',
+          expected: true,
+          critical: true,
+        },
+        {
+          id: 'obl-visual-cardinality-match',
+          metric: 'visual.cardinality_match',
+          expected: true,
+          critical: true,
+        }
+      );
+    }
+
+    return obligations;
+  }
   /**
    * Augments a claim with mandatory canonical proof obligations based on category.
    */
@@ -197,6 +262,11 @@ export class ProofTemplateRegistry {
         break;
       case 'RESPONSIVE':
         canonical = this.getResponsiveTemplate();
+        break;
+      case 'VISUAL':
+        canonical = this.getVisualTemplate({
+          maxMismatchPct: options?.tolerance,
+        });
         break;
       default:
         canonical = [];

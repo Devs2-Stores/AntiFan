@@ -58,13 +58,25 @@ interface MockHostOptions {
   injectResultFor?: (tabId: string) => boolean | { owned: boolean; present: boolean };
   /** inject evalJs throws for a tab */
   injectThrowsFor?: Set<string>;
+  captureBackendFor?: (tabId: string) => string;
+  dprFor?: (tabId: string) => number;
+  zoomFor?: (tabId: string) => number;
+  viewportFor?: (tabId: string) => { width: number; height: number };
+  fontsReadyFor?: (tabId: string) => boolean;
+  brokenImagesFor?: (tabId: string) => string[];
+  imagesSettledFor?: (tabId: string) => boolean;
+  domQuietFor?: (tabId: string) => boolean;
+  networkSettledFor?: (tabId: string) => boolean;
+  networkTimedOutFor?: (tabId: string) => boolean;
+  structuralRowsFor?: (tabId: string) => any[];
+  evalJsOverride?: (script: string, tabId?: string) => Promise<unknown> | unknown;
   evalLog: EvalLogEntry[];
 }
 
 function buildMockHost(opts: MockHostOptions) {
   const curPng = createTestPng(800, 600);
   const basePng = createTestPng(800, 600);
-  return {
+  const host = {
     hasTab: () => true,
     getTabList: () => [{ id: 'tab-a' }, { id: 'tab-b' }],
     evalJs: async (script: string, tabId?: string): Promise<unknown> => {
@@ -78,7 +90,30 @@ function buildMockHost(opts: MockHostOptions) {
         if (opts.injectResultFor) return opts.injectResultFor(tabId || '');
         return true;
       }
+      if (script.includes('document.fonts.ready')) {
+        return opts.fontsReadyFor ? opts.fontsReadyFor(tabId || '') : true;
+      }
+      if (script.includes('img.decode')) {
+        const settled = opts.imagesSettledFor ? opts.imagesSettledFor(tabId || '') : true;
+        const brokenImages = opts.brokenImagesFor ? opts.brokenImagesFor(tabId || '') : [];
+        return { settled, brokenImages };
+      }
+      if (script.includes('requestAnimationFrame')) {
+        return opts.domQuietFor ? opts.domQuietFor(tabId || '') : true;
+      }
       if (script.includes('innerWidth')) return { vw: 800, vh: 600, dh: 1600, sx: 0, sy: 0 };
+      if (script.includes('r.width <= 0')) {
+        return { x: 0, y: 0, width: 800, height: 200 };
+      }
+      if (script.includes('root.children')) {
+        if (opts.structuralRowsFor && tabId) return opts.structuralRowsFor(tabId);
+        if (opts.evalJsOverride) return opts.evalJsOverride(script, tabId);
+        return [];
+      }
+      if (opts.evalJsOverride) {
+        const custom = await opts.evalJsOverride(script, tabId);
+        if (custom !== undefined) return custom;
+      }
       if (script.includes('querySelectorAll')) {
         if (!tabId) return [];
         const rows = opts.maskRows ? opts.maskRows(tabId) : [{ selector: '.badge', error: null, boxes: [{ x: 100, y: 100, width: 50, height: 50 }] }];
@@ -93,10 +128,35 @@ function buildMockHost(opts: MockHostOptions) {
       }
       return (tabId === 'tab-b' ? basePng : curPng).toString('base64');
     },
+    captureVerificationScreenshot: async (rect: unknown, tabId?: string, paneId?: string, options?: any) => {
+      const data = await host.captureScreenshot(rect, tabId);
+      const backend = opts.captureBackendFor ? opts.captureBackendFor(tabId || '') : 'cdp';
+      const dpr = opts.dprFor ? opts.dprFor(tabId || '') : 1;
+      const zoom = opts.zoomFor ? opts.zoomFor(tabId || '') : 1.0;
+      const cssViewport = opts.viewportFor ? opts.viewportFor(tabId || '') : { width: 800, height: 600 };
+      return {
+        data,
+        backend,
+        dpr,
+        zoom,
+        cssViewport,
+        rasterSize: { width: 800, height: 600 },
+        timestamp: Date.now(),
+      };
+    },
     getBrowserEpoch: () => 1,
     getDocumentGeneration: (tabId?: string) => (opts.docGenFor ? opts.docGenFor(tabId || '') : 1),
     getMutationRevision: (tabId?: string) => (opts.mutationRevFor ? opts.mutationRevFor(tabId || '') : 1),
+    getNetworkTracker: () => ({
+      isAttached: () => true,
+      awaitQuiescence: async (tabId: string) => ({
+        settled: opts.networkSettledFor ? opts.networkSettledFor(tabId) : true,
+        durationMs: 10,
+        timedOut: opts.networkTimedOutFor ? opts.networkTimedOutFor(tabId) : false,
+      }),
+    }),
   };
+  return host;
 }
 
 const dummyTarget: BrowserTarget = {
@@ -484,5 +544,440 @@ describe('visualCompare pair lock serializes capture transactions', () => {
       .filter((e) => e.script.includes('__antifan_normalize_scroll'))
       .map((e) => (e.script.includes('createElement') ? 'inject' : 'restore'));
     assert.deepStrictEqual(normEvents, ['inject', 'inject', 'restore', 'restore', 'inject', 'inject', 'restore', 'restore']);
+  });
+});
+
+describe('visualCompare canonical capture receipts (Phase 3 V-19, V-20, V-21)', () => {
+  it('fails closed with CAPABILITY_NOT_FOUND when host lacks captureVerificationScreenshot', async () => {
+    const hostWithoutVerif = {
+      hasTab: () => true,
+      getTabList: () => [{ id: 'tab-a' }],
+      captureScreenshot: async () => 'dGVzdA==',
+      evalJs: async (script: string) => {
+        if (script.includes('img.decode')) return { settled: true, brokenImages: [] };
+        return true;
+      },
+      getNetworkTracker: () => ({
+        isAttached: () => true,
+        awaitQuiescence: async () => ({ settled: true, durationMs: 0, timedOut: false }),
+      }),
+    };
+    const port = new BrowserControlPort(hostWithoutVerif as any);
+    await assert.rejects(
+      () => port.visualCompare(dummyTarget, 'run', 'att', { comparisonTabId: 'tab-b' }),
+      (err: unknown) => err instanceof CapabilityError && err.code === 'CAPABILITY_NOT_FOUND'
+    );
+  });
+
+  it('projects canonical CDP backend capture receipts across settled result (V-19)', async () => {
+    const evalLog: EvalLogEntry[] = [];
+    const host = buildMockHost({ evalLog });
+    const port = new BrowserControlPort(host as any);
+    const res = (await port.visualCompare(dummyTarget, 'run', 'att', { comparisonTabId: 'tab-b', normalizeScroll: true })) as any;
+
+    assert.strictEqual(res.match, true);
+    assert.strictEqual(res.captureStateCompatible, true);
+    assert.ok(res.captureReceipts, 'captureReceipts must be present');
+    assert.strictEqual(res.captureReceipts.target.backend, 'cdp');
+    assert.strictEqual(res.captureReceipts.baseline.backend, 'cdp');
+    assert.strictEqual(res.captureReceipts.target.dpr, 1);
+    assert.strictEqual(res.captureReceipts.baseline.dpr, 1);
+    assert.strictEqual(res.captureReceipts.target.zoom, 1.0);
+    assert.strictEqual(res.captureReceipts.baseline.zoom, 1.0);
+    assert.deepStrictEqual(res.captureReceipts.target.cssViewport, { width: 800, height: 600 });
+    assert.deepStrictEqual(res.captureReceipts.baseline.cssViewport, { width: 800, height: 600 });
+    assert.deepStrictEqual(res.captureReceipts.target.rasterSize, { width: 800, height: 600 });
+    assert.deepStrictEqual(res.captureReceipts.baseline.rasterSize, { width: 800, height: 600 });
+  });
+
+  it('throws CAPTURE_BACKEND_SWITCH when backend changes between target and baseline (V-20)', async () => {
+    const evalLog: EvalLogEntry[] = [];
+    const host = buildMockHost({
+      evalLog,
+      captureBackendFor: (id) => (id === 'tab-a' ? 'cdp' : 'offscreen'),
+    });
+    const port = new BrowserControlPort(host as any);
+    await assert.rejects(
+      () => port.visualCompare(dummyTarget, 'run', 'att', { comparisonTabId: 'tab-b' }),
+      (err: unknown) => err instanceof CapabilityError && err.code === 'CAPTURE_BACKEND_SWITCH'
+    );
+  });
+
+  it('settles INCONCLUSIVE when DPR differs between target and baseline (V-21)', async () => {
+    const evalLog: EvalLogEntry[] = [];
+    const host = buildMockHost({
+      evalLog,
+      dprFor: (id) => (id === 'tab-a' ? 1.0 : 2.0),
+    });
+    const port = new BrowserControlPort(host as any);
+    const res = (await port.visualCompare(dummyTarget, 'run', 'att', { comparisonTabId: 'tab-b', normalizeScroll: true })) as any;
+
+    assert.strictEqual(res.ok, false);
+    assert.strictEqual(res.status, 'INCONCLUSIVE');
+    assert.strictEqual(res.captureStateCompatible, false);
+    assert.strictEqual(res.maskResolution.status, 'ok');
+    assert.ok(res.reason.includes('Device pixel ratio mismatch'));
+    assert.strictEqual(res.captureReceipts.target.dpr, 1.0);
+    assert.strictEqual(res.captureReceipts.baseline.dpr, 2.0);
+  });
+
+  it('settles INCONCLUSIVE when zoom differs between target and baseline (V-21)', async () => {
+    const evalLog: EvalLogEntry[] = [];
+    const host = buildMockHost({
+      evalLog,
+      zoomFor: (id) => (id === 'tab-a' ? 1.0 : 1.25),
+    });
+    const port = new BrowserControlPort(host as any);
+    const res = (await port.visualCompare(dummyTarget, 'run', 'att', { comparisonTabId: 'tab-b', normalizeScroll: true })) as any;
+
+    assert.strictEqual(res.ok, false);
+    assert.strictEqual(res.status, 'INCONCLUSIVE');
+    assert.strictEqual(res.captureStateCompatible, false);
+    assert.ok(res.reason.includes('Zoom level mismatch'));
+  });
+
+  it('settles INCONCLUSIVE when CSS viewport differs between target and baseline (V-21)', async () => {
+    const evalLog: EvalLogEntry[] = [];
+    const host = buildMockHost({
+      evalLog,
+      viewportFor: (id) => (id === 'tab-a' ? { width: 800, height: 600 } : { width: 1024, height: 768 }),
+    });
+    const port = new BrowserControlPort(host as any);
+    const res = (await port.visualCompare(dummyTarget, 'run', 'att', { comparisonTabId: 'tab-b', normalizeScroll: true })) as any;
+
+    assert.strictEqual(res.ok, false);
+    assert.strictEqual(res.status, 'INCONCLUSIVE');
+    assert.strictEqual(res.captureStateCompatible, false);
+    assert.ok(res.reason.includes('CSS viewport dimension mismatch'));
+  });
+
+  it('settles INCONCLUSIVE for stored baseline artifact pending Phase 6 baseline authority (R3/R4)', async () => {
+    const evalLog: EvalLogEntry[] = [];
+    const host = buildMockHost({ evalLog });
+    const port = new BrowserControlPort(host as any);
+    const res = (await port.visualCompare(dummyTarget, 'run', 'att', { baselineScreenshotRef: 'art-stored-1' })) as any;
+
+    assert.strictEqual(res.ok, false);
+    assert.strictEqual(res.status, 'INCONCLUSIVE');
+    assert.strictEqual(res.captureStateCompatible, false);
+    assert.strictEqual(res.maskResolution.status, 'ok');
+    assert.ok(res.reason.includes('pending Phase 6 baseline authority certification'));
+  });
+});
+
+describe('visualCompare composed settle barrier (Phase 4 V-16, V-17, V-18)', () => {
+  it('enforces execution order: normalization -> settle -> metrics -> masks -> capture', async () => {
+    const evalLog: EvalLogEntry[] = [];
+    const host = buildMockHost({ evalLog });
+    const port = new BrowserControlPort(host as any);
+    const res = (await port.visualCompare(dummyTarget, 'run', 'att', {
+      comparisonTabId: 'tab-b',
+      normalizeScroll: true,
+      maskSelectors: ['.badge'],
+    })) as any;
+
+    assert.strictEqual(res.match, true);
+    assert.strictEqual(res.settle?.target?.settleComplete, true);
+    assert.strictEqual(res.settle?.comparison?.settleComplete, true);
+
+    // Verify ordering in evalLog for target side
+    const targetEvals = evalLog.filter((e) => e.tabId === 'tab-a');
+    const normIdx = targetEvals.findIndex((e) => e.script.includes('__antifan_normalize_scroll'));
+    const fontIdx = targetEvals.findIndex((e) => e.script.includes('document.fonts.ready'));
+    const imgIdx = targetEvals.findIndex((e) => e.script.includes('img.decode'));
+    const domIdx = targetEvals.findIndex((e) => e.script.includes('requestAnimationFrame'));
+    const metricsIdx = targetEvals.findIndex((e) => e.script.includes('documentElement.clientWidth'));
+    const maskIdx = targetEvals.findIndex((e) => e.script.includes('querySelectorAll'));
+
+    assert.ok(normIdx >= 0, 'normalization must run');
+    assert.ok(fontIdx > normIdx, 'settle (fonts) must run after normalization');
+    assert.ok(imgIdx > normIdx, 'settle (images) must run after normalization');
+    assert.ok(domIdx > normIdx, 'settle (DOM) must run after normalization');
+    assert.ok(metricsIdx > fontIdx && metricsIdx > imgIdx && metricsIdx > domIdx, 'metrics must run after settle');
+    assert.ok(maskIdx > metricsIdx, 'masks must resolve after metrics');
+  });
+
+  it('settles INCONCLUSIVE when target fonts fail to settle (V-16)', async () => {
+    const evalLog: EvalLogEntry[] = [];
+    const host = buildMockHost({
+      evalLog,
+      fontsReadyFor: (id) => id !== 'tab-a',
+    });
+    const port = new BrowserControlPort(host as any);
+    const res = (await port.visualCompare(dummyTarget, 'run', 'att', {
+      comparisonTabId: 'tab-b',
+      normalizeScroll: true,
+    })) as any;
+
+    assert.strictEqual(res.ok, false);
+    assert.strictEqual(res.status, 'INCONCLUSIVE');
+    assert.strictEqual(res.settle?.target?.settleComplete, false);
+    assert.strictEqual(res.settle?.target?.gates?.fonts, false);
+    assert.ok(res.reason.includes('Visual capture settle barrier incomplete'));
+  });
+
+  it('settles INCONCLUSIVE when target images fail to decode/settle (V-17)', async () => {
+    const evalLog: EvalLogEntry[] = [];
+    const host = buildMockHost({
+      evalLog,
+      imagesSettledFor: (id) => id !== 'tab-a',
+    });
+    const port = new BrowserControlPort(host as any);
+    const res = (await port.visualCompare(dummyTarget, 'run', 'att', {
+      comparisonTabId: 'tab-b',
+      normalizeScroll: true,
+    })) as any;
+
+    assert.strictEqual(res.ok, false);
+    assert.strictEqual(res.status, 'INCONCLUSIVE');
+    assert.strictEqual(res.settle?.target?.settleComplete, false);
+    assert.strictEqual(res.settle?.target?.gates?.images, false);
+    assert.ok(res.reason.includes('Visual capture settle barrier incomplete'));
+  });
+
+  it('throws RESOURCE_FAILURE when broken images are detected in comparison tab (V-18)', async () => {
+    const evalLog: EvalLogEntry[] = [];
+    const missingImg = 'https://cdn.example.com/asset-404.png';
+    const host = buildMockHost({
+      evalLog,
+      brokenImagesFor: (id) => (id === 'tab-b' ? [missingImg] : []),
+    });
+    const port = new BrowserControlPort(host as any);
+
+    await assert.rejects(
+      async () => {
+        await port.visualCompare(dummyTarget, 'run', 'att', {
+          comparisonTabId: 'tab-b',
+          normalizeScroll: true,
+        });
+      },
+      (err: unknown) => {
+        assert.ok(err instanceof CapabilityError);
+        assert.strictEqual((err as CapabilityError).code, 'RESOURCE_FAILURE');
+        assert.ok((err as CapabilityError).message.includes(missingImg));
+        return true;
+      }
+    );
+  });
+
+  it('settles INCONCLUSIVE when network tracker fails or times out', async () => {
+    const evalLog: EvalLogEntry[] = [];
+    const host = buildMockHost({
+      evalLog,
+      networkSettledFor: (id) => id !== 'tab-a',
+    });
+    const port = new BrowserControlPort(host as any);
+    const res = (await port.visualCompare(dummyTarget, 'run', 'att', {
+      comparisonTabId: 'tab-b',
+      normalizeScroll: true,
+    })) as any;
+
+    assert.strictEqual(res.ok, false);
+    assert.strictEqual(res.status, 'INCONCLUSIVE');
+    assert.strictEqual(res.settle?.target?.gates?.network, false);
+  });
+});
+
+describe('visualCompare evaluator structural primacy & receipts (Phase 5 R1, R2, R3)', () => {
+  it('returns canonical metricSamples and receipt conforming to VisualEvidenceReceipt on successful comparison', async () => {
+    const evalLog: EvalLogEntry[] = [];
+    const host = buildMockHost({ evalLog });
+    const port = new BrowserControlPort(host as any);
+
+    const res = (await port.visualCompare(dummyTarget, 'run-5', 'att-5', {
+      comparisonTabId: 'tab-b',
+      normalizeScroll: true,
+      maskSelectors: ['.badge'],
+    })) as any;
+
+    assert.strictEqual(res.match, true);
+    assert.ok(Array.isArray(res.metricSamples), 'Must return metricSamples array');
+    assert.ok(res.receipt, 'Must return receipt object');
+    assert.strictEqual(res.receipt.match, true);
+    assert.strictEqual(res.receipt.captureStateCompatible, true);
+    assert.strictEqual(res.receipt.settleComplete, true);
+    assert.strictEqual(res.receipt.maskResolutionStatus, 'ok');
+
+    const metrics = res.metricSamples.map((s: any) => s.metric);
+    assert.ok(metrics.includes('visual.pixel_mismatch_pct'));
+    assert.ok(metrics.includes('visual.dimensions_match'));
+    assert.ok(metrics.includes('visual.capture_state_compatible'));
+    assert.ok(metrics.includes('visual.mask_resolution_complete'));
+    assert.ok(metrics.includes('visual.settle_complete'));
+  });
+
+  it('computes structural metrics (geometry and cardinality) via normalizeVisualRegions & computeStructuralMetrics', async () => {
+    const evalLog: EvalLogEntry[] = [];
+    const host = buildMockHost({
+      evalLog,
+      evalJsOverride: async (script: string, tabId?: string) => {
+        if (script.includes('root.children')) {
+          if (tabId === 'tab-a') {
+            // Target tab: 3 items, shifted by +100px (V-09 and V-10 combined scenario)
+            return [
+              { ref: 'e0', tag: 'div', selector: '.grid', rect: { x: 0, y: 100, width: 800, height: 200, top: 100, right: 800, bottom: 300, left: 0 }, visible: true },
+              { ref: 'e1', tag: 'div', selector: '.item-1', rect: { x: 0, y: 100, width: 200, height: 100, top: 100, right: 200, bottom: 200, left: 0 }, visible: true },
+              { ref: 'e2', tag: 'div', selector: '.item-2', rect: { x: 200, y: 100, width: 200, height: 100, top: 100, right: 400, bottom: 200, left: 200 }, visible: true },
+              { ref: 'e3', tag: 'div', selector: '.item-3', rect: { x: 400, y: 100, width: 200, height: 100, top: 100, right: 600, bottom: 200, left: 400 }, visible: true },
+            ];
+          } else if (tabId === 'tab-b') {
+            // Baseline tab: 4 items at y: 0
+            return [
+              { ref: 'b0', tag: 'div', selector: '.grid', rect: { x: 0, y: 0, width: 800, height: 200, top: 0, right: 800, bottom: 200, left: 0 }, visible: true },
+              { ref: 'b1', tag: 'div', selector: '.item-1', rect: { x: 0, y: 0, width: 200, height: 100, top: 0, right: 200, bottom: 100, left: 0 }, visible: true },
+              { ref: 'b2', tag: 'div', selector: '.item-2', rect: { x: 200, y: 0, width: 200, height: 100, top: 0, right: 400, bottom: 100, left: 200 }, visible: true },
+              { ref: 'b3', tag: 'div', selector: '.item-3', rect: { x: 400, y: 0, width: 200, height: 100, top: 0, right: 600, bottom: 100, left: 400 }, visible: true },
+              { ref: 'b4', tag: 'div', selector: '.item-4', rect: { x: 600, y: 0, width: 200, height: 100, top: 0, right: 800, bottom: 100, left: 600 }, visible: true },
+            ];
+          }
+        }
+        return true;
+      },
+    });
+    const port = new BrowserControlPort(host as any);
+
+    const res = (await port.visualCompare(dummyTarget, 'run-struct', 'att-struct', {
+      comparisonTabId: 'tab-b',
+      selector: '.grid',
+      normalizeScroll: true,
+    })) as any;
+
+    assert.ok(res.metricSamples, 'Must emit metricSamples');
+    const geomSample = res.metricSamples.find((s: any) => s.metric === 'visual.geometry_within_tolerance');
+    assert.ok(geomSample, 'Must include visual.geometry_within_tolerance');
+    assert.strictEqual(geomSample.passed, false);
+    assert.strictEqual(geomSample.delta, 100);
+
+    const cardSample = res.metricSamples.find((s: any) => s.metric === 'visual.cardinality_match');
+    assert.ok(cardSample, 'Must include visual.cardinality_match');
+    assert.strictEqual(cardSample.passed, false);
+    assert.strictEqual(cardSample.delta, 1);
+  });
+
+  it('emits receipt and metricSamples on settle-incomplete failure', async () => {
+    const evalLog: EvalLogEntry[] = [];
+    const host = buildMockHost({
+      evalLog,
+      fontsReadyFor: () => false,
+    });
+    const port = new BrowserControlPort(host as any);
+
+    const res = (await port.visualCompare(dummyTarget, 'run-settle-fail', 'att-1', {
+      comparisonTabId: 'tab-b',
+    })) as any;
+
+    assert.strictEqual(res.status, 'INCONCLUSIVE');
+    assert.ok(res.receipt, 'Must emit receipt on settle-incomplete');
+    assert.strictEqual(res.receipt.settleComplete, false);
+    assert.strictEqual(res.receipt.maskResolutionStatus, 'ok');
+    assert.ok(Array.isArray(res.metricSamples), 'Must emit metricSamples');
+    const settleSample = res.metricSamples.find((s: any) => s.metric === 'visual.settle_complete');
+    assert.ok(settleSample);
+    assert.strictEqual(settleSample.passed, false);
+    const maskSample = res.metricSamples.find((s: any) => s.metric === 'visual.mask_resolution_complete');
+    assert.ok(maskSample);
+    assert.strictEqual(maskSample.passed, true);
+  });
+
+  it('fails closed with NOT_ATTEMPTED when settle fails while masks are requested', async () => {
+    const evalLog: EvalLogEntry[] = [];
+    const host = buildMockHost({
+      evalLog,
+      fontsReadyFor: () => false,
+    });
+    const port = new BrowserControlPort(host as any);
+
+    const res = (await port.visualCompare(dummyTarget, 'run-settle-mask-fail', 'att-1', {
+      comparisonTabId: 'tab-b',
+      maskSelectors: ['.header-ad'],
+    })) as any;
+
+    assert.strictEqual(res.status, 'INCONCLUSIVE');
+    assert.ok(res.receipt, 'Must emit receipt on settle-incomplete');
+    assert.strictEqual(res.receipt.settleComplete, false);
+    assert.strictEqual(res.receipt.maskResolutionStatus, 'NOT_ATTEMPTED');
+    assert.strictEqual(res.maskResolution.status, 'NOT_ATTEMPTED');
+    assert.ok(Array.isArray(res.metricSamples), 'Must emit metricSamples');
+    const maskSample = res.metricSamples.find((s: any) => s.metric === 'visual.mask_resolution_complete');
+    assert.ok(maskSample);
+    assert.strictEqual(maskSample.passed, false);
+    assert.strictEqual(maskSample.value, false);
+  });
+
+  it('emits receipt and metricSamples on capture state mismatch', async () => {
+    const evalLog: EvalLogEntry[] = [];
+    const host = buildMockHost({
+      evalLog,
+      dprFor: (id) => (id === 'tab-a' ? 2 : 1),
+    });
+    const port = new BrowserControlPort(host as any);
+
+    const res = (await port.visualCompare(dummyTarget, 'run-mismatch', 'att-2', {
+      comparisonTabId: 'tab-b',
+    })) as any;
+
+    assert.strictEqual(res.status, 'INCONCLUSIVE');
+    assert.ok(res.receipt, 'Must emit receipt on capture state mismatch');
+    assert.strictEqual(res.receipt.captureStateCompatible, false);
+    assert.strictEqual(res.receipt.maskResolutionStatus, 'ok');
+    const compatSample = res.metricSamples.find((s: any) => s.metric === 'visual.capture_state_compatible');
+    assert.ok(compatSample);
+    assert.strictEqual(compatSample.passed, false);
+    const maskSample = res.metricSamples.find((s: any) => s.metric === 'visual.mask_resolution_complete');
+    assert.ok(maskSample);
+    assert.strictEqual(maskSample.passed, true);
+  });
+
+  it('emits receipt and metricSamples on mask resolution failure', async () => {
+    const evalLog: EvalLogEntry[] = [];
+    const host = buildMockHost({
+      evalLog,
+      maskRows: () => [{ selector: '.missing', error: null, boxes: [] }],
+    });
+    const port = new BrowserControlPort(host as any);
+
+    const res = (await port.visualCompare(dummyTarget, 'run-mask-fail', 'att-3', {
+      comparisonTabId: 'tab-b',
+      maskSelectors: ['.missing'],
+    })) as any;
+
+    assert.strictEqual(res.status, 'MASK_RESOLUTION_FAILED');
+    assert.ok(res.receipt, 'Must emit receipt on mask resolution failure');
+    assert.strictEqual(res.receipt.maskResolutionStatus, 'MASK_RESOLUTION_FAILED');
+    const maskSample = res.metricSamples.find((s: any) => s.metric === 'visual.mask_resolution_complete');
+    assert.ok(maskSample);
+    assert.strictEqual(maskSample.passed, false);
+  });
+
+  it('decorates thrown CapabilityError with receipt and metricSamples', async () => {
+    const evalLog: EvalLogEntry[] = [];
+    const host = buildMockHost({
+      evalLog,
+      brokenImagesFor: () => ['https://cdn.example.com/broken.jpg'],
+    });
+    const port = new BrowserControlPort(host as any);
+
+    await assert.rejects(
+      async () => {
+        await port.visualCompare(dummyTarget, 'run-err', 'att-4', {
+          comparisonTabId: 'tab-b',
+        });
+      },
+      (err: unknown) => {
+        assert.ok(err instanceof CapabilityError);
+        assert.strictEqual((err as CapabilityError).code, 'RESOURCE_FAILURE');
+        assert.ok((err as any).receipt, 'Must decorate error with receipt');
+        assert.strictEqual((err as any).receipt.maskResolutionStatus, 'ok');
+        assert.strictEqual((err as any).receipt.settleComplete, false);
+        assert.ok(Array.isArray((err as any).metricSamples), 'Must decorate error with metricSamples');
+        const maskSample = (err as any).metricSamples.find((s: any) => s.metric === 'visual.mask_resolution_complete');
+        assert.ok(maskSample);
+        assert.strictEqual(maskSample.passed, true);
+        const settleSample = (err as any).metricSamples.find((s: any) => s.metric === 'visual.settle_complete');
+        assert.ok(settleSample);
+        assert.strictEqual(settleSample.passed, false);
+        return true;
+      }
+    );
   });
 });

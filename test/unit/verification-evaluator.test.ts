@@ -10,6 +10,16 @@ import {
   VerificationClaim,
   EvidenceSampleBundle,
 } from '../../src/main/verification/verification-contract';
+import { ProofTemplateRegistry } from '../../src/main/verification/proof-templates';
+import {
+  computeStructuralMetrics,
+  normalizeVisualRegions,
+  type RawElementSensoryData,
+} from '../../src/main/verification/visual-region';
+import {
+  generateVisualMetricSamples,
+  createVisualEvidenceReceipt,
+} from '../../src/main/verification/visual-capture';
 import { IssueRegister } from '../../src/main/session/issue-register';
 import { StorageLocations } from '../../src/main/config/storage-locations';
 
@@ -417,5 +427,235 @@ describe('Verification Evaluator & Contract Engine Suite (Phase 2)', () => {
     const freshResult = VerificationEvaluator.evaluate(claim, freshBundle);
     assert.strictEqual(freshResult.verdict, 'VERIFIED');
     assert.strictEqual(freshResult.proofProfile.freshness, 'FRESH');
+  });
+});
+
+describe('Visual Parity & Structural Primacy Suite (Phase 5 V-09, V-10)', () => {
+  it('V-09: rejects with REJECTED when geometry fails (+100px) even though paint diff is 0% (mask hides child shift)', () => {
+    // Claim requires canonical visual parity with structural primacy (Audit v5 §16, §25, Freeze #13/#14)
+    const claim: VerificationClaim = {
+      id: 'claim-v09',
+      claim: 'Header layout maintains exact visual and structural parity with baseline',
+      actor: 'agent',
+      scope: { tabId: 'tab-target', selector: '.header-container' },
+      proofObligations: ProofTemplateRegistry.getVisualTemplate({
+        maxMismatchPct: 5.0,
+        requireStructuralPrimacy: true,
+      }),
+      targetGeneration: 1,
+    };
+
+    // Child element shift was covered by a mask, so pixel diff is 0.0%
+    // BUT the parent moved by +100px, so geometry delta is 100px (tolerance <= 2px)
+    const samples = generateVisualMetricSamples({
+      diffResult: { match: true, mismatchPercentage: 0.0, dimensionsMatch: true },
+      captureStateCompatible: true,
+      maskResolutionStatus: 'ok',
+      settleComplete: true,
+      structural: {
+        geometryWithinTolerance: false,
+        deltaGeometry: 100,
+        cardinalityMatch: true,
+        deltaCardinality: 0,
+      },
+    });
+
+    const bundle: EvidenceSampleBundle = {
+      documentGeneration: 1,
+      captureTimestamp: Date.now(),
+      samples,
+    };
+
+    const result = VerificationEvaluator.evaluate(claim, bundle);
+    assert.strictEqual(result.verdict, 'REJECTED');
+    assert.ok(result.summary.includes('violations including critical obligations'));
+    const geomViolation = result.proofProfile.violations.find((v) => v.metric === 'visual.geometry_within_tolerance');
+    assert.ok(geomViolation, 'Must record critical violation on visual.geometry_within_tolerance');
+  });
+
+  it('V-10: rejects with REJECTED when cardinality fails (4->3 items) even though paint diff is 0%', () => {
+    const claim: VerificationClaim = {
+      id: 'claim-v10',
+      claim: 'Product card grid matches baseline visual and structural cardinality',
+      actor: 'agent',
+      scope: { tabId: 'tab-target', selector: '.product-grid' },
+      proofObligations: ProofTemplateRegistry.getVisualTemplate({
+        maxMismatchPct: 5.0,
+        requireStructuralPrimacy: true,
+      }),
+      targetGeneration: 1,
+    };
+
+    // One item disappeared (4 items -> 3 items), but blank space resulted in 0% diff
+    const samples = generateVisualMetricSamples({
+      diffResult: { match: true, mismatchPercentage: 0.0, dimensionsMatch: true },
+      captureStateCompatible: true,
+      maskResolutionStatus: 'ok',
+      settleComplete: true,
+      structural: {
+        geometryWithinTolerance: true,
+        deltaGeometry: 0,
+        cardinalityMatch: false,
+        deltaCardinality: 1,
+      },
+    });
+
+    const bundle: EvidenceSampleBundle = {
+      documentGeneration: 1,
+      captureTimestamp: Date.now(),
+      samples,
+    };
+
+    const result = VerificationEvaluator.evaluate(claim, bundle);
+    assert.strictEqual(result.verdict, 'REJECTED');
+    const cardViolation = result.proofProfile.violations.find((v) => v.metric === 'visual.cardinality_match');
+    assert.ok(cardViolation, 'Must record critical violation on visual.cardinality_match');
+  });
+
+  it('verifies visual parity when both paint and structural invariants match within tolerance', () => {
+    const claim: VerificationClaim = {
+      id: 'claim-v-ok',
+      claim: 'Footer parity holds visually and structurally',
+      actor: 'agent',
+      scope: { tabId: 'tab-target', selector: 'footer' },
+      proofObligations: ProofTemplateRegistry.getVisualTemplate({
+        maxMismatchPct: 5.0,
+        requireStructuralPrimacy: true,
+      }),
+      targetGeneration: 1,
+    };
+
+    const samples = generateVisualMetricSamples({
+      diffResult: { match: true, mismatchPercentage: 1.5, dimensionsMatch: true },
+      captureStateCompatible: true,
+      maskResolutionStatus: 'ok',
+      settleComplete: true,
+      structural: {
+        geometryWithinTolerance: true,
+        deltaGeometry: 1,
+        cardinalityMatch: true,
+        deltaCardinality: 0,
+      },
+    });
+
+    const bundle: EvidenceSampleBundle = {
+      documentGeneration: 1,
+      captureTimestamp: Date.now(),
+      samples,
+    };
+
+    const result = VerificationEvaluator.evaluate(claim, bundle);
+    assert.strictEqual(result.verdict, 'VERIFIED');
+    assert.strictEqual(result.proofProfile.violations.length, 0);
+  });
+
+  it('evaluator enforces tolerance boundary on visual.pixel_mismatch_pct without producer passed flag', () => {
+    const claim: VerificationClaim = {
+      id: 'claim-tol',
+      claim: 'Strict tolerance evaluation',
+      actor: 'agent',
+      scope: { tabId: 'tab-1' },
+      proofObligations: ProofTemplateRegistry.getVisualTemplate({
+        maxMismatchPct: 5.0,
+        requireStructuralPrimacy: false,
+      }),
+      targetGeneration: 1,
+    };
+
+    // Sample with 4.8% mismatch (under 5.0% tolerance)
+    const passingSamples = generateVisualMetricSamples({
+      diffResult: { match: true, mismatchPercentage: 4.8, dimensionsMatch: true },
+      captureStateCompatible: true,
+      maskResolutionStatus: 'ok',
+      settleComplete: true,
+    });
+    const passResult = VerificationEvaluator.evaluate(claim, {
+      documentGeneration: 1,
+      captureTimestamp: Date.now(),
+      samples: passingSamples,
+    });
+    assert.strictEqual(passResult.verdict, 'VERIFIED');
+
+    // Sample with 5.2% mismatch (exceeds 5.0% tolerance)
+    const failingSamples = generateVisualMetricSamples({
+      diffResult: { match: false, mismatchPercentage: 5.2, dimensionsMatch: true },
+      captureStateCompatible: true,
+      maskResolutionStatus: 'ok',
+      settleComplete: true,
+    });
+    const failResult = VerificationEvaluator.evaluate(claim, {
+      documentGeneration: 1,
+      captureTimestamp: Date.now(),
+      samples: failingSamples,
+    });
+    assert.strictEqual(failResult.verdict, 'REJECTED');
+  });
+
+  it('computeStructuralMetrics computes exact geometry shifts and cardinality deltas from normalized regions', () => {
+    const rawTarget: RawElementSensoryData[] = [
+      {
+        ref: 'e1',
+        tag: 'div',
+        selector: '.parent',
+        rect: { x: 0, y: 100, width: 800, height: 200, top: 100, right: 800, bottom: 300, left: 0 },
+        visible: true,
+      },
+      {
+        ref: 'e2',
+        tag: 'span',
+        selector: '.child-1',
+        rect: { x: 10, y: 110, width: 100, height: 50, top: 110, right: 110, bottom: 160, left: 10 },
+        visible: true,
+      },
+      {
+        ref: 'e3',
+        tag: 'span',
+        selector: '.child-2',
+        rect: { x: 120, y: 110, width: 100, height: 50, top: 110, right: 220, bottom: 160, left: 120 },
+        visible: true,
+      },
+    ];
+
+    const rawBaseline: RawElementSensoryData[] = [
+      {
+        ref: 'b1',
+        tag: 'div',
+        selector: '.parent',
+        rect: { x: 0, y: 0, width: 800, height: 200, top: 0, right: 800, bottom: 200, left: 0 },
+        visible: true,
+      },
+      {
+        ref: 'b2',
+        tag: 'span',
+        selector: '.child-1',
+        rect: { x: 10, y: 10, width: 100, height: 50, top: 10, right: 110, bottom: 60, left: 10 },
+        visible: true,
+      },
+      {
+        ref: 'b3',
+        tag: 'span',
+        selector: '.child-2',
+        rect: { x: 120, y: 10, width: 100, height: 50, top: 10, right: 220, bottom: 60, left: 120 },
+        visible: true,
+      },
+      {
+        ref: 'b4',
+        tag: 'span',
+        selector: '.child-3',
+        rect: { x: 230, y: 10, width: 100, height: 50, top: 10, right: 330, bottom: 60, left: 230 },
+        visible: true,
+      },
+    ];
+
+    const targetBundle = normalizeVisualRegions(rawTarget, { width: 1200, height: 800 }, 1);
+    const baselineBundle = normalizeVisualRegions(rawBaseline, { width: 1200, height: 800 }, 1);
+
+    const metrics = computeStructuralMetrics(targetBundle, baselineBundle);
+    assert.strictEqual(metrics.geometryWithinTolerance, false);
+    assert.strictEqual(metrics.deltaGeometry, 100);
+    assert.strictEqual(metrics.cardinalityMatch, false);
+    assert.strictEqual(metrics.deltaCardinality, 1);
+    assert.strictEqual(metrics.cardinality.target, 3);
+    assert.strictEqual(metrics.cardinality.baseline, 4);
   });
 });

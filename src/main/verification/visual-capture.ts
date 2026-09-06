@@ -16,6 +16,8 @@
  * route to their operational status channel.
  */
 
+import type { MetricSample, VisualEvidenceReceipt } from './verification-contract';
+
 export interface RasterBox {
   x: number;
   y: number;
@@ -668,5 +670,221 @@ export function coherencePairReceipt(c: CoherencePairCheck): {
     afterCapture: c.afterCapture,
     identity: c.identity,
     mutation: c.mutation,
+  };
+}
+
+/**
+ * Canonical verification capture envelope returned by CDP Page.captureScreenshot.
+ */
+export interface VerificationCaptureEnvelope {
+  data: string;
+  backend: 'cdp' | string;
+  dpr: number;
+  zoom: number;
+  cssViewport: { width: number; height: number };
+  rasterSize: { width: number; height: number };
+  timestamp: number;
+}
+
+/**
+ * Capture receipt projected into visual-compare result metadata.
+ */
+export interface VerificationCaptureReceipt {
+  backend: string;
+  dpr: number;
+  zoom: number;
+  cssViewport: { width: number; height: number };
+  rasterSize: { width: number; height: number };
+  timestamp: number;
+}
+
+export function verificationCaptureReceipt(env: VerificationCaptureEnvelope): VerificationCaptureReceipt {
+  return {
+    backend: env.backend,
+    dpr: env.dpr,
+    zoom: env.zoom,
+    cssViewport: { width: env.cssViewport.width, height: env.cssViewport.height },
+    rasterSize: { width: env.rasterSize.width, height: env.rasterSize.height },
+    timestamp: env.timestamp,
+  };
+}
+
+/**
+ * Pure compatibility gate checking whether baseline and current captures are
+ * comparable before computing a pixel diff. Discrepancies in backend, DPR,
+ * zoom, or CSS viewport dimension make pixel comparisons inconclusive.
+ */
+export function checkCaptureStateCompatibility(
+  target: VerificationCaptureReceipt,
+  baseline: VerificationCaptureReceipt
+): { compatible: boolean; reason?: string } {
+  if (!target || !baseline) {
+    return { compatible: false, reason: 'Capture receipt is missing or undefined' };
+  }
+  if (typeof target.backend !== 'string' || typeof baseline.backend !== 'string' || target.backend !== baseline.backend) {
+    return {
+      compatible: false,
+      reason: `Capture backend mismatch: target '${target?.backend}' vs baseline '${baseline?.backend}'`,
+    };
+  }
+  if (!Number.isFinite(target.dpr) || !Number.isFinite(baseline.dpr) || target.dpr <= 0 || baseline.dpr <= 0) {
+    return { compatible: false, reason: `Invalid device pixel ratio: target ${target.dpr} vs baseline ${baseline.dpr}` };
+  }
+  if (Math.abs(target.dpr - baseline.dpr) > 0.01) {
+    return {
+      compatible: false,
+      reason: `Device pixel ratio mismatch: target ${target.dpr} vs baseline ${baseline.dpr}`,
+    };
+  }
+  if (!Number.isFinite(target.zoom) || !Number.isFinite(baseline.zoom) || target.zoom <= 0 || baseline.zoom <= 0) {
+    return { compatible: false, reason: `Invalid zoom level: target ${target.zoom} vs baseline ${baseline.zoom}` };
+  }
+  if (Math.abs(target.zoom - baseline.zoom) > 0.01) {
+    return {
+      compatible: false,
+      reason: `Zoom level mismatch: target ${target.zoom} vs baseline ${baseline.zoom}`,
+    };
+  }
+  const tVw = target.cssViewport?.width;
+  const tVh = target.cssViewport?.height;
+  const bVw = baseline.cssViewport?.width;
+  const bVh = baseline.cssViewport?.height;
+  if (!Number.isFinite(tVw) || !Number.isFinite(tVh) || !Number.isFinite(bVw) || !Number.isFinite(bVh) || tVw <= 0 || tVh <= 0 || bVw <= 0 || bVh <= 0) {
+    return { compatible: false, reason: `Invalid CSS viewport dimensions: target ${tVw}x${tVh} vs baseline ${bVw}x${bVh}` };
+  }
+  if (Math.abs(tVw - bVw) > 1 || Math.abs(tVh - bVh) > 1) {
+    return {
+      compatible: false,
+      reason: `CSS viewport dimension mismatch: target ${tVw}x${tVh} vs baseline ${bVw}x${bVh}`,
+    };
+  }
+  return { compatible: true };
+}
+
+export interface VisualStructuralMetrics {
+  geometryWithinTolerance?: boolean;
+  deltaGeometry?: number;
+  cardinalityMatch?: boolean;
+  deltaCardinality?: number;
+}
+
+/**
+ * Generates canonical visual and structural MetricSample[] for VerificationEvaluator (Audit v5 §16, §25, Freeze #13/#14).
+ * Operational callers (visualCompare) emit these samples; VerificationEvaluator alone issues verdicts.
+ */
+export function generateVisualMetricSamples(params: {
+  diffResult?: {
+    match: boolean;
+    mismatchPercentage: number;
+    dimensionsMatch: boolean;
+  };
+  captureStateCompatible: boolean;
+  maskResolutionStatus: string;
+  settleComplete: boolean;
+  structural?: VisualStructuralMetrics;
+}): MetricSample[] {
+  const samples: MetricSample[] = [];
+
+  if (params.diffResult) {
+    const mismatchPct = params.diffResult.mismatchPercentage;
+    samples.push({
+      metric: 'visual.pixel_mismatch_pct',
+      value: mismatchPct,
+      actual: mismatchPct,
+      delta: mismatchPct,
+      source: 'deterministic',
+      message: `Visual pixel mismatch: ${mismatchPct}%`,
+    });
+
+    const dimMatch = params.diffResult.dimensionsMatch;
+    samples.push({
+      metric: 'visual.dimensions_match',
+      value: dimMatch,
+      actual: dimMatch,
+      passed: dimMatch,
+      source: 'deterministic',
+      message: dimMatch ? 'Dimensions match between target and baseline' : 'Dimensions mismatch between target and baseline',
+    });
+  }
+  samples.push({
+    metric: 'visual.capture_state_compatible',
+    value: params.captureStateCompatible,
+    passed: params.captureStateCompatible,
+    source: 'deterministic',
+    message: params.captureStateCompatible ? 'Capture state compatible (DPR, zoom, viewport match)' : 'Capture state incompatible',
+  });
+
+  const maskOk = params.maskResolutionStatus === 'ok';
+  samples.push({
+    metric: 'visual.mask_resolution_complete',
+    value: maskOk,
+    passed: maskOk,
+    source: 'deterministic',
+    message: maskOk ? 'All required masks resolved successfully' : `Mask resolution status: ${params.maskResolutionStatus}`,
+  });
+
+  samples.push({
+    metric: 'visual.settle_complete',
+    value: params.settleComplete,
+    passed: params.settleComplete,
+    source: 'deterministic',
+    message: params.settleComplete ? 'All capture settle barriers passed (network, fonts, images, DOM)' : 'Capture settle barriers incomplete',
+  });
+
+  if (params.structural) {
+    if (params.structural.geometryWithinTolerance !== undefined) {
+      samples.push({
+        metric: 'visual.geometry_within_tolerance',
+        value: params.structural.geometryWithinTolerance,
+        delta: params.structural.deltaGeometry,
+        passed: params.structural.geometryWithinTolerance,
+        source: 'deterministic',
+        message: params.structural.geometryWithinTolerance
+          ? 'Structural geometry within tolerance'
+          : `Structural geometry shifted by ${params.structural.deltaGeometry ?? 'exceeded'}px`,
+      });
+    }
+
+    if (params.structural.cardinalityMatch !== undefined) {
+      samples.push({
+        metric: 'visual.cardinality_match',
+        value: params.structural.cardinalityMatch,
+        delta: params.structural.deltaCardinality,
+        passed: params.structural.cardinalityMatch,
+        source: 'deterministic',
+        message: params.structural.cardinalityMatch
+          ? 'Element cardinality matches'
+          : `Element cardinality mismatch (delta: ${params.structural.deltaCardinality ?? 'mismatch'})`,
+      });
+    }
+  }
+
+  return samples;
+}
+
+/**
+ * Builds the canonical VisualEvidenceReceipt matching the verification-contract (Audit v5 §16, §25).
+ */
+export function createVisualEvidenceReceipt(params: {
+  match: boolean;
+  mismatchPercentage: number;
+  dimensionsMatch: boolean;
+  captureStateCompatible: boolean;
+  maskResolutionStatus: string;
+  maskedAreaRatio: number;
+  settleComplete: boolean;
+  metricSamples: MetricSample[];
+  notes?: string;
+}): VisualEvidenceReceipt {
+  return {
+    match: params.match,
+    mismatchPercentage: params.mismatchPercentage,
+    dimensionsMatch: params.dimensionsMatch,
+    captureStateCompatible: params.captureStateCompatible,
+    maskResolutionStatus: params.maskResolutionStatus,
+    maskedAreaRatio: params.maskedAreaRatio,
+    settleComplete: params.settleComplete,
+    metricSamples: params.metricSamples,
+    notes: params.notes,
   };
 }

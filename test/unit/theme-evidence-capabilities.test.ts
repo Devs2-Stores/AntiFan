@@ -374,9 +374,39 @@ describe('Phase 3: Theme Evidence Capabilities', () => {
         // 1x1 base64 png
         return 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
       },
+      captureVerificationScreenshot: async (rect) => {
+        capturedRect = rect;
+        return {
+          data: 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==',
+          backend: 'cdp',
+          dpr: 1,
+          zoom: 1.0,
+          cssViewport: { width: 1200, height: 800 },
+          rasterSize: { width: 1, height: 1 },
+          timestamp: Date.now(),
+        };
+      },
+      getNetworkTracker: (() => ({
+        isAttached: () => true,
+        awaitQuiescence: async () => ({ settled: true, durationMs: 1, timedOut: false }),
+      })) as any,
       evalJs: async (expr) => {
-        if (typeof expr === 'string' && expr.includes('getBoundingClientRect')) {
-          return { x: 100, y: 200, width: 300, height: 400 };
+        if (typeof expr === 'string') {
+          if (expr.includes('naturalWidth') || expr.includes('img.decode')) {
+            return { settled: true, brokenImages: [] };
+          }
+          if (expr.includes('document.fonts')) {
+            return true;
+          }
+          if (expr.includes('requestAnimationFrame')) {
+            return true;
+          }
+          if (expr.includes('innerWidth')) {
+            return { vw: 800, vh: 600, dh: 600, sx: 0, sy: 0 };
+          }
+          if (expr.includes('getBoundingClientRect')) {
+            return { x: 100, y: 200, width: 300, height: 400 };
+          }
         }
         return null;
       },

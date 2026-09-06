@@ -3,7 +3,15 @@ import * as path from 'node:path';
 import * as os from 'node:os';
 import * as crypto from 'node:crypto';
 import { buildTreeWalkerSanitizerScript } from './adapters/tree-walker-sanitizer';
-import { BrowserTarget, CapabilityError, ArtifactRef, assertExactBrowserTarget, digestText } from '../../shared/control-plane-contracts';
+import {
+  BrowserTarget,
+  CapabilityError,
+  ArtifactRef,
+  assertExactBrowserTarget,
+  digestText,
+  CapabilityRequestContext,
+  AuthenticatedCapabilityContext,
+} from '../../shared/control-plane-contracts';
 import { computeSparseInteractionDelta } from '../verification/interaction-delta.js';
 import { attributeMutations } from '../verification/mutation-attribution.js';
 import { ActionBoundary, RawBehaviorScope, ObservationIntegrity } from '../verification/interaction-contract.js';
@@ -19,11 +27,35 @@ import {
   maskEntryReceipt,
   materializeRasterMasks,
   visualCaptureSpaceFromMeasured,
+  VerificationCaptureEnvelope,
+  VerificationCaptureReceipt,
+  checkCaptureStateCompatibility,
+  verificationCaptureReceipt,
+  generateVisualMetricSamples,
+  createVisualEvidenceReceipt,
   type CaptureIdentitySnapshot,
   type CoherencePairCheck,
   type MaskResolutionEntry,
   type NormalizationReceipt,
+  type VisualStructuralMetrics,
 } from '../verification/visual-capture.js';
+import {
+  normalizeVisualRegions,
+  computeStructuralMetrics,
+  type RawElementSensoryData,
+} from '../verification/visual-region.js';
+import {
+  CaptureSettleGate,
+  createBrowserSettlePredicates,
+  type VisualSettleReceipt,
+  type CaptureSettleOptions,
+} from '../verification/capture-settle.js';
+import {
+  BaselineAuthority,
+  readPngDimensions,
+  type VisualBaselineRef,
+} from '../verification/baseline-authority.js';
+import type { NetworkTrackerOptions } from '../browser/first-party-network-tracker.js';
 import type { AntiFanTab } from '../../shared/contracts';
 
 function isTabRecord(item: unknown): item is AntiFanTab {
@@ -71,6 +103,7 @@ export interface BrowserHostPort {
   reloadAndWait?(tabId: string, timeoutMs?: number): Promise<boolean>;
   getDom(selector?: string, tabId?: string, paneId?: 'desktop' | 'mobile'): Promise<string>;
   captureScreenshot(rect?: unknown, tabId?: string, paneId?: 'desktop' | 'mobile', options?: { format?: 'png' | 'jpeg'; quality?: number; fullPage?: boolean }): Promise<string>;
+  captureVerificationScreenshot?(rect?: unknown, tabId?: string, paneId?: 'desktop' | 'mobile', options?: { format?: 'png' | 'jpeg'; quality?: number; fullPage?: boolean }): Promise<VerificationCaptureEnvelope>;
   evalJs(expression: string, tabId?: string, paneId?: 'desktop' | 'mobile'): Promise<unknown>;
   getDiagnostics?(tabId?: string, level?: number | string): { console: unknown[]; failures: unknown[] };
   runResponsiveCheck?(params?: { tabId?: string; selector?: string; customBreakpoints?: ResponsiveBreakpointOption[] } | string): Promise<Record<string, unknown>>;
@@ -104,7 +137,7 @@ export interface BrowserHostPort {
   inspectRegion?(params: { x?: number; y?: number; width?: number; height?: number; selector?: string; ref?: string; tabId?: string; paneId?: 'desktop' | 'mobile' }): Promise<Record<string, unknown>>;
   inspectFont?(params: { selector?: string; ref?: string; tabId?: string; paneId?: 'desktop' | 'mobile' }): Promise<Record<string, unknown>>;
   getMatchedStylesForNode?(params: { nodeId?: number; selector?: string; ref?: string; tabId?: string; paneId?: 'desktop' | 'mobile' }): Promise<Record<string, unknown> | null>;
-  getNetworkTracker?(): { isAttached: (tabId: string, paneId?: string) => boolean; awaitQuiescence: (tabId: string, paneId?: string, options?: unknown, signal?: AbortSignal) => Promise<{ settled: boolean; durationMs: number; timedOut: boolean }> };
+  getNetworkTracker?(): { isAttached: (tabId: string, paneId?: string) => boolean; awaitQuiescence: (tabId: string, paneId?: string, options?: NetworkTrackerOptions, signal?: AbortSignal) => Promise<{ settled: boolean; durationMs: number; timedOut: boolean }> };
   wait?(params: BrowserWaitParams, signal?: AbortSignal): Promise<BrowserWaitResult>;
   observe?(params: BrowserObserveParams): Promise<BrowserObserveResult>;
 }
@@ -559,6 +592,7 @@ export function isStrictActionSuccess(rawRes: unknown, actionKey: string): boole
 
 interface VisualCompareParams {
   baselineScreenshotRef?: string;
+  baselineRef?: string;
   comparisonTabId?: string;
   tolerance?: number;
   selector?: string;
@@ -583,7 +617,9 @@ export class BrowserControlPort {
   public readonly viewportGate = new ViewportGate();
   /** Joint mutual exclusion for visualCompare tab pairs (passivePool keeps capacity accounting) */
   private readonly comparePairLock = new MultiKeyLock();
+  public readonly baselineAuthority: BaselineAuthority;
   constructor(private readonly host: BrowserHostPort, public readonly artifacts?: BrowserArtifactSink) {
+    this.baselineAuthority = new BaselineAuthority({ artifactStore: this.artifacts as any });
     this.viewportGate.setCancellationHandler(async (tabId) => {
       if (this.host.agentClear) {
         try {
@@ -2404,6 +2440,32 @@ export class BrowserControlPort {
       },
     };
   }
+  /**
+   * Phase 4: Composed Settle Barrier (Audit v5 §14, V-16..V-18).
+   * Unconditionally verifies first-party network quiescence, document fonts,
+   * in-viewport image decode, and DOM quiet (double-rAF).
+   *
+   * Throws CapabilityError('RESOURCE_FAILURE') if broken images are detected.
+   * Emits a full VisualSettleReceipt.
+   */
+  public async settleCapture(
+    target: BrowserTarget | string,
+    paneId: 'desktop' | 'mobile' = 'desktop',
+    clipRect?: { x: number; y: number; width: number; height: number },
+    options: CaptureSettleOptions & { signal?: AbortSignal; requireNetworkTracker?: boolean } = {}
+  ): Promise<VisualSettleReceipt> {
+    const tabId = typeof target === 'string' ? target : target.tabId;
+    const networkTracker = typeof this.host.getNetworkTracker === 'function' ? this.host.getNetworkTracker() : undefined;
+    const predicates = createBrowserSettlePredicates(this.host, tabId, paneId, {
+      clipRect,
+      networkTracker,
+      requireNetworkTracker: options.requireNetworkTracker,
+      signal: options.signal,
+    });
+    const receipt = await CaptureSettleGate.evaluate(predicates, options);
+    CaptureSettleGate.assertResources(receipt);
+    return receipt;
+  }
   async visualCompare(
     target: BrowserTarget,
     runId: string,
@@ -2412,12 +2474,22 @@ export class BrowserControlPort {
     explicitTabId?: string,
     paneId?: 'desktop' | 'mobile'
   ): Promise<Record<string, unknown>> {
-    if (!params.baselineScreenshotRef && !params.comparisonTabId) {
-      throw new CapabilityError('INVALID_ARGUMENT', 'Either baselineScreenshotRef or comparisonTabId is required for visual comparison');
+    const sourceCount = (params.baselineRef ? 1 : 0) + (params.baselineScreenshotRef ? 1 : 0) + (params.comparisonTabId ? 1 : 0);
+    if (sourceCount === 0) {
+      throw new CapabilityError('INVALID_ARGUMENT', 'Exactly one baseline source (baselineRef, baselineScreenshotRef, or comparisonTabId) is required for visual comparison');
+    }
+    if (sourceCount > 1) {
+      throw new CapabilityError('INVALID_ARGUMENT', 'Conflicting baseline sources: provide exactly one of baselineRef, baselineScreenshotRef, or comparisonTabId');
+    }
+    if (params.baselineRef && (!target || !target.workspaceId)) {
+      throw new CapabilityError('WORKSPACE_UNBOUND', 'Explicit workspace context required to resolve visual baseline');
+    }
+    if (typeof this.host.captureVerificationScreenshot !== 'function') {
+      throw new CapabilityError('CAPABILITY_NOT_FOUND', "Host does not implement required 'captureVerificationScreenshot' canonical CDP interface");
     }
     const tabId = this.resolveTargetTab(target, explicitTabId || params.tabId);
     const effectivePane = paneId || params.paneId || 'desktop';
-    const compTabTarget = params.comparisonTabId && !params.baselineScreenshotRef
+    const compTabTarget = params.comparisonTabId
       ? this.resolveTargetTab(target, params.comparisonTabId)
       : null;
 
@@ -2457,6 +2529,64 @@ export class BrowserControlPort {
       } finally {
         await releasePairLock();
       }
+    });
+  }
+  /**
+   * Canonically capture the current tab (or specified tabId) via CDP, stage the screenshot artifact,
+   * and promote it to an authoritative, immutable visual baseline reference (Phase 6, V-22).
+   */
+  async promoteBaseline(
+    context: CapabilityRequestContext | AuthenticatedCapabilityContext,
+    params: {
+      tabId?: string;
+      paneId?: 'desktop' | 'mobile';
+      clipRect?: { x: number; y: number; width: number; height: number };
+    } = {}
+  ): Promise<VisualBaselineRef> {
+    if (!context.browserTarget) {
+      throw new CapabilityError('TARGET_REQUIRED', 'BrowserTarget is required for baseline promotion');
+    }
+    const target = context.browserTarget;
+    const workspaceId = target.workspaceId || context.workspaceId;
+    const projectId = target.projectId || context.projectId;
+    if (!workspaceId) {
+      throw new CapabilityError('WORKSPACE_UNBOUND', 'Explicit workspace context required to promote baseline');
+    }
+    if (!projectId) {
+      throw new CapabilityError('INVALID_ARGUMENT', 'Explicit project context required to promote baseline');
+    }
+    if (!context.runId || !context.attemptId) {
+      throw new CapabilityError('INVALID_ARGUMENT', 'Active runId and attemptId required to promote baseline');
+    }
+    if (typeof this.host.captureVerificationScreenshot !== 'function') {
+      throw new CapabilityError('CAPABILITY_NOT_FOUND', "Host does not implement required 'captureVerificationScreenshot' canonical CDP interface");
+    }
+    const tabId = this.resolveTargetTab(target, params.tabId);
+    const effectivePane = params.paneId || 'desktop';
+
+    const envelope = await this.host.captureVerificationScreenshot(params.clipRect, tabId, effectivePane);
+    if (!envelope || !envelope.data || envelope.data.length === 0) {
+      throw new CapabilityError('TARGET_STALE', `Failed to capture non-empty verification screenshot on tab '${tabId}' for baseline promotion`);
+    }
+
+    const receipt = verificationCaptureReceipt(envelope);
+    const buf = Buffer.from(envelope.data, 'base64');
+    if (!this.artifacts) {
+      throw new CapabilityError('RESOURCE_FAILURE', 'Artifact store unavailable for staging promoted baseline');
+    }
+
+    const staged = await this.artifacts.stage({
+      kind: 'screenshot',
+      mime: 'image/png',
+      data: buf,
+      runId: context.runId,
+      attemptId: context.attemptId,
+      projectId,
+      workspaceId,
+    });
+
+    return this.baselineAuthority.promote(staged.id, context, {
+      captureReceipt: receipt,
     });
   }
 
@@ -2526,6 +2656,23 @@ export class BrowserControlPort {
     let targetCoh: CoherencePairCheck | undefined;
     let baselineCoh: CoherencePairCheck | null = null;
     const guard = new TwoSourceCoherenceGuard();
+    let curEnvelope: VerificationCaptureEnvelope | undefined;
+    let compEnvelope: VerificationCaptureEnvelope | undefined;
+    let targetCaptureReceipt: VerificationCaptureReceipt | undefined;
+    let compCaptureReceipt: VerificationCaptureReceipt | undefined;
+    let captureStateCompatible = true;
+    let targetSettleReceipt: VisualSettleReceipt | undefined;
+    let compSettleReceipt: VisualSettleReceipt | undefined;
+    const hasRequestedMasks = requiredMasks.length > 0 || optionalMasks.length > 0;
+    let targetMasksResolved = !hasRequestedMasks;
+    let compMasksResolved = !hasRequestedMasks;
+    const currentMaskStatus = (): 'ok' | 'NOT_ATTEMPTED' => {
+      if (!hasRequestedMasks) return 'ok';
+      if (compTabTarget) {
+        return targetMasksResolved && compMasksResolved ? 'ok' : 'NOT_ATTEMPTED';
+      }
+      return targetMasksResolved ? 'ok' : 'NOT_ATTEMPTED';
+    };
 
     try {
       // Pre-inject identity (navigation span). Our own style insert legitimately
@@ -2543,13 +2690,50 @@ export class BrowserControlPort {
         targetNormalize.owned = outcome.owned;
         if (!outcome.ok && outcome.error) targetNormalize.injectError = outcome.error;
       }
+      // Phase 4: Composed Settle Barrier before geometry measurement (Audit v5 §14, V-16..V-18)
+      targetSettleReceipt = await this.settleCapture(tabId, effectivePane, params.clipRect);
+      if (!targetSettleReceipt.settleComplete) {
+        const maskStatus = currentMaskStatus();
+        const metricSamples = generateVisualMetricSamples({
+          captureStateCompatible: false,
+          maskResolutionStatus: maskStatus,
+          settleComplete: false,
+        });
+        return {
+          settle: true,
+          result: {
+            ok: false,
+            status: 'INCONCLUSIVE',
+            reason: `Visual capture settle barrier incomplete on target tab '${tabId}' (gates: network=${targetSettleReceipt.gates.network}, fonts=${targetSettleReceipt.gates.fonts}, images=${targetSettleReceipt.gates.images}, dom=${targetSettleReceipt.gates.dom})`,
+            match: false,
+            mismatchPercentage: 100,
+            totalPixels: 0,
+            normalization: { target: targetNormalize },
+            maskResolution: { status: maskStatus, maskedAreaRatio: 0, optionalUnmatched: [] },
+            settle: { target: targetSettleReceipt },
+            receipt: createVisualEvidenceReceipt({
+              match: false,
+              mismatchPercentage: 100,
+              dimensionsMatch: false,
+              captureStateCompatible: false,
+              maskResolutionStatus: maskStatus,
+              maskedAreaRatio: 0,
+              settleComplete: false,
+              metricSamples,
+              notes: `Visual capture settle barrier incomplete on target tab '${tabId}'`,
+            }),
+            metricSamples,
+          },
+        };
+      }
+
       guard.openMutationWindow('target', readIdentity(tabId));
       targetMetrics = await readCssMetrics(tabId);
       // Fail-closed mask ledger: required selectors MUST resolve, optional may be absent
       if (requiredMasks.length > 0 || optionalMasks.length > 0) {
         targetMaskEntries = await MaskLedger.resolve(this.host, tabId, effectivePane, requiredMasks, optionalMasks);
       }
-
+      targetMasksResolved = true;
       // Resolve target rectangle from clipRect or selector for focused visual compare
       let resolvedRect: { x: number; y: number; width: number; height: number } | undefined = params.clipRect
         ? { x: Math.round(params.clipRect.x), y: Math.round(params.clipRect.y), width: Math.round(params.clipRect.width), height: Math.round(params.clipRect.height) }
@@ -2574,43 +2758,154 @@ export class BrowserControlPort {
       }
 
       const captureOpts = { format: 'png' as const, fullPage: Boolean(params.fullPage) };
-      let curBase64 = await this.host.captureScreenshot(resolvedRect, tabId, effectivePane, captureOpts);
-      if (!curBase64 || curBase64.length === 0) {
+      if (typeof this.host.captureVerificationScreenshot !== 'function') {
+        throw new CapabilityError('CAPABILITY_NOT_FOUND', "Host does not implement required 'captureVerificationScreenshot' canonical CDP interface");
+      }
+      curEnvelope = await this.host.captureVerificationScreenshot(resolvedRect, tabId, effectivePane, captureOpts);
+      if (!curEnvelope || !curEnvelope.data || curEnvelope.data.length === 0) {
         await new Promise((r) => setTimeout(r, 150));
-        curBase64 = await this.host.captureScreenshot(resolvedRect, tabId, effectivePane, captureOpts);
+        curEnvelope = await this.host.captureVerificationScreenshot(resolvedRect, tabId, effectivePane, captureOpts);
       }
-      if (!curBase64 || curBase64.length === 0) {
-        throw new CapabilityError('TARGET_STALE', `Failed to capture non-empty viewport screenshot on tab '${tabId}' (document may still be rendering)`);
+      if (!curEnvelope || !curEnvelope.data || curEnvelope.data.length === 0) {
+        throw new CapabilityError('TARGET_STALE', `Failed to capture non-empty verification screenshot on tab '${tabId}' (document may still be rendering)`);
       }
+      targetCaptureReceipt = verificationCaptureReceipt(curEnvelope);
+      const curBase64 = curEnvelope.data;
       const curBuffer = Buffer.from(curBase64, 'base64');
       const curArtifact = this.artifacts
         ? await this.artifacts.stage({ kind: 'screenshot', mime: 'image/png', data: curBuffer, runId, attemptId, projectId: target.projectId, workspaceId: target.workspaceId, maxBytes: 8 * 1024 * 1024 })
         : limit(curBase64, 8 * 1024 * 1024);
 
       let baselineBuffer: Buffer | null = null;
-      let baselineArtifactRef = params.baselineScreenshotRef;
-      if (params.baselineScreenshotRef) {
-        if (!this.artifacts || typeof this.artifacts.readBytesById !== 'function') {
-          throw new CapabilityError('CAPABILITY_NOT_FOUND', 'Artifact store is not available to load baseline screenshot');
+      let baselineArtifactRef = params.baselineRef || params.baselineScreenshotRef;
+      if (params.baselineRef) {
+        if (!target.workspaceId) {
+          throw new CapabilityError('WORKSPACE_UNBOUND', 'Explicit workspace context required to resolve baseline');
         }
-        try {
-          const loaded = this.artifacts.readBytesById(params.baselineScreenshotRef, {
-            runId,
-            attemptId,
-            projectId: target.projectId,
-            workspaceId: target.workspaceId,
-          });
-          if (loaded.ref.truncated) {
-            throw new CapabilityError('INVALID_ARGUMENT', `Baseline screenshot artifact '${params.baselineScreenshotRef}' is marked as truncated`);
+        const { ref: baseRef, data: baseBytes } = this.baselineAuthority.resolve(params.baselineRef, {
+          workspaceId: target.workspaceId,
+          projectId: target.projectId,
+        });
+        const compat = this.baselineAuthority.verifyCaptureCompatibility(baseRef, targetCaptureReceipt!);
+        if (!compat.compatible) {
+          if (compat.reason?.includes('Capture backend switched')) {
+            throw new CapabilityError('CAPTURE_BACKEND_SWITCH', compat.reason);
           }
-          if (typeof loaded.ref.mime === 'string' && !loaded.ref.mime.startsWith('image/')) {
-            throw new CapabilityError('INVALID_ARGUMENT', `Baseline artifact '${params.baselineScreenshotRef}' is not an image (mime: ${loaded.ref.mime})`);
-          }
-          baselineBuffer = loaded.data;
-        } catch (err: unknown) {
-          if (err instanceof CapabilityError) throw err;
-          throw new CapabilityError('INVALID_ARGUMENT', `Baseline screenshot artifact '${params.baselineScreenshotRef}' not found: ${err instanceof Error ? err.message : String(err)}`);
+          captureStateCompatible = false;
+          const maskStatus = currentMaskStatus();
+          return {
+            settle: true,
+            result: {
+              ok: false,
+              status: 'INCONCLUSIVE',
+              reason: `Promoted baseline capture state mismatch: ${compat.reason}`,
+              match: false,
+              mismatchPercentage: 100,
+              totalPixels: 0,
+              normalization: { target: targetNormalize },
+              maskResolution: { status: maskStatus, maskedAreaRatio: 0, optionalUnmatched: [] },
+              coherence: {
+                identityCoherent: targetCoh ? targetCoh.identity === 'COHERENT' : true,
+                captureStateCompatible: false,
+                resampleCount,
+                target: targetCoh ? coherencePairReceipt(targetCoh) : undefined,
+              },
+              captureStateCompatible: false,
+              captureReceipts: {
+                target: targetCaptureReceipt!,
+                baseline: {
+                  backend: baseRef.captureStateMini.backend,
+                  dpr: baseRef.captureStateMini.dpr,
+                  zoom: baseRef.captureStateMini.zoom,
+                  cssViewport: baseRef.captureStateMini.cssViewport,
+                  rasterSize: baseRef.captureStateMini.rasterSize || readPngDimensions(baseBytes) || { width: baseRef.captureStateMini.cssViewport.width, height: baseRef.captureStateMini.cssViewport.height },
+                  timestamp: baseRef.promotedAt,
+                },
+              },
+              receipt: createVisualEvidenceReceipt({
+                match: false,
+                mismatchPercentage: 100,
+                dimensionsMatch: false,
+                captureStateCompatible: false,
+                maskResolutionStatus: maskStatus,
+                maskedAreaRatio: 0,
+                settleComplete: true,
+                metricSamples: generateVisualMetricSamples({
+                  captureStateCompatible: false,
+                  maskResolutionStatus: maskStatus,
+                  settleComplete: true,
+                }),
+                notes: `Promoted baseline capture state mismatch: ${compat.reason}`,
+              }),
+              metricSamples: generateVisualMetricSamples({
+                captureStateCompatible: false,
+                maskResolutionStatus: maskStatus,
+                settleComplete: true,
+              }),
+            },
+          };
         }
+        baselineBuffer = baseBytes;
+        baselineArtifactRef = baseRef.id;
+        const baseRasterSize = baseRef.captureStateMini.rasterSize || readPngDimensions(baseBytes) || {
+          width: Math.round(baseRef.captureStateMini.cssViewport.width * baseRef.captureStateMini.dpr),
+          height: Math.round(baseRef.captureStateMini.cssViewport.height * baseRef.captureStateMini.dpr),
+        };
+        compCaptureReceipt = {
+          backend: baseRef.captureStateMini.backend,
+          dpr: baseRef.captureStateMini.dpr,
+          zoom: baseRef.captureStateMini.zoom,
+          cssViewport: baseRef.captureStateMini.cssViewport,
+          rasterSize: baseRasterSize,
+          timestamp: baseRef.promotedAt,
+        };
+      } else if (params.baselineScreenshotRef) {
+        // Phase 3 fail-closed: stored baselines lack authoritative verification receipts
+        // until Phase 6 baseline authority certification.
+        captureStateCompatible = false;
+        return {
+          settle: true,
+          result: {
+            ok: false,
+            status: 'INCONCLUSIVE',
+            reason: `Stored baseline comparison against '${params.baselineScreenshotRef}' is inconclusive: baseline capture state is unverified pending Phase 6 baseline authority certification`,
+            match: false,
+            mismatchPercentage: 100,
+            totalPixels: 0,
+            normalization: { target: targetNormalize },
+            maskResolution: { status: 'ok', maskedAreaRatio: 0, optionalUnmatched: [] },
+            coherence: {
+              identityCoherent: targetCoh ? targetCoh.identity === 'COHERENT' : true,
+              captureStateCompatible: false,
+              resampleCount,
+              target: targetCoh ? coherencePairReceipt(targetCoh) : undefined,
+            },
+            captureStateCompatible: false,
+            captureReceipts: {
+              target: targetCaptureReceipt!,
+            },
+            receipt: createVisualEvidenceReceipt({
+              match: false,
+              mismatchPercentage: 100,
+              dimensionsMatch: false,
+              captureStateCompatible: false,
+              maskResolutionStatus: 'ok',
+              maskedAreaRatio: 0,
+              settleComplete: true,
+              metricSamples: generateVisualMetricSamples({
+                captureStateCompatible: false,
+                maskResolutionStatus: 'ok',
+                settleComplete: true,
+              }),
+              notes: `Stored baseline comparison against '${params.baselineScreenshotRef}' is inconclusive: baseline capture state is unverified pending Phase 6 baseline authority certification`,
+            }),
+            metricSamples: generateVisualMetricSamples({
+              captureStateCompatible: false,
+              maskResolutionStatus: 'ok',
+              settleComplete: true,
+            }),
+          },
+        };
       } else if (params.comparisonTabId && compTabTarget) {
         // Normalization FIRST (same rationale as the target side)
         if (params.normalizeScroll) {
@@ -2619,11 +2914,49 @@ export class BrowserControlPort {
           compNormalize.owned = outcome.owned;
           if (!outcome.ok && outcome.error) compNormalize.injectError = outcome.error;
         }
+        // Phase 4: Composed Settle Barrier on comparison tab before geometry measurement
+        compSettleReceipt = await this.settleCapture(compTabTarget, effectivePane, params.clipRect);
+        if (!compSettleReceipt.settleComplete) {
+          const maskStatus = currentMaskStatus();
+          const metricSamples = generateVisualMetricSamples({
+            captureStateCompatible: false,
+            maskResolutionStatus: maskStatus,
+            settleComplete: false,
+          });
+          return {
+            settle: true,
+            result: {
+              ok: false,
+              status: 'INCONCLUSIVE',
+              reason: `Visual capture settle barrier incomplete on comparison tab '${compTabTarget}' (gates: network=${compSettleReceipt.gates.network}, fonts=${compSettleReceipt.gates.fonts}, images=${compSettleReceipt.gates.images}, dom=${compSettleReceipt.gates.dom})`,
+              match: false,
+              mismatchPercentage: 100,
+              totalPixels: 0,
+              normalization: { target: targetNormalize, comparison: compNormalize },
+              maskResolution: { status: maskStatus, maskedAreaRatio: 0, optionalUnmatched: [] },
+              settle: { target: targetSettleReceipt, comparison: compSettleReceipt },
+              receipt: createVisualEvidenceReceipt({
+                match: false,
+                mismatchPercentage: 100,
+                dimensionsMatch: false,
+                captureStateCompatible: false,
+                maskResolutionStatus: maskStatus,
+                maskedAreaRatio: 0,
+                settleComplete: false,
+                metricSamples,
+                notes: `Visual capture settle barrier incomplete on comparison tab '${compTabTarget}'`,
+              }),
+              metricSamples,
+            },
+          };
+        }
+
         guard.openMutationWindow('baseline', readIdentity(compTabTarget));
         compMetrics = await readCssMetrics(compTabTarget);
         if (requiredMasks.length > 0 || optionalMasks.length > 0) {
           compMaskEntries = await MaskLedger.resolve(this.host, compTabTarget, effectivePane, requiredMasks, optionalMasks);
         }
+        compMasksResolved = true;
         comparisonRect = resolvedRect;
         if (params.selector && typeof this.host.evalJs === 'function') {
           try {
@@ -2642,14 +2975,16 @@ export class BrowserControlPort {
             }
           } catch {}
         }
-        let compBase64 = await this.host.captureScreenshot(comparisonRect, compTabTarget, effectivePane, captureOpts);
-        if (!compBase64 || compBase64.length === 0) {
+        compEnvelope = await this.host.captureVerificationScreenshot(comparisonRect, compTabTarget, effectivePane, captureOpts);
+        if (!compEnvelope || !compEnvelope.data || compEnvelope.data.length === 0) {
           await new Promise((r) => setTimeout(r, 150));
-          compBase64 = await this.host.captureScreenshot(comparisonRect, compTabTarget, effectivePane, captureOpts);
+          compEnvelope = await this.host.captureVerificationScreenshot(comparisonRect, compTabTarget, effectivePane, captureOpts);
         }
-        if (!compBase64 || compBase64.length === 0) {
-          throw new CapabilityError('TARGET_STALE', `Failed to capture non-empty baseline screenshot on comparison tab '${compTabTarget}'`);
+        if (!compEnvelope || !compEnvelope.data || compEnvelope.data.length === 0) {
+          throw new CapabilityError('TARGET_STALE', `Failed to capture non-empty baseline verification screenshot on comparison tab '${compTabTarget}'`);
         }
+        compCaptureReceipt = verificationCaptureReceipt(compEnvelope);
+        const compBase64 = compEnvelope.data;
         baselineBuffer = Buffer.from(compBase64, 'base64');
         const compArtifact = this.artifacts
           ? await this.artifacts.stage({ kind: 'screenshot', mime: 'image/png', data: baselineBuffer, runId, attemptId, projectId: target.projectId, workspaceId: target.workspaceId, maxBytes: 8 * 1024 * 1024 })
@@ -2686,6 +3021,26 @@ export class BrowserControlPort {
               target: coherencePairReceipt(targetCoh),
               baseline: baselineCoh ? coherencePairReceipt(baselineCoh) : undefined,
             },
+            receipt: createVisualEvidenceReceipt({
+              match: false,
+              mismatchPercentage: 100,
+              dimensionsMatch: false,
+              captureStateCompatible: false,
+              maskResolutionStatus: 'RESAMPLE_EXHAUSTED',
+              maskedAreaRatio: 0,
+              settleComplete: true,
+              metricSamples: generateVisualMetricSamples({
+                captureStateCompatible: false,
+                maskResolutionStatus: 'RESAMPLE_EXHAUSTED',
+                settleComplete: true,
+              }),
+              notes: `Capture transaction was never coherent across ${maxAttempts} attempts (resampleCount: ${nextCount})`,
+            }),
+            metricSamples: generateVisualMetricSamples({
+              captureStateCompatible: false,
+              maskResolutionStatus: 'RESAMPLE_EXHAUSTED',
+              settleComplete: true,
+            }),
           },
         };
       }
@@ -2711,9 +3066,85 @@ export class BrowserControlPort {
               target: targetCoh ? coherencePairReceipt(targetCoh) : undefined,
               baseline: baselineCoh ? coherencePairReceipt(baselineCoh) : undefined,
             },
+            receipt: createVisualEvidenceReceipt({
+              match: false,
+              mismatchPercentage: 100,
+              dimensionsMatch: false,
+              captureStateCompatible: false,
+              maskResolutionStatus: 'NORMALIZATION_ASYMMETRIC',
+              maskedAreaRatio: 0,
+              settleComplete: true,
+              metricSamples: generateVisualMetricSamples({
+                captureStateCompatible: false,
+                maskResolutionStatus: 'NORMALIZATION_ASYMMETRIC',
+                settleComplete: true,
+              }),
+              notes: `Normalization is asymmetric across the pair — pixel diff cancelled`,
+            }),
+            metricSamples: generateVisualMetricSamples({
+              captureStateCompatible: false,
+              maskResolutionStatus: 'NORMALIZATION_ASYMMETRIC',
+              settleComplete: true,
+            }),
           },
         };
       }
+      // Capture State Compatibility & Backend Switch Guard (Phase 3 V-20/V-21)
+      if (curEnvelope && compEnvelope && compCaptureReceipt) {
+        if (curEnvelope.backend !== compEnvelope.backend) {
+          throw new CapabilityError('CAPTURE_BACKEND_SWITCH', `Capture backend switched between target ('${curEnvelope.backend}') and baseline ('${compEnvelope.backend}')`);
+        }
+        const compat = checkCaptureStateCompatibility(targetCaptureReceipt!, compCaptureReceipt);
+        if (!compat.compatible) {
+          captureStateCompatible = false;
+          return {
+            settle: true,
+            result: {
+              ok: false,
+              status: 'INCONCLUSIVE',
+              reason: `Capture state mismatch: ${compat.reason}`,
+              match: false,
+              mismatchPercentage: 100,
+              totalPixels: 0,
+              normalization: { target: targetNormalize, comparison: compNormalize },
+              maskResolution: { status: 'ok', maskedAreaRatio: 0, optionalUnmatched: [] },
+              coherence: {
+                identityCoherent: targetCoh ? targetCoh.identity === 'COHERENT' && (!baselineCoh || baselineCoh.identity === 'COHERENT') : true,
+                captureStateCompatible: false,
+                resampleCount,
+                target: targetCoh ? coherencePairReceipt(targetCoh) : undefined,
+                baseline: baselineCoh ? coherencePairReceipt(baselineCoh) : undefined,
+              },
+              captureStateCompatible: false,
+              captureReceipts: {
+                target: targetCaptureReceipt!,
+                baseline: compCaptureReceipt,
+              },
+              receipt: createVisualEvidenceReceipt({
+                match: false,
+                mismatchPercentage: 100,
+                dimensionsMatch: false,
+                captureStateCompatible: false,
+                maskResolutionStatus: 'ok',
+                maskedAreaRatio: 0,
+                settleComplete: true,
+                metricSamples: generateVisualMetricSamples({
+                  captureStateCompatible: false,
+                  maskResolutionStatus: 'ok',
+                  settleComplete: true,
+                }),
+                notes: `Capture state mismatch: ${compat.reason}`,
+              }),
+              metricSamples: generateVisualMetricSamples({
+                captureStateCompatible: false,
+                maskResolutionStatus: 'ok',
+                settleComplete: true,
+              }),
+            },
+          };
+        }
+      }
+
 
       if (!baselineBuffer) {
         throw new CapabilityError('INVALID_ARGUMENT', 'Failed to acquire baseline image buffer for comparison');
@@ -2745,6 +3176,8 @@ export class BrowserControlPort {
                 layout: { verdict: 'FAIL', currentHeight: curDims.height, baselineHeight: baseDims.height, deltaPx: Math.abs(curDims.height - baseDims.height) },
               },
               normalization: { target: targetNormalize, comparison: compTabTarget ? compNormalize : undefined },
+              captureStateCompatible: Boolean(captureStateCompatible),
+              captureReceipts: targetCaptureReceipt ? { target: targetCaptureReceipt, baseline: compCaptureReceipt } : undefined,
               coherence: {
                 identityCoherent: targetCoh ? targetCoh.identity === 'COHERENT' && (!baselineCoh || baselineCoh.identity === 'COHERENT') : false,
                 captureStateCompatible: false,
@@ -2754,6 +3187,36 @@ export class BrowserControlPort {
               },
               currentScreenshot: curArtifact,
               baselineScreenshot: baselineArtifactRef,
+              receipt: createVisualEvidenceReceipt({
+                match: false,
+                mismatchPercentage: 100,
+                dimensionsMatch: false,
+                captureStateCompatible: Boolean(captureStateCompatible),
+                maskResolutionStatus: 'ok',
+                maskedAreaRatio: 0,
+                settleComplete: true,
+                metricSamples: generateVisualMetricSamples({
+                  diffResult: { match: false, mismatchPercentage: 100, dimensionsMatch: false },
+                  captureStateCompatible: Boolean(captureStateCompatible),
+                  maskResolutionStatus: 'ok',
+                  settleComplete: true,
+                  structural: {
+                    geometryWithinTolerance: false,
+                    deltaGeometry: Math.abs(curDims.height - baseDims.height),
+                  },
+                }),
+                notes: `Structural height mismatch exceeds 10% tolerance (current: ${curDims.height}px, baseline: ${baseDims.height}px, delta: ${(heightDelta * 100).toFixed(1)}%)`,
+              }),
+              metricSamples: generateVisualMetricSamples({
+                diffResult: { match: false, mismatchPercentage: 100, dimensionsMatch: false },
+                captureStateCompatible: Boolean(captureStateCompatible),
+                maskResolutionStatus: 'ok',
+                settleComplete: true,
+                structural: {
+                  geometryWithinTolerance: false,
+                  deltaGeometry: Math.abs(curDims.height - baseDims.height),
+                },
+              }),
             },
           };
         }
@@ -2829,6 +3292,8 @@ export class BrowserControlPort {
               maskedAreaRatio,
               optionalUnmatched: [...targetMask.optionalUnmatched, ...compMask.optionalUnmatched],
             },
+            captureStateCompatible: Boolean(captureStateCompatible),
+            captureReceipts: targetCaptureReceipt ? { target: targetCaptureReceipt, baseline: compCaptureReceipt } : undefined,
             coherence: {
               identityCoherent: targetCoh ? targetCoh.identity === 'COHERENT' && (!baselineCoh || baselineCoh.identity === 'COHERENT') : false,
               captureStateCompatible: true,
@@ -2836,9 +3301,75 @@ export class BrowserControlPort {
               target: targetCoh ? coherencePairReceipt(targetCoh) : undefined,
               baseline: baselineCoh ? coherencePairReceipt(baselineCoh) : undefined,
             },
+            receipt: createVisualEvidenceReceipt({
+              match: false,
+              mismatchPercentage: 100,
+              dimensionsMatch: false,
+              captureStateCompatible: false,
+              maskResolutionStatus: 'NORMALIZATION_RESTORE_FAILED',
+              maskedAreaRatio: 0,
+              settleComplete: true,
+              metricSamples: generateVisualMetricSamples({
+                captureStateCompatible: false,
+                maskResolutionStatus: 'NORMALIZATION_RESTORE_FAILED',
+                settleComplete: true,
+              }),
+              notes: `Owned normalizeScroll style could not be restored`,
+            }),
+            metricSamples: generateVisualMetricSamples({
+              captureStateCompatible: false,
+              maskResolutionStatus: 'NORMALIZATION_RESTORE_FAILED',
+              settleComplete: true,
+            }),
           },
         };
       }
+      let structuralMetrics: VisualStructuralMetrics | undefined = undefined;
+      if (typeof this.host.evalJs === 'function') {
+        try {
+          const rootSel = params.selector || 'body';
+          const queryScript = `(() => {
+            const root = document.querySelector(${JSON.stringify(rootSel)});
+            if (!root) return [];
+            const children = Array.from(root.children);
+            const elements = [root, ...children];
+            return elements.map((el, i) => {
+              const r = el.getBoundingClientRect();
+              return {
+                ref: el.getAttribute('data-ref') || ('el-' + i),
+                tag: el.tagName.toLowerCase(),
+                selector: el.id ? ('#' + el.id) : (el.className && typeof el.className === 'string' ? ('.' + el.className.trim().split(/\\s+/)[0]) : undefined),
+                rect: { x: Math.round(r.x), y: Math.round(r.y), width: Math.round(r.width), height: Math.round(r.height), top: Math.round(r.top), right: Math.round(r.right), bottom: Math.round(r.bottom), left: Math.round(r.left) },
+                visible: r.width > 0 && r.height > 0
+              };
+            });
+          })()`;
+          const targetRaw = await this.host.evalJs(queryScript, tabId, effectivePane);
+          if (Array.isArray(targetRaw) && targetRaw.length > 0) {
+            const targetBundle = normalizeVisualRegions(targetRaw as RawElementSensoryData[], { width: targetMetrics ? targetMetrics.vw : 1200, height: targetMetrics ? targetMetrics.vh : 800 }, 1);
+            if (compTabTarget) {
+              const compRaw = await this.host.evalJs(queryScript, compTabTarget, effectivePane);
+              if (Array.isArray(compRaw)) {
+                const compBundle = normalizeVisualRegions(compRaw as RawElementSensoryData[], { width: compMetrics ? compMetrics.vw : 1200, height: compMetrics ? compMetrics.vh : 800 }, 1);
+                const structRes = computeStructuralMetrics(targetBundle, compBundle);
+                structuralMetrics = {
+                  geometryWithinTolerance: structRes.geometryWithinTolerance,
+                  deltaGeometry: structRes.deltaGeometry,
+                  cardinalityMatch: structRes.cardinalityMatch,
+                  deltaCardinality: structRes.deltaCardinality,
+                };
+              }
+            }
+          }
+        } catch {}
+      }
+      const metricSamples = generateVisualMetricSamples({
+        diffResult,
+        captureStateCompatible: Boolean(captureStateCompatible),
+        maskResolutionStatus: 'ok',
+        settleComplete: Boolean(targetSettleReceipt?.settleComplete && (!compSettleReceipt || compSettleReceipt.settleComplete)),
+        structural: structuralMetrics,
+      });
 
       return {
         settle: true,
@@ -2868,6 +3399,8 @@ export class BrowserControlPort {
                 }
               : undefined,
           },
+          captureStateCompatible: true,
+          captureReceipts: targetCaptureReceipt ? { target: targetCaptureReceipt, baseline: compCaptureReceipt } : undefined,
           coherence: {
             identityCoherent: true,
             captureStateCompatible: true,
@@ -2875,11 +3408,31 @@ export class BrowserControlPort {
             target: coherencePairReceipt(targetCoh),
             baseline: baselineCoh ? coherencePairReceipt(baselineCoh) : undefined,
           },
+          settle: targetSettleReceipt
+            ? { target: targetSettleReceipt, comparison: compSettleReceipt }
+            : undefined,
           notes: diffResult.match ? 'Visual comparison passed within tolerance' : `Visual discrepancies detected (${diffResult.mismatchPercentage}% mismatch exceeds ${tolerance}% tolerance)`,
+          receipt: createVisualEvidenceReceipt({
+            match: diffResult.match,
+            mismatchPercentage: diffResult.mismatchPercentage,
+            dimensionsMatch: diffResult.dimensionsMatch,
+            captureStateCompatible: Boolean(captureStateCompatible),
+            maskResolutionStatus: 'ok',
+            maskedAreaRatio,
+            settleComplete: Boolean(targetSettleReceipt?.settleComplete && (!compSettleReceipt || compSettleReceipt.settleComplete)),
+            metricSamples,
+            notes: diffResult.match ? 'Visual comparison passed within tolerance' : `Visual discrepancies detected (${diffResult.mismatchPercentage}% mismatch exceeds ${tolerance}% tolerance)`,
+          }),
+          metricSamples,
         },
       };
     } catch (err: unknown) {
       if (err instanceof MaskResolutionError) {
+        const metricSamples = generateVisualMetricSamples({
+          captureStateCompatible: false,
+          maskResolutionStatus: err.status,
+          settleComplete: true,
+        });
         return {
           settle: true,
           result: {
@@ -2891,6 +3444,8 @@ export class BrowserControlPort {
             totalPixels: 0,
             normalization: { target: targetNormalize, comparison: compTabTarget ? compNormalize : undefined },
             maskResolution: { status: err.status, reason: err.message, maskedAreaRatio: err.maskedAreaRatio, entries: err.entries.map(maskEntryReceipt) },
+            captureStateCompatible: Boolean(captureStateCompatible),
+            captureReceipts: targetCaptureReceipt ? { target: targetCaptureReceipt, baseline: compCaptureReceipt } : undefined,
             coherence: {
               identityCoherent: targetCoh ? targetCoh.identity === 'COHERENT' && (!baselineCoh || baselineCoh.identity === 'COHERENT') : false,
               captureStateCompatible: false,
@@ -2898,8 +3453,47 @@ export class BrowserControlPort {
               target: targetCoh ? coherencePairReceipt(targetCoh) : undefined,
               baseline: baselineCoh ? coherencePairReceipt(baselineCoh) : undefined,
             },
+            receipt: createVisualEvidenceReceipt({
+              match: false,
+              mismatchPercentage: 100,
+              dimensionsMatch: false,
+              captureStateCompatible: false,
+              maskResolutionStatus: err.status,
+              maskedAreaRatio: err.maskedAreaRatio,
+              settleComplete: true,
+              metricSamples,
+              notes: err.message,
+            }),
+            metricSamples,
           },
         };
+      }
+      if (err instanceof CapabilityError) {
+        const maskStatus = currentMaskStatus();
+        const metricSamples = generateVisualMetricSamples({
+          captureStateCompatible: false,
+          maskResolutionStatus: maskStatus,
+          settleComplete: err.code !== 'RESOURCE_FAILURE',
+        });
+        const receipt = createVisualEvidenceReceipt({
+          match: false,
+          mismatchPercentage: 100,
+          dimensionsMatch: false,
+          captureStateCompatible: false,
+          maskResolutionStatus: maskStatus,
+          maskedAreaRatio: 0,
+          settleComplete: err.code !== 'RESOURCE_FAILURE',
+          metricSamples,
+          notes: err.message,
+        });
+        (err as any).metricSamples = metricSamples;
+        (err as any).receipt = receipt;
+        if (err.details) {
+          (err.details as any).metricSamples = metricSamples;
+          (err.details as any).receipt = receipt;
+        } else {
+          (err as any).details = { metricSamples, receipt };
+        }
       }
       throw err;
     } finally {
