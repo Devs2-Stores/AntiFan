@@ -279,6 +279,8 @@ describe('Live script execution in simulated DOM sandbox (executable contract)',
     window?: any;
     requestAnimationFrame?: any;
     MutationObserver?: any;
+    setInterval?: any;
+    clearInterval?: any;
   }) {
     const sandbox = {
       document: env.document || {},
@@ -287,8 +289,8 @@ describe('Live script execution in simulated DOM sandbox (executable contract)',
       MutationObserver: env.MutationObserver,
       setTimeout,
       clearTimeout,
-      setInterval,
-      clearInterval,
+      setInterval: env.setInterval || setInterval,
+      clearInterval: env.clearInterval || clearInterval,
       Date,
       Promise,
       Array,
@@ -409,20 +411,19 @@ describe('Live script execution in simulated DOM sandbox (executable contract)',
       observe() {}
       disconnect() {}
     }
-    const script = buildDomQuietScript(120);
-    const mutTimer = setInterval(() => {
-      if (observerCb) observerCb([{ type: 'childList' }]);
-    }, 10);
-    try {
-      const res = await runScriptInDom(script, {
-        requestAnimationFrame: undefined,
-        MutationObserver: MockMutationObserver,
-        document: { documentElement: {} },
-      });
-      assert.strictEqual(res, false);
-    } finally {
-      clearInterval(mutTimer);
-    }
+    const script = buildDomQuietScript(60);
+    const res = await runScriptInDom(script, {
+      requestAnimationFrame: undefined,
+      MutationObserver: MockMutationObserver,
+      document: { documentElement: {} },
+      setInterval: (fn: () => void, ms: number) => {
+        return setInterval(() => {
+          if (observerCb) observerCb([{ type: 'childList' }]);
+          fn();
+        }, ms);
+      },
+    });
+    assert.strictEqual(res, false);
   });
 
   it('runs buildDomQuietScript: fails closed when both requestAnimationFrame and MutationObserver are missing', async () => {
