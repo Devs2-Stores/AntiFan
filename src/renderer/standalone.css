@@ -376,7 +376,12 @@ button {
   display: inline-flex;
   align-items: center;
   gap: 3px;
-  max-width: 130px;
+  /* Fixed width: the bound badge mirrors the live tab title; a
+     content-sized pill reflows the whole terminal tab strip on every
+     page document.title change. */
+  width: 130px;
+  box-sizing: border-box;
+  flex-shrink: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

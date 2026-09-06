@@ -1627,6 +1627,11 @@ if (splitButton) {
 }
 async function updateAffinityBadges() {
   if (!api?.getTerminalAffinity || !api?.getTabs) return;
+  const setBadgeState = (badge, cls, text, tip) => {
+    if (badge.className !== cls) badge.className = cls;
+    if (badge.textContent !== text) badge.textContent = text;
+    if (badge.title !== tip) badge.title = tip;
+  };
   try {
     const tabs = await api.getTabs();
     const tabsMap = new Map((tabs || []).map((t) => [t.id, t]));
@@ -1636,29 +1641,21 @@ async function updateAffinityBadges() {
       if (!sid) continue;
       const affinity = await api.getTerminalAffinity(sid);
       if (!affinity || !affinity.tabId) {
-        badge.className = 'terminal-tab-affinity-badge unbound';
-        badge.textContent = '🎯 Chưa gán';
-        badge.title = 'Terminal này chưa gán tab nào (Click để chọn tab)';
+        setBadgeState(badge, 'terminal-tab-affinity-badge unbound', '🎯 Chưa gán', 'Terminal này chưa gán tab nào (Click để chọn tab)');
       } else if (affinity.status === 'closed') {
-        badge.className = 'terminal-tab-affinity-badge closed';
-        badge.textContent = '🎯 Tab đã đóng';
-        badge.title = `Tab trước đó (${affinity.lastUrl || affinity.tabId}) đã bị đóng (Click để gán lại)`;
+        setBadgeState(badge, 'terminal-tab-affinity-badge closed', '🎯 Tab đã đóng', `Tab trước đó (${affinity.lastUrl || affinity.tabId}) đã bị đóng (Click để gán lại)`);
       } else {
         const managedCount = Array.isArray(affinity.managedTabIds) ? affinity.managedTabIds.length : 1;
         if (managedCount > 1) {
-          badge.className = 'terminal-tab-affinity-badge multi';
-          badge.textContent = `🎯 ${managedCount} tabs`;
           const tabNames = (affinity.managedTabIds || []).map((id) => {
             const t = tabsMap.get(id);
             return t ? (t.title || t.url || id) : id;
           }).join('\n• ');
-          badge.title = `Terminal đang quản lý ${managedCount} tabs:\n• ${tabNames}\n(Click để quản lý nhóm tab)`;
+          setBadgeState(badge, 'terminal-tab-affinity-badge multi', `🎯 ${managedCount} tabs`, `Terminal đang quản lý ${managedCount} tabs:\n• ${tabNames}\n(Click để quản lý nhóm tab)`);
         } else {
           const boundTab = tabsMap.get(affinity.tabId);
           const name = boundTab ? (boundTab.title || boundTab.url || affinity.tabId) : affinity.tabId;
-          badge.className = 'terminal-tab-affinity-badge';
-          badge.textContent = `🎯 ${name.slice(0, 14)}`;
-          badge.title = `Đang gắn với Tab: ${name} (${boundTab?.url || affinity.tabId}) (Click để đổi/thêm)`;
+          setBadgeState(badge, 'terminal-tab-affinity-badge', `🎯 ${name.slice(0, 14)}`, `Đang gắn với Tab: ${name} (${boundTab?.url || affinity.tabId}) (Click để đổi/thêm)`);
         }
       }
     }

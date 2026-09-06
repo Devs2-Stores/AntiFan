@@ -96,6 +96,7 @@ export interface NativeTabHostResourceStats {
 
 export const TOOLBAR_HEIGHT_WITH_BOOKMARKS = 102;
 export const TOOLBAR_HEIGHT_COMPACT = 74;
+const TITLE_BROADCAST_INTERVAL_MS = 200;
 /**
  * Safely dispatches IPC messages to a WebContents instance, guarding against
  * frame lifecycle races (e.g. disposed WebFrameMain during process termination/reloads).
@@ -475,6 +476,8 @@ export class NativeTabHost extends EventEmitter {
     return this.devToolsHost;
   }
   private persistTimer: NodeJS.Timeout | null = null;
+  private titleBroadcastTimer?: NodeJS.Timeout;
+  private titleBroadcastDeadline = 0;
   private automationHost?: TabAutomationHost;
 
   private getAutomationHost(): TabAutomationHost {
@@ -2884,7 +2887,9 @@ export class NativeTabHost extends EventEmitter {
     });
     wc.on('page-title-updated', (_event, title) => {
       if (paneId === 'desktop') {
-        state.title = title || 'Untitled';
+        const nextTitle = title || 'Untitled';
+        if (nextTitle === state.title) return;
+        state.title = nextTitle;
         if (state.url && state.url !== 'about:blank' && !state.url.startsWith('view-source:')) {
           HistoryManager.getInstance().updateTitle(state.url, state.title);
         }
@@ -2907,15 +2912,15 @@ export class NativeTabHost extends EventEmitter {
             state.role = inferred.role;
           }
         }
-        this.broadcastState();
+        this.scheduleTitleBroadcast();
 
       }
     });
 
     wc.on('page-favicon-updated', (_event, favicons) => {
-      if (paneId === 'desktop' && favicons.length > 0) {
+      if (paneId === 'desktop' && favicons.length > 0 && favicons[0] !== state.favicon) {
         state.favicon = favicons[0];
-        this.broadcastState();
+        this.scheduleTitleBroadcast();
       }
     });
 
@@ -5084,6 +5089,32 @@ export class NativeTabHost extends EventEmitter {
     }, 400);
   }
 
+  /**
+   * Leading + trailing throttle for high-frequency title/favicon events
+   * (pages rewriting document.title continuously). The leading edge paints
+   * the first title change immediately; continuous churn is capped at
+   * <= 1 broadcast / 200ms (5 Hz ceiling); a trailing flush guarantees the
+   * final title value lands within 200ms of the last event without freeze.
+   */
+  private scheduleTitleBroadcast(): void {
+    if (this.isDisposed) return;
+    const now = Date.now();
+    if (now >= this.titleBroadcastDeadline) {
+      this.titleBroadcastDeadline = now + TITLE_BROADCAST_INTERVAL_MS;
+      clearTimeout(this.titleBroadcastTimer);
+      this.titleBroadcastTimer = undefined;
+      this.broadcastState();
+      return;
+    }
+    if (!this.titleBroadcastTimer) {
+      this.titleBroadcastTimer = setTimeout(() => {
+        this.titleBroadcastTimer = undefined;
+        this.titleBroadcastDeadline = Date.now() + TITLE_BROADCAST_INTERVAL_MS;
+        this.broadcastState();
+      }, this.titleBroadcastDeadline - now);
+    }
+  }
+
   public persistTabs(): void {
     if (this.isDisposed) return;
     try {
@@ -6031,6 +6062,10 @@ export class NativeTabHost extends EventEmitter {
     if (this.persistTimer) {
       clearTimeout(this.persistTimer);
       this.persistTimer = null;
+    }
+    if (this.titleBroadcastTimer) {
+      clearTimeout(this.titleBroadcastTimer);
+      this.titleBroadcastTimer = undefined;
     }
     for (const [, win] of this.terminalWindows) {
       if (win && !win.isDestroyed()) {
