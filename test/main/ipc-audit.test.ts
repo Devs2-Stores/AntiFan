@@ -530,4 +530,77 @@ describe('Webview & Extension IPC Audit Invariants', () => {
       'native-tab-host.ts must route frameBackdropView sends through safeSendWebContents'
     );
   });
+
+  it('verifies Root Terminal Creation Invariants (No eager auto-binding of activeTabId to root sessions)', () => {
+    const nativeTabHostPath = path.join(root, 'src', 'main', 'browser', 'native-tab-host.ts');
+    assert.ok(fs.existsSync(nativeTabHostPath), `native-tab-host.ts must exist at ${nativeTabHostPath}`);
+    const content = fs.readFileSync(nativeTabHostPath, 'utf8');
+
+    // 1. session-created hook:
+    const sessionCreatedIdx = content.indexOf("TerminalManager.getInstance().on('session-created'");
+    assert.ok(sessionCreatedIdx !== -1, 'session-created listener must exist');
+    const nextHookIdx = content.indexOf('ipcMain.handle(TERMINAL_CHANNELS.GET_FULL_BUFFER', sessionCreatedIdx);
+    assert.ok(nextHookIdx !== -1, 'TERMINAL_CHANNELS.GET_FULL_BUFFER boundary must exist');
+    const sessionCreatedBlock = content.slice(sessionCreatedIdx, nextHookIdx);
+
+    // Negative: must NOT fall back to this.activeTabId for root sessions
+    assert.strictEqual(
+      sessionCreatedBlock.includes('let targetTab = this.activeTabId;'),
+      false,
+      'session-created must not fall back to this.activeTabId for root sessions'
+    );
+    // Positive: targetTab starts undefined and only binds when parentId has alive affinity
+    assert.ok(
+      sessionCreatedBlock.includes('let targetTab: string | undefined = undefined;'),
+      'session-created must initialize targetTab to undefined'
+    );
+    assert.ok(
+      sessionCreatedBlock.includes('const parentAffinity = this.getTerminalAgentAffinity(parentId);'),
+      'session-created must look up parent affinity'
+    );
+    assert.ok(
+      sessionCreatedBlock.includes("parentAffinity.status === 'alive'"),
+      'session-created must require parent affinity to be alive'
+    );
+    assert.ok(
+      sessionCreatedBlock.includes('targetTab = parentAffinity.tabId;'),
+      'session-created must inherit parent tabId'
+    );
+    assert.ok(
+      sessionCreatedBlock.includes('this.bindTerminalAgentAffinity(id, generation || 1, targetTab);'),
+      'session-created must bind targetTab when inherited from alive parent'
+    );
+
+    // 2. TERMINAL_CHANNELS.START handler must directly return startTerminal without binding activeTabId
+    const startIdx = content.indexOf('ipcMain.handle(TERMINAL_CHANNELS.START');
+    assert.ok(startIdx !== -1, 'TERMINAL_CHANNELS.START handler must exist');
+    const nextIpcIdx = content.indexOf('ipcMain.handle(TERMINAL_CHANNELS.INPUT', startIdx);
+    assert.ok(nextIpcIdx !== -1, 'TERMINAL_CHANNELS.INPUT boundary must exist');
+    const startHandlerBlock = content.slice(startIdx, nextIpcIdx);
+    assert.strictEqual(
+      startHandlerBlock.includes('bindTerminalAgentAffinity'),
+      false,
+      'TERMINAL_CHANNELS.START must not auto-bind activeTabId'
+    );
+    assert.ok(
+      startHandlerBlock.includes('return TerminalManager.getInstance().startTerminal(cwd);'),
+      'TERMINAL_CHANNELS.START must directly return startTerminal(cwd)'
+    );
+
+    // 3. antifan:terminal:new-session handler must directly return createSession without binding activeTabId
+    const newSessionIdx = content.indexOf("ipcMain.handle('antifan:terminal:new-session'");
+    assert.ok(newSessionIdx !== -1, 'antifan:terminal:new-session handler must exist');
+    const nextSplitIdx = content.indexOf("ipcMain.handle('antifan:terminal:split-session'", newSessionIdx);
+    assert.ok(nextSplitIdx !== -1, 'antifan:terminal:split-session boundary must exist');
+    const newSessionBlock = content.slice(newSessionIdx, nextSplitIdx);
+    assert.strictEqual(
+      newSessionBlock.includes('bindTerminalAgentAffinity'),
+      false,
+      'antifan:terminal:new-session must not auto-bind activeTabId'
+    );
+    assert.ok(
+      newSessionBlock.includes('return TerminalManager.getInstance().createSession(cwd);'),
+      'antifan:terminal:new-session must directly return createSession(cwd)'
+    );
+  });
 });

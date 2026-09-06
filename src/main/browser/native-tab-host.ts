@@ -1192,7 +1192,7 @@ export class NativeTabHost extends EventEmitter {
       this.migrateTerminalAgentAffinityGeneration(id, generation);
     });
     TerminalManager.getInstance().on('session-created', ({ id, parentId, generation }: { id: string; parentId?: string; generation?: number }) => {
-      let targetTab = this.activeTabId;
+      let targetTab: string | undefined = undefined;
       if (parentId) {
         const parentAffinity = this.getTerminalAgentAffinity(parentId);
         if (parentAffinity && parentAffinity.status === 'alive') {
@@ -1232,16 +1232,7 @@ export class NativeTabHost extends EventEmitter {
       TerminalManager.getInstance().recordSubscriberAck(payload);
     });
     ipcMain.handle(TERMINAL_CHANNELS.START, (_event, cwd?: string) => {
-      const ok = TerminalManager.getInstance().startTerminal(cwd);
-      const activeSessionId = TerminalManager.getInstance().getActiveSessionId();
-      if (ok && activeSessionId && this.activeTabId) {
-        const session = TerminalManager.getInstance().getSession(activeSessionId);
-        const existingAffinity = this.getTerminalAgentAffinity(activeSessionId, session?.sessionGeneration);
-        if (!existingAffinity || existingAffinity.status === 'closed') {
-          this.bindTerminalAgentAffinity(activeSessionId, session?.sessionGeneration, this.activeTabId);
-        }
-      }
-      return ok;
+      return TerminalManager.getInstance().startTerminal(cwd);
     });
     ipcMain.handle(TERMINAL_CHANNELS.INPUT, (_event, input: string) => {
       TerminalManager.getInstance().write(input);
@@ -1277,12 +1268,7 @@ export class NativeTabHost extends EventEmitter {
     });
 
     ipcMain.handle('antifan:terminal:new-session', (_event, cwd?: string) => {
-      const sessionId = TerminalManager.getInstance().createSession(cwd);
-      if (this.activeTabId) {
-        const session = TerminalManager.getInstance().getSession(sessionId);
-        this.bindTerminalAgentAffinity(sessionId, session?.sessionGeneration, this.activeTabId);
-      }
-      return sessionId;
+      return TerminalManager.getInstance().createSession(cwd);
     });
 
     ipcMain.handle('antifan:terminal:split-session', (_event, p: any) => {

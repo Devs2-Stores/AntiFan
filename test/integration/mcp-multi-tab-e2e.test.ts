@@ -185,6 +185,22 @@ describe('Full-Stack E2E Integration: OMP / MCP Multi-Tab Affinity, Lineage & Fa
       'All three tabs A, B, C must be in terminal-e2e managedTabIds'
     );
     // -------------------------------------------------------------
+    // Step 3.5: Regression Check: Verify anti.browser.tabs.list returns all scoped tabs
+    // -------------------------------------------------------------
+    const listTabsRes = await mcpServer.callTool('anti.browser.tabs.list', {});
+    assert.strictEqual(listTabsRes.isError, undefined, `tabs.list failed: ${listTabsRes.content[0]?.text}`);
+    const listData = JSON.parse(listTabsRes.content[0]?.text || '{}');
+    const listedTabs = Array.isArray(listData.data) ? listData.data : (Array.isArray(listData) ? listData : []);
+    const listedTabIds = listedTabs
+      .map((tab: unknown) => tab && typeof tab === 'object' && 'id' in tab && typeof tab.id === 'string' ? tab.id : undefined)
+      .filter((id: string | undefined): id is string => typeof id === 'string')
+      .sort();
+    assert.deepStrictEqual(
+      listedTabIds,
+      ['tab-a', tabBId, tabCId].sort(),
+      `anti.browser.tabs.list must return all tabs in the session pool after creation and rebind. Got: ${JSON.stringify(listedTabIds)}`
+    );
+    // -------------------------------------------------------------
     // Step 4: Standalone Tab D (unrelated user tab, e.g. YouTube)
     // -------------------------------------------------------------
     registerTab('tab-d', 'https://youtube.com', 'YouTube Music (Private User Tab)');
