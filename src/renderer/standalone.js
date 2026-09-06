@@ -919,7 +919,7 @@ async function atomicHydrateSplitPane(splitSessionId, providedSnapshot, provided
     let snapshot = providedSnapshot;
     let snapshotSeq = providedSeq;
 
-    if (snapshot === undefined || snapshotSeq === undefined) {
+    if (snapshot === undefined || snapshotSeq === undefined || (!snapshot && (!snapshotSeq || snapshotSeq === 0))) {
       if (api?.getFullBuffer) {
         try {
           const res = await api.getFullBuffer(splitSessionId);
@@ -1489,9 +1489,14 @@ function unmountSplit() {
   }
   scheduleFitTerminal(60);
 }
-function mountSplit(sessionId, snapshot = '', snapshotSeq = 0) {
+function mountSplit(sessionId, snapshot = undefined, snapshotSeq = undefined) {
   if (!sessionId) return;
-  if (splitId === sessionId && splitTerm) return;
+  if (splitId === sessionId && splitTerm) {
+    if (typeof snapshotSeq === 'number' && snapshotSeq > splitSessionState.lastRenderedSeq) {
+      atomicHydrateSplitPane(sessionId, snapshot, snapshotSeq);
+    }
+    return;
+  }
   unmountSplit();
   splitId = sessionId;
   splitEnabled = true;
@@ -1582,6 +1587,20 @@ function mountSplit(sessionId, snapshot = '', snapshotSeq = 0) {
   });
 }
 
+function mountSplitClean(newSplitId) {
+  if (!newSplitId) return;
+  const phantom = terminalPool.get(newSplitId);
+  if (phantom) {
+    try { if (phantom.writeTarget && window.globalTerminalWriteDispatcher) window.globalTerminalWriteDispatcher.cancel(phantom.writeTarget); } catch {}
+    try { phantom.webLinksAddon?.dispose(); } catch {}
+    try { phantom.webglAddon?.dispose(); } catch {}
+    try { phantom.term?.dispose(); } catch {}
+    try { phantom.paneEl?.remove(); } catch {}
+    terminalPool.delete(newSplitId);
+  }
+  mountSplit(newSplitId);
+}
+
 // Split Toggle Button
 if (splitButton) {
   splitButton.onclick = async () => {
@@ -1598,7 +1617,7 @@ if (splitButton) {
       const targetCols = (mainItem && mainItem.term && mainItem.term.cols) || 120;
       const targetRows = getInitialSplitRows(mainItem?.term);
       const newSplitId = await api.splitTerminal(activeId, { cols: targetCols, rows: targetRows });
-      if (newSplitId) mountSplit(newSplitId);
+      if (newSplitId) mountSplitClean(newSplitId);
     } catch (err) {
       console.error('[Terminal] Split toggle failed:', err);
     } finally {
@@ -1879,7 +1898,7 @@ contextMenu?.querySelectorAll('.context-item').forEach((item) => {
         const targetCols = (mainItem && mainItem.term && mainItem.term.cols) || 120;
         const targetRows = getInitialSplitRows(mainItem?.term);
         const newSplitId = await api.splitTerminal(targetId, { cols: targetCols, rows: targetRows });
-        if (newSplitId && activeId === targetId) mountSplit(newSplitId);
+        if (newSplitId && activeId === targetId) mountSplitClean(newSplitId);
       } else {
         await api.unsplitTerminal?.(targetId);
         if (activeId === targetId) unmountSplit();
