@@ -7,6 +7,18 @@ import { BrowserTarget, CapabilityError, ArtifactRef, assertExactBrowserTarget, 
 import { computeSparseInteractionDelta } from '../verification/interaction-delta.js';
 import { attributeMutations } from '../verification/mutation-attribution.js';
 import { ActionBoundary, RawBehaviorScope, ObservationIntegrity } from '../verification/interaction-contract.js';
+import {
+  MaskLedger,
+  MaskResolutionError,
+  NormalizationTransaction,
+  emptyMaskLedgerResult,
+  maskEntryReceipt,
+  materializeRasterMasks,
+  visualCaptureSpaceFromMeasured,
+  emptyNormalizationReceipt,
+  type MaskResolutionEntry,
+  type NormalizationReceipt,
+} from '../verification/visual-capture.js';
 import type { AntiFanTab } from '../../shared/contracts';
 
 function isTabRecord(item: unknown): item is AntiFanTab {
@@ -2376,6 +2388,8 @@ export class BrowserControlPort {
       selector?: string;
       clipRect?: { x: number; y: number; width: number; height: number };
       maskSelectors?: string[];
+      /** Additive: selectors that MAY match zero elements without failing the compare */
+      maskOptionalSelectors?: string[];
       normalizeScroll?: boolean;
       tabId?: string;
       paneId?: 'desktop' | 'mobile';
@@ -2391,43 +2405,59 @@ export class BrowserControlPort {
     const effectivePane = paneId || params.paneId || 'desktop';
 
     return this.passivePool.execute(tabId, async () => {
-      if (params.normalizeScroll) {
-        try {
-          await this.host.evalJs(`(() => {
-            const style = document.createElement('style');
-            style.id = '__antifan_normalize_scroll';
-            style.textContent = 'html { overflow-y: scroll !important; scrollbar-gutter: stable !important; }';
-            if (!document.getElementById('__antifan_normalize_scroll')) document.head.appendChild(style);
-          })()`, tabId, effectivePane);
-        } catch {
-          // Non-blocking normalization
-        }
-      }
+      const requiredMasks = Array.isArray(params.maskSelectors) ? params.maskSelectors : [];
+      const optionalMasks = Array.isArray(params.maskOptionalSelectors) ? params.maskOptionalSelectors : [];
 
-      // Extract mask bounding boxes if maskSelectors provided
-      let maskBoxes: Array<{ x: number; y: number; width: number; height: number }> = [];
-      if (Array.isArray(params.maskSelectors) && params.maskSelectors.length > 0) {
+      const readCssMetrics = async (t: string): Promise<{ vw: number; vh: number; dh: number; sx: number; sy: number } | null> => {
         try {
-          const rawBoxes = await this.host.evalJs(`(() => {
-            const selectors = ${JSON.stringify(params.maskSelectors)};
-            const boxes = [];
-            selectors.forEach(sel => {
-              document.querySelectorAll(sel).forEach(el => {
-                const r = el.getBoundingClientRect();
-                if (r.width > 0 && r.height > 0) {
-                  boxes.push({ x: r.x, y: r.y, width: r.width, height: r.height });
-                }
-              });
-            });
-            return boxes;
-          })()`, tabId, effectivePane);
-          if (Array.isArray(rawBoxes)) {
-            maskBoxes = rawBoxes as Array<{ x: number; y: number; width: number; height: number }>;
+          const raw = await this.host.evalJs(`(() => ({
+            vw: window.innerWidth || document.documentElement.clientWidth || 0,
+            vh: window.innerHeight || document.documentElement.clientHeight || 0,
+            dh: document.documentElement.scrollHeight || document.body.scrollHeight || 0,
+            sx: window.scrollX || window.pageXOffset || 0,
+            sy: window.scrollY || window.pageYOffset || 0,
+          }))()`, t, effectivePane);
+          const o = raw as { vw?: unknown; vh?: unknown; dh?: unknown; sx?: unknown; sy?: unknown };
+          if (typeof o.vw === 'number' && Number.isFinite(o.vw) && o.vw > 0) {
+            return {
+              vw: o.vw,
+              vh: typeof o.vh === 'number' && Number.isFinite(o.vh) ? o.vh : 0,
+              dh: typeof o.dh === 'number' && Number.isFinite(o.dh) && o.dh > 0 ? o.dh : 0,
+              sx: typeof o.sx === 'number' && Number.isFinite(o.sx) ? o.sx : 0,
+              sy: typeof o.sy === 'number' && Number.isFinite(o.sy) ? o.sy : 0,
+            };
           }
+          return null;
         } catch {
-          // Non-blocking mask resolution
+          return null;
         }
-      }
+      };
+
+      let targetMaskEntries: MaskResolutionEntry[] = [];
+      let compMaskEntries: MaskResolutionEntry[] = [];
+      let targetMetrics: { vw: number; vh: number; dh: number; sx: number; sy: number } | null = null;
+      let compMetrics: { vw: number; vh: number; dh: number; sx: number; sy: number } | null = null;
+      const targetNormalize: NormalizationReceipt = emptyNormalizationReceipt(Boolean(params.normalizeScroll));
+      let compNormalize: NormalizationReceipt = emptyNormalizationReceipt(Boolean(params.normalizeScroll));
+      let compTabId: string | null = null;
+      /** independently resolved comparison rect (selector may resolve to different coords on A/B) */
+      let comparisonRect: { x: number; y: number; width: number; height: number } | undefined;
+
+      try {
+        // Normalization FIRST: scrollbar-gutter style shifts the viewport, so all
+        // geometry captured after this point (metrics, rect, masks) stays consistent
+        // with the normalized screenshot.
+        if (params.normalizeScroll) {
+          const outcome = await NormalizationTransaction.inject(this.host, tabId, effectivePane);
+          targetNormalize.injected = outcome.owned;
+          targetNormalize.owned = outcome.owned;
+          if (!outcome.ok && outcome.error) targetNormalize.injectError = outcome.error;
+        }
+        targetMetrics = await readCssMetrics(tabId);
+        // Fail-closed mask ledger: required selectors MUST resolve, optional may be absent
+        if (requiredMasks.length > 0 || optionalMasks.length > 0) {
+          targetMaskEntries = await MaskLedger.resolve(this.host, tabId, effectivePane, requiredMasks, optionalMasks);
+        }
 
       // Resolve target rectangle from clipRect or selector for focused visual compare
       let resolvedRect: { x: number; y: number; width: number; height: number } | undefined = params.clipRect
@@ -2491,20 +2521,19 @@ export class BrowserControlPort {
           throw new CapabilityError('INVALID_ARGUMENT', `Baseline screenshot artifact '${params.baselineScreenshotRef}' not found: ${err instanceof Error ? err.message : String(err)}`);
         }
       } else if (params.comparisonTabId) {
-        const compTabId = this.resolveTargetTab(target, params.comparisonTabId);
+        compTabId = this.resolveTargetTab(target, params.comparisonTabId);
+        // Normalization FIRST (same rationale as the target side)
         if (params.normalizeScroll) {
-          try {
-            await this.host.evalJs(`(() => {
-              const style = document.createElement('style');
-              style.id = '__antifan_normalize_scroll';
-              style.textContent = 'html { overflow-y: scroll !important; scrollbar-gutter: stable !important; }';
-              if (!document.getElementById('__antifan_normalize_scroll')) document.head.appendChild(style);
-            })()`, compTabId, effectivePane);
-          } catch {
-            // Non-blocking normalization
-          }
+          const outcome = await NormalizationTransaction.inject(this.host, compTabId, effectivePane);
+          compNormalize.injected = outcome.owned;
+          compNormalize.owned = outcome.owned;
+          if (!outcome.ok && outcome.error) compNormalize.injectError = outcome.error;
         }
-        let compRect = resolvedRect;
+        compMetrics = await readCssMetrics(compTabId);
+        if (requiredMasks.length > 0 || optionalMasks.length > 0) {
+          compMaskEntries = await MaskLedger.resolve(this.host, compTabId, effectivePane, requiredMasks, optionalMasks);
+        }
+        comparisonRect = resolvedRect;
         if (params.selector && typeof this.host.evalJs === 'function') {
           try {
             const rawRect = await this.host.evalJs(`(() => {
@@ -2517,15 +2546,15 @@ export class BrowserControlPort {
             if (rawRect && typeof rawRect === 'object' && 'width' in rawRect && 'height' in rawRect) {
               const cast = rawRect as { x: number; y: number; width: number; height: number };
               if (cast.width > 0 && cast.height > 0) {
-                compRect = cast;
+                comparisonRect = cast;
               }
             }
           } catch {}
         }
-        let compBase64 = await this.host.captureScreenshot(compRect, compTabId, effectivePane, captureOpts);
+        let compBase64 = await this.host.captureScreenshot(comparisonRect, compTabId, effectivePane, captureOpts);
         if (!compBase64 || compBase64.length === 0) {
           await new Promise((r) => setTimeout(r, 150));
-          compBase64 = await this.host.captureScreenshot(compRect, compTabId, effectivePane, captureOpts);
+          compBase64 = await this.host.captureScreenshot(comparisonRect, compTabId, effectivePane, captureOpts);
         }
         if (!compBase64 || compBase64.length === 0) {
           throw new CapabilityError('TARGET_STALE', `Failed to capture non-empty baseline screenshot on comparison tab '${compTabId}'`);
@@ -2570,9 +2599,76 @@ export class BrowserControlPort {
         }
       }
 
+      // Per-side measured spaces (captured-CSS-width denominator, per-axis scale)
+      const targetSpace = curDims && targetMetrics
+        ? visualCaptureSpaceFromMeasured({
+            pngWidth: curDims.width,
+            pngHeight: curDims.height,
+            cssViewportWidth: targetMetrics.vw,
+            cssViewportHeight: targetMetrics.vh,
+            cssDocumentHeight: targetMetrics.dh,
+            scrollX: targetMetrics.sx,
+            scrollY: targetMetrics.sy,
+            fullPage: Boolean(params.fullPage),
+            crop: Boolean(params.fullPage) ? undefined : resolvedRect,
+          })
+        : null;
+      const targetMask = targetMaskEntries.length > 0
+        ? materializeRasterMasks(targetMaskEntries, targetSpace, curDims ? curDims.width : 0, curDims ? curDims.height : 0)
+        : emptyMaskLedgerResult();
+      let compMask = emptyMaskLedgerResult();
+      if (compTabId) {
+        const compSpace = baseDims && compMetrics
+          ? visualCaptureSpaceFromMeasured({
+              pngWidth: baseDims.width,
+              pngHeight: baseDims.height,
+              cssViewportWidth: compMetrics.vw,
+              cssViewportHeight: compMetrics.vh,
+              cssDocumentHeight: compMetrics.dh,
+              scrollX: compMetrics.sx,
+              scrollY: compMetrics.sy,
+              fullPage: Boolean(params.fullPage),
+              crop: Boolean(params.fullPage) ? undefined : comparisonRect,
+            })
+          : null;
+        compMask = compMaskEntries.length > 0
+          ? materializeRasterMasks(compMaskEntries, compSpace, baseDims ? baseDims.width : 0, baseDims ? baseDims.height : 0)
+          : emptyMaskLedgerResult();
+      }
+      const maskBoxes = [...targetMask.maskBoxes, ...compMask.maskBoxes];
+      const maskedAreaRatio = Math.max(targetMask.maskedAreaRatio, compMask.maskedAreaRatio);
 
       const tolerance = typeof params.tolerance === 'number' ? params.tolerance : 5.0;
       const diffResult = computePixelDiff(curBuffer, baselineBuffer, tolerance, maskBoxes);
+
+      // Restore injected normalization BEFORE claiming success (V-11). An owned
+      // style that cannot be restored is an operational failure — never a clean run.
+      if (targetNormalize.owned && !targetNormalize.restored) {
+        const restored = await NormalizationTransaction.restore(this.host, tabId, effectivePane, true);
+        targetNormalize.restored = restored.ok;
+        if (restored.error && !targetNormalize.restoreError) targetNormalize.restoreError = restored.error;
+      }
+      if (compNormalize.owned && compTabId && !compNormalize.restored) {
+        const restored = await NormalizationTransaction.restore(this.host, compTabId, effectivePane, true);
+        compNormalize.restored = restored.ok;
+        if (restored.error && !compNormalize.restoreError) compNormalize.restoreError = restored.error;
+      }
+      if ((targetNormalize.owned && !targetNormalize.restored) || (compNormalize.owned && !compNormalize.restored)) {
+        return {
+          ok: false,
+          status: 'NORMALIZATION_RESTORE_FAILED',
+          reason: `Owned normalizeScroll style could not be restored (target: ${targetNormalize.restoreError || 'unknown'}, comparison: ${compNormalize.restoreError || 'n/a'})`,
+          match: false,
+          mismatchPercentage: 100,
+          totalPixels: 0,
+          normalization: { target: targetNormalize, comparison: compTabId ? compNormalize : undefined },
+          maskResolution: {
+            status: 'ok',
+            maskedAreaRatio,
+            optionalUnmatched: [...targetMask.optionalUnmatched, ...compMask.optionalUnmatched],
+          },
+        };
+      }
 
       return {
         match: diffResult.match,
@@ -2584,8 +2680,50 @@ export class BrowserControlPort {
         diffBoundingBoxes: diffResult.diffBoundingBoxes,
         currentScreenshot: curArtifact,
         baselineScreenshot: baselineArtifactRef,
+        normalization: { target: targetNormalize, comparison: compTabId ? compNormalize : undefined },
+        maskResolution: {
+          status: 'ok',
+          maskedAreaRatio,
+          optionalUnmatched: [...targetMask.optionalUnmatched, ...compMask.optionalUnmatched],
+          target: {
+            entries: targetMask.entries.map(maskEntryReceipt),
+            maskedAreaRatio: targetMask.maskedAreaRatio,
+          },
+          baseline: compTabId
+            ? {
+                entries: compMask.entries.map(maskEntryReceipt),
+                maskedAreaRatio: compMask.maskedAreaRatio,
+              }
+            : undefined,
+        },
         notes: diffResult.match ? 'Visual comparison passed within tolerance' : `Visual discrepancies detected (${diffResult.mismatchPercentage}% mismatch exceeds ${tolerance}% tolerance)`,
       };
+      } catch (err: unknown) {
+        if (err instanceof MaskResolutionError) {
+          return {
+            ok: false,
+            status: err.status,
+            reason: err.message,
+            match: false,
+            mismatchPercentage: 100,
+            totalPixels: 0,
+            normalization: { target: targetNormalize, comparison: compTabId ? compNormalize : undefined },
+            maskResolution: { status: err.status, reason: err.message, maskedAreaRatio: err.maskedAreaRatio, entries: err.entries.map(maskEntryReceipt) },
+          };
+        }
+        throw err;
+      } finally {
+        if (targetNormalize.owned && !targetNormalize.restored) {
+          const restored = await NormalizationTransaction.restore(this.host, tabId, effectivePane, true);
+          targetNormalize.restored = restored.ok;
+          if (restored.error && !targetNormalize.restoreError) targetNormalize.restoreError = restored.error;
+        }
+        if (compNormalize.owned && compTabId && !compNormalize.restored) {
+          const restored = await NormalizationTransaction.restore(this.host, compTabId, effectivePane, true);
+          compNormalize.restored = restored.ok;
+          if (restored.error && !compNormalize.restoreError) compNormalize.restoreError = restored.error;
+        }
+      }
     });
   }
   async freezeMedia(
@@ -3154,7 +3292,7 @@ export function computePixelDiff(
   const isMasked = (x: number, y: number): boolean => {
     for (let i = 0; i < maskBoxes.length; i++) {
       const box = maskBoxes[i];
-      if (box && x >= box.x && x <= box.x + box.width && y >= box.y && y <= box.y + box.height) {
+      if (box && x >= box.x && x < box.x + box.width && y >= box.y && y < box.y + box.height) {
         return true;
       }
     }

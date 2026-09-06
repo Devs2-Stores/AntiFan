@@ -2122,13 +2122,18 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
           type: 'array',
           items: { type: 'string' },
         },
+        maskOptionalSelectors: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Additive: selectors that MAY match zero elements without failing the compare',
+        },
         normalizeScroll: { type: 'boolean' },
         tabId: { type: 'string' },
         paneId: { type: 'string', enum: ['desktop', 'mobile'] },
         fullPage: { type: 'boolean', description: 'Capture entire document scroll height for full-page visual comparison' },
       },
     },
-    execute: (params: { baselineScreenshotRef?: string; comparisonTabId?: string; tolerance?: number; selector?: string; clipRect?: { x: number; y: number; width: number; height: number }; maskSelectors?: string[]; normalizeScroll?: boolean; tabId?: string; paneId?: 'desktop' | 'mobile'; fullPage?: boolean }, context) =>
+    execute: (params: { baselineScreenshotRef?: string; comparisonTabId?: string; tolerance?: number; selector?: string; clipRect?: { x: number; y: number; width: number; height: number };       maskSelectors?: string[]; maskOptionalSelectors?: string[]; normalizeScroll?: boolean; tabId?: string; paneId?: 'desktop' | 'mobile'; fullPage?: boolean }, context) =>
       browser.visualCompare(context.browserTarget as BrowserTarget, context.runId || 'run-default', context.attemptId || 'att-default', params, params?.tabId, params?.paneId),
   });
 
@@ -2158,13 +2163,18 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
           type: 'array',
           items: { type: 'string' },
         },
+        maskOptionalSelectors: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Additive: selectors that MAY match zero elements without failing the compare',
+        },
         normalizeScroll: { type: 'boolean' },
         tabId: { type: 'string' },
         paneId: { type: 'string', enum: ['desktop', 'mobile'] },
         fullPage: { type: 'boolean', description: 'Capture entire document scroll height for full-page visual comparison' },
       },
     },
-    execute: (params: { baselineScreenshotRef?: string; comparisonTabId?: string; tolerance?: number; selector?: string; clipRect?: { x: number; y: number; width: number; height: number }; maskSelectors?: string[]; normalizeScroll?: boolean; tabId?: string; paneId?: 'desktop' | 'mobile'; fullPage?: boolean }, context) =>
+    execute: (params: { baselineScreenshotRef?: string; comparisonTabId?: string; tolerance?: number; selector?: string; clipRect?: { x: number; y: number; width: number; height: number };       maskSelectors?: string[]; maskOptionalSelectors?: string[]; normalizeScroll?: boolean; tabId?: string; paneId?: 'desktop' | 'mobile'; fullPage?: boolean }, context) =>
       browser.visualCompare(context.browserTarget as BrowserTarget, context.runId || 'run-default', context.attemptId || 'att-default', params, params?.tabId, params?.paneId),
   });
 
