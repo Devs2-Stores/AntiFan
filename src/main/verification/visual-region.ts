@@ -159,18 +159,15 @@ export function computeStructuralMetrics(
   const targetRegions = targetBundle.regions;
   const baselineRegions = baselineBundle.regions;
 
-  // Global cardinality comparison (backward compatibility & telemetry)
-  const targetCount = targetRegions.length;
-  const baselineCount = baselineRegions.length;
-  const deltaCardinality = Math.abs(targetCount - baselineCount);
-  const cardinalityMatch = deltaCardinality === 0;
+  const isTrackedFilter = Boolean(options.trackedSelectors && options.trackedSelectors.length > 0);
+  const trackedSet = isTrackedFilter ? new Set(options.trackedSelectors) : null;
 
   // Group by selector
   const baselineGroups = new Map<string, VisualRegion[]>();
   for (let i = 0; i < baselineRegions.length; i++) {
     const br = baselineRegions[i]!;
     if (br.selector) {
-      if (options.trackedSelectors && !options.trackedSelectors.includes(br.selector)) {
+      if (trackedSet && !trackedSet.has(br.selector)) {
         continue;
       }
       let list = baselineGroups.get(br.selector);
@@ -186,7 +183,7 @@ export function computeStructuralMetrics(
   for (let i = 0; i < targetRegions.length; i++) {
     const tr = targetRegions[i]!;
     if (tr.selector) {
-      if (options.trackedSelectors && !options.trackedSelectors.includes(tr.selector)) {
+      if (trackedSet && !trackedSet.has(tr.selector)) {
         continue;
       }
       let list = targetGroups.get(tr.selector);
@@ -203,6 +200,11 @@ export function computeStructuralMetrics(
   let maxDelta = 0;
   let maxShiftSelector: string | undefined = undefined;
 
+  let sumTargetCount = 0;
+  let sumBaselineCount = 0;
+  let sumDeltaCardinality = 0;
+  let allGroupsMatch = true;
+
   for (const selector of allSelectors) {
     const bList = baselineGroups.get(selector) ?? [];
     const tList = targetGroups.get(selector) ?? [];
@@ -210,7 +212,12 @@ export function computeStructuralMetrics(
     const bCount = bList.length;
     const groupCardMatch = tCount === bCount;
 
+    sumTargetCount += tCount;
+    sumBaselineCount += bCount;
+    sumDeltaCardinality += Math.abs(tCount - bCount);
+
     if (!groupCardMatch) {
+      allGroupsMatch = false;
       // Group cardinality mismatch: short-circuit geometry pairing to prevent cascade error
       groups[selector] = {
         selector,
@@ -259,12 +266,27 @@ export function computeStructuralMetrics(
     }
   }
 
+  // If no tracked filter, include regions without a selector in top-level telemetry
+  if (!isTrackedFilter) {
+    const unselectedTarget = targetRegions.filter((r) => !r.selector).length;
+    const unselectedBaseline = baselineRegions.filter((r) => !r.selector).length;
+    sumTargetCount += unselectedTarget;
+    sumBaselineCount += unselectedBaseline;
+    const unselectedDelta = Math.abs(unselectedTarget - unselectedBaseline);
+    sumDeltaCardinality += unselectedDelta;
+    if (unselectedDelta > 0) {
+      allGroupsMatch = false;
+    }
+  }
+
+  const cardinalityMatch = allGroupsMatch && sumDeltaCardinality === 0;
+
   return {
     geometryWithinTolerance: maxDelta <= maxTol,
     deltaGeometry: maxDelta,
     cardinalityMatch,
-    deltaCardinality,
-    cardinality: { target: targetCount, baseline: baselineCount },
+    deltaCardinality: sumDeltaCardinality,
+    cardinality: { target: sumTargetCount, baseline: sumBaselineCount },
     maxGeometryShift: { selector: maxShiftSelector, deltaPx: maxDelta },
     groups,
   };

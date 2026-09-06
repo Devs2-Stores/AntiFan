@@ -212,4 +212,87 @@ describe('Visual Region Structural Parity Suite (P0.1 - P0.3)', () => {
     assert.strictEqual(res.deltaGeometry, 0);
     assert.strictEqual(res.geometryWithinTolerance, true);
   });
+
+  it('P0.2: group ledger prevents cancellation masking when one group adds and another subtracts', () => {
+    // Baseline: 4 cards and 4 badges (total 8)
+    const baselineRaw: RawElementSensoryData[] = [
+      { ref: 'b-c0', tag: 'div', selector: '.product-card', rect: makeBox(0, 0, 180, 280), visible: true },
+      { ref: 'b-c1', tag: 'div', selector: '.product-card', rect: makeBox(200, 0, 180, 280), visible: true },
+      { ref: 'b-c2', tag: 'div', selector: '.product-card', rect: makeBox(0, 300, 180, 280), visible: true },
+      { ref: 'b-c3', tag: 'div', selector: '.product-card', rect: makeBox(200, 300, 180, 280), visible: true },
+      { ref: 'b-b0', tag: 'span', selector: '.badge', rect: makeBox(10, 10, 50, 20), visible: true },
+      { ref: 'b-b1', tag: 'span', selector: '.badge', rect: makeBox(210, 10, 50, 20), visible: true },
+      { ref: 'b-b2', tag: 'span', selector: '.badge', rect: makeBox(10, 310, 50, 20), visible: true },
+      { ref: 'b-b3', tag: 'span', selector: '.badge', rect: makeBox(210, 310, 50, 20), visible: true },
+    ];
+
+    // Target: 5 cards (+1) and 3 badges (-1) -> naive net sum is 8 - 8 = 0, but both groups shifted!
+    const targetRaw: RawElementSensoryData[] = [
+      { ref: 't-c-new', tag: 'div', selector: '.product-card', rect: makeBox(0, 0, 180, 280), visible: true },
+      { ref: 't-c0', tag: 'div', selector: '.product-card', rect: makeBox(200, 0, 180, 280), visible: true },
+      { ref: 't-c1', tag: 'div', selector: '.product-card', rect: makeBox(0, 300, 180, 280), visible: true },
+      { ref: 't-c2', tag: 'div', selector: '.product-card', rect: makeBox(200, 300, 180, 280), visible: true },
+      { ref: 't-c3', tag: 'div', selector: '.product-card', rect: makeBox(0, 600, 180, 280), visible: true },
+      { ref: 't-b0', tag: 'span', selector: '.badge', rect: makeBox(210, 10, 50, 20), visible: true },
+      { ref: 't-b1', tag: 'span', selector: '.badge', rect: makeBox(0, 310, 50, 20), visible: true },
+      { ref: 't-b2', tag: 'span', selector: '.badge', rect: makeBox(210, 310, 50, 20), visible: true },
+    ];
+
+    const bBundle = normalizeVisualRegions(baselineRaw, { width: 1200, height: 800 }, 1);
+    const tBundle = normalizeVisualRegions(targetRaw, { width: 1200, height: 800 }, 1);
+
+    const res = computeStructuralMetrics(tBundle, bBundle);
+
+    // Ledger aggregates absolute group deltas: |5 - 4| + |3 - 4| = 2
+    assert.strictEqual(res.deltaCardinality, 2);
+    assert.strictEqual(res.cardinalityMatch, false);
+    assert.strictEqual(res.cardinality.target, 8);
+    assert.strictEqual(res.cardinality.baseline, 8);
+    assert.strictEqual(res.groups['.product-card']?.cardinalityMatch, false);
+    assert.strictEqual(res.groups['.badge']?.cardinalityMatch, false);
+  });
+
+  it('P0.2: trackedSelectors scopes cardinality aggregation to tracked groups, ignoring untracked count changes', () => {
+    // Baseline: 4 product cards + 1 header + 1 footer
+    const baselineRaw: RawElementSensoryData[] = [
+      { ref: 'b-hdr', tag: 'header', selector: '.site-header', rect: makeBox(0, 0, 1200, 80), visible: true },
+      { ref: 'b-ftr', tag: 'footer', selector: '.site-footer', rect: makeBox(0, 700, 1200, 100), visible: true },
+      { ref: 'b0', tag: 'div', selector: '.product-card', rect: makeBox(0, 100, 180, 280), visible: true },
+      { ref: 'b1', tag: 'div', selector: '.product-card', rect: makeBox(200, 100, 180, 280), visible: true },
+      { ref: 'b2', tag: 'div', selector: '.product-card', rect: makeBox(0, 400, 180, 280), visible: true },
+      { ref: 'b3', tag: 'div', selector: '.product-card', rect: makeBox(200, 400, 180, 280), visible: true },
+    ];
+
+    // Target: 4 product cards (identical!) + 2 headers (+1) + 3 footers (+2)
+    const targetRaw: RawElementSensoryData[] = [
+      { ref: 't-hdr1', tag: 'header', selector: '.site-header', rect: makeBox(0, 0, 1200, 80), visible: true },
+      { ref: 't-hdr2', tag: 'header', selector: '.site-header', rect: makeBox(0, 80, 1200, 40), visible: true },
+      { ref: 't-ftr1', tag: 'footer', selector: '.site-footer', rect: makeBox(0, 700, 1200, 50), visible: true },
+      { ref: 't-ftr2', tag: 'footer', selector: '.site-footer', rect: makeBox(0, 750, 1200, 50), visible: true },
+      { ref: 't-ftr3', tag: 'footer', selector: '.site-footer', rect: makeBox(0, 800, 1200, 50), visible: true },
+      { ref: 't0', tag: 'div', selector: '.product-card', rect: makeBox(0, 100, 180, 280), visible: true },
+      { ref: 't1', tag: 'div', selector: '.product-card', rect: makeBox(200, 100, 180, 280), visible: true },
+      { ref: 't2', tag: 'div', selector: '.product-card', rect: makeBox(0, 400, 180, 280), visible: true },
+      { ref: 't3', tag: 'div', selector: '.product-card', rect: makeBox(200, 400, 180, 280), visible: true },
+    ];
+
+    const bBundle = normalizeVisualRegions(baselineRaw, { width: 1200, height: 800 }, 1);
+    const tBundle = normalizeVisualRegions(targetRaw, { width: 1200, height: 800 }, 1);
+
+    // Caller only tracks .product-card
+    const res = computeStructuralMetrics(tBundle, bBundle, {
+      trackedSelectors: ['.product-card'],
+    });
+
+    // Top-level cardinality evaluates ONLY the tracked group
+    assert.strictEqual(res.cardinalityMatch, true);
+    assert.strictEqual(res.deltaCardinality, 0);
+    assert.strictEqual(res.cardinality.target, 4);
+    assert.strictEqual(res.cardinality.baseline, 4);
+    assert.strictEqual(res.deltaGeometry, 0);
+    assert.strictEqual(res.geometryWithinTolerance, true);
+    assert.strictEqual(res.groups['.product-card']?.cardinalityMatch, true);
+    assert.strictEqual(res.groups['.site-header'], undefined);
+    assert.strictEqual(res.groups['.site-footer'], undefined);
+  });
 });
