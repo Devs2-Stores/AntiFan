@@ -83,6 +83,6 @@ Ghi chú ownership: Phase 5 là integration owner cuối cho `BrowserControlPort
 - [x] V-22, V-24 xanh (Phase 6) — promoted baseline authority, tamper detection, 3-run determinism
 - [ ] V-25 xanh (Phase 7) — thiếu credential/preview thật → phase giữ BLOCKED, không tính hoàn thành
 - [ ] 18/18 freeze checklist (Audit v5 §26)
-- [ ] Toàn bộ test suite + `tsc --noEmit` sạch; `VerificationEvaluator` là thẩm quyền duy nhất; `ArtifactStore` không đổi ràng buộc
+- [x] Toàn bộ test suite + `tsc --noEmit` sạch; `VerificationEvaluator` là thẩm quyền duy nhất; `ArtifactStore` không đổi ràng buộc
 
 <!-- slug: visual-evidence-integrity-and-haravan-proof -->
