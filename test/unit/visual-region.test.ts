@@ -295,4 +295,31 @@ describe('Visual Region Structural Parity Suite (P0.1 - P0.3)', () => {
     assert.strictEqual(res.groups['.site-header'], undefined);
     assert.strictEqual(res.groups['.site-footer'], undefined);
   });
+
+  it('P0.2: trackedSelectors: [] explicitly tracks nothing (empty groups, zero counts, zero delta)', () => {
+    const baselineRaw: RawElementSensoryData[] = [
+      { ref: 'b0', tag: 'div', selector: '.product-card', rect: makeBox(0, 0, 180, 280), visible: true },
+      { ref: 'b1', tag: 'div', selector: '.site-header', rect: makeBox(0, 0, 1200, 80), visible: true },
+    ];
+
+    const targetRaw: RawElementSensoryData[] = [
+      { ref: 't0', tag: 'div', selector: '.product-card', rect: makeBox(0, 20, 180, 280), visible: true },
+      { ref: 't1', tag: 'div', selector: '.site-header', rect: makeBox(0, 100, 1200, 80), visible: true },
+    ];
+
+    const bBundle = normalizeVisualRegions(baselineRaw, { width: 1200, height: 800 }, 1);
+    const tBundle = normalizeVisualRegions(targetRaw, { width: 1200, height: 800 }, 1);
+
+    const res = computeStructuralMetrics(tBundle, bBundle, {
+      trackedSelectors: [],
+    });
+
+    assert.deepStrictEqual(res.groups, {});
+    assert.strictEqual(res.cardinality.target, 0);
+    assert.strictEqual(res.cardinality.baseline, 0);
+    assert.strictEqual(res.deltaCardinality, 0);
+    assert.strictEqual(res.cardinalityMatch, true);
+    assert.strictEqual(res.deltaGeometry, 0);
+    assert.strictEqual(res.geometryWithinTolerance, true);
+  });
 });

@@ -159,8 +159,8 @@ export function computeStructuralMetrics(
   const targetRegions = targetBundle.regions;
   const baselineRegions = baselineBundle.regions;
 
-  const isTrackedFilter = Boolean(options.trackedSelectors && options.trackedSelectors.length > 0);
-  const trackedSet = isTrackedFilter ? new Set(options.trackedSelectors) : null;
+  const trackedSet = options.trackedSelectors ? new Set(options.trackedSelectors) : null;
+  const isTrackedFilter = trackedSet !== null;
 
   // Group by selector
   const baselineGroups = new Map<string, VisualRegion[]>();
