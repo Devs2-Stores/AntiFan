@@ -17,6 +17,7 @@
  */
 
 import type { MetricSample, VisualEvidenceReceipt } from './verification-contract';
+import type { GroupStructuralMetrics } from './visual-region';
 
 export interface RasterBox {
   x: number;
@@ -766,6 +767,7 @@ export interface VisualStructuralMetrics {
   deltaGeometry?: number;
   cardinalityMatch?: boolean;
   deltaCardinality?: number;
+  groups?: Record<string, GroupStructuralMetrics>;
 }
 
 /**

@@ -237,4 +237,53 @@ describe('FirstPartyNetworkTracker & Settle Gate Invariants', () => {
       }
     );
   });
+
+  it('retireDocumentRequests retires Document/MainFrame while strictly preserving Stylesheet, Script, and Font gating', async () => {
+    const tracker = new FirstPartyNetworkTracker();
+    const tabId = 'tab-retire';
+    const paneId = 'desktop';
+
+    // Start 1 Document request + 1 Stylesheet request + 1 Script request + 1 Font request
+    tracker.onRequestStarted(tabId, paneId, 'doc-1', 'https://mystore.haravan.com/', contextUrl, 'Document');
+    tracker.onRequestStarted(tabId, paneId, 'css-1', 'https://mystore.haravan.com/theme.css', contextUrl, 'Stylesheet');
+    tracker.onRequestStarted(tabId, paneId, 'js-1', 'https://mystore.haravan.com/theme.js', contextUrl, 'Script');
+    tracker.onRequestStarted(tabId, paneId, 'font-1', 'https://mystore.haravan.com/inter.woff2', contextUrl, 'Font');
+
+    assert.strictEqual(tracker.getInflightCount(tabId, paneId), 4);
+
+    // Call retireDocumentRequests (as called by NativeTabHost on did-stop-loading)
+    tracker.retireDocumentRequests(tabId, paneId);
+
+    // Document must be retired, but css-1, js-1, and font-1 MUST remain inflight!
+    assert.strictEqual(tracker.getInflightCount(tabId, paneId), 3);
+
+    // Step-by-step finish of preserved assets verifies exact tracking without wall-clock sleeps
+    tracker.onRequestFinished(tabId, paneId, 'css-1');
+    assert.strictEqual(tracker.getInflightCount(tabId, paneId), 2);
+
+    tracker.onRequestFinished(tabId, paneId, 'js-1');
+    assert.strictEqual(tracker.getInflightCount(tabId, paneId), 1);
+
+    // Await quiescence: remaining Font request gates completion until finished
+    const quiescencePromise = tracker.awaitQuiescence(tabId, paneId, { idleWindowMs: 20, maxCeilingMs: 1000 });
+
+    tracker.onRequestFinished(tabId, paneId, 'font-1');
+    assert.strictEqual(tracker.getInflightCount(tabId, paneId), 0);
+
+    const result = await quiescencePromise;
+    assert.strictEqual(result.settled, true);
+    assert.strictEqual(result.timedOut, false);
+
+    // Additionally verify that notifyStateChange wakes an already-waiting quiescence listener
+    tracker.onRequestStarted(tabId, paneId, 'stuck-doc', 'https://mystore.haravan.com/', contextUrl, 'Document');
+    assert.strictEqual(tracker.getInflightCount(tabId, paneId), 1);
+
+    const docWaitPromise = tracker.awaitQuiescence(tabId, paneId, { idleWindowMs: 20, maxCeilingMs: 1000 });
+    tracker.retireDocumentRequests(tabId, paneId);
+    assert.strictEqual(tracker.getInflightCount(tabId, paneId), 0);
+
+    const docResult = await docWaitPromise;
+    assert.strictEqual(docResult.settled, true);
+    assert.strictEqual(docResult.timedOut, false);
+  });
 });

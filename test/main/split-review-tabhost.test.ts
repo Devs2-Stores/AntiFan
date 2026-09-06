@@ -18,6 +18,7 @@ function createTestHost() {
   const desktopWc = Object.assign(new EventEmitter(), {
     id: 101,
     isDestroyed: (): boolean => false,
+    getURL: (): string => 'https://example.com',
     getUserAgent: (): string => '',
     loadURL: async () => {},
     reload: () => {},
@@ -42,6 +43,7 @@ function createTestHost() {
   const mobileWc = Object.assign(new EventEmitter(), {
     id: 102,
     isDestroyed: (): boolean => false,
+    getURL: (): string => 'https://example.com',
     getUserAgent: (): string => '',
     loadURL: async () => {},
     reload: () => {},
@@ -906,5 +908,58 @@ describe('NativeTabHost Split Review Integration', () => {
 
     (NativeTabHost.prototype as any).setupBackdropContextMenu.call(host, backdropWc);
     assert.strictEqual(backdropWc.listenerCount('context-menu'), 1, 'Backdrop webContents must have 1 context-menu listener');
+  });
+
+  it('retires Document requests upon did-stop-loading and main-frame did-fail-load while preserving Stylesheet requests', () => {
+    const { host, desktopWc } = createTestHost();
+    const tabId = 'tab-lifecycle-retire';
+    const state: AntiFanTab = {
+      id: tabId,
+      url: 'https://example.com',
+      title: 'Test',
+      isLoading: true,
+      canGoBack: false,
+      canGoForward: false,
+      zoomFactor: 1,
+      devicePresetId: 'responsive',
+      crashed: false,
+      splitMode: false,
+      splitFocusedPane: 'desktop',
+    };
+
+    host.tabs = new Map([
+      [tabId, { view: { webContents: desktopWc }, state, focusedPane: 'desktop' }]
+    ]);
+
+    privateHost.setupTabWebContentsEvents.call(host, tabId, { webContents: desktopWc }, state, 'desktop');
+
+    const tracker: FirstPartyNetworkTracker = host.networkTracker;
+    // Start 1 Document request + 1 Stylesheet request
+    tracker.onRequestStarted(tabId, 'desktop', 'doc-req', 'https://example.com/', 'https://example.com', 'Document');
+    tracker.onRequestStarted(tabId, 'desktop', 'css-req', 'https://example.com/style.css', 'https://example.com', 'Stylesheet');
+    assert.strictEqual(tracker.getInflightCount(tabId, 'desktop'), 2);
+
+    // 1. did-stop-loading fires: Document request retired, Stylesheet remains!
+    desktopWc.emit('did-stop-loading');
+    assert.strictEqual(tracker.getInflightCount(tabId, 'desktop'), 1);
+
+    // Re-add Document request to test did-fail-load
+    tracker.onRequestStarted(tabId, 'desktop', 'doc-req-2', 'https://example.com/', 'https://example.com', 'Document');
+    assert.strictEqual(tracker.getInflightCount(tabId, 'desktop'), 2);
+
+    // 2. Non-main-frame did-fail-load: does NOT retire Document
+    desktopWc.emit('did-fail-load', {}, -105, 'ERR_NAME_NOT_RESOLVED', 'https://example.com/subframe', false);
+    assert.strictEqual(tracker.getInflightCount(tabId, 'desktop'), 2);
+
+    // 3. Main-frame did-fail-load with ERR_ABORTED (-3): does NOT retire Document (preserves replacement navigation)
+    desktopWc.emit('did-fail-load', {}, -3, 'ERR_ABORTED', 'https://example.com/', true);
+    assert.strictEqual(tracker.getInflightCount(tabId, 'desktop'), 2);
+
+    // 4. Main-frame did-fail-load with terminal error (e.g. ERR_NAME_NOT_RESOLVED -105): retires Document, Stylesheet remains!
+    desktopWc.emit('did-fail-load', {}, -105, 'ERR_NAME_NOT_RESOLVED', 'https://example.com/', true);
+    assert.strictEqual(tracker.getInflightCount(tabId, 'desktop'), 1);
+    // Finish the remaining stylesheet request
+    tracker.onRequestFinished(tabId, 'desktop', 'css-req');
+    assert.strictEqual(tracker.getInflightCount(tabId, 'desktop'), 0);
   });
 });

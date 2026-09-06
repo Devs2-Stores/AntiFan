@@ -26,7 +26,7 @@ interface AttachedTargetState {
 }
 
 export class FirstPartyNetworkTracker {
-  private inflightByTarget = new Map<string, Set<number | string>>();
+  private inflightByTarget = new Map<string, Map<number | string, string>>();
   private listenersByTarget = new Map<string, Set<() => void>>();
   private attachedTargets = new Map<string, AttachedTargetState>();
 
@@ -59,26 +59,48 @@ export class FirstPartyNetworkTracker {
       return false;
     }
     const key = this.makeKey(tabId, paneId);
-    let targetSet = this.inflightByTarget.get(key);
-    if (!targetSet) {
-      targetSet = new Set();
-      this.inflightByTarget.set(key, targetSet);
+    let targetMap = this.inflightByTarget.get(key);
+    if (!targetMap) {
+      targetMap = new Map();
+      this.inflightByTarget.set(key, targetMap);
     }
-    targetSet.add(requestId);
+    const normalizedType = resourceType ? resourceType.toLowerCase() : '';
+    targetMap.set(requestId, normalizedType);
     this.notifyStateChange(key);
     return true;
   }
 
   public onRequestFinished(tabId: string, paneId: string, requestId: number | string): void {
     const key = this.makeKey(tabId, paneId);
-    const targetSet = this.inflightByTarget.get(key);
-    if (targetSet && targetSet.delete(requestId)) {
+    const targetMap = this.inflightByTarget.get(key);
+    if (targetMap && targetMap.delete(requestId)) {
+      this.notifyStateChange(key);
+    }
+  }
+
+  /**
+   * Reconciles top-level main-frame Document requests upon Electron load completion.
+   * Retires only Document/MainFrame requests while strictly preserving Stylesheet,
+   * Script, and Font gating.
+   */
+  public retireDocumentRequests(tabId: string, paneId: string = 'desktop'): void {
+    const key = this.makeKey(tabId, paneId);
+    const targetMap = this.inflightByTarget.get(key);
+    if (!targetMap || targetMap.size === 0) return;
+    let removed = false;
+    for (const [reqId, type] of targetMap.entries()) {
+      if (type === 'document' || type === 'mainframe') {
+        targetMap.delete(reqId);
+        removed = true;
+      }
+    }
+    if (removed) {
       this.notifyStateChange(key);
     }
   }
 
   public getInflightCount(tabId: string, paneId: string = 'desktop'): number {
-    return (this.inflightByTarget.get(this.makeKey(tabId, paneId)) || new Set()).size;
+    return (this.inflightByTarget.get(this.makeKey(tabId, paneId)) || new Map()).size;
   }
 
   public isAttached(tabId: string, paneId: string = 'desktop'): boolean {
@@ -110,9 +132,9 @@ export class FirstPartyNetworkTracker {
    */
   public resetInflight(tabId: string, paneId: string = 'desktop'): void {
     const key = this.makeKey(tabId, paneId);
-    const targetSet = this.inflightByTarget.get(key);
-    if (targetSet && targetSet.size > 0) {
-      targetSet.clear();
+    const targetMap = this.inflightByTarget.get(key);
+    if (targetMap && targetMap.size > 0) {
+      targetMap.clear();
       this.notifyStateChange(key);
     }
   }

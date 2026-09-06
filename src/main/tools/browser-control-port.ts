@@ -3329,18 +3329,61 @@ export class BrowserControlPort {
       if (typeof this.host.evalJs === 'function') {
         try {
           const rootSel = params.selector || 'body';
+          const trackedList = Array.isArray(params.trackedSelectors) ? params.trackedSelectors : [];
           const queryScript = `(() => {
             const root = document.querySelector(${JSON.stringify(rootSel)});
             if (!root) return [];
-            const children = Array.from(root.children);
-            const elements = [root, ...children];
-            return elements.map((el, i) => {
+            const tracked = ${JSON.stringify(trackedList)};
+
+            const matchedMap = new Map();
+            if (tracked.length > 0) {
+              for (const sel of tracked) {
+                try {
+                  const matchedEls = root.querySelectorAll(sel);
+                  for (let k = 0; k < matchedEls.length; k++) {
+                    const mEl = matchedEls[k];
+                    if (!matchedMap.has(mEl)) {
+                      matchedMap.set(mEl, sel);
+                    }
+                  }
+                  if (typeof root.matches === 'function' && root.matches(sel) && !matchedMap.has(root)) {
+                    matchedMap.set(root, sel);
+                  }
+                } catch {}
+              }
+            }
+
+            const candidateElements = (tracked.length > 0 && matchedMap.size > 0)
+              ? Array.from(matchedMap.keys())
+              : [root, ...Array.from(root.children)];
+
+            return candidateElements.map((el, i) => {
               const r = el.getBoundingClientRect();
+              const tag = el.tagName.toLowerCase();
+              let sel = matchedMap.get(el);
+              if (!sel) {
+                if (el.id) {
+                  sel = '#' + el.id;
+                } else {
+                  const classAttr = (typeof el.getAttribute === 'function' && el.getAttribute('class')) || '';
+                  const rawClasses = typeof classAttr === 'string' ? classAttr.trim().split(/\\s+/).filter(Boolean) : [];
+                  sel = rawClasses.length > 0 ? (tag + '.' + rawClasses.join('.')) : tag;
+                }
+              }
               return {
-                ref: el.getAttribute('data-ref') || ('el-' + i),
-                tag: el.tagName.toLowerCase(),
-                selector: el.id ? ('#' + el.id) : (el.className && typeof el.className === 'string' ? ('.' + el.className.trim().split(/\\s+/)[0]) : undefined),
-                rect: { x: Math.round(r.x), y: Math.round(r.y), width: Math.round(r.width), height: Math.round(r.height), top: Math.round(r.top), right: Math.round(r.right), bottom: Math.round(r.bottom), left: Math.round(r.left) },
+                ref: (typeof el.getAttribute === 'function' && el.getAttribute('data-ref')) || ('el-' + i),
+                tag,
+                selector: sel,
+                rect: {
+                  x: Math.round(r.x),
+                  y: Math.round(r.y),
+                  width: Math.round(r.width),
+                  height: Math.round(r.height),
+                  top: Math.round(r.top),
+                  right: Math.round(r.right),
+                  bottom: Math.round(r.bottom),
+                  left: Math.round(r.left)
+                },
                 visible: r.width > 0 && r.height > 0
               };
             });
@@ -3360,6 +3403,7 @@ export class BrowserControlPort {
                   deltaGeometry: structRes.deltaGeometry,
                   cardinalityMatch: structRes.cardinalityMatch,
                   deltaCardinality: structRes.deltaCardinality,
+                  groups: structRes.groups,
                 };
               }
             }
@@ -3414,6 +3458,7 @@ export class BrowserControlPort {
           settle: targetSettleReceipt
             ? { target: targetSettleReceipt, comparison: compSettleReceipt }
             : undefined,
+          structural: structuralMetrics,
           notes: diffResult.match ? 'Visual comparison passed within tolerance' : `Visual discrepancies detected (${diffResult.mismatchPercentage}% mismatch exceeds ${tolerance}% tolerance)`,
           receipt: createVisualEvidenceReceipt({
             match: diffResult.match,

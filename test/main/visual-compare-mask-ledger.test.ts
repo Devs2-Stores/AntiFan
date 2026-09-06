@@ -852,6 +852,14 @@ describe('visualCompare evaluator structural primacy & receipts (Phase 5 R1, R2,
     assert.ok(cardSample, 'Must include visual.cardinality_match');
     assert.strictEqual(cardSample.passed, false);
     assert.strictEqual(cardSample.delta, 1);
+
+    assert.ok(res.structural, 'Must return structural metrics on result');
+    assert.strictEqual(res.structural.geometryWithinTolerance, false);
+    assert.strictEqual(res.structural.cardinalityMatch, false);
+    assert.ok(res.structural.groups, 'Must preserve groups in structural metrics');
+    assert.strictEqual(res.structural.groups['.grid']?.cardinalityMatch, true);
+    assert.strictEqual(res.structural.groups['.item-4']?.cardinalityMatch, false);
+    assert.strictEqual(res.structural.groups['.item-4']?.skippedForCardinalityMismatch, true);
   });
 
   it('P0.4 contract: visualCompare respects trackedSelectors scope, isolating Product Grid from untracked header/footer mutations', async () => {
@@ -1282,5 +1290,33 @@ describe('computePixelDiff & visualCompare comprehensive edge cases', () => {
       },
       (err: unknown) => err instanceof CapabilityError && err.code === 'CAPABILITY_NOT_FOUND'
     );
+  });
+
+  it('visualCompare extracts specific semantic selectors and matches trackedSelectors despite utility classes', async () => {
+    let executedScript = '';
+    const host = buildMockHost({
+      evalLog: [],
+      evalJsOverride: async (script: string, tabId?: string) => {
+        if (script.includes('querySelectorAll')) {
+          executedScript = script;
+          return [
+            { ref: 'e1', tag: 'div', selector: '.product-card', rect: { x: 0, y: 0, width: 200, height: 100 }, visible: true },
+          ];
+        }
+        return true;
+      },
+    });
+    const port = new BrowserControlPort(host as unknown as BrowserHostPort);
+    const res = (await port.visualCompare(dummyTarget, 'run-spec', 'att-spec', {
+      comparisonTabId: 'tab-b',
+      trackedSelectors: ['.product-card', '[data-test-card]'],
+    })) as Record<string, unknown>;
+
+    assert.ok(res);
+    assert.ok(executedScript.includes('querySelectorAll'), 'queryScript must query tracked selectors via querySelectorAll');
+    assert.ok(executedScript.includes('getAttribute'), 'queryScript must use getAttribute for class resolution');
+    const structural = res.structural as { groups?: Record<string, unknown> } | undefined;
+    assert.ok(structural?.groups, 'Must preserve groups in structural telemetry');
+    assert.ok('.product-card' in structural.groups, 'Must preserve tracked product-card group in telemetry');
   });
 });

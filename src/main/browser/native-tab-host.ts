@@ -2744,6 +2744,7 @@ export class NativeTabHost extends EventEmitter {
     wc.on('did-stop-loading', () => {
       clearLoadingTimer();
       state.isLoading = false;
+      this.networkTracker.retireDocumentRequests(id, paneId);
       const currentTab = this.tabs.get(id);
       const splitHasLiveMobile = Boolean(state.splitMode && currentTab?.mobileView && !currentTab.mobileView.webContents.isDestroyed());
       const authorityPane = splitHasLiveMobile ? (currentTab?.focusedPane || state.splitFocusedPane || 'desktop') : 'desktop';
@@ -2802,6 +2803,9 @@ export class NativeTabHost extends EventEmitter {
     wc.on('did-fail-load', (_event, errorCode, errorDescription, validatedURL, isMainFrame) => {
       clearLoadingTimer();
       state.isLoading = false;
+      if (isMainFrame && errorCode !== -3) {
+        this.networkTracker.retireDocumentRequests(id, paneId);
+      }
       this.broadcastState();
       const rawUrl = String(validatedURL || '');
       const origin = computeOrigin(rawUrl, wc.getURL());
