@@ -854,6 +854,144 @@ describe('visualCompare evaluator structural primacy & receipts (Phase 5 R1, R2,
     assert.strictEqual(cardSample.delta, 1);
   });
 
+  it('P0.4 contract: visualCompare respects trackedSelectors scope, isolating Product Grid from untracked header/footer mutations', async () => {
+    const evalLog: EvalLogEntry[] = [];
+    const host = buildMockHost({
+      evalLog,
+      evalJsOverride: async (script: string, tabId?: string) => {
+        if (script.includes('root.children')) {
+          if (tabId === 'tab-a') {
+            // Target tab: 4 product cards (preserved layout) + 2 headers (+1 untracked) + 3 footers (+2 untracked)
+            return [
+              { ref: 't-h1', tag: 'header', selector: '.site-header', rect: { x: 0, y: 0, width: 1200, height: 60, top: 0, right: 1200, bottom: 60, left: 0 }, visible: true },
+              { ref: 't-h2', tag: 'header', selector: '.site-header', rect: { x: 0, y: 60, width: 1200, height: 20, top: 60, right: 1200, bottom: 80, left: 0 }, visible: true },
+              { ref: 't-f1', tag: 'footer', selector: '.site-footer', rect: { x: 0, y: 800, width: 1200, height: 50, top: 800, right: 1200, bottom: 850, left: 0 }, visible: true },
+              { ref: 't-f2', tag: 'footer', selector: '.site-footer', rect: { x: 0, y: 850, width: 1200, height: 50, top: 850, right: 1200, bottom: 900, left: 0 }, visible: true },
+              { ref: 't-f3', tag: 'footer', selector: '.site-footer', rect: { x: 0, y: 900, width: 1200, height: 50, top: 900, right: 1200, bottom: 950, left: 0 }, visible: true },
+              { ref: 't-c0', tag: 'div', selector: '.product-card', rect: { x: 0, y: 100, width: 280, height: 350, top: 100, right: 280, bottom: 450, left: 0 }, visible: true },
+              { ref: 't-c1', tag: 'div', selector: '.product-card', rect: { x: 300, y: 100, width: 280, height: 350, top: 100, right: 580, bottom: 450, left: 300 }, visible: true },
+              { ref: 't-c2', tag: 'div', selector: '.product-card', rect: { x: 600, y: 100, width: 280, height: 350, top: 100, right: 880, bottom: 450, left: 600 }, visible: true },
+              { ref: 't-c3', tag: 'div', selector: '.product-card', rect: { x: 900, y: 100, width: 280, height: 350, top: 100, right: 1180, bottom: 450, left: 900 }, visible: true },
+            ];
+          } else if (tabId === 'tab-b') {
+            // Baseline tab: 4 product cards + 1 header + 1 footer
+            return [
+              { ref: 'b-h1', tag: 'header', selector: '.site-header', rect: { x: 0, y: 0, width: 1200, height: 60, top: 0, right: 1200, bottom: 60, left: 0 }, visible: true },
+              { ref: 'b-f1', tag: 'footer', selector: '.site-footer', rect: { x: 0, y: 800, width: 1200, height: 50, top: 800, right: 1200, bottom: 850, left: 0 }, visible: true },
+              { ref: 'b-c0', tag: 'div', selector: '.product-card', rect: { x: 0, y: 100, width: 280, height: 350, top: 100, right: 280, bottom: 450, left: 0 }, visible: true },
+              { ref: 'b-c1', tag: 'div', selector: '.product-card', rect: { x: 300, y: 100, width: 280, height: 350, top: 100, right: 580, bottom: 450, left: 300 }, visible: true },
+              { ref: 'b-c2', tag: 'div', selector: '.product-card', rect: { x: 600, y: 100, width: 280, height: 350, top: 100, right: 880, bottom: 450, left: 600 }, visible: true },
+              { ref: 'b-c3', tag: 'div', selector: '.product-card', rect: { x: 900, y: 100, width: 280, height: 350, top: 100, right: 1180, bottom: 450, left: 900 }, visible: true },
+            ];
+          }
+        }
+        return true;
+      },
+    });
+    const port = new BrowserControlPort(host as any);
+
+    const res = (await port.visualCompare(dummyTarget, 'run-p4-iso', 'att-p4-iso', {
+      comparisonTabId: 'tab-b',
+      trackedSelectors: ['.product-card'],
+      normalizeScroll: true,
+    })) as any;
+
+    assert.ok(res.metricSamples, 'Must emit metricSamples');
+    const geomSample = res.metricSamples.find((s: any) => s.metric === 'visual.geometry_within_tolerance');
+    assert.ok(geomSample);
+    assert.strictEqual(geomSample.passed, true);
+    assert.strictEqual(geomSample.delta, 0);
+
+    const cardSample = res.metricSamples.find((s: any) => s.metric === 'visual.cardinality_match');
+    assert.ok(cardSample);
+    assert.strictEqual(cardSample.passed, true, 'Product grid cardinality must pass despite untracked header/footer changes');
+    assert.strictEqual(cardSample.delta, 0);
+  });
+
+  it('P0.4 contract: Controlled Mutation A (text wrap breaks height) -> geometry drift detected, fails tolerance', async () => {
+    const evalLog: EvalLogEntry[] = [];
+    const host = buildMockHost({
+      evalLog,
+      evalJsOverride: async (script: string, tabId?: string) => {
+        if (script.includes('root.children')) {
+          if (tabId === 'tab-a') {
+            // Target tab: Card 1 height expanded from 350px to 430px (+80px height drift from 5-line title)
+            return [
+              { ref: 't-c0', tag: 'div', selector: '.product-card', rect: { x: 0, y: 100, width: 280, height: 430, top: 100, right: 280, bottom: 530, left: 0 }, visible: true },
+              { ref: 't-c1', tag: 'div', selector: '.product-card', rect: { x: 300, y: 100, width: 280, height: 350, top: 100, right: 580, bottom: 450, left: 300 }, visible: true },
+              { ref: 't-c2', tag: 'div', selector: '.product-card', rect: { x: 600, y: 100, width: 280, height: 350, top: 100, right: 880, bottom: 450, left: 600 }, visible: true },
+              { ref: 't-c3', tag: 'div', selector: '.product-card', rect: { x: 900, y: 100, width: 280, height: 350, top: 100, right: 1180, bottom: 450, left: 900 }, visible: true },
+            ];
+          } else if (tabId === 'tab-b') {
+            // Baseline tab: 4 product cards at standard 350px height
+            return [
+              { ref: 'b-c0', tag: 'div', selector: '.product-card', rect: { x: 0, y: 100, width: 280, height: 350, top: 100, right: 280, bottom: 450, left: 0 }, visible: true },
+              { ref: 'b-c1', tag: 'div', selector: '.product-card', rect: { x: 300, y: 100, width: 280, height: 350, top: 100, right: 580, bottom: 450, left: 300 }, visible: true },
+              { ref: 'b-c2', tag: 'div', selector: '.product-card', rect: { x: 600, y: 100, width: 280, height: 350, top: 100, right: 880, bottom: 450, left: 600 }, visible: true },
+              { ref: 'b-c3', tag: 'div', selector: '.product-card', rect: { x: 900, y: 100, width: 280, height: 350, top: 100, right: 1180, bottom: 450, left: 900 }, visible: true },
+            ];
+          }
+        }
+        return true;
+      },
+    });
+    const port = new BrowserControlPort(host as any);
+
+    const res = (await port.visualCompare(dummyTarget, 'run-p4-mutA', 'att-p4-mutA', {
+      comparisonTabId: 'tab-b',
+      trackedSelectors: ['.product-card'],
+      normalizeScroll: true,
+    })) as any;
+
+    assert.ok(res.metricSamples);
+    const geomSample = res.metricSamples.find((s: any) => s.metric === 'visual.geometry_within_tolerance');
+    assert.ok(geomSample);
+    assert.strictEqual(geomSample.passed, false, 'Mutation A must fail geometry tolerance due to +80px card expansion');
+    assert.strictEqual(geomSample.delta, 80);
+
+    const cardSample = res.metricSamples.find((s: any) => s.metric === 'visual.cardinality_match');
+    assert.ok(cardSample);
+    assert.strictEqual(cardSample.passed, true);
+    assert.strictEqual(cardSample.delta, 0);
+  });
+
+  it('P0.4 contract: Controlled Mutation B (content variation with preserved structure) -> verified with geometry and cardinality match', async () => {
+    const evalLog: EvalLogEntry[] = [];
+    const host = buildMockHost({
+      evalLog,
+      evalJsOverride: async (script: string, tabId?: string) => {
+        if (script.includes('root.children')) {
+          // Both baseline and target have identical 4 cards geometry (price/title text changed but box fits perfectly)
+          return [
+            { ref: 'c0', tag: 'div', selector: '.product-card', rect: { x: 0, y: 100, width: 280, height: 350, top: 100, right: 280, bottom: 450, left: 0 }, visible: true },
+            { ref: 'c1', tag: 'div', selector: '.product-card', rect: { x: 300, y: 100, width: 280, height: 350, top: 100, right: 580, bottom: 450, left: 300 }, visible: true },
+            { ref: 'c2', tag: 'div', selector: '.product-card', rect: { x: 600, y: 100, width: 280, height: 350, top: 100, right: 880, bottom: 450, left: 600 }, visible: true },
+            { ref: 'c3', tag: 'div', selector: '.product-card', rect: { x: 900, y: 100, width: 280, height: 350, top: 100, right: 1180, bottom: 450, left: 900 }, visible: true },
+          ];
+        }
+        return true;
+      },
+    });
+    const port = new BrowserControlPort(host as any);
+
+    const res = (await port.visualCompare(dummyTarget, 'run-p4-mutB', 'att-p4-mutB', {
+      comparisonTabId: 'tab-b',
+      trackedSelectors: ['.product-card'],
+      normalizeScroll: true,
+    })) as any;
+
+    assert.ok(res.metricSamples);
+    const geomSample = res.metricSamples.find((s: any) => s.metric === 'visual.geometry_within_tolerance');
+    assert.ok(geomSample);
+    assert.strictEqual(geomSample.passed, true, 'Mutation B must pass geometry tolerance');
+    assert.strictEqual(geomSample.delta, 0);
+
+    const cardSample = res.metricSamples.find((s: any) => s.metric === 'visual.cardinality_match');
+    assert.ok(cardSample);
+    assert.strictEqual(cardSample.passed, true, 'Mutation B must pass cardinality match');
+    assert.strictEqual(cardSample.delta, 0);
+  });
+
   it('emits receipt and metricSamples on settle-incomplete failure', async () => {
     const evalLog: EvalLogEntry[] = [];
     const host = buildMockHost({

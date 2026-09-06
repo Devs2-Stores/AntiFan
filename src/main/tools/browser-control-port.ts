@@ -604,6 +604,7 @@ interface VisualCompareParams {
   tabId?: string;
   paneId?: 'desktop' | 'mobile';
   fullPage?: boolean;
+  trackedSelectors?: string[];
 }
 
 /** Bounded visual-compare capture outcome: either settles with a result or asks for another attempt. */
@@ -3351,7 +3352,9 @@ export class BrowserControlPort {
               const compRaw = await this.host.evalJs(queryScript, compTabTarget, effectivePane);
               if (Array.isArray(compRaw)) {
                 const compBundle = normalizeVisualRegions(compRaw as RawElementSensoryData[], { width: compMetrics ? compMetrics.vw : 1200, height: compMetrics ? compMetrics.vh : 800 }, 1);
-                const structRes = computeStructuralMetrics(targetBundle, compBundle);
+                const structRes = computeStructuralMetrics(targetBundle, compBundle, {
+                  trackedSelectors: params.trackedSelectors,
+                });
                 structuralMetrics = {
                   geometryWithinTolerance: structRes.geometryWithinTolerance,
                   deltaGeometry: structRes.deltaGeometry,

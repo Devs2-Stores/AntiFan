@@ -2132,9 +2132,14 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
         tabId: { type: 'string' },
         paneId: { type: 'string', enum: ['desktop', 'mobile'] },
         fullPage: { type: 'boolean', description: 'Capture entire document scroll height for full-page visual comparison' },
+        trackedSelectors: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Explicit list of component selectors to track for structural parity and cardinality authority',
+        },
       },
     },
-    execute: (params: { baselineScreenshotRef?: string; baselineRef?: string; comparisonTabId?: string; tolerance?: number; selector?: string; clipRect?: { x: number; y: number; width: number; height: number };       maskSelectors?: string[]; maskOptionalSelectors?: string[]; normalizeScroll?: boolean; tabId?: string; paneId?: 'desktop' | 'mobile'; fullPage?: boolean }, context) =>
+    execute: (params: { baselineScreenshotRef?: string; baselineRef?: string; comparisonTabId?: string; tolerance?: number; selector?: string; clipRect?: { x: number; y: number; width: number; height: number }; maskSelectors?: string[]; maskOptionalSelectors?: string[]; normalizeScroll?: boolean; tabId?: string; paneId?: 'desktop' | 'mobile'; fullPage?: boolean; trackedSelectors?: string[] }, context) =>
       browser.visualCompare(context.browserTarget as BrowserTarget, context.runId || 'run-default', context.attemptId || 'att-default', params, params?.tabId, params?.paneId),
   });
 
@@ -2174,9 +2179,14 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
         tabId: { type: 'string' },
         paneId: { type: 'string', enum: ['desktop', 'mobile'] },
         fullPage: { type: 'boolean', description: 'Capture entire document scroll height for full-page visual comparison' },
+        trackedSelectors: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Explicit list of component selectors to track for structural parity and cardinality authority',
+        },
       },
     },
-    execute: (params: { baselineScreenshotRef?: string; baselineRef?: string; comparisonTabId?: string; tolerance?: number; selector?: string; clipRect?: { x: number; y: number; width: number; height: number };       maskSelectors?: string[]; maskOptionalSelectors?: string[]; normalizeScroll?: boolean; tabId?: string; paneId?: 'desktop' | 'mobile'; fullPage?: boolean }, context) =>
+    execute: (params: { baselineScreenshotRef?: string; baselineRef?: string; comparisonTabId?: string; tolerance?: number; selector?: string; clipRect?: { x: number; y: number; width: number; height: number }; maskSelectors?: string[]; maskOptionalSelectors?: string[]; normalizeScroll?: boolean; tabId?: string; paneId?: 'desktop' | 'mobile'; fullPage?: boolean; trackedSelectors?: string[] }, context) =>
       browser.visualCompare(context.browserTarget as BrowserTarget, context.runId || 'run-default', context.attemptId || 'att-default', params, params?.tabId, params?.paneId),
   });
   catalogue.register({
