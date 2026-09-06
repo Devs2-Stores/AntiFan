@@ -1,0 +1,35 @@
+{
+  "timestamp": "2026-09-06T05:57:44.147Z",
+  "checks": {
+    "remountHydrationGuard": {
+      "emptyCallHydratedFromBackend": true,
+      "emptyCallDetails": {
+        "lines": 24,
+        "lastSeq": 3,
+        "cursorX": 0,
+        "cursorY": 3,
+        "text": "PROBE-1-BACKEND-OUTPUT: hrv theme dev watching...",
+        "getFullBufferCalls": 1
+      }
+    },
+    "sameIdEarlyReturnTrap": {
+      "initialSeq": 1,
+      "seqAfterSessionArrival": 2,
+      "acceptedNewerSnapshot": true,
+      "oldMarkerReplacedCleanly": true,
+      "text": "LATER-SESSION-BUFFER"
+    },
+    "creationMisrouting": {
+      "phantomObservedDuringRace": true,
+      "phantomCleanedUpByMountClean": true,
+      "splitPaneHydratedCleanly": true,
+      "details": {
+        "phantomObservedDuringRace": true,
+        "phantomCleanedUp": true,
+        "splitText": "PROBE-RACE-BACKEND-OUTPUT: Shell prompt ready",
+        "splitSeq": 1
+      }
+    }
+  },
+  "verdict": "CONFIRMED_ALL_FIXES_VERIFIED"
+}
