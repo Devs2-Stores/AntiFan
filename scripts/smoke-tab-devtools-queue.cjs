@@ -63,9 +63,27 @@ app.whenReady().then(async () => {
       createTab: () => 'tab-probe',
       withTabAgentWorking: (_id, fn) => fn(),
     };
-
     const devTools = new TabDevToolsHost(ctx);
 
+    // Instrument queue and draining lifecycle transition counts (guarded by target ID and presence)
+    const targetWcId = win.webContents.id;
+    let queueDrainDeleteCount = 0;
+    const originalQueueDelete = devTools.cdpQueues.delete.bind(devTools.cdpQueues);
+    devTools.cdpQueues.delete = function (key) {
+      if (key === targetWcId && devTools.cdpQueues.has(key)) {
+        queueDrainDeleteCount++;
+      }
+      return originalQueueDelete(key);
+    };
+
+    let drainingDeleteCount = 0;
+    const originalDrainingDelete = devTools.cdpDrainingTargets.delete.bind(devTools.cdpDrainingTargets);
+    devTools.cdpDrainingTargets.delete = function (key) {
+      if (key === targetWcId && devTools.cdpDrainingTargets.has(key)) {
+        drainingDeleteCount++;
+      }
+      return originalDrainingDelete(key);
+    };
     console.log('\n=== REAL CHROMIUM IN-FLIGHT TIMEOUT & ADMISSION INVARIANT PROBE ===\n');
 
     // [1/5] Dispatch Command A: A Promise held open in Chromium V8
@@ -135,20 +153,25 @@ app.whenReady().then(async () => {
     assert.strictEqual(devTools.getStats().drainingTargetCount, 1, 'Draining count must remain 1');
     assert.strictEqual(devTools.getStats().queuedTargetCount, 1, 'Queued target count must remain 1');
     console.log('  ✔ All 5 repeated admissions rejected with ZERO additional CDP dispatches');
-
     // [4/5] Settle Command A in Chromium and observe clean drain
     console.log('[4/5] Settling Command A in Chromium V8 engine...');
+    assert.strictEqual(drainingDeleteCount, 0, 'Draining delete count must be 0 prior to settlement');
+    assert.strictEqual(queueDrainDeleteCount, 0, 'Queue drain delete count must be 0 prior to settlement');
+
     await win.webContents.executeJavaScript('window.__resolveA({ result: "done_A" })');
 
     // Yield so Chromium delivers CDP event and microtasks run
     await new Promise((r) => setImmediate(r));
     await new Promise((r) => setTimeout(r, 150));
 
+    // Lifecycle transitions: must have drained EXACTLY ONCE
+    assert.strictEqual(drainingDeleteCount, 1, 'drainingTargets.delete must be invoked exactly once for Command A');
+    assert.strictEqual(queueDrainDeleteCount, 1, 'cdpQueues.delete must be invoked exactly once for Command A drain');
+
     // Telemetry must transition to 0
     assert.strictEqual(devTools.getStats().drainingTargetCount, 0, 'Draining state must clear after settlement');
     assert.strictEqual(devTools.getStats().queuedTargetCount, 0, 'Queue must drain to 0 after settlement');
-    console.log('  ✔ Command A settled; draining cleared and queue drained cleanly (draining=0, queued=0)');
-
+    console.log('  ✔ Command A settled; lifecycle transition empirically proven: drained EXACTLY ONCE (transition 1 -> 0)');
     // [5/5] Command C runs and succeeds on the same TabDevToolsHost instance
     console.log('[5/5] Dispatching Command C to verify post-recovery execution...');
     const resC = await devTools.sendCdpCommand(
@@ -168,8 +191,11 @@ app.whenReady().then(async () => {
     );
     assert.strictEqual(devTools.getStats().drainingTargetCount, 0);
     assert.strictEqual(devTools.getStats().queuedTargetCount, 0);
+    assert.strictEqual(drainingDeleteCount, 1, 'Command C must not trigger additional draining deletions');
+    assert.strictEqual(queueDrainDeleteCount, 2, 'Command C must drain queue exactly once upon completion (total 2)');
     console.log('  ✔ Command C executed and returned 42 on real Chromium');
     console.log('  ✔ Lifetime dispatch ledger verified: exactly [Runtime.evaluate (A), Runtime.evaluate (C)]');
+    console.log('  ✔ Lifetime queue drain transition ledger verified: Command A (+1), Command C (+1) = exactly 2 transitions');
 
     console.log('\n======================================================');
     console.log('  ALL LIVE CHROMIUM INVARIANT CRITERIA VERIFIED (5/5) ');
