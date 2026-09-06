@@ -122,9 +122,30 @@ export function normalizeVisualRegions(
   };
 }
 
+export interface GroupStructuralMetrics {
+  readonly selector: string;
+  readonly targetCount: number;
+  readonly baselineCount: number;
+  readonly cardinalityMatch: boolean;
+  readonly comparedCount: number;
+  readonly skippedForCardinalityMismatch: boolean;
+  readonly maxGeometryDeltaPx: number;
+}
+
+export interface StructuralMetricsResult {
+  readonly geometryWithinTolerance: boolean;
+  readonly deltaGeometry: number;
+  readonly cardinalityMatch: boolean;
+  readonly deltaCardinality: number;
+  readonly cardinality: { readonly target: number; readonly baseline: number };
+  readonly maxGeometryShift: { readonly selector?: string; readonly deltaPx: number };
+  readonly groups: Record<string, GroupStructuralMetrics>;
+}
+
 /**
  * Structural parity check between target regions and baseline regions (Audit v5 §16, §25, Freeze #13/#14).
- * Compares geometry of matched selectors and cardinality of visible elements with strict O(N) performance.
+ * Groups elements by selector to eliminate single-region Map collision in grids.
+ * Prevents cascade geometry drift by skipping pairing when group cardinality mismatches.
  */
 export function computeStructuralMetrics(
   targetBundle: VisualRegionBundle,
@@ -133,52 +154,108 @@ export function computeStructuralMetrics(
     maxGeometryDeltaPx?: number;
     trackedSelectors?: string[];
   } = {}
-): {
-  geometryWithinTolerance: boolean;
-  deltaGeometry: number;
-  cardinalityMatch: boolean;
-  deltaCardinality: number;
-  cardinality: { target: number; baseline: number };
-  maxGeometryShift: { selector?: string; deltaPx: number };
-} {
+): StructuralMetricsResult {
   const maxTol = options.maxGeometryDeltaPx ?? 2;
   const targetRegions = targetBundle.regions;
   const baselineRegions = baselineBundle.regions;
 
-  // Cardinality comparison
+  // Global cardinality comparison (backward compatibility & telemetry)
   const targetCount = targetRegions.length;
   const baselineCount = baselineRegions.length;
   const deltaCardinality = Math.abs(targetCount - baselineCount);
   const cardinalityMatch = deltaCardinality === 0;
 
-  // Geometry comparison for elements with selectors
-  let maxDelta = 0;
-  let maxShiftSelector: string | undefined = undefined;
-
-  const baselineBySelector = new Map<string, VisualRegion>();
+  // Group by selector
+  const baselineGroups = new Map<string, VisualRegion[]>();
   for (let i = 0; i < baselineRegions.length; i++) {
     const br = baselineRegions[i]!;
     if (br.selector) {
-      baselineBySelector.set(br.selector, br);
+      if (options.trackedSelectors && !options.trackedSelectors.includes(br.selector)) {
+        continue;
+      }
+      let list = baselineGroups.get(br.selector);
+      if (!list) {
+        list = [];
+        baselineGroups.set(br.selector, list);
+      }
+      list.push(br);
     }
   }
 
+  const targetGroups = new Map<string, VisualRegion[]>();
   for (let i = 0; i < targetRegions.length; i++) {
     const tr = targetRegions[i]!;
-    if (tr.selector && baselineBySelector.has(tr.selector)) {
+    if (tr.selector) {
       if (options.trackedSelectors && !options.trackedSelectors.includes(tr.selector)) {
         continue;
       }
-      const br = baselineBySelector.get(tr.selector)!;
+      let list = targetGroups.get(tr.selector);
+      if (!list) {
+        list = [];
+        targetGroups.set(tr.selector, list);
+      }
+      list.push(tr);
+    }
+  }
+
+  const allSelectors = new Set<string>([...baselineGroups.keys(), ...targetGroups.keys()]);
+  const groups: Record<string, GroupStructuralMetrics> = {};
+  let maxDelta = 0;
+  let maxShiftSelector: string | undefined = undefined;
+
+  for (const selector of allSelectors) {
+    const bList = baselineGroups.get(selector) ?? [];
+    const tList = targetGroups.get(selector) ?? [];
+    const tCount = tList.length;
+    const bCount = bList.length;
+    const groupCardMatch = tCount === bCount;
+
+    if (!groupCardMatch) {
+      // Group cardinality mismatch: short-circuit geometry pairing to prevent cascade error
+      groups[selector] = {
+        selector,
+        targetCount: tCount,
+        baselineCount: bCount,
+        cardinalityMatch: false,
+        comparedCount: 0,
+        skippedForCardinalityMismatch: true,
+        maxGeometryDeltaPx: 0,
+      };
+      continue;
+    }
+
+    // Group cardinality matches: compare instances
+    let groupMaxDelta = 0;
+    const comparedCount = tCount;
+
+    // P0 Frozen Rule: Pair equal-cardinality selector groups strictly by DOM order
+    for (let k = 0; k < tCount; k++) {
+      const tr = tList[k]!;
+      const br = bList[k]!;
+
       const dx = Math.abs(tr.bounds.x - br.bounds.x);
       const dy = Math.abs(tr.bounds.y - br.bounds.y);
       const dw = Math.abs(tr.bounds.width - br.bounds.width);
       const dh = Math.abs(tr.bounds.height - br.bounds.height);
       const shift = Math.max(dx, dy, dw, dh);
-      if (shift > maxDelta) {
-        maxDelta = shift;
-        maxShiftSelector = tr.selector;
+      if (shift > groupMaxDelta) {
+        groupMaxDelta = shift;
       }
+    }
+
+    groups[selector] = {
+      selector,
+      targetCount: tCount,
+      baselineCount: bCount,
+      cardinalityMatch: true,
+      comparedCount,
+      skippedForCardinalityMismatch: false,
+      maxGeometryDeltaPx: groupMaxDelta,
+    };
+
+    if (groupMaxDelta > maxDelta) {
+      maxDelta = groupMaxDelta;
+      maxShiftSelector = selector;
     }
   }
 
@@ -189,5 +266,6 @@ export function computeStructuralMetrics(
     deltaCardinality,
     cardinality: { target: targetCount, baseline: baselineCount },
     maxGeometryShift: { selector: maxShiftSelector, deltaPx: maxDelta },
+    groups,
   };
 }
