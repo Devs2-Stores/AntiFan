@@ -554,6 +554,7 @@ export class NativeTabHost extends EventEmitter {
       hostOwnedAttachmentCount: 0,
       listenerTargetCount: 0,
       queuedTargetCount: 0,
+      drainingTargetCount: 0,
       stylesheetTargetCount: 0,
       isolatedContextCount: 0,
     };

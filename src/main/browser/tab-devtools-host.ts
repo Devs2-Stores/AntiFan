@@ -40,6 +40,7 @@ export interface TabDevToolsStats {
   hostOwnedAttachmentCount: number;
   listenerTargetCount: number;
   queuedTargetCount: number;
+  drainingTargetCount: number;
   stylesheetTargetCount: number;
   isolatedContextCount: number;
 }
@@ -54,6 +55,7 @@ export class TabDevToolsHost {
   public inspectGeneration: number = 0;
   public inspectedTabId: string | null = null;
   private cdpQueues = new Map<number, Promise<unknown>>();
+  private cdpDrainingTargets = new Map<number, { method: string; token: symbol }>();
   private cdpAttachedWebContents = new Set<number>();
   private cdpAttachedByHost = new Set<number>();
   private cdpWebContentsRefs = new Map<number, Electron.WebContents>();
@@ -79,11 +81,11 @@ export class TabDevToolsHost {
       hostOwnedAttachmentCount: this.cdpAttachedByHost.size,
       listenerTargetCount: this.cdpListeners.size,
       queuedTargetCount: this.cdpQueues.size,
+      drainingTargetCount: this.cdpDrainingTargets.size,
       stylesheetTargetCount: this.stylesheetUrls.size,
       isolatedContextCount: this.isolatedContextIds.size,
     };
   }
-
 
   // ─── Font Finder ───
   public toggleFontFinder(): boolean {
@@ -516,6 +518,12 @@ export class TabDevToolsHost {
       throw new Error(`WebContents is destroyed or unavailable for CDP method ${method}`);
     }
     const wcId = wc.id;
+
+    const draining = this.cdpDrainingTargets.get(wcId);
+    if (draining) {
+      throw new Error(`TARGET_BUSY_DRAINING: Cannot admit CDP command ${method}; target ${wcId} is draining timed-out command ${draining.method}`);
+    }
+
     if (!this.cdpAttachedWebContents.has(wcId)) {
       if (!wc.debugger.isAttached()) {
         try {
@@ -536,6 +544,7 @@ export class TabDevToolsHost {
         this.cdpAttachedByHost.delete(wcId);
         this.cdpWebContentsRefs.delete(wcId);
         this.cdpQueues.delete(wcId);
+        this.cdpDrainingTargets.delete(wcId);
         this.stylesheetUrls.delete(wcId);
         this.isolatedContextIds.delete(wcId);
         const l = this.cdpListeners.get(wcId);
@@ -573,36 +582,64 @@ export class TabDevToolsHost {
       }
       this.cdpListeners.set(wcId, { onDetach, onNavigate, onMessage });
     }
-    const currentQueue = this.cdpQueues.get(wcId) || Promise.resolve();
-    const nextPromise = currentQueue.then(async () => {
-      if (wc.isDestroyed()) {
-        throw new Error(`WebContents destroyed before executing CDP method ${method}`);
+    const boundedTimeoutMs = Math.min(30_000, Math.max(1, timeoutMs));
+    let isCallerTimedOut = false;
+    let isCommandDispatched = false;
+    let isCommandSettled = false;
+    const commandToken = Symbol(method);
+
+    const { promise: timeoutPromise, reject: rejectTimeout } = Promise.withResolvers<never>();
+    const timer = setTimeout(() => {
+      isCallerTimedOut = true;
+      if (isCommandDispatched && !isCommandSettled) {
+        this.cdpDrainingTargets.set(wcId, { method, token: commandToken });
       }
-      const boundedTimeoutMs = Math.min(30_000, Math.max(1, timeoutMs));
-      let timer: NodeJS.Timeout | undefined;
-      const command = wc.debugger.sendCommand(method, params);
-      command.catch(() => {});
-      return Promise.race([
-        command,
-        (() => {
-          const { promise, reject } = Promise.withResolvers<never>();
-          timer = setTimeout(
-            () => reject(new Error(`CDP command ${method} timed out after ${boundedTimeoutMs}ms`)),
-            boundedTimeoutMs
-          );
-          return promise;
-        })(),
-      ]).finally(() => {
-        if (timer) clearTimeout(timer);
-      });
+      rejectTimeout(new Error(`CDP command ${method} timed out after ${boundedTimeoutMs}ms`));
+    }, boundedTimeoutMs);
+    const currentQueue = this.cdpQueues.get(wcId) || Promise.resolve();
+    const { promise: queueDrainPromise, resolve: resolveQueueDrain } = Promise.withResolvers<void>();
+
+    queueDrainPromise.finally(() => {
+      if (this.cdpQueues.get(wcId) === queueDrainPromise) {
+        this.cdpQueues.delete(wcId);
+      }
     });
 
-    this.cdpQueues.set(
-      wcId,
-      nextPromise.catch(() => {})
-    );
+    this.cdpQueues.set(wcId, queueDrainPromise);
 
-    return nextPromise as Promise<T>;
+    const nextPromise = currentQueue.catch(() => {}).then(async () => {
+      if (isCallerTimedOut || wc.isDestroyed()) {
+        resolveQueueDrain();
+        if (wc.isDestroyed()) {
+          throw new Error(`WebContents destroyed before executing CDP method ${method}`);
+        }
+        return;
+      }
+
+      let command: Promise<unknown>;
+      try {
+        isCommandDispatched = true;
+        command = wc.debugger.sendCommand(method, params);
+      } catch (err) {
+        resolveQueueDrain();
+        throw err;
+      }
+      command.finally(() => {
+        isCommandSettled = true;
+        if (this.cdpDrainingTargets.get(wcId)?.token === commandToken) {
+          this.cdpDrainingTargets.delete(wcId);
+        }
+        resolveQueueDrain();
+      }).catch(() => {});
+      return command;
+    });
+
+    return Promise.race([
+      nextPromise,
+      timeoutPromise,
+    ]).finally(() => {
+      clearTimeout(timer);
+    }) as Promise<T>;
   }
 
   public async describeNodeByObjectId(
@@ -1013,9 +1050,8 @@ export class TabDevToolsHost {
             if (fullPageResult && fullPageResult.length > 0) {
               return fullPageResult;
             }
-            this.cdpQueues.delete(wc.id);
             throw new Error('FULLPAGE_CAPTURE_TIMEOUT: CDP full-page screenshot timed out after 20000ms. Consider freezing media or checking page complexity.');
-          } catch (err: any) {
+          } catch (err: unknown) {
             console.error('[AntiFan DevTools] Full-page capture error:', err);
             throw err;
           }
@@ -2281,6 +2317,7 @@ export class TabDevToolsHost {
     this.cdpWebContentsRefs.clear();
     this.cdpListeners.clear();
     this.cdpQueues.clear();
+    this.cdpDrainingTargets.clear();
     this.stylesheetUrls.clear();
     this.isolatedContextIds.clear();
   }

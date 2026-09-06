@@ -383,11 +383,13 @@ describe('TabDevToolsHost (Sub-Controller Unit Tests)', () => {
     assert.strictEqual(params.clip?.height, 5800, 'Height must be evaluated from DOM scrollHeight 5800, not truncated 800');
   });
 
-  it('releases the serialized CDP queue after a command timeout', async () => {
+  it('fails fast with TARGET_BUSY_DRAINING and bounds admission during unsettled command', async () => {
     const { ctx } = createMockContext();
     let attached = false;
     const calls: string[] = [];
-    const mockWc: any = {
+    const { promise: screenshotPromise, resolve: resolveScreenshot } = Promise.withResolvers<unknown>();
+
+    const mockWc = {
       id: 500,
       isDestroyed: () => false,
       on: () => {},
@@ -401,22 +403,220 @@ describe('TabDevToolsHost (Sub-Controller Unit Tests)', () => {
         sendCommand: (method: string) => {
           calls.push(method);
           return method === 'Page.captureScreenshot'
-            ? Promise.withResolvers<unknown>().promise
+            ? screenshotPromise
             : Promise.resolve({ ok: true });
         },
       },
-    };
+    } as unknown as Electron.WebContents;
     ctx.getTabWebContents = () => mockWc;
     const devTools = new TabDevToolsHost(ctx);
 
+    // Command 1 times out from caller perspective while still unresolved in Chromium
     await assert.rejects(
       devTools.sendCdpCommand(mockWc, 'Page.captureScreenshot', {}, 5),
       /timed out/
     );
-    const next = await devTools.sendCdpCommand(mockWc, 'DOM.enable', {}, 50) as { ok: boolean };
 
+    // Target is now draining Command 1
+    assert.strictEqual(devTools.getStats().drainingTargetCount, 1);
+
+    // 50 repeated calls during the draining period must all fail-fast without enqueueing
+    for (let i = 0; i < 50; i++) {
+      await assert.rejects(
+        devTools.sendCdpCommand(mockWc, 'DOM.enable', {}, 50),
+        /TARGET_BUSY_DRAINING/
+      );
+    }
+
+    // Underlying debugger.sendCommand was NOT called again; call count remains exactly 1
+    assert.deepStrictEqual(calls, ['Page.captureScreenshot']);
+    assert.strictEqual(devTools.getStats().queuedTargetCount, 1, 'Queue must retain pending drain promise during quarantine');
+    assert.strictEqual(devTools.getStats().drainingTargetCount, 1, 'Target must be marked as draining');
+
+    // Now simulate Command 1 finally settling in Chromium
+    resolveScreenshot({ data: 'done' });
+
+    // Yield so microtasks run
+    await new Promise<void>((resolve) => {
+      setImmediate(resolve);
+    });
+
+    // Draining state and queue entry are cleared once settled
+    assert.strictEqual(devTools.getStats().drainingTargetCount, 0, 'Draining state must be cleared after settlement');
+    assert.strictEqual(devTools.getStats().queuedTargetCount, 0, 'Queue must be drained and deleted after settlement');
+    // Now a fresh command 3 can be admitted and dispatched
+    const res = await devTools.sendCdpCommand(mockWc, 'DOM.enable', {}, 50) as { ok: boolean };
+    assert.strictEqual(res.ok, true);
     assert.deepStrictEqual(calls, ['Page.captureScreenshot', 'DOM.enable']);
-    assert.strictEqual(next.ok, true);
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    assert.strictEqual(devTools.getStats().queuedTargetCount, 0);
+  });
+
+  it('prevents stale settlement from clearing draining state of a newer command on recycled target ID', async () => {
+    const { ctx } = createMockContext();
+    let attached1 = false;
+    let detachCb1: (() => void) | undefined;
+    const { promise: p1, resolve: resolveP1 } = Promise.withResolvers<unknown>();
+    const { promise: p2, resolve: resolveP2 } = Promise.withResolvers<unknown>();
+
+    const mockWc1 = {
+      id: 505,
+      isDestroyed: () => false,
+      on: () => {},
+      removeListener: () => {},
+      debugger: {
+        isAttached: () => attached1,
+        attach: () => { attached1 = true; },
+        once: (event: string, cb: () => void) => {
+          if (event === 'detach') detachCb1 = cb;
+        },
+        on: () => {},
+        removeListener: () => {},
+        sendCommand: () => p1,
+      },
+    } as unknown as Electron.WebContents;
+
+    let attached2 = false;
+    const mockWc2 = {
+      id: 505, // Same recycled numeric ID
+      isDestroyed: () => false,
+      on: () => {},
+      removeListener: () => {},
+      debugger: {
+        isAttached: () => attached2,
+        attach: () => { attached2 = true; },
+        once: () => {},
+        on: () => {},
+        removeListener: () => {},
+        sendCommand: () => p2,
+      },
+    } as unknown as Electron.WebContents;
+
+    ctx.getTabWebContents = () => mockWc1;
+    const devTools = new TabDevToolsHost(ctx);
+
+    // Command 1 on wc1 times out
+    await assert.rejects(
+      devTools.sendCdpCommand(mockWc1, 'Cmd.one', {}, 5),
+      /timed out/
+    );
+    assert.strictEqual(devTools.getStats().drainingTargetCount, 1);
+
+    // wc1 detaches (e.g., navigation or crash), clearing maps for 505
+    detachCb1?.();
+    assert.strictEqual(devTools.getStats().drainingTargetCount, 0);
+
+    // wc2 is created with the same recycled numeric id (505); Command 2 times out on wc2
+    await assert.rejects(
+      devTools.sendCdpCommand(mockWc2, 'Cmd.two', {}, 5),
+      /timed out/
+    );
+    assert.strictEqual(devTools.getStats().drainingTargetCount, 1);
+
+    // Now Command 1 on wc1 finally settles late in Chromium
+    resolveP1({ ok: true });
+    await new Promise<void>((resolve) => setImmediate(resolve));
+
+    // Stale resolution of Command 1 must NOT clear Command 2's draining token on recycled id 505
+    assert.strictEqual(devTools.getStats().drainingTargetCount, 1, 'Draining count must stay 1 for Cmd.two due to token fencing');
+
+    // Resolving Command 2 clears the draining state because tokens match
+    resolveP2({ ok: true });
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    assert.strictEqual(devTools.getStats().drainingTargetCount, 0);
+  });
+
+  it('serializes normal in-flight commands when neither times out', async () => {
+    const { ctx } = createMockContext();
+    let attached = false;
+    const calls: string[] = [];
+    const { promise: cmd1Promise, resolve: resolveCmd1 } = Promise.withResolvers<unknown>();
+
+    const mockWc = {
+      id: 501,
+      isDestroyed: () => false,
+      on: () => {},
+      removeListener: () => {},
+      debugger: {
+        isAttached: () => attached,
+        attach: () => { attached = true; },
+        once: () => {},
+        on: () => {},
+        removeListener: () => {},
+        sendCommand: (method: string) => {
+          calls.push(method);
+          return method === 'DOM.getDocument'
+            ? cmd1Promise
+            : Promise.resolve({ ok: true });
+        },
+      },
+    } as unknown as Electron.WebContents;
+    ctx.getTabWebContents = () => mockWc;
+    const devTools = new TabDevToolsHost(ctx);
+
+    // Command 1 is dispatched and in-flight
+    const p1 = devTools.sendCdpCommand(mockWc, 'DOM.getDocument', {}, 100);
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    assert.deepStrictEqual(calls, ['DOM.getDocument']);
+
+    // Command 2 is enqueued behind Command 1 before Command 1 settles
+    const p2 = devTools.sendCdpCommand(mockWc, 'DOM.enable', {}, 100);
+    await new Promise<void>((resolve) => setImmediate(resolve));
+
+    // Command 2 must not have started yet
+    assert.deepStrictEqual(calls, ['DOM.getDocument']);
+
+    // Command 1 resolves
+    resolveCmd1({ root: { nodeId: 1 } });
+    await p1;
+
+    // Command 2 executes and resolves
+    const r2 = await p2 as { ok: boolean };
+    assert.strictEqual(r2.ok, true);
+    assert.deepStrictEqual(calls, ['DOM.getDocument', 'DOM.enable']);
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    assert.strictEqual(devTools.getStats().queuedTargetCount, 0);
+  });
+
+  it('advances the queue when underlying command rejects, clearing queue telemetry', async () => {
+    const { ctx } = createMockContext();
+    let attached = false;
+    const calls: string[] = [];
+
+    const mockWc = {
+      id: 502,
+      isDestroyed: () => false,
+      on: () => {},
+      removeListener: () => {},
+      debugger: {
+        isAttached: () => attached,
+        attach: () => { attached = true; },
+        once: () => {},
+        on: () => {},
+        removeListener: () => {},
+        sendCommand: (method: string) => {
+          calls.push(method);
+          return method === 'Failing.method'
+            ? Promise.reject(new Error('CDP target internal error'))
+            : Promise.resolve({ ok: true });
+        },
+      },
+    } as unknown as Electron.WebContents;
+    ctx.getTabWebContents = () => mockWc;
+    const devTools = new TabDevToolsHost(ctx);
+
+    // Command 1 fails at Chromium debugger level
+    await assert.rejects(
+      devTools.sendCdpCommand(mockWc, 'Failing.method', {}, 50),
+      /CDP target internal error/
+    );
+
+    // Command 2 is enqueued and must execute cleanly without deadlock
+    const res = await devTools.sendCdpCommand(mockWc, 'DOM.enable', {}, 50) as { ok: boolean };
+    assert.strictEqual(res.ok, true);
+    assert.deepStrictEqual(calls, ['Failing.method', 'DOM.enable']);
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    assert.strictEqual(devTools.getStats().queuedTargetCount, 0, 'Queue telemetry must be 0 after drain');
   });
 
   it('12. enriches matched rules from live stylesheet headers and clears provenance on navigation', async () => {
