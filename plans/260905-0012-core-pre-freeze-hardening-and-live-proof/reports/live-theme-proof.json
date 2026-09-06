@@ -22,7 +22,35 @@
     "targetOverflow": false,
     "documentOverflow": false,
     "verificationVerdict": "VERIFIED",
-    "receiptCompleted": true
+    "receiptCompleted": true,
+    "p04RenderedMutations": {
+      "mutationA": {
+        "description": "Text wrap expands card height in live Chromium",
+        "baselineHeight": 510,
+        "mutatedHeight": 578,
+        "structuralDelta": 68,
+        "geometryWithinTolerance": false,
+        "expectedPolicyOutcome": "REJECTED"
+      },
+      "mutationB": {
+        "description": "Text change preserves card box geometry in live Chromium",
+        "baselineHeight": 510,
+        "mutatedHeight": 510,
+        "structuralDelta": 0,
+        "cardinalityMatch": true,
+        "geometryWithinTolerance": true,
+        "expectedPolicyOutcome": "VERIFIED"
+      },
+      "mutationC": {
+        "description": "CSS overflow: hidden clamps card height and clips descendant content",
+        "outerHeight": 380,
+        "hasScrollOverflow": true,
+        "buttonClippedOutOfView": true,
+        "outerBoxDeltaGeometry": 130,
+        "diagnosticStatus": "INCONCLUSIVE",
+        "reason": "Descendant clipping and scroll overflow observed via DOM probe, but current production structural observation path lacks descendant clipping telemetry"
+      }
+    }
   },
   "drawer": {
     "interactionMode": "trusted_cdp",
@@ -48,7 +76,7 @@
     "ambiguousSourceVerdict": "REJECTED",
     "staleAuthorityDenied": true
   },
-  "coreTeardownCompletedAt": "2026-09-05T18:04:02.187Z",
+  "coreTeardownCompletedAt": "2026-09-06T13:06:28.725Z",
   "teardown": {
     "passed": true,
     "processBoundTempCleanup": "completed",
@@ -76,6 +104,6 @@
       "terminalExitSubscriptions": 0
     }
   },
-  "proofChecksum": "daa7241d19ff2d3b795a2a862171e35cac96d155582383d10e40c638b38c7908",
-  "completedAt": "2026-09-05T18:04:02.861Z"
+  "proofChecksum": "3e2da5b37f770030fb752c3dcbba77f00ea4b4d3a9210cf5cd4fabf80a4fc258",
+  "completedAt": "2026-09-06T13:06:28.923Z"
 }

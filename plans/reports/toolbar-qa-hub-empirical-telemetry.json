@@ -1,0 +1,114 @@
+{
+  "timestamp": "2026-09-06T06:54:27.470Z",
+  "themeQa": {
+    "beforeClick": {
+      "btnText": "QA",
+      "btnDisabled": false,
+      "overlayDisplay": "none"
+    },
+    "afterClick1": {
+      "btnText": "QA",
+      "btnDisabled": false,
+      "overlayDisplay": "flex",
+      "summaryText": "Platform: unknown\nResult: PASSED (Critical: 0, Total: 0)\nLiquid errors: 0\nLayout overflow culprits: 0\nBroken assets: 0\nHS violations: 0\nDiagnostic issues (critical): 0\nDiagnostic warnings: 0\n"
+    },
+    "afterClose": {
+      "overlayDisplay": "none"
+    },
+    "afterClick2": {
+      "btnText": "QA",
+      "overlayDisplay": "flex"
+    },
+    "invocations": 2
+  },
+  "workflowHub": {
+    "afterOpen": {
+      "overlayDisplay": "flex",
+      "badgeWfCount": "1",
+      "badgeMcpCount": "12",
+      "itemsCount": 1,
+      "firstItemTitle": "Haravan / Sapo Theme Storefront QA & Audit",
+      "firstItemDesc": "Tự động kiểm tra vỡ layout ngang (overflow), ảnh hỏng 404, lỗi console JS và chụp ảnh báo cáo.",
+      "firstItemPill": "qa",
+      "wfDetailVisible": true,
+      "btnRunVisible": true
+    },
+    "afterMcpTab": {
+      "itemsCount": 12,
+      "selectedMcpName": "antifan_open_tab",
+      "selectedMcpDesc": "Mở tab Chromium mới trong AntiFan Desktop",
+      "selectedMcpPerm": "Quyền Yêu Cầu: execute",
+      "selectedMcpSchema": "{}",
+      "hasRunButton": false
+    },
+    "afterRunWorkflow": {
+      "runStatusPill": "PASSED (100%)",
+      "runCurrentStepText": "Hoàn thành: 6/6 bước thành công (1.20s)"
+    },
+    "getWorkflowStateInvocations": 1,
+    "runWorkflowInvocations": 1
+  },
+  "ipcCalls": [
+    {
+      "channel": "antifan:toolbar:get-initial-state",
+      "time": 1788677668062
+    },
+    {
+      "channel": "antifan:toolbar:theme-qa-run",
+      "time": 1788677668576
+    },
+    {
+      "channel": "antifan:toolbar:theme-qa-run",
+      "time": 1788677668788
+    },
+    {
+      "channel": "antifan:workflow:get-state",
+      "time": 1788677668896
+    },
+    {
+      "channel": "antifan:workflow:run",
+      "payload": {
+        "workflowId": "wf-storefront-qa",
+        "workflowDef": {
+          "version": "1.0",
+          "name": "Haravan / Sapo Theme Storefront QA & Audit",
+          "description": "Tự động kiểm tra vỡ layout ngang (overflow), ảnh hỏng 404, lỗi console JS và chụp ảnh báo cáo.",
+          "steps": [
+            {
+              "id": "step-viewport",
+              "name": "Thiết lập Viewport Desktop Full HD",
+              "type": "browser.set_viewport"
+            },
+            {
+              "id": "step-overflow",
+              "name": "Quét phần tử tràn ngang",
+              "type": "qa.check_overflow"
+            },
+            {
+              "id": "step-images",
+              "name": "Kiểm tra ảnh hỏng 404",
+              "type": "qa.check_broken_images"
+            },
+            {
+              "id": "step-console",
+              "name": "Thu thập lỗi JS Console",
+              "type": "qa.check_console_errors"
+            },
+            {
+              "id": "step-screenshot",
+              "name": "Chụp ảnh màn hình Viewport",
+              "type": "browser.screenshot"
+            },
+            {
+              "id": "step-report",
+              "name": "Tạo báo cáo tổng hợp QA",
+              "type": "report.generate"
+            }
+          ]
+        }
+      },
+      "time": 1788677669741
+    }
+  ],
+  "rendererLogs": []
+}
