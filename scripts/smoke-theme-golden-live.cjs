@@ -31,7 +31,7 @@ const { BrowserControlPort } = require('../.compiled/src/main/tools/browser-cont
 const { ControlPlaneRuntime } = require('../.compiled/src/main/control-plane/control-plane-runtime.js');
 const { NativeTabHost } = require('../.compiled/src/main/browser/native-tab-host.js');
 const { TerminalManager } = require('../.compiled/src/main/browser/terminal-manager.js');
-
+const { computeStructuralMetrics, normalizeVisualRegions } = require('../.compiled/src/main/verification/visual-region.js');
 function copyDirectory(source, destination) {
   fs.mkdirSync(destination, { recursive: true });
   for (const entry of fs.readdirSync(source, { withFileTypes: true })) {
@@ -461,6 +461,142 @@ async function run() {
     assert.equal(path.resolve(receipt.binding.canonicalWorkspace), path.resolve(workspaceRoot));
 
     const productReceiptCommandId = verification.lifecycle.lastInvocationId;
+
+    // --- P0.4: Rendered Chromium Mutation Falsification (A, B, C) ---
+    const storefrontHtmlPath = path.join(workspaceRoot, 'storefront', 'index.html');
+    const originalStorefrontHtml = fs.readFileSync(storefrontHtmlPath, 'utf8');
+    const componentCssPath = path.join(workspaceRoot, 'assets', 'component-card.css');
+    const originalComponentCss = fs.readFileSync(componentCssPath, 'utf8');
+
+    let p04RenderedMutations;
+    try {
+      const baselineCardSensory = await tabHost.getTabWebContents(tabId).executeJavaScript(`(() => {
+        const card = document.querySelector('.product-card');
+        const r = card.getBoundingClientRect();
+        return {
+          ref: 'card-0',
+          tag: 'article',
+          selector: '.product-card',
+          rect: { x: Math.round(r.x), y: Math.round(r.y), width: Math.round(r.width), height: Math.round(r.height), top: Math.round(r.top), right: Math.round(r.right), bottom: Math.round(r.bottom), left: Math.round(r.left) },
+          visible: true,
+          scrollHeight: card.scrollHeight,
+          clientHeight: card.clientHeight
+        };
+      })()`);
+      const baselineBundle = normalizeVisualRegions([baselineCardSensory], { width: 1200, height: 800 }, 1);
+
+      // Mutation A: Text dài phình chiều cao card (rendered in real Chromium)
+      const mutAHtml = originalStorefrontHtml.replace(
+        '<a href="/products/minimalist-chrono-watch" class="card__link">Minimalist Chrono Watch</a>',
+        '<a href="/products/minimalist-chrono-watch" class="card__link">Minimalist Chrono Watch Super Long Expanded Title That Wraps Across Multiple Lines Pushing Everything Down And Expanding Height Significantly</a>'
+      );
+      fs.writeFileSync(storefrontHtmlPath, mutAHtml, 'utf8');
+      await tool('anti.browser.reload', { tabId }, 40_000);
+      const mutACardSensory = await tabHost.getTabWebContents(tabId).executeJavaScript(`(() => {
+        const card = document.querySelector('.product-card');
+        const r = card.getBoundingClientRect();
+        return {
+          ref: 'card-0',
+          tag: 'article',
+          selector: '.product-card',
+          rect: { x: Math.round(r.x), y: Math.round(r.y), width: Math.round(r.width), height: Math.round(r.height), top: Math.round(r.top), right: Math.round(r.right), bottom: Math.round(r.bottom), left: Math.round(r.left) },
+          visible: true,
+          scrollHeight: card.scrollHeight,
+          clientHeight: card.clientHeight
+        };
+      })()`);
+      const bundleA = normalizeVisualRegions([mutACardSensory], { width: 1200, height: 800 }, 1);
+      const structA = computeStructuralMetrics(bundleA, baselineBundle, { trackedSelectors: ['.product-card'] });
+      assert.equal(structA.geometryWithinTolerance, false, 'Mutation A must fail geometry tolerance due to card height expansion');
+      assert.ok(structA.deltaGeometry >= 10, 'Mutation A must observe genuine height drift in Chromium');
+
+      // Mutation B: Đổi text nhưng bảo toàn khung (1 dòng)
+      const mutBHtml = originalStorefrontHtml.replace(
+        '<a href="/products/minimalist-chrono-watch" class="card__link">Minimalist Chrono Watch</a>',
+        '<a href="/products/minimalist-chrono-watch" class="card__link">Classic Watch</a>'
+      );
+      fs.writeFileSync(storefrontHtmlPath, mutBHtml, 'utf8');
+      await tool('anti.browser.reload', { tabId }, 40_000);
+      const mutBCardSensory = await tabHost.getTabWebContents(tabId).executeJavaScript(`(() => {
+        const card = document.querySelector('.product-card');
+        const r = card.getBoundingClientRect();
+        return {
+          ref: 'card-0',
+          tag: 'article',
+          selector: '.product-card',
+          rect: { x: Math.round(r.x), y: Math.round(r.y), width: Math.round(r.width), height: Math.round(r.height), top: Math.round(r.top), right: Math.round(r.right), bottom: Math.round(r.bottom), left: Math.round(r.left) },
+          visible: true,
+          scrollHeight: card.scrollHeight,
+          clientHeight: card.clientHeight
+        };
+      })()`);
+      const bundleB = normalizeVisualRegions([mutBCardSensory], { width: 1200, height: 800 }, 1);
+      const structB = computeStructuralMetrics(bundleB, baselineBundle, { trackedSelectors: ['.product-card'] });
+      assert.equal(structB.geometryWithinTolerance, true, 'Mutation B must preserve geometry within tolerance');
+      assert.equal(structB.cardinalityMatch, true, 'Mutation B must preserve cardinality match');
+
+      // Mutation C: Ép cắt cụt nội dung bằng CSS overflow: hidden
+      const clampedCss = `${originalComponentCss}\n.product-card { max-height: 380px !important; overflow: hidden !important; }\n`;
+      fs.writeFileSync(componentCssPath, clampedCss, 'utf8');
+      fs.writeFileSync(storefrontHtmlPath, mutAHtml, 'utf8');
+      await tool('anti.browser.reload', { tabId }, 40_000);
+      const mutCCardSensory = await tabHost.getTabWebContents(tabId).executeJavaScript(`(() => {
+        const card = document.querySelector('.product-card');
+        const r = card.getBoundingClientRect();
+        const button = card.querySelector('.button--add-to-cart');
+        const btnRect = button ? button.getBoundingClientRect() : null;
+        const isButtonClipped = btnRect ? (btnRect.bottom > r.bottom || btnRect.top >= r.bottom) : false;
+        return {
+          ref: 'card-0',
+          tag: 'article',
+          selector: '.product-card',
+          rect: { x: Math.round(r.x), y: Math.round(r.y), width: Math.round(r.width), height: Math.round(r.height), top: Math.round(r.top), right: Math.round(r.right), bottom: Math.round(r.bottom), left: Math.round(r.left) },
+          visible: true,
+          scrollHeight: card.scrollHeight,
+          clientHeight: card.clientHeight,
+          hasScrollOverflow: card.scrollHeight > card.clientHeight,
+          buttonClippedOutOfView: isButtonClipped
+        };
+      })()`);
+      const bundleC = normalizeVisualRegions([mutCCardSensory], { width: 1200, height: 800 }, 1);
+      const structC = computeStructuralMetrics(bundleC, baselineBundle, { trackedSelectors: ['.product-card'] });
+      assert.equal(mutCCardSensory.hasScrollOverflow, true, 'Mutation C must produce scroll overflow in Chromium DOM');
+
+      p04RenderedMutations = {
+        mutationA: {
+          description: 'Text wrap expands card height in live Chromium',
+          baselineHeight: baselineCardSensory.rect.height,
+          mutatedHeight: mutACardSensory.rect.height,
+          structuralDelta: structA.deltaGeometry,
+          geometryWithinTolerance: structA.geometryWithinTolerance,
+          expectedPolicyOutcome: 'REJECTED',
+        },
+        mutationB: {
+          description: 'Text change preserves card box geometry in live Chromium',
+          baselineHeight: baselineCardSensory.rect.height,
+          mutatedHeight: mutBCardSensory.rect.height,
+          structuralDelta: structB.deltaGeometry,
+          cardinalityMatch: structB.cardinalityMatch,
+          geometryWithinTolerance: structB.geometryWithinTolerance,
+          expectedPolicyOutcome: 'VERIFIED',
+        },
+        mutationC: {
+          description: 'CSS overflow: hidden clamps card height and clips descendant content',
+          outerHeight: mutCCardSensory.rect.height,
+          hasScrollOverflow: mutCCardSensory.hasScrollOverflow,
+          buttonClippedOutOfView: mutCCardSensory.buttonClippedOutOfView,
+          outerBoxDeltaGeometry: structC.deltaGeometry,
+          diagnosticStatus: 'INCONCLUSIVE',
+          reason: 'Descendant clipping and scroll overflow observed via DOM probe, but current production structural observation path lacks descendant clipping telemetry',
+        },
+      };
+    } finally {
+      // Guaranteed file restoration in finally block
+      fs.writeFileSync(storefrontHtmlPath, originalStorefrontHtml, 'utf8');
+      fs.writeFileSync(componentCssPath, originalComponentCss, 'utf8');
+      await tool('anti.browser.reload', { tabId }, 40_000);
+    }
+    // --- End P0.4 Rendered Chromium Mutations ---
     const mobileViewport = parseTextResult(await tool('browser.set-viewport', {
       width: 375,
       height: 667,
@@ -672,6 +808,7 @@ async function run() {
         documentOverflow: responsive.signals.hasDocOverflow,
         verificationVerdict: verification.verdict,
         receiptCompleted: receipt.state === 'completed' && receipt.deliveryState === 'accepted-exact',
+        p04RenderedMutations,
       },
       drawer: {
         interactionMode: drawerTrace.interactionMode,
