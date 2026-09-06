@@ -159,8 +159,9 @@ export function computeStructuralMetrics(
   const targetRegions = targetBundle.regions;
   const baselineRegions = baselineBundle.regions;
 
-  const trackedSet = options.trackedSelectors ? new Set(options.trackedSelectors) : null;
+  const trackedSet = options.trackedSelectors !== undefined ? new Set(options.trackedSelectors) : null;
   const isTrackedFilter = trackedSet !== null;
+  const isExplicitEmptyTracked = isTrackedFilter && options.trackedSelectors?.length === 0;
 
   // Group by selector
   const baselineGroups = new Map<string, VisualRegion[]>();
@@ -195,7 +196,11 @@ export function computeStructuralMetrics(
     }
   }
 
-  const allSelectors = new Set<string>([...baselineGroups.keys(), ...targetGroups.keys()]);
+  const allSelectors = new Set<string>([
+    ...(trackedSet ? Array.from(trackedSet) : []),
+    ...baselineGroups.keys(),
+    ...targetGroups.keys(),
+  ]);
   const groups: Record<string, GroupStructuralMetrics> = {};
   let maxDelta = 0;
   let maxShiftSelector: string | undefined = undefined;
@@ -279,10 +284,13 @@ export function computeStructuralMetrics(
     }
   }
 
-  const cardinalityMatch = allGroupsMatch && sumDeltaCardinality === 0;
+  const hasTrackedElements = isExplicitEmptyTracked
+    ? true
+    : (!isTrackedFilter || (sumTargetCount > 0 || sumBaselineCount > 0));
+  const cardinalityMatch = allGroupsMatch && sumDeltaCardinality === 0 && hasTrackedElements;
 
   return {
-    geometryWithinTolerance: maxDelta <= maxTol,
+    geometryWithinTolerance: hasTrackedElements && maxDelta <= maxTol,
     deltaGeometry: maxDelta,
     cardinalityMatch,
     deltaCardinality: sumDeltaCardinality,
@@ -290,4 +298,74 @@ export function computeStructuralMetrics(
     maxGeometryShift: { selector: maxShiftSelector, deltaPx: maxDelta },
     groups,
   };
+}
+
+/**
+ * Builds the in-page DOM query script for collecting elements and their structural selectors.
+ * Supports arbitrary CSS selectors in trackedSelectors (nested, compound, attribute, etc.),
+ * class attributes on HTML and SVG, and deterministic fallback when untracked.
+ */
+export function buildStructuralQueryScript(
+  rootSel: string = 'body',
+  trackedSelectors: string[] = []
+): string {
+  const trackedList = Array.isArray(trackedSelectors) ? trackedSelectors : [];
+  return `(() => {
+    const root = document.querySelector(${JSON.stringify(rootSel)});
+    if (!root) return [];
+    const tracked = ${JSON.stringify(trackedList)};
+
+    const matchedMap = new Map();
+    if (tracked.length > 0) {
+      for (const sel of tracked) {
+        try {
+          const matchedEls = root.querySelectorAll(sel);
+          for (let k = 0; k < matchedEls.length; k++) {
+            const mEl = matchedEls[k];
+            if (!matchedMap.has(mEl)) {
+              matchedMap.set(mEl, sel);
+            }
+          }
+          if (typeof root.matches === 'function' && root.matches(sel) && !matchedMap.has(root)) {
+            matchedMap.set(root, sel);
+          }
+        } catch {}
+      }
+    }
+
+    const candidateElements = tracked.length > 0
+      ? Array.from(matchedMap.keys())
+      : [root, ...Array.from(root.children)];
+
+    return candidateElements.map((el, i) => {
+      const r = el.getBoundingClientRect();
+      const tag = el.tagName.toLowerCase();
+      let sel = matchedMap.get(el);
+      if (!sel) {
+        if (el.id) {
+          sel = '#' + el.id;
+        } else {
+          const classAttr = (typeof el.getAttribute === 'function' && el.getAttribute('class')) || '';
+          const rawClasses = typeof classAttr === 'string' ? classAttr.trim().split(/\\s+/).filter(Boolean) : [];
+          sel = rawClasses.length > 0 ? (tag + '.' + rawClasses.join('.')) : tag;
+        }
+      }
+      return {
+        ref: (typeof el.getAttribute === 'function' && el.getAttribute('data-ref')) || ('el-' + i),
+        tag,
+        selector: sel,
+        rect: {
+          x: Math.round(r.x),
+          y: Math.round(r.y),
+          width: Math.round(r.width),
+          height: Math.round(r.height),
+          top: Math.round(r.top),
+          right: Math.round(r.right),
+          bottom: Math.round(r.bottom),
+          left: Math.round(r.left)
+        },
+        visible: r.width > 0 && r.height > 0
+      };
+    });
+  })()`;
 }

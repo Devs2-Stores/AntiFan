@@ -4,6 +4,8 @@ import { BrowserControlPort, BrowserHostPort, computePixelDiff } from '../../src
 import { BrowserTarget, CapabilityError } from '../../src/shared/control-plane-contracts';
 import { CapabilityCatalogue } from '../../src/main/tools/capability-catalogue';
 import { registerBrowserCapabilities } from '../../src/main/tools/browser-capabilities';
+import vm from 'node:vm';
+import { computeStructuralMetrics, buildStructuralQueryScript } from '../../src/main/verification/visual-region';
 
 // Minimal valid-PNG-shaped buffer the parity guard can measure (real decoding is
 // stubbed below via a fake electron nativeImage when the pixel diff runs).
@@ -1318,5 +1320,73 @@ describe('computePixelDiff & visualCompare comprehensive edge cases', () => {
     const structural = res.structural as { groups?: Record<string, unknown> } | undefined;
     assert.ok(structural?.groups, 'Must preserve groups in structural telemetry');
     assert.ok('.product-card' in structural.groups, 'Must preserve tracked product-card group in telemetry');
+  });
+
+  it('buildStructuralQueryScript executes in DOM context via vm and resolves nested compound and attribute selectors', () => {
+    const cardEl = {
+      tagName: 'DIV',
+      getAttribute: (attr: string) => attr === 'class' ? 'product-card is-featured' : attr === 'data-item-id' ? '42' : null,
+      getBoundingClientRect: () => ({ x: 10, y: 20, width: 100, height: 150, top: 20, right: 110, bottom: 170, left: 10 }),
+    };
+    const svgEl = {
+      tagName: 'svg',
+      getAttribute: (attr: string) => attr === 'class' ? 'icon-cart' : null,
+      getBoundingClientRect: () => ({ x: 5, y: 5, width: 24, height: 24, top: 5, right: 29, bottom: 29, left: 5 }),
+    };
+    const rootEl = {
+      tagName: 'MAIN',
+      id: 'main-content',
+      getAttribute: (_attr: string) => null,
+      getBoundingClientRect: () => ({ x: 0, y: 0, width: 1200, height: 800, top: 0, right: 1200, bottom: 800, left: 0 }),
+      matches: (sel: string) => sel === '#main-content',
+      querySelectorAll: (sel: string) => {
+        if (sel === '.product-card.is-featured' || sel === '[data-item-id="42"]') return [cardEl];
+        if (sel === 'svg.icon-cart') return [svgEl];
+        return [];
+      },
+      children: [cardEl, svgEl],
+    };
+
+    const script = buildStructuralQueryScript('main', ['.product-card.is-featured', 'svg.icon-cart']);
+    const context = vm.createContext({
+      document: {
+        querySelector: (sel: string) => sel === 'main' ? rootEl : null,
+      },
+      Map,
+      Array,
+      Math,
+    });
+    const result = vm.runInContext(script, context) as any[];
+
+    assert.strictEqual(result.length, 2, 'Must extract exactly the 2 matching elements');
+    assert.strictEqual(result[0].selector, '.product-card.is-featured');
+    assert.strictEqual(result[1].selector, 'svg.icon-cart');
+
+    // Test zero-match contract: non-existent selector yields empty array, does NOT fall back to root/children
+    const zeroScript = buildStructuralQueryScript('main', ['.non-existent-component']);
+    const zeroResult = vm.runInContext(zeroScript, context) as any[];
+
+    assert.strictEqual(zeroResult.length, 0, 'Zero-match tracked selectors must produce empty candidate list');
+  });
+
+  it('computeStructuralMetrics fails closed when requested tracked scope resolves zero elements on both sides', () => {
+    const emptyBundle = {
+      regions: [],
+      viewport: { width: 1200, height: 800 },
+      documentGeneration: 1,
+      timestamp: Date.now(),
+      maskedCount: 0,
+    };
+    const res = computeStructuralMetrics(emptyBundle, emptyBundle, {
+      trackedSelectors: ['.product-card', '.cart-drawer'],
+    });
+
+    assert.strictEqual(res.cardinalityMatch, false, 'Zero-match tracked scope must fail cardinalityMatch');
+    assert.strictEqual(res.geometryWithinTolerance, false, 'Zero-match tracked scope must fail geometryWithinTolerance');
+    assert.ok(res.groups['.product-card'], 'Must seed .product-card in groups');
+    assert.ok(res.groups['.cart-drawer'], 'Must seed .cart-drawer in groups');
+    assert.strictEqual(res.groups['.product-card']?.cardinalityMatch, true, 'Group-level 0===0 is true');
+    assert.strictEqual(res.groups['.product-card']?.targetCount, 0);
+    assert.strictEqual(res.groups['.product-card']?.baselineCount, 0);
   });
 });
