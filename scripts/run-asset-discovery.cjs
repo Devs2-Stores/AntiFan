@@ -74,8 +74,12 @@ function parseArgs() {
   let outputLstat = null;
   try {
     outputLstat = fs.lstatSync(resolvedOutput);
-  } catch {
-    // Entry does not exist
+  } catch (err) {
+    if (err && (err.code === 'ENOENT' || err.code === 'ENOTDIR')) {
+      outputLstat = null;
+    } else {
+      printUsageAndExit(`Failed to inspect output path due to filesystem error: ${err && err.message}`);
+    }
   }
 
   if (outputLstat) {
@@ -83,22 +87,26 @@ function parseArgs() {
       let realTarget;
       try {
         realTarget = fs.realpathSync(resolvedOutput);
-      } catch {
-        // Dangling symlink: target does not exist yet. Read the link and resolve against dirname.
-        const rawLink = fs.readlinkSync(resolvedOutput);
-        const resolvedLink = path.resolve(path.dirname(resolvedOutput), rawLink);
-        let anc = path.dirname(resolvedLink);
-        while (anc && !fs.existsSync(anc)) {
-          const parent = path.dirname(anc);
-          if (parent === anc) break;
-          anc = parent;
-        }
-        if (fs.existsSync(anc)) {
-          const realAnc = fs.realpathSync(anc);
-          const rel = path.relative(anc, resolvedLink);
-          realTarget = path.resolve(realAnc, rel);
+      } catch (err) {
+        if (err && err.code === 'ENOENT') {
+          // Dangling symlink: target does not exist yet. Read the link and resolve against dirname.
+          const rawLink = fs.readlinkSync(resolvedOutput);
+          const resolvedLink = path.resolve(path.dirname(resolvedOutput), rawLink);
+          let anc = path.dirname(resolvedLink);
+          while (anc && !fs.existsSync(anc)) {
+            const parent = path.dirname(anc);
+            if (parent === anc) break;
+            anc = parent;
+          }
+          if (fs.existsSync(anc)) {
+            const realAnc = fs.realpathSync(anc);
+            const rel = path.relative(anc, resolvedLink);
+            realTarget = path.resolve(realAnc, rel);
+          } else {
+            realTarget = resolvedLink;
+          }
         } else {
-          realTarget = resolvedLink;
+          printUsageAndExit(`Failed to resolve output symlink target: ${err && err.message}`);
         }
       }
       if (!realTarget.startsWith(realRootPrefix)) {
@@ -120,7 +128,6 @@ function parseArgs() {
   }
   if (fs.existsSync(cur)) {
     const realAncestor = fs.realpathSync(cur);
-    const realAncestorPrefix = realAncestor.endsWith(path.sep) ? realAncestor : realAncestor + path.sep;
     if (!realAncestor.startsWith(realRootPrefix) && realAncestor !== realRoot) {
       printUsageAndExit(`Output path traverses symlink outside root directory: ${resolvedOutput}`);
     }
