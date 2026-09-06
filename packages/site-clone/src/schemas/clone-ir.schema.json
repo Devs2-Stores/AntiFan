@@ -212,7 +212,19 @@
         "sourceUrl": { "type": "string" },
         "filename": { "type": "string" },
         "localPath": { "type": "string" },
-        "byteCount": { "type": "number", "minimum": 0 }
+        "byteCount": { "type": "number", "minimum": 0 },
+        "occurrences": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["tag", "attribute"],
+            "properties": {
+              "filePath": { "type": "string" },
+              "tag": { "type": "string" },
+              "attribute": { "type": "string" }
+            }
+          }
+        }
       }
     },
     "HarvestedAssetManifest": {

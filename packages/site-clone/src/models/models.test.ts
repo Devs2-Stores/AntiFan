@@ -3,6 +3,7 @@ import assert from 'node:assert';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import * as fs from 'node:fs';
+import { spawnSync } from 'node:child_process';
 import { AssetHarvester } from './asset-harvester.js';
 import { ResponsiveScanner } from './responsive-scanner.js';
 import { EcommerceDataModeler } from './ecommerce-data-modeler.js';
@@ -27,7 +28,7 @@ describe('Cognitive Models - Asset, Responsive & E-commerce Data', () => {
       assert.strictEqual(manifest.javascripts[0].filename, 'vendor.js');
       assert.strictEqual(manifest.images.length, 1);
       assert.strictEqual(manifest.images[0].filename, 'hero.png');
-      assert.ok(manifest.fonts.length >= 3, 'Must include Vietnamese font subsets');
+      assert.strictEqual(manifest.fonts.length, 0, 'No fonts referenced in input, discovery must strictly record 0 fonts');
     } finally {
       fs.rmSync(tempDir, { recursive: true, force: true });
     }
@@ -60,12 +61,234 @@ describe('Cognitive Models - Asset, Responsive & E-commerce Data', () => {
     }
   });
 
+  it('1c. AssetHarvester extracts exact attributes (data-src without src, video poster, onerror fallback with nested quotes)', () => {
+    const harvester = new AssetHarvester();
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-assets-exact-attrs-'));
+
+    const html = `
+      <img data-src="https://example.com/images/lazy-only.jpg" alt="No src attribute">
+      <video poster="https://example.com/images/video-cover.jpg" src="https://example.com/media/clip.mp4"></video>
+      <img src="https://example.com/images/primary.jpg" onerror="this.onerror=null; this.src='https://hoplongtech.com/assets/images/default_image.png.webp';">
+      <style>
+        @import url('https://fonts.googleapis.com/css2?family=Roboto:wght@400;700&display=swap');
+        @font-face {
+          font-family: 'Inter';
+          src: url('https://example.com/fonts/inter.woff2') format('woff2');
+        }
+      </style>
+    `;
+
+    try {
+      const manifest = harvester.harvestFromHtml(html, tempDir);
+      const lazyImg = manifest.images.find(img => img.sourceUrl === 'https://example.com/images/lazy-only.jpg');
+      assert.ok(lazyImg, 'Must harvest data-src URL');
+      assert.strictEqual(lazyImg.occurrences?.length, 1, 'Lazy image must have exactly 1 occurrence');
+      assert.strictEqual(lazyImg.occurrences?.[0]?.attribute, 'data-src', 'Attribute must be exactly data-src, never falsely matched as src');
+
+      const posterImg = manifest.images.find(img => img.sourceUrl === 'https://example.com/images/video-cover.jpg');
+      assert.ok(posterImg, 'Must harvest video poster as image');
+      assert.strictEqual(posterImg.occurrences?.[0]?.tag, 'video');
+      assert.strictEqual(posterImg.occurrences?.[0]?.attribute, 'poster');
+
+      const fallbackImg = manifest.images.find(img => img.sourceUrl === 'https://hoplongtech.com/assets/images/default_image.png.webp');
+      assert.ok(fallbackImg, 'Must harvest onerror fallback with nested quotes');
+      assert.strictEqual(fallbackImg.occurrences?.[0]?.attribute, 'onerror_fallback');
+
+      // Google Fonts CSS import must be classified as stylesheet, NOT font
+      const googleFontSheet = manifest.stylesheets.find(s => s.sourceUrl.includes('fonts.googleapis.com/css'));
+      assert.ok(googleFontSheet, 'Google Fonts CSS @import must be classified as stylesheet');
+      assert.strictEqual(googleFontSheet.type, 'css');
+      assert.strictEqual(googleFontSheet.occurrences?.length, 1, 'Google font stylesheet import must have exactly 1 occurrence');
+      assert.strictEqual(googleFontSheet.occurrences?.[0]?.attribute, '@import');
+      assert.strictEqual(manifest.fonts.some(f => f.sourceUrl.includes('fonts.googleapis.com/css')), false, 'Google Fonts CSS import must not be in fonts');
+      // Binary woff2 font must be classified as font
+      const interFont = manifest.fonts.find(f => f.sourceUrl === 'https://example.com/fonts/inter.woff2');
+      assert.ok(interFont, 'Direct woff2 URL must be classified as font');
+      assert.strictEqual(interFont.type, 'font');
+    } finally {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it('1d. AssetHarvester prevents filename collisions across distinct URLs including duplicate basenames and cross-type collisions', () => {
+    const harvester = new AssetHarvester();
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-assets-collision-'));
+
+    const html = `
+      <img src="https://example.com/bucketA/hero.jpg">
+      <img src="https://example.com/bucketB/hero.jpg">
+      <link rel="stylesheet" href="https://example.com/styles/theme.css">
+      <script src="https://example.com/scripts/theme.css"></script>
+    `;
+
+    try {
+      const manifest = harvester.harvestFromHtml(html, tempDir);
+      assert.strictEqual(manifest.images.length, 2, 'Both distinct image URLs must be harvested');
+      const img1 = manifest.images[0].filename;
+      const img2 = manifest.images[1].filename;
+      assert.notStrictEqual(img1, img2, `Image filenames must not collide: ${img1} vs ${img2}`);
+
+      assert.strictEqual(manifest.stylesheets.length, 1);
+      assert.strictEqual(manifest.javascripts.length, 1);
+      const sheetFile = manifest.stylesheets[0].filename;
+      const scriptFile = manifest.javascripts[0].filename;
+      assert.notStrictEqual(sheetFile, scriptFile, `Cross-type filenames must not collide: ${sheetFile} vs ${scriptFile}`);
+
+      const allFilenames = [
+        ...manifest.stylesheets.map(s => s.filename),
+        ...manifest.javascripts.map(j => j.filename),
+        ...manifest.images.map(i => i.filename),
+        ...manifest.fonts.map(f => f.filename),
+      ];
+      const uniqueFilenames = new Set(allFilenames);
+      assert.strictEqual(uniqueFilenames.size, allFilenames.length, 'All allocated filenames across all types must be globally unique');
+    } finally {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it('1e. AssetHarvester merges occurrences across multiple files with provenance for images, stylesheets, and scripts', () => {
+    const harvester = new AssetHarvester();
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-assets-multifile-'));
+
+    const files = [
+      {
+        path: 'snippets/hero.liquid',
+        content: `
+          <link rel="stylesheet" href="https://example.com/shared.css">
+          <script src="https://example.com/shared.js"></script>
+          <img src="https://example.com/shared-logo.png">
+        `
+      },
+      {
+        path: 'snippets/footer.liquid',
+        content: `
+          <link rel="stylesheet" href="https://example.com/shared.css">
+          <script src="https://example.com/shared.js"></script>
+          <img src="https://example.com/shared-logo.png">
+        `
+      },
+    ];
+
+    try {
+      const manifest = harvester.harvestFromFiles(files, tempDir);
+
+      // Images deduplication & provenance
+      const sharedLogo = manifest.images.find(img => img.sourceUrl === 'https://example.com/shared-logo.png');
+      assert.ok(sharedLogo, 'Shared image must be harvested');
+      assert.strictEqual(manifest.images.filter(img => img.sourceUrl === 'https://example.com/shared-logo.png').length, 1);
+      assert.strictEqual(sharedLogo.occurrences?.length, 2, 'Image must record 2 occurrences across files');
+      assert.strictEqual(sharedLogo.occurrences?.[0]?.filePath, 'snippets/hero.liquid');
+      assert.strictEqual(sharedLogo.occurrences?.[1]?.filePath, 'snippets/footer.liquid');
+
+      // Stylesheets deduplication & provenance
+      const sharedCss = manifest.stylesheets.find(s => s.sourceUrl === 'https://example.com/shared.css');
+      assert.ok(sharedCss, 'Shared CSS must be harvested');
+      assert.strictEqual(manifest.stylesheets.filter(s => s.sourceUrl === 'https://example.com/shared.css').length, 1);
+      assert.strictEqual(sharedCss.occurrences?.length, 2, 'CSS must record 2 occurrences across files');
+      assert.strictEqual(sharedCss.occurrences?.[0]?.filePath, 'snippets/hero.liquid');
+      assert.strictEqual(sharedCss.occurrences?.[1]?.filePath, 'snippets/footer.liquid');
+
+      // Scripts deduplication & provenance
+      const sharedJs = manifest.javascripts.find(j => j.sourceUrl === 'https://example.com/shared.js');
+      assert.ok(sharedJs, 'Shared JS must be harvested');
+      assert.strictEqual(manifest.javascripts.filter(j => j.sourceUrl === 'https://example.com/shared.js').length, 1);
+      assert.strictEqual(sharedJs.occurrences?.length, 2, 'JS must record 2 occurrences across files');
+      assert.strictEqual(sharedJs.occurrences?.[0]?.filePath, 'snippets/hero.liquid');
+      assert.strictEqual(sharedJs.occurrences?.[1]?.filePath, 'snippets/footer.liquid');
+    } finally {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it('1f. run-asset-discovery CLI enforces fail-closed path safety and generates manifest', () => {
+    const nodeBin = process.execPath;
+    const runnerScript = path.resolve(__dirname, '../../../../scripts/run-asset-discovery.cjs');
+    assert.ok(fs.existsSync(runnerScript), 'run-asset-discovery.cjs must exist');
+    // Test 1: missing required arguments -> status 1
+    const res1 = spawnSync(nodeBin, [runnerScript], { encoding: 'utf8' });
+    assert.strictEqual(res1.status, 1);
+    assert.ok(res1.stderr.includes('Missing required argument'));
+
+    // Test 2: missing target file -> status 1
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-cli-test-'));
+    try {
+      const res2 = spawnSync(nodeBin, [runnerScript, '--root', tempDir, '--files', 'missing.liquid'], { encoding: 'utf8' });
+      assert.strictEqual(res2.status, 1);
+      assert.ok(res2.stderr.includes('Target file does not exist'));
+
+      // Test 3: path traversal attempt -> status 1
+      const res3 = spawnSync(nodeBin, [runnerScript, '--root', tempDir, '--files', '../outside.liquid'], { encoding: 'utf8' });
+      assert.strictEqual(res3.status, 1);
+      assert.ok(res3.stderr.includes('Path traversal detected'));
+      // Test 4: symlink escape detection (narrow catch to symlink creation only)
+      const outsideFile = path.join(os.tmpdir(), 'outside-secret.liquid');
+      fs.writeFileSync(outsideFile, '<img src="https://example.com/secret.png">', 'utf8');
+      const symlinkFile = path.join(tempDir, 'symlink-escape.liquid');
+      let symlinkCreated = false;
+      try {
+        fs.symlinkSync(outsideFile, symlinkFile);
+        symlinkCreated = true;
+      } catch {
+        // Gracefully skip if environment prohibits symlink creation without elevation
+      }
+      try {
+        if (symlinkCreated) {
+          const resSym = spawnSync(nodeBin, [runnerScript, '--root', tempDir, '--files', 'symlink-escape.liquid'], { encoding: 'utf8' });
+          assert.strictEqual(resSym.status, 1);
+          assert.ok(resSym.stderr.includes('Symlink escape detected'));
+        }
+      } finally {
+        if (fs.existsSync(outsideFile)) fs.unlinkSync(outsideFile);
+      }
+
+      // Test 5: valid execution with real file -> status 0 and writes manifest
+      const validFile = path.join(tempDir, 'valid.liquid');
+      fs.writeFileSync(validFile, '<img src="https://example.com/live.png">', 'utf8');
+      const manifestOut = path.join(tempDir, 'manifest-out.json');
+      const res5 = spawnSync(nodeBin, [runnerScript, '--root', tempDir, '--files', 'valid.liquid', '--output', manifestOut], { encoding: 'utf8' });
+      assert.strictEqual(res5.status, 0);
+      assert.ok(fs.existsSync(manifestOut));
+      const parsed = JSON.parse(fs.readFileSync(manifestOut, 'utf8'));
+      assert.strictEqual(parsed.images.length, 1);
+      assert.strictEqual(parsed.images[0].sourceUrl, 'https://example.com/live.png');
+
+      // Test 6: lexical output escaping root directory -> status 1
+      const outsideOut = path.join(os.tmpdir(), 'outside-out.json');
+      const res6 = spawnSync(nodeBin, [runnerScript, '--root', tempDir, '--files', 'valid.liquid', '--output', outsideOut], { encoding: 'utf8' });
+      assert.strictEqual(res6.status, 1);
+      assert.ok(res6.stderr.includes('Output path escapes root directory'));
+
+      // Test 7: output symlink file escaping root directory -> status 1
+      const outsideTargetOut = path.join(os.tmpdir(), 'outside-manifest-target.json');
+      fs.writeFileSync(outsideTargetOut, '{}', 'utf8');
+      const symlinkOut = path.join(tempDir, 'symlink-manifest.json');
+      let outSymlinkCreated = false;
+      try {
+        fs.symlinkSync(outsideTargetOut, symlinkOut);
+        outSymlinkCreated = true;
+      } catch {
+        // Gracefully skip if environment prohibits symlink creation
+      }
+      try {
+        if (outSymlinkCreated) {
+          const res7 = spawnSync(nodeBin, [runnerScript, '--root', tempDir, '--files', 'valid.liquid', '--output', symlinkOut], { encoding: 'utf8' });
+          assert.strictEqual(res7.status, 1);
+          assert.ok(res7.stderr.includes('Output symlink escapes root directory'));
+        }
+      } finally {
+        if (fs.existsSync(outsideTargetOut)) fs.unlinkSync(outsideTargetOut);
+      }
+    } finally {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
   it('2. ResponsiveScanner provides accurate dimensions for all 3 viewports', () => {
     const scanner = new ResponsiveScanner();
     const desktop = scanner.getViewport('desktop');
     const tablet = scanner.getViewport('tablet');
     const mobile = scanner.getViewport('mobile');
-
     assert.strictEqual(desktop.width, 1440);
     assert.strictEqual(desktop.height, 900);
     assert.strictEqual(desktop.isMobile, false);
