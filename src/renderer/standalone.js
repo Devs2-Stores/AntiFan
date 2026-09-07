@@ -1935,7 +1935,7 @@ function startInlineRename(sessionId, tabWrapEl, titleSpanEl) {
   input.addEventListener('mousedown', (e) => e.stopPropagation());
   input.addEventListener('mouseup', (e) => e.stopPropagation());
   input.addEventListener('dblclick', (e) => e.stopPropagation());
-
+  input.addEventListener('contextmenu', (e) => e.stopPropagation());
   let finished = false;
   const finishRename = async (save) => {
     if (finished) return;
@@ -1949,6 +1949,8 @@ function startInlineRename(sessionId, tabWrapEl, titleSpanEl) {
 
     if (save && newName && newName !== currentName) {
       titleSpanEl.textContent = newName;
+      const targetSession = sessions.find((s) => s.id === sessionId);
+      if (targetSession) targetSession.name = newName;
       try {
         await api?.renameTerminal(sessionId, newName);
       } catch (err) {
@@ -1966,6 +1968,15 @@ function startInlineRename(sessionId, tabWrapEl, titleSpanEl) {
     } else if (e.key === 'Escape') {
       e.preventDefault();
       finishRename(false);
+    }
+  });
+
+  input.addEventListener('keyup', (e) => {
+    e.stopPropagation();
+    e.stopImmediatePropagation();
+    // Space key release on button descendants triggers synthetic click in Blink/Chromium
+    if (e.key === ' ' || e.code === 'Space') {
+      e.preventDefault();
     }
   });
 
@@ -2171,6 +2182,7 @@ function renderTabs() {
       b.title = `${s.name} (Nhấp đúp hoặc chuột phải để đổi tên, kéo thả để sắp xếp)`;
 
       b.onclick = () => {
+        if (wrap.classList.contains('renaming')) return;
         if (s.id !== activeId) {
           activeId = s.id;
           tabsEl.querySelectorAll('.terminal-tab-wrap').forEach((el) => {
@@ -2193,6 +2205,7 @@ function renderTabs() {
       // Double click to rename
       b.ondblclick = (e) => {
         e.stopPropagation();
+        if (wrap.classList.contains('renaming')) return;
         startInlineRename(s.id, wrap, titleSpan);
       };
 
