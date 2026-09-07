@@ -179,6 +179,9 @@ export function createChangeDispatcher({
   let relaunchTimer = null;
   let isDisposed = false;
   async function handleBatch(files) {
+    if (isDisposed) {
+      throw new Error('Dispatcher disposed');
+    }
     const allHot = files.length > 0 && files.every(isHotSwappableFn);
     const proc = getElectronProc();
 

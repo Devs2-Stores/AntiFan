@@ -5,9 +5,8 @@ export interface TscLineState {
 }
 
 export interface ChangeDispatcherResult {
-  action: 'soft_reload' | 'relaunch' | 'skip_compiler_error' | 'cancelled';
+  action: 'soft_reload' | 'relaunch' | 'skip_compiler_error';
   success: boolean;
-  reason?: string;
 }
 
 export interface ChangeDispatcherOptions {

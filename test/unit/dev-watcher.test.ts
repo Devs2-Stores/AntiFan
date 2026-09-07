@@ -322,6 +322,7 @@ describe('Dev Watcher Helpers', () => {
 
       // Test post-dispose call: must immediately reject without creating timer or queuing files
       await assert.rejects(dispatcher.scheduleRelaunch('scripts/cdp/4.source.js'), /disposed/i);
+      await assert.rejects(dispatcher.handleBatch(['scripts/cdp/5.source.js']), /disposed/i);
       assert.strictEqual(dispatcher.getPendingFiles().length, 0);
       assert.strictEqual(reloadCalls, 0);
     });
