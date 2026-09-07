@@ -493,4 +493,100 @@ describe('AntiFan Bridge Server', () => {
 
     server.dispose();
   });
+
+  it('enforces soft-reload RPC security: dev-only, rejects attachment sockets, handles unknown scripts, and clears overrides', async () => {
+    const mockHost = new MockTabHost() as unknown as NativeTabHost;
+
+    // 1. Production rejection: when isDev is false, reloadScripts must fail with FORBIDDEN
+    const prodServer = new BridgeServer(mockHost, 0, false);
+    let prodWs: WebSocket | null = null;
+    try {
+      const prodPort = await prodServer.start();
+      prodWs = new WebSocket(`ws://127.0.0.1:${prodPort}?token=${prodServer.getToken()}`);
+      await new Promise((res) => prodWs!.on('open', res));
+
+      const prodResp = await new Promise<{ success: boolean; error?: string }>((resolve) => {
+        prodWs!.on('message', (raw) => resolve(JSON.parse(raw.toString())));
+        prodWs!.send(JSON.stringify({ id: 'req-prod', method: 'antifan.system.reloadScripts', params: {} }));
+      });
+      assert.strictEqual(prodResp.success, false);
+      assert.match(prodResp.error || '', /FORBIDDEN/i);
+    } finally {
+      try { prodWs?.close(); } catch {}
+      try { prodServer.dispose(); } catch {}
+    }
+
+    // 2. Dev server: test attachment rejection, unknown script ID, and successful cache invalidation
+    const registry = new AttachmentRegistry();
+    const runId = makeControlPlaneId('run');
+    const attemptId = makeControlPlaneId('attempt');
+    const projectId = makeControlPlaneId('project');
+    const workspaceId = makeControlPlaneId('workspace');
+    const runtimeId = makeControlPlaneId('binding');
+    const lease = { runtimeId, projectId, workspaceId, token: 'tok-reload-test', protocolVersion: 1, hostEpoch: 1, ownerPid: process.pid, issuedAt: Date.now(), expiresAt: Date.now() + 30_000 };
+    const { launch } = await registry.issueAttachment(runId, attemptId, projectId, workspaceId, {
+      backendId: 'omp',
+      lease,
+      leaseToken: lease.token,
+      grant: 'write',
+      tabId: 'tab-1',
+    });
+    const devServer = new BridgeServer(mockHost, 0, true, undefined, undefined, registry);
+    let wsAttachment: WebSocket | null = null;
+    let wsMaster: WebSocket | null = null;
+    try {
+      const devPort = await devServer.start();
+
+      // 2a. Attachment-authenticated socket rejection
+      wsAttachment = new WebSocket(`ws://127.0.0.1:${devPort}?token=${launch.secret}`);
+      await new Promise((res) => wsAttachment!.on('open', res));
+
+      const attachResp = await new Promise<{ success: boolean; error?: string }>((resolve) => {
+        wsAttachment!.on('message', (raw) => resolve(JSON.parse(raw.toString())));
+        wsAttachment!.send(JSON.stringify({ id: 'req-attach', method: 'antifan.system.reloadScripts', params: {} }));
+      });
+      assert.strictEqual(attachResp.success, false);
+      assert.match(attachResp.error || '', /Forbidden/i);
+
+      // 2b. Master-authenticated socket: unknown script ID cleanly succeeds/no-ops
+      wsMaster = new WebSocket(`ws://127.0.0.1:${devPort}?token=${devServer.getToken()}`);
+      await new Promise((res) => wsMaster!.on('open', res));
+
+      const unknownResp = await new Promise<{ success: boolean; data?: { reloaded: boolean; scriptCount: number } }>((resolve) => {
+        wsMaster!.on('message', (raw) => {
+          const msg = JSON.parse(raw.toString());
+          if (msg.id === 'req-unknown') resolve(msg);
+        });
+        wsMaster!.send(JSON.stringify({
+          id: 'req-unknown',
+          method: 'antifan.system.reloadScripts',
+          params: { scriptId: 'non.existent.script.id' },
+        }));
+      });
+      assert.strictEqual(unknownResp.success, true);
+      assert.strictEqual(unknownResp.data?.reloaded, true);
+
+      // 2c. Master-authenticated socket: full reload clears overrides and returns list
+      const fullResp = await new Promise<{ success: boolean; data?: { reloaded: boolean; scriptCount: number; scripts: Array<{ id: string } | string> } }>((resolve) => {
+        wsMaster!.on('message', (raw) => {
+          const msg = JSON.parse(raw.toString());
+          if (msg.id === 'req-full') resolve(msg);
+        });
+        wsMaster!.send(JSON.stringify({
+          id: 'req-full',
+          method: 'antifan.system.reloadScripts',
+          params: {},
+        }));
+      });
+      assert.strictEqual(fullResp.success, true);
+      assert.strictEqual(fullResp.data?.reloaded, true);
+      assert.ok(typeof fullResp.data?.scriptCount === 'number' && fullResp.data.scriptCount > 0);
+      assert.ok(Array.isArray(fullResp.data?.scripts));
+      assert.ok(fullResp.data?.scripts.some((s) => (typeof s === 'string' ? s === 'media.freeze' : s.id === 'media.freeze')));
+    } finally {
+      try { wsAttachment?.close(); } catch {}
+      try { wsMaster?.close(); } catch {}
+      try { devServer.dispose(); } catch {}
+    }
+  });
 });

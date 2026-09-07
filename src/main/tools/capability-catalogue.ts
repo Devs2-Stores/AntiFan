@@ -31,13 +31,13 @@ export interface CapabilityCatalogueOptions {
 export class CapabilityCatalogue {
   private readonly definitions = new Map<string, RegisteredCapability>();
   private runtime: RuntimeFeatureSwitch;
+  private revisionCounter = 1;
 
   constructor(private readonly options: CapabilityCatalogueOptions) {
     this.runtime = { ...options.runtime };
   }
 
-  register<TParams, TResult>(definition: CapabilityDefinition<TParams, TResult>): void {
-    if (this.definitions.has(definition.name)) throw new Error(`Capability already registered: ${definition.name}`);
+  private validateAndFreezePolicy<TParams, TResult>(definition: CapabilityDefinition<TParams, TResult>): CapabilityEffectPolicy {
     if (!definition.policy) throw new Error(`Capability ${definition.name} missing required CapabilityEffectPolicy`);
 
     const p = definition.policy;
@@ -103,15 +103,48 @@ export class CapabilityCatalogue {
       throw new Error(`Capability ${definition.name} uses viewport-gate lane but requiresBrowserTarget is false`);
     }
     const digest = computePolicyDigest(p);
-    const frozenPolicy: CapabilityEffectPolicy = Object.freeze({
+    return Object.freeze({
       ...p,
       policyDigest: digest,
     });
+  }
+
+  register<TParams, TResult>(definition: CapabilityDefinition<TParams, TResult>): void {
+    if (this.definitions.has(definition.name)) throw new Error(`Capability already registered: ${definition.name}`);
+    const frozenPolicy = this.validateAndFreezePolicy(definition);
 
     this.definitions.set(definition.name, {
       ...definition,
       policy: frozenPolicy,
     } as RegisteredCapability);
+  }
+
+  /**
+   * Hot-swap or update an existing capability definition in place without restarting the application.
+   * Validates policy invariants before swapping to ensure fail-closed safety.
+   */
+  swapCapability<TParams, TResult>(definition: CapabilityDefinition<TParams, TResult>): { swapped: boolean; revision: number } {
+    const frozenPolicy = this.validateAndFreezePolicy(definition);
+    const existing = this.definitions.get(definition.name);
+    this.revisionCounter++;
+
+    this.definitions.set(definition.name, {
+      ...definition,
+      policy: frozenPolicy,
+    } as RegisteredCapability);
+
+    return {
+      swapped: Boolean(existing),
+      revision: this.revisionCounter,
+    };
+  }
+
+  public getRevision(): number {
+    return this.revisionCounter;
+  }
+
+  public has(name: string): boolean {
+    return this.definitions.has(name);
   }
 
   getPolicy(name: string): CapabilityEffectPolicy | undefined {

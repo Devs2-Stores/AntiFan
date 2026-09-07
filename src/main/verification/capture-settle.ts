@@ -13,6 +13,7 @@
  */
 
 import { CapabilityError } from '../../shared/control-plane-contracts';
+import { injectedScriptStore } from '../browser/scripts/injected-script-store.js';
 
 export interface VisualSettleReceipt {
   settleComplete: boolean;
@@ -155,7 +156,7 @@ export class CaptureSettleGate {
       const imgResult = await withHardTimeout(
         () => predicates.imagesDecoded!(budget),
         budget,
-        { settled: true, brokenImages: [] }
+        { settled: false, brokenImages: [] }
       );
       gates.images = Boolean(imgResult.settled);
       brokenImages = Array.isArray(imgResult.brokenImages) ? [...imgResult.brokenImages] : [];
@@ -208,23 +209,7 @@ export class CaptureSettleGate {
  * Builds the in-page font readiness script.
  */
 export function buildFontSettleScript(timeoutMs: number): string {
-  return `(() => {
-    return new Promise((resolve) => {
-      let done = false;
-      const timer = setTimeout(() => {
-        if (!done) { done = true; resolve(false); }
-      }, ${Math.max(1, timeoutMs)});
-      if (document.fonts && typeof document.fonts.ready === 'object' && typeof document.fonts.ready.then === 'function') {
-        document.fonts.ready.then(() => {
-          if (!done) { done = true; clearTimeout(timer); resolve(true); }
-        }).catch(() => {
-          if (!done) { done = true; clearTimeout(timer); resolve(false); }
-        });
-      } else {
-        if (!done) { done = true; clearTimeout(timer); resolve(true); }
-      }
-    });
-  })()`;
+  return injectedScriptStore.getScript('settle.fonts', { timeoutMs });
 }
 
 /**
@@ -235,82 +220,7 @@ export function buildImageDecodeScript(
   timeoutMs: number,
   clipRect?: { x: number; y: number; width: number; height: number }
 ): string {
-  const clipJson = clipRect ? JSON.stringify(clipRect) : 'null';
-  return `(() => {
-    return new Promise((resolve) => {
-      const clip = ${clipJson};
-      const vw = window.innerWidth || 1200;
-      const vh = window.innerHeight || 800;
-
-      const imgs = Array.from(document.images || []);
-      const scrollX = window.scrollX || window.pageXOffset || 0;
-      const scrollY = window.scrollY || window.pageYOffset || 0;
-      const relevantImages = imgs.filter(img => {
-        try {
-          const rect = img.getBoundingClientRect();
-          if (rect.width === 0 && rect.height === 0) return false;
-          const absTop = rect.top + scrollY;
-          const absBottom = rect.bottom + scrollY;
-          const absLeft = rect.left + scrollX;
-          const absRight = rect.right + scrollX;
-          if (clip) {
-            return (
-              absRight >= clip.x &&
-              absLeft <= clip.x + clip.width &&
-              absBottom >= clip.y &&
-              absTop <= clip.y + clip.height
-            );
-          }
-          return (
-            rect.right >= 0 &&
-            rect.left <= vw &&
-            rect.bottom >= 0 &&
-            rect.top <= vh
-          );
-        } catch {
-          return false;
-        }
-      });
-      let finished = false;
-      const finish = (settled) => {
-        if (finished) return;
-        finished = true;
-        clearTimeout(timer);
-        const broken = [];
-        for (const img of relevantImages) {
-          try {
-            const src = img.currentSrc || img.src;
-            if (img.complete && img.naturalWidth === 0 && img.naturalHeight === 0 && src) {
-              broken.push(src);
-            }
-          } catch {}
-        }
-        resolve({ settled: true, brokenImages: broken });
-      };
-
-      const timer = setTimeout(() => {
-        finish(true);
-      }, ${Math.max(1, timeoutMs)});
-        try {
-          if (img.loading === 'lazy') {
-            img.loading = 'eager';
-          }
-        } catch {}
-      }
-
-      const decodePromises = [];
-      for (const img of relevantImages.slice(0, 50)) {
-        if (typeof img.decode === 'function' && !img.complete) {
-          decodePromises.push(img.decode().catch(() => {}));
-        }
-      }
-      if (decodePromises.length === 0) {
-        finish(true);
-      } else {
-        Promise.all(decodePromises).then(() => finish(true)).catch(() => finish(true));
-      }
-    });
-  })()`;
+  return injectedScriptStore.getScript('settle.images', { timeoutMs, clipRect });
 }
 
 /**

@@ -5,9 +5,16 @@
 import { spawn, execSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import * as os from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';
-
+import {
+  isHotSwappable,
+  processTscLine as parseTscLine,
+  sendSoftReload,
+  resolveDevBridgeInfo,
+  createChangeDispatcher,
+} from './dev-watcher-helpers.mjs';
 const require = createRequire(import.meta.url);
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..');
@@ -91,35 +98,102 @@ try {
 relaunchElectron();
 
 const tscBin = path.join(ROOT, 'node_modules', 'typescript', 'bin', 'tsc');
+
+let tscLineBuffer = '';
+let isTscCompiling = false;
+let tscHasErrors = false;
+let tscSettledPromise = Promise.resolve(true);
+let tscSettledResolver = null;
+
+function processTscLine(line) {
+  const next = parseTscLine(line, { isTscCompiling, tscHasErrors });
+  if (next.isTscCompiling && !isTscCompiling) {
+    if (!tscSettledResolver) {
+      tscSettledPromise = new Promise((res) => {
+        tscSettledResolver = res;
+      });
+    }
+  }
+  isTscCompiling = next.isTscCompiling;
+  tscHasErrors = next.tscHasErrors;
+  if (next.settled && tscSettledResolver) {
+    const success = !tscHasErrors;
+    tscSettledResolver(success);
+    tscSettledResolver = null;
+  }
+}
+
 tscProc = spawn(process.execPath, ['--max-old-space-size=4096', tscBin, '-p', './', '--watch'], {
   cwd: ROOT,
-  stdio: 'inherit',
+  stdio: ['inherit', 'pipe', 'inherit'],
 });
 
-let relaunchTimer = null;
-function scheduleRelaunch() {
-  const now = Date.now();
-  if (now < cwdChangedAt || now - cwdChangedAt < 500) return;
-  cwdChangedAt = now;
+if (tscProc.stdout) {
+  tscProc.stdout.on('data', (chunk) => {
+    process.stdout.write(chunk);
+    tscLineBuffer += chunk.toString('utf8');
+    const lines = tscLineBuffer.split(/\r?\n/);
+    tscLineBuffer = lines.pop() || '';
+    for (const line of lines) {
+      processTscLine(line);
+    }
+  });
+}
 
-  clearTimeout(relaunchTimer);
-  relaunchTimer = setTimeout(() => {
-    copyStatic();
-    void relaunchElectron();
-  }, 600);
+tscProc.on('exit', (code) => {
+  isTscCompiling = false;
+  if (code !== 0) {
+    tscHasErrors = true;
+  }
+  if (tscSettledResolver) {
+    tscSettledResolver(code === 0);
+    tscSettledResolver = null;
+  }
+});
+
+
+const dispatcher = createChangeDispatcher({
+  isHotSwappableFn: isHotSwappable,
+  sendSoftReloadFn: sendSoftReload,
+  copyStaticFn: copyStatic,
+  relaunchElectronFn: relaunchElectron,
+  getTscCompiling: () => isTscCompiling,
+  getTscErrors: () => tscHasErrors,
+  getTscSettledPromise: () => tscSettledPromise,
+  getElectronProc: () => electronProc,
+  debounceMs: 500,
+  log,
+});
+
+function scheduleRelaunch(filename) {
+  const now = Date.now();
+  if (now < cwdChangedAt) return;
+  dispatcher.scheduleRelaunch(filename).catch((err) => {
+    if (dispatcher.isDisposed() || /disposed|cancelled/i.test(err?.message)) return;
+    log(`Watcher dispatch failed: ${err?.message || err}`);
+  });
 }
 
 try {
-  fs.watch(path.join(ROOT, 'src'), { recursive: true }, () => scheduleRelaunch());
+  fs.watch(path.join(ROOT, 'src'), { recursive: true }, (event, filename) => scheduleRelaunch(filename ? `src/${filename}` : null));
 } catch (err) {
-  log(`Warning: recursive watch unavailable: ${err.message}`);
+  log(`Warning: recursive watch unavailable on src: ${err.message}`);
 }
 
+const cdpDir = path.join(ROOT, 'scripts', 'cdp');
+if (!fs.existsSync(cdpDir)) {
+  try { fs.mkdirSync(cdpDir, { recursive: true }); } catch {}
+}
+try {
+  fs.watch(cdpDir, { recursive: true }, (event, filename) => scheduleRelaunch(filename ? `scripts/cdp/${filename}` : null));
+} catch (err) {
+  log(`Warning: recursive watch unavailable on scripts/cdp: ${err.message}`);
+}
 log('AntiFan Dev mode ready — editing src/** auto-reloads. Ctrl+C to stop.');
 
 async function shutdown() {
   log('Stopping dev services...');
-  clearTimeout(relaunchTimer);
+  dispatcher.dispose();
   if (electronProc) {
     await killTree(electronProc);
     electronProc = null;

@@ -31,6 +31,7 @@ import { AttachmentRegistry } from '../run/attachment-registry';
 import { ControlPlaneRuntime } from '../control-plane/control-plane-runtime';
 import { deriveCapsulePartition } from '../browser/browser-session-partition';
 import { extensionCookieImportSetDetails, type ExtensionCookieInput } from '../browser/chrome-profile-sync';
+import { injectedScriptStore } from '../browser/scripts/injected-script-store.js';
 export const OFFICIAL_COMPANION_EXTENSION_ID = 'khjcaadjohoclofjkkfblkbfbpmjjedp';
 
 export const DEFAULT_EXTENSION_ALLOWED_DOMAINS: string[] = [
@@ -1361,6 +1362,35 @@ export class BridgeServer {
         case 'antifan.persistTabs': {
           this.tabHost.persistTabs();
           respond(true, { persisted: true });
+          break;
+        }
+        case 'reloadScripts':
+        case 'antifan.system.reloadScripts': {
+          if (!this.isDev) {
+            respond(false, undefined, 'FORBIDDEN: Soft reload is only permitted in development mode');
+            break;
+          }
+          if (boundAttachmentId) {
+            respond(false, undefined, 'FORBIDDEN: Attachment-bound connections cannot invoke administrative soft-reload');
+            break;
+          }
+          const scriptId = typeof p?.scriptId === 'string' && p.scriptId.trim() ? p.scriptId.trim() : undefined;
+          injectedScriptStore.clearOverrides(scriptId);
+          const scripts = injectedScriptStore.listScripts();
+          respond(true, {
+            reloaded: true,
+            scriptCount: scripts.length,
+            scripts,
+          });
+          break;
+        }
+
+        case 'getScriptStatus':
+        case 'antifan.system.getScriptStatus': {
+          respond(true, {
+            isDev: this.isDev,
+            scripts: injectedScriptStore.listScripts(),
+          });
           break;
         }
 

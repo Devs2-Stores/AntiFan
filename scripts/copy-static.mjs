@@ -73,7 +73,7 @@ if (fs.existsSync(dispatcherSrc)) {
 // Copy scripts to .compiled/scripts for standalone deployment
 const scriptsSrcDir = path.join(ROOT, 'scripts');
 const scriptsOutDir = path.join(ROOT, '.compiled', 'scripts');
-const scriptsToCopy = ['antifan-agent.cjs', 'antifan-agent.cmd', 'antifan-omp-mcp.cjs'];
+const scriptsToCopy = ['antifan-agent.cjs', 'antifan-agent.cmd', 'antifan-omp-mcp.cjs', 'dev-watcher-helpers.mjs'];
 for (const scriptFile of scriptsToCopy) {
   const src = path.join(scriptsSrcDir, scriptFile);
   const dst = path.join(scriptsOutDir, scriptFile);

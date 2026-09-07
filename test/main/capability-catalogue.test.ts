@@ -1513,4 +1513,52 @@ describe('Capability catalogue', () => {
       await fs.promises.rm(tmpDir, { recursive: true, force: true });
     }
   });
+  it('supports hot-swapping capability definitions in place and fails closed on invalid policy', async () => {
+    const projectId = makeControlPlaneId('project');
+    const workspaceId = makeControlPlaneId('workspace');
+    const lease = issueRuntimeLease(projectId, workspaceId, 30_000, 1);
+    const catalogue = new CapabilityCatalogue({ runtime: { mode: 'standalone', lifecycle: 'active' }, projectId, workspaceId, runtimeId: lease.runtimeId, hostEpoch: 1 });
+
+    catalogue.register({
+      name: 'hot.test',
+      description: 'initial version',
+      risk: 'read',
+      policy: { effect: 'read', risk: 'read', requiresBrowserTarget: false, schedulerLane: 'unbounded', duplicateMode: 'in-process-join', recordedVisibility: 'tenant-scoped', receiptReadPermission: 'read', timeoutMs: 15000, retentionPolicy: 'run-durable', ownerCancellationBehavior: 'abort-immediate', subscriberDisconnectBehavior: 'abort-when-unobserved', cancellationAckTimeoutMs: 5000, policyVersion: 1 },
+      inputSchema: { type: 'object' },
+      execute: () => 'v1-result',
+    });
+
+    assert.strictEqual(await catalogue.dispatch('hot.test', {}, { lease, leaseToken: lease.token, projectId, workspaceId }), 'v1-result');
+    assert.strictEqual(catalogue.getRevision(), 1);
+
+    // 1. Hot-swap in place with updated execute logic
+    const swapResult = catalogue.swapCapability({
+      name: 'hot.test',
+      description: 'updated version',
+      risk: 'read',
+      policy: { effect: 'read', risk: 'read', requiresBrowserTarget: false, schedulerLane: 'unbounded', duplicateMode: 'in-process-join', recordedVisibility: 'tenant-scoped', receiptReadPermission: 'read', timeoutMs: 15000, retentionPolicy: 'run-durable', ownerCancellationBehavior: 'abort-immediate', subscriberDisconnectBehavior: 'abort-when-unobserved', cancellationAckTimeoutMs: 5000, policyVersion: 2 },
+      inputSchema: { type: 'object' },
+      execute: () => 'v2-hot-swapped',
+    });
+
+    assert.strictEqual(swapResult.swapped, true);
+    assert.strictEqual(swapResult.revision, 2);
+    assert.strictEqual(catalogue.getRevision(), 2);
+    assert.strictEqual(await catalogue.dispatch('hot.test', {}, { lease, leaseToken: lease.token, projectId, workspaceId }), 'v2-hot-swapped');
+
+    // 2. Fail-closed: swap with invalid policy must throw and keep old v2 definition intact
+    assert.throws(() => {
+      catalogue.swapCapability({
+        name: 'hot.test',
+        description: 'invalid version',
+        risk: 'read',
+        policy: { effect: 'read', risk: 'write' as any, requiresBrowserTarget: false, schedulerLane: 'unbounded', duplicateMode: 'in-process-join', recordedVisibility: 'tenant-scoped', receiptReadPermission: 'read', timeoutMs: 15000, retentionPolicy: 'run-durable', ownerCancellationBehavior: 'abort-immediate', subscriberDisconnectBehavior: 'abort-when-unobserved', cancellationAckTimeoutMs: 5000, policyVersion: 3 },
+        inputSchema: { type: 'object' },
+        execute: () => 'broken',
+      });
+    }, /risk 'read' does not match policy risk/);
+
+    // Old definition still active
+    assert.strictEqual(await catalogue.dispatch('hot.test', {}, { lease, leaseToken: lease.token, projectId, workspaceId }), 'v2-hot-swapped');
+  });
 });

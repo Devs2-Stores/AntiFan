@@ -373,13 +373,31 @@ describe('Live script execution in simulated DOM sandbox (executable contract)',
     assert.strictEqual(res.settled, false);
   });
 
+  it('runs buildImageDecodeScript: fails closed when image decode rejects (V-17)', async () => {
+    const script = buildImageDecodeScript(100, { x: 0, y: 0, width: 800, height: 600 });
+    const rejectingImg = {
+      complete: false,
+      naturalWidth: 0,
+      naturalHeight: 0,
+      src: 'https://example.com/error.png',
+      currentSrc: 'https://example.com/error.png',
+      getBoundingClientRect: () => ({ x: 10, y: 10, width: 100, height: 100, top: 10, left: 10, bottom: 110, right: 110 }),
+      decode: () => Promise.reject(new Error('Image decode aborted')),
+    };
+    const res = await runScriptInDom(script, {
+      document: { images: [rejectingImg] },
+      window: { innerWidth: 1200, innerHeight: 800 },
+    });
+    assert.strictEqual(res.settled, false);
+  });
+
   it('runs buildDomQuietScript: resolves true via double-rAF when quiet window passes', async () => {
     let rAfCount = 0;
     const script = buildDomQuietScript(60);
     const res = await runScriptInDom(script, {
       requestAnimationFrame: (cb: () => void) => {
         rAfCount++;
-        setTimeout(cb, 15);
+        setTimeout(cb, 16);
       },
     });
     assert.strictEqual(res, true);

@@ -58,6 +58,7 @@ import {
 } from '../verification/baseline-authority.js';
 import type { NetworkTrackerOptions } from '../browser/first-party-network-tracker.js';
 import type { AntiFanTab } from '../../shared/contracts';
+import { injectedScriptStore } from '../browser/scripts/injected-script-store.js';
 
 function isTabRecord(item: unknown): item is AntiFanTab {
   if (typeof item !== 'object' || item === null || !('id' in item)) return false;
@@ -3612,7 +3613,7 @@ export class BrowserControlPort {
   }
   async freezeMedia(
     target: BrowserTarget,
-    params: { freeze?: boolean; tabId?: string; paneId?: 'desktop' | 'mobile' } = {},
+    params: { freeze?: boolean; normalizeSliders?: boolean; tabId?: string; paneId?: 'desktop' | 'mobile' } = {},
     explicitTabId?: string,
     paneId?: 'desktop' | 'mobile'
   ): Promise<{ frozen: boolean; mediaCount: number; tabId: string }> {
@@ -3620,95 +3621,8 @@ export class BrowserControlPort {
     const effectivePane = paneId || params.paneId || 'desktop';
     const freeze = params.freeze !== false;
     return this.passivePool.execute(tabId, async () => {
-      const script = `(() => {
-        const freeze = ${Boolean(freeze)};
-        let mediaCount = 0;
-        const freezeStyleId = '__antifan_freeze_media_style';
-
-        const visitRoots = (root, cb) => {
-          cb(root);
-          root.querySelectorAll('*').forEach(el => {
-            if (el.shadowRoot) visitRoots(el.shadowRoot, cb);
-            if (el.tagName === 'IFRAME') {
-              try {
-                if (el.contentDocument) visitRoots(el.contentDocument, cb);
-              } catch {}
-            }
-          });
-        };
-
-        visitRoots(document, r => {
-          r.querySelectorAll('video, audio').forEach(el => {
-            mediaCount++;
-            if (freeze) {
-              if (!el.paused) {
-                el.dataset.__antifanPaused = 'true';
-                el.pause();
-              }
-            } else if (el.dataset.__antifanPaused === 'true') {
-              delete el.dataset.__antifanPaused;
-              el.play().catch(() => {});
-            }
-          });
-
-          r.querySelectorAll('svg').forEach(s => {
-            if (freeze && typeof s.pauseAnimations === 'function') {
-              s.pauseAnimations();
-            } else if (!freeze && typeof s.unpauseAnimations === 'function') {
-              s.unpauseAnimations();
-            }
-          });
-        });
-
-        let styleEl = document.getElementById(freezeStyleId);
-        if (freeze) {
-          if (!styleEl) {
-            styleEl = document.createElement('style');
-            styleEl.id = freezeStyleId;
-            styleEl.textContent = '* { animation-play-state: paused !important; transition-duration: 0s !important; }';
-            document.head.appendChild(styleEl);
-          }
-          if (!window.__antifanOriginalRAF) {
-            window.__antifanOriginalRAF = window.requestAnimationFrame;
-            window.__antifanRAFQueue = [];
-            window.requestAnimationFrame = (cb) => {
-              window.__antifanRAFQueue.push(cb);
-              return window.__antifanRAFQueue.length;
-            };
-          }
-          if (window.__antifanFreezeTimer) clearTimeout(window.__antifanFreezeTimer);
-          window.__antifanFreezeTimer = setTimeout(() => {
-            const s = document.getElementById(freezeStyleId);
-            if (s) s.remove();
-            if (window.__antifanOriginalRAF) {
-              window.requestAnimationFrame = window.__antifanOriginalRAF;
-              delete window.__antifanOriginalRAF;
-            }
-          }, 60000);
-        } else {
-          if (styleEl) styleEl.remove();
-          if (window.__antifanOriginalRAF) {
-            window.requestAnimationFrame = window.__antifanOriginalRAF;
-            delete window.__antifanOriginalRAF;
-            const q = window.__antifanRAFQueue || [];
-            delete window.__antifanRAFQueue;
-            q.forEach(cb => { try { cb(performance.now()); } catch {} });
-          }
-          if (window.__antifanFreezeTimer) {
-            clearTimeout(window.__antifanFreezeTimer);
-            delete window.__antifanFreezeTimer;
-          }
-        }
-
-        if (freeze) {
-          document.querySelectorAll('.slideshow, .carousel, [class*="slider"], [class*="slideshow"]').forEach(el => {
-            if (typeof el.scrollTo === 'function') {
-              el.scrollTo({ left: 0, top: 0, behavior: 'instant' });
-            }
-          });
-        }
-        return { frozen: freeze, mediaCount };
-      })()`;
+      const normalizeSliders = Boolean(params.normalizeSliders);
+      const script = injectedScriptStore.getScript('media.freeze', { freeze, normalizeSliders });
       const res = (await this.host.evalJs(script, tabId, effectivePane)) as { frozen?: boolean; mediaCount?: number } | undefined;
       if (!res || typeof res !== 'object') {
         throw new CapabilityError('TARGET_STALE', `Failed to execute freezeMedia on tab ${tabId}`);

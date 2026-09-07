@@ -2272,11 +2272,12 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
       type: 'object',
       properties: {
         freeze: { type: 'boolean', description: 'True to freeze media and pause animations; false to resume' },
+        normalizeSliders: { type: 'boolean', description: 'Explicit opt-in to normalize sliders/carousels (defaults to false to preserve storefront layout)' },
         tabId: { type: 'string' },
         paneId: { type: 'string', enum: ['desktop', 'mobile'] },
       },
     },
-    execute: (params: { freeze?: boolean; tabId?: string; paneId?: 'desktop' | 'mobile' }, context) =>
+    execute: (params: { freeze?: boolean; normalizeSliders?: boolean; tabId?: string; paneId?: 'desktop' | 'mobile' }, context) =>
       browser.freezeMedia(context.browserTarget as BrowserTarget, params, params?.tabId, params?.paneId),
   });
   catalogue.register({
@@ -2289,14 +2290,14 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
       type: 'object',
       properties: {
         freeze: { type: 'boolean' },
+        normalizeSliders: { type: 'boolean', description: 'Explicit opt-in to normalize sliders/carousels (defaults to false to preserve storefront layout)' },
         tabId: { type: 'string' },
         paneId: { type: 'string', enum: ['desktop', 'mobile'] },
       },
     },
-    execute: (params: { freeze?: boolean; tabId?: string; paneId?: 'desktop' | 'mobile' }, context) =>
+    execute: (params: { freeze?: boolean; normalizeSliders?: boolean; tabId?: string; paneId?: 'desktop' | 'mobile' }, context) =>
       browser.freezeMedia(context.browserTarget as BrowserTarget, params, params?.tabId, params?.paneId),
   });
-
   catalogue.register({
     name: 'anti.inspect.page_inventory',
     description: 'Scan entire physical page structure from y=0 to scrollHeight, returning list of all sections, coordinates, heights, and layout groups (chống sót header/footer/newsletter)',

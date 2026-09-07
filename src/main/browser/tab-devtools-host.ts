@@ -522,17 +522,7 @@ export class TabDevToolsHost {
 
     const draining = this.cdpDrainingTargets.get(wcId);
     if (draining) {
-      // Attempt auto-recovery: detach and re-attach debugger to clear stuck CDP pipe
-      try {
-        if (wc.debugger.isAttached()) {
-          wc.debugger.detach();
-        }
-        this.cdpDrainingTargets.delete(wcId);
-        this.cdpQueues.delete(wcId);
-        this.cdpAttachedWebContents.delete(wcId);
-      } catch (detachErr) {
-        throw new Error(`TARGET_BUSY_DRAINING: Cannot admit CDP command ${method}; target ${wcId} is draining timed-out command ${draining.method}`);
-      }
+      throw new Error(`TARGET_BUSY_DRAINING: Cannot admit CDP command ${method}; target ${wcId} is draining timed-out command ${draining.method}`);
     }
 
     if (!this.cdpAttachedWebContents.has(wcId)) {
