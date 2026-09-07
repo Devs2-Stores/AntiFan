@@ -5,8 +5,10 @@ import type { WebSocket as WsInterface } from 'ws';
 import type { TscLineState } from '../../scripts/dev-watcher-helpers.d.mts';
 import {
   isHotSwappable,
+  isUiHotSwappable,
   processTscLine,
   sendSoftReload,
+  sendUiReload,
   resolveDevBridgeInfo,
   createChangeDispatcher,
 } from '../../scripts/dev-watcher-helpers.mjs';
@@ -30,6 +32,27 @@ describe('Dev Watcher Helpers', () => {
       assert.strictEqual(isHotSwappable(''), false);
       assert.strictEqual(isHotSwappable(null as unknown as string), false);
       assert.strictEqual(isHotSwappable(undefined as unknown as string), false);
+    });
+  });
+
+  describe('isUiHotSwappable classifier', () => {
+    it('identifies renderer static assets by extension', () => {
+      assert.strictEqual(isUiHotSwappable('src/renderer/standalone.css'), true);
+      assert.strictEqual(isUiHotSwappable('src/renderer/toolbar.css'), true);
+      assert.strictEqual(isUiHotSwappable('src/renderer/standalone.html'), true);
+      assert.strictEqual(isUiHotSwappable('src/renderer/standalone.js'), true);
+      assert.strictEqual(isUiHotSwappable('src\\renderer\\toolbar.html'), true);
+      assert.strictEqual(isUiHotSwappable('/src/renderer/standalone.css'), true);
+    });
+
+    it('rejects non-renderer, nested, and non-static paths', () => {
+      assert.strictEqual(isUiHotSwappable('src/main/index.ts'), false);
+      assert.strictEqual(isUiHotSwappable('src/renderer/nested/deep.css'), false);
+      assert.strictEqual(isUiHotSwappable('src/renderer/standalone.js.map'), false);
+      assert.strictEqual(isUiHotSwappable('scripts/cdp/media-freeze.source.js'), false);
+      assert.strictEqual(isUiHotSwappable('src/renderer/foo.png'), false);
+      assert.strictEqual(isUiHotSwappable(''), false);
+      assert.strictEqual(isUiHotSwappable(null as unknown as string), false);
     });
   });
 
@@ -66,21 +89,22 @@ describe('Dev Watcher Helpers', () => {
     });
   });
 
-  describe('sendSoftReload client', () => {
-    class MockWs extends EventEmitter {
-      public sent: string[] = [];
-      public closed = false;
-      constructor(public url: string) {
-        super();
-        queueMicrotask(() => this.emit('open'));
-      }
-      send(data: string) {
-        this.sent.push(data);
-      }
-      close() {
-        this.closed = true;
-      }
+  class MockWs extends EventEmitter {
+    public sent: string[] = [];
+    public closed = false;
+    constructor(public url: string) {
+      super();
+      queueMicrotask(() => this.emit('open'));
     }
+    send(data: string) {
+      this.sent.push(data);
+    }
+    close() {
+      this.closed = true;
+    }
+  }
+
+  describe('sendSoftReload client', () => {
 
     it('resolves true on matching reqId and success response', async () => {
       let clientWs: MockWs | null = null;
@@ -192,6 +216,48 @@ describe('Dev Watcher Helpers', () => {
     });
   });
 
+  describe('sendUiReload client', () => {
+    it('sends antifan.system.reloadUi and resolves true on matching success response', async () => {
+      let clientWs: MockWs | null = null;
+      const wsFactory = function (url: string) {
+        clientWs = new MockWs(url);
+        clientWs.on('open', () => {
+          queueMicrotask(() => {
+            const req = JSON.parse(clientWs!.sent[0] || '{}');
+            assert.strictEqual(req.method, 'antifan.system.reloadUi');
+            clientWs!.emit('message', Buffer.from(JSON.stringify({ id: req.id, success: true, data: { reloaded: true } })));
+          });
+        });
+        return clientWs;
+      };
+
+      const result = await sendUiReload({
+        bridgeInfo: { port: 20130, token: 'test-tok' },
+        wsFactory: wsFactory as unknown as typeof WsInterface,
+        timeoutMs: 500,
+      });
+
+      assert.strictEqual(result, true);
+      assert.strictEqual(clientWs!.closed, true, 'WebSocket should be closed after successful ui reload');
+    });
+
+    it('fails closed on invalid bridge info without constructing a socket', async () => {
+      let factoryCalled = false;
+      const wsFactory = function () {
+        factoryCalled = true;
+        return new MockWs('ws://invalid');
+      };
+
+      const result = await sendUiReload({
+        bridgeInfo: { port: 0, token: '   ' },
+        wsFactory: wsFactory as unknown as typeof WsInterface,
+      });
+
+      assert.strictEqual(result, false);
+      assert.strictEqual(factoryCalled, false, 'Should fail closed before creating WebSocket on any invalid config');
+    });
+  });
+
   describe('resolveDevBridgeInfo', () => {
     it('discovers config from custom directory list and parses valid JSON', () => {
       const fs = require('node:fs');
@@ -247,6 +313,57 @@ describe('Dev Watcher Helpers', () => {
       assert.deepStrictEqual(r1, { action: 'soft_reload', success: true });
       assert.deepStrictEqual(r2, { action: 'soft_reload', success: true });
       assert.deepStrictEqual(r3, { action: 'soft_reload', success: true });
+    });
+
+    it('routes renderer asset changes through static copy and ui reload WITHOUT electron relaunch', async () => {
+      let staticCopied = false;
+      let uiReloaded = false;
+      let electronRelaunched = false;
+
+      const dispatcher = createChangeDispatcher({
+        isHotSwappableFn: () => false,
+        copyStaticFn: () => {
+          staticCopied = true;
+        },
+        sendUiReloadFn: async () => {
+          uiReloaded = true;
+          return true;
+        },
+        relaunchElectronFn: async () => {
+          electronRelaunched = true;
+        },
+        getElectronProc: () => ({ pid: 1234 }),
+        debounceMs: 20,
+      });
+
+      const result = await dispatcher.scheduleRelaunch('src/renderer/standalone.css');
+      assert.deepStrictEqual(result, { action: 'ui_reload', success: true });
+      assert.strictEqual(staticCopied, true, 'Must copy static assets before ui reload');
+      assert.strictEqual(uiReloaded, true, 'Must invoke ui reload');
+      assert.strictEqual(electronRelaunched, false, 'Must NEVER relaunch electron for renderer asset changes');
+    });
+
+    it('reports ui reload failure without falling back to electron relaunch', async () => {
+      let staticCopied = false;
+      let electronRelaunched = false;
+
+      const dispatcher = createChangeDispatcher({
+        isHotSwappableFn: () => false,
+        copyStaticFn: () => {
+          staticCopied = true;
+        },
+        sendUiReloadFn: async () => false,
+        relaunchElectronFn: async () => {
+          electronRelaunched = true;
+        },
+        getElectronProc: () => ({ pid: 1234 }),
+        debounceMs: 20,
+      });
+
+      const result = await dispatcher.scheduleRelaunch('src/renderer/toolbar.css');
+      assert.deepStrictEqual(result, { action: 'ui_reload', success: false });
+      assert.strictEqual(staticCopied, true, 'Assets still copied even when ui reload signal fails');
+      assert.strictEqual(electronRelaunched, false, 'Never relaunch electron on ui reload failure');
     });
 
     it('routes cold changes through compiler gate, static copy, and electron relaunch', async () => {

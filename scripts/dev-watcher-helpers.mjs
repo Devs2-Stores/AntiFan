@@ -78,9 +78,10 @@ export function resolveDevBridgeInfo(customDirs = null) {
 }
 
 /**
- * Send administrative soft-reload signal over WebSocket to BridgeServer.
+ * Send an administrative signal over WebSocket to BridgeServer with guarded settle.
+ * @internal shared transport used by sendSoftReload / sendUiReload
  */
-export async function sendSoftReload({ bridgeInfo = undefined, scriptId = null, wsFactory = null, timeoutMs = 2500 } = {}) {
+async function sendBridgeAdmin(method, { bridgeInfo = undefined, params = {}, wsFactory = null, timeoutMs = 2500 } = {}) {
   const info = bridgeInfo !== undefined ? bridgeInfo : resolveDevBridgeInfo();
   if (
     !info ||
@@ -125,14 +126,14 @@ export async function sendSoftReload({ bridgeInfo = undefined, scriptId = null, 
       return;
     }
 
-    const reqId = `soft_reload_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    const reqId = `${method}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 
     ws.on('open', () => {
       try {
         ws.send(JSON.stringify({
           id: reqId,
-          method: 'antifan.system.reloadScripts',
-          params: scriptId ? { scriptId } : {},
+          method,
+          params,
         }));
       } catch {
         finish(false);
@@ -159,11 +160,51 @@ export async function sendSoftReload({ bridgeInfo = undefined, scriptId = null, 
 }
 
 /**
+ * Send administrative soft-reload signal over WebSocket to BridgeServer
+ * (antifan.system.reloadScripts).
+ */
+export async function sendSoftReload({ bridgeInfo = undefined, scriptId = null, wsFactory = null, timeoutMs = 2500 } = {}) {
+  return sendBridgeAdmin('antifan.system.reloadScripts', {
+    bridgeInfo,
+    wsFactory,
+    timeoutMs,
+    params: scriptId ? { scriptId } : {},
+  });
+}
+
+/**
+ * Send administrative UI-reload signal over WebSocket to BridgeServer
+ * (antifan.system.reloadUi). Reloads toolbar/sidebar/terminal windows only;
+ * the Electron process, tabs, and PTY sessions are preserved.
+ */
+export async function sendUiReload({ bridgeInfo = undefined, wsFactory = null, timeoutMs = 2500 } = {}) {
+  return sendBridgeAdmin('antifan.system.reloadUi', {
+    bridgeInfo,
+    wsFactory,
+    timeoutMs,
+    params: {},
+  });
+}
+
+/**
+ * Classify whether a changed file path is a renderer static asset
+ * (src/renderer/<name>.(css|html|js)) whose change can be applied by
+ * copying static assets and reloading the UI surfaces only.
+ */
+export function isUiHotSwappable(relPath) {
+  if (!relPath || typeof relPath !== 'string') return false;
+  const normalized = relPath.replace(/\\/g, '/').replace(/^\/+/, '');
+  return /^src\/renderer\/[^/]+\.(css|html|js)$/i.test(normalized);
+}
+
+/**
  * Create an injectable change dispatcher for coordinating hot and cold reload events.
  */
 export function createChangeDispatcher({
   isHotSwappableFn = isHotSwappable,
+  isUiHotSwappableFn = isUiHotSwappable,
   sendSoftReloadFn = sendSoftReload,
+  sendUiReloadFn = () => Promise.resolve(false),
   copyStaticFn = () => {},
   relaunchElectronFn = () => Promise.resolve(),
   getTscCompiling = () => false,
@@ -183,6 +224,7 @@ export function createChangeDispatcher({
       throw new Error('Dispatcher disposed');
     }
     const allHot = files.length > 0 && files.every(isHotSwappableFn);
+    const allUiHot = files.length > 0 && files.every(isUiHotSwappableFn);
     const proc = getElectronProc();
 
     if (allHot && proc) {
@@ -197,6 +239,29 @@ export function createChangeDispatcher({
         return { action: 'soft_reload', success: true };
       }
       log(`Soft-reload not acknowledged by BridgeServer. Falling back to full relaunch.`);
+    }
+
+    if (isDisposed) {
+      throw new Error('Dispatcher disposed');
+    }
+
+    // Renderer static assets (src/renderer/*.css|html|js): copy to .compiled and
+    // reload UI surfaces only — preserves the Electron process, tabs, PTY, and any
+    // active attachment/Goal session. Deliberately NO relaunch fallback.
+    if (allUiHot && proc) {
+      log(`Detected renderer UI change in: ${files.join(', ')}`);
+      copyStaticFn();
+      log(`Static assets copied. Sending UI reload signal to BridgeServer (toolbar, sidebar, terminal windows)...`);
+      const ok = await sendUiReloadFn();
+      if (isDisposed) {
+        throw new Error('Dispatcher disposed');
+      }
+      if (ok) {
+        log(`UI reload successful! Renderer refreshed without restarting Electron (PID: ${proc.pid}).`);
+        return { action: 'ui_reload', success: true };
+      }
+      log(`UI reload not acknowledged by BridgeServer. Assets are copied; reload the window (Ctrl+Alt+R) or restart the app to apply.`);
+      return { action: 'ui_reload', success: false };
     }
 
     if (isDisposed) {

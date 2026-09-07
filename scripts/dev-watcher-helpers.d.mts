@@ -5,13 +5,15 @@ export interface TscLineState {
 }
 
 export interface ChangeDispatcherResult {
-  action: 'soft_reload' | 'relaunch' | 'skip_compiler_error';
+  action: 'soft_reload' | 'ui_reload' | 'relaunch' | 'skip_compiler_error';
   success: boolean;
 }
 
 export interface ChangeDispatcherOptions {
   isHotSwappableFn?: (relPath?: string | null) => boolean;
+  isUiHotSwappableFn?: (relPath?: string | null) => boolean;
   sendSoftReloadFn?: () => Promise<boolean>;
+  sendUiReloadFn?: () => Promise<boolean>;
   copyStaticFn?: () => void;
   relaunchElectronFn?: () => Promise<void> | void;
   getTscCompiling?: () => boolean;
@@ -33,11 +35,17 @@ export interface ChangeDispatcher {
 }
 
 export function isHotSwappable(relPath?: string | null): boolean;
+export function isUiHotSwappable(relPath?: string | null): boolean;
 export function processTscLine(line: string, state?: { isTscCompiling: boolean; tscHasErrors: boolean }): TscLineState;
 export function resolveDevBridgeInfo(customDirs?: string[] | null): { port: number; token: string } | null;
 export function sendSoftReload(options?: {
   bridgeInfo?: { port: number; token: string } | null;
   scriptId?: string | null;
+  wsFactory?: unknown;
+  timeoutMs?: number;
+}): Promise<boolean>;
+export function sendUiReload(options?: {
+  bridgeInfo?: { port: number; token: string } | null;
   wsFactory?: unknown;
   timeoutMs?: number;
 }): Promise<boolean>;

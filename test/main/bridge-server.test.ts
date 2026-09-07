@@ -52,6 +52,10 @@ class MockTabHost extends EventEmitter {
   async captureScreenshot() {
     return 'base64-mock-png';
   }
+  public reloadWindowCalls = 0;
+  reloadWindow() {
+    this.reloadWindowCalls++;
+  }
 }
 
 interface TerminalDataFrame {
@@ -583,6 +587,84 @@ describe('AntiFan Bridge Server', () => {
       assert.ok(typeof fullResp.data?.scriptCount === 'number' && fullResp.data.scriptCount > 0);
       assert.ok(Array.isArray(fullResp.data?.scripts));
       assert.ok(fullResp.data?.scripts.some((s) => (typeof s === 'string' ? s === 'media.freeze' : s.id === 'media.freeze')));
+    } finally {
+      try { wsAttachment?.close(); } catch {}
+      try { wsMaster?.close(); } catch {}
+      try { devServer.dispose(); } catch {}
+    }
+  });
+
+  it('enforces UI reload RPC security: dev-only, rejects attachment sockets, and reloads UI surfaces on master token', async () => {
+    const mockHost = new MockTabHost() as unknown as NativeTabHost;
+
+    // 1. Production rejection: when isDev is false, reloadUi must fail with FORBIDDEN
+    const prodServer = new BridgeServer(mockHost, 0, false);
+    let prodWs: WebSocket | null = null;
+    try {
+      const prodPort = await prodServer.start();
+      prodWs = new WebSocket(`ws://127.0.0.1:${prodPort}?token=${prodServer.getToken()}`);
+      await new Promise((res) => prodWs!.on('open', res));
+
+      const prodResp = await new Promise<{ success: boolean; error?: string }>((resolve) => {
+        prodWs!.on('message', (raw) => resolve(JSON.parse(raw.toString())));
+        prodWs!.send(JSON.stringify({ id: 'req-ui-prod', method: 'antifan.system.reloadUi', params: {} }));
+      });
+      assert.strictEqual(prodResp.success, false);
+      assert.match(prodResp.error || '', /FORBIDDEN/i);
+    } finally {
+      try { prodWs?.close(); } catch {}
+      try { prodServer.dispose(); } catch {}
+    }
+
+    // 2. Dev server: attachment sockets must be rejected; master token reloads UI surfaces
+    const registry = new AttachmentRegistry();
+    const runId = makeControlPlaneId('run');
+    const attemptId = makeControlPlaneId('attempt');
+    const projectId = makeControlPlaneId('project');
+    const workspaceId = makeControlPlaneId('workspace');
+    const runtimeId = makeControlPlaneId('binding');
+    const lease = { runtimeId, projectId, workspaceId, token: 'tok-reload-ui', protocolVersion: 1, hostEpoch: 1, ownerPid: process.pid, issuedAt: Date.now(), expiresAt: Date.now() + 30_000 };
+    const { launch } = await registry.issueAttachment(runId, attemptId, projectId, workspaceId, {
+      backendId: 'omp',
+      lease,
+      leaseToken: lease.token,
+      grant: 'write',
+      tabId: 'tab-1',
+    });
+    const devServer = new BridgeServer(mockHost, 0, true, undefined, undefined, registry);
+    let wsAttachment: WebSocket | null = null;
+    let wsMaster: WebSocket | null = null;
+    try {
+      const devPort = await devServer.start();
+
+      // 2a. Attachment-authenticated socket rejection
+      wsAttachment = new WebSocket(`ws://127.0.0.1:${devPort}?token=${launch.secret}`);
+      await new Promise((res) => wsAttachment!.on('open', res));
+
+      const attachResp = await new Promise<{ success: boolean; error?: string }>((resolve) => {
+        wsAttachment!.on('message', (raw) => resolve(JSON.parse(raw.toString())));
+        wsAttachment!.send(JSON.stringify({ id: 'req-ui-attach', method: 'antifan.system.reloadUi', params: {} }));
+      });
+      assert.strictEqual(attachResp.success, false);
+      assert.match(attachResp.error || '', /Forbidden/i);
+      assert.strictEqual((mockHost as unknown as MockTabHost).reloadWindowCalls, 0, 'Attachment socket must never trigger a UI reload');
+
+      // 2b. Master-authenticated socket: reloadUi succeeds and invokes reloadWindow
+      wsMaster = new WebSocket(`ws://127.0.0.1:${devPort}?token=${devServer.getToken()}`);
+      await new Promise((res) => wsMaster!.on('open', res));
+
+      const reloadResp = await new Promise<{ success: boolean; data?: { reloaded: boolean; surfaces: string[] } }>((resolve) => {
+        wsMaster!.on('message', (raw) => {
+          const msg = JSON.parse(raw.toString());
+          if (msg.id === 'req-ui-master') resolve(msg);
+        });
+        wsMaster!.send(JSON.stringify({ id: 'req-ui-master', method: 'antifan.system.reloadUi', params: {} }));
+      });
+      assert.strictEqual(reloadResp.success, true);
+      assert.strictEqual(reloadResp.data?.reloaded, true);
+      assert.ok(Array.isArray(reloadResp.data?.surfaces));
+      assert.ok(reloadResp.data!.surfaces.includes('terminal-windows'));
+      assert.strictEqual((mockHost as unknown as MockTabHost).reloadWindowCalls, 1, 'Master token must trigger exactly one reloadWindow invocation');
     } finally {
       try { wsAttachment?.close(); } catch {}
       try { wsMaster?.close(); } catch {}

@@ -5762,6 +5762,13 @@ export class NativeTabHost extends EventEmitter {
     if (this.sidebarView && !this.sidebarView.webContents.isDestroyed()) {
       this.sidebarView.webContents.reload();
     }
+    // Standalone / popout terminal windows load the same renderer bundle
+    // (standalone.html) and are not part of toolbarView/sidebarView.
+    for (const win of this.terminalWindows.values()) {
+      if (win && !win.isDestroyed() && !win.webContents.isDestroyed()) {
+        win.webContents.reload();
+      }
+    }
   }
 
   public createPreviewTab(rawPathOrUri: string, targetCapsuleId?: string): string | null {

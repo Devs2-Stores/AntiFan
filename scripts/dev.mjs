@@ -10,8 +10,10 @@ import { fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';
 import {
   isHotSwappable,
+  isUiHotSwappable,
   processTscLine as parseTscLine,
   sendSoftReload,
+  sendUiReload,
   resolveDevBridgeInfo,
   createChangeDispatcher,
 } from './dev-watcher-helpers.mjs';
@@ -158,7 +160,9 @@ tscProc.on('exit', (code) => {
 
 const dispatcher = createChangeDispatcher({
   isHotSwappableFn: isHotSwappable,
+  isUiHotSwappableFn: isUiHotSwappable,
   sendSoftReloadFn: sendSoftReload,
+  sendUiReloadFn: sendUiReload,
   copyStaticFn: copyStatic,
   relaunchElectronFn: relaunchElectron,
   getTscCompiling: () => isTscCompiling,

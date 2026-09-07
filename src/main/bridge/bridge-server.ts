@@ -1385,6 +1385,21 @@ export class BridgeServer {
           break;
         }
 
+        case 'reloadUi':
+        case 'antifan.system.reloadUi': {
+          if (!this.isDev) {
+            respond(false, undefined, 'FORBIDDEN: UI reload is only permitted in development mode');
+            break;
+          }
+          if (boundAttachmentId) {
+            respond(false, undefined, 'FORBIDDEN: Attachment-bound connections cannot invoke administrative UI reload');
+            break;
+          }
+          this.tabHost.reloadWindow();
+          respond(true, { reloaded: true, surfaces: ['toolbar', 'sidebar', 'terminal-windows'] });
+          break;
+        }
+
         case 'getScriptStatus':
         case 'antifan.system.getScriptStatus': {
           respond(true, {
