@@ -1397,7 +1397,22 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
     risk: 'read',
     requiresBrowserTarget: true,
     policy: makeBrowserPolicy({ effect: 'read', risk: 'read', requiresBrowserTarget: true, lane: 'short-passive', timeoutMs: 60_000 }),
-    inputSchema: { type: 'object', properties: { tabId: { type: 'string' }, workspaceRoot: { type: 'string' } } },
+    inputSchema: {
+      type: 'object',
+      properties: {
+        tabId: { type: 'string' },
+        workspaceRoot: { type: 'string' },
+        multiBreakpoint: { type: 'boolean' },
+        viewports: {
+          type: 'object',
+          properties: {
+            desktop: { type: 'object', properties: { mismatchPercent: { type: 'number' }, passed: { type: 'boolean' } } },
+            tablet: { type: 'object', properties: { mismatchPercent: { type: 'number' }, passed: { type: 'boolean' } } },
+            mobile: { type: 'object', properties: { mismatchPercent: { type: 'number' }, passed: { type: 'boolean' } } },
+          },
+        },
+      },
+    },
     execute: (params: Record<string, unknown>, context) => catalogue.get('theme.qa_validate')!.execute(params, context),
   });
 
