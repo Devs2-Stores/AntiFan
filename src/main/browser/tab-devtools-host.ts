@@ -56,7 +56,7 @@ export class TabDevToolsHost {
   public inspectGeneration: number = 0;
   public inspectedTabId: string | null = null;
   private cdpQueues = new Map<number, Promise<unknown>>();
-  private cdpDrainingTargets = new Map<number, { method: string; token: symbol }>();
+  private cdpDrainingTargets = new Map<number, { method: string; token: symbol; startedAt?: number }>();
   private cdpAttachedWebContents = new Set<number>();
   private cdpAttachedByHost = new Set<number>();
   private cdpWebContentsRefs = new Map<number, Electron.WebContents>();
@@ -522,7 +522,14 @@ export class TabDevToolsHost {
 
     const draining = this.cdpDrainingTargets.get(wcId);
     if (draining) {
-      throw new Error(`TARGET_BUSY_DRAINING: Cannot admit CDP command ${method}; target ${wcId} is draining timed-out command ${draining.method}`);
+      const drainingDuration = Date.now() - (draining.startedAt || 0);
+      if (drainingDuration > 5000) {
+        try { if (wc.debugger.isAttached()) wc.debugger.detach(); } catch {}
+        this.cdpDrainingTargets.delete(wcId);
+        this.cdpQueues.delete(wcId);
+      } else {
+        throw new Error(`TARGET_BUSY_DRAINING: Cannot admit CDP command ${method}; target ${wcId} is draining timed-out command ${draining.method}`);
+      }
     }
 
     if (!this.cdpAttachedWebContents.has(wcId)) {
@@ -594,7 +601,7 @@ export class TabDevToolsHost {
     const timer = setTimeout(() => {
       isCallerTimedOut = true;
       if (isCommandDispatched && !isCommandSettled) {
-        this.cdpDrainingTargets.set(wcId, { method, token: commandToken });
+        this.cdpDrainingTargets.set(wcId, { method, token: commandToken, startedAt: Date.now() });
       }
       rejectTimeout(new Error(`CDP command ${method} timed out after ${boundedTimeoutMs}ms`));
     }, boundedTimeoutMs);
