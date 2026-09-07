@@ -1,3 +1,4 @@
+import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { ChatStore } from '../chat/chat-store';
 import { ProjectRegistry } from '../project/project-registry';
@@ -158,8 +159,19 @@ export class ControlPlaneRuntime {
     if (this.leaseState.workspaceId) {
       try {
         const ws = this.workspaces.get(this.leaseState.workspaceId, this.leaseState.projectId);
-        if (ws?.rootPath) return ws.rootPath;
+        if (ws?.rootPath && !ws.rootPath.includes('.antifan-data') && fs.existsSync(ws.rootPath)) return ws.rootPath;
       } catch {}
+    }
+    const envRoot = process.env.THEME_WORKSPACE_ROOT || process.env.ANTIFAN_WORKSPACE_ROOT || process.env.WORKSPACE_ROOT;
+    if (envRoot && fs.existsSync(envRoot)) {
+      return envRoot;
+    }
+    const cwd = process.cwd();
+    if (fs.existsSync(path.join(cwd, 'layout', 'theme.liquid')) || fs.existsSync(path.join(cwd, 'templates')) || fs.existsSync(path.join(cwd, 'sections'))) {
+      return cwd;
+    }
+    if (this.workspaceRoot && !this.workspaceRoot.includes('.antifan-data')) {
+      return this.workspaceRoot;
     }
     return this.workspaceRoot;
   }

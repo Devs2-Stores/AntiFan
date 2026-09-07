@@ -1,3 +1,4 @@
+import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { BrowserTarget, CapabilityRequestContext, CapabilityError, CapabilityEffectPolicyInput, CapabilityRisk, ReceiptBinding, digestText } from '../../shared/control-plane-contracts';
 import { BrowserControlPort } from './browser-control-port';
@@ -1858,7 +1859,20 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
       },
     },
     execute: async (params: { selector?: string; ref?: string; workspaceRoot?: string; tabId?: string; paneId?: 'desktop' | 'mobile' }, context) => {
-      const root = params.workspaceRoot || (getWorkspaceRoot ? getWorkspaceRoot() : process.cwd());
+      let root = params.workspaceRoot;
+      if (!root) {
+        const candidate = getWorkspaceRoot ? getWorkspaceRoot() : process.cwd();
+        if (!candidate || candidate.includes('.antifan-data')) {
+          const cwd = process.cwd();
+          if (fs.existsSync(path.join(cwd, 'layout', 'theme.liquid')) || fs.existsSync(path.join(cwd, 'templates')) || fs.existsSync(path.join(cwd, 'sections'))) {
+            root = cwd;
+          } else {
+            root = candidate;
+          }
+        } else {
+          root = candidate;
+        }
+      }
       let classes: string[] = [];
       const attributes: Record<string, string> = {};
       const commentHints: string[] = [];
