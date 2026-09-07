@@ -34,6 +34,7 @@ export interface TabDevToolsContext {
   createTab: (url?: string, activate?: boolean) => string;
   withTabAgentWorking: <T>(tabId: string, action: () => Promise<T>) => Promise<T>;
   runWithAttachedTabView?: <T>(view: Electron.WebContentsView | null | undefined, action: () => Promise<T>, isMobile?: boolean) => Promise<T>;
+  switchTab?: (tabId: string) => boolean;
 }
 export interface TabDevToolsStats {
   attachedWebContentsCount: number;
@@ -953,8 +954,16 @@ export class TabDevToolsHost {
     const rawQuality = typeof options?.quality === 'number' ? options.quality : 80;
     const quality = Math.max(1, Math.min(100, Math.round(rawQuality <= 1 && rawQuality > 0 ? rawQuality * 100 : rawQuality)));
      const isFullPage = Boolean(options?.fullPage);
+    // When the target tab is in the background, activate it for the duration of
+    // the capture. A detached WebContentsView has no composited offscreen surface
+    // on Windows, so Page.captureScreenshot would otherwise capture the active tab.
+    const activeBeforeCapture = this.ctx.getActiveTabId();
+    const switchTabForCapture = this.ctx.switchTab;
+    if (typeof switchTabForCapture === 'function' && targetId !== activeBeforeCapture) {
+      switchTabForCapture(targetId);
+    }
     const isForeground = targetId === this.ctx.getActiveTabId();
-     return this.ctx.withTabAgentWorking(targetId, async () => {
+    return this.ctx.withTabAgentWorking(targetId, async () => {
       let maskStyleInjected = false;
       const maskStyleId = '__antifan_screenshot_mask_style';
       if (options?.maskSelectors && Array.isArray(options.maskSelectors) && options.maskSelectors.length > 0) {
@@ -1151,6 +1160,9 @@ export class TabDevToolsHost {
           );
         } catch {}
       }
+      if (typeof switchTabForCapture === 'function' && targetId !== activeBeforeCapture) {
+        switchTabForCapture(activeBeforeCapture);
+      }
     }
   });
   }
@@ -1183,10 +1195,19 @@ export class TabDevToolsHost {
     }
 
     const isFullPage = Boolean(options?.fullPage);
+    // Activate the target tab when it sits in the background. CDP capture on a
+    // detached WebContentsView cannot composite an offscreen surface on Windows
+    // and would reproduce the active tab; the prior active tab is restored below.
+    const activeBeforeCapture = this.ctx.getActiveTabId();
+    const switchTabForCapture = this.ctx.switchTab;
+    if (typeof switchTabForCapture === 'function' && targetId !== activeBeforeCapture) {
+      switchTabForCapture(targetId);
+    }
     const isForeground = targetId === this.ctx.getActiveTabId();
 
-    return this.ctx.withTabAgentWorking(targetId, async () => {
-      const captureAction = async (): Promise<VerificationCaptureEnvelope> => {
+    try {
+      return await this.ctx.withTabAgentWorking(targetId, async () => {
+        const captureAction = async (): Promise<VerificationCaptureEnvelope> => {
         // Derive zoom and DPR directly from browser/CDP state inside agent working block (atomic with capture, non-nesting)
         const zoom = typeof wc.getZoomFactor === 'function' ? wc.getZoomFactor() : 1.0;
         const metricsRes = await this.sendCdpCommand<{ result?: { value?: { dpr?: number; vw?: number; vh?: number } } }>(
@@ -1262,8 +1283,13 @@ export class TabDevToolsHost {
       if (!isForeground && this.ctx.runWithAttachedTabView && targetPaneView) {
         return await this.ctx.runWithAttachedTabView(targetPaneView, captureAction, isMobile);
       }
-      return await captureAction();
-    });
+        return await captureAction();
+      });
+    } finally {
+      if (typeof switchTabForCapture === 'function' && targetId !== activeBeforeCapture) {
+        switchTabForCapture(activeBeforeCapture);
+      }
+    }
   }
 
   public async getDom(selector?: string, tabId?: string, paneId?: SplitPaneId): Promise<string> {

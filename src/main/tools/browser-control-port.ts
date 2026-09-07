@@ -781,15 +781,30 @@ export class BrowserControlPort {
     return this.passivePool.execute(tabId, async () => {
       const format = options?.format === 'jpeg' ? 'jpeg' : 'png';
       const mime = format === 'jpeg' ? 'image/jpeg' : 'image/png';
-      const base64 = await this.host.captureScreenshot(undefined, tabId, paneId, options);
-      if (!base64 || base64.length === 0) {
-        throw new CapabilityError('TARGET_STALE', `Failed to capture non-empty viewport screenshot on tab '${tabId}' (document may still be rendering or target unavailable)`);
+      // Background tabs are detached from window.contentView; activate the target
+      // tab before capture and restore the prior active tab afterwards so the
+      // screenshot reflects the requested tab, not the foreground one.
+      const originalActiveTabId = this.host.getActiveTabId ? this.host.getActiveTabId() : tabId;
+      const switchTabForCapture = this.host.switchTab;
+      if (typeof switchTabForCapture === 'function' && this.host.getActiveTabId && this.host.getActiveTabId() !== tabId) {
+        switchTabForCapture(tabId);
       }
-      const buffer = Buffer.from(base64, 'base64');
-      if (buffer.length === 0) {
-        throw new CapabilityError('TARGET_STALE', `Failed to decode non-empty viewport screenshot buffer on tab '${tabId}'`);
+      try {
+        const base64 = await this.host.captureScreenshot(undefined, tabId, paneId, options);
+        if (!base64 || base64.length === 0) {
+          throw new CapabilityError('TARGET_STALE', `Failed to capture non-empty viewport screenshot on tab '${tabId}' (document may still be rendering or target unavailable)`);
+        }
+        const buffer = Buffer.from(base64, 'base64');
+        if (buffer.length === 0) {
+          throw new CapabilityError('TARGET_STALE', `Failed to decode non-empty viewport screenshot buffer on tab '${tabId}'`);
+        }
+        return this.artifacts ? await this.artifacts.stage({ kind: 'screenshot', mime, data: buffer, runId, attemptId, projectId: target.projectId, workspaceId: target.workspaceId, maxBytes: 8 * 1024 * 1024 }) : limit(base64, 8 * 1024 * 1024);
+      } finally {
+        if (typeof switchTabForCapture === 'function' && originalActiveTabId && originalActiveTabId !== tabId
+          && this.host.getActiveTabId && this.host.getActiveTabId() !== originalActiveTabId) {
+          switchTabForCapture(originalActiveTabId);
+        }
       }
-      return this.artifacts ? await this.artifacts.stage({ kind: 'screenshot', mime, data: buffer, runId, attemptId, projectId: target.projectId, workspaceId: target.workspaceId, maxBytes: 8 * 1024 * 1024 }) : limit(base64, 8 * 1024 * 1024);
     });
   }
   async eval(target: BrowserTarget, expression: string, explicitTabId?: string, paneId?: 'desktop' | 'mobile'): Promise<unknown> {
@@ -2563,6 +2578,12 @@ export class BrowserControlPort {
       const requiredMasks = Array.isArray(params.maskSelectors) ? params.maskSelectors : [];
       const optionalMasks = Array.isArray(params.maskOptionalSelectors) ? params.maskOptionalSelectors : [];
 
+      // Record the active tab so a background comparison tab can be foregrounded
+      // for capture and restored afterwards. Background WebContentsViews are
+      // detached from window.contentView, and CDP Page.captureScreenshot cannot
+      // composite an offscreen surface on Windows without activating the tab.
+      const originalActiveTabId = this.host.getActiveTabId ? this.host.getActiveTabId() : tabId;
+
       // passivePool keeps capacity accounting (4/tab, 16/global). The pair
       // lock is the actual mutual exclusion for the capture transaction; keys are
       // sorted inside MultiKeyLock so (A,B) and (B,A) serialize on the same order.
@@ -2593,7 +2614,18 @@ export class BrowserControlPort {
         // resample-exhausted case settles INCONCLUSIVE there. Fail closed here.
         throw new CapabilityError('INTEGRITY_COMPROMISED', 'Visual comparison attempts exhausted without a definitive verdict');
       } finally {
-        await releasePairLock();
+        try {
+          await releasePairLock();
+        } finally {
+          // Restore the tab that was active before the compare started, even when
+          // capture switched to tabId or compTabTarget and never switched back.
+          if (this.host.switchTab && originalActiveTabId) {
+            const currentActive = this.host.getActiveTabId ? this.host.getActiveTabId() : originalActiveTabId;
+            if (currentActive !== originalActiveTabId) {
+              this.host.switchTab(originalActiveTabId);
+            }
+          }
+        }
       }
     });
   }
@@ -2827,6 +2859,9 @@ export class BrowserControlPort {
       if (typeof this.host.captureVerificationScreenshot !== 'function') {
         throw new CapabilityError('CAPABILITY_NOT_FOUND', "Host does not implement required 'captureVerificationScreenshot' canonical CDP interface");
       }
+      if (this.host.switchTab && this.host.getActiveTabId && this.host.getActiveTabId() !== tabId) {
+        this.host.switchTab(tabId);
+      }
       curEnvelope = await this.host.captureVerificationScreenshot(resolvedRect, tabId, effectivePane, captureOpts);
       if (!curEnvelope || !curEnvelope.data || curEnvelope.data.length === 0) {
         await new Promise((r) => setTimeout(r, 150));
@@ -3040,6 +3075,9 @@ export class BrowserControlPort {
               }
             }
           } catch {}
+        }
+        if (this.host.switchTab && this.host.getActiveTabId && this.host.getActiveTabId() !== compTabTarget) {
+          this.host.switchTab(compTabTarget);
         }
         compEnvelope = await this.host.captureVerificationScreenshot(comparisonRect, compTabTarget, effectivePane, captureOpts);
         if (!compEnvelope || !compEnvelope.data || compEnvelope.data.length === 0) {

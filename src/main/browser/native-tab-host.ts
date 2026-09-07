@@ -471,6 +471,7 @@ export class NativeTabHost extends EventEmitter {
         createTab: (url, activate) => this.createTab(url, activate),
         withTabAgentWorking: (tabId, action) => this.withTabAgentWorking(tabId, action),
         runWithAttachedTabView: (view, action, isMobile) => this.runWithAttachedTabView(view, action, isMobile),
+        switchTab: (tabId) => this.switchTab(tabId),
       });
     }
     return this.devToolsHost;
