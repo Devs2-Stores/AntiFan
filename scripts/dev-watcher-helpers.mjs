@@ -174,8 +174,8 @@ export async function sendSoftReload({ bridgeInfo = undefined, scriptId = null, 
 
 /**
  * Send administrative UI-reload signal over WebSocket to BridgeServer
- * (antifan.system.reloadUi). Reloads toolbar/sidebar/terminal windows only;
- * the Electron process, tabs, and PTY sessions are preserved.
+ * (antifan.system.reloadUi). Transport wrapper; server-side reloadWindow()
+ * behavior is defined by NativeTabHost.
  */
 export async function sendUiReload({ bridgeInfo = undefined, wsFactory = null, timeoutMs = 2500 } = {}) {
   return sendBridgeAdmin('antifan.system.reloadUi', {
@@ -190,6 +190,11 @@ export async function sendUiReload({ bridgeInfo = undefined, wsFactory = null, t
  * Classify whether a changed file path is a renderer static asset
  * (src/renderer/<name>.(css|html|js)) whose change can be applied by
  * copying static assets and reloading the UI surfaces only.
+ *
+ * Deliberately limited to CSS/HTML/JS: these are the code surfaces that
+ * standalone/toolbar renderers read at load time. Other static copies made
+ * by copy-static.mjs (e.g. antifan-logo.jpg) change rarely and intentionally
+ * route to the cold relaunch path.
  */
 export function isUiHotSwappable(relPath) {
   if (!relPath || typeof relPath !== 'string') return false;
@@ -246,11 +251,14 @@ export function createChangeDispatcher({
     }
 
     // Renderer static assets (src/renderer/*.css|html|js): copy to .compiled and
-    // reload UI surfaces only — preserves the Electron process, tabs, PTY, and any
-    // active attachment/Goal session. Deliberately NO relaunch fallback.
+    // reload UI surfaces only — avoids a full Electron relaunch. Deliberately NO
+    // relaunch fallback on failure.
     if (allUiHot && proc) {
       log(`Detected renderer UI change in: ${files.join(', ')}`);
-      copyStaticFn();
+      await copyStaticFn();
+      if (isDisposed) {
+        throw new Error('Dispatcher disposed');
+      }
       log(`Static assets copied. Sending UI reload signal to BridgeServer (toolbar, sidebar, terminal windows)...`);
       const ok = await sendUiReloadFn();
       if (isDisposed) {
@@ -297,7 +305,10 @@ export function createChangeDispatcher({
       throw new Error('Dispatcher disposed');
     }
 
-    copyStaticFn();
+    await copyStaticFn();
+    if (isDisposed) {
+      throw new Error('Dispatcher disposed');
+    }
     await relaunchElectronFn();
     return { action: 'relaunch', success: true };
   }

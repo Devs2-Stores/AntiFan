@@ -14,7 +14,7 @@ export interface ChangeDispatcherOptions {
   isUiHotSwappableFn?: (relPath?: string | null) => boolean;
   sendSoftReloadFn?: () => Promise<boolean>;
   sendUiReloadFn?: () => Promise<boolean>;
-  copyStaticFn?: () => void;
+  copyStaticFn?: () => Promise<void> | void;
   relaunchElectronFn?: () => Promise<void> | void;
   getTscCompiling?: () => boolean;
   getTscErrors?: () => boolean;

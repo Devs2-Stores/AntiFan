@@ -366,6 +366,46 @@ describe('Dev Watcher Helpers', () => {
       assert.strictEqual(electronRelaunched, false, 'Never relaunch electron on ui reload failure');
     });
 
+    it('falls through to cold relaunch when a batch mixes cdp script and renderer asset', async () => {
+      let uiReloaded = false;
+      let softReloaded = false;
+      let electronRelaunched = 0;
+
+      const dispatcher = createChangeDispatcher({
+        // Real classifiers: mixed batch is neither all-hot nor all-ui-hot
+        isHotSwappableFn: isHotSwappable,
+        isUiHotSwappableFn: isUiHotSwappable,
+        sendSoftReloadFn: async () => {
+          softReloaded = true;
+          return true;
+        },
+        sendUiReloadFn: async () => {
+          uiReloaded = true;
+          return true;
+        },
+        relaunchElectronFn: async () => {
+          electronRelaunched++;
+        },
+        getTscCompiling: () => false,
+        getTscErrors: () => false,
+        getElectronProc: () => ({ pid: 1234 }),
+        debounceMs: 20,
+      });
+
+      // Fire both calls synchronously so they land in ONE debounce batch
+      const p1 = dispatcher.scheduleRelaunch('scripts/cdp/media-freeze.source.js');
+      const p2 = dispatcher.scheduleRelaunch('src/renderer/standalone.css');
+      const results = await Promise.all([p1, p2]);
+
+      // Batch contains both a hot cdp script AND a ui asset → neither branch applies,
+      // dispatcher must explicitly fall through to the cold relaunch path.
+      assert.deepStrictEqual(results[0], { action: 'relaunch', success: true });
+      assert.deepStrictEqual(results[1], { action: 'relaunch', success: true });
+      assert.strictEqual(softReloaded, false, 'Mixed batch must not trigger soft reload');
+      assert.strictEqual(uiReloaded, false, 'Mixed batch must not trigger ui reload');
+      assert.strictEqual(electronRelaunched, 1, 'Mixed batch must route to exactly one cold relaunch');
+    });
+
     it('routes cold changes through compiler gate, static copy, and electron relaunch', async () => {
       let staticCopied = false;
       let electronRelaunched = false;
