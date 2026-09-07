@@ -326,8 +326,30 @@ describe('ThemeQaWorkflow Canonical Validation & Capability Alias Delegation', (
         ...context,
         browserTarget: { ...target, documentGeneration: docGen },
       };
-      const aliasResult = await catalogue.get('antifan_theme_qa_validate')!.execute({}, aliasContext) as { summary: { passed: boolean } };
+      const aliasResult = await catalogue.get('antifan_theme_qa_validate')!.execute({
+        multiBreakpoint: true,
+        viewports: {
+          desktop: { mismatchPercent: 1.2, passed: true },
+          tablet: { mismatchPercent: 2.4, passed: true },
+          mobile: { mismatchPercent: 0.8, passed: true },
+        },
+      }, aliasContext) as {
+        summary: { passed: boolean };
+        qaMatrix?: {
+          viewports: {
+            desktop: { measured: boolean; mismatchPercent: number };
+            tablet: { measured: boolean; mismatchPercent: number };
+            mobile: { measured: boolean; mismatchPercent: number };
+          };
+        };
+      };
       assert.strictEqual(aliasResult.summary.passed, true);
+      assert.strictEqual(aliasResult.qaMatrix?.viewports.desktop.measured, true);
+      assert.strictEqual(aliasResult.qaMatrix?.viewports.desktop.mismatchPercent, 1.2);
+      assert.strictEqual(aliasResult.qaMatrix?.viewports.tablet.measured, true);
+      assert.strictEqual(aliasResult.qaMatrix?.viewports.tablet.mismatchPercent, 2.4);
+      assert.strictEqual(aliasResult.qaMatrix?.viewports.mobile.measured, true);
+      assert.strictEqual(aliasResult.qaMatrix?.viewports.mobile.mismatchPercent, 0.8);
     } finally {
       fs.rmSync(root, { recursive: true, force: true });
     }
