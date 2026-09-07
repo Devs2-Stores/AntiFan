@@ -2833,6 +2833,15 @@ export class BrowserControlPort {
         this.host.switchTab(tabId);
         await new Promise((r) => setTimeout(r, 150));
       }
+      // Normalize scroll position to (0, 0) before capture settle to guarantee deterministic layout state
+      if (typeof this.host.evalJs === 'function') {
+        try {
+          await this.host.evalJs(`(() => { try { document.documentElement.scrollTop = 0; document.body.scrollTop = 0; window.scrollTo({ top: 0, left: 0, behavior: 'instant' }); } catch {} })()`, tabId, effectivePane);
+          if (compTabTarget) {
+            await this.host.evalJs(`(() => { try { document.documentElement.scrollTop = 0; document.body.scrollTop = 0; window.scrollTo({ top: 0, left: 0, behavior: 'instant' }); } catch {} })()`, compTabTarget, effectivePane);
+          }
+        } catch {}
+      }
       guard.recordPreInject('target', readIdentity(tabId));
       if (compTabTarget) guard.recordPreInject('baseline', readIdentity(compTabTarget));
 
@@ -2901,7 +2910,9 @@ export class BrowserControlPort {
             if (!el) return null;
             const r = el.getBoundingClientRect();
             if (r.width <= 0 || r.height <= 0) return null;
-            return { x: Math.max(0, Math.round(r.x)), y: Math.max(0, Math.round(r.y)), width: Math.round(r.width), height: Math.round(r.height) };
+            const sx = window.scrollX || window.pageXOffset || 0;
+            const sy = window.scrollY || window.pageYOffset || 0;
+            return { x: Math.max(0, Math.round(r.x + sx)), y: Math.max(0, Math.round(r.y + sy)), width: Math.round(r.width), height: Math.round(r.height) };
           })()`, tabId, effectivePane);
           if (rawRect && typeof rawRect === 'object' && 'width' in rawRect && 'height' in rawRect) {
             const cast = rawRect as { x: number; y: number; width: number; height: number };
@@ -3126,7 +3137,9 @@ export class BrowserControlPort {
               if (!el) return null;
               const r = el.getBoundingClientRect();
               if (r.width <= 0 || r.height <= 0) return null;
-              return { x: Math.max(0, Math.round(r.x)), y: Math.max(0, Math.round(r.y)), width: Math.round(r.width), height: Math.round(r.height) };
+              const sx = window.scrollX || window.pageXOffset || 0;
+              const sy = window.scrollY || window.pageYOffset || 0;
+              return { x: Math.max(0, Math.round(r.x + sx)), y: Math.max(0, Math.round(r.y + sy)), width: Math.round(r.width), height: Math.round(r.height) };
             })()`, compTabTarget, effectivePane);
             if (rawRect && typeof rawRect === 'object' && 'width' in rawRect && 'height' in rawRect) {
               const cast = rawRect as { x: number; y: number; width: number; height: number };

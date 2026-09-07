@@ -1306,7 +1306,7 @@ export class TabDevToolsHost {
             {
               format: 'png',
               fromSurface: isForeground,
-              captureBeyondViewport: !isForeground,
+              captureBeyondViewport: Boolean(clip) || !isForeground,
               clip,
             },
             isFullPage ? 45_000 : 15_000
@@ -1319,7 +1319,7 @@ export class TabDevToolsHost {
               {
                 format: 'png',
                 fromSurface: !isForeground,
-                captureBeyondViewport: isForeground,
+              captureBeyondViewport: Boolean(clip) || isForeground,
                 clip,
               },
               isFullPage ? 45_000 : 15_000
