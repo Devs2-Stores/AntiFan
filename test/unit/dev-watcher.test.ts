@@ -1,6 +1,9 @@
 import { describe, it } from 'node:test';
 import * as assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
 import type { WebSocket as WsInterface } from 'ws';
 import type { TscLineState } from '../../scripts/dev-watcher-helpers.d.mts';
 import {
@@ -11,6 +14,9 @@ import {
   sendUiReload,
   resolveDevBridgeInfo,
   createChangeDispatcher,
+  acquireDevLock,
+  releaseDevLock,
+  defaultIsProcAlive,
 } from '../../scripts/dev-watcher-helpers.mjs';
 
 describe('Dev Watcher Helpers', () => {
@@ -294,6 +300,78 @@ describe('Dev Watcher Helpers', () => {
       } finally {
         fs.rmSync(tmpDir, { recursive: true, force: true });
       }
+    });
+  });
+
+  describe('singleton dev-lock (duplicate watcher guard)', () => {
+    function makeTempLock(): string {
+      const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-dev-lock-'));
+      return path.join(dir, 'antifan-dev.pid');
+    }
+
+    it('acquires when no lock exists and records the owner pid', () => {
+      const lockPath = makeTempLock();
+      try {
+        const result = acquireDevLock({ lockPath, pid: 4242 });
+        assert.strictEqual(result.ok, true);
+        const written = JSON.parse(fs.readFileSync(lockPath, 'utf8')) as { pid: number };
+        assert.strictEqual(written.pid, 4242);
+      } finally {
+        fs.rmSync(path.dirname(lockPath), { recursive: true, force: true });
+      }
+    });
+
+    it('refuses to start when a live watcher already owns the lock', () => {
+      const lockPath = makeTempLock();
+      try {
+        fs.writeFileSync(lockPath, JSON.stringify({ pid: 9999, startedAt: Date.now() }));
+        const result = acquireDevLock({ lockPath, pid: 4242, isProcAlive: () => true });
+        assert.strictEqual(result.ok, false);
+        assert.strictEqual(result.existingPid, 9999);
+      } finally {
+        fs.rmSync(path.dirname(lockPath), { recursive: true, force: true });
+      }
+    });
+
+    it('takes over a stale lock whose owner pid is dead', () => {
+      const lockPath = makeTempLock();
+      try {
+        fs.writeFileSync(lockPath, JSON.stringify({ pid: 9999, startedAt: Date.now() }));
+        const result = acquireDevLock({ lockPath, pid: 4242, isProcAlive: () => false });
+        assert.strictEqual(result.ok, true);
+        const written = JSON.parse(fs.readFileSync(lockPath, 'utf8')) as { pid: number };
+        assert.strictEqual(written.pid, 4242);
+      } finally {
+        fs.rmSync(path.dirname(lockPath), { recursive: true, force: true });
+      }
+    });
+
+    it('takes over a corrupt lock left by a crash mid-write', () => {
+      const lockPath = makeTempLock();
+      try {
+        fs.writeFileSync(lockPath, '{corrupt-json');
+        const result = acquireDevLock({ lockPath, pid: 4242 });
+        assert.strictEqual(result.ok, true);
+      } finally {
+        fs.rmSync(path.dirname(lockPath), { recursive: true, force: true });
+      }
+    });
+
+    it('releases only the lock owned by the given pid', () => {
+      const lockPath = makeTempLock();
+      try {
+        fs.writeFileSync(lockPath, JSON.stringify({ pid: 9999 }));
+        releaseDevLock(lockPath, 4242);
+        assert.ok(fs.existsSync(lockPath), 'Foreign lock must not be deleted');
+        releaseDevLock(lockPath, 9999);
+        assert.strictEqual(fs.existsSync(lockPath), false, 'Own lock must be removed');
+      } finally {
+        fs.rmSync(path.dirname(lockPath), { recursive: true, force: true });
+      }
+    });
+
+    it('defaultIsProcAlive treats the current process as alive', () => {
+      assert.strictEqual(defaultIsProcAlive(process.pid), true);
     });
   });
 

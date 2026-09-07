@@ -51,3 +51,19 @@ export function sendUiReload(options?: {
 }): Promise<boolean>;
 
 export function createChangeDispatcher(options?: ChangeDispatcherOptions): ChangeDispatcher;
+
+export function defaultIsProcAlive(pid: number): boolean;
+
+export interface DevLockResult {
+  ok: boolean;
+  existingPid?: number;
+  existingStartedAt?: number | null;
+}
+
+export function acquireDevLock(options: {
+  lockPath: string;
+  pid: number;
+  isProcAlive?: (pid: number) => boolean;
+}): DevLockResult;
+
+export function releaseDevLock(lockPath: string, pid: number): void;

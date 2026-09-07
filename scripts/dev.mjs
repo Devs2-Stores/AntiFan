@@ -16,6 +16,8 @@ import {
   sendUiReload,
   resolveDevBridgeInfo,
   createChangeDispatcher,
+  acquireDevLock,
+  releaseDevLock,
 } from './dev-watcher-helpers.mjs';
 const require = createRequire(import.meta.url);
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -25,6 +27,25 @@ const cdpDir = path.join(ROOT, 'scripts', 'cdp');
 if (!fs.existsSync(cdpDir)) {
   try { fs.mkdirSync(cdpDir, { recursive: true }); } catch {}
 }
+
+// Singleton guard: two `npm run dev` watchers both watch src/** and each
+// relaunches Electron independently — they kill each other's app and drop
+// running Tasks (the "app tự relaunch" chaos). Refuse to start when a live
+// watcher already owns the lock; stale locks (dead pid) are taken over.
+const lockPath = path.join(ROOT, 'node_modules', '.cache', 'antifan-dev.pid');
+const lock = acquireDevLock({ lockPath, pid: process.pid });
+if (!lock.ok) {
+  const started = lock.existingStartedAt ? ` (started ${new Date(lock.existingStartedAt).toLocaleTimeString()})` : '';
+  console.error(
+    `[antifan-dev] ⚠ Another AntiFan dev watcher is already running: PID ${lock.existingPid}${started}.\n` +
+    `[antifan-dev] Two watchers both watch src/** and each relaunches Electron — they kill each other's app and drop running Tasks.\n` +
+    `[antifan-dev] Keep ONE. If that watcher is stale (orphaned terminal), kill it first:\n` +
+    `[antifan-dev]     taskkill /F /T /PID ${lock.existingPid}\n` +
+    `[antifan-dev] Exiting without touching the running session.`
+  );
+  process.exit(1);
+}
+process.on('exit', () => releaseDevLock(lockPath, process.pid));
 
 const electronBin = require('electron');
 let electronProc = null;
@@ -194,6 +215,35 @@ try {
   log(`Warning: recursive watch unavailable on scripts/cdp: ${err.message}`);
 }
 log('AntiFan Dev mode ready — editing src/** auto-reloads. Ctrl+C to stop.');
+
+// Watcher code (dev.mjs + helpers) is loaded once at startup and cannot be
+// hot-applied. Poll mtimes and warn loudly when it changed on disk, so a
+// watcher fix never silently stays inactive in a running session.
+const WATCHER_SCRIPTS = ['scripts/dev.mjs', 'scripts/dev-watcher-helpers.mjs'];
+const watcherScriptMtimes = new Map(WATCHER_SCRIPTS.map((rel) => [rel, null]));
+let staleBannerShown = false;
+setInterval(() => {
+  let changed = false;
+  for (const rel of WATCHER_SCRIPTS) {
+    let mtime = null;
+    try {
+      mtime = fs.statSync(path.join(ROOT, rel)).mtimeMs;
+    } catch {
+      continue;
+    }
+    if (watcherScriptMtimes.get(rel) !== null && watcherScriptMtimes.get(rel) !== mtime) {
+      changed = true;
+    }
+    watcherScriptMtimes.set(rel, mtime);
+  }
+  if (changed && !staleBannerShown) {
+    staleBannerShown = true;
+    console.error(
+      '[antifan-dev] ⚠ Watcher code changed on disk (scripts/dev.mjs or scripts/dev-watcher-helpers.mjs).\n' +
+      '[antifan-dev] The RUNNING watcher still uses the logic loaded at startup — restart npm run dev once to activate the new watcher behavior.'
+    );
+  }
+}, 2000);
 
 async function shutdown() {
   log('Stopping dev services...');

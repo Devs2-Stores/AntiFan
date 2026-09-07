@@ -407,3 +407,52 @@ export function createChangeDispatcher({
     getPendingFiles: () => Array.from(pendingChangedFiles),
   };
 }
+
+/**
+ * Default liveness probe: `process.kill(pid, 0)` throws ESRCH when the pid is
+ * gone; EPERM means the process exists but is owned by someone else — alive.
+ */
+export function defaultIsProcAlive(pid) {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (err) {
+    return err && err.code === 'EPERM';
+  }
+}
+
+/**
+ * Singleton guard for `npm run dev`: two watchers both watch src/** and each
+ * independently relaunches Electron — they kill each other's app and drop
+ * running Tasks. Acquire a pid lock; refuse to start when a LIVE watcher
+ * already owns it. Stale locks (dead pid, corrupt JSON, missing file) are
+ * taken over automatically.
+ */
+export function acquireDevLock({ lockPath, pid, isProcAlive = defaultIsProcAlive }) {
+  try {
+    const existing = JSON.parse(fs.readFileSync(lockPath, 'utf8'));
+    if (existing && typeof existing.pid === 'number' && isProcAlive(existing.pid)) {
+      return { ok: false, existingPid: existing.pid, existingStartedAt: existing.startedAt ?? null };
+    }
+  } catch {
+    // ENOENT (no lock), SyntaxError (crash mid-write): take over below.
+  }
+  fs.mkdirSync(path.dirname(lockPath), { recursive: true });
+  fs.writeFileSync(lockPath, JSON.stringify({ pid, root: process.cwd(), startedAt: Date.now() }, null, 2));
+  return { ok: true };
+}
+
+/**
+ * Remove the lock only when we still own it (pid matches); never delete a lock
+ * that a successor may have written after a crash.
+ */
+export function releaseDevLock(lockPath, pid) {
+  try {
+    const existing = JSON.parse(fs.readFileSync(lockPath, 'utf8'));
+    if (existing && existing.pid === pid) {
+      fs.rmSync(lockPath, { force: true });
+    }
+  } catch {
+    // No lock or unreadable: nothing to release.
+  }
+}
