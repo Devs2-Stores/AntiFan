@@ -281,6 +281,7 @@ describe('Live script execution in simulated DOM sandbox (executable contract)',
     MutationObserver?: any;
     setInterval?: any;
     clearInterval?: any;
+    Date?: any;
   }) {
     const sandbox = {
       document: env.document || {},
@@ -291,7 +292,7 @@ describe('Live script execution in simulated DOM sandbox (executable contract)',
       clearTimeout,
       setInterval: env.setInterval || setInterval,
       clearInterval: env.clearInterval || clearInterval,
-      Date,
+      Date: env.Date || Date,
       Promise,
       Array,
       Math,
@@ -393,11 +394,16 @@ describe('Live script execution in simulated DOM sandbox (executable contract)',
 
   it('runs buildDomQuietScript: resolves true via double-rAF when quiet window passes', async () => {
     let rAfCount = 0;
-    const script = buildDomQuietScript(60);
+    let simulatedNow = 10000;
+    const script = buildDomQuietScript(200);
     const res = await runScriptInDom(script, {
+      Date: {
+        now: () => simulatedNow,
+      },
       requestAnimationFrame: (cb: () => void) => {
         rAfCount++;
-        setTimeout(cb, 16);
+        simulatedNow += 30;
+        queueMicrotask(cb);
       },
     });
     assert.strictEqual(res, true);
