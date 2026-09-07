@@ -63,6 +63,12 @@ export interface QaMatrixDimension {
   details: string;
 }
 
+export interface QaMatrixViewportItem {
+  mismatchPercent: number | null;
+  passed: boolean;
+  measured: boolean;
+}
+
 export interface QaMatrixReport {
   timestamp: string;
   overallScore: number;
@@ -78,9 +84,9 @@ export interface QaMatrixReport {
     performanceCWV: QaMatrixDimension;
   };
   viewports: {
-    desktop: { mismatchPercent: number; passed: boolean };
-    tablet: { mismatchPercent: number; passed: boolean };
-    mobile: { mismatchPercent: number; passed: boolean };
+    desktop: QaMatrixViewportItem;
+    tablet: QaMatrixViewportItem;
+    mobile: QaMatrixViewportItem;
   };
 }
 
@@ -140,6 +146,11 @@ export class ThemeQaWorkflow {
     multiBreakpoint?: boolean;
     signal?: AbortSignal;
     baselineFindings?: ThemeQaDetailedFindings | ThemeQaIssueItem[];
+    viewports?: {
+      desktop?: { mismatchPercent: number; passed: boolean };
+      tablet?: { mismatchPercent: number; passed: boolean };
+      mobile?: { mismatchPercent: number; passed: boolean };
+    };
   }): Promise<ThemeQaReport> {
     if (input.signal?.aborted) {
       throw new CapabilityError('TARGET_STALE', 'Theme QA validation was aborted by document navigation');
@@ -668,15 +679,7 @@ export class ThemeQaWorkflow {
       })
     );
 
-    const overflow = findings.overflow;
-    const desktopOverflow = overflow?.hasOverflow && overflow.viewport?.name === 'desktop' ? Number(((overflow.deltaX / (overflow.clientWidth || 1)) * 100).toFixed(2)) : 0;
-    const tabletOverflow = overflow?.hasOverflow && overflow.viewport?.name === 'tablet' ? Number(((overflow.deltaX / (overflow.clientWidth || 1)) * 100).toFixed(2)) : 0;
-    const mobileOverflow = overflow?.hasOverflow && overflow.viewport?.name === 'mobile' ? Number(((overflow.deltaX / (overflow.clientWidth || 1)) * 100).toFixed(2)) : 0;
-    const qaMatrix = ThemeQaWorkflow.computeQaMatrix(summary, checklist, findings, {
-      desktop: { mismatchPercent: desktopOverflow, passed: desktopOverflow === 0 },
-      tablet: { mismatchPercent: tabletOverflow, passed: tabletOverflow === 0 },
-      mobile: { mismatchPercent: mobileOverflow, passed: mobileOverflow === 0 },
-    });
+    const qaMatrix = ThemeQaWorkflow.computeQaMatrix(summary, checklist, findings, input.viewports);
 
     if (input.workspaceRoot) {
       try {
@@ -714,12 +717,27 @@ export class ThemeQaWorkflow {
       mobile?: { mismatchPercent: number; passed: boolean };
     }
   ): QaMatrixReport {
-    const vpDesktop = viewports?.desktop || { mismatchPercent: 0, passed: true };
-    const vpTablet = viewports?.tablet || { mismatchPercent: 0, passed: true };
-    const vpMobile = viewports?.mobile || { mismatchPercent: 0, passed: true };
+    const vpDesktop: QaMatrixViewportItem = viewports?.desktop
+      ? { mismatchPercent: viewports.desktop.mismatchPercent, passed: viewports.desktop.passed, measured: true }
+      : { mismatchPercent: null, passed: true, measured: false };
 
-    const visualScore = Math.max(0, 100 - Math.round(vpDesktop.mismatchPercent * 10));
-    const responsiveScore = Math.max(0, 100 - Math.round(((vpTablet.mismatchPercent + vpMobile.mismatchPercent) / 2) * 10));
+    const vpTablet: QaMatrixViewportItem = viewports?.tablet
+      ? { mismatchPercent: viewports.tablet.mismatchPercent, passed: viewports.tablet.passed, measured: true }
+      : { mismatchPercent: null, passed: true, measured: false };
+
+    const vpMobile: QaMatrixViewportItem = viewports?.mobile
+      ? { mismatchPercent: viewports.mobile.mismatchPercent, passed: viewports.mobile.passed, measured: true }
+      : { mismatchPercent: null, passed: true, measured: false };
+
+    const visualScore = vpDesktop.measured && typeof vpDesktop.mismatchPercent === 'number'
+      ? Math.max(0, 100 - Math.round(vpDesktop.mismatchPercent * 10))
+      : 100;
+
+    const responsiveMeasuredCount = (vpTablet.measured ? 1 : 0) + (vpMobile.measured ? 1 : 0);
+    const responsiveScore = responsiveMeasuredCount > 0
+      ? Math.max(0, 100 - Math.round((((vpTablet.mismatchPercent || 0) + (vpMobile.mismatchPercent || 0)) / responsiveMeasuredCount) * 10))
+      : 100;
+
     const domSemanticsScore = checklist.layout ? 98 : 70;
     const cssModularityScore = checklist.responsive ? 96 : 65;
     const interactiveScore = checklist.interactions ? 100 : 50;
@@ -728,21 +746,45 @@ export class ThemeQaWorkflow {
     const perfScore = summary.criticalCount === 0 ? 95 : 60;
 
     const dimensions = {
-      visualFidelity: { score: visualScore, details: `Desktop diff: ${vpDesktop.mismatchPercent}%, threshold < 10%` },
+      visualFidelity: {
+        score: visualScore,
+        details: vpDesktop.measured
+          ? `Desktop diff: ${vpDesktop.mismatchPercent}%, threshold < 10%`
+          : 'Visual diff unmeasured (no baseline comparison supplied)',
+      },
       domSemantics: { score: domSemanticsScore, details: checklist.layout ? 'Semantic tags and clean tree structure validated' : 'DOM tree issues detected' },
       cssModularity: { score: cssModularityScore, details: 'Modular section CSS and responsive breakpoints' },
       interactiveOperability: { score: interactiveScore, details: checklist.interactions ? 'All hover, sliders, and modals pass CleanTabProbe' : 'Interactive failures' },
       haravanCompliance: { score: haravanScore, details: 'Haravan OS 2.0 sections, schema presets, and Liquid templates' },
       assetIntegrity: { score: assetScore, details: !findings?.assets?.hasBrokenAssets ? 'All assets and local font subsets resolved without broken links' : 'Broken assets found' },
-      responsiveParity: { score: responsiveScore, details: `Tablet diff: ${vpTablet.mismatchPercent}%, Mobile diff: ${vpMobile.mismatchPercent}%` },
+      responsiveParity: {
+        score: responsiveScore,
+        details: responsiveMeasuredCount > 0
+          ? `Tablet diff: ${vpTablet.mismatchPercent ?? 'N/A'}%, Mobile diff: ${vpMobile.mismatchPercent ?? 'N/A'}%`
+          : 'Responsive viewports unmeasured (no baseline comparison supplied)',
+      },
       performanceCWV: { score: perfScore, details: 'No render-blocking scripts, clean lazy loading' }
     };
 
+    const scoredDimensions = [
+      domSemanticsScore,
+      cssModularityScore,
+      interactiveScore,
+      haravanScore,
+      assetScore,
+      perfScore,
+    ];
+    if (vpDesktop.measured) scoredDimensions.push(visualScore);
+    if (responsiveMeasuredCount > 0) scoredDimensions.push(responsiveScore);
+
     const overallScore = Math.round(
-      (visualScore + domSemanticsScore + cssModularityScore + interactiveScore + haravanScore + assetScore + responsiveScore + perfScore) / 8
+      scoredDimensions.reduce((sum, s) => sum + s, 0) / scoredDimensions.length
     );
 
-    const passed = summary.passed && vpDesktop.passed && vpTablet.passed && vpMobile.passed;
+    const passed = summary.passed &&
+      (!vpDesktop.measured || vpDesktop.passed) &&
+      (!vpTablet.measured || vpTablet.passed) &&
+      (!vpMobile.measured || vpMobile.passed);
 
     return {
       timestamp: new Date().toISOString(),

@@ -1183,8 +1183,35 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
     risk: 'read',
     requiresBrowserTarget: true,
     policy: makeBrowserPolicy({ effect: 'read', risk: 'read', requiresBrowserTarget: true, lane: 'short-passive', timeoutMs: 60_000 }),
-    inputSchema: { type: 'object', properties: { tabId: { type: 'string' }, workspaceRoot: { type: 'string' }, multiBreakpoint: { type: 'boolean' } } },
-    execute: async (params: { tabId?: string; workspaceRoot?: string; multiBreakpoint?: boolean }, context) => {
+    inputSchema: {
+      type: 'object',
+      properties: {
+        tabId: { type: 'string' },
+        workspaceRoot: { type: 'string' },
+        multiBreakpoint: { type: 'boolean' },
+        viewports: {
+          type: 'object',
+          properties: {
+            desktop: { type: 'object', properties: { mismatchPercent: { type: 'number' }, passed: { type: 'boolean' } } },
+            tablet: { type: 'object', properties: { mismatchPercent: { type: 'number' }, passed: { type: 'boolean' } } },
+            mobile: { type: 'object', properties: { mismatchPercent: { type: 'number' }, passed: { type: 'boolean' } } },
+          },
+        },
+      },
+    },
+    execute: async (
+      params: {
+        tabId?: string;
+        workspaceRoot?: string;
+        multiBreakpoint?: boolean;
+        viewports?: {
+          desktop?: { mismatchPercent: number; passed: boolean };
+          tablet?: { mismatchPercent: number; passed: boolean };
+          mobile?: { mismatchPercent: number; passed: boolean };
+        };
+      },
+      context
+    ) => {
       const target = context.browserTarget as BrowserTarget;
       if (!target?.tabId) {
         throw new CapabilityError('TARGET_MISMATCH', 'No valid browser target bound to context');
@@ -1198,6 +1225,7 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
         attemptId: context.attemptId || 'attempt-unbound',
         workspaceRoot: confinedRoot,
         multiBreakpoint: params.multiBreakpoint,
+        viewports: params.viewports,
         target,
       });
     },
