@@ -465,8 +465,12 @@ describe('Terminal Switching Regression & Viewport Integrity', () => {
     tm.getSession(s1)!.name = 'Backend Dev';
     tm.getSession(s2)!.name = 'Frontend Vite';
     tm.getSession(s3)!.name = 'AI Runner';
+    tm.getSession(s1)!.buffer = 'LOG: server listening on port 3000\r\n';
+    tm.getSession(s2)!.buffer = 'VITE v5.0 ready in 250 ms\r\n';
+    const sp2 = tm.createSplitSession(s2);
+    assert.ok(sp2);
+    tm.getSession(sp2)!.buffer = 'SPLIT_BUILD_OUTPUT_LOG\r\n';
     tm.switchSession(s2);
-
     // 2. Persist to isolated state file (simulating app shutdown persist)
     tm.persistSync();
 
@@ -485,6 +489,12 @@ describe('Terminal Switching Regression & Viewport Integrity', () => {
     assert.ok(restoredSessions.some((s) => s.id === s1 && s.name === 'Backend Dev'));
     assert.ok(restoredSessions.some((s) => s.id === s2 && s.name === 'Frontend Vite' && s.active));
     assert.ok(restoredSessions.some((s) => s.id === s3 && s.name === 'AI Runner'));
+    assert.ok(restoredSessions.some((s) => s.id === s1 && s.buffer.includes('LOG: server listening on port 3000')), 's1 buffer must be preserved on restart');
+    assert.ok(restoredSessions.some((s) => s.id === s2 && s.buffer.includes('VITE v5.0 ready in 250 ms')), 's2 buffer must be preserved on restart');
+    const restoredSplit2 = tm.getSession(sp2);
+    assert.ok(restoredSplit2, 'Split session sp2 must be restored on restart');
+    assert.strictEqual(restoredSplit2.splitOf, s2);
+    assert.ok(restoredSplit2.buffer.includes('SPLIT_BUILD_OUTPUT_LOG'), 'Split session sp2 buffer must be preserved on restart');
 
     // 6. Clean up
     await tm.closeSession(s1);
@@ -573,21 +583,25 @@ describe('Terminal Switching Regression & Viewport Integrity', () => {
     tm.renameSession(t2, 'Terminal 2');
     tm.renameSession(t3, 'Terminal 3');
     tm.renameSession(t4, 'Terminal 4');
+    tm.getSession(t1)!.buffer = 'HIST_T1_PRESERVED_OUTPUT\r\n';
+    tm.getSession(t2)!.buffer = 'HIST_T2_PRESERVED_OUTPUT\r\n';
+    const sp1 = tm.createSplitSession(t1);
+    assert.ok(sp1);
+    tm.getSession(sp1)!.buffer = 'HIST_SPLIT_T1_PRESERVED\r\n';
     tm.switchSession(t1);
-
     // 2. Shutdown phase 1: dispose called
     await tm.dispose();
 
     // Verify on-disk file immediately after dispose
     const savedAfterDispose = tmInternal.readSavedSessions();
-    assert.strictEqual(savedAfterDispose.sessions?.length, 4, 'Should have written 4 sessions before clearing in-memory map');
+    assert.strictEqual(savedAfterDispose.sessions?.length, 5, 'Should have written 5 sessions (4 base + 1 split) before clearing in-memory map');
 
     // 3. Shutdown phase 2: Electron will-quit fires and triggers extraneous persistSync()
     // Prior bug: persistSync() serialized empty in-memory map and wiped on-disk file to []
     tm.persistSync();
 
     const savedAfterPostDispose = tmInternal.readSavedSessions();
-    assert.strictEqual(savedAfterPostDispose.sessions?.length, 4, 'Post-dispose persistSync MUST NOT overwrite on-disk file with empty array');
+    assert.strictEqual(savedAfterPostDispose.sessions?.length, 5, 'Post-dispose persistSync MUST NOT overwrite on-disk file with empty array');
     assert.ok(savedAfterPostDispose.sessions?.some((s) => s.id === t1 && s.name === 'Terminal 1'));
     assert.ok(savedAfterPostDispose.sessions?.some((s) => s.id === t2 && s.name === 'Terminal 2'));
     assert.ok(savedAfterPostDispose.sessions?.some((s) => s.id === t3 && s.name === 'Terminal 3'));
@@ -602,6 +616,12 @@ describe('Terminal Switching Regression & Viewport Integrity', () => {
     assert.strictEqual(restoredSessions[2]?.name, 'Terminal 3');
     assert.strictEqual(restoredSessions[3]?.name, 'Terminal 4');
 
+    assert.ok(restoredSessions.some((s) => s.id === t1 && s.buffer.includes('HIST_T1_PRESERVED_OUTPUT')), 'T1 buffer must be preserved on reopen');
+    assert.ok(restoredSessions.some((s) => s.id === t2 && s.buffer.includes('HIST_T2_PRESERVED_OUTPUT')), 'T2 buffer must be preserved on reopen');
+    const restoredSplit1 = tm.getSession(sp1);
+    assert.ok(restoredSplit1, 'Split session sp1 must be restored on reopen');
+    assert.strictEqual(restoredSplit1.splitOf, t1);
+    assert.ok(restoredSplit1.buffer.includes('HIST_SPLIT_T1_PRESERVED'), 'Split session sp1 buffer must be preserved on reopen');
     // Cleanup
     await tm.closeSession(t1);
     await tm.closeSession(t2);

@@ -195,6 +195,9 @@ describe('Terminal Split Hardened 10-Round Verification Suite', () => {
     const splitSession = tm.createSplitSession(parentSession);
     assert.ok(splitSession);
 
+    tm.getSession(parentSession)!.buffer = 'PARENT_SPLIT_BUFFER_OUTPUT\r\n';
+    tm.getSession(splitSession)!.buffer = 'SPLIT_CHILD_BUFFER_OUTPUT\r\n';
+
     tm.persistSync();
     const diskState = tmInternal.readSavedSessions();
     const parentSaved = diskState.sessions?.find((s) => s.id === parentSession);
@@ -203,6 +206,22 @@ describe('Terminal Split Hardened 10-Round Verification Suite', () => {
     assert.ok(parentSaved);
     assert.ok(splitSaved);
     assert.strictEqual(splitSaved.splitOf, parentSession);
+    assert.ok(parentSaved.buffer?.includes('PARENT_SPLIT_BUFFER_OUTPUT'));
+    assert.ok(splitSaved.buffer?.includes('SPLIT_CHILD_BUFFER_OUTPUT'));
+
+    // Clear in-memory map to simulate restart and test actual disk restoration
+    (tm as unknown as { sessions: Map<string, unknown> }).sessions.clear();
+    (tm as unknown as { activeSessionId: string }).activeSessionId = '';
+
+    tm.startTerminal();
+
+    const restoredParent = tm.getSession(parentSession);
+    const restoredSplit = tm.getSession(splitSession);
+    assert.ok(restoredParent, 'Parent session must be restored from disk');
+    assert.ok(restoredSplit, 'Split session must be restored from disk');
+    assert.strictEqual(restoredSplit.splitOf, parentSession);
+    assert.ok(restoredParent.buffer.includes('PARENT_SPLIT_BUFFER_OUTPUT'), 'Parent buffer must be restored');
+    assert.ok(restoredSplit.buffer.includes('SPLIT_CHILD_BUFFER_OUTPUT'), 'Split buffer must be restored');
 
     await tm.closeSession(parentSession);
   });

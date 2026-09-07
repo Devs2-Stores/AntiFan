@@ -86,7 +86,7 @@ export function enforceProtectedDirectoryDacl(dirPath: string, userSid: string):
     $systemRule = New-Object System.Security.AccessControl.FileSystemAccessRule($systemSid, [System.Security.AccessControl.FileSystemRights]::FullControl, [System.Security.AccessControl.InheritanceFlags]'ContainerInherit, ObjectInherit', [System.Security.AccessControl.PropagationFlags]::None, [System.Security.AccessControl.AccessControlType]::Allow);
     $acl.AddAccessRule($userRule);
     $acl.AddAccessRule($systemRule);
-    Set-Acl -LiteralPath $dir -AclObject $acl;
+    [System.IO.Directory]::SetAccessControl($dir, $acl);
   `;
   execFileSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', psScript], { stdio: 'pipe' });
   if (!hasProtectedDirectoryDacl(dirPath, userSid)) {

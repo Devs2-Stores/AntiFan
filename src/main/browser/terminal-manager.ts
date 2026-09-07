@@ -547,7 +547,7 @@ export class TerminalManager extends EventEmitter {
         const baseSessions = saved.filter(item => !item.splitOf);
         if (baseSessions.length > 0) {
           for (const item of baseSessions) {
-            const s = this.spawn(item.id, item.cwd || this.currentCwd, '');
+            const s = this.spawn(item.id, item.cwd || this.currentCwd, item.buffer || '');
             s.name = item.name || s.name;
             s.capsuleId = item.capsuleId || this.currentCapsuleId;
           }
@@ -556,7 +556,7 @@ export class TerminalManager extends EventEmitter {
             const parent = item.splitOf ? this.sessions.get(item.splitOf) : undefined;
             const parentRows = parent?.pty?.rows;
             const initialRows = this.getInitialSplitRows(parentRows || this.lastRows);
-            const s = this.spawn(item.id, item.cwd || this.currentCwd, '', undefined, initialRows, MIN_SPLIT_TERMINAL_ROWS, item.splitOf, parent?.sessionGeneration);
+            const s = this.spawn(item.id, item.cwd || this.currentCwd, item.buffer || '', undefined, initialRows, MIN_SPLIT_TERMINAL_ROWS, item.splitOf, parent?.sessionGeneration);
             s.name = item.name || s.name;
             s.splitOf = item.splitOf;
             s.capsuleId = item.capsuleId || this.currentCapsuleId;
@@ -695,7 +695,7 @@ export class TerminalManager extends EventEmitter {
       const baseSessions = saved.filter(item => !item.splitOf);
       if (baseSessions.length > 0) {
         for (const item of baseSessions) {
-          const s = this.spawn(item.id, item.cwd || this.currentCwd, '');
+          const s = this.spawn(item.id, item.cwd || this.currentCwd, item.buffer || '');
           s.name = item.name || s.name;
           s.capsuleId = item.capsuleId || this.currentCapsuleId;
         }
@@ -704,7 +704,7 @@ export class TerminalManager extends EventEmitter {
           const parent = item.splitOf ? this.sessions.get(item.splitOf) : undefined;
           const parentRows = parent?.pty?.rows;
           const initialRows = this.getInitialSplitRows(parentRows || this.lastRows);
-          const s = this.spawn(item.id, item.cwd || this.currentCwd, '', undefined, initialRows, MIN_SPLIT_TERMINAL_ROWS, item.splitOf, parent?.sessionGeneration);
+          const s = this.spawn(item.id, item.cwd || this.currentCwd, item.buffer || '', undefined, initialRows, MIN_SPLIT_TERMINAL_ROWS, item.splitOf, parent?.sessionGeneration);
           s.name = item.name || s.name;
           s.splitOf = item.splitOf;
           s.capsuleId = item.capsuleId || this.currentCapsuleId;
