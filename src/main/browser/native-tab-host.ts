@@ -1328,9 +1328,10 @@ export class NativeTabHost extends EventEmitter {
       const targetTabId = tabId || this.activeTabId;
       const targetTerminalId = terminalId || TerminalManager.getInstance().getActiveSessionId();
       if (!this.hasTab(targetTabId)) return false;
+      const canonicalTabId = this.resolveTargetTabId(targetTabId) || targetTabId;
       const session = TerminalManager.getInstance().getSession(targetTerminalId);
       if (!session) return false;
-      const ok = this.bindTerminalAgentAffinity(targetTerminalId, session.sessionGeneration, targetTabId);
+      const ok = this.bindTerminalAgentAffinity(targetTerminalId, session.sessionGeneration, canonicalTabId);
       if (ok) {
         this.broadcastState();
       }
@@ -1340,18 +1341,24 @@ export class NativeTabHost extends EventEmitter {
       const targetTabId = tabId || this.activeTabId;
       const targetTerminalId = terminalId || TerminalManager.getInstance().getActiveSessionId();
       if (!targetTerminalId || !this.hasTab(targetTabId)) return false;
+      const canonicalTabId = this.resolveTargetTabId(targetTabId) || targetTabId;
       const session = TerminalManager.getInstance().getSession(targetTerminalId);
       if (!session) return false;
-      return this.adoptChildTab(targetTerminalId, targetTabId, session.sessionGeneration);
+      const ok = this.adoptChildTab(targetTerminalId, canonicalTabId, session.sessionGeneration);
+      if (ok) {
+        this.broadcastState();
+      }
+      return ok;
     });
 
     ipcMain.handle('antifan:terminal:remove-tab', (_event, { tabId, terminalId }: { tabId?: string; terminalId?: string }) => {
       const targetTabId = tabId || this.activeTabId;
       const targetTerminalId = terminalId || TerminalManager.getInstance().getActiveSessionId();
       if (!targetTerminalId) return false;
+      const canonicalTabId = this.resolveTargetTabId(targetTabId) || targetTabId;
       const session = TerminalManager.getInstance().getSession(targetTerminalId);
       if (!session) return false;
-      return this.removeManagedTab(targetTerminalId, targetTabId, session.sessionGeneration);
+      return this.removeManagedTab(targetTerminalId, canonicalTabId, session.sessionGeneration);
     });
 
     ipcMain.handle('antifan:tabs:get-list', () => {
@@ -4487,6 +4494,13 @@ export class NativeTabHost extends EventEmitter {
         return this.tabOrder[idx];
       }
     }
+    const numericMatch = /^(?:tab[\s\-]*)?(\d+)$/i.exec(trimmed);
+    if (numericMatch && numericMatch[1]) {
+      const idx = parseInt(numericMatch[1], 10) - 1;
+      if (idx >= 0 && idx < this.tabOrder.length) {
+        return this.tabOrder[idx];
+      }
+    }
     if (trimmed.startsWith('@')) {
       return this.resolveAliasToTabId(trimmed);
     }
@@ -4495,15 +4509,7 @@ export class NativeTabHost extends EventEmitter {
 
   public hasTab(tabId?: string | null): boolean {
     if (!tabId || !this.tabs) return false;
-    if (this.tabs.has(tabId)) return true;
-    if (/^#\d+$/.test(tabId)) {
-      const idx = parseInt(tabId.slice(1), 10) - 1;
-      return idx >= 0 && idx < this.tabOrder.length;
-    }
-    if (tabId.startsWith('@')) {
-      return Boolean(this.resolveAliasToTabId(tabId));
-    }
-    return false;
+    return Boolean(this.resolveTargetTabId(tabId));
   }
 
   private resolveTerminalAffinityEntry(terminalId: string, generation?: number | string) {
@@ -4535,10 +4541,17 @@ export class NativeTabHost extends EventEmitter {
     const session = tm.getSession(terminalId);
     if (!session) return false;
     const resolvedGen = generation !== undefined && generation !== '' ? generation : session.sessionGeneration;
+    const prior = this.resolveTerminalAffinityEntry(terminalId, resolvedGen);
+    const carryManaged = prior?.managedTabIds
+      ? new Set<string>([...prior.managedTabIds].filter((id) => id !== tabId && this.tabs?.has(id)))
+      : new Set<string>();
+    const carryLastUrls = prior?.lastUrls ? new Map<string, string>(prior.lastUrls) : new Map<string, string>();
+    const carryLineage = prior?.lineage ? new Map<string, { tabId: string; parentTabId?: string; source: 'agent_spawned' | 'native_window_open' | 'user_attached'; createdAt: number }>(prior.lineage) : new Map();
     this.clearTerminalAgentAffinity(terminalId);
-    const managedTabIds = new Set<string>([tabId]);
-    const lastUrls = new Map<string, string>([[tabId, tab.state.url || '']]);
-    const lineage = new Map<string, { tabId: string; parentTabId?: string; source: 'agent_spawned' | 'native_window_open' | 'user_attached'; createdAt: number }>();
+    const managedTabIds = new Set<string>([tabId, ...carryManaged]);
+    const lastUrls = new Map<string, string>(carryLastUrls);
+    lastUrls.set(tabId, tab.state.url || '');
+    const lineage = new Map(carryLineage);
     lineage.set(tabId, { tabId, source: 'user_attached', createdAt: Date.now() });
     this.terminalAgentAffinity.set(`${terminalId}@${resolvedGen}`, {
       tabId,
@@ -4550,12 +4563,18 @@ export class NativeTabHost extends EventEmitter {
       closedAt: undefined,
     });
     tab.state.terminalSessionId = terminalId;
+    this.sessionTabPools.set(terminalId, new Set(managedTabIds));
+    for (const mId of managedTabIds) {
+      const mTab = this.tabs?.get(mId);
+      if (mTab) {
+        mTab.state.terminalSessionId = terminalId;
+      }
+    }
     return true;
   }
 
   public adoptChildTabForSession(sessionId: string, childTabId: string): boolean {
     if (!sessionId || !childTabId) return false;
-    if (!this.sessionTabPools) (this as any).sessionTabPools = new Map<string, Set<string>>();
     let pool = this.sessionTabPools.get(sessionId);
     if (!pool) {
       pool = new Set<string>();
@@ -4581,7 +4600,6 @@ export class NativeTabHost extends EventEmitter {
     parentTabId?: string
   ): boolean {
     if (!this.terminalAgentAffinity || !identifier || !childTabId) return false;
-    if (!this.sessionTabPools) (this as any).sessionTabPools = new Map<string, Set<string>>();
     const childTab = this.tabs?.get(childTabId);
     if (!childTab) return false;
 
@@ -4651,6 +4669,9 @@ export class NativeTabHost extends EventEmitter {
     }
 
     let adoptedIntoPool = false;
+    if (!targetSessionId && entry && entry.primaryTabId && this.tabs.has(entry.primaryTabId)) {
+      targetSessionId = entry.primaryTabId;
+    }
     if (targetSessionId) {
       if (this.tabs.has(identifier)) {
         this.adoptChildTabForSession(targetSessionId, identifier);
@@ -4691,7 +4712,6 @@ export class NativeTabHost extends EventEmitter {
 
   public getManagedTabIdsForBoundTab(boundTabId: string): Set<string> {
     if (!boundTabId) return new Set();
-    if (!this.sessionTabPools) (this as any).sessionTabPools = new Map<string, Set<string>>();
     const directPool = this.sessionTabPools.get(boundTabId);
     if (directPool) {
       return new Set(directPool);
@@ -4711,7 +4731,6 @@ export class NativeTabHost extends EventEmitter {
 
   public getManagedTabIds(boundTabIdOrTerminalId: string): Set<string> {
     if (!boundTabIdOrTerminalId) return new Set();
-    if (!this.sessionTabPools) (this as any).sessionTabPools = new Map<string, Set<string>>();
     const found = this.sessionTabPools.get(boundTabIdOrTerminalId);
     if (found) {
       return new Set(found);
@@ -4788,7 +4807,15 @@ export class NativeTabHost extends EventEmitter {
     if (tab && tab.state.terminalSessionId === terminalId) {
       tab.state.terminalSessionId = undefined;
     }
-
+    if (this.sessionTabPools) {
+      const pool = this.sessionTabPools.get(terminalId);
+      if (pool) {
+        pool.delete(tabId);
+        if (pool.size === 0) {
+          this.sessionTabPools.delete(terminalId);
+        }
+      }
+    }
     if (entry.primaryTabId === tabId) {
       let nextPrimary: string | undefined;
       for (const id of entry.managedTabIds) {

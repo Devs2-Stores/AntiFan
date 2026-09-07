@@ -20,6 +20,10 @@ describe('BridgeServer Terminal Affinity Resolution Live RPC Contract Tests', ()
     setAutomationTabId(id: string) { recordedAutomationTabId = id; }
     getActiveTab() { return { id: 'tab-active' }; }
     getTabList() { return [{ id: 'tab-alive' }, { id: 'tab-auto' }]; }
+    resolveTargetTabId(id?: string | null) {
+      if (id === '#1' || id === '1' || id === 'tab-1') return 'tab-alive';
+      return typeof id === 'string' && this.hasTab(id) ? id : undefined;
+    }
     createTab() { return 'tab-created'; }
     getTerminalAgentAffinity(termId: string, gen?: string | number) {
       if (termId === 'term-alive' && (gen === undefined || String(gen) === '1')) {
@@ -151,5 +155,34 @@ describe('BridgeServer Terminal Affinity Resolution Live RPC Contract Tests', ()
 
     assert.strictEqual(resp.success, true);
     assert.strictEqual(recordedAutomationTabId, 'tab-auto');
+  });
+
+  it('7. Canonicalizes positional and alias tabId into canonical UUID when starting CLI session', async () => {
+    recordedAutomationTabId = null;
+    lastSessionCreatedOpts = null;
+    const resp1 = await rpcCall('antifan.cli.startSession', {
+      tabId: '#1',
+    });
+    assert.strictEqual(resp1.success, true);
+    assert.strictEqual(recordedAutomationTabId, 'tab-alive');
+    assert.strictEqual(lastSessionCreatedOpts?.tabId, 'tab-alive');
+
+    recordedAutomationTabId = null;
+    lastSessionCreatedOpts = null;
+    const resp2 = await rpcCall('antifan.cli.startSession', {
+      tabId: '1',
+    });
+    assert.strictEqual(resp2.success, true);
+    assert.strictEqual(recordedAutomationTabId, 'tab-alive');
+    assert.strictEqual(lastSessionCreatedOpts?.tabId, 'tab-alive');
+
+    recordedAutomationTabId = null;
+    lastSessionCreatedOpts = null;
+    const resp3 = await rpcCall('antifan.cli.startSession', {
+      tabId: 'tab-1',
+    });
+    assert.strictEqual(resp3.success, true);
+    assert.strictEqual(recordedAutomationTabId, 'tab-alive');
+    assert.strictEqual(lastSessionCreatedOpts?.tabId, 'tab-alive');
   });
 });

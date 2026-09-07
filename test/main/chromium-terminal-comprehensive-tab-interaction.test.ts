@@ -83,7 +83,7 @@ interface ComprehensiveTestHost {
   clearTerminalAgentAffinity(terminalId: string): void;
   tombstoneTerminalAgentAffinity(tabId: string, lastUrl?: string): void;
   migrateTerminalAgentAffinityGeneration(terminalId: string, newGeneration: number): void;
-  getTerminalAgentAffinity(terminalSessionId: string, generation?: number | string): { tabId: string; status: 'alive' | 'closed'; lastUrl?: string; managedTabIds?: string[] } | undefined;
+  getTerminalAgentAffinity(terminalSessionId: string, generation?: number | string): { tabId: string; primaryTabId?: string; status: 'alive' | 'closed'; lastUrl?: string; managedTabIds?: string[] } | undefined;
   getTabTerminalSession(tabId: string): string | undefined;
   setTabTerminalSession(tabId: string, sessionId?: string): boolean;
   resolveTabStrictWorkspace(targetSessionId?: string, tabUrl?: string): string;
@@ -414,7 +414,7 @@ describe('Chromium <-> Terminal 30-Flow Interaction & Tab Management Matrix', ()
     assert.strictEqual(lineage.source, 'user_attached');
   });
 
-  it('Flow 12: Rebinding terminal from Tab A to Tab B cleans up Tab A state and isolates old child tabs', () => {
+  it('Flow 12: Rebinding terminal from Tab A to Tab B updates primary tab and preserves managed child tabs', () => {
     const host = createComprehensiveHost(['tab-a', 'tab-b', 'tab-child']);
     host.bindTerminalAgentAffinity('terminal-1', 1, 'tab-a');
     host.adoptChildTab('tab-a', 'tab-child', 1);
@@ -427,14 +427,15 @@ describe('Chromium <-> Terminal 30-Flow Interaction & Tab Management Matrix', ()
     assert.strictEqual(host.bindTerminalAgentAffinity('terminal-1', 1, 'tab-b'), true);
     assert.strictEqual(host.getTabTerminalSession('tab-b'), 'terminal-1');
 
-    // Tab A is no longer primary and no longer has terminal-1 affinity
+    // Tab B is now primary
     const aff = host.getTerminalAgentAffinity('terminal-1', 1);
     assert.strictEqual(aff?.tabId, 'tab-b');
+    assert.strictEqual(aff?.primaryTabId, 'tab-b');
 
-    // Rebind isolation: old child tab-child is NO LONGER allowed for tab-b or terminal-1
-    assert.strictEqual(host.isTabAllowedForPrimary('tab-b', 'tab-child'), false);
-    assert.strictEqual(host.tabs.get('tab-child')?.state.terminalSessionId, undefined);
-    assert.strictEqual(host.getManagedTabIds('terminal-1').has('tab-child'), false);
+    // Rebind preservation: child tab-child is preserved in terminal-1 session
+    assert.strictEqual(host.isTabAllowedForPrimary('tab-b', 'tab-child'), true);
+    assert.strictEqual(host.tabs.get('tab-child')?.state.terminalSessionId, 'terminal-1');
+    assert.strictEqual(host.getManagedTabIds('terminal-1').has('tab-child'), true);
   });
 
   it('Flow 13: Binding to non-existent tabId or non-existent terminalId fails closed (returns false)', () => {

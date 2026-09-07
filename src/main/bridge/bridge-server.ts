@@ -940,9 +940,14 @@ export class BridgeServer {
           try {
             let tabId = typeof p.tabId === 'string' && p.tabId.trim() ? p.tabId.trim() : undefined;
             if (tabId) {
-              if (!this.tabHost.hasTab(tabId)) {
+              const canonical = typeof this.tabHost.resolveTargetTabId === 'function'
+                ? this.tabHost.resolveTargetTabId(tabId)
+                : undefined;
+              const effective = canonical ?? tabId;
+              if (!this.tabHost.hasTab(effective)) {
                 throw new Error(`TAB_NOT_FOUND: The specified tabId '${tabId}' does not exist or was closed.`);
               }
+              tabId = effective;
             } else {
               const terminalSessionId = typeof p.terminalSessionId === 'string' && p.terminalSessionId.trim() ? p.terminalSessionId.trim() : undefined;
               const terminalGen = typeof p.terminalGeneration === 'string' || typeof p.terminalGeneration === 'number' ? p.terminalGeneration : undefined;

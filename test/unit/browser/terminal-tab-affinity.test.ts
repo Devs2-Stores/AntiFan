@@ -2,7 +2,8 @@ import { describe, it, before, after } from 'node:test';
 import * as assert from 'node:assert/strict';
 import { NativeTabHost } from '../../../src/main/browser/native-tab-host';
 import { TerminalManager } from '../../../src/main/browser/terminal-manager';
-import { BrowserControlPort } from '../../../src/main/tools/browser-control-port';
+import { BrowserControlPort, BrowserHostPort } from '../../../src/main/tools/browser-control-port';
+import { BrowserTarget } from '../../../src/shared/control-plane-contracts';
 import { AntiFanTab } from '../../../src/shared/contracts';
 import { execFileSync } from 'node:child_process';
 import * as path from 'node:path';
@@ -25,12 +26,13 @@ interface TestHost {
   clearTerminalAgentAffinity(terminalId: string): void;
   migrateTerminalAgentAffinityGeneration(terminalId: string, newGeneration: number): void;
   tombstoneTerminalAgentAffinity(tabId: string, lastUrl?: string): void;
-  getTerminalAgentAffinity(terminalSessionId: string, generation?: number | string): { tabId: string; status: 'alive' | 'closed'; lastUrl?: string; managedTabIds?: string[] } | undefined;
+  getTerminalAgentAffinity(terminalSessionId: string, generation?: number | string): { tabId: string; primaryTabId?: string; status: 'alive' | 'closed'; lastUrl?: string; managedTabIds?: string[] } | undefined;
   getTabTerminalSession(tabId: string): string | undefined;
   setTabTerminalSession(tabId: string, sessionId?: string): boolean;
   closeTab(tabId: string): boolean;
   broadcastState(): void;
   resolveTargetTabId?(tabIdOrIdentifier?: string | null): string | undefined;
+  getDocumentGeneration?(tabId?: string): number;
 }
 
 function createTestHost(tabIds: string[]): TestHost {
@@ -63,6 +65,7 @@ function createTestHost(tabIds: string[]): TestHost {
   (host as any).tabThemeQaStates = new Map();
   (host as any).networkTracker = { detachTarget: () => {} };
   (host as any).tabDiagnostics = { deleteTab: () => {} };
+  host.getDocumentGeneration = () => 1;
   host.broadcastState = () => {};
   return host;
 }
@@ -518,6 +521,157 @@ describe('Terminal-to-Tab Agent Affinity Contract Tests (NativeTabHost Seam)', (
     assert.strictEqual(host.closeTab('#0'), false);
     assert.strictEqual(host.closeTab('#99'), false);
     assert.strictEqual(host.closeTab('unknown-uuid'), false);
+  });
+
+  it('19. Bare integer and tab-N/Tab N reference resolution in hasTab and resolveTargetTabId', () => {
+    const host = createTestHost(['tab-first', 'tab-second', 'tab-third']);
+
+    // Bare integers
+    assert.strictEqual(host.hasTab('1'), true);
+    assert.strictEqual(host.hasTab('2'), true);
+    assert.strictEqual(host.hasTab('3'), true);
+    assert.strictEqual(host.hasTab('4'), false);
+    assert.strictEqual(host.hasTab('0'), false);
+
+    assert.strictEqual((host as any).resolveTargetTabId('1'), 'tab-first');
+    assert.strictEqual((host as any).resolveTargetTabId('2'), 'tab-second');
+    assert.strictEqual((host as any).resolveTargetTabId('3'), 'tab-third');
+    assert.strictEqual((host as any).resolveTargetTabId('0'), undefined);
+    assert.strictEqual((host as any).resolveTargetTabId('4'), undefined);
+
+    // tab-N and Tab N formats
+    assert.strictEqual(host.hasTab('tab-1'), true);
+    assert.strictEqual(host.hasTab('Tab 2'), true);
+    assert.strictEqual(host.hasTab('tab3'), true);
+    assert.strictEqual(host.hasTab('tab-99'), false);
+
+    assert.strictEqual((host as any).resolveTargetTabId('tab-1'), 'tab-first');
+    assert.strictEqual((host as any).resolveTargetTabId('Tab 2'), 'tab-second');
+    assert.strictEqual((host as any).resolveTargetTabId('tab3'), 'tab-third');
+    assert.strictEqual((host as any).resolveTargetTabId('tab-99'), undefined);
+  });
+
+  it('20. bindTerminalAgentAffinity preserves previously managed child tabs across primary tab rebind', () => {
+    const host = createTestHost(['tab-alpha', 'tab-beta', 'tab-gamma']);
+
+    // Bind terminal to tab-alpha
+    assert.strictEqual(host.bindTerminalAgentAffinity('terminal-1', 1, 'tab-alpha'), true);
+
+    // Adopt tab-beta as child
+    assert.strictEqual(host.adoptChildTab('terminal-1', 'tab-beta', 1), true);
+
+    const initialManaged = host.getManagedTabIds('tab-alpha');
+    assert.ok(initialManaged.has('tab-alpha'));
+    assert.ok(initialManaged.has('tab-beta'));
+
+    // Rebind terminal to tab-gamma as new primary
+    assert.strictEqual(host.bindTerminalAgentAffinity('terminal-1', 1, 'tab-gamma'), true);
+    const rebindAffinity = host.getTerminalAgentAffinity('terminal-1', 1);
+    assert.ok(rebindAffinity);
+    assert.strictEqual(rebindAffinity.tabId, 'tab-gamma');
+    assert.strictEqual(rebindAffinity.primaryTabId, 'tab-gamma');
+    assert.strictEqual(rebindAffinity.status, 'alive');
+    // Crucial: child tab-beta and prior primary tab-alpha must NOT be wiped
+    assert.ok(rebindAffinity.managedTabIds?.includes('tab-alpha'));
+    assert.ok(rebindAffinity.managedTabIds?.includes('tab-beta'));
+    assert.ok(rebindAffinity.managedTabIds?.includes('tab-gamma'));
+    assert.strictEqual(host.isTabAllowedForPrimary('tab-gamma', 'tab-alpha'), true);
+    assert.strictEqual(host.isTabAllowedForPrimary('tab-gamma', 'tab-beta'), true);
+    assert.strictEqual(host.isTabAllowedForPrimary('tab-gamma', 'tab-gamma'), true);
+  });
+
+  it('21. BrowserControlPort.resolveTargetTab resolves bare integer and tab-N via host.resolveTargetTabId', () => {
+    const tabs = new Map<string, { id: string }>([
+      ['tab-first', { id: 'tab-first' }],
+      ['tab-second', { id: 'tab-second' }],
+    ]);
+    const mockHost = {
+      hasTab: (id?: string | null) => Boolean(id && tabs.has(id)),
+      getTabList: () => Array.from(tabs.values()),
+      resolveTargetTabId: (id?: string | null) => {
+        if (!id) return undefined;
+        if (id === '1' || id === 'Tab 1') return 'tab-first';
+        if (id === 'tab-2') return 'tab-second';
+        return tabs.has(id) ? id : undefined;
+      },
+      getDocumentGeneration: () => 1,
+      isCurrentTarget: () => true,
+      isTabAllowed: () => true,
+    } satisfies Pick<BrowserHostPort, 'hasTab' | 'getTabList' | 'resolveTargetTabId' | 'getDocumentGeneration' | 'isCurrentTarget' | 'isTabAllowed'>;
+    const port = new BrowserControlPort(mockHost as unknown as BrowserHostPort);
+    const boundTarget: BrowserTarget = { tabId: 'tab-first', projectId: 'p1', workspaceId: 'w1', runtimeId: 'r1', browserEpoch: 1, documentGeneration: 1 };
+
+    assert.strictEqual(port['resolveTargetTab'](boundTarget, '1', 'read'), 'tab-first');
+    assert.strictEqual(port['resolveTargetTab'](boundTarget, 'tab-2', 'read'), 'tab-second');
+    assert.strictEqual(port['resolveTargetTab'](boundTarget, 'Tab 1', 'read'), 'tab-first');
+  });
+
+  it('22. removeManagedTab isolates removal strictly to designated terminal session pool without corrupting other sessions', () => {
+    const host = createTestHost(['tab-primary-1', 'tab-primary-2', 'tab-shared']);
+    assert.strictEqual(host.bindTerminalAgentAffinity('terminal-1', 1, 'tab-primary-1'), true);
+    assert.strictEqual(host.bindTerminalAgentAffinity('terminal-2', 1, 'tab-primary-2'), true);
+
+    assert.strictEqual(host.adoptChildTab('terminal-1', 'tab-shared', 1), true);
+    assert.strictEqual(host.adoptChildTab('terminal-2', 'tab-shared', 1), true);
+
+    assert.ok(host.getManagedTabIds('tab-primary-1').has('tab-shared'));
+    assert.ok(host.getManagedTabIds('tab-primary-2').has('tab-shared'));
+
+    // Remove tab-shared strictly from terminal-1
+    assert.strictEqual(host.removeManagedTab('terminal-1', 'tab-shared', 1), true);
+
+    // terminal-1 pool no longer has tab-shared
+    assert.strictEqual(host.getManagedTabIds('tab-primary-1').has('tab-shared'), false);
+    // terminal-2 pool MUST still preserve tab-shared (cross-session isolation)
+    assert.strictEqual(host.getManagedTabIds('tab-primary-2').has('tab-shared'), true);
+    assert.strictEqual(host.isTabAllowedForPrimary('tab-primary-2', 'tab-shared'), true);
+  });
+
+  it('23. Generation-specific affinity rebind resolves prior matching active generation and prevents generation bleeding', () => {
+    const host = createTestHost(['tab-g1-primary', 'tab-g1-child', 'tab-g2-primary', 'tab-g2-child', 'tab-g1-new']);
+
+    // Seed Generation 1 affinity entry with its own managed child
+    (host as any).terminalAgentAffinity.set('terminal-1@1', {
+      tabId: 'tab-g1-primary',
+      primaryTabId: 'tab-g1-primary',
+      managedTabIds: new Set(['tab-g1-primary', 'tab-g1-child']),
+      lineage: new Map(),
+      lastUrls: new Map([
+        ['tab-g1-primary', 'https://example.test/tab-g1-primary'],
+        ['tab-g1-child', 'https://example.test/tab-g1-child'],
+      ]),
+    });
+
+    // Seed Generation 2 affinity entry (latest) with distinct managed child
+    (host as any).terminalAgentAffinity.set('terminal-1@2', {
+      tabId: 'tab-g2-primary',
+      primaryTabId: 'tab-g2-primary',
+      managedTabIds: new Set(['tab-g2-primary', 'tab-g2-child']),
+      lineage: new Map(),
+      lastUrls: new Map([
+        ['tab-g2-primary', 'https://example.test/tab-g2-primary'],
+        ['tab-g2-child', 'https://example.test/tab-g2-child'],
+      ]),
+    });
+
+    // Rebind terminal-1 strictly under Generation 1 to tab-g1-new while Generation 2 is latest
+    assert.strictEqual(host.bindTerminalAgentAffinity('terminal-1', 1, 'tab-g1-new'), true);
+
+    const affGen1 = host.getTerminalAgentAffinity('terminal-1', 1);
+    assert.ok(affGen1);
+    assert.strictEqual(affGen1.primaryTabId, 'tab-g1-new');
+
+    // MUST carry Generation 1 tabs
+    assert.ok(affGen1.managedTabIds?.includes('tab-g1-primary'));
+    assert.ok(affGen1.managedTabIds?.includes('tab-g1-child'));
+    assert.ok(affGen1.managedTabIds?.includes('tab-g1-new'));
+
+    // MUST NOT bleed or carry Generation 2 tabs (disconfirms old maxGen lookup)
+    assert.strictEqual(affGen1.managedTabIds?.includes('tab-g2-primary'), false);
+    assert.strictEqual(affGen1.managedTabIds?.includes('tab-g2-child'), false);
+
+    // Terminal rebind clears all generations for the session to maintain single active generation authority
+    assert.strictEqual(host.getTerminalAgentAffinity('terminal-1', 2), undefined);
   });
 });
 

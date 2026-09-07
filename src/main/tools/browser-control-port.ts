@@ -3875,7 +3875,12 @@ export class BrowserControlPort {
 
     if (explicitTabId && explicitTabId.trim().length > 0) {
       let candidate = explicitTabId.trim();
-      if (candidate.startsWith('#') || candidate.startsWith('@')) {
+      const hostResolved = typeof this.host.resolveTargetTabId === 'function'
+        ? this.host.resolveTargetTabId(candidate)
+        : undefined;
+      if (hostResolved) {
+        candidate = hostResolved;
+      } else if (candidate.startsWith('#') || candidate.startsWith('@')) {
         const list = (this.host.getTabList ? this.host.getTabList() : []).filter(isTabRecord);
         if (candidate.startsWith('#')) {
           const num = parseInt(candidate.slice(1), 10);
