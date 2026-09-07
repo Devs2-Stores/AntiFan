@@ -1491,13 +1491,17 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
   // 3. anti.* aliases for unified client / bridge execution
   catalogue.register({
     name: 'anti.browser.tabs.list',
-    description: 'List Chromium tabs. The tab bound to this session is marked with isBoundTab: true. Always operate on your bound tab or omit tabId.',
+    description: 'List Chromium tabs. Pass all: true to list all tabs across the browser window. The tab bound to this session is marked with isBoundTab: true. Always operate on your bound tab or omit tabId.',
     risk: 'read',
     policy: makeBrowserPolicy({ effect: 'read', risk: 'read', requiresBrowserTarget: false, lane: 'unbounded' }),
-    inputSchema: { type: 'object' },
-    execute: (_params, context) => browser.listTabs({ target: context.browserTarget }),
+    inputSchema: {
+      type: 'object',
+      properties: {
+        all: { type: 'boolean', description: 'When true, list all tabs across the browser window instead of filtering to bound session tabs only' }
+      }
+    },
+    execute: (params: { all?: boolean }, context) => browser.listTabs({ target: params?.all ? undefined : context.browserTarget }),
   });
-
   catalogue.register({
     name: 'anti.browser.tabs.create',
     description: 'Alias for browser.open-tab',
