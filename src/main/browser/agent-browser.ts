@@ -737,8 +737,10 @@ export const AGENT_BROWSER_SCRIPT = `(() => {
     if (selector) {
       targetEl = querySelectorDeep(selector);
       if (targetEl) {
-        if (typeof targetEl.scrollIntoView === 'function') {
-          targetEl.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'center' });
+        const b = targetEl.getBoundingClientRect();
+        const inView = b.top >= 0 && b.left >= 0 && b.bottom <= (window.innerHeight || document.documentElement.clientHeight) && b.right <= (window.innerWidth || document.documentElement.clientWidth);
+        if (!inView && typeof targetEl.scrollIntoView === 'function') {
+          targetEl.scrollIntoView({ behavior: 'instant', block: 'nearest', inline: 'nearest' });
         }
         const gRect = getElementGlobalRect(targetEl);
         if (gRect) {
@@ -788,8 +790,10 @@ export const AGENT_BROWSER_SCRIPT = `(() => {
     if (selector) {
       const el = querySelectorDeep(selector);
       if (el) {
-        if (typeof el.scrollIntoView === 'function') {
-          el.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'center' });
+        const b = el.getBoundingClientRect();
+        const inView = b.top >= 0 && b.left >= 0 && b.bottom <= (window.innerHeight || document.documentElement.clientHeight) && b.right <= (window.innerWidth || document.documentElement.clientWidth);
+        if (!inView && typeof el.scrollIntoView === 'function') {
+          el.scrollIntoView({ behavior: 'instant', block: 'nearest', inline: 'nearest' });
         }
         const gRect = getElementGlobalRect(el);
         if (gRect) {
@@ -813,8 +817,10 @@ export const AGENT_BROWSER_SCRIPT = `(() => {
     const el = selector ? querySelectorDeep(selector) : document.activeElement;
     if (!el) return false;
 
-    if (typeof el.scrollIntoView === 'function') {
-      el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    const bType = el.getBoundingClientRect();
+    const inViewType = bType.top >= 0 && bType.left >= 0 && bType.bottom <= (window.innerHeight || document.documentElement.clientHeight) && bType.right <= (window.innerWidth || document.documentElement.clientWidth);
+    if (!inViewType && typeof el.scrollIntoView === 'function') {
+      el.scrollIntoView({ behavior: 'instant', block: 'nearest', inline: 'nearest' });
     }
     const gRect = getElementGlobalRect(el);
     if (gRect) {

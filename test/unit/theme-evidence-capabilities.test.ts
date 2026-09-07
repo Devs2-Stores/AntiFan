@@ -404,6 +404,9 @@ describe('Phase 3: Theme Evidence Capabilities', () => {
           if (expr.includes('innerWidth')) {
             return { vw: 800, vh: 600, dh: 600, sx: 0, sy: 0 };
           }
+          if (expr.includes('const selectors =') || expr.includes('__antifanResolveMasks')) {
+            return [];
+          }
           if (expr.includes('getBoundingClientRect')) {
             return { x: 100, y: 200, width: 300, height: 400 };
           }

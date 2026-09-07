@@ -377,23 +377,16 @@ export function materializeRasterMasks(
       maskedAreaRatio: 0,
     };
   }
-  const effectiveSpace: VisualCaptureSpace = (space && space.scaleX > 0 && space.scaleY > 0)
-    ? space
-    : {
-        scaleX: (captureWidth > 0 && space?.crop?.width) ? captureWidth / space.crop.width : 1,
-        scaleY: (captureHeight > 0 && space?.crop?.height) ? captureHeight / space.crop.height : 1,
-        scrollX: space?.scrollX || 0,
-        scrollY: space?.scrollY || 0,
-        fullPage: Boolean(space?.fullPage),
-        crop: space?.crop,
-      };
+  if (!space || !(space.scaleX > 0) || !(space.scaleY > 0)) {
+    throw new MaskResolutionError('MASK_RESOLUTION_FAILED', entries, 0, 'Cannot materialize raster masks without a positive capture scale');
+  }
   if (!(captureWidth > 0) || !(captureHeight > 0)) {
     throw new MaskResolutionError('MASK_RESOLUTION_FAILED', entries, 0, 'Cannot materialize raster masks without known capture dimensions');
   }
 
   const rasterBoxes: RasterBox[] = [];
   for (const entry of resolved) {
-    const boxes = entry.cssBoxes.map((box) => transformMaskBoxToRaster(box, effectiveSpace));
+    const boxes = entry.cssBoxes.map((box) => transformMaskBoxToRaster(box, space));
     entry.rasterBoxes = boxes;
     rasterBoxes.push(...boxes);
   }

@@ -69,6 +69,8 @@ if (fs.existsSync(dispatcherSrc)) {
     dispatcherRaw +
     '\nwindow.TerminalWriteDispatcher = exports.TerminalWriteDispatcher;\nwindow.globalTerminalWriteDispatcher = exports.globalTerminalWriteDispatcher;\n';
   fs.writeFileSync(dispatcherDst, dispatcherWrapped, 'utf8');
+  const srcDst = path.join(rendererSrcDir, 'terminal-write-dispatcher.js');
+  try { fs.writeFileSync(srcDst, dispatcherWrapped, 'utf8'); } catch {}
 }
 // Copy scripts to .compiled/scripts for standalone deployment
 const scriptsSrcDir = path.join(ROOT, 'scripts');

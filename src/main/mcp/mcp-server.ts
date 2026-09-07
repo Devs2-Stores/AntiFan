@@ -394,6 +394,7 @@ export class AntiFanMcpServer {
             mobile: { type: 'boolean', description: 'Enable mobile touch emulation and viewport meta tags' },
             deviceScaleFactor: { type: 'number', description: 'Device pixel ratio (e.g. 2 for Retina/OLED, 1 for Standard)' },
             tabId: { type: 'string', description: 'Optional target tab ID (defaults to active tab)' },
+            reload: { type: 'boolean', description: 'Reload the tab after changing viewport to cleanly trigger responsive hydration' },
           },
           required: ['width', 'height'],
         },

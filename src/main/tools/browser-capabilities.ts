@@ -739,8 +739,8 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
     description: 'Set browser responsive viewport dimensions (width, height, mobile emulation, DPR)',
     risk: 'write',
     policy: makeBrowserPolicy({ effect: 'idempotent-write', risk: 'write', requiresBrowserTarget: false, lane: 'unbounded' }),
-    inputSchema: { type: 'object', properties: { width: { type: 'number' }, height: { type: 'number' }, mobile: { type: 'boolean' }, deviceScaleFactor: { type: 'number' }, tabId: { type: 'string' } }, required: ['width', 'height'] },
-    execute: (params: { width: number; height: number; mobile?: boolean; deviceScaleFactor?: number; tabId?: string }, context) => browser.setViewport(params, context.browserTarget),
+    inputSchema: { type: 'object', properties: { width: { type: 'number' }, height: { type: 'number' }, mobile: { type: 'boolean' }, deviceScaleFactor: { type: 'number' }, tabId: { type: 'string' }, reload: { type: 'boolean', description: 'Whether to reload the tab after changing viewport to ensure clean responsive hydration' } }, required: ['width', 'height'] },
+    execute: (params: { width: number; height: number; mobile?: boolean; deviceScaleFactor?: number; tabId?: string; reload?: boolean }, context) => browser.setViewport(params, context.browserTarget),
   });
 
   catalogue.register({
@@ -1127,8 +1127,8 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
     description: 'Alias for browser.set-viewport',
     risk: 'write',
     policy: makeBrowserPolicy({ effect: 'idempotent-write', risk: 'write', requiresBrowserTarget: false, lane: 'unbounded' }),
-    inputSchema: { type: 'object', properties: { width: { type: 'number' }, height: { type: 'number' }, mobile: { type: 'boolean' }, deviceScaleFactor: { type: 'number' }, tabId: { type: 'string' } }, required: ['width', 'height'] },
-    execute: (params: { width: number; height: number; mobile?: boolean; deviceScaleFactor?: number; tabId?: string }, context) => browser.setViewport(params, context.browserTarget),
+    inputSchema: { type: 'object', properties: { width: { type: 'number' }, height: { type: 'number' }, mobile: { type: 'boolean' }, deviceScaleFactor: { type: 'number' }, tabId: { type: 'string' }, reload: { type: 'boolean' } }, required: ['width', 'height'] },
+    execute: (params: { width: number; height: number; mobile?: boolean; deviceScaleFactor?: number; tabId?: string; reload?: boolean }, context) => browser.setViewport(params, context.browserTarget),
   });
 
   catalogue.register({

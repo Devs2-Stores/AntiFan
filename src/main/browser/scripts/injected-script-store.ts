@@ -194,15 +194,23 @@ export class InjectedScriptStore {
           if (!styleEl) {
             styleEl = document.createElement('style');
             styleEl.id = freezeStyleId;
-            styleEl.textContent = '* { animation-play-state: paused !important; transition-duration: 0s !important; }';
+            styleEl.textContent = '*:not([class*="menu"], [class*="menu"] *, [class*="nav"], [class*="nav"] *, [class*="dropdown"], [class*="dropdown"] *, [role="menu"], [role="menu"] *, [role="dialog"], [role="dialog"] *) { animation-play-state: paused !important; }';
             document.head.appendChild(styleEl);
           }
           if (!window.__antifanOriginalRAF) {
             window.__antifanOriginalRAF = window.requestAnimationFrame;
             window.__antifanRAFQueue = [];
             window.requestAnimationFrame = (cb) => {
+              const id = window.__antifanRAFQueue.length + 1;
               window.__antifanRAFQueue.push(cb);
-              return window.__antifanRAFQueue.length;
+              setTimeout(() => {
+                const idx = window.__antifanRAFQueue.indexOf(cb);
+                if (idx !== -1) {
+                  window.__antifanRAFQueue.splice(idx, 1);
+                  try { cb(performance.now()); } catch {}
+                }
+              }, 16);
+              return id;
             };
           }
           if (window.__antifanFreezeTimer) clearTimeout(window.__antifanFreezeTimer);
@@ -225,13 +233,15 @@ export class InjectedScriptStore {
               'margin-left': { value: el.style.getPropertyValue('margin-left'), priority: el.style.getPropertyPriority('margin-left') },
             });
           };
+          const isNavOrMenu = (el) => Boolean(el && typeof el.closest === 'function' && (el.closest('.category-menu') || el.closest('.category-navigation') || el.closest('nav') || el.closest('[class*="menu"]') || el.closest('[class*="dropdown"]')));
+          const isSlideContent = (el) => Boolean(el && ((el.classList && typeof el.classList.contains === 'function' && el.classList.contains('slide-content')) || (typeof el.className === 'string' && el.className.includes('slide-content'))));
+          const rawScrollContainers = Array.from(document.querySelectorAll('.slideshow, .carousel, [class*="slider"], [class*="slideshow"], .slick-slider, .swiper'));
+          const scrollContainers = rawScrollContainers.filter(el => !isNavOrMenu(el) && !isSlideContent(el));
 
-          const scrollContainers = document.querySelectorAll('.slideshow, .carousel, [class*="slider"], [class*="slideshow"], [class*="slide"]');
-          const trackElements = document.querySelectorAll('.s-content, .swiper-wrapper, .slick-track, [class*="slide-wrap"] > div, [class*="slider-track"]');
-
+          const rawTrackElements = Array.from(document.querySelectorAll('.s-content, .swiper-wrapper, .slick-track, .owl-stage, .flickity-slider, [class*="slide-wrap"] > div, [data-slider-track], .carousel-inner'));
+          const trackElements = rawTrackElements.filter(el => !isNavOrMenu(el) && !isSlideContent(el));
           scrollContainers.forEach(snapshotElement);
           trackElements.forEach(snapshotElement);
-
           scrollContainers.forEach(el => {
             if (typeof el.scrollTo === 'function') {
               el.scrollTo({ left: 0, top: 0, behavior: 'instant' });

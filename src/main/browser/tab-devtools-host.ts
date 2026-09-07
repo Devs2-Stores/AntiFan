@@ -970,7 +970,7 @@ export class TabDevToolsHost {
     if (typeof switchTabForCapture === 'function' && targetId !== activeBeforeCapture) {
       switchTabForCapture(targetId);
       try {
-        await this.evalJs('new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)))', targetId, paneId || target.focusedPane);
+        await this.evalJs('new Promise(r => { const t = setTimeout(r, 60); const raf = typeof window.__antifanOriginalRAF === "function" ? window.__antifanOriginalRAF : (typeof requestAnimationFrame === "function" ? requestAnimationFrame : null); if (raf) { raf(() => raf(() => { clearTimeout(t); r(); })); } })', targetId, paneId || target.focusedPane);
         await new Promise((r) => setTimeout(r, 120));
       } catch {}
     }
@@ -1111,10 +1111,11 @@ export class TabDevToolsHost {
           } catch {}
         }
 
-        // Tier 2: CDP Page.captureScreenshot with surface sync & compositor wake kick (800ms race)
+        // Tier 2: CDP Page.captureScreenshot with surface sync & compositor wake kick (4000ms race)
         try {
           const cdpTask = async (): Promise<string | null> => {
             await this.sendCdpCommand(wc, 'Page.enable');
+            await this.sendCdpCommand(wc, 'DOM.enable').catch(() => {});
             await this.sendCdpCommand(wc, 'DOM.getDocument', { depth: 1 }).catch(() => {});
             const cdpRes = await this.sendCdpCommand<{ data?: string }>(wc, 'Page.captureScreenshot', {
               format,
@@ -1127,13 +1128,13 @@ export class TabDevToolsHost {
             });
             return (cdpRes && typeof cdpRes.data === 'string' && cdpRes.data.length > 0) ? cdpRes.data : null;
           };
-          const cdpResult = await withTimeout(cdpTask(), 800, null);
+          const cdpResult = await withTimeout(cdpTask(), 4000, null);
           if (cdpResult && cdpResult.length > 0) {
             return cdpResult;
           }
         } catch {}
 
-        // Tier 3: Offscreen Native View Paint Fallback (1000ms race)
+        // Tier 3: Offscreen Native View Paint Fallback (5000ms race)
         try {
           const offscreenTask = async (): Promise<string | null> => {
             const cdpRes = await this.sendCdpCommand<{ data?: string }>(wc, 'Page.captureScreenshot', {
@@ -1147,15 +1148,15 @@ export class TabDevToolsHost {
             });
             return (cdpRes && typeof cdpRes.data === 'string' && cdpRes.data.length > 0) ? cdpRes.data : null;
           };
-          const tier3Result = await withTimeout(offscreenTask(), 1000, null);
+          const tier3Result = await withTimeout(offscreenTask(), 5000, null);
           if (tier3Result && tier3Result.length > 0) {
             return tier3Result;
           }
         } catch {}
-        // If all 3 tiers yielded empty string, do a fast retry after 100ms
+        // If all tiers yielded empty string, do a fast retry after 150ms
         try {
-          await new Promise((r) => setTimeout(r, 100));
-          const retryImg = await withTimeout(wc.capturePage(rect), 800, null);
+          await new Promise((r) => setTimeout(r, 150));
+          const retryImg = await withTimeout(wc.capturePage(rect), 1500, null);
           if (retryImg && typeof retryImg.isEmpty === 'function' && !retryImg.isEmpty()) {
             return format === 'jpeg' ? retryImg.toJPEG(quality).toString('base64') : retryImg.toPNG().toString('base64');
           }
@@ -1236,7 +1237,7 @@ export class TabDevToolsHost {
     if (typeof switchTabForCapture === 'function' && targetId !== activeBeforeCapture) {
       switchTabForCapture(targetId);
       try {
-        await this.evalJs('new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)))', targetId, effectivePane);
+        await this.evalJs('new Promise(r => { const t = setTimeout(r, 60); const raf = typeof window.__antifanOriginalRAF === "function" ? window.__antifanOriginalRAF : (typeof requestAnimationFrame === "function" ? requestAnimationFrame : null); if (raf) { raf(() => raf(() => { clearTimeout(t); r(); })); } })', targetId, effectivePane);
         await new Promise((r) => setTimeout(r, 120));
       } catch {}
     }
@@ -1296,18 +1297,45 @@ export class TabDevToolsHost {
           const safeHeight = Math.max(1, Math.min(Number(docMetrics?.dh) || cssViewport.height, 16384));
           clip = { x: 0, y: 0, width: safeWidth, height: safeHeight, scale: 1 };
         }
-        // Canonical CDP Page.captureScreenshot: foreground and background both use CDP
-        const cdpRes = await this.sendCdpCommand<{ data?: string }>(
-          wc,
-          'Page.captureScreenshot',
-          {
-            format: 'png',
-            fromSurface: false,
-            captureBeyondViewport: true,
-            clip,
-          },
-          isFullPage ? 45_000 : 15_000
-        );
+        // Canonical CDP Page.captureScreenshot with multi-tier surface fallback
+        let cdpRes: { data?: string } | undefined;
+        try {
+          cdpRes = await this.sendCdpCommand<{ data?: string }>(
+            wc,
+            'Page.captureScreenshot',
+            {
+              format: 'png',
+              fromSurface: isForeground,
+              captureBeyondViewport: !isForeground,
+              clip,
+            },
+            isFullPage ? 45_000 : 15_000
+          );
+        } catch (initialErr) {
+          try {
+            cdpRes = await this.sendCdpCommand<{ data?: string }>(
+              wc,
+              'Page.captureScreenshot',
+              {
+                format: 'png',
+                fromSurface: !isForeground,
+                captureBeyondViewport: isForeground,
+                clip,
+              },
+              isFullPage ? 45_000 : 15_000
+            );
+          } catch {
+            try {
+              const img = await wc.capturePage(rect);
+              if (img && typeof img.isEmpty === 'function' && !img.isEmpty()) {
+                cdpRes = { data: img.toPNG().toString('base64') };
+              }
+            } catch {}
+            if (!cdpRes || !cdpRes.data) {
+              throw initialErr;
+            }
+          }
+        }
         if (!cdpRes || typeof cdpRes.data !== 'string' || cdpRes.data.length === 0) {
           throw new Error(`CDP Page.captureScreenshot returned empty payload on tab '${targetId}'`);
         }

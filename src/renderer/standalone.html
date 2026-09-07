@@ -14,7 +14,7 @@
   </style>
   <link rel="stylesheet" href="standalone.css">
   <link rel="stylesheet" href="standalone-overrides.css">
-  <link rel="stylesheet" href="../../../node_modules/@xterm/xterm/css/xterm.css">
+  <link id="xtermCssLink" rel="stylesheet" href="../../../node_modules/@xterm/xterm/css/xterm.css" onerror="this.onerror=null;this.href='../../node_modules/@xterm/xterm/css/xterm.css';">
 </head>
 <body style="background-color:#080c13;">
   <main class="standalone">
@@ -120,11 +120,22 @@
     <!-- AFFINITY TAB PICKER POPOVER -->
     <div id="affinityPickerPopover" class="terminal-affinity-picker" style="display:none;"></div>
   </main>
-  <script src="../../../node_modules/@xterm/xterm/lib/xterm.js"></script>
-  <script src="../../../node_modules/@xterm/addon-fit/lib/addon-fit.js"></script>
-  <script src="../../../node_modules/@xterm/addon-webgl/lib/addon-webgl.js"></script>
-  <script src="../../../node_modules/@xterm/addon-web-links/lib/addon-web-links.js"></script>
-  <script src="terminal-write-dispatcher.js"></script>
-  <script src="standalone.js"></script>
+  <script>
+    (function() {
+      const isCompiled = window.location.pathname.replace(/\\/g, '/').includes('.compiled');
+      const prefix = isCompiled ? '../../../node_modules/' : '../../node_modules/';
+      const scripts = [
+        prefix + '@xterm/xterm/lib/xterm.js',
+        prefix + '@xterm/addon-fit/lib/addon-fit.js',
+        prefix + '@xterm/addon-webgl/lib/addon-webgl.js',
+        prefix + '@xterm/addon-web-links/lib/addon-web-links.js',
+        'terminal-write-dispatcher.js',
+        'standalone.js'
+      ];
+      scripts.forEach(function(src) {
+        document.write('<script src="' + src + '"><\/script>');
+      });
+    })();
+  </script>
 </body>
 </html>

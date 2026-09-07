@@ -121,7 +121,7 @@ export interface BrowserHostPort {
   agentSnapshot?(tabId?: string, paneId?: 'desktop' | 'mobile', selector?: string, viewportOnly?: boolean): Promise<string>;
   agentFind?(params: { text?: string; regex?: string; tabId?: string; paneId?: 'desktop' | 'mobile'; maxMatches?: number }): Promise<unknown>;
   sendKeyboardPress?(params: { key: string; modifiers?: string[]; tabId?: string }): Promise<{ success: boolean; key: string; modifiers: string[] }>;
-  setViewportSize?(options: { width: number; height: number; mobile?: boolean; deviceScaleFactor?: number; tabId?: string }): Promise<boolean> | boolean;
+  setViewportSize?(options: { width: number; height: number; mobile?: boolean; deviceScaleFactor?: number; tabId?: string; reload?: boolean }): Promise<boolean> | boolean;
   setDevicePreset?(tabId: string, presetId: string): boolean;
   getDevicePresets?(): unknown[];
   setZoom?(tabId: string, zoomFactor: number): boolean;
@@ -789,9 +789,14 @@ export class BrowserControlPort {
       const switchTabForCapture = this.host.switchTab;
       if (typeof switchTabForCapture === 'function' && this.host.getActiveTabId && this.host.getActiveTabId() !== tabId) {
         switchTabForCapture(tabId);
+        await new Promise((r) => setTimeout(r, 150));
       }
       try {
-        const base64 = await this.host.captureScreenshot(undefined, tabId, paneId, options);
+        let base64 = await this.host.captureScreenshot(undefined, tabId, paneId, options);
+        if (!base64 || base64.length === 0) {
+          await new Promise((r) => setTimeout(r, 250));
+          base64 = await this.host.captureScreenshot(undefined, tabId, paneId, options);
+        }
         if (!base64 || base64.length === 0) {
           throw new CapabilityError('TARGET_STALE', `Failed to capture non-empty viewport screenshot on tab '${tabId}' (document may still be rendering or target unavailable)`);
         }
@@ -1384,7 +1389,7 @@ export class BrowserControlPort {
       });
     }
   }
-  async setViewport(options: { width: number; height: number; mobile?: boolean; deviceScaleFactor?: number; tabId?: string }, target?: BrowserTarget): Promise<{ success: boolean; width: number; height: number; mobile?: boolean; presetId: string }> {
+  async setViewport(options: { width: number; height: number; mobile?: boolean; deviceScaleFactor?: number; tabId?: string; reload?: boolean }, target?: BrowserTarget): Promise<{ success: boolean; width: number; height: number; mobile?: boolean; presetId: string; reloaded?: boolean }> {
     if (!this.host.setViewportSize) throw new CapabilityError('CAPABILITY_NOT_FOUND', 'setViewportSize is not supported by host');
     if (typeof options.width !== 'number' || options.width <= 0 || typeof options.height !== 'number' || options.height <= 0) {
       throw new CapabilityError('INVALID_ARGUMENT', 'width and height must be positive numbers');
@@ -1394,6 +1399,18 @@ export class BrowserControlPort {
     if (!ok) throw new CapabilityError('CAPABILITY_NOT_FOUND', `Failed to set viewport on tab ${effectiveTabId}`);
     let observedWidth: number | undefined;
     let observedHeight: number | undefined;
+    let reloaded = false;
+    if (options.reload) {
+      try {
+        if (typeof this.host.reloadAndWait === 'function') {
+          await this.host.reloadAndWait(effectiveTabId);
+          reloaded = true;
+        } else if (typeof this.host.reload === 'function') {
+          await this.host.reload(effectiveTabId);
+          reloaded = true;
+        }
+      } catch {}
+    }
     if (typeof this.host.evalJs === 'function') {
       try {
         const metrics = await this.host.evalJs('({ innerWidth: window.innerWidth, innerHeight: window.innerHeight })', effectiveTabId) as { innerWidth?: number; innerHeight?: number } | null;
@@ -1409,6 +1426,7 @@ export class BrowserControlPort {
       height: options.height,
       mobile: options.mobile ?? (options.width < 768),
       presetId: `custom-${options.width}x${options.height}`,
+      ...(options.reload !== undefined ? { reloaded } : {}),
       ...(observedWidth !== undefined ? { observedWidth, observedHeight } : {}),
     };
   }
@@ -2582,8 +2600,12 @@ export class BrowserControlPort {
       : null;
 
     return this.passivePool.execute(tabId, async () => {
-      const requiredMasks = Array.isArray(params.maskSelectors) ? params.maskSelectors : [];
+      const rawRequired = Array.isArray(params.maskSelectors) ? params.maskSelectors : [];
       const userOptional = Array.isArray(params.maskOptionalSelectors) ? params.maskOptionalSelectors : [];
+      // Auto-promote known dynamic third-party selectors to optional to prevent brittle test aborts
+      const isDynamicWidget = (s: string) => /preview[-_]bar|chat|zalo|popup|notification|fb-|subiz|tawk|letschat/i.test(s);
+      const requiredMasks = rawRequired.filter((s) => !isDynamicWidget(s));
+      const autoPromotedOptional = rawRequired.filter((s) => isDynamicWidget(s));
       const defaultStorefrontOptional = [
         '#haravan-notification',
         '[id*="haravan-notification"]',
@@ -2607,7 +2629,7 @@ export class BrowserControlPort {
         '[class*="chat-widget"]',
         '[id*="chat-widget"]',
       ];
-      const optionalMasks = Array.from(new Set([...userOptional, ...defaultStorefrontOptional]));
+      const optionalMasks = Array.from(new Set([...userOptional, ...autoPromotedOptional, ...defaultStorefrontOptional]));
       // Record the active tab so a background comparison tab can be foregrounded
       // for capture and restored afterwards. Background WebContentsViews are
       // detached from window.contentView, and CDP Page.captureScreenshot cannot

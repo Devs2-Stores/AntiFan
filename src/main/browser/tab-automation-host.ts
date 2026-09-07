@@ -618,6 +618,11 @@ export class TabAutomationHost {
         data: { ok: true, executed: true, tier: 'cdp_trusted', executionTier: 'cdp_trusted', x: hoverX, y: hoverY, rect },
       };
     } catch (cdpErr) {
+      if (focusEmulationEnabled) {
+        try {
+          await this.sendCdpInputCommand(wc, 'Emulation.setFocusEmulationEnabled', { enabled: false }, 1000);
+        } catch {}
+      }
       console.warn(`[tab-automation-host] CDP Input.dispatchMouseEvent (mouseMoved) failed, using fallback: ${cdpErr instanceof Error ? cdpErr.message : String(cdpErr)}`);
       return {
         success: false,
@@ -625,12 +630,6 @@ export class TabAutomationHost {
         executionTier: 'cdp_trusted',
         reason: `CDP dispatch failed: ${cdpErr instanceof Error ? cdpErr.message : String(cdpErr)}`,
       };
-    } finally {
-      if (focusEmulationEnabled) {
-        try {
-          await this.sendCdpInputCommand(wc, 'Emulation.setFocusEmulationEnabled', { enabled: false }, 1000);
-        } catch {}
-      }
     }
   }
   public async dispatchAgentAction(
@@ -798,6 +797,9 @@ export class TabAutomationHost {
             return { success: Boolean(trajRes.success), data: trajRes };
           }
           if (action === 'clear') {
+            try {
+              await this.sendCdpInputCommand(wc, 'Emulation.setFocusEmulationEnabled', { enabled: false }, 1000);
+            } catch {}
             await this.executeInIsolatedWorld(wc, `(() => {
               const ids = ['__antifan_agent_overlay__', '__antifan_agent_cursor__', '__antifan_agent_highlight__', '__antifan_agent_banner__', '__antifan_agent_style__'];
               for (let i = 0; i < ids.length; i++) {

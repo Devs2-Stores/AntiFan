@@ -5658,7 +5658,7 @@ export class NativeTabHost extends EventEmitter {
       return { success: true, key: params.key, modifiers: params.modifiers || [] };
     });
   }
-  public async setViewportSize(options: { width: number; height: number; mobile?: boolean; deviceScaleFactor?: number; tabId?: string }): Promise<boolean> {
+  public async setViewportSize(options: { width: number; height: number; mobile?: boolean; deviceScaleFactor?: number; tabId?: string; reload?: boolean }): Promise<boolean> {
     const targetId = options.tabId || this.activeTabId;
     const tab = this.tabs.get(targetId);
     if (!tab) return false;
@@ -5691,6 +5691,21 @@ export class NativeTabHost extends EventEmitter {
     this.broadcastState();
 
     await this.applyCdpTouchEmulation(tab.view.webContents, mobile);
+    try {
+      await tab.view.webContents.executeJavaScript(`
+        window.dispatchEvent(new Event('resize'));
+        window.dispatchEvent(new Event('orientationchange'));
+      `);
+    } catch {}
+    if (options.reload) {
+      try {
+        if (typeof this.reloadAndWait === 'function') {
+          await this.reloadAndWait(targetId);
+        } else {
+          tab.view.webContents.reload();
+        }
+      } catch {}
+    }
     return true;
   }
 
