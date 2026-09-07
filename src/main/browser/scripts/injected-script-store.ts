@@ -29,7 +29,7 @@ export class InjectedScriptStore {
   private readonly diskOverrides = new Map<string, { content: string; mtimeMs: number }>();
   private overrideDir: string | null = null;
   private readonly autoResolveOverrideDir: boolean;
-  private readonly customCandidates: string[] | null = null;
+  private readonly overrideCandidates: readonly string[] | null = null;
 
   public static getInstance(): InjectedScriptStore {
     if (!InjectedScriptStore.instance) {
@@ -38,10 +38,12 @@ export class InjectedScriptStore {
     return InjectedScriptStore.instance;
   }
 
-  constructor(options?: { overrideDir?: string | null; customCandidates?: string[] | null }) {
+  constructor(options?: { overrideDir?: string | null; overrideCandidates?: string[] | null }) {
     this.registerDefaults();
-    if (options && 'customCandidates' in options) {
-      this.customCandidates = options.customCandidates ?? null;
+    if (options && 'overrideCandidates' in options) {
+      this.overrideCandidates = Array.isArray(options.overrideCandidates)
+        ? Object.freeze([...options.overrideCandidates])
+        : null;
     }
     if (options && 'overrideDir' in options) {
       this.overrideDir = options.overrideDir ?? null;
@@ -53,12 +55,11 @@ export class InjectedScriptStore {
   }
 
   private resolveOverrideDir(): void {
-    const candidates = this.customCandidates || ([
+    const candidates = this.overrideCandidates ?? ([
       process.env.ANTIFAN_CDP_SCRIPTS_DIR,
       path.join(process.cwd(), 'scripts', 'cdp'),
       path.join(__dirname, '..', '..', '..', '..', 'scripts', 'cdp'),
     ].filter(Boolean) as string[]);
-
     for (const dir of candidates) {
       try {
         if (fs.existsSync(dir)) {

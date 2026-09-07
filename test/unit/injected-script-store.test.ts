@@ -88,7 +88,7 @@ describe('InjectedScriptStore', () => {
     try {
       fs.writeFileSync(path.join(tempDir, 'media-freeze.source.js'), '/* disk override */', 'utf8');
 
-      const store = new InjectedScriptStore({ overrideDir: null, customCandidates: [tempDir] });
+      const store = new InjectedScriptStore({ overrideDir: null, overrideCandidates: [tempDir] });
       const script = store.getScript('media.freeze');
       assert.ok(!script.includes('/* disk override */'), 'Should ignore disk override when overrideDir is explicitly null');
     } finally {
@@ -101,7 +101,7 @@ describe('InjectedScriptStore', () => {
     const lateDir = path.join(tempParent, 'cdp');
     try {
       // Pass candidate path that does NOT exist yet
-      const store = new InjectedScriptStore({ customCandidates: [lateDir] });
+      const store = new InjectedScriptStore({ overrideCandidates: [lateDir] });
       assert.strictEqual(store.listScripts().find((s) => s.id === 'media.freeze')?.hasDiskOverride, false);
 
       // Create late directory and write override file after store instantiation

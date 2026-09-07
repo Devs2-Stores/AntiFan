@@ -212,12 +212,11 @@ button {
   border: 1px solid rgba(255, 255, 255, 0.07);
   transition: background 0.15s ease, border-color 0.15s ease, transform 0.12s ease;
   overflow: hidden;
-  flex: 0 0 auto;
-  min-width: max-content;
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 200px;
   user-select: none;
-  cursor: grab;
 }
-
 .terminal-tab-wrap:hover {
   background: rgba(255, 255, 255, 0.06);
   border-color: rgba(255, 255, 255, 0.14);
@@ -284,9 +283,10 @@ button {
   cursor: pointer;
   white-space: nowrap;
   transition: color 0.15s ease;
-  flex: 0 0 auto;
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
 }
-
 .terminal-tab-wrap.active .terminal-tab {
   color: #f0f9ff;
   font-weight: 600;
@@ -369,17 +369,18 @@ button {
 
 .terminal-tab-title {
   white-space: nowrap;
-  flex-shrink: 0;
+  flex: 0 1 auto;
+  min-width: 20px;
+  max-width: 90px;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .terminal-tab-affinity-badge {
   display: inline-flex;
   align-items: center;
   gap: 3px;
-  /* Fixed width: the bound badge mirrors the live tab title; a
-     content-sized pill reflows the whole terminal tab strip on every
-     page document.title change. */
-  width: 130px;
+  width: 78px;
   box-sizing: border-box;
   flex-shrink: 0;
   overflow: hidden;
@@ -387,7 +388,7 @@ button {
   white-space: nowrap;
   font-size: 10px;
   padding: 1px 5px;
-  border-radius: 3px;
+  border-radius: 4px;
   background: rgba(56, 189, 248, 0.12);
   color: #38bdf8;
   border: 1px solid rgba(56, 189, 248, 0.25);
@@ -395,7 +396,6 @@ button {
   cursor: pointer;
   transition: all 0.15s ease;
 }
-
 .terminal-tab-affinity-badge:hover {
   background: rgba(56, 189, 248, 0.25);
   border-color: rgba(56, 189, 248, 0.5);
