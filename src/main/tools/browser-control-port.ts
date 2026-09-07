@@ -2911,7 +2911,11 @@ export class BrowserControlPort {
       if (typeof this.host.captureVerificationScreenshot !== 'function') {
         throw new CapabilityError('CAPABILITY_NOT_FOUND', "Host does not implement required 'captureVerificationScreenshot' canonical CDP interface");
       }
-      // Capture directly from targetId without stealing visual tab switch
+      // Ensure target tab is foregrounded for capture so its WebContentsView is attached and rendered to full viewport
+      if (typeof this.host.switchTab === 'function' && this.host.getActiveTabId && this.host.getActiveTabId() !== tabId) {
+        this.host.switchTab(tabId);
+        await new Promise((r) => setTimeout(r, 150));
+      }
       curEnvelope = await this.host.captureVerificationScreenshot(resolvedRect, tabId, effectivePane, captureOpts);
       if (!curEnvelope || !curEnvelope.data || curEnvelope.data.length === 0) {
         await new Promise((r) => setTimeout(r, 150));
@@ -3126,7 +3130,11 @@ export class BrowserControlPort {
             }
           } catch {}
         }
-        // Capture directly from comparison tab without stealing visual tab switch
+        // Ensure comparison tab is foregrounded for capture so its WebContentsView is attached and rendered to full viewport
+        if (typeof this.host.switchTab === 'function' && this.host.getActiveTabId && this.host.getActiveTabId() !== compTabTarget) {
+          this.host.switchTab(compTabTarget);
+          await new Promise((r) => setTimeout(r, 150));
+        }
         compEnvelope = await this.host.captureVerificationScreenshot(comparisonRect, compTabTarget, effectivePane, captureOpts);
         if (!compEnvelope || !compEnvelope.data || compEnvelope.data.length === 0) {
           await new Promise((r) => setTimeout(r, 150));
