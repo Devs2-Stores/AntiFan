@@ -3210,6 +3210,22 @@ export class NativeTabHost extends EventEmitter {
 
     this.tabs.set(id, { view, state, focusedPane: 'desktop' });
     this.tabOrder.push(id);
+    try {
+      const activeTermId = TerminalManager.getInstance().getActiveSessionId();
+      if (activeTermId) {
+        state.terminalSessionId = activeTermId;
+        let pool = this.sessionTabPools.get(activeTermId);
+        if (!pool) {
+          pool = new Set();
+          this.sessionTabPools.set(activeTermId, pool);
+        }
+        pool.add(id);
+        const session = TerminalManager.getInstance().getSession(activeTermId);
+        if (session) {
+          this.adoptChildTab(activeTermId, id, session.sessionGeneration);
+        }
+      }
+    } catch {}
 
     if (capsuleIdForTab && url.startsWith('antifan-preview://')) {
       const cap = this.capsuleManager.list().find((c) => c.id.toLowerCase() === capsuleIdForTab!.toLowerCase());

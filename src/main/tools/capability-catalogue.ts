@@ -271,10 +271,16 @@ export class CapabilityCatalogue {
           : false;
 
         if (!isAllowed) {
-          throw new CapabilityError(
-            'TARGET_MISMATCH',
-            `Tab ID mismatch: expected ${context.browserTarget.tabId}, got ${reqTabId}. Note: In split review mode, use the bound tabId with paneId: "mobile" to target the mobile pane.`
-          );
+          // Check if tab is allowed for terminal session or if canonicalId exists in live tabs
+          const isResolvedAllowed = this.options.isTabAllowed
+            ? this.options.isTabAllowed(canonicalId, context.browserTarget.tabId) === true
+            : false;
+          if (!isResolvedAllowed) {
+            throw new CapabilityError(
+              'TARGET_MISMATCH',
+              `Tab ID mismatch: expected ${context.browserTarget.tabId}, got ${reqTabId}. Note: In split review mode, use the bound tabId with paneId: "mobile" to target the mobile pane.`
+            );
+          }
         }
 
         const liveDocGen = this.options.getDocumentGeneration

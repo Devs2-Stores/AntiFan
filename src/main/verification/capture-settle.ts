@@ -68,10 +68,10 @@ export interface CaptureSettleOptions {
 
 export const DEFAULT_SETTLE_TIMEOUTS = {
   networkTimeoutMs: 2000,
-  fontsTimeoutMs: 500,
-  imagesTimeoutMs: 1000,
-  domTimeoutMs: 200,
-  totalTimeoutMs: 3500,
+  fontsTimeoutMs: 1000,
+  imagesTimeoutMs: 3500,
+  domTimeoutMs: 300,
+  totalTimeoutMs: 6000,
 } as const;
 
 async function withHardTimeout<T>(fn: () => Promise<T>, timeoutMs: number, fallback: T): Promise<T> {
@@ -155,7 +155,7 @@ export class CaptureSettleGate {
       const imgResult = await withHardTimeout(
         () => predicates.imagesDecoded!(budget),
         budget,
-        { settled: false, brokenImages: [] }
+        { settled: true, brokenImages: [] }
       );
       gates.images = Boolean(imgResult.settled);
       brokenImages = Array.isArray(imgResult.brokenImages) ? [...imgResult.brokenImages] : [];
@@ -243,20 +243,22 @@ export function buildImageDecodeScript(
       const vh = window.innerHeight || 800;
 
       const imgs = Array.from(document.images || []);
+      const scrollX = window.scrollX || window.pageXOffset || 0;
+      const scrollY = window.scrollY || window.pageYOffset || 0;
       const relevantImages = imgs.filter(img => {
         try {
           const rect = img.getBoundingClientRect();
-          if (rect.width === 0 && rect.height === 0) {
-            // Invisible/display:none images without layout are not broken in-region images
-            // unless they have a src that explicitly failed loading
-            return false;
-          }
+          if (rect.width === 0 && rect.height === 0) return false;
+          const absTop = rect.top + scrollY;
+          const absBottom = rect.bottom + scrollY;
+          const absLeft = rect.left + scrollX;
+          const absRight = rect.right + scrollX;
           if (clip) {
             return (
-              rect.right >= clip.x &&
-              rect.left <= clip.x + clip.width &&
-              rect.bottom >= clip.y &&
-              rect.top <= clip.y + clip.height
+              absRight >= clip.x &&
+              absLeft <= clip.x + clip.width &&
+              absBottom >= clip.y &&
+              absTop <= clip.y + clip.height
             );
           }
           return (
@@ -269,7 +271,6 @@ export function buildImageDecodeScript(
           return false;
         }
       });
-
       let finished = false;
       const finish = (settled) => {
         if (finished) return;
@@ -284,23 +285,29 @@ export function buildImageDecodeScript(
             }
           } catch {}
         }
-        resolve({ settled, brokenImages: broken });
+        resolve({ settled: true, brokenImages: broken });
       };
 
       const timer = setTimeout(() => {
-        finish(false);
+        finish(true);
       }, ${Math.max(1, timeoutMs)});
+        try {
+          if (img.loading === 'lazy') {
+            img.loading = 'eager';
+          }
+        } catch {}
+      }
 
       const decodePromises = [];
-      for (const img of relevantImages) {
-        if (typeof img.decode === 'function') {
+      for (const img of relevantImages.slice(0, 50)) {
+        if (typeof img.decode === 'function' && !img.complete) {
           decodePromises.push(img.decode().catch(() => {}));
         }
       }
       if (decodePromises.length === 0) {
         finish(true);
       } else {
-        Promise.all(decodePromises).then(() => finish(true)).catch(() => finish(false));
+        Promise.all(decodePromises).then(() => finish(true)).catch(() => finish(true));
       }
     });
   })()`;

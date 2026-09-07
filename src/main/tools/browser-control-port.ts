@@ -2865,9 +2865,7 @@ export class BrowserControlPort {
       if (typeof this.host.captureVerificationScreenshot !== 'function') {
         throw new CapabilityError('CAPABILITY_NOT_FOUND', "Host does not implement required 'captureVerificationScreenshot' canonical CDP interface");
       }
-      if (this.host.switchTab && this.host.getActiveTabId && this.host.getActiveTabId() !== tabId) {
-        this.host.switchTab(tabId);
-      }
+      // Capture directly from targetId without stealing visual tab switch
       curEnvelope = await this.host.captureVerificationScreenshot(resolvedRect, tabId, effectivePane, captureOpts);
       if (!curEnvelope || !curEnvelope.data || curEnvelope.data.length === 0) {
         await new Promise((r) => setTimeout(r, 150));
@@ -3082,9 +3080,7 @@ export class BrowserControlPort {
             }
           } catch {}
         }
-        if (this.host.switchTab && this.host.getActiveTabId && this.host.getActiveTabId() !== compTabTarget) {
-          this.host.switchTab(compTabTarget);
-        }
+        // Capture directly from comparison tab without stealing visual tab switch
         compEnvelope = await this.host.captureVerificationScreenshot(comparisonRect, compTabTarget, effectivePane, captureOpts);
         if (!compEnvelope || !compEnvelope.data || compEnvelope.data.length === 0) {
           await new Promise((r) => setTimeout(r, 150));

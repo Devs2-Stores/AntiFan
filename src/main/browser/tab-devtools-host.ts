@@ -522,7 +522,17 @@ export class TabDevToolsHost {
 
     const draining = this.cdpDrainingTargets.get(wcId);
     if (draining) {
-      throw new Error(`TARGET_BUSY_DRAINING: Cannot admit CDP command ${method}; target ${wcId} is draining timed-out command ${draining.method}`);
+      // Attempt auto-recovery: detach and re-attach debugger to clear stuck CDP pipe
+      try {
+        if (wc.debugger.isAttached()) {
+          wc.debugger.detach();
+        }
+        this.cdpDrainingTargets.delete(wcId);
+        this.cdpQueues.delete(wcId);
+        this.cdpAttachedWebContents.delete(wcId);
+      } catch (detachErr) {
+        throw new Error(`TARGET_BUSY_DRAINING: Cannot admit CDP command ${method}; target ${wcId} is draining timed-out command ${draining.method}`);
+      }
     }
 
     if (!this.cdpAttachedWebContents.has(wcId)) {
@@ -583,7 +593,8 @@ export class TabDevToolsHost {
       }
       this.cdpListeners.set(wcId, { onDetach, onNavigate, onMessage });
     }
-    const boundedTimeoutMs = Math.min(30_000, Math.max(1, timeoutMs));
+    const maxCap = method === 'Page.captureScreenshot' ? 60_000 : 30_000;
+    const boundedTimeoutMs = Math.min(maxCap, Math.max(1, timeoutMs));
     let isCallerTimedOut = false;
     let isCommandDispatched = false;
     let isCommandSettled = false;
@@ -1280,15 +1291,18 @@ export class TabDevToolsHost {
           const safeHeight = Math.max(1, Math.min(Number(docMetrics?.dh) || cssViewport.height, 16384));
           clip = { x: 0, y: 0, width: safeWidth, height: safeHeight, scale: 1 };
         }
-
         // Canonical CDP Page.captureScreenshot: foreground and background both use CDP
-        const cdpRes = await this.sendCdpCommand<{ data?: string }>(wc, 'Page.captureScreenshot', {
-          format: 'png',
-          fromSurface: isForeground,
-          captureBeyondViewport: !isForeground || isFullPage,
-          clip,
-        });
-
+        const cdpRes = await this.sendCdpCommand<{ data?: string }>(
+          wc,
+          'Page.captureScreenshot',
+          {
+            format: 'png',
+            fromSurface: isForeground,
+            captureBeyondViewport: !isForeground || isFullPage,
+            clip,
+          },
+          isFullPage ? 45_000 : 15_000
+        );
         if (!cdpRes || typeof cdpRes.data !== 'string' || cdpRes.data.length === 0) {
           throw new Error(`CDP Page.captureScreenshot returned empty payload on tab '${targetId}'`);
         }
