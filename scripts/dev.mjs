@@ -93,12 +93,15 @@ async function relaunchElectron() {
       log('Restarting AntiFan Electron...');
       await killTree(electronProc);
       electronProc = null;
+      // Allow Windows kernel mutex / file locks for single-instance lock to release cleanly
+      await new Promise((r) => setTimeout(r, 800));
     }
     log('Starting AntiFan Browser Desktop...');
     const env = { ...process.env, NODE_ENV: 'development' };
     delete env.ELECTRON_RUN_AS_NODE;
     electronProc = spawn(electronBin, ['.', '--dev'], { cwd: ROOT, stdio: 'inherit', env });
-    electronProc.on('exit', () => {
+    electronProc.on('exit', (code, signal) => {
+      log(`Electron process exited (code: ${code}, signal: ${signal})`);
       electronProc = null;
     });
   } finally {
@@ -190,7 +193,7 @@ const dispatcher = createChangeDispatcher({
   getTscErrors: () => tscHasErrors,
   getTscSettledPromise: () => tscSettledPromise,
   getElectronProc: () => electronProc,
-  debounceMs: 500,
+  debounceMs: 1200,
   log,
 });
 

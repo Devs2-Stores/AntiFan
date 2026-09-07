@@ -969,6 +969,10 @@ export class TabDevToolsHost {
     const switchTabForCapture = this.ctx.switchTab;
     if (typeof switchTabForCapture === 'function' && targetId !== activeBeforeCapture) {
       switchTabForCapture(targetId);
+      try {
+        await this.evalJs('new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)))', targetId, paneId || target.focusedPane);
+        await new Promise((r) => setTimeout(r, 120));
+      } catch {}
     }
     const isForeground = targetId === this.ctx.getActiveTabId();
     return this.ctx.withTabAgentWorking(targetId, async () => {
@@ -1231,6 +1235,10 @@ export class TabDevToolsHost {
     const switchTabForCapture = this.ctx.switchTab;
     if (typeof switchTabForCapture === 'function' && targetId !== activeBeforeCapture) {
       switchTabForCapture(targetId);
+      try {
+        await this.evalJs('new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)))', targetId, effectivePane);
+        await new Promise((r) => setTimeout(r, 120));
+      } catch {}
     }
     const isForeground = targetId === this.ctx.getActiveTabId();
 
@@ -1294,8 +1302,8 @@ export class TabDevToolsHost {
           'Page.captureScreenshot',
           {
             format: 'png',
-            fromSurface: isForeground,
-            captureBeyondViewport: !isForeground || isFullPage,
+            fromSurface: false,
+            captureBeyondViewport: true,
             clip,
           },
           isFullPage ? 45_000 : 15_000

@@ -213,7 +213,9 @@ export class BlueprintExtractor {
 
       const items = [
         ...DomTreeParser.findByClass(secNode, 'item'),
-        ...DomTreeParser.findByClass(secNode, 's-content__item')
+        ...DomTreeParser.findByClass(secNode, 's-content__item'),
+        ...DomTreeParser.findByClass(secNode, 'swiper-slide'),
+        ...DomTreeParser.findByClass(secNode, 'slick-slide')
       ];
       let idx = 1;
       for (const item of items) {
@@ -269,7 +271,14 @@ export class BlueprintExtractor {
 
   private classifySectionType(className: string, secNode: ParsedElementNode): string {
     const c = className.toLowerCase();
-    if (c.includes('slide') || c.includes('banner') || c.includes('hero')) return 'hero-slider';
+    const hasCarouselChild = (
+      DomTreeParser.findByClass(secNode, 's-wrap').length > 0 ||
+      DomTreeParser.findByClass(secNode, 'swiper').length > 0 ||
+      DomTreeParser.findByClass(secNode, 'slick-slider').length > 0 ||
+      DomTreeParser.findByClass(secNode, 'owl-carousel').length > 0 ||
+      DomTreeParser.findByClass(secNode, 's-content').length > 0
+    );
+    if (c.includes('slide') || c.includes('banner') || c.includes('hero') || hasCarouselChild) return 'hero-slider';
     if (c.includes('category-list') || c.includes('categories')) return 'category-grid';
     if (c.includes('block-category') || c.includes('product')) return 'featured-products';
     if (c.includes('form') || c.includes('quote') || c.includes('contact')) return 'quote-form';

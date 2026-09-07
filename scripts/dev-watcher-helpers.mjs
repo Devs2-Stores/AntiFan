@@ -5,6 +5,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
+import * as crypto from 'node:crypto';
 import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
@@ -244,15 +245,45 @@ export function createChangeDispatcher({
   tscTimeoutMs = 30000,
   log = () => {},
 } = {}) {
+  const fileHashCache = new Map();
   let pendingChangedFiles = new Set();
   let pendingResolvers = [];
   let relaunchTimer = null;
   let isDisposed = false;
+
+  function getFileHash(relPath) {
+    try {
+      const full = path.resolve(process.cwd(), relPath);
+      const stat = fs.statSync(full);
+      if (!stat.isFile()) return null;
+      const content = fs.readFileSync(full);
+      return crypto.createHash('sha1').update(content).digest('hex');
+    } catch {
+      return null;
+    }
+  }
+
   async function handleBatch(rawFiles) {
     if (isDisposed) {
       throw new Error('Dispatcher disposed');
     }
-    const files = Array.isArray(rawFiles) ? rawFiles.filter(isFileFn) : [];
+    const candidates = Array.isArray(rawFiles) ? rawFiles.filter(isFileFn) : [];
+    if (candidates.length === 0) {
+      return { action: 'noop', success: true };
+    }
+
+    // De-duplicate against fileHashCache: ignore spurious Windows fs.watch events when file content has not changed
+    const files = candidates.filter((f) => {
+      const currentHash = getFileHash(f);
+      if (!currentHash) return true;
+      const prevHash = fileHashCache.get(f);
+      if (prevHash && prevHash === currentHash) {
+        return false;
+      }
+      fileHashCache.set(f, currentHash);
+      return true;
+    });
+
     if (files.length === 0) {
       return { action: 'noop', success: true };
     }

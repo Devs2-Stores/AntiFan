@@ -2583,8 +2583,31 @@ export class BrowserControlPort {
 
     return this.passivePool.execute(tabId, async () => {
       const requiredMasks = Array.isArray(params.maskSelectors) ? params.maskSelectors : [];
-      const optionalMasks = Array.isArray(params.maskOptionalSelectors) ? params.maskOptionalSelectors : [];
-
+      const userOptional = Array.isArray(params.maskOptionalSelectors) ? params.maskOptionalSelectors : [];
+      const defaultStorefrontOptional = [
+        '#haravan-notification',
+        '[id*="haravan-notification"]',
+        '#preview-bar-iframe',
+        'iframe[src*="admin/preview_bar"]',
+        'iframe[src*="preview_bar"]',
+        '.haravan-preview-bar',
+        '#haravan-preview-bar',
+        '.shopify-preview-bar',
+        '#shopify-preview-bar',
+        '#fake-order-popup',
+        '[id*="fake-order"]',
+        '#notice-cart',
+        '[id*="notice-cart"]',
+        '.zalo-chat-widget',
+        '#fb-root',
+        '#subiz',
+        '#tawk-bubble-container',
+        '[class*="zalo-chat"]',
+        '.chat-widget',
+        '[class*="chat-widget"]',
+        '[id*="chat-widget"]',
+      ];
+      const optionalMasks = Array.from(new Set([...userOptional, ...defaultStorefrontOptional]));
       // Record the active tab so a background comparison tab can be foregrounded
       // for capture and restored afterwards. Background WebContentsViews are
       // detached from window.contentView, and CDP Page.captureScreenshot cannot
@@ -3651,7 +3674,7 @@ export class BrowserControlPort {
         );
         const viewportHeight = window.innerHeight;
         const candidateElements = Array.from(
-          document.querySelectorAll('header, [class*="header"], main > *, aside, [class*="newsletter"], footer, [class*="footer"], [id^="shopify-section-"]')
+          document.querySelectorAll('header, [class*="header"], main > *, aside, [class*="newsletter"], footer, [class*="footer"], [id^="shopify-section-"], [data-autoplay], [data-dot], .swiper, .slick-slider, .owl-carousel, .s-wrap, [class*="slider"], [class*="carousel"]')
         );
         const seenRects = new Set();
         const rawSections = [];
@@ -3687,6 +3710,8 @@ export class BrowserControlPort {
             group = 'header-group';
           } else if (el.closest('footer') || elId.includes('footer') || elCls.includes('newsletter') || elId.includes('newsletter')) {
             group = 'footer-group';
+          } else if (el.hasAttribute('data-autoplay') || el.hasAttribute('data-dot') || elCls.includes('slider') || elCls.includes('carousel') || elCls.includes('swiper') || elCls.includes('slick') || elCls.includes('s-wrap')) {
+            group = 'carousel-component';
           }
           let heading = undefined;
           const h = el.querySelector('h1, h2, h3, h4, h5, h6, [role="heading"], [class*="heading"], [class*="title"], [data-heading]');

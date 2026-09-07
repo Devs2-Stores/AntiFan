@@ -1,5 +1,8 @@
 const crypto = require('node:crypto');
 const http = require('node:http');
+const fs = require('node:fs');
+const path = require('node:path');
+const os = require('node:os');
 const { WebSocket } = require('ws');
 const { Server } = require('@modelcontextprotocol/sdk/server/index.js');
 const { StdioServerTransport } = require('@modelcontextprotocol/sdk/server/stdio.js');
@@ -38,7 +41,7 @@ const definitions = [
   ['anti.inspect.styles', 'Inspect computed CSS styles, box model, typography, layout, and CSS variables for an element (supports @ref or CSS selector).', { selector: { type: 'string' }, ref: { type: 'string' }, properties: { type: 'array', items: { type: 'string' } }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } }],
   ['anti.inspect.region', 'Inspect spatial region bounds, collecting intersecting visible DOM elements with coordinates and z-index.', { x: { type: 'number' }, y: { type: 'number' }, width: { type: 'number' }, height: { type: 'number' }, selector: { type: 'string' }, ref: { type: 'string' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } }],
   ['anti.trace.interaction', 'Trace an interactive action (click, hover, focus, type, scroll) capturing pre/post DOM changes, style deltas, and layout shifts.', { action: { type: 'string', enum: ['click', 'hover', 'focus', 'type', 'scroll'] }, selector: { type: 'string' }, ref: { type: 'string' }, text: { type: 'string' }, deltaY: { type: 'number' }, settleMs: { type: 'number' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } }, ['action']],
-  ['anti.visual.compare', 'Compare current viewport or tab against baseline screenshot with pixel-level diffing, element selection, dynamic masking, and configurable tolerance.', { baselineScreenshotRef: { type: 'string' }, comparisonTabId: { type: 'string' }, tolerance: { type: 'number' }, selector: { type: 'string' }, clipRect: { type: 'object', properties: { x: { type: 'number' }, y: { type: 'number' }, width: { type: 'number' }, height: { type: 'number' } } }, maskSelectors: { type: 'array', items: { type: 'string' } }, normalizeScroll: { type: 'boolean' }, fullPage: { type: 'boolean', description: 'Capture and compare entire document scroll height' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } }],
+  ['anti.visual.compare', 'Compare current viewport or tab against baseline screenshot with pixel-level diffing, element selection, dynamic masking, and configurable tolerance.', { baselineScreenshotRef: { type: 'string' }, comparisonTabId: { type: 'string' }, tolerance: { type: 'number' }, selector: { type: 'string' }, clipRect: { type: 'object', properties: { x: { type: 'number' }, y: { type: 'number' }, width: { type: 'number' }, height: { type: 'number' } } }, maskSelectors: { type: 'array', items: { type: 'string' } }, maskOptionalSelectors: { type: 'array', items: { type: 'string' } }, normalizeScroll: { type: 'boolean' }, fullPage: { type: 'boolean', description: 'Capture and compare entire document scroll height' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } }],
   ['anti.media.freeze', 'Freeze or unfreeze dynamic media (videos, audios, CSS animations, requestAnimationFrame) in tab to enable deterministic visual comparisons.', { tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] }, freeze: { type: 'boolean', description: 'True to freeze media and pause animations; false to resume' } }],
   ['anti.inspect.page_inventory', 'Scan entire physical page structure from y=0 to scrollHeight, returning list of all sections, coordinates, heights, and layout groups (chống sót header/footer/newsletter).', { tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } }],
   ['anti.inspect.style_diff', 'Compare computed CSS styles and box-model metrics between elements on two tabs (or two selectors).', { selector: { type: 'string', description: 'CSS selector of target element on tab 1' }, comparisonSelector: { type: 'string', description: 'CSS selector on tab 2 (defaults to selector)' }, tabId: { type: 'string' }, comparisonTabId: { type: 'string' }, properties: { type: 'array', items: { type: 'string' }, description: 'CSS properties to compare' } }, ['selector']],
@@ -58,8 +61,93 @@ const definitions = [
 ];
 
 let currentAuthorityRevision = null;
+let dynamicBootstrap = null;
+
+function resolveBridgeCandidates() {
+  const candidates = [];
+  const seenTargets = new Set();
+  const seenFiles = new Set();
+
+  const candidateDirs = [
+    process.env.ANTIFAN_CONFIG_DIR || null,
+    path.join('E:', 'Work', '.antifan-data', 'config'),
+    path.join('E:\\', 'Work', '.antifan-data', 'config'),
+    path.join('E:', '.antifan-data', 'config'),
+    path.join('D:', 'Work', '.antifan-data', 'config'),
+    process.env.APPDATA ? path.join(process.env.APPDATA, 'AntiFan', 'data', 'config') : null,
+    process.env.APPDATA ? path.join(process.env.APPDATA, 'antifan-browser-desktop', 'data', 'config') : null,
+    process.env.LOCALAPPDATA ? path.join(process.env.LOCALAPPDATA, 'antifan-data', 'config') : null,
+    path.join(os.homedir(), '.antifan'),
+    path.join(os.homedir(), '.gemini'),
+  ].filter(Boolean);
+
+  const fileNames = ['bridge-dev.json', 'bridge.json', 'antifan_bridge_dev.json', 'antifan_bridge.json'];
+
+  for (const dir of candidateDirs) {
+    for (const name of fileNames) {
+      const filePath = path.resolve(dir, name);
+      if (seenFiles.has(filePath)) continue;
+      seenFiles.add(filePath);
+
+      if (fs.existsSync(filePath)) {
+        try {
+          const stat = fs.statSync(filePath);
+          const raw = fs.readFileSync(filePath, 'utf8');
+          const parsed = JSON.parse(raw);
+          if (parsed && typeof parsed.port === 'number' && parsed.port > 0) {
+            const host = parsed.host || '127.0.0.1';
+            const port = parsed.port;
+            const token = parsed.token || '';
+            const targetKey = `${host}:${port}:${token}`;
+            if (seenTargets.has(targetKey)) continue;
+            seenTargets.add(targetKey);
+
+            let pidAlive = null;
+            if (parsed.pid && typeof parsed.pid === 'number') {
+              try {
+                process.kill(parsed.pid, 0);
+                pidAlive = true;
+              } catch (err) {
+                pidAlive = err.code === 'EPERM' ? true : false;
+              }
+            }
+
+            candidates.push({
+              source: 'file',
+              file: filePath,
+              port,
+              host,
+              token,
+              pid: parsed.pid,
+              pidAlive,
+              startedAt: parsed.startedAt || stat.mtimeMs || 0,
+              isDev: Boolean(parsed.isDev),
+            });
+          }
+        } catch {}
+      }
+    }
+  }
+
+  candidates.sort((a, b) => {
+    const rankA = a.pidAlive === true ? 2 : (a.pidAlive === null ? 1 : 0);
+    const rankB = b.pidAlive === true ? 2 : (b.pidAlive === null ? 1 : 0);
+    if (rankB !== rankA) return rankB - rankA;
+    const devDiff = (b.isDev ? 1 : 0) - (a.isDev ? 1 : 0);
+    if (devDiff !== 0) return devDiff;
+    return (b.startedAt || 0) - (a.startedAt || 0);
+  });
+
+  return candidates;
+}
 
 function getBootstrap() {
+  if (dynamicBootstrap && dynamicBootstrap.secret) {
+    if (currentAuthorityRevision) {
+      dynamicBootstrap.authorityRevision = currentAuthorityRevision;
+    }
+    return dynamicBootstrap;
+  }
   if (process.env.ANTIFAN_MCP_BOOTSTRAP) {
     try {
       const b = JSON.parse(process.env.ANTIFAN_MCP_BOOTSTRAP);
@@ -215,174 +303,325 @@ let dispatchWs = null;
 let dispatchConnecting = null;
 const pendingDispatchCalls = new Map(); // id -> { resolve, reject, timer }
 
-function ensureDispatchSocket(bootstrap) {
+function wireDispatchSocket(ws) {
+  ws.on('message', (raw) => {
+    try {
+      const response = JSON.parse(raw.toString());
+      if (!response || !response.id || !pendingDispatchCalls.has(response.id)) {
+        return;
+      }
+      const entry = pendingDispatchCalls.get(response.id);
+      pendingDispatchCalls.delete(response.id);
+      clearTimeout(entry.timer);
+      if (response.success) {
+        if (response.data && typeof response.data === 'object') {
+          if (response.data.authorityRevision) {
+            currentAuthorityRevision = response.data.authorityRevision;
+          } else if (response.data.replacementAuthorityRevision) {
+            currentAuthorityRevision = response.data.replacementAuthorityRevision;
+          }
+          if (response.data.data !== undefined) {
+            entry.resolve(response.data.data);
+            return;
+          }
+        }
+        entry.resolve(response.data);
+      } else {
+        process.stderr.write(`[MCP Proxy RPC Error] ${JSON.stringify(response)}\n`);
+        entry.reject(new Error(typeof response.error === 'string' ? response.error : JSON.stringify(response.error || { code: 'CAPABILITY_ERROR', message: 'AntiFan RPC failed' })));
+      }
+    } catch {}
+  });
+
+  ws.once('error', (err) => {
+    dispatchConnecting = null;
+    if (dispatchWs === ws) dispatchWs = null;
+    for (const [, entry] of pendingDispatchCalls.entries()) {
+      clearTimeout(entry.timer);
+      entry.reject(new Error(JSON.stringify({ code: 'CONNECTION_ERROR', message: `Dispatch WebSocket error: ${err.message}` })));
+    }
+    pendingDispatchCalls.clear();
+  });
+
+  ws.once('close', () => {
+    dispatchConnecting = null;
+    if (dispatchWs === ws) dispatchWs = null;
+    for (const [, entry] of pendingDispatchCalls.entries()) {
+      clearTimeout(entry.timer);
+      entry.reject(new Error(JSON.stringify({ code: 'CONNECTION_CLOSED', message: 'Dispatch WebSocket closed while request in flight' })));
+    }
+    pendingDispatchCalls.clear();
+  });
+}
+
+async function autohealSession() {
+  const candidates = resolveBridgeCandidates();
+  for (const candidate of candidates) {
+    try {
+      const wsUrl = `ws://${candidate.host}:${candidate.port}?token=${encodeURIComponent(candidate.token)}`;
+      const ws = new WebSocket(wsUrl, {
+        headers: candidate.token ? { Authorization: `Bearer ${candidate.token}` } : {},
+      });
+
+      await new Promise((resolve, reject) => {
+        let settled = false;
+        const timer = setTimeout(() => {
+          if (!settled) {
+            settled = true;
+            try { ws.close(); } catch {}
+            reject(new Error('Autoheal WebSocket timeout'));
+          }
+        }, 3000);
+
+        ws.once('open', () => {
+          if (!settled) {
+            settled = true;
+            clearTimeout(timer);
+            resolve();
+          }
+        });
+        ws.once('error', (err) => {
+          if (!settled) {
+            settled = true;
+            clearTimeout(timer);
+            reject(err);
+          }
+        });
+        ws.once('close', (code, reason) => {
+          if (!settled) {
+            settled = true;
+            clearTimeout(timer);
+            reject(new Error(`Autoheal WebSocket closed early (${code}): ${reason || ''}`));
+          }
+        });
+      });
+
+      const startId = 'autoheal-' + crypto.randomUUID();
+      const session = await new Promise((resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error('startSession timeout')), 5000);
+        const onMsg = (raw) => {
+          try {
+            const resp = JSON.parse(raw.toString());
+            if (resp && resp.id === startId) {
+              clearTimeout(timer);
+              ws.removeListener('message', onMsg);
+              if (resp.success && resp.data) {
+                resolve(resp.data);
+              } else {
+                reject(new Error(resp.error || 'startSession failed'));
+              }
+            }
+          } catch {}
+        };
+        ws.on('message', onMsg);
+        ws.send(JSON.stringify({
+          id: startId,
+          method: 'antifan.cli.startSession',
+          params: {
+            backendId: 'cli',
+            grant: 'eval',
+            allowUserTabFallback: true,
+            cwd: process.cwd(),
+          },
+        }));
+      });
+
+      dynamicBootstrap = {
+        port: candidate.port,
+        host: candidate.host,
+        secret: session.secret,
+        attachmentId: session.attachmentId,
+        authorityRevision: session.authorityRevision,
+        runId: session.runId,
+        attemptId: session.attemptId,
+        projectId: session.projectId,
+        workspaceId: session.workspaceId,
+        tabId: session.tabId,
+        token: candidate.token,
+      };
+      currentAuthorityRevision = session.authorityRevision;
+
+      dispatchWs = ws;
+      wireDispatchSocket(ws);
+      return dynamicBootstrap;
+    } catch (err) {
+      process.stderr.write(`[AntiFan Autoheal] Candidate ${candidate.host}:${candidate.port} failed: ${err.message}\n`);
+    }
+  }
+  return null;
+}
+
+async function ensureDispatchSocket(bootstrap) {
   if (dispatchWs && dispatchWs.readyState === WebSocket.OPEN) {
-    return Promise.resolve(dispatchWs);
+    return dispatchWs;
   }
   if (dispatchConnecting) {
     return dispatchConnecting;
   }
 
-  const authHeaders = {};
-  if (bootstrap.secret) authHeaders['X-Antifan-Attachment-Secret'] = bootstrap.secret;
-  if (bootstrap.token) authHeaders['Authorization'] = `Bearer ${bootstrap.token}`;
-  const tokenParam = (bootstrap.token || bootstrap.secret) ? `?token=${encodeURIComponent(bootstrap.token || bootstrap.secret)}` : '';
-  const url = `ws://127.0.0.1:${bootstrap.port}${tokenParam}`;
+  dispatchConnecting = (async () => {
+    if (bootstrap && bootstrap.port && (bootstrap.token || bootstrap.secret)) {
+      try {
+        const authHeaders = {};
+        if (bootstrap.secret) authHeaders['X-Antifan-Attachment-Secret'] = bootstrap.secret;
+        if (bootstrap.token) authHeaders['Authorization'] = `Bearer ${bootstrap.token}`;
+        const tokenParam = (bootstrap.token || bootstrap.secret) ? `?token=${encodeURIComponent(bootstrap.token || bootstrap.secret)}` : '';
+        const url = `ws://127.0.0.1:${bootstrap.port}${tokenParam}`;
 
-  dispatchConnecting = new Promise((resolve, reject) => {
-    let ws;
-    try {
-      ws = new WebSocket(url, { headers: authHeaders });
-    } catch (err) {
-      dispatchConnecting = null;
-      return reject(err);
+        const ws = new WebSocket(url, { headers: authHeaders });
+        await new Promise((resolve, reject) => {
+          let settled = false;
+          const connectTimer = setTimeout(() => {
+            if (!settled) {
+              settled = true;
+              try { ws.close(); } catch {}
+              reject(new Error('Connection timeout'));
+            }
+          }, 3000);
+
+          ws.once('open', () => {
+            if (!settled) {
+              settled = true;
+              clearTimeout(connectTimer);
+              resolve();
+            }
+          });
+          ws.once('error', (err) => {
+            if (!settled) {
+              settled = true;
+              clearTimeout(connectTimer);
+              reject(err);
+            }
+          });
+          ws.once('close', (code) => {
+            if (!settled) {
+              settled = true;
+              clearTimeout(connectTimer);
+              reject(new Error(`Closed early with code ${code}`));
+            }
+          });
+        });
+
+        dispatchWs = ws;
+        wireDispatchSocket(ws);
+        return ws;
+      } catch (err) {
+        process.stderr.write(`[AntiFan MCP] Initial connection failed (${err.message}). Autohealing...\n`);
+      }
     }
 
-    const connectTimer = setTimeout(() => {
-      dispatchConnecting = null;
-      try { ws.close(); } catch {}
-      reject(new Error(JSON.stringify({ code: 'TIMEOUT', message: 'AntiFan Dispatch WebSocket connection timed out' })));
-    }, 5000);
+    const healed = await autohealSession();
+    if (healed && dispatchWs && dispatchWs.readyState === WebSocket.OPEN) {
+      return dispatchWs;
+    }
 
-    ws.once('open', () => {
-      clearTimeout(connectTimer);
-      dispatchWs = ws;
-      dispatchConnecting = null;
-
-      ws.on('message', (raw) => {
-        try {
-          const response = JSON.parse(raw.toString());
-          if (!response || !response.id || !pendingDispatchCalls.has(response.id)) {
-            return;
-          }
-          const entry = pendingDispatchCalls.get(response.id);
-          pendingDispatchCalls.delete(response.id);
-          clearTimeout(entry.timer);
-          if (response.success) {
-            if (response.data && typeof response.data === 'object') {
-              if (response.data.authorityRevision) {
-                currentAuthorityRevision = response.data.authorityRevision;
-              } else if (response.data.replacementAuthorityRevision) {
-                currentAuthorityRevision = response.data.replacementAuthorityRevision;
-              }
-              if (response.data.data !== undefined) {
-                entry.resolve(response.data.data);
-                return;
-              }
-            }
-            entry.resolve(response.data);
-          } else {
-            process.stderr.write(`[MCP Proxy RPC Error] ${JSON.stringify(response)}\n`);
-            entry.reject(new Error(typeof response.error === 'string' ? response.error : JSON.stringify(response.error || { code: 'CAPABILITY_ERROR', message: 'AntiFan RPC failed' })));
-          }
-        } catch {}
-      });
-
-      resolve(ws);
-    });
-
-    ws.once('error', (err) => {
-      clearTimeout(connectTimer);
-      dispatchConnecting = null;
-      if (dispatchWs === ws) dispatchWs = null;
-      for (const [, entry] of pendingDispatchCalls.entries()) {
-        clearTimeout(entry.timer);
-        entry.reject(new Error(JSON.stringify({ code: 'CONNECTION_ERROR', message: `Dispatch WebSocket error: ${err.message}` })));
-      }
-      pendingDispatchCalls.clear();
-      reject(err);
-    });
-
-    ws.once('close', () => {
-      clearTimeout(connectTimer);
-      dispatchConnecting = null;
-      if (dispatchWs === ws) dispatchWs = null;
-      for (const [, entry] of pendingDispatchCalls.entries()) {
-        clearTimeout(entry.timer);
-        entry.reject(new Error(JSON.stringify({ code: 'CONNECTION_CLOSED', message: 'Dispatch WebSocket closed while request in flight' })));
-      }
-      pendingDispatchCalls.clear();
-    });
+    throw new Error(JSON.stringify({ code: 'CONNECTION_FAILED', message: 'Unable to connect to live AntiFan Desktop bridge after autoheal' }));
+  })().finally(() => {
+    dispatchConnecting = null;
   });
 
   return dispatchConnecting;
 }
 
 async function invoke(method, params = {}, callerRequestId) {
-  const bootstrap = getBootstrap();
+  let bootstrap = getBootstrap();
   if (!bootstrap || !bootstrap.secret) {
-    throw new Error(JSON.stringify({ code: 'MCP_CONTEXT_REQUIRED', message: 'OMP MCP proxy requires an authoritative Main bootstrap' }));
-  }
-
-  const ws = await ensureDispatchSocket(bootstrap);
-  const id = crypto.randomUUID();
-  const timeoutMs = (method === 'theme.qa_validate' || method === 'anti.theme.qa_validate') ? 60000 : 30000;
-  const mapped = CAPABILITY_MAP[method] || method;
-  let effectiveParams = { ...params };
-  const boundTabId = bootstrap.tabId || process.env.ANTIFAN_BOUND_TAB_ID;
-  if (!effectiveParams.tabId && boundTabId) {
-    effectiveParams.tabId = boundTabId;
-  }
-  if (mapped === 'artifact.read') {
-    const rawLimit = typeof params.limit === 'number' && params.limit > 0 ? params.limit : 32768;
-    effectiveParams = {
-      ...effectiveParams,
-      limit: Math.min(rawLimit, 32768), // Bounded chunk size: <= 32 KiB per frame
-    };
-  }
-  const requestId = callerRequestId ? `req-mcp-${callerRequestId}-${crypto.randomUUID()}` : `req-${crypto.randomUUID()}`;
-  const idempotencyKey = callerRequestId ? `idem-mcp-${callerRequestId}-${crypto.randomUUID()}` : `idem-${crypto.randomUUID()}`;
-  return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => {
-      pendingDispatchCalls.delete(id);
-      reject(new Error(JSON.stringify({ code: 'TIMEOUT', message: `AntiFan RPC timed out: ${mapped}` })));
-    }, timeoutMs);
-
-    pendingDispatchCalls.set(id, {
-      resolve: (data) => {
-        if (mapped === 'browser.switch-tab' && effectiveParams.tabId) {
-          bootstrap.tabId = effectiveParams.tabId;
-          process.env.ANTIFAN_BOUND_TAB_ID = effectiveParams.tabId;
-        } else if (mapped === 'browser.open-tab' && data && typeof data === 'object' && typeof data.tabId === 'string') {
-          bootstrap.tabId = data.tabId;
-          process.env.ANTIFAN_BOUND_TAB_ID = data.tabId;
-        }
-        resolve(data);
-      },
-      reject,
-      timer,
-    });
-
-    try {
-      ws.send(JSON.stringify({
-        id,
-        method: 'antifan.capability.dispatch',
-        params: {
-          name: mapped,
-          params: effectiveParams,
-          requestId,
-          idempotencyKey,
-          attachmentId: bootstrap.attachmentId,
-          attachmentSecret: bootstrap.secret,
-          authorityRevision: currentAuthorityRevision || bootstrap.authorityRevision,
-          attachmentClaims: {
-            attachmentSecret: bootstrap.secret,
-            attachmentId: bootstrap.attachmentId,
-            authorityRevision: currentAuthorityRevision || bootstrap.authorityRevision,
-            runId: bootstrap.runId,
-            attemptId: bootstrap.attemptId,
-            projectId: bootstrap.projectId,
-            workspaceId: bootstrap.workspaceId,
-            ownerPid: bootstrap.ownerPid,
-          },
-        },
-      }));
-    } catch (err) {
-      clearTimeout(timer);
-      pendingDispatchCalls.delete(id);
-      reject(err);
+    await autohealSession();
+    bootstrap = getBootstrap();
+    if (!bootstrap || !bootstrap.secret) {
+      throw new Error(JSON.stringify({ code: 'MCP_CONTEXT_REQUIRED', message: 'OMP MCP proxy requires an authoritative Main bootstrap' }));
     }
-  });
+  }
+
+  const sendDispatch = async (currentBoot) => {
+    const ws = await ensureDispatchSocket(currentBoot);
+    const id = crypto.randomUUID();
+    const timeoutMs = (method === 'theme.qa_validate' || method === 'anti.theme.qa_validate') ? 60000 : 30000;
+    const mapped = CAPABILITY_MAP[method] || method;
+    let effectiveParams = { ...params };
+    const boundTabId = currentBoot.tabId || process.env.ANTIFAN_BOUND_TAB_ID;
+    if (!effectiveParams.tabId && boundTabId) {
+      effectiveParams.tabId = boundTabId;
+    }
+    if (mapped === 'artifact.read') {
+      const rawLimit = typeof params.limit === 'number' && params.limit > 0 ? params.limit : 32768;
+      effectiveParams = {
+        ...effectiveParams,
+        limit: Math.min(rawLimit, 32768), // Bounded chunk size: <= 32 KiB per frame
+      };
+    }
+    const requestId = callerRequestId ? `req-mcp-${callerRequestId}-${crypto.randomUUID()}` : `req-${crypto.randomUUID()}`;
+    const idempotencyKey = callerRequestId ? `idem-mcp-${callerRequestId}-${crypto.randomUUID()}` : `idem-${crypto.randomUUID()}`;
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        pendingDispatchCalls.delete(id);
+        reject(new Error(JSON.stringify({ code: 'TIMEOUT', message: `AntiFan RPC timed out: ${mapped}` })));
+      }, timeoutMs);
+
+      pendingDispatchCalls.set(id, {
+        resolve: (data) => {
+          if (mapped === 'browser.switch-tab' && effectiveParams.tabId) {
+            currentBoot.tabId = effectiveParams.tabId;
+            process.env.ANTIFAN_BOUND_TAB_ID = effectiveParams.tabId;
+          } else if (mapped === 'browser.open-tab' && data && typeof data === 'object' && typeof data.tabId === 'string') {
+            currentBoot.tabId = data.tabId;
+            process.env.ANTIFAN_BOUND_TAB_ID = data.tabId;
+          }
+          resolve(data);
+        },
+        reject,
+        timer,
+      });
+
+      try {
+        ws.send(JSON.stringify({
+          id,
+          method: 'antifan.capability.dispatch',
+          params: {
+            name: mapped,
+            params: effectiveParams,
+            requestId,
+            idempotencyKey,
+            attachmentId: currentBoot.attachmentId,
+            attachmentSecret: currentBoot.secret,
+            authorityRevision: currentAuthorityRevision || currentBoot.authorityRevision,
+            attachmentClaims: {
+              attachmentSecret: currentBoot.secret,
+              attachmentId: currentBoot.attachmentId,
+              authorityRevision: currentAuthorityRevision || currentBoot.authorityRevision,
+              runId: currentBoot.runId,
+              attemptId: currentBoot.attemptId,
+              projectId: currentBoot.projectId,
+              workspaceId: currentBoot.workspaceId,
+              ownerPid: currentBoot.ownerPid,
+            },
+          },
+        }));
+      } catch (err) {
+        clearTimeout(timer);
+        pendingDispatchCalls.delete(id);
+        reject(err);
+      }
+    });
+  };
+
+  try {
+    return await sendDispatch(bootstrap);
+  } catch (err) {
+    const errStr = String(err?.message || err);
+    if (/CONNECTION_CLOSED|CONNECTION_FAILED|CONNECTION_ERROR|Unauthorized|missing or invalid token|AUTHENTICATION_DENIED|TIMEOUT/i.test(errStr)) {
+      process.stderr.write(`[AntiFan MCP] Connection or auth issue detected (${errStr}). Autohealing...\n`);
+      if (dispatchWs) {
+        try { dispatchWs.close(); } catch {}
+        dispatchWs = null;
+      }
+      const healed = await autohealSession();
+      if (healed && healed.secret) {
+        return await sendDispatch(healed);
+      }
+    }
+    throw err;
+  }
 }
 
 // ─── Dedicated Isolated Heartbeat Channel ────────────────────────────────────

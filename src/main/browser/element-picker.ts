@@ -609,13 +609,65 @@ export const ELEMENT_PICKER_SCRIPT = `(() => {
     let el = null;
     if (typeof clientX === 'number' && typeof clientY === 'number') {
       try {
-        const hit = document.elementFromPoint(clientX, clientY);
-        if (hit && hit.id !== OVERLAY_ID && hit.id !== BADGE_ID && hit.id !== MULTI_BAR_ID && !hit.closest?.('#' + MODAL_ID) && !hit.closest?.('#' + MULTI_BAR_ID)) {
-          el = hit;
+        // 1. Dilation Ring for micro-targets (dots, pagination bullets, nav arrows, small buttons)
+        const probeOffsets = [
+          [0, 0], [0, -6], [0, 6], [-6, 0], [6, 0],
+          [-6, -6], [6, -6], [-6, 6], [6, 6],
+          [0, -12], [0, 12], [-12, 0], [12, 0]
+        ];
+        for (let oIdx = 0; oIdx < probeOffsets.length; oIdx++) {
+          const px = clientX + probeOffsets[oIdx][0];
+          const py = clientY + probeOffsets[oIdx][1];
+          if (px < 0 || py < 0 || px > window.innerWidth || py > window.innerHeight) continue;
+          const hits = (document.elementsFromPoint && typeof document.elementsFromPoint === 'function')
+            ? document.elementsFromPoint(px, py)
+            : [document.elementFromPoint(px, py)];
+          for (let hIdx = 0; hIdx < hits.length; hIdx++) {
+            const h = hits[hIdx];
+            if (!h || h.nodeType !== 1) continue;
+            if (h.id === OVERLAY_ID || h.id === BADGE_ID || h.id === MULTI_BAR_ID || h.closest?.('#' + MODAL_ID) || h.closest?.('#' + MULTI_BAR_ID)) continue;
+            const cls = (typeof h.className === 'string' ? h.className : '').toLowerCase();
+            const r = h.getBoundingClientRect();
+            const isMicroTarget = (
+              cls.includes('dot') || cls.includes('bullet') || cls.includes('pagination') ||
+              cls.includes('arrow') || cls.includes('nav-') || cls.includes('swiper-button') ||
+              cls.includes('slick-arrow') || cls.includes('owl-dot') || cls.includes('owl-prev') || cls.includes('owl-next') ||
+              (r.width > 0 && r.width <= 48 && r.height > 0 && r.height <= 48 && (h.tagName === 'BUTTON' || h.tagName === 'A' || h.getAttribute('role') === 'button'))
+            );
+            if (isMicroTarget && r.width > 0 && r.height > 0) {
+              el = h;
+              break;
+            }
+          }
+          if (el) break;
+        }
+
+        // 2. Multi-layer stack piercing: prioritize slide items, images or media over massive layout wrappers
+        if (!el && document.elementsFromPoint && typeof document.elementsFromPoint === 'function') {
+          const stack = document.elementsFromPoint(clientX, clientY);
+          for (let sIdx = 0; sIdx < stack.length; sIdx++) {
+            const node = stack[sIdx];
+            if (!node || node.nodeType !== 1) continue;
+            if (node.id === OVERLAY_ID || node.id === BADGE_ID || node.id === MULTI_BAR_ID || node.closest?.('#' + MODAL_ID) || node.closest?.('#' + MULTI_BAR_ID)) continue;
+            const cls = (typeof node.className === 'string' ? node.className : '').toLowerCase();
+            const isSlideItem = cls.includes('item') || cls.includes('slide') || cls.includes('swiper-slide') || cls.includes('slick-slide');
+            const isLeafMedia = node.tagName === 'IMG' || node.tagName === 'VIDEO' || node.tagName === 'PICTURE' || node.tagName === 'SVG';
+            if (isSlideItem || isLeafMedia) {
+              el = node;
+              break;
+            }
+          }
+        }
+
+        // 3. Fallback to standard document.elementFromPoint
+        if (!el) {
+          const hit = document.elementFromPoint(clientX, clientY);
+          if (hit && hit.id !== OVERLAY_ID && hit.id !== BADGE_ID && hit.id !== MULTI_BAR_ID && !hit.closest?.('#' + MODAL_ID) && !hit.closest?.('#' + MULTI_BAR_ID)) {
+            el = hit;
+          }
         }
       } catch {}
     }
-
     if (!el) {
       const path = (e.composedPath && typeof e.composedPath === 'function') ? e.composedPath() : [];
       for (let i = 0; i < path.length; i++) {
