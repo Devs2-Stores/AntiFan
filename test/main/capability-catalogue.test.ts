@@ -208,6 +208,12 @@ describe('Capability catalogue', () => {
     assert.strictEqual(zoomTabId, 'tab-2');
     assert.strictEqual(zoomValue, 1.5);
 
+    // 14b. Rebind target
+    const rebindRes = await catalogue.dispatch('browser.rebind-target', { tabId: 'tab-1' }, { lease, leaseToken: lease.token, projectId, workspaceId, grant: 'write', browserTarget: boundTarget });
+    assert.strictEqual((rebindRes as any).success, true);
+    assert.strictEqual((rebindRes as any).tabId, 'tab-1');
+    assert.strictEqual((rebindRes as any).documentGeneration, 1);
+
     // 15. Verify input schemas expose tabId and properties
     const navSchema = catalogue.get('browser.navigate')?.inputSchema as { properties?: Record<string, unknown> };
     const domSchema = catalogue.get('browser.dom')?.inputSchema as { properties?: Record<string, unknown> };

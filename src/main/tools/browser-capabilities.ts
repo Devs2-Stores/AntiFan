@@ -788,6 +788,15 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
     execute: (params: { tabId: string }) => browser.setAutomationTarget(params.tabId),
   });
 
+  catalogue.register({
+    name: 'browser.rebind-target',
+    description: 'Resynchronize and rebind the browser target to the live document generation after navigation or DOM mutation',
+    risk: 'write',
+    policy: makeBrowserPolicy({ effect: 'management', risk: 'write', requiresBrowserTarget: false, lane: 'unbounded' }),
+    inputSchema: { type: 'object', properties: { tabId: { type: 'string' } } },
+    execute: (params: { tabId?: string }, context) => browser.rebindTarget(params, context.browserTarget),
+  });
+
   // 2. Compatibility aliases for MCP & Bridge protocols
   catalogue.register({
     name: 'antifan_list_tabs',
@@ -1156,6 +1165,15 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
     policy: makeBrowserPolicy({ effect: 'management', risk: 'write', requiresBrowserTarget: false, lane: 'unbounded' }),
     inputSchema: { type: 'object', properties: { tabId: { type: 'string' } }, required: ['tabId'] },
     execute: (params: { tabId: string }) => browser.setAutomationTarget(params.tabId),
+  });
+
+  catalogue.register({
+    name: 'antifan_rebind_target',
+    description: 'Alias for browser.rebind-target',
+    risk: 'write',
+    policy: makeBrowserPolicy({ effect: 'management', risk: 'write', requiresBrowserTarget: false, lane: 'unbounded' }),
+    inputSchema: { type: 'object', properties: { tabId: { type: 'string' } } },
+    execute: (params: { tabId?: string }, context) => browser.rebindTarget(params, context.browserTarget),
   });
 
   catalogue.register({

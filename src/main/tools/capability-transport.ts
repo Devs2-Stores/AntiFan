@@ -477,6 +477,7 @@ export class CapabilityTransportAdapter {
       const isNavigate = intent.name === 'browser.navigate' || intent.name === 'antifan_navigate' || intent.name === 'anti.browser.navigate';
       const isReload = intent.name === 'browser.reload' || intent.name === 'antifan_reload' || intent.name === 'anti.browser.reload';
       const isCloseTab = intent.name === 'browser.close-tab' || intent.name === 'antifan_close_tab' || intent.name === 'anti.browser.tabs.close';
+      const isRebind = intent.name === 'browser.rebind-target' || intent.name === 'antifan_rebind_target' || intent.name === 'anti.browser.rebind_target';
       if (isSetTarget || isOpenTab) {
         let newTabId: string | undefined;
         if (data && typeof data === 'object' && 'tabId' in data && typeof (data as { tabId: unknown }).tabId === 'string') {
@@ -501,17 +502,29 @@ export class CapabilityTransportAdapter {
             if (newRev) replacementAuthorityRevision = newRev;
           }
         }
-      } else if (isNavigate || isReload) {
-        if (data && typeof data === 'object' && 'target' in data) {
-          const targetObj = (data as { target?: { tabId?: string; documentGeneration?: number } }).target;
-          if (targetObj && typeof targetObj.tabId === 'string') {
-            const newRev = await this.attachmentRegistry.updateAttachmentTab(
-              authority.attachmentId,
-              targetObj.tabId,
-              targetObj.documentGeneration
-            );
-            if (newRev) replacementAuthorityRevision = newRev;
+      } else if (isNavigate || isReload || isRebind) {
+        let targetTabId: string | undefined;
+        let targetDocGen: number | undefined;
+        if (data && typeof data === 'object') {
+          if ('target' in data) {
+            const targetObj = (data as { target?: { tabId?: string; documentGeneration?: number } }).target;
+            targetTabId = targetObj?.tabId;
+            targetDocGen = targetObj?.documentGeneration;
+          } else if ('tabId' in data && typeof (data as Record<string, unknown>).tabId === 'string') {
+            const record = data as Record<string, unknown>;
+            targetTabId = record.tabId as string;
+            targetDocGen = typeof record.documentGeneration === 'number'
+              ? record.documentGeneration
+              : undefined;
           }
+        }
+        if (targetTabId) {
+          const newRev = await this.attachmentRegistry.updateAttachmentTab(
+            authority.attachmentId,
+            targetTabId,
+            targetDocGen
+          );
+          if (newRev) replacementAuthorityRevision = newRev;
         }
       } else if (isCloseTab) {
         if (data && typeof data === 'object') {

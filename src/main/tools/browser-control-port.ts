@@ -1009,6 +1009,56 @@ export class BrowserControlPort {
     this.host.setAutomationTabId(cleanId);
     return { success: true, tabId: cleanId };
   }
+  rebindTarget(options: { tabId?: string } = {}, target?: BrowserTarget): { success: boolean; tabId: string; documentGeneration: number; browserEpoch: number; url?: string; title?: string } {
+    let effectiveTabId = options.tabId && typeof options.tabId === 'string' ? options.tabId.trim() : (target?.tabId ? target.tabId.trim() : '');
+    if (this.host.getTabList) {
+      const tabs = (this.host.getTabList() || []).filter(isTabRecord);
+      if (!effectiveTabId && tabs.length > 0 && tabs[0]?.id) {
+        effectiveTabId = tabs[0].id;
+      }
+      if (!effectiveTabId) {
+        throw new CapabilityError('TARGET_REQUIRED', 'Browser target tabId is required to rebind');
+      }
+      const matched = tabs.find(t => t.id === effectiveTabId);
+      if (!matched) {
+        throw new CapabilityError('TARGET_STALE', `Target tab '${effectiveTabId}' no longer exists`, {
+          tabId: effectiveTabId,
+          canRebind: false,
+        });
+      }
+      const rawLiveDocGen = this.host.getDocumentGeneration ? this.host.getDocumentGeneration(effectiveTabId) : target?.documentGeneration;
+      const liveDocGen = typeof rawLiveDocGen === 'number' && Number.isFinite(rawLiveDocGen) && rawLiveDocGen > 0
+        ? Math.floor(rawLiveDocGen)
+        : (typeof target?.documentGeneration === 'number' && target.documentGeneration > 0 ? target.documentGeneration : 1);
+      const epoch = typeof target?.browserEpoch === 'number' && Number.isFinite(target.browserEpoch) && target.browserEpoch > 0
+        ? Math.floor(target.browserEpoch)
+        : 1;
+      return {
+        success: true,
+        tabId: effectiveTabId,
+        documentGeneration: liveDocGen,
+        browserEpoch: epoch,
+        url: matched.url,
+        title: matched.title,
+      };
+    }
+    if (!effectiveTabId) {
+      throw new CapabilityError('TARGET_REQUIRED', 'Browser target tabId is required to rebind');
+    }
+    const rawLiveDocGen = this.host.getDocumentGeneration ? this.host.getDocumentGeneration(effectiveTabId) : target?.documentGeneration;
+    const liveDocGen = typeof rawLiveDocGen === 'number' && Number.isFinite(rawLiveDocGen) && rawLiveDocGen > 0
+      ? Math.floor(rawLiveDocGen)
+      : (typeof target?.documentGeneration === 'number' && target.documentGeneration > 0 ? target.documentGeneration : 1);
+    const epoch = typeof target?.browserEpoch === 'number' && Number.isFinite(target.browserEpoch) && target.browserEpoch > 0
+      ? Math.floor(target.browserEpoch)
+      : 1;
+    return {
+      success: true,
+      tabId: effectiveTabId,
+      documentGeneration: liveDocGen,
+      browserEpoch: epoch,
+    };
+  }
   closeTab(tabId: string, context?: { target?: BrowserTarget }): { closed: boolean; tabId: string; failoverTabId?: string } {
     if (!this.host.closeTab) throw new CapabilityError('CAPABILITY_NOT_FOUND', 'closeTab is not supported by host');
     let targetId = tabId;
@@ -1283,19 +1333,33 @@ export class BrowserControlPort {
       const tabs = this.host.getTabList() || [];
       const exists = tabs.some((t: any) => t && typeof t === 'object' && t.id === tabId);
       if (!exists) {
-        throw new CapabilityError('TARGET_STALE', `Target tab '${tabId}' no longer exists`);
+        throw new CapabilityError('TARGET_STALE', `Target tab '${tabId}' no longer exists`, {
+          tabId,
+          canRebind: false,
+        });
       }
     }
     const liveDocGen = this.host.getDocumentGeneration ? this.host.getDocumentGeneration(tabId) : target.documentGeneration;
     if (typeof target.documentGeneration === 'number' && typeof liveDocGen === 'number' && target.documentGeneration !== liveDocGen) {
       throw new CapabilityError(
         'TARGET_STALE',
-        `Browser target document generation (${target.documentGeneration}) is stale compared to live document generation (${liveDocGen}) after acquiring viewport lock`
+        `Browser target document generation (${target.documentGeneration}) is stale compared to live document generation (${liveDocGen}) after acquiring viewport lock`,
+        {
+          tabId: tabId || target.tabId,
+          targetDocumentGeneration: target.documentGeneration,
+          liveDocumentGeneration: liveDocGen,
+          canRebind: true,
+        }
       );
     }
     const targetToCheck = target && tabId && target.tabId !== tabId ? { ...target, tabId } : target;
     if (this.host.isCurrentTarget && !this.host.isCurrentTarget(targetToCheck)) {
-      throw new CapabilityError('TARGET_STALE', 'Browser target no longer matches current tab document after acquiring viewport lock');
+      throw new CapabilityError('TARGET_STALE', 'Browser target no longer matches current tab document after acquiring viewport lock', {
+        tabId: targetToCheck.tabId,
+        targetDocumentGeneration: target.documentGeneration,
+        liveDocumentGeneration: liveDocGen,
+        canRebind: true,
+      });
     }
   }
   async setViewport(options: { width: number; height: number; mobile?: boolean; deviceScaleFactor?: number; tabId?: string }, target?: BrowserTarget): Promise<{ success: boolean; width: number; height: number; mobile?: boolean; presetId: string }> {
@@ -3962,10 +4026,15 @@ export class BrowserControlPort {
       if (!explicitTabId && operationType === 'write' && typeof target.documentGeneration === 'number' && typeof liveDocGen === 'number' && target.documentGeneration !== liveDocGen) {
         throw new CapabilityError(
           'TARGET_STALE',
-          `Browser target document generation (${target.documentGeneration}) is stale compared to live document generation (${liveDocGen}). The DOM was modified or reloaded in the background. Please re-inspect DOM before interacting.`
+          `Browser target document generation (${target.documentGeneration}) is stale compared to live document generation (${liveDocGen}). The DOM was modified or reloaded in the background. Please re-inspect DOM before interacting.`,
+          {
+            tabId: resolved,
+            targetDocumentGeneration: target.documentGeneration,
+            liveDocumentGeneration: liveDocGen,
+            canRebind: true,
+          }
         );
       }
-
       const effectiveDocGen = (operationType === 'read' || operationType === 'lifecycle' || Boolean(explicitTabId))
         ? (liveDocGen ?? target.documentGeneration)
         : target.documentGeneration;

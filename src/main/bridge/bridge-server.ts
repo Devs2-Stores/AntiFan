@@ -924,11 +924,19 @@ export class BridgeServer {
             } else {
               const code = dispatchResult.error?.code || 'CAPABILITY_ERROR';
               const message = dispatchResult.error?.message || 'Capability dispatch failed';
-              respond(false, undefined, `${code}: ${message}`);
+              respond(false, {
+                code,
+                message,
+                details: dispatchResult.error?.details,
+                replacementAuthorityRevision: dispatchResult.replacementAuthorityRevision,
+                authorityRevision: dispatchResult.replacementAuthorityRevision,
+              }, `${code}: ${message}`);
             }
           } catch (err: unknown) {
-            const errorMsg = err instanceof CapabilityError ? `${err.code}: ${err.message}` : (err instanceof Error ? err.message : String(err));
-            respond(false, undefined, errorMsg);
+            const code = err instanceof CapabilityError ? err.code : 'CAPABILITY_ERROR';
+            const message = err instanceof Error ? err.message : String(err);
+            const details = err instanceof CapabilityError ? err.details : undefined;
+            respond(false, { code, message, details }, `${code}: ${message}`);
           }
           break;
         }
