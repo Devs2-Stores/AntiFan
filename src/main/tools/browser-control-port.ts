@@ -2828,6 +2828,11 @@ export class BrowserControlPort {
       // Pre-inject identity (navigation span). Our own style insert legitimately
       // moves mutationRevision, so strict DOM tracking opens a fresh window after
       // each normalize inject below.
+      // Ensure target tab is foregrounded before normalization, settle barrier, and geometry measurement
+      if (typeof this.host.switchTab === 'function' && this.host.getActiveTabId && this.host.getActiveTabId() !== tabId) {
+        this.host.switchTab(tabId);
+        await new Promise((r) => setTimeout(r, 150));
+      }
       guard.recordPreInject('target', readIdentity(tabId));
       if (compTabTarget) guard.recordPreInject('baseline', readIdentity(compTabTarget));
 
@@ -2911,11 +2916,7 @@ export class BrowserControlPort {
       if (typeof this.host.captureVerificationScreenshot !== 'function') {
         throw new CapabilityError('CAPABILITY_NOT_FOUND', "Host does not implement required 'captureVerificationScreenshot' canonical CDP interface");
       }
-      // Ensure target tab is foregrounded for capture so its WebContentsView is attached and rendered to full viewport
-      if (typeof this.host.switchTab === 'function' && this.host.getActiveTabId && this.host.getActiveTabId() !== tabId) {
-        this.host.switchTab(tabId);
-        await new Promise((r) => setTimeout(r, 150));
-      }
+      // Capture from targetId
       curEnvelope = await this.host.captureVerificationScreenshot(resolvedRect, tabId, effectivePane, captureOpts);
       if (!curEnvelope || !curEnvelope.data || curEnvelope.data.length === 0) {
         await new Promise((r) => setTimeout(r, 150));
@@ -3063,6 +3064,11 @@ export class BrowserControlPort {
         };
       } else if (params.comparisonTabId && compTabTarget) {
         // Normalization FIRST (same rationale as the target side)
+        // Ensure comparison tab is foregrounded before normalization, settle barrier, and geometry measurement
+        if (typeof this.host.switchTab === 'function' && this.host.getActiveTabId && this.host.getActiveTabId() !== compTabTarget) {
+          this.host.switchTab(compTabTarget);
+          await new Promise((r) => setTimeout(r, 150));
+        }
         if (params.normalizeScroll) {
           const outcome = await NormalizationTransaction.inject(this.host, compTabTarget, effectivePane);
           compNormalize.injected = outcome.present === true;
@@ -3130,11 +3136,7 @@ export class BrowserControlPort {
             }
           } catch {}
         }
-        // Ensure comparison tab is foregrounded for capture so its WebContentsView is attached and rendered to full viewport
-        if (typeof this.host.switchTab === 'function' && this.host.getActiveTabId && this.host.getActiveTabId() !== compTabTarget) {
-          this.host.switchTab(compTabTarget);
-          await new Promise((r) => setTimeout(r, 150));
-        }
+        // Capture from comparison tab
         compEnvelope = await this.host.captureVerificationScreenshot(comparisonRect, compTabTarget, effectivePane, captureOpts);
         if (!compEnvelope || !compEnvelope.data || compEnvelope.data.length === 0) {
           await new Promise((r) => setTimeout(r, 150));
