@@ -668,7 +668,15 @@ export class ThemeQaWorkflow {
       })
     );
 
-    const qaMatrix = ThemeQaWorkflow.computeQaMatrix(summary, checklist, findings);
+    const overflow = findings.overflow;
+    const desktopOverflow = overflow?.hasOverflow && overflow.viewport?.name === 'desktop' ? Number(((overflow.deltaX / (overflow.clientWidth || 1)) * 100).toFixed(2)) : 0;
+    const tabletOverflow = overflow?.hasOverflow && overflow.viewport?.name === 'tablet' ? Number(((overflow.deltaX / (overflow.clientWidth || 1)) * 100).toFixed(2)) : 0;
+    const mobileOverflow = overflow?.hasOverflow && overflow.viewport?.name === 'mobile' ? Number(((overflow.deltaX / (overflow.clientWidth || 1)) * 100).toFixed(2)) : 0;
+    const qaMatrix = ThemeQaWorkflow.computeQaMatrix(summary, checklist, findings, {
+      desktop: { mismatchPercent: desktopOverflow, passed: desktopOverflow === 0 },
+      tablet: { mismatchPercent: tabletOverflow, passed: tabletOverflow === 0 },
+      mobile: { mismatchPercent: mobileOverflow, passed: mobileOverflow === 0 },
+    });
 
     if (input.workspaceRoot) {
       try {
@@ -706,9 +714,9 @@ export class ThemeQaWorkflow {
       mobile?: { mismatchPercent: number; passed: boolean };
     }
   ): QaMatrixReport {
-    const vpDesktop = viewports?.desktop || { mismatchPercent: 0.81, passed: true };
-    const vpTablet = viewports?.tablet || { mismatchPercent: 1.25, passed: true };
-    const vpMobile = viewports?.mobile || { mismatchPercent: 2.1, passed: true };
+    const vpDesktop = viewports?.desktop || { mismatchPercent: 0, passed: true };
+    const vpTablet = viewports?.tablet || { mismatchPercent: 0, passed: true };
+    const vpMobile = viewports?.mobile || { mismatchPercent: 0, passed: true };
 
     const visualScore = Math.max(0, 100 - Math.round(vpDesktop.mismatchPercent * 10));
     const responsiveScore = Math.max(0, 100 - Math.round(((vpTablet.mismatchPercent + vpMobile.mismatchPercent) / 2) * 10));
