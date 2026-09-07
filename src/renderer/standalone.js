@@ -694,7 +694,7 @@ async function processIncomingChunk(viewState, chunk, isSplit) {
 
 async function handleSequenceGap(viewState, chunk, isSplit) {
   viewState.gapCount = (viewState.gapCount || 0) + 1;
-  const chunkBytes = (chunk.data || '').length;
+  const chunkBytes = (chunk && chunk.data ? chunk.data.length : 0);
   const currentQueueBytes = viewState.liveQueue.reduce((acc, c) => acc + (c.data ? c.data.length : 0), 0);
 
   if (

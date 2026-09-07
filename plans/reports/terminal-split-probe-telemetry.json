@@ -1,5 +1,5 @@
 {
-  "timestamp": "2026-09-07T04:56:42.252Z",
+  "timestamp": "2026-09-07T08:39:51.661Z",
   "checks": {
     "remountHydrationGuard": {
       "emptyCallHydratedFromBackend": true,
@@ -28,6 +28,26 @@
         "phantomCleanedUp": true,
         "splitText": "PROBE-RACE-BACKEND-OUTPUT: Shell prompt ready",
         "splitSeq": 1
+      }
+    },
+    "nullChunkRetryResilience": {
+      "handledWithoutTypeError": true,
+      "lastRenderedSeqAdvancesToTen": true,
+      "queueDrainedCompletely": true,
+      "isFetchingDeltaSettledFalse": true,
+      "syncStateReady": true,
+      "postGapLiveChunkProcessed": true,
+      "details": {
+        "ok": true,
+        "gapCount": 1,
+        "isFetchingDelta": false,
+        "lastRenderedSeq": 10,
+        "queueLength": 0,
+        "syncState": "READY",
+        "postGapLive": {
+          "lastSeq": 11,
+          "liveTextFound": true
+        }
       }
     }
   },

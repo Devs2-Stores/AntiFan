@@ -80,6 +80,14 @@ app.whenReady().then(async () => {
     ipcMain.handle('antifan:terminal:input-session', () => ({ ok: true }));
     ipcMain.handle('antifan:terminal:input', () => ({ ok: true }));
     ipcMain.handle('antifan:terminal:sync-view', () => ({ status: 'UP_TO_DATE', generation: 1, lastSeq: 0 }));
+    ipcMain.handle('antifan:terminal:get-delta', (_e, { fromSeq }) => {
+      const chunks = [];
+      const start = Math.max(1, fromSeq || 1);
+      for (let s = start; s < 10; s++) {
+        chunks.push({ seq: s, data: `DELTA-CHUNK-${s}\r\n` });
+      }
+      return { status: 'OK', chunks };
+    });
     ipcMain.handle('antifan:tabs:get-list', () => []);
     ipcMain.handle('antifan:terminal:get-affinity', () => null);
     ipcMain.handle('antifan:terminal:split-session', async () => {
@@ -276,6 +284,70 @@ app.whenReady().then(async () => {
     };
 
     console.log('[PROBE] Check 3 result:', JSON.stringify(telemetry.checks.creationMisrouting, null, 2));
+    // -------------------------------------------------------------
+    // CHECK 4: Null Chunk Retry Dereference Resilience in Real Renderer
+    // -------------------------------------------------------------
+    console.log('[PROBE] Executing Check 4: Real Renderer Null Chunk Retry Resilience...');
+    const check4Result = await win.webContents.executeJavaScript(`(async () => {
+      try {
+        splitSessionState.liveQueue = [{ seq: 10, generation: 1, data: 'NULL-CHUNK-RETRY-TEST\\r\\n' }];
+        splitSessionState.lastRenderedSeq = 5;
+        // Invoke actual renderer function with null chunk (as done by setTimeout retry on line 797)
+        await handleSequenceGap(splitSessionState, null, true);
+        return {
+          ok: true,
+          gapCount: splitSessionState.gapCount,
+          isFetchingDelta: splitSessionState.isFetchingDelta,
+          lastRenderedSeq: splitSessionState.lastRenderedSeq,
+          queueLength: splitSessionState.liveQueue.length,
+          syncState: splitSessionState.syncState,
+        };
+      } catch (err) {
+        return {
+          ok: false,
+          error: err.message,
+          stack: err.stack,
+        };
+      }
+    })()`);
+
+    // Send live contiguous chunk (seq 11) to prove stream continues updating cleanly without freezing
+    win.webContents.send('antifan:terminal:data', {
+      sessionId: 'split-race-test',
+      data: 'POST-GAP-LIVE-CHUNK\\r\\n',
+      seq: 11,
+      generation: 1,
+    });
+    await new Promise((r) => setTimeout(r, 200));
+
+    const check4LiveResult = await win.webContents.executeJavaScript(`(() => {
+      let liveTextFound = false;
+      if (splitTerm && splitTerm.buffer && splitTerm.buffer.active) {
+        const b = splitTerm.buffer.active;
+        for (let i = 0; i < b.length; i++) {
+          const l = b.getLine(i);
+          if (l && l.translateToString(true).includes('POST-GAP-LIVE-CHUNK')) {
+            liveTextFound = true;
+            break;
+          }
+        }
+      }
+      return {
+        lastSeq: splitSessionState.lastRenderedSeq,
+        liveTextFound,
+      };
+    })()`);
+
+    telemetry.checks.nullChunkRetryResilience = {
+      handledWithoutTypeError: check4Result.ok === true,
+      lastRenderedSeqAdvancesToTen: check4Result.lastRenderedSeq === 10,
+      queueDrainedCompletely: check4Result.queueLength === 0,
+      isFetchingDeltaSettledFalse: check4Result.isFetchingDelta === false,
+      syncStateReady: check4Result.syncState === 'READY',
+      postGapLiveChunkProcessed: check4LiveResult.lastSeq === 11 && check4LiveResult.liveTextFound,
+      details: { ...check4Result, postGapLive: check4LiveResult },
+    };
+    console.log('[PROBE] Check 4 result:', JSON.stringify(telemetry.checks.nullChunkRetryResilience, null, 2));
 
     // Final Verdict based on deterministic post-fix assertions
     telemetry.verdict = (
@@ -284,7 +356,13 @@ app.whenReady().then(async () => {
       telemetry.checks.sameIdEarlyReturnTrap.oldMarkerReplacedCleanly &&
       telemetry.checks.creationMisrouting.phantomObservedDuringRace &&
       telemetry.checks.creationMisrouting.phantomCleanedUpByMountClean &&
-      telemetry.checks.creationMisrouting.splitPaneHydratedCleanly
+      telemetry.checks.creationMisrouting.splitPaneHydratedCleanly &&
+      telemetry.checks.nullChunkRetryResilience.handledWithoutTypeError &&
+      telemetry.checks.nullChunkRetryResilience.lastRenderedSeqAdvancesToTen &&
+      telemetry.checks.nullChunkRetryResilience.queueDrainedCompletely &&
+      telemetry.checks.nullChunkRetryResilience.isFetchingDeltaSettledFalse &&
+      telemetry.checks.nullChunkRetryResilience.syncStateReady &&
+      telemetry.checks.nullChunkRetryResilience.postGapLiveChunkProcessed
     ) ? 'CONFIRMED_ALL_FIXES_VERIFIED' : 'PARTIAL_VERIFICATION';
     fs.writeFileSync(certFile, JSON.stringify(telemetry, null, 2), 'utf8');
     console.log('[PROBE] Telemetry saved to:', certFile);
