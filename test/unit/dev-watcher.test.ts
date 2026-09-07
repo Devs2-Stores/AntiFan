@@ -17,6 +17,7 @@ import {
   acquireDevLock,
   releaseDevLock,
   defaultIsProcAlive,
+  defaultIsFile,
 } from '../../scripts/dev-watcher-helpers.mjs';
 
 describe('Dev Watcher Helpers', () => {
@@ -66,6 +67,24 @@ describe('Dev Watcher Helpers', () => {
       assert.strictEqual(isUiHotSwappable('src/renderer/foo.png'), false);
       assert.strictEqual(isUiHotSwappable(''), false);
       assert.strictEqual(isUiHotSwappable(null as unknown as string), false);
+    });
+  });
+
+  describe('defaultIsFile classifier', () => {
+    it('identifies source files with extensions', () => {
+      assert.strictEqual(defaultIsFile('src/renderer/toolbar.ts'), true);
+      assert.strictEqual(defaultIsFile('src\\renderer\\toolbar.css'), true);
+      assert.strictEqual(defaultIsFile('scripts/cdp/1.source.js'), true);
+      assert.strictEqual(defaultIsFile('src/main/index.ts'), true);
+    });
+
+    it('rejects directories, empty paths, and extensionless paths', () => {
+      assert.strictEqual(defaultIsFile('src/renderer'), false);
+      assert.strictEqual(defaultIsFile('src'), false);
+      assert.strictEqual(defaultIsFile('scripts/cdp'), false);
+      assert.strictEqual(defaultIsFile(''), false);
+      assert.strictEqual(defaultIsFile(null as unknown as string), false);
+      assert.strictEqual(defaultIsFile(undefined as unknown as string), false);
     });
   });
 
@@ -428,6 +447,76 @@ describe('Dev Watcher Helpers', () => {
       assert.strictEqual(electronRelaunched, false, 'Must NEVER relaunch electron for renderer asset changes');
     });
 
+
+    it('ignores null, empty, and whitespace filenames without scheduling a relaunch', async () => {
+      let electronRelaunched = false;
+      const dispatcher = createChangeDispatcher({
+        relaunchElectronFn: async () => {
+          electronRelaunched = true;
+        },
+        debounceMs: 20,
+      });
+
+      const r1 = await dispatcher.scheduleRelaunch(null);
+      const r2 = await dispatcher.scheduleRelaunch('');
+      const r3 = await dispatcher.scheduleRelaunch('   ');
+      assert.deepStrictEqual(r1, { action: 'noop', success: true });
+      assert.deepStrictEqual(r2, { action: 'noop', success: true });
+      assert.deepStrictEqual(r3, { action: 'noop', success: true });
+      assert.strictEqual(electronRelaunched, false, 'Must not relaunch for null or empty filenames');
+    });
+
+    it('returns noop and does not relaunch when handleBatch receives an empty array', async () => {
+      let electronRelaunched = false;
+      const dispatcher = createChangeDispatcher({
+        relaunchElectronFn: async () => {
+          electronRelaunched = true;
+        },
+      });
+
+      const result = await dispatcher.handleBatch([]);
+      assert.deepStrictEqual(result, { action: 'noop', success: true });
+      assert.strictEqual(electronRelaunched, false, 'Empty batch must not trigger cold relaunch');
+    });
+
+    it('filters directory entries so parent folder events do not poison allUiHot into a cold relaunch', async () => {
+      let uiReloaded = false;
+      let electronRelaunched = false;
+
+      const dispatcher = createChangeDispatcher({
+        isUiHotSwappableFn: isUiHotSwappable,
+        copyStaticFn: () => {},
+        sendUiReloadFn: async () => {
+          uiReloaded = true;
+          return true;
+        },
+        relaunchElectronFn: async () => {
+          electronRelaunched = true;
+        },
+        getElectronProc: () => ({ pid: 1234 }),
+        debounceMs: 20,
+      });
+
+      // Windows fs.watch emits both the file AND its containing directory.
+      // Without directory filtering, 'src/renderer' fails isUiHotSwappable and forces a cold relaunch.
+      const result = await dispatcher.handleBatch(['src/renderer', 'src/renderer/toolbar.ts']);
+      assert.deepStrictEqual(result, { action: 'ui_reload', success: true });
+      assert.strictEqual(uiReloaded, true, 'Must execute ui_reload');
+      assert.strictEqual(electronRelaunched, false, 'Containing folder event must not trigger cold relaunch');
+    });
+
+    it('returns noop without relaunching when a batch contains ONLY directories', async () => {
+      let electronRelaunched = false;
+      const dispatcher = createChangeDispatcher({
+        relaunchElectronFn: async () => {
+          electronRelaunched = true;
+        },
+      });
+
+      const result = await dispatcher.handleBatch(['src/renderer', 'src', 'scripts/cdp']);
+      assert.deepStrictEqual(result, { action: 'noop', success: true });
+      assert.strictEqual(electronRelaunched, false, 'Directory-only batch must not trigger cold relaunch');
+    });
     it('routes renderer .ts edits through the tsc-settle gate then ui reload, never relaunching', async () => {
       let staticCopied = false;
       let uiReloaded = false;

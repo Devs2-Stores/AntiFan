@@ -5,7 +5,7 @@ export interface TscLineState {
 }
 
 export interface ChangeDispatcherResult {
-  action: 'soft_reload' | 'ui_reload' | 'relaunch' | 'skip_compiler_error';
+  action: 'soft_reload' | 'ui_reload' | 'relaunch' | 'skip_compiler_error' | 'noop';
   success: boolean;
 }
 
@@ -23,6 +23,7 @@ export interface ChangeDispatcherOptions {
   debounceMs?: number;
   tscTimeoutMs?: number;
   log?: (msg: string) => void;
+  isFileFn?: (relPath?: string | null) => boolean;
 }
 
 export interface ChangeDispatcher {
@@ -36,6 +37,7 @@ export interface ChangeDispatcher {
 
 export function isHotSwappable(relPath?: string | null): boolean;
 export function isUiHotSwappable(relPath?: string | null): boolean;
+export function defaultIsFile(relPath?: string | null): boolean;
 export function processTscLine(line: string, state?: { isTscCompiling: boolean; tscHasErrors: boolean }): TscLineState;
 export function resolveDevBridgeInfo(customDirs?: string[] | null): { port: number; token: string } | null;
 export function sendSoftReload(options?: {

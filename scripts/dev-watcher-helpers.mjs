@@ -206,11 +206,32 @@ export function isUiHotSwappable(relPath) {
 }
 
 /**
+ * Distinguish actual files from directories reported by file watchers.
+ * On Windows, fs.watch on a directory emits events for both the modified file
+ * AND its containing folder (e.g. src/renderer/toolbar.ts AND src/renderer).
+ * Unfiltered folder entries in a batch lack file extensions and cause allUiHot
+ * to evaluate to false, erroneously forcing a full Electron relaunch.
+ */
+export function defaultIsFile(relPath) {
+  if (!relPath || typeof relPath !== 'string') return false;
+  const normalized = relPath.replace(/\\/g, '/');
+  try {
+    const stat = fs.statSync(path.resolve(process.cwd(), relPath));
+    return stat.isFile();
+  } catch {
+    // If not statable on disk (deleted file or simulated path in tests),
+    // require a non-empty extension (.ts, .js, .css, etc.).
+    return path.extname(normalized).length > 0;
+  }
+}
+
+/**
  * Create an injectable change dispatcher for coordinating hot and cold reload events.
  */
 export function createChangeDispatcher({
   isHotSwappableFn = isHotSwappable,
   isUiHotSwappableFn = isUiHotSwappable,
+  isFileFn = defaultIsFile,
   sendSoftReloadFn = sendSoftReload,
   sendUiReloadFn = () => Promise.resolve(false),
   copyStaticFn = () => {},
@@ -227,9 +248,13 @@ export function createChangeDispatcher({
   let pendingResolvers = [];
   let relaunchTimer = null;
   let isDisposed = false;
-  async function handleBatch(files) {
+  async function handleBatch(rawFiles) {
     if (isDisposed) {
       throw new Error('Dispatcher disposed');
+    }
+    const files = Array.isArray(rawFiles) ? rawFiles.filter(isFileFn) : [];
+    if (files.length === 0) {
+      return { action: 'noop', success: true };
     }
     const allHot = files.length > 0 && files.every(isHotSwappableFn);
     const allUiHot = files.length > 0 && files.every(isUiHotSwappableFn);
@@ -337,6 +362,7 @@ export function createChangeDispatcher({
     if (isDisposed) {
       throw new Error('Dispatcher disposed');
     }
+    log(`Detected non-UI or main-process change in: ${files.join(', ')} — restarting Electron...`);
     await relaunchElectronFn();
     return { action: 'relaunch', success: true };
   }
@@ -345,7 +371,10 @@ export function createChangeDispatcher({
     if (isDisposed) {
       return Promise.reject(new Error('Dispatcher disposed'));
     }
-    if (filename) pendingChangedFiles.add(filename);
+    if (!filename || typeof filename !== 'string' || !filename.trim()) {
+      return Promise.resolve({ action: 'noop', success: true });
+    }
+    pendingChangedFiles.add(filename.trim());
 
     if (relaunchTimer) clearTimeout(relaunchTimer);
     return new Promise((resolve, reject) => {

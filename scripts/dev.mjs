@@ -197,20 +197,25 @@ const dispatcher = createChangeDispatcher({
 function scheduleRelaunch(filename) {
   const now = Date.now();
   if (now < cwdChangedAt) return;
-  dispatcher.scheduleRelaunch(filename).catch((err) => {
+  if (!filename || typeof filename !== 'string' || !filename.trim()) return;
+  dispatcher.scheduleRelaunch(filename.trim()).catch((err) => {
     if (dispatcher.isDisposed() || /disposed|cancelled/i.test(err?.message)) return;
     log(`Watcher dispatch failed: ${err?.message || err}`);
   });
 }
 
 try {
-  fs.watch(path.join(ROOT, 'src'), { recursive: true }, (event, filename) => scheduleRelaunch(filename ? `src/${filename}` : null));
+  fs.watch(path.join(ROOT, 'src'), { recursive: true }, (event, filename) => {
+    if (filename) scheduleRelaunch(`src/${filename}`);
+  });
 } catch (err) {
   log(`Warning: recursive watch unavailable on src: ${err.message}`);
 }
 
 try {
-  fs.watch(cdpDir, { recursive: true }, (event, filename) => scheduleRelaunch(filename ? `scripts/cdp/${filename}` : null));
+  fs.watch(cdpDir, { recursive: true }, (event, filename) => {
+    if (filename) scheduleRelaunch(`scripts/cdp/${filename}`);
+  });
 } catch (err) {
   log(`Warning: recursive watch unavailable on scripts/cdp: ${err.message}`);
 }
