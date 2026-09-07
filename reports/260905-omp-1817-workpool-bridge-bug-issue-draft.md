@@ -2,7 +2,11 @@
 
 ## Summary
 
-Since **v18.1.7** (present through current v18.1.10, both stable and canary channels), every subagent spawn on Windows x64 crashes during startup with:
+> [!NOTE]
+> **STATUS: RESOLVED UPSTREAM IN v18.1.11+ (verified in v18.1.13).**
+> The fix `() => at?.getWorkPoolYieldItems() ?? []` was landed in v18.1.11. This document is preserved as a post-mortem record.
+
+Between **v18.1.7** and **v18.1.10** (reproduced on Windows x64 release binaries), every subagent spawn crashed during startup with:
 
 ```
 TypeError: undefined is not an object (evaluating 'rt.getWorkPoolYieldItems')
@@ -13,9 +17,8 @@ Affected paths: the `task` tool (workpool batches, any `--ultra` / scout fan-out
 
 ## Impact
 
-- All parallel subagent workflows are unusable on Windows: 5/5 ultra-verifier slots, 8/8 scout dispatches, and an `eval agent()` probe all failed identically across multiple sessions.
-- Users must fall back to controller-grounded single-pass analysis or sequential work.
-- macOS/Linux builds are unaffected only because the same unguarded code path is not exercised there — the defect is in shared JS, so it is latent on all platforms.
+- All parallel subagent workflows were unusable on Windows: 5/5 ultra-verifier slots, 8/8 scout dispatches, and an `eval agent()` probe all failed identically across multiple sessions.
+- Users had to fall back to controller-grounded single-pass analysis or sequential work.
 
 ## Root cause (from binary inspection)
 
@@ -51,27 +54,33 @@ Scanned every Windows release asset (SHA256-verified against each release's `SHA
 | **18.1.7** | **3** | **5** | **first bad** |
 | 18.1.8 … 18.1.10 | 3 | 5 | bad |
 
-Note: v18.1.7 is published to GitHub releases but **not** on the npm registry (the canary channel also reports "No canary release has been published"). `omp update --check` on stable reports 18.1.10 as latest.
+Note: v18.1.7 was published to GitHub releases but omitted from the npm registry index. The defect persisted through v18.1.10 until resolved in v18.1.11. Current latest stable on npm and GitHub releases is v18.1.13.
 
-## Suggested fix
+## Resolution & Live Runtime Verification (v18.1.11, v18.1.12, v18.1.13)
+
+Upstream resolved this in **v18.1.11** by applying the optional-chaining guard with fallback:
 
 ```js
-getWorkPoolYieldItems:  () => rt?.getWorkPoolYieldItems(),
-setWorkPoolYieldItems:  (ye) => rt?.setWorkPoolYieldItems(ye),
-getTodoPhases:          () => rt?.getTodoPhases(),
-setTodoPhases:          (ye) => rt?.setTodoPhases(ye),
-// ...and the other unguarded methods listed above
+getWorkPoolYieldItems: () => at?.getWorkPoolYieldItems() ?? [],
 ```
 
-Or, preferably: guarantee `rt` is assigned before the bridge object is exposed, and add a regression test that dispatches one workpool subagent at startup.
+Verified across release binaries `omp-18.1.11.exe`, `omp-18.1.12.exe`, and `omp-18.1.13.exe`. All three binaries contain the guard.
+
+### Live Fresh-Process Probes on v18.1.13:
+1. **Single Scout Dispatch (`task` tool):**
+   - Command: `omp -p "Dispatch exactly 1 scout subagent using the task tool to return 'PING'..." --no-session`
+   - Result: `PingScout` spawned, completed, and returned payload in 24.4s (exit 0).
+2. **Parallel Batch Dispatch (2 concurrent scouts in 1 `task` call):**
+   - Command: `omp -p "Dispatch exactly 2 scout subagents (ScoutA and ScoutB) in parallel in a single task tool call..." --no-session`
+   - Result: Both subagents completed in parallel in 24.1s (exit 0), workpool yield items resolved cleanly.
 
 ## Environment
 
 - OS: Windows 11 Pro x64 (10.0.22000)
-- `omp --version`: v18.1.10 → v18.1.7 (verified via GitHub release asset decompilation, SHA256-verified)
-- Install: `C:\Users\Admin\AppData\Local\omp\omp.exe` (Bun standalone, `B:/~BUN/root/omp-windows-x64`), self-update channel: canary
-- `omp update --check`: "Already up to date" (18.1.10), no newer build on either channel
+- Defect span: v18.1.7 through v18.1.10 (verified via GitHub release asset decompilation, SHA256-verified)
+- Resolution version: v18.1.11 (and verified in v18.1.12, v18.1.13)
+- Installed binary: `C:\Users\Admin\AppData\Local\omp\omp.exe` running v18.1.13 (SHA256: `5d75a584acd1d8775d2ea6a14c3ea0dbdf8eb71a54bdab6ae7f38ab971aef877`)
 
-## Workaround for affected users
+## Remediation
 
-Do not dispatch subagents (`task` / `eval agent()`) on v18.1.7+ until fixed; perform controller-side inspection directly. Downgrading the Windows binary to v18.1.6 restores subagent dispatch.
+Upgrade to **v18.1.11+** (latest **v18.1.13**). For pinned legacy environments unable to upgrade past v18.1.6, stay on v18.1.6 (the last release prior to bridge introduction). Avoid running v18.1.7 through v18.1.10 for subagent-dependent workflows.
