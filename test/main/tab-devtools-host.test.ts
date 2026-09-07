@@ -685,4 +685,118 @@ describe('TabDevToolsHost (Sub-Controller Unit Tests)', () => {
     assert.strictEqual(removedMessage, onMessage);
     assert.strictEqual(removedNavigate, onNavigate);
   });
+
+  it('13. captureVerificationScreenshot on background desktop tab wraps in runWithAttachedTabView with desktop view and isMobile false', async () => {
+    const { ctx, tabs } = createMockContext();
+    ctx.createTab('https://example.com/bg');
+    const tab2 = tabs.get('tab-2')!;
+
+    const attachCalls: Array<{ view: unknown; isMobile?: boolean }> = [];
+    ctx.runWithAttachedTabView = async <T>(_view: unknown, action: () => Promise<T>, isMobile?: boolean): Promise<T> => {
+      attachCalls.push({ view: _view, isMobile });
+      return await action();
+    };
+
+    const devTools = new TabDevToolsHost(ctx);
+    const cdpCommands: Array<{ method: string; params?: unknown }> = [];
+    (devTools as unknown as { sendCdpCommand: (wc: unknown, method: string, params?: unknown) => Promise<unknown> }).sendCdpCommand = async (_wc, method, params) => {
+      cdpCommands.push({ method, params });
+      if (method === 'Runtime.evaluate') {
+        return { result: { value: { dpr: 2, vw: 1280, vh: 800 } } };
+      }
+      if (method === 'Page.captureScreenshot') {
+        return { data: 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==' };
+      }
+      return {};
+    };
+
+    const envelope = await devTools.captureVerificationScreenshot(undefined, 'tab-2', 'desktop');
+    assert.strictEqual(envelope.backend, 'cdp');
+    assert.strictEqual(envelope.dpr, 2);
+    assert.strictEqual(envelope.rasterSize.width, 1);
+    assert.strictEqual(envelope.rasterSize.height, 1);
+
+    assert.strictEqual(attachCalls.length, 1);
+    assert.strictEqual(attachCalls[0]?.view, tab2.view);
+    assert.strictEqual(attachCalls[0]?.isMobile, false);
+
+    const capCmd = cdpCommands.find((c) => c.method === 'Page.captureScreenshot');
+    assert.ok(capCmd);
+    const params = capCmd.params;
+    assert.ok(params && typeof params === 'object');
+    assert.strictEqual('fromSurface' in params && params.fromSurface, false);
+    assert.strictEqual('captureBeyondViewport' in params && params.captureBeyondViewport, true);
+  });
+
+  it('14. captureVerificationScreenshot on background mobile pane wraps in runWithAttachedTabView with mobileView and isMobile true', async () => {
+    const { ctx, tabs } = createMockContext();
+    ctx.createTab('https://example.com/bg');
+    const tab2 = tabs.get('tab-2')!;
+    const mockMobileWc = { isDestroyed: () => false };
+    tab2.mobileView = { webContents: mockMobileWc, getBounds: () => ({ width: 375, height: 667 }), setBounds: () => {} };
+    const origGetWc = ctx.getTabWebContents;
+    ctx.getTabWebContents = (tabId, pane) => {
+      if (tabId === 'tab-2' && pane === 'mobile') return mockMobileWc as unknown as Electron.WebContents;
+      return origGetWc(tabId, pane);
+    };
+
+    const attachCalls: Array<{ view: unknown; isMobile?: boolean }> = [];
+    ctx.runWithAttachedTabView = async <T>(_view: unknown, action: () => Promise<T>, isMobile?: boolean): Promise<T> => {
+      attachCalls.push({ view: _view, isMobile });
+      return await action();
+    };
+
+    const devTools = new TabDevToolsHost(ctx);
+    (devTools as unknown as { sendCdpCommand: (wc: unknown, method: string, params?: unknown) => Promise<unknown> }).sendCdpCommand = async (_wc, method) => {
+      if (method === 'Runtime.evaluate') {
+        return { result: { value: { dpr: 3, vw: 375, vh: 667 } } };
+      }
+      if (method === 'Page.captureScreenshot') {
+        return { data: 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==' };
+      }
+      return {};
+    };
+
+    const envelope = await devTools.captureVerificationScreenshot(undefined, 'tab-2', 'mobile');
+    assert.strictEqual(envelope.backend, 'cdp');
+    assert.strictEqual(envelope.dpr, 3);
+
+    assert.strictEqual(attachCalls.length, 1);
+    assert.strictEqual(attachCalls[0]?.view, tab2.mobileView);
+    assert.strictEqual(attachCalls[0]?.isMobile, true);
+  });
+
+  it('15. captureVerificationScreenshot on foreground tab executes directly without invoking runWithAttachedTabView', async () => {
+    const { ctx } = createMockContext();
+    let attachCount = 0;
+    ctx.runWithAttachedTabView = async <T>(_view: unknown, action: () => Promise<T>): Promise<T> => {
+      attachCount++;
+      return await action();
+    };
+
+    const devTools = new TabDevToolsHost(ctx);
+    const cdpCommands: Array<{ method: string; params?: unknown }> = [];
+    (devTools as unknown as { sendCdpCommand: (wc: unknown, method: string, params?: unknown) => Promise<unknown> }).sendCdpCommand = async (_wc, method, params) => {
+      cdpCommands.push({ method, params });
+      if (method === 'Runtime.evaluate') {
+        return { result: { value: { dpr: 1, vw: 1200, vh: 800 } } };
+      }
+      if (method === 'Page.captureScreenshot') {
+        return { data: 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==' };
+      }
+      return {};
+    };
+
+    const envelope = await devTools.captureVerificationScreenshot(undefined, 'tab-1', 'desktop');
+    assert.strictEqual(envelope.backend, 'cdp');
+
+    assert.strictEqual(attachCount, 0, 'Foreground capture must not attach view');
+
+    const capCmd = cdpCommands.find((c) => c.method === 'Page.captureScreenshot');
+    assert.ok(capCmd);
+    const params = capCmd.params;
+    assert.ok(params && typeof params === 'object');
+    assert.strictEqual('fromSurface' in params && params.fromSurface, true);
+    assert.strictEqual('captureBeyondViewport' in params && params.captureBeyondViewport, false);
+  });
 });
