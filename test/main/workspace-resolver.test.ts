@@ -16,6 +16,7 @@ function makeTempRoots(): { root: string; roots: string[] } {
   mk(path.join(customizes, 'Mnbakery'));
   mk(path.join(customizes, 'CuddlePet'));
   mk(path.join(themes, 'F1GENZ'));
+  mk(path.join(apps, 'AntiFan'));
   mk(path.join(apps, 'antifan-browser-desktop'));
   return { root, roots: [customizes, themes, apps] };
 }

@@ -321,6 +321,33 @@ body, html {
   color: #38bdf8;
   border-color: rgba(56, 189, 248, 0.4);
 }
+.tab-agent-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 1px 5px;
+  border-radius: 4px;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  background: rgba(0, 240, 255, 0.15);
+  color: #00f0ff;
+  border: 1px solid rgba(0, 240, 255, 0.45);
+  box-shadow: 0 0 8px rgba(0, 240, 255, 0.3);
+  user-select: none;
+  flex-shrink: 0;
+  animation: antifan-badge-pulse 2s infinite ease-in-out;
+}
+.tab-agent-badge.working {
+  background: rgba(56, 189, 248, 0.25);
+  color: #38bdf8;
+  border-color: rgba(56, 189, 248, 0.6);
+  box-shadow: 0 0 10px rgba(56, 189, 248, 0.5);
+}
+@keyframes antifan-badge-pulse {
+  0%, 100% { opacity: 0.9; }
+  50% { opacity: 1; box-shadow: 0 0 12px rgba(0, 240, 255, 0.5); }
+}
 
 /* OMNIBOX AGENT ACTIVE BADGE */
 .agent-active-badge {

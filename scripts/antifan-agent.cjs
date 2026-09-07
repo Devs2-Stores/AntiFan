@@ -68,6 +68,7 @@ function resolveBridgeCandidates() {
     path.join('E:\\', 'Work', '.antifan-data', 'config'),
     path.join('E:', '.antifan-data', 'config'),
     path.join('D:', 'Work', '.antifan-data', 'config'),
+    process.env.APPDATA ? path.join(process.env.APPDATA, 'AntiFan', 'data', 'config') : null,
     process.env.APPDATA ? path.join(process.env.APPDATA, 'antifan-browser-desktop', 'data', 'config') : null,
     process.env.LOCALAPPDATA ? path.join(process.env.LOCALAPPDATA, 'antifan-data', 'config') : null,
     path.join(os.homedir(), '.antifan'),

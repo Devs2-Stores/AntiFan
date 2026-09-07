@@ -390,6 +390,15 @@ export class TabAutomationHost {
     }
     // 4. Issue CDP Input.insertText exactly once
     try {
+      if (res.rect && typeof res.rect.centerX === 'number' && typeof res.rect.centerY === 'number') {
+        wc.executeJavaScript(`(() => {
+          try {
+            if (typeof window.__antifanAgentMove === 'function') {
+              window.__antifanAgentMove(${res.rect.centerX}, ${res.rect.centerY}, 'Typing...');
+            }
+          } catch {}
+        })()`).catch(() => {});
+      }
       await this.sendCdpInputCommand(wc, 'Input.insertText', { text });
       return { success: true, executionTier: 'cdp_trusted', data: { ok: true, executed: true, tier: 'cdp_trusted', executionTier: 'cdp_trusted', rect: res.rect } };
     } catch (cdpErr) {
@@ -454,6 +463,16 @@ export class TabAutomationHost {
 
     let dispatchStage: 'none' | 'moved' | 'pressed' | 'released' = 'none';
     try {
+      wc.executeJavaScript(`(() => {
+        try {
+          if (typeof window.__antifanAgentClick === 'function') {
+            window.__antifanAgentClick('', ${clickX}, ${clickY}, 'Clicking...');
+          } else if (typeof window.__antifanAgentMove === 'function') {
+            window.__antifanAgentMove(${clickX}, ${clickY}, 'Clicking...');
+          }
+        } catch {}
+      })()`).catch(() => {});
+
       await this.sendCdpInputCommand(wc, 'Input.dispatchMouseEvent', {
         type: 'mouseMoved',
         x: clickX,
@@ -578,6 +597,16 @@ export class TabAutomationHost {
       focusEmulationEnabled = true;
     } catch {}
     try {
+      wc.executeJavaScript(`(() => {
+        try {
+          if (typeof window.__antifanAgentHover === 'function') {
+            window.__antifanAgentHover('', ${hoverX}, ${hoverY}, 'Hovering');
+          } else if (typeof window.__antifanAgentMove === 'function') {
+            window.__antifanAgentMove(${hoverX}, ${hoverY}, 'Hovering');
+          }
+        } catch {}
+      })()`).catch(() => {});
+
       await this.sendCdpInputCommand(wc, 'Input.dispatchMouseEvent', {
         type: 'mouseMoved',
         x: hoverX,
@@ -669,6 +698,7 @@ export class TabAutomationHost {
           }
 
           try {
+            await this.ensureAgentBrowserInjected(targetId, effectivePane);
             if (params.trusted !== false && action === 'click') {
               const focusScript = buildIsolatedExecutorScript({
                 action: 'focus',
@@ -777,6 +807,25 @@ export class TabAutomationHost {
               return { ok: true, executed: true };
             })()`);
             return { success: true };
+          }
+          await this.ensureAgentBrowserInjected(targetId, effectivePane);
+          if (action === 'scroll') {
+            wc.executeJavaScript(`(() => {
+              try {
+                if (typeof window.__antifanAgentScroll === 'function') {
+                  window.__antifanAgentScroll(${params.deltaY ?? 400}, ${JSON.stringify(params.selector || '')});
+                }
+              } catch {}
+            })()`).catch(() => {});
+          }
+          if (action === 'highlight') {
+            wc.executeJavaScript(`(() => {
+              try {
+                if (typeof window.__antifanAgentHighlight === 'function') {
+                  window.__antifanAgentHighlight(${JSON.stringify(params.selector || '')}, ${JSON.stringify(params.label || '')});
+                }
+              } catch {}
+            })()`).catch(() => {});
           }
           if (params.trusted !== false && action === 'click') {
             const focusScript = params.selector ? buildIsolatedExecutorScript({

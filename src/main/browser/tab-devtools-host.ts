@@ -986,6 +986,17 @@ export class TabDevToolsHost {
         } catch {}
       }
 
+      // Screenshot Guard: Temporarily suppress agent overlay & visual cursor during capture
+      try {
+        await this.evalJs(
+          `(() => {
+            const ov = document.getElementById('__antifan_agent_overlay__');
+            if (ov) ov.classList.add('suppressed');
+          })()`,
+          targetId,
+          paneId
+        );
+      } catch {}
       try {
         const captureAction = async (): Promise<string> => {
           const withTimeout = <T>(p: Promise<T>, ms: number, fallback: T): Promise<T> => {
@@ -1151,6 +1162,16 @@ export class TabDevToolsHost {
       }
       return result;
     } finally {
+      try {
+        await this.evalJs(
+          `(() => {
+            const ov = document.getElementById('__antifan_agent_overlay__');
+            if (ov) ov.classList.remove('suppressed');
+          })()`,
+          targetId,
+          paneId
+        );
+      } catch {}
       if (maskStyleInjected) {
         try {
           await this.evalJs(
@@ -1207,6 +1228,17 @@ export class TabDevToolsHost {
 
     try {
       return await this.ctx.withTabAgentWorking(targetId, async () => {
+        // Screenshot Guard: Temporarily suppress agent overlay & visual cursor during capture
+        try {
+          await this.evalJs(
+            `(() => {
+              const ov = document.getElementById('__antifan_agent_overlay__');
+              if (ov) ov.classList.add('suppressed');
+            })()`,
+            targetId,
+            effectivePane
+          );
+        } catch {}
         const captureAction = async (): Promise<VerificationCaptureEnvelope> => {
         // Derive zoom and DPR directly from browser/CDP state inside agent working block (atomic with capture, non-nesting)
         const zoom = typeof wc.getZoomFactor === 'function' ? wc.getZoomFactor() : 1.0;
@@ -1286,6 +1318,16 @@ export class TabDevToolsHost {
         return await captureAction();
       });
     } finally {
+      try {
+        await this.evalJs(
+          `(() => {
+            const ov = document.getElementById('__antifan_agent_overlay__');
+            if (ov) ov.classList.remove('suppressed');
+          })()`,
+          targetId,
+          effectivePane
+        );
+      } catch {}
       if (typeof switchTabForCapture === 'function' && targetId !== activeBeforeCapture) {
         switchTabForCapture(activeBeforeCapture);
       }

@@ -19,26 +19,34 @@ namespace AntiFan.Bridge
                 string runnerScript = null;
 
                 // Layout 1: Packaged root
-                string pRootExe = Path.Combine(exeDir, "antifan-browser-desktop.exe");
-                string pRootRunner = Path.Combine(exeDir, "resources", "app.asar.unpacked", ".compiled", "src", "main", "native-messaging", "host-runner.js");
-                if (File.Exists(pRootExe) && File.Exists(pRootRunner))
+                string[] possibleExeNames = new string[] { "AntiFan.exe", "antifan.exe", "antifan-browser-desktop.exe" };
+                foreach (string name in possibleExeNames)
                 {
-                    targetExe = pRootExe;
-                    runnerScript = pRootRunner;
+                    string pRootExe = Path.Combine(exeDir, name);
+                    string pRootRunner = Path.Combine(exeDir, "resources", "app.asar.unpacked", ".compiled", "src", "main", "native-messaging", "host-runner.js");
+                    if (File.Exists(pRootExe) && File.Exists(pRootRunner))
+                    {
+                        targetExe = pRootExe;
+                        runnerScript = pRootRunner;
+                        break;
+                    }
                 }
 
                 // Layout 2: Packaged bin directory
                 if (targetExe == null)
                 {
-                    string pBinExe = Path.GetFullPath(Path.Combine(exeDir, "..", "antifan-browser-desktop.exe"));
-                    string pBinRunner = Path.GetFullPath(Path.Combine(exeDir, "..", "resources", "app.asar.unpacked", ".compiled", "src", "main", "native-messaging", "host-runner.js"));
-                    if (File.Exists(pBinExe) && File.Exists(pBinRunner))
+                    foreach (string name in possibleExeNames)
                     {
-                        targetExe = pBinExe;
-                        runnerScript = pBinRunner;
+                        string pBinExe = Path.GetFullPath(Path.Combine(exeDir, "..", name));
+                        string pBinRunner = Path.GetFullPath(Path.Combine(exeDir, "..", "resources", "app.asar.unpacked", ".compiled", "src", "main", "native-messaging", "host-runner.js"));
+                        if (File.Exists(pBinExe) && File.Exists(pBinRunner))
+                        {
+                            targetExe = pBinExe;
+                            runnerScript = pBinRunner;
+                            break;
+                        }
                     }
                 }
-
                 // Layout 3: Development bin directory
                 if (targetExe == null)
                 {

@@ -1007,6 +1007,9 @@ export class BrowserControlPort {
     if (boundTabId && this.host.adoptChildTab) {
       this.host.adoptChildTab(boundTabId, tabId);
     }
+    if (this.host.setAutomationTabId) {
+      this.host.setAutomationTabId(tabId);
+    }
     return { tabId };
   }
 
@@ -1182,6 +1185,9 @@ export class BrowserControlPort {
     }
 
     const switched = Boolean(this.host.switchTab(targetId));
+    if (switched && this.host.setAutomationTabId) {
+      this.host.setAutomationTabId(targetId);
+    }
     return { switched, tabId: targetId };
   }
 
@@ -4058,7 +4064,9 @@ export class BrowserControlPort {
     if (!resolved) {
       throw new CapabilityError('TARGET_REQUIRED', 'Browser target tabId is required');
     }
-
+    if (this.host.setAutomationTabId && this.host.getAutomationTabId?.() !== resolved) {
+      this.host.setAutomationTabId(resolved);
+    }
     if (target) {
       const liveDocGen = this.host.getDocumentGeneration ? this.host.getDocumentGeneration(resolved) : target.documentGeneration;
       if (!explicitTabId && operationType === 'write' && typeof target.documentGeneration === 'number' && typeof liveDocGen === 'number' && target.documentGeneration !== liveDocGen) {

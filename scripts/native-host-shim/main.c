@@ -47,16 +47,21 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
 
     BOOL found = FALSE;
 
-    // Layout 1: Packaged root (<exeDir>\antifan-browser-desktop.exe)
-    _snwprintf(targetExe, MAX_PATH, L"%s\\antifan-browser-desktop.exe", exeDir);
-    _snwprintf(runnerScript, MAX_PATH, L"%s\\resources\\app.asar.unpacked\\.compiled\\src\\main\\native-messaging\\host-runner.js", exeDir);
-    if (GetFileAttributesW(targetExe) != INVALID_FILE_ATTRIBUTES && GetFileAttributesW(runnerScript) != INVALID_FILE_ATTRIBUTES) {
-        found = TRUE;
+    const wchar_t* possibleExeNames[] = { L"AntiFan.exe", L"antifan.exe", L"antifan-browser-desktop.exe" };
+    int numExes = 3;
+
+    // Layout 1: Packaged root (<exeDir>\<name>.exe)
+    for (int i = 0; i < numExes && !found; i++) {
+        _snwprintf(targetExe, MAX_PATH, L"%s\\%s", exeDir, possibleExeNames[i]);
+        _snwprintf(runnerScript, MAX_PATH, L"%s\\resources\\app.asar.unpacked\\.compiled\\src\\main\\native-messaging\\host-runner.js", exeDir);
+        if (GetFileAttributesW(targetExe) != INVALID_FILE_ATTRIBUTES && GetFileAttributesW(runnerScript) != INVALID_FILE_ATTRIBUTES) {
+            found = TRUE;
+        }
     }
 
-    // Layout 2: Packaged bin (<exeDir>\..\antifan-browser-desktop.exe)
-    if (!found) {
-        _snwprintf(targetExe, MAX_PATH, L"%s\\..\\antifan-browser-desktop.exe", exeDir);
+    // Layout 2: Packaged bin (<exeDir>\..\<name>.exe)
+    for (int i = 0; i < numExes && !found; i++) {
+        _snwprintf(targetExe, MAX_PATH, L"%s\\..\\%s", exeDir, possibleExeNames[i]);
         _snwprintf(runnerScript, MAX_PATH, L"%s\\..\\resources\\app.asar.unpacked\\.compiled\\src\\main\\native-messaging\\host-runner.js", exeDir);
         if (GetFileAttributesW(targetExe) != INVALID_FILE_ATTRIBUTES && GetFileAttributesW(runnerScript) != INVALID_FILE_ATTRIBUTES) {
             found = TRUE;

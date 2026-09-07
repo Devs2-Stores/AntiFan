@@ -667,6 +667,7 @@ function renderTabs() {
         <span class="tab-spinner" style="display:none;"></span>
         <img class="tab-icon" src="" alt=""/>
         <span class="tab-title"></span>
+        <span class="tab-agent-badge" style="display:none;">🤖 AGENT</span>
         <span class="tab-audio-btn" style="display:none;" title="Tắt tiếng tab"></span>
         <span class="tab-status-dot done" title="Ready"></span>
         <span class="tab-close" title="Close Tab"></span>
@@ -779,6 +780,17 @@ function renderTabs() {
     const statusDot = tabEl.querySelector('.tab-status-dot') as HTMLElement;
     const titleSpan = tabEl.querySelector('.tab-title') as HTMLElement;
     const audioBtn = tabEl.querySelector('.tab-audio-btn') as HTMLElement;
+    const agentBadge = tabEl.querySelector('.tab-agent-badge') as HTMLElement;
+    if (agentBadge) {
+      agentBadge.style.display = isAgentControlled ? 'inline-flex' : 'none';
+      if (isAgentWorking) {
+        agentBadge.className = 'tab-agent-badge working';
+        agentBadge.textContent = '⚡ AGENT';
+      } else {
+        agentBadge.className = 'tab-agent-badge';
+        agentBadge.textContent = '🤖 AGENT';
+      }
+    }
     // Update Audio & Mute State
     if (audioBtn) {
       if (tab.isAudible || tab.isMuted) {

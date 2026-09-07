@@ -63,7 +63,9 @@ export class StorageLocations {
 
     // Fallback to user home / appdata
     const appData = process.env.APPDATA || (process.platform === 'win32' ? path.join(os.homedir(), 'AppData', 'Roaming') : os.homedir());
-    const fallback = path.join(appData, 'antifan-browser-desktop', 'data');
+    const antiFanData = path.join(appData, 'AntiFan', 'data');
+    const legacyData = path.join(appData, 'antifan-browser-desktop', 'data');
+    const fallback = fs.existsSync(legacyData) && !fs.existsSync(antiFanData) ? legacyData : antiFanData;
     this.cachedDataRoot = path.resolve(fallback);
     return this.cachedDataRoot;
   }

@@ -633,7 +633,7 @@ describe('Terminal Switching Regression & Viewport Integrity', () => {
     tmInternal.sessions.clear();
     tmInternal.activeSessionId = '';
 
-    const wsPath = 'E:/Work/apps/antifan-browser-desktop';
+    const wsPath = 'E:/Work/apps/AntiFan';
     tm.setCwd(wsPath);
     assert.strictEqual(tm.getCurrentCwd(), wsPath);
 

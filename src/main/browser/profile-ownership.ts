@@ -186,7 +186,12 @@ export function preparePersistentProfile(options: PersistentProfileOptions): Per
     throw new ProfileMigrationError('PROFILE_MIGRATION_FAILED', `Canonical profile directory is non-empty but contains no recognized Chromium state: ${canonicalPath}`);
   }
   const legacyAppDataRoot = path.join(options.appDataPath, 'antifan-browser-desktop');
+  const antiFanAppDataRoot = path.join(options.appDataPath, 'AntiFan');
   const candidatePaths = [
+    path.join(options.appPath, 'appdata', 'AntiFan', 'Chromium-dev'),
+    path.join(options.appPath, 'appdata', 'AntiFan', 'Chromium'),
+    path.join(options.appPath, 'appdata', 'AntiFan', 'Chromium-prod'),
+    path.join(antiFanAppDataRoot, 'Profile'),
     path.join(options.appPath, 'appdata', 'antifan-browser-desktop', 'Chromium-dev'),
     path.join(options.appPath, 'appdata', 'antifan-browser-desktop', 'Chromium'),
     path.join(options.appPath, 'appdata', 'antifan-browser-desktop', 'Chromium-prod'),

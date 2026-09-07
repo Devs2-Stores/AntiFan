@@ -1,3 +1,3 @@
 Set WshShell = CreateObject("WScript.Shell")
-WshShell.CurrentDirectory = "E:\\Work\\apps\\antifan-browser-desktop"
-WshShell.Run """E:\\Work\\apps\\antifan-browser-desktop\\node_modules\\electron\\dist\\electron.exe"" """E:\\Work\\apps\\antifan-browser-desktop""", 0, False
+WshShell.CurrentDirectory = "E:\\Work\\apps\\AntiFan"
+WshShell.Run """E:\\Work\\apps\\AntiFan\\node_modules\\electron\\dist\\electron.exe"" """E:\\Work\\apps\\AntiFan""", 0, False
