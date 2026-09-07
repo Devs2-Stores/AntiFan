@@ -3353,15 +3353,18 @@ export class BrowserControlPort {
       }
 
       // Per-side measured spaces (captured-CSS-width denominator, per-axis scale)
-      const targetSpace = curDims && targetMetrics
+      const targetVw = targetMetrics?.vw || curEnvelope?.cssViewport?.width || curDims?.width || 1200;
+      const targetVh = targetMetrics?.vh || curEnvelope?.cssViewport?.height || curDims?.height || 800;
+      const targetDh = targetMetrics?.dh || targetVh;
+      const targetSpace = curDims
         ? visualCaptureSpaceFromMeasured({
             pngWidth: curDims.width,
             pngHeight: curDims.height,
-            cssViewportWidth: targetMetrics.vw,
-            cssViewportHeight: targetMetrics.vh,
-            cssDocumentHeight: targetMetrics.dh,
-            scrollX: targetMetrics.sx,
-            scrollY: targetMetrics.sy,
+            cssViewportWidth: targetVw,
+            cssViewportHeight: targetVh,
+            cssDocumentHeight: targetDh,
+            scrollX: targetMetrics?.sx || 0,
+            scrollY: targetMetrics?.sy || 0,
             fullPage: Boolean(params.fullPage),
             crop: Boolean(params.fullPage) ? undefined : resolvedRect,
           })
@@ -3371,15 +3374,18 @@ export class BrowserControlPort {
         : emptyMaskLedgerResult();
       let compMask = emptyMaskLedgerResult();
       if (compTabTarget) {
-        const compSpace = baseDims && compMetrics
+        const compVw = compMetrics?.vw || compEnvelope?.cssViewport?.width || baseDims?.width || 1200;
+        const compVh = compMetrics?.vh || compEnvelope?.cssViewport?.height || baseDims?.height || 800;
+        const compDh = compMetrics?.dh || compVh;
+        const compSpace = baseDims
           ? visualCaptureSpaceFromMeasured({
               pngWidth: baseDims.width,
               pngHeight: baseDims.height,
-              cssViewportWidth: compMetrics.vw,
-              cssViewportHeight: compMetrics.vh,
-              cssDocumentHeight: compMetrics.dh,
-              scrollX: compMetrics.sx,
-              scrollY: compMetrics.sy,
+              cssViewportWidth: compVw,
+              cssViewportHeight: compVh,
+              cssDocumentHeight: compDh,
+              scrollX: compMetrics?.sx || 0,
+              scrollY: compMetrics?.sy || 0,
               fullPage: Boolean(params.fullPage),
               crop: Boolean(params.fullPage) ? undefined : comparisonRect,
             })

@@ -377,20 +377,26 @@ export function materializeRasterMasks(
       maskedAreaRatio: 0,
     };
   }
-  if (!space || !(space.scaleX > 0) || !(space.scaleY > 0)) {
-    throw new MaskResolutionError('MASK_RESOLUTION_FAILED', entries, 0, 'Cannot materialize raster masks without a positive capture scale');
-  }
+  const effectiveSpace: VisualCaptureSpace = (space && space.scaleX > 0 && space.scaleY > 0)
+    ? space
+    : {
+        scaleX: (captureWidth > 0 && space?.crop?.width) ? captureWidth / space.crop.width : 1,
+        scaleY: (captureHeight > 0 && space?.crop?.height) ? captureHeight / space.crop.height : 1,
+        scrollX: space?.scrollX || 0,
+        scrollY: space?.scrollY || 0,
+        fullPage: Boolean(space?.fullPage),
+        crop: space?.crop,
+      };
   if (!(captureWidth > 0) || !(captureHeight > 0)) {
     throw new MaskResolutionError('MASK_RESOLUTION_FAILED', entries, 0, 'Cannot materialize raster masks without known capture dimensions');
   }
 
   const rasterBoxes: RasterBox[] = [];
   for (const entry of resolved) {
-    const boxes = entry.cssBoxes.map((box) => transformMaskBoxToRaster(box, space));
+    const boxes = entry.cssBoxes.map((box) => transformMaskBoxToRaster(box, effectiveSpace));
     entry.rasterBoxes = boxes;
     rasterBoxes.push(...boxes);
   }
-
   const maskedPixels = clippedUnionArea(rasterBoxes, captureWidth, captureHeight);
   const area = captureWidth * captureHeight;
   const maskedAreaRatio = Math.min(1, maskedPixels / area);
