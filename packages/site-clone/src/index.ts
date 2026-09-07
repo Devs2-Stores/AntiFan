@@ -1,6 +1,7 @@
 export * from './models/dom-tree-parser.js';
 export * from './models/blueprint-extractor.js';
 export * from './models/asset-harvester.js';
+export * from './models/asset-localizer.js';
 export * from './models/responsive-scanner.js';
 export * from './models/state-synthesizer.js';
 export * from './models/ecommerce-data-modeler.js';
