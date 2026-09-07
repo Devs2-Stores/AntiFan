@@ -871,8 +871,24 @@ function updateControls() {
     const pct = `${Math.round(activeTab.zoomFactor * 100)}%`;
     if (zoomLabel) zoomLabel.textContent = pct;
 
-    if (activeTab.devicePresetId && deviceSelect) {
-      deviceSelect.value = activeTab.devicePresetId;
+    if (deviceSelect) {
+      // The Device Viewport Breakpoint cluster must stay truthful for
+      // MCP-applied custom sizes ("custom-1280x720" has no static <option>).
+      // Rebuild a display-only DISABLED option so the select shows the size
+      // without routing a user change back to setDevicePreset (which would
+      // wipe tab.customViewport and lose the real emulation).
+      deviceSelect.querySelectorAll('option[value^="custom-"]').forEach((o) => o.remove());
+      if (activeTab.devicePresetId && /^custom-\d+x\d+$/i.test(activeTab.devicePresetId)) {
+        const m = /^custom-(\d+)x(\d+)$/i.exec(activeTab.devicePresetId);
+        const opt = document.createElement('option');
+        opt.value = activeTab.devicePresetId;
+        opt.disabled = true;
+        opt.textContent = m ? `Custom (${m[1]}×${m[2]})` : activeTab.devicePresetId;
+        deviceSelect.appendChild(opt);
+      }
+      if (activeTab.devicePresetId) {
+        deviceSelect.value = activeTab.devicePresetId;
+      }
     }
     if (activeTab.splitMode) {
       if (btnToggleSplit) btnToggleSplit.classList.add('mode-active');
@@ -920,84 +936,8 @@ function updateControls() {
 const bookmarkBar = document.getElementById('bookmarkBar') as HTMLElement | null;
 const bookmarkItems = document.getElementById('bookmarkItems') as HTMLElement | null;
 const btnStarBookmark = document.getElementById('btnStarBookmark') as HTMLButtonElement | null;
-const btnBookmarksMenu = document.getElementById('btnBookmarksMenu') as HTMLButtonElement | null;
-const bookmarksDropdownMenu = document.getElementById('bookmarksDropdownMenu') as HTMLElement | null;
-const bookmarksCountPill = document.getElementById('bookmarksCountPill') as HTMLElement | null;
-const inputBookmarkSearch = document.getElementById('inputBookmarkSearch') as HTMLInputElement | null;
-const bookmarksDropdownList = document.getElementById('bookmarksDropdownList') as HTMLElement | null;
-
-let bookmarkSearchQuery = '';
-
-function renderBookmarksDropdown() {
-  if (!bookmarksDropdownList) return;
-  if (bookmarksCountPill) {
-    bookmarksCountPill.textContent = String(currentBookmarks.length);
-  }
-
-  const query = bookmarkSearchQuery.toLowerCase().trim();
-  const filtered = query
-    ? currentBookmarks.filter((b) => (b.title || '').toLowerCase().includes(query) || (b.url || '').toLowerCase().includes(query))
-    : currentBookmarks;
-
-  bookmarksDropdownList.innerHTML = '';
-
-  if (filtered.length === 0) {
-    bookmarksDropdownList.innerHTML = `<div class="bookmarks-empty-hint">${query ? 'No matching bookmarks' : 'No bookmarks saved yet. Click the ⭐ icon in the address bar to bookmark pages.'}</div>`;
-    return;
-  }
-
-  filtered.forEach((bm) => {
-    const item = document.createElement('div');
-    item.className = 'bookmark-pop-item';
-    item.title = `${bm.title}\n${bm.url}`;
-
-    const icon = document.createElement('img');
-    icon.className = 'bookmark-pop-icon';
-    let domain = '';
-    try { domain = new URL(bm.url).hostname; } catch {}
-    icon.src = `https://www.google.com/s2/favicons?domain=${domain}&sz=32`;
-
-    const info = document.createElement('div');
-    info.className = 'bookmark-pop-info';
-    info.innerHTML = `
-      <span class="bookmark-pop-title">${escapeHtml(bm.title || domain || bm.url)}</span>
-      <span class="bookmark-pop-url">${escapeHtml(bm.url)}</span>
-    `;
-
-    const btnDel = document.createElement('button');
-    btnDel.type = 'button';
-    btnDel.className = 'bookmark-pop-del';
-    btnDel.title = 'Delete Bookmark';
-    btnDel.innerHTML = '✕';
-    btnDel.onclick = (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      currentBookmarks = currentBookmarks.filter((b) => b.url !== bm.url);
-      renderBookmarksDropdown();
-      getApi()?.removeBookmark(bm.url);
-    };
-    item.appendChild(icon);
-    item.appendChild(info);
-    item.appendChild(btnDel);
-
-    item.onclick = () => {
-      getApi()?.navigate(bm.url, activeTabId);
-      if (bookmarksDropdownMenu) bookmarksDropdownMenu.style.display = 'none';
-    };
-
-    item.onauxclick = (e) => {
-      if (e.button === 1) {
-        getApi()?.createTab(bm.url);
-        if (bookmarksDropdownMenu) bookmarksDropdownMenu.style.display = 'none';
-      }
-    };
-
-    bookmarksDropdownList.appendChild(item);
-  });
-}
 
 function renderBookmarks() {
-  renderBookmarksDropdown();
 
   const activeTab = currentTabs.find((t) => t.id === activeTabId);
   const isBookmarked = activeTab && currentBookmarks.some((b) => b.url === activeTab.url);
@@ -1013,44 +953,6 @@ function renderBookmarks() {
     bookmarkBar.style.display = 'none';
   }
 }
-
-if (btnBookmarksMenu && bookmarksDropdownMenu) {
-  btnBookmarksMenu.onclick = (e) => {
-    e.stopPropagation();
-    const isHidden = bookmarksDropdownMenu.style.display === 'none';
-    bookmarksDropdownMenu.style.display = isHidden ? 'flex' : 'none';
-    getApi()?.setOverlay(isHidden);
-    if (isHidden) {
-      renderBookmarksDropdown();
-      setTimeout(() => inputBookmarkSearch?.focus(), 50);
-    }
-  };
-}
-
-if (inputBookmarkSearch) {
-  inputBookmarkSearch.addEventListener('input', (e) => {
-    bookmarkSearchQuery = (e.target as HTMLInputElement).value;
-    renderBookmarksDropdown();
-  });
-  inputBookmarkSearch.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape') {
-      if (bookmarksDropdownMenu) bookmarksDropdownMenu.style.display = 'none';
-      getApi()?.setOverlay(false);
-    }
-  });
-}
-
-document.addEventListener('click', (e) => {
-  if (bookmarksDropdownMenu && bookmarksDropdownMenu.style.display !== 'none') {
-    const path = e.composedPath ? e.composedPath() : [];
-    const isInsideMenu = path.includes(bookmarksDropdownMenu) || bookmarksDropdownMenu.contains(e.target as Node);
-    const isMenuButton = (btnBookmarksMenu && path.includes(btnBookmarksMenu)) || e.target === btnBookmarksMenu;
-    if (!isInsideMenu && !isMenuButton) {
-      bookmarksDropdownMenu.style.display = 'none';
-      getApi()?.setOverlay(false);
-    }
-  }
-});
 
 // Navigation Listeners
 if (btnNewTab) btnNewTab.addEventListener('click', () => getApi()?.createTab());
@@ -1284,7 +1186,6 @@ if (btnChromeProfile) {
     e.stopPropagation();
     const isHidden = profileDropdownMenu.style.display === 'none';
     if (isHidden) {
-      if (bookmarksDropdownMenu) bookmarksDropdownMenu.style.display = 'none';
       if (appDropdownMenu) appDropdownMenu.style.display = 'none';
       const profiles = await getApi()?.getChromeProfiles();
       if (profiles && Array.isArray(profiles)) {
@@ -1374,7 +1275,6 @@ async function toggleAppMenu() {
   if (!appDropdownMenu) return;
   const isHidden = appDropdownMenu.style.display === 'none';
   if (isHidden) {
-    if (bookmarksDropdownMenu) bookmarksDropdownMenu.style.display = 'none';
     if (profileDropdownMenu) profileDropdownMenu.style.display = 'none';
     
     // Pre-fetch Chrome profiles asynchronously

@@ -4288,6 +4288,9 @@ export class NativeTabHost extends EventEmitter {
     tab.customViewport = undefined;
     tab.state.devicePresetId = presetId;
     this.updateLayout();
+    // Keep the toolbar Device cluster in sync when the preset is applied from
+    // outside the toolbar (MCP set_device_preset), same pair as setZoom.
+    this.broadcastState();
     return true;
   }
 
@@ -5681,6 +5684,11 @@ export class NativeTabHost extends EventEmitter {
       const availableHeight = Math.max(0, bounds.height - toolbarHeight);
       this.applyTabDeviceEmulation(tab, availableWidth, availableHeight, toolbarHeight);
     }
+    // The toolbar Device Viewport Breakpoint cluster re-renders ONLY from the
+    // STATE_UPDATED broadcast; without it an MCP resize is invisible in the UI
+    // (stale select + zoom label). Mirrors the updateLayout+broadcastState
+    // pairing used by setZoom/toggleSplit/setSplitPreset.
+    this.broadcastState();
 
     await this.applyCdpTouchEmulation(tab.view.webContents, mobile);
     return true;

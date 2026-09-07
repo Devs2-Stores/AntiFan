@@ -45,6 +45,13 @@ describe('Dev Watcher Helpers', () => {
       assert.strictEqual(isUiHotSwappable('/src/renderer/standalone.css'), true);
     });
 
+    it('treats renderer TypeScript sources as ui-hot (tsc-emitted to .compiled renderer js)', () => {
+      assert.strictEqual(isUiHotSwappable('src/renderer/toolbar.ts'), true);
+      assert.strictEqual(isUiHotSwappable('src\\renderer\\toolbar.ts'), true);
+      // Ambient .d.ts emits no UI asset; reloading would be a no-op, not a surface.
+      assert.strictEqual(isUiHotSwappable('src/renderer/standalone.d.ts'), false);
+    });
+
     it('rejects non-renderer, nested, and non-static paths', () => {
       assert.strictEqual(isUiHotSwappable('src/main/index.ts'), false);
       assert.strictEqual(isUiHotSwappable('src/renderer/nested/deep.css'), false);
@@ -341,6 +348,81 @@ describe('Dev Watcher Helpers', () => {
       assert.strictEqual(staticCopied, true, 'Must copy static assets before ui reload');
       assert.strictEqual(uiReloaded, true, 'Must invoke ui reload');
       assert.strictEqual(electronRelaunched, false, 'Must NEVER relaunch electron for renderer asset changes');
+    });
+
+    it('routes renderer .ts edits through the tsc-settle gate then ui reload, never relaunching', async () => {
+      let staticCopied = false;
+      let uiReloaded = false;
+      let electronRelaunched = false;
+      let settleResolve: (v: boolean) => void = () => {};
+      const settledPromise = new Promise<boolean>((res) => {
+        settleResolve = res;
+      });
+      let copiedCount = 0;
+
+      const dispatcher = createChangeDispatcher({
+        isHotSwappableFn: () => false,
+        isUiHotSwappableFn: isUiHotSwappable,
+        copyStaticFn: () => {
+          copiedCount += 1;
+          staticCopied = true;
+        },
+        sendUiReloadFn: async () => {
+          uiReloaded = true;
+          return true;
+        },
+        relaunchElectronFn: async () => {
+          electronRelaunched = true;
+        },
+        getTscCompiling: () => true,
+        getTscErrors: () => false,
+        getTscSettledPromise: () => settledPromise,
+        getElectronProc: () => ({ pid: 1234 }),
+        debounceMs: 20,
+      });
+
+      const resultPromise = dispatcher.scheduleRelaunch('src/renderer/toolbar.ts');
+      // tsc has not settled yet: copyStatic must NOT have run (stale-JS hazard).
+      await new Promise((res) => setTimeout(res, 40));
+      assert.strictEqual(copiedCount, 0, 'Static copy must wait for tsc settle before emitting');
+      settleResolve(true);
+      const result = await resultPromise;
+
+      assert.deepStrictEqual(result, { action: 'ui_reload', success: true });
+      assert.strictEqual(staticCopied, true, 'copyStatic runs after tsc settle');
+      assert.strictEqual(uiReloaded, true, 'Must invoke ui reload');
+      assert.strictEqual(electronRelaunched, false, 'Must NEVER relaunch electron for renderer .ts edits');
+    });
+
+    it('skips ui reload without relaunch when the compiler reports errors for a .ts batch', async () => {
+      let staticCopied = false;
+      let uiReloaded = false;
+      let electronRelaunched = false;
+
+      const dispatcher = createChangeDispatcher({
+        isHotSwappableFn: () => false,
+        copyStaticFn: () => {
+          staticCopied = true;
+        },
+        sendUiReloadFn: async () => {
+          uiReloaded = true;
+          return true;
+        },
+        relaunchElectronFn: async () => {
+          electronRelaunched = true;
+        },
+        getTscCompiling: () => true,
+        getTscErrors: () => true,
+        getTscSettledPromise: () => Promise.resolve(false),
+        getElectronProc: () => ({ pid: 1234 }),
+        debounceMs: 20,
+      });
+
+      const result = await dispatcher.scheduleRelaunch('src/renderer/toolbar.ts');
+      assert.deepStrictEqual(result, { action: 'skip_compiler_error', success: false });
+      assert.strictEqual(staticCopied, false, 'Must not copy stale assets while the compiler is broken');
+      assert.strictEqual(uiReloaded, false, 'Must not reload UI with error-state output');
+      assert.strictEqual(electronRelaunched, false, 'Compile errors must never force an electron relaunch');
     });
 
     it('reports ui reload failure without falling back to electron relaunch', async () => {

@@ -199,7 +199,10 @@ export async function sendUiReload({ bridgeInfo = undefined, wsFactory = null, t
 export function isUiHotSwappable(relPath) {
   if (!relPath || typeof relPath !== 'string') return false;
   const normalized = relPath.replace(/\\/g, '/').replace(/^\/+/, '');
-  return /^src\/renderer\/[^/]+\.(css|html|js)$/i.test(normalized);
+  // Renderer sources: static css/html/js AND TypeScript (tsc-emitted to
+  // .compiled/src/renderer/*.js, served via loadFile, applied by reloadUi).
+  // Ambient .d.ts files emit nothing and are not UI surfaces.
+  return /^src\/renderer\/[^/]+\.(css|html|js|ts)$/i.test(normalized) && !/\.d\.ts$/i.test(normalized);
 }
 
 /**
@@ -255,6 +258,31 @@ export function createChangeDispatcher({
     // relaunch fallback on failure.
     if (allUiHot && proc) {
       log(`Detected renderer UI change in: ${files.join(', ')}`);
+      // Renderer TypeScript is emitted asynchronously by `tsc --watch`; copying
+      // static assets before the emit completes would reload a stale
+      // .compiled/*.js (the "hot UI vẫn chưa ăn" symptom). Wait for the
+      // compiler to settle whenever a .ts renderer source is in the batch.
+      const needsTscEmit = files.some((f) => /^src\/renderer\/[^/]+\.ts$/i.test(String(f).replace(/\\/g, '/')));
+      if (needsTscEmit) {
+        log(`Waiting for TypeScript compiler to finish emitting to .compiled...`);
+        let timer = null;
+        const timeoutPromise = new Promise((res) => {
+          timer = setTimeout(() => res('TIMEOUT'), tscTimeoutMs);
+        });
+        const settledOrTimeout = await Promise.race([getTscSettledPromise(), timeoutPromise]);
+        if (timer) clearTimeout(timer);
+        if (isDisposed) {
+          throw new Error('Dispatcher disposed');
+        }
+        if (settledOrTimeout === 'TIMEOUT') {
+          log(`TypeScript compilation timed out after ${Math.round(tscTimeoutMs / 1000)}s. Skipping UI reload.`);
+          return { action: 'skip_compiler_error', success: false };
+        }
+        if (!settledOrTimeout || getTscErrors()) {
+          log(`TypeScript compilation reported errors. Skipping UI reload until errors are fixed.`);
+          return { action: 'skip_compiler_error', success: false };
+        }
+      }
       await copyStaticFn();
       if (isDisposed) {
         throw new Error('Dispatcher disposed');

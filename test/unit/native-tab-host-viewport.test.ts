@@ -55,6 +55,8 @@ interface TestHostShape {
   applyDeviceCornerClipping: (wc: unknown, radius: number) => void;
   setViewportSize: (options: { width: number; height: number; mobile?: boolean; deviceScaleFactor?: number; tabId?: string }) => Promise<boolean>;
   setDevicePreset: (tabId: string, presetId: string) => boolean;
+  broadcastCount: number;
+  broadcastState: () => void;
 }
 
 function createTestTabRecord(id: string): NativeTabRecord {
@@ -94,6 +96,13 @@ function createTestHost(): TestHostShape {
   host.emulationCalls = [];
   host.disabledEmulationCount = 0;
   host.updateLayoutCallCount = 0;
+  host.broadcastCount = 0;
+  // Real NativeTabHost.broadcastState needs toolbarView/tabOrder/persistence;
+  // the fake host stubs the notification channel and counts invocations so the
+  // tests can assert the Issue A contract (MCP resize must announce itself).
+  host.broadcastState = () => {
+    host.broadcastCount++;
+  };
 
   host.safeEnableDeviceEmulation = (_wc: unknown, params: EmulationParams) => {
     host.emulationCalls.push(params);
@@ -145,6 +154,7 @@ describe('Phase 1: Viewport Emulation & CDP Matched Styles Gateway', () => {
     });
     assert.strictEqual(tab.state.devicePresetId, 'custom-375x667');
     assert.strictEqual(host.updateLayoutCallCount, 1);
+    assert.strictEqual(host.broadcastCount, 1, 'MCP viewport change must broadcast so the toolbar Device cluster re-renders');
 
     // Verify safeEnableDeviceEmulation was called with synthesized preset parameters (proves regression fix)
     assert.strictEqual(host.emulationCalls.length, 1);
@@ -169,6 +179,8 @@ describe('Phase 1: Viewport Emulation & CDP Matched Styles Gateway', () => {
     assert.strictEqual(presetSuccess, true);
     assert.strictEqual(tab.customViewport, undefined, 'customViewport must be cleared on preset selection');
     assert.strictEqual(tab.state.devicePresetId, 'desktop-laptop');
+    // One broadcast from the custom viewport set + one from the preset switch.
+    assert.strictEqual(host.broadcastCount, 2, 'Device preset switches must broadcast so the toolbar stays truthful');
   });
 
   it('rejects invalid viewport dimensions', async () => {
@@ -178,6 +190,7 @@ describe('Phase 1: Viewport Emulation & CDP Matched Styles Gateway', () => {
 
     assert.strictEqual(await host.setViewportSize({ width: 0, height: 667 }), false);
     assert.strictEqual(await host.setViewportSize({ width: -100, height: -200 }), false);
+    assert.strictEqual(host.broadcastCount, 0, 'Rejected dimensions must not announce a state change');
   });
   it('applies device emulation to an explicit background tab without switching active tab', async () => {
     const host = createTestHost();
@@ -201,6 +214,7 @@ describe('Phase 1: Viewport Emulation & CDP Matched Styles Gateway', () => {
     const emu = host.emulationCalls[0];
     assert.strictEqual(emu?.screenPosition, 'mobile');
     assert.deepStrictEqual(emu?.screenSize, { width: 375, height: 812 });
+    assert.strictEqual(host.broadcastCount, 1, 'Background-tab viewport changes must broadcast too');
   });
 
   it('registers and dispatches browser.get-matched-styles by selector and ref', async () => {
