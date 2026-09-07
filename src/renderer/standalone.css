@@ -213,8 +213,6 @@ button {
   transition: background 0.15s ease, border-color 0.15s ease, transform 0.12s ease;
   overflow: hidden;
   flex: 0 1 auto;
-  min-width: 0;
-  max-width: 200px;
   user-select: none;
 }
 .terminal-tab-wrap:hover {
@@ -369,11 +367,7 @@ button {
 
 .terminal-tab-title {
   white-space: nowrap;
-  flex: 0 1 auto;
-  min-width: 20px;
-  max-width: 90px;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  flex: 0 0 auto;
 }
 
 .terminal-tab-affinity-badge {

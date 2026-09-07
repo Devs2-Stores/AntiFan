@@ -28,29 +28,27 @@ describe('Toolbar Tab Layout Invariants (Anti-Jitter Contract)', () => {
   });
 });
 
-describe('Terminal Tab Layout Invariants (Compact & Anti-Jitter Contract)', () => {
+describe('Terminal Tab Layout Invariants (Full-Name & Anti-Jitter Contract)', () => {
   const cssPath = path.resolve(__dirname, '../../../../src/renderer/standalone.css');
   const cssContent = fs.readFileSync(cssPath, 'utf8');
 
-  it('declares bounded max-width: 200px and min-width: 0 on .terminal-tab-wrap', () => {
+  it('does NOT cap or clip the wrapper width so tab names always show fully', () => {
     const wrapMatch = cssContent.match(/\.terminal-tab-wrap\s*\{([^}]+)\}/);
     assert.ok(wrapMatch, '.terminal-tab-wrap rule must exist in standalone.css');
     const wrapBody = wrapMatch[1] ?? '';
 
-    assert.match(wrapBody, /\bmax-width:\s*200px;/, '.terminal-tab-wrap must declare max-width: 200px');
-    assert.match(wrapBody, /\bmin-width:\s*0;/, '.terminal-tab-wrap must declare min-width: 0');
-    assert.match(wrapBody, /\bflex:\s*0\s+1\s+auto;/, '.terminal-tab-wrap must declare flex: 0 1 auto');
+    assert.doesNotMatch(wrapBody, /\bmax-width\s*:/, '.terminal-tab-wrap must NOT declare any max-width cap');
   });
 
-  it('declares shrinkable capped title with ellipsis on .terminal-tab-title', () => {
+  it('declares non-shrinking, non-truncating title that renders the full tab name', () => {
     const titleMatch = cssContent.match(/\.terminal-tab-title\s*\{([^}]+)\}/);
     assert.ok(titleMatch, '.terminal-tab-title rule must exist in standalone.css');
     const titleBody = titleMatch[1] ?? '';
 
-    assert.match(titleBody, /\bmax-width:\s*90px;/, '.terminal-tab-title must declare max-width: 90px');
-    assert.match(titleBody, /\boverflow:\s*hidden;/, '.terminal-tab-title must declare overflow: hidden');
-    assert.match(titleBody, /\btext-overflow:\s*ellipsis;/, '.terminal-tab-title must declare text-overflow: ellipsis');
-    assert.match(titleBody, /\bflex:\s*0\s+1\s+auto;/, '.terminal-tab-title must declare flex: 0 1 auto');
+    assert.match(titleBody, /\bwhite-space:\s*nowrap;/, '.terminal-tab-title must declare white-space: nowrap');
+    assert.match(titleBody, /\bflex:\s*0\s+0\s+auto;/, '.terminal-tab-title must be non-shrinkable (flex: 0 0 auto)');
+    assert.doesNotMatch(titleBody, /\bmax-width\s*:/, '.terminal-tab-title must NOT declare any max-width');
+    assert.doesNotMatch(titleBody, /\btext-overflow\s*:/, '.terminal-tab-title must NOT declare text-overflow ellipsis');
   });
 
   it('declares compact fixed width: 78px on .terminal-tab-affinity-badge for jitter-free stability', () => {
