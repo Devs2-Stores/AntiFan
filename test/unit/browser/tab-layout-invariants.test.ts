@@ -32,11 +32,12 @@ describe('Terminal Tab Layout Invariants (Full-Name & Anti-Jitter Contract)', ()
   const cssPath = path.resolve(__dirname, '../../../../src/renderer/standalone.css');
   const cssContent = fs.readFileSync(cssPath, 'utf8');
 
-  it('does NOT cap or clip the wrapper width so tab names always show fully', () => {
+  it('declares a non-shrinkable, uncapped wrapper so tab names always show fully', () => {
     const wrapMatch = cssContent.match(/\.terminal-tab-wrap\s*\{([^}]+)\}/);
     assert.ok(wrapMatch, '.terminal-tab-wrap rule must exist in standalone.css');
     const wrapBody = wrapMatch[1] ?? '';
 
+    assert.match(wrapBody, /\bflex:\s*0\s+0\s+auto;/, '.terminal-tab-wrap must be non-shrinkable (flex: 0 0 auto)');
     assert.doesNotMatch(wrapBody, /\bmax-width\s*:/, '.terminal-tab-wrap must NOT declare any max-width cap');
   });
 
