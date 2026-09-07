@@ -281,7 +281,7 @@ describe('Live script execution in simulated DOM sandbox (executable contract)',
     MutationObserver?: any;
     setInterval?: any;
     clearInterval?: any;
-    Date?: any;
+    Date?: Pick<DateConstructor, 'now'>;
   }) {
     const sandbox = {
       document: env.document || {},
@@ -292,7 +292,7 @@ describe('Live script execution in simulated DOM sandbox (executable contract)',
       clearTimeout,
       setInterval: env.setInterval || setInterval,
       clearInterval: env.clearInterval || clearInterval,
-      Date: env.Date || Date,
+      Date: env.Date ?? Date,
       Promise,
       Array,
       Math,

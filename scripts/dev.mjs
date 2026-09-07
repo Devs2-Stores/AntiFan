@@ -19,8 +19,12 @@ const require = createRequire(import.meta.url);
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..');
 
-const electronBin = require('electron');
+const cdpDir = path.join(ROOT, 'scripts', 'cdp');
+if (!fs.existsSync(cdpDir)) {
+  try { fs.mkdirSync(cdpDir, { recursive: true }); } catch {}
+}
 
+const electronBin = require('electron');
 let electronProc = null;
 let tscProc = null;
 let cwdChangedAt = Date.now() + 2000;
@@ -180,10 +184,6 @@ try {
   log(`Warning: recursive watch unavailable on src: ${err.message}`);
 }
 
-const cdpDir = path.join(ROOT, 'scripts', 'cdp');
-if (!fs.existsSync(cdpDir)) {
-  try { fs.mkdirSync(cdpDir, { recursive: true }); } catch {}
-}
 try {
   fs.watch(cdpDir, { recursive: true }, (event, filename) => scheduleRelaunch(filename ? `scripts/cdp/${filename}` : null));
 } catch (err) {

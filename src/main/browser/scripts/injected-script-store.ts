@@ -28,6 +28,8 @@ export class InjectedScriptStore {
   private readonly scripts = new Map<string, InjectedScriptDescriptor>();
   private readonly diskOverrides = new Map<string, { content: string; mtimeMs: number }>();
   private overrideDir: string | null = null;
+  private readonly autoResolveOverrideDir: boolean;
+  private readonly customCandidates: string[] | null = null;
 
   public static getInstance(): InjectedScriptStore {
     if (!InjectedScriptStore.instance) {
@@ -36,21 +38,26 @@ export class InjectedScriptStore {
     return InjectedScriptStore.instance;
   }
 
-  constructor(options?: { overrideDir?: string | null }) {
+  constructor(options?: { overrideDir?: string | null; customCandidates?: string[] | null }) {
     this.registerDefaults();
+    if (options && 'customCandidates' in options) {
+      this.customCandidates = options.customCandidates ?? null;
+    }
     if (options && 'overrideDir' in options) {
       this.overrideDir = options.overrideDir ?? null;
+      this.autoResolveOverrideDir = false;
     } else {
+      this.autoResolveOverrideDir = true;
       this.resolveOverrideDir();
     }
   }
 
   private resolveOverrideDir(): void {
-    const candidates = [
+    const candidates = this.customCandidates || ([
       process.env.ANTIFAN_CDP_SCRIPTS_DIR,
       path.join(process.cwd(), 'scripts', 'cdp'),
       path.join(__dirname, '..', '..', '..', '..', 'scripts', 'cdp'),
-    ].filter(Boolean) as string[];
+    ].filter(Boolean) as string[]);
 
     for (const dir of candidates) {
       try {
@@ -370,6 +377,9 @@ export class InjectedScriptStore {
    */
   public getScript(id: string, params?: unknown): string {
     // Check disk override first if directory configured
+    if (!this.overrideDir && this.autoResolveOverrideDir) {
+      this.resolveOverrideDir();
+    }
     if (this.overrideDir) {
       const fileName = `${id.replace(/\./g, '-')}.source.js`;
       const filePath = path.join(this.overrideDir, fileName);
@@ -437,6 +447,9 @@ export class InjectedScriptStore {
    * Clear in-memory or disk overrides
    */
   public clearOverrides(id?: string): void {
+    if (!this.overrideDir && this.autoResolveOverrideDir) {
+      this.resolveOverrideDir();
+    }
     if (id) {
       this.diskOverrides.delete(id);
     } else {

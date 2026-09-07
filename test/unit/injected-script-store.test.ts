@@ -82,4 +82,37 @@ describe('InjectedScriptStore', () => {
       try { fs.rmSync(tempDir, { recursive: true, force: true }); } catch {}
     }
   });
+
+  it('strictly respects explicit null overrideDir and never auto-discovers disk overrides', () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-explicit-null-'));
+    try {
+      fs.writeFileSync(path.join(tempDir, 'media-freeze.source.js'), '/* disk override */', 'utf8');
+
+      const store = new InjectedScriptStore({ overrideDir: null, customCandidates: [tempDir] });
+      const script = store.getScript('media.freeze');
+      assert.ok(!script.includes('/* disk override */'), 'Should ignore disk override when overrideDir is explicitly null');
+    } finally {
+      try { fs.rmSync(tempDir, { recursive: true, force: true }); } catch {}
+    }
+  });
+
+  it('dynamically auto-discovers override directory created after store instantiation', () => {
+    const tempParent = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-late-parent-'));
+    const lateDir = path.join(tempParent, 'cdp');
+    try {
+      // Pass candidate path that does NOT exist yet
+      const store = new InjectedScriptStore({ customCandidates: [lateDir] });
+      assert.strictEqual(store.listScripts().find((s) => s.id === 'media.freeze')?.hasDiskOverride, false);
+
+      // Create late directory and write override file after store instantiation
+      fs.mkdirSync(lateDir, { recursive: true });
+      fs.writeFileSync(path.join(lateDir, 'media-freeze.source.js'), '/* late disk override */', 'utf8');
+
+      // getScript auto-discovers the newly created directory
+      const script = store.getScript('media.freeze');
+      assert.ok(script.includes('/* late disk override */'), 'Should auto-discover directory created after instantiation');
+    } finally {
+      try { fs.rmSync(tempParent, { recursive: true, force: true }); } catch {}
+    }
+  });
 });
