@@ -2823,6 +2823,8 @@ export class BrowserControlPort {
       }
       return targetMasksResolved ? 'ok' : 'NOT_ATTEMPTED';
     };
+    let originalTargetScroll: { x: number; y: number } | null = null;
+    let originalCompScroll: { x: number; y: number } | null = null;
 
     try {
       // Pre-inject identity (navigation span). Our own style insert legitimately
@@ -2833,9 +2835,15 @@ export class BrowserControlPort {
         this.host.switchTab(tabId);
         await new Promise((r) => setTimeout(r, 150));
       }
-      // Normalize scroll position to (0, 0) before capture settle to guarantee deterministic layout state
       if (typeof this.host.evalJs === 'function') {
         try {
+          const s = (await this.host.evalJs(`({ x: window.scrollX || window.pageXOffset || 0, y: window.scrollY || window.pageYOffset || 0 })`, tabId, effectivePane)) as { x?: number; y?: number };
+          if (s && typeof s === 'object') originalTargetScroll = { x: Number(s.x) || 0, y: Number(s.y) || 0 };
+          if (compTabTarget) {
+            const cs = (await this.host.evalJs(`({ x: window.scrollX || window.pageXOffset || 0, y: window.scrollY || window.pageYOffset || 0 })`, compTabTarget, effectivePane)) as { x?: number; y?: number };
+            if (cs && typeof cs === 'object') originalCompScroll = { x: Number(cs.x) || 0, y: Number(cs.y) || 0 };
+          }
+          // Normalize scroll position to (0, 0) before capture settle to guarantee deterministic layout state
           await this.host.evalJs(`(() => { try { document.documentElement.scrollTop = 0; document.body.scrollTop = 0; window.scrollTo({ top: 0, left: 0, behavior: 'instant' }); } catch {} })()`, tabId, effectivePane);
           if (compTabTarget) {
             await this.host.evalJs(`(() => { try { document.documentElement.scrollTop = 0; document.body.scrollTop = 0; window.scrollTo({ top: 0, left: 0, behavior: 'instant' }); } catch {} })()`, compTabTarget, effectivePane);
@@ -3682,6 +3690,25 @@ export class BrowserControlPort {
         const restored = await NormalizationTransaction.restore(this.host, compTabTarget, effectivePane, true);
         compNormalize.restored = restored.ok;
         if (restored.error && !compNormalize.restoreError) compNormalize.restoreError = restored.error;
+      }
+      // Restore original scroll offsets on both tabs to avoid stealing scroll position
+      if (originalTargetScroll && typeof this.host.evalJs === 'function') {
+        try {
+          await this.host.evalJs(
+            `window.scrollTo({ left: ${originalTargetScroll.x}, top: ${originalTargetScroll.y}, behavior: 'instant' })`,
+            tabId,
+            effectivePane
+          );
+        } catch {}
+      }
+      if (originalCompScroll && compTabTarget && typeof this.host.evalJs === 'function') {
+        try {
+          await this.host.evalJs(
+            `window.scrollTo({ left: ${originalCompScroll.x}, top: ${originalCompScroll.y}, behavior: 'instant' })`,
+            compTabTarget,
+            effectivePane
+          );
+        } catch {}
       }
     }
   }
