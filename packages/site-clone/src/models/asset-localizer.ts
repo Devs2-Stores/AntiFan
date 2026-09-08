@@ -1267,7 +1267,6 @@ export class AssetLocalizer {
     const seenFileUrlPairs = new Set<string>();
     const resourceUrlPattern = /(?:https?:)?\/\/[^\s"'`<>{}|\\^]+/gi;
     const namespaceAttrPattern = /\b(?:xmlns(?::\w+)?|itemtype|vocab)\s*=\s*["'][^"']*$/i;
-    const anchorHrefPattern = /\b(?:href)\s*=\s*["'][^"']*$/i;
 
     for (const file of options.rewrittenFiles) {
       let rMatch: RegExpExecArray | null;
@@ -1276,8 +1275,6 @@ export class AssetLocalizer {
         const prefix = file.rewrittenContent.slice(Math.max(0, rMatch.index - 50), rMatch.index);
         // Syntactic namespace exclusion: only exempt when immediately preceded by xmlns=, itemtype=, or vocab=
         if (namespaceAttrPattern.test(prefix)) continue;
-        // Hyperlink href exclusion: navigating URLs (<a href="...">) do not fetch remote network sub-resources on page load
-        if (file.path.endsWith('.html') && anchorHrefPattern.test(prefix) && !matchedUrl.includes('.css') && !matchedUrl.includes('.js')) continue;
 
         const dedupKey = `${file.path}::${matchedUrl}`;
         if (seenFileUrlPairs.has(dedupKey)) continue;
