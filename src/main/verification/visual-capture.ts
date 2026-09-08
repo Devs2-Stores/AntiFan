@@ -424,6 +424,22 @@ const normalizeScrollInjectScript = (): string => `(() => {
   style.dataset.antifanOwned = '1';
   style.textContent = 'html { overflow-y: scroll !important; scrollbar-gutter: stable !important; }';
   document.head.appendChild(style);
+
+  // Deterministically normalize viewport scroll state to top (0, 0)
+  try {
+    if (typeof window.scrollTo === 'function') {
+      window.scrollTo({ left: 0, top: 0, behavior: 'instant' });
+    }
+    if (document.documentElement) {
+      document.documentElement.scrollTop = 0;
+      document.documentElement.scrollLeft = 0;
+    }
+    if (document.body) {
+      document.body.scrollTop = 0;
+      document.body.scrollLeft = 0;
+    }
+  } catch {}
+
   return { owned: true, present: !!document.getElementById(ID) };
 })()`;
 

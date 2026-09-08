@@ -2606,8 +2606,7 @@ export class BrowserControlPort {
       const isDynamicWidget = (s: string) => /preview[-_]bar|chat|zalo|popup|notification|fb-|subiz|tawk|letschat/i.test(s);
       const requiredMasks = rawRequired.filter((s) => !isDynamicWidget(s));
       const autoPromotedOptional = rawRequired.filter((s) => isDynamicWidget(s));
-      const hasUserMasks = rawRequired.length > 0 || userOptional.length > 0;
-      const defaultStorefrontOptional = hasUserMasks ? [] : [
+      const defaultStorefrontOptional = [
         '#haravan-notification',
         '[id*="haravan-notification"]',
         '#preview-bar-iframe',
@@ -2855,12 +2854,37 @@ export class BrowserControlPort {
             if (cs && typeof cs === 'object') originalCompScroll = { x: Number(cs.x) || 0, y: Number(cs.y) || 0 };
           }
           // Normalize scroll position and carousels before capture settle to guarantee deterministic layout state
-          const normalizeStateScript = `(() => {
-            /* __antifan_carousel_normalize */
+          // Deterministically dismiss popups/modals, cascade scroll for lazyload/Livewire hydration, and normalize layout state
+          const normalizeStateScript = `(async () => {
+            /* __antifan_modal_dismiss_and_lazy_hydrate */
             try {
+              // 1. Dismiss backdrop / modal / popups
+              document.querySelectorAll('.modal, .modal-backdrop, .modal-coupon--backdrop, .fancybox-overlay, .popup-content, #fake-order-popup, #haravan-notification, .loomline-modal-backdrop, [class*="modal-backdrop"]').forEach(el => {
+                try { el.style.setProperty('display', 'none', 'important'); el.remove(); } catch {}
+              });
+              if (document.body) {
+                document.body.classList.remove('modal-open', 'mainBody-modalshow', 'layoutProduct_scroll');
+                document.body.style.removeProperty('overflow');
+                document.body.style.removeProperty('position');
+              }
+              if (document.documentElement) {
+                document.documentElement.classList.remove('modal-open', 'mainBody-modalshow');
+                document.documentElement.style.removeProperty('overflow');
+              }
+
+              // 2. Cascade scroll bottom->top for lazy / Livewire hydration
+              const scrollH = Math.max(document.documentElement ? document.documentElement.scrollHeight : 0, document.body ? document.body.scrollHeight : 0);
+              if (scrollH > window.innerHeight) {
+                for (let y = 0; y <= scrollH; y += 800) {
+                  window.scrollTo({ top: y, left: 0, behavior: 'instant' });
+                  await new Promise(r => setTimeout(r, 60));
+                }
+              }
+              window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
               document.documentElement.scrollTop = 0;
               document.body.scrollTop = 0;
-              window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
+
+              // 3. Normalize carousels and sliders
               ['s-content', 'swiper-wrapper', 'slick-track', 'owl-stage', 'flickity-slider', 'carousel-inner'].forEach(cls => {
                 const els = document.getElementsByClassName(cls);
                 for (let i = 0; i < els.length; i++) {
