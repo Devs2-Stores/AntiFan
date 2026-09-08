@@ -4,6 +4,20 @@
   background: #080c13;
   color: #dbe7f5;
 }
+/* Accessible focus ring and target sizing */
+:focus-visible {
+  outline: 2px solid #38bdf8 !important;
+  outline-offset: 1px !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, ::before, ::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
 
 * {
   box-sizing: border-box;

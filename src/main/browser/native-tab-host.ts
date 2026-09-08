@@ -2489,7 +2489,7 @@ export class NativeTabHost extends EventEmitter {
       if (tab.state.splitMode && tab.mobileView && !tab.mobileView.webContents.isDestroyed()) {
         return tab.mobileView.webContents;
       }
-      return tab.view.webContents.isDestroyed() ? null : tab.view.webContents;
+      return null;
     }
 
     if (paneId === 'desktop') {

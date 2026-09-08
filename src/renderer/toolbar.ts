@@ -696,6 +696,30 @@ function renderTabs() {
         hideTabContextMenu();
         getApi()?.switchTab(tab.id);
       });
+      tabEl.addEventListener('keydown', (e) => {
+        const tabs = Array.from(tabList.querySelectorAll<HTMLElement>('.tab'));
+        const currIdx = tabs.indexOf(tabEl);
+        if (e.key === 'ArrowRight') {
+          e.preventDefault();
+          const nextTab = tabs[(currIdx + 1) % tabs.length];
+          nextTab?.focus();
+          const nextId = nextTab?.getAttribute('data-tab-id');
+          if (nextId) getApi()?.switchTab(nextId);
+        } else if (e.key === 'ArrowLeft') {
+          e.preventDefault();
+          const prevTab = tabs[(currIdx - 1 + tabs.length) % tabs.length];
+          prevTab?.focus();
+          const prevId = prevTab?.getAttribute('data-tab-id');
+          if (prevId) getApi()?.switchTab(prevId);
+        } else if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          getApi()?.switchTab(tab.id);
+        } else if (e.key === 'Delete' || ((e.ctrlKey || e.metaKey) && e.key === 'w')) {
+          e.preventDefault();
+          e.stopPropagation();
+          getApi()?.closeTab(tab.id);
+        }
+      });
 
       tabEl.addEventListener('auxclick', (e) => {
         if (e.button === 1) {
@@ -769,6 +793,7 @@ function renderTabs() {
 
     tabEl.className = `tab ${isActive ? 'active' : ''} ${isAgentControlled ? 'agent-controlled' : ''} ${isAgentWorking ? 'agent-working' : isAiStreaming ? 'ai-streaming' : ''} ${hasThemeError ? 'tab-has-error' : ''}`;
     tabEl.setAttribute('aria-selected', isActive ? 'true' : 'false');
+    tabEl.setAttribute('tabindex', isActive ? '0' : '-1');
     // Update Spinner & Icon
     const indexBadge = tabEl.querySelector('.tab-index-badge') as HTMLElement;
     if (indexBadge) {

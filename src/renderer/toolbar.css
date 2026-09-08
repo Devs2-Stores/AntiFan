@@ -1,8 +1,8 @@
 /* Antigravity Desktop — Original Classic VS Code Dark Theme */
 :root {
   color-scheme: dark;
-  --vscode-editor-background: #1e1e1e;
-  --vscode-editor-foreground: #cccccc;
+  --vscode-editor-background: #121316;
+  --vscode-editor-foreground: #d1d5db;
   --vscode-tab-inactiveBackground: #252526;
   --vscode-tab-inactiveForeground: #969696;
   --vscode-tab-activeBackground: #1e1e1e;
@@ -23,6 +23,20 @@
   --vscode-list-activeSelectionBackground: #04395e;
   --vscode-list-activeSelectionForeground: #ffffff;
 }
+/* Accessible focus ring and target sizing */
+:focus-visible {
+  outline: 2px solid #38bdf8 !important;
+  outline-offset: 1px !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, ::before, ::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
 
 * {
   box-sizing: border-box;
@@ -56,7 +70,7 @@ body, html {
 .tab-strip {
   display: flex;
   align-items: flex-end;
-  background: #18191c;
+  background: #121316;
   padding: 4px 8px 0 8px;
   gap: 3px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.08);
@@ -171,7 +185,7 @@ body, html {
 }
 
 .tab.active {
-  background: #2b2d30;
+  background: #232529;
   color: #ffffff;
   font-weight: 500;
   box-shadow: 0 -1px 4px rgba(0, 0, 0, 0.25);
@@ -608,7 +622,7 @@ body, html {
   align-items: center;
   gap: 8px;
   padding: 0 10px;
-  background: #18191c;
+  background: #121316;
   border-bottom: 1px solid rgba(255, 255, 255, 0.08);
   height: 38px;
   flex-shrink: 0;
