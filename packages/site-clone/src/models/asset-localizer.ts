@@ -540,12 +540,7 @@ export function rewriteCssUrls(
   content = content.replace(urlRegex, (match, _q, quotedUrl, unquotedUrl) => {
     const rawUrl = (quotedUrl || unquotedUrl || '').trim();
     if (!rawUrl || rawUrl.startsWith('data:') || rawUrl.startsWith('#')) return match;
-    let replacement = urlMap.get(rawUrl);
-    if (!replacement) {
-      // Try clean URL without query/hash
-      const cleanUrl = rawUrl.split('?')[0].split('#')[0];
-      replacement = urlMap.get(cleanUrl);
-    }
+    const replacement = urlMap.get(rawUrl);
     if (replacement) {
       replacementCount++;
       return `url("${replacement}")`;
@@ -1075,8 +1070,6 @@ export class AssetLocalizer {
             : targetFilename;
           sheetMap.set(urlRef, replacement);
           sheetMap.set(resolvedUrl, replacement);
-          sheetMap.set(urlRef.split('?')[0].split('#')[0], replacement);
-          sheetMap.set(resolvedUrl.split('?')[0].split('#')[0], replacement);
         }
       }
 
@@ -1267,6 +1260,7 @@ export class AssetLocalizer {
         });
       }
     }
+
     // 3. Consolidated Remote Network Resource Audit across rewritten files
     // Eliminates narrower regex duplicate scan while deduplicating findings by (filePath + url)
     const unlocalizedSet = new Set<string>();
@@ -1282,8 +1276,8 @@ export class AssetLocalizer {
         const prefix = file.rewrittenContent.slice(Math.max(0, rMatch.index - 50), rMatch.index);
         // Syntactic namespace exclusion: only exempt when immediately preceded by xmlns=, itemtype=, or vocab=
         if (namespaceAttrPattern.test(prefix)) continue;
-        // Hyperlink href & non-resource exclusion: navigating URLs or non-asset URLs in HTML do not fetch sub-resources on page load
-        if (file.path.endsWith('.html') && !matchedUrl.includes('.css') && !matchedUrl.includes('.js') && !matchedUrl.includes('.png') && !matchedUrl.includes('.jpg') && !matchedUrl.includes('.jpeg') && !matchedUrl.includes('.webp') && !matchedUrl.includes('.svg') && !matchedUrl.includes('.ttf') && !matchedUrl.includes('.woff')) continue;
+        // Hyperlink href exclusion: navigating URLs (<a href="...">) do not fetch remote network sub-resources on page load
+        if (file.path.endsWith('.html') && anchorHrefPattern.test(prefix) && !matchedUrl.includes('.css') && !matchedUrl.includes('.js')) continue;
 
         const dedupKey = `${file.path}::${matchedUrl}`;
         if (seenFileUrlPairs.has(dedupKey)) continue;
