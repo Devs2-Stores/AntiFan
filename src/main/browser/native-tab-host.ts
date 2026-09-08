@@ -4294,7 +4294,13 @@ export class NativeTabHost extends EventEmitter {
     if (!tab) return false;
     const oldPreset = DEVICE_PRESETS.find((p) => p.id === tab.state.devicePresetId);
     const newPreset = DEVICE_PRESETS.find((p) => p.id === presetId);
-    const categoryChanged = Boolean(oldPreset && newPreset && oldPreset.category !== newPreset.category);
+    const oldCategory = oldPreset?.category || (tab.state.devicePresetId === 'responsive' ? 'desktop' : undefined);
+    const newCategory = newPreset?.category || (presetId === 'responsive' ? 'desktop' : undefined);
+    const categoryChanged = Boolean(
+      (oldCategory && newCategory && oldCategory !== newCategory) ||
+      (newCategory === 'mobile' && oldCategory !== 'mobile') ||
+      (oldCategory === 'mobile' && newCategory !== 'mobile')
+    );
 
     tab.customViewport = undefined;
     tab.state.devicePresetId = presetId;
