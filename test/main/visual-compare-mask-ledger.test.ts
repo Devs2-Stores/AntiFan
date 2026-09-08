@@ -112,7 +112,7 @@ function buildMockHost(opts: MockHostOptions) {
         if (opts.evalJsOverride) return opts.evalJsOverride(script, tabId);
         return [];
       }
-      if (script.includes('querySelectorAll')) {
+      if (script.includes('const selectors =')) {
         if (!tabId) return [];
         const rows = opts.maskRows ? opts.maskRows(tabId) : [{ selector: '.badge', error: null, boxes: [{ x: 100, y: 100, width: 50, height: 50 }] }];
         return rows;
@@ -690,7 +690,7 @@ describe('visualCompare composed settle barrier (Phase 4 V-16, V-17, V-18)', () 
     const imgIdx = targetEvals.findIndex((e) => e.script.includes('img.decode'));
     const domIdx = targetEvals.findIndex((e) => e.script.includes('requestAnimationFrame'));
     const metricsIdx = targetEvals.findIndex((e) => e.script.includes('documentElement.clientWidth'));
-    const maskIdx = targetEvals.findIndex((e) => e.script.includes('querySelectorAll'));
+    const maskIdx = targetEvals.findIndex((e) => e.script.includes('const selectors ='));
 
     assert.ok(normIdx >= 0, 'normalization must run');
     assert.ok(fontIdx > normIdx, 'settle (fonts) must run after normalization');

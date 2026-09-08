@@ -2606,7 +2606,8 @@ export class BrowserControlPort {
       const isDynamicWidget = (s: string) => /preview[-_]bar|chat|zalo|popup|notification|fb-|subiz|tawk|letschat/i.test(s);
       const requiredMasks = rawRequired.filter((s) => !isDynamicWidget(s));
       const autoPromotedOptional = rawRequired.filter((s) => isDynamicWidget(s));
-      const defaultStorefrontOptional = [
+      const hasUserMasks = rawRequired.length > 0 || userOptional.length > 0;
+      const defaultStorefrontOptional = hasUserMasks ? [] : [
         '#haravan-notification',
         '[id*="haravan-notification"]',
         '#preview-bar-iframe',
@@ -2859,9 +2860,10 @@ export class BrowserControlPort {
             /* __antifan_modal_dismiss_and_lazy_hydrate */
             try {
               // 1. Dismiss backdrop / modal / popups
-              document.querySelectorAll('.modal, .modal-backdrop, .modal-coupon--backdrop, .fancybox-overlay, .popup-content, #fake-order-popup, #haravan-notification, .loomline-modal-backdrop, [class*="modal-backdrop"]').forEach(el => {
-                try { el.style.setProperty('display', 'none', 'important'); el.remove(); } catch {}
-              });
+              const popups = document.querySelectorAll('.modal, .modal-backdrop, .modal-coupon--backdrop, .fancybox-overlay, .popup-content, #fake-order-popup, #haravan-notification, .loomline-modal-backdrop, [class*="modal-backdrop"]');
+              for (let i = 0; i < popups.length; i++) {
+                try { popups[i].style.setProperty('display', 'none', 'important'); popups[i].parentElement && popups[i].parentElement.removeChild(popups[i]); } catch {}
+              }
               if (document.body) {
                 document.body.classList.remove('modal-open', 'mainBody-modalshow', 'layoutProduct_scroll');
                 document.body.style.removeProperty('overflow');
