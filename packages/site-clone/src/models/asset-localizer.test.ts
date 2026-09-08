@@ -972,5 +972,43 @@ describe('AssetLocalizer - A1, A2, A3 Unified Pipeline & Invariants', () => {
         try { fs.rmSync(tempDir, { recursive: true, force: true }); } catch {}
       }
     });
+
+    it('fails closed on Alpine/Vue bound resource attributes (:src, :data-src) containing remote URLs', () => {
+      const localizer = new AssetLocalizer();
+      const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-audit-bound-'));
+      try {
+        const manifest: HarvestedAssetManifest = {
+          stylesheets: [],
+          javascripts: [],
+          images: [],
+          fonts: [],
+          totalBytes: 0
+        };
+
+        // Exact shape observed on Hoplongtech video popup line 983
+        const htmlWithBoundRemote = `
+          <div class="popup-content__wrap flex-left-between">
+            <iframe width="1280" height="536" :data-src="openVideo ? '' : 'https://www.youtube.com/embed/Nt2J6ZXPuw0'" :src="openVideo ? 'https://www.youtube.com/embed/Nt2J6ZXPuw0' : ''" frameborder="0" allowfullscreen=""></iframe>
+          </div>
+        `;
+
+        const auditRes = localizer.verifyAndAudit(manifest, {
+          assetsDir: tempDir,
+          rewrittenFiles: [{
+            path: path.join(tempDir, 'index.html'),
+            rewrittenContent: htmlWithBoundRemote,
+            originalContent: htmlWithBoundRemote,
+            replacementCount: 0
+          }]
+        });
+
+        assert.strictEqual(auditRes.passed, false, 'Audit must fail closed on remote URL in Alpine bound attributes');
+        const lingering = auditRes.findings.filter(f => f.code === 'LINGERING_REMOTE_NETWORK_URL');
+        assert.strictEqual(lingering.length, 2, 'Must flag both :data-src and :src bound remote URLs');
+        assert.strictEqual(lingering[0].details?.url, 'https://www.youtube.com/embed/Nt2J6ZXPuw0');
+      } finally {
+        try { fs.rmSync(tempDir, { recursive: true, force: true }); } catch {}
+      }
+    });
   });
 });

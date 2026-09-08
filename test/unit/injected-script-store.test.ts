@@ -115,4 +115,11 @@ describe('InjectedScriptStore', () => {
       try { fs.rmSync(tempParent, { recursive: true, force: true }); } catch {}
     }
   });
+
+  it('emits proper width restoration in media.freeze script', () => {
+    const store = new InjectedScriptStore({ overrideDir: null });
+    const freezeScript = store.getScript('media.freeze', { freeze: true, normalizeSliders: true });
+
+    assert.ok(freezeScript.includes("'transform', 'transition', 'left', 'margin-left', 'width'"), 'Must restore width along with transform/transition/left/margin-left');
+  });
 });

@@ -9,7 +9,7 @@ import * as path from 'node:path';
 import * as os from 'node:os';
 import type { ComponentContractIR } from '../models/clone-ir.js';
 import { AssetLocalizer, LocalizeAssetOptions } from '../models/asset-localizer.js';
-
+import { DomTreeParser, ParsedElementNode } from '../models/dom-tree-parser.js';
 export interface IndependentHtmlCloneOptions {
   outputDir: string;
   sourceBaseUrl?: string;
@@ -45,12 +45,26 @@ export class IndependentHtmlCloneGenerator {
       const products = (ir.normalizedData?.products || []).slice(0, maxProducts);
       const articles = (ir.normalizedData?.articles || []).slice(0, maxArticles);
 
-      // 2. Extract and prune rawHtml sections to enforce card cardinality bounds
+      // 2. Extract and prune rawHtml sections to enforce global card cardinality bounds
+      let remainingProducts = maxProducts;
+      let remainingArticles = maxArticles;
       const sectionHtmls: string[] = [];
       for (const sec of ir.sections) {
         let contentHtml = '';
         if (sec.rawHtml && sec.rawHtml.trim().length > 0) {
-          contentHtml = this.pruneSectionCards(sec.rawHtml, sec.archetype, maxProducts, maxArticles);
+          const isProduct = sec.archetype === 'product_grid';
+          const isArticle = (sec.archetype === 'custom_section' || sec.archetype === 'rich_text') && /(?:blog|news|article|bai-viet|tin-tuc)/i.test(sec.rawHtml);
+          const budget = isProduct ? remainingProducts : (isArticle ? remainingArticles : 0);
+          const pruneRes = this.pruneSectionCards(sec.rawHtml, sec.archetype, budget);
+          contentHtml = pruneRes.html;
+          if (isProduct) {
+            remainingProducts = Math.max(0, remainingProducts - pruneRes.retainedCount);
+          } else if (isArticle) {
+            remainingArticles = Math.max(0, remainingArticles - pruneRes.retainedCount);
+          }
+          // Sanitize Alpine-bound and standard load-capable video/embed attributes containing remote URLs
+          contentHtml = contentHtml.replace(/(?::|x-bind:|v-bind:)?(src|data-src)\s*=\s*(?:"[^"]*(?:youtube\.com|vimeo\.com)[^"]*"|'[^']*(?:youtube\.com|vimeo\.com)[^']*')/gi, '$1=""');
+          contentHtml = contentHtml.replace(/(?::|x-bind:|v-bind:)(src|data-src)\s*=\s*(?:"[^"]*(?:https?:)?\/\/[^"]*"|'[^']*(?:https?:)?\/\/[^']*')/gi, '');
         } else if (sec.liquidTemplate) {
           const stripped = sec.liquidTemplate
             .replace(/{%[\s\S]*?%}/g, '')
@@ -66,7 +80,14 @@ export class IndependentHtmlCloneGenerator {
 
       const title = ir.normalizedData?.siteSettings?.title || 'Independent Reconstructed Storefront';
 
-      // 3. Assemble Complete Standalone HTML Document
+      // 3. Assemble Complete Standalone HTML Document with linked stylesheets and scripts
+      const stylesheetTags = (ir.assets?.stylesheets || [])
+        .map(css => `  <link rel="stylesheet" href="${css.sourceUrl || `assets/${css.filename}`}">`)
+        .join('\n');
+      const javascriptTags = (ir.assets?.javascripts || [])
+        .map(js => `  <script src="${js.sourceUrl || `assets/${js.filename}`}"></script>`)
+        .join('\n');
+
       const rawIndexHtml = `<!DOCTYPE html>
 <html lang="vi">
 <head>
@@ -78,12 +99,12 @@ export class IndependentHtmlCloneGenerator {
     body { margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; }
     img { max-width: 100%; height: auto; display: block; }
   </style>
-</head>
+${stylesheetTags ? stylesheetTags + '\n' : ''}</head>
 <body>
   <div id="antifan-storefront-root">
     ${sectionHtmls.join('\n\n    ')}
   </div>
-</body>
+${javascriptTags ? javascriptTags + '\n' : ''}</body>
 </html>`;
 
       const indexHtmlPath = path.join(stageDir, 'index.html');
@@ -91,18 +112,18 @@ export class IndependentHtmlCloneGenerator {
 
       // 4. Localize Assets & Rewrite All URLs in index.html to Local Relative Paths
       if (ir.assets) {
-        // If assets already have localPath and skipDownload is true, ensure they are copied into assetsDir before audit
-        if (options.skipDownload) {
-          const allItems = [
-            ...(ir.assets.stylesheets || []),
-            ...(ir.assets.javascripts || []),
-            ...(ir.assets.images || []),
-            ...(ir.assets.fonts || [])
-          ];
-          for (const item of allItems) {
-            if (item.localPath && fs.existsSync(item.localPath)) {
-              const dest = path.join(assetsDir, item.filename);
-              if (!fs.existsSync(dest)) fs.copyFileSync(item.localPath, dest);
+        // If any asset item already specifies a localPath that exists on disk, pre-copy it into assetsDir so it is not re-downloaded
+        const allItems = [
+          ...(ir.assets.stylesheets || []),
+          ...(ir.assets.javascripts || []),
+          ...(ir.assets.images || []),
+          ...(ir.assets.fonts || [])
+        ];
+        for (const item of allItems) {
+          if (item.localPath && fs.existsSync(item.localPath)) {
+            const dest = path.join(assetsDir, item.filename);
+            if (!fs.existsSync(dest)) {
+              fs.copyFileSync(item.localPath, dest);
             }
           }
         }
@@ -190,25 +211,60 @@ export class IndependentHtmlCloneGenerator {
     }
   }
 
-  /**
-   * Prunes repeated DOM card elements in product_grid and article sections to representative bounds.
-   */
-  private pruneSectionCards(rawHtml: string, archetype: string, maxProducts: number, maxArticles: number): string {
+  private pruneSectionCards(rawHtml: string, archetype: string, limit: number): { html: string; retainedCount: number } {
     const isProduct = archetype === 'product_grid';
     const isArticle = (archetype === 'custom_section' || archetype === 'rich_text') && /(?:blog|news|article|bai-viet|tin-tuc)/i.test(rawHtml);
-    const limit = isProduct ? maxProducts : (isArticle ? maxArticles : 0);
-    if (limit <= 0) return rawHtml.trim();
+    if (!isProduct && !isArticle) {
+      return { html: rawHtml.trim(), retainedCount: 0 };
+    }
 
-    const pattern = isProduct
-      ? /<(\w+)\b[^>]*class=["'][^"']*(?:product-item|product-card)[^"']*["'][^>]*>[\s\S]*?<\/\1>/gi
-      : /<(\w+)\b[^>]*class=["'][^"']*(?:article-item|article-card|news-item|post-item)[^"']*["'][^>]*>[\s\S]*?<\/\1>/gi;
+    try {
+      const root = DomTreeParser.parse(rawHtml);
+      const targetClassRegex = isProduct
+        ? /(?:^|\s)(?:product-item|product-card|product-list__item)(?:\s|$)/i
+        : /(?:^|\s)(?:article-item|article-card|news-item|post-item)(?:\s|$)/i;
 
-    let matchCount = 0;
-    const pruned = rawHtml.replace(pattern, (match: string) => {
-      matchCount++;
-      return matchCount <= limit ? match : '';
-    });
+      // Find all matching card nodes using DOM tree
+      const cardNodes: ParsedElementNode[] = [];
+      const traverse = (node: ParsedElementNode) => {
+        const cls = node.attributes['class'] || '';
+        if (targetClassRegex.test(cls)) {
+          cardNodes.push(node);
+          return; // Do not traverse inside card to avoid picking up nested child items
+        }
+        for (const child of node.children) {
+          if (typeof child !== 'string') {
+            traverse(child);
+          }
+        }
+      };
+      traverse(root);
 
-    return pruned.trim();
+      const totalCards = cardNodes.length;
+      if (totalCards <= limit) {
+        return { html: rawHtml.trim(), retainedCount: totalCards };
+      }
+
+      // Locate each excess card's exact outerHtml slice in document order and splice from end to start
+      const cardRanges: { start: number; end: number }[] = [];
+      let searchCursor = 0;
+      for (const card of cardNodes) {
+        const idx = rawHtml.indexOf(card.outerHtml, searchCursor);
+        if (idx !== -1) {
+          cardRanges.push({ start: idx, end: idx + card.outerHtml.length });
+          searchCursor = idx + card.outerHtml.length;
+        }
+      }
+
+      let resultHtml = rawHtml;
+      const excessRanges = cardRanges.slice(limit).reverse();
+      for (const range of excessRanges) {
+        resultHtml = resultHtml.slice(0, range.start) + resultHtml.slice(range.end);
+      }
+
+      return { html: resultHtml.trim(), retainedCount: limit };
+    } catch {
+      return { html: rawHtml.trim(), retainedCount: 0 };
+    }
   }
 }

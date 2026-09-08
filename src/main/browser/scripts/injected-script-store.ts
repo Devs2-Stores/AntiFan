@@ -129,7 +129,7 @@ export class InjectedScriptStore {
             window.__antifanSliderSnapshots.forEach(item => {
               try {
                 if (item && item.el && item.el.style) {
-                  ['transform', 'transition', 'left', 'margin-left'].forEach(prop => {
+                  ['transform', 'transition', 'left', 'margin-left', 'width'].forEach(prop => {
                     const snap = item[prop];
                     if (snap && snap.value) {
                       item.el.style.setProperty(prop, snap.value, snap.priority || '');
@@ -234,6 +234,7 @@ export class InjectedScriptStore {
               transition: { value: el.style.getPropertyValue('transition'), priority: el.style.getPropertyPriority('transition') },
               left: { value: el.style.getPropertyValue('left'), priority: el.style.getPropertyPriority('left') },
               'margin-left': { value: el.style.getPropertyValue('margin-left'), priority: el.style.getPropertyPriority('margin-left') },
+              width: { value: el.style.getPropertyValue('width'), priority: el.style.getPropertyPriority('width') }
             });
           };
           const isNavOrMenu = (el) => Boolean(el && typeof el.closest === 'function' && (el.closest('.category-menu') || el.closest('.category-navigation') || el.closest('nav') || el.closest('[class*="menu"]') || el.closest('[class*="dropdown"]')));
@@ -256,6 +257,7 @@ export class InjectedScriptStore {
               el.style.setProperty('transition', 'none', 'important');
               el.style.setProperty('left', '0px', 'important');
               el.style.setProperty('margin-left', '0px', 'important');
+              // Do not force width: track width is managed by slider libraries and parent container
             } catch {}
           });
         }

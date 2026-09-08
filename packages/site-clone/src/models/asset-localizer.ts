@@ -711,7 +711,12 @@ export class AssetLocalizer {
           continue;
         }
 
-        // Check if already cached and non-empty on disk
+        // Check if item has a valid localPath supplied or is already cached and non-empty on disk
+        if (item.localPath && fs.existsSync(item.localPath) && !fs.existsSync(targetLocalPath)) {
+          try {
+            fs.copyFileSync(item.localPath, targetLocalPath);
+          } catch {}
+        }
         if (fs.existsSync(targetLocalPath)) {
           const stat = fs.statSync(targetLocalPath);
           if (stat.size > 0) {
@@ -1280,7 +1285,9 @@ export class AssetLocalizer {
     // Eliminates narrower regex duplicate scan while deduplicating findings by (filePath + url)
     const unlocalizedSet = new Set<string>();
     const seenFileUrlPairs = new Set<string>();
-    const subResourceAttributeRegex = /\b(src|href|poster|data-src|data-lazy-src)\s*=\s*["']((?:https?:)?\/\/[^"']+)["']/gi;
+    // Matches plain attributes as well as Alpine/Vue bound attributes (:src, :data-src, x-bind:src, v-bind:src)
+    // Supports both double- and single-quoted values with opposite quotes nested inside
+    const subResourceAttributeRegex = /(?:^|\s)(?:(?::|x-bind:|v-bind:)?(src|data-src|poster|data-lazy-src)|(href))\s*=\s*(?:"([^"]*)"|'([^']*)')/gi;
     const inlineStyleUrlRegex = /url\(\s*['"]?((?:https?:)?\/\/[^'")]+)['"]?\s*\)/gi;
 
     for (const file of options.rewrittenFiles) {
@@ -1297,10 +1304,11 @@ export class AssetLocalizer {
       // Check all explicit HTML sub-resource attributes (src, href for stylesheets/favicons, poster, data-src)
       let match: RegExpExecArray | null;
       while ((match = subResourceAttributeRegex.exec(contentToScan)) !== null) {
-        const attrName = match[1].toLowerCase();
-        const matchedUrl = match[2].trim();
-
-        // For 'href', only flag external stylesheets, icons/favicons, or font preloads as sub-resources
+        const attrName = (match[1] || match[2] || '').toLowerCase();
+        const rawVal = (match[3] !== undefined ? match[3] : match[4]) ?? '';
+        const urlMatch = rawVal.match(/(?:https?:)?\/\/[^\s"'<>]+/i);
+        if (!urlMatch) continue;
+        const matchedUrl = urlMatch[0].trim();
         // Plain navigating hyperlinks (<a href="https://...">) are not loaded as page sub-resources
         if (attrName === 'href') {
           const tagStart = Math.max(0, match.index - 100);
@@ -1309,7 +1317,7 @@ export class AssetLocalizer {
           if (!isLinkTag) continue;
         }
 
-        const dedupKey = `${file.path}::${matchedUrl}`;
+        const dedupKey = `${file.path}::${attrName}::${matchedUrl}`;
         if (seenFileUrlPairs.has(dedupKey)) continue;
         seenFileUrlPairs.add(dedupKey);
 

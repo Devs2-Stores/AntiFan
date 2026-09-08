@@ -271,6 +271,16 @@ export class BlueprintExtractor {
 
   private classifySectionType(className: string, secNode: ParsedElementNode): string {
     const c = className.toLowerCase();
+
+    // 1. Semantic specific section types MUST take precedence over generic carousel structure
+    if (c.includes('news') || c.includes('article') || c.includes('blog') || c.includes('bai-viet') || c.includes('tin-tuc')) return 'news';
+    if (c.includes('accessory')) return 'accessory-showcase';
+    if (c.includes('partner') || c.includes('brand')) return 'partner-carousel';
+    if (c.includes('category-list') || c.includes('categories')) return 'category-grid';
+    if (c.includes('block-category') || c.includes('product')) return 'featured-products';
+    if (c.includes('form') || c.includes('quote') || c.includes('contact')) return 'quote-form';
+
+    // 2. Hero slider and carousel fallbacks
     const hasCarouselChild = (
       DomTreeParser.findByClass(secNode, 's-wrap').length > 0 ||
       DomTreeParser.findByClass(secNode, 'swiper').length > 0 ||
@@ -279,11 +289,7 @@ export class BlueprintExtractor {
       DomTreeParser.findByClass(secNode, 's-content').length > 0
     );
     if (c.includes('slide') || c.includes('banner') || c.includes('hero') || hasCarouselChild) return 'hero-slider';
-    if (c.includes('category-list') || c.includes('categories')) return 'category-grid';
-    if (c.includes('block-category') || c.includes('product')) return 'featured-products';
-    if (c.includes('form') || c.includes('quote') || c.includes('contact')) return 'quote-form';
-    if (c.includes('accessory')) return 'accessory-showcase';
-    if (c.includes('partner') || c.includes('brand')) return 'partner-carousel';
+
     return 'custom-content';
   }
 

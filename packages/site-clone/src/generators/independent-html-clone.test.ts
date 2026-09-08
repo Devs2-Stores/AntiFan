@@ -252,4 +252,52 @@ describe('IndependentHtmlCloneGenerator - Standalone Bundle & Cardinality Bounds
     assert.ok(fs.existsSync(canaryPath), 'Canary file must remain completely intact');
     assert.strictEqual(fs.readFileSync(canaryPath, 'utf-8'), 'prior-html-clone-state');
   });
+
+  it('enforces multi-section global cardinality bounds across multiple product sections', async () => {
+    const cardsA = Array.from({ length: 8 }, (_, i) => `<div class="product-list__item"><div class="inner">Product A-${i + 1}</div></div>`).join('');
+    const cardsB = Array.from({ length: 8 }, (_, i) => `<div class="product-list__item"><div class="inner">Product B-${i + 1}</div></div>`).join('');
+
+    const bannerPath = path.join(tempDir, 'test-assets', 'banner.jpg');
+    fs.mkdirSync(path.dirname(bannerPath), { recursive: true });
+    fs.writeFileSync(bannerPath, 'fake');
+
+    const multiSectionIR: ComponentContractIR = {
+      version: '1.2.0',
+      metadata: { sourceUrl: 'https://example.com', extractedAt: new Date().toISOString() },
+      layout: { containerMaxWidth: 1200, containerPaddingPx: 15, gridGapPx: 20, breakpoints: { mobileMax: 767, tabletMin: 768, tabletMax: 1024, desktopMin: 1025 } },
+      storefrontRuntime: { controllers: [] },
+      themeSettings: [],
+      sections: [
+        {
+          id: 'grid_section_a',
+          name: 'Section A',
+          archetype: 'product_grid',
+          layoutType: 'grid',
+          settings: {},
+          blocks: [],
+          rawHtml: `<section class="sec-a"><div class="product-list">${cardsA}</div></section>`
+        },
+        {
+          id: 'grid_section_b',
+          name: 'Section B',
+          archetype: 'product_grid',
+          layoutType: 'grid',
+          settings: {},
+          blocks: [],
+          rawHtml: `<section class="sec-b"><div class="product-list">${cardsB}</div></section>`
+        }
+      ],
+      normalizedData: { products: [], articles: [] },
+      assets: { stylesheets: [], javascripts: [], images: [{ type: 'image', sourceUrl: 'https://example.com/banner.jpg', filename: 'banner.jpg', localPath: bannerPath, byteCount: 4 }], fonts: [], totalBytes: 4 }
+    };
+
+    const generator = new IndependentHtmlCloneGenerator();
+    const targetDir = path.join(tempDir, 'multi-section-out');
+    const res = await generator.generateCloneBundle(multiSectionIR, { outputDir: targetDir, maxProducts: 10 });
+
+    assert.strictEqual(res.success, true);
+    const generatedHtml = fs.readFileSync(res.entryHtmlPath, 'utf-8');
+    const renderedCards = generatedHtml.match(/class=["'][^"']*product-list__item[^"']*["']/g) || [];
+    assert.strictEqual(renderedCards.length, 10, 'Total rendered product cards across all sections must be exactly 10');
+  });
 });

@@ -136,4 +136,18 @@ describe('BlueprintExtractor - AST DOM Parsing & Safety Invariants', () => {
     assert.strictEqual(sections[0].id, 'script_sec');
     assert.strictEqual(sections[0].heading, 'Script Section');
   });
+
+  it('7. Prioritizes semantic section classes over generic carousel structure', () => {
+    const newsHtml = `<section class="section-news"><div class="s-wrap"><div class="s-content"><div class="item">Article 1</div></div></div></section>`;
+    const accessoryHtml = `<section class="section-accessory"><div class="s-wrap"><div class="s-content"><div class="item">Accessory 1</div></div></div></section>`;
+    const partnerHtml = `<section class="section-partner"><div class="s-wrap"><div class="s-content"><div class="item">Partner 1</div></div></div></section>`;
+
+    const newsSec = extractor.extractSections(newsHtml)[0];
+    const accSec = extractor.extractSections(accessoryHtml)[0];
+    const partSec = extractor.extractSections(partnerHtml)[0];
+
+    assert.strictEqual(newsSec.type, 'news');
+    assert.strictEqual(accSec.type, 'accessory-showcase');
+    assert.strictEqual(partSec.type, 'partner-carousel');
+  });
 });
