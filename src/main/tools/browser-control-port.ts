@@ -1885,6 +1885,29 @@ export class BrowserControlPort {
                   break;
                 }
                 const tgt = r.target;
+                const isInternalNode = (node) => {
+                  if (!node || node.nodeType !== 1) return false;
+                  if (node.id && node.id.startsWith('__antifan_')) return true;
+                  if (node.closest && node.closest('#__antifan_agent_overlay__, #__antifan_agent_cursor__, #__antifan_agent_banner__, #__antifan_agent_highlight__, #__antifan_agent_style__')) return true;
+                  return false;
+                };
+                const shouldSkipRecord = (rec) => {
+                  const t = rec.target;
+                  if (t && t.id && t.id.startsWith('__antifan_')) return true;
+                  if (t && t.closest && t.closest('#__antifan_agent_overlay__, #__antifan_agent_cursor__, #__antifan_agent_banner__, #__antifan_agent_highlight__, #__antifan_agent_style__')) return true;
+                  if (rec.type === 'childList') {
+                    const added = rec.addedNodes ? Array.from(rec.addedNodes) : [];
+                    const removed = rec.removedNodes ? Array.from(rec.removedNodes) : [];
+                    const totalNodes = added.length + removed.length;
+                    if (totalNodes > 0) {
+                      const allInternal = added.every(isInternalNode) && removed.every(isInternalNode);
+                      if (allInternal) return true;
+                    }
+                  }
+                  return false;
+                };
+                if (shouldSkipRecord(r)) continue;
+
                 window.__antifanMutations.push({
                   tPage: now,
                   type: r.type,
@@ -2506,7 +2529,7 @@ export class BrowserControlPort {
         const bodyLocked = bodyOverflowY === 'hidden' || bodyOverflowY === 'clip' || bodyStyle.position === 'fixed';
 
         const overlayCandidates = Array.from(document.querySelectorAll(
-          '[role="dialog"], [role="menu"], [aria-modal="true"], dialog[open], .modal.show, .modal.active, .modal.is-open, .drawer.open, .drawer.active, .drawer.is-open, [data-overlay="open"], .submenu.open, .submenu.active'
+          '[role="dialog"], [role="menu"], [aria-modal="true"], dialog[open], .modal.show, .modal.active, .modal.is-open, .drawer.open, .drawer.active, .drawer.is-open, [data-overlay="open"], .submenu.open, .submenu.active, [class*="submenu"].active, [class*="dropdown"].active, [class*="__sub"].active, [class*="-sub"].active, [class*="menu"].active, [id*="submenu"].active, [id*="dropdown"].active, [id*="__sub"].active, [id*="-sub"].active, .active[id*="__sub"], .active[class*="__sub"], .dropdown-menu.show, .dropdown-menu.active'
         ));
         const activeOverlays = overlayCandidates.filter(node => {
           const s = window.getComputedStyle(node);
@@ -2608,7 +2631,7 @@ export class BrowserControlPort {
       verified = true;
     } else if (
       (targetAriaExpandedChanged && targetAriaExpanded) ||
-      newOverlays.some((o: any) => /submenu|dropdown|menu/i.test(o.className) || o.role === 'menu')
+      newOverlays.some((o: any) => /(?:^|[\s_-])(?:submenu|dropdown|menu|sub)(?:[\s_-]|$)/i.test(o.className) || /(?:^|[\s_-])(?:submenu|dropdown|menu|sub)(?:[\s_-]|$)/i.test(o.id || '') || o.role === 'menu')
     ) {
       verdict = 'SUBMENU_EXPANDED';
       confidence = 0.92;

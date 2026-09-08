@@ -195,7 +195,7 @@ export const AGENT_BROWSER_SCRIPT = `(() => {
     ban.innerHTML = \`<span style="font-size:16px;">\${icon}</span> <span>\${text}</span>\`;
     ban.style.opacity = '1';
     ban.style.transform = 'translateX(-50%) translateY(0)';
-    if (bannerTimer) clearTimeout(bannerTimer);
+    clearTimeout(bannerTimer);
     bannerTimer = setTimeout(() => {
       if (ban) {
         ban.style.opacity = '0';
@@ -904,15 +904,9 @@ export const AGENT_BROWSER_SCRIPT = `(() => {
     if (ov) ov.classList.remove('active');
     if (cur) {
       cur.style.opacity = '0';
-      setTimeout(() => {
-        if (cur && cur.style.opacity === '0') cur.style.display = 'none';
-      }, 400);
     }
     if (hl) {
       hl.style.opacity = '0';
-      setTimeout(() => {
-        if (hl && hl.style.opacity === '0') hl.style.display = 'none';
-      }, 400);
     }
     if (ban) {
       ban.style.opacity = '0';

@@ -454,4 +454,64 @@ describe('Verification Core - Sparse Interaction Delta & Mutation Attribution', 
     assert.ok(evidence.attribution, 'Must perform attribution when action marker is 0');
     assert.strictEqual(evidence.attribution.records.length, 1);
   });
+
+  it('13. Filters out internal __antifan_ overlay/style childList records while preserving mixed and user records via shared helper', () => {
+    const { shouldSkipAntifanInternalMutationRecord } = require('../../src/main/browser/scripts/advanced-inspection-scripts');
+
+    // 1. Internal overlay insertion into body -> must skip
+    assert.strictEqual(shouldSkipAntifanInternalMutationRecord({
+      type: 'childList',
+      target: { id: '' },
+      addedNodes: [{ nodeType: 1, id: '__antifan_agent_overlay__' }],
+      removedNodes: []
+    }), true);
+
+    // 2. Internal style insertion into head -> must skip
+    assert.strictEqual(shouldSkipAntifanInternalMutationRecord({
+      type: 'childList',
+      target: { id: '' },
+      addedNodes: [{ nodeType: 1, id: '__antifan_agent_style__' }],
+      removedNodes: []
+    }), true);
+
+    // 3. Target is internal element attribute change -> must skip
+    assert.strictEqual(shouldSkipAntifanInternalMutationRecord({
+      type: 'attributes',
+      target: { id: '__antifan_agent_banner__' }
+    }), true);
+
+    // 4. Pure user record -> must NOT skip
+    assert.strictEqual(shouldSkipAntifanInternalMutationRecord({
+      type: 'childList',
+      target: { id: '' },
+      addedNodes: [{ nodeType: 1, id: 'category-navigation__sub' }],
+      removedNodes: []
+    }), false);
+
+    // 5. Mixed record containing both internal node and user node -> must NOT skip (preserve mixed)
+    assert.strictEqual(shouldSkipAntifanInternalMutationRecord({
+      type: 'childList',
+      target: { id: '' },
+      addedNodes: [
+        { nodeType: 1, id: '__antifan_agent_cursor__' },
+        { nodeType: 1, id: 'user-notification-badge' }
+      ],
+      removedNodes: []
+    }), false);
+  });
+
+  it('14. Submenu boundary regex correctly matches __sub and rejects unrelated sub words', () => {
+    const submenuRegex = /(?:^|[\s_-])(?:submenu|dropdown|menu|sub)(?:[\s_-]|$)/i;
+
+    // Positive cases
+    assert.strictEqual(submenuRegex.test('category-navigation__sub active'), true);
+    assert.strictEqual(submenuRegex.test('header-dropdown-menu'), true);
+    assert.strictEqual(submenuRegex.test('submenu active'), true);
+    assert.strictEqual(submenuRegex.test('nav_menu'), true);
+
+    // Negative cases (unrelated words containing 'sub')
+    assert.strictEqual(submenuRegex.test('newsletter-subscribe active'), false);
+    assert.strictEqual(submenuRegex.test('cart-subtotal active'), false);
+    assert.strictEqual(submenuRegex.test('submit-btn active'), false);
+  });
 });

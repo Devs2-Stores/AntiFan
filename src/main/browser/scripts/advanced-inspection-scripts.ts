@@ -586,3 +586,32 @@ export function buildInspectFontIsolatedScript(request: InspectFontRequest): str
     }
   })()`;
 }
+
+export function isAntifanInternalMutationNode(node: { id?: string; nodeType?: number; closest?: (sel: string) => unknown } | null | undefined): boolean {
+  if (!node || node.nodeType !== 1) return false;
+  if (node.id && node.id.startsWith('__antifan_')) return true;
+  if (typeof node.closest === 'function' && node.closest('#__antifan_agent_overlay__, #__antifan_agent_cursor__, #__antifan_agent_banner__, #__antifan_agent_highlight__, #__antifan_agent_style__')) return true;
+  return false;
+}
+
+export function shouldSkipAntifanInternalMutationRecord(record: {
+  type: string;
+  target?: { id?: string; closest?: (sel: string) => unknown };
+  addedNodes?: ArrayLike<{ id?: string; nodeType?: number; closest?: (sel: string) => unknown }>;
+  removedNodes?: ArrayLike<{ id?: string; nodeType?: number; closest?: (sel: string) => unknown }>;
+}): boolean {
+  const tgt = record.target;
+  if (tgt && tgt.id && tgt.id.startsWith('__antifan_')) return true;
+  if (tgt && typeof tgt.closest === 'function' && tgt.closest('#__antifan_agent_overlay__, #__antifan_agent_cursor__, #__antifan_agent_banner__, #__antifan_agent_highlight__, #__antifan_agent_style__')) return true;
+
+  if (record.type === 'childList') {
+    const added = record.addedNodes ? Array.from(record.addedNodes) : [];
+    const removed = record.removedNodes ? Array.from(record.removedNodes) : [];
+    const totalNodes = added.length + removed.length;
+    if (totalNodes > 0) {
+      const allInternal = added.every(isAntifanInternalMutationNode) && removed.every(isAntifanInternalMutationNode);
+      if (allInternal) return true;
+    }
+  }
+  return false;
+}

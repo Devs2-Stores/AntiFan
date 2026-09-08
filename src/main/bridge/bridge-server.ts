@@ -824,14 +824,21 @@ export class BridgeServer {
       token: this.token,
     };
     try {
+      const parentDir = path.dirname(this.bridgeInfoPath);
+      if (!fs.existsSync(parentDir)) {
+        fs.mkdirSync(parentDir, { recursive: true });
+      }
       fs.writeFileSync(this.bridgeInfoPath, JSON.stringify(info, null, 2), { encoding: 'utf8', mode: 0o600 });
+      console.log(`[antifan] Persisted bridge info to ${this.bridgeInfoPath}`);
 
       const geminiDir = path.join(os.homedir(), '.gemini');
       if (fs.existsSync(geminiDir)) {
         const geminiFileName = this.isDev ? 'antifan_bridge_dev.json' : 'antifan_bridge.json';
         fs.writeFileSync(path.join(geminiDir, geminiFileName), JSON.stringify(info, null, 2), { encoding: 'utf8', mode: 0o600 });
       }
-    } catch {}
+    } catch (err) {
+      console.error('[antifan] Failed to persist bridge info:', err);
+    }
   }
 
   private wireTabHostEvents(): void {
