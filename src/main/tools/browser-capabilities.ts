@@ -759,8 +759,8 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
     description: 'Emulate a real device preset (iPhone, iPad, Galaxy, Pixel, MacBook, 4K, Desktop) on a tab',
     risk: 'write',
     policy: makeBrowserPolicy({ effect: 'idempotent-write', risk: 'write', requiresBrowserTarget: false, lane: 'unbounded' }),
-    inputSchema: { type: 'object', properties: { presetId: { type: 'string' }, tabId: { type: 'string' } }, required: ['presetId'] },
-    execute: (params: { presetId: string; tabId?: string }, context) => browser.setDevicePreset(params, context.browserTarget),
+    inputSchema: { type: 'object', properties: { presetId: { type: 'string' }, tabId: { type: 'string' }, reload: { type: 'boolean' } }, required: ['presetId'] },
+    execute: (params: { presetId: string; tabId?: string; reload?: boolean }, context) => browser.setDevicePreset(params, context.browserTarget),
   });
 
   catalogue.register({
@@ -1147,8 +1147,8 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
     description: 'Alias for browser.set-device-preset',
     risk: 'write',
     policy: makeBrowserPolicy({ effect: 'idempotent-write', risk: 'write', requiresBrowserTarget: false, lane: 'unbounded' }),
-    inputSchema: { type: 'object', properties: { presetId: { type: 'string' }, tabId: { type: 'string' } }, required: ['presetId'] },
-    execute: (params: { presetId: string; tabId?: string }, context) => browser.setDevicePreset(params, context.browserTarget),
+    inputSchema: { type: 'object', properties: { presetId: { type: 'string' }, tabId: { type: 'string' }, reload: { type: 'boolean' } }, required: ['presetId'] },
+    execute: (params: { presetId: string; tabId?: string; reload?: boolean }, context) => browser.setDevicePreset(params, context.browserTarget),
   });
 
   catalogue.register({

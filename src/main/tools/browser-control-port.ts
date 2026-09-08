@@ -124,7 +124,7 @@ export interface BrowserHostPort {
   agentFind?(params: { text?: string; regex?: string; tabId?: string; paneId?: 'desktop' | 'mobile'; maxMatches?: number }): Promise<unknown>;
   sendKeyboardPress?(params: { key: string; modifiers?: string[]; tabId?: string }): Promise<{ success: boolean; key: string; modifiers: string[] }>;
   setViewportSize?(options: { width: number; height: number; mobile?: boolean; deviceScaleFactor?: number; tabId?: string; reload?: boolean }): Promise<boolean> | boolean;
-  setDevicePreset?(tabId: string, presetId: string): boolean;
+  setDevicePreset?(tabId: string, presetId: string, options?: { reload?: boolean }): boolean;
   getDevicePresets?(): unknown[];
   setZoom?(tabId: string, zoomFactor: number): boolean;
   toggleInspect?(): boolean;
@@ -1553,13 +1553,13 @@ export class BrowserControlPort {
     };
   }
 
-  setDevicePreset(options: { presetId: string; tabId?: string }, target?: BrowserTarget): { success: boolean; presetId: string } {
+  setDevicePreset(options: { presetId: string; tabId?: string; reload?: boolean }, target?: BrowserTarget): { success: boolean; presetId: string } {
     if (!this.host.setDevicePreset) throw new CapabilityError('CAPABILITY_NOT_FOUND', 'setDevicePreset is not supported by host');
     if (!options.presetId || typeof options.presetId !== 'string') {
       throw new CapabilityError('INVALID_ARGUMENT', 'presetId is required and must be a string');
     }
     const effectiveTabId = this.resolveTargetTab(target, options.tabId);
-    const ok = this.host.setDevicePreset(effectiveTabId, options.presetId);
+    const ok = this.host.setDevicePreset(effectiveTabId, options.presetId, { reload: options.reload });
     if (!ok) throw new CapabilityError('CAPABILITY_NOT_FOUND', `Failed to set device preset ${options.presetId} on tab ${effectiveTabId}`);
     return { success: ok, presetId: options.presetId };
   }

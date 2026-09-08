@@ -3,7 +3,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 
 const PORT = 48922;
-const BASE_DIR = path.resolve('clone/hoplongtech-offline');
+const BASE_DIR = fs.existsSync(path.resolve('clone/hoplongtech')) ? path.resolve('clone/hoplongtech') : path.resolve('clone/hoplongtech-offline');
 
 const MIME_TYPES = {
   '.html': 'text/html; charset=utf-8',
@@ -22,10 +22,10 @@ const MIME_TYPES = {
 
 const server = http.createServer((req, res) => {
   let reqPath = (req.url || '/').split('?')[0];
+  const isMobile = Boolean(req.headers['user-agent'] && (req.headers['user-agent'].includes('Mobile') || req.headers['user-agent'].includes('iPhone') || req.headers['user-agent'].includes('Android')));
   if (reqPath === '/' || reqPath === '') {
-    reqPath = '/index.html';
+    reqPath = isMobile && fs.existsSync(path.join(BASE_DIR, 'mobile.html')) ? '/mobile.html' : '/index.html';
   }
-
   const filePath = path.join(BASE_DIR, reqPath);
   if (!filePath.startsWith(BASE_DIR)) {
     res.writeHead(403);

@@ -4289,15 +4289,39 @@ export class NativeTabHost extends EventEmitter {
     wc.executeJavaScript(script).catch(() => {});
   }
 
-  public setDevicePreset(tabId: string, presetId: string): boolean {
+  public setDevicePreset(tabId: string, presetId: string, options?: { reload?: boolean }): boolean {
     const tab = this.tabs.get(tabId);
     if (!tab) return false;
+    const oldPreset = DEVICE_PRESETS.find((p) => p.id === tab.state.devicePresetId);
+    const newPreset = DEVICE_PRESETS.find((p) => p.id === presetId);
+    const categoryChanged = Boolean(oldPreset && newPreset && oldPreset.category !== newPreset.category);
+
     tab.customViewport = undefined;
     tab.state.devicePresetId = presetId;
     this.updateLayout();
     // Keep the toolbar Device cluster in sync when the preset is applied from
     // outside the toolbar (MCP set_device_preset), same pair as setZoom.
     this.broadcastState();
+
+    if (!tab.view.webContents.isDestroyed()) {
+      try {
+        tab.view.webContents.executeJavaScript(`
+          window.dispatchEvent(new Event('resize'));
+          window.dispatchEvent(new Event('orientationchange'));
+        `).catch(() => {});
+      } catch {}
+
+      const shouldReload = options?.reload ?? categoryChanged;
+      if (shouldReload) {
+        try {
+          if (typeof this.reloadAndWait === 'function') {
+            this.reloadAndWait(tabId).catch(() => {});
+          } else {
+            tab.view.webContents.reload();
+          }
+        } catch {}
+      }
+    }
     return true;
   }
 
