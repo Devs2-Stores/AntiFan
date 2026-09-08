@@ -124,7 +124,9 @@ describe('Bridge cookie import & companion extension endpoints', () => {
       const noTokenRes = await requestHttp(port, 'GET', '/status');
       assert.strictEqual(noTokenRes.status, 401, 'unauthenticated status probe must be rejected with 401');
 
-      const badTokenRes = await requestHttp(port, 'GET', '/status?token=fake-or-stale-token-12345');
+      const badTokenRes = await requestHttp(port, 'GET', '/status', {
+        Authorization: 'Bearer fake-or-stale-token-12345',
+      });
       assert.strictEqual(badTokenRes.status, 401, 'status probe with invalid token must be rejected with 401');
     } finally {
       server.dispose();
@@ -136,7 +138,9 @@ describe('Bridge cookie import & companion extension endpoints', () => {
     const server = new BridgeServer(host as never, 0);
     const port = await server.start();
     try {
-      const validRes = await requestHttp(port, 'GET', `/status?token=${server.getToken()}`);
+      const validRes = await requestHttp(port, 'GET', '/status', {
+        Authorization: `Bearer ${server.getToken()}`,
+      });
       assert.strictEqual(validRes.status, 200, 'authenticated status probe must return 200');
       const payload = JSON.parse(validRes.body);
       assert.strictEqual(payload.active, true);
@@ -174,8 +178,12 @@ describe('Bridge cookie import & companion extension endpoints', () => {
       const res = await requestHttp(
         port,
         'POST',
-        `/api/cookies/import?token=${server.getToken()}`,
-        { 'Content-Type': 'application/json', Origin: 'https://malicious-site.com' },
+        '/api/cookies/import',
+        {
+          Authorization: `Bearer ${server.getToken()}`,
+          'Content-Type': 'application/json',
+          Origin: 'https://malicious-site.com',
+        },
         JSON.stringify({ cookies: [{ name: 'SID', value: 'secret123', domain: '.example.com' }] })
       );
       assert.strictEqual(res.status, 403, 'cross-origin import from non-whitelisted origin must return 403');
@@ -193,8 +201,9 @@ describe('Bridge cookie import & companion extension endpoints', () => {
       const res = await requestHttp(
         port,
         'POST',
-        `/api/cookies/import?token=${server.getToken()}`,
+        '/api/cookies/import',
         {
+          Authorization: `Bearer ${server.getToken()}`,
           'Content-Type': 'application/json',
           Origin: OFFICIAL_ORIGIN,
         },

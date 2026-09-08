@@ -8,10 +8,12 @@
   "main": "./main.cjs",
   "bin": {
     "antifan": "./scripts/antifan-agent.cjs",
-    "antifan-agent": "./scripts/antifan-agent.cjs"
+    "antifan-agent": "./scripts/antifan-agent.cjs",
+    "antifan-mcp": "./scripts/antifan-omp-mcp.cjs"
   },
   "type": "commonjs",
   "scripts": {
+    "mcp": "node scripts/antifan-omp-mcp.cjs",
     "agent": "node scripts/antifan-agent.cjs",
     "clean": "node -e \"fs.rmSync('.compiled',{recursive:true,force:true})\"",
     "build:shim": "node scripts/build-native-host-shim.mjs",

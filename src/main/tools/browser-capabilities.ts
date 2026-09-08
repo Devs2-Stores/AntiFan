@@ -1,6 +1,6 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { BrowserTarget, CapabilityRequestContext, CapabilityError, CapabilityEffectPolicyInput, CapabilityRisk, ReceiptBinding, digestText } from '../../shared/control-plane-contracts';
+import { BrowserTarget, CapabilityRequestContext, AuthenticatedCapabilityContext, CapabilityError, CapabilityEffectPolicyInput, CapabilityRisk, ReceiptBinding, digestText } from '../../shared/control-plane-contracts';
 import { BrowserControlPort } from './browser-control-port';
 import { CapabilityCatalogue } from './capability-catalogue';
 import { PlatformDetector } from '../qa/scanners/platform-detector';
@@ -215,7 +215,16 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
     requiresBrowserTarget: true,
     policy: makeBrowserPolicy({ effect: 'idempotent-write', risk: 'write', requiresBrowserTarget: true, lane: 'unbounded' }),
     inputSchema: { type: 'object', properties: { tabId: { type: 'string' } }, required: ['tabId'] },
-    execute: (params: { tabId: string }, context) => browser.switchTab(params.tabId, { target: context.browserTarget as BrowserTarget }),
+    execute: (params: { tabId: string }, context) => {
+      const authCtx = context as Partial<AuthenticatedCapabilityContext>;
+      return browser.switchTab(params.tabId, {
+        target: context.browserTarget as BrowserTarget,
+        attachmentId: authCtx.attachmentId,
+        runId: authCtx.runId,
+        attemptId: authCtx.attemptId,
+        isAgent: Boolean(authCtx.attachmentId),
+      });
+    },
   });
 
   catalogue.register({
@@ -843,7 +852,16 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
     requiresBrowserTarget: true,
     policy: makeBrowserPolicy({ effect: 'idempotent-write', risk: 'write', requiresBrowserTarget: true, lane: 'unbounded' }),
     inputSchema: { type: 'object', properties: { tabId: { type: 'string' } }, required: ['tabId'] },
-    execute: (params: { tabId: string }, context) => browser.switchTab(params.tabId, { target: context.browserTarget as BrowserTarget }),
+    execute: (params: { tabId: string }, context) => {
+      const authCtx = context as Partial<AuthenticatedCapabilityContext>;
+      return browser.switchTab(params.tabId, {
+        target: context.browserTarget as BrowserTarget,
+        attachmentId: authCtx.attachmentId,
+        runId: authCtx.runId,
+        attemptId: authCtx.attemptId,
+        isAgent: Boolean(authCtx.attachmentId),
+      });
+    },
   });
 
   catalogue.register({
@@ -1571,7 +1589,12 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
     requiresBrowserTarget: true,
     policy: makeBrowserPolicy({ effect: 'idempotent-write', risk: 'write', requiresBrowserTarget: true, lane: 'unbounded' }),
     inputSchema: { type: 'object', properties: { tabId: { type: 'string' } }, required: ['tabId'] },
-    execute: (params: { tabId: string }, context) => browser.switchTab(params.tabId, { target: context.browserTarget as BrowserTarget }),
+    execute: (_params: { tabId: string }, _context) => {
+      throw new CapabilityError(
+        'USER_VISIBLE_OPERATION_FORBIDDEN',
+        'Direct tab activation is forbidden for agent sessions. Agent plane cannot manipulate user-visible tab focus.'
+      );
+    },
   });
   catalogue.register({
     name: 'anti.browser.tabs.close',

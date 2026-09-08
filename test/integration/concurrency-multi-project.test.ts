@@ -134,7 +134,9 @@ describe('Multi-Project & Multi-Session Two-Tier Concurrency Stress Suite (Phase
       const mcpDomRes = await mcpServer.callTool('anti.inspect.dom', {});
       assert.strictEqual(mcpDomRes.isError, undefined, `mcpDomRes failed: ${mcpDomRes.content[0]?.text}`);
       assert.ok(mcpDomRes.content[0]?.text?.includes('tab-projA-1'));
-      ws = new WebSocket(`ws://127.0.0.1:${bridgePort}?token=${encodeURIComponent(launchB.secret)}`);
+      ws = new WebSocket(`ws://127.0.0.1:${bridgePort}`, {
+        headers: { 'x-antifan-attachment-secret': launchB.secret },
+      });
       await new Promise<void>((resolve, reject) => {
         ws!.on('open', resolve);
         ws!.on('error', reject);

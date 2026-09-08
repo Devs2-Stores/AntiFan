@@ -1,11 +1,10 @@
 /**
- * AntiFan Browser Desktop — Model Context Protocol (MCP) Stdio Server
- * Provides browser automation and inspection tools directly to AI Agents via standard stdio.
+ * AntiFan Browser Desktop — Model Context Protocol (MCP) In-Memory Server
+ * Provides browser automation and inspection tool surface to AI Agents and in-memory tests.
  */
 import { ChromeProfileSyncManager } from '../browser/chrome-profile-sync';
 import { DEVICE_PRESETS } from '../browser/device-presets';
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
-import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
@@ -716,8 +715,8 @@ export class AntiFanMcpServer {
     };
   }
   public async start(): Promise<void> {
-    const transport = new StdioServerTransport();
-    await this.server.connect(transport);
+    // In-memory MCP surface: stdio transport lifecycle removed.
+    // External MCP clients connect via Bridge WebSocket adapter (scripts/antifan-omp-mcp.cjs).
   }
   public async stop(): Promise<void> {
     try {

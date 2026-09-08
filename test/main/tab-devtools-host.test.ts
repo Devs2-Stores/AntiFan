@@ -724,8 +724,13 @@ describe('TabDevToolsHost (Sub-Controller Unit Tests)', () => {
     assert.ok(capCmd);
     const params = capCmd.params;
     assert.ok(params && typeof params === 'object');
+    // Background desktop tab is wrapped in runWithAttachedTabView: the tab view is
+    // attached at viewport bounds, so this is a viewport capture — fromSurface:false
+    // (composite the attached view surface) and captureBeyondViewport:false (do not
+    // capture pixels beyond the sized viewport). fullPage captures set
+    // captureBeyondViewport:true separately.
     assert.strictEqual('fromSurface' in params && params.fromSurface, false);
-    assert.strictEqual('captureBeyondViewport' in params && params.captureBeyondViewport, true);
+    assert.strictEqual('captureBeyondViewport' in params && params.captureBeyondViewport, false);
   });
 
   it('14. captureVerificationScreenshot on background mobile pane wraps in runWithAttachedTabView with mobileView and isMobile true', async () => {

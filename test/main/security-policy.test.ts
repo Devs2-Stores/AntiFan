@@ -42,7 +42,7 @@ describe('AntiFan Security Policy', () => {
   });
   it('enforces secure webPreferences sandbox', () => {
     const prefs = getSecureWebPreferences();
-    assert.strictEqual(prefs.contextIsolation, false);
+    assert.strictEqual(prefs.contextIsolation, true);
     assert.strictEqual(prefs.sandbox, true);
     assert.strictEqual(prefs.nodeIntegration, false);
     assert.strictEqual(prefs.webSecurity, true);
@@ -51,7 +51,7 @@ describe('AntiFan Security Policy', () => {
   it('attaches partition string when provided to getSecureWebPreferences', () => {
     const prefs = getSecureWebPreferences('persist:capsule-workspace-1');
     assert.strictEqual(prefs.partition, 'persist:capsule-workspace-1');
-    assert.strictEqual(prefs.contextIsolation, false);
+    assert.strictEqual(prefs.contextIsolation, true);
     assert.strictEqual(prefs.sandbox, true);
   });
   it('identifies internal widget and subframe URLs correctly', () => {

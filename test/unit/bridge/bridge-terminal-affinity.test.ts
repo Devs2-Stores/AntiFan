@@ -60,7 +60,9 @@ describe('BridgeServer Terminal Affinity Resolution Live RPC Contract Tests', ()
     server.setControlPlane(mockControlPlane as unknown as ControlPlaneRuntime);
     port = await server.start();
     const token = server.getToken();
-    ws = new WebSocket(`ws://127.0.0.1:${port}?token=${token}`);
+    ws = new WebSocket(`ws://127.0.0.1:${port}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
 
     const { promise, resolve, reject } = Promise.withResolvers<void>();
     ws.once('open', () => resolve());
@@ -120,14 +122,18 @@ describe('BridgeServer Terminal Affinity Resolution Live RPC Contract Tests', ()
     assert.ok(resp.error.includes('TERMINAL_TAB_CLOSED'));
   });
 
-  it('3. Auto-binds unbound terminal to active tab on first use without throwing TERMINAL_TAB_UNBOUND', async () => {
+  it('3. Auto-provisions a dedicated agent tab for an unbound terminal, never adopting the user active tab', async () => {
     recordedAutomationTabId = null;
     const resp = await rpcCall('antifan.cli.startSession', {
       terminalSessionId: 'term-unbound',
     });
 
     assert.strictEqual(resp.success, true);
-    assert.strictEqual(recordedAutomationTabId, 'tab-active');
+    assert.ok(recordedAutomationTabId, 'must auto-provision and bind a dedicated agent tab for an unbound terminal');
+    // The dual-plane MockTabHost.createTab returns a fresh 'tab-created' id; the
+    // user's active tab is 'tab-active'. An unbound terminal must never adopt it.
+    assert.notStrictEqual(recordedAutomationTabId, 'tab-active', 'must never adopt the user active tab for an unbound terminal');
+    assert.strictEqual(recordedAutomationTabId, 'tab-created', 'must bind the dedicated auto-provisioned agent tab');
   });
 
   it('4. Validates explicit tabId and rejects non-existent tabId up front with TAB_NOT_FOUND', async () => {

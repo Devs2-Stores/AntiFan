@@ -136,6 +136,20 @@ export class TabAutomationHost {
     this.ctx = ctx;
   }
 
+  private resolveAutomationTargetId(tabId?: string, actionName = 'Agent action'): string {
+    const cleanTabId = typeof tabId === 'string' && tabId.trim().length > 0 ? tabId.trim() : undefined;
+    const autoTabId = this.ctx.getAutomationTabId();
+    const cleanAutoId = typeof autoTabId === 'string' && autoTabId.trim().length > 0 ? autoTabId.trim() : undefined;
+    const targetId = cleanTabId || cleanAutoId;
+    if (!targetId) {
+      throw new CapabilityError(
+        'TARGET_REQUIRED',
+        `${actionName} requires an explicit target tabId or bound automation tab; refusing to target active foreground tab`
+      );
+    }
+    return targetId;
+  }
+
   public activateAgentVisualGlow(tabId: string): void {
     const tab = this.ctx.getTabRecord(tabId);
     if (!tab) return;
@@ -221,7 +235,8 @@ export class TabAutomationHost {
   }
 
   public markTabAgentWorking(tabId?: string, durationMs = 5000): void {
-    const targetId = tabId || this.ctx.getActiveTabId();
+    const targetId = tabId || this.ctx.getAutomationTabId();
+    if (!targetId) return;
     const tab = this.ctx.getTabRecord(targetId);
     if (!tab) return;
 
@@ -276,11 +291,12 @@ export class TabAutomationHost {
   }
 
   public async ensureAgentBrowserInjected(tabId?: string, paneId?: SplitPaneId): Promise<boolean> {
-    const targetId = tabId || this.ctx.getActiveTabId();
+    const targetId = this.resolveAutomationTargetId(tabId, 'ensureAgentBrowserInjected');
     const target = this.ctx.getTabRecord(targetId);
     if (!target) return false;
-    const wc = this.ctx.getTabWebContents(target.state.id, paneId || target.focusedPane);
-    if (!wc) return false;
+    const effectivePane = paneId || target.focusedPane || 'desktop';
+    const wc = this.ctx.getTabWebContents(target.state.id, effectivePane);
+    if (!wc || wc.isDestroyed()) return false;
     try {
       await wc.executeJavaScript(AGENT_BROWSER_SCRIPT);
       return true;
@@ -289,11 +305,34 @@ export class TabAutomationHost {
     }
   }
   public async executeInIsolatedWorld(wc: Electron.WebContents, script: string): Promise<unknown> {
-    if ((wc as any).mainFrame && typeof (wc as any).mainFrame.executeJavaScriptInIsolatedWorld === 'function') {
-      return await (wc as any).mainFrame.executeJavaScriptInIsolatedWorld(ISOLATED_AGENT_WORLD_ID, [{ code: script }]);
+    const rawWc = wc as unknown as {
+      mainFrame?: { executeJavaScriptInIsolatedWorld?: (worldId: number, scripts: Array<{ code: string }>) => Promise<unknown> };
+      executeJavaScriptInIsolatedWorld?: (worldId: number, scripts: Array<{ code: string }>) => Promise<unknown>;
+      executeJavaScript?: (code: string) => Promise<unknown>;
+    };
+    if (rawWc.mainFrame && typeof rawWc.mainFrame.executeJavaScriptInIsolatedWorld === 'function') {
+      return await rawWc.mainFrame.executeJavaScriptInIsolatedWorld(ISOLATED_AGENT_WORLD_ID, [{ code: script }]);
     }
-    if (typeof (wc as any).executeJavaScriptInIsolatedWorld === 'function') {
-      return await (wc as any).executeJavaScriptInIsolatedWorld(ISOLATED_AGENT_WORLD_ID, [{ code: script }]);
+    if (typeof rawWc.executeJavaScriptInIsolatedWorld === 'function') {
+      return await rawWc.executeJavaScriptInIsolatedWorld(ISOLATED_AGENT_WORLD_ID, [{ code: script }]);
+    }
+    if (this.ctx.tabDevToolsHost) {
+      try {
+        const isolatedCtxId = await this.ctx.tabDevToolsHost.getOrCreateIsolatedWorldContext?.(wc);
+        const evalRes = await this.ctx.tabDevToolsHost.sendCdpCommand<{ result?: { value?: unknown }; exceptionDetails?: unknown }>(
+          wc,
+          'Runtime.evaluate',
+          {
+            expression: script,
+            contextId: isolatedCtxId,
+            returnByValue: true,
+            awaitPromise: true,
+          }
+        );
+        if (evalRes && evalRes.result && 'value' in evalRes.result) {
+          return evalRes.result.value;
+        }
+      } catch {}
     }
     throw new CapabilityError('CAPABILITY_NOT_FOUND', 'Isolated world execution (world 1004) is not supported in this WebContents environment');
   }
@@ -618,11 +657,6 @@ export class TabAutomationHost {
         data: { ok: true, executed: true, tier: 'cdp_trusted', executionTier: 'cdp_trusted', x: hoverX, y: hoverY, rect },
       };
     } catch (cdpErr) {
-      if (focusEmulationEnabled) {
-        try {
-          await this.sendCdpInputCommand(wc, 'Emulation.setFocusEmulationEnabled', { enabled: false }, 1000);
-        } catch {}
-      }
       console.warn(`[tab-automation-host] CDP Input.dispatchMouseEvent (mouseMoved) failed, using fallback: ${cdpErr instanceof Error ? cdpErr.message : String(cdpErr)}`);
       return {
         success: false,
@@ -630,6 +664,14 @@ export class TabAutomationHost {
         executionTier: 'cdp_trusted',
         reason: `CDP dispatch failed: ${cdpErr instanceof Error ? cdpErr.message : String(cdpErr)}`,
       };
+    } finally {
+      // Symmetric focus-emulation teardown: hover must not leave input focus
+      // emulated after the gesture completes, mirroring executeTrustedClick.
+      if (focusEmulationEnabled) {
+        try {
+          await this.sendCdpInputCommand(wc, 'Emulation.setFocusEmulationEnabled', { enabled: false }, 1000);
+        } catch {}
+      }
     }
   }
   public async dispatchAgentAction(
@@ -651,7 +693,7 @@ export class TabAutomationHost {
       smoothScroll?: boolean;
     }
   ): Promise<{ success: boolean; data?: unknown; reason?: string }> {
-    const targetId = params.tabId || this.ctx.getAutomationTabId() || this.ctx.getActiveTabId();
+    const targetId = this.resolveAutomationTargetId(params.tabId, 'dispatchAgentAction');
     const target = this.ctx.getTabRecord(targetId);
     if (!target) {
       return { success: false, reason: `Tab '${targetId}' not found` };
@@ -697,7 +739,6 @@ export class TabAutomationHost {
           }
 
           try {
-            await this.ensureAgentBrowserInjected(targetId, effectivePane);
             if (params.trusted !== false && action === 'click') {
               const focusScript = buildIsolatedExecutorScript({
                 action: 'focus',
@@ -944,13 +985,15 @@ export class TabAutomationHost {
   }
 
   public async agentClear(tabId?: string, paneId?: SplitPaneId): Promise<boolean> {
-    const target = this.ctx.getTabRecord(tabId || this.ctx.getAutomationTabId() || this.ctx.getActiveTabId());
+    const targetId = this.resolveAutomationTargetId(tabId, 'agentClear');
+    const target = this.ctx.getTabRecord(targetId);
     if (!target) return false;
-    const wc = this.ctx.getTabWebContents(target.state.id, paneId || target.focusedPane);
-    if (!wc) return false;
+    const effectivePane = paneId || target.focusedPane || 'desktop';
+    const wc = this.ctx.getTabWebContents(target.state.id, effectivePane);
+    if (!wc || wc.isDestroyed()) return false;
     try {
       await wc.executeJavaScript(`(() => {
-        if (window.__antifanAgentClear) {
+        if (typeof window.__antifanAgentClear === 'function') {
           window.__antifanAgentClear();
         }
       })()`);
@@ -968,7 +1011,7 @@ export class TabAutomationHost {
       return { success: false, executedCount: 0, totalCount: rawActions.length, results: [], reason: 'Actions array exceeds maximum batch cap (30)' };
     }
 
-    const targetId = params.tabId || this.ctx.getAutomationTabId() || this.ctx.getActiveTabId();
+    const targetId = this.resolveAutomationTargetId(params.tabId, 'executeActionSequence');
     const target = this.ctx.getTabRecord(targetId);
     if (!target) {
       return { success: false, executedCount: 0, totalCount: rawActions.length, results: [], reason: `Target tab not found: ${targetId}` };
@@ -1238,7 +1281,7 @@ export class TabAutomationHost {
     params: { steps?: Array<Record<string, unknown>>; speed?: 'fast' | 'natural' | 'slow'; smoothScroll?: boolean; tabId?: string; paneId?: SplitPaneId },
     paneId?: SplitPaneId
   ): Promise<Record<string, unknown>> {
-    const targetId = params?.tabId || this.ctx.getAutomationTabId() || this.ctx.getActiveTabId();
+    const targetId = this.resolveAutomationTargetId(params?.tabId, 'agentTrajectory');
     const steps = Array.isArray(params?.steps) ? params.steps : null;
     const totalSteps = steps ? steps.length : 0;
     if (!steps || totalSteps === 0) {
@@ -1376,7 +1419,7 @@ export class TabAutomationHost {
   }
 
   public async agentSnapshot(tabId?: string, paneId?: SplitPaneId, selector?: string, viewportOnly?: boolean): Promise<string> {
-    const targetId = tabId || this.ctx.getAutomationTabId() || this.ctx.getActiveTabId();
+    const targetId = this.resolveAutomationTargetId(tabId, 'agentSnapshot');
     const target = this.ctx.getTabRecord(targetId);
     if (!target) return '';
     const splitHasLiveMobile = Boolean(target.state.splitMode && target.mobileView && !target.mobileView.webContents.isDestroyed());
@@ -1395,7 +1438,7 @@ export class TabAutomationHost {
     paneId?: SplitPaneId;
     maxMatches?: number;
   }): Promise<SnapshotFindResult> {
-    const targetId = params.tabId || this.ctx.getAutomationTabId() || this.ctx.getActiveTabId();
+    const targetId = this.resolveAutomationTargetId(params.tabId, 'agentFind');
     const target = this.ctx.getTabRecord(targetId);
     if (!target) {
       throw new CapabilityError('TARGET_STALE', `Target tab not found: ${targetId}`);
@@ -1442,7 +1485,7 @@ export class TabAutomationHost {
     tabId?: string,
     paneId?: SplitPaneId
   ): Promise<{ success: boolean; uploadedCount: number; reason?: string }> {
-    const targetId = tabId || this.ctx.getAutomationTabId() || this.ctx.getActiveTabId();
+    const targetId = this.resolveAutomationTargetId(tabId, 'uploadFileInput');
     const target = this.ctx.getTabRecord(targetId);
     if (!target) return { success: false, uploadedCount: 0, reason: 'Target tab not found' };
 
@@ -1475,6 +1518,7 @@ export class TabAutomationHost {
       if (!this.ctx.tabDevToolsHost) {
         throw new CapabilityError('CAPABILITY_NOT_FOUND', 'CDP TabDevToolsHost is required for file upload');
       }
+      const isolatedCtxId = await this.ctx.tabDevToolsHost.getOrCreateIsolatedWorldContext?.(wc);
 
       if (isRef) {
         if (!this.ctx.semanticRefRegistry) {
@@ -1497,7 +1541,6 @@ export class TabAutomationHost {
         if (!desc) {
           throw new CapabilityError('REF_NOT_FOUND', `Semantic reference not found: ${refOrSelector}`);
         }
-        const isolatedCtxId = await this.ctx.tabDevToolsHost.getOrCreateIsolatedWorldContext?.(wc);
         const evalParams: Record<string, unknown> = {
           expression: `(() => {
             const desc = ${JSON.stringify(desc)};
@@ -1553,13 +1596,17 @@ export class TabAutomationHost {
           resolvedNodeId = await this.ctx.tabDevToolsHost.describeNodeByObjectId(wc, evalRes.result.objectId);
         }
       } else {
+        const evalParams: Record<string, unknown> = {
+          expression: `document.querySelector(${JSON.stringify(targetRef)})`,
+          returnByValue: false,
+        };
+        if (isolatedCtxId) {
+          evalParams.contextId = isolatedCtxId;
+        }
         const evalRes = await this.ctx.tabDevToolsHost.sendCdpCommand<{ result?: { objectId?: string } }>(
           wc,
           'Runtime.evaluate',
-          {
-            expression: `document.querySelector(${JSON.stringify(targetRef)})`,
-            returnByValue: false,
-          }
+          evalParams
         );
         if (evalRes?.result?.objectId) {
           resolvedObjectId = evalRes.result.objectId;
@@ -1604,7 +1651,7 @@ export class TabAutomationHost {
       throw new CapabilityError('INVALID_ARGUMENT', 'refOrSelector is required for dropFiles');
     }
 
-    const targetId = tabId || this.ctx.getAutomationTabId() || this.ctx.getActiveTabId();
+    const targetId = this.resolveAutomationTargetId(tabId, 'dropFiles');
     const target = this.ctx.getTabRecord(targetId);
     if (!target) return { success: false, droppedCount: 0, reason: 'Target tab not found' };
 
@@ -1658,18 +1705,21 @@ export class TabAutomationHost {
         }
         dropCoords = { x: desc.rect.centerX, y: desc.rect.centerY };
       } else {
-        const coordsRes = (await wc.executeJavaScript(`(() => {
+        const rawCoords = await this.executeInIsolatedWorld(wc, `(() => {
           const el = document.querySelector(${targetSel});
           if (!el) return null;
           const r = el.getBoundingClientRect();
           if (r.width <= 0 || r.height <= 0) return null;
           return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
-        })()`)) as { x?: number; y?: number } | null;
+        })()`);
+        const coordsRes = rawCoords && typeof rawCoords === 'object' && 'x' in rawCoords && 'y' in rawCoords
+          ? { x: Number((rawCoords as { x: unknown }).x), y: Number((rawCoords as { y: unknown }).y) }
+          : null;
 
-        if (!coordsRes || typeof coordsRes.x !== 'number' || typeof coordsRes.y !== 'number') {
+        if (!coordsRes || !Number.isFinite(coordsRes.x) || !Number.isFinite(coordsRes.y)) {
           throw new CapabilityError('REF_NOT_FOUND', `Target drop element not found or has zero dimensions: ${refOrSelector}`);
         }
-        dropCoords = { x: coordsRes.x, y: coordsRes.y };
+        dropCoords = coordsRes;
       }
 
       if (!dropCoords) {
@@ -1717,7 +1767,7 @@ export class TabAutomationHost {
     tabId?: string;
     paneId?: SplitPaneId;
   }): Promise<Record<string, unknown>> {
-    const targetId = params.tabId || this.ctx.getAutomationTabId() || this.ctx.getActiveTabId();
+    const targetId = this.resolveAutomationTargetId(params.tabId, 'inspectStyles');
     const target = this.ctx.getTabRecord(targetId);
     if (!target) {
       throw new CapabilityError('CAPABILITY_NOT_FOUND', `Tab '${targetId}' not found`);
@@ -1788,7 +1838,7 @@ export class TabAutomationHost {
     tabId?: string;
     paneId?: SplitPaneId;
   }): Promise<Record<string, unknown>> {
-    const targetId = params.tabId || this.ctx.getAutomationTabId() || this.ctx.getActiveTabId();
+    const targetId = this.resolveAutomationTargetId(params.tabId, 'inspectRegion');
     const target = this.ctx.getTabRecord(targetId);
     if (!target) {
       throw new CapabilityError('CAPABILITY_NOT_FOUND', `Tab '${targetId}' not found`);
@@ -1858,7 +1908,7 @@ export class TabAutomationHost {
     tabId?: string;
     paneId?: SplitPaneId;
   }): Promise<Record<string, unknown>> {
-    const targetId = params.tabId || this.ctx.getAutomationTabId() || this.ctx.getActiveTabId();
+    const targetId = this.resolveAutomationTargetId(params.tabId, 'inspectFont');
     const target = this.ctx.getTabRecord(targetId);
     if (!target) {
       throw new CapabilityError('CAPABILITY_NOT_FOUND', `Tab '${targetId}' not found`);
@@ -1970,6 +2020,61 @@ export class TabAutomationHost {
         verdict,
         summary,
       };
+    });
+  }
+  /**
+   * Authorized read-only page-global inspection.
+   * Deliberately reads the page main world through a narrowly authorized, result-sanitized path
+   * when the documented target is page globals (e.g. Shopify, Haravan, storefront metadata).
+   * Does NOT execute mutations and does NOT expose preload or main-process privileges.
+   */
+  public async inspectPageGlobal(params: {
+    propertyChain: string;
+    tabId?: string;
+    paneId?: SplitPaneId;
+  }): Promise<unknown> {
+    const targetId = this.resolveAutomationTargetId(params.tabId, 'inspectPageGlobal');
+    const target = this.ctx.getTabRecord(targetId);
+    if (!target) {
+      throw new CapabilityError('CAPABILITY_NOT_FOUND', `Tab '${targetId}' not found`);
+    }
+
+    const splitHasLiveMobile = Boolean(target.state.splitMode && target.mobileView && !target.mobileView.webContents.isDestroyed());
+    const effectivePane: SplitPaneId = params.paneId || (splitHasLiveMobile ? (target.focusedPane || target.state.splitFocusedPane || 'desktop') : 'desktop');
+
+    return await this.ctx.runTargetOperation(targetId, effectivePane, async () => {
+      const wc = this.ctx.getTabWebContents(targetId, effectivePane);
+      if (!wc || wc.isDestroyed()) {
+        throw new CapabilityError('CAPABILITY_NOT_FOUND', 'Target WebContents is destroyed or unavailable');
+      }
+
+      // Sanitize property chain: must be a safe identifier or dot-separated path
+      const chain = (params.propertyChain || '').trim();
+      if (!chain || !/^[a-zA-Z_$][a-zA-Z0-9_$]*(?:\.[a-zA-Z_$][a-zA-Z0-9_$]*)*$/.test(chain)) {
+        throw new CapabilityError('INVALID_ARGUMENT', `Invalid page global property path: ${chain}`);
+      }
+
+      // Narrowly authorized read-only inspection script in page main world
+      const script = `(() => {
+        try {
+          const parts = ${JSON.stringify(chain.split('.'))};
+          let cur = window;
+          for (const p of parts) {
+            if (cur == null) return undefined;
+            cur = cur[p];
+          }
+          if (cur === undefined) return undefined;
+          if (cur === null) return null;
+          const t = typeof cur;
+          if (t === 'string' || t === 'number' || t === 'boolean') return cur;
+          if (t === 'function') return '[Function: ' + (cur.name || 'anonymous') + ']';
+          return JSON.parse(JSON.stringify(cur));
+        } catch (e) {
+          return { __error: e instanceof Error ? e.message : String(e) };
+        }
+      })()`;
+
+      return await wc.executeJavaScript(script);
     });
   }
   public dispose(): void {

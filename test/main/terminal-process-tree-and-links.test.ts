@@ -86,15 +86,18 @@ describe('Terminal Process Tree Kill & Web Links Addon Contracts', () => {
     await tm.closeSession(parentId);
   });
 
-  it('verifies standalone.html includes @xterm/addon-web-links script tag', () => {
+  it('verifies standalone.html includes @xterm/addon-web-links script in the loader', () => {
     const htmlPath = path.join(ROOT, 'src/renderer/standalone.html');
     assert.ok(fs.existsSync(htmlPath));
     const htmlContent = fs.readFileSync(htmlPath, 'utf8');
 
+    // The addon is loaded through the document.write script injector (same
+    // mechanism as all other xterm entry points), and wired to the terminal by
+    // standalone.js `attachWebLinksAddon`. Assert the loader references it.
     assert.match(
       htmlContent,
-      /<script\s+src=["'][^"']*@xterm\/addon-web-links\/lib\/addon-web-links\.js["']><\/script>/i,
-      'standalone.html must include @xterm/addon-web-links script'
+      /@xterm\/addon-web-links\/lib\/addon-web-links\.js/,
+      'standalone.html must include @xterm/addon-web-links script in the loader'
     );
   });
 

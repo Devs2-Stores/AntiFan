@@ -6,6 +6,9 @@ priority: P1
 effort: "2h"
 tags: ["terminal", "affinity", "concurrency", "control-plane", "mcp"]
 created: 2026-09-03
+blockedBy: [260909-0032-explicit-authority-dual-plane-cutover]
+supersededCriteria:
+  - "Active-tab binding is replaced by explicit or dedicated agent-tab affinity."
 ---
 
 # Terminal-to-Tab Affinity and Concurrency Isolation Architecture

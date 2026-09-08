@@ -37,7 +37,7 @@ describe('Priority 1: Mutation Routing & Active Tab Protection Invariants', () =
       (err: unknown) => {
         assert.ok(err instanceof CapabilityError);
         assert.strictEqual(err.code, 'TARGET_REQUIRED');
-        assert.match(err.message, /Behavioral mutation requires an explicit target tabId or dedicated automation tab/);
+        assert.match(err.message, /No dedicated automation tab is available and no explicit target tabId was provided/);
         return true;
       }
     );
@@ -62,10 +62,12 @@ describe('Priority 1: Mutation Routing & Active Tab Protection Invariants', () =
       setAutomationTabId: (id) => {
         automationTabIdSet = id;
       },
+      hasTab: (id) => id === 'user-active-tab' || id === automationTabIdSet,
       createTab: (url, activate, options) => {
         createdUrl = url;
         createdOptions = options;
         const newId = 'ephemeral-auto-tab-999';
+        automationTabIdSet = newId;
         return newId;
       },
       agentClick: async (params) => {
@@ -110,8 +112,9 @@ describe('Priority 1: Mutation Routing & Active Tab Protection Invariants', () =
     assert.strictEqual(clickedTabId, 'existing-auto-tab');
   });
 
-  it('4. Allows read-only actions (dom, screenshot, eval) to read from active tab when no tab is specified', async () => {
+  it('4. Fail-closed: read-only actions never ambient-fallback to the user active tab when no automation tab exists', async () => {
     let readTabId: string | undefined;
+    let userTabTouched = false;
 
     const mockHost: Partial<BrowserHostPort> = {
       getTabList: () => [{ id: 'user-active-tab', url: 'https://storefront.dev' }],
@@ -119,16 +122,25 @@ describe('Priority 1: Mutation Routing & Active Tab Protection Invariants', () =
       getAutomationTabId: () => null,
       getDom: async (sel, tabId) => {
         readTabId = tabId;
+        if (tabId === 'user-active-tab') userTabTouched = true;
         return '<html><body>Safe Read</body></html>';
       },
     };
 
     const port = new BrowserControlPort(mockHost as BrowserHostPort);
 
-    // Read action does not mutate, should safely read from active tab
-    const dom = await port.dom(baseTarget, 'run-1', 'att-1');
-    assert.strictEqual(typeof dom, 'string');
-    assert.strictEqual(readTabId, 'user-active-tab');
+    // No explicit tabId, no automation tab, no createTab: must fail closed with TARGET_REQUIRED,
+    // never ambient-bind the read to the user's active foreground tab.
+    await assert.rejects(
+      async () => port.dom(baseTarget, 'run-1', 'att-1'),
+      (err: unknown) => {
+        assert.ok(err instanceof CapabilityError);
+        assert.strictEqual(err.code, 'TARGET_REQUIRED');
+        return true;
+      }
+    );
+    assert.strictEqual(userTabTouched, false, 'User active working tab must never be touched by an agent read without explicit authority');
+    assert.strictEqual(readTabId, undefined);
   });
 
   it('5. User-directed gestures with explicit tabId execute directly on that targeted tab', async () => {

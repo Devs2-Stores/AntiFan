@@ -133,6 +133,7 @@ describe('Fast-Path Tab Lease Rebinding & Explicit TabId Routing (Phase 02)', ()
     ];
 
     class MockHost extends EventEmitter {
+      hasTab(id?: string | null) { return Boolean(id && tabList.some(t => t.id === id)); }
       getTabList() { return [...tabList]; }
       getActiveTabId() { return currentAutoTab; }
       getActiveTab() { return tabList.find(t => t.id === currentAutoTab); }
@@ -207,7 +208,9 @@ describe('Fast-Path Tab Lease Rebinding & Explicit TabId Routing (Phase 02)', ()
       documentGeneration: 1,
     });
 
-    const ws = new WebSocket(`ws://127.0.0.1:${port}?token=${encodeURIComponent(launch.secret)}`);
+    const ws = new WebSocket(`ws://127.0.0.1:${port}`, {
+      headers: { 'x-antifan-attachment-secret': launch.secret },
+    });
     try {
       await new Promise<void>((resolve, reject) => {
         ws.on('open', resolve);

@@ -49,6 +49,12 @@ describe('TabAutomationHost: Upload & Drag-Drop Automation Security & CDP Parity
         }
         return { ok: true, count: 1 };
       },
+      mainFrame: {
+        executeJavaScriptInIsolatedWorld: async (_worldId: number, scripts: Array<{ code: string }>) => {
+          const code = scripts[0]?.code || '';
+          return await mockWc.executeJavaScript(code);
+        },
+      },
     };
 
     const mockDevToolsHost: any = options?.hasDevTools !== false ? {

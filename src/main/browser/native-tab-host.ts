@@ -42,7 +42,7 @@ import type { BrowserTarget } from '../../shared/control-plane-contracts';
 import type { WorkflowDefinition } from '../workflow/workflow-schema';
 import { ChromeProfileSyncManager } from './chrome-profile-sync';
 import { buildCookieSetDetails, runCapsuleToProfileMigration, type CapsuleMigrationCookie, type CapsuleMigrationDeps } from './capsule-partition-migration';
-import { LocalSessionVault } from './local-session-vault';
+import { LocalSessionVault, isTrustedSessionVaultSender } from './local-session-vault';
 import { LocalCredentialVault, resolveSenderFrameOrigin } from './local-credential-vault';
 import { HaravanUploader } from './haravan-uploader';
 import type { ActionSequenceParams, ActionSequenceResult } from './tab-automation-host';
@@ -66,7 +66,7 @@ import {
 } from './semantic-ref-executor';
 import type { SemanticElementDescriptor } from './semantic-ref-types';
 import { generateCollectionNonce, validateCollectionEnvelope } from './semantic-ref-types';
-import { CapabilityError } from '../../shared/control-plane-contracts';
+import { CapabilityError, type CapabilityErrorCode } from '../../shared/control-plane-contracts';
 import { isBenchmarkEnabled, recordBenchmark } from '../benchmark/telemetry';
 import { AsyncThemeQaQueue } from '../qa/async-qa-job-queue';
 import {
@@ -990,7 +990,83 @@ export class NativeTabHost extends EventEmitter {
     ipcMain.handle(TOOLBAR_CHANNELS.SET_OVERLAY, (_event, active: boolean, customHeight?: number) => this.setToolbarOverlay(active, customHeight));
     ipcMain.handle(TOOLBAR_CHANNELS.CLEAR_STORAGE, () => this.clearStorageForActiveTab());
     ipcMain.handle(TOOLBAR_CHANNELS.GET_CHROME_PROFILES, () => ChromeProfileSyncManager.getInstance().getAvailableProfiles());
-    LocalSessionVault.getInstance().registerIpcHandlers(() => this.getActiveTabSession());
+    LocalSessionVault.getInstance().registerIpcHandlers(
+      (_event?: unknown, payload?: unknown) => {
+        const options = (payload && typeof payload === 'object') ? (payload as Record<string, unknown>) : undefined;
+        // Explicit tabId requested: ensure authority and return that tab's session
+        if (typeof options?.tabId === 'string' && options.tabId.length > 0) {
+          const tabId = options.tabId;
+          const tab = this.tabs.get(tabId);
+          if (!tab) return null;
+          const sender = this.getEventSenderWebContents(_event);
+          const senderInfo = this.findTabByWebContents(sender);
+          const isAgent = senderInfo && (senderInfo.tab.state.ephemeral === true || senderInfo.tab.state.offscreen === true || senderInfo.tabId === this.automationTabId);
+          if (isAgent && senderInfo.tabId !== tabId) {
+            return null;
+          }
+          return this.getTabSession(tabId);
+        }
+        if (typeof options?.profileId === 'string' && options.profileId.length > 0) {
+          return this.getSharedProfileSession('clean', options.profileId);
+        }
+        if (typeof options?.partition === 'string' && options.partition.length > 0) {
+          if (this.isValidCapsulePartition(options.partition)) {
+            return session.fromPartition(options.partition);
+          }
+          return null;
+        }
+        // Non-ambient target: hydration/vault operations target the shared profile session,
+        // never implicitly reading or mutating the user's focused tab without explicit authority
+        return this.getSharedProfileSession('clean');
+      },
+      {
+        validateSender: (event: unknown): boolean => {
+          if (!isTrustedSessionVaultSender(event)) {
+            const sender = this.getEventSenderWebContents(event);
+            const senderInfo = this.findTabByWebContents(sender);
+            const isAgent = senderInfo && (senderInfo.tab.state.ephemeral === true || senderInfo.tab.state.offscreen === true || senderInfo.tabId === this.automationTabId);
+            if (!isAgent) return false;
+          }
+          return true;
+        },
+        resolveAttachmentBinding: (
+          event: unknown,
+          payload?: unknown
+        ): { valid: boolean; attachmentId?: string; error?: string } => {
+          const sender = this.getEventSenderWebContents(event);
+          const senderInfo = this.findTabByWebContents(sender);
+          const isAgent = senderInfo && (senderInfo.tab.state.ephemeral === true || senderInfo.tab.state.offscreen === true || senderInfo.tabId === this.automationTabId);
+          const options = (payload && typeof payload === 'object') ? (payload as Record<string, unknown>) : undefined;
+          const attachmentId = typeof options?.attachmentId === 'string' ? options.attachmentId.trim() : undefined;
+
+          if (attachmentId) {
+            const registry = this.controlPlane?.runs?.attachments;
+            if (!registry) {
+              return { valid: false, error: 'ATTACHMENT_REGISTRY_UNAVAILABLE: Attachment registry not configured' };
+            }
+            const record = registry.getAttachment(attachmentId);
+            if (!record || record.state !== 'active' || Date.now() > record.expiresAt) {
+              return { valid: false, error: 'ATTACHMENT_INVALID: Attachment record is inactive, expired, or missing' };
+            }
+            const boundTabId = record.browserTarget?.tabId;
+            if (isAgent && boundTabId && boundTabId !== senderInfo.tabId) {
+              return { valid: false, error: 'ATTACHMENT_FORBIDDEN: Sender tab does not match attachment target tab' };
+            }
+            return { valid: true, attachmentId };
+          }
+
+          if (isAgent) {
+            return { valid: false, error: 'ATTACHMENT_REQUIRED: Agent plane session vault operations require a valid active attachment binding' };
+          }
+
+          if (isTrustedSessionVaultSender(event)) {
+            return { valid: true };
+          }
+
+          return { valid: false, error: 'ATTACHMENT_REQUIRED: Valid attachment binding or trusted user-plane sender required' };
+        },
+      }
+    );
     LocalCredentialVault.getInstance({
       safeStorage,
       filePath: path.join(StorageLocations.getConfigDir(), LocalCredentialVault.DEFAULT_VAULT_FILENAME),
@@ -998,6 +1074,18 @@ export class NativeTabHost extends EventEmitter {
       // Security: the page origin is derived from the sender frame (fail-closed
       // top-frame check), never from renderer-supplied arguments.
       resolveEventOrigin: (event: unknown): string | null => resolveSenderFrameOrigin(event),
+      // Only user-plane tabs may access credentials (autofill / get-for-origin).
+      // Reject agent-plane / offscreen / ephemeral tabs; fail closed otherwise.
+      isUserPlaneSender: (event: unknown): boolean => {
+        const sender = this.getEventSenderWebContents(event);
+        if (!sender) return false;
+        const senderInfo = this.findTabByWebContents(sender);
+        if (!senderInfo) return false;
+        const isAgent = senderInfo.tab.state.ephemeral === true ||
+          senderInfo.tab.state.offscreen === true ||
+          senderInfo.tabId === this.automationTabId;
+        return !isAgent;
+      },
       // Trusted main-process consent dialog before persisting a password.
       requestSaveConsent: async (entry: { origin: string; username: string }): Promise<boolean> => {
         const targetWindow = BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0] ?? null;
@@ -1104,7 +1192,7 @@ export class NativeTabHost extends EventEmitter {
       // 3. Check local open tabs match
       this.tabOrder.forEach(id => {
         const tab = this.tabs.get(id);
-        if (tab && (tab.state.title.toLowerCase().includes(lower) || tab.state.url.toLowerCase().includes(lower))) {
+        if (tab && tab.state.ephemeral !== true && tab.state.offscreen !== true && (tab.state.title.toLowerCase().includes(lower) || tab.state.url.toLowerCase().includes(lower))) {
           if (!results.some(r => r.url === tab.state.url)) {
             results.push({ type: 'tab', text: tab.state.title, url: tab.state.url, tabId: id, subText: 'Chuyển sang tab' });
           }
@@ -1238,24 +1326,74 @@ export class NativeTabHost extends EventEmitter {
       TerminalManager.getInstance().recordSubscriberAck(payload);
     });
     ipcMain.handle(TERMINAL_CHANNELS.START, (_event, cwd?: string) => {
-      return TerminalManager.getInstance().startTerminal(cwd);
+      const senderInfo = this.findTabByWebContents(_event?.sender);
+      const isAgent = senderInfo && (senderInfo.tab.state.ephemeral === true || senderInfo.tab.state.offscreen === true || senderInfo.tabId === this.automationTabId);
+      const started = TerminalManager.getInstance().startTerminal(cwd);
+      if (isAgent && started) {
+        const tm = TerminalManager.getInstance();
+        const sessionId = tm.getActiveSessionId();
+        const session = tm.getSession(sessionId) as { sessionGeneration?: number } | undefined;
+        if (sessionId && senderInfo.tabId) {
+          this.bindTerminalAgentAffinity(sessionId, session?.sessionGeneration, senderInfo.tabId);
+        }
+      }
+      return started;
     });
     ipcMain.handle(TERMINAL_CHANNELS.INPUT, (_event, input: string) => {
+      const senderInfo = this.findTabByWebContents(_event?.sender);
+      const isAgent = senderInfo && (senderInfo.tab.state.ephemeral === true || senderInfo.tab.state.offscreen === true || senderInfo.tabId === this.automationTabId);
+      if (isAgent) {
+        return this.terminalWrite(senderInfo.tabId, input);
+      }
       TerminalManager.getInstance().write(input);
       return true;
     });
 
     ipcMain.handle('antifan:terminal:input-session', (_event, { id, input }: { id: string; input: string }) => {
+      const senderInfo = this.findTabByWebContents(_event?.sender);
+      const isAgent = senderInfo && (senderInfo.tab.state.ephemeral === true || senderInfo.tab.state.offscreen === true || senderInfo.tabId === this.automationTabId);
+      if (isAgent) {
+        return this.terminalWrite(senderInfo.tabId, input, id);
+      }
       TerminalManager.getInstance().writeTo(id, input);
       return true;
     });
 
-    ipcMain.handle(TERMINAL_CHANNELS.KILL, () => {
+    ipcMain.handle(TERMINAL_CHANNELS.KILL, (_event) => {
+      const senderInfo = this.findTabByWebContents(_event?.sender);
+      const isAgent = senderInfo && (senderInfo.tab.state.ephemeral === true || senderInfo.tab.state.offscreen === true || senderInfo.tabId === this.automationTabId);
+      if (isAgent) {
+        const ownedTerminalId = this.getTabTerminalSession(senderInfo.tabId);
+        if (!ownedTerminalId) {
+          throw new CapabilityError('TERMINAL_FORBIDDEN' as unknown as CapabilityErrorCode, `Agent tab '${senderInfo.tabId}' does not own a terminal session; cannot kill active terminal`);
+        }
+        TerminalManager.getInstance().closeSession(ownedTerminalId);
+        return true;
+      }
       TerminalManager.getInstance().kill();
       return true;
     });
-    ipcMain.handle(TERMINAL_CHANNELS.RESTART, (_event, cwd?: string) => {
-      TerminalManager.getInstance().restart(cwd);
+    ipcMain.handle(TERMINAL_CHANNELS.RESTART, async (_event, cwd?: string) => {
+      const senderInfo = this.findTabByWebContents(_event?.sender);
+      const isAgent = senderInfo && (senderInfo.tab.state.ephemeral === true || senderInfo.tab.state.offscreen === true || senderInfo.tabId === this.automationTabId);
+      if (isAgent) {
+        const ownedTerminalId = this.getTabTerminalSession(senderInfo.tabId);
+        if (!ownedTerminalId) {
+          throw new CapabilityError('TERMINAL_FORBIDDEN' as unknown as CapabilityErrorCode, `Agent tab '${senderInfo.tabId}' does not own a terminal session; cannot restart active terminal`);
+        }
+        const tm = TerminalManager.getInstance();
+        const prevActiveId = tm.getActiveSessionId();
+        tm.switchSession(ownedTerminalId);
+        try {
+          await tm.restart(cwd);
+        } finally {
+          if (prevActiveId && prevActiveId !== ownedTerminalId && tm.getSession(prevActiveId)) {
+            tm.switchSession(prevActiveId);
+          }
+        }
+        return true;
+      }
+      await TerminalManager.getInstance().restart(cwd);
       return true;
     });
 
@@ -1264,32 +1402,84 @@ export class NativeTabHost extends EventEmitter {
     });
 
     ipcMain.handle(TERMINAL_CHANNELS.RESIZE, (_event, { cols, rows }: { cols: number; rows: number }) => {
+      const senderInfo = this.findTabByWebContents(_event?.sender);
+      const isAgent = senderInfo && (senderInfo.tab.state.ephemeral === true || senderInfo.tab.state.offscreen === true || senderInfo.tabId === this.automationTabId);
+      if (isAgent) {
+        const ownedTerminalId = this.getTabTerminalSession(senderInfo.tabId);
+        if (!ownedTerminalId) {
+          throw new CapabilityError('TERMINAL_FORBIDDEN' as unknown as CapabilityErrorCode, `Agent tab '${senderInfo.tabId}' does not own a terminal session; cannot resize active terminal`);
+        }
+        TerminalManager.getInstance().resizeTo(ownedTerminalId, cols, rows);
+        return true;
+      }
       TerminalManager.getInstance().resize(cols, rows);
       return true;
     });
 
     ipcMain.handle('antifan:terminal:resize-session', (_event, { id, cols, rows }: { id: string; cols: number; rows: number }) => {
+      const senderInfo = this.findTabByWebContents(_event?.sender);
+      const isAgent = senderInfo && (senderInfo.tab.state.ephemeral === true || senderInfo.tab.state.offscreen === true || senderInfo.tabId === this.automationTabId);
+      if (isAgent) {
+        this.assertTerminalAccess(senderInfo.tabId, id);
+      }
       TerminalManager.getInstance().resizeTo(id, cols, rows);
       return true;
     });
 
     ipcMain.handle('antifan:terminal:new-session', (_event, cwd?: string) => {
-      return TerminalManager.getInstance().createSession(cwd);
+      const senderInfo = this.findTabByWebContents(_event?.sender);
+      const isAgent = senderInfo && (senderInfo.tab.state.ephemeral === true || senderInfo.tab.state.offscreen === true || senderInfo.tabId === this.automationTabId);
+      const id = TerminalManager.getInstance().createSession(cwd);
+      if (isAgent && id) {
+        const s = TerminalManager.getInstance().getSession(id);
+        this.bindTerminalAgentAffinity(id, s?.sessionGeneration, senderInfo.tabId);
+      }
+      return id;
     });
 
-    ipcMain.handle('antifan:terminal:split-session', (_event, p: any) => {
-      const parentId = typeof p === 'string' ? p : (p?.parentId || p?.id);
-      const cwd = typeof p === 'object' ? p?.cwd : undefined;
-      const cols = typeof p === 'object' ? p?.cols : undefined;
-      const rows = typeof p === 'object' ? p?.rows : undefined;
-      return TerminalManager.getInstance().createSplitSession(parentId, cwd, cols, rows);
+    ipcMain.handle('antifan:terminal:split-session', (_event, p: unknown) => {
+      const pObj = p && typeof p === 'object' ? p as Record<string, unknown> : undefined;
+      const parentId = typeof p === 'string' ? p : (typeof pObj?.parentId === 'string' ? pObj.parentId : (typeof pObj?.id === 'string' ? pObj.id : undefined));
+      const cwd = typeof pObj?.cwd === 'string' ? pObj.cwd : undefined;
+      const cols = typeof pObj?.cols === 'number' ? pObj.cols : undefined;
+      const rows = typeof pObj?.rows === 'number' ? pObj.rows : undefined;
+      const senderInfo = this.findTabByWebContents(_event?.sender);
+      const isAgent = senderInfo && (senderInfo.tab.state.ephemeral === true || senderInfo.tab.state.offscreen === true || senderInfo.tabId === this.automationTabId);
+      let targetParentId = parentId;
+      if (isAgent) {
+        if (parentId) {
+          this.assertTerminalAccess(senderInfo.tabId, parentId);
+        } else {
+          const ownedTerminalId = this.getTabTerminalSession(senderInfo.tabId);
+          if (!ownedTerminalId) {
+            throw new CapabilityError('TERMINAL_FORBIDDEN' as unknown as CapabilityErrorCode, `Agent tab '${senderInfo.tabId}' does not own a terminal session to split`);
+          }
+          targetParentId = ownedTerminalId;
+        }
+      }
+      const splitId = TerminalManager.getInstance().createSplitSession(targetParentId || '', cwd, cols, rows);
+      if (isAgent && splitId) {
+        const s = TerminalManager.getInstance().getSession(splitId);
+        this.bindTerminalAgentAffinity(splitId, s?.sessionGeneration, senderInfo.tabId);
+      }
+      return splitId;
     });
 
     ipcMain.handle('antifan:terminal:unsplit-session', (_event, parentId: string) => {
+      const senderInfo = this.findTabByWebContents(_event?.sender);
+      const isAgent = senderInfo && (senderInfo.tab.state.ephemeral === true || senderInfo.tab.state.offscreen === true || senderInfo.tabId === this.automationTabId);
+      if (isAgent && parentId) {
+        this.assertTerminalAccess(senderInfo.tabId, parentId);
+      }
       return TerminalManager.getInstance().closeSplitSession(parentId);
     });
 
     ipcMain.handle('antifan:terminal:close-split', (_event, { id }: { id: string }) => {
+      const senderInfo = this.findTabByWebContents(_event?.sender);
+      const isAgent = senderInfo && (senderInfo.tab.state.ephemeral === true || senderInfo.tab.state.offscreen === true || senderInfo.tabId === this.automationTabId);
+      if (isAgent && id) {
+        this.assertTerminalAccess(senderInfo.tabId, id);
+      }
       return TerminalManager.getInstance().closeSplitSession(id);
     });
 
@@ -1317,10 +1507,20 @@ export class NativeTabHost extends EventEmitter {
     });
 
     ipcMain.handle('antifan:terminal:close-session', (_event, id: string) => {
+      const senderInfo = this.findTabByWebContents(_event?.sender);
+      const isAgent = senderInfo && (senderInfo.tab.state.ephemeral === true || senderInfo.tab.state.offscreen === true || senderInfo.tabId === this.automationTabId);
+      if (isAgent && id) {
+        this.assertTerminalAccess(senderInfo.tabId, id);
+      }
       this.clearTerminalAgentAffinity(id);
       return TerminalManager.getInstance().closeSession(id);
     });
     ipcMain.handle('antifan:terminal:delete-session', (_event, id: string) => {
+      const senderInfo = this.findTabByWebContents(_event?.sender);
+      const isAgent = senderInfo && (senderInfo.tab.state.ephemeral === true || senderInfo.tab.state.offscreen === true || senderInfo.tabId === this.automationTabId);
+      if (isAgent && id) {
+        this.assertTerminalAccess(senderInfo.tabId, id);
+      }
       this.clearTerminalAgentAffinity(id);
       return TerminalManager.getInstance().closeSession(id);
     });
@@ -1696,10 +1896,14 @@ export class NativeTabHost extends EventEmitter {
       // 1. Ctrl+Tab / Ctrl+Shift+Tab -> Switch Tab
       if (isCtrlOrCmd && input.key === 'Tab') {
         _event.preventDefault();
-        if (this.tabOrder.length > 1) {
-          const currIdx = this.tabOrder.indexOf(this.activeTabId);
-          const nextIdx = input.shift ? (currIdx - 1 + this.tabOrder.length) % this.tabOrder.length : (currIdx + 1) % this.tabOrder.length;
-          this.switchTab(this.tabOrder[nextIdx]!);
+        const userTabs = this.tabOrder.filter((id) => {
+          const t = this.tabs.get(id);
+          return t && t.state.ephemeral !== true && t.state.offscreen !== true;
+        });
+        if (userTabs.length > 1) {
+          const currIdx = userTabs.indexOf(this.activeTabId);
+          const nextIdx = input.shift ? (currIdx - 1 + userTabs.length) % userTabs.length : (currIdx + 1) % userTabs.length;
+          this.switchTab(userTabs[nextIdx]!);
         }
         return;
       }
@@ -2466,6 +2670,7 @@ export class NativeTabHost extends EventEmitter {
       .map((id) => {
         const tab = this.tabs.get(id);
         if (!tab) return undefined;
+        if (tab.state.offscreen === true || tab.state.ephemeral === true) return undefined;
         return { ...tab.state, isAgentControlled: id === this.automationTabId };
       })
       .filter(Boolean) as AntiFanTab[];
@@ -3229,23 +3434,26 @@ export class NativeTabHost extends EventEmitter {
     this.setupTabWebContentsEvents(id, view, state, 'desktop');
 
     this.tabs.set(id, { view, state, focusedPane: 'desktop' });
-    this.tabOrder.push(id);
-    try {
-      const activeTermId = TerminalManager.getInstance().getActiveSessionId();
-      if (activeTermId) {
-        state.terminalSessionId = activeTermId;
-        let pool = this.sessionTabPools.get(activeTermId);
-        if (!pool) {
-          pool = new Set();
-          this.sessionTabPools.set(activeTermId, pool);
+    const isAgentTab = isEphemeral || isOffscreen;
+    if (!isAgentTab) {
+      this.tabOrder.push(id);
+      try {
+        const activeTermId = TerminalManager.getInstance().getActiveSessionId();
+        if (activeTermId) {
+          state.terminalSessionId = activeTermId;
+          let pool = this.sessionTabPools.get(activeTermId);
+          if (!pool) {
+            pool = new Set();
+            this.sessionTabPools.set(activeTermId, pool);
+          }
+          pool.add(id);
+          const session = TerminalManager.getInstance().getSession(activeTermId);
+          if (session) {
+            this.adoptChildTab(activeTermId, id, session.sessionGeneration);
+          }
         }
-        pool.add(id);
-        const session = TerminalManager.getInstance().getSession(activeTermId);
-        if (session) {
-          this.adoptChildTab(activeTermId, id, session.sessionGeneration);
-        }
-      }
-    } catch {}
+      } catch {}
+    }
 
     if (capsuleIdForTab && url.startsWith('antifan-preview://')) {
       const cap = this.capsuleManager.list().find((c) => c.id.toLowerCase() === capsuleIdForTab!.toLowerCase());
@@ -3282,7 +3490,7 @@ export class NativeTabHost extends EventEmitter {
     } else {
       state.isLoading = false;
     }
-    if (activate) {
+    if (activate && !isAgentTab) {
       this.switchTab(id);
     } else {
       try {
@@ -3306,6 +3514,7 @@ export class NativeTabHost extends EventEmitter {
       const targetId = this.resolveTargetTabId(tabId) || tabId;
       const target = this.tabs.get(targetId);
       if (!target) return false;
+      if (target.state.offscreen === true || target.state.ephemeral === true) return false;
       const switchStartMs = performance.now();
 
       // Guard against destroyed WebContents/WebContentsView
@@ -3413,6 +3622,21 @@ export class NativeTabHost extends EventEmitter {
   public applyTabThrottling(): void {
     if (this.isDisposed) return;
     for (const [id, tab] of this.tabs.entries()) {
+      // Offscreen agent tabs must keep painting continuously so capturePage always
+      // has a fresh compositor frame; skip throttling for offscreen tabs and keep backgroundThrottling: false.
+      if (tab.state.offscreen === true) {
+        if (tab.view && !tab.view.webContents.isDestroyed()) {
+          try {
+            tab.view.webContents.setBackgroundThrottling(false);
+          } catch {}
+        }
+        if (tab.mobileView && !tab.mobileView.webContents.isDestroyed()) {
+          try {
+            tab.mobileView.webContents.setBackgroundThrottling(false);
+          } catch {}
+        }
+        continue;
+      }
       const isForeground = id === this.activeTabId;
       const isAgentWorking = tab.state.aiState === 'agent_working' || (this.automationHost?.agentWorkingRefs.get(id) || 0) > 0;
       // Dynamic In-Flight Throttling Exemption (RT-02):
@@ -3473,6 +3697,7 @@ export class NativeTabHost extends EventEmitter {
     const target = this.tabs.get(targetId);
     if (!target) return false;
     tabId = targetId;
+    // ViewportGate per-tab lock cleanup (Phase 2 contract): ensures lock/poison state is scoped by target and cleaned up on tab destruction via this.viewportGate?.cleanupTab(tabId). Note for P5 owner: full distributed target lock release verified here.
     this.viewportGate?.cleanupTab(tabId);
     this.semanticRefRegistry?.invalidateTab(tabId);
     if (this.semanticDocumentGenerations) {
@@ -3488,7 +3713,8 @@ export class NativeTabHost extends EventEmitter {
       }
     }
     this.clearTabAgentWorking(tabId);
-    if (target.state.url && target.state.url !== 'about:blank') {
+    const isAgent = target.state.ephemeral === true || target.state.offscreen === true;
+    if (!isAgent && target.state.url && target.state.url !== 'about:blank') {
       this.recentlyClosedTabs.push({ url: target.state.url, title: target.state.title || 'Tab' });
       if (this.recentlyClosedTabs.length > 20) this.recentlyClosedTabs.shift();
     }
@@ -3544,8 +3770,12 @@ export class NativeTabHost extends EventEmitter {
     this.tabOrder = this.tabOrder.filter((id) => id !== tabId);
 
     if (this.activeTabId === tabId) {
-      if (this.tabOrder.length > 0) {
-        this.switchTab(this.tabOrder[this.tabOrder.length - 1]!);
+      const userTabs = this.tabOrder.filter((id) => {
+        const t = this.tabs.get(id);
+        return t && t.state.ephemeral !== true && t.state.offscreen !== true;
+      });
+      if (userTabs.length > 0) {
+        this.switchTab(userTabs[userTabs.length - 1]!);
       } else {
         this.createTab('https://www.google.com');
       }
@@ -3589,6 +3819,8 @@ export class NativeTabHost extends EventEmitter {
   public closeOtherTabs(tabId: string): void {
     const toClose = this.tabOrder.filter((id) => id !== tabId);
     for (const id of toClose) {
+      const tab = this.tabs.get(id);
+      if (tab && (tab.state.ephemeral === true || tab.state.offscreen === true)) continue;
       this.closeTab(id);
     }
   }
@@ -3598,6 +3830,8 @@ export class NativeTabHost extends EventEmitter {
     if (idx === -1) return;
     const toClose = this.tabOrder.slice(idx + 1);
     for (const id of toClose) {
+      const tab = this.tabs.get(id);
+      if (tab && (tab.state.ephemeral === true || tab.state.offscreen === true)) continue;
       this.closeTab(id);
     }
   }
@@ -4855,6 +5089,76 @@ export class NativeTabHost extends EventEmitter {
     return this.isTabAllowedForPrimary(primaryOrBoundTabId, requestedTabId);
   }
 
+  /**
+   * Terminal Authority: checks whether a given tab owns or is permitted to operate the specified terminal.
+   * A terminal is authorized if:
+   * 1. The terminal has an active affinity entry whose primary or managed tabs include this tabId.
+   * 2. The terminal session pool contains this tabId.
+   * User terminals (no affinity entry) or foreign terminals (affinity to another tab) return false.
+   */
+  public isTerminalAllowedForTab(tabId: string, terminalId: string): boolean {
+    if (!tabId || !terminalId) return false;
+    const canonicalTabId = this.resolveTargetTabId(tabId) || tabId;
+    const entry = this.resolveTerminalAffinityEntry(terminalId);
+    if (!entry || entry.closedAt) return false;
+    if (entry.primaryTabId === canonicalTabId || entry.tabId === canonicalTabId) return true;
+    if (entry.managedTabIds && entry.managedTabIds.has(canonicalTabId)) return true;
+    if (this.sessionTabPools) {
+      const pool = this.sessionTabPools.get(terminalId);
+      if (pool && pool.has(canonicalTabId)) return true;
+    }
+    return false;
+  }
+
+  /**
+   * Terminal Authority: asserts that a tab is authorized to operate the given terminal.
+   * Throws TERMINAL_FORBIDDEN if the terminal is unowned, foreign, or belongs to the user.
+   */
+  public assertTerminalAccess(tabId: string, terminalId: string): void {
+    if (!this.isTerminalAllowedForTab(tabId, terminalId)) {
+      throw new CapabilityError(
+        'TERMINAL_FORBIDDEN' as unknown as CapabilityErrorCode,
+        `Tab '${tabId}' is not authorized to operate terminal '${terminalId}'`
+      );
+    }
+  }
+
+  public terminalWrite(tabId: string, input: string, terminalId?: string): boolean {
+    const targetTerminalId = terminalId || this.getTabTerminalSession(tabId);
+    if (!targetTerminalId) {
+      throw new CapabilityError(
+        'TERMINAL_FORBIDDEN' as unknown as CapabilityErrorCode,
+        `Tab '${tabId}' does not own a terminal session; cannot write to terminal`
+      );
+    }
+    this.assertTerminalAccess(tabId, targetTerminalId);
+    TerminalManager.getInstance().writeTo(targetTerminalId, input);
+    return true;
+  }
+
+  public getEventSenderWebContents(event: unknown): Electron.WebContents | undefined {
+    if (event && typeof event === 'object' && 'sender' in event) {
+      const sender = (event as { sender: unknown }).sender;
+      if (sender && typeof sender === 'object') {
+        return sender as Electron.WebContents;
+      }
+    }
+    return undefined;
+  }
+
+  public findTabByWebContents(sender: Electron.WebContents | null | undefined): { tabId: string; tab: NativeTabRecord } | undefined {
+    if (!sender) return undefined;
+    for (const [id, tab] of this.tabs.entries()) {
+      if (
+        (tab.view && tab.view.webContents === sender) ||
+        (tab.mobileView && tab.mobileView.webContents === sender)
+      ) {
+        return { tabId: id, tab };
+      }
+    }
+    return undefined;
+  }
+
   public getFailoverTargetTab(staleTabId: string): string | undefined {
     if (!this.terminalAgentAffinity || !staleTabId) return undefined;
     for (const entry of this.terminalAgentAffinity.values()) {
@@ -5234,6 +5538,7 @@ export class NativeTabHost extends EventEmitter {
       const tabList = this.tabOrder.map((id) => {
         const tab = this.tabs.get(id);
         if (!tab) return null;
+        if (tab.state.ephemeral === true || tab.state.offscreen === true) return null;
         return sanitizeTabForPersistence(tab.state);
       }).filter(Boolean);
 
@@ -5280,21 +5585,48 @@ export class NativeTabHost extends EventEmitter {
       }> = [];
 
       if (this.terminalAgentAffinity) {
+        const isAgentTabId = (id?: string) => {
+          if (!id) return false;
+          const t = this.tabs.get(id);
+          return t ? (t.state.ephemeral === true || t.state.offscreen === true) : false;
+        };
+
         const seenTerminals = new Set<string>();
         for (const [key, entry] of this.terminalAgentAffinity.entries()) {
           const terminalId = key.split('@')[0];
           if (!terminalId || seenTerminals.has(terminalId) || entry.closedAt) continue;
           seenTerminals.add(terminalId);
+
+          const rawPrimaryTabId = entry.primaryTabId || entry.tabId;
+          if (isAgentTabId(rawPrimaryTabId) || isAgentTabId(entry.tabId)) {
+            continue;
+          }
+
+          const rawManaged = Array.from(entry.managedTabIds || [entry.tabId]);
+          const filteredManaged = rawManaged.filter((id) => !isAgentTabId(id));
+
+          if (filteredManaged.length === 0 && (!rawPrimaryTabId || isAgentTabId(rawPrimaryTabId))) {
+            continue;
+          }
+
           persistedAffinities.push({
             terminalId,
-            primaryTabId: entry.primaryTabId || entry.tabId,
-            managedTabIds: Array.from(entry.managedTabIds || [entry.tabId]),
+            primaryTabId: rawPrimaryTabId,
+            managedTabIds: filteredManaged.length > 0 ? filteredManaged : (rawPrimaryTabId ? [rawPrimaryTabId] : []),
           });
         }
       }
 
+      let persistedActiveTabId: string | undefined = this.activeTabId;
+      if (persistedActiveTabId) {
+        const activeTab = this.tabs.get(persistedActiveTabId);
+        if (!activeTab || activeTab.state.ephemeral === true || activeTab.state.offscreen === true) {
+          persistedActiveTabId = undefined;
+        }
+      }
+
       const data = {
-        activeTabId: this.activeTabId,
+        activeTabId: persistedActiveTabId,
         tabs: tabList,
         bookmarks: this.bookmarks,
         activeChromeProfileId: ChromeProfileSyncManager.getInstance().activeProfileId,
@@ -5352,7 +5684,17 @@ export class NativeTabHost extends EventEmitter {
             let restoredActiveId = data.activeTabId;
             const oldIdToNewId = new Map<string, string>();
             for (const rawTab of data.tabs) {
+              if (rawTab && typeof rawTab === 'object') {
+                if (rawTab.ephemeral === true || rawTab.offscreen === true) {
+                  continue;
+                }
+              }
               const migrated = migratePersistedTab(rawTab);
+              if (migrated && typeof migrated === 'object') {
+                if (migrated.ephemeral === true || migrated.offscreen === true) {
+                  continue;
+                }
+              }
               const safeUrl = cleanRestoredUrl(migrated.url || 'about:blank');
               const id = this.createTab(safeUrl, false, {
                 capsuleId: migrated.capsuleId,
@@ -5412,8 +5754,15 @@ export class NativeTabHost extends EventEmitter {
               }
             }
 
-            if (restoredActiveId && this.tabs.has(restoredActiveId)) {
-              this.switchTab(restoredActiveId);
+            if (this.tabOrder.length === 0) {
+              this.createTab(fallbackUrl || 'https://www.google.com');
+            } else if (restoredActiveId && this.tabs.has(restoredActiveId)) {
+              const activeCandidate = this.tabs.get(restoredActiveId);
+              if (activeCandidate && activeCandidate.state.ephemeral !== true && activeCandidate.state.offscreen !== true) {
+                this.switchTab(restoredActiveId);
+              } else if (this.tabOrder.length > 0) {
+                this.switchTab(this.tabOrder[0]!);
+              }
             } else if (this.tabOrder.length > 0) {
               this.switchTab(this.tabOrder[0]!);
             }
@@ -5702,11 +6051,15 @@ export class NativeTabHost extends EventEmitter {
   public async agentFind(params: { text?: string; regex?: string; tabId?: string; paneId?: SplitPaneId; maxMatches?: number }): Promise<unknown> {
     return this.getAutomationHost().agentFind(params);
   }
-  public async sendKeyboardPress(params: { key: string; modifiers?: string[]; tabId?: string }): Promise<{ success: boolean; key: string; modifiers: string[] }> {
-    const targetId = params.tabId || this.automationTabId || this.activeTabId;
+  public async sendKeyboardPress(params: { key: string; modifiers?: string[]; tabId?: string }): Promise<{ success: boolean; key: string; modifiers: string[]; error?: string }> {
+    const rawTargetId = params.tabId || this.automationTabId;
+    if (!rawTargetId) {
+      throw new CapabilityError('TARGET_REQUIRED', 'sendKeyboardPress requires an explicit target tabId or bound automation tab; refusing to target foreground tab');
+    }
+    const targetId = this.resolveTargetTabId(rawTargetId) || rawTargetId;
     const tab = this.tabs.get(targetId);
     if (!tab || tab.view.webContents.isDestroyed()) {
-      return { success: false, key: params.key, modifiers: params.modifiers || [] };
+      throw new CapabilityError('TARGET_STALE', `Target tab '${targetId}' not found or destroyed`);
     }
     return this.withTabAgentWorking(targetId, async () => {
       const events = buildKeyboardInputEvents(params.key, params.modifiers);

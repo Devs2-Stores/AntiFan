@@ -378,7 +378,7 @@ describe('Webview & Extension IPC Audit Invariants', () => {
     // 5. Ensure non-menu WebContents shortcuts are handled and prevent default
     assert.match(
       fnBody,
-      /if\s*\(isCtrlOrCmd\s*&&\s*input\.key\s*===\s*['"]Tab['"]\)\s*\{[^}]*_event\.preventDefault\(\);[^}]*this\.switchTab\(/,
+      /if\s*\(isCtrlOrCmd\s*&&\s*input\.key\s*===\s*['"]Tab['"]\)\s*\{[^{}]*_event\.preventDefault\(\);[\s\S]{0,600}?this\.switchTab\(/,
       'Ctrl+Tab must be handled in setupGlobalShortcutsOnView with _event.preventDefault()'
     );
     assert.match(
@@ -577,14 +577,20 @@ describe('Webview & Extension IPC Audit Invariants', () => {
     const nextIpcIdx = content.indexOf('ipcMain.handle(TERMINAL_CHANNELS.INPUT', startIdx);
     assert.ok(nextIpcIdx !== -1, 'TERMINAL_CHANNELS.INPUT boundary must exist');
     const startHandlerBlock = content.slice(startIdx, nextIpcIdx);
-    assert.strictEqual(
-      startHandlerBlock.includes('bindTerminalAgentAffinity'),
-      false,
-      'TERMINAL_CHANNELS.START must not auto-bind activeTabId'
-    );
+    const agentGuard = /const isAgent = senderInfo && \(senderInfo\.tab\.state\.ephemeral === true \|\| senderInfo\.tab\.state\.offscreen === true \|\| senderInfo\.tabId === this\.automationTabId\)/.test(startHandlerBlock);
     assert.ok(
-      startHandlerBlock.includes('return TerminalManager.getInstance().startTerminal(cwd);'),
-      'TERMINAL_CHANNELS.START must directly return startTerminal(cwd)'
+      agentGuard,
+      'TERMINAL_CHANNELS.START binding must be guarded by explicit agent-plane sender detection'
+    );
+    if (startHandlerBlock.includes('bindTerminalAgentAffinity')) {
+      assert.ok(
+        /if \(isAgent && started\)\s*\{[\s\S]{0,400}?bindTerminalAgentAffinity\(sessionId, session\?\.sessionGeneration, senderInfo\.tabId\)/.test(startHandlerBlock),
+        'TERMINAL_CHANNELS.START may bind only the agent sender tabId (senderInfo.tabId), never the user activeTabId'
+      );
+    }
+    assert.ok(
+      startHandlerBlock.includes('TerminalManager.getInstance().startTerminal(cwd)'),
+      'TERMINAL_CHANNELS.START must invoke startTerminal(cwd) on the terminal manager'
     );
 
     // 3. antifan:terminal:new-session handler must directly return createSession without binding activeTabId
@@ -593,14 +599,15 @@ describe('Webview & Extension IPC Audit Invariants', () => {
     const nextSplitIdx = content.indexOf("ipcMain.handle('antifan:terminal:split-session'", newSessionIdx);
     assert.ok(nextSplitIdx !== -1, 'antifan:terminal:split-session boundary must exist');
     const newSessionBlock = content.slice(newSessionIdx, nextSplitIdx);
-    assert.strictEqual(
-      newSessionBlock.includes('bindTerminalAgentAffinity'),
-      false,
-      'antifan:terminal:new-session must not auto-bind activeTabId'
-    );
+    if (newSessionBlock.includes('bindTerminalAgentAffinity')) {
+      assert.ok(
+        /if \(isAgent && id\)\s*\{[\s\S]{0,400}?bindTerminalAgentAffinity\(id, s\?\.sessionGeneration, senderInfo\.tabId\)/.test(newSessionBlock),
+        'antifan:terminal:new-session may bind only the agent sender tabId (senderInfo.tabId), never the user activeTabId'
+      );
+    }
     assert.ok(
-      newSessionBlock.includes('return TerminalManager.getInstance().createSession(cwd);'),
-      'antifan:terminal:new-session must directly return createSession(cwd)'
+      newSessionBlock.includes('TerminalManager.getInstance().createSession(cwd)'),
+      'antifan:terminal:new-session must invoke createSession(cwd) on the terminal manager'
     );
   });
 });

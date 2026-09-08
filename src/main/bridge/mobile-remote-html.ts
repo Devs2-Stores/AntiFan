@@ -8,7 +8,8 @@
  * - Interactive Command & AI Prompt Dispatch
  */
 
-export function renderMobileRemoteHtml(token: string, port: number): string {
+export function renderMobileRemoteHtml(tokenOrPort: string | number, maybePort?: number): string {
+  const port = typeof tokenOrPort === 'number' ? tokenOrPort : (typeof maybePort === 'number' ? maybePort : 20129);
   return `<!DOCTYPE html>
 <html lang="vi">
 <head>
@@ -635,9 +636,22 @@ export function renderMobileRemoteHtml(token: string, port: number): string {
     </div>
   </div>
 
+  <!-- PAIRING MODAL -->
+  <div class="modal-overlay" id="pairingModal">
+    <div class="modal-card">
+      <div class="modal-title">Ghép Nối Thiết Bị (Pair Device)</div>
+      <p style="font-size: 13px; color: #94a3b8; margin-bottom: 12px; line-height: 1.4;">Nhập mã ghép nối 1 lần hiển thị trên máy tính để điều khiển terminal từ xa.</p>
+      <input type="text" id="pairingCodeInput" class="modal-input" placeholder="Nhập mã ghép nối (Pairing Code)..." autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">
+      <div id="pairingError" style="font-size: 12px; color: #ef4444; margin-bottom: 8px; display: none;"></div>
+      <div class="modal-actions">
+        <button class="modal-btn modal-btn-primary" id="pairingSubmitBtn" onclick="submitPairingCode()">Ghép Nối</button>
+      </div>
+    </div>
+  </div>
+
   <script>
-    const BRIDGE_TOKEN = ${JSON.stringify(token)};
     const BRIDGE_PORT = ${port};
+    let activeMobileToken = sessionStorage.getItem('antifan_mobile_token') || '';
     let ws = null;
     let reconnectTimer = null;
     let reqId = 1;
@@ -735,13 +749,71 @@ export function renderMobileRemoteHtml(token: string, port: number): string {
       }
       return html;
     }
+    function openPairingModal(errMsg) {
+      const modal = document.getElementById('pairingModal');
+      if (modal) modal.classList.add('active');
+      const errEl = document.getElementById('pairingError');
+      if (errEl) {
+        if (errMsg) {
+          errEl.textContent = errMsg;
+          errEl.style.display = 'block';
+        } else {
+          errEl.style.display = 'none';
+        }
+      }
+      const input = document.getElementById('pairingCodeInput');
+      if (input) {
+        input.value = '';
+        setTimeout(() => input.focus(), 100);
+      }
+    }
+
+    function closePairingModal() {
+      const modal = document.getElementById('pairingModal');
+      if (modal) modal.classList.remove('active');
+    }
+
+    async function submitPairingCode() {
+      const input = document.getElementById('pairingCodeInput');
+      const code = input ? input.value.trim() : '';
+      if (!code) {
+        openPairingModal('Vui lòng nhập mã ghép nối');
+        return;
+      }
+      const submitBtn = document.getElementById('pairingSubmitBtn');
+      if (submitBtn) submitBtn.disabled = true;
+      try {
+        const res = await fetch('/api/pairing/exchange', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ code: code, clientClass: 'mobile', clientId: 'mobile-' + Date.now() })
+        });
+        const data = await res.json();
+        if (!res.ok || !data.success) {
+          throw new Error(data.message || data.error || 'Ghép nối thất bại');
+        }
+        activeMobileToken = data.token;
+        sessionStorage.setItem('antifan_mobile_token', activeMobileToken);
+        closePairingModal();
+        initWebSocket();
+      } catch (err) {
+        openPairingModal(err.message || 'Lỗi ghép nối');
+      } finally {
+        if (submitBtn) submitBtn.disabled = false;
+      }
+    }
+
     function initWebSocket() {
+      if (!activeMobileToken) {
+        openPairingModal();
+        return;
+      }
       const host = window.location.hostname || '127.0.0.1';
-      const wsUrl = 'ws://' + host + ':' + BRIDGE_PORT + '/?token=' + encodeURIComponent(BRIDGE_TOKEN);
+      const wsUrl = 'ws://' + host + ':' + BRIDGE_PORT + '/';
 
       updateStatus(false, 'Connecting...');
       try {
-        ws = new WebSocket(wsUrl);
+        ws = new WebSocket(wsUrl, ['antifan-auth', activeMobileToken]);
       } catch (err) {
         scheduleReconnect();
         return;
@@ -810,9 +882,15 @@ export function renderMobileRemoteHtml(token: string, port: number): string {
         } catch (e) {}
       };
 
-      ws.onclose = () => {
+      ws.onclose = (event) => {
         updateStatus(false, 'Disconnected');
-        scheduleReconnect();
+        if (event && (event.code === 4001 || event.code === 4003)) {
+          sessionStorage.removeItem('antifan_mobile_token');
+          activeMobileToken = '';
+          openPairingModal('Phiên làm việc đã hết hạn hoặc chưa xác thực. Vui lòng nhập mã ghép nối mới.');
+        } else {
+          scheduleReconnect();
+        }
       };
 
       ws.onerror = () => {
@@ -1079,7 +1157,24 @@ export function renderMobileRemoteHtml(token: string, port: number): string {
     }
 
     // Initialize on load
-    window.addEventListener('DOMContentLoaded', initWebSocket);
+    window.addEventListener('DOMContentLoaded', () => {
+      if (window.location.hash && window.location.hash.startsWith('#code=')) {
+        const hashParams = new URLSearchParams(window.location.hash.slice(1));
+        const codeFromHash = hashParams.get('code');
+        if (codeFromHash) {
+          history.replaceState(null, '', window.location.pathname);
+          const input = document.getElementById('pairingCodeInput');
+          if (input) input.value = codeFromHash;
+          submitPairingCode();
+          return;
+        }
+      }
+      if (!activeMobileToken) {
+        openPairingModal();
+      } else {
+        initWebSocket();
+      }
+    });
   </script>
 </body>
 </html>`;

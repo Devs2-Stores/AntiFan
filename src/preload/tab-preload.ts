@@ -2,7 +2,7 @@
  * AntiFan Browser Desktop — Tab Preload Script
  * Lightweight preload for JSON Viewer, tab utilities, and anti-detection consistency.
  */
-import { ipcRenderer } from 'electron';
+import { contextBridge, ipcRenderer } from 'electron';
 
 // 1. Browser Identity Baseline
 (() => {
@@ -37,8 +37,7 @@ window.addEventListener('DOMContentLoaded', () => {
       try { parsed = JSON.parse(trimmed); } catch {}
     }
     if (!parsed) return;
-    if ((window as any).__masterJsonInjected) return;
-    (window as any).__masterJsonInjected = true;
+    if (document.getElementById('jvTree')) return;
     const esc = (s: any) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
     const renderValue = (v: any): string => {
@@ -485,3 +484,41 @@ window.addEventListener(
     spawnObserver.observe(document.documentElement, { childList: true, subtree: true });
   } catch {}
 })();
+
+// 9. Narrow Typed ContextBridge API
+export interface AntiFanTabBridgeApi {
+  readonly version: '1.0.0';
+  readonly isIsolated: true;
+  notifyThemeError: (error: string) => void;
+  reportScroll: (scrollX: number, scrollY: number) => void;
+}
+
+const tabBridgeApi: AntiFanTabBridgeApi = Object.freeze({
+  version: '1.0.0',
+  isIsolated: true,
+  notifyThemeError: (error: string): void => {
+    if (typeof error === 'string' && error.trim()) {
+      try {
+        ipcRenderer.send('antifan:tab-theme-error', { themeError: error.trim().slice(0, 500) });
+      } catch {}
+    }
+  },
+  reportScroll: (scrollX: number, scrollY: number): void => {
+    if (typeof scrollX === 'number' && typeof scrollY === 'number' && Number.isFinite(scrollX) && Number.isFinite(scrollY)) {
+      try {
+        ipcRenderer.send('antifan:tab:scroll-changed', {
+          scrollX: Math.round(scrollX),
+          scrollY: Math.round(scrollY),
+        });
+      } catch {}
+    }
+  },
+});
+
+try {
+  contextBridge.exposeInMainWorld('antifanTab', tabBridgeApi);
+} catch {
+  try {
+    Reflect.set(window, 'antifanTab', tabBridgeApi);
+  } catch {}
+}

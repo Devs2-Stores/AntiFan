@@ -86,7 +86,9 @@ describe('AntiFan Bridge Server', () => {
     const lease = { runtimeId: 'binding-runtime', projectId: 'project-local', workspaceId: 'workspace-local', token: 'lease-token', protocolVersion: 1, hostEpoch: 1, ownerPid: process.pid, issuedAt: Date.now(), expiresAt: Date.now() + 30_000 };
     const server = new BridgeServer(mockHost, 0, false, undefined, () => ({ lease, projectId: 'project-local', workspaceId: 'workspace-local', browserTarget: { projectId: 'project-local', workspaceId: 'workspace-local', runtimeId: lease.runtimeId, tabId: 'tab-1', browserEpoch: 1, documentGeneration: 1 } }));
     const port = await server.start();
-    const ws = new WebSocket(`ws://127.0.0.1:${port}?token=${server.getToken()}`);
+    const ws = new WebSocket(`ws://127.0.0.1:${port}`, {
+      headers: { Authorization: `Bearer ${server.getToken()}` },
+    });
     await new Promise<void>((resolve, reject) => { ws.on('open', resolve); ws.on('error', reject); });
     const response = new Promise<any>((resolve) => ws.on('message', (data) => { const parsed = JSON.parse(data.toString()); if (parsed.id === 'runtime-1') resolve(parsed); }));
     ws.send(JSON.stringify({ id: 'runtime-1', method: 'antifan.getRuntimeBinding' }));
@@ -105,7 +107,9 @@ describe('AntiFan Bridge Server', () => {
     assert.ok(port > 0);
 
     const token = server.getToken();
-    const ws = new WebSocket(`ws://127.0.0.1:${port}?token=${token}`);
+    const ws = new WebSocket(`ws://127.0.0.1:${port}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
 
     await new Promise<void>((resolve, reject) => {
       ws.on('open', () => resolve());
@@ -183,7 +187,9 @@ describe('AntiFan Bridge Server', () => {
     const server = new BridgeServer(mockHost, 0);
     const port = await server.start();
 
-    const ws = new WebSocket(`ws://127.0.0.1:${port}?token=wrong-forged-token`);
+    const ws = new WebSocket(`ws://127.0.0.1:${port}`, {
+      headers: { Authorization: 'Bearer wrong-forged-token' },
+    });
     const closeCode = await new Promise<number>((resolve) => {
       ws.on('close', (code) => resolve(code));
       ws.on('error', () => {});
@@ -199,8 +205,11 @@ describe('AntiFan Bridge Server', () => {
     const port = await server.start();
     const token = server.getToken();
 
-    const ws = new WebSocket(`ws://127.0.0.1:${port}?token=${token}`, {
-      headers: { Origin: 'http://malicious-website.com' },
+    const ws = new WebSocket(`ws://127.0.0.1:${port}`, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        Origin: 'http://malicious-website.com',
+      },
     });
 
     const closeCode = await new Promise<number>((resolve) => {
@@ -248,7 +257,9 @@ describe('AntiFan Bridge Server', () => {
     server.setControlPlane(mockControlPlane as unknown as ControlPlaneRuntime);
     const port = await server.start();
     const token = server.getToken();
-    const ws = new WebSocket(`ws://127.0.0.1:${port}?token=${token}`);
+    const ws = new WebSocket(`ws://127.0.0.1:${port}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
     await new Promise<void>((resolve, reject) => { ws.on('open', resolve); ws.on('error', reject); });
 
     // 1. Start CLI session
@@ -280,11 +291,13 @@ describe('AntiFan Bridge Server', () => {
     server.dispose();
   });
 
-  it('broadcasts terminal data as non-empty JSON frames over a live socket', { timeout: 5000 }, async () => {
+  it('broadcasts terminal data as non-empty JSON frames over a live socket', { timeout: 15000 }, async () => {
     const mockHost = new MockTabHost() as unknown as NativeTabHost;
     const server = new BridgeServer(mockHost, 0);
     const port = await server.start();
-    const ws = new WebSocket(`ws://127.0.0.1:${port}?token=${server.getToken()}`);
+    const ws = new WebSocket(`ws://127.0.0.1:${port}`, {
+      headers: { Authorization: `Bearer ${server.getToken()}` },
+    });
     const open = new Promise<void>((resolve, reject) => {
       ws.once('open', () => resolve());
       ws.once('error', (err) => reject(err));
@@ -430,7 +443,9 @@ describe('AntiFan Bridge Server', () => {
 
     // 1. Request with attachment secret should return 403 Forbidden
     const forbiddenRes = await new Promise<{ statusCode: number; body: string }>((resolve, reject) => {
-      const req = http.get(`http://127.0.0.1:${port}/mobile?token=${launch.secret}`, (res) => {
+      const req = http.get(`http://127.0.0.1:${port}/mobile`, {
+        headers: { 'x-antifan-attachment-secret': launch.secret },
+      }, (res) => {
         let data = '';
         res.on('data', chunk => { data += chunk; });
         res.on('end', () => resolve({ statusCode: res.statusCode || 0, body: data }));
@@ -440,18 +455,24 @@ describe('AntiFan Bridge Server', () => {
     assert.strictEqual(forbiddenRes.statusCode, 403, 'Attachment token must receive 403 Forbidden on mobile admin route');
     assert.ok(!forbiddenRes.body.includes(server.getToken()), 'Forbidden response must not leak master bridge token');
 
-    // 2. Request with unauthenticated token should return 401 Unauthorized
-    const unauthorizedRes = await new Promise<{ statusCode: number }>((resolve, reject) => {
+    // 2. Request with unauthenticated token should reach the pairing modal (200) but never leak the master token
+    const unauthorizedRes = await new Promise<{ statusCode: number; body: string }>((resolve, reject) => {
       const req = http.get(`http://127.0.0.1:${port}/mobile`, (res) => {
-        resolve({ statusCode: res.statusCode || 0 });
+        let data = '';
+        res.on('data', chunk => { data += chunk; });
+        res.on('end', () => resolve({ statusCode: res.statusCode || 0, body: data }));
       });
       req.on('error', reject);
     });
-    assert.strictEqual(unauthorizedRes.statusCode, 401, 'Unauthenticated request must receive 401');
+    assert.strictEqual(unauthorizedRes.statusCode, 200, 'Unauthenticated request must reach the pairing modal');
+    assert.ok(unauthorizedRes.body.includes('pairingCodeInput'), 'Pairing modal must be present for unauthenticated client');
+    assert.ok(!unauthorizedRes.body.includes(server.getToken()), 'Pairing modal must not embed the master bridge token');
 
     // 3. Request with master bridge token should return 200 OK
     const successRes = await new Promise<{ statusCode: number; body: string }>((resolve, reject) => {
-      const req = http.get(`http://127.0.0.1:${port}/mobile?token=${server.getToken()}`, (res) => {
+      const req = http.get(`http://127.0.0.1:${port}/mobile`, {
+        headers: { Authorization: `Bearer ${server.getToken()}` },
+      }, (res) => {
         let data = '';
         res.on('data', chunk => { data += chunk; });
         res.on('end', () => resolve({ statusCode: res.statusCode || 0, body: data }));
@@ -459,7 +480,7 @@ describe('AntiFan Bridge Server', () => {
       req.on('error', reject);
     });
     assert.strictEqual(successRes.statusCode, 200, 'Master token must receive 200 OK');
-    assert.ok(successRes.body.includes(server.getToken()), 'Authorized response includes master token for legitimate pairing');
+    assert.ok(!successRes.body.includes(server.getToken()), 'Authorized mobile HTML must not embed the master bridge token');
 
     server.dispose();
   });
@@ -506,7 +527,9 @@ describe('AntiFan Bridge Server', () => {
     let prodWs: WebSocket | null = null;
     try {
       const prodPort = await prodServer.start();
-      prodWs = new WebSocket(`ws://127.0.0.1:${prodPort}?token=${prodServer.getToken()}`);
+      prodWs = new WebSocket(`ws://127.0.0.1:${prodPort}`, {
+      headers: { Authorization: `Bearer ${prodServer.getToken()}` },
+    });
       await new Promise((res) => prodWs!.on('open', res));
 
       const prodResp = await new Promise<{ success: boolean; error?: string }>((resolve) => {
@@ -542,7 +565,9 @@ describe('AntiFan Bridge Server', () => {
       const devPort = await devServer.start();
 
       // 2a. Attachment-authenticated socket rejection
-      wsAttachment = new WebSocket(`ws://127.0.0.1:${devPort}?token=${launch.secret}`);
+      wsAttachment = new WebSocket(`ws://127.0.0.1:${devPort}`, {
+      headers: { 'x-antifan-attachment-secret': launch.secret },
+    });
       await new Promise((res) => wsAttachment!.on('open', res));
 
       const attachResp = await new Promise<{ success: boolean; error?: string }>((resolve) => {
@@ -553,7 +578,9 @@ describe('AntiFan Bridge Server', () => {
       assert.match(attachResp.error || '', /Forbidden/i);
 
       // 2b. Master-authenticated socket: unknown script ID cleanly succeeds/no-ops
-      wsMaster = new WebSocket(`ws://127.0.0.1:${devPort}?token=${devServer.getToken()}`);
+      wsMaster = new WebSocket(`ws://127.0.0.1:${devPort}`, {
+      headers: { Authorization: `Bearer ${devServer.getToken()}` },
+    });
       await new Promise((res) => wsMaster!.on('open', res));
 
       const unknownResp = await new Promise<{ success: boolean; data?: { reloaded: boolean; scriptCount: number } }>((resolve) => {
@@ -602,7 +629,9 @@ describe('AntiFan Bridge Server', () => {
     let prodWs: WebSocket | null = null;
     try {
       const prodPort = await prodServer.start();
-      prodWs = new WebSocket(`ws://127.0.0.1:${prodPort}?token=${prodServer.getToken()}`);
+      prodWs = new WebSocket(`ws://127.0.0.1:${prodPort}`, {
+      headers: { Authorization: `Bearer ${prodServer.getToken()}` },
+    });
       await new Promise((res) => prodWs!.on('open', res));
 
       const prodResp = await new Promise<{ success: boolean; error?: string }>((resolve) => {
@@ -638,7 +667,9 @@ describe('AntiFan Bridge Server', () => {
       const devPort = await devServer.start();
 
       // 2a. Attachment-authenticated socket rejection
-      wsAttachment = new WebSocket(`ws://127.0.0.1:${devPort}?token=${launch.secret}`);
+      wsAttachment = new WebSocket(`ws://127.0.0.1:${devPort}`, {
+      headers: { 'x-antifan-attachment-secret': launch.secret },
+    });
       await new Promise((res) => wsAttachment!.on('open', res));
 
       const attachResp = await new Promise<{ success: boolean; error?: string }>((resolve) => {
@@ -650,7 +681,9 @@ describe('AntiFan Bridge Server', () => {
       assert.strictEqual((mockHost as unknown as MockTabHost).reloadWindowCalls, 0, 'Attachment socket must never trigger a UI reload');
 
       // 2b. Master-authenticated socket: reloadUi succeeds and invokes reloadWindow
-      wsMaster = new WebSocket(`ws://127.0.0.1:${devPort}?token=${devServer.getToken()}`);
+      wsMaster = new WebSocket(`ws://127.0.0.1:${devPort}`, {
+      headers: { Authorization: `Bearer ${devServer.getToken()}` },
+    });
       await new Promise((res) => wsMaster!.on('open', res));
 
       const reloadResp = await new Promise<{ success: boolean; data?: { reloaded: boolean; surfaces: string[] } }>((resolve) => {

@@ -59,6 +59,12 @@ export interface CredentialVaultOptions {
    */
   resolveEventOrigin?: (event: unknown) => string | null;
   /**
+   * Main-process only: verifies that the requesting WebContents belongs to the
+   * user plane (rejecting agent-plane / offscreen / ephemeral tabs). When
+   * provided, non-user-plane tabs fail closed.
+   */
+  isUserPlaneSender?: (event: unknown) => boolean;
+  /**
    * Main-process consent gate shown before persisting a password. Returning
    * false aborts the save (`CONSENT_DENIED`). Absent in unit tests means
    * save proceeds after origin validation.
@@ -110,6 +116,7 @@ export class LocalCredentialVault {
   private readonly filePath: string;
   private readonly ipc?: IpcMainLike;
   private readonly resolveEventOrigin?: (event: unknown) => string | null;
+  private readonly isUserPlaneSender?: (event: unknown) => boolean;
   private readonly requestSaveConsent?: (entry: { origin: string; username: string }) => boolean | Promise<boolean>;
   private entries: VaultEntry[] = [];
 
@@ -118,6 +125,7 @@ export class LocalCredentialVault {
     this.filePath = options.filePath;
     this.ipc = options.ipc;
     this.resolveEventOrigin = options.resolveEventOrigin;
+    this.isUserPlaneSender = options.isUserPlaneSender;
     this.requestSaveConsent = options.requestSaveConsent;
     this.loadStore();
   }
@@ -266,9 +274,15 @@ export class LocalCredentialVault {
     return { ok: removedCount > 0, data: { removedCount } };
   }
 
-  public clear(): VaultResult<{ removedCount: number }> {
-    const removedCount = this.entries.length;
-    this.entries = [];
+  public clear(origin?: string): VaultResult<{ removedCount: number }> {
+    const cleanOrigin = origin ? this.sanitizeOrigin(origin) : null;
+    const before = this.entries.length;
+    if (cleanOrigin) {
+      this.entries = this.entries.filter((e) => e.origin !== cleanOrigin);
+    } else {
+      this.entries = [];
+    }
+    const removedCount = before - this.entries.length;
     if (removedCount > 0) {
       this.persistStore();
     }
@@ -296,6 +310,9 @@ export class LocalCredentialVault {
     // (if wired) gates the write with a trusted main-process dialog.
     this.ipc.removeHandler('antifan:password:save');
     this.ipc.handle('antifan:password:save', async (event: unknown, payload: unknown) => {
+      if (this.isUserPlaneSender && !this.isUserPlaneSender(event)) {
+        return { ok: false, error: 'AGENT_PLANE_FORBIDDEN' };
+      }
       const origin = this.resolveEventOrigin ? this.resolveEventOrigin(event) : null;
       if (origin === null) {
         return { ok: false, error: 'UNVERIFIED_ORIGIN' };
@@ -322,26 +339,61 @@ export class LocalCredentialVault {
     });
 
     this.ipc.removeHandler('antifan:password:list');
-    this.ipc.handle('antifan:password:list', (_event, origin?: unknown) => {
-      return this.list(typeof origin === 'string' ? origin : undefined);
+    this.ipc.handle('antifan:password:list', (event: unknown, origin?: unknown) => {
+      if (this.isUserPlaneSender && !this.isUserPlaneSender(event)) {
+        return [];
+      }
+      const verifiedOrigin = this.resolveEventOrigin ? this.resolveEventOrigin(event) : null;
+      if (verifiedOrigin === null) {
+        return [];
+      }
+      if (typeof origin === 'string' && origin.length > 0 && origin !== verifiedOrigin) {
+        return [];
+      }
+      return this.list(verifiedOrigin);
     });
 
     // Autofill: origin is always the sender frame's origin — no renderer
     // argument can request another site's decrypted credential.
     this.ipc.removeHandler('antifan:password:get-for-origin');
     this.ipc.handle('antifan:password:get-for-origin', (event: unknown) => {
+      if (this.isUserPlaneSender && !this.isUserPlaneSender(event)) {
+        return [];
+      }
       const origin = this.resolveEventOrigin ? this.resolveEventOrigin(event) : null;
       return origin ? this.getForOrigin(origin) : [];
     });
 
     this.ipc.removeHandler('antifan:password:remove');
-    this.ipc.handle('antifan:password:remove', (_event, id: unknown) => {
-      return this.remove(String(id ?? ''));
+    this.ipc.handle('antifan:password:remove', (event: unknown, id: unknown) => {
+      if (this.isUserPlaneSender && !this.isUserPlaneSender(event)) {
+        return { ok: false, error: 'AGENT_PLANE_FORBIDDEN' };
+      }
+      const origin = this.resolveEventOrigin ? this.resolveEventOrigin(event) : null;
+      if (origin === null) {
+        return { ok: false, error: 'UNVERIFIED_ORIGIN' };
+      }
+      const targetId = String(id ?? '');
+      const entry = this.entries.find((e) => e.id === targetId);
+      if (!entry) {
+        return { ok: false, error: 'NOT_FOUND' };
+      }
+      if (entry.origin !== origin) {
+        return { ok: false, error: 'ORIGIN_MISMATCH' };
+      }
+      return this.remove(targetId);
     });
 
     this.ipc.removeHandler('antifan:password:clear');
-    this.ipc.handle('antifan:password:clear', () => {
-      return this.clear();
+    this.ipc.handle('antifan:password:clear', (event: unknown) => {
+      if (this.isUserPlaneSender && !this.isUserPlaneSender(event)) {
+        return { ok: false, error: 'AGENT_PLANE_FORBIDDEN' };
+      }
+      const origin = this.resolveEventOrigin ? this.resolveEventOrigin(event) : null;
+      if (origin === null) {
+        return { ok: false, error: 'UNVERIFIED_ORIGIN' };
+      }
+      return this.clear(origin);
     });
   }
 }

@@ -351,7 +351,9 @@ describe('CLI Session and Agent Launcher Lifecycle', () => {
     const launcherContent = fs.readFileSync(launcherPath, 'utf8');
 
     // Assert security invariants in launcher script:
-    assert.ok(!launcherContent.includes('${wsUrl}'), 'Must not serialize wsUrl with master tokens in candidate errors');
+    assert.ok(launcherContent.includes('const wsUrl = `ws://${candidate.host}:${candidate.port}`'), 'wsUrl must be constructed token-free (host:port only, auth travels via headers)');
+    assert.ok(!/ws:\/\/[^`]*\$\{.*token/.test(launcherContent), 'Must not build a ws:// URL that interpolates a token into the endpoint');
+    assert.ok(!launcherContent.includes('?token=${'), 'Must not append ?token= query to the bridge endpoint');
     assert.ok(launcherContent.includes('delete sanitizedParentEnv.ANTIFAN_BRIDGE_TOKEN'), 'Must delete ANTIFAN_BRIDGE_TOKEN from childEnv');
     assert.ok(launcherContent.includes('targetKey = `${host}:${port}:${token}`'), 'Must deduplicate candidates by endpoint and token');
     assert.ok(launcherContent.includes('acquireBridgeSession'), 'Must authenticate in candidate acquisition loop');

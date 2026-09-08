@@ -13,6 +13,7 @@ import { BrowserControlPort, type BrowserHostPort } from '../../src/main/tools/b
 
 class MockTabHost extends EventEmitter implements BrowserHostPort {
   getTabList() { return [{ id: 'tab-1', url: 'https://example.com', title: 'Example' }]; }
+  hasTab(tabId?: string | null): boolean { return Boolean(tabId && this.getTabList().some(t => t.id === tabId)); }
   getActiveTabId() { return 'tab-1'; }
   getActiveTab() { return { id: 'tab-1', url: 'https://example.com', title: 'Example' }; }
   isCurrentTarget() { return true; }
@@ -79,7 +80,9 @@ describe('BridgeServer Attachment Authentication & Scoped Dispatch', () => {
     });
 
     // 1. Connect via attachment secret as token parameter
-    const ws = new WebSocket(`ws://127.0.0.1:${port}?token=${encodeURIComponent(launch.secret)}`);
+    const ws = new WebSocket(`ws://127.0.0.1:${port}`, {
+      headers: { 'x-antifan-attachment-secret': launch.secret },
+    });
     await new Promise<void>((resolve, reject) => {
       ws.on('open', resolve);
       ws.on('error', reject);
@@ -580,7 +583,9 @@ describe('BridgeServer Attachment Authentication & Scoped Dispatch', () => {
       grant: 'read',
     });
 
-    const ws = new WebSocket(`ws://127.0.0.1:${port}?token=${encodeURIComponent(launch.secret)}`);
+    const ws = new WebSocket(`ws://127.0.0.1:${port}`, {
+      headers: { 'x-antifan-attachment-secret': launch.secret },
+    });
     try {
       await new Promise<void>((resolve, reject) => {
         ws.on('open', resolve);
@@ -625,7 +630,8 @@ describe('BridgeServer Attachment Authentication & Scoped Dispatch', () => {
     let clearAgentWorkingCalled = false;
 
     class DynamicMockTabHost extends EventEmitter {
-      getTabList() { return [{ id: currentTabId, url: 'https://example.com', title: 'Example' }]; }
+  getTabList() { return [{ id: currentTabId, url: 'https://example.com', title: 'Example' }]; }
+  hasTab(tabId?: string | null): boolean { return Boolean(tabId && this.getTabList().some(t => t.id === tabId)); }
       getActiveTabId() { return currentTabId; }
       getActiveTab() { return { id: currentTabId, url: 'https://example.com', title: 'Example' }; }
       getAutomationTabId() { return currentTabId; }
@@ -705,7 +711,9 @@ describe('BridgeServer Attachment Authentication & Scoped Dispatch', () => {
       documentGeneration: currentGen,
     });
 
-    const ws = new WebSocket(`ws://127.0.0.1:${port}?token=${encodeURIComponent(launch.secret)}`);
+    const ws = new WebSocket(`ws://127.0.0.1:${port}`, {
+      headers: { 'x-antifan-attachment-secret': launch.secret },
+    });
     try {
       await new Promise<void>((resolve, reject) => {
         ws.on('open', resolve);
@@ -815,7 +823,8 @@ describe('BridgeServer Attachment Authentication & Scoped Dispatch', () => {
     let tabGen = 1;
 
     class DynamicHost extends EventEmitter {
-      getTabList() { return Array.from(liveTabs.values()); }
+  getTabList() { return Array.from(liveTabs.values()); }
+  hasTab(tabId?: string | null): boolean { return Boolean(tabId && liveTabs.has(tabId)); }
       getActiveTabId() { return liveTabs.keys().next().value || ''; }
       getActiveTab() { return liveTabs.values().next().value || null; }
       getAutomationTabId() { return currentAutomationTab; }
@@ -897,7 +906,9 @@ describe('BridgeServer Attachment Authentication & Scoped Dispatch', () => {
       },
     });
 
-    const ws = new WebSocket(`ws://127.0.0.1:${port}?token=${encodeURIComponent(launch.secret)}`);
+    const ws = new WebSocket(`ws://127.0.0.1:${port}`, {
+      headers: { 'x-antifan-attachment-secret': launch.secret },
+    });
     try {
       await new Promise<void>((resolve, reject) => {
         ws.on('open', resolve);

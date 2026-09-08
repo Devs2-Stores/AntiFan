@@ -40,8 +40,11 @@ export async function validateBridgeAuth(auth: BridgeAuth | null): Promise<boole
   const timeoutId = setTimeout(() => controller.abort(), 1000);
   try {
     const res = await (typeof fetch !== 'undefined' ? fetch : globalThis.fetch)(
-      `http://127.0.0.1:${auth.port}/status?token=${encodeURIComponent(auth.token)}`,
-      { signal: controller.signal }
+      `http://127.0.0.1:${auth.port}/status`,
+      {
+        signal: controller.signal,
+        headers: { 'x-antifan-attachment-secret': auth.token },
+      }
     );
     if (res.ok) {
       lastBridgeError = null;

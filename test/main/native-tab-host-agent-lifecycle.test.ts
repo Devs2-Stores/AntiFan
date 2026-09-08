@@ -32,6 +32,10 @@ function createHost(executeJavaScript: (code: string) => Promise<unknown>) {
     executeJavaScriptInIsolatedWorld: mainFrame.executeJavaScriptInIsolatedWorld,
   };
   host.activeTabId = 'tab-1';
+  // Dual-Plane: these lifecycle tests exercise working-ref / aiState behavior, so
+  // bind tab-1 as the agent automation tab. Agent actions must never fall back to
+  // the user's active foreground tab, but here tab-1 is the agent's own target.
+  host.automationTabId = 'tab-1';
   host.tabs = new Map([['tab-1', { state, view: { webContents } }]]);
   host.tabOrder = ['tab-1'];
   host.documentGenerations = new Map([['tab-1', 7]]);
@@ -126,25 +130,43 @@ describe('NativeTabHost agent activity lifecycle', () => {
   it('keeps overlapping agent actions active until the final action settles', async () => {
     const pending: Array<() => void> = [];
     const { host, state } = createHost((code) => {
-      if (code.includes('click') || code.includes('__antifanAgentClick')) {
+      // Only the real isolated-world dispatch (which carries documentUrl) is a
+      // controllable pending. The agent-browser injection script also defines
+      // __antifanAgentClick but must resolve synchronously so it never consumes a
+      // dispatch slot. Overlapping actions are FIFO-serialized per tab: the second
+      // action's dispatch only runs after the first settles.
+      if (code.includes('documentUrl')) {
         return new Promise<boolean>((resolve) => pending.push(() => resolve(true)));
       }
       return Promise.resolve(true);
     });
-    const first = host.agentClick({ x: 10, y: 20 });
-    const second = host.agentClick({ x: 30, y: 40 });
+    // Dual-Plane: agent actions require an explicit target tabId (never fall back
+    // to the user's active foreground tab), so bind both overlapping actions to
+    // tab-1 explicitly; getAutomationTabId resolves via NativeTabHost.prototype.
+    const first = host.agentClick({ x: 10, y: 20, tabId: 'tab-1' });
+    const second = host.agentClick({ x: 30, y: 40, tabId: 'tab-1' });
     await Promise.resolve();
     await Promise.resolve();
 
+    // Both overlapping actions are active: refs=2 and the tab is agent_working,
+    // even though FIFO serializes their dispatch.
     assert.strictEqual(host.agentWorkingRefs.get('tab-1'), 2);
     assert.strictEqual(state.aiState, 'agent_working');
 
-    pending[0]!();
+    // Let the first action's FIFO turn run and push its dispatch pending slot.
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    // First action's dispatch settles; it must be resolved explicitly. Its
+    // process-tree listener (withTabAgentWorking -> runTargetOperation) increments
+    // refs for the overlapping sibling already, so this resolves just first.
+    pending.splice(0, 1)[0]!();
     assert.strictEqual(await first, true);
     assert.strictEqual(host.agentWorkingRefs.get('tab-1'), 1);
     assert.strictEqual(state.aiState, 'agent_working');
 
-    pending[1]!();
+    // Let the FIFO release so the second action's dispatch acquires the lock and
+    // pushes its own pending slot, then settle it.
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    pending.splice(0, 1)[0]!();
     assert.strictEqual(await second, true);
     assert.strictEqual(host.agentWorkingRefs.size, 0);
     assert.strictEqual(state.aiState, 'idle');

@@ -100,6 +100,7 @@ export interface BrowserHostPort {
   getAutomationTabId?(): string | null;
   setAutomationTabId?(tabId?: string): void;
   isTabOffscreen?(tabId?: string): boolean;
+  isTabEphemeral?(tabId?: string): boolean;
   createTab?(url?: string, activate?: boolean, options?: { capsuleId?: string; userAgentMode?: any; ephemeral?: boolean; offscreen?: boolean }): string;
   closeTab?(tabId: string): boolean;
   switchTab?(tabId: string): boolean;
@@ -703,7 +704,7 @@ export class BrowserControlPort {
   }
 
   async navigate(target: BrowserTarget, url: string, explicitTabId?: string): Promise<{ navigated: boolean; target: BrowserTarget }> {
-    const tabId = this.resolveTargetTab(target, explicitTabId, 'lifecycle');
+    const tabId = this.resolveTargetTab(target, explicitTabId, 'read');
     if (!url || !/^https?:\/\//i.test(url)) throw new CapabilityError('INVALID_ARGUMENT', 'Navigation requires an http(s) URL');
     const navigated = await this.host.navigate(tabId, url);
     if (!navigated) throw new CapabilityError('TARGET_STALE', 'Navigation failed or timed out before starting');
@@ -712,7 +713,7 @@ export class BrowserControlPort {
   }
 
   async reload(target: BrowserTarget, explicitTabId?: string): Promise<{ reloaded: boolean; target: BrowserTarget; urlBefore?: string; urlAfter?: string; redirected?: boolean }> {
-    const tabId = this.resolveTargetTab(target, explicitTabId, 'lifecycle');
+    const tabId = this.resolveTargetTab(target, explicitTabId, 'read');
     let urlBefore: string | undefined;
     try {
       const tabs = typeof this.host.getTabList === 'function' ? this.host.getTabList() : [];
@@ -1137,9 +1138,6 @@ export class BrowserControlPort {
     if (boundTabId && this.host.adoptChildTab) {
       this.host.adoptChildTab(boundTabId, tabId);
     }
-    if (this.host.setAutomationTabId) {
-      this.host.setAutomationTabId(tabId);
-    }
     return { tabId };
   }
 
@@ -1257,12 +1255,36 @@ export class BrowserControlPort {
     return { closed, tabId: targetId, failoverTabId };
   }
 
-  switchTab(tabId: string, context: { target: BrowserTarget }): { switched: boolean; tabId: string } {
+  switchTab(
+    tabId: string,
+    context: {
+      target: BrowserTarget;
+      attachmentId?: string;
+      runId?: string;
+      attemptId?: string;
+      isAgent?: boolean;
+      plane?: 'agent' | 'user' | string;
+      [key: string]: unknown;
+    }
+  ): { switched: boolean; tabId: string } {
     if (!this.host.switchTab) throw new CapabilityError('CAPABILITY_NOT_FOUND', 'switchTab is not supported by host');
     if (!context || !context.target) {
       throw new CapabilityError('TARGET_REQUIRED', 'Browser target is required to switch tab');
     }
     assertTarget(context.target);
+
+    const targetRecord = typeof context.target === 'object' && context.target !== null ? (context.target as unknown as Record<string, unknown>) : undefined;
+    const isAgentPlane = Boolean(
+      context.attachmentId ||
+      context.isAgent ||
+      context.plane === 'agent' ||
+      context['experimentId'] ||
+      context['experiment'] ||
+      (targetRecord && (
+        targetRecord['isAgent'] ||
+        targetRecord['plane'] === 'agent'
+      ))
+    );
     if (!tabId || typeof tabId !== 'string') {
       throw new CapabilityError('TARGET_MISMATCH', 'Cannot switch tab: tabId must be a non-empty string');
     }
@@ -1303,6 +1325,16 @@ export class BrowserControlPort {
       throw new CapabilityError('TARGET_MISMATCH', `Cannot switch to unknown tab '${tabId}'.`);
     }
 
+    if (isAgentPlane) {
+      const agentOwned = this.isAgentTabOwnedForSwitch(context.target, targetId);
+      if (!agentOwned) {
+        throw new CapabilityError(
+          'USER_VISIBLE_OPERATION_FORBIDDEN',
+          'Agent plane may only switch to its own offscreen, ephemeral, or explicitly authorized tabs; activating user-visible foreground tabs is forbidden.'
+        );
+      }
+    }
+
     const boundId = context.target.tabId;
     if (targetId.trim() !== boundId.trim()) {
       const isAllowed = this.host.isTabAllowed ? this.host.isTabAllowed(boundId, targetId) : false;
@@ -1315,10 +1347,31 @@ export class BrowserControlPort {
     }
 
     const switched = Boolean(this.host.switchTab(targetId));
-    if (switched && this.host.setAutomationTabId) {
-      this.host.setAutomationTabId(targetId);
-    }
     return { switched, tabId: targetId };
+  }
+
+  /** Agent lease-rebinding permission: a tab is agent-owned when it is offscreen,
+   *  ephemeral, the automation tab, or explicitly authorized for this caller. */
+  private isAgentTabOwnedForSwitch(target: BrowserTarget, targetId: string): boolean {
+    if (this.host.isTabOffscreen?.(targetId)) return true;
+    if (this.host.isTabEphemeral?.(targetId)) return true;
+    const automationId = this.host.getAutomationTabId ? this.host.getAutomationTabId() : undefined;
+    if (automationId && targetId === automationId) return true;
+    if (this.host.isTabAllowed) {
+      let boundId: string | undefined;
+      if (typeof target === 'object' && target !== null && 'tabId' in target) {
+        const tid = (target as { tabId?: unknown }).tabId;
+        boundId = typeof tid === 'string' ? tid : undefined;
+      }
+      if (boundId) {
+        // The catalogue's authorizeAndResolveEffectiveTarget already canonicalized
+        // boundId to the requested targetId and authorized the P->S switch, so the
+        // session's own effective target is an explicitly authorized switch target.
+        if (boundId === targetId) return true;
+        return this.host.isTabAllowed(boundId, targetId);
+      }
+    }
+    return false;
   }
 
   diagnostics(tabId?: string, level?: number | string): { console: unknown[]; failures: unknown[] } {
@@ -4238,7 +4291,7 @@ export class BrowserControlPort {
       if (!tabExists(candidate)) {
         throw new CapabilityError('CAPABILITY_NOT_FOUND', `Unknown tab ID: ${explicitTabId}`);
       }
-      if (operationType === 'write' && target?.tabId && target.tabId.trim().length > 0 && candidate !== target.tabId.trim()) {
+      if ((operationType === 'write' || operationType === 'lifecycle') && target?.tabId && target.tabId.trim().length > 0 && candidate !== target.tabId.trim()) {
         const isAllowed = this.host.isTabAllowed ? this.host.isTabAllowed(target.tabId.trim(), candidate) : false;
         if (!isAllowed) {
           throw new CapabilityError('TARGET_MISMATCH', `Explicit tabId "${explicitTabId}" does not match target tabId "${target.tabId}". Note: In split review mode, use the bound tabId with paneId: "mobile" to target the mobile pane.`);
@@ -4264,7 +4317,9 @@ export class BrowserControlPort {
         // Dual-Plane Runtime Isolation: dedicated agent tab renders offscreen so
         // capture never requires foregrounding/swapping the user's visible view.
         resolved = this.host.createTab('about:blank', false, { ephemeral: true, offscreen: true });
-        if (this.host.setAutomationTabId) {
+        // Register it as THE agent-plane tab so subsequent read/write ops reuse the
+        // same dedicated offscreen tab instead of re-provisioning a fresh one.
+        if (resolved && typeof this.host.setAutomationTabId === 'function') {
           this.host.setAutomationTabId(resolved);
         }
       } else {
@@ -4281,12 +4336,10 @@ export class BrowserControlPort {
     if (!resolved) {
       throw new CapabilityError('TARGET_REQUIRED', 'Browser target tabId is required');
     }
-    if (this.host.setAutomationTabId && this.host.getAutomationTabId?.() !== resolved) {
-      this.host.setAutomationTabId(resolved);
-    }
     if (target) {
       const liveDocGen = this.host.getDocumentGeneration ? this.host.getDocumentGeneration(resolved) : target.documentGeneration;
-      if (!explicitTabId && operationType === 'write' && typeof target.documentGeneration === 'number' && typeof liveDocGen === 'number' && target.documentGeneration !== liveDocGen) {
+      const isEffectful = operationType === 'write' || operationType === 'lifecycle';
+      if (isEffectful && typeof target.documentGeneration === 'number' && typeof liveDocGen === 'number' && target.documentGeneration !== liveDocGen) {
         throw new CapabilityError(
           'TARGET_STALE',
           `Browser target document generation (${target.documentGeneration}) is stale compared to live document generation (${liveDocGen}). The DOM was modified or reloaded in the background. Please re-inspect DOM before interacting.`,
@@ -4298,7 +4351,7 @@ export class BrowserControlPort {
           }
         );
       }
-      const effectiveDocGen = (operationType === 'read' || operationType === 'lifecycle' || Boolean(explicitTabId))
+      const effectiveDocGen = operationType === 'read'
         ? (liveDocGen ?? target.documentGeneration)
         : target.documentGeneration;
       const currentTarget: BrowserTarget = {

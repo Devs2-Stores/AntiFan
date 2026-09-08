@@ -6,13 +6,14 @@
  * sharing the parent tab session, and routes standard links to new browser tabs.
  */
 import { BrowserWindow, WebContents, HandlerDetails, WindowOpenHandlerResponse } from 'electron';
-import { getSecureWebPreferences } from '../security/security-policy';
+import { getSecureWebPreferences, isAllowedNavigation } from '../security/security-policy';
 export interface OAuthHandlerOptions {
   onNewTabRequested?: (url: string) => void;
 }
 
 export class OAuthPopupManager {
   private static instance: OAuthPopupManager;
+  private guardedWebContents = new WeakSet<WebContents>();
 
   public static getInstance(): OAuthPopupManager {
     if (!OAuthPopupManager.instance) {
@@ -20,7 +21,6 @@ export class OAuthPopupManager {
     }
     return OAuthPopupManager.instance;
   }
-
   public isOAuthUrl(rawUrl: string): boolean {
     if (!rawUrl || typeof rawUrl !== 'string') return false;
     let parsed: URL;
@@ -71,13 +71,100 @@ export class OAuthPopupManager {
     return /(?:^|\/)(?:oauth\/callback|auth\/callback|oauth2\/callback|signin-google|signin-github|auth\/complete|auth\/success|login\/callback)(?:\/|$)/.test(pathname);
   }
 
+  public attachPopupGuards(
+    parentContents: WebContents,
+    parentWindow?: BrowserWindow,
+    options?: OAuthHandlerOptions
+  ): void {
+    if (!parentContents || typeof parentContents.on !== 'function') return;
+    if (this.guardedWebContents.has(parentContents)) return;
+    this.guardedWebContents.add(parentContents);
+
+    parentContents.on('did-create-window', (childWindow: BrowserWindow) => {
+      this.configureChildWindowGuards(childWindow, parentContents, parentWindow, options);
+    });
+  }
+
+  public configureChildWindowGuards(
+    childWindow: BrowserWindow,
+    parentContents: WebContents,
+    parentWindow?: BrowserWindow,
+    options?: OAuthHandlerOptions
+  ): void {
+    if (!childWindow) return;
+    if (typeof childWindow.isDestroyed === 'function' && childWindow.isDestroyed()) return;
+
+    const childContents = childWindow.webContents;
+    if (!childContents) return;
+    if (typeof childContents.isDestroyed === 'function' && childContents.isDestroyed()) return;
+
+    // Guard window.open calls originating from inside the popup to prevent popup-chain and foreground theft
+    if (typeof childContents.setWindowOpenHandler === 'function') {
+      childContents.setWindowOpenHandler((details: HandlerDetails) => {
+        const { url } = details;
+        if (!isAllowedNavigation(url)) {
+          return { action: 'deny' };
+        }
+
+        if (this.isOAuthUrl(url)) {
+          return {
+            action: 'allow',
+            overrideBrowserWindowOptions: {
+              width: 520,
+              height: 680,
+              parent: parentWindow || childWindow,
+              show: true,
+              backgroundColor: '#080c14',
+              title: 'Xác thực Đăng nhập',
+              webPreferences: {
+                ...getSecureWebPreferences(),
+                session: parentContents.session,
+              },
+            },
+          };
+        }
+
+        if (options?.onNewTabRequested && url.startsWith('http') && isAllowedNavigation(url)) {
+          options.onNewTabRequested(url);
+        }
+        return { action: 'deny' };
+      });
+    }
+
+    // Attach did-create-window to the child window too, guarding nested popups
+    this.attachPopupGuards(childContents, parentWindow || childWindow, options);
+
+    // Guard direct navigation and redirects within the OAuth window
+    if (typeof childContents.on === 'function') {
+      childContents.on('will-navigate', (event, navigationUrl: string) => {
+        if (!isAllowedNavigation(navigationUrl)) {
+          event.preventDefault();
+        }
+      });
+
+      childContents.on('will-redirect', (event, navigationUrl: string) => {
+        if (!isAllowedNavigation(navigationUrl)) {
+          event.preventDefault();
+        }
+      });
+    }
+  }
+
   public handleWindowOpen(
     parentContents: WebContents,
     parentWindow: BrowserWindow,
     details: HandlerDetails,
     options?: OAuthHandlerOptions
   ): WindowOpenHandlerResponse {
+    // Ensure parent contents has did-create-window listener attached to configure child guards
+    this.attachPopupGuards(parentContents, parentWindow, options);
+
     const { url } = details;
+
+    // Fail-closed URL policy check: reject dangerous schemes (file:, javascript:, data:, etc.)
+    if (!isAllowedNavigation(url)) {
+      return { action: 'deny' };
+    }
 
     if (this.isOAuthUrl(url)) {
       // AntiFan is the browser here; the visited website owns this OAuth flow.
@@ -100,7 +187,7 @@ export class OAuthPopupManager {
       };
     }
 
-    if (options?.onNewTabRequested && url.startsWith('http')) {
+    if (options?.onNewTabRequested && url.startsWith('http') && isAllowedNavigation(url)) {
       options.onNewTabRequested(url);
     }
     return { action: 'deny' };

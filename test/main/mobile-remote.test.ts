@@ -29,14 +29,12 @@ test('generateQrSvg creates a valid clean standard SVG QR Code for short and lon
 });
 
 test('renderMobileRemoteHtml generates complete Pure Mobile Remote Terminal HTML', () => {
-  const token = 'sample-bridge-token-xyz';
   const port = 20129;
-  const html = renderMobileRemoteHtml(token, port);
+  const html = renderMobileRemoteHtml(port);
 
   assert.ok(typeof html === 'string');
   assert.ok(html.includes('<!DOCTYPE html>'));
   assert.ok(html.includes('AntiFan Mobile Terminal'));
-  assert.ok(html.includes('sample-bridge-token-xyz'));
   assert.ok(html.includes('view-terminal'));
   assert.ok(html.includes('termSessionsStrip'));
   assert.ok(html.includes('terminalScreen'));
@@ -54,4 +52,10 @@ test('renderMobileRemoteHtml generates complete Pure Mobile Remote Terminal HTML
   assert.ok(html.includes('btnModeToggle'));
   assert.ok(html.includes('terminalInput'));
   assert.ok(html.includes('initWebSocket'));
+  // Dual-plane pairing contract (Phase 4): the mobile companion must NOT embed the
+  // bridge master token into HTML; pairing happens via a bounded loopback code + WS subprotocol.
+  assert.ok(html.includes('pairingCodeInput'), 'Mobile HTML must render the pairing code input');
+  assert.ok(html.includes('pairingSubmitBtn') || html.includes('Ghép Nối'), 'Mobile HTML must render the pairing submit action');
+  assert.ok(!html.includes('sample-bridge-token-xyz'), 'Mobile HTML must not embed a provided token literal');
+  assert.ok(html.includes('antifan_mobile_token'), 'Mobile HTML must reference sessionStorage token for subprotocol auth, never a URL query token');
 });

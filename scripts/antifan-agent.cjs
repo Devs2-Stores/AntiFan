@@ -7,6 +7,7 @@
  */
 
 const spawn = require('cross-spawn');
+const http = require('node:http');
 const fs = require('node:fs');
 const path = require('node:path');
 const os = require('node:os');
@@ -150,17 +151,85 @@ function compareCandidates(a, b) {
 }
 
 
+function httpJsonPost(host, port, requestPath, payload) {
+  return new Promise((resolve, reject) => {
+    const postData = JSON.stringify(payload || {});
+    const req = http.request({
+      hostname: host,
+      port: port,
+      path: requestPath,
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Content-Length': Buffer.byteLength(postData),
+      },
+    }, (res) => {
+      let data = '';
+      res.on('data', (chunk) => { data += chunk; });
+      res.on('end', () => {
+        try {
+          const parsed = JSON.parse(data || '{}');
+          if (res.statusCode && res.statusCode >= 200 && res.statusCode < 300) {
+            resolve(parsed);
+          } else {
+            const msg = parsed.message || parsed.error || `HTTP ${res.statusCode}`;
+            reject(new Error(typeof msg === 'string' ? msg : JSON.stringify(msg)));
+          }
+        } catch {
+          reject(new Error(`Failed to parse JSON response (${res.statusCode}): ${data}`));
+        }
+      });
+    });
+    req.setTimeout(3000, () => {
+      req.destroy(new Error('Pairing request timeout'));
+    });
+    req.on('error', (err) => {
+      reject(err);
+    });
+    req.write(postData);
+    req.end();
+  });
+}
+
+async function performPairingExchange(host, port) {
+  const challenge = await httpJsonPost(host, port, '/api/pairing/challenge', {});
+  const code = challenge?.code;
+  if (!challenge?.success || !code) {
+    throw new Error(`PAIRING_CHALLENGE_FAILED: ${challenge?.message || challenge?.error || 'No challenge code returned'}`);
+  }
+  const exchange = await httpJsonPost(host, port, '/api/pairing/exchange', {
+    code,
+    clientClass: 'mcp',
+  });
+  if (!exchange?.success || !exchange?.secret) {
+    throw new Error(`PAIRING_EXCHANGE_FAILED: ${exchange?.message || exchange?.error || 'No secret returned'}`);
+  }
+  return exchange;
+}
+
 async function acquireBridgeSession(candidates, boundPid, explicitTabId) {
   const errors = [];
   for (const candidate of candidates) {
-    const sanitizedEndpoint = `ws://${candidate.host}:${candidate.port}`;
-    const tokenParam = candidate.token ? `?token=${encodeURIComponent(candidate.token)}` : '';
-    const wsUrl = `${sanitizedEndpoint}${tokenParam}`;
+    const wsUrl = `ws://${candidate.host}:${candidate.port}`;
     let ws;
+    let authSecret = candidate.token || '';
+    let pairedExchange = null;
     try {
-      ws = new WebSocket(wsUrl, {
-        headers: candidate.token ? { Authorization: `Bearer ${candidate.token}` } : {},
-      });
+      if (!authSecret) {
+        pairedExchange = await performPairingExchange(candidate.host, candidate.port);
+        authSecret = pairedExchange.secret;
+      }
+
+      const headers = {};
+      if (pairedExchange && pairedExchange.secret) {
+        headers['x-antifan-attachment-secret'] = pairedExchange.secret;
+        headers['Authorization'] = `Bearer ${pairedExchange.secret}`;
+      } else if (authSecret) {
+        headers['Authorization'] = `Bearer ${authSecret}`;
+        headers['x-antifan-attachment-secret'] = authSecret;
+      }
+
+      ws = new WebSocket(wsUrl, { headers });
 
       await new Promise((resolve, reject) => {
         let settled = false;
@@ -189,7 +258,7 @@ async function acquireBridgeSession(candidates, boundPid, explicitTabId) {
           if (!settled) {
             settled = true;
             clearTimeout(connectTimer);
-            reject(new Error(`WebSocket closed early with code ${code}: ${reason.toString() || 'Unauthorized'}`));
+            reject(new Error(`WebSocket closed early with code ${code}: ${reason?.toString() || 'Unauthorized'}`));
           }
         });
       });
@@ -204,15 +273,25 @@ async function acquireBridgeSession(candidates, boundPid, explicitTabId) {
         tabId: explicitTabId || undefined,
         terminalSessionId: rawTerminalId ? String(rawTerminalId).trim() : undefined,
         terminalGeneration: rawGen ? String(rawGen).trim() : undefined,
+        attachmentId: pairedExchange?.attachmentId || undefined,
       }, 5000);
-
-      if (!session || !session.attachmentId || !session.secret) {
-        throw new Error('Invalid session payload received from bridge');
+      const targetTabId = session?.tabId || explicitTabId;
+      if (!session || !session.attachmentId || !session.secret || !session.authorityRevision || !targetTabId) {
+        const missing = [
+          !session?.attachmentId && 'attachmentId',
+          !session?.secret && 'secret',
+          !session?.authorityRevision && 'authorityRevision',
+          !targetTabId && 'tabId',
+        ].filter(Boolean).join(', ');
+        const err = new Error(`BOOTSTRAP_INVALID: Bridge startSession response missing mandatory fields (${missing})`);
+        err.code = 'BOOTSTRAP_INVALID';
+        err.missing = missing;
+        throw err;
       }
 
       return { ws, bridgeInfo: candidate, session };
     } catch (err) {
-      errors.push(`${sanitizedEndpoint} (${candidate.file || candidate.source || 'endpoint'}): ${err.message}`);
+      errors.push(`${wsUrl} (${candidate.file || candidate.source || 'endpoint'}): ${err.message}`);
       try { ws?.close(); } catch {}
     }
   }
@@ -295,7 +374,7 @@ async function main() {
   }
   const candidates = resolveBridgeCandidates();
   if (candidates.length === 0) {
-    console.error('\x1b[31m[antifan-agent] Error: AntiFan Browser is not running.\x1b[0m');
+    console.error('MCP_BRIDGE_OFFLINE: AntiFan Browser Desktop is not running.');
     console.error('[antifan-agent] Please launch AntiFan Browser Desktop before running this agent.');
     process.exit(1);
   }
@@ -305,7 +384,7 @@ async function main() {
   try {
     bridgeAcquisition = await acquireBridgeSession(candidates, boundPid, explicitTabId);
   } catch (err) {
-    console.error(`\x1b[31m[antifan-agent] Failed to connect to AntiFan Bridge:\x1b[0m\n${err.message}`);
+    console.error(`MCP_BRIDGE_OFFLINE: Failed to connect to AntiFan Bridge after bounded attempts:\n${err.message}`);
     console.error('[antifan-agent] Please verify that AntiFan Browser Desktop is running and responsive.');
     process.exit(1);
   }
@@ -438,6 +517,7 @@ if (require.main === module) {
     getLivenessRank,
     compareCandidates,
     acquireBridgeSession,
+    performPairingExchange,
     spawnAgentChild,
     resolveAgentCommand,
     parseLauncherArgs,

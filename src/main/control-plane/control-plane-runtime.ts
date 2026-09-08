@@ -121,7 +121,7 @@ export class ControlPlaneRuntime {
       getDocumentGeneration: options.getDocumentGeneration,
     });
     this.transport = new CapabilityTransportAdapter(this.capabilities, this.runs.attachments, this.ledger);
-    this.terminal = new TerminalManager();
+    this.terminal = TerminalManager.getInstance();
     this.themeTransactions = new ThemeTransactionRegistry(
       { projectId: options.projectId, workspaceId: options.workspaceId, runtimeId: this.leaseState.runtimeId },
       this.files,

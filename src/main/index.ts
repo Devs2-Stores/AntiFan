@@ -25,7 +25,6 @@ import { StorageLocations } from './config/storage-locations';
 import { WorkspaceCapsuleManager } from './project/workspace-capsule';
 import { NativeTabHost } from './browser/native-tab-host';
 import { BridgeServer, DEFAULT_EXTENSION_ALLOWED_DOMAINS } from './bridge/bridge-server';
-import { AntiFanMcpServer } from './mcp/mcp-server';
 import { TerminalManager } from './browser/terminal-manager';
 import { buildApplicationMenu } from './browser/app-menu';
 import { WindowStateManager } from './browser/window-state';
@@ -60,9 +59,16 @@ app.on('child-process-gone', (_event, details) => {
 
 const IS_PROD = process.argv.includes('--production') || process.env.NODE_ENV === 'production';
 const IS_DEV = !IS_PROD;
-const IS_MCP_SERVER = process.argv.includes('--mcp-server');
-const IS_LOCAL_ENVIRONMENT = !process.env.ANTIFAN_CLOUD_HOSTED && (process.platform === 'win32' || process.platform === 'darwin' || !process.env.CI || IS_DEV || process.env.NODE_ENV !== 'production');
-const IS_MCP_HIGH_RISK = process.argv.includes('--mcp-high-risk') || (IS_LOCAL_ENVIRONMENT && process.env.ANTIFAN_ALLOW_EVAL !== 'false');
+if (process.argv.includes('--mcp-server')) {
+  console.error('[antifan] Electron --mcp-server is discontinued. Use the standalone Node MCP proxy (scripts/antifan-omp-mcp.cjs) to connect to a running AntiFan Desktop instance.');
+  app.exit(1);
+  process.exit(1);
+}
+const IS_CI = Boolean(process.env.CI && process.env.CI !== 'false' && process.env.CI !== '0');
+const HAS_EVAL_FLAG = process.argv.includes('--allow-eval') || process.argv.includes('--mcp-high-risk');
+const HAS_EVAL_ENV = process.env.ANTIFAN_ALLOW_EVAL === 'true' || process.env.ANTIFAN_ALLOW_EVAL === '1';
+// Require explicit opt-in (ANTIFAN_ALLOW_EVAL=true or --allow-eval/--mcp-high-risk); exclude CI; never default eval-on for win32 prod
+const ALLOW_EVAL = !process.env.ANTIFAN_CLOUD_HOSTED && (HAS_EVAL_FLAG || (!IS_CI && HAS_EVAL_ENV));
 // Every packaged, shortcut, and development launch owns the same Chromium
 // profile. The environment override remains available for isolated tests and
 // benchmarks, but launch mode never changes a user's browser identity.
@@ -124,36 +130,33 @@ let mainWindow: BrowserWindow | null = null;
 let tabHost: NativeTabHost | null = null;
 let capsuleManager: WorkspaceCapsuleManager | null = null;
 let bridgeServer: BridgeServer | null = null;
-let mcpServer: AntiFanMcpServer | null = null;
 let windowStateManager: WindowStateManager | null = null;
 let controlPlane: ControlPlaneRuntime | null = null;
 let profileLease: ProfileLease | null = null;
 let localIpcServer: LocalIpcServer | null = null;
-// Enforce single instance lock (except in pure MCP server child mode)
-if (!IS_MCP_SERVER) {
-  const gotTheLock = app.requestSingleInstanceLock();
-  if (!gotTheLock) {
-    console.log(`[antifan] Another instance is already running (${IS_DEV ? 'DEV' : 'PROD'}). Exiting.`);
-    app.exit(0);
-  } else {
-    app.on('second-instance', (_event, commandLine) => {
-      if (mainWindow) {
-        if (mainWindow.isMinimized()) mainWindow.restore();
-        mainWindow.show();
-        mainWindow.focus();
+// Enforce single instance lock
+const gotTheLock = app.requestSingleInstanceLock();
+if (!gotTheLock) {
+  console.log(`[antifan] Another instance is already running (${IS_DEV ? 'DEV' : 'PROD'}). Exiting.`);
+  app.exit(0);
+} else {
+  app.on('second-instance', (_event, commandLine) => {
+    if (mainWindow) {
+      if (mainWindow.isMinimized()) mainWindow.restore();
+      mainWindow.show();
+      mainWindow.focus();
 
-        const urlArg = commandLine.find((arg) => (arg.startsWith('http://') || arg.startsWith('https://')) && !arg.includes('localhost:20128') && !arg.includes('localhost:20129') && !arg.includes('localhost:20130'));
-        if (urlArg && tabHost) {
-          tabHost.createTab(urlArg);
-        }
+      const urlArg = commandLine.find((arg) => (arg.startsWith('http://') || arg.startsWith('https://')) && !arg.includes('localhost:20128') && !arg.includes('localhost:20129') && !arg.includes('localhost:20130'));
+      if (urlArg && tabHost) {
+        tabHost.createTab(urlArg);
       }
-    });
-  }
+    }
+  });
 }
 
 // Benchmark-mode-only telemetry (ANTIFAN_BENCHMARK=1 / --benchmark). Disabled
 // in normal startup; emits startup milestones and event-loop delay samples.
-const ownsElectronInstance = IS_MCP_SERVER || app.hasSingleInstanceLock();
+const ownsElectronInstance = app.hasSingleInstanceLock();
 const benchmarkStopEventLoop = startEventLoopDelayMonitor();
 recordBenchmark({ surface: 'startup', name: 'bootstrap' });
 /** Samples Electron app metrics per process type; benchmark mode only. */
@@ -213,7 +216,7 @@ async function createWindow(): Promise<void> {
     projectId,
     workspaceId,
     dataRoot: StorageLocations.getControlPlaneDir(),
-    allowEval: IS_MCP_HIGH_RISK,
+    allowEval: ALLOW_EVAL,
     getAutomationTabId: () => tabHost!.getAutomationTabId(),
     getDocumentGeneration: (tabId) => tabHost!.getDocumentGeneration(tabId),
     isTabAllowed: (primaryTabId, requestedTabId) => tabHost!.isTabAllowedForPrimary(primaryTabId, requestedTabId),
@@ -376,11 +379,6 @@ async function createWindow(): Promise<void> {
       console.warn('[antifan] Failed to start Native Messaging Local IPC Server:', err);
     }
   }
-  if (IS_MCP_SERVER) {
-    console.log('[antifan] Starting stdio MCP server...');
-    mcpServer = new AntiFanMcpServer(tabHost, IS_MCP_HIGH_RISK, capabilityTransport);
-    await mcpServer.start();
-  }
 
   let showFallbackTimer: NodeJS.Timeout | null = null;
   const showMainWindow = () => {
@@ -479,9 +477,6 @@ function shutdown(): Promise<void> {
     } catch {}
     try {
       localIpcServer?.close();
-    } catch {}
-    try {
-      await mcpServer?.stop();
     } catch {}
     try {
       await TerminalManager.getInstance().dispose();

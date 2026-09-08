@@ -1,8 +1,6 @@
+#!/usr/bin/env node
 const crypto = require('node:crypto');
 const http = require('node:http');
-const fs = require('node:fs');
-const path = require('node:path');
-const os = require('node:os');
 const { WebSocket } = require('ws');
 const { Server } = require('@modelcontextprotocol/sdk/server/index.js');
 const { StdioServerTransport } = require('@modelcontextprotocol/sdk/server/stdio.js');
@@ -64,81 +62,53 @@ let currentAuthorityRevision = null;
 let dynamicBootstrap = null;
 
 function resolveBridgeCandidates() {
-  const candidates = [];
-  const seenTargets = new Set();
-  const seenFiles = new Set();
-
-  const candidateDirs = [
-    process.env.ANTIFAN_CONFIG_DIR || null,
-    path.join('E:', 'Work', '.antifan-data', 'config'),
-    path.join('E:\\', 'Work', '.antifan-data', 'config'),
-    path.join('E:', '.antifan-data', 'config'),
-    path.join('D:', 'Work', '.antifan-data', 'config'),
-    process.env.APPDATA ? path.join(process.env.APPDATA, 'AntiFan', 'data', 'config') : null,
-    process.env.APPDATA ? path.join(process.env.APPDATA, 'antifan-browser-desktop', 'data', 'config') : null,
-    process.env.LOCALAPPDATA ? path.join(process.env.LOCALAPPDATA, 'antifan-data', 'config') : null,
-    path.join(os.homedir(), '.antifan'),
-    path.join(os.homedir(), '.gemini'),
-  ].filter(Boolean);
-
-  const fileNames = ['bridge-dev.json', 'bridge.json', 'antifan_bridge_dev.json', 'antifan_bridge.json'];
-
-  for (const dir of candidateDirs) {
-    for (const name of fileNames) {
-      const filePath = path.resolve(dir, name);
-      if (seenFiles.has(filePath)) continue;
-      seenFiles.add(filePath);
-
-      if (fs.existsSync(filePath)) {
-        try {
-          const stat = fs.statSync(filePath);
-          const raw = fs.readFileSync(filePath, 'utf8');
-          const parsed = JSON.parse(raw);
-          if (parsed && typeof parsed.port === 'number' && parsed.port > 0) {
-            const host = parsed.host || '127.0.0.1';
-            const port = parsed.port;
-            const token = parsed.token || '';
-            const targetKey = `${host}:${port}:${token}`;
-            if (seenTargets.has(targetKey)) continue;
-            seenTargets.add(targetKey);
-
-            let pidAlive = null;
-            if (parsed.pid && typeof parsed.pid === 'number') {
-              try {
-                process.kill(parsed.pid, 0);
-                pidAlive = true;
-              } catch (err) {
-                pidAlive = err.code === 'EPERM' ? true : false;
-              }
-            }
-
-            candidates.push({
-              source: 'file',
-              file: filePath,
-              port,
-              host,
-              token,
-              pid: parsed.pid,
-              pidAlive,
-              startedAt: parsed.startedAt || stat.mtimeMs || 0,
-              isDev: Boolean(parsed.isDev),
-            });
-          }
-        } catch {}
+  // Fail-closed, bootstrap-only authority: the OMP proxy connects exclusively to
+  // the explicit bridge endpoint supplied via environment. It MUST NOT discover
+  // bridge credentials from disk — ambient endpoint discovery is the fail-open
+  // vector dual-plane eliminates.
+  const parsedBootstrap = (() => {
+    if (process.env.ANTIFAN_MCP_BOOTSTRAP) {
+      try {
+        const b = JSON.parse(process.env.ANTIFAN_MCP_BOOTSTRAP);
+        if (b && typeof b.port === 'number' && b.port > 0) return b;
+      } catch {}
+    }
+    if (process.env.ANTIFAN_ATTACHMENT_SECRET) {
+      const port = parseInt(process.env.ANTIFAN_MCP_PORT || '20129', 10);
+      if (port > 0) {
+        return {
+          port,
+          host: process.env.ANTIFAN_HOST || '127.0.0.1',
+          token: process.env.ANTIFAN_ATTACHMENT_SECRET,
+          secret: process.env.ANTIFAN_ATTACHMENT_SECRET,
+          runId: process.env.ANTIFAN_RUN_ID,
+          attemptId: process.env.ANTIFAN_ATTEMPT_ID,
+          projectId: process.env.ANTIFAN_PROJECT_ID,
+          workspaceId: process.env.ANTIFAN_WORKSPACE_ID,
+        };
       }
     }
-  }
+    return null;
+  })();
 
-  candidates.sort((a, b) => {
-    const rankA = a.pidAlive === true ? 2 : (a.pidAlive === null ? 1 : 0);
-    const rankB = b.pidAlive === true ? 2 : (b.pidAlive === null ? 1 : 0);
-    if (rankB !== rankA) return rankB - rankA;
-    const devDiff = (b.isDev ? 1 : 0) - (a.isDev ? 1 : 0);
-    if (devDiff !== 0) return devDiff;
-    return (b.startedAt || 0) - (a.startedAt || 0);
-  });
+  if (!parsedBootstrap) return [];
 
-  return candidates;
+  const host = parsedBootstrap.host || '127.0.0.1';
+  const port = parsedBootstrap.port;
+  const token = parsedBootstrap.token || parsedBootstrap.secret || '';
+  return [
+    {
+      source: 'env',
+      host,
+      port,
+      token,
+      secret: parsedBootstrap.secret || token,
+      pid: parsedBootstrap.ownerPid,
+      pidAlive: parsedBootstrap.ownerPid ? true : null,
+      startedAt: 0,
+      isDev: Boolean(parsedBootstrap.isDev),
+    },
+  ];
 }
 
 function getBootstrap() {
@@ -354,14 +324,87 @@ function wireDispatchSocket(ws) {
   });
 }
 
+function httpJsonPost(host, port, requestPath, payload) {
+  return new Promise((resolve, reject) => {
+    const postData = JSON.stringify(payload || {});
+    const req = http.request({
+      hostname: host,
+      port: port,
+      path: requestPath,
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Content-Length': Buffer.byteLength(postData),
+      },
+    }, (res) => {
+      let data = '';
+      res.on('data', (chunk) => { data += chunk; });
+      res.on('end', () => {
+        try {
+          const parsed = JSON.parse(data || '{}');
+          if (res.statusCode && res.statusCode >= 200 && res.statusCode < 300) {
+            resolve(parsed);
+          } else {
+            const msg = parsed.message || parsed.error || `HTTP ${res.statusCode}`;
+            reject(new Error(typeof msg === 'string' ? msg : JSON.stringify(msg)));
+          }
+        } catch {
+          reject(new Error(`Failed to parse JSON response (${res.statusCode}): ${data}`));
+        }
+      });
+    });
+    req.setTimeout(3000, () => {
+      req.destroy(new Error('Pairing request timeout'));
+    });
+    req.on('error', (err) => {
+      reject(err);
+    });
+    req.write(postData);
+    req.end();
+  });
+}
+
+async function performPairingExchange(host, port) {
+  const challenge = await httpJsonPost(host, port, '/api/pairing/challenge', {});
+  const code = challenge?.code;
+  if (!challenge?.success || !code) {
+    throw new Error(`PAIRING_CHALLENGE_FAILED: ${challenge?.message || challenge?.error || 'No challenge code returned'}`);
+  }
+  const exchange = await httpJsonPost(host, port, '/api/pairing/exchange', {
+    code,
+    clientClass: 'mcp',
+  });
+  if (!exchange?.success || !exchange?.secret) {
+    throw new Error(`PAIRING_EXCHANGE_FAILED: ${exchange?.message || exchange?.error || 'No secret returned'}`);
+  }
+  return exchange;
+}
+
 async function autohealSession() {
   const candidates = resolveBridgeCandidates();
+  if (candidates.length === 0) {
+    process.stderr.write('MCP_BRIDGE_OFFLINE: AntiFan Desktop Bridge is not running (no candidates discovered).\n');
+    return null;
+  }
   for (const candidate of candidates) {
     try {
-      const wsUrl = `ws://${candidate.host}:${candidate.port}?token=${encodeURIComponent(candidate.token)}`;
-      const ws = new WebSocket(wsUrl, {
-        headers: candidate.token ? { Authorization: `Bearer ${candidate.token}` } : {},
-      });
+      let authSecret = candidate.token || '';
+      let pairedExchange = null;
+      if (!authSecret) {
+        pairedExchange = await performPairingExchange(candidate.host, candidate.port);
+        authSecret = pairedExchange.secret;
+      }
+
+      const wsUrl = `ws://${candidate.host}:${candidate.port}`;
+      const headers = {};
+      if (pairedExchange && pairedExchange.secret) {
+        headers['x-antifan-attachment-secret'] = pairedExchange.secret;
+        headers['Authorization'] = `Bearer ${pairedExchange.secret}`;
+      } else if (authSecret) {
+        headers['Authorization'] = `Bearer ${authSecret}`;
+        headers['x-antifan-attachment-secret'] = authSecret;
+      }
+      const ws = new WebSocket(wsUrl, { headers });
 
       await new Promise((resolve, reject) => {
         let settled = false;
@@ -421,9 +464,21 @@ async function autohealSession() {
             backendId: 'cli',
             grant: 'eval',
             cwd: process.cwd(),
+            attachmentId: pairedExchange?.attachmentId || undefined,
           },
         }));
       });
+      if (!session || !session.attachmentId || !session.secret || !session.authorityRevision || !session.tabId) {
+        const missing = [
+          !session?.attachmentId && 'attachmentId',
+          !session?.secret && 'secret',
+          !session?.authorityRevision && 'authorityRevision',
+          !session?.tabId && 'tabId',
+        ].filter(Boolean).join(', ');
+        const err = new Error(`BOOTSTRAP_INVALID: Bridge startSession response missing mandatory fields (${missing})`);
+        err.code = 'BOOTSTRAP_INVALID';
+        throw err;
+      }
 
       dynamicBootstrap = {
         port: candidate.port,
@@ -436,7 +491,7 @@ async function autohealSession() {
         projectId: session.projectId,
         workspaceId: session.workspaceId,
         tabId: session.tabId,
-        token: candidate.token,
+        token: candidate.token || session.secret,
       };
       currentAuthorityRevision = session.authorityRevision;
 
@@ -447,6 +502,7 @@ async function autohealSession() {
       process.stderr.write(`[AntiFan Autoheal] Candidate ${candidate.host}:${candidate.port} failed: ${err.message}\n`);
     }
   }
+  process.stderr.write('MCP_BRIDGE_OFFLINE: All candidate AntiFan Desktop Bridge endpoints failed to connect.\n');
   return null;
 }
 
@@ -462,10 +518,14 @@ async function ensureDispatchSocket(bootstrap) {
     if (bootstrap && bootstrap.port && (bootstrap.token || bootstrap.secret)) {
       try {
         const authHeaders = {};
-        if (bootstrap.secret) authHeaders['X-Antifan-Attachment-Secret'] = bootstrap.secret;
-        if (bootstrap.token) authHeaders['Authorization'] = `Bearer ${bootstrap.token}`;
-        const tokenParam = (bootstrap.token || bootstrap.secret) ? `?token=${encodeURIComponent(bootstrap.token || bootstrap.secret)}` : '';
-        const url = `ws://127.0.0.1:${bootstrap.port}${tokenParam}`;
+        if (bootstrap.secret) {
+          authHeaders['X-Antifan-Attachment-Secret'] = bootstrap.secret;
+          authHeaders['Authorization'] = `Bearer ${bootstrap.secret}`;
+        }
+        if (bootstrap.token && !authHeaders['Authorization']) {
+          authHeaders['Authorization'] = `Bearer ${bootstrap.token}`;
+        }
+        const url = `ws://127.0.0.1:${bootstrap.port}`;
 
         const ws = new WebSocket(url, { headers: authHeaders });
         await new Promise((resolve, reject) => {
@@ -525,9 +585,14 @@ async function ensureDispatchSocket(bootstrap) {
 async function invoke(method, params = {}, callerRequestId) {
   let bootstrap = getBootstrap();
   if (!bootstrap || !bootstrap.secret) {
-    await autohealSession();
+    try {
+      await autohealSession();
+    } catch (err) {
+      process.stderr.write(`[AntiFan MCP] Autoheal failed: ${err.message}\n`);
+    }
     bootstrap = getBootstrap();
     if (!bootstrap || !bootstrap.secret) {
+      process.stderr.write('MCP_BRIDGE_OFFLINE: AntiFan Desktop Bridge unavailable\n');
       throw new Error(JSON.stringify({ code: 'MCP_CONTEXT_REQUIRED', message: 'OMP MCP proxy requires an authoritative Main bootstrap' }));
     }
   }
@@ -656,8 +721,7 @@ function stopHeartbeat() {
 }
 
 function heartbeatUrl(bootstrap) {
-  const tokenParam = (bootstrap.token || bootstrap.secret) ? `?token=${encodeURIComponent(bootstrap.token || bootstrap.secret)}` : '';
-  return `ws://127.0.0.1:${bootstrap.port}${tokenParam}`;
+  return `ws://127.0.0.1:${bootstrap.port}`;
 }
 
 function scheduleHeartbeatReconnect(bootstrap) {
@@ -707,8 +771,13 @@ function ensureHeartbeatSocket(bootstrap, onOpen) {
   }
   if (!bootstrap || !bootstrap.secret || !bootstrap.attachmentId) return null;
   const authHeaders = {};
-  if (bootstrap.secret) authHeaders['X-Antifan-Attachment-Secret'] = bootstrap.secret;
-  if (bootstrap.token) authHeaders['Authorization'] = `Bearer ${bootstrap.token}`;
+  if (bootstrap.secret) {
+    authHeaders['X-Antifan-Attachment-Secret'] = bootstrap.secret;
+    authHeaders['Authorization'] = `Bearer ${bootstrap.secret}`;
+  }
+  if (bootstrap.token && !authHeaders['Authorization']) {
+    authHeaders['Authorization'] = `Bearer ${bootstrap.token}`;
+  }
   let ws;
   try {
     ws = new WebSocket(heartbeatUrl(bootstrap), { headers: authHeaders });
@@ -879,12 +948,19 @@ function resolveImageArtifactResponse(data, artifactPayload) {
 }
 
 if (require.main === module) {
+  if (process.stdin.isTTY && !process.env.ANTIFAN_MCP_BOOTSTRAP) {
+    const candidates = resolveBridgeCandidates();
+    if (candidates.length === 0) {
+      process.stderr.write('MCP_BRIDGE_OFFLINE: AntiFan Desktop Bridge is not running.\n');
+      process.exit(1);
+    }
+  }
   server.connect(new StdioServerTransport())
     .then(() => startHeartbeat(getBootstrap()))
     .catch((error) => {
       stopHeartbeat();
-      process.stderr.write(`${error}\n`);
-      process.exitCode = 1;
+      process.stderr.write(`MCP_BRIDGE_OFFLINE: ${error}\n`);
+      process.exit(1);
     });
 }
 

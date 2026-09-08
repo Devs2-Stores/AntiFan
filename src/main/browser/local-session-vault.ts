@@ -30,6 +30,62 @@ export interface VaultStats {
   count: number;
   lastModified?: number;
   filePath: string;
+  error?: string;
+}
+
+export type VaultSessionResolver = (
+  event?: unknown,
+  payload?: unknown,
+  binding?: { valid: boolean; attachmentId?: string; error?: string }
+) => Electron.Session | null;
+
+export interface SessionVaultIpcOptions {
+  validateSender?: (event: unknown) => boolean;
+  resolveAttachmentBinding?: (
+    event: unknown,
+    payload?: unknown
+  ) => { valid: boolean; attachmentId?: string; error?: string };
+}
+
+export interface CookieImportOptions {
+  attachmentBinding?: {
+    attachmentId?: string;
+    valid?: boolean;
+    isBound?: boolean;
+  } | null;
+  requireAttachmentBinding?: boolean;
+}
+
+/**
+ * Fail-closed derivation of sender trustworthiness for Session Vault operations.
+ * Requires a TOP frame (senderFrame === sender.mainFrame) with an internal app
+ * UI origin (file: pointing to toolbar/sidebar/renderer or antifan: scheme).
+ * Untrusted top frames (external http/https) and all subframes resolve to false.
+ */
+export function isTrustedSessionVaultSender(event: unknown): boolean {
+  const ipcEvent = (event ?? null) as {
+    senderFrame?: { url?: string } | null;
+    sender?: { mainFrame?: unknown } | null;
+  } | null;
+  if (!ipcEvent) return false;
+  const frame = ipcEvent.senderFrame;
+  if (!frame || typeof frame.url !== 'string') return false;
+  const mainFrame = ipcEvent.sender?.mainFrame;
+  if (mainFrame === undefined || frame !== mainFrame) return false;
+
+  try {
+    const parsed = new URL(frame.url);
+    if (parsed.protocol === 'file:') {
+      const pathname = parsed.pathname.toLowerCase();
+      return pathname.endsWith('toolbar.html') || pathname.endsWith('sidebar.html') || pathname.includes('/renderer/');
+    }
+    if (parsed.protocol === 'antifan:') {
+      return true;
+    }
+    return false;
+  } catch {
+    return false;
+  }
 }
 
 export class LocalSessionVault {
@@ -100,7 +156,8 @@ export class LocalSessionVault {
    */
   public async importVaultFromFile(
     targetSession: Electron.Session,
-    inputFilePath?: string
+    inputFilePath?: string,
+    options?: CookieImportOptions
   ): Promise<{ success: boolean; importedCount: number; failedCount: number; error?: string }> {
     const inPath = inputFilePath ? path.resolve(inputFilePath) : this.getDefaultVaultPath();
     if (!fs.existsSync(inPath)) {
@@ -110,7 +167,7 @@ export class LocalSessionVault {
     try {
       const raw = await fs.promises.readFile(inPath, 'utf8');
       const parsed = JSON.parse(raw);
-      return await this.importVaultFromJson(targetSession, parsed);
+      return await this.importVaultFromJson(targetSession, parsed, options);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       return { success: false, importedCount: 0, failedCount: 0, error: msg };
@@ -122,8 +179,17 @@ export class LocalSessionVault {
    */
   public async importVaultFromJson(
     targetSession: Electron.Session,
-    input: string | VaultCookie[]
+    input: string | VaultCookie[],
+    options?: CookieImportOptions
   ): Promise<{ success: boolean; importedCount: number; failedCount: number; error?: string }> {
+    if (options?.requireAttachmentBinding) {
+      if (!options.attachmentBinding || !options.attachmentBinding.attachmentId || options.attachmentBinding.valid === false || options.attachmentBinding.isBound === false) {
+        return { success: false, importedCount: 0, failedCount: 0, error: 'ATTACHMENT_REQUIRED: Valid attachment binding required for cookie import' };
+      }
+    }
+    if (options?.attachmentBinding && (options.attachmentBinding.valid === false || options.attachmentBinding.isBound === false)) {
+      return { success: false, importedCount: 0, failedCount: 0, error: 'ATTACHMENT_INVALID: Foreign or unbound attachment binding rejected' };
+    }
     let cookieList: any[];
     if (typeof input === 'string') {
       try {
@@ -402,27 +468,103 @@ export class LocalSessionVault {
   /**
    * Registers IPC handlers for toolbar and app menu integration.
    */
-  public registerIpcHandlers(getSessionFn: () => Electron.Session): void {
+  public registerIpcHandlers(getSessionFn: VaultSessionResolver, options?: SessionVaultIpcOptions): void {
+    const isAuthorized = (event: unknown): boolean => {
+      if (options?.validateSender) {
+        return options.validateSender(event);
+      }
+      return isTrustedSessionVaultSender(event);
+    };
+
     ipcMain.removeHandler('antifan:vault:export');
-    ipcMain.handle('antifan:vault:export', async (_event, customPath?: string) => {
-      const targetSession = getSessionFn();
+    ipcMain.handle('antifan:vault:export', async (event, customPath?: string) => {
+      if (!isAuthorized(event)) {
+        return { success: false, count: 0, filePath: '', error: 'UNVERIFIED_SENDER' };
+      }
+      const targetSession = getSessionFn(event);
+      if (!targetSession) {
+        return { success: false, count: 0, filePath: '', error: 'TARGET_SESSION_REQUIRED: Explicit target session could not be resolved' };
+      }
       return await this.exportVaultToFile(targetSession, customPath);
     });
 
     ipcMain.removeHandler('antifan:vault:import');
-    ipcMain.handle('antifan:vault:import', async (_event, customPath?: string) => {
-      const targetSession = getSessionFn();
-      return await this.importVaultFromFile(targetSession, customPath);
+    ipcMain.handle('antifan:vault:import', async (event, customPath?: string, importOptions?: unknown) => {
+      if (!isAuthorized(event)) {
+        return { success: false, importedCount: 0, failedCount: 0, error: 'UNVERIFIED_SENDER' };
+      }
+      let binding: { valid: boolean; attachmentId?: string; error?: string } | undefined;
+      if (options?.resolveAttachmentBinding) {
+        binding = options.resolveAttachmentBinding(event, importOptions);
+        if (!binding.valid) {
+          return {
+            success: false,
+            importedCount: 0,
+            failedCount: 0,
+            error: binding.error || 'ATTACHMENT_REQUIRED: Valid attachment binding required for cookie import',
+          };
+        }
+      }
+      const targetSession = getSessionFn(event, importOptions, binding);
+      if (!targetSession) {
+        return {
+          success: false,
+          importedCount: 0,
+          failedCount: 0,
+          error: 'TARGET_SESSION_REQUIRED: Explicit target session could not be resolved',
+        };
+      }
+      return await this.importVaultFromFile(targetSession, customPath, {
+        attachmentBinding: binding ? {
+          attachmentId: binding.attachmentId,
+          valid: binding.valid,
+          isBound: Boolean(binding.attachmentId),
+        } : undefined,
+        requireAttachmentBinding: Boolean(options?.resolveAttachmentBinding),
+      });
     });
 
     ipcMain.removeHandler('antifan:vault:import-json');
-    ipcMain.handle('antifan:vault:import-json', async (_event, jsonContent: string) => {
-      const targetSession = getSessionFn();
-      return await this.importVaultFromJson(targetSession, jsonContent);
+    ipcMain.handle('antifan:vault:import-json', async (event, jsonContent: string, importOptions?: unknown) => {
+      if (!isAuthorized(event)) {
+        return { success: false, importedCount: 0, failedCount: 0, error: 'UNVERIFIED_SENDER' };
+      }
+      let binding: { valid: boolean; attachmentId?: string; error?: string } | undefined;
+      if (options?.resolveAttachmentBinding) {
+        binding = options.resolveAttachmentBinding(event, importOptions);
+        if (!binding.valid) {
+          return {
+            success: false,
+            importedCount: 0,
+            failedCount: 0,
+            error: binding.error || 'ATTACHMENT_REQUIRED: Valid attachment binding required for cookie import',
+          };
+        }
+      }
+      const targetSession = getSessionFn(event, importOptions, binding);
+      if (!targetSession) {
+        return {
+          success: false,
+          importedCount: 0,
+          failedCount: 0,
+          error: 'TARGET_SESSION_REQUIRED: Explicit target session could not be resolved',
+        };
+      }
+      return await this.importVaultFromJson(targetSession, jsonContent, {
+        attachmentBinding: binding ? {
+          attachmentId: binding.attachmentId,
+          valid: binding.valid,
+          isBound: Boolean(binding.attachmentId),
+        } : undefined,
+        requireAttachmentBinding: Boolean(options?.resolveAttachmentBinding),
+      });
     });
 
     ipcMain.removeHandler('antifan:vault:get-stats');
-    ipcMain.handle('antifan:vault:get-stats', async (_event, customPath?: string) => {
+    ipcMain.handle('antifan:vault:get-stats', async (event, customPath?: string) => {
+      if (!isAuthorized(event)) {
+        return { exists: false, count: 0, filePath: '', error: 'UNVERIFIED_SENDER' };
+      }
       return await this.getVaultStats(customPath);
     });
   }

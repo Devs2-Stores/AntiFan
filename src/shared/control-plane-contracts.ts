@@ -6,7 +6,7 @@ export const CONTROL_PLANE_PROTOCOL_VERSION = 1;
 export const SESSION_FORMAT_VERSION = 1;
 export * from './theme-task-context';
 
-export type ControlPlaneEntity = 'project' | 'workspace' | 'chat' | 'run' | 'attempt' | 'tool' | 'artifact' | 'binding' | 'invocation' | 'event' | 'message' | 'request' | 'idempotency' | 'attachment';
+export type ControlPlaneEntity = 'project' | 'workspace' | 'chat' | 'run' | 'attempt' | 'tool' | 'artifact' | 'binding' | 'invocation' | 'event' | 'message' | 'request' | 'idempotency' | 'attachment' | 'runtime' | 'session';
 export type LifecycleState = 'open' | 'closed' | 'interrupted' | 'completed' | 'failed' | 'unknown';
 export type RunState = 'queued' | 'starting' | 'streaming' | 'waiting-tool' | 'cancelling' | 'completed' | 'failed' | 'interrupted' | 'unknown';
 export type AttemptState = 'prepared' | 'dispatching' | 'running' | 'completed' | 'failed' | 'interrupted' | 'unknown';
@@ -568,7 +568,9 @@ export type CapabilityErrorCode =
   | 'RESOURCE_FAILURE'
   | 'SETTLE_INCOMPLETE'
   | 'TRANSACTION_CONFLICT'
-  | 'BASELINE_TAMPERED';
+  | 'BASELINE_TAMPERED'
+  | 'TERMINAL_FORBIDDEN'
+  | 'USER_VISIBLE_OPERATION_FORBIDDEN';
 
 export class CapabilityError extends Error {
   readonly code: CapabilityErrorCode;

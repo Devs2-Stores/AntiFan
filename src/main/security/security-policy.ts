@@ -127,7 +127,7 @@ export function getSecureWebPreferences(partition?: string, options?: { offscree
 
   const prefs: WebPreferences = {
     preload: resolvedPreload,
-    contextIsolation: false,
+    contextIsolation: true,
     sandbox: true,
     nodeIntegration: false,
     webSecurity: true,

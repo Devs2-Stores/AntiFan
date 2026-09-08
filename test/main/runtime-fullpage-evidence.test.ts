@@ -73,6 +73,12 @@ describe('Runtime Full-Page Evidence & 5D Parity Tests', () => {
       },
       evalJs: async (script: string) => {
         if (script.includes('img.decode')) return { settled: true, brokenImages: [] };
+        if (script.includes('document.querySelectorAll') && script.includes('boxes')) {
+          // Mask query: all default storefront widget selectors are optional and
+          // match nothing on this minimal page; empty array satisfies MaskLedger
+          // (each selector resolves to missing-optional, which is allowed).
+          return [];
+        }
         return true;
       },
       getNetworkTracker: () => ({
