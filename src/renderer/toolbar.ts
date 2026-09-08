@@ -714,7 +714,7 @@ function renderTabs() {
         } else if (e.key === 'Enter' || e.key === ' ') {
           e.preventDefault();
           getApi()?.switchTab(tab.id);
-        } else if (e.key === 'Delete' || ((e.ctrlKey || e.metaKey) && e.key === 'w')) {
+        } else if (e.key === 'Delete') {
           e.preventDefault();
           e.stopPropagation();
           getApi()?.closeTab(tab.id);
