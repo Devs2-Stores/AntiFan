@@ -262,13 +262,13 @@ describe('visualCompare fail-closed mask ledger & normalization transaction', ()
 
     // Mask ledger: per-side entries resolved with a sane ratio.
     const mask = (result.maskResolution as any);
-    assert.strictEqual(mask.target.entries.length, 1);
+    assert.ok(mask.target.entries.length >= 1);
     assert.strictEqual(mask.target.entries[0].selector, '.badge');
     assert.strictEqual(mask.target.entries[0].status, 'resolved');
     assert.strictEqual(mask.target.entries[0].required, true);
     assert.ok(mask.target.maskedAreaRatio > 0 && mask.target.maskedAreaRatio < 0.1);
     assert.ok(mask.baseline, 'comparison side receipt must exist');
-    assert.strictEqual(mask.baseline.entries.length, 1);
+    assert.ok(mask.baseline.entries.length >= 1);
   });
 
   it('V-12: cleanup runs (verified restore) when capture throws', async () => {
@@ -339,8 +339,10 @@ describe('visualCompare fail-closed mask ledger & normalization transaction', ()
     );
 
     assert.strictEqual(result.match, true);
-    // One record per side (target + comparison both report the absent optional).
-    assert.deepEqual((result.maskResolution as any).optionalUnmatched, ['.maybe-gone', '.maybe-gone']);
+    // Both sides report the absent user optional mask (.maybe-gone) as well as any absent storefront defaults
+    const unmatched = (result.maskResolution as any).optionalUnmatched as string[];
+    assert.ok(unmatched.includes('.maybe-gone'), 'must contain user-supplied absent optional mask');
+    assert.strictEqual(unmatched.filter(s => s === '.maybe-gone').length, 2, 'user optional recorded once per side');
     assert.strictEqual((result.maskResolution as any).status, 'ok');
   });
 

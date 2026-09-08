@@ -2216,9 +2216,11 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
           items: { type: 'string' },
           description: 'Explicit list of component selectors to track for structural parity and cardinality authority',
         },
+        heightTolerance: { type: 'number', description: 'Maximum acceptable height delta ratio (0.0 to 1.0) before triggering STRUCTURAL_TRUNCATION_DETECTED. Default 0.10' },
+        allowHeightDrift: { type: 'boolean', description: 'When true, bypasses the hard STRUCTURAL_TRUNCATION failure gate and proceeds to section/pixel diff evaluation' },
       },
     },
-    execute: (params: { baselineScreenshotRef?: string; baselineRef?: string; comparisonTabId?: string; tolerance?: number; selector?: string; clipRect?: { x: number; y: number; width: number; height: number }; maskSelectors?: string[]; maskOptionalSelectors?: string[]; normalizeScroll?: boolean; tabId?: string; paneId?: 'desktop' | 'mobile'; fullPage?: boolean; trackedSelectors?: string[] }, context) =>
+    execute: (params: { baselineScreenshotRef?: string; baselineRef?: string; comparisonTabId?: string; tolerance?: number; selector?: string; clipRect?: { x: number; y: number; width: number; height: number }; maskSelectors?: string[]; maskOptionalSelectors?: string[]; normalizeScroll?: boolean; tabId?: string; paneId?: 'desktop' | 'mobile'; fullPage?: boolean; trackedSelectors?: string[]; heightTolerance?: number; allowHeightDrift?: boolean }, context) =>
       browser.visualCompare(context.browserTarget as BrowserTarget, context.runId || 'run-default', context.attemptId || 'att-default', params, params?.tabId, params?.paneId),
   });
 
@@ -2263,9 +2265,11 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
           items: { type: 'string' },
           description: 'Explicit list of component selectors to track for structural parity and cardinality authority',
         },
+        heightTolerance: { type: 'number', description: 'Maximum acceptable height delta ratio (0.0 to 1.0) before triggering STRUCTURAL_TRUNCATION_DETECTED. Default 0.10' },
+        allowHeightDrift: { type: 'boolean', description: 'When true, bypasses the hard STRUCTURAL_TRUNCATION failure gate and proceeds to section/pixel diff evaluation' },
       },
     },
-    execute: (params: { baselineScreenshotRef?: string; baselineRef?: string; comparisonTabId?: string; tolerance?: number; selector?: string; clipRect?: { x: number; y: number; width: number; height: number }; maskSelectors?: string[]; maskOptionalSelectors?: string[]; normalizeScroll?: boolean; tabId?: string; paneId?: 'desktop' | 'mobile'; fullPage?: boolean; trackedSelectors?: string[] }, context) =>
+    execute: (params: { baselineScreenshotRef?: string; baselineRef?: string; comparisonTabId?: string; tolerance?: number; selector?: string; clipRect?: { x: number; y: number; width: number; height: number }; maskSelectors?: string[]; maskOptionalSelectors?: string[]; normalizeScroll?: boolean; tabId?: string; paneId?: 'desktop' | 'mobile'; fullPage?: boolean; trackedSelectors?: string[]; heightTolerance?: number; allowHeightDrift?: boolean }, context) =>
       browser.visualCompare(context.browserTarget as BrowserTarget, context.runId || 'run-default', context.attemptId || 'att-default', params, params?.tabId, params?.paneId),
   });
   catalogue.register({

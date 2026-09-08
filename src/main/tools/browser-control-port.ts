@@ -607,6 +607,10 @@ interface VisualCompareParams {
   paneId?: 'desktop' | 'mobile';
   fullPage?: boolean;
   trackedSelectors?: string[];
+  /** Maximum acceptable height delta ratio (0.0 to 1.0) before triggering STRUCTURAL_TRUNCATION_DETECTED. Default is 0.10 (10%). */
+  heightTolerance?: number;
+  /** When true, bypasses the hard STRUCTURAL_TRUNCATION failure gate and proceeds to section/pixel diff evaluation */
+  allowHeightDrift?: boolean;
 }
 
 /** Bounded visual-compare capture outcome: either settles with a result or asks for another attempt. */
@@ -2607,7 +2611,9 @@ export class BrowserControlPort {
       const requiredMasks = rawRequired.filter((s) => !isDynamicWidget(s));
       const autoPromotedOptional = rawRequired.filter((s) => isDynamicWidget(s));
       const hasUserMasks = rawRequired.length > 0 || userOptional.length > 0;
-      const defaultStorefrontOptional = hasUserMasks ? [] : [
+      // Always merge third-party dynamic widgets so user masks don't expose unmasked popups/chat widgets.
+      // Broad generic selectors like iframe[id] are only included when no user masks are provided.
+      const defaultStorefrontWidgets = [
         '#haravan-notification',
         '[id*="haravan-notification"]',
         '#preview-bar-iframe',
@@ -2638,9 +2644,9 @@ export class BrowserControlPort {
         '.loomline_addthis_contact__icons',
         '.grecaptcha-badge',
         '#toast-container',
-        'iframe[id]',
+        ...(hasUserMasks ? [] : ['iframe[id]']),
       ];
-      const optionalMasks = Array.from(new Set([...userOptional, ...autoPromotedOptional, ...defaultStorefrontOptional]));
+      const optionalMasks = Array.from(new Set([...userOptional, ...autoPromotedOptional, ...defaultStorefrontWidgets]));
       // Record the active tab so a background comparison tab can be foregrounded
       // for capture and restored afterwards. Background WebContentsViews are
       // detached from window.contentView, and CDP Page.captureScreenshot cannot
@@ -3424,14 +3430,18 @@ export class BrowserControlPort {
       const baseDims = getPngDims(baselineBuffer);
       if (curDims && baseDims && baseDims.height > 0) {
         const heightDelta = Math.abs(curDims.height - baseDims.height) / baseDims.height;
-        if (heightDelta > 0.10) {
+        const effectiveHeightTolerance = typeof params.heightTolerance === 'number' && Number.isFinite(params.heightTolerance)
+          ? Math.max(0.01, Math.min(1.0, params.heightTolerance))
+          : 0.10;
+        const allowHeightDrift = Boolean(params.allowHeightDrift);
+        if (!allowHeightDrift && heightDelta > effectiveHeightTolerance) {
           return {
             settle: true,
             result: {
               match: false,
               mismatchPercentage: 100,
               verdict: 'STRUCTURAL_TRUNCATION_DETECTED',
-              reason: `Structural height mismatch exceeds 10% tolerance (current: ${curDims.height}px, baseline: ${baseDims.height}px, delta: ${(heightDelta * 100).toFixed(1)}%). Potential DOM truncation or viewport-only capture detected.`,
+              reason: `Structural height mismatch exceeds ${(effectiveHeightTolerance * 100).toFixed(0)}% tolerance (current: ${curDims.height}px, baseline: ${baseDims.height}px, delta: ${(heightDelta * 100).toFixed(1)}%). Potential DOM truncation or viewport-only capture detected. Pass allowHeightDrift: true or adjust heightTolerance to compare pages with differing article/product content counts.`,
               dimensions: {
                 visual: { verdict: 'FAIL', mismatchPercentage: 100, heightRatio: curDims.height / baseDims.height },
                 layout: { verdict: 'FAIL', currentHeight: curDims.height, baselineHeight: baseDims.height, deltaPx: Math.abs(curDims.height - baseDims.height) },
