@@ -1070,6 +1070,11 @@ export class AssetLocalizer {
             : targetFilename;
           sheetMap.set(urlRef, replacement);
           sheetMap.set(resolvedUrl, replacement);
+          if (resolvedUrl.startsWith('https://')) {
+            sheetMap.set(resolvedUrl.slice(6), replacement);
+          } else if (resolvedUrl.startsWith('http://')) {
+            sheetMap.set(resolvedUrl.slice(5), replacement);
+          }
         }
       }
 
