@@ -1122,10 +1122,13 @@ export class AssetLocalizer {
           ? `{{ '${item.filename}' | asset_url }}`
           : item.filename;
         globalMap.set(item.sourceUrl, replacement);
+        globalMap.set(item.sourceUrl.split('?')[0].split('#')[0], replacement);
         if (item.sourceUrl.startsWith('https://')) {
           globalMap.set(item.sourceUrl.slice(6), replacement);
+          globalMap.set(item.sourceUrl.slice(6).split('?')[0].split('#')[0], replacement);
         } else if (item.sourceUrl.startsWith('http://')) {
           globalMap.set(item.sourceUrl.slice(5), replacement);
+          globalMap.set(item.sourceUrl.slice(5).split('?')[0].split('#')[0], replacement);
         }
       }
 
