@@ -238,7 +238,8 @@ html, body {
 
 .laptop-screen-frame {
   width: 100%;
-  flex: 1;
+  height: 100%;
+  box-sizing: border-box;
   background: #ffffff;
   position: relative;
 }

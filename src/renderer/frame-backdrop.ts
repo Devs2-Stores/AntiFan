@@ -274,6 +274,11 @@ function initFrameBackdrop() {
         if (topBezel && typeof df.bezelTop === 'number') topBezel.style.height = `${df.bezelTop}px`;
         const bottomChin = laptopLid.querySelector('.laptop-bottom-chin') as HTMLElement | null;
         if (bottomChin && typeof df.bezelBottom === 'number') bottomChin.style.height = `${df.bezelBottom}px`;
+        const screenFrame = laptopLid.querySelector('.laptop-screen-frame') as HTMLElement | null;
+        if (screenFrame) {
+          screenFrame.style.width = `${df.screenWidth}px`;
+          screenFrame.style.height = `${df.screenHeight}px`;
+        }
       }
       // Laptop Aluminum Base Deck
       const baseHeight = df.baseHeight || 14;

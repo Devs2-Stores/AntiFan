@@ -167,6 +167,36 @@ async function runSmokeTest() {
       throw new Error(`Expected mobile input to stay 'home-init', got '${mobileInputVal}'`);
     }
     console.log('[Smoke] Verified independent form input state.');
+    // Verify exact alignment between #laptopScreenFrame and tab.view bounds on all 4 edges
+    const toolbarHeight = tabHost.getToolbarHeight();
+    const backdropCutout = await tabHost.frameBackdropView.webContents.executeJavaScript(`
+      (() => {
+        const el = document.getElementById('laptopScreenFrame');
+        if (!el) return null;
+        const r = el.getBoundingClientRect();
+        return { x: r.x, y: r.y, width: r.width, height: r.height };
+      })()
+    `);
+    const tabRecord = tabHost.tabs.get(tabId);
+    const desktopViewBounds = tabRecord.view.getBounds();
+    console.log('[Smoke] Desktop Frame Alignment Check:', {
+      backdropCutout,
+      toolbarHeight,
+      adjustedCutoutY: backdropCutout ? backdropCutout.y + toolbarHeight : null,
+      desktopViewBounds
+    });
+    if (!backdropCutout) {
+      throw new Error('Expected #laptopScreenFrame to exist in frameBackdropView');
+    }
+    const diffX = Math.abs(backdropCutout.x - desktopViewBounds.x);
+    const diffY = Math.abs((backdropCutout.y + toolbarHeight) - desktopViewBounds.y);
+    const diffW = Math.abs(backdropCutout.width - desktopViewBounds.width);
+    const diffH = Math.abs(backdropCutout.height - desktopViewBounds.height);
+    if (diffX > 1.5 || diffY > 1.5 || diffW > 1.5 || diffH > 1.5) {
+      throw new Error(`Screen cutout misaligned with desktop view! diffs: dx=${diffX}, dy=${diffY}, dw=${diffW}, dh=${diffH}`);
+    }
+    console.log('[Smoke] Verified exact 4-edge alignment between #laptopScreenFrame and desktop view.');
+
 
     // Verify shared cookie in session
     await tabHost.evalJs(`window.setTestCookie();`, tabId, 'desktop');
