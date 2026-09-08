@@ -312,9 +312,11 @@ export async function downloadUrlWithPinning(
 
       const pinnedLookup = (
         hostname: string,
-        _lookupOptions: dns.LookupOptions,
-        callback: (err: NodeJS.ErrnoException | null, address: string, family: number) => void
+        optionsOrCallback: any,
+        maybeCallback?: any
       ) => {
+        const callback = typeof optionsOrCallback === 'function' ? optionsOrCallback : maybeCallback;
+        const options = typeof optionsOrCallback === 'object' && optionsOrCallback !== null ? optionsOrCallback : {};
         const lookupFn = transport?.lookup || dns.lookup;
         lookupFn(hostname, { all: true } as any, (err: any, addresses: any) => {
           if (err) return callback(err, '', 4);
@@ -333,8 +335,12 @@ export async function downloadUrlWithPinning(
             }
           }
 
-          const selected = addresses[0];
-          callback(null, selected.address, selected.family || 4);
+          if (options.all) {
+            callback(null, addresses);
+          } else {
+            const selected = addresses[0];
+            callback(null, selected.address, selected.family || 4);
+          }
         });
       };
 
