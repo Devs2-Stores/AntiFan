@@ -222,7 +222,40 @@ async function createWindow(): Promise<void> {
     isTabAllowed: (primaryTabId, requestedTabId) => tabHost!.isTabAllowedForPrimary(primaryTabId, requestedTabId),
     resolveTabId: (id) => tabHost!.resolveTargetTabId(id),
   });
-  // 1. Initialize Control Plane Runtime (Ledger & Stores) before wiring tabs or bridge
+  // Show the window as soon as its renderer paints (concurrent with control-plane
+  // init below), so the user sees chrome immediately instead of waiting for the
+  // ~4s ledger/attachments replay.
+  let showFallbackTimer: NodeJS.Timeout | null = null;
+  const showMainWindow = () => {
+    if (showFallbackTimer) {
+      clearTimeout(showFallbackTimer);
+      showFallbackTimer = null;
+    }
+    if (!mainWindow || mainWindow.isDestroyed() || mainWindow.isVisible()) return;
+    if (winBounds.isMaximized) {
+      mainWindow.maximize();
+    } else if (typeof winBounds.x !== 'number' || typeof winBounds.y !== 'number') {
+      mainWindow.center();
+    }
+    mainWindow.show();
+    mainWindow.focus();
+    recordBenchmark({ surface: 'startup', name: 'firstVisible' });
+    recordProcessMetrics('afterFirstVisible');
+  };
+  mainWindow.once('ready-to-show', showMainWindow);
+  showFallbackTimer = setTimeout(showMainWindow, 300);
+  mainWindow.on('closed', async () => {
+    if (showFallbackTimer) {
+      clearTimeout(showFallbackTimer);
+      showFallbackTimer = null;
+    }
+    mainWindow = null;
+    await shutdown();
+    app.quit();
+  });
+
+  // Finish control-plane init (async relative to the window show above; the
+  // renderer already painted and is interactive).
   await controlPlane.initialize();
   tabHost.setControlPlane(controlPlane);
   const browserPort = new BrowserControlPort({
@@ -379,37 +412,6 @@ async function createWindow(): Promise<void> {
       console.warn('[antifan] Failed to start Native Messaging Local IPC Server:', err);
     }
   }
-
-  let showFallbackTimer: NodeJS.Timeout | null = null;
-  const showMainWindow = () => {
-    if (showFallbackTimer) {
-      clearTimeout(showFallbackTimer);
-      showFallbackTimer = null;
-    }
-    if (!mainWindow || mainWindow.isDestroyed() || mainWindow.isVisible()) return;
-    if (winBounds.isMaximized) {
-      mainWindow.maximize();
-    } else if (typeof winBounds.x !== 'number' || typeof winBounds.y !== 'number') {
-      mainWindow.center();
-    }
-    mainWindow.show();
-    mainWindow.focus();
-    recordBenchmark({ surface: 'startup', name: 'firstVisible' });
-    recordProcessMetrics('afterFirstVisible');
-  };
-
-  mainWindow.once('ready-to-show', showMainWindow);
-  showFallbackTimer = setTimeout(showMainWindow, 300);
-
-  mainWindow.on('closed', async () => {
-    if (showFallbackTimer) {
-      clearTimeout(showFallbackTimer);
-      showFallbackTimer = null;
-    }
-    mainWindow = null;
-    await shutdown();
-    app.quit();
-  });
 }
 
 app.whenReady().then(async () => {

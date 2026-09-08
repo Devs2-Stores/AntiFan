@@ -189,17 +189,24 @@ async function scenarioColdStart(report) {
     const driver = new AppDriver({ label: `cold-start-run-${i}` });
     await driver.launch();
     const firstVisible = await driver.waitForMetric('startup', 'firstVisible', LAUNCH_TIMEOUT_MS);
+    // With concurrent window-show (fix: ready-to-show registered before the ~4s
+    // control-plane init), firstVisible fires BEFORE createWindow() resolves. Wait
+    // for the completion marker too so readyToWindowMs still captures init-to-done.
+    const windowCreated = await driver.waitForMetric('startup', 'windowCreated', LAUNCH_TIMEOUT_MS);
     const bootstrap = driver.metrics.find((m) => m.surface === 'startup' && m.name === 'bootstrap');
     const ready = driver.metrics.find((m) => m.surface === 'startup' && m.name === 'ready');
-    const windowCreated = driver.metrics.find((m) => m.surface === 'startup' && m.name === 'windowCreated');
     const processMetric = driver.metrics.find((m) => m.surface === 'process' && m.name === 'afterFirstVisible');
     const reportRun = {
       run: i,
       wallMs: firstVisible ? Math.round(performance.now() - driver.wallStartMs) : null,
       appBootstrapToVisibleMs: (firstVisible && bootstrap) ? Math.round(firstVisible.nowMs - bootstrap.nowMs) : null,
       bootstrapToReadyMs: (bootstrap && ready) ? Math.round(ready.nowMs - bootstrap.nowMs) : null,
+      // Window is shown before createWindow() resolves (ready-to-show fires early), so
+      // readyToWindowMs now measures time to full backend (control-plane + bridge + IPC)
+      // readiness, not to first paint. windowToVisibleMs is clamped to 0 when visible
+      // precedes window-creation completion (no wait existed).
       readyToWindowMs: (ready && windowCreated) ? Math.round(windowCreated.nowMs - ready.nowMs) : null,
-      windowToVisibleMs: (windowCreated && firstVisible) ? Math.round(firstVisible.nowMs - windowCreated.nowMs) : null,
+      windowToVisibleMs: (windowCreated && firstVisible) ? Math.max(0, Math.round(firstVisible.nowMs - windowCreated.nowMs)) : null,
       firstVisibleNowMs: firstVisible?.nowMs ?? null,
       process: processMetric?.extra?.breakdown ?? null,
       mainRssKB: processMetric?.extra?.mainRssKB ?? null,

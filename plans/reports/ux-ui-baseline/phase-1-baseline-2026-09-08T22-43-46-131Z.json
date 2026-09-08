@@ -1,0 +1,24 @@
+{
+  "generatedAt": "2026-09-08T22:43:23.216Z",
+  "appVersion": "1.3.0",
+  "runtimeVersion": "24.13.0",
+  "electronVersion": "43.4.0",
+  "os": "Windows_NT 10.0.22000 x64",
+  "scenario": "tabs",
+  "runCount": 1,
+  "warmCold": "cold",
+  "rows": [
+    {
+      "scenario": "tabs",
+      "name": "tabSwitchMs",
+      "baselineStatus": "unmeasured",
+      "sampleCount": 0,
+      "error": "bridge info unreadable (requires token)"
+    }
+  ],
+  "runs": [],
+  "summary": [
+    "tabs: unmeasured (bridge info unreadable)",
+    "tabs took 22912ms"
+  ]
+}

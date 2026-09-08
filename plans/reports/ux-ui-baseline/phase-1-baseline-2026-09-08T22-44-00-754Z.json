@@ -1,0 +1,102 @@
+{
+  "generatedAt": "2026-09-08T22:43:50.533Z",
+  "appVersion": "1.3.0",
+  "runtimeVersion": "24.13.0",
+  "electronVersion": "43.4.0",
+  "os": "Windows_NT 10.0.22000 x64",
+  "scenario": "cold-start",
+  "runCount": 1,
+  "warmCold": "cold",
+  "rows": [
+    {
+      "scenario": "cold-start",
+      "name": "bootstrapToFirstVisibleMs",
+      "baselineStatus": "measured",
+      "sampleCount": 1,
+      "p50": 9526,
+      "p95": 9526,
+      "min": 9526,
+      "max": 9526,
+      "values": [
+        9526
+      ]
+    },
+    {
+      "scenario": "cold-start",
+      "name": "bootstrapToReadyMs",
+      "baselineStatus": "measured",
+      "sampleCount": 1,
+      "p50": 26,
+      "p95": 26,
+      "min": 26,
+      "max": 26,
+      "values": [
+        26
+      ]
+    },
+    {
+      "scenario": "cold-start",
+      "name": "readyToWindowMs",
+      "baselineStatus": "measured",
+      "sampleCount": 1,
+      "p50": 9161,
+      "p95": 9161,
+      "min": 9161,
+      "max": 9161,
+      "values": [
+        9161
+      ]
+    },
+    {
+      "scenario": "cold-start",
+      "name": "windowToFirstVisibleMs",
+      "baselineStatus": "measured",
+      "sampleCount": 1,
+      "p50": 340,
+      "p95": 340,
+      "min": 340,
+      "max": 340,
+      "values": [
+        340
+      ]
+    }
+  ],
+  "runs": [
+    {
+      "run": 0,
+      "wallMs": 9918,
+      "appBootstrapToVisibleMs": 9526,
+      "bootstrapToReadyMs": 26,
+      "readyToWindowMs": 9161,
+      "windowToVisibleMs": 340,
+      "firstVisibleNowMs": 9797.9935,
+      "process": {
+        "Browser": {
+          "processes": 1,
+          "workingSetKB": 344272,
+          "privateBytesKB": 270160
+        },
+        "GPU": {
+          "processes": 1,
+          "workingSetKB": 163952,
+          "privateBytesKB": 74564
+        },
+        "Utility": {
+          "processes": 1,
+          "workingSetKB": 125912,
+          "privateBytesKB": 12648
+        },
+        "Tab": {
+          "processes": 2,
+          "workingSetKB": 289468,
+          "privateBytesKB": 73044
+        }
+      },
+      "mainRssKB": 344284
+    }
+  ],
+  "summary": [
+    "cold-start: p50=9526ms p95=9526ms over 1 runs",
+    "cold-start took 10220ms"
+  ]
+}
