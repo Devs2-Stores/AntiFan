@@ -184,12 +184,15 @@ export class InjectedScriptStore {
             clearTimeout(window.__antifanFreezeTimer);
           }
           delete window.__antifanFreezeTimer;
-
           restoreSliderNormalization();
+          delete window.__antifanFreeze;
+          delete window.__antifanPaused;
         };
 
         let styleEl = document.getElementById(freezeStyleId);
         if (freeze) {
+          window.__antifanFreeze = true;
+          window.__antifanPaused = true;
           restoreSliderNormalization();
           if (!styleEl) {
             styleEl = document.createElement('style');

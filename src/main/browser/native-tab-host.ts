@@ -2489,7 +2489,7 @@ export class NativeTabHost extends EventEmitter {
       if (tab.state.splitMode && tab.mobileView && !tab.mobileView.webContents.isDestroyed()) {
         return tab.mobileView.webContents;
       }
-      return null;
+      return tab.view.webContents.isDestroyed() ? null : tab.view.webContents;
     }
 
     if (paneId === 'desktop') {
@@ -2738,6 +2738,7 @@ export class NativeTabHost extends EventEmitter {
     this.networkTracker.ensureAttached(id, paneId, wc, () => wc.getURL()).catch(() => {});
     wc.on('did-start-loading', () => {
       state.isLoading = true;
+      this.networkTracker.resetInflight(id, paneId);
       clearLoadingTimer();
       loadingSafetyTimer = setTimeout(() => {
         loadingSafetyTimer = null;
@@ -3583,6 +3584,10 @@ export class NativeTabHost extends EventEmitter {
     if (!tab) return false;
     const cleanUrl = sanitizeUrl(inputUrl);
     tab.state.url = cleanUrl;
+    this.networkTracker.resetInflight(tabId, 'desktop');
+    if (tab.state.splitMode) {
+      this.networkTracker.resetInflight(tabId, 'mobile');
+    }
     if (cleanUrl.startsWith('view-source:')) {
       const sourceTargetUrl = cleanUrl.slice('view-source:'.length).trim();
       tab.state.title = `view-source:${sourceTargetUrl}`;
@@ -4155,12 +4160,14 @@ export class NativeTabHost extends EventEmitter {
             tab.view.webContents.setZoomFactor(1);
           }
         } catch {}
+        const boundsW = (tab.customViewport && tab.customViewport.width > 0) ? Math.max(preset.width, renderedW) : renderedW;
+        const boundsH = (tab.customViewport && tab.customViewport.height > 0) ? Math.max(preset.height, renderedH) : renderedH;
         try {
           tab.view.setBounds({
             x: targetX,
             y: targetY,
-            width: renderedW,
-            height: renderedH,
+            width: boundsW,
+            height: boundsH,
           });
         } catch {}
       } else {

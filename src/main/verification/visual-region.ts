@@ -311,6 +311,7 @@ export function buildStructuralQueryScript(
 ): string {
   const trackedList = Array.isArray(trackedSelectors) ? trackedSelectors : [];
   return `(() => {
+    /* __antifan_structural_query: root.children */
     const root = document.querySelector(${JSON.stringify(rootSel)});
     if (!root) return [];
     const tracked = ${JSON.stringify(trackedList)};

@@ -26,7 +26,7 @@ interface AttachedTargetState {
 }
 
 export class FirstPartyNetworkTracker {
-  private inflightByTarget = new Map<string, Map<number | string, string>>();
+  private inflightByTarget = new Map<string, Map<number | string, { type: string; startedAt: number }>>();
   private listenersByTarget = new Map<string, Set<() => void>>();
   private attachedTargets = new Map<string, AttachedTargetState>();
 
@@ -36,6 +36,9 @@ export class FirstPartyNetworkTracker {
 
   public isFirstPartyCritical(url: string, contextUrl: string, resourceType?: string): boolean {
     if (!url || typeof url !== 'string') return false;
+    if (/stats\.hstatic\.net|tracking|beacon|analytics|telemetry|pixel|collect|clarity\.ms|facebook\.net|google-analytics/i.test(url)) {
+      return false;
+    }
     if (resourceType) {
       const normalizedType = resourceType.toLowerCase();
       if (!CRITICAL_RESOURCE_TYPES.has(normalizedType)) {
@@ -65,7 +68,7 @@ export class FirstPartyNetworkTracker {
       this.inflightByTarget.set(key, targetMap);
     }
     const normalizedType = resourceType ? resourceType.toLowerCase() : '';
-    targetMap.set(requestId, normalizedType);
+    targetMap.set(requestId, { type: normalizedType, startedAt: Date.now() });
     this.notifyStateChange(key);
     return true;
   }
@@ -88,8 +91,8 @@ export class FirstPartyNetworkTracker {
     const targetMap = this.inflightByTarget.get(key);
     if (!targetMap || targetMap.size === 0) return;
     let removed = false;
-    for (const [reqId, type] of targetMap.entries()) {
-      if (type === 'document' || type === 'mainframe') {
+    for (const [reqId, entry] of targetMap.entries()) {
+      if (entry.type === 'document' || entry.type === 'mainframe') {
         targetMap.delete(reqId);
         removed = true;
       }
@@ -100,7 +103,21 @@ export class FirstPartyNetworkTracker {
   }
 
   public getInflightCount(tabId: string, paneId: string = 'desktop'): number {
-    return (this.inflightByTarget.get(this.makeKey(tabId, paneId)) || new Map()).size;
+    const key = this.makeKey(tabId, paneId);
+    const targetMap = this.inflightByTarget.get(key);
+    if (!targetMap || targetMap.size === 0) return 0;
+    const now = Date.now();
+    let expired = false;
+    for (const [reqId, entry] of targetMap.entries()) {
+      if (now - entry.startedAt > 4000) {
+        targetMap.delete(reqId);
+        expired = true;
+      }
+    }
+    if (expired) {
+      this.notifyStateChange(key);
+    }
+    return targetMap.size;
   }
 
   public isAttached(tabId: string, paneId: string = 'desktop'): boolean {

@@ -1219,7 +1219,11 @@ export class TabDevToolsHost {
     if (!wc || wc.isDestroyed()) {
       throw new Error(`WebContents not available for tab '${targetId}'`);
     }
-    if (targetPaneView && typeof targetPaneView.getBounds === 'function') {
+    if (target.customViewport && target.customViewport.width > 0 && target.customViewport.height > 0) {
+      if (targetPaneView && typeof targetPaneView.setBounds === 'function') {
+        targetPaneView.setBounds({ x: 0, y: 0, width: target.customViewport.width, height: target.customViewport.height });
+      }
+    } else if (targetPaneView && typeof targetPaneView.getBounds === 'function') {
       const bounds = targetPaneView.getBounds();
       if (!bounds || bounds.width === 0 || bounds.height === 0) {
         const ctxAny = this.ctx as unknown as { getTabContentBounds?: (id: string, pane?: SplitPaneId) => { width: number; height: number } };
@@ -1236,6 +1240,11 @@ export class TabDevToolsHost {
     const switchTabForCapture = this.ctx.switchTab;
     if (typeof switchTabForCapture === 'function' && targetId !== activeBeforeCapture) {
       switchTabForCapture(targetId);
+      if (target.customViewport && target.customViewport.width > 0 && target.customViewport.height > 0) {
+        if (targetPaneView && typeof targetPaneView.setBounds === 'function') {
+          targetPaneView.setBounds({ x: 0, y: 0, width: target.customViewport.width, height: target.customViewport.height });
+        }
+      }
       try {
         await this.evalJs('new Promise(r => { const t = setTimeout(r, 60); const raf = typeof window.__antifanOriginalRAF === "function" ? window.__antifanOriginalRAF : (typeof requestAnimationFrame === "function" ? requestAnimationFrame : null); if (raf) { raf(() => raf(() => { clearTimeout(t); r(); })); } })', targetId, effectivePane);
         await new Promise((r) => setTimeout(r, 120));
@@ -1277,12 +1286,15 @@ export class TabDevToolsHost {
 
         await this.sendCdpCommand(wc, 'Page.enable');
         await this.sendCdpCommand(wc, 'DOM.getDocument', { depth: 1 }).catch(() => {});
+        await this.sendCdpCommand(wc, 'Emulation.setDefaultBackgroundColorOverride', {
+          color: { r: 255, g: 255, b: 255, a: 1 },
+        }).catch(() => {});
 
         let clip = rect
           ? { x: rect.x, y: rect.y, width: rect.width, height: rect.height, scale: 1 }
           : undefined;
 
-        if (isFullPage) {
+        if (isFullPage && !clip) {
           const docMetricsRes = await this.sendCdpCommand<{ result?: { value?: { dh?: number; dw?: number } } }>(
             wc,
             'Runtime.evaluate',
@@ -1293,7 +1305,7 @@ export class TabDevToolsHost {
           ).catch(() => null);
           const docMetrics = docMetricsRes?.result?.value;
 
-          const safeWidth = Math.max(1, Math.min(Number(docMetrics?.dw) || cssViewport.width, 16384));
+          const safeWidth = Math.max(1, Math.min(cssViewport.width, 16384));
           const safeHeight = Math.max(1, Math.min(Number(docMetrics?.dh) || cssViewport.height, 16384));
           clip = { x: 0, y: 0, width: safeWidth, height: safeHeight, scale: 1 };
         }
@@ -1306,7 +1318,7 @@ export class TabDevToolsHost {
             {
               format: 'png',
               fromSurface: isForeground,
-              captureBeyondViewport: Boolean(clip) || !isForeground,
+              captureBeyondViewport: isFullPage,
               clip,
             },
             isFullPage ? 45_000 : 15_000
@@ -1319,7 +1331,7 @@ export class TabDevToolsHost {
               {
                 format: 'png',
                 fromSurface: !isForeground,
-              captureBeyondViewport: Boolean(clip) || isForeground,
+                captureBeyondViewport: isFullPage,
                 clip,
               },
               isFullPage ? 45_000 : 15_000
@@ -1375,6 +1387,7 @@ export class TabDevToolsHost {
           effectivePane
         );
       } catch {}
+      await this.sendCdpCommand(wc, 'Emulation.setDefaultBackgroundColorOverride').catch(() => {});
       if (typeof switchTabForCapture === 'function' && targetId !== activeBeforeCapture) {
         switchTabForCapture(activeBeforeCapture);
       }

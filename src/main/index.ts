@@ -273,6 +273,8 @@ async function createWindow(): Promise<void> {
     executeActionSequence: (params) => tabHost!.executeActionSequence(params as ActionSequenceParams),
     inspectStyles: (params) => tabHost!.inspectStyles(params),
     inspectRegion: (params) => tabHost!.inspectRegion(params),
+    inspectFont: (params) => tabHost!.inspectFont(params),
+    getMatchedStylesForNode: (params) => tabHost!.getMatchedStylesForNode(params),
   }, controlPlane.artifacts);
   tabHost.setViewportGate(browserPort.viewportGate);
   controlPlane.registerBrowser(browserPort);

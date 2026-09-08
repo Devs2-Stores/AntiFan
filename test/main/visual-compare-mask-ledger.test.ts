@@ -112,14 +112,14 @@ function buildMockHost(opts: MockHostOptions) {
         if (opts.evalJsOverride) return opts.evalJsOverride(script, tabId);
         return [];
       }
-      if (opts.evalJsOverride) {
-        const custom = await opts.evalJsOverride(script, tabId);
-        if (custom !== undefined) return custom;
-      }
       if (script.includes('querySelectorAll')) {
         if (!tabId) return [];
         const rows = opts.maskRows ? opts.maskRows(tabId) : [{ selector: '.badge', error: null, boxes: [{ x: 100, y: 100, width: 50, height: 50 }] }];
         return rows;
+      }
+      if (opts.evalJsOverride) {
+        const custom = await opts.evalJsOverride(script, tabId);
+        if (custom !== undefined) return custom;
       }
       return null;
     },
@@ -396,6 +396,7 @@ describe('computePixelDiff mask bounds are half-open (exclusive right/bottom edg
     for (const [px, py] of pixels) {
       const idx = (py * W + px) * 4;
       buf[idx] = 255;
+      buf[idx + 3] = 255;
     }
     return buf;
   };
@@ -843,7 +844,6 @@ describe('visualCompare evaluator structural primacy & receipts (Phase 5 R1, R2,
       selector: '.grid',
       normalizeScroll: true,
     })) as any;
-
     assert.ok(res.metricSamples, 'Must emit metricSamples');
     const geomSample = res.metricSamples.find((s: any) => s.metric === 'visual.geometry_within_tolerance');
     assert.ok(geomSample, 'Must include visual.geometry_within_tolerance');
@@ -1138,6 +1138,7 @@ describe('computePixelDiff & visualCompare comprehensive edge cases', () => {
     for (const [px, py] of pixels) {
       const idx = (py * W + px) * 4;
       buf[idx] = 255;
+      buf[idx + 3] = 255;
     }
     return buf;
   };

@@ -2606,7 +2606,8 @@ export class BrowserControlPort {
       const isDynamicWidget = (s: string) => /preview[-_]bar|chat|zalo|popup|notification|fb-|subiz|tawk|letschat/i.test(s);
       const requiredMasks = rawRequired.filter((s) => !isDynamicWidget(s));
       const autoPromotedOptional = rawRequired.filter((s) => isDynamicWidget(s));
-      const defaultStorefrontOptional = [
+      const hasUserMasks = rawRequired.length > 0 || userOptional.length > 0;
+      const defaultStorefrontOptional = hasUserMasks ? [] : [
         '#haravan-notification',
         '[id*="haravan-notification"]',
         '#preview-bar-iframe',
@@ -2628,6 +2629,16 @@ export class BrowserControlPort {
         '.chat-widget',
         '[class*="chat-widget"]',
         '[id*="chat-widget"]',
+        '.hotline-phone_ring',
+        '.icon-contact',
+        '.contact-box',
+        '.phone-ring',
+        '.call-mobile',
+        '.quick-call-button',
+        '.loomline_addthis_contact__icons',
+        '.grecaptcha-badge',
+        '#toast-container',
+        'iframe[id]',
       ];
       const optionalMasks = Array.from(new Set([...userOptional, ...autoPromotedOptional, ...defaultStorefrontOptional]));
       // Record the active tab so a background comparison tab can be foregrounded
@@ -2813,7 +2824,7 @@ export class BrowserControlPort {
     let captureStateCompatible = true;
     let targetSettleReceipt: VisualSettleReceipt | undefined;
     let compSettleReceipt: VisualSettleReceipt | undefined;
-    const hasRequestedMasks = requiredMasks.length > 0 || optionalMasks.length > 0;
+    const hasRequestedMasks = (Array.isArray(params.maskSelectors) && params.maskSelectors.length > 0) || (Array.isArray(params.maskOptionalSelectors) && params.maskOptionalSelectors.length > 0);
     let targetMasksResolved = !hasRequestedMasks;
     let compMasksResolved = !hasRequestedMasks;
     const currentMaskStatus = (): 'ok' | 'NOT_ATTEMPTED' => {
@@ -2843,10 +2854,51 @@ export class BrowserControlPort {
             const cs = (await this.host.evalJs(`({ x: window.scrollX || window.pageXOffset || 0, y: window.scrollY || window.pageYOffset || 0 })`, compTabTarget, effectivePane)) as { x?: number; y?: number };
             if (cs && typeof cs === 'object') originalCompScroll = { x: Number(cs.x) || 0, y: Number(cs.y) || 0 };
           }
-          // Normalize scroll position to (0, 0) before capture settle to guarantee deterministic layout state
-          await this.host.evalJs(`(() => { try { document.documentElement.scrollTop = 0; document.body.scrollTop = 0; window.scrollTo({ top: 0, left: 0, behavior: 'instant' }); } catch {} })()`, tabId, effectivePane);
+          // Normalize scroll position and carousels before capture settle to guarantee deterministic layout state
+          const normalizeStateScript = `(() => {
+            /* __antifan_carousel_normalize */
+            try {
+              document.documentElement.scrollTop = 0;
+              document.body.scrollTop = 0;
+              window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
+              ['s-content', 'swiper-wrapper', 'slick-track', 'owl-stage', 'flickity-slider', 'carousel-inner'].forEach(cls => {
+                const els = document.getElementsByClassName(cls);
+                for (let i = 0; i < els.length; i++) {
+                  const el = els[i];
+                  if (el && el.style) {
+                    el.style.setProperty('transform', 'matrix(1, 0, 0, 1, 0, 0)', 'important');
+                    el.style.setProperty('transition', 'none', 'important');
+                    try {
+                      Object.defineProperty(el.style, 'transform', {
+                        configurable: true,
+                        get: () => 'matrix(1, 0, 0, 1, 0, 0)',
+                        set: () => {}
+                      });
+                    } catch {}
+                  }
+                }
+              });
+              ['slider-dots', 'nav-dots', 'slick-dots', 'swiper-pagination', 'carousel-indicators', 'dots'].forEach(cls => {
+                const containers = document.getElementsByClassName(cls);
+                for (let i = 0; i < containers.length; i++) {
+                  const container = containers[i];
+                  const dots = Array.from(container.children);
+                  dots.forEach((d, idx) => {
+                    if (idx === 0) {
+                      d.classList.add('active');
+                      if (d.getAttribute('aria-selected') !== null) d.setAttribute('aria-selected', 'true');
+                    } else {
+                      d.classList.remove('active');
+                      if (d.getAttribute('aria-selected') !== null) d.setAttribute('aria-selected', 'false');
+                    }
+                  });
+                }
+              });
+            } catch {}
+          })()`;
+          await this.host.evalJs(normalizeStateScript, tabId, effectivePane);
           if (compTabTarget) {
-            await this.host.evalJs(`(() => { try { document.documentElement.scrollTop = 0; document.body.scrollTop = 0; window.scrollTo({ top: 0, left: 0, behavior: 'instant' }); } catch {} })()`, compTabTarget, effectivePane);
+            await this.host.evalJs(normalizeStateScript, compTabTarget, effectivePane);
           }
         } catch {}
       }
@@ -4212,20 +4264,132 @@ export function computePixelDiff(
     return false;
   };
 
+  const colorThreshold = Math.max(0.01, Math.min(0.5, tolerancePercent / 100));
+  const w1 = size1.width;
+  const w2 = size2.width;
+
+  // Pre-composite both bitmaps onto standard white canvas (RGBA/BGRA layout: channels 0,1,2 blended, alpha 3 = 255)
+  // This eliminates artificial delta spikes caused by offscreen surfaces with alpha = 0 or partial transparency,
+  // bringing the comparison model into exact alignment with real screen pixel rendering.
+  const compBitmap1 = Buffer.from(bitmap1);
+  const compBitmap2 = Buffer.from(bitmap2);
+  for (let i = 0; i < compBitmap1.length; i += 4) {
+    const a = compBitmap1[i + 3]!;
+    if (a === 0) {
+      compBitmap1[i] = 255;
+      compBitmap1[i + 1] = 255;
+      compBitmap1[i + 2] = 255;
+      compBitmap1[i + 3] = 255;
+    } else if (a < 255) {
+      const alpha = a / 255;
+      compBitmap1[i] = Math.round(compBitmap1[i]! * alpha + 255 * (1 - alpha));
+      compBitmap1[i + 1] = Math.round(compBitmap1[i + 1]! * alpha + 255 * (1 - alpha));
+      compBitmap1[i + 2] = Math.round(compBitmap1[i + 2]! * alpha + 255 * (1 - alpha));
+      compBitmap1[i + 3] = 255;
+    }
+  }
+
+  for (let i = 0; i < compBitmap2.length; i += 4) {
+    const a = compBitmap2[i + 3]!;
+    if (a === 0) {
+      compBitmap2[i] = 255;
+      compBitmap2[i + 1] = 255;
+      compBitmap2[i + 2] = 255;
+      compBitmap2[i + 3] = 255;
+    } else if (a < 255) {
+      const alpha = a / 255;
+      compBitmap2[i] = Math.round(compBitmap2[i]! * alpha + 255 * (1 - alpha));
+      compBitmap2[i + 1] = Math.round(compBitmap2[i + 1]! * alpha + 255 * (1 - alpha));
+      compBitmap2[i + 2] = Math.round(compBitmap2[i + 2]! * alpha + 255 * (1 - alpha));
+      compBitmap2[i + 3] = 255;
+    }
+  }
+
   for (let y = 0; y < minH; y++) {
     for (let x = 0; x < minW; x++) {
       if (maskBoxes.length > 0 && isMasked(x, y)) {
         totalPixels = Math.max(0, totalPixels - 1);
         continue;
       }
-      const idx1 = (y * size1.width + x) * 4;
-      const idx2 = (y * size2.width + x) * 4;
-      const rDiff = Math.abs(bitmap1[idx1]! - bitmap2[idx2]!);
-      const gDiff = Math.abs(bitmap1[idx1 + 1]! - bitmap2[idx2 + 1]!);
-      const bDiff = Math.abs(bitmap1[idx1 + 2]! - bitmap2[idx2 + 2]!);
-      const aDiff = Math.abs(bitmap1[idx1 + 3]! - bitmap2[idx2 + 3]!);
-      const colorDelta = Math.sqrt(rDiff * rDiff + gDiff * gDiff + bDiff * bDiff + aDiff * aDiff) / 510;
-      if (colorDelta > 0.05) {
+      const idx1 = (y * w1 + x) * 4;
+      const idx2 = (y * w2 + x) * 4;
+      const r1 = compBitmap1[idx1]!;
+      const g1 = compBitmap1[idx1 + 1]!;
+      const b1 = compBitmap1[idx1 + 2]!;
+
+      const r2 = compBitmap2[idx2]!;
+      const g2 = compBitmap2[idx2 + 1]!;
+      const b2 = compBitmap2[idx2 + 2]!;
+
+      const rDiff = Math.abs(r1 - r2);
+      const gDiff = Math.abs(g1 - g2);
+      const bDiff = Math.abs(b1 - b2);
+      const colorDelta = Math.sqrt(rDiff * rDiff + gDiff * gDiff + bDiff * bDiff) / 441.67;
+      if (colorDelta > colorThreshold) {
+        // Antialiased edge detection and subpixel font rendering jitter filter
+        let isAntialiased = false;
+
+        // 1. Check if an adjacent 1px neighbor in image1 matches image2 or vice versa within colorThreshold
+        if (colorDelta <= Math.max(colorThreshold * 4.2, 0.45)) {
+          for (let dy = -1; dy <= 1; dy++) {
+            for (let dx = -1; dx <= 1; dx++) {
+              if (dx === 0 && dy === 0) continue;
+              const nx = x + dx;
+              const ny = y + dy;
+              if (nx >= 0 && nx < minW && ny >= 0 && ny < minH) {
+                const nIdx1 = (ny * w1 + nx) * 4;
+                const nr1 = Math.abs(compBitmap1[nIdx1]! - compBitmap2[idx2]!);
+                const ng1 = Math.abs(compBitmap1[nIdx1 + 1]! - compBitmap2[idx2 + 1]!);
+                const nb1 = Math.abs(compBitmap1[nIdx1 + 2]! - compBitmap2[idx2 + 2]!);
+
+                const nIdx2 = (ny * w2 + nx) * 4;
+                const nr2 = Math.abs(compBitmap1[idx1]! - compBitmap2[nIdx2]!);
+                const ng2 = Math.abs(compBitmap1[idx1 + 1]! - compBitmap2[nIdx2 + 1]!);
+                const nb2 = Math.abs(compBitmap1[idx1 + 2]! - compBitmap2[nIdx2 + 2]!);
+
+                if (
+                  Math.sqrt(nr1 * nr1 + ng1 * ng1 + nb1 * nb1) / 441.67 <= colorThreshold ||
+                  Math.sqrt(nr2 * nr2 + ng2 * ng2 + nb2 * nb2) / 441.67 <= colorThreshold
+                ) {
+                  isAntialiased = true;
+                  break;
+                }
+              }
+            }
+            if (isAntialiased) break;
+          }
+
+          if (isAntialiased) {
+            continue;
+          }
+
+          // 2. Luminance edge contrast filter for font rendering boundaries
+          const l1 = (compBitmap1[idx1]! * 299 + compBitmap1[idx1 + 1]! * 587 + compBitmap1[idx1 + 2]! * 114) / 1000;
+          const l2 = (compBitmap2[idx2]! * 299 + compBitmap2[idx2 + 1]! * 587 + compBitmap2[idx2 + 2]! * 114) / 1000;
+          let isEdge = false;
+
+          const offsets: Array<[number, number]> = [[0, -1], [0, 1], [-1, 0], [1, 0], [-1, -1], [1, 1], [-1, 1], [1, -1]];
+          for (let i = 0; i < offsets.length; i++) {
+            const [dx, dy] = offsets[i]!;
+            const nx = x + dx;
+            const ny = y + dy;
+            if (nx >= 0 && nx < minW && ny >= 0 && ny < minH) {
+              const n1 = (ny * w1 + nx) * 4;
+              const n2 = (ny * w2 + nx) * 4;
+              const nl1 = (compBitmap1[n1]! * 299 + compBitmap1[n1 + 1]! * 587 + compBitmap1[n1 + 2]! * 114) / 1000;
+              const nl2 = (compBitmap2[n2]! * 299 + compBitmap2[n2 + 1]! * 587 + compBitmap2[n2 + 2]! * 114) / 1000;
+              if (Math.abs(l1 - nl1) > 16 || Math.abs(l2 - nl2) > 16) {
+                isEdge = true;
+                break;
+              }
+            }
+          }
+
+          if (isEdge) {
+            continue;
+          }
+        }
+
         diffPixels++;
         const gx = (x / blockSize) | 0;
         const gy = (y / blockSize) | 0;
