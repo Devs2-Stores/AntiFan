@@ -237,6 +237,16 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
     inputSchema: { type: 'object', properties: { tabId: { type: 'string' } } },
     execute: (params: { tabId?: string }, context) => browser.reload(context.browserTarget as BrowserTarget, params.tabId),
   });
+  catalogue.register({
+    name: 'browser.reload_zero_network',
+    description: 'Reload an isolated offline or cloned tab under strict zero-external-network denial gate (CDP Fetch interceptor)',
+    risk: 'write',
+    requiresBrowserTarget: true,
+    policy: makeBrowserPolicy({ effect: 'idempotent-write', risk: 'write', requiresBrowserTarget: true, lane: 'viewport-gate' }),
+    inputSchema: { type: 'object', properties: { tabId: { type: 'string' } } },
+    execute: (params: { tabId?: string }, context) => browser.reloadZeroNetwork(context.browserTarget as BrowserTarget, params.tabId),
+  });
+
 
   catalogue.register({
     name: 'browser.dom',

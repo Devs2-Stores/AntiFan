@@ -71,6 +71,7 @@ export class CloneIRBuilder {
       normalizedData: {
         products: dataBundle.products,
         categories: dataBundle.categories,
+        articles: dataBundle.articles,
         siteSettings: dataBundle.siteSettings
       }
     };

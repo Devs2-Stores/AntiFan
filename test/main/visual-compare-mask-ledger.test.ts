@@ -1,3 +1,4 @@
+import { DEFAULT_STOREFRONT_WIDGETS } from '../../src/main/tools/browser-control-port';
 import { describe, it, before, after } from 'node:test';
 import * as assert from 'node:assert/strict';
 import { BrowserControlPort, BrowserHostPort, computePixelDiff } from '../../src/main/tools/browser-control-port';
@@ -72,12 +73,14 @@ interface MockHostOptions {
   networkTimedOutFor?: (tabId: string) => boolean;
   structuralRowsFor?: (tabId: string) => any[];
   evalJsOverride?: (script: string, tabId?: string) => Promise<unknown> | unknown;
+  pngDimensionsForTab?: (tabId: string) => { width: number; height: number };
   evalLog: EvalLogEntry[];
 }
 
 function buildMockHost(opts: MockHostOptions) {
-  const curPng = createTestPng(800, 600);
-  const basePng = createTestPng(800, 600);
+  const getDims = (tabId: string) => opts.pngDimensionsForTab ? opts.pngDimensionsForTab(tabId) : { width: 800, height: 600 };
+  const curPng = createTestPng(getDims('tab-a').width, getDims('tab-a').height);
+  const basePng = createTestPng(getDims('tab-b').width, getDims('tab-b').height);
   const host = {
     hasTab: () => true,
     getTabList: () => [{ id: 'tab-a' }, { id: 'tab-b' }],
@@ -142,7 +145,7 @@ function buildMockHost(opts: MockHostOptions) {
         dpr,
         zoom,
         cssViewport,
-        rasterSize: { width: 800, height: 600 },
+        rasterSize: { width: getDims(tabId || '').width, height: getDims(tabId || '').height },
         timestamp: Date.now(),
       };
     },
@@ -184,11 +187,19 @@ const bitmapByBuffer = new WeakMap<Buffer, Buffer>();
 
 const fakeNativeImageFactory = () => ({
   nativeImage: {
-    createFromBuffer: (buf: Buffer) => ({
-      getSize: () => (buf.length === 0 ? { width: 0, height: 0 } : { width: 800, height: 600 }),
-      isEmpty: () => buf.length === 0,
-      getBitmap: () => (buf.length === 0 ? null : (bitmapByBuffer.get(buf) ?? Buffer.alloc(800 * 600 * 4))),
-    }),
+    createFromBuffer: (buf: Buffer) => {
+      let width = 800;
+      let height = 600;
+      if (buf.length >= 24 && buf[0] === 0x89 && buf[1] === 0x50) {
+        width = buf.readUInt32BE(16);
+        height = buf.readUInt32BE(20);
+      }
+      return {
+        getSize: () => (buf.length === 0 ? { width: 0, height: 0 } : { width, height }),
+        isEmpty: () => buf.length === 0,
+        getBitmap: () => (buf.length === 0 ? null : (bitmapByBuffer.get(buf) ?? Buffer.alloc(width * height * 4))),
+      };
+    },
   },
 });
 
@@ -262,13 +273,24 @@ describe('visualCompare fail-closed mask ledger & normalization transaction', ()
 
     // Mask ledger: per-side entries resolved with a sane ratio.
     const mask = (result.maskResolution as any);
-    assert.ok(mask.target.entries.length >= 1);
+    assert.strictEqual(mask.target.entries.length, DEFAULT_STOREFRONT_WIDGETS.length + 1, 'exactly defaults + user mask');
     assert.strictEqual(mask.target.entries[0].selector, '.badge');
     assert.strictEqual(mask.target.entries[0].status, 'resolved');
     assert.strictEqual(mask.target.entries[0].required, true);
+    assert.strictEqual(mask.target.entries.some((e: any) => e.selector === 'iframe[id]'), false, 'broad iframe[id] must be excluded when user masks present');
+    // Assert full status and requiredness across all default widgets on both sides
+    for (let i = 1; i <= DEFAULT_STOREFRONT_WIDGETS.length; i++) {
+      const targetEntry = mask.target.entries[i];
+      const baselineEntry = mask.baseline.entries[i];
+      const expectedSelector = DEFAULT_STOREFRONT_WIDGETS[i - 1];
+      assert.strictEqual(targetEntry.selector, expectedSelector);
+      assert.strictEqual(targetEntry.required, false, 'Default storefront widgets must be optional');
+      assert.strictEqual(baselineEntry.selector, expectedSelector);
+      assert.strictEqual(baselineEntry.required, false, 'Default storefront widgets must be optional');
+    }
     assert.ok(mask.target.maskedAreaRatio > 0 && mask.target.maskedAreaRatio < 0.1);
     assert.ok(mask.baseline, 'comparison side receipt must exist');
-    assert.ok(mask.baseline.entries.length >= 1);
+    assert.strictEqual(mask.baseline.entries.length, DEFAULT_STOREFRONT_WIDGETS.length + 1);
   });
 
   it('V-12: cleanup runs (verified restore) when capture throws', async () => {
@@ -339,10 +361,13 @@ describe('visualCompare fail-closed mask ledger & normalization transaction', ()
     );
 
     assert.strictEqual(result.match, true);
-    // Both sides report the absent user optional mask (.maybe-gone) as well as any absent storefront defaults
+    // Both sides report absent optional masks deterministically:
+    // mock maskRows returns boxes for .badge and empty boxes for .maybe-gone.
+    // All defaultStorefrontWidgets are also absent in maskRows (empty), so each side reports [.maybe-gone, ...DEFAULT_STOREFRONT_WIDGETS].
+    const expectedPerSide = ['.maybe-gone', ...DEFAULT_STOREFRONT_WIDGETS];
+    const expectedAll = [...expectedPerSide, ...expectedPerSide];
     const unmatched = (result.maskResolution as any).optionalUnmatched as string[];
-    assert.ok(unmatched.includes('.maybe-gone'), 'must contain user-supplied absent optional mask');
-    assert.strictEqual(unmatched.filter(s => s === '.maybe-gone').length, 2, 'user optional recorded once per side');
+    assert.deepEqual(unmatched, expectedAll, 'optionalUnmatched must exactly match user optional plus default storefront widgets across both sides');
     assert.strictEqual((result.maskResolution as any).status, 'ok');
   });
 
@@ -1391,5 +1416,78 @@ describe('computePixelDiff & visualCompare comprehensive edge cases', () => {
     assert.strictEqual(res.groups['.product-card']?.cardinalityMatch, true, 'Group-level 0===0 is true');
     assert.strictEqual(res.groups['.product-card']?.targetCount, 0);
     assert.strictEqual(res.groups['.product-card']?.baselineCount, 0);
+  });
+});
+
+describe('visualCompare structural height drift & truncation controls', () => {
+  it('default (no params): height delta > 10% returns STRUCTURAL_TRUNCATION_DETECTED with match:false', async () => {
+    const evalLog: EvalLogEntry[] = [];
+    const host = buildMockHost({
+      evalLog,
+      pngDimensionsForTab: (tabId) => (tabId === 'tab-a' ? { width: 800, height: 1000 } : { width: 800, height: 600 }),
+    });
+    const port = new BrowserControlPort(host as any);
+
+    const result = await port.visualCompare(
+      dummyTarget,
+      'run-1',
+      'att-1',
+      {
+        comparisonTabId: 'tab-b',
+      }
+    );
+
+    assert.strictEqual(result.match, false);
+    assert.strictEqual((result as any).verdict, 'STRUCTURAL_TRUNCATION_DETECTED');
+    assert.strictEqual((result as any).mismatchPercentage, 100);
+    assert.ok((result as any).reason.includes('Structural height mismatch exceeds 10% tolerance'));
+  });
+
+  it('heightTolerance: 0.5 allows 30% height difference without triggering truncation gate', async () => {
+    const evalLog: EvalLogEntry[] = [];
+    // tab-a: 780, tab-b: 600 -> delta is (780-600)/600 = 0.30 (30%), within 0.50 (50%)
+    const host = buildMockHost({
+      evalLog,
+      pngDimensionsForTab: (tabId) => (tabId === 'tab-a' ? { width: 800, height: 780 } : { width: 800, height: 600 }),
+    });
+    const port = new BrowserControlPort(host as any);
+
+    const result = await port.visualCompare(
+      dummyTarget,
+      'run-1',
+      'att-1',
+      {
+        comparisonTabId: 'tab-b',
+        heightTolerance: 0.5,
+      }
+    );
+
+    // Passes truncation gate and proceeds to diff evaluation (not blocked with STRUCTURAL_TRUNCATION_DETECTED)
+    assert.notStrictEqual((result as any).verdict, 'STRUCTURAL_TRUNCATION_DETECTED');
+  });
+
+  it('allowHeightDrift: true bypasses truncation gate, proceeds to pixel evaluation and records layout metrics', async () => {
+    const evalLog: EvalLogEntry[] = [];
+    // tab-a: 1200, tab-b: 600 -> delta is 100%
+    const host = buildMockHost({
+      evalLog,
+      pngDimensionsForTab: (tabId) => (tabId === 'tab-a' ? { width: 800, height: 1200 } : { width: 800, height: 600 }),
+    });
+    const port = new BrowserControlPort(host as any);
+
+    const result = await port.visualCompare(
+      dummyTarget,
+      'run-1',
+      'att-1',
+      {
+        comparisonTabId: 'tab-b',
+        allowHeightDrift: true,
+      }
+    );
+
+    // Proves allowHeightDrift is an evidence collection bypass, not a false pass:
+    assert.notStrictEqual((result as any).verdict, 'STRUCTURAL_TRUNCATION_DETECTED');
+    assert.strictEqual(result.match, false, 'Non-overlapping pixel area with different heights must cause match:false');
+    assert.ok((result as any).mismatchPercentage > 0, 'Must record non-zero mismatch percentage for height drift');
   });
 });

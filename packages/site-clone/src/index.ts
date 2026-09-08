@@ -12,6 +12,7 @@ export * from './generators/haravan-section-generator.js';
 export * from './generators/haravan-schema-generator.js';
 export * from './generators/haravan-snippet-generator.js';
 export * from './generators/theme-compiler.js';
+export * from './generators/independent-html-clone-generator.js';
 export * from './qa/canvas-masking-helper.js';
 export * from './qa/clean-tab-probe.js';
 export * from './qa/clean-tab-protocol.js';

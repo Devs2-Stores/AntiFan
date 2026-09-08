@@ -863,5 +863,62 @@ describe('AssetLocalizer - A1, A2, A3 Unified Pipeline & Invariants', () => {
         fs.rmSync(tempDir, { recursive: true, force: true });
       }
     });
+    it('5.5. verifyAndAudit exempts namespace attributes (xmlns, itemtype, vocab) while strictly flagging remote resource URLs on the same domains', () => {
+      const localizer = new AssetLocalizer();
+      const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-audit-ns-'));
+      try {
+        const manifest: HarvestedAssetManifest = {
+          stylesheets: [],
+          javascripts: [],
+          images: [],
+          fonts: [],
+          totalBytes: 0
+        };
+
+        // Case A: Pure semantic namespace attributes -> MUST PASS with 0 findings
+        const validNamespaceContent = `
+          <html xmlns="http://www.w3.org/1999/xhtml" vocab="http://schema.org/">
+            <body itemscope itemtype="https://schema.org/Product">
+              <span property="name">Test</span>
+            </body>
+          </html>
+        `;
+        const auditA = localizer.verifyAndAudit(manifest, {
+          assetsDir: tempDir,
+          rewrittenFiles: [{
+            path: 'index.liquid',
+            replacementCount: 0,
+            originalContent: validNamespaceContent,
+            rewrittenContent: validNamespaceContent
+          }]
+        });
+        assert.strictEqual(auditA.passed, true, 'Namespace attributes must be exempt from network URL audit');
+        assert.strictEqual(auditA.findings.length, 0);
+
+        // Case B: Remote resource URLs using schema.org or w3.org (e.g. script src, img src) -> MUST FAIL with LINGERING_REMOTE_NETWORK_URL
+        const maliciousResourceContent = `
+          <html xmlns="http://www.w3.org/1999/xhtml">
+            <body>
+              <script src="https://schema.org/x.js"></script>
+              <img src="https://www.w3.org/Icons/valid-xhtml10.png">
+            </body>
+          </html>
+        `;
+        const auditB = localizer.verifyAndAudit(manifest, {
+          assetsDir: tempDir,
+          rewrittenFiles: [{
+            path: 'index.liquid',
+            replacementCount: 0,
+            originalContent: maliciousResourceContent,
+            rewrittenContent: maliciousResourceContent
+          }]
+        });
+        assert.strictEqual(auditB.passed, false, 'Resource URLs on schema.org/w3.org must be caught and fail audit');
+        assert.strictEqual(auditB.findings.length, 2);
+        assert.ok(auditB.findings.every(f => f.code === 'LINGERING_REMOTE_NETWORK_URL'));
+      } finally {
+        fs.rmSync(tempDir, { recursive: true, force: true });
+      }
+    });
   });
 });

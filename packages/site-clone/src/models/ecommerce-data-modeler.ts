@@ -26,16 +26,28 @@ export interface NormalizedCategory {
   url: string;
   children?: NormalizedCategory[];
 }
+
+export interface NormalizedArticle {
+  id: string;
+  title: string;
+  handle: string;
+  author?: string;
+  publishedAt?: string;
+  excerpt?: string;
+  featuredImage?: string;
+  url: string;
+}
+
 export interface StorefrontDataBundle {
   products: NormalizedProduct[];
   categories: NormalizedCategory[];
+  articles: NormalizedArticle[];
   siteSettings: {
     title: string;
     hotline: string;
     email: string;
   };
 }
-
 export class EcommerceDataModeler {
   public extractStorefrontData(html: string): StorefrontDataBundle {
     const root = DomTreeParser.parse(html);
@@ -43,6 +55,7 @@ export class EcommerceDataModeler {
     return {
       products: this.extractProducts(root),
       categories: this.extractCategories(root),
+      articles: this.extractArticles(root),
       siteSettings: this.extractSiteSettings(root, html)
     };
   }
@@ -439,5 +452,47 @@ export class EcommerceDataModeler {
 
   public parsePrice(text: string): number {
     return EcommerceDataModeler.parseStructuredPrice(text).price;
+  }
+
+  public extractArticles(root: ParsedElementNode, limit = 6): NormalizedArticle[] {
+    const articles: NormalizedArticle[] = [];
+    const candidateNodes: ParsedElementNode[] = [];
+
+    const scanForArticles = (node: ParsedElementNode) => {
+      const tag = node.tag.toLowerCase();
+      const cls = node.attributes['class'] || '';
+      if (['header', 'footer', 'nav'].includes(tag)) return;
+      if (tag === 'article' || /(?:blog-post|article-item|news-item|post-item)/i.test(cls)) {
+        candidateNodes.push(node);
+        return;
+      }
+      for (const child of node.children) {
+        if (typeof child !== 'string') scanForArticles(child);
+      }
+    };
+
+    scanForArticles(root);
+
+    for (let i = 0; i < Math.min(candidateNodes.length, limit); i++) {
+      const node = candidateNodes[i];
+      const links = DomTreeParser.findByTag(node, 'a');
+      const imgs = DomTreeParser.findByTag(node, 'img');
+      const headings = [...DomTreeParser.findByTag(node, 'h1'), ...DomTreeParser.findByTag(node, 'h2'), ...DomTreeParser.findByTag(node, 'h3'), ...DomTreeParser.findByTag(node, 'h4')];
+      
+      const title = headings.length > 0 ? DomTreeParser.extractText(headings[0]).trim() : (links.length > 0 ? DomTreeParser.extractText(links[0]).trim() : `Article ${i + 1}`);
+      const url = links.length > 0 ? (links[0].attributes['href'] || '') : '#';
+      const handle = title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '') || `article-${i + 1}`;
+      const featuredImage = imgs.length > 0 ? (imgs[0].attributes['src'] || imgs[0].attributes['data-src'] || '') : undefined;
+
+      articles.push({
+        id: `article_${i + 1}`,
+        title,
+        handle,
+        url,
+        featuredImage
+      });
+    }
+
+    return articles;
   }
 }

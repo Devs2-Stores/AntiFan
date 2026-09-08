@@ -13,6 +13,7 @@ import { HaravanSectionGenerator } from './haravan-section-generator.js';
 import { HaravanSchemaGenerator } from './haravan-schema-generator.js';
 import { HaravanSnippetGenerator } from './haravan-snippet-generator.js';
 import { StateSynthesizer } from '../models/state-synthesizer.js';
+import { AssetLocalizer, LocalizeAssetOptions, AssetLocalizationPipelineResult } from '../models/asset-localizer.js';
 
 export class ThemeCompiler {
   private layoutGen = new HaravanLayoutGenerator();
@@ -22,6 +23,74 @@ export class ThemeCompiler {
   private stateSynth = new StateSynthesizer();
   private irBuilder = new CloneIRBuilder();
 
+  public async compileThemeWithLocalizationAsync(
+    outputDir: string,
+    input: string | ComponentContractIR,
+    options?: Partial<LocalizeAssetOptions>
+  ): Promise<{ success: boolean; sectionCount: number; filesWritten: string[]; localization?: AssetLocalizationPipelineResult }> {
+    if (!input) {
+      throw new Error('ThemeCompiler: input must be a valid non-empty string or ComponentContractIR');
+    }
+    const ir: ComponentContractIR = typeof input === 'string' ? this.irBuilder.buildFromHtml(input) : input;
+    
+    // 1. Compile into an isolated temporary staging directory first
+    const tempStageDir = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-theme-async-stage-'));
+    try {
+      const compileRes = this.compileThemeFromIR(tempStageDir, ir);
+
+      // 2. If assets exist, run AssetLocalizer.localizePipeline inside the temporary staging directory
+      let pipelineRes: AssetLocalizationPipelineResult | undefined;
+      if (ir.assets) {
+        const assetsDir = path.join(tempStageDir, 'assets');
+        fs.mkdirSync(assetsDir, { recursive: true });
+
+        const themeFiles: Array<{ path: string; content: string }> = compileRes.filesWritten
+          .filter(f => /\.(liquid|json|css|js)$/i.test(f) && fs.existsSync(f))
+          .map(f => ({ path: f, content: fs.readFileSync(f, 'utf-8') }));
+
+        const localizer = new AssetLocalizer();
+        pipelineRes = await localizer.localizePipeline(themeFiles, ir.assets, {
+          assetsDir,
+          mode: 'liquid',
+          skipDownload: false,
+          ...options
+        });
+
+        // Strict fail-closed gate: if audit fails, abort without touching outputDir
+        if (!pipelineRes.a3_audit.passed) {
+          const findingSummary = pipelineRes.a3_audit.findings
+            .map(f => `[${f.severity}] ${f.code}: ${f.message}`)
+            .join('\n');
+          throw new Error(`ThemeCompiler Asset Audit Failed (Fail-Closed):\n${findingSummary}`);
+        }
+
+        // Write back rewritten source files containing localized URLs in temp staging
+        for (const rewritten of pipelineRes.a2_rewrite.files) {
+          fs.writeFileSync(rewritten.path, rewritten.rewrittenContent, 'utf-8');
+        }
+
+        for (const assetItem of pipelineRes.a3_audit.verifiedAssets) {
+          if (assetItem.exists && !compileRes.filesWritten.includes(assetItem.localPath)) {
+            compileRes.filesWritten.push(assetItem.localPath);
+          }
+        }
+      }
+
+      // 3. Atomically swap tempStageDir into outputDir only AFTER localization and audit succeed 100%
+      const dirs = ['layout', 'templates', 'sections', 'snippets', 'assets', 'config', 'locales'];
+      this.atomicSwap(tempStageDir, outputDir, dirs);
+
+      return {
+        success: true,
+        sectionCount: compileRes.sectionCount,
+        filesWritten: compileRes.filesWritten.map(f => path.join(outputDir, path.relative(tempStageDir, f))),
+        localization: pipelineRes
+      };
+    } finally {
+      try { fs.rmSync(tempStageDir, { recursive: true, force: true }); } catch {}
+    }
+  }
+
   public compileTheme(outputDir: string, input: string | ComponentContractIR): { success: boolean; sectionCount: number; filesWritten: string[] } {
     if (!input) {
       throw new Error('ThemeCompiler: input must be a valid non-empty string or ComponentContractIR');
@@ -30,7 +99,6 @@ export class ThemeCompiler {
     const ir: ComponentContractIR = typeof input === 'string' ? this.irBuilder.buildFromHtml(input) : input;
     return this.compileThemeFromIR(outputDir, ir);
   }
-
   public compileThemeFromIR(outputDir: string, ir: ComponentContractIR): { success: boolean; sectionCount: number; filesWritten: string[] } {
     // 1. Create temporary staging directory for atomic generation
     const stagingDir = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-theme-stage-'));
@@ -247,58 +315,48 @@ export class ThemeCompiler {
       }
       // 10. Validate staging integrity before swap
       this.validateStagingTheme(stagingDir);
-
-      // 11. Atomic Swap with Rollback Backup
-      fs.mkdirSync(outputDir, { recursive: true });
-      const backupDir = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-theme-backup-'));
-      try {
-        // Backup existing directories
-        for (const d of dirs) {
-          const destSub = path.join(outputDir, d);
-          if (fs.existsSync(destSub)) {
-            const backupSub = path.join(backupDir, d);
-            fs.cpSync(destSub, backupSub, { recursive: true });
-          }
-        }
-        // Copy validated staging to destination
-        for (const d of dirs) {
-          const destSub = path.join(outputDir, d);
-          if (fs.existsSync(destSub)) {
-            fs.rmSync(destSub, { recursive: true, force: true });
-          }
-          const srcSub = path.join(stagingDir, d);
-          if (fs.existsSync(srcSub)) {
-            fs.cpSync(srcSub, destSub, { recursive: true });
-          }
-        }
-      } catch (swapErr) {
-        // Rollback from backup if anything fails
-        try {
-          for (const d of dirs) {
-            const backupSub = path.join(backupDir, d);
-            const destSub = path.join(outputDir, d);
-            if (fs.existsSync(backupSub)) {
-              if (fs.existsSync(destSub)) fs.rmSync(destSub, { recursive: true, force: true });
-              fs.cpSync(backupSub, destSub, { recursive: true });
-            }
-          }
-        } catch {}
-        throw swapErr;
-      } finally {
-        try { fs.rmSync(backupDir, { recursive: true, force: true }); } catch {}
-      }
+      this.atomicSwap(stagingDir, outputDir, dirs);
       return {
         success: true,
         sectionCount: sections.length,
         filesWritten: filesWritten.map(f => path.join(outputDir, path.relative(stagingDir, f)))
       };
     } finally {
-      // Clean up staging directory
-      try {
-        fs.rmSync(stagingDir, { recursive: true, force: true });
-      } catch {}
+      try { fs.rmSync(stagingDir, { recursive: true, force: true }); } catch {}
     }
   }
+
+  private atomicSwap(stagingDir: string, outputDir: string, dirs: string[]): void {
+    fs.mkdirSync(outputDir, { recursive: true });
+    const backupDir = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-theme-backup-'));
+    try {
+      for (const d of dirs) {
+        const destSub = path.join(outputDir, d);
+        if (fs.existsSync(destSub)) fs.cpSync(destSub, path.join(backupDir, d), { recursive: true });
+      }
+      for (const d of dirs) {
+        const destSub = path.join(outputDir, d);
+        if (fs.existsSync(destSub)) fs.rmSync(destSub, { recursive: true, force: true });
+        const srcSub = path.join(stagingDir, d);
+        if (fs.existsSync(srcSub)) fs.cpSync(srcSub, destSub, { recursive: true });
+      }
+    } catch (swapErr) {
+      try {
+        for (const d of dirs) {
+          const backupSub = path.join(backupDir, d);
+          const destSub = path.join(outputDir, d);
+          if (fs.existsSync(backupSub)) {
+            if (fs.existsSync(destSub)) fs.rmSync(destSub, { recursive: true, force: true });
+            fs.cpSync(backupSub, destSub, { recursive: true });
+          }
+        }
+      } catch {}
+      throw swapErr;
+    } finally {
+      try { fs.rmSync(backupDir, { recursive: true, force: true }); } catch {}
+    }
+  }
+
 
   private validateStagingTheme(stagingDir: string): void {
     const layout = path.join(stagingDir, 'layout', 'theme.liquid');

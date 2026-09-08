@@ -1,6 +1,6 @@
 import type { HarvestedAssetManifest } from './asset-harvester.js';
 import { ResponsiveScanner, type ResponsiveBreakpointConfig } from './responsive-scanner.js';
-import type { NormalizedProduct, NormalizedCategory } from './ecommerce-data-modeler.js';
+import type { NormalizedProduct, NormalizedCategory, NormalizedArticle } from './ecommerce-data-modeler.js';
 
 /**
  * Model: Component Contract Intermediate Representation (ComponentContractIR)
@@ -77,6 +77,7 @@ export interface StorefrontControllerContract {
 export interface NormalizedStorefrontData {
   products?: NormalizedProduct[];
   categories?: NormalizedCategory[];
+  articles?: NormalizedArticle[];
   siteSettings?: {
     title?: string;
     hotline?: string;

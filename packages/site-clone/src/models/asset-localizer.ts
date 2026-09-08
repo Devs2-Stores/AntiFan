@@ -81,7 +81,7 @@ export interface AssetVerificationItem {
 
 export interface AssetAuditFinding {
   severity: 'error' | 'warning';
-  code: 'UNLOCALIZED_REMOTE_URL' | 'UNRESOLVED_CSS_DEPENDENCY' | 'MISSING_LOCAL_FILE' | 'ZERO_BYTE_ASSET' | 'DOWNLOAD_FAILED' | 'DEPTH_CUTOFF_EXCEEDED';
+  code: 'UNLOCALIZED_REMOTE_URL' | 'UNRESOLVED_CSS_DEPENDENCY' | 'MISSING_LOCAL_FILE' | 'ZERO_BYTE_ASSET' | 'DOWNLOAD_FAILED' | 'DEPTH_CUTOFF_EXCEEDED' | 'LINGERING_REMOTE_NETWORK_URL';
   message: string;
   details?: Record<string, unknown>;
 }
@@ -1241,21 +1241,31 @@ export class AssetLocalizer {
       }
     }
 
-    // 3. Scan rewritten HTML/Liquid files for unlocalized remote URLs
+    // 3. Consolidated Remote Network Resource Audit across rewritten files
+    // Eliminates narrower regex duplicate scan while deduplicating findings by (filePath + url)
     const unlocalizedSet = new Set<string>();
-    const remoteAssetRegex = /(?:https?:)?\/\/[^\s"'<>()]+?\.(?:png|jpe?g|webp|gif|svg|avif|css|js|woff2?|ttf|eot)(?:[?#][^\s"'<>()]*)?/gi;
+    const seenFileUrlPairs = new Set<string>();
+    const resourceUrlPattern = /(?:https?:)?\/\/[^\s"'`<>{}|\\^]+/gi;
+    const namespaceAttrPattern = /\b(?:xmlns(?::\w+)?|itemtype|vocab)\s*=\s*["'][^"']*$/i;
 
-    for (const f of options.rewrittenFiles) {
-      let match: RegExpExecArray | null;
-      while ((match = remoteAssetRegex.exec(f.rewrittenContent)) !== null) {
-        const foundUrl = match[0];
-        if (foundUrl.includes('w3.org') || foundUrl.includes('schema.org')) continue;
-        unlocalizedSet.add(foundUrl);
+    for (const file of options.rewrittenFiles) {
+      let rMatch: RegExpExecArray | null;
+      while ((rMatch = resourceUrlPattern.exec(file.rewrittenContent)) !== null) {
+        const matchedUrl = rMatch[0];
+        const prefix = file.rewrittenContent.slice(Math.max(0, rMatch.index - 50), rMatch.index);
+        // Syntactic namespace exclusion: only exempt when immediately preceded by xmlns=, itemtype=, or vocab=
+        if (namespaceAttrPattern.test(prefix)) continue;
+
+        const dedupKey = `${file.path}::${matchedUrl}`;
+        if (seenFileUrlPairs.has(dedupKey)) continue;
+        seenFileUrlPairs.add(dedupKey);
+
+        unlocalizedSet.add(matchedUrl);
         findings.push({
           severity: 'error',
-          code: 'UNLOCALIZED_REMOTE_URL',
-          message: `Residual remote asset URL detected in ${f.path}: ${foundUrl}`,
-          details: { filePath: f.path, url: foundUrl }
+          code: 'LINGERING_REMOTE_NETWORK_URL',
+          message: `Lingering remote network URL found in rewritten ${file.path}: ${matchedUrl}`,
+          details: { file: file.path, url: matchedUrl }
         });
       }
     }
@@ -1319,9 +1329,9 @@ export class AssetLocalizer {
         }
       }
     }
+
     const unlocalizedUrls = Array.from(unlocalizedSet);
     const hasErrors = findings.some(f => f.severity === 'error');
-
     return {
       verifiedAssets,
       findings,

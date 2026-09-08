@@ -39,6 +39,8 @@ import {
   type NormalizationReceipt,
   type VisualStructuralMetrics,
 } from '../verification/visual-capture.js';
+import { withZeroNetworkDenialTransaction, CdpDebuggerInterface } from '../browser/zero-network-interceptor.js';
+import { classifyNetworkUrl } from '../browser/network-policy.js';
 import {
   normalizeVisualRegions,
   computeStructuralMetrics,
@@ -142,6 +144,7 @@ export interface BrowserHostPort {
   getNetworkTracker?(): { isAttached: (tabId: string, paneId?: string) => boolean; awaitQuiescence: (tabId: string, paneId?: string, options?: NetworkTrackerOptions, signal?: AbortSignal) => Promise<{ settled: boolean; durationMs: number; timedOut: boolean }> };
   wait?(params: BrowserWaitParams, signal?: AbortSignal): Promise<BrowserWaitResult>;
   observe?(params: BrowserObserveParams): Promise<BrowserObserveResult>;
+  getTabDebugger?(tabId: string): CdpDebuggerInterface | undefined;
 }
 
 export interface BrowserObserveParams {
@@ -584,6 +587,51 @@ export function resolveInteractionMode(rawRes: unknown, fallbackMode: Interactio
  * Only boolean true or explicit { [actionKey]: true } is accepted as success.
  * Objects like {}, { [actionKey]: undefined/null/false }, primitives, null, and undefined are fail-closed (false).
  */
+export const DEFAULT_STOREFRONT_WIDGETS: readonly string[] = Object.freeze([
+  '#haravan-notification',
+  '[id*="haravan-notification"]',
+  '#preview-bar-iframe',
+  'iframe[src*="admin/preview_bar"]',
+  'iframe[src*="preview_bar"]',
+  '.haravan-preview-bar',
+  '#haravan-preview-bar',
+  '.shopify-preview-bar',
+  '#shopify-preview-bar',
+  '#fake-order-popup',
+  '[id*="fake-order"]',
+  '#notice-cart',
+  '[id*="notice-cart"]',
+  '.zalo-chat-widget',
+  '#fb-root',
+  '#subiz',
+  '#tawk-bubble-container',
+  '[class*="zalo-chat"]',
+  '.chat-widget',
+  '[class*="chat-widget"]',
+  '[id*="chat-widget"]',
+  '.hotline-phone_ring',
+  '.icon-contact',
+  '.contact-box',
+  '.phone-ring',
+  '.call-mobile',
+  '.quick-call-button',
+  '.loomline_addthis_contact__icons',
+  '.grecaptcha-badge',
+  '#toast-container',
+  // Auto-placed Ads & Third-party Fixed Banners (prevents >10% height drift)
+  'ins.adsbygoogle',
+  '.google-auto-placed',
+  'iframe[src*="doubleclick"]',
+  // Cookie-consent Banners
+  '#onetrust-banner-sdk',
+  '.cookie-notice',
+  '.cookie-banner',
+  '.cky-consent-container',
+  '.cc-main',
+  // FB Messenger Dialogs & Overlays
+  'div[class*="fb_dialog"]',
+]);
+
 export function isStrictActionSuccess(rawRes: unknown, actionKey: string): boolean {
   if (rawRes === true) return true;
   if (rawRes && typeof rawRes === 'object' && !Array.isArray(rawRes)) {
@@ -699,6 +747,76 @@ export class BrowserControlPort {
       ...(urlBefore ? { urlBefore } : {}),
       ...(urlAfter ? { urlAfter } : {}),
       ...(urlBefore && urlAfter ? { redirected } : {}),
+    };
+  }
+
+  /**
+   * Explicit opt-in capability: reloads an isolated offline/local clone tab inside
+   * a strict Zero-External-Network Denial transaction (CDP Fetch.requestPaused).
+   * Does NOT affect generic remote storefront reload or normal theme.qa_validate.
+   */
+  async reloadZeroNetwork(
+    target: BrowserTarget,
+    explicitTabId?: string
+  ): Promise<{
+    reloaded: boolean;
+    target: BrowserTarget;
+    blockedUrls: string[];
+    blockedCount: number;
+    verifiedOffline: boolean;
+  }> {
+    const tabId = this.resolveTargetTab(target, explicitTabId, 'lifecycle');
+
+    // Local-origin guard: verify current tab URL is an allowed local origin before executing zero-network reload
+    let currentUrl: string | undefined;
+    try {
+      const tabs = typeof this.host.getTabList === 'function' ? this.host.getTabList() : [];
+      const match = Array.isArray(tabs) ? tabs.find((t: any) => t && typeof t === 'object' && t.id === tabId) : undefined;
+      if (match && typeof (match as any).url === 'string') {
+        currentUrl = (match as any).url;
+      } else if (typeof this.host.evalJs === 'function') {
+        currentUrl = String(await this.host.evalJs('window.location.href', tabId) || '') || undefined;
+      }
+    } catch {}
+
+    if (!currentUrl) {
+      throw new CapabilityError('INVALID_ARGUMENT', `Unable to determine current URL for zero-network reload on tab "${tabId}"`);
+    }
+
+    const urlClassification = classifyNetworkUrl(currentUrl);
+    if (urlClassification.action !== 'allow') {
+      throw new CapabilityError(
+        'INVALID_ARGUMENT',
+        `Zero-network reload is restricted to verified local origins (localhost, 127.0.0.1, file). Target tab URL "${currentUrl}" is an external domain.`
+      );
+    }
+
+    const dbg = typeof this.host.getTabDebugger === 'function' ? this.host.getTabDebugger(tabId) : undefined;
+    if (!dbg) {
+      throw new CapabilityError(
+        'CAPABILITY_NOT_FOUND',
+        `CDP Debugger interface is not available for zero-network reload on tab "${tabId}"`
+      );
+    }
+
+    const { result, blockedUrls } = await withZeroNetworkDenialTransaction(dbg, async () => {
+      const reloaded = typeof this.host.reloadAndWait === 'function'
+        ? await this.host.reloadAndWait(tabId)
+        : await this.host.reload(tabId);
+      if (!reloaded) {
+        throw new CapabilityError('TARGET_STALE', 'Zero-network reload failed before a load-complete document was available');
+      }
+      return reloaded;
+    });
+
+    const docGen = this.host.getDocumentGeneration ? this.host.getDocumentGeneration(tabId) : (target.documentGeneration || 1);
+
+    return {
+      reloaded: result,
+      target: { ...target, tabId, documentGeneration: docGen },
+      blockedUrls,
+      blockedCount: blockedUrls.length,
+      verifiedOffline: blockedUrls.length === 0,
     };
   }
 
@@ -2614,36 +2732,7 @@ export class BrowserControlPort {
       // Always merge third-party dynamic widgets so user masks don't expose unmasked popups/chat widgets.
       // Broad generic selectors like iframe[id] are only included when no user masks are provided.
       const defaultStorefrontWidgets = [
-        '#haravan-notification',
-        '[id*="haravan-notification"]',
-        '#preview-bar-iframe',
-        'iframe[src*="admin/preview_bar"]',
-        'iframe[src*="preview_bar"]',
-        '.haravan-preview-bar',
-        '#haravan-preview-bar',
-        '.shopify-preview-bar',
-        '#shopify-preview-bar',
-        '#fake-order-popup',
-        '[id*="fake-order"]',
-        '#notice-cart',
-        '[id*="notice-cart"]',
-        '.zalo-chat-widget',
-        '#fb-root',
-        '#subiz',
-        '#tawk-bubble-container',
-        '[class*="zalo-chat"]',
-        '.chat-widget',
-        '[class*="chat-widget"]',
-        '[id*="chat-widget"]',
-        '.hotline-phone_ring',
-        '.icon-contact',
-        '.contact-box',
-        '.phone-ring',
-        '.call-mobile',
-        '.quick-call-button',
-        '.loomline_addthis_contact__icons',
-        '.grecaptcha-badge',
-        '#toast-container',
+        ...DEFAULT_STOREFRONT_WIDGETS,
         ...(hasUserMasks ? [] : ['iframe[id]']),
       ];
       const optionalMasks = Array.from(new Set([...userOptional, ...autoPromotedOptional, ...defaultStorefrontWidgets]));

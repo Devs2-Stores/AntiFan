@@ -238,6 +238,10 @@ async function createWindow(): Promise<void> {
     switchTab: (tabId) => tabHost!.switchTab(tabId),
     navigate: (tabId, url) => tabHost!.navigateAndWait(tabId, url),
     reload: (tabId: string) => tabHost!.reloadAndWait(tabId),
+    getTabDebugger: (tabId: string) => {
+      const wc = tabHost!.getTabWebContents(tabId, 'desktop');
+      return wc && !wc.isDestroyed() ? wc.debugger : undefined;
+    },
     getDom: (selector, tabId, paneId) => tabHost!.getDom(selector, tabId, paneId),
     captureScreenshot: (rect, tabId, paneId, options) => tabHost!.captureScreenshot(rect as any, tabId, paneId, options),
     captureVerificationScreenshot: (rect, tabId, paneId, options) => tabHost!.captureVerificationScreenshot(rect as any, tabId, paneId, options),
