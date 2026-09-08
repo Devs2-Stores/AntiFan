@@ -95,6 +95,9 @@ export class InvocationLedger {
   private readonly ioQueues = new Map<string, Promise<void>>();
   private readonly uncompactedFrameCounts = new Map<string, number>();
   private readonly persistedFrameCounts = new Map<string, number>();
+  // Directories already known to exist, so the hot append path skips the
+  // synchronous fs.existsSync+mkdirSync on every frame write.
+  private readonly preparedDirs = new Set<string>();
 
 
   constructor(private readonly options: InvocationLedgerOptions) {
@@ -222,7 +225,8 @@ export class InvocationLedger {
 
   public async observe(
     intent: ClientInvocationIntent,
-    authority: MainResolvedAuthority
+    authority: MainResolvedAuthority,
+    precomputedDigest?: string
   ): Promise<InvocationClaimResult | undefined> {
     const attachmentId = intent.attachmentId;
     if (this.quarantinedPartitions.has(attachmentId)) {
@@ -241,7 +245,9 @@ export class InvocationLedger {
         partition = this.hotPartitions.get(attachmentId)!;
       }
     }
-    const paramDigest = canonicalDigest(intent.params || {});
+    // Reuse a caller-computed digest (the same params object is stable for one
+    // intent), skipping a redundant canonical-serialize + SHA-256 per hop.
+    const paramDigest = precomputedDigest ?? canonicalDigest(intent.params || {});
     const existing = partition.get(intent.idempotencyKey);
 
     if (!existing) return undefined;
@@ -303,9 +309,13 @@ export class InvocationLedger {
     }
 
     let shouldCompact = false;
+    // Compute the canonical param digest once (params are immutable for one
+    // intent), reusing it for the nested idempotency observe AND the new record
+    // instead of canonical-serializing + SHA-256 three times per claim.
+    const precomputedDigest = canonicalDigest(intent.params || {});
     const result = await this.runWithIOLock(attachmentId, async () => {
       // Idempotency check strictly under the serialization lock
-      const existing = await this.observe(intent, liveAuthority);
+      const existing = await this.observe(intent, liveAuthority, precomputedDigest);
       if (existing) return existing;
 
       let partition = this.hotPartitions.get(attachmentId);
@@ -314,7 +324,7 @@ export class InvocationLedger {
         this.hotPartitions.set(attachmentId, partition);
       }
 
-      const paramDigest = canonicalDigest(intent.params || {});
+      const paramDigest = precomputedDigest;
       const invocationId = makeControlPlaneId('invocation');
       const now = Date.now();
       const newRecord: InvocationRecord = {
@@ -647,12 +657,18 @@ export class InvocationLedger {
     }
   }
 
-  private async appendFrameUnlocked(record: InvocationRecord): Promise<void> {
-    const filePath = this.getPartitionPath(record.attachmentId);
-    const dir = path.dirname(filePath);
+  private async ensurePartitionDir(dir: string): Promise<void> {
+    if (this.preparedDirs.has(dir)) return;
     if (!fs.existsSync(dir)) {
       fs.mkdirSync(dir, { recursive: true });
     }
+    this.preparedDirs.add(dir);
+  }
+
+  private async appendFrameUnlocked(record: InvocationRecord): Promise<void> {
+    const filePath = this.getPartitionPath(record.attachmentId);
+    const dir = path.dirname(filePath);
+    await this.ensurePartitionDir(dir);
 
     const { checksum, ...rest } = record;
     const calculatedChecksum = computeFrameChecksum(rest);

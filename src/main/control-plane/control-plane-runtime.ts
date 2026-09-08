@@ -69,6 +69,11 @@ export class ControlPlaneRuntime {
   private switchState: RuntimeFeatureSwitch = { mode: 'standalone', lifecycle: 'active' };
   private workspaceRoot: string;
   private themeQaWorkflow: ThemeQaWorkflow | null = null;
+  // Memoized workspace-root resolution: wether resolving from a workspace record
+  // or the fallback chain, the sync fs.existsSync checks only need to run once
+  // per (workspaceId, explicitRoot) pair. Invalidation is explicit below.
+  private cachedWorkspaceRoot: string | null = null;
+  private cachedWorkspaceKey: string = '';
 
   constructor(options: ControlPlaneRuntimeOptions) {
     this.projects = options.projects || new ProjectRegistry();
@@ -156,27 +161,40 @@ export class ControlPlaneRuntime {
 
 
   getWorkspaceRoot(): string {
-    if (this.leaseState.workspaceId) {
+    const workspaceId = this.leaseState.workspaceId || '';
+    // Cache hit: same lease workspace and no explicit-root change => reuse the
+    // previously resolved root and skip the sync fs.existsSync checks entirely.
+    const key = `${workspaceId}|${this.workspaceRoot}`;
+    if (this.cachedWorkspaceRoot !== null && this.cachedWorkspaceKey === key) {
+      return this.cachedWorkspaceRoot;
+    }
+
+    let resolved = this.workspaceRoot;
+    if (workspaceId) {
       try {
-        const ws = this.workspaces.get(this.leaseState.workspaceId, this.leaseState.projectId);
-        if (ws?.rootPath && !ws.rootPath.includes('.antifan-data') && fs.existsSync(ws.rootPath)) return ws.rootPath;
+        const ws = this.workspaces.get(workspaceId, this.leaseState.projectId);
+        if (ws?.rootPath && !ws.rootPath.includes('.antifan-data') && fs.existsSync(ws.rootPath)) resolved = ws.rootPath;
       } catch {}
     }
-    const envRoot = process.env.THEME_WORKSPACE_ROOT || process.env.ANTIFAN_WORKSPACE_ROOT || process.env.WORKSPACE_ROOT;
-    if (envRoot && fs.existsSync(envRoot)) {
-      return envRoot;
+    if (resolved === this.workspaceRoot || !resolved || resolved.includes('.antifan-data')) {
+      const envRoot = process.env.THEME_WORKSPACE_ROOT || process.env.ANTIFAN_WORKSPACE_ROOT || process.env.WORKSPACE_ROOT;
+      if (envRoot && fs.existsSync(envRoot)) {
+        resolved = envRoot;
+      } else {
+        const cwd = process.cwd();
+        if (fs.existsSync(path.join(cwd, 'layout', 'theme.liquid')) || fs.existsSync(path.join(cwd, 'templates')) || fs.existsSync(path.join(cwd, 'sections'))) {
+          resolved = cwd;
+        }
+      }
     }
-    const cwd = process.cwd();
-    if (fs.existsSync(path.join(cwd, 'layout', 'theme.liquid')) || fs.existsSync(path.join(cwd, 'templates')) || fs.existsSync(path.join(cwd, 'sections'))) {
-      return cwd;
-    }
-    if (this.workspaceRoot && !this.workspaceRoot.includes('.antifan-data')) {
-      return this.workspaceRoot;
-    }
-    return this.workspaceRoot;
+    this.cachedWorkspaceRoot = resolved;
+    this.cachedWorkspaceKey = key;
+    return resolved;
   }
   setWorkspaceRoot(root: string): void {
     this.workspaceRoot = root;
+    this.cachedWorkspaceRoot = null;
+    this.cachedWorkspaceKey = '';
   }
 
   beginDrain(): void { this.switchState = { ...this.switchState, lifecycle: 'draining' }; this.capabilities.beginDrain(); }

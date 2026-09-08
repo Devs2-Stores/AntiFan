@@ -1,4 +1,6 @@
 import * as crypto from 'node:crypto';
+import { performance } from 'node:perf_hooks';
+import { isBenchmarkEnabled, recordBenchmark } from '../benchmark/telemetry';
 import {
   ClientInvocationIntent,
   MainResolvedAuthority,
@@ -119,6 +121,24 @@ export class CapabilityTransportAdapter {
   }
 
   async dispatchIntent(
+    intent: ClientInvocationIntent,
+    runtimeOptions?: CapabilityDispatchRuntimeOptions
+  ): Promise<CapabilityTransportResponse> {
+    const benchEnabled = isBenchmarkEnabled();
+    const benchStart = benchEnabled ? performance.now() : 0;
+    const result = await this._dispatchIntentImpl(intent, runtimeOptions);
+    if (benchEnabled) {
+      recordBenchmark({
+        surface: 'capability',
+        name: 'dispatch',
+        value: performance.now() - benchStart,
+        extra: { capability: intent.name, ok: result.ok },
+      });
+    }
+    return result;
+  }
+
+  private async _dispatchIntentImpl(
     intent: ClientInvocationIntent,
     runtimeOptions?: CapabilityDispatchRuntimeOptions
   ): Promise<CapabilityTransportResponse> {
