@@ -420,7 +420,6 @@ async function autohealSession() {
           params: {
             backendId: 'cli',
             grant: 'eval',
-            allowUserTabFallback: true,
             cwd: process.cwd(),
           },
         }));

@@ -99,7 +99,8 @@ export interface BrowserHostPort {
   getActiveTabId?(): string;
   getAutomationTabId?(): string | null;
   setAutomationTabId?(tabId?: string): void;
-  createTab?(url?: string, activate?: boolean, options?: { capsuleId?: string; userAgentMode?: any; ephemeral?: boolean }): string;
+  isTabOffscreen?(tabId?: string): boolean;
+  createTab?(url?: string, activate?: boolean, options?: { capsuleId?: string; userAgentMode?: any; ephemeral?: boolean; offscreen?: boolean }): string;
   closeTab?(tabId: string): boolean;
   switchTab?(tabId: string): boolean;
   navigate(tabId: string, url: string): Promise<boolean> | boolean;
@@ -909,7 +910,8 @@ export class BrowserControlPort {
       // screenshot reflects the requested tab, not the foreground one.
       const originalActiveTabId = this.host.getActiveTabId ? this.host.getActiveTabId() : tabId;
       const switchTabForCapture = this.host.switchTab;
-      if (typeof switchTabForCapture === 'function' && this.host.getActiveTabId && this.host.getActiveTabId() !== tabId) {
+      const isOffscreenTarget = this.host.isTabOffscreen ? this.host.isTabOffscreen(tabId) : false;
+      if (typeof switchTabForCapture === 'function' && !isOffscreenTarget && this.host.getActiveTabId && this.host.getActiveTabId() !== tabId) {
         switchTabForCapture(tabId);
         await new Promise((r) => setTimeout(r, 150));
       }
@@ -928,7 +930,7 @@ export class BrowserControlPort {
         }
         return this.artifacts ? await this.artifacts.stage({ kind: 'screenshot', mime, data: buffer, runId, attemptId, projectId: target.projectId, workspaceId: target.workspaceId, maxBytes: 8 * 1024 * 1024 }) : limit(base64, 8 * 1024 * 1024);
       } finally {
-        if (typeof switchTabForCapture === 'function' && originalActiveTabId && originalActiveTabId !== tabId
+        if (typeof switchTabForCapture === 'function' && !isOffscreenTarget && originalActiveTabId && originalActiveTabId !== tabId
           && this.host.getActiveTabId && this.host.getActiveTabId() !== originalActiveTabId) {
           switchTabForCapture(originalActiveTabId);
         }
@@ -2960,7 +2962,9 @@ export class BrowserControlPort {
       // moves mutationRevision, so strict DOM tracking opens a fresh window after
       // each normalize inject below.
       // Ensure target tab is foregrounded before normalization, settle barrier, and geometry measurement
-      if (typeof this.host.switchTab === 'function' && this.host.getActiveTabId && this.host.getActiveTabId() !== tabId) {
+      // (Dual-Plane: offscreen agent tabs are captured directly without a foreground swap)
+      const isOffscreenVc = this.host.isTabOffscreen ? this.host.isTabOffscreen(tabId) : false;
+      if (typeof this.host.switchTab === 'function' && !isOffscreenVc && this.host.getActiveTabId && this.host.getActiveTabId() !== tabId) {
         this.host.switchTab(tabId);
         await new Promise((r) => setTimeout(r, 150));
       }
@@ -3280,7 +3284,9 @@ export class BrowserControlPort {
       } else if (params.comparisonTabId && compTabTarget) {
         // Normalization FIRST (same rationale as the target side)
         // Ensure comparison tab is foregrounded before normalization, settle barrier, and geometry measurement
-        if (typeof this.host.switchTab === 'function' && this.host.getActiveTabId && this.host.getActiveTabId() !== compTabTarget) {
+        // (Dual-Plane: offscreen agent tabs are captured directly without a foreground swap)
+        const isOffscreenComp = this.host.isTabOffscreen ? this.host.isTabOffscreen(compTabTarget) : false;
+        if (typeof this.host.switchTab === 'function' && !isOffscreenComp && this.host.getActiveTabId && this.host.getActiveTabId() !== compTabTarget) {
           this.host.switchTab(compTabTarget);
           await new Promise((r) => setTimeout(r, 150));
         }
@@ -4255,22 +4261,20 @@ export class BrowserControlPort {
       if (tabExists(currentAutoTab)) {
         resolved = currentAutoTab;
       } else if (this.host.createTab) {
-        resolved = this.host.createTab('about:blank', false, { ephemeral: operationType === 'write' });
+        // Dual-Plane Runtime Isolation: dedicated agent tab renders offscreen so
+        // capture never requires foregrounding/swapping the user's visible view.
+        resolved = this.host.createTab('about:blank', false, { ephemeral: true, offscreen: true });
         if (this.host.setAutomationTabId) {
           this.host.setAutomationTabId(resolved);
         }
-      } else if (operationType !== 'write') {
-        const activeTabId = this.host.getActiveTabId ? this.host.getActiveTabId() : undefined;
-        if (tabExists(activeTabId)) {
-          resolved = activeTabId;
-        } else {
-          const fallbackList = this.host.getTabList();
-          if (fallbackList.length > 0 && typeof (fallbackList[0] as { id?: unknown })?.id === 'string') {
-            resolved = (fallbackList[0] as { id: string }).id;
-          }
-        }
       } else {
-        throw new CapabilityError('TARGET_REQUIRED', 'Behavioral mutation requires an explicit target tabId or dedicated automation tab');
+        // Dual-Plane Runtime Isolation (fail-closed): NEVER fall back to the user's
+        // active foreground tab. Ambient fallback to getActiveTabId() previously let
+        // read-only capabilities (dom, screenshot, find, set-viewport) latch onto the
+        // user's working tab and visually hijack it. Require a dedicated automation
+        // tab (which the branch above auto-provisions) or an explicit target; otherwise
+        // refuse so the user's browsing surface is never touched by agent operations.
+        throw new CapabilityError('TARGET_REQUIRED', 'No dedicated automation tab is available and no explicit target tabId was provided. Refusing to target the user\'s active tab. Auto-provision an agent tab or pass an explicit tabId.');
       }
     }
 

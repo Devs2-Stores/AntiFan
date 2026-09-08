@@ -2504,6 +2504,19 @@ export class NativeTabHost extends EventEmitter {
   public getAutomationTabId(): string | null {
     return this.automationTabId;
   }
+  /**
+   * Dual-Plane Runtime Isolation: reports whether a tab renders offscreen (i.e. a
+   * dedicated agent tab that is never attached to the user's visible view hierarchy).
+   * Capture paths use this to skip any physical `switchTab` foreground/restore dance,
+   * capturing directly from the offscreen compositor surface instead — so a screenshot
+   * or visual compare never hijacks or flickers the user's active working tab.
+   */
+  public isTabOffscreen(tabId?: string): boolean {
+    if (!tabId) return false;
+    const tab = this.tabs.get(tabId);
+    if (!tab) return false;
+    return tab.state.offscreen === true;
+  }
   public setAutomationTabId(tabId?: string): void {
     const nextTabId = tabId && this.tabs.has(tabId) ? tabId : null;
     if (nextTabId === this.automationTabId) return;
@@ -3132,6 +3145,7 @@ export class NativeTabHost extends EventEmitter {
       ephemeral?: boolean;
       isolateSession?: boolean;
       partition?: string;
+      offscreen?: boolean;
     }
   ): string {
     if (this.isDisposed) return '';
@@ -3178,6 +3192,7 @@ export class NativeTabHost extends EventEmitter {
 
     const userAgentMode: BrowserSessionUserAgentMode = options?.userAgentMode || 'clean';
     const isEphemeral = Boolean(options?.ephemeral);
+    const isOffscreen = Boolean(options?.offscreen);
     let partition: string;
     if (options?.partition && typeof options.partition === 'string') {
       partition = options.partition.trim();
@@ -3188,7 +3203,10 @@ export class NativeTabHost extends EventEmitter {
     }
     configureBrowserSessionPartition(partition, userAgentMode);
     const view = new WebContentsView({
-      webPreferences: getSecureWebPreferences(partition),
+      webPreferences: getSecureWebPreferences(partition, {
+        offscreen: isOffscreen,
+        backgroundThrottling: isOffscreen ? false : undefined,
+      }),
     });
     try { view.setBackgroundColor('#ffffff'); } catch {}
     const isBlankUrl = !url || url === 'about:blank';
@@ -3206,6 +3224,7 @@ export class NativeTabHost extends EventEmitter {
       userAgentMode,
       partition,
       ephemeral: isEphemeral,
+      offscreen: isOffscreen,
     };
     this.setupTabWebContentsEvents(id, view, state, 'desktop');
 
@@ -3267,7 +3286,11 @@ export class NativeTabHost extends EventEmitter {
       this.switchTab(id);
     } else {
       try {
-        wc.setBackgroundThrottling(true);
+        // Offscreen agent tabs must keep painting continuously so capturePage always
+        // has a fresh compositor frame; re-throttling would stall their rendering.
+        if (!isOffscreen) {
+          wc.setBackgroundThrottling(true);
+        }
       } catch {}
       this.updateLayout();
       this.broadcastState();

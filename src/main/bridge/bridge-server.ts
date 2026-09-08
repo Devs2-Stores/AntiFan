@@ -1004,11 +1004,12 @@ export class BridgeServer {
                 const currentAutoTab = this.tabHost.getAutomationTabId ? this.tabHost.getAutomationTabId() : undefined;
                 if (currentAutoTab && this.tabHost.hasTab(currentAutoTab)) {
                   tabId = currentAutoTab;
-                } else if (p.allowUserTabFallback) {
-                  const activeTab = this.tabHost.getActiveTab();
-                  tabId = activeTab?.id;
                 } else {
-                  tabId = this.tabHost.createTab('about:blank', false);
+                  // Dual-Plane Runtime Isolation: ALWAYS auto-provision a dedicated
+                  // background agent tab. The allowUserTabFallback flag is deliberately
+                  // ignored — binding a CLI/MCP session to the user's active foreground
+                  // tab caused agent operations to hijack their working surface.
+                  tabId = this.tabHost.createTab('about:blank', false, { offscreen: true, ephemeral: true });
                   if (this.tabHost.setAutomationTabId) {
                     this.tabHost.setAutomationTabId(tabId);
                   }

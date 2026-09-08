@@ -115,7 +115,7 @@ export function sanitizeUrl(inputUrl: string): string {
 import * as path from 'path';
 import * as fs from 'fs';
 
-export function getSecureWebPreferences(partition?: string): WebPreferences {
+export function getSecureWebPreferences(partition?: string, options?: { offscreen?: boolean; backgroundThrottling?: boolean }): WebPreferences {
   const candidatePaths = [
     path.join(__dirname, '..', '..', 'preload', 'tab-preload.js'),
     path.join(__dirname, '..', 'preload', 'tab-preload.js'),
@@ -134,11 +134,20 @@ export function getSecureWebPreferences(partition?: string): WebPreferences {
     allowRunningInsecureContent: false,
     navigateOnDragDrop: false,
     spellcheck: false,
-    backgroundThrottling: true,
+    backgroundThrottling: options?.backgroundThrottling ?? true,
     autoplayPolicy: 'no-user-gesture-required',
     plugins: true,
     webgl: true,
   };
+
+  // Dual-Plane Runtime Isolation: dedicated agent tabs render offscreen so they can be
+  // captured (screenshot / visual compare / full-page) without ever being foregrounded
+  // or swapped into the user's visible view hierarchy. This eliminates the physical
+  // `switchTab` that previously hijacked the user's working tab during capture.
+  if (options?.offscreen) {
+    prefs.offscreen = true;
+    (prefs as WebPreferences & { paintWhenInitiallyHidden?: boolean }).paintWhenInitiallyHidden = false;
+  }
 
   if (partition) {
     prefs.partition = partition;

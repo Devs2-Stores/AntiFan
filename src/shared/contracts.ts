@@ -26,6 +26,7 @@ export interface AntiFanTab {
   userAgentMode?: 'clean' | 'native';
   partition?: string;
   ephemeral?: boolean;
+  offscreen?: boolean;
   splitMode?: boolean;
   splitDesktopPresetId?: string;
   splitMobilePresetId?: string;

@@ -965,9 +965,12 @@ export class TabDevToolsHost {
     // When the target tab is in the background, activate it for the duration of
     // the capture. A detached WebContentsView has no composited offscreen surface
     // on Windows, so Page.captureScreenshot would otherwise capture the active tab.
+    // (Dual-Plane: offscreen agent tabs already have an offscreen compositor surface,
+    // so they are captured directly without a foreground swap — no view hijack.)
+    const isOffscreenTarget = target.state?.offscreen === true;
     const activeBeforeCapture = this.ctx.getActiveTabId();
     const switchTabForCapture = this.ctx.switchTab;
-    if (typeof switchTabForCapture === 'function' && targetId !== activeBeforeCapture) {
+    if (typeof switchTabForCapture === 'function' && !isOffscreenTarget && targetId !== activeBeforeCapture) {
       switchTabForCapture(targetId);
       try {
         await this.evalJs('new Promise(r => { const t = setTimeout(r, 60); const raf = typeof window.__antifanOriginalRAF === "function" ? window.__antifanOriginalRAF : (typeof requestAnimationFrame === "function" ? requestAnimationFrame : null); if (raf) { raf(() => raf(() => { clearTimeout(t); r(); })); } })', targetId, paneId || target.focusedPane);
@@ -1088,17 +1091,21 @@ export class TabDevToolsHost {
             throw err;
           }
         }
-        if (isForeground) {
-          // Tier 1: Fast webContents.capturePage() with 600ms race (foreground tab only to avoid compositor surface bleed)
-          try {
+        if (isForeground || isOffscreenTarget) {
+          // Tier 1: Fast webContents.capturePage() with 600ms race.
+          // Foreground tabs only to avoid compositor surface bleed; offscreen agent
+          // tabs (Dual-Plane) also use capturePage because their offscreen-rendered
+          // WebContents has no attached compositor surface for CDP fromSurface.
+          const capturePageTier = async (): Promise<string> => {
             const img = await withTimeout(wc.capturePage(rect), 600, null);
-            if (img && typeof img.isEmpty === 'function' && !img.isEmpty()) {
+            if (!img) return '';
+            if (typeof img.isEmpty === 'function' && !img.isEmpty()) {
               if (format === 'jpeg' && typeof img.toJPEG === 'function') {
                 return img.toJPEG(quality).toString('base64');
               }
               return img.toPNG().toString('base64');
             }
-            if (img && typeof img.toPNG === 'function') {
+            if (typeof img.toPNG === 'function') {
               if (format === 'jpeg' && typeof img.toJPEG === 'function') {
                 const jpegBuf = img.toJPEG(quality);
                 if (jpegBuf.length > 0) return jpegBuf.toString('base64');
@@ -1108,7 +1115,12 @@ export class TabDevToolsHost {
                 return pngBuf.toString('base64');
               }
             }
-          } catch {}
+            return '';
+          };
+          const tier1Result = await capturePageTier();
+          if (tier1Result && tier1Result.length > 0) {
+            return tier1Result;
+          }
         }
 
         // Tier 2: CDP Page.captureScreenshot with surface sync & compositor wake kick (4000ms race)
@@ -1236,9 +1248,12 @@ export class TabDevToolsHost {
     // Activate the target tab when it sits in the background. CDP capture on a
     // detached WebContentsView cannot composite an offscreen surface on Windows
     // and would reproduce the active tab; the prior active tab is restored below.
+    // (Dual-Plane: offscreen agent tabs render to an offscreen compositor surface,
+    // so they bypass the foreground swap and capture via capturePage below.)
+    const isOffscreenTarget = target.state?.offscreen === true;
     const activeBeforeCapture = this.ctx.getActiveTabId();
     const switchTabForCapture = this.ctx.switchTab;
-    if (typeof switchTabForCapture === 'function' && targetId !== activeBeforeCapture) {
+    if (typeof switchTabForCapture === 'function' && !isOffscreenTarget && targetId !== activeBeforeCapture) {
       switchTabForCapture(targetId);
       if (target.customViewport && target.customViewport.width > 0 && target.customViewport.height > 0) {
         if (targetPaneView && typeof targetPaneView.setBounds === 'function') {
@@ -1371,8 +1386,56 @@ export class TabDevToolsHost {
         };
       };
 
-      if (!isForeground && this.ctx.runWithAttachedTabView && targetPaneView) {
+      if (!isForeground && !isOffscreenTarget && this.ctx.runWithAttachedTabView && targetPaneView) {
         return await this.ctx.runWithAttachedTabView(targetPaneView, captureAction, isMobile);
+      }
+      if (isOffscreenTarget) {
+        // Dual-Plane: offscreen agent tabs have no attached view AND no compositor
+        // surface for CDP fromSurface; capture directly from the offscreen-rendered
+        // WebContents without attaching the view to the window. Set bounds to the
+        // requested viewport before capture so the buffer matches expectations.
+        if (target.customViewport && target.customViewport.width > 0 && target.customViewport.height > 0) {
+          if (targetPaneView && typeof targetPaneView.setBounds === 'function') {
+            targetPaneView.setBounds({ x: 0, y: 0, width: target.customViewport.width, height: target.customViewport.height });
+          }
+        }
+        const zoomFactor = typeof wc.getZoomFactor === 'function' ? wc.getZoomFactor() : 1.0;
+        const metricsRes = await this.sendCdpCommand<{ result?: { value?: { dpr?: number; vw?: number; vh?: number } } }>(
+          wc,
+          'Runtime.evaluate',
+          {
+            expression: '({ dpr: window.devicePixelRatio || 1, vw: window.innerWidth || 0, vh: window.innerHeight || 0 })',
+            returnByValue: true,
+          }
+        ).catch(() => null);
+        const metrics = metricsRes?.result?.value;
+        const dprFactor = Number(metrics?.dpr) || 1;
+        const viewportCss = {
+          width: Number(metrics?.vw) || 1200,
+          height: Number(metrics?.vh) || 800,
+        };
+        const offscreenImg = await wc.capturePage(rect);
+        const imgBuf = offscreenImg && typeof offscreenImg.isEmpty === 'function' && !offscreenImg.isEmpty()
+          ? offscreenImg.toPNG()
+          : (offscreenImg && typeof offscreenImg.toPNG === 'function' ? offscreenImg.toPNG() : null);
+        if (imgBuf && imgBuf.length > 0) {
+          let rasterWidth = 0;
+          let rasterHeight = 0;
+          if (imgBuf.length >= 24 && imgBuf[0] === 0x89 && imgBuf[1] === 0x50 && imgBuf[2] === 0x4e && imgBuf[3] === 0x47) {
+            rasterWidth = imgBuf.readUInt32BE(16);
+            rasterHeight = imgBuf.readUInt32BE(20);
+          }
+          return {
+            data: imgBuf.toString('base64'),
+            backend: 'offscreen-capturePage',
+            dpr: dprFactor,
+            zoom: zoomFactor,
+            cssViewport: viewportCss,
+            rasterSize: { width: rasterWidth, height: rasterHeight },
+            timestamp: Date.now(),
+          };
+        }
+        return await captureAction();
       }
         return await captureAction();
       });
@@ -1388,7 +1451,7 @@ export class TabDevToolsHost {
         );
       } catch {}
       await this.sendCdpCommand(wc, 'Emulation.setDefaultBackgroundColorOverride').catch(() => {});
-      if (typeof switchTabForCapture === 'function' && targetId !== activeBeforeCapture) {
+      if (typeof switchTabForCapture === 'function' && !isOffscreenTarget && targetId !== activeBeforeCapture) {
         switchTabForCapture(activeBeforeCapture);
       }
     }

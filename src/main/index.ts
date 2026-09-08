@@ -233,6 +233,7 @@ async function createWindow(): Promise<void> {
     getActiveTabId: () => tabHost!.getActiveTabId(),
     getAutomationTabId: () => tabHost!.getAutomationTabId(),
     setAutomationTabId: (tabId) => tabHost!.setAutomationTabId(tabId),
+    isTabOffscreen: (tabId) => tabHost!.isTabOffscreen(tabId),
     createTab: (url, activate = false) => tabHost!.createTab(url, activate),
     closeTab: (tabId) => tabHost!.closeTab(tabId),
     switchTab: (tabId) => tabHost!.switchTab(tabId),
@@ -309,20 +310,37 @@ async function createWindow(): Promise<void> {
     capabilityTransport,
     () => {
       const lease = controlPlane!.getLease();
-      const activeTab = tabHost!.getActiveTab();
+      // Dual-Plane Runtime Isolation: bind the agent's authority to a dedicated
+      // automation tab, never the user's active foreground tab. This prevents any
+      // MCP/CLI session bootstrapping without an explicit target from latching onto
+      // and hijacking the user's working tab.
+      const automationTarget = tabHost!.getAutomationTarget() as
+        | { tabId: string; url?: string; documentGeneration?: number }
+        | undefined;
+      const targetTabId = automationTarget?.tabId;
+      if (!targetTabId) {
+        // Unbound authority: no ambient fallback. Agent sessions must explicitly
+        // provision a target via antifan.cli.startSession, which creates a dedicated
+        // background agent tab. Return undefined so unbound tools fail-closed instead
+        // of capturing the user's active tab.
+        return { lease, projectId, workspaceId, browserTarget: undefined };
+      }
       return {
         lease,
         projectId,
         workspaceId,
-        browserTarget: activeTab ? {
+        browserTarget: {
           projectId,
           workspaceId,
           runtimeId: lease.runtimeId,
-          tabId: activeTab.id,
+          tabId: targetTabId,
           browserEpoch: 1,
-          documentGeneration: tabHost!.getDocumentGeneration(activeTab.id),
-          url: activeTab.url,
-        } : undefined,
+          documentGeneration:
+            typeof tabHost!.getDocumentGeneration === 'function'
+              ? tabHost!.getDocumentGeneration(targetTabId)
+              : 1,
+          url: automationTarget?.url,
+        },
       };
     },
     controlPlane.runs.attachments,
