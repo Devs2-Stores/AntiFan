@@ -1010,5 +1010,52 @@ describe('AssetLocalizer - A1, A2, A3 Unified Pipeline & Invariants', () => {
         try { fs.rmSync(tempDir, { recursive: true, force: true }); } catch {}
       }
     });
+    it('5.7. verifyAndAudit exempts inline data: URIs (SVG xmlns namespace) from LINGERING_REMOTE_NETWORK_URL while still flagging genuine remote src', () => {
+      const localizer = new AssetLocalizer();
+      const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-audit-datauri-'));
+      try {
+        const manifest: HarvestedAssetManifest = { stylesheets: [], javascripts: [], images: [], fonts: [], totalBytes: 0 };
+
+        // Case A: <img src="data:image/svg+xml,..."> whose embedded SVG declares the standard
+        // w3.org xmlns namespace. data: URIs are inline payloads, never network fetches; the
+        // namespace must NOT be flagged as a lingering remote URL (regression for fail-closed
+        // false positive that threw on legitimate storefronts using inline SVG).
+        const inlineSvgContent = `
+          <div>
+            <img src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' fill='%23ccc'/%3E%3C/svg%3E" alt="inline" width="32" height="32">
+            <img src="data:image/png;base64,iVBORw0KGgo=" alt="png">
+          </div>
+        `;
+        const auditA = localizer.verifyAndAudit(manifest, {
+          assetsDir: tempDir,
+          rewrittenFiles: [{
+            path: 'index.html',
+            replacementCount: 0,
+            originalContent: inlineSvgContent,
+            rewrittenContent: inlineSvgContent
+          }]
+        });
+        assert.strictEqual(auditA.passed, true, 'data: URIs must be exempt from network URL audit');
+        assert.strictEqual(auditA.findings.length, 0, 'no findings for inline data: URIs');
+
+        // Case B: A genuine remote http src in the same document MUST still be flagged.
+        const mixedContent = inlineSvgContent + '\n<img src="https://cdn.example.com/real.png" alt="real">';
+        const auditB = localizer.verifyAndAudit(manifest, {
+          assetsDir: tempDir,
+          rewrittenFiles: [{
+            path: 'index.html',
+            replacementCount: 0,
+            originalContent: mixedContent,
+            rewrittenContent: mixedContent
+          }]
+        });
+        assert.strictEqual(auditB.passed, false, 'genuine remote src must still fail audit');
+        const remoteFindings = auditB.findings.filter(f => f.code === 'LINGERING_REMOTE_NETWORK_URL');
+        assert.strictEqual(remoteFindings.length, 1, 'exactly the genuine remote URL flagged');
+        assert.strictEqual(remoteFindings[0].details?.url, 'https://cdn.example.com/real.png');
+      } finally {
+        try { fs.rmSync(tempDir, { recursive: true, force: true }); } catch {}
+      }
+    });
   });
 });

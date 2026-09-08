@@ -1306,6 +1306,13 @@ export class AssetLocalizer {
       while ((match = subResourceAttributeRegex.exec(contentToScan)) !== null) {
         const attrName = (match[1] || match[2] || '').toLowerCase();
         const rawVal = (match[3] !== undefined ? match[3] : match[4]) ?? '';
+        // data: URIs and # fragments are inline payloads, never network sub-resources.
+        // Without this guard, an inline SVG's XML namespace (xmlns="http://www.w3.org/2000/svg")
+        // inside a data:image/svg+xml attribute is mis-flagged as a lingering remote URL,
+        // failing the fail-closed audit on legitimate storefronts (asymmetry with the CSS
+        // url() audit, which already skips data: tokens below).
+        const trimmedVal = rawVal.trim();
+        if (trimmedVal.startsWith('data:') || trimmedVal.startsWith('#')) continue;
         const urlMatch = rawVal.match(/(?:https?:)?\/\/[^\s"'<>]+/i);
         if (!urlMatch) continue;
         const matchedUrl = urlMatch[0].trim();
