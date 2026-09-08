@@ -920,5 +920,57 @@ describe('AssetLocalizer - A1, A2, A3 Unified Pipeline & Invariants', () => {
         fs.rmSync(tempDir, { recursive: true, force: true });
       }
     });
+    it('5.6. verifyAndAudit strictly catches unlocalized iframe[src], extensionless CDN assets, and video[poster] while ignoring harmless inline script strings', () => {
+      const localizer = new AssetLocalizer();
+      const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-audit-subres-'));
+      try {
+        const manifest: HarvestedAssetManifest = {
+          stylesheets: [],
+          javascripts: [],
+          images: [],
+          fonts: [],
+          totalBytes: 0
+        };
+
+        const htmlWithIframeAndExtensionless = `
+          <!DOCTYPE html>
+          <html>
+          <head>
+            <link rel="stylesheet" href="assets/theme.css">
+            <script>
+              // Inline script with harmless URL-like string or base64
+              const fakeUrl = "//ffuFCxcqZD85Odn05ptvUlJSMv+egZUbSV6l49p009m";
+            </script>
+          </head>
+          <body>
+            <a href="https://example.com/nav-link">Harmless Link</a>
+            <iframe src="https://www.youtube.com/embed/Nt2J6ZXPuw0"></iframe>
+            <img src="https://cdn.example.com/asset-without-extension">
+            <video poster="https://cdn.example.com/preview.jpg"></video>
+          </body>
+          </html>
+        `;
+
+        const auditRes = localizer.verifyAndAudit(manifest, {
+          assetsDir: tempDir,
+          rewrittenFiles: [{
+            path: path.join(tempDir, 'index.html'),
+            rewrittenContent: htmlWithIframeAndExtensionless,
+            originalContent: htmlWithIframeAndExtensionless,
+            replacementCount: 0
+          }]
+        });
+
+        assert.strictEqual(auditRes.passed, false, 'Audit must fail closed due to iframe, extensionless CDN img, and video poster');
+        const lingeringCodes = auditRes.findings.filter(f => f.code === 'LINGERING_REMOTE_NETWORK_URL');
+        assert.strictEqual(lingeringCodes.length, 3, 'Must flag exactly the 3 remote sub-resources (iframe, extensionless img, poster)');
+        const urls = lingeringCodes.map(f => f.details?.url);
+        assert.ok(urls.includes('https://www.youtube.com/embed/Nt2J6ZXPuw0'), 'Must flag iframe src');
+        assert.ok(urls.includes('https://cdn.example.com/asset-without-extension'), 'Must flag extensionless CDN asset');
+        assert.ok(urls.includes('https://cdn.example.com/preview.jpg'), 'Must flag video poster');
+      } finally {
+        try { fs.rmSync(tempDir, { recursive: true, force: true }); } catch {}
+      }
+    });
   });
 });

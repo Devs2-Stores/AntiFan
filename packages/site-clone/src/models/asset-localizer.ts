@@ -1265,16 +1265,34 @@ export class AssetLocalizer {
     // Eliminates narrower regex duplicate scan while deduplicating findings by (filePath + url)
     const unlocalizedSet = new Set<string>();
     const seenFileUrlPairs = new Set<string>();
-    const resourceUrlPattern = /(?:https?:)?\/\/[^\s"'`<>{}|\\^]+/gi;
-    const namespaceAttrPattern = /\b(?:xmlns(?::\w+)?|itemtype|vocab)\s*=\s*["'][^"']*$/i;
+    const subResourceAttributeRegex = /\b(src|href|poster|data-src|data-lazy-src)\s*=\s*["']((?:https?:)?\/\/[^"']+)["']/gi;
+    const inlineStyleUrlRegex = /url\(\s*['"]?((?:https?:)?\/\/[^'")]+)['"]?\s*\)/gi;
 
     for (const file of options.rewrittenFiles) {
-      let rMatch: RegExpExecArray | null;
-      while ((rMatch = resourceUrlPattern.exec(file.rewrittenContent)) !== null) {
-        const matchedUrl = rMatch[0];
-        const prefix = file.rewrittenContent.slice(Math.max(0, rMatch.index - 50), rMatch.index);
-        // Syntactic namespace exclusion: only exempt when immediately preceded by xmlns=, itemtype=, or vocab=
-        if (namespaceAttrPattern.test(prefix)) continue;
+      let contentToScan = file.rewrittenContent;
+      if (file.path.endsWith('.html')) {
+        // Strip inline <script>...</script> bodies to eliminate JS literal/base64 false positives
+        // while still inspecting all HTML tags, link[rel="stylesheet"], script[src], iframe[src], img[src], video[poster], etc.
+        contentToScan = contentToScan.replace(/<script\b[^>]*>([\s\S]*?)<\/script>/gi, (match, body) => {
+          const tagMatch = match.match(/^<script\b[^>]*>/i);
+          return tagMatch ? `${tagMatch[0]}</script>` : '';
+        });
+      }
+
+      // Check all explicit HTML sub-resource attributes (src, href for stylesheets/favicons, poster, data-src)
+      let match: RegExpExecArray | null;
+      while ((match = subResourceAttributeRegex.exec(contentToScan)) !== null) {
+        const attrName = match[1].toLowerCase();
+        const matchedUrl = match[2].trim();
+
+        // For 'href', only flag external stylesheets, icons/favicons, or font preloads as sub-resources
+        // Plain navigating hyperlinks (<a href="https://...">) are not loaded as page sub-resources
+        if (attrName === 'href') {
+          const tagStart = Math.max(0, match.index - 100);
+          const tagSlice = contentToScan.slice(tagStart, match.index).toLowerCase();
+          const isLinkTag = /<link\b[^>]*$/i.test(tagSlice);
+          if (!isLinkTag) continue;
+        }
 
         const dedupKey = `${file.path}::${matchedUrl}`;
         if (seenFileUrlPairs.has(dedupKey)) continue;
@@ -1284,7 +1302,23 @@ export class AssetLocalizer {
         findings.push({
           severity: 'error',
           code: 'LINGERING_REMOTE_NETWORK_URL',
-          message: `Lingering remote network URL found in rewritten ${file.path}: ${matchedUrl}`,
+          message: `Lingering remote network URL found in sub-resource attribute (${attrName}) of rewritten ${file.path}: ${matchedUrl}`,
+          details: { file: file.path, url: matchedUrl, attribute: attrName }
+        });
+      }
+
+      // Check inline CSS url(...) within HTML style attributes and style blocks
+      while ((match = inlineStyleUrlRegex.exec(contentToScan)) !== null) {
+        const matchedUrl = match[1].trim();
+        const dedupKey = `${file.path}::${matchedUrl}`;
+        if (seenFileUrlPairs.has(dedupKey)) continue;
+        seenFileUrlPairs.add(dedupKey);
+
+        unlocalizedSet.add(matchedUrl);
+        findings.push({
+          severity: 'error',
+          code: 'LINGERING_REMOTE_NETWORK_URL',
+          message: `Lingering remote network URL found in CSS url() of rewritten ${file.path}: ${matchedUrl}`,
           details: { file: file.path, url: matchedUrl }
         });
       }
