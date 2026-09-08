@@ -926,10 +926,14 @@ export class AssetLocalizer {
         depthExceededUrls.push(current.sourceUrl);
         continue;
       }
-      if (processedStylesheets.has(current.sourceUrl)) continue;
+      if (processedStylesheets.has(current.sourceUrl)) {
+        continue;
+      }
       processedStylesheets.add(current.sourceUrl);
 
-      if (!fs.existsSync(current.localCssPath)) continue;
+      if (!fs.existsSync(current.localCssPath)) {
+        continue;
+      }
       const cssContent = fs.readFileSync(current.localCssPath, 'utf8');
       const discoveredItems: HarvestedAssetItem[] = [];
 
@@ -938,7 +942,6 @@ export class AssetLocalizer {
         sheetMap = new Map<string, string>();
         perSheetUrlMaps.set(current.localCssPath, sheetMap);
       }
-
       // 1. Scan for @import declarations (CSS stylesheets or fonts)
       const importSpans: Array<{ start: number; end: number }> = [];
       const importRegex = /@import\s+(?:url\(['"]?|['"])([^'")]+)['"]?\)?(?:[^;]*;)?/gi;
@@ -951,7 +954,8 @@ export class AssetLocalizer {
 
         let resolvedUrl: string;
         try {
-          resolvedUrl = new URL(importRef, current.sourceUrl).toString();
+          const base = current.sourceUrl.startsWith('//') ? 'https:' + current.sourceUrl : current.sourceUrl;
+          resolvedUrl = new URL(importRef, base).toString();
         } catch {
           continue;
         }
@@ -1007,22 +1011,21 @@ export class AssetLocalizer {
       }
 
       // 2. Scan for url(...) declarations (images or fonts, excluding import spans)
-      const urlRegex = /url\(\s*['"]?([^'")]+)['"]?\s*\)/gi;
+      const urlRegex = /url\(\s*(['"]?)([^'")]+)\1\s*\)/gi;
       while ((match = urlRegex.exec(cssContent)) !== null) {
         const matchIdx = match.index;
         const isInsideImport = importSpans.some(span => matchIdx >= span.start && matchIdx < span.end);
         if (isInsideImport) continue;
-
-        const urlRef = match[1].trim();
+        const urlRef = match[2].trim();
         if (!urlRef || urlRef.startsWith('data:') || urlRef.startsWith('#')) continue;
 
         let resolvedUrl: string;
         try {
-          resolvedUrl = new URL(urlRef, current.sourceUrl).toString();
+          const base = current.sourceUrl.startsWith('//') ? 'https:' + current.sourceUrl : current.sourceUrl;
+          resolvedUrl = new URL(urlRef, base).toString();
         } catch {
           continue;
         }
-
         const isKnown = [
           ...manifest.stylesheets,
           ...manifest.javascripts,
@@ -1074,6 +1077,10 @@ export class AssetLocalizer {
             sheetMap.set(resolvedUrl.slice(6), replacement);
           } else if (resolvedUrl.startsWith('http://')) {
             sheetMap.set(resolvedUrl.slice(5), replacement);
+          }
+          if (urlRef.startsWith('//')) {
+            sheetMap.set('https:' + urlRef, replacement);
+            sheetMap.set('http:' + urlRef, replacement);
           }
         }
       }
