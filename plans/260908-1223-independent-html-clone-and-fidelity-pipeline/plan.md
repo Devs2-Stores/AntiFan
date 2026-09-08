@@ -29,9 +29,9 @@ Core runtime acts as the immutable, authoritative "Judge" (with re-locked mask l
 
 | # | Phase | Status | Effort | Dependencies |
 |---|-------|--------|--------|--------------|
-| 1 | [Phase 1: Core Test Contract Hardening & Height Drift Assertion](./phase-01-core-test-hardening.md) | Pending | 2h | None |
-| 2 | [Phase 2: Asset Pipeline Integration: Harvester to Localizer to Compiler](./phase-02-asset-pipeline-integration.md) | Pending | 4h | Phase 1 |
-| 3 | [Phase 3: Raw DOM Preservation & Independent HTML Clone Generator](./phase-03-raw-dom-preservation-and-html-clone.md) | Pending | 4h | Phase 2 |
+| 1 | [Phase 1: Core Test Contract Hardening & Height Drift Assertion](./phase-01-core-test-hardening.md) | Complete | 2h | None |
+| 2 | [Phase 2: Asset Pipeline Integration: Harvester to Localizer to Compiler](./phase-02-asset-pipeline-integration.md) | Complete | 4h | Phase 1 |
+| 3 | [Phase 3: Raw DOM Preservation & Independent HTML Clone Generator](./phase-03-raw-dom-preservation-and-html-clone.md) | Complete | 4h | Phase 2 |
 | 4 | [Phase 4: Visual Compare Proof & Fidelity Verification Gate](./phase-04-visual-compare-fidelity-gate.md) | Pending | 3h | Phase 3 |
 | 5 | [Phase 5: Liquid Lowering & Haravan Theme Export](./phase-05-liquid-lowering-and-haravan-export.md) | Pending | 3h | Phase 4 |
 

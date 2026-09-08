@@ -1,7 +1,7 @@
 ---
 phase: 1
 title: "Core Test Contract Hardening & Height Drift Assertion"
-status: pending
+status: complete
 priority: P1
 effort: "2h"
 dependencies: []
