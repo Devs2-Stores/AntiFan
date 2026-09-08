@@ -1079,6 +1079,19 @@ export class AssetLocalizer {
         allSecondaryDownloaded.push(...dlRes.downloaded);
         secondaryTotalBytes += dlRes.totalBytes;
         secondaryFailedCount += dlRes.failedCount;
+        // Register successfully downloaded secondary assets in the manifest so audit sees them!
+        for (const item of discoveredItems) {
+          const dlRecord = dlRes.downloaded.find(d => d.sourceUrl === item.sourceUrl);
+          if (dlRecord && dlRecord.status !== 'failed') {
+            if (item.type === 'font') {
+              if (!manifest.fonts.some(f => f.sourceUrl === item.sourceUrl)) manifest.fonts.push(item);
+            } else if (item.type === 'image') {
+              if (!manifest.images.some(i => i.sourceUrl === item.sourceUrl)) manifest.images.push(item);
+            } else if (item.type === 'css') {
+              if (!manifest.stylesheets.some(s => s.sourceUrl === item.sourceUrl)) manifest.stylesheets.push(item);
+            }
+          }
+        }
       }
 
       // If any newly discovered item was a CSS stylesheet, enqueue it for transitive recursion!
