@@ -38,6 +38,7 @@ export interface ChangeDispatcher {
 export function isHotSwappable(relPath?: string | null): boolean;
 export function isUiHotSwappable(relPath?: string | null): boolean;
 export function defaultIsFile(relPath?: string | null): boolean;
+export function resolveElectronArgs(argv?: string[] | null): string[];
 export function processTscLine(line: string, state?: { isTscCompiling: boolean; tscHasErrors: boolean }): TscLineState;
 export function resolveDevBridgeInfo(customDirs?: string[] | null): { port: number; token: string } | null;
 export function sendSoftReload(options?: {

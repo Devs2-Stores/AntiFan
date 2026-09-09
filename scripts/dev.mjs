@@ -18,10 +18,17 @@ import {
   createChangeDispatcher,
   acquireDevLock,
   releaseDevLock,
+  resolveElectronArgs,
 } from './dev-watcher-helpers.mjs';
 const require = createRequire(import.meta.url);
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..');
+
+// Forward extra CLI args (e.g. `npm run dev -- --allow-eval`) to Electron so the
+// documented dev entrypoint matches run-antifan.vbs and `npm start -- --allow-eval`.
+// Without this, `--allow-eval` is silently dropped, ALLOW_EVAL stays false, and every
+// write/eval capability is denied for eval-grant agent sessions.
+const EXTRA_ELECTRON_ARGS = resolveElectronArgs(process.argv);
 
 const cdpDir = path.join(ROOT, 'scripts', 'cdp');
 if (!fs.existsSync(cdpDir)) {
@@ -96,10 +103,10 @@ async function relaunchElectron() {
       // Allow Windows kernel mutex / file locks for single-instance lock to release cleanly
       await new Promise((r) => setTimeout(r, 800));
     }
-    log('Starting AntiFan Browser Desktop...');
+    log(`Starting AntiFan Browser Desktop${EXTRA_ELECTRON_ARGS.length ? ` (${EXTRA_ELECTRON_ARGS.join(' ')})` : ''}...`);
     const env = { ...process.env, NODE_ENV: 'development' };
     delete env.ELECTRON_RUN_AS_NODE;
-    electronProc = spawn(electronBin, ['.', '--dev'], { cwd: ROOT, stdio: 'inherit', env });
+    electronProc = spawn(electronBin, ['.', '--dev', ...EXTRA_ELECTRON_ARGS], { cwd: ROOT, stdio: 'inherit', env });
     electronProc.on('exit', (code, signal) => {
       log(`Electron process exited (code: ${code}, signal: ${signal})`);
       electronProc = null;

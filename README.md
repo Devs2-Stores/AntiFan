@@ -49,6 +49,12 @@ npm run compile
 npm run dev
 ```
 
+`npm run dev` mặc định **không** bật quyền `write`/`eval` cho agent (agent chỉ đọc được). Khi cần agent click/type/evaluate, truyền cờ opt-in — giống `run-antifan.vbs` và `npm start -- --allow-eval`:
+
+```powershell
+npm run dev -- --allow-eval
+```
+
 ### Chạy Tests & Typecheck
 ```powershell
 npm test

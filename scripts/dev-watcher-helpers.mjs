@@ -22,6 +22,17 @@ export function redactCreds(val) {
 }
 
 /**
+ * Resolve Electron args forwarded by the dev entrypoint.
+ * `npm run dev -- --allow-eval` -> argv `[node, scripts/dev.mjs, '--allow-eval']`
+ * -> `['--allow-eval']`. Stripping the injected node/script pair is what keeps
+ * `--allow-eval` from being silently dropped (ALLOW_EVAL=false then denies every
+ * write/eval capability for eval-grant agent sessions).
+ */
+export function resolveElectronArgs(argv) {
+  return Array.isArray(argv) ? argv.slice(2) : [];
+}
+
+/**
  * Classify whether a changed file path is hot-swappable at runtime.
  * Strictly external override scripts in scripts/cdp/*.source.js (single level).
  */

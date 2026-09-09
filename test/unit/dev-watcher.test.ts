@@ -18,6 +18,7 @@ import {
   releaseDevLock,
   defaultIsProcAlive,
   defaultIsFile,
+  resolveElectronArgs,
 } from '../../scripts/dev-watcher-helpers.mjs';
 
 describe('Dev Watcher Helpers', () => {
@@ -39,6 +40,22 @@ describe('Dev Watcher Helpers', () => {
       assert.strictEqual(isHotSwappable(''), false);
       assert.strictEqual(isHotSwappable(null as unknown as string), false);
       assert.strictEqual(isHotSwappable(undefined as unknown as string), false);
+    });
+  });
+
+  describe('resolveElectronArgs launcher contract', () => {
+    it('strips the injected node/script pair and forwards user flags verbatim', () => {
+      assert.deepStrictEqual(
+        resolveElectronArgs(['node', 'scripts/dev.mjs', '--allow-eval']),
+        ['--allow-eval']
+      );
+      assert.deepStrictEqual(
+        resolveElectronArgs(['node', 'scripts/dev.mjs', '--allow-eval', '--remote-debugging-port=9222']),
+        ['--allow-eval', '--remote-debugging-port=9222']
+      );
+      assert.deepStrictEqual(resolveElectronArgs(['node', 'scripts/dev.mjs']), []);
+      assert.deepStrictEqual(resolveElectronArgs(null), []);
+      assert.deepStrictEqual(resolveElectronArgs(undefined), []);
     });
   });
 
