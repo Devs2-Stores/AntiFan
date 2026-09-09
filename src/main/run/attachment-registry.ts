@@ -87,7 +87,7 @@ export class AttachmentRegistry {
   private isQuarantined = false;
   private mutationLock: Promise<void> = Promise.resolve();
   private disposeListener?: (info: { attachmentId: string; tabId?: string; browserTarget?: BrowserTarget }) => void;
-
+  private uncompactedFramesCount = 0;
   constructor(
     private readonly delegate?: AttachmentValidatorDelegate,
     private readonly dataRoot?: string,
@@ -112,7 +112,13 @@ export class AttachmentRegistry {
 
     const raw = await fs.promises.readFile(filePath, 'utf8');
     const lines = raw.split(/\r?\n/).filter((l) => l.trim().length > 0);
+    let processed = 0;
     for (const line of lines) {
+      if (++processed % 200 === 0) {
+        const { promise, resolve } = Promise.withResolvers<void>();
+        setImmediate(resolve);
+        await promise;
+      }
       try {
         const frame = JSON.parse(line) as {
           formatVersion: number;
@@ -181,6 +187,10 @@ export class AttachmentRegistry {
         return;
       }
     }
+    this.uncompactedFramesCount = Math.max(0, lines.length - this.records.size);
+    if (lines.length > Math.max(100, this.records.size * 1.5)) {
+      await this.compactAttachmentsUnlocked();
+    }
   }
 
   private async quarantineAttachmentsAsync(filePath: string): Promise<void> {
@@ -196,6 +206,52 @@ export class AttachmentRegistry {
       await fs.promises.rename(filePath, quarantinePath);
     } catch {}
     throw new CapabilityError('DURABILITY_FAILED', `Attachment registry file ${filePath} is corrupted and quarantined. Startup halted.`);
+  }
+  private async compactAttachmentsUnlocked(): Promise<void> {
+    if (!this.dataRoot || this.isQuarantined) return;
+    const filePath = path.join(this.dataRoot, 'attachments-v1.jsonl');
+    const tempFile = path.join(this.dataRoot, `attachments-v1.jsonl.tmp-${Date.now()}`);
+    const now = Date.now();
+    const MAX_EXPIRED_RETENTION_MS = 24 * 60 * 60 * 1000;
+
+    const linesToWrite: string[] = [];
+    for (const record of this.records.values()) {
+      if (record.state !== 'active' && record.expiresAt && now > record.expiresAt + MAX_EXPIRED_RETENTION_MS) {
+        continue;
+      }
+      const revHandles = this.revisionHistoryByAttachment.get(record.id) || [];
+      const candidateRevisions: MainResolvedAuthority[] = [];
+      for (const handle of revHandles) {
+        const rev = this.revisions.get(handle);
+        if (rev) candidateRevisions.push(cloneAuthoritySnapshot(rev));
+      }
+      const frameData = {
+        formatVersion: 1,
+        record: { ...record },
+        revisions: candidateRevisions,
+      };
+      const serialized = JSON.stringify(frameData);
+      const checksum = crypto.createHash('sha256').update(serialized, 'utf8').digest('hex');
+      linesToWrite.push(JSON.stringify({ ...frameData, checksum }) + '\n');
+    }
+
+    try {
+      await fs.promises.mkdir(path.dirname(filePath), { recursive: true });
+      await fs.promises.writeFile(tempFile, linesToWrite.join(''), 'utf8');
+      await fs.promises.rename(tempFile, filePath);
+      this.uncompactedFramesCount = 0;
+    } catch (err) {
+      try {
+        if (fs.existsSync(tempFile)) await fs.promises.unlink(tempFile);
+      } catch {}
+      console.warn('[AttachmentRegistry] Compaction failed:', err);
+    }
+  }
+
+  public async compact(): Promise<void> {
+    return await this.runWithMutationLock(async () => {
+      await this.compactAttachmentsUnlocked();
+    });
   }
 
   private async appendPersistenceFrameUnlocked(record: ExecutionAttachmentRecord, candidateRevisions: MainResolvedAuthority[]): Promise<void> {
@@ -214,6 +270,10 @@ export class AttachmentRegistry {
 
     await fs.promises.mkdir(dir, { recursive: true });
     await fs.promises.appendFile(filePath, line, 'utf8');
+    this.uncompactedFramesCount++;
+    if (this.uncompactedFramesCount >= 500) {
+      this.compactAttachmentsUnlocked().catch(() => {});
+    }
   }
 
   public async flush(): Promise<void> {
@@ -948,5 +1008,16 @@ export class AttachmentRegistry {
   getRecord(attachmentId: string): ExecutionAttachmentRecord | undefined {
     const record = this.records.get(attachmentId);
     return record ? { ...record } : undefined;
+  }
+  getActiveRecordIds(): Set<string> {
+    const ids = new Set<string>();
+    const now = Date.now();
+    const MAX_EXPIRED_RETENTION_MS = 24 * 60 * 60 * 1000;
+    for (const record of this.records.values()) {
+      if (record.state === 'active' || (record.expiresAt && now <= record.expiresAt + MAX_EXPIRED_RETENTION_MS)) {
+        ids.add(record.id);
+      }
+    }
+    return ids;
   }
 }

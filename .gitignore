@@ -28,4 +28,5 @@ clone/*
 !clone/hoplongtech/
 clone/hoplongtech/build/
 **/__pycache__/
+.canary/
 

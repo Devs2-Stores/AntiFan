@@ -216,6 +216,14 @@ async function createWindow(): Promise<void> {
   const terminalManager = TerminalManager.getInstance();
 
   tabHost = new NativeTabHost(mainWindow, capsuleManager || undefined);
+
+  // Restore tabs immediately so web pages start loading and window layout is established
+  const initialUrl = process.argv.find((arg) => (arg.startsWith('http://') || arg.startsWith('https://')) && !arg.includes('localhost:20128') && !arg.includes('localhost:20129') && !arg.includes('localhost:20130'));
+  tabHost.restoreTabs(initialUrl);
+
+  // Set Top Menubar (File, Edit, Selection, View, Go, Run, Terminal, Help)
+  Menu.setApplicationMenu(buildApplicationMenu(mainWindow, tabHost));
+
   const projectId = validateControlPlaneId(process.env.ANTIFAN_PROJECT_ID || 'project-00000000-0000-4000-8000-000000000001', 'project');
   const workspaceId = validateControlPlaneId(process.env.ANTIFAN_WORKSPACE_ID || 'workspace-00000000-0000-4000-8000-000000000001', 'workspace');
   controlPlane = new ControlPlaneRuntime({
@@ -229,7 +237,7 @@ async function createWindow(): Promise<void> {
     isTabAllowed: (primaryTabId, requestedTabId) => tabHost!.isTabAllowedForPrimary(primaryTabId, requestedTabId),
     resolveTabId: (id) => tabHost!.resolveTargetTabId(id),
   });
-  // Show the window as soon as its renderer paints (concurrent with control-plane
+  // Show the window as soon as its renderer paints
   // init below), so the user sees chrome immediately instead of waiting for the
   // ~4s ledger/attachments replay.
   let showFallbackTimer: NodeJS.Timeout | null = null;
@@ -346,12 +354,6 @@ async function createWindow(): Promise<void> {
   controlPlane.registerBrowser(browserPort);
   const capabilityTransport = controlPlane.transport;
 
-  // Set Top Menubar (File, Edit, Selection, View, Go, Run, Terminal, Help)
-  Menu.setApplicationMenu(buildApplicationMenu(mainWindow, tabHost));
-
-  // Check URL from command line arguments or restore tabs
-  const initialUrl = process.argv.find((arg) => (arg.startsWith('http://') || arg.startsWith('https://')) && !arg.includes('localhost:20128') && !arg.includes('localhost:20129') && !arg.includes('localhost:20130'));
-  tabHost.restoreTabs(initialUrl);
   // One-time migration of legacy capsule partitions to the unified profile
   // partitions (persist:capsule-* -> persist:profile-*). Marker-gated and
   // local-only; never touches a Chrome profile.

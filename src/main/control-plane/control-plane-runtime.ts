@@ -156,6 +156,10 @@ export class ControlPlaneRuntime {
   public async initialize(): Promise<void> {
     await this.runs.attachments.initialize();
     await this.ledger.initialize();
+    try {
+      const activeIds = this.runs.attachments.getActiveRecordIds();
+      await this.ledger.pruneDeadPartitions(activeIds);
+    } catch {}
   }
   public getResourceStats(): ControlPlaneResourceStats {
     return {

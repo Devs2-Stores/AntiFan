@@ -340,7 +340,7 @@ export class NativeTabHost extends EventEmitter {
   private terminalWindows: Map<number, BrowserWindow> = new Map();
   private terminalWindowMeta: Map<number, { sessionId?: string; isPopout?: boolean }> = new Map();
   private terminalWindowStateManager: WindowStateManager;
-  private isSidebarOpen: boolean = true;
+  private isSidebarOpen: boolean = false;
   private wasSidebarOpenBeforePopout: boolean = false;
   private isBookmarkBarVisible: boolean = false;
   private sidebarWidth: number = 380;
@@ -686,6 +686,29 @@ export class NativeTabHost extends EventEmitter {
     this.capsuleManager = capsuleManager || new WorkspaceCapsuleManager({ filePath: path.join(stateDir, 'workspace-capsules.json') });
     this.getAutomationHost();
     this.getDevToolsHost();
+
+    // Pre-load saved sidebar state so initial layout matches persisted user intent (no auto-open flash)
+    const savedTabsPath = path.join(stateDir, 'saved-tabs.json');
+    if (fs.existsSync(savedTabsPath)) {
+      try {
+        const raw = fs.readFileSync(savedTabsPath, 'utf8');
+        const data = JSON.parse(raw);
+        if (typeof data.isSidebarOpen === 'boolean') {
+          this.isSidebarOpen = data.isSidebarOpen;
+        }
+        if (typeof data.sidebarWidth === 'number' && data.sidebarWidth >= 260 && data.sidebarWidth <= 850) {
+          this.sidebarWidth = data.sidebarWidth;
+        }
+      } catch {}
+    } else {
+      const activeCapsule = this.capsuleManager.getActive();
+      if (typeof activeCapsule?.state?.sidebarOpen === 'boolean') {
+        this.isSidebarOpen = activeCapsule.state.sidebarOpen;
+      }
+      if (typeof activeCapsule?.state?.sidebarWidth === 'number' && activeCapsule.state.sidebarWidth >= 260 && activeCapsule.state.sidebarWidth <= 850) {
+        this.sidebarWidth = activeCapsule.state.sidebarWidth;
+      }
+    }
     if (!this.capsuleManager.getActive()) {
       const defaultDir = fs.existsSync('E:/Work') ? 'E:/Work' : (fs.existsSync('E:\\Work') ? 'E:\\Work' : process.cwd());
       this.capsuleManager.create('Default Workspace', defaultDir, {

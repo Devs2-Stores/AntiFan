@@ -112,10 +112,36 @@ export class InvocationLedger {
       return;
     }
     const files = fs.readdirSync(this.partitionsDir).filter((f) => f.endsWith('.jsonl'));
+    let fileIdx = 0;
     for (const file of files) {
       const attachmentId = path.basename(file, '.jsonl');
       await this.replayPartition(attachmentId);
+      if (++fileIdx % 25 === 0) {
+        const { promise, resolve } = Promise.withResolvers<void>();
+        setImmediate(resolve);
+        await promise;
+      }
     }
+  }
+
+  public async pruneDeadPartitions(activeAttachmentIds: Set<string>): Promise<number> {
+    if (!fs.existsSync(this.partitionsDir)) return 0;
+    let pruned = 0;
+    const files = fs.readdirSync(this.partitionsDir).filter((f) => f.endsWith('.jsonl'));
+    for (const file of files) {
+      const attachmentId = path.basename(file, '.jsonl');
+      if (!activeAttachmentIds.has(attachmentId)) {
+        try {
+          const filePath = this.getPartitionPath(attachmentId);
+          await fs.promises.unlink(filePath);
+          this.hotPartitions.delete(attachmentId);
+          this.uncompactedFrameCounts.delete(attachmentId);
+          this.persistedFrameCounts.delete(attachmentId);
+          pruned++;
+        } catch {}
+      }
+    }
+    return pruned;
   }
 
   public isQuarantined(attachmentId: string): boolean {
