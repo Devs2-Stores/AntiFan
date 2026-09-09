@@ -265,6 +265,24 @@ async function createWindow(): Promise<void> {
   // renderer already painted and is interactive).
   await controlPlane.initialize();
   tabHost.setControlPlane(controlPlane);
+
+  // Phase 2 (step 10): deterministic attachment disposal. When an attachment is
+  // revoked or expires, close ONLY the agent tab it owns (offscreen) and its
+  // terminal affinity — never a user-visible tab nor another attachment's
+  // resource. Agent tabs are provisioned offscreen, so isTabOffscreen is the safe
+  // discriminator: a user-visible tab is never offscreen and is never closed here.
+  // tabHost.closeTab already releases viewport locks, agent-working state,
+  // terminal affinity, session pools, and partitions for that single tab.
+  controlPlane.runs.attachments.setDisposeListener(({ attachmentId, tabId }) => {
+    if (!tabId || !tabHost) return;
+    if (tabHost.isTabOffscreen(tabId) !== true) return; // never close a user-visible tab
+    try {
+      tabHost.closeTab(tabId);
+      console.log(`[antifan] Attachment ${attachmentId} disposed; closed owned agent tab ${tabId}`);
+    } catch (err) {
+      console.warn(`[antifan] Attachment ${attachmentId} disposal: failed to close agent tab ${tabId}`, err);
+    }
+  });
   const browserPort = new BrowserControlPort({
     hasTab: (tabId) => tabHost!.hasTab(tabId),
     resolveTargetTabId: (tabId) => tabHost!.resolveTargetTabId(tabId),
@@ -277,7 +295,7 @@ async function createWindow(): Promise<void> {
     getAutomationTabId: () => tabHost!.getAutomationTabId(),
     setAutomationTabId: (tabId) => tabHost!.setAutomationTabId(tabId),
     isTabOffscreen: (tabId) => tabHost!.isTabOffscreen(tabId),
-    createTab: (url, activate = false) => tabHost!.createTab(url, activate),
+    createTab: (url, activate = false, options) => tabHost!.createTab(url, activate, options),
     closeTab: (tabId) => tabHost!.closeTab(tabId),
     switchTab: (tabId) => tabHost!.switchTab(tabId),
     navigate: (tabId, url) => tabHost!.navigateAndWait(tabId, url),

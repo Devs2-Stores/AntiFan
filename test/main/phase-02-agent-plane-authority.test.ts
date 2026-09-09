@@ -4,7 +4,8 @@ import { NativeTabHost, NativeTabRecord } from '../../src/main/browser/native-ta
 import { TerminalManager } from '../../src/main/browser/terminal-manager';
 import { BrowserControlPort, BrowserHostPort } from '../../src/main/tools/browser-control-port';
 import { TabDevToolsHost, TabDevToolsContext } from '../../src/main/browser/tab-devtools-host';
-import { CapabilityError, BrowserTarget } from '../../src/shared/control-plane-contracts';
+import { CapabilityError, BrowserTarget, ExecutionAttachmentRecord } from '../../src/shared/control-plane-contracts';
+import { AttachmentRegistry } from '../../src/main/run/attachment-registry';
 import { AntiFanTab, SplitPaneId } from '../../src/shared/contracts';
 
 interface MockWebContents {
@@ -577,6 +578,163 @@ describe('Phase 2 Agent-Plane Authority Contract Regressions', () => {
       t.skip(
         'Skipped: Full live Electron GPU composited window capture and offscreen pixel rendering is covered by Phase 6 Windows runtime certification'
       );
+    });
+  });
+
+  // =========================================================================
+  // 4. ACTIVATION AUTHORITY (USER_VISIBLE_OPERATION_FORBIDDEN)
+  // =========================================================================
+  describe('4. Activation Authority', () => {
+    function createSwitchHost() {
+      let switchedTo: string | null = null;
+      let switchCalls = 0;
+      const mockHost: BrowserHostPort = {
+        getTabList: () => [
+          { id: 'tab-user-active', url: 'https://example.com/user', title: 'User Tab' },
+          { id: 'tab-agent-offscreen', url: 'https://example.com/agent', title: 'Agent Tab' },
+        ],
+        hasTab: (tabId) => tabId === 'tab-user-active' || tabId === 'tab-agent-offscreen',
+        getActiveTabId: () => 'tab-user-active',
+        isTabOffscreen: (tabId) => tabId === 'tab-agent-offscreen',
+        isTabEphemeral: (tabId) => tabId === 'tab-agent-offscreen',
+        switchTab: (tabId) => {
+          switchCalls++;
+          switchedTo = tabId;
+          return true;
+        },
+        isCurrentTarget: () => true,
+        navigate: async () => true,
+        reload: async () => true,
+        getDom: async () => '<html></html>',
+        captureScreenshot: async () => '',
+        evalJs: async () => null,
+      };
+      const port = new BrowserControlPort(mockHost);
+      return { mockHost, port, readState: () => ({ switchedTo, switchCalls }) };
+    }
+
+    it('agent attachment activating a user-visible foreground tab throws USER_VISIBLE_OPERATION_FORBIDDEN and never switches', () => {
+      const { port, readState } = createSwitchHost();
+      const target: BrowserTarget = {
+        projectId: 'proj-1',
+        workspaceId: 'ws-1',
+        runtimeId: 'rt-1',
+        tabId: 'tab-agent-offscreen',
+        browserEpoch: 1,
+        documentGeneration: 1,
+      };
+      assert.throws(
+        () => port.switchTab('tab-user-active', {
+          target,
+          attachmentId: 'attachment-1',
+          runId: 'run-1',
+          attemptId: 'attempt-1',
+          isAgent: true,
+          plane: 'agent',
+        }),
+        (err: unknown) => {
+          assert.ok(err instanceof CapabilityError);
+          assert.strictEqual((err as CapabilityError).code, 'USER_VISIBLE_OPERATION_FORBIDDEN');
+          return true;
+        }
+      );
+      const { switchCalls, switchedTo } = readState();
+      assert.strictEqual(switchCalls, 0, 'switchTab must never be invoked for a user-visible tab from agent plane');
+      assert.strictEqual(switchedTo, null, 'User-visible tab must not become the active tab');
+    });
+
+    it('agent attachment may switch only to its own agent-owned (offscreen/ephemeral) tab', () => {
+      const { port, readState } = createSwitchHost();
+      const target: BrowserTarget = {
+        projectId: 'proj-1',
+        workspaceId: 'ws-1',
+        runtimeId: 'rt-1',
+        tabId: 'tab-agent-offscreen',
+        browserEpoch: 1,
+        documentGeneration: 1,
+      };
+      const res = port.switchTab('tab-agent-offscreen', {
+        target,
+        attachmentId: 'attachment-1',
+        runId: 'run-1',
+        attemptId: 'attempt-1',
+        isAgent: true,
+        plane: 'agent',
+      });
+      assert.strictEqual(res.switched, true);
+      const { switchCalls, switchedTo } = readState();
+      assert.strictEqual(switchCalls, 1);
+      assert.strictEqual(switchedTo, 'tab-agent-offscreen');
+    });
+  });
+
+  // =========================================================================
+  // 5. ATTACHMENT DISPOSAL HOOK (STEP 10)
+  // =========================================================================
+  describe('5. Attachment Disposal Hook', () => {
+    it('revokeAttachment fires the dispose listener with the owned tab id only once', async () => {
+      const registry = new AttachmentRegistry({ getHostEpoch: () => 1 });
+      const fired: Array<{ attachmentId: string; tabId?: string }> = [];
+      registry.setDisposeListener((info) => fired.push({ attachmentId: info.attachmentId, tabId: info.tabId }));
+
+      const runId = 'run-aaaa1111-2222-3333-4444-555566667777';
+      const attemptId = 'attempt-aaaa1111-2222-3333-4444-555566667777';
+      const projectId = 'project-aaaa1111-2222-3333-4444-555566667777';
+      const workspaceId = 'workspace-aaaa1111-2222-3333-4444-555566667777';
+      const lease = {
+        runtimeId: 'runtime-aaaa1111-2222-3333-4444-555566667777',
+        projectId,
+        workspaceId,
+        token: 'lease-token-dispose-1',
+        protocolVersion: 1,
+        hostEpoch: 1,
+        ownerPid: process.pid,
+        issuedAt: Date.now(),
+        expiresAt: Date.now() + 30_000,
+      };
+      const { launch } = await registry.issueAttachment(runId, attemptId, projectId, workspaceId, {
+        backendId: 'cli',
+        lease,
+        leaseToken: lease.token,
+        hostEpoch: 1,
+        grant: 'write',
+        tabId: 'tab-agent-owned',
+        browserTarget: { projectId, workspaceId, runtimeId: lease.runtimeId, tabId: 'tab-agent-owned', browserEpoch: 1, documentGeneration: 1 },
+      });
+
+      await registry.revokeAttachment(launch.attachmentId);
+      assert.strictEqual(fired.length, 1, 'Dispose listener must fire exactly once on revocation');
+      assert.strictEqual(fired[0]?.attachmentId, launch.attachmentId);
+      assert.strictEqual(fired[0]?.tabId, 'tab-agent-owned');
+    });
+
+    it('validateLiveExecution on an expired attachment fires the dispose listener', () => {
+      const registry = new AttachmentRegistry({ getHostEpoch: () => 1 }, undefined, 100);
+      const fired: Array<{ attachmentId: string; tabId?: string }> = [];
+      registry.setDisposeListener((info) => fired.push({ attachmentId: info.attachmentId, tabId: info.tabId }));
+      const record = {
+        id: 'attachment-aaaa1111-2222-3333-4444-555566667777',
+        runId: 'run-aaaa1111-2222-3333-4444-555566667777',
+        attemptId: 'attempt-aaaa1111-2222-3333-4444-555566667777',
+        projectId: 'project-aaaa1111-2222-3333-4444-555566667777',
+        workspaceId: 'workspace-aaaa1111-2222-3333-4444-555566667777',
+        backendId: 'cli',
+        state: 'active' as const,
+        issuedAt: Date.now() - 1000,
+        expiresAt: Date.now() - 100, // already expired
+        tabId: 'tab-agent-owned',
+        browserTarget: { projectId: 'p', workspaceId: 'w', runtimeId: 'r', tabId: 'tab-agent-owned', browserEpoch: 1, documentGeneration: 1 },
+        authorityRevision: 'rev_aaa',
+        revisionNumber: 1,
+      } as unknown as ExecutionAttachmentRecord;
+      (registry as unknown as { records: Map<string, unknown> }).records.set(record.id, record);
+
+      assert.throws(
+        () => registry.validateLiveExecution(record, 'rev_aaa'),
+        (err: unknown) => err instanceof CapabilityError && (err as CapabilityError).code === 'ATTACHMENT_STALE'
+      );
+      assert.strictEqual(fired.length, 1, 'Dispose listener must fire when attachment transitions to expired');
+      assert.strictEqual(fired[0]?.tabId, 'tab-agent-owned');
     });
   });
 });

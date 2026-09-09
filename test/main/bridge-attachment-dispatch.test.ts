@@ -574,13 +574,27 @@ describe('BridgeServer Attachment Authentication & Scoped Dispatch', () => {
     const server = new BridgeServer(mockHost, 0, false, transport, undefined, registry);
     const port = await server.start();
 
-    // Issue attachment with NO explicit browserTarget (standard for CLI session / MCP client)
+    // Issue attachment WITH an explicit browserTarget/tab binding. Phase 2: an
+    // attachment must own its browser binding — reading MUST NOT auto-resolve to the
+    // user's active tab. The registry's getAutomationTabId delegate (pointed at the
+    // user's active tab) is no longer consulted for binding resolution, so an earlier
+    // variant of this test that issued a bindingless attachment and relied on ambient
+    // fallback now (correctly) fails closed with TARGET_REQUIRED.
     const { launch } = await registry.issueAttachment(runId, attemptId, projectId, workspaceId, {
       backendId: 'cli',
       lease,
       leaseToken: lease.token,
       hostEpoch,
       grant: 'read',
+      tabId: 'tab-1',
+      browserTarget: {
+        projectId,
+        workspaceId,
+        runtimeId,
+        tabId: 'tab-1',
+        browserEpoch: 1,
+        documentGeneration: 1,
+      },
     });
 
     const ws = new WebSocket(`ws://127.0.0.1:${port}`, {

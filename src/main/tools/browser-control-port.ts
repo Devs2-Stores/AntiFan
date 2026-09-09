@@ -318,9 +318,16 @@ export class WaitRegistry {
 export class ViewportGate {
   private isLocked = false;
   private isPoisoned = false;
+  // Phase 2 (step 9): poison state is scoped by target so an unacknowledged cancel on
+  // one tab/session cannot poison unrelated tabs (the over-global cross-session
+  // contamination invariant). Tabs listed here are rejected for new acquisitions;
+  // the global flag below remains as a fallback for abstraction-less poisons.
+  private poisonedTabs = new Set<string>();
   private preemptionEpoch = 1;
   private activeAbortController: AbortController | null = null;
   private activeTabId: string | null = null;
+  private lastPreemptScopeTabId: string | null = null;
+  private lastPreemptScoped = false;
   private onCancelCallback: ((tabId?: string) => Promise<boolean>) | null = null;
   private queue: Array<{
     tabId?: string;
@@ -334,11 +341,29 @@ export class ViewportGate {
     this.onCancelCallback = callback;
   }
 
-  public resetPoisonState(): void {
-    this.isPoisoned = false;
+  public resetPoisonState(tabId?: string): void {
+    if (tabId) {
+      this.poisonedTabs.delete(tabId);
+    } else {
+      this.isPoisoned = false;
+      this.poisonedTabs.clear();
+    }
   }
 
-  public poison(reason: string): void {
+  public poison(reason: string, tabId?: string): void {
+    if (tabId) {
+      this.poisonedTabs.add(tabId);
+      // Only entries targeting this tab are poisoned; others keep their slot.
+      for (let i = this.queue.length - 1; i >= 0; i--) {
+        const entry = this.queue[i];
+        if (entry && entry.tabId === tabId) {
+          this.queue.splice(i, 1);
+          clearTimeout(entry.timer);
+          entry.reject(new CapabilityError('TARGET_STALE', reason));
+        }
+      }
+      return;
+    }
     this.isPoisoned = true;
     while (this.queue.length > 0) {
       const entry = this.queue.shift()!;
@@ -353,6 +378,11 @@ export class ViewportGate {
       if (tabId && this.activeTabId && tabId !== this.activeTabId) {
         return; // User input on a different tab does not preempt this tab's active agent
       }
+      // Record the preemption scope so an unacknowledged cancel poisons only that tab
+      // (per-target) when the preemption was scoped, or globally when it was a
+      // user-intervention without a tab (existing global-drain semantics).
+      this.lastPreemptScopeTabId = tabId || null;
+      this.lastPreemptScoped = Boolean(tabId);
       this.activeAbortController.abort(new CapabilityError('PREEMPTED_BY_USER', reason));
     }
   }
@@ -360,7 +390,8 @@ export class ViewportGate {
     action: (signal: AbortSignal) => Promise<T>,
     options: ViewportLockOptions = {}
   ): Promise<T> {
-    if (this.isPoisoned) {
+    const lockTabId = options.tabId?.trim() || undefined;
+    if (this.isPoisoned || (lockTabId !== undefined && this.poisonedTabs.has(lockTabId))) {
       throw new CapabilityError('TARGET_STALE', 'ViewportGate is poisoned due to unacknowledged action cancellation');
     }
     const timeoutMs = options.timeoutMs ?? 10_000;
@@ -376,10 +407,10 @@ export class ViewportGate {
     }
 
     // 1. Acquire Lock (Queued FIFO)
-    const release = await this.acquire(options.tabId, timeoutMs, controller.signal);
+    const release = await this.acquire(lockTabId, timeoutMs, controller.signal);
 
     // 2. Recheck poison immediately after acquisition before executing action
-    if (this.isPoisoned) {
+    if (this.isPoisoned || (lockTabId !== undefined && this.poisonedTabs.has(lockTabId))) {
       release();
       throw new CapabilityError('TARGET_STALE', 'ViewportGate is poisoned due to unacknowledged action cancellation');
     }
@@ -406,7 +437,7 @@ export class ViewportGate {
           }
         }
         if (!ack) {
-          this.poison('ViewportGate poisoned due to unacknowledged action cancellation');
+          this.poison('ViewportGate poisoned due to unacknowledged action cancellation', this.lastPreemptScoped ? (this.lastPreemptScopeTabId || undefined) : undefined);
           reject(err);
           return;
         }
@@ -418,7 +449,7 @@ export class ViewportGate {
             new Promise((r) => setTimeout(r, 500))
           ]);
           if (!settled) {
-            this.poison('ViewportGate poisoned: action failed to settle after cancellation acknowledgement');
+            this.poison('ViewportGate poisoned: action failed to settle after cancellation acknowledgement', this.lastPreemptScoped ? (this.lastPreemptScopeTabId || undefined) : undefined);
           }
         }
         reject(err);
@@ -552,10 +583,18 @@ export class ViewportGate {
       this.removeFromQueue(entry);
       entry.reject(new CapabilityError('TARGET_STALE', `Target tab '${tabId}' was closed while awaiting viewport lock`));
     }
+    // Phase 2 (step 9): drop per-target poison so a destroyed tab no longer rejects
+    // new acquisitions for the same physical tabId after recreation.
+    this.poisonedTabs.delete(tabId);
+  }
+
+  /** Phase 2 (step 9) contract alias: release per-target lock/poison state on tab destruction. */
+  public releaseForTab(tabId: string): void {
+    this.cleanupTab(tabId);
   }
 
   public isBusy(): boolean {
-    return this.isLocked || this.queue.length > 0;
+    return this.isLocked || this.queue.length > 0 || this.poisonedTabs.size > 0;
   }
 
   public getQueueLength(): number {
@@ -1125,7 +1164,7 @@ export class BrowserControlPort {
       };
     }, { timeoutMs: params.timeoutMs, signal });
   }
-  openTab(options: { url?: string; activate?: boolean; ephemeral?: boolean } = {}, context?: { target?: BrowserTarget }): { tabId: string } {
+  openTab(options: { url?: string; activate?: boolean; ephemeral?: boolean; offscreen?: boolean } = {}, context?: { target?: BrowserTarget }): { tabId: string } {
     if (!this.host.createTab) throw new CapabilityError('CAPABILITY_NOT_FOUND', 'createTab is not supported by host');
     const boundTabId = context?.target?.tabId;
     if (boundTabId && this.host.getManagedTabIds) {
@@ -1134,7 +1173,12 @@ export class BrowserControlPort {
         throw new CapabilityError('POLICY_DENIED', 'Terminal tab limit reached (maximum 10 tabs per session). Please close unused tabs.');
       }
     }
-    const tabId = this.host.createTab(options.url || 'about:blank', options.activate ?? false, { ephemeral: options.ephemeral });
+    // Phase 2 (step 11): forward the offscreen option so dedicated agent tabs keep
+    // rendering without foregrounding the user's visible surface.
+    const tabId = this.host.createTab(options.url || 'about:blank', options.activate ?? false, {
+      ephemeral: options.ephemeral,
+      offscreen: options.offscreen,
+    });
     if (boundTabId && this.host.adoptChildTab) {
       this.host.adoptChildTab(boundTabId, tabId);
     }
@@ -4316,9 +4360,15 @@ export class BrowserControlPort {
       } else if (this.host.createTab) {
         // Dual-Plane Runtime Isolation: dedicated agent tab renders offscreen so
         // capture never requires foregrounding/swapping the user's visible view.
+        // Phase 2 (step 4): the only reachable path here is a direct/legacy caller
+        // (no attachment session) — or a session whose record still lacks a provisioned
+        // tabId and will be reconciled by the authoritative rebind rotation in
+        // capability-transport. Authority is NEVER read back from this global
+        // (resolveDirectRpcTargetTab/validateAttachment/startSession all resolve
+        // exclusively from the attachment record and fail closed). Recording the
+        // provisioned id here is host-level tab bookkeeping only, so subsequent
+        // direct reads reuse the same tab instead of leaking a new one per call.
         resolved = this.host.createTab('about:blank', false, { ephemeral: true, offscreen: true });
-        // Register it as THE agent-plane tab so subsequent read/write ops reuse the
-        // same dedicated offscreen tab instead of re-provisioning a fresh one.
         if (resolved && typeof this.host.setAutomationTabId === 'function') {
           this.host.setAutomationTabId(resolved);
         }
@@ -4351,13 +4401,23 @@ export class BrowserControlPort {
           }
         );
       }
-      const effectiveDocGen = operationType === 'read'
-        ? (liveDocGen ?? target.documentGeneration)
-        : target.documentGeneration;
       const currentTarget: BrowserTarget = {
         ...target,
         tabId: resolved,
-        documentGeneration: effectiveDocGen,
+        // Phase 2 (step 8) fencing semantics:
+        // - EFFECTFUL write/lifecycle: the generation fence above (target.documentGeneration
+        //   vs liveDocGen) already rejects stale before any side effect, and assertCurrent
+        //   receives the EXPECTED generation so isCurrentTarget can still detect a
+        //   genuinely repurposed/dead target.
+        // - PASSIVE read: auto-syncs freshness — DOM reads/screenshots are safe to run on
+        //   the live document and must NOT be rejected for generation drift (dual-plane
+        //   background reads never hijack the user's surface). The caller's target contract
+        //   is not rewritten; freshness is returned with the artifact.
+        // assertCurrent runs for both so a host that reports the bound target as no longer
+        // current (hard isCurrentTarget=false) rejects reads too.
+        documentGeneration: operationType === 'read'
+          ? (liveDocGen ?? target.documentGeneration)
+          : target.documentGeneration,
       };
       this.assertCurrent(currentTarget);
     }

@@ -86,6 +86,7 @@ export class AttachmentRegistry {
   private readonly maxHistoricalRevisions: number;
   private isQuarantined = false;
   private mutationLock: Promise<void> = Promise.resolve();
+  private disposeListener?: (info: { attachmentId: string; tabId?: string; browserTarget?: BrowserTarget }) => void;
 
   constructor(
     private readonly delegate?: AttachmentValidatorDelegate,
@@ -242,16 +243,10 @@ export class AttachmentRegistry {
       const expiresAt = now + ttlMs;
 
       const initialRevision: AuthorityRevisionHandle = `rev_${crypto.randomBytes(16).toString('hex')}`;
-      let delegatedAutomationTabId: string | undefined;
-      if (this.delegate?.getAutomationTabId) {
-        try {
-          const autoTab = this.delegate.getAutomationTabId();
-          if (typeof autoTab === 'string' && autoTab.trim().length > 0) {
-            delegatedAutomationTabId = autoTab.trim();
-          }
-        } catch {}
-      }
-      const effectiveTabId = options.tabId ?? options.browserTarget?.tabId ?? delegatedAutomationTabId;
+      // Phase 2 (step 4): an attachment's browser binding must come from its OWN
+      // explicit/browserTarget tab — NEVER from the process-global automation target
+      // (which may belong to a different concurrent session). No delegatedAutomationTabId.
+      const effectiveTabId = options.tabId ?? options.browserTarget?.tabId;
 
       let initialDocGen = options.documentGeneration ?? options.browserTarget?.documentGeneration;
       if (typeof initialDocGen !== 'number' && effectiveTabId && this.delegate?.getDocumentGeneration) {
@@ -497,6 +492,7 @@ export class AttachmentRegistry {
   validateLiveExecution(record: ExecutionAttachmentRecord, revision: string, invocationId?: string): MainResolvedAuthority {
     if (record.state === 'expired' || Date.now() > record.expiresAt) {
       record.state = 'expired';
+      this.notifyDispose(record);
       throw new CapabilityError('ATTACHMENT_STALE', `Attachment ${record.id} has expired`);
     }
 
@@ -713,9 +709,10 @@ export class AttachmentRegistry {
     };
 
     let targetTabId = record.tabId || '';
-    if (!targetTabId && this.delegate?.getAutomationTabId) {
-      targetTabId = this.delegate.getAutomationTabId() || '';
-    }
+    // Phase 2 (step 4/6): the attachment's binding comes only from its OWN record.
+    // Previously `|| this.delegate.getAutomationTabId()` let an attachment with no
+    // owned tab latch onto another session's global automation target. Fail closed:
+    // a bindingless attachment keeps an empty tabId → TARGET_REQUIRED.
     let docGen = record.documentGeneration || 1;
     if (targetTabId && this.delegate?.getDocumentGeneration) {
       const dynamicGen = this.delegate.getDocumentGeneration(targetTabId);
@@ -904,6 +901,7 @@ export class AttachmentRegistry {
       const existingRevisions = Array.from(this.revisions.values()).filter((r) => r.attachmentId === attachmentId);
       await this.appendPersistenceFrameUnlocked(candidateRecord, existingRevisions);
       this.records.set(attachmentId, candidateRecord);
+      this.notifyDispose(candidateRecord);
     }
   }
 
@@ -911,6 +909,30 @@ export class AttachmentRegistry {
     await this.runWithMutationLock(async () => {
       await this.revokeAttachmentUnlocked(attachmentId);
     });
+  }
+
+  /** Phase 2 (step 10): deterministic attachment disposal hook. The composition root
+   *  registers a callback that closes ONLY the owned agent tab + terminal (never a
+   *  user tab nor another attachment's resources). Fired on revocation and on the
+   *  expiry transition. Socket close triggers it only after the record is already
+   *  revoked/expired, so transient reconnects never reap a live session's tab. */
+  setDisposeListener(
+    listener: (info: { attachmentId: string; tabId?: string; browserTarget?: BrowserTarget }) => void
+  ): void {
+    this.disposeListener = listener;
+  }
+
+  private notifyDispose(record: ExecutionAttachmentRecord): void {
+    if (!this.disposeListener || !record) return;
+    try {
+      this.disposeListener({
+        attachmentId: record.id,
+        tabId: record.tabId || record.browserTarget?.tabId,
+        browserTarget: cloneBrowserTarget(record.browserTarget),
+      });
+    } catch {
+      // Disposal notification must never break registry mutation paths.
+    }
   }
 
   async revokeForAttempt(attemptId: string): Promise<void> {

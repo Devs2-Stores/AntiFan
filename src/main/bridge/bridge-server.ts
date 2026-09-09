@@ -1700,24 +1700,28 @@ export class BridgeServer {
                   }
                 }
               } else {
-                const currentAutoTab = this.tabHost.getAutomationTabId ? this.tabHost.getAutomationTabId() : undefined;
-                if (currentAutoTab && this.hostTabExists(currentAutoTab)) {
-                  tabId = currentAutoTab;
+                // Phase 2 (steps 2/3): reuse ONLY the authorized browser target this
+                // exact attachment already owns (attachment-record browserTarget).
+                // NEVER fall back to another session's global automation target
+                // (previous reuse of getAutomationTabId() made session B latch onto
+                // session A's tab, clobbering the bound invocation). If there is no
+                // owned live tab, provision a dedicated offscreen/ephemeral agent tab
+                // immediately (never inspect activeTabId / foreground).
+                const targetAttachmentId = typeof p.attachmentId === 'string' && p.attachmentId.trim() ? p.attachmentId.trim() : boundAttachmentId;
+                const registry = this.attachmentRegistry || this.controlPlaneRuntime?.runs?.attachments;
+                const attachmentRecord = targetAttachmentId && registry ? registry.getRecord(targetAttachmentId) : undefined;
+                const ownTabId = attachmentRecord?.tabId || attachmentRecord?.browserTarget?.tabId;
+                if (ownTabId && this.hostTabExists(ownTabId)) {
+                  tabId = ownTabId;
                 } else {
-                  // Dual-Plane Runtime Isolation: ALWAYS auto-provision a dedicated
-                  // background agent tab. The allowUserTabFallback flag is deliberately
-                  // ignored — binding a CLI/MCP session to the user's active foreground
-                  // tab caused agent operations to hijack their working surface.
                   tabId = this.tabHost.createTab('about:blank', false, { offscreen: true, ephemeral: true });
-                  if (this.tabHost.setAutomationTabId) {
-                    this.tabHost.setAutomationTabId(tabId);
-                  }
                 }
               }
             }
-            if (tabId && this.tabHost.setAutomationTabId) {
-              this.tabHost.setAutomationTabId(tabId);
-            }
+            // Phase 2: intentionally no `setAutomationTabId(tabId)` here. Each
+            // attachment's binding lives in its own authority record; writing the
+            // session's tab onto the process-global automation target would let one
+            // session clobber another's bound invocation.
             const ownerPid = typeof p.ownerPid === 'number' && p.ownerPid > 0 ? p.ownerPid : undefined;
             const res = await this.controlPlaneRuntime.createCliSession({
               projectId: typeof p.projectId === 'string' ? p.projectId : undefined,
@@ -1855,7 +1859,11 @@ export class BridgeServer {
           }
           const activate = Boolean(p.activate ?? false);
           const isEphemeral = isAgentCaller ? (p.ephemeral !== false && p.userFacing !== true) : Boolean(p.ephemeral);
-          const tabId = this.tabHost.createTab(p.url, activate, { ephemeral: isEphemeral });
+          // Phase 2 (step 11): agent-created tabs are dedicated offscreen surfaces so
+          // capture never foregrounds/attaches the user's visible view. Forward the
+          // offscreen option through the adapter; default offscreen for agent callers.
+          const isOffscreen = isAgentCaller ? (p.offscreen !== false && p.userFacing !== true) : Boolean(p.offscreen);
+          const tabId = this.tabHost.createTab(p.url, activate, { ephemeral: isEphemeral, offscreen: isOffscreen });
           respond(true, { tabId });
           break;
         }
@@ -1961,7 +1969,19 @@ export class BridgeServer {
           if (typeof p.text === 'string') {
             const tm = TerminalManager.getInstance();
             if (p.sessionId) {
+              // Phase 2 (step 6): an attachment-bound caller may only write to a
+              // terminal it owns. Enforced below via auto-owned resolution.
+              const verified = this.terminalWriteForAttachment(p.sessionId, boundAttachmentId, p.attachmentId);
+              if (!verified) {
+                respond(false, undefined, 'TERMINAL_FORBIDDEN: attachment does not own the target terminal session');
+                break;
+              }
               tm.writeTo(p.sessionId, p.text);
+            } else if (boundAttachmentId) {
+              // Attachment callers must never fall back to the user's active shell.
+              // Reject with TERMINAL_FORBIDDEN unless a sessionId is required.
+              respond(false, undefined, 'TERMINAL_FORBIDDEN: terminalSessionId is required for attachment input');
+              break;
             } else {
               tm.write(p.text);
             }
@@ -1994,7 +2014,15 @@ export class BridgeServer {
           if (typeof sequence === 'string') {
             const tm = TerminalManager.getInstance();
             if (p.sessionId) {
+              const verified = this.terminalWriteForAttachment(p.sessionId, boundAttachmentId, p.attachmentId);
+              if (!verified) {
+                respond(false, undefined, 'TERMINAL_FORBIDDEN: attachment does not own the target terminal session');
+                break;
+              }
               tm.writeTo(p.sessionId, sequence);
+            } else if (boundAttachmentId) {
+              respond(false, undefined, 'TERMINAL_FORBIDDEN: terminalSessionId is required for attachment key input');
+              break;
             } else {
               tm.write(sequence);
             }
@@ -2040,6 +2068,17 @@ export class BridgeServer {
         case 'terminalCloseSession':
         case 'antifan.terminalCloseSession': {
           const tm = TerminalManager.getInstance();
+          if (boundAttachmentId) {
+            if (typeof p.sessionId !== 'string' || !p.sessionId.trim()) {
+              respond(false, undefined, 'TERMINAL_FORBIDDEN: terminalSessionId is required for attachment close');
+              break;
+            }
+            const verified = this.terminalWriteForAttachment(p.sessionId, boundAttachmentId, p.attachmentId);
+            if (!verified) {
+              respond(false, undefined, 'TERMINAL_FORBIDDEN: attachment does not own the target terminal session');
+              break;
+            }
+          }
           const targetId = p.sessionId || tm.getActiveSessionId();
           const closed = await tm.closeSession(targetId);
           respond(closed, { closed, sessions: tm.listSessions(), activeSessionId: tm.getActiveSessionId() });
@@ -2049,6 +2088,17 @@ export class BridgeServer {
         case 'terminalRenameSession':
         case 'antifan.terminalRenameSession': {
           const tm = TerminalManager.getInstance();
+          if (boundAttachmentId) {
+            if (typeof p.sessionId !== 'string' || !p.sessionId.trim()) {
+              respond(false, undefined, 'TERMINAL_FORBIDDEN: terminalSessionId is required for attachment rename');
+              break;
+            }
+            const verified = this.terminalWriteForAttachment(p.sessionId, boundAttachmentId, p.attachmentId);
+            if (!verified) {
+              respond(false, undefined, 'TERMINAL_FORBIDDEN: attachment does not own the target terminal session');
+              break;
+            }
+          }
           const targetId = p.id || p.sessionId || tm.getActiveSessionId();
           const renamed = tm.renameSession(targetId, p.name || '');
           respond(renamed, { renamed, sessions: tm.listSessions() });
@@ -2262,6 +2312,24 @@ export class BridgeServer {
       respond(false, undefined, errorMsg);
     }
   }
+  /**
+   * Phase 2 (step 6): verifies a terminal session belongs to the calling attachment
+   * (via its owned browser tab's terminal affinity). Attachment-bound callers may only
+   * operate terminals they own; no fallback to the user's active shell.
+   */
+  private terminalWriteForAttachment(sessionId: string, boundAttachmentId?: string, attachmentIdParam?: unknown): boolean {
+    if (!sessionId) return false;
+    const targetAttachmentId = boundAttachmentId || (typeof attachmentIdParam === 'string' && attachmentIdParam.trim() ? attachmentIdParam.trim() : undefined);
+    if (!targetAttachmentId) return false;
+    const registry = this.attachmentRegistry || this.controlPlaneRuntime?.runs?.attachments;
+    const attachmentRecord = registry ? registry.getRecord(targetAttachmentId) : undefined;
+    const ownedTabId = attachmentRecord?.tabId || attachmentRecord?.browserTarget?.tabId;
+    if (!ownedTabId || typeof this.tabHost.getTabTerminalSession !== 'function') return false;
+    const ownedTerminalIds = this.tabHost.getTabTerminalSession(ownedTabId);
+    const ownedList = (Array.isArray(ownedTerminalIds) ? ownedTerminalIds : [ownedTerminalIds]).filter(Boolean);
+    return ownedList.includes(sessionId);
+  }
+
   private resolveDirectRpcTargetTab(
     tabIdParam?: unknown,
     boundAttachmentId?: string,
