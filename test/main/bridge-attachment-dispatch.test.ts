@@ -10,6 +10,7 @@ import { CapabilityTransportAdapter } from '../../src/main/tools/capability-tran
 import { CapabilityCatalogue } from '../../src/main/tools/capability-catalogue';
 import { registerBrowserCapabilities } from '../../src/main/tools/browser-capabilities';
 import { BrowserControlPort, type BrowserHostPort } from '../../src/main/tools/browser-control-port';
+import type { ControlPlaneRuntime } from '../../src/main/control-plane/control-plane-runtime';
 
 class MockTabHost extends EventEmitter implements BrowserHostPort {
   getTabList() { return [{ id: 'tab-1', url: 'https://example.com', title: 'Example' }]; }
@@ -24,6 +25,7 @@ class MockTabHost extends EventEmitter implements BrowserHostPort {
   async getDom() { return '<html><body><h1>AntiFan DOM</h1></body></html>'; }
   async captureScreenshot() { return 'base64-screenshot'; }
   async evalJs() { return true; }
+  createTab(_url?: string, _activate?: boolean, _options?: Record<string, unknown>): string { return 'tab-session-launch-1'; }
 }
 describe('BridgeServer Attachment Authentication & Scoped Dispatch', () => {
   it('authenticates via attachment secret, restricts to capability dispatch, enforces replay denial, and prevents legacy RPCs', async () => {
@@ -1124,6 +1126,181 @@ describe('BridgeServer Attachment Authentication & Scoped Dispatch', () => {
         idempotencyKey: 'idem-master-forged-2',
       });
       assert.strictEqual(forged.success, false, 'Forged attachment claims must be rejected');
+    } finally {
+      ws.close();
+      server.dispose();
+    }
+  });
+
+  it('attachment-bound socket may start/end its own session lifecycle but never cross-attachment lifecycle', async () => {
+    const mockHost = new MockTabHost() as unknown as NativeTabHost;
+    const projectId = 'project-lifecycle-12345678901234567890';
+    const workspaceId = 'workspace-lifecycle-12345678901234567890';
+    const runtimeId = 'binding-lifecycle-12345678901234567890';
+    const hostEpoch = 1;
+    const lease = {
+      runtimeId,
+      projectId,
+      workspaceId,
+      token: 'lease-lifecycle-token',
+      protocolVersion: 1,
+      hostEpoch,
+      ownerPid: process.pid,
+      issuedAt: Date.now(),
+      expiresAt: Date.now() + 60_000,
+    };
+
+    const catalogue = new CapabilityCatalogue({
+      runtime: { mode: 'standalone', lifecycle: 'active' },
+      projectId,
+      workspaceId,
+      runtimeId,
+      hostEpoch,
+      getActiveLease: () => lease,
+    });
+    catalogue.register({
+      name: 'browser.test-echo',
+      description: 'Test echo capability',
+      risk: 'read',
+      policy: { effect: 'read', risk: 'read', requiresBrowserTarget: false, schedulerLane: 'unbounded', duplicateMode: 'in-process-join', recordedVisibility: 'tenant-scoped', receiptReadPermission: 'read', timeoutMs: 15000, retentionPolicy: 'run-durable', ownerCancellationBehavior: 'abort-immediate', subscriberDisconnectBehavior: 'abort-when-unobserved', cancellationAckTimeoutMs: 5000, policyVersion: 1 },
+      inputSchema: { type: 'object' },
+      execute: (params: unknown) => ({ echoed: (params as { text?: unknown })?.text }),
+    });
+
+    const registry = new AttachmentRegistry();
+    const transport = new CapabilityTransportAdapter(catalogue, registry);
+
+    // Pairing-style bootstrap attachment: this is what /api/pairing/exchange mints.
+    const pairingRunId = 'run-pairing-12345678901234567890';
+    const pairingAttemptId = 'attempt-pairing-12345678901234567890';
+    const { launch: pairingLaunch } = await registry.issueAttachment(pairingRunId, pairingAttemptId, projectId, workspaceId, {
+      backendId: 'mcp',
+      lease,
+      leaseToken: lease.token,
+      hostEpoch,
+    });
+
+    // Session attachment the control plane would mint in response to startSession.
+    const sessionRunId = 'run-session-12345678901234567890';
+    const sessionAttemptId = 'attempt-session-12345678901234567890';
+    const { launch: sessionLaunch } = await registry.issueAttachment(sessionRunId, sessionAttemptId, projectId, workspaceId, {
+      backendId: 'cli',
+      lease,
+      leaseToken: lease.token,
+      hostEpoch,
+      tabId: 'tab-session-launch-1',
+    });
+
+    const controlPlane = {
+      createCliSession: async () => ({ run: { id: sessionRunId }, attempt: { id: sessionAttemptId }, launch: sessionLaunch }),
+      endCliSession: async () => ({ ok: true }),
+      renewCliSession: async () => ({ expiresAt: Date.now() + 3_600_000 }),
+      runs: { attachments: registry },
+    } as unknown as ControlPlaneRuntime;
+
+    const server = new BridgeServer(mockHost, 0, false, transport, undefined, registry);
+    server.setControlPlane(controlPlane);
+    const port = await server.start();
+
+    const ws = new WebSocket(`ws://127.0.0.1:${port}`, {
+      headers: { 'x-antifan-attachment-secret': pairingLaunch.secret },
+    });
+    await new Promise<void>((resolve, reject) => {
+      ws.on('open', resolve);
+      ws.on('error', reject);
+    });
+
+    interface RpcResp { id: string; success: boolean; data?: Record<string, unknown>; error?: string; }
+    const sendRpc = (id: string, method: string, params: Record<string, unknown>): Promise<RpcResp> => {
+      return new Promise<RpcResp>((resolve) => {
+        const handler = (raw: string | Buffer) => {
+          const resp = JSON.parse(raw.toString()) as RpcResp;
+          if (resp.id === id) {
+            ws.off('message', handler);
+            resolve(resp);
+          }
+        };
+        ws.on('message', handler);
+        ws.send(JSON.stringify({ id, method, params }));
+      });
+    };
+
+    try {
+      // Legacy RPC remains forbidden on the bound socket.
+      const legacyResp = await sendRpc('lc-1', 'antifan.agentMove', { selector: '#btn', x: 10, y: 10 });
+      assert.strictEqual(legacyResp.success, false);
+
+      // Cross-attachment startSession stays forbidden.
+      const foreignStart = await sendRpc('lc-2', 'antifan.cli.startSession', {
+        attachmentId: 'attachment-foreign-not-bound',
+        projectId,
+        workspaceId,
+      });
+      assert.strictEqual(foreignStart.success, false, 'Cross-attachment startSession must be forbidden');
+      assert.ok(foreignStart.error?.includes('Forbidden'));
+
+      // Self-scoped startSession succeeds: bound pairing attachment upgrades itself.
+      const startResp = await sendRpc('lc-3', 'antifan.cli.startSession', {
+        attachmentId: pairingLaunch.attachmentId,
+        projectId,
+        workspaceId,
+        grant: 'eval',
+      });
+      assert.strictEqual(startResp.success, true, `Self-scoped startSession failed: ${startResp.error}`);
+      assert.strictEqual(startResp.data?.attachmentId, sessionLaunch.attachmentId);
+      assert.ok(startResp.data?.tabId, 'startSession must provision a tab');
+
+      // Socket is now rebound: a dispatch with the stale pairing attachment is rejected.
+      const staleDispatch = await sendRpc('lc-4', 'antifan.capability.dispatch', {
+        name: 'browser.test-echo',
+        params: { text: 'stale' },
+        attachmentId: pairingLaunch.attachmentId,
+        attachmentSecret: pairingLaunch.secret,
+        authorityRevision: pairingLaunch.authorityRevision,
+        idempotencyKey: 'idem-stale-11111111111111111111',
+      });
+      assert.strictEqual(staleDispatch.success, false);
+      assert.ok(staleDispatch.error?.includes('ATTACHMENT_INVALID') || staleDispatch.error?.includes('Cross-attachment'));
+
+      // Dispatch with the new session attachment works.
+      const sessionDispatch = await sendRpc('lc-5', 'antifan.capability.dispatch', {
+        name: 'browser.test-echo',
+        params: { text: 'rebound ok' },
+        attachmentId: sessionLaunch.attachmentId,
+        attachmentSecret: sessionLaunch.secret,
+        authorityRevision: sessionLaunch.authorityRevision,
+        idempotencyKey: 'idem-session-11111111111111111111',
+      });
+      assert.strictEqual(sessionDispatch.success, true);
+
+      // A second startSession with the stale pairing attachment is forbidden after rebind.
+      const staleStart = await sendRpc('lc-6', 'antifan.cli.startSession', {
+        attachmentId: pairingLaunch.attachmentId,
+        projectId,
+        workspaceId,
+      });
+      assert.strictEqual(staleStart.success, false, 'Second startSession with rebound-away attachment must be forbidden');
+      assert.ok(staleStart.error?.includes('Forbidden'));
+
+      // Self-scoped endSession succeeds (launcher cleanup path).
+      const endResp = await sendRpc('lc-7', 'antifan.cli.endSession', {
+        runId: sessionRunId,
+        attemptId: sessionAttemptId,
+        attachmentId: sessionLaunch.attachmentId,
+        secret: sessionLaunch.secret,
+        outcome: 'completed',
+      });
+      assert.strictEqual(endResp.success, true, `Self-scoped endSession failed: ${endResp.error}`);
+
+      // Cross-attachment endSession is forbidden at the gate.
+      const foreignEnd = await sendRpc('lc-8', 'antifan.cli.endSession', {
+        runId: pairingRunId,
+        attemptId: pairingAttemptId,
+        attachmentId: pairingLaunch.attachmentId,
+        secret: pairingLaunch.secret,
+      });
+      assert.strictEqual(foreignEnd.success, false, 'Cross-attachment endSession must be forbidden');
+      assert.ok(foreignEnd.error?.includes('Forbidden'));
     } finally {
       ws.close();
       server.dispose();

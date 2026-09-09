@@ -194,6 +194,7 @@ export class BridgeServer {
   private readonly socketBridgeTokens: WeakSet<WebSocket> = new WeakSet();
   private lanOptIn: boolean = false;
   private pairingQueueDir: string;
+  private readonly publishesDiscovery: boolean;
 
   public issueExtensionGrant(targetPartitionId: string, allowedDomains: string[] = DEFAULT_EXTENSION_ALLOWED_DOMAINS, ttlMs = 3600_000): ExtensionSessionGrant {
     this.pruneExpiredGrants();
@@ -242,6 +243,12 @@ export class BridgeServer {
     this.tabHost = tabHost;
     this.isDev = isDev;
     this.port = isDev && port === 20129 ? 20130 : port;
+    // Ephemeral-port instances (tests, smoke runners, CI) are private instances: they
+    // must never publish discovery metadata or populate the shared pairing queue, which
+    // belong to the live app's data root. Otherwise a finishing test run deletes the
+    // running app's discovery file and drains its pairing queue, and the MCP launcher
+    // then reports MCP_BRIDGE_OFFLINE.
+    this.publishesDiscovery = port !== 0;
 
     const configDir = process.env.ANTIFAN_CONFIG_DIR || StorageLocations.getConfigDir();
     if (!fs.existsSync(configDir)) {
@@ -256,7 +263,9 @@ export class BridgeServer {
     this.attachmentRegistry = attachmentRegistry;
     this.host = host || '127.0.0.1';
     this.controlPlaneRuntime = controlPlaneRuntime;
-    this.pairingQueueDir = path.join(StorageLocations.getRuntimeDir(), 'pairing-queue');
+    this.pairingQueueDir = this.publishesDiscovery
+      ? path.join(StorageLocations.getRuntimeDir(), 'pairing-queue')
+      : path.join(os.tmpdir(), `antifan-pairing-${process.pid}-${Date.now().toString(36)}-${Math.random().toString(16).slice(2, 8)}`);
     BridgeServer.instance = this;
     this.wireTabHostEvents();
     this.replenishPairingQueue();
@@ -476,6 +485,7 @@ export class BridgeServer {
           expiresAt: pairing.expiresAt,
           port: this.port,
           host: this.host,
+          pid: process.pid,
         };
         const challengePath = path.join(this.pairingQueueDir, `challenge-${challengeId}.json`);
         this.atomicWriteWithDacl(challengePath, JSON.stringify(challengeData, null, 2));
@@ -528,6 +538,26 @@ export class BridgeServer {
         try {
           fs.unlinkSync(claimPath);
         } catch {}
+
+        // A challenge file may outlive the process that minted it: the queue directory
+        // is shared across restarts, while the code registry is per-instance. The code
+        // is a same-user bearer credential carrying its own expiry, so adopt it into
+        // this instance instead of handing out a code that exchange rejects as
+        // PAIRING_CODE_NOT_FOUND.
+        const codeHash = hashSecret(data.code);
+        if (!this.pairingStore.has(codeHash)) {
+          this.pairingStore.set(codeHash, {
+            codeHash,
+            clientClass: data.clientClass === 'mobile' ? 'mobile' : 'mcp',
+            ttlMs: Math.max(10_000, data.expiresAt - now),
+            createdAt: now,
+            expiresAt: data.expiresAt,
+            consumed: false,
+            revoked: false,
+            attemptBudget: 3,
+            failedAttempts: 0,
+          });
+        }
 
         setImmediate(() => this.replenishPairingQueue());
         return { code: data.code, expiresAt: data.expiresAt, challengeId: data.challengeId };
@@ -866,7 +896,13 @@ export class BridgeServer {
           res.end(JSON.stringify({ error: 'FORBIDDEN', message: 'Pairing challenge claims are restricted to loopback callers' }));
           return;
         }
-        const challenge = this.claimPairingChallenge('mcp');
+        // A depleted or fully expired queue is refilled synchronously so the caller that
+        // observed the empty queue still receives a challenge instead of a spurious 404.
+        let challenge = this.claimPairingChallenge('mcp');
+        if (!challenge) {
+          this.replenishPairingQueue();
+          challenge = this.claimPairingChallenge('mcp');
+        }
         const responseHeaders: Record<string, string> = { 'Content-Type': 'application/json' };
         if (isAllowedOrigin) responseHeaders['Access-Control-Allow-Origin'] = rawOrigin;
 
@@ -1547,6 +1583,7 @@ export class BridgeServer {
     });
   }
   private persistBridgeInfo(): void {
+    if (!this.publishesDiscovery) return;
     const info = {
       port: this.port,
       host: this.host,
@@ -1616,13 +1653,24 @@ export class BridgeServer {
 
     try {
       const boundAttachmentId = this.socketAttachmentIds.get(ws);
+      // A socket bound to an attachment may upgrade its own lifecycle: mint the CLI
+      // session for the bound pairing attachment (startSession) or tear down its own
+      // session (endSession). Both are strictly self-scoped: p.attachmentId must equal
+      // the bound attachment, mirroring the renewSession cross-attachment guard.
+      // Everything else (legacy RPCs, cross-attachment lifecycle) stays Forbidden.
+      const selfScopedLifecycle =
+        (method === 'antifan.cli.startSession' || method === 'antifan.cli.endSession') &&
+        typeof p.attachmentId === 'string' &&
+        boundAttachmentId !== undefined &&
+        p.attachmentId === boundAttachmentId;
       if (
         boundAttachmentId &&
+        !selfScopedLifecycle &&
         method !== 'antifan.capability.dispatch' &&
         method !== 'antifan.cli.renewSession' &&
         method !== 'antifan.cli.heartbeat'
       ) {
-        respond(false, undefined, 'Forbidden: Attachment-authenticated connections may only invoke antifan.capability.dispatch or renewSession');
+        respond(false, undefined, 'Forbidden: Attachment-authenticated connections may only invoke antifan.capability.dispatch, antifan.cli.renewSession, antifan.cli.heartbeat, or session lifecycle for the bound attachment');
         return;
       }
       if (method !== 'antifan.capability.dispatch' && this.capabilityTransport && typeof p.runtimeLease === 'object') {
@@ -2734,31 +2782,19 @@ export class BridgeServer {
   }
 
   public dispose(): void {
-    try {
-      if (fs.existsSync(this.bridgeInfoPath)) {
-        fs.unlinkSync(this.bridgeInfoPath);
-      }
-    } catch {}
-
-    try {
+    if (this.publishesDiscovery) {
+      // Only remove discovery metadata this process wrote. Another live instance (or a
+      // port-collision fallback that lost the bind race) may own the current file.
+      this.unlinkDiscoveryIfOwned(this.bridgeInfoPath);
       const geminiDir = path.join(os.homedir(), '.gemini');
       const geminiFileName = this.isDev ? 'antifan_bridge_dev.json' : 'antifan_bridge.json';
-      const geminiFilePath = path.join(geminiDir, geminiFileName);
-      if (fs.existsSync(geminiFilePath)) {
-        fs.unlinkSync(geminiFilePath);
-      }
-    } catch {}
-
-    try {
-      if (fs.existsSync(this.pairingQueueDir)) {
-        const files = fs.readdirSync(this.pairingQueueDir);
-        for (const file of files) {
-          try {
-            fs.unlinkSync(path.join(this.pairingQueueDir, file));
-          } catch {}
-        }
-      }
-    } catch {}
+      this.unlinkDiscoveryIfOwned(path.join(geminiDir, geminiFileName));
+      this.cleanupOwnedPairingChallenges();
+    } else {
+      try {
+        fs.rmSync(this.pairingQueueDir, { recursive: true, force: true });
+      } catch {}
+    }
 
     if (this.drainTimer) {
       clearInterval(this.drainTimer);
@@ -2775,6 +2811,38 @@ export class BridgeServer {
     this.clients.clear();
     this.wss?.close();
     this.httpServer?.close();
+  }
+
+  private unlinkDiscoveryIfOwned(filePath: string): void {
+    try {
+      if (!fs.existsSync(filePath)) return;
+      let ownerPid: unknown;
+      try {
+        ownerPid = (JSON.parse(fs.readFileSync(filePath, 'utf8')) as { pid?: unknown })?.pid;
+      } catch {
+        // Unreadable or corrupt: never delete a file we cannot prove we own.
+        return;
+      }
+      if (ownerPid === process.pid) {
+        fs.unlinkSync(filePath);
+      }
+    } catch {}
+  }
+
+  private cleanupOwnedPairingChallenges(): void {
+    try {
+      if (!fs.existsSync(this.pairingQueueDir)) return;
+      for (const file of fs.readdirSync(this.pairingQueueDir)) {
+        if (!file.startsWith('challenge-') || !file.endsWith('.json')) continue;
+        try {
+          const filePath = path.join(this.pairingQueueDir, file);
+          const data = JSON.parse(fs.readFileSync(filePath, 'utf8')) as { pid?: unknown };
+          if (data?.pid === process.pid) {
+            fs.unlinkSync(filePath);
+          }
+        } catch {}
+      }
+    } catch {}
   }
 }
 

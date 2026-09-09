@@ -23,6 +23,12 @@ describe('Phase 1 - Canonical TerminalManager Ownership', () => {
   });
 
   after(async () => {
+    // Reap the canonical instance's PTY sessions so no child handle keeps the
+    // test process alive after the suite completes.
+    const canonical = (TerminalManager as any).instance as TerminalManager | undefined;
+    if (canonical && typeof canonical.dispose === 'function') {
+      try { await canonical.dispose(); } catch {}
+    }
     (TerminalManager as any).instance = originalInstance; // restore for other suites
     try { fs.rmSync(dataRoot, { recursive: true, force: true }); } catch {}
   });
@@ -60,14 +66,14 @@ describe('Phase 1 - Canonical TerminalManager Ownership', () => {
     }
   });
 
-  it('1.4 canonical instance creates a session that the canonical getInstance() observes', () => {
+  it('1.4 canonical instance creates a session that the canonical getInstance() observes', async () => {
     const canonical = TerminalManager.getInstance();
     const sessionId = canonical.createSession('/tmp');
     try {
       assert.ok(sessionId.startsWith('terminal-'));
       assert.ok(TerminalManager.getInstance().getSession(sessionId), 'session must be visible via getInstance()');
     } finally {
-      void canonical.closeSession?.(sessionId)?.then?.(() => {});
+      await canonical.closeSession(sessionId);
     }
   });
 });

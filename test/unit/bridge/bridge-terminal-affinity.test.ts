@@ -102,15 +102,16 @@ describe('BridgeServer Terminal Affinity Resolution Live RPC Contract Tests', ()
     return promise;
   }
 
-  it('1. Successfully resolves alive terminal affinity and sets automation tab', async () => {
-    recordedAutomationTabId = null;
+  it('1. Successfully resolves alive terminal affinity and sets session target tab', async () => {
+    lastSessionCreatedOpts = null;
     const resp = await rpcCall('antifan.cli.startSession', {
       terminalSessionId: 'term-alive',
       terminalGeneration: 1,
     });
 
     assert.strictEqual(resp.success, true);
-    assert.strictEqual(recordedAutomationTabId, 'tab-alive');
+    assert.strictEqual(lastSessionCreatedOpts?.tabId, 'tab-alive');
+    assert.strictEqual(resp.data?.tabId, 'tab-alive');
   });
 
   it('2. Fails closed with TERMINAL_TAB_CLOSED when bound tab was closed', async () => {
@@ -123,17 +124,18 @@ describe('BridgeServer Terminal Affinity Resolution Live RPC Contract Tests', ()
   });
 
   it('3. Auto-provisions a dedicated agent tab for an unbound terminal, never adopting the user active tab', async () => {
-    recordedAutomationTabId = null;
+    lastSessionCreatedOpts = null;
     const resp = await rpcCall('antifan.cli.startSession', {
       terminalSessionId: 'term-unbound',
     });
 
     assert.strictEqual(resp.success, true);
-    assert.ok(recordedAutomationTabId, 'must auto-provision and bind a dedicated agent tab for an unbound terminal');
+    assert.ok(lastSessionCreatedOpts?.tabId, 'must auto-provision and bind a dedicated agent tab for an unbound terminal');
     // The dual-plane MockTabHost.createTab returns a fresh 'tab-created' id; the
     // user's active tab is 'tab-active'. An unbound terminal must never adopt it.
-    assert.notStrictEqual(recordedAutomationTabId, 'tab-active', 'must never adopt the user active tab for an unbound terminal');
-    assert.strictEqual(recordedAutomationTabId, 'tab-created', 'must bind the dedicated auto-provisioned agent tab');
+    assert.notStrictEqual(lastSessionCreatedOpts?.tabId, 'tab-active', 'must never adopt the user active tab for an unbound terminal');
+    assert.strictEqual(lastSessionCreatedOpts?.tabId, 'tab-created', 'must bind the dedicated auto-provisioned agent tab');
+    assert.strictEqual(resp.data?.tabId, 'tab-created');
   });
 
   it('4. Validates explicit tabId and rejects non-existent tabId up front with TAB_NOT_FOUND', async () => {
@@ -145,50 +147,50 @@ describe('BridgeServer Terminal Affinity Resolution Live RPC Contract Tests', ()
     assert.ok(resp.error.includes('TAB_NOT_FOUND'));
   });
 
-  it('5. Accepts valid explicit tabId and sets automation tab', async () => {
-    recordedAutomationTabId = null;
+  it('5. Accepts valid explicit tabId and sets session target tab', async () => {
+    lastSessionCreatedOpts = null;
     const resp = await rpcCall('antifan.cli.startSession', {
       tabId: 'tab-alive',
     });
 
     assert.strictEqual(resp.success, true);
-    assert.strictEqual(recordedAutomationTabId, 'tab-alive');
+    assert.strictEqual(lastSessionCreatedOpts?.tabId, 'tab-alive');
+    assert.strictEqual(resp.data?.tabId, 'tab-alive');
   });
 
-  it('6. Uses fallback only when terminalSessionId and tabId are omitted', async () => {
-    recordedAutomationTabId = null;
+  it('6. Dedicated agent tab auto-provisioned when terminalSessionId and tabId are omitted (Phase 2 isolation)', async () => {
+    lastSessionCreatedOpts = null;
     const resp = await rpcCall('antifan.cli.startSession', {});
 
     assert.strictEqual(resp.success, true);
-    assert.strictEqual(recordedAutomationTabId, 'tab-auto');
+    // Phase 2: never fall back to global automation target; provision dedicated offscreen/ephemeral tab
+    assert.strictEqual(lastSessionCreatedOpts?.tabId, 'tab-created');
+    assert.strictEqual(resp.data?.tabId, 'tab-created');
   });
 
   it('7. Canonicalizes positional and alias tabId into canonical UUID when starting CLI session', async () => {
-    recordedAutomationTabId = null;
     lastSessionCreatedOpts = null;
     const resp1 = await rpcCall('antifan.cli.startSession', {
       tabId: '#1',
     });
     assert.strictEqual(resp1.success, true);
-    assert.strictEqual(recordedAutomationTabId, 'tab-alive');
     assert.strictEqual(lastSessionCreatedOpts?.tabId, 'tab-alive');
+    assert.strictEqual(resp1.data?.tabId, 'tab-alive');
 
-    recordedAutomationTabId = null;
     lastSessionCreatedOpts = null;
     const resp2 = await rpcCall('antifan.cli.startSession', {
       tabId: '1',
     });
     assert.strictEqual(resp2.success, true);
-    assert.strictEqual(recordedAutomationTabId, 'tab-alive');
     assert.strictEqual(lastSessionCreatedOpts?.tabId, 'tab-alive');
+    assert.strictEqual(resp2.data?.tabId, 'tab-alive');
 
-    recordedAutomationTabId = null;
     lastSessionCreatedOpts = null;
     const resp3 = await rpcCall('antifan.cli.startSession', {
       tabId: 'tab-1',
     });
     assert.strictEqual(resp3.success, true);
-    assert.strictEqual(recordedAutomationTabId, 'tab-alive');
     assert.strictEqual(lastSessionCreatedOpts?.tabId, 'tab-alive');
+    assert.strictEqual(resp3.data?.tabId, 'tab-alive');
   });
 });

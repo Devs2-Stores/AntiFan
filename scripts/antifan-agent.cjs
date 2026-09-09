@@ -180,7 +180,7 @@ function httpJsonPost(host, port, requestPath, payload) {
         }
       });
     });
-    req.setTimeout(3000, () => {
+    req.setTimeout(15000, () => {
       req.destroy(new Error('Pairing request timeout'));
     });
     req.on('error', (err) => {
@@ -238,7 +238,7 @@ async function acquireBridgeSession(candidates, boundPid, explicitTabId) {
             settled = true;
             reject(new Error('WebSocket connection timed out'));
           }
-        }, 3000);
+        }, 15000);
 
         ws.once('open', () => {
           if (!settled) {

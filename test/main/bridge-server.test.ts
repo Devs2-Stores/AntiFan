@@ -1,11 +1,15 @@
 import { describe, it } from 'node:test';
 import * as assert from 'node:assert';
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
 import { WebSocket } from 'ws';
 import { EventEmitter } from 'node:events';
 import * as net from 'node:net';
 import * as crypto from 'node:crypto';
 import * as http from 'node:http';
 import { BridgeServer, type MobileSessionGrant } from '../../src/main/bridge/bridge-server';
+import { StorageLocations } from '../../src/main/config/storage-locations';
 import { NativeTabHost } from '../../src/main/browser/native-tab-host';
 import { ControlPlaneRuntime } from '../../src/main/control-plane/control-plane-runtime';
 import { AttachmentRegistry } from '../../src/main/run/attachment-registry';
@@ -783,5 +787,168 @@ describe('Phase 4: Grant Revocation, Rotation Invalidation & LAN Binding', () =>
     await server.setLanOptIn(true);
     assert.strictEqual(server.isLanOptIn(), true, 'opt-in must be readable');
     server.dispose();
+  });
+});
+
+describe('Bridge discovery & pairing queue isolation from the live data root', () => {
+  const withIsolatedRoots = async (
+    fn: (dirs: { configDir: string; dataRoot: string }) => Promise<void> | void
+  ): Promise<void> => {
+    const configDir = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-bridge-config-'));
+    const dataRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-bridge-root-'));
+    const prevConfig = process.env.ANTIFAN_CONFIG_DIR;
+    const prevRoot = process.env.ANTIFAN_DATA_ROOT;
+    process.env.ANTIFAN_CONFIG_DIR = configDir;
+    process.env.ANTIFAN_DATA_ROOT = dataRoot;
+    StorageLocations.resetCache();
+    try {
+      await fn({ configDir, dataRoot });
+    } finally {
+      if (prevConfig === undefined) delete process.env.ANTIFAN_CONFIG_DIR;
+      else process.env.ANTIFAN_CONFIG_DIR = prevConfig;
+      if (prevRoot === undefined) delete process.env.ANTIFAN_DATA_ROOT;
+      else process.env.ANTIFAN_DATA_ROOT = prevRoot;
+      StorageLocations.resetCache();
+      try { fs.rmSync(configDir, { recursive: true, force: true }); } catch {}
+      try { fs.rmSync(dataRoot, { recursive: true, force: true }); } catch {}
+    }
+  };
+
+  it('ephemeral instances serve pairing without publishing discovery or touching the shared queue', async () => {
+    await withIsolatedRoots(async ({ configDir, dataRoot }) => {
+      const mockHost = new MockTabHost() as unknown as NativeTabHost;
+      const server = new BridgeServer(mockHost, 0, true);
+      try {
+        await server.start();
+        assert.strictEqual(
+          fs.existsSync(path.join(configDir, 'bridge-dev.json')),
+          false,
+          'an ephemeral-port instance must not publish discovery metadata into the shared config dir'
+        );
+        const sharedQueue = path.join(dataRoot, 'runtime', 'pairing-queue');
+        assert.deepStrictEqual(
+          fs.existsSync(sharedQueue) ? fs.readdirSync(sharedQueue) : [],
+          [],
+          'an ephemeral-port instance must not populate the shared pairing queue'
+        );
+        const challenge = server.claimPairingChallenge('mcp');
+        assert.ok(challenge?.code, 'ephemeral instances must still serve pairing challenges from their private queue');
+      } finally {
+        server.dispose();
+      }
+    });
+  });
+
+  it('refills a depleted pairing queue synchronously for the observing caller', async () => {
+    await withIsolatedRoots(async () => {
+      const mockHost = new MockTabHost() as unknown as NativeTabHost;
+      const server = new BridgeServer(mockHost, 0, true);
+      try {
+        const port = await server.start();
+        const queueDir = (server as unknown as { pairingQueueDir: string }).pairingQueueDir;
+        for (const file of fs.readdirSync(queueDir)) {
+          fs.unlinkSync(path.join(queueDir, file));
+        }
+        assert.deepStrictEqual(fs.readdirSync(queueDir), [], 'precondition: queue is empty');
+
+        const response = await fetch(`http://127.0.0.1:${port}/api/pairing/challenge`, { method: 'POST' });
+        assert.strictEqual(response.status, 200, 'the caller that observed the empty queue must still receive a challenge');
+        const payload = (await response.json()) as { success?: boolean; code?: string };
+        assert.strictEqual(payload.success, true);
+        assert.ok(payload.code, 'refilled queue must yield a pairing code');
+      } finally {
+        server.dispose();
+      }
+    });
+  });
+
+  it('honors a challenge file that outlived the instance that minted it', async () => {
+    await withIsolatedRoots(async () => {
+      const mockHost = new MockTabHost() as unknown as NativeTabHost;
+      const registry = new AttachmentRegistry();
+      const projectId = makeControlPlaneId('project');
+      const workspaceId = makeControlPlaneId('workspace');
+      const lease = {
+        runtimeId: makeControlPlaneId('runtime'),
+        projectId,
+        workspaceId,
+        token: 'lease-token',
+        protocolVersion: 1,
+        hostEpoch: 1,
+        ownerPid: process.pid,
+        issuedAt: Date.now(),
+        expiresAt: Date.now() + 3_600_000,
+      };
+      const server = new BridgeServer(mockHost, 0, true, undefined, () => ({ lease, projectId, workspaceId }), registry);
+      try {
+        const port = await server.start();
+        const queueDir = (server as unknown as { pairingQueueDir: string }).pairingQueueDir;
+        for (const file of fs.readdirSync(queueDir)) {
+          fs.unlinkSync(path.join(queueDir, file));
+        }
+        // Simulate the queue file a previous, now-dead instance left behind: the file
+        // is valid and unexpired, but its code is absent from this instance's store.
+        const orphanCode = crypto.randomBytes(16).toString('hex');
+        const challengeId = 'challenge-orphaned-instance';
+        fs.writeFileSync(
+          path.join(queueDir, `${challengeId}.json`),
+          JSON.stringify({
+            challengeId,
+            code: orphanCode,
+            clientClass: 'mcp',
+            expiresAt: Date.now() + 600_000,
+            port,
+            host: '127.0.0.1',
+          })
+        );
+
+        const claim = await fetch(`http://127.0.0.1:${port}/api/pairing/challenge`, { method: 'POST' });
+        const claimBody = (await claim.json()) as { code?: string };
+        assert.strictEqual(claimBody.code, orphanCode, 'the orphaned file code must be handed out');
+
+        const exchange = await fetch(`http://127.0.0.1:${port}/api/pairing/exchange`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ code: orphanCode, clientClass: 'mcp' }),
+        });
+        const exchangeBodyText = await exchange.text();
+        assert.strictEqual(exchange.status, 200, `an orphaned but unexpired code must still exchange: ${exchangeBodyText}`);
+        const exchangeBody = JSON.parse(exchangeBodyText) as { success?: boolean; attachmentId?: string };
+        assert.strictEqual(exchangeBody.success, true);
+        assert.ok(exchangeBody.attachmentId, 'exchange must mint an attachment for the adopted code');
+      } finally {
+        server.dispose();
+      }
+    });
+  });
+
+  it('dispose removes only discovery metadata owned by the current process', async () => {
+    await withIsolatedRoots(async ({ configDir }) => {
+      const mockHost = new MockTabHost() as unknown as NativeTabHost;
+      const discoveryPath = path.join(configDir, 'bridge.json');
+      fs.writeFileSync(
+        discoveryPath,
+        JSON.stringify({ port: 20129, pid: process.pid + 1, host: '127.0.0.1' }),
+        'utf8'
+      );
+      new BridgeServer(mockHost, 20129, false).dispose();
+      assert.strictEqual(
+        fs.existsSync(discoveryPath),
+        true,
+        'must not delete discovery metadata written by another process'
+      );
+
+      fs.writeFileSync(
+        discoveryPath,
+        JSON.stringify({ port: 20129, pid: process.pid, host: '127.0.0.1' }),
+        'utf8'
+      );
+      new BridgeServer(mockHost, 20129, false).dispose();
+      assert.strictEqual(
+        fs.existsSync(discoveryPath),
+        false,
+        'must delete its own discovery metadata'
+      );
+    });
   });
 });

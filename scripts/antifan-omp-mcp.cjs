@@ -353,7 +353,7 @@ function httpJsonPost(host, port, requestPath, payload) {
         }
       });
     });
-    req.setTimeout(3000, () => {
+    req.setTimeout(15000, () => {
       req.destroy(new Error('Pairing request timeout'));
     });
     req.on('error', (err) => {
@@ -414,7 +414,7 @@ async function autohealSession() {
             try { ws.close(); } catch {}
             reject(new Error('Autoheal WebSocket timeout'));
           }
-        }, 3000);
+        }, 15000);
 
         ws.once('open', () => {
           if (!settled) {
