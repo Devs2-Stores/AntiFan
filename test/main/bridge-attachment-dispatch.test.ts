@@ -1046,4 +1046,87 @@ describe('BridgeServer Attachment Authentication & Scoped Dispatch', () => {
       'renewAttachment must reject an active-state record past expiresAt'
     );
   });
+  it('master-token socket that is attachment-unbound cannot execute capabilities (Phase 3 cutover)', async () => {
+    const mockHost = new MockTabHost() as unknown as NativeTabHost;
+    const runId = 'run-master111-2222-3333-4444-555566667777';
+    const attemptId = 'attempt-master1111-2222-3333-4444-555566667777';
+    const projectId = 'project-master1111-2222-3333-4444-555566667777';
+    const workspaceId = 'workspace-master1111-2222-3333-4444-555566667777';
+    const runtimeId = 'binding-master1111-2222-3333-4444-555566667777';
+    const lease = {
+      runtimeId,
+      projectId,
+      workspaceId,
+      token: 'master-lease-token',
+      protocolVersion: 1,
+      hostEpoch: 1,
+      ownerPid: process.pid,
+      issuedAt: Date.now(),
+      expiresAt: Date.now() + 60_000,
+    };
+    const catalogue = new CapabilityCatalogue({
+      runtime: { mode: 'standalone', lifecycle: 'active' },
+      projectId,
+      workspaceId,
+      runtimeId,
+      hostEpoch: 1,
+      getActiveLease: () => lease as any,
+    });
+    const registry = new AttachmentRegistry({ getHostEpoch: () => 1 });
+    const transport = new CapabilityTransportAdapter(catalogue, registry);
+    const server = new BridgeServer(mockHost, 0, false, transport, undefined, registry);
+    const port = await server.start();
+    const masterToken = server.getToken();
+
+    // Connect with the MASTER bridge token (no attachment secret, unbound socket).
+    const ws = new WebSocket(`ws://127.0.0.1:${port}`, {
+      headers: { Authorization: `Bearer ${masterToken}` },
+    });
+    try {
+      await new Promise<void>((resolve, reject) => {
+        ws.on('open', resolve);
+        ws.on('error', reject);
+      });
+      const sendRpc = (id: string, method: string, params: Record<string, unknown>) => {
+        return new Promise<{ success: boolean; data?: unknown; error?: string }>((resolve) => {
+          const handler = (raw: Buffer | string) => {
+            const resp = JSON.parse(raw.toString()) as { id: string; success: boolean; data?: unknown; error?: string };
+            if (resp.id === id) {
+              ws.off('message', handler);
+              resolve(resp);
+            }
+          };
+          ws.on('message', handler);
+          ws.send(JSON.stringify({ id, method, params }));
+        });
+      };
+
+      // Master socket WITHOUT attachment claims must fail capability dispatch.
+      const unbound = await sendRpc('req-master-1', 'antifan.capability.dispatch', {
+        name: 'browser.dom',
+        params: {},
+        idempotencyKey: 'idem-master-unbound-1',
+      });
+      assert.strictEqual(unbound.success, false, 'Master-unbound socket must not execute capabilities');
+      const errText = `${unbound.error || ''} ${JSON.stringify(unbound.data || '')}`;
+      assert.ok(
+        /INVALID_ARGUMENT|ATTACHMENT|MCP_CONTEXT_REQUIRED/i.test(errText),
+        `Capsule must fail closed without attachment claims, got: ${errText}`
+      );
+
+      // A forge of MASTER credentials with a WRONG attachment secret must not dispatch either.
+      const forged = await sendRpc('req-master-2', 'antifan.capability.dispatch', {
+        name: 'browser.dom',
+        params: {},
+        attachmentId: 'attachment-forged-notreal',
+        attachmentSecret: 'wrong-secret',
+        authorityRevision: 'rev-forged',
+        idempotencyKey: 'idem-master-forged-2',
+      });
+      assert.strictEqual(forged.success, false, 'Forged attachment claims must be rejected');
+    } finally {
+      ws.close();
+      server.dispose();
+    }
+  });
 });
