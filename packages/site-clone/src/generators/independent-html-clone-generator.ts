@@ -1,7 +1,7 @@
 /**
  * Generator: Independent HTML Clone Generator
  * Stitches authentic live rawHtml sections into a standalone, offline-renderable HTML bundle
- * with localized assets, representative data caps (12 products / 6 articles), and zero remote hotlinks.
+ * with localized assets, full source cardinality by default, and zero remote hotlinks.
  */
 
 import * as fs from 'node:fs';
@@ -38,9 +38,10 @@ export class IndependentHtmlCloneGenerator {
     const filesWritten: string[] = [];
 
     try {
-      // 1. Enforce Representative Content Bounds on Metadata
-      const maxProducts = options.maxProducts ?? 12;
-      const maxArticles = options.maxArticles ?? 6;
+      // 1. Full-fidelity defaults: no artificial content caps unless the caller
+      // explicitly asks for a bounded sample.
+      const maxProducts = options.maxProducts ?? Number.POSITIVE_INFINITY;
+      const maxArticles = options.maxArticles ?? Number.POSITIVE_INFINITY;
 
       const products = (ir.normalizedData?.products || []).slice(0, maxProducts);
       const articles = (ir.normalizedData?.articles || []).slice(0, maxArticles);
@@ -48,7 +49,9 @@ export class IndependentHtmlCloneGenerator {
       // 2. Extract and prune rawHtml sections to enforce global card cardinality bounds
       let remainingProducts = maxProducts;
       let remainingArticles = maxArticles;
-      const sectionHtmls: string[] = [];
+      const headerHtmls: string[] = [];
+      const mainHtmls: string[] = [];
+      const footerHtmls: string[] = [];
       for (const sec of ir.sections) {
         let contentHtml = '';
         if (sec.rawHtml && sec.rawHtml.trim().length > 0) {
@@ -74,7 +77,10 @@ export class IndependentHtmlCloneGenerator {
         }
 
         if (contentHtml) {
-          sectionHtmls.push(`<!-- Section: ${sec.id} (${sec.archetype}) -->\n${contentHtml}`);
+          const entry = `<!-- Section: ${sec.id} (${sec.archetype}) -->\n${contentHtml}`;
+          if (sec.archetype === 'header') headerHtmls.push(entry);
+          else if (sec.archetype === 'footer') footerHtmls.push(entry);
+          else mainHtmls.push(entry);
         }
       }
 
@@ -101,9 +107,11 @@ export class IndependentHtmlCloneGenerator {
   </style>
 ${stylesheetTags ? stylesheetTags + '\n' : ''}</head>
 <body>
-  <div id="antifan-storefront-root">
-    ${sectionHtmls.join('\n\n    ')}
-  </div>
+${headerHtmls.join('\n')}
+<main>
+${mainHtmls.join('\n')}
+</main>
+${footerHtmls.join('\n')}
 ${javascriptTags ? javascriptTags + '\n' : ''}</body>
 </html>`;
 

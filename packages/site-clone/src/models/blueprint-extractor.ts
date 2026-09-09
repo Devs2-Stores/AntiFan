@@ -47,62 +47,117 @@ export interface ExtractedSectionBlueprint {
 export class BlueprintExtractor {
   private usedIds = new Set<string>();
 
+  /** Elements that never contribute renderable storefront structure. */
+  private static readonly NON_STRUCTURAL_TAGS: Record<string, true> = {
+    script: true, style: true, link: true, meta: true, noscript: true, template: true, iframe: true, base: true
+  };
+
   public extractSections(html: string): ExtractedSectionBlueprint[] {
     this.usedIds.clear();
     const sections: ExtractedSectionBlueprint[] = [];
     const root = DomTreeParser.parse(html);
 
-    // 1. Extract <header>
-    const headerNodes = DomTreeParser.findByTag(root, 'header');
-    if (headerNodes.length > 0) {
-      const hNode = headerNodes[0];
-      const rawClass = hNode.attributes['class'] || 'site-header';
-      const rawId = hNode.attributes['id'] || 'site_header';
-      const cleanId = this.sanitizeAndDedupeId(rawId, 'header');
-      const cleanClass = this.sanitizeClassName(rawClass);
+    // Walk the document's top-level structural blocks in document order.
+    // Pure layout containers (<main>, app root wrappers) are descended into so
+    // the generator can rebuild their semantics instead of flattening the whole
+    // page into one opaque block. Tag whitelists are deliberately avoided:
+    // real storefronts use <div class="site-footer">, <main>, <aside>, etc.
+    const body = DomTreeParser.findByTag(root, 'body')[0] || root;
+    const blocks: ParsedElementNode[] = [];
+    // Nested sections stay first-class blueprints (existing contract); they are
+    // emitted in document order after their ancestor.
+    const collectNestedSections = (node: ParsedElementNode): void => {
+      for (const child of node.children) {
+        if (typeof child === 'string') continue;
+        if (child.tag === 'section') {
+          blocks.push(child);
+          collectNestedSections(child);
+        } else if (DomTreeParser.findByTag(child, 'section').length > 0) {
+          collectNestedSections(child);
+        }
+      }
+    };
+    const collect = (node: ParsedElementNode): void => {
+      for (const child of node.children) {
+        if (typeof child === 'string') continue;
+        if (BlueprintExtractor.NON_STRUCTURAL_TAGS[child.tag]) continue;
+        if (child.tag === 'section') {
+          blocks.push(child);
+          collectNestedSections(child);
+          continue;
+        }
+        if (this.isLayoutContainer(child)) {
+          collect(child);
+          continue;
+        }
+        blocks.push(child);
+      }
+    };
+    collect(body);
 
-      sections.push({
-        id: cleanId,
-        type: 'header',
-        name: 'Site Header',
-        tagName: 'header',
-        className: cleanClass,
-        rawHtml: hNode.outerHtml,
-        liquidTemplate: this.generateHeaderLiquid(),
-        schemaSettings: [
-          { type: 'image_picker', id: 'logo', label: 'Logo Image' },
-          { type: 'text', id: 'logo_url', label: 'External Logo URL' },
-          { type: 'link_list', id: 'main_menu', label: 'Main Navigation Menu' },
-          { type: 'text', id: 'hotline', label: 'Support Hotline', default: '' }
-        ],
-        blockDefinitions: [],
-        blockInstances: []
-      });
-    }
-
-    // 2. Extract all <section> elements (including nested sections)
-    const sectionNodes = DomTreeParser.findByTag(root, 'section');
     let secIndex = 1;
-
-    for (const secNode of sectionNodes) {
-      const rawClass = secNode.attributes['class'] || `section-${secIndex}`;
-      const cleanClass = this.sanitizeClassName(rawClass);
-      const rawId = secNode.attributes['id'] || `section_${cleanClass}_${secIndex}`;
+    for (const node of blocks) {
+      const rawClass = node.attributes['class'] || '';
+      const cleanClass = this.sanitizeClassName(rawClass) || `section-${secIndex}`;
+      const rawId = node.attributes['id'] || `section_${cleanClass.replace(/\s+/g, '_')}_${secIndex}`;
       const cleanId = this.sanitizeAndDedupeId(rawId, `section_${secIndex}`);
+      const role = this.classifyTopLevelRole(node, rawClass);
 
-      const headingText = this.extractHeadingFromNode(secNode);
-      const sectionType = this.classifySectionType(cleanClass, secNode);
+      if (role === 'header') {
+        sections.push({
+          id: cleanId,
+          type: 'header',
+          name: 'Site Header',
+          tagName: node.tag,
+          className: cleanClass,
+          rawHtml: node.outerHtml,
+          liquidTemplate: this.generateHeaderLiquid(),
+          schemaSettings: [
+            { type: 'image_picker', id: 'logo', label: 'Logo Image' },
+            { type: 'text', id: 'logo_url', label: 'External Logo URL' },
+            { type: 'link_list', id: 'main_menu', label: 'Main Navigation Menu' },
+            { type: 'text', id: 'hotline', label: 'Support Hotline', default: '' }
+          ],
+          blockDefinitions: [],
+          blockInstances: []
+        });
+        continue;
+      }
+
+      if (role === 'footer') {
+        sections.push({
+          id: cleanId,
+          type: 'footer',
+          name: 'Site Footer',
+          tagName: node.tag,
+          className: cleanClass,
+          rawHtml: node.outerHtml,
+          liquidTemplate: this.generateFooterLiquid(),
+          schemaSettings: [
+            { type: 'text', id: 'company_name', label: 'Company Name', default: 'Cửa hàng trực tuyến' },
+            { type: 'textarea', id: 'address', label: 'Company Address' },
+            { type: 'text', id: 'phone', label: 'Phone Number', default: '' },
+            { type: 'text', id: 'email', label: 'Support Email', default: '' }
+          ],
+          blockDefinitions: [],
+          blockInstances: []
+        });
+        continue;
+      }
+
+      const headingText = this.extractHeadingFromNode(node);
+      const sectionType = this.classifySectionType(cleanClass, node);
       const blueprintName = headingText || this.formatSectionName(cleanClass);
-      const { blockDefinitions, blockInstances } = this.extractBlocksFromNode(sectionType, secNode);
+      const { blockDefinitions, blockInstances } = this.extractBlocksFromNode(sectionType, node);
 
       sections.push({
         id: cleanId,
         type: sectionType,
         name: blueprintName,
-        tagName: 'section',
+        tagName: node.tag,
         className: cleanClass,
         heading: headingText,
-        rawHtml: secNode.outerHtml,
+        rawHtml: node.outerHtml,
         liquidTemplate: this.generateSectionLiquid(sectionType, cleanClass, headingText),
         schemaSettings: this.deriveSchemaSettings(sectionType, headingText),
         blockDefinitions,
@@ -112,35 +167,26 @@ export class BlueprintExtractor {
       secIndex++;
     }
 
-    // 3. Extract <footer>
-    const footerNodes = DomTreeParser.findByTag(root, 'footer');
-    if (footerNodes.length > 0) {
-      const fNode = footerNodes[0];
-      const rawClass = fNode.attributes['class'] || 'site-footer';
-      const rawId = fNode.attributes['id'] || 'site_footer';
-      const cleanId = this.sanitizeAndDedupeId(rawId, 'footer');
-      const cleanClass = this.sanitizeClassName(rawClass);
-
-      sections.push({
-        id: cleanId,
-        type: 'footer',
-        name: 'Site Footer',
-        tagName: 'footer',
-        className: cleanClass,
-        rawHtml: fNode.outerHtml,
-        liquidTemplate: this.generateFooterLiquid(),
-        schemaSettings: [
-          { type: 'text', id: 'company_name', label: 'Company Name', default: 'Cửa hàng trực tuyến' },
-          { type: 'textarea', id: 'address', label: 'Company Address' },
-          { type: 'text', id: 'phone', label: 'Phone Number', default: '' },
-          { type: 'text', id: 'email', label: 'Support Email', default: '' }
-        ],
-        blockDefinitions: [],
-        blockInstances: []
-      });
-    }
-
     return sections;
+  }
+
+  /**
+   * A layout container carries no storefront content of its own: it only
+   * positions the structural blocks inside it. Descending keeps the source's
+   * semantic wrappers while avoiding one opaque mega-block.
+   */
+  private isLayoutContainer(node: ParsedElementNode): boolean {
+    if (node.tag === 'main' || node.tag === 'body') return true;
+    if (node.tag !== 'div') return false;
+    if (DomTreeParser.findByTag(node, 'section').length === 0) return false;
+    if (node.children.some((child) => typeof child === 'string' && child.trim().length > 0)) return false;
+    return !/(^|\s)(?:site-)?(?:header|footer)($|\s)/i.test(node.attributes['class'] || '');
+  }
+
+  private classifyTopLevelRole(node: ParsedElementNode, className: string): 'header' | 'footer' | null {
+    if (node.tag === 'header' || /(^|\s)(?:site-)?header($|\s)/i.test(className)) return 'header';
+    if (node.tag === 'footer' || /(^|\s)(?:site-)?(?:header|footer)($|\s)/i.test(className)) return 'footer';
+    return null;
   }
 
   /**

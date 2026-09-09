@@ -150,4 +150,37 @@ describe('BlueprintExtractor - AST DOM Parsing & Safety Invariants', () => {
     assert.strictEqual(accSec.type, 'accessory-showcase');
     assert.strictEqual(partSec.type, 'partner-carousel');
   });
+
+  it('8. Walks top-level document order: layout containers are descended, class-based footers and non-section blocks are kept', () => {
+    const html = `
+      <body>
+        <header class="site-header"><h1>Header</h1></header>
+        <main>
+          <div class="page-wrapper">
+            <h1 class="home-title">Storefront Title</h1>
+            <section class="slide"><h2>Hero</h2></section>
+            <div class="grid-wrapper"><section class="block-category"><h3>Products</h3></section></div>
+          </div>
+        </main>
+        <div class="site-footer w-100"><p>Footer content</p></div>
+        <div class="notice-cart"><p>Cart drawer</p></div>
+      </body>`;
+
+    const sections = extractor.extractSections(html);
+
+    assert.deepStrictEqual(
+      sections.map((s) => `${s.type}:${s.className}`),
+      [
+        'header:site-header',
+        'custom-content:home-title',
+        'hero-slider:slide',
+        'featured-products:block-category',
+        'footer:site-footer w-100',
+        'custom-content:notice-cart'
+      ],
+      'Must keep every top-level block in document order, including the class-based footer'
+    );
+    assert.ok(sections[4].rawHtml.includes('Footer content'), 'Class-based footer markup must be preserved');
+    assert.ok(!sections.some((s) => s.tagName === 'main'), 'Layout containers must not become opaque blocks');
+  });
 });

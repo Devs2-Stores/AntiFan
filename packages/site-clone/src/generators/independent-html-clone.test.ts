@@ -300,4 +300,50 @@ describe('IndependentHtmlCloneGenerator - Standalone Bundle & Cardinality Bounds
     const renderedCards = generatedHtml.match(/class=["'][^"']*product-list__item[^"']*["']/g) || [];
     assert.strictEqual(renderedCards.length, 10, 'Total rendered product cards across all sections must be exactly 10');
   });
+
+  it('defaults to full source cardinality and emits header/main/footer in semantic body order', async () => {
+    const cards = Array.from({ length: 20 }, (_, i) => `<div class="product-item col-3"><h3>Product ${i + 1}</h3></div>`).join('');
+    const ir: ComponentContractIR = {
+      version: '1.2.0',
+      metadata: { sourceUrl: 'https://example.com', extractedAt: new Date().toISOString() },
+      layout: {
+        containerMaxWidth: 1200,
+        containerPaddingPx: 15,
+        gridGapPx: 20,
+        breakpoints: { mobileMax: 767, tabletMin: 768, tabletMax: 1024, desktopMin: 1025 }
+      },
+      storefrontRuntime: { controllers: [] },
+      themeSettings: [],
+      sections: [
+        { id: 'site_header', name: 'Header', archetype: 'header', layoutType: 'column', settings: {}, blocks: [], rawHtml: '<header class="site-header">H</header>' },
+        { id: 'grid_section', name: 'Grid', archetype: 'product_grid', layoutType: 'grid', settings: {}, blocks: [], rawHtml: `<section class="product-grid-wrap">${cards}</section>` },
+        { id: 'site_footer', name: 'Footer', archetype: 'footer', layoutType: 'column', settings: {}, blocks: [], rawHtml: '<div class="site-footer w-100">F</div>' }
+      ],
+      components: [],
+      normalizedData: {
+        products: Array.from({ length: 20 }, (_, i) => ({
+          id: `prod_${i + 1}`, title: `Product ${i + 1}`, handle: `product-${i + 1}`, vendor: 'Test Vendor', price: (i + 1) * 1000, url: `/products/product-${i + 1}`
+        })),
+        articles: []
+      },
+      assets: { stylesheets: [], javascripts: [], images: [], fonts: [], totalBytes: 0 }
+    };
+
+    const generator = new IndependentHtmlCloneGenerator();
+    const outDir = path.join(tempDir, 'html_clone_defaults');
+    const res = await generator.generateCloneBundle(ir, { outputDir: outDir, skipDownload: true });
+
+    assert.strictEqual(res.success, true);
+    assert.strictEqual(res.productCount, 20, 'Uncapped run must report every source product');
+    const html = fs.readFileSync(path.join(outDir, 'index.html'), 'utf-8');
+    assert.strictEqual((html.match(/class="product-item/g) || []).length, 20, 'Uncapped run must retain every source card');
+
+    const headerAt = html.indexOf('<header class="site-header">');
+    const mainAt = html.indexOf('<main>');
+    const footerAt = html.indexOf('<div class="site-footer w-100">');
+    assert.ok(headerAt > -1 && mainAt > -1 && footerAt > -1, 'Header, main and footer must all be present');
+    assert.ok(headerAt < mainAt && mainAt < footerAt, 'Body order must be header -> main -> footer');
+    const mainHtml = html.slice(mainAt, html.indexOf('</main>') + 7);
+    assert.ok(!mainHtml.includes('site-footer'), 'Footer must not be nested inside main');
+  });
 });
