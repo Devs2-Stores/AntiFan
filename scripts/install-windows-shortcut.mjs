@@ -60,12 +60,17 @@ $Shortcut.Save()
   }
 }
 
+// `--allow-eval` grants agent write/eval for user-launched instances. Every launch
+// entrypoint (desktop, start menu, root VBS) carries it; omitting it silently
+// downgrades agent sessions to read-only.
+const launchArgs = `"${ROOT}" --allow-eval`;
+
 // 1. Create Desktop Shortcut
 const desktopShortcut = path.join(desktopDir, 'AntiFan Browser.lnk');
 createWindowsShortcut(
   desktopShortcut,
   electronExe,
-  `"${ROOT}"`,
+  launchArgs,
   ROOT,
   iconIco,
   'AntiFan Browser Desktop'
@@ -77,7 +82,7 @@ if (fs.existsSync(startMenuDir)) {
   createWindowsShortcut(
     startMenuShortcut,
     electronExe,
-    `"${ROOT}"`,
+    launchArgs,
     ROOT,
     iconIco,
     'AntiFan Browser Desktop'
