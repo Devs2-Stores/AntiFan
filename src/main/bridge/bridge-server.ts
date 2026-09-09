@@ -1289,8 +1289,8 @@ export class BridgeServer {
               skippedCount,
               failedCount,
               totalReceived: rawCookies.length,
-              targetTabId: resolvedTargetTabId ?? (data.tabId || this.tabHost.getActiveTab()?.id || null),
-              targetPartition: requestedPartition || (resolvedTargetTabId ? `tab:${resolvedTargetTabId}` : 'activeTab'),
+              targetTabId: resolvedTargetTabId ?? (data.tabId || 'unspecified'),
+              targetPartition: requestedPartition || (resolvedTargetTabId ? `tab:${resolvedTargetTabId}` : 'unspecified'),
             }));
           } catch (err: unknown) {
             res.writeHead(400, responseHeaders);
