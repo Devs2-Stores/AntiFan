@@ -1,7 +1,7 @@
 ---
 title: "Explicit Authority & Dual-Plane Corrective Cutover"
 description: "Clean cutover from ambient active-tab/global ownership to attachment-scoped browser, terminal, MCP, persistence, and security authority."
-status: pending
+status: completed
 priority: P0
 effort: "6-9d implementation + Windows runtime certification"
 tags: [core, authority, dual-plane, terminal, mcp, security, windows]

@@ -806,6 +806,12 @@ export class TerminalManager extends EventEmitter {
     }
     const ptyInstance = s.pty;
     const pid = ptyInstance?.pid;
+    // A pty write issued in the current event-loop turn is still queued on the
+    // libuv loop. Tearing the pty down before that write flushes leaves a
+    // half-written handle behind and deadlocks process shutdown on Windows
+    // (verified: write+close in one turn hangs app.exit/app.quit; one macrotask
+    // of separation does not). Yield a single loop turn before killing.
+    await new Promise<void>((resolve) => setImmediate(resolve));
     if (ptyInstance) {
       try {
         if (typeof (ptyInstance as any).removeAllListeners === 'function') {

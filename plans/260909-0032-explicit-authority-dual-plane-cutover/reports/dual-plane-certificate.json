@@ -1,15 +1,15 @@
 {
   "plan": "260909-0032-explicit-authority-dual-plane-cutover",
   "verdict": "VERIFIED_COMPLETE",
-  "startedAt": "2026-09-09T07:01:41.852Z",
-  "finishedAt": "2026-09-09T07:02:40.318Z",
+  "startedAt": "2026-09-09T08:23:22.120Z",
+  "finishedAt": "2026-09-09T08:35:04.155Z",
   "gates": [
     {
       "gate": "compile",
       "command": "npm run compile",
       "passed": true,
       "exitCode": 0,
-      "durationMs": 34606,
+      "durationMs": 19745,
       "evidenceFile": null
     },
     {
@@ -17,7 +17,7 @@
       "command": "npm run typecheck",
       "passed": true,
       "exitCode": 0,
-      "durationMs": 23807,
+      "durationMs": 15845,
       "evidenceFile": null
     },
     {
@@ -32,6 +32,160 @@
       "gate": "static-absence-result",
       "passed": true,
       "exitCode": 0
+    },
+    {
+      "gate": "focused-suites",
+      "passed": true,
+      "exitCode": 0,
+      "suites": [
+        {
+          "suite": "test/main/terminal-canonical-ownership.test.js",
+          "passed": true,
+          "exitCode": 0,
+          "durationMs": 857,
+          "summary": "ℹ tests 4 | ℹ pass 4 | ℹ fail 0"
+        },
+        {
+          "suite": "test/main/per-tab-terminal-session.test.js",
+          "passed": true,
+          "exitCode": 0,
+          "durationMs": 517,
+          "summary": "ℹ tests 10 | ℹ pass 10 | ℹ fail 0"
+        },
+        {
+          "suite": "test/main/terminal-stream-invariants.test.js",
+          "passed": true,
+          "exitCode": 0,
+          "durationMs": 294,
+          "summary": "ℹ tests 4 | ℹ pass 4 | ℹ fail 0"
+        },
+        {
+          "suite": "test/main/bridge-attachment-dispatch.test.js",
+          "passed": true,
+          "exitCode": 0,
+          "durationMs": 59580,
+          "summary": "ℹ tests 8 | ℹ pass 8 | ℹ fail 0"
+        },
+        {
+          "suite": "test/main/native-tab-host-agent-lifecycle.test.js",
+          "passed": true,
+          "exitCode": 0,
+          "durationMs": 352,
+          "summary": "ℹ tests 9 | ℹ pass 9 | ℹ fail 0"
+        },
+        {
+          "suite": "test/main/phase-02-controlled-inputs.test.js",
+          "passed": true,
+          "exitCode": 0,
+          "durationMs": 311,
+          "summary": "ℹ tests 9 | ℹ pass 9 | ℹ fail 0"
+        },
+        {
+          "suite": "test/main/omp-mcp-adapter.test.js",
+          "passed": true,
+          "exitCode": 0,
+          "durationMs": 4166,
+          "summary": "ℹ tests 9 | ℹ pass 9 | ℹ fail 0"
+        },
+        {
+          "suite": "test/main/mcp-persistent-transport.test.js",
+          "passed": true,
+          "exitCode": 0,
+          "durationMs": 6010,
+          "summary": "ℹ tests 3 | ℹ pass 3 | ℹ fail 0"
+        },
+        {
+          "suite": "test/main/bridge-server.test.js",
+          "passed": true,
+          "exitCode": 0,
+          "durationMs": 314857,
+          "summary": "ℹ tests 21 | ℹ pass 21 | ℹ fail 0"
+        },
+        {
+          "suite": "test/main/windows-acl.test.js",
+          "passed": true,
+          "exitCode": 0,
+          "durationMs": 11582,
+          "summary": "ℹ tests 10 | ℹ pass 10 | ℹ fail 0"
+        },
+        {
+          "suite": "test/main/bridge-cookie-import-endpoint-removed.test.js",
+          "passed": true,
+          "exitCode": 0,
+          "durationMs": 101963,
+          "summary": "ℹ tests 8 | ℹ pass 8 | ℹ fail 0"
+        },
+        {
+          "suite": "test/main/local-session-vault.test.js",
+          "passed": true,
+          "exitCode": 0,
+          "durationMs": 401,
+          "summary": "ℹ tests 6 | ℹ pass 6 | ℹ fail 0"
+        },
+        {
+          "suite": "test/main/split-review-tabhost.test.js",
+          "passed": true,
+          "exitCode": 0,
+          "durationMs": 2983,
+          "summary": "ℹ tests 29 | ℹ pass 29 | ℹ fail 0"
+        },
+        {
+          "suite": "test/main/security-policy.test.js",
+          "passed": true,
+          "exitCode": 0,
+          "durationMs": 432,
+          "summary": "ℹ tests 7 | ℹ pass 7 | ℹ fail 0"
+        }
+      ]
+    },
+    {
+      "gate": "live-scenarios",
+      "passed": true,
+      "exitCode": 0,
+      "scenarios": [
+        {
+          "name": "dual-plane-multitasking",
+          "description": "user sentinel + background agent tab decoupling (RT-01/02/03)",
+          "passed": true,
+          "exitCode": 0,
+          "durationMs": 39961
+        },
+        {
+          "name": "split-review",
+          "description": "split mobile view, inspect, security scheme guard",
+          "passed": true,
+          "exitCode": 0,
+          "durationMs": 45243
+        },
+        {
+          "name": "vault",
+          "description": "credential vault live surface",
+          "passed": true,
+          "exitCode": 0,
+          "durationMs": 27434
+        },
+        {
+          "name": "mcp-industrial-e2e",
+          "description": "MCP proxy + bridge sessions + capability dispatch (live Electron)",
+          "passed": true,
+          "exitCode": 0,
+          "durationMs": 21742
+        },
+        {
+          "name": "dual-plane-two-attachments",
+          "description": "two attachment-scoped targets: per-target isolation, sentinel invariance, revocation isolation (live Electron)",
+          "passed": true,
+          "exitCode": 0,
+          "durationMs": 8538
+        },
+        {
+          "name": "dual-plane-restart-recovery",
+          "description": "simulated proxy crash + fresh-process GUI restart: zero leaked tabs, clean profile lock, exact user-tab restore",
+          "passed": true,
+          "exitCode": 0,
+          "durationMs": 19187
+        }
+      ]
     }
   ]
 }

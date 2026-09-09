@@ -949,7 +949,11 @@ export class BrowserControlPort {
       // tab before capture and restore the prior active tab afterwards so the
       // screenshot reflects the requested tab, not the foreground one.
       const originalActiveTabId = this.host.getActiveTabId ? this.host.getActiveTabId() : tabId;
-      const switchTabForCapture = this.host.switchTab;
+      // Bind the host: class methods are prototype functions, so a detached
+      // reference would lose `this` and crash on the first internal field read.
+      const switchTabForCapture = typeof this.host.switchTab === 'function'
+        ? this.host.switchTab.bind(this.host)
+        : undefined;
       const isOffscreenTarget = this.host.isTabOffscreen ? this.host.isTabOffscreen(tabId) : false;
       if (typeof switchTabForCapture === 'function' && !isOffscreenTarget && this.host.getActiveTabId && this.host.getActiveTabId() !== tabId) {
         switchTabForCapture(tabId);

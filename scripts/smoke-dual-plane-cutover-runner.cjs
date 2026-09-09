@@ -207,12 +207,11 @@ async function runFocusedSuites() {
   const results = [];
   for (const suite of FOCUSED_SUITES) {
     const started = Date.now();
-    // --test-force-exit: node-pty's conpty worker MessagePort keeps the event loop
-    // alive on Windows after a PTY session is closed; assertions have already run
-    // by the time the runner finishes, so exiting must not wait on that native handle.
+    console.log(`[certify:dual-plane] Running suite: ${suite}`);
     const result = await run(process.execPath, ['--test', '--test-force-exit', suite], { verbose: false });
     const passed = result.code === 0;
     const summary = (result.stdout.match(/^ℹ (tests|pass|fail) \d+$/gm) || []).join(' | ');
+    console.log(`[certify:dual-plane] Suite ${suite} finished in ${Date.now() - started}ms (passed=${passed})`);
     results.push({
       suite: suite.replace('.compiled/', '').replace(/\\/g, '/'),
       passed,
@@ -233,23 +232,26 @@ const LIVE_SCENARIOS = [
   { name: 'split-review', script: 'smoke:split', description: 'split mobile view, inspect, security scheme guard' },
   { name: 'vault', script: 'smoke:vault', description: 'credential vault live surface' },
   { name: 'mcp-industrial-e2e', script: 'run-electron:smoke-mcp-industrial-e2e', description: 'MCP proxy + bridge sessions + capability dispatch (live Electron)' },
+  { name: 'dual-plane-two-attachments', script: 'run-electron:smoke-dual-plane-two-attachments', description: 'two attachment-scoped targets: per-target isolation, sentinel invariance, revocation isolation (live Electron)' },
+  { name: 'dual-plane-restart-recovery', script: 'run-electron:smoke-dual-plane-restart-recovery', description: 'simulated proxy crash + fresh-process GUI restart: zero leaked tabs, clean profile lock, exact user-tab restore' },
 ];
 
 async function runLiveScenarios() {
   const results = [];
   for (const scenario of LIVE_SCENARIOS) {
     const started = Date.now();
+    console.log(`[certify:dual-plane] Running live scenario: ${scenario.name}`);
     let result;
     if (scenario.script.startsWith('run-electron:')) {
       const scriptName = scenario.script.slice('run-electron:'.length);
       result = await run(process.execPath, [path.join(rootDir, 'scripts', 'run-electron.cjs'), path.join(rootDir, 'scripts', `${scriptName}.cjs`)], { verbose: false });
     } else if (scenario.script.startsWith('smoke-')) {
-      // Direct node scripts (no Electron GUI needed).
       result = await run(process.execPath, [path.join(rootDir, 'scripts', `${scenario.script}.cjs`)], { verbose: false });
     } else {
       result = await run(npmCmd, ['run', scenario.script], { verbose: false });
     }
     const passed = result.code === 0;
+    console.log(`[certify:dual-plane] Scenario ${scenario.name} finished in ${Date.now() - started}ms (passed=${passed})`);
     results.push({
       name: scenario.name,
       description: scenario.description,

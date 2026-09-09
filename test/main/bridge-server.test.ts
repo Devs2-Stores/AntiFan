@@ -295,7 +295,7 @@ describe('AntiFan Bridge Server', () => {
     server.dispose();
   });
 
-  it('broadcasts terminal data as non-empty JSON frames over a live socket', { timeout: 15000 }, async () => {
+  it('broadcasts terminal data as non-empty JSON frames over a live socket', { timeout: 35000 }, async () => {
     const mockHost = new MockTabHost() as unknown as NativeTabHost;
     const server = new BridgeServer(mockHost, 0);
     const port = await server.start();

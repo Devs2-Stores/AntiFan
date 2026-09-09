@@ -149,7 +149,7 @@ async function runMultitaskingSmokeTest() {
 
     const runId = makeControlPlaneId('run');
     const attemptId = makeControlPlaneId('attempt');
-    const { launch } = attachmentRegistry.issueAttachment(runId, attemptId, projectId, workspaceId, {
+    const { launch } = await attachmentRegistry.issueAttachment(runId, attemptId, projectId, workspaceId, {
       backendId: 'mcp',
       lease,
       leaseToken: lease.token,

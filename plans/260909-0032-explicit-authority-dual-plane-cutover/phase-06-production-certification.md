@@ -1,7 +1,7 @@
 ---
 phase: 6
 title: "Production Certification"
-status: pending
+status: completed
 priority: P0
 effort: "1d + soak window"
 dependencies: [1, 2, 3, 4, 5]
