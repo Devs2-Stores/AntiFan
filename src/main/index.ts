@@ -24,7 +24,7 @@ import { registerPreviewProtocolHandler } from './server/preview-protocol-handle
 import { StorageLocations } from './config/storage-locations';
 import { WorkspaceCapsuleManager } from './project/workspace-capsule';
 import { NativeTabHost } from './browser/native-tab-host';
-import { BridgeServer, DEFAULT_EXTENSION_ALLOWED_DOMAINS } from './bridge/bridge-server';
+import { BridgeServer, DEFAULT_EXTENSION_ALLOWED_DOMAINS, redactCredentials } from './bridge/bridge-server';
 import { TerminalManager } from './browser/terminal-manager';
 import { buildApplicationMenu } from './browser/app-menu';
 import { WindowStateManager } from './browser/window-state';
@@ -42,11 +42,11 @@ import { recordBenchmark, startEventLoopDelayMonitor, isBenchmarkEnabled } from 
 import type { ActionSequenceParams } from './browser/tab-automation-host';
 
 process.on('uncaughtException', (err) => {
-  console.error('[antifan uncaughtException]', err);
+  console.error('[antifan uncaughtException]', redactCredentials(err?.stack || String(err)));
 });
 
 process.on('unhandledRejection', (reason) => {
-  console.error('[antifan unhandledRejection]', reason);
+  console.error('[antifan unhandledRejection]', redactCredentials(String(reason)));
 });
 
 app.on('render-process-gone', (_event, webContents, details) => {
@@ -474,7 +474,7 @@ app.whenReady().then(async () => {
     }
   });
 }).catch((error) => {
-  console.error('[antifan startup failed]', error);
+  console.error('[antifan startup failed]', redactCredentials(error?.stack || String(error)));
   app.exit(1);
 });
 

@@ -1,3 +1,12 @@
+// TODO(phase4): requires token injection; no longer reads master token from bridge.json
+
+function redactCreds(val) {
+  const str = typeof val === 'string' ? val : (val instanceof Error ? (val.stack || val.message) : String(val ?? ''));
+  return str
+    .replace(/(Bearer\s+)[A-Za-z0-9_\-.~+/=]+/gi, '$1[REDACTED]')
+    .replace(/((?:token|secret|code)=)[^&\s]*/gi, '$1[REDACTED]')
+    .replace(/(["']?(?:token|secret|code)["']?\s*[:=]\s*["'])[^"']+(["'])/gi, '$1[REDACTED]$2');
+}
 /**
  * Packaged Theme Developer Workflow Smoke Test
  * Directly drives the packaged Windows x64 executable via authenticated Bridge RPC:
@@ -128,8 +137,9 @@ async function runThemeDeveloperSmoke() {
       if (fs.existsSync(bridgeJsonPath)) {
         try {
           const raw = JSON.parse(fs.readFileSync(bridgeJsonPath, 'utf8'));
-          if (raw.port && raw.token) {
+          if (raw.port) {
             bridgeInfo = raw;
+            bridgeInfo.token = process.env.ANTIFAN_BRIDGE_TOKEN || '';
             break;
           }
         } catch {}
@@ -137,12 +147,16 @@ async function runThemeDeveloperSmoke() {
     }
 
     assert.ok(bridgeInfo, `Expected bridge.json to be created by running packaged app in ${tempConfigDir}`);
-    log(`Step 2 Passed: Discovered Bridge Server at 127.0.0.1:${bridgeInfo.port} with auth token.`);
+    log(`Step 2 Passed: Discovered Bridge Server at 127.0.0.1:${bridgeInfo.port}.`);
 
     // 3. Connect to Packaged App's Bridge Server via WebSocket
     log('Step 3: Connecting to packaged Bridge WebSocket RPC...');
-    const wsUrl = `ws://127.0.0.1:${bridgeInfo.port}?token=${encodeURIComponent(bridgeInfo.token)}`;
-    wsClient = new WebSocket(wsUrl);
+    const wsUrl = `ws://127.0.0.1:${bridgeInfo.port}`;
+    const wsHeaders = {};
+    if (bridgeInfo.token) {
+      wsHeaders.authorization = `Bearer ${bridgeInfo.token}`;
+    }
+    wsClient = new WebSocket(wsUrl, { headers: wsHeaders });
 
     await new Promise((resolve, reject) => {
       const timer = setTimeout(() => reject(new Error('WebSocket connection timeout')), 5000);
@@ -326,7 +340,7 @@ async function runThemeDeveloperSmoke() {
     await new Promise((r) => setTimeout(r, 200));
     process.exit(0);
   } catch (err) {
-    log('Packaged Theme Developer Smoke Test FAILED:', err.stack || err.message);
+    log('Packaged Theme Developer Smoke Test FAILED:', redactCreds(err.stack || err.message));
     if (wsClient) { try { wsClient.close(); } catch {} }
     if (appChild && !appChild.killed) {
       try { execSync(`taskkill /PID ${appChild.pid} /T /F`, { stdio: 'ignore' }); } catch {}

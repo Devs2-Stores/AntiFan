@@ -1,4 +1,13 @@
 #!/usr/bin/env node
+// TODO(phase4): requires token injection; no longer reads master token from bridge.json
+
+function redactCreds(val) {
+  const str = typeof val === 'string' ? val : (val instanceof Error ? (val.stack || val.message) : String(val ?? ''));
+  return str
+    .replace(/(Bearer\s+)[A-Za-z0-9_\-.~+/=]+/gi, '$1[REDACTED]')
+    .replace(/((?:token|secret|code)=)[^&\s]*/gi, '$1[REDACTED]')
+    .replace(/(["']?(?:token|secret|code)["']?\s*[:=]\s*["'])[^"']+(["'])/gi, '$1[REDACTED]$2');
+}
 /**
  * AntiFan Browser Desktop — 8-Hour Real Multi-Process Runtime Soak Benchmark
  * 
@@ -627,7 +636,10 @@ async function main() {
       if (fs.existsSync(bridgePath)) {
         try {
           bridge = JSON.parse(fs.readFileSync(bridgePath, 'utf8'));
-          if (bridge.port && bridge.token) break;
+          if (bridge.port) {
+            bridge.token = process.env.ANTIFAN_BRIDGE_TOKEN || '';
+            break;
+          }
         } catch {}
       }
       await sleep(250);
@@ -635,8 +647,12 @@ async function main() {
     if (interruptedSignal) throw new Error(`Interrupted by ${interruptedSignal}`);
     if (!bridge) throw new Error('Bridge server failed to initialize.');
     console.log(`[soak] Bridge server connected on port ${bridge.port}`);
+    const wsHeaders = {};
+    if (bridge.token) {
+      wsHeaders.authorization = `Bearer ${bridge.token}`;
+    }
     ws = new WebSocket(`ws://127.0.0.1:${bridge.port}`, {
-      headers: { authorization: `Bearer ${bridge.token}` },
+      headers: wsHeaders,
     });
     await new Promise((resolve, reject) => {
       ws.once('open', resolve);
@@ -925,6 +941,6 @@ async function main() {
 }
 
 main().catch((err) => {
-  console.error('[soak] Fatal error:', err);
+  console.error('[soak] Fatal error:', redactCreds(err));
   process.exitCode = 1;
 });

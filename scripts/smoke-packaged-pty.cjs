@@ -1,3 +1,12 @@
+// TODO(phase4): requires token injection; no longer reads master token from bridge.json
+
+function redactCreds(val) {
+  const str = typeof val === 'string' ? val : (val instanceof Error ? (val.stack || val.message) : String(val ?? ''));
+  return str
+    .replace(/(Bearer\s+)[A-Za-z0-9_\-.~+/=]+/gi, '$1[REDACTED]')
+    .replace(/((?:token|secret|code)=)[^&\s]*/gi, '$1[REDACTED]')
+    .replace(/(["']?(?:token|secret|code)["']?\s*[:=]\s*["'])[^"']+(["'])/gi, '$1[REDACTED]$2');
+}
 const { spawn } = require('node:child_process');
 const path = require('node:path');
 const fs = require('node:fs');
@@ -51,8 +60,9 @@ async function run() {
       if (fs.existsSync(bridgeJsonPath)) {
         try {
           const raw = JSON.parse(fs.readFileSync(bridgeJsonPath, 'utf8'));
-          if (raw.port && raw.token) {
+          if (raw.port) {
             bridgeInfo = raw;
+            bridgeInfo.token = process.env.ANTIFAN_BRIDGE_TOKEN || '';
             break;
           }
         } catch {}
@@ -62,7 +72,11 @@ async function run() {
     assert.ok(bridgeInfo, 'Expected bridge.json to be created by packaged app');
     log(`Bridge discovered on port ${bridgeInfo.port}`);
 
-    ws = new WebSocket(`ws://127.0.0.1:${bridgeInfo.port}?token=${encodeURIComponent(bridgeInfo.token)}`);
+    const wsHeaders = {};
+    if (bridgeInfo.token) {
+      wsHeaders.authorization = `Bearer ${bridgeInfo.token}`;
+    }
+    ws = new WebSocket(`ws://127.0.0.1:${bridgeInfo.port}`, { headers: wsHeaders });
     await new Promise((resolve, reject) => {
       const timer = setTimeout(() => reject(new Error('WebSocket connection timeout')), 5000);
       ws.once('open', () => {
@@ -185,6 +199,6 @@ async function run() {
 }
 
 run().catch((err) => {
-  console.error('[PTY Smoke] FAILED:', err);
+  console.error('[PTY Smoke] FAILED:', redactCreds(err));
   process.exit(1);
 });

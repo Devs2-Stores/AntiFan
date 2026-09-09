@@ -1,3 +1,12 @@
+// TODO(phase4): requires token injection; no longer reads master token from bridge.json
+
+function redactCreds(val) {
+  const str = typeof val === 'string' ? val : (val instanceof Error ? (val.stack || val.message) : String(val ?? ''));
+  return str
+    .replace(/(Bearer\s+)[A-Za-z0-9_\-.~+/=]+/gi, '$1[REDACTED]')
+    .replace(/((?:token|secret|code)=)[^&\s]*/gi, '$1[REDACTED]')
+    .replace(/(["']?(?:token|secret|code)["']?\s*[:=]\s*["'])[^"']+(["'])/gi, '$1[REDACTED]$2');
+}
 /**
  * Packaged Recovery & Profile Persistence Smoke Test
  * 
@@ -58,7 +67,10 @@ async function waitForBridgeJson(configDir, timeoutMs = 15000) {
       try {
         const raw = fs.readFileSync(bridgeFile, 'utf8');
         const data = JSON.parse(raw);
-        if (data.port && data.token) return data;
+        if (data.port) {
+          data.token = process.env.ANTIFAN_BRIDGE_TOKEN || '';
+          return data;
+        }
       } catch {}
     }
     await sleep(200);
@@ -68,7 +80,11 @@ async function waitForBridgeJson(configDir, timeoutMs = 15000) {
 
 function connectBridge(port, token) {
   return new Promise((resolve, reject) => {
-    const ws = new WebSocket(`ws://127.0.0.1:${port}?token=${token}`);
+    const wsHeaders = {};
+    if (token) {
+      wsHeaders.authorization = `Bearer ${token}`;
+    }
+    const ws = new WebSocket(`ws://127.0.0.1:${port}`, { headers: wsHeaders });
     let reqId = 1;
     const pending = new Map();
 
@@ -291,7 +307,7 @@ async function runRecoverySmoke() {
 
     log('ALL PACKAGED RECOVERY & PROFILE PERSISTENCE SMOKE TESTS PASSED SUCCESSFULLY.');
   } catch (err) {
-    log('Packaged Recovery Smoke Test FAILED:', err.stack || err.message);
+    log('Packaged Recovery Smoke Test FAILED:', redactCreds(err.stack || err.message));
     if (monitor1) await monitor1.forceKill();
     if (monitor2) await monitor2.forceKill();
     process.exit(1);

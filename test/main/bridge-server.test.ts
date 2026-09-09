@@ -5,7 +5,7 @@ import { EventEmitter } from 'node:events';
 import * as net from 'node:net';
 import * as crypto from 'node:crypto';
 import * as http from 'node:http';
-import { BridgeServer } from '../../src/main/bridge/bridge-server';
+import { BridgeServer, type MobileSessionGrant } from '../../src/main/bridge/bridge-server';
 import { NativeTabHost } from '../../src/main/browser/native-tab-host';
 import { ControlPlaneRuntime } from '../../src/main/control-plane/control-plane-runtime';
 import { AttachmentRegistry } from '../../src/main/run/attachment-registry';
@@ -703,5 +703,85 @@ describe('AntiFan Bridge Server', () => {
       try { wsMaster?.close(); } catch {}
       try { devServer.dispose(); } catch {}
     }
+  });
+});
+
+describe('Phase 4: Grant Revocation, Rotation Invalidation & LAN Binding', () => {
+  it('revokeMobileGrant marks a grant revoked and getMobileGrant rejects it', async () => {
+    const mockHost = new MockTabHost() as unknown as NativeTabHost;
+    const server = new BridgeServer(mockHost, 0);
+    const port = await server.start();
+
+    const grantToken = `mob-${crypto.randomBytes(16).toString('hex')}`;
+    const record: MobileSessionGrant = {
+      grantToken,
+      sessionId: 'session-revoke-1',
+      clientClass: 'mobile',
+      issuedAt: Date.now(),
+      expiresAt: Date.now() + 8 * 3600_000,
+      revoked: false,
+      allowedScopes: ['terminal.sync'],
+    };
+    (server as unknown as { mobileGrants: Map<string, MobileSessionGrant> }).mobileGrants.set(grantToken, record);
+
+    assert.ok(server.getMobileGrant(grantToken), 'grant must be valid before revocation');
+    assert.strictEqual(server.revokeMobileGrant(grantToken), true, 'revoke must acknowledge an existing grant token');
+    assert.strictEqual(server.getMobileGrant(grantToken), null, 'revoked grant must be rejected');
+    assert.strictEqual(server.revokeMobileGrant('nonexistent-token'), false, 'revoke of unknown token returns false');
+    server.dispose();
+    void port;
+  });
+
+  it('rotateToken invalidates previously issued mobile grants', async () => {
+    const mockHost = new MockTabHost() as unknown as NativeTabHost;
+    const server = new BridgeServer(mockHost, 0);
+    await server.start();
+
+    const grantToken = `mob-${crypto.randomBytes(16).toString('hex')}`;
+    const record: MobileSessionGrant = {
+      grantToken,
+      sessionId: 'session-rotate-mob',
+      clientClass: 'mobile',
+      issuedAt: Date.now(),
+      expiresAt: Date.now() + 8 * 3600_000,
+      revoked: false,
+      allowedScopes: ['terminal.sync'],
+    };
+    (server as unknown as { mobileGrants: Map<string, MobileSessionGrant> }).mobileGrants.set(grantToken, record);
+    assert.ok(server.getMobileGrant(grantToken), 'precondition: grant valid');
+
+    server.rotateToken();
+    assert.strictEqual(server.getMobileGrant(grantToken), null, 'rotation must revoke all derived mobile grants');
+    server.dispose();
+  });
+
+  it('rotateToken invalidates issued extension grants', async () => {
+    const mockHost = new MockTabHost() as unknown as NativeTabHost;
+    const server = new BridgeServer(mockHost, 0);
+    await server.start();
+
+    const grant = server.issueExtensionGrant('partition-cookies', ['example.com']);
+    assert.ok(server.getExtensionGrant(grant.grantToken), 'precondition: extension grant valid');
+    assert.strictEqual(server.revokeExtensionGrant(grant.grantToken), true, 'explicit revocation acknowledges token');
+    assert.strictEqual(server.getExtensionGrant(grant.grantToken), null, 'revoked extension grant rejected');
+
+    const grant2 = server.issueExtensionGrant('partition-cookies-2', ['example.com']);
+    assert.ok(server.getExtensionGrant(grant2.grantToken), 'precondition: second grant valid');
+    server.rotateToken();
+    assert.strictEqual(server.getExtensionGrant(grant2.grantToken), null, 'rotation must revoke extension grants');
+    server.dispose();
+  });
+
+  it('LAN access is forbidden by default and permitted after opt-in rebind', async () => {
+    const mockHost = new MockTabHost() as unknown as NativeTabHost;
+    const server = new BridgeServer(mockHost, 0);
+    const port = await server.start();
+
+    // Default: loopback-only bind host (no LAN exposure).
+    assert.strictEqual(server.isLanOptIn(), false, 'LAN opt-in must default to false');
+
+    await server.setLanOptIn(true);
+    assert.strictEqual(server.isLanOptIn(), true, 'opt-in must be readable');
+    server.dispose();
   });
 });

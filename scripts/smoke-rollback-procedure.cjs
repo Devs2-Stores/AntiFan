@@ -1,3 +1,12 @@
+// TODO(phase4): requires token injection; no longer reads master token from bridge.json
+
+function redactCreds(val) {
+  const str = typeof val === 'string' ? val : (val instanceof Error ? (val.stack || val.message) : String(val ?? ''));
+  return str
+    .replace(/(Bearer\s+)[A-Za-z0-9_\-.~+/=]+/gi, '$1[REDACTED]')
+    .replace(/((?:token|secret|code)=)[^&\s]*/gi, '$1[REDACTED]')
+    .replace(/(["']?(?:token|secret|code)["']?\s*[:=]\s*["'])[^"']+(["'])/gi, '$1[REDACTED]$2');
+}
 // @ts-check
 'use strict';
 
@@ -54,7 +63,10 @@ async function waitForBridgeJson(configDir, timeoutMs = 15000) {
       try {
         const raw = fs.readFileSync(bridgePath, 'utf8');
         const data = JSON.parse(raw);
-        if (data.port && data.token) return data;
+        if (data.port) {
+          data.token = process.env.ANTIFAN_BRIDGE_TOKEN || '';
+          return data;
+        }
       } catch {}
     }
     await new Promise((r) => setTimeout(r, 200));
@@ -67,7 +79,11 @@ async function waitForBridgeJson(configDir, timeoutMs = 15000) {
  * @param {string} token
  */
 async function connectBridge(port, token) {
-  const ws = new WebSocket(`ws://127.0.0.1:${port}?token=${encodeURIComponent(token)}`);
+  const wsHeaders = {};
+  if (token) {
+    wsHeaders.authorization = `Bearer ${token}`;
+  }
+  const ws = new WebSocket(`ws://127.0.0.1:${port}`, { headers: wsHeaders });
   await new Promise((resolve, reject) => {
     ws.on('open', resolve);
     ws.on('error', reject);
@@ -268,8 +284,9 @@ async function run() {
 }
 
 run().catch((err) => {
-  log(`Rollback Smoke Test Failed: ${err.stack || err.message}`);
+  const errText = redactCreds(err.stack || err.message);
+  log(`Rollback Smoke Test Failed: ${errText}`);
   logStream.end();
-  console.error('Rollback Smoke Test Failed:', err);
+  console.error('Rollback Smoke Test Failed:', errText);
   process.exit(1);
 });

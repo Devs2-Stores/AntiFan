@@ -11,6 +11,17 @@ import { createRequire } from 'node:module';
 const require = createRequire(import.meta.url);
 
 /**
+ * Redact sensitive credentials (tokens, secrets, bearer authorization) from messages.
+ */
+export function redactCreds(val) {
+  const str = typeof val === 'string' ? val : (val instanceof Error ? (val.stack || val.message) : String(val ?? ''));
+  return str
+    .replace(/(Bearer\s+)[A-Za-z0-9_\-.~+/=]+/gi, '$1[REDACTED]')
+    .replace(/((?:token|secret|code)=)[^&\s]*/gi, '$1[REDACTED]')
+    .replace(/(["']?(?:token|secret|code)["']?\s*[:=]\s*["'])[^"']+(["'])/gi, '$1[REDACTED]$2');
+}
+
+/**
  * Classify whether a changed file path is hot-swappable at runtime.
  * Strictly external override scripts in scripts/cdp/*.source.js (single level).
  */
@@ -84,19 +95,22 @@ export function resolveDevBridgeInfo(customDirs = null) {
  */
 async function sendBridgeAdmin(method, { bridgeInfo = undefined, params = {}, wsFactory = null, timeoutMs = 2500 } = {}) {
   const info = bridgeInfo !== undefined ? bridgeInfo : resolveDevBridgeInfo();
+  const token = (
+    (typeof info?.token === 'string' && info.token.trim()) ||
+    (typeof process.env.ANTIFAN_BRIDGE_TOKEN === 'string' && process.env.ANTIFAN_BRIDGE_TOKEN.trim()) ||
+    ''
+  );
   if (
     !info ||
     !Number.isInteger(info.port) ||
     info.port < 1 ||
     info.port > 65535 ||
-    typeof info.token !== 'string' ||
-    !info.token.trim()
+    !token
   ) {
     return false;
   }
   const port = info.port;
-  const token = info.token.trim();
-  const wsUrl = `ws://127.0.0.1:${port}?token=${encodeURIComponent(token)}`;
+  const wsUrl = `ws://127.0.0.1:${port}`;
 
   const WsClass = wsFactory || require('ws').WebSocket;
 
@@ -121,7 +135,11 @@ async function sendBridgeAdmin(method, { bridgeInfo = undefined, params = {}, ws
     }, timeoutMs);
 
     try {
-      ws = new WsClass(wsUrl);
+      ws = new WsClass(wsUrl, {
+        headers: {
+          authorization: `Bearer ${token}`,
+        },
+      });
     } catch {
       finish(false);
       return;

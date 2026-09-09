@@ -15,6 +15,14 @@ const fs = require('node:fs');
 const crypto = require('node:crypto');
 const { spawn } = require('node:child_process');
 const assert = require('node:assert/strict');
+function redactCreds(val) {
+  const str = typeof val === 'string' ? val : (val instanceof Error ? (val.stack || val.message) : String(val ?? ''));
+  return str
+    .replace(/(Bearer\s+)[A-Za-z0-9_\-.~+/=]+/gi, '$1[REDACTED]')
+    .replace(/((?:token|secret|code)=)[^&\s]*/gi, '$1[REDACTED]')
+    .replace(/(["']?(?:token|secret|code)["']?\s*[:=]\s*["'])[^"']+(["'])/gi, '$1[REDACTED]$2')
+    .replace(/(Secret:\s*)[^\s,]+/gi, '$1[REDACTED]');
+}
 
 app.commandLine.appendSwitch('no-sandbox');
 app.commandLine.appendSwitch('disable-gpu');
@@ -216,7 +224,7 @@ async function runMcpLiveE2ETest() {
       controlPlaneRuntime
     );
     const bridgePort = await bridgeServer.start();
-    console.log(`[Bridge Server Started] Port: ${bridgePort}, Secret: ${testSecret}, AttachmentId: ${testAttachmentId}`);
+    console.log(`[Bridge Server Started] Port: ${bridgePort}, AttachmentId: ${testAttachmentId}`);
     // 4. Spawn MCP stdio proxy
     const proxyScript = path.resolve(__dirname, 'antifan-omp-mcp.cjs');
     mcpProc = spawn(process.execPath, [proxyScript], {
@@ -236,7 +244,7 @@ async function runMcpLiveE2ETest() {
         ANTIFAN_HEARTBEAT_MS: '1000',
       },
     });
-    mcpProc.stderr.on('data', (d) => console.error('[MCP STDERR]', d.toString()));
+    mcpProc.stderr.on('data', (d) => console.error('[MCP STDERR]', redactCreds(d.toString())));
     const { StringDecoder } = require('node:string_decoder');
     const mcpDecoder = new StringDecoder('utf8');
     const pendingMcpRequests = new Map();
@@ -490,7 +498,7 @@ app.whenReady().then(() => {
       app.exit(0);
     })
     .catch((err) => {
-      console.error('[Live Electron MCP E2E FAIL]', err);
+      console.error('[Live Electron MCP E2E FAIL]', redactCreds(err));
       app.exit(1);
     });
 });

@@ -8,6 +8,13 @@ const path = require('node:path');
 const { spawn } = require('node:child_process');
 const { StringDecoder } = require('node:string_decoder');
 const WebSocket = require('ws');
+function redactCreds(val) {
+  const str = typeof val === 'string' ? val : (val instanceof Error ? (val.stack || val.message) : String(val ?? ''));
+  return str
+    .replace(/(Bearer\s+)[A-Za-z0-9_\-.~+/=]+/gi, '$1[REDACTED]')
+    .replace(/((?:token|secret|code)=)[^&\s]*/gi, '$1[REDACTED]')
+    .replace(/(["']?(?:token|secret|code)["']?\s*[:=]\s*["'])[^"']+(["'])/gi, '$1[REDACTED]$2');
+}
 
 app.commandLine.appendSwitch('no-sandbox');
 app.commandLine.appendSwitch('disable-gpu');
@@ -116,8 +123,11 @@ async function stopChild(child) {
 }
 
 async function dispatchBridgeCapability(port, launch, authorityRevision, name, params = {}) {
-  const ws = new WebSocket(`ws://127.0.0.1:${port}?token=${encodeURIComponent(launch.secret)}`, {
-    headers: { 'X-Antifan-Attachment-Secret': launch.secret },
+  const ws = new WebSocket(`ws://127.0.0.1:${port}`, {
+    headers: {
+      authorization: `Bearer ${launch.secret}`,
+      'X-Antifan-Attachment-Secret': launch.secret,
+    },
   });
   try {
     await new Promise((resolve, reject) => {
@@ -903,6 +913,6 @@ async function run() {
 app.whenReady().then(() => run()
   .then(() => app.exit(0))
   .catch((error) => {
-    console.error('[Live Theme Proof FAIL]', error);
+    console.error('[Live Theme Proof FAIL]', redactCreds(error));
     app.exit(1);
   }));

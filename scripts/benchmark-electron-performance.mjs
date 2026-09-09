@@ -104,7 +104,13 @@ class AppDriver {
     const devFile = path.join(this.configDir, 'bridge-dev.json');
     const chosen = fs.existsSync(file) ? file : (fs.existsSync(devFile) ? devFile : null);
     if (!chosen) return null;
-    try { return JSON.parse(fs.readFileSync(chosen, 'utf8')); } catch { return null; }
+    try {
+      const parsed = JSON.parse(fs.readFileSync(chosen, 'utf8'));
+      if (parsed && typeof parsed === 'object') {
+        parsed.token = parsed.token || process.env.ANTIFAN_BRIDGE_TOKEN || '';
+      }
+      return parsed;
+    } catch { return null; }
   }
 
   async waitForMetric(surface, name, timeoutMs = LAUNCH_TIMEOUT_MS) {
@@ -152,10 +158,22 @@ function percentiles(sorted, ps) {
   return out;
 }
 
+function redactCreds(val) {
+  const str = typeof val === 'string' ? val : (val instanceof Error ? (val.stack || val.message) : String(val ?? ''));
+  return str
+    .replace(/(Bearer\s+)[A-Za-z0-9_\-.~+/=]+/gi, '$1[REDACTED]')
+    .replace(/((?:token|secret|code)=)[^&\s]*/gi, '$1[REDACTED]')
+    .replace(/(["']?(?:token|secret|code)["']?\s*[:=]\s*["'])[^"']+(["'])/gi, '$1[REDACTED]$2');
+}
+
 function errToString(err) {
-  if (err instanceof Error) return err.message;
-  if (typeof err === 'string') return err;
-  try { return JSON.stringify(err); } catch { return String(err); }
+  let s;
+  if (err instanceof Error) s = err.message;
+  else if (typeof err === 'string') s = err;
+  else {
+    try { s = JSON.stringify(err); } catch { s = String(err); }
+  }
+  return redactCreds(s);
 }
 
 function observationRows(rows) {
@@ -234,9 +252,9 @@ async function scenarioTabs(report) {
     return;
   }
   const info = driver.readBridgeInfo();
-  if (!info || !info.token || !info.port) {
-    report.rows.push(reportRow('tabs', 'tabSwitchMs', observationRows([]), { error: 'bridge info unreadable (requires token)' }));
-    report.summary.push('tabs: unmeasured (bridge info unreadable)');
+  if (!info || !info.port || !info.token) {
+    report.rows.push(reportRow('tabs', 'tabSwitchMs', observationRows([]), { error: 'bridge info unreadable (requires ANTIFAN_BRIDGE_TOKEN)' }));
+    report.summary.push('tabs: unmeasured (bridge info unreadable or ANTIFAN_BRIDGE_TOKEN missing)');
     await driver.kill();
     return;
   }
@@ -298,9 +316,9 @@ async function scenarioTerminal(report) {
     return;
   }
   const info = driver.readBridgeInfo();
-  if (!info || !info.token || !info.port) {
-    report.rows.push(reportRow('terminal', 'burst', observationRows([]), { error: 'bridge info unreadable' }));
-    report.summary.push('terminal: unmeasured (bridge info unreadable)');
+  if (!info || !info.port || !info.token) {
+    report.rows.push(reportRow('terminal', 'burst', observationRows([]), { error: 'bridge info unreadable (requires ANTIFAN_BRIDGE_TOKEN)' }));
+    report.summary.push('terminal: unmeasured (bridge info unreadable or ANTIFAN_BRIDGE_TOKEN missing)');
     await driver.kill();
     return;
   }
@@ -572,8 +590,8 @@ async function scenarioPackaged(report) {
     return;
   }
   const info = driver.readBridgeInfo();
-  if (!info || !info.token || !info.port) {
-    report.rows.push(reportRow('packaged', 'firstVisibleMs', observationRows([Math.round(firstVisible.nowMs)]), { error: 'bridge info unreadable; pty smoke skipped' }));
+  if (!info || !info.port || !info.token) {
+    report.rows.push(reportRow('packaged', 'firstVisibleMs', observationRows([Math.round(firstVisible.nowMs)]), { error: 'bridge info unreadable or ANTIFAN_BRIDGE_TOKEN missing; pty smoke skipped' }));
     report.summary.push(`packaged: firstVisible=${Math.round(firstVisible.nowMs)}ms bridge unreadable`);
     await driver.kill();
     return;

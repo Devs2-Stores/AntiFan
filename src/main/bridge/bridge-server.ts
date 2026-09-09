@@ -55,6 +55,7 @@ export interface ExtensionSessionGrant {
   capabilities: ['session.cookies.import'];
   allowedDomains: string[];
   expiresAt: number;
+  revoked?: boolean;
 }
 
 export interface PairingRecord {
@@ -212,6 +213,7 @@ export class BridgeServer {
     if (!token) return null;
     const grant = this.extensionGrants.get(token);
     if (!grant) return null;
+    if (grant.revoked) return null;
     if (Date.now() > grant.expiresAt) {
       return { grant, isExpired: true };
     }
@@ -284,15 +286,98 @@ export class BridgeServer {
       }
     }
 
+    // Rotation invalidates all derived grants (mobile + extension) — no stale
+    // scoped credential may outlive the master secret that minted it.
+    for (const grant of this.mobileGrants.values()) {
+      grant.revoked = true;
+    }
+    for (const grant of this.extensionGrants.values()) {
+      grant.revoked = true;
+    }
+
     return this.token;
   }
 
-  public setLanOptIn(optIn: boolean): void {
-    this.lanOptIn = Boolean(optIn);
+  public revokeMobileGrant(token: string): boolean {
+    const grant = this.mobileGrants.get(token);
+    if (!grant) return false;
+    grant.revoked = true;
+    return true;
+  }
+
+  public revokeExtensionGrant(token: string): boolean {
+    const grant = this.extensionGrants.get(token);
+    if (!grant) return false;
+    grant.revoked = true;
+    return true;
+  }
+
+  public async setLanOptIn(optIn: boolean): Promise<void> {
+    const next = Boolean(optIn);
+    if (next === this.lanOptIn) return;
+    this.lanOptIn = next;
+    if (this.httpServer && this.httpServer.listening) {
+      await this.rebindListener();
+    }
   }
 
   public isLanOptIn(): boolean {
     return this.lanOptIn;
+  }
+
+  /** Bind host: loopback unless LAN opt-in is enabled (opt-in must not silently leave the port on the LAN). */
+  private effectiveBindHost(): string {
+    return this.lanOptIn ? '0.0.0.0' : '127.0.0.1';
+  }
+
+  private async rebindListener(): Promise<void> {
+    const port = this.port;
+    const targetHost = this.effectiveBindHost();
+    const oldServer = this.httpServer;
+    const oldWss = this.wss;
+    this.httpServer = null;
+    this.wss = null;
+    const conns = new Set<WebSocket>();
+    if (oldWss) {
+      oldWss.clients.forEach((c) => conns.add(c));
+    }
+    try {
+      if (oldServer) {
+        oldServer.removeAllListeners('error');
+        oldServer.close();
+      }
+    } catch {}
+    await new Promise<void>((r) => setTimeout(r, 50));
+    // Close surviving sockets after the old listener is gone.
+    for (const c of conns) {
+      try { c.close(4001, 'Bridge listener rebound'); } catch {}
+    }
+
+    const handler = this.createHttpHandler();
+    const newServer = http.createServer(handler);
+    const newWss = new WebSocketServer({
+      server: newServer,
+      handleProtocols: (protocols: Set<string>) => {
+        if (protocols.has('antifan-auth')) return 'antifan-auth';
+        if (protocols.has('antifan')) return 'antifan';
+        return false;
+      },
+    });
+    this.httpServer = newServer;
+    this.wss = newWss;
+    this.setupWssEvents();
+
+    await new Promise<void>((resolve, reject) => {
+      newServer.once('error', reject);
+      newServer.listen(port, targetHost, () => {
+        const address = newServer.address();
+        if (address && typeof address === 'object') {
+          this.port = address.port;
+        }
+        this.persistBridgeInfo();
+        resolve();
+      });
+    });
   }
 
   public issuePairingCode(options: {
@@ -1252,7 +1337,7 @@ export class BridgeServer {
           });
           this.setupWssEvents();
 
-          altServer.listen(0, this.host, () => {
+          altServer.listen(0, this.effectiveBindHost(), () => {
             const addr = altServer.address();
             if (addr && typeof addr === 'object') {
               this.port = addr.port;
@@ -1265,7 +1350,7 @@ export class BridgeServer {
         }
       });
 
-      this.httpServer.listen(this.port, this.host, () => {
+      this.httpServer.listen(this.port, this.effectiveBindHost(), () => {
         const address = this.httpServer?.address();
         if (address && typeof address === 'object') {
           this.port = address.port;

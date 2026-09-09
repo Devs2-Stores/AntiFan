@@ -1,4 +1,13 @@
 #!/usr/bin/env node
+// TODO(phase4): requires token injection; no longer reads master token from bridge.json
+
+function redactCreds(val) {
+  const str = typeof val === 'string' ? val : (val instanceof Error ? (val.stack || val.message) : String(val ?? ''));
+  return str
+    .replace(/(Bearer\s+)[A-Za-z0-9_\-.~+/=]+/gi, '$1[REDACTED]')
+    .replace(/((?:token|secret|code)=)[^&\s]*/gi, '$1[REDACTED]')
+    .replace(/(["']?(?:token|secret|code)["']?\s*[:=]\s*["'])[^"']+(["'])/gi, '$1[REDACTED]$2');
+}
 /**
  * AntiFan Browser Desktop — Standalone Recovery & Reclamation Benchmark (Phase 05 Conforming)
  * 
@@ -180,7 +189,7 @@ async function main() {
     });
     child.on('error', (err) => {
       childExited = true;
-      console.error('[recovery] Electron child error:', err.message);
+      console.error('[recovery] Electron child error:', redactCreds(err.message));
     });
 
     const bridgePath = path.join(configDir, 'bridge.json');
@@ -189,7 +198,10 @@ async function main() {
       if (fs.existsSync(bridgePath)) {
         try {
           bridge = JSON.parse(fs.readFileSync(bridgePath, 'utf8'));
-          if (bridge.port && bridge.token) break;
+          if (bridge.port) {
+            bridge.token = process.env.ANTIFAN_BRIDGE_TOKEN || '';
+            break;
+          }
         } catch {}
       }
       await sleep(250);
@@ -200,8 +212,12 @@ async function main() {
     }
 
     console.log(`[recovery] Bridge server connected on port ${bridge.port} (PID: ${bridge.pid || 'unknown'})`);
+    const wsHeaders = {};
+    if (bridge.token) {
+      wsHeaders.authorization = `Bearer ${bridge.token}`;
+    }
     ws = new WebSocket(`ws://127.0.0.1:${bridge.port}`, {
-      headers: { authorization: `Bearer ${bridge.token}` },
+      headers: wsHeaders,
     });
     await new Promise((resolve, reject) => {
       ws.once('open', resolve);
@@ -383,4 +399,7 @@ async function main() {
   }
 }
 
-main();
+main().catch((err) => {
+  console.error('[recovery] Fatal error:', redactCreds(err));
+  process.exitCode = 1;
+});
