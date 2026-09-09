@@ -3,7 +3,7 @@ import * as assert from 'node:assert';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
-import { LocalSessionVault, VaultCookie } from '../../src/main/browser/local-session-vault';
+import { LocalSessionVault, VaultCookie, isTrustedSessionVaultSender } from '../../src/main/browser/local-session-vault';
 import { ChromeProfileSyncManager } from '../../src/main/browser/chrome-profile-sync';
 
 class MockCookieStore {
@@ -176,5 +176,26 @@ describe('LocalSessionVault & Shared Profile Persistence Suite', () => {
     assert.ok(hToken);
     assert.strictEqual(hToken.expirationDate, 1893456999);
     assert.strictEqual(hToken.sameSite, 'lax');
+  });
+
+  it('Phase 5: isTrustedSessionVaultSender accepts only top-frame internal/toolbar senders', () => {
+    // Top-frame file: renderer (toolbar) and antifan: scheme: trusted.
+    const toolbarFrame = { url: 'file:///C:/AntiFan/renderer/toolbar.html' };
+    const sidebarFrame = { url: 'file:///C:/AntiFan/renderer/sidebar.html' };
+    const shellFrame = { url: 'antifan://shell/index.html' };
+    const evilFrame = { url: 'https://evil.example.com/' };
+    assert.strictEqual(isTrustedSessionVaultSender({ senderFrame: toolbarFrame, sender: { mainFrame: toolbarFrame } }), true);
+    assert.strictEqual(isTrustedSessionVaultSender({ senderFrame: sidebarFrame, sender: { mainFrame: sidebarFrame } }), true);
+    assert.strictEqual(isTrustedSessionVaultSender({ senderFrame: shellFrame, sender: { mainFrame: shellFrame } }), true);
+    // Hostile external page in a real tab: never trusted.
+    assert.strictEqual(isTrustedSessionVaultSender({ senderFrame: evilFrame, sender: { mainFrame: evilFrame } }), false);
+    // Subframe of trusted toolbar page: rejected (senderFrame !== mainFrame identity).
+    assert.strictEqual(isTrustedSessionVaultSender({ senderFrame: { url: 'https://ads.example.com/iframe' }, sender: { mainFrame: toolbarFrame } }), false);
+    // Missing mainFrame: fail-closed.
+    assert.strictEqual(isTrustedSessionVaultSender({ senderFrame: toolbarFrame }), false);
+    // Missing senderFrame entirely: fail-closed.
+    assert.strictEqual(isTrustedSessionVaultSender({}), false);
+    // null event: fail-closed.
+    assert.strictEqual(isTrustedSessionVaultSender(null), false);
   });
 });
