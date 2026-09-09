@@ -209,6 +209,12 @@ async function createWindow(): Promise<void> {
 
   windowStateManager.manage(mainWindow);
 
+  // Canonical single TerminalManager: this is the one instance shared by UI IPC,
+  // Bridge, NativeTabHost, control-plane capabilities, and theme transactions.
+  // TerminalManager.getInstance() returns this instance (private constructor, no
+  // second owner can be spawned); the control plane receives it explicitly below.
+  const terminalManager = TerminalManager.getInstance();
+
   tabHost = new NativeTabHost(mainWindow, capsuleManager || undefined);
   const projectId = validateControlPlaneId(process.env.ANTIFAN_PROJECT_ID || 'project-00000000-0000-4000-8000-000000000001', 'project');
   const workspaceId = validateControlPlaneId(process.env.ANTIFAN_WORKSPACE_ID || 'workspace-00000000-0000-4000-8000-000000000001', 'workspace');
@@ -217,6 +223,7 @@ async function createWindow(): Promise<void> {
     workspaceId,
     dataRoot: StorageLocations.getControlPlaneDir(),
     allowEval: ALLOW_EVAL,
+    terminal: terminalManager,
     getAutomationTabId: () => tabHost!.getAutomationTabId(),
     getDocumentGeneration: (tabId) => tabHost!.getDocumentGeneration(tabId),
     isTabAllowed: (primaryTabId, requestedTabId) => tabHost!.isTabAllowedForPrimary(primaryTabId, requestedTabId),

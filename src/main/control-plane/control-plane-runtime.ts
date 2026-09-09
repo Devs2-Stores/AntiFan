@@ -40,6 +40,13 @@ export interface ControlPlaneRuntimeOptions {
   isTabAllowed?: (primaryTabId: string, requestedTabId: string) => boolean;
   resolveTabId?: (tabIdOrIdentifier: string) => string | undefined;
   browserControlPort?: BrowserControlPort;
+  /**
+   * Canonical single TerminalManager owned by the composition root (src/main/index.ts).
+   * Required in production so the control plane registers terminal capabilities against
+   * the one instance the UI, Bridge, and NativeTabHost share. Falls back to the global
+   * instance only for test helpers that don't construct a full composition root.
+   */
+  terminal?: TerminalManager;
 }
 export interface ControlPlaneResourceStats {
   artifacts: ArtifactStoreStats;
@@ -126,7 +133,7 @@ export class ControlPlaneRuntime {
       getDocumentGeneration: options.getDocumentGeneration,
     });
     this.transport = new CapabilityTransportAdapter(this.capabilities, this.runs.attachments, this.ledger);
-    this.terminal = TerminalManager.getInstance();
+    this.terminal = options.terminal ?? TerminalManager.getInstance();
     this.themeTransactions = new ThemeTransactionRegistry(
       { projectId: options.projectId, workspaceId: options.workspaceId, runtimeId: this.leaseState.runtimeId },
       this.files,

@@ -330,6 +330,7 @@ export function safeSliceTailJsonBounded(str: string, maxJsonBytes: number): str
 }
 export class TerminalManager extends EventEmitter {
   private static instance: TerminalManager;
+  private static constructionCount = 0;
   private sessions = new Map<string, Session>();
   private sessionGenerations = new Map<string, number>();
   private activeSessionId = '';
@@ -347,9 +348,20 @@ export class TerminalManager extends EventEmitter {
   private benchmarkChunkBytes = 0;
 
   private subscribers = new Map<string, TerminalSubscriberState>();
-  constructor() {
+  // Single canonical owner. Construction is private and only the composition root's
+  // getInstance() may create the one TerminalManager; no module can spawn a second
+  // owner with duplicate PTYs or an uncoordinated process tree. Tests may reset the
+  // static field for isolation but each process still yields exactly one instance.
+  private constructor() {
     super();
     this.setMaxListeners(50);
+    TerminalManager.constructionCount++;
+    if (TerminalManager.constructionCount > 1) {
+      throw new Error(
+        'TerminalManager: a second instance was constructed. The composition root owns ' +
+          'the single canonical instance; duplicate owners are forbidden (dual-plane invariant).'
+      );
+    }
   }
   private getInitialSplitRows(parentRows = this.lastRows): number {
     return Math.max(MIN_SPLIT_TERMINAL_ROWS, Math.floor((parentRows || 30) * SPLIT_TERMINAL_FRACTION));
@@ -1254,6 +1266,9 @@ export class TerminalManager extends EventEmitter {
 
   public async dispose(): Promise<void> {
     if (this.isDisposed) return;
+    // Allow a later canonical to be constructed after teardown (test isolation etc.):
+    // each process still holds at most ONE live instance at any moment.
+    TerminalManager.constructionCount = 0;
     if (this.persistTimer) {
       clearTimeout(this.persistTimer);
       this.persistTimer = null;
