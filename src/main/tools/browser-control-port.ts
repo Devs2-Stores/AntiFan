@@ -328,6 +328,10 @@ export class ViewportGate {
   private activeTabId: string | null = null;
   private lastPreemptScopeTabId: string | null = null;
   private lastPreemptScoped = false;
+  // Epoch of the preemption that actually targeted the active lock. Distinguishes
+  // "no preemption" (ordinary lease timeout -> poison only the lock's own tab) from
+  // an unscoped human preemption (-> global poison); both leave lastPreemptScoped=false.
+  private lastPreemptEpoch = 0;
   private onCancelCallback: ((tabId?: string) => Promise<boolean>) | null = null;
   private queue: Array<{
     tabId?: string;
@@ -383,6 +387,7 @@ export class ViewportGate {
       // user-intervention without a tab (existing global-drain semantics).
       this.lastPreemptScopeTabId = tabId || null;
       this.lastPreemptScoped = Boolean(tabId);
+      this.lastPreemptEpoch = this.preemptionEpoch;
       this.activeAbortController.abort(new CapabilityError('PREEMPTED_BY_USER', reason));
     }
   }
@@ -415,6 +420,13 @@ export class ViewportGate {
       throw new CapabilityError('TARGET_STALE', 'ViewportGate is poisoned due to unacknowledged action cancellation');
     }
 
+    // 2b. This caller now owns the lock: capture the preemption epoch and clear any
+    // scope recorded by an earlier action. Resetting before acquisition would let a
+    // queued caller corrupt the active holder's cancellation classification.
+    const preemptEpochAtStart = this.preemptionEpoch;
+    this.lastPreemptScopeTabId = null;
+    this.lastPreemptScoped = false;
+
     // 3. Assign activeAbortController and activeTabId ONLY AFTER lock is acquired!
     this.activeAbortController = controller;
     this.activeTabId = options.tabId ?? null;
@@ -428,6 +440,12 @@ export class ViewportGate {
       const triggerCancel = async (err: Error) => {
         if (cancelHandled) return;
         cancelHandled = true;
+        // A real preemption during this lock keeps its recorded scope (global when the
+        // human input was not tab-attributed). An ordinary lease timeout with no
+        // preemption fences only the lock's own tab instead of the whole gate.
+        const poisonScope = this.lastPreemptEpoch > preemptEpochAtStart
+          ? (this.lastPreemptScoped ? (this.lastPreemptScopeTabId || undefined) : undefined)
+          : lockTabId;
         let ack = true;
         if (this.onCancelCallback && this.activeTabId) {
           try {
@@ -437,7 +455,7 @@ export class ViewportGate {
           }
         }
         if (!ack) {
-          this.poison('ViewportGate poisoned due to unacknowledged action cancellation', this.lastPreemptScoped ? (this.lastPreemptScopeTabId || undefined) : undefined);
+          this.poison('ViewportGate poisoned due to unacknowledged action cancellation', poisonScope);
           reject(err);
           return;
         }
@@ -449,7 +467,7 @@ export class ViewportGate {
             new Promise((r) => setTimeout(r, 500))
           ]);
           if (!settled) {
-            this.poison('ViewportGate poisoned: action failed to settle after cancellation acknowledgement', this.lastPreemptScoped ? (this.lastPreemptScopeTabId || undefined) : undefined);
+            this.poison('ViewportGate poisoned: action failed to settle after cancellation acknowledgement', poisonScope);
           }
         }
         reject(err);
@@ -492,6 +510,8 @@ export class ViewportGate {
       if (executionTimer) clearTimeout(executionTimer);
       this.activeAbortController = null;
       this.activeTabId = null;
+      this.lastPreemptScoped = false;
+      this.lastPreemptScopeTabId = null;
       release();
     }
   }

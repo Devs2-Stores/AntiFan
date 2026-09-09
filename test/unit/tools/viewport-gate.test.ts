@@ -249,4 +249,60 @@ describe('ViewportGate Unit Tests (Phase 03)', () => {
     const recovered = await gate.withLock(async () => 'recovered');
     assert.strictEqual(recovered, 'recovered');
   });
+
+  it('scopes an ordinary lease-timeout poison to the lock target, leaving other tabs usable', async () => {
+    const gate = new ViewportGate();
+    gate.setCancellationHandler(async () => false);
+
+    await assert.rejects(
+      async () => gate.withLock(async () => {
+        await new Promise<void>(() => {});
+      }, { tabId: 'tab-timeout', timeoutMs: 40 }),
+      (err: unknown) => err instanceof CapabilityError && err.code === 'LEASE_EXPIRED'
+    );
+
+    // Only the timed-out tab is fenced; unrelated tabs keep working.
+    await assert.rejects(
+      async () => gate.withLock(async () => 'denied', { tabId: 'tab-timeout' }),
+      (err: unknown) => err instanceof CapabilityError && err.code === 'TARGET_STALE'
+    );
+    const other = await gate.withLock(async () => 'ok', { tabId: 'tab-other' });
+    assert.strictEqual(other, 'ok');
+  });
+
+  it('does not let a prior scoped preemption decide a later lock poison scope', async () => {
+    const gate = new ViewportGate();
+    gate.setCancellationHandler(async () => false);
+
+    let startedResolve!: () => void;
+    const started = new Promise<void>((r) => { startedResolve = r; });
+    const p1 = gate.withLock(async (signal) => {
+      startedResolve();
+      await new Promise<void>((_, rej) => {
+        signal.addEventListener('abort', () => rej(signal.reason));
+      });
+    }, { tabId: 'tab-a' });
+    await started;
+    gate.preemptActiveAgent('User typed on tab-a', 'tab-a');
+    await assert.rejects(
+      p1,
+      (err: unknown) => err instanceof CapabilityError && err.code === 'PREEMPTED_BY_USER'
+    );
+
+    // A later lock on a different tab times out with no preemption of its own.
+    await assert.rejects(
+      async () => gate.withLock(async () => {
+        await new Promise<void>(() => {});
+      }, { tabId: 'tab-b', timeoutMs: 40 }),
+      (err: unknown) => err instanceof CapabilityError && err.code === 'LEASE_EXPIRED'
+    );
+
+    // The stale tab-a scope must not be reused: tab-b is the fenced tab.
+    await assert.rejects(
+      async () => gate.withLock(async () => 'denied', { tabId: 'tab-b' }),
+      (err: unknown) => err instanceof CapabilityError && err.code === 'TARGET_STALE'
+    );
+    const untouched = await gate.withLock(async () => 'ok', { tabId: 'tab-c' });
+    assert.strictEqual(untouched, 'ok');
+  });
 });
