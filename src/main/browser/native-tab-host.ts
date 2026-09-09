@@ -3405,6 +3405,8 @@ export class NativeTabHost extends EventEmitter {
       isolateSession?: boolean;
       partition?: string;
       offscreen?: boolean;
+      /** Explicit terminal session that should own this tab. Omit for user-opened tabs. */
+      terminalSessionId?: string;
     }
   ): string {
     if (this.isDisposed) return '';
@@ -3491,22 +3493,25 @@ export class NativeTabHost extends EventEmitter {
     const isAgentTab = isEphemeral || isOffscreen;
     if (!isAgentTab) {
       this.tabOrder.push(id);
-      try {
-        const activeTermId = TerminalManager.getInstance().getActiveSessionId();
-        if (activeTermId) {
-          state.terminalSessionId = activeTermId;
-          let pool = this.sessionTabPools.get(activeTermId);
-          if (!pool) {
-            pool = new Set();
-            this.sessionTabPools.set(activeTermId, pool);
-          }
-          pool.add(id);
-          const session = TerminalManager.getInstance().getSession(activeTermId);
-          if (session) {
-            this.adoptChildTab(activeTermId, id, session.sessionGeneration);
-          }
+      // Only adopt a newly created tab into a terminal session when the caller explicitly
+      // requests it. User-opened tabs (toolbar '+', Ctrl+T, context menu, URL bar) must stay
+      // independent instead of being silently appended to whichever terminal is active.
+      const requestedTerminalSessionId = options?.terminalSessionId;
+      if (requestedTerminalSessionId) {
+        state.terminalSessionId = requestedTerminalSessionId;
+        let pool = this.sessionTabPools.get(requestedTerminalSessionId);
+        if (!pool) {
+          pool = new Set();
+          this.sessionTabPools.set(requestedTerminalSessionId, pool);
         }
-      } catch {}
+        pool.add(id);
+        try {
+          const session = TerminalManager.getInstance().getSession(requestedTerminalSessionId);
+          if (session) {
+            this.adoptChildTab(requestedTerminalSessionId, id, session.sessionGeneration);
+          }
+        } catch {}
+      }
     }
 
     if (capsuleIdForTab && url.startsWith('antifan-preview://')) {
@@ -5347,21 +5352,73 @@ export class NativeTabHost extends EventEmitter {
     managedTabIds: string[];
     status: 'alive' | 'closed';
     lastUrl?: string;
+    isOffscreen?: boolean;
+    isEphemeral?: boolean;
+    title?: string;
+    url?: string;
   } | undefined {
     if (!this.terminalAgentAffinity || !terminalSessionId) return undefined;
     const entry = this.resolveTerminalAffinityEntry(terminalSessionId, generation);
     if (!entry) return undefined;
+    // Self-healing: prune dead tabs that no longer exist in this.tabs
+    if (entry.managedTabIds) {
+      for (const mId of Array.from(entry.managedTabIds)) {
+        const mIdStr = typeof mId === 'string' ? mId : String(mId);
+        if (!this.hasTab(mIdStr)) {
+          entry.managedTabIds.delete(mId);
+          entry.lastUrls?.delete(mId);
+          entry.lineage?.delete(mId);
+        }
+      }
+    }
+    if (this.sessionTabPools) {
+      const pool = this.sessionTabPools.get(terminalSessionId);
+      if (pool) {
+        for (const pId of Array.from(pool)) {
+          const pIdStr = typeof pId === 'string' ? pId : String(pId);
+          if (!this.hasTab(pIdStr)) {
+            pool.delete(pId);
+          }
+        }
+      }
+    }
 
-    const managedArr: string[] = Array.from(entry.managedTabIds ? entry.managedTabIds.values() : [entry.tabId]);
-    const hasAliveTab = managedArr.some((id) => this.hasTab(id)) || this.hasTab(entry.tabId);
+    if (entry.primaryTabId && !this.hasTab(entry.primaryTabId)) {
+      let nextPrimary: string | undefined;
+      if (entry.managedTabIds) {
+        for (const id of entry.managedTabIds) {
+          const idStr = typeof id === 'string' ? id : String(id);
+          if (this.hasTab(idStr)) {
+            nextPrimary = idStr;
+            break;
+          }
+        }
+      }
+      if (nextPrimary) {
+        entry.primaryTabId = nextPrimary;
+        entry.tabId = nextPrimary;
+        entry.lastUrl = entry.lastUrls?.get(nextPrimary) || '';
+      } else {
+        entry.closedAt = Date.now();
+      }
+    }
+
+    const rawManaged = entry.managedTabIds ? Array.from(entry.managedTabIds) : [entry.tabId];
+    const managedArr: string[] = rawManaged.filter((id) => this.hasTab(id));
+    const hasAliveTab = managedArr.length > 0 || (entry.tabId && this.hasTab(entry.tabId));
     const status: 'alive' | 'closed' = hasAliveTab && !entry.closedAt ? 'alive' : 'closed';
-
+    const primaryTabId = entry.primaryTabId || entry.tabId;
+    const primaryTab = this.tabs.get(primaryTabId);
     return {
-      tabId: entry.primaryTabId || entry.tabId,
-      primaryTabId: entry.primaryTabId || entry.tabId,
+      tabId: primaryTabId,
+      primaryTabId,
       managedTabIds: managedArr,
       status,
       lastUrl: entry.lastUrl,
+      isOffscreen: primaryTab?.state.offscreen === true,
+      isEphemeral: primaryTab?.state.ephemeral === true,
+      title: primaryTab?.state.title,
+      url: primaryTab?.state.url,
     };
   }
 

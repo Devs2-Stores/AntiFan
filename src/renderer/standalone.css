@@ -434,6 +434,17 @@ button {
   color: #f3e8ff;
 }
 
+.terminal-tab-affinity-badge.agent {
+  background: rgba(139, 92, 246, 0.15);
+  color: #a78bfa;
+  border-color: rgba(139, 92, 246, 0.35);
+}
+.terminal-tab-affinity-badge.agent:hover {
+  background: rgba(139, 92, 246, 0.28);
+  border-color: rgba(139, 92, 246, 0.6);
+  color: #ede9fe;
+}
+
 .terminal-affinity-picker {
   position: absolute;
   z-index: 10000;
@@ -483,6 +494,9 @@ button {
 }
 .terminal-affinity-picker-item.managed {
   justify-content: space-between;
+}
+.terminal-affinity-picker-item.agent {
+  cursor: default;
 }
 .affinity-item-remove-btn {
   font-size: 11px;

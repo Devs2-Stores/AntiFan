@@ -1645,17 +1645,28 @@ async function updateAffinityBadges() {
       } else if (affinity.status === 'closed') {
         setBadgeState(badge, 'terminal-tab-affinity-badge closed', '🎯 Tab đã đóng', `Tab trước đó (${affinity.lastUrl || affinity.tabId}) đã bị đóng (Click để gán lại)`);
       } else {
-        const managedCount = Array.isArray(affinity.managedTabIds) ? affinity.managedTabIds.length : 1;
+        const validManaged = (affinity.managedTabIds || []).filter((id) => {
+          return tabsMap.has(id) || affinity.isOffscreen || affinity.isEphemeral;
+        });
+        const managedCount = validManaged.length;
         if (managedCount > 1) {
-          const tabNames = (affinity.managedTabIds || []).map((id) => {
+          const tabNames = validManaged.map((id) => {
             const t = tabsMap.get(id);
-            return t ? (t.title || t.url || id) : id;
+            if (t) return t.title || t.url || 'Tab mới';
+            return '🤖 Tab ngầm Agent (Headless / Sandbox)';
           }).join('\n• ');
           setBadgeState(badge, 'terminal-tab-affinity-badge multi', `🎯 ${managedCount} tabs`, `Terminal đang quản lý ${managedCount} tabs:\n• ${tabNames}\n(Click để quản lý nhóm tab)`);
         } else {
           const boundTab = tabsMap.get(affinity.tabId);
-          const name = boundTab ? (boundTab.title || boundTab.url || affinity.tabId) : affinity.tabId;
-          setBadgeState(badge, 'terminal-tab-affinity-badge', `🎯 ${name.slice(0, 14)}`, `Đang gắn với Tab: ${name} (${boundTab?.url || affinity.tabId}) (Click để đổi/thêm)`);
+          if (boundTab) {
+            const name = boundTab.title || boundTab.url || 'Tab mới';
+            setBadgeState(badge, 'terminal-tab-affinity-badge', `🎯 ${name.slice(0, 14)}`, `Đang gắn với Tab: ${name} (${boundTab.url || ''}) (Click để đổi/thêm)`);
+          } else if (affinity.isOffscreen || affinity.isEphemeral || affinity.status === 'alive') {
+            const agentName = affinity.isOffscreen ? '🤖 Headless' : '🤖 Sandbox';
+            setBadgeState(badge, 'terminal-tab-affinity-badge agent', agentName, `Terminal đang gắn với Tab ngầm Agent (Headless Sandbox: ${affinity.tabId}) (Click để gán tab hiển thị)`);
+          } else {
+            setBadgeState(badge, 'terminal-tab-affinity-badge closed', '🎯 Tab đã đóng', `Tab trước đó (${affinity.lastUrl || affinity.tabId}) đã bị đóng (Click để gán lại)`);
+          }
         }
       }
     }
@@ -1677,9 +1688,8 @@ async function showAffinityPicker(sessionId, anchorEl) {
   if (managedSet.size > 0) {
     const secHeader = document.createElement('div');
     secHeader.className = 'terminal-affinity-picker-header';
-    secHeader.textContent = `Tab thuộc Terminal này (${managedSet.size})`;
     popover.appendChild(secHeader);
-
+    let renderedManagedCount = 0;
     (tabs || []).filter((t) => managedSet.has(t.id)).forEach((t) => {
       const item = document.createElement('div');
       const isPrimary = t.id === primaryId;
@@ -1749,17 +1759,89 @@ async function showAffinityPicker(sessionId, anchorEl) {
         }
       };
       popover.appendChild(item);
+      renderedManagedCount++;
     });
+
+    // Headless/offscreen agent tabs are filtered out of getTabs(), so they can never match the
+    // visible-tab loop above. Render them explicitly: Section 1 stays informative and the user
+    // still gets a copy + unbind action instead of a dangling raw UUID.
+    const visibleManagedIds = new Set((tabs || []).filter((t) => managedSet.has(t.id)).map((t) => t.id));
+    Array.from(managedSet).filter((id) => !visibleManagedIds.has(id)).forEach((hiddenId) => {
+      const item = document.createElement('div');
+      const isPrimary = hiddenId === primaryId;
+      item.className = `terminal-affinity-picker-item managed agent${isPrimary ? ' active' : ''}`;
+
+      const leftWrap = document.createElement('div');
+      leftWrap.style.display = 'flex';
+      leftWrap.style.alignItems = 'center';
+      leftWrap.style.gap = '6px';
+      leftWrap.style.overflow = 'hidden';
+
+      const agentIcon = document.createElement('span');
+      agentIcon.textContent = '🤖';
+      agentIcon.title = isPrimary ? 'Tab ngầm Agent (Primary)' : 'Tab ngầm Agent (Child)';
+
+      const textSpan = document.createElement('span');
+      textSpan.style.overflow = 'hidden';
+      textSpan.style.textOverflow = 'ellipsis';
+      textSpan.textContent = 'Tab ngầm Agent (Headless / Sandbox)';
+      leftWrap.append(agentIcon, textSpan);
+
+      const actionWrap = document.createElement('div');
+      actionWrap.style.display = 'flex';
+      actionWrap.style.alignItems = 'center';
+      actionWrap.style.gap = '4px';
+
+      const copyBtn = document.createElement('span');
+      copyBtn.className = 'affinity-item-copy-btn';
+      copyBtn.textContent = '📋';
+      copyBtn.title = `Sao chép Tab ID cho Agent (${hiddenId})`;
+      copyBtn.onclick = (ev) => {
+        ev.stopPropagation();
+        if (api?.copyToClipboard) {
+          api.copyToClipboard(hiddenId);
+        } else {
+          navigator.clipboard?.writeText(hiddenId);
+        }
+        copyBtn.textContent = '✅';
+        setTimeout(() => { copyBtn.textContent = '📋'; }, 1200);
+      };
+
+      const removeBtn = document.createElement('span');
+      removeBtn.className = 'affinity-item-remove-btn';
+      removeBtn.textContent = '✕';
+      removeBtn.title = 'Gỡ tab ngầm Agent khỏi Terminal';
+      removeBtn.onclick = async (ev) => {
+        ev.stopPropagation();
+        if (api?.removeTabAffinity) {
+          await api.removeTabAffinity(hiddenId, sessionId);
+          updateAffinityBadges();
+          showAffinityPicker(sessionId, anchorEl);
+        }
+      };
+
+      actionWrap.append(copyBtn, removeBtn);
+      item.append(leftWrap, actionWrap);
+      item.title = `Tab ngầm Agent (Headless / Sandbox) - ${hiddenId}`;
+      popover.appendChild(item);
+      renderedManagedCount++;
+    });
+
+    if (renderedManagedCount > 0) {
+      secHeader.textContent = `Tab thuộc Terminal này (${renderedManagedCount})`;
+    } else {
+      secHeader.remove();
+    }
   }
 
   // Section 2: Gán thêm Tab khác
   const otherTabs = (tabs || []).filter((t) => !managedSet.has(t.id));
   const addHeader = document.createElement('div');
   addHeader.className = 'terminal-affinity-picker-header';
-  addHeader.style.marginTop = managedSet.size > 0 ? '6px' : '0';
-  addHeader.textContent = managedSet.size > 0 ? 'Gán thêm Tab khác vào Terminal' : 'Gán Tab Trình Duyệt cho Terminal';
+  const hasManaged = (typeof renderedManagedCount === 'number' ? renderedManagedCount : managedSet.size) > 0;
+  addHeader.style.marginTop = hasManaged ? '6px' : '0';
+  addHeader.textContent = hasManaged ? 'Gán thêm Tab khác vào Terminal' : 'Gán Tab Trình Duyệt cho Terminal';
   popover.appendChild(addHeader);
-
   if (otherTabs.length === 0) {
     const empty = document.createElement('div');
     empty.style.padding = '8px 12px';
