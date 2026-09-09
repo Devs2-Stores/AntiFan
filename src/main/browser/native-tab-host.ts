@@ -969,7 +969,10 @@ export class NativeTabHost extends EventEmitter {
     ipcMain.handle(TOOLBAR_CHANNELS.STOP_FIND_IN_PAGE, () => this.stopFindInPage());
     ipcMain.handle(TOOLBAR_CHANNELS.SHOW_MENU, () => this.showMainMenu());
     ipcMain.handle('antifan:toolbar:check-updates', () => checkForUpdatesAndRestart(this.window));
-    ipcMain.handle('antifan:copy-bridge-token', () => {
+    ipcMain.handle('antifan:copy-bridge-token', (event) => {
+      if (!isTrustedSessionVaultSender(event)) {
+        return { success: false, error: 'FORBIDDEN_SENDER' };
+      }
       const bridge = BridgeServer.getInstance();
       if (bridge) {
         const token = bridge.getToken();
@@ -978,7 +981,10 @@ export class NativeTabHost extends EventEmitter {
       }
       return { success: false, error: 'Bridge server not running' };
     });
-    ipcMain.handle('antifan:rotate-bridge-token', () => {
+    ipcMain.handle('antifan:rotate-bridge-token', (event) => {
+      if (!isTrustedSessionVaultSender(event)) {
+        return { success: false, error: 'FORBIDDEN_SENDER' };
+      }
       const bridge = BridgeServer.getInstance();
       if (bridge) {
         const token = bridge.rotateToken();
@@ -988,7 +994,12 @@ export class NativeTabHost extends EventEmitter {
       return { success: false, error: 'Bridge server not running' };
     });
     ipcMain.handle(TOOLBAR_CHANNELS.SET_OVERLAY, (_event, active: boolean, customHeight?: number) => this.setToolbarOverlay(active, customHeight));
-    ipcMain.handle(TOOLBAR_CHANNELS.CLEAR_STORAGE, () => this.clearStorageForActiveTab());
+    ipcMain.handle(TOOLBAR_CHANNELS.CLEAR_STORAGE, (event) => {
+      if (!isTrustedSessionVaultSender(event)) {
+        return { success: false, error: 'FORBIDDEN_SENDER' };
+      }
+      return this.clearStorageForActiveTab();
+    });
     ipcMain.handle(TOOLBAR_CHANNELS.GET_CHROME_PROFILES, () => ChromeProfileSyncManager.getInstance().getAvailableProfiles());
     LocalSessionVault.getInstance().registerIpcHandlers(
       (_event?: unknown, payload?: unknown) => {
@@ -1103,7 +1114,10 @@ export class NativeTabHost extends EventEmitter {
         return res.response === 1;
       },
     }).registerIpcHandlers();
-    ipcMain.handle(TOOLBAR_CHANNELS.SYNC_CHROME_PROFILE, async (_event, profileId: string) => {
+    ipcMain.handle(TOOLBAR_CHANNELS.SYNC_CHROME_PROFILE, async (event, profileId: string) => {
+      if (!isTrustedSessionVaultSender(event)) {
+        return { success: false, cookiesCount: 0, bookmarksCount: 0, hasLiveCookies: false, message: 'FORBIDDEN_SENDER' };
+      }
       // Partition unification: cookies always hydrate the shared profile
       // partition (persist:profile-*), never a workspace capsule session, so
       // regular tabs and imports stay on one stable cookie store per profile.
@@ -1633,7 +1647,10 @@ export class NativeTabHost extends EventEmitter {
       }
       return false;
     });
-    ipcMain.handle('antifan:toolbar:get-mobile-remote-info', () => {
+    ipcMain.handle('antifan:toolbar:get-mobile-remote-info', (event) => {
+      if (!isTrustedSessionVaultSender(event)) {
+        return null;
+      }
       return BridgeServer.getInstance()?.getRemoteConnectionInfo() || null;
     });
 
@@ -3026,7 +3043,21 @@ export class NativeTabHost extends EventEmitter {
         this.bumpMutationRevision(id);
       }
     });
-    wc.on('will-redirect', (_event, _redirectUrl) => {});
+    wc.on('will-redirect', (event, redirectUrl) => {
+      // Fail-closed unified navigation policy on server redirects — a 30x
+      // must never escape the same allowlist as direct navigation.
+      if (!isAllowedNavigation(String(redirectUrl || ''))) {
+        event.preventDefault();
+      }
+    });
+    wc.on('will-navigate', (event, navigationUrl) => {
+      // Unified policy for renderer-initiated navigation (link clicks,
+      // location.href): block schemes that direct navigation forbids.
+      // Main-process loadURL sites apply the same check separately.
+      if (!isAllowedNavigation(String(navigationUrl || ''))) {
+        event.preventDefault();
+      }
+    });
     wc.on('did-fail-load', (_event, errorCode, errorDescription, validatedURL, isMainFrame) => {
       clearLoadingTimer();
       state.isLoading = false;
@@ -3213,7 +3244,7 @@ export class NativeTabHost extends EventEmitter {
             this.safeGoBack(siblingView.webContents);
           } else if (decision.historyDirection === 'forward') {
             this.safeGoForward(siblingView.webContents);
-          } else if (decision.mirrorUrl) {
+          } else if (decision.mirrorUrl && isAllowedNavigation(decision.mirrorUrl)) {
             const siblingUrl = cleanRestoredUrl(siblingView.webContents.getURL());
             if (siblingUrl !== decision.mirrorUrl) {
               siblingView.webContents.loadURL(decision.mirrorUrl).catch(() => {});
@@ -3252,7 +3283,7 @@ export class NativeTabHost extends EventEmitter {
               this.safeGoBack(siblingView.webContents);
             } else if (decision.historyDirection === 'forward') {
               this.safeGoForward(siblingView.webContents);
-            } else if (decision.mirrorUrl) {
+            } else if (decision.mirrorUrl && isAllowedNavigation(decision.mirrorUrl)) {
               const siblingUrl = cleanRestoredUrl(siblingView.webContents.getURL());
               if (siblingUrl !== decision.mirrorUrl) {
                 siblingView.webContents.loadURL(decision.mirrorUrl).catch(() => {});
@@ -3471,6 +3502,7 @@ export class NativeTabHost extends EventEmitter {
       state.url = url;
       this.fetchAndLoadPageSource(wc, sourceTargetUrl, state);
     } else if (url !== 'about:blank') {
+      if (!isAllowedNavigation(url)) return '';
       wc.loadURL(url)
         .then(() => this.clearInitialNavigationHistory(wc, state))
         .catch((err: unknown) => {
@@ -3529,7 +3561,7 @@ export class NativeTabHost extends EventEmitter {
         const isBlank = !target.state.url || target.state.url === 'about:blank';
         target.state.isLoading = !isBlank;
         this.setupTabWebContentsEvents(targetId, target.view, target.state, 'desktop');
-        if (!isBlank) {
+        if (!isBlank && isAllowedNavigation(target.state.url)) {
           target.view.webContents.loadURL(target.state.url).catch((err: unknown) => {
             if (err && typeof err === 'object' && ('code' in err || 'errno' in err)) {
               const code = 'code' in err ? String(err.code) : '';
@@ -3840,6 +3872,9 @@ export class NativeTabHost extends EventEmitter {
     const tab = this.tabs.get(tabId);
     if (!tab) return false;
     const cleanUrl = sanitizeUrl(inputUrl);
+    if (!isAllowedNavigation(cleanUrl)) {
+      return false;
+    }
     tab.state.url = cleanUrl;
     this.networkTracker.resetInflight(tabId, 'desktop');
     if (tab.state.splitMode) {
@@ -4201,7 +4236,7 @@ export class NativeTabHost extends EventEmitter {
           this.attachTabView(mobileView, true);
         }
 
-        if (tab.state.url && tab.state.url !== 'about:blank' && !tab.state.url.startsWith('view-source:')) {
+        if (tab.state.url && tab.state.url !== 'about:blank' && !tab.state.url.startsWith('view-source:') && isAllowedNavigation(tab.state.url)) {
           mobileView.webContents.loadURL(tab.state.url).catch(() => {});
         }
       }
@@ -4590,7 +4625,7 @@ export class NativeTabHost extends EventEmitter {
 
   public openExternal(url?: string): boolean {
     const targetUrl = url || this.getActiveTab()?.url;
-    if (targetUrl && (targetUrl.startsWith('http://') || targetUrl.startsWith('https://'))) {
+    if (targetUrl && isAllowedNavigation(targetUrl) && (targetUrl.startsWith('http://') || targetUrl.startsWith('https://'))) {
       shell.openExternal(targetUrl);
       return true;
     }

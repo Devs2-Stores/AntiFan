@@ -1237,7 +1237,13 @@ export class BridgeServer {
                 }
                 targetSession = this.tabHost.getPartitionSession(requestedPartition);
               } else {
-                targetSession = this.tabHost.getActiveTabSession();
+                // Fail closed: no ambient/active-tab fallback. A bridge or
+                // mobile credential must name an explicit target tab or
+                // partition; writing cookies into whatever tab the user is
+                // currently focused on is never implied.
+                res.writeHead(400, responseHeaders);
+                res.end(JSON.stringify({ success: false, error: 'TARGET_REQUIRED', message: 'TARGET_REQUIRED: cookie import without attachment claims requires explicit tabId or partition.' }));
+                return;
               }
             }
 

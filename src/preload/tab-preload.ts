@@ -2,7 +2,7 @@
  * AntiFan Browser Desktop — Tab Preload Script
  * Lightweight preload for JSON Viewer, tab utilities, and anti-detection consistency.
  */
-import { contextBridge, ipcRenderer } from 'electron';
+import { ipcRenderer } from 'electron';
 
 // 1. Browser Identity Baseline
 (() => {
@@ -485,40 +485,7 @@ window.addEventListener(
   } catch {}
 })();
 
-// 9. Narrow Typed ContextBridge API
-export interface AntiFanTabBridgeApi {
-  readonly version: '1.0.0';
-  readonly isIsolated: true;
-  notifyThemeError: (error: string) => void;
-  reportScroll: (scrollX: number, scrollY: number) => void;
-}
-
-const tabBridgeApi: AntiFanTabBridgeApi = Object.freeze({
-  version: '1.0.0',
-  isIsolated: true,
-  notifyThemeError: (error: string): void => {
-    if (typeof error === 'string' && error.trim()) {
-      try {
-        ipcRenderer.send('antifan:tab-theme-error', { themeError: error.trim().slice(0, 500) });
-      } catch {}
-    }
-  },
-  reportScroll: (scrollX: number, scrollY: number): void => {
-    if (typeof scrollX === 'number' && typeof scrollY === 'number' && Number.isFinite(scrollX) && Number.isFinite(scrollY)) {
-      try {
-        ipcRenderer.send('antifan:tab:scroll-changed', {
-          scrollX: Math.round(scrollX),
-          scrollY: Math.round(scrollY),
-        });
-      } catch {}
-    }
-  },
-});
-
-try {
-  contextBridge.exposeInMainWorld('antifanTab', tabBridgeApi);
-} catch {
-  try {
-    Reflect.set(window, 'antifanTab', tabBridgeApi);
-  } catch {}
-}
+// (Scroll position and theme errors are reported by this preload directly via
+// ipcRenderer in the listeners above; no privileged object is exposed to the
+// page main world. External content running with contextIsolation: true must
+// never see an antifanTab/antifan* global — Phase 5 deleted the dead bridge.)

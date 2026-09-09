@@ -962,4 +962,48 @@ describe('NativeTabHost Split Review Integration', () => {
     tracker.onRequestFinished(tabId, 'desktop', 'css-req');
     assert.strictEqual(tracker.getInflightCount(tabId, 'desktop'), 0);
   });
+
+  it('Phase 5: will-navigate and will-redirect enforce the shared navigation policy fail-closed', async () => {
+    const { host, desktopWc, state } = createTestHost();
+    const tabId = 'tab-nav-guard';
+    host.tabs.set(tabId, { view: { webContents: desktopWc }, state, focusedPane: 'desktop' });
+    privateHost.setupTabWebContentsEvents.call(host, tabId, { webContents: desktopWc }, state, 'desktop');
+
+    const makeEvent = (): { preventDefault: () => void; prevented?: boolean } => {
+      const ev: { preventDefault: () => void; prevented?: boolean } = {
+        preventDefault: () => { ev.prevented = true; },
+      };
+      return ev;
+    };
+
+    // Disallowed scheme on renderer-initiated navigation: blocked.
+    const blockedNav = makeEvent();
+    desktopWc.emit('will-navigate', blockedNav, 'file:///C:/secrets.txt');
+    assert.strictEqual(blockedNav.prevented, true, 'will-navigate must block file: navigation');
+
+    // Allowed scheme: not prevented.
+    const allowedNav = makeEvent();
+    desktopWc.emit('will-navigate', allowedNav, 'https://example.com/ok');
+    assert.strictEqual(allowedNav.prevented, undefined, 'will-navigate must allow https navigation');
+
+    // Server redirect to a forbidden scheme: blocked.
+    const blockedRedirect = makeEvent();
+    desktopWc.emit('will-redirect', blockedRedirect, 'javascript:alert(1)');
+    assert.strictEqual(blockedRedirect.prevented, true, 'will-redirect must block javascript: redirect');
+
+    // Allowed redirect: not prevented.
+    const allowedRedirect = makeEvent();
+    desktopWc.emit('will-redirect', allowedRedirect, 'https://example.com/moved');
+    assert.strictEqual(allowedRedirect.prevented, undefined, 'will-redirect must allow https redirect');
+
+    // view-source wrapper with non-http inner scheme: blocked (inner URL must be http/https).
+    const blockedViewSource = makeEvent();
+    desktopWc.emit('will-navigate', blockedViewSource, 'view-source:file:///etc/passwd');
+    assert.strictEqual(blockedViewSource.prevented, true, 'will-navigate must block view-source with non-http inner scheme');
+
+    // antifan-preview (internal preview) stays allowed.
+    const previewNav = makeEvent();
+    desktopWc.emit('will-navigate', previewNav, 'antifan-preview://preview/1');
+    assert.strictEqual(previewNav.prevented, undefined, 'will-navigate must allow antifan-preview internal scheme');
+  });
 });

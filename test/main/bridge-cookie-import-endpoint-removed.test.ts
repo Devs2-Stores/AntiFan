@@ -208,6 +208,7 @@ describe('Bridge cookie import & companion extension endpoints', () => {
           Origin: OFFICIAL_ORIGIN,
         },
         JSON.stringify({
+          tabId: 'tab-cookie-explicit',
           cookies: [
             { name: 'session_id', value: 'live-value-123', domain: 'example.com', path: '/' },
             { name: 'auth_token', value: 'jwt-abc', domain: '.example.com', path: '/' },
@@ -219,7 +220,41 @@ describe('Bridge cookie import & companion extension endpoints', () => {
       assert.strictEqual(result.success, true);
       assert.strictEqual(result.importedCount, 2);
       assert.strictEqual(host.cookieWriteCalls, 2);
-      assert.strictEqual(host.sessionAccessorCalls.getActiveTabSession, 1);
+      // Explicit target: getTabSession is the accessor, never the ambient active-tab fallback.
+      assert.strictEqual(host.sessionAccessorCalls.getTabSession, 1);
+      assert.strictEqual(host.sessionAccessorCalls.getActiveTabSession, 0);
+    } finally {
+      server.dispose();
+    }
+  });
+
+  it('POST /api/cookies/import without explicit target fails closed (TARGET_REQUIRED, no ambient active-tab fallback)', async () => {
+    const host = new StubHost();
+    const server = new BridgeServer(host as never, 0);
+    const port = await server.start();
+    try {
+      const res = await requestHttp(
+        port,
+        'POST',
+        '/api/cookies/import',
+        {
+          Authorization: `Bearer ${server.getToken()}`,
+          'Content-Type': 'application/json',
+          Origin: OFFICIAL_ORIGIN,
+        },
+        JSON.stringify({
+          cookies: [
+            { name: 'session_id', value: 'live-value-123', domain: 'example.com', path: '/' },
+          ],
+        })
+      );
+      assert.strictEqual(res.status, 400);
+      const result = JSON.parse(res.body);
+      assert.strictEqual(result.success, false);
+      assert.match(String(result.error), /TARGET_REQUIRED/);
+      // No ambient write: no session accessor invoked, no cookie mutated.
+      assert.deepStrictEqual(host.sessionAccessorCalls, { getActiveTabSession: 0, getTabSession: 0, getPartitionSession: 0 });
+      assert.strictEqual(host.cookieWriteCalls, 0);
     } finally {
       server.dispose();
     }
