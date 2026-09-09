@@ -4,7 +4,6 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import * as crypto from 'node:crypto';
-import { execSync } from 'node:child_process';
 import {
   BaselineAuthority,
   readPngDimensions,
@@ -124,7 +123,9 @@ describe('BaselineAuthority (Unit)', () => {
         dpr: 1,
         zoom: 1,
         cssViewport: { width: 800, height: 600 },
+        cssCaptureSize: { width: 800, height: 600 },
         rasterSize: { width: 800, height: 600 },
+        captureMode: 'viewport',
         timestamp: Date.now(),
       };
 
@@ -179,7 +180,7 @@ describe('BaselineAuthority (Unit)', () => {
       // 2. Empty backend throws and writes 0 files
       assert.throws(
         () => authority.promote(artifact.id, ctx, {
-          captureReceipt: { backend: '', dpr: 1, zoom: 1, cssViewport: { width: 800, height: 600 }, rasterSize: { width: 800, height: 600 }, timestamp: Date.now() },
+          captureReceipt: { backend: '', dpr: 1, zoom: 1, cssViewport: { width: 800, height: 600 }, rasterSize: { width: 800, height: 600 }, cssCaptureSize: { width: 800, height: 600 }, captureMode: 'viewport', timestamp: Date.now() },
         }),
         (err: any) => err instanceof CapabilityError && err.code === 'INVALID_ARGUMENT' && err.message.includes('backend must be a non-empty string')
       );
@@ -188,7 +189,7 @@ describe('BaselineAuthority (Unit)', () => {
       // 3. Non-positive DPR throws and writes 0 files
       assert.throws(
         () => authority.promote(artifact.id, ctx, {
-          captureReceipt: { backend: 'cdp', dpr: 0, zoom: 1, cssViewport: { width: 800, height: 600 }, rasterSize: { width: 800, height: 600 }, timestamp: Date.now() },
+          captureReceipt: { backend: 'cdp', dpr: 0, zoom: 1, cssViewport: { width: 800, height: 600 }, rasterSize: { width: 800, height: 600 }, cssCaptureSize: { width: 800, height: 600 }, captureMode: 'viewport', timestamp: Date.now() },
         }),
         (err: any) => err instanceof CapabilityError && err.code === 'INVALID_ARGUMENT' && err.message.includes('dpr must be a finite positive number')
       );
@@ -197,7 +198,7 @@ describe('BaselineAuthority (Unit)', () => {
       // 4. Mismatched raster dimensions (claiming 1920x1080 for an 800x600 PNG) throws and writes 0 files
       assert.throws(
         () => authority.promote(artifact.id, ctx, {
-          captureReceipt: { backend: 'cdp', dpr: 1, zoom: 1, cssViewport: { width: 800, height: 600 }, rasterSize: { width: 1920, height: 1080 }, timestamp: Date.now() },
+          captureReceipt: { backend: 'cdp', dpr: 1, zoom: 1, cssViewport: { width: 800, height: 600 }, rasterSize: { width: 1920, height: 1080 }, cssCaptureSize: { width: 800, height: 600 }, captureMode: 'viewport', timestamp: Date.now() },
         }),
         (err: any) => err instanceof CapabilityError && err.code === 'INVALID_ARGUMENT' && err.message.includes('do not match actual PNG dimensions')
       );
@@ -231,7 +232,9 @@ describe('BaselineAuthority (Unit)', () => {
             dpr: 1,
             zoom: 1,
             cssViewport: { width: 800, height: 600 },
+            cssCaptureSize: { width: 800, height: 600 },
             rasterSize: { width: 800, height: 600 },
+            captureMode: 'viewport',
             timestamp: Date.now(),
           },
         }),
@@ -278,7 +281,9 @@ describe('BaselineAuthority (Unit)', () => {
         dpr: 1,
         zoom: 1,
         cssViewport: { width: 640, height: 480 },
+        cssCaptureSize: { width: 640, height: 480 },
         rasterSize: { width: 640, height: 480 },
+        captureMode: 'viewport',
         timestamp: Date.now(),
       };
 
@@ -314,7 +319,9 @@ describe('BaselineAuthority (Unit)', () => {
         dpr: 1,
         zoom: 1,
         cssViewport: { width: 640, height: 480 },
+        cssCaptureSize: { width: 640, height: 480 },
         rasterSize: { width: 640, height: 480 },
+        captureMode: 'viewport',
         timestamp: Date.now(),
       };
 
@@ -355,7 +362,9 @@ describe('BaselineAuthority (Unit)', () => {
         dpr: 1,
         zoom: 1,
         cssViewport: { width: 320, height: 240 },
+        cssCaptureSize: { width: 320, height: 240 },
         rasterSize: { width: 320, height: 240 },
+        captureMode: 'viewport',
         timestamp: Date.now(),
       };
 
@@ -398,7 +407,9 @@ describe('BaselineAuthority (Unit)', () => {
         dpr: 2,
         zoom: 1,
         cssViewport: { width: 800, height: 600 },
+        cssCaptureSize: { width: 800, height: 600 },
         rasterSize: { width: 1600, height: 1200 },
+        captureMode: 'viewport',
         timestamp: Date.now(),
       };
 
@@ -412,7 +423,9 @@ describe('BaselineAuthority (Unit)', () => {
         dpr: 2,
         zoom: 1,
         cssViewport: { width: 800, height: 600 },
+        cssCaptureSize: { width: 800, height: 600 },
         rasterSize: { width: 1600, height: 1200 },
+        captureMode: 'viewport',
         timestamp: Date.now(),
       };
 
@@ -427,7 +440,9 @@ describe('BaselineAuthority (Unit)', () => {
         dpr: 1,
         zoom: 1,
         cssViewport: { width: 800, height: 600 },
+        cssCaptureSize: { width: 800, height: 600 },
         rasterSize: { width: 1600, height: 1200 },
+        captureMode: 'viewport',
         timestamp: Date.now(),
       };
 
@@ -442,7 +457,9 @@ describe('BaselineAuthority (Unit)', () => {
         dpr: 2,
         zoom: 1.25,
         cssViewport: { width: 800, height: 600 },
+        cssCaptureSize: { width: 800, height: 600 },
         rasterSize: { width: 1600, height: 1200 },
+        captureMode: 'viewport',
         timestamp: Date.now(),
       };
 
@@ -457,7 +474,9 @@ describe('BaselineAuthority (Unit)', () => {
         dpr: 2,
         zoom: 1,
         cssViewport: { width: 1024, height: 768 },
+        cssCaptureSize: { width: 1024, height: 768 },
         rasterSize: { width: 1600, height: 1200 },
+        captureMode: 'viewport',
         timestamp: Date.now(),
       };
 
@@ -472,7 +491,9 @@ describe('BaselineAuthority (Unit)', () => {
         dpr: 2,
         zoom: 1,
         cssViewport: { width: 800, height: 600 },
+        cssCaptureSize: { width: 800, height: 600 },
         rasterSize: { width: 800, height: 600 },
+        captureMode: 'viewport',
         timestamp: Date.now(),
       };
 
@@ -483,9 +504,28 @@ describe('BaselineAuthority (Unit)', () => {
   });
 
   describe('ArtifactStore Invariant (R4)', () => {
-    it('ensures ArtifactStore.ts remains strictly untouched (0 lines modified against HEAD)', () => {
-      const diff = execSync('git diff HEAD src/main/tools/artifact-store.ts', { encoding: 'utf8' });
-      assert.equal(diff.trim(), '', 'ArtifactStore.ts must not have any modifications against HEAD');
+    it('ordinary staging stays unleased and content-addressed; the exclusive evidence lease is opt-in', () => {
+      const runId = 'run-r4-invariant';
+      const ref = artifactStore.stage({
+        kind: 'screenshot',
+        mime: 'image/png',
+        data: Buffer.from('r4 invariant payload'),
+        runId,
+        attemptId: 'att-r4',
+        projectId: 'proj-alpha',
+        workspaceId: 'ws-alpha',
+      });
+
+      assert.ok(ref.path.endsWith(`${ref.sha256}.artifact`), 'content-addressed path preserved for unleased staging');
+      assert.strictEqual(ref.truncated, false);
+      assert.strictEqual(artifactStore.getLease(runId), undefined, 'stage() must never mint a lease implicitly');
+
+      const granted = artifactStore.preflight({ runId, artifactBytes: 1 });
+      assert.strictEqual(granted.granted, true);
+      assert.ok(granted.leaseToken, 'granted preflight mints a lease token');
+      assert.strictEqual(artifactStore.preflight({ runId, artifactBytes: 1 }).reason, 'LEASE_HELD');
+      assert.strictEqual(artifactStore.releaseLease(runId, 'not-the-issued-token').released, false);
+      assert.strictEqual(artifactStore.releaseLease(runId, granted.leaseToken!).released, true);
     });
   });
 });

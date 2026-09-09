@@ -3,6 +3,7 @@ import { describe, it, before, after } from 'node:test';
 import * as assert from 'node:assert/strict';
 import { BrowserControlPort, BrowserHostPort, computePixelDiff } from '../../src/main/tools/browser-control-port';
 import { BrowserTarget, CapabilityError } from '../../src/shared/control-plane-contracts';
+import { CaptureError, type VerificationCaptureEnvelope } from '../../src/main/verification/visual-capture';
 import { CapabilityCatalogue } from '../../src/main/tools/capability-catalogue';
 import { registerBrowserCapabilities } from '../../src/main/tools/browser-capabilities';
 import vm from 'node:vm';
@@ -74,6 +75,15 @@ interface MockHostOptions {
   structuralRowsFor?: (tabId: string) => any[];
   evalJsOverride?: (script: string, tabId?: string) => Promise<unknown> | unknown;
   pngDimensionsForTab?: (tabId: string) => { width: number; height: number };
+  /** Wraps each verification capture: gate, fail, or observe concurrency. */
+  captureHook?: (
+    args: { tabId: string; callIndex: number },
+    run: () => Promise<VerificationCaptureEnvelope>
+  ) => Promise<VerificationCaptureEnvelope>;
+  /** Host-level draining probe (T1 host API) used by compare quarantine. */
+  isTargetDrainingFor?: (tabId: string) => boolean;
+  /** Host-level bounded recovery (T1 host API) used by compare quarantine. */
+  drainTargetFor?: (tabId: string) => Promise<{ ok: boolean; drained: boolean; resetPerformed: boolean; elapsedMs: number }>;
   evalLog: EvalLogEntry[];
 }
 
@@ -81,11 +91,19 @@ function buildMockHost(opts: MockHostOptions) {
   const getDims = (tabId: string) => opts.pngDimensionsForTab ? opts.pngDimensionsForTab(tabId) : { width: 800, height: 600 };
   const curPng = createTestPng(getDims('tab-a').width, getDims('tab-a').height);
   const basePng = createTestPng(getDims('tab-b').width, getDims('tab-b').height);
+  const captureCounts = new Map<string, number>();
   const host = {
     hasTab: () => true,
     getTabList: () => [{ id: 'tab-a' }, { id: 'tab-b' }],
     evalJs: async (script: string, tabId?: string): Promise<unknown> => {
       opts.evalLog.push({ script, tabId });
+      if (script.includes('__antifan_compare_txn__')) {
+        // Reversible normalization transaction: a static fixture records no
+        // mutations and restores cleanly.
+        return script.includes('alreadyRestored')
+          ? { restored: true, alreadyRestored: true, failed: 0 }
+          : { applied: true, alreadyApplied: true, recorded: 0 };
+      }
       if (script.includes('el.remove')) {
         if (tabId && opts.restoreFailsFor?.has(tabId)) return false;
         return true;
@@ -134,24 +152,43 @@ function buildMockHost(opts: MockHostOptions) {
       return (tabId === 'tab-b' ? basePng : curPng).toString('base64');
     },
     captureVerificationScreenshot: async (rect: unknown, tabId?: string, paneId?: string, options?: any) => {
-      const data = await host.captureScreenshot(rect, tabId);
-      const backend = opts.captureBackendFor ? opts.captureBackendFor(tabId || '') : 'cdp';
-      const dpr = opts.dprFor ? opts.dprFor(tabId || '') : 1;
-      const zoom = opts.zoomFor ? opts.zoomFor(tabId || '') : 1.0;
-      const cssViewport = opts.viewportFor ? opts.viewportFor(tabId || '') : { width: 800, height: 600 };
-      return {
-        data,
-        backend,
-        dpr,
-        zoom,
-        cssViewport,
-        rasterSize: { width: getDims(tabId || '').width, height: getDims(tabId || '').height },
-        timestamp: Date.now(),
+      const key = tabId || '';
+      const callIndex = (captureCounts.get(key) || 0) + 1;
+      captureCounts.set(key, callIndex);
+      const run = async (): Promise<VerificationCaptureEnvelope> => {
+        const data = await host.captureScreenshot(rect, tabId);
+        const backend = opts.captureBackendFor ? opts.captureBackendFor(tabId || '') : 'cdp';
+        const dpr = opts.dprFor ? opts.dprFor(tabId || '') : 1;
+        const zoom = opts.zoomFor ? opts.zoomFor(tabId || '') : 1.0;
+        const cssViewport = opts.viewportFor ? opts.viewportFor(tabId || '') : { width: 800, height: 600 };
+        return {
+          data,
+          backend,
+          dpr,
+          zoom,
+          cssViewport,
+          // The fake capture ignores rect geometry and always returns the
+          // per-tab raster from getDims; cssCaptureSize mirrors the CSS viewport
+          // so structural-truncation scenarios surface as raster deltas, not as
+          // an artificial capture-state mismatch.
+          cssCaptureSize: { width: cssViewport.width, height: cssViewport.height },
+          rasterSize: { width: getDims(tabId || '').width, height: getDims(tabId || '').height },
+          captureMode: rect ? 'clip' : 'viewport',
+          timestamp: Date.now(),
+        };
       };
+      return opts.captureHook ? opts.captureHook({ tabId: key, callIndex }, run) : run();
     },
     getBrowserEpoch: () => 1,
     getDocumentGeneration: (tabId?: string) => (opts.docGenFor ? opts.docGenFor(tabId || '') : 1),
     getMutationRevision: (tabId?: string) => (opts.mutationRevFor ? opts.mutationRevFor(tabId || '') : 1),
+    isTargetDraining: (tabId?: string) => (opts.isTargetDrainingFor ? opts.isTargetDrainingFor(tabId || '') : false),
+    drainTarget: async (tabId?: string) => {
+      if (!opts.drainTargetFor) {
+        return { ok: false, drained: false, resetPerformed: false, elapsedMs: 0 };
+      }
+      return opts.drainTargetFor(tabId || '');
+    },
     getNetworkTracker: () => ({
       isAttached: () => true,
       awaitQuiescence: async (tabId: string) => ({
@@ -162,6 +199,63 @@ function buildMockHost(opts: MockHostOptions) {
     }),
   };
   return host;
+}
+
+interface StagedArtifactRecord {
+  id: string;
+  kind: string;
+  mime: string;
+  byteLength: number;
+  runId: string;
+  attemptId: string;
+  overflowMode?: string;
+  leaseToken?: string;
+}
+
+/** Minimal ArtifactRef-shaped sink so compare staging is observable end-to-end. */
+function buildArtifactSink(): { sink: any; staged: StagedArtifactRecord[] } {
+  const staged: StagedArtifactRecord[] = [];
+  let seq = 0;
+  const sink = {
+    stage: async (input: {
+      kind: string;
+      mime: string;
+      data: string | Buffer;
+      runId: string;
+      attemptId: string;
+      projectId: string;
+      workspaceId: string;
+      maxBytes?: number;
+      leaseToken?: string;
+      overflowMode?: 'truncate' | 'reject';
+    }) => {
+      seq += 1;
+      const buf = Buffer.isBuffer(input.data) ? input.data : Buffer.from(String(input.data), 'base64');
+      staged.push({
+        id: `art-${seq}`,
+        kind: input.kind,
+        mime: input.mime,
+        byteLength: buf.length,
+        runId: input.runId,
+        attemptId: input.attemptId,
+        overflowMode: input.overflowMode,
+        leaseToken: input.leaseToken,
+      });
+      return {
+        id: `art-${seq}`,
+        kind: input.kind,
+        mime: input.mime,
+        byteLength: buf.length,
+        sha256: `sha256-${seq}`,
+        runId: input.runId,
+        attemptId: input.attemptId,
+        projectId: input.projectId,
+        workspaceId: input.workspaceId,
+        createdAt: Date.now(),
+      };
+    },
+  };
+  return { sink, staged };
 }
 
 const dummyTarget: BrowserTarget = {
@@ -241,9 +335,11 @@ describe('visualCompare fail-closed mask ledger & normalization transaction', ()
     assert.strictEqual(result.match, true, 'identical bitmaps must match');
     assert.strictEqual((result.maskResolution as any).status, 'ok');
 
-    // Normalization: inject first, restore last — no leftovers.
-    const injects = evalLog.filter((e) => e.script.includes('appendChild'));
-    const restores = evalLog.filter((e) => e.script.includes('el.remove'));
+    // Normalization: inject first, restore last — no leftovers. The filters are
+    // scoped to the normalizeScroll style script: the reversible-normalization
+    // transaction also contains `el.removeAttribute`.
+    const injects = evalLog.filter((e) => e.script.includes('__antifan_normalize_scroll') && e.script.includes('appendChild'));
+    const restores = evalLog.filter((e) => e.script.includes('__antifan_normalize_scroll') && e.script.includes('el.remove()'));
     assert.strictEqual(injects.length, 2, 'one inject per side');
     assert.strictEqual(restores.length, 2, 'one verified restore per side');
     assert.deepEqual(new Set(injects.map((e) => e.tabId)), new Set(['tab-a', 'tab-b']));
@@ -251,10 +347,10 @@ describe('visualCompare fail-closed mask ledger & normalization transaction', ()
 
     const captureIndex = evalLog.findIndex((e) => e.script === ''); // no captures logged; injects must precede restores
     void captureIndex;
-    const firstInject = evalLog.findIndex((e) => e.script.includes('appendChild'));
-    const firstRestore = evalLog.findIndex((e) => e.script.includes('el.remove'));
+    const firstInject = evalLog.findIndex((e) => e.script.includes('__antifan_normalize_scroll') && e.script.includes('appendChild'));
+    const firstRestore = evalLog.findIndex((e) => e.script.includes('__antifan_normalize_scroll') && e.script.includes('el.remove()'));
     assert.ok(firstInject >= 0 && firstRestore > firstInject, 'restore must run after inject');
-    assert.ok(evalLog.every((e, idx) => !e.script.includes('el.remove') || idx > firstInject));
+    assert.ok(evalLog.every((e, idx) => !e.script.includes('el.remove()') || idx > firstInject));
 
     // Receipt: immutable per-side fields all settled.
     const norm = (result.normalization as any);
@@ -308,7 +404,7 @@ describe('visualCompare fail-closed mask ledger & normalization transaction', ()
       (err: unknown) => err instanceof Error && err.message.includes('simulated capture failure')
     );
 
-    const restores = evalLog.filter((e) => e.script.includes('el.remove') && e.tabId === 'tab-a');
+    const restores = evalLog.filter((e) => e.script.includes('__antifan_normalize_scroll') && e.script.includes('el.remove()') && e.tabId === 'tab-a');
     assert.strictEqual(restores.length, 1, 'finally must restore the owned style after an exception');
   });
 
@@ -472,7 +568,7 @@ describe('visualCompare capture coherence transaction', () => {
     assert.strictEqual(res.coherence.resampleCount, 1);
     // Both attempts injected and restored normalization on both tabs (per-attempt cleanup).
     const injectCount = evalLog.filter((e) => e.script.includes('createElement')).length;
-    const restoreCount = evalLog.filter((e) => e.script.includes('el.remove')).length;
+    const restoreCount = evalLog.filter((e) => e.script.includes('__antifan_normalize_scroll') && e.script.includes('el.remove()')).length;
     assert.strictEqual(injectCount, 4);
     assert.strictEqual(restoreCount, 4);
   });
@@ -1039,6 +1135,9 @@ describe('visualCompare evaluator structural primacy & receipts (Phase 5 R1, R2,
 
     const res = (await port.visualCompare(dummyTarget, 'run-settle-fail', 'att-1', {
       comparisonTabId: 'tab-b',
+      // No masks requested: the implicit default widget set would otherwise
+      // report NOT_ATTEMPTED because the settle barrier aborts before masking.
+      useDefaultWidgetMasks: false,
     })) as any;
 
     assert.strictEqual(res.status, 'INCONCLUSIVE');
@@ -1136,6 +1235,9 @@ describe('visualCompare evaluator structural primacy & receipts (Phase 5 R1, R2,
       async () => {
         await port.visualCompare(dummyTarget, 'run-err', 'att-4', {
           comparisonTabId: 'tab-b',
+          // No masks requested: the implicit default widget set would otherwise
+          // report NOT_ATTEMPTED because settle fails before masking.
+          useDefaultWidgetMasks: false,
         });
       },
       (err: unknown) => {
@@ -1489,5 +1591,82 @@ describe('visualCompare structural height drift & truncation controls', () => {
     assert.notStrictEqual((result as any).verdict, 'STRUCTURAL_TRUNCATION_DETECTED');
     assert.strictEqual(result.match, false, 'Non-overlapping pixel area with different heights must cause match:false');
     assert.ok((result as any).mismatchPercentage > 0, 'Must record non-zero mismatch percentage for height drift');
+  });
+
+  it('wires artifact sink and captures staged artifacts during visualCompare', async () => {
+    const evalLog: EvalLogEntry[] = [];
+    const host = buildMockHost({ evalLog });
+    const { sink, staged } = buildArtifactSink();
+    const port = new BrowserControlPort(host as any, sink);
+
+    const result = await port.visualCompare(
+      dummyTarget,
+      'run-sink-1',
+      'att-sink-1',
+      {
+        comparisonTabId: 'tab-b',
+      }
+    );
+
+    assert.ok(result);
+    assert.ok(staged.length > 0, 'Artifact sink must receive staged comparison evidence');
+    const kinds = staged.map((s) => s.kind);
+    assert.ok(kinds.includes('evidence-envelope') || kinds.includes('screenshot') || kinds.includes('diff'), `Expected evidence kinds in sink, got: ${kinds.join(', ')}`);
+    const first = staged[0];
+    assert.ok(first, 'Staged artifact record must exist');
+    assert.strictEqual(first.runId, 'run-sink-1');
+    assert.strictEqual(first.attemptId, 'att-sink-1');
+  });
+
+  it('assertTargetsUsable retains quarantine when recovery receipt ok is false, preventing admission to failed targets', async () => {
+    const evalLog: EvalLogEntry[] = [];
+    const host = buildMockHost({
+      evalLog,
+      isTargetDrainingFor: () => false, // Host no longer draining
+    });
+    const port = new BrowserControlPort(host as any);
+
+    // Manually inject a quarantine entry whose recovery completed with ok: false
+    const quarantineMap = (port as any).targetQuarantine as Map<string, any>;
+    const qKey = 'tab-a::desktop';
+    quarantineMap.set(qKey, {
+      tabId: 'tab-a',
+      paneId: 'desktop',
+      pairKey: qKey,
+      since: Date.now(),
+      reason: 'CDP timeout during prior transaction',
+      recovery: {
+        ok: false,
+        outcome: 'timeout',
+        error: 'CDP drain command timed out after 5000ms',
+      },
+      pending: Promise.resolve(),
+    });
+
+    // Attempting visualCompare on quarantined target must be rejected
+    await assert.rejects(
+      async () => {
+        await port.visualCompare(dummyTarget, 'run-quar-1', 'att-quar-1', { comparisonTabId: 'tab-b' });
+      },
+      (err: any) => {
+        assert.strictEqual(err.code, 'TARGET_BUSY_DRAINING');
+        assert.ok(err.message.includes('recovery failed'));
+        return true;
+      }
+    );
+
+    // Crucial check: quarantine entry MUST NOT have been deleted because recovery.ok is false!
+    assert.ok(quarantineMap.has(qKey), 'Quarantine entry must be retained when recovery failed');
+
+    // When recovery successfully completes with ok: true, subsequent transaction clears quarantine
+    quarantineMap.get(qKey)!.recovery = {
+      ok: true,
+      outcome: 'recovered',
+      elapsedMs: 120,
+    };
+
+    const successResult = await port.visualCompare(dummyTarget, 'run-quar-2', 'att-quar-2', { comparisonTabId: 'tab-b' });
+    assert.ok(successResult);
+    assert.strictEqual(quarantineMap.has(qKey), false, 'Quarantine entry must be deleted after successful recovery');
   });
 });

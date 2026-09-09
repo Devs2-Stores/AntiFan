@@ -16,7 +16,21 @@ import { AnnotationManager } from '../bridge/annotation-manager';
 import { TerminalManager } from './terminal-manager';
 import type { NativeTabRecord } from './native-tab-host';
 import type { SemanticElementDescriptor } from './semantic-ref-types';
-import type { VerificationCaptureEnvelope } from '../verification/visual-capture';
+import {
+  CAPTURE_MAX_DIMENSION,
+  CaptureError,
+  rasterMatchesCss,
+  resolveCaptureMode,
+  validateJpegBuffer,
+  validatePngBuffer,
+  type VerificationCaptureEnvelope,
+} from '../verification/visual-capture';
+
+const delay = (ms: number): Promise<void> => {
+  const { promise, resolve } = Promise.withResolvers<void>();
+  setTimeout(resolve, ms);
+  return promise;
+};
 
 export interface TabDevToolsContext {
   getTabWebContents: (tabId?: string, paneId?: SplitPaneId) => Electron.WebContents | null;
@@ -548,21 +562,7 @@ export class TabDevToolsHost {
       this.cdpWebContentsRefs.set(wcId, wc);
 
       const onDetach = () => {
-        this.cdpAttachedWebContents.delete(wcId);
-        this.cdpAttachedByHost.delete(wcId);
-        this.cdpWebContentsRefs.delete(wcId);
-        this.cdpQueues.delete(wcId);
-        this.cdpDrainingTargets.delete(wcId);
-        this.stylesheetUrls.delete(wcId);
-        this.isolatedContextIds.delete(wcId);
-        const l = this.cdpListeners.get(wcId);
-        if (l?.onNavigate && typeof wc.removeListener === 'function') {
-          try { wc.removeListener('did-navigate', l.onNavigate); } catch {}
-        }
-        if (l?.onMessage && typeof wc.debugger.removeListener === 'function') {
-          try { wc.debugger.removeListener('message', l.onMessage); } catch {}
-        }
-        this.cdpListeners.delete(wcId);
+        this.cleanupCdpTarget(wcId);
       };
 
       const onNavigate = () => {
@@ -649,6 +649,144 @@ export class TabDevToolsHost {
     ]).finally(() => {
       clearTimeout(timer);
     }) as Promise<T>;
+  }
+
+  /**
+   * Drops every per-WebContents transport registration: attachment bookkeeping,
+   * CDP queue/draining state, cached stylesheet + isolated-world maps, and the
+   * debugger/did-navigate listeners. Idempotent; the next sendCdpCommand
+   * re-attaches lazily.
+   */
+  private cleanupCdpTarget(wcId: number): void {
+    const wc = this.cdpWebContentsRefs.get(wcId);
+    this.cdpAttachedWebContents.delete(wcId);
+    this.cdpAttachedByHost.delete(wcId);
+    this.cdpWebContentsRefs.delete(wcId);
+    this.cdpQueues.delete(wcId);
+    this.cdpDrainingTargets.delete(wcId);
+    this.stylesheetUrls.delete(wcId);
+    this.isolatedContextIds.delete(wcId);
+    const listeners = this.cdpListeners.get(wcId);
+    if (listeners && wc && !wc.isDestroyed()) {
+      if (listeners.onNavigate && typeof wc.removeListener === 'function') {
+        try { wc.removeListener('did-navigate', listeners.onNavigate); } catch {}
+      }
+      if (listeners.onMessage && wc.debugger && typeof wc.debugger.removeListener === 'function') {
+        try { wc.debugger.removeListener('message', listeners.onMessage); } catch {}
+      }
+    }
+    this.cdpListeners.delete(wcId);
+  }
+
+  private isWebContentsDraining(wc: Electron.WebContents | null | undefined): boolean {
+    if (!wc || wc.isDestroyed()) return false;
+    return this.cdpDrainingTargets.has(wc.id);
+  }
+
+  /** True while the target holds a timed-out in-flight CDP command. */
+  public isTargetDraining(tabId: string, paneId?: SplitPaneId): boolean {
+    const target = this.ctx.getTabRecord(tabId);
+    const wc = this.ctx.getTabWebContents(tabId, paneId || target?.focusedPane);
+    return this.isWebContentsDraining(wc);
+  }
+
+  private async raceWithDeadline(p: Promise<unknown>, deadlineMs: number): Promise<void> {
+    const remainingMs = deadlineMs - Date.now();
+    if (remainingMs <= 0) return;
+    const { promise: expired, resolve: resolveExpired } = Promise.withResolvers<void>();
+    const timer = setTimeout(resolveExpired, remainingMs);
+    const settled = p.then(() => undefined, () => undefined);
+    try {
+      await Promise.race([settled, expired]);
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  /**
+   * Bounded recovery for a target whose CDP queue is blocked. Waits for the
+   * per-WebContents queue tail to settle; if it is still pending at the bound,
+   * performs a bounded debugger detach (which settles the in-flight command)
+   * and clears the transport state so the next command re-attaches lazily.
+   * Draining state is cleared only after the tail settles or the reset completes.
+   */
+  public async drainTarget(
+    tabId: string,
+    paneId?: SplitPaneId,
+    timeoutMs = 5_000
+  ): Promise<{ ok: boolean; drained: boolean; resetPerformed: boolean; elapsedMs: number }> {
+    const startedAt = Date.now();
+    const target = this.ctx.getTabRecord(tabId);
+    const wc = this.ctx.getTabWebContents(tabId, paneId || target?.focusedPane);
+    if (!wc || wc.isDestroyed()) {
+      return { ok: true, drained: true, resetPerformed: false, elapsedMs: Date.now() - startedAt };
+    }
+    const wcId = wc.id;
+    const deadline = startedAt + Math.min(60_000, Math.max(1, timeoutMs));
+
+    const tail = this.cdpQueues.get(wcId);
+    if (tail) {
+      await this.raceWithDeadline(tail.catch(() => {}), deadline);
+    }
+    while (this.cdpDrainingTargets.has(wcId) && Date.now() < deadline) {
+      await delay(25);
+    }
+    if (!this.cdpQueues.has(wcId) && !this.cdpDrainingTargets.has(wcId)) {
+      return { ok: true, drained: true, resetPerformed: false, elapsedMs: Date.now() - startedAt };
+    }
+
+    let resetPerformed = false;
+    try {
+      if (wc.debugger.isAttached()) {
+        wc.debugger.detach();
+        resetPerformed = true;
+      }
+    } catch {
+      resetPerformed = false;
+    }
+    if (!resetPerformed) {
+      return { ok: false, drained: false, resetPerformed: false, elapsedMs: Date.now() - startedAt };
+    }
+
+    const pendingTail = this.cdpQueues.get(wcId);
+    if (pendingTail) {
+      await this.raceWithDeadline(pendingTail.catch(() => {}), Date.now() + 250);
+    }
+    this.cleanupCdpTarget(wcId);
+    const drained = !this.cdpQueues.has(wcId) && !this.cdpDrainingTargets.has(wcId);
+    return { ok: true, drained, resetPerformed: true, elapsedMs: Date.now() - startedAt };
+  }
+
+  private toCaptureError(err: unknown, context: string): Error {
+    if (err instanceof CaptureError) return err;
+    const message = err instanceof Error ? err.message : String(err);
+    if (message.includes('TARGET_BUSY_DRAINING')) {
+      return new CaptureError('TARGET_BUSY_DRAINING', `${context}: ${message}`);
+    }
+    if (/timed out after \d+ms/i.test(message)) {
+      return new CaptureError('CAPTURE_TIMEOUT', `${context}: ${message}`);
+    }
+    return err instanceof Error ? err : new Error(`${context}: ${message}`);
+  }
+
+  /**
+   * Document scroll height in CSS pixels for full-page capture. Fails closed:
+   * an unavailable height must never degrade into a viewport-only capture
+   * mislabeled as full-page evidence.
+   */
+  private async readDocumentScrollHeight(wc: Electron.WebContents): Promise<number> {
+    const res = await this.sendCdpCommand<{ result?: { value?: unknown } }>(wc, 'Runtime.evaluate', {
+      expression: 'Math.max(document.documentElement ? document.documentElement.scrollHeight : 0, document.body ? document.body.scrollHeight : 0, document.scrollingElement ? document.scrollingElement.scrollHeight : 0)',
+      returnByValue: true,
+    });
+    const height = Number(res?.result?.value);
+    if (!Number.isFinite(height) || height < 1) {
+      throw new CaptureError(
+        'FULLPAGE_CAPTURE_UNSUPPORTED_GEOMETRY',
+        `Document scroll height is unavailable (${String(res?.result?.value)}); full-page capture cannot be bounded`
+      );
+    }
+    return height;
   }
 
   public async describeNodeByObjectId(
@@ -944,7 +1082,21 @@ export class TabDevToolsHost {
     }
   }
 
+  /**
+   * Legacy viewport screenshot helper (native capturePage + CDP viewport tiers).
+   * It can never produce full-page bytes: `fullPage` delegates to the canonical
+   * verification capture, so a caller can never receive viewport pixels labeled
+   * as full-page evidence.
+   */
   public async captureScreenshot(rect?: Rectangle, tabId?: string, paneId?: SplitPaneId, options?: { format?: 'png' | 'jpeg'; quality?: number; fullPage?: boolean; maskSelectors?: string[] }): Promise<string> {
+    if (options?.fullPage) {
+      const envelope = await this.captureVerificationScreenshot(rect, tabId, paneId, {
+        format: options.format,
+        quality: options.quality,
+        fullPage: true,
+      });
+      return envelope.data;
+    }
     const targetId = tabId || this.ctx.getActiveTabId();
     const target = this.ctx.getTabRecord(targetId);
     if (!target) return '';
@@ -961,7 +1113,6 @@ export class TabDevToolsHost {
     const format = options?.format === 'jpeg' ? 'jpeg' : 'png';
     const rawQuality = typeof options?.quality === 'number' ? options.quality : 80;
     const quality = Math.max(1, Math.min(100, Math.round(rawQuality <= 1 && rawQuality > 0 ? rawQuality * 100 : rawQuality)));
-     const isFullPage = Boolean(options?.fullPage);
     // When the target tab is in the background, activate it for the duration of
     // the capture. A detached WebContentsView has no composited offscreen surface
     // on Windows, so Page.captureScreenshot would otherwise capture the active tab.
@@ -1024,73 +1175,8 @@ export class TabDevToolsHost {
               clearTimeout(timer);
             });
           };
-        // Full-page CDP capture bypasses Tier 1 (wc.capturePage is strictly viewport-only)
-        if (isFullPage) {
-          try {
-            const fullPageTask = async (): Promise<string | null> => {
-              await this.sendCdpCommand(wc, 'Page.enable');
-              const metrics = await this.sendCdpCommand<{
-                contentSize?: { width: number; height: number };
-                cssContentSize?: { width: number; height: number };
-                visualViewport?: { clientWidth: number; clientHeight: number };
-                layoutViewport?: { clientWidth: number; clientHeight: number };
-              }>(wc, 'Page.getLayoutMetrics').catch(() => null);
-
-              let contentWidth = metrics?.contentSize?.width || metrics?.cssContentSize?.width;
-              let contentHeight = metrics?.contentSize?.height || metrics?.cssContentSize?.height;
-              const vpWidth = metrics?.visualViewport?.clientWidth || metrics?.layoutViewport?.clientWidth || 1200;
-              const vpHeight = metrics?.visualViewport?.clientHeight || metrics?.layoutViewport?.clientHeight || 800;
-
-              // If content dimensions are missing or height appears truncated to viewport, query DOM scroll dimensions directly
-              if (!contentHeight || contentHeight <= vpHeight || !contentWidth) {
-                try {
-                  const docDims = await this.sendCdpCommand<{ result?: { value?: { width?: number; height?: number } } }>(
-                    wc,
-                    'Runtime.evaluate',
-                    {
-                      expression: '({ width: Math.max(document.documentElement ? document.documentElement.scrollWidth : 0, document.body ? document.body.scrollWidth : 0, document.scrollingElement ? document.scrollingElement.scrollWidth : 0), height: Math.max(document.documentElement ? document.documentElement.scrollHeight : 0, document.body ? document.body.scrollHeight : 0, document.scrollingElement ? document.scrollingElement.scrollHeight : 0) })',
-                      returnByValue: true,
-                    }
-                  ).catch(() => null);
-                  if (docDims?.result?.value?.height) {
-                    contentHeight = Math.max(contentHeight || 0, docDims.result.value.height);
-                  }
-                  if (docDims?.result?.value?.width) {
-                    contentWidth = Math.max(contentWidth || 0, docDims.result.value.width);
-                  }
-                } catch {}
-              }
-
-              const rawW = Math.round(contentWidth || vpWidth);
-              const rawH = Math.round(contentHeight || vpHeight);
-              let safeWidth = Number.isFinite(rawW) ? Math.max(1, Math.min(rawW, 16384)) : 1200;
-              let safeHeight = Number.isFinite(rawH) ? Math.max(1, Math.min(rawH, 16384)) : 800;
-              const maxPixels = 268435456;
-              if (safeWidth * safeHeight > maxPixels) {
-                safeHeight = Math.floor(maxPixels / safeWidth);
-              }
-
-              const cdpRes = await this.sendCdpCommand<{ data?: string }>(wc, 'Page.captureScreenshot', {
-                format,
-                quality: format === 'jpeg' ? quality : undefined,
-                fromSurface: false,
-                captureBeyondViewport: true,
-                clip: { x: 0, y: 0, width: safeWidth, height: safeHeight, scale: 1 },
-              });
-
-              return (cdpRes && typeof cdpRes.data === 'string' && cdpRes.data.length > 0) ? cdpRes.data : null;
-            };
-
-            const fullPageResult = await withTimeout(fullPageTask(), 20000, null);
-            if (fullPageResult && fullPageResult.length > 0) {
-              return fullPageResult;
-            }
-            throw new Error('FULLPAGE_CAPTURE_TIMEOUT: CDP full-page screenshot timed out after 20000ms. Consider freezing media or checking page complexity.');
-          } catch (err: unknown) {
-            console.error('[AntiFan DevTools] Full-page capture error:', err);
-            throw err;
-          }
-        }
+        // Full-page requests are delegated to captureVerificationScreenshot above;
+        // this helper is strictly viewport/clip.
         if (isForeground || isOffscreenTarget) {
           // Tier 1: Fast webContents.capturePage() with 600ms race.
           // Foreground tabs only to avoid compositor surface bleed; offscreen agent
@@ -1217,7 +1303,7 @@ export class TabDevToolsHost {
     rect?: Rectangle,
     tabId?: string,
     paneId?: SplitPaneId,
-    options?: { format?: 'png' | 'jpeg'; quality?: number; fullPage?: boolean }
+    options?: { format?: 'png' | 'jpeg'; quality?: number; fullPage?: boolean; timeoutMs?: number }
   ): Promise<VerificationCaptureEnvelope> {
     const targetId = tabId || this.ctx.getActiveTabId();
     const target = this.ctx.getTabRecord(targetId);
@@ -1231,6 +1317,28 @@ export class TabDevToolsHost {
     if (!wc || wc.isDestroyed()) {
       throw new Error(`WebContents not available for tab '${targetId}'`);
     }
+    const mode = resolveCaptureMode(rect, options?.fullPage);
+    const imageFormat: 'png' | 'jpeg' = options?.format === 'jpeg' ? 'jpeg' : 'png';
+    if (mode === 'full-page' && imageFormat === 'jpeg') {
+      throw new CaptureError(
+        'FULLPAGE_CAPTURE_UNSUPPORTED_FORMAT',
+        `Full-page verification capture produces PNG evidence only; jpeg was requested for tab '${targetId}'`
+      );
+    }
+    const isOffscreenTarget = target.state?.offscreen === true;
+    if (mode === 'full-page' && isOffscreenTarget) {
+      throw new CaptureError(
+        'FULLPAGE_CAPTURE_UNSUPPORTED_ON_OFFSCREEN',
+        `Full-page verification capture is unsupported on offscreen target '${targetId}'; use viewport/clip capture or a foreground tab`
+      );
+    }
+    if (this.isWebContentsDraining(wc)) {
+      throw new CaptureError(
+        'TARGET_BUSY_DRAINING',
+        `Target '${targetId}' is draining a timed-out CDP command; drain the target before capturing`
+      );
+    }
+    const boundMs = Math.min(60_000, Math.max(1, options?.timeoutMs ?? 60_000));
     if (target.customViewport && target.customViewport.width > 0 && target.customViewport.height > 0) {
       if (targetPaneView && typeof targetPaneView.setBounds === 'function') {
         targetPaneView.setBounds({ x: 0, y: 0, width: target.customViewport.width, height: target.customViewport.height });
@@ -1244,13 +1352,12 @@ export class TabDevToolsHost {
       }
     }
 
-    const isFullPage = Boolean(options?.fullPage);
     // Activate the target tab when it sits in the background. CDP capture on a
     // detached WebContentsView cannot composite an offscreen surface on Windows
     // and would reproduce the active tab; the prior active tab is restored below.
     // (Dual-Plane: offscreen agent tabs render to an offscreen compositor surface,
-    // so they bypass the foreground swap and capture via capturePage below.)
-    const isOffscreenTarget = target.state?.offscreen === true;
+    // so they bypass the foreground swap and capture CDP-directly; full-page on an
+    // offscreen target is rejected above, never degraded to capturePage.)
     const activeBeforeCapture = this.ctx.getActiveTabId();
     const switchTabForCapture = this.ctx.switchTab;
     if (typeof switchTabForCapture === 'function' && !isOffscreenTarget && targetId !== activeBeforeCapture) {
@@ -1262,7 +1369,7 @@ export class TabDevToolsHost {
       }
       try {
         await this.evalJs('new Promise(r => { const t = setTimeout(r, 60); const raf = typeof window.__antifanOriginalRAF === "function" ? window.__antifanOriginalRAF : (typeof requestAnimationFrame === "function" ? requestAnimationFrame : null); if (raf) { raf(() => raf(() => { clearTimeout(t); r(); })); } })', targetId, effectivePane);
-        await new Promise((r) => setTimeout(r, 120));
+        await delay(120);
       } catch {}
     }
     const isForeground = targetId === this.ctx.getActiveTabId();
@@ -1281,164 +1388,132 @@ export class TabDevToolsHost {
           );
         } catch {}
         const captureAction = async (): Promise<VerificationCaptureEnvelope> => {
-        // Derive zoom and DPR directly from browser/CDP state inside agent working block (atomic with capture, non-nesting)
-        const zoom = typeof wc.getZoomFactor === 'function' ? wc.getZoomFactor() : 1.0;
-        const metricsRes = await this.sendCdpCommand<{ result?: { value?: { dpr?: number; vw?: number; vh?: number } } }>(
-          wc,
-          'Runtime.evaluate',
-          {
-            expression: '({ dpr: window.devicePixelRatio || 1, vw: window.innerWidth || 0, vh: window.innerHeight || 0 })',
-            returnByValue: true,
-          }
-        ).catch(() => null);
-        const metrics = metricsRes?.result?.value;
-
-        const dpr = Number(metrics?.dpr) || 1;
-        const cssViewport = {
-          width: Number(metrics?.vw) || 1200,
-          height: Number(metrics?.vh) || 800,
-        };
-
-        await this.sendCdpCommand(wc, 'Page.enable');
-        await this.sendCdpCommand(wc, 'DOM.getDocument', { depth: 1 }).catch(() => {});
-        await this.sendCdpCommand(wc, 'Emulation.setDefaultBackgroundColorOverride', {
-          color: { r: 255, g: 255, b: 255, a: 1 },
-        }).catch(() => {});
-
-        let clip = rect
-          ? { x: rect.x, y: rect.y, width: rect.width, height: rect.height, scale: 1 }
-          : undefined;
-
-        if (isFullPage && !clip) {
-          const docMetricsRes = await this.sendCdpCommand<{ result?: { value?: { dh?: number; dw?: number } } }>(
+          // Derive zoom and DPR directly from browser/CDP state inside agent working block (atomic with capture, non-nesting)
+          const zoom = typeof wc.getZoomFactor === 'function' ? wc.getZoomFactor() : 1.0;
+          const metricsRes = await this.sendCdpCommand<{ result?: { value?: { dpr?: number; vw?: number; vh?: number } } }>(
             wc,
             'Runtime.evaluate',
             {
-              expression: '({ dh: Math.max(document.documentElement ? document.documentElement.scrollHeight : 0, document.body ? document.body.scrollHeight : 0), dw: Math.max(document.documentElement ? document.documentElement.scrollWidth : 0, document.body ? document.body.scrollWidth : 0) })',
+              expression: '({ dpr: window.devicePixelRatio || 1, vw: window.innerWidth || 0, vh: window.innerHeight || 0 })',
               returnByValue: true,
             }
           ).catch(() => null);
-          const docMetrics = docMetricsRes?.result?.value;
+          const metrics = metricsRes?.result?.value;
 
-          const safeWidth = Math.max(1, Math.min(cssViewport.width, 16384));
-          const safeHeight = Math.max(1, Math.min(Number(docMetrics?.dh) || cssViewport.height, 16384));
-          clip = { x: 0, y: 0, width: safeWidth, height: safeHeight, scale: 1 };
-        }
-        // Canonical CDP Page.captureScreenshot with multi-tier surface fallback
-        let cdpRes: { data?: string } | undefined;
-        try {
-          cdpRes = await this.sendCdpCommand<{ data?: string }>(
-            wc,
-            'Page.captureScreenshot',
-            {
-              format: 'png',
-              fromSurface: isForeground,
-              captureBeyondViewport: isFullPage,
-              clip,
-            },
-            isFullPage ? 45_000 : 15_000
-          );
-        } catch (initialErr) {
+          const dpr = Number(metrics?.dpr) || 1;
+          const cssViewport = {
+            width: Number(metrics?.vw) || 1200,
+            height: Number(metrics?.vh) || 800,
+          };
+
+          await this.sendCdpCommand(wc, 'Page.enable');
+          await this.sendCdpCommand(wc, 'Emulation.setDefaultBackgroundColorOverride', {
+            color: { r: 255, g: 255, b: 255, a: 1 },
+          }).catch(() => {});
+
+          // cssCaptureSize describes the region Chromium is asked to rasterize:
+          // viewport (no clip), clip rect (rect wins over fullPage), or document.
+          let cssCaptureSize: { width: number; height: number };
+          let clip: { x: number; y: number; width: number; height: number; scale: number } | undefined;
+          if (mode === 'clip' && rect) {
+            cssCaptureSize = { width: rect.width, height: rect.height };
+            clip = { x: rect.x, y: rect.y, width: rect.width, height: rect.height, scale: 1 };
+          } else if (mode === 'full-page') {
+            const documentScrollHeight = await this.readDocumentScrollHeight(wc);
+            cssCaptureSize = { width: cssViewport.width, height: documentScrollHeight };
+            clip = { x: 0, y: 0, width: cssViewport.width, height: documentScrollHeight, scale: 1 };
+          } else if (mode === 'clip') {
+            throw new CaptureError('FULLPAGE_CAPTURE_UNSUPPORTED_GEOMETRY', `Clip capture requires a rectangle on tab '${targetId}'`);
+          } else {
+            cssCaptureSize = { width: cssViewport.width, height: cssViewport.height };
+          }
+
+          // Reject unsupported geometry instead of clamping: a clamped capture
+          // would silently misrepresent the document region it claims to show.
+          if (mode !== 'viewport') {
+            const { width, height } = cssCaptureSize;
+            if (
+              !Number.isFinite(width) || !Number.isFinite(height) ||
+              width < 1 || height < 1 ||
+              width > CAPTURE_MAX_DIMENSION || height > CAPTURE_MAX_DIMENSION
+            ) {
+              throw new CaptureError(
+                'FULLPAGE_CAPTURE_UNSUPPORTED_GEOMETRY',
+                `Requested ${mode} capture region ${width}x${height} CSS px is outside the supported 1..${CAPTURE_MAX_DIMENSION} range on tab '${targetId}'`
+              );
+            }
+          }
+
+          // ONE bounded Page.captureScreenshot. No retry tier and no capturePage
+          // fallback: a second attempt on a poisoned CDP queue is what wedged the
+          // target before, and capturePage can only ever return viewport bytes.
+          //
+          // clip/full-page must rasterize from the compositor surface: with
+          // fromSurface:false Chromium captures the renderer view, which is
+          // bounded by the widget height, so a clip taller than the viewport
+          // comes back silently truncated to the viewport (measured: clip
+          // 1440x2200 -> raster 1440x900) while the receipt still declares the
+          // requested CSS size. The target is activated (or attached via
+          // runWithAttachedTabView) before this call, so the surface belongs to
+          // the requested tab.
+          let captureRes: { data?: string } | undefined;
           try {
-            cdpRes = await this.sendCdpCommand<{ data?: string }>(
+            captureRes = await this.sendCdpCommand<{ data?: string }>(
               wc,
               'Page.captureScreenshot',
               {
-                format: 'png',
-                fromSurface: !isForeground,
-                captureBeyondViewport: isFullPage,
+                format: imageFormat,
+                quality: imageFormat === 'jpeg' ? Math.max(1, Math.min(100, Math.round(options?.quality ?? 85))) : undefined,
+                fromSurface: mode !== 'viewport',
+                captureBeyondViewport: mode !== 'viewport',
                 clip,
               },
-              isFullPage ? 45_000 : 15_000
+              boundMs
             );
-          } catch {
-            try {
-              const img = await wc.capturePage(rect);
-              if (img && typeof img.isEmpty === 'function' && !img.isEmpty()) {
-                cdpRes = { data: img.toPNG().toString('base64') };
-              }
-            } catch {}
-            if (!cdpRes || !cdpRes.data) {
-              throw initialErr;
-            }
+          } catch (err) {
+            throw this.toCaptureError(err, `Page.captureScreenshot (${mode}) on tab '${targetId}'`);
           }
-        }
-        if (!cdpRes || typeof cdpRes.data !== 'string' || cdpRes.data.length === 0) {
-          throw new Error(`CDP Page.captureScreenshot returned empty payload on tab '${targetId}'`);
-        }
 
-        let rasterWidth = 0;
-        let rasterHeight = 0;
-        const buf = Buffer.from(cdpRes.data, 'base64');
-        if (buf.length >= 24 && buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4e && buf[3] === 0x47) {
-          rasterWidth = buf.readUInt32BE(16);
-          rasterHeight = buf.readUInt32BE(20);
-        }
+          if (!captureRes || typeof captureRes.data !== 'string' || captureRes.data.length === 0) {
+            throw new CaptureError('CAPTURE_EMPTY_PAYLOAD', `CDP Page.captureScreenshot returned an empty payload on tab '${targetId}'`);
+          }
+          const bytes = Buffer.from(captureRes.data, 'base64');
+          const image = imageFormat === 'jpeg' ? validateJpegBuffer(bytes) : validatePngBuffer(bytes);
+          if (!image.ok) {
+            const fallback = imageFormat === 'jpeg' ? 'CAPTURE_JPEG_UNDECODABLE' : 'CAPTURE_PNG_UNDECODABLE';
+            throw new CaptureError(
+              image.code ?? fallback,
+              `CDP Page.captureScreenshot payload on tab '${targetId}' failed ${imageFormat.toUpperCase()} validation (${image.code ?? fallback}, ${bytes.length} bytes)`
+            );
+          }
+          const rasterSize = { width: image.width, height: image.height };
+          if (!rasterMatchesCss(rasterSize, cssCaptureSize, dpr, zoom)) {
+            throw new CaptureError(
+              'CAPTURE_SCALE_MISMATCH',
+              `Raster ${rasterSize.width}x${rasterSize.height} does not match CSS capture ${cssCaptureSize.width}x${cssCaptureSize.height} at dpr ${dpr} x zoom ${zoom} on tab '${targetId}'`
+            );
+          }
 
-        return {
-          data: cdpRes.data,
-          backend: 'cdp',
-          dpr,
-          zoom,
-          cssViewport,
-          rasterSize: { width: rasterWidth, height: rasterHeight },
-          timestamp: Date.now(),
-        };
-      };
-
-      if (!isForeground && !isOffscreenTarget && this.ctx.runWithAttachedTabView && targetPaneView) {
-        return await this.ctx.runWithAttachedTabView(targetPaneView, captureAction, isMobile);
-      }
-      if (isOffscreenTarget) {
-        // Dual-Plane: offscreen agent tabs have no attached view AND no compositor
-        // surface for CDP fromSurface; capture directly from the offscreen-rendered
-        // WebContents without attaching the view to the window. Set bounds to the
-        // requested viewport before capture so the buffer matches expectations.
-        if (target.customViewport && target.customViewport.width > 0 && target.customViewport.height > 0) {
-          if (targetPaneView && typeof targetPaneView.setBounds === 'function') {
-            targetPaneView.setBounds({ x: 0, y: 0, width: target.customViewport.width, height: target.customViewport.height });
-          }
-        }
-        const zoomFactor = typeof wc.getZoomFactor === 'function' ? wc.getZoomFactor() : 1.0;
-        const metricsRes = await this.sendCdpCommand<{ result?: { value?: { dpr?: number; vw?: number; vh?: number } } }>(
-          wc,
-          'Runtime.evaluate',
-          {
-            expression: '({ dpr: window.devicePixelRatio || 1, vw: window.innerWidth || 0, vh: window.innerHeight || 0 })',
-            returnByValue: true,
-          }
-        ).catch(() => null);
-        const metrics = metricsRes?.result?.value;
-        const dprFactor = Number(metrics?.dpr) || 1;
-        const viewportCss = {
-          width: Number(metrics?.vw) || 1200,
-          height: Number(metrics?.vh) || 800,
-        };
-        const offscreenImg = await wc.capturePage(rect);
-        const imgBuf = offscreenImg && typeof offscreenImg.isEmpty === 'function' && !offscreenImg.isEmpty()
-          ? offscreenImg.toPNG()
-          : (offscreenImg && typeof offscreenImg.toPNG === 'function' ? offscreenImg.toPNG() : null);
-        if (imgBuf && imgBuf.length > 0) {
-          let rasterWidth = 0;
-          let rasterHeight = 0;
-          if (imgBuf.length >= 24 && imgBuf[0] === 0x89 && imgBuf[1] === 0x50 && imgBuf[2] === 0x4e && imgBuf[3] === 0x47) {
-            rasterWidth = imgBuf.readUInt32BE(16);
-            rasterHeight = imgBuf.readUInt32BE(20);
-          }
           return {
-            data: imgBuf.toString('base64'),
-            backend: 'offscreen-capturePage',
-            dpr: dprFactor,
-            zoom: zoomFactor,
-            cssViewport: viewportCss,
-            rasterSize: { width: rasterWidth, height: rasterHeight },
+            data: captureRes.data,
+            backend: 'cdp',
+            dpr,
+            zoom,
+            cssViewport,
+            cssCaptureSize,
+            rasterSize,
+            captureMode: mode,
             timestamp: Date.now(),
           };
+        };
+
+        if (!isForeground && !isOffscreenTarget && this.ctx.runWithAttachedTabView && targetPaneView) {
+          return await this.ctx.runWithAttachedTabView(targetPaneView, captureAction, isMobile);
         }
         return await captureAction();
-      }
-        return await captureAction();
       });
+    } catch (err) {
+      throw this.toCaptureError(err, `Verification capture on tab '${targetId}'`);
     } finally {
       try {
         await this.evalJs(

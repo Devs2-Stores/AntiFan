@@ -268,6 +268,109 @@ const CAPABILITY_MAP = Object.freeze({
   'artifact.stat': 'artifact.stat',
   'artifact_stat': 'artifact.stat',
 });
+
+// ─── Client Dispatch Budgets and Failure Classification (contract §2.6) ──────
+// Client budgets MUST exceed the bounded server policy budget so a hung
+// capability is bounded server-side first: the client then observes a typed
+// terminal (or pending-cleanup) receipt instead of abandoning the invocation and
+// replaying unknown work.
+const CLIENT_TIMEOUT_MS = Object.freeze({
+  'browser.visual_compare': 240000,
+  'anti.visual.compare': 240000,
+  'anti.screenshot.full_page': 120000,
+  'theme.qa_validate': 60000,
+  'anti.theme.qa_validate': 60000,
+});
+const DEFAULT_CLIENT_TIMEOUT_MS = 30000;
+
+// Operation outcomes, never transport faults: they describe what the capability
+// did, so no reconnect, authority autoheal, or replay may follow them.
+const OPERATION_TIMEOUT_CODES = new Set(['TIMEOUT', 'EXECUTION_TIMEOUT', 'EXECUTION_TIMEOUT_PENDING_CLEANUP']);
+
+// Only transport/auth faults may retry, and only with the original identity.
+const RETRYABLE_TRANSPORT_CODES = new Set([
+  'CONNECTION_CLOSED',
+  'CONNECTION_ERROR',
+  'CONNECTION_FAILED',
+  'AUTHENTICATION_DENIED',
+  'UNAUTHORIZED',
+  'UNAUTHENTICATED',
+  'REVISION_STALE',
+  'ATTACHMENT_INVALID',
+  'BOOTSTRAP_INVALID',
+  'PAIRING_CHALLENGE_FAILED',
+  'PAIRING_EXCHANGE_FAILED',
+]);
+
+function resolveClientTimeoutMs(method, mapped) {
+  return CLIENT_TIMEOUT_MS[method] ?? CLIENT_TIMEOUT_MS[mapped] ?? DEFAULT_CLIENT_TIMEOUT_MS;
+}
+
+function transportError(code, message, details) {
+  const err = new Error(typeof message === 'string' && message.length > 0 ? message : code);
+  err.code = code;
+  if (details !== undefined) err.details = details;
+  return err;
+}
+
+function isRetryableTransportError(err) {
+  const code = err && typeof err.code === 'string' ? err.code : '';
+  if (OPERATION_TIMEOUT_CODES.has(code)) return false;
+  if (RETRYABLE_TRANSPORT_CODES.has(code)) return true;
+  const text = String((err && err.message) || err || '');
+  if (OPERATION_TIMEOUT_CODES.has(text)) return false;
+  return /CONNECTION_CLOSED|CONNECTION_ERROR|CONNECTION_FAILED|Unauthorized|missing or invalid token|AUTHENTICATION_DENIED/i.test(text);
+}
+
+/**
+ * One invocation identity per logical call. `idempotencyKey` is the ledger join
+ * key; it is minted once and reused across eligible transport retries so a retry
+ * joins the original invocation instead of minting a new one.
+ */
+function resolveInvocationIdentity(callerRequestId, params) {
+  const p = params && typeof params === 'object' ? params : {};
+  const explicitKey = typeof p.idempotencyKey === 'string' && p.idempotencyKey.trim() ? p.idempotencyKey.trim() : null;
+  const explicitRequest = typeof p.requestId === 'string' && p.requestId.trim() ? p.requestId.trim() : null;
+  const caller = callerRequestId !== undefined && callerRequestId !== null && String(callerRequestId).trim()
+    ? String(callerRequestId).trim()
+    : null;
+  return {
+    requestId: explicitRequest || (caller ? `req-mcp-${caller}` : `req-${crypto.randomUUID()}`),
+    idempotencyKey: explicitKey || (caller ? `idem-mcp-${caller}` : `idem-${crypto.randomUUID()}`),
+  };
+}
+
+function persistAuthorityRevision(revision) {
+  if (typeof revision === 'string' && revision.startsWith('rev_')) {
+    currentAuthorityRevision = revision;
+  }
+}
+
+/**
+ * Nonterminal surface for EXECUTION_TIMEOUT_PENDING_CLEANUP: the invocation owns
+ * resources and has no terminal receipt yet. It is joinable only by its own
+ * identity (re-issue with the same idempotencyKey).
+ */
+function buildPendingCleanupResult(payload, entry) {
+  const details = payload && typeof payload.details === 'object' && payload.details !== null ? payload.details : {};
+  const invocationId = typeof details.invocationId === 'string'
+    ? details.invocationId
+    : (typeof payload.invocationId === 'string' ? payload.invocationId : null);
+  return {
+    _type: 'PENDING_CLEANUP',
+    code: 'EXECUTION_TIMEOUT_PENDING_CLEANUP',
+    message: typeof payload.message === 'string' && payload.message
+      ? payload.message
+      : 'Capability execution timed out with owned-resource cleanup still pending. No terminal receipt exists yet.',
+    invocationId,
+    cleanupPending: true,
+    terminal: false,
+    joinableBy: 'idempotencyKey',
+    requestId: entry.requestId,
+    idempotencyKey: entry.idempotencyKey,
+  };
+}
+
 // ─── Multiplexed Persistent Dispatch Socket ──────────────────────────────────
 let dispatchWs = null;
 let dispatchConnecting = null;
@@ -277,7 +380,17 @@ function wireDispatchSocket(ws) {
   ws.on('message', (raw) => {
     try {
       const response = JSON.parse(raw.toString());
-      if (!response || !response.id || !pendingDispatchCalls.has(response.id)) {
+      if (!response || !response.id) {
+        return;
+      }
+      const payload = response.data && typeof response.data === 'object' ? response.data : null;
+      if (payload) {
+        const rev = payload.replacementAuthorityRevision || payload.authorityRevision;
+        if (rev) {
+          persistAuthorityRevision(rev);
+        }
+      }
+      if (!pendingDispatchCalls.has(response.id)) {
         return;
       }
       const entry = pendingDispatchCalls.get(response.id);
@@ -285,11 +398,7 @@ function wireDispatchSocket(ws) {
       clearTimeout(entry.timer);
       if (response.success) {
         if (response.data && typeof response.data === 'object') {
-          if (response.data.authorityRevision) {
-            currentAuthorityRevision = response.data.authorityRevision;
-          } else if (response.data.replacementAuthorityRevision) {
-            currentAuthorityRevision = response.data.replacementAuthorityRevision;
-          }
+          persistAuthorityRevision(response.data.authorityRevision || response.data.replacementAuthorityRevision);
           if (response.data.data !== undefined) {
             entry.resolve(response.data.data);
             return;
@@ -297,8 +406,25 @@ function wireDispatchSocket(ws) {
         }
         entry.resolve(response.data);
       } else {
+        const payload = response.data && typeof response.data === 'object' ? response.data : {};
+        persistAuthorityRevision(payload.replacementAuthorityRevision || payload.authorityRevision);
+        const code = typeof payload.code === 'string' && payload.code
+          ? payload.code
+          : (typeof response.error === 'string' && response.error.includes(':')
+            ? response.error.slice(0, response.error.indexOf(':'))
+            : 'CAPABILITY_ERROR');
+        if (code === 'EXECUTION_TIMEOUT_PENDING_CLEANUP') {
+          // Nonterminal: the invocation still owns resources. Surface the typed
+          // pending state; never reject into the retry path.
+          process.stderr.write(`[MCP Proxy RPC Pending Cleanup] ${JSON.stringify(response)}\n`);
+          entry.resolve(buildPendingCleanupResult(payload, entry));
+          return;
+        }
         process.stderr.write(`[MCP Proxy RPC Error] ${JSON.stringify(response)}\n`);
-        entry.reject(new Error(typeof response.error === 'string' ? response.error : JSON.stringify(response.error || { code: 'CAPABILITY_ERROR', message: 'AntiFan RPC failed' })));
+        const errorText = typeof response.error === 'string' && response.error
+          ? response.error
+          : JSON.stringify(payload.code ? payload : { code: 'CAPABILITY_ERROR', message: 'AntiFan RPC failed' });
+        entry.reject(transportError(code, errorText, payload.details));
       }
     } catch {}
   });
@@ -308,7 +434,7 @@ function wireDispatchSocket(ws) {
     if (dispatchWs === ws) dispatchWs = null;
     for (const [, entry] of pendingDispatchCalls.entries()) {
       clearTimeout(entry.timer);
-      entry.reject(new Error(JSON.stringify({ code: 'CONNECTION_ERROR', message: `Dispatch WebSocket error: ${err.message}` })));
+      entry.reject(transportError('CONNECTION_ERROR', JSON.stringify({ code: 'CONNECTION_ERROR', message: `Dispatch WebSocket error: ${err.message}` })));
     }
     pendingDispatchCalls.clear();
   });
@@ -318,7 +444,7 @@ function wireDispatchSocket(ws) {
     if (dispatchWs === ws) dispatchWs = null;
     for (const [, entry] of pendingDispatchCalls.entries()) {
       clearTimeout(entry.timer);
-      entry.reject(new Error(JSON.stringify({ code: 'CONNECTION_CLOSED', message: 'Dispatch WebSocket closed while request in flight' })));
+      entry.reject(transportError('CONNECTION_CLOSED', JSON.stringify({ code: 'CONNECTION_CLOSED', message: 'Dispatch WebSocket closed while request in flight' })));
     }
     pendingDispatchCalls.clear();
   });
@@ -574,7 +700,7 @@ async function ensureDispatchSocket(bootstrap) {
       return dispatchWs;
     }
 
-    throw new Error(JSON.stringify({ code: 'CONNECTION_FAILED', message: 'Unable to connect to live AntiFan Desktop bridge after autoheal' }));
+    throw transportError('CONNECTION_FAILED', JSON.stringify({ code: 'CONNECTION_FAILED', message: 'Unable to connect to live AntiFan Desktop bridge after autoheal' }));
   })().finally(() => {
     dispatchConnecting = null;
   });
@@ -593,36 +719,49 @@ async function invoke(method, params = {}, callerRequestId) {
     bootstrap = getBootstrap();
     if (!bootstrap || !bootstrap.secret) {
       process.stderr.write('MCP_BRIDGE_OFFLINE: AntiFan Desktop Bridge unavailable\n');
-      throw new Error(JSON.stringify({ code: 'MCP_CONTEXT_REQUIRED', message: 'OMP MCP proxy requires an authoritative Main bootstrap' }));
+      throw transportError('MCP_CONTEXT_REQUIRED', JSON.stringify({ code: 'MCP_CONTEXT_REQUIRED', message: 'OMP MCP proxy requires an authoritative Main bootstrap' }));
     }
+  }
+
+  const mapped = CAPABILITY_MAP[method] || method;
+  const timeoutMs = resolveClientTimeoutMs(method, mapped);
+  // Invocation identity is minted ONCE per logical call, outside the retryable
+  // dispatch function: an eligible transport retry resends the same
+  // requestId/idempotencyKey and therefore joins the original ledger entry
+  // instead of minting a new invocation.
+  const identity = resolveInvocationIdentity(callerRequestId, params);
+  // Transport-only arguments are consumed here and never forwarded to the
+  // capability. The remaining params are frozen for the life of the invocation so
+  // a retry stays digest-identical to the original (the ledger joins on digest).
+  const effectiveParams = { ...params };
+  delete effectiveParams.idempotencyKey;
+  delete effectiveParams.requestId;
+  delete effectiveParams.callerRequestId;
+  const boundTabId = bootstrap.tabId || process.env.ANTIFAN_BOUND_TAB_ID;
+  if (!effectiveParams.tabId && boundTabId) {
+    effectiveParams.tabId = boundTabId;
+  }
+  if (mapped === 'artifact.read') {
+    const rawLimit = typeof params.limit === 'number' && params.limit > 0 ? params.limit : 32768;
+    effectiveParams.limit = Math.min(rawLimit, 32768); // Bounded chunk size: <= 32 KiB per frame
   }
 
   const sendDispatch = async (currentBoot) => {
     const ws = await ensureDispatchSocket(currentBoot);
     const id = crypto.randomUUID();
-    const timeoutMs = (method === 'theme.qa_validate' || method === 'anti.theme.qa_validate') ? 60000 : 30000;
-    const mapped = CAPABILITY_MAP[method] || method;
-    let effectiveParams = { ...params };
-    const boundTabId = currentBoot.tabId || process.env.ANTIFAN_BOUND_TAB_ID;
-    if (!effectiveParams.tabId && boundTabId) {
-      effectiveParams.tabId = boundTabId;
-    }
-    if (mapped === 'artifact.read') {
-      const rawLimit = typeof params.limit === 'number' && params.limit > 0 ? params.limit : 32768;
-      effectiveParams = {
-        ...effectiveParams,
-        limit: Math.min(rawLimit, 32768), // Bounded chunk size: <= 32 KiB per frame
-      };
-    }
-    const requestId = callerRequestId ? `req-mcp-${callerRequestId}-${crypto.randomUUID()}` : `req-${crypto.randomUUID()}`;
-    const idempotencyKey = callerRequestId ? `idem-mcp-${callerRequestId}-${crypto.randomUUID()}` : `idem-${crypto.randomUUID()}`;
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
         pendingDispatchCalls.delete(id);
-        reject(new Error(JSON.stringify({ code: 'TIMEOUT', message: `AntiFan RPC timed out: ${mapped}` })));
+        // Client budget exhaustion is an operation outcome, not a transport
+        // fault: never reconnect and never replay. The server still owns the
+        // invocation; a late response is discarded by the unknown-id guard in
+        // wireDispatchSocket and leaves the socket usable.
+        reject(transportError('TIMEOUT', JSON.stringify({ code: 'TIMEOUT', message: `AntiFan RPC timed out: ${mapped}` })));
       }, timeoutMs);
 
       pendingDispatchCalls.set(id, {
+        requestId: identity.requestId,
+        idempotencyKey: identity.idempotencyKey,
         resolve: (data) => {
           if (mapped === 'browser.switch-tab' && effectiveParams.tabId) {
             currentBoot.tabId = effectiveParams.tabId;
@@ -644,8 +783,8 @@ async function invoke(method, params = {}, callerRequestId) {
           params: {
             name: mapped,
             params: effectiveParams,
-            requestId,
-            idempotencyKey,
+            requestId: identity.requestId,
+            idempotencyKey: identity.idempotencyKey,
             attachmentId: currentBoot.attachmentId,
             attachmentSecret: currentBoot.secret,
             authorityRevision: currentAuthorityRevision || currentBoot.authorityRevision,
@@ -672,17 +811,17 @@ async function invoke(method, params = {}, callerRequestId) {
   try {
     return await sendDispatch(bootstrap);
   } catch (err) {
+    // Only connection/auth faults may retry; operation timeouts never do.
+    if (!isRetryableTransportError(err)) throw err;
     const errStr = String(err?.message || err);
-    if (/CONNECTION_CLOSED|CONNECTION_FAILED|CONNECTION_ERROR|Unauthorized|missing or invalid token|AUTHENTICATION_DENIED|TIMEOUT/i.test(errStr)) {
-      process.stderr.write(`[AntiFan MCP] Connection or auth issue detected (${errStr}). Autohealing...\n`);
-      if (dispatchWs) {
-        try { dispatchWs.close(); } catch {}
-        dispatchWs = null;
-      }
-      const healed = await autohealSession();
-      if (healed && healed.secret) {
-        return await sendDispatch(healed);
-      }
+    process.stderr.write(`[AntiFan MCP] Connection or auth issue detected (${errStr}). Autohealing...\n`);
+    if (dispatchWs) {
+      try { dispatchWs.close(); } catch {}
+      dispatchWs = null;
+    }
+    const healed = await autohealSession();
+    if (healed && healed.secret) {
+      return await sendDispatch(healed);
     }
     throw err;
   }
@@ -845,6 +984,12 @@ server.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
       ? String(extra.requestId)
       : undefined;
     const data = await invoke(request.params.name, request.params.arguments || {}, callerRequestId);
+    // Nonterminal pending-cleanup: the invocation still owns resources and has no
+    // receipt yet. Surface it as a typed non-error result carrying the identity
+    // required to join (re-issue with the same idempotencyKey).
+    if (data && typeof data === 'object' && data._type === 'PENDING_CLEANUP') {
+      return { content: [{ type: 'text', text: JSON.stringify(data, null, 2) }] };
+    }
     // For stat tools, directly return raw ArtifactRef metadata without hydration
     const isStat = request.params.name === 'anti.artifact.stat' ||
       request.params.name === 'artifact.stat' ||
@@ -853,20 +998,31 @@ server.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
       return { content: [{ type: 'text', text: JSON.stringify(data, null, 2) }] };
     }
 
+    // Screenshot capabilities return an evidence envelope ({ok, artifactRef,
+    // receipt, sha256, byteLength}); older builds returned the raw ArtifactRef.
+    // Both shapes resolve through the same artifact fetch.
+    const ref = data && typeof data === 'object' && data.artifactRef && typeof data.artifactRef === 'object'
+      ? data.artifactRef
+      : data;
+    const isScreenshotCapability = request.params.name === 'anti.screenshot.viewport' ||
+      request.params.name === 'antifan_screenshot' ||
+      request.params.name === 'anti.screenshot.full_page' ||
+      request.params.name === 'anti.screenshot.fullpage' ||
+      request.params.name === 'antifan_screenshot_full_page';
+
     // Handle ArtifactRef resolution from ArtifactStore for content-fetching capabilities
-    if (data && typeof data === 'object' && typeof data.id === 'string' && data.id.startsWith('artifact-')) {
-      const isImage = request.params.name === 'anti.screenshot.viewport' ||
-        request.params.name === 'antifan_screenshot' ||
-        (typeof data.mime === 'string' && data.mime.startsWith('image/'));
+    if (ref && typeof ref === 'object' && typeof ref.id === 'string' && ref.id.startsWith('artifact-')) {
+      const isImage = isScreenshotCapability ||
+        (typeof ref.mime === 'string' && ref.mime.startsWith('image/'));
       if (isImage) {
-        const artifactPayload = await fetchArtifactBinary(bootstrap, data.id);
-        return resolveImageArtifactResponse(data, artifactPayload);
+        const artifactPayload = await fetchArtifactBinary(bootstrap, ref.id);
+        return resolveImageArtifactResponse(ref, artifactPayload);
       }
 
       // If text artifact exceeds 64 KiB, return ArtifactRef metadata to prevent stdio pipe saturation
-      const byteSize = typeof data.byteLength === 'number'
-        ? data.byteLength
-        : (typeof data.bytes === 'number' ? data.bytes : null);
+      const byteSize = typeof ref.byteLength === 'number'
+        ? ref.byteLength
+        : (typeof ref.bytes === 'number' ? ref.bytes : (typeof data.byteLength === 'number' ? data.byteLength : null));
       if (byteSize !== null && byteSize >= 65536) {
         return {
           content: [
@@ -874,10 +1030,10 @@ server.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
               type: 'text',
               text: JSON.stringify({
                 _type: 'ArtifactRef',
-                id: data.id,
+                id: ref.id,
                 byteLength: byteSize,
-                sha256: data.sha256,
-                mime: data.mime || 'text/plain',
+                sha256: ref.sha256 || data.sha256,
+                mime: ref.mime || data.mime || 'text/plain',
                 message: 'Large payload (>=64KB) preserved as ArtifactRef to prevent stdio buffer saturation. Read via artifact.read or HTTP endpoint.',
               }, null, 2),
             },
@@ -886,7 +1042,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
       }
 
       // Small text artifact (<64KB)
-      const artifactPayload = await fetchArtifactBinary(bootstrap, data.id);
+      const artifactPayload = await fetchArtifactBinary(bootstrap, ref.id);
       const textContent = Buffer.from(artifactPayload.data, 'base64').toString('utf8');
       if (textContent.length >= 65536) {
         return {
@@ -895,10 +1051,10 @@ server.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
               type: 'text',
               text: JSON.stringify({
                 _type: 'ArtifactRef',
-                id: data.id,
+                id: ref.id,
                 byteLength: textContent.length,
-                sha256: data.sha256,
-                mime: data.mime || 'text/plain',
+                sha256: ref.sha256 || data.sha256,
+                mime: ref.mime || data.mime || 'text/plain',
                 message: 'Large payload (>=64KB) preserved as ArtifactRef to prevent stdio buffer saturation. Read via artifact.read or HTTP endpoint.',
               }, null, 2),
             },
@@ -908,7 +1064,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
       return { content: [{ type: 'text', text: textContent }] };
     }
 
-    if (request.params.name === 'anti.screenshot.viewport' || request.params.name === 'antifan_screenshot') {
+    if (isScreenshotCapability) {
       throw new Error(JSON.stringify({ code: 'CAPABILITY_ERROR', message: 'Expected ArtifactRef metadata from screenshot capability' }));
     }
 
@@ -968,6 +1124,8 @@ module.exports = {
   resolveImageArtifactResponse,
   fetchArtifactBinary,
   definitions,
+  CLIENT_TIMEOUT_MS,
+  resolveClientTimeoutMs,
 };
 
 function shutdown() {

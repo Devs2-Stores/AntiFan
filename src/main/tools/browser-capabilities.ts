@@ -1,7 +1,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { BrowserTarget, CapabilityRequestContext, AuthenticatedCapabilityContext, CapabilityError, CapabilityEffectPolicyInput, CapabilityRisk, ReceiptBinding, digestText } from '../../shared/control-plane-contracts';
-import { BrowserControlPort } from './browser-control-port';
+import { BrowserControlPort, VISUAL_COMPARE_EXECUTION_BUDGET_MS, VISUAL_COMPARE_CANCELLATION_ACK_MS, FULL_PAGE_CAPTURE_EXECUTION_BUDGET_MS, FULL_PAGE_CAPTURE_CANCELLATION_ACK_MS } from './browser-control-port';
 import { CapabilityCatalogue } from './capability-catalogue';
 import { PlatformDetector } from '../qa/scanners/platform-detector';
 import { LiquidErrorScanner } from '../qa/scanners/liquid-error-scanner';
@@ -141,6 +141,20 @@ function getProductResolverScript(handle?: string): string {
   })()`;
 }
 
+/**
+ * `browser.screenshot` and `anti.screenshot.viewport` are viewport-only
+ * capabilities. `anti.screenshot.full_page` is the single canonical full-page
+ * capability; silently capturing viewport pixels for a fullPage request would
+ * mislabel evidence, so the request is rejected with a typed error.
+ */
+export function assertViewportOnlyScreenshot(capability: string, fullPage: unknown): void {
+  if (fullPage === true) {
+    throw new CapabilityError(
+      'INVALID_ARGUMENT',
+      `${capability} is viewport-only and rejects fullPage: true; use anti.screenshot.full_page for canonical full-page evidence`
+    );
+  }
+}
 
 export function makeBrowserPolicy(options: {
   effect: CapabilityEffectPolicyInput['effect'];
@@ -306,8 +320,11 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
     risk: 'read',
     requiresBrowserTarget: true,
     policy: makeBrowserPolicy({ effect: 'read', risk: 'read', requiresBrowserTarget: true, lane: 'short-passive' }),
-    inputSchema: { type: 'object', properties: { tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] }, format: { type: 'string', enum: ['png', 'jpeg'] }, quality: { type: 'number' }, fullPage: { type: 'boolean', description: 'Capture entire scrollable page height instead of visible viewport' } } },
-    execute: async (params: { tabId?: string; paneId?: 'desktop' | 'mobile'; format?: 'png' | 'jpeg'; quality?: number; fullPage?: boolean }, context) => browser.screenshot(context.browserTarget as BrowserTarget, context.runId || 'run-unbound', context.attemptId || 'attempt-unbound', params.tabId, params.paneId, { format: params.format, quality: params.quality, fullPage: params.fullPage }),
+    inputSchema: { type: 'object', properties: { tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] }, format: { type: 'string', enum: ['png', 'jpeg'] }, quality: { type: 'number' }, fullPage: { type: 'boolean', description: 'Rejected: browser.screenshot is viewport-only; use anti.screenshot.full_page' } } },
+    execute: async (params: { tabId?: string; paneId?: 'desktop' | 'mobile'; format?: 'png' | 'jpeg'; quality?: number; fullPage?: boolean }, context) => {
+      assertViewportOnlyScreenshot('browser.screenshot', params.fullPage);
+      return browser.screenshot(context.browserTarget as BrowserTarget, context.runId || 'run-unbound', context.attemptId || 'attempt-unbound', params.tabId, params.paneId, { format: params.format, quality: params.quality, fullPage: false });
+    },
   });
   catalogue.register({
     name: 'browser.observe',
@@ -900,8 +917,11 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
     risk: 'read',
     requiresBrowserTarget: true,
     policy: makeBrowserPolicy({ effect: 'read', risk: 'read', requiresBrowserTarget: true, lane: 'short-passive' }),
-    inputSchema: { type: 'object', properties: { tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] }, format: { type: 'string', enum: ['png', 'jpeg'] }, quality: { type: 'number' }, fullPage: { type: 'boolean', description: 'Capture entire scrollable page height instead of visible viewport' } } },
-    execute: async (params: { tabId?: string; paneId?: 'desktop' | 'mobile'; format?: 'png' | 'jpeg'; quality?: number; fullPage?: boolean }, context) => browser.screenshot(context.browserTarget as BrowserTarget, context.runId || 'run-unbound', context.attemptId || 'attempt-unbound', params.tabId, params.paneId, { format: params.format, quality: params.quality, fullPage: params.fullPage }),
+    inputSchema: { type: 'object', properties: { tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] }, format: { type: 'string', enum: ['png', 'jpeg'] }, quality: { type: 'number' }, fullPage: { type: 'boolean', description: 'Rejected: antifan_screenshot is viewport-only; use anti.screenshot.full_page' } } },
+    execute: async (params: { tabId?: string; paneId?: 'desktop' | 'mobile'; format?: 'png' | 'jpeg'; quality?: number; fullPage?: boolean }, context) => {
+      assertViewportOnlyScreenshot('antifan_screenshot', params.fullPage);
+      return browser.screenshot(context.browserTarget as BrowserTarget, context.runId || 'run-unbound', context.attemptId || 'attempt-unbound', params.tabId, params.paneId, { format: params.format, quality: params.quality, fullPage: false });
+    },
   });
 
   catalogue.register({
@@ -1641,18 +1661,49 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
     risk: 'read',
     requiresBrowserTarget: true,
     policy: makeBrowserPolicy({ effect: 'read', risk: 'read', requiresBrowserTarget: true, lane: 'short-passive' }),
-    inputSchema: { type: 'object', properties: { tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] }, format: { type: 'string', enum: ['png', 'jpeg'] }, quality: { type: 'number' }, fullPage: { type: 'boolean', description: 'Capture entire scrollable page height instead of visible viewport' } } },
-    execute: async (params: { tabId?: string; paneId?: 'desktop' | 'mobile'; format?: 'png' | 'jpeg'; quality?: number; fullPage?: boolean }, context) => browser.screenshot(context.browserTarget as BrowserTarget, context.runId || 'run-unbound', context.attemptId || 'attempt-unbound', params.tabId, params.paneId, { format: params.format || 'jpeg', quality: params.quality ?? 85, fullPage: params.fullPage }),
+    inputSchema: { type: 'object', properties: { tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] }, format: { type: 'string', enum: ['png', 'jpeg'] }, quality: { type: 'number' }, fullPage: { type: 'boolean', description: 'Rejected: anti.screenshot.viewport is viewport-only; use anti.screenshot.full_page' } } },
+    execute: async (params: { tabId?: string; paneId?: 'desktop' | 'mobile'; format?: 'png' | 'jpeg'; quality?: number; fullPage?: boolean }, context) => {
+      assertViewportOnlyScreenshot('anti.screenshot.viewport', params.fullPage);
+      return browser.screenshot(context.browserTarget as BrowserTarget, context.runId || 'run-unbound', context.attemptId || 'attempt-unbound', params.tabId, params.paneId, { format: params.format || 'jpeg', quality: params.quality ?? 85, fullPage: false });
+    },
   });
 
   catalogue.register({
     name: 'anti.screenshot.full_page',
-    description: 'Capture full-page screenshot of entire scrollable page height using CDP (bypassing viewport compositor surface)',
+    description: 'Capture canonical CDP full-page evidence (entire document scroll height) and stage it under the evidence lease',
     risk: 'read',
     requiresBrowserTarget: true,
-    policy: makeBrowserPolicy({ effect: 'read', risk: 'read', requiresBrowserTarget: true, lane: 'short-passive' }),
-    inputSchema: { type: 'object', properties: { tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] }, format: { type: 'string', enum: ['png', 'jpeg'] }, quality: { type: 'number' } } },
-    execute: async (params: { tabId?: string; paneId?: 'desktop' | 'mobile'; format?: 'png' | 'jpeg'; quality?: number }, context) => browser.screenshot(context.browserTarget as BrowserTarget, context.runId || 'run-unbound', context.attemptId || 'attempt-unbound', params.tabId, params.paneId, { format: params.format || 'png', quality: params.quality ?? 85, fullPage: true }),
+    policy: makeBrowserPolicy({
+      effect: 'read',
+      risk: 'read',
+      requiresBrowserTarget: true,
+      lane: 'short-passive',
+      timeoutMs: FULL_PAGE_CAPTURE_EXECUTION_BUDGET_MS + FULL_PAGE_CAPTURE_CANCELLATION_ACK_MS,
+      cancellationAckTimeoutMs: FULL_PAGE_CAPTURE_CANCELLATION_ACK_MS,
+    }),
+    inputSchema: {
+      type: 'object',
+      properties: {
+        tabId: { type: 'string' },
+        paneId: { type: 'string', enum: ['desktop', 'mobile'] },
+        format: { type: 'string', enum: ['png'], description: 'Only PNG is supported: full-page evidence is validated as PNG bytes' },
+        quality: { type: 'number' },
+        leaseToken: { type: 'string', description: 'Evidence-run artifact lease token from artifact.preflight; required while the run holds an exclusive lease' },
+      },
+    },
+    execute: async (params: { tabId?: string; paneId?: 'desktop' | 'mobile'; format?: 'png' | 'jpeg'; quality?: number; leaseToken?: string }, context) => {
+      if (params.format === 'jpeg') {
+        throw new CapabilityError('INVALID_ARGUMENT', 'anti.screenshot.full_page stages PNG evidence only; jpeg is not supported');
+      }
+      return browser.screenshotFullPage(
+        context.browserTarget as BrowserTarget,
+        context.runId || 'run-unbound',
+        context.attemptId || 'attempt-unbound',
+        params.tabId,
+        params.paneId,
+        { leaseToken: params.leaseToken, signal: context.signal, timeoutMs: FULL_PAGE_CAPTURE_EXECUTION_BUDGET_MS }
+      );
+    },
   });
 
   catalogue.register({
@@ -2213,7 +2264,14 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
     description: 'Compare current viewport or tab against baseline screenshot with pixel-level diffing, element selection, dynamic masking, and configurable tolerance',
     risk: 'read',
     requiresBrowserTarget: true,
-    policy: makeBrowserPolicy({ effect: 'read', risk: 'read', requiresBrowserTarget: true, lane: 'short-passive' }),
+    policy: makeBrowserPolicy({
+      effect: 'read',
+      risk: 'read',
+      requiresBrowserTarget: true,
+      lane: 'short-passive',
+      timeoutMs: VISUAL_COMPARE_EXECUTION_BUDGET_MS + VISUAL_COMPARE_CANCELLATION_ACK_MS,
+      cancellationAckTimeoutMs: VISUAL_COMPARE_CANCELLATION_ACK_MS,
+    }),
     inputSchema: {
       type: 'object',
       properties: {
@@ -2244,6 +2302,8 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
         tabId: { type: 'string' },
         paneId: { type: 'string', enum: ['desktop', 'mobile'] },
         fullPage: { type: 'boolean', description: 'Capture entire document scroll height for full-page visual comparison' },
+        useDefaultWidgetMasks: { type: 'boolean', description: 'Apply the implicit optional mask set (DEFAULT_STOREFRONT_WIDGETS plus iframe[id]). Default true; final fidelity runs pass false so generic selectors cannot hide first-party content' },
+        leaseToken: { type: 'string', description: 'Evidence-run artifact lease token from artifact.preflight; required while the run holds an exclusive lease' },
         trackedSelectors: {
           type: 'array',
           items: { type: 'string' },
@@ -2253,8 +2313,8 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
         allowHeightDrift: { type: 'boolean', description: 'When true, bypasses the hard STRUCTURAL_TRUNCATION failure gate and proceeds to section/pixel diff evaluation' },
       },
     },
-    execute: (params: { baselineScreenshotRef?: string; baselineRef?: string; comparisonTabId?: string; tolerance?: number; selector?: string; clipRect?: { x: number; y: number; width: number; height: number }; maskSelectors?: string[]; maskOptionalSelectors?: string[]; normalizeScroll?: boolean; tabId?: string; paneId?: 'desktop' | 'mobile'; fullPage?: boolean; trackedSelectors?: string[]; heightTolerance?: number; allowHeightDrift?: boolean }, context) =>
-      browser.visualCompare(context.browserTarget as BrowserTarget, context.runId || 'run-default', context.attemptId || 'att-default', params, params?.tabId, params?.paneId),
+    execute: (params: { baselineScreenshotRef?: string; baselineRef?: string; comparisonTabId?: string; tolerance?: number; selector?: string; clipRect?: { x: number; y: number; width: number; height: number }; maskSelectors?: string[]; maskOptionalSelectors?: string[]; normalizeScroll?: boolean; tabId?: string; paneId?: 'desktop' | 'mobile'; fullPage?: boolean; useDefaultWidgetMasks?: boolean; leaseToken?: string; trackedSelectors?: string[]; heightTolerance?: number; allowHeightDrift?: boolean }, context) =>
+      browser.visualCompare(context.browserTarget as BrowserTarget, context.runId || 'run-default', context.attemptId || 'att-default', params, params?.tabId, params?.paneId, context.signal),
   });
 
   catalogue.register({
@@ -2262,7 +2322,14 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
     description: 'Alias for browser.visual_compare with element selection, dynamic masking, and subpixel stabilization',
     risk: 'read',
     requiresBrowserTarget: true,
-    policy: makeBrowserPolicy({ effect: 'read', risk: 'read', requiresBrowserTarget: true, lane: 'short-passive' }),
+    policy: makeBrowserPolicy({
+      effect: 'read',
+      risk: 'read',
+      requiresBrowserTarget: true,
+      lane: 'short-passive',
+      timeoutMs: VISUAL_COMPARE_EXECUTION_BUDGET_MS + VISUAL_COMPARE_CANCELLATION_ACK_MS,
+      cancellationAckTimeoutMs: VISUAL_COMPARE_CANCELLATION_ACK_MS,
+    }),
     inputSchema: {
       type: 'object',
       properties: {
@@ -2293,6 +2360,8 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
         tabId: { type: 'string' },
         paneId: { type: 'string', enum: ['desktop', 'mobile'] },
         fullPage: { type: 'boolean', description: 'Capture entire document scroll height for full-page visual comparison' },
+        useDefaultWidgetMasks: { type: 'boolean', description: 'Apply the implicit optional mask set (DEFAULT_STOREFRONT_WIDGETS plus iframe[id]). Default true; final fidelity runs pass false so generic selectors cannot hide first-party content' },
+        leaseToken: { type: 'string', description: 'Evidence-run artifact lease token from artifact.preflight; required while the run holds an exclusive lease' },
         trackedSelectors: {
           type: 'array',
           items: { type: 'string' },
@@ -2302,8 +2371,8 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
         allowHeightDrift: { type: 'boolean', description: 'When true, bypasses the hard STRUCTURAL_TRUNCATION failure gate and proceeds to section/pixel diff evaluation' },
       },
     },
-    execute: (params: { baselineScreenshotRef?: string; baselineRef?: string; comparisonTabId?: string; tolerance?: number; selector?: string; clipRect?: { x: number; y: number; width: number; height: number }; maskSelectors?: string[]; maskOptionalSelectors?: string[]; normalizeScroll?: boolean; tabId?: string; paneId?: 'desktop' | 'mobile'; fullPage?: boolean; trackedSelectors?: string[]; heightTolerance?: number; allowHeightDrift?: boolean }, context) =>
-      browser.visualCompare(context.browserTarget as BrowserTarget, context.runId || 'run-default', context.attemptId || 'att-default', params, params?.tabId, params?.paneId),
+    execute: (params: { baselineScreenshotRef?: string; baselineRef?: string; comparisonTabId?: string; tolerance?: number; selector?: string; clipRect?: { x: number; y: number; width: number; height: number }; maskSelectors?: string[]; maskOptionalSelectors?: string[]; normalizeScroll?: boolean; tabId?: string; paneId?: 'desktop' | 'mobile'; fullPage?: boolean; useDefaultWidgetMasks?: boolean; leaseToken?: string; trackedSelectors?: string[]; heightTolerance?: number; allowHeightDrift?: boolean }, context) =>
+      browser.visualCompare(context.browserTarget as BrowserTarget, context.runId || 'run-default', context.attemptId || 'att-default', params, params?.tabId, params?.paneId, context.signal),
   });
   catalogue.register({
     name: 'browser.promote-baseline',

@@ -67,11 +67,22 @@ describe('Runtime Full-Page Evidence & 5D Parity Tests', () => {
           dpr: 1,
           zoom: 1.0,
           cssViewport: { width: 1200, height: 800 },
+          // Both sides requested the same 3000px full-page region; only the
+          // current raster came back truncated to 1000px.
+          cssCaptureSize: { width: 1200, height: 3000 },
           rasterSize: { width: 1200, height: tabId === 'tab-baseline' ? 3000 : 1000 },
+          captureMode: 'full-page',
           timestamp: Date.now(),
         };
       },
       evalJs: async (script: string) => {
+        if (script.includes('__antifan_compare_txn__')) {
+          // Reversible normalization transaction: a static fixture records no
+          // mutations and restores cleanly.
+          return script.includes('alreadyRestored')
+            ? { restored: true, alreadyRestored: true, failed: 0 }
+            : { applied: true, alreadyApplied: true, recorded: 0 };
+        }
         if (script.includes('img.decode')) return { settled: true, brokenImages: [] };
         if (script.includes('document.querySelectorAll') && script.includes('boxes')) {
           // Mask query: all default storefront widget selectors are optional and
@@ -166,8 +177,8 @@ describe('Runtime Full-Page Evidence & 5D Parity Tests', () => {
     const callRes = await server.callTool('anti.screenshot.full_page', { tabId: 'tab-1' });
     assert.strictEqual(callRes.isError, undefined);
     assert.ok(dispatchedIntent, 'Intent must be dispatched to transport');
-    assert.strictEqual(dispatchedIntent.name, 'antifan_screenshot', 'Must map full-page alias to antifan_screenshot');
-    assert.strictEqual(dispatchedIntent.params.fullPage, true, 'Must force fullPage: true in transport parameters');
+    assert.strictEqual(dispatchedIntent.name, 'anti.screenshot.full_page', 'Must map full-page alias canonically to anti.screenshot.full_page');
+    assert.strictEqual(dispatchedIntent.params.fullPage, undefined, 'Must not inject fullPage: true into canonical full-page capability');
   });
 
   it('4. traceInteraction V8 Micro-Observer evaluates 4 vectors and returns FAIL on mismatch', async () => {

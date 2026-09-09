@@ -259,6 +259,7 @@ async function run() {
       reload: (id) => tabHost.reloadAndWait(id),
       getDom: (selector, id, paneId) => tabHost.getDom(selector, id, paneId),
       captureScreenshot: (rect, id, paneId, options) => tabHost.captureScreenshot(rect, id, paneId, options),
+      captureVerificationScreenshot: (rect, id, paneId, options) => tabHost.captureVerificationScreenshot(rect, id, paneId, options),
       evalJs: (expression, id, paneId) => tabHost.evalJs(expression, id, paneId),
       getDocumentGeneration: (id) => tabHost.getDocumentGeneration(id),
       getMutationRevision: (id) => tabHost.getMutationRevision(id),
@@ -301,10 +302,16 @@ async function run() {
     bridge = new BridgeServer(tabHost, 0, false, runtime.transport, undefined, runtime.runs.attachments, '127.0.0.1', runtime);
     const bridgePort = await bridge.start();
 
+    // The ambient shell may export ANTIFAN_* bindings for the user's live
+    // instance. This proof owns its bridge, attachment, and tabs, so inherited
+    // bindings must not leak into the proxy child.
+    const harnessEnv = Object.fromEntries(
+      Object.entries(process.env).filter(([key]) => !key.startsWith('ANTIFAN_'))
+    );
     mcp = spawn(process.execPath, [path.join(rootDir, 'scripts', 'antifan-omp-mcp.cjs')], {
       cwd: rootDir,
       env: {
-        ...process.env,
+        ...harnessEnv,
         ELECTRON_RUN_AS_NODE: '1',
         ANTIFAN_HEARTBEAT_MS: '1000',
         ANTIFAN_MCP_BOOTSTRAP: JSON.stringify({

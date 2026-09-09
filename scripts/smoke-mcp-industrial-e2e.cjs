@@ -189,6 +189,7 @@ async function runMcpLiveE2ETest() {
       reload: (id) => tabHost.reloadAndWait(id),
       getDom: (selector, id, paneId) => tabHost.getDom(selector, id, paneId),
       captureScreenshot: (rect, id, paneId) => tabHost.captureScreenshot(rect, id, paneId),
+      captureVerificationScreenshot: (rect, id, paneId, options) => tabHost.captureVerificationScreenshot(rect, id, paneId, options),
       evalJs: (expression, id, paneId) => tabHost.evalJs(expression, id, paneId),
       getDocumentGeneration: (id) => tabHost.getDocumentGeneration(id),
       getMutationRevision: (id) => tabHost.getMutationRevision(id),
@@ -227,9 +228,15 @@ async function runMcpLiveE2ETest() {
     console.log(`[Bridge Server Started] Port: ${bridgePort}, AttachmentId: ${testAttachmentId}`);
     // 4. Spawn MCP stdio proxy
     const proxyScript = path.resolve(__dirname, 'antifan-omp-mcp.cjs');
+    // The ambient shell may export ANTIFAN_* bindings for the user's live
+    // instance. This harness owns its bridge, attachment, and tabs, so inherited
+    // bindings must not leak into the proxy child.
+    const harnessEnv = Object.fromEntries(
+      Object.entries(process.env).filter(([key]) => !key.startsWith('ANTIFAN_'))
+    );
     mcpProc = spawn(process.execPath, [proxyScript], {
       env: {
-        ...process.env,
+        ...harnessEnv,
         ELECTRON_RUN_AS_NODE: '1',
         ANTIFAN_MCP_BOOTSTRAP: JSON.stringify({
           port: bridgePort,

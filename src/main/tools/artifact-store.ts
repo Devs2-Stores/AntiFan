@@ -6,7 +6,40 @@ import { recordBenchmark } from '../benchmark/telemetry';
 import { ArtifactRef, CapabilityError, ArtifactReadResult, CapabilityRequestContext, AuthenticatedCapabilityContext } from '../../shared/control-plane-contracts';
 import { ArtifactRetentionCleaner, RetentionSweepOptions, RetentionSweepResult } from './artifact-retention-cleaner';
 export const DEFAULT_MAX_ARTIFACT_BYTES = 8 * 1024 * 1024;
+export const DEFAULT_EVIDENCE_LEASE_TTL_MS = 15 * 60 * 1000;
 
+/** Exclusive ownership of one evidence run's artifact capacity, minted by {@link ArtifactStore.preflight}. */
+export interface EvidenceRunLease {
+  runId: string;
+  leaseToken: string;
+  acquiredAt: number;
+  expiresAt: number;
+  maxArtifactBytes: number;
+  maxRunBytes: number;
+}
+
+export interface ArtifactPreflightResult {
+  granted: boolean;
+  runId: string;
+  leaseToken?: string;
+  limits: { maxArtifactBytes: number; maxRunBytes: number };
+  committedBytes: number;
+  availableRunBytes: number;
+  reason?: string;
+}
+
+export interface ArtifactPreflightInput {
+  runId: string;
+  /** Bytes of the single artifact about to be staged. */
+  artifactBytes: number;
+  /** Additional bytes the run expects to stage beyond this artifact. */
+  aggregateBytes?: number;
+  /** Lease time-to-live; defaults to {@link DEFAULT_EVIDENCE_LEASE_TTL_MS}. */
+  leaseTtlMs?: number;
+}
+
+/** `truncate` preserves the historical ceiling behavior; `reject` fails closed before any bytes are written. */
+export type ArtifactOverflowMode = 'truncate' | 'reject';
 
 export interface ArtifactStoreOptions {
   root: string;
@@ -28,6 +61,7 @@ export class ArtifactStore {
   private readonly maxRunBytes: number;
   private readonly runBytes = new Map<string, number>();
   private readonly artifacts = new Map<string, ArtifactRef>();
+  private readonly leases = new Map<string, EvidenceRunLease>();
   private readonly hotDataCache = new Map<string, Buffer>();
   private readonly MAX_HOT_CACHE_ITEMS = 32;
   constructor(private readonly options: ArtifactStoreOptions) {
@@ -99,6 +133,150 @@ export class ArtifactStore {
       }
     } catch {}
   }
+
+  private assertValidRunId(runId: unknown): string {
+    if (!runId || typeof runId !== 'string' || !/^[a-zA-Z0-9_-]+$/.test(runId)) {
+      throw new CapabilityError('INVALID_ARGUMENT', `Invalid runId '${runId}': must contain only alphanumeric characters, underscores, and dashes`);
+    }
+    return runId;
+  }
+
+  private requireByteCount(value: unknown, field: string): number {
+    if (typeof value !== 'number' || !Number.isInteger(value) || value < 0) {
+      throw new CapabilityError('INVALID_ARGUMENT', `${field} must be a non-negative integer`);
+    }
+    return value;
+  }
+
+  private requirePositiveInt(value: unknown, field: string): number {
+    if (typeof value !== 'number' || !Number.isInteger(value) || value <= 0) {
+      throw new CapabilityError('INVALID_ARGUMENT', `${field} must be a positive integer`);
+    }
+    return value;
+  }
+
+  private static tokenMatches(expected: string, provided: string): boolean {
+    const a = Buffer.from(expected, 'utf8');
+    const b = Buffer.from(provided, 'utf8');
+    return a.byteLength === b.byteLength && crypto.timingSafeEqual(a, b);
+  }
+
+  /** Active lease for a run, purging an expired record on the way out. */
+  private activeLease(runId: string): EvidenceRunLease | undefined {
+    const lease = this.leases.get(runId);
+    if (!lease) return undefined;
+    if (lease.expiresAt <= Date.now()) {
+      this.leases.delete(runId);
+      return undefined;
+    }
+    return lease;
+  }
+
+  /**
+   * Authoritative committed bytes for a run, re-read from disk (content-addressed `.artifact` files)
+   * so the budget decision never trusts a stale in-memory counter.
+   */
+  private readCommittedBytesFromDisk(runId: string): number {
+    let total = 0;
+    try {
+      const runDir = path.join(this.options.root, runId);
+      for (const entry of fs.readdirSync(runDir)) {
+        if (!entry.endsWith('.artifact')) continue;
+        try {
+          total += fs.statSync(path.join(runDir, entry)).size;
+        } catch {}
+      }
+    } catch {}
+    return total;
+  }
+
+  private refreshRunBytesFromDisk(runId: string): number {
+    const committedBytes = this.readCommittedBytesFromDisk(runId);
+    this.runBytes.set(runId, committedBytes);
+    return committedBytes;
+  }
+
+  /**
+   * Lease gate for {@link stage}. Returns the live lease, or undefined when the run is unleased.
+   * A token for a lease that is gone is rejected (fail closed) instead of silently staging unleased.
+   */
+  private resolveLeaseForStage(runId: string, leaseToken?: string): EvidenceRunLease | undefined {
+    const lease = this.activeLease(runId);
+    if (!lease) {
+      if (leaseToken) {
+        throw new CapabilityError('LEASE_EXPIRED', `Artifact lease for run '${runId}' is no longer active (released or expired)`);
+      }
+      return undefined;
+    }
+    if (!leaseToken || typeof leaseToken !== 'string') {
+      throw new CapabilityError('TRANSACTION_CONFLICT', `Run '${runId}' holds an exclusive artifact lease; stage requires the matching leaseToken`);
+    }
+    if (!ArtifactStore.tokenMatches(lease.leaseToken, leaseToken)) {
+      throw new CapabilityError('TRANSACTION_CONFLICT', `Run '${runId}' artifact lease token mismatch; stage rejected`);
+    }
+    return lease;
+  }
+
+  /**
+   * Reserve capacity for one evidence run and mint an exclusive lease.
+   * Denials are structured (`granted:false` + `reason`) for both lease conflicts and capacity shortfalls;
+   * malformed input throws INVALID_ARGUMENT.
+   */
+  preflight(input: ArtifactPreflightInput): ArtifactPreflightResult {
+    const runId = this.assertValidRunId(input?.runId);
+    const artifactBytes = this.requireByteCount(input?.artifactBytes, 'artifactBytes');
+    const aggregateBytes = input?.aggregateBytes === undefined ? 0 : this.requireByteCount(input.aggregateBytes, 'aggregateBytes');
+    const limits = { maxArtifactBytes: this.maxArtifactBytes, maxRunBytes: this.maxRunBytes };
+    const committedBytes = this.refreshRunBytesFromDisk(runId);
+    const availableRunBytes = Math.max(0, limits.maxRunBytes - committedBytes);
+    const base = { runId, limits, committedBytes, availableRunBytes };
+
+    if (this.activeLease(runId)) {
+      return { ...base, granted: false, reason: 'LEASE_HELD' };
+    }
+    if (artifactBytes > limits.maxArtifactBytes) {
+      return { ...base, granted: false, reason: 'ARTIFACT_EXCEEDS_LIMIT' };
+    }
+    if (committedBytes + artifactBytes + aggregateBytes > limits.maxRunBytes) {
+      return { ...base, granted: false, reason: 'RUN_BUDGET_EXCEEDED' };
+    }
+
+    const leaseTtlMs = input?.leaseTtlMs === undefined ? DEFAULT_EVIDENCE_LEASE_TTL_MS : this.requirePositiveInt(input.leaseTtlMs, 'leaseTtlMs');
+    const acquiredAt = Date.now();
+    const lease: EvidenceRunLease = {
+      runId,
+      leaseToken: crypto.randomUUID(),
+      acquiredAt,
+      expiresAt: acquiredAt + leaseTtlMs,
+      maxArtifactBytes: limits.maxArtifactBytes,
+      maxRunBytes: limits.maxRunBytes,
+    };
+    this.leases.set(runId, lease);
+    return { ...base, granted: true, leaseToken: lease.leaseToken };
+  }
+
+  /** Release a lease. A wrong, expired, or unknown token is a no-op returning `{ released: false }`. */
+  releaseLease(runId: string, leaseToken: string): { released: boolean } {
+    if (typeof runId !== 'string' || typeof leaseToken !== 'string' || runId.length === 0 || leaseToken.length === 0) {
+      return { released: false };
+    }
+    const lease = this.leases.get(runId);
+    if (!lease) return { released: false };
+    if (lease.expiresAt <= Date.now()) {
+      this.leases.delete(runId);
+      return { released: false };
+    }
+    if (!ArtifactStore.tokenMatches(lease.leaseToken, leaseToken)) return { released: false };
+    this.leases.delete(runId);
+    return { released: true };
+  }
+
+  /** Active (non-expired) lease for a run, for diagnostics and lease lifecycle assertions. */
+  getLease(runId: string): EvidenceRunLease | undefined {
+    if (typeof runId !== 'string') return undefined;
+    return this.activeLease(runId);
+  }
+
   stage(input: {
     kind: ArtifactRef['kind'];
     mime: string;
@@ -108,10 +286,17 @@ export class ArtifactStore {
     projectId: string;
     workspaceId: string;
     maxBytes?: number;
+    /** Required when the run currently holds an exclusive evidence lease. */
+    leaseToken?: string;
+    /** Defaults to 'truncate' (historical behavior); 'reject' fails closed before any bytes are written. */
+    overflowMode?: ArtifactOverflowMode;
   }): ArtifactRef {
-    if (!input.runId || typeof input.runId !== 'string' || !/^[a-zA-Z0-9_-]+$/.test(input.runId)) {
-      throw new CapabilityError('INVALID_ARGUMENT', `Invalid runId '${input.runId}': must contain only alphanumeric characters, underscores, and dashes`);
+    const runId = this.assertValidRunId(input.runId);
+    const overflowMode: ArtifactOverflowMode = input.overflowMode ?? 'truncate';
+    if (overflowMode !== 'truncate' && overflowMode !== 'reject') {
+      throw new CapabilityError('INVALID_ARGUMENT', `Invalid overflowMode '${String(input.overflowMode)}': expected 'truncate' or 'reject'`);
     }
+    const lease = this.resolveLeaseForStage(runId, input.leaseToken);
     if (input.attemptId && (typeof input.attemptId !== 'string' || !/^[a-zA-Z0-9_-]+$/.test(input.attemptId))) {
       throw new CapabilityError('INVALID_ARGUMENT', `Invalid attemptId '${input.attemptId}': must contain only alphanumeric characters, underscores, and dashes`);
     }
@@ -123,31 +308,73 @@ export class ArtifactStore {
     }
     const stageStartMs = performance.now();
     const raw = Buffer.isBuffer(input.data) ? input.data : Buffer.from(input.data, 'utf8');
-    const max = Math.min(input.maxBytes ?? this.maxArtifactBytes, this.maxArtifactBytes);
+    const artifactCeiling = lease ? Math.min(lease.maxArtifactBytes, this.maxArtifactBytes) : this.maxArtifactBytes;
+    const max = Math.min(input.maxBytes ?? artifactCeiling, artifactCeiling);
+    if (overflowMode === 'reject' && raw.byteLength > max) {
+      throw new CapabilityError('ARTIFACT_TOO_LARGE', `Artifact payload of ${raw.byteLength} bytes exceeds the ${max} byte ceiling for run '${runId}'`, { runId, requestedBytes: raw.byteLength, maxArtifactBytes: max });
+    }
     const truncated = raw.byteLength > max;
     const data = raw.subarray(0, max);
     const binary = !isTextLike(input.mime);
     const { data: storedData, redacted } = binary ? { data, redacted: false } : redactSecrets(data);
     const sha256 = crypto.createHash('sha256').update(storedData).digest('hex');
-    const artifactPath = path.join(this.options.root, input.runId, `${sha256}.artifact`);
+    const artifactPath = path.join(this.options.root, runId, `${sha256}.artifact`);
     fs.mkdirSync(path.dirname(artifactPath), { recursive: true });
 
-    const alreadyExists = fs.existsSync(artifactPath);
+    let validExisting = false;
     let stored = 0;
-    if (!alreadyExists) {
-      const currentRunBytes = this.runBytes.get(input.runId) || 0;
-      if (currentRunBytes + storedData.byteLength > this.maxRunBytes) {
-        throw new CapabilityError('ARTIFACT_TOO_LARGE', 'Run artifact budget exceeded');
+    if (fs.existsSync(artifactPath)) {
+      try {
+        const stat = fs.statSync(artifactPath);
+        if (stat.size === storedData.byteLength) {
+          const existingData = fs.readFileSync(artifactPath);
+          const existingSha = crypto.createHash('sha256').update(existingData).digest('hex');
+          if (existingSha === sha256) {
+            validExisting = true;
+            stored = stat.size;
+          }
+        }
+      } catch {}
+      if (!validExisting) {
+        try {
+          fs.unlinkSync(artifactPath);
+        } catch {}
       }
-      fs.writeFileSync(artifactPath, storedData);
+    }
+
+    if (!validExisting) {
+      // Leased runs re-read authoritative committed bytes from disk immediately before the write, so a
+      // concurrent writer or an out-of-band deletion cannot be hidden by a stale in-memory counter.
+      const committedBytes = lease ? this.refreshRunBytesFromDisk(runId) : (this.runBytes.get(runId) || 0);
+      const runCeiling = lease ? Math.min(lease.maxRunBytes, this.maxRunBytes) : this.maxRunBytes;
+      if (committedBytes + storedData.byteLength > runCeiling) {
+        throw new CapabilityError('ARTIFACT_TOO_LARGE', 'Run artifact budget exceeded', { runId, committedBytes, requestedBytes: storedData.byteLength, maxRunBytes: runCeiling });
+      }
+      const tmpPath = path.join(path.dirname(artifactPath), `.${sha256}.${Date.now()}.${crypto.randomUUID()}.tmp`);
+      try {
+        fs.writeFileSync(tmpPath, storedData);
+        try {
+          fs.renameSync(tmpPath, artifactPath);
+        } catch (renameErr) {
+          if (fs.existsSync(artifactPath)) {
+            try { fs.unlinkSync(artifactPath); } catch {}
+            fs.renameSync(tmpPath, artifactPath);
+          } else {
+            throw renameErr;
+          }
+        }
+      } catch (err) {
+        try {
+          if (fs.existsSync(tmpPath)) fs.unlinkSync(tmpPath);
+        } catch {}
+        throw err;
+      }
       stored = fs.statSync(artifactPath).size;
-      this.runBytes.set(input.runId, currentRunBytes + stored);
-    } else {
-      stored = fs.statSync(artifactPath).size;
+      this.runBytes.set(runId, committedBytes + stored);
     }
     const ref: ArtifactRef = {
       id: `artifact-${crypto.randomUUID()}`,
-      runId: input.runId,
+      runId,
       attemptId: input.attemptId,
       projectId: input.projectId,
       workspaceId: input.workspaceId,
@@ -161,7 +388,7 @@ export class ArtifactStore {
       createdAt: Date.now(),
     };
     this.artifacts.set(ref.id, ref);
-    this.persistRunIndex(input.runId);
+    this.persistRunIndex(runId);
     if (storedData.byteLength <= 512 * 1024) {
       if (this.hotDataCache.size >= this.MAX_HOT_CACHE_ITEMS) {
         const firstKey = this.hotDataCache.keys().next().value;

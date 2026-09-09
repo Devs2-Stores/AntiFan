@@ -10,6 +10,7 @@ import { ArtifactStore } from '../../src/main/tools/artifact-store';
 import { BrowserTarget, CapabilityError } from '../../src/shared/control-plane-contracts';
 import { DiagnosticsInput } from '../../src/main/qa/diagnostics-filter';
 import { LiquidErrorScanner } from '../../src/main/qa/scanners/liquid-error-scanner';
+import { verificationCaptureEnvelope } from './verification-capture-fixture';
 import { LayoutOverflowEngine } from '../../src/main/qa/scanners/layout-overflow-engine';
 import { BrokenAssetScanner } from '../../src/main/qa/scanners/broken-asset-scanner';
 import { HsGateRules } from '../../src/main/qa/rules/hs-gate-rules';
@@ -90,6 +91,14 @@ class StatefulBrowserHost implements BrowserHostPort {
   async captureScreenshot(_rect?: unknown, _tabId?: string): Promise<string> {
     this.calls.push({ method: 'captureScreenshot', targetGen: this.documentGeneration });
     return Buffer.from(`screenshot-gen-${this.documentGeneration}`).toString('base64');
+  }
+
+  async captureVerificationScreenshot(_rect?: unknown, _tabId?: string, _paneId?: unknown, options?: { fullPage?: boolean }) {
+    this.calls.push({ method: 'captureScreenshot', targetGen: this.documentGeneration });
+    return verificationCaptureEnvelope(
+      Buffer.from(`screenshot-gen-${this.documentGeneration}`).toString('base64'),
+      { fullPage: options?.fullPage }
+    );
   }
 
   getNetworkTracker(): any {

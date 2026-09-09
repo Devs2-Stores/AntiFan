@@ -66,6 +66,20 @@ describe('Decoupled Dual-Plane Background Automation & TARGET_STALE Elimination 
       async captureScreenshot(rect?: unknown, tabId?: string) {
         return Buffer.from(`screenshot:${tabId || userActiveTabId}`).toString('base64');
       }
+      async captureVerificationScreenshot(rect?: unknown, tabId?: string) {
+        const resolved = tabId || userActiveTabId;
+        return {
+          data: Buffer.from(`screenshot:${resolved}`).toString('base64'),
+          backend: 'cdp',
+          dpr: 1,
+          zoom: 1,
+          cssViewport: { width: 1280, height: 720 },
+          cssCaptureSize: { width: 1280, height: 720 },
+          rasterSize: { width: 1280, height: 720 },
+          captureMode: 'viewport' as const,
+          timestamp: Date.now(),
+        };
+      }
       async evalJs(expression: string, tabId?: string) {
         return `eval-result:${tabId || userActiveTabId}`;
       }
@@ -273,7 +287,9 @@ describe('Decoupled Dual-Plane Background Automation & TARGET_STALE Elimination 
 
     // 2. Passive screenshot: should automatically succeed
     const screenshotResult = await port.screenshot(target, 'run-1', 'att-1', 'tab-1');
-    assert.ok(typeof screenshotResult === 'string' && screenshotResult.length > 0, 'Screenshot succeeded with auto-synced generation');
+    assert.strictEqual(screenshotResult.ok, true, 'Screenshot succeeded with auto-synced generation');
+    assert.strictEqual(screenshotResult.receipt.captureMode, 'viewport');
+    assert.ok(screenshotResult.byteLength > 0 && screenshotResult.sha256.length === 64, 'Screenshot evidence carries a hash and byte count');
 
     // 3. Passive reload: should succeed and return updated target with docGen 5
     const reloadResult = await port.reload(target, 'tab-1');

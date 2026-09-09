@@ -94,6 +94,17 @@ describe('Full-Stack E2E Integration: OMP / MCP Multi-Tab Affinity, Lineage & Fa
     host.switchTab = (id: string) => host.tabs.has(id);
     host.getDom = async (_sel?: string, tabId?: string) => `<html><body>DOM for ${tabId}</body></html>`;
     host.captureScreenshot = async (_rect?: unknown, tabId?: string) => Buffer.from(`screenshot:${tabId}`).toString('base64');
+    host.captureVerificationScreenshot = async (_rect?: unknown, tabId?: string) => ({
+      data: Buffer.from(`screenshot:${tabId}`).toString('base64'),
+      backend: 'cdp',
+      dpr: 1,
+      zoom: 1,
+      cssViewport: { width: 1280, height: 720 },
+      cssCaptureSize: { width: 1280, height: 720 },
+      rasterSize: { width: 1280, height: 720 },
+      captureMode: 'viewport' as const,
+      timestamp: Date.now(),
+    });
     host.agentClick = async (params: { selector?: string; tabId?: string }) => {
       interactiveActions.push(`click:${params.tabId}:${params.selector}`);
       return true;

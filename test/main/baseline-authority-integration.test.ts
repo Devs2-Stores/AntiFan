@@ -150,6 +150,13 @@ describe('BaselineAuthority (Integration & Capability Dispatch)', () => {
       }),
       evalJs: async (script: string, tabId?: string) => {
         evalLog.push({ script, tabId });
+        if (script.includes('__antifan_compare_txn__')) {
+          // Reversible normalization transaction: a static fixture records no
+          // mutations and restores cleanly.
+          return script.includes('alreadyRestored')
+            ? { restored: true, alreadyRestored: true, failed: 0 }
+            : { applied: true, alreadyApplied: true, recorded: 0 };
+        }
         if (script.includes('el.remove')) return true;
         if (script.includes('__antifan_normalize_scroll')) return true;
         if (script.includes('document.fonts.ready')) return true;
@@ -167,7 +174,9 @@ describe('BaselineAuthority (Integration & Capability Dispatch)', () => {
         dpr: opts.dpr ?? 1,
         zoom: 1,
         cssViewport: opts.viewport || { width: 800, height: 600 },
+        cssCaptureSize: opts.viewport || { width: 800, height: 600 },
         rasterSize: { width: 800, height: 600 },
+        captureMode: 'viewport',
         timestamp: Date.now(),
       }),
     };
@@ -394,7 +403,7 @@ describe('BaselineAuthority (Integration & Capability Dispatch)', () => {
       assert.deepEqual(results[1].receipt.match, results[2].receipt.match);
 
       // 3. Zero leftover styles: every normalization inject has a corresponding removal
-      const removes = evalLog.filter(e => e.script.includes('el.remove'));
+      const removes = evalLog.filter(e => e.script.includes('__antifan_normalize_scroll') && e.script.includes('el.remove()'));
       const injects = evalLog.filter(e => e.script.includes('appendChild'));
       assert.equal(injects.length, 3, 'Exactly 3 normalization injections across 3 runs');
       assert.equal(removes.length, 3, 'Exactly 3 normalization removals across 3 runs (0 leftover styles)');

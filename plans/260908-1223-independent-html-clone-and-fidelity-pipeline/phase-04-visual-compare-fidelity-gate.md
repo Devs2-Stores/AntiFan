@@ -37,10 +37,9 @@ Render the Independent HTML Clone in Chromium via AntiFan Desktop Browser, execu
 4. Record final passing receipt as evidence artifact.
 
 ## Success Criteria
-- [ ] Reference vs Independent HTML Clone achieves < 2.0% visual mismatch on desktop (1440px).
-- [ ] Reference vs Independent HTML Clone achieves < 2.0% visual mismatch on mobile (375px).
-- [ ] VisualEvidenceReceipt generated and archived in `plans/reports/`.
-
+- [ ] Reference vs Independent HTML Clone achieves < 2.0% visual mismatch on desktop (1440px). (Evidence collected under `.canary/run3/evidence/`; gate verdict currently `INCONCLUSIVE` due to capture state size mismatch: 1440x5422 vs 1440x5418).
+- [ ] Reference vs Independent HTML Clone achieves < 2.0% visual mismatch on mobile (375px / 390px). (Evidence collected under `.canary/run3/evidence/`; gate verdict currently `INCONCLUSIVE` due to capture state size mismatch: 390x14650 vs 390x14642).
+- [ ] VisualEvidenceReceipt generated and archived in `plans/reports/`. (Run 3 recovery report generated at `.canary/run3/REPORT.md` with status `INCONCLUSIVE`; previous receipt in `plans/reports/visual-evidence-receipt-hoplongtech.md` was an earlier sectional/clip receipt, not full-page proof).
 ## Risk Assessment
 - Risk: Font rendering differences between remote web fonts and local fallbacks cause text wrap shifts.
 - Mitigation: AssetLocalizer preserves and downloads all remote `@font-face` woff2 files; settle gate waits for font loading.

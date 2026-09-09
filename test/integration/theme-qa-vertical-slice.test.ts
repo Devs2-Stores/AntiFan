@@ -10,24 +10,51 @@ import { ArtifactStore } from '../../src/main/tools/artifact-store';
 import { BrowserTarget } from '../../src/shared/control-plane-contracts';
 
 describe('Theme QA vertical slice', () => {
-  const createSettleHost = (overrides: Record<string, unknown>): any => ({
-    getNetworkTracker: (() => ({
-      isAttached: () => true,
-      awaitQuiescence: async () => ({ settled: true, durationMs: 1, timedOut: false }),
-    })) as any,
-    evalJs: async (expr: unknown) => {
-      if (typeof expr === 'string') {
-        if (expr.includes('naturalWidth') || expr.includes('img.decode')) {
-          return { settled: true, brokenImages: [] };
+  const createSettleHost = (overrides: Record<string, unknown>): any => {
+    const host: any = {
+      getNetworkTracker: (() => ({
+        isAttached: () => true,
+        awaitQuiescence: async () => ({ settled: true, durationMs: 1, timedOut: false }),
+      })) as any,
+      evalJs: async (expr: unknown) => {
+        if (typeof expr === 'string') {
+          if (expr.includes('naturalWidth') || expr.includes('img.decode')) {
+            return { settled: true, brokenImages: [] };
+          }
+          if (expr.includes('document.fonts') || expr.includes('requestAnimationFrame')) {
+            return true;
+          }
         }
-        if (expr.includes('document.fonts') || expr.includes('requestAnimationFrame')) {
-          return true;
-        }
-      }
-      return null;
-    },
-    ...overrides,
-  });
+        return null;
+      },
+      ...overrides,
+    };
+    // The canonical capture primitive is mandatory for every screenshot
+    // capability; tests supply only `captureScreenshot`, so project it into a
+    // well-formed envelope carrying real CSS/raster geometry.
+    if (typeof host.captureVerificationScreenshot !== 'function') {
+      const legacyCapture = typeof host.captureScreenshot === 'function'
+        ? host.captureScreenshot
+        : async () => Buffer.from('png').toString('base64');
+      host.captureVerificationScreenshot = async (
+        rect?: unknown,
+        tabId?: string,
+        paneId?: unknown,
+        options?: { fullPage?: boolean }
+      ) => ({
+        data: await legacyCapture(rect, tabId, paneId, options),
+        backend: 'cdp',
+        dpr: 1,
+        zoom: 1,
+        cssViewport: { width: 1280, height: 720 },
+        cssCaptureSize: { width: 1280, height: 720 },
+        rasterSize: { width: 1280, height: 720 },
+        captureMode: options?.fullPage === true ? 'full-page' : 'viewport',
+        timestamp: Date.now(),
+      });
+    }
+    return host;
+  };
 
   it('inspects, edits, reloads, and emits bounded durable evidence for one exact target', async () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-qa-'));

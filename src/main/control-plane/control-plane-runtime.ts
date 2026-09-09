@@ -7,7 +7,7 @@ import { RunService } from '../run/run-service';
 import { EventStore } from '../session/event-store';
 import { ReceiptStore, type ReceiptStoreStats } from '../session/receipt-store';
 import { InvocationLedger, type InvocationLedgerStats } from '../session/invocation-ledger';
-import { ArtifactStore, type ArtifactStoreStats } from '../tools/artifact-store';
+import { ArtifactStore, type ArtifactStoreOptions, type ArtifactStoreStats } from '../tools/artifact-store';
 import { CapabilityCatalogue } from '../tools/capability-catalogue';
 import { CapabilityTransportAdapter } from '../tools/capability-transport';
 import { BrowserControlPort } from '../tools/browser-control-port';
@@ -47,7 +47,33 @@ export interface ControlPlaneRuntimeOptions {
    * instance only for test helpers that don't construct a full composition root.
    */
   terminal?: TerminalManager;
+  /**
+   * Artifact capacity overrides (root is always owned by the runtime). Populated ONLY by explicit
+   * canary/benchmark startup configuration; production leaves it undefined so the default limits stand.
+   */
+  artifactStoreOptions?: Omit<ArtifactStoreOptions, 'root'>;
 }
+
+/**
+ * Canary/benchmark artifact capacity overrides. Overrides are returned ONLY when the corresponding
+ * env var is a positive integer; otherwise undefined, leaving production limits untouched.
+ */
+export function resolveArtifactStoreOptionsFromEnv(env: Record<string, string | undefined> = process.env): Omit<ArtifactStoreOptions, 'root'> | undefined {
+  const parsePositiveInt = (raw: string | undefined): number | undefined => {
+    if (raw === undefined || raw.trim() === '') return undefined;
+    const parsed = Number(raw);
+    if (!Number.isSafeInteger(parsed) || parsed <= 0) return undefined;
+    return parsed;
+  };
+  const maxArtifactBytes = parsePositiveInt(env.ANTIFAN_ARTIFACT_MAX_ARTIFACT_BYTES);
+  const maxRunBytes = parsePositiveInt(env.ANTIFAN_ARTIFACT_MAX_RUN_BYTES);
+  if (maxArtifactBytes === undefined && maxRunBytes === undefined) return undefined;
+  const overrides: Omit<ArtifactStoreOptions, 'root'> = {};
+  if (maxArtifactBytes !== undefined) overrides.maxArtifactBytes = maxArtifactBytes;
+  if (maxRunBytes !== undefined) overrides.maxRunBytes = maxRunBytes;
+  return overrides;
+}
+
 export interface ControlPlaneResourceStats {
   artifacts: ArtifactStoreStats;
   invocations: InvocationLedgerStats;
@@ -96,7 +122,7 @@ export class ControlPlaneRuntime {
     this.events = new EventStore({ filePath: path.join(options.dataRoot, 'events.jsonl'), projectId: options.projectId, workspaceId: options.workspaceId });
     this.receipts = new ReceiptStore({ filePath: path.join(options.dataRoot, 'receipts.jsonl') });
     this.ledger = new InvocationLedger({ dataRoot: options.dataRoot });
-    this.artifacts = new ArtifactStore({ root: path.join(options.dataRoot, 'artifacts') });
+    this.artifacts = new ArtifactStore({ root: path.join(options.dataRoot, 'artifacts'), ...options.artifactStoreOptions });
     this.workspaceRoot = options.workspaceRoot || path.resolve(options.dataRoot, '..');
     this.leaseState = issueRuntimeLease(options.projectId, options.workspaceId, 30_000, options.hostEpoch ?? 1);
     this.runs = new RunService(

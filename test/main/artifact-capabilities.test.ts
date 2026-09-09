@@ -4,7 +4,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import * as crypto from 'node:crypto';
-import { ArtifactStore } from '../../src/main/tools/artifact-store';
+import { ArtifactStore, ArtifactPreflightResult } from '../../src/main/tools/artifact-store';
 import { CapabilityCatalogue } from '../../src/main/tools/capability-catalogue';
 import { registerArtifactCapabilities } from '../../src/main/tools/artifact-capabilities';
 import {
@@ -313,5 +313,253 @@ describe('Artifact Capabilities & Content-Addressed Storage (Phase 04)', () => {
     assert.strictEqual(reportRes.generated, true);
     assert.ok(reportRes.artifactRef?.id.startsWith('artifact-'));
     assert.strictEqual(reportRes.artifactRef?.kind, 'report');
+  });
+
+  describe('Evidence artifact lease (artifact.preflight / release_lease / leased stage)', () => {
+    const context = (grant: 'read' | 'write', runId: string) => ({
+      lease,
+      leaseToken: lease.token,
+      projectId,
+      workspaceId,
+      runId,
+      attemptId: makeControlPlaneId('attempt'),
+      grant,
+    });
+
+    it('9. preflight grants one exclusive lease, publishes capacity, and denies a second acquire with LEASE_HELD', async () => {
+      const runId = makeControlPlaneId('run');
+      const granted = (await catalogue.dispatch(
+        'artifact.preflight',
+        { runId, artifactBytes: 1024 },
+        context('read', runId)
+      )) as ArtifactPreflightResult;
+
+      assert.strictEqual(granted.granted, true);
+      assert.ok(granted.leaseToken);
+      assert.deepStrictEqual(granted.limits, { maxArtifactBytes: 8 * 1024 * 1024, maxRunBytes: 256 * 1024 * 1024 });
+      assert.strictEqual(granted.committedBytes, 0);
+      assert.strictEqual(granted.availableRunBytes, 256 * 1024 * 1024);
+      assert.ok(store.getLease(runId), 'Granted preflight mints a live lease');
+
+      const denied = (await catalogue.dispatch(
+        'artifact.preflight',
+        { runId, artifactBytes: 1024 },
+        context('read', runId)
+      )) as ArtifactPreflightResult;
+
+      assert.strictEqual(denied.granted, false);
+      assert.strictEqual(denied.reason, 'LEASE_HELD');
+      assert.strictEqual(denied.leaseToken, undefined);
+      assert.strictEqual(store.getLease(runId)?.leaseToken, granted.leaseToken, 'Denied acquire must not rotate the held lease');
+
+      const preflightCapability = catalogue.get('artifact.preflight');
+      assert.strictEqual(preflightCapability?.policy.timeoutMs, 15_000);
+      assert.strictEqual(preflightCapability?.policy.cancellationAckTimeoutMs, 5_000);
+    });
+
+    it('10. preflight denies an artifact above the per-artifact ceiling without minting a lease', () => {
+      const tight = new ArtifactStore({ root: path.join(tempDir, 'lease-limits'), maxArtifactBytes: 1024, maxRunBytes: 2048 });
+
+      const overArtifact = tight.preflight({ runId: 'run-over-artifact', artifactBytes: 1025 });
+      assert.strictEqual(overArtifact.granted, false);
+      assert.strictEqual(overArtifact.reason, 'ARTIFACT_EXCEEDS_LIMIT');
+      assert.strictEqual(tight.getLease('run-over-artifact'), undefined);
+
+      const overAggregate = tight.preflight({ runId: 'run-over-aggregate', artifactBytes: 1024, aggregateBytes: 1025 });
+      assert.strictEqual(overAggregate.granted, false);
+      assert.strictEqual(overAggregate.reason, 'RUN_BUDGET_EXCEEDED');
+      assert.strictEqual(tight.getLease('run-over-aggregate'), undefined);
+    });
+
+    it('11. preflight counts already committed run bytes against the aggregate budget', () => {
+      const tight = new ArtifactStore({ root: path.join(tempDir, 'lease-committed'), maxRunBytes: 2048 });
+      tight.stage({
+        kind: 'dom',
+        mime: 'text/plain',
+        data: Buffer.alloc(1500, 1),
+        runId: 'run-committed',
+        attemptId: 'attempt-1',
+        projectId,
+        workspaceId,
+      });
+
+      const denied = tight.preflight({ runId: 'run-committed', artifactBytes: 600 });
+      assert.strictEqual(denied.granted, false);
+      assert.strictEqual(denied.reason, 'RUN_BUDGET_EXCEEDED');
+      assert.strictEqual(denied.committedBytes, 1500);
+      assert.strictEqual(denied.availableRunBytes, 548);
+
+      const granted = tight.preflight({ runId: 'run-committed', artifactBytes: 548 });
+      assert.strictEqual(granted.granted, true, 'Exactly the remaining budget must be grantable');
+      assert.strictEqual(granted.committedBytes, 1500);
+    });
+
+    it('12. releaseLease ignores a wrong token, releases on the exact token, and permits re-acquire', () => {
+      const runId = makeControlPlaneId('run');
+      const granted = store.preflight({ runId, artifactBytes: 16 });
+      assert.ok(granted.leaseToken);
+
+      assert.deepStrictEqual(store.releaseLease(runId, 'foreign-token'), { released: false });
+      assert.strictEqual(store.getLease(runId)?.leaseToken, granted.leaseToken, 'Wrong-token release is a no-op');
+
+      assert.deepStrictEqual(store.releaseLease(runId, granted.leaseToken), { released: true });
+      assert.strictEqual(store.getLease(runId), undefined);
+
+      const reacquired = store.preflight({ runId, artifactBytes: 16 });
+      assert.strictEqual(reacquired.granted, true);
+      assert.notStrictEqual(reacquired.leaseToken, granted.leaseToken, 'Re-acquire mints a fresh token');
+    });
+
+    it('13. stage on a leased run requires the exact token and rejects a released token with LEASE_EXPIRED', () => {
+      const leasedStore = new ArtifactStore({ root: path.join(tempDir, 'lease-token') });
+      const runId = makeControlPlaneId('run');
+      const granted = leasedStore.preflight({ runId, artifactBytes: 64 });
+      assert.ok(granted.leaseToken);
+      const base = {
+        kind: 'dom' as const,
+        mime: 'text/plain',
+        data: Buffer.from('leased payload'),
+        runId,
+        attemptId: 'attempt-1',
+        projectId,
+        workspaceId,
+      };
+
+      assert.throws(
+        () => leasedStore.stage(base),
+        (err: unknown) => err instanceof CapabilityError && err.code === 'TRANSACTION_CONFLICT' && err.message.includes('requires the matching leaseToken')
+      );
+      assert.throws(
+        () => leasedStore.stage({ ...base, leaseToken: 'foreign-token' }),
+        (err: unknown) => err instanceof CapabilityError && err.code === 'TRANSACTION_CONFLICT' && err.message.includes('token mismatch')
+      );
+      assert.strictEqual(leasedStore.getStats().artifactCount, 0, 'Rejected leased stages must not mint artifacts');
+
+      const ref = leasedStore.stage({ ...base, leaseToken: granted.leaseToken, overflowMode: 'reject' });
+      assert.ok(ref.id.startsWith('artifact-'));
+      assert.strictEqual(ref.byteLength, base.data.byteLength);
+
+      assert.deepStrictEqual(leasedStore.releaseLease(runId, granted.leaseToken), { released: true });
+      assert.throws(
+        () => leasedStore.stage({ ...base, leaseToken: granted.leaseToken }),
+        (err: unknown) => err instanceof CapabilityError && err.code === 'LEASE_EXPIRED'
+      );
+    });
+
+    it("14. overflowMode 'reject' fails closed before writing bytes or minting an ArtifactRef", () => {
+      const rejectStore = new ArtifactStore({ root: path.join(tempDir, 'lease-reject'), maxArtifactBytes: 100 });
+      const runId = 'run-reject';
+      const before = rejectStore.getStats();
+
+      assert.throws(
+        () => rejectStore.stage({
+          kind: 'dom',
+          mime: 'text/plain',
+          data: Buffer.alloc(200, 7),
+          runId,
+          attemptId: 'attempt-1',
+          projectId,
+          workspaceId,
+          overflowMode: 'reject',
+        }),
+        (err: unknown) => err instanceof CapabilityError && err.code === 'ARTIFACT_TOO_LARGE' && err.message.includes('exceeds the 100 byte ceiling')
+      );
+
+      assert.deepStrictEqual(rejectStore.getStats(), before, 'Rejected overflow must not write bytes, runs, or refs');
+      assert.strictEqual(fs.existsSync(path.join(tempDir, 'lease-reject', runId)), false, 'Rejected overflow must not create the run directory');
+    });
+
+    it('15. a leased stage re-reads committed bytes from disk and fails when an out-of-band write exhausts the run budget', () => {
+      const root = path.join(tempDir, 'lease-disk');
+      const leasedStore = new ArtifactStore({ root, maxRunBytes: 4096 });
+      const runId = 'run-disk';
+      const granted = leasedStore.preflight({ runId, artifactBytes: 1024 });
+      assert.strictEqual(granted.granted, true);
+      assert.ok(granted.leaseToken);
+
+      fs.mkdirSync(path.join(root, runId), { recursive: true });
+      fs.writeFileSync(path.join(root, runId, 'out-of-band.artifact'), Buffer.alloc(4000, 3));
+
+      assert.throws(
+        () => leasedStore.stage({
+          kind: 'dom',
+          mime: 'text/plain',
+          data: Buffer.alloc(200, 1),
+          runId,
+          attemptId: 'attempt-1',
+          projectId,
+          workspaceId,
+          leaseToken: granted.leaseToken,
+          overflowMode: 'reject',
+        }),
+        (err: unknown) => err instanceof CapabilityError && err.code === 'ARTIFACT_TOO_LARGE' && err.message === 'Run artifact budget exceeded'
+      );
+      assert.strictEqual(leasedStore.getStats().artifactCount, 0);
+    });
+
+    it('16. artifact.release_lease dispatches a structured release and rejects a wrong token as released:false', async () => {
+      const runId = makeControlPlaneId('run');
+      const granted = (await catalogue.dispatch(
+        'artifact.preflight',
+        { runId, artifactBytes: 32 },
+        context('read', runId)
+      )) as ArtifactPreflightResult;
+      assert.ok(granted.leaseToken);
+
+      const wrong = (await catalogue.dispatch(
+        'artifact.release_lease',
+        { runId, leaseToken: 'foreign-token' },
+        context('write', runId)
+      )) as { released: boolean };
+      assert.strictEqual(wrong.released, false);
+      assert.strictEqual(store.getLease(runId)?.leaseToken, granted.leaseToken);
+
+      const released = (await catalogue.dispatch(
+        'artifact.release_lease',
+        { runId, leaseToken: granted.leaseToken },
+        context('write', runId)
+      )) as { released: boolean };
+      assert.strictEqual(released.released, true);
+      assert.strictEqual(store.getLease(runId), undefined);
+    });
+
+    it('17. atomic write detects pre-existing truncated corruption, repairs destination, and cleans up temp files', () => {
+      const runId = makeControlPlaneId('run');
+      const testData = Buffer.from('atomic-write-verification-full-uncorrupted-payload-data-123456789');
+      const sha256 = crypto.createHash('sha256').update(testData).digest('hex');
+      const runDir = path.join(tempDir, runId);
+      fs.mkdirSync(runDir, { recursive: true });
+      const expectedPath = path.join(runDir, `${sha256}.artifact`);
+
+      // Precreate corrupt truncated bytes at destination to simulate prior interrupted write
+      const corruptBytes = Buffer.from('corrupted-short-bytes');
+      fs.writeFileSync(expectedPath, corruptBytes);
+      assert.ok(fs.existsSync(expectedPath));
+      assert.strictEqual(fs.statSync(expectedPath).size, corruptBytes.byteLength);
+
+      const ref = store.stage({
+        kind: 'screenshot',
+        mime: 'image/png',
+        data: testData,
+        runId,
+        attemptId: makeControlPlaneId('attempt'),
+        projectId,
+        workspaceId,
+      });
+
+      assert.strictEqual(ref.path, expectedPath);
+      assert.ok(fs.existsSync(expectedPath), 'Destination artifact file must exist');
+      assert.strictEqual(fs.statSync(expectedPath).size, testData.byteLength, 'Corrupt destination must be replaced with full payload');
+
+      const files = fs.readdirSync(runDir);
+      const tmpFiles = files.filter((f) => f.endsWith('.tmp'));
+      assert.strictEqual(tmpFiles.length, 0, 'No temporary files should linger after successful stage');
+
+      // Assert exact recovered payload bytes and hash integrity on read
+      const readResult = store.readBytesById(ref.id);
+      assert.strictEqual(readResult.ref.byteLength, testData.byteLength);
+      assert.strictEqual(readResult.ref.sha256, sha256);
+      assert.deepStrictEqual(readResult.data, testData);
+    });
   });
 });

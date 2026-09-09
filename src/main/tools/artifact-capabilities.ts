@@ -1,5 +1,5 @@
 import { CapabilityCatalogue } from './capability-catalogue';
-import { ArtifactStore } from './artifact-store';
+import { ArtifactStore, ArtifactPreflightInput, ArtifactPreflightResult } from './artifact-store';
 import {
   CapabilityError,
   CapabilityRequestContext,
@@ -80,6 +80,78 @@ export function registerArtifactCapabilities(
         throw new CapabilityError('INVALID_ARGUMENT', 'Artifact ID is required');
       }
       return artifacts.stat(params.artifactId, context);
+    },
+  });
+
+  catalogue.register<ArtifactPreflightInput, ArtifactPreflightResult>({
+    name: 'artifact.preflight',
+    description: 'Acquire an exclusive evidence-run artifact lease and reserve per-artifact and aggregate byte capacity',
+    risk: 'read',
+    policy: {
+      effect: 'read',
+      risk: 'read',
+      requiresBrowserTarget: false,
+      schedulerLane: 'unbounded',
+      duplicateMode: 'reject-concurrent',
+      recordedVisibility: 'tenant-scoped',
+      receiptReadPermission: 'read',
+      timeoutMs: 15_000,
+      retentionPolicy: 'run-durable',
+      ownerCancellationBehavior: 'abort-immediate',
+      subscriberDisconnectBehavior: 'abort-when-unobserved',
+      cancellationAckTimeoutMs: 5_000,
+      policyVersion: 1,
+    },
+    inputSchema: {
+      type: 'object',
+      properties: {
+        runId: { type: 'string', description: 'Evidence run that owns the lease' },
+        artifactBytes: { type: 'number', description: 'Bytes of the artifact about to be staged' },
+        aggregateBytes: { type: 'number', description: 'Additional bytes expected across the run beyond this artifact' },
+        leaseTtlMs: { type: 'number', description: 'Lease time-to-live in milliseconds (default 900000)' },
+      },
+      required: ['runId', 'artifactBytes'],
+    },
+    execute: (params: ArtifactPreflightInput) => {
+      if (!params || typeof params !== 'object') {
+        throw new CapabilityError('INVALID_ARGUMENT', 'artifact.preflight requires an input object');
+      }
+      return artifacts.preflight(params);
+    },
+  });
+
+  catalogue.register<{ runId: string; leaseToken: string }, { released: boolean }>({
+    name: 'artifact.release_lease',
+    description: 'Release an exclusive evidence-run artifact lease so another run can acquire it',
+    risk: 'write',
+    policy: {
+      effect: 'management',
+      risk: 'write',
+      requiresBrowserTarget: false,
+      schedulerLane: 'unbounded',
+      duplicateMode: 'in-process-join',
+      recordedVisibility: 'tenant-scoped',
+      receiptReadPermission: 'read',
+      timeoutMs: 15_000,
+      retentionPolicy: 'run-durable',
+      ownerCancellationBehavior: 'abort-immediate',
+      subscriberDisconnectBehavior: 'abort-when-unobserved',
+      cancellationAckTimeoutMs: 5_000,
+      policyVersion: 1,
+    },
+    inputSchema: {
+      type: 'object',
+      properties: {
+        runId: { type: 'string', description: 'Evidence run that owns the lease' },
+        leaseToken: { type: 'string', description: 'Lease token returned by artifact.preflight' },
+      },
+      required: ['runId', 'leaseToken'],
+    },
+    execute: (params: { runId: string; leaseToken: string }) => {
+      if (!params || typeof params.runId !== 'string' || typeof params.leaseToken !== 'string') {
+        throw new CapabilityError('INVALID_ARGUMENT', 'runId and leaseToken are required to release an artifact lease');
+      }
+      return artifacts.releaseLease(params.runId, params.leaseToken);
     },
   });
 

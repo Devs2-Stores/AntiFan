@@ -4,7 +4,7 @@
   "verdict": "PASSED",
   "productCard": {
     "pngSignatureValid": true,
-    "pngBytes": 12304,
+    "pngBytes": 13299,
     "sourceCandidate": "snippets/card-product.liquid",
     "sourceConfidence": "HIGH",
     "sourceCorrelated": true,
@@ -26,16 +26,16 @@
     "p04RenderedMutations": {
       "mutationA": {
         "description": "Text wrap expands card height in live Chromium",
-        "baselineHeight": 510,
-        "mutatedHeight": 578,
-        "structuralDelta": 68,
+        "baselineHeight": 507,
+        "mutatedHeight": 574,
+        "structuralDelta": 67,
         "geometryWithinTolerance": false,
         "expectedPolicyOutcome": "REJECTED"
       },
       "mutationB": {
         "description": "Text change preserves card box geometry in live Chromium",
-        "baselineHeight": 510,
-        "mutatedHeight": 510,
+        "baselineHeight": 507,
+        "mutatedHeight": 507,
         "structuralDelta": 0,
         "cardinalityMatch": true,
         "geometryWithinTolerance": true,
@@ -46,7 +46,7 @@
         "outerHeight": 380,
         "hasScrollOverflow": true,
         "buttonClippedOutOfView": true,
-        "outerBoxDeltaGeometry": 130,
+        "outerBoxDeltaGeometry": 127,
         "diagnosticStatus": "INCONCLUSIVE",
         "reason": "Descendant clipping and scroll overflow observed via DOM probe, but current production structural observation path lacks descendant clipping telemetry"
       }
@@ -76,7 +76,7 @@
     "ambiguousSourceVerdict": "REJECTED",
     "staleAuthorityDenied": true
   },
-  "coreTeardownCompletedAt": "2026-09-07T06:04:17.876Z",
+  "coreTeardownCompletedAt": "2026-09-09T16:20:14.176Z",
   "teardown": {
     "passed": true,
     "processBoundTempCleanup": "completed",
@@ -104,6 +104,6 @@
       "terminalExitSubscriptions": 0
     }
   },
-  "proofChecksum": "d4b20ecf02e5471974aa69f2d457f94aa386764e5355cedbbdc20bb61ce56abe",
-  "completedAt": "2026-09-07T06:04:18.161Z"
+  "proofChecksum": "a9b8220e3a94f62f8d246d0d134ab36e2d593ed0cd8c965048339f9891da8918",
+  "completedAt": "2026-09-09T16:20:14.417Z"
 }

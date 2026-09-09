@@ -48,6 +48,12 @@ class ExecutionControlImpl implements CapabilityExecutionControl {
   private readonly abortController = new AbortController();
   public readonly cancellationId: string;
   public cancellationSource?: 'owner' | 'subscriber' | 'timeout' | 'system';
+  /**
+   * Continuation token for this invocation. A pending-cleanup deadline
+   * invalidates it so a late (stale) continuation cannot dispatch new child
+   * work while owned resources are still held.
+   */
+  public continuationValid = true;
 
   constructor(cancellationId: string) {
     this.cancellationId = cancellationId;
@@ -444,6 +450,12 @@ export class CapabilityTransportAdapter {
 
     let childSeq = 0;
     const dispatchChildIntent = async (stepId: string, attempt: number, childIntent: ClientInvocationIntent) => {
+      if (!execControl.continuationValid) {
+        throw new CapabilityError(
+          'TRANSACTION_CONFLICT',
+          `Continuation token for invocation ${invocationId} is invalidated: the invocation exceeded its execution budget and is pending cleanup`
+        );
+      }
       childSeq++;
       const deterministicKey = `child:${invocationId}:${stepId}:${attempt}:${childSeq}`;
       const childWithLineage: ClientInvocationIntent = {
@@ -457,6 +469,35 @@ export class CapabilityTransportAdapter {
       return await this.dispatchIntent(childWithLineage, runtimeOptions);
     };
 
+    // Budget partition: policy.timeoutMs is one total response budget. The
+    // execution deadline fires first and aborts the handler with source
+    // 'timeout'; the reserved cancellationAckTimeoutMs grace is spent awaiting
+    // the handler's own cleanup (lock/pool/tab/DOM release) before any terminal
+    // receipt is written.
+    const executionBudgetMs = Math.max(1, Math.trunc(policy?.timeoutMs ?? 30_000));
+    const cancellationAckMs = Math.min(executionBudgetMs, Math.max(0, Math.trunc(policy?.cancellationAckTimeoutMs ?? 0)));
+    const executionDeadlineMs = Math.max(0, executionBudgetMs - cancellationAckMs);
+    let executionTimer: NodeJS.Timeout | undefined;
+    let graceTimer: NodeJS.Timeout | undefined;
+    const clearBudgetTimers = () => {
+      if (executionTimer) {
+        clearTimeout(executionTimer);
+        executionTimer = undefined;
+      }
+      if (graceTimer) {
+        clearTimeout(graceTimer);
+        graceTimer = undefined;
+      }
+    };
+    if (executionDeadlineMs <= 0) {
+      execControl.abort('timeout');
+    } else {
+      executionTimer = setTimeout(() => {
+        execControl.abort('timeout');
+      }, executionDeadlineMs);
+    }
+
+    const handlerPromise = (async (): Promise<CapabilityTransportResponse> => {
     try {
       const authContext: AuthenticatedCapabilityContext = {
         attachmentId: liveAuthority.attachmentId,
@@ -568,6 +609,15 @@ export class CapabilityTransportAdapter {
           }
         }
       }
+      // A completion that lands after the execution deadline is still a timeout:
+      // the effect may have landed, so the receipt must be EXECUTION_TIMEOUT with
+      // an indeterminate state rather than a clean completion. Bookkeeping for
+      // effects already performed (tab/authority revision) stays applied above.
+      if (execControl.cancellationSource === 'timeout') {
+        const lateTimeoutErr = new Error(`Execution exceeded its ${executionDeadlineMs}ms execution budget`);
+        (lateTimeoutErr as unknown as { code: string }).code = 'EXECUTION_TIMEOUT';
+        throw lateTimeoutErr;
+      }
       // Check if cancellation arrived during execution under abort-immediate
       if (execControl.signal.aborted && policy?.ownerCancellationBehavior !== 'drain-and-persist') {
         const isInterrupted = execControl.cancellationAck === 'no-effect' && execControl.effectStage === 'not-started';
@@ -637,6 +687,41 @@ export class CapabilityTransportAdapter {
     } finally {
       abortListenerCleanup?.();
     }
+    })();
+    // The handler always returns a classified response; observe the same promise
+    // here so a background continuation can never surface as an unhandled rejection.
+    handlerPromise.catch(() => {});
+
+    const graceOutcome = await Promise.race([
+      handlerPromise.then((response) => ({ settled: true as const, response })),
+      new Promise<{ settled: false }>((resolve) => {
+        graceTimer = setTimeout(() => resolve({ settled: false }), executionBudgetMs);
+      }),
+    ]);
+    if (executionTimer) clearTimeout(executionTimer);
+    if (graceTimer) clearTimeout(graceTimer);
+
+    if (graceOutcome.settled) {
+      return graceOutcome.response;
+    }
+
+    // The handler is still holding resources past the total response budget.
+    // Return a bounded nonterminal pending-cleanup response: the ledger record
+    // stays nonterminal and joinable by the original idempotencyKey, the
+    // original handler promise writes the terminal receipt only after its owned
+    // cleanup completes, and the stale continuation token is invalidated so no
+    // late child work is admitted from this invocation.
+    execControl.continuationValid = false;
+    return {
+      ok: false,
+      requestId: intent.requestId,
+      invocationId,
+      error: {
+        code: 'EXECUTION_TIMEOUT_PENDING_CLEANUP',
+        message: `Execution exceeded the ${executionBudgetMs}ms response budget (${executionDeadlineMs}ms execution + ${cancellationAckMs}ms cleanup grace) and is still releasing owned resources`,
+        details: { invocationId, cleanupPending: true },
+      },
+    };
   }
 
   private classifySettlement(
@@ -656,6 +741,18 @@ export class CapabilityTransportAdapter {
     if (isAbort || typed?.code === 'PROCESS_INTERRUPTED') {
       const ack = control.cancellationAck;
       const effectStage = control.effectStage;
+      if (control.cancellationSource === 'timeout') {
+        // Budget deadline: a terminal EXECUTION_TIMEOUT. `unknown` when effects
+        // started (cleanup cannot prove the page/artifact state), `interrupted`
+        // when nothing was committed.
+        const effectsStarted = effectStage !== 'not-started' || ack === 'effect-possible';
+        return {
+          state: effectsStarted ? 'unknown' : 'interrupted',
+          code: 'EXECUTION_TIMEOUT',
+          message: typed?.message || 'Execution exceeded its policy execution budget and was aborted',
+          details: typed?.details,
+        };
+      }
       if (ack === 'no-effect' || (isTransportAbort && effectStage === 'not-started') || (policy?.effect === 'read' && effectStage === 'not-started')) {
         return {
           state: 'interrupted',
@@ -681,18 +778,14 @@ export class CapabilityTransportAdapter {
     }
 
     if (typed?.code === 'TIMEOUT' || typed?.code === 'EXECUTION_TIMEOUT') {
-      if (control.effectStage === 'effect-started' || control.effectStage === 'effect-committed') {
-        return {
-          state: 'unknown',
-          code: typed?.code || 'TIMEOUT',
-          message: typed?.message || 'Execution timed out with indeterminate effect state',
-          details: typed?.details,
-        };
-      }
+      // Handler-forged timeout with no transport abort (the transport budget
+      // deadline is classified above via cancellationSource === 'timeout'): a
+      // timeout that never started an effect is a failure, not an interruption.
+      const effectsStarted = control.effectStage !== 'not-started' || control.cancellationAck === 'effect-possible';
       return {
-        state: 'failed',
-        code: typed?.code || 'TIMEOUT',
-        message: typed?.message || 'Execution timed out',
+        state: effectsStarted ? 'unknown' : 'failed',
+        code: typed?.code || 'EXECUTION_TIMEOUT',
+        message: typed?.message || (effectsStarted ? 'Execution timed out with indeterminate effect state' : 'Execution timed out'),
         details: typed?.details,
       };
     }

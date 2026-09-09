@@ -8,6 +8,7 @@ import { ServerCrashScanner } from '../../src/main/qa/scanners/server-crash-scan
 import { classifyDiagnostics } from '../../src/main/qa/diagnostics-filter';
 import { ThemeQaWorkflow } from '../../src/main/qa/theme-qa-workflow';
 import { BrowserControlPort, BrowserHostPort } from '../../src/main/tools/browser-control-port';
+import { TINY_PNG_BASE64, withCanonicalCapture } from './verification-capture-fixture';
 import { ArtifactStore } from '../../src/main/tools/artifact-store';
 import { BrowserTarget } from '../../src/shared/control-plane-contracts';
 
@@ -267,12 +268,12 @@ describe('ThemeQaWorkflow Integration with ServerCrashScanner', () => {
         </html>
       `;
 
-      const mockHost: BrowserHostPort = {
+      const mockHost: BrowserHostPort = withCanonicalCapture({
         getTabList: () => [{ id: 'tab-crash-1', url: 'https://store.example.com/' }],
         navigate: () => true,
         reload: () => true,
         getDom: async () => crashHtml,
-        captureScreenshot: async () => Buffer.from('fake-png').toString('base64'),
+        captureScreenshot: async () => TINY_PNG_BASE64,
         getNetworkTracker: (() => ({
           isAttached: () => true,
           awaitQuiescence: async () => ({ settled: true, durationMs: 1, timedOut: false }),
@@ -291,7 +292,7 @@ describe('ThemeQaWorkflow Integration with ServerCrashScanner', () => {
         getDocumentGeneration: () => 1,
         isCurrentTarget: () => true,
         getDiagnostics: () => ({ console: [], failures: [] }),
-      };
+      });
 
       const artifactStore = new ArtifactStore({ root: path.join(root, 'artifacts') });
       const browser = new BrowserControlPort(mockHost, artifactStore);

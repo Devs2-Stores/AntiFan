@@ -12,6 +12,14 @@ import { AntiFanMcpServer, buildMcpToolList } from '../../src/main/mcp/mcp-serve
 import { AttachmentRegistry } from '../../src/main/run/attachment-registry';
 import { DEVICE_PRESETS } from '../../src/main/browser/device-presets';
 import { CapabilityError, issueRuntimeLease, makeControlPlaneId, BrowserTarget, AuthenticatedCapabilityContext, CapabilityRequestContext } from '../../src/shared/control-plane-contracts';
+import { verificationCaptureEnvelope } from './verification-capture-fixture';
+// The host shell may export ANTIFAN_* bindings (live attachment/tab ids) for the
+// MCP shim. Tests must resolve their own local registry state, so ambient
+// bindings are scrubbed before any server or runtime is constructed.
+for (const key of Object.keys(process.env)) {
+  if (key.startsWith('ANTIFAN_')) delete process.env[key];
+}
+
 describe('Capability catalogue', () => {
   it('uses one lease/policy-aware catalogue and fails closed on missing target/grant', async () => {
     const projectId = makeControlPlaneId('project');
@@ -1008,6 +1016,7 @@ describe('Capability catalogue', () => {
       getTabList: () => [{ id: 'tab-1' }],
       getActiveTabId: () => 'tab-1',
       captureScreenshot: async () => '',
+      captureVerificationScreenshot: async () => verificationCaptureEnvelope(''),
       isCurrentTarget: () => true,
     };
     const mockArtifacts = {

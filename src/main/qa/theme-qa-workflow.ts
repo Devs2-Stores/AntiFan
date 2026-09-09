@@ -2,6 +2,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { ArtifactRef, BrowserTarget, CapabilityError } from '../../shared/control-plane-contracts';
 import { BrowserControlPort } from '../tools/browser-control-port';
+import type { EvidenceCaptureEnvelope } from '../verification/visual-capture';
 import { ArtifactStore } from '../tools/artifact-store';
 import { PlatformDetector, PlatformDetectionResult, EcommercePlatform } from './scanners/platform-detector';
 import { LiquidErrorScanner, LiquidScanResult, LiquidErrorFinding } from './scanners/liquid-error-scanner';
@@ -129,7 +130,7 @@ function rethrowTargetLifecycleError(error: unknown): void {
 
 export class ThemeQaWorkflow {
   constructor(private readonly ports: ThemeQaWorkflowPorts) {}
-  async inspect(input: { runId: string; attemptId: string; workspaceRoot: string; target: BrowserTarget; selector?: string }): Promise<{ dom: ArtifactRef | string; screenshot: ArtifactRef | string }> {
+  async inspect(input: { runId: string; attemptId: string; workspaceRoot: string; target: BrowserTarget; selector?: string }): Promise<{ dom: ArtifactRef | string; screenshot: EvidenceCaptureEnvelope }> {
     this.assertOwnership(input.target);
     const dom = await this.ports.browser.dom(input.target, input.runId, input.attemptId, input.selector);
     const screenshot = await this.ports.browser.screenshot(input.target, input.runId, input.attemptId);
@@ -642,9 +643,11 @@ export class ThemeQaWorkflow {
     };
 
     const artifacts: ArtifactRef[] = [];
-    for (const item of [evidence.dom, evidence.screenshot]) {
-      if (typeof item !== 'string') artifacts.push(item);
-    }
+    const collectRef = (item: unknown): void => {
+      if (item && typeof item === 'object' && typeof (item as ArtifactRef).id === 'string') artifacts.push(item as ArtifactRef);
+    };
+    collectRef(evidence.dom);
+    collectRef(evidence.screenshot.artifactRef);
     if (input.signal?.aborted) {
       throw new CapabilityError('TARGET_STALE', 'Theme QA validation was aborted by document navigation');
     }

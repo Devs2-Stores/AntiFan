@@ -541,9 +541,9 @@ export class AntiFanMcpServer {
       'browser.rebind-target': 'antifan_rebind_target',
       'anti.inspect.dom': 'antifan_get_dom',
       'anti.screenshot.viewport': 'antifan_screenshot',
-      'anti.screenshot.full_page': 'antifan_screenshot',
-      'anti.screenshot.fullpage': 'antifan_screenshot',
-      'antifan_screenshot_full_page': 'antifan_screenshot',
+      'anti.screenshot.full_page': 'anti.screenshot.full_page',
+      'anti.screenshot.fullpage': 'anti.screenshot.full_page',
+      'antifan_screenshot_full_page': 'anti.screenshot.full_page',
       'anti.browser.type': 'antifan_agent_type',
       'anti.browser.scroll': 'antifan_agent_scroll',
       'anti.browser.hover': 'antifan_agent_hover',
@@ -625,7 +625,6 @@ export class AntiFanMcpServer {
     const name = aliasMap[toolName] || toolName;
     const a = (args || {}) as Record<string, unknown>;
     if (!a.tabId && a.id) a.tabId = a.id;
-    if (toolName === 'anti.screenshot.full_page' || toolName === 'anti.screenshot.fullpage' || toolName === 'antifan_screenshot_full_page') a.fullPage = true;
     if (toolName === 'anti.devtools.console.errors') a.level = 3;
     if (toolName === 'anti.devtools.console.warnings') a.level = 2;
 

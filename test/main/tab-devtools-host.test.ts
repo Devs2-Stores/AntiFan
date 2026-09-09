@@ -1,8 +1,37 @@
 import { describe, it } from 'node:test';
 import * as assert from 'node:assert';
 import vm from 'node:vm';
+import * as zlib from 'node:zlib';
 import { TabDevToolsHost, TabDevToolsContext } from '../../src/main/browser/tab-devtools-host';
+import { CaptureError } from '../../src/main/verification/visual-capture';
 import { AntiFanTab, SplitPaneId, AntiFanPickedElement } from '../../src/shared/contracts';
+
+/**
+ * Structurally complete PNG with real zlib-compressed IDAT data so the
+ * canonical capture path's PNG integrity gate and raster/CSS scale gate both
+ * see a decodable payload with the requested IHDR dimensions.
+ */
+function makePng(width: number, height: number): Buffer {
+  const chunk = (type: string, data: Buffer): Buffer => {
+    const out = Buffer.alloc(12 + data.length);
+    out.writeUInt32BE(data.length, 0);
+    out.write(type, 4, 'latin1');
+    data.copy(out, 8);
+    return out;
+  };
+  const ihdr = Buffer.alloc(13);
+  ihdr.writeUInt32BE(width, 0);
+  ihdr.writeUInt32BE(height, 4);
+  ihdr[8] = 8;
+  ihdr[9] = 2;
+  const raw = Buffer.alloc(height * (1 + width * 3));
+  return Buffer.concat([
+    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+    chunk('IHDR', ihdr),
+    chunk('IDAT', zlib.deflateSync(raw)),
+    chunk('IEND', Buffer.alloc(0)),
+  ]);
+}
 
 interface MockTabRecord {
   state: AntiFanTab;
@@ -319,20 +348,27 @@ describe('TabDevToolsHost (Sub-Controller Unit Tests)', () => {
     assert.strictEqual(cmd1.method, 'Emulation.clearDeviceMetricsOverride');
   });
 
-  it('10. captureScreenshot with fullPage: true sends CDP Page.captureScreenshot with fromSurface false and captureBeyondViewport true', async () => {
+  it('10. captureScreenshot with fullPage: true issues exactly one CDP Page.captureScreenshot with fromSurface true and captureBeyondViewport true', async () => {
     const { ctx } = createMockContext();
     const devTools = new TabDevToolsHost(ctx);
 
     const cdpCommands: Array<{ method: string; params?: unknown }> = [];
     (devTools as unknown as { sendCdpCommand: (wc: unknown, method: string, params?: unknown) => Promise<unknown> }).sendCdpCommand = async (_wc, method, params) => {
       cdpCommands.push({ method, params });
-      if (method === 'Page.getLayoutMetrics') {
-        return {
-          contentSize: { width: 1440, height: 3200 },
-        };
+      const expression =
+        params && typeof params === 'object' && 'expression' in params && typeof params.expression === 'string'
+          ? params.expression
+          : '';
+      if (method === 'Runtime.evaluate') {
+        if (expression.includes('devicePixelRatio')) {
+          return { result: { value: { dpr: 1, vw: 40, vh: 30 } } };
+        }
+        if (expression.includes('scrollHeight')) {
+          return { result: { value: 300 } };
+        }
       }
       if (method === 'Page.captureScreenshot') {
-        return { data: 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==' };
+        return { data: makePng(40, 300).toString('base64') };
       }
       return {};
     };
@@ -340,35 +376,47 @@ describe('TabDevToolsHost (Sub-Controller Unit Tests)', () => {
     const base64 = await devTools.captureScreenshot(undefined, 'tab-1', 'desktop', { fullPage: true });
     assert.ok(base64.length > 0);
 
-    const pageCaptureCmd = cdpCommands.find((c) => c.method === 'Page.captureScreenshot');
-    assert.ok(pageCaptureCmd, 'Page.captureScreenshot must be invoked');
-    const params = pageCaptureCmd.params as { fromSurface?: boolean; captureBeyondViewport?: boolean; clip?: { width: number; height: number } };
-    assert.strictEqual(params.fromSurface, false, 'fromSurface must be false to avoid clipping to compositor surface');
-    assert.strictEqual(params.captureBeyondViewport, true, 'captureBeyondViewport must be true to capture full document');
-    assert.strictEqual(params.clip?.width, 1440);
-    assert.strictEqual(params.clip?.height, 3200);
+    const pageCaptureCmds = cdpCommands.filter((c) => c.method === 'Page.captureScreenshot');
+    assert.strictEqual(pageCaptureCmds.length, 1, 'Canonical full-page capture must issue exactly one Page.captureScreenshot');
+    const params = pageCaptureCmds[0]?.params;
+    assert.ok(params && typeof params === 'object');
+    // fromSurface:true is required for a document-tall clip: live CDP on the
+    // windowed Electron runtime returned a 1440x900 renderer view for a
+    // 1440x2200 clip with fromSurface:false, while fromSurface:true returned
+    // the full 1440x2200 raster.
+    assert.strictEqual('fromSurface' in params && params.fromSurface, true, 'Non-viewport captures must rasterize from the compositor surface');
+    assert.strictEqual('captureBeyondViewport' in params && params.captureBeyondViewport, true, 'captureBeyondViewport must be true to capture the document');
+    const clip = 'clip' in params ? params.clip : undefined;
+    assert.deepStrictEqual(clip, { x: 0, y: 0, width: 40, height: 300, scale: 1 });
   });
 
-  it('11. captureScreenshot with fullPage: true evaluates DOM scroll dimensions when layoutMetrics contentSize is truncated to viewport', async () => {
+  it('11. captureScreenshot with fullPage: true derives clip geometry from DOM scrollHeight, not truncated layout metrics', async () => {
     const { ctx } = createMockContext();
     const devTools = new TabDevToolsHost(ctx);
 
     const cdpCommands: Array<{ method: string; params?: unknown }> = [];
     (devTools as unknown as { sendCdpCommand: (wc: unknown, method: string, params?: unknown) => Promise<unknown> }).sendCdpCommand = async (_wc, method, params) => {
       cdpCommands.push({ method, params });
+      const expression =
+        params && typeof params === 'object' && 'expression' in params && typeof params.expression === 'string'
+          ? params.expression
+          : '';
       if (method === 'Page.getLayoutMetrics') {
         return {
-          contentSize: { width: 1200, height: 800 },
-          layoutViewport: { clientWidth: 1200, clientHeight: 800 },
+          contentSize: { width: 20, height: 10 },
+          layoutViewport: { clientWidth: 20, clientHeight: 10 },
         };
       }
       if (method === 'Runtime.evaluate') {
-        return {
-          result: { value: { width: 1200, height: 5800 } },
-        };
+        if (expression.includes('devicePixelRatio')) {
+          return { result: { value: { dpr: 1, vw: 20, vh: 10 } } };
+        }
+        if (expression.includes('scrollHeight')) {
+          return { result: { value: 5800 } };
+        }
       }
       if (method === 'Page.captureScreenshot') {
-        return { data: 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==' };
+        return { data: makePng(20, 5800).toString('base64') };
       }
       return {};
     };
@@ -376,11 +424,14 @@ describe('TabDevToolsHost (Sub-Controller Unit Tests)', () => {
     const base64 = await devTools.captureScreenshot(undefined, 'tab-1', 'desktop', { fullPage: true });
     assert.ok(base64.length > 0);
 
-    const pageCaptureCmd = cdpCommands.find((c) => c.method === 'Page.captureScreenshot');
-    assert.ok(pageCaptureCmd, 'Page.captureScreenshot must be invoked');
-    const params = pageCaptureCmd.params as { clip?: { width: number; height: number } };
-    assert.strictEqual(params.clip?.width, 1200);
-    assert.strictEqual(params.clip?.height, 5800, 'Height must be evaluated from DOM scrollHeight 5800, not truncated 800');
+    assert.strictEqual(cdpCommands.some((c) => c.method === 'Page.getLayoutMetrics'), false, 'Layout metrics must not drive full-page geometry');
+    const pageCaptureCmds = cdpCommands.filter((c) => c.method === 'Page.captureScreenshot');
+    assert.strictEqual(pageCaptureCmds.length, 1);
+    const params = pageCaptureCmds[0]?.params;
+    assert.ok(params && typeof params === 'object' && 'clip' in params && params.clip && typeof params.clip === 'object');
+    const clip = params.clip;
+    assert.strictEqual('width' in clip ? clip.width : undefined, 20);
+    assert.strictEqual('height' in clip ? clip.height : undefined, 5800, 'Height must come from DOM scrollHeight 5800, not the truncated 10px viewport');
   });
 
   it('fails fast with TARGET_BUSY_DRAINING and bounds admission during unsettled command', async () => {
@@ -702,10 +753,10 @@ describe('TabDevToolsHost (Sub-Controller Unit Tests)', () => {
     (devTools as unknown as { sendCdpCommand: (wc: unknown, method: string, params?: unknown) => Promise<unknown> }).sendCdpCommand = async (_wc, method, params) => {
       cdpCommands.push({ method, params });
       if (method === 'Runtime.evaluate') {
-        return { result: { value: { dpr: 2, vw: 1280, vh: 800 } } };
+        return { result: { value: { dpr: 2, vw: 3, vh: 2 } } };
       }
       if (method === 'Page.captureScreenshot') {
-        return { data: 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==' };
+        return { data: makePng(6, 4).toString('base64') };
       }
       return {};
     };
@@ -713,8 +764,10 @@ describe('TabDevToolsHost (Sub-Controller Unit Tests)', () => {
     const envelope = await devTools.captureVerificationScreenshot(undefined, 'tab-2', 'desktop');
     assert.strictEqual(envelope.backend, 'cdp');
     assert.strictEqual(envelope.dpr, 2);
-    assert.strictEqual(envelope.rasterSize.width, 1);
-    assert.strictEqual(envelope.rasterSize.height, 1);
+    assert.strictEqual(envelope.captureMode, 'viewport');
+    assert.deepStrictEqual(envelope.cssViewport, { width: 3, height: 2 });
+    assert.deepStrictEqual(envelope.cssCaptureSize, { width: 3, height: 2 });
+    assert.deepStrictEqual(envelope.rasterSize, { width: 6, height: 4 });
 
     assert.strictEqual(attachCalls.length, 1);
     assert.strictEqual(attachCalls[0]?.view, tab2.view);
@@ -754,10 +807,10 @@ describe('TabDevToolsHost (Sub-Controller Unit Tests)', () => {
     const devTools = new TabDevToolsHost(ctx);
     (devTools as unknown as { sendCdpCommand: (wc: unknown, method: string, params?: unknown) => Promise<unknown> }).sendCdpCommand = async (_wc, method) => {
       if (method === 'Runtime.evaluate') {
-        return { result: { value: { dpr: 3, vw: 375, vh: 667 } } };
+        return { result: { value: { dpr: 3, vw: 2, vh: 3 } } };
       }
       if (method === 'Page.captureScreenshot') {
-        return { data: 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==' };
+        return { data: makePng(6, 9).toString('base64') };
       }
       return {};
     };
@@ -765,6 +818,9 @@ describe('TabDevToolsHost (Sub-Controller Unit Tests)', () => {
     const envelope = await devTools.captureVerificationScreenshot(undefined, 'tab-2', 'mobile');
     assert.strictEqual(envelope.backend, 'cdp');
     assert.strictEqual(envelope.dpr, 3);
+    assert.strictEqual(envelope.captureMode, 'viewport');
+    assert.deepStrictEqual(envelope.cssCaptureSize, { width: 2, height: 3 });
+    assert.deepStrictEqual(envelope.rasterSize, { width: 6, height: 9 });
 
     assert.strictEqual(attachCalls.length, 1);
     assert.strictEqual(attachCalls[0]?.view, tab2.mobileView);
@@ -784,16 +840,19 @@ describe('TabDevToolsHost (Sub-Controller Unit Tests)', () => {
     (devTools as unknown as { sendCdpCommand: (wc: unknown, method: string, params?: unknown) => Promise<unknown> }).sendCdpCommand = async (_wc, method, params) => {
       cdpCommands.push({ method, params });
       if (method === 'Runtime.evaluate') {
-        return { result: { value: { dpr: 1, vw: 1200, vh: 800 } } };
+        return { result: { value: { dpr: 1, vw: 4, vh: 3 } } };
       }
       if (method === 'Page.captureScreenshot') {
-        return { data: 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==' };
+        return { data: makePng(4, 3).toString('base64') };
       }
       return {};
     };
 
     const envelope = await devTools.captureVerificationScreenshot(undefined, 'tab-1', 'desktop');
     assert.strictEqual(envelope.backend, 'cdp');
+    assert.strictEqual(envelope.captureMode, 'viewport');
+    assert.deepStrictEqual(envelope.cssCaptureSize, { width: 4, height: 3 });
+    assert.deepStrictEqual(envelope.rasterSize, { width: 4, height: 3 });
 
     assert.strictEqual(attachCount, 0, 'Foreground capture must not attach view');
 
@@ -801,7 +860,236 @@ describe('TabDevToolsHost (Sub-Controller Unit Tests)', () => {
     assert.ok(capCmd);
     const params = capCmd.params;
     assert.ok(params && typeof params === 'object');
-    assert.strictEqual('fromSurface' in params && params.fromSurface, true);
+    // Viewport mode reads the renderer view directly (no beyond-viewport raster):
+    // fromSurface:false. Only document/clip captures need the compositor surface.
+    assert.strictEqual('fromSurface' in params && params.fromSurface, false);
     assert.strictEqual('captureBeyondViewport' in params && params.captureBeyondViewport, false);
+  });
+
+  it('16. rect wins over fullPage: clip capture carries the requested rect and one captureBeyondViewport call', async () => {
+    const { ctx } = createMockContext();
+    const devTools = new TabDevToolsHost(ctx);
+
+    const cdpCommands: Array<{ method: string; params?: unknown }> = [];
+    (devTools as unknown as { sendCdpCommand: (wc: unknown, method: string, params?: unknown) => Promise<unknown> }).sendCdpCommand = async (_wc, method, params) => {
+      cdpCommands.push({ method, params });
+      if (method === 'Runtime.evaluate') {
+        return { result: { value: { dpr: 1, vw: 100, vh: 80 } } };
+      }
+      if (method === 'Page.captureScreenshot') {
+        return { data: makePng(30, 20).toString('base64') };
+      }
+      return {};
+    };
+
+    const rect = { x: 10, y: 20, width: 30, height: 20 };
+    const envelope = await devTools.captureVerificationScreenshot(rect, 'tab-1', 'desktop', { fullPage: true });
+
+    assert.strictEqual(envelope.captureMode, 'clip');
+    assert.deepStrictEqual(envelope.cssCaptureSize, { width: 30, height: 20 });
+    assert.deepStrictEqual(envelope.cssViewport, { width: 100, height: 80 });
+    assert.deepStrictEqual(envelope.rasterSize, { width: 30, height: 20 });
+
+    const pageCaptureCmds = cdpCommands.filter((c) => c.method === 'Page.captureScreenshot');
+    assert.strictEqual(pageCaptureCmds.length, 1, 'Clip capture must issue exactly one Page.captureScreenshot');
+    const params = pageCaptureCmds[0]?.params;
+    assert.ok(params && typeof params === 'object');
+    assert.strictEqual('fromSurface' in params && params.fromSurface, true, 'Clip capture must rasterize from the compositor surface');
+    assert.strictEqual('captureBeyondViewport' in params && params.captureBeyondViewport, true);
+    const clip = 'clip' in params ? params.clip : undefined;
+    assert.deepStrictEqual(clip, { x: 10, y: 20, width: 30, height: 20, scale: 1 });
+    assert.strictEqual(cdpCommands.some((c) => c.method === 'Page.getLayoutMetrics'), false, 'Clip capture must not consult layout metrics');
+  });
+
+  it('17. full-page capture on an offscreen target is rejected typed before any CDP capture call', async () => {
+    const { ctx, tabs } = createMockContext();
+    const tab = tabs.get('tab-1');
+    assert.ok(tab);
+    tab.state.offscreen = true;
+
+    const devTools = new TabDevToolsHost(ctx);
+    const cdpCommands: string[] = [];
+    (devTools as unknown as { sendCdpCommand: (wc: unknown, method: string, params?: unknown) => Promise<unknown> }).sendCdpCommand = async (_wc, method) => {
+      cdpCommands.push(method);
+      return {};
+    };
+
+    await assert.rejects(
+      () => devTools.captureVerificationScreenshot(undefined, 'tab-1', 'desktop', { fullPage: true }),
+      (err: unknown) => err instanceof CaptureError && err.code === 'FULLPAGE_CAPTURE_UNSUPPORTED_ON_OFFSCREEN'
+    );
+    assert.deepStrictEqual(cdpCommands, [], 'Offscreen full-page rejection must not touch CDP');
+  });
+
+  it('18. full-page geometry above the 16384 CSS-pixel ceiling is rejected with zero capture calls', async () => {
+    const { ctx } = createMockContext();
+    const devTools = new TabDevToolsHost(ctx);
+
+    const cdpCommands: string[] = [];
+    (devTools as unknown as { sendCdpCommand: (wc: unknown, method: string, params?: unknown) => Promise<unknown> }).sendCdpCommand = async (_wc, method, params) => {
+      cdpCommands.push(method);
+      if (method === 'Runtime.evaluate') {
+        const expression =
+          params && typeof params === 'object' && 'expression' in params && typeof params.expression === 'string'
+            ? params.expression
+            : '';
+        if (expression.includes('devicePixelRatio')) {
+          return { result: { value: { dpr: 1, vw: 1200, vh: 800 } } };
+        }
+        if (expression.includes('scrollHeight')) {
+          return { result: { value: 20000 } };
+        }
+      }
+      return {};
+    };
+
+    await assert.rejects(
+      () => devTools.captureVerificationScreenshot(undefined, 'tab-1', 'desktop', { fullPage: true }),
+      (err: unknown) => err instanceof CaptureError && err.code === 'FULLPAGE_CAPTURE_UNSUPPORTED_GEOMETRY'
+    );
+    assert.strictEqual(cdpCommands.includes('Page.captureScreenshot'), false, 'Geometry rejection must happen before any capture');
+  });
+
+  it('19. an empty CDP screenshot payload surfaces CAPTURE_EMPTY_PAYLOAD', async () => {
+    const { ctx } = createMockContext();
+    const devTools = new TabDevToolsHost(ctx);
+    (devTools as unknown as { sendCdpCommand: (wc: unknown, method: string, params?: unknown) => Promise<unknown> }).sendCdpCommand = async (_wc, method) => {
+      if (method === 'Runtime.evaluate') {
+        return { result: { value: { dpr: 1, vw: 4, vh: 4 } } };
+      }
+      if (method === 'Page.captureScreenshot') {
+        return { data: '' };
+      }
+      return {};
+    };
+
+    await assert.rejects(
+      () => devTools.captureVerificationScreenshot(undefined, 'tab-1', 'desktop'),
+      (err: unknown) => err instanceof CaptureError && err.code === 'CAPTURE_EMPTY_PAYLOAD'
+    );
+  });
+
+  it('20. a truncated PNG payload surfaces CAPTURE_PNG_TRUNCATED', async () => {
+    const { ctx } = createMockContext();
+    const devTools = new TabDevToolsHost(ctx);
+    const truncated = makePng(4, 4).subarray(0, 30).toString('base64');
+    (devTools as unknown as { sendCdpCommand: (wc: unknown, method: string, params?: unknown) => Promise<unknown> }).sendCdpCommand = async (_wc, method) => {
+      if (method === 'Runtime.evaluate') {
+        return { result: { value: { dpr: 1, vw: 4, vh: 4 } } };
+      }
+      if (method === 'Page.captureScreenshot') {
+        return { data: truncated };
+      }
+      return {};
+    };
+
+    await assert.rejects(
+      () => devTools.captureVerificationScreenshot(undefined, 'tab-1', 'desktop'),
+      (err: unknown) => err instanceof CaptureError && err.code === 'CAPTURE_PNG_TRUNCATED'
+    );
+  });
+
+  it('21. raster bytes that do not match CSS x DPR x zoom surface CAPTURE_SCALE_MISMATCH', async () => {
+    const { ctx } = createMockContext();
+    const devTools = new TabDevToolsHost(ctx);
+    (devTools as unknown as { sendCdpCommand: (wc: unknown, method: string, params?: unknown) => Promise<unknown> }).sendCdpCommand = async (_wc, method) => {
+      if (method === 'Runtime.evaluate') {
+        return { result: { value: { dpr: 1, vw: 100, vh: 80 } } };
+      }
+      if (method === 'Page.captureScreenshot') {
+        return { data: makePng(50, 80).toString('base64') };
+      }
+      return {};
+    };
+
+    await assert.rejects(
+      () => devTools.captureVerificationScreenshot(undefined, 'tab-1', 'desktop'),
+      (err: unknown) => err instanceof CaptureError && err.code === 'CAPTURE_SCALE_MISMATCH'
+    );
+  });
+
+  it('22. a CDP capture timeout surfaces CAPTURE_TIMEOUT and quarantines the target as draining', async () => {
+    const { ctx } = createMockContext();
+    let attached = false;
+    const { promise: screenshotPromise, resolve: resolveScreenshot } = Promise.withResolvers<unknown>();
+    const mockWc = {
+      id: 600,
+      isDestroyed: () => false,
+      on: () => {},
+      removeListener: () => {},
+      executeJavaScript: async () => undefined,
+      debugger: {
+        isAttached: () => attached,
+        attach: () => { attached = true; },
+        once: () => {},
+        on: () => {},
+        removeListener: () => {},
+        sendCommand: (method: string) =>
+          method === 'Page.captureScreenshot'
+            ? screenshotPromise
+            : Promise.resolve({ result: { value: { dpr: 1, vw: 4, vh: 4 } } }),
+      },
+    } as unknown as Electron.WebContents;
+    ctx.getTabWebContents = () => mockWc;
+    const devTools = new TabDevToolsHost(ctx);
+
+    await assert.rejects(
+      () => devTools.captureVerificationScreenshot(undefined, 'tab-1', 'desktop', { timeoutMs: 10 }),
+      (err: unknown) => err instanceof CaptureError && err.code === 'CAPTURE_TIMEOUT'
+    );
+    assert.strictEqual(devTools.isTargetDraining('tab-1', 'desktop'), true, 'Timed-out capture must quarantine the target');
+    assert.strictEqual(devTools.isTargetDraining('tab-1'), true, 'Pane-less probe must resolve the focused pane');
+
+    resolveScreenshot({ data: makePng(4, 4).toString('base64') });
+    await new Promise<void>((resolve) => {
+      setImmediate(resolve);
+    });
+    assert.strictEqual(devTools.isTargetDraining('tab-1', 'desktop'), false, 'Draining clears once the in-flight command settles');
+  });
+
+  it('23. drainTarget reports a healthy target drained and resets a poisoned one with a bounded debugger detach', async () => {
+    const { ctx } = createMockContext();
+    const devTools = new TabDevToolsHost(ctx);
+
+    const healthy = await devTools.drainTarget('tab-1', 'desktop', 50);
+    assert.strictEqual(healthy.ok, true);
+    assert.strictEqual(healthy.drained, true);
+    assert.strictEqual(healthy.resetPerformed, false);
+    assert.ok(healthy.elapsedMs >= 0);
+
+    let attached = false;
+    let detachCount = 0;
+    const { promise: screenshotPromise } = Promise.withResolvers<unknown>();
+    const poisonedWc = {
+      id: 601,
+      isDestroyed: () => false,
+      on: () => {},
+      removeListener: () => {},
+      executeJavaScript: async () => undefined,
+      debugger: {
+        isAttached: () => attached,
+        attach: () => { attached = true; },
+        detach: () => { detachCount++; attached = false; },
+        once: () => {},
+        on: () => {},
+        removeListener: () => {},
+        sendCommand: (method: string) =>
+          method === 'Page.captureScreenshot' ? screenshotPromise : Promise.resolve({ result: { value: { dpr: 1, vw: 4, vh: 4 } } }),
+      },
+    } as unknown as Electron.WebContents;
+    ctx.getTabWebContents = () => poisonedWc;
+
+    await assert.rejects(devTools.sendCdpCommand(poisonedWc, 'Page.captureScreenshot', {}, 5), /timed out/);
+    assert.strictEqual(devTools.isTargetDraining('tab-1', 'desktop'), true);
+
+    const recovered = await devTools.drainTarget('tab-1', 'desktop', 50);
+    assert.strictEqual(recovered.ok, true);
+    assert.strictEqual(recovered.drained, true);
+    assert.strictEqual(recovered.resetPerformed, true, 'A poisoned queue must be reset by a bounded debugger detach');
+    assert.strictEqual(detachCount, 1);
+    assert.strictEqual(devTools.isTargetDraining('tab-1', 'desktop'), false);
+
+    const afterRecovery = await devTools.sendCdpCommand(poisonedWc, 'DOM.enable', {}, 50);
+    assert.deepStrictEqual(afterRecovery, { result: { value: { dpr: 1, vw: 4, vh: 4 } } });
   });
 });

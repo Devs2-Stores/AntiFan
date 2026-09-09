@@ -22,6 +22,7 @@ import { ControlPlaneRuntime } from '../../src/main/control-plane/control-plane-
 import { AttachmentRegistry } from '../../src/main/run/attachment-registry';
 import { InvocationLedger } from '../../src/main/session/invocation-ledger';
 import { CapabilityTransportAdapter } from '../../src/main/tools/capability-transport';
+import { TINY_PNG_BASE64, withCanonicalCapture } from './verification-capture-fixture';
 function createMockHost(overrides?: Partial<BrowserHostPort>): BrowserHostPort {
   let activeTab = 'tab-1';
   const tabs = [
@@ -29,7 +30,7 @@ function createMockHost(overrides?: Partial<BrowserHostPort>): BrowserHostPort {
     { id: 'tab-2', url: 'https://other.com', title: 'Other' },
   ];
 
-  return {
+  return withCanonicalCapture({
     getTabList: () => [...tabs],
     getActiveTabId: () => activeTab,
     switchTab: (id: string) => {
@@ -46,7 +47,7 @@ function createMockHost(overrides?: Partial<BrowserHostPort>): BrowserHostPort {
     },
     reload: () => true,
     getDom: async (_selector?: string) => '<div id="content"><h1>Title</h1></div>',
-    captureScreenshot: async () => Buffer.from('fake-png').toString('base64'),
+    captureScreenshot: async () => TINY_PNG_BASE64,
     evalJs: async () => null,
     agentMove: async () => true,
     agentClick: async () => true,
@@ -69,7 +70,7 @@ function createMockHost(overrides?: Partial<BrowserHostPort>): BrowserHostPort {
       devicePixelRatio: 1,
     }),
     ...overrides,
-  };
+  });
 }
 
 describe('Workflow Engine', () => {

@@ -698,4 +698,260 @@ describe('OMP MCP stdio proxy security & bootstrap fail-closed contract', () => 
       await new Promise<void>((resolve) => wss.close(() => resolve()));
     }
   });
+
+  it('recovers authority revision from late responses and includes REVISION_STALE in retryable transport codes', () => {
+    const scriptPath = fs.existsSync(path.resolve(__dirname, '../../../scripts/antifan-omp-mcp.cjs'))
+      ? path.resolve(__dirname, '../../../scripts/antifan-omp-mcp.cjs')
+      : path.resolve(__dirname, '../../scripts/antifan-omp-mcp.cjs');
+    const content = fs.readFileSync(scriptPath, 'utf8');
+
+    assert.ok(content.includes("'REVISION_STALE'"), 'Proxy must treat REVISION_STALE as retryable');
+    const match = content.match(/const payload = response\.data[\s\S]+?persistAuthorityRevision[\s\S]+?pendingDispatchCalls\.has/);
+    assert.ok(match, 'Proxy must persist replacement authority revision before unknown-id check');
+    assert.ok(!content.includes('fetchArtifactBinary(bootstrap, data.id)'), 'Must not call fetchArtifactBinary with data.id');
+    assert.ok(content.includes('fetchArtifactBinary(bootstrap, ref.id)'), 'Must call fetchArtifactBinary with ref.id');
+  });
+
+  it('executable: late replacement authority revision from unknown/timed-out call updates client state for next dispatch', async () => {
+    const { spawn } = await import('node:child_process');
+    const { WebSocketServer } = await import('ws');
+    const scriptPath = fs.existsSync(path.resolve(__dirname, '../../../scripts/antifan-omp-mcp.cjs'))
+      ? path.resolve(__dirname, '../../../scripts/antifan-omp-mcp.cjs')
+      : path.resolve(__dirname, '../../scripts/antifan-omp-mcp.cjs');
+
+    const wss = new WebSocketServer({ host: '127.0.0.1', port: 0 });
+    await new Promise<void>((resolve) => wss.once('listening', () => resolve()));
+    const port = (wss.address() as any).port;
+
+    let callCount = 0;
+    let firstCallRevision: string | null = null;
+    let secondCallRevision: string | null = null;
+
+    wss.on('connection', (ws) => {
+      ws.on('message', (raw) => {
+        try {
+          const msg = JSON.parse(raw.toString());
+          if (msg.method === 'antifan.capability.dispatch') {
+            callCount++;
+            if (callCount === 1) {
+              firstCallRevision = msg.params?.authorityRevision;
+              ws.send(JSON.stringify({
+                id: msg.id,
+                success: true,
+                data: { data: { evalResult: 'first-ok' } },
+              }));
+              // Inject late response on the dispatch socket for a timed-out call ID
+              ws.send(JSON.stringify({
+                id: 'unknown-timed-out-call-uuid',
+                success: true,
+                data: { replacementAuthorityRevision: 'rev_updated_by_late_response_99' },
+              }));
+            } else if (callCount === 2) {
+              secondCallRevision = msg.params?.authorityRevision;
+              ws.send(JSON.stringify({
+                id: msg.id,
+                success: true,
+                data: { data: { evalResult: 'second-ok' } },
+              }));
+            }
+          }
+        } catch {}
+      });
+    });
+
+    const bootstrap = {
+      port,
+      secret: 'secret-late-rev',
+      attachmentId: 'att-late-rev',
+      authorityRevision: 'rev_initial_1',
+      tabId: 'tab-1',
+    };
+
+    const child = spawn(process.execPath, [scriptPath], {
+      env: { ...process.env, ANTIFAN_MCP_BOOTSTRAP: JSON.stringify(bootstrap) },
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+
+    const sendJsonRpc = (msg: any) => child.stdin.write(JSON.stringify(msg) + '\n');
+    let received = '';
+    let resolveCall1: (val: any) => void;
+    let resolveCall2: (val: any) => void;
+    let timer1: NodeJS.Timeout;
+    let timer2: NodeJS.Timeout;
+    const firstCallPromise = new Promise<any>((resolve, reject) => {
+      timer1 = setTimeout(() => reject(new Error('firstCallPromise timed out after 10000ms')), 10000);
+      resolveCall1 = (v) => { clearTimeout(timer1); resolve(v); };
+    });
+    const secondCallPromise = new Promise<any>((resolve, reject) => {
+      timer2 = setTimeout(() => reject(new Error('secondCallPromise timed out after 10000ms')), 10000);
+      resolveCall2 = (v) => { clearTimeout(timer2); resolve(v); };
+    });
+
+    child.stdout.on('data', (chunk) => {
+      received += chunk.toString();
+      const lines = received.split('\n');
+      for (const line of lines) {
+        if (line.trim().length > 0) {
+          try {
+            const parsed = JSON.parse(line);
+            if (parsed.id === 50) resolveCall1(parsed);
+            if (parsed.id === 51) resolveCall2(parsed);
+          } catch {}
+        }
+      }
+    });
+
+    try {
+      sendJsonRpc({
+        jsonrpc: '2.0',
+        id: 0,
+        method: 'initialize',
+        params: { protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 'test', version: '1.0' } },
+      });
+
+      // Dispatch Call 1
+      sendJsonRpc({
+        jsonrpc: '2.0',
+        id: 50,
+        method: 'tools/call',
+        params: { name: 'anti.browser.evaluate', arguments: { expression: '1', tabId: 'tab-1' } },
+      });
+
+      const res1 = await firstCallPromise;
+      assert.strictEqual(res1.result?.isError, undefined);
+      assert.strictEqual(firstCallRevision, 'rev_initial_1', 'First call must use initial revision');
+
+      // Wait a tick for the late message to be processed
+      await new Promise((r) => setTimeout(r, 50));
+
+      // Dispatch Call 2
+      sendJsonRpc({
+        jsonrpc: '2.0',
+        id: 51,
+        method: 'tools/call',
+        params: { name: 'anti.browser.evaluate', arguments: { expression: '2', tabId: 'tab-1' } },
+      });
+
+      const res2 = await secondCallPromise;
+      assert.strictEqual(res2.result?.isError, undefined);
+      assert.strictEqual(secondCallRevision, 'rev_updated_by_late_response_99', 'Next dispatch must transmit the updated authority revision from late response');
+    } finally {
+      clearTimeout(timer1!);
+      clearTimeout(timer2!);
+      child.kill();
+      await new Promise<void>((resolve) => wss.close(() => resolve()));
+    }
+  });
+
+  it('executable: nested artifactRef text response triggers HTTP fetch with ref ID, avoiding undefined path', async () => {
+    const { spawn } = await import('node:child_process');
+    const { WebSocketServer } = await import('ws');
+    const http = await import('node:http');
+    const scriptPath = fs.existsSync(path.resolve(__dirname, '../../../scripts/antifan-omp-mcp.cjs'))
+      ? path.resolve(__dirname, '../../../scripts/antifan-omp-mcp.cjs')
+      : path.resolve(__dirname, '../../scripts/antifan-omp-mcp.cjs');
+
+    const requested = { path: null as string | null };
+    const httpServer = http.createServer((req, res) => {
+      requested.path = req.url || null;
+      res.writeHead(200, { 'Content-Type': 'text/plain', 'x-artifact-total-bytes': '17' });
+      res.end('nested-text-hello');
+    });
+
+    const wss = new WebSocketServer({ server: httpServer });
+    wss.on('connection', (ws) => {
+      ws.on('message', (raw) => {
+        try {
+          const msg = JSON.parse(raw.toString());
+          if (msg.method === 'antifan.capability.dispatch') {
+            ws.send(JSON.stringify({
+              id: msg.id,
+              success: true,
+              data: {
+                data: {
+                  ok: true,
+                  artifactRef: {
+                    id: 'artifact-nested-text-test-uuid',
+                    byteLength: 17,
+                    sha256: 'some-sha256',
+                    mime: 'text/plain',
+                  },
+                },
+              },
+            }));
+          }
+        } catch {}
+      });
+    });
+
+    await new Promise<void>((resolve) => httpServer.listen(0, '127.0.0.1', () => resolve()));
+    const port = (httpServer.address() as any).port;
+
+    const bootstrap = {
+      port,
+      secret: 'secret-nested-ref',
+      attachmentId: 'att-nested-ref',
+      authorityRevision: 'rev-nested-1',
+    };
+
+    const child = spawn(process.execPath, [scriptPath], {
+      env: {
+        ...process.env,
+        ANTIFAN_MCP_BOOTSTRAP: JSON.stringify(bootstrap),
+      },
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+
+    const sendJsonRpc = (msg: any) => child.stdin.write(JSON.stringify(msg) + '\n');
+
+    let received = '';
+    const toolCallPromise = new Promise<any>((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error('toolCallPromise timed out after 10000ms')), 10000);
+      child.stdout.on('data', (chunk) => {
+        received += chunk.toString();
+        const lines = received.split('\n');
+        for (const line of lines) {
+          if (line.trim().length > 0) {
+            try {
+              const parsed = JSON.parse(line);
+              if (parsed.id === 60) {
+                clearTimeout(timer);
+                resolve(parsed);
+              }
+            } catch {}
+          }
+        }
+      });
+    });
+
+    try {
+      sendJsonRpc({
+        jsonrpc: '2.0',
+        id: 0,
+        method: 'initialize',
+        params: { protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 'test', version: '1.0' } },
+      });
+
+      sendJsonRpc({
+        jsonrpc: '2.0',
+        id: 60,
+        method: 'tools/call',
+        params: { name: 'anti.inspect.dom', arguments: {} },
+      });
+
+      const res = await toolCallPromise;
+      assert.strictEqual(res.result?.isError, undefined);
+    const currentPath = requested.path;
+    assert.ok(typeof currentPath === 'string' && currentPath.length > 0, 'HTTP server must have received an artifact download request');
+    assert.ok(
+      currentPath.includes('/api/artifacts/artifact-nested-text-test-uuid'),
+      `Expected path with artifact ID, got: ${currentPath}`
+    );
+    assert.strictEqual(currentPath.includes('undefined'), false, 'Must not request undefined artifact ID');
+      assert.strictEqual(res.result?.content?.[0]?.text, 'nested-text-hello');
+    } finally {
+      child.kill();
+      await new Promise<void>((resolve) => wss.close(() => httpServer.close(() => resolve())));
+    }
+  });
 });

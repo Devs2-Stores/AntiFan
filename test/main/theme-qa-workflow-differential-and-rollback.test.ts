@@ -18,6 +18,7 @@ import { CapabilityCatalogue } from '../../src/main/tools/capability-catalogue';
 import { registerBrowserCapabilities } from '../../src/main/tools/browser-capabilities';
 import { ProjectRegistry } from '../../src/main/project/project-registry';
 import { WorkspaceRegistry } from '../../src/main/project/workspace-registry';
+import { TINY_PNG_BASE64, verificationCaptureEnvelope } from './verification-capture-fixture';
 
 class MockBrowserHost implements BrowserHostPort {
   public currentHtml = '';
@@ -48,7 +49,11 @@ class MockBrowserHost implements BrowserHostPort {
   }
 
   async captureScreenshot(_tabId?: string): Promise<string> {
-    return 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+    return TINY_PNG_BASE64;
+  }
+
+  async captureVerificationScreenshot(_rect?: unknown, _tabId?: string, _paneId?: unknown, options?: { fullPage?: boolean }) {
+    return verificationCaptureEnvelope(TINY_PNG_BASE64, { fullPage: options?.fullPage });
   }
 
   getNetworkTracker(): any {

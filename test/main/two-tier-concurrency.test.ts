@@ -6,6 +6,7 @@ import { AttachmentRegistry } from '../../src/main/run/attachment-registry';
 import { CapabilityCatalogue } from '../../src/main/tools/capability-catalogue';
 import { CapabilityTransportAdapter } from '../../src/main/tools/capability-transport';
 import { BrowserControlPort } from '../../src/main/tools/browser-control-port';
+import { verificationCaptureEnvelope } from './verification-capture-fixture';
 import { registerBrowserCapabilities } from '../../src/main/tools/browser-capabilities';
 import { NativeTabHost } from '../../src/main/browser/native-tab-host';
 import {
@@ -58,6 +59,12 @@ describe('Two-Tier Concurrency Engine & ViewportGate Integration (Phase 03)', ()
         activeOperations.push(`screenshot:${tabId}`);
         await new Promise((r) => setImmediate(r));
         return Buffer.from('png').toString('base64');
+      }
+
+      async captureVerificationScreenshot(_rect?: unknown, tabId?: string, _paneId?: unknown, options?: { fullPage?: boolean }) {
+        activeOperations.push(`screenshot:${tabId}`);
+        await new Promise((r) => setImmediate(r));
+        return verificationCaptureEnvelope(Buffer.from('png').toString('base64'), { fullPage: options?.fullPage });
       }
 
       async evalJs(expression: string, tabId?: string) {

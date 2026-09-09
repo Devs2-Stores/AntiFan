@@ -382,7 +382,9 @@ describe('Phase 3: Theme Evidence Capabilities', () => {
           dpr: 1,
           zoom: 1.0,
           cssViewport: { width: 1200, height: 800 },
+          cssCaptureSize: { width: 1, height: 1 },
           rasterSize: { width: 1, height: 1 },
+          captureMode: 'clip',
           timestamp: Date.now(),
         };
       },
@@ -392,6 +394,13 @@ describe('Phase 3: Theme Evidence Capabilities', () => {
       })) as any,
       evalJs: async (expr) => {
         if (typeof expr === 'string') {
+          if (expr.includes('__antifan_compare_txn__')) {
+            // Reversible normalization transaction: apply records nothing on a
+            // static fixture, restore reports zero failures.
+            return expr.includes('alreadyRestored')
+              ? { restored: true, alreadyRestored: true, failed: 0 }
+              : { applied: true, alreadyApplied: true, recorded: 0 };
+          }
           if (expr.includes('naturalWidth') || expr.includes('img.decode')) {
             return { settled: true, brokenImages: [] };
           }

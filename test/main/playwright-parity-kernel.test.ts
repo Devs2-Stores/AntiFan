@@ -10,6 +10,7 @@ import { recordFallbackTelemetry, getTelemetryLogPath } from '../../src/main/tel
 import { CapabilityCatalogue } from '../../src/main/tools/capability-catalogue';
 import { BrowserControlPort, BrowserHostPort } from '../../src/main/tools/browser-control-port';
 import { registerBrowserCapabilities } from '../../src/main/tools/browser-capabilities';
+import { verificationCaptureEnvelope } from './verification-capture-fixture';
 
 describe('Phase 5: Playwright Parity Kernel & Gap Telemetry Verification', () => {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-parity-test-'));
@@ -1063,6 +1064,7 @@ describe('Phase 5: Playwright Parity Kernel & Gap Telemetry Verification', () =>
     const fakeHost = {
       getTabList: () => [{ id: 'tab-1', url: 'https://example.com' }],
       captureScreenshot: async () => sampleBase64,
+      captureVerificationScreenshot: async () => verificationCaptureEnvelope(sampleBase64),
       getDocumentGeneration: () => 1,
     };
 
@@ -1077,12 +1079,16 @@ describe('Phase 5: Playwright Parity Kernel & Gap Telemetry Verification', () =>
     };
 
     const result = await portWithArtifacts.screenshot(target, 'run-1', 'attempt-1', 'tab-1');
-    assert.ok(typeof result === 'object' && result !== null, 'Result must be an ArtifactRef object');
-    assert.strictEqual(result.kind, 'screenshot');
-    assert.strictEqual(result.mime, 'image/png');
-    assert.ok(result.id.startsWith('artifact-'), 'Artifact ID must start with "artifact-"');
+    assert.strictEqual(result.ok, true);
+    const ref = result.artifactRef as { id: string; kind: string; mime: string };
+    assert.strictEqual(ref.kind, 'screenshot');
+    assert.strictEqual(ref.mime, 'image/png');
+    assert.ok(ref.id.startsWith('artifact-'), 'Artifact ID must start with "artifact-"');
     assert.strictEqual(stagedArtifacts.length, 1);
-    assert.strictEqual(stagedArtifacts[0].ref.id, result.id);
+    assert.strictEqual(stagedArtifacts[0].ref.id, ref.id);
+    assert.strictEqual(result.receipt.captureMode, 'viewport');
+    assert.strictEqual(result.byteLength, Buffer.from(sampleBase64, 'base64').length);
+    assert.match(result.sha256, /^[0-9a-f]{64}$/, 'Evidence envelope must carry a sha256 digest');
   });
 
   it('19. antifan-omp-mcp tool definitions include ref parameter and Playwright tools', () => {
@@ -1164,6 +1170,10 @@ describe('Phase 5: Playwright Parity Kernel & Gap Telemetry Verification', () =>
         capturedOptions = options;
         return sampleJpegBase64;
       },
+      captureVerificationScreenshot: async (_rect: any, _tabId: any, _paneId: any, options: any) => {
+        capturedOptions = options;
+        return verificationCaptureEnvelope(sampleJpegBase64, { fullPage: options?.fullPage });
+      },
       getDocumentGeneration: () => 1,
     };
 
@@ -1181,7 +1191,8 @@ describe('Phase 5: Playwright Parity Kernel & Gap Telemetry Verification', () =>
     const result = await port.screenshot(target, 'run-1', 'attempt-1', 'tab-1', undefined, { format: 'jpeg', quality: 80 });
     assert.strictEqual(capturedOptions?.format, 'jpeg');
     assert.strictEqual(capturedOptions?.quality, 80);
-    assert.strictEqual(typeof result, 'string');
+    assert.strictEqual(typeof result.artifactRef, 'string', 'Without an artifact store the base64 payload is returned inline');
+    assert.strictEqual(result.receipt.captureMode, 'viewport');
   });
 
   it('22. buildIsolatedCollectorScript incorporates viewportOnly and sticky element whitelist', () => {

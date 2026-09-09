@@ -16,6 +16,7 @@
  * route to their operational status channel.
  */
 
+import * as zlib from 'node:zlib';
 import type { MetricSample, VisualEvidenceReceipt } from './verification-contract';
 import type { GroupStructuralMetrics } from './visual-region';
 
@@ -690,6 +691,15 @@ export function coherencePairReceipt(c: CoherencePairCheck): {
 }
 
 /**
+ * Capture lineage mode. `clip` wins over `full-page` when both are requested;
+ * the combination captures an out-of-viewport rectangle.
+ */
+export type CaptureMode = 'viewport' | 'clip' | 'full-page';
+
+/** Largest CSS capture dimension Chromium can composite in a single screenshot. */
+export const CAPTURE_MAX_DIMENSION = 16384;
+
+/**
  * Canonical verification capture envelope returned by CDP Page.captureScreenshot.
  */
 export interface VerificationCaptureEnvelope {
@@ -698,7 +708,10 @@ export interface VerificationCaptureEnvelope {
   dpr: number;
   zoom: number;
   cssViewport: { width: number; height: number };
+  /** CSS size of the actually captured region (viewport | clip | document). */
+  cssCaptureSize: { width: number; height: number };
   rasterSize: { width: number; height: number };
+  captureMode: CaptureMode;
   timestamp: number;
 }
 
@@ -710,7 +723,9 @@ export interface VerificationCaptureReceipt {
   dpr: number;
   zoom: number;
   cssViewport: { width: number; height: number };
+  cssCaptureSize: { width: number; height: number };
   rasterSize: { width: number; height: number };
+  captureMode: CaptureMode;
   timestamp: number;
 }
 
@@ -720,15 +735,223 @@ export function verificationCaptureReceipt(env: VerificationCaptureEnvelope): Ve
     dpr: env.dpr,
     zoom: env.zoom,
     cssViewport: { width: env.cssViewport.width, height: env.cssViewport.height },
+    cssCaptureSize: { width: env.cssCaptureSize.width, height: env.cssCaptureSize.height },
     rasterSize: { width: env.rasterSize.width, height: env.rasterSize.height },
+    captureMode: env.captureMode,
     timestamp: env.timestamp,
   };
 }
 
 /**
+ * Artifact-backed evidence envelope returned by the screenshot capabilities.
+ * `artifactRef` is an ArtifactRef when an artifact store is bound, otherwise the
+ * inline base64 payload bounded by the caller's byte limit.
+ */
+export interface EvidenceCaptureEnvelope {
+  ok: true;
+  artifactRef: unknown;
+  receipt: VerificationCaptureReceipt;
+  sha256: string;
+  byteLength: number;
+  leaseToken?: string;
+}
+
+/**
+ * Typed capture failure codes. Callers route these to quarantine, retry, or
+ * human escalation decisions; never collapse them into a generic message.
+ */
+export type CaptureFailureCode =
+  | 'FULLPAGE_CAPTURE_UNSUPPORTED_ON_OFFSCREEN'
+  | 'FULLPAGE_CAPTURE_UNSUPPORTED_GEOMETRY'
+  | 'FULLPAGE_CAPTURE_UNSUPPORTED_FORMAT'
+  | 'CAPTURE_TIMEOUT'
+  | 'CAPTURE_EMPTY_PAYLOAD'
+  | 'CAPTURE_PNG_SIGNATURE_INVALID'
+  | 'CAPTURE_PNG_TRUNCATED'
+  | 'CAPTURE_PNG_UNDECODABLE'
+  | 'CAPTURE_JPEG_SIGNATURE_INVALID'
+  | 'CAPTURE_JPEG_TRUNCATED'
+  | 'CAPTURE_JPEG_UNDECODABLE'
+  | 'CAPTURE_SCALE_MISMATCH'
+  | 'TARGET_BUSY_DRAINING';
+
+export class CaptureError extends Error {
+  constructor(
+    public readonly code: CaptureFailureCode,
+    message: string
+  ) {
+    super(message);
+    this.name = 'CaptureError';
+  }
+}
+
+export interface PngValidation {
+  ok: boolean;
+  code?: CaptureFailureCode;
+  width: number;
+  height: number;
+}
+
+const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+
+/** Start-of-frame markers that carry real image dimensions. */
+const JPEG_SOF_MARKERS = new Set([0xc0, 0xc1, 0xc2, 0xc3, 0xc5, 0xc6, 0xc7, 0xc9, 0xca, 0xcb, 0xcd, 0xce, 0xcf]);
+/** Markers with no length field. */
+const JPEG_STANDALONE_MARKERS = new Set([0x01, 0xd8, 0xd9, ...Array.from({ length: 8 }, (_, i) => 0xd0 + i)]);
+
+/**
+ * Pure JPEG integrity gate: SOI/EOI framing plus a SOF marker carrying real
+ * dimensions. A truncated or dimension-less payload never yields a receipt.
+ */
+export function validateJpegBuffer(buf: Buffer): PngValidation {
+  if (!Buffer.isBuffer(buf) || buf.length === 0) {
+    return { ok: false, code: 'CAPTURE_EMPTY_PAYLOAD', width: 0, height: 0 };
+  }
+  if (buf.length < 4 || buf[0] !== 0xff || buf[1] !== 0xd8) {
+    return { ok: false, code: 'CAPTURE_JPEG_SIGNATURE_INVALID', width: 0, height: 0 };
+  }
+  if (buf[buf.length - 2] !== 0xff || buf[buf.length - 1] !== 0xd9) {
+    return { ok: false, code: 'CAPTURE_JPEG_TRUNCATED', width: 0, height: 0 };
+  }
+  let offset = 2;
+  while (offset + 3 < buf.length) {
+    if (buf[offset] !== 0xff) {
+      // Entropy-coded scan data is only reachable after a valid SOF.
+      return { ok: false, code: 'CAPTURE_JPEG_UNDECODABLE', width: 0, height: 0 };
+    }
+    let marker = buf[offset + 1] ?? 0;
+    while (marker === 0xff && offset + 2 < buf.length) {
+      offset += 1;
+      marker = buf[offset + 1] ?? 0;
+    }
+    offset += 2;
+    if (JPEG_STANDALONE_MARKERS.has(marker)) continue;
+    if (offset + 1 >= buf.length) break;
+    const segmentLength = buf.readUInt16BE(offset);
+    if (segmentLength < 2 || offset + segmentLength > buf.length) {
+      return { ok: false, code: 'CAPTURE_JPEG_TRUNCATED', width: 0, height: 0 };
+    }
+    if (JPEG_SOF_MARKERS.has(marker)) {
+      if (segmentLength < 7) {
+        return { ok: false, code: 'CAPTURE_JPEG_UNDECODABLE', width: 0, height: 0 };
+      }
+      const height = buf.readUInt16BE(offset + 3);
+      const width = buf.readUInt16BE(offset + 5);
+      if (width < 1 || height < 1) {
+        return { ok: false, code: 'CAPTURE_JPEG_UNDECODABLE', width, height };
+      }
+      return { ok: true, width, height };
+    }
+    if (marker === 0xda) {
+      // Start of scan before any SOF: dimensions can never be reported.
+      return { ok: false, code: 'CAPTURE_JPEG_UNDECODABLE', width: 0, height: 0 };
+    }
+    offset += segmentLength;
+  }
+  return { ok: false, code: 'CAPTURE_JPEG_UNDECODABLE', width: 0, height: 0 };
+}
+
+/**
+ * Pure PNG integrity gate: signature, chunk bounds, IHDR dimensions, terminal
+ * IEND, and a real zlib inflate of the concatenated IDAT payload. A base64
+ * payload that merely decodes is never treated as valid image evidence.
+ */
+export function validatePngBuffer(buf: Buffer): PngValidation {
+  if (!Buffer.isBuffer(buf) || buf.length === 0) {
+    return { ok: false, code: 'CAPTURE_EMPTY_PAYLOAD', width: 0, height: 0 };
+  }
+  if (buf.length < PNG_SIGNATURE.length || !buf.subarray(0, PNG_SIGNATURE.length).equals(PNG_SIGNATURE)) {
+    return { ok: false, code: 'CAPTURE_PNG_SIGNATURE_INVALID', width: 0, height: 0 };
+  }
+
+  let offset = PNG_SIGNATURE.length;
+  let width = 0;
+  let height = 0;
+  let sawIhdr = false;
+  let sawIend = false;
+  const idatChunks: Buffer[] = [];
+
+  while (offset + 8 <= buf.length) {
+    const chunkLength = buf.readUInt32BE(offset);
+    const chunkType = buf.toString('latin1', offset + 4, offset + 8);
+    const dataStart = offset + 8;
+    const dataEnd = dataStart + chunkLength;
+    if (dataEnd + 4 > buf.length) {
+      return { ok: false, code: 'CAPTURE_PNG_TRUNCATED', width, height };
+    }
+    if (!sawIhdr) {
+      if (chunkType !== 'IHDR' || chunkLength !== 13) {
+        return { ok: false, code: 'CAPTURE_PNG_UNDECODABLE', width: 0, height: 0 };
+      }
+      width = buf.readUInt32BE(dataStart);
+      height = buf.readUInt32BE(dataStart + 4);
+      if (width <= 0 || height <= 0) {
+        return { ok: false, code: 'CAPTURE_PNG_UNDECODABLE', width, height };
+      }
+      sawIhdr = true;
+    } else if (chunkType === 'IDAT') {
+      idatChunks.push(buf.subarray(dataStart, dataEnd));
+    } else if (chunkType === 'IEND') {
+      if (chunkLength !== 0) {
+        return { ok: false, code: 'CAPTURE_PNG_UNDECODABLE', width, height };
+      }
+      sawIend = true;
+      offset = dataEnd + 4;
+      break;
+    }
+    offset = dataEnd + 4;
+  }
+
+  if (!sawIhdr) {
+    return { ok: false, code: 'CAPTURE_PNG_TRUNCATED', width: 0, height: 0 };
+  }
+  if (!sawIend) {
+    return { ok: false, code: 'CAPTURE_PNG_TRUNCATED', width, height };
+  }
+  // IEND is terminal: trailing bytes mean the payload is not exactly one PNG.
+  if (offset !== buf.length) {
+    return { ok: false, code: 'CAPTURE_PNG_UNDECODABLE', width, height };
+  }
+  if (idatChunks.length === 0) {
+    return { ok: false, code: 'CAPTURE_PNG_UNDECODABLE', width, height };
+  }
+  try {
+    zlib.inflateSync(Buffer.concat(idatChunks));
+  } catch {
+    return { ok: false, code: 'CAPTURE_PNG_UNDECODABLE', width, height };
+  }
+  return { ok: true, width, height };
+}
+
+/** Pure. True when raster ≈ css * dpr * zoom within 1px per axis. */
+export function rasterMatchesCss(
+  raster: { width: number; height: number },
+  css: { width: number; height: number },
+  dpr: number,
+  zoom: number
+): boolean {
+  if (!raster || !css) return false;
+  const positive = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v) && v > 0;
+  if (!positive(dpr) || !positive(zoom)) return false;
+  if (!positive(raster.width) || !positive(raster.height) || !positive(css.width) || !positive(css.height)) return false;
+  const scale = dpr * zoom;
+  return Math.abs(raster.width - css.width * scale) <= 1 && Math.abs(raster.height - css.height * scale) <= 1;
+}
+
+/**
+ * Mode precedence: rect && fullPage -> 'clip' (captureBeyondViewport),
+ * rect -> 'clip', fullPage -> 'full-page', else 'viewport'. Pure.
+ */
+export function resolveCaptureMode(rect: unknown, fullPage?: boolean): CaptureMode {
+  if (rect !== null && rect !== undefined && typeof rect === 'object') return 'clip';
+  return fullPage ? 'full-page' : 'viewport';
+}
+
+/**
  * Pure compatibility gate checking whether baseline and current captures are
- * comparable before computing a pixel diff. Discrepancies in backend, DPR,
- * zoom, or CSS viewport dimension make pixel comparisons inconclusive.
+ * comparable before computing a pixel diff. Discrepancies in backend, capture
+ * mode, DPR, zoom, CSS viewport, or CSS capture size make pixel comparisons
+ * inconclusive.
  */
 export function checkCaptureStateCompatibility(
   target: VerificationCaptureReceipt,
@@ -741,6 +964,12 @@ export function checkCaptureStateCompatibility(
     return {
       compatible: false,
       reason: `Capture backend mismatch: target '${target?.backend}' vs baseline '${baseline?.backend}'`,
+    };
+  }
+  if (typeof target.captureMode !== 'string' || typeof baseline.captureMode !== 'string' || target.captureMode !== baseline.captureMode) {
+    return {
+      compatible: false,
+      reason: `Capture mode mismatch: target '${target?.captureMode}' vs baseline '${baseline?.captureMode}'`,
     };
   }
   if (!Number.isFinite(target.dpr) || !Number.isFinite(baseline.dpr) || target.dpr <= 0 || baseline.dpr <= 0) {
@@ -772,6 +1001,19 @@ export function checkCaptureStateCompatibility(
     return {
       compatible: false,
       reason: `CSS viewport dimension mismatch: target ${tVw}x${tVh} vs baseline ${bVw}x${bVh}`,
+    };
+  }
+  const tCw = target.cssCaptureSize?.width;
+  const tCh = target.cssCaptureSize?.height;
+  const bCw = baseline.cssCaptureSize?.width;
+  const bCh = baseline.cssCaptureSize?.height;
+  if (!Number.isFinite(tCw) || !Number.isFinite(tCh) || !Number.isFinite(bCw) || !Number.isFinite(bCh) || tCw <= 0 || tCh <= 0 || bCw <= 0 || bCh <= 0) {
+    return { compatible: false, reason: `Invalid CSS capture dimensions: target ${tCw}x${tCh} vs baseline ${bCw}x${bCh}` };
+  }
+  if (Math.abs(tCw - bCw) > 1 || Math.abs(tCh - bCh) > 1) {
+    return {
+      compatible: false,
+      reason: `CSS capture size mismatch: target ${tCw}x${tCh} vs baseline ${bCw}x${bCh}`,
     };
   }
   return { compatible: true };

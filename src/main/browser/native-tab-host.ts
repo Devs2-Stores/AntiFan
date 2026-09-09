@@ -5580,7 +5580,7 @@ export class NativeTabHost extends EventEmitter {
     return this.getDevToolsHost().captureScreenshot(rect, tabId, paneId, options);
   }
 
-  public async captureVerificationScreenshot(rect?: Rectangle, tabId?: string, paneId?: SplitPaneId, options?: { format?: 'png' | 'jpeg'; quality?: number; fullPage?: boolean }): Promise<VerificationCaptureEnvelope> {
+  public async captureVerificationScreenshot(rect?: Rectangle, tabId?: string, paneId?: SplitPaneId, options?: { format?: 'png' | 'jpeg'; quality?: number; fullPage?: boolean; timeoutMs?: number }): Promise<VerificationCaptureEnvelope> {
     return this.getDevToolsHost().captureVerificationScreenshot(rect, tabId, paneId, options);
   }
 

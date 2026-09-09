@@ -33,7 +33,7 @@ import { configureBrowserSessionPartition } from './browser/browser-session-part
 import { LocalIpcServer } from './native-messaging/local-ipc-server';
 import { installNativeHost, COMPANION_EXTENSION_ID } from './native-messaging/manifest-installer';
 import { chromeSessionUserAgent } from './browser/google-auth-identity';
-import { ControlPlaneRuntime } from './control-plane/control-plane-runtime';
+import { ControlPlaneRuntime, resolveArtifactStoreOptionsFromEnv } from './control-plane/control-plane-runtime';
 import { BrowserControlPort } from './tools/browser-control-port';
 import { CapabilityTransportAdapter } from './tools/capability-transport';
 import { validateControlPlaneId } from '../shared/control-plane-contracts';
@@ -232,6 +232,7 @@ async function createWindow(): Promise<void> {
     dataRoot: StorageLocations.getControlPlaneDir(),
     allowEval: ALLOW_EVAL,
     terminal: terminalManager,
+    artifactStoreOptions: resolveArtifactStoreOptionsFromEnv(),
     getAutomationTabId: () => tabHost!.getAutomationTabId(),
     getDocumentGeneration: (tabId) => tabHost!.getDocumentGeneration(tabId),
     isTabAllowed: (primaryTabId, requestedTabId) => tabHost!.isTabAllowedForPrimary(primaryTabId, requestedTabId),

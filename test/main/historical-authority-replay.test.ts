@@ -66,7 +66,7 @@ describe('Historical Authority & Invocation Replay (Phase 02)', () => {
         retentionPolicy: 'run-durable',
         ownerCancellationBehavior: 'abort-immediate',
         subscriberDisconnectBehavior: 'abort-when-unobserved',
-        cancellationAckTimeoutMs: 5000,
+        cancellationAckTimeoutMs: 1000,
       },
       execute: async () => ({ value: 'executed-result-123' }),
     });
@@ -153,7 +153,7 @@ describe('Historical Authority & Invocation Replay (Phase 02)', () => {
         retentionPolicy: 'run-durable',
         ownerCancellationBehavior: 'abort-immediate',
         subscriberDisconnectBehavior: 'abort-when-unobserved',
-        cancellationAckTimeoutMs: 5000,
+        cancellationAckTimeoutMs: 1000,
       },
       execute: async () => ({ value: 'executed-result-123' }),
     });
@@ -230,7 +230,7 @@ describe('Historical Authority & Invocation Replay (Phase 02)', () => {
         retentionPolicy: 'run-durable',
         ownerCancellationBehavior: 'abort-immediate',
         subscriberDisconnectBehavior: 'abort-when-unobserved',
-        cancellationAckTimeoutMs: 5000,
+        cancellationAckTimeoutMs: 1000,
       },
       execute: async () => ({ secretKey: 'classified-data-999' }),
     });
@@ -305,7 +305,7 @@ describe('Historical Authority & Invocation Replay (Phase 02)', () => {
         retentionPolicy: 'run-durable',
         ownerCancellationBehavior: 'abort-immediate',
         subscriberDisconnectBehavior: 'abort-when-unobserved',
-        cancellationAckTimeoutMs: 5000,
+        cancellationAckTimeoutMs: 1000,
       },
       execute: async () => ({ value: 'ok' }),
     });
@@ -431,7 +431,7 @@ describe('Historical Authority & Invocation Replay (Phase 02)', () => {
         retentionPolicy: 'run-durable',
         ownerCancellationBehavior: 'abort-immediate',
         subscriberDisconnectBehavior: 'abort-when-unobserved',
-        cancellationAckTimeoutMs: 5000,
+        cancellationAckTimeoutMs: 1000,
       },
       execute: async () => ({ count: 42, executedAt: Date.now() }),
     });
@@ -492,7 +492,7 @@ describe('Historical Authority & Invocation Replay (Phase 02)', () => {
         retentionPolicy: 'run-durable',
         ownerCancellationBehavior: 'abort-immediate',
         subscriberDisconnectBehavior: 'abort-when-unobserved',
-        cancellationAckTimeoutMs: 5000,
+        cancellationAckTimeoutMs: 1000,
       },
       execute: async () => ({ count: 999 }), // Different output if re-executed
     });
@@ -618,7 +618,7 @@ describe('Historical Authority & Invocation Replay (Phase 02)', () => {
         retentionPolicy: 'run-durable',
         ownerCancellationBehavior: 'abort-immediate',
         subscriberDisconnectBehavior: 'abort-when-unobserved',
-        cancellationAckTimeoutMs: 5000,
+        cancellationAckTimeoutMs: 1000,
       },
       execute: async () => {
         const err = new Error('Execution aborted by client');

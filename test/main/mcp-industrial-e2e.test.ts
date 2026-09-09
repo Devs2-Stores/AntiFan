@@ -13,6 +13,13 @@ import { ControlPlaneRuntime } from '../../src/main/control-plane/control-plane-
 import { AttachmentRegistry } from '../../src/main/run/attachment-registry';
 import { NativeTabHost } from '../../src/main/browser/native-tab-host';
 import { makeControlPlaneId, issueRuntimeLease } from '../../src/shared/control-plane-contracts';
+import { verificationCaptureEnvelope } from './verification-capture-fixture';// The host shell may export ANTIFAN_* bindings (live attachment/tab ids) for the
+// MCP shim. Tests must resolve their own local registry state, so ambient
+// bindings are scrubbed before any server or runtime is constructed.
+for (const key of Object.keys(process.env)) {
+  if (key.startsWith('ANTIFAN_')) delete process.env[key];
+}
+
 describe('Phase 04: E2E Industrial Overhaul & Storefront Latency Benchmarks', () => {
   let tempDir: string;
   let bridgeServer: BridgeServer;
@@ -145,6 +152,10 @@ describe('Phase 04: E2E Industrial Overhaul & Storefront Latency Benchmarks', ()
       reload: async () => true,
       getDom: async (sel, tid) => (mockTabHost as any).getDom(sel, tid),
       captureScreenshot: async (rect, tid) => (mockTabHost as any).captureScreenshot(rect, tid),
+      captureVerificationScreenshot: async (rect, tid, _paneId, options) => verificationCaptureEnvelope(
+        await (mockTabHost as any).captureScreenshot(rect, tid),
+        { fullPage: options?.fullPage }
+      ),
       evalJs: async () => ({}),
       getDiagnostics: () => ({ console: [], failures: [] }),
       runResponsiveCheck: async () => ({ passes: true }),

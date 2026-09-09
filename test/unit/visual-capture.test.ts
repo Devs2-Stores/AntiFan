@@ -1,6 +1,8 @@
 import { describe, it } from 'node:test';
 import * as assert from 'node:assert/strict';
+import * as zlib from 'node:zlib';
 import {
+  CAPTURE_MAX_DIMENSION,
   MaskLedger,
   MaskResolutionError,
   MultiKeyLock,
@@ -13,12 +15,42 @@ import {
   coherencePairReceipt,
   maskEntryReceipt,
   materializeRasterMasks,
+  rasterMatchesCss,
+  resolveCaptureMode,
   transformMaskBoxToRaster,
+  validateJpegBuffer,
+  validatePngBuffer,
   visualCaptureSpaceFromMeasured,
   visualCaptureSpaceFromMetrics,
   type CaptureIdentitySnapshot,
   type VerificationCaptureReceipt,
 } from '../../src/main/verification/visual-capture';
+
+/**
+ * Structurally complete PNG with real zlib-compressed IDAT data. CRC fields are
+ * left zero because the integrity gate validates structure, not CRCs.
+ */
+function makePng(width: number, height: number): Buffer {
+  const chunk = (type: string, data: Buffer): Buffer => {
+    const out = Buffer.alloc(12 + data.length);
+    out.writeUInt32BE(data.length, 0);
+    out.write(type, 4, 'latin1');
+    data.copy(out, 8);
+    return out;
+  };
+  const ihdr = Buffer.alloc(13);
+  ihdr.writeUInt32BE(width, 0);
+  ihdr.writeUInt32BE(height, 4);
+  ihdr[8] = 8;
+  ihdr[9] = 2;
+  const raw = Buffer.alloc(height * (1 + width * 3));
+  return Buffer.concat([
+    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+    chunk('IHDR', ihdr),
+    chunk('IDAT', zlib.deflateSync(raw)),
+    chunk('IEND', Buffer.alloc(0)),
+  ]);
+}
 
 interface EvalCall {
   script: string;
@@ -563,15 +595,20 @@ describe('MultiKeyLock release discipline', () => {
 });
 
 describe('checkCaptureStateCompatibility (pure Tier 1 compatibility gate)', () => {
-  const mkReceipt = (over: Partial<VerificationCaptureReceipt> = {}): VerificationCaptureReceipt => ({
-    backend: 'cdp',
-    dpr: 2,
-    zoom: 1.0,
-    cssViewport: { width: 1200, height: 800 },
-    rasterSize: { width: 2400, height: 1600 },
-    timestamp: 1000,
-    ...over,
-  });
+  const mkReceipt = (over: Partial<VerificationCaptureReceipt> = {}): VerificationCaptureReceipt => {
+    const cssViewport = over.cssViewport ?? { width: 1200, height: 800 };
+    return {
+      backend: 'cdp',
+      dpr: 2,
+      zoom: 1.0,
+      cssViewport,
+      cssCaptureSize: { width: cssViewport.width, height: cssViewport.height },
+      rasterSize: { width: 2400, height: 1600 },
+      captureMode: 'viewport',
+      timestamp: 1000,
+      ...over,
+    };
+  };
 
   it('identical receipts are compatible', () => {
     const res = checkCaptureStateCompatibility(mkReceipt(), mkReceipt());
@@ -625,5 +662,267 @@ describe('checkCaptureStateCompatibility (pure Tier 1 compatibility gate)', () =
   it('CSS viewport with NaN or zero dimensions returns incompatible', () => {
     assert.strictEqual(checkCaptureStateCompatibility(mkReceipt({ cssViewport: { width: NaN, height: 800 } }), mkReceipt()).compatible, false);
     assert.strictEqual(checkCaptureStateCompatibility(mkReceipt({ cssViewport: { width: 0, height: 800 } }), mkReceipt()).compatible, false);
+  });
+
+  it('capture mode mismatch returns incompatible', () => {
+    const res = checkCaptureStateCompatibility(mkReceipt({ captureMode: 'viewport' }), mkReceipt({ captureMode: 'full-page' }));
+    assert.strictEqual(res.compatible, false);
+    assert.ok(res.reason?.includes('Capture mode mismatch'));
+  });
+
+  it('CSS capture size mismatch beyond one pixel returns incompatible', () => {
+    const res = checkCaptureStateCompatibility(
+      mkReceipt({ cssCaptureSize: { width: 1200, height: 800 } }),
+      mkReceipt({ cssCaptureSize: { width: 1200, height: 803 } })
+    );
+    assert.strictEqual(res.compatible, false);
+    assert.ok(res.reason?.includes('CSS capture size mismatch'));
+  });
+
+  it('CSS capture size within one pixel per axis stays compatible', () => {
+    const res = checkCaptureStateCompatibility(
+      mkReceipt({ cssCaptureSize: { width: 1200, height: 800 } }),
+      mkReceipt({ cssCaptureSize: { width: 1201, height: 799 } })
+    );
+    assert.strictEqual(res.compatible, true);
+  });
+
+  it('missing or invalid CSS capture size returns incompatible', () => {
+    assert.strictEqual(
+      checkCaptureStateCompatibility(mkReceipt({ cssCaptureSize: undefined }), mkReceipt()).compatible,
+      false
+    );
+    assert.strictEqual(
+      checkCaptureStateCompatibility(mkReceipt({ cssCaptureSize: { width: NaN, height: 800 } }), mkReceipt()).compatible,
+      false
+    );
+    assert.strictEqual(
+      checkCaptureStateCompatibility(mkReceipt({ cssCaptureSize: { width: 1200, height: 0 } }), mkReceipt()).compatible,
+      false
+    );
+  });
+});
+
+describe('resolveCaptureMode (mode precedence)', () => {
+  it('rect wins over fullPage and settles clip', () => {
+    assert.strictEqual(resolveCaptureMode({ x: 0, y: 0, width: 10, height: 10 }, true), 'clip');
+    assert.strictEqual(resolveCaptureMode({ x: 5, y: 5, width: 1, height: 1 }, false), 'clip');
+  });
+
+  it('fullPage without a rect settles full-page', () => {
+    assert.strictEqual(resolveCaptureMode(undefined, true), 'full-page');
+    assert.strictEqual(resolveCaptureMode(null, true), 'full-page');
+  });
+
+  it('no rect and no fullPage settles viewport', () => {
+    assert.strictEqual(resolveCaptureMode(undefined, undefined), 'viewport');
+    assert.strictEqual(resolveCaptureMode(undefined, false), 'viewport');
+    assert.strictEqual(resolveCaptureMode(null, false), 'viewport');
+  });
+});
+
+describe('validatePngBuffer (PNG integrity gate)', () => {
+  it('accepts a structurally complete PNG and reports IHDR dimensions', () => {
+    const res = validatePngBuffer(makePng(7, 5));
+    assert.deepStrictEqual(res, { ok: true, width: 7, height: 5 });
+  });
+
+  it('rejects an empty payload with CAPTURE_EMPTY_PAYLOAD', () => {
+    const res = validatePngBuffer(Buffer.alloc(0));
+    assert.strictEqual(res.ok, false);
+    assert.strictEqual(res.code, 'CAPTURE_EMPTY_PAYLOAD');
+  });
+
+  it('rejects a foreign payload with CAPTURE_PNG_SIGNATURE_INVALID', () => {
+    const res = validatePngBuffer(Buffer.from('not a png at all'));
+    assert.strictEqual(res.ok, false);
+    assert.strictEqual(res.code, 'CAPTURE_PNG_SIGNATURE_INVALID');
+  });
+
+  it('rejects a missing IEND with CAPTURE_PNG_TRUNCATED', () => {
+    const png = makePng(4, 4);
+    const res = validatePngBuffer(png.subarray(0, png.length - 12));
+    assert.strictEqual(res.ok, false);
+    assert.strictEqual(res.code, 'CAPTURE_PNG_TRUNCATED');
+    assert.strictEqual(res.width, 4);
+    assert.strictEqual(res.height, 4);
+  });
+
+  it('rejects a chunk whose declared length runs past the buffer with CAPTURE_PNG_TRUNCATED', () => {
+    const png = makePng(4, 4);
+    const res = validatePngBuffer(png.subarray(0, png.length - 5));
+    assert.strictEqual(res.ok, false);
+    assert.strictEqual(res.code, 'CAPTURE_PNG_TRUNCATED');
+  });
+
+  it('rejects an undecodable IDAT payload with CAPTURE_PNG_UNDECODABLE', () => {
+    const chunk = (type: string, data: Buffer): Buffer => {
+      const out = Buffer.alloc(12 + data.length);
+      out.writeUInt32BE(data.length, 0);
+      out.write(type, 4, 'latin1');
+      data.copy(out, 8);
+      return out;
+    };
+    const ihdr = Buffer.alloc(13);
+    ihdr.writeUInt32BE(2, 0);
+    ihdr.writeUInt32BE(2, 4);
+    ihdr[8] = 8;
+    ihdr[9] = 2;
+    const corrupt = Buffer.concat([
+      Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+      chunk('IHDR', ihdr),
+      chunk('IDAT', Buffer.from([0x00, 0x01, 0x02, 0x03])),
+      chunk('IEND', Buffer.alloc(0)),
+    ]);
+    const res = validatePngBuffer(corrupt);
+    assert.strictEqual(res.ok, false);
+    assert.strictEqual(res.code, 'CAPTURE_PNG_UNDECODABLE');
+  });
+
+  it('rejects a first chunk that is not IHDR with CAPTURE_PNG_UNDECODABLE', () => {
+    const chunk = (type: string, data: Buffer): Buffer => {
+      const out = Buffer.alloc(12 + data.length);
+      out.writeUInt32BE(data.length, 0);
+      out.write(type, 4, 'latin1');
+      data.copy(out, 8);
+      return out;
+    };
+    const res = validatePngBuffer(
+      Buffer.concat([
+        Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+        chunk('IDAT', Buffer.from([0x78, 0x9c, 0x03, 0x00, 0x00, 0x00, 0x00, 0x01])),
+        chunk('IEND', Buffer.alloc(0)),
+      ])
+    );
+    assert.strictEqual(res.ok, false);
+    assert.strictEqual(res.code, 'CAPTURE_PNG_UNDECODABLE');
+  });
+
+  it('rejects trailing bytes after IEND with CAPTURE_PNG_UNDECODABLE', () => {
+    const res = validatePngBuffer(Buffer.concat([makePng(3, 3), Buffer.from([0x00])]));
+    assert.strictEqual(res.ok, false);
+    assert.strictEqual(res.code, 'CAPTURE_PNG_UNDECODABLE');
+  });
+
+  it('exports a 16384 CSS-pixel compositing ceiling', () => {
+    assert.strictEqual(CAPTURE_MAX_DIMENSION, 16384);
+  });
+});
+
+/**
+ * Structurally valid baseline JPEG: SOI, a SOF0 carrying the real dimensions,
+ * an SOS marker and one scan byte, then EOI. Entropy data is irrelevant to the
+ * integrity gate, which reports dimensions from the SOF segment.
+ */
+function makeJpeg(width: number, height: number, options?: { fillBytes?: boolean; sofMarker?: number }): Buffer {
+  const segment = (marker: number, payload: Buffer): Buffer => {
+    const out = Buffer.alloc(4 + payload.length);
+    out[0] = 0xff;
+    out[1] = marker;
+    out.writeUInt16BE(payload.length + 2, 2);
+    payload.copy(out, 4);
+    return out;
+  };
+  const sof = Buffer.alloc(8);
+  sof[0] = 8;
+  sof.writeUInt16BE(height, 1);
+  sof.writeUInt16BE(width, 3);
+  sof[5] = 1;
+  sof[6] = 1;
+  sof[7] = 0x11;
+  const sos = Buffer.from([1, 1, 0, 0, 63, 0]);
+  return Buffer.concat([
+    Buffer.from([0xff, 0xd8]),
+    ...(options?.fillBytes ? [Buffer.from([0xff])] : []),
+    segment(options?.sofMarker ?? 0xc0, sof),
+    segment(0xda, sos),
+    Buffer.from([0x00, 0xff, 0xd9]),
+  ]);
+}
+
+describe('validateJpegBuffer (JPEG integrity gate)', () => {
+  it('accepts a structurally complete JPEG and reports SOF dimensions', () => {
+    assert.deepStrictEqual(validateJpegBuffer(makeJpeg(1280, 720)), { ok: true, width: 1280, height: 720 });
+  });
+
+  it('accepts a progressive SOF2 payload and skips 0xff fill bytes before the marker', () => {
+    const res = validateJpegBuffer(makeJpeg(64, 48, { fillBytes: true, sofMarker: 0xc2 }));
+    assert.deepStrictEqual(res, { ok: true, width: 64, height: 48 });
+  });
+
+  it('rejects an empty payload with CAPTURE_EMPTY_PAYLOAD', () => {
+    const res = validateJpegBuffer(Buffer.alloc(0));
+    assert.strictEqual(res.ok, false);
+    assert.strictEqual(res.code, 'CAPTURE_EMPTY_PAYLOAD');
+  });
+
+  it('rejects a foreign payload with CAPTURE_JPEG_SIGNATURE_INVALID', () => {
+    const res = validateJpegBuffer(Buffer.from('not a jpeg at all'));
+    assert.strictEqual(res.ok, false);
+    assert.strictEqual(res.code, 'CAPTURE_JPEG_SIGNATURE_INVALID');
+  });
+
+  it('rejects a missing EOI with CAPTURE_JPEG_TRUNCATED', () => {
+    const jpeg = makeJpeg(4, 4);
+    const res = validateJpegBuffer(jpeg.subarray(0, jpeg.length - 2));
+    assert.strictEqual(res.ok, false);
+    assert.strictEqual(res.code, 'CAPTURE_JPEG_TRUNCATED');
+  });
+
+  it('rejects a segment whose declared length runs past the buffer with CAPTURE_JPEG_TRUNCATED', () => {
+    const jpeg = makeJpeg(4, 4);
+    const truncated = jpeg.subarray(0, 8);
+    const res = validateJpegBuffer(Buffer.concat([truncated, Buffer.from([0xff, 0xd9])]));
+    assert.strictEqual(res.ok, false);
+    assert.strictEqual(res.code, 'CAPTURE_JPEG_TRUNCATED');
+  });
+
+  it('rejects a scan before any SOF with CAPTURE_JPEG_UNDECODABLE', () => {
+    const segment = (marker: number, payload: Buffer): Buffer => {
+      const out = Buffer.alloc(4 + payload.length);
+      out[0] = 0xff;
+      out[1] = marker;
+      out.writeUInt16BE(payload.length + 2, 2);
+      payload.copy(out, 4);
+      return out;
+    };
+    const res = validateJpegBuffer(
+      Buffer.concat([
+        Buffer.from([0xff, 0xd8]),
+        segment(0xda, Buffer.from([1, 1, 0, 0, 63, 0])),
+        Buffer.from([0x00, 0xff, 0xd9]),
+      ])
+    );
+    assert.strictEqual(res.ok, false);
+    assert.strictEqual(res.code, 'CAPTURE_JPEG_UNDECODABLE');
+  });
+
+  it('rejects a SOF declaring zero dimensions with CAPTURE_JPEG_UNDECODABLE', () => {
+    const res = validateJpegBuffer(makeJpeg(0, 0));
+    assert.strictEqual(res.ok, false);
+    assert.strictEqual(res.code, 'CAPTURE_JPEG_UNDECODABLE');
+  });
+});
+
+describe('rasterMatchesCss (scale gate)', () => {
+  it('accepts an exact DPR x zoom scale', () => {
+    assert.strictEqual(rasterMatchesCss({ width: 2400, height: 1600 }, { width: 1200, height: 800 }, 2, 1), true);
+    assert.strictEqual(rasterMatchesCss({ width: 3000, height: 2000 }, { width: 1200, height: 800 }, 2, 1.25), true);
+  });
+
+  it('accepts a one-pixel per-axis rounding delta', () => {
+    assert.strictEqual(rasterMatchesCss({ width: 2401, height: 1599 }, { width: 1200, height: 800 }, 2, 1), true);
+  });
+
+  it('rejects a delta beyond one pixel on either axis', () => {
+    assert.strictEqual(rasterMatchesCss({ width: 2402, height: 1600 }, { width: 1200, height: 800 }, 2, 1), false);
+    assert.strictEqual(rasterMatchesCss({ width: 2400, height: 1602 }, { width: 1200, height: 800 }, 2, 1), false);
+  });
+
+  it('rejects non-positive or non-finite inputs', () => {
+    assert.strictEqual(rasterMatchesCss({ width: 2400, height: 1600 }, { width: 1200, height: 800 }, 0, 1), false);
+    assert.strictEqual(rasterMatchesCss({ width: 2400, height: 1600 }, { width: 1200, height: 800 }, 2, 0), false);
+    assert.strictEqual(rasterMatchesCss({ width: NaN, height: 1600 }, { width: 1200, height: 800 }, 2, 1), false);
+    assert.strictEqual(rasterMatchesCss({ width: 2400, height: 1600 }, { width: 0, height: 800 }, 2, 1), false);
   });
 });

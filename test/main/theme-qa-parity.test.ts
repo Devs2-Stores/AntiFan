@@ -11,9 +11,10 @@ import { BrowserControlPort, BrowserHostPort } from '../../src/main/tools/browse
 import { ArtifactStore } from '../../src/main/tools/artifact-store';
 import { BrowserTarget, CapabilityError, issueRuntimeLease } from '../../src/shared/control-plane-contracts';
 import { DiagnosticsInput } from '../../src/main/qa/diagnostics-filter';
+import { withCanonicalCapture } from './verification-capture-fixture';
 
 const FIRST_PARTY_URL = 'https://store.example.com/';
-const TAB_HOST: BrowserHostPort = {
+const TAB_HOST: BrowserHostPort = withCanonicalCapture({
   getTabList: () => [{ id: 'tab-1', url: FIRST_PARTY_URL }],
   navigate: () => true,
   reload: () => true,
@@ -34,7 +35,7 @@ const TAB_HOST: BrowserHostPort = {
     }
     return null;
   },
-};
+});
 
 function makeTarget(): BrowserTarget {
   return {

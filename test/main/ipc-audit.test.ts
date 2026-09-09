@@ -402,7 +402,7 @@ describe('Webview & Extension IPC Audit Invariants', () => {
     const nativeTabHost = fs.readFileSync(path.join(root, 'src', 'main', 'browser', 'native-tab-host.ts'), 'utf8');
     assert.match(
       nativeTabHost,
-      /else if \(url !== 'about:blank'\) \{\s*wc\.loadURL\(url\)\s*\.then\(\(\) => this\.clearInitialNavigationHistory\(wc, state\)\)/,
+      /else if \(url !== 'about:blank'\) \{[\s\S]*?wc\.loadURL\(url\)\s*\.then\(\(\) => this\.clearInitialNavigationHistory\(wc, state\)\)/,
       'ordinary new tabs must clear the implicit about:blank history only after their initial URL loads'
     );
     assert.match(
