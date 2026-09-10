@@ -152,7 +152,7 @@ export class BaselineAuthority {
 
     // Read artifact via store with valid context (preserving all containment invariants)
     const { ref: sourceRef, data } = store.readBytesById(sourceArtifactId, context);
-    if (sourceRef && (sourceRef as any).truncated) {
+    if (sourceRef && sourceRef.truncated) {
       throw new CapabilityError('INVALID_ARGUMENT', `Cannot promote truncated artifact '${sourceArtifactId}' as authoritative baseline`);
     }
 

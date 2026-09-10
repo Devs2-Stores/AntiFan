@@ -65,6 +65,14 @@ export interface TabDevToolsStats {
   isolatedContextCount: number;
 }
 
+/**
+ * In-page execution guard for `evalJs`. Chrome pauses requestAnimationFrame in
+ * background tabs, so a script that waits on a frame can hang forever; this is
+ * the default ceiling. Callers whose script declares a longer budget (the
+ * reference materialization walk) pass their own through `timeoutMs`.
+ */
+const EVAL_JS_DEFAULT_TIMEOUT_MS = 15_000;
+
 export class TabDevToolsHost {
   private readonly ctx: TabDevToolsContext;
   private isFontFinderActive: boolean = false;
@@ -1790,8 +1798,10 @@ export class TabDevToolsHost {
     expression: string,
     tabId?: string,
     paneId?: SplitPaneId,
-    userGesture = false
+    userGesture = false,
+    timeoutMs = EVAL_JS_DEFAULT_TIMEOUT_MS
   ): Promise<unknown> {
+    const execBudgetMs = Number.isFinite(timeoutMs) && timeoutMs > 0 ? Math.round(timeoutMs) : EVAL_JS_DEFAULT_TIMEOUT_MS;
     const targetId = tabId || this.ctx.getActiveTabId();
     const target = this.ctx.getTabRecord(targetId);
     if (!target) return undefined;
@@ -1831,11 +1841,13 @@ export class TabDevToolsHost {
           return out;
         }
         try {
-          // Guard against background tab rAF freeze with 15s timeout
+          // Guard against background tab rAF freeze with a caller-declared
+          // ceiling (default ${EVAL_JS_DEFAULT_TIMEOUT_MS}ms).
+          const execBudgetMs = ${JSON.stringify(execBudgetMs)};
           const execPromise = (async () => (0, eval)(${JSON.stringify(expression)}))();
           let timer;
           const timeoutPromise = new Promise((_, reject) => {
-            timer = setTimeout(() => reject(new Error('Evaluation timed out after 15000ms (note: requestAnimationFrame pauses in background tabs)')), 15000);
+            timer = setTimeout(() => reject(new Error('Evaluation timed out after ' + execBudgetMs + 'ms (note: requestAnimationFrame pauses in background tabs)')), execBudgetMs);
           });
           const result = await Promise.race([execPromise, timeoutPromise]).finally(() => clearTimeout(timer));
           return serializeCircularSafe(result);

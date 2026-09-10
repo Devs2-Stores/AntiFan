@@ -2,7 +2,9 @@ import { describe, it } from 'node:test';
 import * as assert from 'node:assert/strict';
 import { BrowserControlPort, BrowserHostPort } from '../../src/main/tools/browser-control-port';
 import { BrowserTarget, CapabilityError } from '../../src/shared/control-plane-contracts';
-import type { VerificationCaptureEnvelope } from '../../src/main/verification/visual-capture';
+import { TabDevToolsHost, TabDevToolsContext } from '../../src/main/browser/tab-devtools-host';
+import type { NativeTabRecord } from '../../src/main/browser/native-tab-host';
+import { REFERENCE_MATERIALIZATION_BOUND_MS, type VerificationCaptureEnvelope } from '../../src/main/verification/visual-capture';
 
 const TARGET: BrowserTarget = {
   tabId: 'tab-b',
@@ -38,11 +40,11 @@ interface HostOptions {
   setViewportSize?: (opts: { width: number; height: number; tabId?: string }) => Promise<boolean> | boolean;
   sessionTabList?: () => unknown[];
   adoptReturns?: boolean;
-  evalJs?: (script: string, tabId?: string) => Promise<unknown> | unknown;
+  evalJs?: (script: string, tabId?: string, paneId?: string, userGesture?: boolean, timeoutMs?: number) => Promise<unknown> | unknown;
 }
 
 function buildHost(opts: HostOptions) {
-  const calls = { capture: 0, close: [] as string[], geometryRestores: 0, eval: 0 };
+  const calls = { capture: 0, close: [] as string[], geometryRestores: 0, eval: 0, drains: 0 };
   const host: Partial<BrowserHostPort> & Record<string, unknown> = {
     hasTab: () => true,
     getTabList: () => [{ id: 'tab-b' }],
@@ -50,6 +52,10 @@ function buildHost(opts: HostOptions) {
     isCurrentTarget: () => true,
     getManagedTabIds: () => new Set(['tab-b']),
     isTabAllowed: () => true,
+    drainTarget: async (): Promise<{ ok: boolean; drained: boolean; resetPerformed: boolean; elapsedMs: number }> => {
+      calls.drains++;
+      return { ok: true, drained: true, resetPerformed: false, elapsedMs: 1 };
+    },
     readRenderSurface: async (): Promise<{ vw: number; vh: number; dpr: number; scrollX: number; scrollY: number; docH: number; readyState: string; hidden: boolean }> => {
       if (opts.surfaceThrows) throw opts.surfaceThrows;
       const s = opts.surface ?? { vw: 1440, vh: 900 };
@@ -75,9 +81,9 @@ function buildHost(opts: HostOptions) {
     createTab: () => 'tab-new',
     adoptChildTab: () => opts.adoptReturns !== false,
     getSessionTabList: opts.sessionTabList,
-    evalJs: async (script: string, tabId?: string) => {
+    evalJs: async (script: string, tabId?: string, paneId?: string, userGesture?: boolean, timeoutMs?: number) => {
       calls.eval++;
-      if (opts.evalJs) return opts.evalJs(script, tabId);
+      if (opts.evalJs) return opts.evalJs(script, tabId, paneId, userGesture, timeoutMs);
       if (script.includes('innerWidth')) return { innerWidth: 1440, innerHeight: 900 };
       return true;
     },
@@ -258,6 +264,28 @@ describe('Capture geometry is a transaction', () => {
     );
     assert.strictEqual(calls.capture, 0);
   });
+
+  it('drains and restores the target when the execution budget abandons an in-flight capture', async () => {
+    const { host, calls } = buildHost({
+      capture: () => new Promise<VerificationCaptureEnvelope>(() => {}),
+    });
+    const port = new BrowserControlPort(host);
+    await assert.rejects(
+      () => port.screenshotFullPage(TARGET, 'run-1', 'attempt-1', 'tab-b', 'desktop', { timeoutMs: 120 }),
+      (err: unknown) => {
+        assert.ok(err instanceof CapabilityError);
+        // Whichever layer notices first — the outer execution budget or the inner
+        // capture bound — the caller gets the same truth: a target that needs
+        // draining, not a bare budget message hiding a wedged renderer.
+        assert.strictEqual(err.code, 'TARGET_BUSY_DRAINING');
+        const details = err.details as Record<string, unknown> | undefined;
+        assert.strictEqual(details?.quarantined, false, 'a drained target must be released again');
+        return true;
+      }
+    );
+    assert.strictEqual(calls.drains, 1, 'an abandoned capture must drain the transport it left busy');
+    assert.strictEqual(calls.geometryRestores, 1, 'and must prove the capture geometry was put back');
+  });
 });
 
 describe('Reference capture fails closed', () => {
@@ -309,7 +337,81 @@ describe('Reference capture fails closed', () => {
     const port = new BrowserControlPort(host);
     await assert.rejects(
       () => port.referenceCapture(TARGET, 'run-1', 'attempt-1', { tabId: 'tab-b', screenshot: false }),
-      (err: unknown) => (err instanceof CapabilityError ? err.code === 'REFERENCE_MATERIALIZATION_INCOMPLETE' : false)
+      (err: unknown) => {
+        assert.ok(err instanceof CapabilityError);
+        assert.strictEqual(err.code, 'REFERENCE_MATERIALIZATION_INCOMPLETE');
+        assert.strictEqual((err.details as Record<string, unknown> | undefined)?.cause, 'walk-empty');
+        return true;
+      }
     );
+  });
+
+  it('reports why the walk failed instead of blaming its own bound', async () => {
+    let walkBudget: number | undefined;
+    const { host } = buildHost({
+      evalJs: async (script: string, _tabId?: string, _paneId?: string, _userGesture?: boolean, timeoutMs?: number) => {
+        if (script.includes('img.decode') || script.includes('document.fonts.ready') || script.includes('requestAnimationFrame')) return true;
+        if (script.includes('innerWidth')) return { innerWidth: 1440, innerHeight: 900 };
+        walkBudget = timeoutMs;
+        throw new Error('Evaluation timed out after 30000ms (note: requestAnimationFrame pauses in background tabs)');
+      },
+    });
+    const port = new BrowserControlPort(host);
+    await assert.rejects(
+      () => port.referenceCapture(TARGET, 'run-1', 'attempt-1', { tabId: 'tab-b', screenshot: false }),
+      (err: unknown) => {
+        assert.ok(err instanceof CapabilityError);
+        assert.strictEqual(err.code, 'REFERENCE_MATERIALIZATION_INCOMPLETE');
+        const details = err.details as Record<string, unknown> | undefined;
+        assert.strictEqual(details?.cause, 'eval-failed');
+        assert.match(String(details?.evalError), /timed out/);
+        return true;
+      }
+    );
+    // The walk declares its own budget; the in-page execution guard has to hear
+    // it, or the script is killed at the guard's default while the failure is
+    // reported against a bound the script never reached.
+    assert.strictEqual(walkBudget, REFERENCE_MATERIALIZATION_BOUND_MS);
+  });
+});
+
+describe('Eval execution guard ceiling', () => {
+  function buildDevTools() {
+    const scripts: string[] = [];
+    const wc = {
+      isDestroyed: () => false,
+      executeJavaScript: async (script: string) => {
+        scripts.push(script);
+        return 'ok';
+      },
+    };
+    const ctx: TabDevToolsContext = {
+      getTabWebContents: () => wc as unknown as Electron.WebContents,
+      getTabRecord: () => ({ state: { id: 'tab-b' } }) as unknown as NativeTabRecord,
+      getActiveTabId: () => 'tab-b',
+      getAllTabs: () => [][Symbol.iterator]() as unknown as IterableIterator<[string, NativeTabRecord]>,
+      broadcastState: () => {},
+      getTabTerminalSession: () => undefined,
+      resolveTargetWorkspace: () => 'E:/Work/project',
+      resolveAnnotationWorkspace: () => 'E:/Work/project',
+      createTab: () => 'tab-created',
+      withTabAgentWorking: (_tabId, action) => action(),
+      switchTab: () => true,
+    };
+    return { devTools: new TabDevToolsHost(ctx), scripts };
+  }
+
+  it('honours the caller budget so a long-running walk is not killed at the default ceiling', async () => {
+    const { devTools, scripts } = buildDevTools();
+    await devTools.evalJs('1 + 1', 'tab-b', 'desktop', false, 25_000);
+    const [script = ''] = scripts;
+    assert.match(script, /execBudgetMs = 25000;/, 'the in-page guard must run with the budget its caller declared');
+  });
+
+  it('keeps the background-tab default ceiling when no budget is given', async () => {
+    const { devTools, scripts } = buildDevTools();
+    await devTools.evalJs('1 + 1', 'tab-b', 'desktop');
+    const [script = ''] = scripts;
+    assert.match(script, /execBudgetMs = 15000;/, 'an unbounded caller still gets the requestAnimationFrame-freeze guard');
   });
 });

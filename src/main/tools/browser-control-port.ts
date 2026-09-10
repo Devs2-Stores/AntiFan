@@ -129,7 +129,7 @@ export interface BrowserHostPort {
   readRenderSurface?(tabId?: string, paneId?: 'desktop' | 'mobile', timeoutMs?: number): Promise<RenderSurfaceSnapshot>;
   /** Post-drain geometry restore for a tab a capture moved (CDP is admissible again). */
   reapplyTabGeometry?(tabId: string, paneId: 'desktop' | 'mobile' | undefined, before: { width: number; height: number; scrollX: number; scrollY: number }): Promise<CaptureViewportTransaction>;
-  evalJs(expression: string, tabId?: string, paneId?: 'desktop' | 'mobile'): Promise<unknown>;
+  evalJs(expression: string, tabId?: string, paneId?: 'desktop' | 'mobile', userGesture?: boolean, timeoutMs?: number): Promise<unknown>;
   getDiagnostics?(tabId?: string, level?: number | string): { console: unknown[]; failures: unknown[] };
   runResponsiveCheck?(params?: { tabId?: string; selector?: string; customBreakpoints?: ResponsiveBreakpointOption[] } | string): Promise<Record<string, unknown>>;
   agentTrajectory?(params: { steps: Array<Record<string, unknown>>; speed?: 'fast' | 'natural' | 'slow'; smoothScroll?: boolean; tabId?: string; paneId?: 'desktop' | 'mobile' }): Promise<Record<string, unknown>>;
@@ -1439,23 +1439,36 @@ export class BrowserControlPort {
     // One pool slot at a time: the pool counts concurrent operations per tab and
     // refuses above its ceiling, so a reference capture must not hold a slot
     // while calling primitives that take their own.
-    const materialization = await this.passivePool.execute(tabId, async () => {
+    const materializationProbe = await this.passivePool.execute(tabId, async () => {
       await this.assertRenderSurface(tabId, effectivePane, 'anti.reference.capture');
-      return raceWithTimeout(
-        (async () => {
-          const raw = await this.host.evalJs(buildReferenceMaterializationScript(), tabId, params.paneId);
-          return raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : null;
-        })().catch(() => null),
+      // The walk declares its own budget, so the in-page execution guard has to
+      // be told about it: a caller-side race alone would report a bound the
+      // script was never allowed to reach.
+      const probe = await raceWithTimeout(
+        this.host.evalJs(buildReferenceMaterializationScript(), tabId, params.paneId, false, REFERENCE_MATERIALIZATION_BOUND_MS)
+          .then((raw) => ({ walked: raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : null, evalError: undefined as string | undefined }))
+          .catch((err: unknown) => ({ walked: null, evalError: err instanceof Error ? err.message : String(err) })),
         REFERENCE_MATERIALIZATION_BOUND_MS,
         () => null
       );
+      return probe;
     });
-    if (!materialization) {
+    if (!materializationProbe) {
       throw new CapabilityError('REFERENCE_MATERIALIZATION_INCOMPLETE', `Materialization walk did not complete on tab '${tabId}' within ${REFERENCE_MATERIALIZATION_BOUND_MS}ms; a DOM staged from this tab would describe an unmounted page`, {
         tabId,
         paneId: effectivePane,
+        cause: 'walk-timeout',
       });
     }
+    if (!materializationProbe.walked) {
+      throw new CapabilityError('REFERENCE_MATERIALIZATION_INCOMPLETE', `Materialization walk on tab '${tabId}' returned no result${materializationProbe.evalError ? `: ${materializationProbe.evalError}` : ''}; a DOM staged from this tab would describe an unmounted page`, {
+        tabId,
+        paneId: effectivePane,
+        cause: materializationProbe.evalError ? 'eval-failed' : 'walk-empty',
+        ...(materializationProbe.evalError ? { evalError: materializationProbe.evalError } : {}),
+      });
+    }
+    const materialization = materializationProbe.walked;
     const reportedHref = typeof materialization.href === 'string' && materialization.href.length > 0 ? materialization.href : undefined;
     if (!reportedHref) {
       // The page is the only authority on its own identity: the strip-only tab
@@ -1692,6 +1705,7 @@ export class BrowserControlPort {
               throw new CapabilityError('TARGET_BUSY_DRAINING', reason, {
                 tabId,
                 paneId: effectivePane,
+                quarantined: (receipt ?? entry.recovery)?.ok !== true,
                 recovery: receipt ?? entry.recovery,
                 ...(transaction ? { viewportTransaction: transaction } : {}),
               });
@@ -1700,7 +1714,47 @@ export class BrowserControlPort {
           }
         }),
       executionBudgetMs
-    );
+    ).catch(async (err: unknown) => {
+      const code = err && typeof err === 'object' && 'code' in err && typeof err.code === 'string' ? err.code : undefined;
+      if (code !== 'EXECUTION_TIMEOUT') throw err;
+      // The execution budget can abandon a capture whose CDP command is still in
+      // flight, and the inner classification never runs when it does. The target
+      // still needs the recovery a settled failure gets: without the drain, the
+      // next probe on this tab meets a renderer that cannot answer.
+      const reason = `Full-page capture on tab '${tabId}' did not settle inside its execution budget and was abandoned`;
+      const entry = this.quarantineTargetEntry({
+        tabId,
+        paneId: effectivePane,
+        reason,
+        restoreGeometry: surfaceBefore
+          ? { width: surfaceBefore.vw, height: surfaceBefore.vh, scrollX: surfaceBefore.scrollX, scrollY: surfaceBefore.scrollY }
+          : undefined,
+      });
+      const receipt = await this.awaitQuarantineReceipt(entry, Math.min(12_000, FULL_PAGE_CAPTURE_CLEANUP_BUDGET_MS));
+      const settled = receipt ?? entry.recovery;
+      const transaction = settled?.viewportTransaction;
+      if (transaction && !transaction.restored) {
+        throw new CapabilityError('CAPTURE_VIEWPORT_NOT_RESTORED', `Full-page capture on tab '${tabId}' was abandoned by its budget and left the layout viewport at ${transaction.after ? `${transaction.after.width}x${transaction.after.height}` : 'an unmeasurable size'}`, {
+          tabId,
+          paneId: effectivePane,
+          quarantined: true,
+          expectedWidth: surfaceBefore?.vw,
+          expectedHeight: surfaceBefore?.vh,
+          observedWidth: transaction.after?.width,
+          observedHeight: transaction.after?.height,
+          attempts: transaction.attempts,
+          causeCapture: { code: 'EXECUTION_TIMEOUT', message: err instanceof Error ? err.message : String(err) },
+          recovery: settled,
+        });
+      }
+      throw new CapabilityError('TARGET_BUSY_DRAINING', reason, {
+        tabId,
+        paneId: effectivePane,
+        quarantined: settled?.ok !== true,
+        causeCapture: { code: 'EXECUTION_TIMEOUT', message: err instanceof Error ? err.message : String(err) },
+        recovery: settled,
+      });
+    });
   }
 
   /**

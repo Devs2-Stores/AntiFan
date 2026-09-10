@@ -78,6 +78,27 @@ describe('Phase 02: Behavioral Persistent Transport & Concurrency Integration', 
       ANTIFAN_HEARTBEAT_MS: '200',
     };
 
+    // This suite owns exactly one bridge: the fake one above. The proxy also
+    // consults the launching environment for a pinned attachment and, when that
+    // environment carries terminal context, discovers bridges on disk — so a
+    // harness running inside a real AntiFan session would replay a dropped call
+    // onto the developer's live instance and answer it successfully. Scrub that
+    // context so an unreachable socket stays an observable transport fault.
+    for (const key of [
+      'ANTIFAN_TERMINAL_AFFINITY_SESSION_ID',
+      'ANTIFAN_TERMINAL_PARENT_SESSION_ID',
+      'ANTIFAN_TERMINAL_SESSION_ID',
+      'ANTIFAN_BRIDGE_PID',
+      'ANTIFAN_ATTACHMENT_SECRET',
+      'ANTIFAN_ATTACHMENT_ID',
+      'ANTIFAN_MCP_PORT',
+      'ANTIFAN_OWNER_PID',
+      'ANTIFAN_AUTHORITY_REVISION',
+      'ANTIFAN_BOUND_TAB_ID',
+    ]) {
+      delete (env as Record<string, unknown>)[key];
+    }
+
     child = spawn(process.execPath, [scriptPath], {
       env,
       stdio: ['pipe', 'pipe', 'pipe'],
