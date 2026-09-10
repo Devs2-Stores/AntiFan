@@ -52,7 +52,7 @@ Turn the re-run into one defensible artifact: a cumulative report in the sixteen
 
 ## Related Code Files
 
-- `.canary/tools/build-report.mjs` — the sixteen-section generator and its fail-closed/deterministic behaviour; its multi-document behaviour is unverified, so per-page report bodies are only added if that support is demonstrated first
+- `scripts/lib/build-report.mjs` — the sixteen-section generator and its fail-closed/deterministic behaviour; its multi-document behaviour is unverified, so per-page report bodies are only added if that support is demonstrated first
 - `.canary/tools/fifteen-pages-run.mjs` — aggregate writer `:765-767`, decision enum `:818-825`, `PAGES EXECUTED` `:850`
 - `.canary/15-pages/**/evidence/*.json` — per-page evidence, including the Phase 1 provenance block
 - `plans/260909-1721-restore-visual-fidelity-canary/phase-06-report-and-fidelity-gate.md` — the sixteen-section contract and gate policy

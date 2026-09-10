@@ -59,6 +59,31 @@ exports.
 consecutive builds leaving two attempt directories (no unit test either — that mechanism lives in the
 runner).
 
+## Follow-up before freeze (same day)
+
+Three review findings were checked against the tree; two described code that does not
+exist here, so nothing changed for them: `procfsClockTicks()` already takes
+`execFileSync`'s return value directly (no `{stdout}` destructuring), and
+`proveHolderDead()` already performs a fresh OS read at comparison time and compares both
+the token and its format, so a later read is exactly what authorises a reclaim. Three
+were real:
+
+- `--pages <garbage>` parsed to an empty list, which skipped every page in the loop while
+  the exit classifier still expected the pages the operator named: the run took the lock
+  and published a degenerate report. It is now refused before the lock with
+  `INVALID_PAGE_FILTER` (exit 2, no lock file created — measured with `--pages nonsense`
+  and `--pages 99`).
+- The launcher could write an instance record for a child that had already exited while
+  its identity was being read. It now skips the write and says so. The race was not
+  reproduced live (no seam to make Electron exit on demand); the guard is read-verified.
+- The active plan still pointed at `.canary/tools/<module>.mjs` for seven helpers that
+  moved to `scripts/lib/`; corrected. The closed 260909 plan keeps its historical paths.
+
+Recorded, not fixed: `resolvePageArtifacts()` trusts the paths inside the attempt pointer,
+so a forged `current-attempt.json` could name a location outside that page's attempt
+directory. The threat model is a local process that can already write the evidence, and
+containment belongs with the Phase 3 reader work.
+
 ## Docs impact
 
 None: no user-facing behaviour, command or configuration changed.

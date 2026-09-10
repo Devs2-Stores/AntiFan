@@ -39,7 +39,7 @@ const {
   PROVENANCE_CODES,
 } = await import('../../scripts/lib/evidence-provenance.mjs');
 const { readRecord, writeRecordAtomic } = await import('../../scripts/lib/atomic-record.mjs');
-const { parsePagesFilter, buildVerdictIndex, renderHubHtml, computeRunExit, casesWithoutProvenance } = await import('../../scripts/lib/campaign-verdicts.mjs');
+const { parsePagesFilter, validatePagesFilter, buildVerdictIndex, renderHubHtml, computeRunExit, casesWithoutProvenance } = await import('../../scripts/lib/campaign-verdicts.mjs');
 
 
 
@@ -384,6 +384,10 @@ function refusedRun({ runId, code, reason, holder, proof }) {
 export async function runFifteenPagesCanary(options = {}) {
   const runId = options.runId || `campaign-${crypto.randomUUID()}`;
   const pagesFilter = parsePagesFilter(options.pages);
+  const filterCheck = validatePagesFilter(options.pages, pagesFilter, TARGET_PAGES.map((p) => p.id));
+  if (!filterCheck.ok) {
+    return refusedRun({ runId, code: 'INVALID_PAGE_FILTER', reason: filterCheck.reason });
+  }
   let lock = options.lock || null;
   let acquiredHere = false;
 

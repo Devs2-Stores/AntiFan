@@ -30,6 +30,24 @@ export function parsePagesFilter(pages) {
  * superseded rather than being silently attributed to a fresh run.
  */
 /**
+ * A filter that names nothing the campaign can run is refused before the lock is
+ * taken. Parsing alone would make `--pages home` mean "run nothing" while the
+ * exit classifier still expected the pages the filter mentioned, and a typo
+ * would publish an empty report over the previous run's evidence.
+ */
+export function validatePagesFilter(pages, parsed, targetIds) {
+  if (!pages) return { ok: true };
+  const ids = Array.isArray(parsed) ? parsed.filter((n) => Number.isInteger(n)) : [];
+  if (ids.length === 0) return { ok: false, reason: `--pages '${pages}' names no page` };
+  const known = new Set(targetIds);
+  const unknown = ids.filter((id) => !known.has(id));
+  if (unknown.length > 0) {
+    return { ok: false, reason: `--pages '${pages}' names ${unknown.join(', ')}, outside ${targetIds[0]}-${targetIds[targetIds.length - 1]}` };
+  }
+  return { ok: true };
+}
+
+/**
  * Completed cases that name neither the bundle they measured nor the instance they
  * measured on. Such a case is not evidence, whether it is read from the run summary
  * or from the index that was built out of it, so both readers share this predicate.

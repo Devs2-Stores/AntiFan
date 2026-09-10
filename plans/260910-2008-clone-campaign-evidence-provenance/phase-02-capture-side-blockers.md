@@ -60,7 +60,7 @@ No fix may relax a fidelity assertion, inflate a timeout, or reintroduce a retry
 - `.canary/tools/fifteen-pages-run.mjs` — pre-dump settle call `:454`, floor probe `:485-517`, desktop reference dump `:475-479`
 - `.canary/tools/viewport-run.mjs` — reference staging `:221-262`, mobile gate `:274-277`, rasterization gate `:420-451`, clone hydration `:325`
 - `.canary/tools/canary-run.mjs:359` — the existing mobile-bundle producer to mirror
-- `.canary/tools/canary-floors.mjs` — floor validation (`CANARY_FLOOR_DOC_HEIGHT` is never set by the campaign)
+- `scripts/lib/canary-floors.mjs` — floor validation (`CANARY_FLOOR_DOC_HEIGHT` is never set by the campaign)
 - `src/main/tools/browser-control-port.ts` — drain refusals `:1679`, `:1724`; quota `:2076`; viewport verification `:2485-2570`
 - `src/main/verification/visual-capture.ts:700`, `:1094-1166`; `src/main/browser/tab-devtools-host.ts:1515-1519`
 - `test/unit/canary-settle-contract.test.mjs` — new

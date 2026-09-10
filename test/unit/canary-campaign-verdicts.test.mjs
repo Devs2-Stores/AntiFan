@@ -9,6 +9,7 @@ import assert from 'node:assert/strict';
 
 import {
   parsePagesFilter,
+  validatePagesFilter,
   buildVerdictIndex,
   computeRunExit,
   renderHubHtml,
@@ -225,4 +226,26 @@ test('the hub shows every page and viewport, and escapes page-controlled text', 
   assert.ok(html.includes('page-09-tai-lieu'), 'a superseded page is named');
   assert.ok(html.includes('>attempt-1<'), 'the hub names the attempt a case came from');
   assert.equal((html.match(/<th>1 /g) || []).length, 1);
+});
+
+test('a page filter that names nothing runnable is refused before anything is acquired', () => {
+  const ids = TARGET_PAGES.map((p) => p.id);
+
+  // A typo parses to an empty list: without this check the loop would skip every
+  // page while the exit classifier still expected the pages the operator named.
+  assert.equal(parsePagesFilter('home').length, 0);
+  const typo = validatePagesFilter('home', parsePagesFilter('home'), ids);
+  assert.equal(typo.ok, false);
+  assert.match(typo.reason, /names no page/);
+
+  const outOfRange = validatePagesFilter('9', parsePagesFilter('9'), ids);
+  assert.equal(outOfRange.ok, false);
+  assert.match(outOfRange.reason, /outside 1-3/);
+
+  const mixed = validatePagesFilter('1,9', parsePagesFilter('1,9'), ids);
+  assert.equal(mixed.ok, false, 'one unknown id refuses the whole filter');
+
+  assert.equal(validatePagesFilter('2', parsePagesFilter('2'), ids).ok, true);
+  assert.equal(validatePagesFilter('1-2', parsePagesFilter('1-2'), ids).ok, true);
+  assert.equal(validatePagesFilter(undefined, parsePagesFilter(undefined), ids).ok, true);
 });

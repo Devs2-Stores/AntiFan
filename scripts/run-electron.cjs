@@ -162,6 +162,13 @@ async function main() {
     if (stateRecordPath) {
       recordPath = path.resolve(ROOT, stateRecordPath);
       childIdentity = await captureProcessIdentity(child.pid);
+      // The child can die while its identity is being read. The exit handler has
+      // already run by then, so writing now would publish a record for a process
+      // that no longer exists; a missing record is refused, a dead one is noise.
+      if (childExited) {
+        console.error('[run-electron] child exited before its instance record was written; no record written');
+        return;
+      }
       helpers.writeRecordAtomic(recordPath, {
         instancePid: child.pid,
         supervisorPid: process.pid,
