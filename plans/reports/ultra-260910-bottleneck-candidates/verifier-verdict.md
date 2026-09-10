@@ -1,15 +1,16 @@
-# Ultra verifier verdict — bottleneck scout (2026-09-10)
+# Ultra verifier verdicts — bottleneck scout (2026-09-10)
 
-Same-tier best-of-5 (independent samples + rubric selection); verifier ran on the runtime's
-reviewer role, sharing the session model tier with candidates. Not asymmetric verification.
+## Run 1 — UNBLINDED (labeling leaked; treat ranking as weak evidence)
+The dispatch prompt and the required report header both said "Candidate <n>", so each pass
+self-identified and the verifier de-anonymized itself (its table reads `Candidate E (Candidate 5)`).
+Same-tier best-of-5 (verifier ran on the reviewer role, sharing the session model tier with the
+passes) — not asymmetric verification. Anonymization map: A -> candidate 3
+B -> candidate 1
+C -> candidate 4
+D -> candidate 2
+E -> candidate 5
 
-Anonymization map: A=candidate 3, B=candidate 1, C=candidate 4, D=candidate 2, E=candidate 5.
-Winner: candidate 5 (label E). Finalized as a validated UNION, not a winner-selection.
-
-Overall correctness (verifier self-report): correct
-Confidence: 1
-
----
+Overall correctness (verifier self-report): correct · Confidence: 1
 
 ## Scoring
 
@@ -151,3 +152,163 @@ Confidence: 1
 3. **`tsc --watch` Resilience on Directory Deletion**: How the running `tsc --watch` child process behaves on Windows when `.compiled` is deleted out from under it by a secondary process (whether it recovers automatically on the next filesystem change or requires a manual restart) was not directly exercised.
 4. **Viability of Fine-Grained Module Hot-Reloading in `src/main`**: Whether the existing `antifan.system.reloadScripts` transport can safely hot-swap pure Leaf modules in `src/main/tools/*` without corrupting Electron's `webContents` and main singleton references requires an active architectural spike.
 5. **Active vs Abandoned Profiles in `appdata/`**: While `profile-ownership.ts:183` establishes that `appdata/` profiles are bypassed once canonical `E:/Work/.antifan-data/Profile` exists, whether any legacy test script or probe still binds to `appdata/antifan-test-new-instance` remains unverified.
+
+---
+
+## Run 2 — BLIND (identity markers stripped, new randomized mapping)
+Every `candidate <n>` / `pass <n>` token was stripped from the five reports and they were re-assembled
+under a fresh mapping, so this ranking is content-only. Same-tier best-of-5 still applies.
+Mapping: A -> source pass 4
+B -> source pass 1
+C -> source pass 5
+D -> source pass 3
+E -> source pass 2
+
+Ranking robustness vs Run 1: winner, runner-up and last place are identical across both runs
+(source passes 5, 1 and 2); only the two middle passes swap adjacent ranks (3 and 4). The ranking is
+therefore not an artifact of the leaked labels, but it remains same-tier evidence — the union of
+findings, not the ranking, is the deliverable.
+
+## Scoring
+
+| Pass | Coverage (1-20) | Evidence Quality (1-20) | Signal Density (1-20) | Pathology Accuracy (1-20) | Gap Honesty (1-20) | Total (/100) |
+|---|---|---|---|---|---|---|
+| **PASS C** | 20 | 20 | 20 | 19 | 19 | **98** |
+| **PASS B** | 19 | 19 | 19 | 19 | 19 | **95** |
+| **PASS D** | 19 | 19 | 18 | 19 | 18 | **93** |
+| **PASS A** | 18 | 17 | 18 | 17 | 17 | **87** |
+| **PASS E** | 16 | 12 | 14 | 13 | 15 | **70** |
+
+### Scoring Rationale
+
+- **PASS C (98/100)**: Premier pass. Unearthed high-impact architectural landmines missed by others: synchronous `ArtifactStore` startup rehydration on Electron main thread with `enableRetentionCleaner` dead in code (`artifact-store.ts:70,71`), dev bridge port 20130 vs MCP default 20129 mismatch producing silent zero-tool agent sessions (`bridge-server.ts:245` vs `antifan-omp-mcp.cjs:76`), `run-antifan.vbs` running stale code silently due to boolean `fs.existsSync` check in `main.cjs:15-25`, and omitted test suites in `src/` and `.cjs`. Exact verified counts: 57 root PNGs, 76 script files + 3 subdirs.
+- **PASS B (95/100)**: Exceptionally rigorous. Discovered that 10 test files in `test/main` string-pin `native-tab-host.ts` via `fs.readFileSync` and multiline regexes (`ipc-audit.test.ts:9-12,401-405`), directly penalizing refactoring of the 6,750-line host file. Accurately audited `.antifan/annotations` (1,428 unpruned markdown files) and verified that `artifact-retention-cleaner.ts:44` only sweeps `*.artifact`. Correctly identified that `.canary/CORE-BOTTLENECKS.md` defects D1–D5/F8/F9 were historical and closed. Minor flaw: root PNG count was 62 (5 over the verified 57).
+- **PASS D (93/100)**: High engineering insight. Root-caused background tab capture stalls to `security-policy.ts:137` (`backgroundThrottling: true`), corroborating it with in-repo architectural analysis (`plans/reports/brainstorm-260905...:34`). Discovered `test/renderer/terminal-gap-state-machine.test.ts` is omitted from `package.json` test scripts. Explicitly confirmed prior canary defects D1–D5 closed at HEAD. Root PNG count was 56 (1 off).
+- **PASS A (87/100)**: Strong structural quantification of the cold compilation graph (16 npm scripts + 7 code call sites) and detailed code-level profiling of `computePixelDiff` (`browser-control-port.ts:5862-5958`, per-pixel linear mask scan and `Math.sqrt` loops). Exact 57 root PNG count. Penalized for presenting historical `.canary/CORE-BOTTLENECKS.md` §F3/F4/F7 in B5 as active live bottlenecks without noting F3 and F7 were resolved at HEAD.
+- **PASS E (70/100)**: Lowest quality. Promoted historical canary finding F4 (`Page.captureScreenshot did not settle within its bound`) to headline blocking bottleneck B2, despite commit `7d0850b` and code showing D1–D5 resolved. Hallucinated root PNG count as 25 (actual is 57). Relied on generic code-size smells in B5 ("god modules make every change expensive to reason about") rather than actionable pathology.
+
+---
+
+## Ranking
+
+1. **PASS C** (Rank 1): Best technical depth and discovery of silent failure modes (sync `ArtifactStore` scan, MCP port 20129/20130 desync, shortcut stale execution, omitted test files).
+2. **PASS B** (Rank 2): Best analysis of refactoring barriers (tests pinning `native-tab-host.ts` source text) and unpruned annotation storage, with accurate historical context.
+3. **PASS D** (Rank 3): Best diagnosis of runtime capture throttling (`backgroundThrottling: true`) and orphaned terminal gap tests, backed by in-repo post-audit documentation.
+4. **PASS A** (Rank 4): Best build-graph call site audit (23 compile sites) and pixel-diff CPU analysis, but docked for misattributing historical canary findings.
+5. **PASS E** (Rank 5): Significant hallucination and misattribution of historical F4 as an active blocker, inaccurate workspace counts, and generic code-size complaints.
+
+---
+
+## Final Union of Bottlenecks
+
+### 1. Cold Full-Project Rebuild on Every Compile & File-Wipe Race Condition Under Live Consumers
+- **Severity**: P0 (Blocker)
+- **What it is**: `package.json:18` defines `"clean": "node -e \"fs.rmSync('.compiled',{recursive:true,force:true})\""`. `compile` (`:21`) always executes `clean` first. `tsconfig.json` specifies `"include": ["src/**/*.ts", "scripts/**/*.ts", "test/**/*.ts"]` with no `"incremental": true` and no `"tsBuildInfoFile"`. Every compilation is a cold typecheck and emit of 124k LOC (647 files). Furthermore, 16 npm scripts (`package.json:37,39-47,50,51,53-56`) and 7 code call sites (`main.cjs:25`, `run-electron.cjs:24`, `dev.mjs:129`, `install-windows-shortcut.mjs:38`, `certify-core-freeze.cjs:25`, `benchmark-electron-performance.mjs:506,508`) invoke `compile`.
+- **Why it blocks**: Wiping `.compiled` while `npm run dev` and `tsc --watch` are running destroys files the active Electron process and preload scripts are actively loading, inducing intermittent `ENOENT` crashes (`plans/reports/brainstorm-260905...:33`). Devs cannot run `npm test` or smoke scripts without killing their live dev session.
+- **Concrete Fix**:
+  1. Remove `npm run clean` from `package.json` `"compile"`; make `clean` a standalone manual command.
+  2. Enable `"incremental": true` and `"tsBuildInfoFile": ".compiled/.tsbuildinfo"` in `tsconfig.json`.
+  3. Split test files into `tsconfig.test.json` so dev compile only builds `src/`.
+  4. Make smoke scripts reuse the existing `.compiled` output without prepending `npm run compile`.
+
+### 2. Main-Process Changes Force Cold Electron Kill & Relaunch (Hot-Swap Branch is Dead)
+- **Severity**: P0 (Blocker)
+- **What it is**: In `scripts/dev-watcher-helpers.mjs:39-45`, `isHotSwappable` strictly matches `/^scripts\/cdp\/([^/]+)\.source\.js$/i`. The directory `scripts/cdp` is completely empty (0 files) and only recreated empty by `dev.mjs:34-36`. `isUiHotSwappable` (`:229-232`) strictly matches `src/renderer/**`. Any edit to `src/main/**` (including `native-tab-host.ts`, `browser-control-port.ts`, `browser-capabilities.ts`) evaluates both to `false` and falls through to `relaunchElectron()` (`:420-424`): `taskkill /pid <pid> /T /F`, fixed 800 ms Windows mutex sleep, and respawn, gated by 1200 ms debounce (`dev.mjs:203`).
+- **Why it blocks**: Editing a single line in any main-process module destroys the live Electron process, dropping all open storefront tabs, DevTools inspections, agent sessions, and terminal PTYs.
+- **Concrete Fix**:
+  1. Remove the dead `scripts/cdp` hot-swap check.
+  2. Wire the existing soft-reload transport (`antifan.system.reloadScripts` in `bridge-server.ts:2334`) for stateless/leaf modules in `src/main/tools/*` and `src/main/verification/*`.
+  3. Lower debounce from 1200 ms to 300 ms.
+  4. Preserve tab session state across relaunches via `split-review-coordinator.ts` persistence.
+
+### 3. ArtifactStore Constructor Synchronously Scans and Parses Entire Historical Artifact Directory at Startup
+- **Severity**: P1 (High)
+- **What it is**: `src/main/tools/artifact-store.ts:70` invokes `this.rehydrateIndex()` synchronously inside its constructor. Lines 97–133 iterate over every directory in `options.root` with `readdirSync`, stats every `.artifact` file, and synchronously reads and JSON-parses every `index.json`. Live storage in `E:/Work/.antifan-data/control-plane-v2/artifacts/` contains over 1,226 run directories. Simultaneously, `enableRetentionCleaner` (`artifact-store.ts:48,71`) is NEVER passed by any caller in `src/` (`control-plane-runtime.ts:125`, `index.ts:235`), rendering the retention cleaner dead.
+- **Why it blocks**: Blocks the Node/Electron main event loop during application startup, with freeze time scaling monotonically with every run created on the machine.
+- **Concrete Fix**:
+  1. Make `rehydrateIndex()` lazy (index loaded on demand per `runId`).
+  2. Pass `enableRetentionCleaner: true` in `index.ts:235` and configure default LRU sweep limits.
+  3. Run index parsing asynchronously off the main event loop.
+
+### 4. Background Tab Throttling Stalls Dual-Plane Visual Compare and Capture
+- **Severity**: P1 (High)
+- **What it is**: `src/main/security/security-policy.ts:137` sets `backgroundThrottling: options?.backgroundThrottling ?? true`. For offscreen or background tabs (the secondary tab during dual-plane visual compare or storefront clone verification), Chromium throttles timers, rendering, and `requestAnimationFrame`. Documented as an unaddressed P0 root cause in `plans/reports/brainstorm-260905...:34`.
+- **Why it blocks**: Background tabs fail to settle or render in time during automated capture passes, causing `TARGET_STALE` errors, blank screenshots, or 30–60 s timeout freezes.
+- **Concrete Fix**: Implement scoped unthrottling: pass `backgroundThrottling: false` specifically for tabs holding an active agent lease or capture transaction in `security-policy.ts` and `browser-control-port.ts`.
+
+### 5. Test Suite is a 4.5-Minute Serial Monolith and Fragile Tests String-Pin Host Source Code
+- **Severity**: P1 (High)
+- **What it is**: `test:main` runs 128 test files serially taking 261–270 s (`.canary/state/main-followup2.log:1714`). There is no script to run a single test file. Furthermore, 10 files in `test/main` read `src/main/browser/native-tab-host.ts` as raw text via `fs.readFileSync` and assert literal string and regex patterns (`ipc-audit.test.ts:9-12,401-405`, `split-view-fixes-regression.test.ts:46-49`, `terminal-switching-regression.test.ts:698-701,770-773`, `preview-protocol-and-watcher.test.ts:161-164`).
+- **Why it blocks**: Refactoring, splitting, or formatting `native-tab-host.ts` breaks unrelated regression tests that expect exact source code regex matches. Developers must wait 4.5 minutes to discover text-matching breakage.
+- **Concrete Fix**:
+  1. Add `"test:file": "node --test --test-force-exit"` to `package.json`.
+  2. Replace raw `fs.readFileSync` source-code assertions in `ipc-audit.test.ts` with behavioral tests against the IPC contract / `MockTabHost`.
+
+### 6. Test Gates Silently Skip Critical Regression and E2E Tests
+- **Severity**: P1 (High)
+- **What it is**:
+  - `test/renderer/terminal-gap-state-machine.test.ts` (verifying terminal chunk-loss prevention) exists on disk but is not matched by any glob in `package.json`.
+  - Three tests in `src/main/` (`browser-control-port-zero-network.test.ts`, `zero-network-interceptor.test.ts`, `network-policy.test.ts`) emit to `.compiled/src/` but `package.json` only globs `.compiled/test/**`.
+  - `test:e2e` globs `**/*.test.js`, silently skipping `.cjs` test harnesses (`terminal-rename-space.test.cjs`, `terminal-transport-sync.cjs`, `terminal-recovery-smoke.cjs`, etc.).
+- **Why it blocks**: `npm test` reports green while silently skipping crucial P0 regression tests.
+- **Concrete Fix**: Move `src/main/**/*.test.ts` to `test/main/`; add `test/renderer/**/*.test.js` to `test:fast`; add a glob pattern covering `.cjs` test harnesses in `test:e2e`.
+
+### 7. Dev Port 20130 vs MCP Default Port 20129 Causes Silent Zero-Tool Agent Sessions
+- **Severity**: P1 (High)
+- **What it is**: `src/main/bridge/bridge-server.ts:245` dynamically remaps port: `this.port = isDev && port === 20129 ? 20130 : port`. However, `scripts/antifan-omp-mcp.cjs:76` defaults to `parseInt(process.env.ANTIFAN_MCP_PORT || '20129', 10)`. Ambient disk discovery is disabled by dual-plane security design.
+- **Why it blocks**: Any MCP client or agent session launched without explicitly setting `ANTIFAN_MCP_PORT=20130` attempts connection to 20129, receives no response or credentials, and fails closed with an empty tool list and no diagnostic error.
+- **Concrete Fix**: In `scripts/antifan-omp-mcp.cjs`, read `bridge-dev.json` from `StorageLocations.getConfigDir()` in development mode as a fallback port resolver.
+
+### 8. Capability Surface Fragmented Across Three Hand-Maintained Registries with Excessive Timeouts
+- **Severity**: P2 (Medium)
+- **What it is**: Capabilities are defined across `src/main/tools/browser-capabilities.ts` (~153 registrations with ~72 aliases), `src/main/mcp/mcp-server.ts:769-810` (dynamic alias synthesis), and `scripts/antifan-omp-mcp.cjs:10-61` (52 tool definitions + manual `CAPABILITY_MAP` at `:258-299`). Furthermore, `CLIENT_TIMEOUT_MS` in `antifan-omp-mcp.cjs:306-316` sets client budgets up to 240,000 ms (4 minutes) for visual compare.
+- **Why it blocks**: Adding or modifying any tool requires coordinated edits in three files. When an operation hangs, client agents burn up to 4 minutes waiting for timeout.
+- **Concrete Fix**: Derive MCP tool definitions and alias mappings directly from `CapabilityCatalogue` programmatically; clamp client timeouts close to server-side policy bounds (30–45 s).
+
+### 9. Synchronous In-Process Pixel Diffing Saturates Main Thread CPU
+- **Severity**: P2 (Medium)
+- **What it is**: `src/main/tools/browser-control-port.ts:5862-5958` (`computePixelDiff`): For images up to 1440×5715 (8.2M pixels), it runs a nested JS loop executing an un-indexed linear scan over `maskBoxes` (`isMasked`), followed by `Math.sqrt` per pixel, and an 8-neighbor pass with multiple `Math.sqrt` calls for differences.
+- **Why it blocks**: Freezes Electron's main process UI during visual comparisons, delaying IPC handling and window responsiveness.
+- **Concrete Fix**: Pre-calculate a 1D boolean mask buffer to replace `isMasked` with an $O(1)$ index lookup; use squared Euclidean color distance ($(\Delta R)^2 + (\Delta G)^2 + (\Delta B)^2 > T^2$) to eliminate `Math.sqrt` in the inner loop.
+
+### 10. Launcher Inconsistencies on `--allow-eval` and Stale Shortcut Execution
+- **Severity**: P2 (Medium)
+- **What it is**: `src/main/index.ts:68-71` gates `ALLOW_EVAL` on CLI flag `--allow-eval` or env var `ANTIFAN_ALLOW_EVAL`. `npm start` (`package.json:23`) omits the flag. `run-antifan.vbs` passes `--allow-eval` directly to Electron, but `main.cjs:15-25` only triggers compilation if `.compiled/src/main/index.js` is completely missing (`!fs.existsSync`), never checking file modification times.
+- **Why it blocks**: Launching via `npm start` silently strips eval capabilities. Launching via desktop shortcut silently executes stale code without recompiling after edits.
+- **Concrete Fix**: Add mtime comparison in `main.cjs` to warn or recompile if `src/**` is newer than `.compiled`; align `npm start` arguments with `dev.mjs`.
+
+### 11. Dev Lock Stalls and Indiscriminate Process Kill Script
+- **Severity**: P2 (Medium)
+- **What it is**: `scripts/dev.mjs:36-53` acquires `node_modules/.cache/antifan-dev.pid`. When a process terminates abruptly, PID recycling or stale files cause startup failure requiring manual `taskkill`. Meanwhile, `scripts/kill-all.mjs:5` runs `taskkill /F /IM electron.exe`, which forcibly kills all Electron applications across Windows (including VS Code, Discord, Slack) while failing to kill the node watcher or delete the lock file.
+- **Why it blocks**: Developers must manually troubleshoot lock conflicts, or run a kill script that crashes their entire desktop workspace.
+- **Concrete Fix**: Update `kill-all.mjs` to target AntiFan PIDs specifically, clear `antifan-dev.pid`, and add an automatic `--force` takeover flag to `dev.mjs`.
+
+### 12. Unbounded Growth of Annotation Storage and Dead Legacy Profiles
+- **Severity**: P3 (Low)
+- **What it is**: `.antifan/annotations/` accumulates 1,430 markdown files written by `annotation-manager.ts:159-179,349-351` that are never swept by `artifact-retention-cleaner.ts`. `appdata/` contains 1.9 GB across 7 profile trees from legacy migrations, and `out/` contains 699 MB from obsolete pre-rename builds.
+- **Why it blocks**: Wastes disk space and slows down file tree traversals and backup tools.
+- **Concrete Fix**: Extend `artifact-retention-cleaner.ts` to include `.antifan/annotations` and `.antifan/snapshots`; delete dead `appdata/` and `out/` trees.
+
+---
+
+## Dropped Findings
+
+1. **Pass E B2 (`Render-dependent capability calls burn 10–60 s bounds instead of failing`)**:
+   - **Reason Dropped**: Stale historical finding. Pass E cited `.canary/CORE-BOTTLENECKS.md:82-96` (F4). As established by commit `7d0850b` and the tail of `CORE-BOTTLENECKS.md`, core defects D1–D5 (render-surface fail-fast, verified viewport writes, truthful session tab listing, capture geometry as a transaction, reference capture with materialization) and F8/F9 were resolved. The active 2026-09-10 plan (`plans/260910-2008...`) confirms the live canary blocker was `domSettled` childList churn and the CDP 16384px ceiling, not F4 draining.
+2. **Pass A B5 (historical §F3/F4/F7 citations from `CORE-BOTTLENECKS.md`)**:
+   - **Reason Dropped**: F3 (`browser.set-viewport` 0x0) was fixed with verified viewport writes in `anti.browser.set_viewport` (`browser-capabilities.ts:787-795`). F7 viewport timeout was fixed with `NO_RENDER_SURFACE` fail-fast in `browser-control-port.ts:1526-1548`. The retained part of Pass A B5 is the verified in-process CPU loop of `computePixelDiff`.
+3. **Pass E B5 (`God modules make every change expensive to reason about`)**:
+   - **Reason Dropped**: Pure code-size smell (`native-tab-host.ts` 6,750 lines, `browser-control-port.ts` 6,034 lines). The actual actionable bottlenecks caused by module size are test string-pinning and cold-relaunch overhead (captured in items 2 and 5).
+4. **Pass C B10 (`Chromium caps: renderer-process-limit=4 and process-per-site`)**:
+   - **Reason Dropped**: These switches are intentional low-spec hardware hardening constraints for the i5-9300H CPU defined in `plans/260830-1903`. There is no evidence of multi-tab renderer crashes in normal local operation.
+5. **Pass E B9 (`Duplicated verification ceremony in certify-core-freeze.cjs`)**:
+   - **Reason Dropped**: Non-bottleneck ceremony. `certify-core-freeze.cjs` is not part of the daily inner dev or test loop (`package.json:52`); it is only run on demand during freeze gates.
+
+---
+
+## Unresolved Questions
+
+1. **Exact compile wall-time on workstation hardware**: In read-only mode without executing commands, the exact duration of `npm run compile` and `npm run verify` on this Intel i5-9300H machine cannot be timed. The structural overhead (cold 124k LOC compile with 4GB heap) is verified, but exact seconds remain `[INFERENCE]`.
+2. **Failure mode of `fs.rmSync('.compiled')` under live `tsc --watch` on Windows NTFS**: While the race condition is documented in-repo (`plans/reports/brainstorm-260905...:33`), the exact frequency of file-locking errors (`EPERM`/`EBUSY`) when `clean` deletes directories actively watched by Windows file system handles was not exercised in read-only mode.
+3. **Active utility of root `*.png` artifacts**: Whether any personal dev workflow or historical documentation references the 57 loose `.png` files in the repository root, or whether they are all safe to purge immediately.
+4. **Startup latency impact of `.antifan-data/control-plane-v2/artifacts/`**: The exact startup delay (in milliseconds) caused by `ArtifactStore.rehydrateIndex()` traversing the 1,226 run directories on disk cannot be profiled without launching Electron with telemetry probes.
