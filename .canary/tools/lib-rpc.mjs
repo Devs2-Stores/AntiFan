@@ -254,6 +254,22 @@ export const evalOn = (tabId, expression, timeoutMs = 120000) =>
   call('anti.browser.evaluate', { tabId, expression }, timeoutMs);
 
 /**
+ * Is this tab still addressable? A host restart, a closed target or a dropped tab
+ * leaves the id dangling, and every later capability call on it fails with an
+ * unknown-tab error. Callers that reuse a long-lived tab check first so they can
+ * replace it deliberately instead of failing mid-operation.
+ */
+export async function probeTabHealth(tabId, timeoutMs = 20000) {
+  if (!tabId) return false;
+  try {
+    const r = await evalOn(tabId, '1', timeoutMs);
+    return r === 1 || r === '1';
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Invoke a non-capability bridge method over the same attachment-authenticated
  * socket (`antifan.cli.renewSession`, `antifan.cli.heartbeat`, ...). These are
  * the only methods an attachment connection may call besides dispatch, and they

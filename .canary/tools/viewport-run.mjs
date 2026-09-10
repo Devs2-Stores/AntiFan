@@ -20,6 +20,8 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import http from 'node:http';
 import { call, evalOn, bootstrap } from './lib-rpc.mjs';
+import { hydrateToCapturedState, requireDoubleSettledMetrics } from './canary-settle.mjs';
+
 
 const [, , label, widthArg, heightArg, refTabId, cloneTabId, runDirArg, minSectionsArg, minCardsArg] = process.argv;
 if (!label || !widthArg || !heightArg || !refTabId || !cloneTabId) {
@@ -33,6 +35,11 @@ const height = Number(heightArg);
 // pixel verdict is meaningful.
 const minSections = Number(minSectionsArg || 1);
 const minCards = Number(minCardsArg || 1);
+// Settled document height of the reference at probe time. Counts alone accept an
+// over-expanded page (measured: 6756px against a 5546px floor passed the count
+// floor and was compared, reporting the reference's broken state as a 27.5% clone
+// mismatch), so the state the artifact was captured in is part of readiness.
+const floorDocHeight = Number(process.env.CANARY_FLOOR_DOC_HEIGHT || 0);
 const runDir = path.resolve(runDirArg || '.canary/run1');
 const evDir = path.join(runDir, 'evidence');
 fs.mkdirSync(evDir, { recursive: true });
@@ -40,7 +47,14 @@ fs.mkdirSync(evDir, { recursive: true });
 const COMPARE_TIMEOUT_MS = Number(process.env.CANARY_COMPARE_TIMEOUT_MS || 240000);
 const STANDALONE_TIMEOUT_MS = Number(process.env.CANARY_STANDALONE_TIMEOUT_MS || 120000);
 const SKIP_COMPARE = process.env.CANARY_SKIP_COMPARE === '1';
+const SECTION_BANDS = process.env.CANARY_SECTION_BANDS === '1';
 const SELF_DRIFT = process.env.CANARY_SELF_DRIFT === '1';
+// The orchestrator hands over a freshly created reference tab that it already
+// hydrated and verified against the measured floor. Re-running the viewport
+// switch and the hydration capture on that tab re-enters the live site's mount
+// sequence and can measure a partially mounted page (measured once: 13 sections
+// against a floor of 14), so the near side is measured in place instead.
+const REFERENCE_PREHYDRATED = process.env.CANARY_REFERENCE_PREHYDRATED === '1';
 // Exclusive evidence-run lease minted by canary-run.mjs (artifact.preflight).
 // Every staging capability must present it while the lease is held, otherwise
 // the runtime rejects the stage with TRANSACTION_CONFLICT.
@@ -51,185 +65,11 @@ const T0 = Date.now();
 const log = (...a) => console.log(`[${((Date.now() - T0) / 1000).toFixed(1)}s]`, ...a);
 const sha256 = (buf) => crypto.createHash('sha256').update(buf).digest('hex');
 
-/** In-page settle probe: real font/image/DOM/visual-stability evidence. */
-/**
- * Settle is composed of separately bounded probes because the browser evaluate
- * bridge rejects any single evaluation that runs longer than 15s. A rotating
- * carousel mutates attribute styles forever, so DOM quiet counts structural
- * (childList) churn only, and visual stability is judged on geometry.
- */
-const SETTLE_IMAGES_EXPR = `(async () => {
-  const sleep = (ms) => new Promise(r => setTimeout(r, ms));
-  const t0 = performance.now();
-  let fontsSettled = false;
-  try { await Promise.race([document.fonts.ready, sleep(2500)]); fontsSettled = document.fonts.status === 'loaded'; } catch {}
-  // The image set is re-read every sample: a late hydration that mounts more
-  // images must not be mistaken for a settled page.
-  const deadline = performance.now() + 9000;
-  document.querySelectorAll('img[loading="lazy"]').forEach(i => { try { i.loading = 'eager'; } catch {} });
-  let lastCount = -1, stableSamples = 0;
-  for (;;) {
-    const list = Array.from(document.images);
-    list.forEach(i => { if (i.loading === 'lazy') try { i.loading = 'eager'; } catch {} });
-    const pending = list.filter(i => !i.complete);
-    if (list.length === lastCount && pending.length === 0) {
-      stableSamples++;
-      if (stableSamples >= 4) return { fontsSettled, imagesSettled: true, imageCount: list.length, pendingImages: 0, durationMs: Math.round(performance.now() - t0) };
-    } else stableSamples = 0;
-    lastCount = list.length;
-    if (performance.now() > deadline) return { fontsSettled, imagesSettled: pending.length === 0, imageCount: list.length, pendingImages: pending.length, durationMs: Math.round(performance.now() - t0) };
-    await sleep(100);
-  }
-})()`;
-
-const SETTLE_DOM_EXPR = `(async () => {
-  const sleep = (ms) => new Promise(r => setTimeout(r, ms));
-  const t0 = performance.now();
-  let structural = 0;
-  const mo = new MutationObserver(list => { for (const m of list) if (m.type === 'childList') structural += m.addedNodes.length + m.removedNodes.length; });
-  mo.observe(document.documentElement, { subtree: true, childList: true });
-  let quietFor = 0;
-  while (quietFor < 1500 && performance.now() - t0 < 9000) { const before = structural; await sleep(100); if (structural === before) quietFor += 100; else quietFor = 0; }
-  mo.disconnect();
-  return { domSettled: quietFor >= 1500, structuralMutations: structural, durationMs: Math.round(performance.now() - t0) };
-})()`;
-
-const SETTLE_VISUAL_EXPR = `(async () => {
-  const sleep = (ms) => new Promise(r => setTimeout(r, ms));
-  const t0 = performance.now();
-  document.querySelectorAll('svg').forEach((s) => {
-    try { if (typeof s.pauseAnimations === 'function') s.pauseAnimations(); } catch {}
-  });
-  const sig = () => Array.from(document.querySelectorAll('body *:not(svg *)')).slice(0, 4000)
-    .filter(e => !e.closest('svg'))
-    .map(e => { const r = e.getBoundingClientRect(); return Math.round(r.x) + ',' + Math.round(r.y) + ',' + Math.round(r.width) + ',' + Math.round(r.height); }).join('|');
-  let stablePairs = 0;
-  let prev = sig();
-  while (stablePairs < 2 && performance.now() - t0 < 9000) { await sleep(400); const cur = sig(); if (cur === prev) stablePairs++; else stablePairs = 0; prev = cur; }
-  return {
-    visualStable: stablePairs >= 2,
-    durationMs: Math.round(performance.now() - t0),
-    imageCount: document.images.length,
-    pendingImages: Array.from(document.images).filter(i => !i.complete).length,
-    brokenImages: Array.from(document.images).filter(i => i.complete && i.naturalWidth === 0).map(i => (i.currentSrc || i.src || '').slice(0, 200)),
-    readyState: document.readyState,
-    fontsStatus: document.fonts.status,
-  };
-})()`;
-
-/** Structural geometry + cardinality + typography + asset render evidence. */
-const METRICS_EXPR = `(() => {
-  const px = (v) => Math.round(v * 100) / 100;
-  const rectOf = (el) => { if (!el) return null; const r = el.getBoundingClientRect(); return { x: px(r.x), y: px(r.y + window.scrollY), w: px(r.width), h: px(r.height) }; };
-  const cls = (el) => (typeof el.className === 'string' ? el.className : '').trim().split(/\\s+/).filter(Boolean).join('.');
-  const docH = Math.max(document.documentElement.scrollHeight, document.body.scrollHeight);
-  const sections = Array.from(document.querySelectorAll('section, header.site-header, footer, .site-footer')).map(el => ({ tag: el.tagName.toLowerCase(), cls: cls(el), rect: rectOf(el) }));
-  const gridInfo = (sel) => Array.from(document.querySelectorAll(sel)).map(el => {
-    const cs = getComputedStyle(el);
-    const kids = Array.from(el.children).filter(k => k.getBoundingClientRect().height > 0);
-    const cols = new Set(kids.map(k => Math.round(k.getBoundingClientRect().x)));
-    const rows = new Set(kids.map(k => Math.round(k.getBoundingClientRect().y)));
-    return { cls: cls(el), rect: rectOf(el), display: cs.display, gridTemplateColumns: cs.gridTemplateColumns, flexWrap: cs.flexWrap, childCount: kids.length, columns: cols.size, rows: rows.size, gap: cs.gap };
-  });
-  const cardRects = (sel) => Array.from(document.querySelectorAll(sel)).map(el => rectOf(el));
-  const imgs = Array.from(document.images).map(i => { const r = i.getBoundingClientRect(); return { src: (i.currentSrc || i.src || '').slice(0, 160), natural: [i.naturalWidth, i.naturalHeight], rendered: [px(r.width), px(r.height)], objectFit: getComputedStyle(i).objectFit, complete: i.complete, ok: i.complete && i.naturalWidth > 0, y: px(r.y + window.scrollY) }; });
-  const fonts = {};
-  for (const sel of ['body', 'h1', 'h2', 'h3', '.product-list__item', 'a']) { const el = document.querySelector(sel); if (el) { const cs = getComputedStyle(el); fonts[sel] = { family: cs.fontFamily, size: cs.fontSize, weight: cs.fontWeight, lineHeight: cs.lineHeight, color: cs.color, letterSpacing: cs.letterSpacing }; } }
-  return {
-    url: location.href,
-    docHeight: docH,
-    clientWidth: document.documentElement.clientWidth,
-    scrollWidth: document.documentElement.scrollWidth,
-    overflowX: document.documentElement.scrollWidth - document.documentElement.clientWidth,
-    hasMenuMobile: Boolean(document.querySelector('.menu-mobile, [class*="menu-mobile"]')),
-    hasBottomNav: Boolean(document.querySelector('.bottom-navigation, [class*="bottom-navigation"]')),
-    bodyChildren: Array.from(document.body.children).map(n => n.tagName.toLowerCase() + (n.id ? '#' + n.id : '') + (typeof n.className === 'string' && n.className ? '.' + cls(n) : '')),
-    headerRect: rectOf(document.querySelector('header.site-header') || document.querySelector('header')),
-    navRect: rectOf(document.querySelector('nav') || document.querySelector('header nav')),
-    heroRect: rectOf(document.querySelector('.slide, .slideshow, .banner, .swiper, [class*="hero"]')),
-    footerRect: rectOf(document.querySelector('.site-footer') || document.querySelector('footer')),
-    mainRect: rectOf(document.querySelector('main')),
-    sections,
-    sectionCount: document.querySelectorAll('section').length,
-    productCardCount: document.querySelectorAll('.product-list__item, .product-item, .product-card').length,
-    productCardsBySection: Array.from(document.querySelectorAll('section')).map(s => ({ cls: cls(s), cards: s.querySelectorAll('.product-list__item, .product-item, .product-card').length })),
-    productListGrids: gridInfo('.product-list, .product-list__grid, [class*="product-list"]'),
-    grids: gridInfo('[class*="grid"], .row'),
-    cardRects: cardRects('.product-list__item').slice(0, 40),
-    articleCardCount: document.querySelectorAll('.news-item, .article-item, .blog-item, [class*="news"] article').length,
-    navItemCount: document.querySelectorAll('header.site-header nav a, header.site-header .menu a, header.site-header li a').length,
-    linkCount: document.querySelectorAll('a').length,
-    buttonRects: Array.from(document.querySelectorAll('button, .btn, [class*="button"]')).slice(0, 30).map(rectOf),
-    images: imgs,
-    imageCount: imgs.length,
-    brokenImages: imgs.filter(i => !i.ok).map(i => i.src),
-    fonts,
-    textNodes: document.body.innerText.split('\\n').filter(t => t.trim()).length,
-  };
-})()`;
-
 const TRACKED = [
   'body', 'header.site-header', 'main', '.site-footer', 'section',
   '.product-list__item', '.slide', '.news-item',
 ];
 
-async function settleAndMeasure(tabId, name) {
-  const net = await call('browser.wait', { tabId, condition: 'network_idle', idleWindowMs: 600, timeoutMs: 12000 }).catch(e => ({ error: String(e.message || e) }));
-  const dom = await call('browser.wait', { tabId, condition: 'dom_stable', timeoutMs: 12000 }).catch(e => ({ error: String(e.message || e) }));
-  // Capture normalization applied symmetrically to both sides: Chromium defers
-  // loading="lazy" images in background tabs, so promote them to eager and walk
-  // the document. This changes only WHEN the same assets load, never layout.
-  await evalOn(tabId, `(async () => {
-    const s = (ms) => new Promise(r => setTimeout(r, ms));
-    document.querySelectorAll('img[loading="lazy"]').forEach(i => { i.loading = 'eager'; });
-    const H = Math.max(document.documentElement.scrollHeight, document.body.scrollHeight);
-    for (let y = 0; y <= H; y += 800) { window.scrollTo(0, y); await s(40); }
-    window.scrollTo(0, H); await s(100);
-    try {
-      const pending = Array.from(document.images).filter(i => i.src && !i.complete);
-      const decodes = pending.slice(0, 50).map(i => i.decode ? i.decode().catch(() => {}) : Promise.resolve());
-      await Promise.race([Promise.allSettled(decodes), s(6000)]);
-    } catch {}
-    window.scrollTo(0, 0); await s(100);
-    return true;
-  })()`, 15000).catch(() => null);
-  let freeze = null;
-  try {
-    freeze = await call('anti.media.freeze', { tabId, freeze: true, normalizeSliders: false }, 15000);
-  } catch (e) {
-    freeze = { error: String(e.message || e).slice(0, 300) };
-  }
-  const freezeOk = Boolean(freeze && !freeze.error && freeze.frozen === true);
-  let images = { fontsSettled: false, imagesSettled: false, pendingImages: 0 };
-  for (let pass = 0; pass < 3; pass++) {
-    images = await evalOn(tabId, SETTLE_IMAGES_EXPR, 12000).catch((e) => ({ error: String(e.message || e).slice(0, 300) }));
-    if (images.imagesSettled === true) break;
-    if (pass < 2) await new Promise(r => setTimeout(r, 1000));
-  }
-  const domQuiet = await evalOn(tabId, SETTLE_DOM_EXPR, 12000).catch((e) => ({ error: String(e.message || e).slice(0, 300) }));
-  images = await evalOn(tabId, SETTLE_IMAGES_EXPR, 12000).catch((e) => ({ error: String(e.message || e).slice(0, 300) }));
-  const visual = await evalOn(tabId, SETTLE_VISUAL_EXPR, 12000).catch((e) => ({ error: String(e.message || e).slice(0, 300) }));
-  const settled = freezeOk && images.imagesSettled === true && domQuiet.domSettled === true && visual.visualStable === true;
-  const settle = {
-    freeze,
-    mediaFrozen: freezeOk,
-    fontsSettled: images.fontsSettled === true,
-    imagesSettled: images.imagesSettled === true,
-    domSettled: domQuiet.domSettled === true,
-    visualStable: visual.visualStable === true,
-    timedOut: !settled,
-    imageCount: visual.imageCount ?? images.imageCount ?? null,
-    pendingImages: visual.pendingImages ?? images.pendingImages ?? null,
-    brokenImages: visual.brokenImages ?? [],
-    structuralMutations: domQuiet.structuralMutations ?? null,
-    settlementDuration: (images.durationMs || 0) + (domQuiet.durationMs || 0) + (visual.durationMs || 0),
-    readyState: visual.readyState ?? null,
-    fontsStatus: visual.fontsStatus ?? null,
-    phases: { images, domQuiet, visual },
-  };
-  const metrics = await evalOn(tabId, METRICS_EXPR, 60000);
-  return { name, networkIdle: net, domStable: dom, settle, metrics };
-}
 
 /**
  * Fail closed: a pixel verdict is only meaningful when both sides reached a real
@@ -248,8 +88,12 @@ function evaluateReadiness(stage, role) {
   // Note: overflowX is an empirical defect recorded in metrics/structural, not a settlement failure.
   if (role === 'reference') {
     const requiredSections = minSections;
-    if ((m.sectionCount || 0) < requiredSections) reasons.push(`sectionCount=${m.sectionCount}<${requiredSections}`);
-    if ((m.productCardCount || 0) < minCards) reasons.push(`productCardCount=${m.productCardCount}<${minCards}`);
+    if (requiredSections > 0 && (m.sectionCount || 0) < requiredSections) reasons.push(`sectionCount=${m.sectionCount}<${requiredSections}`);
+    if (minCards > 0 && (m.productCardCount || 0) < minCards) reasons.push(`productCardCount=${m.productCardCount}<${minCards}`);
+    if (floorDocHeight > 0) {
+      const drift = Math.abs((m.docHeight || 0) - floorDocHeight) / floorDocHeight;
+      if (drift > 0.05) reasons.push(`docHeight=${m.docHeight} deviates ${(drift * 100).toFixed(1)}% from floored ${floorDocHeight}`);
+    }
   }
   return { ok: reasons.length === 0, reasons };
 }
@@ -257,6 +101,12 @@ function evaluateReadiness(stage, role) {
 const evidence = {
   label,
   viewport: { width, height },
+  // Run identity: the authority runId that authorised staging, plus a
+  // per-invocation stamp that tells this run's evidence from any other run
+  // against the same authority.
+  runId: process.env.CANARY_AUTHORITY_RUN_ID || null,
+  evidenceRunId: process.env.CANARY_EVIDENCE_RUN_ID || null,
+  cloneDir: process.env.CANARY_CLONE_DIR || null,
   startedAt: new Date().toISOString(),
   evidenceModel: {
     independent: 'anti.screenshot.full_page per tab — continuity evidence only, never an authoritative pixel input',
@@ -266,6 +116,22 @@ const evidence = {
   stages: {},
 };
 const persist = () => fs.writeFileSync(path.join(evDir, `${label}.json`), JSON.stringify(evidence, null, 2));
+
+// A staging failure must still leave a durable record. A bare crash writes no
+// file, and a missing file is indistinguishable from a viewport that never ran,
+// which is how a quarantined reference tab silently removed a whole viewport's
+// evidence from the run.
+const failClosed = (err) => {
+  try {
+    evidence.status = evidence.status || 'STAGING_FAILED';
+    evidence.stagingError = String((err && err.message) || err).slice(0, 800);
+    persist();
+    log(`STAGING_FAILED: ${evidence.stagingError}`);
+  } catch {}
+  process.exit(1);
+};
+process.on('unhandledRejection', failClosed);
+process.on('uncaughtException', failClosed);
 
 /** Reference-vs-clone structural deltas (§11). Cardinality and geometry only. */
 function buildStructuralComparison(ref, clone) {
@@ -352,34 +218,48 @@ log(`set viewport ${width}x${height} (mobile=${isMobile}, dpr=${dpr}) on both ta
 // degenerate state. Establish each side's viewport and hydrate it while it is
 // foreground, then move on to the other side (a foregrounded tab keeps its real
 // layout once backgrounded).
-await call('browser.switch-tab', { tabId: refTabId }, 30_000).catch((e) => log(`reference activate warning: ${e.message}`));
-await call('browser.set-viewport', { tabId: refTabId, width, height, mobile: isMobile, deviceScaleFactor: dpr, reload: true });
-for (let i = 0; i < 40; i++) {
-  await new Promise(r => setTimeout(r, 400));
-  try {
-    const r = await evalOn(refTabId, '({ rs: document.readyState, h: document.documentElement.scrollHeight })', 5000);
-    if (r && r.rs === 'complete') break;
-  } catch {}
+if (REFERENCE_PREHYDRATED) {
+  log('reference tab is prehydrated by the orchestrator: measuring in place');
+} else {
+  await call('browser.switch-tab', { tabId: refTabId }, 30_000).catch((e) => log(`reference activate warning: ${e.message}`));
+  await call('browser.set-viewport', { tabId: refTabId, width, height, mobile: isMobile, deviceScaleFactor: dpr, reload: true });
+  for (let i = 0; i < 40; i++) {
+    await new Promise(r => setTimeout(r, 400));
+    try {
+      const r = await evalOn(refTabId, '({ rs: document.readyState, h: document.documentElement.scrollHeight })', 5000);
+      if (r && r.rs === 'complete') break;
+    } catch {}
+  }
+  await evalOn(refTabId, `(async () => {
+    document.querySelectorAll('img[loading="lazy"]').forEach(img => {
+      try { img.loading = 'eager'; } catch {}
+    });
+    await Promise.all(
+      Array.from(document.images)
+        .filter(i => !i.complete)
+        .map(i => new Promise(resolve => {
+          i.addEventListener('load', resolve, { once: true });
+          i.addEventListener('error', resolve, { once: true });
+          setTimeout(resolve, 6000);
+        }))
+    );
+    window.scrollTo(0, 0);
+    return true;
+  })()`, 15000).catch(() => null);
 }
-await evalOn(refTabId, `(async () => {
-  document.querySelectorAll('img[loading="lazy"]').forEach(img => {
-    try { img.loading = 'eager'; } catch {}
-  });
-  await Promise.all(
-    Array.from(document.images)
-      .filter(i => !i.complete)
-      .map(i => new Promise(resolve => {
-        i.addEventListener('load', resolve, { once: true });
-        i.addEventListener('error', resolve, { once: true });
-        setTimeout(resolve, 6000);
-      }))
-  );
-  window.scrollTo(0, 0);
-  return true;
-})()`, 15000).catch(() => null);
 
-log('settling + measuring reference');
-evidence.stages.reference = await settleAndMeasure(refTabId, 'reference');
+// Hydration contract, shared with canary-run.mjs: rasterizing the document is
+// what mounts the storefront's remaining sections, so the authoritative state is
+// the post-capture one. Measuring before it gates readiness on a pre-mount page.
+if (REFERENCE_PREHYDRATED) {
+  evidence.stages.reference = await requireDoubleSettledMetrics(refTabId, 'reference');
+  evidence.hydration = { reference: { source: 'orchestrator reference tab (already captured into the mounted state)', byteLength: null } };
+} else {
+  log('materializing reference (full-page rasterize) then settling + measuring');
+  const refHydration = await hydrateToCapturedState(refTabId, 'reference', LEASE_PARAM);
+  evidence.stages.reference = refHydration.settled;
+  evidence.hydration = { reference: { byteLength: refHydration.capture?.byteLength ?? refHydration.capture?.bytes ?? null } };
+}
 const refReadiness = evaluateReadiness(evidence.stages.reference, 'reference');
 evidence.readiness = { reference: refReadiness };
 log(`reference docHeight=${evidence.stages.reference.metrics.docHeight} sections=${evidence.stages.reference.metrics.sectionCount} cards=${evidence.stages.reference.metrics.productCardCount} ready=${refReadiness.ok}`);
@@ -388,6 +268,29 @@ if (!refReadiness.ok) {
   persist();
   log(`ABORT: reference not ready [${refReadiness.reasons.join('; ')}] — no pixel verdict produced`);
   process.exit(3);
+}
+if (isMobile) {
+  const mobileEntry = path.join(runDir, 'clone', 'mobile', 'index.html');
+  if (!fs.existsSync(mobileEntry)) {
+    throw new Error(`Mobile viewport run requires independent mobile bundle at ${mobileEntry}`);
+  }
+  const currentUrl = await evalOn(cloneTabId, 'location.href', 5000).catch(() => '');
+  if (!currentUrl.includes('/mobile')) {
+    const origin = await evalOn(cloneTabId, 'location.origin', 5000).catch(() => '');
+    if (origin) {
+      log(`navigating clone tab to mobile bundle: ${origin}/mobile/`);
+      await call('browser.navigate', { tabId: cloneTabId, url: `${origin}/mobile/` }, 30_000);
+    }
+  }
+} else {
+  const currentUrl = await evalOn(cloneTabId, 'location.href', 5000).catch(() => '');
+  if (currentUrl.includes('/mobile')) {
+    const origin = await evalOn(cloneTabId, 'location.origin', 5000).catch(() => '');
+    if (origin) {
+      log(`navigating clone tab back to desktop bundle: ${origin}/`);
+      await call('browser.navigate', { tabId: cloneTabId, url: `${origin}/` }, 30_000);
+    }
+  }
 }
 
 await call('browser.switch-tab', { tabId: cloneTabId }, 30_000).catch((e) => log(`clone activate warning: ${e.message}`));
@@ -416,8 +319,12 @@ await evalOn(cloneTabId, `(async () => {
   return true;
 })()`, 15000).catch(() => null);
 
-log('settling + measuring clone');
-evidence.stages.clone = await settleAndMeasure(cloneTabId, 'clone');
+// Same contract for the bundle: if rasterization changed either side, the pair
+// the comparator produces would not be the pair that was gated.
+log('materializing clone (full-page rasterize) then settling + measuring');
+const cloneHydration = await hydrateToCapturedState(cloneTabId, 'clone', LEASE_PARAM);
+evidence.stages.clone = cloneHydration.settled;
+evidence.hydration.clone = { byteLength: cloneHydration.capture?.byteLength ?? cloneHydration.capture?.bytes ?? null };
 const cloneReadiness = evaluateReadiness(evidence.stages.clone, 'clone');
 evidence.readiness.clone = cloneReadiness;
 log(`clone docHeight=${evidence.stages.clone.metrics.docHeight} sections=${evidence.stages.clone.metrics.sectionCount} cards=${evidence.stages.clone.metrics.productCardCount} ready=${cloneReadiness.ok}`);
@@ -504,6 +411,52 @@ if (SKIP_COMPARE) {
   log(`full-page compare FAILED: ${e.message}`);
 }
 const cr = compare?.result || compare || {};
+
+// ── Rasterization stability gate ──────────────────────────────────────────────
+// The comparator and the standalone continuity capture rasterize the same tabs
+// through the same path. If the two receipts for one side disagree, that side
+// moved between rasterizations, so the pair behind `cr` is not the pair that was
+// gated and no pixel verdict may be promoted from it.
+const receiptH = (r) => {
+  const h = r?.cssCaptureSize?.height ?? r?.rasterSize?.height;
+  return typeof h === 'number' ? h : null;
+};
+evidence.rasterizationStability = {};
+// Only a completed comparison has receipts to compare against. When the
+// comparison itself failed, its failure is the finding and must not be
+// restated as an instability.
+const compareReceipts = cr?.captureReceipts ?? null;
+if (!compareReceipts) {
+  evidence.rasterizationStability = { status: 'NOT_EVALUATED', reason: 'comparison produced no capture receipts' };
+} else {
+  const unstable = [];
+  for (const [role, key] of [['reference', 'target'], ['clone', 'baseline']]) {
+    const standaloneH = receiptH(evidence.standalone?.[role]?.receipt);
+    const compareH = receiptH(compareReceipts[key]);
+    const hydratedH = typeof evidence.stages?.[role]?.metrics?.docHeight === 'number' ? evidence.stages[role].metrics.docHeight : null;
+    const stable = standaloneH !== null && compareH !== null && standaloneH === compareH;
+    evidence.rasterizationStability[role] = { standaloneHeight: standaloneH, compareHeight: compareH, hydratedDocHeight: hydratedH, stable };
+    if (!stable) {
+      unstable.push(role);
+      log(`  rasterization UNSTABLE for ${role}: standalone=${standaloneH} compare=${compareH} hydratedDocHeight=${hydratedH}`);
+    }
+  }
+  if (unstable.length) {
+    evidence.status = 'RASTERIZATION_UNSTABLE';
+    evidence.visual = {
+      status: 'RASTERIZATION_UNSTABLE',
+      match: null,
+      mismatchPercentage: null,
+      verdict: 'INCONCLUSIVE',
+      reason: `side(s) ${unstable.join(', ')} produced different full-page raster heights on the same tab, so the compared pair is not the gated pair`,
+      captureReceipts: compareReceipts,
+    };
+    persist();
+    log(`ABORT: RASTERIZATION_UNSTABLE (${unstable.join(', ')}) — pixel verdict withheld`);
+    process.exit(3);
+  }
+}
+
 const derivedVerdict = cr.dimensionsMatch === true
   ? (cr.match === true ? 'PASS' : 'FAIL')
   : (cr.verdict || (cr.status === 'INCONCLUSIVE' ? 'INCONCLUSIVE' : null));
@@ -617,13 +570,37 @@ push('header', refMetrics.headerRect);
 push('hero', refMetrics.heroRect);
 for (const s of refMetrics.sections) push(`section:${s.cls || s.tag}`, s.rect);
 push('footer', refMetrics.footerRect);
+// Each band comparison rasterizes both full pages, so the band list is also the
+// run's capture-budget list: a 14-section page cost 28 extra full-page captures
+// and drained the reference tab before the diagnostics finished. Bands that
+// already match structurally add nothing, so only the fixed anchors and the
+// sections whose geometry actually differs are captured.
+const differing = new Set(
+  (evidence.structural?.sections || [])
+    .filter((s) => s.clone === null || s.dh !== 0)
+    .map((s) => s.cls)
+);
+const ANCHOR_BANDS = new Set(['header', 'hero', 'footer']);
+const selectedBands = bands.filter((b) => ANCHOR_BANDS.has(b.name) || differing.has(b.name.replace(/^section:/, '')));
+if (selectedBands.length !== bands.length) {
+  log(`  sectional diagnostics reduced to ${selectedBands.length}/${bands.length} bands (anchors + structurally differing sections)`);
+}
 const seen = new Set();
 evidence.stages.sections = [];
-if (SKIP_COMPARE || evidence.stages.compare?.status === 'COMPARE_ERROR') {
+if (!SECTION_BANDS) {
+  // Non-authoritative diagnostics: every band comparison rasterizes both full pages
+  // again, and that capture budget is what quarantines the reference tab (measured:
+  // the 1440 comparison drained mid-run and every later viewport inherited the
+  // quarantined tab). Structural per-section geometry is measured from the DOM and
+  // is unaffected by this flag.
+  log(`  sectional band compares skipped (${selectedBands.length} bands available; set CANARY_SECTION_BANDS=1 to capture them)`);
+  evidence.stages.sectionsSkipped = { reason: 'CANARY_SECTION_BANDS not set', bandsAvailable: selectedBands.map((b) => b.name) };
+  persist();
+} else if (SKIP_COMPARE || evidence.stages.compare?.status === 'COMPARE_ERROR') {
   log(`skipping sectional compares (${SKIP_COMPARE ? 'CANARY_SKIP_COMPARE' : 'full-page compare failed'})`);
   persist();
 } else
-for (const band of bands) {
+for (const band of selectedBands) {
   const key = `${band.name}@${band.rect.y}`;
   if (seen.has(key)) continue;
   seen.add(key);

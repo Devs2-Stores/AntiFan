@@ -17,14 +17,15 @@ import { EcommerceDataModeler } from '../../packages/site-clone/dist/models/ecom
 import { CloneIRBuilder } from '../../packages/site-clone/dist/models/clone-ir-builder.js';
 import { IndependentHtmlCloneGenerator } from '../../packages/site-clone/dist/generators/independent-html-clone-generator.js';
 
-const [, , refHtmlPath, outDirArg, telemetryPath, maxProductsArg, maxArticlesArg] = process.argv;
+const [, , refHtmlPath, outDirArg, telemetryPath, maxProductsArg, maxArticlesArg, sourceBaseUrlArg] = process.argv;
 if (!refHtmlPath || !outDirArg || !telemetryPath) {
-  console.error('usage: build-clone.mjs <referenceHtml> <outDir> <telemetryJson> [maxProducts] [maxArticles]');
+  console.error('usage: build-clone.mjs <referenceHtml> <outDir> <telemetryJson> [maxProducts] [maxArticles] [sourceBaseUrl]');
   process.exit(2);
 }
+const sourceBaseUrl = sourceBaseUrlArg || 'https://hoplongtech.com';
 const outDir = path.resolve(outDirArg);
-const maxProducts = maxProductsArg ? Number(maxProductsArg) : undefined;
-const maxArticles = maxArticlesArg ? Number(maxArticlesArg) : undefined;
+const maxProducts = (maxProductsArg && maxProductsArg !== 'undefined') ? Number(maxProductsArg) : undefined;
+const maxArticles = (maxArticlesArg && maxArticlesArg !== 'undefined') ? Number(maxArticlesArg) : undefined;
 
 const html = fs.readFileSync(refHtmlPath, 'utf8');
 const telemetry = { input: { path: path.resolve(refHtmlPath), bytes: Buffer.byteLength(html), sha256: createHash('sha256').update(html).digest('hex') } };
@@ -50,7 +51,7 @@ telemetry.normalizedData = {
 
 // ── A0 asset discovery + production IR (single composed path) ────────────────
 const a0Dir = path.join(outDir, '..', 'a0-assets');
-const ir = new CloneIRBuilder().buildFromHtml(html, 'https://hoplongtech.com', a0Dir);
+const ir = new CloneIRBuilder().buildFromHtml(html, sourceBaseUrl, a0Dir);
 const manifest = ir.assets;
 telemetry.a0 = {
   assetsDir: a0Dir,
@@ -63,7 +64,7 @@ telemetry.a0 = {
   fontUrls: manifest.fonts.map((s) => s.sourceUrl),
   scriptUrls: manifest.javascripts.map((s) => s.sourceUrl),
   imageSample: manifest.images.slice(0, 10).map((s) => s.sourceUrl),
-  imageHosts: Object.entries(manifest.images.reduce((acc, i) => { try { const h = new URL(i.sourceUrl, 'https://hoplongtech.com').host; acc[h] = (acc[h] || 0) + 1; } catch {} return acc; }, {})),
+  imageHosts: Object.entries(manifest.images.reduce((acc, i) => { try { const h = new URL(i.sourceUrl, sourceBaseUrl).host; acc[h] = (acc[h] || 0) + 1; } catch {} return acc; }, {})),
   unresolvedRelative: manifest.images.filter((i) => !/^(https?:)?\/\//i.test(i.sourceUrl)).length,
   byArchetype: ir.sections.reduce((acc, s) => { acc[s.archetype] = (acc[s.archetype] || 0) + 1; return acc; }, {}),
 };
@@ -81,7 +82,7 @@ let error = null;
 try {
   result = await generator.generateCloneBundle(ir, {
     outputDir: outDir,
-    sourceBaseUrl: 'https://hoplongtech.com',
+    sourceBaseUrl,
     maxProducts,
     maxArticles,
     skipDownload: false,
@@ -170,3 +171,4 @@ console.log(JSON.stringify({
   normalized: telemetry.normalizedData,
   bundle: telemetry.bundle ? { assetFiles: telemetry.bundle.assetFiles, assetBytes: telemetry.bundle.assetBytes, productCount: telemetry.bundle.productCount, remoteSubresources: telemetry.bundle.remoteSubresources.length, remoteNavigation: telemetry.bundle.remoteNavigationCount } : null,
 }, null, 2));
+if (error) process.exit(1);

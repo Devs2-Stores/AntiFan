@@ -8,10 +8,11 @@
  *   - third-party executable integrations that are not storefront structure:
  *     Tawk.to live chat, Google Tag Manager / gtag / Google Analytics, and the
  *     widget DOM/styles they inject at runtime (random-id fixed iframes).
- *   - transient initialized carousel/slider inline dimensions and transforms
- *     (.s-wrap, .slick-slider, carousel, swiper) that contaminate clean mobile responsiveness.
  * Everything else — site markup, site CSS/JS, images, fonts, video, Livewire
- * hydration state — is preserved verbatim.
+ * hydration state, and initialized carousel/slider geometry — is preserved
+ * verbatim. Carousel geometry is deliberately kept: it is the layout the page
+ * actually renders at the capture viewport, and removing it produced a bundle
+ * whose sliders could not re-initialize.
  *
  * Usage: node .canary/tools/dump-ref.mjs <tabId> <outHtml> [sanitize]
  */
@@ -19,6 +20,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
 import { call } from './lib-rpc.mjs';
+import { CARD_SELECTOR, SECTION_COUNT_EXPR } from './canary-settle.mjs';
 
 const [, , tabId, outHtml, sanitizeArg] = process.argv;
 if (!tabId || !outHtml) {
@@ -45,7 +47,7 @@ const expression = `(() => {
     Array.from(clone.querySelectorAll('[data-csrf]')).forEach((n) => { n.removeAttribute('data-csrf'); removed.push('secret-attr:' + n.tagName); });
 
     // 3. Third-party executable integrations (non-storefront structure)
-    const thirdPartySrc = /(?:^|\\/\\/|\\.)(?:tawk\\.to|googletagmanager\\.com|google-analytics\\.com|googlesyndication\\.com|doubleclick\\.net|facebook\\.net|connect\\.facebook\\.net)\\//i;
+    const thirdPartySrc = /(?:^|\\/\\/|\\.)(?:tawk\\.to|googletagmanager\\.com|google-analytics\\.com|googlesyndication\\.com|doubleclick\\.net|facebook\\.net|connect\\.facebook\\.net|google\\.com\\/recaptcha|recaptcha\\.net)\\//i;
     drop(Array.from(clone.querySelectorAll('script[src]')).filter((s) => thirdPartySrc.test(s.getAttribute('src') || '')), 'third-party-script');
     drop(Array.from(clone.querySelectorAll('link[href]')).filter((l) => thirdPartySrc.test(l.getAttribute('href') || '')), 'third-party-link');
     Array.from(clone.querySelectorAll('script:not([src])')).forEach((s) => {
@@ -58,7 +60,7 @@ const expression = `(() => {
     drop(Array.from(clone.querySelectorAll('iframe')).filter((f) => {
       const src = f.getAttribute('src') || '';
       const srcdoc = f.getAttribute('srcdoc') || '';
-      return src === 'about:blank' || srcdoc === '<html></html>' || srcdoc === '<html><head></head><body></body></html>';
+      return src === 'about:blank' || srcdoc === '<html></html>' || srcdoc === '<html><head></head><body></body></html>' || thirdPartySrc.test(src);
     }), 'injected-iframe');
     drop(Array.from(clone.querySelectorAll('[id]')).filter((n) => /^[a-z0-9]{10,}\\d{10,}$/.test(n.id) && !n.querySelector('section,header,footer,nav,main,article')), 'injected-random-id');
     Array.from(clone.querySelectorAll('style')).forEach((s) => {
@@ -66,25 +68,23 @@ const expression = `(() => {
       if (/#gitndsip|tawkMaxOpen|tawk-button-hover|\\.tawk-/.test(t)) { note(s, 'injected-style'); s.remove(); }
     });
 
-    // 5. Transient carousel/slider runtime inline styles
-    // The live desktop DOM has client-side carousel animation state injected into inline styles
-    // (e.g. width: 7750px on track, transform: translateX(-1550px), flex: 0 0 775px on items).
-    // Scoped strictly to verified slider containers (.s-wrap, .slick-slider, [class*="carousel"], [class*="swiper"]).
-    Array.from(clone.querySelectorAll('.s-wrap, .slick-slider, [class*="carousel"], [class*="swiper"]')).forEach((wrap) => {
-      Array.from(wrap.querySelectorAll('.s-content, .slick-track, [class*="swiper-wrapper"]')).forEach((track) => {
-        if (track.style) {
-          if (track.style.transform) { note(track, 'slider-transform'); track.style.removeProperty('transform'); }
-          if (track.style.width) { note(track, 'slider-track-width'); track.style.removeProperty('width'); }
-        }
-      });
-      Array.from(wrap.querySelectorAll('.s-content > .item, .slick-track > .slick-slide, [class*="swiper-slide"]')).forEach((item) => {
-        if (item.style) {
-          if (item.style.flex) { note(item, 'slider-item-flex'); item.style.removeProperty('flex'); }
-          if (item.style.maxWidth) { note(item, 'slider-item-max-width'); item.style.removeProperty('max-width'); }
-          if (item.style.marginRight) { note(item, 'slider-item-margin-right'); item.style.removeProperty('margin-right'); }
-        }
-      });
+    // 4b. Normalize malformed inline style URLs from reference site (e.g. https:/wp-content -> /wp-content)
+    Array.from(clone.querySelectorAll('[style*="https:/"]')).forEach((el) => {
+      const s = el.getAttribute('style') || '';
+      if (/https:\\/[^\\/]/i.test(s)) {
+        el.setAttribute('style', s.replace(/https:\\/([a-zA-Z0-9_.-])/gi, '/$1'));
+        removed.push('normalized-malformed-style-url:' + el.tagName);
+      }
     });
+
+    // 5. Carousel/slider runtime geometry is preserved verbatim.
+    // Stripping the initialized track width/transform and the per-slide flex left
+    // the sliders marked slick-initialized with no geometry, so the bundle's own
+    // slick call skipped setDimensions and re-applied nothing (slick only builds
+    // out when that class is absent). Measured on the mobile accessory section:
+    // live 315px slider versus a 1016px wrapped block after stripping. The
+    // captured geometry IS the layout at the capture viewport, so it is part of
+    // the snapshot.
   }
 
   return JSON.stringify({
@@ -94,6 +94,8 @@ const expression = `(() => {
     clientWidth: document.documentElement.clientWidth,
     docHeight: Math.max(document.documentElement.scrollHeight, document.body.scrollHeight),
     sections: Array.from(document.querySelectorAll('section')).map((s) => (typeof s.className === 'string' ? s.className.split(/\\s+/)[0] : '')),
+    sectionCount: ${SECTION_COUNT_EXPR},
+    cardCount: document.querySelectorAll('${CARD_SELECTOR}').length,
     productItems: document.querySelectorAll('.product-list__item').length,
     images: document.images.length,
     html: '<!DOCTYPE html>\\n' + clone.outerHTML,
@@ -113,6 +115,8 @@ console.log(JSON.stringify({
   clientWidth: payload.clientWidth,
   docHeight: payload.docHeight,
   sections: payload.sections,
+  sectionCount: payload.sectionCount,
+  cardCount: payload.cardCount,
   productItems: payload.productItems,
   images: payload.images,
   bytes: Buffer.byteLength(payload.html),

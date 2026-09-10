@@ -608,12 +608,47 @@ function loadEvidence(runDir, opts) {
     );
   }
 
+  const telemetryCandidates = docs.filter(
+    (d) => d.kind === 'telemetry' && (isStr(d.json.bundle?.entryHtmlPath) || isStr(d.json.generation?.result?.entryHtmlPath)),
+  );
+  // A run can carry more than one bundle (desktop and mobile). The report describes
+  // the bundle the viewport evidence was measured against, so rank candidates by how
+  // many viewports were served from their bundle directory, then break ties on the
+  // canonical "build-telemetry.json" name and finally alphabetically. Membership in
+  // the viewport bundle set is not enough: both bundles appear there, so the choice
+  // would fall back to directory order.
+  const viewportBundleUse = new Map();
+  for (const d of docs.filter((d) => d.kind === 'viewport')) {
+    const dir = docBundleDir(d.json);
+    if (!isStr(dir)) continue;
+    viewportBundleUse.set(dir, (viewportBundleUse.get(dir) || 0) + 1);
+  }
+  const canonicalFirst = (d) => (d.name === 'build-telemetry.json' ? 0 : 1);
   const telemetryDoc =
-    docs.find((d) => d.kind === 'telemetry' && isStr(d.json.bundle?.entryHtmlPath)) ||
+    [...telemetryCandidates].sort((a, b) => {
+      const usedA = viewportBundleUse.get(docBundleDir(a.json)) || 0;
+      const usedB = viewportBundleUse.get(docBundleDir(b.json)) || 0;
+      if (usedA !== usedB) return usedB - usedA;
+      if (canonicalFirst(a) !== canonicalFirst(b)) return canonicalFirst(a) - canonicalFirst(b);
+      return a.name.localeCompare(b.name);
+    })[0] ||
     docs.find((d) => d.kind === 'telemetry' && isObj(d.json.bundle)) ||
     docs.find((d) => d.kind === 'telemetry') ||
     null;
   return { runDir, runBasename, evidenceDir, files: docs, viewportDocs, telemetryDoc, opts };
+}
+
+/**
+ * The bundle directory a document's own asset references belong to. A viewport
+ * document names the bundle it was served from; a telemetry document names the
+ * bundle it generated; anything else falls back to the run's primary bundle.
+ */
+function docBundleDir(json) {
+  if (!isObj(json)) return null;
+  if (isStr(json.cloneDir)) return json.cloneDir;
+  if (isStr(json.bundle?.entryHtmlPath)) return path.dirname(json.bundle.entryHtmlPath);
+  if (isStr(json.generation?.result?.entryHtmlPath)) return path.dirname(json.generation.result.entryHtmlPath);
+  return null;
 }
 
 /* ------------------------------------------------------------------ *
@@ -2998,6 +3033,13 @@ function main() {
     // Fail closed: verify every referenced artifact in target-run evidence before building any verdict.
     for (const doc of loaded.files) {
       artifactIndex.ctx.label = doc.kind === 'viewport' ? (isStr(doc.json.label) ? doc.json.label : null) : null;
+      // Asset references resolve against the bundle the document itself belongs to:
+      // a viewport names the bundle it was served from, a telemetry document names the
+      // bundle it generated. Resolving everything against one run-level bundle made a
+      // desktop telemetry document fail against the mobile bundle and vice versa.
+      const docCloneDir = docBundleDir(doc.json);
+      artifactIndex.ctx.cloneDir = docCloneDir || derived.cloneDir;
+      artifactIndex.ctx.assetsDir = artifactIndex.ctx.cloneDir ? path.join(artifactIndex.ctx.cloneDir, 'assets') : derived.assetsDir;
       artifactIndex.collect(doc.docId, doc.json);
       verifyReceiptConsistency(doc.docId, doc.json);
     }

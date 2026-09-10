@@ -27,6 +27,7 @@ import crypto from 'node:crypto';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { loadCachedReadinessFloors, validateProbedFloor } from './canary-floors.mjs';
+import { hydrateToCapturedState, requireDoubleSettledMetrics } from './canary-settle.mjs';
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO = path.resolve(HERE, '..', '..');
 
@@ -46,15 +47,21 @@ const VIEWPORTS = arg('viewports', '1440x900,1024x900,390x844').split(',').map((
 const SKIP_BUILD = flag('skip-build');
 const SKIP_CAPTURE = flag('skip-capture');
 const KEEP_SERVER = flag('keep-server');
+const KEEP_TABS = flag('keep-tabs');
 const EVIDENCE_DIR = path.join(RUN_DIR, 'evidence');
 
 const T0 = Date.now();
 const log = (...a) => console.log(`[${((Date.now() - T0) / 1000).toFixed(1)}s]`, ...a);
 const sha256 = (b) => crypto.createHash('sha256').update(b).digest('hex');
+const hasMobileViewport = VIEWPORTS.some((v) => v.width < 768);
+const refMobileHtmlPath = path.join(RUN_DIR, 'reference', 'reference-mobile.html');
+// The desktop reference artifact is captured at the widest declared target; the
+// browser's default window is not a declared target viewport.
+const desktopTarget = VIEWPORTS[0];
 
 // lib-rpc resolves the canary session file first (ambient ANTIFAN_MCP_BOOTSTRAP
 // points at the user's instance); children inherit ANTIFAN_MCP_BOOTSTRAP_FILE.
-const { call, bootstrap: boot } = await import('./lib-rpc.mjs');
+const { call, probeTabHealth, bootstrap: boot } = await import('./lib-rpc.mjs');
 const childBootstrapEnv = process.env.ANTIFAN_MCP_BOOTSTRAP_FILE
   ? { ANTIFAN_MCP_BOOTSTRAP_FILE: process.env.ANTIFAN_MCP_BOOTSTRAP_FILE }
   : {};
@@ -76,11 +83,13 @@ function persist() {
 }
 
 /** Deterministic hash of a directory tree: relative path + size + sha256 per file. */
-function hashTree(dir) {
+function hashTree(dir, excludeTopLevel = []) {
   const out = [];
+  const skip = new Set(excludeTopLevel);
   const walk = (d) => {
     for (const e of fs.readdirSync(d, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
       const p = path.join(d, e.name);
+      if (skip.has(path.relative(dir, p).replace(/\\/g, '/'))) continue;
       if (e.isDirectory()) walk(p);
       else if (e.isFile()) {
         const buf = fs.readFileSync(p);
@@ -137,6 +146,7 @@ const ESTIMATED_ARTIFACT_BYTES = Number(arg('artifact-bytes', String(24 * 1024 *
 const ESTIMATED_AGGREGATE_BYTES = Number(arg('aggregate-bytes', String(768 * 1024 * 1024)));
 log(`artifact.preflight runId=${runId} artifact=${ESTIMATED_ARTIFACT_BYTES}B aggregate=${ESTIMATED_AGGREGATE_BYTES}B`);
 let lease = null;
+let evidenceRunId = null;
 try {
   const pre = await call('artifact.preflight', {
     runId,
@@ -151,6 +161,11 @@ try {
     process.exit(3);
   }
   lease = { runId, leaseToken: pre.leaseToken };
+  // The lease runId is session-scoped (it identifies the canary authority, not
+  // this invocation), so it cannot tell one run's evidence from the next. A fresh
+  // per-invocation stamp is what the provenance check below compares.
+  evidenceRunId = crypto.randomUUID();
+  pipeline.steps.evidenceRun = { evidenceRunId };
   log(`lease granted token=${String(pre.leaseToken).slice(0, 12)}… committed=${pre.committedBytes} available=${pre.availableRunBytes}`);
 } catch (e) {
   pipeline.steps.preflight = { runId, error: String(e.message || e).slice(0, 500) };
@@ -161,17 +176,34 @@ try {
 
 let server = null;
 let exitCode = 0;
+// Declared outside the run body so teardown can close them even when the run
+// fails before either tab is created.
+let refTabId = null;
+let cloneTabId = null;
 try {
   // ── 2. run3 layout ─────────────────────────────────────────────────────────
   for (const sub of ['reference', 'clone', 'evidence', 'diff', 'sections']) {
     fs.mkdirSync(path.join(RUN_DIR, sub), { recursive: true });
   }
+  // Evidence is run-scoped. A stage that dies mid-write must not leave a file a
+  // later invocation reads as its own result, and per-viewport names carry no run
+  // identity of their own, so every run starts from an empty output set.
+  const cleared = [];
+  for (const sub of ['reference', 'clone', 'evidence', 'diff', 'sections']) {
+    const dir = path.join(RUN_DIR, sub);
+    for (const name of fs.readdirSync(dir)) {
+      const target = path.join(dir, name);
+      fs.rmSync(target, { recursive: true, force: true });
+      cleared.push(path.relative(RUN_DIR, target).replace(/\\/g, '/'));
+    }
+  }
   evidenceReady = true;
-  pipeline.steps.layout = { created: fs.readdirSync(RUN_DIR) };
+  pipeline.steps.layout = { created: fs.readdirSync(RUN_DIR), cleared };
   persist();
+  if (cleared.length) log(`cleared ${cleared.length} stale run outputs before capture`);
 
   // ── 3. fresh reference capture ─────────────────────────────────────────────
-  let refTabId = boot.tabId;
+  refTabId = boot.tabId;
   let refCapture = null;
   const refHtmlPath = path.join(RUN_DIR, 'reference', 'reference.html');
   const refFloorsFile = path.join(EVIDENCE_DIR, 'reference-floors.json');
@@ -179,8 +211,21 @@ try {
 
   if (SKIP_CAPTURE && fs.existsSync(refHtmlPath)) {
     const currentRefSha = sha256(fs.readFileSync(refHtmlPath));
-    refCapture = { skipped: true, path: refHtmlPath, sha256: currentRefSha };
-    log('reference capture skipped (--skip-capture, reusing existing reference.html)');
+    const refBuf = fs.readFileSync(refHtmlPath);
+    refCapture = {
+      skipped: true,
+      path: refHtmlPath,
+      sha256: currentRefSha,
+      desktop: { path: refHtmlPath, bytes: refBuf.length, sha256: currentRefSha },
+    };
+    if (hasMobileViewport) {
+      if (!fs.existsSync(refMobileHtmlPath)) {
+        throw new Error(`Cannot --skip-capture: target viewports include mobile, but required mobile reference artifact is missing at ${refMobileHtmlPath}`);
+      }
+      const refMobileBuf = fs.readFileSync(refMobileHtmlPath);
+      refCapture.mobile = { path: refMobileHtmlPath, bytes: refMobileBuf.length, sha256: sha256(refMobileBuf) };
+    }
+    log('reference capture skipped (--skip-capture, reusing existing reference.html' + (hasMobileViewport ? ' and reference-mobile.html' : '') + ')');
     readinessFloors = loadCachedReadinessFloors(refFloorsFile, currentRefSha, VIEWPORTS);
     log('loaded validated per-viewport readiness floors matching reference HTML hash');
   } else {
@@ -190,86 +235,93 @@ try {
     // pre-hydration DOM (measured: 68 images / 5 sections instead of 101 / 11).
     const t = await call('anti.browser.tabs.create', { url: REF_URL, activate: true }, 60_000);
     refTabId = t.tabId || t.result?.tabId;
-    const prep = await run('node', ['.canary/tools/prepare-ref.mjs', refTabId, 'run3-reference'], { timeoutMs: 600_000, env: childBootstrapEnv });
-    fs.writeFileSync(path.join(EVIDENCE_DIR, 'reference-prepare.json'), prep.stdout + (prep.stderr ? `\n--- stderr ---\n${prep.stderr}` : ''));
-    if (prep.code !== 0) throw new Error(`prepare-ref failed (code ${prep.code}): ${prep.stderr.slice(0, 400)}`);
-    const dump = await run('node', ['.canary/tools/dump-ref.mjs', refTabId, refHtmlPath, 'sanitize'], { timeoutMs: 300_000, env: childBootstrapEnv });
-    fs.writeFileSync(path.join(EVIDENCE_DIR, 'reference-dump.json'), dump.stdout + (dump.stderr ? `\n--- stderr ---\n${dump.stderr}` : ''));
-    if (dump.code !== 0) throw new Error(`dump-ref failed (code ${dump.code}): ${dump.stderr.slice(0, 400)}`);
-    const parsed = JSON.parse(dump.stdout);
-    refCapture = { tabId: refTabId, ...parsed, prepare: JSON.parse(prep.stdout) };
-    log(`reference captured: ${parsed.bytes} bytes, sections=${parsed.sections.length}, productItems=${parsed.productItems}, images=${parsed.images}`);
+    refCapture = { tabId: refTabId };
 
     // Probe live reference tab at each viewport in the current run to capture empirical per-viewport floors:
     log('probing reference tab across all target viewports for empirical readiness floors');
     readinessFloors = {};
     for (const vp of VIEWPORTS) {
+      const isMobile = vp.width < 768;
       await call('browser.switch-tab', { tabId: refTabId }, 30_000).catch(() => null);
+      // Atomic viewport + reload, then the canonical settle contract. A separate
+      // set-viewport + reload leaves the tab hydrated against the previous layout,
+      // and an ad-hoc sampler can then "stabilize" on an under-hydrated shell.
       await call('browser.set-viewport', {
         tabId: refTabId,
         width: vp.width,
         height: vp.height,
-        mobile: vp.width < 768,
+        mobile: isMobile,
         deviceScaleFactor: 1,
         reload: true,
       });
-      let readyStateComplete = false;
-      for (let i = 0; i < 40; i++) {
-        await new Promise((r) => setTimeout(r, 400));
-        try {
-          const r = await evalOn(refTabId, '({ rs: document.readyState })', 5000);
-          if (r && r.rs === 'complete') {
-            readyStateComplete = true;
-            break;
-          }
-        } catch {}
-      }
-      if (!readyStateComplete) {
-        throw new Error(`Reference tab failed to reach readyState===complete at ${vp.width}x${vp.height} within timeout`);
-      }
 
-      // Hydrate via eager image promotion and scroll pass:
-      const scrollResult = await evalOn(refTabId, `(async () => {
-        const H = Math.max(document.documentElement.scrollHeight, document.body.scrollHeight);
-        for (let y = 0; y <= H; y += 600) { window.scrollTo({ top: y, left: 0, behavior: 'instant' }); await new Promise(r => setTimeout(r, 40)); }
-        window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
-        return true;
-      })()`, 20000);
-      if (!scrollResult) {
-        throw new Error(`Reference tab scroll hydration pass failed at ${vp.width}x${vp.height}`);
+      // Hydration contract (see hydrateToCapturedState): the capture runs before
+      // any measurement or dump, because rasterizing the document is what mounts
+      // the storefront's remaining sections.
+      const hydration = await hydrateToCapturedState(refTabId, `${vp.label}-reference`, { leaseToken: lease.leaseToken });
+      const settled = hydration.settled;
+      // The floor comes from the settled metric pair itself: re-measuring here
+      // would re-implement the metric and open a window between the proven-stable
+      // read and the count the floor is derived from.
+      const sectionCount = settled.metrics?.sectionCount;
+      const cardCount = settled.metrics?.productCardCount;
+      const docHeight = settled.metrics?.docHeight;
+      if (typeof sectionCount !== 'number' || typeof cardCount !== 'number' || typeof docHeight !== 'number') {
+        throw new Error(`Reference probe at ${vp.width}x${vp.height} produced no settled metrics: ${JSON.stringify(settled.metrics)}`);
       }
-
-      // Wait for structural stability (equal section and card counts across consecutive samples)
-      let stableCount = 0;
-      let lastSections = -1;
-      let lastCards = -1;
-      let probe = null;
-      for (let s = 0; s < 10; s++) {
-        await new Promise((r) => setTimeout(r, 300));
-        const sample = await evalOn(refTabId, `({
-          sectionCount: document.querySelectorAll('section').length,
-          productCardCount: document.querySelectorAll('.product-list__item, .product-item, .product-card').length,
-        })`, 10000);
-        if (sample && sample.sectionCount === lastSections && sample.productCardCount === lastCards) {
-          stableCount++;
-          if (stableCount >= 2) {
-            probe = sample;
-            break;
-          }
-        } else if (sample) {
-          stableCount = 1;
-          lastSections = sample.sectionCount;
-          lastCards = sample.productCardCount;
-        }
-      }
-      if (!probe) {
+      if (cardCount < 1) {
         throw new Error(
-          `Reference tab failed to reach structural stability at ${vp.width}x${vp.height} within sampling timeout (lastSections=${lastSections}, lastCards=${lastCards})`
+          `Reference probe at ${vp.width}x${vp.height} settled with zero storefront cards, so the resulting minCards floor would be vacuous ` +
+          `and could not detect an under-hydrated capture (sections=${sectionCount}).`
         );
       }
+      readinessFloors[vp.label] = validateProbedFloor({ sectionCount, productCardCount: cardCount, docHeight }, vp);
+      log(
+        `reference floor for ${vp.label} (${vp.width}x${vp.height}): minSections=${sectionCount}, minCards=${cardCount}, ` +
+        `settled=${settled.settle?.visualStable === true}, docHeight=${docHeight}`
+      );
 
-      readinessFloors[vp.label] = validateProbedFloor(probe, vp);
-      log(`reference floor for ${vp.label} (${vp.width}x${vp.height}): minSections=${readinessFloors[vp.label].minSections}, minCards=${readinessFloors[vp.label].minCards}`);
+      // Capture stability is not asserted here with an extra rasterization: the
+      // comparator and the standalone continuity capture both rasterize this same
+      // tab later in the run, and viewport-run.mjs fails closed if those two
+      // receipts disagree with each other.
+
+      // Only the widest desktop target and the mobile target own reference artifacts.
+      const ownsArtifact = isMobile || vp === desktopTarget;
+      if (!ownsArtifact) continue;
+      const artifactPath = isMobile ? refMobileHtmlPath : refHtmlPath;
+      log(`capturing ${isMobile ? 'mobile ' : ''}reference HTML at ${vp.width}x${vp.height} to ${artifactPath}`);
+      const dumpRes = await run('node', ['.canary/tools/dump-ref.mjs', refTabId, artifactPath, 'sanitize'], { timeoutMs: 300_000, env: childBootstrapEnv });
+      if (dumpRes.code !== 0) {
+        throw new Error(`dump-ref at ${vp.width}x${vp.height} failed (code ${dumpRes.code}): ${dumpRes.stderr.slice(0, 400)}`);
+      }
+      const parsedDump = JSON.parse(dumpRes.stdout);
+      const floor = readinessFloors[vp.label];
+      if (parsedDump.sectionCount < floor.minSections || parsedDump.cardCount < floor.minCards) {
+        throw new Error(
+          `Captured reference at ${vp.width}x${vp.height} is under-hydrated: artifact sectionCount=${parsedDump.sectionCount}/cardCount=${parsedDump.cardCount} ` +
+          `is below the settled floor sectionCount=${floor.minSections}/cardCount=${floor.minCards}.`
+        );
+      }
+      log(`reference artifact validated at ${vp.width}x${vp.height}: ${parsedDump.bytes} bytes, sections=${parsedDump.sectionCount}, cards=${parsedDump.cardCount}, images=${parsedDump.images}`);
+      fs.writeFileSync(path.join(EVIDENCE_DIR, isMobile ? 'reference-dump-mobile.json' : 'reference-dump-validated.json'), dumpRes.stdout);
+      const artifactRecord = {
+        viewport: { width: vp.width, height: vp.height },
+        path: artifactPath,
+        bytes: parsedDump.bytes,
+        sha256: parsedDump.sha256,
+        sectionCount: parsedDump.sectionCount,
+        cardCount: parsedDump.cardCount,
+        images: parsedDump.images,
+        removed: parsedDump.removed,
+        settled: settled.settle,
+      };
+      if (isMobile) refCapture.mobile = artifactRecord;
+      else refCapture.desktop = artifactRecord;
+      log(`${isMobile ? 'mobile reference' : 'reference'} captured: ${parsedDump.bytes} bytes, sections=${parsedDump.sectionCount}, cards=${parsedDump.cardCount}, images=${parsedDump.images}`);
+    }
+    if (hasMobileViewport && !fs.existsSync(refMobileHtmlPath)) {
+      throw new Error(`Mobile reference capture failed to produce required artifact at ${refMobileHtmlPath}`);
     }
     const currentRefSha = sha256(fs.readFileSync(refHtmlPath));
     fs.writeFileSync(refFloorsFile, JSON.stringify({ refSha256: currentRefSha, floors: readinessFloors }, null, 2));
@@ -288,11 +340,40 @@ try {
     fs.writeFileSync(path.join(EVIDENCE_DIR, 'build.log'), build.stdout + (build.stderr ? `\n--- stderr ---\n${build.stderr}` : ''));
     pipeline.steps.build = { code: build.code, elapsedMs: build.elapsedMs, stdout: build.stdout.slice(0, 4000), stderr: build.stderr.slice(0, 4000) };
     if (build.code !== 0) throw new Error(`build-clone failed (code ${build.code}): ${build.stderr.slice(0, 400)}`);
+    const desktopEntry = path.join(RUN_DIR, 'clone', 'index.html');
+    if (!fs.existsSync(desktopEntry)) {
+      throw new Error(`build-clone reported success but produced no bundle entry at ${desktopEntry}`);
+    }
     log('clone bundle built');
+  }
+  // ── 4b. mobile clone pipeline (required if target viewports include mobile) ──
+  if (hasMobileViewport) {
+    const mobileCloneDir = path.join(RUN_DIR, 'clone', 'mobile');
+    const mobileTelemetryPath = path.join(EVIDENCE_DIR, 'build-telemetry-mobile.json');
+    const mobileEntry = path.join(mobileCloneDir, 'index.html');
+    if (SKIP_BUILD && fs.existsSync(mobileEntry)) {
+      log('mobile clone build skipped (--skip-build, reusing existing mobile bundle)');
+      pipeline.steps.buildMobile = { skipped: true, telemetry: mobileTelemetryPath };
+    } else {
+      log('building independent HTML mobile clone (real pipeline)');
+      const buildMobile = await run('node', ['.canary/tools/build-clone.mjs', refMobileHtmlPath, mobileCloneDir, mobileTelemetryPath], { timeoutMs: 1_800_000 });
+      fs.writeFileSync(path.join(EVIDENCE_DIR, 'build-mobile.log'), buildMobile.stdout + (buildMobile.stderr ? `\n--- stderr ---\n${buildMobile.stderr}` : ''));
+      pipeline.steps.buildMobile = { code: buildMobile.code, elapsedMs: buildMobile.elapsedMs, stdout: buildMobile.stdout.slice(0, 4000), stderr: buildMobile.stderr.slice(0, 4000) };
+      if (buildMobile.code !== 0) {
+        throw new Error(`build-clone for mobile failed (code ${buildMobile.code}): ${buildMobile.stderr.slice(0, 400)}`);
+      }
+      log('mobile clone bundle built at clone/mobile');
+    }
+    if (!fs.existsSync(mobileEntry)) throw new Error(`mobile clone entry missing: ${mobileEntry}`);
+    pipeline.steps.bundleMobile = {
+      entry: mobileEntry,
+      entrySha256: sha256(fs.readFileSync(mobileEntry)),
+      tree: hashTree(mobileCloneDir),
+    };
   }
   const cloneEntry = path.join(RUN_DIR, 'clone', 'index.html');
   if (!fs.existsSync(cloneEntry)) throw new Error(`clone entry missing: ${cloneEntry}`);
-  pipeline.steps.bundle = { entry: cloneEntry, entrySha256: sha256(fs.readFileSync(cloneEntry)), tree: hashTree(path.join(RUN_DIR, 'clone')) };
+  pipeline.steps.bundle = { entry: cloneEntry, entrySha256: sha256(fs.readFileSync(cloneEntry)), tree: hashTree(path.join(RUN_DIR, 'clone'), ['mobile']) };
   persist();
 
   // ── 5. hardened local server ───────────────────────────────────────────────
@@ -322,7 +403,7 @@ try {
   const cloneUrl = `http://127.0.0.1:${CLONE_PORT}/`;
   log(`opening clone tab ${cloneUrl}`);
   const ct = await call('anti.browser.tabs.create', { url: cloneUrl, activate: true }, 60_000);
-  const cloneTabId = ct.tabId || ct.result?.tabId;
+  cloneTabId = ct.tabId || ct.result?.tabId;
   pipeline.steps.tabs = { referenceTabId: refTabId, cloneTabId, cloneUrl };
   persist();
 
@@ -331,6 +412,10 @@ try {
     throw new Error('readinessFloors must be an object before running per-viewport runs');
   }
   pipeline.viewportRuns = [];
+  // A capture that fails to settle quarantines its tab. The quarantine is
+  // invisible to an evaluate probe, so the next viewport would inherit it and
+  // report drains instead of a verdict. Replace the tab once that is observed.
+  let refTabNeedsReplacement = false;
   for (const vp of VIEWPORTS) {
     log(`viewport ${vp.width}x${vp.height} (${vp.label})`);
     const floor = readinessFloors[vp.label];
@@ -347,9 +432,68 @@ try {
     ) {
       throw new Error(`Missing or invalid readiness floor for viewport ${vp.label} in readinessFloors: ${JSON.stringify(floor)}`);
     }
+    // The whole run keeps exactly two browser tabs: one live reference and one
+    // clone. The reference artifact, the floors and every viewport comparison are
+    // therefore measured on the same tab in one frozen page state. Per-viewport
+    // reference tabs were tried and reverted: they multiply live storefront tabs,
+    // and they let the artifact and the compare describe different live states
+    // (measured: an artifact with 14 sections compared against a fresh tab that
+    // had mounted 13).
+    let vpRefTabId = refTabId;
+    let vpPrehydrated = false;
+    try {
+      if (refTabNeedsReplacement || !(await probeTabHealth(vpRefTabId))) {
+        // One bounded replacement per viewport, for a tab that is gone (host
+        // restart, closed target) or left quarantined by a drained capture. The
+        // artifact and the floors still describe this run's reference; only the
+        // tab object changes, so a drained 1440 no longer decides 1024.
+        const why = refTabNeedsReplacement ? 'was quarantined by a drained capture' : 'is unreachable';
+        refTabNeedsReplacement = false;
+        log(`  ${vp.label}: reference tab ${vpRefTabId} ${why}; replacing it`);
+        await call('anti.browser.tabs.close', { tabId: vpRefTabId }, 15_000).catch(() => null);
+        const rt = await call('anti.browser.tabs.create', { url: REF_URL, activate: true }, 60_000);
+        const replacement = rt.tabId || rt.result?.tabId;
+        if (!replacement) throw new Error('tab replacement returned no tab id');
+        refTabId = replacement;
+        vpRefTabId = replacement;
+        pipeline.steps.tabs = { referenceTabId: refTabId, cloneTabId, cloneUrl, referenceTabReplaced: true };
+        persist();
+      }
+      await call('browser.switch-tab', { tabId: vpRefTabId }, 30_000).catch(() => null);
+      // Atomic viewport + reload, then the shared hydration contract. The child is
+      // told the tab is already hydrated, so nothing reloads the reference between
+      // this measurement, the artifact and the comparison.
+      await call('browser.set-viewport', {
+        tabId: vpRefTabId,
+        width: vp.width,
+        height: vp.height,
+        mobile: vp.width < 768,
+        deviceScaleFactor: 1,
+        reload: true,
+      });
+      const vpHydration = await hydrateToCapturedState(vpRefTabId, `${vp.label}-reference-tab`, { leaseToken: lease.leaseToken });
+      const vm = vpHydration.settled.metrics || {};
+      if ((vm.sectionCount ?? 0) < floor.minSections || (vm.productCardCount ?? 0) < floor.minCards) {
+        throw new Error(
+          `reference tab for ${vp.label} is below the measured floor (sections=${vm.sectionCount}, cards=${vm.productCardCount}, ` +
+          `floor=${floor.minSections}/${floor.minCards})`
+        );
+      }
+      const heightDrift = floor.docHeight ? Math.abs((vm.docHeight ?? 0) - floor.docHeight) / floor.docHeight : 0;
+      if (floor.docHeight && heightDrift > 0.05) {
+        throw new Error(
+          `reference tab for ${vp.label} is not in the captured state: docHeight=${vm.docHeight} deviates ${(heightDrift * 100).toFixed(1)}% ` +
+          `from the probed floor ${floor.docHeight}`
+        );
+      }
+      vpPrehydrated = true;
+      log(`  ${vp.label}: reference tab ${vpRefTabId} hydrated at docHeight=${vm.docHeight}`);
+    } catch (e) {
+      log(`  ${vp.label}: reference tab hydration failed: ${e.message}; child retries the load on its own`);
+    }
     const r = await run('node', [
       '.canary/tools/viewport-run.mjs',
-      vp.label, String(vp.width), String(vp.height), refTabId, cloneTabId, RUN_DIR,
+      vp.label, String(vp.width), String(vp.height), vpRefTabId, cloneTabId, RUN_DIR,
       String(floor.minSections), String(floor.minCards),
     ], {
       timeoutMs: 1_200_000,
@@ -358,8 +502,12 @@ try {
         CANARY_SELF_DRIFT: '1',
         CANARY_COMPARE_TIMEOUT_MS: '240000',
         CANARY_STANDALONE_TIMEOUT_MS: '120000',
-        CANARY_EVIDENCE_RUN_ID: lease.runId,
+        CANARY_EVIDENCE_RUN_ID: evidenceRunId ?? lease.runId,
+        CANARY_AUTHORITY_RUN_ID: lease.runId,
+        ...(vpPrehydrated ? { CANARY_REFERENCE_PREHYDRATED: '1' } : {}),
         CANARY_LEASE_TOKEN: lease.leaseToken,
+        CANARY_FLOOR_DOC_HEIGHT: floor.docHeight ? String(floor.docHeight) : '',
+        CANARY_CLONE_DIR: vp.width < 768 ? path.join(RUN_DIR, 'clone', 'mobile') : path.join(RUN_DIR, 'clone'),
       },
     });
     fs.writeFileSync(path.join(EVIDENCE_DIR, `${vp.label}.log`), r.stdout + (r.stderr ? `\n--- stderr ---\n${r.stderr}` : ''));
@@ -367,6 +515,28 @@ try {
     let evidence = null;
     if (fs.existsSync(evidenceFile)) {
       try { evidence = JSON.parse(fs.readFileSync(evidenceFile, 'utf8')); } catch (e) { evidence = { parseError: String(e.message) }; }
+    }
+    // Fail closed on provenance: an evidence file that is not bound to this lease
+    // describes a different run and must never be summarised as this one's result.
+    if (evidence && !evidence.parseError && evidence.evidenceRunId !== evidenceRunId) {
+      const foreignRunId = evidence.evidenceRunId ?? null;
+      evidence = {
+        status: 'EVIDENCE_STALE',
+        error: `evidence file declares evidenceRunId=${foreignRunId} but this run is ${evidenceRunId}`,
+      };
+      log(`  ${vp.label}: EVIDENCE_STALE (file evidenceRunId=${foreignRunId})`);
+    }
+    // Drain detection reads the child's own failure text: the quarantine surfaces as
+    // a capture that did not settle, in the full-page comparison or the self-drift pair.
+    const drainText = JSON.stringify([
+      evidence?.stages?.compare?.error,
+      evidence?.selfDrift?.error,
+      evidence?.error,
+      evidence?.stagingError,
+    ]).slice(0, 4000);
+    if (/DRAINING|did not settle|quarantin/i.test(drainText)) {
+      refTabNeedsReplacement = true;
+      log(`  ${vp.label}: capture drain observed; the reference tab will be replaced before the next viewport`);
     }
     const row = {
       label: vp.label,
@@ -605,6 +775,19 @@ try {
     log('static server stopped');
   } else if (server) {
     log(`static server left running on ${CLONE_PORT} (--keep-server)`);
+  }
+  // The run owns exactly the two tabs it opened (one live reference, one clone).
+  // Leaving them behind accumulates live storefront renderers across runs.
+  if (!KEEP_TABS) {
+    for (const [role, id] of [['reference', refTabId], ['clone', cloneTabId]]) {
+      if (!id || id === boot.tabId) continue;
+      try {
+        await call('anti.browser.tabs.close', { tabId: id }, 15_000);
+        log(`closed ${role} tab ${id}`);
+      } catch (e) {
+        log(`${role} tab close warning: ${e.message}`);
+      }
+    }
   }
   if (evidenceReady) {
     persist();
