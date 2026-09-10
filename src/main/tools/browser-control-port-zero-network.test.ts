@@ -6,6 +6,16 @@ import { CdpDebuggerInterface } from '../browser/zero-network-interceptor.js';
 import { CapabilityCatalogue } from './capability-catalogue.js';
 import { registerBrowserCapabilities } from './browser-capabilities.js';
 
+/**
+ * `assert.rejects` hands the rejection back as `unknown`. These tests assert on the
+ * CapabilityError envelope (`code`, `message`, `details`), which `Error` does not
+ * declare, so narrow once here rather than casting at every call site.
+ */
+function asCapabilityError(err: unknown): Error & { code?: string; details?: Record<string, unknown> } {
+  assert.ok(err instanceof Error, `expected a rejected Error, received ${typeof err}`);
+  return err as Error & { code?: string; details?: Record<string, unknown> };
+}
+
 describe('BrowserControlPort.reloadZeroNetwork & Capability Catalogue Dispatch', () => {
   const projectId = makeControlPlaneId('project');
   const workspaceId = makeControlPlaneId('workspace');
@@ -46,9 +56,10 @@ describe('BrowserControlPort.reloadZeroNetwork & Capability Catalogue Dispatch',
       async () => {
         await port.reloadZeroNetwork({ ...validTarget, tabId: 'tab-remote-1' });
       },
-      (err: any) => {
-        assert.strictEqual(err.code, 'INVALID_ARGUMENT');
-        assert.ok(err.message.includes('restricted to verified local origins'));
+      (err: unknown) => {
+        const rejection = asCapabilityError(err);
+        assert.strictEqual(rejection.code, 'INVALID_ARGUMENT');
+        assert.ok(rejection.message.includes('restricted to verified local origins'));
         return true;
       }
     );
@@ -75,9 +86,10 @@ describe('BrowserControlPort.reloadZeroNetwork & Capability Catalogue Dispatch',
       async () => {
         await port.reloadZeroNetwork(validTarget);
       },
-      (err: any) => {
-        assert.strictEqual(err.code, 'CAPABILITY_NOT_FOUND');
-        assert.ok(err.message.includes('CDP Debugger interface is not available'));
+      (err: unknown) => {
+        const rejection = asCapabilityError(err);
+        assert.strictEqual(rejection.code, 'CAPABILITY_NOT_FOUND');
+        assert.ok(rejection.message.includes('CDP Debugger interface is not available'));
         return true;
       }
     );
@@ -113,7 +125,10 @@ describe('BrowserControlPort.reloadZeroNetwork & Capability Catalogue Dispatch',
     };
 
     const port = new BrowserControlPort(mockHost);
-    const res = await port.reloadZeroNetwork(validTarget);
+    // A reload is a lifecycle operation: `resolveTargetTab` fences it on document
+    // generation, so the target has to be as fresh as the live document (5). The
+    // generation is still rebased onto the live value and reported back.
+    const res = await port.reloadZeroNetwork({ ...validTarget, documentGeneration: 5 });
 
     assert.strictEqual(res.reloaded, true);
     assert.strictEqual(res.verifiedOffline, true);
@@ -127,6 +142,57 @@ describe('BrowserControlPort.reloadZeroNetwork & Capability Catalogue Dispatch',
       'host:reload',
       'cdp:Fetch.disable'
     ], 'Must execute in exact chronological order without race conditions');
+  });
+
+  it('3b. fails closed with TARGET_STALE before any side effect when the target document generation is stale', async () => {
+    const eventTimeline: string[] = [];
+
+    const mockDebugger: CdpDebuggerInterface = {
+      isAttached: () => true,
+      attach: () => {},
+      sendCommand: async (method: string) => {
+        eventTimeline.push(`cdp:${method}`);
+        return {};
+      },
+      on: () => {},
+      removeListener: () => {}
+    };
+
+    const mockHost: BrowserHostPort = {
+      navigate: () => true,
+      reload: () => {
+        eventTimeline.push('host:reload');
+        return true;
+      },
+      getDom: async () => '<html></html>',
+      captureScreenshot: async () => 'base64',
+      evalJs: async () => 'http://127.0.0.1:20145/index.html',
+      getTabList: () => [{ id: 'tab-local-1', url: 'http://127.0.0.1:20145/index.html' }],
+      hasTab: (id) => id === 'tab-local-1',
+      getTabDebugger: () => mockDebugger,
+      getDocumentGeneration: () => 5
+    };
+
+    const port = new BrowserControlPort(mockHost);
+
+    // `validTarget` is fenced at generation 1 while the live document is at 5. Refusing
+    // is the whole point: reloading would apply an offline-interception lifecycle to
+    // whatever the tab happens to be showing now, not to the document the caller inspected.
+    await assert.rejects(
+      async () => {
+        await port.reloadZeroNetwork(validTarget);
+      },
+      (err: unknown) => {
+        const rejection = asCapabilityError(err);
+        assert.strictEqual(rejection.code, 'TARGET_STALE');
+        assert.strictEqual(rejection.details?.targetDocumentGeneration, 1);
+        assert.strictEqual(rejection.details?.liveDocumentGeneration, 5);
+        return true;
+      }
+    );
+
+    // The fence must hold BEFORE interception is enabled or the tab is reloaded.
+    assert.deepStrictEqual(eventTimeline, [], 'A stale lifecycle target must produce no CDP command and no host reload');
   });
 
   it('4. records blocked external requests and returns verifiedOffline: false with exact blocked ledger', async () => {
