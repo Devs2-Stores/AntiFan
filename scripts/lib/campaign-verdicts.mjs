@@ -8,20 +8,41 @@
  */
 import { PROVENANCE_CODES } from './evidence-provenance.mjs';
 
-/** Parse `--pages` values ("3", "1-5", "2,7") into a list of page ids. */
-export function parsePagesFilter(pages) {
-  if (!pages) return null;
-  return pages.split(',').flatMap((part) => {
-    const trimmed = part.trim();
-    if (trimmed.includes('-')) {
-      const [s, e] = trimmed.split('-').map(Number);
-      if (!isNaN(s) && !isNaN(e) && s <= e) {
-        return Array.from({ length: e - s + 1 }, (_, i) => s + i);
+/**
+ * A filter is refused unless every comma-separated part resolves and every id it
+ * names is a page this campaign can run, before the lock is taken. This is also
+ * the only parser for `--pages` ("3", "1-5", "2,7"): validating one parse and
+ * running another let `'1,nonsense'` and `'1,5-3'` both parse to `[1]`, so the run
+ * would cover a subset of what the operator asked for and never say so.
+ *
+ * Returns `{ ok: true, ids: null }` when no filter was given.
+ */
+export function validatePagesFilter(pages, targetIds) {
+  if (!pages) return { ok: true, ids: null };
+  const known = new Set(targetIds);
+  const ids = [];
+  for (const rawPart of String(pages).split(',')) {
+    const part = rawPart.trim();
+    if (part === '') return { ok: false, reason: `--pages '${pages}' has an empty entry` };
+    const bounds = part.split('-');
+    if (bounds.length > 2) return { ok: false, reason: `--pages '${pages}' cannot read '${part}'` };
+    if (bounds.length === 2) {
+      const [start, end] = bounds.map(Number);
+      if (!Number.isInteger(start) || !Number.isInteger(end) || start > end) {
+        return { ok: false, reason: `--pages '${pages}' cannot read the range '${part}'` };
       }
+      for (let id = start; id <= end; id += 1) ids.push(id);
+      continue;
     }
-    const n = Number(trimmed);
-    return isNaN(n) ? [] : [n];
-  });
+    const id = Number(part);
+    if (!Number.isInteger(id)) return { ok: false, reason: `--pages '${pages}' cannot read '${part}'` };
+    ids.push(id);
+  }
+  const unknown = ids.filter((id) => !known.has(id));
+  if (unknown.length > 0) {
+    return { ok: false, reason: `--pages '${pages}' names ${unknown.join(', ')}, outside ${targetIds[0]}-${targetIds[targetIds.length - 1]}` };
+  }
+  return { ok: true, ids };
 }
 
 /**
@@ -29,24 +50,6 @@ export function parsePagesFilter(pages) {
  * index. Pre-existing evidence that carries no attempt identity is marked
  * superseded rather than being silently attributed to a fresh run.
  */
-/**
- * A filter that names nothing the campaign can run is refused before the lock is
- * taken. Parsing alone would make `--pages home` mean "run nothing" while the
- * exit classifier still expected the pages the filter mentioned, and a typo
- * would publish an empty report over the previous run's evidence.
- */
-export function validatePagesFilter(pages, parsed, targetIds) {
-  if (!pages) return { ok: true };
-  const ids = Array.isArray(parsed) ? parsed.filter((n) => Number.isInteger(n)) : [];
-  if (ids.length === 0) return { ok: false, reason: `--pages '${pages}' names no page` };
-  const known = new Set(targetIds);
-  const unknown = ids.filter((id) => !known.has(id));
-  if (unknown.length > 0) {
-    return { ok: false, reason: `--pages '${pages}' names ${unknown.join(', ')}, outside ${targetIds[0]}-${targetIds[targetIds.length - 1]}` };
-  }
-  return { ok: true };
-}
-
 /**
  * Completed cases that name neither the bundle they measured nor the instance they
  * measured on. Such a case is not evidence, whether it is read from the run summary

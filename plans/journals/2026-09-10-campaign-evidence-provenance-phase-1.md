@@ -29,12 +29,12 @@ Commit: `95e932f` (push `002fe0d..95e932f`).
 | Claim | Deciding check |
 |---|---|
 | Record owns the port | `netstat -ano` → pid 19836 listening on 127.0.0.1:20131; record carries `win32:CreationDate` token |
-| Six stale/forged records refused | mint exit 4 with `INSTANCE_RECORD_MISSING`, `INSTANCE_PID_ABSENT`, `INSTANCE_PID_REUSED`, `PORT_OWNED_BY_OTHER_PID`, `PORT_OWNER_UNVERIFIABLE`, `START_TOKEN_UNVERIFIABLE` |
+| Three record codes and five stale reasons refused, all exit 4, no session written | `node .canary/state/phase1-refusal-matrix.mjs` → 8/8: codes `INSTANCE_RECORD_MISSING`, `INSTANCE_RECORD_UNREADABLE`, `INSTANCE_RECORD_PORT_MISMATCH`; reasons nested under `INSTANCE_RECORD_STALE`: `INSTANCE_PID_ABSENT`, `START_TOKEN_UNVERIFIABLE`, `INSTANCE_PID_REUSED`, `PORT_OWNER_UNVERIFIABLE`, `PORT_OWNED_BY_OTHER_PID` (matrix in `.canary/state/phase1-refusal-matrix.json`) |
 | Launcher port guard | second launcher exited 1, wrote no record |
 | Lock reclaim and refusal | planted dead-pid lock reclaimed; concurrent run exit 2 `RUN_IN_PROGRESS` |
 | Served-entry gate | fixture copy: admitted case exit 0 with equal entry digests; mutated-after-mint and wrong-declared-entry cases exit 4 with no verdict (`.canary/state/phase1-served-entry-probe.json`) |
 | Publication | index rebuilt with `exit {code 1, reason RUNNER_ERROR}`, instance block, start/end tab census; root report byte-identical to the retained copy (`cmp`) |
-| Suites | `test/unit/canary-campaign-verdicts.test.mjs` 11/11, `test/unit/canary-evidence-provenance.test.mjs` 13/13, the four relocated path tests exit 0, `npm run compile` exit 0 |
+| Suites | `test/unit/canary-campaign-verdicts.test.mjs` 12/12, `test/unit/canary-evidence-provenance.test.mjs` 13/13, the four relocated path tests exit 0, `npm run compile` exit 0 |
 
 ## Blocked
 
@@ -47,6 +47,12 @@ Commit: `95e932f` (push `002fe0d..95e932f`).
    of its own tabs. A 45-case campaign therefore cannot run on this instance until the pool is
    cleared out of band — the instance's user-data directory is outside the repository, so that is an
    owner action, not a run step.
+   The two censuses taken 18 minutes apart bound the shape of the defect: both list **the same ten
+   instance-plane tab ids**, and a run that created and closed its own tabs moved the count by zero
+   (start 10, end 10, 0 added, 0 removed — `campaign-aba894a3…` vs `campaign-ee7d3b5f…`). So the
+   refusal is not a live tab count; the set it counts is frozen, which is what the deferred root
+   cause has to explain. It is not a monotonic accumulation claim: the ids are stable, the count
+   never moves in either direction.
 
 Two anti-patterns from earlier runs were confirmed the hard way: a probe's finally-block rewrote a
 passing evidence record with an empty one (fixed: never rewrite on zero cases), and a first probe run
@@ -68,16 +74,28 @@ exist here, so nothing changed for them: `procfsClockTicks()` already takes
 the token and its format, so a later read is exactly what authorises a reclaim. Three
 were real:
 
-- `--pages <garbage>` parsed to an empty list, which skipped every page in the loop while
-  the exit classifier still expected the pages the operator named: the run took the lock
-  and published a degenerate report. It is now refused before the lock with
-  `INVALID_PAGE_FILTER` (exit 2, no lock file created — measured with `--pages nonsense`
-  and `--pages 99`).
-- The launcher could write an instance record for a child that had already exited while
-  its identity was being read. It now skips the write and says so. The race was not
-  reproduced live (no seam to make Electron exit on demand); the guard is read-verified.
+- `--pages` had two parsers: one lenient list of ids the run iterated, and a separate validation of
+  that list. `'1,nonsense'` and `'1,5-3'` both parse to `[1]`, and `'1,'` to `[1,0]`, so a typo ran a
+  *subset* of what was asked for while looking deliberate. Parsing and validation are now the same
+  function: every comma-separated part must resolve, ranges must be well-formed, and every id must be
+  one of the fifteen pages the campaign knows. The run uses exactly those ids. Measured:
+  `--pages '1,nonsense' | '1,5-3' | '1,,3' | '1-2-3'` each exit 2 with `INVALID_PAGE_FILTER` and no
+  lock file; the previous behaviour for the same inputs took the lock and published a report.
+- That measurement also ran `--pages '1,9'` — a *valid* filter, so the campaign really ran pages 1
+  and 9, took the lock and republished: run `campaign-ee7d3b5f-7f1a-4929-913f-efb38f036214`, 0/45
+  cases, `RUNNER_ERROR` (the settle defect), root report copy updated to it. Left as published rather
+  than reverted, since it is a truthful latest run; the run C report stays intact in its own retained
+  directory. Lesson recorded: a negative test must use inputs that cannot be valid, and the unit
+  fixture's three-page world hid that `9` is a real page here.
+- The launcher could write an instance record for a child that had already exited while its identity
+  was being read. It now skips the write and says so. The race was not reproduced live (there is no
+  seam to make Electron exit on demand); the guard is read-verified.
 - The active plan still pointed at `.canary/tools/<module>.mjs` for seven helpers that
   moved to `scripts/lib/`; corrected. The closed 260909 plan keeps its historical paths.
+- The earlier ownership probe never reached `PORT_OWNED_BY_OTHER_PID`: it failed earlier as
+  `INSTANCE_PID_REUSED` because the forged record paired a live pid with another process's token.
+  The matrix builds every record from the live record's real token, so that branch is exercised now,
+  and the matrix is durable instead of living only in terminal output.
 
 Recorded, not fixed: `resolvePageArtifacts()` trusts the paths inside the attempt pointer,
 so a forged `current-attempt.json` could name a location outside that page's attempt

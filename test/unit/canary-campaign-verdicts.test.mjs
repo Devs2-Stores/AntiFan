@@ -8,7 +8,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-  parsePagesFilter,
+
   validatePagesFilter,
   buildVerdictIndex,
   computeRunExit,
@@ -56,12 +56,12 @@ const summary = (pageResults, extra = {}) => ({
   ...extra,
 });
 
-test('parsePagesFilter accepts single ids, ranges and lists', () => {
-  assert.deepEqual(parsePagesFilter('3'), [3]);
-  assert.deepEqual(parsePagesFilter('1-3'), [1, 2, 3]);
-  assert.deepEqual(parsePagesFilter('1,4-5,9'), [1, 4, 5, 9]);
-  assert.equal(parsePagesFilter(null), null);
-  assert.deepEqual(parsePagesFilter('nonsense'), []);
+test('--pages is parsed and validated in one place', () => {
+  const ids = TARGET_PAGES.map((p) => p.id); // 1..3
+  assert.deepEqual(validatePagesFilter('3', ids).ids, [3]);
+  assert.deepEqual(validatePagesFilter('1-3', ids).ids, [1, 2, 3]);
+  assert.deepEqual(validatePagesFilter('1,3', ids).ids, [1, 3]);
+  assert.equal(validatePagesFilter(undefined, ids).ids, null, 'no filter means every page');
 });
 
 test('a fidelity FAIL is valid output: the run exits 0', () => {
@@ -228,24 +228,18 @@ test('the hub shows every page and viewport, and escapes page-controlled text', 
   assert.equal((html.match(/<th>1 /g) || []).length, 1);
 });
 
-test('a page filter that names nothing runnable is refused before anything is acquired', () => {
+test('a page filter that names anything unreadable or unknown is refused, not partially run', () => {
   const ids = TARGET_PAGES.map((p) => p.id);
 
-  // A typo parses to an empty list: without this check the loop would skip every
-  // page while the exit classifier still expected the pages the operator named.
-  assert.equal(parsePagesFilter('home').length, 0);
-  const typo = validatePagesFilter('home', parsePagesFilter('home'), ids);
-  assert.equal(typo.ok, false);
-  assert.match(typo.reason, /names no page/);
+  // The parsed list hid the evidence: '1,nonsense' and '1,5-3' both parse to [1],
+  // so the run would have covered page 1 and silently dropped what was asked for.
+  assert.match(validatePagesFilter('home', ids).reason, /cannot read 'home'/);
+  assert.match(validatePagesFilter('1,nonsense', ids).reason, /cannot read 'nonsense'/);
+  assert.match(validatePagesFilter('1,5-3', ids).reason, /cannot read the range '5-3'/);
+  assert.match(validatePagesFilter('1,,3', ids).reason, /empty entry/);
+  assert.match(validatePagesFilter('1-2-3', ids).reason, /cannot read '1-2-3'/);
+  assert.match(validatePagesFilter('9', ids).reason, /outside 1-3/);
+  assert.match(validatePagesFilter('1,9', ids).reason, /outside 1-3/, 'one unknown id refuses the whole filter');
 
-  const outOfRange = validatePagesFilter('9', parsePagesFilter('9'), ids);
-  assert.equal(outOfRange.ok, false);
-  assert.match(outOfRange.reason, /outside 1-3/);
-
-  const mixed = validatePagesFilter('1,9', parsePagesFilter('1,9'), ids);
-  assert.equal(mixed.ok, false, 'one unknown id refuses the whole filter');
-
-  assert.equal(validatePagesFilter('2', parsePagesFilter('2'), ids).ok, true);
-  assert.equal(validatePagesFilter('1-2', parsePagesFilter('1-2'), ids).ok, true);
-  assert.equal(validatePagesFilter(undefined, parsePagesFilter(undefined), ids).ok, true);
+  assert.equal(validatePagesFilter('1,2-3', ids).ok, true);
 });

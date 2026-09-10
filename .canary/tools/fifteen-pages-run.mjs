@@ -39,7 +39,7 @@ const {
   PROVENANCE_CODES,
 } = await import('../../scripts/lib/evidence-provenance.mjs');
 const { readRecord, writeRecordAtomic } = await import('../../scripts/lib/atomic-record.mjs');
-const { parsePagesFilter, validatePagesFilter, buildVerdictIndex, renderHubHtml, computeRunExit, casesWithoutProvenance } = await import('../../scripts/lib/campaign-verdicts.mjs');
+const { validatePagesFilter, buildVerdictIndex, renderHubHtml, computeRunExit, casesWithoutProvenance } = await import('../../scripts/lib/campaign-verdicts.mjs');
 
 
 
@@ -359,7 +359,13 @@ const NETWORK_AUDIT_EXPR = `(() => {
   };
 })()`;
 
-/** A run that never started: no mutation happened, and the exit code says why. */
+/**
+ * A run that never started: no mutation happened, and the exit code says why.
+ *
+ * Exit 2 is the refusal exit — nothing was acquired and nothing was published —
+ * shared by a held lock, a lost lock and an unreadable page filter; the `code`
+ * and the printed reason are what distinguish them.
+ */
 function refusedRun({ runId, code, reason, holder, proof }) {
   console.error(`[campaign] refusing to run: ${code}${reason ? ` — ${reason}` : ''}`);
   if (holder) console.error(`[campaign] lock holder: ${JSON.stringify(holder).slice(0, 400)}`);
@@ -383,11 +389,11 @@ function refusedRun({ runId, code, reason, holder, proof }) {
  */
 export async function runFifteenPagesCanary(options = {}) {
   const runId = options.runId || `campaign-${crypto.randomUUID()}`;
-  const pagesFilter = parsePagesFilter(options.pages);
-  const filterCheck = validatePagesFilter(options.pages, pagesFilter, TARGET_PAGES.map((p) => p.id));
-  if (!filterCheck.ok) {
-    return refusedRun({ runId, code: 'INVALID_PAGE_FILTER', reason: filterCheck.reason });
+  const filter = validatePagesFilter(options.pages, TARGET_PAGES.map((p) => p.id));
+  if (!filter.ok) {
+    return refusedRun({ runId, code: 'INVALID_PAGE_FILTER', reason: filter.reason });
   }
+  const pagesFilter = filter.ids;
   let lock = options.lock || null;
   let acquiredHere = false;
 

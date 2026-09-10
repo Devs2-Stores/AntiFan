@@ -5,9 +5,9 @@
 ```text
 EXECUTIVE VERDICT : INCONCLUSIVE
 FINAL DECISION    : CLONE_PIPELINE_BLOCKED
-PAGES EXECUTED    : 1 / 15 (14 pages UNTESTED in this batch)
+PAGES EXECUTED    : 2 / 15 (13 pages UNTESTED in this batch)
 RENDER CASES RUN  : 0 / 45 (PASS: 0 | FAIL: 0 | INCONCLUSIVE: 0)
-COMPLETION DATE   : 2026-09-10T15:31:45.233Z
+COMPLETION DATE   : 2026-09-10T15:49:15.921Z
 ```
 
 ---
@@ -24,7 +24,7 @@ COMPLETION DATE   : 2026-09-10T15:31:45.233Z
 | 6 | GIỎ HÀNG | [https://hoplongtech.com/cart](https://hoplongtech.com/cart) | `hoplongtech.com` | **NOT_TESTED** |
 | 7 | CHI TIẾT SẢN PHẨM | [https://hoplongtech.com/products/lc1d09m7](https://hoplongtech.com/products/lc1d09m7) | `hoplongtech.com` | **NOT_TESTED** |
 | 8 | BÁO GIÁ | [https://hoplongtech.com/bao-gia](https://hoplongtech.com/bao-gia) | `hoplongtech.com` | **NOT_TESTED** |
-| 9 | TÀI LIỆU | [https://hoplongtech.com/tai-lieu-ky-thuat](https://hoplongtech.com/tai-lieu-ky-thuat) | `hoplongtech.com` | **NOT_TESTED** |
+| 9 | TÀI LIỆU | [https://hoplongtech.com/tai-lieu-ky-thuat](https://hoplongtech.com/tai-lieu-ky-thuat) | `hoplongtech.com` | **FAIL** |
 | 10 | TIN TỨC | [https://hoplongtech.com/tin-tuc](https://hoplongtech.com/tin-tuc) | `hoplongtech.com` | **NOT_TESTED** |
 | 11 | CHI TIẾT TIN TỨC | [https://hoplongtech.com/tin-tuc/quoc-vuong-jordan-abdullah-ii-tham-tap-doan-agibot-thuc-day-hop-tac-cong-nghe-robot.html](https://hoplongtech.com/tin-tuc/quoc-vuong-jordan-abdullah-ii-tham-tap-doan-agibot-thuc-day-hop-tac-cong-nghe-robot.html) | `hoplongtech.com` | **NOT_TESTED** |
 | 12 | GIỚI THIỆU | [https://hoplong.com/gioi-thieu-ve-hop-long/](https://hoplong.com/gioi-thieu-ve-hop-long/) | `hoplong.com` | **NOT_TESTED** |
@@ -44,7 +44,7 @@ Run ID             : run-ba086c11-8949-4544-81eb-50512737995c
 Primary Tab ID     : 21b37447-830d-47ee-a615-b0ef40468329
 Required Viewports : 1440x900 (Desktop), 1024x900 (Tablet), 390x844 (Mobile)
 Target Scope       : 15 pages x 3 viewports = 45 cases
-Executed in Batch  : 1 pages (0 cases)
+Executed in Batch  : 2 pages (0 cases)
 ```
 
 ---
@@ -61,7 +61,7 @@ Executed in Batch  : 1 pages (0 cases)
 | 6. GIỎ HÀNG | `https://hoplongtech.com/cart...` | NOT_TESTED | NOT_TESTED | NOT_TESTED | NOT_TESTED | NOT_TESTED | NOT_TESTED | NOT_TESTED | NOT_TESTED | NOT_TESTED | **NOT_TESTED** |
 | 7. CHI TIẾT SẢN PHẨM | `https://hoplongtech.com/products...` | NOT_TESTED | NOT_TESTED | NOT_TESTED | NOT_TESTED | NOT_TESTED | NOT_TESTED | NOT_TESTED | NOT_TESTED | NOT_TESTED | **NOT_TESTED** |
 | 8. BÁO GIÁ | `https://hoplongtech.com/bao-gia...` | NOT_TESTED | NOT_TESTED | NOT_TESTED | NOT_TESTED | NOT_TESTED | NOT_TESTED | NOT_TESTED | NOT_TESTED | NOT_TESTED | **NOT_TESTED** |
-| 9. TÀI LIỆU | `https://hoplongtech.com/tai-lieu...` | NOT_TESTED | NOT_TESTED | NOT_TESTED | NOT_TESTED | NOT_TESTED | NOT_TESTED | NOT_TESTED | NOT_TESTED | NOT_TESTED | **NOT_TESTED** |
+| 9. TÀI LIỆU | `https://hoplongtech.com/tai-lieu...` | NOT_TESTED | NOT_TESTED | NOT_TESTED | NOT_TESTED | NOT_TESTED | NOT_TESTED | NOT_TESTED | NOT_TESTED | NOT_TESTED | **FAIL** |
 | 10. TIN TỨC | `https://hoplongtech.com/tin-tuc...` | NOT_TESTED | NOT_TESTED | NOT_TESTED | NOT_TESTED | NOT_TESTED | NOT_TESTED | NOT_TESTED | NOT_TESTED | NOT_TESTED | **NOT_TESTED** |
 | 11. CHI TIẾT TIN TỨC | `https://hoplongtech.com/tin-tuc/...` | NOT_TESTED | NOT_TESTED | NOT_TESTED | NOT_TESTED | NOT_TESTED | NOT_TESTED | NOT_TESTED | NOT_TESTED | NOT_TESTED | **NOT_TESTED** |
 | 12. GIỚI THIỆU | `https://hoplong.com/gioi-thieu-v...` | NOT_TESTED | NOT_TESTED | NOT_TESTED | NOT_TESTED | NOT_TESTED | NOT_TESTED | NOT_TESTED | NOT_TESTED | NOT_TESTED | **NOT_TESTED** |
@@ -110,7 +110,7 @@ Executed in Batch  : 1 pages (0 cases)
 - **Visual**: N/A (N/A% mismatch)
 - **Overall**: **N/A**
 
-**Failures**: `[topLevel] POLICY_DENIED: Tab 'fd251bad-d415-4374-affa-5c7835994cfb' could not be adopted into session '1b41d4ff-d186-45cf-9a12-09050b86d858' (session tab quota reached); the tab was closed instead of leaking outside the session`
+**Failures**: `[topLevel] POLICY_DENIED: Tab 'd17cae3f-cbd2-4fb7-90e6-f94d85dbb0c2' could not be adopted into session '1b41d4ff-d186-45cf-9a12-09050b86d858' (session tab quota reached); the tab was closed instead of leaking outside the session`
 
 ---
 
@@ -158,7 +158,42 @@ Executed in Batch  : 1 pages (0 cases)
 
 ### Page 9: TÀI LIỆU
 
-*Status: NOT_TESTED in this execution run.*
+- **Initial URL**: `https://hoplongtech.com/tai-lieu-ky-thuat`
+- **Final URL**: `https://hoplongtech.com/tai-lieu-ky-thuat`
+- **Special Requirements**: Document listing, file metadata, download CTA, upload/config semantics.
+- **Discovery Metrics**: 0 sections, 0 product cards, 0 articles, 0 images, document dimensions: `0x0`, overflowX: `undefined`.
+
+#### 1440px (Desktop)
+- **Navigation**: FAIL
+- **Structure**: N/A
+- **Assets**: FAIL (Audit)
+- **Typography**: N/A
+- **Network**: N/A (Ref visual requests: N/A)
+- **Capture**: N/A
+- **Visual**: N/A (N/A% mismatch)
+- **Overall**: **N/A**
+
+#### 1024px (Tablet)
+- **Navigation**: FAIL
+- **Structure**: N/A
+- **Assets**: FAIL (Audit)
+- **Typography**: N/A
+- **Network**: N/A (Ref visual requests: N/A)
+- **Capture**: N/A
+- **Visual**: N/A (N/A% mismatch)
+- **Overall**: **N/A**
+
+#### 390px (Mobile)
+- **Navigation**: FAIL
+- **Structure**: N/A
+- **Assets**: FAIL (Audit)
+- **Typography**: N/A
+- **Network**: N/A (Ref visual requests: N/A)
+- **Capture**: N/A
+- **Visual**: N/A (N/A% mismatch)
+- **Overall**: **N/A**
+
+**Failures**: `[topLevel] POLICY_DENIED: Tab 'f5c9bc4f-cb9a-4c0c-b81c-5fb6f7b0f0b9' could not be adopted into session '1b41d4ff-d186-45cf-9a12-09050b86d858' (session tab quota reached); the tab was closed instead of leaking outside the session`
 
 ---
 
@@ -201,13 +236,14 @@ Executed in Batch  : 1 pages (0 cases)
 ## 6. Asset Pipeline Results
 
 
-- **Pages Tested in Pipeline**: 1 pages.
-- **Successful Clone Bundles**: 0 / 1.
-- **Failed Clone Bundles**: 1 / 1.
+- **Pages Tested in Pipeline**: 2 pages.
+- **Successful Clone Bundles**: 0 / 2.
+- **Failed Clone Bundles**: 2 / 2.
 - **Asset Families Discovered**: Discovered across `src`, `srcset`, `<picture>`, and inline style `background-image`.
 
 ### Pipeline Failures Encountered
 - **Page 1 (TRANG CHỦ)**: `Unknown error`
+- **Page 9 (TÀI LIỆU)**: `Unknown error`
 
 
 
@@ -235,12 +271,17 @@ Executed in Batch  : 1 pages (0 cases)
 ## 9. Structural Results
 
 - **Page 1 (TRANG CHỦ)**: Discovery Ref: 0 sections, 0 product cards, 0 articles.
+- **Page 9 (TÀI LIỆU)**: Discovery Ref: 0 sections, 0 product cards, 0 articles.
 
 ---
 
 ## 10. Responsive Results
 
 - **Page 1 (TRANG CHỦ)**: Status: **INCONCLUSIVE (Missing complete structural metrics)**
+  * 1440px DocHeight: Ref=N/Apx, Clone=N/Apx (OverflowX: Ref=N/A, Clone=N/A)
+  * 1024px DocHeight: Ref=N/Apx, Clone=N/Apx (OverflowX: Ref=N/A, Clone=N/A)
+  * 390px DocHeight: Ref=N/Apx, Clone=N/Apx (OverflowX: Ref=N/A, Clone=N/A)
+- **Page 9 (TÀI LIỆU)**: Status: **INCONCLUSIVE (Missing complete structural metrics)**
   * 1440px DocHeight: Ref=N/Apx, Clone=N/Apx (OverflowX: Ref=N/A, Clone=N/A)
   * 1024px DocHeight: Ref=N/Apx, Clone=N/Apx (OverflowX: Ref=N/A, Clone=N/A)
   * 390px DocHeight: Ref=N/Apx, Clone=N/Apx (OverflowX: Ref=N/A, Clone=N/A)
@@ -260,12 +301,14 @@ Executed in Batch  : 1 pages (0 cases)
 - **Inconclusive Cases**: 0.
 
 - **Page 1 (TRANG CHỦ)**: 
+- **Page 9 (TÀI LIỆU)**: 
 
 ---
 
 ## 13. Cross-Page Failure Patterns
 
-- `[topLevel] POLICY_DENIED: Tab 'fd251bad-d415-4374-affa-5c7835994cfb' could not be adopted into session '1b41d4ff-d186-45cf-9a12-09050b86d858' (session tab quota reached); the tab was closed instead of leaking outside the session`
+- `[topLevel] POLICY_DENIED: Tab 'd17cae3f-cbd2-4fb7-90e6-f94d85dbb0c2' could not be adopted into session '1b41d4ff-d186-45cf-9a12-09050b86d858' (session tab quota reached); the tab was closed instead of leaking outside the session`
+- `[topLevel] POLICY_DENIED: Tab 'f5c9bc4f-cb9a-4c0c-b81c-5fb6f7b0f0b9' could not be adopted into session '1b41d4ff-d186-45cf-9a12-09050b86d858' (session tab quota reached); the tab was closed instead of leaking outside the session`
 
 ---
 
@@ -288,8 +331,8 @@ Executed in Batch  : 1 pages (0 cases)
 
 | Category | Status | Notes |
 |----------|--------|-------|
-| A. Discovery | FAIL | 0/1 pages passed |
-| B. Asset Localization | FAIL | 0/1 bundles built |
+| A. Discovery | FAIL | 0/2 pages passed |
+| B. Asset Localization | FAIL | 0/2 bundles built |
 | C. Asset Family | PASS | Discovered across src/srcset/picture/bg |
 | D. Typography | PASS | Extracted across 1 domains |
 | E. HTML Extraction | BLOCKED | BlueprintExtractor extraction |
@@ -310,7 +353,8 @@ Executed in Batch  : 1 pages (0 cases)
 
 
 Dựa trên các lỗi thực tế ghi nhận trong batch:
-1. Khắc phục lỗi: `[topLevel] POLICY_DENIED: Tab 'fd251bad-d415-4374-affa-5c7835994cfb' could not be adopted into session '1b41d4ff-d186-45cf-9a12-09050b86d858' (session tab quota reached); the tab was closed instead of leaking outside the session`
+1. Khắc phục lỗi: `[topLevel] POLICY_DENIED: Tab 'd17cae3f-cbd2-4fb7-90e6-f94d85dbb0c2' could not be adopted into session '1b41d4ff-d186-45cf-9a12-09050b86d858' (session tab quota reached); the tab was closed instead of leaking outside the session`
+2. Khắc phục lỗi: `[topLevel] POLICY_DENIED: Tab 'f5c9bc4f-cb9a-4c0c-b81c-5fb6f7b0f0b9' could not be adopted into session '1b41d4ff-d186-45cf-9a12-09050b86d858' (session tab quota reached); the tab was closed instead of leaking outside the session`
 
 
 ---
