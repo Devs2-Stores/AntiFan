@@ -17,7 +17,10 @@ Baseline this phase also settles the tally disagreement: the same artifacts repo
 
 ## Requirements
 
-- Bundle identity is **minted once per page build**, immediately after the build stage returns: hash the entry HTML that build just wrote, together with its byte count, generation timestamp and source URL, and persist it as the page's identity record. Minting happens while the build is the only writer of that directory.
+- **Each page build writes to an attempt-scoped, immutable directory**, and that exact path is what gets served. Today the runner serves a fixed unlocked path (`fifteen-pages-run.mjs:392`, `cloneDir = <pageDir>/clone`; built at `:536`, served at `:560`) and there is no lock primitive anywhere in the runner, the builder, the viewport runner or the RPC lib, so a concurrent or resumed invocation can rebuild a page between its mint and its capture. The build target becomes `<pageDir>/attempts/<attemptId>/clone/` (and `…/clone/mobile/` for the 390 tier), written once and never rewritten; the static server serves that directory, and every consumer that today derives `<pageDir>/clone` resolves the path from the page's identity record instead. The migration list is small and explicit: `fifteen-pages-run.mjs:392` / `:536` / `:560`, the `clone/mobile/index.html` gate in `viewport-run.mjs:274-277`, the bundle resolver in `build-report.mjs`, and the hand-made `_hub.html` (regenerated, or marked stale).
+- Bundle identity is **minted immediately after that build returns**, over the attempt path it just wrote: hash the entry HTML together with its byte count, generation timestamp, source URL and attempt id, and persist it as the page's identity record. Nothing rewrites an attempt directory, so the mint cannot be invalidated by a later build of the same page.
+- **The run lock serializes invocations.** Even with immutable attempts, two runs must not interleave: `_verdicts.json` and the aggregate are single-writer documents. The run acquires `.canary/state/run.lock` with `openSync(path, 'wx')`, holding `{runId, attemptId, pid, startedAt, pages}`, before its first build; a live holder refuses the second invocation with `RUN_IN_PROGRESS` and prints the holder's identity, a dead holder's lock is stale and is replaced. It is held through every build, capture and index write, released on every exit path, and a resumed run takes the same lock so it cannot overlap the run it resumes. Attempts are pruned to the current plus the previous one per page, keeping disk bounded and giving rollback a real snapshot.
+- **Even an unlocked writer cannot produce a verdict about a bundle it did not measure.** The entry served to the clone tab is verified against the minted identity at capture start; a mismatch yields `BUNDLE_IDENTITY_MISMATCH` and no verdict, instead of a comparison against a bundle the run never built.
 - Every downstream writer *carries* the minted identity instead of re-deriving it: `evidence/<vp>.json`, `evidence/run-<vp>.json`, `evidence/summary.json` and the canonical index copy `{entryPath, entrySha256, entryBytes, generatedAt, sourceUrl}` verbatim from that record.
 - A verdict is refused with a typed `BUNDLE_IDENTITY_MISMATCH` when the entry actually served to the tab does not equal the minted identity — that means the wrong directory was served, not that evidence is stale. A later on-disk re-hash is a **drift check** (`BUNDLE_DRIFT_AFTER_BUILD`): it marks the run defective and never silently re-identifies a case.
 - `.canary/tools/fifteen-pages-run.mjs` exports the same provenance environment `.canary/tools/canary-run.mjs` exports, so `runId`, `evidenceRunId` and `cloneDir` stop being `null`.
@@ -35,22 +38,25 @@ Baseline this phase also settles the tally disagreement: the same artifacts repo
 - `.canary/tools/canary-run.mjs` — the arm that already exports `CANARY_AUTHORITY_RUN_ID` / `CANARY_EVIDENCE_RUN_ID` / `CANARY_CLONE_DIR`
 - `scripts/run-electron.cjs` — the launcher, and the instance-record owner (new write path)
 - `.canary/tools/canary-session.mjs` — the atomic session writer and record validator
-- `.canary/state/canary-instance.json`, `.canary/state/canary-session.json` — the records
+- `.canary/state/canary-instance.json`, `.canary/state/canary-session.json`, `.canary/state/run.lock` — the records and the run lock
+- `.canary/15-pages/<page>/attempts/<attemptId>/clone/` — the immutable served bundle; the legacy `<pageDir>/clone/` path is no longer written
 - `test/unit/canary-evidence-provenance.test.mjs` — new
 
 ## Implementation Steps
 
 1. Read the three writers and the telemetry producer, and pin down the exact field names: `viewport-run.mjs` (the `<vp>.json` object literal), `fifteen-pages-run.mjs` (the `run-<vp>.json` and `summary.json` literals), `build-clone.mjs` (`entryBytes` / `entrySha256`).
-2. Mint the identity in the build stage: immediately after `build-clone.mjs` returns for a page, hash the entry it wrote and record `{entryPath, entrySha256, entryBytes, generatedAt, sourceUrl}` as that page's identity. The build is the only writer at that moment, so no rebuild can interleave.
-3. Carry it, never re-derive it: pass the minted identity into `viewport-run.mjs` (env or argv), and have every writer copy it into its document. A mismatch between the served entry and the minted identity refuses the case before capture; a post-run disk re-hash only reports drift and never rewrites the recorded identity.
+2. Acquire the run lock, then build to the attempt path: take `.canary/state/run.lock` (exclusive create, stale-replace by pid liveness, released on every exit path) before the first build, and move the build target to `<pageDir>/attempts/<attemptId>/clone/` — updating `fifteen-pages-run.mjs:392/536/560`, the mobile gate in `viewport-run.mjs:274-277`, the `build-report.mjs` bundle resolver, and `_hub.html` (regenerated, or marked stale) — then mint the identity over the entry that build wrote: `{entryPath, entrySha256, entryBytes, generatedAt, sourceUrl, attemptId}`. Nothing rewrites an attempt directory, so no later build can invalidate the mint.
+3. Carry it, never re-derive it: pass the minted identity and the attempt path into `viewport-run.mjs` (env or argv), and have every writer copy the identity into its document. The served entry is verified against it at capture start; a mismatch refuses the case before capture, and a post-run disk re-hash only reports drift without rewriting the recorded identity.
 4. Export the provenance environment from the campaign runner to every child (`viewport-run.mjs`, `dump-ref.mjs`, `build-clone.mjs`), matching `canary-run.mjs`.
-5. Own the instance record: extend `scripts/run-electron.cjs` to write `.canary/state/canary-instance.json` atomically after spawn (temp file in the same directory, `fsync`, `renameSync`), delete it on clean exit, and refuse to start when the bridge port already has an owner. Extract the temp+rename writer into one shared helper used by both the launcher and the mint, so no writer hand-rolls it.
+5. Own the instance record: extend `scripts/run-electron.cjs` with an **opt-in** state-record path (`--state-record <path>` or `ANTIFAN_INSTANCE_RECORD`), which it writes atomically after a successful spawn (temp file in the same directory, `fsync`, `renameSync`), removes on exit **only if the record still names that child**, and refuses to start when the bridge port already has an owner. Extract the temp+rename writer into one shared helper used by both the launcher and the mint, so no writer hand-rolls it.
 6. Validate, then mint: `canary-session.mjs` requires a fresh record whose `instancePid` is alive and owns the listening socket on `port` (fail closed with `INSTANCE_RECORD_STALE`), then writes the session atomically with `instancePid`, `instanceStartedAt` and `bridgePort` included. Tests cover a dead pid, a foreign port owner, a missing record, and a torn-write window.
 7. Write `.canary/15-pages/_verdicts.json` at the end of each page (not only at the end of the invocation) so a resumable run always leaves a consistent index. Legacy entries are marked `superseded: true` with the reason (`evidence predates bundle`).
 8. Tests (no Electron, deterministic): `node --test test/unit/canary-evidence-provenance.test.mjs`
    - a case whose served entry differs from the minted identity is refused with `BUNDLE_IDENTITY_MISMATCH` and writes no verdict;
    - a case whose served entry matches is admitted and carries non-null `bundle` + `instance` fields;
    - a post-build on-disk change is reported as drift and does **not** change the recorded identity;
+   - a second invocation while the run lock is held is refused with `RUN_IN_PROGRESS` and writes nothing, while a lock whose recorded holder is dead is replaced;
+   - two builds of the same page produce two distinct attempt directories, the older attempt is byte-identical afterwards, and each verdict names the attempt it measured;
    - a stale record (dead pid, foreign port owner, absent file) refuses the mint with `INSTANCE_RECORD_STALE` and leaves no session file;
    - a failed write leaves the previous record intact — the writer is asserted through its seam, not by spawning Electron;
    - the canonical index carries exactly one entry per page × viewport and no `null` provenance field;
@@ -61,6 +67,8 @@ Baseline this phase also settles the tally disagreement: the same artifacts repo
 ## Todo
 
 - [ ] Pin the exact writer field names and the telemetry producer
+- [ ] Take the run lock and build into attempt-scoped directories
+- [ ] Migrate the served-path consumers to the attempt path
 - [ ] Mint the bundle identity in the build stage
 - [ ] Carry the minted identity into every downstream document
 - [ ] Add the `BUNDLE_IDENTITY_MISMATCH` refusal and the drift report
@@ -74,8 +82,10 @@ Baseline this phase also settles the tally disagreement: the same artifacts repo
 ## Verification
 
 - `node --test test/unit/canary-evidence-provenance.test.mjs` → all cases pass.
-- On the pinned isolated instance (bridge 20131, `--allow-eval`), a bounded run produces `evidence/run-1440.json` and `_verdicts.json` entries whose `bundle.entrySha256` equals the identity minted at that page's build, `sha256sum .canary/15-pages/page-02-brands/clone/index.html` agreeing at that instant.
+- On the pinned isolated instance (bridge 20131, `--allow-eval`), a bounded run produces `evidence/run-1440.json` and `_verdicts.json` entries whose `bundle.entrySha256` equals the identity minted at that page's build, and `sha256sum` of that attempt's served entry (`.canary/15-pages/page-02-brands/attempts/<attemptId>/clone/index.html`) agrees at that instant.
 - `.canary/state/canary-instance.json` exists with an `instancePid` that owns port 20131 (`netstat -ano` agrees), and the session file names the same pid.
+- A second invocation launched while the first holds `.canary/state/run.lock` exits non-zero with `RUN_IN_PROGRESS` and writes no evidence; killing the holder leaves a stale lock that the next run replaces.
+- Two consecutive builds of one page leave two attempt directories, the first byte-identical, and the verdict records the second's path and hash.
 - The fail-closed refusal is proven on a copy: build a fixture directory that points at a copied bundle, change the copy's entry HTML so it no longer matches the minted identity, and observe `BUNDLE_IDENTITY_MISMATCH` with no verdict written. Never mutate a campaign bundle to test this.
 - A forged record with a dead pid or a port owned by another process refuses the mint with `INSTANCE_RECORD_STALE` and writes no session.
 - An adjudicable FAIL exits `0` and is published; an incomplete batch exits non-zero, and the run-level provenance records the tab census at start and end.
@@ -86,6 +96,7 @@ Baseline this phase also settles the tally disagreement: the same artifacts repo
 - [ ] `runId`, `evidenceRunId`, `cloneDir` are non-null in campaign evidence.
 - [ ] One canonical verdict and cause code per page × viewport exists in one machine-readable index.
 - [ ] A stale or unverifiable instance record cannot produce a session, and no writer writes a record or a session non-atomically.
+- [ ] Concurrency is safe by construction: a live run lock refuses a second invocation, and no rewrite can happen under a minted identity because each build owns a fresh attempt directory.
 - [ ] The fail-closed refusal is demonstrated by an observed run, not by a unit test alone.
 - [ ] Exit status encodes process success only: incomplete batches and provenance refusals non-zero, fidelity FAILs zero.
 

@@ -36,8 +36,9 @@ This plan does not promise `PASS`. It promises that a reported number is a measu
 | 12 | The genuine fidelity differences are few and already named: 5 pages FAIL at 1440 on `STRUCTURAL_PARITY_MISMATCH deltaGeometry=15px` (page-02 2.3%, 03 5.11%, 04 15.44%, 08 3.57%, 10 18.95%) — recorded against superseded bundles. | `evidence/1440.json`; `src/main/tools/browser-control-port.ts:5213-5228`; tolerance `maxGeometryDeltaPx` 2 px, `src/main/verification/visual-region.ts:158` |
 | 13 | **Ten orphaned tabs** from dead sessions sit in the isolated instance — eight pointing at dead local clone ports (`http://127.0.0.1:7871/...`), one at the live storefront. They survive a stop/start, are invisible to a session-scoped census (`browser.list-tabs` → 0, `anti.browser.tabs.list` → 10) and cannot be closed by any live session (`TARGET_MISMATCH`). They did **not** block a new session's tab create after the restart/mint, so they are a tab-economy and hygiene defect, not a run blocker. | measured on instance pid 19312; scoping rule `src/main/tools/browser-control-port.ts:2175-2181` |
 | 14 | The two settle predicates disagree: `settleAndMeasure` computes `settled` **without** `fontsSettled` and derives `timedOut` from it, while `requireDoubleSettledMetrics` requires fonts as well — so a font failure reports `settled: true, timedOut: false` while the gate that throws blames the composite, and the throw prints only counts. | `.canary/tools/canary-settle.mjs:184` vs `:241`; history line `:246` |
+| 15 | The runner serves **fixed, unlocked** per-page clone directories, so two invocations can interleave a build with another run's capture and the index has no single writer: `cloneDir = <pageDir>/clone` is built and served in place, and no lock primitive exists in the runner, the builder, the viewport runner or the RPC lib. | `.canary/tools/fifteen-pages-run.mjs:392`, `:536`, `:560`; a search for `flock`/`.lock`/`openSync` across the four tools returns nothing |
 
-Facts 1–4 and 14 are the live blocker (a predicate that cannot be satisfied and cannot say why); facts 5–7 and 10–13 are trust and hygiene defects; only fact 12 is a fidelity difference, and it is stale. The campaign has been failing to measure, not failing to match.
+Facts 1–4 and 14 are the live blocker (a predicate that cannot be satisfied and cannot say why); facts 5–7, 10–13 and 15 are trust, concurrency and hygiene defects; only fact 12 is a fidelity difference, and it is stale. The campaign has been failing to measure, not failing to match.
 
 ## Goals
 
@@ -56,9 +57,9 @@ Facts 1–4 and 14 are the live blocker (a predicate that cannot be satisfied an
 - Full-page evidence never falls back to viewport-only capture; no truncated or corrupt PNG bytes; a document taller than the 16384 px ceiling is refused, never silently cropped.
 - Header, navigation, hero, grids, article content, footer and whole-page geometry stay unmasked and structurally measurable.
 - `readRenderSurface` remains the only source of capture geometry; a capture must never fabricate geometry.
-- `.canary/run1/` and `.canary/run2/` stay byte-for-byte untouched. The campaign rebuilds bundles only under `.canary/15-pages/<page>/clone/`.
-- Tab economy: two tabs per page (reference + clone), created sequentially and closed in the page's `finally`; no `--keep-tabs`; no per-viewport reference tabs; the run leaves the instance as it found it.
-- Every mutating bridge call runs against the pinned isolated instance, never the user's instance on 20130. Instance ownership is single-writer: the launcher owns `.canary/state/canary-instance.json`, the mint validates it before use, and a stale or unverifiable record fails closed rather than guessing an owner.
+- `.canary/run1/` and `.canary/run2/` stay byte-for-byte untouched. The campaign rebuilds bundles only into attempt-scoped directories under `.canary/15-pages/<page>/attempts/<attemptId>/`.
+- Tab economy is exact, in two scopes: the session ends owning only its primary tab, and the instance-plane tab IDs and count after the run equal the recorded baseline (pre-existing orphans are expected and never counted as this run's failure).
+- Every mutating bridge call runs against the pinned isolated instance, never the user's instance on 20130. Single-writer state holds everywhere: the launcher owns `.canary/state/canary-instance.json`, the run owns `.canary/state/run.lock` (exclusive, stale-replace, non-zero exit for a live holder), a page's attempt directory is written once and never rewritten, and a stale or unverifiable record fails closed rather than guessing an owner.
 - Do not touch state outside this repository on the user's machine.
 
 ## Non-Goals
@@ -90,7 +91,8 @@ Their frontmatter is deliberately **not** mutated by this plan: an unapproved pl
 
 - [ ] A reference tab on the live storefront reaches two consecutive matching settled passes, or the failure records the exact predicate and its measurement.
 - [ ] Every case carries verdict, cause code, the build-time-minted bundle identity, instance pid, run/attempt ids, and both sides' measured capture geometry.
-- [ ] A served entry that differs from the minted identity is refused; a post-build on-disk change is reported as drift and does not rewrite the recorded identity.
+- [ ] A verdict carries the identity minted at that page's build; a served entry that differs from it is refused, and a post-build on-disk change is reported as drift without rewriting the identity.
+- [ ] Concurrent invocation cannot corrupt evidence: a second run refuses with `RUN_IN_PROGRESS` while the lock is held, each page's attempts are immutable directories, and a page's verdict names the attempt it measured.
 - [ ] Every case is adjudicable (`PASS`, or `FAIL` with a deterministic cause), except cases whose document exceeds the 16384 px CDP ceiling: those are counted and reported as typed platform refusals, excluded from the comparison set explicitly rather than quietly.
 - [ ] No case is INCONCLUSIVE because of a harness-side settle or capture defect.
 - [ ] The runner exits non-zero only for runner error, incomplete requested cases, or an evidence/provenance refusal; adjudicable FAILs are published while the process exits `0`.

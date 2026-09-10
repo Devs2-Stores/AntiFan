@@ -11,7 +11,7 @@ dependencies: ["phase-01-evidence-provenance-and-freshness-gate", "phase-02-capt
 
 ## Overview
 
-Re-produce every render case against the bundle that invocation builds, with the build-time identity carried into every verdict and the capture-side blockers resolved, so the campaign finally reports what it measured instead of what the harness failed to measure. The runner already rebuilds both sides unconditionally (`dump-ref.mjs` + `build-clone.mjs` at stages 6/9), so a full run refreshes the bundles and the evidence together — which is exactly the pairing Phase 1 enforces by minting the identity while the build is the only writer.
+Re-produce every render case against the bundle that invocation builds, with the build-time identity carried into every verdict and the capture-side blockers resolved, so the campaign finally reports what it measured instead of what the harness failed to measure. The runner already rebuilds both sides unconditionally (`dump-ref.mjs` + `build-clone.mjs` at stages 6/9), so a full run refreshes the bundles and the evidence together — and Phase 1 makes that pairing provable by minting the identity over the immutable attempt directory the run then serves, under the run lock.
 
 ## Requirements
 
@@ -34,6 +34,7 @@ Re-produce every render case against the bundle that invocation builds, with the
 - Fresh session minted after that start, and one cheap RPC exercised before the run (`anti.browser.tabs.list`) to prove the transport, lease and tab plane are live. Persisted session and bootstrap files are runtime state, not prerequisites: no geometry, quota or provenance conclusion may be drawn from a session file whose port has no listener.
 - The instance-plane tab census baseline (IDs and count) is recorded after the mint. Ten orphans from dead sessions were measured on 2026-09-10 and survive a restart; they do not block a run, so clearing them is an owner action for tab economy (Open Decision 6), not a gate — the run must add none of its own.
 - `ANTIFAN_BRIDGE_PID` pinned to the isolated instance (the `instancePid` recorded by `scripts/run-electron.cjs` and validated by the session mint) so a dropped socket cannot heal onto the user's instance on 20130.
+- The run lock is free: a live holder of `.canary/state/run.lock` refuses the run with `RUN_IN_PROGRESS` instead of sharing the index, and the run releases its own lock on every exit path.
 - Ports 7861–7875 free; `node` on PATH.
 
 ## Implementation Steps
@@ -71,4 +72,4 @@ Re-produce every render case against the bundle that invocation builds, with the
 
 ## Rollback
 
-Reruns replace raw evidence and bundles for the pages they touch: that replacement is intentional and is not recoverable by another run. Two artifacts were already overwritten by the bounded probe of 2026-09-10 and only one was backed up — the root aggregate `15-PAGE-HOPLONGTECH-CLONE-CANARY.md` was restored byte-identically from `.canary/state/report-backup-before-probe.md` (the probe's own report remains at `.canary/state/report-after-probe-20260910.md`), while `page-02-brands/evidence/summary.json` was replaced by the blocked result with **no backup**, and no rerun can reproduce the superseded summary deterministically; its prior per-viewport verdicts survive only in the untouched `run-*.json` files (mtime 11:57). Rollback for this phase is therefore a separately archived snapshot of `.canary/15-pages/**`, taken before the run if the previous state must be preserved — not a partial re-run.
+Reruns no longer overwrite anything in place: each page build writes a fresh attempt directory (`.canary/15-pages/<page>/attempts/<attemptId>/clone/`) which is never rewritten, and each page retains the current plus the previous attempt, so the previous measurement of a page remains restorable until the next-but-one run prunes it. Two artifacts were overwritten by the bounded probe of 2026-09-10, before that guarantee existed, and only one was backed up — the root aggregate `15-PAGE-HOPLONGTECH-CLONE-CANARY.md` was restored byte-identically from `.canary/state/report-backup-before-probe.md` (the probe's own report remains at `.canary/state/report-after-probe-20260910.md`), while `page-02-brands/evidence/summary.json` was replaced by the blocked result with **no backup**, and no rerun can reproduce the superseded summary deterministically; its prior per-viewport verdicts survive only in the untouched `run-*.json` files (mtime 11:57).
