@@ -31,7 +31,7 @@ import {
 import { chromeSessionUserAgent } from './google-auth-identity';
 import { configureBrowserSessionPartition, deriveCapsulePartition, unconfigureBrowserSessionPartition, type BrowserSessionUserAgentMode } from './browser-session-partition';
 import { TabDiagnosticsManager, computeOrigin, normalizeConsoleLevel } from './tab-diagnostics';
-import type { VerificationCaptureEnvelope } from '../verification/visual-capture';
+import type { CaptureViewportTransaction, RenderSurfaceSnapshot, VerificationCaptureEnvelope } from '../verification/visual-capture';
 import { buildKeyboardInputEvents } from './keyboard-normalizer';
 import { FirstPartyNetworkTracker, type NetworkTrackerStats } from './first-party-network-tracker';
 import { WorkspaceCapsuleManager, type WorkspaceCapsule } from '../project/workspace-capsule';
@@ -526,7 +526,6 @@ export class NativeTabHost extends EventEmitter {
     params: Parameters<Electron.WebContents['enableDeviceEmulation']>[0]
   ): void {
     if (!wc || (typeof wc.isDestroyed === 'function' && wc.isDestroyed())) return;
-    if (typeof wc.getURL === 'function' && wc.getURL() === '') return;
     try {
       if (typeof wc.enableDeviceEmulation === 'function') {
         wc.enableDeviceEmulation(params);
@@ -619,7 +618,6 @@ export class NativeTabHost extends EventEmitter {
   private safeDisableDeviceEmulation(wc: Electron.WebContents | null | undefined): void {
     if (!wc || (typeof wc.isDestroyed === 'function' && wc.isDestroyed())) return;
     if (!this.emulatedWebContents.has(wc)) return;
-    if (typeof wc.getURL === 'function' && wc.getURL() === '') return;
     try {
       if (typeof wc.disableDeviceEmulation === 'function') {
         wc.disableDeviceEmulation();
@@ -2716,6 +2714,29 @@ export class NativeTabHost extends EventEmitter {
       .filter(Boolean) as AntiFanTab[];
   }
 
+  /**
+   * Session-scoped tab listing. `getTabList` projects the user's tab strip, which
+   * deliberately excludes the offscreen/ephemeral tabs the agent plane creates —
+   * so a session that asks what it owns must be answered from the tab map, not
+   * from the strip. Anything the session owns is listed, including tabs the
+   * window never showed.
+   */
+  public getSessionTabRecords(boundTabId: string): AntiFanTab[] {
+    if (!boundTabId) return [];
+    const owned = this.getManagedTabIdsForBoundTab(boundTabId);
+    owned.add(boundTabId);
+    const records: AntiFanTab[] = [];
+    for (const id of owned) {
+      const tab = this.tabs.get(id);
+      if (!tab) continue;
+      records.push({
+        ...tab.state,
+        isAgentControlled: tab.state.ephemeral === true || tab.state.offscreen === true || id === this.automationTabId,
+      });
+    }
+    return records;
+  }
+
   public getActiveTabId(): string {
     return this.activeTabId;
   }
@@ -4442,7 +4463,10 @@ export class NativeTabHost extends EventEmitter {
         const maxH = Math.max(100, availableHeight);
 
         const fitScale = Math.min(1.0, maxW / preset.width, maxH / preset.height);
-        const renderScale = Math.max(0.1, Math.min(5.0, fitScale * userZoom));
+        // An agent-plane tab renders offscreen at its own size: fitting it into
+        // the window would shrink the layout viewport the caller asked for.
+        const isAgentPlane = tab.state.ephemeral === true || tab.state.offscreen === true;
+        const renderScale = Math.max(0.1, Math.min(5.0, isAgentPlane ? userZoom : fitScale * userZoom));
         const renderedW = Math.round(preset.width * renderScale);
         const renderedH = Math.round(preset.height * renderScale);
         const targetX = Math.max(0, Math.floor((maxW - renderedW) / 2));
@@ -5589,6 +5613,18 @@ export class NativeTabHost extends EventEmitter {
     timeoutMs?: number
   ): Promise<{ ok: boolean; drained: boolean; resetPerformed: boolean; elapsedMs: number }> {
     return this.getDevToolsHost().drainTarget(tabId, paneId, timeoutMs);
+  }
+
+  public async readRenderSurface(tabId?: string, paneId?: SplitPaneId, timeoutMs?: number): Promise<RenderSurfaceSnapshot> {
+    return this.getDevToolsHost().readRenderSurface(tabId, paneId, timeoutMs);
+  }
+
+  public async reapplyTabGeometry(
+    tabId: string,
+    paneId: SplitPaneId | undefined,
+    before: { width: number; height: number; scrollX: number; scrollY: number }
+  ): Promise<CaptureViewportTransaction> {
+    return this.getDevToolsHost().reapplyTabGeometry(tabId, paneId, before);
   }
 
 

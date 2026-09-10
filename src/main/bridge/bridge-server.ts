@@ -1606,10 +1606,38 @@ export class BridgeServer {
       const geminiDir = path.join(os.homedir(), '.gemini');
       if (fs.existsSync(geminiDir)) {
         const geminiFileName = this.isDev ? 'antifan_bridge_dev.json' : 'antifan_bridge.json';
-        this.atomicWriteWithDacl(path.join(geminiDir, geminiFileName), JSON.stringify(info, null, 2));
+        const mirrorPath = path.join(geminiDir, geminiFileName);
+        if (this.canPublishLegacyMirror(mirrorPath)) {
+          this.atomicWriteWithDacl(mirrorPath, JSON.stringify(info, null, 2));
+        } else {
+          console.warn(`[antifan] Keeping the existing entry in ${mirrorPath}: it is held by a live instance.`);
+        }
       }
     } catch (err) {
       console.error('[antifan] Failed to persist bridge info:', err);
+    }
+  }
+
+  /**
+   * The machine-global mirror is last-writer-wins by construction, so a second
+   * (dev, probe, canary) instance must not erase a live holder's entry. The
+   * per-instance file is always authoritative for that instance.
+   */
+  private canPublishLegacyMirror(mirrorPath: string): boolean {
+    try {
+      if (!fs.existsSync(mirrorPath)) return true;
+      const parsed = JSON.parse(fs.readFileSync(mirrorPath, 'utf8')) as { pid?: unknown };
+      const holderPid = typeof parsed?.pid === 'number' && Number.isInteger(parsed.pid) && parsed.pid > 0 ? parsed.pid : null;
+      if (!holderPid || holderPid === process.pid) return true;
+      try {
+        process.kill(holderPid, 0);
+        return false; // holder is alive: its entry stays.
+      } catch (err) {
+        // EPERM means the holder is alive but not signalable by us; ESRCH means dead.
+        return (err as NodeJS.ErrnoException)?.code !== 'EPERM';
+      }
+    } catch {
+      return true;
     }
   }
 
@@ -1833,6 +1861,7 @@ export class BridgeServer {
                   }
                 }
                 if (!tabId) {
+                  console.warn(`[antifan] startSession: terminal ${terminalSessionId}#${terminalGen} has no affinity in this instance (pid ${process.pid}); provisioning a local agent tab. A foreign attach was likely corrected.`);
                   tabId = this.tabHost.createTab('about:blank', false, { offscreen: true, ephemeral: true });
                   if (typeof this.tabHost.bindTerminalAgentAffinity === 'function') {
                     this.tabHost.bindTerminalAgentAffinity(terminalSessionId, terminalGen, tabId);
@@ -1856,6 +1885,12 @@ export class BridgeServer {
                   tabId = this.tabHost.createTab('about:blank', false, { offscreen: true, ephemeral: true });
                 }
               }
+            }
+            // Fail loud before a session exists: a session bound to a tab that was
+            // never provisioned (or already died) turns every later call into a
+            // confusing target error, and hides the real cause.
+            if (!tabId || !this.hostTabExists(tabId)) {
+              throw new Error(`TAB_NOT_FOUND: no live agent tab is available for this session (tabId '${tabId || 'none provisioned'}')`);
             }
             // Phase 2: intentionally no `setAutomationTabId(tabId)` here. Each
             // attachment's binding lives in its own authority record; writing the
@@ -1891,6 +1926,9 @@ export class BridgeServer {
               host: this.host,
               port: this.port,
               expiresAt: res.launch.expiresAt,
+              // Which Electron instance answered. The launcher compares this with
+              // its own pinned pid to detect a foreign attach (non-secret).
+              runtimePid: process.pid,
             });
           } catch (err: unknown) {
             const errorMsg = err instanceof Error ? err.message : String(err);
@@ -1992,16 +2030,16 @@ export class BridgeServer {
         case 'openTab':
         case 'antifan.openTab': {
           const isAgentCaller = Boolean(boundAttachmentId || p.attachmentId);
-          if (isAgentCaller && p.activate === true) {
-            respond(false, { code: 'USER_VISIBLE_OPERATION_FORBIDDEN', message: 'Agent plane cannot activate or focus tabs in foreground' }, 'USER_VISIBLE_OPERATION_FORBIDDEN: Agent plane cannot activate or focus tabs in foreground');
-            break;
-          }
           const activate = Boolean(p.activate ?? false);
-          const isEphemeral = isAgentCaller ? (p.ephemeral !== false && p.userFacing !== true) : Boolean(p.ephemeral);
+          // Asking to activate a tab means the tab must exist on screen: an
+          // offscreen/ephemeral surface cannot be focused, so activation opts the
+          // tab into the visible plane instead of silently creating a hidden one.
+          const wantsVisibleTab = p.userFacing === true || activate;
+          const isEphemeral = isAgentCaller ? (p.ephemeral !== false && !wantsVisibleTab) : Boolean(p.ephemeral);
           // Phase 2 (step 11): agent-created tabs are dedicated offscreen surfaces so
           // capture never foregrounds/attaches the user's visible view. Forward the
           // offscreen option through the adapter; default offscreen for agent callers.
-          const isOffscreen = isAgentCaller ? (p.offscreen !== false && p.userFacing !== true) : Boolean(p.offscreen);
+          const isOffscreen = isAgentCaller ? (p.offscreen !== false && !wantsVisibleTab) : Boolean(p.offscreen);
           const tabId = this.tabHost.createTab(p.url, activate, { ephemeral: isEphemeral, offscreen: isOffscreen });
           respond(true, { tabId });
           break;
@@ -2009,11 +2047,6 @@ export class BridgeServer {
 
         case 'switchTab':
         case 'antifan.switchTab': {
-          const isAgentCaller = Boolean(boundAttachmentId || p.attachmentId);
-          if (isAgentCaller) {
-            respond(false, { code: 'USER_VISIBLE_OPERATION_FORBIDDEN', message: 'Agent-plane callers cannot activate or switch user-visible tabs' }, 'USER_VISIBLE_OPERATION_FORBIDDEN: Agent-plane callers cannot activate or switch user-visible tabs');
-            break;
-          }
           const ok = this.tabHost.switchTab(p.tabId);
           respond(ok, { switched: ok });
           break;

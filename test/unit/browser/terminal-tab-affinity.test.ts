@@ -221,6 +221,28 @@ describe('Terminal-to-Tab Agent Affinity Contract Tests (NativeTabHost Seam)', (
     assert.strictEqual(allTabs.length, 2);
   });
 
+  it('9b. listTabs returns only what the session owns, never the user strip', () => {
+    const mockHost = {
+      getTabList: () => [
+        { id: 'tab-user-a', url: 'https://user-a.test', title: 'User A' },
+        { id: 'tab-user-b', url: 'https://user-b.test', title: 'User B' },
+      ],
+      getManagedTabIds: () => new Set(['tab-agent-offscreen']),
+    };
+    const port = new BrowserControlPort(mockHost as any);
+    const boundTarget: BrowserTarget = { tabId: 'tab-agent-offscreen', documentGeneration: 1, projectId: 'proj-1', workspaceId: 'ws-1', runtimeId: 'rt-1', browserEpoch: 1 };
+
+    // The session owns an agent tab the visible strip cannot describe; the user's
+    // tabs are not this session's to list, because it cannot act on them.
+    assert.deepStrictEqual(port.listTabs({ target: boundTarget }), []);
+
+    // Asking for the whole window is explicit, not a fallback.
+    assert.deepStrictEqual(port.listTabs({}), [
+      { id: 'tab-user-a', url: 'https://user-a.test', title: 'User A' },
+      { id: 'tab-user-b', url: 'https://user-b.test', title: 'User B' },
+    ]);
+  });
+
   it('10. Enforces isolation on switchTab and closeTab (throws TARGET_MISMATCH on cross-tab tampering)', () => {
     let switchedId = '';
     let closedId = '';
@@ -356,7 +378,7 @@ describe('Terminal-to-Tab Agent Affinity Contract Tests (NativeTabHost Seam)', (
     assert.strictEqual(host.isTabAllowedForPrimary('tab-bound-mcp', 'tab-other'), false);
   });
 
-  it('13. listTabs returns all managed tabs with isBoundTab: true and marks primary', () => {
+  it('13. listTabs returns every managed tab and flags only the bound tab', () => {
     const managedSet = new Set(['tab-live', 'tab-local']);
     const mockHost = {
       getTabList: () => [
@@ -377,7 +399,9 @@ describe('Terminal-to-Tab Agent Affinity Contract Tests (NativeTabHost Seam)', (
 
     assert.strictEqual(res[1].id, 'tab-local');
     assert.strictEqual(res[1].isPrimaryTab, false);
-    assert.strictEqual(res[1].isBoundTab, true);
+    // Only the bound tab carries the bound flag: a managed child is listed, not
+    // relabelled as the session's target.
+    assert.strictEqual(res[1].isBoundTab, false);
 
     // Private YouTube tab is NOT in list!
     assert.strictEqual(res.some((t: any) => t.id === 'tab-music'), false);

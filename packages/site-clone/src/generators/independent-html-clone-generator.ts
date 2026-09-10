@@ -33,12 +33,47 @@ export interface IndependentHtmlCloneResult {
  *  - <noscript> fallbacks, which a scripting-enabled document never renders but
  *    which point at live third-party services (measured: the reCAPTCHA no-JS
  *    iframe) that cannot be localized.
+ *  - unswapped lazy-load placeholders: captures taken before the site's
+ *    lazy-load script ran leave `src` as a transparent `data:` URI and keep the
+ *    real target in `data-src`/`data-srcset`. A static bundle has no swap step,
+ *    so the placeholder is promoted onto the rendered attribute.
  */
 export function sanitizeSectionMarkup(html: string): string {
   return html
     .replace(/(?::|x-bind:|v-bind:)?(src|data-src)\s*=\s*(?:"[^"]*(?:youtube\.com|vimeo\.com)[^"]*"|'[^']*(?:youtube\.com|vimeo\.com)[^']*')/gi, '$1=""')
     .replace(/(?::|x-bind:|v-bind:)(src|data-src)\s*=\s*(?:"[^"]*(?:https?:)?\/\/[^"]*"|'[^']*(?:https?:)?\/\/[^']*')/gi, '')
-    .replace(/<noscript\b[^>]*>[\s\S]*?<\/noscript>/gi, '');
+    .replace(/<noscript\b[^>]*>[\s\S]*?<\/noscript>/gi, '')
+    .replace(/<img\b[^>]*>/gi, (tag) => promoteLazyLoadTarget(tag));
+}
+
+/**
+ * Copies a deferred lazy-load target onto the attribute the browser renders.
+ * Only a data: URI (or absent) placeholder is replaced, so an image that already
+ * carries its real source is never rewritten.
+ */
+function promoteLazyLoadTarget(tag: string): string {
+  const attrValue = (name: string): string | null => {
+    const match = tag.match(new RegExp(`\\s${name}\\s*=\\s*(?:"([^"]*)"|'([^']*)')`, 'i'));
+    if (!match) return null;
+    return match[1] !== undefined ? match[1] : match[2];
+  };
+  const isPlaceholder = (value: string | null): boolean =>
+    value === null || value.trim() === '' || /^data:/i.test(value.trim());
+
+  let out = tag;
+  const deferredSrc = attrValue('data-src') || attrValue('data-lazy-src');
+  if (deferredSrc && isPlaceholder(attrValue('src'))) {
+    out = attrValue('src') === null
+      ? out.replace(/<img/i, `<img src="${deferredSrc}"`)
+      : out.replace(/(\ssrc\s*=\s*)(?:"[^"]*"|'[^']*')/i, `$1"${deferredSrc}"`);
+  }
+  const deferredSrcset = attrValue('data-srcset');
+  if (deferredSrcset && isPlaceholder(attrValue('srcset'))) {
+    out = attrValue('srcset') === null
+      ? out.replace(/<img/i, `<img srcset="${deferredSrcset}"`)
+      : out.replace(/(\ssrcset\s*=\s*)(?:"[^"]*"|'[^']*')/i, `$1"${deferredSrcset}"`);
+  }
+  return out;
 }
 
 export class IndependentHtmlCloneGenerator {
@@ -108,6 +143,9 @@ export class IndependentHtmlCloneGenerator {
       const javascriptTags = (ir.assets?.javascripts || [])
         .map(js => `  <script src="${js.sourceUrl || `assets/${js.filename}`}"></script>`)
         .join('\n');
+      // Source-order head CSS: external sheets first, then the document's own inline styles,
+      // so page-specific rules keep the cascade priority they had on the source site.
+      const headStylesTags = (ir.headStyles || []).join('\n');
 
       const rawIndexHtml = `<!DOCTYPE html>
 <html lang="vi">
@@ -120,7 +158,7 @@ export class IndependentHtmlCloneGenerator {
     body { margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; }
     img { max-width: 100%; }
   </style>
-${stylesheetTags ? stylesheetTags + '\n' : ''}</head>
+${stylesheetTags ? stylesheetTags + '\n' : ''}${headStylesTags ? headStylesTags + '\n' : ''}</head>
 <body>
 ${headerHtmls.join('\n')}
 <main>

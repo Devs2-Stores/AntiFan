@@ -56,6 +56,7 @@ export class CloneIRBuilder {
       },
       responsive: ResponsiveScanner.BREAKPOINTS,
       assets: harvestedAssets,
+      headStyles: this.extractHeadStyles(html),
       themeSettings: [
         { id: 'color_primary', type: 'color', label: 'Primary Brand Color', default: '#005baa' },
         { id: 'color_bg', type: 'color', label: 'Page Background Color', default: '#ffffff' },
@@ -75,6 +76,16 @@ export class CloneIRBuilder {
         siteSettings: dataBundle.siteSettings
       }
     };
+  }
+
+  /**
+   * Captures the source document head `<style>` blocks verbatim, in source order.
+   * Body-level styles travel with their section markup, so only the head is scanned here.
+   */
+  private extractHeadStyles(html: string): string[] {
+    const headMatch = html.match(/<head\b[^>]*>([\s\S]*?)<\/head>/i);
+    if (!headMatch) return [];
+    return [...headMatch[1].matchAll(/<style\b[^>]*>[\s\S]*?<\/style>/gi)].map((m) => m[0]);
   }
 
   private mapBlueprintToSection(bp: ExtractedSectionBlueprint): ComponentSectionContract {

@@ -21,7 +21,7 @@ describe('OMP MCP stdio proxy security & bootstrap fail-closed contract', () => 
     assert.ok(content.includes('stopHeartbeat'), 'Proxy must be able to stop the heartbeat');
     assert.ok(content.includes('server.connect('), 'Proxy must still connect the stdio server');
   });
-  it('contains zero references to home directory, bridge json files, getRuntimeBinding, or openTab', () => {
+  it('does not itself touch the filesystem or bridge discovery files; disk discovery is delegated to the launcher candidate authority', () => {
     const scriptPath = fs.existsSync(path.resolve(__dirname, '../../../scripts/antifan-omp-mcp.cjs'))
       ? path.resolve(__dirname, '../../../scripts/antifan-omp-mcp.cjs')
       : path.resolve(__dirname, '../../scripts/antifan-omp-mcp.cjs');
@@ -35,6 +35,7 @@ describe('OMP MCP stdio proxy security & bootstrap fail-closed contract', () => 
     assert.strictEqual(content.includes('getRuntimeBinding'), false, 'Must not call getRuntimeBinding');
     assert.strictEqual(content.includes('openTab'), false, 'Must not call openTab');
     assert.strictEqual(content.includes("require('node:fs')"), false, 'Must not require node:fs');
+    assert.ok(content.includes("require('./antifan-agent.cjs')"), 'Must delegate candidate discovery to the launcher module instead of duplicating it');
   });
 
   it('fails closed with MCP_CONTEXT_REQUIRED when no bootstrap is in environment', async () => {
@@ -48,6 +49,14 @@ describe('OMP MCP stdio proxy security & bootstrap fail-closed contract', () => 
     delete env.ANTIFAN_MCP_BOOTSTRAP;
     delete env.ANTIFAN_ATTACHMENT_SECRET;
     delete env.ANTIFAN_ATTACHMENT_ID;
+    // Terminal-scoped identity would enable disk failover, so scrub it too: this
+    // case pins the fail-closed behaviour of an invocation with no instance context.
+    delete env.ANTIFAN_TERMINAL_SESSION_ID;
+    delete env.ANTIFAN_TERMINAL_AFFINITY_SESSION_ID;
+    delete env.ANTIFAN_TERMINAL_PARENT_SESSION_ID;
+    delete env.ANTIFAN_TERMINAL_GENERATION;
+    delete env.ANTIFAN_TERMINAL_AFFINITY_GENERATION;
+    delete env.ANTIFAN_BRIDGE_PID;
 
     const child = spawn(process.execPath, [scriptPath], {
       env,

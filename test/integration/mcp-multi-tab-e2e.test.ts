@@ -105,6 +105,19 @@ describe('Full-Stack E2E Integration: OMP / MCP Multi-Tab Affinity, Lineage & Fa
       captureMode: 'viewport' as const,
       timestamp: Date.now(),
     });
+    // This host fakes every tab as a laid-out 1280x720 surface: the render-surface
+    // probe must answer from the same mock geometry the capture reports, or the
+    // capability correctly refuses to rasterize an unmeasurable tab.
+    host.readRenderSurface = async (_tabId?: string, _paneId?: string) => ({
+      vw: 1280,
+      vh: 720,
+      dpr: 1,
+      scrollX: 0,
+      scrollY: 0,
+      docH: 2400,
+      readyState: 'complete',
+      hidden: false,
+    });
     host.agentClick = async (params: { selector?: string; tabId?: string }) => {
       interactiveActions.push(`click:${params.tabId}:${params.selector}`);
       return true;

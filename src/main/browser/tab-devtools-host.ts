@@ -19,10 +19,15 @@ import type { SemanticElementDescriptor } from './semantic-ref-types';
 import {
   CAPTURE_MAX_DIMENSION,
   CaptureError,
+  RENDER_SURFACE_PROBE_BOUND_MS,
+  RENDER_SURFACE_PROBE_EXPRESSION,
+  classifyRenderSurfaceCause,
   rasterMatchesCss,
   resolveCaptureMode,
   validateJpegBuffer,
   validatePngBuffer,
+  type CaptureViewportTransaction,
+  type RenderSurfaceSnapshot,
   type VerificationCaptureEnvelope,
 } from '../verification/visual-capture';
 
@@ -789,6 +794,57 @@ export class TabDevToolsHost {
     return height;
   }
 
+  /**
+   * Bounded render-surface probe: one CDP round-trip that reads the tab's live
+   * layout viewport, scroll offset and readiness. Read-only — it never writes
+   * geometry and never clamps a degenerate surface into a usable one, so a
+   * caller can refuse before starting bounded render work.
+   */
+  public async readRenderSurface(
+    tabId?: string,
+    paneId?: SplitPaneId,
+    timeoutMs = RENDER_SURFACE_PROBE_BOUND_MS
+  ): Promise<RenderSurfaceSnapshot> {
+    const targetId = tabId || this.ctx.getActiveTabId();
+    const target = this.ctx.getTabRecord(targetId);
+    if (!target) {
+      throw new Error(`Target tab '${targetId}' not found for render-surface probe`);
+    }
+    const effectivePane = paneId || target.focusedPane;
+    const wc = this.ctx.getTabWebContents(targetId, effectivePane);
+    if (!wc || wc.isDestroyed()) {
+      throw new Error(`WebContents not available for tab '${targetId}'`);
+    }
+    return this.probeRenderSurface(wc, timeoutMs);
+  }
+
+  /** Raw surface metrics from the renderer; no fallback geometry is invented. */
+  private async probeRenderSurface(wc: Electron.WebContents, timeoutMs: number): Promise<RenderSurfaceSnapshot> {
+    const res = await this.sendCdpCommand<{ result?: { value?: Partial<RenderSurfaceSnapshot> } }>(
+      wc,
+      'Runtime.evaluate',
+      { expression: RENDER_SURFACE_PROBE_EXPRESSION, returnByValue: true },
+      Math.max(1, Math.round(timeoutMs))
+    );
+    const value = res?.result?.value;
+    if (!value || typeof value !== 'object') {
+      throw new CaptureError(
+        'NO_RENDER_SURFACE',
+        `Render-surface probe returned no geometry (${String(value)}); the tab's layout surface cannot be measured`
+      );
+    }
+    return {
+      vw: Number(value.vw),
+      vh: Number(value.vh),
+      dpr: Number(value.dpr) || 1,
+      scrollX: Number(value.scrollX) || 0,
+      scrollY: Number(value.scrollY) || 0,
+      docH: Number(value.docH) || 0,
+      readyState: typeof value.readyState === 'string' ? value.readyState : 'unknown',
+      hidden: value.hidden === true,
+    };
+  }
+
   public async describeNodeByObjectId(
     wc: Electron.WebContents,
     objectId: string
@@ -1339,6 +1395,11 @@ export class TabDevToolsHost {
       );
     }
     const boundMs = Math.min(60_000, Math.max(1, options?.timeoutMs ?? 60_000));
+    // Baseline for the geometry transaction below: a capture that rasterizes
+    // beyond the viewport moves the tab's layout viewport, and the caller is
+    // entitled to find the tab where it left it.
+    const surfaceBefore = await this.probeRenderSurface(wc, RENDER_SURFACE_PROBE_BOUND_MS);
+    const geometryTouched = mode !== 'viewport';
     if (target.customViewport && target.customViewport.width > 0 && target.customViewport.height > 0) {
       if (targetPaneView && typeof targetPaneView.setBounds === 'function') {
         targetPaneView.setBounds({ x: 0, y: 0, width: target.customViewport.width, height: target.customViewport.height });
@@ -1374,8 +1435,10 @@ export class TabDevToolsHost {
     }
     const isForeground = targetId === this.ctx.getActiveTabId();
 
+    let captureEnvelope: VerificationCaptureEnvelope | undefined;
+    let captureError: Error | undefined;
     try {
-      return await this.ctx.withTabAgentWorking(targetId, async () => {
+      captureEnvelope = await this.ctx.withTabAgentWorking(targetId, async () => {
         // Screenshot Guard: Temporarily suppress agent overlay & visual cursor during capture
         try {
           await this.evalJs(
@@ -1390,21 +1453,27 @@ export class TabDevToolsHost {
         const captureAction = async (): Promise<VerificationCaptureEnvelope> => {
           // Derive zoom and DPR directly from browser/CDP state inside agent working block (atomic with capture, non-nesting)
           const zoom = typeof wc.getZoomFactor === 'function' ? wc.getZoomFactor() : 1.0;
-          const metricsRes = await this.sendCdpCommand<{ result?: { value?: { dpr?: number; vw?: number; vh?: number } } }>(
-            wc,
-            'Runtime.evaluate',
-            {
-              expression: '({ dpr: window.devicePixelRatio || 1, vw: window.innerWidth || 0, vh: window.innerHeight || 0 })',
-              returnByValue: true,
-            }
-          ).catch(() => null);
-          const metrics = metricsRes?.result?.value;
-
-          const dpr = Number(metrics?.dpr) || 1;
-          const cssViewport = {
-            width: Number(metrics?.vw) || 1200,
-            height: Number(metrics?.vh) || 800,
-          };
+          // The tab's live surface is the only source of capture geometry. A
+          // fabricated viewport would rasterize a surface that does not exist and
+          // then consume the whole bound instead of reporting why it cannot run.
+          let surface: RenderSurfaceSnapshot;
+          try {
+            surface = await this.probeRenderSurface(wc, RENDER_SURFACE_PROBE_BOUND_MS);
+          } catch (err) {
+            if (err instanceof CaptureError && err.code === 'NO_RENDER_SURFACE') throw err;
+            throw new CaptureError(
+              'NO_RENDER_SURFACE',
+              `Render-surface probe on tab '${targetId}' pane '${effectivePane}' failed: ${err instanceof Error ? err.message : String(err)}`
+            );
+          }
+          if (!Number.isFinite(surface.vw) || !Number.isFinite(surface.vh) || surface.vw < 1 || surface.vh < 1) {
+            throw new CaptureError(
+              'NO_RENDER_SURFACE',
+              `Tab '${targetId}' pane '${effectivePane}' has no renderable surface: it reports ${surface.vw}x${surface.vh} CSS px (readyState '${surface.readyState}', hidden ${surface.hidden}, cause ${classifyRenderSurfaceCause(surface)}). Size the tab with anti.browser.set_viewport or navigate it to a real page before capturing.`
+            );
+          }
+          const dpr = surface.dpr;
+          const cssViewport = { width: surface.vw, height: surface.vh };
 
           await this.sendCdpCommand(wc, 'Page.enable');
           await this.sendCdpCommand(wc, 'Emulation.setDefaultBackgroundColorOverride', {
@@ -1513,7 +1582,7 @@ export class TabDevToolsHost {
         return await captureAction();
       });
     } catch (err) {
-      throw this.toCaptureError(err, `Verification capture on tab '${targetId}'`);
+      captureError = this.toCaptureError(err, `Verification capture on tab '${targetId}'`);
     } finally {
       try {
         await this.evalJs(
@@ -1530,6 +1599,174 @@ export class TabDevToolsHost {
         switchTabForCapture(activeBeforeCapture);
       }
     }
+    const transportDraining = this.isWebContentsDraining(wc);
+    const viewportTransaction = geometryTouched
+      ? transportDraining
+        ? {
+            before: {
+              width: surfaceBefore.vw,
+              height: surfaceBefore.vh,
+              scrollX: surfaceBefore.scrollX,
+              scrollY: surfaceBefore.scrollY,
+            },
+            after: null,
+            restored: false,
+            attempts: 0,
+            deferred: true,
+          }
+        : await this.applyGeometryRestore({
+            wc,
+            targetId,
+            effectivePane,
+            targetPaneView,
+            customViewport: target.customViewport,
+            before: surfaceBefore,
+          })
+      : undefined;
+    if (viewportTransaction && !viewportTransaction.restored && !viewportTransaction.deferred) {
+      // A moved layout viewport is a state hazard, so it outranks the original
+      // capture outcome: evidence captured on a surface we could not restore
+      // must never be receipted as usable geometry.
+      throw new CaptureError(
+        'CAPTURE_VIEWPORT_NOT_RESTORED',
+        `Capture on tab '${targetId}' left the layout viewport at ${viewportTransaction.after ? `${viewportTransaction.after.width}x${viewportTransaction.after.height}` : 'an unmeasurable size'} after ${viewportTransaction.attempts} restore attempts (expected ${viewportTransaction.before ? `${viewportTransaction.before.width}x${viewportTransaction.before.height}` : 'unknown'})`,
+        {
+          tabId: targetId,
+          paneId: effectivePane,
+          expectedWidth: viewportTransaction.before?.width,
+          expectedHeight: viewportTransaction.before?.height,
+          observedWidth: viewportTransaction.after?.width,
+          observedHeight: viewportTransaction.after?.height,
+          attempts: viewportTransaction.attempts,
+          causeCapture: captureError
+            ? { code: captureError instanceof CaptureError ? captureError.code : undefined, message: captureError.message }
+            : undefined,
+        }
+      );
+    }
+    if (captureError) throw captureError;
+    if (!captureEnvelope) {
+      throw new Error(`Verification capture on tab '${targetId}' produced no envelope and no error`);
+    }
+    if (viewportTransaction) captureEnvelope.viewportTransaction = viewportTransaction;
+    return captureEnvelope;
+  }
+
+  /**
+   * Restores a tab's layout viewport and scroll offset after the target has been
+   * drained. The transport rejects CDP commands while a timed-out command is
+   * still draining, so the post-capture restore runs here — on the fresh
+   * attachment — instead of inside the capture that timed out.
+   */
+  public async reapplyTabGeometry(
+    tabId: string,
+    paneId: SplitPaneId | undefined,
+    before: { width: number; height: number; scrollX: number; scrollY: number }
+  ): Promise<CaptureViewportTransaction> {
+    const target = this.ctx.getTabRecord(tabId);
+    if (!target) {
+      throw new Error(`Target tab '${tabId}' not found for geometry restore`);
+    }
+    const effectivePane = paneId || target.focusedPane;
+    const wc = this.ctx.getTabWebContents(tabId, effectivePane);
+    if (!wc || wc.isDestroyed()) {
+      throw new Error(`WebContents not available for tab '${tabId}'`);
+    }
+    const targetPaneView = effectivePane === 'mobile' ? target.mobileView || target.view : target.view;
+    return this.applyGeometryRestore({
+      wc,
+      targetId: tabId,
+      effectivePane,
+      targetPaneView,
+      customViewport: target.customViewport,
+      before: { vw: before.width, vh: before.height, dpr: 1, scrollX: before.scrollX, scrollY: before.scrollY, docH: 0, readyState: 'complete', hidden: false },
+    });
+  }
+
+  /**
+   * Puts the tab's layout viewport and scroll offset back where the capture found
+   * them, then proves it by re-measuring. Two bounded attempts: the first restores
+   * the tab's own emulation state, the second forces the measured geometry back.
+   * A failed verification is reported, never assumed away.
+   */
+  private async applyGeometryRestore(args: {
+    wc: Electron.WebContents;
+    targetId: string;
+    effectivePane: SplitPaneId | undefined;
+    targetPaneView: Electron.WebContentsView | null | undefined;
+    customViewport: { width: number; height: number } | undefined;
+    before: RenderSurfaceSnapshot;
+  }): Promise<CaptureViewportTransaction> {
+    const before = {
+      width: args.before.vw,
+      height: args.before.vh,
+      scrollX: args.before.scrollX,
+      scrollY: args.before.scrollY,
+    };
+    const bound = RENDER_SURFACE_PROBE_BOUND_MS;
+    let after: RenderSurfaceSnapshot | undefined;
+    let attempts = 0;
+    for (let attempt = 1; attempt <= 2; attempt += 1) {
+      attempts = attempt;
+      try {
+        if (attempt === 1) {
+          if (args.customViewport && args.customViewport.width > 0 && args.customViewport.height > 0) {
+            await this.sendCdpCommand(args.wc, 'Emulation.setDeviceMetricsOverride', {
+              width: Math.max(1, Math.round(args.customViewport.width)),
+              height: Math.max(1, Math.round(args.customViewport.height)),
+              deviceScaleFactor: args.before.dpr || 1,
+              mobile: false,
+            });
+          } else {
+            await this.sendCdpCommand(args.wc, 'Emulation.clearDeviceMetricsOverride');
+          }
+        } else {
+          await this.sendCdpCommand(args.wc, 'Emulation.setDeviceMetricsOverride', {
+            width: Math.max(1, Math.round(before.width)),
+            height: Math.max(1, Math.round(before.height)),
+            deviceScaleFactor: args.before.dpr || 1,
+            mobile: false,
+          });
+        }
+        if (args.customViewport && args.customViewport.width > 0 && args.customViewport.height > 0) {
+          if (args.targetPaneView && typeof args.targetPaneView.setBounds === 'function') {
+            args.targetPaneView.setBounds({
+              x: 0,
+              y: 0,
+              width: args.customViewport.width,
+              height: args.customViewport.height,
+            });
+          }
+        }
+        await this.sendCdpCommand(
+          args.wc,
+          'Runtime.evaluate',
+          {
+            expression: `window.scrollTo({ left: ${before.scrollX}, top: ${before.scrollY}, behavior: 'instant' })`,
+            returnByValue: true,
+          },
+          bound
+        ).catch(() => {});
+        after = await this.probeRenderSurface(args.wc, bound);
+        if (Math.abs(after.vw - before.width) <= 1 && Math.abs(after.vh - before.height) <= 1) {
+          return {
+            before,
+            after: { width: after.vw, height: after.vh, scrollX: after.scrollX, scrollY: after.scrollY },
+            restored: true,
+            attempts,
+          };
+        }
+      } catch {
+        // A failed restore attempt is retried once with the measured geometry;
+        // the verification below decides the outcome.
+      }
+    }
+    return {
+      before,
+      after: after ? { width: after.vw, height: after.vh, scrollX: after.scrollX, scrollY: after.scrollY } : null,
+      restored: false,
+      attempts,
+    };
   }
 
   public async getDom(selector?: string, tabId?: string, paneId?: SplitPaneId): Promise<string> {

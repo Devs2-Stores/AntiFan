@@ -123,7 +123,13 @@ describe('Capability catalogue', () => {
       reload: () => true,
       getDom: async () => '<html>ok</html>',
       captureScreenshot: async () => 'base64img',
-      evalJs: async () => 'res',
+      evalJs: async (script?: string) => {
+        if (typeof script === 'string' && script.includes('innerWidth')) {
+          const vp = viewportOptions as { width?: number; height?: number } | null;
+          return { innerWidth: vp?.width ?? 0, innerHeight: vp?.height ?? 0 };
+        }
+        return 'res';
+      },
       getDiagnostics: () => ({ console: [], failures: [] }),
       runResponsiveCheck: async () => ({ ok: true }),
       agentMove: async (p: unknown) => { movedParams = p; return true; },
@@ -197,11 +203,11 @@ describe('Capability catalogue', () => {
     assert.strictEqual(switchedTabId, 'tab-2');
     // 11. Viewport and Mobile Device Emulation
     const vpRes = await catalogue.dispatch('browser.set-viewport', { width: 390, height: 844, mobile: true, tabId: 'tab-2' }, { lease, leaseToken: lease.token, projectId, workspaceId, grant: 'write', browserTarget: boundTarget });
-    assert.deepStrictEqual(vpRes, { success: true, width: 390, height: 844, mobile: true, presetId: 'custom-390x844' });
+    assert.deepStrictEqual(vpRes, { success: true, width: 390, height: 844, mobile: true, presetId: 'custom-390x844', observedWidth: 390, observedHeight: 844, verified: true });
     assert.deepStrictEqual(viewportOptions, { width: 390, height: 844, mobile: true, tabId: 'tab-2' });
     // 11b. Viewport with reload delegation (no duplicate host reload)
     const vpReloadRes = await catalogue.dispatch('browser.set-viewport', { width: 390, height: 844, mobile: true, tabId: 'tab-2', reload: true }, { lease, leaseToken: lease.token, projectId, workspaceId, grant: 'write', browserTarget: boundTarget });
-    assert.deepStrictEqual(vpReloadRes, { success: true, width: 390, height: 844, mobile: true, presetId: 'custom-390x844', reloaded: true });
+    assert.deepStrictEqual(vpReloadRes, { success: true, width: 390, height: 844, mobile: true, presetId: 'custom-390x844', reloaded: true, observedWidth: 390, observedHeight: 844, verified: true });
     assert.deepStrictEqual(viewportOptions, { width: 390, height: 844, mobile: true, tabId: 'tab-2', reload: true });
 
     // 12. Device Preset

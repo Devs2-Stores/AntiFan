@@ -3,6 +3,7 @@ import * as assert from 'node:assert/strict';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
+import { WebSocketServer } from 'ws';
 import { RunService } from '../../src/main/run/run-service';
 import { AttachmentRegistry } from '../../src/main/run/attachment-registry';
 import { ChatStore } from '../../src/main/chat/chat-store';
@@ -420,7 +421,7 @@ describe('CLI Session and Agent Launcher Lifecycle', () => {
     ]);
   });
 
-  it('spawnAgentChild executes bare batch shims via PATH/PATHEXT and scrubs master token from caller env', async () => {
+  it('spawnAgentChild executes bare batch shims via PATH/PATHEXT, scrubs master credentials, and preserves terminal identity', async () => {
     const launcherPath = path.resolve(process.cwd(), 'scripts', 'antifan-agent.cjs');
     const { spawnAgentChild } = require(launcherPath);
 
@@ -428,7 +429,13 @@ describe('CLI Session and Agent Launcher Lifecycle', () => {
     const targetJs = path.join(tempDir, 'target.js');
     fs.writeFileSync(
       targetJs,
-      'console.log("ARGV_JSON:" + JSON.stringify(process.argv.slice(2)));\nconsole.log("LEAKED_TOKEN:" + String(process.env.ANTIFAN_BRIDGE_TOKEN || "none"));',
+      'console.log("ARGV_JSON:" + JSON.stringify(process.argv.slice(2)));\n'
+        + 'console.log("LEAKED_TOKEN:" + String(process.env.ANTIFAN_BRIDGE_TOKEN || "none"));\n'
+        + 'console.log("IDENTITY:" + JSON.stringify({'
+        + 'bridgePid: process.env.ANTIFAN_BRIDGE_PID || null,'
+        + 'sessionId: process.env.ANTIFAN_TERMINAL_SESSION_ID || null,'
+        + 'generation: process.env.ANTIFAN_TERMINAL_GENERATION || null,'
+        + 'bridgePort: process.env.ANTIFAN_BRIDGE_PORT || null }));',
       'utf8'
     );
 
@@ -450,6 +457,11 @@ describe('CLI Session and Agent Launcher Lifecycle', () => {
       PATH: `${tempDir}${pathDelimiter}${process.env.PATH || ''}`,
       ...(isWin ? { PATHEXT: process.env.PATHEXT || '.COM;.EXE;.BAT;.CMD;.VBS;.JS;.WSF' } : {}),
       ANTIFAN_BRIDGE_TOKEN: 'leak-attempt-master-token-12345',
+      ANTIFAN_BRIDGE_PORT: '20130',
+      ANTIFAN_BRIDGE_HOST: '127.0.0.1',
+      ANTIFAN_BRIDGE_PID: '4242',
+      ANTIFAN_TERMINAL_SESSION_ID: 'terminal-identity-probe',
+      ANTIFAN_TERMINAL_GENERATION: '7',
     };
     const probeArgs = [
       'arg with space',
@@ -492,6 +504,18 @@ describe('CLI Session and Agent Launcher Lifecycle', () => {
       assert.ok(leakLine, `Expected stdout to contain ${leakMarker}, got:\n${stdout}`);
       const leakedValue = leakLine.slice(leakLine.indexOf(leakMarker) + leakMarker.length).trim();
       assert.strictEqual(leakedValue, 'none', 'Master bearer token must be scrubbed and not leaked to child');
+
+      // The agent child must keep the identity of the instance that owns the terminal:
+      // losing it makes the proxy re-provision a fresh tab on whatever instance answers.
+      const identityMarker = 'IDENTITY:';
+      const identityLine = stdout.split(/\r?\n/).find(line => line.includes(identityMarker));
+      assert.ok(identityLine, `Expected stdout to contain ${identityMarker}, got:\n${stdout}`);
+      const identity = JSON.parse(identityLine.slice(identityLine.indexOf(identityMarker) + identityMarker.length).trim());
+      assert.deepStrictEqual(
+        identity,
+        { bridgePid: '4242', sessionId: 'terminal-identity-probe', generation: '7', bridgePort: null },
+        'Instance pin and terminal identity survive the spawn; only bridge credentials are scrubbed'
+      );
     } finally {
       try { fs.rmSync(tempDir, { recursive: true, force: true }); } catch {}
     }
@@ -550,5 +574,147 @@ describe('CLI Session and Agent Launcher Lifecycle', () => {
     assert.strictEqual(emptyRes.command, '');
     assert.deepStrictEqual(emptyRes.commandArgs, []);
     assert.strictEqual(emptyRes.isMcpAlias, false);
+  });
+
+  it('An instance pin outranks any file candidate, and a dead pin never outranks a live instance', () => {
+    const launcherPath = path.resolve(process.cwd(), 'scripts', 'antifan-agent.cjs');
+    const { compareCandidates } = require(launcherPath);
+
+    const pinnedEnv = { name: 'pinned-env', pinned: true, pidAlive: true, provenance: 'env', startedAt: 0, isDev: false };
+    const liveMirror = { name: 'live-mirror', pinned: false, pidAlive: true, provenance: 'legacy-mirror', startedAt: Date.now() + 100000, isDev: true };
+    const liveInstance = { name: 'live-instance', pinned: false, pidAlive: true, provenance: 'instance-file', startedAt: 1000, isDev: false };
+    const deadPin = { name: 'dead-pin', pinned: true, pidAlive: false, provenance: 'env', startedAt: 0, isDev: false };
+
+    assert.ok(compareCandidates(pinnedEnv, liveMirror) < 0, 'a live pin must outrank a newer live mirror');
+    assert.ok(compareCandidates(deadPin, liveInstance) > 0, 'a dead pin must never outrank a live instance file');
+    assert.ok(compareCandidates(liveInstance, liveMirror) < 0, 'an instance-owned file must outrank the home mirror');
+
+    const list = [liveMirror, deadPin, pinnedEnv, liveInstance];
+    list.sort(compareCandidates);
+    assert.deepStrictEqual(list.map((x) => x.name), ['pinned-env', 'live-instance', 'live-mirror', 'dead-pin']);
+  });
+
+  it('Attach verifies which instance answered and fails over instead of accepting a foreign one', async () => {
+    const launcherPath = path.resolve(process.cwd(), 'scripts', 'antifan-agent.cjs');
+    const { acquireBridgeSession } = require(launcherPath);
+
+    const startBridge = async (reportedPid: number) => {
+      const wss = new WebSocketServer({ host: '127.0.0.1', port: 0 });
+      await new Promise<void>((resolve) => wss.once('listening', () => resolve()));
+      const address = wss.address();
+      const port = typeof address === 'object' && address !== null ? address.port : 0;
+      wss.on('connection', (socket) => {
+        socket.on('message', (raw) => {
+          let msg: { id?: string; method?: string };
+          try { msg = JSON.parse(raw.toString()); } catch { return; }
+          if (msg.method !== 'antifan.cli.startSession') return;
+          socket.send(JSON.stringify({
+            id: msg.id,
+            success: true,
+            data: {
+              runId: 'run-identity-test',
+              attemptId: 'attempt-identity-test',
+              attachmentId: `attachment-${port}`,
+              secret: `secret-${port}`,
+              authorityRevision: 1,
+              tabId: `tab-${port}`,
+              host: '127.0.0.1',
+              port,
+              runtimePid: reportedPid,
+            },
+          }));
+        });
+      });
+      return { wss, port };
+    };
+
+    const foreign = await startBridge(999999);
+    const own = await startBridge(process.pid);
+    const warns: string[] = [];
+    const origWarn = console.warn;
+    const prevPinned = process.env.ANTIFAN_BRIDGE_PID;
+    process.env.ANTIFAN_BRIDGE_PID = String(process.pid);
+    console.warn = (...args: unknown[]) => { warns.push(args.map((a) => String(a)).join(' ')); };
+    try {
+      const res = await acquireBridgeSession([
+        { source: 'env', file: null, port: foreign.port, host: '127.0.0.1', token: 'token-1', pid: null, pidAlive: true, pinned: true, provenance: 'env', startedAt: 0, isDev: false },
+        { source: 'file', file: 'discovery.json', port: own.port, host: '127.0.0.1', token: 'token-2', pid: process.pid, pidAlive: true, pinned: false, provenance: 'instance-file', startedAt: 1, isDev: false },
+      ], process.pid, undefined);
+
+      assert.strictEqual(res.bridgeInfo.port, own.port, 'must attach to the pinned instance, not the foreign one');
+      assert.strictEqual(res.session.tabId, `tab-${own.port}`);
+      assert.ok(warns.some((w) => w.includes('FOREIGN_INSTANCE_ATTACH')), 'a foreign attach must be reported');
+      res.ws.close();
+    } finally {
+      console.warn = origWarn;
+      if (prevPinned === undefined) delete process.env.ANTIFAN_BRIDGE_PID;
+      else process.env.ANTIFAN_BRIDGE_PID = prevPinned;
+      foreign.wss.close();
+      own.wss.close();
+    }
+  });
+
+  it('refuses an instance that cannot prove its pid while this session is pinned', async () => {
+    const launcherPath = path.resolve(process.cwd(), 'scripts', 'antifan-agent.cjs');
+    const { acquireBridgeSession } = require(launcherPath);
+
+    const startUnprovableBridge = async (runtimePid?: unknown) => {
+      const wss = new WebSocketServer({ host: '127.0.0.1', port: 0 });
+      await new Promise<void>((resolve) => wss.once('listening', () => resolve()));
+      const address = wss.address();
+      const port = typeof address === 'object' && address !== null ? address.port : 0;
+      wss.on('connection', (socket) => {
+        socket.on('message', (raw) => {
+          let msg: { id?: string; method?: string };
+          try { msg = JSON.parse(raw.toString()); } catch { return; }
+          if (msg.method !== 'antifan.cli.startSession') return;
+          const data: Record<string, unknown> = {
+            runId: 'run-pid-proof',
+            attemptId: 'attempt-pid-proof',
+            attachmentId: `attachment-${port}`,
+            secret: `secret-${port}`,
+            authorityRevision: 1,
+            tabId: `tab-${port}`,
+            host: '127.0.0.1',
+            port,
+          };
+          if (runtimePid !== undefined) data.runtimePid = runtimePid;
+          socket.send(JSON.stringify({ id: msg.id, success: true, data }));
+        });
+      });
+      return { wss, port };
+    };
+
+    // An older bridge omits runtimePid; another answers with a non-numeric value.
+    const silent = await startUnprovableBridge();
+    const stringly = await startUnprovableBridge(String(process.pid));
+    const warns: string[] = [];
+    const origWarn = console.warn;
+    const prevPinned = process.env.ANTIFAN_BRIDGE_PID;
+    process.env.ANTIFAN_BRIDGE_PID = String(process.pid);
+    console.warn = (...args: unknown[]) => { warns.push(args.map((a) => String(a)).join(' ')); };
+    try {
+      const res = await acquireBridgeSession([
+        { source: 'env', file: null, port: silent.port, host: '127.0.0.1', token: 'token-1', pid: process.pid, pidAlive: true, pinned: true, provenance: 'env', startedAt: 0, isDev: false },
+        { source: 'file', file: 'discovery.json', port: stringly.port, host: '127.0.0.1', token: 'token-2', pid: process.pid, pidAlive: true, pinned: false, provenance: 'instance-file', startedAt: 1, isDev: false },
+      ], process.pid, undefined);
+
+      assert.strictEqual(
+        res.bridgeInfo.port,
+        silent.port,
+        'the first unprovable answer is held as the last-resort fallback, not preferred over another'
+      );
+      assert.ok(
+        warns.some((w) => w.includes('FOREIGN_INSTANCE_ATTACH') && w.includes('unknown')),
+        `an unprovable pid must be reported as foreign: ${warns.join(' | ')}`
+      );
+      res.ws.close();
+    } finally {
+      console.warn = origWarn;
+      if (prevPinned === undefined) delete process.env.ANTIFAN_BRIDGE_PID;
+      else process.env.ANTIFAN_BRIDGE_PID = prevPinned;
+      silent.wss.close();
+      stringly.wss.close();
+    }
   });
 });

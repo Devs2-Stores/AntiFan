@@ -35,6 +35,12 @@ import {
   generateVisualMetricSamples,
   type EvidenceCaptureEnvelope,
   createVisualEvidenceReceipt,
+  RENDER_SURFACE_PROBE_BOUND_MS,
+  REFERENCE_MATERIALIZATION_BOUND_MS,
+  buildReferenceMaterializationScript,
+  classifyRenderSurfaceCause,
+  type CaptureViewportTransaction,
+  type RenderSurfaceSnapshot,
   type CaptureIdentitySnapshot,
   type CoherencePairCheck,
   type MaskResolutionEntry,
@@ -113,10 +119,16 @@ export interface BrowserHostPort {
   getDom(selector?: string, tabId?: string, paneId?: 'desktop' | 'mobile'): Promise<string>;
   captureScreenshot(rect?: unknown, tabId?: string, paneId?: 'desktop' | 'mobile', options?: { format?: 'png' | 'jpeg'; quality?: number; fullPage?: boolean }): Promise<string>;
   captureVerificationScreenshot?(rect?: unknown, tabId?: string, paneId?: 'desktop' | 'mobile', options?: { format?: 'png' | 'jpeg'; quality?: number; fullPage?: boolean; timeoutMs?: number }): Promise<VerificationCaptureEnvelope>;
+  /** Session-owned tab records, including agent-plane tabs the strip never shows. */
+  getSessionTabList?(boundTabId: string): unknown[];
   /** True while the target holds a timed-out in-flight CDP command. */
   isTargetDraining?(tabId: string, paneId?: 'desktop' | 'mobile'): boolean;
   /** Bounded recovery: waits for the CDP queue tail, then performs a bounded reset. */
   drainTarget?(tabId: string, paneId?: 'desktop' | 'mobile', timeoutMs?: number): Promise<{ ok: boolean; drained: boolean; resetPerformed: boolean; elapsedMs: number }>;
+  /** Bounded render-surface probe; rejects with NO_RENDER_SURFACE when unmeasurable. */
+  readRenderSurface?(tabId?: string, paneId?: 'desktop' | 'mobile', timeoutMs?: number): Promise<RenderSurfaceSnapshot>;
+  /** Post-drain geometry restore for a tab a capture moved (CDP is admissible again). */
+  reapplyTabGeometry?(tabId: string, paneId: 'desktop' | 'mobile' | undefined, before: { width: number; height: number; scrollX: number; scrollY: number }): Promise<CaptureViewportTransaction>;
   evalJs(expression: string, tabId?: string, paneId?: 'desktop' | 'mobile'): Promise<unknown>;
   getDiagnostics?(tabId?: string, level?: number | string): { console: unknown[]; failures: unknown[] };
   runResponsiveCheck?(params?: { tabId?: string; selector?: string; customBreakpoints?: ResponsiveBreakpointOption[] } | string): Promise<Record<string, unknown>>;
@@ -714,6 +726,25 @@ export const VISUAL_COMPARE_CLEANUP_BUDGET_MS = 25_000;
 export const FULL_PAGE_CAPTURE_EXECUTION_BUDGET_MS = 70_000;
 export const FULL_PAGE_CAPTURE_CANCELLATION_ACK_MS = 20_000;
 export const FULL_PAGE_CAPTURE_CLEANUP_BUDGET_MS = 15_000;
+/**
+ * Bound for proving a viewport write took effect: the tab must measure the
+ * requested size within this window, or the write is reported as not applied
+ * instead of being returned as success with unverified geometry.
+ */
+export const VIEWPORT_CONFIRM_BOUND_MS = 3_000;
+/**
+ * Viewport-capture budget. The host command bound must sit inside the policy
+ * cancellation grace: a transport cancel that arrives while CDP still admits the
+ * command orphans it and drains the target.
+ */
+export const VIEWPORT_CAPTURE_EXECUTION_BUDGET_MS = 25_000;
+export const VIEWPORT_CAPTURE_CANCELLATION_ACK_MS = 5_000;
+/**
+ * Reference capture budget: the materialization walk, the settle barrier and two
+ * artifact writes, all inside one response bound.
+ */
+export const REFERENCE_CAPTURE_EXECUTION_BUDGET_MS = 90_000;
+export const REFERENCE_CAPTURE_CANCELLATION_ACK_MS = 20_000;
 
 export function isStrictActionSuccess(rawRes: unknown, actionKey: string): boolean {
   if (rawRes === true) return true;
@@ -790,6 +821,12 @@ export interface TargetRecoveryReceipt {
   elapsedMs: number;
   error?: string;
   recoveredAt: number;
+  /**
+   * Geometry outcome for a capture that moved the layout viewport. Present only
+   * when the recovery was asked to restore one, and part of `ok`: a target whose
+   * viewport could not be restored stays quarantined.
+   */
+  viewportTransaction?: CaptureViewportTransaction;
 }
 
 interface TargetQuarantineEntry {
@@ -858,6 +895,19 @@ function isTargetDrainFailure(err: unknown): boolean {
   if (typed.code === 'CAPTURE_TIMEOUT' || typed.code === 'TARGET_BUSY_DRAINING' || typed.code === 'EXECUTION_TIMEOUT') return true;
   const message = typed.message || (err instanceof Error ? err.message : String(err));
   return /TARGET_BUSY_DRAINING/.test(message) || /timed out after \d+ms/i.test(message);
+}
+
+/**
+ * True when a capture failed because the tab's layout viewport could not be
+ * returned to where the capture found it. That is a state hazard, not a busy
+ * transport: it must not be folded into the drain/timeout classifier.
+ */
+function isViewportRestoreFailure(err: unknown): boolean {
+  if (!err) return false;
+  if (err instanceof CaptureError) return err.code === 'CAPTURE_VIEWPORT_NOT_RESTORED';
+  const typed = err as { code?: string; message?: string };
+  if (typed.code === 'CAPTURE_VIEWPORT_NOT_RESTORED') return true;
+  return /CAPTURE_VIEWPORT_NOT_RESTORED/.test(typed.message || (err instanceof Error ? err.message : ''));
 }
 
 /** Resolve `work` or the bounded fallback; late settlements stay observed. */
@@ -1156,17 +1206,21 @@ export class BrowserControlPort {
   }
   listTabs(context: { target?: BrowserTarget }): unknown[] {
     if (context.target) assertTarget(context.target);
-    const list = this.host.getTabList() || [];
     const boundTabId = context.target?.tabId;
-    if (boundTabId) {
-      const allowedIds = this.host.getManagedTabIds ? this.host.getManagedTabIds(boundTabId) : new Set([boundTabId]);
-      return list.filter(isTabRecord).filter((tab) => allowedIds.has(tab.id)).map((tab) => ({
-        ...tab,
-        isBoundTab: true,
-        isPrimaryTab: tab.id === boundTabId,
-      }));
-    }
-    return list;
+    if (!boundTabId) return this.host.getTabList() || [];
+    // A session asks for what it owns, not for the user's tab strip: the strip
+    // omits the offscreen/ephemeral tabs the agent plane itself created.
+    const sessionRecords = this.host.getSessionTabList ? this.host.getSessionTabList(boundTabId) : undefined;
+    const allowedIds = this.host.getManagedTabIds ? this.host.getManagedTabIds(boundTabId) : new Set([boundTabId]);
+    const records: unknown[] = sessionRecords ?? (this.host.getTabList() || []).filter((tab) => isTabRecord(tab) && allowedIds.has(tab.id));
+    // A session that owns nothing lists nothing: leaking the user's strip here would
+    // invite operations this session is not allowed to perform. Callers that want
+    // the whole window ask for it explicitly (browser.list-tabs with all: true).
+    return records.filter(isTabRecord).map((tab) => ({
+      ...tab,
+      isBoundTab: tab.id === boundTabId,
+      isPrimaryTab: tab.id === boundTabId,
+    }));
   }
 
   async navigate(target: BrowserTarget, url: string, explicitTabId?: string): Promise<{ navigated: boolean; target: BrowserTarget }> {
@@ -1368,6 +1422,130 @@ export class BrowserControlPort {
   }
 
   /**
+   * Canonical reference capture: bring a live page into the state a comparison
+   * will actually rasterize (lazily-mounted content materialized, then settled),
+   * then stage the settled DOM and, on request, a viewport screenshot. A DOM
+   * staged before this call describes a page the comparator never sees.
+   */
+  async referenceCapture(
+    target: BrowserTarget,
+    runId: string,
+    attemptId: string,
+    params: { tabId?: string; paneId?: 'desktop' | 'mobile'; selector?: string; screenshot?: boolean; format?: 'png' | 'jpeg'; quality?: number } = {},
+    signal?: AbortSignal
+  ): Promise<Record<string, unknown>> {
+    const tabId = this.resolveTargetTab(target, params.tabId);
+    const effectivePane = params.paneId || 'desktop';
+    // One pool slot at a time: the pool counts concurrent operations per tab and
+    // refuses above its ceiling, so a reference capture must not hold a slot
+    // while calling primitives that take their own.
+    const materialization = await this.passivePool.execute(tabId, async () => {
+      await this.assertRenderSurface(tabId, effectivePane, 'anti.reference.capture');
+      return raceWithTimeout(
+        (async () => {
+          const raw = await this.host.evalJs(buildReferenceMaterializationScript(), tabId, params.paneId);
+          return raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : null;
+        })().catch(() => null),
+        REFERENCE_MATERIALIZATION_BOUND_MS,
+        () => null
+      );
+    });
+    if (!materialization) {
+      throw new CapabilityError('REFERENCE_MATERIALIZATION_INCOMPLETE', `Materialization walk did not complete on tab '${tabId}' within ${REFERENCE_MATERIALIZATION_BOUND_MS}ms; a DOM staged from this tab would describe an unmounted page`, {
+        tabId,
+        paneId: effectivePane,
+      });
+    }
+    const reportedHref = typeof materialization.href === 'string' && materialization.href.length > 0 ? materialization.href : undefined;
+    if (!reportedHref) {
+      // The page is the only authority on its own identity: the strip-only tab
+      // list cannot see offscreen agent tabs, and a reference whose origin is
+      // unknown cannot be compared against anything.
+      throw new CapabilityError('REFERENCE_MATERIALIZATION_INCOMPLETE', `Materialization on tab '${tabId}' returned no document identity (location.href); refusing to stage a reference that cannot name its own source`, {
+        tabId,
+        paneId: effectivePane,
+        cause: 'identity-unavailable',
+      });
+    }
+    const settle = await this.settleCapture(tabId, effectivePane, undefined, { signal });
+    if (settle.settleComplete !== true) {
+      throw new CapabilityError('SETTLE_INCOMPLETE', `Reference settle barrier did not complete on tab '${tabId}' (gates: network=${settle.gates.network}, fonts=${settle.gates.fonts}, images=${settle.gates.images}, dom=${settle.gates.dom}); no reference was staged`, {
+        tabId,
+        paneId: effectivePane,
+        gates: settle.gates,
+      });
+    }
+    // The staged DOM is only meaningful if this tab still describes a laid-out
+    // document at the moment the reference is handed back, so this runs before
+    // anything is staged: a collapsed surface must not leave an artefact behind.
+    const settledSurface = await this.passivePool.execute(tabId, () => this.assertRenderSurface(tabId, effectivePane, 'anti.reference.capture'));
+    const domRef = await this.dom(target, runId, attemptId, params.selector, tabId, params.paneId);
+    const screenshotEnvelope = params.screenshot === false
+      ? null
+      : await this.screenshot(target, runId, attemptId, tabId, params.paneId, { format: params.format || 'png', quality: params.quality });
+    return {
+      ok: true,
+      tabId,
+      paneId: effectivePane,
+      url: reportedHref,
+      surface: settledSurface ?? null,
+      materialization,
+      settleComplete: settle.settleComplete,
+      settle,
+      domRef,
+      screenshotRef: screenshotEnvelope ? screenshotEnvelope.artifactRef : null,
+      screenshotReceipt: screenshotEnvelope ? screenshotEnvelope.receipt : null,
+    };
+  }
+
+  /**
+   * Refuses to start bounded render work on a tab whose renderer has no laid-out
+   * surface. Fail-closed by design: a 0x0 surface never completes a raster, so
+   * the capability would consume its whole bound before the caller learned the
+   * tab cannot render. Returns the measured surface so a caller can reuse it as
+   * its pre-capture baseline.
+   */
+  private async assertRenderSurface(
+    tabId: string,
+    paneId: 'desktop' | 'mobile' | undefined,
+    operation: string,
+    allowDegraded = false
+  ): Promise<RenderSurfaceSnapshot | undefined> {
+    if (typeof this.host.readRenderSurface !== 'function') return undefined;
+    let snapshot: RenderSurfaceSnapshot | undefined;
+    try {
+      snapshot = await this.host.readRenderSurface(tabId, paneId, RENDER_SURFACE_PROBE_BOUND_MS);
+    } catch (err) {
+      const code = err instanceof Error && 'code' in err ? String((err as { code?: unknown }).code) : undefined;
+      if (code === 'TARGET_BUSY_DRAINING') throw err;
+      if (allowDegraded) return undefined;
+      throw new CapabilityError(
+        'NO_RENDER_SURFACE',
+        `${operation} cannot run on tab '${tabId}': the render surface could not be measured (${err instanceof Error ? err.message : String(err)})`,
+        { tabId, paneId, operation, cause: classifyRenderSurfaceCause(undefined) }
+      );
+    }
+    if (snapshot && (!Number.isFinite(snapshot.vw) || !Number.isFinite(snapshot.vh) || snapshot.vw < 1 || snapshot.vh < 1)) {
+      if (allowDegraded) return snapshot;
+      throw new CapabilityError(
+        'NO_RENDER_SURFACE',
+        `${operation} cannot run on tab '${tabId}' pane '${paneId ?? 'desktop'}': the tab is alive but has no laid-out surface (${snapshot.vw}x${snapshot.vh} CSS px, readyState '${snapshot.readyState}', hidden ${snapshot.hidden}, cause ${classifyRenderSurfaceCause(snapshot)}). Size the tab with anti.browser.set_viewport or navigate it to a real page.`,
+        {
+          tabId,
+          paneId,
+          operation,
+          observedWidth: snapshot.vw,
+          observedHeight: snapshot.vh,
+          readyState: snapshot.readyState,
+          documentHidden: snapshot.hidden,
+          cause: classifyRenderSurfaceCause(snapshot),
+        }
+      );
+    }
+    return snapshot;
+  }
+
+  /**
    * Canonical viewport/clip evidence capture. Uses the same verification capture
    * primitive as full-page evidence so every screenshot capability returns an
    * ArtifactRef plus a receipt that names the mode, backend, CSS/raster geometry,
@@ -1387,10 +1565,14 @@ export class BrowserControlPort {
     const format = options?.format === 'jpeg' ? 'jpeg' : 'png';
     const mime = format === 'jpeg' ? 'image/jpeg' : 'image/png';
     return this.passivePool.execute(tabId, async () => {
+      await this.assertRenderSurface(tabId, paneId, 'anti.screenshot.viewport');
       const envelope = await this.host.captureVerificationScreenshot!(undefined, tabId, paneId, {
         format,
         quality: options?.quality,
         fullPage: false,
+        // Inside the policy cancellation grace, so a transport cancel can never
+        // orphan a CDP command that is still allowed to run.
+        timeoutMs: VIEWPORT_CAPTURE_EXECUTION_BUDGET_MS,
       });
       if (!envelope || typeof envelope.data !== 'string' || envelope.data.length === 0) {
         throw new CapabilityError('TARGET_STALE', `Failed to capture non-empty viewport screenshot on tab '${tabId}' (document may still be rendering or target unavailable)`);
@@ -1435,6 +1617,9 @@ export class BrowserControlPort {
     }
     const tabId = this.resolveTargetTab(target, explicitTabId);
     const effectivePane = paneId || 'desktop';
+    // Preflight before the capture budget exists, and keep the measured surface as
+    // the baseline the post-failure restore has to return the tab to.
+    const surfaceBefore = await this.assertRenderSurface(tabId, effectivePane, 'anti.screenshot.full_page');
     const executionBudgetMs = options?.timeoutMs ?? FULL_PAGE_CAPTURE_EXECUTION_BUDGET_MS;
     const budget = new CompareBudget({
       signal: options?.signal,
@@ -1448,16 +1633,67 @@ export class BrowserControlPort {
           try {
             return await this.captureFullPageEnvelope({ target, tabId, effectivePane, runId, attemptId, budget, leaseToken: options?.leaseToken });
           } catch (err) {
+            if (isViewportRestoreFailure(err)) {
+              // The capture left the layout viewport where it could not prove it
+              // restored it. Recovery gets the baseline so the target is released
+              // only if a post-drain restore actually succeeds; the bytes are
+              // never returned either way, because their geometry is unproven.
+              const reason = err instanceof Error ? err.message : String(err);
+              const details = err instanceof CaptureError ? err.details : undefined;
+              const entry = this.quarantineTargetEntry({
+                tabId,
+                paneId: effectivePane,
+                reason,
+                restoreGeometry: surfaceBefore
+                  ? { width: surfaceBefore.vw, height: surfaceBefore.vh, scrollX: surfaceBefore.scrollX, scrollY: surfaceBefore.scrollY }
+                  : undefined,
+              });
+              const receipt = await this.awaitQuarantineReceipt(entry, Math.min(12_000, FULL_PAGE_CAPTURE_CLEANUP_BUDGET_MS));
+              const settled = receipt ?? entry.recovery;
+              throw new CapabilityError('CAPTURE_VIEWPORT_NOT_RESTORED', reason, {
+                tabId,
+                paneId: effectivePane,
+                quarantined: settled?.ok !== true,
+                ...(details ?? {}),
+                recovery: settled,
+              });
+            }
             // A dispatched Page.captureScreenshot that never settles keeps the
-            // target quarantined until a typed recovery receipt lands.
+            // target quarantined until a typed recovery receipt lands. The
+            // recovery drains the transport and then proves the capture geometry
+            // was restored, so a poisoned viewport cannot be handed back as usable.
             if (isTargetDrainFailure(err)) {
               const reason = `Page.captureScreenshot did not settle within its bound on full-page tab '${tabId}'`;
-              const entry = this.quarantineTargetEntry({ tabId, paneId: effectivePane, reason });
-              const receipt = await this.awaitQuarantineReceipt(entry, Math.min(8_000, FULL_PAGE_CAPTURE_CLEANUP_BUDGET_MS));
+              const entry = this.quarantineTargetEntry({
+                tabId,
+                paneId: effectivePane,
+                reason,
+                restoreGeometry: surfaceBefore
+                  ? { width: surfaceBefore.vw, height: surfaceBefore.vh, scrollX: surfaceBefore.scrollX, scrollY: surfaceBefore.scrollY }
+                  : undefined,
+              });
+              const receipt = await this.awaitQuarantineReceipt(entry, Math.min(12_000, FULL_PAGE_CAPTURE_CLEANUP_BUDGET_MS));
+              const transaction = receipt?.viewportTransaction ?? entry.recovery?.viewportTransaction;
+              if (transaction && !transaction.restored) {
+                const message = `Full-page capture on tab '${tabId}' left the layout viewport at ${transaction.after ? `${transaction.after.width}x${transaction.after.height}` : 'an unmeasurable size'} (expected ${surfaceBefore ? `${surfaceBefore.vw}x${surfaceBefore.vh}` : 'unknown'})`;
+                throw new CapabilityError('CAPTURE_VIEWPORT_NOT_RESTORED', message, {
+                  tabId,
+                  paneId: effectivePane,
+                  quarantined: true,
+                  expectedWidth: surfaceBefore?.vw,
+                  expectedHeight: surfaceBefore?.vh,
+                  observedWidth: transaction.after?.width,
+                  observedHeight: transaction.after?.height,
+                  attempts: transaction.attempts,
+                  causeCapture: { code: 'TARGET_BUSY_DRAINING', message: reason },
+                  recovery: receipt ?? entry.recovery,
+                });
+              }
               throw new CapabilityError('TARGET_BUSY_DRAINING', reason, {
                 tabId,
                 paneId: effectivePane,
                 recovery: receipt ?? entry.recovery,
+                ...(transaction ? { viewportTransaction: transaction } : {}),
               });
             }
             throw err;
@@ -1465,6 +1701,28 @@ export class BrowserControlPort {
         }),
       executionBudgetMs
     );
+  }
+
+  /**
+   * Geometry restore inside target recovery: run after the transport drain, the
+   * only point where CDP commands are admissible again. Absent a host seam the
+   * capture geometry is untracked, which is reported as not restored.
+   */
+  private async restoreGeometryForRecovery(
+    tabId: string,
+    paneId: 'desktop' | 'mobile',
+    restoreGeometry: { width: number; height: number; scrollX: number; scrollY: number } | undefined
+  ): Promise<CaptureViewportTransaction | undefined> {
+    if (!restoreGeometry) return undefined;
+    const before = { ...restoreGeometry };
+    if (typeof this.host.reapplyTabGeometry !== 'function') {
+      return { before, after: null, restored: false, attempts: 0 };
+    }
+    try {
+      return await this.host.reapplyTabGeometry(tabId, paneId, restoreGeometry);
+    } catch {
+      return { before, after: null, restored: false, attempts: 1 };
+    }
   }
 
   private async captureFullPageEnvelope(args: {
@@ -1488,6 +1746,28 @@ export class BrowserControlPort {
         }),
       bound + 3_000
     );
+    // The capture moves the layout viewport and must put it back. An envelope
+    // that admits it could not (or was not allowed to because the transport was
+    // draining) is not evidence: the tab's geometry is unproven, so the capture
+    // fails closed instead of returning bytes whose geometry nobody can vouch for.
+    const transaction = envelope?.viewportTransaction;
+    if (transaction && !transaction.restored) {
+      const deferredNote = transaction.deferred === true ? ' (restore deferred: transport was draining)' : '';
+      throw new CaptureError(
+        'CAPTURE_VIEWPORT_NOT_RESTORED',
+        `Full-page capture on tab '${tabId}' moved the layout viewport and did not restore it${deferredNote}`,
+        {
+          tabId,
+          paneId: effectivePane,
+          expectedWidth: transaction.before?.width,
+          expectedHeight: transaction.before?.height,
+          observedWidth: transaction.after?.width,
+          observedHeight: transaction.after?.height,
+          attempts: transaction.attempts,
+          cause: 'capture-restore-unproven',
+        }
+      );
+    }
     if (!envelope || !envelope.data || envelope.data.length === 0) {
       throw new CapabilityError('TARGET_STALE', `Failed to capture non-empty full-page verification screenshot on tab '${tabId}'`);
     }
@@ -1528,10 +1808,13 @@ export class BrowserControlPort {
       ...(leaseToken ? { leaseToken } : {}),
     };
   }
-  async eval(target: BrowserTarget, expression: string, explicitTabId?: string, paneId?: 'desktop' | 'mobile'): Promise<unknown> {
+  async eval(target: BrowserTarget, expression: string, explicitTabId?: string, paneId?: 'desktop' | 'mobile', options?: { requireRenderSurface?: boolean; allowDegradedSurface?: boolean }): Promise<unknown> {
     const tabId = this.resolveTargetTab(target, explicitTabId);
     if (!expression.trim()) throw new CapabilityError('INVALID_ARGUMENT', 'JavaScript expression is required');
     return this.passivePool.execute(tabId, async () => {
+      if (options?.requireRenderSurface === true) {
+        await this.assertRenderSurface(tabId, paneId, 'anti.browser.evaluate', options.allowDegradedSurface === true);
+      }
       return this.host.evalJs(expression, tabId, paneId);
     });
   }
@@ -1731,7 +2014,16 @@ export class BrowserControlPort {
       offscreen: options.offscreen,
     });
     if (boundTabId && this.host.adoptChildTab) {
-      this.host.adoptChildTab(boundTabId, tabId);
+      // A tab this session cannot own is a tab it can never list, address or
+      // close: close it and fail instead of handing back a leak.
+      const adopted = this.host.adoptChildTab(boundTabId, tabId);
+      if (adopted === false) {
+        this.host.closeTab?.(tabId);
+        throw new CapabilityError('POLICY_DENIED', `Tab '${tabId}' could not be adopted into session '${boundTabId}' (session tab quota reached); the tab was closed instead of leaking outside the session`, {
+          tabId,
+          boundTabId,
+        });
+      }
     }
     return { tabId };
   }
@@ -1921,13 +2213,12 @@ export class BrowserControlPort {
     }
 
     if (isAgentPlane) {
-      const agentOwned = this.isAgentTabOwnedForSwitch(context.target, targetId);
-      if (!agentOwned) {
-        throw new CapabilityError(
-          'USER_VISIBLE_OPERATION_FORBIDDEN',
-          'Agent plane may only switch to its own offscreen, ephemeral, or explicitly authorized tabs; activating user-visible foreground tabs is forbidden.'
-        );
-      }
+      // Owner decision (local single-user app): the agent plane may activate any
+      // live, canonical tab this window has. No approval gate; the target already
+      // resolved to a real tab id above and the transport rebinds the attachment
+      // to it after the switch.
+      const switched = Boolean(this.host.switchTab(targetId));
+      return { switched, tabId: targetId };
     }
 
     const boundId = context.target.tabId;
@@ -1943,30 +2234,6 @@ export class BrowserControlPort {
 
     const switched = Boolean(this.host.switchTab(targetId));
     return { switched, tabId: targetId };
-  }
-
-  /** Agent lease-rebinding permission: a tab is agent-owned when it is offscreen,
-   *  ephemeral, the automation tab, or explicitly authorized for this caller. */
-  private isAgentTabOwnedForSwitch(target: BrowserTarget, targetId: string): boolean {
-    if (this.host.isTabOffscreen?.(targetId)) return true;
-    if (this.host.isTabEphemeral?.(targetId)) return true;
-    const automationId = this.host.getAutomationTabId ? this.host.getAutomationTabId() : undefined;
-    if (automationId && targetId === automationId) return true;
-    if (this.host.isTabAllowed) {
-      let boundId: string | undefined;
-      if (typeof target === 'object' && target !== null && 'tabId' in target) {
-        const tid = (target as { tabId?: unknown }).tabId;
-        boundId = typeof tid === 'string' ? tid : undefined;
-      }
-      if (boundId) {
-        // The catalogue's authorizeAndResolveEffectiveTarget already canonicalized
-        // boundId to the requested targetId and authorized the P->S switch, so the
-        // session's own effective target is an explicitly authorized switch target.
-        if (boundId === targetId) return true;
-        return this.host.isTabAllowed(boundId, targetId);
-      }
-    }
-    return false;
   }
 
   diagnostics(tabId?: string, level?: number | string): { console: unknown[]; failures: unknown[] } {
@@ -2161,7 +2428,7 @@ export class BrowserControlPort {
       });
     }
   }
-  async setViewport(options: { width: number; height: number; mobile?: boolean; deviceScaleFactor?: number; tabId?: string; reload?: boolean }, target?: BrowserTarget): Promise<{ success: boolean; width: number; height: number; mobile?: boolean; presetId: string; reloaded?: boolean }> {
+  async setViewport(options: { width: number; height: number; mobile?: boolean; deviceScaleFactor?: number; tabId?: string; reload?: boolean }, target?: BrowserTarget): Promise<{ success: boolean; width: number; height: number; mobile?: boolean; presetId: string; reloaded?: boolean; observedWidth?: number; observedHeight?: number; verified?: boolean }> {
     if (!this.host.setViewportSize) throw new CapabilityError('CAPABILITY_NOT_FOUND', 'setViewportSize is not supported by host');
     if (typeof options.width !== 'number' || options.width <= 0 || typeof options.height !== 'number' || options.height <= 0) {
       throw new CapabilityError('INVALID_ARGUMENT', 'width and height must be positive numbers');
@@ -2172,8 +2439,6 @@ export class BrowserControlPort {
     const ok = isStructured ? hostResult.success === true : Boolean(hostResult);
     if (!ok) throw new CapabilityError('CAPABILITY_NOT_FOUND', `Failed to set viewport on tab ${effectiveTabId}`);
     let reloaded: boolean | undefined;
-    let observedWidth: number | undefined;
-    let observedHeight: number | undefined;
     if (options.reload) {
       if (isStructured) {
         if (hostResult.reloaded !== true) {
@@ -2186,14 +2451,57 @@ export class BrowserControlPort {
     } else if (options.reload !== undefined) {
       reloaded = false;
     }
-    if (typeof this.host.evalJs === 'function') {
-      try {
-        const metrics = await this.host.evalJs('({ innerWidth: window.innerWidth, innerHeight: window.innerHeight })', effectiveTabId) as { innerWidth?: number; innerHeight?: number } | null;
-        if (metrics && typeof metrics.innerWidth === 'number') {
-          observedWidth = metrics.innerWidth;
-          observedHeight = metrics.innerHeight;
-        }
-      } catch {}
+    // A viewport write is a claim about measured geometry: it is only reported as
+    // applied once the tab measures the requested size, within the same bound.
+    // Every probe is bounded by the remaining window, so the loop can never
+    // outlive the confirmation budget. There is no unverified success path: a
+    // host that cannot answer the geometry probe fails like any other tab.
+    const deadline = Date.now() + VIEWPORT_CONFIRM_BOUND_MS;
+    const mismatched = (m: { vw: number; vh: number }): boolean => Math.abs(m.vw - options.width) > 1 || Math.abs(m.vh - options.height) > 1;
+    const probe = async (): Promise<{ vw: number; vh: number } | null> => {
+      const remaining = Math.max(1, deadline - Date.now());
+      return raceWithTimeout(
+        (async (): Promise<{ vw: number; vh: number } | null> => {
+          if (typeof this.host.readRenderSurface === 'function') {
+            const surface = await this.host.readRenderSurface(effectiveTabId, undefined, remaining);
+            if (surface && Number.isFinite(surface.vw) && Number.isFinite(surface.vh)) return { vw: surface.vw, vh: surface.vh };
+          }
+          if (typeof this.host.evalJs !== 'function') return null;
+          const metrics = (await this.host.evalJs('({ innerWidth: window.innerWidth, innerHeight: window.innerHeight })', effectiveTabId)) as { innerWidth?: number; innerHeight?: number } | null;
+          if (!metrics || typeof metrics.innerWidth !== 'number' || typeof metrics.innerHeight !== 'number') return null;
+          return { vw: metrics.innerWidth, vh: metrics.innerHeight };
+        })().catch(() => null),
+        remaining,
+        () => null
+      );
+    };
+    let observed: { vw: number; vh: number } | null = null;
+    for (;;) {
+      const attempt = await probe();
+      if (attempt) observed = attempt;
+      if (attempt && !mismatched(attempt)) break;
+      if (Date.now() >= deadline) break;
+      const tick = Promise.withResolvers<void>();
+      setTimeout(tick.resolve, Math.max(1, Math.min(100, deadline - Date.now())));
+      await tick.promise;
+    }
+    if (!observed) {
+      throw new CapabilityError('VIEWPORT_NOT_APPLIED', `Could not measure tab '${effectiveTabId}' after requesting ${options.width}x${options.height}`, {
+        tabId: effectiveTabId,
+        expectedWidth: options.width,
+        expectedHeight: options.height,
+        cause: 'unmeasurable',
+      });
+    }
+    if (observed && mismatched(observed)) {
+      throw new CapabilityError('VIEWPORT_NOT_APPLIED', `Tab '${effectiveTabId}' measures ${observed.vw}x${observed.vh} after requesting ${options.width}x${options.height}`, {
+        tabId: effectiveTabId,
+        expectedWidth: options.width,
+        expectedHeight: options.height,
+        observedWidth: observed.vw,
+        observedHeight: observed.vh,
+        cause: observed.vw < 1 || observed.vh < 1 ? 'zero-viewport' : 'geometry-mismatch',
+      });
     }
     return {
       success: ok,
@@ -2202,7 +2510,8 @@ export class BrowserControlPort {
       mobile: options.mobile ?? (options.width < 768),
       presetId: `custom-${options.width}x${options.height}`,
       ...(options.reload !== undefined ? { reloaded } : {}),
-      ...(observedWidth !== undefined ? { observedWidth, observedHeight } : {}),
+      ...(observed ? { observedWidth: observed.vw, observedHeight: observed.vh } : {}),
+      verified: Boolean(observed),
     };
   }
 
@@ -2472,6 +2781,7 @@ export class BrowserControlPort {
     }
     const tabId = this.resolveTargetTab(target, explicitTabId || params.tabId, 'write');
     const effectivePane = paneId || params.paneId || 'desktop';
+    await this.assertRenderSurface(tabId, effectivePane, 'anti.trace.interaction');
 
     return this.viewportGate.withLock(async (lockSignal) => {
       if (lockSignal.aborted) {
@@ -3409,6 +3719,12 @@ export class BrowserControlPort {
     const compTabTarget = params.comparisonTabId
       ? this.resolveTargetTab(target, params.comparisonTabId)
       : null;
+    // Both sides of a comparison are capture surfaces: a tab with no laid-out
+    // surface would compare bytes that are not the storefront.
+    await this.assertRenderSurface(tabId, effectivePane, 'anti.visual.compare');
+    if (compTabTarget && compTabTarget !== tabId) {
+      await this.assertRenderSurface(compTabTarget, effectivePane, 'anti.visual.compare');
+    }
     const lockKeys = compTabTarget && compTabTarget !== tabId ? [tabId, compTabTarget] : [tabId];
     const txn: CompareTransaction = {
       token: `vc-${Date.now().toString(36)}-${crypto.randomBytes(4).toString('hex')}`,
@@ -3681,6 +3997,8 @@ export class BrowserControlPort {
     paneId: 'desktop' | 'mobile';
     pairKey?: string;
     reason: string;
+    /** Geometry a failed capture must be returned to before the target is usable again. */
+    restoreGeometry?: { width: number; height: number; scrollX: number; scrollY: number };
   }): TargetQuarantineEntry {
     const { tabId, paneId, reason } = args;
     const key = targetKey(tabId, paneId);
@@ -3697,7 +4015,7 @@ export class BrowserControlPort {
     };
     this.targetQuarantine.set(key, entry);
     entry.pending = (async () => {
-      const receipt = await this.runTargetRecovery(tabId, paneId);
+      const receipt = await this.runTargetRecovery(tabId, paneId, args.restoreGeometry);
       entry.recovery = receipt;
       if (receipt.ok) this.targetQuarantine.delete(key);
     })();
@@ -3706,7 +4024,11 @@ export class BrowserControlPort {
   }
 
   /** Bounded recovery for a quarantined target: the typed receipt is authoritative. */
-  private async runTargetRecovery(tabId: string, paneId: 'desktop' | 'mobile'): Promise<TargetRecoveryReceipt> {
+  private async runTargetRecovery(
+    tabId: string,
+    paneId: 'desktop' | 'mobile',
+    restoreGeometry?: { width: number; height: number; scrollX: number; scrollY: number }
+  ): Promise<TargetRecoveryReceipt> {
     const startedAt = Date.now();
     const budgetMs = TARGET_RECOVERY_BUDGET_MS;
     if (typeof this.host.drainTarget !== 'function') {
@@ -3738,7 +4060,12 @@ export class BrowserControlPort {
         };
       }
       const outcome: TargetRecoveryOutcome = res.resetPerformed ? 'drain-reset' : res.drained ? 'command-settled' : 'drain-failed';
-      const ok = res.ok || res.drained;
+      let ok = res.ok || res.drained;
+      // A capture that moved the layout viewport is only recovered once the
+      // viewport is measurably back: otherwise the target stays quarantined and
+      // refuses further work instead of poisoning later evidence.
+      const viewportTransaction = ok ? await this.restoreGeometryForRecovery(tabId, paneId, restoreGeometry) : undefined;
+      if (viewportTransaction && !viewportTransaction.restored) ok = false;
       return {
         tabId,
         paneId,
@@ -3747,8 +4074,13 @@ export class BrowserControlPort {
         drained: res.drained,
         resetPerformed: res.resetPerformed,
         elapsedMs: res.elapsedMs,
-        error: ok ? undefined : `drainTarget reported ok=${res.ok} drained=${res.drained}`,
+        error: ok
+          ? undefined
+          : viewportTransaction && !viewportTransaction.restored
+            ? `Capture geometry was not restored (viewport ${viewportTransaction.after ? `${viewportTransaction.after.width}x${viewportTransaction.after.height}` : 'unmeasurable'} after ${viewportTransaction.attempts} attempts)`
+            : `drainTarget reported ok=${res.ok} drained=${res.drained}`,
         recoveredAt: Date.now(),
+        ...(viewportTransaction ? { viewportTransaction } : {}),
       };
     } catch (err) {
       return {
@@ -4971,6 +5303,7 @@ export class BrowserControlPort {
     const tabId = this.resolveTargetTab(target, explicitTabId || params.tabId);
     const effectivePane = paneId || params.paneId || 'desktop';
     const freeze = params.freeze !== false;
+    await this.assertRenderSurface(tabId, effectivePane, 'anti.media.freeze');
     return this.passivePool.execute(tabId, async () => {
       const normalizeSliders = Boolean(params.normalizeSliders);
       const script = injectedScriptStore.getScript('media.freeze', { freeze, normalizeSliders });
@@ -5318,6 +5651,12 @@ export class BrowserControlPort {
         resolved = this.host.createTab('about:blank', false, { ephemeral: true, offscreen: true });
         if (resolved && typeof this.host.setAutomationTabId === 'function') {
           this.host.setAutomationTabId(resolved);
+        }
+        // A tab created on behalf of a session belongs to that session: without
+        // adoption the listing stays empty and the session cannot even close the
+        // tab it is working in.
+        if (resolved && target?.tabId && this.host.adoptChildTab) {
+          this.host.adoptChildTab(target.tabId, resolved);
         }
       } else {
         // Dual-Plane Runtime Isolation (fail-closed): NEVER fall back to the user's

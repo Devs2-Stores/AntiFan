@@ -334,6 +334,7 @@ export class TerminalManager extends EventEmitter {
   private sessions = new Map<string, Session>();
   private sessionGenerations = new Map<string, number>();
   private activeSessionId = '';
+  private bridgeEndpoint: { port: number; host: string; pid: number } | null = null;
   private currentCwd = process.cwd();
   private currentCapsuleId = 'default';
   private persistTimer: NodeJS.Timeout | null = null;
@@ -521,6 +522,14 @@ export class TerminalManager extends EventEmitter {
 
   public static getInstance(): TerminalManager { return this.instance ??= new TerminalManager(); }
   public setCwd(cwd: string): void { this.currentCwd = cwd; }
+  /**
+   * Pin every PTY spawned by this instance to this instance's own bridge endpoint.
+   * A terminal-launched agent must attach to the instance that owns the terminal,
+   * never to whichever instance last wrote a shared discovery mirror.
+   */
+  public setBridgeEndpoint(endpoint: { port: number; host: string; pid: number } | null): void {
+    this.bridgeEndpoint = endpoint;
+  }
   public getCurrentCwd(): string { return this.currentCwd; }
   public setCapsule(capsuleId: string, cwd?: string, targetSessionId?: string): void {
     this.isDisposed = false;
@@ -621,6 +630,15 @@ export class TerminalManager extends EventEmitter {
       FORCE_COLOR: '1',
       ANTIFAN_CONFIG_DIR: process.env.ANTIFAN_CONFIG_DIR || StorageLocations.getConfigDir(),
       ANTIFAN_DATA_ROOT: process.env.ANTIFAN_DATA_ROOT || StorageLocations.getDataRoot(),
+      // Endpoint metadata only (never a token): the owning instance tells its own
+      // terminals which bridge they belong to.
+      ...(this.bridgeEndpoint
+        ? {
+            ANTIFAN_BRIDGE_PORT: String(this.bridgeEndpoint.port),
+            ANTIFAN_BRIDGE_HOST: this.bridgeEndpoint.host,
+            ANTIFAN_BRIDGE_PID: String(this.bridgeEndpoint.pid),
+          }
+        : {}),
       ANTIFAN_TERMINAL_SESSION_ID: id,
       ANTIFAN_TERMINAL_GENERATION: String(generation),
       ANTIFAN_TERMINAL_AFFINITY_SESSION_ID: affinitySessionId,

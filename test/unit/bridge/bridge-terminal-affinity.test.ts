@@ -14,7 +14,10 @@ describe('BridgeServer Terminal Affinity Resolution Live RPC Contract Tests', ()
   let lastSessionCreatedOpts: any = null;
 
   class MockTabHost extends EventEmitter {
-    hasTab(id?: string | null) { return id === 'tab-alive' || id === 'tab-auto' || id === 'tab-active'; }
+    // A real host tracks the tabs it creates; the session-start validation reads
+    // that back, so the mock must too.
+    createdTabs = new Set<string>();
+    hasTab(id?: string | null) { return typeof id === 'string' && (this.createdTabs.has(id) || id === 'tab-alive' || id === 'tab-auto' || id === 'tab-active'); }
     getAutomationTabId() { return 'tab-auto'; }
     getActiveTabId() { return 'tab-active'; }
     setAutomationTabId(id: string) { recordedAutomationTabId = id; }
@@ -24,7 +27,7 @@ describe('BridgeServer Terminal Affinity Resolution Live RPC Contract Tests', ()
       if (id === '#1' || id === '1' || id === 'tab-1') return 'tab-alive';
       return typeof id === 'string' && this.hasTab(id) ? id : undefined;
     }
-    createTab() { return 'tab-created'; }
+    createTab() { this.createdTabs.add('tab-created'); return 'tab-created'; }
     getTerminalAgentAffinity(termId: string, gen?: string | number) {
       if (termId === 'term-alive' && (gen === undefined || String(gen) === '1')) {
         return { tabId: 'tab-alive', status: 'alive' as const, lastUrl: 'https://alive.test' };

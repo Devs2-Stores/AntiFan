@@ -747,4 +747,29 @@ describe('Cognitive Models - Asset, Responsive & E-commerce Data', () => {
     assert.strictEqual(ir.layout.relations.find(r => r.viewport === 'desktop')?.value, 4);
     assert.strictEqual(ir.layout.relations.find(r => r.viewport === 'mobile')?.value, 1);
   });
+
+  it('9. CloneIRBuilder carries source head styles verbatim while body styles stay with their section markup', () => {
+    const builder = new CloneIRBuilder();
+    const html = [
+      '<!DOCTYPE html><html><head>',
+      '<title>Store</title>',
+      '<link rel="stylesheet" href="https://example.com/assets/theme.css">',
+      '<style id="flatsome-main-inline-css">.logo{max-height:40px}</style>',
+      '<style id="wp-custom-css">:root{--brand:#005baa}</style>',
+      '</head><body>',
+      '<main><section class="hero"><style>.hero{padding:40px}</style><h1>Hi</h1></section></main>',
+      '</body></html>'
+    ].join('');
+    const assetsDir = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-head-styles-'));
+    try {
+      const ir = builder.buildFromHtml(html, 'https://example.com', assetsDir);
+
+      assert.deepStrictEqual(ir.headStyles, [
+        '<style id="flatsome-main-inline-css">.logo{max-height:40px}</style>',
+        '<style id="wp-custom-css">:root{--brand:#005baa}</style>'
+      ], 'Head styles must be kept verbatim, in source order, and never duplicated from body sections');
+    } finally {
+      fs.rmSync(assetsDir, { recursive: true, force: true });
+    }
+  });
 });

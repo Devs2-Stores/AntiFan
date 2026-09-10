@@ -7,14 +7,17 @@ const { StdioServerTransport } = require('@modelcontextprotocol/sdk/server/stdio
 const { CallToolRequestSchema, ListToolsRequestSchema } = require('@modelcontextprotocol/sdk/types.js');
 
 const definitions = [
-  ['anti.browser.tabs.list', 'List active tabs in live AntiFan Desktop Browser GUI. Primary browser tool for theme development and live tab management.', {}],
+  ['anti.browser.tabs.list', 'List tabs in the live AntiFan Desktop Browser GUI (every tab in the window by default; pass all: false to list only the tabs this session owns). Primary browser tool for theme development and live tab management.', { all: { type: 'boolean', default: true, description: 'List every tab in the browser window (default). Pass false to restrict the list to the tabs this session owns.' } }],
   ['anti.browser.tabs.create', 'Open a new tab in live AntiFan Desktop Browser GUI without stealing focus.', { url: { type: 'string' } }, ['url']],
   ['anti.browser.tabs.activate', 'Switch the active tab visible to the user in live AntiFan Desktop Browser GUI by tabId.', { tabId: { type: 'string' } }, ['tabId']],
   ['anti.browser.tabs.close', 'Close a tab in live AntiFan Desktop Browser GUI by tabId.', { tabId: { type: 'string' } }, ['tabId']],
   ['anti.browser.navigate', 'Navigate active or background tab in live AntiFan Desktop Browser GUI.', { url: { type: 'string' }, tabId: { type: 'string' } }, ['url']],
   ['anti.browser.reload', 'Reload active or background tab in live AntiFan Desktop Browser GUI.', { tabId: { type: 'string' } }],
   ['anti.inspect.dom', 'Read DOM elements and computed attributes from AntiFan Desktop tab (supports desktop and mobile split panes). Operates directly against background tab.', { selector: { type: 'string' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } }],
-  ['anti.screenshot.viewport', 'Capture high-fidelity viewport screenshot from live AntiFan Desktop GUI (supports desktop and mobile split panes, format: jpeg/png).', { tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] }, format: { type: 'string', enum: ['jpeg', 'png'] }, quality: { type: 'number' }, fullPage: { type: 'boolean', description: 'Capture entire scrollable page height instead of visible viewport' } }],
+  ['anti.screenshot.viewport', 'Capture high-fidelity viewport screenshot from live AntiFan Desktop GUI (supports desktop and mobile split panes, format: jpeg/png). Viewport-only: full_page:true is rejected; use anti.screenshot.full_page for entire document height.', { tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] }, format: { type: 'string', enum: ['jpeg', 'png'] }, quality: { type: 'number' } }],
+  ['anti.screenshot.full_page', 'Capture canonical CDP full-page evidence (entire document scroll height) and stage it under the evidence lease.', { tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] }, format: { type: 'string', enum: ['png', 'jpeg'] }, quality: { type: 'number' } }],
+  ['anti.reference.capture', 'Capture a reference from a live page: materialize lazily-mounted content, settle, then stage the settled DOM (and optionally a screenshot) so later measurements describe the page a comparator actually rasterizes.', { tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] }, selector: { type: 'string' }, screenshot: { type: 'boolean' }, format: { type: 'string', enum: ['png', 'jpeg'] }, quality: { type: 'number' } }],
+  ['anti.browser.set_viewport', 'Set the bound tab viewport dimensions and device emulation, verified against the size the tab actually measures.', { width: { type: 'number' }, height: { type: 'number' }, mobile: { type: 'boolean' }, deviceScaleFactor: { type: 'number' }, tabId: { type: 'string' }, reload: { type: 'boolean' } }, ['width', 'height']],
   ['anti.agent.cursor.click', 'Move visual Agent Cursor and click an element in live AntiFan Desktop tab without stealing visual focus.', { selector: { type: 'string' }, ref: { type: 'string' }, x: { type: 'number' }, y: { type: 'number' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } }],
   ['anti.agent.cursor.move', 'Move visible Agent Cursor without clicking in live AntiFan Desktop tab.', { selector: { type: 'string' }, ref: { type: 'string' }, x: { type: 'number' }, y: { type: 'number' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } }],
   ['anti.agent.cursor.type', 'Move visual Agent Cursor and type into an input element in live AntiFan Desktop tab without stealing visual focus.', { selector: { type: 'string' }, ref: { type: 'string' }, text: { type: 'string' }, clear: { type: 'boolean' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } }, ['text']],
@@ -109,6 +112,29 @@ function resolveBridgeCandidates() {
       isDev: Boolean(parsedBootstrap.isDev),
     },
   ];
+}
+
+// Disk discovery is delegated to the launcher's single candidate authority; the
+// proxy keeps no filesystem or credential-discovery logic of its own. Failover is
+// enabled only for a terminal-scoped agent session, so an unattended or
+// hand-invoked proxy stays bootstrap-only and fail-closed.
+const { resolveBridgeCandidates: discoverLocalCandidates, compareCandidates: compareBridgeCandidates } = require('./antifan-agent.cjs');
+
+function hasTerminalInstanceContext() {
+  return Boolean(
+    process.env.ANTIFAN_TERMINAL_AFFINITY_SESSION_ID ||
+    process.env.ANTIFAN_TERMINAL_PARENT_SESSION_ID ||
+    process.env.ANTIFAN_TERMINAL_SESSION_ID ||
+    process.env.ANTIFAN_BRIDGE_PID
+  );
+}
+
+function resolveFailoverCandidates() {
+  const pinnedCandidates = resolveBridgeCandidates().map((c) => ({ ...c, pinned: true, provenance: 'env' }));
+  if (!hasTerminalInstanceContext()) return pinnedCandidates;
+  const seen = new Set(pinnedCandidates.map((c) => `${c.host}:${c.port}`));
+  const discovered = discoverLocalCandidates().filter((c) => !seen.has(`${c.host}:${c.port}`));
+  return [...pinnedCandidates, ...discovered].sort(compareBridgeCandidates);
 }
 
 function getBootstrap() {
@@ -240,6 +266,9 @@ const CAPABILITY_MAP = Object.freeze({
   'anti.inspect.snapshot': 'anti.inspect.snapshot',
   'anti.browser.evaluate': 'anti.browser.evaluate',
   'anti.screenshot.viewport': 'browser.screenshot',
+  'anti.screenshot.full_page': 'anti.screenshot.full_page',
+  'anti.reference.capture': 'anti.reference.capture',
+  'anti.browser.set_viewport': 'browser.set-viewport',
   'anti.agent.cursor.click': 'browser.agent-click',
   'anti.agent.cursor.move': 'browser.agent-hover',
   'anti.agent.cursor.type': 'browser.agent-type',
@@ -277,7 +306,10 @@ const CAPABILITY_MAP = Object.freeze({
 const CLIENT_TIMEOUT_MS = Object.freeze({
   'browser.visual_compare': 240000,
   'anti.visual.compare': 240000,
-  'anti.screenshot.full_page': 120000,
+  'anti.screenshot.full_page': 150000,
+  'anti.reference.capture': 130000,
+  'browser.screenshot': 45000,
+  'browser.set-viewport': 45000,
   'theme.qa_validate': 60000,
   'anti.theme.qa_validate': 60000,
 });
@@ -507,7 +539,7 @@ async function performPairingExchange(host, port) {
 }
 
 async function autohealSession() {
-  const candidates = resolveBridgeCandidates();
+  const candidates = resolveFailoverCandidates();
   if (candidates.length === 0) {
     process.stderr.write('MCP_BRIDGE_OFFLINE: AntiFan Desktop Bridge is not running (no candidates discovered).\n');
     return null;
@@ -583,6 +615,8 @@ async function autohealSession() {
           } catch {}
         };
         ws.on('message', onMsg);
+        const rawTerminalId = process.env.ANTIFAN_TERMINAL_AFFINITY_SESSION_ID || process.env.ANTIFAN_TERMINAL_PARENT_SESSION_ID || process.env.ANTIFAN_TERMINAL_SESSION_ID;
+        const rawGeneration = process.env.ANTIFAN_TERMINAL_AFFINITY_GENERATION || process.env.ANTIFAN_TERMINAL_GENERATION;
         ws.send(JSON.stringify({
           id: startId,
           method: 'antifan.cli.startSession',
@@ -591,6 +625,8 @@ async function autohealSession() {
             grant: 'eval',
             cwd: process.cwd(),
             attachmentId: pairedExchange?.attachmentId || undefined,
+            terminalSessionId: rawTerminalId ? String(rawTerminalId).trim() : undefined,
+            terminalGeneration: rawGeneration ? String(rawGeneration).trim() : undefined,
           },
         }));
       });
@@ -621,8 +657,24 @@ async function autohealSession() {
       };
       currentAuthorityRevision = session.authorityRevision;
 
+      // The healed endpoint may be a different instance than the one this session
+      // was pinned to: say so, and rebind to the tab that instance actually gave us
+      // (the previously bound tab does not exist there).
+      const rawPinnedPid = parseInt(process.env.ANTIFAN_BRIDGE_PID || '', 10);
+      const pinnedPid = Number.isInteger(rawPinnedPid) && rawPinnedPid > 0 ? rawPinnedPid : null;
+      const answeredPid = typeof session.runtimePid === 'number' && Number.isInteger(session.runtimePid) && session.runtimePid > 0
+        ? session.runtimePid
+        : null;
+      if (pinnedPid !== null && answeredPid !== pinnedPid) {
+        process.stderr.write(`[AntiFan Autoheal] FOREIGN_INSTANCE_ATTACH: pinned pid ${pinnedPid} did not answer; attached to ${candidate.host}:${candidate.port} (pid ${answeredPid === null ? 'unknown' : answeredPid})\n`);
+      }
+      process.env.ANTIFAN_BOUND_TAB_ID = session.tabId;
+
+      // Wire the dispatch socket before the heartbeat so no recovery path can
+      // observe an unbound dispatcher while the binding is being rebound.
       dispatchWs = ws;
       wireDispatchSocket(ws);
+      startHeartbeat(dynamicBootstrap);
       return dynamicBootstrap;
     } catch (err) {
       process.stderr.write(`[AntiFan Autoheal] Candidate ${candidate.host}:${candidate.port} failed: ${err.message}\n`);
@@ -957,6 +1009,7 @@ function ensureHeartbeatSocket(bootstrap, onOpen) {
 
 function startHeartbeat(bootstrap) {
   if (!bootstrap || !bootstrap.secret || !bootstrap.attachmentId) return;
+  stopHeartbeat(); // idempotent re-bind: never leave two intervals or a stale binding
   ensureHeartbeatSocket(bootstrap, (ws) => renewBinding(bootstrap, ws));
   const heartbeatIntervalMs = Math.max(Number(process.env.ANTIFAN_HEARTBEAT_MS) || 30_000, 50);
   heartbeatTimer = setInterval(() => {

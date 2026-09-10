@@ -95,6 +95,13 @@ export interface ComponentContractIR {
   layout: LayoutConstraints;
   responsive?: ResponsiveBreakpointConfig;
   assets?: HarvestedAssetManifest;
+  /**
+   * Verbatim `<style>` blocks from the source document head, in source order.
+   * Section markup carries body-level styles; head styles are document-scoped and
+   * would otherwise be lost, dropping theme layout CSS (banner backgrounds,
+   * icon @font-face, logo sizing) and rendering the clone unstyled.
+   */
+  headStyles?: string[];
   themeSettings: ThemeSettingContract[];
   sections: ComponentSectionContract[];
   /** Neutral alias mirroring sections for universal consumers */

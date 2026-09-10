@@ -613,7 +613,7 @@ describe('Phase 2 Agent-Plane Authority Contract Regressions', () => {
       return { mockHost, port, readState: () => ({ switchedTo, switchCalls }) };
     }
 
-    it('agent attachment activating a user-visible foreground tab throws USER_VISIBLE_OPERATION_FORBIDDEN and never switches', () => {
+    it('agent attachment may activate a user-visible foreground tab (owner decision: no activation gate)', () => {
       const { port, readState } = createSwitchHost();
       const target: BrowserTarget = {
         projectId: 'proj-1',
@@ -623,24 +623,19 @@ describe('Phase 2 Agent-Plane Authority Contract Regressions', () => {
         browserEpoch: 1,
         documentGeneration: 1,
       };
-      assert.throws(
-        () => port.switchTab('tab-user-active', {
-          target,
-          attachmentId: 'attachment-1',
-          runId: 'run-1',
-          attemptId: 'attempt-1',
-          isAgent: true,
-          plane: 'agent',
-        }),
-        (err: unknown) => {
-          assert.ok(err instanceof CapabilityError);
-          assert.strictEqual((err as CapabilityError).code, 'USER_VISIBLE_OPERATION_FORBIDDEN');
-          return true;
-        }
-      );
+      const res = port.switchTab('tab-user-active', {
+        target,
+        attachmentId: 'attachment-1',
+        runId: 'run-1',
+        attemptId: 'attempt-1',
+        isAgent: true,
+        plane: 'agent',
+      });
+      assert.strictEqual(res.switched, true);
+      assert.strictEqual(res.tabId, 'tab-user-active');
       const { switchCalls, switchedTo } = readState();
-      assert.strictEqual(switchCalls, 0, 'switchTab must never be invoked for a user-visible tab from agent plane');
-      assert.strictEqual(switchedTo, null, 'User-visible tab must not become the active tab');
+      assert.strictEqual(switchCalls, 1, 'the switch must reach the host exactly once');
+      assert.strictEqual(switchedTo, 'tab-user-active', 'the user-visible tab becomes the active tab');
     });
 
     it('agent attachment may switch only to its own agent-owned (offscreen/ephemeral) tab', () => {

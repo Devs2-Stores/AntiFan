@@ -204,7 +204,7 @@ export class CapabilityCatalogue {
     if (!this.isVisible(definition, context.grant)) throw new CapabilityError('POLICY_DENIED', `Capability ${name} is not enabled by the current policy`);
 
     if (definition.requiresBrowserTarget) {
-      this.authorizeAndResolveEffectiveTarget(params, context, authoritativeWs);
+      this.authorizeAndResolveEffectiveTarget(params, context, authoritativeWs, definition.name);
     }
     return definition.execute(params, context);
   }
@@ -236,7 +236,7 @@ export class CapabilityCatalogue {
     if (!this.isVisible(definition, context.grant)) throw new CapabilityError('POLICY_DENIED', `Capability ${name} is not enabled by the current policy`);
 
     if (definition.requiresBrowserTarget) {
-      this.authorizeAndResolveEffectiveTarget(params, context, authoritativeWs);
+      this.authorizeAndResolveEffectiveTarget(params, context, authoritativeWs, definition.name);
     }
     return definition.execute(params, context);
   }
@@ -270,7 +270,8 @@ export class CapabilityCatalogue {
   private authorizeAndResolveEffectiveTarget(
     params: Record<string, unknown>,
     context: CapabilityRequestContext,
-    authoritativeWs: WorkspaceRecord
+    authoritativeWs: WorkspaceRecord,
+    capabilityName: string
   ): void {
     assertExactBrowserTarget(context.browserTarget, {
       projectId: authoritativeWs.projectId,
@@ -299,20 +300,31 @@ export class CapabilityCatalogue {
       const canonicalId = canonicalTargetId.trim();
 
       if (canonicalId !== context.browserTarget.tabId) {
-        const isAllowed = this.options.isTabAllowed
-          ? this.options.isTabAllowed(context.browserTarget.tabId, canonicalId) === true
-          : false;
-
-        if (!isAllowed) {
-          // Check if tab is allowed for terminal session or if canonicalId exists in live tabs
-          const isResolvedAllowed = this.options.isTabAllowed
-            ? this.options.isTabAllowed(canonicalId, context.browserTarget.tabId) === true
+        // Owner decision (local single-user app): an agent session may activate any
+        // live tab in this window. Switch/activate is the lease-rebinding operation,
+        // so the session allowlist does not gate it; the id must still canonicalize
+        // and be live (checked below), and every other capability keeps the gate.
+        const agentTabSwitch =
+          Boolean((context as Partial<AuthenticatedCapabilityContext>).attachmentId) &&
+          (capabilityName === 'browser.switch-tab' ||
+            capabilityName === 'antifan_switch_tab' ||
+            capabilityName === 'anti.browser.tabs.activate');
+        if (!agentTabSwitch) {
+          const isAllowed = this.options.isTabAllowed
+            ? this.options.isTabAllowed(context.browserTarget.tabId, canonicalId) === true
             : false;
-          if (!isResolvedAllowed) {
-            throw new CapabilityError(
-              'TARGET_MISMATCH',
-              `Tab ID mismatch: expected ${context.browserTarget.tabId}, got ${reqTabId}. Note: In split review mode, use the bound tabId with paneId: "mobile" to target the mobile pane.`
-            );
+
+          if (!isAllowed) {
+            // Check if tab is allowed for terminal session or if canonicalId exists in live tabs
+            const isResolvedAllowed = this.options.isTabAllowed
+              ? this.options.isTabAllowed(canonicalId, context.browserTarget.tabId) === true
+              : false;
+            if (!isResolvedAllowed) {
+              throw new CapabilityError(
+                'TARGET_MISMATCH',
+                `Tab ID mismatch: expected ${context.browserTarget.tabId}, got ${reqTabId}. Note: In split review mode, use the bound tabId with paneId: "mobile" to target the mobile pane.`
+              );
+            }
           }
         }
 

@@ -782,7 +782,7 @@ export function buildMcpToolList(staticTools: Tool[], transport?: CapabilityTran
     if (item.name === 'antifan_agent_highlight') generated.push({ ...item, name: 'anti.browser.highlight' }, { ...item, name: 'anti.agent.cursor.highlight' });
     if (item.name === 'antifan_agent_clear') generated.push({ ...item, name: 'anti.browser.clear' }, { ...item, name: 'anti.agent.cursor.clear' });
     if (item.name === 'antifan_agent_trajectory') generated.push({ ...item, name: 'anti.browser.trajectory' }, { ...item, name: 'anti.agent.cursor.trajectory' });
-    if (item.name === 'antifan_set_viewport') generated.push({ ...item, name: 'anti.browser.viewport.set' });
+    if (item.name === 'antifan_set_viewport') generated.push({ ...item, name: 'anti.browser.viewport.set' }, { ...item, name: 'anti.browser.set_viewport', description: 'Set browser responsive viewport dimensions and prove the tab measured them' });
     if (item.name === 'antifan_set_device_preset') generated.push({ ...item, name: 'anti.browser.set_device' }, { ...item, name: 'anti.browser.viewport.set_preset' }, { ...item, name: 'anti.browser.set_device_preset' });
     if (item.name === 'antifan_list_device_presets') generated.push({ ...item, name: 'anti.browser.viewport.list_presets' });
     if (item.name === 'antifan_theme_qa_validate') generated.push({ ...item, name: 'anti.theme.qa.validate' }, { ...item, name: 'anti.theme.qa_validate' });
@@ -808,5 +808,14 @@ export function buildMcpToolList(staticTools: Tool[], transport?: CapabilityTran
         { ...listed.find((item) => item.name === 'antifan_console_messages')!, name: 'anti.devtools.console.warnings' },
       ]
     : [];
-  return [...listed, ...aliases, ...diagnosticAliases];
+  // A generated alias must never shadow or duplicate a real catalogue tool:
+  // duplicate names make the advertised schema ambiguous, and the first match
+  // may be the wrong one.
+  const emitted = new Set(toolMap.keys());
+  const uniqueAliases = [...aliases, ...diagnosticAliases].filter((item) => {
+    if (emitted.has(item.name)) return false;
+    emitted.add(item.name);
+    return true;
+  });
+  return [...listed, ...uniqueAliases];
 }

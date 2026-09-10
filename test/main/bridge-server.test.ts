@@ -8,6 +8,7 @@ import { EventEmitter } from 'node:events';
 import * as net from 'node:net';
 import * as crypto from 'node:crypto';
 import * as http from 'node:http';
+import { spawn } from 'node:child_process';
 import { BridgeServer, type MobileSessionGrant } from '../../src/main/bridge/bridge-server';
 import { StorageLocations } from '../../src/main/config/storage-locations';
 import { NativeTabHost } from '../../src/main/browser/native-tab-host';
@@ -25,7 +26,9 @@ class MockTabHost extends EventEmitter {
   getActiveTabId() {
     return this.activeTabId;
   }
-  createTab(url = 'https://google.com') {
+  // Mirrors NativeTabHost.createTab, where activation defaults to true.
+  createTab(url = 'https://google.com', activate = true, options?: { ephemeral?: boolean; offscreen?: boolean }) {
+    this.lastCreateTab = { url, activate, options };
     const id = `tab-${Date.now()}`;
     this.tabs.push({ id, url, title: 'New Tab', isLoading: false, canGoBack: false, canGoForward: false, zoomFactor: 1.0 });
     this.activeTabId = id;
@@ -57,6 +60,7 @@ class MockTabHost extends EventEmitter {
     return 'base64-mock-png';
   }
   public reloadWindowCalls = 0;
+  public lastCreateTab: { url?: string; activate?: boolean; options?: { ephemeral?: boolean; offscreen?: boolean } } | null = null;
   reloadWindow() {
     this.reloadWindowCalls++;
   }
@@ -102,6 +106,47 @@ describe('AntiFan Bridge Server', () => {
     assert.strictEqual(result.data.browserTarget.tabId, 'tab-1');
     ws.close();
     server.dispose();
+  });
+
+  it('opens an activated tab on the visible plane for an agent caller, and keeps inactive ones offscreen', async () => {
+    const mockHost = new MockTabHost();
+    const server = new BridgeServer(mockHost as unknown as NativeTabHost, 0, false);
+    const port = await server.start();
+    const ws = new WebSocket(`ws://127.0.0.1:${port}`, {
+      headers: { Authorization: `Bearer ${server.getToken()}` },
+    });
+    await new Promise<void>((resolve, reject) => { ws.on('open', resolve); ws.on('error', reject); });
+    const send = async (id: string, params: Record<string, unknown>) => {
+      // Wire payload from the bridge; the id/success/data shape is asserted below.
+      type OpenTabResult = { id: string; success: boolean; data: { tabId: string } };
+      const response = new Promise<OpenTabResult>((resolve) => ws.on('message', (data) => {
+        const parsed = JSON.parse(data.toString()) as OpenTabResult;
+        if (parsed.id === id) resolve(parsed);
+      }));
+      ws.send(JSON.stringify({ id, method: 'antifan.openTab', params }));
+      return response;
+    };
+    try {
+      const activated = await send('open-visible-1', { url: 'https://example.com', activate: true, attachmentId: 'attachment-1' });
+      assert.strictEqual(activated.success, true);
+      assert.strictEqual(mockHost.lastCreateTab?.activate, true);
+      assert.deepStrictEqual(
+        mockHost.lastCreateTab?.options,
+        { ephemeral: false, offscreen: false },
+        'a tab the caller asked to activate must exist on screen'
+      );
+
+      const inactive = await send('open-hidden-1', { url: 'https://example.com/2', attachmentId: 'attachment-1' });
+      assert.strictEqual(inactive.success, true);
+      assert.deepStrictEqual(
+        mockHost.lastCreateTab?.options,
+        { ephemeral: true, offscreen: true },
+        'without activation an agent tab stays an isolated offscreen surface'
+      );
+    } finally {
+      ws.close();
+      server.dispose();
+    }
   });
 
   it('starts on local port and responds to getStatus and RPC methods with valid token', async () => {
@@ -950,5 +995,44 @@ describe('Bridge discovery & pairing queue isolation from the live data root', (
         'must delete its own discovery metadata'
       );
     });
+  });
+
+  it('never overwrites a legacy home mirror held by another live instance', async () => {
+    const readMirrorPid = (file: string): unknown => {
+      const parsed: unknown = JSON.parse(fs.readFileSync(file, 'utf8'));
+      return parsed && typeof parsed === 'object' && 'pid' in parsed ? parsed.pid : undefined;
+    };
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-home-'));
+    fs.mkdirSync(path.join(home, '.gemini'), { recursive: true });
+    const mirrorPath = path.join(home, '.gemini', 'antifan_bridge_dev.json');
+    const prevHome = process.env.HOME;
+    const prevProfile = process.env.USERPROFILE;
+    process.env.HOME = home;
+    process.env.USERPROFILE = home;
+    const holder = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' });
+    try {
+      await withIsolatedRoots(async () => {
+        const mockHost = new MockTabHost() as unknown as NativeTabHost;
+        fs.writeFileSync(mirrorPath, JSON.stringify({ port: 20129, pid: holder.pid, host: '127.0.0.1' }), 'utf8');
+
+        // Port 20190 is never bound: start() is not called, so this is inert
+        // discovery metadata, and a non-zero port keeps discovery publishing on.
+        const server = new BridgeServer(mockHost, 20190, true);
+        server.rotateToken();
+        assert.strictEqual(readMirrorPid(mirrorPath), holder.pid, 'a mirror held by a live instance keeps its entry');
+
+        holder.kill();
+        await new Promise<void>((resolve) => holder.once('exit', () => resolve()));
+
+        server.rotateToken();
+        assert.strictEqual(readMirrorPid(mirrorPath), process.pid, 'a mirror whose holder is dead is replaced');
+        server.dispose();
+      });
+    } finally {
+      try { holder.kill(); } catch {}
+      if (prevHome === undefined) delete process.env.HOME; else process.env.HOME = prevHome;
+      if (prevProfile === undefined) delete process.env.USERPROFILE; else process.env.USERPROFILE = prevProfile;
+      try { fs.rmSync(home, { recursive: true, force: true }); } catch {}
+    }
   });
 });

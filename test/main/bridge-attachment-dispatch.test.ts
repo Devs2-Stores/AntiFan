@@ -13,7 +13,8 @@ import { BrowserControlPort, type BrowserHostPort } from '../../src/main/tools/b
 import type { ControlPlaneRuntime } from '../../src/main/control-plane/control-plane-runtime';
 
 class MockTabHost extends EventEmitter implements BrowserHostPort {
-  getTabList() { return [{ id: 'tab-1', url: 'https://example.com', title: 'Example' }]; }
+  private createdTabs: Array<{ id: string; url: string; title: string }> = [];
+  getTabList() { return [{ id: 'tab-1', url: 'https://example.com', title: 'Example' }, ...this.createdTabs]; }
   hasTab(tabId?: string | null): boolean { return Boolean(tabId && this.getTabList().some(t => t.id === tabId)); }
   getActiveTabId() { return 'tab-1'; }
   getActiveTab() { return { id: 'tab-1', url: 'https://example.com', title: 'Example' }; }
@@ -25,7 +26,11 @@ class MockTabHost extends EventEmitter implements BrowserHostPort {
   async getDom() { return '<html><body><h1>AntiFan DOM</h1></body></html>'; }
   async captureScreenshot() { return 'base64-screenshot'; }
   async evalJs() { return true; }
-  createTab(_url?: string, _activate?: boolean, _options?: Record<string, unknown>): string { return 'tab-session-launch-1'; }
+  createTab(url?: string, _activate?: boolean, _options?: Record<string, unknown>): string {
+    const id = 'tab-session-launch-1';
+    if (!this.hasTab(id)) this.createdTabs.push({ id, url: url || 'about:blank', title: 'Agent Tab' });
+    return id;
+  }
 }
 describe('BridgeServer Attachment Authentication & Scoped Dispatch', () => {
   it('authenticates via attachment secret, restricts to capability dispatch, enforces replay denial, and prevents legacy RPCs', async () => {

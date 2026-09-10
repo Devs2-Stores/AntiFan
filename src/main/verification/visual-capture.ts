@@ -700,6 +700,137 @@ export type CaptureMode = 'viewport' | 'clip' | 'full-page';
 export const CAPTURE_MAX_DIMENSION = 16384;
 
 /**
+ * Live render-surface geometry read from a tab's renderer in one bounded CDP
+ * round-trip. A surface with `vw < 1` or `vh < 1` is alive but not composited:
+ * bounded render work (capture, materialization) cannot complete on it, so
+ * callers must refuse instead of fabricating a viewport.
+ */
+export interface RenderSurfaceSnapshot {
+  vw: number;
+  vh: number;
+  dpr: number;
+  scrollX: number;
+  scrollY: number;
+  docH: number;
+  readyState: string;
+  hidden: boolean;
+}
+
+export const RENDER_SURFACE_PROBE_EXPRESSION =
+  '({ vw: window.innerWidth || 0, vh: window.innerHeight || 0, dpr: window.devicePixelRatio || 1, ' +
+  'scrollX: window.scrollX || 0, scrollY: window.scrollY || 0, ' +
+  'docH: Math.max(document.documentElement ? document.documentElement.scrollHeight : 0, document.body ? document.body.scrollHeight : 0), ' +
+  'readyState: document.readyState || "unknown", hidden: document.hidden === true })';
+
+/** Bound for the render-surface probe: small enough to fail fast, one round-trip. */
+export const RENDER_SURFACE_PROBE_BOUND_MS = 3_000;
+
+/** Classified cause for a rejected render surface, used to keep failures diagnosable. */
+export function classifyRenderSurfaceCause(snapshot: Partial<RenderSurfaceSnapshot> | null | undefined): string {
+  if (!snapshot) return 'probe-unavailable';
+  if (snapshot.readyState && snapshot.readyState !== 'complete') return 'document-not-loaded';
+  if (snapshot.hidden === true) return 'background-hidden';
+  return 'not-composited';
+}
+
+/** Scroll step for the materialization walk, in CSS pixels. */
+export const REFERENCE_MATERIALIZATION_STEP_PX = 400;
+/** Dwell at each step so lazy observers can mount content before the next step. */
+export const REFERENCE_MATERIALIZATION_DWELL_MS = 50;
+/** Passes of the walk: the walk repeats while the document keeps growing. */
+export const REFERENCE_MATERIALIZATION_MAX_PASSES = 6;
+/** Bound for the whole materialization walk, including decode waits. */
+export const REFERENCE_MATERIALIZATION_BOUND_MS = 30_000;
+
+/**
+ * Materialize lazily-mounted content in place: walk the document in bounded
+ * steps so lazy observers fire, repeat while the document keeps growing, wait
+ * for pending decodes, then return to the top. A clone built from a DOM that
+ * never mounted its below-fold content is not the page the comparator rasterizes,
+ * so this runs before any reference measurement, not after.
+ */
+export function buildReferenceMaterializationScript(): string {
+  return `(async () => {
+    const step = ${REFERENCE_MATERIALIZATION_STEP_PX};
+    const dwell = ${REFERENCE_MATERIALIZATION_DWELL_MS};
+    const maxPasses = ${REFERENCE_MATERIALIZATION_MAX_PASSES};
+    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+    const height = () => Math.max(
+      document.documentElement ? document.documentElement.scrollHeight : 0,
+      document.body ? document.body.scrollHeight : 0
+    );
+    for (const img of Array.from(document.querySelectorAll('img[loading="lazy"]'))) {
+      try { img.loading = 'eager'; } catch {}
+    }
+    const startY = window.scrollY || window.pageYOffset || 0;
+    const docHeightBefore = height();
+    const countPlaceholders = () => {
+      let n = 0;
+      for (const img of Array.from(document.images)) {
+        const src = img.getAttribute('src') || '';
+        if (!src || src.indexOf('data:') === 0 || !img.complete) n++;
+      }
+      return n;
+    };
+    const placeholdersBefore = countPlaceholders();
+    let lastH = 0;
+    let passes = 0;
+    for (let pass = 0; pass < maxPasses; pass++) {
+      passes = pass + 1;
+      const H = height();
+      for (let y = Math.max(0, lastH - step); y <= H; y += step) {
+        window.scrollTo(0, y);
+        await sleep(dwell);
+      }
+      window.scrollTo(0, H);
+      await sleep(200);
+      if (height() === H && pass >= 1) break;
+      lastH = H;
+    }
+    let decoded = 0;
+    try {
+      const pending = Array.from(document.images).filter((i) => i.src && !i.complete);
+      const work = pending.slice(0, 60).map((i) => (i.decode ? i.decode().catch(() => {}) : Promise.resolve()));
+      await Promise.race([Promise.allSettled(work), sleep(6000)]);
+      decoded = work.length;
+    } catch {}
+    window.scrollTo(0, startY);
+    return {
+      materialized: true,
+      href: String(location.href || ''),
+      passes,
+      docHeightBefore,
+      docHeight: height(),
+      scrollYRestored: window.scrollY || 0,
+      startY,
+      decoded,
+      imagesTotal: document.images.length,
+      imagesStillPending: Array.from(document.images).filter((i) => i.src && !i.complete).length,
+      placeholdersBefore,
+      placeholdersAfter: countPlaceholders(),
+    };
+  })()`;
+}
+
+/**
+ * Geometry before/after a capture that rasterizes beyond the viewport. Evidence
+ * capture must leave the tab's layout viewport and scroll offset where it found
+ * them; a capture that cannot prove restoration is a failed capture.
+ */
+export interface CaptureViewportTransaction {
+  before: { width: number; height: number; scrollX: number; scrollY: number } | null;
+  after: { width: number; height: number; scrollX: number; scrollY: number } | null;
+  restored: boolean;
+  attempts: number;
+  /**
+   * True when restoration could not be attempted inline because the CDP
+   * transport was draining; the caller must run `reapplyTabGeometry` after the
+   * target is drained instead of treating the tab as unrestorable.
+   */
+  deferred?: boolean;
+}
+
+/**
  * Canonical verification capture envelope returned by CDP Page.captureScreenshot.
  */
 export interface VerificationCaptureEnvelope {
@@ -713,6 +844,8 @@ export interface VerificationCaptureEnvelope {
   rasterSize: { width: number; height: number };
   captureMode: CaptureMode;
   timestamp: number;
+  /** Layout-viewport movement caused by the capture and whether it was restored. */
+  viewportTransaction?: CaptureViewportTransaction;
 }
 
 /**
@@ -727,6 +860,7 @@ export interface VerificationCaptureReceipt {
   rasterSize: { width: number; height: number };
   captureMode: CaptureMode;
   timestamp: number;
+  viewportTransaction?: CaptureViewportTransaction;
 }
 
 export function verificationCaptureReceipt(env: VerificationCaptureEnvelope): VerificationCaptureReceipt {
@@ -739,6 +873,7 @@ export function verificationCaptureReceipt(env: VerificationCaptureEnvelope): Ve
     rasterSize: { width: env.rasterSize.width, height: env.rasterSize.height },
     captureMode: env.captureMode,
     timestamp: env.timestamp,
+    ...(env.viewportTransaction ? { viewportTransaction: env.viewportTransaction } : {}),
   };
 }
 
@@ -773,12 +908,15 @@ export type CaptureFailureCode =
   | 'CAPTURE_JPEG_TRUNCATED'
   | 'CAPTURE_JPEG_UNDECODABLE'
   | 'CAPTURE_SCALE_MISMATCH'
-  | 'TARGET_BUSY_DRAINING';
+  | 'TARGET_BUSY_DRAINING'
+  | 'NO_RENDER_SURFACE'
+  | 'CAPTURE_VIEWPORT_NOT_RESTORED';
 
 export class CaptureError extends Error {
   constructor(
     public readonly code: CaptureFailureCode,
-    message: string
+    message: string,
+    public readonly details?: Record<string, unknown>
   ) {
     super(message);
     this.name = 'CaptureError';

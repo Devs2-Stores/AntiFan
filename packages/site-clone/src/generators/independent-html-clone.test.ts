@@ -346,4 +346,51 @@ describe('IndependentHtmlCloneGenerator - Standalone Bundle & Cardinality Bounds
     const mainHtml = html.slice(mainAt, html.indexOf('</main>') + 7);
     assert.ok(!mainHtml.includes('site-footer'), 'Footer must not be nested inside main');
   });
+
+  it('emits source head styles after linked stylesheets so page-specific CSS keeps cascade priority', async () => {
+    const themePath = path.join(tempDir, 'theme-head-styles.css');
+    fs.writeFileSync(themePath, '.theme{}');
+
+    const ir: ComponentContractIR = {
+      version: '1.2.0',
+      metadata: { sourceUrl: 'https://example.com', extractedAt: new Date().toISOString() },
+      layout: {
+        containerMaxWidth: 1200,
+        containerPaddingPx: 15,
+        gridGapPx: 20,
+        breakpoints: { mobileMax: 767, tabletMin: 768, tabletMax: 1024, desktopMin: 1025 }
+      },
+      storefrontRuntime: { controllers: [] },
+      themeSettings: [],
+      sections: [
+        { id: 'hero', name: 'Hero', archetype: 'custom_section', layoutType: 'flow', settings: {}, blocks: [], rawHtml: '<section class="hero">H</section>' }
+      ],
+      normalizedData: { products: [], articles: [] },
+      assets: {
+        stylesheets: [{ type: 'css', sourceUrl: 'https://example.com/assets/theme-head-styles.css', filename: 'theme-head-styles.css', localPath: themePath, byteCount: 9 }],
+        javascripts: [],
+        images: [],
+        fonts: [],
+        totalBytes: 9
+      },
+      headStyles: [
+        '<style id="flatsome-main-inline-css">.logo{max-height:40px}</style>',
+        '<style id="custom-css">:root{--brand:#005baa}</style>'
+      ]
+    };
+
+    const generator = new IndependentHtmlCloneGenerator();
+    const outDir = path.join(tempDir, 'head_styles_out');
+    const res = await generator.generateCloneBundle(ir, { outputDir: outDir, skipDownload: true });
+
+    assert.strictEqual(res.success, true);
+    const html = fs.readFileSync(res.entryHtmlPath, 'utf-8');
+    const linkAt = html.indexOf('theme-head-styles.css');
+    const firstStyleAt = html.indexOf('flatsome-main-inline-css');
+    const secondStyleAt = html.indexOf('custom-css');
+    assert.ok(linkAt > -1, 'linked stylesheet must survive into the bundle head');
+    assert.ok(firstStyleAt > linkAt, 'inline head styles must follow linked stylesheets');
+    assert.ok(secondStyleAt > firstStyleAt, 'inline head styles must keep their source order');
+    assert.ok(html.includes(':root{--brand:#005baa}'), 'inline head CSS content must be preserved verbatim');
+  });
 });

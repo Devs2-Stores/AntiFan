@@ -39,11 +39,15 @@ function resolveBridgeCandidates() {
   const candidates = [];
   const seenTargets = new Set();
 
-  // 1. Explicit environment variables take top priority
+  // 1. Explicit instance pin: the owning instance stamps its own endpoint into
+  // every terminal it spawns (see TerminalManager.setBridgeEndpoint). It outranks
+  // every discovery file for as long as the pinned process is not provably dead.
   if (process.env.ANTIFAN_BRIDGE_PORT) {
     const port = parseInt(process.env.ANTIFAN_BRIDGE_PORT, 10);
     const host = process.env.ANTIFAN_BRIDGE_HOST || '127.0.0.1';
     const token = process.env.ANTIFAN_BRIDGE_TOKEN || '';
+    const rawPinnedPid = parseInt(process.env.ANTIFAN_BRIDGE_PID || '', 10);
+    const pinnedPid = Number.isInteger(rawPinnedPid) && rawPinnedPid > 0 ? rawPinnedPid : null;
     if (!Number.isNaN(port) && port > 0) {
       const targetKey = `${host}:${port}:${token}`;
       seenTargets.add(targetKey);
@@ -53,9 +57,13 @@ function resolveBridgeCandidates() {
         port,
         host,
         token,
-        pid: null,
-        pidAlive: true,
-        startedAt: Date.now() + 100000,
+        pid: pinnedPid,
+        // A pin without a pid is the owning instance speaking for itself; an
+        // out-of-range pid proves nothing, so it stays "unknown" rather than live.
+        pidAlive: pinnedPid !== null ? isPidAlive(pinnedPid) : (process.env.ANTIFAN_BRIDGE_PID ? null : true),
+        pinned: true,
+        provenance: 'env',
+        startedAt: 0,
         isDev: false,
       });
     }
@@ -98,16 +106,6 @@ function resolveBridgeCandidates() {
             if (seenTargets.has(targetKey)) continue;
             seenTargets.add(targetKey);
 
-            let pidAlive = null;
-            if (parsed.pid && typeof parsed.pid === 'number') {
-              try {
-                process.kill(parsed.pid, 0);
-                pidAlive = true;
-              } catch (err) {
-                pidAlive = err.code === 'EPERM' ? true : false;
-              }
-            }
-
             candidates.push({
               source: 'file',
               file: filePath,
@@ -115,7 +113,9 @@ function resolveBridgeCandidates() {
               host,
               token,
               pid: parsed.pid,
-              pidAlive,
+              pidAlive: isPidAlive(parsed.pid),
+              pinned: false,
+              provenance: isHomeMirrorDir(dir) ? 'legacy-mirror' : 'instance-file',
               startedAt: parsed.startedAt || stat.mtimeMs || 0,
               isDev: Boolean(parsed.isDev),
             });
@@ -125,13 +125,28 @@ function resolveBridgeCandidates() {
     }
   }
 
-  // Sort candidates:
-  // 1. Live processes (2) > env/unknown (1) > dead processes (0)
-  // 2. Dev before prod if same liveness rank
-  // 3. Newer startedAt timestamp before older
   candidates.sort(compareCandidates);
 
   return candidates;
+}
+
+function isPidAlive(pid) {
+  // Only a positive integer names a single process; pid 0 and negatives address
+  // process groups, so process.kill would report "alive" for a meaningless id.
+  if (typeof pid !== 'number' || !Number.isInteger(pid) || pid <= 0) return null;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (err) {
+    return err && err.code === 'EPERM' ? true : false;
+  }
+}
+
+function isHomeMirrorDir(dir) {
+  if (!dir) return false;
+  const resolved = path.resolve(dir);
+  return resolved === path.resolve(os.homedir(), '.gemini')
+    || resolved === path.resolve(os.homedir(), '.antifan');
 }
 
 function getLivenessRank(pidAlive) {
@@ -140,14 +155,35 @@ function getLivenessRank(pidAlive) {
   return 0;
 }
 
+function getProvenanceRank(provenance) {
+  if (provenance === 'env') return 3;
+  if (provenance === 'instance-file') return 2;
+  if (provenance === 'legacy-mirror') return 1;
+  return 0;
+}
+
+// Candidate ordering contract (shared with the MCP proxy in antifan-omp-mcp.cjs):
+//   1. An explicit instance pin outranks every file candidate while the pinned
+//      instance is not provably dead.
+//   2. Otherwise: live (2) > unknown (1) > dead (0) pid liveness.
+//   3. Otherwise: env pin > instance-owned config file > home-directory mirror.
+//   4. Otherwise: newer startedAt.
+//   5. Otherwise: dev before prod.
 function compareCandidates(a, b) {
+  const aPinned = a.pinned === true && getLivenessRank(a.pidAlive) > 0;
+  const bPinned = b.pinned === true && getLivenessRank(b.pidAlive) > 0;
+  if (aPinned !== bPinned) return bPinned ? 1 : -1;
+
   const livenessDiff = getLivenessRank(b.pidAlive) - getLivenessRank(a.pidAlive);
   if (livenessDiff !== 0) return livenessDiff;
 
-  const devDiff = (b.isDev ? 1 : 0) - (a.isDev ? 1 : 0);
-  if (devDiff !== 0) return devDiff;
+  const provenanceDiff = getProvenanceRank(b.provenance) - getProvenanceRank(a.provenance);
+  if (provenanceDiff !== 0) return provenanceDiff;
 
-  return (b.startedAt || 0) - (a.startedAt || 0);
+  const startedDiff = (b.startedAt || 0) - (a.startedAt || 0);
+  if (startedDiff !== 0) return startedDiff;
+
+  return (b.isDev ? 1 : 0) - (a.isDev ? 1 : 0);
 }
 
 
@@ -209,6 +245,9 @@ async function performPairingExchange(host, port) {
 
 async function acquireBridgeSession(candidates, boundPid, explicitTabId) {
   const errors = [];
+  const rawPinnedPid = parseInt(process.env.ANTIFAN_BRIDGE_PID || '', 10);
+  const pinnedPid = Number.isInteger(rawPinnedPid) && rawPinnedPid > 0 ? rawPinnedPid : null;
+  let foreignFallback = null;
   for (const candidate of candidates) {
     const wsUrl = `ws://${candidate.host}:${candidate.port}`;
     let ws;
@@ -289,11 +328,36 @@ async function acquireBridgeSession(candidates, boundPid, explicitTabId) {
         throw err;
       }
 
+      // The bridge reports which Electron instance answered. When this terminal was
+      // pinned, only an answer proving that exact pid is trusted: a missing or
+      // mismatched pid means an older or foreign bridge, and the pinned instance
+      // still gets its chance. Never wedge while a local instance is up — the first
+      // such answer is held as a last-resort fallback.
+      const answeredPid = typeof session.runtimePid === 'number' && Number.isInteger(session.runtimePid) && session.runtimePid > 0
+        ? session.runtimePid
+        : null;
+      if (pinnedPid !== null && answeredPid !== pinnedPid) {
+        console.warn(`[antifan] FOREIGN_INSTANCE_ATTACH: pinned instance pid ${pinnedPid} did not answer; ${candidate.host}:${candidate.port} reports pid ${answeredPid === null ? 'unknown' : answeredPid}`);
+        if (!foreignFallback) {
+          foreignFallback = { ws, bridgeInfo: candidate, session };
+        } else {
+          try { ws.close(); } catch {}
+        }
+        continue;
+      }
+      if (foreignFallback) { try { foreignFallback.ws.close(); } catch {} foreignFallback = null; }
+      if (candidates.indexOf(candidate) > 0) {
+        console.warn(`[antifan] ATTACH_FAILOVER: attached to ${candidate.host}:${candidate.port} (${candidate.file || candidate.source}) after earlier candidates failed`);
+      }
       return { ws, bridgeInfo: candidate, session };
     } catch (err) {
       errors.push(`${wsUrl} (${candidate.file || candidate.source || 'endpoint'}): ${err.message}`);
       try { ws?.close(); } catch {}
     }
+  }
+  if (foreignFallback) {
+    console.warn('[antifan] FOREIGN_INSTANCE_ATTACH: falling back to a live local instance because the pinned instance never answered.');
+    return foreignFallback;
   }
   throw new Error(`All candidate endpoints failed to authenticate or connect:\n  - ${errors.join('\n  - ')}`);
 }

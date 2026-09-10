@@ -1,7 +1,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { BrowserTarget, CapabilityRequestContext, AuthenticatedCapabilityContext, CapabilityError, CapabilityEffectPolicyInput, CapabilityRisk, ReceiptBinding, digestText } from '../../shared/control-plane-contracts';
-import { BrowserControlPort, VISUAL_COMPARE_EXECUTION_BUDGET_MS, VISUAL_COMPARE_CANCELLATION_ACK_MS, FULL_PAGE_CAPTURE_EXECUTION_BUDGET_MS, FULL_PAGE_CAPTURE_CANCELLATION_ACK_MS } from './browser-control-port';
+import { BrowserControlPort, VISUAL_COMPARE_EXECUTION_BUDGET_MS, VISUAL_COMPARE_CANCELLATION_ACK_MS, FULL_PAGE_CAPTURE_EXECUTION_BUDGET_MS, FULL_PAGE_CAPTURE_CANCELLATION_ACK_MS, VIEWPORT_CAPTURE_EXECUTION_BUDGET_MS, VIEWPORT_CAPTURE_CANCELLATION_ACK_MS, REFERENCE_CAPTURE_EXECUTION_BUDGET_MS, REFERENCE_CAPTURE_CANCELLATION_ACK_MS } from './browser-control-port';
 import { CapabilityCatalogue } from './capability-catalogue';
 import { PlatformDetector } from '../qa/scanners/platform-detector';
 import { LiquidErrorScanner } from '../qa/scanners/liquid-error-scanner';
@@ -200,8 +200,8 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
     description: 'List Chromium tabs. The tab bound to this session is marked with isBoundTab: true. Always operate on your bound tab or omit tabId.',
     risk: 'read',
     policy: makeBrowserPolicy({ effect: 'read', risk: 'read', requiresBrowserTarget: false, lane: 'unbounded' }),
-    inputSchema: { type: 'object' },
-    execute: (_params, context) => browser.listTabs({ target: context.browserTarget }),
+    inputSchema: { type: 'object', properties: { all: { type: 'boolean', description: 'List every tab in the browser window instead of only the tabs managed by this session' } } },
+    execute: (params: { all?: boolean }, context) => browser.listTabs({ target: params?.all ? undefined : context.browserTarget }),
   });
 
   catalogue.register({
@@ -691,12 +691,16 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
 
   catalogue.register({
     name: 'anti.browser.evaluate',
-    description: 'Execute JavaScript expression in page context',
+    description: 'Execute JavaScript expression in page context (refuses a tab with no laid-out surface unless allowDegradedSurface is set)',
     risk: 'eval',
     requiresBrowserTarget: true,
     policy: makeBrowserPolicy({ effect: 'interactive-effect', risk: 'eval', requiresBrowserTarget: true, lane: 'viewport-gate' }),
-    inputSchema: { type: 'object', properties: { expression: { type: 'string' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } }, required: ['expression'] },
-    execute: (params: { expression: string; tabId?: string; paneId?: 'desktop' | 'mobile' }, context) => browser.eval(context.browserTarget as BrowserTarget, params.expression, params.tabId, params.paneId),
+    inputSchema: { type: 'object', properties: { expression: { type: 'string' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] }, allowDegradedSurface: { type: 'boolean', description: 'Run even when the tab reports a 0x0 surface (diagnostic escape hatch)' } }, required: ['expression'] },
+    execute: (params: { expression: string; tabId?: string; paneId?: 'desktop' | 'mobile'; allowDegradedSurface?: boolean }, context) =>
+      browser.eval(context.browserTarget as BrowserTarget, params.expression, params.tabId, params.paneId, {
+        requireRenderSurface: true,
+        allowDegradedSurface: params.allowDegradedSurface === true,
+      }),
   });
 
   catalogue.register({
@@ -781,6 +785,15 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
   });
 
   catalogue.register({
+    name: 'anti.browser.set_viewport',
+    description: 'Set browser responsive viewport dimensions (width, height, mobile emulation, DPR) and verify the tab measured them before reporting success',
+    risk: 'write',
+    policy: makeBrowserPolicy({ effect: 'idempotent-write', risk: 'write', requiresBrowserTarget: false, lane: 'unbounded' }),
+    inputSchema: { type: 'object', properties: { width: { type: 'number' }, height: { type: 'number' }, mobile: { type: 'boolean' }, deviceScaleFactor: { type: 'number' }, tabId: { type: 'string' }, reload: { type: 'boolean', description: 'Whether to reload the tab after changing viewport to ensure clean responsive hydration' } }, required: ['width', 'height'] },
+    execute: (params: { width: number; height: number; mobile?: boolean; deviceScaleFactor?: number; tabId?: string; reload?: boolean }, context) => browser.setViewport(params, context.browserTarget),
+  });
+
+  catalogue.register({
     name: 'browser.set-device-preset',
     description: 'Emulate a real device preset (iPhone, iPad, Galaxy, Pixel, MacBook, 4K, Desktop) on a tab',
     risk: 'write',
@@ -840,8 +853,8 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
     description: 'List Chromium tabs. The tab bound to this session is marked with isBoundTab: true. Always operate on your bound tab or omit tabId.',
     risk: 'read',
     policy: makeBrowserPolicy({ effect: 'read', risk: 'read', requiresBrowserTarget: false, lane: 'unbounded' }),
-    inputSchema: { type: 'object' },
-    execute: (_params, context) => browser.listTabs({ target: context.browserTarget }),
+    inputSchema: { type: 'object', properties: { all: { type: 'boolean', description: 'List every tab in the browser window instead of only the tabs managed by this session' } } },
+    execute: (params: { all?: boolean }, context) => browser.listTabs({ target: params?.all ? undefined : context.browserTarget }),
   });
 
   catalogue.register({
@@ -1582,16 +1595,16 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
   // 3. anti.* aliases for unified client / bridge execution
   catalogue.register({
     name: 'anti.browser.tabs.list',
-    description: 'List Chromium tabs. Pass all: true to list all tabs across the browser window. The tab bound to this session is marked with isBoundTab: true. Always operate on your bound tab or omit tabId.',
+    description: 'List Chromium tabs in this window. All tabs are listed by default; the tab bound to this session is marked with isBoundTab: true. Pass all: false to list only the tabs this session owns.',
     risk: 'read',
     policy: makeBrowserPolicy({ effect: 'read', risk: 'read', requiresBrowserTarget: false, lane: 'unbounded' }),
     inputSchema: {
       type: 'object',
       properties: {
-        all: { type: 'boolean', description: 'When true, list all tabs across the browser window instead of filtering to bound session tabs only' }
+        all: { type: 'boolean', default: true, description: 'List every tab in the window (default). Pass false to restrict the list to the tabs this session owns.' }
       }
     },
-    execute: (params: { all?: boolean }, context) => browser.listTabs({ target: params?.all ? undefined : context.browserTarget }),
+    execute: (params: { all?: boolean }, context) => browser.listTabs({ target: params?.all === false ? context.browserTarget : undefined }),
   });
   catalogue.register({
     name: 'anti.browser.tabs.create',
@@ -1609,11 +1622,15 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
     requiresBrowserTarget: true,
     policy: makeBrowserPolicy({ effect: 'idempotent-write', risk: 'write', requiresBrowserTarget: true, lane: 'unbounded' }),
     inputSchema: { type: 'object', properties: { tabId: { type: 'string' } }, required: ['tabId'] },
-    execute: (_params: { tabId: string }, _context) => {
-      throw new CapabilityError(
-        'USER_VISIBLE_OPERATION_FORBIDDEN',
-        'Direct tab activation is forbidden for agent sessions. Agent plane cannot manipulate user-visible tab focus.'
-      );
+    execute: (params: { tabId?: string }, context) => {
+      const authCtx = context as Partial<AuthenticatedCapabilityContext>;
+      return browser.switchTab(String(params?.tabId || ''), {
+        target: context.browserTarget as BrowserTarget,
+        attachmentId: authCtx.attachmentId,
+        runId: authCtx.runId,
+        attemptId: authCtx.attemptId,
+        isAgent: Boolean(authCtx.attachmentId),
+      });
     },
   });
   catalogue.register({
@@ -1656,11 +1673,46 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
   });
 
   catalogue.register({
+    name: 'anti.reference.capture',
+    description: 'Capture a reference from a live page: materialize lazily-mounted content, settle, then stage the settled DOM (and optionally a screenshot) so later measurements describe the page a comparator actually rasterizes',
+    risk: 'read',
+    requiresBrowserTarget: true,
+    policy: makeBrowserPolicy({
+      effect: 'read',
+      risk: 'read',
+      requiresBrowserTarget: true,
+      lane: 'short-passive',
+      timeoutMs: REFERENCE_CAPTURE_EXECUTION_BUDGET_MS + REFERENCE_CAPTURE_CANCELLATION_ACK_MS,
+      cancellationAckTimeoutMs: REFERENCE_CAPTURE_CANCELLATION_ACK_MS,
+    }),
+    inputSchema: {
+      type: 'object',
+      properties: {
+        tabId: { type: 'string' },
+        paneId: { type: 'string', enum: ['desktop', 'mobile'] },
+        selector: { type: 'string', description: 'Scope the staged DOM to a selector (default: whole document)' },
+        screenshot: { type: 'boolean', description: 'Also stage a viewport screenshot (default true)' },
+        format: { type: 'string', enum: ['png', 'jpeg'] },
+        quality: { type: 'number' },
+      },
+    },
+    execute: (params: { tabId?: string; paneId?: 'desktop' | 'mobile'; selector?: string; screenshot?: boolean; format?: 'png' | 'jpeg'; quality?: number }, context) =>
+      browser.referenceCapture(context.browserTarget as BrowserTarget, context.runId || 'run-unbound', context.attemptId || 'attempt-unbound', params, context.signal),
+  });
+
+  catalogue.register({
     name: 'anti.screenshot.viewport',
     description: 'Capture high-fidelity viewport screenshot from live AntiFan Desktop GUI (supports desktop and mobile split panes, format: jpeg/png)',
     risk: 'read',
     requiresBrowserTarget: true,
-    policy: makeBrowserPolicy({ effect: 'read', risk: 'read', requiresBrowserTarget: true, lane: 'short-passive' }),
+    policy: makeBrowserPolicy({
+      effect: 'read',
+      risk: 'read',
+      requiresBrowserTarget: true,
+      lane: 'short-passive',
+      timeoutMs: VIEWPORT_CAPTURE_EXECUTION_BUDGET_MS + VIEWPORT_CAPTURE_CANCELLATION_ACK_MS,
+      cancellationAckTimeoutMs: VIEWPORT_CAPTURE_CANCELLATION_ACK_MS,
+    }),
     inputSchema: { type: 'object', properties: { tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] }, format: { type: 'string', enum: ['png', 'jpeg'] }, quality: { type: 'number' }, fullPage: { type: 'boolean', description: 'Rejected: anti.screenshot.viewport is viewport-only; use anti.screenshot.full_page' } } },
     execute: async (params: { tabId?: string; paneId?: 'desktop' | 'mobile'; format?: 'png' | 'jpeg'; quality?: number; fullPage?: boolean }, context) => {
       assertViewportOnlyScreenshot('anti.screenshot.viewport', params.fullPage);

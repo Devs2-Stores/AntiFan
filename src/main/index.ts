@@ -299,6 +299,8 @@ async function createWindow(): Promise<void> {
     getManagedTabIds: (primaryOrBoundTabId) => tabHost!.getManagedTabIdsForBoundTab(primaryOrBoundTabId),
     isTabAllowed: (primaryOrBoundTabId, requestedTabId) => tabHost!.isTabAllowedForPrimary(primaryOrBoundTabId, requestedTabId),
     getTabList: () => tabHost!.getTabList(),
+    getSessionTabList: (boundTabId) => tabHost!.getSessionTabRecords(boundTabId),
+    getFailoverTargetTab: (tabId) => tabHost!.getFailoverTargetTab(tabId),
     getBrowserEpoch: () => tabHost!.getBrowserEpoch(),
     getActiveTabId: () => tabHost!.getActiveTabId(),
     getAutomationTabId: () => tabHost!.getAutomationTabId(),
@@ -317,6 +319,8 @@ async function createWindow(): Promise<void> {
     captureScreenshot: (rect, tabId, paneId, options) => tabHost!.captureScreenshot(rect as any, tabId, paneId, options),
     captureVerificationScreenshot: (rect, tabId, paneId, options) => tabHost!.captureVerificationScreenshot(rect as any, tabId, paneId, options),
     drainTarget: (tabId, paneId, timeoutMs) => tabHost!.drainTarget(tabId, paneId, timeoutMs),
+    readRenderSurface: (tabId, paneId, timeoutMs) => tabHost!.readRenderSurface(tabId, paneId, timeoutMs),
+    reapplyTabGeometry: (tabId, paneId, before) => tabHost!.reapplyTabGeometry(tabId, paneId, before),
     evalJs: (expression, tabId, paneId) => tabHost!.evalJs(expression, tabId, paneId),
     getNetworkTracker: () => tabHost!.getNetworkTracker(),
     getDiagnostics: (tabId, level) => tabHost!.getDiagnostics(tabId, level),
@@ -415,6 +419,8 @@ async function createWindow(): Promise<void> {
   bridgeServer.setControlPlane(controlPlane);
   const bridgePort = await bridgeServer.start();
   console.log(`[antifan] Bridge Server running on 127.0.0.1:${bridgePort} (${IS_DEV ? 'DEV' : 'PROD'})`);
+  // Terminals spawned by this instance carry this instance's own endpoint identity.
+  TerminalManager.getInstance().setBridgeEndpoint({ port: bridgePort, host: '127.0.0.1', pid: process.pid });
 
   // Start Windows Native Messaging Local IPC Server
   if (process.platform === 'win32') {
