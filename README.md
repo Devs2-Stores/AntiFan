@@ -60,11 +60,20 @@ npm run dev -- --allow-eval
 npm test
 npm run typecheck
 npm run verify
+npm run audit
+npm run test:file .compiled/test/main/<file>.test.js
+npm run test:canary
+npm run rebuild
 npm run smoke:persistence
 npm run smoke:google
 ```
 
 `smoke:persistence` xác minh cookie, localStorage, IndexedDB và OAuth popup qua hai tiến trình Electron. `smoke:google` chạy kiểm tra live Google, nên cần kết nối mạng.
+
+- `npm run test:file <path>` chạy đúng một file/dir test đã compile — không cần `compile` lại toàn bộ.
+- `npm run test:canary` chạy 7 suite `.test.mjs` trong `test/unit/` (các module canary nằm ở tracked `scripts/lib/`).
+- `npm run audit` đối chiếu `plans/bottlenecks.json` với HEAD và **fail** khi một dòng `closed` vẫn còn đúng (`REOPENED`), một dòng `open` đã hết đúng (`FIXED_UNRECORDED`), hoặc một dòng `refuted` lại tái xuất. Đây là sổ đóng-vấn-đề: mọi phát hiện phải có predicate kiểm tra được, nếu không thì ghi `kind: "manual"` kèm `reVerifyWith`.
+- `npm run compile` **không còn** xoá `.compiled`, chạy `incremental`, và tự kiểm tra emit (`check-emit-integrity` + `prune-orphan-emit`). Dùng `npm run rebuild` khi thực sự cần build sạch từ đầu.
 
 ### Zoom giao diện ứng dụng
 - `Ctrl+Alt+=` tăng zoom UI AntiFan.

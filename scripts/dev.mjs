@@ -160,7 +160,7 @@ function processTscLine(line) {
   }
 }
 
-tscProc = spawn(process.execPath, ['--max-old-space-size=4096', tscBin, '-p', './', '--watch'], {
+tscProc = spawn(process.execPath, ['--max-old-space-size=4096', tscBin, '-p', './', '--watch', '--tsBuildInfoFile', '.compiled/.tsbuildinfo.watch'], {
   cwd: ROOT,
   stdio: ['inherit', 'pipe', 'inherit'],
 });

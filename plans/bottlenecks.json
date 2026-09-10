@@ -1,0 +1,320 @@
+{
+  "schemaVersion": 1,
+  "updatedAt": "2026-09-10",
+  "note": "Machine-checkable closure ledger. Every row carries a predicate that returns true when the defect is PRESENT at HEAD. `node scripts/check-bottlenecks.mjs` fails when a row marked `closed` still fires (REOPENED), when a row marked `open` no longer fires (FIXED_UNRECORDED), or when a row marked `refuted` fires (REFUTED_BUT_PRESENT). Rows here replace the prose findings list: a claim that cannot be machine-checked is a row with `kind: \"manual\"`, which is re-verified rather than trusted. Never delete a `refuted` row — it is what stops a dead finding from being re-derived.",
+  "rows": [
+    {
+      "id": "B1",
+      "group": "build",
+      "title": "`compile` deletes the whole `.compiled` tree before rebuilding",
+      "severity": "P0",
+      "status": "closed",
+      "evidence": "plans/reports/brainstorm-260905-antifan-toda-weaknesses-analysis.md:33 → plans/reports/ultra-260910-bottleneck-scout-final.md:76-78",
+      "closedBy": "compile no longer runs clean; de-destruction verified by a live mtime probe while the app was running",
+      "predicate": { "kind": "script-matches", "script": "compile", "pattern": "npm run clean" }
+    },
+    {
+      "id": "B2",
+      "group": "build",
+      "title": "`test` deletes `.compiled` before running anything",
+      "severity": "P0",
+      "status": "closed",
+      "evidence": "package.json `test` opened with `npm run clean && npm run compile`",
+      "closedBy": "test now starts with `npm run compile`, which no longer cleans",
+      "predicate": { "kind": "script-matches", "script": "test", "pattern": "npm run clean" }
+    },
+    {
+      "id": "B3",
+      "group": "build",
+      "title": "`tsconfig.json` never enables `incremental`, so every compile is a cold full program build",
+      "severity": "P1",
+      "status": "closed",
+      "evidence": "tsconfig.json compilerOptions had no `incremental`; .gitignore already ignored *.tsbuildinfo",
+      "closedBy": "incremental: true with a dedicated tsBuildInfoFile under .compiled",
+      "predicate": { "kind": "file-absent-regex", "file": "tsconfig.json", "pattern": "\"incremental\"" }
+    },
+    {
+      "id": "B4",
+      "group": "build",
+      "title": "No `tsBuildInfoFile` — the build info defaulted into the emit tree",
+      "severity": "P1",
+      "status": "closed",
+      "evidence": "tsconfig.json compilerOptions had no `tsBuildInfoFile`",
+      "closedBy": "emit buildinfo pinned to .compiled/.tsbuildinfo; watch and typecheck own separate files",
+      "predicate": { "kind": "file-absent-regex", "file": "tsconfig.json", "pattern": "\"tsBuildInfoFile\"" }
+    },
+    {
+      "id": "B5",
+      "group": "launch",
+      "title": "`main.cjs` guards the compiled entry with existsSync only, so a stale bundle launches silently",
+      "severity": "P1",
+      "status": "open",
+      "evidence": "main.cjs:12 existsSync(compiledMain) with no mtime comparison",
+      "predicate": { "kind": "file-regex", "file": "main.cjs", "pattern": "existsSync" }
+    },
+    {
+      "id": "B6",
+      "group": "retention",
+      "title": "`enableRetentionCleaner` is declared and guarded but no production caller ever enables it",
+      "severity": "P1",
+      "status": "open",
+      "evidence": "src/main/tools/artifact-store.ts:48,71; src/main/control-plane/control-plane-runtime.ts:61-75 return undefined unless env overrides are set",
+      "predicate": { "kind": "file-absent-regex", "file": "src/main/control-plane/control-plane-runtime.ts", "pattern": "enableRetentionCleaner" }
+    },
+    {
+      "id": "B7",
+      "group": "gate",
+      "title": "No file-scoped test runner — the narrowest re-check available is the whole suite",
+      "severity": "P1",
+      "status": "closed",
+      "evidence": "package.json had no test:file script; closing one finding cost test:fast + site-clone + integration + main + e2e",
+      "closedBy": "`npm run test:file <path>` for a single compiled file or directory",
+      "predicate": { "kind": "script-exists", "script": "test:file", "negate": true }
+    },
+    {
+      "id": "B8",
+      "group": "gate",
+      "title": "The seven canary `.test.mjs` suites are gated by no npm script",
+      "severity": "P1",
+      "status": "closed",
+      "evidence": "test/unit/*.test.mjs matched by no glob in package.json and never compiled (no allowJs)",
+      "closedBy": "`npm run test:canary` wired into the `test` chain; 40 tests across 12 suites, all passing",
+      "predicate": { "kind": "script-matches", "script": "test", "pattern": "test:canary", "negate": true }
+    },
+    {
+      "id": "B9",
+      "group": "gate",
+      "title": "`.compiled/test/renderer/**` was covered by no gate glob",
+      "severity": "P1",
+      "status": "closed",
+      "evidence": "test/renderer/terminal-gap-state-machine.test.ts compiles to a path no npm glob matched",
+      "closedBy": "glob added to test:fast",
+      "predicate": { "kind": "script-matches", "script": "test:fast", "pattern": "test/renderer", "negate": true }
+    },
+    {
+      "id": "B10",
+      "group": "gate",
+      "title": "`.compiled/src/**` was covered by no gate glob, hiding every co-located src test",
+      "severity": "P1",
+      "status": "closed",
+      "evidence": "src/main/browser/network-policy.test.ts, src/main/browser/zero-network-interceptor.test.ts, src/main/tools/browser-control-port-zero-network.test.ts",
+      "closedBy": "glob added to test:fast",
+      "predicate": { "kind": "script-matches", "script": "test:fast", "pattern": "\\.compiled/src/", "negate": true }
+    },
+    {
+      "id": "B11",
+      "group": "build",
+      "title": "No orphan-emit pruning: tsc never removes output for deleted sources, so dead modules keep loading",
+      "severity": "P1",
+      "status": "closed",
+      "evidence": "shared .compiled tree required by path, with existsSync-only guards at main.cjs:12 and scripts/run-electron.cjs:43",
+      "closedBy": "scripts/prune-orphan-emit.mjs runs inside compile, skipping .compiled/src/renderer/** which copy-static.mjs owns",
+      "predicate": { "kind": "script-matches", "script": "compile", "pattern": "prune-orphan-emit", "negate": true }
+    },
+    {
+      "id": "B24",
+      "group": "gate",
+      "title": "A colocated src test asserted the pre-fencing rebase contract, and no gate could see it",
+      "severity": "P1",
+      "status": "closed",
+      "evidence": "src/main/tools/browser-control-port-zero-network.test.ts test 3 passed `validTarget` (documentGeneration 1) to reloadZeroNetwork while its mock host reported generation 5, and asserted the result was rebased to 5. reloadZeroNetwork passes operationType 'lifecycle', which resolveTargetTab fences: effectful operations throw TARGET_STALE on generation drift and only passive reads auto-sync. The test had been failing invisibly because .compiled/src/** was covered by no glob.",
+      "closedBy": "test 3 now supplies a fresh target for the lifecycle path; new test 3b asserts the target is STALE, that both generations are reported, and that the fence holds before any CDP command or host reload fires",
+      "predicate": { "kind": "file-absent-regex", "file": "src/main/tools/browser-control-port-zero-network.test.ts", "pattern": "TARGET_STALE" }
+    },
+    {
+      "id": "B12",
+      "group": "devloop",
+      "title": "`kill-all.mjs` terminated every Electron application on the machine",
+      "severity": "P2",
+      "status": "closed",
+      "evidence": "scripts/kill-all.mjs:5 execSync('taskkill /F /IM electron.exe')",
+      "closedBy": "scoped to processes launched from this repo's electron dist or naming the repo root; --all restores the old behaviour deliberately",
+      "predicate": { "kind": "file-absent-regex", "file": "scripts/kill-all.mjs", "pattern": "function belongsToRepo" }
+    },
+    {
+      "id": "B13",
+      "group": "devloop",
+      "title": "`kill-all.mjs` left a stale dev-watcher lock behind, refusing the next `npm run dev`",
+      "severity": "P2",
+      "status": "closed",
+      "evidence": "node_modules/.cache/antifan-dev.pid read by scripts/dev.mjs:45-51",
+      "closedBy": "kill-all reconciles the lock when its owner pid is dead",
+      "predicate": { "kind": "file-absent-regex", "file": "scripts/kill-all.mjs", "pattern": "antifan-dev\\.pid" }
+    },
+    {
+      "id": "B14",
+      "group": "retention",
+      "title": "The retention sweeper only matches `*.artifact`, so annotations and run trees are never pruned",
+      "severity": "P2",
+      "status": "open",
+      "evidence": "src/main/tools/artifact-retention-cleaner.ts sweep filter",
+      "predicate": { "kind": "file-absent-regex", "file": "src/main/tools/artifact-retention-cleaner.ts", "pattern": "annotation" }
+    },
+    {
+      "id": "B15",
+      "group": "reproducibility",
+      "title": "REFUTED: a tracked launcher imports modules that live in gitignored .canary/tools",
+      "severity": "P1",
+      "status": "refuted",
+      "evidence": "False at HEAD. scripts/run-electron.cjs already imported ./lib/atomic-record.mjs and ./lib/process-identity.mjs; the 7 canary modules are already tracked under scripts/lib/; and .canary/ is only partially ignored — 24 files under it are tracked, including canary-run.mjs, canary-session.mjs, fifteen-pages-run.mjs, phase4-verify.mjs and viewport-run.mjs, all of which already imported ../../scripts/lib/. The finding came from a worktree divergence: the local working copy still carried the pre-migration ../.canary/tools/ paths while HEAD had already migrated. Restoring the worktree to the committed paths made the claim disappear, which is why this row is kept — it is precisely the 'prose finding outlives the fix' pathology this ledger exists to stop.",
+      "predicate": { "kind": "file-regex", "file": "scripts/run-electron.cjs", "pattern": "\\.canary/tools" }
+    },
+    {
+      "id": "B25",
+      "group": "reproducibility",
+      "title": "`test:canary` still drives the untracked `.canary/run3` fixture directory",
+      "severity": "P2",
+      "status": "open",
+      "evidence": "test/unit/build-report-embedded-drift.test.mjs and build-report-next-action.test.mjs run scripts/lib/build-report.mjs against `.canary/run3`. Only `.canary/run3/REPORT.md` is tracked; the rest of the run directory (evidence documents, attempt pointers) is untracked, and the suite rewrites REPORT.md on every run. So the canary suites' modules are tracked but their fixtures are not.",
+      "predicate": { "kind": "file-regex", "file": "test/unit/build-report-next-action.test.mjs", "pattern": "\\.canary/run3" }
+    },
+    {
+      "id": "B26",
+      "group": "build",
+      "title": "Incremental build cannot self-heal lost emit: tsc reports success while emitting nothing",
+      "severity": "P0",
+      "status": "closed",
+      "evidence": "measured — with incremental enabled, deleting .compiled/src/main/index.js and .compiled/src/shared/control-plane-contracts.js then running `npm run compile` emitted neither file; tsc trusted its build info and skipped emit. main.cjs guards the entry with existsSync and run-electron only compiles when the bundle is absent, so the app would launch against an incomplete program.",
+      "closedBy": "scripts/check-emit-integrity.mjs runs before tsc in the compile chain and discards the build info whenever any expected emit file is absent, forcing a full rebuild",
+      "predicate": { "kind": "script-matches", "script": "compile", "pattern": "check-emit-integrity", "negate": true }
+    },
+    {
+      "id": "B16",
+      "group": "devloop",
+      "title": "The `scripts/cdp` hot-swap branch can never fire — the directory is only ever created empty",
+      "severity": "P2",
+      "status": "open",
+      "evidence": "scripts/dev-watcher-helpers.mjs:39-45 isHotSwappable matches ^scripts/cdp/([^/]+)\\.source\\.js$; scripts/dev.mjs:33-36 mkdirs the directory and nothing writes into it",
+      "predicate": { "kind": "file-regex", "file": "scripts/dev-watcher-helpers.mjs", "pattern": "scripts/cdp" }
+    },
+    {
+      "id": "B17",
+      "group": "build",
+      "title": "`typecheck` shared the emit buildinfo, so a noEmit pass could make a later emit skip its output",
+      "severity": "P1",
+      "status": "closed",
+      "evidence": "verify ran typecheck (full program) then compile (full program) against one tsconfig",
+      "closedBy": "typecheck and watch each own a separate tsBuildInfoFile under .compiled",
+      "predicate": { "kind": "script-matches", "script": "typecheck", "pattern": "tsbuildinfo\\.typecheck", "negate": true }
+    },
+    {
+      "id": "B18",
+      "group": "gate",
+      "title": "`verify` typechecks the whole program twice (once directly, once via compile)",
+      "severity": "P3",
+      "status": "open",
+      "evidence": "package.json verify = typecheck + test, and test begins with compile",
+      "predicate": { "kind": "script-matches", "script": "verify", "pattern": "npm run typecheck" }
+    },
+    {
+      "id": "B19",
+      "group": "theme-qa",
+      "title": "The canary settle gate counts childList records, so a long-running carousel can starve it",
+      "severity": "P1",
+      "status": "open",
+      "evidence": "canary-settle.mjs SETTLE_DOM_EXPR sums addedNodes+removedNodes and requires quietFor >= 1500ms inside a 9000ms budget; a per-second carousel never sees a 1500ms quiet window",
+      "predicate": {
+        "kind": "manual",
+        "lastVerifiedAt": "2026-09-10T00:00:00.000Z",
+        "lastVerifiedBy": "session measurements",
+        "reVerifyWith": "run the 15-page canary against a page with a periodic animation and inspect the settle predicate's decision record"
+      }
+    },
+    {
+      "id": "B20",
+      "group": "theme-qa",
+      "title": "Full-page capture is capped at 16384px, so taller pages degrade to a tiled composite",
+      "severity": "P2",
+      "status": "open",
+      "evidence": "CDP full-page capture ceiling; tile composition runs on the main thread",
+      "predicate": {
+        "kind": "manual",
+        "lastVerifiedAt": "2026-09-10T00:00:00.000Z",
+        "lastVerifiedBy": "session measurements",
+        "reVerifyWith": "capture a page taller than 16384 CSS px and check the composite for seam artefacts"
+      }
+    },
+    {
+      "id": "B21",
+      "group": "hygiene",
+      "title": "Repository root is a dumping ground: 57 .png, 14 .md, plus scratch scripts and logs",
+      "severity": "P3",
+      "status": "open",
+      "evidence": "root listing: 14 .md, 57 .png, 1 .docx, 2 .log, 1 .cjs, 5 .json, 1 .js, 1 .vbs, 1 .txt",
+      "predicate": {
+        "kind": "manual",
+        "lastVerifiedAt": "2026-09-10T00:00:00.000Z",
+        "lastVerifiedBy": "root inventory count",
+        "reVerifyWith": "recount root extensions and compare"
+      }
+    },
+    {
+      "id": "B22",
+      "group": "hygiene",
+      "title": "Plan `status:` frontmatter is read by nothing, so completed plans and dead findings are indistinguishable",
+      "severity": "P1",
+      "status": "open",
+      "evidence": "57 plan.md files carrying 9 distinct status spellings (pending, in-progress, completed, active, complete, done, superseded, \"superseded\", and none) — no script parses the field",
+      "predicate": {
+        "kind": "manual",
+        "lastVerifiedAt": "2026-09-10T00:00:00.000Z",
+        "lastVerifiedBy": "plan census",
+        "reVerifyWith": "re-run the plan census; closure is proven when a script consumes the field and this registry replaces it"
+      }
+    },
+    {
+      "id": "B23",
+      "group": "theme-qa",
+      "title": "No live-storefront gate: every claim about rendered fidelity still rests on a human reading a report",
+      "severity": "P1",
+      "status": "open",
+      "evidence": ".canary/15-pages/_verdicts.json reports executiveVerdict INCONCLUSIVE with tally all zero and cases empty",
+      "predicate": {
+        "kind": "manual",
+        "lastVerifiedAt": "2026-09-10T00:00:00.000Z",
+        "lastVerifiedBy": "verdict file inspection",
+        "reVerifyWith": "re-run the 15-page campaign and require a non-INCONCLUSIVE executiveVerdict with a non-empty case tally"
+      }
+    },
+    {
+      "id": "R1",
+      "group": "refuted",
+      "title": "REFUTED: background-tab throttling is unfixed and blocks the automation surface",
+      "status": "refuted",
+      "evidence": "fixed at HEAD — src/main/browser/native-tab-host.ts creates offscreen views with backgroundThrottling disabled and applies scoped unthrottling; closed in plan 260901-1630/phase-02. The item kept circulating because it was inherited from prose written before the fix.",
+      "predicate": { "kind": "file-regex", "file": "src/main/browser/native-tab-host.ts", "pattern": "backgroundThrottling", "negate": true }
+    },
+    {
+      "id": "R2",
+      "group": "refuted",
+      "title": "REFUTED: the canary settle gate can never pass, so theme QA is structurally impossible",
+      "status": "refuted",
+      "evidence": "a baseline capture under .canary/15-pages/page-02-brands/evidence/1440.json recorded structuralMutations: 0 and passed. The predicate is fragile, not impossible (see B19).",
+      "predicate": {
+        "kind": "manual",
+        "lastVerifiedAt": "2026-09-10T00:00:00.000Z",
+        "lastVerifiedBy": "baseline evidence inspection"
+      }
+    },
+    {
+      "id": "R3",
+      "group": "refuted",
+      "title": "REFUTED: `webSecurity` must stay enabled or the app cannot render third-party HTTP storefronts",
+      "status": "refuted",
+      "evidence": "no measurement supports the claim; the local-only threat model and the rendered-storefront requirement are separate concerns and were conflated in the report.",
+      "predicate": {
+        "kind": "manual",
+        "lastVerifiedAt": "2026-09-10T00:00:00.000Z",
+        "lastVerifiedBy": "report rebuttal pass"
+      }
+    },
+    {
+      "id": "R4",
+      "group": "refuted",
+      "title": "REFUTED: the dev-mode bridge port shift (20129 → 20130) breaks the MCP client",
+      "status": "refuted",
+      "evidence": "scripts/antifan-agent.cjs injects ANTIFAN_MCP_PORT and ANTIFAN_MCP_BOOTSTRAP into the child environment, so the launcher already owns the port mapping. Downgraded, not a defect.",
+      "predicate": { "kind": "file-regex", "file": "scripts/antifan-agent.cjs", "pattern": "ANTIFAN_MCP_PORT", "negate": true }
+    }
+  ]
+}
