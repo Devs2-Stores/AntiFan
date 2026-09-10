@@ -315,6 +315,40 @@
       "status": "refuted",
       "evidence": "scripts/antifan-agent.cjs injects ANTIFAN_MCP_PORT and ANTIFAN_MCP_BOOTSTRAP into the child environment, so the launcher already owns the port mapping. Downgraded, not a defect.",
       "predicate": { "kind": "file-regex", "file": "scripts/antifan-agent.cjs", "pattern": "ANTIFAN_MCP_PORT", "negate": true }
+    },
+    {
+      "id": "B27",
+      "group": "mcp",
+      "title": "The MCP proxy's client dispatch ceiling could fall below the server's largest policy budget with no gate to notice",
+      "severity": "P1",
+      "status": "closed",
+      "evidence": "The proxy carried a hand-maintained CLIENT_TIMEOUT_MS table (8 entries, 30 s default) while the catalogue grew to a 180 s policy (browser.visual_compare). theme.debug_bundle carried a 60 s policy with no table entry, so the 30 s default fired first, and the human-read verdict at .canary/CORE-BOTTLENECKS.md:402 had already recorded this class as fixed.",
+      "closedBy": "The per-tool table is deleted; the proxy owns one ceiling (DEFAULT_CLIENT_TIMEOUT_MS = 240000) and scripts/check-mcp-budget-dominance.mjs runs inside `compile`, builds the real catalogue, and fails when the ceiling stops dominating the largest policy, when a per-tool table reappears, or when a routing row is a no-op.",
+      "predicate": { "kind": "script-matches", "script": "compile", "pattern": "check-mcp-budget-dominance", "negate": true }
+    },
+    {
+      "id": "B28",
+      "group": "mcp",
+      "title": "anti.browser.tabs.list was routed to a session-scoped capability, so the advertised window-wide default never ran",
+      "severity": "P1",
+      "status": "closed",
+      "evidence": "The proxy advertised `all: { default: true }` while CAPABILITY_MAP rewrote the name to browser.list-tabs, whose handler is session-scoped unless `all` is truthy, and the proxy never applies JSON-Schema defaults. Live probes: `{}` returned the bound tab only, `{all: true}` returned the window strip.",
+      "closedBy": "The routing row is deleted, so the advertised name reaches the catalogue's own anti.browser.tabs.list (window-wide unless all === false), and an E2E case in test/main/omp-mcp-adapter.test.ts asserts the dispatched name.",
+      "predicate": { "kind": "file-absent-regex", "file": "test/main/omp-mcp-adapter.test.ts", "pattern": "dispatches anti\\.browser\\.tabs\\.list under its own name" }
+    },
+    {
+      "id": "B29",
+      "group": "mcp",
+      "title": "23 anti.* routing rows redirect a name the catalogue already registers, silently substituting the target's semantics for the server's",
+      "severity": "P2",
+      "status": "open",
+      "evidence": "`node scripts/check-mcp-budget-dominance.mjs` reports 23 shadowing rows at HEAD (anti.browser.tabs.create, .activate, .close, navigate, reload, anti.inspect.dom, …). The server registers an `anti.*` alias for each of them, so the routing row — not the server — decides which implementation runs; several anti.* aliases are independent reimplementations with different defaults, so a row's removal is a behaviour change that needs its own proof. anti.browser.tabs.list was one instance of this shape and is fixed: it routed to browser.list-tabs (session-scoped) while the alias it bypassed is window-wide by default.",
+      "predicate": {
+        "kind": "manual",
+        "lastVerifiedAt": "2026-09-10T16:40:00.000Z",
+        "lastVerifiedBy": "compile-time routing report (check-mcp-budget-dominance)",
+        "reVerifyWith": "run node scripts/check-mcp-budget-dominance.mjs and diff the reported shadowing set against the previous sweep; retire a row only after an omp-mcp-adapter case proves the dispatched name change is behaviour-preserving"
+      }
     }
   ]
 }

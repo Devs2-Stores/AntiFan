@@ -399,7 +399,7 @@ rather than trusted, because the codebase moved while the scout read it:
 | `getFailoverTargetTab` omitted from the `BrowserControlPort` literal | stale | `src/main/index.ts:303` wires it |
 | `openTab` discards `adoptChildTab`'s result, leaking a tab | fixed (D3) | gate test *closes and fails a tab the session cannot adopt instead of leaking it* |
 | proxy advertises `fullPage` on `anti.screenshot.viewport` and omits `anti.screenshot.full_page` | fixed | `scripts/antifan-omp-mcp.cjs` definitions + `CAPABILITY_MAP` |
-| proxy client budget (30 s) below the server policy (60 s) | fixed | per-capability `CLIENT_TIMEOUT_MS` |
+| proxy client budget (30 s) below the server policy (60 s) | regression found, now structural | the per-capability `CLIENT_TIMEOUT_MS` table had no `theme.debug_bundle` entry, so the 30 s default still fired against a 60 s policy. The table is deleted: the proxy now owns one ceiling (`DEFAULT_CLIENT_TIMEOUT_MS = 240000`) and `scripts/check-mcp-budget-dominance.mjs` fails the compile when that ceiling stops dominating the largest catalogue policy (180 s, `browser.visual_compare`) |
 | offscreen agent tabs are never reaped on session end | not reproducible | `endSession` → `attachments.revokeForAttempt` → dispose listener → `closeTab` (`src/main/index.ts:285-294`) |
 | every ephemeral tab leaks a partition directory | unsupported | three smoke runs that created ephemeral tabs left exactly one directory: `Partitions/profile-default` |
 | a custom `WxH` preset persists without its geometry | unsupported | `setViewportSize` stores `tab.customViewport` + `devicePresetId` (`native-tab-host.ts:6241-6247`) |
