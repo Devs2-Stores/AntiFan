@@ -66,9 +66,11 @@ const SETTLE_IMAGES_EXPR = `(async () => {
   // The image set is re-read every sample: a late hydration that mounts more
   // images must not be mistaken for a settled page.
   const deadline = performance.now() + 9000;
+  document.querySelectorAll('img[loading="lazy"]').forEach(i => { try { i.loading = 'eager'; } catch {} });
   let lastCount = -1, stableSamples = 0;
   for (;;) {
     const list = Array.from(document.images);
+    list.forEach(i => { if (i.loading === 'lazy') try { i.loading = 'eager'; } catch {} });
     const pending = list.filter(i => !i.complete);
     if (list.length === lastCount && pending.length === 0) {
       stableSamples++;
@@ -139,6 +141,8 @@ const METRICS_EXPR = `(() => {
     clientWidth: document.documentElement.clientWidth,
     scrollWidth: document.documentElement.scrollWidth,
     overflowX: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+    hasMenuMobile: Boolean(document.querySelector('.menu-mobile, [class*="menu-mobile"]')),
+    hasBottomNav: Boolean(document.querySelector('.bottom-navigation, [class*="bottom-navigation"]')),
     bodyChildren: Array.from(document.body.children).map(n => n.tagName.toLowerCase() + (n.id ? '#' + n.id : '') + (typeof n.className === 'string' && n.className ? '.' + cls(n) : '')),
     headerRect: rectOf(document.querySelector('header.site-header') || document.querySelector('header')),
     navRect: rectOf(document.querySelector('nav') || document.querySelector('header nav')),
@@ -184,11 +188,11 @@ async function settleAndMeasure(tabId, name) {
     try {
       const pending = Array.from(document.images).filter(i => i.src && !i.complete);
       const decodes = pending.slice(0, 50).map(i => i.decode ? i.decode().catch(() => {}) : Promise.resolve());
-      await Promise.race([Promise.allSettled(decodes), s(2500)]);
+      await Promise.race([Promise.allSettled(decodes), s(6000)]);
     } catch {}
     window.scrollTo(0, 0); await s(100);
     return true;
-  })()`, 12000).catch(() => null);
+  })()`, 15000).catch(() => null);
   let freeze = null;
   try {
     freeze = await call('anti.media.freeze', { tabId, freeze: true, normalizeSliders: false }, 15000);
@@ -203,6 +207,7 @@ async function settleAndMeasure(tabId, name) {
     if (pass < 2) await new Promise(r => setTimeout(r, 1000));
   }
   const domQuiet = await evalOn(tabId, SETTLE_DOM_EXPR, 12000).catch((e) => ({ error: String(e.message || e).slice(0, 300) }));
+  images = await evalOn(tabId, SETTLE_IMAGES_EXPR, 12000).catch((e) => ({ error: String(e.message || e).slice(0, 300) }));
   const visual = await evalOn(tabId, SETTLE_VISUAL_EXPR, 12000).catch((e) => ({ error: String(e.message || e).slice(0, 300) }));
   const settled = freezeOk && images.imagesSettled === true && domQuiet.domSettled === true && visual.visualStable === true;
   const settle = {
@@ -240,8 +245,10 @@ function evaluateReadiness(stage, role) {
   if (s.visualStable !== true) reasons.push('visualStable=false');
   if (s.mediaFrozen !== true) reasons.push(`mediaFrozen=${s.mediaFrozen}`);
   if ((s.pendingImages || 0) > 0) reasons.push(`pendingImages=${s.pendingImages}`);
+  // Note: overflowX is an empirical defect recorded in metrics/structural, not a settlement failure.
   if (role === 'reference') {
-    if ((m.sectionCount || 0) < minSections) reasons.push(`sectionCount=${m.sectionCount}<${minSections}`);
+    const requiredSections = minSections;
+    if ((m.sectionCount || 0) < requiredSections) reasons.push(`sectionCount=${m.sectionCount}<${requiredSections}`);
     if ((m.productCardCount || 0) < minCards) reasons.push(`productCardCount=${m.productCardCount}<${minCards}`);
   }
   return { ok: reasons.length === 0, reasons };
@@ -337,16 +344,16 @@ async function fetchArtifact(artifactId, outFile) {
   return { bytes: buf.length, sha256: sha256(buf) };
 }
 
-log(`set viewport ${width}x${height} on both tabs (reload both sides)`);
+const isMobile = width < 768;
+const dpr = 1;
+log(`set viewport ${width}x${height} (mobile=${isMobile}, dpr=${dpr}) on both tabs (atomic viewport + reload)`);
 // A tab that has never been foregrounded reports innerHeight=0 and lays out
 // against a zero-height viewport; a reload in the background re-enters that
 // degenerate state. Establish each side's viewport and hydrate it while it is
 // foreground, then move on to the other side (a foregrounded tab keeps its real
 // layout once backgrounded).
 await call('browser.switch-tab', { tabId: refTabId }, 30_000).catch((e) => log(`reference activate warning: ${e.message}`));
-await call('browser.set-viewport', { tabId: refTabId, width, height, mobile: false, deviceScaleFactor: 1, reload: true });
-// Explicit reload so neither side reuses DOM state mutated by the preceding viewport.
-await call('browser.reload', { tabId: refTabId }).catch((e) => log(`reference reload error: ${e.message}`));
+await call('browser.set-viewport', { tabId: refTabId, width, height, mobile: isMobile, deviceScaleFactor: dpr, reload: true });
 for (let i = 0; i < 40; i++) {
   await new Promise(r => setTimeout(r, 400));
   try {
@@ -355,17 +362,21 @@ for (let i = 0; i < 40; i++) {
   } catch {}
 }
 await evalOn(refTabId, `(async () => {
-  const s = (ms) => new Promise(r => setTimeout(r, ms));
-  for (let pass = 0; pass < 2; pass++) {
-    const H = Math.max(document.documentElement.scrollHeight, document.body.scrollHeight);
-    for (let y = 0; y <= H; y += 600) { window.scrollTo(0, y); await s(60); }
-    window.scrollTo(0, H);
-    await s(300);
-  }
+  document.querySelectorAll('img[loading="lazy"]').forEach(img => {
+    try { img.loading = 'eager'; } catch {}
+  });
+  await Promise.all(
+    Array.from(document.images)
+      .filter(i => !i.complete)
+      .map(i => new Promise(resolve => {
+        i.addEventListener('load', resolve, { once: true });
+        i.addEventListener('error', resolve, { once: true });
+        setTimeout(resolve, 6000);
+      }))
+  );
   window.scrollTo(0, 0);
-  await s(200);
   return true;
-})()`, 12000).catch(() => null);
+})()`, 15000).catch(() => null);
 
 log('settling + measuring reference');
 evidence.stages.reference = await settleAndMeasure(refTabId, 'reference');
@@ -380,8 +391,7 @@ if (!refReadiness.ok) {
 }
 
 await call('browser.switch-tab', { tabId: cloneTabId }, 30_000).catch((e) => log(`clone activate warning: ${e.message}`));
-await call('browser.set-viewport', { tabId: cloneTabId, width, height, mobile: false, deviceScaleFactor: 1, reload: true });
-await call('browser.reload', { tabId: cloneTabId }).catch((e) => log(`clone reload error: ${e.message}`));
+await call('browser.set-viewport', { tabId: cloneTabId, width, height, mobile: isMobile, deviceScaleFactor: dpr, reload: true });
 for (let i = 0; i < 40; i++) {
   await new Promise(r => setTimeout(r, 400));
   try {
@@ -389,6 +399,22 @@ for (let i = 0; i < 40; i++) {
     if (r && r.rs === 'complete') break;
   } catch {}
 }
+await evalOn(cloneTabId, `(async () => {
+  document.querySelectorAll('img[loading="lazy"]').forEach(img => {
+    try { img.loading = 'eager'; } catch {}
+  });
+  await Promise.all(
+    Array.from(document.images)
+      .filter(i => !i.complete)
+      .map(i => new Promise(resolve => {
+        i.addEventListener('load', resolve, { once: true });
+        i.addEventListener('error', resolve, { once: true });
+        setTimeout(resolve, 6000);
+      }))
+  );
+  window.scrollTo(0, 0);
+  return true;
+})()`, 15000).catch(() => null);
 
 log('settling + measuring clone');
 evidence.stages.clone = await settleAndMeasure(cloneTabId, 'clone');
@@ -626,4 +652,36 @@ for (const band of bands) {
 evidence.finishedAt = new Date().toISOString();
 const outFile = path.join(evDir, `${label}.json`);
 fs.writeFileSync(outFile, JSON.stringify(evidence, null, 2));
+
+let terminalStatus = 'INCONCLUSIVE';
+let exitCode = 2;
+
+if (SKIP_COMPARE) {
+  terminalStatus = 'SKIPPED';
+  exitCode = 0;
+} else if (evidence.stages.compare?.status === 'COMPARE_ERROR') {
+  terminalStatus = 'COMPARE_ERROR';
+  exitCode = 1;
+} else if (evidence.visual?.verdict === 'PASS') {
+  terminalStatus = 'PASS';
+  exitCode = 0;
+} else if (evidence.visual?.verdict === 'FAIL') {
+  terminalStatus = 'FAIL';
+  exitCode = 1;
+} else if (evidence.visual?.verdict === 'INCONCLUSIVE' || evidence.visual?.toolStatus === 'INCONCLUSIVE') {
+  terminalStatus = 'INCONCLUSIVE';
+  exitCode = 2;
+}
+
+if (SELF_DRIFT && evidence.selfDrift) {
+  if (evidence.selfDrift.status === 'SELF_DRIFT_ERROR' || (typeof evidence.selfDrift.mismatchPercentage === 'number' && evidence.selfDrift.mismatchPercentage > 5)) {
+    terminalStatus = 'INCONCLUSIVE_SELF_DRIFT';
+    exitCode = 2;
+  }
+}
+
+evidence.status = terminalStatus;
+fs.writeFileSync(outFile, JSON.stringify(evidence, null, 2));
+log(`TERMINAL STATUS: ${evidence.status} (exit code ${exitCode})`);
+process.exit(exitCode);
 log(`wrote ${outFile}`);

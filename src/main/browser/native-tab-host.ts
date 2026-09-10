@@ -6226,13 +6226,8 @@ export class NativeTabHost extends EventEmitter {
       `);
     } catch {}
     if (options.reload) {
-      try {
-        if (typeof this.reloadAndWait === 'function') {
-          await this.reloadAndWait(targetId);
-        } else {
-          tab.view.webContents.reload();
-        }
-      } catch {}
+      const reloadOk = await this.reloadAndWait(targetId);
+      if (!reloadOk) return false;
     }
     return true;
   }

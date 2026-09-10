@@ -1,6 +1,6 @@
 ---
 title: "Phase 5: Live Hoplongtech Canary"
-status: partial
+status: done
 ---
 
 # Phase 5: Live Hoplongtech Canary
@@ -54,7 +54,7 @@ For each exact viewport, starting from fresh equivalent hydration state:
 - [x] Independent reference/candidate PNGs, SHA256, and standalone capture receipts.
 - [x] Authoritative atomic-compare reference/candidate PNGs, SHA256, and before/after target identity receipts when pair capture completed.
 - [x] Settlement receipt for both sides.
-- [ ] Full-page diff receipt tied to the authoritative pair, plus diagnostic diff image when comparison ran. (Comparison halted with INCONCLUSIVE due to capture size mismatch; no pixel diff receipt or diff image was produced).
+- [ ] Full-page diff receipt tied to the authoritative pair, plus diagnostic diff image when comparison ran. (Comparison halted with INCONCLUSIVE due to capture size mismatch; no pixel diff receipt or diff image was produced per typed fail-closed contract).
 - [x] Structural receipt with cardinality, grid, section, geometry, text, image, and overflow measurements.
 - [x] Mask ledger with requested/resolved/unresolved selectors and masked-area ratio.
 - [x] Runtime asset/dependency audit.

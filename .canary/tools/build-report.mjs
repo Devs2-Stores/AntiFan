@@ -1447,7 +1447,7 @@ function evaluateGate(model) {
           ACTUAL: `captureStateCompatible=${model.drift.captureStateCompatible}; identityCoherent=${model.drift.identityCoherent}`,
           DELTA: 'reference cannot reproduce itself',
           'LIKELY SCOPE': 'reference stability',
-          EVIDENCE: `${model.drift.doc.rel}`,
+          EVIDENCE: `${model.drift.doc?.rel || docRel}`,
         }),
       );
     }
@@ -1460,7 +1460,7 @@ function evaluateGate(model) {
           ACTUAL: `${pct(model.drift.mismatchPercentage)}`,
           DELTA: `${pct(model.drift.mismatchPercentage - REFERENCE_DRIFT_LIMIT_PCT)} over limit`,
           'LIKELY SCOPE': 'reference target instability (diagnostic, not a clone defect)',
-          EVIDENCE: `${model.drift.doc.rel}`,
+          EVIDENCE: `${model.drift.doc?.rel || docRel}`,
         }),
       );
     }
@@ -2801,9 +2801,48 @@ function renderNextAction(ctx) {
       'Complete the bounded compare transaction so one authoritative atomic pair exists per viewport. Do not promote standalone captures; they remain independent continuity evidence.',
     );
   } else if (codes.has('COMPARE_STATUS_NOT_RESULT') || codes.has('CAPTURE_STATE_INCOMPATIBLE')) {
-    actions.push(
-      'Authoritative atomic pairs are persisted, but comparison produced an INCONCLUSIVE verdict due to a 4–8 px full-page CSS capture-height mismatch (target vs baseline). Identify and eliminate the 4–8 px full-page CSS capture-height mismatch, recapture both sides under identical geometry, and rerun pixel comparison.',
-    );
+    for (const m of ctx.viewportModels) {
+      const hasMismatch = m.gate.blockers.some((b) => b.code === 'COMPARE_STATUS_NOT_RESULT' || b.code === 'CAPTURE_STATE_INCOMPATIBLE');
+      if (!hasMismatch) continue;
+
+      const refReceipt = m.pair?.refReceipt;
+      const cloneReceipt = m.pair?.cloneReceipt;
+      const refVp = obj(refReceipt?.cssViewport);
+      const cloneVp = obj(cloneReceipt?.cssViewport);
+      const refCap = obj(refReceipt?.cssCaptureSize);
+      const cloneCap = obj(cloneReceipt?.cssCaptureSize);
+
+      const refVpStr = isNum(num(refVp.width)) && isNum(num(refVp.height)) ? `${refVp.width}×${refVp.height}` : null;
+      const cloneVpStr = isNum(num(cloneVp.width)) && isNum(num(cloneVp.height)) ? `${cloneVp.width}×${cloneVp.height}` : null;
+      const vpMismatch = refVpStr && cloneVpStr && (Math.abs(num(refVp.width) - num(cloneVp.width)) > 1 || Math.abs(num(refVp.height) - num(cloneVp.height)) > 1);
+
+      const refCapStr = isNum(num(refCap.width)) && isNum(num(refCap.height)) ? `${refCap.width}×${refCap.height}` : null;
+      const cloneCapStr = isNum(num(cloneCap.width)) && isNum(num(cloneCap.height)) ? `${cloneCap.width}×${cloneCap.height}` : null;
+      const capMismatch = refCapStr && cloneCapStr && (Math.abs(num(refCap.width) - num(cloneCap.width)) > 1 || Math.abs(num(refCap.height) - num(cloneCap.height)) > 1);
+
+      const deltaHeight = isNum(m.docHeight?.delta) ? Math.abs(m.docHeight.delta) : null;
+      const heightNote = deltaHeight !== null ? ` (${deltaHeight} px height delta)` : '';
+
+      const overflow = m.cloneMetrics?.overflowX ?? 0;
+      const overflowNote = overflow > 0 ? `, eliminate the ${overflow} px horizontal root overflow on the clone` : '';
+
+      if (vpMismatch) {
+        actions.push(
+          `For ${m.width}×${m.height} (${m.label}): authoritative atomic pair was captured with incompatible viewport geometry (reference CSS viewport: ${refVpStr} vs clone: ${cloneVpStr}${capMismatch ? `, capture size: ${refCapStr} vs ${cloneCapStr}` : ''}${heightNote}). ` +
+            `Resolve viewport / device emulation geometry${overflowNote}, recapture both sides under identical CSS viewport and capture mode, and rerun pixel comparison.`,
+        );
+      } else if (capMismatch) {
+        actions.push(
+          `For ${m.width}×${m.height} (${m.label}): authoritative atomic pair was captured with capture-height delta (reference capture: ${refCapStr} vs clone: ${cloneCapStr}${heightNote}). ` +
+            `Identify and eliminate full-page capture-height / layout delta${overflowNote}, recapture both sides under identical geometry, and rerun pixel comparison.`,
+        );
+      } else {
+        actions.push(
+          `For ${m.width}×${m.height} (${m.label}): authoritative atomic pair was captured but comparison produced an INCONCLUSIVE verdict${heightNote}. ` +
+            `Identify and eliminate full-page capture-height / layout delta${overflowNote}, recapture both sides under identical geometry, and rerun pixel comparison.`,
+        );
+      }
+    }
   }
   if (codes.has('TARGET_STALE') || codes.has('QUARANTINE_WITHOUT_RECOVERY') || codes.has('EXCESSIVE_REFERENCE_DRIFT') || codes.has('REFERENCE_DRIFT_INCOHERENT') || codes.has('REFERENCE_DRIFT_MISSING')) {
     actions.push(

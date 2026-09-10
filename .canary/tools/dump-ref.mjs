@@ -8,6 +8,8 @@
  *   - third-party executable integrations that are not storefront structure:
  *     Tawk.to live chat, Google Tag Manager / gtag / Google Analytics, and the
  *     widget DOM/styles they inject at runtime (random-id fixed iframes).
+ *   - transient initialized carousel/slider inline dimensions and transforms
+ *     (.s-wrap, .slick-slider, carousel, swiper) that contaminate clean mobile responsiveness.
  * Everything else — site markup, site CSS/JS, images, fonts, video, Livewire
  * hydration state — is preserved verbatim.
  *
@@ -62,6 +64,26 @@ const expression = `(() => {
     Array.from(clone.querySelectorAll('style')).forEach((s) => {
       const t = s.textContent || '';
       if (/#gitndsip|tawkMaxOpen|tawk-button-hover|\\.tawk-/.test(t)) { note(s, 'injected-style'); s.remove(); }
+    });
+
+    // 5. Transient carousel/slider runtime inline styles
+    // The live desktop DOM has client-side carousel animation state injected into inline styles
+    // (e.g. width: 7750px on track, transform: translateX(-1550px), flex: 0 0 775px on items).
+    // Scoped strictly to verified slider containers (.s-wrap, .slick-slider, [class*="carousel"], [class*="swiper"]).
+    Array.from(clone.querySelectorAll('.s-wrap, .slick-slider, [class*="carousel"], [class*="swiper"]')).forEach((wrap) => {
+      Array.from(wrap.querySelectorAll('.s-content, .slick-track, [class*="swiper-wrapper"]')).forEach((track) => {
+        if (track.style) {
+          if (track.style.transform) { note(track, 'slider-transform'); track.style.removeProperty('transform'); }
+          if (track.style.width) { note(track, 'slider-track-width'); track.style.removeProperty('width'); }
+        }
+      });
+      Array.from(wrap.querySelectorAll('.s-content > .item, .slick-track > .slick-slide, [class*="swiper-slide"]')).forEach((item) => {
+        if (item.style) {
+          if (item.style.flex) { note(item, 'slider-item-flex'); item.style.removeProperty('flex'); }
+          if (item.style.maxWidth) { note(item, 'slider-item-max-width'); item.style.removeProperty('max-width'); }
+          if (item.style.marginRight) { note(item, 'slider-item-margin-right'); item.style.removeProperty('margin-right'); }
+        }
+      });
     });
   }
 

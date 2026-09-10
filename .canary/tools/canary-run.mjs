@@ -26,7 +26,7 @@ import http from 'node:http';
 import crypto from 'node:crypto';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-
+import { loadCachedReadinessFloors, validateProbedFloor } from './canary-floors.mjs';
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO = path.resolve(HERE, '..', '..');
 
@@ -174,9 +174,15 @@ try {
   let refTabId = boot.tabId;
   let refCapture = null;
   const refHtmlPath = path.join(RUN_DIR, 'reference', 'reference.html');
+  const refFloorsFile = path.join(EVIDENCE_DIR, 'reference-floors.json');
+  let readinessFloors = null;
+
   if (SKIP_CAPTURE && fs.existsSync(refHtmlPath)) {
-    refCapture = { skipped: true, path: refHtmlPath, sha256: sha256(fs.readFileSync(refHtmlPath)) };
+    const currentRefSha = sha256(fs.readFileSync(refHtmlPath));
+    refCapture = { skipped: true, path: refHtmlPath, sha256: currentRefSha };
     log('reference capture skipped (--skip-capture, reusing existing reference.html)');
+    readinessFloors = loadCachedReadinessFloors(refFloorsFile, currentRefSha, VIEWPORTS);
+    log('loaded validated per-viewport readiness floors matching reference HTML hash');
   } else {
     log(`opening reference tab ${REF_URL}`);
     // activate: a never-foregrounded tab reports innerHeight=0 and lays out
@@ -193,17 +199,84 @@ try {
     const parsed = JSON.parse(dump.stdout);
     refCapture = { tabId: refTabId, ...parsed, prepare: JSON.parse(prep.stdout) };
     log(`reference captured: ${parsed.bytes} bytes, sections=${parsed.sections.length}, productItems=${parsed.productItems}, images=${parsed.images}`);
+
+    // Probe live reference tab at each viewport in the current run to capture empirical per-viewport floors:
+    log('probing reference tab across all target viewports for empirical readiness floors');
+    readinessFloors = {};
+    for (const vp of VIEWPORTS) {
+      await call('browser.switch-tab', { tabId: refTabId }, 30_000).catch(() => null);
+      await call('browser.set-viewport', {
+        tabId: refTabId,
+        width: vp.width,
+        height: vp.height,
+        mobile: vp.width < 768,
+        deviceScaleFactor: 1,
+        reload: true,
+      });
+      let readyStateComplete = false;
+      for (let i = 0; i < 40; i++) {
+        await new Promise((r) => setTimeout(r, 400));
+        try {
+          const r = await evalOn(refTabId, '({ rs: document.readyState })', 5000);
+          if (r && r.rs === 'complete') {
+            readyStateComplete = true;
+            break;
+          }
+        } catch {}
+      }
+      if (!readyStateComplete) {
+        throw new Error(`Reference tab failed to reach readyState===complete at ${vp.width}x${vp.height} within timeout`);
+      }
+
+      // Hydrate via eager image promotion and scroll pass:
+      const scrollResult = await evalOn(refTabId, `(async () => {
+        const H = Math.max(document.documentElement.scrollHeight, document.body.scrollHeight);
+        for (let y = 0; y <= H; y += 600) { window.scrollTo({ top: y, left: 0, behavior: 'instant' }); await new Promise(r => setTimeout(r, 40)); }
+        window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
+        return true;
+      })()`, 20000);
+      if (!scrollResult) {
+        throw new Error(`Reference tab scroll hydration pass failed at ${vp.width}x${vp.height}`);
+      }
+
+      // Wait for structural stability (equal section and card counts across consecutive samples)
+      let stableCount = 0;
+      let lastSections = -1;
+      let lastCards = -1;
+      let probe = null;
+      for (let s = 0; s < 10; s++) {
+        await new Promise((r) => setTimeout(r, 300));
+        const sample = await evalOn(refTabId, `({
+          sectionCount: document.querySelectorAll('section').length,
+          productCardCount: document.querySelectorAll('.product-list__item, .product-item, .product-card').length,
+        })`, 10000);
+        if (sample && sample.sectionCount === lastSections && sample.productCardCount === lastCards) {
+          stableCount++;
+          if (stableCount >= 2) {
+            probe = sample;
+            break;
+          }
+        } else if (sample) {
+          stableCount = 1;
+          lastSections = sample.sectionCount;
+          lastCards = sample.productCardCount;
+        }
+      }
+      if (!probe) {
+        throw new Error(
+          `Reference tab failed to reach structural stability at ${vp.width}x${vp.height} within sampling timeout (lastSections=${lastSections}, lastCards=${lastCards})`
+        );
+      }
+
+      readinessFloors[vp.label] = validateProbedFloor(probe, vp);
+      log(`reference floor for ${vp.label} (${vp.width}x${vp.height}): minSections=${readinessFloors[vp.label].minSections}, minCards=${readinessFloors[vp.label].minCards}`);
+    }
+    const currentRefSha = sha256(fs.readFileSync(refHtmlPath));
+    fs.writeFileSync(refFloorsFile, JSON.stringify({ refSha256: currentRefSha, floors: readinessFloors }, null, 2));
   }
   pipeline.steps.referenceCapture = refCapture;
+  pipeline.steps.readinessFloors = readinessFloors;
   persist();
-
-  // Readiness floors derive from the captured reference artifact, never invented.
-  const minSections = Math.max(1, (refCapture?.sections?.length ?? refCapture?.prepare?.fingerprint?.sections?.length ?? 1));
-  // The floor may not exceed the reference's own observation: a landing page with
-  // no product grid (productItems=0) would otherwise be permanently unready.
-  const minCards = Math.max(0, refCapture?.productItems ?? refCapture?.prepare?.fingerprint?.productCards ?? 0);
-  pipeline.steps.readinessFloors = { minSections, minCards };
-
   // ── 4. clone pipeline ──────────────────────────────────────────────────────
   const telemetryPath = path.join(EVIDENCE_DIR, 'build-telemetry.json');
   if (SKIP_BUILD && fs.existsSync(path.join(RUN_DIR, 'clone', 'index.html'))) {
@@ -254,13 +327,30 @@ try {
   persist();
 
   // ── 7. per-viewport runs ───────────────────────────────────────────────────
+  if (!readinessFloors || typeof readinessFloors !== 'object') {
+    throw new Error('readinessFloors must be an object before running per-viewport runs');
+  }
   pipeline.viewportRuns = [];
   for (const vp of VIEWPORTS) {
     log(`viewport ${vp.width}x${vp.height} (${vp.label})`);
+    const floor = readinessFloors[vp.label];
+    if (
+      !floor ||
+      floor.width !== vp.width ||
+      floor.height !== vp.height ||
+      typeof floor.minSections !== 'number' ||
+      !Number.isInteger(floor.minSections) ||
+      floor.minSections < 1 ||
+      typeof floor.minCards !== 'number' ||
+      !Number.isInteger(floor.minCards) ||
+      floor.minCards < 0
+    ) {
+      throw new Error(`Missing or invalid readiness floor for viewport ${vp.label} in readinessFloors: ${JSON.stringify(floor)}`);
+    }
     const r = await run('node', [
       '.canary/tools/viewport-run.mjs',
       vp.label, String(vp.width), String(vp.height), refTabId, cloneTabId, RUN_DIR,
-      String(minSections), String(minCards),
+      String(floor.minSections), String(floor.minCards),
     ], {
       timeoutMs: 1_200_000,
       env: {

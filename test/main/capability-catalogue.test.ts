@@ -199,6 +199,10 @@ describe('Capability catalogue', () => {
     const vpRes = await catalogue.dispatch('browser.set-viewport', { width: 390, height: 844, mobile: true, tabId: 'tab-2' }, { lease, leaseToken: lease.token, projectId, workspaceId, grant: 'write', browserTarget: boundTarget });
     assert.deepStrictEqual(vpRes, { success: true, width: 390, height: 844, mobile: true, presetId: 'custom-390x844' });
     assert.deepStrictEqual(viewportOptions, { width: 390, height: 844, mobile: true, tabId: 'tab-2' });
+    // 11b. Viewport with reload delegation (no duplicate host reload)
+    const vpReloadRes = await catalogue.dispatch('browser.set-viewport', { width: 390, height: 844, mobile: true, tabId: 'tab-2', reload: true }, { lease, leaseToken: lease.token, projectId, workspaceId, grant: 'write', browserTarget: boundTarget });
+    assert.deepStrictEqual(vpReloadRes, { success: true, width: 390, height: 844, mobile: true, presetId: 'custom-390x844', reloaded: true });
+    assert.deepStrictEqual(viewportOptions, { width: 390, height: 844, mobile: true, tabId: 'tab-2', reload: true });
 
     // 12. Device Preset
     const presetRes = await catalogue.dispatch('browser.set-device-preset', { presetId: 'iphone-16-pro', tabId: 'tab-2' }, { lease, leaseToken: lease.token, projectId, workspaceId, grant: 'write', browserTarget: boundTarget });

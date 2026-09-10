@@ -53,7 +53,7 @@ interface TestHostShape {
   touchEmulationPromise: Promise<void>;
   applyCdpTouchEmulation: (wc: unknown, enabled: boolean) => Promise<void>;
   applyDeviceCornerClipping: (wc: unknown, radius: number) => void;
-  setViewportSize: (options: { width: number; height: number; mobile?: boolean; deviceScaleFactor?: number; tabId?: string }) => Promise<boolean>;
+  setViewportSize: (options: { width: number; height: number; mobile?: boolean; deviceScaleFactor?: number; tabId?: string; reload?: boolean }) => Promise<boolean>;
   setDevicePreset: (tabId: string, presetId: string) => boolean;
   broadcastCount: number;
   broadcastState: () => void;
@@ -216,7 +216,113 @@ describe('Phase 1: Viewport Emulation & CDP Matched Styles Gateway', () => {
     assert.deepStrictEqual(emu?.screenSize, { width: 375, height: 812 });
     assert.strictEqual(host.broadcastCount, 1, 'Background-tab viewport changes must broadcast too');
   });
+  it('BrowserControlPort.setViewport delegates reload to host.setViewportSize without calling host.reloadAndWait twice', async () => {
+    let reloadAndWaitCalls = 0;
+    let reloadCalls = 0;
+    let setViewportCalls = 0;
+    let capturedOptions: unknown = null;
+    const mockHost: BrowserHostPort = {
+      navigate: () => true,
+      reload: () => { reloadCalls++; return true; },
+      reloadAndWait: async () => { reloadAndWaitCalls++; return true; },
+      getDom: async () => '<html></html>',
+      captureScreenshot: async () => 'data:image/png;base64,mock',
+      getTabList: () => [{ id: 'tab-1' }],
+      evalJs: async () => ({ innerWidth: 390, innerHeight: 844 }),
+      setViewportSize: async (opts) => {
+        setViewportCalls++;
+        capturedOptions = opts;
+        return true;
+      },
+    };
+    const port = new BrowserControlPort(mockHost);
+    const res = await port.setViewport({ width: 390, height: 844, reload: true, tabId: 'tab-1' });
+    assert.strictEqual(res.success, true);
+    assert.strictEqual(res.reloaded, true);
+    assert.strictEqual(setViewportCalls, 1);
+    assert.strictEqual((capturedOptions as any)?.reload, true);
+    assert.strictEqual(reloadAndWaitCalls, 0, 'Must NOT trigger secondary redundant host.reloadAndWait');
+    assert.strictEqual(reloadCalls, 0, 'Must NOT trigger secondary redundant host.reload');
+  });
 
+  it('BrowserControlPort.setViewport rejects when structured host reports reloaded: false', async () => {
+    const mockHost: BrowserHostPort = {
+      navigate: () => true,
+      reload: () => true,
+      getDom: async () => '<html></html>',
+      captureScreenshot: async () => 'data:image/png;base64,mock',
+      getTabList: () => [{ id: 'tab-1' }],
+      evalJs: async () => ({ innerWidth: 390, innerHeight: 844 }),
+      setViewportSize: async () => ({ success: true, reloaded: false }),
+    };
+    const port = new BrowserControlPort(mockHost);
+    await assert.rejects(
+      () => port.setViewport({ width: 390, height: 844, reload: true, tabId: 'tab-1' }),
+      /Failed to reload tab tab-1 after viewport resize/
+    );
+  });
+
+  it('BrowserControlPort.setViewport rejects when structured host omits reloaded on reload: true', async () => {
+    const mockHost: BrowserHostPort = {
+      navigate: () => true,
+      reload: () => true,
+      getDom: async () => '<html></html>',
+      captureScreenshot: async () => 'data:image/png;base64,mock',
+      getTabList: () => [{ id: 'tab-1' }],
+      evalJs: async () => ({ innerWidth: 390, innerHeight: 844 }),
+      setViewportSize: async () => ({ success: true }), // reloaded omitted!
+    };
+    const port = new BrowserControlPort(mockHost);
+    await assert.rejects(
+      () => port.setViewport({ width: 390, height: 844, reload: true, tabId: 'tab-1' }),
+      /Failed to reload tab tab-1 after viewport resize/
+    );
+  });
+
+  it('BrowserControlPort.setViewport accepts when structured host reports reloaded: true', async () => {
+    const mockHost: BrowserHostPort = {
+      navigate: () => true,
+      reload: () => true,
+      getDom: async () => '<html></html>',
+      captureScreenshot: async () => 'data:image/png;base64,mock',
+      getTabList: () => [{ id: 'tab-1' }],
+      evalJs: async () => ({ innerWidth: 390, innerHeight: 844 }),
+      setViewportSize: async () => ({ success: true, reloaded: true }),
+    };
+    const port = new BrowserControlPort(mockHost);
+    const res = await port.setViewport({ width: 390, height: 844, reload: true, tabId: 'tab-1' });
+    assert.strictEqual(res.success, true);
+    assert.strictEqual(res.reloaded, true);
+  });
+
+  it('NativeTabHost.prototype.setViewportSize returns false when reload fails and propagates when reload throws', async () => {
+    const host = createTestHost();
+    const tab = createTestTabRecord('tab-1');
+    host.tabs.set('tab-1', tab);
+
+    let reloadAttempts = 0;
+    (host as any).reloadAndWait = async () => {
+      reloadAttempts++;
+      return false;
+    };
+
+    const ok = await host.setViewportSize({ width: 390, height: 844, reload: true, tabId: 'tab-1' });
+    assert.strictEqual(ok, false, 'Must return false when reload fails');
+    assert.strictEqual(reloadAttempts, 1, 'Must make exactly 1 reload attempt');
+
+    // Now test that exceptions from reloadAndWait propagate without being swallowed
+    let throwingAttempts = 0;
+    (host as any).reloadAndWait = async () => {
+      throwingAttempts++;
+      throw new Error('CDP target detached during reloadAndWait');
+    };
+
+    await assert.rejects(
+      () => host.setViewportSize({ width: 390, height: 844, reload: true, tabId: 'tab-1' }),
+      /CDP target detached during reloadAndWait/
+    );
+    assert.strictEqual(throwingAttempts, 1, 'Must make exactly 1 reload attempt on throw');
+  });
   it('registers and dispatches browser.get-matched-styles by selector and ref', async () => {
     const projectId = makeControlPlaneId('project');
     const workspaceId = makeControlPlaneId('workspace');

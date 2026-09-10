@@ -8,7 +8,7 @@
 Run directory:  .canary/run3
 Evidence dir:   .canary/run3/evidence (9 JSON documents)
 Generator:      build-report.mjs (phase-06-report-and-fidelity-gate)
-Report anchor:  2026-09-09T15:55:04.366Z
+Report anchor:  2026-09-10T03:45:18.243Z
 Reference URL:  https://hoplongtech.com/
 Clone URL:      http://127.0.0.1:7852/
 Runtime:        node v24.13.0 on win32 x64
@@ -20,15 +20,15 @@ Persisted evidence inventory (sha256 computed at generation time):
 
 | Document | Role | Bytes | sha256 |
 | --- | --- | --- | --- |
-| .canary/run3/evidence/asset-audit.json | audit | 2813 | 048cc07d1e4469c28e1a1a5f8ecc7d15ca288b5df72c2af585d985ca2d95e59e |
-| .canary/run3/evidence/build-telemetry.json | telemetry | 59856 | 30d1036b008aac23f135b0c42da8d38c94ff844a387b5d682370508330193837 |
-| .canary/run3/evidence/pipeline.json | other | 33965 | e08b4773619c7676f31cf5ce94f42793f7953ae60f809dafba355862c3ad99b6 |
-| .canary/run3/evidence/reference-dump.json | other | 3006 | 8aa46a7b84b36242e69080d6fae365ef56607e298259e3b5c115e298c4ac7306 |
-| .canary/run3/evidence/reference-prepare.json | other | 1377 | 501bc48a7c91744654ae405efed636b55b7e3f8496ab20e39f3cd683b2366350 |
-| .canary/run3/evidence/run3-1024.json | viewport | 151976 | a760d1ed8fce03f50dc555de30049c2dfc52508e6c69e027d9e19fed12c36d4c |
-| .canary/run3/evidence/run3-1440.json | viewport | 152025 | f63dc46dc1ae248b7cad83fbb8d77cdb8af297f6580a944f6fdde400099cf18f |
-| .canary/run3/evidence/run3-390.json | viewport | 152057 | 3951531b7d26809c249f52253732001365354193b2ac67312ca8fca956e68dc3 |
-| .canary/run3/evidence/summary.json | other | 24575 | 838ee2ae1f02cc8cfbb0894fdbc432b1d0b7be9ee7096fe688091a8bd6ba6d32 |
+| .canary/run3/evidence/asset-audit.json | audit | 2813 | 9ab04c743d8701a7416f91c69cd528a0462fc09ef60090036ee734ffca8d7b66 |
+| .canary/run3/evidence/build-telemetry.json | telemetry | 59856 | 4686c0b9b1d2a63d215df8372de696b3c68199b60aad28c892a5bb4ff6a40f24 |
+| .canary/run3/evidence/pipeline.json | other | 37401 | 86b297eef1f3b1cf0add23d6eb439a79464672e816423058e3ca3607c8f2a312 |
+| .canary/run3/evidence/reference-dump.json | other | 6034 | ff6dbe33553c3bd29bab1bb1ffa676185844ea56e716c2fd9ecb665e145f1a23 |
+| .canary/run3/evidence/reference-prepare.json | other | 1377 | fa4e7b264f3e66b2b6792d015a6f7c596698f898054e0193470e370a75b7f713 |
+| .canary/run3/evidence/run3-1024.json | viewport | 152124 | f2c804fe5120c83a14d52a79827f0d6c536e1cfb3460678067aab0ee5a38b43c |
+| .canary/run3/evidence/run3-1440.json | viewport | 152182 | d4bf07d48d310cded4f52e19d4b5c215f2613021e999566644847d4fe86a00b2 |
+| .canary/run3/evidence/run3-390.json | viewport | 145133 | 65350fd7461d129cb5f434e56178b147076c3f50bc41728260235b0818938091 |
+| .canary/run3/evidence/summary.json | other | 24404 | d6ee56e514073b5650b664941671c4d794339d6c8cd82d53518f0ee4135b90a1 |
 
 Standalone full-page captures recorded in this run are independent continuity evidence. Only the atomic compare pair is an authoritative pixel input; this generator never merges, substitutes, or chooses between the two lineages.
 
@@ -39,7 +39,7 @@ Standalone full-page captures recorded in this run are independent continuity ev
 | A0 Discovery | AssetHarvester via CloneIRBuilder.harvestFromHtml | YES (108 resources) |
 | A1 Localization | AssetLocalizer | YES (118 files) |
 | A2 Optimization/Preservation | IndependentHtmlCloneGenerator (localize + rewrite + audit) | YES |
-| Independent HTML Generation | IndependentHtmlCloneGenerator.generateCloneBundle | YES (675,441 B) |
+| Independent HTML Generation | IndependentHtmlCloneGenerator.generateCloneBundle | YES (673,593 B) |
 | Chromium Render | live AntiFan Desktop tabs (real Chromium) | YES (3 viewports) |
 | Settlement | runtime settle probe (network/fonts/images/DOM/visual) | YES (3/3 viewports) |
 | Standalone Capture | anti.screenshot.full_page (independent continuity evidence) | YES (3/3) |
@@ -53,9 +53,9 @@ Compare results evaluated: 0/3 viewports; authoritative pairs: 3/3.
 
 | Viewport | Reference URL | docHeight | Sections | Cards | Images | Settlement | Capture |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| 1440×900 | https://hoplongtech.com/ | 5422 | 12 | 25 | 105 | settled 3281 ms | atomic pair recorded |
-| 1024×900 | https://hoplongtech.com/ | 5546 | 12 | 25 | 105 | settled 3271 ms | atomic pair recorded |
-| 390×844 | https://hoplongtech.com/ | 14650 | 12 | 25 | 105 | settled 2880 ms | atomic pair recorded |
+| 1440×900 | https://hoplongtech.com/ | 5422 | 12 | 25 | 105 | settled 4172 ms | atomic pair recorded |
+| 1024×900 | https://hoplongtech.com/ | 5546 | 12 | 25 | 105 | settled 3734 ms | atomic pair recorded |
+| 390×844 | https://hoplongtech.com/ | 4481 | 11 | 25 | 98 | settled 5248 ms | atomic pair recorded |
 
 Readiness floors are derived from the captured reference artifact; a reference that no longer exposes that structure is rejected (`REFERENCE_NOT_READY`) rather than measured.
 
@@ -90,8 +90,8 @@ Every referenced asset above was resolved and hash-verified against its persiste
 
 ```text
 output      .canary/run3/clone/index.html
-bytes       675,441
-sha256      7d8a380609c40d0a8856454fea8b41326bcec7269036210d7f9b436ef38f5053
+bytes       673,593
+sha256      789eec310d8c42e450717567671cdd472821dd0570a28c9b031eb1a6e550d43a
 assets      118 files / 36,671,943 bytes
 blueprints  20
 products    6 (normalized) / articles 4
@@ -102,9 +102,9 @@ remote navigation links (allowed)  120
 
 | Viewport | Pixel Diff | Height Diff | Structural | Assets | Settlement | Verdict |
 | --- | --- | --- | --- | --- | --- | --- |
-| 1440×900 | BLOCKED | -4 px (5422 → 5418, ratio 0.999) | 12/12 sections, 25/25 cards, 105/105 imgs | 0 broken / 105 rendered | all gates true (ref 3281 ms / clone 4885 ms) | INCONCLUSIVE |
-| 1024×900 | BLOCKED | -5 px (5546 → 5541, ratio 0.999) | 12/12 sections, 25/25 cards, 105/105 imgs | 0 broken / 105 rendered | all gates true (ref 3271 ms / clone 4910 ms) | INCONCLUSIVE |
-| 390×844 | BLOCKED | -8 px (14650 → 14642, ratio 0.999) | 12/12 sections, 25/25 cards, 105/105 imgs | 0 broken / 105 rendered | all gates true (ref 2880 ms / clone 4485 ms) | INCONCLUSIVE |
+| 1440×900 | BLOCKED | -4 px (5422 → 5418, ratio 0.999) | 12/12 sections, 25/25 cards, 105/105 imgs | 0 broken / 105 rendered | all gates true (ref 4172 ms / clone 4084 ms) | INCONCLUSIVE |
+| 1024×900 | BLOCKED | -5 px (5546 → 5541, ratio 0.999) | 12/12 sections, 25/25 cards, 105/105 imgs | 0 broken / 105 rendered | all gates true (ref 3734 ms / clone 4059 ms) | INCONCLUSIVE |
+| 390×844 | BLOCKED | +10008 px (4481 → 14489, ratio 3.233) | 11/12 sections, 25/25 cards, 98/105 imgs | 0 broken / 105 rendered | all gates true (ref 5248 ms / clone 3677 ms) | INCONCLUSIVE |
 
 `Verdict` is the per-viewport gate outcome defined in §14. A placeholder numeric produced by a dimensions short-circuit is never treated as a pixel measurement.
 
@@ -170,14 +170,14 @@ Capture-state note: this viewport has no verified atomic pair, so the geometry a
 ### 390×844
 
 ```text
-docHeight        reference 14650 → candidate 14642 (-8 px, ratio 0.999)
-overflowX        reference 285 → candidate 285
-sectionCount     12 → 12
+docHeight        reference 4481 → candidate 14489 (+10008 px, ratio 3.233)
+overflowX        reference 0 → candidate 270
+sectionCount     11 → 12
 productCardCount 25 → 25
 articleCardCount 4 → 4
-navItemCount     8 → 8
-linkCount        249 → 249 (diagnostic; time-dependent on hydrated targets)
-imageCount       105 → 105
+navItemCount     81 → 8
+linkCount        230 → 249 (diagnostic; time-dependent on hydrated targets)
+imageCount       98 → 105
 brokenImages     0 → 0
 ```
 
@@ -185,11 +185,22 @@ Non-zero matched section deltas:
 
 | Section | Reference h | Candidate h | Δh |
 | --- | --- | --- | --- |
-| site-header | 362 | 358 | -4 |
-| partner | 222 | 218 | -4 |
+| site-header | 170 | 348 | +178 |
+| slide | 323 | 445 | +122 |
+| category-list | 65 | 45 | -21 |
+| banner-category | 156 | 196 | +40 |
+| block-category | 341 | 1927 | +1586 |
+| block-category | 341 | 1927 | +1586 |
+| block-category | 341 | 1927 | +1586 |
+| block-category | 341 | 1927 | +1586 |
+| block-category | 341 | 1927 | +1586 |
+| accessory | 315 | 986 | +671 |
+| news | 618 | 441 | -177 |
+| partner | 128 | 218 | +90 |
+| site-footer | 741 | 1054 | +313 |
 
 ```text
-grid             reference flex 1×5 (5 children)
+grid             reference block 1×2 (2 children)
                  candidate flex 1×5 (5 children)
 fonts            body Roboto 14px/400 | h1 Roboto 28px/600 | h2 Roboto 18px/600
 ```
@@ -219,7 +230,7 @@ Reference self-drift diagnostic (never subtracted from candidate mismatch, never
 | --- | --- | --- | --- | --- | --- |
 | 1440×900 | 0.00% | true | 0.00% | n/a | n/a |
 | 1024×900 | 0.00% | true | 0.00% | n/a | n/a |
-| 390×844 | 0.00% | true | 0.00% | n/a | n/a |
+| 390×844 | 100.00% | n/a | 0.00% | n/a | n/a |
 
 Sectional clip diagnostics (non-authoritative, never substituted for the global result):
 
@@ -239,13 +250,13 @@ Sectional clip diagnostics (non-authoritative, never substituted for the global 
 | 1440×900 | section:home-form | 0.00% | measured |
 | 1440×900 | section:accessory | 0.00% | measured |
 | 1440×900 | section:news | 0.41% | measured |
-| 1440×900 | section:partner | 6.39% | measured |
+| 1440×900 | section:partner | 6.76% | measured |
 | 1440×900 | section:site-footer.w-100 | 2.86% | measured |
 | 1440×900 | footer | 2.86% | measured |
 | 1024×900 | header | 0.66% | measured |
-| 1024×900 | hero | 36.29% | measured |
+| 1024×900 | hero | 0.27% | measured |
 | 1024×900 | section:site-header | 0.66% | measured |
-| 1024×900 | section:slide | 45.02% | measured |
+| 1024×900 | section:slide | 0.27% | measured |
 | 1024×900 | section:category-list | 0.87% | measured |
 | 1024×900 | section:banner-category | 3.77% | measured |
 | 1024×900 | section:block-category | 4.01% | measured |
@@ -259,23 +270,22 @@ Sectional clip diagnostics (non-authoritative, never substituted for the global 
 | 1024×900 | section:partner | 5.50% | measured |
 | 1024×900 | section:site-footer.w-100 | 3.62% | measured |
 | 1024×900 | footer | 3.62% | measured |
-| 390×844 | header | 4.04% | measured |
-| 390×844 | hero | 5.69% | measured |
-| 390×844 | section:site-header | 4.04% | measured |
-| 390×844 | section:slide | 5.69% | measured |
-| 390×844 | section:category-list | 12.27% | measured |
-| 390×844 | section:banner-category | 6.04% | measured |
-| 390×844 | section:block-category | 2.45% | measured |
-| 390×844 | section:block-category | 2.28% | measured |
-| 390×844 | section:block-category | 2.28% | measured |
-| 390×844 | section:block-category | 1.86% | measured |
-| 390×844 | section:block-category | 2.05% | measured |
-| 390×844 | section:home-form | 3.89% | measured |
-| 390×844 | section:accessory | 1.78% | measured |
-| 390×844 | section:news | 5.73% | measured |
-| 390×844 | section:partner | 10.36% | measured |
-| 390×844 | section:site-footer.w-100 | 8.16% | measured |
-| 390×844 | footer | 8.16% | measured |
+| 390×844 | header | 100.00% | measured |
+| 390×844 | hero | 100.00% | measured |
+| 390×844 | section:site-header | 100.00% | measured |
+| 390×844 | section:slide | 100.00% | measured |
+| 390×844 | section:category-list | 100.00% | measured |
+| 390×844 | section:banner-category | 100.00% | measured |
+| 390×844 | section:block-category | 100.00% | measured |
+| 390×844 | section:block-category | 100.00% | measured |
+| 390×844 | section:block-category | 100.00% | measured |
+| 390×844 | section:block-category | 100.00% | measured |
+| 390×844 | section:block-category | 100.00% | measured |
+| 390×844 | section:accessory | 100.00% | measured |
+| 390×844 | section:news | 100.00% | measured |
+| 390×844 | section:partner | 100.00% | measured |
+| 390×844 | section:site-footer | 100.00% | measured |
+| 390×844 | footer | 100.00% | measured |
 
 ## 10. Mask Audit
 
@@ -332,11 +342,11 @@ Run #1 evidence: 14 documents. Run #2 evidence: 4 documents. Prior raw evidence 
 | Metric | Run #2 (baseline) | Recovery run | Change |
 | --- | --- | --- | --- |
 | Blueprints | 20 | 20 | 0 |
-| Generated HTML bytes | 668320 | 675441 | +7121 |
+| Generated HTML bytes | 668320 | 673593 | +5273 |
 | Localized assets | 118 | 118 | 0 |
 | docHeight @1440 | 5418 | 5418 | 0 |
 | docHeight @1024 | 5541 | 5541 | 0 |
-| docHeight @390 | 14642 | 14642 | 0 |
+| docHeight @390 | 14642 | 14489 | -153 |
 | Authoritative pair | not produced | 3/3 viewports | n/a |
 | Compare mismatch | not produced | 100.00% | n/a |
 | Remote subresources | 0 | 0 | 0 |
@@ -415,6 +425,18 @@ LIKELY SCOPE capture state normalization
 EVIDENCE     .canary/run3/evidence/run3-390.json stages.compare.captureStateCompatible
 ```
 
+### F7 — EXCESSIVE_REFERENCE_DRIFT [INCONCLUSIVE BLOCKER] @ 390×844 — TARGET_STALE
+
+```text
+WHAT         Reference self-drift at 390×844 exceeds the determinism limit.
+WHERE        drift mismatchPercentage
+EXPECTED     <= 2% self-drift (never subtracted from candidate mismatch)
+ACTUAL       100.00%
+DELTA        98.00% over limit
+LIKELY SCOPE reference target instability (diagnostic, not a clone defect)
+EVIDENCE     .canary/run3/evidence/run3-390.json
+```
+
 Speculative failures are excluded by construction: every entry above is derived from a typed check in §14 and is backed by the cited persisted evidence.
 
 ## 14. Final Fidelity Gate
@@ -427,7 +449,7 @@ FINAL VERDICT: INCONCLUSIVE
 | --- | --- | --- | --- |
 | 1440×900 | INCONCLUSIVE | none | COMPARE_STATUS_NOT_RESULT, CAPTURE_STATE_INCOMPATIBLE |
 | 1024×900 | INCONCLUSIVE | none | COMPARE_STATUS_NOT_RESULT, CAPTURE_STATE_INCOMPATIBLE |
-| 390×844 | INCONCLUSIVE | none | COMPARE_STATUS_NOT_RESULT, CAPTURE_STATE_INCOMPATIBLE |
+| 390×844 | INCONCLUSIVE | none (not adjudicated: PAGE_HEIGHT_DRIFT, SECTION_HEIGHT_DRIFT, CARDINALITY_sectionCount, CARDINALITY_imageCount, NAV_ITEM_MISMATCH, SECTION_ORDER_MISMATCH, MAJOR_GEOMETRY_DRIFT, HERO_MISMATCH, GRID_MISMATCH, TYPOGRAPHY_MISMATCH, OVERFLOW_REGRESSION) | COMPARE_STATUS_NOT_RESULT, CAPTURE_STATE_INCOMPATIBLE, EXCESSIVE_REFERENCE_DRIFT |
 
 Policy applied, in order:
 
@@ -453,7 +475,7 @@ Policy applied, in order:
    reported as not adjudicated rather than as proven failures.
 ```
 
-Rationale: 3/3 viewport(s) are undecidable from persisted evidence (1440×900: COMPARE_STATUS_NOT_RESULT+CAPTURE_STATE_INCOMPATIBLE; 1024×900: COMPARE_STATUS_NOT_RESULT+CAPTURE_STATE_INCOMPATIBLE; 390×844: COMPARE_STATUS_NOT_RESULT+CAPTURE_STATE_INCOMPATIBLE).
+Rationale: 3/3 viewport(s) are undecidable from persisted evidence (1440×900: COMPARE_STATUS_NOT_RESULT+CAPTURE_STATE_INCOMPATIBLE; 1024×900: COMPARE_STATUS_NOT_RESULT+CAPTURE_STATE_INCOMPATIBLE; 390×844: COMPARE_STATUS_NOT_RESULT+CAPTURE_STATE_INCOMPATIBLE+EXCESSIVE_REFERENCE_DRIFT).
 
 ## 15. What Is Actually Proven
 
@@ -469,12 +491,12 @@ LIVE RUNTIME PROOF
 VISUAL PROOF
   1440×900: INCONCLUSIVE (unmeasured: Capture state mismatch: CSS capture size mismatch: target 1440x5422 vs baseline 1440x5418 — no pixel measurement produced; placeholder numeric excluded)
   1024×900: INCONCLUSIVE (unmeasured: Capture state mismatch: CSS capture size mismatch: target 1024x5546 vs baseline 1024x5541 — no pixel measurement produced; placeholder numeric excluded)
-  390×844: INCONCLUSIVE (unmeasured: Capture state mismatch: CSS capture size mismatch: target 390x14650 vs baseline 390x14642 — no pixel measurement produced; placeholder numeric excluded)
+  390×844: INCONCLUSIVE (unmeasured: Capture state mismatch: CSS viewport dimension mismatch: target 390x844 vs baseline 660x1429 — no pixel measurement produced; placeholder numeric excluded)
 
 STRUCTURAL PROOF
   1440×900: 14 matched sections, docHeight 5422→5418, cards 25→25, grids 5×1→5×1
   1024×900: 14 matched sections, docHeight 5546→5541, cards 25→25, grids 5×1→5×1
-  390×844: 14 matched sections, docHeight 14650→14642, cards 25→25, grids 1×5→1×5
+  390×844: 13 matched sections, docHeight 4481→14489, cards 25→25, grids 1×2→1×5
 
 ASSET PROOF
   118 localized assets, every one resolved and sha256-verified during generation; remote subresources in HTML 0
@@ -484,4 +506,8 @@ ASSET PROOF
 
 ## 16. Next Action
 
-1. Authoritative atomic pairs are persisted, but comparison produced an INCONCLUSIVE verdict due to a 4–8 px full-page CSS capture-height mismatch (target vs baseline). Identify and eliminate the 4–8 px full-page CSS capture-height mismatch, recapture both sides under identical geometry, and rerun pixel comparison.
+1. For 1440×900 (run3-1440): authoritative atomic pair was captured with capture-height delta (reference capture: 1440×5422 vs clone: 1440×5418 (4 px height delta)). Identify and eliminate full-page capture-height / layout delta, recapture both sides under identical geometry, and rerun pixel comparison.
+2. For 1024×900 (run3-1024): authoritative atomic pair was captured with capture-height delta (reference capture: 1024×5546 vs clone: 1024×5541 (5 px height delta)). Identify and eliminate full-page capture-height / layout delta, recapture both sides under identical geometry, and rerun pixel comparison.
+3. For 390×844 (run3-390): authoritative atomic pair was captured with incompatible viewport geometry (reference CSS viewport: 390×844 vs clone: 660×1429, capture size: 390×4481 vs 660×14489 (10008 px height delta)). Resolve viewport / device emulation geometry, eliminate the 270 px horizontal root overflow on the clone, recapture both sides under identical CSS viewport and capture mode, and rerun pixel comparison.
+4. Recover and re-verify the bound target (typed drain/reset receipt) and re-capture under identical CSS viewport, DPR, zoom and capture mode before re-running the compare.
+5. Observed deltas (PAGE_HEIGHT_DRIFT, SECTION_HEIGHT_DRIFT, CARDINALITY_sectionCount, CARDINALITY_imageCount, NAV_ITEM_MISMATCH, SECTION_ORDER_MISMATCH, MAJOR_GEOMETRY_DRIFT, HERO_MISMATCH, GRID_MISMATCH, TYPOGRAPHY_MISMATCH, OVERFLOW_REGRESSION) are not adjudicated because the viewport evidence is incomplete; re-measure them under complete evidence before treating any as a clone defect.

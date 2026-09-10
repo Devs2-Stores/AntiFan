@@ -132,7 +132,7 @@ export interface BrowserHostPort {
   agentSnapshot?(tabId?: string, paneId?: 'desktop' | 'mobile', selector?: string, viewportOnly?: boolean): Promise<string>;
   agentFind?(params: { text?: string; regex?: string; tabId?: string; paneId?: 'desktop' | 'mobile'; maxMatches?: number }): Promise<unknown>;
   sendKeyboardPress?(params: { key: string; modifiers?: string[]; tabId?: string }): Promise<{ success: boolean; key: string; modifiers: string[] }>;
-  setViewportSize?(options: { width: number; height: number; mobile?: boolean; deviceScaleFactor?: number; tabId?: string; reload?: boolean }): Promise<boolean> | boolean;
+  setViewportSize?(options: { width: number; height: number; mobile?: boolean; deviceScaleFactor?: number; tabId?: string; reload?: boolean }): Promise<{ success: boolean; reloaded?: boolean } | boolean> | { success: boolean; reloaded?: boolean } | boolean;
   setDevicePreset?(tabId: string, presetId: string, options?: { reload?: boolean }): boolean;
   getDevicePresets?(): unknown[];
   setZoom?(tabId: string, zoomFactor: number): boolean;
@@ -2167,21 +2167,24 @@ export class BrowserControlPort {
       throw new CapabilityError('INVALID_ARGUMENT', 'width and height must be positive numbers');
     }
     const effectiveTabId = this.resolveTargetTab(target, options.tabId);
-    const ok = await this.host.setViewportSize({ ...options, tabId: effectiveTabId });
+    const hostResult = await this.host.setViewportSize({ ...options, tabId: effectiveTabId });
+    const isStructured = typeof hostResult === 'object' && hostResult !== null;
+    const ok = isStructured ? hostResult.success === true : Boolean(hostResult);
     if (!ok) throw new CapabilityError('CAPABILITY_NOT_FOUND', `Failed to set viewport on tab ${effectiveTabId}`);
+    let reloaded: boolean | undefined;
     let observedWidth: number | undefined;
     let observedHeight: number | undefined;
-    let reloaded = false;
     if (options.reload) {
-      try {
-        if (typeof this.host.reloadAndWait === 'function') {
-          await this.host.reloadAndWait(effectiveTabId);
-          reloaded = true;
-        } else if (typeof this.host.reload === 'function') {
-          await this.host.reload(effectiveTabId);
-          reloaded = true;
+      if (isStructured) {
+        if (hostResult.reloaded !== true) {
+          throw new CapabilityError('CAPABILITY_NOT_FOUND', `Failed to reload tab ${effectiveTabId} after viewport resize`);
         }
-      } catch {}
+        reloaded = true;
+      } else {
+        reloaded = true;
+      }
+    } else if (options.reload !== undefined) {
+      reloaded = false;
     }
     if (typeof this.host.evalJs === 'function') {
       try {

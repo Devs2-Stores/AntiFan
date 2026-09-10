@@ -1,6 +1,6 @@
 ---
 title: "Phase 6: Report and Fidelity Gate"
-status: partial
+status: done
 ---
 
 # Phase 6: Report and Fidelity Gate

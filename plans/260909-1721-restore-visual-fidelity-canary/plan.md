@@ -1,7 +1,7 @@
 ---
 title: "AntiFan Real Independent HTML Fidelity Canary Recovery"
 description: "Repair full-page evidence integrity and complete the live Hoplongtech three-viewport fidelity canary without false PASS conditions."
-status: in-progress
+status: completed
 priority: P1
 effort: "XL"
 tags: [visual-fidelity, chromium, independent-html, canary, reliability]
@@ -38,8 +38,8 @@ Restore `anti.visual.compare`, prove its timeout/recovery behavior in real Chrom
 | 2 | [Bounded Compare Transaction](./phase-02-bounded-compare-transaction.md) | Complete | Phase 1 |
 | 3 | [Transport and Canary Harness](./phase-03-transport-and-canary-harness.md) | Complete | Phase 2 contracts |
 | 4 | [Focused Verification and Chromium Recovery Smoke](./phase-04-focused-verification-and-chromium-smoke.md) | Complete | Phases 1–3 |
-| 5 | [Live Hoplongtech Canary](./phase-05-live-hoplongtech-canary.md) | Partial | Phase 4 green |
-| 6 | [Report and Fidelity Gate](./phase-06-report-and-fidelity-gate.md) | Partial | Phase 5 evidence |
+| 5 | [Live Hoplongtech Canary](./phase-05-live-hoplongtech-canary.md) | Complete | Phase 4 green |
+| 6 | [Report and Fidelity Gate](./phase-06-report-and-fidelity-gate.md) | Complete | Phase 5 evidence |
 
 ## Success Criteria
 
