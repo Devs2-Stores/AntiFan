@@ -38,8 +38,8 @@ Commit: `95e932f` (push `002fe0d..95e932f`).
 
 ## Blocked
 
-1. **Tab quota — currently the first gate.** The pool refuses tab adoption before a page ever
-   reaches settle: the latest run's report carries one
+1. **Tab adoption is refused — the current first gate.** A page never reaches settle because its
+   first tab is refused: the latest run's report carries one
    `POLICY_DENIED … session tab quota reached; the tab was closed instead of leaking outside the
    session` per attempted page (pages 1 and 9, lines 113 and 196 of the root report), and
    `failedPages: [1, 9]`. So a Phase 2 settle fix alone still cannot run a page; the refusal has to
@@ -47,12 +47,29 @@ Commit: `95e932f` (push `002fe0d..95e932f`).
    after a restart with a new pid (8560 → 19836), a fresh mint and two successful tab creates, the
    next create was refused while the session listed none of its own tabs. The instance's user-data
    directory is outside the repository, so clearing it is an owner action, not a run step.
-   The two censuses taken 18 minutes apart bound the shape of the defect: they are **identical sets**
-   of ten instance-plane tab ids (full-set diff, `n=10` each, 0 ids unique to either), and a run that
-   created and closed its own tabs moved the count by zero (start 10, end 10, 0 added, 0 removed —
-   `campaign-aba894a3…` vs `campaign-ee7d3b5f…`). So the refusal is not a live tab count; the set it
-   counts is frozen, which is what the deferred root cause has to explain. It is not a monotonic
-   accumulation claim: the ids are stable, the count never moves in either direction.
+   The two censuses taken 18 minutes apart are **identical sets** of ten tab ids (full-set diff,
+   `n=10` each, 0 ids unique to either), and a run that created and closed its own tabs moved the
+   count by zero (start 10, end 10, 0 added, 0 removed — `campaign-aba894a3…` vs `campaign-ee7d3b5f…`).
+   Those ten ids are also, as a set, exactly the ten entries in
+   `E:\Work\.antifan-canary\saved-tabs.json` (`activeTabId 52c5548b…`).
+   **The message is not proof of a quota.** It is fixed text emitted by
+   `browser-control-port.ts:2073-2079` whenever `host.adoptChildTab(...)` returns false — and the
+   distinct check just above it (`getManagedTabIds(boundTabId).size >= 10`, "Terminal tab limit
+   reached") did *not* fire, so the tab count read there was below ten while the adoption still
+   failed. `adoptChildTab` (`native-tab-host.ts:4996`) returns false for at least five different
+   reasons — no `terminalAgentAffinity`, an empty identifier or child id, a child id not in
+   `this.tabs`, no resolvable pool target, or `adoptChildTabForSession` finding `pool.size >= 10`
+   (`:4977-4991`) — and the caller cannot tell them apart. The "frozen pool" reading is withdrawn:
+   what is proven is ten long-lived tabs in the canary profile, a refusal on the first adoption of
+   every attempted page, and a message that names one of several possible causes.
+   And `saved-tabs.json` is not the mechanism: `persistTabs()` (`:5693`) writes it *from* the live
+   tabs, the only read of it (`:689-712`) takes sidebar geometry, `profile-ownership.ts:45` treats it
+   as a profile-state marker, and nothing in `src/` reads `tabs[]` back. Deleting that file therefore
+   cannot clear anything; the tabs it lists are the tabs that exist.
+   Next action for the instance's owner (outside the repository): with the instance running, close
+   those ten tabs by id (`anti.browser.tabs.close`) — they are that profile's own leftovers — and
+   watch whether the next adoption succeeds. If it still fails with the same text, the fault is pool
+   bookkeeping, and the code has to return the reason before the cause can be named.
 2. **Settle predicate (phase 2).** Earlier runs aborted at the pre-dump settle, so nothing reached the
    build stage and no campaign case could carry a minted identity. `canary-settle.mjs:184` omits
    `fontsSettled` while `:241` requires it.
@@ -126,6 +143,11 @@ Recorded, not fixed: `resolvePageArtifacts()` trusts the paths inside the attemp
 so a forged `current-attempt.json` could name a location outside that page's attempt
 directory. The threat model is a local process that can already write the evidence, and
 containment belongs with the Phase 3 reader work.
+
+Recorded, not fixed: the refusal at `browser-control-port.ts:2076` reports a fixed cause whichever
+`adoptChildTab` branch failed, so the operator is told "session tab quota reached" even when the tab
+was unadoptable for another reason. Returning the actual reason is the prerequisite for naming the
+cause of blocker 1; it changes the app's main process and its tests, which is outside this phase.
 
 ## Verification runs
 
