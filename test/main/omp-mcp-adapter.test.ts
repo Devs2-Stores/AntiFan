@@ -385,6 +385,88 @@ describe('OMP MCP stdio proxy security & bootstrap fail-closed contract', () => 
     }
   });
 
+  it('dispatches anti.browser.tabs.list under its own name so the advertised window-wide default is the one that runs', async () => {
+    const { spawn } = await import('node:child_process');
+    const { WebSocketServer } = await import('ws');
+    const scriptPath = fs.existsSync(path.resolve(__dirname, '../../../scripts/antifan-omp-mcp.cjs'))
+      ? path.resolve(__dirname, '../../../scripts/antifan-omp-mcp.cjs')
+      : path.resolve(__dirname, '../../scripts/antifan-omp-mcp.cjs');
+
+    const wss = new WebSocketServer({ host: '127.0.0.1', port: 0 });
+    await new Promise<void>((resolve) => wss.once('listening', () => resolve()));
+    const port = (wss.address() as any).port;
+
+    let dispatchReceived: any;
+    wss.on('connection', (ws) => {
+      ws.on('message', (raw) => {
+        try {
+          const msg = JSON.parse(raw.toString());
+          if (msg.method === 'antifan.capability.dispatch') {
+            dispatchReceived = msg.params;
+            ws.send(JSON.stringify({ id: msg.id, success: true, data: { tabs: [] } }));
+          }
+        } catch {}
+      });
+    });
+
+    const bootstrap = {
+      port,
+      secret: 'secret-tabs-list-name',
+      attachmentId: 'att-tabs-list-name',
+      authorityRevision: 'rev-tabs-list-1',
+    };
+
+    const child = spawn(process.execPath, [scriptPath], {
+      env: { ...process.env, ANTIFAN_MCP_BOOTSTRAP: JSON.stringify(bootstrap) },
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+
+    const sendJsonRpc = (msg: any) => child.stdin.write(JSON.stringify(msg) + '\n');
+
+    let received = '';
+    const responsePromise = new Promise<any>((resolve) => {
+      child.stdout.on('data', (chunk) => {
+        received += chunk.toString();
+        for (const line of received.split('\n')) {
+          if (line.trim().length > 0) {
+            try {
+              const parsed = JSON.parse(line);
+              if (parsed.id === 11) resolve(parsed);
+            } catch {}
+          }
+        }
+      });
+    });
+
+    try {
+      sendJsonRpc({
+        jsonrpc: '2.0',
+        id: 0,
+        method: 'initialize',
+        params: { protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 'test', version: '1.0' } },
+      });
+
+      // The tool advertises a window-wide default (`all: default true`). Routing
+      // the name to `browser.list-tabs` would dispatch a session-scoped
+      // capability instead, which answers with the bound tab only, so the whole
+      // window silently disappears from the agent's view.
+      sendJsonRpc({
+        jsonrpc: '2.0',
+        id: 11,
+        method: 'tools/call',
+        params: { name: 'anti.browser.tabs.list', arguments: {} },
+      });
+
+      const res = await responsePromise;
+      assert.strictEqual(res.result.isError, undefined);
+      assert.ok(dispatchReceived, 'Dispatch must be received on WebSocket');
+      assert.strictEqual(dispatchReceived.name, 'anti.browser.tabs.list');
+    } finally {
+      child.kill();
+      await new Promise<void>((resolve) => wss.close(() => resolve()));
+    }
+  });
+
   it('preserves ArtifactRef metadata without saturating stdio when payload >= 64KB', async () => {
     const { spawn } = await import('node:child_process');
     const { WebSocketServer } = await import('ws');

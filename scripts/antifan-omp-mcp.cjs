@@ -255,19 +255,25 @@ async function fetchArtifactBinary(bootstrap, artifactId) {
   };
 }
 
+// An advertised tool name is authoritative whenever the catalogue registers that
+// same name: the capability is reached by dispatching it unchanged (`|| method`
+// below). Only a genuine rename belongs here — a row whose target equals its key
+// is a no-op that hides which registration actually executes, and a row that
+// redirects a name the catalogue already owns silently swaps the server's
+// semantics for the target's (anti.browser.tabs.list is window-wide by default;
+// browser.list-tabs is session-scoped). `scripts/check-mcp-budget-dominance.mjs`
+// fails the compile on a no-op row or on a target the catalogue does not
+// register, and REPORTS every row that shadows a registration the catalogue
+// already owns: those form the deferred routing sweep, each needing its own
+// behaviour-preserving proof, and anti.browser.tabs.list was one instance.
 const CAPABILITY_MAP = Object.freeze({
-  'anti.browser.tabs.list': 'browser.list-tabs',
   'anti.browser.tabs.create': 'browser.open-tab',
   'anti.browser.tabs.activate': 'browser.switch-tab',
   'anti.browser.tabs.close': 'browser.close-tab',
   'anti.browser.navigate': 'browser.navigate',
   'anti.browser.reload': 'browser.reload',
   'anti.inspect.dom': 'browser.dom',
-  'anti.inspect.snapshot': 'anti.inspect.snapshot',
-  'anti.browser.evaluate': 'anti.browser.evaluate',
   'anti.screenshot.viewport': 'browser.screenshot',
-  'anti.screenshot.full_page': 'anti.screenshot.full_page',
-  'anti.reference.capture': 'anti.reference.capture',
   'anti.browser.set_viewport': 'browser.set-viewport',
   'anti.agent.cursor.click': 'browser.agent-click',
   'anti.agent.cursor.move': 'browser.agent-hover',
@@ -276,44 +282,37 @@ const CAPABILITY_MAP = Object.freeze({
   'anti.agent.cursor.hover': 'browser.agent-hover',
   'anti.agent.cursor.highlight': 'browser.agent-highlight',
   'anti.agent.cursor.clear': 'browser.agent-clear',
-  'anti.agent.file_upload': 'anti.agent.file_upload',
-  'anti.agent.drop': 'anti.agent.drop',
   'anti.inspect.styles': 'browser.inspect_styles',
   'anti.inspect.region': 'browser.inspect_region',
   'anti.trace.interaction': 'browser.trace_interaction',
   'anti.visual.compare': 'browser.visual_compare',
   'anti.media.freeze': 'browser.media-freeze',
   'anti.inspect.page_inventory': 'browser.page-inventory',
-  'anti.inspect.style_diff': 'anti.inspect.style_diff',
-  'anti.spec.validate_gate': 'anti.spec.validate_gate',
-  'anti.telemetry.record_fallback': 'anti.telemetry.record_fallback',
   'anti.agent.sequence': 'browser.agent-sequence',
   'browser_find': 'browser.find',
-  'theme.assert_cart': 'theme.assert_cart',
   'anti.artifact.read': 'artifact.read',
-  'artifact.read': 'artifact.read',
   'artifact_read': 'artifact.read',
   'anti.artifact.stat': 'artifact.stat',
-  'artifact.stat': 'artifact.stat',
   'artifact_stat': 'artifact.stat',
 });
 
-// ─── Client Dispatch Budgets and Failure Classification (contract §2.6) ──────
-// Client budgets MUST exceed the bounded server policy budget so a hung
-// capability is bounded server-side first: the client then observes a typed
+// ─── Client Dispatch Ceiling and Failure Classification (contract §2.6) ─────
+// The server owns the per-capability response budget: policy.timeoutMs is one
+// total budget, split by capability-transport.ts into an execution deadline plus
+// a reserved cancellation-ack grace, and the transport answers
+// EXECUTION_TIMEOUT_PENDING_CLEANUP if the handler is still releasing resources
+// when the TOTAL budget expires. So the client owns exactly one number — a
+// ceiling that must exceed the catalogue's largest policy — which makes every
+// capability bounded server-side first and lets the client observe a typed
 // terminal (or pending-cleanup) receipt instead of abandoning the invocation and
 // replaying unknown work.
-const CLIENT_TIMEOUT_MS = Object.freeze({
-  'browser.visual_compare': 240000,
-  'anti.visual.compare': 240000,
-  'anti.screenshot.full_page': 150000,
-  'anti.reference.capture': 130000,
-  'browser.screenshot': 45000,
-  'browser.set-viewport': 45000,
-  'theme.qa_validate': 60000,
-  'anti.theme.qa_validate': 60000,
-});
-const DEFAULT_CLIENT_TIMEOUT_MS = 30000;
+//
+// A per-tool table used to live here and rotted silently: theme.debug_bundle
+// carries a 60 s policy and had no entry, so the 30 s default fired first. The
+// dominance of this ceiling over the catalogue is now asserted at compile time
+// by scripts/check-mcp-budget-dominance.mjs, which also refuses a re-introduced
+// per-tool table that under-cuts it. Never re-add one by hand.
+const DEFAULT_CLIENT_TIMEOUT_MS = 240000;
 
 // Operation outcomes, never transport faults: they describe what the capability
 // did, so no reconnect, authority autoheal, or replay may follow them.
@@ -333,10 +332,6 @@ const RETRYABLE_TRANSPORT_CODES = new Set([
   'PAIRING_CHALLENGE_FAILED',
   'PAIRING_EXCHANGE_FAILED',
 ]);
-
-function resolveClientTimeoutMs(method, mapped) {
-  return CLIENT_TIMEOUT_MS[method] ?? CLIENT_TIMEOUT_MS[mapped] ?? DEFAULT_CLIENT_TIMEOUT_MS;
-}
 
 function transportError(code, message, details) {
   const err = new Error(typeof message === 'string' && message.length > 0 ? message : code);
@@ -776,7 +771,9 @@ async function invoke(method, params = {}, callerRequestId) {
   }
 
   const mapped = CAPABILITY_MAP[method] || method;
-  const timeoutMs = resolveClientTimeoutMs(method, mapped);
+  // One ceiling for every capability: the server's own budget is the bound, and
+  // it is the server that answers first (see DEFAULT_CLIENT_TIMEOUT_MS).
+  const timeoutMs = DEFAULT_CLIENT_TIMEOUT_MS;
   // Invocation identity is minted ONCE per logical call, outside the retryable
   // dispatch function: an eligible transport retry resends the same
   // requestId/idempotencyKey and therefore joins the original ledger entry
@@ -1177,8 +1174,8 @@ module.exports = {
   resolveImageArtifactResponse,
   fetchArtifactBinary,
   definitions,
-  CLIENT_TIMEOUT_MS,
-  resolveClientTimeoutMs,
+  CAPABILITY_MAP,
+  DEFAULT_CLIENT_TIMEOUT_MS,
 };
 
 function shutdown() {
