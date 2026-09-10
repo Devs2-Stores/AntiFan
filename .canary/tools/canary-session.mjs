@@ -22,9 +22,61 @@ import path from 'node:path';
 import http from 'node:http';
 import crypto from 'node:crypto';
 import { WebSocket } from 'ws';
+import { findPortOwnerPid, readProcessIdentity, FORMAT_UNAVAILABLE } from '../../scripts/lib/process-identity.mjs';
 
 const port = Number(process.argv[2] || process.env.ANTIFAN_BRIDGE_PORT || 20131);
 const outFile = path.resolve(process.argv[3] || '.canary/state/canary-session.json');
+const instanceRecordPath = path.resolve(process.env.ANTIFAN_INSTANCE_RECORD || '.canary/state/canary-instance.json');
+
+/**
+ * The mint refuses to invent an instance identity. A session may only be minted
+ * against an instance whose launcher published a record, and that record must
+ * still describe the process actually holding this bridge port.
+ *
+ * A bare pid is not enough: pids are recycled, so liveness is `pid exists AND
+ * the OS-reported start token equals the recorded one`. Port ownership is
+ * checked as corroboration, never as proof.
+ */
+async function validateInstanceRecord() {
+  const raw = fs.existsSync(instanceRecordPath) ? fs.readFileSync(instanceRecordPath, 'utf8') : null;
+  if (!raw) return { ok: false, code: 'INSTANCE_RECORD_MISSING', path: instanceRecordPath };
+  let record = null;
+  try {
+    record = JSON.parse(raw);
+  } catch (err) {
+    return { ok: false, code: 'INSTANCE_RECORD_UNREADABLE', path: instanceRecordPath, error: String(err.message) };
+  }
+  if (record.port !== null && record.port !== undefined && Number(record.port) !== port) {
+    return { ok: false, code: 'INSTANCE_RECORD_PORT_MISMATCH', path: instanceRecordPath, record, expectedPort: port };
+  }
+  const observed = await readProcessIdentity(record.instancePid);
+  if (!observed.alive) {
+    return { ok: false, code: 'INSTANCE_RECORD_STALE', path: instanceRecordPath, reason: 'INSTANCE_PID_ABSENT', record, observed };
+  }
+  if (!record.processStartToken || observed.startTokenFormat === FORMAT_UNAVAILABLE || !observed.startToken) {
+    return { ok: false, code: 'INSTANCE_RECORD_STALE', path: instanceRecordPath, reason: 'START_TOKEN_UNVERIFIABLE', record, observed };
+  }
+  if (observed.startToken !== record.processStartToken) {
+    return { ok: false, code: 'INSTANCE_RECORD_STALE', path: instanceRecordPath, reason: 'INSTANCE_PID_REUSED', record, observed };
+  }
+  const ownerPid = await findPortOwnerPid(port);
+  if (ownerPid === null) {
+    // No observable owner means the recorded pid cannot be shown to hold the
+    // port: refuse rather than mint a session against an unverified instance.
+    return { ok: false, code: 'INSTANCE_RECORD_STALE', path: instanceRecordPath, reason: 'PORT_OWNER_UNVERIFIABLE', record, observed, expectedPort: port };
+  }
+  if (ownerPid !== record.instancePid) {
+    return { ok: false, code: 'INSTANCE_RECORD_STALE', path: instanceRecordPath, reason: 'PORT_OWNED_BY_OTHER_PID', record, ownerPid };
+  }
+  return { ok: true, record, observed, portOwnerPid: ownerPid };
+}
+
+const instanceCheck = await validateInstanceRecord();
+if (!instanceCheck.ok) {
+  console.error(`[canary-session] refusing to mint: ${instanceCheck.code} ${instanceCheck.reason || ''} (${instanceCheck.path})`);
+  console.error(`[canary-session] detail: ${JSON.stringify(instanceCheck).slice(0, 600)}`);
+  process.exit(4);
+}
 
 function request(method, pathname, body) {
   return new Promise((resolve, reject) => {
@@ -114,11 +166,21 @@ const bootstrap = {
   projectId: session.projectId,
   workspaceId: session.workspaceId,
   tabId: session.tabId,
+  // Instance identity, echoed into every verdict downstream: the session is only
+  // as trustworthy as the record it was minted against.
+  instancePid: instanceCheck.record.instancePid,
+  instanceStartedAt: instanceCheck.record.startedAt ?? null,
+  instanceProcessStartToken: instanceCheck.record.processStartToken,
+  instanceProcessStartTokenFormat: instanceCheck.record.processStartTokenFormat ?? null,
+  instancePortOwnerPid: instanceCheck.portOwnerPid ?? null,
+  bridgePort: port,
+  mintedAt: new Date().toISOString(),
+  leaseUntil: session.expiresAt ? new Date(session.expiresAt).toISOString() : null,
 };
-fs.mkdirSync(path.dirname(outFile), { recursive: true });
-fs.writeFileSync(outFile, JSON.stringify(bootstrap, null, 2));
+const { writeRecordAtomic } = await import('../../scripts/lib/atomic-record.mjs');
+writeRecordAtomic(outFile, bootstrap);
 console.log(`ANTIFAN_MCP_BOOTSTRAP=${JSON.stringify(bootstrap)}`);
 console.error(
   `[canary-session] port=${bootstrap.port} attachment=${bootstrap.attachmentId} primaryTab=${bootstrap.tabId} ` +
-  `leaseUntil=${new Date(session.expiresAt ?? 0).toISOString()} -> ${outFile}`
+  `instancePid=${bootstrap.instancePid} leaseUntil=${bootstrap.leaseUntil ?? 'unknown'} -> ${outFile}`
 );

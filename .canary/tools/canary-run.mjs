@@ -26,7 +26,7 @@ import http from 'node:http';
 import crypto from 'node:crypto';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { loadCachedReadinessFloors, validateProbedFloor } from './canary-floors.mjs';
+import { loadCachedReadinessFloors, validateProbedFloor } from '../../scripts/lib/canary-floors.mjs';
 import { hydrateToCapturedState, requireDoubleSettledMetrics } from './canary-settle.mjs';
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO = path.resolve(HERE, '..', '..');

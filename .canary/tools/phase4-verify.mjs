@@ -4,7 +4,7 @@
  *   node .canary/tools/phase4-verify.mjs [--out .canary/smoke/phase4-verification.json]
  *
  * Runs the plan's exact verification sequence and persists a machine-readable
- * receipt consumed by `.canary/tools/build-report.mjs` (§15 UNIT-TEST PROOF):
+ * receipt consumed by `scripts/lib/build-report.mjs` (§15 UNIT-TEST PROOF):
  *   npm run typecheck -> npm run compile -> compiled focused suites (node --test).
  *
  * Fails closed: any non-zero step keeps exitCode non-zero and is recorded with

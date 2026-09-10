@@ -26,7 +26,20 @@ const REPO = path.resolve(HERE, '..', '..');
 
 const { call, evalOn, bootstrap: boot } = await import('./lib-rpc.mjs');
 const { requireDoubleSettledMetrics } = await import('./canary-settle.mjs');
-const { validateProbedFloor } = await import('./canary-floors.mjs');
+const { validateProbedFloor } = await import('../../scripts/lib/canary-floors.mjs');
+const { acquireCampaignLock, releaseCampaignLock, updateCampaignLock, assertCampaignLockHeld, LOCK_CODES } = await import('../../scripts/lib/campaign-lock.mjs');
+const {
+  mintBundleIdentity,
+  detectBundleDrift,
+  writePagePointer,
+  writeRunPointer,
+  readPagePointer,
+  loadInstanceIdentity,
+  canonicalVerdict,
+  PROVENANCE_CODES,
+} = await import('../../scripts/lib/evidence-provenance.mjs');
+const { readRecord, writeRecordAtomic } = await import('../../scripts/lib/atomic-record.mjs');
+const { parsePagesFilter, buildVerdictIndex, renderHubHtml, computeRunExit, casesWithoutProvenance } = await import('../../scripts/lib/campaign-verdicts.mjs');
 
 
 
@@ -346,24 +359,105 @@ const NETWORK_AUDIT_EXPR = `(() => {
   };
 })()`;
 
+/** A run that never started: no mutation happened, and the exit code says why. */
+function refusedRun({ runId, code, reason, holder, proof }) {
+  console.error(`[campaign] refusing to run: ${code}${reason ? ` — ${reason}` : ''}`);
+  if (holder) console.error(`[campaign] lock holder: ${JSON.stringify(holder).slice(0, 400)}`);
+  return {
+    runId,
+    startedAt: new Date().toISOString(),
+    started: false,
+    refusals: [{ code, reason: reason || null, holder: holder || null, proof: proof || null }],
+    pagesRun: [],
+    pageResults: {},
+    exit: { code: 2, reason: code, detail: reason || null },
+  };
+}
+
+/**
+ * The campaign mutates shared state — `_verdicts.json`, each page's published
+ * view, the run report — so it takes the run lock **itself** as its first
+ * operation, before creating a directory or reading a tab. Trusting a caller to
+ * have acquired it would let a direct import run unlocked, which is exactly the
+ * interleaving the lock exists to prevent.
+ */
 export async function runFifteenPagesCanary(options = {}) {
-  const pagesFilter = options.pages ? options.pages.split(',').flatMap(part => {
-    const trimmed = part.trim();
-    if (trimmed.includes('-')) {
-      const [s, e] = trimmed.split('-').map(Number);
-      if (!isNaN(s) && !isNaN(e) && s <= e) {
-        return Array.from({ length: e - s + 1 }, (_, i) => s + i);
-      }
+  const runId = options.runId || `campaign-${crypto.randomUUID()}`;
+  const pagesFilter = parsePagesFilter(options.pages);
+  let lock = options.lock || null;
+  let acquiredHere = false;
+
+  if (lock) {
+    const assertion = await assertCampaignLockHeld(lock);
+    if (!assertion.held) {
+      return refusedRun({ runId, code: LOCK_CODES.LOCK_LOST, reason: `the supplied run lock is not held (${assertion.reason})` });
     }
-    const n = Number(trimmed);
-    return isNaN(n) ? [] : [n];
-  }) : null;
+  } else {
+    lock = await acquireCampaignLock({ runId, pages: pagesFilter });
+    acquiredHere = true;
+    if (!lock.ok) {
+      return refusedRun({
+        runId,
+        code: lock.code,
+        reason: lock.reason || (lock.code === LOCK_CODES.RUN_IN_PROGRESS
+          ? `another campaign invocation holds ${lock.lockPath}`
+          : `run lock unavailable (${lock.code})`),
+        holder: lock.holder,
+        proof: lock.proof,
+      });
+    }
+    // Operator-visible: a reclaim means a previous holder died without releasing,
+    // and the proof names why it was considered dead.
+    console.log(`[campaign] run lock ${lock.code} at ${lock.lockPath}${lock.reclaimedFrom ? ` (reclaimed from pid ${lock.reclaimedFrom.holder?.pid}: ${lock.reclaimedFrom.proof?.reason})` : ''}`);
+  }
+
+  try {
+    return await runCampaignLocked(options, { runId, lock, pagesFilter });
+  } finally {
+    if (acquiredHere) {
+      const released = await releaseCampaignLock(lock);
+      if (!released.removed && released.reason !== 'ABSENT') {
+        console.error(`[campaign] run lock not released: ${JSON.stringify(released).slice(0, 300)}`);
+      }
+    } else {
+      await updateCampaignLock(lock, { finishedAt: new Date().toISOString() });
+    }
+  }
+}
+
+async function runCampaignLocked(options, { runId, lock, pagesFilter }) {
   const baseRunDir = path.resolve(REPO, '.canary/15-pages');
   fs.mkdirSync(baseRunDir, { recursive: true });
 
+  const instance = loadInstanceIdentity();
+  const reportDir = path.join(baseRunDir, 'reports', runId);
+  fs.mkdirSync(reportDir, { recursive: true });
+
+  /**
+   * Both tab scopes are measured, because a tab the run cannot close is invisible
+   * to a session-scoped census and a tab the session owns is invisible to the
+   * instance plane. The run asserts only that it added nothing it did not close:
+   * pre-existing orphans are recorded, never counted as this run's failure.
+   */
+  const tabCensus = async () => {
+    const idsOf = (res) => {
+      const tabs = res?.tabs || res?.result?.tabs || (Array.isArray(res) ? res : null) || (Array.isArray(res?.result) ? res.result : null);
+      return Array.isArray(tabs) ? tabs.map((t) => t?.tabId ?? t?.id ?? null).filter(Boolean) : null;
+    };
+    const instancePlane = await call('anti.browser.tabs.list', {}, 20_000).then(idsOf).catch(() => null);
+    const sessionScope = await call('browser.list-tabs', {}, 20_000).then(idsOf).catch(() => null);
+    return { at: new Date().toISOString(), instancePlane, sessionScope };
+  };
+
   const runSummary = {
+    runId,
     startedAt: new Date().toISOString(),
     viewports: VIEWPORTS,
+    instance,
+    instanceRecord: readRecord(path.resolve(REPO, '.canary/state/canary-instance.json')),
+    runLock: lock ? { lockPath: lock.lockPath, code: lock.code, reclaimedFrom: lock.reclaimedFrom ?? null } : null,
+    tabCensus: { start: await tabCensus() },
+    refusals: [],
     pagesRun: [],
     pageResults: {},
     matrix: [],
@@ -389,8 +483,14 @@ export async function runFifteenPagesCanary(options = {}) {
 
     const pageDir = path.join(baseRunDir, p.slug);
     const refDir = path.join(pageDir, 'reference');
-    const cloneDir = path.join(pageDir, 'clone');
-    const evDir = path.join(pageDir, 'evidence');
+    // Attempt-scoped and immutable: this run serves the bundle it just built, and a
+    // later build of the same page writes a new attempt rather than rewriting this
+    // one under a minted identity.
+    const attemptId = `attempt-${crypto.randomUUID()}`;
+    const attemptDir = path.join(pageDir, 'attempts', attemptId);
+    const cloneDir = path.join(attemptDir, 'clone');
+    const evDir = path.join(attemptDir, 'evidence');
+    const mobileCloneDir = path.join(cloneDir, 'mobile');
     fs.mkdirSync(refDir, { recursive: true });
     fs.mkdirSync(cloneDir, { recursive: true });
     fs.mkdirSync(evDir, { recursive: true });
@@ -401,6 +501,9 @@ export async function runFifteenPagesCanary(options = {}) {
       url: p.url,
       slug: p.slug,
       domain: p.domain,
+      attemptId,
+      attemptDir,
+      evidenceRoot: evDir,
       status: 'IN_PROGRESS',
       phases: {},
       viewports: {},
@@ -539,11 +642,27 @@ export async function runFifteenPagesCanary(options = {}) {
       fs.writeFileSync(path.join(evDir, 'build.log'), buildRes.stdout + (buildRes.stderr ? `\n--- stderr ---\n${buildRes.stderr}` : ''));
 
       let cloneBuilt = false;
+      let bundleIdentity = null;
       const cloneEntry = path.join(cloneDir, 'index.html');
       if (buildRes.code === 0 && fs.existsSync(cloneEntry)) {
         cloneBuilt = true;
-        pageResult.phases.cloneGeneration = { ok: true, entry: cloneEntry, bytes: fs.statSync(cloneEntry).size };
-        console.log(`[P${p.id}] Clone bundle generated successfully.`);
+        // Minted here, not downstream: this is the only moment that knows both the
+        // entry just written and the attempt it was written into.
+        bundleIdentity = mintBundleIdentity({
+          entryPath: cloneEntry,
+          sourceUrl: p.url,
+          attemptId,
+          evidenceRoot: evDir,
+        });
+        pageResult.bundle = bundleIdentity;
+        pageResult.phases.cloneGeneration = {
+          ok: true,
+          entry: cloneEntry,
+          bytes: bundleIdentity.entryBytes,
+          entrySha256: bundleIdentity.entrySha256,
+          attemptId,
+        };
+        console.log(`[P${p.id}] Clone bundle generated successfully (attempt ${attemptId}).`);
       } else {
         cloneBuilt = false;
         pageResult.phases.cloneGeneration = { ok: false, error: buildRes.stderr.slice(0, 500) };
@@ -587,27 +706,42 @@ export async function runFifteenPagesCanary(options = {}) {
             status: 'IN_PROGRESS'
           };
           try {
-            // 0. Purge stale viewport artifacts to eliminate false success risk on retry/timeout
-            const staleFiles = [
-              path.join(evDir, `${vp.label}.json`),
-              path.join(evDir, `${vp.label}-reference.png`),
-              path.join(evDir, `${vp.label}-clone.png`),
-              path.join(evDir, `network-audit-${vp.label}.json`),
-              path.join(evDir, `run-${vp.label}.json`)
-            ];
-            for (const sf of staleFiles) {
-              try { if (fs.existsSync(sf)) fs.unlinkSync(sf); } catch {}
-            }
-
             // 1. Run viewport-run.mjs (sets viewport, reloads both tabs, settles, captures, compares)
             const floor = readinessFloors[vp.label];
             if (!floor || typeof floor.minSections !== 'number' || floor.minSections < 1 || typeof floor.minCards !== 'number' || floor.minCards < 0) {
               throw new Error(`Invalid or missing readiness floor for viewport ${vp.label}: ${JSON.stringify(floor)}`);
             }
+            const isMobileTier = vp.width < 768;
+            const mobileEntry = path.join(mobileCloneDir, 'index.html');
+            if (isMobileTier && !fs.existsSync(mobileEntry)) {
+              // A typed refusal, not a page failure: nothing produced a mobile bundle
+              // for this page, so there is no candidate to judge at this tier.
+              vpResult.status = 'REFUSED';
+              vpResult.refusal = { code: 'MOBILE_BUNDLE_ABSENT', reason: `no mobile bundle at ${mobileEntry}` };
+              vpResult.overall = 'INCONCLUSIVE';
+              vpResult.causeCode = 'MOBILE_BUNDLE_ABSENT';
+              runSummary.refusals.push({ pageId: p.id, viewport: vp.label, code: 'MOBILE_BUNDLE_ABSENT', path: mobileEntry });
+              pageResult.viewports[vp.label] = vpResult;
+              console.log(`[P${p.id}][${vp.label}] REFUSED: no mobile bundle at ${mobileEntry}`);
+              continue;
+            }
+            const servedEntry = isMobileTier ? mobileEntry : cloneEntry;
             const vpProc = await runCommand(
               'node',
-              ['.canary/tools/viewport-run.mjs', vp.label, String(vp.width), String(vp.height), refTabId, cloneTabId, pageDir, String(floor.minSections), String(floor.minCards)],
-              { timeoutMs: 180_000, env: { CANARY_COMPARE_TIMEOUT_MS: '60000' } }
+              ['.canary/tools/viewport-run.mjs', vp.label, String(vp.width), String(vp.height), refTabId, cloneTabId, attemptDir, String(floor.minSections), String(floor.minCards)],
+              {
+                timeoutMs: 180_000,
+                env: {
+                  CANARY_COMPARE_TIMEOUT_MS: '60000',
+                  CANARY_ATTEMPT_DIR: attemptDir,
+                  CANARY_EVIDENCE_ROOT: evDir,
+                  CANARY_SERVED_ENTRY: servedEntry,
+                  CANARY_BUNDLE_IDENTITY: bundleIdentity ? JSON.stringify(bundleIdentity) : '',
+                  CANARY_AUTHORITY_RUN_ID: boot.runId || '',
+                  CANARY_EVIDENCE_RUN_ID: runId,
+                  CANARY_CLONE_DIR: cloneDir,
+                },
+              }
             );
             console.log(`[P${p.id}][${vp.label}] viewport-run finished with code ${vpProc.code}`);
             // 2. Network Audit on Clone Tab immediately after render (inspects resources loaded for this viewport)
@@ -682,27 +816,71 @@ export async function runFifteenPagesCanary(options = {}) {
               reason: vis.reason ?? null
             };
 
-            // Overall viewport verdict
-            if (vpResult.network.verdict !== 'PASS') {
-              vpResult.overall = 'FAIL';
-            } else if (!vpResult.capture.valid) {
-              vpResult.overall = 'FAIL';
-            } else if (vpResult.visual.verdict === 'PASS') {
-              vpResult.overall = 'PASS';
-            } else if (vpResult.visual.verdict === 'FAIL') {
-              vpResult.overall = 'FAIL';
-            } else {
+            // Overall viewport verdict, plus the provenance this case was judged under.
+            // The child's exit status is authoritative about *what happened*, so it
+            // decides between an adjudicable verdict and a case that never got one.
+            const terminalStatus = vpData.status || null;
+            const refusalCode = vpProc.code === 4 || terminalStatus === PROVENANCE_CODES.IDENTITY_MISMATCH
+              ? (vpData.refusal?.code || vpData.visual?.refusal?.code || PROVENANCE_CODES.IDENTITY_MISMATCH)
+              : null;
+            vpResult.bundle = bundleIdentity
+              ? { ...bundleIdentity, servedEntryPath: servedEntry, drift: vpData.bundle?.drift ?? null }
+              : null;
+            vpResult.instance = instance;
+            vpResult.childExitCode = vpProc.code;
+            vpResult.terminalStatus = terminalStatus;
+            if (refusalCode) {
+              // The served entry was not the minted one: the wrong directory was
+              // served, so there is nothing to compare and no verdict to give.
+              vpResult.status = 'REFUSED';
+              vpResult.refusal = vpData.refusal || vpData.visual?.refusal || { code: refusalCode, reason: 'minted identity does not match the served entry' };
               vpResult.overall = 'INCONCLUSIVE';
+              vpResult.causeCode = refusalCode;
+              runSummary.refusals.push({ pageId: p.id, viewport: vp.label, code: refusalCode, detail: vpResult.refusal });
+            } else if (vpProc.code === 3) {
+              // Readiness or rasterization refusal: the child stopped before the
+              // compare, so this case has no pixel verdict to adjudicate.
+              vpResult.status = 'REFUSED';
+              vpResult.causeCode = terminalStatus || 'CASE_NEVER_COMPARED';
+              vpResult.overall = 'INCONCLUSIVE';
+              vpResult.refusal = { code: vpResult.causeCode, reason: vpData.visual?.reason ?? vpData.readiness?.reference?.reasons?.join('; ') ?? 'no pixel verdict was produced' };
+            } else if (terminalStatus === 'COMPARE_ERROR' || terminalStatus === 'SKIPPED' || vpProc.code === -1) {
+              // A comparator failure, a skipped compare or a dead child is a harness
+              // outcome: recording it as an adjudicable case would be a false claim.
+              vpResult.status = 'ERROR';
+              vpResult.causeCode = vpProc.code === -1 ? 'VIEWPORT_RUN_TIMEOUT' : (terminalStatus || 'VIEWPORT_RUN_ERROR');
+              vpResult.overall = 'INCONCLUSIVE';
+              vpResult.error = vpProc.timedOut ? `viewport-run timed out after ${vpProc.elapsedMs}ms` : (vpProc.stderr || '').slice(-500) || null;
+            } else if (!terminalStatus) {
+              // No evidence document at all: the child died before it could persist
+              // anything, so nothing about this case can be judged.
+              vpResult.status = 'ERROR';
+              vpResult.causeCode = 'NO_EVIDENCE_DOCUMENT';
+              vpResult.overall = 'INCONCLUSIVE';
+              vpResult.error = (vpProc.stderr || '').slice(-500) || `exit ${vpProc.code} with no evidence document`;
+            } else {
+              const canonical = canonicalVerdict({
+                refusal: null,
+                captureValid: vpResult.capture.valid,
+                visualVerdict: vpResult.visual.verdict,
+                networkVerdict: vpResult.network.verdict,
+                structural: st.geometryDeltaPx !== undefined ? { geometryDeltaPx: st.geometryDeltaPx } : null,
+              });
+              vpResult.overall = canonical.verdict;
+              vpResult.causeCode = canonical.causeCode;
+              vpResult.status = 'COMPLETED';
             }
-            vpResult.status = 'COMPLETED';
 
             fs.writeFileSync(path.join(evDir, `run-${vp.label}.json`), JSON.stringify(vpResult, null, 2));
             pageResult.viewports[vp.label] = vpResult;
-            console.log(`[P${p.id}][${vp.label}] Capture: Ref=${refPngStat.bytes}B Clone=${clonePngStat.bytes}B (isPng=${vpResult.capture.valid}) | Net: ${vpResult.network.verdict} | Visual: ${vpResult.visual.verdict} (${vpResult.visual.mismatchPercentage}%) | Overall: ${vpResult.overall}`);
+            console.log(`[P${p.id}][${vp.label}] Capture: Ref=${refPngStat.bytes}B Clone=${clonePngStat.bytes}B (isPng=${vpResult.capture.valid}) | Net: ${vpResult.network.verdict} | Visual: ${vpResult.visual.verdict} (${vpResult.visual.mismatchPercentage}%) | Overall: ${vpResult.overall} (${vpResult.causeCode})`);
           } catch (vpErr) {
             vpResult.status = 'ERROR';
             vpResult.error = vpErr.message;
-            vpResult.overall = 'FAIL';
+            vpResult.overall = 'INCONCLUSIVE';
+            vpResult.causeCode = 'VIEWPORT_RUN_ERROR';
+            vpResult.bundle = bundleIdentity;
+            vpResult.instance = instance;
             pageResult.viewports[vp.label] = vpResult;
             console.log(`[P${p.id}][${vp.label}] Error: ${vpErr.message}`);
           }
@@ -748,9 +926,77 @@ export async function runFifteenPagesCanary(options = {}) {
         try { staticServer.kill('SIGTERM'); } catch {}
       }
       pageResult.elapsedSec = Math.round((Date.now() - pageStartT) / 1000);
+      // Drift is measured after the cases ran, against the identity minted at build
+      // time: a change on disk is reported and never re-identifies the case.
+      if (pageResult.bundle) {
+        pageResult.bundleDrift = detectBundleDrift(pageResult.bundle);
+        if (pageResult.bundleDrift.drifted) {
+          // The target changed after it was identified, so every verdict already
+          // taken describes bytes that no longer exist. Those cases become typed
+          // refusals, and the page is not repointed at this attempt.
+          pageResult.errors.push({ phase: 'bundleDrift', message: `${PROVENANCE_CODES.BUNDLE_DRIFT}: entry changed after the mint` });
+          runSummary.refusals.push({ pageId: p.id, viewport: null, code: PROVENANCE_CODES.BUNDLE_DRIFT, detail: pageResult.bundleDrift });
+          for (const vp of Object.values(pageResult.viewports)) {
+            const supersededVerdict = vp.overall;
+            vp.overall = 'INCONCLUSIVE';
+            vp.causeCode = PROVENANCE_CODES.BUNDLE_DRIFT;
+            vp.refusal = {
+              code: PROVENANCE_CODES.BUNDLE_DRIFT,
+              reason: 'the served bundle changed after its identity was minted',
+              supersededVerdict,
+              expected: pageResult.bundleDrift.expected ?? pageResult.bundle.entrySha256,
+              observed: pageResult.bundleDrift.observed ?? null,
+            };
+          }
+          pageResult.overall = 'INCONCLUSIVE';
+        }
+      }
       fs.writeFileSync(path.join(evDir, 'summary.json'), JSON.stringify(pageResult, null, 2));
       runSummary.pagesRun.push(p.id);
       runSummary.pageResults[p.id] = pageResult;
+
+      // Ownership is re-proved *before* any shared write: the lock is the right to
+      // publish. If another invocation holds it, this page's evidence stays inside
+      // its attempt directory and neither the pointer nor the index is touched.
+      const lockUpdate = await updateCampaignLock(lock, { pagesCompleted: runSummary.pagesRun.slice() });
+      if (!lockUpdate.updated) {
+        runSummary.lockLost = { at: new Date().toISOString(), pageId: p.id, reason: lockUpdate.reason };
+        runSummary.refusals.push({ pageId: p.id, viewport: null, code: LOCK_CODES.LOCK_LOST, detail: lockUpdate.reason });
+        pageResult.published = false;
+        console.error(`[P${p.id}] LOCK LOST (${lockUpdate.reason}): not publishing this page; aborting the remaining pages`);
+        break;
+      }
+
+      // Everything that would be published is validated before the first shared
+      // write: an index that would carry a completed case without provenance is
+      // refused, and the run stops without publishing a pointer to evidence that
+      // no index will describe.
+      const indexPlan = planVerdictIndex(runSummary, baseRunDir);
+      if (indexPlan.gaps.length > 0) {
+        pageResult.published = false;
+        runSummary.refusals.push({
+          pageId: p.id,
+          viewport: null,
+          code: 'INDEX_PROVENANCE_INCOMPLETE',
+          detail: indexPlan.gaps.map(({ pageId, viewport }) => `page-${pageId}:${viewport}`),
+        });
+        console.error(`[P${p.id}] index refusal: ${indexPlan.gaps.length} completed case(s) carry no provenance; not publishing this page`);
+        break;
+      }
+
+      // The page's published view is a pointer into this immutable attempt, rewritten
+      // atomically, so a crash mid-page leaves the previous view intact and readable.
+      if (pageResult.bundle && !pageResult.bundleDrift?.drifted) {
+        writePagePointer(pageDir, {
+          identity: pageResult.bundle,
+          cloneDir,
+          mobileCloneDir,
+          referencePath: path.join(refDir, 'reference.html'),
+          viewports: Object.fromEntries(Object.entries(pageResult.viewports).map(([label, v]) => [label, { verdict: v.overall, causeCode: v.causeCode ?? null, status: v.status }])),
+        });
+      }
+      writeVerdictIndexFiles(runSummary, baseRunDir, indexPlan.index);
+      pageResult.published = true;
       console.log(`[P${p.id}] Done in ${pageResult.elapsedSec}s. Overall: ${pageResult.overall}`);
     }
   }
@@ -762,11 +1008,92 @@ export async function runFifteenPagesCanary(options = {}) {
   console.log(`All pages executed. Generating 15-PAGE-HOPLONGTECH-CLONE-CANARY.md...`);
   console.log(`================================================================`);
 
-  const reportPath = path.resolve(REPO, '15-PAGE-HOPLONGTECH-CLONE-CANARY.md');
+  runSummary.tabCensus.end = await tabCensus();
+  runSummary.finishedAt = new Date().toISOString();
+  runSummary.exit = computeRunExit(runSummary, pagesFilter, { targetPages: TARGET_PAGES, viewportLabels: VIEWPORTS.map((v) => v.label) });
+
+  // Publication needs the lock too. A run that lost it returns its summary and the
+  // non-zero exit status without touching any shared artifact — report, index,
+  // hub or pointer — because those files describe the campaign, not this process.
+  const stillHeld = await assertCampaignLockHeld(lock);
+  if (!stillHeld.held) {
+    runSummary.lockLost = runSummary.lockLost || { at: new Date().toISOString(), pageId: null, reason: stillHeld.reason };
+    runSummary.exit = computeRunExit(runSummary, pagesFilter, { targetPages: TARGET_PAGES, viewportLabels: VIEWPORTS.map((v) => v.label) });
+  }
+  if (runSummary.lockLost) {
+    console.error(`[campaign] run lock not held (${runSummary.lockLost.reason}): skipping report, index and pointer publication`);
+    return runSummary;
+  }
+  // An index carrying a completed case with no provenance would publish exactly the
+  // unjudgeable verdicts this phase exists to eliminate, so nothing is written and
+  // the retained report is not even generated.
+  const indexPlan = planVerdictIndex(runSummary, baseRunDir);
+  if (indexPlan.gaps.length > 0) {
+    runSummary.exit = { code: 1, reason: 'PROVENANCE_INCOMPLETE', detail: indexPlan.gaps.map(({ pageId, viewport }) => `NO_PROVENANCE@page-${pageId}:${viewport}`) };
+    console.error('[campaign] no publishable index: skipping report retention, index, hub and pointer publication');
+    return runSummary;
+  }
+
+  // The aggregate is retained under the run's own directory and then published to
+  // the repository root atomically, so the tracked report is a copy of a retained
+  // artifact rather than an in-place overwrite of the previous run's verdict.
   const reportMarkdown = generateReport(runSummary);
-  fs.writeFileSync(reportPath, reportMarkdown, 'utf8');
-  console.log(`Report written to ${reportPath}`);
+  const retainedReportPath = path.join(reportDir, '15-PAGE-HOPLONGTECH-CLONE-CANARY.md');
+  writeRecordAtomic(retainedReportPath, reportMarkdown);
+  const reportPath = path.resolve(REPO, '15-PAGE-HOPLONGTECH-CLONE-CANARY.md');
+  writeRecordAtomic(reportPath, reportMarkdown);
+
+  // Rebuilt now that the end-of-run census and the exit status exist: the index is
+  // the canonical machine-readable artifact, so it must not ship the per-page
+  // snapshot it was last built with.
+  writeVerdictIndexFiles(runSummary, baseRunDir, indexPlan.index);
+  writeRecordAtomic(path.join(reportDir, '_verdicts.json'), runSummary.index);
+  writeRunPointer(baseRunDir, {
+    runId,
+    reportDir,
+    // The pointer names the retained report, which nothing overwrites. The tracked
+    // root copy is convenience, and the next run replaces it.
+    reportPath: retainedReportPath,
+    rootCopyPath: reportPath,
+    pages: runSummary.pagesRun,
+    cases: runSummary.index?.cases?.length ?? null,
+    verdict: runSummary.index?.executiveVerdict ?? null,
+  });
+  console.log(`Report written to ${retainedReportPath} and published to ${reportPath}`);
   return runSummary;
+}
+
+/**
+ * One canonical verdict and cause per page x viewport, written after **each page**
+ * so a resumable run always leaves a consistent record instead of one that only
+ * exists if the whole batch finishes.
+ */
+function planVerdictIndex(runSummary, baseRunDir) {
+  // A page with no attempt pointer holds evidence from an earlier era; it is
+  // reported as superseded rather than attributed to this run.
+  const supersededSlugs = [];
+  for (const slug of fs.readdirSync(baseRunDir)) {
+    const pageDir = path.join(baseRunDir, slug);
+    if (!slug.startsWith('page-') || !fs.statSync(pageDir).isDirectory()) continue;
+    if (!readPagePointer(pageDir)) supersededSlugs.push(slug);
+  }
+
+  const index = buildVerdictIndex(runSummary, { supersededSlugs });
+  // The index is written after every page, so the provenance rule is enforced here
+  // rather than only in the end-of-run exit classification: a completed case with
+  // no bundle or instance would otherwise be published the moment its page finished.
+  const gaps = casesWithoutProvenance(index.cases);
+  if (gaps.length > 0) {
+    console.error(`[campaign] refusing to publish an index with ${gaps.length} completed case(s) carrying no provenance: ${gaps.map(({ pageId, viewport }) => `page-${pageId}:${viewport}`).join(', ')}`);
+  }
+  return { index, gaps };
+}
+
+function writeVerdictIndexFiles(runSummary, baseRunDir, index) {
+  runSummary.index = index;
+  writeRecordAtomic(path.join(baseRunDir, '_verdicts.json'), index);
+  writeRecordAtomic(path.join(baseRunDir, '_hub.html'), renderHubHtml(index, { viewportLabels: VIEWPORTS.map((v) => v.label) }));
+  return index;
 }
 
 // ── Report Builder (Strict 17 Sections) ───────────────────────────────────────
@@ -1128,10 +1455,13 @@ const args = process.argv.slice(2);
 const pageArgIdx = args.indexOf('--pages');
 const pages = pageArgIdx !== -1 ? args[pageArgIdx + 1] : null;
 
-runFifteenPagesCanary({ pages }).then(() => {
-  console.log('15-page canary run complete.');
-  process.exit(0);
-}).catch((err) => {
+const summary = await runFifteenPagesCanary({ pages }).catch((err) => {
   console.error('Fatal canary run error:', err);
   process.exit(1);
 });
+
+// A fidelity FAIL is campaign output and exits 0; a non-zero status means the run
+// could not produce a complete, provenance-bound set of verdicts.
+const exit = summary.exit || { code: 1, reason: 'NO_EXIT_STATUS' };
+console.log(`15-page canary run finished: ${exit.reason} (exit ${exit.code})${exit.detail ? ` — ${JSON.stringify(exit.detail)}` : ''}`);
+process.exit(exit.code);

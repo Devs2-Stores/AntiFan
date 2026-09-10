@@ -21,6 +21,8 @@ import crypto from 'node:crypto';
 import http from 'node:http';
 import { call, evalOn, bootstrap } from './lib-rpc.mjs';
 import { hydrateToCapturedState, requireDoubleSettledMetrics } from './canary-settle.mjs';
+import { sha256Buffer, sha256File } from '../../scripts/lib/atomic-record.mjs';
+import { detectBundleDrift, loadInstanceIdentity, PROVENANCE_CODES } from '../../scripts/lib/evidence-provenance.mjs';
 
 
 const [, , label, widthArg, heightArg, refTabId, cloneTabId, runDirArg, minSectionsArg, minCardsArg] = process.argv;
@@ -41,8 +43,46 @@ const minCards = Number(minCardsArg || 1);
 // mismatch), so the state the artifact was captured in is part of readiness.
 const floorDocHeight = Number(process.env.CANARY_FLOOR_DOC_HEIGHT || 0);
 const runDir = path.resolve(runDirArg || '.canary/run1');
-const evDir = path.join(runDir, 'evidence');
+// The controller hands over the attempt's evidence root. When it does, it
+// replaces the legacy per-page directory for every document this runner writes;
+// when it does not, the legacy path must stay byte-identical because the report
+// readers still resolve it.
+const evDir = process.env.CANARY_EVIDENCE_ROOT
+  ? path.resolve(process.env.CANARY_EVIDENCE_ROOT)
+  : path.join(runDir, 'evidence');
+// persist(), failClosed() and the terminal write all resolve through this one
+// function: a second path expression could drift and leave a verdict outside the
+// attempt whose bundle it judges.
+const evidenceDocPath = () => path.join(evDir, `${label}.json`);
 fs.mkdirSync(evDir, { recursive: true });
+
+// The minted identity is carried in verbatim from the build stage. Re-deriving it
+// here would reintroduce the check-then-rebuild window the attempt layout removes,
+// so an unreadable block is recorded as null with its reason in `provenanceGap`
+// and never silently omitted or invented.
+const bundleParse = (() => {
+  const raw = process.env.CANARY_BUNDLE_IDENTITY;
+  if (!raw) return { identity: null, gap: 'CANARY_BUNDLE_IDENTITY is not set' };
+  try {
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object' || typeof parsed.entryPath !== 'string' || typeof parsed.entrySha256 !== 'string') {
+      return { identity: null, gap: 'CANARY_BUNDLE_IDENTITY did not carry entryPath/entrySha256' };
+    }
+    return { identity: parsed, gap: null };
+  } catch (e) {
+    return { identity: null, gap: `CANARY_BUNDLE_IDENTITY is not valid JSON (${String(e && e.message).slice(0, 120)})` };
+  }
+})();
+const bundleIdentity = bundleParse.identity;
+// The entry this tier expects to be served. Its hash is read once here and
+// compared against the document the clone tab is actually displaying.
+const servedEntryPath = process.env.CANARY_SERVED_ENTRY ? path.resolve(process.env.CANARY_SERVED_ENTRY) : null;
+const servedEntrySha256 = servedEntryPath && fs.existsSync(servedEntryPath) ? sha256File(servedEntryPath) : null;
+const instanceIdentity = loadInstanceIdentity();
+const provenanceGap = [
+  bundleParse.gap ? `bundle: ${bundleParse.gap}` : null,
+  instanceIdentity ? null : 'instance: .canary/state/canary-session.json is absent or unreadable',
+].filter(Boolean).join('; ') || null;
 
 const COMPARE_TIMEOUT_MS = Number(process.env.CANARY_COMPARE_TIMEOUT_MS || 240000);
 const STANDALONE_TIMEOUT_MS = Number(process.env.CANARY_STANDALONE_TIMEOUT_MS || 120000);
@@ -107,6 +147,12 @@ const evidence = {
   runId: process.env.CANARY_AUTHORITY_RUN_ID || null,
   evidenceRunId: process.env.CANARY_EVIDENCE_RUN_ID || null,
   cloneDir: process.env.CANARY_CLONE_DIR || null,
+  // Provenance is carried, never re-derived. A null block is recorded with its
+  // reason in `provenanceGap`, so a reader can tell "not carried" from
+  // "carried as empty" — the two states that produced the unjudgeable verdicts.
+  bundle: bundleIdentity ? { ...bundleIdentity, servedEntryPath, servedEntrySha256 } : null,
+  instance: instanceIdentity,
+  provenanceGap,
   startedAt: new Date().toISOString(),
   evidenceModel: {
     independent: 'anti.screenshot.full_page per tab — continuity evidence only, never an authoritative pixel input',
@@ -115,7 +161,7 @@ const evidence = {
   },
   stages: {},
 };
-const persist = () => fs.writeFileSync(path.join(evDir, `${label}.json`), JSON.stringify(evidence, null, 2));
+const persist = () => fs.writeFileSync(evidenceDocPath(), JSON.stringify(evidence, null, 2));
 
 // A staging failure must still leave a durable record. A bare crash writes no
 // file, and a missing file is indistinguishable from a viewport that never ran,
@@ -132,6 +178,45 @@ const failClosed = (err) => {
 };
 process.on('unhandledRejection', failClosed);
 process.on('uncaughtException', failClosed);
+
+// ── Campaign provenance presence gate ─────────────────────────────────────────
+// A campaign invocation declares an attempt, the entry it serves and the instance
+// that owns the bridge; a verdict written without any of the three names nothing
+// it measured, so the case is refused before the first capture. The legacy
+// standalone arm (canary-run.mjs) declares none of these and is untouched: its
+// behaviour is decided by `campaignMode` alone.
+const campaignMode = Boolean(process.env.CANARY_EVIDENCE_ROOT || process.env.CANARY_ATTEMPT_DIR);
+if (campaignMode) {
+  if (!bundleIdentity) {
+    refuseProvenance({
+      code: PROVENANCE_CODES.IDENTITY_MISSING,
+      reason: `campaign run carries no minted bundle identity (${bundleParse.gap})`,
+      observedSha256: null,
+      servedUrl: null,
+    });
+  } else if (!servedEntryPath) {
+    refuseProvenance({
+      code: PROVENANCE_CODES.IDENTITY_MISSING,
+      reason: 'campaign run does not declare CANARY_SERVED_ENTRY, so no entry can be verified against the minted identity',
+      observedSha256: null,
+      servedUrl: null,
+    });
+  } else if (servedEntrySha256 === null) {
+    refuseProvenance({
+      code: PROVENANCE_CODES.IDENTITY_MISSING,
+      reason: `declared served entry ${servedEntryPath} does not exist or is unreadable`,
+      observedSha256: null,
+      servedUrl: null,
+    });
+  } else if (!instanceIdentity) {
+    refuseProvenance({
+      code: PROVENANCE_CODES.IDENTITY_MISSING,
+      reason: 'campaign run has no instance identity: .canary/state/canary-session.json is absent or unreadable',
+      observedSha256: null,
+      servedUrl: null,
+    });
+  }
+}
 
 /** Reference-vs-clone structural deltas (§11). Cardinality and geometry only. */
 function buildStructuralComparison(ref, clone) {
@@ -210,6 +295,160 @@ async function fetchArtifact(artifactId, outFile) {
   return { bytes: buf.length, sha256: sha256(buf) };
 }
 
+// ── Served-entry provenance gate ──────────────────────────────────────────────
+// A verdict must name the bundle it judged, so the entry this tier expects to be
+// served is compared against the document the clone tab is actually displaying.
+// The served document is fetched over loopback from the tab's own URL: a tab
+// pointed at some other directory refuses with BUNDLE_IDENTITY_MISMATCH instead
+// of yielding a pixel verdict about a bundle this run never built.
+const LOOPBACK_HOSTS = new Set(['127.0.0.1', 'localhost', '::1', '[::1]']);
+
+function httpGetBuffer(rawUrl, depth = 0) {
+  return new Promise((resolve, reject) => {
+    let target;
+    try {
+      target = new URL(rawUrl);
+    } catch {
+      reject(new Error(`served URL is not absolute: ${rawUrl}`));
+      return;
+    }
+    if (!LOOPBACK_HOSTS.has(target.hostname)) {
+      reject(new Error(`served document is not on loopback: ${target.hostname}`));
+      return;
+    }
+    const req = http.get(
+      { hostname: target.hostname, port: target.port || 80, path: `${target.pathname}${target.search}`, timeout: 30_000 },
+      (res) => {
+        if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location && depth < 3) {
+          res.resume();
+          httpGetBuffer(new URL(res.headers.location, target.origin).toString(), depth + 1).then(resolve, reject);
+          return;
+        }
+        const parts = [];
+        res.on('data', (d) => parts.push(d));
+        res.on('end', () => resolve({ status: res.statusCode, body: Buffer.concat(parts) }));
+      }
+    );
+    req.on('error', reject);
+    req.setTimeout(30_000, () => req.destroy(new Error('SERVED_ENTRY_FETCH_TIMEOUT')));
+    req.end();
+  });
+}
+
+async function resolveServedUrl() {
+  const fromTab = await evalOn(cloneTabId, 'location.origin + location.pathname', 5000).catch(() => null);
+  if (typeof fromTab === 'string' && /^https?:\/\//i.test(fromTab)) {
+    const parsed = new URL(fromTab);
+    return { url: `${parsed.origin}${parsed.pathname}`, source: 'clone tab location' };
+  }
+  // An unreadable page context is not a licence to skip the check: the tab census
+  // names the same URL from the browser's side rather than the page's.
+  try {
+    const listing = await call('anti.browser.tabs.list', {}, 15_000);
+    const tabs = listing?.tabs || listing?.result?.tabs || (Array.isArray(listing) ? listing : []);
+    const tab = tabs.find((t) => String(t?.tabId ?? t?.id ?? '') === String(cloneTabId));
+    if (tab && typeof tab.url === 'string' && /^https?:\/\//i.test(tab.url)) {
+      const parsed = new URL(tab.url);
+      return { url: `${parsed.origin}${parsed.pathname}`, source: 'clone tab census' };
+    }
+  } catch {}
+  return null;
+}
+
+/**
+ * Refuse the case: no compare is issued and no pixel verdict is ever promoted.
+ * One shape for every refusal, so the index reads a single cause field whether the
+ * refusal is a wrong served entry or an absent provenance block.
+ */
+function refuseProvenance({ code = PROVENANCE_CODES.IDENTITY_MISMATCH, reason, observedSha256, servedUrl }) {
+  const refusal = {
+    code,
+    expectedSha256: servedEntrySha256,
+    mintedSha256: bundleIdentity?.entrySha256 ?? null,
+    observedSha256: observedSha256 ?? null,
+    servedUrl: servedUrl ?? null,
+    expectedEntryPath: servedEntryPath,
+  };
+  evidence.status = code;
+  // A case with no carried bundle has no block to hang the cause on, so the
+  // refusal is mirrored at the top level as well.
+  evidence.refusal = refusal;
+  evidence.visual = { verdict: 'INCONCLUSIVE', reason, refusal };
+  persist();
+  log(`REFUSAL: ${code} — ${reason}`);
+  process.exit(4);
+}
+
+async function assertServedEntryMatchesMinted() {
+  if (!servedEntryPath) return;
+  const resolved = await resolveServedUrl();
+  if (!resolved) {
+    refuseProvenance({
+      reason: 'the clone tab URL could not be read, so the served entry cannot be verified against the minted identity',
+      observedSha256: null,
+      servedUrl: null,
+    });
+    return;
+  }
+  let observed;
+  try {
+    observed = await httpGetBuffer(resolved.url);
+  } catch (e) {
+    refuseProvenance({
+      reason: `served document could not be fetched over loopback: ${String(e && e.message).slice(0, 200)}`,
+      observedSha256: null,
+      servedUrl: resolved.url,
+    });
+    return;
+  }
+  if (observed.status !== 200) {
+    refuseProvenance({
+      reason: `served document returned HTTP ${observed.status}`,
+      observedSha256: null,
+      servedUrl: resolved.url,
+    });
+    return;
+  }
+  const observedSha256 = sha256Buffer(observed.body);
+  const mintedSha256 = bundleIdentity?.entrySha256 ?? null;
+  // The carried identity is the page's desktop mint, while the expected entry is
+  // this tier's: for 390 they are legitimately different files. The minted digest
+  // is therefore only binding when this tier IS the minted tier; the expected-entry
+  // digest is the check that applies to every tier.
+  const mintedIsThisTier = Boolean(bundleIdentity?.entryPath) && path.resolve(bundleIdentity.entryPath) === servedEntryPath;
+  const matchesExpected = observedSha256 === servedEntrySha256;
+  const matchesMinted = !mintedIsThisTier || observedSha256 === mintedSha256;
+  if (!matchesExpected || !matchesMinted) {
+    // Name only the comparison that actually failed: "the wrong directory for this
+    // tier" and "not the entry the build minted" are different diagnoses, and
+    // conflating them sends the operator to the wrong directory.
+    const failed = [];
+    if (!matchesExpected) failed.push(`the entry expected at ${servedEntryPath} (sha256 ${servedEntrySha256})`);
+    if (!matchesMinted) failed.push(`the minted identity at ${bundleIdentity.entryPath} (sha256 ${mintedSha256})`);
+    refuseProvenance({
+      reason: `served entry ${resolved.url} (sha256 ${observedSha256}) does not equal ${failed.join(' nor ')}`,
+      observedSha256,
+      servedUrl: resolved.url,
+    });
+    return;
+  }
+  const verified = {
+    ok: true,
+    sha256: observedSha256,
+    bytes: observed.body.length,
+    servedUrl: resolved.url,
+    urlSource: resolved.source,
+    tierIsMintedTier: mintedIsThisTier,
+    mintedSha256,
+  };
+  // Without a carried identity there is no `bundle` block to attach the proof to;
+  // reporting it at the top level keeps the observation instead of dropping it.
+  if (evidence.bundle) evidence.bundle.servedEntryVerified = verified;
+  else evidence.servedEntryVerified = verified;
+  log(`served entry verified: ${resolved.url} sha256=${observedSha256.slice(0, 16)}… bytes=${observed.body.length} (${resolved.source})`);
+  persist();
+}
+
 const isMobile = width < 768;
 const dpr = 1;
 log(`set viewport ${width}x${height} (mobile=${isMobile}, dpr=${dpr}) on both tabs (atomic viewport + reload)`);
@@ -270,7 +509,12 @@ if (!refReadiness.ok) {
   process.exit(3);
 }
 if (isMobile) {
-  const mobileEntry = path.join(runDir, 'clone', 'mobile', 'index.html');
+  // The mobile bundle belongs to the same attempt as the desktop bundle; the
+  // attempt directory is what makes the pair immutable together.
+  const cloneRootDir = process.env.CANARY_ATTEMPT_DIR
+    ? path.join(path.resolve(process.env.CANARY_ATTEMPT_DIR), 'clone')
+    : path.join(runDir, 'clone');
+  const mobileEntry = path.join(cloneRootDir, 'mobile', 'index.html');
   if (!fs.existsSync(mobileEntry)) {
     throw new Error(`Mobile viewport run requires independent mobile bundle at ${mobileEntry}`);
   }
@@ -292,6 +536,11 @@ if (isMobile) {
     }
   }
 }
+
+// Provenance gate, before any compare and before the clone side is captured: the
+// tab must be displaying the entry the build minted, or there is nothing this
+// viewport may judge.
+await assertServedEntryMatchesMinted();
 
 await call('browser.switch-tab', { tabId: cloneTabId }, 30_000).catch((e) => log(`clone activate warning: ${e.message}`));
 await call('browser.set-viewport', { tabId: cloneTabId, width, height, mobile: isMobile, deviceScaleFactor: dpr, reload: true });
@@ -627,7 +876,19 @@ for (const band of selectedBands) {
 }
 
 evidence.finishedAt = new Date().toISOString();
-const outFile = path.join(evDir, `${label}.json`);
+// Drift is a report, not a re-identification: a post-mint change on disk marks the
+// run defective with BUNDLE_DRIFT_AFTER_BUILD semantics, and the recorded identity
+// stays exactly as the build minted it. It never changes the exit status, which
+// encodes process success rather than fidelity.
+if (bundleIdentity) {
+  evidence.bundle.drift = detectBundleDrift(bundleIdentity);
+  if (evidence.bundle.drift.drifted) {
+    log(`DRIFT: ${PROVENANCE_CODES.BUNDLE_DRIFT} — ${bundleIdentity.entryPath} no longer hashes to the minted identity (expected ${evidence.bundle.drift.expected}, observed ${evidence.bundle.drift.observed})`);
+  } else {
+    log(`bundle entry unchanged since the mint (${bundleIdentity.entryPath})`);
+  }
+}
+const outFile = evidenceDocPath();
 fs.writeFileSync(outFile, JSON.stringify(evidence, null, 2));
 
 let terminalStatus = 'INCONCLUSIVE';

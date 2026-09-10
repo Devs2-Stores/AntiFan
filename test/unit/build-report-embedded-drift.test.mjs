@@ -14,7 +14,7 @@ describe('build-report embedded selfDrift handling', () => {
     try {
       const stdout = execFileSync(
         process.execPath,
-        ['.canary/tools/build-report.mjs', '.canary/run3', '--out', tempOut, '--json'],
+        ['scripts/lib/build-report.mjs', '.canary/run3', '--out', tempOut, '--json'],
         {
           cwd: process.cwd(),
           encoding: 'utf8',

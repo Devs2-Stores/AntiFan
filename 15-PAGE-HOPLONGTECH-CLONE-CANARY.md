@@ -3,11 +3,11 @@
 ## 1. Executive Verdict
 
 ```text
-EXECUTIVE VERDICT : FAIL
-FINAL DECISION    : NEEDS_TARGETED_FIXES
-PAGES EXECUTED    : 4 / 15 (11 pages UNTESTED in this batch)
-RENDER CASES RUN  : 12 / 45 (PASS: 0 | FAIL: 12 | INCONCLUSIVE: 0)
-COMPLETION DATE   : 2026-09-10T08:23:09.900Z
+EXECUTIVE VERDICT : INCONCLUSIVE
+FINAL DECISION    : CLONE_PIPELINE_BLOCKED
+PAGES EXECUTED    : 1 / 15 (14 pages UNTESTED in this batch)
+RENDER CASES RUN  : 0 / 45 (PASS: 0 | FAIL: 0 | INCONCLUSIVE: 0)
+COMPLETION DATE   : 2026-09-10T15:31:45.233Z
 ```
 
 ---
@@ -16,7 +16,7 @@ COMPLETION DATE   : 2026-09-10T08:23:09.900Z
 
 | # | Name | URL | Domain | Status |
 |---|------|-----|--------|--------|
-| 1 | TRANG CHỦ | [https://hoplongtech.com/](https://hoplongtech.com/) | `hoplongtech.com` | **NOT_TESTED** |
+| 1 | TRANG CHỦ | [https://hoplongtech.com/](https://hoplongtech.com/) | `hoplongtech.com` | **FAIL** |
 | 2 | DANH MỤC THƯƠNG HIỆU | [https://hoplongtech.com/brands](https://hoplongtech.com/brands) | `hoplongtech.com` | **NOT_TESTED** |
 | 3 | NHÓM KHÔNG FILTER | [https://hoplongtech.com/category/cam-bien](https://hoplongtech.com/category/cam-bien) | `hoplongtech.com` | **NOT_TESTED** |
 | 4 | TRANG NHÓM SẢN PHẨM | [https://hoplongtech.com/category/contactor?filterBrandIds[0]=1127](https://hoplongtech.com/category/contactor?filterBrandIds[0]=1127) | `hoplongtech.com` | **NOT_TESTED** |
@@ -27,10 +27,10 @@ COMPLETION DATE   : 2026-09-10T08:23:09.900Z
 | 9 | TÀI LIỆU | [https://hoplongtech.com/tai-lieu-ky-thuat](https://hoplongtech.com/tai-lieu-ky-thuat) | `hoplongtech.com` | **NOT_TESTED** |
 | 10 | TIN TỨC | [https://hoplongtech.com/tin-tuc](https://hoplongtech.com/tin-tuc) | `hoplongtech.com` | **NOT_TESTED** |
 | 11 | CHI TIẾT TIN TỨC | [https://hoplongtech.com/tin-tuc/quoc-vuong-jordan-abdullah-ii-tham-tap-doan-agibot-thuc-day-hop-tac-cong-nghe-robot.html](https://hoplongtech.com/tin-tuc/quoc-vuong-jordan-abdullah-ii-tham-tap-doan-agibot-thuc-day-hop-tac-cong-nghe-robot.html) | `hoplongtech.com` | **NOT_TESTED** |
-| 12 | GIỚI THIỆU | [https://hoplong.com/gioi-thieu-ve-hop-long/](https://hoplong.com/gioi-thieu-ve-hop-long/) | `hoplong.com` | **FAIL** |
-| 13 | LỊCH SỬ | [https://hoplong.com/lich-su-phat-trien/](https://hoplong.com/lich-su-phat-trien/) | `hoplong.com` | **FAIL** |
-| 14 | TUYỂN DỤNG | [https://hoplong.com/tuyen-dung/](https://hoplong.com/tuyen-dung/) | `hoplong.com` | **FAIL** |
-| 15 | CHI TIẾT TUYỂN DỤNG | [https://hoplong.com/tuyendung/ha-noi-tro-ly-truong-phong-kinh-doanh-khoi-nganh-dien-gia-dung/](https://hoplong.com/tuyendung/ha-noi-tro-ly-truong-phong-kinh-doanh-khoi-nganh-dien-gia-dung/) | `hoplong.com` | **FAIL** |
+| 12 | GIỚI THIỆU | [https://hoplong.com/gioi-thieu-ve-hop-long/](https://hoplong.com/gioi-thieu-ve-hop-long/) | `hoplong.com` | **NOT_TESTED** |
+| 13 | LỊCH SỬ | [https://hoplong.com/lich-su-phat-trien/](https://hoplong.com/lich-su-phat-trien/) | `hoplong.com` | **NOT_TESTED** |
+| 14 | TUYỂN DỤNG | [https://hoplong.com/tuyen-dung/](https://hoplong.com/tuyen-dung/) | `hoplong.com` | **NOT_TESTED** |
+| 15 | CHI TIẾT TUYỂN DỤNG | [https://hoplong.com/tuyendung/ha-noi-tro-ly-truong-phong-kinh-doanh-khoi-nganh-dien-gia-dung/](https://hoplong.com/tuyendung/ha-noi-tro-ly-truong-phong-kinh-doanh-khoi-nganh-dien-gia-dung/) | `hoplong.com` | **NOT_TESTED** |
 
 ---
 
@@ -39,12 +39,12 @@ COMPLETION DATE   : 2026-09-10T08:23:09.900Z
 ```text
 Runtime Platform   : Windows_NT x64 (Electron 28.3.3 / Chromium 120.0.6099.291)
 AntiFan Port       : 20131
-Attachment ID      : attachment-75b86cb5-ba4a-474a-9622-7b852e295f9e
-Run ID             : run-45fa6a36-2d29-406c-a093-25ab48e7e1bd
-Primary Tab ID     : 0ee6f539-7093-4134-89ec-a08bf8a1b157
+Attachment ID      : attachment-1a5e58d0-4734-4cc9-9b3b-7c5fe7b19368
+Run ID             : run-ba086c11-8949-4544-81eb-50512737995c
+Primary Tab ID     : 21b37447-830d-47ee-a615-b0ef40468329
 Required Viewports : 1440x900 (Desktop), 1024x900 (Tablet), 390x844 (Mobile)
 Target Scope       : 15 pages x 3 viewports = 45 cases
-Executed in Batch  : 4 pages (12 cases)
+Executed in Batch  : 1 pages (0 cases)
 ```
 
 ---
@@ -53,7 +53,7 @@ Executed in Batch  : 4 pages (12 cases)
 
 | Page | URL | 1440 | 1024 | 390 | Structure | Assets | Typography | Network | Capture | Visual | Overall |
 |------|-----|------|------|-----|-----------|--------|------------|---------|---------|--------|---------|
-| 1. TRANG CHỦ | `https://hoplongtech.com/...` | NOT_TESTED | NOT_TESTED | NOT_TESTED | NOT_TESTED | NOT_TESTED | NOT_TESTED | NOT_TESTED | NOT_TESTED | NOT_TESTED | **NOT_TESTED** |
+| 1. TRANG CHỦ | `https://hoplongtech.com/...` | NOT_TESTED | NOT_TESTED | NOT_TESTED | NOT_TESTED | NOT_TESTED | NOT_TESTED | NOT_TESTED | NOT_TESTED | NOT_TESTED | **FAIL** |
 | 2. DANH MỤC THƯƠNG HIỆU | `https://hoplongtech.com/brands...` | NOT_TESTED | NOT_TESTED | NOT_TESTED | NOT_TESTED | NOT_TESTED | NOT_TESTED | NOT_TESTED | NOT_TESTED | NOT_TESTED | **NOT_TESTED** |
 | 3. NHÓM KHÔNG FILTER | `https://hoplongtech.com/category...` | NOT_TESTED | NOT_TESTED | NOT_TESTED | NOT_TESTED | NOT_TESTED | NOT_TESTED | NOT_TESTED | NOT_TESTED | NOT_TESTED | **NOT_TESTED** |
 | 4. TRANG NHÓM SẢN PHẨM | `https://hoplongtech.com/category...` | NOT_TESTED | NOT_TESTED | NOT_TESTED | NOT_TESTED | NOT_TESTED | NOT_TESTED | NOT_TESTED | NOT_TESTED | NOT_TESTED | **NOT_TESTED** |
@@ -64,10 +64,10 @@ Executed in Batch  : 4 pages (12 cases)
 | 9. TÀI LIỆU | `https://hoplongtech.com/tai-lieu...` | NOT_TESTED | NOT_TESTED | NOT_TESTED | NOT_TESTED | NOT_TESTED | NOT_TESTED | NOT_TESTED | NOT_TESTED | NOT_TESTED | **NOT_TESTED** |
 | 10. TIN TỨC | `https://hoplongtech.com/tin-tuc...` | NOT_TESTED | NOT_TESTED | NOT_TESTED | NOT_TESTED | NOT_TESTED | NOT_TESTED | NOT_TESTED | NOT_TESTED | NOT_TESTED | **NOT_TESTED** |
 | 11. CHI TIẾT TIN TỨC | `https://hoplongtech.com/tin-tuc/...` | NOT_TESTED | NOT_TESTED | NOT_TESTED | NOT_TESTED | NOT_TESTED | NOT_TESTED | NOT_TESTED | NOT_TESTED | NOT_TESTED | **NOT_TESTED** |
-| 12. GIỚI THIỆU | `https://hoplong.com/gioi-thieu-v...` | FAIL | FAIL | FAIL | INCONCLUSIVE | PASS | PASS | PASS | FAIL | INCONCLUSIVE | **FAIL** |
-| 13. LỊCH SỬ | `https://hoplong.com/lich-su-phat...` | FAIL | FAIL | FAIL | INCONCLUSIVE | PASS | PASS | PASS | FAIL | INCONCLUSIVE | **FAIL** |
-| 14. TUYỂN DỤNG | `https://hoplong.com/tuyen-dung/...` | FAIL | FAIL | FAIL | INCONCLUSIVE | PASS | PASS | PASS | FAIL | INCONCLUSIVE | **FAIL** |
-| 15. CHI TIẾT TUYỂN DỤNG | `https://hoplong.com/tuyendung/ha...` | FAIL | FAIL | FAIL | INCONCLUSIVE | PASS | PASS | PASS | FAIL | INCONCLUSIVE | **FAIL** |
+| 12. GIỚI THIỆU | `https://hoplong.com/gioi-thieu-v...` | NOT_TESTED | NOT_TESTED | NOT_TESTED | NOT_TESTED | NOT_TESTED | NOT_TESTED | NOT_TESTED | NOT_TESTED | NOT_TESTED | **NOT_TESTED** |
+| 13. LỊCH SỬ | `https://hoplong.com/lich-su-phat...` | NOT_TESTED | NOT_TESTED | NOT_TESTED | NOT_TESTED | NOT_TESTED | NOT_TESTED | NOT_TESTED | NOT_TESTED | NOT_TESTED | **NOT_TESTED** |
+| 14. TUYỂN DỤNG | `https://hoplong.com/tuyen-dung/...` | NOT_TESTED | NOT_TESTED | NOT_TESTED | NOT_TESTED | NOT_TESTED | NOT_TESTED | NOT_TESTED | NOT_TESTED | NOT_TESTED | **NOT_TESTED** |
+| 15. CHI TIẾT TUYỂN DỤNG | `https://hoplong.com/tuyendung/ha...` | NOT_TESTED | NOT_TESTED | NOT_TESTED | NOT_TESTED | NOT_TESTED | NOT_TESTED | NOT_TESTED | NOT_TESTED | NOT_TESTED | **NOT_TESTED** |
 
 ---
 
@@ -75,7 +75,42 @@ Executed in Batch  : 4 pages (12 cases)
 
 ### Page 1: TRANG CHỦ
 
-*Status: NOT_TESTED in this execution run.*
+- **Initial URL**: `https://hoplongtech.com/`
+- **Final URL**: `https://hoplongtech.com/`
+- **Special Requirements**: Hero, banner, category, product, brand, news, partner, footer, responsive.
+- **Discovery Metrics**: 0 sections, 0 product cards, 0 articles, 0 images, document dimensions: `0x0`, overflowX: `undefined`.
+
+#### 1440px (Desktop)
+- **Navigation**: FAIL
+- **Structure**: N/A
+- **Assets**: FAIL (Audit)
+- **Typography**: N/A
+- **Network**: N/A (Ref visual requests: N/A)
+- **Capture**: N/A
+- **Visual**: N/A (N/A% mismatch)
+- **Overall**: **N/A**
+
+#### 1024px (Tablet)
+- **Navigation**: FAIL
+- **Structure**: N/A
+- **Assets**: FAIL (Audit)
+- **Typography**: N/A
+- **Network**: N/A (Ref visual requests: N/A)
+- **Capture**: N/A
+- **Visual**: N/A (N/A% mismatch)
+- **Overall**: **N/A**
+
+#### 390px (Mobile)
+- **Navigation**: FAIL
+- **Structure**: N/A
+- **Assets**: FAIL (Audit)
+- **Typography**: N/A
+- **Network**: N/A (Ref visual requests: N/A)
+- **Capture**: N/A
+- **Visual**: N/A (N/A% mismatch)
+- **Overall**: **N/A**
+
+**Failures**: `[topLevel] POLICY_DENIED: Tab 'fd251bad-d415-4374-affa-5c7835994cfb' could not be adopted into session '1b41d4ff-d186-45cf-9a12-09050b86d858' (session tab quota reached); the tab was closed instead of leaking outside the session`
 
 ---
 
@@ -141,176 +176,39 @@ Executed in Batch  : 4 pages (12 cases)
 
 ### Page 12: GIỚI THIỆU
 
-- **Initial URL**: `https://hoplong.com/gioi-thieu-ve-hop-long/`
-- **Final URL**: `https://hoplong.com/gioi-thieu-ve-hop-long/`
-- **Special Requirements**: hoplong.com domain, content structure, headings, blocks.
-- **Discovery Metrics**: 10 sections, 0 product cards, 0 articles, 49 images, document dimensions: `1425x5715`, overflowX: `false`.
-
-#### 1440px (Desktop)
-- **Navigation**: OK
-- **Structure**: Ref: null sec, null cards | Clone: null sec, null cards
-- **Assets**: PASS (Local)
-- **Typography**: Verified
-- **Network**: PASS (Ref visual requests: 0)
-- **Capture**: FAIL
-- **Visual**: INCONCLUSIVE (N/A% mismatch)
-- **Overall**: **FAIL**
-
-#### 1024px (Tablet)
-- **Navigation**: OK
-- **Structure**: Ref: null sec, null cards | Clone: null sec, null cards
-- **Assets**: PASS (Local)
-- **Typography**: Verified
-- **Network**: PASS (Ref visual requests: 0)
-- **Capture**: FAIL
-- **Visual**: INCONCLUSIVE (N/A% mismatch)
-- **Overall**: **FAIL**
-
-#### 390px (Mobile)
-- **Navigation**: OK
-- **Structure**: Ref: null sec, null cards | Clone: null sec, null cards
-- **Assets**: PASS (Local)
-- **Typography**: Verified
-- **Network**: PASS (Ref visual requests: 0)
-- **Capture**: FAIL
-- **Visual**: INCONCLUSIVE (N/A% mismatch)
-- **Overall**: **FAIL**
-
-**Failures**: None
+*Status: NOT_TESTED in this execution run.*
 
 ---
 
 ### Page 13: LỊCH SỬ
 
-- **Initial URL**: `https://hoplong.com/lich-su-phat-trien/`
-- **Final URL**: `https://hoplong.com/lich-su-phat-trien/`
-- **Special Requirements**: hoplong.com domain, timeline structure, images, milestones.
-- **Discovery Metrics**: 8 sections, 0 product cards, 0 articles, 31 images, document dimensions: `1425x8897`, overflowX: `false`.
-
-#### 1440px (Desktop)
-- **Navigation**: OK
-- **Structure**: Ref: null sec, null cards | Clone: null sec, null cards
-- **Assets**: PASS (Local)
-- **Typography**: Verified
-- **Network**: PASS (Ref visual requests: 0)
-- **Capture**: FAIL
-- **Visual**: INCONCLUSIVE (N/A% mismatch)
-- **Overall**: **FAIL**
-
-#### 1024px (Tablet)
-- **Navigation**: OK
-- **Structure**: Ref: null sec, null cards | Clone: null sec, null cards
-- **Assets**: PASS (Local)
-- **Typography**: Verified
-- **Network**: PASS (Ref visual requests: 0)
-- **Capture**: FAIL
-- **Visual**: INCONCLUSIVE (N/A% mismatch)
-- **Overall**: **FAIL**
-
-#### 390px (Mobile)
-- **Navigation**: OK
-- **Structure**: Ref: null sec, null cards | Clone: null sec, null cards
-- **Assets**: PASS (Local)
-- **Typography**: Verified
-- **Network**: PASS (Ref visual requests: 0)
-- **Capture**: FAIL
-- **Visual**: INCONCLUSIVE (N/A% mismatch)
-- **Overall**: **FAIL**
-
-**Failures**: None
+*Status: NOT_TESTED in this execution run.*
 
 ---
 
 ### Page 14: TUYỂN DỤNG
 
-- **Initial URL**: `https://hoplong.com/tuyen-dung/`
-- **Final URL**: `https://hoplong.com/tuyen-dung/`
-- **Special Requirements**: hoplong.com domain, job listing, departments, CTA.
-- **Discovery Metrics**: 8 sections, 0 product cards, 0 articles, 17 images, document dimensions: `1425x2912`, overflowX: `false`.
-
-#### 1440px (Desktop)
-- **Navigation**: OK
-- **Structure**: Ref: null sec, null cards | Clone: null sec, null cards
-- **Assets**: PASS (Local)
-- **Typography**: Verified
-- **Network**: PASS (Ref visual requests: 0)
-- **Capture**: FAIL
-- **Visual**: INCONCLUSIVE (N/A% mismatch)
-- **Overall**: **FAIL**
-
-#### 1024px (Tablet)
-- **Navigation**: OK
-- **Structure**: Ref: null sec, null cards | Clone: null sec, null cards
-- **Assets**: PASS (Local)
-- **Typography**: Verified
-- **Network**: PASS (Ref visual requests: 0)
-- **Capture**: FAIL
-- **Visual**: INCONCLUSIVE (N/A% mismatch)
-- **Overall**: **FAIL**
-
-#### 390px (Mobile)
-- **Navigation**: OK
-- **Structure**: Ref: null sec, null cards | Clone: null sec, null cards
-- **Assets**: PASS (Local)
-- **Typography**: Verified
-- **Network**: PASS (Ref visual requests: 0)
-- **Capture**: FAIL
-- **Visual**: INCONCLUSIVE (N/A% mismatch)
-- **Overall**: **FAIL**
-
-**Failures**: None
+*Status: NOT_TESTED in this execution run.*
 
 ---
 
 ### Page 15: CHI TIẾT TUYỂN DỤNG
 
-- **Initial URL**: `https://hoplong.com/tuyendung/ha-noi-tro-ly-truong-phong-kinh-doanh-khoi-nganh-dien-gia-dung/`
-- **Final URL**: `https://hoplong.com/tuyendung/ha-noi-tro-ly-truong-phong-kinh-doanh-khoi-nganh-dien-gia-dung/`
-- **Special Requirements**: hoplong.com domain, job detail, requirements, location, CTA/form.
-- **Discovery Metrics**: 6 sections, 0 product cards, 1 articles, 29 images, document dimensions: `1425x4474`, overflowX: `false`.
-
-#### 1440px (Desktop)
-- **Navigation**: OK
-- **Structure**: Ref: null sec, null cards | Clone: null sec, null cards
-- **Assets**: PASS (Local)
-- **Typography**: Verified
-- **Network**: PASS (Ref visual requests: 0)
-- **Capture**: FAIL
-- **Visual**: INCONCLUSIVE (N/A% mismatch)
-- **Overall**: **FAIL**
-
-#### 1024px (Tablet)
-- **Navigation**: OK
-- **Structure**: Ref: null sec, null cards | Clone: null sec, null cards
-- **Assets**: PASS (Local)
-- **Typography**: Verified
-- **Network**: PASS (Ref visual requests: 0)
-- **Capture**: FAIL
-- **Visual**: INCONCLUSIVE (N/A% mismatch)
-- **Overall**: **FAIL**
-
-#### 390px (Mobile)
-- **Navigation**: OK
-- **Structure**: Ref: null sec, null cards | Clone: null sec, null cards
-- **Assets**: PASS (Local)
-- **Typography**: Verified
-- **Network**: PASS (Ref visual requests: 0)
-- **Capture**: FAIL
-- **Visual**: INCONCLUSIVE (N/A% mismatch)
-- **Overall**: **FAIL**
-
-**Failures**: None
+*Status: NOT_TESTED in this execution run.*
 
 
 ---
 ## 6. Asset Pipeline Results
 
 
-- **Pages Tested in Pipeline**: 4 pages.
-- **Successful Clone Bundles**: 4 / 4.
-- **Failed Clone Bundles**: 0 / 4.
+- **Pages Tested in Pipeline**: 1 pages.
+- **Successful Clone Bundles**: 0 / 1.
+- **Failed Clone Bundles**: 1 / 1.
 - **Asset Families Discovered**: Discovered across `src`, `srcset`, `<picture>`, and inline style `background-image`.
-- All executed clone bundles generated without pipeline halt.
+
+### Pipeline Failures Encountered
+- **Page 1 (TRANG CHỦ)**: `Unknown error`
+
 
 
 ---
@@ -318,46 +216,31 @@ Executed in Batch  : 4 pages (12 cases)
 ## 7. Runtime Network Audit
 
 - **Acceptance Invariant**: `REQUESTS TO REFERENCE DOMAIN FOR VISUAL ASSETS = 0`.
-- **Total Viewports Audited**: 12.
+- **Total Viewports Audited**: 0.
 - **Audited Domains**: `hoplongtech.com`, `hoplong.com`, `img.hoplongtech.com`.
 - **Reference Visual Requests Detected**: 0.
-- **Verdict**: PASS — Zero external reference visual requests on all tested clone tabs..
+- **Verdict**: NOT_TESTED.
 
 ---
 
 ## 8. Typography Results
 
 
-### Domain: `hoplong.com`
-- `Inter, sans-serif`
+### Domain: `hoplongtech.com`
+- `Roboto`
 
 
 ---
 
 ## 9. Structural Results
 
-- **Page 12 (GIỚI THIỆU)**: Discovery Ref: 10 sections, 0 product cards, 0 articles.
-- **Page 13 (LỊCH SỬ)**: Discovery Ref: 8 sections, 0 product cards, 0 articles.
-- **Page 14 (TUYỂN DỤNG)**: Discovery Ref: 8 sections, 0 product cards, 0 articles.
-- **Page 15 (CHI TIẾT TUYỂN DỤNG)**: Discovery Ref: 6 sections, 0 product cards, 1 articles.
+- **Page 1 (TRANG CHỦ)**: Discovery Ref: 0 sections, 0 product cards, 0 articles.
 
 ---
 
 ## 10. Responsive Results
 
-- **Page 12 (GIỚI THIỆU)**: Status: **INCONCLUSIVE (Missing complete structural metrics)**
-  * 1440px DocHeight: Ref=N/Apx, Clone=N/Apx (OverflowX: Ref=N/A, Clone=N/A)
-  * 1024px DocHeight: Ref=N/Apx, Clone=N/Apx (OverflowX: Ref=N/A, Clone=N/A)
-  * 390px DocHeight: Ref=N/Apx, Clone=N/Apx (OverflowX: Ref=N/A, Clone=N/A)
-- **Page 13 (LỊCH SỬ)**: Status: **INCONCLUSIVE (Missing complete structural metrics)**
-  * 1440px DocHeight: Ref=N/Apx, Clone=N/Apx (OverflowX: Ref=N/A, Clone=N/A)
-  * 1024px DocHeight: Ref=N/Apx, Clone=N/Apx (OverflowX: Ref=N/A, Clone=N/A)
-  * 390px DocHeight: Ref=N/Apx, Clone=N/Apx (OverflowX: Ref=N/A, Clone=N/A)
-- **Page 14 (TUYỂN DỤNG)**: Status: **INCONCLUSIVE (Missing complete structural metrics)**
-  * 1440px DocHeight: Ref=N/Apx, Clone=N/Apx (OverflowX: Ref=N/A, Clone=N/A)
-  * 1024px DocHeight: Ref=N/Apx, Clone=N/Apx (OverflowX: Ref=N/A, Clone=N/A)
-  * 390px DocHeight: Ref=N/Apx, Clone=N/Apx (OverflowX: Ref=N/A, Clone=N/A)
-- **Page 15 (CHI TIẾT TUYỂN DỤNG)**: Status: **INCONCLUSIVE (Missing complete structural metrics)**
+- **Page 1 (TRANG CHỦ)**: Status: **INCONCLUSIVE (Missing complete structural metrics)**
   * 1440px DocHeight: Ref=N/Apx, Clone=N/Apx (OverflowX: Ref=N/A, Clone=N/A)
   * 1024px DocHeight: Ref=N/Apx, Clone=N/Apx (OverflowX: Ref=N/A, Clone=N/A)
   * 390px DocHeight: Ref=N/Apx, Clone=N/Apx (OverflowX: Ref=N/A, Clone=N/A)
@@ -371,36 +254,33 @@ Executed in Batch  : 4 pages (12 cases)
 
 ## 12. Visual Compare Results
 
-- **Executed Comparisons**: 12.
+- **Executed Comparisons**: 0.
 - **Pass Cases**: 0.
-- **Fail Cases**: 12.
+- **Fail Cases**: 0.
 - **Inconclusive Cases**: 0.
 
-- **Page 12 (GIỚI THIỆU)**: 390: INCONCLUSIVE (null%) | 1024: INCONCLUSIVE (null%) | 1440: INCONCLUSIVE (null%)
-- **Page 13 (LỊCH SỬ)**: 390: INCONCLUSIVE (null%) | 1024: INCONCLUSIVE (null%) | 1440: INCONCLUSIVE (null%)
-- **Page 14 (TUYỂN DỤNG)**: 390: INCONCLUSIVE (null%) | 1024: INCONCLUSIVE (null%) | 1440: INCONCLUSIVE (null%)
-- **Page 15 (CHI TIẾT TUYỂN DỤNG)**: 390: INCONCLUSIVE (null%) | 1024: INCONCLUSIVE (null%) | 1440: INCONCLUSIVE (null%)
+- **Page 1 (TRANG CHỦ)**: 
 
 ---
 
 ## 13. Cross-Page Failure Patterns
 
-*No cross-page failure patterns detected in executed batch.*
+- `[topLevel] POLICY_DENIED: Tab 'fd251bad-d415-4374-affa-5c7835994cfb' could not be adopted into session '1b41d4ff-d186-45cf-9a12-09050b86d858' (session tab quota reached); the tab was closed instead of leaking outside the session`
 
 ---
 
 ## 14. Core Health Assessment
 
 1. **Core có ổn định không?**: CÓ. Electron runtime, RPC bridge, và Chromium tab control phản hồi bình thường qua các ca kiểm thử.
-2. **Core có gây failure nào không?**: KHÔNG. Không phát hiện crash hoặc RPC failure từ Core AntiFan.
+2. **Core có gây failure nào không?**: CÓ lỗi ngoại lệ top-level trong quá trình chạy.
 3. **Failure nào thuộc Asset Pipeline?**: Không phát hiện.
 4. **Failure nào thuộc Independent HTML Generator?**: Không phát hiện.
-5. **Failure nào thuộc CSS/Layout?**: Đang có ca INCONCLUSIVE/FAIL giữa Reference và Clone về layout/visual.
-6. **Failure nào thuộc Responsive?**: Chưa đạt PASS: các viewport có kết quả INCONCLUSIVE hoặc FAIL do visual mismatch hoặc độ lệch chiều cao giữa các breakpoint.
+5. **Failure nào thuộc CSS/Layout?**: Không phát hiện.
+6. **Failure nào thuộc Responsive?**: Không phát hiện.
 7. **Failure nào thuộc Capture?**: CHƯA KIỂM CHỨNG (0 artifact).
-8. **Failure nào thuộc Visual Compare?**: Có 0 ca INCONCLUSIVE và 12 ca FAIL trên tổng số 12 ca chạy.
-9. **Failure nào là vấn đề của Reference Site?**: Không phát hiện dị thường.
-10. **Có cần sửa Core không?**: KHÔNG. Core runtime hoạt động đúng hợp đồng.
+8. **Failure nào thuộc Visual Compare?**: CHƯA KIỂM CHỨNG.
+9. **Failure nào là vấn đề của Reference Site?**: Không xác định rõ.
+10. **Có cần sửa Core không?**: CẦN XEM XÉT lỗi top-level.
 
 ---
 
@@ -408,32 +288,35 @@ Executed in Batch  : 4 pages (12 cases)
 
 | Category | Status | Notes |
 |----------|--------|-------|
-| A. Discovery | PASS | 4/4 pages passed |
-| B. Asset Localization | PASS | 4/4 bundles built |
+| A. Discovery | FAIL | 0/1 pages passed |
+| B. Asset Localization | FAIL | 0/1 bundles built |
 | C. Asset Family | PASS | Discovered across src/srcset/picture/bg |
 | D. Typography | PASS | Extracted across 1 domains |
-| E. HTML Extraction | PASS | BlueprintExtractor extraction |
-| F. HTML Generation | PASS | Independent bundle synthesis |
-| G. CSS/Layout | FAIL | Layout comparison across viewports |
-| H. Responsive | FAIL | Multi-viewport responsiveness (1440/1024/390) |
+| E. HTML Extraction | BLOCKED | BlueprintExtractor extraction |
+| F. HTML Generation | BLOCKED | Independent bundle synthesis |
+| G. CSS/Layout | NOT_TESTED | Layout comparison across viewports |
+| H. Responsive | NOT_TESTED | Multi-viewport responsiveness (1440/1024/390) |
 | I. Chromium Runtime | PASS | Real Chromium rendering |
 | J. Capture | NOT_TESTED | Zero captures |
-| K. Visual Compare | FAIL | Bounded comparison evaluation |
-| L. Settle | PASS | Bounded hydration and image promotion |
-| M. Network | PASS | 12/12 viewports clean |
+| K. Visual Compare | NOT_TESTED | Bounded comparison evaluation |
+| L. Settle | NOT_TESTED | Bounded hydration and image promotion |
+| M. Network | NOT_TESTED | No audits |
 | N. State/Persistence | PASS | Dedicated page evidence directories |
-| O. Reference Site | NORMAL | Observed upstream behaviors |
+| O. Reference Site | ANOMALY_DETECTED | Observed upstream behaviors |
 
 ---
 
 ## 16. Minimal Required Fixes
 
-*Không phát hiện lỗi blocking trên các ca đã kiểm thử.*
+
+Dựa trên các lỗi thực tế ghi nhận trong batch:
+1. Khắc phục lỗi: `[topLevel] POLICY_DENIED: Tab 'fd251bad-d415-4374-affa-5c7835994cfb' could not be adopted into session '1b41d4ff-d186-45cf-9a12-09050b86d858' (session tab quota reached); the tab was closed instead of leaking outside the session`
+
 
 ---
 
 ## 17. Final Decision
 
 ```text
-FINAL DECISION: NEEDS_TARGETED_FIXES
+FINAL DECISION: CLONE_PIPELINE_BLOCKED
 ```

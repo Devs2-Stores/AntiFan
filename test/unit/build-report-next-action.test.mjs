@@ -11,7 +11,7 @@ describe('build-report next action interpolation and gating', () => {
     try {
       execFileSync(
         process.execPath,
-        ['.canary/tools/build-report.mjs', '.canary/run3', '--out', tempOut],
+        ['scripts/lib/build-report.mjs', '.canary/run3', '--out', tempOut],
         {
           cwd: process.cwd(),
           encoding: 'utf8',
@@ -113,7 +113,7 @@ describe('build-report next action interpolation and gating', () => {
       const tempOut = path.join(tempDir, 'REPORT.md');
       execFileSync(
         process.execPath,
-        ['.canary/tools/build-report.mjs', tempDir, '--out', tempOut],
+        ['scripts/lib/build-report.mjs', tempDir, '--out', tempOut],
         {
           cwd: process.cwd(),
           encoding: 'utf8',

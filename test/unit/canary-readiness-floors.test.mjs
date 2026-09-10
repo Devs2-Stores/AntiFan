@@ -7,7 +7,7 @@ import {
   loadCachedReadinessFloors,
   validateProbedFloor,
   computeSha256,
-} from '../../.canary/tools/canary-floors.mjs';
+} from '../../scripts/lib/canary-floors.mjs';
 
 describe('canary-floors production helper contracts', () => {
   const VIEWPORTS = [

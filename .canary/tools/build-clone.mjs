@@ -18,7 +18,14 @@ import { CloneIRBuilder } from '../../packages/site-clone/dist/models/clone-ir-b
 import { IndependentHtmlCloneGenerator } from '../../packages/site-clone/dist/generators/independent-html-clone-generator.js';
 
 const [, , refHtmlPath, outDirArg, telemetryPath, maxProductsArg, maxArticlesArg, sourceBaseUrlArg] = process.argv;
-if (!refHtmlPath || !outDirArg || !telemetryPath) {
+// The controller may hand the attempt's evidence root instead of a positional
+// telemetry path, so the telemetry document lands inside the attempt it
+// describes; an explicit argument still wins, and with neither the runner keeps
+// refusing with the same usage error as before.
+const telemetryTarget = (telemetryPath && telemetryPath !== 'undefined')
+  ? path.resolve(telemetryPath)
+  : (process.env.CANARY_EVIDENCE_ROOT ? path.join(path.resolve(process.env.CANARY_EVIDENCE_ROOT), 'build-telemetry.json') : null);
+if (!refHtmlPath || !outDirArg || !telemetryTarget) {
   console.error('usage: build-clone.mjs <referenceHtml> <outDir> <telemetryJson> [maxProducts] [maxArticles] [sourceBaseUrl]');
   process.exit(2);
 }
@@ -50,6 +57,9 @@ telemetry.normalizedData = {
 };
 
 // ── A0 asset discovery + production IR (single composed path) ────────────────
+// The harvest belongs to the attempt that outDir lives in: outDir is
+// <attempt>/clone, so this resolves to <attempt>/a0-assets and never to a shared
+// directory two attempts would fight over.
 const a0Dir = path.join(outDir, '..', 'a0-assets');
 const ir = new CloneIRBuilder().buildFromHtml(html, sourceBaseUrl, a0Dir);
 const manifest = ir.assets;
@@ -161,8 +171,8 @@ if (result && result.success) {
   }
 }
 
-fs.mkdirSync(path.dirname(path.resolve(telemetryPath)), { recursive: true });
-fs.writeFileSync(telemetryPath, JSON.stringify(telemetry, null, 2));
+fs.mkdirSync(path.dirname(telemetryTarget), { recursive: true });
+fs.writeFileSync(telemetryTarget, JSON.stringify(telemetry, null, 2));
 console.log(JSON.stringify({
   ok: !error,
   error,

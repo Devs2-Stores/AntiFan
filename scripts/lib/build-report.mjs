@@ -5,9 +5,14 @@
  *   node .canary/tools/build-report.mjs [runDir] [--out <file>] [--artifact-root <dir>] [--json]
  *
  * Reads ONLY persisted evidence:
- *   <runDir>/evidence/*.json                  viewport evidence, build telemetry, receipts
- *   <runDir>/clone/... (via telemetry refs)   referenced bundle assets (verified by hash)
- *   .canary/run1, .canary/run2                immutable historical runs, Section 12 only
+ *   <pageDir>/current-attempt.json               published attempt pointer (when present)
+ *   <attempt>/evidence/*.json                    viewport evidence, build telemetry, receipts
+ *   <attempt>/clone/... (via telemetry refs)     referenced bundle assets (verified by hash)
+ *   15-pages/current-report.json                 published run pointer (pages with an attempt)
+ *   .canary/run1, .canary/run2                   immutable historical runs, Section 12 only
+ *
+ * A page directory without a pointer keeps its pre-pointer `evidence/` and `clone/`
+ * layout, and is labelled `superseded` because its evidence names no bundle identity.
  *
  * Writes <runDir>/REPORT.md (or --out) with the sixteen required sections and exactly one
  * final verdict: PASS | FAIL | INCONCLUSIVE.
@@ -29,6 +34,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
+import { PAGE_POINTER_FILE, readRunPointer, resolvePageArtifacts } from './evidence-provenance.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(HERE, '..', '..');
@@ -366,10 +372,10 @@ class ArtifactIndex {
     if (isStr(ref.path)) {
       push(ref.path);
       if (!path.isAbsolute(ref.path)) {
-        push(path.join(this.ctx.runDir, ref.path));
+        push(path.join(this.ctx.refRootDir, ref.path));
         push(path.join(REPO_ROOT, ref.path));
         push(path.join(this.ctx.evidenceDir, ref.path));
-        push(path.join(this.ctx.cloneDir || this.ctx.runDir, ref.path));
+        push(path.join(this.ctx.cloneDir || this.ctx.refRootDir, ref.path));
       }
     }
     if (isStr(ref.file)) {
@@ -542,6 +548,32 @@ function docViewportKey(json) {
   return isNum(w) && isNum(h) ? viewportKey(w, h) : null;
 }
 
+/**
+ * The bundle directory a document's own reference belongs to.
+ *
+ * A page that publishes an attempt may only be judged against a bundle inside that
+ * attempt (desktop or mobile). A document that still names the page's pre-pointer
+ * `evidence/` or `clone/` subtree is evidence from before the pointer: it is refused
+ * rather than quietly re-pointed at the published attempt, because re-pointing would
+ * attribute a verdict to a bundle that document never measured. Directories outside
+ * the page entirely (artifact-store roots, an absolute path a document legitimately
+ * carries) stay as declared, exactly as before.
+ */
+function assertPublishedBundle(declaredDir, page, label) {
+  if (!isStr(declaredDir) || page.legacy) return declaredDir;
+  const resolved = path.resolve(declaredDir);
+  const published = [page.cloneDir, page.mobileCloneDir].filter(isStr);
+  if (published.some((dir) => isWithinPath(dir, resolved))) return resolved;
+  const prePointer = [path.resolve(page.pageDir, 'evidence'), path.resolve(page.pageDir, 'clone')];
+  if (prePointer.some((dir) => isWithinPath(dir, resolved))) {
+    throw new GenerationError(
+      `${label} names ${relToRepo(resolved)}, which belongs to the pre-pointer layout of ${relToRepo(page.pageDir)}; ` +
+        `the page publishes attempt ${page.attemptId} at ${relToRepo(page.cloneDir)}, and that evidence describes a bundle this page no longer serves`,
+    );
+  }
+  return resolved;
+}
+
 function loadEvidence(runDir, opts) {
   let stat = null;
   try {
@@ -551,7 +583,8 @@ function loadEvidence(runDir, opts) {
   }
   if (!stat.isDirectory()) throw new GenerationError(`run path is not a directory: ${relToRepo(runDir)}`);
 
-  const evidenceDir = path.join(runDir, 'evidence');
+  const page = resolvePageProvenance(runDir);
+  const evidenceDir = page.evidenceDir;
   if (!fs.existsSync(evidenceDir) || !fs.statSync(evidenceDir).isDirectory()) {
     throw new GenerationError(`evidence directory missing: ${relToRepo(evidenceDir)} (nothing persisted to report)`);
   }
@@ -635,7 +668,7 @@ function loadEvidence(runDir, opts) {
     docs.find((d) => d.kind === 'telemetry' && isObj(d.json.bundle)) ||
     docs.find((d) => d.kind === 'telemetry') ||
     null;
-  return { runDir, runBasename, evidenceDir, files: docs, viewportDocs, telemetryDoc, opts };
+  return { runDir, runBasename, evidenceDir, page, files: docs, viewportDocs, telemetryDoc, opts };
 }
 
 /**
@@ -654,6 +687,84 @@ function docBundleDir(json) {
 /* ------------------------------------------------------------------ *
  * Artifact root + run context
  * ------------------------------------------------------------------ */
+
+/** True when `target` is `root` itself or sits beneath it. */
+function isWithinPath(root, target) {
+  const rel = path.relative(path.resolve(root), path.resolve(target));
+  return rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel));
+}
+
+/**
+ * A page's artifacts are resolved through its published view. `current-attempt.json`
+ * names the immutable attempt directory holding both the bundle that was served and
+ * the evidence the verdict was produced from. A directory with no pointer is
+ * pre-pointer history: its fixed `evidence/` and `clone/` layout is still read, but it
+ * is labelled `superseded` because it names no bundle identity and must never be
+ * silently attributed to whichever run is current now.
+ */
+function resolvePageProvenance(pageDir) {
+  const resolved = path.resolve(pageDir);
+  const artifacts = resolvePageArtifacts(resolved);
+  if (!artifacts.legacy && !(isStr(artifacts.evidenceDir) && isStr(artifacts.cloneDir))) {
+    throw new GenerationError(
+      `published attempt pointer for ${relToRepo(resolved)} is incomplete: ` +
+        `${relToRepo(path.join(resolved, PAGE_POINTER_FILE))} must name both an evidence root and a bundle`,
+    );
+  }
+  const evidenceDir = path.resolve(artifacts.evidenceDir);
+  return {
+    pageDir: resolved,
+    attemptId: artifacts.attemptId,
+    evidenceDir,
+    cloneDir: path.resolve(artifacts.cloneDir),
+    mobileCloneDir: isStr(artifacts.mobileCloneDir) ? path.resolve(artifacts.mobileCloneDir) : null,
+    // Relative references inside a document resolve against the artifact root of the
+    // page's published attempt, never against the page directory: once a pointer exists
+    // the page's fixed evidence/ and clone/ subtrees are history.
+    artifactRootDir: artifacts.legacy ? resolved : path.dirname(evidenceDir),
+    legacy: artifacts.legacy,
+    pointer: artifacts.pointer,
+    provenance: artifacts.legacy ? 'superseded' : 'attempt',
+    provenanceReason: artifacts.legacy ? 'evidence predates any attempt pointer' : null,
+  };
+}
+
+/**
+ * The campaign root is the `15-pages` directory the page itself lives under. It is
+ * resolved from the page rather than from the repository root so a copied campaign —
+ * the fixture a fail-closed probe runs against — reads its own published-run pointer
+ * instead of the repository's.
+ */
+function campaignRootFor(pageDir) {
+  for (let dir = path.resolve(pageDir); ; dir = path.dirname(dir)) {
+    if (path.basename(dir) === '15-pages') return dir;
+    const parent = path.dirname(dir);
+    if (parent === dir) return null;
+  }
+}
+
+/**
+ * The campaign's published report is named by `15-pages/current-report.json`. It is
+ * consulted only for a page that publishes an attempt: pre-pointer evidence keeps the
+ * run identity its own documents record, so a legacy page is never attributed to the
+ * run that is current now. A run directory outside the campaign has no pointer to
+ * prefer and keeps the evidence-derived identity.
+ */
+function resolvePublishedRun(page, evidenceRunId) {
+  const campaignRoot = page.legacy ? null : campaignRootFor(page.pageDir);
+  const pointer = campaignRoot ? readRunPointer(campaignRoot) : null;
+  if (!pointer) {
+    return { runId: evidenceRunId, reportDir: null, reportPath: null, publishedAt: null, published: false, source: 'evidence' };
+  }
+  return {
+    runId: isStr(pointer.runId) ? pointer.runId : evidenceRunId,
+    reportDir: isStr(pointer.reportDir) ? path.resolve(pointer.reportDir) : null,
+    reportPath: isStr(pointer.reportPath) ? path.resolve(pointer.reportPath) : null,
+    publishedAt: isStr(pointer.publishedAt) ? pointer.publishedAt : null,
+    published: true,
+    source: 'campaign-run-pointer',
+  };
+}
 
 function artifactRoots(explicit) {
   const roots = [];
@@ -679,23 +790,22 @@ function artifactRoots(explicit) {
   return roots;
 }
 
-function telemetryDerivedPaths(telemetry, runDir) {
+function telemetryDerivedPaths(telemetry, page) {
   const out = { cloneDir: null, assetsDir: null, runId: null };
   const bundle = obj(telemetry?.bundle);
   if (isStr(bundle.entryHtmlPath)) {
-    out.cloneDir = path.dirname(bundle.entryHtmlPath);
-    out.assetsDir = path.join(out.cloneDir, 'assets');
+    out.cloneDir = assertPublishedBundle(path.dirname(bundle.entryHtmlPath), page, 'build telemetry bundle entry');
+    out.assetsDir = out.cloneDir ? path.join(out.cloneDir, 'assets') : null;
   }
   if (isStr(telemetry?.generation?.result?.entryHtmlPath) && !out.cloneDir) {
-    out.cloneDir = path.dirname(telemetry.generation.result.entryHtmlPath);
-    out.assetsDir = path.join(out.cloneDir, 'assets');
+    out.cloneDir = assertPublishedBundle(path.dirname(telemetry.generation.result.entryHtmlPath), page, 'generation result entry');
+    out.assetsDir = out.cloneDir ? path.join(out.cloneDir, 'assets') : null;
   }
-  if (!out.cloneDir && runDir) {
-    const candidateClone = path.join(runDir, 'clone');
-    if (fs.existsSync(candidateClone)) {
-      out.cloneDir = candidateClone;
-      out.assetsDir = path.join(candidateClone, 'assets');
-    }
+  if (!out.cloneDir && isStr(page.cloneDir) && fs.existsSync(page.cloneDir)) {
+    // The page's published bundle: the immutable attempt directory named by its
+    // pointer, or the fixed <pageDir>/clone for evidence that predates any pointer.
+    out.cloneDir = page.cloneDir;
+    out.assetsDir = path.join(page.cloneDir, 'assets');
   }
   const ref = firstDef(bundle.entryHtmlPath, telemetry?.input?.path);
   void ref;
@@ -2205,10 +2315,17 @@ function renderEnvironment(ctx) {
   const input = obj(telemetry.input);
   const refUrl = ctx.viewportModels.map((m) => m.refMetrics.url).find(isStr) || 'not recorded in evidence';
   const cloneUrl = ctx.viewportModels.map((m) => m.cloneMetrics.url).find(isStr) || 'not recorded in evidence';
+  const page = ctx.page;
+  const publishedRun = ctx.publishedRun;
   lines.push(
     codeBlock([
       `Run directory:  ${relToRepo(ctx.runDir)}`,
       `Evidence dir:   ${relToRepo(ctx.evidenceDir)} (${ctx.files.length} JSON documents)`,
+      `Attempt:        ${page.attemptId || 'none (no attempt pointer)'}`,
+      `Provenance:     ${page.provenance}${page.provenanceReason ? ` (${page.provenanceReason})` : ''}`,
+      `Mobile bundle:  ${isStr(page.mobileCloneDir) ? relToRepo(page.mobileCloneDir) : 'not published'}`,
+      `Published run:  ${publishedRun.runId} (${publishedRun.source})`,
+      `Campaign report:${publishedRun.reportPath ? ` ${relToRepo(publishedRun.reportPath)}` : ' not published'}`,
       `Generator:      ${GENERATOR}`,
       `Report anchor:  ${ctx.generatedAt || 'no evidence timestamp recorded'}`,
       `Reference URL:  ${refUrl}`,
@@ -3018,15 +3135,20 @@ function main() {
     }
 
     const loaded = loadEvidence(opts.runDir, opts);
+    const page = loaded.page;
     const telemetry = obj(loaded.telemetryDoc?.json);
-    const derived = telemetryDerivedPaths(telemetry, loaded.runDir);
+    const derived = telemetryDerivedPaths(telemetry, page);
+    const evidenceRunId = resolveEvidenceRunId(loaded.files);
+    const publishedRun = resolvePublishedRun(page, evidenceRunId);
     const artifactIndex = new ArtifactIndex({
-      runDir: loaded.runDir,
+      // Relative references resolve inside the page's published artifact set, not
+      // beside the page: a pointer page keeps its bundles in an attempt directory.
+      refRootDir: page.artifactRootDir,
       evidenceDir: loaded.evidenceDir,
       cloneDir: derived.cloneDir,
       assetsDir: derived.assetsDir,
       artifactRoots: artifactRoots(opts.artifactRoot),
-      runId: resolveEvidenceRunId(loaded.files),
+      runId: evidenceRunId,
       label: null,
     });
 
@@ -3036,8 +3158,9 @@ function main() {
       // Asset references resolve against the bundle the document itself belongs to:
       // a viewport names the bundle it was served from, a telemetry document names the
       // bundle it generated. Resolving everything against one run-level bundle made a
-      // desktop telemetry document fail against the mobile bundle and vice versa.
-      const docCloneDir = docBundleDir(doc.json);
+      // desktop telemetry document fail against the mobile bundle and vice versa. On a
+      // page that publishes an attempt, the declared bundle must be part of that attempt.
+      const docCloneDir = assertPublishedBundle(docBundleDir(doc.json), page, doc.docId);
       artifactIndex.ctx.cloneDir = docCloneDir || derived.cloneDir;
       artifactIndex.ctx.assetsDir = artifactIndex.ctx.cloneDir ? path.join(artifactIndex.ctx.cloneDir, 'assets') : derived.assetsDir;
       artifactIndex.collect(doc.docId, doc.json);
@@ -3101,6 +3224,8 @@ function main() {
       runDir: loaded.runDir,
       runBasename: loaded.runBasename,
       evidenceDir: loaded.evidenceDir,
+      page,
+      publishedRun,
       files: loaded.files,
       telemetry,
       viewportModels,
@@ -3129,6 +3254,8 @@ function main() {
     process.stdout.write(
       [
         `run:        ${relToRepo(ctx.runDir)}`,
+        `attempt:    ${ctx.page.attemptId || 'none (no attempt pointer)'}`,
+        `provenance: ${ctx.page.provenance}${ctx.publishedRun.published ? `, run ${ctx.publishedRun.runId}` : ''}`,
         `evidence:   ${ctx.files.length} documents`,
         `viewports:  ${viewportModels.map((m) => `${m.width}×${m.height}=${m.gate.status}`).join(' ')}`,
         `verdict:    ${ctx.verdict}`,
@@ -3141,6 +3268,11 @@ function main() {
           {
             runDir: relToRepo(ctx.runDir),
             out: relToRepo(opts.out),
+            attemptId: ctx.page.attemptId,
+            provenance: ctx.page.provenance,
+            provenanceReason: ctx.page.provenanceReason,
+            runId: ctx.publishedRun.runId,
+            runSource: ctx.publishedRun.source,
             verdict: ctx.verdict,
             viewports: viewportModels.map((m) => ({
               label: m.label,

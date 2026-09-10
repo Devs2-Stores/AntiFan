@@ -42,7 +42,7 @@ function buildRunDir(name, naming) {
 
 function runReport(runDir) {
   const out = path.join(runDir, 'REPORT.md');
-  const proc = spawnSync(process.execPath, ['.canary/tools/build-report.mjs', runDir, '--out', out], {
+  const proc = spawnSync(process.execPath, ['scripts/lib/build-report.mjs', runDir, '--out', out], {
     cwd: REPO_ROOT,
     encoding: 'utf8',
   });
