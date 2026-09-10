@@ -136,11 +136,25 @@ containment belongs with the Phase 3 reader work.
 
 ## Instance lifecycle (after the measurements)
 
-The canary instance was shut down through its supervisor, and the launcher removed the instance
-record as part of that controlled teardown: `canary-instance.json` is gone and nothing listens on
-20131, while the operator's own instance on 20130 is untouched. The record owner's whole cycle —
-written on launch, validated at mint, dropped on exit — is therefore observed live in both
-directions. Any further live run starts from a launch with `--state-record` and a fresh mint.
+The canary instance was shut down through its supervisor, and the launcher's own log records the
+record being dropped by that controlled teardown:
+
+```
+[run-electron] instance record removed (E:\Work\apps\AntiFan\.canary\state\canary-instance.json)
+[antifan-canary: exited; cursor=26955]
+```
+
+with `exited exit=0 uptime=28m4s` from the process manager. The file being absent is not the
+evidence — this line is; the tail is captured in `.canary/state/phase1-instance-teardown.log`
+because the process manager's log store is not part of the repository. Independently: nothing
+listens on 20131 and the operator's instance on 20130 (pid 3140) is untouched. So the record
+owner's whole cycle — written on launch, validated at mint, dropped on exit — is observed live in
+both directions, not just read-verified.
+
+Consequence for the next executor: no canary instance is running, so the refusal matrix exits 1 at
+its "no live instance record" gate (measured) and no live run can start. Relaunch with
+`node scripts/run-electron.cjs . --allow-eval` and the record env from `.canary/state/instance-env.json`,
+then mint a fresh session before any command that touches the bridge.
 
 ## Docs impact
 
