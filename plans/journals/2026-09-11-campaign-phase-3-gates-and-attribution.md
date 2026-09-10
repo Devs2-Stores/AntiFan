@@ -1,0 +1,109 @@
+# Phase 3 — Campaign re-run, gate attribution and reconciliation
+
+Date: 2026-09-11
+Plan: `plans/260910-2008-clone-campaign-evidence-provenance/`
+Scope: Phases 3 and 4 preparation for the 15-page × 3-viewport clone campaign against
+`hoplongtech.com`, plus the offline Phase 5 instruments for the Haravan customize plan.
+
+## What was measured
+
+Every number below comes from persisted evidence under `.canary/15-pages/**` and from
+`.canary/state/phase3-*.log`. Attempt-level files under
+`<page>/attempts/<attemptId>/evidence/<viewport>.json` are authoritative; the per-page
+mirror at `<page>/evidence/<viewport>.json` can lag an attempt behind.
+
+### Batch 1b, 2 and 3 (pages 1-5)
+
+| Run | p1 @1440 | p1 @1024 | p1 @390 | p3 @1440 | p5 @1440 |
+|---|---|---|---|---|---|
+| 1b (pre-pin) | FAIL 7.37% | INCONCLUSIVE 8.65% | INCONCLUSIVE | PASS 0.08% | PASS 0.07% |
+| 2 (pin) | PASS 1.82% | PASS 0.04% | PASS 0.01% | FAIL 4.59% | FAIL 4.76% |
+| 3 (pin reverted) | PASS 1.82% | PASS 0.04% | PASS 0.01% | FAIL 4.59% | FAIL 4.76% |
+
+Two conclusions came out of this table.
+
+1. **Pinning the carousel phase was a mask in disguise and is reverted.** Forcing
+   `.slick-track` transforms and the active classes moved p3/p4/p5 from 0.07-0.08% to
+   4.59-5.62%, because the two sides do not agree on whether a carousel is initialized:
+   the same manipulation lands differently on a live page and on a static clone. What
+   replaced it is detection, not normalization — `readWidgetPhase` reads each side's
+   current slide vector and a disagreement withholds the verdict as
+   `WIDGET_PHASE_MISMATCH` instead of publishing the rotation as fidelity.
+
+2. **The p3/p4/p5 failure is not the clone rendering differently; it is the page area
+   the two tabs present.** Measured across three attempts of page-03:
+
+   - reference raster: `0 px` differ between batch 1b and batch 3 (pixel-identical),
+   - clone raster: `422,421 px` differ between the same two batches (12.279%),
+   - the pair in batch 1b: `4,408 px` (0.128%); in batch 3: `426,784 px` (12.406%),
+   - `docHeight` equal on both sides (2389), `sectionCount` 3 = 3,
+   - `header.dw = -15`, `footer.dw = -15`: the clone lays out inside 1425px while the
+     reference lays out inside 1440px.
+
+   A 15px content-box difference reflows every text line, which is why a few hundred
+   pixels differ per row rather than a band: the diff is spread down the page. The clone
+   bundles differ by 52 lines between those batches, and those 52 lines are the site's
+   own runtime ids and Livewire snapshots (`#i53f61kv3t5c1789066462065` vs
+   `#k29khgedp30s1789070496126`), not CSS — no `::-webkit-scrollbar` rule exists in either
+   bundle, and the live reference carries none either. The difference is therefore the
+   scrollbar regime each tab presented, a harness-side cause that batches 1b and 3
+   happened to straddle.
+
+## What changed
+
+- **`readWidgetPhase(tabId)`** replaces the pin: a disagreement is refused as
+  `WIDGET_PHASE_MISMATCH` (exit 3, `INCONCLUSIVE`), never normalized away.
+- **`LAYOUT_WIDTH_ASYMMETRY`**: `TAB_IDENTITY_EXPR` now reports
+  `documentElement.clientWidth` and `scrollWidth`, and two sides whose content boxes
+  differ are refused by name rather than compared. Both boxes are recorded in the refusal
+  so the next reader sees the numbers, not the symptom.
+- **Scrollbar regime, applied to both sides**: `scrollbar-width:none` plus
+  `::-webkit-scrollbar{display:none}` before any measurement, so both tabs present the
+  same page area. This is symmetric by construction and removes no content: a page that
+  overflows still overflows, and the clone's own 299px horizontal overflow at 390 stays
+  visible (its 390 raster is 689px wide against the reference's 390px).
+- **`CAPTURE_TOO_TALL`**: a document beyond `CAPTURE_MAX_DIMENSION = 16384` is refused
+  with its measured height, before hydration and again after, instead of failing deeper as
+  a capture or compare error. Pages 13-15 at 1024 are in this class.
+- **Mask sensitivity in the same run**: each leg now performs a second comparison with
+  `useDefaultWidgetMasks:true` on the same pair under the same lease. It is recorded as
+  `evidence.visualMasksOn` with `bindingVerdict` and can never change the verdict; the
+  binding policy stays masks-off, so a difference that masks would hide is still reported.
+
+## Refusals observed live
+
+- `LAYOUT_WIDTH_ASYMMETRY` on pages 10 and 11 at 1440 and 1024 in the pre-change run:
+  the gate fires before the capture (`Capture: Ref=0B Clone=0B (isPng=false)`), and the
+  verdict is `INCONCLUSIVE` with the two content boxes named. That is the intended
+  behaviour: refusing a harness-side cause instead of publishing a phantom failure.
+- `STRUCTURAL_PARITY_MISMATCH` at 390 with 0.01% of pixels differing on several pages:
+  the mobile bundle carries a real 299px horizontal overflow that the full-page raster
+  clips on one side only. The pixel number cannot see it; the structural leg can, which
+  is why both are published.
+
+## Phase 5 instruments (offline, verified against the real theme)
+
+- `scripts/lib/theme-checks.mjs` + `scripts/theme-checks.mjs`: on
+  `E:/Work/customizes/Phukienmaymoc` the structural gate reports `schemaFiles 1`,
+  `sections 0`, 95 undeclared setting reads and 1267 dead reads, and 6 missing local
+  assets out of 78 present. A false-positive probe confirmed the sampled ids
+  (`add_to_cart_show`, `cart_deliverytime_start`, `addthis_iconList_show`) occur zero
+  times in the theme's own 1463-id `config/settings_schema.json`.
+- `.canary/tools/theme-fidelity.mjs` + `.canary/tools/theme-fidelity-run.mjs`: capture and
+  compare harness with pinned references, plus a seven-stage orchestrator. 14 + 23 pure
+  tests pass.
+- `checkServedTheme`: `?themeid=` is not proof of what was served. Measured on this store,
+  an unknown id answers 200 while serving the live theme, so the assertion is made against
+  the `cdn.hstatic.net/themes/<org>/<id>/` origin inside the captured document and a
+  dominant foreign id is refused as `SERVED_THEME_MISMATCH` (exit 4).
+
+## Open
+
+- A document beyond the capture ceiling is now refused by name; pages 13-15 at 1024 are
+  expected to carry that refusal in the published record rather than a truncated raster.
+- The mint tab cannot be closed by a session that does not own it
+  (`TARGET_MISMATCH`, session scoping deliberately not weakened), so the instance-plane
+  tab census grows by one per mint and clearance is an owner action.
+- The scrollbar regime is a symmetric harness normalization, not a page property. If a
+  future leg still measures asymmetric content boxes after the normalization, the refusal
+  fires and its two numbers are the finding.

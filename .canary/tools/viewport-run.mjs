@@ -504,6 +504,8 @@ const TAB_IDENTITY_EXPR = `(() => {
     ua: navigator.userAgent,
     innerWidth: window.innerWidth,
     innerHeight: window.innerHeight,
+    clientWidth: document.documentElement.clientWidth,
+    scrollWidth: document.documentElement.scrollWidth,
     dpr: window.devicePixelRatio,
     docHeight: document.documentElement.scrollHeight,
     bodyClass: body ? String(body.className).slice(0, 160) : null,
@@ -707,6 +709,33 @@ await evalOn(cloneTabId, `(async () => {
 
 await refuseIfTooTall(cloneTabId, 'clone');
 
+// ── Scrollbar regime, identical on both sides ─────────────────────────────────
+// Measured on page-03 at 1440: the reference laid out inside a 1440px content box while the
+// clone reflowed its text inside 1425px, at the same 2389px document height, and the 4.59%
+// that came out was published as a fidelity failure. The difference is the page area each
+// tab presents, so both sides are given the same regime before anything is measured. It is
+// applied to both tabs and changes no content: a page that overflows still overflows, and
+// the clone's own 299px horizontal overflow at 390 stays visible.
+const SCROLLBAR_REGIME_CSS = 'html{scrollbar-width:none !important}html::-webkit-scrollbar{display:none !important}';
+async function applyScrollbarRegime(tabId, role) {
+  return await evalOn(tabId, `(() => {
+    let style = document.getElementById('__antifan-scrollbar-regime');
+    if (!style) {
+      style = document.createElement('style');
+      style.id = '__antifan-scrollbar-regime';
+      (document.head || document.documentElement).appendChild(style);
+    }
+    style.textContent = ${JSON.stringify(SCROLLBAR_REGIME_CSS)};
+    return { contentWidth: document.documentElement.clientWidth, innerWidth: window.innerWidth, scrollWidth: document.documentElement.scrollWidth, docHeight: document.documentElement.scrollHeight };
+  })()`, 15_000).catch((e) => ({ error: String(e && e.message ? e.message : e).slice(0, 160) }));
+}
+{
+  const referenceRegime = await applyScrollbarRegime(refTabId, 'reference');
+  const cloneRegime = await applyScrollbarRegime(cloneTabId, 'clone');
+  evidence.scrollbarRegime = { css: SCROLLBAR_REGIME_CSS, reference: referenceRegime, clone: cloneRegime };
+  log(`scrollbar regime: reference content=${referenceRegime.contentWidth} inner=${referenceRegime.innerWidth} | clone content=${cloneRegime.contentWidth} inner=${cloneRegime.innerWidth}`);
+  persist();
+}
 // Same contract for the bundle: if rasterization changed either side, the pair
 // the comparator produces would not be the pair that was gated.
 const geometryBeforeHydration = await enforceViewportGeometry('pre-hydration', 'clone');
@@ -732,8 +761,8 @@ if (!geometryBeforeCapture.symmetric) refuseViewportAsymmetry('post-hydration', 
   const referenceIdentity = await evalOn(refTabId, TAB_IDENTITY_EXPR, 15000).catch((e) => ({ status: 'UNREADABLE', error: String(e && e.message ? e.message : e).slice(0, 160) }));
   const cloneIdentity = await evalOn(cloneTabId, TAB_IDENTITY_EXPR, 15000).catch((e) => ({ status: 'UNREADABLE', error: String(e && e.message ? e.message : e).slice(0, 160) }));
   evidence.tabIdentity = { expectedDevice, reference: referenceIdentity, clone: cloneIdentity };
-  log(`tab identity ref: device=${referenceIdentity.device} ${referenceIdentity.innerWidth}x${referenceIdentity.innerHeight} dpr=${referenceIdentity.dpr} docH=${referenceIdentity.docHeight} sections=${referenceIdentity.sections} widgets=${referenceIdentity.widgetNodes} images=${referenceIdentity.completeImages}/${referenceIdentity.images}`);
-  log(`tab identity clone: device=${cloneIdentity.device} ${cloneIdentity.innerWidth}x${cloneIdentity.innerHeight} dpr=${cloneIdentity.dpr} docH=${cloneIdentity.docHeight} sections=${cloneIdentity.sections} widgets=${cloneIdentity.widgetNodes} images=${cloneIdentity.completeImages}/${cloneIdentity.images}`);
+  log(`tab identity ref: device=${referenceIdentity.device} inner=${referenceIdentity.innerWidth}x${referenceIdentity.innerHeight} content=${referenceIdentity.clientWidth} scroll=${referenceIdentity.scrollWidth} dpr=${referenceIdentity.dpr} docH=${referenceIdentity.docHeight} sections=${referenceIdentity.sections} widgets=${referenceIdentity.widgetNodes} images=${referenceIdentity.completeImages}/${referenceIdentity.images}`);
+  log(`tab identity clone: device=${cloneIdentity.device} inner=${cloneIdentity.innerWidth}x${cloneIdentity.innerHeight} content=${cloneIdentity.clientWidth} scroll=${cloneIdentity.scrollWidth} dpr=${cloneIdentity.dpr} docH=${cloneIdentity.docHeight} sections=${cloneIdentity.sections} widgets=${cloneIdentity.widgetNodes} images=${cloneIdentity.completeImages}/${cloneIdentity.images}`);
   persist();
   // A declared layout class is the site's own statement about which page it is showing.
   // Comparing a mobile-layout clone against a web-layout reference is not a fidelity
@@ -758,6 +787,26 @@ if (!geometryBeforeCapture.symmetric) refuseViewportAsymmetry('post-hydration', 
     };
     persist();
     log(`ABORT: DEVICE_CLASS_ASYMMETRY (reference=${referenceIdentity.device}, clone=${cloneIdentity.device})`);
+    process.exit(3);
+  }
+  // Equal document heights before the compare are not the same as an equal layout width.
+  // Measured on page-03 at 1440: the reference laid out against a 1440px content box while
+  // the clone reflowed its text inside 1425px, both reporting the same 2389px document and
+  // a reference raster that was pixel-identical across three runs. The 4.59% that came out
+  // was a harness-side difference in the page area one tab presented, published as a
+  // fidelity failure, and no tolerance or mask would have named it. A width that differs
+  // cannot be compared, so it is refused with both boxes measured.
+  if (typeof referenceIdentity.clientWidth === 'number' && typeof cloneIdentity.clientWidth === 'number'
+      && referenceIdentity.clientWidth !== cloneIdentity.clientWidth) {
+    evidence.status = 'LAYOUT_WIDTH_ASYMMETRY';
+    evidence.visual = {
+      status: 'LAYOUT_WIDTH_ASYMMETRY',
+      verdict: 'INCONCLUSIVE',
+      reason: `the reference lays out inside ${referenceIdentity.clientWidth}px while the clone lays out inside ${cloneIdentity.clientWidth}px (inner ${referenceIdentity.innerWidth} vs ${cloneIdentity.innerWidth}, scroll ${referenceIdentity.scrollWidth} vs ${cloneIdentity.scrollWidth}) — a ${Math.abs(referenceIdentity.clientWidth - cloneIdentity.clientWidth)}px content box difference reflows text and shifts the page, so a pixel comparison would measure the harness rather than fidelity`,
+      tabIdentity: { reference: referenceIdentity, clone: cloneIdentity },
+    };
+    persist();
+    log(`ABORT: LAYOUT_WIDTH_ASYMMETRY (reference ${referenceIdentity.clientWidth}px, clone ${cloneIdentity.clientWidth}px)`);
     process.exit(3);
   }
 }
@@ -1047,6 +1096,46 @@ evidence.visual = {
 };
 log(`visual mismatch=${evidence.visual.mismatchPercentage}% verdict=${evidence.visual.verdict} mask=${JSON.stringify(evidence.visual.mask)?.slice(0, 160)}`);
 persist();
+
+// ── Mask sensitivity (non-binding) ────────────────────────────────────────────
+// The binding policy is masks-off: a difference must be visible, never covered. This second
+// comparison on the same pair answers only what the default widget masks would have hidden,
+// and it can never change the verdict above. A page that passes with masks on and fails with
+// them off is reported as exactly that difference, in both directions.
+if (!SKIP_COMPARE) {
+  try {
+    const sensitivity = await call('anti.visual.compare', {
+      tabId: refTabId,
+      comparisonTabId: cloneTabId,
+      fullPage: true,
+      tolerance: 2,
+      normalizeScroll: true,
+      allowHeightDrift: false,
+      useDefaultWidgetMasks: true,
+      trackedSelectors: TRACKED,
+      ...LEASE_PARAM,
+    }, COMPARE_TIMEOUT_MS);
+    const sr = sensitivity?.result || sensitivity || {};
+    const sensitivityVerdict = sr.dimensionsMatch === true
+      ? (sr.match === true ? 'PASS' : 'FAIL')
+      : (sr.verdict || (sr.status === 'INCONCLUSIVE' ? 'INCONCLUSIVE' : null));
+    evidence.visualMasksOn = {
+      useDefaultWidgetMasks: true,
+      userMasks: [],
+      verdict: sensitivityVerdict,
+      mismatchPercentage: sr.mismatchPercentage ?? null,
+      maskResolution: sr.maskResolution ?? sr.maskAudit ?? null,
+      maskAreaRatio: sr.maskAreaRatio ?? sr.maskedAreaRatio ?? null,
+      dimensionsMatch: sr.dimensionsMatch ?? null,
+      bindingVerdict: evidence.visual.verdict,
+    };
+    log(`visual (masks ON, sensitivity) mismatch=${evidence.visualMasksOn.mismatchPercentage}% verdict=${sensitivityVerdict} mask=${JSON.stringify(evidence.visualMasksOn.maskResolution)?.slice(0, 140)}`);
+  } catch (e) {
+    evidence.visualMasksOn = { useDefaultWidgetMasks: true, status: 'COMPARE_ERROR', error: String(e.message || e).slice(0, 300), bindingVerdict: evidence.visual.verdict };
+    log(`visual (masks ON) FAILED: ${e.message}`);
+  }
+  persist();
+}
 
 // ── Reference identity gate ───────────────────────────────────────────────────
 // Measured on this storefront: the same URL at the same viewport measured 5546px in one
