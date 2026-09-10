@@ -17,6 +17,7 @@ const api = {
   resizeTerminalTo: (id, cols, rows) => ipcRenderer.invoke('antifan:terminal:resize-session', { id, cols, rows }),
   listSessions: () => ipcRenderer.invoke('antifan:terminal:list-sessions'),
   listTerminals: () => ipcRenderer.invoke('antifan:terminal:list-sessions'),
+  getFullBuffer: (sessionId) => ipcRenderer.invoke('antifan:terminal:get-full-buffer', sessionId),
   switchTerminal: (id) => ipcRenderer.invoke('antifan:terminal:switch-session', id),
   setActiveSession: (sessionId) => ipcRenderer.invoke('antifan:terminal:set-active-session', { sessionId }),
   newTerminal: () => ipcRenderer.invoke('antifan:terminal:new-session'),
@@ -61,6 +62,7 @@ contextBridge.exposeInMainWorld('antifanStandalone', api);
 contextBridge.exposeInMainWorld('antifanTestHelper', {
   emitData: (sessionId, data, seq) => ipcRenderer.invoke('antifan:test:emit-data', { sessionId, data, seq }),
   addAuthoritativeSession: (session) => ipcRenderer.invoke('antifan:test:add-authoritative-session', session),
+  addTruncatedSession: (session, tailChars) => ipcRenderer.invoke('antifan:test:add-truncated-session', { session, tailChars }),
   getSplitData: () => ipcRenderer.invoke('antifan:test:get-split-data'),
   finish: (payload) => ipcRenderer.invoke('antifan:test:finish', payload),
 });

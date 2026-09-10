@@ -850,6 +850,25 @@ function writeTermAsync(term, data) {
   });
 }
 
+// Session-state payloads only carry a JSON-budgeted *suffix* of each transcript
+// (GLOBAL_JSON_BUFFER_BUDGET_BYTES in the main process: ~16 KiB for the active
+// session, less for background ones), and the slice can start inside an escape
+// sequence. Hydrating from that slice alone silently drops everything older than
+// the last few hundred lines. The main process still owns the full retained
+// transcript, so hydrate from getFullBuffer and keep the wired slice only as a
+// fallback for callers whose backend cannot serve it.
+async function resolveHydrationSnapshot(sessionId, providedSnapshot, providedSeq) {
+  if (api?.getFullBuffer) {
+    try {
+      const res = await api.getFullBuffer(sessionId);
+      if (res && typeof res.buffer === 'string') {
+        return { snapshot: res.buffer, snapshotSeq: res.snapshotThroughSeq || 0 };
+      }
+    } catch {}
+  }
+  return { snapshot: providedSnapshot || '', snapshotSeq: providedSeq || 0 };
+}
+
 async function atomicHydratePane(item, sessionId, providedSnapshot, providedSeq) {
   if (!item || !item.term) return;
   item.hydrationEpoch += 1;
@@ -857,19 +876,7 @@ async function atomicHydratePane(item, sessionId, providedSnapshot, providedSeq)
   item.activeHydratingEpoch = currentEpoch;
 
   try {
-    let snapshot = providedSnapshot;
-    let snapshotSeq = providedSeq;
-
-    if (snapshot === undefined || snapshotSeq === undefined) {
-      if (api?.getFullBuffer) {
-        try {
-          const res = await api.getFullBuffer(sessionId);
-          if (item.hydrationEpoch !== currentEpoch) return;
-          snapshot = res?.buffer || '';
-          snapshotSeq = res?.snapshotThroughSeq || 0;
-        } catch {}
-      }
-    }
+    const { snapshot, snapshotSeq } = await resolveHydrationSnapshot(sessionId, providedSnapshot, providedSeq);
 
     if (item.hydrationEpoch !== currentEpoch) return;
 
@@ -916,19 +923,7 @@ async function atomicHydrateSplitPane(splitSessionId, providedSnapshot, provided
   splitSessionState.activeHydratingEpoch = currentEpoch;
 
   try {
-    let snapshot = providedSnapshot;
-    let snapshotSeq = providedSeq;
-
-    if (snapshot === undefined || snapshotSeq === undefined || (!snapshot && (!snapshotSeq || snapshotSeq === 0))) {
-      if (api?.getFullBuffer) {
-        try {
-          const res = await api.getFullBuffer(splitSessionId);
-          if (splitSessionState.hydrationEpoch !== currentEpoch) return;
-          snapshot = res?.buffer || '';
-          snapshotSeq = res?.snapshotThroughSeq || 0;
-        } catch {}
-      }
-    }
+    const { snapshot, snapshotSeq } = await resolveHydrationSnapshot(splitSessionId, providedSnapshot, providedSeq);
 
     if (splitSessionState.hydrationEpoch !== currentEpoch) return;
 

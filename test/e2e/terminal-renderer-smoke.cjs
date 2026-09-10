@@ -53,6 +53,11 @@ const mockSessions = [
 
 let activeSessionId = 'session-1';
 
+// Session ids whose *broadcast* snapshot is artificially wire-budgeted (mirrors
+// GLOBAL_JSON_BUFFER_BUDGET_BYTES in the main process) while the mock backend keeps
+// the full transcript, so panes can only recover full history via getFullBuffer.
+const truncatedBroadcasts = new Map();
+
 // Generate 400 lines of log for Session 1 (guaranteed heavy scrollback)
 mockSessions[0].buffer = Array.from({ length: 400 }, (_, i) => `[LOG line ${i + 1}] Build artifact streaming output verification data row ${i + 1}...\r\n`).join('');
 mockSessions[0].snapshotThroughSeq = 400;
@@ -64,16 +69,22 @@ let win;
 
 app.whenReady().then(async () => {
   let monotonicSeq = 1000;
+  const wireBudgetedBuffer = (session) => {
+    const keep = truncatedBroadcasts.get(session.id);
+    const buffer = typeof session.buffer === 'string' ? session.buffer : '';
+    return typeof keep === 'number' && buffer.length > keep ? buffer.slice(-keep) : buffer;
+  };
   const broadcastSessionState = () => {
     if (win && !win.isDestroyed()) {
       const activeSession = mockSessions.find((s) => s.id === activeSessionId);
       win.webContents.send('antifan:terminal:session', {
         sessions: mockSessions.map((s) => ({
           ...s,
+          buffer: wireBudgetedBuffer(s),
           snapshotThroughSeq: s.snapshotThroughSeq || 0,
         })),
         activeSessionId,
-        snapshot: activeSession ? activeSession.buffer : '',
+        snapshot: activeSession ? wireBudgetedBuffer(activeSession) : '',
         snapshotThroughSeq: activeSession?.snapshotThroughSeq || 0,
       });
     }
@@ -91,6 +102,17 @@ app.whenReady().then(async () => {
   });
 
   ipcMain.handle('antifan:terminal:list-sessions', () => mockSessions);
+
+  // Authoritative main-process transcript. The session-state broadcast above is
+  // wire-budgeted; this channel is what panes must hydrate from.
+  ipcMain.handle('antifan:terminal:get-full-buffer', (_e, sessionId) => {
+    const s = mockSessions.find((x) => x.id === sessionId);
+    return {
+      sessionId,
+      buffer: s ? (s.buffer || '') : '',
+      snapshotThroughSeq: s ? (s.snapshotThroughSeq || 0) : 0,
+    };
+  });
 
   ipcMain.handle('antifan:terminal:switch-session', (_e, id) => {
     activeSessionId = id;
@@ -187,6 +209,15 @@ app.whenReady().then(async () => {
     return true;
   });
 
+  ipcMain.handle('antifan:test:add-truncated-session', (_e, { session, tailChars }) => {
+    const idx = mockSessions.findIndex((s) => s.id === session.id);
+    if (idx === -1) mockSessions.push(session);
+    else mockSessions[idx] = session;
+    truncatedBroadcasts.set(session.id, tailChars);
+    broadcastSessionState();
+    return true;
+  });
+
   ipcMain.handle('antifan:test:finish', (_e, { ok, error, stats }) => {
     if (!ok) {
       console.error('\x1b[31m✖ [SMOKE FAIL]\x1b[0m', error);
@@ -198,6 +229,7 @@ app.whenReady().then(async () => {
       console.log(`  - Inactive session snapshot race: historical buffer (50 lines) + live background chunk preserved exactly once`);
       console.log(`  - Authoritative empty buffer session: isHydrated === true, queue empty, marker count exactly 1`);
       console.log(`  - Data-before-initial-session race: early chunk queued unrendered -> hydrated cleanly without duplicate`);
+      console.log(`  - Wire-budgeted session snapshot: pane hydrated from the full transcript (head + tail retained)`);
       console.log(`  - Ctrl+K scrollback clear: baseY reset to 0 in live Chromium renderer`);
       if (stats.initialRatio !== undefined) {
         console.log(`  - Compact split initial ratio: ${stats.initialRatio.toFixed(3)} (~20% lower pane at 1000x700 window)`);
@@ -403,6 +435,51 @@ app.whenReady().then(async () => {
         if (headerCount !== 1) throw new Error(\`Session 4 headerCount expected 1, got \${headerCount}\`);
         if (earlyChunkCount !== 1) throw new Error(\`Session 4 earlyChunkCount expected 1, got \${earlyChunkCount}\`);
         console.log('[SMOKE-RUNNER] Step 5b PASS: Session 4 hydrated from authoritative state, 0 duplication');
+
+        // Step 5c: wire-budgeted broadcast snapshot must not truncate pane history.
+        // The session-state payload carries only a tail of each transcript; the pane
+        // must hydrate from the authoritative full buffer instead.
+        const s5HeadMarker = '[S5-HEAD] First line of a long agent transcript';
+        const s5TailMarker = '[S5-TAIL] Latest line of the same transcript';
+        const s5Lines = [s5HeadMarker];
+        for (let i = 1; i <= 400; i++) s5Lines.push('[S5-BODY ' + i + '] agent output row ' + i);
+        s5Lines.push(s5TailMarker);
+        await helper.addTruncatedSession(
+          {
+            id: 'session-5',
+            name: 'Terminal 5',
+            cwd: 'E:/Work/project',
+            active: false,
+            buffer: s5Lines.map((l) => l + '\\r\\n').join(''),
+            snapshotThroughSeq: 402,
+          },
+          600,
+        );
+        await sleep(200);
+
+        const s5Item = window.__antifanTerminalPool?.get('session-5');
+        if (!s5Item) throw new Error('Session 5 pane missing from pool');
+        for (let retry = 0; retry < 40 && s5Item.activeHydratingEpoch !== null; retry++) await sleep(50);
+        if (s5Item.activeHydratingEpoch !== null) throw new Error('Session 5 hydration did not settle');
+
+        let s5HeadCount = 0;
+        let s5TailCount = 0;
+        for (let retry = 0; retry < 30; retry++) {
+          s5HeadCount = 0;
+          s5TailCount = 0;
+          for (let i = 0; i < s5Item.term.buffer.active.length; i++) {
+            const lineText = s5Item.term.buffer.active.getLine(i)?.translateToString(true) || '';
+            if (lineText.includes(s5HeadMarker)) s5HeadCount++;
+            if (lineText.includes(s5TailMarker)) s5TailCount++;
+          }
+          if (s5HeadCount === 1 && s5TailCount === 1) break;
+          await sleep(50);
+        }
+        if (s5TailCount !== 1) throw new Error(\`Session 5 tail marker expected exactly 1, got \${s5TailCount}\`);
+        if (s5HeadCount !== 1) {
+          throw new Error('HYDRATION TRUNCATION: session 5 head marker missing (found ' + s5HeadCount + ') — pane hydrated from the wire-budgeted snapshot instead of the full transcript');
+        }
+        console.log('[SMOKE-RUNNER] Step 5c PASS: wire-budgeted snapshot did not truncate pane history (head + tail retained exactly once, lines=' + s5Item.term.buffer.active.length + ')');
 
         // Step 6: Background streaming to Session 1 + switch back
         const s1BackgroundChunk = '⚡ [S1-BACKGROUND-CHUNK] Live streaming data received by Session 1 while other session was active\\r\\n';
