@@ -1,0 +1,47 @@
+{
+  "timestamp": "2026-09-10T12:15:17.410Z",
+  "pass": 8,
+  "fail": 0,
+  "results": [
+    {
+      "name": "setup.tab-created",
+      "ok": true,
+      "detail": "tabId=3e9426d3-73fd-41fa-953a-178d561bee2e"
+    },
+    {
+      "name": "D2.setViewport-verified",
+      "ok": true,
+      "detail": "{\"success\":true,\"width\":1024,\"height\":768,\"mobile\":false,\"presetId\":\"custom-1024x768\",\"observedWidth\":1024,\"observedHeight\":768,\"verified\":true}"
+    },
+    {
+      "name": "D1.readRenderSurface",
+      "ok": true,
+      "detail": "{\"vw\":1024,\"vh\":768,\"dpr\":1,\"scrollX\":0,\"scrollY\":0,\"docH\":5520,\"readyState\":\"complete\",\"hidden\":true}"
+    },
+    {
+      "name": "D3.listTabs-session-scoped",
+      "ok": true,
+      "detail": "session=[{\"id\":\"3e9426d3-73fd-41fa-953a-178d561bee2e\",\"bound\":true}] all=1"
+    },
+    {
+      "name": "D5.referenceCapture",
+      "ok": true,
+      "detail": "url=http://127.0.0.1:53271/ passes=2 docHeight=5520 surface={\"vw\":1024,\"vh\":768,\"dpr\":1,\"scrollX\":0,\"scrollY\":0,\"docH\":5520,\"readyState\":\"complete\",\"hidden\":true} settle=true"
+    },
+    {
+      "name": "D6.eval-budget-honoured",
+      "ok": true,
+      "detail": "budgeted={\"value\":\"late\",\"elapsedMs\":16004} default=Evaluation timed out after 15000ms (note: requestAnimationFrame pauses in background tabs) defaultElapsedMs=15004"
+    },
+    {
+      "name": "D4.fullPage-capture-proven",
+      "ok": true,
+      "detail": "typed refusal on a compositor-less window: TARGET_BUSY_DRAINING :: Full-page capture on tab '3e9426d3-73fd-41fa-953a-178d561bee2e' did not settle inside its execution budget and was abandoned"
+    },
+    {
+      "name": "D4.geometry-restored",
+      "ok": true,
+      "detail": "no surface left behind after the typed refusal: target closed while handling command"
+    }
+  ]
+}
