@@ -20,27 +20,31 @@ import { PROVENANCE_CODES } from './evidence-provenance.mjs';
 export function validatePagesFilter(pages, targetIds) {
   if (!pages) return { ok: true, ids: null };
   const known = new Set(targetIds);
+  const minId = targetIds[0];
+  const maxId = targetIds[targetIds.length - 1];
+  const outside = (id) => `--pages '${pages}' names ${id}, outside ${minId}-${maxId}`;
   const ids = [];
   for (const rawPart of String(pages).split(',')) {
     const part = rawPart.trim();
     if (part === '') return { ok: false, reason: `--pages '${pages}' has an empty entry` };
-    const bounds = part.split('-');
-    if (bounds.length > 2) return { ok: false, reason: `--pages '${pages}' cannot read '${part}'` };
-    if (bounds.length === 2) {
-      const [start, end] = bounds.map(Number);
-      if (!Number.isInteger(start) || !Number.isInteger(end) || start > end) {
-        return { ok: false, reason: `--pages '${pages}' cannot read the range '${part}'` };
-      }
+    // Digits only: `Number('-1')` is a number and `Number('1e2')` is 100, so a
+    // numeric cast would accept shorthand that names a different page.
+    const range = /^(\d+)-(\d+)$/.exec(part);
+    if (range) {
+      const start = Number(range[1]);
+      const end = Number(range[2]);
+      if (start > end) return { ok: false, reason: `--pages '${pages}' cannot read the range '${part}'` };
+      // Bound before expanding: '1-999999999' must refuse, not allocate.
+      if (start < minId) return { ok: false, reason: outside(start) };
+      if (end > maxId) return { ok: false, reason: outside(end) };
       for (let id = start; id <= end; id += 1) ids.push(id);
       continue;
     }
-    const id = Number(part);
-    if (!Number.isInteger(id)) return { ok: false, reason: `--pages '${pages}' cannot read '${part}'` };
+    const single = /^(\d+)$/.exec(part);
+    if (!single) return { ok: false, reason: `--pages '${pages}' cannot read '${part}'` };
+    const id = Number(single[1]);
+    if (!known.has(id)) return { ok: false, reason: outside(id) };
     ids.push(id);
-  }
-  const unknown = ids.filter((id) => !known.has(id));
-  if (unknown.length > 0) {
-    return { ok: false, reason: `--pages '${pages}' names ${unknown.join(', ')}, outside ${targetIds[0]}-${targetIds[targetIds.length - 1]}` };
   }
   return { ok: true, ids };
 }

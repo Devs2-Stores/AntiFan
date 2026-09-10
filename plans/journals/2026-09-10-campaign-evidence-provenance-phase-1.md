@@ -38,21 +38,24 @@ Commit: `95e932f` (push `002fe0d..95e932f`).
 
 ## Blocked
 
-1. **Settle predicate (phase 2).** Every page aborts at the pre-dump settle, so nothing reaches the
-   build stage and no campaign case can carry a minted identity. `canary-settle.mjs:184` omits
-   `fontsSettled` while `:241` requires it.
-2. **Tab quota.** "Restarting the isolated instance and re-minting cleared the quota" is **false**:
+1. **Tab quota — currently the first gate.** The pool refuses tab adoption before a page ever
+   reaches settle: the latest run's report carries one
+   `POLICY_DENIED … session tab quota reached; the tab was closed instead of leaking outside the
+   session` per attempted page (pages 1 and 9, lines 113 and 196 of the root report), and
+   `failedPages: [1, 9]`. So a Phase 2 settle fix alone still cannot run a page; the refusal has to
+   be cleared first. "Restarting the isolated instance and re-minting cleared the quota" is **false**:
    after a restart with a new pid (8560 → 19836), a fresh mint and two successful tab creates, the
-   next create was refused `POLICY_DENIED … session tab quota reached` while the session listed none
-   of its own tabs. A 45-case campaign therefore cannot run on this instance until the pool is
-   cleared out of band — the instance's user-data directory is outside the repository, so that is an
-   owner action, not a run step.
-   The two censuses taken 18 minutes apart bound the shape of the defect: both list **the same ten
-   instance-plane tab ids**, and a run that created and closed its own tabs moved the count by zero
-   (start 10, end 10, 0 added, 0 removed — `campaign-aba894a3…` vs `campaign-ee7d3b5f…`). So the
-   refusal is not a live tab count; the set it counts is frozen, which is what the deferred root
-   cause has to explain. It is not a monotonic accumulation claim: the ids are stable, the count
-   never moves in either direction.
+   next create was refused while the session listed none of its own tabs. The instance's user-data
+   directory is outside the repository, so clearing it is an owner action, not a run step.
+   The two censuses taken 18 minutes apart bound the shape of the defect: they are **identical sets**
+   of ten instance-plane tab ids (full-set diff, `n=10` each, 0 ids unique to either), and a run that
+   created and closed its own tabs moved the count by zero (start 10, end 10, 0 added, 0 removed —
+   `campaign-aba894a3…` vs `campaign-ee7d3b5f…`). So the refusal is not a live tab count; the set it
+   counts is frozen, which is what the deferred root cause has to explain. It is not a monotonic
+   accumulation claim: the ids are stable, the count never moves in either direction.
+2. **Settle predicate (phase 2).** Earlier runs aborted at the pre-dump settle, so nothing reached the
+   build stage and no campaign case could carry a minted identity. `canary-settle.mjs:184` omits
+   `fontsSettled` while `:241` requires it.
 
 Two anti-patterns from earlier runs were confirmed the hard way: a probe's finally-block rewrote a
 passing evidence record with an empty one (fixed: never rewrite on zero cases), and a first probe run
@@ -83,10 +86,28 @@ were real:
   lock file; the previous behaviour for the same inputs took the lock and published a report.
 - That measurement also ran `--pages '1,9'` — a *valid* filter, so the campaign really ran pages 1
   and 9, took the lock and republished: run `campaign-ee7d3b5f-7f1a-4929-913f-efb38f036214`, 0/45
-  cases, `RUNNER_ERROR` (the settle defect), root report copy updated to it. Left as published rather
-  than reverted, since it is a truthful latest run; the run C report stays intact in its own retained
-  directory. Lesson recorded: a negative test must use inputs that cannot be valid, and the unit
-  fixture's three-page world hid that `9` is a real page here.
+  cases, `RUNNER_ERROR` (both pages refused at tab adoption), root report copy updated to it.
+  Left as published rather than reverted, since it is a truthful latest run; the run C report stays
+  intact in its own retained directory. Lesson recorded: a negative test must use an input that
+  cannot be valid, and the unit fixture's three-page world hid that `9` is a real page here.
+  What it actually wrote, checked rather than assumed: no `current-attempt.json` for any page (a
+  pointer is only written when a page's index publishes), one fresh attempt directory per attempted
+  page holding only `evidence/summary.json`, the aggregate `_verdicts.json`/`_hub.html`/`current-report.json`,
+  and all fifteen pages marked superseded with "evidence predates any attempt pointer" while
+  `pages: []` and `cases: []`. No verdict was published for a case that carried no provenance — the
+  invariant held; there was nothing to reconcile. Side observation, not fixed: refused pages leave
+  their attempt directories behind, so they accumulate across failed runs (nothing prunes them, and
+  the plan does not ask for it); they are inert because the report resolver follows the pointer and
+  otherwise falls back to the legacy bundle.
+- A numeric cast in the filter would read `'-1'` as the range 0–1 and `'1e2'` as page 100, and a
+  fat-fingered `'1-999999999'` would allocate a billion ids before rejecting them. Parts must now
+  match digits only, and a range is range-checked before it is expanded. Measured: all three exit 2
+  with `INVALID_PAGE_FILTER` and leave no lock file.
+- The refusal matrix could in principle mint into the operator's own instance: a record naming the
+  port's real owner with that owner's token satisfies every check and would proceed. Its
+  owner-mismatch case is built from *this* instance's identity, and the script now proves before
+  running that the operator's port has a different owner than the record it is about to write, and
+  that the recorded instance still is the process the record describes.
 - The launcher could write an instance record for a child that had already exited while its identity
   was being read. It now skips the write and says so. The race was not reproduced live (there is no
   seam to make Electron exit on demand); the guard is read-verified.

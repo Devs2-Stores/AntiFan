@@ -240,6 +240,11 @@ test('a page filter that names anything unreadable or unknown is refused, not pa
   assert.match(validatePagesFilter('1-2-3', ids).reason, /cannot read '1-2-3'/);
   assert.match(validatePagesFilter('9', ids).reason, /outside 1-3/);
   assert.match(validatePagesFilter('1,9', ids).reason, /outside 1-3/, 'one unknown id refuses the whole filter');
+  // A numeric cast would read '-1' as a range and '1e2' as page 100.
+  assert.match(validatePagesFilter('-1', ids).reason, /cannot read '-1'/);
+  assert.match(validatePagesFilter('1e2', ids).reason, /cannot read '1e2'/);
+  assert.match(validatePagesFilter('1.0', ids).reason, /cannot read '1.0'/);
+  assert.match(validatePagesFilter('1-999999999', ids).reason, /outside 1-3/, 'a huge range refuses without expanding');
 
   assert.equal(validatePagesFilter('1,2-3', ids).ok, true);
 });
