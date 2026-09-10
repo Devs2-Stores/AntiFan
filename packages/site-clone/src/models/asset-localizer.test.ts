@@ -584,6 +584,34 @@ describe('AssetLocalizer - A1, A2, A3 Unified Pipeline & Invariants', () => {
       assert.strictEqual(res.content.includes(`srcset='{{ '`), false, 'Must never produce srcset=\'{{ \'');
       assert.strictEqual(res.content.includes(`style='background-image: url('{{ '`), false, 'Must never produce nested single quotes in style');
     });
+
+    it('3.5. rewriteFiles rewrites the upstream form of a repaired reference instead of leaving it dangling', () => {
+      const localizer = new AssetLocalizer();
+      const manifest: HarvestedAssetManifest = {
+        stylesheets: [],
+        javascripts: [],
+        fonts: [],
+        images: [
+          {
+            type: 'image',
+            sourceUrl: 'https://hoplong.com/wp-content/uploads/2023/12/map_back.png',
+            rawSourceUrl: 'https:/wp-content/uploads/2023/12/map_back.png',
+            filename: 'map_back.png',
+            localPath: '/nonexistent/map_back.png'
+          }
+        ],
+        totalBytes: 0
+      };
+
+      const res = localizer.rewriteFiles(
+        [{ path: 'index.html', content: '<style>.box{background-image:url(https:/wp-content/uploads/2023/12/map_back.png)}</style>' }],
+        manifest,
+        { mode: 'relative' }
+      );
+
+      assert.ok(res.files[0].rewrittenContent.includes('assets/map_back.png'), 'the repaired reference must resolve to the local asset');
+      assert.strictEqual(res.files[0].rewrittenContent.includes('https:/wp-content'), false, 'the upstream typo must not survive');
+    });
     it('4.1. localizes raw relative references inside stylesheets and rewrites on-disk CSS', async () => {
       const localizer = new AssetLocalizer();
       const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-css-chain-'));
@@ -723,6 +751,56 @@ describe('AssetLocalizer - A1, A2, A3 Unified Pipeline & Invariants', () => {
         fs.rmSync(tempDir, { recursive: true, force: true });
       }
     });
+    it('4.3. does not localize paint-server fragments inside embedded SVG data URIs and preserves them verbatim', async () => {
+      const localizer = new AssetLocalizer();
+      const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-svg-fragment-'));
+
+      try {
+        // Real storefront shape: a CSS rule whose background is an embedded SVG data URI
+        // whose <rect> references a paint server through a percent-encoded fragment.
+        const dataUri = `data:image/svg+xml;utf8,<svg width="73" height="86" viewBox="0 0 73 86" fill="none" xmlns="http://www.w3.org/2000/svg"><rect x="0.938843" y="0.542236" width="72.0612" height="85" fill="url(%23paint0_linear_1543_2487)"/><defs><linearGradient id="paint0_linear_1543_2487"><stop stop-color="#00B4E1"/></linearGradient></defs></svg>`;
+        const mainCss = [
+          `.menu-header .menu-list:after{content:"";display:block;width:73px;height:65px;background-image:url('${dataUri}')}`,
+          `.hero { background: url('../images/banner.png'); }`
+        ].join('\n');
+        fs.writeFileSync(path.join(tempDir, 'home.css'), mainCss, 'utf8');
+
+        const manifest: HarvestedAssetManifest = {
+          stylesheets: [
+            {
+              type: 'css',
+              sourceUrl: 'https://hoplongtech.com/build/assets/home.css',
+              filename: 'home.css',
+              localPath: path.join(tempDir, 'home.css')
+            }
+          ],
+          javascripts: [],
+          images: [],
+          fonts: [],
+          totalBytes: 0
+        };
+
+        await localizer.localizeDownloadedStylesheets(manifest, {
+          assetsDir: tempDir,
+          skipDownload: true
+        });
+
+        const fragmentAssets = [...manifest.images, ...manifest.fonts, ...manifest.stylesheets].filter(
+          (item) => item.sourceUrl.includes('paint0_linear') || item.sourceUrl.includes('%23')
+        );
+        assert.deepStrictEqual(fragmentAssets, [], 'Paint-server fragments must never be harvested as downloadable assets');
+
+        // The legitimate relative dependency must still be discovered (no over-skip regression).
+        const bannerItem = manifest.images.find((img) => img.sourceUrl.includes('banner.png'));
+        assert.ok(bannerItem, 'Relative banner.png must still be discovered');
+
+        // The embedded data URI must survive the rewrite byte-for-byte.
+        const rewritten = fs.readFileSync(path.join(tempDir, 'home.css'), 'utf8');
+        assert.ok(rewritten.includes(dataUri), 'Embedded SVG data URI must be preserved verbatim');
+      } finally {
+        fs.rmSync(tempDir, { recursive: true, force: true });
+      }
+    });
   });
 
   // --- 5. Phase A3: Direct Token Audit Ledger & Fail-Closed Gates ---
@@ -782,6 +860,90 @@ describe('AssetLocalizer - A1, A2, A3 Unified Pipeline & Invariants', () => {
         assert.strictEqual(audit.findings.length, 1);
         assert.strictEqual(audit.findings[0].code, 'ZERO_BYTE_ASSET');
         assert.strictEqual(audit.findings[0].severity, 'error');
+      } finally {
+        fs.rmSync(tempDir, { recursive: true, force: true });
+      }
+    });
+
+    it('5.8. verifyAndAudit accepts a zero-byte asset only when the download result proves an empty upstream body', () => {
+      const localizer = new AssetLocalizer();
+      const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-a3-empty-upstream-'));
+      const emptyCss = path.join(tempDir, '3e35695.css');
+
+      try {
+        fs.writeFileSync(emptyCss, Buffer.alloc(0));
+
+        const manifest: HarvestedAssetManifest = {
+          stylesheets: [
+            {
+              type: 'css',
+              sourceUrl: 'https://hoplong.com/wp-content/litespeed/css/3e35695.css?ver=585c6',
+              filename: '3e35695.css',
+              localPath: emptyCss
+            }
+          ],
+          javascripts: [],
+          images: [],
+          fonts: [],
+          totalBytes: 0
+        };
+
+        const audit = localizer.verifyAndAudit(manifest, {
+          assetsDir: tempDir,
+          rewrittenFiles: [],
+          downloadResults: [
+            {
+              sourceUrl: 'https://hoplong.com/wp-content/litespeed/css/3e35695.css?ver=585c6',
+              filename: '3e35695.css',
+              localPath: emptyCss,
+              status: 'downloaded',
+              byteCount: 0
+            }
+          ]
+        });
+
+        assert.strictEqual(audit.passed, true, 'An empty upstream body is reproduced faithfully, not an integrity failure');
+        assert.strictEqual(audit.findings.length, 0);
+        assert.strictEqual(audit.verifiedAssets[0].status, 'zero_byte');
+      } finally {
+        fs.rmSync(tempDir, { recursive: true, force: true });
+      }
+    });
+
+    it('5.9. verifyAndAudit still fails a zero-byte asset whose own download did not produce the empty body', () => {
+      const localizer = new AssetLocalizer();
+      const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-a3-empty-collision-'));
+
+      try {
+        fs.writeFileSync(path.join(tempDir, 'shared.css'), Buffer.alloc(0));
+
+        const manifest: HarvestedAssetManifest = {
+          stylesheets: [
+            { type: 'css', sourceUrl: 'https://example.com/broken/shared.css', filename: 'shared.css', localPath: path.join(tempDir, 'shared.css') }
+          ],
+          javascripts: [],
+          images: [],
+          fonts: [],
+          totalBytes: 0
+        };
+
+        const audit = localizer.verifyAndAudit(manifest, {
+          assetsDir: tempDir,
+          rewrittenFiles: [],
+          // A different source URL downloaded an empty body under the same filename.
+          downloadResults: [
+            {
+              sourceUrl: 'https://example.com/other/shared.css',
+              filename: 'shared.css',
+              localPath: path.join(tempDir, 'shared.css'),
+              status: 'downloaded',
+              byteCount: 0
+            }
+          ]
+        });
+
+        assert.strictEqual(audit.passed, false, 'A filename collision must not excuse a zero-byte asset');
+        assert.deepStrictEqual(audit.findings.map(f => f.code), ['ZERO_BYTE_ASSET']);
       } finally {
         fs.rmSync(tempDir, { recursive: true, force: true });
       }

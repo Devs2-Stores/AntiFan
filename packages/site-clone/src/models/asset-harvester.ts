@@ -6,6 +6,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { createHash } from 'node:crypto';
+import { isInternalFragmentRef } from './asset-localizer.js';
 function parseTagAttributes(tagHtml: string): Map<string, string> {
   const attrs = new Map<string, string>();
   const tagOpenMatch = tagHtml.match(/^<([a-zA-Z0-9_-]+)/);
@@ -24,6 +25,31 @@ function hashUrl(str: string): string {
   return createHash('sha256').update(str).digest('hex').slice(0, 8);
 }
 
+/**
+ * Repairs a scheme-relative typo that appears in upstream markup as an absolute
+ * URL with a single slash (`https:/wp-content/uploads/x.png`).
+ *
+ * Under URL parsing that reference denotes host `wp-content`, which cannot
+ * resolve, so the asset is never fetched and the rewrite leaves a dangling local
+ * reference behind. The intended reference is same-origin: the first segment is a
+ * path segment, not a host. Only a first segment that cannot be a hostname (no
+ * dot, not localhost) is repaired, so a genuine one-slash absolute URL keeps its
+ * meaning.
+ */
+export function normalizeMalformedAbsoluteRef(rawUrl: string, baseUrl?: string): string {
+  const raw = (rawUrl || '').trim();
+  const m = /^(https?):\/(?!\/)(.+)$/i.exec(raw);
+  if (!m || !baseUrl) return raw;
+  const firstSegment = m[2].split(/[/?#]/)[0];
+  if (!firstSegment || firstSegment.includes('.') || firstSegment.toLowerCase() === 'localhost') return raw;
+  try {
+    const base = new URL(baseUrl);
+    return `${base.protocol}//${base.host}/${m[2].replace(/^\/+/, '')}`;
+  } catch {
+    return raw;
+  }
+}
+
 export interface AssetProvenanceOccurrence {
   filePath?: string;
   tag: string;
@@ -33,6 +59,12 @@ export interface AssetProvenanceOccurrence {
 export interface HarvestedAssetItem {
   type: 'css' | 'js' | 'image' | 'font';
   sourceUrl: string;
+  /**
+   * The reference exactly as it appeared upstream when it differs from
+   * `sourceUrl`. The rewriter registers it as an alias so the repaired URL is
+   * written back over the original text instead of leaving the typo in place.
+   */
+  rawSourceUrl?: string;
   filename: string;
   localPath: string;
   byteCount?: number;
@@ -47,15 +79,17 @@ export interface HarvestedAssetManifest {
   totalBytes: number;
 }
 export class AssetHarvester {
-  public harvestFromHtml(html: string, assetsDir: string): HarvestedAssetManifest {
-    return this.harvestFromFiles([{ path: 'inline.html', content: html }], assetsDir);
+  public harvestFromHtml(html: string, assetsDir: string, context?: { baseUrl?: string }): HarvestedAssetManifest {
+    return this.harvestFromFiles([{ path: 'inline.html', content: html }], assetsDir, context);
   }
 
   public harvestFromFiles(
     files: Array<{ path: string; content: string }>,
-    assetsDir: string
+    assetsDir: string,
+    context?: { baseUrl?: string }
   ): HarvestedAssetManifest {
     fs.mkdirSync(assetsDir, { recursive: true });
+    const normalizeRef = (raw: string): string => normalizeMalformedAbsoluteRef(raw, context?.baseUrl);
 
     const manifest: HarvestedAssetManifest = {
       stylesheets: [],
@@ -92,82 +126,98 @@ export class AssetHarvester {
     };
 
     const addStylesheet = (rawUrl: string, provenance?: AssetProvenanceOccurrence) => {
-      const trimmed = (rawUrl || '').trim();
-      if (!trimmed || trimmed.startsWith('data:') || trimmed.startsWith('#')) return;
+      const raw = (rawUrl || '').trim();
+      if (!raw || raw.startsWith('data:') || raw.startsWith('#')) return;
+      const trimmed = normalizeRef(raw);
       const existing = manifest.stylesheets.find(item => item.sourceUrl === trimmed);
       if (existing) {
+        if (trimmed !== raw && !existing.rawSourceUrl) existing.rawSourceUrl = raw;
         if (provenance && existing.occurrences) existing.occurrences.push(provenance);
         return;
       }
       const cleanUrl = trimmed.split('?')[0].split('#')[0];
       const filename = allocateFilename(cleanUrl, trimmed, `style_${cssIdx}`, '.css');
-      manifest.stylesheets.push({
+      const item: HarvestedAssetItem = {
         type: 'css',
         sourceUrl: trimmed,
         filename,
         localPath: path.join(assetsDir, filename),
         occurrences: provenance ? [provenance] : []
-      });
+      };
+      if (trimmed !== raw) item.rawSourceUrl = raw;
+      manifest.stylesheets.push(item);
       cssIdx++;
     };
 
     const addScript = (rawUrl: string, provenance?: AssetProvenanceOccurrence) => {
-      const trimmed = (rawUrl || '').trim();
-      if (!trimmed || trimmed.startsWith('data:') || trimmed.startsWith('#')) return;
+      const raw = (rawUrl || '').trim();
+      if (!raw || raw.startsWith('data:') || raw.startsWith('#')) return;
+      const trimmed = normalizeRef(raw);
       const existing = manifest.javascripts.find(item => item.sourceUrl === trimmed);
       if (existing) {
+        if (trimmed !== raw && !existing.rawSourceUrl) existing.rawSourceUrl = raw;
         if (provenance && existing.occurrences) existing.occurrences.push(provenance);
         return;
       }
       const cleanUrl = trimmed.split('?')[0].split('#')[0];
       const filename = allocateFilename(cleanUrl, trimmed, `script_${jsIdx}`, '.js');
-      manifest.javascripts.push({
+      const item: HarvestedAssetItem = {
         type: 'js',
         sourceUrl: trimmed,
         filename,
         localPath: path.join(assetsDir, filename),
         occurrences: provenance ? [provenance] : []
-      });
+      };
+      if (trimmed !== raw) item.rawSourceUrl = raw;
+      manifest.javascripts.push(item);
       jsIdx++;
     };
 
     const addImage = (rawUrl: string, provenance?: AssetProvenanceOccurrence) => {
-      const trimmed = (rawUrl || '').trim();
-      if (!trimmed || trimmed.startsWith('data:') || trimmed.startsWith('#')) return;
+      const raw = (rawUrl || '').trim();
+      if (!raw || raw.startsWith('data:') || raw.startsWith('#')) return;
+      const trimmed = normalizeRef(raw);
       const existing = manifest.images.find(item => item.sourceUrl === trimmed);
       if (existing) {
+        if (trimmed !== raw && !existing.rawSourceUrl) existing.rawSourceUrl = raw;
         if (provenance && existing.occurrences) existing.occurrences.push(provenance);
         return;
       }
       const cleanUrl = trimmed.split('?')[0].split('#')[0];
       const filename = allocateFilename(cleanUrl, trimmed, `image_${imgIdx}`, '.png');
-      manifest.images.push({
+      const item: HarvestedAssetItem = {
         type: 'image',
         sourceUrl: trimmed,
         filename,
         localPath: path.join(assetsDir, filename),
         occurrences: provenance ? [provenance] : []
-      });
+      };
+      if (trimmed !== raw) item.rawSourceUrl = raw;
+      manifest.images.push(item);
       imgIdx++;
     };
 
     const addFont = (rawUrl: string, provenance?: AssetProvenanceOccurrence) => {
-      const trimmed = (rawUrl || '').trim();
-      if (!trimmed || trimmed.startsWith('data:') || trimmed.startsWith('#')) return;
+      const raw = (rawUrl || '').trim();
+      if (!raw || raw.startsWith('data:') || raw.startsWith('#')) return;
+      const trimmed = normalizeRef(raw);
       const existing = manifest.fonts.find(item => item.sourceUrl === trimmed);
       if (existing) {
+        if (trimmed !== raw && !existing.rawSourceUrl) existing.rawSourceUrl = raw;
         if (provenance && existing.occurrences) existing.occurrences.push(provenance);
         return;
       }
       const cleanUrl = trimmed.split('?')[0].split('#')[0];
       const filename = allocateFilename(cleanUrl, trimmed, `font_${manifest.fonts.length + 1}`, '.woff2');
-      manifest.fonts.push({
+      const item: HarvestedAssetItem = {
         type: 'font',
         sourceUrl: trimmed,
         filename,
         localPath: path.join(assetsDir, filename),
         occurrences: provenance ? [provenance] : []
-      });
+      };
+      if (trimmed !== raw) item.rawSourceUrl = raw;
+      manifest.fonts.push(item);
     };
 
     const parseSrcset = (srcsetValue: string, provenance?: AssetProvenanceOccurrence) => {
@@ -267,14 +317,18 @@ export class AssetHarvester {
         }
       }
 
-      // 6. CSS url(...) declarations (skip matches whose start index falls inside an @import range)
-      const bgUrlRegex = /url\(\s*['"]?([^'")]+)['"]?\s*\)/gi;
+      // 6. CSS url(...) declarations (skip matches whose start index falls inside an @import range).
+      // The quoted alternative uses a lazy any-character body so an embedded SVG data URI
+      // (which itself contains `url(...)` and `"`) is captured whole and skipped, instead of
+      // exposing an inner paint-server fragment token as a downloadable asset.
+      const bgUrlRegex = /url\(\s*(?:(['"])([\s\S]*?)\1|([^)'"]*?))\s*\)/gi;
       while ((match = bgUrlRegex.exec(content)) !== null) {
         const matchIdx = match.index;
         const isInsideImport = importSpans.some(span => matchIdx >= span.start && matchIdx < span.end);
         if (isInsideImport) continue;
 
-        const urlCandidate = match[1].trim();
+        const urlCandidate = (match[2] || match[3] || '').trim();
+        if (!urlCandidate || urlCandidate.startsWith('data:') || isInternalFragmentRef(urlCandidate)) continue;
         if (/\.(?:png|jpe?g|webp|gif|svg|avif)(?:[?#]|$)/i.test(urlCandidate)) {
           addImage(urlCandidate, { filePath, tag: 'css', attribute: 'url()' });
         } else if (/\.(?:woff2?|ttf|eot|otf)(?:[?#]|$)/i.test(urlCandidate)) {

@@ -25,7 +25,7 @@ export class CloneIRBuilder {
     const blueprints = this.extractor.extractSections(html);
     const dataBundle = this.dataModeler.extractStorefrontData(html);
     const targetAssetsDir = assetsDir ?? path.join(os.tmpdir(), 'antifan-assets');
-    const harvestedAssets = this.assetHarvester.harvestFromHtml(html, targetAssetsDir);
+    const harvestedAssets = this.assetHarvester.harvestFromHtml(html, targetAssetsDir, { baseUrl: sourceUrl });
 
     const sections: ComponentSectionContract[] = blueprints.map(bp => this.mapBlueprintToSection(bp));
     const controllers: StorefrontControllerContract[] = this.inferControllers(sections);

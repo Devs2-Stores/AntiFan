@@ -26,6 +26,21 @@ export interface IndependentHtmlCloneResult {
   articleCount: number;
 }
 
+/**
+ * Removes markup from a captured section that must not survive into a
+ * self-contained bundle:
+ *  - live video/embed references bound to remote hosts (Alpine/Vue loaded lazily),
+ *  - <noscript> fallbacks, which a scripting-enabled document never renders but
+ *    which point at live third-party services (measured: the reCAPTCHA no-JS
+ *    iframe) that cannot be localized.
+ */
+export function sanitizeSectionMarkup(html: string): string {
+  return html
+    .replace(/(?::|x-bind:|v-bind:)?(src|data-src)\s*=\s*(?:"[^"]*(?:youtube\.com|vimeo\.com)[^"]*"|'[^']*(?:youtube\.com|vimeo\.com)[^']*')/gi, '$1=""')
+    .replace(/(?::|x-bind:|v-bind:)(src|data-src)\s*=\s*(?:"[^"]*(?:https?:)?\/\/[^"]*"|'[^']*(?:https?:)?\/\/[^']*')/gi, '')
+    .replace(/<noscript\b[^>]*>[\s\S]*?<\/noscript>/gi, '');
+}
+
 export class IndependentHtmlCloneGenerator {
   public async generateCloneBundle(
     ir: ComponentContractIR,
@@ -65,9 +80,9 @@ export class IndependentHtmlCloneGenerator {
           } else if (isArticle) {
             remainingArticles = Math.max(0, remainingArticles - pruneRes.retainedCount);
           }
-          // Sanitize Alpine-bound and standard load-capable video/embed attributes containing remote URLs
-          contentHtml = contentHtml.replace(/(?::|x-bind:|v-bind:)?(src|data-src)\s*=\s*(?:"[^"]*(?:youtube\.com|vimeo\.com)[^"]*"|'[^']*(?:youtube\.com|vimeo\.com)[^']*')/gi, '$1=""');
-          contentHtml = contentHtml.replace(/(?::|x-bind:|v-bind:)(src|data-src)\s*=\s*(?:"[^"]*(?:https?:)?\/\/[^"]*"|'[^']*(?:https?:)?\/\/[^']*')/gi, '');
+          // Sanitize Alpine-bound and standard load-capable video/embed attributes containing remote URLs,
+          // and drop inert <noscript> fallbacks that point at live third-party services.
+          contentHtml = sanitizeSectionMarkup(contentHtml);
         } else if (sec.liquidTemplate) {
           const stripped = sec.liquidTemplate
             .replace(/{%[\s\S]*?%}/g, '')
@@ -103,7 +118,7 @@ export class IndependentHtmlCloneGenerator {
   <style>
     *, *::before, *::after { box-sizing: border-box; }
     body { margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; }
-    img { max-width: 100%; height: auto; display: block; }
+    img { max-width: 100%; }
   </style>
 ${stylesheetTags ? stylesheetTags + '\n' : ''}</head>
 <body>

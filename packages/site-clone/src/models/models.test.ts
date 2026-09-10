@@ -34,6 +34,41 @@ describe('Cognitive Models - Asset, Responsive & E-commerce Data', () => {
     }
   });
 
+  it('1a-2. AssetHarvester repairs a same-origin typo whose first segment cannot be a hostname', () => {
+    const harvester = new AssetHarvester();
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-assets-typo-test-'));
+
+    const html = `
+      <style>.box{background-image:url(https:/wp-content/uploads/2023/12/map_back.png)}</style>
+      <style>.btn{background-image:url(https://hoplong.com/wp-content/uploads/2023/12/map_back.png)}</style>
+    `;
+
+    try {
+      const manifest = harvester.harvestFromHtml(html, tempDir, { baseUrl: 'https://hoplong.com/gioi-thieu-ve-hop-long/' });
+
+      assert.strictEqual(manifest.images.length, 1, 'The repaired reference and the valid twin are the same asset');
+      assert.strictEqual(manifest.images[0].sourceUrl, 'https://hoplong.com/wp-content/uploads/2023/12/map_back.png');
+      assert.strictEqual(manifest.images[0].rawSourceUrl, 'https:/wp-content/uploads/2023/12/map_back.png', 'The upstream form is kept as a rewrite alias');
+    } finally {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it('1a-3. AssetHarvester leaves a one-slash URL alone when its first segment is a real hostname', () => {
+    const harvester = new AssetHarvester();
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-assets-realhost-test-'));
+
+    try {
+      const manifest = harvester.harvestFromHtml('<img src="https:/cdn.example.com/a.png">', tempDir, { baseUrl: 'https://hoplong.com/' });
+
+      assert.strictEqual(manifest.images.length, 1);
+      assert.strictEqual(manifest.images[0].sourceUrl, 'https:/cdn.example.com/a.png', 'A dotted host keeps its own meaning');
+      assert.strictEqual(manifest.images[0].rawSourceUrl, undefined);
+    } finally {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
   it('1b. AssetHarvester extracts srcset, picture sources, and background-images with deduplication', () => {
     const harvester = new AssetHarvester();
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-assets-srcset-test-'));

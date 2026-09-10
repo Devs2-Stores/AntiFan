@@ -105,6 +105,16 @@ export interface AssetLocalizationPipelineResult {
 }
 
 /**
+ * A reference that targets a document-internal fragment rather than a network
+ * subresource (SVG paint servers, anchors). Paint-server targets inside embedded
+ * SVG data URIs arrive percent-encoded as `url(%23paint0_linear_1)`, so a bare
+ * `#` prefix check is not sufficient — such tokens must never be localized.
+ */
+export function isInternalFragmentRef(ref: string): boolean {
+  return ref.startsWith('#') || ref.startsWith('%23');
+}
+
+/**
  * Validates whether a target file path strictly resides within the parent directory.
  */
 export function isPathContained(targetPath: string, parentDir: string): boolean {
@@ -522,7 +532,7 @@ export function rewriteCssUrls(
   const importRegex = /@import\s+(?:url\(\s*(?:(['"])([^'"]+)\1|([^)'"]+))\s*\)|(['"])([^'"]+)\4)([\s\S]*?;)/gi;
   content = content.replace(importRegex, (match, q1, url1, u1, q2, url2, suffix) => {
     const rawUrl = (url1 || u1 || url2 || '').trim();
-    if (!rawUrl || rawUrl.startsWith('data:') || rawUrl.startsWith('#')) return match;
+    if (!rawUrl || rawUrl.startsWith('data:') || isInternalFragmentRef(rawUrl)) return match;
     const replacement = urlMap.get(rawUrl);
     if (replacement) {
       replacementCount++;
@@ -539,7 +549,7 @@ export function rewriteCssUrls(
   const urlRegex = /url\(\s*(?:(['"])([^'"]+)\1|([^)'"]+))\s*\)/gi;
   content = content.replace(urlRegex, (match, _q, quotedUrl, unquotedUrl) => {
     const rawUrl = (quotedUrl || unquotedUrl || '').trim();
-    if (!rawUrl || rawUrl.startsWith('data:') || rawUrl.startsWith('#')) return match;
+    if (!rawUrl || rawUrl.startsWith('data:') || isInternalFragmentRef(rawUrl)) return match;
     const replacement = urlMap.get(rawUrl);
     if (replacement) {
       replacementCount++;
@@ -574,7 +584,7 @@ export function rewriteHtmlContent(
     newAttrs = newAttrs.replace(singleAttrRegex, (attrMatch: string, prefix: string, attrName: string, doubleVal: string | undefined, singleVal: string | undefined) => {
       const val = (doubleVal !== undefined ? doubleVal : singleVal) ?? '';
       const trimmed = val.trim();
-      if (!trimmed || trimmed.startsWith('data:') || trimmed.startsWith('#')) return attrMatch;
+      if (!trimmed || trimmed.startsWith('data:') || isInternalFragmentRef(trimmed)) return attrMatch;
 
       const replacement = urlMap.get(trimmed);
       if (replacement) {
@@ -809,6 +819,12 @@ export class AssetLocalizer {
         : `assets/${item.filename}`;
 
       urlMap.set(item.sourceUrl, replacement);
+      // A reference that the harvester repaired from an upstream typo must still
+      // match the text that is actually in the document, otherwise the repaired
+      // URL is downloaded but the typo keeps pointing at a missing local file.
+      if (item.rawSourceUrl && item.rawSourceUrl !== item.sourceUrl) {
+        urlMap.set(item.rawSourceUrl, replacement);
+      }
 
       if (item.sourceUrl.startsWith('https://')) {
         urlMap.set(item.sourceUrl.slice(6), replacement); // '//example.com/...'
@@ -955,7 +971,7 @@ export class AssetLocalizer {
       while ((match = importRegex.exec(cssContent)) !== null) {
         importSpans.push({ start: match.index, end: match.index + match[0].length });
         const importRef = match[1].trim();
-        if (!importRef || importRef.startsWith('data:') || importRef.startsWith('#')) continue;
+        if (!importRef || importRef.startsWith('data:') || isInternalFragmentRef(importRef)) continue;
 
         let resolvedUrl: string;
         try {
@@ -1015,14 +1031,17 @@ export class AssetLocalizer {
         }
       }
 
-      // 2. Scan for url(...) declarations (images or fonts, excluding import spans)
-      const urlRegex = /url\(\s*(['"]?)([^'")]+)\1\s*\)/gi;
+      // 2. Scan for url(...) declarations (images or fonts, excluding import spans).
+      // The quoted alternative uses a lazy any-character body so an embedded SVG
+      // data URI (which itself contains `url(...)` and `"`) is captured whole and
+      // skipped as `data:`, instead of exposing its inner paint-server token.
+      const urlRegex = /url\(\s*(?:(['"])([\s\S]*?)\1|([^)'"]*?))\s*\)/gi;
       while ((match = urlRegex.exec(cssContent)) !== null) {
         const matchIdx = match.index;
         const isInsideImport = importSpans.some(span => matchIdx >= span.start && matchIdx < span.end);
         if (isInsideImport) continue;
-        const urlRef = match[2].trim();
-        if (!urlRef || urlRef.startsWith('data:') || urlRef.startsWith('#')) continue;
+        const urlRef = (match[2] || match[3] || '').trim();
+        if (!urlRef || urlRef.startsWith('data:') || isInternalFragmentRef(urlRef)) continue;
 
         let resolvedUrl: string;
         try {
@@ -1203,6 +1222,18 @@ export class AssetLocalizer {
     ];
 
     const knownFilenames = new Set<string>(allItems.map(i => i.filename));
+    // An upstream asset that answers with an empty body (HTTP 200, zero bytes) is
+    // reproduced faithfully as an empty local file. Only the download result can
+    // prove that: without it, a zero-byte file stays an integrity failure. The key
+    // carries the source URL as well as the filename, so a download that produced
+    // an empty file under a colliding name cannot excuse a different asset that
+    // failed or was never written.
+    const emptyUpstreamKey = (sourceUrl: string, filename: string) => `${sourceUrl}\0${filename}`;
+    const verifiedEmptyUpstream = new Set<string>(
+      (options.downloadResults ?? [])
+        .filter(dl => dl.status === 'downloaded' && dl.byteCount === 0)
+        .map(dl => emptyUpstreamKey(dl.sourceUrl, dl.filename))
+    );
 
     // 1. Audit local disk assets
     for (const item of allItems) {
@@ -1227,6 +1258,16 @@ export class AssetLocalizer {
 
       const stat = fs.statSync(localPath);
       if (stat.size === 0) {
+        if (verifiedEmptyUpstream.has(emptyUpstreamKey(item.sourceUrl, item.filename))) {
+          verifiedAssets.push({
+            filename: item.filename,
+            localPath,
+            exists: true,
+            byteCount: 0,
+            status: 'zero_byte'
+          });
+          continue;
+        }
         findings.push({
           severity: 'error',
           code: 'ZERO_BYTE_ASSET',
@@ -1371,7 +1412,7 @@ export class AssetLocalizer {
         while ((m = cssImportRegex.exec(content)) !== null) {
           importSpans.push({ start: m.index, end: m.index + m[0].length });
           const rawToken = (m[2] || m[3] || m[5] || '').trim();
-          if (!rawToken || rawToken.startsWith('data:') || rawToken.startsWith('#')) continue;
+          if (!rawToken || rawToken.startsWith('data:') || isInternalFragmentRef(rawToken)) continue;
 
           const token = rawToken.replace(/^['"]|['"]$/g, '').trim();
           const isLiquidToken = token.startsWith('{{') && token.endsWith('}}');
@@ -1395,7 +1436,7 @@ export class AssetLocalizer {
             continue;
           }
           const rawToken = (m[2] || m[3] || '').trim();
-          if (!rawToken || rawToken.startsWith('data:') || rawToken.startsWith('#')) continue;
+          if (!rawToken || rawToken.startsWith('data:') || isInternalFragmentRef(rawToken)) continue;
 
           const token = rawToken.replace(/^['"]|['"]$/g, '').trim();
           const isLiquidToken = token.startsWith('{{') && token.endsWith('}}');

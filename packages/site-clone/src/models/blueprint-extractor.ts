@@ -186,7 +186,29 @@ export class BlueprintExtractor {
   private classifyTopLevelRole(node: ParsedElementNode, className: string): 'header' | 'footer' | null {
     if (node.tag === 'header' || /(^|\s)(?:site-)?header($|\s)/i.test(className)) return 'header';
     if (node.tag === 'footer' || /(^|\s)(?:site-)?(?:header|footer)($|\s)/i.test(className)) return 'footer';
-    return null;
+    return this.classifyWrapperRole(node);
+  }
+
+  /**
+   * Page chrome is not always the top-level element itself. The storefront renders
+   * the site footer inside a top-level `<div wire:id=...>` that holds nothing else
+   * structural, so a tag/class test alone classifies that wrapper as content and
+   * the generator then emits it inside `<main>`. Measured on the live reference at
+   * 390px: the clone's `<main>` box came out 4291px against the reference's 3520px,
+   * exactly the footer height plus the gap above it, while every section inside
+   * matched to the pixel.
+   */
+  private classifyWrapperRole(node: ParsedElementNode): 'header' | 'footer' | null {
+    if (node.tag !== 'div') return null;
+    if (DomTreeParser.findByTag(node, 'section').length > 0) return null;
+    let headerRole: 'header' | null = null;
+    for (const child of node.children) {
+      if (typeof child === 'string') continue;
+      const role = this.classifyTopLevelRole(child, child.attributes['class'] || '');
+      if (role === 'footer') return 'footer';
+      if (role === 'header') headerRole = 'header';
+    }
+    return headerRole;
   }
 
   /**

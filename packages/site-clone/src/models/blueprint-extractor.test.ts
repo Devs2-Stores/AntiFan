@@ -183,4 +183,24 @@ describe('BlueprintExtractor - AST DOM Parsing & Safety Invariants', () => {
     assert.ok(sections[4].rawHtml.includes('Footer content'), 'Class-based footer markup must be preserved');
     assert.ok(!sections.some((s) => s.tagName === 'main'), 'Layout containers must not become opaque blocks');
   });
+
+  it('9. Classifies a top-level wrapper that only carries page chrome as that chrome', () => {
+    const html = `
+      <body>
+        <main>
+          <section class="news"><h2>News</h2></section>
+        </main>
+        <div wire:id="abc123"><footer class="site-footer"><p>Footer content</p></footer></div>
+      </body>`;
+
+    const sections = extractor.extractSections(html);
+
+    // A wrapper whose only structural child is the site footer IS the footer. Left
+    // as content it is emitted inside <main> by the clone generator, and the page
+    // chrome ends up nested in the content column.
+    assert.deepStrictEqual(sections.map((s) => s.type), ['news', 'footer']);
+    const footer = sections[1];
+    assert.ok(footer.rawHtml.includes('wire:id="abc123"'), 'Wrapper attributes must survive verbatim');
+    assert.ok(footer.rawHtml.includes('<footer class="site-footer">'), 'Footer element must stay inside its wrapper');
+  });
 });
