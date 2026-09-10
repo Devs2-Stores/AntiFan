@@ -95,10 +95,14 @@ were real:
   page holding only `evidence/summary.json`, the aggregate `_verdicts.json`/`_hub.html`/`current-report.json`,
   and all fifteen pages marked superseded with "evidence predates any attempt pointer" while
   `pages: []` and `cases: []`. No verdict was published for a case that carried no provenance — the
-  invariant held; there was nothing to reconcile. Side observation, not fixed: refused pages leave
-  their attempt directories behind, so they accumulate across failed runs (nothing prunes them, and
-  the plan does not ask for it); they are inert because the report resolver follows the pointer and
-  otherwise falls back to the legacy bundle.
+  invariant held; there was nothing to reconcile.
+- Those attempt directories are deliberately kept, not litter: each is the only durable record of a
+  failed adoption. Page 9's reads `status: FAILED`, `phases: {}`, `viewports: {}`,
+  `errors[0].phase: topLevel` with the `POLICY_DENIED … quota` message, `elapsedSec: 0`, and an empty
+  `clone/` — nothing was built and no settle was attempted, which is what establishes that the quota
+  refuses *before* the settle gate rather than the other way round. They are not read as evidence,
+  because the report resolver follows the pointer and otherwise falls back to the legacy bundle, so
+  one directory per attempt is the designed growth rather than a leak.
 - A numeric cast in the filter would read `'-1'` as the range 0–1 and `'1e2'` as page 100, and a
   fat-fingered `'1-999999999'` would allocate a billion ids before rejecting them. Parts must now
   match digits only, and a range is range-checked before it is expanded. Measured: all three exit 2
