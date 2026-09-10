@@ -101,7 +101,7 @@ The report must label standalone capture artifacts as independent continuity evi
 
 Proof, all measured on the final desktop-primary configuration (offline, no live tabs). Before either correction, `build-report.mjs .canary/run3` aborts with the missing-artifact error. After both, `node .canary/tools/build-report.mjs .canary/run3` exits `0` with `artifactsVerified: 268` and `failures: []`; the report identifies `Clone bundle: .canary/run3/clone/index.html` with `118 files / 36,671,943 bytes`; all 11 rows of its persisted-evidence inventory re-hash against the current evidence files (0 stale rows); and it carries exactly one `FINAL VERDICT: INCONCLUSIVE`. Two consecutive regenerations produced byte-identical reports (sha256 `a009ab036cfad71e…`), so the selection rule is deterministic rather than order-dependent.
 
-Order independence is covered by `.canary/tools/build-report-ordering.test.mjs`, which replays both bundle orderings through the real CLI against a fixture built from the persisted run3 evidence: `node --test .canary/tools/build-report-ordering.test.mjs` → 2 tests, 2 pass, 0 fail.
+Order independence is covered by `test/unit/build-report-bundle-ordering.test.mjs`, which replays both bundle orderings through the real CLI against a fixture built from the persisted run3 evidence: `node --test test/unit/build-report-bundle-ordering.test.mjs` → 2 tests, 2 pass, 0 fail.
 
 ## Done When
 

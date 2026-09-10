@@ -194,7 +194,7 @@ const DISCOVERY_PROBE_EXPR = `(() => {
     return { x: px(r.x), y: px(r.y + window.scrollY), w: px(r.width), h: px(r.height) };
   };
   const cls = (el) => (typeof el.className === 'string' ? el.className : '').trim().split(/\\s+/).filter(Boolean).join('.');
-  
+
   const docH = Math.max(document.documentElement.scrollHeight, document.body.scrollHeight);
   const docW = Math.max(document.documentElement.scrollWidth, document.body.scrollWidth);
   const clientW = document.documentElement.clientWidth;
@@ -318,7 +318,7 @@ const DISCOVERY_PROBE_EXPR = `(() => {
 const NETWORK_AUDIT_EXPR = `(() => {
   const entries = performance.getEntriesByType('resource');
   const referenceHosts = ['hoplongtech.com', 'hoplong.com', 'img.hoplongtech.com'];
-  
+
   const referenceVisualRequests = [];
   const externalRequests = [];
   const allRequests = [];
