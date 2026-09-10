@@ -79,6 +79,9 @@ Commit: `95e932f` (push `002fe0d..95e932f`).
      `attachment-1a5e58d0-4734-4cc9-9b3b-7c5fe7b19368`, `state: active`, `lease.ownerPid: 19836`
      (the canary instance), `revisionNumber: 7`, `documentGeneration: 3`, and
      `browserTarget.tabId: 1b41d4ff-d186-45cf-9a12-09050b86d858` — **the id the refusal names.**
+     That record carries exactly **one** `browserTarget`; the run of increasing lines in the log is
+     the same record re-persisted with its `revisions[]` array, and each revision holds its own
+     `browserTarget`, which is what makes two ids look nested inside one line.
      So the id in the message is the attachment's persisted bound tab, not the
      `tabId` in `.canary/state/canary-session.json` (`21b37447…`): the mint's own record and the
      host's binding are different ids, and it is the host's that the refusal reports.
@@ -95,12 +98,16 @@ Commit: `95e932f` (push `002fe0d..95e932f`).
    the binding is **dead** (the bound tab was closed, so `adoptChildTab` resolves no pool target —
    `this.tabs.get(identifier)` misses and no affinity entry exists — and the caller prints the fixed
    quota text), or the binding is **live but its pool is genuinely full** of ephemeral children left
-   by earlier runs. The remedy differs per cause, and the discriminator needs the instance:
-   `getManagedTabIds('1b41d4ff…').size` (the count the first check reads) plus an existence probe on
-   `1b41d4ff…` itself — pool members ⇒ exhausted pool; absent ⇒ dead binding, and the fix is a
-   re-mint whose attachment binds a live tab. Either way the remedy is not `saved-tabs.json` and not
-   an in-session close of the ten orphans, and what re-creates those ten on launch stays unidentified
-   rather than guessed.
+   by earlier runs. The remedy differs per cause, and the discriminator needs the instance — but not
+   `getManagedTabIds`, which cannot answer it: `getManagedTabIdsForBoundTab` ends
+   `return new Set([boundTabId])` (`:5114-5136`), so an unresolvable binding reports
+   `{1b41d4ff}` at size 1. That fallback is also why the first check reads 1 and cannot fire when the
+   binding is dead. The honest discriminator is therefore `this.tabs.has('1b41d4ff…')` for liveness
+   plus a raw enumeration of `sessionTabPools` keys and members (the map at `:382`) — present in
+   `this.tabs` and in a full pool ⇒ exhausted pool; absent from `this.tabs` ⇒ dead binding, and the
+   fix is a re-mint whose attachment binds a live tab. Either way the remedy is not
+   `saved-tabs.json` and not an in-session close of the ten orphans, and what re-creates those ten on
+   launch stays unidentified rather than guessed.
 2. **Settle predicate (phase 2).** Earlier runs aborted at the pre-dump settle, so nothing reached the
    build stage and no campaign case could carry a minted identity. `canary-settle.mjs:184` omits
    `fontsSettled` while `:241` requires it.
