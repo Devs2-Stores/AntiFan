@@ -1,0 +1,9 @@
+[
+  {
+    "name": "Colors",
+    "settings": [
+      { "type": "color", "id": "brand_color", "label": "Brand color", "default": "#111111" },
+      { "type": "text", "id": "dead_setting", "label": "Declared but never read" }
+    ]
+  }
+]

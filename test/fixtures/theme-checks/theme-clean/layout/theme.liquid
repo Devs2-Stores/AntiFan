@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="{{ request.locale.iso_code }}">
+  <head>
+    <meta charset="utf-8">
+    <title>{{ page_title }}</title>
+    <link rel="icon" href="{{ 'favicon.ico' | file_url }}">
+    {{ 'main.css' | asset_url | stylesheet_tag }}
+    <style>
+      :root { --brand: {{ settings.brand_color }}; }
+      .logo { background-image: url({{ 'logo.png' | asset_url }}); }
+    </style>
+  </head>
+  <body>
+    {% section 'hero' %}
+    {% include 'card' %}
+    {{ content_for_layout }}
+  </body>
+</html>

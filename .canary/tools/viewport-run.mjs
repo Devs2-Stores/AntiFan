@@ -20,7 +20,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import http from 'node:http';
 import { call, evalOn, bootstrap } from './lib-rpc.mjs';
-import { hydrateToCapturedState, requireDoubleSettledMetrics, releaseCompareBlockers, sampleWidgetMotion } from './canary-settle.mjs';
+import { hydrateToCapturedState, requireDoubleSettledMetrics, releaseCompareBlockers, sampleWidgetMotion, readWidgetPhase } from './canary-settle.mjs';
 import { sha256Buffer, sha256File } from '../../scripts/lib/atomic-record.mjs';
 import { detectBundleDrift, loadInstanceIdentity, PROVENANCE_CODES } from '../../scripts/lib/evidence-provenance.mjs';
 import { describeViewport, sameViewport } from '../../scripts/lib/viewport-geometry.mjs';
@@ -78,9 +78,15 @@ const bundleIdentity = bundleParse.identity;
 // The entry this tier expects to be served. Its hash is read once here and
 // compared against the document the clone tab is actually displaying.
 const servedEntryPath = process.env.CANARY_SERVED_ENTRY ? path.resolve(process.env.CANARY_SERVED_ENTRY) : null;
-// The dump this tier's bundle was built from. The clone is a snapshot of it, so a
-// verdict is only meaningful while the live page still measures the same document.
+// The dump this tier's bundle was built from. Recorded as context for the verdict
+// (which artifact the bundle descends from), not used as an identity baseline: it is
+// captured at one viewport, so re-measuring it at another tests the viewport, not the
+// reference. The baseline is the tier's own pre-build floor.
 const REFERENCE_DUMP_PATH = process.env.CANARY_REFERENCE_DUMP ? path.resolve(process.env.CANARY_REFERENCE_DUMP) : null;
+// A page that measured its pre-build floor height is expected to measure it again at
+// compare time; the campaign's own strict compare already refuses to compare two sides
+// whose heights differ, so the reference's own stability is held to the same meaning.
+const REFERENCE_IDENTITY_TOLERANCE_PX = 2;
 const servedEntrySha256 = servedEntryPath && fs.existsSync(servedEntryPath) ? sha256File(servedEntryPath) : null;
 const instanceIdentity = loadInstanceIdentity();
 const provenanceGap = [
@@ -147,6 +153,29 @@ function evaluateReadiness(stage, role) {
     }
   }
   return { ok: reasons.length === 0, reasons };
+}
+
+const CAPTURE_MAX_DIMENSION = 16384;
+/**
+ * A full-page capture beyond the platform's ceiling cannot be produced, and a crop is
+ * never an acceptable substitute for one. The document height is read before any
+ * full-page raster, so a page that cannot be captured is refused by name with its
+ * measured height instead of failing later as a capture or compare error.
+ */
+async function refuseIfTooTall(tabId, role) {
+  const height = await evalOn(tabId, 'document.documentElement.scrollHeight', 15_000).catch(() => null);
+  if (typeof height !== 'number' || height <= CAPTURE_MAX_DIMENSION) return;
+  evidence.status = 'CAPTURE_TOO_TALL';
+  evidence.visual = {
+    status: 'CAPTURE_TOO_TALL',
+    verdict: 'INCONCLUSIVE',
+    reason: `the ${role} document measures ${height}px, beyond the ${CAPTURE_MAX_DIMENSION}px full-page capture ceiling`,
+    measuredHeight: height,
+    ceiling: CAPTURE_MAX_DIMENSION,
+  };
+  persist();
+  log(`ABORT: CAPTURE_TOO_TALL (${role} ${height}px > ${CAPTURE_MAX_DIMENSION}px)`);
+  process.exit(3);
 }
 
 const evidence = {
@@ -523,6 +552,8 @@ if (REFERENCE_PREHYDRATED) {
   })()`, 15000).catch(() => null);
 }
 
+await refuseIfTooTall(refTabId, 'reference');
+
 // Hydration contract, shared with canary-run.mjs: rasterizing the document is
 // what mounts the storefront's remaining sections, so the authoritative state is
 // the post-capture one. Measuring before it gates readiness on a pre-mount page.
@@ -674,6 +705,8 @@ await evalOn(cloneTabId, `(async () => {
   return true;
 })()`, 15000).catch(() => null);
 
+await refuseIfTooTall(cloneTabId, 'clone');
+
 // Same contract for the bundle: if rasterization changed either side, the pair
 // the comparator produces would not be the pair that was gated.
 const geometryBeforeHydration = await enforceViewportGeometry('pre-hydration', 'clone');
@@ -729,41 +762,90 @@ if (!geometryBeforeCapture.symmetric) refuseViewportAsymmetry('post-hydration', 
   }
 }
 evidence.structural = buildStructuralComparison(evidence.stages.reference.metrics, evidence.stages.clone.metrics);
+// The pre-hydration ceiling check cannot see sections that mount later, so the measured
+// post-hydration heights are checked too: a document beyond the ceiling is refused by
+// name rather than failing deeper as a capture or compare error.
+{
+  const measured = [
+    ['reference', evidence.stages?.reference?.metrics?.docHeight],
+    ['clone', evidence.stages?.clone?.metrics?.docHeight],
+  ].filter(([, h]) => typeof h === 'number');
+  const over = measured.filter(([, h]) => h > CAPTURE_MAX_DIMENSION);
+  if (over.length > 0) {
+    evidence.status = 'CAPTURE_TOO_TALL';
+    evidence.visual = {
+      status: 'CAPTURE_TOO_TALL',
+      verdict: 'INCONCLUSIVE',
+      reason: `${over.map(([role, h]) => `${role} measures ${h}px`).join(', ')}, beyond the ${CAPTURE_MAX_DIMENSION}px full-page capture ceiling`,
+      measured: Object.fromEntries(measured),
+      ceiling: CAPTURE_MAX_DIMENSION,
+    };
+    persist();
+    log(`ABORT: CAPTURE_TOO_TALL (${over.map(([role, h]) => `${role}=${h}px`).join(', ')} > ${CAPTURE_MAX_DIMENSION}px)`);
+    process.exit(3);
+  }
+}
 // ── Reference identity gate ───────────────────────────────────────────────────
-// The clone is a snapshot of the reference dump, so a verdict only means something
-// while the live page still measures what the dump measured. Measured on this
-// storefront: the same URL measured 5546px at 1024 in one run and 5426px in the next,
-// and 3166px against 4481px at 390 — the clone held its dumped height throughout, so
-// the reported `STRUCTURAL_PARITY_MISMATCH deltaGeometry=120px` was the *reference*
-// moving, not the clone failing. The gate compares the two numbers the run already
-// persisted (the dump it built from and the compare-time measurement) and withholds the
-// pixel verdict when they disagree, naming both.
+// The clone is a snapshot, so a verdict only means something while the live page still
+// measures what it measured before the bundle was built. The baseline is this run's own
+// pre-build readiness floor at **the same viewport** (`readiness-floors.json`, measured on
+// the reference tab before the build stage); comparing the desktop dump against a 1024 or
+// 390 measurement would test the viewport, not the identity, and a missing baseline is
+// withheld rather than assumed stable. The dump is recorded as context only.
+let floorBaseline = null;
+const floorsPath = process.env.CANARY_EVIDENCE_ROOT
+  ? path.join(process.env.CANARY_EVIDENCE_ROOT, 'readiness-floors.json')
+  : null;
+if (floorsPath) {
+  try {
+    const floors = JSON.parse(fs.readFileSync(floorsPath, 'utf8'));
+    const entry = floors[label] || null;
+    if (entry && typeof entry.docHeight === 'number') {
+      floorBaseline = {
+        source: path.basename(floorsPath),
+        width: typeof entry.width === 'number' ? entry.width : null,
+        height: typeof entry.height === 'number' ? entry.height : null,
+        baselineHeight: entry.docHeight,
+        baselineSections: typeof entry.minSections === 'number' ? entry.minSections : null,
+      };
+    }
+  } catch (e) {
+    floorBaseline = null;
+    log(`reference identity: floors unreadable (${e.message})`);
+  }
+}
+let dumpContext = null;
 if (REFERENCE_DUMP_PATH) {
   try {
     const dump = JSON.parse(fs.readFileSync(REFERENCE_DUMP_PATH, 'utf8'));
-    const dumpedHeight = typeof dump.docHeight === 'number' ? dump.docHeight : null;
-    const liveHeight = evidence.structural?.docHeight?.reference ?? null;
-    const dumpedSections = typeof dump.sectionCount === 'number' ? dump.sectionCount : null;
-    const liveSections = evidence.structural?.sectionCount?.reference ?? null;
-    const heightDrift = dumpedHeight !== null && liveHeight !== null ? Math.abs(liveHeight - dumpedHeight) : null;
-    evidence.referenceIdentity = {
-      dumpPath: path.relative(REPO, REFERENCE_DUMP_PATH),
-      dumpedHeight,
-      liveHeight,
-      heightDrift,
-      dumpedSections,
-      liveSections,
-      dumpedSha256: dump.sha256 ?? null,
-      stable: heightDrift !== null && heightDrift <= 2 && (dumpedSections === null || liveSections === null || dumpedSections === liveSections),
+    dumpContext = {
+      path: path.basename(REFERENCE_DUMP_PATH),
+      docHeight: typeof dump.docHeight === 'number' ? dump.docHeight : null,
+      sectionCount: typeof dump.sectionCount === 'number' ? dump.sectionCount : null,
+      clientWidth: typeof dump.clientWidth === 'number' ? dump.clientWidth : null,
+      sha256: dump.sha256 ?? null,
+      sameViewport: typeof dump.clientWidth === 'number' ? Math.abs(dump.clientWidth - width) <= 2 : null,
     };
-    log(`reference identity: dumped=${dumpedHeight}px/${dumpedSections ?? '?'} sections, compare-time=${liveHeight}px/${liveSections ?? '?'} sections, drift=${heightDrift ?? '?'}px stable=${evidence.referenceIdentity.stable}`);
   } catch (e) {
-    evidence.referenceIdentity = { dumpPath: REFERENCE_DUMP_PATH, status: 'UNREADABLE', error: String(e.message || e).slice(0, 200) };
-    log(`reference identity: dump unreadable (${e.message})`);
+    dumpContext = { path: path.basename(REFERENCE_DUMP_PATH), status: 'UNREADABLE', error: String(e.message || e).slice(0, 200) };
   }
-} else {
-  evidence.referenceIdentity = { status: 'NOT_DECLARED' };
 }
+const refLiveHeight = evidence.structural?.docHeight?.reference ?? null;
+const refLiveSections = evidence.structural?.sectionCount?.reference ?? null;
+const refHeightDrift = floorBaseline && refLiveHeight !== null
+  ? Math.abs(refLiveHeight - floorBaseline.baselineHeight)
+  : null;
+evidence.referenceIdentity = {
+  status: floorBaseline ? 'MEASURED' : 'BASELINE_ABSENT',
+  viewport: label,
+  liveHeight: refLiveHeight,
+  liveSections: refLiveSections,
+  baseline: floorBaseline,
+  heightDrift: refHeightDrift,
+  stable: refHeightDrift !== null && refHeightDrift <= REFERENCE_IDENTITY_TOLERANCE_PX,
+  dumpContext,
+};
+log(`reference identity: baseline=${floorBaseline?.baselineHeight ?? '?'}px (${floorBaseline?.width ?? '?'}px wide), compare-time=${refLiveHeight ?? '?'}px/${refLiveSections ?? '?'} sections, drift=${refHeightDrift ?? '?'}px stable=${evidence.referenceIdentity.stable}${dumpContext?.sameViewport === false ? ` (dump captured at clientWidth ${dumpContext.clientWidth}: context only, not a baseline)` : ''}`);
 persist();
 
 // ── INDEPENDENT lineage: standalone canonical full-page capture per tab ────────
@@ -832,6 +914,46 @@ for (const [role, tabId] of [['reference', refTabId], ['clone', cloneTabId]]) {
   log(`  ${role}: slickPaused=${w.slickPaused ?? '?'} swiperPaused=${w.swiperPaused ?? '?'} pinsLeft=${released.release?.dom?.markedLeft ?? '?'} timersRestored=${released.release?.dom?.timersRestored ?? '?'} freezeReleased=${released.freezeReleased ?? '?'} sweptTo=${sweep.clearedIntervalIdsTo ?? '?'} widgetsSampled=${sweep.widgetsSampled ?? '?'} stable=${sweep.stable ?? '?'}${sweep.error ? ` sweepError=${sweep.error}` : ''}`);
 }
 persist();
+
+// ── Widget phase gate ─────────────────────────────────────────────────────────
+// A static artifact cannot reproduce a rotating carousel's phase, and the two sides do not
+// even agree on whether a carousel is initialized (the reference runs the site's own
+// script, a clone may not). Measured: the home page reported PASS 1.82% and FAIL 7.37% on
+// unchanged code with identity stable, geometry equal, zero pins and both sides inert —
+// 81-88% of the difference sat in the hero band, which is one carousel showing two
+// different slides. Pinning the phase was tried and reverted: the same manipulation lands
+// differently on each side and p3/p4/p5 went 0.07% → 4.59-5.62%. So the phase is compared
+// before the compare runs, and two different slides withhold the verdict instead of
+// publishing the rotation as fidelity.
+const phaseOf = (p) => JSON.stringify({
+  slick: Array.isArray(p?.slickCurrent) ? p.slickCurrent : null,
+  tracks: typeof p?.slickTracks === 'number' ? p.slickTracks : null,
+  swiper: p?.swiperIndex ?? null,
+});
+{
+  const referencePhase = await readWidgetPhase(refTabId);
+  const clonePhase = await readWidgetPhase(cloneTabId);
+  const referenceKey = phaseOf(referencePhase);
+  const cloneKey = phaseOf(clonePhase);
+  evidence.widgetPhase = { reference: referencePhase, clone: clonePhase, agree: referenceKey === cloneKey };
+  log(`widget phase reference: slick=${JSON.stringify(referencePhase.slickCurrent)} tracks=${referencePhase.slickTracks} swiper=${referencePhase.swiperIndex}`);
+  log(`widget phase clone:     slick=${JSON.stringify(clonePhase.slickCurrent)} tracks=${clonePhase.slickTracks} swiper=${clonePhase.swiperIndex}`);
+  persist();
+  if (referenceKey !== cloneKey) {
+    evidence.status = 'WIDGET_PHASE_MISMATCH';
+    evidence.visual = {
+      status: 'WIDGET_PHASE_MISMATCH',
+      match: null,
+      mismatchPercentage: null,
+      verdict: 'INCONCLUSIVE',
+      reason: `the two sides show different carousel phases (reference slick ${JSON.stringify(referencePhase.slickCurrent)} / swiper ${referencePhase.swiperIndex ?? 'none'}, clone slick ${JSON.stringify(clonePhase.slickCurrent)} / swiper ${clonePhase.swiperIndex ?? 'none'}), so a pixel comparison would measure the rotation, not fidelity`,
+      widgetPhase: { reference: referencePhase, clone: clonePhase },
+    };
+    persist();
+    log('ABORT: WIDGET_PHASE_MISMATCH — pixel verdict withheld');
+    process.exit(3);
+  }
+}
 
 log(`full-page visual compare (authoritative)${SKIP_COMPARE ? ' (skipped by CANARY_SKIP_COMPARE)' : ''}`);
 let compare = null;
@@ -927,25 +1049,40 @@ log(`visual mismatch=${evidence.visual.mismatchPercentage}% verdict=${evidence.v
 persist();
 
 // ── Reference identity gate ───────────────────────────────────────────────────
-// A bundle built from a 5546px document cannot be compared against a page that now
-// measures 5426px: that difference is the live site's, not the clone's, and reporting it
-// as `STRUCTURAL_PARITY_MISMATCH` blamed the bundle for it. The verdict is withheld and
-// both measurements are named.
-if (evidence.referenceIdentity?.stable === false && evidence.visual?.verdict && evidence.visual.verdict !== 'INCONCLUSIVE') {
-  const id = evidence.referenceIdentity;
+// Measured on this storefront: the same URL at the same viewport measured 5546px in one
+// run and 5426px in the next, and 3166px against 4481px against 9843px at 390, while the
+// clone held its own height. A pixel number taken against a reference that moved is the
+// reference's movement, not the clone's fidelity, so it is withheld; a baseline that
+// could not be read is withheld too, because an unproven identity is not a stable one.
+const identity = evidence.referenceIdentity || {};
+if (evidence.visual?.verdict && evidence.visual.verdict !== 'INCONCLUSIVE' && identity.status !== 'MEASURED') {
+  evidence.status = 'REFERENCE_IDENTITY_UNKNOWN';
+  evidence.visual = {
+    status: 'REFERENCE_IDENTITY_UNKNOWN',
+    match: null,
+    mismatchPercentage: null,
+    verdict: 'INCONCLUSIVE',
+    reason: `the pre-build measurement of this page at ${identity.viewport} could not be read (${identity.status || 'NO_RECORD'}), so the reference's identity is unproven and the pixel verdict cannot be published`,
+    supersededVerdict: derivedVerdict,
+    supersededMismatchPercentage: cr.mismatchPercentage ?? null,
+    referenceIdentity: identity,
+  };
+  persist();
+  log(`ABORT: REFERENCE_IDENTITY_UNKNOWN (${identity.status || 'NO_RECORD'}) — pixel verdict withheld (was ${derivedVerdict} ${cr.mismatchPercentage}%)`);
+} else if (evidence.visual?.verdict && evidence.visual.verdict !== 'INCONCLUSIVE' && identity.stable === false) {
   evidence.status = 'REFERENCE_CHANGED_SINCE_BUILD';
   evidence.visual = {
     status: 'REFERENCE_CHANGED_SINCE_BUILD',
     match: null,
     mismatchPercentage: null,
     verdict: 'INCONCLUSIVE',
-    reason: `the live page measured ${id.liveHeight}px against the ${id.dumpedHeight}px it measured when the bundle was built (drift ${id.heightDrift}px, sections ${id.liveSections} vs ${id.dumpedSections}), so the clone was compared against a page that had changed`,
+    reason: `the page measured ${identity.liveHeight}px at compare time against the ${identity.baseline?.baselineHeight}px it measured at ${identity.viewport} before the bundle was built (drift ${identity.heightDrift}px), so the clone was measured against a reference that had changed`,
     supersededVerdict: derivedVerdict,
     supersededMismatchPercentage: cr.mismatchPercentage ?? null,
-    referenceIdentity: id,
+    referenceIdentity: identity,
   };
   persist();
-  log(`ABORT: REFERENCE_CHANGED_SINCE_BUILD (dumped ${id.dumpedHeight}px vs live ${id.liveHeight}px) — pixel verdict withheld (was ${derivedVerdict} ${cr.mismatchPercentage}%)`);
+  log(`ABORT: REFERENCE_CHANGED_SINCE_BUILD (baseline ${identity.baseline?.baselineHeight}px vs live ${identity.liveHeight}px at ${identity.viewport}) — pixel verdict withheld (was ${derivedVerdict} ${cr.mismatchPercentage}%)`);
 }
 
 // ── Post-compare motion gate ──────────────────────────────────────────────────

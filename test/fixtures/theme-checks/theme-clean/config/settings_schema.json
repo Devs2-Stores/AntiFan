@@ -1,0 +1,25 @@
+[
+  {
+    "name": "Colors",
+    "settings": [
+      { "type": "header", "content": "Global" },
+      { "type": "color", "id": "brand_color", "label": "Brand color", "default": "#111111" }
+    ]
+  },
+  {
+    "name": "Cards",
+    "settings": [
+      { "type": "text", "id": "card_title", "label": "Card title", "default": "Featured" }
+    ],
+    "blocks": [
+      {
+        "type": "badge",
+        "name": "Badge",
+        "settings": [
+          { "type": "text", "id": "badge_label", "label": "Badge label", "default": "New" }
+        ]
+      }
+    ]
+  },
+  { "name": "theme_info", "theme_name": "Fixture", "theme_version": "1.0.0" }
+]

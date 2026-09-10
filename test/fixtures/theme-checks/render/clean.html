@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>Clean surface</title>
+    <link rel="stylesheet" href="/assets/main.css">
+    <style>
+      .hero { background-image: url("/assets/hero.png"); }
+      .card::after { content: "{{ not-a-render-failure }}"; }
+    </style>
+  </head>
+  <body>
+    <h1 class="title">Everything rendered</h1>
+    <p data-summary="Total: {{ cart.total_price }} and {% if cart.empty %}empty{% endif %}">Ready to ship</p>
+    <img src="/assets/hero.png" alt="Hero">
+    <script>
+      window.themeConfig = { currency: "{{ shop.currency }}", template: "{% if template %}index{% endif %}" };
+      document.title = "Liquid error: quoted in a script body";
+    </script>
+    <!-- Liquid error: quoted inside a comment -->
+  </body>
+</html>

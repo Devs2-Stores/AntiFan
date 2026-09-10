@@ -56,13 +56,19 @@ No synthetic substitute, no screenshot editing, no image construction of any kin
 | 3 | The seven surfaces exist as templates, and the workspace carries custom ones that no route maps to: `404.liquid`, `article.liquid`, `blog.liquid`, `cart.liquid`, `collection.liquid`, plus `collection.brand.liquid`, `collection.index-tab*.liquid`, `collection.slide-data.liquid`, `blog.index-data.liquid`. Custom surfaces therefore need `?view=` rather than a route. | `E:\Work\customizes\Phukienmaymoc\templates\` |
 | 4 | The storefront's own reference is not deterministic across loads, which is why reference identity is mandatory here and not a nicety: the same URL measured `5546px` at 1024 in one run and `5426px` in the next, and `3166px` against `4481px` at 390, while the artifact under test held its height. | campaign evidence: `page-01-home` attempts `f4389bc7…` (`docHeight {reference: 5426, clone: 5546, delta: 120}`) against `b0768cae…` (`5546/5546`) |
 | 5 | The measurement harness already exists and already enforces what this plan requires: strict compare with `allowHeightDrift:false`, `useDefaultWidgetMasks:false` and no user masks; viewport-geometry symmetry; pre- and post-compare motion proofs; bundle/reference identity gates; provenance-bound verdicts. This plan reuses them rather than writing a second pipeline. | `.canary/tools/viewport-run.mjs`, `.canary/tools/canary-settle.mjs`, `scripts/lib/evidence-provenance.mjs`, `scripts/lib/bundle-integrity.mjs` |
+| 6 | **The platform silently falls back to live production.** `https://phukienmaymoc.com/?themeid=999999` answers **HTTP 200** and serves assets under `cdn.hstatic.net/themes/200001207485/1001510509` — the live theme. An unknown `view` likewise answers 200 and renders the parent template (88 copy-theme asset references). A capture must therefore assert the theme it was actually served, not the theme it requested. | `curl` on the storefront, 2026-09-11 |
+| 7 | The copy preview is anonymously reachable and scoped as intended: `?themeid=1001512581` answers 200 with every asset under `…/200001207485/1001512581`. | idem |
 
 ## Constraints (hard)
 
-- **Never publish, never push to the live theme, never touch `themeid=-1`'s theme.** The
-  only permitted remote write is `hrv theme dev` onto `theme_id 1001512581`. Any command
-  whose resolved theme id is not `1001512581` is refused before it runs, and the refusal is
-  recorded.
+- **Never publish, never push to the live theme, never touch the live theme's content.**
+  The live theme is `1001510509`, discovered by probing an invalid `themeid` (see fact 6);
+  it is a read-only reference and no command may address it. The only permitted remote
+  write is `hrv theme dev` onto `theme_id 1001512581`. Any command whose resolved theme id
+  is not `1001512581` is refused before it runs, and the refusal is recorded. Because the
+  platform answers HTTP 200 while silently serving a *different* theme, every capture also
+  asserts the theme it was actually served (`cdn.hstatic.net/themes/<org>/<themeid>/`) and
+  refuses when that id does not match the one it requested.
 - Writes outside this repository are confined to `E:\Work\customizes\Phukienmaymoc` and the
   CLI's own cache/backup (`.haravan-cli_backup/`). The owner granted exactly this scope for
   this work; nothing else outside the repo is written.

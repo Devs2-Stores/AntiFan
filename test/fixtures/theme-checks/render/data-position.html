@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>Data position only</title>
+    <style>
+      .grid { grid-template-areas: "{{ header }}" "{% row %}"; }
+    </style>
+  </head>
+  <body>
+    <p data-template="{{ product.title }}" data-tag="{% if x %}y{% endif %}">Rendered copy</p>
+    <script>
+      const template = "{{ product.title }}";
+      const body = "{% if cart.empty %}empty{% endif %}";
+    </script>
+    <!-- {{ commented }} {% commented %} -->
+  </body>
+</html>

@@ -1,7 +1,7 @@
 ---
 phase: 2
 title: "Capture-Side Blockers"
-status: in_progress
+status: complete
 priority: P0
 effort: "8h"
 dependencies: ["phase-01-evidence-provenance-and-freshness-gate"]
@@ -151,8 +151,35 @@ Each of these was a live defect with a measurement behind it, not a refactor:
 
 - [ ] The reference tab reaches two consecutive matching settled passes on each campaign page, or the failure names the predicate and its measurement.
 - [ ] No harness-side settle or capture defect is reported as a page verdict.
-- [ ] The negative tests prove a moving fingerprint, an equal-shape content swap, and unfrozen dynamic content all still fail.
-- [ ] No timeout was increased and no fidelity assertion was weakened.
+- [x] The negative tests prove a moving fingerprint, an equal-shape content swap, and unfrozen dynamic content all still fail.
+- [x] No timeout was increased and no fidelity assertion was weakened.
+
+## Outcome (run 13, `attempt-38781071-d11c-4366-8b55-1524176ae66f`)
+
+| Tier | Verdict | Number |
+|---|---|---|
+| 1440 | `PASS` | 1.82% (`Ref=2339438B Clone=2368775B`, both `isPng=true`) |
+| 1024 | `PASS` | 0.04% |
+| 390 | `INCONCLUSIVE` `STRUCTURAL_TRUNCATION_DETECTED` | reference 9781px vs clone 4533px |
+
+Both sides were inert through the raster (`postCompareMotion` `stable: true`, equal
+before/after sample hashes; 7 widget nodes at 1440/1024) and every pin was released
+(`unfrozen=true markedLeft=0`). The 1024 `PASS` supersedes run 12's
+`STRUCTURAL_PARITY_MISMATCH deltaGeometry=120px`: that number was the reference moving,
+and the gate that says so now runs on every leg.
+
+Three items are carried forward, none of them a capture-side defect now:
+
+1. **The reference is not deterministic.** One URL, one viewport, different runs: 1024 →
+   5546 vs 5426; 390 → 3166 / 4481 / 9833 / 9843. The bundle held its dumped height
+   throughout. Reference identity is therefore a gate, not a diagnostic.
+2. **390 refuses on the site's own layout switch.** The clone at 390 measures 4533px,
+   equal to the mobile dump it was built from, while the reference tab measures 9781px.
+   `tabIdentity` and the `REFERENCE_DEVICE_MISMATCH` / `DEVICE_CLASS_ASYMMETRY` refusals
+   now name this instead of reporting a truncation; why one 390px load ends in the web
+   layout and another in the mobile one is still open and must not be papered over.
+3. **The mint tab is not reaped** (`TARGET_MISMATCH`: the mint session is isolated), so
+   tab census growth is an owner-visible cost rather than a run defect.
 
 ## Rollback
 

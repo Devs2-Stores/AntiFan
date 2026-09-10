@@ -1,0 +1,7 @@
+<div class="card" data-title="{{ settings.card_title }}">
+  <span class="badge">{{ settings.badge_label }}</span>
+  <img src="/assets/hero.png" alt="Hero">
+</div>
+{{ 'compiled.js' | asset_url | script_tag }}
+{{ 'theme.scss.css' | asset_url | stylesheet_tag }}
+<script>window.shopId = "{{ shop.id }}";</script>

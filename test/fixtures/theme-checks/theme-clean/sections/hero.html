@@ -1,0 +1,26 @@
+<div class="hero" style="--brand: {{ settings.brand_color }}">
+  <img src="{{ 'hero.png' | asset_url }}" alt="">
+  <h2>{{ section.settings.hero_heading }}</h2>
+  {% for block in section.blocks %}
+    <span>{{ block.settings.hero_badge }}</span>
+  {% endfor %}
+</div>
+
+{% schema %}
+{
+  "name": "Hero",
+  "settings": [
+    { "type": "text", "id": "hero_heading", "label": "Heading" },
+    { "type": "checkbox", "id": "hero_full_width", "label": "Full width", "default": false }
+  ],
+  "blocks": [
+    {
+      "type": "badge",
+      "name": "Badge",
+      "settings": [
+        { "type": "text", "id": "hero_badge", "label": "Badge text" }
+      ]
+    }
+  ]
+}
+{% endschema %}

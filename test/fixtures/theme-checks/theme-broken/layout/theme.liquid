@@ -1,0 +1,12 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    {{ 'present.css' | asset_url | stylesheet_tag }}
+  </head>
+  <body style="--brand: {{ settings.brand_color }}">
+    <img src="/assets/also-missing.png" alt="">
+    {{ settings.undeclared_setting }}
+    {% include 'broken' %}
+    {{ content_for_layout }}
+  </body>
+</html>

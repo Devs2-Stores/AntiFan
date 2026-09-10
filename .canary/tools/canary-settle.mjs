@@ -617,6 +617,34 @@ export async function releaseCompareBlockers(tabId, label = 'compare-release') {
 }
 
 /**
+ * Read the phase of every carousel on a page: which slide each library currently
+ * shows, and how many tracks it has.
+ *
+ * Pinning that phase was tried and reverted. Forcing the track transform and the
+ * active classes moved the compared state, but the two sides do not agree on whether a
+ * carousel is even initialized (the reference runs the site's own script; a static clone
+ * may not), so the identical manipulation landed differently on each side: p3/p4/p5 went
+ * from 0.07-0.08% to 4.59-5.62%, and p2's 390 document grew by a third. That is a mask in
+ * disguise, which this campaign forbids. So the phase is measured instead and a carriage
+ * of two different slides is refused: a static artifact cannot reproduce a rotating
+ * widget's phase, and a pixel number taken across two phases measures the rotation.
+ */
+export async function readWidgetPhase(tabId) {
+  return await evalOn(tabId, `(() => {
+    const slickCurrent = [];
+    document.querySelectorAll('[data-slick-index]').forEach((slide) => {
+      if (!slide.classList.contains('slick-current') && !slide.classList.contains('slick-active')) return;
+      slickCurrent.push(Number(slide.getAttribute('data-slick-index')));
+    });
+    const tracks = document.querySelectorAll('.slick-track');
+    let swiperIndex = null;
+    const active = document.querySelector('.swiper-slide-active');
+    if (active && active.parentElement) swiperIndex = Array.from(active.parentElement.children).indexOf(active);
+    return { slickCurrent, slickTracks: tracks.length, swiperIndex };
+  })()`, 20_000).catch((e) => ({ error: String(e && e.message ? e.message : e).slice(0, 200) }));
+}
+
+/**
  * Undo every settle-time mutation before anything is read off the DOM.
  *
  * The reference dump is what the clone bundle is built from, so the pins the
