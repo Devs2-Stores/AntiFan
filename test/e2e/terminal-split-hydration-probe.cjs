@@ -171,17 +171,21 @@ app.whenReady().then(async () => {
     // -------------------------------------------------------------
     console.log('[PROBE] Executing Check 2: Same-ID Early Return Trap...');
     
+    const check2Initial = await win.webContents.executeJavaScript(`(async () => {
+      // Unmount first, then mount the split against a backend that has not advanced yet
+      unmountSplit();
+      mountSplit('split-probe-2', '', 0);
+      await new Promise(r => setTimeout(r, 300));
+      return { initialSeq: splitSessionState.lastRenderedSeq };
+    })()`);
+
+    // A real session-state payload is derived from Main's transcript, so the backend
+    // advances in lock-step with a newer broadcast instead of lagging behind it.
+    backendBuffers['split-probe-2'] = { buffer: 'LATER-SESSION-BUFFER\r\n', snapshotThroughSeq: 2 };
+
     const check2Result = await win.webContents.executeJavaScript(`(async () => {
       try {
-        // Unmount first
-        unmountSplit();
-        
-        // Mount empty split first
-        mountSplit('split-probe-2', '', 0);
-        await new Promise(r => setTimeout(r, 300));
-        const initialSeq = splitSessionState.lastRenderedSeq;
-        
-        // Now simulate onTerminalSession broadcast arriving later with newer sequence (seq 2 > seq 1)
+        // onTerminalSession broadcast arriving later with newer sequence (seq 2 > seq 1)
         mountSplit('split-probe-2', 'LATER-SESSION-BUFFER\\r\\n', 2);
         await new Promise(r => setTimeout(r, 400));
         
@@ -196,7 +200,6 @@ app.whenReady().then(async () => {
         }
         
         return {
-          initialSeq,
           seqAfterSessionArrival,
           fullText
         };
@@ -211,7 +214,7 @@ app.whenReady().then(async () => {
     }
 
     telemetry.checks.sameIdEarlyReturnTrap = {
-      initialSeq: check2Result.initialSeq,
+      initialSeq: check2Initial.initialSeq,
       seqAfterSessionArrival: check2Result.seqAfterSessionArrival,
       acceptedNewerSnapshot: check2Result.seqAfterSessionArrival === 2 && check2Result.fullText.includes('LATER-SESSION-BUFFER'),
       oldMarkerReplacedCleanly: !check2Result.fullText.includes('INITIAL-OLD-PROBE-2-DATA'),

@@ -68,6 +68,12 @@ app.whenReady().then(async () => {
     return mockSessions;
   });
 
+  // Authoritative transcript fetch: panes hydrate from here, not from the broadcast.
+  ipcMain.handle('antifan:terminal:get-full-buffer', (_e, sessionId) => {
+    const s = mockSessions.find((x) => x.id === sessionId);
+    return { sessionId, buffer: s ? (s.buffer || '') : '', snapshotThroughSeq: 0 };
+  });
+
   ipcMain.handle('antifan:terminal:new-session', () => {
     newTerminalInvocations++;
     const newId = `session-recovery-${mockSessions.length + 1}`;
