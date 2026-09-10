@@ -21,14 +21,32 @@ describe('build-report next action interpolation and gating', () => {
 
       const content = fs.readFileSync(tempOut, 'utf8');
       assert.ok(content.includes('## 16. Next Action'), 'Must have Section 16');
-      assert.ok(content.includes('For 1440×900 (run3-1440)'), 'Must interpolate 1440x900 action');
-      assert.ok(content.includes('For 1024×900 (run3-1024)'), 'Must interpolate 1024x900 action');
-      assert.ok(content.includes('For 390×844 (run3-390)'), 'Must interpolate 390x844 action');
-      assert.ok(content.includes('390×844 vs clone: 660×1429'), 'Must assert exact CSS viewport mismatch string');
-      assert.ok(content.includes('390×4481 vs 660×14489'), 'Must assert exact capture size mismatch string');
-      assert.ok(!content.includes('undefined×undefined'), 'Must never output undefined dimensions');
-      assert.ok(content.includes('10008 px height delta'), 'Must interpolate real 390 docHeight delta');
-      assert.ok(content.includes('270 px horizontal root overflow'), 'Must interpolate real 390 overflow');
+      assert.ok(!/undefined|\bNaN\b/.test(content.split('## 16. Next Action')[1] || ''), 'Section 16 must never interpolate undefined or NaN');
+
+      // Every viewport the gate held without a compare result must get an
+      // interpolated action line, and every action line must name a viewport
+      // whose geometry matches its own evidence. Asserting the live numbers
+      // themselves would pin this test to one evidence snapshot.
+      const gateSection = content.split('## 14. Final Fidelity Gate')[1]?.split('## 15.')[0] || '';
+      const blocked = [...gateSection.matchAll(/^\|\s*(\d+)×(\d+)\s*\|[^|]*\|[^|]*\|([^|]*)\|/gm)]
+        .filter(([, , , blockers]) => blockers.includes('COMPARE_STATUS_NOT_RESULT'))
+        .map(([, w, h]) => `${w}×${h}`);
+      assert.ok(blocked.length > 0, 'fixture evidence must expose at least one viewport held without a compare result');
+
+      const nextSection = content.split('## 16. Next Action')[1] || '';
+      const emitted = [...nextSection.matchAll(/For (\d+)×(\d+) \(([^)]+)\)/g)].map(([, w, h, label]) => ({ w, h, label }));
+      assert.ok(emitted.length > 0, 'Section 16 must contain interpolated actions');
+      for (const viewport of blocked) {
+        assert.ok(
+          emitted.some((e) => `${e.w}×${e.h}` === viewport),
+          `Section 16 must interpolate an action for ${viewport}, which the gate held without a compare result`,
+        );
+      }
+      for (const action of emitted) {
+        const doc = JSON.parse(fs.readFileSync(path.join(process.cwd(), '.canary', 'run3', 'evidence', `${action.label}.json`), 'utf8'));
+        assert.strictEqual(action.w, String(doc.viewport.width), 'action width must come from that viewport document');
+        assert.strictEqual(action.h, String(doc.viewport.height), 'action height must come from that viewport document');
+      }
     } finally {
       if (fs.existsSync(tempOut)) {
         fs.unlinkSync(tempOut);

@@ -179,12 +179,13 @@ describe('canary-floors production helper contracts', () => {
     });
 
     it('normalizes and returns valid probed floor', () => {
-      const result = validateProbedFloor({ sectionCount: 11, productCardCount: 25 }, vp);
+      const result = validateProbedFloor({ sectionCount: 11, productCardCount: 25, docHeight: 4481 }, vp);
       assert.deepStrictEqual(result, {
         width: 390,
         height: 844,
         minSections: 11,
         minCards: 25,
+        docHeight: 4481,
       });
     });
   });
