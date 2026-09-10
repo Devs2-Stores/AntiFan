@@ -30,7 +30,7 @@ No fix may relax a fidelity assertion, inflate a timeout, or reintroduce a retry
 ### B2 — The 390 tier must run from a real mobile bundle
 
 - `viewport-run.mjs:274-277` requires `clone/mobile/index.html`; nothing in the campaign produces it (`canary-run.mjs:359` does it for run3 only, over `reference/reference-mobile.html`).
-- The mobile bundle needs a mobile *reference* first: the campaign dumps only the desktop reference (`fifteen-pages-run.mjs:475-479`) and merely resizes the tab for floor probes (`:500-520`). It must dump a mobile reference at 390 (`dump-ref.mjs` → `reference/reference-mobile.html`) and build the mobile bundle from that artifact; without it the mobile clone cannot be built at all.
+- The mobile bundle is a **sibling inside the same attempt**: the campaign dumps only the desktop reference today (`fifteen-pages-run.mjs:475-479`) and merely resizes the tab for floor probes (`:500-520`). It must dump a mobile reference at 390 (`dump-ref.mjs` → `reference/reference-mobile.html`) and build the mobile bundle from that artifact into `attempts/<id>/clone/mobile/`, so one attempt carries both viewports' bundles built from their respective references; without it the mobile clone cannot be built at all.
 - Absence must be a typed declared exception for that page × viewport, never a page FAIL indistinguishable from a fidelity failure.
 - Bind the viewport write to capture receipts: `set-viewport` verifies ±1 px at write time but never verifies DPR/zoom, and nothing checks that the compare's later capture measured the same geometry. One saved 390 case measured the clone at `660x1429` while the reference measured `390x844`.
 
