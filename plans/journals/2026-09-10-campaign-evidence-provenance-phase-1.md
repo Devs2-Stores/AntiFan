@@ -72,17 +72,35 @@ Commit: `95e932f` (push `002fe0d..95e932f`).
    instance stop/start and a fresh mint. That same fact also recorded that they did **not** block a
    fresh session's create after a restart — which is the part the two later runs contradict, and the
    fixed message is exactly what hides whether they, or the pool, did the blocking.
-   What the profile shows: the ten ids appear in the control plane's own invocation ledger
-   (`control-plane-v2/invocations/attachment-1a5e58d0-4734-4cc9-9b3b-7c5fe7b19368.jsonl`) as the result
-   of that attachment's tab listing, and the attachment's `browserTarget.tabId` is
-   `1b41d4ff-d186-45cf-9a12-09050b86d858` — the very id the refusal names as the "session". So the
-   thing that refuses is a long-lived attachment bound to a stable tab, and its state is persisted
-   under the profile's `control-plane-v2/` (the id set is not in `Preferences`, `sessions/`,
-   `config/`, `runtime/`, `antifan-recovery.json` or `browser-history.json`).
-   So the actionable step is the profile state outside the repository — an owner action — not an
-   in-session close; and what re-creates the ten tabs on launch is still unidentified: nothing in the
-   repository reads `tabs[]` back from `saved-tabs.json`, so my earlier "the persisted tabs are
-   reloaded" reading remains withdrawn rather than replaced by another guess.
+   What the profile shows, read from the control plane's persisted attachment record (that id set is
+   not in `Preferences`, `sessions/`, `config/`, `runtime/`, `antifan-recovery.json` or
+   `browser-history.json`):
+   - `control-plane-v2/attachments-v1.jsonl` holds one record for
+     `attachment-1a5e58d0-4734-4cc9-9b3b-7c5fe7b19368`, `state: active`, `lease.ownerPid: 19836`
+     (the canary instance), `revisionNumber: 7`, `documentGeneration: 3`, and
+     `browserTarget.tabId: 1b41d4ff-d186-45cf-9a12-09050b86d858` — **the id the refusal names.**
+     So the id in the message is the attachment's persisted bound tab, not the
+     `tabId` in `.canary/state/canary-session.json` (`21b37447…`): the mint's own record and the
+     host's binding are different ids, and it is the host's that the refusal reports.
+   - Its seven revisions churned the binding: `21b37447 → 1b41d4ff → 803dd119 → 1b41d4ff →
+     803dd119 → 1b41d4ff → 1b41d4ff` (rev 1 is the minted session tab; the rest alternate between
+     two others). `1b41d4ff` and `803dd119` appear inside invocation *results* (11 and 5 times), so
+     they were being returned by tab listings, while `21b37447` appears in no result at all.
+   - Closing a tab prunes it from every pool and drops emptied pools (`native-tab-host.ts:3816-3823`),
+     so a pool cannot hold a stale id: a `pool.size >= 10` would mean ten **live** children. Those
+     children would be invisible to both `saved-tabs.json` and the census when they are agent tabs,
+     because `persistTabs()` excludes `ephemeral`/`offscreen` tabs — which is how a frozen-looking
+     count of ten and an exhausted pool can both be true at once.
+   The finding is therefore sharper than "profile state", and two explanations survive it:
+   the binding is **dead** (the bound tab was closed, so `adoptChildTab` resolves no pool target —
+   `this.tabs.get(identifier)` misses and no affinity entry exists — and the caller prints the fixed
+   quota text), or the binding is **live but its pool is genuinely full** of ephemeral children left
+   by earlier runs. The remedy differs per cause, and the discriminator needs the instance:
+   `getManagedTabIds('1b41d4ff…').size` (the count the first check reads) plus an existence probe on
+   `1b41d4ff…` itself — pool members ⇒ exhausted pool; absent ⇒ dead binding, and the fix is a
+   re-mint whose attachment binds a live tab. Either way the remedy is not `saved-tabs.json` and not
+   an in-session close of the ten orphans, and what re-creates those ten on launch stays unidentified
+   rather than guessed.
 2. **Settle predicate (phase 2).** Earlier runs aborted at the pre-dump settle, so nothing reached the
    build stage and no campaign case could carry a minted identity. `canary-settle.mjs:184` omits
    `fontsSettled` while `:241` requires it.
