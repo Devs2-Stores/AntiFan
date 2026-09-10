@@ -127,6 +127,21 @@ so a forged `current-attempt.json` could name a location outside that page's att
 directory. The threat model is a local process that can already write the evidence, and
 containment belongs with the Phase 3 reader work.
 
+## Verification runs
+
+- `npm run test:main` → `tests 1077, pass 1076, fail 0, skipped 1`, exit 0 (log `.canary/state/p1-test-main.log`).
+- `node --test test/unit/canary-campaign-verdicts.test.mjs test/unit/canary-evidence-provenance.test.mjs` →
+  `pass 25, fail 0`, exit 0.
+- `.canary/state/phase1-refusal-matrix.mjs` → 8/8 refusals as expected, no session written.
+
+## Instance lifecycle (after the measurements)
+
+The canary instance was shut down through its supervisor, and the launcher removed the instance
+record as part of that controlled teardown: `canary-instance.json` is gone and nothing listens on
+20131, while the operator's own instance on 20130 is untouched. The record owner's whole cycle —
+written on launch, validated at mint, dropped on exit — is therefore observed live in both
+directions. Any further live run starts from a launch with `--state-record` and a fresh mint.
+
 ## Docs impact
 
 None: no user-facing behaviour, command or configuration changed.
