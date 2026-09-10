@@ -1,0 +1,1271 @@
+{
+  "initialUrl": "https://hoplongtech.com/",
+  "finalUrl": "https://hoplongtech.com/",
+  "docW": 1425,
+  "docH": 5422,
+  "clientW": 1425,
+  "overflowX": false,
+  "sections": [
+    {
+      "tag": "header",
+      "cls": "site-header",
+      "rect": {
+        "x": 0,
+        "y": 0,
+        "w": 1425,
+        "h": 163.05
+      },
+      "heading": null
+    },
+    {
+      "tag": "main",
+      "cls": "",
+      "rect": {
+        "x": 0,
+        "y": 163.05,
+        "w": 1425,
+        "h": 4652.48
+      },
+      "heading": "Công ty Cổ phần Công nghệ Hợp Long"
+    },
+    {
+      "tag": "section",
+      "cls": "slide",
+      "rect": {
+        "x": 0,
+        "y": 163.05,
+        "w": 1425,
+        "h": 445
+      },
+      "heading": null
+    },
+    {
+      "tag": "section",
+      "cls": "category-list",
+      "rect": {
+        "x": 0,
+        "y": 628.05,
+        "w": 1425,
+        "h": 119.73
+      },
+      "heading": null
+    },
+    {
+      "tag": "section",
+      "cls": "banner-category",
+      "rect": {
+        "x": 0,
+        "y": 747.78,
+        "w": 1425,
+        "h": 165
+      },
+      "heading": null
+    },
+    {
+      "tag": "section",
+      "cls": "block-category",
+      "rect": {
+        "x": 0,
+        "y": 932.78,
+        "w": 1425,
+        "h": 419
+      },
+      "heading": "Contactor"
+    },
+    {
+      "tag": "section",
+      "cls": "block-category",
+      "rect": {
+        "x": 0,
+        "y": 1371.78,
+        "w": 1425,
+        "h": 419
+      },
+      "heading": "Biến tần NiSTRO"
+    },
+    {
+      "tag": "section",
+      "cls": "block-category",
+      "rect": {
+        "x": 0,
+        "y": 1810.78,
+        "w": 1425,
+        "h": 419
+      },
+      "heading": "Biến tần VEICHI"
+    },
+    {
+      "tag": "section",
+      "cls": "block-category",
+      "rect": {
+        "x": 0,
+        "y": 2249.78,
+        "w": 1425,
+        "h": 419
+      },
+      "heading": "Biến áp"
+    },
+    {
+      "tag": "section",
+      "cls": "block-category",
+      "rect": {
+        "x": 0,
+        "y": 2688.78,
+        "w": 1425,
+        "h": 419
+      },
+      "heading": "Cảm biến"
+    },
+    {
+      "tag": "section",
+      "cls": "home-form",
+      "rect": {
+        "x": 0,
+        "y": 3252.78,
+        "w": 1425,
+        "h": 369
+      },
+      "heading": null
+    },
+    {
+      "tag": "section",
+      "cls": "accessory",
+      "rect": {
+        "x": 0,
+        "y": 3766.78,
+        "w": 1425,
+        "h": 351
+      },
+      "heading": "Cầu đấu khối"
+    },
+    {
+      "tag": "section",
+      "cls": "news",
+      "rect": {
+        "x": 0,
+        "y": 4137.78,
+        "w": 1425,
+        "h": 435.75
+      },
+      "heading": "Công tắc hành trình GGL-804 Giga Electric bền bỉ và ổn định"
+    },
+    {
+      "tag": "section",
+      "cls": "partner",
+      "rect": {
+        "x": 0,
+        "y": 4593.53,
+        "w": 1425,
+        "h": 222
+      },
+      "heading": null
+    },
+    {
+      "tag": "div",
+      "cls": "site-footer.w-100",
+      "rect": {
+        "x": 0,
+        "y": 4815.53,
+        "w": 1425,
+        "h": 606.86
+      },
+      "heading": null
+    }
+  ],
+  "headings": [
+    {
+      "level": "h1",
+      "text": "Công ty Cổ phần Công nghệ Hợp Long",
+      "rect": {
+        "x": 0,
+        "y": -900,
+        "w": 477.2,
+        "h": 34
+      }
+    },
+    {
+      "level": "h2",
+      "text": "Contactor",
+      "rect": {
+        "x": 142.5,
+        "y": 1232.78,
+        "w": 94,
+        "h": 22
+      }
+    },
+    {
+      "level": "h3",
+      "text": "Contactor LC1D09M7 Schneider - Tesys LC1D Series",
+      "rect": {
+        "x": 337.5,
+        "y": 1131.78,
+        "w": 172.59,
+        "h": 40
+      }
+    },
+    {
+      "level": "h3",
+      "text": "Contactor LC1D12M7 Schneider - Tesys LC1D Series",
+      "rect": {
+        "x": 531.09,
+        "y": 1131.78,
+        "w": 172.59,
+        "h": 40
+      }
+    },
+    {
+      "level": "h3",
+      "text": "Contactor A9C20731 Schneider - Acti 9 iCT Series",
+      "rect": {
+        "x": 724.69,
+        "y": 1131.78,
+        "w": 172.59,
+        "h": 40
+      }
+    },
+    {
+      "level": "h3",
+      "text": "Contactor LC1D32M7 Schneider - Tesys LC1D Series",
+      "rect": {
+        "x": 918.28,
+        "y": 1131.78,
+        "w": 172.59,
+        "h": 40
+      }
+    },
+    {
+      "level": "h3",
+      "text": "Contactor LC1D18M7 Schneider - Tesys LC1D Series",
+      "rect": {
+        "x": 1111.88,
+        "y": 1131.78,
+        "w": 173.59,
+        "h": 40
+      }
+    },
+    {
+      "level": "h2",
+      "text": "Biến tần NiSTRO",
+      "rect": {
+        "x": 142.5,
+        "y": 1671.78,
+        "w": 134.45,
+        "h": 22
+      }
+    },
+    {
+      "level": "h3",
+      "text": "Biến tần GA27-S2-R75G-B-W NiSTRO",
+      "rect": {
+        "x": 337.5,
+        "y": 1570.78,
+        "w": 172.59,
+        "h": 40
+      }
+    },
+    {
+      "level": "h3",
+      "text": "Biến tần GA27-T3-2R2G-B-W NiSTRO - GA27 Series",
+      "rect": {
+        "x": 531.09,
+        "y": 1570.78,
+        "w": 172.59,
+        "h": 40
+      }
+    },
+    {
+      "level": "h3",
+      "text": "Biến tần GA27-T3-1R5G-B-W NiSTRO - GA27 Series",
+      "rect": {
+        "x": 724.69,
+        "y": 1570.78,
+        "w": 172.59,
+        "h": 40
+      }
+    },
+    {
+      "level": "h3",
+      "text": "Biến tần GA27-T3-004G-B-W NiSTRO - GA27 Series",
+      "rect": {
+        "x": 918.28,
+        "y": 1570.78,
+        "w": 172.59,
+        "h": 40
+      }
+    },
+    {
+      "level": "h3",
+      "text": "Biến tần GA20-T3-1R5G-B NiSTRO",
+      "rect": {
+        "x": 1111.88,
+        "y": 1570.78,
+        "w": 173.59,
+        "h": 40
+      }
+    },
+    {
+      "level": "h2",
+      "text": "Biến tần VEICHI",
+      "rect": {
+        "x": 142.5,
+        "y": 2110.78,
+        "w": 127.73,
+        "h": 22
+      }
+    },
+    {
+      "level": "h3",
+      "text": "Biến tần AC310-T3-R75G/1R5P-B VEICHI - AC310 Series",
+      "rect": {
+        "x": 337.5,
+        "y": 2009.78,
+        "w": 172.59,
+        "h": 40
+      }
+    },
+    {
+      "level": "h3",
+      "text": "Biến tần AC10-T3-004G-B VEICHI - AC10 Series",
+      "rect": {
+        "x": 531.09,
+        "y": 2009.78,
+        "w": 172.59,
+        "h": 40
+      }
+    },
+    {
+      "level": "h3",
+      "text": "Biến tần AC310-T3-022G/030P-B VEICHI - AC310 Series",
+      "rect": {
+        "x": 724.69,
+        "y": 2009.78,
+        "w": 172.59,
+        "h": 40
+      }
+    },
+    {
+      "level": "h3",
+      "text": "Biến tần AC01-S2-R75G-B-W VEICHI - AC01 Series",
+      "rect": {
+        "x": 918.28,
+        "y": 2009.78,
+        "w": 172.59,
+        "h": 40
+      }
+    },
+    {
+      "level": "h3",
+      "text": "Màn hình HMI VI20-070S-FE Veichi - VI20 Series",
+      "rect": {
+        "x": 1111.88,
+        "y": 2009.78,
+        "w": 173.59,
+        "h": 40
+      }
+    },
+    {
+      "level": "h2",
+      "text": "Biến áp",
+      "rect": {
+        "x": 142.5,
+        "y": 2549.78,
+        "w": 94,
+        "h": 22
+      }
+    },
+    {
+      "level": "h3",
+      "text": "Biến áp GGK-25VA Giga Electric",
+      "rect": {
+        "x": 337.5,
+        "y": 2448.78,
+        "w": 172.59,
+        "h": 40
+      }
+    },
+    {
+      "level": "h3",
+      "text": "Biến áp GGK-50VA Giga Electric",
+      "rect": {
+        "x": 531.09,
+        "y": 2448.78,
+        "w": 172.59,
+        "h": 40
+      }
+    },
+    {
+      "level": "h3",
+      "text": "Biến áp GGK-100VA Giga Electric",
+      "rect": {
+        "x": 724.69,
+        "y": 2448.78,
+        "w": 172.59,
+        "h": 40
+      }
+    },
+    {
+      "level": "h3",
+      "text": "Biến áp GGK-150VA Giga Electric",
+      "rect": {
+        "x": 918.28,
+        "y": 2448.78,
+        "w": 172.59,
+        "h": 40
+      }
+    },
+    {
+      "level": "h3",
+      "text": "Biến áp GGK-200VA Giga Electric",
+      "rect": {
+        "x": 1111.88,
+        "y": 2448.78,
+        "w": 173.59,
+        "h": 40
+      }
+    },
+    {
+      "level": "h2",
+      "text": "Cảm biến",
+      "rect": {
+        "x": 142.5,
+        "y": 2988.78,
+        "w": 94,
+        "h": 22
+      }
+    },
+    {
+      "level": "h3",
+      "text": "Cảm biến quang BRQM400-DDTA Autonics",
+      "rect": {
+        "x": 337.5,
+        "y": 2887.78,
+        "w": 172.59,
+        "h": 40
+      }
+    },
+    {
+      "level": "h3",
+      "text": "Cảm biến quang E3Z-LS61-M3J 2M OMS Omron",
+      "rect": {
+        "x": 531.09,
+        "y": 2887.78,
+        "w": 172.59,
+        "h": 40
+      }
+    },
+    {
+      "level": "h3",
+      "text": "Cảm biến quang BUP-30 Autonics",
+      "rect": {
+        "x": 724.69,
+        "y": 2887.78,
+        "w": 172.59,
+        "h": 40
+      }
+    },
+    {
+      "level": "h3",
+      "text": "Cảm biến tiệm cận PR12-2DN Autonics",
+      "rect": {
+        "x": 918.28,
+        "y": 2887.78,
+        "w": 172.59,
+        "h": 40
+      }
+    },
+    {
+      "level": "h3",
+      "text": "Cảm biến quang BEN5M-MFR Autonics",
+      "rect": {
+        "x": 1111.88,
+        "y": 2887.78,
+        "w": 173.59,
+        "h": 40
+      }
+    },
+    {
+      "level": "h3",
+      "text": "Cầu đấu khối",
+      "rect": {
+        "x": 226.5,
+        "y": 3866.78,
+        "w": 116,
+        "h": 17
+      }
+    },
+    {
+      "level": "h3",
+      "text": "Cầu đấu ghép gắn Din Ray",
+      "rect": {
+        "x": 464.5,
+        "y": 3858.28,
+        "w": 116,
+        "h": 34
+      }
+    },
+    {
+      "level": "h3",
+      "text": "Din Ray",
+      "rect": {
+        "x": 702.5,
+        "y": 3866.78,
+        "w": 116,
+        "h": 17
+      }
+    },
+    {
+      "level": "h3",
+      "text": "Điện trở sấy tủ điện",
+      "rect": {
+        "x": 940.5,
+        "y": 3858.28,
+        "w": 116,
+        "h": 34
+      }
+    },
+    {
+      "level": "h3",
+      "text": "Quạt thông gió tủ điện",
+      "rect": {
+        "x": 1178.5,
+        "y": 3858.28,
+        "w": 116,
+        "h": 34
+      }
+    },
+    {
+      "level": "h3",
+      "text": "Vỏ cầu chì & Ruột cầu chì",
+      "rect": {
+        "x": 226.5,
+        "y": 3985.28,
+        "w": 116,
+        "h": 34
+      }
+    },
+    {
+      "level": "h3",
+      "text": "Điều hòa tủ điện",
+      "rect": {
+        "x": 464.5,
+        "y": 3993.78,
+        "w": 116,
+        "h": 17
+      }
+    },
+    {
+      "level": "h3",
+      "text": "Máng nhựa",
+      "rect": {
+        "x": 702.5,
+        "y": 3993.78,
+        "w": 116,
+        "h": 17
+      }
+    },
+    {
+      "level": "h3",
+      "text": "Công tắc hành trình GGL-804 Giga Electric bền bỉ và ổn định",
+      "rect": {
+        "x": 146.5,
+        "y": 4448.53,
+        "w": 241.5,
+        "h": 32
+      }
+    },
+    {
+      "level": "h3",
+      "text": "AGibot càn quét Đại hội Robot Hình Người Thế Giới 2026: Mang về 18 huy chương vàng và dẫn đầu bảng tổng xếp hạng",
+      "rect": {
+        "x": 444,
+        "y": 4448.53,
+        "w": 241.5,
+        "h": 32
+      }
+    },
+    {
+      "level": "h3",
+      "text": "Robot hình người AGibot A3 tự động chơi bóng bàn, so tài cùng nhà vô địch Olympic Ding Ning",
+      "rect": {
+        "x": 741.5,
+        "y": 4448.53,
+        "w": 241.5,
+        "h": 32
+      }
+    },
+    {
+      "level": "h3",
+      "text": "Robot hình người “Superman” của Unitree: Chạy nhanh hơn Usain Bolt và nhảy cao 2 mét",
+      "rect": {
+        "x": 1039,
+        "y": 4448.53,
+        "w": 241.5,
+        "h": 32
+      }
+    }
+  ],
+  "cardinality": {
+    "productCards": 25,
+    "articles": 4,
+    "categories": 34,
+    "images": 105,
+    "brokenImages": 0,
+    "links": 249,
+    "forms": 4,
+    "inputs": 15
+  },
+  "assetFamily": {
+    "sampleImages": [
+      {
+        "src": "https://img.hoplongtech.com/hoplong/uploads/logo-hlt-2024.png",
+        "srcset": null,
+        "rendered": [
+          243,
+          45
+        ],
+        "natural": [
+          1235,
+          281
+        ]
+      },
+      {
+        "src": "https://img.hoplongtech.com/hoplong/icon/icon.png",
+        "srcset": null,
+        "rendered": [
+          25,
+          25.05
+        ],
+        "natural": [
+          417,
+          418
+        ]
+      },
+      {
+        "src": "https://img.hoplongtech.com/hoplong/uploads/icon-01.png",
+        "srcset": null,
+        "rendered": [
+          25,
+          25
+        ],
+        "natural": [
+          100,
+          100
+        ]
+      },
+      {
+        "src": "https://img.hoplongtech.com/hoplong/uploads/icon-02.png",
+        "srcset": null,
+        "rendered": [
+          25,
+          25
+        ],
+        "natural": [
+          100,
+          100
+        ]
+      },
+      {
+        "src": "https://img.hoplongtech.com/hoplong/uploads/icon-03.png",
+        "srcset": null,
+        "rendered": [
+          25,
+          25
+        ],
+        "natural": [
+          100,
+          100
+        ]
+      },
+      {
+        "src": "https://img.hoplongtech.com/hoplong/uploads/icon-04.png",
+        "srcset": null,
+        "rendered": [
+          25,
+          25
+        ],
+        "natural": [
+          100,
+          100
+        ]
+      },
+      {
+        "src": "https://img.hoplongtech.com/hoplong/uploads/icon-05.png",
+        "srcset": null,
+        "rendered": [
+          25,
+          25
+        ],
+        "natural": [
+          100,
+          100
+        ]
+      },
+      {
+        "src": "https://img.hoplongtech.com/hoplong/uploads/icon-06.png",
+        "srcset": null,
+        "rendered": [
+          25,
+          25
+        ],
+        "natural": [
+          100,
+          100
+        ]
+      },
+      {
+        "src": "https://img.hoplongtech.com/hoplong/uploads/flash-sales-2-1.png",
+        "srcset": null,
+        "rendered": [
+          25,
+          26
+        ],
+        "natural": [
+          25,
+          26
+        ]
+      },
+      {
+        "src": "https://img.hoplongtech.com/hoplong/logo-hang/baner-thuong-hieu/04-best-workplace-in-asia-2025-at-15x.jpg",
+        "srcset": null,
+        "rendered": [
+          670,
+          385
+        ],
+        "natural": [
+          6000,
+          2961
+        ]
+      },
+      {
+        "src": "https://img.hoplongtech.com/hoplong/logo-hang/baner-thuong-hieu/02fast500.jpg",
+        "srcset": null,
+        "rendered": [
+          670,
+          385
+        ],
+        "natural": [
+          2000,
+          987
+        ]
+      },
+      {
+        "src": "https://img.hoplongtech.com/hoplong/logo-hang/baner-thuong-hieu/vnr500.jpg",
+        "srcset": null,
+        "rendered": [
+          670,
+          385
+        ],
+        "natural": [
+          2000,
+          987
+        ]
+      },
+      {
+        "src": "https://img.hoplongtech.com/hoplong/logo-hang/baner-thuong-hieu/03-top-50-vietnam-best-growth.jpg",
+        "srcset": null,
+        "rendered": [
+          670,
+          385
+        ],
+        "natural": [
+          4000,
+          1974
+        ]
+      },
+      {
+        "src": "https://img.hoplongtech.com/hoplong/logo-hang/baner-thuong-hieu/se-1.jpg",
+        "srcset": null,
+        "rendered": [
+          670,
+          385
+        ],
+        "natural": [
+          2000,
+          987
+        ]
+      },
+      {
+        "src": "https://img.hoplongtech.com/hoplong/logo-hang/baner-thuong-hieu/ur.jpg",
+        "srcset": null,
+        "rendered": [
+          670,
+          385
+        ],
+        "natural": [
+          2000,
+          987
+        ]
+      },
+      {
+        "src": "https://img.hoplongtech.com/hoplong/logo-hang/baner-thuong-hieu/omron.jpg",
+        "srcset": null,
+        "rendered": [
+          670,
+          385
+        ],
+        "natural": [
+          2000,
+          987
+        ]
+      },
+      {
+        "src": "https://img.hoplongtech.com/hoplong/logo-hang/baner-thuong-hieu/siemens.jpg",
+        "srcset": null,
+        "rendered": [
+          670,
+          385
+        ],
+        "natural": [
+          2000,
+          987
+        ]
+      },
+      {
+        "src": "https://img.hoplongtech.com/hoplong/logo-hang/baner-thuong-hieu/frecon-1.jpg",
+        "srcset": null,
+        "rendered": [
+          670,
+          385
+        ],
+        "natural": [
+          2000,
+          987
+        ]
+      },
+      {
+        "src": "https://img.hoplongtech.com/hoplong/logo-hang/baner-thuong-hieu/hanyoung.jpg",
+        "srcset": null,
+        "rendered": [
+          670,
+          385
+        ],
+        "natural": [
+          2000,
+          987
+        ]
+      },
+      {
+        "src": "https://img.hoplongtech.com/hoplong/noi-bat/hop-long.jpg",
+        "srcset": null,
+        "rendered": [
+          385,
+          385
+        ],
+        "natural": [
+          1000,
+          1000
+        ]
+      },
+      {
+        "src": "https://img.hoplongtech.com/hoplong/uploads/bien-tan-se.jpg",
+        "srcset": null,
+        "rendered": [
+          226,
+          99.73
+        ],
+        "natural": [
+          1500,
+          662
+        ]
+      },
+      {
+        "src": "https://img.hoplongtech.com/hoplong/uploads/nut-nhan-giga.jpg",
+        "srcset": null,
+        "rendered": [
+          226,
+          99.73
+        ],
+        "natural": [
+          1500,
+          662
+        ]
+      },
+      {
+        "src": "https://img.hoplongtech.com/hoplong/uploads/mccb-cau-dao-tu-dong-siemen.jpg",
+        "srcset": null,
+        "rendered": [
+          226,
+          99.73
+        ],
+        "natural": [
+          1500,
+          662
+        ]
+      },
+      {
+        "src": "https://img.hoplongtech.com/hoplong/uploads/cong-tac-o-cam-se-1.jpg",
+        "srcset": null,
+        "rendered": [
+          226,
+          99.73
+        ],
+        "natural": [
+          1500,
+          662
+        ]
+      },
+      {
+        "src": "https://img.hoplongtech.com/hoplong/uploads/cam-bien-tiem-can-omzon.jpg",
+        "srcset": null,
+        "rendered": [
+          226,
+          99.73
+        ],
+        "natural": [
+          1500,
+          662
+        ]
+      },
+      {
+        "src": "https://img.hoplongtech.com/hoplong/logo-hang/banner-3/miluz-e.jpg",
+        "srcset": null,
+        "rendered": [
+          389.98,
+          165
+        ],
+        "natural": [
+          776,
+          326
+        ]
+      },
+      {
+        "src": "https://img.hoplongtech.com/hoplong/news/bien-ap-giga-electric-1.jpg",
+        "srcset": null,
+        "rendered": [
+          389.98,
+          165
+        ],
+        "natural": [
+          466,
+          196
+        ]
+      },
+      {
+        "src": "https://img.hoplongtech.com/hoplong/news/bien-tan-nistro-3.jpg",
+        "srcset": null,
+        "rendered": [
+          389.98,
+          165
+        ],
+        "natural": [
+          466,
+          196
+        ]
+      },
+      {
+        "src": "https://img.hoplongtech.com/hoplong/logo-hang/banner-danh-muc/gv2me326-new.png",
+        "srcset": null,
+        "rendered": [
+          128,
+          153.59
+        ],
+        "natural": [
+          1500,
+          1800
+        ]
+      },
+      {
+        "src": "https://img.hoplongtech.com/hoplong/thiet-bi-dong-cat/contactor/schneider-lc1d09-main.jpg",
+        "srcset": null,
+        "rendered": [
+          172,
+          155
+        ],
+        "natural": [
+          600,
+          600
+        ]
+      },
+      {
+        "src": "https://img.hoplongtech.com/hoplong/thiet-bi-dong-cat/contactor/schneider-lc1d12-main.jpg",
+        "srcset": null,
+        "rendered": [
+          172,
+          155
+        ],
+        "natural": [
+          600,
+          600
+        ]
+      },
+      {
+        "src": "https://img.hoplongtech.com/hoplong/thiet-bi-dong-cat/contactor/schneider-a9c2-main.jpg",
+        "srcset": null,
+        "rendered": [
+          172,
+          155
+        ],
+        "natural": [
+          600,
+          600
+        ]
+      },
+      {
+        "src": "https://img.hoplongtech.com/hoplong/thiet-bi-dong-cat/contactor/schneider-lc1d32-main.jpg",
+        "srcset": null,
+        "rendered": [
+          172,
+          155
+        ],
+        "natural": [
+          600,
+          600
+        ]
+      },
+      {
+        "src": "https://img.hoplongtech.com/hoplong/thiet-bi-dong-cat/contactor/schneider-lc1d188-main.jpg",
+        "srcset": null,
+        "rendered": [
+          172,
+          155
+        ],
+        "natural": [
+          600,
+          600
+        ]
+      },
+      {
+        "src": "https://img.hoplongtech.com/hoplong/news/bien-tan-nistro-1.png",
+        "srcset": null,
+        "rendered": [
+          128,
+          199.55
+        ],
+        "natural": [
+          254,
+          396
+        ]
+      },
+      {
+        "src": "https://img.hoplongtech.com/hoplong/bien-tan/bien-tan-ha-the/ga27-65-nistro-main.jpg",
+        "srcset": null,
+        "rendered": [
+          172,
+          155
+        ],
+        "natural": [
+          600,
+          600
+        ]
+      },
+      {
+        "src": "https://img.hoplongtech.com/hoplong/bien-tan/bien-tan-ha-the/ga27-main-hlt.jpg",
+        "srcset": null,
+        "rendered": [
+          172,
+          155
+        ],
+        "natural": [
+          600,
+          600
+        ]
+      },
+      {
+        "src": "https://img.hoplongtech.com/hoplong/bien-tan/bien-tan-ha-the/ga27-main-hlt.jpg",
+        "srcset": null,
+        "rendered": [
+          172,
+          155
+        ],
+        "natural": [
+          600,
+          600
+        ]
+      },
+      {
+        "src": "https://img.hoplongtech.com/hoplong/bien-tan/bien-tan-ha-the/ga27-main-hlt.jpg",
+        "srcset": null,
+        "rendered": [
+          172,
+          155
+        ],
+        "natural": [
+          600,
+          600
+        ]
+      },
+      {
+        "src": "https://img.hoplongtech.com/hoplong/bien-tan/bien-tan-ha-the/nistro-ga20-65-main.jpg",
+        "srcset": null,
+        "rendered": [
+          172,
+          155
+        ],
+        "natural": [
+          600,
+          600
+        ]
+      },
+      {
+        "src": "https://img.hoplongtech.com/hoplong/logo-hang/banner-3/veichi-1.png",
+        "srcset": null,
+        "rendered": [
+          128,
+          199.61
+        ],
+        "natural": [
+          1058,
+          1650
+        ]
+      },
+      {
+        "src": "https://img.hoplongtech.com/hoplong/bien-tan/bien-tan-ha-the/veichi-ac310-main.jpg",
+        "srcset": null,
+        "rendered": [
+          172,
+          155
+        ],
+        "natural": [
+          600,
+          600
+        ]
+      },
+      {
+        "src": "https://img.hoplongtech.com/hoplong/bien-tan/bien-tan-ha-the/veichi-ac10-main.jpg",
+        "srcset": null,
+        "rendered": [
+          172,
+          155
+        ],
+        "natural": [
+          600,
+          600
+        ]
+      },
+      {
+        "src": "https://img.hoplongtech.com/hoplong/bien-tan/bien-tan-ha-the/veichi-ac310-main.jpg",
+        "srcset": null,
+        "rendered": [
+          172,
+          155
+        ],
+        "natural": [
+          600,
+          600
+        ]
+      },
+      {
+        "src": "https://img.hoplongtech.com/hoplong/bien-tan/bien-tan-ha-the/veichi-ac01-main.jpg",
+        "srcset": null,
+        "rendered": [
+          172,
+          155
+        ],
+        "natural": [
+          600,
+          600
+        ]
+      },
+      {
+        "src": "https://img.hoplongtech.com/hoplong/plc-hmi/hmi/vi20-veichi-main.jpg",
+        "srcset": null,
+        "rendered": [
+          172,
+          155
+        ],
+        "natural": [
+          600,
+          600
+        ]
+      },
+      {
+        "src": "https://img.hoplongtech.com/hoplong/uploads/bien-ap-giga.png",
+        "srcset": null,
+        "rendered": [
+          128,
+          153.59
+        ],
+        "natural": [
+          1500,
+          1800
+        ]
+      },
+      {
+        "src": "https://img.hoplongtech.com/hoplong/bien-ap/bien-ap-cach-ly/giga-ggk-25.jpg",
+        "srcset": null,
+        "rendered": [
+          172,
+          155
+        ],
+        "natural": [
+          600,
+          600
+        ]
+      },
+      {
+        "src": "https://img.hoplongtech.com/hoplong/bien-ap/bien-ap-cach-ly/giga-ggk-50.jpg",
+        "srcset": null,
+        "rendered": [
+          172,
+          155
+        ],
+        "natural": [
+          600,
+          600
+        ]
+      },
+      {
+        "src": "https://img.hoplongtech.com/hoplong/bien-ap/bien-ap-cach-ly/giga-ggk-100.jpg",
+        "srcset": null,
+        "rendered": [
+          172,
+          155
+        ],
+        "natural": [
+          600,
+          600
+        ]
+      }
+    ],
+    "pictureCount": 0,
+    "pictures": [],
+    "backgroundImages": [],
+    "inlineSvgs": 150,
+    "externalSvgs": 0,
+    "videos": []
+  },
+  "typography": {
+    "body": {
+      "family": "Roboto",
+      "weight": "400",
+      "style": "normal",
+      "size": "14px",
+      "lineHeight": "normal"
+    },
+    "h1": {
+      "family": "Roboto",
+      "weight": "600",
+      "style": "normal",
+      "size": "28px",
+      "lineHeight": "normal"
+    },
+    "h2": {
+      "family": "Roboto",
+      "weight": "600",
+      "style": "normal",
+      "size": "18px",
+      "lineHeight": "normal"
+    },
+    "h3": {
+      "family": "Roboto",
+      "weight": "700",
+      "style": "normal",
+      "size": "14px",
+      "lineHeight": "20px"
+    },
+    "p": {
+      "family": "Roboto",
+      "weight": "700",
+      "style": "normal",
+      "size": "12px",
+      "lineHeight": "24px"
+    },
+    "a": {
+      "family": "Roboto",
+      "weight": "400",
+      "style": "normal",
+      "size": "14px",
+      "lineHeight": "normal"
+    }
+  }
+}

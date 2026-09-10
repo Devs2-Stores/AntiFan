@@ -1,7 +1,7 @@
 ---
 phase: 2
 title: "Capture-Side Blockers"
-status: pending
+status: in_progress
 priority: P0
 effort: "8h"
 dependencies: ["phase-01-evidence-provenance-and-freshness-gate"]
@@ -81,15 +81,62 @@ No fix may relax a fidelity assertion, inflate a timeout, or reintroduce a retry
 ## Todo
 
 - [ ] Capture the mutation signature and prove the churn cosmetic
-- [ ] Align the two settle predicates and persist every component
-- [ ] Split `domQuiet` (evidence) from `renderStateStable` (gate)
-- [ ] Add the content-sensitive fingerprint to the gate
-- [ ] Add and pass `test/unit/canary-settle-contract.test.mjs` (including the swap case)
-- [ ] Prove a live storefront page reaches two matching settled passes
-- [ ] Build the campaign's mobile bundle and give its absence a typed exception
-- [ ] Bind viewport writes to capture-time geometry per side
+- [x] Align the two settle predicates and persist every component
+- [x] Split `domQuiet` (evidence) from `renderStateStable` (gate)
+- [x] Add the content-sensitive fingerprint to the gate
+- [x] Add and pass `test/unit/canary-settle-contract.test.mjs` (including the swap case)
+- [x] Prove a live storefront page reaches two matching settled passes
+- [x] Build the campaign's mobile bundle and give its absence a typed exception
+- [x] Bind viewport writes to capture-time geometry per side
 - [ ] Apply the ceiling policy and classify the tall-page drains
-- [ ] Assert the tab census before and after a run
+- [x] Assert the tab census before and after a run
+
+The two open items are open for a reason, not by omission: neither marker exists in the
+tree (`grep -rn "mutationSignature" .canary/tools scripts/lib` is empty, and so is
+`grep -rn "16384\|CAPTURE_TOO_TALL" .canary/tools/viewport-run.mjs scripts/lib/*.mjs`).
+No campaign page has yet exceeded the CDP ceiling, because page 1 is the only page that
+has run.
+
+## Measured findings (added while executing this phase)
+
+Each of these was a live defect with a measurement behind it, not a refactor:
+
+- **The guard registry was per-pass.** `settleAndMeasure` created a fresh `snapshots`
+  `Map` on every pass while overwriting `window.__antifanGuardRestore`, so each pass
+  re-snapshotted already-pinned nodes at their pinned values and made those pins
+  irreversible. Measured: the release reported `{restored: 2, pinsLeft: 177}` on the
+  reference against `{restored: 7, pinsLeft: 0}` on the clone. The registry is now
+  page-level (`window.__antifanGuardSnapshots`); the run after the change reported
+  `markedLeft: 0` on both sides.
+- **Observation-based pins manufactured mismatches.** They mark only the nodes each tab
+  was observed moving, so the two sides pin different sets (63 against 83) and a kept-pin
+  compare reported 7.35% at a viewport that had passed at 1.87%. They are released before
+  the compare, and the release is followed by a symmetric sweep of the page's real timer
+  ids (`slickPause` reaches nothing here: the storefront exposes no jQuery global, so
+  `slickPaused` is 0 on both sides) plus a widget-state sample that proves the sweep left
+  the page inert.
+- **The compared state must be inert through the raster, not just at its start.** The
+  pre-compare proof window is far shorter than the transaction, so the same sample is
+  taken again after the compare; a page that is still changing its own widget state
+  withholds the pixel verdict instead of publishing it (`PAGE_MOTION_DURING_COMPARE`).
+- **`BlueprintExtractor` unbound a framework component.** `isLayoutContainer` descended
+  into any `<div>` that only contained sections, including one carrying
+  `wire:id`/`wire:snapshot`/`wire:effects`; descending dropped the bindings (44
+  components in the mobile dump, 42 after extraction and in the bundle) and with them the
+  `xjs` initializer `$('.block-category__list').slick({slidesToShow: 1.8})`. The clone kept
+  all five sections and rendered each at 341px against the reference's 76px — 1325px of
+  excess document height at 390px, exactly the `<main>` delta and 1.423× the reference.
+  A wrapper carrying a framework binding is no longer treated as a layout container.
+- **Harness residue reached the bundles.** `data-antifan-pw-hooked="1"` survived on the
+  live login form into both published artifacts; the dump now strips it and the bundle
+  gate lists it. Verified: 0 occurrences and no `data-antifan-*` marker in either bundle.
+- **Body attributes selecting the layout were re-declared, not carried.** The generator
+  emitted a bare `<body>`, losing `data-device`; the source `<html>`/`<body>` attributes
+  are now passed through with the harness and navigation hooks scrubbed.
+- **A mint can reach a bridge that resets the request.** Measured twice as
+  `Error: read ECONNRESET` (errno -4077) with a valid instance record and the port owned
+  by the recorded pid. `canary-session.mjs` now waits for the pairing route to answer an
+  HTTP response before minting; the mint itself is still attempted once.
 
 ## Verification
 

@@ -20,9 +20,10 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import http from 'node:http';
 import { call, evalOn, bootstrap } from './lib-rpc.mjs';
-import { hydrateToCapturedState, requireDoubleSettledMetrics } from './canary-settle.mjs';
+import { hydrateToCapturedState, requireDoubleSettledMetrics, releaseCompareBlockers, sampleWidgetMotion } from './canary-settle.mjs';
 import { sha256Buffer, sha256File } from '../../scripts/lib/atomic-record.mjs';
 import { detectBundleDrift, loadInstanceIdentity, PROVENANCE_CODES } from '../../scripts/lib/evidence-provenance.mjs';
+import { describeViewport, sameViewport } from '../../scripts/lib/viewport-geometry.mjs';
 
 
 const [, , label, widthArg, heightArg, refTabId, cloneTabId, runDirArg, minSectionsArg, minCardsArg] = process.argv;
@@ -77,6 +78,9 @@ const bundleIdentity = bundleParse.identity;
 // The entry this tier expects to be served. Its hash is read once here and
 // compared against the document the clone tab is actually displaying.
 const servedEntryPath = process.env.CANARY_SERVED_ENTRY ? path.resolve(process.env.CANARY_SERVED_ENTRY) : null;
+// The dump this tier's bundle was built from. The clone is a snapshot of it, so a
+// verdict is only meaningful while the live page still measures the same document.
+const REFERENCE_DUMP_PATH = process.env.CANARY_REFERENCE_DUMP ? path.resolve(process.env.CANARY_REFERENCE_DUMP) : null;
 const servedEntrySha256 = servedEntryPath && fs.existsSync(servedEntryPath) ? sha256File(servedEntryPath) : null;
 const instanceIdentity = loadInstanceIdentity();
 const provenanceGap = [
@@ -114,6 +118,12 @@ const TRACKED = [
 /**
  * Fail closed: a pixel verdict is only meaningful when both sides reached a real
  * settled state and the reference still exposes the structure it was captured with.
+ *
+ * The decider is the settle contract's own composite, the same one that guarded
+ * the two-pass fingerprint: `settled` already requires mediaFrozen, fontsSettled,
+ * imagesSettled, visualStable and renderStateStable. Raw DOM churn is deliberately
+ * not a gate — it is recorded as evidence, because a page can be structurally
+ * noisy and still render identical content.
  */
 function evaluateReadiness(stage, role) {
   const s = stage.settle || {};
@@ -121,7 +131,8 @@ function evaluateReadiness(stage, role) {
   const reasons = [];
   if (s.fontsSettled !== true) reasons.push('fontsSettled=false');
   if (s.imagesSettled !== true) reasons.push(`imagesSettled=false(pending=${s.pendingImages ?? '?'})`);
-  if (s.domSettled !== true) reasons.push('domSettled=false');
+  if (s.settled !== true) reasons.push(`settle.notSettled(refusal=${s.refusal?.code || 'none'})`);
+  if (s.renderStateStable !== true) reasons.push('renderStateStable=false');
   if (s.visualStable !== true) reasons.push('visualStable=false');
   if (s.mediaFrozen !== true) reasons.push(`mediaFrozen=${s.mediaFrozen}`);
   if ((s.pendingImages || 0) > 0) reasons.push(`pendingImages=${s.pendingImages}`);
@@ -449,6 +460,31 @@ async function assertServedEntryMatchesMinted() {
   persist();
 }
 
+// The storefront chooses its layout from a `data-device` attribute written at load
+// time, not from a media query: at 390 the reference tab and the clone can therefore
+// render *different* layouts at the same width. Measured: a 390px reference rendered
+// 9781px while its own dump — and the clone built from it — rendered 4533px, and the
+// resulting `STRUCTURAL_TRUNCATION_DETECTED` blamed the clone for the reference's
+// layout switch. These fields make that attribution possible, and a mismatch refuses.
+const TAB_IDENTITY_EXPR = `(() => {
+  const body = document.body;
+  const widgetSel = '[class*="slick"],[class*="slide"],[class*="swiper"],[class*="track"],[class*="carousel"],[class*="banner"]';
+  return {
+    href: location.href,
+    device: body ? body.getAttribute('data-device') : null,
+    ua: navigator.userAgent,
+    innerWidth: window.innerWidth,
+    innerHeight: window.innerHeight,
+    dpr: window.devicePixelRatio,
+    docHeight: document.documentElement.scrollHeight,
+    bodyClass: body ? String(body.className).slice(0, 160) : null,
+    sections: document.querySelectorAll('section').length,
+    widgetNodes: document.querySelectorAll(widgetSel).length,
+    images: document.images.length,
+    completeImages: Array.from(document.images).filter((i) => i.complete && i.naturalWidth > 0).length,
+  };
+})()`;
+
 const isMobile = width < 768;
 const dpr = 1;
 log(`set viewport ${width}x${height} (mobile=${isMobile}, dpr=${dpr}) on both tabs (atomic viewport + reload)`);
@@ -540,6 +576,76 @@ if (isMobile) {
 // Provenance gate, before any compare and before the clone side is captured: the
 // tab must be displaying the entry the build minted, or there is nothing this
 // viewport may judge.
+// ── CSS geometry gate ────────────────────────────────────────────────────────
+// The app verifies a viewport write against the tab's render surface, but the
+// emulated CSS geometry the comparator actually rasterizes can still drift
+// (measured: a clone captured at 780x1688 while the reference stayed at
+// 390x844, because only the clone's emulation was scaled). A pair may only be
+// compared when both tabs measure the requested CSS viewport, so each side is
+// measured here, the not-yet-measured side is repaired once from the request,
+// and a remaining deviation is refused — never reported as a fidelity verdict.
+async function measureTabViewport(tabId) {
+  const m = await evalOn(tabId, '({ w: window.innerWidth, h: window.innerHeight, dpr: window.devicePixelRatio })', 10_000).catch(() => null);
+  if (!m || !Number.isFinite(m.w) || !Number.isFinite(m.h)) return null;
+  return { width: Math.round(m.w), height: Math.round(m.h), dpr: Number(m.dpr) };
+}
+
+async function waitForReadyState(tabId) {
+  for (let i = 0; i < 40; i++) {
+    await new Promise(r => setTimeout(r, 400));
+    try {
+      const r = await evalOn(tabId, '({ rs: document.readyState })', 5000);
+      if (r && r.rs === 'complete') return true;
+    } catch {}
+  }
+  return false;
+}
+
+// `repairRole` is the side whose settled measurements have not been taken yet:
+// re-applying a viewport reloads the tab, so repairing the already-measured side
+// would invalidate the stages the pair is gated against. A deviation on that
+// side is refused instead of repaired.
+async function enforceViewportGeometry(stage, repairRole) {
+  const requested = { width, height, dpr };
+  let reference = await measureTabViewport(refTabId);
+  let clone = await measureTabViewport(cloneTabId);
+  const repairs = [];
+  if (repairRole) {
+    const tabId = repairRole === 'clone' ? cloneTabId : refTabId;
+    const measured = repairRole === 'clone' ? clone : reference;
+    if (!sameViewport(measured, requested)) {
+      log(`viewport drift at ${stage}: ${repairRole} measures ${describeViewport(measured)} for a requested ${describeViewport(requested)} — re-applying the request`);
+      try {
+        await call('browser.set-viewport', { tabId, width, height, mobile: isMobile, deviceScaleFactor: dpr, reload: true }, 120_000);
+      } catch (e) {
+        log(`  ${repairRole} repair write refused: ${String(e.message || e).slice(0, 200)}`);
+      }
+      await waitForReadyState(tabId);
+      const after = await measureTabViewport(tabId);
+      repairs.push({ role: repairRole, before: measured, after });
+      if (repairRole === 'clone') clone = after; else reference = after;
+    }
+  }
+  const record = {
+    stage,
+    requested,
+    reference,
+    clone,
+    repairs,
+    symmetric: sameViewport(reference, clone) && sameViewport(reference, requested) && sameViewport(clone, requested),
+  };
+  evidence.viewportGeometry = (evidence.viewportGeometry || []).concat(record);
+  persist();
+  return record;
+}
+
+function refuseViewportAsymmetry(stage, record) {
+  evidence.status = 'VIEWPORT_ASYMMETRY';
+  persist();
+  log(`ABORT: viewport asymmetry at ${stage} — reference ${describeViewport(record.reference)} vs clone ${describeViewport(record.clone)} for a requested ${describeViewport(record.requested)}; no pixel verdict produced`);
+  process.exit(3);
+}
+
 await assertServedEntryMatchesMinted();
 
 await call('browser.switch-tab', { tabId: cloneTabId }, 30_000).catch((e) => log(`clone activate warning: ${e.message}`));
@@ -570,6 +676,8 @@ await evalOn(cloneTabId, `(async () => {
 
 // Same contract for the bundle: if rasterization changed either side, the pair
 // the comparator produces would not be the pair that was gated.
+const geometryBeforeHydration = await enforceViewportGeometry('pre-hydration', 'clone');
+if (!geometryBeforeHydration.symmetric) refuseViewportAsymmetry('pre-hydration', geometryBeforeHydration);
 log('materializing clone (full-page rasterize) then settling + measuring');
 const cloneHydration = await hydrateToCapturedState(cloneTabId, 'clone', LEASE_PARAM);
 evidence.stages.clone = cloneHydration.settled;
@@ -584,7 +692,78 @@ if (!cloneReadiness.ok) {
   process.exit(3);
 }
 
+const geometryBeforeCapture = await enforceViewportGeometry('post-hydration', null);
+if (!geometryBeforeCapture.symmetric) refuseViewportAsymmetry('post-hydration', geometryBeforeCapture);
+{
+  const expectedDevice = isMobile ? 'mobile' : 'web';
+  const referenceIdentity = await evalOn(refTabId, TAB_IDENTITY_EXPR, 15000).catch((e) => ({ status: 'UNREADABLE', error: String(e && e.message ? e.message : e).slice(0, 160) }));
+  const cloneIdentity = await evalOn(cloneTabId, TAB_IDENTITY_EXPR, 15000).catch((e) => ({ status: 'UNREADABLE', error: String(e && e.message ? e.message : e).slice(0, 160) }));
+  evidence.tabIdentity = { expectedDevice, reference: referenceIdentity, clone: cloneIdentity };
+  log(`tab identity ref: device=${referenceIdentity.device} ${referenceIdentity.innerWidth}x${referenceIdentity.innerHeight} dpr=${referenceIdentity.dpr} docH=${referenceIdentity.docHeight} sections=${referenceIdentity.sections} widgets=${referenceIdentity.widgetNodes} images=${referenceIdentity.completeImages}/${referenceIdentity.images}`);
+  log(`tab identity clone: device=${cloneIdentity.device} ${cloneIdentity.innerWidth}x${cloneIdentity.innerHeight} dpr=${cloneIdentity.dpr} docH=${cloneIdentity.docHeight} sections=${cloneIdentity.sections} widgets=${cloneIdentity.widgetNodes} images=${cloneIdentity.completeImages}/${cloneIdentity.images}`);
+  persist();
+  // A declared layout class is the site's own statement about which page it is showing.
+  // Comparing a mobile-layout clone against a web-layout reference is not a fidelity
+  // measurement, so it is refused rather than reported as a mismatch.
+  if (referenceIdentity.device && referenceIdentity.device !== expectedDevice) {
+    evidence.status = 'REFERENCE_DEVICE_MISMATCH';
+    evidence.visual = {
+      status: 'REFERENCE_DEVICE_MISMATCH',
+      verdict: 'INCONCLUSIVE',
+      reason: `the reference page reports data-device="${referenceIdentity.device}" while the ${label} tier expects "${expectedDevice}" (inner ${referenceIdentity.innerWidth}x${referenceIdentity.innerHeight}, docHeight ${referenceIdentity.docHeight}px)`,
+    };
+    persist();
+    log(`ABORT: REFERENCE_DEVICE_MISMATCH (reference data-device=${referenceIdentity.device}, expected ${expectedDevice})`);
+    process.exit(3);
+  }
+  if (referenceIdentity.device && cloneIdentity.device && referenceIdentity.device !== cloneIdentity.device) {
+    evidence.status = 'DEVICE_CLASS_ASYMMETRY';
+    evidence.visual = {
+      status: 'DEVICE_CLASS_ASYMMETRY',
+      verdict: 'INCONCLUSIVE',
+      reason: `the reference declares data-device="${referenceIdentity.device}" while the clone declares "${cloneIdentity.device}" — the two sides are rendering different layouts`,
+    };
+    persist();
+    log(`ABORT: DEVICE_CLASS_ASYMMETRY (reference=${referenceIdentity.device}, clone=${cloneIdentity.device})`);
+    process.exit(3);
+  }
+}
 evidence.structural = buildStructuralComparison(evidence.stages.reference.metrics, evidence.stages.clone.metrics);
+// ── Reference identity gate ───────────────────────────────────────────────────
+// The clone is a snapshot of the reference dump, so a verdict only means something
+// while the live page still measures what the dump measured. Measured on this
+// storefront: the same URL measured 5546px at 1024 in one run and 5426px in the next,
+// and 3166px against 4481px at 390 — the clone held its dumped height throughout, so
+// the reported `STRUCTURAL_PARITY_MISMATCH deltaGeometry=120px` was the *reference*
+// moving, not the clone failing. The gate compares the two numbers the run already
+// persisted (the dump it built from and the compare-time measurement) and withholds the
+// pixel verdict when they disagree, naming both.
+if (REFERENCE_DUMP_PATH) {
+  try {
+    const dump = JSON.parse(fs.readFileSync(REFERENCE_DUMP_PATH, 'utf8'));
+    const dumpedHeight = typeof dump.docHeight === 'number' ? dump.docHeight : null;
+    const liveHeight = evidence.structural?.docHeight?.reference ?? null;
+    const dumpedSections = typeof dump.sectionCount === 'number' ? dump.sectionCount : null;
+    const liveSections = evidence.structural?.sectionCount?.reference ?? null;
+    const heightDrift = dumpedHeight !== null && liveHeight !== null ? Math.abs(liveHeight - dumpedHeight) : null;
+    evidence.referenceIdentity = {
+      dumpPath: path.relative(REPO, REFERENCE_DUMP_PATH),
+      dumpedHeight,
+      liveHeight,
+      heightDrift,
+      dumpedSections,
+      liveSections,
+      dumpedSha256: dump.sha256 ?? null,
+      stable: heightDrift !== null && heightDrift <= 2 && (dumpedSections === null || liveSections === null || dumpedSections === liveSections),
+    };
+    log(`reference identity: dumped=${dumpedHeight}px/${dumpedSections ?? '?'} sections, compare-time=${liveHeight}px/${liveSections ?? '?'} sections, drift=${heightDrift ?? '?'}px stable=${evidence.referenceIdentity.stable}`);
+  } catch (e) {
+    evidence.referenceIdentity = { dumpPath: REFERENCE_DUMP_PATH, status: 'UNREADABLE', error: String(e.message || e).slice(0, 200) };
+    log(`reference identity: dump unreadable (${e.message})`);
+  }
+} else {
+  evidence.referenceIdentity = { status: 'NOT_DECLARED' };
+}
 persist();
 
 // ── INDEPENDENT lineage: standalone canonical full-page capture per tab ────────
@@ -636,6 +815,24 @@ for (const [role, tabId] of [['reference', refTabId], ['clone', cloneTabId]]) {
 }
 
 // ── AUTHORITATIVE lineage: one atomic compare pair ────────────────────────────
+// The compare's own reversible normalization must run on a page whose timers work:
+// it cascades scroll with `await new Promise(r => setTimeout(r, 60))` per 800px
+// step, so a neutered timer global never resolves it and the transaction dies on
+// its 15s bound ("Reversible normalization could not be applied") before any
+// screenshot exists — which is how both published PNGs came back 0 bytes. The site's
+// sliders are paused through their own API first, so restoring those timers cannot
+// set a slider rotating again while the transaction rasterizes.
+log('pausing site sliders, sweeping real timers, then releasing the settle overrides before the authoritative compare');
+evidence.compareRelease = {};
+for (const [role, tabId] of [['reference', refTabId], ['clone', cloneTabId]]) {
+  evidence.compareRelease[role] = await releaseCompareBlockers(tabId, `${label}-${role}-pre-compare`);
+  const released = evidence.compareRelease[role] || {};
+  const w = released.widgets || {};
+  const sweep = released.timerSweep || {};
+  log(`  ${role}: slickPaused=${w.slickPaused ?? '?'} swiperPaused=${w.swiperPaused ?? '?'} pinsLeft=${released.release?.dom?.markedLeft ?? '?'} timersRestored=${released.release?.dom?.timersRestored ?? '?'} freezeReleased=${released.freezeReleased ?? '?'} sweptTo=${sweep.clearedIntervalIdsTo ?? '?'} widgetsSampled=${sweep.widgetsSampled ?? '?'} stable=${sweep.stable ?? '?'}${sweep.error ? ` sweepError=${sweep.error}` : ''}`);
+}
+persist();
+
 log(`full-page visual compare (authoritative)${SKIP_COMPARE ? ' (skipped by CANARY_SKIP_COMPARE)' : ''}`);
 let compare = null;
 if (SKIP_COMPARE) {
@@ -727,6 +924,61 @@ evidence.visual = {
   normalization: cr.normalization ?? null,
 };
 log(`visual mismatch=${evidence.visual.mismatchPercentage}% verdict=${evidence.visual.verdict} mask=${JSON.stringify(evidence.visual.mask)?.slice(0, 160)}`);
+persist();
+
+// ── Reference identity gate ───────────────────────────────────────────────────
+// A bundle built from a 5546px document cannot be compared against a page that now
+// measures 5426px: that difference is the live site's, not the clone's, and reporting it
+// as `STRUCTURAL_PARITY_MISMATCH` blamed the bundle for it. The verdict is withheld and
+// both measurements are named.
+if (evidence.referenceIdentity?.stable === false && evidence.visual?.verdict && evidence.visual.verdict !== 'INCONCLUSIVE') {
+  const id = evidence.referenceIdentity;
+  evidence.status = 'REFERENCE_CHANGED_SINCE_BUILD';
+  evidence.visual = {
+    status: 'REFERENCE_CHANGED_SINCE_BUILD',
+    match: null,
+    mismatchPercentage: null,
+    verdict: 'INCONCLUSIVE',
+    reason: `the live page measured ${id.liveHeight}px against the ${id.dumpedHeight}px it measured when the bundle was built (drift ${id.heightDrift}px, sections ${id.liveSections} vs ${id.dumpedSections}), so the clone was compared against a page that had changed`,
+    supersededVerdict: derivedVerdict,
+    supersededMismatchPercentage: cr.mismatchPercentage ?? null,
+    referenceIdentity: id,
+  };
+  persist();
+  log(`ABORT: REFERENCE_CHANGED_SINCE_BUILD (dumped ${id.dumpedHeight}px vs live ${id.liveHeight}px) — pixel verdict withheld (was ${derivedVerdict} ${cr.mismatchPercentage}%)`);
+}
+
+// ── Post-compare motion gate ──────────────────────────────────────────────────
+// A pixel verdict is only meaningful if both pages held still while the transaction
+// rasterized them. The sweep proves inertness before the compare, but the raster runs
+// far longer than that window, so the same widget sample is taken again here: if either
+// side moved, the verdict is withheld and the mechanism is named, because an inert pair
+// is the premise the compare was built on. Measured without this gate: the same
+// viewport reported 1.87% PASS and 7.35% FAIL on unchanged code.
+if (evidence.visual?.verdict && evidence.visual.verdict !== 'INCONCLUSIVE') {
+  evidence.postCompareMotion = {};
+  for (const [role, tabId] of [['reference', refTabId], ['clone', cloneTabId]]) {
+    evidence.postCompareMotion[role] = await sampleWidgetMotion(tabId, 2500);
+    const m = evidence.postCompareMotion[role] || {};
+    log(`  post-compare ${role}: widgets=${m.widgetsSampled ?? '?'} window=${m.windowMs ?? '?'}ms stable=${m.stable ?? '?'}${m.error ? ` error=${m.error}` : ''}`);
+  }
+  const moved = Object.entries(evidence.postCompareMotion).filter(([, m]) => m && m.stable === false).map(([role]) => role);
+  if (moved.length > 0) {
+    evidence.status = 'PAGE_MOTION_DURING_COMPARE';
+    evidence.visual = {
+      status: 'PAGE_MOTION_DURING_COMPARE',
+      match: null,
+      mismatchPercentage: null,
+      verdict: 'INCONCLUSIVE',
+      reason: `side(s) ${moved.join(', ')} were still changing their own widget state after the comparison, so the pixel verdict (${derivedVerdict}) was taken from a page that was not inert`,
+      supersededVerdict: derivedVerdict,
+      supersededMismatchPercentage: cr.mismatchPercentage ?? null,
+      motion: evidence.postCompareMotion,
+    };
+    persist();
+    log(`ABORT: PAGE_MOTION_DURING_COMPARE (${moved.join(', ')}) — pixel verdict withheld (was ${derivedVerdict} ${cr.mismatchPercentage}%)`);
+  }
+}
 persist();
 
 // Persist the authoritative pair (the ONLY pixel inputs the verdict may use).

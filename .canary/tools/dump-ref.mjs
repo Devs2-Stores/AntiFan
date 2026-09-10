@@ -38,6 +38,27 @@ const expression = `(() => {
   // 1. AntiFan-injected runtime state
   drop(Array.from(clone.querySelectorAll('[id^="__antifan"], [class*="antifan-agent"]')), 'antifan');
 
+  // 1b. Settle-guard pins, should the release step have missed any. Only nodes the
+  // guard itself marked are touched, so the site's own inline !important survives.
+  Array.from(clone.querySelectorAll('[data-antifan-pinned]')).forEach((n) => {
+    const kept = (n.getAttribute('style') || '').split(';')
+      .filter((decl) => decl.trim() && !/^\s*(?:transform|transition|animation|left|margin-left)\s*:/.test(decl))
+      .map((decl) => decl.trim()).join('; ');
+    if (kept) n.setAttribute('style', kept); else n.removeAttribute('style');
+    n.removeAttribute('data-antifan-pinned');
+    removed.push('antifan-pin:' + n.tagName);
+  });
+
+  // 1c. Page-world hook markers, written by the app's own injected bridge (measured
+  // on live login forms as data-antifan-pw-hooked="1"). They are harness state, not
+  // storefront markup, and they survived into the built bundles. Only this marker is
+  // stripped: the data-antifan-hover / data-antifan-modal / data-antifan-src
+  // attributes are emitted by the clone's own synthesized runtime and are content.
+  Array.from(clone.querySelectorAll('[data-antifan-pw-hooked]')).forEach((n) => {
+    n.removeAttribute('data-antifan-pw-hooked');
+    removed.push('antifan-hook:' + n.tagName);
+  });
+
   if (${sanitize}) {
     // 2. Session-scoped secrets
     drop(Array.from(clone.querySelectorAll('meta[name="csrf-token"], meta[name="csrf-param"]')), 'secret-meta');

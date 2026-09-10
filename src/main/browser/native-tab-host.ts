@@ -146,6 +146,24 @@ html, body {
 }
 `;
 
+/**
+ * The canvas the browser is expected to paint itself.
+ *
+ * A page that declares no background of its own — measured on hoplongtech.com:
+ * `html`, `body` and `.site-header` all compute to `rgba(0, 0, 0, 0)` — renders on
+ * the user agent's default canvas, which is white. Without this, those unpainted
+ * regions show this app's own chrome (the window is `#080c14`, the frame backdrop
+ * `#060910`) and CDP captures return transparent bands that composite as black.
+ *
+ * `:where()` keeps the specificity at zero, so any background a site does declare
+ * still wins: this only fills in what nothing else paints.
+ */
+export const DEFAULT_CANVAS_CSS = `
+:where(html) {
+  background-color: #ffffff;
+}
+`;
+
 export const MOBILE_TOUCH_CLIENT_SCRIPT = `(() => {
   if (window.__antifanMobileEmulated) return;
   window.__antifanMobileEmulated = true;
@@ -3129,6 +3147,10 @@ export class NativeTabHost extends EventEmitter {
       this.appliedClipRadius.delete(wc);
       wc.session.cookies.flushStore().catch(() => {});
       this.injectAutoJsonViewer(wc);
+      // Every pane, every preset: pages rely on the user agent's default canvas, and
+      // without it this app's dark chrome shows through whatever the page leaves
+      // unpainted (and every capture of that area comes back transparent).
+      wc.insertCSS(DEFAULT_CANVAS_CSS).catch(() => {});
       // Idempotent layout and clipping synchronization on page load
       const isMobilePane = paneId === 'mobile' || Boolean(DEVICE_PRESETS.find((p) => p.id === state.devicePresetId)?.mobile);
       if (isMobilePane) {
@@ -4504,8 +4526,14 @@ export class NativeTabHost extends EventEmitter {
             tab.view.webContents.setZoomFactor(1);
           }
         } catch {}
-        const boundsW = (tab.customViewport && tab.customViewport.width > 0) ? Math.max(preset.width, renderedW) : renderedW;
-        const boundsH = (tab.customViewport && tab.customViewport.height > 0) ? Math.max(preset.height, renderedH) : renderedH;
+        // The view is where the device is drawn, and the emulation above is applied
+        // with scale = renderScale, so the drawn box is renderedW x renderedH. Sizing
+        // the view to the unscaled preset instead left the unpainted remainder
+        // (window background, i.e. a dark band) to the right and below the page,
+        // which reads as the device being pushed into the top-left corner; the view
+        // and the centering basis must be the same box.
+        const boundsW = renderedW;
+        const boundsH = renderedH;
         try {
           tab.view.setBounds({
             x: targetX,

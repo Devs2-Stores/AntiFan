@@ -102,6 +102,19 @@ export interface ComponentContractIR {
    * icon @font-face, logo sizing) and rendering the clone unstyled.
    */
   headStyles?: string[];
+  /**
+   * Serialized attributes of the source `<body>` (leading space included), with
+   * harness markers and live-page navigation hooks removed. The storefront keys
+   * its phone layout on `<body data-device="mobile">`, so a bundle that emits a
+   * bare `<body>` renders the desktop layout at every width.
+   */
+  bodyAttributes?: string;
+  /**
+   * Serialized attributes of the source `<html>` (leading space included), scrubbed
+   * the same way. The generator otherwise hardcodes `<html lang="vi">`, dropping a
+   * source locale or theme class, which is the same class of layout selector.
+   */
+  htmlAttributes?: string;
   themeSettings: ThemeSettingContract[];
   sections: ComponentSectionContract[];
   /** Neutral alias mirroring sections for universal consumers */

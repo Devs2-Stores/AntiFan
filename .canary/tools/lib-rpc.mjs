@@ -46,6 +46,24 @@ const boot = resolveBootstrap();
 export const bootstrap = boot;
 export const bootstrapFile = SESSION_FILE;
 
+/**
+ * Re-read the session file after a re-mint.
+ *
+ * A session's attachment is bound to the tab it was minted with, and the binding
+ * dies when that tab closes, so a long-lived runner renews by minting again
+ * (measured: the mint itself still succeeds with a dead binding, and the next
+ * create then adopts normally). The minted identity is module state, so the
+ * runner has to reload it here; callers keep the same object identity, which is
+ * what the tab-creation path and the state file validation both read.
+ */
+export function reloadBootstrap() {
+  const fresh = resolveBootstrap();
+  for (const key of Object.keys(boot)) delete boot[key];
+  Object.assign(boot, fresh);
+  currentRevision = loadRevision();
+  return boot;
+}
+
 const STATE_DIR = path.resolve('.canary/state');
 const STATE_FILE = path.join(STATE_DIR, 'authority-revision.json');
 

@@ -772,4 +772,38 @@ describe('Cognitive Models - Asset, Responsive & E-commerce Data', () => {
       fs.rmSync(assetsDir, { recursive: true, force: true });
     }
   });
+
+  it('10. CloneIRBuilder carries the source root attributes that select the layout, without harness markers', () => {
+    const builder = new CloneIRBuilder();
+    const html = [
+      '<!DOCTYPE html><html lang="vi" class="theme-dark" data-navigate-track="reload"><head><title>Store</title></head>',
+      '<body data-device="mobile" class="device-phone" data-antifan-pw-hooked="1" data-navigate-track="reload" data-update-uri="/x" onload="boot()">',
+      '<main><section class="hero"><h1>Hi</h1></section></main>',
+      '</body></html>'
+    ].join('');
+    const assetsDir = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-body-attrs-'));
+    try {
+      const ir = builder.buildFromHtml(html, 'https://example.com', assetsDir);
+
+      assert.strictEqual(ir.bodyAttributes, ' data-device="mobile" class="device-phone"',
+        'The mobile layout switch and source classes must survive; harness markers and live navigation hooks must not');
+      assert.strictEqual(ir.htmlAttributes, ' lang="vi" class="theme-dark"',
+        'The html-level layout selectors must survive for the same reason, and the navigation hook must not');
+    } finally {
+      fs.rmSync(assetsDir, { recursive: true, force: true });
+    }
+  });
+
+  it('11. CloneIRBuilder leaves the root attribute fields unset when the source declares none', () => {
+    const builder = new CloneIRBuilder();
+    const assetsDir = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-root-attrs-'));
+    try {
+      const ir = builder.buildFromHtml('<html><head><title>Store</title></head><body><main><section class="hero">Hi</section></main></body></html>', 'https://example.com', assetsDir);
+
+      assert.strictEqual(ir.bodyAttributes, undefined, 'nothing is invented for a body that declares no attributes');
+      assert.strictEqual(ir.htmlAttributes, undefined, 'the generator keeps its own lang fallback when the source declares none');
+    } finally {
+      fs.rmSync(assetsDir, { recursive: true, force: true });
+    }
+  });
 });

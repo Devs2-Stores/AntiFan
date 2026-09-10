@@ -203,4 +203,32 @@ describe('BlueprintExtractor - AST DOM Parsing & Safety Invariants', () => {
     assert.ok(footer.rawHtml.includes('wire:id="abc123"'), 'Wrapper attributes must survive verbatim');
     assert.ok(footer.rawHtml.includes('<footer class="site-footer">'), 'Footer element must stay inside its wrapper');
   });
+
+  it('10. Keeps a layout wrapper that carries framework bindings instead of descending into it', () => {
+    const wrapper = (attrs: string) => `
+      <body>
+        <main>
+          <div${attrs}>
+            <section class="block-category"><h3>Motors</h3></section>
+            <section class="block-category"><h3>Drives</h3></section>
+          </div>
+        </main>
+      </body>`;
+
+    const bound = extractor.extractSections(wrapper(' wire:id="abc123" wire:snapshot="{&quot;data&quot;:{}}" wire:effects="{&quot;xjs&quot;:[{&quot;expression&quot;:&quot;$(\'.block-category__list\').slick({slidesToShow: 1.8})&quot;}]}"'));
+    const boundHtml = bound.map((s) => s.rawHtml).join('');
+    const boundSections = bound.filter((s) => s.className.includes('block-category'));
+
+    // Descending into the wrapper drops the binding, and the initializer it carries is
+    // what lays these sections out: the live mobile page renders each at 76px, the
+    // clone that lost the binding rendered each at 341px.
+    assert.ok(boundHtml.includes('wire:effects'), 'A binding that lives on the wrapper must survive extraction');
+    assert.ok(boundHtml.includes('slick({slidesToShow: 1.8})'), 'The initializer inside that binding must survive');
+    assert.strictEqual(boundSections.length, 0, 'The wrapper is one section, not a set of siblings once its binding is kept');
+    assert.strictEqual(bound.length, 1, 'The wrapper is emitted as a single section');
+
+    const plain = extractor.extractSections(wrapper(' class="grid-wrapper"'));
+    assert.strictEqual(plain.length, 2, 'A wrapper with no binding is still a layout container and is descended into');
+    assert.deepStrictEqual(plain.map((s) => s.className), ['block-category', 'block-category']);
+  });
 });

@@ -57,6 +57,8 @@ export class CloneIRBuilder {
       responsive: ResponsiveScanner.BREAKPOINTS,
       assets: harvestedAssets,
       headStyles: this.extractHeadStyles(html),
+      bodyAttributes: this.extractRootAttributes(html, 'body'),
+      htmlAttributes: this.extractRootAttributes(html, 'html'),
       themeSettings: [
         { id: 'color_primary', type: 'color', label: 'Primary Brand Color', default: '#005baa' },
         { id: 'color_bg', type: 'color', label: 'Page Background Color', default: '#ffffff' },
@@ -86,6 +88,31 @@ export class CloneIRBuilder {
     const headMatch = html.match(/<head\b[^>]*>([\s\S]*?)<\/head>/i);
     if (!headMatch) return [];
     return [...headMatch[1].matchAll(/<style\b[^>]*>[\s\S]*?<\/style>/gi)].map((m) => m[0]);
+  }
+
+  /**
+   * Serializes the source root-element attributes for the emitted clone.
+   *
+   * The reference switches to its phone layout through `<body data-device="mobile">`,
+   * and `<html>` carries the same class of layout selector (theme, locale, device),
+   * so both are passed through rather than re-declared by the generator. Harness
+   * markers (`data-antifan-*`) and the live page's navigation hooks
+   * (`data-navigate-*`, `data-update-uri`, `data-turbo-*`, `data-livewire-*`,
+   * `on*`) are dropped: the markers would contaminate the bundle, and replaying the
+   * hooks would re-trigger the live runtime inside the clone.
+   */
+  private extractRootAttributes(html: string, tag: string): string | undefined {
+    const tagMatch = html.match(new RegExp(`<${tag}\\b([^>]*)>`, 'i'));
+    if (!tagMatch) return undefined;
+
+    const attributes = [...tagMatch[1].matchAll(/([a-zA-Z_:][-a-zA-Z0-9_:.]*)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'>]+)))?/g)]
+      .filter(([, name]) => !/^(data-antifan|data-navigate|data-update-uri|data-turbo|data-livewire|on)/i.test(name))
+      .map(([, name, doubleQuoted, singleQuoted, bare]) => {
+        const value = doubleQuoted ?? singleQuoted ?? bare;
+        return value === undefined ? name : `${name}="${value.replace(/"/g, '&quot;')}"`;
+      });
+
+    return attributes.length > 0 ? ` ${attributes.join(' ')}` : undefined;
   }
 
   private mapBlueprintToSection(bp: ExtractedSectionBlueprint): ComponentSectionContract {

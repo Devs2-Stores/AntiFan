@@ -178,6 +178,17 @@ export class BlueprintExtractor {
   private isLayoutContainer(node: ParsedElementNode): boolean {
     if (node.tag === 'main' || node.tag === 'body') return true;
     if (node.tag !== 'div') return false;
+    // A framework binds its component to the element carrying the binding, so such an
+    // element is not a container that can be descended into without changing
+    // behaviour: Livewire hydrates through `wire:id`/`wire:snapshot` and runs the
+    // initializers in `wire:effects`, Alpine through `x-data`/`x-init`, HTMX through
+    // `hx-*`. Measured on the mobile reference: descending into the `boxProducts`
+    // wrapper dropped its `wire:effects` (44 components in the dump, 42 after
+    // extraction and in the bundle), and the `xjs` effect it lost is exactly the
+    // `$('.block-category__list').slick({slidesToShow: 1.8})` initializer — the clone
+    // kept all five sections but rendered each at 341px against the reference's 76px,
+    // 1325px of excess document height at 390px.
+    if (Object.keys(node.attributes).some((name) => /^(?:wire:|x-|v-|hx-|@)/i.test(name))) return false;
     if (DomTreeParser.findByTag(node, 'section').length === 0) return false;
     if (node.children.some((child) => typeof child === 'string' && child.trim().length > 0)) return false;
     return !/(^|\s)(?:site-)?(?:header|footer)($|\s)/i.test(node.attributes['class'] || '');

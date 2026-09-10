@@ -129,6 +129,42 @@ function lifecycle(method, secret, params) {
   });
 }
 
+/**
+ * A live port is not a live bridge.
+ *
+ * The launcher's readiness probe accepts the TCP connection, and the socket keeps
+ * accepting while the server stops answering, so a mint can reach a bridge that resets
+ * the request: measured twice on this instance as `Error: read ECONNRESET` (errno -4077,
+ * syscall read) at the challenge step, each time with a valid instance record and the
+ * port owned by the recorded pid — once nine seconds after a fresh start, once after a
+ * long run without any restart. Reading the pairing route until the bridge answers with
+ * an HTTP response is an idempotent readiness check; the mint itself is still attempted
+ * once and never retried.
+ */
+async function waitForBridgeHttp(timeoutMs = 30000) {
+  const deadline = Date.now() + timeoutMs;
+  let attempts = 0;
+  let lastError = 'no attempt made';
+  for (;;) {
+    attempts++;
+    try {
+      const probe = await request('GET', '/api/pairing/challenge');
+      if (probe.status >= 200 && probe.status < 500) return { ok: true, attempts, status: probe.status };
+      lastError = `HTTP ${probe.status}`;
+    } catch (e) {
+      lastError = String(e && e.message ? e.message : e);
+    }
+    if (Date.now() >= deadline) return { ok: false, attempts, error: lastError };
+    await new Promise((r) => setTimeout(r, 500));
+  }
+}
+
+const bridge = await waitForBridgeHttp();
+if (!bridge.ok) {
+  console.error(`bridge not answering HTTP after 30s (${bridge.attempts} attempts): ${bridge.error}`);
+  process.exit(1);
+}
+
 const challenge = await request('POST', '/api/pairing/challenge');
 if (challenge.status !== 200 || !challenge.json?.code) {
   console.error(`challenge failed: status=${challenge.status} body=${challenge.text.slice(0, 300)}`);

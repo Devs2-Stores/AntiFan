@@ -827,7 +827,11 @@ function settleFacts(stage) {
     domStable: isObj(stage?.domStable) ? domStable.satisfied === true : null,
     fontsSettled: settle.fontsSettled === true,
     imagesSettled: settle.imagesSettled === true,
-    domSettled: settle.domSettled === true,
+    // Raw DOM churn is evidence, not a gate: the settle contract decides on the
+    // composite (freeze + fonts + images + visual + rendered-content stability).
+    domQuiet: settle.domQuiet === true,
+    renderStateStable: settle.renderStateStable === true,
+    settled: settle.settled === true,
     visualStable: settle.visualStable === true,
     timedOut: settle.timedOut === true,
     settlementDuration: num(settle.settlementDuration),
@@ -840,7 +844,7 @@ function settleFacts(stage) {
       isObj(stage?.settle) &&
       settle.fontsSettled === true &&
       settle.imagesSettled === true &&
-      settle.domSettled === true &&
+      settle.settled === true &&
       settle.visualStable === true &&
       settle.timedOut !== true &&
       (num(settle.pendingImages) ?? 1) === 0 &&
@@ -1314,7 +1318,8 @@ function checkSettlement(model, side) {
   if (settle.domStable !== true) missing.push(`dom_stable=${settle.domStable === null ? 'not-recorded' : settle.domStable}`);
   if (settle.fontsSettled !== true) missing.push('fontsSettled=false');
   if (settle.imagesSettled !== true) missing.push(`imagesSettled=false(pending=${settle.pendingImages ?? '?'})`);
-  if (settle.domSettled !== true) missing.push('domSettled=false');
+  if (settle.settled !== true) missing.push(`settle.notSettled(refusal=${settle.refusal?.code || 'none'})`);
+  if (settle.renderStateStable !== true) missing.push('renderStateStable=false');
   if (settle.visualStable !== true) missing.push('visualStable=false');
   if (settle.timedOut === true) missing.push('settlement timedOut=true');
   if (isNum(settle.pendingImages) && settle.pendingImages > 0) missing.push(`pendingImages=${settle.pendingImages}`);

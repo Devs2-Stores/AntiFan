@@ -1,0 +1,7178 @@
+{
+  "label": "1440",
+  "viewport": {
+    "width": 1440,
+    "height": 900
+  },
+  "runId": "run-aec50ae1-0067-4c60-97ff-2d8b0bb97ac3",
+  "evidenceRunId": "campaign-c0ff7f62-e904-477e-a9f4-c1d03b01f9e9",
+  "cloneDir": "E:\\Work\\apps\\AntiFan\\.canary\\15-pages\\page-01-home\\attempts\\attempt-38781071-d11c-4366-8b55-1524176ae66f\\clone",
+  "bundle": {
+    "entryPath": "E:\\Work\\apps\\AntiFan\\.canary\\15-pages\\page-01-home\\attempts\\attempt-38781071-d11c-4366-8b55-1524176ae66f\\clone\\index.html",
+    "entrySha256": "8265272a0652545f055cd1645a4289832d17ef9804fbe978fd414afafebad1e3",
+    "entryBytes": 820159,
+    "generatedAt": "2026-09-10T18:33:00.217Z",
+    "sourceUrl": "https://hoplongtech.com/",
+    "attemptId": "attempt-38781071-d11c-4366-8b55-1524176ae66f",
+    "evidenceRoot": "E:\\Work\\apps\\AntiFan\\.canary\\15-pages\\page-01-home\\attempts\\attempt-38781071-d11c-4366-8b55-1524176ae66f\\evidence",
+    "servedEntryPath": "E:\\Work\\apps\\AntiFan\\.canary\\15-pages\\page-01-home\\attempts\\attempt-38781071-d11c-4366-8b55-1524176ae66f\\clone\\index.html",
+    "servedEntrySha256": "8265272a0652545f055cd1645a4289832d17ef9804fbe978fd414afafebad1e3",
+    "servedEntryVerified": {
+      "ok": true,
+      "sha256": "8265272a0652545f055cd1645a4289832d17ef9804fbe978fd414afafebad1e3",
+      "bytes": 820159,
+      "servedUrl": "http://127.0.0.1:7861/",
+      "urlSource": "clone tab location",
+      "tierIsMintedTier": true,
+      "mintedSha256": "8265272a0652545f055cd1645a4289832d17ef9804fbe978fd414afafebad1e3"
+    },
+    "drift": {
+      "drifted": false,
+      "expected": "8265272a0652545f055cd1645a4289832d17ef9804fbe978fd414afafebad1e3",
+      "observed": "8265272a0652545f055cd1645a4289832d17ef9804fbe978fd414afafebad1e3",
+      "entryPath": "E:\\Work\\apps\\AntiFan\\.canary\\15-pages\\page-01-home\\attempts\\attempt-38781071-d11c-4366-8b55-1524176ae66f\\clone\\index.html"
+    }
+  },
+  "instance": {
+    "pid": 11136,
+    "startedAt": "2026-09-10T18:29:42.303Z",
+    "processStartToken": "2026-09-10T18:29:42.3034590Z",
+    "processStartTokenFormat": "win32:CreationDate",
+    "bridgePort": 20131,
+    "attachmentId": "attachment-e7aef374-2532-4683-aea1-9ec4c1d2f2c3",
+    "primaryTabId": "5e89b28d-6653-43c3-887c-67b62bc28cae",
+    "runId": "run-aec50ae1-0067-4c60-97ff-2d8b0bb97ac3",
+    "attemptId": "attempt-43126940-2175-41b7-a244-c0f69a30cbab",
+    "leaseUntil": "2026-09-10T20:30:23.789Z"
+  },
+  "provenanceGap": null,
+  "startedAt": "2026-09-10T18:33:07.498Z",
+  "evidenceModel": {
+    "independent": "anti.screenshot.full_page per tab — continuity evidence only, never an authoritative pixel input",
+    "authoritative": "single atomic anti.visual.compare pair under one pair lock — the only authoritative pixel inputs",
+    "strictParams": {
+      "allowHeightDrift": false,
+      "useDefaultWidgetMasks": false,
+      "userMasks": []
+    }
+  },
+  "stages": {
+    "reference": {
+      "name": "reference-pass2",
+      "networkIdle": {
+        "satisfied": true,
+        "condition": "network_idle",
+        "durationMs": 610,
+        "details": {
+          "timedOut": false
+        }
+      },
+      "domStable": {
+        "satisfied": true,
+        "condition": "dom_stable",
+        "durationMs": 0
+      },
+      "settle": {
+        "freeze": {
+          "frozen": true,
+          "mediaCount": 0,
+          "tabId": "24e52b0d-7c29-4bd6-a068-8492b863908d"
+        },
+        "mediaFrozen": true,
+        "fontsSettled": true,
+        "imagesSettled": true,
+        "visualStable": true,
+        "renderStateStable": true,
+        "settled": true,
+        "refusal": null,
+        "fingerprint": "4d20b61b28df66f9",
+        "fingerprintFields": {
+          "sectionCount": 15,
+          "productCardCount": 83,
+          "docHeight": 5422,
+          "scrollWidth": 1425,
+          "imageCount": 105,
+          "pendingImages": 0,
+          "brokenImages": 0,
+          "imageSetHash": "3da9c462",
+          "imageSetSize": 105,
+          "textHash": "853dd716",
+          "textLength": 8527
+        },
+        "domQuiet": true,
+        "rafStopped": true,
+        "rafStopError": null,
+        "timersStopped": true,
+        "timersStopError": null,
+        "animationsPaused": 0,
+        "unfreezeTimerCleared": true,
+        "pinnedMovers": {
+          "nodes": 3,
+          "movers": [],
+          "pinnedSet": [
+            "div.s-content",
+            "div.s-content",
+            "div.s-content"
+          ],
+          "stillMovingAfterGuard": 0
+        },
+        "domQuietDetail": {
+          "domSettled": true,
+          "structuralMutations": 0
+        },
+        "structuralMutations": 0,
+        "timedOut": false,
+        "imageCount": 105,
+        "pendingImages": 0,
+        "brokenImages": [],
+        "settlementDuration": 3807,
+        "readyState": "complete",
+        "fontsStatus": "loaded",
+        "phases": {
+          "images": {
+            "fontsSettled": true,
+            "imagesSettled": true,
+            "imageCount": 105,
+            "pendingImages": 0,
+            "durationMs": 430
+          },
+          "domQuiet": {
+            "domSettled": true,
+            "structuralMutations": 0,
+            "durationMs": 1690
+          },
+          "visual": {
+            "visualStable": true,
+            "durationMs": 852,
+            "imageCount": 105,
+            "pendingImages": 0,
+            "brokenImages": [],
+            "readyState": "complete",
+            "fontsStatus": "loaded"
+          },
+          "state": {
+            "renderStateStable": true,
+            "samples": 3,
+            "durationMs": 835,
+            "fingerprint": {
+              "sectionCount": 15,
+              "productCardCount": 83,
+              "docHeight": 5422,
+              "scrollWidth": 1425,
+              "imageCount": 105,
+              "pendingImages": 0,
+              "brokenImages": 0,
+              "imageSetHash": "3da9c462",
+              "imageSetSize": 105,
+              "textHash": "853dd716",
+              "textLength": 8527
+            },
+            "first": {
+              "sectionCount": 15,
+              "productCardCount": 83,
+              "docHeight": 5422,
+              "scrollWidth": 1425,
+              "imageCount": 105,
+              "pendingImages": 0,
+              "brokenImages": 0,
+              "imageSetHash": "3da9c462",
+              "imageSetSize": 105,
+              "textHash": "853dd716",
+              "textLength": 8527
+            }
+          }
+        },
+        "passes": [
+          {
+            "pass": 1,
+            "mediaFrozen": true,
+            "fontsSettled": true,
+            "imagesSettled": true,
+            "visualStable": true,
+            "renderStateStable": true,
+            "settled": true,
+            "fingerprint": "4d20b61b28df66f9",
+            "counts": {
+              "sections": 15,
+              "cards": 83,
+              "docHeight": 5422,
+              "images": 105
+            }
+          },
+          {
+            "pass": 2,
+            "mediaFrozen": true,
+            "fontsSettled": true,
+            "imagesSettled": true,
+            "visualStable": true,
+            "renderStateStable": true,
+            "settled": true,
+            "fingerprint": "4d20b61b28df66f9",
+            "counts": {
+              "sections": 15,
+              "cards": 83,
+              "docHeight": 5422,
+              "images": 105
+            }
+          }
+        ]
+      },
+      "metrics": {
+        "url": "https://hoplongtech.com/",
+        "docHeight": 5422,
+        "clientWidth": 1425,
+        "scrollWidth": 1425,
+        "overflowX": 0,
+        "hasMenuMobile": false,
+        "hasBottomNav": false,
+        "bodyChildren": [
+          "header.site-header",
+          "main",
+          "div.site-footer.w-100",
+          "div",
+          "script",
+          "script",
+          "script",
+          "script",
+          "div",
+          "div.notice-cart",
+          "div.loading-box",
+          "noscript",
+          "script",
+          "div#h3icopt8h2681789065189154"
+        ],
+        "headerRect": {
+          "x": 0,
+          "y": 0,
+          "w": 1425,
+          "h": 163.05
+        },
+        "navRect": {
+          "x": 107.5,
+          "y": 110,
+          "w": 1210,
+          "h": 53.05
+        },
+        "heroRect": {
+          "x": 0,
+          "y": 163.05,
+          "w": 1425,
+          "h": 445
+        },
+        "footerRect": {
+          "x": 0,
+          "y": 4815.53,
+          "w": 1425,
+          "h": 606.86
+        },
+        "mainRect": {
+          "x": 0,
+          "y": 163.05,
+          "w": 1425,
+          "h": 4652.48
+        },
+        "sections": [
+          {
+            "tag": "header",
+            "cls": "site-header",
+            "rect": {
+              "x": 0,
+              "y": 0,
+              "w": 1425,
+              "h": 163.05
+            }
+          },
+          {
+            "tag": "main",
+            "cls": "",
+            "rect": {
+              "x": 0,
+              "y": 163.05,
+              "w": 1425,
+              "h": 4652.48
+            }
+          },
+          {
+            "tag": "section",
+            "cls": "slide",
+            "rect": {
+              "x": 0,
+              "y": 163.05,
+              "w": 1425,
+              "h": 445
+            }
+          },
+          {
+            "tag": "section",
+            "cls": "category-list",
+            "rect": {
+              "x": 0,
+              "y": 628.05,
+              "w": 1425,
+              "h": 119.73
+            }
+          },
+          {
+            "tag": "section",
+            "cls": "banner-category",
+            "rect": {
+              "x": 0,
+              "y": 747.78,
+              "w": 1425,
+              "h": 165
+            }
+          },
+          {
+            "tag": "section",
+            "cls": "block-category",
+            "rect": {
+              "x": 0,
+              "y": 932.78,
+              "w": 1425,
+              "h": 419
+            }
+          },
+          {
+            "tag": "section",
+            "cls": "block-category",
+            "rect": {
+              "x": 0,
+              "y": 1371.78,
+              "w": 1425,
+              "h": 419
+            }
+          },
+          {
+            "tag": "section",
+            "cls": "block-category",
+            "rect": {
+              "x": 0,
+              "y": 1810.78,
+              "w": 1425,
+              "h": 419
+            }
+          },
+          {
+            "tag": "section",
+            "cls": "block-category",
+            "rect": {
+              "x": 0,
+              "y": 2249.78,
+              "w": 1425,
+              "h": 419
+            }
+          },
+          {
+            "tag": "section",
+            "cls": "block-category",
+            "rect": {
+              "x": 0,
+              "y": 2688.78,
+              "w": 1425,
+              "h": 419
+            }
+          },
+          {
+            "tag": "section",
+            "cls": "home-form",
+            "rect": {
+              "x": 0,
+              "y": 3252.78,
+              "w": 1425,
+              "h": 369
+            }
+          },
+          {
+            "tag": "section",
+            "cls": "accessory",
+            "rect": {
+              "x": 0,
+              "y": 3766.78,
+              "w": 1425,
+              "h": 351
+            }
+          },
+          {
+            "tag": "section",
+            "cls": "news",
+            "rect": {
+              "x": 0,
+              "y": 4137.78,
+              "w": 1425,
+              "h": 435.75
+            }
+          },
+          {
+            "tag": "section",
+            "cls": "partner",
+            "rect": {
+              "x": 0,
+              "y": 4593.53,
+              "w": 1425,
+              "h": 222
+            }
+          },
+          {
+            "tag": "div",
+            "cls": "site-footer.w-100",
+            "rect": {
+              "x": 0,
+              "y": 4815.53,
+              "w": 1425,
+              "h": 606.86
+            }
+          }
+        ],
+        "sectionCount": 15,
+        "productCardCount": 83,
+        "productCardsBySection": [
+          {
+            "cls": "slide",
+            "cards": 0
+          },
+          {
+            "cls": "category-list",
+            "cards": 5
+          },
+          {
+            "cls": "banner-category",
+            "cards": 0
+          },
+          {
+            "cls": "block-category",
+            "cards": 10
+          },
+          {
+            "cls": "block-category",
+            "cards": 10
+          },
+          {
+            "cls": "block-category",
+            "cards": 10
+          },
+          {
+            "cls": "block-category",
+            "cards": 10
+          },
+          {
+            "cls": "block-category",
+            "cards": 10
+          },
+          {
+            "cls": "home-form",
+            "cards": 0
+          },
+          {
+            "cls": "accessory",
+            "cards": 8
+          },
+          {
+            "cls": "news",
+            "cards": 0
+          },
+          {
+            "cls": "partner",
+            "cards": 20
+          }
+        ],
+        "productListGrids": [
+          {
+            "cls": "product-list.flex",
+            "rect": {
+              "x": 326.5,
+              "y": 952.78,
+              "w": 970,
+              "h": 379
+            },
+            "display": "flex",
+            "gridTemplateColumns": "none",
+            "flexWrap": "wrap",
+            "childCount": 5,
+            "columns": 5,
+            "rows": 1,
+            "gap": "normal"
+          },
+          {
+            "cls": "product-list__item",
+            "rect": {
+              "x": 327.5,
+              "y": 953.78,
+              "w": 193.59,
+              "h": 377
+            },
+            "display": "block",
+            "gridTemplateColumns": "none",
+            "flexWrap": "nowrap",
+            "childCount": 2,
+            "columns": 1,
+            "rows": 2,
+            "gap": "normal"
+          },
+          {
+            "cls": "product-list__item",
+            "rect": {
+              "x": 521.09,
+              "y": 953.78,
+              "w": 193.59,
+              "h": 377
+            },
+            "display": "block",
+            "gridTemplateColumns": "none",
+            "flexWrap": "nowrap",
+            "childCount": 2,
+            "columns": 1,
+            "rows": 2,
+            "gap": "normal"
+          },
+          {
+            "cls": "product-list__item",
+            "rect": {
+              "x": 714.69,
+              "y": 953.78,
+              "w": 193.59,
+              "h": 377
+            },
+            "display": "block",
+            "gridTemplateColumns": "none",
+            "flexWrap": "nowrap",
+            "childCount": 2,
+            "columns": 1,
+            "rows": 2,
+            "gap": "normal"
+          },
+          {
+            "cls": "product-list__item",
+            "rect": {
+              "x": 908.28,
+              "y": 953.78,
+              "w": 193.59,
+              "h": 377
+            },
+            "display": "block",
+            "gridTemplateColumns": "none",
+            "flexWrap": "nowrap",
+            "childCount": 2,
+            "columns": 1,
+            "rows": 2,
+            "gap": "normal"
+          },
+          {
+            "cls": "product-list__item",
+            "rect": {
+              "x": 1101.88,
+              "y": 953.78,
+              "w": 193.59,
+              "h": 377
+            },
+            "display": "block",
+            "gridTemplateColumns": "none",
+            "flexWrap": "nowrap",
+            "childCount": 2,
+            "columns": 1,
+            "rows": 2,
+            "gap": "normal"
+          },
+          {
+            "cls": "product-list.flex",
+            "rect": {
+              "x": 326.5,
+              "y": 1391.78,
+              "w": 970,
+              "h": 379
+            },
+            "display": "flex",
+            "gridTemplateColumns": "none",
+            "flexWrap": "wrap",
+            "childCount": 5,
+            "columns": 5,
+            "rows": 1,
+            "gap": "normal"
+          },
+          {
+            "cls": "product-list__item",
+            "rect": {
+              "x": 327.5,
+              "y": 1392.78,
+              "w": 193.59,
+              "h": 377
+            },
+            "display": "block",
+            "gridTemplateColumns": "none",
+            "flexWrap": "nowrap",
+            "childCount": 2,
+            "columns": 1,
+            "rows": 2,
+            "gap": "normal"
+          },
+          {
+            "cls": "product-list__item",
+            "rect": {
+              "x": 521.09,
+              "y": 1392.78,
+              "w": 193.59,
+              "h": 377
+            },
+            "display": "block",
+            "gridTemplateColumns": "none",
+            "flexWrap": "nowrap",
+            "childCount": 2,
+            "columns": 1,
+            "rows": 2,
+            "gap": "normal"
+          },
+          {
+            "cls": "product-list__item",
+            "rect": {
+              "x": 714.69,
+              "y": 1392.78,
+              "w": 193.59,
+              "h": 377
+            },
+            "display": "block",
+            "gridTemplateColumns": "none",
+            "flexWrap": "nowrap",
+            "childCount": 2,
+            "columns": 1,
+            "rows": 2,
+            "gap": "normal"
+          },
+          {
+            "cls": "product-list__item",
+            "rect": {
+              "x": 908.28,
+              "y": 1392.78,
+              "w": 193.59,
+              "h": 377
+            },
+            "display": "block",
+            "gridTemplateColumns": "none",
+            "flexWrap": "nowrap",
+            "childCount": 2,
+            "columns": 1,
+            "rows": 2,
+            "gap": "normal"
+          },
+          {
+            "cls": "product-list__item",
+            "rect": {
+              "x": 1101.88,
+              "y": 1392.78,
+              "w": 193.59,
+              "h": 377
+            },
+            "display": "block",
+            "gridTemplateColumns": "none",
+            "flexWrap": "nowrap",
+            "childCount": 2,
+            "columns": 1,
+            "rows": 2,
+            "gap": "normal"
+          },
+          {
+            "cls": "product-list.flex",
+            "rect": {
+              "x": 326.5,
+              "y": 1830.78,
+              "w": 970,
+              "h": 379
+            },
+            "display": "flex",
+            "gridTemplateColumns": "none",
+            "flexWrap": "wrap",
+            "childCount": 5,
+            "columns": 5,
+            "rows": 1,
+            "gap": "normal"
+          },
+          {
+            "cls": "product-list__item",
+            "rect": {
+              "x": 327.5,
+              "y": 1831.78,
+              "w": 193.59,
+              "h": 377
+            },
+            "display": "block",
+            "gridTemplateColumns": "none",
+            "flexWrap": "nowrap",
+            "childCount": 2,
+            "columns": 1,
+            "rows": 2,
+            "gap": "normal"
+          },
+          {
+            "cls": "product-list__item",
+            "rect": {
+              "x": 521.09,
+              "y": 1831.78,
+              "w": 193.59,
+              "h": 377
+            },
+            "display": "block",
+            "gridTemplateColumns": "none",
+            "flexWrap": "nowrap",
+            "childCount": 2,
+            "columns": 1,
+            "rows": 2,
+            "gap": "normal"
+          },
+          {
+            "cls": "product-list__item",
+            "rect": {
+              "x": 714.69,
+              "y": 1831.78,
+              "w": 193.59,
+              "h": 377
+            },
+            "display": "block",
+            "gridTemplateColumns": "none",
+            "flexWrap": "nowrap",
+            "childCount": 2,
+            "columns": 1,
+            "rows": 2,
+            "gap": "normal"
+          },
+          {
+            "cls": "product-list__item",
+            "rect": {
+              "x": 908.28,
+              "y": 1831.78,
+              "w": 193.59,
+              "h": 377
+            },
+            "display": "block",
+            "gridTemplateColumns": "none",
+            "flexWrap": "nowrap",
+            "childCount": 2,
+            "columns": 1,
+            "rows": 2,
+            "gap": "normal"
+          },
+          {
+            "cls": "product-list__item",
+            "rect": {
+              "x": 1101.88,
+              "y": 1831.78,
+              "w": 193.59,
+              "h": 377
+            },
+            "display": "block",
+            "gridTemplateColumns": "none",
+            "flexWrap": "nowrap",
+            "childCount": 2,
+            "columns": 1,
+            "rows": 2,
+            "gap": "normal"
+          },
+          {
+            "cls": "product-list.flex",
+            "rect": {
+              "x": 326.5,
+              "y": 2269.78,
+              "w": 970,
+              "h": 379
+            },
+            "display": "flex",
+            "gridTemplateColumns": "none",
+            "flexWrap": "wrap",
+            "childCount": 5,
+            "columns": 5,
+            "rows": 1,
+            "gap": "normal"
+          },
+          {
+            "cls": "product-list__item",
+            "rect": {
+              "x": 327.5,
+              "y": 2270.78,
+              "w": 193.59,
+              "h": 377
+            },
+            "display": "block",
+            "gridTemplateColumns": "none",
+            "flexWrap": "nowrap",
+            "childCount": 2,
+            "columns": 1,
+            "rows": 2,
+            "gap": "normal"
+          },
+          {
+            "cls": "product-list__item",
+            "rect": {
+              "x": 521.09,
+              "y": 2270.78,
+              "w": 193.59,
+              "h": 377
+            },
+            "display": "block",
+            "gridTemplateColumns": "none",
+            "flexWrap": "nowrap",
+            "childCount": 2,
+            "columns": 1,
+            "rows": 2,
+            "gap": "normal"
+          },
+          {
+            "cls": "product-list__item",
+            "rect": {
+              "x": 714.69,
+              "y": 2270.78,
+              "w": 193.59,
+              "h": 377
+            },
+            "display": "block",
+            "gridTemplateColumns": "none",
+            "flexWrap": "nowrap",
+            "childCount": 2,
+            "columns": 1,
+            "rows": 2,
+            "gap": "normal"
+          },
+          {
+            "cls": "product-list__item",
+            "rect": {
+              "x": 908.28,
+              "y": 2270.78,
+              "w": 193.59,
+              "h": 377
+            },
+            "display": "block",
+            "gridTemplateColumns": "none",
+            "flexWrap": "nowrap",
+            "childCount": 2,
+            "columns": 1,
+            "rows": 2,
+            "gap": "normal"
+          },
+          {
+            "cls": "product-list__item",
+            "rect": {
+              "x": 1101.88,
+              "y": 2270.78,
+              "w": 193.59,
+              "h": 377
+            },
+            "display": "block",
+            "gridTemplateColumns": "none",
+            "flexWrap": "nowrap",
+            "childCount": 2,
+            "columns": 1,
+            "rows": 2,
+            "gap": "normal"
+          },
+          {
+            "cls": "product-list.flex",
+            "rect": {
+              "x": 326.5,
+              "y": 2708.78,
+              "w": 970,
+              "h": 379
+            },
+            "display": "flex",
+            "gridTemplateColumns": "none",
+            "flexWrap": "wrap",
+            "childCount": 5,
+            "columns": 5,
+            "rows": 1,
+            "gap": "normal"
+          },
+          {
+            "cls": "product-list__item",
+            "rect": {
+              "x": 327.5,
+              "y": 2709.78,
+              "w": 193.59,
+              "h": 377
+            },
+            "display": "block",
+            "gridTemplateColumns": "none",
+            "flexWrap": "nowrap",
+            "childCount": 2,
+            "columns": 1,
+            "rows": 2,
+            "gap": "normal"
+          },
+          {
+            "cls": "product-list__item",
+            "rect": {
+              "x": 521.09,
+              "y": 2709.78,
+              "w": 193.59,
+              "h": 377
+            },
+            "display": "block",
+            "gridTemplateColumns": "none",
+            "flexWrap": "nowrap",
+            "childCount": 2,
+            "columns": 1,
+            "rows": 2,
+            "gap": "normal"
+          },
+          {
+            "cls": "product-list__item",
+            "rect": {
+              "x": 714.69,
+              "y": 2709.78,
+              "w": 193.59,
+              "h": 377
+            },
+            "display": "block",
+            "gridTemplateColumns": "none",
+            "flexWrap": "nowrap",
+            "childCount": 2,
+            "columns": 1,
+            "rows": 2,
+            "gap": "normal"
+          },
+          {
+            "cls": "product-list__item",
+            "rect": {
+              "x": 908.28,
+              "y": 2709.78,
+              "w": 193.59,
+              "h": 377
+            },
+            "display": "block",
+            "gridTemplateColumns": "none",
+            "flexWrap": "nowrap",
+            "childCount": 2,
+            "columns": 1,
+            "rows": 2,
+            "gap": "normal"
+          },
+          {
+            "cls": "product-list__item",
+            "rect": {
+              "x": 1101.88,
+              "y": 2709.78,
+              "w": 193.59,
+              "h": 377
+            },
+            "display": "block",
+            "gridTemplateColumns": "none",
+            "flexWrap": "nowrap",
+            "childCount": 2,
+            "columns": 1,
+            "rows": 2,
+            "gap": "normal"
+          }
+        ],
+        "grids": [],
+        "cardRects": [
+          {
+            "x": 107.5,
+            "y": 628.05,
+            "w": 226,
+            "h": 99.73
+          },
+          {
+            "x": 353.5,
+            "y": 628.05,
+            "w": 226,
+            "h": 99.73
+          },
+          {
+            "x": 599.5,
+            "y": 628.05,
+            "w": 226,
+            "h": 99.73
+          },
+          {
+            "x": 845.5,
+            "y": 628.05,
+            "w": 226,
+            "h": 99.73
+          },
+          {
+            "x": 1091.5,
+            "y": 628.05,
+            "w": 226,
+            "h": 99.73
+          },
+          {
+            "x": 327.5,
+            "y": 953.78,
+            "w": 193.59,
+            "h": 377
+          },
+          {
+            "x": 337.5,
+            "y": 961.78,
+            "w": 172.59,
+            "h": 155
+          },
+          {
+            "x": 521.09,
+            "y": 953.78,
+            "w": 193.59,
+            "h": 377
+          },
+          {
+            "x": 531.09,
+            "y": 961.78,
+            "w": 172.59,
+            "h": 155
+          },
+          {
+            "x": 714.69,
+            "y": 953.78,
+            "w": 193.59,
+            "h": 377
+          },
+          {
+            "x": 724.69,
+            "y": 961.78,
+            "w": 172.59,
+            "h": 155
+          },
+          {
+            "x": 908.28,
+            "y": 953.78,
+            "w": 193.59,
+            "h": 377
+          },
+          {
+            "x": 918.28,
+            "y": 961.78,
+            "w": 172.59,
+            "h": 155
+          },
+          {
+            "x": 1101.88,
+            "y": 953.78,
+            "w": 193.59,
+            "h": 377
+          },
+          {
+            "x": 1111.88,
+            "y": 961.78,
+            "w": 173.59,
+            "h": 155
+          },
+          {
+            "x": 327.5,
+            "y": 1392.78,
+            "w": 193.59,
+            "h": 377
+          },
+          {
+            "x": 337.5,
+            "y": 1400.78,
+            "w": 172.59,
+            "h": 155
+          },
+          {
+            "x": 521.09,
+            "y": 1392.78,
+            "w": 193.59,
+            "h": 377
+          },
+          {
+            "x": 531.09,
+            "y": 1400.78,
+            "w": 172.59,
+            "h": 155
+          },
+          {
+            "x": 714.69,
+            "y": 1392.78,
+            "w": 193.59,
+            "h": 377
+          },
+          {
+            "x": 724.69,
+            "y": 1400.78,
+            "w": 172.59,
+            "h": 155
+          },
+          {
+            "x": 908.28,
+            "y": 1392.78,
+            "w": 193.59,
+            "h": 377
+          },
+          {
+            "x": 918.28,
+            "y": 1400.78,
+            "w": 172.59,
+            "h": 155
+          },
+          {
+            "x": 1101.88,
+            "y": 1392.78,
+            "w": 193.59,
+            "h": 377
+          },
+          {
+            "x": 1111.88,
+            "y": 1400.78,
+            "w": 173.59,
+            "h": 155
+          },
+          {
+            "x": 327.5,
+            "y": 1831.78,
+            "w": 193.59,
+            "h": 377
+          },
+          {
+            "x": 337.5,
+            "y": 1839.78,
+            "w": 172.59,
+            "h": 155
+          },
+          {
+            "x": 521.09,
+            "y": 1831.78,
+            "w": 193.59,
+            "h": 377
+          },
+          {
+            "x": 531.09,
+            "y": 1839.78,
+            "w": 172.59,
+            "h": 155
+          },
+          {
+            "x": 714.69,
+            "y": 1831.78,
+            "w": 193.59,
+            "h": 377
+          },
+          {
+            "x": 724.69,
+            "y": 1839.78,
+            "w": 172.59,
+            "h": 155
+          },
+          {
+            "x": 908.28,
+            "y": 1831.78,
+            "w": 193.59,
+            "h": 377
+          },
+          {
+            "x": 918.28,
+            "y": 1839.78,
+            "w": 172.59,
+            "h": 155
+          },
+          {
+            "x": 1101.88,
+            "y": 1831.78,
+            "w": 193.59,
+            "h": 377
+          },
+          {
+            "x": 1111.88,
+            "y": 1839.78,
+            "w": 173.59,
+            "h": 155
+          },
+          {
+            "x": 327.5,
+            "y": 2270.78,
+            "w": 193.59,
+            "h": 377
+          },
+          {
+            "x": 337.5,
+            "y": 2278.78,
+            "w": 172.59,
+            "h": 155
+          },
+          {
+            "x": 521.09,
+            "y": 2270.78,
+            "w": 193.59,
+            "h": 377
+          },
+          {
+            "x": 531.09,
+            "y": 2278.78,
+            "w": 172.59,
+            "h": 155
+          },
+          {
+            "x": 714.69,
+            "y": 2270.78,
+            "w": 193.59,
+            "h": 377
+          }
+        ],
+        "articleCardCount": 4,
+        "navItemCount": 8,
+        "linkCount": 249,
+        "buttonRects": [
+          {
+            "x": 785.5,
+            "y": 15,
+            "w": 74,
+            "h": 45
+          },
+          {
+            "x": 0,
+            "y": 0,
+            "w": 0,
+            "h": 0
+          },
+          {
+            "x": 560.94,
+            "y": 610.98,
+            "w": 278.11,
+            "h": 50
+          },
+          {
+            "x": 1048,
+            "y": 336.55,
+            "w": 114,
+            "h": 118
+          },
+          {
+            "x": 872.5,
+            "y": 3452.28,
+            "w": 420,
+            "h": 48
+          },
+          {
+            "x": 872.5,
+            "y": 3452.28,
+            "w": 420,
+            "h": 48
+          },
+          {
+            "x": 1143.83,
+            "y": 3531.28,
+            "w": 15,
+            "h": 15
+          },
+          {
+            "x": 872.5,
+            "y": 3588.28,
+            "w": 420,
+            "h": 46
+          },
+          {
+            "x": 2625.31,
+            "y": 852,
+            "w": 86.17,
+            "h": 17
+          }
+        ],
+        "images": [
+          {
+            "src": "https://img.hoplongtech.com/hoplong/uploads/logo-hlt-2024.png",
+            "natural": [
+              1235,
+              281
+            ],
+            "rendered": [
+              243,
+              45
+            ],
+            "objectFit": "contain",
+            "complete": true,
+            "ok": true,
+            "y": 30
+          },
+          {
+            "src": "https://img.hoplongtech.com/hoplong/icon/icon.png",
+            "natural": [
+              417,
+              418
+            ],
+            "rendered": [
+              25,
+              25.05
+            ],
+            "objectFit": "cover",
+            "complete": true,
+            "ok": true,
+            "y": 122
+          },
+          {
+            "src": "https://img.hoplongtech.com/hoplong/uploads/icon-01.png",
+            "natural": [
+              100,
+              100
+            ],
+            "rendered": [
+              25,
+              25
+            ],
+            "objectFit": "cover",
+            "complete": true,
+            "ok": true,
+            "y": 122
+          },
+          {
+            "src": "https://img.hoplongtech.com/hoplong/uploads/icon-02.png",
+            "natural": [
+              100,
+              100
+            ],
+            "rendered": [
+              25,
+              25
+            ],
+            "objectFit": "cover",
+            "complete": true,
+            "ok": true,
+            "y": 122
+          },
+          {
+            "src": "https://img.hoplongtech.com/hoplong/uploads/icon-03.png",
+            "natural": [
+              100,
+              100
+            ],
+            "rendered": [
+              25,
+              25
+            ],
+            "objectFit": "cover",
+            "complete": true,
+            "ok": true,
+            "y": 122
+          },
+          {
+            "src": "https://img.hoplongtech.com/hoplong/uploads/icon-04.png",
+            "natural": [
+              100,
+              100
+            ],
+            "rendered": [
+              25,
+              25
+            ],
+            "objectFit": "cover",
+            "complete": true,
+            "ok": true,
+            "y": 122
+          },
+          {
+            "src": "https://img.hoplongtech.com/hoplong/uploads/icon-05.png",
+            "natural": [
+              100,
+              100
+            ],
+            "rendered": [
+              25,
+              25
+            ],
+            "objectFit": "cover",
+            "complete": true,
+            "ok": true,
+            "y": 122
+          },
+          {
+            "src": "https://img.hoplongtech.com/hoplong/uploads/icon-06.png",
+            "natural": [
+              100,
+              100
+            ],
+            "rendered": [
+              25,
+              25
+            ],
+            "objectFit": "cover",
+            "complete": true,
+            "ok": true,
+            "y": 122
+          },
+          {
+            "src": "https://img.hoplongtech.com/hoplong/uploads/flash-sales-2-1.png",
+            "natural": [
+              25,
+              26
+            ],
+            "rendered": [
+              25,
+              26
+            ],
+            "objectFit": "cover",
+            "complete": true,
+            "ok": true,
+            "y": 122
+          },
+          {
+            "src": "https://img.hoplongtech.com/hoplong/logo-hang/baner-thuong-hieu/04-best-workplace-in-asia-2025-at-15x.jpg",
+            "natural": [
+              6000,
+              2961
+            ],
+            "rendered": [
+              54.5,
+              385
+            ],
+            "objectFit": "fill",
+            "complete": true,
+            "ok": true,
+            "y": 203.05
+          },
+          {
+            "src": "https://img.hoplongtech.com/hoplong/logo-hang/baner-thuong-hieu/02fast500.jpg",
+            "natural": [
+              2000,
+              987
+            ],
+            "rendered": [
+              54.5,
+              385
+            ],
+            "objectFit": "fill",
+            "complete": true,
+            "ok": true,
+            "y": 203.05
+          },
+          {
+            "src": "https://img.hoplongtech.com/hoplong/logo-hang/baner-thuong-hieu/vnr500.jpg",
+            "natural": [
+              2000,
+              987
+            ],
+            "rendered": [
+              54.5,
+              385
+            ],
+            "objectFit": "fill",
+            "complete": true,
+            "ok": true,
+            "y": 203.05
+          },
+          {
+            "src": "https://img.hoplongtech.com/hoplong/logo-hang/baner-thuong-hieu/03-top-50-vietnam-best-growth.jpg",
+            "natural": [
+              4000,
+              1974
+            ],
+            "rendered": [
+              54.5,
+              385
+            ],
+            "objectFit": "fill",
+            "complete": true,
+            "ok": true,
+            "y": 203.05
+          },
+          {
+            "src": "https://img.hoplongtech.com/hoplong/logo-hang/baner-thuong-hieu/se-1.jpg",
+            "natural": [
+              2000,
+              987
+            ],
+            "rendered": [
+              54.5,
+              385
+            ],
+            "objectFit": "fill",
+            "complete": true,
+            "ok": true,
+            "y": 203.05
+          },
+          {
+            "src": "https://img.hoplongtech.com/hoplong/logo-hang/baner-thuong-hieu/ur.jpg",
+            "natural": [
+              2000,
+              987
+            ],
+            "rendered": [
+              54.5,
+              385
+            ],
+            "objectFit": "fill",
+            "complete": true,
+            "ok": true,
+            "y": 203.05
+          },
+          {
+            "src": "https://img.hoplongtech.com/hoplong/logo-hang/baner-thuong-hieu/omron.jpg",
+            "natural": [
+              2000,
+              987
+            ],
+            "rendered": [
+              54.5,
+              385
+            ],
+            "objectFit": "fill",
+            "complete": true,
+            "ok": true,
+            "y": 203.05
+          },
+          {
+            "src": "https://img.hoplongtech.com/hoplong/logo-hang/baner-thuong-hieu/siemens.jpg",
+            "natural": [
+              2000,
+              987
+            ],
+            "rendered": [
+              54.5,
+              385
+            ],
+            "objectFit": "fill",
+            "complete": true,
+            "ok": true,
+            "y": 203.05
+          },
+          {
+            "src": "https://img.hoplongtech.com/hoplong/logo-hang/baner-thuong-hieu/frecon-1.jpg",
+            "natural": [
+              2000,
+              987
+            ],
+            "rendered": [
+              54.5,
+              385
+            ],
+            "objectFit": "fill",
+            "complete": true,
+            "ok": true,
+            "y": 203.05
+          },
+          {
+            "src": "https://img.hoplongtech.com/hoplong/logo-hang/baner-thuong-hieu/hanyoung.jpg",
+            "natural": [
+              2000,
+              987
+            ],
+            "rendered": [
+              54.5,
+              385
+            ],
+            "objectFit": "fill",
+            "complete": true,
+            "ok": true,
+            "y": 203.05
+          },
+          {
+            "src": "https://img.hoplongtech.com/hoplong/noi-bat/hop-long.jpg",
+            "natural": [
+              1000,
+              1000
+            ],
+            "rendered": [
+              385,
+              385
+            ],
+            "objectFit": "cover",
+            "complete": true,
+            "ok": true,
+            "y": 203.05
+          },
+          {
+            "src": "https://img.hoplongtech.com/hoplong/uploads/bien-tan-se.jpg",
+            "natural": [
+              1500,
+              662
+            ],
+            "rendered": [
+              226,
+              99.73
+            ],
+            "objectFit": "cover",
+            "complete": true,
+            "ok": true,
+            "y": 628.05
+          },
+          {
+            "src": "https://img.hoplongtech.com/hoplong/uploads/nut-nhan-giga.jpg",
+            "natural": [
+              1500,
+              662
+            ],
+            "rendered": [
+              226,
+              99.73
+            ],
+            "objectFit": "cover",
+            "complete": true,
+            "ok": true,
+            "y": 628.05
+          },
+          {
+            "src": "https://img.hoplongtech.com/hoplong/uploads/mccb-cau-dao-tu-dong-siemen.jpg",
+            "natural": [
+              1500,
+              662
+            ],
+            "rendered": [
+              226,
+              99.73
+            ],
+            "objectFit": "cover",
+            "complete": true,
+            "ok": true,
+            "y": 628.05
+          },
+          {
+            "src": "https://img.hoplongtech.com/hoplong/uploads/cong-tac-o-cam-se-1.jpg",
+            "natural": [
+              1500,
+              662
+            ],
+            "rendered": [
+              226,
+              99.73
+            ],
+            "objectFit": "cover",
+            "complete": true,
+            "ok": true,
+            "y": 628.05
+          },
+          {
+            "src": "https://img.hoplongtech.com/hoplong/uploads/cam-bien-tiem-can-omzon.jpg",
+            "natural": [
+              1500,
+              662
+            ],
+            "rendered": [
+              226,
+              99.73
+            ],
+            "objectFit": "cover",
+            "complete": true,
+            "ok": true,
+            "y": 628.05
+          },
+          {
+            "src": "https://img.hoplongtech.com/hoplong/logo-hang/banner-3/miluz-e.jpg",
+            "natural": [
+              776,
+              326
+            ],
+            "rendered": [
+              389.98,
+              165
+            ],
+            "objectFit": "cover",
+            "complete": true,
+            "ok": true,
+            "y": 747.78
+          },
+          {
+            "src": "https://img.hoplongtech.com/hoplong/news/bien-ap-giga-electric-1.jpg",
+            "natural": [
+              466,
+              196
+            ],
+            "rendered": [
+              389.98,
+              165
+            ],
+            "objectFit": "cover",
+            "complete": true,
+            "ok": true,
+            "y": 747.78
+          },
+          {
+            "src": "https://img.hoplongtech.com/hoplong/news/bien-tan-nistro-3.jpg",
+            "natural": [
+              466,
+              196
+            ],
+            "rendered": [
+              389.98,
+              165
+            ],
+            "objectFit": "cover",
+            "complete": true,
+            "ok": true,
+            "y": 747.78
+          },
+          {
+            "src": "https://img.hoplongtech.com/hoplong/logo-hang/banner-danh-muc/gv2me326-new.png",
+            "natural": [
+              1500,
+              1800
+            ],
+            "rendered": [
+              128,
+              153.59
+            ],
+            "objectFit": "cover",
+            "complete": true,
+            "ok": true,
+            "y": 972.78
+          },
+          {
+            "src": "https://img.hoplongtech.com/hoplong/thiet-bi-dong-cat/contactor/schneider-lc1d09-main.jpg",
+            "natural": [
+              600,
+              600
+            ],
+            "rendered": [
+              172,
+              155
+            ],
+            "objectFit": "contain",
+            "complete": true,
+            "ok": true,
+            "y": 961.78
+          },
+          {
+            "src": "https://img.hoplongtech.com/hoplong/thiet-bi-dong-cat/contactor/schneider-lc1d12-main.jpg",
+            "natural": [
+              600,
+              600
+            ],
+            "rendered": [
+              172,
+              155
+            ],
+            "objectFit": "contain",
+            "complete": true,
+            "ok": true,
+            "y": 961.78
+          },
+          {
+            "src": "https://img.hoplongtech.com/hoplong/thiet-bi-dong-cat/contactor/schneider-a9c2-main.jpg",
+            "natural": [
+              600,
+              600
+            ],
+            "rendered": [
+              172,
+              155
+            ],
+            "objectFit": "contain",
+            "complete": true,
+            "ok": true,
+            "y": 961.78
+          },
+          {
+            "src": "https://img.hoplongtech.com/hoplong/thiet-bi-dong-cat/contactor/schneider-lc1d32-main.jpg",
+            "natural": [
+              600,
+              600
+            ],
+            "rendered": [
+              172,
+              155
+            ],
+            "objectFit": "contain",
+            "complete": true,
+            "ok": true,
+            "y": 961.78
+          },
+          {
+            "src": "https://img.hoplongtech.com/hoplong/thiet-bi-dong-cat/contactor/schneider-lc1d188-main.jpg",
+            "natural": [
+              600,
+              600
+            ],
+            "rendered": [
+              172,
+              155
+            ],
+            "objectFit": "contain",
+            "complete": true,
+            "ok": true,
+            "y": 961.78
+          },
+          {
+            "src": "https://img.hoplongtech.com/hoplong/news/bien-tan-nistro-1.png",
+            "natural": [
+              254,
+              396
+            ],
+            "rendered": [
+              128,
+              199.55
+            ],
+            "objectFit": "cover",
+            "complete": true,
+            "ok": true,
+            "y": 1411.78
+          },
+          {
+            "src": "https://img.hoplongtech.com/hoplong/bien-tan/bien-tan-ha-the/ga27-65-nistro-main.jpg",
+            "natural": [
+              600,
+              600
+            ],
+            "rendered": [
+              172,
+              155
+            ],
+            "objectFit": "contain",
+            "complete": true,
+            "ok": true,
+            "y": 1400.78
+          },
+          {
+            "src": "https://img.hoplongtech.com/hoplong/bien-tan/bien-tan-ha-the/ga27-main-hlt.jpg",
+            "natural": [
+              600,
+              600
+            ],
+            "rendered": [
+              172,
+              155
+            ],
+            "objectFit": "contain",
+            "complete": true,
+            "ok": true,
+            "y": 1400.78
+          },
+          {
+            "src": "https://img.hoplongtech.com/hoplong/bien-tan/bien-tan-ha-the/ga27-main-hlt.jpg",
+            "natural": [
+              600,
+              600
+            ],
+            "rendered": [
+              172,
+              155
+            ],
+            "objectFit": "contain",
+            "complete": true,
+            "ok": true,
+            "y": 1400.78
+          },
+          {
+            "src": "https://img.hoplongtech.com/hoplong/bien-tan/bien-tan-ha-the/ga27-main-hlt.jpg",
+            "natural": [
+              600,
+              600
+            ],
+            "rendered": [
+              172,
+              155
+            ],
+            "objectFit": "contain",
+            "complete": true,
+            "ok": true,
+            "y": 1400.78
+          },
+          {
+            "src": "https://img.hoplongtech.com/hoplong/bien-tan/bien-tan-ha-the/nistro-ga20-65-main.jpg",
+            "natural": [
+              600,
+              600
+            ],
+            "rendered": [
+              172,
+              155
+            ],
+            "objectFit": "contain",
+            "complete": true,
+            "ok": true,
+            "y": 1400.78
+          },
+          {
+            "src": "https://img.hoplongtech.com/hoplong/logo-hang/banner-3/veichi-1.png",
+            "natural": [
+              1058,
+              1650
+            ],
+            "rendered": [
+              128,
+              199.61
+            ],
+            "objectFit": "cover",
+            "complete": true,
+            "ok": true,
+            "y": 1850.78
+          },
+          {
+            "src": "https://img.hoplongtech.com/hoplong/bien-tan/bien-tan-ha-the/veichi-ac310-main.jpg",
+            "natural": [
+              600,
+              600
+            ],
+            "rendered": [
+              172,
+              155
+            ],
+            "objectFit": "contain",
+            "complete": true,
+            "ok": true,
+            "y": 1839.78
+          },
+          {
+            "src": "https://img.hoplongtech.com/hoplong/bien-tan/bien-tan-ha-the/veichi-ac10-main.jpg",
+            "natural": [
+              600,
+              600
+            ],
+            "rendered": [
+              172,
+              155
+            ],
+            "objectFit": "contain",
+            "complete": true,
+            "ok": true,
+            "y": 1839.78
+          },
+          {
+            "src": "https://img.hoplongtech.com/hoplong/bien-tan/bien-tan-ha-the/veichi-ac310-main.jpg",
+            "natural": [
+              600,
+              600
+            ],
+            "rendered": [
+              172,
+              155
+            ],
+            "objectFit": "contain",
+            "complete": true,
+            "ok": true,
+            "y": 1839.78
+          },
+          {
+            "src": "https://img.hoplongtech.com/hoplong/bien-tan/bien-tan-ha-the/veichi-ac01-main.jpg",
+            "natural": [
+              600,
+              600
+            ],
+            "rendered": [
+              172,
+              155
+            ],
+            "objectFit": "contain",
+            "complete": true,
+            "ok": true,
+            "y": 1839.78
+          },
+          {
+            "src": "https://img.hoplongtech.com/hoplong/plc-hmi/hmi/vi20-veichi-main.jpg",
+            "natural": [
+              600,
+              600
+            ],
+            "rendered": [
+              172,
+              155
+            ],
+            "objectFit": "contain",
+            "complete": true,
+            "ok": true,
+            "y": 1839.78
+          },
+          {
+            "src": "https://img.hoplongtech.com/hoplong/uploads/bien-ap-giga.png",
+            "natural": [
+              1500,
+              1800
+            ],
+            "rendered": [
+              128,
+              153.59
+            ],
+            "objectFit": "cover",
+            "complete": true,
+            "ok": true,
+            "y": 2289.78
+          },
+          {
+            "src": "https://img.hoplongtech.com/hoplong/bien-ap/bien-ap-cach-ly/giga-ggk-25.jpg",
+            "natural": [
+              600,
+              600
+            ],
+            "rendered": [
+              172,
+              155
+            ],
+            "objectFit": "contain",
+            "complete": true,
+            "ok": true,
+            "y": 2278.78
+          },
+          {
+            "src": "https://img.hoplongtech.com/hoplong/bien-ap/bien-ap-cach-ly/giga-ggk-50.jpg",
+            "natural": [
+              600,
+              600
+            ],
+            "rendered": [
+              172,
+              155
+            ],
+            "objectFit": "contain",
+            "complete": true,
+            "ok": true,
+            "y": 2278.78
+          },
+          {
+            "src": "https://img.hoplongtech.com/hoplong/bien-ap/bien-ap-cach-ly/giga-ggk-100.jpg",
+            "natural": [
+              600,
+              600
+            ],
+            "rendered": [
+              172,
+              155
+            ],
+            "objectFit": "contain",
+            "complete": true,
+            "ok": true,
+            "y": 2278.78
+          },
+          {
+            "src": "https://img.hoplongtech.com/hoplong/bien-ap/bien-ap-cach-ly/giga-ggk-150.jpg",
+            "natural": [
+              600,
+              600
+            ],
+            "rendered": [
+              172,
+              155
+            ],
+            "objectFit": "contain",
+            "complete": true,
+            "ok": true,
+            "y": 2278.78
+          },
+          {
+            "src": "https://img.hoplongtech.com/hoplong/bien-ap/bien-ap-cach-ly/giga-ggk-200.jpg",
+            "natural": [
+              600,
+              600
+            ],
+            "rendered": [
+              172,
+              155
+            ],
+            "objectFit": "contain",
+            "complete": true,
+            "ok": true,
+            "y": 2278.78
+          },
+          {
+            "src": "https://img.hoplongtech.com/hoplong/uploads/cam-bien-autonics.png",
+            "natural": [
+              1500,
+              1800
+            ],
+            "rendered": [
+              128,
+              153.59
+            ],
+            "objectFit": "cover",
+            "complete": true,
+            "ok": true,
+            "y": 2728.78
+          },
+          {
+            "src": "https://img.hoplongtech.com/hoplong/cam-bien/cam-bien-quang/autonics-brqm-main.jpg",
+            "natural": [
+              600,
+              600
+            ],
+            "rendered": [
+              172,
+              155
+            ],
+            "objectFit": "contain",
+            "complete": true,
+            "ok": true,
+            "y": 2717.78
+          },
+          {
+            "src": "https://img.hoplongtech.com/hoplong/cam-bien/cam-bien-quang/omron-e3z-ls81-main.jpg",
+            "natural": [
+              600,
+              600
+            ],
+            "rendered": [
+              172,
+              155
+            ],
+            "objectFit": "contain",
+            "complete": true,
+            "ok": true,
+            "y": 2717.78
+          },
+          {
+            "src": "https://img.hoplongtech.com/hoplong/cam-bien/cam-bien-quang/autonics-bup-30-main.jpg",
+            "natural": [
+              600,
+              600
+            ],
+            "rendered": [
+              172,
+              155
+            ],
+            "objectFit": "contain",
+            "complete": true,
+            "ok": true,
+            "y": 2717.78
+          },
+          {
+            "src": "https://img.hoplongtech.com/hoplong/cam-bien/cam-bien-tiem-can/autonics-pr12-2aodn-main.jpg",
+            "natural": [
+              600,
+              600
+            ],
+            "rendered": [
+              172,
+              155
+            ],
+            "objectFit": "contain",
+            "complete": true,
+            "ok": true,
+            "y": 2717.78
+          },
+          {
+            "src": "https://img.hoplongtech.com/hoplong/cam-bien/cam-bien-quang/autonics-ben-main.jpg",
+            "natural": [
+              600,
+              600
+            ],
+            "rendered": [
+              172,
+              155
+            ],
+            "objectFit": "contain",
+            "complete": true,
+            "ok": true,
+            "y": 2717.78
+          },
+          {
+            "src": "https://img.hoplongtech.com/hoplong/logo-hang/dsc04523-1.png",
+            "natural": [
+              3600,
+              4307
+            ],
+            "rendered": [
+              0,
+              0
+            ],
+            "objectFit": "cover",
+            "complete": true,
+            "ok": true,
+            "y": 0
+          },
+          {
+            "src": "https://img.hoplongtech.com/hoplong/logo-hang/phu-kien/cau-dau-khoi-hanyoung.png",
+            "natural": [
+              500,
+              535
+            ],
+            "rendered": [
+              86,
+              91
+            ],
+            "objectFit": "contain",
+            "complete": true,
+            "ok": true,
+            "y": 3851.78
+          },
+          {
+            "src": "https://img.hoplongtech.com/hoplong/logo-hang/phu-kien/cau-dau-ghep-gan-din-ray-hanyoung.png",
+            "natural": [
+              500,
+              535
+            ],
+            "rendered": [
+              86,
+              91
+            ],
+            "objectFit": "contain",
+            "complete": true,
+            "ok": true,
+            "y": 3851.78
+          },
+          {
+            "src": "https://img.hoplongtech.com/hoplong/logo-hang/phu-kien/din-ray-hanyoung.png",
+            "natural": [
+              500,
+              535
+            ],
+            "rendered": [
+              86,
+              91
+            ],
+            "objectFit": "contain",
+            "complete": true,
+            "ok": true,
+            "y": 3851.78
+          },
+          {
+            "src": "https://img.hoplongtech.com/hoplong/logo-hang/phu-kien/dien-tro-say-tu-dien-leipole.png",
+            "natural": [
+              500,
+              535
+            ],
+            "rendered": [
+              86,
+              91
+            ],
+            "objectFit": "contain",
+            "complete": true,
+            "ok": true,
+            "y": 3851.78
+          },
+          {
+            "src": "https://img.hoplongtech.com/hoplong/logo-hang/phu-kien/quat-thong-gio-tu-dien-leipole.png",
+            "natural": [
+              500,
+              535
+            ],
+            "rendered": [
+              86,
+              91
+            ],
+            "objectFit": "contain",
+            "complete": true,
+            "ok": true,
+            "y": 3851.78
+          },
+          {
+            "src": "https://img.hoplongtech.com/hoplong/logo-hang/phu-kien/vo-cau-chi-ruot-cau-chi-schneider.png",
+            "natural": [
+              500,
+              535
+            ],
+            "rendered": [
+              86,
+              91
+            ],
+            "objectFit": "contain",
+            "complete": true,
+            "ok": true,
+            "y": 3978.78
+          },
+          {
+            "src": "https://img.hoplongtech.com/hoplong/logo-hang/phu-kien/dieu-hoa-tu-dien-schneider.png",
+            "natural": [
+              500,
+              535
+            ],
+            "rendered": [
+              86,
+              91
+            ],
+            "objectFit": "contain",
+            "complete": true,
+            "ok": true,
+            "y": 3978.78
+          },
+          {
+            "src": "https://img.hoplongtech.com/hoplong/logo-hang/phu-kien/mang-nhua-giga-electric.png",
+            "natural": [
+              500,
+              535
+            ],
+            "rendered": [
+              86,
+              91
+            ],
+            "objectFit": "contain",
+            "complete": true,
+            "ok": true,
+            "y": 3978.78
+          },
+          {
+            "src": "https://img.hoplongtech.com/hoplong/news/cong-tac-hanh-trinh-ggl-804-giga-electric-ben-bi-va-on-dinh-5.jpg",
+            "natural": [
+              600,
+              403
+            ],
+            "rendered": [
+              275.5,
+              175
+            ],
+            "objectFit": "cover",
+            "complete": true,
+            "ok": true,
+            "y": 4215.78
+          },
+          {
+            "src": "https://img.hoplongtech.com/hoplong/news/agibot-can-quet-dai-hoi-robot-hinh-nguoi-the-gioi-2026-mang-ve-18-huy-chuong-vang-va-dan-dau-bang-tong-xep-hang-6.jpg",
+            "natural": [
+              600,
+              400
+            ],
+            "rendered": [
+              275.5,
+              175
+            ],
+            "objectFit": "cover",
+            "complete": true,
+            "ok": true,
+            "y": 4215.78
+          },
+          {
+            "src": "https://img.hoplongtech.com/hoplong/news/robot-hinh-nguoi-agibot-a3-tu-dong-choi-bong-ban-so-tai-cung-nha-vo-dich-olympic-ding-ning-1.jpg",
+            "natural": [
+              600,
+              338
+            ],
+            "rendered": [
+              275.5,
+              175
+            ],
+            "objectFit": "cover",
+            "complete": true,
+            "ok": true,
+            "y": 4215.78
+          },
+          {
+            "src": "https://img.hoplongtech.com/hoplong/news/robot-hinh-nguoi-superman-cua-unitree-chay-nhanh-hon-usain-bolt-va-nhay-cao-2-met-8.png",
+            "natural": [
+              1536,
+              1024
+            ],
+            "rendered": [
+              275.5,
+              175
+            ],
+            "objectFit": "cover",
+            "complete": true,
+            "ok": true,
+            "y": 4215.78
+          },
+          {
+            "src": "https://img.hoplongtech.com/hoplong/uploads/logo-web-02-1.png",
+            "natural": [
+              134,
+              105
+            ],
+            "rendered": [
+              93.66,
+              105
+            ],
+            "objectFit": "contain",
+            "complete": true,
+            "ok": true,
+            "y": 4639.53
+          },
+          {
+            "src": "https://img.hoplongtech.com/hoplong/logo-hang/hang-new/logo-web-23.png",
+            "natural": [
+              171,
+              109
+            ],
+            "rendered": [
+              93.66,
+              105
+            ],
+            "objectFit": "contain",
+            "complete": true,
+            "ok": true,
+            "y": 4639.53
+          },
+          {
+            "src": "https://img.hoplongtech.com/hoplong/logo-hang/hang-new/logo-web-24.png",
+            "natural": [
+              171,
+              109
+            ],
+            "rendered": [
+              93.66,
+              105
+            ],
+            "objectFit": "contain",
+            "complete": true,
+            "ok": true,
+            "y": 4639.53
+          },
+          {
+            "src": "https://img.hoplongtech.com/hoplong/logo-hang/hang-new/logo-web-25.png",
+            "natural": [
+              171,
+              109
+            ],
+            "rendered": [
+              93.66,
+              105
+            ],
+            "objectFit": "contain",
+            "complete": true,
+            "ok": true,
+            "y": 4639.53
+          },
+          {
+            "src": "https://img.hoplongtech.com/hoplong/logo-hang/hang-new/logo-web-26.png",
+            "natural": [
+              171,
+              109
+            ],
+            "rendered": [
+              93.66,
+              105
+            ],
+            "objectFit": "contain",
+            "complete": true,
+            "ok": true,
+            "y": 4639.53
+          },
+          {
+            "src": "https://img.hoplongtech.com/hoplong/logo-hang/hang-new/logo-web-27.png",
+            "natural": [
+              171,
+              109
+            ],
+            "rendered": [
+              93.66,
+              105
+            ],
+            "objectFit": "contain",
+            "complete": true,
+            "ok": true,
+            "y": 4639.53
+          },
+          {
+            "src": "https://img.hoplongtech.com/hoplong/logo-hang/hang-new/logo-web-28.png",
+            "natural": [
+              171,
+              109
+            ],
+            "rendered": [
+              93.66,
+              105
+            ],
+            "objectFit": "contain",
+            "complete": true,
+            "ok": true,
+            "y": 4639.53
+          },
+          {
+            "src": "https://img.hoplongtech.com/hoplong/logo-hang/hang-new/logo-web-29.png",
+            "natural": [
+              171,
+              109
+            ],
+            "rendered": [
+              93.66,
+              105
+            ],
+            "objectFit": "contain",
+            "complete": true,
+            "ok": true,
+            "y": 4639.53
+          },
+          {
+            "src": "https://img.hoplongtech.com/hoplong/logo-hang/hang-new/logo-web-38.png",
+            "natural": [
+              171,
+              109
+            ],
+            "rendered": [
+              93.66,
+              105
+            ],
+            "objectFit": "contain",
+            "complete": true,
+            "ok": true,
+            "y": 4639.53
+          },
+          {
+            "src": "https://img.hoplongtech.com/hoplong/logo-hang/hang-new/logo-web-40.png",
+            "natural": [
+              171,
+              109
+            ],
+            "rendered": [
+              93.66,
+              105
+            ],
+            "objectFit": "contain",
+            "complete": true,
+            "ok": true,
+            "y": 4639.53
+          },
+          {
+            "src": "https://img.hoplongtech.com/hoplong/logo-hang/hang-new/logo-web-30.png",
+            "natural": [
+              171,
+              109
+            ],
+            "rendered": [
+              93.66,
+              105
+            ],
+            "objectFit": "contain",
+            "complete": true,
+            "ok": true,
+            "y": 4639.53
+          },
+          {
+            "src": "https://img.hoplongtech.com/hoplong/logo-hang/hang-new/logo-web-31.png",
+            "natural": [
+              171,
+              109
+            ],
+            "rendered": [
+              93.66,
+              105
+            ],
+            "objectFit": "contain",
+            "complete": true,
+            "ok": true,
+            "y": 4639.53
+          },
+          {
+            "src": "https://img.hoplongtech.com/hoplong/logo-hang/hang-new/logo-web-32.png",
+            "natural": [
+              171,
+              109
+            ],
+            "rendered": [
+              93.66,
+              105
+            ],
+            "objectFit": "contain",
+            "complete": true,
+            "ok": true,
+            "y": 4639.53
+          },
+          {
+            "src": "https://img.hoplongtech.com/hoplong/logo-hang/hang-new/logo-web-33.png",
+            "natural": [
+              171,
+              109
+            ],
+            "rendered": [
+              93.66,
+              105
+            ],
+            "objectFit": "contain",
+            "complete": true,
+            "ok": true,
+            "y": 4639.53
+          },
+          {
+            "src": "https://img.hoplongtech.com/hoplong/logo-hang/hang-new/logo-web-34.png",
+            "natural": [
+              171,
+              109
+            ],
+            "rendered": [
+              93.66,
+              105
+            ],
+            "objectFit": "contain",
+            "complete": true,
+            "ok": true,
+            "y": 4639.53
+          },
+          {
+            "src": "https://img.hoplongtech.com/hoplong/logo-hang/hang-new/logo-web-35.png",
+            "natural": [
+              171,
+              109
+            ],
+            "rendered": [
+              93.66,
+              105
+            ],
+            "objectFit": "contain",
+            "complete": true,
+            "ok": true,
+            "y": 4639.53
+          },
+          {
+            "src": "https://img.hoplongtech.com/hoplong/logo-hang/hang-new/logo-web-36.png",
+            "natural": [
+              171,
+              109
+            ],
+            "rendered": [
+              93.66,
+              105
+            ],
+            "objectFit": "contain",
+            "complete": true,
+            "ok": true,
+            "y": 4639.53
+          },
+          {
+            "src": "https://img.hoplongtech.com/hoplong/logo-hang/hang-new/logo-web-37.png",
+            "natural": [
+              171,
+              109
+            ],
+            "rendered": [
+              93.66,
+              105
+            ],
+            "objectFit": "contain",
+            "complete": true,
+            "ok": true,
+            "y": 4639.53
+          },
+          {
+            "src": "https://img.hoplongtech.com/hoplong/logo-hang/hang-new/logo-web-41.png",
+            "natural": [
+              171,
+              109
+            ],
+            "rendered": [
+              93.66,
+              105
+            ],
+            "objectFit": "contain",
+            "complete": true,
+            "ok": true,
+            "y": 4639.53
+          },
+          {
+            "src": "https://img.hoplongtech.com/hoplong/logo-hang/hang-new/logo-web-39.png",
+            "natural": [
+              171,
+              109
+            ],
+            "rendered": [
+              93.66,
+              105
+            ],
+            "objectFit": "contain",
+            "complete": true,
+            "ok": true,
+            "y": 4639.53
+          },
+          {
+            "src": "https://img.hoplongtech.com/hoplong/uploads/logo-hlt-2024.png",
+            "natural": [
+              1235,
+              281
+            ],
+            "rendered": [
+              274,
+              62.33
+            ],
+            "objectFit": "cover",
+            "complete": true,
+            "ok": true,
+            "y": 4845.53
+          },
+          {
+            "src": "https://hoplongtech.com/assets/images/bocongthuong.png",
+            "natural": [
+              578,
+              176
+            ],
+            "rendered": [
+              166,
+              50.53
+            ],
+            "objectFit": "cover",
+            "complete": true,
+            "ok": true,
+            "y": 5184.86
+          },
+          {
+            "src": "https://img.hoplongtech.com/hoplong/uploads/logo-hoplong-hang-author-04-1.png",
+            "natural": [
+              108,
+              50
+            ],
+            "rendered": [
+              150,
+              30
+            ],
+            "objectFit": "contain",
+            "complete": true,
+            "ok": true,
+            "y": 5275.39
+          },
+          {
+            "src": "https://img.hoplongtech.com/hoplong/uploads/logo-01.png",
+            "natural": [
+              3750,
+              1250
+            ],
+            "rendered": [
+              150,
+              30
+            ],
+            "objectFit": "contain",
+            "complete": true,
+            "ok": true,
+            "y": 5275.39
+          },
+          {
+            "src": "https://img.hoplongtech.com/hoplong/uploads/logo-hoplong-hang-author-06-1.png",
+            "natural": [
+              154,
+              50
+            ],
+            "rendered": [
+              150,
+              30
+            ],
+            "objectFit": "contain",
+            "complete": true,
+            "ok": true,
+            "y": 5275.39
+          },
+          {
+            "src": "https://img.hoplongtech.com/hoplong/uploads/logo-hoplong-hang-author-05-1.png",
+            "natural": [
+              171,
+              50
+            ],
+            "rendered": [
+              150,
+              30
+            ],
+            "objectFit": "contain",
+            "complete": true,
+            "ok": true,
+            "y": 5275.39
+          },
+          {
+            "src": "https://img.hoplongtech.com/hoplong/uploads/logo-hoplong-hang-author-08-1.png",
+            "natural": [
+              178,
+              50
+            ],
+            "rendered": [
+              150,
+              30
+            ],
+            "objectFit": "contain",
+            "complete": true,
+            "ok": true,
+            "y": 5275.39
+          },
+          {
+            "src": "https://img.hoplongtech.com/hoplong/uploads/logo-hoplong-hang-author-07-1.png",
+            "natural": [
+              145,
+              50
+            ],
+            "rendered": [
+              150,
+              30
+            ],
+            "objectFit": "contain",
+            "complete": true,
+            "ok": true,
+            "y": 5275.39
+          },
+          {
+            "src": "https://img.hoplongtech.com/hoplong/uploads/logo-hoplong-hang-author-10-1.png",
+            "natural": [
+              192,
+              50
+            ],
+            "rendered": [
+              150,
+              30
+            ],
+            "objectFit": "contain",
+            "complete": true,
+            "ok": true,
+            "y": 5275.39
+          },
+          {
+            "src": "https://img.hoplongtech.com/hoplong/uploads/logo-hoplong-hang-author-09-1.png",
+            "natural": [
+              192,
+              50
+            ],
+            "rendered": [
+              150,
+              30
+            ],
+            "objectFit": "contain",
+            "complete": true,
+            "ok": true,
+            "y": 5315.39
+          },
+          {
+            "src": "https://img.hoplongtech.com/hoplong/uploads/logo-02.png",
+            "natural": [
+              3750,
+              1250
+            ],
+            "rendered": [
+              150,
+              30
+            ],
+            "objectFit": "contain",
+            "complete": true,
+            "ok": true,
+            "y": 5315.39
+          },
+          {
+            "src": "https://img.hoplongtech.com/hoplong/uploads/logo-03-1.png",
+            "natural": [
+              3750,
+              1250
+            ],
+            "rendered": [
+              150,
+              30
+            ],
+            "objectFit": "contain",
+            "complete": true,
+            "ok": true,
+            "y": 5315.39
+          },
+          {
+            "src": "https://img.hoplongtech.com/hoplong/uploads/logo-04.png",
+            "natural": [
+              3750,
+              1250
+            ],
+            "rendered": [
+              150,
+              30
+            ],
+            "objectFit": "contain",
+            "complete": true,
+            "ok": true,
+            "y": 5315.39
+          },
+          {
+            "src": "https://img.hoplongtech.com/hoplong/uploads/logo-05.png",
+            "natural": [
+              3750,
+              1250
+            ],
+            "rendered": [
+              150,
+              30
+            ],
+            "objectFit": "contain",
+            "complete": true,
+            "ok": true,
+            "y": 5315.39
+          }
+        ],
+        "imageCount": 105,
+        "brokenImages": [],
+        "fonts": {
+          "body": {
+            "family": "Roboto",
+            "size": "14px",
+            "weight": "400",
+            "lineHeight": "normal",
+            "color": "rgb(34, 52, 62)",
+            "letterSpacing": "normal"
+          },
+          "h1": {
+            "family": "Roboto",
+            "size": "28px",
+            "weight": "600",
+            "lineHeight": "normal",
+            "color": "rgb(34, 52, 62)",
+            "letterSpacing": "normal"
+          },
+          "h2": {
+            "family": "Roboto",
+            "size": "18px",
+            "weight": "600",
+            "lineHeight": "normal",
+            "color": "rgb(34, 52, 62)",
+            "letterSpacing": "normal"
+          },
+          "h3": {
+            "family": "Roboto",
+            "size": "14px",
+            "weight": "700",
+            "lineHeight": "20px",
+            "color": "rgb(34, 52, 62)",
+            "letterSpacing": "normal"
+          },
+          ".product-list__item": {
+            "family": "Roboto",
+            "size": "14px",
+            "weight": "400",
+            "lineHeight": "normal",
+            "color": "rgb(34, 52, 62)",
+            "letterSpacing": "normal"
+          },
+          "a": {
+            "family": "Roboto",
+            "size": "14px",
+            "weight": "400",
+            "lineHeight": "normal",
+            "color": "rgb(34, 52, 62)",
+            "letterSpacing": "normal"
+          }
+        },
+        "textNodes": 254
+      }
+    },
+    "clone": {
+      "name": "clone-pass2",
+      "networkIdle": {
+        "satisfied": true,
+        "condition": "network_idle",
+        "durationMs": 643,
+        "details": {
+          "timedOut": false
+        }
+      },
+      "domStable": {
+        "satisfied": true,
+        "condition": "dom_stable",
+        "durationMs": 0
+      },
+      "settle": {
+        "freeze": {
+          "frozen": true,
+          "mediaCount": 0,
+          "tabId": "837739a2-ea0f-4080-99ad-b4ff098365ee"
+        },
+        "mediaFrozen": true,
+        "fontsSettled": true,
+        "imagesSettled": true,
+        "visualStable": true,
+        "renderStateStable": true,
+        "settled": true,
+        "refusal": null,
+        "fingerprint": "f2e9d29a18fa3437",
+        "fingerprintFields": {
+          "sectionCount": 15,
+          "productCardCount": 83,
+          "docHeight": 5422,
+          "scrollWidth": 1425,
+          "imageCount": 105,
+          "pendingImages": 0,
+          "brokenImages": 0,
+          "imageSetHash": "61b102bf",
+          "imageSetSize": 105,
+          "textHash": "853dd716",
+          "textLength": 8527
+        },
+        "domQuiet": true,
+        "rafStopped": true,
+        "rafStopError": null,
+        "timersStopped": true,
+        "timersStopError": null,
+        "animationsPaused": 0,
+        "unfreezeTimerCleared": true,
+        "pinnedMovers": {
+          "nodes": 3,
+          "movers": [],
+          "pinnedSet": [
+            "div.s-content",
+            "div.s-content",
+            "div.s-content"
+          ],
+          "stillMovingAfterGuard": 0
+        },
+        "domQuietDetail": {
+          "domSettled": true,
+          "structuralMutations": 0
+        },
+        "structuralMutations": 0,
+        "timedOut": false,
+        "imageCount": 105,
+        "pendingImages": 0,
+        "brokenImages": [],
+        "settlementDuration": 3713,
+        "readyState": "complete",
+        "fontsStatus": "loaded",
+        "phases": {
+          "images": {
+            "fontsSettled": true,
+            "imagesSettled": true,
+            "imageCount": 105,
+            "pendingImages": 0,
+            "durationMs": 434
+          },
+          "domQuiet": {
+            "domSettled": true,
+            "structuralMutations": 0,
+            "durationMs": 1608
+          },
+          "visual": {
+            "visualStable": true,
+            "durationMs": 836,
+            "imageCount": 105,
+            "pendingImages": 0,
+            "brokenImages": [],
+            "readyState": "complete",
+            "fontsStatus": "loaded"
+          },
+          "state": {
+            "renderStateStable": true,
+            "samples": 3,
+            "durationMs": 835,
+            "fingerprint": {
+              "sectionCount": 15,
+              "productCardCount": 83,
+              "docHeight": 5422,
+              "scrollWidth": 1425,
+              "imageCount": 105,
+              "pendingImages": 0,
+              "brokenImages": 0,
+              "imageSetHash": "61b102bf",
+              "imageSetSize": 105,
+              "textHash": "853dd716",
+              "textLength": 8527
+            },
+            "first": {
+              "sectionCount": 15,
+              "productCardCount": 83,
+              "docHeight": 5422,
+              "scrollWidth": 1425,
+              "imageCount": 105,
+              "pendingImages": 0,
+              "brokenImages": 0,
+              "imageSetHash": "61b102bf",
+              "imageSetSize": 105,
+              "textHash": "853dd716",
+              "textLength": 8527
+            }
+          }
+        },
+        "passes": [
+          {
+            "pass": 1,
+            "mediaFrozen": true,
+            "fontsSettled": true,
+            "imagesSettled": true,
+            "visualStable": true,
+            "renderStateStable": true,
+            "settled": true,
+            "fingerprint": "f2e9d29a18fa3437",
+            "counts": {
+              "sections": 15,
+              "cards": 83,
+              "docHeight": 5422,
+              "images": 105
+            }
+          },
+          {
+            "pass": 2,
+            "mediaFrozen": true,
+            "fontsSettled": true,
+            "imagesSettled": true,
+            "visualStable": true,
+            "renderStateStable": true,
+            "settled": true,
+            "fingerprint": "f2e9d29a18fa3437",
+            "counts": {
+              "sections": 15,
+              "cards": 83,
+              "docHeight": 5422,
+              "images": 105
+            }
+          }
+        ]
+      },
+      "metrics": {
+        "url": "http://127.0.0.1:7861/",
+        "docHeight": 5422,
+        "clientWidth": 1425,
+        "scrollWidth": 1425,
+        "overflowX": 0,
+        "hasMenuMobile": false,
+        "hasBottomNav": false,
+        "bodyChildren": [
+          "header.site-header",
+          "main",
+          "div.site-footer.w-100",
+          "script",
+          "script",
+          "script",
+          "script"
+        ],
+        "headerRect": {
+          "x": 0,
+          "y": 0,
+          "w": 1425,
+          "h": 163.05
+        },
+        "navRect": {
+          "x": 107.5,
+          "y": 110,
+          "w": 1210,
+          "h": 53.05
+        },
+        "heroRect": {
+          "x": 0,
+          "y": 163.05,
+          "w": 1425,
+          "h": 445
+        },
+        "footerRect": {
+          "x": 0,
+          "y": 4815.53,
+          "w": 1425,
+          "h": 606.86
+        },
+        "mainRect": {
+          "x": 0,
+          "y": 163.05,
+          "w": 1425,
+          "h": 4652.48
+        },
+        "sections": [
+          {
+            "tag": "header",
+            "cls": "site-header",
+            "rect": {
+              "x": 0,
+              "y": 0,
+              "w": 1425,
+              "h": 163.05
+            }
+          },
+          {
+            "tag": "main",
+            "cls": "",
+            "rect": {
+              "x": 0,
+              "y": 163.05,
+              "w": 1425,
+              "h": 4652.48
+            }
+          },
+          {
+            "tag": "section",
+            "cls": "slide",
+            "rect": {
+              "x": 0,
+              "y": 163.05,
+              "w": 1425,
+              "h": 445
+            }
+          },
+          {
+            "tag": "section",
+            "cls": "category-list",
+            "rect": {
+              "x": 0,
+              "y": 628.05,
+              "w": 1425,
+              "h": 119.73
+            }
+          },
+          {
+            "tag": "section",
+            "cls": "banner-category",
+            "rect": {
+              "x": 0,
+              "y": 747.78,
+              "w": 1425,
+              "h": 165
+            }
+          },
+          {
+            "tag": "section",
+            "cls": "block-category",
+            "rect": {
+              "x": 0,
+              "y": 932.78,
+              "w": 1425,
+              "h": 419
+            }
+          },
+          {
+            "tag": "section",
+            "cls": "block-category",
+            "rect": {
+              "x": 0,
+              "y": 1371.78,
+              "w": 1425,
+              "h": 419
+            }
+          },
+          {
+            "tag": "section",
+            "cls": "block-category",
+            "rect": {
+              "x": 0,
+              "y": 1810.78,
+              "w": 1425,
+              "h": 419
+            }
+          },
+          {
+            "tag": "section",
+            "cls": "block-category",
+            "rect": {
+              "x": 0,
+              "y": 2249.78,
+              "w": 1425,
+              "h": 419
+            }
+          },
+          {
+            "tag": "section",
+            "cls": "block-category",
+            "rect": {
+              "x": 0,
+              "y": 2688.78,
+              "w": 1425,
+              "h": 419
+            }
+          },
+          {
+            "tag": "section",
+            "cls": "home-form",
+            "rect": {
+              "x": 0,
+              "y": 3252.78,
+              "w": 1425,
+              "h": 369
+            }
+          },
+          {
+            "tag": "section",
+            "cls": "accessory",
+            "rect": {
+              "x": 0,
+              "y": 3766.78,
+              "w": 1425,
+              "h": 351
+            }
+          },
+          {
+            "tag": "section",
+            "cls": "news",
+            "rect": {
+              "x": 0,
+              "y": 4137.78,
+              "w": 1425,
+              "h": 435.75
+            }
+          },
+          {
+            "tag": "section",
+            "cls": "partner",
+            "rect": {
+              "x": 0,
+              "y": 4593.53,
+              "w": 1425,
+              "h": 222
+            }
+          },
+          {
+            "tag": "div",
+            "cls": "site-footer.w-100",
+            "rect": {
+              "x": 0,
+              "y": 4815.53,
+              "w": 1425,
+              "h": 606.86
+            }
+          }
+        ],
+        "sectionCount": 15,
+        "productCardCount": 83,
+        "productCardsBySection": [
+          {
+            "cls": "slide",
+            "cards": 0
+          },
+          {
+            "cls": "category-list",
+            "cards": 5
+          },
+          {
+            "cls": "banner-category",
+            "cards": 0
+          },
+          {
+            "cls": "block-category",
+            "cards": 10
+          },
+          {
+            "cls": "block-category",
+            "cards": 10
+          },
+          {
+            "cls": "block-category",
+            "cards": 10
+          },
+          {
+            "cls": "block-category",
+            "cards": 10
+          },
+          {
+            "cls": "block-category",
+            "cards": 10
+          },
+          {
+            "cls": "home-form",
+            "cards": 0
+          },
+          {
+            "cls": "accessory",
+            "cards": 8
+          },
+          {
+            "cls": "news",
+            "cards": 0
+          },
+          {
+            "cls": "partner",
+            "cards": 20
+          }
+        ],
+        "productListGrids": [
+          {
+            "cls": "product-list.flex",
+            "rect": {
+              "x": 326.5,
+              "y": 952.78,
+              "w": 970,
+              "h": 379
+            },
+            "display": "flex",
+            "gridTemplateColumns": "none",
+            "flexWrap": "wrap",
+            "childCount": 5,
+            "columns": 5,
+            "rows": 1,
+            "gap": "normal"
+          },
+          {
+            "cls": "product-list__item",
+            "rect": {
+              "x": 327.5,
+              "y": 953.78,
+              "w": 193.59,
+              "h": 377
+            },
+            "display": "block",
+            "gridTemplateColumns": "none",
+            "flexWrap": "nowrap",
+            "childCount": 2,
+            "columns": 1,
+            "rows": 2,
+            "gap": "normal"
+          },
+          {
+            "cls": "product-list__item",
+            "rect": {
+              "x": 521.09,
+              "y": 953.78,
+              "w": 193.59,
+              "h": 377
+            },
+            "display": "block",
+            "gridTemplateColumns": "none",
+            "flexWrap": "nowrap",
+            "childCount": 2,
+            "columns": 1,
+            "rows": 2,
+            "gap": "normal"
+          },
+          {
+            "cls": "product-list__item",
+            "rect": {
+              "x": 714.69,
+              "y": 953.78,
+              "w": 193.59,
+              "h": 377
+            },
+            "display": "block",
+            "gridTemplateColumns": "none",
+            "flexWrap": "nowrap",
+            "childCount": 2,
+            "columns": 1,
+            "rows": 2,
+            "gap": "normal"
+          },
+          {
+            "cls": "product-list__item",
+            "rect": {
+              "x": 908.28,
+              "y": 953.78,
+              "w": 193.59,
+              "h": 377
+            },
+            "display": "block",
+            "gridTemplateColumns": "none",
+            "flexWrap": "nowrap",
+            "childCount": 2,
+            "columns": 1,
+            "rows": 2,
+            "gap": "normal"
+          },
+          {
+            "cls": "product-list__item",
+            "rect": {
+              "x": 1101.88,
+              "y": 953.78,
+              "w": 193.59,
+              "h": 377
+            },
+            "display": "block",
+            "gridTemplateColumns": "none",
+            "flexWrap": "nowrap",
+            "childCount": 2,
+            "columns": 1,
+            "rows": 2,
+            "gap": "normal"
+          },
+          {
+            "cls": "product-list.flex",
+            "rect": {
+              "x": 326.5,
+              "y": 1391.78,
+              "w": 970,
+              "h": 379
+            },
+            "display": "flex",
+            "gridTemplateColumns": "none",
+            "flexWrap": "wrap",
+            "childCount": 5,
+            "columns": 5,
+            "rows": 1,
+            "gap": "normal"
+          },
+          {
+            "cls": "product-list__item",
+            "rect": {
+              "x": 327.5,
+              "y": 1392.78,
+              "w": 193.59,
+              "h": 377
+            },
+            "display": "block",
+            "gridTemplateColumns": "none",
+            "flexWrap": "nowrap",
+            "childCount": 2,
+            "columns": 1,
+            "rows": 2,
+            "gap": "normal"
+          },
+          {
+            "cls": "product-list__item",
+            "rect": {
+              "x": 521.09,
+              "y": 1392.78,
+              "w": 193.59,
+              "h": 377
+            },
+            "display": "block",
+            "gridTemplateColumns": "none",
+            "flexWrap": "nowrap",
+            "childCount": 2,
+            "columns": 1,
+            "rows": 2,
+            "gap": "normal"
+          },
+          {
+            "cls": "product-list__item",
+            "rect": {
+              "x": 714.69,
+              "y": 1392.78,
+              "w": 193.59,
+              "h": 377
+            },
+            "display": "block",
+            "gridTemplateColumns": "none",
+            "flexWrap": "nowrap",
+            "childCount": 2,
+            "columns": 1,
+            "rows": 2,
+            "gap": "normal"
+          },
+          {
+            "cls": "product-list__item",
+            "rect": {
+              "x": 908.28,
+              "y": 1392.78,
+              "w": 193.59,
+              "h": 377
+            },
+            "display": "block",
+            "gridTemplateColumns": "none",
+            "flexWrap": "nowrap",
+            "childCount": 2,
+            "columns": 1,
+            "rows": 2,
+            "gap": "normal"
+          },
+          {
+            "cls": "product-list__item",
+            "rect": {
+              "x": 1101.88,
+              "y": 1392.78,
+              "w": 193.59,
+              "h": 377
+            },
+            "display": "block",
+            "gridTemplateColumns": "none",
+            "flexWrap": "nowrap",
+            "childCount": 2,
+            "columns": 1,
+            "rows": 2,
+            "gap": "normal"
+          },
+          {
+            "cls": "product-list.flex",
+            "rect": {
+              "x": 326.5,
+              "y": 1830.78,
+              "w": 970,
+              "h": 379
+            },
+            "display": "flex",
+            "gridTemplateColumns": "none",
+            "flexWrap": "wrap",
+            "childCount": 5,
+            "columns": 5,
+            "rows": 1,
+            "gap": "normal"
+          },
+          {
+            "cls": "product-list__item",
+            "rect": {
+              "x": 327.5,
+              "y": 1831.78,
+              "w": 193.59,
+              "h": 377
+            },
+            "display": "block",
+            "gridTemplateColumns": "none",
+            "flexWrap": "nowrap",
+            "childCount": 2,
+            "columns": 1,
+            "rows": 2,
+            "gap": "normal"
+          },
+          {
+            "cls": "product-list__item",
+            "rect": {
+              "x": 521.09,
+              "y": 1831.78,
+              "w": 193.59,
+              "h": 377
+            },
+            "display": "block",
+            "gridTemplateColumns": "none",
+            "flexWrap": "nowrap",
+            "childCount": 2,
+            "columns": 1,
+            "rows": 2,
+            "gap": "normal"
+          },
+          {
+            "cls": "product-list__item",
+            "rect": {
+              "x": 714.69,
+              "y": 1831.78,
+              "w": 193.59,
+              "h": 377
+            },
+            "display": "block",
+            "gridTemplateColumns": "none",
+            "flexWrap": "nowrap",
+            "childCount": 2,
+            "columns": 1,
+            "rows": 2,
+            "gap": "normal"
+          },
+          {
+            "cls": "product-list__item",
+            "rect": {
+              "x": 908.28,
+              "y": 1831.78,
+              "w": 193.59,
+              "h": 377
+            },
+            "display": "block",
+            "gridTemplateColumns": "none",
+            "flexWrap": "nowrap",
+            "childCount": 2,
+            "columns": 1,
+            "rows": 2,
+            "gap": "normal"
+          },
+          {
+            "cls": "product-list__item",
+            "rect": {
+              "x": 1101.88,
+              "y": 1831.78,
+              "w": 193.59,
+              "h": 377
+            },
+            "display": "block",
+            "gridTemplateColumns": "none",
+            "flexWrap": "nowrap",
+            "childCount": 2,
+            "columns": 1,
+            "rows": 2,
+            "gap": "normal"
+          },
+          {
+            "cls": "product-list.flex",
+            "rect": {
+              "x": 326.5,
+              "y": 2269.78,
+              "w": 970,
+              "h": 379
+            },
+            "display": "flex",
+            "gridTemplateColumns": "none",
+            "flexWrap": "wrap",
+            "childCount": 5,
+            "columns": 5,
+            "rows": 1,
+            "gap": "normal"
+          },
+          {
+            "cls": "product-list__item",
+            "rect": {
+              "x": 327.5,
+              "y": 2270.78,
+              "w": 193.59,
+              "h": 377
+            },
+            "display": "block",
+            "gridTemplateColumns": "none",
+            "flexWrap": "nowrap",
+            "childCount": 2,
+            "columns": 1,
+            "rows": 2,
+            "gap": "normal"
+          },
+          {
+            "cls": "product-list__item",
+            "rect": {
+              "x": 521.09,
+              "y": 2270.78,
+              "w": 193.59,
+              "h": 377
+            },
+            "display": "block",
+            "gridTemplateColumns": "none",
+            "flexWrap": "nowrap",
+            "childCount": 2,
+            "columns": 1,
+            "rows": 2,
+            "gap": "normal"
+          },
+          {
+            "cls": "product-list__item",
+            "rect": {
+              "x": 714.69,
+              "y": 2270.78,
+              "w": 193.59,
+              "h": 377
+            },
+            "display": "block",
+            "gridTemplateColumns": "none",
+            "flexWrap": "nowrap",
+            "childCount": 2,
+            "columns": 1,
+            "rows": 2,
+            "gap": "normal"
+          },
+          {
+            "cls": "product-list__item",
+            "rect": {
+              "x": 908.28,
+              "y": 2270.78,
+              "w": 193.59,
+              "h": 377
+            },
+            "display": "block",
+            "gridTemplateColumns": "none",
+            "flexWrap": "nowrap",
+            "childCount": 2,
+            "columns": 1,
+            "rows": 2,
+            "gap": "normal"
+          },
+          {
+            "cls": "product-list__item",
+            "rect": {
+              "x": 1101.88,
+              "y": 2270.78,
+              "w": 193.59,
+              "h": 377
+            },
+            "display": "block",
+            "gridTemplateColumns": "none",
+            "flexWrap": "nowrap",
+            "childCount": 2,
+            "columns": 1,
+            "rows": 2,
+            "gap": "normal"
+          },
+          {
+            "cls": "product-list.flex",
+            "rect": {
+              "x": 326.5,
+              "y": 2708.78,
+              "w": 970,
+              "h": 379
+            },
+            "display": "flex",
+            "gridTemplateColumns": "none",
+            "flexWrap": "wrap",
+            "childCount": 5,
+            "columns": 5,
+            "rows": 1,
+            "gap": "normal"
+          },
+          {
+            "cls": "product-list__item",
+            "rect": {
+              "x": 327.5,
+              "y": 2709.78,
+              "w": 193.59,
+              "h": 377
+            },
+            "display": "block",
+            "gridTemplateColumns": "none",
+            "flexWrap": "nowrap",
+            "childCount": 2,
+            "columns": 1,
+            "rows": 2,
+            "gap": "normal"
+          },
+          {
+            "cls": "product-list__item",
+            "rect": {
+              "x": 521.09,
+              "y": 2709.78,
+              "w": 193.59,
+              "h": 377
+            },
+            "display": "block",
+            "gridTemplateColumns": "none",
+            "flexWrap": "nowrap",
+            "childCount": 2,
+            "columns": 1,
+            "rows": 2,
+            "gap": "normal"
+          },
+          {
+            "cls": "product-list__item",
+            "rect": {
+              "x": 714.69,
+              "y": 2709.78,
+              "w": 193.59,
+              "h": 377
+            },
+            "display": "block",
+            "gridTemplateColumns": "none",
+            "flexWrap": "nowrap",
+            "childCount": 2,
+            "columns": 1,
+            "rows": 2,
+            "gap": "normal"
+          },
+          {
+            "cls": "product-list__item",
+            "rect": {
+              "x": 908.28,
+              "y": 2709.78,
+              "w": 193.59,
+              "h": 377
+            },
+            "display": "block",
+            "gridTemplateColumns": "none",
+            "flexWrap": "nowrap",
+            "childCount": 2,
+            "columns": 1,
+            "rows": 2,
+            "gap": "normal"
+          },
+          {
+            "cls": "product-list__item",
+            "rect": {
+              "x": 1101.88,
+              "y": 2709.78,
+              "w": 193.59,
+              "h": 377
+            },
+            "display": "block",
+            "gridTemplateColumns": "none",
+            "flexWrap": "nowrap",
+            "childCount": 2,
+            "columns": 1,
+            "rows": 2,
+            "gap": "normal"
+          }
+        ],
+        "grids": [],
+        "cardRects": [
+          {
+            "x": 107.5,
+            "y": 628.05,
+            "w": 226,
+            "h": 99.73
+          },
+          {
+            "x": 353.5,
+            "y": 628.05,
+            "w": 226,
+            "h": 99.73
+          },
+          {
+            "x": 599.5,
+            "y": 628.05,
+            "w": 226,
+            "h": 99.73
+          },
+          {
+            "x": 845.5,
+            "y": 628.05,
+            "w": 226,
+            "h": 99.73
+          },
+          {
+            "x": 1091.5,
+            "y": 628.05,
+            "w": 226,
+            "h": 99.73
+          },
+          {
+            "x": 327.5,
+            "y": 953.78,
+            "w": 193.59,
+            "h": 377
+          },
+          {
+            "x": 337.5,
+            "y": 961.78,
+            "w": 172.59,
+            "h": 155
+          },
+          {
+            "x": 521.09,
+            "y": 953.78,
+            "w": 193.59,
+            "h": 377
+          },
+          {
+            "x": 531.09,
+            "y": 961.78,
+            "w": 172.59,
+            "h": 155
+          },
+          {
+            "x": 714.69,
+            "y": 953.78,
+            "w": 193.59,
+            "h": 377
+          },
+          {
+            "x": 724.69,
+            "y": 961.78,
+            "w": 172.59,
+            "h": 155
+          },
+          {
+            "x": 908.28,
+            "y": 953.78,
+            "w": 193.59,
+            "h": 377
+          },
+          {
+            "x": 918.28,
+            "y": 961.78,
+            "w": 172.59,
+            "h": 155
+          },
+          {
+            "x": 1101.88,
+            "y": 953.78,
+            "w": 193.59,
+            "h": 377
+          },
+          {
+            "x": 1111.88,
+            "y": 961.78,
+            "w": 173.59,
+            "h": 155
+          },
+          {
+            "x": 327.5,
+            "y": 1392.78,
+            "w": 193.59,
+            "h": 377
+          },
+          {
+            "x": 337.5,
+            "y": 1400.78,
+            "w": 172.59,
+            "h": 155
+          },
+          {
+            "x": 521.09,
+            "y": 1392.78,
+            "w": 193.59,
+            "h": 377
+          },
+          {
+            "x": 531.09,
+            "y": 1400.78,
+            "w": 172.59,
+            "h": 155
+          },
+          {
+            "x": 714.69,
+            "y": 1392.78,
+            "w": 193.59,
+            "h": 377
+          },
+          {
+            "x": 724.69,
+            "y": 1400.78,
+            "w": 172.59,
+            "h": 155
+          },
+          {
+            "x": 908.28,
+            "y": 1392.78,
+            "w": 193.59,
+            "h": 377
+          },
+          {
+            "x": 918.28,
+            "y": 1400.78,
+            "w": 172.59,
+            "h": 155
+          },
+          {
+            "x": 1101.88,
+            "y": 1392.78,
+            "w": 193.59,
+            "h": 377
+          },
+          {
+            "x": 1111.88,
+            "y": 1400.78,
+            "w": 173.59,
+            "h": 155
+          },
+          {
+            "x": 327.5,
+            "y": 1831.78,
+            "w": 193.59,
+            "h": 377
+          },
+          {
+            "x": 337.5,
+            "y": 1839.78,
+            "w": 172.59,
+            "h": 155
+          },
+          {
+            "x": 521.09,
+            "y": 1831.78,
+            "w": 193.59,
+            "h": 377
+          },
+          {
+            "x": 531.09,
+            "y": 1839.78,
+            "w": 172.59,
+            "h": 155
+          },
+          {
+            "x": 714.69,
+            "y": 1831.78,
+            "w": 193.59,
+            "h": 377
+          },
+          {
+            "x": 724.69,
+            "y": 1839.78,
+            "w": 172.59,
+            "h": 155
+          },
+          {
+            "x": 908.28,
+            "y": 1831.78,
+            "w": 193.59,
+            "h": 377
+          },
+          {
+            "x": 918.28,
+            "y": 1839.78,
+            "w": 172.59,
+            "h": 155
+          },
+          {
+            "x": 1101.88,
+            "y": 1831.78,
+            "w": 193.59,
+            "h": 377
+          },
+          {
+            "x": 1111.88,
+            "y": 1839.78,
+            "w": 173.59,
+            "h": 155
+          },
+          {
+            "x": 327.5,
+            "y": 2270.78,
+            "w": 193.59,
+            "h": 377
+          },
+          {
+            "x": 337.5,
+            "y": 2278.78,
+            "w": 172.59,
+            "h": 155
+          },
+          {
+            "x": 521.09,
+            "y": 2270.78,
+            "w": 193.59,
+            "h": 377
+          },
+          {
+            "x": 531.09,
+            "y": 2278.78,
+            "w": 172.59,
+            "h": 155
+          },
+          {
+            "x": 714.69,
+            "y": 2270.78,
+            "w": 193.59,
+            "h": 377
+          }
+        ],
+        "articleCardCount": 4,
+        "navItemCount": 8,
+        "linkCount": 249,
+        "buttonRects": [
+          {
+            "x": 785.5,
+            "y": 15,
+            "w": 74,
+            "h": 45
+          },
+          {
+            "x": 0,
+            "y": 0,
+            "w": 0,
+            "h": 0
+          },
+          {
+            "x": 560.94,
+            "y": 610.98,
+            "w": 278.11,
+            "h": 50
+          },
+          {
+            "x": 1048,
+            "y": 336.55,
+            "w": 114,
+            "h": 118
+          },
+          {
+            "x": 872.5,
+            "y": 3452.28,
+            "w": 420,
+            "h": 48
+          },
+          {
+            "x": 872.5,
+            "y": 3452.28,
+            "w": 420,
+            "h": 48
+          },
+          {
+            "x": 1143.83,
+            "y": 3531.28,
+            "w": 15,
+            "h": 15
+          },
+          {
+            "x": 872.5,
+            "y": 3588.28,
+            "w": 420,
+            "h": 46
+          },
+          {
+            "x": 2625.31,
+            "y": 852,
+            "w": 86.17,
+            "h": 17
+          }
+        ],
+        "images": [
+          {
+            "src": "http://127.0.0.1:7861/assets/logo-hlt-2024.png",
+            "natural": [
+              1235,
+              281
+            ],
+            "rendered": [
+              243,
+              45
+            ],
+            "objectFit": "contain",
+            "complete": true,
+            "ok": true,
+            "y": 30
+          },
+          {
+            "src": "http://127.0.0.1:7861/assets/icon.png",
+            "natural": [
+              417,
+              418
+            ],
+            "rendered": [
+              25,
+              25.05
+            ],
+            "objectFit": "cover",
+            "complete": true,
+            "ok": true,
+            "y": 122
+          },
+          {
+            "src": "http://127.0.0.1:7861/assets/icon-01.png",
+            "natural": [
+              100,
+              100
+            ],
+            "rendered": [
+              25,
+              25
+            ],
+            "objectFit": "cover",
+            "complete": true,
+            "ok": true,
+            "y": 122
+          },
+          {
+            "src": "http://127.0.0.1:7861/assets/icon-02.png",
+            "natural": [
+              100,
+              100
+            ],
+            "rendered": [
+              25,
+              25
+            ],
+            "objectFit": "cover",
+            "complete": true,
+            "ok": true,
+            "y": 122
+          },
+          {
+            "src": "http://127.0.0.1:7861/assets/icon-03.png",
+            "natural": [
+              100,
+              100
+            ],
+            "rendered": [
+              25,
+              25
+            ],
+            "objectFit": "cover",
+            "complete": true,
+            "ok": true,
+            "y": 122
+          },
+          {
+            "src": "http://127.0.0.1:7861/assets/icon-04.png",
+            "natural": [
+              100,
+              100
+            ],
+            "rendered": [
+              25,
+              25
+            ],
+            "objectFit": "cover",
+            "complete": true,
+            "ok": true,
+            "y": 122
+          },
+          {
+            "src": "http://127.0.0.1:7861/assets/icon-05.png",
+            "natural": [
+              100,
+              100
+            ],
+            "rendered": [
+              25,
+              25
+            ],
+            "objectFit": "cover",
+            "complete": true,
+            "ok": true,
+            "y": 122
+          },
+          {
+            "src": "http://127.0.0.1:7861/assets/icon-06.png",
+            "natural": [
+              100,
+              100
+            ],
+            "rendered": [
+              25,
+              25
+            ],
+            "objectFit": "cover",
+            "complete": true,
+            "ok": true,
+            "y": 122
+          },
+          {
+            "src": "http://127.0.0.1:7861/assets/flash-sales-2-1.png",
+            "natural": [
+              25,
+              26
+            ],
+            "rendered": [
+              25,
+              26
+            ],
+            "objectFit": "cover",
+            "complete": true,
+            "ok": true,
+            "y": 122
+          },
+          {
+            "src": "http://127.0.0.1:7861/assets/04-best-workplace-in-asia-2025-at-15x.jpg",
+            "natural": [
+              6000,
+              2961
+            ],
+            "rendered": [
+              670,
+              385
+            ],
+            "objectFit": "fill",
+            "complete": true,
+            "ok": true,
+            "y": 203.05
+          },
+          {
+            "src": "http://127.0.0.1:7861/assets/02fast500.jpg",
+            "natural": [
+              2000,
+              987
+            ],
+            "rendered": [
+              670,
+              385
+            ],
+            "objectFit": "fill",
+            "complete": true,
+            "ok": true,
+            "y": 203.05
+          },
+          {
+            "src": "http://127.0.0.1:7861/assets/vnr500.jpg",
+            "natural": [
+              2000,
+              987
+            ],
+            "rendered": [
+              670,
+              385
+            ],
+            "objectFit": "fill",
+            "complete": true,
+            "ok": true,
+            "y": 203.05
+          },
+          {
+            "src": "http://127.0.0.1:7861/assets/03-top-50-vietnam-best-growth.jpg",
+            "natural": [
+              4000,
+              1974
+            ],
+            "rendered": [
+              670,
+              385
+            ],
+            "objectFit": "fill",
+            "complete": true,
+            "ok": true,
+            "y": 203.05
+          },
+          {
+            "src": "http://127.0.0.1:7861/assets/se-1.jpg",
+            "natural": [
+              2000,
+              987
+            ],
+            "rendered": [
+              670,
+              385
+            ],
+            "objectFit": "fill",
+            "complete": true,
+            "ok": true,
+            "y": 203.05
+          },
+          {
+            "src": "http://127.0.0.1:7861/assets/ur.jpg",
+            "natural": [
+              2000,
+              987
+            ],
+            "rendered": [
+              670,
+              385
+            ],
+            "objectFit": "fill",
+            "complete": true,
+            "ok": true,
+            "y": 203.05
+          },
+          {
+            "src": "http://127.0.0.1:7861/assets/omron.jpg",
+            "natural": [
+              2000,
+              987
+            ],
+            "rendered": [
+              670,
+              385
+            ],
+            "objectFit": "fill",
+            "complete": true,
+            "ok": true,
+            "y": 203.05
+          },
+          {
+            "src": "http://127.0.0.1:7861/assets/siemens.jpg",
+            "natural": [
+              2000,
+              987
+            ],
+            "rendered": [
+              670,
+              385
+            ],
+            "objectFit": "fill",
+            "complete": true,
+            "ok": true,
+            "y": 203.05
+          },
+          {
+            "src": "http://127.0.0.1:7861/assets/frecon-1.jpg",
+            "natural": [
+              2000,
+              987
+            ],
+            "rendered": [
+              670,
+              385
+            ],
+            "objectFit": "fill",
+            "complete": true,
+            "ok": true,
+            "y": 203.05
+          },
+          {
+            "src": "http://127.0.0.1:7861/assets/hanyoung.jpg",
+            "natural": [
+              2000,
+              987
+            ],
+            "rendered": [
+              670,
+              385
+            ],
+            "objectFit": "fill",
+            "complete": true,
+            "ok": true,
+            "y": 203.05
+          },
+          {
+            "src": "http://127.0.0.1:7861/assets/hop-long.jpg",
+            "natural": [
+              1000,
+              1000
+            ],
+            "rendered": [
+              385,
+              385
+            ],
+            "objectFit": "cover",
+            "complete": true,
+            "ok": true,
+            "y": 203.05
+          },
+          {
+            "src": "http://127.0.0.1:7861/assets/bien-tan-se.jpg",
+            "natural": [
+              1500,
+              662
+            ],
+            "rendered": [
+              226,
+              99.73
+            ],
+            "objectFit": "cover",
+            "complete": true,
+            "ok": true,
+            "y": 628.05
+          },
+          {
+            "src": "http://127.0.0.1:7861/assets/nut-nhan-giga.jpg",
+            "natural": [
+              1500,
+              662
+            ],
+            "rendered": [
+              226,
+              99.73
+            ],
+            "objectFit": "cover",
+            "complete": true,
+            "ok": true,
+            "y": 628.05
+          },
+          {
+            "src": "http://127.0.0.1:7861/assets/mccb-cau-dao-tu-dong-siemen.jpg",
+            "natural": [
+              1500,
+              662
+            ],
+            "rendered": [
+              226,
+              99.73
+            ],
+            "objectFit": "cover",
+            "complete": true,
+            "ok": true,
+            "y": 628.05
+          },
+          {
+            "src": "http://127.0.0.1:7861/assets/cong-tac-o-cam-se-1.jpg",
+            "natural": [
+              1500,
+              662
+            ],
+            "rendered": [
+              226,
+              99.73
+            ],
+            "objectFit": "cover",
+            "complete": true,
+            "ok": true,
+            "y": 628.05
+          },
+          {
+            "src": "http://127.0.0.1:7861/assets/cam-bien-tiem-can-omzon.jpg",
+            "natural": [
+              1500,
+              662
+            ],
+            "rendered": [
+              226,
+              99.73
+            ],
+            "objectFit": "cover",
+            "complete": true,
+            "ok": true,
+            "y": 628.05
+          },
+          {
+            "src": "http://127.0.0.1:7861/assets/miluz-e.jpg",
+            "natural": [
+              776,
+              326
+            ],
+            "rendered": [
+              389.98,
+              165
+            ],
+            "objectFit": "cover",
+            "complete": true,
+            "ok": true,
+            "y": 747.78
+          },
+          {
+            "src": "http://127.0.0.1:7861/assets/bien-ap-giga-electric-1.jpg",
+            "natural": [
+              466,
+              196
+            ],
+            "rendered": [
+              389.98,
+              165
+            ],
+            "objectFit": "cover",
+            "complete": true,
+            "ok": true,
+            "y": 747.78
+          },
+          {
+            "src": "http://127.0.0.1:7861/assets/bien-tan-nistro-3.jpg",
+            "natural": [
+              466,
+              196
+            ],
+            "rendered": [
+              389.98,
+              165
+            ],
+            "objectFit": "cover",
+            "complete": true,
+            "ok": true,
+            "y": 747.78
+          },
+          {
+            "src": "http://127.0.0.1:7861/assets/gv2me326-new.png",
+            "natural": [
+              1500,
+              1800
+            ],
+            "rendered": [
+              128,
+              153.59
+            ],
+            "objectFit": "cover",
+            "complete": true,
+            "ok": true,
+            "y": 972.78
+          },
+          {
+            "src": "http://127.0.0.1:7861/assets/schneider-lc1d09-main.jpg",
+            "natural": [
+              600,
+              600
+            ],
+            "rendered": [
+              172,
+              155
+            ],
+            "objectFit": "contain",
+            "complete": true,
+            "ok": true,
+            "y": 961.78
+          },
+          {
+            "src": "http://127.0.0.1:7861/assets/schneider-lc1d12-main.jpg",
+            "natural": [
+              600,
+              600
+            ],
+            "rendered": [
+              172,
+              155
+            ],
+            "objectFit": "contain",
+            "complete": true,
+            "ok": true,
+            "y": 961.78
+          },
+          {
+            "src": "http://127.0.0.1:7861/assets/schneider-a9c2-main.jpg",
+            "natural": [
+              600,
+              600
+            ],
+            "rendered": [
+              172,
+              155
+            ],
+            "objectFit": "contain",
+            "complete": true,
+            "ok": true,
+            "y": 961.78
+          },
+          {
+            "src": "http://127.0.0.1:7861/assets/schneider-lc1d32-main.jpg",
+            "natural": [
+              600,
+              600
+            ],
+            "rendered": [
+              172,
+              155
+            ],
+            "objectFit": "contain",
+            "complete": true,
+            "ok": true,
+            "y": 961.78
+          },
+          {
+            "src": "http://127.0.0.1:7861/assets/schneider-lc1d188-main.jpg",
+            "natural": [
+              600,
+              600
+            ],
+            "rendered": [
+              172,
+              155
+            ],
+            "objectFit": "contain",
+            "complete": true,
+            "ok": true,
+            "y": 961.78
+          },
+          {
+            "src": "http://127.0.0.1:7861/assets/bien-tan-nistro-1.png",
+            "natural": [
+              254,
+              396
+            ],
+            "rendered": [
+              128,
+              199.55
+            ],
+            "objectFit": "cover",
+            "complete": true,
+            "ok": true,
+            "y": 1411.78
+          },
+          {
+            "src": "http://127.0.0.1:7861/assets/ga27-65-nistro-main.jpg",
+            "natural": [
+              600,
+              600
+            ],
+            "rendered": [
+              172,
+              155
+            ],
+            "objectFit": "contain",
+            "complete": true,
+            "ok": true,
+            "y": 1400.78
+          },
+          {
+            "src": "http://127.0.0.1:7861/assets/ga27-main-hlt.jpg",
+            "natural": [
+              600,
+              600
+            ],
+            "rendered": [
+              172,
+              155
+            ],
+            "objectFit": "contain",
+            "complete": true,
+            "ok": true,
+            "y": 1400.78
+          },
+          {
+            "src": "http://127.0.0.1:7861/assets/ga27-main-hlt.jpg",
+            "natural": [
+              600,
+              600
+            ],
+            "rendered": [
+              172,
+              155
+            ],
+            "objectFit": "contain",
+            "complete": true,
+            "ok": true,
+            "y": 1400.78
+          },
+          {
+            "src": "http://127.0.0.1:7861/assets/ga27-main-hlt.jpg",
+            "natural": [
+              600,
+              600
+            ],
+            "rendered": [
+              172,
+              155
+            ],
+            "objectFit": "contain",
+            "complete": true,
+            "ok": true,
+            "y": 1400.78
+          },
+          {
+            "src": "http://127.0.0.1:7861/assets/nistro-ga20-65-main.jpg",
+            "natural": [
+              600,
+              600
+            ],
+            "rendered": [
+              172,
+              155
+            ],
+            "objectFit": "contain",
+            "complete": true,
+            "ok": true,
+            "y": 1400.78
+          },
+          {
+            "src": "http://127.0.0.1:7861/assets/veichi-1.png",
+            "natural": [
+              1058,
+              1650
+            ],
+            "rendered": [
+              128,
+              199.61
+            ],
+            "objectFit": "cover",
+            "complete": true,
+            "ok": true,
+            "y": 1850.78
+          },
+          {
+            "src": "http://127.0.0.1:7861/assets/veichi-ac310-main.jpg",
+            "natural": [
+              600,
+              600
+            ],
+            "rendered": [
+              172,
+              155
+            ],
+            "objectFit": "contain",
+            "complete": true,
+            "ok": true,
+            "y": 1839.78
+          },
+          {
+            "src": "http://127.0.0.1:7861/assets/veichi-ac10-main.jpg",
+            "natural": [
+              600,
+              600
+            ],
+            "rendered": [
+              172,
+              155
+            ],
+            "objectFit": "contain",
+            "complete": true,
+            "ok": true,
+            "y": 1839.78
+          },
+          {
+            "src": "http://127.0.0.1:7861/assets/veichi-ac310-main.jpg",
+            "natural": [
+              600,
+              600
+            ],
+            "rendered": [
+              172,
+              155
+            ],
+            "objectFit": "contain",
+            "complete": true,
+            "ok": true,
+            "y": 1839.78
+          },
+          {
+            "src": "http://127.0.0.1:7861/assets/veichi-ac01-main.jpg",
+            "natural": [
+              600,
+              600
+            ],
+            "rendered": [
+              172,
+              155
+            ],
+            "objectFit": "contain",
+            "complete": true,
+            "ok": true,
+            "y": 1839.78
+          },
+          {
+            "src": "http://127.0.0.1:7861/assets/vi20-veichi-main.jpg",
+            "natural": [
+              600,
+              600
+            ],
+            "rendered": [
+              172,
+              155
+            ],
+            "objectFit": "contain",
+            "complete": true,
+            "ok": true,
+            "y": 1839.78
+          },
+          {
+            "src": "http://127.0.0.1:7861/assets/bien-ap-giga.png",
+            "natural": [
+              1500,
+              1800
+            ],
+            "rendered": [
+              128,
+              153.59
+            ],
+            "objectFit": "cover",
+            "complete": true,
+            "ok": true,
+            "y": 2289.78
+          },
+          {
+            "src": "http://127.0.0.1:7861/assets/giga-ggk-25.jpg",
+            "natural": [
+              600,
+              600
+            ],
+            "rendered": [
+              172,
+              155
+            ],
+            "objectFit": "contain",
+            "complete": true,
+            "ok": true,
+            "y": 2278.78
+          },
+          {
+            "src": "http://127.0.0.1:7861/assets/giga-ggk-50.jpg",
+            "natural": [
+              600,
+              600
+            ],
+            "rendered": [
+              172,
+              155
+            ],
+            "objectFit": "contain",
+            "complete": true,
+            "ok": true,
+            "y": 2278.78
+          },
+          {
+            "src": "http://127.0.0.1:7861/assets/giga-ggk-100.jpg",
+            "natural": [
+              600,
+              600
+            ],
+            "rendered": [
+              172,
+              155
+            ],
+            "objectFit": "contain",
+            "complete": true,
+            "ok": true,
+            "y": 2278.78
+          },
+          {
+            "src": "http://127.0.0.1:7861/assets/giga-ggk-150.jpg",
+            "natural": [
+              600,
+              600
+            ],
+            "rendered": [
+              172,
+              155
+            ],
+            "objectFit": "contain",
+            "complete": true,
+            "ok": true,
+            "y": 2278.78
+          },
+          {
+            "src": "http://127.0.0.1:7861/assets/giga-ggk-200.jpg",
+            "natural": [
+              600,
+              600
+            ],
+            "rendered": [
+              172,
+              155
+            ],
+            "objectFit": "contain",
+            "complete": true,
+            "ok": true,
+            "y": 2278.78
+          },
+          {
+            "src": "http://127.0.0.1:7861/assets/cam-bien-autonics.png",
+            "natural": [
+              1500,
+              1800
+            ],
+            "rendered": [
+              128,
+              153.59
+            ],
+            "objectFit": "cover",
+            "complete": true,
+            "ok": true,
+            "y": 2728.78
+          },
+          {
+            "src": "http://127.0.0.1:7861/assets/autonics-brqm-main.jpg",
+            "natural": [
+              600,
+              600
+            ],
+            "rendered": [
+              172,
+              155
+            ],
+            "objectFit": "contain",
+            "complete": true,
+            "ok": true,
+            "y": 2717.78
+          },
+          {
+            "src": "http://127.0.0.1:7861/assets/omron-e3z-ls81-main.jpg",
+            "natural": [
+              600,
+              600
+            ],
+            "rendered": [
+              172,
+              155
+            ],
+            "objectFit": "contain",
+            "complete": true,
+            "ok": true,
+            "y": 2717.78
+          },
+          {
+            "src": "http://127.0.0.1:7861/assets/autonics-bup-30-main.jpg",
+            "natural": [
+              600,
+              600
+            ],
+            "rendered": [
+              172,
+              155
+            ],
+            "objectFit": "contain",
+            "complete": true,
+            "ok": true,
+            "y": 2717.78
+          },
+          {
+            "src": "http://127.0.0.1:7861/assets/autonics-pr12-2aodn-main.jpg",
+            "natural": [
+              600,
+              600
+            ],
+            "rendered": [
+              172,
+              155
+            ],
+            "objectFit": "contain",
+            "complete": true,
+            "ok": true,
+            "y": 2717.78
+          },
+          {
+            "src": "http://127.0.0.1:7861/assets/autonics-ben-main.jpg",
+            "natural": [
+              600,
+              600
+            ],
+            "rendered": [
+              172,
+              155
+            ],
+            "objectFit": "contain",
+            "complete": true,
+            "ok": true,
+            "y": 2717.78
+          },
+          {
+            "src": "http://127.0.0.1:7861/assets/dsc04523-1.png",
+            "natural": [
+              3600,
+              4307
+            ],
+            "rendered": [
+              0,
+              0
+            ],
+            "objectFit": "cover",
+            "complete": true,
+            "ok": true,
+            "y": 0
+          },
+          {
+            "src": "http://127.0.0.1:7861/assets/cau-dau-khoi-hanyoung.png",
+            "natural": [
+              500,
+              535
+            ],
+            "rendered": [
+              86,
+              91
+            ],
+            "objectFit": "contain",
+            "complete": true,
+            "ok": true,
+            "y": 3851.78
+          },
+          {
+            "src": "http://127.0.0.1:7861/assets/cau-dau-ghep-gan-din-ray-hanyoung.png",
+            "natural": [
+              500,
+              535
+            ],
+            "rendered": [
+              86,
+              91
+            ],
+            "objectFit": "contain",
+            "complete": true,
+            "ok": true,
+            "y": 3851.78
+          },
+          {
+            "src": "http://127.0.0.1:7861/assets/din-ray-hanyoung.png",
+            "natural": [
+              500,
+              535
+            ],
+            "rendered": [
+              86,
+              91
+            ],
+            "objectFit": "contain",
+            "complete": true,
+            "ok": true,
+            "y": 3851.78
+          },
+          {
+            "src": "http://127.0.0.1:7861/assets/dien-tro-say-tu-dien-leipole.png",
+            "natural": [
+              500,
+              535
+            ],
+            "rendered": [
+              86,
+              91
+            ],
+            "objectFit": "contain",
+            "complete": true,
+            "ok": true,
+            "y": 3851.78
+          },
+          {
+            "src": "http://127.0.0.1:7861/assets/quat-thong-gio-tu-dien-leipole.png",
+            "natural": [
+              500,
+              535
+            ],
+            "rendered": [
+              86,
+              91
+            ],
+            "objectFit": "contain",
+            "complete": true,
+            "ok": true,
+            "y": 3851.78
+          },
+          {
+            "src": "http://127.0.0.1:7861/assets/vo-cau-chi-ruot-cau-chi-schneider.png",
+            "natural": [
+              500,
+              535
+            ],
+            "rendered": [
+              86,
+              91
+            ],
+            "objectFit": "contain",
+            "complete": true,
+            "ok": true,
+            "y": 3978.78
+          },
+          {
+            "src": "http://127.0.0.1:7861/assets/dieu-hoa-tu-dien-schneider.png",
+            "natural": [
+              500,
+              535
+            ],
+            "rendered": [
+              86,
+              91
+            ],
+            "objectFit": "contain",
+            "complete": true,
+            "ok": true,
+            "y": 3978.78
+          },
+          {
+            "src": "http://127.0.0.1:7861/assets/mang-nhua-giga-electric.png",
+            "natural": [
+              500,
+              535
+            ],
+            "rendered": [
+              86,
+              91
+            ],
+            "objectFit": "contain",
+            "complete": true,
+            "ok": true,
+            "y": 3978.78
+          },
+          {
+            "src": "http://127.0.0.1:7861/assets/cong-tac-hanh-trinh-ggl-804-giga-electric-ben-bi-va-on-dinh-5.jpg",
+            "natural": [
+              600,
+              403
+            ],
+            "rendered": [
+              275.5,
+              175
+            ],
+            "objectFit": "cover",
+            "complete": true,
+            "ok": true,
+            "y": 4215.78
+          },
+          {
+            "src": "http://127.0.0.1:7861/assets/agibot-can-quet-dai-hoi-robot-hinh-nguoi-the-gioi-2026-mang-ve-18-huy-chuong-vang-va-dan-dau-bang-tong-xep-hang-6.jpg",
+            "natural": [
+              600,
+              400
+            ],
+            "rendered": [
+              275.5,
+              175
+            ],
+            "objectFit": "cover",
+            "complete": true,
+            "ok": true,
+            "y": 4215.78
+          },
+          {
+            "src": "http://127.0.0.1:7861/assets/robot-hinh-nguoi-agibot-a3-tu-dong-choi-bong-ban-so-tai-cung-nha-vo-dich-olympic-ding-ning-1.jpg",
+            "natural": [
+              600,
+              338
+            ],
+            "rendered": [
+              275.5,
+              175
+            ],
+            "objectFit": "cover",
+            "complete": true,
+            "ok": true,
+            "y": 4215.78
+          },
+          {
+            "src": "http://127.0.0.1:7861/assets/robot-hinh-nguoi-superman-cua-unitree-chay-nhanh-hon-usain-bolt-va-nhay-cao-2-met-8.png",
+            "natural": [
+              1536,
+              1024
+            ],
+            "rendered": [
+              275.5,
+              175
+            ],
+            "objectFit": "cover",
+            "complete": true,
+            "ok": true,
+            "y": 4215.78
+          },
+          {
+            "src": "http://127.0.0.1:7861/assets/logo-web-02-1.png",
+            "natural": [
+              134,
+              105
+            ],
+            "rendered": [
+              136,
+              105
+            ],
+            "objectFit": "contain",
+            "complete": true,
+            "ok": true,
+            "y": 4639.53
+          },
+          {
+            "src": "http://127.0.0.1:7861/assets/logo-web-23.png",
+            "natural": [
+              171,
+              109
+            ],
+            "rendered": [
+              136,
+              105
+            ],
+            "objectFit": "contain",
+            "complete": true,
+            "ok": true,
+            "y": 4639.53
+          },
+          {
+            "src": "http://127.0.0.1:7861/assets/logo-web-24.png",
+            "natural": [
+              171,
+              109
+            ],
+            "rendered": [
+              136,
+              105
+            ],
+            "objectFit": "contain",
+            "complete": true,
+            "ok": true,
+            "y": 4639.53
+          },
+          {
+            "src": "http://127.0.0.1:7861/assets/logo-web-25.png",
+            "natural": [
+              171,
+              109
+            ],
+            "rendered": [
+              136,
+              105
+            ],
+            "objectFit": "contain",
+            "complete": true,
+            "ok": true,
+            "y": 4639.53
+          },
+          {
+            "src": "http://127.0.0.1:7861/assets/logo-web-26.png",
+            "natural": [
+              171,
+              109
+            ],
+            "rendered": [
+              136,
+              105
+            ],
+            "objectFit": "contain",
+            "complete": true,
+            "ok": true,
+            "y": 4639.53
+          },
+          {
+            "src": "http://127.0.0.1:7861/assets/logo-web-27.png",
+            "natural": [
+              171,
+              109
+            ],
+            "rendered": [
+              136,
+              105
+            ],
+            "objectFit": "contain",
+            "complete": true,
+            "ok": true,
+            "y": 4639.53
+          },
+          {
+            "src": "http://127.0.0.1:7861/assets/logo-web-28.png",
+            "natural": [
+              171,
+              109
+            ],
+            "rendered": [
+              136,
+              105
+            ],
+            "objectFit": "contain",
+            "complete": true,
+            "ok": true,
+            "y": 4639.53
+          },
+          {
+            "src": "http://127.0.0.1:7861/assets/logo-web-29.png",
+            "natural": [
+              171,
+              109
+            ],
+            "rendered": [
+              136,
+              105
+            ],
+            "objectFit": "contain",
+            "complete": true,
+            "ok": true,
+            "y": 4639.53
+          },
+          {
+            "src": "http://127.0.0.1:7861/assets/logo-web-38.png",
+            "natural": [
+              171,
+              109
+            ],
+            "rendered": [
+              136,
+              105
+            ],
+            "objectFit": "contain",
+            "complete": true,
+            "ok": true,
+            "y": 4639.53
+          },
+          {
+            "src": "http://127.0.0.1:7861/assets/logo-web-40.png",
+            "natural": [
+              171,
+              109
+            ],
+            "rendered": [
+              136,
+              105
+            ],
+            "objectFit": "contain",
+            "complete": true,
+            "ok": true,
+            "y": 4639.53
+          },
+          {
+            "src": "http://127.0.0.1:7861/assets/logo-web-30.png",
+            "natural": [
+              171,
+              109
+            ],
+            "rendered": [
+              136,
+              105
+            ],
+            "objectFit": "contain",
+            "complete": true,
+            "ok": true,
+            "y": 4639.53
+          },
+          {
+            "src": "http://127.0.0.1:7861/assets/logo-web-31.png",
+            "natural": [
+              171,
+              109
+            ],
+            "rendered": [
+              136,
+              105
+            ],
+            "objectFit": "contain",
+            "complete": true,
+            "ok": true,
+            "y": 4639.53
+          },
+          {
+            "src": "http://127.0.0.1:7861/assets/logo-web-32.png",
+            "natural": [
+              171,
+              109
+            ],
+            "rendered": [
+              136,
+              105
+            ],
+            "objectFit": "contain",
+            "complete": true,
+            "ok": true,
+            "y": 4639.53
+          },
+          {
+            "src": "http://127.0.0.1:7861/assets/logo-web-33.png",
+            "natural": [
+              171,
+              109
+            ],
+            "rendered": [
+              136,
+              105
+            ],
+            "objectFit": "contain",
+            "complete": true,
+            "ok": true,
+            "y": 4639.53
+          },
+          {
+            "src": "http://127.0.0.1:7861/assets/logo-web-34.png",
+            "natural": [
+              171,
+              109
+            ],
+            "rendered": [
+              136,
+              105
+            ],
+            "objectFit": "contain",
+            "complete": true,
+            "ok": true,
+            "y": 4639.53
+          },
+          {
+            "src": "http://127.0.0.1:7861/assets/logo-web-35.png",
+            "natural": [
+              171,
+              109
+            ],
+            "rendered": [
+              136,
+              105
+            ],
+            "objectFit": "contain",
+            "complete": true,
+            "ok": true,
+            "y": 4639.53
+          },
+          {
+            "src": "http://127.0.0.1:7861/assets/logo-web-36.png",
+            "natural": [
+              171,
+              109
+            ],
+            "rendered": [
+              136,
+              105
+            ],
+            "objectFit": "contain",
+            "complete": true,
+            "ok": true,
+            "y": 4639.53
+          },
+          {
+            "src": "http://127.0.0.1:7861/assets/logo-web-37.png",
+            "natural": [
+              171,
+              109
+            ],
+            "rendered": [
+              136,
+              105
+            ],
+            "objectFit": "contain",
+            "complete": true,
+            "ok": true,
+            "y": 4639.53
+          },
+          {
+            "src": "http://127.0.0.1:7861/assets/logo-web-41.png",
+            "natural": [
+              171,
+              109
+            ],
+            "rendered": [
+              136,
+              105
+            ],
+            "objectFit": "contain",
+            "complete": true,
+            "ok": true,
+            "y": 4639.53
+          },
+          {
+            "src": "http://127.0.0.1:7861/assets/logo-web-39.png",
+            "natural": [
+              171,
+              109
+            ],
+            "rendered": [
+              136,
+              105
+            ],
+            "objectFit": "contain",
+            "complete": true,
+            "ok": true,
+            "y": 4639.53
+          },
+          {
+            "src": "http://127.0.0.1:7861/assets/logo-hlt-2024.png",
+            "natural": [
+              1235,
+              281
+            ],
+            "rendered": [
+              274,
+              62.33
+            ],
+            "objectFit": "cover",
+            "complete": true,
+            "ok": true,
+            "y": 4845.53
+          },
+          {
+            "src": "http://127.0.0.1:7861/assets/bocongthuong.png",
+            "natural": [
+              578,
+              176
+            ],
+            "rendered": [
+              166,
+              50.53
+            ],
+            "objectFit": "cover",
+            "complete": true,
+            "ok": true,
+            "y": 5184.86
+          },
+          {
+            "src": "http://127.0.0.1:7861/assets/logo-hoplong-hang-author-04-1.png",
+            "natural": [
+              108,
+              50
+            ],
+            "rendered": [
+              150,
+              30
+            ],
+            "objectFit": "contain",
+            "complete": true,
+            "ok": true,
+            "y": 5275.39
+          },
+          {
+            "src": "http://127.0.0.1:7861/assets/logo-01.png",
+            "natural": [
+              3750,
+              1250
+            ],
+            "rendered": [
+              150,
+              30
+            ],
+            "objectFit": "contain",
+            "complete": true,
+            "ok": true,
+            "y": 5275.39
+          },
+          {
+            "src": "http://127.0.0.1:7861/assets/logo-hoplong-hang-author-06-1.png",
+            "natural": [
+              154,
+              50
+            ],
+            "rendered": [
+              150,
+              30
+            ],
+            "objectFit": "contain",
+            "complete": true,
+            "ok": true,
+            "y": 5275.39
+          },
+          {
+            "src": "http://127.0.0.1:7861/assets/logo-hoplong-hang-author-05-1.png",
+            "natural": [
+              171,
+              50
+            ],
+            "rendered": [
+              150,
+              30
+            ],
+            "objectFit": "contain",
+            "complete": true,
+            "ok": true,
+            "y": 5275.39
+          },
+          {
+            "src": "http://127.0.0.1:7861/assets/logo-hoplong-hang-author-08-1.png",
+            "natural": [
+              178,
+              50
+            ],
+            "rendered": [
+              150,
+              30
+            ],
+            "objectFit": "contain",
+            "complete": true,
+            "ok": true,
+            "y": 5275.39
+          },
+          {
+            "src": "http://127.0.0.1:7861/assets/logo-hoplong-hang-author-07-1.png",
+            "natural": [
+              145,
+              50
+            ],
+            "rendered": [
+              150,
+              30
+            ],
+            "objectFit": "contain",
+            "complete": true,
+            "ok": true,
+            "y": 5275.39
+          },
+          {
+            "src": "http://127.0.0.1:7861/assets/logo-hoplong-hang-author-10-1.png",
+            "natural": [
+              192,
+              50
+            ],
+            "rendered": [
+              150,
+              30
+            ],
+            "objectFit": "contain",
+            "complete": true,
+            "ok": true,
+            "y": 5275.39
+          },
+          {
+            "src": "http://127.0.0.1:7861/assets/logo-hoplong-hang-author-09-1.png",
+            "natural": [
+              192,
+              50
+            ],
+            "rendered": [
+              150,
+              30
+            ],
+            "objectFit": "contain",
+            "complete": true,
+            "ok": true,
+            "y": 5315.39
+          },
+          {
+            "src": "http://127.0.0.1:7861/assets/logo-02.png",
+            "natural": [
+              3750,
+              1250
+            ],
+            "rendered": [
+              150,
+              30
+            ],
+            "objectFit": "contain",
+            "complete": true,
+            "ok": true,
+            "y": 5315.39
+          },
+          {
+            "src": "http://127.0.0.1:7861/assets/logo-03-1.png",
+            "natural": [
+              3750,
+              1250
+            ],
+            "rendered": [
+              150,
+              30
+            ],
+            "objectFit": "contain",
+            "complete": true,
+            "ok": true,
+            "y": 5315.39
+          },
+          {
+            "src": "http://127.0.0.1:7861/assets/logo-04.png",
+            "natural": [
+              3750,
+              1250
+            ],
+            "rendered": [
+              150,
+              30
+            ],
+            "objectFit": "contain",
+            "complete": true,
+            "ok": true,
+            "y": 5315.39
+          },
+          {
+            "src": "http://127.0.0.1:7861/assets/logo-05.png",
+            "natural": [
+              3750,
+              1250
+            ],
+            "rendered": [
+              150,
+              30
+            ],
+            "objectFit": "contain",
+            "complete": true,
+            "ok": true,
+            "y": 5315.39
+          }
+        ],
+        "imageCount": 105,
+        "brokenImages": [],
+        "fonts": {
+          "body": {
+            "family": "Roboto",
+            "size": "14px",
+            "weight": "400",
+            "lineHeight": "normal",
+            "color": "rgb(34, 52, 62)",
+            "letterSpacing": "normal"
+          },
+          "h1": {
+            "family": "Roboto",
+            "size": "28px",
+            "weight": "600",
+            "lineHeight": "normal",
+            "color": "rgb(34, 52, 62)",
+            "letterSpacing": "normal"
+          },
+          "h2": {
+            "family": "Roboto",
+            "size": "18px",
+            "weight": "600",
+            "lineHeight": "normal",
+            "color": "rgb(34, 52, 62)",
+            "letterSpacing": "normal"
+          },
+          "h3": {
+            "family": "Roboto",
+            "size": "14px",
+            "weight": "700",
+            "lineHeight": "20px",
+            "color": "rgb(34, 52, 62)",
+            "letterSpacing": "normal"
+          },
+          ".product-list__item": {
+            "family": "Roboto",
+            "size": "14px",
+            "weight": "400",
+            "lineHeight": "normal",
+            "color": "rgb(34, 52, 62)",
+            "letterSpacing": "normal"
+          },
+          "a": {
+            "family": "Roboto",
+            "size": "14px",
+            "weight": "400",
+            "lineHeight": "normal",
+            "color": "rgb(34, 52, 62)",
+            "letterSpacing": "normal"
+          }
+        },
+        "textNodes": 254
+      }
+    },
+    "compare": {
+      "match": true,
+      "mismatchPercentage": 1.82,
+      "diffPixels": 142101,
+      "totalPixels": 7807680,
+      "dimensionsMatch": true,
+      "tolerance": 2,
+      "diffBoundingBoxes": [
+        {
+          "x": 320,
+          "y": 192,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 5
+        },
+        {
+          "x": 352,
+          "y": 192,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 7
+        },
+        {
+          "x": 384,
+          "y": 192,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 362
+        },
+        {
+          "x": 416,
+          "y": 192,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 372
+        },
+        {
+          "x": 448,
+          "y": 192,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 418
+        },
+        {
+          "x": 480,
+          "y": 192,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 301
+        },
+        {
+          "x": 512,
+          "y": 192,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 634
+        },
+        {
+          "x": 544,
+          "y": 192,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 430
+        },
+        {
+          "x": 576,
+          "y": 192,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 94
+        },
+        {
+          "x": 608,
+          "y": 192,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 621
+        },
+        {
+          "x": 640,
+          "y": 192,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 638
+        },
+        {
+          "x": 672,
+          "y": 192,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 67
+        },
+        {
+          "x": 704,
+          "y": 192,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 284
+        },
+        {
+          "x": 736,
+          "y": 192,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 41
+        },
+        {
+          "x": 768,
+          "y": 192,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 365
+        },
+        {
+          "x": 800,
+          "y": 192,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 640
+        },
+        {
+          "x": 832,
+          "y": 192,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 532
+        },
+        {
+          "x": 864,
+          "y": 192,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 524
+        },
+        {
+          "x": 320,
+          "y": 224,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 48
+        },
+        {
+          "x": 352,
+          "y": 224,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 194
+        },
+        {
+          "x": 384,
+          "y": 224,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 298
+        },
+        {
+          "x": 416,
+          "y": 224,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 454
+        },
+        {
+          "x": 448,
+          "y": 224,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 267
+        },
+        {
+          "x": 480,
+          "y": 224,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 345
+        },
+        {
+          "x": 512,
+          "y": 224,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 335
+        },
+        {
+          "x": 544,
+          "y": 224,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 634
+        },
+        {
+          "x": 576,
+          "y": 224,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 110
+        },
+        {
+          "x": 608,
+          "y": 224,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 518
+        },
+        {
+          "x": 640,
+          "y": 224,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 945
+        },
+        {
+          "x": 672,
+          "y": 224,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 331
+        },
+        {
+          "x": 704,
+          "y": 224,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 482
+        },
+        {
+          "x": 736,
+          "y": 224,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 648
+        },
+        {
+          "x": 768,
+          "y": 224,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 612
+        },
+        {
+          "x": 800,
+          "y": 224,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 1015
+        },
+        {
+          "x": 832,
+          "y": 224,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 576
+        },
+        {
+          "x": 864,
+          "y": 224,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 807
+        },
+        {
+          "x": 352,
+          "y": 256,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 494
+        },
+        {
+          "x": 384,
+          "y": 256,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 600
+        },
+        {
+          "x": 416,
+          "y": 256,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 973
+        },
+        {
+          "x": 448,
+          "y": 256,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 728
+        },
+        {
+          "x": 480,
+          "y": 256,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 390
+        },
+        {
+          "x": 512,
+          "y": 256,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 971
+        },
+        {
+          "x": 544,
+          "y": 256,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 704
+        },
+        {
+          "x": 576,
+          "y": 256,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 499
+        },
+        {
+          "x": 608,
+          "y": 256,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 1022
+        },
+        {
+          "x": 640,
+          "y": 256,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 1002
+        },
+        {
+          "x": 672,
+          "y": 256,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 420
+        },
+        {
+          "x": 704,
+          "y": 256,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 915
+        },
+        {
+          "x": 736,
+          "y": 256,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 869
+        },
+        {
+          "x": 768,
+          "y": 256,
+          "width": 32,
+          "height": 32,
+          "pixelCount": 856
+        }
+      ],
+      "currentScreenshot": {
+        "id": "artifact-a35d4b18-59ca-4629-b086-1074c9ee7e46",
+        "runId": "run-aec50ae1-0067-4c60-97ff-2d8b0bb97ac3",
+        "attemptId": "attempt-43126940-2175-41b7-a244-c0f69a30cbab",
+        "projectId": "project-00000000-0000-4000-8000-000000000001",
+        "workspaceId": "workspace-00000000-0000-4000-8000-000000000001",
+        "kind": "screenshot",
+        "path": "E:\\Work\\.antifan-canary\\control-plane-v2\\artifacts\\run-aec50ae1-0067-4c60-97ff-2d8b0bb97ac3\\90a7ab79d5c6e00702c19226dd0dd8816619666f174c00c04498a860cd7242ee.artifact",
+        "byteLength": 2339438,
+        "sha256": "90a7ab79d5c6e00702c19226dd0dd8816619666f174c00c04498a860cd7242ee",
+        "mime": "image/png",
+        "truncated": false,
+        "redacted": false,
+        "createdAt": 1789065269948
+      },
+      "baselineScreenshot": "artifact-e6f1957f-a81f-4752-86a8-6300372f7caa",
+      "normalization": {
+        "target": {
+          "requested": true,
+          "injected": true,
+          "owned": true,
+          "restored": true
+        },
+        "comparison": {
+          "requested": true,
+          "injected": true,
+          "owned": true,
+          "restored": true
+        }
+      },
+      "maskResolution": {
+        "status": "ok",
+        "maskedAreaRatio": 0,
+        "optionalUnmatched": [],
+        "target": {
+          "entries": [],
+          "maskedAreaRatio": 0
+        },
+        "baseline": {
+          "entries": [],
+          "maskedAreaRatio": 0
+        }
+      },
+      "captureStateCompatible": true,
+      "captureReceipts": {
+        "target": {
+          "backend": "cdp",
+          "dpr": 1,
+          "zoom": 1,
+          "cssViewport": {
+            "width": 1440,
+            "height": 900
+          },
+          "cssCaptureSize": {
+            "width": 1440,
+            "height": 5422
+          },
+          "rasterSize": {
+            "width": 1440,
+            "height": 5422
+          },
+          "captureMode": "full-page",
+          "timestamp": 1789065269925,
+          "viewportTransaction": {
+            "before": {
+              "width": 1440,
+              "height": 900,
+              "scrollX": 0,
+              "scrollY": 0
+            },
+            "after": {
+              "width": 1440,
+              "height": 900,
+              "scrollX": 0,
+              "scrollY": 0
+            },
+            "restored": true,
+            "attempts": 1
+          }
+        },
+        "baseline": {
+          "backend": "cdp",
+          "dpr": 1,
+          "zoom": 1,
+          "cssViewport": {
+            "width": 1440,
+            "height": 900
+          },
+          "cssCaptureSize": {
+            "width": 1440,
+            "height": 5422
+          },
+          "rasterSize": {
+            "width": 1440,
+            "height": 5422
+          },
+          "captureMode": "full-page",
+          "timestamp": 1789065271050,
+          "viewportTransaction": {
+            "before": {
+              "width": 1440,
+              "height": 900,
+              "scrollX": 0,
+              "scrollY": 0
+            },
+            "after": {
+              "width": 1440,
+              "height": 900,
+              "scrollX": 0,
+              "scrollY": 0
+            },
+            "restored": true,
+            "attempts": 1
+          }
+        }
+      },
+      "coherence": {
+        "identityCoherent": true,
+        "captureStateCompatible": true,
+        "resampleCount": 0,
+        "target": {
+          "preInject": {
+            "browserEpoch": 1,
+            "documentGeneration": 6,
+            "mutationRevision": 1
+          },
+          "postInject": {
+            "browserEpoch": 1,
+            "documentGeneration": 6,
+            "mutationRevision": 1
+          },
+          "afterCapture": {
+            "browserEpoch": 1,
+            "documentGeneration": 6,
+            "mutationRevision": 1
+          },
+          "identity": "COHERENT",
+          "mutation": "COHERENT"
+        },
+        "baseline": {
+          "preInject": {
+            "browserEpoch": 1,
+            "documentGeneration": 2,
+            "mutationRevision": 1
+          },
+          "postInject": {
+            "browserEpoch": 1,
+            "documentGeneration": 2,
+            "mutationRevision": 1
+          },
+          "afterCapture": {
+            "browserEpoch": 1,
+            "documentGeneration": 2,
+            "mutationRevision": 1
+          },
+          "identity": "COHERENT",
+          "mutation": "COHERENT"
+        }
+      },
+      "settle": {
+        "target": {
+          "settleComplete": true,
+          "gates": {
+            "network": true,
+            "fonts": true,
+            "images": true,
+            "dom": true
+          },
+          "timingsMs": {
+            "network": 211,
+            "fonts": 4,
+            "images": 5,
+            "dom": 67,
+            "total": 287
+          },
+          "brokenImages": []
+        },
+        "comparison": {
+          "settleComplete": true,
+          "gates": {
+            "network": true,
+            "fonts": true,
+            "images": true,
+            "dom": true
+          },
+          "timingsMs": {
+            "network": 207,
+            "fonts": 4,
+            "images": 4,
+            "dom": 63,
+            "total": 278
+          },
+          "brokenImages": []
+        }
+      },
+      "structural": {
+        "geometryWithinTolerance": true,
+        "deltaGeometry": 0,
+        "cardinalityMatch": true,
+        "deltaCardinality": 0,
+        "groups": {
+          "body": {
+            "selector": "body",
+            "targetCount": 1,
+            "baselineCount": 1,
+            "cardinalityMatch": true,
+            "comparedCount": 1,
+            "skippedForCardinalityMismatch": false,
+            "maxGeometryDeltaPx": 0
+          },
+          "header.site-header": {
+            "selector": "header.site-header",
+            "targetCount": 1,
+            "baselineCount": 1,
+            "cardinalityMatch": true,
+            "comparedCount": 1,
+            "skippedForCardinalityMismatch": false,
+            "maxGeometryDeltaPx": 0
+          },
+          "main": {
+            "selector": "main",
+            "targetCount": 1,
+            "baselineCount": 1,
+            "cardinalityMatch": true,
+            "comparedCount": 1,
+            "skippedForCardinalityMismatch": false,
+            "maxGeometryDeltaPx": 0
+          },
+          ".site-footer": {
+            "selector": ".site-footer",
+            "targetCount": 1,
+            "baselineCount": 1,
+            "cardinalityMatch": true,
+            "comparedCount": 1,
+            "skippedForCardinalityMismatch": false,
+            "maxGeometryDeltaPx": 0
+          },
+          "section": {
+            "selector": "section",
+            "targetCount": 12,
+            "baselineCount": 12,
+            "cardinalityMatch": true,
+            "comparedCount": 12,
+            "skippedForCardinalityMismatch": false,
+            "maxGeometryDeltaPx": 0
+          },
+          ".product-list__item": {
+            "selector": ".product-list__item",
+            "targetCount": 25,
+            "baselineCount": 25,
+            "cardinalityMatch": true,
+            "comparedCount": 25,
+            "skippedForCardinalityMismatch": false,
+            "maxGeometryDeltaPx": 0
+          },
+          ".slide": {
+            "selector": ".slide",
+            "targetCount": 0,
+            "baselineCount": 0,
+            "cardinalityMatch": true,
+            "comparedCount": 0,
+            "skippedForCardinalityMismatch": false,
+            "maxGeometryDeltaPx": 0
+          },
+          ".news-item": {
+            "selector": ".news-item",
+            "targetCount": 0,
+            "baselineCount": 0,
+            "cardinalityMatch": true,
+            "comparedCount": 0,
+            "skippedForCardinalityMismatch": false,
+            "maxGeometryDeltaPx": 0
+          }
+        }
+      },
+      "notes": "Visual comparison passed within tolerance",
+      "receipt": {
+        "match": true,
+        "mismatchPercentage": 1.82,
+        "dimensionsMatch": true,
+        "captureStateCompatible": true,
+        "maskResolutionStatus": "ok",
+        "maskedAreaRatio": 0,
+        "settleComplete": true,
+        "metricSamples": [
+          {
+            "metric": "visual.pixel_mismatch_pct",
+            "value": 1.82,
+            "actual": 1.82,
+            "delta": 1.82,
+            "source": "deterministic",
+            "message": "Visual pixel mismatch: 1.82%"
+          },
+          {
+            "metric": "visual.dimensions_match",
+            "value": true,
+            "actual": true,
+            "passed": true,
+            "source": "deterministic",
+            "message": "Dimensions match between target and baseline"
+          },
+          {
+            "metric": "visual.capture_state_compatible",
+            "value": true,
+            "passed": true,
+            "source": "deterministic",
+            "message": "Capture state compatible (DPR, zoom, viewport match)"
+          },
+          {
+            "metric": "visual.mask_resolution_complete",
+            "value": true,
+            "passed": true,
+            "source": "deterministic",
+            "message": "All required masks resolved successfully"
+          },
+          {
+            "metric": "visual.settle_complete",
+            "value": true,
+            "passed": true,
+            "source": "deterministic",
+            "message": "All capture settle barriers passed (network, fonts, images, DOM)"
+          },
+          {
+            "metric": "visual.geometry_within_tolerance",
+            "value": true,
+            "delta": 0,
+            "passed": true,
+            "source": "deterministic",
+            "message": "Structural geometry within tolerance"
+          },
+          {
+            "metric": "visual.cardinality_match",
+            "value": true,
+            "delta": 0,
+            "passed": true,
+            "source": "deterministic",
+            "message": "Element cardinality matches"
+          }
+        ],
+        "notes": "Visual comparison passed within tolerance"
+      },
+      "metricSamples": [
+        {
+          "metric": "visual.pixel_mismatch_pct",
+          "value": 1.82,
+          "actual": 1.82,
+          "delta": 1.82,
+          "source": "deterministic",
+          "message": "Visual pixel mismatch: 1.82%"
+        },
+        {
+          "metric": "visual.dimensions_match",
+          "value": true,
+          "actual": true,
+          "passed": true,
+          "source": "deterministic",
+          "message": "Dimensions match between target and baseline"
+        },
+        {
+          "metric": "visual.capture_state_compatible",
+          "value": true,
+          "passed": true,
+          "source": "deterministic",
+          "message": "Capture state compatible (DPR, zoom, viewport match)"
+        },
+        {
+          "metric": "visual.mask_resolution_complete",
+          "value": true,
+          "passed": true,
+          "source": "deterministic",
+          "message": "All required masks resolved successfully"
+        },
+        {
+          "metric": "visual.settle_complete",
+          "value": true,
+          "passed": true,
+          "source": "deterministic",
+          "message": "All capture settle barriers passed (network, fonts, images, DOM)"
+        },
+        {
+          "metric": "visual.geometry_within_tolerance",
+          "value": true,
+          "delta": 0,
+          "passed": true,
+          "source": "deterministic",
+          "message": "Structural geometry within tolerance"
+        },
+        {
+          "metric": "visual.cardinality_match",
+          "value": true,
+          "delta": 0,
+          "passed": true,
+          "source": "deterministic",
+          "message": "Element cardinality matches"
+        }
+      ]
+    },
+    "sections": [],
+    "sectionsSkipped": {
+      "reason": "CANARY_SECTION_BANDS not set",
+      "bandsAvailable": [
+        "header",
+        "hero",
+        "footer"
+      ]
+    }
+  },
+  "hydration": {
+    "reference": {
+      "byteLength": 421249
+    },
+    "clone": {
+      "byteLength": 2368324
+    }
+  },
+  "readiness": {
+    "reference": {
+      "ok": true,
+      "reasons": []
+    },
+    "clone": {
+      "ok": true,
+      "reasons": []
+    }
+  },
+  "viewportGeometry": [
+    {
+      "stage": "pre-hydration",
+      "requested": {
+        "width": 1440,
+        "height": 900,
+        "dpr": 1
+      },
+      "reference": {
+        "width": 1440,
+        "height": 900,
+        "dpr": 1
+      },
+      "clone": {
+        "width": 1440,
+        "height": 900,
+        "dpr": 1
+      },
+      "repairs": [],
+      "symmetric": true
+    },
+    {
+      "stage": "post-hydration",
+      "requested": {
+        "width": 1440,
+        "height": 900,
+        "dpr": 1
+      },
+      "reference": {
+        "width": 1440,
+        "height": 900,
+        "dpr": 1
+      },
+      "clone": {
+        "width": 1440,
+        "height": 900,
+        "dpr": 1
+      },
+      "repairs": [],
+      "symmetric": true
+    }
+  ],
+  "structural": {
+    "docHeight": {
+      "reference": 5422,
+      "clone": 5422,
+      "delta": 0,
+      "ratio": 1
+    },
+    "overflowX": {
+      "reference": 0,
+      "clone": 0
+    },
+    "sectionCount": {
+      "reference": 15,
+      "clone": 15,
+      "delta": 0
+    },
+    "productCardCount": {
+      "reference": 83,
+      "clone": 83,
+      "delta": 0
+    },
+    "articleCardCount": {
+      "reference": 4,
+      "clone": 4,
+      "delta": 0
+    },
+    "navItemCount": {
+      "reference": 8,
+      "clone": 8,
+      "delta": 0
+    },
+    "linkCount": {
+      "reference": 249,
+      "clone": 249,
+      "delta": 0
+    },
+    "imageCount": {
+      "reference": 105,
+      "clone": 105,
+      "delta": 0
+    },
+    "brokenImages": {
+      "reference": 0,
+      "clone": 0
+    },
+    "header": {
+      "dh": 0,
+      "dy": 0,
+      "dw": 0
+    },
+    "main": {
+      "dh": 0,
+      "dy": 0,
+      "dw": 0
+    },
+    "footer": {
+      "dh": 0,
+      "dy": 0,
+      "dw": 0
+    },
+    "sections": [
+      {
+        "cls": "site-header",
+        "reference": {
+          "y": 0,
+          "h": 163
+        },
+        "clone": {
+          "y": 0,
+          "h": 163
+        },
+        "dh": 0
+      },
+      {
+        "cls": "main",
+        "reference": {
+          "y": 163,
+          "h": 4652
+        },
+        "clone": {
+          "y": 163,
+          "h": 4652
+        },
+        "dh": 0
+      },
+      {
+        "cls": "slide",
+        "reference": {
+          "y": 163,
+          "h": 445
+        },
+        "clone": {
+          "y": 163,
+          "h": 445
+        },
+        "dh": 0
+      },
+      {
+        "cls": "category-list",
+        "reference": {
+          "y": 628,
+          "h": 120
+        },
+        "clone": {
+          "y": 628,
+          "h": 120
+        },
+        "dh": 0
+      },
+      {
+        "cls": "banner-category",
+        "reference": {
+          "y": 748,
+          "h": 165
+        },
+        "clone": {
+          "y": 748,
+          "h": 165
+        },
+        "dh": 0
+      },
+      {
+        "cls": "block-category",
+        "reference": {
+          "y": 933,
+          "h": 419
+        },
+        "clone": {
+          "y": 933,
+          "h": 419
+        },
+        "dh": 0
+      },
+      {
+        "cls": "block-category",
+        "reference": {
+          "y": 1372,
+          "h": 419
+        },
+        "clone": {
+          "y": 1372,
+          "h": 419
+        },
+        "dh": 0
+      },
+      {
+        "cls": "block-category",
+        "reference": {
+          "y": 1811,
+          "h": 419
+        },
+        "clone": {
+          "y": 1811,
+          "h": 419
+        },
+        "dh": 0
+      },
+      {
+        "cls": "block-category",
+        "reference": {
+          "y": 2250,
+          "h": 419
+        },
+        "clone": {
+          "y": 2250,
+          "h": 419
+        },
+        "dh": 0
+      },
+      {
+        "cls": "block-category",
+        "reference": {
+          "y": 2689,
+          "h": 419
+        },
+        "clone": {
+          "y": 2689,
+          "h": 419
+        },
+        "dh": 0
+      },
+      {
+        "cls": "home-form",
+        "reference": {
+          "y": 3253,
+          "h": 369
+        },
+        "clone": {
+          "y": 3253,
+          "h": 369
+        },
+        "dh": 0
+      },
+      {
+        "cls": "accessory",
+        "reference": {
+          "y": 3767,
+          "h": 351
+        },
+        "clone": {
+          "y": 3767,
+          "h": 351
+        },
+        "dh": 0
+      },
+      {
+        "cls": "news",
+        "reference": {
+          "y": 4138,
+          "h": 436
+        },
+        "clone": {
+          "y": 4138,
+          "h": 436
+        },
+        "dh": 0
+      },
+      {
+        "cls": "partner",
+        "reference": {
+          "y": 4594,
+          "h": 222
+        },
+        "clone": {
+          "y": 4594,
+          "h": 222
+        },
+        "dh": 0
+      },
+      {
+        "cls": "site-footer",
+        "reference": {
+          "y": 4816,
+          "h": 607
+        },
+        "clone": {
+          "y": 4816,
+          "h": 607
+        },
+        "dh": 0
+      }
+    ]
+  },
+  "referenceIdentity": {
+    "status": "NOT_DECLARED"
+  },
+  "standalone": {
+    "reference": {
+      "tabId": "24e52b0d-7c29-4bd6-a068-8492b863908d",
+      "status": "CAPTURED",
+      "artifactId": "artifact-e743b270-0fe7-48e1-bbde-42654298e976",
+      "receipt": {
+        "backend": "cdp",
+        "dpr": 1,
+        "zoom": 1,
+        "cssViewport": {
+          "width": 1440,
+          "height": 900
+        },
+        "cssCaptureSize": {
+          "width": 1440,
+          "height": 5422
+        },
+        "rasterSize": {
+          "width": 1440,
+          "height": 5422
+        },
+        "captureMode": "full-page",
+        "timestamp": 1789065259464,
+        "viewportTransaction": {
+          "before": {
+            "width": 1440,
+            "height": 900,
+            "scrollX": 0,
+            "scrollY": 0
+          },
+          "after": {
+            "width": 1440,
+            "height": 900,
+            "scrollX": 0,
+            "scrollY": 0
+          },
+          "restored": true,
+          "attempts": 1
+        }
+      },
+      "sha256": "c4b708747960803aa5e045e4f83e9a1e77daab9ba4538876942662508e5019a8",
+      "byteLength": 2339782,
+      "authoritative": false,
+      "label": "independent continuity evidence — NOT an authoritative pixel input",
+      "file": "1440-standalone-reference.png",
+      "fetchedBytes": 2339782,
+      "fetchedSha256": "c4b708747960803aa5e045e4f83e9a1e77daab9ba4538876942662508e5019a8",
+      "byteForByte": true
+    },
+    "clone": {
+      "tabId": "837739a2-ea0f-4080-99ad-b4ff098365ee",
+      "status": "CAPTURED",
+      "artifactId": "artifact-d3eb0bd9-f1a8-439f-b274-55470dcf9e66",
+      "receipt": {
+        "backend": "cdp",
+        "dpr": 1,
+        "zoom": 1,
+        "cssViewport": {
+          "width": 1440,
+          "height": 900
+        },
+        "cssCaptureSize": {
+          "width": 1440,
+          "height": 5422
+        },
+        "rasterSize": {
+          "width": 1440,
+          "height": 5422
+        },
+        "captureMode": "full-page",
+        "timestamp": 1789065260985,
+        "viewportTransaction": {
+          "before": {
+            "width": 1440,
+            "height": 900,
+            "scrollX": 0,
+            "scrollY": 0
+          },
+          "after": {
+            "width": 1440,
+            "height": 900,
+            "scrollX": 0,
+            "scrollY": 0
+          },
+          "restored": true,
+          "attempts": 1
+        }
+      },
+      "sha256": "3b6cc443c6087edfcffb495af97c90dfc1a5372e98b9f2024ec513f2112bf190",
+      "byteLength": 2368321,
+      "authoritative": false,
+      "label": "independent continuity evidence — NOT an authoritative pixel input",
+      "file": "1440-standalone-clone.png",
+      "fetchedBytes": 2368321,
+      "fetchedSha256": "3b6cc443c6087edfcffb495af97c90dfc1a5372e98b9f2024ec513f2112bf190",
+      "byteForByte": true
+    }
+  },
+  "compareRelease": {
+    "reference": {
+      "label": "1440-reference-pre-compare",
+      "at": "2026-09-10T18:34:21.102Z",
+      "widgets": {
+        "slickPaused": 0,
+        "swiperPaused": 0
+      },
+      "release": {
+        "label": "1440-reference-pre-compare-full",
+        "at": "2026-09-10T18:34:21.318Z",
+        "dom": {
+          "restored": 63,
+          "markedLeft": 0,
+          "timersRestored": true,
+          "inlineImportant": 8,
+          "guardAbsent": false,
+          "timers": true
+        },
+        "unfreeze": {
+          "frozen": false,
+          "mediaCount": 0,
+          "tabId": "24e52b0d-7c29-4bd6-a068-8492b863908d"
+        }
+      },
+      "freezeReleased": true,
+      "timerSweep": {
+        "clearedIntervalIdsTo": 200000,
+        "clearedTimeoutIdsTo": 200000
+      },
+      "timerSweepMotion": {
+        "widgetsSampled": 7,
+        "windowMs": 2500,
+        "sampleBefore": "12b75192",
+        "sampleAfter": "12b75192",
+        "stable": true
+      }
+    },
+    "clone": {
+      "label": "1440-clone-pre-compare",
+      "at": "2026-09-10T18:34:23.923Z",
+      "widgets": {
+        "slickPaused": 0,
+        "swiperPaused": 0
+      },
+      "release": {
+        "label": "1440-clone-pre-compare-full",
+        "at": "2026-09-10T18:34:23.932Z",
+        "dom": {
+          "restored": 83,
+          "markedLeft": 0,
+          "timersRestored": true,
+          "inlineImportant": 3,
+          "guardAbsent": false,
+          "timers": true
+        },
+        "unfreeze": {
+          "frozen": false,
+          "mediaCount": 0,
+          "tabId": "837739a2-ea0f-4080-99ad-b4ff098365ee"
+        }
+      },
+      "freezeReleased": true,
+      "timerSweep": {
+        "clearedIntervalIdsTo": 200000,
+        "clearedTimeoutIdsTo": 200000
+      },
+      "timerSweepMotion": {
+        "widgetsSampled": 7,
+        "windowMs": 2500,
+        "sampleBefore": "12b75192",
+        "sampleAfter": "12b75192",
+        "stable": true
+      }
+    }
+  },
+  "rasterizationStability": {
+    "reference": {
+      "standaloneHeight": 5422,
+      "compareHeight": 5422,
+      "hydratedDocHeight": 5422,
+      "stable": true
+    },
+    "clone": {
+      "standaloneHeight": 5422,
+      "compareHeight": 5422,
+      "hydratedDocHeight": 5422,
+      "stable": true
+    }
+  },
+  "visual": {
+    "match": true,
+    "mismatchPercentage": 1.82,
+    "verdict": "PASS",
+    "toolVerdict": null,
+    "toolStatus": null,
+    "reason": null,
+    "dimensionsMatch": true,
+    "diffPixels": 142101,
+    "totalPixels": 7807680,
+    "diffBoundingBox": null,
+    "mask": {
+      "status": "ok",
+      "maskedAreaRatio": 0,
+      "optionalUnmatched": [],
+      "target": {
+        "entries": [],
+        "maskedAreaRatio": 0
+      },
+      "baseline": {
+        "entries": [],
+        "maskedAreaRatio": 0
+      }
+    },
+    "layout": null,
+    "coherence": {
+      "identityCoherent": true,
+      "captureStateCompatible": true,
+      "resampleCount": 0,
+      "target": {
+        "preInject": {
+          "browserEpoch": 1,
+          "documentGeneration": 6,
+          "mutationRevision": 1
+        },
+        "postInject": {
+          "browserEpoch": 1,
+          "documentGeneration": 6,
+          "mutationRevision": 1
+        },
+        "afterCapture": {
+          "browserEpoch": 1,
+          "documentGeneration": 6,
+          "mutationRevision": 1
+        },
+        "identity": "COHERENT",
+        "mutation": "COHERENT"
+      },
+      "baseline": {
+        "preInject": {
+          "browserEpoch": 1,
+          "documentGeneration": 2,
+          "mutationRevision": 1
+        },
+        "postInject": {
+          "browserEpoch": 1,
+          "documentGeneration": 2,
+          "mutationRevision": 1
+        },
+        "afterCapture": {
+          "browserEpoch": 1,
+          "documentGeneration": 2,
+          "mutationRevision": 1
+        },
+        "identity": "COHERENT",
+        "mutation": "COHERENT"
+      }
+    },
+    "captureReceipts": {
+      "target": {
+        "backend": "cdp",
+        "dpr": 1,
+        "zoom": 1,
+        "cssViewport": {
+          "width": 1440,
+          "height": 900
+        },
+        "cssCaptureSize": {
+          "width": 1440,
+          "height": 5422
+        },
+        "rasterSize": {
+          "width": 1440,
+          "height": 5422
+        },
+        "captureMode": "full-page",
+        "timestamp": 1789065269925,
+        "viewportTransaction": {
+          "before": {
+            "width": 1440,
+            "height": 900,
+            "scrollX": 0,
+            "scrollY": 0
+          },
+          "after": {
+            "width": 1440,
+            "height": 900,
+            "scrollX": 0,
+            "scrollY": 0
+          },
+          "restored": true,
+          "attempts": 1
+        }
+      },
+      "baseline": {
+        "backend": "cdp",
+        "dpr": 1,
+        "zoom": 1,
+        "cssViewport": {
+          "width": 1440,
+          "height": 900
+        },
+        "cssCaptureSize": {
+          "width": 1440,
+          "height": 5422
+        },
+        "rasterSize": {
+          "width": 1440,
+          "height": 5422
+        },
+        "captureMode": "full-page",
+        "timestamp": 1789065271050,
+        "viewportTransaction": {
+          "before": {
+            "width": 1440,
+            "height": 900,
+            "scrollX": 0,
+            "scrollY": 0
+          },
+          "after": {
+            "width": 1440,
+            "height": 900,
+            "scrollX": 0,
+            "scrollY": 0
+          },
+          "restored": true,
+          "attempts": 1
+        }
+      }
+    },
+    "normalization": {
+      "target": {
+        "requested": true,
+        "injected": true,
+        "owned": true,
+        "restored": true
+      },
+      "comparison": {
+        "requested": true,
+        "injected": true,
+        "owned": true,
+        "restored": true
+      }
+    }
+  },
+  "postCompareMotion": {
+    "reference": {
+      "widgetsSampled": 7,
+      "windowMs": 2500,
+      "sampleBefore": "12b75192",
+      "sampleAfter": "12b75192",
+      "stable": true
+    },
+    "clone": {
+      "widgetsSampled": 7,
+      "windowMs": 2500,
+      "sampleBefore": "12b75192",
+      "sampleAfter": "12b75192",
+      "stable": true
+    }
+  },
+  "authoritativePair": {
+    "reference": {
+      "status": "PERSISTED",
+      "artifactId": "artifact-a35d4b18-59ca-4629-b086-1074c9ee7e46",
+      "file": "1440-reference.png",
+      "bytes": 2339438,
+      "sha256": "90a7ab79d5c6e00702c19226dd0dd8816619666f174c00c04498a860cd7242ee",
+      "authoritative": true,
+      "declaredBytes": 2339438,
+      "declaredSha": "90a7ab79d5c6e00702c19226dd0dd8816619666f174c00c04498a860cd7242ee",
+      "byteForByte": true
+    },
+    "clone": {
+      "status": "PERSISTED",
+      "artifactId": "artifact-e6f1957f-a81f-4752-86a8-6300372f7caa",
+      "file": "1440-clone.png",
+      "bytes": 2368775,
+      "sha256": "40fc72507de82f0b26d232ae531581cb046111ceb32a38b3cd93de5b4d69366b",
+      "authoritative": true,
+      "declaredBytes": 2368775,
+      "declaredSha": "40fc72507de82f0b26d232ae531581cb046111ceb32a38b3cd93de5b4d69366b",
+      "byteForByte": true
+    }
+  },
+  "finishedAt": "2026-09-10T18:34:37.136Z",
+  "status": "PASS"
+}

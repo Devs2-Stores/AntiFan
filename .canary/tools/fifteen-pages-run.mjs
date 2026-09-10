@@ -26,9 +26,11 @@ import { fileURLToPath } from 'node:url';
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO = path.resolve(HERE, '..', '..');
 
-const { call, evalOn, bootstrap: boot } = await import('./lib-rpc.mjs');
-const { requireDoubleSettledMetrics } = await import('./canary-settle.mjs');
+const { call, evalOn, bootstrap: boot, reloadBootstrap } = await import('./lib-rpc.mjs');
+const { requireDoubleSettledMetrics, hydrateToCapturedState, releaseSettleOverrides } = await import('./canary-settle.mjs');
+
 const { validateProbedFloor } = await import('../../scripts/lib/canary-floors.mjs');
+const { detectHarnessResidue, detectLostLayoutSwitch } = await import('../../scripts/lib/bundle-integrity.mjs');
 const { acquireCampaignLock, releaseCampaignLock, updateCampaignLock, assertCampaignLockHeld, LOCK_CODES } = await import('../../scripts/lib/campaign-lock.mjs');
 const {
   mintBundleIdentity,
@@ -177,6 +179,33 @@ export const VIEWPORTS = [
 const sha256 = (b) => crypto.createHash('sha256').update(b).digest('hex');
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+/**
+ * Renew the canary session before a page.
+ *
+ * An attachment is bound to the tab it was minted with, and the previous page
+ * deleted its own tabs, which kills that binding: the next create is then refused
+ * with the fixed "session tab quota reached" text even though the session pool is
+ * empty. Measured: the mint still succeeds with a dead binding, re-reading it
+ * makes the next create adopt normally, and no instance restart is needed. The
+ * tab the new session was minted with is kept until the page has a tab of its own
+ * (closing it earlier would kill the binding it just created) and the previous
+ * page's mint tab is closed at that point, so one session tab is ever live.
+ */
+async function renewSession(pageId, state) {
+  const minted = await runCommand('node', ['.canary/tools/canary-session.mjs', String(boot.port), '.canary/state/canary-session.json'], { timeoutMs: 120_000 });
+  if (minted.code !== 0) {
+    throw Object.assign(
+      new Error(`session renewal failed for page ${pageId}: mint exit ${minted.code} — ${childErrorDetail(minted.stdout, minted.stderr)}`),
+      { code: 'SESSION_RENEWAL_FAILED' }
+    );
+  }
+  reloadBootstrap();
+  const previous = state.mintTabId;
+  state.mintTabId = boot.tabId || null;
+  state.previousMintTabId = previous;
+  return { minted: true, mintTabId: state.mintTabId, previousMintTabId: previous };
+}
+
 function runCommand(cmd, args, { timeoutMs = 600_000, env = {} } = {}) {
   return new Promise((resolve) => {
     const started = Date.now();
@@ -198,6 +227,24 @@ function runCommand(cmd, args, { timeoutMs = 600_000, env = {} } = {}) {
       resolve({ code, stdout, stderr, elapsedMs: Date.now() - started });
     });
   });
+}
+
+/**
+ * Extracts the informative lines from a child's output.
+ *
+ * Node prints the failure stack first and the version banner last, so a tail
+ * slice returns `Node.js v24.x` and hides the actual error; the NO_COLOR and
+ * trace-warnings notices are noise. Stderr is preferred, stdout is the fallback
+ * because the mint prints its bootstrap document there on the success path.
+ */
+function childErrorDetail(stdout, stderr) {
+  const informative = (text) => (text || '')
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => line && !/NO_COLOR|trace-warnings|^Node\.js v\d/.test(line));
+  const fromStderr = informative(stderr);
+  const lines = fromStderr.length > 0 ? fromStderr : informative(stdout);
+  return lines.slice(0, 8).join(' | ').slice(0, 800) || 'no child output';
 }
 
 // ── In-page Discovery Probe Expression ─────────────────────────────────────────
@@ -498,6 +545,8 @@ async function runCampaignLocked(options, { runId, lock, pagesFilter, viewportSe
   console.log(`Runtime: Real Chromium on port ${boot.port}`);
   console.log(`================================================================\n`);
 
+  const session = { mintTabId: null, previousMintTabId: null, renewals: [] };
+
   for (const p of TARGET_PAGES) {
     if (pagesFilter && !pagesFilter.includes(p.id)) {
       continue;
@@ -547,6 +596,11 @@ async function runCampaignLocked(options, { runId, lock, pagesFilter, viewportSe
       // ══════════════════════════════════════════════════════════════════════
       // PHASE A & A0: Reference Discovery
       // ══════════════════════════════════════════════════════════════════════
+      console.log(`[P${p.id}] Session: renewing attachment for this page...`);
+      const renewal = await renewSession(p.id, session);
+      session.renewals.push({ pageId: p.id, ...renewal, at: new Date().toISOString() });
+      pageResult.phases.sessionRenewal = renewal;
+      console.log(`[P${p.id}] Session: mint tab ${renewal.mintTabId} bound (previous ${renewal.previousMintTabId || 'none'})`);
       console.log(`[P${p.id}] Phase A: Launching reference tab in Chromium...`);
       const refTabRes = await call('anti.browser.tabs.create', { url: p.url, activate: true }, 60_000);
       refTabId = refTabRes.tabId || refTabRes.result?.tabId;
@@ -581,13 +635,15 @@ async function runCampaignLocked(options, { runId, lock, pagesFilter, viewportSe
         throw new Error(`Reference tab failed to reach readyState===complete within timeout for ${p.url}`);
       }
 
-      // Settle reference tab using canonical double-settled contract before dumping
-      console.log(`[P${p.id}] Deep settling reference tab with canonical double-settled contract...`);
-      const settledRef = await requireDoubleSettledMetrics(refTabId, `P${p.id}-pre-dump`, 4);
+      // Rasterizing is what mounts the storefront's remaining sections: a
+      // settle-only measurement here describes a pre-mount page (measured
+      // 4107px/8 sections before the capture versus 5422px/15 sections after it),
+      // so the dump must follow the capture that hydrates it.
+      console.log(`[P${p.id}] Deep settling + hydrating reference tab (full-page capture first)...`);
+      const preDump = await hydrateToCapturedState(refTabId, `P${p.id}-pre-dump`, {}, 240_000, 4);
+      const settledRef = preDump.settled;
+      pageResult.phases.referenceHydration = { byteLength: preDump.capture?.byteLength ?? preDump.capture?.bytes ?? null };
       console.log(`[P${p.id}] Reference settled: docH=${settledRef.metrics.docHeight}, sections=${settledRef.metrics.sectionCount}, cards=${settledRef.metrics.productCardCount}`);
-
-      // Run Discovery probe from settled state
-      console.log(`[P${p.id}] Extracting Discovery probe...`);
       const discovery = await evalOn(refTabId, DISCOVERY_PROBE_EXPR, 20_000);
       fs.writeFileSync(path.join(evDir, 'discovery.json'), JSON.stringify(discovery, null, 2));
       pageResult.phases.discovery = {
@@ -605,7 +661,17 @@ async function runCampaignLocked(options, { runId, lock, pagesFilter, viewportSe
 
       // 1. Dump sanitized reference HTML while tab is settled
       const refHtmlPath = path.join(refDir, 'reference.html');
+      // The mobile bundle cannot be built from the desktop dump: the storefront
+      // serves a different document to a mobile client (measured: 289,938 bytes /
+      // `<body data-device="mobile">` / mobile nav versus 335,778 bytes / `web`), so
+      // the mobile reference is captured at the mobile viewport and built separately.
+      const refMobileHtmlPath = path.join(refDir, 'reference-mobile.html');
       console.log(`[P${p.id}] Dumping sanitized reference DOM...`);
+      // Undo the settle pins first: this markup becomes the clone bundle, and a
+      // pinned inline !important would override the clone's own CSS for good.
+      const desktopRelease = await releaseSettleOverrides(refTabId, `P${p.id}-pre-dump-release`);
+      pageResult.phases.desktopRelease = desktopRelease;
+      console.log(`[P${p.id}] Settle overrides released: unfrozen=${Boolean(desktopRelease.unfreeze)} markedLeft=${desktopRelease.dom?.markedLeft ?? '?'}`);
       const dumpRes = await runCommand('node', ['.canary/tools/dump-ref.mjs', refTabId, refHtmlPath, 'sanitize'], { timeoutMs: 120_000 });
       if (dumpRes.code !== 0) {
         throw new Error(`dump-ref failed: ${dumpRes.stderr.slice(0, 300)}`);
@@ -641,10 +707,24 @@ async function runCampaignLocked(options, { runId, lock, pagesFilter, viewportSe
         if (!readyStateComplete) {
           throw new Error(`Reference tab failed to reach readyState===complete at ${vp.width}x${vp.height}`);
         }
-        console.log(`[P${p.id}][${vp.label}] Settle & measure reference tab (double settled pass)...`);
-        const vpSettled = await requireDoubleSettledMetrics(refTabId, `P${p.id}-${vp.label}`, 4);
+        console.log(`[P${p.id}][${vp.label}] Settle & measure reference tab (hydrating capture pass)...`);
+        const vpHydration = await hydrateToCapturedState(refTabId, `P${p.id}-${vp.label}`, {}, 240_000, 4);
+        const vpSettled = vpHydration.settled;
         readinessFloors[vp.label] = validateProbedFloor(vpSettled.metrics, vp);
-        console.log(`[P${p.id}][${vp.label}] Empirical floor: minSections=${readinessFloors[vp.label].minSections}, minCards=${readinessFloors[vp.label].minCards}`);
+        console.log(`[P${p.id}][${vp.label}] Empirical floor: minSections=${readinessFloors[vp.label].minSections}, minCards=${readinessFloors[vp.label].minCards} (docH=${vpSettled.metrics.docHeight})`);
+        if (vp.width < 768) {
+          // Dumped while this tab is the foreground tab at the mobile viewport, so
+          // the artifact is the document a mobile client is served.
+          console.log(`[P${p.id}][${vp.label}] Dumping mobile reference DOM...`);
+          const mobileRelease = await releaseSettleOverrides(refTabId, `P${p.id}-${vp.label}-release`);
+          pageResult.phases.mobileRelease = mobileRelease;
+          const dumpMobile = await runCommand('node', ['.canary/tools/dump-ref.mjs', refTabId, refMobileHtmlPath, 'sanitize'], { timeoutMs: 120_000 });
+          if (dumpMobile.code !== 0) {
+            throw new Error(`dump-ref (mobile ${vp.label}) failed: ${dumpMobile.stderr.slice(0, 300)}`);
+          }
+          fs.writeFileSync(path.join(evDir, 'reference-dump-mobile.json'), dumpMobile.stdout);
+          pageResult.phases.mobileReference = { viewport: vp.label, path: refMobileHtmlPath, bytes: fs.statSync(refMobileHtmlPath).size };
+        }
       }
       fs.writeFileSync(path.join(evDir, 'readiness-floors.json'), JSON.stringify(readinessFloors, null, 2));
 
@@ -671,27 +751,75 @@ async function runCampaignLocked(options, { runId, lock, pagesFilter, viewportSe
       fs.writeFileSync(path.join(evDir, 'build.log'), buildRes.stdout + (buildRes.stderr ? `\n--- stderr ---\n${buildRes.stderr}` : ''));
 
       let cloneBuilt = false;
+      let mobileBundleBuilt = false;
       let bundleIdentity = null;
       const cloneEntry = path.join(cloneDir, 'index.html');
       if (buildRes.code === 0 && fs.existsSync(cloneEntry)) {
-        cloneBuilt = true;
-        // Minted here, not downstream: this is the only moment that knows both the
-        // entry just written and the attempt it was written into.
-        bundleIdentity = mintBundleIdentity({
-          entryPath: cloneEntry,
-          sourceUrl: p.url,
-          attemptId,
-          evidenceRoot: evDir,
-        });
-        pageResult.bundle = bundleIdentity;
-        pageResult.phases.cloneGeneration = {
-          ok: true,
-          entry: cloneEntry,
-          bytes: bundleIdentity.entryBytes,
-          entrySha256: bundleIdentity.entrySha256,
-          attemptId,
-        };
-        console.log(`[P${p.id}] Clone bundle generated successfully (attempt ${attemptId}).`);
+        // Fail closed on harness residue: the settle guard marks every node it pins,
+        // and a surviving marker means a pinned inline !important reached the bundle,
+        // where it would override the clone's own CSS. Never mint that as deliverable.
+        const contamination = detectHarnessResidue(cloneEntry);
+        const lostLayoutSwitches = contamination.length === 0 ? detectLostLayoutSwitch(refHtmlPath, cloneEntry) : [];
+        if (contamination.length || lostLayoutSwitches.length) {
+          cloneBuilt = false;
+          mobileBundleBuilt = false;
+          const code = contamination.length ? 'CONTAMINATED_BUNDLE' : 'LAYOUT_SWITCH_LOST';
+          const message = contamination.length
+            ? `harness residue in bundle: ${contamination.join(', ')}`
+            : `bundle dropped the source body attribute(s) that select the layout: ${lostLayoutSwitches.join(', ')}`;
+          pageResult.phases.cloneGeneration = { ok: false, code, residue: contamination, lostLayoutSwitches };
+          pageResult.errors.push({ phase: 'cloneGeneration', code, message });
+          console.log(`[P${p.id}] REFUSED: ${message}`);
+        } else {
+          cloneBuilt = true;
+          // Minted here, not downstream: this is the only moment that knows both the
+          // entry just written and the attempt it was written into.
+          bundleIdentity = mintBundleIdentity({
+            entryPath: cloneEntry,
+            sourceUrl: p.url,
+            attemptId,
+            evidenceRoot: evDir,
+          });
+          pageResult.bundle = bundleIdentity;
+          pageResult.phases.cloneGeneration = {
+            ok: true,
+            entry: cloneEntry,
+            bytes: bundleIdentity.entryBytes,
+            entrySha256: bundleIdentity.entrySha256,
+            attemptId,
+          };
+          console.log(`[P${p.id}] Clone bundle generated successfully (attempt ${attemptId}).`);
+          if (fs.existsSync(refMobileHtmlPath)) {
+            const mobileTelemetryPath = path.join(evDir, 'build-telemetry-mobile.json');
+            const mobileBuild = await runCommand(
+              'node',
+              ['.canary/tools/build-clone.mjs', refMobileHtmlPath, mobileCloneDir, mobileTelemetryPath, 'undefined', 'undefined', baseDomain],
+              { timeoutMs: 300_000 }
+            );
+            fs.writeFileSync(path.join(evDir, 'build-mobile.log'), mobileBuild.stdout + (mobileBuild.stderr ? `\n--- stderr ---\n${mobileBuild.stderr}` : ''));
+            const mobileEntry = path.join(mobileCloneDir, 'index.html');
+            const mobileResidue = mobileBuild.code === 0 && fs.existsSync(mobileEntry) ? detectHarnessResidue(mobileEntry) : [];
+            const lostLayoutSwitches = mobileBuild.code === 0 && fs.existsSync(mobileEntry) && mobileResidue.length === 0
+              ? detectLostLayoutSwitch(refMobileHtmlPath, mobileEntry)
+              : [];
+            mobileBundleBuilt = mobileBuild.code === 0 && fs.existsSync(mobileEntry) && mobileResidue.length === 0 && lostLayoutSwitches.length === 0;
+            const mobileFailureCode = mobileResidue.length ? 'CONTAMINATED_BUNDLE' : (lostLayoutSwitches.length ? 'LAYOUT_SWITCH_LOST' : 'MOBILE_BUILD_FAILED');
+            const mobileFailureMessage = mobileResidue.length
+              ? `harness residue in mobile bundle: ${mobileResidue.join(', ')}`
+              : (lostLayoutSwitches.length
+                ? `mobile bundle dropped the source body attribute(s) that select the phone layout: ${lostLayoutSwitches.join(', ')}`
+                : mobileBuild.stderr.slice(0, 500));
+            if (!mobileBundleBuilt) {
+              pageResult.errors.push({ phase: 'mobileCloneGeneration', code: mobileFailureCode, message: mobileFailureMessage });
+            }
+            pageResult.phases.mobileCloneGeneration = mobileBundleBuilt
+              ? { ok: true, entry: mobileEntry, bytes: fs.statSync(mobileEntry).size }
+              : { ok: false, code: mobileFailureCode, error: mobileFailureMessage };
+            console.log(mobileBundleBuilt
+              ? `[P${p.id}] Mobile clone bundle generated at ${mobileEntry}.`
+              : `[P${p.id}] Mobile clone generation failed: ${mobileFailureCode} — ${mobileFailureMessage.slice(0, 200)}`);
+          }
+        }
       } else {
         cloneBuilt = false;
         pageResult.phases.cloneGeneration = { ok: false, error: buildRes.stderr.slice(0, 500) };
@@ -769,6 +897,7 @@ async function runCampaignLocked(options, { runId, lock, pagesFilter, viewportSe
                   CANARY_AUTHORITY_RUN_ID: boot.runId || '',
                   CANARY_EVIDENCE_RUN_ID: runId,
                   CANARY_CLONE_DIR: cloneDir,
+                  CANARY_REFERENCE_DUMP: isMobileTier ? path.join(evDir, 'reference-dump-mobile.json') : path.join(evDir, 'reference-dump.json'),
                 },
               }
             );
@@ -858,6 +987,15 @@ async function runCampaignLocked(options, { runId, lock, pagesFilter, viewportSe
             vpResult.instance = instance;
             vpResult.childExitCode = vpProc.code;
             vpResult.terminalStatus = terminalStatus;
+            // The child's own words about a nonzero exit: its refusal reason and any
+            // uncaught stack live on stderr, and a case that never compared is only
+            // diagnosable from the evidence document if they are kept here.
+            vpResult.childOutput = {
+              elapsedMs: vpProc.elapsedMs,
+              timedOut: Boolean(vpProc.timedOut),
+              stdoutTail: (vpProc.stdout || '').slice(-2000) || null,
+              stderrHead: (vpProc.stderr || '').slice(0, 4000) || null,
+            };
             if (refusalCode) {
               // The served entry was not the minted one: the wrong directory was
               // served, so there is nothing to compare and no verdict to give.
@@ -879,14 +1017,14 @@ async function runCampaignLocked(options, { runId, lock, pagesFilter, viewportSe
               vpResult.status = 'ERROR';
               vpResult.causeCode = vpProc.code === -1 ? 'VIEWPORT_RUN_TIMEOUT' : (terminalStatus || 'VIEWPORT_RUN_ERROR');
               vpResult.overall = 'INCONCLUSIVE';
-              vpResult.error = vpProc.timedOut ? `viewport-run timed out after ${vpProc.elapsedMs}ms` : (vpProc.stderr || '').slice(-500) || null;
+              vpResult.error = vpProc.timedOut ? `viewport-run timed out after ${vpProc.elapsedMs}ms` : childErrorDetail(vpProc.stdout, vpProc.stderr);
             } else if (!terminalStatus) {
               // No evidence document at all: the child died before it could persist
               // anything, so nothing about this case can be judged.
               vpResult.status = 'ERROR';
               vpResult.causeCode = 'NO_EVIDENCE_DOCUMENT';
               vpResult.overall = 'INCONCLUSIVE';
-              vpResult.error = (vpProc.stderr || '').slice(-500) || `exit ${vpProc.code} with no evidence document`;
+              vpResult.error = childErrorDetail(vpProc.stdout, vpProc.stderr) || `exit ${vpProc.code} with no evidence document`;
             } else {
               const canonical = canonicalVerdict({
                 refusal: null,
@@ -944,12 +1082,32 @@ async function runCampaignLocked(options, { runId, lock, pagesFilter, viewportSe
       pageResult.errors.push({ phase: 'topLevel', message: pageErr.message });
       console.log(`[P${p.id}] PAGE FAILURE: ${pageErr.message}`);
     } finally {
-      // Clean up tabs
+      // Clean up tabs. The mint tab is this session's own bound tab, so closing it is
+      // allowed here; it must happen only after every tab this page needs has been
+      // created, because a session whose bound tab is gone refuses further creates.
+      // The result is recorded rather than swallowed: a silent failure here is how a
+      // leaked tab per page turns into the quota refusal seen at page 2.
       if (cloneTabId) {
-        await call('anti.browser.tabs.close', { tabId: cloneTabId }, 10_000).catch(() => null);
+        const closed = await call('anti.browser.tabs.close', { tabId: cloneTabId }, 10_000).catch((e) => ({ error: String(e && e.message ? e.message : e).slice(0, 120) }));
+        pageResult.phases.cloneTabClose = closed && closed.error ? { closed: false, error: closed.error } : { closed: true };
       }
       if (refTabId) {
-        await call('anti.browser.tabs.close', { tabId: refTabId }, 10_000).catch(() => null);
+        const closed = await call('anti.browser.tabs.close', { tabId: refTabId }, 10_000).catch((e) => ({ error: String(e && e.message ? e.message : e).slice(0, 120) }));
+        pageResult.phases.referenceTabClose = closed && closed.error ? { closed: false, error: closed.error } : { closed: true };
+      }
+      if (session.mintTabId) {
+        // The tab being reaped belongs to the previous page's mint, so no live session
+        // owns it any more: a close is refused with TARGET_MISMATCH naming the binding
+        // the session is isolated to. Rebinding first does not help — both
+        // `browser.switch-tab` and `browser.set-automation-target` were measured
+        // ineffective on the canary instance (the attach call succeeds, the close is
+        // still refused), and the reference page's own mint tab must stay bound for the
+        // creates that follow. So this attempt is kept only to record the outcome: the
+        // tab is an instance-plane orphan, and clearing those is an owner action.
+        const closed = await call('anti.browser.tabs.close', { tabId: session.mintTabId }, 10_000).catch((e) => ({ error: String(e && e.message ? e.message : e).slice(0, 120) }));
+        pageResult.phases.mintTabClose = closed && closed.error ? { closed: false, tabId: session.mintTabId, error: closed.error } : { closed: true, tabId: session.mintTabId };
+        if (closed && closed.error) console.log(`[P${p.id}] Session: mint tab ${session.mintTabId} NOT closed: ${closed.error}`);
+        session.mintTabId = null;
       }
       if (staticServer) {
         try { staticServer.kill('SIGTERM'); } catch {}
@@ -1038,6 +1196,7 @@ async function runCampaignLocked(options, { runId, lock, pagesFilter, viewportSe
   console.log(`================================================================`);
 
   runSummary.tabCensus.end = await tabCensus();
+  runSummary.sessionRenewals = session.renewals;
   runSummary.finishedAt = new Date().toISOString();
   runSummary.exit = computeRunExit(runSummary, pagesFilter, { targetPages: TARGET_PAGES, viewportLabels: scope.viewports, excludedViewports: scope.excluded.map((e) => e.label) });
 

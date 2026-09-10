@@ -148,7 +148,7 @@ export class IndependentHtmlCloneGenerator {
       const headStylesTags = (ir.headStyles || []).join('\n');
 
       const rawIndexHtml = `<!DOCTYPE html>
-<html lang="vi">
+<html${ir.htmlAttributes || ' lang="vi"'}>
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -159,7 +159,7 @@ export class IndependentHtmlCloneGenerator {
     img { max-width: 100%; }
   </style>
 ${stylesheetTags ? stylesheetTags + '\n' : ''}${headStylesTags ? headStylesTags + '\n' : ''}</head>
-<body>
+<body${ir.bodyAttributes || ''}>
 ${headerHtmls.join('\n')}
 <main>
 ${mainHtmls.join('\n')}

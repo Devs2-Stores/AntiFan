@@ -74,10 +74,15 @@ Facts 1–4 and 14 are the live blocker (a predicate that cannot be satisfied an
 
 | # | Phase | Status | Effort |
 |---|-------|--------|--------|
-| 1 | [Evidence Provenance & Freshness Gate](./phase-01-evidence-provenance-and-freshness-gate.md) | Pending | 3h |
-| 2 | [Capture-Side Blockers](./phase-02-capture-side-blockers.md) | Pending | 8h |
+| 1 | [Evidence Provenance & Freshness Gate](./phase-01-evidence-provenance-and-freshness-gate.md) | Complete | 3h |
+| 2 | [Capture-Side Blockers](./phase-02-capture-side-blockers.md) | In progress | 8h |
 | 3 | [Campaign Re-Run & Verdicts](./phase-03-campaign-re-run-and-verdicts.md) | Pending | 3h |
 | 4 | [Gate Reconciliation & Delivery](./phase-04-gate-reconciliation-and-delivery.md) | Pending | 4h |
+
+Phase 2's own file carries the findings that were discovered while executing it — the
+per-pass guard registry, the pins that manufactured mismatches, the bundle-unbinding
+extractor, the residue that reached published bundles, and the mint that reached a bridge
+which reset it. Add them to this table only if the next executor needs them here.
 
 ## Relationship to existing plans (proposal, not yet wired)
 
