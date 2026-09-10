@@ -50,6 +50,42 @@ export function validatePagesFilter(pages, targetIds) {
 }
 
 /**
+ * The viewport scope of a run: which labels this invocation measures, and which it
+ * leaves unverified.
+ *
+ * A viewport that is not run is declared, never silently missing — the verdict
+ * artifact says which labels it never measured, because a batch that covers two of
+ * three viewports must not read as a whole-clone verdict. Selection refuses an
+ * unreadable entry for the same reason `--pages` does: a typo would otherwise
+ * shrink the case set and still look like a complete run.
+ */
+export function selectViewports(allViewports, spec) {
+  const labels = allViewports.map((v) => v.label);
+  if (spec === undefined || spec === null || String(spec).trim() === '') {
+    return { ok: true, viewports: allViewports, excluded: [], mobileUnverified: false };
+  }
+  const selected = [];
+  for (const rawPart of String(spec).split(',')) {
+    const label = rawPart.trim();
+    if (label === '') return { ok: false, reason: `--viewports '${spec}' has an empty entry` };
+    if (!labels.includes(label)) {
+      return { ok: false, reason: `--viewports '${spec}' names '${label}', not one of ${labels.join('/')}` };
+    }
+    if (!selected.includes(label)) selected.push(label);
+  }
+  const viewports = allViewports.filter((v) => selected.includes(v.label));
+  const excluded = allViewports
+    .filter((v) => !selected.includes(v.label))
+    .map((v) => ({ label: v.label, mobile: v.mobile === true, reason: 'not selected in this run: no bundle is verified for it here' }));
+  return {
+    ok: true,
+    viewports,
+    excluded,
+    mobileUnverified: excluded.some((e) => e.mobile),
+  };
+}
+
+/**
  * One canonical verdict and cause per page x viewport, in one machine-readable
  * index. Pre-existing evidence that carries no attempt identity is marked
  * superseded rather than being silently attributed to a fresh run.
@@ -112,6 +148,9 @@ export function buildVerdictIndex(runSummary, { supersededSlugs = [] } = {}) {
     instanceRecord: runSummary.instanceRecord ?? null,
     runLock: runSummary.runLock ?? null,
     tabCensus: runSummary.tabCensus ?? null,
+    // Which viewports this run measured, and which it left unverified. A reader
+    // must be able to tell a two-viewport batch from a whole-clone verdict.
+    scope: runSummary.scope ?? null,
     refusals: runSummary.refusals || [],
     tally,
     executiveVerdict: cases.length === 0 ? 'INCONCLUSIVE' : (tally.PASS === cases.length ? 'PASS' : (tally.FAIL > 0 ? 'FAIL' : 'INCONCLUSIVE')),
@@ -169,8 +208,13 @@ function scanRequestedCases(runSummary, requestedPages, viewportLabels) {
  * The process exit status encodes process success only: an adjudicable fidelity
  * FAIL is valid campaign output and exits 0. Non-zero means the run itself could
  * not produce a complete, provenance-bound set of verdicts.
+ *
+ * `excludedViewports` names the viewports this run declared out of scope. A reduced
+ * batch exits 0 only when at least one of its measured cases was adjudicated: scope
+ * reduction exists to obtain a verdict on what remains, so a reduced batch that
+ * adjudicated nothing is not a success and reports `NO_ADJUDICATED_CASE`.
  */
-export function computeRunExit(runSummary, pagesFilter, { targetPages, viewportLabels }) {
+export function computeRunExit(runSummary, pagesFilter, { targetPages, viewportLabels, excludedViewports = [] }) {
   const requested = pagesFilter && pagesFilter.length > 0 ? targetPages.filter((p) => pagesFilter.includes(p.id)) : targetPages;
   const labels = viewportLabels && viewportLabels.length > 0 ? viewportLabels : [];
   const failedPages = Object.values(runSummary.pageResults).filter((p) => p.status === 'FAILED').map((p) => p.id);
@@ -217,22 +261,54 @@ export function computeRunExit(runSummary, pagesFilter, { targetPages, viewportL
     };
   }
   // A declared absence is also recorded at run level, so it is counted even when the
-  // case's own viewport entry is missing from the page result.
+  // case's own viewport entry is missing from the page result. A viewport outside the
+  // run's declared scope is not a requested case, so a record naming one cannot make
+  // the requested set incomplete; the runner does not execute excluded viewports, so
+  // such a record means the scope was declared after that case was attempted.
   const format = (r) => `${r.code}@page-${r.pageId}${r.viewport ? `:${r.viewport}` : ''}`;
+  const outOfScope = new Set(excludedViewports);
   const absenceDetails = new Set(incomplete.map(format));
-  for (const r of runSummary.refusals.filter((r) => DECLARED_CASE_ABSENCES.has(r.code))) absenceDetails.add(format(r));
+  for (const r of runSummary.refusals.filter((r) => DECLARED_CASE_ABSENCES.has(r.code) && !outOfScope.has(r.viewport))) {
+    absenceDetails.add(format(r));
+  }
   if (absenceDetails.size > 0) {
     // Requested cases that produced no adjudication at all: a page that never ran, a
     // case with no viewport entry, a bundle that was never built, a declared absence.
     return { code: 1, reason: 'INCOMPLETE_CASES', detail: [...absenceDetails] };
   }
-  const cases = Object.values(runSummary.pageResults || {}).flatMap((p) => Object.values(p.viewports || {}));
-  return {
-    code: 0,
-    reason: 'OK',
+  // The tally counts the cases this run was asked to measure: an excluded viewport is
+  // declared out of scope, so its entry (a stale refusal, or a case recorded before the
+  // scope was declared) must not appear as a measured result.
+  const cases = Object.values(runSummary.pageResults || {}).flatMap((p) =>
+    Object.entries(p.viewports || {})
+      .filter(([label]) => !outOfScope.has(label) && (labels.length === 0 || labels.includes(label)))
+      .map(([, vp]) => vp)
+  );
+  const tally = {
     adjudicableCases: cases.filter((c) => c.overall === 'PASS' || c.overall === 'FAIL').length,
     inconclusiveCases: cases.filter((c) => c.overall === 'INCONCLUSIVE').length,
   };
+  if (excludedViewports.length > 0) {
+    // Reducing scope is only worth anything if what remains gets adjudicated: a batch
+    // that measured two viewports and validated none of them has verified nothing, and
+    // reporting success would be the green-without-evidence failure this exit status
+    // exists to prevent. The declared exclusion travels with the status either way.
+    if (tally.adjudicableCases === 0) {
+      const causes = [...new Set(cases.map((c) => c.causeCode).filter(Boolean))];
+      return {
+        code: 1,
+        reason: 'NO_ADJUDICATED_CASE',
+        detail: causes.length > 0 ? causes : ['NO_CASES'],
+        unverifiedViewports: [...excludedViewports],
+        ...tally,
+      };
+    }
+    // The batch is complete for the scope it declared, and the declaration travels
+    // with the status: an excluded viewport is unverified, so nothing about this
+    // result claims it renders faithfully.
+    return { code: 0, reason: 'OK_SCOPE_REDUCED', unverifiedViewports: [...excludedViewports], ...tally };
+  }
+  return { code: 0, reason: 'OK', ...tally };
 }
 
 /**
@@ -268,6 +344,25 @@ export function renderHubHtml(index, { viewportLabels }) {
     ? `<p class="superseded">Superseded (no attempt pointer): ${index.superseded.map((s) => `${esc(s.slug)} — ${esc(s.reason)}`).join('; ')}</p>`
     : '';
 
+  // A run that measured two of three viewports must not read as a clone verdict:
+  // the exclusion is printed above the table, not inferred from a missing column.
+  const excluded = index.scope?.excluded ?? [];
+  // Printed for every run: a green tally with nothing adjudicated is the reading this
+  // line exists to prevent, and it must be visible without opening the JSON. When the
+  // run declared a scope, only the cases inside it count as measured — a case the scope
+  // excludes would otherwise be reported as a measurement the run refused to make.
+  const scopeLabels = index.scope?.viewports ?? null;
+  const scopedCases = scopeLabels ? index.cases.filter((c) => scopeLabels.includes(c.viewport)) : index.cases;
+  const adjudicated = scopedCases.filter((c) => c.verdict === 'PASS' || c.verdict === 'FAIL').length;
+  const measured = scopedCases.length;
+  const countOf = (verdict) => scopedCases.filter((c) => c.verdict === verdict).length;
+  const adjudication = `<p class="scope">ADJUDICATED: ${adjudicated} of ${measured} measured case(s) carry a PASS/FAIL verdict (${countOf('PASS')} PASS / ${countOf('FAIL')} FAIL / ${countOf('INCONCLUSIVE')} INCONCLUSIVE)</p>`;
+  const scope = excluded.length
+    ? `<p class="scope">SCOPE: measured ${index.scope.viewports.map(esc).join(', ') || '—'} · NOT VERIFIED ${excluded
+        .map((e) => esc(e.label))
+        .join(', ')}${index.scope.mobileUnverified ? ' (mobile)' : ''} — an excluded viewport is unverified, not passing</p>`
+    : '';
+
   return `<!doctype html>
 <meta charset="utf-8">
 <title>15-page campaign — ${esc(index.runId)}</title>
@@ -279,10 +374,16 @@ td.v-PASS{background:#e6f5e6}td.v-FAIL{background:#fbe6e6}td.v-INCONCLUSIVE{back
 .cause{display:block;font-size:11px;color:#555}
 .slug,.attempt{display:block;font-weight:400;font-size:11px;color:#666}
 .superseded{background:#fdf5e0;padding:8px}
+.scope{background:#eef2ff;padding:8px}
+.scope-inline{color:#444;font-weight:400}
 </style>
 <h1>15-page campaign</h1>
-<p>run ${esc(index.runId)} — generated ${esc(index.generatedAt)} — verdict <strong>${esc(index.executiveVerdict)}</strong>
+<p>run ${esc(index.runId)} — generated ${esc(index.generatedAt)} — verdict <strong>${esc(index.executiveVerdict)}</strong>${
+    excluded.length ? ` <span class="scope-inline">(scope-reduced: ${index.scope.viewports.map(esc).join(', ')} measured)</span>` : ''
+  }
 (${index.tally.PASS} PASS / ${index.tally.FAIL} FAIL / ${index.tally.INCONCLUSIVE} INCONCLUSIVE)</p>
+${adjudication}
+${scope}
 ${superseded}
 <table><thead><tr><th>Page</th>${viewportLabels.map((v) => `<th>${esc(v)}</th>`).join('')}</tr></thead>
 <tbody>

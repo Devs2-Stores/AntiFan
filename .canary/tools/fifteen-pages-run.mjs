@@ -2,7 +2,9 @@
  * ANTiFan — Real 15-Page Hoplongtech Clone Canary Orchestrator
  *
  * Executes the complete empirical pipeline across all 15 locked target pages
- * and 3 required viewports (1440x900, 1024x900, 390x844) = 45 render cases.
+ * and 3 viewports (1440x900, 1024x900, 390x844) = 45 render cases. The viewport set
+ * is selectable (`--viewports`), and a reduced run declares the viewports it left
+ * unverified in its summary, index, hub and report instead of measuring them as pass.
  *
  * Sequence per page:
  *   1. Discovery (Phase A & A0): Real Chromium navigation, hydration, settlement,
@@ -39,7 +41,7 @@ const {
   PROVENANCE_CODES,
 } = await import('../../scripts/lib/evidence-provenance.mjs');
 const { readRecord, writeRecordAtomic } = await import('../../scripts/lib/atomic-record.mjs');
-const { validatePagesFilter, buildVerdictIndex, renderHubHtml, computeRunExit, casesWithoutProvenance } = await import('../../scripts/lib/campaign-verdicts.mjs');
+const { validatePagesFilter, selectViewports, buildVerdictIndex, renderHubHtml, computeRunExit, casesWithoutProvenance } = await import('../../scripts/lib/campaign-verdicts.mjs');
 
 
 
@@ -394,6 +396,10 @@ export async function runFifteenPagesCanary(options = {}) {
     return refusedRun({ runId, code: 'INVALID_PAGE_FILTER', reason: filter.reason });
   }
   const pagesFilter = filter.ids;
+  const viewportSelection = selectViewports(VIEWPORTS, options.viewports);
+  if (!viewportSelection.ok) {
+    return refusedRun({ runId, code: 'INVALID_VIEWPORT_FILTER', reason: viewportSelection.reason });
+  }
   let lock = options.lock || null;
   let acquiredHere = false;
 
@@ -422,7 +428,7 @@ export async function runFifteenPagesCanary(options = {}) {
   }
 
   try {
-    return await runCampaignLocked(options, { runId, lock, pagesFilter });
+    return await runCampaignLocked(options, { runId, lock, pagesFilter, viewportSelection });
   } finally {
     if (acquiredHere) {
       const released = await releaseCampaignLock(lock);
@@ -435,7 +441,16 @@ export async function runFifteenPagesCanary(options = {}) {
   }
 }
 
-async function runCampaignLocked(options, { runId, lock, pagesFilter }) {
+async function runCampaignLocked(options, { runId, lock, pagesFilter, viewportSelection }) {
+  // The run covers the selected viewports only. Everything downstream — loops, exit
+  // status, index, hub, report — reads this set, so an excluded viewport cannot be
+  // counted as a requested case that failed to produce evidence.
+  const RUN_VIEWPORTS = viewportSelection.viewports;
+  const scope = {
+    viewports: RUN_VIEWPORTS.map((v) => v.label),
+    excluded: viewportSelection.excluded,
+    mobileUnverified: viewportSelection.mobileUnverified,
+  };
   const baseRunDir = path.resolve(REPO, '.canary/15-pages');
   fs.mkdirSync(baseRunDir, { recursive: true });
 
@@ -462,7 +477,8 @@ async function runCampaignLocked(options, { runId, lock, pagesFilter }) {
   const runSummary = {
     runId,
     startedAt: new Date().toISOString(),
-    viewports: VIEWPORTS,
+    viewports: RUN_VIEWPORTS,
+    scope,
     instance,
     instanceRecord: readRecord(path.resolve(REPO, '.canary/state/canary-instance.json')),
     runLock: lock ? { lockPath: lock.lockPath, code: lock.code, reclaimedFrom: lock.reclaimedFrom ?? null } : null,
@@ -475,7 +491,10 @@ async function runCampaignLocked(options, { runId, lock, pagesFilter }) {
 
   console.log(`================================================================`);
   console.log(`ANTiFan — REAL 15-PAGE HOPLONGTECH CLONE TEST`);
-  console.log(`Target: 15 pages x 3 viewports = 45 render cases`);
+  console.log(`Target: ${TARGET_PAGES.length} pages x ${RUN_VIEWPORTS.length} viewports = ${TARGET_PAGES.length * RUN_VIEWPORTS.length} render cases`);
+  if (scope.excluded.length > 0) {
+    console.log(`SCOPE: excluding ${scope.excluded.map((e) => e.label).join(', ')} — those viewports are NOT verified by this run`);
+  }
   console.log(`Runtime: Real Chromium on port ${boot.port}`);
   console.log(`================================================================\n`);
 
@@ -597,7 +616,7 @@ async function runCampaignLocked(options, { runId, lock, pagesFilter }) {
       // 2. Empirical per-viewport readiness floors (matching canary-run.mjs pattern)
       console.log(`[P${p.id}] Probing empirical per-viewport readiness floors...`);
       const readinessFloors = {};
-      for (const vp of VIEWPORTS) {
+      for (const vp of RUN_VIEWPORTS) {
         await call('browser.switch-tab', { tabId: refTabId }, 30_000).catch(() => null);
         await call('browser.set-viewport', {
           tabId: refTabId,
@@ -708,7 +727,7 @@ async function runCampaignLocked(options, { runId, lock, pagesFilter }) {
         cloneTabId = ctRes.tabId || ctRes.result?.tabId;
 
         // Run per-viewport verification across 1440, 1024, 390
-        for (const vp of VIEWPORTS) {
+        for (const vp of RUN_VIEWPORTS) {
           console.log(`[P${p.id}] Running viewport ${vp.label} (${vp.width}x${vp.height})...`);
           const vpResult = {
             viewport: `${vp.width}x${vp.height}`,
@@ -897,7 +916,7 @@ async function runCampaignLocked(options, { runId, lock, pagesFilter }) {
         }
       } else {
         // Clone was not built; mark viewports NOT_TESTED with build error
-        for (const vp of VIEWPORTS) {
+        for (const vp of RUN_VIEWPORTS) {
           pageResult.viewports[vp.label] = {
             viewport: `${vp.width}x${vp.height}`,
             label: vp.label,
@@ -1020,7 +1039,7 @@ async function runCampaignLocked(options, { runId, lock, pagesFilter }) {
 
   runSummary.tabCensus.end = await tabCensus();
   runSummary.finishedAt = new Date().toISOString();
-  runSummary.exit = computeRunExit(runSummary, pagesFilter, { targetPages: TARGET_PAGES, viewportLabels: VIEWPORTS.map((v) => v.label) });
+  runSummary.exit = computeRunExit(runSummary, pagesFilter, { targetPages: TARGET_PAGES, viewportLabels: scope.viewports, excludedViewports: scope.excluded.map((e) => e.label) });
 
   // Publication needs the lock too. A run that lost it returns its summary and the
   // non-zero exit status without touching any shared artifact — report, index,
@@ -1028,7 +1047,7 @@ async function runCampaignLocked(options, { runId, lock, pagesFilter }) {
   const stillHeld = await assertCampaignLockHeld(lock);
   if (!stillHeld.held) {
     runSummary.lockLost = runSummary.lockLost || { at: new Date().toISOString(), pageId: null, reason: stillHeld.reason };
-    runSummary.exit = computeRunExit(runSummary, pagesFilter, { targetPages: TARGET_PAGES, viewportLabels: VIEWPORTS.map((v) => v.label) });
+    runSummary.exit = computeRunExit(runSummary, pagesFilter, { targetPages: TARGET_PAGES, viewportLabels: scope.viewports, excludedViewports: scope.excluded.map((e) => e.label) });
   }
   if (runSummary.lockLost) {
     console.error(`[campaign] run lock not held (${runSummary.lockLost.reason}): skipping report, index and pointer publication`);
@@ -1102,12 +1121,16 @@ function planVerdictIndex(runSummary, baseRunDir) {
 function writeVerdictIndexFiles(runSummary, baseRunDir, index) {
   runSummary.index = index;
   writeRecordAtomic(path.join(baseRunDir, '_verdicts.json'), index);
-  writeRecordAtomic(path.join(baseRunDir, '_hub.html'), renderHubHtml(index, { viewportLabels: VIEWPORTS.map((v) => v.label) }));
+  // The hub's columns are the viewports this run measured, not every viewport the
+  // campaign knows: an absent column would read as a missing case instead of a
+  // declared scope, and the index carries the scope for exactly that reason.
+  const hubViewports = runSummary.scope?.viewports ?? VIEWPORTS.map((v) => v.label);
+  writeRecordAtomic(path.join(baseRunDir, '_hub.html'), renderHubHtml(index, { viewportLabels: hubViewports }));
   return index;
 }
 
 // ── Report Builder (Strict 17 Sections) ───────────────────────────────────────
-function generateReport(summary) {
+export function generateReport(summary) {
   const pages = Object.values(summary.pageResults);
   const totalTested = pages.length;
   const executedPages = TARGET_PAGES.filter(p => summary.pageResults[p.id]);
@@ -1177,15 +1200,30 @@ function generateReport(summary) {
     }
   }
 
+  // A reduced run reports its scope in the header rather than leaving the operator to
+  // notice a NOT_TESTED column: an excluded viewport was never measured.
+  const scopedViewportLabels = summary.scope?.viewports ?? VIEWPORTS.map((v) => v.label);
+  // Labels, not scope entries: everything below only ever asks "is this viewport
+  // excluded", and mixing the two shapes makes every answer silently false.
+  const excludedViewports = (summary.scope?.excluded ?? []).map((e) => (typeof e === 'string' ? e : e.label));
+  const totalScopedCases = TARGET_PAGES.length * scopedViewportLabels.length;
+  const viewportLine = VIEWPORTS.filter((v) => scopedViewportLabels.includes(v.label))
+    .map((v) => `${v.width}x${v.height} (${v.label})`)
+    .join(', ');
+  const unverifiedLine = excludedViewports.length > 0
+    ? `\nUNVERIFIED VIEWS  : ${excludedViewports.map((label) => `${label} — excluded from this run: not measured, not passing`).join('; ')}`
+    : '';
+
   let md = `# AntiFan — Hoplongtech 15-Page Clone Canary
 
 ## 1. Executive Verdict
 
 \`\`\`text
-EXECUTIVE VERDICT : ${executiveVerdict}
+EXECUTIVE VERDICT : ${executiveVerdict}${excludedViewports.length > 0 ? ' — SCOPE-REDUCED (not a whole-clone verdict)' : ''}
+SCOPE             : ${scopedViewportLabels.join('/')} measured${excludedViewports.length > 0 ? ` | ${excludedViewports.join('/')} EXCLUDED (unverified, not passing)` : ''}
 FINAL DECISION    : ${finalDecisionEnum}
 PAGES EXECUTED    : ${totalTested} / 15 (${unexecutedPages.length > 0 ? `${unexecutedPages.length} pages UNTESTED in this batch` : 'ALL 15 PAGES TESTED'})
-RENDER CASES RUN  : ${totalRenderCasesRun} / 45 (PASS: ${totalPass} | FAIL: ${totalFail} | INCONCLUSIVE: ${totalInconclusive})
+RENDER CASES RUN  : ${totalRenderCasesRun} / ${totalScopedCases} (PASS: ${totalPass} | FAIL: ${totalFail} | INCONCLUSIVE: ${totalInconclusive})${unverifiedLine}
 COMPLETION DATE   : ${new Date().toISOString()}
 \`\`\`
 
@@ -1211,8 +1249,8 @@ AntiFan Port       : ${boot.port}
 Attachment ID      : ${boot.attachmentId}
 Run ID             : ${boot.runId}
 Primary Tab ID     : ${boot.tabId}
-Required Viewports : 1440x900 (Desktop), 1024x900 (Tablet), 390x844 (Mobile)
-Target Scope       : 15 pages x 3 viewports = 45 cases
+Required Viewports : ${viewportLine}
+Target Scope       : ${TARGET_PAGES.length} pages x ${scopedViewportLabels.length} viewports = ${totalScopedCases} cases
 Executed in Batch  : ${totalTested} pages (${totalRenderCasesRun} cases)
 \`\`\`
 
@@ -1220,15 +1258,16 @@ Executed in Batch  : ${totalTested} pages (${totalRenderCasesRun} cases)
 
 ## 4. 15-Page Result Matrix
 
-| Page | URL | 1440 | 1024 | 390 | Structure | Assets | Typography | Network | Capture | Visual | Overall |
-|------|-----|------|------|-----|-----------|--------|------------|---------|---------|--------|---------|
+| Page | URL | ${VIEWPORTS.map((v) => `${v.label}${excludedViewports.includes(v.label) ? ' (EXCLUDED)' : ''}`).join(' | ')} | Structure | Assets | Typography | Network | Capture | Visual | Overall |
+|------|-----|${VIEWPORTS.map(() => '------').join('|')}|-----------|--------|------------|---------|---------|--------|---------|
 ${TARGET_PAGES.map(p => {
   const pr = summary.pageResults[p.id];
-  if (!pr) return `| ${p.id}. ${p.name} | \`${p.url.slice(0, 32)}...\` | NOT_TESTED | NOT_TESTED | NOT_TESTED | NOT_TESTED | NOT_TESTED | NOT_TESTED | NOT_TESTED | NOT_TESTED | NOT_TESTED | **NOT_TESTED** |`;
-  const v1440 = pr.viewports['1440']?.overall || 'NOT_TESTED';
-  const v1024 = pr.viewports['1024']?.overall || 'NOT_TESTED';
-  const v390 = pr.viewports['390']?.overall || 'NOT_TESTED';
-  const vps = Object.values(pr.viewports || {});
+  // An excluded viewport is stated as EXCLUDED, never as NOT_TESTED: the two are
+  // different claims (out of scope by declaration vs. in scope and never measured).
+  const cell = (label) => (excludedViewports.includes(label) ? 'EXCLUDED' : 'NOT_TESTED');
+  if (!pr) return `| ${p.id}. ${p.name} | \`${p.url.slice(0, 32)}...\` | ${VIEWPORTS.map((v) => cell(v.label)).join(' | ')} | NOT_TESTED | NOT_TESTED | NOT_TESTED | NOT_TESTED | NOT_TESTED | NOT_TESTED | **NOT_TESTED** |`;
+  const vpCell = (label) => (excludedViewports.includes(label) ? 'EXCLUDED' : (pr.viewports[label]?.overall || 'NOT_TESTED'));
+  const vps = scopedViewportLabels.map((l) => pr.viewports[l]).filter(Boolean);
   const struct = vps.length === 0 ? 'NOT_TESTED' : (
     vps.every(v => v.structure?.refSections != null && v.structure?.cloneSections != null)
       ? (vps.every(v => v.structure.refCards === v.structure.cloneCards && Math.abs(v.structure.refSections - v.structure.cloneSections) <= 1) ? 'PASS' : 'FAIL')
@@ -1239,7 +1278,7 @@ ${TARGET_PAGES.map(p => {
   const net = vps.length === 0 ? 'NOT_TESTED' : (vps.every(v => v.network?.verdict === 'PASS') ? 'PASS' : (vps.some(v => v.network?.verdict?.startsWith('FAIL')) ? 'FAIL' : 'INCONCLUSIVE'));
   const cap = vps.length === 0 ? 'NOT_TESTED' : (vps.every(v => v.capture?.valid) ? 'PASS' : 'FAIL');
   const vis = vps.length === 0 ? 'NOT_TESTED' : (vps.every(v => v.visual?.verdict === 'PASS') ? 'PASS' : (vps.some(v => v.visual?.verdict === 'FAIL') ? 'FAIL' : 'INCONCLUSIVE'));
-  return `| ${p.id}. ${p.name} | \`${p.url.slice(0, 32)}...\` | ${v1440} | ${v1024} | ${v390} | ${struct} | ${assets} | ${typo} | ${net} | ${cap} | ${vis} | **${pr.overall}** |`;
+  return `| ${p.id}. ${p.name} | \`${p.url.slice(0, 32)}...\` | ${VIEWPORTS.map((v) => vpCell(v.label)).join(' | ')} | ${struct} | ${assets} | ${typo} | ${net} | ${cap} | ${vis} | **${pr.overall}** |`;
 }).join('\n')}
 
 ---
@@ -1250,9 +1289,26 @@ ${TARGET_PAGES.map(p => {
   const pr = summary.pageResults[p.id];
   if (!pr) return `### Page ${p.id}: ${p.name}\n\n*Status: NOT_TESTED in this execution run.*\n`;
   const d = pr.phases.discovery || {};
-  const v1440 = pr.viewports['1440'] || {};
-  const v1024 = pr.viewports['1024'] || {};
-  const v390 = pr.viewports['390'] || {};
+  // One section per viewport, driven by the run's declared scope: an excluded viewport
+  // is reported as EXCLUDED, so an unmeasured column can never be read as "tested and
+  // failed" or as an empty N/A block.
+  const vpName = (v) => (v.mobile ? 'Mobile' : v.width >= 1440 ? 'Desktop' : 'Tablet');
+  const vpSection = (v) => {
+    if (excludedViewports.includes(v.label)) {
+      return `#### ${v.label}px (${vpName(v)}) — EXCLUDED\n\n- **Not measured by this run**: this viewport was declared out of scope, so nothing here is a result. It is unverified, not passing.\n`;
+    }
+    const vp = pr.viewports[v.label] || {};
+    return `#### ${v.label}px (${vpName(v)})
+- **Navigation**: ${pr.finalUrl ? 'OK' : 'FAIL'}
+- **Structure**: ${vp.structure ? `Ref: ${vp.structure.refSections} sec, ${vp.structure.refCards} cards | Clone: ${vp.structure.cloneSections} sec, ${vp.structure.cloneCards} cards` : 'N/A'}
+- **Assets**: ${pr.phases.cloneGeneration?.ok ? 'PASS (Local)' : 'FAIL (Audit)'}
+- **Typography**: ${d.ok ? 'Verified' : 'N/A'}
+- **Network**: ${vp.network?.verdict || 'N/A'} (Ref visual requests: ${vp.network?.referenceRequests ?? 'N/A'})
+- **Capture**: ${vp.capture ? (vp.capture.valid ? `PASS (Ref: ${vp.capture.reference.bytes}B, Clone: ${vp.capture.clone.bytes}B)` : 'FAIL') : 'N/A'}
+- **Visual**: ${vp.visual?.verdict || 'N/A'} (${vp.visual?.mismatchPercentage ?? 'N/A'}% mismatch)
+- **Overall**: **${vp.overall || 'N/A'}**
+`;
+  };
 
   return `### Page ${p.id}: ${p.name}
 
@@ -1261,36 +1317,7 @@ ${TARGET_PAGES.map(p => {
 - **Special Requirements**: ${p.specialNote}
 - **Discovery Metrics**: ${d.sectionsCount || 0} sections, ${d.productCards || 0} product cards, ${d.articles || 0} articles, ${d.images || 0} images, document dimensions: \`${d.docW || 0}x${d.docH || 0}\`, overflowX: \`${d.overflowX}\`.
 
-#### 1440px (Desktop)
-- **Navigation**: ${pr.finalUrl ? 'OK' : 'FAIL'}
-- **Structure**: ${v1440.structure ? `Ref: ${v1440.structure.refSections} sec, ${v1440.structure.refCards} cards | Clone: ${v1440.structure.cloneSections} sec, ${v1440.structure.cloneCards} cards` : 'N/A'}
-- **Assets**: ${pr.phases.cloneGeneration?.ok ? 'PASS (Local)' : 'FAIL (Audit)'}
-- **Typography**: ${d.ok ? 'Verified' : 'N/A'}
-- **Network**: ${v1440.network?.verdict || 'N/A'} (Ref visual requests: ${v1440.network?.referenceRequests ?? 'N/A'})
-- **Capture**: ${v1440.capture ? (v1440.capture.valid ? `PASS (Ref: ${v1440.capture.reference.bytes}B, Clone: ${v1440.capture.clone.bytes}B)` : 'FAIL') : 'N/A'}
-- **Visual**: ${v1440.visual?.verdict || 'N/A'} (${v1440.visual?.mismatchPercentage ?? 'N/A'}% mismatch)
-- **Overall**: **${v1440.overall || 'N/A'}**
-
-#### 1024px (Tablet)
-- **Navigation**: ${pr.finalUrl ? 'OK' : 'FAIL'}
-- **Structure**: ${v1024.structure ? `Ref: ${v1024.structure.refSections} sec, ${v1024.structure.refCards} cards | Clone: ${v1024.structure.cloneSections} sec, ${v1024.structure.cloneCards} cards` : 'N/A'}
-- **Assets**: ${pr.phases.cloneGeneration?.ok ? 'PASS (Local)' : 'FAIL (Audit)'}
-- **Typography**: ${d.ok ? 'Verified' : 'N/A'}
-- **Network**: ${v1024.network?.verdict || 'N/A'} (Ref visual requests: ${v1024.network?.referenceRequests ?? 'N/A'})
-- **Capture**: ${v1024.capture ? (v1024.capture.valid ? `PASS (Ref: ${v1024.capture.reference.bytes}B, Clone: ${v1024.capture.clone.bytes}B)` : 'FAIL') : 'N/A'}
-- **Visual**: ${v1024.visual?.verdict || 'N/A'} (${v1024.visual?.mismatchPercentage ?? 'N/A'}% mismatch)
-- **Overall**: **${v1024.overall || 'N/A'}**
-
-#### 390px (Mobile)
-- **Navigation**: ${pr.finalUrl ? 'OK' : 'FAIL'}
-- **Structure**: ${v390.structure ? `Ref: ${v390.structure.refSections} sec, ${v390.structure.refCards} cards | Clone: ${v390.structure.cloneSections} sec, ${v390.structure.cloneCards} cards` : 'N/A'}
-- **Assets**: ${pr.phases.cloneGeneration?.ok ? 'PASS (Local)' : 'FAIL (Audit)'}
-- **Typography**: ${d.ok ? 'Verified' : 'N/A'}
-- **Network**: ${v390.network?.verdict || 'N/A'} (Ref visual requests: ${v390.network?.referenceRequests ?? 'N/A'})
-- **Capture**: ${v390.capture ? (v390.capture.valid ? `PASS (Ref: ${v390.capture.reference.bytes}B, Clone: ${v390.capture.clone.bytes}B)` : 'FAIL') : 'N/A'}
-- **Visual**: ${v390.visual?.verdict || 'N/A'} (${v390.visual?.mismatchPercentage ?? 'N/A'}% mismatch)
-- **Overall**: **${v390.overall || 'N/A'}**
-
+${VIEWPORTS.map(vpSection).join('\n')}
 ${pr.errors.length > 0 ? `**Failures**: ${pr.errors.map(e => `\`[${e.phase}] ${e.message}\``).join(', ')}` : '**Failures**: None'}
 `;
 }).join('\n---\n\n')}
@@ -1344,25 +1371,32 @@ ${executedPages.length === 0 ? '*No structural data collected in this run.*' : e
 
 ${executedPages.length === 0 ? '*No responsive data collected in this run.*' : executedPages.map(p => {
   const pr = summary.pageResults[p.id];
-  const v1440 = pr.viewports['1440']?.structure || {};
-  const v1024 = pr.viewports['1024']?.structure || {};
-  const v390 = pr.viewports['390']?.structure || {};
-  const allHeightsKnown = v1440.refDocH != null && v1440.cloneDocH != null && v1024.refDocH != null && v1024.cloneDocH != null && v390.refDocH != null && v390.cloneDocH != null;
-  const allOverflowKnown = v1440.cloneOverflowX != null && v1024.cloneOverflowX != null && v390.cloneOverflowX != null;
+  const measuredViewports = VIEWPORTS.filter((v) => !excludedViewports.includes(v.label));
   const isCleanOverflow = (v) => v === 0 || v === false;
-  const noOverflow = isCleanOverflow(v1440.cloneOverflowX) && isCleanOverflow(v1024.cloneOverflowX) && isCleanOverflow(v390.cloneOverflowX);
-  const vpPass = pr.viewports['1440']?.overall === 'PASS' && pr.viewports['1024']?.overall === 'PASS' && pr.viewports['390']?.overall === 'PASS';
-  const respVerdict = (!allHeightsKnown || !allOverflowKnown)
-    ? 'INCONCLUSIVE (Missing complete structural metrics)'
-    : (!noOverflow
-      ? 'FAIL (Horizontal overflow detected on clone)'
-      : (!vpPass
-        ? 'INCONCLUSIVE (Visual or structural divergence across viewports)'
-        : 'PASS'));
-  return `- **Page ${p.id} (${p.name})**: Status: **${respVerdict}**
-  * 1440px DocHeight: Ref=${v1440.refDocH ?? 'N/A'}px, Clone=${v1440.cloneDocH ?? 'N/A'}px (OverflowX: Ref=${v1440.refOverflowX ?? 'N/A'}, Clone=${v1440.cloneOverflowX ?? 'N/A'})
-  * 1024px DocHeight: Ref=${v1024.refDocH ?? 'N/A'}px, Clone=${v1024.cloneDocH ?? 'N/A'}px (OverflowX: Ref=${v1024.refOverflowX ?? 'N/A'}, Clone=${v1024.cloneOverflowX ?? 'N/A'})
-  * 390px DocHeight: Ref=${v390.refDocH ?? 'N/A'}px, Clone=${v390.cloneDocH ?? 'N/A'}px (OverflowX: Ref=${v390.refOverflowX ?? 'N/A'}, Clone=${v390.cloneOverflowX ?? 'N/A'})`;
+  const lines = VIEWPORTS.map((v) => {
+    if (excludedViewports.includes(v.label)) return `  * ${v.label}px DocHeight: EXCLUDED — not measured by this run (unverified, not passing)`;
+    const s = pr.viewports[v.label]?.structure || {};
+    return `  * ${v.label}px DocHeight: Ref=${s.refDocH ?? 'N/A'}px, Clone=${s.cloneDocH ?? 'N/A'}px (OverflowX: Ref=${s.refOverflowX ?? 'N/A'}, Clone=${s.cloneOverflowX ?? 'N/A'})`;
+  }).join('\n');
+  const heightsKnown = measuredViewports.every((v) => {
+    const s = pr.viewports[v.label]?.structure || {};
+    return s.refDocH != null && s.cloneDocH != null;
+  });
+  const overflowKnown = measuredViewports.every((v) => (pr.viewports[v.label]?.structure || {}).cloneOverflowX != null);
+  const noOverflow = measuredViewports.every((v) => isCleanOverflow((pr.viewports[v.label]?.structure || {}).cloneOverflowX));
+  const vpPass = measuredViewports.every((v) => pr.viewports[v.label]?.overall === 'PASS');
+  const respVerdict = measuredViewports.length === 0
+    ? 'NO MEASURED VIEWPORT'
+    : (!heightsKnown || !overflowKnown)
+      ? 'INCONCLUSIVE (Missing complete structural metrics)'
+      : (!noOverflow
+        ? 'FAIL (Horizontal overflow detected on clone)'
+        : (!vpPass
+          ? 'INCONCLUSIVE (Visual or structural divergence across viewports)'
+          : 'PASS'));
+  const unverified = excludedViewports.length > 0 ? `\n  * Scope: ${measuredViewports.map((v) => v.label).join('/') || 'none'} measured; ${excludedViewports.join('/')} EXCLUDED and unverified.` : '';
+  return `- **Page ${p.id} (${p.name})**: Status: **${respVerdict}**${unverified}
+${lines}`;
 }).join('\n')}
 
 ---
@@ -1430,7 +1464,7 @@ ${failurePatterns.size === 0 ? '*No cross-page failure patterns detected in exec
 | E. HTML Extraction | ${executedPages.length === 0 ? 'NOT_TESTED' : (executedPages.some(p => summary.pageResults[p.id]?.phases.cloneGeneration?.ok) ? 'PASS' : 'BLOCKED')} | BlueprintExtractor extraction |
 | F. HTML Generation | ${executedPages.length === 0 ? 'NOT_TESTED' : (executedPages.some(p => summary.pageResults[p.id]?.phases.cloneGeneration?.ok) ? 'PASS' : 'BLOCKED')} | Independent bundle synthesis |
 | G. CSS/Layout | ${totalRenderCasesRun === 0 ? 'NOT_TESTED' : (totalPass === totalRenderCasesRun ? 'PASS' : (totalFail > 0 ? 'FAIL' : 'INCONCLUSIVE'))} | Layout comparison across viewports |
-| H. Responsive | ${totalRenderCasesRun === 0 ? 'NOT_TESTED' : (totalPass === totalRenderCasesRun ? 'PASS' : (totalFail > 0 ? 'FAIL' : 'INCONCLUSIVE'))} | Multi-viewport responsiveness (1440/1024/390) |
+| H. Responsive | ${totalRenderCasesRun === 0 ? 'NOT_TESTED' : (totalPass === totalRenderCasesRun ? 'PASS' : (totalFail > 0 ? 'FAIL' : 'INCONCLUSIVE'))} | Multi-viewport responsiveness (${scopedViewportLabels.join('/')})${excludedViewports.length > 0 ? ` — ${excludedViewports.join('/')} excluded and unverified` : ''} |
 | I. Chromium Runtime | ${executedPages.length > 0 ? 'PASS' : 'NOT_TESTED'} | Real Chromium rendering |
 | J. Capture | ${validatedArtifacts.length === 0 ? 'NOT_TESTED' : (validatedArtifacts.every(a => a.isPng && a.hasIend) ? 'PASS' : 'FAIL')} | ${validatedArtifacts.length > 0 ? `${validatedArtifacts.filter(a => a.isPng && a.hasIend).length}/${validatedArtifacts.length} valid PNGs` : 'Zero captures'} |
 | K. Visual Compare | ${totalRenderCasesRun > 0 ? (totalPass === totalRenderCasesRun ? 'PASS' : (totalFail > 0 ? 'FAIL' : 'INCONCLUSIVE')) : 'NOT_TESTED'} | Bounded comparison evaluation |
@@ -1461,17 +1495,25 @@ FINAL DECISION: ${finalDecisionEnum}
 }
 
 // ── CLI Execution Entrypoint ──────────────────────────────────────────────────
-const args = process.argv.slice(2);
-const pageArgIdx = args.indexOf('--pages');
-const pages = pageArgIdx !== -1 ? args[pageArgIdx + 1] : null;
+// The campaign runs only when this file is the entrypoint. Importing the module
+// (the report renderer's test does) must not start a live run.
+const isEntrypoint = Boolean(process.argv[1]) && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
 
-const summary = await runFifteenPagesCanary({ pages }).catch((err) => {
-  console.error('Fatal canary run error:', err);
-  process.exit(1);
-});
+if (isEntrypoint) {
+  const args = process.argv.slice(2);
+  const pageArgIdx = args.indexOf('--pages');
+  const pages = pageArgIdx !== -1 ? args[pageArgIdx + 1] : null;
+  const viewportArgIdx = args.indexOf('--viewports');
+  const viewports = viewportArgIdx !== -1 ? args[viewportArgIdx + 1] : null;
 
-// A fidelity FAIL is campaign output and exits 0; a non-zero status means the run
-// could not produce a complete, provenance-bound set of verdicts.
-const exit = summary.exit || { code: 1, reason: 'NO_EXIT_STATUS' };
-console.log(`15-page canary run finished: ${exit.reason} (exit ${exit.code})${exit.detail ? ` — ${JSON.stringify(exit.detail)}` : ''}`);
-process.exit(exit.code);
+  const summary = await runFifteenPagesCanary({ pages, viewports }).catch((err) => {
+    console.error('Fatal canary run error:', err);
+    process.exit(1);
+  });
+
+  // A fidelity FAIL is campaign output and exits 0; a non-zero status means the run
+  // could not produce a complete, provenance-bound set of verdicts.
+  const exit = summary.exit || { code: 1, reason: 'NO_EXIT_STATUS' };
+  console.log(`15-page canary run finished: ${exit.reason} (exit ${exit.code})${exit.detail ? ` — ${JSON.stringify(exit.detail)}` : ''}`);
+  process.exit(exit.code);
+}

@@ -10,6 +10,7 @@ import assert from 'node:assert/strict';
 import {
 
   validatePagesFilter,
+  selectViewports,
   buildVerdictIndex,
   computeRunExit,
   renderHubHtml,
@@ -247,4 +248,105 @@ test('a page filter that names anything unreadable or unknown is refused, not pa
   assert.match(validatePagesFilter('1-999999999', ids).reason, /outside 1-3/, 'a huge range refuses without expanding');
 
   assert.equal(validatePagesFilter('1,2-3', ids).ok, true);
+});
+
+const ALL_VIEWPORTS = [
+  { label: '1440', width: 1440, height: 900, mobile: false },
+  { label: '1024', width: 1024, height: 900, mobile: false },
+  { label: '390', width: 390, height: 844, mobile: true },
+];
+
+test('a viewport scope is selected and declared, never silently shrunk', () => {
+  const all = selectViewports(ALL_VIEWPORTS, undefined);
+  assert.deepEqual(all.viewports.map((v) => v.label), ['1440', '1024', '390']);
+  assert.deepEqual(all.excluded, []);
+  assert.equal(all.mobileUnverified, false);
+
+  const reduced = selectViewports(ALL_VIEWPORTS, '1440,1024');
+  assert.deepEqual(reduced.viewports.map((v) => v.label), ['1440', '1024']);
+  assert.deepEqual(reduced.excluded.map((e) => e.label), ['390']);
+  assert.equal(reduced.mobileUnverified, true, 'an excluded mobile viewport is unverified');
+  assert.equal(selectViewports(ALL_VIEWPORTS, '1440, 1024').ok, true, 'whitespace is trimmed');
+  assert.deepEqual(selectViewports(ALL_VIEWPORTS, '1440,1440').viewports.map((v) => v.label), ['1440'], 'a repeated label selects once');
+
+  // Same refusal posture as --pages: a typo must stop the run, not shrink it.
+  assert.match(selectViewports(ALL_VIEWPORTS, '1440,,1024').reason, /empty entry/);
+  assert.match(selectViewports(ALL_VIEWPORTS, '1440,999').reason, /names '999'/);
+  assert.match(selectViewports(ALL_VIEWPORTS, 'desktop').reason, /names 'desktop'/);
+});
+
+test('an excluded viewport is unverified, not a failing case and not a green one', () => {
+  // The reduced run measured 1440 and 1024 only; page 1 has no 390 case at all, and
+  // a stale mobile refusal from an earlier scope is still recorded on the summary.
+  const s = summary(
+    { 1: page(1, 'HOME', 'page-01-home', { 1440: 'PASS', 1024: 'PASS' }) },
+    {
+      scope: { viewports: ['1440', '1024'], excluded: [{ label: '390', mobile: true, reason: 'not selected' }], mobileUnverified: true },
+      refusals: [{ pageId: 1, viewport: '390', code: 'MOBILE_BUNDLE_ABSENT' }],
+    }
+  );
+  const reduced = computeRunExit(s, [1], { targetPages: TARGET_PAGES, viewportLabels: ['1440', '1024'], excludedViewports: ['390'] });
+  assert.equal(reduced.code, 0);
+  assert.equal(reduced.reason, 'OK_SCOPE_REDUCED', 'the status names the reduced scope instead of a bare OK');
+  assert.deepEqual(reduced.unverifiedViewports, ['390']);
+  assert.equal(reduced.adjudicableCases, 2);
+
+  // Nothing was waived: had 390 been requested, the same summary is incomplete, and
+  // the declared mobile absence is named rather than dropped.
+  const full = computeRunExit(s, [1], { targetPages: TARGET_PAGES, viewportLabels: VIEWPORT_LABELS });
+  assert.equal(full.code, 1);
+  assert.equal(full.reason, 'INCOMPLETE_CASES');
+  assert.ok(full.detail.includes('CASE_NOT_RUN@page-1:390'));
+  assert.ok(full.detail.includes('MOBILE_BUNDLE_ABSENT@page-1:390'));
+
+  const index = buildVerdictIndex(s);
+  assert.deepEqual(index.scope.excluded.map((e) => e.label), ['390']);
+  assert.equal(index.scope.mobileUnverified, true);
+
+  const html = renderHubHtml(index, { viewportLabels: ['1440', '1024'] });
+  assert.ok(html.includes('NOT VERIFIED 390'), 'the hub states the unverified viewport');
+  assert.ok(html.includes('not passing'), 'an exclusion is never presented as a pass');
+  assert.ok(html.includes('scope-reduced'), 'the verdict line names the reduced scope');
+  assert.ok(html.includes('ADJUDICATED: 2 of 2'), 'the hub states how many cases were actually adjudicated');
+});
+
+test('a reduced scope that adjudicated nothing is not a success', () => {
+  // Replayed from the recorded campaign: 1440 and 1024 completed but their capture was
+  // invalid, so neither carried a verdict. Dropping 390 from the scope cannot convert
+  // that into a completed verification.
+  const s = summary({ 1: page(1, 'HOME', 'page-01-home', { 1440: 'INCONCLUSIVE', 1024: 'INCONCLUSIVE' }) });
+  s.pageResults[1].viewports[1440].causeCode = 'CAPTURE_INVALID';
+  s.pageResults[1].viewports[1024].causeCode = 'CAPTURE_INVALID';
+  // The page still carries the excluded viewport's refusal (recorded before the scope was
+  // declared, or replayed from an earlier run): it must not count as a measured case nor
+  // be offered as the reason the run failed.
+  s.pageResults[1].viewports[390] = { status: 'REFUSED', overall: 'INCONCLUSIVE', causeCode: 'MOBILE_BUNDLE_ABSENT' };
+  s.scope = { viewports: ['1440', '1024'], excluded: [{ label: '390', mobile: true, reason: 'not selected' }], mobileUnverified: true };
+  const exit = computeRunExit(s, [1], { targetPages: TARGET_PAGES, viewportLabels: ['1440', '1024'], excludedViewports: ['390'] });
+  assert.equal(exit.code, 1);
+  assert.equal(exit.reason, 'NO_ADJUDICATED_CASE');
+  assert.deepEqual(exit.detail, ['CAPTURE_INVALID'], 'the reason names why nothing was adjudicated');
+  assert.equal(exit.adjudicableCases, 0);
+  assert.equal(exit.inconclusiveCases, 2);
+  assert.deepEqual(exit.unverifiedViewports, ['390'], 'the excluded viewport is still declared');
+  assert.ok(
+    renderHubHtml(buildVerdictIndex(s), { viewportLabels: ['1440', '1024'] }).includes('ADJUDICATED: 0 of 2'),
+    'the hub counts the readable rank of measured cases, not the excluded viewport\'s record'
+  );
+
+  // The exclusion alone is enough to scope the tally: a caller that declares viewports
+  // out of scope without restating the measured set still must not count them.
+  const exclusionOnly = computeRunExit(s, [1], { targetPages: TARGET_PAGES, excludedViewports: ['390'] });
+  assert.equal(exclusionOnly.code, 1);
+  assert.equal(exclusionOnly.reason, 'NO_ADJUDICATED_CASE');
+  assert.equal(exclusionOnly.inconclusiveCases, 2);
+  assert.deepEqual(exclusionOnly.detail, ['CAPTURE_INVALID']);
+
+  // One adjudicated case is enough for the reduced batch to be output.
+  s.pageResults[1].viewports[1024].overall = 'FAIL';
+  s.pageResults[1].viewports[1024].causeCode = 'STRUCTURAL_PARITY_MISMATCH';
+  const withVerdict = computeRunExit(s, [1], { targetPages: TARGET_PAGES, viewportLabels: ['1440', '1024'], excludedViewports: ['390'] });
+  assert.equal(withVerdict.code, 0);
+  assert.equal(withVerdict.reason, 'OK_SCOPE_REDUCED');
+  assert.equal(withVerdict.adjudicableCases, 1);
 });
