@@ -251,6 +251,46 @@ export function themeIdFromParameter(raw) {
   return /^-?\d+$/.test(text) ? Number(text) : text;
 }
 
+const THEME_ASSET_ID = /cdn\.hstatic\.net\/themes\/(\d+)\/(\d+)\//g;
+
+/**
+ * The theme a document was actually served by, read from the asset URLs inside it.
+ *
+ * `?themeid=` is not proof: measured on this store, an unknown id answers 200 while
+ * serving the live theme, with the requested parameter still in the address bar. A
+ * capture labelled "the copy" would then describe production, and every comparison built
+ * on it would be against the wrong page. The asset origin carries the identity the URL
+ * does not, so when a positive copy id was requested and the document resolves its assets
+ * from a different theme, that is a refusal rather than a measurement. The live preview
+ * (`-1`) is deliberately not asserted: it has no fixed id to compare against, and its own
+ * id is what a copy capture must not serve.
+ */
+export function checkServedTheme(html, requestedThemeId) {
+  const text = typeof html === 'string' ? html : '';
+  const served = new Map();
+  for (const match of text.matchAll(THEME_ASSET_ID)) {
+    const org = match[1];
+    const themeId = Number(match[2]);
+    served.set(`${org}/${themeId}`, { org, themeId, occurrences: (served.get(`${org}/${themeId}`)?.occurrences ?? 0) + 1 });
+  }
+  const ids = [...served.values()].sort((a, b) => b.occurrences - a.occurrences);
+  if (typeof requestedThemeId !== 'number' || requestedThemeId < 0 || ids.length === 0) return { ids, refusal: null };
+  // The dominant id is the theme the document is built from; a handful of urls to another
+  // theme is a finding about the theme's own markup, not a substituted page, so it is kept
+  // in `ids` and reported instead of refusing the capture.
+  const dominant = ids[0];
+  if (dominant.themeId === requestedThemeId) return { ids, refusal: null };
+  return {
+    ids,
+    refusal: refuse(
+      'SERVED_THEME_MISMATCH',
+      EXIT.REFUSAL,
+      `the capture requested theme ${requestedThemeId} but the document resolves most of its assets from theme ${dominant.themeId} (org ${dominant.org}, ${dominant.occurrences} urls; all: ${ids.map((i) => `${i.themeId}x${i.occurrences}`).join(' ')}) — ?themeid= is not proof of what was served`,
+      { requestedThemeId, served: ids },
+    ),
+  };
+}
+
 /**
  * Parse the CLI. Unknown or duplicated flags, missing values and missing required
  * arguments are usage refusals (exit 2) that name the offending flag.
@@ -936,6 +976,12 @@ async function runCapture(options) {
           if (dom.declaredSha256 && dom.declaredSha256 !== dom.sha256) {
             throw new NotMeasurable('DOM_DIGEST_MISMATCH', `dump-ref declared sha256 ${dom.declaredSha256} but the persisted file hashes to ${dom.sha256}`);
           }
+          // The URL parameter is what was asked for; the assets inside the document are what
+          // was served. A silent substitution is refused before anything is compared.
+          const requestedThemeId = URL.canParse(target.url) ? themeIdFromParameter(new URL(target.url).searchParams.get('themeid') ?? '') : null;
+          const servedTheme = checkServedTheme(domBytes.toString('utf8'), requestedThemeId);
+          dom.servedThemeIds = servedTheme.ids;
+          if (servedTheme.refusal) throw servedTheme.refusal;
           const themeIdMismatch = checkObservedUrl(target, dom.observedUrl);
           if (themeIdMismatch) throw themeIdMismatch;
 

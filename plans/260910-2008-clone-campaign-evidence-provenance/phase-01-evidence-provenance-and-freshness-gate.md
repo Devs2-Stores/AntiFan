@@ -1,7 +1,7 @@
 ---
 phase: 1
 title: "Evidence Provenance & Freshness Gate"
-status: blocked
+status: complete
 priority: P0
 effort: "3h"
 dependencies: []
@@ -98,11 +98,11 @@ Baseline this phase also settles the tally disagreement: the same artifacts repo
 
 ## Success Criteria
 
-- [ ] No verdict can be written without a build-time-minted bundle identity and a recorded instance identity.
-- [ ] `runId`, `evidenceRunId`, `cloneDir` are non-null in campaign evidence.
-- [ ] One canonical verdict and cause code per page × viewport exists in one machine-readable index.
+- [x] No verdict can be written without a build-time-minted bundle identity and a recorded instance identity.
+- [x] `runId`, `evidenceRunId`, `cloneDir` are non-null in campaign evidence.
+- [x] One canonical verdict and cause code per page × viewport exists in one machine-readable index.
 - [x] A stale or unverifiable instance record cannot produce a session, and no writer writes a record or a session non-atomically.
-- [ ] Concurrency is safe by construction: a live run lock refuses a second invocation, and no rewrite can happen under a minted identity because each build owns a fresh attempt directory.
+- [x] Concurrency is safe by construction: a live run lock refuses a second invocation, and no rewrite can happen under a minted identity because each build owns a fresh attempt directory.
 - [x] The fail-closed refusal is demonstrated by an observed run, not by a unit test alone.
 - [x] Exit status encodes process success only: incomplete batches and provenance refusals non-zero, fidelity FAILs zero.
 
@@ -148,7 +148,7 @@ depend on a page reaching the build stage stay unchecked.
   `PROVENANCE_INCOMPLETE`, and the index writer refuses before any shared write — no page pointer,
   index, hub or report is published for such a run.
 
-**Blocked (campaign-level)**
+**Blocked at the time of writing (campaign-level, both since resolved)**
 
 1. **Settle predicate (Phase 2 B1).** Every campaign page aborts at the pre-dump settle
    (`settled: false` on passes 1-4; `domSettled: false`), so no page reaches the build stage, no
@@ -161,10 +161,34 @@ depend on a page reaching the build stage stay unchecked.
    the instance's user-data directory is outside this repository). Logs: `phase1-runC.log`,
    `phase1-probe2.log`.
 
-Consequently these verification bullets stay unverified, because each needs a page that reaches the
-build: *"a bounded run produces evidence/run-1440.json … whose bundle.entrySha256 equals the identity
-minted at that page's build"*, and *"two consecutive builds of one page leave two attempt
-directories"* — the attempt-directory mechanism has no unit test either, since it lives in the runner.
+**Resolved after this status was written (2026-09-11)**
+
+Both blockers were Phase-2 workstreams and both are fixed, so the criteria they held back are
+now demonstrated by live campaign evidence rather than by unit tests:
+
+1. **Settle predicate.** The composite settle contract (`scripts/lib/settle-contract.mjs`,
+   `requireDoubleSettledMetrics`, `normalizeSliders`) replaced the partially-satisfiable
+   predicate, and pages now reach the build stage.
+2. **Tab quota.** The refusal was never a quota: the measured cause was a dead attachment
+   binding on a long-lived instance, and the remedy is a restart plus a fresh mint. Recorded in
+   the Phase 2 journal, with the refusal text preserved as evidence of the diagnosis.
+
+The two verification bullets that needed a page to reach the build are now satisfied on every
+campaign page. Measured in `attempt-e77dfc2d-5a50-4e46-a5ca-0838554c8873/evidence/1440.json`
+(and identically in the other legs): `runId run-9d2c1c10-0c16-41c6-afef-c0a62bc46c51`,
+`evidenceRunId campaign-e9c7c835-1452-47cb-8e4d-e610dd584921`, `cloneDir` pointing into that
+attempt, `bundle.entrySha256 a46bf21779c0fcf0d6dd94266863a0be6470d53a37d726a3a2b811627de238c7`
+and `instance {pid, startedAt, processStartToken}` all non-null. Page-03 holds three attempt
+directories, which is the "two consecutive builds leave two attempt directories" observation.
+
+**Carried forward (not Phase 1 defects)**
+
+- The page-level mirror `15-pages/<page>/evidence/<viewport>.json` can be a stale copy of an
+  older attempt; the attempt directory is the authority for any aggregate, and Phase 4 must read
+  from there.
+- An orphaned tab cannot be closed by a session that does not own it (`TARGET_MISMATCH`, session
+  scoping deliberately not weakened); tab census is recorded per run and clearance is an owner
+  action.
 
 ## Rollback
 

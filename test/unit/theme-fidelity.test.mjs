@@ -25,6 +25,7 @@ import {
   resolveRunProvenance,
   slugify,
   themeIdFromParameter,
+  checkServedTheme,
   validateInventory,
 } from '../../.canary/tools/theme-fidelity.mjs';
 
@@ -329,4 +330,28 @@ test('artifact slugs and theme id parameters stay filesystem- and comparison-saf
   assert.equal(themeIdFromParameter('1001512581'), 1001512581);
   assert.equal(themeIdFromParameter('-1'), -1);
   assert.equal(themeIdFromParameter('abc'), 'abc');
+});
+
+test('the served theme is read from the document, not from the requested parameter', () => {
+  const copy = '<link href="https://cdn.hstatic.net/themes/200001207485/1001512581/theme.css"><img src="//cdn.hstatic.net/themes/200001207485/1001512581/x.png">';
+  // An unknown id answers 200 while serving the live theme; the assets are the only proof.
+  const substituted = '<link href="https://cdn.hstatic.net/themes/200001207485/1001510509/theme.css"><img src="//cdn.hstatic.net/themes/200001207485/1001510509/x.png">';
+  const matching = checkServedTheme(copy, 1001512581);
+  assert.equal(matching.refusal, null);
+  assert.deepEqual(matching.ids.map((i) => i.themeId), [1001512581]);
+  assert.equal(matching.ids[0].occurrences, 2);
+  const caught = checkServedTheme(substituted, 1001512581);
+  assert.equal(caught.refusal.code, 'SERVED_THEME_MISMATCH');
+  assert.equal(caught.refusal.exitCode, EXIT.REFUSAL);
+  assert.equal(caught.refusal.detail.requestedThemeId, 1001512581);
+  // A few foreign urls inside an otherwise-correct theme are a finding, not a substitution.
+  const majority = checkServedTheme(copy + copy + substituted, 1001512581);
+  assert.equal(majority.refusal, null);
+  assert.deepEqual(majority.ids.map((i) => i.themeId), [1001512581, 1001510509]);
+  // The live preview has no id to compare against, and a document with no theme assets
+  // cannot be adjudicated either way - both are recorded without a refusal.
+  assert.equal(checkServedTheme(substituted, -1).refusal, null);
+  assert.equal(checkServedTheme(substituted, null).refusal, null);
+  assert.equal(checkServedTheme('<html></html>', 1001512581).refusal, null);
+  assert.equal(checkServedTheme('<html></html>', 1001512581).ids.length, 0);
 });
