@@ -1010,11 +1010,19 @@ export function checkCaptureStateCompatibility(
   if (!Number.isFinite(tCw) || !Number.isFinite(tCh) || !Number.isFinite(bCw) || !Number.isFinite(bCh) || tCw <= 0 || tCh <= 0 || bCw <= 0 || bCh <= 0) {
     return { compatible: false, reason: `Invalid CSS capture dimensions: target ${tCw}x${tCh} vs baseline ${bCw}x${bCh}` };
   }
-  if (Math.abs(tCw - bCw) > 1 || Math.abs(tCh - bCh) > 1) {
+  if (Math.abs(tCw - bCw) > 1) {
     return {
       compatible: false,
       reason: `CSS capture size mismatch: target ${tCw}x${tCh} vs baseline ${bCw}x${bCh}`,
     };
+  }
+  if (target.captureMode !== 'full-page') {
+    if (Math.abs(tCh - bCh) > 1) {
+      return {
+        compatible: false,
+        reason: `CSS capture size mismatch: target ${tCw}x${tCh} vs baseline ${bCw}x${bCh}`,
+      };
+    }
   }
   return { compatible: true };
 }

@@ -5583,6 +5583,14 @@ export class NativeTabHost extends EventEmitter {
   public async captureVerificationScreenshot(rect?: Rectangle, tabId?: string, paneId?: SplitPaneId, options?: { format?: 'png' | 'jpeg'; quality?: number; fullPage?: boolean; timeoutMs?: number }): Promise<VerificationCaptureEnvelope> {
     return this.getDevToolsHost().captureVerificationScreenshot(rect, tabId, paneId, options);
   }
+  public async drainTarget(
+    tabId: string,
+    paneId?: SplitPaneId,
+    timeoutMs?: number
+  ): Promise<{ ok: boolean; drained: boolean; resetPerformed: boolean; elapsedMs: number }> {
+    return this.getDevToolsHost().drainTarget(tabId, paneId, timeoutMs);
+  }
+
 
   public async getDom(selector?: string, tabId?: string, paneId?: SplitPaneId): Promise<string> {
     return this.getDevToolsHost().getDom(selector, tabId, paneId);

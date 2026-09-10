@@ -686,6 +686,30 @@ describe('checkCaptureStateCompatibility (pure Tier 1 compatibility gate)', () =
     );
     assert.strictEqual(res.compatible, true);
   });
+  it('full-page capture with unequal heights of arbitrary magnitude stays compatible (Phase G owns height drift / truncation)', () => {
+    const res1 = checkCaptureStateCompatibility(
+      mkReceipt({ captureMode: 'full-page', cssCaptureSize: { width: 1440, height: 5422 } }),
+      mkReceipt({ captureMode: 'full-page', cssCaptureSize: { width: 1440, height: 5418 } })
+    );
+    assert.strictEqual(res1.compatible, true);
+    assert.strictEqual(res1.reason, undefined);
+
+    const res2 = checkCaptureStateCompatibility(
+      mkReceipt({ captureMode: 'full-page', cssCaptureSize: { width: 1440, height: 5422 } }),
+      mkReceipt({ captureMode: 'full-page', cssCaptureSize: { width: 1440, height: 4000 } })
+    );
+    assert.strictEqual(res2.compatible, true);
+    assert.strictEqual(res2.reason, undefined);
+  });
+
+  it('full-page capture width mismatch returns incompatible', () => {
+    const res = checkCaptureStateCompatibility(
+      mkReceipt({ captureMode: 'full-page', cssCaptureSize: { width: 1440, height: 5422 } }),
+      mkReceipt({ captureMode: 'full-page', cssCaptureSize: { width: 1024, height: 5422 } })
+    );
+    assert.strictEqual(res.compatible, false);
+    assert.ok(res.reason?.includes('CSS capture size mismatch'));
+  });
 
   it('missing or invalid CSS capture size returns incompatible', () => {
     assert.strictEqual(

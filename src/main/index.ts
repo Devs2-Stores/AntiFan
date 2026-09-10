@@ -316,6 +316,7 @@ async function createWindow(): Promise<void> {
     getDom: (selector, tabId, paneId) => tabHost!.getDom(selector, tabId, paneId),
     captureScreenshot: (rect, tabId, paneId, options) => tabHost!.captureScreenshot(rect as any, tabId, paneId, options),
     captureVerificationScreenshot: (rect, tabId, paneId, options) => tabHost!.captureVerificationScreenshot(rect as any, tabId, paneId, options),
+    drainTarget: (tabId, paneId, timeoutMs) => tabHost!.drainTarget(tabId, paneId, timeoutMs),
     evalJs: (expression, tabId, paneId) => tabHost!.evalJs(expression, tabId, paneId),
     getNetworkTracker: () => tabHost!.getNetworkTracker(),
     getDiagnostics: (tabId, level) => tabHost!.getDiagnostics(tabId, level),
