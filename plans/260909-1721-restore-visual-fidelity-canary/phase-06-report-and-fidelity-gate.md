@@ -92,6 +92,17 @@ The report must label standalone capture artifacts as independent continuity evi
 - [x] Recommend exactly the next implementation action demonstrated by remaining failures; do not invent architecture.
 - [x] Generate the report deterministically from persisted evidence through `.canary/tools/build-report.mjs`; missing referenced artifacts or contradictory receipts fail generation rather than producing a verdict.
 
+## Post-Completion Corrections
+
+`.canary/run3/` carries two bundles: the desktop bundle at `clone/` (served to the 1440 and 1024 viewports) and the mobile bundle at `clone/mobile/` (served to 390). Two defects in `build-report.mjs` prevented truthful regeneration once that second bundle existed:
+
+- **Per-document bundle resolution.** Every document's asset references were verified against one run-level bundle directory. The desktop telemetry document was therefore checked against `clone/mobile/assets`, and generation failed closed with `referenced artifact missing: .canary/run3/evidence.assetIntegrity[11] … bien-ap-giga.png` — a real fail-closed abort, not a missing asset (the file exists in the desktop bundle and the mobile bundle legitimately never references it). Each document now resolves against the bundle it names: a viewport document through its own `cloneDir`, a telemetry document through its own `bundle.entryHtmlPath`, with the run-level bundle only as fallback.
+- **Deterministic primary telemetry.** The document describing the pipeline came from the first telemetry document in `readdir` order, which made `build-telemetry-mobile.json` the report's primary, so §2–§6 described the mobile bundle (115 assets) while §7–§9 reported viewports served from the desktop bundle. Selection now ranks candidates by how many viewports were served from their bundle directory (desktop 2, mobile 1), then by the canonical `build-telemetry.json` name, then alphabetically. A membership test against the viewport bundle directories is not sufficient — both bundles appear there, which leaves directory order in control; measured: with membership-only selection the report still identified `clone/mobile/index.html` and 115 assets, with the ranking it identifies `clone/index.html` and 118 assets / 36,671,943 bytes.
+
+Proof, all measured on the final desktop-primary configuration (offline, no live tabs). Before either correction, `build-report.mjs .canary/run3` aborts with the missing-artifact error. After both, `node .canary/tools/build-report.mjs .canary/run3` exits `0` with `artifactsVerified: 268` and `failures: []`; the report identifies `Clone bundle: .canary/run3/clone/index.html` with `118 files / 36,671,943 bytes`; all 11 rows of its persisted-evidence inventory re-hash against the current evidence files (0 stale rows); and it carries exactly one `FINAL VERDICT: INCONCLUSIVE`. Two consecutive regenerations produced byte-identical reports (sha256 `a009ab036cfad71e…`), so the selection rule is deterministic rather than order-dependent.
+
+Order independence is covered by `.canary/tools/build-report-ordering.test.mjs`, which replays both bundle orderings through the real CLI against a fixture built from the persisted run3 evidence: `node --test .canary/tools/build-report-ordering.test.mjs` → 2 tests, 2 pass, 0 fail.
+
 ## Done When
 
 The report contains all sixteen sections, all three viewport rows, evidence-linked failure classifications, the historical/recovery comparison, and one defensible final verdict without unsupported claims.
