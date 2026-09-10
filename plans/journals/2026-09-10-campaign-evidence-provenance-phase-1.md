@@ -66,10 +66,23 @@ Commit: `95e932f` (push `002fe0d..95e932f`).
    tabs, the only read of it (`:689-712`) takes sidebar geometry, `profile-ownership.ts:45` treats it
    as a profile-state marker, and nothing in `src/` reads `tabs[]` back. Deleting that file therefore
    cannot clear anything; the tabs it lists are the tabs that exist.
-   Next action for the instance's owner (outside the repository): with the instance running, close
-   those ten tabs by id (`anti.browser.tabs.close`) — they are that profile's own leftovers — and
-   watch whether the next adoption succeeds. If it still fails with the same text, the fault is pool
-   bookkeeping, and the code has to return the reason before the cause can be named.
+   Closing them from a session is not available as a remedy: the plan's fact 13
+   (`phase-02-capture-side-blockers.md:54`) already measured that no live session may close them
+   (`TARGET_MISMATCH`, scoping rule `browser-control-port.ts:2175-2181`) and that they survive an
+   instance stop/start and a fresh mint. That same fact also recorded that they did **not** block a
+   fresh session's create after a restart — which is the part the two later runs contradict, and the
+   fixed message is exactly what hides whether they, or the pool, did the blocking.
+   What the profile shows: the ten ids appear in the control plane's own invocation ledger
+   (`control-plane-v2/invocations/attachment-1a5e58d0-4734-4cc9-9b3b-7c5fe7b19368.jsonl`) as the result
+   of that attachment's tab listing, and the attachment's `browserTarget.tabId` is
+   `1b41d4ff-d186-45cf-9a12-09050b86d858` — the very id the refusal names as the "session". So the
+   thing that refuses is a long-lived attachment bound to a stable tab, and its state is persisted
+   under the profile's `control-plane-v2/` (the id set is not in `Preferences`, `sessions/`,
+   `config/`, `runtime/`, `antifan-recovery.json` or `browser-history.json`).
+   So the actionable step is the profile state outside the repository — an owner action — not an
+   in-session close; and what re-creates the ten tabs on launch is still unidentified: nothing in the
+   repository reads `tabs[]` back from `saved-tabs.json`, so my earlier "the persisted tabs are
+   reloaded" reading remains withdrawn rather than replaced by another guess.
 2. **Settle predicate (phase 2).** Earlier runs aborted at the pre-dump settle, so nothing reached the
    build stage and no campaign case could carry a minted identity. `canary-settle.mjs:184` omits
    `fontsSettled` while `:241` requires it.
