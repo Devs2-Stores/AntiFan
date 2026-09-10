@@ -17,7 +17,8 @@ Turn the re-run into one defensible artifact: a cumulative report in the sixteen
 
 ### G1 — One deterministic, cumulative report
 
-- The sixteen sections are those required by `plans/260909-1721-restore-visual-fidelity-canary/phase-06-report-and-fidelity-gate.md` (Environment … Next Action), with `Run #1 vs Run #2` retaining the historical comparison and adding the current run as a separately labelled block.
+- The sixteen sections required by `plans/260909-1721-restore-visual-fidelity-canary/phase-06-report-and-fidelity-gate.md` (Environment … Next Action) live in the **campaign aggregate**, one report for the run, with a row and an evidence link per page × viewport. Per-page sixteen-section reports are not required and are added only if `build-report.mjs` is proven to support a multi-document run — that compatibility is unverified, and fifteen full report bodies would be cost without a reader.
+- `Run #1 vs Run #2` keeps the historical comparison and adds the current run as a separately labelled block.
 - Generation is deterministic and fail-closed: a missing or contradictory artifact fails generation instead of producing a verdict (the `build-report.mjs` contract already proven on the homepage run — two consecutive regenerations produced byte-identical output).
 - The campaign aggregate is cumulative across batches, correcting the last-batch-only overwrite at `fifteen-pages-run.mjs:765-767` and the `PAGES EXECUTED` computation at `:850`, which today marks pages with on-disk evidence as `UNTESTED`.
 - Exactly one final verdict: `PASS`, `FAIL`, or `INCONCLUSIVE`, using gate precedence already defined — a hard blocker fixes `INCONCLUSIVE` and a placeholder numeric such as `mismatchPercentage: 100` must never be promoted to `FAIL` evidence.
@@ -60,7 +61,7 @@ Turn the re-run into one defensible artifact: a cumulative report in the sixteen
 
 ## Implementation Steps
 
-1. Generate one sixteen-section report per page through `build-report.mjs` from the Phase 3 evidence; require the run to abort on any missing artifact rather than emit a verdict.
+1. Assemble the campaign aggregate from the Phase 3 evidence, carrying the sixteen sections; require generation to abort on any missing or contradictory artifact rather than emit a verdict.
 2. Make the campaign aggregate cumulative: it lists every page with evidence, its verdict, and the bundle hash it judged, and it no longer reports tested pages as untested.
 3. Run the masks-ON sensitivity pass over the page set and add the side-by-side mask table; confirm the binding policy is masks-off.
 4. Run the height-drift pair and record the measured outcomes for both `allowHeightDrift` settings with an explicit `heightTolerance`.
@@ -70,7 +71,7 @@ Turn the re-run into one defensible artifact: a cumulative report in the sixteen
 
 ## Todo
 
-- [ ] Generate per-page sixteen-section reports, fail-closed
+- [ ] Assemble the aggregate report from Phase 3 evidence, fail-closed
 - [ ] Make the campaign aggregate cumulative and provenance-aware
 - [ ] Run the masks-ON sensitivity pass and report both policies
 - [ ] Measure `allowHeightDrift` / `heightTolerance` both ways
