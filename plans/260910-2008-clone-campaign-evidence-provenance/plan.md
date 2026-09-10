@@ -58,7 +58,7 @@ Facts 1–4 and 14 are the live blocker (a predicate that cannot be satisfied an
 - `readRenderSurface` remains the only source of capture geometry; a capture must never fabricate geometry.
 - `.canary/run1/` and `.canary/run2/` stay byte-for-byte untouched. The campaign rebuilds bundles only under `.canary/15-pages/<page>/clone/`.
 - Tab economy: two tabs per page (reference + clone), created sequentially and closed in the page's `finally`; no `--keep-tabs`; no per-viewport reference tabs; the run leaves the instance as it found it.
-- Every mutating bridge call runs against the pinned isolated instance, never the user's instance on 20130.
+- Every mutating bridge call runs against the pinned isolated instance, never the user's instance on 20130. Instance ownership is single-writer: the launcher owns `.canary/state/canary-instance.json`, the mint validates it before use, and a stale or unverifiable record fails closed rather than guessing an owner.
 - Do not touch state outside this repository on the user's machine.
 
 ## Non-Goals

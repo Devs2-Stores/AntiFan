@@ -21,7 +21,8 @@ Baseline this phase also settles the tally disagreement: the same artifacts repo
 - Every downstream writer *carries* the minted identity instead of re-deriving it: `evidence/<vp>.json`, `evidence/run-<vp>.json`, `evidence/summary.json` and the canonical index copy `{entryPath, entrySha256, entryBytes, generatedAt, sourceUrl}` verbatim from that record.
 - A verdict is refused with a typed `BUNDLE_IDENTITY_MISMATCH` when the entry actually served to the tab does not equal the minted identity — that means the wrong directory was served, not that evidence is stale. A later on-disk re-hash is a **drift check** (`BUNDLE_DRIFT_AFTER_BUILD`): it marks the run defective and never silently re-identifies a case.
 - `.canary/tools/fifteen-pages-run.mjs` exports the same provenance environment `.canary/tools/canary-run.mjs` exports, so `runId`, `evidenceRunId` and `cloneDir` stop being `null`.
-- The serving instance is pinned and recorded, with the **launch supervisor as the authority**: the supervisor that starts the isolated instance persists its pid atomically beside the session state, and the session mint validates that the bridge port is owned by that pid before writing a session. A caller never supplies the pin by hand, and a pid is never inferred from whoever happens to be listening.
+- **Instance identity has one owner and a real persistence protocol.** Today no component persists a pid: `scripts/run-electron.cjs` spawns the Electron child and tracks `child.pid` only for teardown (79 lines, no writes), `instance-env.json` has a reader (`.canary/tools/build-report.mjs`) but no producer, and `.canary/tools/canary-session.mjs:118-119` writes its session with a bare `writeFileSync`. The owner becomes the launcher `scripts/run-electron.cjs`, which is the only process that knows `child.pid` and whose lifetime equals the instance's: after a successful spawn it writes `.canary/state/canary-instance.json` = `{instancePid, supervisorPid, port, startedAt, envFingerprint}` using **temp-file + rename in the same directory** (write `.tmp-<supervisorPid>`, `fsync`, `fs.renameSync` onto the final path), and deletes the record on clean child exit. It refuses to start when the bridge port already has an owner, so the record is never written by a second launcher.
+- **The session mint validates that record instead of trusting it.** `canary-session.mjs` refuses to mint (typed `INSTANCE_RECORD_STALE`, no session written) unless the record exists, its `instancePid` is alive, and the process owning the listening socket on `port` **is** that pid — port ownership by the same pid is what defeats pid reuse, and a dead pid, a foreign port owner or a missing record all fail closed. The session file itself is written atomically by the same temp+rename protocol and carries `instancePid`, `instanceStartedAt` and `bridgePort`, so every verdict can echo them.
 - `.canary/15-pages/_verdicts.json` exists: one entry per page × viewport with `verdict`, `causeCode`, `bundle`, `instance`, measured reference/clone geometry, and artifact shas; plus a run-level `instance` block and `superseded` markers on legacy evidence.
 - The runner's exit status separates process success from verdict: non-zero only for a runner error, an incomplete set of requested cases, or an evidence/provenance refusal. An adjudicable `FAIL` is valid campaign output — recorded in the index and the report while the process exits `0`.
 - Session state is recorded per run and reset between runs: attachment id, bound tab id, and the tab census at start and end (`anti.browser.tabs.list` for the instance plane, `browser.list-tabs` for the session scope). A dead session's quota must not be able to refuse the next run.
@@ -32,7 +33,9 @@ Baseline this phase also settles the tally disagreement: the same artifacts repo
 - `.canary/tools/viewport-run.mjs` — writes `evidence/<vp>.json` including `runId` / `evidenceRunId` / `cloneDir`
 - `.canary/tools/build-clone.mjs` — already emits `entryBytes` / `entrySha256` into `evidence/build-telemetry.json`
 - `.canary/tools/canary-run.mjs` — the arm that already exports `CANARY_AUTHORITY_RUN_ID` / `CANARY_EVIDENCE_RUN_ID` / `CANARY_CLONE_DIR`
-- `.canary/tools/canary-client.mjs` — resolves `.canary/state/canary-session.json` and the pinned instance
+- `scripts/run-electron.cjs` — the launcher, and the instance-record owner (new write path)
+- `.canary/tools/canary-session.mjs` — the atomic session writer and record validator
+- `.canary/state/canary-instance.json`, `.canary/state/canary-session.json` — the records
 - `test/unit/canary-evidence-provenance.test.mjs` — new
 
 ## Implementation Steps
@@ -41,16 +44,19 @@ Baseline this phase also settles the tally disagreement: the same artifacts repo
 2. Mint the identity in the build stage: immediately after `build-clone.mjs` returns for a page, hash the entry it wrote and record `{entryPath, entrySha256, entryBytes, generatedAt, sourceUrl}` as that page's identity. The build is the only writer at that moment, so no rebuild can interleave.
 3. Carry it, never re-derive it: pass the minted identity into `viewport-run.mjs` (env or argv), and have every writer copy it into its document. A mismatch between the served entry and the minted identity refuses the case before capture; a post-run disk re-hash only reports drift and never rewrites the recorded identity.
 4. Export the provenance environment from the campaign runner to every child (`viewport-run.mjs`, `dump-ref.mjs`, `build-clone.mjs`), matching `canary-run.mjs`.
-5. Pin the instance: the launch supervisor writes the pid atomically beside the session state; the session mint validates that the bridge port is owned by that pid before minting. The runner requires the pin, records instance pid, attachment id, run id and attempt id in the run-level provenance, and echoes the pinned pid into every per-case entry.
-6. Write `.canary/15-pages/_verdicts.json` at the end of each page (not only at the end of the invocation) so a resumable run always leaves a consistent index. Legacy entries are marked `superseded: true` with the reason (`evidence predates bundle`).
-7. Tests (no Electron, deterministic): `node --test test/unit/canary-evidence-provenance.test.mjs`
+5. Own the instance record: extend `scripts/run-electron.cjs` to write `.canary/state/canary-instance.json` atomically after spawn (temp file in the same directory, `fsync`, `renameSync`), delete it on clean exit, and refuse to start when the bridge port already has an owner. Extract the temp+rename writer into one shared helper used by both the launcher and the mint, so no writer hand-rolls it.
+6. Validate, then mint: `canary-session.mjs` requires a fresh record whose `instancePid` is alive and owns the listening socket on `port` (fail closed with `INSTANCE_RECORD_STALE`), then writes the session atomically with `instancePid`, `instanceStartedAt` and `bridgePort` included. Tests cover a dead pid, a foreign port owner, a missing record, and a torn-write window.
+7. Write `.canary/15-pages/_verdicts.json` at the end of each page (not only at the end of the invocation) so a resumable run always leaves a consistent index. Legacy entries are marked `superseded: true` with the reason (`evidence predates bundle`).
+8. Tests (no Electron, deterministic): `node --test test/unit/canary-evidence-provenance.test.mjs`
    - a case whose served entry differs from the minted identity is refused with `BUNDLE_IDENTITY_MISMATCH` and writes no verdict;
    - a case whose served entry matches is admitted and carries non-null `bundle` + `instance` fields;
    - a post-build on-disk change is reported as drift and does **not** change the recorded identity;
+   - a stale record (dead pid, foreign port owner, absent file) refuses the mint with `INSTANCE_RECORD_STALE` and leaves no session file;
+   - a failed write leaves the previous record intact — the writer is asserted through its seam, not by spawning Electron;
    - the canonical index carries exactly one entry per page × viewport and no `null` provenance field;
    - the runner passes the provenance environment to its children (asserted on the built argv/env, without spawning Chromium).
-8. Make the runner's exit status reflect the contract above (non-zero only for runner error, incomplete requested cases, or evidence/provenance refusal) and add the start/end tab census to the run provenance.
-9. Session renewal only: verify the run uses a session it owns, and re-mint when the lease is stale. Restarting the isolated instance does **not** clear orphaned tabs — measured: after a stop/start with a new pid and a fresh mint, all ten orphans were still listed. Orphan cleanup stays out of band and is an owner action for tab economy, not a run prerequisite: the measured orphans did not block a fresh session's tab create. This phase records both censuses and does not perform cleanup.
+9. Make the runner's exit status reflect the contract above (non-zero only for runner error, incomplete requested cases, or evidence/provenance refusal) and add the start/end tab census to the run provenance.
+10. Session renewal only: verify the run uses a session it owns, and re-mint when the lease is stale. Restarting the isolated instance does **not** clear orphaned tabs — measured: after a stop/start with a new pid and a fresh mint, all ten orphans were still listed. Orphan cleanup stays out of band and is an owner action for tab economy, not a run prerequisite: the measured orphans did not block a fresh session's tab create. This phase records both censuses and does not perform cleanup.
 
 ## Todo
 
@@ -59,7 +65,8 @@ Baseline this phase also settles the tally disagreement: the same artifacts repo
 - [ ] Carry the minted identity into every downstream document
 - [ ] Add the `BUNDLE_IDENTITY_MISMATCH` refusal and the drift report
 - [ ] Export the provenance env from the campaign runner
-- [ ] Make the launch supervisor the pid authority and validate port ownership
+- [ ] Make the launcher own the instance record, written atomically
+- [ ] Validate the record in the mint and write the session atomically
 - [ ] Emit `.canary/15-pages/_verdicts.json` per page, with legacy evidence marked superseded
 - [ ] Add and pass `test/unit/canary-evidence-provenance.test.mjs`
 - [ ] Prove the refusal end to end on the isolated instance
@@ -68,7 +75,9 @@ Baseline this phase also settles the tally disagreement: the same artifacts repo
 
 - `node --test test/unit/canary-evidence-provenance.test.mjs` → all cases pass.
 - On the pinned isolated instance (bridge 20131, `--allow-eval`), a bounded run produces `evidence/run-1440.json` and `_verdicts.json` entries whose `bundle.entrySha256` equals the identity minted at that page's build, `sha256sum .canary/15-pages/page-02-brands/clone/index.html` agreeing at that instant.
+- `.canary/state/canary-instance.json` exists with an `instancePid` that owns port 20131 (`netstat -ano` agrees), and the session file names the same pid.
 - The fail-closed refusal is proven on a copy: build a fixture directory that points at a copied bundle, change the copy's entry HTML so it no longer matches the minted identity, and observe `BUNDLE_IDENTITY_MISMATCH` with no verdict written. Never mutate a campaign bundle to test this.
+- A forged record with a dead pid or a port owned by another process refuses the mint with `INSTANCE_RECORD_STALE` and writes no session.
 - An adjudicable FAIL exits `0` and is published; an incomplete batch exits non-zero, and the run-level provenance records the tab census at start and end.
 
 ## Success Criteria
@@ -76,9 +85,10 @@ Baseline this phase also settles the tally disagreement: the same artifacts repo
 - [ ] No verdict can be written without a build-time-minted bundle identity and a recorded instance identity.
 - [ ] `runId`, `evidenceRunId`, `cloneDir` are non-null in campaign evidence.
 - [ ] One canonical verdict and cause code per page × viewport exists in one machine-readable index.
+- [ ] A stale or unverifiable instance record cannot produce a session, and no writer writes a record or a session non-atomically.
 - [ ] The fail-closed refusal is demonstrated by an observed run, not by a unit test alone.
 - [ ] Exit status encodes process success only: incomplete batches and provenance refusals non-zero, fidelity FAILs zero.
 
 ## Rollback
 
-All added fields are additive to the evidence documents. Reverting the phase restores the previous runner behaviour and leaves every existing evidence file readable; `_verdicts.json` can be deleted without touching raw evidence.
+All added fields are additive to the evidence documents. Reverting the phase restores the previous runner behaviour and leaves every existing evidence file readable; `_verdicts.json` and the instance record can be deleted without touching raw evidence.

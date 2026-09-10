@@ -29,10 +29,11 @@ Re-produce every render case against the bundle that invocation builds, with the
 ## Prerequisites
 
 - The application code under test is current: `.compiled` corresponds to the working tree, with `npm run compile` run beforehand otherwise (the recorded instance environment lists compile as the first restart step) — a fresh run against stale application code cannot validate the capture pipeline.
-- Isolated instance started from the recorded environment (`.canary/state/instance-env.json`): `node scripts/run-electron.cjs . --allow-eval` with `ANTIFAN_BRIDGE_PORT=20131`, `ANTIFAN_USER_DATA=E:/Work/.antifan-canary`, project/workspace ids as recorded; ready on port 20131.
+- Isolated instance started from the recorded environment (`.canary/state/instance-env.json`, an operator-supplied template — what was actually used is recorded by the launcher in the instance record): `node scripts/run-electron.cjs . --allow-eval` with `ANTIFAN_BRIDGE_PORT=20131`, `ANTIFAN_USER_DATA=E:/Work/.antifan-canary`, project/workspace ids as recorded; ready on port 20131.
+- The instance record is authoritative: `.canary/state/canary-instance.json` was written by the launcher for this instance, its `instancePid` owns port 20131, and the session was minted from it (Phase 1 owns both the protocol and the staleness refusal).
 - Fresh session minted after that start, and one cheap RPC exercised before the run (`anti.browser.tabs.list`) to prove the transport, lease and tab plane are live. Persisted session and bootstrap files are runtime state, not prerequisites: no geometry, quota or provenance conclusion may be drawn from a session file whose port has no listener.
 - The instance-plane tab census baseline (IDs and count) is recorded after the mint. Ten orphans from dead sessions were measured on 2026-09-10 and survive a restart; they do not block a run, so clearing them is an owner action for tab economy (Open Decision 6), not a gate — the run must add none of its own.
-- `ANTIFAN_BRIDGE_PID` pinned to the isolated instance (written by the launch supervisor, validated by the session mint) so a dropped socket cannot heal onto the user's instance on 20130.
+- `ANTIFAN_BRIDGE_PID` pinned to the isolated instance (the `instancePid` recorded by `scripts/run-electron.cjs` and validated by the session mint) so a dropped socket cannot heal onto the user's instance on 20130.
 - Ports 7861–7875 free; `node` on PATH.
 
 ## Implementation Steps
