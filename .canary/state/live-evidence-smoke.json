@@ -1,12 +1,12 @@
 {
-  "timestamp": "2026-09-10T12:15:17.410Z",
+  "timestamp": "2026-09-10T12:29:42.971Z",
   "pass": 8,
   "fail": 0,
   "results": [
     {
       "name": "setup.tab-created",
       "ok": true,
-      "detail": "tabId=3e9426d3-73fd-41fa-953a-178d561bee2e"
+      "detail": "tabId=999e1478-2767-4afe-b368-ea49d9f09680"
     },
     {
       "name": "D2.setViewport-verified",
@@ -21,22 +21,22 @@
     {
       "name": "D3.listTabs-session-scoped",
       "ok": true,
-      "detail": "session=[{\"id\":\"3e9426d3-73fd-41fa-953a-178d561bee2e\",\"bound\":true}] all=1"
+      "detail": "session=[{\"id\":\"999e1478-2767-4afe-b368-ea49d9f09680\",\"bound\":true}] all=1"
     },
     {
       "name": "D5.referenceCapture",
       "ok": true,
-      "detail": "url=http://127.0.0.1:53271/ passes=2 docHeight=5520 surface={\"vw\":1024,\"vh\":768,\"dpr\":1,\"scrollX\":0,\"scrollY\":0,\"docH\":5520,\"readyState\":\"complete\",\"hidden\":true} settle=true"
+      "detail": "url=http://127.0.0.1:53771/ passes=2 docHeight=5520 surface={\"vw\":1024,\"vh\":768,\"dpr\":1,\"scrollX\":0,\"scrollY\":0,\"docH\":5520,\"readyState\":\"complete\",\"hidden\":true} settle=true"
     },
     {
       "name": "D6.eval-budget-honoured",
       "ok": true,
-      "detail": "budgeted={\"value\":\"late\",\"elapsedMs\":16004} default=Evaluation timed out after 15000ms (note: requestAnimationFrame pauses in background tabs) defaultElapsedMs=15004"
+      "detail": "budgeted={\"value\":\"late\",\"elapsedMs\":16011} default=Evaluation timed out after 15000ms (note: requestAnimationFrame pauses in background tabs) defaultElapsedMs=15012"
     },
     {
       "name": "D4.fullPage-capture-proven",
       "ok": true,
-      "detail": "typed refusal on a compositor-less window: TARGET_BUSY_DRAINING :: Full-page capture on tab '3e9426d3-73fd-41fa-953a-178d561bee2e' did not settle inside its execution budget and was abandoned"
+      "detail": "typed refusal on a compositor-less window: TARGET_BUSY_DRAINING :: Full-page capture on tab '999e1478-2767-4afe-b368-ea49d9f09680' did not settle inside its execution budget and was abandoned"
     },
     {
       "name": "D4.geometry-restored",

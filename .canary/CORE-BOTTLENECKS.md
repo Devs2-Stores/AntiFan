@@ -331,6 +331,12 @@ tab kept a renderer that could not answer the next probe. Fix: the outer gate no
 `reapplyTabGeometry` → typed `TARGET_BUSY_DRAINING`), and `quarantined` is reported on both paths so a
 caller can tell whether the target was released again.
 
+Re-verified on the final tree (`e1314c3`, fresh Electron main process, throwaway `userData`,
+`.canary/state/live-evidence-smoke.json` timestamp `2026-09-10T12:29:42.971Z`): **8/8**, same typed
+refusal, same transport reset. The remaining suites on that tree: `test:main` 1076 pass / 0 fail,
+`test:fast` 435 / 0, `test:integration` exit 0, `baseline-authority-integration` 9/9,
+`render-surface-and-viewport-gates` 20/20, `mcp-persistent-transport` 3/3.
+
 ## F9. The in-page eval guard killed a script at 15 s while its caller had declared 30 s
 
 `TabDevToolsHost.evalJs` hard-codes a 15 000 ms in-page guard (background tabs pause rAF, so the guard
