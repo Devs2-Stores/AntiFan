@@ -21,6 +21,16 @@ const child = spawn(process.execPath, [path.join(rootDir, 'scripts', 'certify-co
   env: process.env,
 });
 
+child.on('error', (err) => {
+  const msg = `\n[Soak-Launcher] Could not spawn the soak child: ${err.message} at ${new Date().toISOString()}\n`;
+  try {
+    fs.appendFileSync(logPath, msg, 'utf8');
+    fs.closeSync(out);
+  } catch {}
+  console.error(msg);
+  process.exit(1);
+});
+
 child.on('exit', (code, signal) => {
   const msg = `\n[Soak-Launcher] Process exited with code ${code} signal ${signal || 'none'} at ${new Date().toISOString()}\n`;
   try {
@@ -28,7 +38,8 @@ child.on('exit', (code, signal) => {
     fs.closeSync(out);
   } catch {}
   console.log(msg);
-  // A child killed by a signal reports code === null, so `code || 0` publishes a
-  // torn-down soak as a success. Only a real zero from the child is a pass.
-  process.exit(code ?? (signal ? 1 : 0));
+  // A child killed by a signal reports code === null, and an abnormal termination can report
+  // neither a code nor a signal. Only a real numeric exit code is published, so a torn-down
+  // or failed soak can never read as a pass.
+  process.exit(typeof code === 'number' ? code : 1);
 });
