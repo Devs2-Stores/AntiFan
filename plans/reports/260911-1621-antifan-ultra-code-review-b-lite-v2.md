@@ -45,6 +45,7 @@ Ordered by blast radius. "Authorship" is from `git blame` against `669af839..b8c
 | U4 | Important | `.omp/extensions/antifan-fix-guard/tools/validate-contract.mjs:72-78` | Args inverted against the signature `auditDiffBudget(touchedPaths, totalBytesChanged, diffBudget)`: the byte ceiling was never enforced and a duplicate inline check (files only) masked it. `refused-diff-budget.json` passed only because it also exceeded `maxFiles`. | PRE-FIX: `auditDiffBudget(paths, {maxFiles,maxBytes}, 5120)` → `OK`; POST-FIX: `REFUSED_DIFF_BUDGET`. Validator 8/8 → 10/10 | in-range | **Fixed** + 1 new negative control |
 | U5 | Important | `.canary/tools/fix-loop/audits.mjs:694`, `:733` | `request.forbiddenPaths \|\| DEFAULT_FORBIDDEN_PATHS` and the tool-surface equivalent: an empty or narrow declaration replaced the defaults instead of adding to them, so a request that allowed `package.json` (or a round that declared one custom tool pattern) silently un-forbade the manifest and the evaluate-class tools. `.omp/…/validate-contract.mjs:66` and `merge-gate.mjs:161` injected `[]`, which is truthy and defeats the default parameter. | PRE-FIX measured: empty `forbiddenPaths` touching `package.json` → `OK`; POST-FIX → `REFUSED_TOUCHED_PATH`. New control refuses pre-fix, passes post-fix | in-range | **Fixed** + 1 new negative control (paths) |
 | U6 | Important | `.canary/tools/fix-loop/audits.mjs:237` | The budget's unit is "bytes changed" but `changeVolume = \|postSize - baseSize\|`, or the whole file when that was zero. A whole-file rewrite one byte longer measured **1 byte** and cleared any `maxBytes` ceiling. | measured with the same shapes: pre-fix `totalBytesChanged: 1` vs post-fix `803` for a 400 B file rewritten to 401 B | in-range | **Fixed**: exact line-multiset measure at the IO boundary, manifest delta kept for manifest-only callers + unit and staged-workspace tests |
+| U6b | Important | `.canary/tools/fix-loop/merge-gate.mjs:224` | The same bypass survived **at the merge** — the point where the write actually happens — because `mergeStagedWorkspace`'s own audit called `runAllAudits` without `changedBytesFor`, so the merge priced a rewrite from the size delta while the standalone audit priced it from content. A file could be refused by `audit` and merged anyway. An unreadable or NUL-bearing rewrite additionally fell back to the net delta, i.e. it chose its own price. | pre-fix modules (`9d2922c`) run against a staged fixture: `decision=OK budgets.bytes=1` with `maxBytes: 20`, and **the target was mutated**; post-fix: `REFUSED_DIFF_BUDGET`, target untouched. NUL-bearing 25 B rewrite: post-fix charged 25 B, ceiling 20 → refused | in-range | **Fixed**: one module-level `changedBytesResolver` passed at both call sites; content that cannot be compared is charged its whole larger side, never nothing + 2 regression tests in the merge/audit pair |
 | U7 | Important | `scripts/antifan-agent.cjs:646-652` | A child killed by a signal reports `code === null`, and `process.exit(code ?? 0)` published **success** for a killed delegated run. | live smoke test: `node scripts/antifan-agent.cjs node -e "process.kill(process.pid,'SIGTERM')"` → `LAUNCHER EXIT=1` post-fix (`0` pre-fix) | in-range | **Fixed** |
 | U8 | Important | `src/main/verification/capture-settle.ts:640` | The `imageIdentityStable` failure reason hardcoded `observed class article__1024x900` — a page-specific class asserted for every page and viewport, from a gate that measures only the image-set hash, the moving witness, and geometry. An unmeasured observation in an evidence string. | read: `InPageSample` carries no class field; `article__1024x900` appears in no test | in-range | **Fixed** (reason now cites only measured facts) |
 | U9 | Important | `test/unit/verification-lifecycle-budget.test.ts:305` | The test's comment claimed "even if caller passed a sample array with `passed: false`, evaluate produced VERIFIED" while passing `passed: true`. The mechanism is the opposite: `verification-evaluator.ts:149-150` *does* read `sample.passed` when present — that flag is the evidence channel. A test that documents a false mechanism weakens the R2/R5 claim it was cited for. | read: evaluator `:149-150`, `deriveFailureSignature` `:305-321` | in-range | **Fixed**: the test now names the real mechanism (`proofProfile.violations`), keeps the VERIFIED/undefined assertion, and adds REJECTED-with-violations, non-REJECTED-with-violations, and REJECTED-with-empty-violations cases |
@@ -54,8 +55,20 @@ Ordered by blast radius. "Authorship" is from `git blame` against `669af839..b8c
 | U13 | Minor | `src/main/verification/capture-settle.ts:502`, `:551` | `evaluatePreCaptureQuiescence` accepts `signal` and the dwell `await new Promise(r => setTimeout(r, dwellMs))` ignores it. | read; caller `tab-devtools-host.ts:1493` passes no signal, so **no reachable unhonored abort today** | in-range (latent) | **Reported** — the option is dead API; wiring it is a change with no caller to verify against. |
 | U14 | Minor | `scripts/antifan-agent.cjs:404-410` | A foreign-instance fallback socket is closed without `endSession`, leaving the foreign instance's session record and any ephemeral tab until TTL. | read; `git blame` → `c1f62bc6`, **pre-existing**; owner-side transport item | pre-existing | **Reported** — bounded by TTL, belongs with the owner's renewal/transport defect. |
 
-## 4. Dropped, with the reason and what was run
+U6b was added in a second pass: after the first union was fixed, the fixes themselves were put to an
+advisory review, and the same byte-volume defect was found to survive at the merge call site (U6's fix
+had landed on the audit path only). Its pre-fix measurement is against the modules as of `9d2922c`,
+i.e. the state that already contained U6's fix.
 
+Two hygiene items from that pass, both verified rather than asserted: the invariant "a route-refused
+case never enters the pass tally" now lives in one test, in its canonical home
+(`test/unit/route-identity-gate.test.mjs`, whose header names this defect), with a PASS-shaped fixture
+in the field the tally reads — the previous fixture used `verdict: 'INCONCLUSIVE'`, a field the tally
+does not read, which is why it could not catch the leak. Pre-fix that strengthened test fails three of
+its assertions (`tally {"PASS":1,…}`, `executiveVerdict PASS`, hub `1 PASS / 0 FAIL / 0 INCONCLUSIVE`).
+The duplicate test in the verdicts suite was deleted rather than kept beside it.
+
+## 4. Dropped, with the reason and what was run
 | Candidate claim | Outcome |
 |---|---|
 | "Custom `forbiddenToolPatterns` re-permits the default-forbidden tools" (my own U5 tool half) | **Downgraded to hardening.** Measured: pre-fix `runAllAudits` with `forbiddenToolPatterns: ['custom.*']` and `toolSurface: ['anti.browser.evaluate']` already returned `REFUSED_TOOL_SURFACE`, because the first call audits the policy object with the defaults and the second still refuses anything outside `DEFAULT_PERMITTED_TOOLS`. The union is kept (it is the right policy) but no live bypass is claimed, and the non-discriminating half of the test was removed rather than padded. |
@@ -90,33 +103,45 @@ owner report. They are left exactly as found: machine evidence of an in-flight r
 never staged into my fix commits.
 
 The `--pending` scope therefore contained **no code of mine**: the review target is the committed
-change set plus the fixes below.
+change set plus the fixes below. Every fix commit staged explicit pathspecs (15 files across 8
+commits), never `-a`/`-A`: the union of those commits contains none of the 46 in-flight artifacts, no
+owner JSON, and no untracked report.
+
+Secrets: the session printed an `ANTIFAN_MCP_BOOTSTRAP` blob (a bridge secret with port, attachment
+and run ids) to the terminal during a readiness probe. It is not reproduced anywhere in this report,
+the journal, or any committed artifact, and no line added by this change set mentions a secret, token,
+bearer value, or bootstrap payload (`git diff d9ccb06^..2fcd478 -- <my 15 files> | grep '^+' | grep -i
+"antifan_mcp_bootstrap\|secret\|token\|bearer"` → empty).
 
 ## 7. Verification receipt
 
 | Gate | Result |
 |---|---|
-| `.canary/tools/fix-loop/test-fix-loop.mjs` | **19/19** (16 before; +defaults control, +`measureChangedBytes` unit, +staged byte-volume control; self-verification test extended) |
+| `.canary/tools/fix-loop/test-fix-loop.mjs` | **21/21** (16 before; +defaults control, +`measureChangedBytes` unit, +staged byte-volume control, +merge-path pricing control, +unreadable-content control; self-verification test extended) |
 | `.omp/extensions/antifan-fix-guard/tools/validate-contract.mjs` | **10/10** (8 before; +byte-budget-only and +forbidden-default negative controls, both of which fail against the pre-fix code) |
-| `test/unit/canary-campaign-verdicts.test.mjs` | **17/17** (+2: refused-leg tally/verdict/hub; case-only refusal exit code) |
+| `test/unit/canary-campaign-verdicts.test.mjs` | **16/16** (+1: case-only refusal exit code; the duplicate tally test was deleted and the invariant kept in its canonical home) |
 | `test/unit/canary-fifteen-pages-report.test.mjs` | **6/6** (+1: refused page beside failed page) |
-| `test/unit/route-identity-gate.test.mjs` | **14/14** — one existing assertion (`exit.detail` = one entry for a page-level refusal) failed after my first cut and the union was fixed to preserve it, not the test |
-| `npm run test:canary` | 157/162 — the 5 failures are `build-report-bundle-ordering` (2) and `build-report-embedded-drift` (3), which import only Node built-ins and spawn `scripts/lib/build-report.mjs`, which imports only `evidence-provenance.mjs`: they fail on a missing machine-local artifact (`referenced artifact missing: …artifact-3bcedf33…`) unrelated to this change set |
+| `test/unit/route-identity-gate.test.mjs` | **14/14** — one existing assertion (`exit.detail` = one entry for a page-level refusal) failed after my first cut and the union was fixed to preserve it, not the test; the tally test was later strengthened in place (PASS-shaped fixture + hub counts) and is discriminating |
+| `npm run test:canary` | 161 tests / 156 pass / 5 fail — the 5 are `build-report-bundle-ordering` (2) and `build-report-embedded-drift` (3). Their assertion text, not just their names: `Error: Command failed: node scripts/lib/build-report.mjs test/fixtures/canary-run --out …` → `report generation failed: referenced artifact missing: test/fixtures/canary-run/evidence.viewportRuns[0].standalone.clone (id=artifact-3bcedf33-…) — tried: .antifan-data/control-plane-v2/artifacts/…`. A missing machine-local input, not a changed expected value; `build-report.mjs` imports only `evidence-provenance.mjs`, which this change set does not touch |
 | `npm run test:fast` | **466/466** |
 | `npx tsc -p ./ --noEmit` | exit 0 |
 | `npm run compile` | exit 0 |
 | `npm run plans:check` | exit 0 (`plans=59 … active=10`) |
 | Launcher signal smoke test | exit 1 for a signalled child (pre-fix 0) |
 
-Controls that discriminate (fail pre-fix, pass post-fix) exist for U1, U2, U3, U4, U5, U6, U10, U11.
-U7 is proven by a live smoke test; U8 is a string-only correction verified by typecheck/compile, with
-no test added for it because no test covers the quiescence reason strings.
+Controls that discriminate (fail pre-fix, pass post-fix) exist for U1, U2, U3, U4, U5, U6, U6b, U10,
+U11. U7 is proven by a live smoke test; U8 is a string-only correction verified by typecheck/compile,
+with no test added for it because no test covers the quiescence reason strings. The pre-fix runs used
+the committed modules (`git show <commit>:<path>` into a scratch directory beside their own imports),
+so each control is measured against real previous code rather than a recollection of it.
 
 ## 8. Residual risk
 
-- The byte-volume measure is exact only when both file versions are on disk (the `audit`/`merge`
-  paths, which have `stored-content/`). A manifest-only caller keeps the net-delta approximation,
-  which under-counts a near-equal-size rewrite; that path is now documented at the function.
+- The byte-volume measure is exact when both file versions are on disk, which is the case for the
+  `audit` and `merge` paths (`stored-content/` is written at stage time, before the fix is applied).
+  A file whose bytes cannot be compared as text is charged its whole larger side rather than its size
+  delta, so an unreadable rewrite is priced conservatively; a caller that supplies no resolver at all
+  (manifest-only) keeps the net-delta approximation, documented at the function.
 - U12/U13/U14 are left as reported owner decisions, not silent changes.
 - The `test:canary` failures and the 46 in-flight run4 artifacts are outside this change set and
   remain the owner's to resolve.

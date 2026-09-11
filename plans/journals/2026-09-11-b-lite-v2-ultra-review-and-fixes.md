@@ -76,3 +76,39 @@ failing files import only Node built-ins, spawn `scripts/lib/build-report.mjs`, 
 The worktree is left holding 46 generated artifacts of a live `theme-fidelity-run4` measurement plus two
 owner JSONs and one untracked owner report. They are not this change set's, they were never reverted, and
 none of them were staged: every fix commit names its files explicitly.
+
+## E. The fixes were reviewed too, and one of them was half-landed
+
+Putting the fixes themselves under review paid for itself twice.
+
+**The byte-volume fix survived at the merge.** `auditStagedWorkspace` passed `changedBytesFor` and
+`mergeStagedWorkspace` — where the write actually happens — did not, so the merge still priced a
+rewrite from the size delta while the standalone audit priced it from content. Running the modules as
+of `9d2922c` against a staged fixture: `decision=OK budgets={"files":1,"bytes":1,"maxBytes":20}` while a
+24-byte file was replaced by 25 different bytes, **and the target was mutated**. A file the audit
+refused could still be merged. One module-level `changedBytesResolver` now serves both call sites, so
+the two cannot disagree about the same file, and content that cannot be compared as text is charged
+its whole larger side instead of falling back to the net delta — an unreadable rewrite no longer
+chooses its own price. Both directions are covered: `the merge prices a rewrite the same way the audit
+does, and refuses it` and `a file whose bytes cannot be compared is priced at its whole larger side`.
+
+**One invariant was in two tests, and the older one could not fail.** The tally test in
+`route-identity-gate.test.mjs` carried its PASS-shaped intent in `verdict: 'INCONCLUSIVE'` — a field
+the tally does not read — so it passed before and after the fix. Its fixture now carries `overall:
+'PASS'`, the field the production code reads, plus the hub-count assertions. Measured against the
+module from `d9ccb06`: `tally {"PASS":1,"FAIL":0,"INCONCLUSIVE":0,"ROUTE_REFUSED":1}`,
+`executiveVerdict: PASS`, hub `1 PASS / 0 FAIL / 0 INCONCLUSIVE)` — three assertions that fail on the
+old code. The duplicate test in the verdicts suite was deleted rather than left beside it.
+
+Suite movement: fix-loop 19 → **21/21**, verdicts 17 → **16/16** (the duplicate removed), route-identity
+**14/14** with a strengthened case, `test:canary` 161 tests / 156 pass / 5 fail and `test:fast`
+**466/466**. The five canary failures are now pinned by their assertion text, not their names: both
+files spawn `scripts/lib/build-report.mjs`, which dies on `referenced artifact missing:
+test/fixtures/canary-run/evidence.viewportRuns[0].standalone.clone (id=artifact-3bcedf33-…)` — a
+missing machine-local input, and `build-report.mjs` imports only `evidence-provenance.mjs`, which this
+change set never touches.
+
+One hygiene confirmation: a readiness probe printed the `ANTIFAN_MCP_BOOTSTRAP` blob, which carries the
+bridge secret. No committed artifact reproduces it, and no added line in this change set mentions a
+secret, token, or bearer value.
+
