@@ -129,6 +129,45 @@ describe('ArtifactRetentionCleaner & SessionResumeController (Phase 3)', () => {
     }
   });
 
+  it('prunes run index bookkeeping once a run holds no artifacts, and keeps it while artifacts remain', () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-run-tree-test-'));
+    const twoDaysAgo = (Date.now() - 48 * 3600 * 1000) / 1000;
+    const tenMinutesAgo = (Date.now() - 10 * 60 * 1000) / 1000;
+
+    const evacuatedDir = path.join(tempDir, 'run-evacuated');
+    fs.mkdirSync(evacuatedDir, { recursive: true });
+    const evacuatedArtifact = path.join(evacuatedDir, 'dead.artifact');
+    const evacuatedIndex = path.join(evacuatedDir, 'index.json');
+    fs.writeFileSync(evacuatedArtifact, 'old capture', 'utf8');
+    fs.writeFileSync(evacuatedIndex, '[]', 'utf8');
+    fs.utimesSync(evacuatedArtifact, twoDaysAgo, twoDaysAgo);
+    fs.utimesSync(evacuatedIndex, twoDaysAgo, twoDaysAgo);
+
+    const liveDir = path.join(tempDir, 'run-live');
+    fs.mkdirSync(liveDir, { recursive: true });
+    const liveArtifact = path.join(liveDir, 'fresh.artifact');
+    const liveIndex = path.join(liveDir, 'index.json');
+    fs.writeFileSync(liveArtifact, 'fresh capture', 'utf8');
+    fs.writeFileSync(liveIndex, '[]', 'utf8');
+    fs.utimesSync(liveArtifact, tenMinutesAgo, tenMinutesAgo);
+    fs.utimesSync(liveIndex, twoDaysAgo, twoDaysAgo);
+
+    try {
+      const result = ArtifactRetentionCleaner.sweep(tempDir, {
+        maxAgeMs: 24 * 3600 * 1000,
+        minProtectAgeMs: 3600 * 1000,
+      });
+
+      assert.strictEqual(result.deletedFiles, 1, 'only the evacuated run artifact is past the retention age');
+      assert.strictEqual(fs.existsSync(evacuatedIndex), false, 'an evacuated run must not leave index bookkeeping behind');
+      assert.strictEqual(fs.existsSync(evacuatedDir), false, 'the emptied run directory must be removed');
+      assert.strictEqual(fs.existsSync(liveIndex), true, 'a run that still holds artifacts keeps its index');
+      assert.strictEqual(fs.existsSync(liveArtifact), true, 'the fresh capture inside the protect window must survive');
+    } finally {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
   it('keeps indexed report artifacts through an enabled sweep while pruning stale captures', async () => {
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-report-protect-test-'));
     const twoDaysAgo = (Date.now() - 48 * 3600 * 1000) / 1000;

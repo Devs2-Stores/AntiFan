@@ -148,8 +148,9 @@
       "group": "retention",
       "title": "The retention sweeper only matches `*.artifact`, so annotations and run trees are never pruned",
       "severity": "P2",
-      "status": "open",
+      "status": "closed",
       "evidence": "src/main/tools/artifact-retention-cleaner.ts sweep filter",
+      "closedBy": "the sweep now also prunes a run's index.json once that run holds no captures, and the class documents that workspace-owned annotation documents and snapshots are out of scope; covered by the run-tree case in artifact-retention-cleaner.test.ts",
       "predicate": { "kind": "file-absent-regex", "file": "src/main/tools/artifact-retention-cleaner.ts", "pattern": "annotation" }
     },
     {

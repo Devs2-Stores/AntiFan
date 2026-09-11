@@ -20,11 +20,21 @@ export interface RetentionSweepResult {
   protectedFiles: number;
 }
 
+/** Per-run bookkeeping file written by ArtifactStore.persistRunIndex. */
+const RUN_INDEX_FILE_NAME = 'index.json';
+
 export class ArtifactRetentionCleaner {
   /**
    * Sweeps the artifact root directory for stale `.artifact` files and unlinks them.
    * Prioritizes keeping newest files by mtime (LRU).
    * Invariant: Never deletes files with mtime < minProtectAgeMs (default 1 hour).
+   * Invariant: Never deletes files the owner declares protected (permanent report evidence).
+   *
+   * Scope: this sweeper owns the run-scoped artifact root only — content-addressed captures and
+   * the run index that describes them. A run whose artifacts are all gone keeps no index stub.
+   * Workspace-owned evidence is deliberately out of scope and is never swept here: annotation
+   * documents and snapshots written by AnnotationManager live under `<workspace>/.antifan/
+   * annotations` and `<workspace>/.antifan/snapshots`, where the user owns them.
    */
   public static sweep(rootDir: string, options: RetentionSweepOptions = {}): RetentionSweepResult {
     const maxBytes = options.maxBytes ?? 200 * 1024 * 1024;
@@ -45,6 +55,7 @@ export class ArtifactRetentionCleaner {
 
     const now = Date.now();
     const fileEntries: Array<{ path: string; size: number; mtimeMs: number }> = [];
+    const runIndexEntries: Array<{ path: string; dir: string; mtimeMs: number }> = [];
 
     const walkDir = (dir: string) => {
       try {
@@ -57,6 +68,11 @@ export class ArtifactRetentionCleaner {
             try {
               const stat = fs.statSync(fullPath);
               fileEntries.push({ path: fullPath, size: stat.size, mtimeMs: stat.mtimeMs });
+            } catch {}
+          } else if (entry.isFile() && entry.name === RUN_INDEX_FILE_NAME) {
+            try {
+              const stat = fs.statSync(fullPath);
+              runIndexEntries.push({ path: fullPath, dir, mtimeMs: stat.mtimeMs });
             } catch {}
           }
         }
@@ -99,6 +115,24 @@ export class ArtifactRetentionCleaner {
 
     result.remainingBytes = totalBytes;
 
+    // Runs whose artifacts are all gone keep no bookkeeping: the index exists to describe
+    // captures, so an evacuated run tree is pruned instead of lingering as an unreadable stub.
+    for (const runIndex of runIndexEntries) {
+      if (now - runIndex.mtimeMs < minProtectAgeMs) {
+        continue;
+      }
+      if (options.isProtected?.(runIndex.path) === true) {
+        result.protectedFiles++;
+        continue;
+      }
+      if (ArtifactRetentionCleaner.directoryHoldsArtifacts(runIndex.dir)) {
+        continue;
+      }
+      try {
+        fs.unlinkSync(runIndex.path);
+      } catch {}
+    }
+
     // Clean up empty directories
     const cleanEmptyDirs = (dir: string) => {
       try {
@@ -119,5 +153,14 @@ export class ArtifactRetentionCleaner {
 
     cleanEmptyDirs(rootDir);
     return result;
+  }
+
+  /** Whether a run directory still holds captures worth indexing. Unreadable means "assume yes". */
+  private static directoryHoldsArtifacts(dir: string): boolean {
+    try {
+      return fs.readdirSync(dir).some((name) => name.endsWith('.artifact'));
+    } catch {
+      return true;
+    }
   }
 }
