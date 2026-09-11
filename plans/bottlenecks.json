@@ -48,8 +48,9 @@
       "group": "launch",
       "title": "`main.cjs` guards the compiled entry with existsSync only, so a stale bundle launches silently",
       "severity": "P1",
-      "status": "open",
+      "status": "closed",
       "evidence": "main.cjs:12 existsSync(compiledMain) with no mtime comparison",
+      "closedBy": "scripts/launch-guard.cjs compares the bundle mtime against the newest src/**/*.ts and tsconfig.json input; main.cjs builds (dev) or refuses with an error box (packaged) when the bundle is missing or stale. Covered by test/unit/launch-guard.test.mjs in the canary lane",
       "predicate": { "kind": "file-regex", "file": "main.cjs", "pattern": "existsSync" }
     },
     {
