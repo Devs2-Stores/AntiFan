@@ -350,3 +350,50 @@ test('a reduced scope that adjudicated nothing is not a success', () => {
   assert.equal(withVerdict.reason, 'OK_SCOPE_REDUCED');
   assert.equal(withVerdict.adjudicableCases, 1);
 });
+
+test('a route-refused case never enters the pass tally or the run verdict', () => {
+  // The refused leg carries a PASS-shaped verdict here on purpose: the refusal is the
+  // fact, and a caller that also stamped a verdict must not be able to publish it.
+  const refused = page(1, 'HOME', 'page-01-home', { 1440: 'PASS' });
+  refused.status = 'REFUSED';
+  refused.viewports['1440'].status = 'REFUSED';
+  refused.viewports['1440'].causeCode = 'URL_PATH_MISMATCH';
+  refused.viewports['1440'].refusal = {
+    code: 'URL_PATH_MISMATCH',
+    requested: 'https://hoplongtech.com/',
+    observed: 'https://hoplongtech.com/?openLogin=1',
+  };
+  refused.viewports['1440'].capture.expectedUrl = 'https://hoplongtech.com/';
+
+  const index = buildVerdictIndex(summary({ 1: refused }));
+
+  assert.equal(index.tally.ROUTE_REFUSED, 1, 'the refused case is counted under its own code');
+  assert.equal(index.tally.PASS, 0, 'a route-refused case is never a pass');
+  assert.equal(index.tally.INCONCLUSIVE + index.tally.PASS + index.tally.FAIL, 0, 'the tally buckets do not double-count the refused case');
+  assert.notEqual(index.executiveVerdict, 'PASS', 'a run whose only case was refused is not a pass');
+  assert.equal(index.routeRefusals.length, 1, 'the refusal is still reported as a refusal');
+
+  // The hub derives its counts from the case verdicts, the tally from the same field:
+  // a refused case must not read as an INCONCLUSIVE measurement in one place and as
+  // nothing in the other.
+  const hub = renderHubHtml(index, { viewportLabels: VIEWPORT_LABELS });
+  assert.match(hub, /0 of 0 measured case\(s\)/, 'a refused case is not a measurement');
+  assert.match(hub, /0 PASS \/ 0 FAIL \/ 0 INCONCLUSIVE/, 'the hub counts and the tally agree');
+  assert.match(hub, /ROUTE_REFUSED/, 'the case table names the typed refusal class');
+});
+
+test('a refusal carried only by the refused case still exits as a refusal, not as an incomplete run', () => {
+  const refused = page(1, 'HOME', 'page-01-home', { 1440: 'INCONCLUSIVE' });
+  refused.status = 'REFUSED';
+  refused.viewports['1440'].status = 'REFUSED';
+  refused.viewports['1440'].causeCode = 'URL_PATH_MISMATCH';
+  refused.viewports['1440'].refusal = { code: 'URL_PATH_MISMATCH' };
+  refused.viewports['1440'].capture.expectedUrl = 'https://hoplongtech.com/';
+
+  // The run summary records no refusal at all: the case record is the only witness.
+  const res = computeRunExit(summary({ 1: refused }), [1], { targetPages: TARGET_PAGES, viewportLabels: ['1440'] });
+
+  assert.equal(res.code, 4, 'a typed route refusal is exit 4');
+  assert.equal(res.reason, 'ROUTE_REFUSAL');
+  assert.deepEqual(res.detail, ['URL_PATH_MISMATCH@page-1:1440']);
+});

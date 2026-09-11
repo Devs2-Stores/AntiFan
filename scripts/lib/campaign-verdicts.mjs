@@ -207,13 +207,17 @@ export function buildVerdictIndex(runSummary, { supersededSlugs = [] } = {}) {
           { pageId: Number(pageId), viewport: vpLabel, capture: vp.capture }
         );
       }
+      const routeRefused = Boolean(vp.refusal && ROUTE_REFUSAL_CODE_SET.has(vp.refusal.code));
       cases.push({
         pageId: Number(pageId),
         slug: page.slug,
         page: page.name,
         viewport: vpLabel,
         dimension: vp.viewport ?? null,
-        verdict: vp.overall ?? 'INCONCLUSIVE',
+        // A route refusal is a typed refusal, not a fidelity verdict: minting it as its
+        // own class keeps the tally, the hub counts, and the case table on one reading
+        // of the same fact, and keeps a refused leg out of PASS/FAIL/INCONCLUSIVE.
+        verdict: routeRefused ? 'ROUTE_REFUSED' : (vp.overall ?? 'INCONCLUSIVE'),
         causeCode: vp.causeCode ?? (vp.status === 'BLOCKED_BY_BUILD' ? 'CLONE_BUILD_FAILED' : 'UNCLASSIFIED'),
         status: vp.status ?? null,
         visual: vp.visual?.verdict ?? null,
@@ -242,9 +246,8 @@ export function buildVerdictIndex(runSummary, { supersededSlugs = [] } = {}) {
 
   const tally = { PASS: 0, FAIL: 0, INCONCLUSIVE: 0, ROUTE_REFUSED: 0 };
   for (const c of cases) {
-    if (c.refusal && ROUTE_REFUSAL_CODE_SET.has(c.refusal.code)) {
-      tally.ROUTE_REFUSED = (tally.ROUTE_REFUSED || 0) + 1;
-    }
+    // One count per case: a route refusal is minted as its own class, so no case can
+    // be counted twice and a refused leg can never appear in the pass tally.
     tally[c.verdict] = (tally[c.verdict] || 0) + 1;
   }
 
@@ -265,7 +268,7 @@ export function buildVerdictIndex(runSummary, { supersededSlugs = [] } = {}) {
     executiveVerdict: cases.length === 0 ? 'INCONCLUSIVE' : (tally.PASS === cases.length ? 'PASS' : (tally.FAIL > 0 ? 'FAIL' : 'INCONCLUSIVE')),
     cases,
     superseded: supersededSlugs.map((slug) => ({ slug, reason: 'evidence predates any attempt pointer' })),
-    routeRefusals: cases.filter((c) => c.refusal && ROUTE_REFUSAL_CODE_SET.has(c.refusal.code)),
+    routeRefusals: cases.filter((c) => c.verdict === 'ROUTE_REFUSED'),
     exit: runSummary.exit ?? null,
   };
 }
@@ -331,12 +334,29 @@ export function computeRunExit(runSummary, pagesFilter, { targetPages, viewportL
   const requested = pagesFilter && pagesFilter.length > 0 ? targetPages.filter((p) => pagesFilter.includes(p.id)) : targetPages;
   const labels = viewportLabels && viewportLabels.length > 0 ? viewportLabels : [];
   const failedPages = Object.values(runSummary.pageResults).filter((p) => p.status === 'FAILED').map((p) => p.id);
-  const provenanceRefusals = runSummary.refusals.filter(
+  const provenanceRefusals = (runSummary.refusals || []).filter(
     (r) => r.code === PROVENANCE_CODES.IDENTITY_MISMATCH || r.code === PROVENANCE_CODES.BUNDLE_DRIFT
   );
   const { incomplete, runnerErrors } = scanRequestedCases(runSummary, requested, labels);
 
-  const routeRefusals = (runSummary.refusals || []).filter((r) => ROUTE_REFUSAL_CODE_SET.has(r.code));
+  // A route refusal is a typed refusal of the run, not an absent case. The run-level
+  // record is the authoritative statement of it and is reported as-is; the per-leg
+  // copies only speak for a page the run summary never named, so a page-level refusal
+  // is not restated once per leg it removed. Either way the refusal wins over the
+  // generic incomplete exit, so the report names the real cause instead of blaming the
+  // pipeline for a document that was never measured.
+  const runLevelRefusals = (runSummary.refusals || []).filter((r) => ROUTE_REFUSAL_CODE_SET.has(r.code));
+  const pagesWithRunLevelRefusal = new Set(runLevelRefusals.map((r) => r.pageId));
+  const seenRefusals = new Set();
+  const routeRefusals = [];
+  for (const r of [...runLevelRefusals, ...incomplete, ...runnerErrors]) {
+    if (!ROUTE_REFUSAL_CODE_SET.has(r.code)) continue;
+    if (!runLevelRefusals.includes(r) && pagesWithRunLevelRefusal.has(r.pageId)) continue;
+    const key = `${r.pageId}:${r.viewport ?? ''}:${r.code}`;
+    if (seenRefusals.has(key)) continue;
+    seenRefusals.add(key);
+    routeRefusals.push(r);
+  }
   if (routeRefusals.length > 0) {
     return {
       code: EXIT.REFUSAL,
@@ -389,7 +409,7 @@ export function computeRunExit(runSummary, pagesFilter, { targetPages, viewportL
   const format = (r) => `${r.code}@page-${r.pageId}${r.viewport ? `:${r.viewport}` : ''}`;
   const outOfScope = new Set(excludedViewports);
   const absenceDetails = new Set(incomplete.map(format));
-  for (const r of runSummary.refusals.filter((r) => DECLARED_CASE_ABSENCES.has(r.code) && !outOfScope.has(r.viewport))) {
+  for (const r of (runSummary.refusals || []).filter((r) => DECLARED_CASE_ABSENCES.has(r.code) && !outOfScope.has(r.viewport))) {
     absenceDetails.add(format(r));
   }
   if (absenceDetails.size > 0) {
@@ -474,9 +494,13 @@ export function renderHubHtml(index, { viewportLabels }) {
   // excludes would otherwise be reported as a measurement the run refused to make.
   const scopeLabels = index.scope?.viewports ?? null;
   const scopedCases = scopeLabels ? index.cases.filter((c) => scopeLabels.includes(c.viewport)) : index.cases;
-  const adjudicated = scopedCases.filter((c) => c.verdict === 'PASS' || c.verdict === 'FAIL').length;
-  const measured = scopedCases.length;
-  const countOf = (verdict) => scopedCases.filter((c) => c.verdict === verdict).length;
+  // A route-refused case produced no measurement, so it is reported by the REFUSED
+  // line and excluded here: the measured counts and the run tally then read one fact
+  // the same way instead of two.
+  const measuredCases = scopedCases.filter((c) => c.verdict !== 'ROUTE_REFUSED');
+  const adjudicated = measuredCases.filter((c) => c.verdict === 'PASS' || c.verdict === 'FAIL').length;
+  const measured = measuredCases.length;
+  const countOf = (verdict) => measuredCases.filter((c) => c.verdict === verdict).length;
   const adjudication = `<p class="scope">ADJUDICATED: ${adjudicated} of ${measured} measured case(s) carry a PASS/FAIL verdict (${countOf('PASS')} PASS / ${countOf('FAIL')} FAIL / ${countOf('INCONCLUSIVE')} INCONCLUSIVE)</p>`;
   const scope = excluded.length
     ? `<p class="scope">SCOPE: measured ${index.scope.viewports.map(esc).join(', ') || '—'} · NOT VERIFIED ${excluded
@@ -506,7 +530,7 @@ export function renderHubHtml(index, { viewportLabels }) {
 body{font:14px/1.5 system-ui,sans-serif;margin:24px;color:#111}
 table{border-collapse:collapse;min-width:640px}
 th,td{border:1px solid #ccc;padding:4px 8px;text-align:left;vertical-align:top}
-td.v-PASS{background:#e6f5e6}td.v-FAIL{background:#fbe6e6}td.v-INCONCLUSIVE{background:#fdf5e0}
+td.v-PASS{background:#e6f5e6}td.v-FAIL{background:#fbe6e6}td.v-INCONCLUSIVE{background:#fdf5e0}td.v-ROUTE_REFUSED{background:#fbe6e6}
 .cause{display:block;font-size:11px;color:#555}
 .slug,.attempt{display:block;font-weight:400;font-size:11px;color:#666}
 .superseded{background:#fdf5e0;padding:8px}
