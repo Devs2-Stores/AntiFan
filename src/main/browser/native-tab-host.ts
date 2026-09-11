@@ -4454,7 +4454,10 @@ export class NativeTabHost extends EventEmitter {
           tab.state.splitMobilePresetId || DEFAULT_SPLIT_MOBILE_PRESET,
           userZoom
         );
-        // Ensure transparent view backgrounds so clipped corners do not render opaque white rectangles
+        // Both panes always restore the opaque view background. Besides the preset
+        // emulation path below, this branch is the only other writer of the tab's
+        // background colour, so it must never leave a pane transparent: an
+        // unpainted pane would then show the dark window backdrop through the view.
         try { tab.view.setBackgroundColor('#ffffff'); } catch {}
         try { tab.mobileView?.setBackgroundColor('#ffffff'); } catch {}
 
@@ -4589,11 +4592,15 @@ export class NativeTabHost extends EventEmitter {
           viewSize: { width: preset.width, height: preset.height },
           scale: renderScale,
         });
-        // Dynamic corner clipping per-device preset, clear for desktop/flat screens
+        // Dynamic corner clipping per-device preset, clear for desktop/flat screens.
+        // The view background must mirror the clip state on every preset change: a
+        // rounded preset needs a transparent view so the device chassis shows through
+        // the corners, while a flat preset must restore the opaque background. Setting
+        // it only for the rounded case left the view transparent for every later flat
+        // preset, and an unpainted moment of such a tab then exposed the window
+        // backdrop (#080c14) through the view — the all-black tab that a reload cleared.
         const clipRadius = getPresetCornerRadius(preset);
-        if (clipRadius > 0) {
-          try { tab.view.setBackgroundColor('#00000000'); } catch {}
-        }
+        try { tab.view.setBackgroundColor(clipRadius > 0 ? '#00000000' : '#ffffff'); } catch {}
         this.applyDeviceCornerClipping(tab.view.webContents, clipRadius);
 
         // Emulation scale already handles visual zoom; keep zoomFactor at 1 to prevent double-scaling

@@ -3,6 +3,14 @@
 Tất cả các thay đổi, tính năng mới và bản vá lỗi quan trọng của AntiFan Browser Desktop.
 
 ---
+
+## [v1.3.6] - Unreleased
+
+### Rendering & Device Preset Background
+- Khắc phục triệt để lỗi tab Chromium hiển thị toàn màu đen (hoặc trắng) sau khi chuyển từ preset bo góc (iPhone/iPad/Galaxy) sang preset phẳng kích thước cố định (MacBook 13/14, Full HD, Surface Pro, iPhone SE…): `applyTabDeviceEmulation` giờ luôn đồng bộ màu nền của `WebContentsView` theo bán kính bo góc của preset (`#00000000` khi bo góc, `#ffffff` khi phẳng), thay vì chỉ đặt trong nhánh bo góc và bỏ quên nhánh còn lại. Trước đây view giữ nguyên trạng thái trong suốt, khiến mọi khoảnh khắc chưa được vẽ của tab lộ nền cửa sổ `#080c14` ra ngoài (tab đen) cho tới khi F5 vẽ lại toàn bộ viewport.
+- Bổ sung unit test khoá hợp đồng "màu nền view luôn khớp bán kính bo góc" cho toàn bộ danh mục `DEVICE_PRESETS`, chặn tái phát khi thêm preset mới.
+
+---
 ## [v1.3.5] - 2026-09-01 (Core Runtime Hardening, Lineage Safety & Dual-Tier MCP Parity)
 
 ### Core Runtime & Lineage Security
