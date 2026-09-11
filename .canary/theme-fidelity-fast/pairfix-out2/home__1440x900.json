@@ -1,0 +1,1367 @@
+{
+  "kind": "theme-fidelity-verdict",
+  "mode": "compare",
+  "status": "NOT_MEASURABLE",
+  "verdict": "INCONCLUSIVE",
+  "mechanism": "content-changed-between-passes",
+  "reason": "Target tab 26c5d59e-e14e-45e7-a5ef-63a4c427cae1 failed to achieve two consecutive matching settled passes at subject:home@1440x900: content-changed-between-passes (passes: #1{mediaFrozen=true,fontsSettled=true,imagesSettled=true,visualStable=true,renderStateStable=true,settled=true,churn=0,sections=15,cards=83,docHeight=5426,fp=ae3c2391} #2{mediaFrozen=true,fontsSettled=true,imagesSettled=true,visualStable=true,renderStateStable=true,settled=true,churn=0,sections=15,cards=83,docHeight=5428,fp=95634c5d} #3{mediaFrozen=true,fontsSettled=true,imagesSettled=true,visualStable=true,renderStateStable",
+  "store": "https://phukienmaymoc.com/",
+  "surface": {
+    "name": "home",
+    "kind": "surface"
+  },
+  "viewport": {
+    "label": "1440x900",
+    "width": 1440,
+    "height": 900,
+    "mobile": false,
+    "dpr": 1
+  },
+  "strictParams": {
+    "fullPage": true,
+    "tolerance": 2,
+    "normalizeScroll": true,
+    "allowHeightDrift": false,
+    "useDefaultWidgetMasks": false,
+    "userMasks": [],
+    "trackedSelectors": [
+      "body",
+      "header.site-header",
+      "main",
+      ".site-footer",
+      "section",
+      ".product-list__item",
+      ".slide",
+      ".news-item"
+    ]
+  },
+  "provenance": {
+    "reference": {
+      "role": "reference",
+      "label": "r2-live",
+      "store": "https://phukienmaymoc.com/",
+      "surface": "home",
+      "surfaceKind": "surface",
+      "viewport": "1440x900",
+      "url": "https://phukienmaymoc.com/?themeid=-1",
+      "themeId": -1,
+      "themeIdParameter": "-1",
+      "png": {
+        "file": "home__1440x900.png",
+        "sha256": "03c7e32f1b6a925f54021842cb682645b4c4b63c1a545e883d1fa0303d0a3f81",
+        "bytes": 2388688,
+        "artifactRef": "artifact-43bcd83c-283d-4a2f-b743-a1d09d121129"
+      },
+      "dom": {
+        "file": "dom/home__1440x900.html",
+        "sha256": "aa2508becc9aff880bdf1db9a44ba97f1ca6fa24c7cabf3f52fc8a212c477474",
+        "bytes": 1421576,
+        "observedUrl": "https://phukienmaymoc.com/?themeid=-1"
+      },
+      "domDigest": "aa2508becc9aff880bdf1db9a44ba97f1ca6fa24c7cabf3f52fc8a212c477474",
+      "geometry": {
+        "url": "https://phukienmaymoc.com/?themeid=-1",
+        "docHeight": 5426,
+        "clientWidth": 1425,
+        "scrollWidth": 1425,
+        "overflowX": 0,
+        "sectionCount": 15,
+        "productCardCount": 83,
+        "articleCardCount": 4,
+        "navItemCount": 91,
+        "linkCount": 363,
+        "imageCount": 115,
+        "brokenImageCount": 0,
+        "textNodes": 254,
+        "hasMenuMobile": true,
+        "hasBottomNav": true,
+        "headerRect": {
+          "x": 0,
+          "y": 0,
+          "w": 1425,
+          "h": 166
+        },
+        "navRect": {
+          "x": 107.5,
+          "y": 110,
+          "w": 1210,
+          "h": 56
+        },
+        "heroRect": {
+          "x": 0,
+          "y": 166,
+          "w": 1425,
+          "h": 445
+        },
+        "mainRect": {
+          "x": 0,
+          "y": 166,
+          "w": 1425,
+          "h": 4652.73
+        },
+        "footerRect": {
+          "x": 0,
+          "y": 4818.73,
+          "w": 1425,
+          "h": 607
+        },
+        "sections": [
+          {
+            "tag": "header",
+            "cls": "site-header",
+            "rect": {
+              "x": 0,
+              "y": 0,
+              "w": 1425,
+              "h": 166
+            }
+          },
+          {
+            "tag": "main",
+            "cls": "wrapperMain_content",
+            "rect": {
+              "x": 0,
+              "y": 166,
+              "w": 1425,
+              "h": 4652.73
+            }
+          },
+          {
+            "tag": "section",
+            "cls": "slide",
+            "rect": {
+              "x": 0,
+              "y": 166,
+              "w": 1425,
+              "h": 445
+            }
+          },
+          {
+            "tag": "section",
+            "cls": "category-list",
+            "rect": {
+              "x": 0,
+              "y": 631,
+              "w": 1425,
+              "h": 119.73
+            }
+          },
+          {
+            "tag": "section",
+            "cls": "banner-category",
+            "rect": {
+              "x": 0,
+              "y": 750.73,
+              "w": 1425,
+              "h": 165
+            }
+          },
+          {
+            "tag": "section",
+            "cls": "block-category",
+            "rect": {
+              "x": 0,
+              "y": 935.73,
+              "w": 1425,
+              "h": 419
+            }
+          },
+          {
+            "tag": "section",
+            "cls": "block-category",
+            "rect": {
+              "x": 0,
+              "y": 1374.73,
+              "w": 1425,
+              "h": 419
+            }
+          },
+          {
+            "tag": "section",
+            "cls": "block-category",
+            "rect": {
+              "x": 0,
+              "y": 1813.73,
+              "w": 1425,
+              "h": 419
+            }
+          },
+          {
+            "tag": "section",
+            "cls": "block-category",
+            "rect": {
+              "x": 0,
+              "y": 2252.73,
+              "w": 1425,
+              "h": 419
+            }
+          },
+          {
+            "tag": "section",
+            "cls": "block-category",
+            "rect": {
+              "x": 0,
+              "y": 2691.73,
+              "w": 1425,
+              "h": 419
+            }
+          },
+          {
+            "tag": "section",
+            "cls": "home-form",
+            "rect": {
+              "x": 0,
+              "y": 3255.73,
+              "w": 1425,
+              "h": 369
+            }
+          },
+          {
+            "tag": "section",
+            "cls": "accessory",
+            "rect": {
+              "x": 0,
+              "y": 3769.73,
+              "w": 1425,
+              "h": 351
+            }
+          },
+          {
+            "tag": "section",
+            "cls": "news",
+            "rect": {
+              "x": 0,
+              "y": 4140.73,
+              "w": 1425,
+              "h": 436
+            }
+          },
+          {
+            "tag": "section",
+            "cls": "partner",
+            "rect": {
+              "x": 0,
+              "y": 4596.73,
+              "w": 1425,
+              "h": 222
+            }
+          },
+          {
+            "tag": "div",
+            "cls": "site-footer.w-100",
+            "rect": {
+              "x": 0,
+              "y": 4818.73,
+              "w": 1425,
+              "h": 607
+            }
+          }
+        ],
+        "fonts": {
+          "body": {
+            "family": "Roboto",
+            "size": "14px",
+            "weight": "400",
+            "lineHeight": "normal",
+            "color": "rgb(34, 52, 62)",
+            "letterSpacing": "normal"
+          },
+          "h1": {
+            "family": "Roboto",
+            "size": "40px",
+            "weight": "600",
+            "lineHeight": "52px",
+            "color": "rgb(34, 52, 62)",
+            "letterSpacing": "normal"
+          },
+          "h2": {
+            "family": "Roboto",
+            "size": "32px",
+            "weight": "600",
+            "lineHeight": "41.6px",
+            "color": "rgb(34, 52, 62)",
+            "letterSpacing": "normal"
+          },
+          "h3": {
+            "family": "Roboto",
+            "size": "14px",
+            "weight": "700",
+            "lineHeight": "20px",
+            "color": "rgb(34, 52, 62)",
+            "letterSpacing": "normal"
+          },
+          ".product-list__item": {
+            "family": "Roboto",
+            "size": "14px",
+            "weight": "400",
+            "lineHeight": "normal",
+            "color": "rgb(34, 52, 62)",
+            "letterSpacing": "normal"
+          },
+          "a": {
+            "family": "Roboto",
+            "size": "14px",
+            "weight": "400",
+            "lineHeight": "normal",
+            "color": "rgb(34, 52, 62)",
+            "letterSpacing": "normal"
+          }
+        }
+      },
+      "geometrySha256": "8791a0223876358429338d3a18c0f41aebb3be9fb41789c277d47e7ee2d84291",
+      "tabIdentity": {
+        "href": "https://phukienmaymoc.com/?themeid=-1",
+        "device": null,
+        "ua": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.7871.224 Safari/537.36",
+        "innerWidth": 1440,
+        "innerHeight": 900,
+        "dpr": 1,
+        "docHeight": 5426,
+        "bodyClass": "mainBody-theme  template-index",
+        "sections": 12,
+        "widgetNodes": 8,
+        "images": 115,
+        "completeImages": 115
+      },
+      "instance": {
+        "attachmentId": "attachment-cc5a49b7-f308-4645-ac70-063eb87b5702",
+        "bridgePort": 20131,
+        "pid": 21236,
+        "primaryTabId": "be12caca-cd0e-45a8-9723-b8b02979a190",
+        "startedAt": "2026-09-11T00:18:43.203Z",
+        "runId": "run-6eaaca64-6f9f-4904-9111-b1211796edec",
+        "attemptId": "attempt-8e8cb1e3-652a-4c36-88e4-3a9de655bd06"
+      },
+      "run": {
+        "runId": "run-6eaaca64-6f9f-4904-9111-b1211796edec",
+        "attachmentId": "attachment-cc5a49b7-f308-4645-ac70-063eb87b5702",
+        "authorityRevision": "rev_dc13e141c3b5bdcc5961e52af3c5f4ce",
+        "mintedAt": "2026-09-11T00:35:02.200Z",
+        "label": "r2-live",
+        "role": "reference"
+      },
+      "capturedAt": "2026-09-11T00:35:32.527Z"
+    },
+    "subject": {
+      "role": "subject",
+      "label": "s1-subject",
+      "store": "https://phukienmaymoc.com/",
+      "surface": "home",
+      "surfaceKind": "surface",
+      "viewport": "1440x900",
+      "url": "https://phukienmaymoc.com/?themeid=1001512581",
+      "themeId": 1001512581,
+      "themeIdParameter": "1001512581",
+      "png": {
+        "file": "home__1440x900.png",
+        "sha256": "433f76ad5d9d2219ae762eb5941cb5acb65e62d2504c497be9ac0449a9c73b0c",
+        "bytes": 2289069,
+        "artifactRef": "artifact-ae51af26-08f8-478a-a543-b38abd8517b0"
+      },
+      "dom": {
+        "file": "dom/home__1440x900.html",
+        "sha256": "795b3d40734778f567d6e6f8bcf887c8ebb945ae447fbbe2ec50cdfe18106eed",
+        "bytes": 1422157,
+        "observedUrl": "https://phukienmaymoc.com/?themeid=1001512581"
+      },
+      "domDigest": "795b3d40734778f567d6e6f8bcf887c8ebb945ae447fbbe2ec50cdfe18106eed",
+      "geometry": {
+        "url": "https://phukienmaymoc.com/?themeid=1001512581",
+        "docHeight": 5426,
+        "clientWidth": 1425,
+        "scrollWidth": 1425,
+        "overflowX": 0,
+        "sectionCount": 15,
+        "productCardCount": 83,
+        "articleCardCount": 4,
+        "navItemCount": 91,
+        "linkCount": 365,
+        "imageCount": 115,
+        "brokenImageCount": 0,
+        "textNodes": 256,
+        "hasMenuMobile": true,
+        "hasBottomNav": true,
+        "headerRect": {
+          "x": 0,
+          "y": 0,
+          "w": 1425,
+          "h": 166
+        },
+        "navRect": {
+          "x": 107.5,
+          "y": 110,
+          "w": 1210,
+          "h": 56
+        },
+        "heroRect": {
+          "x": 0,
+          "y": 166,
+          "w": 1425,
+          "h": 445
+        },
+        "mainRect": {
+          "x": 0,
+          "y": 166,
+          "w": 1425,
+          "h": 4652.73
+        },
+        "footerRect": {
+          "x": 0,
+          "y": 4818.73,
+          "w": 1425,
+          "h": 607
+        },
+        "sections": [
+          {
+            "tag": "header",
+            "cls": "site-header",
+            "rect": {
+              "x": 0,
+              "y": 0,
+              "w": 1425,
+              "h": 166
+            }
+          },
+          {
+            "tag": "main",
+            "cls": "wrapperMain_content",
+            "rect": {
+              "x": 0,
+              "y": 166,
+              "w": 1425,
+              "h": 4652.73
+            }
+          },
+          {
+            "tag": "section",
+            "cls": "slide",
+            "rect": {
+              "x": 0,
+              "y": 166,
+              "w": 1425,
+              "h": 445
+            }
+          },
+          {
+            "tag": "section",
+            "cls": "category-list",
+            "rect": {
+              "x": 0,
+              "y": 631,
+              "w": 1425,
+              "h": 119.73
+            }
+          },
+          {
+            "tag": "section",
+            "cls": "banner-category",
+            "rect": {
+              "x": 0,
+              "y": 750.73,
+              "w": 1425,
+              "h": 165
+            }
+          },
+          {
+            "tag": "section",
+            "cls": "block-category",
+            "rect": {
+              "x": 0,
+              "y": 935.73,
+              "w": 1425,
+              "h": 419
+            }
+          },
+          {
+            "tag": "section",
+            "cls": "block-category",
+            "rect": {
+              "x": 0,
+              "y": 1374.73,
+              "w": 1425,
+              "h": 419
+            }
+          },
+          {
+            "tag": "section",
+            "cls": "block-category",
+            "rect": {
+              "x": 0,
+              "y": 1813.73,
+              "w": 1425,
+              "h": 419
+            }
+          },
+          {
+            "tag": "section",
+            "cls": "block-category",
+            "rect": {
+              "x": 0,
+              "y": 2252.73,
+              "w": 1425,
+              "h": 419
+            }
+          },
+          {
+            "tag": "section",
+            "cls": "block-category",
+            "rect": {
+              "x": 0,
+              "y": 2691.73,
+              "w": 1425,
+              "h": 419
+            }
+          },
+          {
+            "tag": "section",
+            "cls": "home-form",
+            "rect": {
+              "x": 0,
+              "y": 3255.73,
+              "w": 1425,
+              "h": 369
+            }
+          },
+          {
+            "tag": "section",
+            "cls": "accessory",
+            "rect": {
+              "x": 0,
+              "y": 3769.73,
+              "w": 1425,
+              "h": 351
+            }
+          },
+          {
+            "tag": "section",
+            "cls": "news",
+            "rect": {
+              "x": 0,
+              "y": 4140.73,
+              "w": 1425,
+              "h": 436
+            }
+          },
+          {
+            "tag": "section",
+            "cls": "partner",
+            "rect": {
+              "x": 0,
+              "y": 4596.73,
+              "w": 1425,
+              "h": 222
+            }
+          },
+          {
+            "tag": "div",
+            "cls": "site-footer.w-100",
+            "rect": {
+              "x": 0,
+              "y": 4818.73,
+              "w": 1425,
+              "h": 607
+            }
+          }
+        ],
+        "fonts": {
+          "body": {
+            "family": "Roboto",
+            "size": "14px",
+            "weight": "400",
+            "lineHeight": "normal",
+            "color": "rgb(34, 52, 62)",
+            "letterSpacing": "normal"
+          },
+          "h1": {
+            "family": "Roboto",
+            "size": "40px",
+            "weight": "600",
+            "lineHeight": "52px",
+            "color": "rgb(34, 52, 62)",
+            "letterSpacing": "normal"
+          },
+          "h2": {
+            "family": "Roboto",
+            "size": "32px",
+            "weight": "600",
+            "lineHeight": "41.6px",
+            "color": "rgb(34, 52, 62)",
+            "letterSpacing": "normal"
+          },
+          "h3": {
+            "family": "Roboto",
+            "size": "14px",
+            "weight": "700",
+            "lineHeight": "20px",
+            "color": "rgb(34, 52, 62)",
+            "letterSpacing": "normal"
+          },
+          ".product-list__item": {
+            "family": "Roboto",
+            "size": "14px",
+            "weight": "400",
+            "lineHeight": "normal",
+            "color": "rgb(34, 52, 62)",
+            "letterSpacing": "normal"
+          },
+          "a": {
+            "family": "Roboto",
+            "size": "14px",
+            "weight": "400",
+            "lineHeight": "normal",
+            "color": "rgb(34, 52, 62)",
+            "letterSpacing": "normal"
+          }
+        }
+      },
+      "geometrySha256": "1fa6f092b915d7603c80141b66995876c21521796f58af6faa31a2d5aaf40567",
+      "tabIdentity": {
+        "href": "https://phukienmaymoc.com/?themeid=1001512581",
+        "device": null,
+        "ua": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.7871.224 Safari/537.36",
+        "innerWidth": 1440,
+        "innerHeight": 900,
+        "dpr": 1,
+        "docHeight": 5426,
+        "bodyClass": "mainBody-theme  template-index",
+        "sections": 12,
+        "widgetNodes": 8,
+        "images": 115,
+        "completeImages": 115
+      },
+      "instance": {
+        "attachmentId": "attachment-c7a3504e-fe28-433f-9934-7128b230e3f9",
+        "bridgePort": 20131,
+        "pid": 21236,
+        "primaryTabId": "d202a7f6-1e83-45b5-a511-dd7edc81b299",
+        "startedAt": "2026-09-11T00:18:43.203Z",
+        "runId": "run-9e8a955a-0f78-45c2-8f3b-680a6dcacaf9",
+        "attemptId": "attempt-3e259bf2-4470-4927-b906-410bd15cc2e2"
+      },
+      "run": {
+        "runId": "run-9e8a955a-0f78-45c2-8f3b-680a6dcacaf9",
+        "attachmentId": "attachment-c7a3504e-fe28-433f-9934-7128b230e3f9",
+        "authorityRevision": "rev_486cbe74ff00e6e9c22687bd974a4847",
+        "mintedAt": "2026-09-11T01:36:17.908Z",
+        "label": "s1-subject",
+        "role": "subject"
+      },
+      "capturedAt": "2026-09-11T03:58:25.029Z"
+    }
+  },
+  "artifacts": {
+    "reference": {
+      "png": {
+        "file": "E:\\Work\\apps\\AntiFan\\.canary\\theme-fidelity-fast\\r2mini\\home__1440x900.png",
+        "bytes": 2388688,
+        "sha256": "03c7e32f1b6a925f54021842cb682645b4c4b63c1a545e883d1fa0303d0a3f81"
+      },
+      "dom": {
+        "file": "E:\\Work\\apps\\AntiFan\\.canary\\theme-fidelity-fast\\r2mini\\dom\\home__1440x900.html",
+        "bytes": 1421576,
+        "sha256": "aa2508becc9aff880bdf1db9a44ba97f1ca6fa24c7cabf3f52fc8a212c477474"
+      }
+    },
+    "subject": {
+      "png": {
+        "file": "E:\\Work\\apps\\AntiFan\\.canary\\theme-fidelity-fast\\subjectmini\\home__1440x900.png",
+        "bytes": 2289069,
+        "sha256": "433f76ad5d9d2219ae762eb5941cb5acb65e62d2504c497be9ac0449a9c73b0c"
+      },
+      "dom": {
+        "file": "E:\\Work\\apps\\AntiFan\\.canary\\theme-fidelity-fast\\subjectmini\\dom\\home__1440x900.html",
+        "bytes": 1422157,
+        "sha256": "795b3d40734778f567d6e6f8bcf887c8ebb945ae447fbbe2ec50cdfe18106eed"
+      }
+    }
+  },
+  "replay": {
+    "reference": {
+      "side": "reference",
+      "source": {
+        "file": "E:\\Work\\apps\\AntiFan\\.canary\\theme-fidelity-fast\\r2mini\\dom\\home__1440x900.html",
+        "sha256": "aa2508becc9aff880bdf1db9a44ba97f1ca6fa24c7cabf3f52fc8a212c477474",
+        "bytes": 1421576
+      },
+      "file": "E:\\Work\\apps\\AntiFan\\.canary\\theme-fidelity-fast\\pairfix-out2\\replay\\reference\\home__1440x900.html",
+      "url": "http://127.0.0.1:7861/home__1440x900.html",
+      "baseHref": "https://phukienmaymoc.com/?themeid=-1",
+      "baseMode": "inserted",
+      "sha256": "e1d30aaf342aa742acdead3b5df17d1cade43b9e36df8f9ba0ff605df60cdd9b",
+      "bytes": 1421627
+    },
+    "subject": {
+      "side": "subject",
+      "source": {
+        "file": "E:\\Work\\apps\\AntiFan\\.canary\\theme-fidelity-fast\\subjectmini\\dom\\home__1440x900.html",
+        "sha256": "795b3d40734778f567d6e6f8bcf887c8ebb945ae447fbbe2ec50cdfe18106eed",
+        "bytes": 1422157
+      },
+      "file": "E:\\Work\\apps\\AntiFan\\.canary\\theme-fidelity-fast\\pairfix-out2\\replay\\subject\\home__1440x900.html",
+      "url": "http://127.0.0.1:7862/home__1440x900.html",
+      "baseHref": "https://phukienmaymoc.com/?themeid=1001512581",
+      "baseMode": "inserted",
+      "sha256": "72cfea29fa9dea0b4fe9121c2010e3dcb1b68ee43d41b6b31e83ec13c53ac5a0",
+      "bytes": 1422216
+    }
+  },
+  "identity": null,
+  "measurement": {
+    "reference": null,
+    "subject": null
+  },
+  "compare": null,
+  "instance": {
+    "attachmentId": "attachment-525d3106-1f3e-40a5-8d96-6feefa13e568",
+    "bridgePort": 20131,
+    "pid": 22088,
+    "primaryTabId": "baf77f39-9dd4-4c13-86de-8e774a8ff26f",
+    "startedAt": "2026-09-11T05:55:39.941Z",
+    "runId": "run-ca713919-17f0-416c-8386-acdaefcd4fc5",
+    "attemptId": "attempt-b77e14c7-12f5-4fb1-b9a2-8a2347cbc997"
+  },
+  "run": {
+    "runId": "run-ca713919-17f0-416c-8386-acdaefcd4fc5",
+    "attachmentId": "attachment-525d3106-1f3e-40a5-8d96-6feefa13e568",
+    "authorityRevision": "rev_742ca313f372d96ec80c17907fe77c8b",
+    "mintedAt": "2026-09-11T07:15:22.718Z"
+  },
+  "tabs": {
+    "reference": {
+      "tabId": "d6dba270-78cc-4e80-89cc-9c22e01d2aaa",
+      "openedAt": "2026-09-11T07:22:35.694Z",
+      "hydration": {
+        "captureBytes": 2389200,
+        "docHeight": 5426
+      },
+      "closed": true,
+      "closedAt": "2026-09-11T07:23:58.957Z",
+      "closeError": null
+    },
+    "subject": {
+      "tabId": "26c5d59e-e14e-45e7-a5ef-63a4c427cae1",
+      "openedAt": "2026-09-11T07:23:14.792Z"
+    }
+  },
+  "startedAt": "2026-09-11T07:22:22.145Z",
+  "finishedAt": "2026-09-11T07:23:58.957Z",
+  "printLine": "surface=home viewport=1440x900 verdict=INCONCLUSIVE mismatch=n/a referenceHeight=5426px subjectHeight=5426px",
+  "sessionRenewal": {
+    "attempts": [
+      {
+        "attempt": 1,
+        "code": 0,
+        "timedOut": false,
+        "stderr": "(node:24872) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.\n(Use `node --trace-warnings ...` to show where the warning was created)\n[canary-session] port=20131 attachme"
+      }
+    ]
+  },
+  "sessionRelease": {
+    "runId": "run-41891b4d-ca53-49b3-943b-82a02d16eefe",
+    "attemptId": "attempt-d1b1418b-e928-466d-913a-71a5b7db7bbb",
+    "attachmentId": "attachment-ad56bda5-e38a-48e0-8d02-a2aa61fb4e20",
+    "released": true
+  },
+  "settlePasses": [
+    {
+      "pass": 1,
+      "mediaFrozen": true,
+      "fontsSettled": true,
+      "imagesSettled": true,
+      "visualStable": true,
+      "renderStateStable": true,
+      "settled": true,
+      "fingerprint": "ae3c239171d1fd60",
+      "fingerprintFields": {
+        "sectionCount": 15,
+        "productCardCount": 83,
+        "docHeight": 5426,
+        "scrollWidth": 1440,
+        "imageCount": 115,
+        "pendingImages": 0,
+        "brokenImages": 0,
+        "imageSetHash": "3fe69f9e",
+        "imageSetSize": 115,
+        "textHash": "4531f82b",
+        "textLength": 8675
+      },
+      "scrollAnchor": {
+        "before": 0,
+        "after": 0,
+        "anchored": true,
+        "attempts": 0
+      },
+      "chromeProbe": {
+        "scrollY": 0,
+        "bodyTextLen": 8675,
+        "regions": [
+          {
+            "selector": "#haravan-notification",
+            "present": true,
+            "textHash": "60cbebe1",
+            "textLen": 88,
+            "head": "You are currently previewing the theme: Bản sao ",
+            "display": "block",
+            "position": "fixed",
+            "rect": [
+              0,
+              837,
+              1440,
+              63
+            ]
+          },
+          {
+            "selector": "#fake-order-popup",
+            "present": true,
+            "textHash": "811c9dc5",
+            "textLen": 0,
+            "head": "",
+            "display": "block",
+            "position": "fixed",
+            "rect": [
+              -340,
+              765,
+              300,
+              115
+            ]
+          },
+          {
+            "selector": "#popup-name",
+            "present": true,
+            "textHash": "811c9dc5",
+            "textLen": 0,
+            "head": "",
+            "display": "inline",
+            "position": "static",
+            "rect": [
+              -245,
+              814,
+              0,
+              17
+            ]
+          },
+          {
+            "selector": "#popup-product",
+            "present": true,
+            "textHash": "811c9dc5",
+            "textLen": 0,
+            "head": "",
+            "display": "block",
+            "position": "static",
+            "rect": [
+              -245,
+              835,
+              54,
+              0
+            ]
+          },
+          {
+            "selector": "#popup-time",
+            "present": true,
+            "textHash": "811c9dc5",
+            "textLen": 0,
+            "head": "",
+            "display": "inline",
+            "position": "static",
+            "rect": [
+              -245,
+              835,
+              0,
+              0
+            ]
+          },
+          {
+            "selector": "#google_translate_element",
+            "present": false
+          }
+        ],
+        "scripts": [
+          "cdn.hstatic.net/shared/notification.js",
+          "//cdn.hstatic.net/themes/200001207485/1001512581/14/seo-cwv-booster.js?v=700",
+          "//cdn.hstatic.net/themes/200001207485/1001512581/14/sale-popup.js?v=700"
+        ]
+      },
+      "imagePanel": [
+        {
+          "src": "logo-hlt-2024.png",
+          "w": 1235,
+          "h": 281,
+          "y": 0
+        },
+        {
+          "src": "logo-hlt-2024.png",
+          "w": 1235,
+          "h": 281,
+          "y": 30
+        },
+        {
+          "src": "icon.png",
+          "w": 417,
+          "h": 418,
+          "y": 126
+        },
+        {
+          "src": "icon-01.png",
+          "w": 100,
+          "h": 100,
+          "y": 126
+        },
+        {
+          "src": "icon-02.png",
+          "w": 100,
+          "h": 100,
+          "y": 126
+        },
+        {
+          "src": "icon-03.png",
+          "w": 100,
+          "h": 100,
+          "y": 126
+        },
+        {
+          "src": "icon-04.png",
+          "w": 100,
+          "h": 100,
+          "y": 126
+        },
+        {
+          "src": "icon-05.png",
+          "w": 100,
+          "h": 100,
+          "y": 126
+        },
+        {
+          "src": "icon-06.png",
+          "w": 100,
+          "h": 100,
+          "y": 126
+        },
+        {
+          "src": "flash-sales-2-1.png",
+          "w": 25,
+          "h": 26,
+          "y": 127
+        },
+        {
+          "src": "04-best-workplace-in-asia-2025-at-15x.jpg",
+          "w": 6000,
+          "h": 2961,
+          "y": 206
+        },
+        {
+          "src": "02fast500.jpg",
+          "w": 2000,
+          "h": 987,
+          "y": 206
+        }
+      ],
+      "counts": {
+        "sections": 15,
+        "cards": 83,
+        "docHeight": 5426,
+        "images": 115
+      }
+    },
+    {
+      "pass": 2,
+      "mediaFrozen": true,
+      "fontsSettled": true,
+      "imagesSettled": true,
+      "visualStable": true,
+      "renderStateStable": true,
+      "settled": true,
+      "fingerprint": "95634c5d699b4262",
+      "fingerprintFields": {
+        "sectionCount": 15,
+        "productCardCount": 83,
+        "docHeight": 5428,
+        "scrollWidth": 1440,
+        "imageCount": 115,
+        "pendingImages": 0,
+        "brokenImages": 0,
+        "imageSetHash": "2e385745",
+        "imageSetSize": 115,
+        "textHash": "4531f82b",
+        "textLength": 8675
+      },
+      "scrollAnchor": {
+        "before": 0,
+        "after": 0,
+        "anchored": true,
+        "attempts": 0
+      },
+      "chromeProbe": {
+        "scrollY": 0,
+        "bodyTextLen": 8675,
+        "regions": [
+          {
+            "selector": "#haravan-notification",
+            "present": true,
+            "textHash": "60cbebe1",
+            "textLen": 88,
+            "head": "You are currently previewing the theme: Bản sao ",
+            "display": "block",
+            "position": "fixed",
+            "rect": [
+              0,
+              5363,
+              1440,
+              63
+            ]
+          },
+          {
+            "selector": "#fake-order-popup",
+            "present": true,
+            "textHash": "811c9dc5",
+            "textLen": 0,
+            "head": "",
+            "display": "block",
+            "position": "fixed",
+            "rect": [
+              -340,
+              5291,
+              300,
+              115
+            ]
+          },
+          {
+            "selector": "#popup-name",
+            "present": true,
+            "textHash": "811c9dc5",
+            "textLen": 0,
+            "head": "",
+            "display": "inline",
+            "position": "static",
+            "rect": [
+              -245,
+              5339,
+              0,
+              17
+            ]
+          },
+          {
+            "selector": "#popup-product",
+            "present": true,
+            "textHash": "811c9dc5",
+            "textLen": 0,
+            "head": "",
+            "display": "block",
+            "position": "static",
+            "rect": [
+              -245,
+              5360,
+              54,
+              0
+            ]
+          },
+          {
+            "selector": "#popup-time",
+            "present": true,
+            "textHash": "811c9dc5",
+            "textLen": 0,
+            "head": "",
+            "display": "inline",
+            "position": "static",
+            "rect": [
+              -245,
+              5360,
+              0,
+              0
+            ]
+          },
+          {
+            "selector": "#google_translate_element",
+            "present": false
+          }
+        ],
+        "scripts": [
+          "cdn.hstatic.net/shared/notification.js",
+          "//cdn.hstatic.net/themes/200001207485/1001512581/14/seo-cwv-booster.js?v=700",
+          "//cdn.hstatic.net/themes/200001207485/1001512581/14/sale-popup.js?v=700"
+        ]
+      },
+      "imagePanel": [
+        {
+          "src": "logo-hlt-2024.png",
+          "w": 1235,
+          "h": 281,
+          "y": 0
+        },
+        {
+          "src": "logo-hlt-2024.png",
+          "w": 1235,
+          "h": 281,
+          "y": 55
+        },
+        {
+          "src": "icon.png",
+          "w": 417,
+          "h": 418,
+          "y": 126
+        },
+        {
+          "src": "icon-01.png",
+          "w": 100,
+          "h": 100,
+          "y": 126
+        },
+        {
+          "src": "icon-02.png",
+          "w": 100,
+          "h": 100,
+          "y": 126
+        },
+        {
+          "src": "icon-03.png",
+          "w": 100,
+          "h": 100,
+          "y": 126
+        },
+        {
+          "src": "icon-04.png",
+          "w": 100,
+          "h": 100,
+          "y": 126
+        },
+        {
+          "src": "icon-05.png",
+          "w": 100,
+          "h": 100,
+          "y": 126
+        },
+        {
+          "src": "icon-06.png",
+          "w": 100,
+          "h": 100,
+          "y": 126
+        },
+        {
+          "src": "flash-sales-2-1.png",
+          "w": 25,
+          "h": 26,
+          "y": 127
+        },
+        {
+          "src": "04-best-workplace-in-asia-2025-at-15x.jpg",
+          "w": 6000,
+          "h": 2961,
+          "y": 206
+        },
+        {
+          "src": "02fast500.jpg",
+          "w": 2000,
+          "h": 987,
+          "y": 206
+        }
+      ],
+      "counts": {
+        "sections": 15,
+        "cards": 83,
+        "docHeight": 5428,
+        "images": 115
+      }
+    },
+    {
+      "pass": 3,
+      "mediaFrozen": true,
+      "fontsSettled": true,
+      "imagesSettled": true,
+      "visualStable": true,
+      "renderStateStable": true,
+      "settled": true,
+      "fingerprint": "728741647c6ad5d8",
+      "fingerprintFields": {
+        "sectionCount": 15,
+        "productCardCount": 83,
+        "docHeight": 5428,
+        "scrollWidth": 1440,
+        "imageCount": 115,
+        "pendingImages": 0,
+        "brokenImages": 0,
+        "imageSetHash": "b68097b1",
+        "imageSetSize": 115,
+        "textHash": "4531f82b",
+        "textLength": 8675
+      },
+      "scrollAnchor": {
+        "before": 0,
+        "after": 0,
+        "anchored": true,
+        "attempts": 0
+      },
+      "chromeProbe": {
+        "scrollY": 0,
+        "bodyTextLen": 8675,
+        "regions": [
+          {
+            "selector": "#haravan-notification",
+            "present": true,
+            "textHash": "60cbebe1",
+            "textLen": 88,
+            "head": "You are currently previewing the theme: Bản sao ",
+            "display": "block",
+            "position": "fixed",
+            "rect": [
+              0,
+              5363,
+              1440,
+              63
+            ]
+          },
+          {
+            "selector": "#fake-order-popup",
+            "present": true,
+            "textHash": "811c9dc5",
+            "textLen": 0,
+            "head": "",
+            "display": "block",
+            "position": "fixed",
+            "rect": [
+              20,
+              5291,
+              300,
+              115
+            ]
+          },
+          {
+            "selector": "#popup-name",
+            "present": true,
+            "textHash": "811c9dc5",
+            "textLen": 0,
+            "head": "",
+            "display": "inline",
+            "position": "static",
+            "rect": [
+              115,
+              5339,
+              0,
+              17
+            ]
+          },
+          {
+            "selector": "#popup-product",
+            "present": true,
+            "textHash": "811c9dc5",
+            "textLen": 0,
+            "head": "",
+            "display": "block",
+            "position": "static",
+            "rect": [
+              115,
+              5360,
+              54,
+              0
+            ]
+          },
+          {
+            "selector": "#popup-time",
+            "present": true,
+            "textHash": "811c9dc5",
+            "textLen": 0,
+            "head": "",
+            "display": "inline",
+            "position": "static",
+            "rect": [
+              115,
+              5360,
+              0,
+              0
+            ]
+          },
+          {
+            "selector": "#google_translate_element",
+            "present": false
+          }
+        ],
+        "scripts": [
+          "cdn.hstatic.net/shared/notification.js",
+          "//cdn.hstatic.net/themes/200001207485/1001512581/14/seo-cwv-booster.js?v=700",
+          "//cdn.hstatic.net/themes/200001207485/1001512581/14/sale-popup.js?v=700"
+        ]
+      },
+      "imagePanel": [
+        {
+          "src": "logo-hlt-2024.png",
+          "w": 1235,
+          "h": 281,
+          "y": 0
+        },
+        {
+          "src": "logo-hlt-2024.png",
+          "w": 1235,
+          "h": 281,
+          "y": 55
+        },
+        {
+          "src": "icon.png",
+          "w": 417,
+          "h": 418,
+          "y": 126
+        },
+        {
+          "src": "icon-01.png",
+          "w": 100,
+          "h": 100,
+          "y": 126
+        },
+        {
+          "src": "icon-02.png",
+          "w": 100,
+          "h": 100,
+          "y": 126
+        },
+        {
+          "src": "icon-03.png",
+          "w": 100,
+          "h": 100,
+          "y": 126
+        },
+        {
+          "src": "icon-04.png",
+          "w": 100,
+          "h": 100,
+          "y": 126
+        },
+        {
+          "src": "icon-05.png",
+          "w": 100,
+          "h": 100,
+          "y": 126
+        },
+        {
+          "src": "icon-06.png",
+          "w": 100,
+          "h": 100,
+          "y": 126
+        },
+        {
+          "src": "flash-sales-2-1.png",
+          "w": 25,
+          "h": 26,
+          "y": 127
+        },
+        {
+          "src": "04-best-workplace-in-asia-2025-at-15x.jpg",
+          "w": 6000,
+          "h": 2961,
+          "y": 206
+        },
+        {
+          "src": "02fast500.jpg",
+          "w": 2000,
+          "h": 987,
+          "y": 206
+        }
+      ],
+      "counts": {
+        "sections": 15,
+        "cards": 83,
+        "docHeight": 5428,
+        "images": 115
+      }
+    }
+  ],
+  "tabsClosed": {
+    "reference": true
+  }
+}

@@ -1,0 +1,939 @@
+{
+  "kind": "theme-fidelity-verdict",
+  "mode": "compare",
+  "status": "INCONCLUSIVE",
+  "verdict": "INCONCLUSIVE",
+  "mechanism": "REFERENCE_IDENTITY_DRIFT+SUBJECT_IDENTITY_DRIFT",
+  "reason": "reference identity drifted from its pin: widgetNodes 16 -> 19; subject identity drifted from its pin: widgetNodes 16 -> 19",
+  "store": "https://phukienmaymoc.com/",
+  "surface": {
+    "name": "cart",
+    "kind": "surface"
+  },
+  "viewport": {
+    "label": "1440x900",
+    "width": 1440,
+    "height": 900,
+    "mobile": false,
+    "dpr": 1
+  },
+  "strictParams": {
+    "fullPage": true,
+    "tolerance": 2,
+    "normalizeScroll": true,
+    "allowHeightDrift": false,
+    "useDefaultWidgetMasks": false,
+    "userMasks": [],
+    "trackedSelectors": [
+      "body",
+      "header.site-header",
+      "main",
+      ".site-footer",
+      "section",
+      ".product-list__item",
+      ".slide",
+      ".news-item"
+    ]
+  },
+  "provenance": {
+    "reference": {
+      "role": "reference",
+      "label": "r2-live",
+      "store": "https://phukienmaymoc.com/",
+      "surface": "cart",
+      "surfaceKind": "surface",
+      "viewport": "1440x900",
+      "url": "https://phukienmaymoc.com/cart?themeid=-1",
+      "themeId": -1,
+      "themeIdParameter": "-1",
+      "png": {
+        "file": "cart__1440x900.png",
+        "sha256": "0f5cb63c3bc26fab3bc83946dfd28629fd701e8727771d3a96434575169e9ddd",
+        "bytes": 305025,
+        "artifactRef": "artifact-19036f7c-818d-4886-975f-b12b858edd94"
+      },
+      "dom": {
+        "file": "dom/cart__1440x900.html",
+        "sha256": "e3e9465d80ac1ede94791f9c260bb9adf1d6e7a0d322eb377420d97ca5c0a9e4",
+        "bytes": 951181,
+        "observedUrl": "https://phukienmaymoc.com/cart?themeid=-1"
+      },
+      "domDigest": "e3e9465d80ac1ede94791f9c260bb9adf1d6e7a0d322eb377420d97ca5c0a9e4",
+      "geometry": {
+        "url": "https://phukienmaymoc.com/cart?themeid=-1",
+        "docHeight": 1811,
+        "clientWidth": 1425,
+        "scrollWidth": 1425,
+        "overflowX": 0,
+        "sectionCount": 3,
+        "productCardCount": 0,
+        "articleCardCount": 0,
+        "navItemCount": 91,
+        "linkCount": 189,
+        "imageCount": 30,
+        "brokenImageCount": 0,
+        "textNodes": 83,
+        "hasMenuMobile": true,
+        "hasBottomNav": true,
+        "headerRect": {
+          "x": 0,
+          "y": 0,
+          "w": 1425,
+          "h": 166
+        },
+        "navRect": {
+          "x": 107.5,
+          "y": 110,
+          "w": 1210,
+          "h": 56
+        },
+        "heroRect": {
+          "x": 87.5,
+          "y": 805.19,
+          "w": 823.33,
+          "h": 60
+        },
+        "mainRect": {
+          "x": 0,
+          "y": 166,
+          "w": 1425,
+          "h": 997.97
+        },
+        "footerRect": {
+          "x": 0,
+          "y": 1203.97,
+          "w": 1425,
+          "h": 607
+        },
+        "sections": [
+          {
+            "tag": "header",
+            "cls": "site-header",
+            "rect": {
+              "x": 0,
+              "y": 0,
+              "w": 1425,
+              "h": 166
+            }
+          },
+          {
+            "tag": "main",
+            "cls": "wrapperMain_content",
+            "rect": {
+              "x": 0,
+              "y": 166,
+              "w": 1425,
+              "h": 997.97
+            }
+          },
+          {
+            "tag": "div",
+            "cls": "site-footer.w-100",
+            "rect": {
+              "x": 0,
+              "y": 1203.97,
+              "w": 1425,
+              "h": 607
+            }
+          }
+        ],
+        "fonts": {
+          "body": {
+            "family": "Roboto",
+            "size": "14px",
+            "weight": "400",
+            "lineHeight": "normal",
+            "color": "rgb(34, 52, 62)",
+            "letterSpacing": "normal"
+          },
+          "h1": {
+            "family": "Roboto",
+            "size": "24px",
+            "weight": "600",
+            "lineHeight": "31.2px",
+            "color": "rgb(34, 52, 62)",
+            "letterSpacing": "normal"
+          },
+          "h2": {
+            "family": "Roboto",
+            "size": "20px",
+            "weight": "700",
+            "lineHeight": "26px",
+            "color": "rgb(34, 52, 62)",
+            "letterSpacing": "normal"
+          },
+          "h3": {
+            "family": "Roboto",
+            "size": "14px",
+            "weight": "700",
+            "lineHeight": "18.2px",
+            "color": "rgb(51, 51, 51)",
+            "letterSpacing": "normal"
+          },
+          "a": {
+            "family": "Roboto",
+            "size": "14px",
+            "weight": "400",
+            "lineHeight": "normal",
+            "color": "rgb(34, 52, 62)",
+            "letterSpacing": "normal"
+          }
+        }
+      },
+      "geometrySha256": "3343bf593c9a1a51d600092fecb804841a24d2c4780a1508b7dc85bdeca0b14f",
+      "tabIdentity": {
+        "href": "https://phukienmaymoc.com/cart?themeid=-1",
+        "device": null,
+        "ua": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.7871.224 Safari/537.36",
+        "innerWidth": 1440,
+        "innerHeight": 900,
+        "dpr": 1,
+        "docHeight": 1811,
+        "bodyClass": "mainBody-theme  template-cart",
+        "sections": 0,
+        "widgetNodes": 16,
+        "images": 30,
+        "completeImages": 30
+      },
+      "instance": {
+        "attachmentId": "attachment-cc5a49b7-f308-4645-ac70-063eb87b5702",
+        "bridgePort": 20131,
+        "pid": 21236,
+        "primaryTabId": "be12caca-cd0e-45a8-9723-b8b02979a190",
+        "startedAt": "2026-09-11T00:18:43.203Z",
+        "runId": "run-6eaaca64-6f9f-4904-9111-b1211796edec",
+        "attemptId": "attempt-8e8cb1e3-652a-4c36-88e4-3a9de655bd06"
+      },
+      "run": {
+        "runId": "run-6eaaca64-6f9f-4904-9111-b1211796edec",
+        "attachmentId": "attachment-cc5a49b7-f308-4645-ac70-063eb87b5702",
+        "authorityRevision": "rev_dc13e141c3b5bdcc5961e52af3c5f4ce",
+        "mintedAt": "2026-09-11T00:35:02.200Z",
+        "label": "r2-live",
+        "role": "reference"
+      },
+      "capturedAt": "2026-09-11T00:39:00.661Z"
+    },
+    "subject": {
+      "role": "subject",
+      "label": "s1-subject",
+      "store": "https://phukienmaymoc.com/",
+      "surface": "cart",
+      "surfaceKind": "surface",
+      "viewport": "1440x900",
+      "url": "https://phukienmaymoc.com/cart?themeid=1001512581",
+      "themeId": 1001512581,
+      "themeIdParameter": "1001512581",
+      "png": {
+        "file": "cart__1440x900.png",
+        "sha256": "96caa2d172ee2cdaf39ee9c404f04eedc0b6198b90bb83c7978544c377d73088",
+        "bytes": 307935,
+        "artifactRef": "artifact-c2fb66b2-f32a-4a68-9f8b-fe7f9f8b3741"
+      },
+      "dom": {
+        "file": "dom/cart__1440x900.html",
+        "sha256": "af909ef6c1acc41da0a4a37736515f67f077cbf7b347764737ac364f4665da24",
+        "bytes": 951796,
+        "observedUrl": "https://phukienmaymoc.com/cart?themeid=1001512581"
+      },
+      "domDigest": "af909ef6c1acc41da0a4a37736515f67f077cbf7b347764737ac364f4665da24",
+      "geometry": {
+        "url": "https://phukienmaymoc.com/cart?themeid=1001512581",
+        "docHeight": 1811,
+        "clientWidth": 1425,
+        "scrollWidth": 1425,
+        "overflowX": 0,
+        "sectionCount": 3,
+        "productCardCount": 0,
+        "articleCardCount": 0,
+        "navItemCount": 91,
+        "linkCount": 191,
+        "imageCount": 30,
+        "brokenImageCount": 0,
+        "textNodes": 85,
+        "hasMenuMobile": true,
+        "hasBottomNav": true,
+        "headerRect": {
+          "x": 0,
+          "y": 0,
+          "w": 1425,
+          "h": 166
+        },
+        "navRect": {
+          "x": 107.5,
+          "y": 110,
+          "w": 1210,
+          "h": 56
+        },
+        "heroRect": {
+          "x": 87.5,
+          "y": 805.19,
+          "w": 823.33,
+          "h": 60
+        },
+        "mainRect": {
+          "x": 0,
+          "y": 166,
+          "w": 1425,
+          "h": 997.97
+        },
+        "footerRect": {
+          "x": 0,
+          "y": 1203.97,
+          "w": 1425,
+          "h": 607
+        },
+        "sections": [
+          {
+            "tag": "header",
+            "cls": "site-header",
+            "rect": {
+              "x": 0,
+              "y": 0,
+              "w": 1425,
+              "h": 166
+            }
+          },
+          {
+            "tag": "main",
+            "cls": "wrapperMain_content",
+            "rect": {
+              "x": 0,
+              "y": 166,
+              "w": 1425,
+              "h": 997.97
+            }
+          },
+          {
+            "tag": "div",
+            "cls": "site-footer.w-100",
+            "rect": {
+              "x": 0,
+              "y": 1203.97,
+              "w": 1425,
+              "h": 607
+            }
+          }
+        ],
+        "fonts": {
+          "body": {
+            "family": "Roboto",
+            "size": "14px",
+            "weight": "400",
+            "lineHeight": "normal",
+            "color": "rgb(34, 52, 62)",
+            "letterSpacing": "normal"
+          },
+          "h1": {
+            "family": "Roboto",
+            "size": "24px",
+            "weight": "600",
+            "lineHeight": "31.2px",
+            "color": "rgb(34, 52, 62)",
+            "letterSpacing": "normal"
+          },
+          "h2": {
+            "family": "Roboto",
+            "size": "20px",
+            "weight": "700",
+            "lineHeight": "26px",
+            "color": "rgb(34, 52, 62)",
+            "letterSpacing": "normal"
+          },
+          "h3": {
+            "family": "Roboto",
+            "size": "14px",
+            "weight": "700",
+            "lineHeight": "18.2px",
+            "color": "rgb(51, 51, 51)",
+            "letterSpacing": "normal"
+          },
+          "a": {
+            "family": "Roboto",
+            "size": "14px",
+            "weight": "400",
+            "lineHeight": "normal",
+            "color": "rgb(34, 52, 62)",
+            "letterSpacing": "normal"
+          }
+        }
+      },
+      "geometrySha256": "73d9c52e45969394604c4b6c261a0049763abab34c089bbe1869be3ba5b7e85b",
+      "tabIdentity": {
+        "href": "https://phukienmaymoc.com/cart?themeid=1001512581",
+        "device": null,
+        "ua": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.7871.224 Safari/537.36",
+        "innerWidth": 1440,
+        "innerHeight": 900,
+        "dpr": 1,
+        "docHeight": 1811,
+        "bodyClass": "mainBody-theme  template-cart",
+        "sections": 0,
+        "widgetNodes": 16,
+        "images": 30,
+        "completeImages": 30
+      },
+      "instance": {
+        "attachmentId": "attachment-c7a3504e-fe28-433f-9934-7128b230e3f9",
+        "bridgePort": 20131,
+        "pid": 21236,
+        "primaryTabId": "d202a7f6-1e83-45b5-a511-dd7edc81b299",
+        "startedAt": "2026-09-11T00:18:43.203Z",
+        "runId": "run-9e8a955a-0f78-45c2-8f3b-680a6dcacaf9",
+        "attemptId": "attempt-3e259bf2-4470-4927-b906-410bd15cc2e2"
+      },
+      "run": {
+        "runId": "run-9e8a955a-0f78-45c2-8f3b-680a6dcacaf9",
+        "attachmentId": "attachment-c7a3504e-fe28-433f-9934-7128b230e3f9",
+        "authorityRevision": "rev_486cbe74ff00e6e9c22687bd974a4847",
+        "mintedAt": "2026-09-11T01:36:17.908Z",
+        "label": "s1-subject",
+        "role": "subject"
+      },
+      "capturedAt": "2026-09-11T04:02:07.387Z"
+    }
+  },
+  "artifacts": {
+    "reference": {
+      "png": {
+        "file": "E:\\Work\\apps\\AntiFan\\.canary\\theme-fidelity-fast\\r2mini\\cart__1440x900.png",
+        "bytes": 305025,
+        "sha256": "0f5cb63c3bc26fab3bc83946dfd28629fd701e8727771d3a96434575169e9ddd"
+      },
+      "dom": {
+        "file": "E:\\Work\\apps\\AntiFan\\.canary\\theme-fidelity-fast\\r2mini\\dom\\cart__1440x900.html",
+        "bytes": 951181,
+        "sha256": "e3e9465d80ac1ede94791f9c260bb9adf1d6e7a0d322eb377420d97ca5c0a9e4"
+      }
+    },
+    "subject": {
+      "png": {
+        "file": "E:\\Work\\apps\\AntiFan\\.canary\\theme-fidelity-fast\\subjectmini\\cart__1440x900.png",
+        "bytes": 307935,
+        "sha256": "96caa2d172ee2cdaf39ee9c404f04eedc0b6198b90bb83c7978544c377d73088"
+      },
+      "dom": {
+        "file": "E:\\Work\\apps\\AntiFan\\.canary\\theme-fidelity-fast\\subjectmini\\dom\\cart__1440x900.html",
+        "bytes": 951796,
+        "sha256": "af909ef6c1acc41da0a4a37736515f67f077cbf7b347764737ac364f4665da24"
+      }
+    }
+  },
+  "replay": {
+    "reference": {
+      "side": "reference",
+      "source": {
+        "file": "E:\\Work\\apps\\AntiFan\\.canary\\theme-fidelity-fast\\r2mini\\dom\\cart__1440x900.html",
+        "sha256": "e3e9465d80ac1ede94791f9c260bb9adf1d6e7a0d322eb377420d97ca5c0a9e4",
+        "bytes": 951181
+      },
+      "file": "E:\\Work\\apps\\AntiFan\\.canary\\theme-fidelity-fast\\pairfix-out2\\replay\\reference\\cart__1440x900.html",
+      "url": "http://127.0.0.1:7861/cart__1440x900.html",
+      "baseHref": "https://phukienmaymoc.com/cart?themeid=-1",
+      "baseMode": "inserted",
+      "sha256": "23d953c272b71988455783603803bd5cef01501117248214f5a990b12b50632a",
+      "bytes": 951236
+    },
+    "subject": {
+      "side": "subject",
+      "source": {
+        "file": "E:\\Work\\apps\\AntiFan\\.canary\\theme-fidelity-fast\\subjectmini\\dom\\cart__1440x900.html",
+        "sha256": "af909ef6c1acc41da0a4a37736515f67f077cbf7b347764737ac364f4665da24",
+        "bytes": 951796
+      },
+      "file": "E:\\Work\\apps\\AntiFan\\.canary\\theme-fidelity-fast\\pairfix-out2\\replay\\subject\\cart__1440x900.html",
+      "url": "http://127.0.0.1:7862/cart__1440x900.html",
+      "baseHref": "https://phukienmaymoc.com/cart?themeid=1001512581",
+      "baseMode": "inserted",
+      "sha256": "e3c8600f8ef0712b2d8d2e478bad922af605e122b4a5455f960c60a193dd5990",
+      "bytes": 951859
+    }
+  },
+  "identity": {
+    "fields": [
+      "device",
+      "ua",
+      "innerWidth",
+      "innerHeight",
+      "dpr",
+      "docHeight",
+      "sections",
+      "widgetNodes"
+    ],
+    "tolerancePx": 2,
+    "reference": {
+      "pinned": {
+        "href": "https://phukienmaymoc.com/cart?themeid=-1",
+        "device": null,
+        "ua": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.7871.224 Safari/537.36",
+        "innerWidth": 1440,
+        "innerHeight": 900,
+        "dpr": 1,
+        "docHeight": 1811,
+        "bodyClass": "mainBody-theme  template-cart",
+        "sections": 0,
+        "widgetNodes": 16,
+        "images": 30,
+        "completeImages": 30
+      },
+      "measured": {
+        "href": "http://127.0.0.1:7861/cart__1440x900.html",
+        "device": null,
+        "ua": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.7871.224 Safari/537.36",
+        "innerWidth": 1440,
+        "innerHeight": 900,
+        "dpr": 1,
+        "docHeight": 1811,
+        "bodyClass": "mainBody-theme  template-cart",
+        "sections": 0,
+        "widgetNodes": 19,
+        "images": 30,
+        "completeImages": 30
+      },
+      "agree": false,
+      "unmeasurable": null,
+      "tolerancePx": 2,
+      "differences": [
+        {
+          "field": "widgetNodes",
+          "pinned": 16,
+          "measured": 19,
+          "driftPx": null
+        }
+      ]
+    },
+    "subject": {
+      "pinned": {
+        "href": "https://phukienmaymoc.com/cart?themeid=1001512581",
+        "device": null,
+        "ua": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.7871.224 Safari/537.36",
+        "innerWidth": 1440,
+        "innerHeight": 900,
+        "dpr": 1,
+        "docHeight": 1811,
+        "bodyClass": "mainBody-theme  template-cart",
+        "sections": 0,
+        "widgetNodes": 16,
+        "images": 30,
+        "completeImages": 30
+      },
+      "measured": {
+        "href": "http://127.0.0.1:7862/cart__1440x900.html",
+        "device": null,
+        "ua": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.7871.224 Safari/537.36",
+        "innerWidth": 1440,
+        "innerHeight": 900,
+        "dpr": 1,
+        "docHeight": 1811,
+        "bodyClass": "mainBody-theme  template-cart",
+        "sections": 0,
+        "widgetNodes": 19,
+        "images": 30,
+        "completeImages": 30
+      },
+      "agree": false,
+      "unmeasurable": null,
+      "tolerancePx": 2,
+      "differences": [
+        {
+          "field": "widgetNodes",
+          "pinned": 16,
+          "measured": 19,
+          "driftPx": null
+        }
+      ]
+    },
+    "deviceClass": {
+      "reference": null,
+      "subject": null,
+      "pinnedReference": null,
+      "pinnedSubject": null,
+      "agree": true
+    }
+  },
+  "measurement": {
+    "reference": {
+      "tabIdentity": {
+        "href": "http://127.0.0.1:7861/cart__1440x900.html",
+        "device": null,
+        "ua": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.7871.224 Safari/537.36",
+        "innerWidth": 1440,
+        "innerHeight": 900,
+        "dpr": 1,
+        "docHeight": 1811,
+        "bodyClass": "mainBody-theme  template-cart",
+        "sections": 0,
+        "widgetNodes": 19,
+        "images": 30,
+        "completeImages": 30
+      },
+      "geometry": {
+        "url": "http://127.0.0.1:7861/cart__1440x900.html",
+        "docHeight": 1811,
+        "clientWidth": 1440,
+        "scrollWidth": 1440,
+        "overflowX": 0,
+        "sectionCount": 3,
+        "productCardCount": 0,
+        "articleCardCount": 0,
+        "navItemCount": 91,
+        "linkCount": 189,
+        "imageCount": 30,
+        "brokenImageCount": 0,
+        "textNodes": 83,
+        "hasMenuMobile": true,
+        "hasBottomNav": true,
+        "headerRect": {
+          "x": 0,
+          "y": 0,
+          "w": 1440,
+          "h": 166
+        },
+        "navRect": {
+          "x": 115,
+          "y": 110,
+          "w": 1210,
+          "h": 56
+        },
+        "heroRect": {
+          "x": 95,
+          "y": 805.19,
+          "w": 823.33,
+          "h": 60
+        },
+        "mainRect": {
+          "x": 0,
+          "y": 166,
+          "w": 1440,
+          "h": 997.97
+        },
+        "footerRect": {
+          "x": 0,
+          "y": 1203.97,
+          "w": 1440,
+          "h": 607
+        },
+        "sections": [
+          {
+            "tag": "header",
+            "cls": "site-header",
+            "rect": {
+              "x": 0,
+              "y": 0,
+              "w": 1440,
+              "h": 166
+            }
+          },
+          {
+            "tag": "main",
+            "cls": "wrapperMain_content",
+            "rect": {
+              "x": 0,
+              "y": 166,
+              "w": 1440,
+              "h": 997.97
+            }
+          },
+          {
+            "tag": "div",
+            "cls": "site-footer.w-100",
+            "rect": {
+              "x": 0,
+              "y": 1203.97,
+              "w": 1440,
+              "h": 607
+            }
+          }
+        ],
+        "fonts": {
+          "body": {
+            "family": "Roboto",
+            "size": "14px",
+            "weight": "400",
+            "lineHeight": "normal",
+            "color": "rgb(34, 52, 62)",
+            "letterSpacing": "normal"
+          },
+          "h1": {
+            "family": "Roboto",
+            "size": "24px",
+            "weight": "600",
+            "lineHeight": "31.2px",
+            "color": "rgb(34, 52, 62)",
+            "letterSpacing": "normal"
+          },
+          "h2": {
+            "family": "Roboto",
+            "size": "20px",
+            "weight": "700",
+            "lineHeight": "26px",
+            "color": "rgb(34, 52, 62)",
+            "letterSpacing": "normal"
+          },
+          "h3": {
+            "family": "Roboto",
+            "size": "14px",
+            "weight": "700",
+            "lineHeight": "18.2px",
+            "color": "rgb(51, 51, 51)",
+            "letterSpacing": "normal"
+          },
+          "a": {
+            "family": "Roboto",
+            "size": "14px",
+            "weight": "400",
+            "lineHeight": "normal",
+            "color": "rgb(34, 52, 62)",
+            "letterSpacing": "normal"
+          }
+        }
+      },
+      "docHeight": 1811
+    },
+    "subject": {
+      "tabIdentity": {
+        "href": "http://127.0.0.1:7862/cart__1440x900.html",
+        "device": null,
+        "ua": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.7871.224 Safari/537.36",
+        "innerWidth": 1440,
+        "innerHeight": 900,
+        "dpr": 1,
+        "docHeight": 1811,
+        "bodyClass": "mainBody-theme  template-cart",
+        "sections": 0,
+        "widgetNodes": 19,
+        "images": 30,
+        "completeImages": 30
+      },
+      "geometry": {
+        "url": "http://127.0.0.1:7862/cart__1440x900.html",
+        "docHeight": 1811,
+        "clientWidth": 1440,
+        "scrollWidth": 1440,
+        "overflowX": 0,
+        "sectionCount": 3,
+        "productCardCount": 0,
+        "articleCardCount": 0,
+        "navItemCount": 91,
+        "linkCount": 193,
+        "imageCount": 30,
+        "brokenImageCount": 0,
+        "textNodes": 87,
+        "hasMenuMobile": true,
+        "hasBottomNav": true,
+        "headerRect": {
+          "x": 0,
+          "y": 0,
+          "w": 1440,
+          "h": 166
+        },
+        "navRect": {
+          "x": 115,
+          "y": 110,
+          "w": 1210,
+          "h": 56
+        },
+        "heroRect": {
+          "x": 95,
+          "y": 805.19,
+          "w": 823.33,
+          "h": 60
+        },
+        "mainRect": {
+          "x": 0,
+          "y": 166,
+          "w": 1440,
+          "h": 997.97
+        },
+        "footerRect": {
+          "x": 0,
+          "y": 1203.97,
+          "w": 1440,
+          "h": 607
+        },
+        "sections": [
+          {
+            "tag": "header",
+            "cls": "site-header",
+            "rect": {
+              "x": 0,
+              "y": 0,
+              "w": 1440,
+              "h": 166
+            }
+          },
+          {
+            "tag": "main",
+            "cls": "wrapperMain_content",
+            "rect": {
+              "x": 0,
+              "y": 166,
+              "w": 1440,
+              "h": 997.97
+            }
+          },
+          {
+            "tag": "div",
+            "cls": "site-footer.w-100",
+            "rect": {
+              "x": 0,
+              "y": 1203.97,
+              "w": 1440,
+              "h": 607
+            }
+          }
+        ],
+        "fonts": {
+          "body": {
+            "family": "Roboto",
+            "size": "14px",
+            "weight": "400",
+            "lineHeight": "normal",
+            "color": "rgb(34, 52, 62)",
+            "letterSpacing": "normal"
+          },
+          "h1": {
+            "family": "Roboto",
+            "size": "24px",
+            "weight": "600",
+            "lineHeight": "31.2px",
+            "color": "rgb(34, 52, 62)",
+            "letterSpacing": "normal"
+          },
+          "h2": {
+            "family": "Roboto",
+            "size": "20px",
+            "weight": "700",
+            "lineHeight": "26px",
+            "color": "rgb(34, 52, 62)",
+            "letterSpacing": "normal"
+          },
+          "h3": {
+            "family": "Roboto",
+            "size": "14px",
+            "weight": "700",
+            "lineHeight": "18.2px",
+            "color": "rgb(51, 51, 51)",
+            "letterSpacing": "normal"
+          },
+          "a": {
+            "family": "Roboto",
+            "size": "14px",
+            "weight": "400",
+            "lineHeight": "normal",
+            "color": "rgb(34, 52, 62)",
+            "letterSpacing": "normal"
+          }
+        }
+      },
+      "docHeight": 1811
+    }
+  },
+  "compare": null,
+  "instance": {
+    "attachmentId": "attachment-525d3106-1f3e-40a5-8d96-6feefa13e568",
+    "bridgePort": 20131,
+    "pid": 22088,
+    "primaryTabId": "baf77f39-9dd4-4c13-86de-8e774a8ff26f",
+    "startedAt": "2026-09-11T05:55:39.941Z",
+    "runId": "run-ca713919-17f0-416c-8386-acdaefcd4fc5",
+    "attemptId": "attempt-b77e14c7-12f5-4fb1-b9a2-8a2347cbc997"
+  },
+  "run": {
+    "runId": "run-ca713919-17f0-416c-8386-acdaefcd4fc5",
+    "attachmentId": "attachment-525d3106-1f3e-40a5-8d96-6feefa13e568",
+    "authorityRevision": "rev_742ca313f372d96ec80c17907fe77c8b",
+    "mintedAt": "2026-09-11T07:15:22.718Z"
+  },
+  "tabs": {
+    "reference": {
+      "tabId": "5988c8b9-ff63-461c-80df-d17e5bb0ca9c",
+      "openedAt": "2026-09-11T07:21:05.479Z",
+      "hydration": {
+        "captureBytes": 298985,
+        "docHeight": 1811
+      },
+      "closed": true,
+      "closedAt": "2026-09-11T07:22:22.064Z",
+      "closeError": null
+    },
+    "subject": {
+      "tabId": "4048afa0-c58d-4dcf-8ded-aea2f0c21dc3",
+      "openedAt": "2026-09-11T07:21:41.104Z",
+      "hydration": {
+        "captureBytes": 298184,
+        "docHeight": 1811
+      },
+      "closed": true,
+      "closedAt": "2026-09-11T07:22:22.097Z",
+      "closeError": null
+    }
+  },
+  "startedAt": "2026-09-11T07:20:27.748Z",
+  "finishedAt": "2026-09-11T07:22:22.097Z",
+  "printLine": "surface=cart viewport=1440x900 verdict=INCONCLUSIVE mismatch=n/a referenceHeight=1811px subjectHeight=1811px",
+  "sessionRenewal": {
+    "attempts": [
+      {
+        "attempt": 1,
+        "code": 1,
+        "timedOut": false,
+        "stderr": "(node:24392) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.\n(Use `node --trace-warnings ...` to show where the warning was created)\nnode:internal/modules/run_main:107\r\n"
+      },
+      {
+        "attempt": 2,
+        "code": 0,
+        "timedOut": false,
+        "stderr": "(node:16496) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.\n(Use `node --trace-warnings ...` to show where the warning was created)\n[canary-session] port=20131 attachme"
+      }
+    ]
+  },
+  "sessionRelease": {
+    "runId": "run-80d7e507-da74-4384-b864-0ca59ce0ef4d",
+    "attemptId": "attempt-32b4fec4-b9d0-4436-9164-a7fd05456663",
+    "attachmentId": "attachment-25b24afa-7b4d-4f1a-95b3-4ef8d26964cf",
+    "released": true
+  },
+  "release": {
+    "reference": {
+      "widgets": {
+        "slickPaused": 0,
+        "swiperPaused": 3
+      },
+      "freezeReleased": true,
+      "timerSweep": {
+        "clearedIntervalIdsTo": 200000,
+        "clearedTimeoutIdsTo": 200000
+      },
+      "motion": {
+        "widgetsSampled": 19,
+        "windowMs": 2500,
+        "sampleBefore": "34dfe08f",
+        "sampleAfter": "34dfe08f",
+        "stable": true
+      }
+    },
+    "subject": {
+      "widgets": {
+        "slickPaused": 0,
+        "swiperPaused": 3
+      },
+      "freezeReleased": true,
+      "timerSweep": {
+        "clearedIntervalIdsTo": 200000,
+        "clearedTimeoutIdsTo": 200000
+      },
+      "motion": {
+        "widgetsSampled": 19,
+        "windowMs": 2500,
+        "sampleBefore": "34dfe08f",
+        "sampleAfter": "34dfe08f",
+        "stable": true
+      }
+    }
+  },
+  "tabsClosed": {
+    "reference": true,
+    "subject": true
+  }
+}

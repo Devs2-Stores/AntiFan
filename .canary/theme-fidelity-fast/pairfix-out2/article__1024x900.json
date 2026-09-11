@@ -1,0 +1,1179 @@
+{
+  "kind": "theme-fidelity-verdict",
+  "mode": "compare",
+  "status": "NOT_MEASURABLE",
+  "verdict": "INCONCLUSIVE",
+  "mechanism": "content-changed-between-passes",
+  "reason": "Target tab 3391b08d-b22b-457d-84de-daf28d795b41 failed to achieve two consecutive matching settled passes at reference:article@1024x900: content-changed-between-passes (passes: #1{mediaFrozen=true,fontsSettled=true,imagesSettled=true,visualStable=true,renderStateStable=true,settled=true,churn=0,sections=9,cards=0,docHeight=4821,fp=fd2c2add} #2{mediaFrozen=true,fontsSettled=true,imagesSettled=true,visualStable=true,renderStateStable=true,settled=true,churn=0,sections=9,cards=0,docHeight=4821,fp=816cc7e8} #3{mediaFrozen=true,fontsSettled=true,imagesSettled=true,visualStable=true,renderStateStabl",
+  "store": "https://phukienmaymoc.com/",
+  "surface": {
+    "name": "article",
+    "kind": "surface"
+  },
+  "viewport": {
+    "label": "1024x900",
+    "width": 1024,
+    "height": 900,
+    "mobile": false,
+    "dpr": 1
+  },
+  "strictParams": {
+    "fullPage": true,
+    "tolerance": 2,
+    "normalizeScroll": true,
+    "allowHeightDrift": false,
+    "useDefaultWidgetMasks": false,
+    "userMasks": [],
+    "trackedSelectors": [
+      "body",
+      "header.site-header",
+      "main",
+      ".site-footer",
+      "section",
+      ".product-list__item",
+      ".slide",
+      ".news-item"
+    ]
+  },
+  "provenance": {
+    "reference": {
+      "role": "reference",
+      "label": "r2-live",
+      "store": "https://phukienmaymoc.com/",
+      "surface": "article",
+      "surfaceKind": "surface",
+      "viewport": "1024x900",
+      "url": "https://phukienmaymoc.com/blogs/news/plc-la-gi-cau-tao-nguyen-ly-hoat-dong?themeid=-1",
+      "themeId": -1,
+      "themeIdParameter": "-1",
+      "png": {
+        "file": "article__1024x900.png",
+        "sha256": "67dfc827d7eb08efc54a6a80a081c50f5fc929cb9ad45179fc138dba24e9cb74",
+        "bytes": 1110892,
+        "artifactRef": "artifact-42c9da9e-d3be-4b3e-9ed0-3079d53bb404"
+      },
+      "dom": {
+        "file": "dom/article__1024x900.html",
+        "sha256": "b3f75a1d0e7663c30261e27c1c948e37d8ea139eac7b419a694540e3247630ac",
+        "bytes": 958368,
+        "observedUrl": "https://phukienmaymoc.com/blogs/news/plc-la-gi-cau-tao-nguyen-ly-hoat-dong?themeid=-1"
+      },
+      "domDigest": "b3f75a1d0e7663c30261e27c1c948e37d8ea139eac7b419a694540e3247630ac",
+      "geometry": {
+        "url": "https://phukienmaymoc.com/blogs/news/plc-la-gi-cau-tao-nguyen-ly-hoat-dong?themeid=-1",
+        "docHeight": 4332,
+        "clientWidth": 1009,
+        "scrollWidth": 1009,
+        "overflowX": 0,
+        "sectionCount": 9,
+        "productCardCount": 0,
+        "articleCardCount": 0,
+        "navItemCount": 91,
+        "linkCount": 236,
+        "imageCount": 37,
+        "brokenImageCount": 0,
+        "textNodes": 128,
+        "hasMenuMobile": true,
+        "hasBottomNav": true,
+        "headerRect": {
+          "x": 0,
+          "y": 0,
+          "w": 1009,
+          "h": 175.8
+        },
+        "navRect": {
+          "x": 39.5,
+          "y": 105,
+          "w": 930,
+          "h": 70.8
+        },
+        "heroRect": null,
+        "mainRect": {
+          "x": 0,
+          "y": 175.8,
+          "w": 1009,
+          "h": 3469.27
+        },
+        "footerRect": {
+          "x": 0,
+          "y": 3685.06,
+          "w": 1009,
+          "h": 607
+        },
+        "sections": [
+          {
+            "tag": "header",
+            "cls": "site-header",
+            "rect": {
+              "x": 0,
+              "y": 0,
+              "w": 1009,
+              "h": 175.8
+            }
+          },
+          {
+            "tag": "main",
+            "cls": "wrapperMain_content",
+            "rect": {
+              "x": 0,
+              "y": 175.8,
+              "w": 1009,
+              "h": 3469.27
+            }
+          },
+          {
+            "tag": "article",
+            "cls": "article-loop",
+            "rect": {
+              "x": 20,
+              "y": 3483.28,
+              "w": 229.75,
+              "h": 161.78
+            }
+          },
+          {
+            "tag": "article",
+            "cls": "article-loop",
+            "rect": {
+              "x": 264.75,
+              "y": 3483.28,
+              "w": 229.75,
+              "h": 161.78
+            }
+          },
+          {
+            "tag": "article",
+            "cls": "article-loop",
+            "rect": {
+              "x": 509.5,
+              "y": 3483.28,
+              "w": 229.75,
+              "h": 161.78
+            }
+          },
+          {
+            "tag": "article",
+            "cls": "article-loop",
+            "rect": {
+              "x": 754.25,
+              "y": 3483.28,
+              "w": 229.75,
+              "h": 161.78
+            }
+          },
+          {
+            "tag": "article",
+            "cls": "article-loop",
+            "rect": {
+              "x": 999,
+              "y": 3483.28,
+              "w": 229.75,
+              "h": 161.78
+            }
+          },
+          {
+            "tag": "article",
+            "cls": "article-loop",
+            "rect": {
+              "x": 1243.75,
+              "y": 3483.28,
+              "w": 229.75,
+              "h": 161.78
+            }
+          },
+          {
+            "tag": "div",
+            "cls": "site-footer.w-100",
+            "rect": {
+              "x": 0,
+              "y": 3685.06,
+              "w": 1009,
+              "h": 607
+            }
+          }
+        ],
+        "fonts": {
+          "body": {
+            "family": "Roboto",
+            "size": "14px",
+            "weight": "400",
+            "lineHeight": "normal",
+            "color": "rgb(34, 52, 62)",
+            "letterSpacing": "normal"
+          },
+          "h1": {
+            "family": "Roboto",
+            "size": "22px",
+            "weight": "700",
+            "lineHeight": "28.6px",
+            "color": "rgb(34, 52, 62)",
+            "letterSpacing": "normal"
+          },
+          "h2": {
+            "family": "Arial, sans-serif",
+            "size": "22px",
+            "weight": "600",
+            "lineHeight": "28.6px",
+            "color": "rgb(34, 52, 62)",
+            "letterSpacing": "normal"
+          },
+          "h3": {
+            "family": "Arial, sans-serif",
+            "size": "20px",
+            "weight": "600",
+            "lineHeight": "26px",
+            "color": "rgb(30, 41, 59)",
+            "letterSpacing": "normal"
+          },
+          "a": {
+            "family": "Roboto",
+            "size": "14px",
+            "weight": "400",
+            "lineHeight": "normal",
+            "color": "rgb(34, 52, 62)",
+            "letterSpacing": "normal"
+          }
+        }
+      },
+      "geometrySha256": "2db9c35b3066f7ddc374a0f5dbe7722d1d27230d8c5602a36107bbeed3360de5",
+      "tabIdentity": {
+        "href": "https://phukienmaymoc.com/blogs/news/plc-la-gi-cau-tao-nguyen-ly-hoat-dong?themeid=-1",
+        "device": null,
+        "ua": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.7871.224 Safari/537.36",
+        "innerWidth": 1024,
+        "innerHeight": 900,
+        "dpr": 1,
+        "docHeight": 4332,
+        "bodyClass": "mainBody-theme  template-article",
+        "sections": 0,
+        "widgetNodes": 2,
+        "images": 37,
+        "completeImages": 37
+      },
+      "instance": {
+        "attachmentId": "attachment-cc5a49b7-f308-4645-ac70-063eb87b5702",
+        "bridgePort": 20131,
+        "pid": 21236,
+        "primaryTabId": "be12caca-cd0e-45a8-9723-b8b02979a190",
+        "startedAt": "2026-09-11T00:18:43.203Z",
+        "runId": "run-6eaaca64-6f9f-4904-9111-b1211796edec",
+        "attemptId": "attempt-8e8cb1e3-652a-4c36-88e4-3a9de655bd06"
+      },
+      "run": {
+        "runId": "run-6eaaca64-6f9f-4904-9111-b1211796edec",
+        "attachmentId": "attachment-cc5a49b7-f308-4645-ac70-063eb87b5702",
+        "authorityRevision": "rev_dc13e141c3b5bdcc5961e52af3c5f4ce",
+        "mintedAt": "2026-09-11T00:35:02.200Z",
+        "label": "r2-live",
+        "role": "reference"
+      },
+      "capturedAt": "2026-09-11T00:38:25.152Z"
+    },
+    "subject": {
+      "role": "subject",
+      "label": "s1-subject",
+      "store": "https://phukienmaymoc.com/",
+      "surface": "article",
+      "surfaceKind": "surface",
+      "viewport": "1024x900",
+      "url": "https://phukienmaymoc.com/blogs/news/plc-la-gi-cau-tao-nguyen-ly-hoat-dong?themeid=1001512581",
+      "themeId": 1001512581,
+      "themeIdParameter": "1001512581",
+      "png": {
+        "file": "article__1024x900.png",
+        "sha256": "78dd73dbd0a9add41089888bd85c0dc4887c960c0c427c08eee87e2fa722d5a2",
+        "bytes": 1099261,
+        "artifactRef": "artifact-6e3207fb-22b2-4824-8c13-b3ccd25709a2"
+      },
+      "dom": {
+        "file": "dom/article__1024x900.html",
+        "sha256": "03dd9e907ad3cb6eb410ff8c79a9d6dafbe8442b5afb3eb8e35059da48227fb2",
+        "bytes": 958862,
+        "observedUrl": "https://phukienmaymoc.com/blogs/news/plc-la-gi-cau-tao-nguyen-ly-hoat-dong?themeid=1001512581"
+      },
+      "domDigest": "03dd9e907ad3cb6eb410ff8c79a9d6dafbe8442b5afb3eb8e35059da48227fb2",
+      "geometry": {
+        "url": "https://phukienmaymoc.com/blogs/news/plc-la-gi-cau-tao-nguyen-ly-hoat-dong?themeid=1001512581",
+        "docHeight": 4332,
+        "clientWidth": 1009,
+        "scrollWidth": 1009,
+        "overflowX": 0,
+        "sectionCount": 9,
+        "productCardCount": 0,
+        "articleCardCount": 0,
+        "navItemCount": 91,
+        "linkCount": 238,
+        "imageCount": 37,
+        "brokenImageCount": 0,
+        "textNodes": 130,
+        "hasMenuMobile": true,
+        "hasBottomNav": true,
+        "headerRect": {
+          "x": 0,
+          "y": 0,
+          "w": 1009,
+          "h": 175.8
+        },
+        "navRect": {
+          "x": 39.5,
+          "y": 105,
+          "w": 930,
+          "h": 70.8
+        },
+        "heroRect": null,
+        "mainRect": {
+          "x": 0,
+          "y": 175.8,
+          "w": 1009,
+          "h": 3469.27
+        },
+        "footerRect": {
+          "x": 0,
+          "y": 3685.06,
+          "w": 1009,
+          "h": 607
+        },
+        "sections": [
+          {
+            "tag": "header",
+            "cls": "site-header",
+            "rect": {
+              "x": 0,
+              "y": 0,
+              "w": 1009,
+              "h": 175.8
+            }
+          },
+          {
+            "tag": "main",
+            "cls": "wrapperMain_content",
+            "rect": {
+              "x": 0,
+              "y": 175.8,
+              "w": 1009,
+              "h": 3469.27
+            }
+          },
+          {
+            "tag": "article",
+            "cls": "article-loop",
+            "rect": {
+              "x": 20,
+              "y": 3483.28,
+              "w": 229.75,
+              "h": 161.78
+            }
+          },
+          {
+            "tag": "article",
+            "cls": "article-loop",
+            "rect": {
+              "x": 264.75,
+              "y": 3483.28,
+              "w": 229.75,
+              "h": 161.78
+            }
+          },
+          {
+            "tag": "article",
+            "cls": "article-loop",
+            "rect": {
+              "x": 509.5,
+              "y": 3483.28,
+              "w": 229.75,
+              "h": 161.78
+            }
+          },
+          {
+            "tag": "article",
+            "cls": "article-loop",
+            "rect": {
+              "x": 754.25,
+              "y": 3483.28,
+              "w": 229.75,
+              "h": 161.78
+            }
+          },
+          {
+            "tag": "article",
+            "cls": "article-loop",
+            "rect": {
+              "x": 999,
+              "y": 3483.28,
+              "w": 229.75,
+              "h": 161.78
+            }
+          },
+          {
+            "tag": "article",
+            "cls": "article-loop",
+            "rect": {
+              "x": 1243.75,
+              "y": 3483.28,
+              "w": 229.75,
+              "h": 161.78
+            }
+          },
+          {
+            "tag": "div",
+            "cls": "site-footer.w-100",
+            "rect": {
+              "x": 0,
+              "y": 3685.06,
+              "w": 1009,
+              "h": 607
+            }
+          }
+        ],
+        "fonts": {
+          "body": {
+            "family": "Roboto",
+            "size": "14px",
+            "weight": "400",
+            "lineHeight": "normal",
+            "color": "rgb(34, 52, 62)",
+            "letterSpacing": "normal"
+          },
+          "h1": {
+            "family": "Roboto",
+            "size": "22px",
+            "weight": "700",
+            "lineHeight": "28.6px",
+            "color": "rgb(34, 52, 62)",
+            "letterSpacing": "normal"
+          },
+          "h2": {
+            "family": "Arial, sans-serif",
+            "size": "22px",
+            "weight": "600",
+            "lineHeight": "28.6px",
+            "color": "rgb(34, 52, 62)",
+            "letterSpacing": "normal"
+          },
+          "h3": {
+            "family": "Arial, sans-serif",
+            "size": "20px",
+            "weight": "600",
+            "lineHeight": "26px",
+            "color": "rgb(30, 41, 59)",
+            "letterSpacing": "normal"
+          },
+          "a": {
+            "family": "Roboto",
+            "size": "14px",
+            "weight": "400",
+            "lineHeight": "normal",
+            "color": "rgb(34, 52, 62)",
+            "letterSpacing": "normal"
+          }
+        }
+      },
+      "geometrySha256": "f951ba93ec215fa77ae6268df0a5973052a1be913aec19f20727e257bf0ee621",
+      "tabIdentity": {
+        "href": "https://phukienmaymoc.com/blogs/news/plc-la-gi-cau-tao-nguyen-ly-hoat-dong?themeid=1001512581",
+        "device": null,
+        "ua": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.7871.224 Safari/537.36",
+        "innerWidth": 1024,
+        "innerHeight": 900,
+        "dpr": 1,
+        "docHeight": 4332,
+        "bodyClass": "mainBody-theme  template-article",
+        "sections": 0,
+        "widgetNodes": 2,
+        "images": 37,
+        "completeImages": 37
+      },
+      "instance": {
+        "attachmentId": "attachment-c7a3504e-fe28-433f-9934-7128b230e3f9",
+        "bridgePort": 20131,
+        "pid": 21236,
+        "primaryTabId": "d202a7f6-1e83-45b5-a511-dd7edc81b299",
+        "startedAt": "2026-09-11T00:18:43.203Z",
+        "runId": "run-9e8a955a-0f78-45c2-8f3b-680a6dcacaf9",
+        "attemptId": "attempt-3e259bf2-4470-4927-b906-410bd15cc2e2"
+      },
+      "run": {
+        "runId": "run-9e8a955a-0f78-45c2-8f3b-680a6dcacaf9",
+        "attachmentId": "attachment-c7a3504e-fe28-433f-9934-7128b230e3f9",
+        "authorityRevision": "rev_486cbe74ff00e6e9c22687bd974a4847",
+        "mintedAt": "2026-09-11T01:36:17.908Z",
+        "label": "s1-subject",
+        "role": "subject"
+      },
+      "capturedAt": "2026-09-11T04:01:32.654Z"
+    }
+  },
+  "artifacts": {
+    "reference": {
+      "png": {
+        "file": "E:\\Work\\apps\\AntiFan\\.canary\\theme-fidelity-fast\\r2mini\\article__1024x900.png",
+        "bytes": 1110892,
+        "sha256": "67dfc827d7eb08efc54a6a80a081c50f5fc929cb9ad45179fc138dba24e9cb74"
+      },
+      "dom": {
+        "file": "E:\\Work\\apps\\AntiFan\\.canary\\theme-fidelity-fast\\r2mini\\dom\\article__1024x900.html",
+        "bytes": 958368,
+        "sha256": "b3f75a1d0e7663c30261e27c1c948e37d8ea139eac7b419a694540e3247630ac"
+      }
+    },
+    "subject": {
+      "png": {
+        "file": "E:\\Work\\apps\\AntiFan\\.canary\\theme-fidelity-fast\\subjectmini\\article__1024x900.png",
+        "bytes": 1099261,
+        "sha256": "78dd73dbd0a9add41089888bd85c0dc4887c960c0c427c08eee87e2fa722d5a2"
+      },
+      "dom": {
+        "file": "E:\\Work\\apps\\AntiFan\\.canary\\theme-fidelity-fast\\subjectmini\\dom\\article__1024x900.html",
+        "bytes": 958862,
+        "sha256": "03dd9e907ad3cb6eb410ff8c79a9d6dafbe8442b5afb3eb8e35059da48227fb2"
+      }
+    }
+  },
+  "replay": {
+    "reference": {
+      "side": "reference",
+      "source": {
+        "file": "E:\\Work\\apps\\AntiFan\\.canary\\theme-fidelity-fast\\r2mini\\dom\\article__1024x900.html",
+        "sha256": "b3f75a1d0e7663c30261e27c1c948e37d8ea139eac7b419a694540e3247630ac",
+        "bytes": 958368
+      },
+      "file": "E:\\Work\\apps\\AntiFan\\.canary\\theme-fidelity-fast\\pairfix-out2\\replay\\reference\\article__1024x900.html",
+      "url": "http://127.0.0.1:7861/article__1024x900.html",
+      "baseHref": "https://phukienmaymoc.com/blogs/news/plc-la-gi-cau-tao-nguyen-ly-hoat-dong?themeid=-1",
+      "baseMode": "inserted",
+      "sha256": "d16cc256ade5b438c294553fc4a5b13e1980c4c5230fa9704ed37dbd82477293",
+      "bytes": 958467
+    },
+    "subject": {
+      "side": "subject",
+      "source": {
+        "file": "E:\\Work\\apps\\AntiFan\\.canary\\theme-fidelity-fast\\subjectmini\\dom\\article__1024x900.html",
+        "sha256": "03dd9e907ad3cb6eb410ff8c79a9d6dafbe8442b5afb3eb8e35059da48227fb2",
+        "bytes": 958862
+      },
+      "file": "E:\\Work\\apps\\AntiFan\\.canary\\theme-fidelity-fast\\pairfix-out2\\replay\\subject\\article__1024x900.html",
+      "url": "http://127.0.0.1:7862/article__1024x900.html",
+      "baseHref": "https://phukienmaymoc.com/blogs/news/plc-la-gi-cau-tao-nguyen-ly-hoat-dong?themeid=1001512581",
+      "baseMode": "inserted",
+      "sha256": "e84a687f0d06fbe49940d509bf30b838adf5e81b0d68e591a898680113d418b6",
+      "bytes": 958969
+    }
+  },
+  "identity": null,
+  "measurement": {
+    "reference": null,
+    "subject": null
+  },
+  "compare": null,
+  "instance": {
+    "attachmentId": "attachment-525d3106-1f3e-40a5-8d96-6feefa13e568",
+    "bridgePort": 20131,
+    "pid": 22088,
+    "primaryTabId": "baf77f39-9dd4-4c13-86de-8e774a8ff26f",
+    "startedAt": "2026-09-11T05:55:39.941Z",
+    "runId": "run-ca713919-17f0-416c-8386-acdaefcd4fc5",
+    "attemptId": "attempt-b77e14c7-12f5-4fb1-b9a2-8a2347cbc997"
+  },
+  "run": {
+    "runId": "run-ca713919-17f0-416c-8386-acdaefcd4fc5",
+    "attachmentId": "attachment-525d3106-1f3e-40a5-8d96-6feefa13e568",
+    "authorityRevision": "rev_742ca313f372d96ec80c17907fe77c8b",
+    "mintedAt": "2026-09-11T07:15:22.718Z"
+  },
+  "tabs": {
+    "reference": {
+      "tabId": "3391b08d-b22b-457d-84de-daf28d795b41",
+      "openedAt": "2026-09-11T07:19:43.902Z"
+    },
+    "subject": null
+  },
+  "startedAt": "2026-09-11T07:19:13.150Z",
+  "finishedAt": "2026-09-11T07:20:27.725Z",
+  "printLine": "surface=article viewport=1024x900 verdict=INCONCLUSIVE mismatch=n/a referenceHeight=4332px subjectHeight=4332px",
+  "sessionRenewal": {
+    "attempts": [
+      {
+        "attempt": 1,
+        "code": 1,
+        "timedOut": false,
+        "stderr": "(node:20776) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.\n(Use `node --trace-warnings ...` to show where the warning was created)\nnode:internal/modules/run_main:107\r\n"
+      },
+      {
+        "attempt": 2,
+        "code": 0,
+        "timedOut": false,
+        "stderr": "(node:22044) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.\n(Use `node --trace-warnings ...` to show where the warning was created)\n[canary-session] port=20131 attachme"
+      }
+    ]
+  },
+  "sessionRelease": {
+    "runId": "run-ca713919-17f0-416c-8386-acdaefcd4fc5",
+    "attemptId": "attempt-b77e14c7-12f5-4fb1-b9a2-8a2347cbc997",
+    "attachmentId": "attachment-525d3106-1f3e-40a5-8d96-6feefa13e568",
+    "released": true
+  },
+  "settlePasses": [
+    {
+      "pass": 1,
+      "mediaFrozen": true,
+      "fontsSettled": true,
+      "imagesSettled": true,
+      "visualStable": true,
+      "renderStateStable": true,
+      "settled": true,
+      "fingerprint": "fd2c2addfed5b06a",
+      "fingerprintFields": {
+        "sectionCount": 9,
+        "productCardCount": 0,
+        "docHeight": 4821,
+        "scrollWidth": 1024,
+        "imageCount": 37,
+        "pendingImages": 0,
+        "brokenImages": 0,
+        "imageSetHash": "af1bec25",
+        "imageSetSize": 37,
+        "textHash": "520271e4",
+        "textLength": 8402
+      },
+      "scrollAnchor": {
+        "before": 3919,
+        "after": 0,
+        "anchored": true,
+        "attempts": 19
+      },
+      "chromeProbe": {
+        "scrollY": 0,
+        "bodyTextLen": 8402,
+        "regions": [
+          {
+            "selector": "#haravan-notification",
+            "present": false
+          },
+          {
+            "selector": "#fake-order-popup",
+            "present": true,
+            "textHash": "811c9dc5",
+            "textLen": 0,
+            "head": "",
+            "display": "block",
+            "position": "fixed",
+            "rect": [
+              -340,
+              765,
+              300,
+              115
+            ]
+          },
+          {
+            "selector": "#popup-name",
+            "present": true,
+            "textHash": "811c9dc5",
+            "textLen": 0,
+            "head": "",
+            "display": "inline",
+            "position": "static",
+            "rect": [
+              -245,
+              814,
+              0,
+              17
+            ]
+          },
+          {
+            "selector": "#popup-product",
+            "present": true,
+            "textHash": "811c9dc5",
+            "textLen": 0,
+            "head": "",
+            "display": "block",
+            "position": "static",
+            "rect": [
+              -245,
+              835,
+              54,
+              0
+            ]
+          },
+          {
+            "selector": "#popup-time",
+            "present": true,
+            "textHash": "811c9dc5",
+            "textLen": 0,
+            "head": "",
+            "display": "inline",
+            "position": "static",
+            "rect": [
+              -245,
+              835,
+              0,
+              0
+            ]
+          },
+          {
+            "selector": "#google_translate_element",
+            "present": false
+          }
+        ],
+        "scripts": [
+          "//cdn.hstatic.net/themes/200001207485/1001510509/14/seo-cwv-booster.js?v=314",
+          "//cdn.hstatic.net/themes/200001207485/1001510509/14/sale-popup.js?v=314"
+        ]
+      },
+      "imagePanel": [
+        {
+          "src": "logo-hlt-2024.png",
+          "w": 1235,
+          "h": 281,
+          "y": 0
+        },
+        {
+          "src": "logo-hlt-2024.png",
+          "w": 1235,
+          "h": 281,
+          "y": 30
+        },
+        {
+          "src": "icon.png",
+          "w": 417,
+          "h": 418,
+          "y": 124
+        },
+        {
+          "src": "icon-01.png",
+          "w": 100,
+          "h": 100,
+          "y": 124
+        },
+        {
+          "src": "icon-02.png",
+          "w": 100,
+          "h": 100,
+          "y": 124
+        },
+        {
+          "src": "icon-03.png",
+          "w": 100,
+          "h": 100,
+          "y": 124
+        },
+        {
+          "src": "icon-04.png",
+          "w": 100,
+          "h": 100,
+          "y": 124
+        },
+        {
+          "src": "icon-05.png",
+          "w": 100,
+          "h": 100,
+          "y": 124
+        },
+        {
+          "src": "icon-06.png",
+          "w": 100,
+          "h": 100,
+          "y": 124
+        },
+        {
+          "src": "flash-sales-2-1.png",
+          "w": 25,
+          "h": 26,
+          "y": 123
+        },
+        {
+          "src": "blog_thumb_1003094216_dd4452e54ea24de4834cae245649aba0.jpg",
+          "w": 750,
+          "h": 382,
+          "y": 370
+        },
+        {
+          "src": "blog_thumb_1003094216_dd4452e54ea24de4834cae245649aba0.jpg",
+          "w": 750,
+          "h": 382,
+          "y": 1244
+        }
+      ],
+      "counts": {
+        "sections": 9,
+        "cards": 0,
+        "docHeight": 4821,
+        "images": 37
+      }
+    },
+    {
+      "pass": 2,
+      "mediaFrozen": true,
+      "fontsSettled": true,
+      "imagesSettled": true,
+      "visualStable": true,
+      "renderStateStable": true,
+      "settled": true,
+      "fingerprint": "816cc7e8ef65c657",
+      "fingerprintFields": {
+        "sectionCount": 9,
+        "productCardCount": 0,
+        "docHeight": 4821,
+        "scrollWidth": 1024,
+        "imageCount": 37,
+        "pendingImages": 0,
+        "brokenImages": 0,
+        "imageSetHash": "87bd787e",
+        "imageSetSize": 37,
+        "textHash": "520271e4",
+        "textLength": 8402
+      },
+      "scrollAnchor": {
+        "before": 0,
+        "after": 0,
+        "anchored": true,
+        "attempts": 0
+      },
+      "chromeProbe": {
+        "scrollY": 0,
+        "bodyTextLen": 8402,
+        "regions": [
+          {
+            "selector": "#haravan-notification",
+            "present": false
+          },
+          {
+            "selector": "#fake-order-popup",
+            "present": true,
+            "textHash": "811c9dc5",
+            "textLen": 0,
+            "head": "",
+            "display": "block",
+            "position": "fixed",
+            "rect": [
+              -340,
+              4645,
+              300,
+              115
+            ]
+          },
+          {
+            "selector": "#popup-name",
+            "present": true,
+            "textHash": "811c9dc5",
+            "textLen": 0,
+            "head": "",
+            "display": "inline",
+            "position": "static",
+            "rect": [
+              -245,
+              4694,
+              0,
+              17
+            ]
+          },
+          {
+            "selector": "#popup-product",
+            "present": true,
+            "textHash": "811c9dc5",
+            "textLen": 0,
+            "head": "",
+            "display": "block",
+            "position": "static",
+            "rect": [
+              -245,
+              4715,
+              54,
+              0
+            ]
+          },
+          {
+            "selector": "#popup-time",
+            "present": true,
+            "textHash": "811c9dc5",
+            "textLen": 0,
+            "head": "",
+            "display": "inline",
+            "position": "static",
+            "rect": [
+              -245,
+              4715,
+              0,
+              0
+            ]
+          },
+          {
+            "selector": "#google_translate_element",
+            "present": false
+          }
+        ],
+        "scripts": [
+          "//cdn.hstatic.net/themes/200001207485/1001510509/14/seo-cwv-booster.js?v=314",
+          "//cdn.hstatic.net/themes/200001207485/1001510509/14/sale-popup.js?v=314"
+        ]
+      },
+      "imagePanel": [
+        {
+          "src": "logo-hlt-2024.png",
+          "w": 1235,
+          "h": 281,
+          "y": 0
+        },
+        {
+          "src": "logo-hlt-2024.png",
+          "w": 1235,
+          "h": 281,
+          "y": 52
+        },
+        {
+          "src": "icon.png",
+          "w": 417,
+          "h": 418,
+          "y": 124
+        },
+        {
+          "src": "icon-01.png",
+          "w": 100,
+          "h": 100,
+          "y": 124
+        },
+        {
+          "src": "icon-02.png",
+          "w": 100,
+          "h": 100,
+          "y": 124
+        },
+        {
+          "src": "icon-03.png",
+          "w": 100,
+          "h": 100,
+          "y": 124
+        },
+        {
+          "src": "icon-04.png",
+          "w": 100,
+          "h": 100,
+          "y": 124
+        },
+        {
+          "src": "icon-05.png",
+          "w": 100,
+          "h": 100,
+          "y": 124
+        },
+        {
+          "src": "icon-06.png",
+          "w": 100,
+          "h": 100,
+          "y": 124
+        },
+        {
+          "src": "flash-sales-2-1.png",
+          "w": 25,
+          "h": 26,
+          "y": 123
+        },
+        {
+          "src": "blog_thumb_1003094216_dd4452e54ea24de4834cae245649aba0.jpg",
+          "w": 750,
+          "h": 382,
+          "y": 370
+        },
+        {
+          "src": "blog_thumb_1003094216_dd4452e54ea24de4834cae245649aba0.jpg",
+          "w": 750,
+          "h": 382,
+          "y": 1244
+        }
+      ],
+      "counts": {
+        "sections": 9,
+        "cards": 0,
+        "docHeight": 4821,
+        "images": 37
+      }
+    },
+    {
+      "pass": 3,
+      "mediaFrozen": true,
+      "fontsSettled": true,
+      "imagesSettled": true,
+      "visualStable": true,
+      "renderStateStable": true,
+      "settled": true,
+      "fingerprint": "1cbce7516eb8a88c",
+      "fingerprintFields": {
+        "sectionCount": 9,
+        "productCardCount": 0,
+        "docHeight": 4821,
+        "scrollWidth": 1024,
+        "imageCount": 37,
+        "pendingImages": 0,
+        "brokenImages": 0,
+        "imageSetHash": "86de1dc2",
+        "imageSetSize": 37,
+        "textHash": "520271e4",
+        "textLength": 8402
+      },
+      "scrollAnchor": {
+        "before": 0,
+        "after": 0,
+        "anchored": true,
+        "attempts": 0
+      },
+      "chromeProbe": {
+        "scrollY": 0,
+        "bodyTextLen": 8402,
+        "regions": [
+          {
+            "selector": "#haravan-notification",
+            "present": false
+          },
+          {
+            "selector": "#fake-order-popup",
+            "present": true,
+            "textHash": "811c9dc5",
+            "textLen": 0,
+            "head": "",
+            "display": "block",
+            "position": "fixed",
+            "rect": [
+              20,
+              4645,
+              300,
+              115
+            ]
+          },
+          {
+            "selector": "#popup-name",
+            "present": true,
+            "textHash": "811c9dc5",
+            "textLen": 0,
+            "head": "",
+            "display": "inline",
+            "position": "static",
+            "rect": [
+              115,
+              4694,
+              0,
+              17
+            ]
+          },
+          {
+            "selector": "#popup-product",
+            "present": true,
+            "textHash": "811c9dc5",
+            "textLen": 0,
+            "head": "",
+            "display": "block",
+            "position": "static",
+            "rect": [
+              115,
+              4715,
+              54,
+              0
+            ]
+          },
+          {
+            "selector": "#popup-time",
+            "present": true,
+            "textHash": "811c9dc5",
+            "textLen": 0,
+            "head": "",
+            "display": "inline",
+            "position": "static",
+            "rect": [
+              115,
+              4715,
+              0,
+              0
+            ]
+          },
+          {
+            "selector": "#google_translate_element",
+            "present": false
+          }
+        ],
+        "scripts": [
+          "//cdn.hstatic.net/themes/200001207485/1001510509/14/seo-cwv-booster.js?v=314",
+          "//cdn.hstatic.net/themes/200001207485/1001510509/14/sale-popup.js?v=314"
+        ]
+      },
+      "imagePanel": [
+        {
+          "src": "logo-hlt-2024.png",
+          "w": 1235,
+          "h": 281,
+          "y": 0
+        },
+        {
+          "src": "logo-hlt-2024.png",
+          "w": 1235,
+          "h": 281,
+          "y": 52
+        },
+        {
+          "src": "icon.png",
+          "w": 417,
+          "h": 418,
+          "y": 124
+        },
+        {
+          "src": "icon-01.png",
+          "w": 100,
+          "h": 100,
+          "y": 124
+        },
+        {
+          "src": "icon-02.png",
+          "w": 100,
+          "h": 100,
+          "y": 124
+        },
+        {
+          "src": "icon-03.png",
+          "w": 100,
+          "h": 100,
+          "y": 124
+        },
+        {
+          "src": "icon-04.png",
+          "w": 100,
+          "h": 100,
+          "y": 124
+        },
+        {
+          "src": "icon-05.png",
+          "w": 100,
+          "h": 100,
+          "y": 124
+        },
+        {
+          "src": "icon-06.png",
+          "w": 100,
+          "h": 100,
+          "y": 124
+        },
+        {
+          "src": "flash-sales-2-1.png",
+          "w": 25,
+          "h": 26,
+          "y": 123
+        },
+        {
+          "src": "blog_thumb_1003094216_dd4452e54ea24de4834cae245649aba0.jpg",
+          "w": 750,
+          "h": 382,
+          "y": 370
+        },
+        {
+          "src": "blog_thumb_1003094216_dd4452e54ea24de4834cae245649aba0.jpg",
+          "w": 750,
+          "h": 382,
+          "y": 1244
+        }
+      ],
+      "counts": {
+        "sections": 9,
+        "cards": 0,
+        "docHeight": 4821,
+        "images": 37
+      }
+    }
+  ],
+  "tabsClosed": {}
+}
