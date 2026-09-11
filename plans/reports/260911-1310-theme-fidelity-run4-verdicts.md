@@ -319,6 +319,9 @@ A settle-only fix cannot reach exit 0: the renewal class alone keeps both sets `
   capture call, pathname identity in `checkObservedUrl`) was in the tree during this session's last fixture
   run, so that run's route-identity behaviour belongs to that edit and not to this session's changes. Commit
   `.canary/tools/**` path-scoped, name every path explicitly, and verify the staged set with
-  `git diff --cached --name-only` before committing.
+  `git diff --cached --name-only` before committing. The peer run was live during this session's last two
+  fixture runs (`loader-out` and the widened-panel diagnosis) — `.canary/theme-fidelity-run4/compare/**` was
+  being rewritten while they ran — so treat their legs as not singly-attributed even though both reproduced the
+  earlier isolated fixture verdicts exactly, mechanism for mechanism.
 - The ultra wave's five candidates were scored, all five refuted on their named cause, and the applied shape
   confirmed best: `C:/Users/Admin/.omp/agent/sessions/--E--Work-apps-AntiFan--/2026-09-09T11-31-20-180Z_01a085ef-cbf4-765d-9a4f-ecf6ff8f7c77/local/ultra-verifier-verdict-round2.json`.
