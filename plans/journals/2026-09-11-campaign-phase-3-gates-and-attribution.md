@@ -154,7 +154,16 @@ at 1440 was the anomaly. The symmetric regime as shipped is `none` on both, whic
 reference-side artifact without fabricating a FAIL, but it also removes the regime a real user gets and
 blinds `LAYOUT_WIDTH_ASYMMETRY`. `overflow-y:scroll;scrollbar-gutter:stable` on both, applied before
 either side materializes and with the floor re-measured, is the faithful version — a child change, so a
-full 15-page re-run, not a patch to the published set. Per-side width readings stay in every case file.
+full 15-page re-run, not a patch to the published set.
+
+Correction to the sentence that stood here ("per-side width readings stay in every case file"): the
+regime is injected before the identity is captured (`viewport-run.mjs:734-735` vs `:764`), so every
+published case records equal widths by construction and `LAYOUT_WIDTH_ASYMMETRY` at `:800` compares two
+post-regime values — it cannot fire while the regime is on, which means the 4-to-0 refusal drop is the
+detector being blinded rather than the asymmetry being resolved. The as-found asymmetry survives only in
+pre-regime attempts: 15 asymmetric pairs over 8 pages (2, 3, 4, 9, 10, 11, 13, 14), reference 1440/1024
+without a gutter against clone 1425/1009 with one — the clone in the browser's default regime and the
+reference anomalous — and none on page 1, matching the pages that passed against the pages that refused.
 
 ### The snapshots carry no state churn (exhaustive, not sampled)
 

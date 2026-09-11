@@ -120,10 +120,19 @@ Consequences, stated plainly:
 
 - Forcing `none` on both sides removes a reference-side artifact, so no FAIL is fabricated by it: the
   differences it removed were the reference's own state, not a clone defect.
-- But it compares under a gutter regime no real user gets, and with both sides clamped it makes
-  `LAYOUT_WIDTH_ASYMMETRY` — the refusal written to catch exactly this asymmetry — unable to fire in
-  the delivered dataset. The per-side `clientWidth`/`scrollWidth` readings and `evidence.scrollbarRegime`
-  are still recorded per case, so a reader can see the choice.
+- But it compares under a gutter regime no real user gets, and it **neutralizes the detection it was
+  meant to complement**: `applyScrollbarRegime` runs before the identity is captured
+  (`viewport-run.mjs:734-735`, `evidence.tabIdentity` at `:764`), so `LAYOUT_WIDTH_ASYMMETRY` at `:800`
+  compares two post-regime widths and cannot fire while the regime is on. The refusal count dropping
+  from four to zero in the authoritative run is therefore the detector being blinded, **not** evidence
+  that the asymmetry was resolved. Correction to an earlier draft of this section, which said the
+  per-case width readings let a reader see the choice: they do not. The published cases record
+  `clientWidth == innerWidth` on both sides by construction (page-01 1440: 1440/1440; 1024: 1024/1024),
+  and `evidence.scrollbarRegime` carries only the injected `css`. The as-found state survives only in
+  pre-regime attempts: 15 asymmetric pairs across 8 pages (2, 3, 4, 9, 10, 11, 13, 14), always the
+  reference at 1440/1024 with no gutter and the clone at 1425/1009 with one, and never on page 1 — which
+  is why page 1 passed while its neighbours refused, i.e. it is a per-page reference state (a scroll-locked
+  or overlay-covered root), not a run-wide browser setting.
 - The faithful normalization is `html{overflow-y:scroll;scrollbar-gutter:stable}` on both, applied
   before either side is materialized and measured, with the identity floor re-measured afterwards.
   That is a change to the child, i.e. a methodology change, so it requires all 15 pages re-run on one
