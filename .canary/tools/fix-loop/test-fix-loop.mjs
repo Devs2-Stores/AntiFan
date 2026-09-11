@@ -474,6 +474,23 @@ test('the merge prices a rewrite the same way the audit does, and refuses it', (
   assert.equal(mergeResult.ok, false);
   assert.equal(mergeResult.receipt.budgets.bytes > 20, true, `measured bytes: ${mergeResult.receipt.budgets.bytes}`);
   assert.equal(fs.readFileSync(targetCss, 'utf8'), before, 'a refused merge writes nothing to the target');
+
+  // The same manifests through the call the merge used to make — every argument it passed and no
+  // resolver — price the rewrite at the size delta: 1 byte, inside the ceiling. That is the
+  // decision this test discriminates, and it is one argument removed from production.
+  const deltaPriced = runAllAudits({
+    baseManifest: JSON.parse(fs.readFileSync(path.join(staged.stagingDir, 'base-manifest.json'), 'utf8')),
+    postManifest: mintManifest(staged.stagedRoot),
+    request: {
+      allowedFiles: ['assets/**'],
+      requestedTargets: ['assets/theme.css'],
+      diffBudget: { maxFiles: 2, maxBytes: 20 },
+      maxScopeExpansion: 0,
+    },
+    fixerResult: { toolSurface: ['file.write'], selfVerificationClaimed: false },
+  });
+  assert.equal(deltaPriced.decision, DECISIONS.OK, 'without the resolver the size delta hides a whole-file rewrite');
+  assert.equal(deltaPriced.budgets.bytes, 1);
 });
 
 test('a file whose bytes cannot be compared is priced at its whole larger side', () => {
