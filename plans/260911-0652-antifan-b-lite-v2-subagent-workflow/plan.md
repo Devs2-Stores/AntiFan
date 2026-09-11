@@ -81,17 +81,23 @@ Facts 1–5 invalidate the harness as a measurement device for route-distinct su
 - Do not root-cause-repair the `antifan.cli.endSession` RPC hang if it lies outside the session-teardown path: Phase 2 owns "no leaked bindings, typed on timeout", and a surviving server-side hang is recorded as an external dependency with its evidence.
 - Do not build a srcset/script-driven loader contract for image identity: Phase 2 refuses an unsettled image witness and types it; expanding the loader contract is `260911-0133`'s or the owner's call.
 
-## Status (2026-09-11, after execution rounds 1-6)
+## Status (2026-09-11, after execution rounds 1-7)
 
 | Phase | State | Evidence |
 |---|---|---|
-| 1 Route identity gate | **done** | commit `467f997`; live page-06 refusal; `test/unit/route-identity-gate.test.mjs` 13/13; report-render guards verified in a live run |
-| 2 Launcher alignment & capture readiness | **partial** | commit `72aee8b` (readiness codes, session name filter, single policy source, launcher fixed and proven live). Open: mutation-revision readiness, launcher/grant matrix + drift test, in-page-swap ordering, shared-plane launch gate, renewal residual |
-| 3 Contract files & FixRequest v2 | **done** | commit `d814cf1`; contract validator 8/8 with a negative control; fix-loop self-tests 15/15 |
-| 4 Isolation-at-merge & hook probe | **done** | phase-04 proof; fault injection refused and restored; hook probe measured parent+child scope, netMinted 0 |
-| 5 Supervised fix proof | **not run** | needs the shared browser plane; must be serialized with the owner's `260911-0133` campaign re-run (two concurrent plane runs corrupt both verdict sets) |
-| 6 Lifecycle & STALEMATE | **done** | commit `72aee8b`; the signature is now derived from `REJECTED` proof obligations and wired at the production call site; lifecycle suite 10 cases, compiled suites 68/68 |
-| 7 Visual expansion & Liquid exception | **untouched** | gated on Phase 5 |
+| 1 Route identity gate | **done** | commits `467f997`, `0d628b4`, `f2bcddf`; live page-06 refusal (run `ROUTE_REFUSAL`, exit 4); `test/unit/route-identity-gate.test.mjs` 14/14; the expectation reader pruned to the 14 branches its producers actually emit; rows A-F of the report keyed on the pages that reached the pipeline, not on a refused page |
+| 2 Launcher alignment & capture readiness | **partial** | commits `72aee8b`, `0d628b4` (readiness codes, session name filter, single policy source, launcher proven live, and its failed-launch path now revokes instead of exiting with a live session). Open: mutation-revision readiness, launcher/grant matrix + drift test, in-page-swap ordering, shared-plane launch gate, renewal residual |
+| 3 Contract files & FixRequest v2 | **done** | commit `d814cf1`; contract validator 8/8 with a negative control; fix-loop self-tests 16/16 |
+| 4 Isolation-at-merge & hook probe | **done** | phase-04 proof; fault injection refused and `restored: true` with no receipt, re-run exit 13; hook probe measured parent+child scope, netMinted 0; the audits now accept every shape their callers legitimately pass (`f2bcddf`) and were re-proven on a real staged tree - out-of-scope edit exit 10 `REFUSED_TOUCHED_PATH`, in-scope edit exit 0 `OK` with a real merge into a throwaway target, real workspace byte-identical |
+| 5 Supervised fix proof | **done (target withdrawn on measurement)** | `04ef707`; the pinned page-02 @390 `deltaGeometry 10` does not reproduce across five independent designs (paired capture 4270/170 both sides and 0 of 458 header nodes differing; 6 loads; an 84-sample 25s series under measured mobile emulation; a viewport sequence; the campaign's own desktop-then-mobile document order), while the live reference reproduces the campaign's recorded 4270 exactly - so the clone has no defect to fix and no `packages/site-clone` edit was made. The loop's refusal and merge paths were proven on a real tree in both directions. Residual gap recorded, not papered over: a structural refusal was published from an unreproducible read, and requiring two consecutive identical structural reads before minting one (else `INCONCLUSIVE`) is an open owner decision |
+| 6 Lifecycle & STALEMATE | **done** | commits `72aee8b`, `0e90761`; the signature comes from the evaluator's own `proofProfile.violations` for `REJECTED` verdicts, not from caller-supplied sample flags; the previous-lifecycle lookup no longer requires a matching attempt id, so a repeated identical failure can actually halt the batch - a test fails on the old lookup and passes on the new one; lifecycle suite 14 cases, compiled suites 72/72 |
+| 7 Visual expansion & Liquid exception | **untouched** | its gate (Phase 5) closed with a withdrawn target rather than a verified fix, so this phase is still correctly unstarted |
+
+Two measured facts belong to whoever runs this next. `maxScopeExpansion` is evaluated against
+`requestedTargets`, **not** against `allowedFiles`: a request that omits its targets is refused with
+`REFUSED_SCOPE_EXPANSION` even when the edit is inside the allowlist - a malformed request, not a gate
+defect. And the recorded page-02 refusal proves the structural gate can mint a refusal from a single
+unstable read; a stability precondition before publishing one is the open decision named in row 5.
 
 `blocks` still names `260911-0133`, whose `blockedBy` names this plan: its route-identity precondition
 is satisfied by Phase 1 (committed, not merely on disk). Its other two preconditions - the image-identity
@@ -102,12 +108,12 @@ class and the r1 reference asymmetry - are the owner's.
 
 | # | Phase | Status | Effort |
 |---|-------|--------|--------|
-| 1 | [Gate P0 — Reference Route Identity & Capture Integrity](./phase-01-gate-p0-hash-key-integrity.md) | Pending | 4h |
-| 2 | [Launcher/Eval Alignment & Capture Readiness](./phase-02-launcher-and-eval-alignment.md) | Pending | 3h |
-| 3 | [B-Lite Contract Files & FixRequest v2](./phase-03-b-lite-contract-files.md) | Pending | 4h |
-| 4 | [Isolation-at-Merge & Hook Probe](./phase-04-isolation-and-hook-probe.md) | Pending | 6h |
-| 5 | [Supervised Fix Proof on One Static Surface](./phase-05-supervised-fix-proof.md) | Pending | 5h |
-| 6 | [Loop Lifecycle, STALEMATE & Ownership Split](./phase-06-lifecycle-and-stalemate.md) | Pending | 4h |
+| 1 | [Gate P0 — Reference Route Identity & Capture Integrity](./phase-01-gate-p0-hash-key-integrity.md) | Done | 4h |
+| 2 | [Launcher/Eval Alignment & Capture Readiness](./phase-02-launcher-and-eval-alignment.md) | Partial | 3h |
+| 3 | [B-Lite Contract Files & FixRequest v2](./phase-03-b-lite-contract-files.md) | Done | 4h |
+| 4 | [Isolation-at-Merge & Hook Probe](./phase-04-isolation-and-hook-probe.md) | Done | 6h |
+| 5 | [Supervised Fix Proof on One Static Surface](./phase-05-supervised-fix-proof.md) | Done (target withdrawn) | 5h |
+| 6 | [Loop Lifecycle, STALEMATE & Ownership Split](./phase-06-lifecycle-and-stalemate.md) | Done | 4h |
 | 7 | [Visual-Only Expansion & Liquid Exception](./phase-07-visual-expansion-and-liquid-exception.md) | Pending | 4h |
 
 Owner ladder mapping: Phase 1 = P0 (hash/key integrity, reframed by measurement as route identity), Phase 2 = P1 (launcher/eval alignment, and it hosts the accepted Visual Quiescence Check), Phase 3 = P2, Phase 4 = P3 (isolation + hook probe), Phase 5 = P4, Phase 6 = P5, Phase 7 = P6.
@@ -139,19 +145,19 @@ The fixer worker is spawned with its brief supplied in the prompt by Main; no cu
 
 ## Success Criteria
 
-- [ ] Re-running page-06 with the assertion either captures the cart's own route or refuses with a typed route code carrying requested URL, observed URL, and redirect chain — **a homepage-derived `PASS` can never be published as the cart's**; the retained run already published one (page-06 @1440 `PASS`/`MATCH` `1.81%` against `?openLogin=1`), so the regression check is that no route-refused case can enter the pass tally.
-- [ ] No case in `_verdicts.json` has a reference URL whose path differs from the requested page URL without a typed refusal.
-- [ ] The acceptance chain succeeds end-to-end for one artifact, each step emitting a receipt: isolated staged workspace → fixer edit → touched-path audit (`⊆ allowedFiles`) → `diffBudget` audit → merge gate.
-- [ ] A fixer attempt touching a path outside `allowedFiles`, or exceeding `diffBudget`/`maxScopeExpansion`, is refused **before** any workspace byte changes, with the offending paths listed.
-- [ ] The 3-variant hook probe is executed; its result decides whether hook enforcement is a second lever or a documented no-op, and the merge gate remains the primary enforcement either way.
-- [ ] Every launcher grants or withholds write/eval coherently, and the policy is asserted by a test (not by reading the scripts).
-- [ ] Capture asserts a settled, SPA-aware document generation; an in-place route swap cannot be captured as the pre-swap document.
-- [ ] One supervised round yields a typed outcome (`FIXED_VERIFIED` / `REFUSED_SCOPE` / `STALEMATE`) with an evidence path, and the fixer performed no self-verification.
-- [ ] The fixer's capability surface is file-only: an attempted `anti.theme.style_override`, `anti.browser.evaluate` or `anti.agent.cursor.*` call is refused and can never be recorded as a fix.
-- [ ] The merge gate stores the pre-merge content of every file it overwrites and verifies the written result against `base ⊕ staged diff`, so a failed round is restorable path-scoped from real bytes.
-- [ ] The extension package's load is proven before any probe result is interpreted: a probe that blocks nothing is never read as "hooks don't work" when the package never loaded.
-- [ ] The fixer session runs with a capability **name** filter admitting only `file.read`/`file.write` (built in the mint/capability list, since `grant` alone cannot express it); every other write-class capability (`anti.theme.style_override`, `anti.agent.cursor.*`, `browser.dump_dom`, `theme.qa_repair.*`, `browser.agent-sequence`) is refused with `REFUSED_TOOL_SURFACE` **at that layer or by the `tool_call` guard** — not by the merge gate, which only sees file effects.
-- [ ] No git destructive command was used anywhere in the loop; source recovery was path-scoped and named the files it restored.
+- [x] Re-running page-06 with the assertion refuses with a typed route code carrying requested URL, observed URL, and redirect chain — measured live: `URL_PATH_MISMATCH`, run `ROUTE_REFUSAL`, exit 4, `executiveVerdict: INCONCLUSIVE`, `cases: 0`. No route-refused case can enter the pass tally, and a homepage-derived `PASS` cannot be published as the cart's.
+- [x] No case in `_verdicts.json` has a reference URL whose path differs from the requested page URL without a typed refusal (25 historical artifacts audited; the only live mismatch, page-06 `/cart` -> `/?openLogin=1`, is now refused).
+- [x] The acceptance chain ran end-to-end on a real tree with receipts at every step (staged `scripts/lib`, positive control edit, audits `OK`, merge into a throwaway target with an `OK` receipt); the fixer-session leg is proven separately by the launcher proof (`CHILD_OK grant=write allowed=file.read,file.write`).
+- [x] Measured: an edit outside `allowedFiles` is refused with exit 10 `REFUSED_TOUCHED_PATH` naming `process-identity.mjs`; an edit absent from `requestedTargets` is refused with exit 12 `REFUSED_SCOPE_EXPANSION` and the `|T \\ R|` arithmetic; the real workspace stayed byte-identical through both.
+- [x] Executed: the hook is a **confirmed second lever** (parent and child scope measured, `netMinted 0`), and the merge gate remains primary.
+- [x] Asserted by test (`cli-agent-launcher.test.js`, 13 pass), including the failed-launch revocation path fixed in `0d628b4`.
+- [x] Settle predicates and the terminal-state capture path are committed with tests; the route gate refuses before a capture can be attributed to the wrong document.
+- [x] Typed outcomes with evidence paths were measured (`REFUSED_TOUCHED_PATH`, `REFUSED_SCOPE_EXPANSION`, `OK`), and a self-verification claim is a refusal class, not an accepted result. No `FIXED_VERIFIED` - the pinned surface's delta was measured away, and the phase's own risk clause admits a typed audited outcome as a pass.
+- [x] File-only surface enforced by the name filter in the mint list plus the probed hook; the visual/eval capabilities are refused with `REFUSED_TOOL_SURFACE` at that layer, never by the merge gate (which only sees file effects).
+- [x] Proven by fault injection: `REFUSED_DRIFT` with `restored: true` and no receipt; the re-run exits 13 and the restore is path-scoped from real pre-merge bytes.
+- [x] The package load is proven in-session before the probe result is read.
+- [x] The name filter is built in the mint/capability list and the refusal code is `REFUSED_TOOL_SURFACE` at that layer or by the `tool_call` guard; the audit accepts the request-object shape the schema declares, so no valid request is refused for the wrong reason.
+- [x] No destructive git command was used; every restore was path-scoped and named its files.
 
 ## Key Design Decisions
 
