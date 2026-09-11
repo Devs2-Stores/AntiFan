@@ -59,3 +59,13 @@ Gate state is read from `attempts/<id>/evidence/<viewport>.json`, never from the
 parent does not forward child stdout, so `grep "height drift"` and `grep "reference identity"` on a batch
 log return nothing even when the child recorded both. The page-level `evidence/` mirror can be a stale
 copy of an older attempt; the attempt-level file is authoritative.
+
+## Published-set audit (after the aggregate)
+
+- No published FAIL is a harness cause: every one carries a real pixel percentage, and the
+  `CAPABILITY_NOT_FOUND` failures seen at pages 5-8 belong to the killed pre-fix run's log only — those
+  pages were re-measured, so the cause never entered the dataset.
+- Page 6 never reached `/cart`: all three attempts record
+  `tabIdentity.reference.href = https://hoplongtech.com/?openLogin=1` (redirect to home plus a login
+  modal), and its legs reproduce page 1's three verdicts exactly (PASS 1.81% / STRUCTURAL 2.21% /
+  withheld). Coverage is 14 distinct pages, not 15.

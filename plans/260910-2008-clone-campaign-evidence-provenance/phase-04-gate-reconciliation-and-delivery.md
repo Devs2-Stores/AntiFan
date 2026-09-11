@@ -121,3 +121,24 @@ The report is generated from persisted evidence, so it can be regenerated or rem
   aggregate.
 
 One verdict stands for the campaign: **FAIL**, with `NEEDS_TARGETED_FIXES`.
+
+## Coverage caveat the aggregate does not show (found while auditing the published set)
+
+Two checks run over the published evidence after the aggregate was written:
+
+- **No harness cause is published as a fidelity verdict.** Every published FAIL carries a real pixel
+  percentage; none reads `CAPABILITY_NOT_FOUND`, none has a null or 0/100 percentage. The
+  `CAPABILITY_NOT_FOUND` failures at pages 5-8 exist only in the log of the killed pre-fix run
+  (`phase3-full.log`) and never reached the published dataset, because those pages were re-measured
+  afterwards.
+- **Page 6 is a vacuous case.** Every attempt records
+  `tabIdentity.reference.href = https://hoplongtech.com/?openLogin=1`: `/cart` redirected to the home
+  page and opened a login modal, so its three cases compare home-with-modal against a clone built from
+  that same state. The numbers corroborate it exactly — 1440 PASS 1.81%, 1024
+  `STRUCTURAL_PARITY_MISMATCH` 2.21%, 390 withheld, identical to page 1's three legs. The campaign
+  therefore covers **14 distinct pages**, not 15, and the cart surface was never exercised.
+
+The per-case observed reference URL is already recorded (that is how the redirect was found), so the
+durable fix is on the reader side: the aggregate's per-page line should print the observed reference URL
+beside the verdict, so a redirect can never pass as coverage. Until that lands, treat the cart row as a
+second measurement of the home page and read `What Is Actually Proven` accordingly.
