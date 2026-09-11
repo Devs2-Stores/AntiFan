@@ -1612,6 +1612,9 @@ async function comparePair({ pair, reference, subject, servers, rpc, settle, run
     doc.verdict = 'INCONCLUSIVE';
     doc.mechanism = e?.code || 'REPLAY_NOT_MEASURABLE';
     doc.reason = String((e && e.message) || e).slice(0, 600);
+    // The per-pass components are the only evidence that names which predicate
+    // disagreed; the 600-char reason truncates them, so persist them verbatim.
+    doc.settlePasses = Array.isArray(e?.passes) ? e.passes : null;
   } finally {
     const closed = {};
     for (const [side, tabId] of [['reference', referenceTabId], ['subject', subjectTabId]]) {

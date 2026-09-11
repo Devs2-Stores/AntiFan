@@ -34,14 +34,14 @@
   },
   "release": {
     "label": "s1-subject:product__1024x900",
-    "at": "2026-09-11T01:02:29.697Z",
+    "at": "2026-09-11T03:59:40.123Z",
     "widgets": {
       "slickPaused": 0,
       "swiperPaused": 0
     },
     "release": {
       "label": "s1-subject:product__1024x900-full",
-      "at": "2026-09-11T01:02:29.716Z",
+      "at": "2026-09-11T03:59:40.130Z",
       "dom": {
         "restored": 0,
         "markedLeft": 0,
@@ -53,7 +53,7 @@
       "unfreeze": {
         "frozen": false,
         "mediaCount": 0,
-        "tabId": "31190667-10ef-40c3-83f6-b5e4da4ad72b"
+        "tabId": "8a2f4d92-3502-49fb-901d-4ce0cbc36115"
       }
     },
     "freezeReleased": true,
@@ -64,17 +64,17 @@
     "timerSweepMotion": {
       "widgetsSampled": 0,
       "windowMs": 2500,
-      "sampleBefore": "5f039592",
-      "sampleAfter": "5f039592",
+      "sampleBefore": "a8f69ec9",
+      "sampleAfter": "a8f69ec9",
       "stable": true
     }
   },
   "tab": {
-    "tabId": "31190667-10ef-40c3-83f6-b5e4da4ad72b",
-    "openedAt": "2026-09-11T01:02:27.395Z",
+    "tabId": "8a2f4d92-3502-49fb-901d-4ce0cbc36115",
+    "openedAt": "2026-09-11T03:59:34.798Z",
     "closed": true,
     "closeError": null,
-    "closedAt": "2026-09-11T01:02:34.248Z"
+    "closedAt": "2026-09-11T03:59:43.394Z"
   },
   "failure": null,
   "provenance": {
@@ -89,20 +89,20 @@
     "themeIdParameter": "1001512581",
     "png": {
       "file": "product__1024x900.png",
-      "sha256": "88cc3cfc5feec0c807ddcc2c9fb19224ffdf90bd19eae9059eb7052c8e674a5a",
-      "bytes": 1755694,
-      "artifactRef": "artifact-09cb89f5-1611-4934-bd32-07078dd4b496"
+      "sha256": "f4e34f87e46651f97a47dc53fa382677c4d60a54c0d8ca729b59feb54355c467",
+      "bytes": 388512,
+      "artifactRef": "artifact-c927793f-e04e-4556-bf5f-1fc929584037"
     },
     "dom": {
       "file": "dom/product__1024x900.html",
-      "sha256": "af5d44887032496976e98a08393f709d464329b87d5a8dafb107912ac950b464",
-      "bytes": 943770,
+      "sha256": "3b2f7d87352be887983a0ff95bf85926819d1d77541b91ace7009fec7b86afa7",
+      "bytes": 943626,
       "observedUrl": "https://phukienmaymoc.com/products/ong-han-laser?themeid=1001512581"
     },
-    "domDigest": "af5d44887032496976e98a08393f709d464329b87d5a8dafb107912ac950b464",
+    "domDigest": "3b2f7d87352be887983a0ff95bf85926819d1d77541b91ace7009fec7b86afa7",
     "geometry": {
       "url": "https://phukienmaymoc.com/products/ong-han-laser?themeid=1001512581",
-      "docHeight": 15207,
+      "docHeight": 2855,
       "clientWidth": 1009,
       "scrollWidth": 1009,
       "overflowX": 0,
@@ -113,31 +113,31 @@
       "linkCount": 189,
       "imageCount": 25,
       "brokenImageCount": 0,
-      "textNodes": 223,
+      "textNodes": 87,
       "hasMenuMobile": true,
       "hasBottomNav": true,
       "headerRect": {
         "x": 0,
         "y": 0,
         "w": 1009,
-        "h": 11354.06
+        "h": 175.8
       },
       "navRect": {
-        "x": 20,
-        "y": 1886,
-        "w": 969,
-        "h": 9468.06
+        "x": 39.5,
+        "y": 105,
+        "w": 930,
+        "h": 70.8
       },
       "heroRect": null,
       "mainRect": {
         "x": 0,
-        "y": 11354.06,
+        "y": 175.8,
         "w": 1009,
-        "h": 1875.39
+        "h": 2032.19
       },
       "footerRect": {
         "x": 0,
-        "y": 13229.45,
+        "y": 2207.98,
         "w": 1009,
         "h": 607
       },
@@ -149,7 +149,7 @@
             "x": 0,
             "y": 0,
             "w": 1009,
-            "h": 11354.06
+            "h": 175.8
           }
         },
         {
@@ -157,9 +157,9 @@
           "cls": "wrapperMain_content",
           "rect": {
             "x": 0,
-            "y": 11354.06,
+            "y": 175.8,
             "w": 1009,
-            "h": 1875.39
+            "h": 2032.19
           }
         },
         {
@@ -167,9 +167,9 @@
           "cls": "",
           "rect": {
             "x": 0,
-            "y": 11354.06,
+            "y": 175.8,
             "w": 1009,
-            "h": 1875.39
+            "h": 2032.19
           }
         },
         {
@@ -177,7 +177,7 @@
           "cls": "site-footer.w-100",
           "rect": {
             "x": 0,
-            "y": 13229.45,
+            "y": 2207.98,
             "w": 1009,
             "h": 607
           }
@@ -185,48 +185,48 @@
       ],
       "fonts": {
         "body": {
-          "family": "Roboto, sans-serif",
+          "family": "Roboto",
           "size": "14px",
           "weight": "400",
           "lineHeight": "normal",
-          "color": "rgb(0, 0, 0)",
+          "color": "rgb(34, 52, 62)",
           "letterSpacing": "normal"
         },
         "h1": {
-          "family": "Roboto, sans-serif",
+          "family": "Roboto",
           "size": "22px",
           "weight": "700",
           "lineHeight": "28.6px",
-          "color": "rgb(0, 0, 0)",
+          "color": "rgb(34, 52, 62)",
           "letterSpacing": "normal"
         },
         "h2": {
-          "family": "Roboto, sans-serif",
+          "family": "Roboto",
           "size": "18px",
           "weight": "700",
           "lineHeight": "23.4px",
-          "color": "rgb(0, 0, 0)",
+          "color": "rgb(34, 52, 62)",
           "letterSpacing": "normal"
         },
         "h3": {
-          "family": "Roboto, sans-serif",
+          "family": "Roboto",
           "size": "16px",
           "weight": "700",
           "lineHeight": "20.8px",
-          "color": "rgb(0, 0, 0)",
+          "color": "rgb(34, 52, 62)",
           "letterSpacing": "normal"
         },
         "a": {
-          "family": "Roboto, sans-serif",
+          "family": "Roboto",
           "size": "14px",
           "weight": "400",
           "lineHeight": "normal",
-          "color": "rgb(0, 0, 0)",
+          "color": "rgb(34, 52, 62)",
           "letterSpacing": "normal"
         }
       }
     },
-    "geometrySha256": "18eef5f41243a447c3be85d42145934719d68a9caa635ac572d3ed12b32d6044",
+    "geometrySha256": "933004429eaa8c0261fa04755639232494782d610b6edf81db09164c9b347c19",
     "tabIdentity": {
       "href": "https://phukienmaymoc.com/products/ong-han-laser?themeid=1001512581",
       "device": null,
@@ -234,7 +234,7 @@
       "innerWidth": 1024,
       "innerHeight": 900,
       "dpr": 1,
-      "docHeight": 15207,
+      "docHeight": 2855,
       "bodyClass": "mainBody-theme  template-product",
       "sections": 0,
       "widgetNodes": 0,
@@ -242,37 +242,37 @@
       "completeImages": 25
     },
     "instance": {
-      "attachmentId": "attachment-38b02838-40ce-457e-bfc0-991a6057b6d8",
+      "attachmentId": "attachment-c7a3504e-fe28-433f-9934-7128b230e3f9",
       "bridgePort": 20131,
       "pid": 21236,
-      "primaryTabId": "e8c4391a-4397-4cb8-80ed-abd77b51025d",
+      "primaryTabId": "d202a7f6-1e83-45b5-a511-dd7edc81b299",
       "startedAt": "2026-09-11T00:18:43.203Z",
-      "runId": "run-ba23a030-9f66-40ac-a3c8-c3e77b4bfb50",
-      "attemptId": "attempt-ac2638ce-3f4d-48ce-ac28-9dd7734f64fa"
+      "runId": "run-9e8a955a-0f78-45c2-8f3b-680a6dcacaf9",
+      "attemptId": "attempt-3e259bf2-4470-4927-b906-410bd15cc2e2"
     },
     "run": {
-      "runId": "run-ba23a030-9f66-40ac-a3c8-c3e77b4bfb50",
-      "attachmentId": "attachment-38b02838-40ce-457e-bfc0-991a6057b6d8",
-      "authorityRevision": "rev_1d0922924f9bb057f2ef1f372e766814",
-      "mintedAt": "2026-09-11T00:40:59.400Z",
+      "runId": "run-9e8a955a-0f78-45c2-8f3b-680a6dcacaf9",
+      "attachmentId": "attachment-c7a3504e-fe28-433f-9934-7128b230e3f9",
+      "authorityRevision": "rev_486cbe74ff00e6e9c22687bd974a4847",
+      "mintedAt": "2026-09-11T01:36:17.908Z",
       "label": "s1-subject",
       "role": "subject"
     },
-    "capturedAt": "2026-09-11T01:02:34.216Z"
+    "capturedAt": "2026-09-11T03:59:43.377Z"
   },
-  "startedAt": "2026-09-11T01:02:27.367Z",
-  "finishedAt": "2026-09-11T01:02:34.248Z",
+  "startedAt": "2026-09-11T03:59:34.779Z",
+  "finishedAt": "2026-09-11T03:59:43.394Z",
   "png": {
     "file": "product__1024x900.png",
-    "artifactRef": "artifact-09cb89f5-1611-4934-bd32-07078dd4b496",
-    "sha256": "88cc3cfc5feec0c807ddcc2c9fb19224ffdf90bd19eae9059eb7052c8e674a5a",
-    "bytes": 1755694,
+    "artifactRef": "artifact-c927793f-e04e-4556-bf5f-1fc929584037",
+    "sha256": "f4e34f87e46651f97a47dc53fa382677c4d60a54c0d8ca729b59feb54355c467",
+    "bytes": 388512,
     "integrity": {
       "isPng": true,
       "hasIend": true,
-      "bytes": 1755694
+      "bytes": 388512
     },
-    "declaredByteLength": 1755694,
+    "declaredByteLength": 388512,
     "receipt": {
       "backend": "cdp",
       "dpr": 1,
@@ -283,14 +283,14 @@
       },
       "cssCaptureSize": {
         "width": 1024,
-        "height": 15207
+        "height": 2855
       },
       "rasterSize": {
         "width": 1024,
-        "height": 15207
+        "height": 2855
       },
       "captureMode": "full-page",
-      "timestamp": 1789088553371,
+      "timestamp": 1789099183078,
       "viewportTransaction": {
         "before": {
           "width": 1024,
@@ -311,18 +311,18 @@
   },
   "dom": {
     "file": "dom/product__1024x900.html",
-    "sha256": "af5d44887032496976e98a08393f709d464329b87d5a8dafb107912ac950b464",
-    "bytes": 943770,
+    "sha256": "3b2f7d87352be887983a0ff95bf85926819d1d77541b91ace7009fec7b86afa7",
+    "bytes": 943626,
     "observedUrl": "https://phukienmaymoc.com/products/ong-han-laser?themeid=1001512581",
     "clientWidth": 1009,
-    "docHeight": 15207,
+    "docHeight": 2855,
     "sectionCount": 4,
     "cardCount": 0,
     "productItems": 0,
     "images": 25,
     "sanitized": true,
     "removedCount": 5,
-    "declaredSha256": "af5d44887032496976e98a08393f709d464329b87d5a8dafb107912ac950b464",
+    "declaredSha256": "3b2f7d87352be887983a0ff95bf85926819d1d77541b91ace7009fec7b86afa7",
     "servedThemeIds": [
       {
         "org": "200001207485",
@@ -338,7 +338,7 @@
   },
   "geometry": {
     "url": "https://phukienmaymoc.com/products/ong-han-laser?themeid=1001512581",
-    "docHeight": 15207,
+    "docHeight": 2855,
     "clientWidth": 1009,
     "scrollWidth": 1009,
     "overflowX": 0,
@@ -349,31 +349,31 @@
     "linkCount": 189,
     "imageCount": 25,
     "brokenImageCount": 0,
-    "textNodes": 223,
+    "textNodes": 87,
     "hasMenuMobile": true,
     "hasBottomNav": true,
     "headerRect": {
       "x": 0,
       "y": 0,
       "w": 1009,
-      "h": 11354.06
+      "h": 175.8
     },
     "navRect": {
-      "x": 20,
-      "y": 1886,
-      "w": 969,
-      "h": 9468.06
+      "x": 39.5,
+      "y": 105,
+      "w": 930,
+      "h": 70.8
     },
     "heroRect": null,
     "mainRect": {
       "x": 0,
-      "y": 11354.06,
+      "y": 175.8,
       "w": 1009,
-      "h": 1875.39
+      "h": 2032.19
     },
     "footerRect": {
       "x": 0,
-      "y": 13229.45,
+      "y": 2207.98,
       "w": 1009,
       "h": 607
     },
@@ -385,7 +385,7 @@
           "x": 0,
           "y": 0,
           "w": 1009,
-          "h": 11354.06
+          "h": 175.8
         }
       },
       {
@@ -393,9 +393,9 @@
         "cls": "wrapperMain_content",
         "rect": {
           "x": 0,
-          "y": 11354.06,
+          "y": 175.8,
           "w": 1009,
-          "h": 1875.39
+          "h": 2032.19
         }
       },
       {
@@ -403,9 +403,9 @@
         "cls": "",
         "rect": {
           "x": 0,
-          "y": 11354.06,
+          "y": 175.8,
           "w": 1009,
-          "h": 1875.39
+          "h": 2032.19
         }
       },
       {
@@ -413,7 +413,7 @@
         "cls": "site-footer.w-100",
         "rect": {
           "x": 0,
-          "y": 13229.45,
+          "y": 2207.98,
           "w": 1009,
           "h": 607
         }
@@ -421,43 +421,43 @@
     ],
     "fonts": {
       "body": {
-        "family": "Roboto, sans-serif",
+        "family": "Roboto",
         "size": "14px",
         "weight": "400",
         "lineHeight": "normal",
-        "color": "rgb(0, 0, 0)",
+        "color": "rgb(34, 52, 62)",
         "letterSpacing": "normal"
       },
       "h1": {
-        "family": "Roboto, sans-serif",
+        "family": "Roboto",
         "size": "22px",
         "weight": "700",
         "lineHeight": "28.6px",
-        "color": "rgb(0, 0, 0)",
+        "color": "rgb(34, 52, 62)",
         "letterSpacing": "normal"
       },
       "h2": {
-        "family": "Roboto, sans-serif",
+        "family": "Roboto",
         "size": "18px",
         "weight": "700",
         "lineHeight": "23.4px",
-        "color": "rgb(0, 0, 0)",
+        "color": "rgb(34, 52, 62)",
         "letterSpacing": "normal"
       },
       "h3": {
-        "family": "Roboto, sans-serif",
+        "family": "Roboto",
         "size": "16px",
         "weight": "700",
         "lineHeight": "20.8px",
-        "color": "rgb(0, 0, 0)",
+        "color": "rgb(34, 52, 62)",
         "letterSpacing": "normal"
       },
       "a": {
-        "family": "Roboto, sans-serif",
+        "family": "Roboto",
         "size": "14px",
         "weight": "400",
         "lineHeight": "normal",
-        "color": "rgb(0, 0, 0)",
+        "color": "rgb(34, 52, 62)",
         "letterSpacing": "normal"
       }
     }
@@ -469,7 +469,7 @@
     "innerWidth": 1024,
     "innerHeight": 900,
     "dpr": 1,
-    "docHeight": 15207,
+    "docHeight": 2855,
     "bodyClass": "mainBody-theme  template-product",
     "sections": 0,
     "widgetNodes": 0,

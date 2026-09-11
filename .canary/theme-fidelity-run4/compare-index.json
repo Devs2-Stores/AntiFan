@@ -2,7 +2,7 @@
   "kind": "theme-fidelity-run-compare-index",
   "stage": "compare",
   "status": "INCOMPLETE",
-  "generatedAt": "2026-09-11T01:08:05.174Z",
+  "generatedAt": "2026-09-11T05:25:54.392Z",
   "viewportSet": [
     "1440x900",
     "1024x900",
@@ -16,17 +16,17 @@
       "referenceDir": "r1",
       "subjectDir": "subject",
       "out": "compare/r1-vs-subject",
-      "exitCode": 4,
+      "exitCode": 3,
       "timedOut": false,
-      "status": "REFUSED",
+      "status": "INCOMPLETE",
       "indexFile": "compare/r1-vs-subject/index.json",
-      "indexSha256": "ca7058afa6c8f138ae45e1630dbffbe916e2b8bcee3ea169ec22b74ecc605599",
+      "indexSha256": "4ce55a47fbbd119a46c3bc05fc95263720f3bc7b0da75b107582f1ae643986fa",
       "totals": {
-        "pairs": 0,
+        "pairs": 21,
         "pass": 0,
         "fail": 0,
-        "inconclusive": 0,
-        "notMeasurable": 0
+        "inconclusive": 21,
+        "notMeasurable": 16
       },
       "reference": {
         "dir": "E:\\Work\\apps\\AntiFan\\.canary\\theme-fidelity-run4\\r1",
@@ -38,7 +38,7 @@
       "subject": {
         "dir": "E:\\Work\\apps\\AntiFan\\.canary\\theme-fidelity-run4\\subject",
         "index": "E:\\Work\\apps\\AntiFan\\.canary\\theme-fidelity-run4\\subject\\index.json",
-        "indexSha256": "dc81f21dc7f937092acb7afe10702f6acf84e7aa17a4e40b6906c338cc60e906",
+        "indexSha256": "96ea33cd15b330c2f698783ce8d9c3c93259d0423ad1bb2d6e393cac6bb02f88",
         "role": "subject",
         "label": "s1-subject"
       },
@@ -60,30 +60,266 @@
           ".news-item"
         ]
       },
-      "verdicts": [],
-      "childRefusal": {
-        "code": "PROVENANCE_UNRESOLVED",
-        "exitCode": 4,
-        "message": "subject evidence E:\\Work\\apps\\AntiFan\\.canary\\theme-fidelity-run4\\subject\\article__1024x900.json cannot be judged: status=NOT_MEASURABLE, provenance"
-      },
-      "refusal": {
-        "code": "PROVENANCE_UNRESOLVED",
-        "exitCode": 4,
-        "message": "subject evidence E:\\Work\\apps\\AntiFan\\.canary\\theme-fidelity-run4\\subject\\article__1024x900.json cannot be judged: status=NOT_MEASURABLE, provenance",
-        "detail": {
-          "side": "subject",
-          "file": "E:\\Work\\apps\\AntiFan\\.canary\\theme-fidelity-run4\\subject\\article__1024x900.json",
-          "missing": [
-            "status=NOT_MEASURABLE",
-            "provenance"
-          ],
+      "verdicts": [
+        {
+          "surface": "404",
+          "viewport": "1024x900",
+          "status": "NOT_MEASURABLE",
+          "verdict": "INCONCLUSIVE",
+          "mechanism": "content-changed-between-passes",
+          "mismatchPercentage": null,
+          "referenceHeight": 2304,
+          "subjectHeight": 1128,
+          "file": "404__1024x900.json",
+          "path": "compare/r1-vs-subject/404__1024x900.json"
+        },
+        {
+          "surface": "404",
+          "viewport": "1440x900",
+          "status": "NOT_MEASURABLE",
+          "verdict": "INCONCLUSIVE",
+          "mechanism": "content-changed-between-passes",
+          "mismatchPercentage": null,
+          "referenceHeight": 1570,
+          "subjectHeight": 1078,
+          "file": "404__1440x900.json",
+          "path": "compare/r1-vs-subject/404__1440x900.json"
+        },
+        {
+          "surface": "404",
+          "viewport": "390x844",
+          "status": "NOT_MEASURABLE",
+          "verdict": "INCONCLUSIVE",
+          "mechanism": "content-changed-between-passes",
+          "mismatchPercentage": null,
+          "referenceHeight": 1629,
+          "subjectHeight": 1731,
+          "file": "404__390x844.json",
+          "path": "compare/r1-vs-subject/404__390x844.json"
+        },
+        {
           "surface": "article",
-          "viewport": "1024x900"
+          "viewport": "1024x900",
+          "status": "NOT_MEASURABLE",
+          "verdict": "INCONCLUSIVE",
+          "mechanism": "content-changed-between-passes",
+          "mismatchPercentage": null,
+          "referenceHeight": 5942,
+          "subjectHeight": 4332,
+          "file": "article__1024x900.json",
+          "path": "compare/r1-vs-subject/article__1024x900.json"
+        },
+        {
+          "surface": "article",
+          "viewport": "1440x900",
+          "status": "NOT_MEASURABLE",
+          "verdict": "INCONCLUSIVE",
+          "mechanism": "content-changed-between-passes",
+          "mismatchPercentage": null,
+          "referenceHeight": 4954,
+          "subjectHeight": 4118,
+          "file": "article__1440x900.json",
+          "path": "compare/r1-vs-subject/article__1440x900.json"
+        },
+        {
+          "surface": "article",
+          "viewport": "390x844",
+          "status": "NOT_MEASURABLE",
+          "verdict": "INCONCLUSIVE",
+          "mechanism": "content-changed-between-passes",
+          "mismatchPercentage": null,
+          "referenceHeight": 6226,
+          "subjectHeight": 6287,
+          "file": "article__390x844.json",
+          "path": "compare/r1-vs-subject/article__390x844.json"
+        },
+        {
+          "surface": "cart",
+          "viewport": "1024x900",
+          "status": "NOT_MEASURABLE",
+          "verdict": "INCONCLUSIVE",
+          "mechanism": "content-changed-between-passes",
+          "mismatchPercentage": null,
+          "referenceHeight": 3226,
+          "subjectHeight": 2077,
+          "file": "cart__1024x900.json",
+          "path": "compare/r1-vs-subject/cart__1024x900.json"
+        },
+        {
+          "surface": "cart",
+          "viewport": "1440x900",
+          "status": "NOT_MEASURABLE",
+          "verdict": "INCONCLUSIVE",
+          "mechanism": "content-changed-between-passes",
+          "mismatchPercentage": null,
+          "referenceHeight": 2301,
+          "subjectHeight": 1811,
+          "file": "cart__1440x900.json",
+          "path": "compare/r1-vs-subject/cart__1440x900.json"
+        },
+        {
+          "surface": "cart",
+          "viewport": "390x844",
+          "status": "NOT_MEASURABLE",
+          "verdict": "INCONCLUSIVE",
+          "mechanism": "content-changed-between-passes",
+          "mismatchPercentage": null,
+          "referenceHeight": 2046,
+          "subjectHeight": 2071,
+          "file": "cart__390x844.json",
+          "path": "compare/r1-vs-subject/cart__390x844.json"
+        },
+        {
+          "surface": "collection",
+          "viewport": "1024x900",
+          "status": "NOT_MEASURABLE",
+          "verdict": "INCONCLUSIVE",
+          "mechanism": "EXECUTION_TIMEOUT",
+          "mismatchPercentage": null,
+          "referenceHeight": 3798,
+          "subjectHeight": 1307,
+          "file": "collection__1024x900.json",
+          "path": "compare/r1-vs-subject/collection__1024x900.json"
+        },
+        {
+          "surface": "collection",
+          "viewport": "1440x900",
+          "status": "NOT_MEASURABLE",
+          "verdict": "INCONCLUSIVE",
+          "mechanism": "content-changed-between-passes",
+          "mismatchPercentage": null,
+          "referenceHeight": 4117,
+          "subjectHeight": 1257,
+          "file": "collection__1440x900.json",
+          "path": "compare/r1-vs-subject/collection__1440x900.json"
+        },
+        {
+          "surface": "collection",
+          "viewport": "390x844",
+          "status": "NOT_MEASURABLE",
+          "verdict": "INCONCLUSIVE",
+          "mechanism": "content-changed-between-passes",
+          "mismatchPercentage": null,
+          "referenceHeight": 2604,
+          "subjectHeight": 1899,
+          "file": "collection__390x844.json",
+          "path": "compare/r1-vs-subject/collection__390x844.json"
+        },
+        {
+          "surface": "home",
+          "viewport": "1024x900",
+          "status": "INCONCLUSIVE",
+          "verdict": "INCONCLUSIVE",
+          "mechanism": "REFERENCE_IDENTITY_DRIFT+SUBJECT_IDENTITY_DRIFT",
+          "mismatchPercentage": null,
+          "referenceHeight": 7608,
+          "subjectHeight": 5485,
+          "file": "home__1024x900.json",
+          "path": "compare/r1-vs-subject/home__1024x900.json"
+        },
+        {
+          "surface": "home",
+          "viewport": "1440x900",
+          "status": "INCONCLUSIVE",
+          "verdict": "INCONCLUSIVE",
+          "mechanism": "REFERENCE_IDENTITY_DRIFT",
+          "mismatchPercentage": null,
+          "referenceHeight": 7541,
+          "subjectHeight": 5426,
+          "file": "home__1440x900.json",
+          "path": "compare/r1-vs-subject/home__1440x900.json"
+        },
+        {
+          "surface": "home",
+          "viewport": "390x844",
+          "status": "INCONCLUSIVE",
+          "verdict": "INCONCLUSIVE",
+          "mechanism": "REFERENCE_IDENTITY_DRIFT+SUBJECT_IDENTITY_DRIFT",
+          "mismatchPercentage": null,
+          "referenceHeight": 9059,
+          "subjectHeight": 8780,
+          "file": "home__390x844.json",
+          "path": "compare/r1-vs-subject/home__390x844.json"
+        },
+        {
+          "surface": "product",
+          "viewport": "1024x900",
+          "status": "NOT_MEASURABLE",
+          "verdict": "INCONCLUSIVE",
+          "mechanism": "content-changed-between-passes",
+          "mismatchPercentage": null,
+          "referenceHeight": 5371,
+          "subjectHeight": 2855,
+          "file": "product__1024x900.json",
+          "path": "compare/r1-vs-subject/product__1024x900.json"
+        },
+        {
+          "surface": "product",
+          "viewport": "1440x900",
+          "status": "NOT_MEASURABLE",
+          "verdict": "INCONCLUSIVE",
+          "mechanism": "content-changed-between-passes",
+          "mismatchPercentage": null,
+          "referenceHeight": 4749,
+          "subjectHeight": 2586,
+          "file": "product__1440x900.json",
+          "path": "compare/r1-vs-subject/product__1440x900.json"
+        },
+        {
+          "surface": "product",
+          "viewport": "390x844",
+          "status": "INCONCLUSIVE",
+          "verdict": "INCONCLUSIVE",
+          "mechanism": "REFERENCE_IDENTITY_DRIFT+SUBJECT_IDENTITY_DRIFT",
+          "mismatchPercentage": null,
+          "referenceHeight": 5674,
+          "subjectHeight": 5013,
+          "file": "product__390x844.json",
+          "path": "compare/r1-vs-subject/product__390x844.json"
+        },
+        {
+          "surface": "search",
+          "viewport": "1024x900",
+          "status": "NOT_MEASURABLE",
+          "verdict": "INCONCLUSIVE",
+          "mechanism": "content-changed-between-passes",
+          "mismatchPercentage": null,
+          "referenceHeight": 4480,
+          "subjectHeight": 2300,
+          "file": "search__1024x900.json",
+          "path": "compare/r1-vs-subject/search__1024x900.json"
+        },
+        {
+          "surface": "search",
+          "viewport": "1440x900",
+          "status": "NOT_MEASURABLE",
+          "verdict": "INCONCLUSIVE",
+          "mechanism": "content-changed-between-passes",
+          "mismatchPercentage": null,
+          "referenceHeight": 7721,
+          "subjectHeight": 2421,
+          "file": "search__1440x900.json",
+          "path": "compare/r1-vs-subject/search__1440x900.json"
+        },
+        {
+          "surface": "search",
+          "viewport": "390x844",
+          "status": "INCONCLUSIVE",
+          "verdict": "INCONCLUSIVE",
+          "mechanism": "REFERENCE_IDENTITY_DRIFT+SUBJECT_IDENTITY_DRIFT",
+          "mismatchPercentage": null,
+          "referenceHeight": 6742,
+          "subjectHeight": 4498,
+          "file": "search__390x844.json",
+          "path": "compare/r1-vs-subject/search__390x844.json"
         }
-      },
+      ],
+      "childRefusal": null,
+      "refusal": null,
       "stderrTail": [
-        "(node:4196) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.",
-        "(Use `node --trace-warnings ...` to show where the warning was created)"
+        "(node:2764) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.",
+        "(Use `node --trace-warnings ...` to show where the warning was created)",
+        "[canary-rpc] pending cleanup: {\"_type\":\"PENDING_CLEANUP\",\"code\":\"EXECUTION_TIMEOUT_PENDING_CLEANUP\",\"message\":\"Execution exceeded the 30000ms response budget (25000ms execution + 5000ms cleanup grace) and is still releasing owned resources\",\"invocationId\":\"invocation-36bc1d03-e73e-4e96-95bd-c827fa4f63de\",\"cleanupPending\":true,\"terminal\":false,\"joinableBy\":\"idempotencyKey\",\"requestId\":\"req-canary-07c1cc75-9396-4eca-917a-3faa0395bce9\",\"idempotencyKey\":\"idem-canary-07c1cc75-9396-4eca-917a-3faa0395bce9\"}"
       ]
     },
     "r2-vs-subject": {
@@ -92,17 +328,17 @@
       "referenceDir": "r2",
       "subjectDir": "subject",
       "out": "compare/r2-vs-subject",
-      "exitCode": 4,
+      "exitCode": 3,
       "timedOut": false,
-      "status": "REFUSED",
+      "status": "INCOMPLETE",
       "indexFile": "compare/r2-vs-subject/index.json",
-      "indexSha256": "978996915282e31c4b18f986b37d6856fd4886c49c4e9b685bd7bbe184dd9c17",
+      "indexSha256": "594e3158380aeab346823adc2575a11f4764cb6c38b85e681979d54202d8765d",
       "totals": {
-        "pairs": 0,
-        "pass": 0,
+        "pairs": 21,
+        "pass": 1,
         "fail": 0,
-        "inconclusive": 0,
-        "notMeasurable": 0
+        "inconclusive": 20,
+        "notMeasurable": 13
       },
       "reference": {
         "dir": "E:\\Work\\apps\\AntiFan\\.canary\\theme-fidelity-run4\\r2",
@@ -114,7 +350,7 @@
       "subject": {
         "dir": "E:\\Work\\apps\\AntiFan\\.canary\\theme-fidelity-run4\\subject",
         "index": "E:\\Work\\apps\\AntiFan\\.canary\\theme-fidelity-run4\\subject\\index.json",
-        "indexSha256": "dc81f21dc7f937092acb7afe10702f6acf84e7aa17a4e40b6906c338cc60e906",
+        "indexSha256": "96ea33cd15b330c2f698783ce8d9c3c93259d0423ad1bb2d6e393cac6bb02f88",
         "role": "subject",
         "label": "s1-subject"
       },
@@ -136,29 +372,264 @@
           ".news-item"
         ]
       },
-      "verdicts": [],
-      "childRefusal": {
-        "code": "PROVENANCE_UNRESOLVED",
-        "exitCode": 4,
-        "message": "subject evidence E:\\Work\\apps\\AntiFan\\.canary\\theme-fidelity-run4\\subject\\article__1024x900.json cannot be judged: status=NOT_MEASURABLE, provenance"
-      },
-      "refusal": {
-        "code": "PROVENANCE_UNRESOLVED",
-        "exitCode": 4,
-        "message": "subject evidence E:\\Work\\apps\\AntiFan\\.canary\\theme-fidelity-run4\\subject\\article__1024x900.json cannot be judged: status=NOT_MEASURABLE, provenance",
-        "detail": {
-          "side": "subject",
-          "file": "E:\\Work\\apps\\AntiFan\\.canary\\theme-fidelity-run4\\subject\\article__1024x900.json",
-          "missing": [
-            "status=NOT_MEASURABLE",
-            "provenance"
-          ],
+      "verdicts": [
+        {
+          "surface": "404",
+          "viewport": "1024x900",
+          "status": "NOT_MEASURABLE",
+          "verdict": "INCONCLUSIVE",
+          "mechanism": "content-changed-between-passes",
+          "mismatchPercentage": null,
+          "referenceHeight": 1128,
+          "subjectHeight": 1128,
+          "file": "404__1024x900.json",
+          "path": "compare/r2-vs-subject/404__1024x900.json"
+        },
+        {
+          "surface": "404",
+          "viewport": "1440x900",
+          "status": "NOT_MEASURABLE",
+          "verdict": "INCONCLUSIVE",
+          "mechanism": "content-changed-between-passes",
+          "mismatchPercentage": null,
+          "referenceHeight": 1078,
+          "subjectHeight": 1078,
+          "file": "404__1440x900.json",
+          "path": "compare/r2-vs-subject/404__1440x900.json"
+        },
+        {
+          "surface": "404",
+          "viewport": "390x844",
+          "status": "NOT_MEASURABLE",
+          "verdict": "INCONCLUSIVE",
+          "mechanism": "content-changed-between-passes",
+          "mismatchPercentage": null,
+          "referenceHeight": 1731,
+          "subjectHeight": 1731,
+          "file": "404__390x844.json",
+          "path": "compare/r2-vs-subject/404__390x844.json"
+        },
+        {
           "surface": "article",
-          "viewport": "1024x900"
+          "viewport": "1024x900",
+          "status": "INCONCLUSIVE",
+          "verdict": "INCONCLUSIVE",
+          "mechanism": "REFERENCE_IDENTITY_DRIFT+SUBJECT_IDENTITY_DRIFT",
+          "mismatchPercentage": null,
+          "referenceHeight": 4821,
+          "subjectHeight": 4821,
+          "file": "article__1024x900.json",
+          "path": "compare/r2-vs-subject/article__1024x900.json"
+        },
+        {
+          "surface": "article",
+          "viewport": "1440x900",
+          "status": "INCONCLUSIVE",
+          "verdict": "INCONCLUSIVE",
+          "mechanism": "REFERENCE_IDENTITY_DRIFT+SUBJECT_IDENTITY_DRIFT",
+          "mismatchPercentage": null,
+          "referenceHeight": 4653,
+          "subjectHeight": 4653,
+          "file": "article__1440x900.json",
+          "path": "compare/r2-vs-subject/article__1440x900.json"
+        },
+        {
+          "surface": "article",
+          "viewport": "390x844",
+          "status": "INCONCLUSIVE",
+          "verdict": "INCONCLUSIVE",
+          "mechanism": "REFERENCE_IDENTITY_DRIFT+SUBJECT_IDENTITY_DRIFT",
+          "mismatchPercentage": null,
+          "referenceHeight": 6724,
+          "subjectHeight": 6724,
+          "file": "article__390x844.json",
+          "path": "compare/r2-vs-subject/article__390x844.json"
+        },
+        {
+          "surface": "cart",
+          "viewport": "1024x900",
+          "status": "NOT_MEASURABLE",
+          "verdict": "INCONCLUSIVE",
+          "mechanism": "content-changed-between-passes",
+          "mismatchPercentage": null,
+          "referenceHeight": 2077,
+          "subjectHeight": 2077,
+          "file": "cart__1024x900.json",
+          "path": "compare/r2-vs-subject/cart__1024x900.json"
+        },
+        {
+          "surface": "cart",
+          "viewport": "1440x900",
+          "status": "NOT_MEASURABLE",
+          "verdict": "INCONCLUSIVE",
+          "mechanism": "content-changed-between-passes",
+          "mismatchPercentage": null,
+          "referenceHeight": 1811,
+          "subjectHeight": 1811,
+          "file": "cart__1440x900.json",
+          "path": "compare/r2-vs-subject/cart__1440x900.json"
+        },
+        {
+          "surface": "cart",
+          "viewport": "390x844",
+          "status": "NOT_MEASURABLE",
+          "verdict": "INCONCLUSIVE",
+          "mechanism": "content-changed-between-passes",
+          "mismatchPercentage": null,
+          "referenceHeight": 2071,
+          "subjectHeight": 2071,
+          "file": "cart__390x844.json",
+          "path": "compare/r2-vs-subject/cart__390x844.json"
+        },
+        {
+          "surface": "collection",
+          "viewport": "1024x900",
+          "status": "NOT_MEASURABLE",
+          "verdict": "INCONCLUSIVE",
+          "mechanism": "content-changed-between-passes",
+          "mismatchPercentage": null,
+          "referenceHeight": 1307,
+          "subjectHeight": 1307,
+          "file": "collection__1024x900.json",
+          "path": "compare/r2-vs-subject/collection__1024x900.json"
+        },
+        {
+          "surface": "collection",
+          "viewport": "1440x900",
+          "status": "NOT_MEASURABLE",
+          "verdict": "INCONCLUSIVE",
+          "mechanism": "content-changed-between-passes",
+          "mismatchPercentage": null,
+          "referenceHeight": 1257,
+          "subjectHeight": 1257,
+          "file": "collection__1440x900.json",
+          "path": "compare/r2-vs-subject/collection__1440x900.json"
+        },
+        {
+          "surface": "collection",
+          "viewport": "390x844",
+          "status": "NOT_MEASURABLE",
+          "verdict": "INCONCLUSIVE",
+          "mechanism": "content-changed-between-passes",
+          "mismatchPercentage": null,
+          "referenceHeight": 1899,
+          "subjectHeight": 1899,
+          "file": "collection__390x844.json",
+          "path": "compare/r2-vs-subject/collection__390x844.json"
+        },
+        {
+          "surface": "home",
+          "viewport": "1024x900",
+          "status": "INCONCLUSIVE",
+          "verdict": "INCONCLUSIVE",
+          "mechanism": "REFERENCE_IDENTITY_DRIFT+SUBJECT_IDENTITY_DRIFT",
+          "mismatchPercentage": null,
+          "referenceHeight": 5485,
+          "subjectHeight": 5485,
+          "file": "home__1024x900.json",
+          "path": "compare/r2-vs-subject/home__1024x900.json"
+        },
+        {
+          "surface": "home",
+          "viewport": "1440x900",
+          "status": "PASS",
+          "verdict": "PASS",
+          "mechanism": "MATCH",
+          "mismatchPercentage": 0,
+          "referenceHeight": 5426,
+          "subjectHeight": 5426,
+          "file": "home__1440x900.json",
+          "path": "compare/r2-vs-subject/home__1440x900.json"
+        },
+        {
+          "surface": "home",
+          "viewport": "390x844",
+          "status": "INCONCLUSIVE",
+          "verdict": "INCONCLUSIVE",
+          "mechanism": "REFERENCE_IDENTITY_DRIFT+SUBJECT_IDENTITY_DRIFT",
+          "mismatchPercentage": null,
+          "referenceHeight": 8780,
+          "subjectHeight": 8780,
+          "file": "home__390x844.json",
+          "path": "compare/r2-vs-subject/home__390x844.json"
+        },
+        {
+          "surface": "product",
+          "viewport": "1024x900",
+          "status": "NOT_MEASURABLE",
+          "verdict": "INCONCLUSIVE",
+          "mechanism": "content-changed-between-passes",
+          "mismatchPercentage": null,
+          "referenceHeight": 2855,
+          "subjectHeight": 2855,
+          "file": "product__1024x900.json",
+          "path": "compare/r2-vs-subject/product__1024x900.json"
+        },
+        {
+          "surface": "product",
+          "viewport": "1440x900",
+          "status": "NOT_MEASURABLE",
+          "verdict": "INCONCLUSIVE",
+          "mechanism": "content-changed-between-passes",
+          "mismatchPercentage": null,
+          "referenceHeight": 2586,
+          "subjectHeight": 2586,
+          "file": "product__1440x900.json",
+          "path": "compare/r2-vs-subject/product__1440x900.json"
+        },
+        {
+          "surface": "product",
+          "viewport": "390x844",
+          "status": "INCONCLUSIVE",
+          "verdict": "INCONCLUSIVE",
+          "mechanism": "REFERENCE_IDENTITY_DRIFT+SUBJECT_IDENTITY_DRIFT",
+          "mismatchPercentage": null,
+          "referenceHeight": 5013,
+          "subjectHeight": 5013,
+          "file": "product__390x844.json",
+          "path": "compare/r2-vs-subject/product__390x844.json"
+        },
+        {
+          "surface": "search",
+          "viewport": "1024x900",
+          "status": "NOT_MEASURABLE",
+          "verdict": "INCONCLUSIVE",
+          "mechanism": "content-changed-between-passes",
+          "mismatchPercentage": null,
+          "referenceHeight": 2300,
+          "subjectHeight": 2300,
+          "file": "search__1024x900.json",
+          "path": "compare/r2-vs-subject/search__1024x900.json"
+        },
+        {
+          "surface": "search",
+          "viewport": "1440x900",
+          "status": "NOT_MEASURABLE",
+          "verdict": "INCONCLUSIVE",
+          "mechanism": "content-changed-between-passes",
+          "mismatchPercentage": null,
+          "referenceHeight": 2421,
+          "subjectHeight": 2421,
+          "file": "search__1440x900.json",
+          "path": "compare/r2-vs-subject/search__1440x900.json"
+        },
+        {
+          "surface": "search",
+          "viewport": "390x844",
+          "status": "INCONCLUSIVE",
+          "verdict": "INCONCLUSIVE",
+          "mechanism": "REFERENCE_IDENTITY_DRIFT+SUBJECT_IDENTITY_DRIFT",
+          "mismatchPercentage": null,
+          "referenceHeight": 4498,
+          "subjectHeight": 4498,
+          "file": "search__390x844.json",
+          "path": "compare/r2-vs-subject/search__390x844.json"
         }
-      },
+      ],
+      "childRefusal": null,
+      "refusal": null,
       "stderrTail": [
-        "(node:18628) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.",
+        "(node:3348) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.",
         "(Use `node --trace-warnings ...` to show where the warning was created)"
       ]
     }
@@ -179,9 +650,9 @@
   },
   "subjectIndex": {
     "file": "subject/index.json",
-    "sha256": "dc81f21dc7f937092acb7afe10702f6acf84e7aa17a4e40b6906c338cc60e906",
+    "sha256": "96ea33cd15b330c2f698783ce8d9c3c93259d0423ad1bb2d6e393cac6bb02f88",
     "label": "s1-subject",
-    "status": "INCOMPLETE"
+    "status": "COMPLETE"
   },
   "refusal": null
 }

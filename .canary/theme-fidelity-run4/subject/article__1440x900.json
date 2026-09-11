@@ -1,7 +1,7 @@
 {
   "kind": "theme-fidelity-capture",
   "mode": "capture",
-  "status": "NOT_MEASURABLE",
+  "status": "CAPTURED",
   "role": "subject",
   "label": "s1-subject",
   "store": "https://phukienmaymoc.com/",
@@ -34,14 +34,14 @@
   },
   "release": {
     "label": "s1-subject:article__1440x900",
-    "at": "2026-09-11T01:03:57.783Z",
+    "at": "2026-09-11T04:01:09.502Z",
     "widgets": {
       "slickPaused": 0,
       "swiperPaused": 0
     },
     "release": {
       "label": "s1-subject:article__1440x900-full",
-      "at": "2026-09-11T01:03:57.810Z",
+      "at": "2026-09-11T04:01:09.509Z",
       "dom": {
         "restored": 0,
         "markedLeft": 0,
@@ -53,7 +53,7 @@
       "unfreeze": {
         "frozen": false,
         "mediaCount": 0,
-        "tabId": "f3dab16b-cf61-4dff-b8d6-689a21e916b9"
+        "tabId": "0d827079-e870-4971-8e7d-992644b52f75"
       }
     },
     "freezeReleased": true,
@@ -64,34 +64,512 @@
     "timerSweepMotion": {
       "widgetsSampled": 2,
       "windowMs": 2500,
-      "sampleBefore": "1fc84d41",
-      "sampleAfter": "1fc84d41",
+      "sampleBefore": "a68e7ca6",
+      "sampleAfter": "a68e7ca6",
       "stable": true
     }
   },
   "tab": {
-    "tabId": "f3dab16b-cf61-4dff-b8d6-689a21e916b9",
-    "openedAt": "2026-09-11T01:03:54.869Z",
+    "tabId": "0d827079-e870-4971-8e7d-992644b52f75",
+    "openedAt": "2026-09-11T04:00:56.958Z",
     "closed": true,
     "closeError": null,
-    "closedAt": "2026-09-11T01:04:00.544Z"
+    "closedAt": "2026-09-11T04:01:13.144Z"
   },
-  "failure": {
-    "code": "FULLPAGE_CAPTURE_UNSUPPORTED_GEOMETRY",
-    "reason": "FULLPAGE_CAPTURE_UNSUPPORTED_GEOMETRY: Requested full-page capture region 1440x18853 CSS px is outside the supported 1..16384 range on tab 'f3dab16b-cf61-4dff-b8d6-689a21e916b9'",
-    "detail": null
+  "failure": null,
+  "provenance": {
+    "role": "subject",
+    "label": "s1-subject",
+    "store": "https://phukienmaymoc.com/",
+    "surface": "article",
+    "surfaceKind": "surface",
+    "viewport": "1440x900",
+    "url": "https://phukienmaymoc.com/blogs/news/plc-la-gi-cau-tao-nguyen-ly-hoat-dong?themeid=1001512581",
+    "themeId": 1001512581,
+    "themeIdParameter": "1001512581",
+    "png": {
+      "file": "article__1440x900.png",
+      "sha256": "d0c8b95ba92a3a23a8d80e8d242b5dfed388709525202497d0812bd86c5f6e06",
+      "bytes": 1244038,
+      "artifactRef": "artifact-278b6324-e4e0-4cd6-95c3-bd4b1f839021"
+    },
+    "dom": {
+      "file": "dom/article__1440x900.html",
+      "sha256": "fc8727263d22fa36afc65bbd2189f39b531235067b5fd7d635133adfe9ab5ffa",
+      "bytes": 958919,
+      "observedUrl": "https://phukienmaymoc.com/blogs/news/plc-la-gi-cau-tao-nguyen-ly-hoat-dong?themeid=1001512581"
+    },
+    "domDigest": "fc8727263d22fa36afc65bbd2189f39b531235067b5fd7d635133adfe9ab5ffa",
+    "geometry": {
+      "url": "https://phukienmaymoc.com/blogs/news/plc-la-gi-cau-tao-nguyen-ly-hoat-dong?themeid=1001512581",
+      "docHeight": 4118,
+      "clientWidth": 1425,
+      "scrollWidth": 1425,
+      "overflowX": 0,
+      "sectionCount": 9,
+      "productCardCount": 0,
+      "articleCardCount": 0,
+      "navItemCount": 91,
+      "linkCount": 238,
+      "imageCount": 37,
+      "brokenImageCount": 0,
+      "textNodes": 130,
+      "hasMenuMobile": true,
+      "hasBottomNav": true,
+      "headerRect": {
+        "x": 0,
+        "y": 0,
+        "w": 1425,
+        "h": 166
+      },
+      "navRect": {
+        "x": 107.5,
+        "y": 110,
+        "w": 1210,
+        "h": 56
+      },
+      "heroRect": null,
+      "mainRect": {
+        "x": 0,
+        "y": 166,
+        "w": 1425,
+        "h": 3304.39
+      },
+      "footerRect": {
+        "x": 0,
+        "y": 3510.39,
+        "w": 1425,
+        "h": 607
+      },
+      "sections": [
+        {
+          "tag": "header",
+          "cls": "site-header",
+          "rect": {
+            "x": 0,
+            "y": 0,
+            "w": 1425,
+            "h": 166
+          }
+        },
+        {
+          "tag": "main",
+          "cls": "wrapperMain_content",
+          "rect": {
+            "x": 0,
+            "y": 166,
+            "w": 1425,
+            "h": 3304.39
+          }
+        },
+        {
+          "tag": "article",
+          "cls": "article-loop",
+          "rect": {
+            "x": 87.5,
+            "y": 3308.61,
+            "w": 290,
+            "h": 161.78
+          }
+        },
+        {
+          "tag": "article",
+          "cls": "article-loop",
+          "rect": {
+            "x": 407.5,
+            "y": 3308.61,
+            "w": 290,
+            "h": 161.78
+          }
+        },
+        {
+          "tag": "article",
+          "cls": "article-loop",
+          "rect": {
+            "x": 727.5,
+            "y": 3308.61,
+            "w": 290,
+            "h": 161.78
+          }
+        },
+        {
+          "tag": "article",
+          "cls": "article-loop",
+          "rect": {
+            "x": 1047.5,
+            "y": 3308.61,
+            "w": 290,
+            "h": 161.78
+          }
+        },
+        {
+          "tag": "article",
+          "cls": "article-loop",
+          "rect": {
+            "x": 1367.5,
+            "y": 3308.61,
+            "w": 290,
+            "h": 161.78
+          }
+        },
+        {
+          "tag": "article",
+          "cls": "article-loop",
+          "rect": {
+            "x": 1687.5,
+            "y": 3308.61,
+            "w": 290,
+            "h": 161.78
+          }
+        },
+        {
+          "tag": "div",
+          "cls": "site-footer.w-100",
+          "rect": {
+            "x": 0,
+            "y": 3510.39,
+            "w": 1425,
+            "h": 607
+          }
+        }
+      ],
+      "fonts": {
+        "body": {
+          "family": "Roboto",
+          "size": "14px",
+          "weight": "400",
+          "lineHeight": "normal",
+          "color": "rgb(34, 52, 62)",
+          "letterSpacing": "normal"
+        },
+        "h1": {
+          "family": "Roboto",
+          "size": "22px",
+          "weight": "700",
+          "lineHeight": "28.6px",
+          "color": "rgb(34, 52, 62)",
+          "letterSpacing": "normal"
+        },
+        "h2": {
+          "family": "Arial, sans-serif",
+          "size": "22px",
+          "weight": "600",
+          "lineHeight": "28.6px",
+          "color": "rgb(34, 52, 62)",
+          "letterSpacing": "normal"
+        },
+        "h3": {
+          "family": "Arial, sans-serif",
+          "size": "20px",
+          "weight": "600",
+          "lineHeight": "26px",
+          "color": "rgb(30, 41, 59)",
+          "letterSpacing": "normal"
+        },
+        "a": {
+          "family": "Roboto",
+          "size": "14px",
+          "weight": "400",
+          "lineHeight": "normal",
+          "color": "rgb(34, 52, 62)",
+          "letterSpacing": "normal"
+        }
+      }
+    },
+    "geometrySha256": "d167424e9be16de84ce284d327724fd0026d2dbf846ca2d18a4baf4c24aaa0af",
+    "tabIdentity": {
+      "href": "https://phukienmaymoc.com/blogs/news/plc-la-gi-cau-tao-nguyen-ly-hoat-dong?themeid=1001512581",
+      "device": null,
+      "ua": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.7871.224 Safari/537.36",
+      "innerWidth": 1440,
+      "innerHeight": 900,
+      "dpr": 1,
+      "docHeight": 4118,
+      "bodyClass": "mainBody-theme  template-article",
+      "sections": 0,
+      "widgetNodes": 2,
+      "images": 37,
+      "completeImages": 37
+    },
+    "instance": {
+      "attachmentId": "attachment-c7a3504e-fe28-433f-9934-7128b230e3f9",
+      "bridgePort": 20131,
+      "pid": 21236,
+      "primaryTabId": "d202a7f6-1e83-45b5-a511-dd7edc81b299",
+      "startedAt": "2026-09-11T00:18:43.203Z",
+      "runId": "run-9e8a955a-0f78-45c2-8f3b-680a6dcacaf9",
+      "attemptId": "attempt-3e259bf2-4470-4927-b906-410bd15cc2e2"
+    },
+    "run": {
+      "runId": "run-9e8a955a-0f78-45c2-8f3b-680a6dcacaf9",
+      "attachmentId": "attachment-c7a3504e-fe28-433f-9934-7128b230e3f9",
+      "authorityRevision": "rev_486cbe74ff00e6e9c22687bd974a4847",
+      "mintedAt": "2026-09-11T01:36:17.908Z",
+      "label": "s1-subject",
+      "role": "subject"
+    },
+    "capturedAt": "2026-09-11T04:01:13.123Z"
   },
-  "provenance": null,
-  "startedAt": "2026-09-11T01:03:54.839Z",
-  "finishedAt": "2026-09-11T01:04:00.544Z",
-  "tabIdentityObserved": {
+  "startedAt": "2026-09-11T04:00:56.938Z",
+  "finishedAt": "2026-09-11T04:01:13.145Z",
+  "png": {
+    "file": "article__1440x900.png",
+    "artifactRef": "artifact-278b6324-e4e0-4cd6-95c3-bd4b1f839021",
+    "sha256": "d0c8b95ba92a3a23a8d80e8d242b5dfed388709525202497d0812bd86c5f6e06",
+    "bytes": 1244038,
+    "integrity": {
+      "isPng": true,
+      "hasIend": true,
+      "bytes": 1244038
+    },
+    "declaredByteLength": 1244038,
+    "receipt": {
+      "backend": "cdp",
+      "dpr": 1,
+      "zoom": 1,
+      "cssViewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "cssCaptureSize": {
+        "width": 1440,
+        "height": 4118
+      },
+      "rasterSize": {
+        "width": 1440,
+        "height": 4118
+      },
+      "captureMode": "full-page",
+      "timestamp": 1789099272687,
+      "viewportTransaction": {
+        "before": {
+          "width": 1440,
+          "height": 900,
+          "scrollX": 0,
+          "scrollY": 0
+        },
+        "after": {
+          "width": 1440,
+          "height": 900,
+          "scrollX": 0,
+          "scrollY": 0
+        },
+        "restored": true,
+        "attempts": 1
+      }
+    }
+  },
+  "dom": {
+    "file": "dom/article__1440x900.html",
+    "sha256": "fc8727263d22fa36afc65bbd2189f39b531235067b5fd7d635133adfe9ab5ffa",
+    "bytes": 958919,
+    "observedUrl": "https://phukienmaymoc.com/blogs/news/plc-la-gi-cau-tao-nguyen-ly-hoat-dong?themeid=1001512581",
+    "clientWidth": 1425,
+    "docHeight": 4118,
+    "sectionCount": 9,
+    "cardCount": 0,
+    "productItems": 0,
+    "images": 37,
+    "sanitized": true,
+    "removedCount": 5,
+    "declaredSha256": "fc8727263d22fa36afc65bbd2189f39b531235067b5fd7d635133adfe9ab5ffa",
+    "servedThemeIds": [
+      {
+        "org": "200001207485",
+        "themeId": 1001512581,
+        "occurrences": 27
+      },
+      {
+        "org": "200001170195",
+        "themeId": 1001480974,
+        "occurrences": 1
+      }
+    ]
+  },
+  "geometry": {
+    "url": "https://phukienmaymoc.com/blogs/news/plc-la-gi-cau-tao-nguyen-ly-hoat-dong?themeid=1001512581",
+    "docHeight": 4118,
+    "clientWidth": 1425,
+    "scrollWidth": 1425,
+    "overflowX": 0,
+    "sectionCount": 9,
+    "productCardCount": 0,
+    "articleCardCount": 0,
+    "navItemCount": 91,
+    "linkCount": 238,
+    "imageCount": 37,
+    "brokenImageCount": 0,
+    "textNodes": 130,
+    "hasMenuMobile": true,
+    "hasBottomNav": true,
+    "headerRect": {
+      "x": 0,
+      "y": 0,
+      "w": 1425,
+      "h": 166
+    },
+    "navRect": {
+      "x": 107.5,
+      "y": 110,
+      "w": 1210,
+      "h": 56
+    },
+    "heroRect": null,
+    "mainRect": {
+      "x": 0,
+      "y": 166,
+      "w": 1425,
+      "h": 3304.39
+    },
+    "footerRect": {
+      "x": 0,
+      "y": 3510.39,
+      "w": 1425,
+      "h": 607
+    },
+    "sections": [
+      {
+        "tag": "header",
+        "cls": "site-header",
+        "rect": {
+          "x": 0,
+          "y": 0,
+          "w": 1425,
+          "h": 166
+        }
+      },
+      {
+        "tag": "main",
+        "cls": "wrapperMain_content",
+        "rect": {
+          "x": 0,
+          "y": 166,
+          "w": 1425,
+          "h": 3304.39
+        }
+      },
+      {
+        "tag": "article",
+        "cls": "article-loop",
+        "rect": {
+          "x": 87.5,
+          "y": 3308.61,
+          "w": 290,
+          "h": 161.78
+        }
+      },
+      {
+        "tag": "article",
+        "cls": "article-loop",
+        "rect": {
+          "x": 407.5,
+          "y": 3308.61,
+          "w": 290,
+          "h": 161.78
+        }
+      },
+      {
+        "tag": "article",
+        "cls": "article-loop",
+        "rect": {
+          "x": 727.5,
+          "y": 3308.61,
+          "w": 290,
+          "h": 161.78
+        }
+      },
+      {
+        "tag": "article",
+        "cls": "article-loop",
+        "rect": {
+          "x": 1047.5,
+          "y": 3308.61,
+          "w": 290,
+          "h": 161.78
+        }
+      },
+      {
+        "tag": "article",
+        "cls": "article-loop",
+        "rect": {
+          "x": 1367.5,
+          "y": 3308.61,
+          "w": 290,
+          "h": 161.78
+        }
+      },
+      {
+        "tag": "article",
+        "cls": "article-loop",
+        "rect": {
+          "x": 1687.5,
+          "y": 3308.61,
+          "w": 290,
+          "h": 161.78
+        }
+      },
+      {
+        "tag": "div",
+        "cls": "site-footer.w-100",
+        "rect": {
+          "x": 0,
+          "y": 3510.39,
+          "w": 1425,
+          "h": 607
+        }
+      }
+    ],
+    "fonts": {
+      "body": {
+        "family": "Roboto",
+        "size": "14px",
+        "weight": "400",
+        "lineHeight": "normal",
+        "color": "rgb(34, 52, 62)",
+        "letterSpacing": "normal"
+      },
+      "h1": {
+        "family": "Roboto",
+        "size": "22px",
+        "weight": "700",
+        "lineHeight": "28.6px",
+        "color": "rgb(34, 52, 62)",
+        "letterSpacing": "normal"
+      },
+      "h2": {
+        "family": "Arial, sans-serif",
+        "size": "22px",
+        "weight": "600",
+        "lineHeight": "28.6px",
+        "color": "rgb(34, 52, 62)",
+        "letterSpacing": "normal"
+      },
+      "h3": {
+        "family": "Arial, sans-serif",
+        "size": "20px",
+        "weight": "600",
+        "lineHeight": "26px",
+        "color": "rgb(30, 41, 59)",
+        "letterSpacing": "normal"
+      },
+      "a": {
+        "family": "Roboto",
+        "size": "14px",
+        "weight": "400",
+        "lineHeight": "normal",
+        "color": "rgb(34, 52, 62)",
+        "letterSpacing": "normal"
+      }
+    }
+  },
+  "tabIdentity": {
     "href": "https://phukienmaymoc.com/blogs/news/plc-la-gi-cau-tao-nguyen-ly-hoat-dong?themeid=1001512581",
     "device": null,
     "ua": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.7871.224 Safari/537.36",
     "innerWidth": 1440,
     "innerHeight": 900,
     "dpr": 1,
-    "docHeight": 18853,
+    "docHeight": 4118,
     "bodyClass": "mainBody-theme  template-article",
     "sections": 0,
     "widgetNodes": 2,

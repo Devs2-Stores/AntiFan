@@ -1,7 +1,7 @@
 {
   "kind": "theme-fidelity-capture",
   "mode": "capture",
-  "status": "NOT_MEASURABLE",
+  "status": "CAPTURED",
   "role": "subject",
   "label": "s1-subject",
   "store": "https://phukienmaymoc.com/",
@@ -34,14 +34,14 @@
   },
   "release": {
     "label": "s1-subject:product__1440x900",
-    "at": "2026-09-11T01:02:17.423Z",
+    "at": "2026-09-11T03:59:25.335Z",
     "widgets": {
       "slickPaused": 0,
       "swiperPaused": 0
     },
     "release": {
       "label": "s1-subject:product__1440x900-full",
-      "at": "2026-09-11T01:02:17.444Z",
+      "at": "2026-09-11T03:59:25.344Z",
       "dom": {
         "restored": 0,
         "markedLeft": 0,
@@ -53,7 +53,7 @@
       "unfreeze": {
         "frozen": false,
         "mediaCount": 0,
-        "tabId": "6dddcff8-8a6a-4a29-bda7-a935e73c19c1"
+        "tabId": "86c51aaa-baa8-4d00-9cd2-fc90c03d6d4a"
       }
     },
     "freezeReleased": true,
@@ -64,34 +64,412 @@
     "timerSweepMotion": {
       "widgetsSampled": 0,
       "windowMs": 2500,
-      "sampleBefore": "b2789cb8",
-      "sampleAfter": "b2789cb8",
+      "sampleBefore": "ae107c5a",
+      "sampleAfter": "ae107c5a",
       "stable": true
     }
   },
   "tab": {
-    "tabId": "6dddcff8-8a6a-4a29-bda7-a935e73c19c1",
-    "openedAt": "2026-09-11T01:02:14.836Z",
+    "tabId": "86c51aaa-baa8-4d00-9cd2-fc90c03d6d4a",
+    "openedAt": "2026-09-11T03:59:18.327Z",
     "closed": true,
     "closeError": null,
-    "closedAt": "2026-09-11T01:02:20.159Z"
+    "closedAt": "2026-09-11T03:59:28.621Z"
   },
-  "failure": {
-    "code": "FULLPAGE_CAPTURE_UNSUPPORTED_GEOMETRY",
-    "reason": "FULLPAGE_CAPTURE_UNSUPPORTED_GEOMETRY: Requested full-page capture region 1440x17229 CSS px is outside the supported 1..16384 range on tab '6dddcff8-8a6a-4a29-bda7-a935e73c19c1'",
-    "detail": null
+  "failure": null,
+  "provenance": {
+    "role": "subject",
+    "label": "s1-subject",
+    "store": "https://phukienmaymoc.com/",
+    "surface": "product",
+    "surfaceKind": "surface",
+    "viewport": "1440x900",
+    "url": "https://phukienmaymoc.com/products/ong-han-laser?themeid=1001512581",
+    "themeId": 1001512581,
+    "themeIdParameter": "1001512581",
+    "png": {
+      "file": "product__1440x900.png",
+      "sha256": "f95018eac195f3d4fed83df392c8cf1697f99ec1f03f5f452cd48648cb82e2f4",
+      "bytes": 402247,
+      "artifactRef": "artifact-3a4bdead-1d73-405b-bc85-a86870b065b1"
+    },
+    "dom": {
+      "file": "dom/product__1440x900.html",
+      "sha256": "2f420129131b6b1dc55352c599dc4826c4ff1a4b62b14a92806255dba2b6c8d2",
+      "bytes": 943626,
+      "observedUrl": "https://phukienmaymoc.com/products/ong-han-laser?themeid=1001512581"
+    },
+    "domDigest": "2f420129131b6b1dc55352c599dc4826c4ff1a4b62b14a92806255dba2b6c8d2",
+    "geometry": {
+      "url": "https://phukienmaymoc.com/products/ong-han-laser?themeid=1001512581",
+      "docHeight": 2586,
+      "clientWidth": 1425,
+      "scrollWidth": 1425,
+      "overflowX": 0,
+      "sectionCount": 4,
+      "productCardCount": 0,
+      "articleCardCount": 0,
+      "navItemCount": 91,
+      "linkCount": 189,
+      "imageCount": 25,
+      "brokenImageCount": 0,
+      "textNodes": 87,
+      "hasMenuMobile": true,
+      "hasBottomNav": true,
+      "headerRect": {
+        "x": 0,
+        "y": 0,
+        "w": 1425,
+        "h": 166
+      },
+      "navRect": {
+        "x": 107.5,
+        "y": 110,
+        "w": 1210,
+        "h": 56
+      },
+      "heroRect": null,
+      "mainRect": {
+        "x": 0,
+        "y": 166,
+        "w": 1425,
+        "h": 1812.39
+      },
+      "footerRect": {
+        "x": 0,
+        "y": 1978.39,
+        "w": 1425,
+        "h": 607
+      },
+      "sections": [
+        {
+          "tag": "header",
+          "cls": "site-header",
+          "rect": {
+            "x": 0,
+            "y": 0,
+            "w": 1425,
+            "h": 166
+          }
+        },
+        {
+          "tag": "main",
+          "cls": "wrapperMain_content",
+          "rect": {
+            "x": 0,
+            "y": 166,
+            "w": 1425,
+            "h": 1812.39
+          }
+        },
+        {
+          "tag": "main",
+          "cls": "",
+          "rect": {
+            "x": 0,
+            "y": 166,
+            "w": 1425,
+            "h": 1812.39
+          }
+        },
+        {
+          "tag": "div",
+          "cls": "site-footer.w-100",
+          "rect": {
+            "x": 0,
+            "y": 1978.39,
+            "w": 1425,
+            "h": 607
+          }
+        }
+      ],
+      "fonts": {
+        "body": {
+          "family": "Roboto",
+          "size": "14px",
+          "weight": "400",
+          "lineHeight": "normal",
+          "color": "rgb(34, 52, 62)",
+          "letterSpacing": "normal"
+        },
+        "h1": {
+          "family": "Roboto",
+          "size": "22px",
+          "weight": "700",
+          "lineHeight": "28.6px",
+          "color": "rgb(34, 52, 62)",
+          "letterSpacing": "normal"
+        },
+        "h2": {
+          "family": "Roboto",
+          "size": "18px",
+          "weight": "700",
+          "lineHeight": "23.4px",
+          "color": "rgb(34, 52, 62)",
+          "letterSpacing": "normal"
+        },
+        "h3": {
+          "family": "Roboto",
+          "size": "16px",
+          "weight": "700",
+          "lineHeight": "20.8px",
+          "color": "rgb(34, 52, 62)",
+          "letterSpacing": "normal"
+        },
+        "a": {
+          "family": "Roboto",
+          "size": "14px",
+          "weight": "400",
+          "lineHeight": "normal",
+          "color": "rgb(34, 52, 62)",
+          "letterSpacing": "normal"
+        }
+      }
+    },
+    "geometrySha256": "b043ff01e172244c1ab7a636c0767984d94c70f215ab640104d1da44d3e75452",
+    "tabIdentity": {
+      "href": "https://phukienmaymoc.com/products/ong-han-laser?themeid=1001512581",
+      "device": null,
+      "ua": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.7871.224 Safari/537.36",
+      "innerWidth": 1440,
+      "innerHeight": 900,
+      "dpr": 1,
+      "docHeight": 2586,
+      "bodyClass": "mainBody-theme  template-product",
+      "sections": 0,
+      "widgetNodes": 0,
+      "images": 25,
+      "completeImages": 25
+    },
+    "instance": {
+      "attachmentId": "attachment-c7a3504e-fe28-433f-9934-7128b230e3f9",
+      "bridgePort": 20131,
+      "pid": 21236,
+      "primaryTabId": "d202a7f6-1e83-45b5-a511-dd7edc81b299",
+      "startedAt": "2026-09-11T00:18:43.203Z",
+      "runId": "run-9e8a955a-0f78-45c2-8f3b-680a6dcacaf9",
+      "attemptId": "attempt-3e259bf2-4470-4927-b906-410bd15cc2e2"
+    },
+    "run": {
+      "runId": "run-9e8a955a-0f78-45c2-8f3b-680a6dcacaf9",
+      "attachmentId": "attachment-c7a3504e-fe28-433f-9934-7128b230e3f9",
+      "authorityRevision": "rev_486cbe74ff00e6e9c22687bd974a4847",
+      "mintedAt": "2026-09-11T01:36:17.908Z",
+      "label": "s1-subject",
+      "role": "subject"
+    },
+    "capturedAt": "2026-09-11T03:59:28.600Z"
   },
-  "provenance": null,
-  "startedAt": "2026-09-11T01:02:14.802Z",
-  "finishedAt": "2026-09-11T01:02:20.159Z",
-  "tabIdentityObserved": {
+  "startedAt": "2026-09-11T03:59:18.307Z",
+  "finishedAt": "2026-09-11T03:59:28.621Z",
+  "png": {
+    "file": "product__1440x900.png",
+    "artifactRef": "artifact-3a4bdead-1d73-405b-bc85-a86870b065b1",
+    "sha256": "f95018eac195f3d4fed83df392c8cf1697f99ec1f03f5f452cd48648cb82e2f4",
+    "bytes": 402247,
+    "integrity": {
+      "isPng": true,
+      "hasIend": true,
+      "bytes": 402247
+    },
+    "declaredByteLength": 402247,
+    "receipt": {
+      "backend": "cdp",
+      "dpr": 1,
+      "zoom": 1,
+      "cssViewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "cssCaptureSize": {
+        "width": 1440,
+        "height": 2586
+      },
+      "rasterSize": {
+        "width": 1440,
+        "height": 2586
+      },
+      "captureMode": "full-page",
+      "timestamp": 1789099168296,
+      "viewportTransaction": {
+        "before": {
+          "width": 1440,
+          "height": 900,
+          "scrollX": 0,
+          "scrollY": 0
+        },
+        "after": {
+          "width": 1440,
+          "height": 900,
+          "scrollX": 0,
+          "scrollY": 0
+        },
+        "restored": true,
+        "attempts": 1
+      }
+    }
+  },
+  "dom": {
+    "file": "dom/product__1440x900.html",
+    "sha256": "2f420129131b6b1dc55352c599dc4826c4ff1a4b62b14a92806255dba2b6c8d2",
+    "bytes": 943626,
+    "observedUrl": "https://phukienmaymoc.com/products/ong-han-laser?themeid=1001512581",
+    "clientWidth": 1425,
+    "docHeight": 2586,
+    "sectionCount": 4,
+    "cardCount": 0,
+    "productItems": 0,
+    "images": 25,
+    "sanitized": true,
+    "removedCount": 5,
+    "declaredSha256": "2f420129131b6b1dc55352c599dc4826c4ff1a4b62b14a92806255dba2b6c8d2",
+    "servedThemeIds": [
+      {
+        "org": "200001207485",
+        "themeId": 1001512581,
+        "occurrences": 23
+      },
+      {
+        "org": "200001170195",
+        "themeId": 1001480974,
+        "occurrences": 1
+      }
+    ]
+  },
+  "geometry": {
+    "url": "https://phukienmaymoc.com/products/ong-han-laser?themeid=1001512581",
+    "docHeight": 2586,
+    "clientWidth": 1425,
+    "scrollWidth": 1425,
+    "overflowX": 0,
+    "sectionCount": 4,
+    "productCardCount": 0,
+    "articleCardCount": 0,
+    "navItemCount": 91,
+    "linkCount": 189,
+    "imageCount": 25,
+    "brokenImageCount": 0,
+    "textNodes": 87,
+    "hasMenuMobile": true,
+    "hasBottomNav": true,
+    "headerRect": {
+      "x": 0,
+      "y": 0,
+      "w": 1425,
+      "h": 166
+    },
+    "navRect": {
+      "x": 107.5,
+      "y": 110,
+      "w": 1210,
+      "h": 56
+    },
+    "heroRect": null,
+    "mainRect": {
+      "x": 0,
+      "y": 166,
+      "w": 1425,
+      "h": 1812.39
+    },
+    "footerRect": {
+      "x": 0,
+      "y": 1978.39,
+      "w": 1425,
+      "h": 607
+    },
+    "sections": [
+      {
+        "tag": "header",
+        "cls": "site-header",
+        "rect": {
+          "x": 0,
+          "y": 0,
+          "w": 1425,
+          "h": 166
+        }
+      },
+      {
+        "tag": "main",
+        "cls": "wrapperMain_content",
+        "rect": {
+          "x": 0,
+          "y": 166,
+          "w": 1425,
+          "h": 1812.39
+        }
+      },
+      {
+        "tag": "main",
+        "cls": "",
+        "rect": {
+          "x": 0,
+          "y": 166,
+          "w": 1425,
+          "h": 1812.39
+        }
+      },
+      {
+        "tag": "div",
+        "cls": "site-footer.w-100",
+        "rect": {
+          "x": 0,
+          "y": 1978.39,
+          "w": 1425,
+          "h": 607
+        }
+      }
+    ],
+    "fonts": {
+      "body": {
+        "family": "Roboto",
+        "size": "14px",
+        "weight": "400",
+        "lineHeight": "normal",
+        "color": "rgb(34, 52, 62)",
+        "letterSpacing": "normal"
+      },
+      "h1": {
+        "family": "Roboto",
+        "size": "22px",
+        "weight": "700",
+        "lineHeight": "28.6px",
+        "color": "rgb(34, 52, 62)",
+        "letterSpacing": "normal"
+      },
+      "h2": {
+        "family": "Roboto",
+        "size": "18px",
+        "weight": "700",
+        "lineHeight": "23.4px",
+        "color": "rgb(34, 52, 62)",
+        "letterSpacing": "normal"
+      },
+      "h3": {
+        "family": "Roboto",
+        "size": "16px",
+        "weight": "700",
+        "lineHeight": "20.8px",
+        "color": "rgb(34, 52, 62)",
+        "letterSpacing": "normal"
+      },
+      "a": {
+        "family": "Roboto",
+        "size": "14px",
+        "weight": "400",
+        "lineHeight": "normal",
+        "color": "rgb(34, 52, 62)",
+        "letterSpacing": "normal"
+      }
+    }
+  },
+  "tabIdentity": {
     "href": "https://phukienmaymoc.com/products/ong-han-laser?themeid=1001512581",
     "device": null,
     "ua": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.7871.224 Safari/537.36",
     "innerWidth": 1440,
     "innerHeight": 900,
     "dpr": 1,
-    "docHeight": 17229,
+    "docHeight": 2586,
     "bodyClass": "mainBody-theme  template-product",
     "sections": 0,
     "widgetNodes": 0,

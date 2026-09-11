@@ -1,0 +1,192 @@
+{
+ "kind": "theme-fidelity-capture-index",
+ "mode": "capture",
+ "status": "COMPLETE",
+ "role": "subject",
+ "label": "s1-subject",
+ "store": "https://phukienmaymoc.com/",
+ "inventory": {
+  "file": "E:\\Work\\apps\\AntiFan\\.canary\\theme-fidelity-run4\\inventories\\subject.json",
+  "sha256": "050fb4fc89e775b8cc40fb993394e7f1104684720494b0ca456b1192ece988f2",
+  "surfaces": 7,
+  "views": 0,
+  "livePreviewBase": null,
+  "copyPreviewBase": null
+ },
+ "viewports": [
+  {
+   "label": "1440x900",
+   "width": 1440,
+   "height": 900,
+   "mobile": false,
+   "dpr": 1
+  },
+  {
+   "label": "1024x900",
+   "width": 1024,
+   "height": 900,
+   "mobile": false,
+   "dpr": 1
+  },
+  {
+   "label": "390x844",
+   "width": 390,
+   "height": 844,
+   "mobile": true,
+   "dpr": 1
+  }
+ ],
+ "safety": {
+  "allowedThemes": [
+   "-1",
+   "1001512581"
+  ],
+  "gates": [
+   {
+    "surface": "home",
+    "url": "https://phukienmaymoc.com/?themeid=1001512581",
+    "themeId": 1001512581,
+    "parameter": "1001512581",
+    "values": [
+     "1001512581"
+    ],
+    "allowed": true,
+    "reason": "themeid=1001512581 is -1 or an allowed theme"
+   },
+   {
+    "surface": "product",
+    "url": "https://phukienmaymoc.com/products/ong-han-laser?themeid=1001512581",
+    "themeId": 1001512581,
+    "parameter": "1001512581",
+    "values": [
+     "1001512581"
+    ],
+    "allowed": true,
+    "reason": "themeid=1001512581 is -1 or an allowed theme"
+   },
+   {
+    "surface": "collection",
+    "url": "https://phukienmaymoc.com/collections/phu-kien-han?themeid=1001512581",
+    "themeId": 1001512581,
+    "parameter": "1001512581",
+    "values": [
+     "1001512581"
+    ],
+    "allowed": true,
+    "reason": "themeid=1001512581 is -1 or an allowed theme"
+   },
+   {
+    "surface": "article",
+    "url": "https://phukienmaymoc.com/blogs/news/plc-la-gi-cau-tao-nguyen-ly-hoat-dong?themeid=1001512581",
+    "themeId": 1001512581,
+    "parameter": "1001512581",
+    "values": [
+     "1001512581"
+    ],
+    "allowed": true,
+    "reason": "themeid=1001512581 is -1 or an allowed theme"
+   },
+   {
+    "surface": "cart",
+    "url": "https://phukienmaymoc.com/cart?themeid=1001512581",
+    "themeId": 1001512581,
+    "parameter": "1001512581",
+    "values": [
+     "1001512581"
+    ],
+    "allowed": true,
+    "reason": "themeid=1001512581 is -1 or an allowed theme"
+   },
+   {
+    "surface": "search",
+    "url": "https://phukienmaymoc.com/search?q=laser&themeid=1001512581",
+    "themeId": 1001512581,
+    "parameter": "1001512581",
+    "values": [
+     "1001512581"
+    ],
+    "allowed": true,
+    "reason": "themeid=1001512581 is -1 or an allowed theme"
+   },
+   {
+    "surface": "404",
+    "url": "https://phukienmaymoc.com/khong-ton-tai-404-probe-xyz?themeid=1001512581",
+    "themeId": 1001512581,
+    "parameter": "1001512581",
+    "values": [
+     "1001512581"
+    ],
+    "allowed": true,
+    "reason": "themeid=1001512581 is -1 or an allowed theme"
+   }
+  ]
+ },
+ "targets": [
+  {
+   "surface": "cart",
+   "kind": "surface",
+   "viewport": "1440x900",
+   "status": "CAPTURED",
+   "file": "cart__1440x900.json",
+   "failure": null,
+   "png": {
+    "file": "cart__1440x900.png",
+    "sha256": "96caa2d172ee2cdaf39ee9c404f04eedc0b6198b90bb83c7978544c377d73088",
+    "bytes": 307935,
+    "artifactRef": "artifact-c2fb66b2-f32a-4a68-9f8b-fe7f9f8b3741"
+   },
+   "dom": {
+    "file": "dom/cart__1440x900.html",
+    "sha256": "af909ef6c1acc41da0a4a37736515f67f077cbf7b347764737ac364f4665da24",
+    "bytes": 951796,
+    "observedUrl": "https://phukienmaymoc.com/cart?themeid=1001512581"
+   }
+  },
+  {
+   "surface": "search",
+   "kind": "surface",
+   "viewport": "1440x900",
+   "status": "CAPTURED",
+   "file": "search__1440x900.json",
+   "failure": null,
+   "png": {
+    "file": "search__1440x900.png",
+    "sha256": "53fc0ac873255b3b87f8de264def5c1a6d6fda0f4f43ce532a27195c00010451",
+    "bytes": 678327,
+    "artifactRef": "artifact-a4713afc-9842-4a1f-bc3e-ab2d4ea8f4ee"
+   },
+   "dom": {
+    "file": "dom/search__1440x900.html",
+    "sha256": "a446c420280969a51fd73449e9eae8876fc1928565e65b9898867dfbd25ec90f",
+    "bytes": 1025558,
+    "observedUrl": "https://phukienmaymoc.com/search?q=laser&themeid=1001512581"
+   }
+  }
+ ],
+ "totals": {
+  "requested": 2,
+  "documents": 2,
+  "captured": 2,
+  "notMeasurable": 0
+ },
+ "refusal": null,
+ "instance": {
+  "attachmentId": "attachment-c7a3504e-fe28-433f-9934-7128b230e3f9",
+  "bridgePort": 20131,
+  "pid": 21236,
+  "primaryTabId": "d202a7f6-1e83-45b5-a511-dd7edc81b299",
+  "startedAt": "2026-09-11T00:18:43.203Z",
+  "runId": "run-9e8a955a-0f78-45c2-8f3b-680a6dcacaf9",
+  "attemptId": "attempt-3e259bf2-4470-4927-b906-410bd15cc2e2"
+ },
+ "run": {
+  "runId": "run-9e8a955a-0f78-45c2-8f3b-680a6dcacaf9",
+  "attachmentId": "attachment-c7a3504e-fe28-433f-9934-7128b230e3f9",
+  "authorityRevision": "rev_486cbe74ff00e6e9c22687bd974a4847",
+  "mintedAt": "2026-09-11T01:36:17.908Z",
+  "label": "s1-subject",
+  "role": "subject"
+ },
+ "startedAt": "2026-09-11T03:57:51.481Z",
+ "finishedAt": "2026-09-11T04:04:34.346Z"
+}

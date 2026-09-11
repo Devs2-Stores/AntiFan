@@ -1,6 +1,6 @@
 {
   "themeDir": "E:\\Work\\customizes\\Phukienmaymoc",
-  "generatedAt": "2026-09-11T01:08:14.461Z",
+  "generatedAt": "2026-09-11T05:29:44.142Z",
   "ok": false,
   "schemas": {
     "ok": true,
@@ -4965,12 +4965,27 @@
       "failures": []
     },
     {
+      "file": "article__1024x900.html",
+      "ok": true,
+      "failures": []
+    },
+    {
+      "file": "article__1440x900.html",
+      "ok": true,
+      "failures": []
+    },
+    {
       "file": "article__390x844.html",
       "ok": true,
       "failures": []
     },
     {
       "file": "cart__1024x900.html",
+      "ok": true,
+      "failures": []
+    },
+    {
+      "file": "cart__1440x900.html",
       "ok": true,
       "failures": []
     },
@@ -4995,6 +5010,16 @@
       "failures": []
     },
     {
+      "file": "home__1024x900.html",
+      "ok": true,
+      "failures": []
+    },
+    {
+      "file": "home__1440x900.html",
+      "ok": true,
+      "failures": []
+    },
+    {
       "file": "home__390x844.html",
       "ok": true,
       "failures": []
@@ -5005,12 +5030,22 @@
       "failures": []
     },
     {
+      "file": "product__1440x900.html",
+      "ok": true,
+      "failures": []
+    },
+    {
       "file": "product__390x844.html",
       "ok": true,
       "failures": []
     },
     {
       "file": "search__1024x900.html",
+      "ok": true,
+      "failures": []
+    },
+    {
+      "file": "search__1440x900.html",
       "ok": true,
       "failures": []
     },

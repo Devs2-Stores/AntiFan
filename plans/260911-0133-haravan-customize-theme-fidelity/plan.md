@@ -168,3 +168,20 @@ measurement path: its own state lives under `.canary/theme-fidelity/`.
 | Authenticated pages cannot be measured | Typed refusal; no credential guessing, no store account mutation |
 | Reference instability produces misleading verdicts | Reference identity is mandatory and `INCONCLUSIVE` wins over `PASS` by construction |
 | The instance degrades across many surfaces | Restart and re-mint on the proven procedure between batches; the harness already records instance identity per verdict |
+
+## Status — 2026-09-11 (run `.canary/theme-fidelity-run4`)
+
+The blocker this plan names is closed, and the run is still not publishable — both for reasons the
+outcome contract allows. Full evidence: `plans/reports/260911-1310-theme-fidelity-run4-verdicts.md`.
+
+| Item | State |
+|---|---|
+| Copy serves the local `assets/**` | fixed — the CLI's `collectThemePushAssetKeys` excluded `assets/` by construction; repaired to opt in through `--only`, rebuilt (51/51 tests), and 336 assets uploaded out-of-band (`push-assets.log`: `336 đã push, 0 lỗi, 0 bỏ qua`); `hl-global.css` went 404 → 200 carrying the layout utilities |
+| Subject capture | `COMPLETE` 21/21 (was 14/21); heights, header and nav identical to the live reference on all 21 legs |
+| Compare | 42 verdict documents: 1 PASS, 40 INCONCLUSIVE, 1 `EXECUTION_TIMEOUT`; both sets `INCOMPLETE` because 28 pairs are `content-changed-between-passes`, a rotating widget carriage the campaign forbids masking |
+| Report | `INCOMPLETE`, `current.json` withheld; 7 `UNRESOLVED_SURFACE` inventory gaps, all outside this plan's seven surfaces |
+| Safety audit | 12 commands, `foreignThemeIds 0`, `publishDeployPush absent`; the out-of-band push is outside the pipeline's command record by design |
+
+`status` stays `blocked`: nothing publishes until the widget-carriage class and the inventory scope
+are decided by the owner.
+

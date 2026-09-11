@@ -1,7 +1,7 @@
 {
   "kind": "theme-fidelity-verdict-index",
   "mode": "compare",
-  "status": "REFUSED",
+  "status": "INCOMPLETE",
   "store": "https://phukienmaymoc.com/",
   "reference": {
     "dir": "E:\\Work\\apps\\AntiFan\\.canary\\theme-fidelity-run4\\r1",
@@ -13,7 +13,7 @@
   "subject": {
     "dir": "E:\\Work\\apps\\AntiFan\\.canary\\theme-fidelity-run4\\subject",
     "index": "E:\\Work\\apps\\AntiFan\\.canary\\theme-fidelity-run4\\subject\\index.json",
-    "indexSha256": "dc81f21dc7f937092acb7afe10702f6acf84e7aa17a4e40b6906c338cc60e906",
+    "indexSha256": "96ea33cd15b330c2f698783ce8d9c3c93259d0423ad1bb2d6e393cac6bb02f88",
     "role": "subject",
     "label": "s1-subject"
   },
@@ -35,35 +35,326 @@
       ".news-item"
     ]
   },
-  "pairs": [],
+  "pairs": [
+    {
+      "surface": "404",
+      "viewport": "1024x900",
+      "status": "NOT_MEASURABLE",
+      "verdict": "INCONCLUSIVE",
+      "mechanism": "content-changed-between-passes",
+      "file": "404__1024x900.json",
+      "mismatchPercentage": null,
+      "referenceHeight": 2304,
+      "subjectHeight": 1128,
+      "referencePngSha256": "eee78e5275c0e24da1e5ee1de26eef25a80a8cbfe56668c9e88c7aa0fa63e8ea",
+      "subjectPngSha256": "f60c786c8d96f4c8925fdcafd65dc93d6b09d4078f036073988be083742d675a"
+    },
+    {
+      "surface": "404",
+      "viewport": "1440x900",
+      "status": "NOT_MEASURABLE",
+      "verdict": "INCONCLUSIVE",
+      "mechanism": "content-changed-between-passes",
+      "file": "404__1440x900.json",
+      "mismatchPercentage": null,
+      "referenceHeight": 1570,
+      "subjectHeight": 1078,
+      "referencePngSha256": "90b6c795fb86dfe5587c694ff903162bee48dd140acbbf4e29e8d081b5b41f95",
+      "subjectPngSha256": "bac8fce9555d4ba13cf6efca4e5282f29fbdc56a0d1452601beacd96cab0853e"
+    },
+    {
+      "surface": "404",
+      "viewport": "390x844",
+      "status": "NOT_MEASURABLE",
+      "verdict": "INCONCLUSIVE",
+      "mechanism": "content-changed-between-passes",
+      "file": "404__390x844.json",
+      "mismatchPercentage": null,
+      "referenceHeight": 1629,
+      "subjectHeight": 1731,
+      "referencePngSha256": "c156205679fbf86ee131f6d296b365ef7050bc1a81da75b601d1345cb861de43",
+      "subjectPngSha256": "bde5df778c7930828f384ad11a380d5a252f3ba73d5955dae3d4d98d6fae4855"
+    },
+    {
+      "surface": "article",
+      "viewport": "1024x900",
+      "status": "NOT_MEASURABLE",
+      "verdict": "INCONCLUSIVE",
+      "mechanism": "content-changed-between-passes",
+      "file": "article__1024x900.json",
+      "mismatchPercentage": null,
+      "referenceHeight": 5942,
+      "subjectHeight": 4332,
+      "referencePngSha256": "a860bd7f616099065d132630668b9b564d4a705f0feec99bd0dd79ac64249329",
+      "subjectPngSha256": "78dd73dbd0a9add41089888bd85c0dc4887c960c0c427c08eee87e2fa722d5a2"
+    },
+    {
+      "surface": "article",
+      "viewport": "1440x900",
+      "status": "NOT_MEASURABLE",
+      "verdict": "INCONCLUSIVE",
+      "mechanism": "content-changed-between-passes",
+      "file": "article__1440x900.json",
+      "mismatchPercentage": null,
+      "referenceHeight": 4954,
+      "subjectHeight": 4118,
+      "referencePngSha256": "cfe7b364a41339fce3a392078951bb356257c651e97796602711cd0a5012414c",
+      "subjectPngSha256": "d0c8b95ba92a3a23a8d80e8d242b5dfed388709525202497d0812bd86c5f6e06"
+    },
+    {
+      "surface": "article",
+      "viewport": "390x844",
+      "status": "NOT_MEASURABLE",
+      "verdict": "INCONCLUSIVE",
+      "mechanism": "content-changed-between-passes",
+      "file": "article__390x844.json",
+      "mismatchPercentage": null,
+      "referenceHeight": 6226,
+      "subjectHeight": 6287,
+      "referencePngSha256": "0f4b1a080ac712a0f3ab8e537059e905e3d9e56101b75d79dab87979a507afa6",
+      "subjectPngSha256": "596dd2ce9f3e7127365c0f4f5deec1e4f018f6bd562e4112126273ccb387c627"
+    },
+    {
+      "surface": "cart",
+      "viewport": "1024x900",
+      "status": "NOT_MEASURABLE",
+      "verdict": "INCONCLUSIVE",
+      "mechanism": "content-changed-between-passes",
+      "file": "cart__1024x900.json",
+      "mismatchPercentage": null,
+      "referenceHeight": 3226,
+      "subjectHeight": 2077,
+      "referencePngSha256": "db68777f42dd76ae1cf898b4e9b918b47a77b909e177b04532188566816832ee",
+      "subjectPngSha256": "b54061afeb01b900bdf5201381083999fdacf5c254c6dc8c318385c84819b0b4"
+    },
+    {
+      "surface": "cart",
+      "viewport": "1440x900",
+      "status": "NOT_MEASURABLE",
+      "verdict": "INCONCLUSIVE",
+      "mechanism": "content-changed-between-passes",
+      "file": "cart__1440x900.json",
+      "mismatchPercentage": null,
+      "referenceHeight": 2301,
+      "subjectHeight": 1811,
+      "referencePngSha256": "d371ec028b7da34c7c7abddfa25ab29bb8f56e5f4b4a07ea35edfbdfba6da587",
+      "subjectPngSha256": "96caa2d172ee2cdaf39ee9c404f04eedc0b6198b90bb83c7978544c377d73088"
+    },
+    {
+      "surface": "cart",
+      "viewport": "390x844",
+      "status": "NOT_MEASURABLE",
+      "verdict": "INCONCLUSIVE",
+      "mechanism": "content-changed-between-passes",
+      "file": "cart__390x844.json",
+      "mismatchPercentage": null,
+      "referenceHeight": 2046,
+      "subjectHeight": 2071,
+      "referencePngSha256": "ae51d7200e9ee671aa0edb1e5622a588f98dfae95c775700d62efb19da416cf1",
+      "subjectPngSha256": "c1677ed6762e9010f6e6adaf857cacf7fb5726b9f11313f3d980121a24aac02d"
+    },
+    {
+      "surface": "collection",
+      "viewport": "1024x900",
+      "status": "NOT_MEASURABLE",
+      "verdict": "INCONCLUSIVE",
+      "mechanism": "EXECUTION_TIMEOUT",
+      "file": "collection__1024x900.json",
+      "mismatchPercentage": null,
+      "referenceHeight": 3798,
+      "subjectHeight": 1307,
+      "referencePngSha256": "d686d45ebd26aeebeed4f36ce595b078cde5c4de2a653e7980df2fa73a6eba4c",
+      "subjectPngSha256": "2c8b8f4148760288358566d215e9adf14da31cc7d7609ae4f454d2022edeaa06"
+    },
+    {
+      "surface": "collection",
+      "viewport": "1440x900",
+      "status": "NOT_MEASURABLE",
+      "verdict": "INCONCLUSIVE",
+      "mechanism": "content-changed-between-passes",
+      "file": "collection__1440x900.json",
+      "mismatchPercentage": null,
+      "referenceHeight": 4117,
+      "subjectHeight": 1257,
+      "referencePngSha256": "0649ff00220298fe1f365aa5386d08d27f02794500a096b438228e7b5bedf5b4",
+      "subjectPngSha256": "a4f9aa77aecae8580ae0f146afb0d123875bfb9b410d33e7fb8bc17265255e53"
+    },
+    {
+      "surface": "collection",
+      "viewport": "390x844",
+      "status": "NOT_MEASURABLE",
+      "verdict": "INCONCLUSIVE",
+      "mechanism": "content-changed-between-passes",
+      "file": "collection__390x844.json",
+      "mismatchPercentage": null,
+      "referenceHeight": 2604,
+      "subjectHeight": 1899,
+      "referencePngSha256": "bc391c907132ec70f01cda1607fb24ecbf70fc3e480413d71464545f50060ec4",
+      "subjectPngSha256": "c8405ddd53b25459a7bb44aa4773265299f7a60e7042c418f36f2b7a05495c47"
+    },
+    {
+      "surface": "home",
+      "viewport": "1024x900",
+      "status": "INCONCLUSIVE",
+      "verdict": "INCONCLUSIVE",
+      "mechanism": "REFERENCE_IDENTITY_DRIFT+SUBJECT_IDENTITY_DRIFT",
+      "file": "home__1024x900.json",
+      "mismatchPercentage": null,
+      "referenceHeight": 7608,
+      "subjectHeight": 5485,
+      "referencePngSha256": "cda96e92d1cc33bfbad0c7a7296a00cb94feaeb89be39c0cc05de94424d93f3c",
+      "subjectPngSha256": "d4e4facd58330cbb4545d2f25686b7472ca08fa267b20f751ba72a705127008f"
+    },
+    {
+      "surface": "home",
+      "viewport": "1440x900",
+      "status": "INCONCLUSIVE",
+      "verdict": "INCONCLUSIVE",
+      "mechanism": "REFERENCE_IDENTITY_DRIFT",
+      "file": "home__1440x900.json",
+      "mismatchPercentage": null,
+      "referenceHeight": 7541,
+      "subjectHeight": 5426,
+      "referencePngSha256": "14b8d7e29944d9f1c4f28330e1c345eefa60e5b483b0dda7ad7b6062472adc76",
+      "subjectPngSha256": "433f76ad5d9d2219ae762eb5941cb5acb65e62d2504c497be9ac0449a9c73b0c"
+    },
+    {
+      "surface": "home",
+      "viewport": "390x844",
+      "status": "INCONCLUSIVE",
+      "verdict": "INCONCLUSIVE",
+      "mechanism": "REFERENCE_IDENTITY_DRIFT+SUBJECT_IDENTITY_DRIFT",
+      "file": "home__390x844.json",
+      "mismatchPercentage": null,
+      "referenceHeight": 9059,
+      "subjectHeight": 8780,
+      "referencePngSha256": "6afc5f0532f3e1f9ddef7dbb851bdef1eab7fd18f732c0ca54fda8b813b8550d",
+      "subjectPngSha256": "df1b722d9a4b406bb80899585fa4b2a4c3eaea33c3f1d37cb82fab2226068578"
+    },
+    {
+      "surface": "product",
+      "viewport": "1024x900",
+      "status": "NOT_MEASURABLE",
+      "verdict": "INCONCLUSIVE",
+      "mechanism": "content-changed-between-passes",
+      "file": "product__1024x900.json",
+      "mismatchPercentage": null,
+      "referenceHeight": 5371,
+      "subjectHeight": 2855,
+      "referencePngSha256": "49fef3cbb2212011194babd824d53d08b8f59a9b20d6b223187ccc306c8867ee",
+      "subjectPngSha256": "f4e34f87e46651f97a47dc53fa382677c4d60a54c0d8ca729b59feb54355c467"
+    },
+    {
+      "surface": "product",
+      "viewport": "1440x900",
+      "status": "NOT_MEASURABLE",
+      "verdict": "INCONCLUSIVE",
+      "mechanism": "content-changed-between-passes",
+      "file": "product__1440x900.json",
+      "mismatchPercentage": null,
+      "referenceHeight": 4749,
+      "subjectHeight": 2586,
+      "referencePngSha256": "4ae5d3b5f1419113fd1c6fb07530508c8e8135eed79d5d1bb361cf4c20a2d107",
+      "subjectPngSha256": "f95018eac195f3d4fed83df392c8cf1697f99ec1f03f5f452cd48648cb82e2f4"
+    },
+    {
+      "surface": "product",
+      "viewport": "390x844",
+      "status": "INCONCLUSIVE",
+      "verdict": "INCONCLUSIVE",
+      "mechanism": "REFERENCE_IDENTITY_DRIFT+SUBJECT_IDENTITY_DRIFT",
+      "file": "product__390x844.json",
+      "mismatchPercentage": null,
+      "referenceHeight": 5674,
+      "subjectHeight": 5013,
+      "referencePngSha256": "e2a188d73e7a0c770da9b85b0ff7c67bb443298f132082bdc92dd1599b3a55de",
+      "subjectPngSha256": "0faa62463157c393502014e8debf78d7445ff0753dcf7200b33552bc32600b9a"
+    },
+    {
+      "surface": "search",
+      "viewport": "1024x900",
+      "status": "NOT_MEASURABLE",
+      "verdict": "INCONCLUSIVE",
+      "mechanism": "content-changed-between-passes",
+      "file": "search__1024x900.json",
+      "mismatchPercentage": null,
+      "referenceHeight": 4480,
+      "subjectHeight": 2300,
+      "referencePngSha256": "2ca01da737cba9868894fc5902c7a8ad9ac72a23feecaf42051e52ede5a2efa6",
+      "subjectPngSha256": "3d834403868a89120e1280fab7a4134721c39bb73c69556d48afa2e428f7f0a4"
+    },
+    {
+      "surface": "search",
+      "viewport": "1440x900",
+      "status": "NOT_MEASURABLE",
+      "verdict": "INCONCLUSIVE",
+      "mechanism": "content-changed-between-passes",
+      "file": "search__1440x900.json",
+      "mismatchPercentage": null,
+      "referenceHeight": 7721,
+      "subjectHeight": 2421,
+      "referencePngSha256": "3f4182f773f1dd245ad6275f57317eee5fcfa5b51fabc5c813922794ff910bdb",
+      "subjectPngSha256": "53fc0ac873255b3b87f8de264def5c1a6d6fda0f4f43ce532a27195c00010451"
+    },
+    {
+      "surface": "search",
+      "viewport": "390x844",
+      "status": "INCONCLUSIVE",
+      "verdict": "INCONCLUSIVE",
+      "mechanism": "REFERENCE_IDENTITY_DRIFT+SUBJECT_IDENTITY_DRIFT",
+      "file": "search__390x844.json",
+      "mismatchPercentage": null,
+      "referenceHeight": 6742,
+      "subjectHeight": 4498,
+      "referencePngSha256": "15ed5d430395c4a5168eb9983294a9dc411a9a1013dedd3d44c0aab444465305",
+      "subjectPngSha256": "bd16b949b505089596f2593491f472c66445486d2c9cc88416958af901369937"
+    }
+  ],
   "totals": {
-    "pairs": 0,
+    "pairs": 21,
     "pass": 0,
     "fail": 0,
-    "inconclusive": 0,
-    "notMeasurable": 0
+    "inconclusive": 21,
+    "notMeasurable": 16
   },
-  "refusal": {
-    "code": "PROVENANCE_UNRESOLVED",
-    "exitCode": 4,
-    "message": "subject evidence E:\\Work\\apps\\AntiFan\\.canary\\theme-fidelity-run4\\subject\\article__1024x900.json cannot be judged: status=NOT_MEASURABLE, provenance",
-    "detail": {
-      "side": "subject",
-      "file": "E:\\Work\\apps\\AntiFan\\.canary\\theme-fidelity-run4\\subject\\article__1024x900.json",
-      "missing": [
-        "status=NOT_MEASURABLE",
-        "provenance"
-      ],
-      "surface": "article",
-      "viewport": "1024x900"
+  "refusal": null,
+  "replayServers": {
+    "reference": {
+      "port": 7861,
+      "root": "E:\\Work\\apps\\AntiFan\\.canary\\theme-fidelity-run4\\compare\\r1-vs-subject\\replay\\reference",
+      "stopped": {
+        "label": "reference-static-server",
+        "pid": 19292,
+        "stopped": true,
+        "forced": false
+      }
+    },
+    "subject": {
+      "port": 7862,
+      "root": "E:\\Work\\apps\\AntiFan\\.canary\\theme-fidelity-run4\\compare\\r1-vs-subject\\replay\\subject",
+      "stopped": {
+        "label": "subject-static-server",
+        "pid": 9800,
+        "stopped": true,
+        "forced": false
+      }
     }
   },
-  "replayServers": {
-    "reference": null,
-    "subject": null
+  "instance": {
+    "attachmentId": "attachment-f63c6b56-ff68-4327-a0fe-541bc36e33ed",
+    "bridgePort": 20131,
+    "pid": 21236,
+    "primaryTabId": "1562b031-7db8-46b6-a539-0a9cfdd41392",
+    "startedAt": "2026-09-11T00:18:43.203Z",
+    "runId": "run-342f8f09-dc7d-4f6f-b790-14cab9b33006",
+    "attemptId": "attempt-551cfdb7-6325-4292-b790-de36eb1dc078"
   },
-  "instance": null,
-  "run": null,
-  "startedAt": "2026-09-11T01:08:04.966Z",
-  "finishedAt": "2026-09-11T01:08:04.979Z"
+  "run": {
+    "runId": "run-342f8f09-dc7d-4f6f-b790-14cab9b33006",
+    "attachmentId": "attachment-f63c6b56-ff68-4327-a0fe-541bc36e33ed",
+    "authorityRevision": "rev_6cae4e02a8a5a7a6f1204d3ae674c6f1",
+    "mintedAt": "2026-09-11T04:33:06.985Z"
+  },
+  "startedAt": "2026-09-11T04:35:10.757Z",
+  "finishedAt": "2026-09-11T05:02:30.424Z"
 }

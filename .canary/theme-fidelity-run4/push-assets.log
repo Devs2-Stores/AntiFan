@@ -1,0 +1,580 @@
+(node:6836) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+[31m╭── warning ────────────────────────────────────╮[0m
+[31m│[0m Saves overwrite the remote theme —            [31m│[0m
+[31m│[0m back up (git / copy / duplicate theme) first. [31m│[0m
+[31m╰───────────────────────────────────────────────╯[0m
+
+- Đang đẩy files…
+[36m ℹ assets/Roboto-Black-Bkgh9aIH.ttf: 124.9 KB → base64 166.6 KB[0m
+[32m File đã push thành công: assets/Roboto-Black-Bkgh9aIH.ttf (1124ms)[0m
+[36m ℹ assets/Roboto-BlackItalic-BWhkBe1Z.ttf: 131.6 KB → base64 175.4 KB[0m
+[32m File đã push thành công: assets/Roboto-BlackItalic-BWhkBe1Z.ttf (6026ms)[0m
+[36m ℹ assets/Roboto-Bold-BnxJmI4l.ttf: 124.8 KB → base64 166.3 KB[0m
+[32m File đã push thành công: assets/Roboto-Bold-BnxJmI4l.ttf (929ms)[0m
+[36m ℹ assets/Roboto-BoldItalic-V8G0xK0_.ttf: 131.4 KB → base64 175.2 KB[0m
+[32m File đã push thành công: assets/Roboto-BoldItalic-V8G0xK0_.ttf (1034ms)[0m
+[36m ℹ assets/Roboto-Italic-D9ftZr8b.ttf: 129.3 KB → base64 172.5 KB[0m
+[32m File đã push thành công: assets/Roboto-Italic-D9ftZr8b.ttf (17595ms)[0m
+[36m ℹ assets/Roboto-Medium-Pi4wemCf.ttf: 124.5 KB → base64 166.0 KB[0m
+[32m File đã push thành công: assets/Roboto-Medium-Pi4wemCf.ttf (1047ms)[0m
+[36m ℹ assets/Roboto-MediumItalic-Cz9lehx7.ttf: 131.2 KB → base64 174.9 KB[0m
+[32m File đã push thành công: assets/Roboto-MediumItalic-Cz9lehx7.ttf (1170ms)[0m
+[36m ℹ assets/Roboto-Regular-B22Zl-NA.ttf: 123.1 KB → base64 164.2 KB[0m
+[32m File đã push thành công: assets/Roboto-Regular-B22Zl-NA.ttf (932ms)[0m
+[36m ℹ assets/Roboto-Thin-CxxL7hmv.ttf: 124.6 KB → base64 166.1 KB[0m
+[32m File đã push thành công: assets/Roboto-Thin-CxxL7hmv.ttf (991ms)[0m
+[36m ℹ assets/Roboto-ThinItalic-2gGGiCc3.ttf: 129.7 KB → base64 173.0 KB[0m
+[32m File đã push thành công: assets/Roboto-ThinItalic-2gGGiCc3.ttf (1047ms)[0m
+[32m File đã push thành công: assets/add-cart.svg (917ms)[0m
+[32m File đã push thành công: assets/animate.min.css (5853ms)[0m
+[32m File đã push thành công: assets/app-buyxgety.js.liquid (7294ms)[0m
+[32m File đã push thành công: assets/app-combo.js.liquid (2403ms)[0m
+[36m ℹ assets/archivo-regular.ttf: 116.8 KB → base64 155.8 KB[0m
+[32m File đã push thành công: assets/archivo-regular.ttf (984ms)[0m
+[36m ℹ assets/arima-regular.ttf: 194.1 KB → base64 258.9 KB[0m
+[32m File đã push thành công: assets/arima-regular.ttf (1115ms)[0m
+[36m ℹ assets/arima-semibold.ttf: 194.5 KB → base64 259.3 KB[0m
+[32m File đã push thành công: assets/arima-semibold.ttf (1364ms)[0m
+[36m ℹ assets/arrow-left.png: 0.2 KB → base64 0.2 KB[0m
+[32m File đã push thành công: assets/arrow-left.png (22740ms)[0m
+[36m ℹ assets/arrow-right.png: 0.2 KB → base64 0.2 KB[0m
+[32m File đã push thành công: assets/arrow-right.png (917ms)[0m
+[36m ℹ assets/arrow-up.png: 0.2 KB → base64 0.3 KB[0m
+[32m File đã push thành công: assets/arrow-up.png (6101ms)[0m
+[32m File đã push thành công: assets/blog.js.liquid (7079ms)[0m
+[36m ℹ assets/blog_thumb_1003094216.jpg: 237.3 KB → base64 316.4 KB[0m
+[32m File đã push thành công: assets/blog_thumb_1003094216.jpg (1017ms)[0m
+[36m ℹ assets/blog_thumb_1003094217.jpg: 163.6 KB → base64 218.1 KB[0m
+[32m File đã push thành công: assets/blog_thumb_1003094217.jpg (12803ms)[0m
+[36m ℹ assets/blog_thumb_1003094218.jpg: 95.1 KB → base64 126.9 KB[0m
+[32m File đã push thành công: assets/blog_thumb_1003094218.jpg (914ms)[0m
+[36m ℹ assets/blog_thumb_1003094219.jpg: 385.9 KB → base64 514.5 KB[0m
+[32m File đã push thành công: assets/blog_thumb_1003094219.jpg (1372ms)[0m
+[36m ℹ assets/blog_thumb_1003094220.jpg: 302.9 KB → base64 403.9 KB[0m
+[32m File đã push thành công: assets/blog_thumb_1003094220.jpg (6043ms)[0m
+[36m ℹ assets/blog_thumb_1003094221.jpg: 341.7 KB → base64 455.6 KB[0m
+[32m File đã push thành công: assets/blog_thumb_1003094221.jpg (1029ms)[0m
+[36m ℹ assets/blog_thumb_1003094222.jpg: 4.7 KB → base64 6.3 KB[0m
+[32m File đã push thành công: assets/blog_thumb_1003094222.jpg (839ms)[0m
+[36m ℹ assets/blog_thumb_1003094223.jpg: 798.8 KB → base64 1065.1 KB[0m
+[32m File đã push thành công: assets/blog_thumb_1003094223.jpg (6363ms)[0m
+[36m ℹ assets/blog_thumb_1003094224.jpg: 938.6 KB → base64 1251.5 KB[0m
+[32m File đã push thành công: assets/blog_thumb_1003094224.jpg (6208ms)[0m
+[36m ℹ assets/blog_thumb_1003094225.jpg: 244.3 KB → base64 325.7 KB[0m
+[32m File đã push thành công: assets/blog_thumb_1003094225.jpg (957ms)[0m
+[32m File đã push thành công: assets/cart.js.liquid (2256ms)[0m
+[36m ℹ assets/cart_banner_image.jpg: 7.1 KB → base64 9.5 KB[0m
+[32m File đã push thành công: assets/cart_banner_image.jpg (6041ms)[0m
+[32m File đã push thành công: assets/check_out.css (878ms)[0m
+[32m File đã push thành công: assets/collection.js.liquid (7067ms)[0m
+[36m ℹ assets/collection_breadcrumb_bg_dk.jpg: 146.1 KB → base64 194.8 KB[0m
+[32m File đã push thành công: assets/collection_breadcrumb_bg_dk.jpg (972ms)[0m
+[36m ℹ assets/collection_breadcrumb_bg_mb.jpg: 32.6 KB → base64 43.5 KB[0m
+[32m File đã push thành công: assets/collection_breadcrumb_bg_mb.jpg (6928ms)[0m
+[32m File đã push thành công: assets/color_font.scss.liquid (2442ms)[0m
+[32m File đã push thành công: assets/coupon.js.liquid (1961ms)[0m
+[32m File đã push thành công: assets/coupon.scss.liquid (3221ms)[0m
+[32m File đã push thành công: assets/customer-scripts.js.liquid (1919ms)[0m
+[32m File đã push thành công: assets/customer-style.scss.liquid (2098ms)[0m
+[36m ℹ assets/delete-cart.png: 0.5 KB → base64 0.6 KB[0m
+[32m File đã push thành công: assets/delete-cart.png (5835ms)[0m
+[36m ℹ assets/favicon.png: 0.5 KB → base64 0.7 KB[0m
+[32m File đã push thành công: assets/favicon.png (5895ms)[0m
+[36m ℹ assets/fontawesome-webfont.eot: 161.9 KB → base64 215.8 KB[0m
+[32m File đã push thành công: assets/fontawesome-webfont.eot (6041ms)[0m
+[32m File đã push thành công: assets/fontawesome-webfont.svg (905ms)[0m
+[36m ℹ assets/fontawesome-webfont.ttf: 161.7 KB → base64 215.6 KB[0m
+[32m File đã push thành công: assets/fontawesome-webfont.ttf (6343ms)[0m
+[36m ℹ assets/fontawesome-webfont.woff: 95.7 KB → base64 127.6 KB[0m
+[32m File đã push thành công: assets/fontawesome-webfont.woff (929ms)[0m
+[36m ℹ assets/fontawesome-webfont.woff2: 75.4 KB → base64 100.5 KB[0m
+[32m File đã push thành công: assets/fontawesome-webfont.woff2 (824ms)[0m
+[32m File đã push thành công: assets/footer.js.liquid (19941ms)[0m
+[32m File đã push thành công: assets/footer.scss.liquid (2100ms)[0m
+[36m ℹ assets/footer_logobct_img.png: 7.9 KB → base64 10.5 KB[0m
+[32m File đã push thành công: assets/footer_logobct_img.png (847ms)[0m
+[36m ℹ assets/glyphicons-halflings-regular.eot: 19.7 KB → base64 26.2 KB[0m
+[32m File đã push thành công: assets/glyphicons-halflings-regular.eot (820ms)[0m
+[32m File đã push thành công: assets/glyphicons-halflings-regular.svg (708ms)[0m
+[36m ℹ assets/glyphicons-halflings-regular.ttf: 44.3 KB → base64 59.1 KB[0m
+[32m File đã push thành công: assets/glyphicons-halflings-regular.ttf (800ms)[0m
+[36m ℹ assets/glyphicons-halflings-regular.woff: 22.9 KB → base64 30.5 KB[0m
+[32m File đã push thành công: assets/glyphicons-halflings-regular.woff (865ms)[0m
+[32m File đã push thành công: assets/header-minicart.js.liquid (1944ms)[0m
+[32m File đã push thành công: assets/header-minicart.scss.liquid (3878ms)[0m
+[32m File đã push thành công: assets/header-search.js.liquid (2422ms)[0m
+[32m File đã push thành công: assets/header-search.scss.liquid (2130ms)[0m
+[32m File đã push thành công: assets/header.js.liquid (2504ms)[0m
+[32m File đã push thành công: assets/header.scss.liquid (7043ms)[0m
+[36m ℹ assets/header_coupon_1_img.png: 7.5 KB → base64 10.0 KB[0m
+[32m File đã push thành công: assets/header_coupon_1_img.png (808ms)[0m
+[36m ℹ assets/header_coupon_2_img.png: 15.0 KB → base64 19.9 KB[0m
+[32m File đã push thành công: assets/header_coupon_2_img.png (950ms)[0m
+[36m ℹ assets/header_coupon_3_img.png: 11.2 KB → base64 15.0 KB[0m
+[32m File đã push thành công: assets/header_coupon_3_img.png (873ms)[0m
+[36m ℹ assets/header_coupon_4_img.png: 7.4 KB → base64 9.9 KB[0m
+[32m File đã push thành công: assets/header_coupon_4_img.png (12626ms)[0m
+[32m File đã push thành công: assets/hl-global.css.liquid (6011ms)[0m
+[32m File đã push thành công: assets/hl-home.js.liquid (6979ms)[0m
+[32m File đã push thành công: assets/hl-home.scss.liquid (1984ms)[0m
+[36m ℹ assets/home_coupon_1_img.png: 7.5 KB → base64 10.0 KB[0m
+[32m File đã push thành công: assets/home_coupon_1_img.png (883ms)[0m
+[36m ℹ assets/home_coupon_2_img.png: 15.0 KB → base64 19.9 KB[0m
+[32m File đã push thành công: assets/home_coupon_2_img.png (876ms)[0m
+[36m ℹ assets/home_coupon_3_img.png: 11.2 KB → base64 15.0 KB[0m
+[32m File đã push thành công: assets/home_coupon_3_img.png (834ms)[0m
+[36m ℹ assets/home_coupon_4_img.png: 7.4 KB → base64 9.9 KB[0m
+[32m File đã push thành công: assets/home_coupon_4_img.png (5883ms)[0m
+[36m ℹ assets/icon-home.png: 0.7 KB → base64 1.0 KB[0m
+[32m File đã push thành công: assets/icon-home.png (965ms)[0m
+[36m ℹ assets/iconsearch.png: 0.3 KB → base64 0.5 KB[0m
+[32m File đã push thành công: assets/iconsearch.png (882ms)[0m
+[32m File đã push thành công: assets/imgwavethree.js.liquid (2230ms)[0m
+[32m File đã push thành công: assets/index.js.liquid (2117ms)[0m
+[32m File đã push thành công: assets/jquery-2.2.4.min.js (2294ms)[0m
+[32m File đã push thành công: assets/jquery-3.5.1.min.js (899ms)[0m
+[32m File đã push thành công: assets/jquery.angle.js (873ms)[0m
+[32m File đã push thành công: assets/jquery.countdown.min.js (819ms)[0m
+[32m File đã push thành công: assets/jquery.fancybox.min.css (845ms)[0m
+[32m File đã push thành công: assets/jquery.fancybox.min.js (2497ms)[0m
+[36m ℹ assets/layout_base.png: 3.4 KB → base64 4.6 KB[0m
+[32m File đã push thành công: assets/layout_base.png (791ms)[0m
+[32m File đã push thành công: assets/lazysizes.min.js (828ms)[0m
+[36m ℹ assets/ldpage01_bannerbottom_image.jpg: 32.5 KB → base64 43.4 KB[0m
+[32m File đã push thành công: assets/ldpage01_bannerbottom_image.jpg (7073ms)[0m
+[36m ℹ assets/ldpage01_coupon_banner_img.jpg: 110.6 KB → base64 147.5 KB[0m
+[32m File đã push thành công: assets/ldpage01_coupon_banner_img.jpg (1346ms)[0m
+[36m ℹ assets/ldpage01_frame_image.png: 29.7 KB → base64 39.7 KB[0m
+[32m File đã push thành công: assets/ldpage01_frame_image.png (957ms)[0m
+[36m ℹ assets/ldpage01_services_1_img.png: 1.4 KB → base64 1.8 KB[0m
+[32m File đã push thành công: assets/ldpage01_services_1_img.png (919ms)[0m
+[36m ℹ assets/ldpage01_services_2_img.png: 1.9 KB → base64 2.5 KB[0m
+[32m File đã push thành công: assets/ldpage01_services_2_img.png (5879ms)[0m
+[36m ℹ assets/ldpage01_services_3_img.png: 1.8 KB → base64 2.3 KB[0m
+[32m File đã push thành công: assets/ldpage01_services_3_img.png (851ms)[0m
+[36m ℹ assets/ldpage01_services_4_img.png: 1.8 KB → base64 2.4 KB[0m
+[32m File đã push thành công: assets/ldpage01_services_4_img.png (17912ms)[0m
+[36m ℹ assets/ldpprod_ecosystem_1_ico.png: 0.6 KB → base64 0.9 KB[0m
+[32m File đã push thành công: assets/ldpprod_ecosystem_1_ico.png (1207ms)[0m
+[36m ℹ assets/ldpprod_ecosystem_2_ico.png: 1.8 KB → base64 2.4 KB[0m
+[32m File đã push thành công: assets/ldpprod_ecosystem_2_ico.png (915ms)[0m
+[36m ℹ assets/ldpprod_ecosystem_3_ico.png: 0.8 KB → base64 1.1 KB[0m
+[32m File đã push thành công: assets/ldpprod_ecosystem_3_ico.png (830ms)[0m
+[36m ℹ assets/ldpprod_ecosystem_4_ico.png: 1.2 KB → base64 1.6 KB[0m
+[32m File đã push thành công: assets/ldpprod_ecosystem_4_ico.png (843ms)[0m
+[36m ℹ assets/ldpprod_ecosystem_5_ico.png: 1.1 KB → base64 1.5 KB[0m
+[32m File đã push thành công: assets/ldpprod_ecosystem_5_ico.png (880ms)[0m
+[36m ℹ assets/ldpprod_ecosystem_6_ico.png: 1.4 KB → base64 1.9 KB[0m
+[32m File đã push thành công: assets/ldpprod_ecosystem_6_ico.png (848ms)[0m
+[36m ℹ assets/ldpprod_ecosystem_img.jpg: 25.0 KB → base64 33.4 KB[0m
+[32m File đã push thành công: assets/ldpprod_ecosystem_img.jpg (1121ms)[0m
+[36m ℹ assets/ldpprod_information_1_ico.png: 8.4 KB → base64 11.2 KB[0m
+[32m File đã push thành công: assets/ldpprod_information_1_ico.png (6787ms)[0m
+[36m ℹ assets/ldpprod_information_2_ico.png: 10.6 KB → base64 14.1 KB[0m
+[32m File đã push thành công: assets/ldpprod_information_2_ico.png (6923ms)[0m
+[36m ℹ assets/ldpprod_information_3_ico.png: 12.2 KB → base64 16.3 KB[0m
+[32m File đã push thành công: assets/ldpprod_information_3_ico.png (837ms)[0m
+[36m ℹ assets/leaguespartan-regular.ttf: 56.2 KB → base64 74.9 KB[0m
+[32m File đã push thành công: assets/leaguespartan-regular.ttf (880ms)[0m
+[36m ℹ assets/lexend-regular.ttf: 76.5 KB → base64 102.0 KB[0m
+[32m File đã push thành công: assets/lexend-regular.ttf (921ms)[0m
+[36m ℹ assets/lexenddeca-regular.ttf: 76.6 KB → base64 102.2 KB[0m
+[32m File đã push thành công: assets/lexenddeca-regular.ttf (5928ms)[0m
+[32m File đã push thành công: assets/ll-addthis-sharing.js.liquid (2041ms)[0m
+[32m File đã push thành công: assets/ll-addthis-sharing.scss.liquid (2939ms)[0m
+[32m File đã push thành công: assets/ll-index-about.scss.liquid (2407ms)[0m
+[32m File đã push thành công: assets/ll-index-banner-1.js.liquid (1993ms)[0m
+[32m File đã push thành công: assets/ll-index-banner-1.scss.liquid (2435ms)[0m
+[32m File đã push thành công: assets/ll-index-banner-2.scss.liquid (2105ms)[0m
+[32m File đã push thành công: assets/ll-index-col-slide1.js.liquid (2606ms)[0m
+[32m File đã push thành công: assets/ll-index-col-slide1.scss.liquid (3065ms)[0m
+[32m File đã push thành công: assets/ll-index-col-slide2.js.liquid (12022ms)[0m
+[32m File đã push thành công: assets/ll-index-col-slide2.scss.liquid (1945ms)[0m
+[32m File đã push thành công: assets/ll-index-col-tab-2.js (743ms)[0m
+[32m File đã push thành công: assets/ll-index-col-tab-2.scss.liquid (1824ms)[0m
+[32m File đã push thành công: assets/ll-index-col-tab.js.liquid (2349ms)[0m
+[32m File đã push thành công: assets/ll-index-col-tab.scss.liquid (19921ms)[0m
+[32m File đã push thành công: assets/ll-index-faqs.js.liquid (2012ms)[0m
+[32m File đã push thành công: assets/ll-index-faqs.scss.liquid (2181ms)[0m
+[32m File đã push thành công: assets/ll-index-form.js.liquid (2037ms)[0m
+[32m File đã push thành công: assets/ll-index-form.scss.liquid (2125ms)[0m
+[32m File đã push thành công: assets/ll-index-marquee.scss.liquid (1890ms)[0m
+[32m File đã push thành công: assets/ll-index-policy.scss.liquid (3415ms)[0m
+[32m File đã push thành công: assets/ll-index-review.js.liquid (7627ms)[0m
+[32m File đã push thành công: assets/ll-index-review.scss.liquid (1322ms)[0m
+[32m File đã push thành công: assets/ll-index-slider.js.liquid (6643ms)[0m
+[32m File đã push thành công: assets/ll-index-slider.scss.liquid (1290ms)[0m
+[32m File đã push thành công: assets/ll-index-tiktok.js.liquid (2135ms)[0m
+[32m File đã push thành công: assets/ll-index-tiktok.scss.liquid (1172ms)[0m
+[32m File đã push thành công: assets/ll-index-video.js.liquid (2697ms)[0m
+[32m File đã push thành công: assets/ll-index-video.scss.liquid (13396ms)[0m
+[32m File đã push thành công: assets/ll-page-heading.scss.liquid (11200ms)[0m
+[32m File đã push thành công: assets/ll-product-loop.js.liquid (6289ms)[0m
+[32m File đã push thành công: assets/ll-product-loop.scss.liquid (7064ms)[0m
+[32m File đã push thành công: assets/ll-quickview.scss.liquid (1245ms)[0m
+[32m File đã push thành công: assets/ll-style-all.scss.liquid (1580ms)[0m
+[32m File đã push thành công: assets/ll-topbar.scss.liquid (1249ms)[0m
+[36m ℹ assets/logo-bct.png: 7.9 KB → base64 10.5 KB[0m
+[32m File đã push thành công: assets/logo-bct.png (656ms)[0m
+[36m ℹ assets/logo-footer.png: 5.1 KB → base64 6.8 KB[0m
+[32m File đã push thành công: assets/logo-footer.png (963ms)[0m
+[36m ℹ assets/logo.jpg: 32.1 KB → base64 42.8 KB[0m
+[32m File đã push thành công: assets/logo.jpg (547ms)[0m
+[36m ℹ assets/logo.png: 10.9 KB → base64 14.5 KB[0m
+[32m File đã push thành công: assets/logo.png (551ms)[0m
+[36m ℹ assets/loomline_about_us_about_1_img.jpg: 195.9 KB → base64 261.2 KB[0m
+[32m File đã push thành công: assets/loomline_about_us_about_1_img.jpg (746ms)[0m
+[36m ℹ assets/loomline_about_us_about_3_img.jpg: 50.9 KB → base64 67.9 KB[0m
+[32m File đã push thành công: assets/loomline_about_us_about_3_img.jpg (606ms)[0m
+[36m ℹ assets/loomline_about_us_about_4_img.jpg: 65.2 KB → base64 87.0 KB[0m
+[32m File đã push thành công: assets/loomline_about_us_about_4_img.jpg (503ms)[0m
+[36m ℹ assets/loomline_about_us_faqs_img.jpg: 94.3 KB → base64 125.8 KB[0m
+[32m File đã push thành công: assets/loomline_about_us_faqs_img.jpg (5782ms)[0m
+[36m ℹ assets/loomline_contact_info_img.jpg: 113.2 KB → base64 150.9 KB[0m
+[32m File đã push thành công: assets/loomline_contact_info_img.jpg (5867ms)[0m
+[36m ℹ assets/loomline_footer_logobct_img.png: 7.9 KB → base64 10.5 KB[0m
+[32m File đã push thành công: assets/loomline_footer_logobct_img.png (1263ms)[0m
+[36m ℹ assets/loomline_footer_payment_1_img.jpg: 0.8 KB → base64 1.0 KB[0m
+[32m File đã push thành công: assets/loomline_footer_payment_1_img.jpg (1007ms)[0m
+[36m ℹ assets/loomline_footer_payment_2_img.jpg: 0.5 KB → base64 0.7 KB[0m
+[32m File đã push thành công: assets/loomline_footer_payment_2_img.jpg (5810ms)[0m
+[36m ℹ assets/loomline_footer_payment_3_img.jpg: 0.9 KB → base64 1.3 KB[0m
+[32m File đã push thành công: assets/loomline_footer_payment_3_img.jpg (5813ms)[0m
+[36m ℹ assets/loomline_footer_payment_4_img.jpg: 0.6 KB → base64 0.8 KB[0m
+[32m File đã push thành công: assets/loomline_footer_payment_4_img.jpg (5878ms)[0m
+[36m ℹ assets/loomline_footer_payment_5_img.jpg: 0.6 KB → base64 0.9 KB[0m
+[32m File đã push thành công: assets/loomline_footer_payment_5_img.jpg (1423ms)[0m
+[36m ℹ assets/loomline_footer_payment_6_img.jpg: 1.2 KB → base64 1.6 KB[0m
+[32m File đã push thành công: assets/loomline_footer_payment_6_img.jpg (916ms)[0m
+[36m ℹ assets/loomline_header_coupon_1_img.png: 7.5 KB → base64 10.0 KB[0m
+[32m File đã push thành công: assets/loomline_header_coupon_1_img.png (917ms)[0m
+[36m ℹ assets/loomline_header_coupon_2_img.png: 15.0 KB → base64 19.9 KB[0m
+[32m File đã push thành công: assets/loomline_header_coupon_2_img.png (792ms)[0m
+[36m ℹ assets/loomline_header_coupon_3_img.png: 11.2 KB → base64 15.0 KB[0m
+[32m File đã push thành công: assets/loomline_header_coupon_3_img.png (1389ms)[0m
+[36m ℹ assets/loomline_header_coupon_4_img.png: 7.4 KB → base64 9.9 KB[0m
+[32m File đã push thành công: assets/loomline_header_coupon_4_img.png (831ms)[0m
+[36m ℹ assets/loomline_index_about_img.jpg: 53.5 KB → base64 71.4 KB[0m
+[32m File đã push thành công: assets/loomline_index_about_img.jpg (11239ms)[0m
+[36m ℹ assets/loomline_index_about_video_img.jpg: 58.3 KB → base64 77.8 KB[0m
+[32m File đã push thành công: assets/loomline_index_about_video_img.jpg (1122ms)[0m
+[36m ℹ assets/loomline_index_banner_1_1_img.jpg: 55.3 KB → base64 73.8 KB[0m
+[32m File đã push thành công: assets/loomline_index_banner_1_1_img.jpg (11111ms)[0m
+[36m ℹ assets/loomline_index_banner_1_1_video_img.jpg: 34.6 KB → base64 46.2 KB[0m
+[32m File đã push thành công: assets/loomline_index_banner_1_1_video_img.jpg (932ms)[0m
+[36m ℹ assets/loomline_index_banner_1_2_img.jpg: 635.4 KB → base64 847.3 KB[0m
+[32m File đã push thành công: assets/loomline_index_banner_1_2_img.jpg (1490ms)[0m
+[36m ℹ assets/loomline_index_banner_1_3_img.jpg: 320.4 KB → base64 427.2 KB[0m
+[32m File đã push thành công: assets/loomline_index_banner_1_3_img.jpg (13641ms)[0m
+[36m ℹ assets/loomline_index_banner_2_1_img.jpg: 25.2 KB → base64 33.6 KB[0m
+[32m File đã push thành công: assets/loomline_index_banner_2_1_img.jpg (821ms)[0m
+[36m ℹ assets/loomline_index_banner_2_1_video_img.jpg: 26.8 KB → base64 35.7 KB[0m
+[32m File đã push thành công: assets/loomline_index_banner_2_1_video_img.jpg (765ms)[0m
+[36m ℹ assets/loomline_index_banner_2_2_img.jpg: 29.1 KB → base64 38.8 KB[0m
+[32m File đã push thành công: assets/loomline_index_banner_2_2_img.jpg (12562ms)[0m
+[36m ℹ assets/loomline_index_banner_2_2_video_img.jpg: 26.8 KB → base64 35.7 KB[0m
+[32m File đã push thành công: assets/loomline_index_banner_2_2_video_img.jpg (13171ms)[0m
+[36m ℹ assets/loomline_index_banner_2_3_img.jpg: 20.0 KB → base64 26.7 KB[0m
+[32m File đã push thành công: assets/loomline_index_banner_2_3_img.jpg (892ms)[0m
+[36m ℹ assets/loomline_index_banner_2_3_video_img.jpg: 13.5 KB → base64 18.0 KB[0m
+[32m File đã push thành công: assets/loomline_index_banner_2_3_video_img.jpg (953ms)[0m
+[36m ℹ assets/loomline_index_col_slide1_1_banner_img.jpg: 75.1 KB → base64 100.1 KB[0m
+[32m File đã push thành công: assets/loomline_index_col_slide1_1_banner_img.jpg (6395ms)[0m
+[36m ℹ assets/loomline_index_col_slide1_1_banner_video_img.jpg: 52.3 KB → base64 69.7 KB[0m
+[32m File đã push thành công: assets/loomline_index_col_slide1_1_banner_video_img.jpg (12623ms)[0m
+[36m ℹ assets/loomline_index_col_slide1_banner_img.jpg: 75.4 KB → base64 100.6 KB[0m
+[32m File đã push thành công: assets/loomline_index_col_slide1_banner_img.jpg (849ms)[0m
+[36m ℹ assets/loomline_index_col_slide1_banner_video_img.jpg: 33.4 KB → base64 44.6 KB[0m
+[32m File đã push thành công: assets/loomline_index_col_slide1_banner_video_img.jpg (845ms)[0m
+[36m ℹ assets/loomline_index_faqs_img.jpg: 32.7 KB → base64 43.6 KB[0m
+[32m File đã push thành công: assets/loomline_index_faqs_img.jpg (789ms)[0m
+[36m ℹ assets/loomline_index_faqs_video_img.jpg: 188.7 KB → base64 251.6 KB[0m
+[32m File đã push thành công: assets/loomline_index_faqs_video_img.jpg (6109ms)[0m
+[36m ℹ assets/loomline_index_marquee_img_1.jpg: 1.1 KB → base64 1.5 KB[0m
+[32m File đã push thành công: assets/loomline_index_marquee_img_1.jpg (885ms)[0m
+[36m ℹ assets/loomline_index_marquee_img_2.jpg: 2.8 KB → base64 3.7 KB[0m
+[32m File đã push thành công: assets/loomline_index_marquee_img_2.jpg (812ms)[0m
+[36m ℹ assets/loomline_index_marquee_img_3.jpg: 3.6 KB → base64 4.8 KB[0m
+[32m File đã push thành công: assets/loomline_index_marquee_img_3.jpg (864ms)[0m
+[36m ℹ assets/loomline_index_marquee_img_4.jpg: 3.5 KB → base64 4.7 KB[0m
+[32m File đã push thành công: assets/loomline_index_marquee_img_4.jpg (861ms)[0m
+[36m ℹ assets/loomline_index_review_1_banner.jpg: 18.6 KB → base64 24.8 KB[0m
+[32m File đã push thành công: assets/loomline_index_review_1_banner.jpg (866ms)[0m
+[36m ℹ assets/loomline_index_review_1_img.jpg: 0.9 KB → base64 1.2 KB[0m
+[32m File đã push thành công: assets/loomline_index_review_1_img.jpg (793ms)[0m
+[36m ℹ assets/loomline_index_review_2_banner.jpg: 17.2 KB → base64 23.0 KB[0m
+[32m File đã push thành công: assets/loomline_index_review_2_banner.jpg (852ms)[0m
+[36m ℹ assets/loomline_index_review_2_img.jpg: 1.0 KB → base64 1.3 KB[0m
+[32m File đã push thành công: assets/loomline_index_review_2_img.jpg (861ms)[0m
+[36m ℹ assets/loomline_index_review_3_banner.jpg: 16.2 KB → base64 21.6 KB[0m
+[32m File đã push thành công: assets/loomline_index_review_3_banner.jpg (12457ms)[0m
+[36m ℹ assets/loomline_index_review_3_img.jpg: 1.5 KB → base64 1.9 KB[0m
+[32m File đã push thành công: assets/loomline_index_review_3_img.jpg (5856ms)[0m
+[36m ℹ assets/loomline_index_review_4_banner.jpg: 17.7 KB → base64 23.7 KB[0m
+[32m File đã push thành công: assets/loomline_index_review_4_banner.jpg (5843ms)[0m
+[36m ℹ assets/loomline_index_review_4_img.jpg: 1.0 KB → base64 1.4 KB[0m
+[32m File đã push thành công: assets/loomline_index_review_4_img.jpg (849ms)[0m
+[36m ℹ assets/loomline_index_review_5_banner.jpg: 13.8 KB → base64 18.4 KB[0m
+[32m File đã push thành công: assets/loomline_index_review_5_banner.jpg (892ms)[0m
+[36m ℹ assets/loomline_index_review_5_img.jpg: 1.2 KB → base64 1.6 KB[0m
+[32m File đã push thành công: assets/loomline_index_review_5_img.jpg (915ms)[0m
+[36m ℹ assets/loomline_index_review_6_banner.jpg: 52.0 KB → base64 69.3 KB[0m
+[32m File đã push thành công: assets/loomline_index_review_6_banner.jpg (1011ms)[0m
+[36m ℹ assets/loomline_index_review_6_img.jpg: 1.0 KB → base64 1.4 KB[0m
+[32m File đã push thành công: assets/loomline_index_review_6_img.jpg (5809ms)[0m
+[36m ℹ assets/loomline_index_slider_1_img.jpg: 210.0 KB → base64 280.0 KB[0m
+[32m File đã push thành công: assets/loomline_index_slider_1_img.jpg (1343ms)[0m
+[36m ℹ assets/loomline_index_slider_1_img_mb.jpg: 92.0 KB → base64 122.6 KB[0m
+[32m File đã push thành công: assets/loomline_index_slider_1_img_mb.jpg (872ms)[0m
+[36m ℹ assets/loomline_index_slider_2_img.jpg: 140.5 KB → base64 187.3 KB[0m
+[32m File đã push thành công: assets/loomline_index_slider_2_img.jpg (939ms)[0m
+[36m ℹ assets/loomline_index_slider_2_img_mb.jpg: 137.4 KB → base64 183.2 KB[0m
+[32m File đã push thành công: assets/loomline_index_slider_2_img_mb.jpg (860ms)[0m
+[36m ℹ assets/loomline_index_slider_3_img.jpg: 70.7 KB → base64 94.3 KB[0m
+[32m File đã push thành công: assets/loomline_index_slider_3_img.jpg (798ms)[0m
+[36m ℹ assets/loomline_index_slider_3_img_mb.jpg: 117.7 KB → base64 156.9 KB[0m
+[32m File đã push thành công: assets/loomline_index_slider_3_img_mb.jpg (978ms)[0m
+[36m ℹ assets/loomline_index_slider_4_img.jpg: 91.2 KB → base64 121.6 KB[0m
+[32m File đã push thành công: assets/loomline_index_slider_4_img.jpg (5913ms)[0m
+[36m ℹ assets/loomline_index_slider_4_img_mb.jpg: 136.7 KB → base64 182.3 KB[0m
+[32m File đã push thành công: assets/loomline_index_slider_4_img_mb.jpg (886ms)[0m
+[36m ℹ assets/loomline_index_tiktok_1_img.jpg: 27.9 KB → base64 37.3 KB[0m
+[32m File đã push thành công: assets/loomline_index_tiktok_1_img.jpg (881ms)[0m
+[36m ℹ assets/loomline_index_tiktok_1_video_img.jpg: 31.3 KB → base64 41.8 KB[0m
+[32m File đã push thành công: assets/loomline_index_tiktok_1_video_img.jpg (841ms)[0m
+[36m ℹ assets/loomline_index_tiktok_2_img.jpg: 22.7 KB → base64 30.3 KB[0m
+[32m File đã push thành công: assets/loomline_index_tiktok_2_img.jpg (815ms)[0m
+[36m ℹ assets/loomline_index_tiktok_2_video_img.jpg: 52.3 KB → base64 69.7 KB[0m
+[32m File đã push thành công: assets/loomline_index_tiktok_2_video_img.jpg (874ms)[0m
+[36m ℹ assets/loomline_index_tiktok_3_img.jpg: 31.5 KB → base64 42.0 KB[0m
+[32m File đã push thành công: assets/loomline_index_tiktok_3_img.jpg (894ms)[0m
+[36m ℹ assets/loomline_index_tiktok_3_video_img.jpg: 36.8 KB → base64 49.1 KB[0m
+[32m File đã push thành công: assets/loomline_index_tiktok_3_video_img.jpg (778ms)[0m
+[36m ℹ assets/loomline_index_tiktok_4_img.jpg: 21.7 KB → base64 28.9 KB[0m
+[32m File đã push thành công: assets/loomline_index_tiktok_4_img.jpg (866ms)[0m
+[36m ℹ assets/loomline_index_tiktok_4_video_img.jpg: 57.9 KB → base64 77.2 KB[0m
+[32m File đã push thành công: assets/loomline_index_tiktok_4_video_img.jpg (803ms)[0m
+[36m ℹ assets/loomline_index_tiktok_5_img.jpg: 29.9 KB → base64 39.8 KB[0m
+[32m File đã push thành công: assets/loomline_index_tiktok_5_img.jpg (921ms)[0m
+[36m ℹ assets/loomline_index_tiktok_5_video_img.jpg: 42.7 KB → base64 57.0 KB[0m
+[32m File đã push thành công: assets/loomline_index_tiktok_5_video_img.jpg (794ms)[0m
+[36m ℹ assets/loomline_index_video_tab_1_item_1_img.jpg: 31.3 KB → base64 41.8 KB[0m
+[32m File đã push thành công: assets/loomline_index_video_tab_1_item_1_img.jpg (5386ms)[0m
+[36m ℹ assets/loomline_index_video_tab_1_item_1_video_img.jpg: 33.4 KB → base64 44.6 KB[0m
+[32m File đã push thành công: assets/loomline_index_video_tab_1_item_1_video_img.jpg (5777ms)[0m
+[36m ℹ assets/loomline_index_video_tab_1_item_2_img.jpg: 31.3 KB → base64 41.8 KB[0m
+[32m File đã push thành công: assets/loomline_index_video_tab_1_item_2_img.jpg (740ms)[0m
+[36m ℹ assets/loomline_index_video_tab_1_item_2_video_img.jpg: 55.5 KB → base64 74.0 KB[0m
+[32m File đã push thành công: assets/loomline_index_video_tab_1_item_2_video_img.jpg (10847ms)[0m
+[36m ℹ assets/loomline_index_video_tab_1_item_3_img.jpg: 64.4 KB → base64 85.9 KB[0m
+[32m File đã push thành công: assets/loomline_index_video_tab_1_item_3_img.jpg (2191ms)[0m
+[36m ℹ assets/loomline_index_video_tab_1_item_3_video_img.jpg: 64.5 KB → base64 86.0 KB[0m
+[32m File đã push thành công: assets/loomline_index_video_tab_1_item_3_video_img.jpg (774ms)[0m
+[36m ℹ assets/loomline_index_video_tab_1_item_4_img.jpg: 40.3 KB → base64 53.8 KB[0m
+[32m File đã push thành công: assets/loomline_index_video_tab_1_item_4_img.jpg (819ms)[0m
+[36m ℹ assets/loomline_index_video_tab_1_item_4_video_img.jpg: 40.5 KB → base64 54.0 KB[0m
+[32m File đã push thành công: assets/loomline_index_video_tab_1_item_4_video_img.jpg (749ms)[0m
+[36m ℹ assets/loomline_index_video_tab_2_item_1_img.jpg: 85.9 KB → base64 114.5 KB[0m
+[32m File đã push thành công: assets/loomline_index_video_tab_2_item_1_img.jpg (5781ms)[0m
+[36m ℹ assets/loomline_index_video_tab_2_item_1_video_img.jpg: 85.9 KB → base64 114.5 KB[0m
+[32m File đã push thành công: assets/loomline_index_video_tab_2_item_1_video_img.jpg (752ms)[0m
+[36m ℹ assets/loomline_index_video_tab_2_item_2_img.jpg: 52.2 KB → base64 69.7 KB[0m
+[32m File đã push thành công: assets/loomline_index_video_tab_2_item_2_img.jpg (789ms)[0m
+[36m ℹ assets/loomline_index_video_tab_2_item_2_video_img.jpg: 52.3 KB → base64 69.7 KB[0m
+[32m File đã push thành công: assets/loomline_index_video_tab_2_item_2_video_img.jpg (730ms)[0m
+[36m ℹ assets/loomline_index_video_tab_2_item_3_img.jpg: 38.1 KB → base64 50.8 KB[0m
+[32m File đã push thành công: assets/loomline_index_video_tab_2_item_3_img.jpg (774ms)[0m
+[36m ℹ assets/loomline_index_video_tab_2_item_3_video_img.jpg: 38.1 KB → base64 50.8 KB[0m
+[32m File đã push thành công: assets/loomline_index_video_tab_2_item_3_video_img.jpg (728ms)[0m
+[36m ℹ assets/loomline_index_video_tab_2_item_4_img.jpg: 105.2 KB → base64 140.3 KB[0m
+[32m File đã push thành công: assets/loomline_index_video_tab_2_item_4_img.jpg (7741ms)[0m
+[36m ℹ assets/loomline_index_video_tab_2_item_4_video_img.jpg: 105.2 KB → base64 140.3 KB[0m
+[32m File đã push thành công: assets/loomline_index_video_tab_2_item_4_video_img.jpg (850ms)[0m
+[36m ℹ assets/loomline_index_video_tab_3_item_1_img.jpg: 86.4 KB → base64 115.2 KB[0m
+[32m File đã push thành công: assets/loomline_index_video_tab_3_item_1_img.jpg (1381ms)[0m
+[36m ℹ assets/loomline_index_video_tab_3_item_1_video_img.jpg: 86.4 KB → base64 115.2 KB[0m
+[32m File đã push thành công: assets/loomline_index_video_tab_3_item_1_video_img.jpg (839ms)[0m
+[36m ℹ assets/loomline_index_video_tab_3_item_2_img.jpg: 127.1 KB → base64 169.5 KB[0m
+[32m File đã push thành công: assets/loomline_index_video_tab_3_item_2_img.jpg (999ms)[0m
+[36m ℹ assets/loomline_index_video_tab_3_item_2_video_img.jpg: 127.1 KB → base64 169.5 KB[0m
+[32m File đã push thành công: assets/loomline_index_video_tab_3_item_2_video_img.jpg (7312ms)[0m
+[36m ℹ assets/loomline_index_video_tab_3_item_3_img.jpg: 31.3 KB → base64 41.7 KB[0m
+[32m File đã push thành công: assets/loomline_index_video_tab_3_item_3_img.jpg (850ms)[0m
+[36m ℹ assets/loomline_index_video_tab_3_item_3_video_img.jpg: 31.3 KB → base64 41.8 KB[0m
+[32m File đã push thành công: assets/loomline_index_video_tab_3_item_3_video_img.jpg (1178ms)[0m
+[36m ℹ assets/loomline_index_video_tab_3_item_4_img.jpg: 42.7 KB → base64 57.0 KB[0m
+[32m File đã push thành công: assets/loomline_index_video_tab_3_item_4_img.jpg (5952ms)[0m
+[36m ℹ assets/loomline_index_video_tab_3_item_4_video_img.jpg: 42.7 KB → base64 57.0 KB[0m
+[32m File đã push thành công: assets/loomline_index_video_tab_3_item_4_video_img.jpg (12824ms)[0m
+[36m ℹ assets/loomline_index_video_tab_4_item_1_img.jpg: 57.9 KB → base64 77.2 KB[0m
+[32m File đã push thành công: assets/loomline_index_video_tab_4_item_1_img.jpg (1083ms)[0m
+[36m ℹ assets/loomline_index_video_tab_4_item_1_video_img.jpg: 57.9 KB → base64 77.2 KB[0m
+[32m File đã push thành công: assets/loomline_index_video_tab_4_item_1_video_img.jpg (6803ms)[0m
+[36m ℹ assets/loomline_index_video_tab_4_item_2_img.jpg: 29.7 KB → base64 39.5 KB[0m
+[32m File đã push thành công: assets/loomline_index_video_tab_4_item_2_img.jpg (818ms)[0m
+[36m ℹ assets/loomline_index_video_tab_4_item_2_video_img.jpg: 29.7 KB → base64 39.5 KB[0m
+[32m File đã push thành công: assets/loomline_index_video_tab_4_item_2_video_img.jpg (1319ms)[0m
+[36m ℹ assets/loomline_index_video_tab_4_item_3_img.jpg: 63.6 KB → base64 84.8 KB[0m
+[32m File đã push thành công: assets/loomline_index_video_tab_4_item_3_img.jpg (795ms)[0m
+[36m ℹ assets/loomline_index_video_tab_4_item_3_video_img.jpg: 63.6 KB → base64 84.8 KB[0m
+[32m File đã push thành công: assets/loomline_index_video_tab_4_item_3_video_img.jpg (707ms)[0m
+[36m ℹ assets/loomline_index_video_tab_4_item_4_img.jpg: 36.8 KB → base64 49.1 KB[0m
+[32m File đã push thành công: assets/loomline_index_video_tab_4_item_4_img.jpg (842ms)[0m
+[36m ℹ assets/loomline_index_video_tab_4_item_4_video_img.jpg: 36.8 KB → base64 49.1 KB[0m
+[32m File đã push thành công: assets/loomline_index_video_tab_4_item_4_video_img.jpg (841ms)[0m
+[36m ℹ assets/loomline_logo.png: 4.2 KB → base64 5.5 KB[0m
+[32m File đã push thành công: assets/loomline_logo.png (1117ms)[0m
+[36m ℹ assets/loomline_logo_footer.png: 10.9 KB → base64 14.5 KB[0m
+[32m File đã push thành công: assets/loomline_logo_footer.png (887ms)[0m
+[36m ℹ assets/loomline_mini_cart_item_1_img.jpg: 1.2 KB → base64 1.6 KB[0m
+[32m File đã push thành công: assets/loomline_mini_cart_item_1_img.jpg (865ms)[0m
+[36m ℹ assets/loomline_mini_cart_item_2_img.jpg: 1.8 KB → base64 2.4 KB[0m
+[32m File đã push thành công: assets/loomline_mini_cart_item_2_img.jpg (816ms)[0m
+[36m ℹ assets/loomline_mini_cart_item_3_img.jpg: 0.8 KB → base64 1.1 KB[0m
+[32m File đã push thành công: assets/loomline_mini_cart_item_3_img.jpg (823ms)[0m
+[36m ℹ assets/loomline_mini_cart_item_4_img.jpg: 1.0 KB → base64 1.4 KB[0m
+[32m File đã push thành công: assets/loomline_mini_cart_item_4_img.jpg (806ms)[0m
+[36m ℹ assets/loomline_sidebar_icon_cart_img.jpg: 0.6 KB → base64 0.8 KB[0m
+[32m File đã push thành công: assets/loomline_sidebar_icon_cart_img.jpg (900ms)[0m
+[36m ℹ assets/loomline_sidebar_icon_cate_img.jpg: 0.2 KB → base64 0.2 KB[0m
+[32m File đã push thành công: assets/loomline_sidebar_icon_cate_img.jpg (914ms)[0m
+[36m ℹ assets/loomline_sidebar_icon_home_img.jpg: 0.6 KB → base64 0.8 KB[0m
+[32m File đã push thành công: assets/loomline_sidebar_icon_home_img.jpg (868ms)[0m
+[36m ℹ assets/loomline_sidebar_icon_suport_img.jpg: 1.4 KB → base64 1.8 KB[0m
+[32m File đã push thành công: assets/loomline_sidebar_icon_suport_img.jpg (878ms)[0m
+[36m ℹ assets/membercard_1_cover.jpg: 11.5 KB → base64 15.4 KB[0m
+[32m File đã push thành công: assets/membercard_1_cover.jpg (991ms)[0m
+[36m ℹ assets/membercard_2_cover.jpg: 11.5 KB → base64 15.4 KB[0m
+[32m File đã push thành công: assets/membercard_2_cover.jpg (800ms)[0m
+[36m ℹ assets/membercard_3_cover.jpg: 11.5 KB → base64 15.4 KB[0m
+[32m File đã push thành công: assets/membercard_3_cover.jpg (812ms)[0m
+[36m ℹ assets/membercard_offer_1_img.png: 7.6 KB → base64 10.2 KB[0m
+[32m File đã push thành công: assets/membercard_offer_1_img.png (10840ms)[0m
+[36m ℹ assets/membercard_offer_2_img.png: 7.6 KB → base64 10.2 KB[0m
+[32m File đã push thành công: assets/membercard_offer_2_img.png (912ms)[0m
+[36m ℹ assets/membercard_offer_3_img.png: 5.5 KB → base64 7.3 KB[0m
+[32m File đã push thành công: assets/membercard_offer_3_img.png (5842ms)[0m
+[36m ℹ assets/membercard_offer_4_img.png: 2.5 KB → base64 3.3 KB[0m
+[32m File đã push thành công: assets/membercard_offer_4_img.png (859ms)[0m
+[36m ℹ assets/messenger.png: 2.1 KB → base64 2.8 KB[0m
+[32m File đã push thành công: assets/messenger.png (773ms)[0m
+[32m File đã push thành công: assets/modal-pricezero.scss.liquid (2186ms)[0m
+[32m File đã push thành công: assets/modernizr.min.js (792ms)[0m
+[36m ℹ assets/monasans-regular.ttf: 99.0 KB → base64 132.0 KB[0m
+[32m File đã push thành công: assets/monasans-regular.ttf (962ms)[0m
+[32m File đã push thành công: assets/mytypewriter.js (898ms)[0m
+[36m ℹ assets/no-image-blog.jpg: 5.4 KB → base64 7.3 KB[0m
+[32m File đã push thành công: assets/no-image-blog.jpg (1178ms)[0m
+[36m ℹ assets/no_image.jpg: 4.7 KB → base64 6.3 KB[0m
+[32m File đã push thành công: assets/no_image.jpg (862ms)[0m
+[36m ℹ assets/nunito-regular.ttf: 129.1 KB → base64 172.1 KB[0m
+[32m File đã push thành công: assets/nunito-regular.ttf (1233ms)[0m
+[32m File đã push thành công: assets/page-contact-hoplong.css (939ms)[0m
+[32m File đã push thành công: assets/page-wishlist.scss.liquid (1946ms)[0m
+[32m File đã push thành công: assets/page.js.liquid (1955ms)[0m
+[36m ℹ assets/page_banner_image.jpg: 71.9 KB → base64 95.9 KB[0m
+[32m File đã push thành công: assets/page_banner_image.jpg (12782ms)[0m
+[36m ℹ assets/payment_1_img.png: 1.5 KB → base64 1.9 KB[0m
+[32m File đã push thành công: assets/payment_1_img.png (831ms)[0m
+[36m ℹ assets/payment_2_img.png: 1.8 KB → base64 2.4 KB[0m
+[32m File đã push thành công: assets/payment_2_img.png (797ms)[0m
+[36m ℹ assets/payment_3_img.png: 1.5 KB → base64 1.9 KB[0m
+[32m File đã push thành công: assets/payment_3_img.png (782ms)[0m
+[36m ℹ assets/payment_4_img.png: 1.7 KB → base64 2.2 KB[0m
+[32m File đã push thành công: assets/payment_4_img.png (792ms)[0m
+[36m ℹ assets/philosopher-bold.ttf: 106.7 KB → base64 142.2 KB[0m
+[32m File đã push thành công: assets/philosopher-bold.ttf (17376ms)[0m
+[36m ℹ assets/philosopher-regular.ttf: 108.0 KB → base64 144.0 KB[0m
+[32m File đã push thành công: assets/philosopher-regular.ttf (1140ms)[0m
+[36m ℹ assets/plusjakartasans-bold.ttf: 92.6 KB → base64 123.4 KB[0m
+[32m File đã push thành công: assets/plusjakartasans-bold.ttf (5741ms)[0m
+[36m ℹ assets/plusjakartasans-regular.ttf: 92.5 KB → base64 123.4 KB[0m
+[32m File đã push thành công: assets/plusjakartasans-regular.ttf (1211ms)[0m
+[36m ℹ assets/popup_contact_banner.jpg: 55.1 KB → base64 73.5 KB[0m
+[32m File đã push thành công: assets/popup_contact_banner.jpg (542ms)[0m
+[36m ℹ assets/popup_contact_bkg.jpg: 55.1 KB → base64 73.5 KB[0m
+[32m File đã push thành công: assets/popup_contact_bkg.jpg (5631ms)[0m
+[36m ℹ assets/popup_discount_bkg.jpg: 55.1 KB → base64 73.5 KB[0m
+[32m File đã push thành công: assets/popup_discount_bkg.jpg (617ms)[0m
+[32m File đã push thành công: assets/post-hoplong.css (584ms)[0m
+[36m ℹ assets/product-demo-1.png: 4.1 KB → base64 5.5 KB[0m
+[32m File đã push thành công: assets/product-demo-1.png (568ms)[0m
+[36m ℹ assets/product-demo-2.png: 4.6 KB → base64 6.1 KB[0m
+[32m File đã push thành công: assets/product-demo-2.png (649ms)[0m
+[36m ℹ assets/product-demo-3.png: 7.2 KB → base64 9.6 KB[0m
+[32m File đã push thành công: assets/product-demo-3.png (601ms)[0m
+[36m ℹ assets/product-demo-4.png: 6.7 KB → base64 9.0 KB[0m
+[32m File đã push thành công: assets/product-demo-4.png (585ms)[0m
+[36m ℹ assets/product-demo-5.png: 4.1 KB → base64 5.5 KB[0m
+[32m File đã push thành công: assets/product-demo-5.png (568ms)[0m
+[36m ℹ assets/product-demo-6.png: 4.6 KB → base64 6.1 KB[0m
+[32m File đã push thành công: assets/product-demo-6.png (575ms)[0m
+[32m File đã push thành công: assets/product-hoplong.css (620ms)[0m
+[32m File đã push thành công: assets/product-single-hoplong.css (12031ms)[0m
+[32m File đã push thành công: assets/product.js.liquid (6232ms)[0m
+[36m ℹ assets/product_banner.jpg: 28.0 KB → base64 37.3 KB[0m
+[32m File đã push thành công: assets/product_banner.jpg (606ms)[0m
+[36m ℹ assets/product_breadcrumb_bg_dk.jpg: 146.1 KB → base64 194.8 KB[0m
+[32m File đã push thành công: assets/product_breadcrumb_bg_dk.jpg (5599ms)[0m
+[36m ℹ assets/product_breadcrumb_bg_mb.jpg: 32.6 KB → base64 43.5 KB[0m
+[32m File đã push thành công: assets/product_breadcrumb_bg_mb.jpg (624ms)[0m
+[36m ℹ assets/product_deliverly_1_ico.png: 0.5 KB → base64 0.6 KB[0m
+[32m File đã push thành công: assets/product_deliverly_1_ico.png (582ms)[0m
+[36m ℹ assets/product_deliverly_2_ico.png: 1.1 KB → base64 1.4 KB[0m
+[32m File đã push thành công: assets/product_deliverly_2_ico.png (810ms)[0m
+[36m ℹ assets/product_deliverly_3_ico.png: 0.9 KB → base64 1.1 KB[0m
+[32m File đã push thành công: assets/product_deliverly_3_ico.png (5515ms)[0m
+[36m ℹ assets/product_deliverly_4_ico.png: 0.9 KB → base64 1.2 KB[0m
+[32m File đã push thành công: assets/product_deliverly_4_ico.png (865ms)[0m
+[36m ℹ assets/product_deliverly_5_ico.png: 0.7 KB → base64 1.0 KB[0m
+[32m File đã push thành công: assets/product_deliverly_5_ico.png (783ms)[0m
+[36m ℹ assets/product_deliverly_6_ico.png: 0.6 KB → base64 0.8 KB[0m
+[32m File đã push thành công: assets/product_deliverly_6_ico.png (852ms)[0m
+[32m File đã push thành công: assets/render-library.css.liquid (2062ms)[0m
+[32m File đã push thành công: assets/sale-popup.js.liquid (7061ms)[0m
+[32m File đã push thành công: assets/sale-popup.scss.liquid (7768ms)[0m
+[32m File đã push thành công: assets/script-combo-render.js.liquid (2566ms)[0m
+[32m File đã push thành công: assets/scripts.js.liquid (2765ms)[0m
+[32m File đã push thành công: assets/seo-cwv-booster.js (993ms)[0m
+[36m ℹ assets/share_fb_home.png: 102.7 KB → base64 137.0 KB[0m
+[32m File đã push thành công: assets/share_fb_home.png (1004ms)[0m
+[36m ℹ assets/shipment_1_img.png: 2.7 KB → base64 3.6 KB[0m
+[32m File đã push thành công: assets/shipment_1_img.png (12589ms)[0m
+[36m ℹ assets/shipment_2_img.png: 1.8 KB → base64 2.5 KB[0m
+[32m File đã push thành công: assets/shipment_2_img.png (832ms)[0m
+[36m ℹ assets/shipment_3_img.png: 1.1 KB → base64 1.5 KB[0m
+[32m File đã push thành công: assets/shipment_3_img.png (864ms)[0m
+[36m ℹ assets/shipment_4_img.png: 1.5 KB → base64 2.0 KB[0m
+[32m File đã push thành công: assets/shipment_4_img.png (901ms)[0m
+[36m ℹ assets/sidebar_icon_cart_img.jpg: 0.6 KB → base64 0.8 KB[0m
+[32m File đã push thành công: assets/sidebar_icon_cart_img.jpg (6196ms)[0m
+[36m ℹ assets/sidebar_icon_cate_img.jpg: 0.2 KB → base64 0.2 KB[0m
+[32m File đã push thành công: assets/sidebar_icon_cate_img.jpg (5876ms)[0m
+[36m ℹ assets/sidebar_icon_home_img.jpg: 0.6 KB → base64 0.8 KB[0m
+[32m File đã push thành công: assets/sidebar_icon_home_img.jpg (17613ms)[0m
+[36m ℹ assets/sidebar_icon_noti_img.jpg: 0.7 KB → base64 0.9 KB[0m
+[32m File đã push thành công: assets/sidebar_icon_noti_img.jpg (923ms)[0m
+[36m ℹ assets/sidebar_icon_suport_img.jpg: 1.4 KB → base64 1.8 KB[0m
+[32m File đã push thành công: assets/sidebar_icon_suport_img.jpg (5867ms)[0m
+[32m File đã push thành công: assets/slick.min.js (969ms)[0m
+[32m File đã push thành công: assets/soon.min.css (842ms)[0m
+[32m File đã push thành công: assets/soon.min.js (1139ms)[0m
+[32m File đã push thành công: assets/style-about.scss.liquid (7174ms)[0m
+[32m File đã push thành công: assets/style-all.scss.liquid (2963ms)[0m
+[32m File đã push thành công: assets/style-blog.scss.liquid (7372ms)[0m
+[32m File đã push thành công: assets/style-cart.scss.liquid (2347ms)[0m
+[32m File đã push thành công: assets/style-collection.scss.liquid (2545ms)[0m
+[32m File đã push thành công: assets/style-contact.scss.liquid (2617ms)[0m
+[32m File đã push thành công: assets/style-ldpage-01.scss.liquid (2239ms)[0m
+[32m File đã push thành công: assets/style-page.scss.liquid (2263ms)[0m
+[32m File đã push thành công: assets/style-product.scss.liquid (2476ms)[0m
+[32m File đã push thành công: assets/style-search.scss.liquid (7378ms)[0m
+[32m File đã push thành công: assets/style-stores.scss.liquid (2173ms)[0m
+[36m ℹ assets/tagsize_1_img.jpg: 88.7 KB → base64 118.3 KB[0m
+[32m File đã push thành công: assets/tagsize_1_img.jpg (905ms)[0m
+[32m File đã push thành công: assets/three.min.js (1130ms)[0m
+[36m ℹ assets/varelaround-regular.ttf: 129.1 KB → base64 172.1 KB[0m
+[32m File đã push thành công: assets/varelaround-regular.ttf (17620ms)[0m
+[32m File đã push thành công: assets/wow.min.js (12437ms)[0m
+[0mPush all: [32m336[0m đã push, [31m0[0m lỗi, 0 bỏ qua.[0m

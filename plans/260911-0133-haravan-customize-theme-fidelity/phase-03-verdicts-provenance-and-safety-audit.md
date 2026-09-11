@@ -127,3 +127,28 @@ pid 14020 is not running, and no process command line matches `haravan|hrv|theme
 except an unrelated long-lived user service (`E:\Work\tools\haravan-upload-toolkit\packages\gateway\dist\index.js serve`,
 pid 12008), which is not a theme writer and was not started by this run. At rest, therefore, no
 `hrv theme dev` watcher from run4 survives to push the local source onto `theme_id 1001512581`.
+
+## Outcome update (2026-09-11, run `.canary/theme-fidelity-run4` re-run)
+
+The rendering divergence above was a missing-asset confound, and it is fixed. The CLI's bulk push
+collector skipped `assets/` by construction (`collectThemePushAssetKeys`), so the copy never served
+`hl-global.css` and every desktop header collapsed. The CLI now opts assets in through `--only`
+(`files.ts:665-671`, `:726-730`), and `hrv theme push --only "assets/**" --force -n` uploaded all 336
+assets out-of-band (`push-assets.log`: `336 đã push, 0 lỗi, 0 bỏ qua`). `hl-global.css` went 404 → 200
+carrying the layout utilities, and the copy's geometry now matches the live reference exactly on all 21
+legs (home 5426/166/56, article 4332/176/71, 404 1128/176/71).
+
+With the confound removed:
+
+- **Subject capture: `COMPLETE`, 21/21.** R1/R2 pins reused verbatim; `references` was not re-run.
+- **Compare: 42 verdict documents** (1 PASS, 40 INCONCLUSIVE, 1 `EXECUTION_TIMEOUT`), both sets still
+  `INCOMPLETE`: 28 pairs are `content-changed-between-passes`, the rotating-widget carriage the campaign
+  refuses to mask, with per-pass fingerprints alternating A→B→A while every predicate and every count is
+  identical.
+- **Report: `INCOMPLETE`; `current.json` withheld.** The 7 `notMeasured` entries are inventory
+  `UNRESOLVED_SURFACE` findings (contact, quote, documents, brands, stores, wishlist, member), all
+  outside this plan's seven surfaces.
+- **Safety audit unchanged and clean:** 12 commands, `foreignThemeIds 0`, `publishDeployPush absent`.
+
+Report: `plans/reports/260911-1310-theme-fidelity-run4-verdicts.md`.
+

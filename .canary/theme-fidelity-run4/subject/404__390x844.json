@@ -34,14 +34,14 @@
   },
   "release": {
     "label": "s1-subject:404__390x844",
-    "at": "2026-09-11T01:06:58.820Z",
+    "at": "2026-09-11T04:04:31.088Z",
     "widgets": {
       "slickPaused": 0,
       "swiperPaused": 0
     },
     "release": {
       "label": "s1-subject:404__390x844-full",
-      "at": "2026-09-11T01:06:58.833Z",
+      "at": "2026-09-11T04:04:31.096Z",
       "dom": {
         "restored": 0,
         "markedLeft": 0,
@@ -53,7 +53,7 @@
       "unfreeze": {
         "frozen": false,
         "mediaCount": 0,
-        "tabId": "4ac4ce9f-747a-4e2b-b770-5c5ed9cfb351"
+        "tabId": "69904a5c-1526-4321-abc1-8457760dca0d"
       }
     },
     "freezeReleased": true,
@@ -64,17 +64,17 @@
     "timerSweepMotion": {
       "widgetsSampled": 0,
       "windowMs": 2500,
-      "sampleBefore": "b3d493fd",
-      "sampleAfter": "b3d493fd",
+      "sampleBefore": "adc7be98",
+      "sampleAfter": "adc7be98",
       "stable": true
     }
   },
   "tab": {
-    "tabId": "4ac4ce9f-747a-4e2b-b770-5c5ed9cfb351",
-    "openedAt": "2026-09-11T01:06:49.439Z",
+    "tabId": "69904a5c-1526-4321-abc1-8457760dca0d",
+    "openedAt": "2026-09-11T04:04:20.497Z",
     "closed": true,
     "closeError": null,
-    "closedAt": "2026-09-11T01:07:02.137Z"
+    "closedAt": "2026-09-11T04:04:34.339Z"
   },
   "failure": null,
   "provenance": {
@@ -89,20 +89,20 @@
     "themeIdParameter": "1001512581",
     "png": {
       "file": "404__390x844.png",
-      "sha256": "8eaef7b87ba7028490b62c38a36b7956e412329c51a5744dc954b9d28ce9c89d",
-      "bytes": 170491,
-      "artifactRef": "artifact-9e7724ea-8443-43ff-ac39-fae2e7ef62ee"
+      "sha256": "bde5df778c7930828f384ad11a380d5a252f3ba73d5955dae3d4d98d6fae4855",
+      "bytes": 150577,
+      "artifactRef": "artifact-8e5a4d00-6dfe-406a-ba98-cbcb342597f0"
     },
     "dom": {
       "file": "dom/404__390x844.html",
-      "sha256": "7fa32be6248ccede1c4eced179cebda33dbfd4ab4d6df8399addd9c1158edf5e",
+      "sha256": "da03d3b92c0a52397c5b05496f831a3d6d95bf1de16c985f0c4c05e66f744d36",
       "bytes": 1017358,
       "observedUrl": "https://phukienmaymoc.com/khong-ton-tai-404-probe-xyz?themeid=1001512581"
     },
-    "domDigest": "7fa32be6248ccede1c4eced179cebda33dbfd4ab4d6df8399addd9c1158edf5e",
+    "domDigest": "da03d3b92c0a52397c5b05496f831a3d6d95bf1de16c985f0c4c05e66f744d36",
     "geometry": {
       "url": "https://phukienmaymoc.com/khong-ton-tai-404-probe-xyz?themeid=1001512581",
-      "docHeight": 1797,
+      "docHeight": 1731,
       "clientWidth": 390,
       "scrollWidth": 390,
       "overflowX": 0,
@@ -120,7 +120,7 @@
         "x": 0,
         "y": 0,
         "w": 390,
-        "h": 135
+        "h": 190.98
       },
       "navRect": {
         "x": 0,
@@ -131,15 +131,15 @@
       "heroRect": null,
       "mainRect": {
         "x": 0,
-        "y": 135,
+        "y": 190.98,
         "w": 390,
-        "h": 295
+        "h": 316
       },
       "footerRect": {
         "x": 0,
-        "y": 430,
+        "y": 506.98,
         "w": 390,
-        "h": 1307.17
+        "h": 1164.33
       },
       "sections": [
         {
@@ -149,7 +149,7 @@
             "x": 0,
             "y": 0,
             "w": 390,
-            "h": 135
+            "h": 190.98
           }
         },
         {
@@ -157,9 +157,9 @@
           "cls": "wrapperMain_content",
           "rect": {
             "x": 0,
-            "y": 135,
+            "y": 190.98,
             "w": 390,
-            "h": 295
+            "h": 316
           }
         },
         {
@@ -167,31 +167,31 @@
           "cls": "site-footer.w-100",
           "rect": {
             "x": 0,
-            "y": 430,
+            "y": 506.98,
             "w": 390,
-            "h": 1307.17
+            "h": 1164.33
           }
         }
       ],
       "fonts": {
         "body": {
-          "family": "Roboto, sans-serif",
+          "family": "Roboto",
           "size": "14px",
           "weight": "400",
           "lineHeight": "normal",
-          "color": "rgb(0, 0, 0)",
+          "color": "rgb(34, 52, 62)",
           "letterSpacing": "normal"
         },
         "h1": {
-          "family": "Roboto, sans-serif",
+          "family": "Roboto",
           "size": "30px",
           "weight": "600",
           "lineHeight": "39px",
-          "color": "rgb(0, 0, 0)",
+          "color": "rgb(34, 52, 62)",
           "letterSpacing": "normal"
         },
         "h2": {
-          "family": "Roboto, sans-serif",
+          "family": "Roboto",
           "size": "22px",
           "weight": "700",
           "lineHeight": "28.6px",
@@ -199,16 +199,16 @@
           "letterSpacing": "normal"
         },
         "a": {
-          "family": "Roboto, sans-serif",
+          "family": "Roboto",
           "size": "14px",
           "weight": "400",
           "lineHeight": "normal",
-          "color": "rgb(0, 0, 0)",
+          "color": "rgb(34, 52, 62)",
           "letterSpacing": "normal"
         }
       }
     },
-    "geometrySha256": "553883eb116d3fa7a1e2b251bab4a25776463b9cc519b3509092234f744418a7",
+    "geometrySha256": "b84d086c475646051f45f3ddad944461ceb8e53cb5ab1104b28a7794c30534c9",
     "tabIdentity": {
       "href": "https://phukienmaymoc.com/khong-ton-tai-404-probe-xyz?themeid=1001512581",
       "device": null,
@@ -216,7 +216,7 @@
       "innerWidth": 390,
       "innerHeight": 844,
       "dpr": 1,
-      "docHeight": 1797,
+      "docHeight": 1731,
       "bodyClass": "mainBody-theme  template-404",
       "sections": 0,
       "widgetNodes": 0,
@@ -224,37 +224,37 @@
       "completeImages": 25
     },
     "instance": {
-      "attachmentId": "attachment-38b02838-40ce-457e-bfc0-991a6057b6d8",
+      "attachmentId": "attachment-c7a3504e-fe28-433f-9934-7128b230e3f9",
       "bridgePort": 20131,
       "pid": 21236,
-      "primaryTabId": "e8c4391a-4397-4cb8-80ed-abd77b51025d",
+      "primaryTabId": "d202a7f6-1e83-45b5-a511-dd7edc81b299",
       "startedAt": "2026-09-11T00:18:43.203Z",
-      "runId": "run-ba23a030-9f66-40ac-a3c8-c3e77b4bfb50",
-      "attemptId": "attempt-ac2638ce-3f4d-48ce-ac28-9dd7734f64fa"
+      "runId": "run-9e8a955a-0f78-45c2-8f3b-680a6dcacaf9",
+      "attemptId": "attempt-3e259bf2-4470-4927-b906-410bd15cc2e2"
     },
     "run": {
-      "runId": "run-ba23a030-9f66-40ac-a3c8-c3e77b4bfb50",
-      "attachmentId": "attachment-38b02838-40ce-457e-bfc0-991a6057b6d8",
-      "authorityRevision": "rev_1d0922924f9bb057f2ef1f372e766814",
-      "mintedAt": "2026-09-11T00:40:59.400Z",
+      "runId": "run-9e8a955a-0f78-45c2-8f3b-680a6dcacaf9",
+      "attachmentId": "attachment-c7a3504e-fe28-433f-9934-7128b230e3f9",
+      "authorityRevision": "rev_486cbe74ff00e6e9c22687bd974a4847",
+      "mintedAt": "2026-09-11T01:36:17.908Z",
       "label": "s1-subject",
       "role": "subject"
     },
-    "capturedAt": "2026-09-11T01:07:02.102Z"
+    "capturedAt": "2026-09-11T04:04:34.306Z"
   },
-  "startedAt": "2026-09-11T01:06:49.408Z",
-  "finishedAt": "2026-09-11T01:07:02.137Z",
+  "startedAt": "2026-09-11T04:04:20.478Z",
+  "finishedAt": "2026-09-11T04:04:34.339Z",
   "png": {
     "file": "404__390x844.png",
-    "artifactRef": "artifact-9e7724ea-8443-43ff-ac39-fae2e7ef62ee",
-    "sha256": "8eaef7b87ba7028490b62c38a36b7956e412329c51a5744dc954b9d28ce9c89d",
-    "bytes": 170491,
+    "artifactRef": "artifact-8e5a4d00-6dfe-406a-ba98-cbcb342597f0",
+    "sha256": "bde5df778c7930828f384ad11a380d5a252f3ba73d5955dae3d4d98d6fae4855",
+    "bytes": 150577,
     "integrity": {
       "isPng": true,
       "hasIend": true,
-      "bytes": 170491
+      "bytes": 150577
     },
-    "declaredByteLength": 170491,
+    "declaredByteLength": 150577,
     "receipt": {
       "backend": "cdp",
       "dpr": 1,
@@ -265,14 +265,14 @@
       },
       "cssCaptureSize": {
         "width": 390,
-        "height": 1797
+        "height": 1721
       },
       "rasterSize": {
         "width": 390,
-        "height": 1797
+        "height": 1721
       },
       "captureMode": "full-page",
-      "timestamp": 1789088821686,
+      "timestamp": 1789099473903,
       "viewportTransaction": {
         "before": {
           "width": 390,
@@ -293,18 +293,18 @@
   },
   "dom": {
     "file": "dom/404__390x844.html",
-    "sha256": "7fa32be6248ccede1c4eced179cebda33dbfd4ab4d6df8399addd9c1158edf5e",
+    "sha256": "da03d3b92c0a52397c5b05496f831a3d6d95bf1de16c985f0c4c05e66f744d36",
     "bytes": 1017358,
     "observedUrl": "https://phukienmaymoc.com/khong-ton-tai-404-probe-xyz?themeid=1001512581",
     "clientWidth": 390,
-    "docHeight": 1797,
+    "docHeight": 1731,
     "sectionCount": 3,
     "cardCount": 0,
     "productItems": 0,
     "images": 25,
     "sanitized": true,
     "removedCount": 7,
-    "declaredSha256": "7fa32be6248ccede1c4eced179cebda33dbfd4ab4d6df8399addd9c1158edf5e",
+    "declaredSha256": "da03d3b92c0a52397c5b05496f831a3d6d95bf1de16c985f0c4c05e66f744d36",
     "servedThemeIds": [
       {
         "org": "200001207485",
@@ -320,7 +320,7 @@
   },
   "geometry": {
     "url": "https://phukienmaymoc.com/khong-ton-tai-404-probe-xyz?themeid=1001512581",
-    "docHeight": 1797,
+    "docHeight": 1731,
     "clientWidth": 390,
     "scrollWidth": 390,
     "overflowX": 0,
@@ -338,7 +338,7 @@
       "x": 0,
       "y": 0,
       "w": 390,
-      "h": 135
+      "h": 190.98
     },
     "navRect": {
       "x": 0,
@@ -349,15 +349,15 @@
     "heroRect": null,
     "mainRect": {
       "x": 0,
-      "y": 135,
+      "y": 190.98,
       "w": 390,
-      "h": 295
+      "h": 316
     },
     "footerRect": {
       "x": 0,
-      "y": 430,
+      "y": 506.98,
       "w": 390,
-      "h": 1307.17
+      "h": 1164.33
     },
     "sections": [
       {
@@ -367,7 +367,7 @@
           "x": 0,
           "y": 0,
           "w": 390,
-          "h": 135
+          "h": 190.98
         }
       },
       {
@@ -375,9 +375,9 @@
         "cls": "wrapperMain_content",
         "rect": {
           "x": 0,
-          "y": 135,
+          "y": 190.98,
           "w": 390,
-          "h": 295
+          "h": 316
         }
       },
       {
@@ -385,31 +385,31 @@
         "cls": "site-footer.w-100",
         "rect": {
           "x": 0,
-          "y": 430,
+          "y": 506.98,
           "w": 390,
-          "h": 1307.17
+          "h": 1164.33
         }
       }
     ],
     "fonts": {
       "body": {
-        "family": "Roboto, sans-serif",
+        "family": "Roboto",
         "size": "14px",
         "weight": "400",
         "lineHeight": "normal",
-        "color": "rgb(0, 0, 0)",
+        "color": "rgb(34, 52, 62)",
         "letterSpacing": "normal"
       },
       "h1": {
-        "family": "Roboto, sans-serif",
+        "family": "Roboto",
         "size": "30px",
         "weight": "600",
         "lineHeight": "39px",
-        "color": "rgb(0, 0, 0)",
+        "color": "rgb(34, 52, 62)",
         "letterSpacing": "normal"
       },
       "h2": {
-        "family": "Roboto, sans-serif",
+        "family": "Roboto",
         "size": "22px",
         "weight": "700",
         "lineHeight": "28.6px",
@@ -417,11 +417,11 @@
         "letterSpacing": "normal"
       },
       "a": {
-        "family": "Roboto, sans-serif",
+        "family": "Roboto",
         "size": "14px",
         "weight": "400",
         "lineHeight": "normal",
-        "color": "rgb(0, 0, 0)",
+        "color": "rgb(34, 52, 62)",
         "letterSpacing": "normal"
       }
     }
@@ -433,7 +433,7 @@
     "innerWidth": 390,
     "innerHeight": 844,
     "dpr": 1,
-    "docHeight": 1797,
+    "docHeight": 1731,
     "bodyClass": "mainBody-theme  template-404",
     "sections": 0,
     "widgetNodes": 0,

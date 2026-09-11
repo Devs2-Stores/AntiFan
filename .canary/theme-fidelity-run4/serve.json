@@ -9,13 +9,13 @@
     "dev"
   ],
   "cwd": "E:\\Work\\customizes\\Phukienmaymoc",
-  "pid": 14020,
+  "pid": 4928,
   "pidAlive": false,
-  "startedAt": "2026-09-11T00:41:44.061Z",
-  "readyAt": "2026-09-11T00:41:45.626Z",
-  "readyMs": 1565,
-  "stoppedAt": "2026-09-11T00:42:03.804Z",
-  "stopMethod": "taskkill-unconfirmed:ERROR: The process \"14020\" not found.",
+  "startedAt": "2026-09-11T03:57:31.374Z",
+  "readyAt": "2026-09-11T03:57:33.103Z",
+  "readyMs": 1729,
+  "stoppedAt": "2026-09-11T03:57:51.261Z",
+  "stopMethod": "taskkill-unconfirmed:ERROR: The process \"4928\" not found.",
   "settleMs": 5000,
   "readOnlyCopyPreviewProbe": {
     "url": "https://phukienmaymoc.com/?themeid=1001512581",
@@ -26,15 +26,15 @@
     "logSignal": {
       "pattern": "/themeid=1001512581/i",
       "line": "   \u001b[32mPreview:\u001b[0m    https://phukienmaymoc.com?themeid=1001512581",
-      "at": "2026-09-11T00:41:45.066Z"
+      "at": "2026-09-11T03:57:32.196Z"
     },
     "probe": {
       "ok": true,
       "url": "https://phukienmaymoc.com/?themeid=1001512581",
       "status": 200,
-      "bodyBytes": 836012,
+      "bodyBytes": 1425728,
       "bodyCarriesCopyThemeId": true,
-      "elapsedMs": 532,
+      "elapsedMs": 675,
       "attempts": 1
     },
     "patterns": [
@@ -46,7 +46,7 @@
     ]
   },
   "child": {
-    "pid": 14020,
+    "pid": 4928,
     "exitCode": null,
     "signal": "SIGTERM",
     "exitedBeforeReady": false
@@ -64,26 +64,21 @@
   },
   "log": {
     "file": "hrv-theme-dev.log",
-    "bytes": 1058,
+    "bytes": 607,
     "truncated": false,
     "writeError": false,
-    "sha256": "8758be8102b4b357de8da11940e816933c40c22405aadc35ebe79441031c0d08",
+    "sha256": "0afd91e42c08618173c63ebe8a20508ddbda82b4b20a939785d3e9874d7135a4",
     "tail": [
-      "(node:5768) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.",
+      "(node:16240) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.",
       "(Use `node --trace-warnings ...` to show where the warning was created)",
       "\u001b[32m🌐 Links:\u001b[0m",
       "   \u001b[32mTheme:\u001b[0m      Bản sao chép của clothing (ID: 1001512581)",
       "   \u001b[32mAdmin:\u001b[0m      https://phukienmaymoc.com/admin",
       "   \u001b[32mThiết lập:\u001b[0m  https://phukienmaymoc.com/admin/sale_channels/online_store/themes/1001512581/setting",
       "   \u001b[32mPreview:\u001b[0m    https://phukienmaymoc.com?themeid=1001512581",
-      "\u001b[0mWatching \u001b[32mE:\\Work\\customizes\\Phukienmaymoc\u001b[0m — pushing when content changes. Press Ctrl+C to stop.",
-      "\u001b[33m⚠ Remote đã thay đổi (2 file / 93 text files checked):\u001b[0m",
-      "  ⚡ assets/ll-style-all.scss.liquid",
-      "\u001b[33m⚠ Remote theme đã thay đổi so với local (2 file): assets/ll-style-all.scss.liquid, assets/style-product.scss.liquid. Hãy Fetch hoặc Push khi được hỏi để tránh mất thay đổi.\u001b[0m",
-      "  ⚡ assets/style-product.scss.liquid",
-      "\u001b[33m⚠ Không có terminal tương tác — tự động bỏ qua, tiếp tục watch.\u001b[0m"
+      "\u001b[0mWatching \u001b[32mE:\\Work\\customizes\\Phukienmaymoc\u001b[0m — pushing when content changes. Press Ctrl+C to stop."
     ]
   },
   "refusal": null,
-  "finishedAt": "2026-09-11T00:42:03.806Z"
+  "finishedAt": "2026-09-11T03:57:51.263Z"
 }

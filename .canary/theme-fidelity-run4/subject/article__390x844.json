@@ -34,14 +34,14 @@
   },
   "release": {
     "label": "s1-subject:article__390x844",
-    "at": "2026-09-11T01:04:30.417Z",
+    "at": "2026-09-11T04:01:49.176Z",
     "widgets": {
       "slickPaused": 0,
       "swiperPaused": 0
     },
     "release": {
       "label": "s1-subject:article__390x844-full",
-      "at": "2026-09-11T01:04:30.462Z",
+      "at": "2026-09-11T04:01:49.188Z",
       "dom": {
         "restored": 0,
         "markedLeft": 0,
@@ -53,7 +53,7 @@
       "unfreeze": {
         "frozen": false,
         "mediaCount": 0,
-        "tabId": "89c58703-1544-4381-a29c-fb4320a8cfde"
+        "tabId": "b64bd910-ce07-49ca-9bce-b5fb85132884"
       }
     },
     "freezeReleased": true,
@@ -64,17 +64,17 @@
     "timerSweepMotion": {
       "widgetsSampled": 2,
       "windowMs": 2500,
-      "sampleBefore": "4d19e3f1",
-      "sampleAfter": "4d19e3f1",
+      "sampleBefore": "ed8c1ebe",
+      "sampleAfter": "ed8c1ebe",
       "stable": true
     }
   },
   "tab": {
-    "tabId": "89c58703-1544-4381-a29c-fb4320a8cfde",
-    "openedAt": "2026-09-11T01:04:20.519Z",
+    "tabId": "b64bd910-ce07-49ca-9bce-b5fb85132884",
+    "openedAt": "2026-09-11T04:01:38.953Z",
     "closed": true,
     "closeError": null,
-    "closedAt": "2026-09-11T01:04:33.930Z"
+    "closedAt": "2026-09-11T04:01:52.450Z"
   },
   "failure": null,
   "provenance": {
@@ -89,20 +89,20 @@
     "themeIdParameter": "1001512581",
     "png": {
       "file": "article__390x844.png",
-      "sha256": "ab9f88ba2db089be1bcb0b606c0f027106796f9e5de84ca63129acf60e737856",
-      "bytes": 574919,
-      "artifactRef": "artifact-c6fda803-65de-48d7-a973-bc5d4d1b8af4"
+      "sha256": "596dd2ce9f3e7127365c0f4f5deec1e4f018f6bd562e4112126273ccb387c627",
+      "bytes": 578167,
+      "artifactRef": "artifact-38bba486-14d9-4730-8309-bb86c9fb5319"
     },
     "dom": {
       "file": "dom/article__390x844.html",
-      "sha256": "e33b6446c47d373f934d4d04c8ed8b28e3722c3cacf39193085c15a3cde8a025",
+      "sha256": "a7c3f197ee8688d3a0bb0ee51f75e45ccc107d99770a71806e37c6ca5843fe78",
       "bytes": 959885,
       "observedUrl": "https://phukienmaymoc.com/blogs/news/plc-la-gi-cau-tao-nguyen-ly-hoat-dong?themeid=1001512581"
     },
-    "domDigest": "e33b6446c47d373f934d4d04c8ed8b28e3722c3cacf39193085c15a3cde8a025",
+    "domDigest": "a7c3f197ee8688d3a0bb0ee51f75e45ccc107d99770a71806e37c6ca5843fe78",
     "geometry": {
       "url": "https://phukienmaymoc.com/blogs/news/plc-la-gi-cau-tao-nguyen-ly-hoat-dong?themeid=1001512581",
-      "docHeight": 6373,
+      "docHeight": 6287,
       "clientWidth": 390,
       "scrollWidth": 390,
       "overflowX": 0,
@@ -120,7 +120,7 @@
         "x": 0,
         "y": 0,
         "w": 390,
-        "h": 135
+        "h": 190.98
       },
       "navRect": {
         "x": 0,
@@ -131,15 +131,15 @@
       "heroRect": null,
       "mainRect": {
         "x": 0,
-        "y": 135,
+        "y": 190.98,
         "w": 390,
-        "h": 4871.31
+        "h": 4872.08
       },
       "footerRect": {
         "x": 0,
-        "y": 5006.31,
+        "y": 5063.06,
         "w": 390,
-        "h": 1307.17
+        "h": 1164.33
       },
       "sections": [
         {
@@ -149,7 +149,7 @@
             "x": 0,
             "y": 0,
             "w": 390,
-            "h": 135
+            "h": 190.98
           }
         },
         {
@@ -157,9 +157,9 @@
           "cls": "wrapperMain_content",
           "rect": {
             "x": 0,
-            "y": 135,
+            "y": 190.98,
             "w": 390,
-            "h": 4871.31
+            "h": 4872.08
           }
         },
         {
@@ -167,9 +167,9 @@
           "cls": "article-loop",
           "rect": {
             "x": 7,
-            "y": 4719.16,
+            "y": 4765.91,
             "w": 165,
-            "h": 130.78
+            "h": 140.78
           }
         },
         {
@@ -177,9 +177,9 @@
           "cls": "article-loop",
           "rect": {
             "x": 172,
-            "y": 4719.16,
+            "y": 4765.91,
             "w": 165,
-            "h": 130.78
+            "h": 140.78
           }
         },
         {
@@ -187,9 +187,9 @@
           "cls": "article-loop",
           "rect": {
             "x": 337,
-            "y": 4719.16,
+            "y": 4765.91,
             "w": 165,
-            "h": 130.78
+            "h": 140.78
           }
         },
         {
@@ -197,9 +197,9 @@
           "cls": "article-loop",
           "rect": {
             "x": 502,
-            "y": 4719.16,
+            "y": 4765.91,
             "w": 165,
-            "h": 130.78
+            "h": 140.78
           }
         },
         {
@@ -207,9 +207,9 @@
           "cls": "article-loop",
           "rect": {
             "x": 667,
-            "y": 4719.16,
+            "y": 4765.91,
             "w": 165,
-            "h": 130.78
+            "h": 140.78
           }
         },
         {
@@ -217,9 +217,9 @@
           "cls": "article-loop",
           "rect": {
             "x": 832,
-            "y": 4719.16,
+            "y": 4765.91,
             "w": 165,
-            "h": 130.78
+            "h": 140.78
           }
         },
         {
@@ -227,27 +227,27 @@
           "cls": "site-footer.w-100",
           "rect": {
             "x": 0,
-            "y": 5006.31,
+            "y": 5063.06,
             "w": 390,
-            "h": 1307.17
+            "h": 1164.33
           }
         }
       ],
       "fonts": {
         "body": {
-          "family": "Roboto, sans-serif",
+          "family": "Roboto",
           "size": "14px",
           "weight": "400",
           "lineHeight": "normal",
-          "color": "rgb(0, 0, 0)",
+          "color": "rgb(34, 52, 62)",
           "letterSpacing": "normal"
         },
         "h1": {
-          "family": "Roboto, sans-serif",
+          "family": "Roboto",
           "size": "22px",
           "weight": "700",
           "lineHeight": "28.6px",
-          "color": "rgb(0, 0, 0)",
+          "color": "rgb(34, 52, 62)",
           "letterSpacing": "normal"
         },
         "h2": {
@@ -255,7 +255,7 @@
           "size": "22px",
           "weight": "600",
           "lineHeight": "28.6px",
-          "color": "rgb(51, 51, 51)",
+          "color": "rgb(34, 52, 62)",
           "letterSpacing": "normal"
         },
         "h3": {
@@ -267,16 +267,16 @@
           "letterSpacing": "normal"
         },
         "a": {
-          "family": "Roboto, sans-serif",
+          "family": "Roboto",
           "size": "14px",
           "weight": "400",
           "lineHeight": "normal",
-          "color": "rgb(0, 0, 0)",
+          "color": "rgb(34, 52, 62)",
           "letterSpacing": "normal"
         }
       }
     },
-    "geometrySha256": "0d33e48f884dd7aa9723f5dbbfdd2a0f23622803fe2ca2da709977ae1a07dc18",
+    "geometrySha256": "403d05bd3468a44c3fa64c31e9c524ca80c4f55eb74e0a569de7be3829416bf4",
     "tabIdentity": {
       "href": "https://phukienmaymoc.com/blogs/news/plc-la-gi-cau-tao-nguyen-ly-hoat-dong?themeid=1001512581",
       "device": null,
@@ -284,7 +284,7 @@
       "innerWidth": 390,
       "innerHeight": 844,
       "dpr": 1,
-      "docHeight": 6373,
+      "docHeight": 6287,
       "bodyClass": "mainBody-theme  template-article",
       "sections": 0,
       "widgetNodes": 2,
@@ -292,37 +292,37 @@
       "completeImages": 37
     },
     "instance": {
-      "attachmentId": "attachment-38b02838-40ce-457e-bfc0-991a6057b6d8",
+      "attachmentId": "attachment-c7a3504e-fe28-433f-9934-7128b230e3f9",
       "bridgePort": 20131,
       "pid": 21236,
-      "primaryTabId": "e8c4391a-4397-4cb8-80ed-abd77b51025d",
+      "primaryTabId": "d202a7f6-1e83-45b5-a511-dd7edc81b299",
       "startedAt": "2026-09-11T00:18:43.203Z",
-      "runId": "run-ba23a030-9f66-40ac-a3c8-c3e77b4bfb50",
-      "attemptId": "attempt-ac2638ce-3f4d-48ce-ac28-9dd7734f64fa"
+      "runId": "run-9e8a955a-0f78-45c2-8f3b-680a6dcacaf9",
+      "attemptId": "attempt-3e259bf2-4470-4927-b906-410bd15cc2e2"
     },
     "run": {
-      "runId": "run-ba23a030-9f66-40ac-a3c8-c3e77b4bfb50",
-      "attachmentId": "attachment-38b02838-40ce-457e-bfc0-991a6057b6d8",
-      "authorityRevision": "rev_1d0922924f9bb057f2ef1f372e766814",
-      "mintedAt": "2026-09-11T00:40:59.400Z",
+      "runId": "run-9e8a955a-0f78-45c2-8f3b-680a6dcacaf9",
+      "attachmentId": "attachment-c7a3504e-fe28-433f-9934-7128b230e3f9",
+      "authorityRevision": "rev_486cbe74ff00e6e9c22687bd974a4847",
+      "mintedAt": "2026-09-11T01:36:17.908Z",
       "label": "s1-subject",
       "role": "subject"
     },
-    "capturedAt": "2026-09-11T01:04:33.898Z"
+    "capturedAt": "2026-09-11T04:01:52.425Z"
   },
-  "startedAt": "2026-09-11T01:04:20.484Z",
-  "finishedAt": "2026-09-11T01:04:33.930Z",
+  "startedAt": "2026-09-11T04:01:38.932Z",
+  "finishedAt": "2026-09-11T04:01:52.450Z",
   "png": {
     "file": "article__390x844.png",
-    "artifactRef": "artifact-c6fda803-65de-48d7-a973-bc5d4d1b8af4",
-    "sha256": "ab9f88ba2db089be1bcb0b606c0f027106796f9e5de84ca63129acf60e737856",
-    "bytes": 574919,
+    "artifactRef": "artifact-38bba486-14d9-4730-8309-bb86c9fb5319",
+    "sha256": "596dd2ce9f3e7127365c0f4f5deec1e4f018f6bd562e4112126273ccb387c627",
+    "bytes": 578167,
     "integrity": {
       "isPng": true,
       "hasIend": true,
-      "bytes": 574919
+      "bytes": 578167
     },
-    "declaredByteLength": 574919,
+    "declaredByteLength": 578167,
     "receipt": {
       "backend": "cdp",
       "dpr": 1,
@@ -333,14 +333,14 @@
       },
       "cssCaptureSize": {
         "width": 390,
-        "height": 6373
+        "height": 6277
       },
       "rasterSize": {
         "width": 390,
-        "height": 6373
+        "height": 6277
       },
       "captureMode": "full-page",
-      "timestamp": 1789088673505,
+      "timestamp": 1789099312134,
       "viewportTransaction": {
         "before": {
           "width": 390,
@@ -361,18 +361,18 @@
   },
   "dom": {
     "file": "dom/article__390x844.html",
-    "sha256": "e33b6446c47d373f934d4d04c8ed8b28e3722c3cacf39193085c15a3cde8a025",
+    "sha256": "a7c3f197ee8688d3a0bb0ee51f75e45ccc107d99770a71806e37c6ca5843fe78",
     "bytes": 959885,
     "observedUrl": "https://phukienmaymoc.com/blogs/news/plc-la-gi-cau-tao-nguyen-ly-hoat-dong?themeid=1001512581",
     "clientWidth": 390,
-    "docHeight": 6373,
+    "docHeight": 6287,
     "sectionCount": 9,
     "cardCount": 0,
     "productItems": 0,
     "images": 37,
     "sanitized": true,
     "removedCount": 7,
-    "declaredSha256": "e33b6446c47d373f934d4d04c8ed8b28e3722c3cacf39193085c15a3cde8a025",
+    "declaredSha256": "a7c3f197ee8688d3a0bb0ee51f75e45ccc107d99770a71806e37c6ca5843fe78",
     "servedThemeIds": [
       {
         "org": "200001207485",
@@ -388,7 +388,7 @@
   },
   "geometry": {
     "url": "https://phukienmaymoc.com/blogs/news/plc-la-gi-cau-tao-nguyen-ly-hoat-dong?themeid=1001512581",
-    "docHeight": 6373,
+    "docHeight": 6287,
     "clientWidth": 390,
     "scrollWidth": 390,
     "overflowX": 0,
@@ -406,7 +406,7 @@
       "x": 0,
       "y": 0,
       "w": 390,
-      "h": 135
+      "h": 190.98
     },
     "navRect": {
       "x": 0,
@@ -417,15 +417,15 @@
     "heroRect": null,
     "mainRect": {
       "x": 0,
-      "y": 135,
+      "y": 190.98,
       "w": 390,
-      "h": 4871.31
+      "h": 4872.08
     },
     "footerRect": {
       "x": 0,
-      "y": 5006.31,
+      "y": 5063.06,
       "w": 390,
-      "h": 1307.17
+      "h": 1164.33
     },
     "sections": [
       {
@@ -435,7 +435,7 @@
           "x": 0,
           "y": 0,
           "w": 390,
-          "h": 135
+          "h": 190.98
         }
       },
       {
@@ -443,9 +443,9 @@
         "cls": "wrapperMain_content",
         "rect": {
           "x": 0,
-          "y": 135,
+          "y": 190.98,
           "w": 390,
-          "h": 4871.31
+          "h": 4872.08
         }
       },
       {
@@ -453,9 +453,9 @@
         "cls": "article-loop",
         "rect": {
           "x": 7,
-          "y": 4719.16,
+          "y": 4765.91,
           "w": 165,
-          "h": 130.78
+          "h": 140.78
         }
       },
       {
@@ -463,9 +463,9 @@
         "cls": "article-loop",
         "rect": {
           "x": 172,
-          "y": 4719.16,
+          "y": 4765.91,
           "w": 165,
-          "h": 130.78
+          "h": 140.78
         }
       },
       {
@@ -473,9 +473,9 @@
         "cls": "article-loop",
         "rect": {
           "x": 337,
-          "y": 4719.16,
+          "y": 4765.91,
           "w": 165,
-          "h": 130.78
+          "h": 140.78
         }
       },
       {
@@ -483,9 +483,9 @@
         "cls": "article-loop",
         "rect": {
           "x": 502,
-          "y": 4719.16,
+          "y": 4765.91,
           "w": 165,
-          "h": 130.78
+          "h": 140.78
         }
       },
       {
@@ -493,9 +493,9 @@
         "cls": "article-loop",
         "rect": {
           "x": 667,
-          "y": 4719.16,
+          "y": 4765.91,
           "w": 165,
-          "h": 130.78
+          "h": 140.78
         }
       },
       {
@@ -503,9 +503,9 @@
         "cls": "article-loop",
         "rect": {
           "x": 832,
-          "y": 4719.16,
+          "y": 4765.91,
           "w": 165,
-          "h": 130.78
+          "h": 140.78
         }
       },
       {
@@ -513,27 +513,27 @@
         "cls": "site-footer.w-100",
         "rect": {
           "x": 0,
-          "y": 5006.31,
+          "y": 5063.06,
           "w": 390,
-          "h": 1307.17
+          "h": 1164.33
         }
       }
     ],
     "fonts": {
       "body": {
-        "family": "Roboto, sans-serif",
+        "family": "Roboto",
         "size": "14px",
         "weight": "400",
         "lineHeight": "normal",
-        "color": "rgb(0, 0, 0)",
+        "color": "rgb(34, 52, 62)",
         "letterSpacing": "normal"
       },
       "h1": {
-        "family": "Roboto, sans-serif",
+        "family": "Roboto",
         "size": "22px",
         "weight": "700",
         "lineHeight": "28.6px",
-        "color": "rgb(0, 0, 0)",
+        "color": "rgb(34, 52, 62)",
         "letterSpacing": "normal"
       },
       "h2": {
@@ -541,7 +541,7 @@
         "size": "22px",
         "weight": "600",
         "lineHeight": "28.6px",
-        "color": "rgb(51, 51, 51)",
+        "color": "rgb(34, 52, 62)",
         "letterSpacing": "normal"
       },
       "h3": {
@@ -553,11 +553,11 @@
         "letterSpacing": "normal"
       },
       "a": {
-        "family": "Roboto, sans-serif",
+        "family": "Roboto",
         "size": "14px",
         "weight": "400",
         "lineHeight": "normal",
-        "color": "rgb(0, 0, 0)",
+        "color": "rgb(34, 52, 62)",
         "letterSpacing": "normal"
       }
     }
@@ -569,7 +569,7 @@
     "innerWidth": 390,
     "innerHeight": 844,
     "dpr": 1,
-    "docHeight": 6373,
+    "docHeight": 6287,
     "bodyClass": "mainBody-theme  template-article",
     "sections": 0,
     "widgetNodes": 2,
