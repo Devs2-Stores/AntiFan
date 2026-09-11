@@ -55,10 +55,12 @@ export interface ControlPlaneRuntimeOptions {
 }
 
 /**
- * Canary/benchmark artifact capacity overrides. Overrides are returned ONLY when the corresponding
- * env var is a positive integer; otherwise undefined, leaving production limits untouched.
+ * Artifact capacity/retention options for the production runtime. Retention is enabled
+ * unconditionally: the store exempts permanent report evidence, so the sweep can only prune
+ * captures that exceed the age or byte ceilings. Env vars tune those ceilings and are applied
+ * on top; non-numeric values are ignored so production limits stay untouched.
  */
-export function resolveArtifactStoreOptionsFromEnv(env: Record<string, string | undefined> = process.env): Omit<ArtifactStoreOptions, 'root'> | undefined {
+export function resolveArtifactStoreOptionsFromEnv(env: Record<string, string | undefined> = process.env): Omit<ArtifactStoreOptions, 'root'> {
   const parsePositiveInt = (raw: string | undefined): number | undefined => {
     if (raw === undefined || raw.trim() === '') return undefined;
     const parsed = Number(raw);
@@ -67,8 +69,7 @@ export function resolveArtifactStoreOptionsFromEnv(env: Record<string, string | 
   };
   const maxArtifactBytes = parsePositiveInt(env.ANTIFAN_ARTIFACT_MAX_ARTIFACT_BYTES);
   const maxRunBytes = parsePositiveInt(env.ANTIFAN_ARTIFACT_MAX_RUN_BYTES);
-  if (maxArtifactBytes === undefined && maxRunBytes === undefined) return undefined;
-  const overrides: Omit<ArtifactStoreOptions, 'root'> = {};
+  const overrides: Omit<ArtifactStoreOptions, 'root'> = { enableRetentionCleaner: true };
   if (maxArtifactBytes !== undefined) overrides.maxArtifactBytes = maxArtifactBytes;
   if (maxRunBytes !== undefined) overrides.maxRunBytes = maxRunBytes;
   return overrides;

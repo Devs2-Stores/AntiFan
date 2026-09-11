@@ -5,6 +5,11 @@ export interface RetentionSweepOptions {
   maxBytes?: number; // default: 200 MB
   maxAgeMs?: number; // default: 24h
   minProtectAgeMs?: number; // default: 1h (never delete files newer than this)
+  /**
+   * Owner-supplied exemption for individual files. The store uses it to keep permanent
+   * evidence (report artifacts) alive through age- and budget-driven sweeps.
+   */
+  isProtected?: (absolutePath: string) => boolean;
 }
 
 export interface RetentionSweepResult {
@@ -12,6 +17,7 @@ export interface RetentionSweepResult {
   deletedFiles: number;
   freedBytes: number;
   remainingBytes: number;
+  protectedFiles: number;
 }
 
 export class ArtifactRetentionCleaner {
@@ -30,6 +36,7 @@ export class ArtifactRetentionCleaner {
       deletedFiles: 0,
       freedBytes: 0,
       remainingBytes: 0,
+      protectedFiles: 0,
     };
 
     if (!rootDir || !fs.existsSync(rootDir)) {
@@ -68,6 +75,12 @@ export class ArtifactRetentionCleaner {
       const ageMs = now - file.mtimeMs;
       // Invariant: Never delete files younger than minProtectAgeMs
       if (ageMs < minProtectAgeMs) {
+        continue;
+      }
+
+      // Invariant: files the owner declares protected are never unlinked, by age or by budget
+      if (options.isProtected?.(file.path) === true) {
+        result.protectedFiles++;
         continue;
       }
 

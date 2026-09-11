@@ -3,7 +3,7 @@ import * as assert from 'node:assert';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { ControlPlaneRuntime } from '../../src/main/control-plane/control-plane-runtime';
+import { ControlPlaneRuntime, resolveArtifactStoreOptionsFromEnv } from '../../src/main/control-plane/control-plane-runtime';
 import { makeControlPlaneId } from '../../src/shared/control-plane-contracts';
 import type { ExecutionBackend } from '../../src/main/agent/execution-backend';
 describe('ControlPlaneRuntime Main Launch Owner & Attachment Authority', () => {
@@ -271,5 +271,20 @@ describe('ControlPlaneRuntime Main Launch Owner & Attachment Authority', () => {
       fs.rmSync(dataRoot, { recursive: true, force: true });
       fs.rmSync(workspaceRoot, { recursive: true, force: true });
     }
+  });
+
+  it('enables artifact retention for the production runtime, and honors env ceilings', () => {
+    const defaults = resolveArtifactStoreOptionsFromEnv({});
+    assert.strictEqual(defaults.enableRetentionCleaner, true, 'production must not leave the retention cleaner dormant');
+    assert.strictEqual(defaults.maxArtifactBytes, undefined, 'defaults must not invent capacity ceilings');
+    assert.strictEqual(defaults.maxRunBytes, undefined, 'defaults must not invent capacity ceilings');
+
+    const tuned = resolveArtifactStoreOptionsFromEnv({
+      ANTIFAN_ARTIFACT_MAX_ARTIFACT_BYTES: '1048576',
+      ANTIFAN_ARTIFACT_MAX_RUN_BYTES: 'not-a-number',
+    });
+    assert.strictEqual(tuned.enableRetentionCleaner, true, 'env tuning must not disable retention');
+    assert.strictEqual(tuned.maxArtifactBytes, 1048576);
+    assert.strictEqual(tuned.maxRunBytes, undefined, 'a non-numeric override must be ignored');
   });
 });

@@ -548,7 +548,21 @@ export class ArtifactStore {
 
 
   sweepRetention(options?: RetentionSweepOptions): RetentionSweepResult {
-    return ArtifactRetentionCleaner.sweep(this.options.root, options ?? this.options.retentionOptions);
+    // Report artifacts are the permanent evidence class: the run index records `kind`, and
+    // `report.generate` is the only capability declared `permanent`, so reports must outlive
+    // the age/budget sweeps that prune captures. Any other caller exemption is composed in.
+    const protectedPaths = new Set<string>();
+    for (const ref of this.artifacts.values()) {
+      if (ref.kind === 'report') {
+        protectedPaths.add(path.resolve(ref.path));
+      }
+    }
+    const effective = options ?? this.options.retentionOptions;
+    return ArtifactRetentionCleaner.sweep(this.options.root, {
+      ...(effective ?? {}),
+      isProtected: (absolutePath) =>
+        protectedPaths.has(path.resolve(absolutePath)) || effective?.isProtected?.(absolutePath) === true,
+    });
   }
 }
 

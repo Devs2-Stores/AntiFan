@@ -3,6 +3,7 @@ import * as assert from 'node:assert';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import { setImmediate as setImmediateAsync } from 'node:timers/promises';
 import { ArtifactRetentionCleaner } from '../../src/main/tools/artifact-retention-cleaner';
 import { ArtifactStore } from '../../src/main/tools/artifact-store';
 import { SessionResumeController } from '../../src/main/agent/session-resume-controller';
@@ -98,6 +99,72 @@ describe('ArtifactRetentionCleaner & SessionResumeController (Phase 3)', () => {
     assert.strictEqual(sweepRes.deletedFiles, 0, 'Freshly staged artifact must not be deleted');
 
     fs.rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  it('never deletes files the owner declares protected, even past the retention age', () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-protected-test-'));
+    const runDir = path.join(tempDir, 'run-protected');
+    fs.mkdirSync(runDir, { recursive: true });
+
+    const reportFile = path.join(runDir, 'report.artifact');
+    const captureFile = path.join(runDir, 'capture.artifact');
+    fs.writeFileSync(reportFile, 'permanent report evidence', 'utf8');
+    fs.writeFileSync(captureFile, 'stale capture', 'utf8');
+
+    const twoDaysAgo = (Date.now() - 48 * 3600 * 1000) / 1000;
+    fs.utimesSync(reportFile, twoDaysAgo, twoDaysAgo);
+    fs.utimesSync(captureFile, twoDaysAgo, twoDaysAgo);
+
+    try {
+      const result = ArtifactRetentionCleaner.sweep(tempDir, {
+        isProtected: (absolutePath) => absolutePath === reportFile,
+      });
+
+      assert.strictEqual(result.protectedFiles, 1);
+      assert.strictEqual(result.deletedFiles, 1);
+      assert.strictEqual(fs.existsSync(reportFile), true, 'Protected evidence must survive the sweep');
+      assert.strictEqual(fs.existsSync(captureFile), false, 'Unprotected stale capture must still be pruned');
+    } finally {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it('keeps indexed report artifacts through an enabled sweep while pruning stale captures', async () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-report-protect-test-'));
+    const twoDaysAgo = (Date.now() - 48 * 3600 * 1000) / 1000;
+
+    try {
+      const seeding = new ArtifactStore({ root: tempDir });
+      const report = seeding.stage({
+        kind: 'report',
+        mime: 'application/json',
+        data: '{"verdict":"pass"}',
+        runId: 'run-report',
+        attemptId: 'att-1',
+        projectId: 'project-test',
+        workspaceId: 'workspace-test',
+      });
+      const capture = seeding.stage({
+        kind: 'screenshot',
+        mime: 'image/png',
+        data: 'png-bytes',
+        runId: 'run-report',
+        attemptId: 'att-1',
+        projectId: 'project-test',
+        workspaceId: 'workspace-test',
+      });
+      fs.utimesSync(report.path, twoDaysAgo, twoDaysAgo);
+      fs.utimesSync(capture.path, twoDaysAgo, twoDaysAgo);
+
+      const sweeper = new ArtifactStore({ root: tempDir, enableRetentionCleaner: true });
+      await setImmediateAsync();
+
+      assert.strictEqual(fs.existsSync(report.path), true, 'permanent report evidence must survive the enabled sweep');
+      assert.strictEqual(fs.existsSync(capture.path), false, 'stale captures must still be pruned');
+      assert.strictEqual(sweeper.sweepRetention().deletedFiles, 0, 'the constructor sweep must already have pruned the capture');
+    } finally {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
   });
 
   it('persists, reads, lists, and checks liveness in SessionResumeController', () => {

@@ -57,8 +57,9 @@
       "group": "retention",
       "title": "`enableRetentionCleaner` is declared and guarded but no production caller ever enables it",
       "severity": "P1",
-      "status": "open",
+      "status": "closed",
       "evidence": "src/main/tools/artifact-store.ts:48,71; src/main/control-plane/control-plane-runtime.ts:61-75 return undefined unless env overrides are set",
+      "closedBy": "the production resolver always returns enableRetentionCleaner: true, and ArtifactStore.sweepRetention exempts kind=report artifacts (the permanent capability class) so the sweep can only prune captures past the age or byte ceilings",
       "predicate": { "kind": "file-absent-regex", "file": "src/main/control-plane/control-plane-runtime.ts", "pattern": "enableRetentionCleaner" }
     },
     {
