@@ -1201,6 +1201,12 @@ export class BrowserControlPort {
   private readonly comparePairLock = new MultiKeyLock();
   /** Targets holding a timed-out in-flight CDP command until their recovery receipt lands. */
   private readonly targetQuarantine = new Map<string, TargetQuarantineEntry>();
+  /**
+   * Last geometry this session verified per tab. The surface probe reads
+   * innerWidth/innerHeight, so a zero reading means the tab's view lost its
+   * bounds; the verified geometry is the only size a bounded re-apply may restore.
+   */
+  private readonly verifiedTabGeometry = new Map<string, { width: number; height: number; mobile?: boolean }>();
   public readonly baselineAuthority: BaselineAuthority;
   constructor(private readonly host: BrowserHostPort, public readonly artifacts?: BrowserArtifactSink) {
     this.baselineAuthority = new BaselineAuthority({ artifactStore: this.artifacts as any });
@@ -1591,9 +1597,16 @@ export class BrowserControlPort {
     }
     if (snapshot && (!Number.isFinite(snapshot.vw) || !Number.isFinite(snapshot.vh) || snapshot.vw < 1 || snapshot.vh < 1)) {
       if (allowDegraded) return snapshot;
+      const healed = await this.reapplyVerifiedGeometry(tabId, paneId, snapshot);
+      if (healed) return healed;
+      const known = this.verifiedTabGeometry.get(tabId);
+      const offscreen = this.host.isTabOffscreen ? this.host.isTabOffscreen(tabId) : undefined;
       throw new CapabilityError(
         'NO_RENDER_SURFACE',
-        `${operation} cannot run on tab '${tabId}' pane '${paneId ?? 'desktop'}': the tab is alive but has no laid-out surface (${snapshot.vw}x${snapshot.vh} CSS px, readyState '${snapshot.readyState}', hidden ${snapshot.hidden}, cause ${classifyRenderSurfaceCause(snapshot)}). Size the tab with anti.browser.set_viewport or navigate it to a real page.`,
+        `${operation} cannot run on tab '${tabId}' pane '${paneId ?? 'desktop'}': the tab reports no laid-out surface (${snapshot.vw}x${snapshot.vh} CSS px, readyState '${snapshot.readyState}', hidden ${snapshot.hidden}, cause ${classifyRenderSurfaceCause(snapshot)})` +
+          (known ? `, and re-applying its verified ${known.width}x${known.height} geometry did not restore one` : '') +
+          (offscreen === true ? '; this tab renders offscreen and is never laid out in the window' : '') +
+          '. Size the tab with anti.browser.set_viewport or navigate it to a real page.',
         {
           tabId,
           paneId,
@@ -1603,10 +1616,72 @@ export class BrowserControlPort {
           readyState: snapshot.readyState,
           documentHidden: snapshot.hidden,
           cause: classifyRenderSurfaceCause(snapshot),
+          ...(offscreen !== undefined ? { offscreen } : {}),
+          ...(known ? { verifiedGeometry: known } : {}),
+          activationCandidates: this.activationCandidates(tabId),
         }
       );
     }
     return snapshot;
+  }
+
+  /**
+   * Bounded geometry assertion for a tab whose surface measured zero. Re-applies
+   * the geometry this session already verified for that tab, then re-probes once:
+   * only a measured surface is returned, so a healed view is never assumed.
+   */
+  private async reapplyVerifiedGeometry(
+    tabId: string,
+    paneId: 'desktop' | 'mobile' | undefined,
+    snapshot: RenderSurfaceSnapshot
+  ): Promise<RenderSurfaceSnapshot | undefined> {
+    const known = this.verifiedTabGeometry.get(tabId);
+    if (!known || typeof this.host.setViewportSize !== 'function' || typeof this.host.readRenderSurface !== 'function') return undefined;
+    try {
+      await this.host.setViewportSize({ width: known.width, height: known.height, mobile: known.mobile, tabId });
+      const healed = await this.host.readRenderSurface(tabId, paneId, RENDER_SURFACE_PROBE_BOUND_MS);
+      if (healed && Number.isFinite(healed.vw) && Number.isFinite(healed.vh) && healed.vw >= 1 && healed.vh >= 1) {
+        console.warn(`[browser-port] Tab ${tabId} measured ${snapshot.vw}x${snapshot.vh}; re-applied verified ${known.width}x${known.height} geometry`);
+        return healed;
+      }
+    } catch {
+      // An unmeasurable tab stays unmeasurable: fall through to the refusal.
+    }
+    return undefined;
+  }
+
+  /**
+   * Tabs this session may activate instead of the one that just failed. Prefers
+   * the session's own records, which include the offscreen tabs the window strip
+   * never renders, so the answer is never an unexplained empty list.
+   */
+  private activationCandidates(boundTabId: string): string[] {
+    const sessionRecords = this.host.getSessionTabList ? this.host.getSessionTabList(boundTabId) : [];
+    const records = sessionRecords.length > 0 ? sessionRecords : this.host.getTabList ? this.host.getTabList() : [];
+    const ids = new Set<string>();
+    for (const tab of records) {
+      const id = (tab as { id?: unknown } | null)?.id;
+      if (typeof id === 'string' && id.length > 0 && id !== boundTabId) ids.add(id);
+    }
+    return [...ids];
+  }
+
+  /**
+   * Activation is a claim about the window's active tab: a switch that did not
+   * happen is a typed refusal naming why plus the tabs this session may activate
+   * instead. A silent `switched: false` is what let a caller retry a tab that can
+   * never activate — an offscreen agent-plane tab is never shown in the window.
+   */
+  private requireActivatedTab(targetId: string, boundTabId?: string): { switched: boolean; tabId: string } {
+    if (this.host.switchTab && this.host.switchTab(targetId)) return { switched: true, tabId: targetId };
+    const offscreen = this.host.isTabOffscreen ? this.host.isTabOffscreen(targetId) : undefined;
+    const candidates = this.activationCandidates(boundTabId ?? targetId);
+    throw new CapabilityError(
+      'TARGET_NOT_ACTIVATABLE',
+      `Tab '${targetId}' did not become the active tab${offscreen === true ? ': it renders offscreen and is never shown in the window' : ''}.` +
+        (candidates.length > 0 ? ` Activate one of: ${candidates.join(', ')}.` : ' No other tab in this session can be activated.'),
+      { tabId: targetId, ...(boundTabId ? { boundTabId } : {}), ...(offscreen !== undefined ? { offscreen } : {}), activationCandidates: candidates }
+    );
   }
 
   /**
@@ -2251,6 +2326,7 @@ export class BrowserControlPort {
       }
     }
     const closed = Boolean(this.host.closeTab(targetId));
+    if (closed) this.verifiedTabGeometry.delete(targetId);
     let failoverTabId: string | undefined;
     if (closed && rawBoundId && targetId.trim() === rawBoundId.trim() && this.host.getFailoverTargetTab) {
       const candidate = this.host.getFailoverTargetTab(targetId);
@@ -2341,8 +2417,7 @@ export class BrowserControlPort {
       // live, canonical tab this window has. No approval gate; the target already
       // resolved to a real tab id above and the transport rebinds the attachment
       // to it after the switch.
-      const switched = Boolean(this.host.switchTab(targetId));
-      return { switched, tabId: targetId };
+      return this.requireActivatedTab(targetId, context.target.tabId);
     }
 
     const boundId = context.target.tabId;
@@ -2356,8 +2431,7 @@ export class BrowserControlPort {
       }
     }
 
-    const switched = Boolean(this.host.switchTab(targetId));
-    return { switched, tabId: targetId };
+    return this.requireActivatedTab(targetId, context.target.tabId);
   }
 
   diagnostics(tabId?: string, level?: number | string): { console: unknown[]; failures: unknown[] } {
@@ -2627,6 +2701,7 @@ export class BrowserControlPort {
         cause: observed.vw < 1 || observed.vh < 1 ? 'zero-viewport' : 'geometry-mismatch',
       });
     }
+    if (observed) this.verifiedTabGeometry.set(effectiveTabId, { width: observed.vw, height: observed.vh, mobile: options.mobile ?? (options.width < 768) });
     return {
       success: ok,
       width: options.width,

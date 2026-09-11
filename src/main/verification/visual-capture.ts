@@ -731,7 +731,11 @@ export function classifyRenderSurfaceCause(snapshot: Partial<RenderSurfaceSnapsh
   if (!snapshot) return 'probe-unavailable';
   if (snapshot.readyState && snapshot.readyState !== 'complete') return 'document-not-loaded';
   if (snapshot.hidden === true) return 'background-hidden';
-  return 'not-composited';
+  // This probe measures innerWidth/innerHeight only, so a zero reading means the
+  // view has no bounds — it carries no compositor signal. Anything else stays
+  // unclassified rather than claiming a cause the probe cannot observe.
+  if (typeof snapshot.vw === 'number' && typeof snapshot.vh === 'number' && (snapshot.vw < 1 || snapshot.vh < 1)) return 'zero-viewport';
+  return 'viewport-unmeasured';
 }
 
 /** Scroll step for the materialization walk, in CSS pixels. */
