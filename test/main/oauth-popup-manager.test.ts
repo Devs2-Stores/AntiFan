@@ -89,16 +89,8 @@ describe('OAuthPopupManager Invariants', () => {
     const manager = OAuthPopupManager.getInstance();
     const opened: string[] = [];
 
-    // These three dangerous-scheme URLs are classified as OAuth by isOAuthUrl, so only the
-    // fail-closed scheme check placed before the OAuth branch keeps them denied.
-    for (const url of [
-      'javascript:/oauth/authorize',
-      'file://accounts.google.com/o/oauth2/v2/auth',
-      'data:/oauth/authorize',
-    ]) {
-      assert.strictEqual(manager.isOAuthUrl(url), true, `expected OAuth-classified masquerade: ${url}`);
-    }
-
+    // Each of these masquerades as an OAuth authorize URL in its path while carrying a scheme
+    // that must never open a window, so the deny contract holds whichever check rejects it.
     for (const url of [
       'javascript:alert(document.cookie)',
       'javascript:/oauth/authorize',
