@@ -12,7 +12,7 @@ import { ThemeQaRepairCoordinator } from '../qa/theme-qa-repair-coordinator';
 import { confineWorkspaceRoot } from '../qa/diagnostics-filter';
 import { recordFallbackTelemetry, FallbackTelemetryPayload } from '../telemetry/fallback-recorder';
 import { IssueRegister, VerificationVerdict } from '../session/issue-register';
-import { VerificationEvaluator } from '../verification/verification-evaluator';
+import { VerificationEvaluator, deriveFailureSignature, resolvePreviousLifecycle } from '../verification/verification-evaluator';
 import { VerificationClaim, EvidenceSampleBundle, InteractionBaseline, THEME_METRICS } from '../verification/verification-contract';
 import { ProofTemplateRegistry, ClaimCategory } from '../verification/proof-templates';
 import { ThemeSourceMapper, isAuthoritativeSourceCandidate } from '../browser/theme-source-mapper';
@@ -3031,9 +3031,7 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
             backendSessionRef: `${'backendId' in context && typeof context.backendId === 'string' ? context.backendId : 'trusted'}:${runId}`,
           }
         : undefined;
-      const previousLifecycle = claim.lifecycle?.runId === runId && claim.lifecycle.attemptId === attemptId
-        ? claim.lifecycle
-        : claim.lifecycleHistory?.find((entry) => entry.runId === runId && entry.attemptId === attemptId);
+      const previousLifecycle = resolvePreviousLifecycle(claim, runId);
       if (previousLifecycle?.state === 'STALEMATE' || previousLifecycle?.state === 'HALTED') {
         throw new CapabilityError('POLICY_DENIED', `Verification batch is ${previousLifecycle.state} and cannot be retried in the same run attempt.`, {
           claimId: claim.id,
@@ -3511,7 +3509,7 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
       // else in the engine supplies one, so it is derived here from the evidence this probe just
       // observed: a second REJECTED attempt on the same failed obligations halts the batch
       // instead of looping. Non-REJECTED verdicts return no signature and never advance it.
-      const failureSignature = VerificationEvaluator.failureSignature(evalResult, bundle);
+      const failureSignature = deriveFailureSignature(evalResult);
       const transition = VerificationCircuitBreaker.getInstance().recordAttempt(
         { runId, attemptId, claimId: claim.id },
         evalResult.verdict,

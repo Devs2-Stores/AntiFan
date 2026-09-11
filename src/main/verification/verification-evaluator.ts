@@ -17,6 +17,7 @@ import {
   ProofSource,
   VerificationVerdict,
   InconclusiveReason,
+  VerificationBatchLifecycle,
 } from './verification-contract';
 import { ProofTemplateRegistry } from './proof-templates';
 export interface EvaluationResult {
@@ -276,21 +277,59 @@ export class VerificationEvaluator {
   /**
    * Stable failure signature for the circuit breaker.
    *
-   * Derived from what the probe actually observed: the sorted, de-duplicated set of proof
-   * obligations that failed in this bundle. Two attempts that fail on the same evidence produce
-   * the same signature, which is what lets a repeated cause trip STALEMATE instead of looping.
-   * Returns undefined for anything that is not a REJECTED verdict — a resample or a pass has no
-   * failure cause to carry, so it must not advance the identical-failure counter.
+   * Derived strictly from the evaluator's own adjudications (`proofProfile.violations`),
+   * rather than caller-supplied sample flags, preserving the engine-adjudicates invariant.
+   * Returns sorted(unique(violations[].metric)).join('+') for REJECTED results only,
+   * and undefined for any other verdict.
    */
-  public static failureSignature(result: EvaluationResult, bundle: EvidenceSampleBundle): string | undefined {
-    if (result.verdict !== 'REJECTED') {
-      return undefined;
-    }
-    const failed = (bundle.samples || [])
-      .filter((sample) => sample.passed === false)
-      .map((sample) => sample.obligationId || sample.metric)
-      .filter((value): value is string => typeof value === 'string' && value.length > 0);
-    const unique = Array.from(new Set(failed)).sort();
-    return unique.length > 0 ? unique.join('+') : undefined;
+  public static failureSignature(result: EvaluationResult, _bundle?: EvidenceSampleBundle): string | undefined {
+    return deriveFailureSignature(result);
   }
+
+  public static resolvePreviousLifecycle(
+    claim: { lifecycle?: VerificationBatchLifecycle; lifecycleHistory?: VerificationBatchLifecycle[] },
+    runId: string
+  ): VerificationBatchLifecycle | undefined {
+    return resolvePreviousLifecycle(claim, runId);
+  }
+}
+
+/**
+ * Stable failure signature for the circuit breaker.
+ *
+ * Derived strictly from the evaluator's own adjudications (`proofProfile.violations`),
+ * rather than caller-supplied sample flags, preserving the engine-adjudicates invariant.
+ * Returns sorted(unique(violations[].metric)).join('+') for REJECTED results only,
+ * and undefined for any other verdict.
+ */
+export function deriveFailureSignature(result: EvaluationResult): string | undefined {
+  if (result.verdict !== 'REJECTED') {
+    return undefined;
+  }
+  const violations = result.proofProfile?.violations;
+  if (!violations || violations.length === 0) {
+    return undefined;
+  }
+  const metrics = violations
+    .map((v) => v.metric)
+    .filter((m): m is string => typeof m === 'string' && m.length > 0);
+  const unique = Array.from(new Set(metrics)).sort();
+  return unique.length > 0 ? unique.join('+') : undefined;
+}
+/**
+ * Resolves the previous lifecycle for a verification run.
+ *
+ * Scoped to the current runId: returns the run's latest lifecycle regardless of attemptId
+ * (from claim.lifecycle if it matches, or from the newest matching entry in claim.lifecycleHistory),
+ * allowing a new attempt to inherit prior attempt failure signatures and trip STALEMATE.
+ * Returns undefined if no lifecycle exists for this run, preventing cross-run leakage.
+ */
+export function resolvePreviousLifecycle(
+  claim: { lifecycle?: VerificationBatchLifecycle; lifecycleHistory?: VerificationBatchLifecycle[] },
+  runId: string
+): VerificationBatchLifecycle | undefined {
+  if (claim.lifecycle?.runId === runId) {
+    return claim.lifecycle;
+  }
+  return claim.lifecycleHistory?.slice().reverse().find((entry) => entry.runId === runId);
 }
