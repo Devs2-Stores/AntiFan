@@ -8,13 +8,18 @@ Haravan theme-fidelity pipeline, driven against live sites.
 
 | Layer | Suite | Tests | Pass | Fail | Skip | Duration |
 |---|---|---|---|---|---|---|
-| 1 | `npm run test:canary` | 133 | 133 | 0 | 0 | 29s |
+| 1 | `npm run test:canary` | 138 | 138 | 0 | 0 | 28s |
 | 1 | `npm run test:fast` | 451 | 451 | 0 | 0 | 12s |
 | 1 | `npm run test:site-clone` | 108 | 108 | 0 | 0 | 6s |
 | 1 | `npm run test:integration` | 13 | 13 | 0 | 0 | 10s |
 | 1 | `npm run test:main` | 1078 | 1077 | 0 | 1 | 315s |
 | 2 | `npm run test:e2e` | 6 | 6 | 0 | 0 | 24s |
-| | **Total** | **1789** | **1788** | **0** | **1** | **396s** |
+| | **Total** | **1794** | **1793** | **0** | **1** | **395s** |
+
+`test:canary` read 133 at the time of the first pass; the two repairs described below added five tests
+(`theme-fidelity-run` 23→27, `canary-fifteen-pages-report` 3→4), and the 138/138 row plus its 28s duration
+are the re-run of the repaired suite. `theme-fidelity` is also 14/14 unchanged. The `test:main` skip is the
+deliberate deferral named under Failed Tests.
 
 Layer 2 is the live surface: `mcp-industrial-overhaul` (22.2s, real Electron + Chromium + MCP stdio proxy +
 CDP input), `semantic-ref-trusted-cdp` (8.5s, proves Tier 1 `isTrusted === false` against Tier 2 CDP
@@ -34,7 +39,11 @@ branch percentage to compare against a threshold.
 
 ## Failed Tests
 
-None.
+None in the recorded runs, with one transient exception worth naming: the first `npm run test:canary`
+invocation issued immediately after the aggregate regeneration exited 1 without producing a failing test
+name; three subsequent full invocations were green (138/138 each, exit 0) and neither of the two logged
+re-runs contains a `not ok` line. No cause was established, so this is recorded as an observed,
+non-reproducing exit rather than attributed; the suite's own counts are 138/138 with 0 fail.
 
 The single skip is deliberate and named: `test/main/phase-02-agent-plane-authority.test.ts:578` calls
 `t.skip()` unconditionally for "live Electron window HW composited validation … covered by Phase 6 Windows
@@ -75,12 +84,20 @@ All seven exceed `CAPTURE_MAX_DIMENSION = 16384`, so they are refused as
 to a viewport-only or clipped raster. The remaining 14 legs (home/product/cart/search at phone and middle
 tiers, collection at all three, 404 at all three) captured.
 
-Reproduction: these heights match the numbers the Phase 5 run recorded earlier the same day — home 390
-10746, product 1024 15207, product 390 3514, collection 1440 15961, collection 1024 13701, collection 390
-1943 — so the finding reproduces across **three independent runs** of an unchanged pipeline. The measured
-cause of the desktop refusal class is unchanged: the copy now serves the local markup with the copy's
-server-compiled stylesheets, and the two `assets/*.scss.liquid` files it needs are outside the CLI's tracked
-push set (no `assets/` path appears in any push log), which is recorded in
+Framing, stated precisely because the two are easy to conflate: this does **not** reproduce the Phase 5
+reference pin. That pin (`.canary/theme-fidelity-run4/r1`, 21/21 COMPLETE, 0 not-measurable) was captured
+*before* the push, while the copy was still short. The heights above are the copy the push already changed,
+which is why they equal run4's *subject* column — home 390 10746, product 1024 15207, product 390 3514,
+collection 1440 15961, collection 1024 13701, collection 390 1943 — and not its reference. What the run
+establishes is that the post-push blow-up is reproducible from an independently captured pin, so the
+reference itself is now unmeasurable above the ceiling; it is not a re-measurement of run4's reference.
+
+R2 was never attempted, by design: `references` throws as soon as one side is not `COMPLETE`, so the second
+side is never captured. The `compare` refusal naming a missing `r2/index.json` is therefore a *consequence*
+of the r1 ceiling refusals, not an r2 or live-preview failure. The measured cause of the desktop refusal
+class is unchanged: the copy now serves the local markup with the copy's server-compiled stylesheets, and
+the two `assets/*.scss.liquid` files it needs are outside the CLI's tracked push set (no `assets/` path
+appears in any push log), which is recorded in
 `plans/260911-0133-haravan-customize-theme-fidelity/phase-03-verdicts-provenance-and-safety-audit.md`.
 The verdict is a typed refusal with the mechanism named, not a partial verdict set.
 
@@ -120,6 +137,25 @@ after:  REFUSED CAPTURE_REFUSED (exit 3): r1-copy capture exited 3: FULLPAGE_CAP
 Tests: `test/unit/theme-fidelity-run.test.mjs` 27/27 (was 23; four added covering the derived reason, the
 mixed-code summary, the complete/refused/no-index cases, and the no-recorded-failure case), and
 `test/unit/theme-fidelity.test.mjs` 14/14 unaffected.
+
+## Second defect, found while re-deriving this run's aggregate
+
+Regenerating the campaign aggregate twice produced **different bytes**. The cause was not evidence: §3
+"Test Environment" rendered the *aggregating* session's identity — `AntiFan Port`, `Attachment ID`,
+`Run ID`, `Primary Tab ID` — read from the live canary session, so a report assembled from what many runs
+published claimed the provenance of whichever session happened to regenerate it, and stopped being a pure
+function of the evidence it reports.
+
+Repair, in `.canary/tools/fifteen-pages-run.mjs`: the aggregate summary is marked `aggregate: true` and §3
+now states where its evidence came from instead — `Evidence Source : aggregated from 15 published page
+attempts; each page's own session identity is in its attempt evidence`. A live single-batch run still
+reports the session that produced it. Two consecutive regenerations of the real campaign are now
+byte-identical (`sha256 a4a685fea7444922589d89b03634084bb24afaf62628c4a268910220b0e47c70`), which is the
+property the determinism check tests, and §1's `COMPLETION DATE` still derives from the newest published
+page (`2026-09-11T00:18:04.503Z`).
+
+Tests: `test/unit/canary-fifteen-pages-report.test.mjs` 4/4 (one added: an aggregate names its evidence and
+carries no live session identity, while a live run still carries its own).
 
 ## Build Status
 

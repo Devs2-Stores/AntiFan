@@ -96,12 +96,16 @@ reference's h=1401). The strict reference-identity verdict for those legs stands
 
 Attribution closed the same day: the three retained page-3 clone bundles are byte-different only in the
 site's own Livewire instance ids (26 lines of 1,772), while b2 and b3 have *identical* geometry and b1b
-differs by +15px at 1024 and +10px at 390. Only the 1024 delta is a gutter: `attempt-d206677e` records
-the reference at `clientWidth` 1024 and the clone at 1009 — 15px narrower and 15px taller (2766 → 2781).
-At 390 the widths are symmetric (390 on both sides) and the clone differs by a second `widgetNodes`
-entry, so that delta is a clone-side rendering difference, not attributed. So the PASS/FAIL flips tracked
-the per-side gutter and the pin era, not run noise or the bundle; after the regime was made symmetric and
-the pin reverted, page 3 returns PASS 0.08%, reproducing batch 1b. Table and categories in
+differs by +15px at 1024 and +10px at 390. Neither delta is attributed to a gutter. An earlier reading
+took the 1024 delta from `attempt-d206677e` (pre-regime: reference `clientWidth` 1024 against the clone's
+1009, 15px narrower *and* 15px taller); the published attempt `a8d3f18c` refutes it, because there the
+regime is on and both sides record equal widths at every tier (1440/1440, 1024/1024, 390/390) while the
+clone still reads 2781 against 2766 at 1024 and 3497 against 3487 at 390, and equal at 1440 (2389/2389).
+A delta that survives equal widths is not a scrollbar-width effect: the pre-regime 15px *content-box*
+deficit and the 15px *docHeight* delta are different quantities, and both deltas are now recorded as
+unattributed clone-side content differences at those tiers. What the verdict flips did track is the pin
+era and the bundle-independent geometry change; after the regime was made symmetric and the pin reverted,
+page 3 returns PASS 0.08%, reproducing batch 1b. Table and categories in
 `plans/journals/2026-09-11-campaign-phase-3-gates-and-attribution.md`.
 
 ## Disclosed methodology limit: the symmetric scrollbar regime is `none` on both sides

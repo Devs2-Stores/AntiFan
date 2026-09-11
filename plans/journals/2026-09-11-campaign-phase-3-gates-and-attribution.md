@@ -126,16 +126,18 @@ The material invariants are stable, which is what the harness records per attemp
 
 Two conclusions, both from that table rather than from the byte hashes:
 
-1. **The geometry flip is not the bundle, and only one of the two deltas is a gutter.** b1b → b2 moves
+1. **The geometry flip is not the bundle, and neither height delta is attributed.** b1b → b2 moves
    1024 by +15px and 390 by +10px while the bundle difference is only runtime ids, and b2 → b3 changes the
-   bundle (different ids) with *identical* geometry. The 1024 delta is gutter-shaped and is proven as such
-   by `attempt-d206677e` (pre-regime, widths recorded): reference `clientWidth` 1024 against the clone's
-   1009 — the clone 15px narrower *and* 15px taller, docHeight 2766 → 2781 — one side consuming a gutter
-   and the other not. The 390 delta is **not** a gutter and must not be called one: there both sides
-   record `clientWidth` 390 == `innerWidth` 390, and the clone's difference is a second `widgetNodes`
-   entry (15 against the reference's 14) with a byte-identical payload, so the +10px is a clone-side
-   rendering difference whose mechanism is **not** attributed. The 1024 gutter is the asymmetry
-   `LAYOUT_WIDTH_ASYMMETRY` refuses and the symmetric regime removes.
+   bundle (different ids) with *identical* geometry. The +15px at 1024 was attributed to a scrollbar gutter
+   on the strength of `attempt-d206677e` (pre-regime, widths recorded): reference `clientWidth` 1024 against
+   the clone's 1009 — the clone 15px narrower. **That attribution is withdrawn.** In the published attempt
+   `a8d3f18c` the regime is on and both sides record the *same* `clientWidth` at every tier — 1440/1440,
+   1024/1024, 390/390 — yet the clone still reads 2781 against the reference's 2766 at 1024 (+15) and 3497
+   against 3487 at 390 (+10), and exactly equal at 1440 (2389/2389). A delta that survives equal widths is
+   not a scrollbar-width effect. The 15px *content-box* deficit seen pre-regime and the 15px *docHeight*
+   delta are different quantities and were conflated. Both deltas are therefore recorded as unattributed
+   clone-side content differences at those tiers, with the mechanism **not** attributed; the pre-regime
+   15-asymmetric-pair finding stays a measurement, but it does not explain the heights.
 2. **The page-3 verdict sequence is fully explained** without invoking run noise: b1b PASS 0.08% is the
    symmetric pre-pin state (1024 docHeight 2766 on both sides); b2/b3 FAIL 2.3–4.59% is the pin era on the
    asymmetric gutter; the authoritative run, after the pin was reverted and the regime made symmetric,
@@ -155,11 +157,12 @@ The clone ships scrollbar rules for inner elements only — `.category-navigatio
 `.search-popular`, `.filter-list__button ...`, `.view-list .list .column-scroll{display:none}` — and
 nothing for `html`/`body` (20 rules in `app-DCc2d3nB.css`, 9 in `product-BeRhNqqG.css`, all scoped).
 So the clone's 15px root gutter was the browser default and the reference's `clientWidth == innerWidth`
-at 1440 was the anomaly. The symmetric regime as shipped is `none` on both, which removes the
-reference-side artifact without fabricating a FAIL, but it also removes the regime a real user gets and
-blinds `LAYOUT_WIDTH_ASYMMETRY`. `overflow-y:scroll;scrollbar-gutter:stable` on both, applied before
-either side materializes and with the floor re-measured, is the faithful version — a child change, so a
-full 15-page re-run, not a patch to the published set.
+at 1440 was the anomaly. This concerns the *width* asymmetry only: it does not explain the 1024/390
+height deltas above, which persist while both widths are equal. The symmetric regime as shipped is `none`
+on both, which removes the reference-side artifact without fabricating a FAIL, but it also removes the
+regime a real user gets and blinds `LAYOUT_WIDTH_ASYMMETRY`. `overflow-y:scroll;scrollbar-gutter:stable`
+on both, applied before either side materializes and with the floor re-measured, is the faithful version —
+a child change, so a full 15-page re-run, not a patch to the published set.
 
 Correction to the sentence that stood here ("per-side width readings stay in every case file"): the
 regime is injected before the identity is captured (`viewport-run.mjs:734-735` vs `:764`), so every
