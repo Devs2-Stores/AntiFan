@@ -199,7 +199,7 @@ be published after its Phase 1 closes. The campaign is stopped here, at a clean 
 | Fix | Anchor | Measured effect |
 |---|---|---|
 | Scroll anchored to a fixed offset before the settle read block | `.canary/tools/canary-settle.mjs` `SETTLE_SCROLL_ANCHOR_EXPR` | diag `search__1440x900`: `NOT_MEASURABLE` to `PASS/MATCH` |
-| Session rotation ends the superseded session (read before the mint rewrites the file, released after the mint) | `.canary/tools/theme-fidelity.mjs` `renewSession`, `readSupersededSession` | 2-pair diag exit 0: both legs measured (cart `INCONCLUSIVE`/`IDENTITY_DRIFT`, search `PASS`); release recorded redacted, never the secret |
+| Session rotation ends the superseded session (read before the mint rewrites the file, released after the mint) | `.canary/tools/theme-fidelity.mjs` `renewSession`, `readSupersededSession` | improved, **not sufficient**: a 2-pair diag is clean (exit 0, both legs measured, secret never recorded), but a 4-pair run already refuses pairs 3 and 4, and the post-anchor full run lost 6 of its 21 legs to `SESSION_RENEWAL_FAILED` — each one a `read ECONNRESET` on the renewal mint before any measurement. The remaining work is a retry/isolate strategy for that reset |
 | lazysizes contract applied in hydration (`data-src`/`data-srcset`/`data-sizes` to `src`/`srcset`/`sizes`, loader class dropped) | `.canary/tools/theme-fidelity.mjs` `IMAGE_HYDRATION_EXPR` | 4-pair fast fixture: `product__1440x900` `content-changed-between-passes` to `PASS/MATCH`; `article__1024x900` `docHeight` 6217/6736/7511 became constant 4821 and `scrollWidth` 1009/1419 constant 1024 |
 | Image identity and document geometry are part of the settle condition, with `imagePanel`/`imageChanges` recorded as evidence | `.canary/tools/canary-settle.mjs` `SETTLE_IMAGES_EXPR` | a page whose images are complete but still swapping can no longer report settled; nothing was dropped from the fingerprint and `decideSettle` is unchanged |
 
@@ -220,16 +220,60 @@ this campaign. The property held because upstream held it, not because the harne
 
 ### Still blocking publication (typed)
 
-1. **Session pool — product side.** A 4-pair run already exhausts it: pairs 3 and 4 refuse
-   `SESSION_RENEWAL_FAILED` while pairs 1 and 2 measure. `antifan.cli.endSession` frequently never replies
-   (`RPC timeout 8000ms`, recorded as `sessionRelease.released:false`), so the superseded session's bindings
-   are not returned, and `openTab` refuses once `getManagedTabIds(boundTabId).size >= 10`
-   (`src/main/tools/browser-control-port.ts:2055-2080`). A 42-pair run cannot complete until the bridge
-   replies and returns bindings, or the harness stops needing a fresh session per pair.
-2. **Image identity churn.** After hydration, `article__1024x900` holds its geometry but still moves
-   `imageSetHash` between passes. Either a loader contract that covers every case (srcset- and
-   script-driven swaps) or the owner's typed-refusal decision already recorded in the plan's risk table.
-3. **Route assertion** (`260911-0652` Phase 1) — the stated precondition for publishing this campaign.
+The post-anchor full run (`startedAt 06:01:05Z`, `finishedAt 06:23:42Z`, `run.mintedAt 05:59:27Z`) is the
+measurement this section rests on; its verdict files were later overwritten by an aborted run, so the
+decomposition is recorded here rather than on disk: `totals {pass 0, fail 0, inconclusive 21, notMeasurable 14}`
+= **8 `content-changed-between-passes` + 6 `SESSION_RENEWAL_FAILED`** (404@390, collection@1024, product@1024,
+product@390, search@1440, search@390), the other 7 legs on `REFERENCE_IDENTITY_DRIFT`(±`SUBJECT_IDENTITY_DRIFT`).
+A settle-only fix cannot reach exit 0: the renewal class alone keeps both sets `INCOMPLETE`.
+
+1. **Session renewal — transport, not pool.** A 4-pair run refuses pairs 3 and 4, the fast fixture failed 2 of
+   its 4 legs (`cart__1440x900`, `home__1440x900`), and the same class was already 11 of 42 legs *before* the
+   release existed. The class is **not eliminated**. The failure is a `read ECONNRESET` inside
+   `canary-session.mjs`'s own pairing/lifecycle calls, not a `POLICY_DENIED` quota refusal: the port's limit is
+   **per bound session** (`src/main/tools/browser-control-port.ts:2071-2079`, `getManagedTabIds(boundTabId).size
+   >= 10`), so a superseded session holding bindings cannot block a *fresh* session's mint — the earlier "the
+   pool exhausts" reading is not supported by the source. Type it as an unproven bridge/transport defect
+   correlated with session teardown; do not build a pool fix against it. Judge the release by its own record,
+   never by a later mint succeeding: `doc.sessionRelease.released === true` is the only evidence it took effect
+   (`readSupersededSession` does forward `secret`, the field the bridge names as required, and diag pair 2
+   recorded `released: true`). Next experiment: a bounded transport-only retry on the mint (a mint retry is not
+   a verdict relaxation) and/or isolating each pair's session lifecycle, so one reset cannot cost the pairs
+   that follow.
+2. **Image identity churn, and the loader state.** After hydration, `article__1024x900` holds its geometry but
+   still moves `imageSetHash` between passes; the `imagePanel`/`imageChanges` evidence added here exists to name
+   the entry that moved. The replay runs the storefront's own lazysizes
+   (`assets/lazysizes.min.js` declares `lazyClass:"lazyload", loadedClass:"lazyloaded", loadingClass:"lazyloading"`)
+   and this theme keys CSS on the loaded class — `style-all.scss.liquid:237`
+   `img.lazyload:not([src]){visibility:hidden}`, `:239` `.lazyloading{opacity:.3;blur(5px)}`, `:245`
+   `.lazyloaded{opacity:1}`, `style-ldpage-01.scss.liquid:617` `img:not(.lazyloaded){min-height:200px}`,
+   `ll-style-all.scss.liquid:113` — so promoting `data-src` without *adding* `lazyloaded` leaves a mixed loader
+   state that can itself manufacture cross-side drift. Next instrument change: add `lazyloaded` on promotion
+   (keep dropping `lazyload`/`lazyloading`), then re-measure.
+3. **Settlement honesty floor.** The strict path requires four consecutive samples with an unchanged image +
+   geometry signature and `pendingImages === 0`. The 9 s deadline path returns
+   `imagesSettled: pendingImages === 0 && stableSamples >= 2` — about 200 ms of stability — so read
+   `imagesSettled: true` from a deadline-path result as a floor, never as proof that the set stopped moving.
+4. **Geometry growth — attribution still open.** `pendingImages: 0` with `imageCount`/`sections`/`cards`/`text`
+   constant while `docHeight`/`scrollWidth` grew does not fit plain image loading. The fixture result after
+   promotion (article `docHeight` constant 4821, `scrollWidth` constant 1024 across three passes) points at the
+   un-promoted lazy images, but the pin-layer alternative is untested: record
+   `document.querySelectorAll('[data-antifan-pinned]').length`, `scrollHeight` and `scrollWidth` immediately
+   before and after the guard block on each pass, and whether `releaseSettleOverrides` runs between passes. If
+   the pin count rises with the document, the fix is an idempotent or restored pin layer, not another wait.
+5. **Route assertion** (`260911-0652` Phase 1). `checkObservedUrl` (`theme-fidelity.mjs:1118-1140`) asserts only
+   host and `themeid`; pathname and query are recorded at `targets[].dom.observedUrl` and never compared, which
+   is the same unasserted class that plan fixes in `fifteen-pages-run.mjs`. Sibling fix point, and this
+   harness's publication gate is what waits on it.
+6. **Reference asymmetry r1 vs r2 — inspect before tuning.** The same subject scored 0 PASS against r1 and 5
+   against r2, and r1's extra failures are reference-side (7 legs `REFERENCE_IDENTITY_DRIFT`, including 404@1024
+   and 404@1440, with r1 home@1440 recording `referenceHeight` 7532 where r2 records 5426), so part of r1's
+   reference side needs re-capture rather than settle work. In r2 every PASS is desktop while all seven
+   `390x844` legs refuse — a pattern no image-stability change addresses.
+7. **Evidence recovery.** The compare driver rebuilds its set directory at stage start, so cancelling a compare
+   mid-set wipes the working copies (the aborted run removed 19 verdict files under `r1-vs-subject/`). The
+   committed copies under `.canary/theme-fidelity-run4/compare/` are the recovery source: restore path-scoped
+   (`git restore --source=<commit> -- <path>`), never repo-wide.
 
 ### Assets for whoever resumes
 
