@@ -15,6 +15,7 @@ import {
   parseChildRefusal,
   parseCommandRecords,
   probeTargetOf,
+  refusalFromCaptureIndex,
   themeIdsFromInventory,
   validateUnresolved,
   withThemeId,
@@ -230,5 +231,51 @@ describe('command record and safety audit', () => {
   it('parses every well-formed command log line', () => {
     const records = parseCommandRecords(`${JSON.stringify({ stage: 'preflight' })}\n\n${JSON.stringify({ stage: 'report' })}\n`, 'commands.jsonl');
     assert.deepEqual(records.map((r) => r.stage), ['preflight', 'report']);
+  });
+});
+
+describe('a capture that measured the legs it could and could not measure the rest', () => {
+  const index = (overrides = {}) => ({
+    kind: 'theme-fidelity-capture-index',
+    label: 'r1-copy',
+    status: 'INCOMPLETE',
+    refusal: null,
+    totals: { requested: 21, documents: 21, captured: 14, notMeasurable: 7 },
+    targets: [
+      { surface: 'home', viewport: '1440x900', status: 'CAPTURED', failure: null },
+      { surface: 'product', viewport: '1440x900', status: 'NOT_MEASURABLE', failure: { code: 'FULLPAGE_CAPTURE_UNSUPPORTED_GEOMETRY', reason: 'Requested full-page capture region 1440x17229 CSS px is outside the supported 1..16384 range' } },
+    ],
+    ...overrides,
+  });
+
+  it('names the failure the index recorded instead of reporting no typed text', () => {
+    const derived = refusalFromCaptureIndex(index());
+    assert.equal(derived.code, 'FULLPAGE_CAPTURE_UNSUPPORTED_GEOMETRY');
+    assert.equal(derived.exitCode, EXIT.NOT_MEASURABLE);
+    assert.match(derived.message, /INCOMPLETE: 14\/21 captured, 1 not measurable/);
+    assert.match(derived.message, /product 1440x900/);
+    assert.match(derived.message, /16384/);
+    assert.deepEqual(derived.failures.map((f) => f.surface), ['product']);
+  });
+
+  it('summarises the set rather than picking one when the legs failed differently', () => {
+    const derived = refusalFromCaptureIndex(index({
+      targets: [
+        { surface: 'home', viewport: '1440x900', status: 'NOT_MEASURABLE', failure: { code: 'FULLPAGE_CAPTURE_UNSUPPORTED_GEOMETRY', reason: 'too tall' } },
+        { surface: 'home', viewport: '390x844', status: 'NOT_MEASURABLE', failure: { code: 'CAPTURE_NOT_MEASURABLE', reason: 'no document' } },
+      ],
+    }));
+    assert.equal(derived.code, 'CAPTURE_INCOMPLETE');
+    assert.match(derived.message, /FULLPAGE_CAPTURE_UNSUPPORTED_GEOMETRY, CAPTURE_NOT_MEASURABLE/);
+  });
+
+  it('leaves a complete capture and a refused capture to their own paths', () => {
+    assert.equal(refusalFromCaptureIndex(index({ status: 'COMPLETE', targets: [] })), null);
+    assert.equal(refusalFromCaptureIndex(index({ status: 'REFUSED', refusal: { code: 'THEME_ID_NOT_ALLOWED' } })), null);
+    assert.equal(refusalFromCaptureIndex(null), null);
+  });
+
+  it('never invents a reason an incomplete index did not record', () => {
+    assert.equal(refusalFromCaptureIndex(index({ targets: [{ surface: 'home', viewport: '1440x900', status: 'CAPTURED' }] })), null);
   });
 });
