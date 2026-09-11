@@ -168,39 +168,57 @@ describe('ArtifactRetentionCleaner & SessionResumeController (Phase 3)', () => {
     }
   });
 
-  it('keeps indexed report artifacts through an enabled sweep while pruning stale captures', async () => {
+  it('keeps permanent artifacts through an enabled sweep while pruning run-durable and unclassified ones', async () => {
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-report-protect-test-'));
     const twoDaysAgo = (Date.now() - 48 * 3600 * 1000) / 1000;
 
     try {
       const seeding = new ArtifactStore({ root: tempDir });
-      const report = seeding.stage({
+      const base = {
+        runId: 'run-report',
+        attemptId: 'att-1',
+        projectId: 'project-test',
+        workspaceId: 'workspace-test',
+      };
+      const permanent = seeding.stage({
+        ...base,
         kind: 'report',
         mime: 'application/json',
         data: '{"verdict":"pass"}',
-        runId: 'run-report',
-        attemptId: 'att-1',
-        projectId: 'project-test',
-        workspaceId: 'workspace-test',
+        retentionPolicy: 'permanent',
+      });
+      const legacyReport = seeding.stage({
+        ...base,
+        kind: 'report',
+        mime: 'application/json',
+        data: '{"legacy":true}',
+      });
+      const runDurable = seeding.stage({
+        ...base,
+        kind: 'report',
+        mime: 'application/json',
+        data: '{"workflow":true}',
+        retentionPolicy: 'run-durable',
       });
       const capture = seeding.stage({
+        ...base,
         kind: 'screenshot',
         mime: 'image/png',
         data: 'png-bytes',
-        runId: 'run-report',
-        attemptId: 'att-1',
-        projectId: 'project-test',
-        workspaceId: 'workspace-test',
       });
-      fs.utimesSync(report.path, twoDaysAgo, twoDaysAgo);
-      fs.utimesSync(capture.path, twoDaysAgo, twoDaysAgo);
+      for (const artifactPath of [permanent.path, legacyReport.path, runDurable.path, capture.path]) {
+        fs.utimesSync(artifactPath, twoDaysAgo, twoDaysAgo);
+      }
 
       const sweeper = new ArtifactStore({ root: tempDir, enableRetentionCleaner: true });
       await setImmediateAsync();
 
-      assert.strictEqual(fs.existsSync(report.path), true, 'permanent report evidence must survive the enabled sweep');
+      assert.strictEqual(fs.existsSync(permanent.path), true, 'permanent evidence must survive the enabled sweep');
+      assert.strictEqual(fs.existsSync(legacyReport.path), true, 'a report artifact staged before the policy existed must survive');
+      assert.strictEqual(fs.existsSync(runDurable.path), false, 'run-durable artifacts must still be pruned past the age limit');
       assert.strictEqual(fs.existsSync(capture.path), false, 'stale captures must still be pruned');
-      assert.strictEqual(sweeper.sweepRetention().deletedFiles, 0, 'the constructor sweep must already have pruned the capture');
+      assert.strictEqual(sweeper.sweepRetention().deletedFiles, 0, 'the constructor sweep must already have pruned both stale files');
+      assert.ok(sweeper.get(permanent.id), 'the surviving artifact must still be indexed');
     } finally {
       fs.rmSync(tempDir, { recursive: true, force: true });
     }

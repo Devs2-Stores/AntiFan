@@ -78,6 +78,9 @@ export interface ToolInvocation {
   completedAt?: number;
 }
 
+/** How long an artifact must be kept; mirrors the capability policy that staged it. */
+export type ArtifactRetentionPolicy = 'ephemeral' | 'run-durable' | 'permanent';
+
 export interface ArtifactRef {
   id: string;
   runId: string;
@@ -92,6 +95,12 @@ export interface ArtifactRef {
   truncated: boolean;
   redacted: boolean;
   createdAt: number;
+  /**
+   * Declared by the staging caller rather than inferred from `kind`. `permanent` artifacts (staged
+   * by report.generate) are exempt from the retention sweep. Absent on index entries written before
+   * the field existed, where the store stays conservative.
+   */
+  retentionPolicy?: ArtifactRetentionPolicy;
 }
 
 export interface BrowserBinding {
@@ -229,7 +238,7 @@ export interface CapabilityEffectPolicy {
   recordedVisibility: 'public' | 'tenant-scoped' | 'run-scoped' | 'redacted';
   receiptReadPermission: CapabilityRisk;
   timeoutMs: number;
-  retentionPolicy: 'ephemeral' | 'run-durable' | 'permanent';
+  retentionPolicy: ArtifactRetentionPolicy;
   ownerCancellationBehavior: OwnerCancellationBehavior;
   subscriberDisconnectBehavior: SubscriberDisconnectBehavior;
   cancellationAckTimeoutMs: number;

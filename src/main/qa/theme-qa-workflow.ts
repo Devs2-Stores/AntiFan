@@ -679,6 +679,8 @@ export class ThemeQaWorkflow {
         projectId: activeTarget.projectId,
         workspaceId: activeTarget.workspaceId,
         maxBytes: 128 * 1024,
+        // Same lifetime as the theme.qa_validate capability that runs this workflow.
+        retentionPolicy: 'run-durable',
       })
     );
 

@@ -290,6 +290,8 @@ export class ArtifactStore {
     leaseToken?: string;
     /** Defaults to 'truncate' (historical behavior); 'reject' fails closed before any bytes are written. */
     overflowMode?: ArtifactOverflowMode;
+    /** Declared by the caller; `permanent` exempts the artifact from the retention sweep. */
+    retentionPolicy?: ArtifactRef['retentionPolicy'];
   }): ArtifactRef {
     const runId = this.assertValidRunId(input.runId);
     const overflowMode: ArtifactOverflowMode = input.overflowMode ?? 'truncate';
@@ -386,6 +388,7 @@ export class ArtifactStore {
       truncated,
       redacted,
       createdAt: Date.now(),
+      retentionPolicy: input.retentionPolicy,
     };
     this.artifacts.set(ref.id, ref);
     this.persistRunIndex(runId);
@@ -548,12 +551,16 @@ export class ArtifactStore {
 
 
   sweepRetention(options?: RetentionSweepOptions): RetentionSweepResult {
-    // Report artifacts are the permanent evidence class: the run index records `kind`, and
-    // `report.generate` is the only capability declared `permanent`, so reports must outlive
-    // the age/budget sweeps that prune captures. Any other caller exemption is composed in.
+    // `permanent` artifacts are exempt from the age/budget sweep: report.generate is the only
+    // capability declared permanent, and it stages through this store. Index entries written before
+    // the policy was recorded carry no `retentionPolicy`, so a `kind: 'report'` artifact with an
+    // unset policy is exempt as well — guessing the other way would delete evidence that predates
+    // the field. Any caller-supplied exemption is composed in.
     const protectedPaths = new Set<string>();
     for (const ref of this.artifacts.values()) {
-      if (ref.kind === 'report') {
+      const permanent = ref.retentionPolicy === 'permanent'
+        || (ref.retentionPolicy === undefined && ref.kind === 'report');
+      if (permanent) {
         protectedPaths.add(path.resolve(ref.path));
       }
     }

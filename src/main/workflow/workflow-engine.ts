@@ -278,6 +278,8 @@ export class WorkflowEngine {
       projectId: currentTarget.projectId,
       workspaceId: currentTarget.workspaceId,
       maxBytes: 128 * 1024,
+      // Same lifetime as the workflow.execute capability that produced it.
+      retentionPolicy: 'run-durable',
     });
     allArtifacts.push(reportArtifact);
 
@@ -599,6 +601,8 @@ export class WorkflowEngine {
           projectId: context.projectId,
           workspaceId: context.workspaceId,
           maxBytes: 64 * 1024,
+          // Mirrors the report.generate capability: this step is that capability inside a workflow.
+          retentionPolicy: 'permanent',
         });
         return { data: { generated: true }, artifacts: [art] };
       }

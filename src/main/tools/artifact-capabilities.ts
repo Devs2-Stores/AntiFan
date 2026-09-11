@@ -155,6 +155,12 @@ export function registerArtifactCapabilities(
     },
   });
 
+  /**
+   * `report.generate` is the only capability declared permanent, so its staged artifacts outlive the
+   * retention sweep. The policy literal and the stage call both read this constant so they cannot drift.
+   */
+  const REPORT_ARTIFACT_RETENTION: ArtifactRef['retentionPolicy'] = 'permanent';
+
   catalogue.register<{
     name?: string;
     params?: unknown;
@@ -174,7 +180,7 @@ export function registerArtifactCapabilities(
       recordedVisibility: 'tenant-scoped',
       receiptReadPermission: 'read',
       timeoutMs: 30_000,
-      retentionPolicy: 'permanent',
+      retentionPolicy: REPORT_ARTIFACT_RETENTION,
       ownerCancellationBehavior: 'drain-and-persist',
       subscriberDisconnectBehavior: 'detach-and-continue',
       cancellationAckTimeoutMs: 10_000,
@@ -228,6 +234,7 @@ export function registerArtifactCapabilities(
         projectId,
         workspaceId,
         maxBytes: 64 * 1024 * 1024,
+        retentionPolicy: REPORT_ARTIFACT_RETENTION,
       });
 
       return {

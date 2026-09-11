@@ -60,7 +60,7 @@
       "severity": "P1",
       "status": "closed",
       "evidence": "src/main/tools/artifact-store.ts:48,71; src/main/control-plane/control-plane-runtime.ts:61-75 return undefined unless env overrides are set",
-      "closedBy": "the production resolver always returns enableRetentionCleaner: true, and ArtifactStore.sweepRetention exempts kind=report artifacts (the permanent capability class) so the sweep can only prune captures past the age or byte ceilings",
+      "closedBy": "the production resolver always returns enableRetentionCleaner: true, and ArtifactStore.sweepRetention exempts artifacts whose declared retentionPolicy is permanent (report.generate, the only capability declared permanent, stages with it) plus pre-policy report index entries that carry no policy — so the sweep prunes captures and run-durable reports past the age or byte ceilings, never permanent evidence. The run-durable policy is declared at the workflow and theme-QA report stage sites so `undefined` means legacy entry only.",
       "predicate": { "kind": "file-absent-regex", "file": "src/main/control-plane/control-plane-runtime.ts", "pattern": "enableRetentionCleaner" }
     },
     {
