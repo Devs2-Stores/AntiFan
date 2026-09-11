@@ -13,10 +13,16 @@ function safeCopyFile(from, to) {
   try {
     fs.mkdirSync(path.dirname(to), { recursive: true });
     fs.copyFileSync(from, to);
-  } catch (err) {
+  } catch (firstErr) {
     try {
       fs.copyFileSync(from, to);
-    } catch {}
+    } catch (retryErr) {
+      // A static asset that never lands leaves the build looking green while the app runs
+      // without it (or without the exports shim the renderer needs), so fail the compile.
+      throw new Error(
+        `copy-static: failed to copy ${from} -> ${to}: ${retryErr.message} (first attempt: ${firstErr.message})`
+      );
+    }
   }
 }
 
@@ -51,8 +57,11 @@ for (const jsFile of jsFiles) {
           fs.writeFileSync(dst, 'var exports = exports || {};\n' + original, 'utf8');
         }
         break;
-      } catch {
-        if (attempt === 2) break;
+      } catch (err) {
+        // Giving up silently ships a renderer file without its exports fallback.
+        if (attempt === 2) {
+          throw new Error(`copy-static: could not prepend the exports fallback to ${dst}: ${err.message}`);
+        }
       }
     }
   }
@@ -70,7 +79,11 @@ if (fs.existsSync(dispatcherSrc)) {
     '\nwindow.TerminalWriteDispatcher = exports.TerminalWriteDispatcher;\nwindow.globalTerminalWriteDispatcher = exports.globalTerminalWriteDispatcher;\n';
   fs.writeFileSync(dispatcherDst, dispatcherWrapped, 'utf8');
   const srcDst = path.join(rendererSrcDir, 'terminal-write-dispatcher.js');
-  try { fs.writeFileSync(srcDst, dispatcherWrapped, 'utf8'); } catch {}
+  try {
+    fs.writeFileSync(srcDst, dispatcherWrapped, 'utf8');
+  } catch (err) {
+    throw new Error(`copy-static: could not write the shared dispatcher to ${srcDst}: ${err.message}`);
+  }
 }
 // Copy scripts to .compiled/scripts for standalone deployment
 const scriptsSrcDir = path.join(ROOT, 'scripts');

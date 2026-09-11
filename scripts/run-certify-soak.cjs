@@ -28,5 +28,7 @@ child.on('exit', (code, signal) => {
     fs.closeSync(out);
   } catch {}
   console.log(msg);
-  process.exit(code || 0);
+  // A child killed by a signal reports code === null, so `code || 0` publishes a
+  // torn-down soak as a success. Only a real zero from the child is a pass.
+  process.exit(code ?? (signal ? 1 : 0));
 });
