@@ -1,7 +1,7 @@
 ---
 phase: 4
 title: "Gate Reconciliation & Delivery"
-status: pending
+status: complete
 priority: P1
 effort: "4h"
 dependencies: ["phase-03-campaign-re-run-and-verdicts"]
@@ -98,3 +98,26 @@ Turn the re-run into one defensible artifact: a cumulative report in the sixteen
 ## Rollback
 
 The report is generated from persisted evidence, so it can be regenerated or removed without touching raw evidence. The downstream phase update is additive text plus an evidence path; reverting it restores the previous wording. No bundle, capture artifact or raw evidence file is modified by this phase.
+
+## Outcome (2026-09-11)
+
+- **G1 cumulative aggregate**: `--aggregate-only` reads every page's `current-attempt.json`, takes the
+  attempt that pointer names, and renders one report over all fifteen. `PAGES EXECUTED 15 / 15`,
+  `RENDER CASES RUN 45 / 45`. Two consecutive regenerations are byte-identical
+  (sha256 `d2a52e7d4aed1b93dc4f446ae5bf8a1054fbeac40b376fc92b3dc5d5c1320efc`). The completion date is the
+  newest `publishedAt` among the pages, not the time of the read.
+- **G2 masks-ON sensitivity**: 42 of 45 legs re-compared under the same lease with
+  `useDefaultWidgetMasks: true`; the verdict moved on 0 of them; mismatch change −0.28pp to +0.29pp;
+  masks covered at most 2.7615% of the canvas. Rendered in section 12 of the aggregate, non-binding.
+- **G3 height-drift**: `CANARY_HEIGHT_DRIFT_EXPERIMENT=1`, page 1. At 1024 a natural 120px difference
+  (5.4% of 2213px, inside the 10% default tolerance) yields a real pixel measurement (2.21%) and a
+  reported geometry delta under both settings, and never `STRUCTURAL_TRUNCATION_DETECTED`; at 1440 there
+  is no difference to allow, so both settings agree at 1.81%.
+- **G4 viewport mapping / G5 proof separation**: every case carries its viewport, bundle identity,
+  instance identity, run id and gate state in `attempts/<id>/evidence/<viewport>.json`; unmeasured legs
+  are named rather than inferred, and gate state is read from the attempt rather than the batch log.
+- **G6 downstream docs**: root `15-PAGE-HOPLONGTECH-CLONE-CANARY.md` is the tracked copy of the retained
+  aggregate; journal above; `.canary/REPORT.md` remains a historical run note and is superseded by the
+  aggregate.
+
+One verdict stands for the campaign: **FAIL**, with `NEEDS_TARGETED_FIXES`.

@@ -1,7 +1,7 @@
 ---
 title: "Clone Campaign Evidence Provenance & Fidelity Gate"
 description: "Make the clone canary able to measure: provenance-bound verdicts, a settle contract that reports which predicate failed instead of dying on cosmetic DOM churn, then a re-run of the 15-page campaign against the bundle it produces and one defensible verdict."
-status: pending
+status: complete
 priority: P0
 effort: "18h"
 tags: [visual-fidelity, canary, evidence-integrity, site-clone, critical]

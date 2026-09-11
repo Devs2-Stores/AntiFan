@@ -99,6 +99,7 @@ const STANDALONE_TIMEOUT_MS = Number(process.env.CANARY_STANDALONE_TIMEOUT_MS ||
 const SKIP_COMPARE = process.env.CANARY_SKIP_COMPARE === '1';
 const SECTION_BANDS = process.env.CANARY_SECTION_BANDS === '1';
 const SELF_DRIFT = process.env.CANARY_SELF_DRIFT === '1';
+const HEIGHT_DRIFT_EXPERIMENT = process.env.CANARY_HEIGHT_DRIFT_EXPERIMENT === '1';
 // The orchestrator hands over a freshly created reference tab that it already
 // hydrated and verified against the measured floor. Re-running the viewport
 // switch and the hydration capture on that tab re-enters the live site's mount
@@ -1288,7 +1289,48 @@ if (SELF_DRIFT) {
   persist();
 }
 
-// Sectional diagnostics via clipRect (same rect on both tabs = like-for-like regions).
+// ── HEIGHT-DRIFT EXPERIMENT (opt-in; records the measured outcome) ────────────
+// The gate policy says a height difference inside `heightTolerance` (default 0.10, clamped to
+// [0.01, 1.0]) must still produce a real pixel measurement plus a reported geometry delta,
+// and must never be restated as `STRUCTURAL_TRUNCATION_DETECTED`. This runs both settings on
+// the same pair and records the numbers rather than asserting anything about the code.
+if (HEIGHT_DRIFT_EXPERIMENT) {
+  const naturalDifferencePx = Math.abs((evidence.stages?.reference?.metrics?.docHeight ?? 0) - (evidence.stages?.clone?.metrics?.docHeight ?? 0));
+  const record = { naturalDifferencePx, allowHeightDrift: {} };
+  for (const allow of [false, true]) {
+    try {
+      const experiment = await call('anti.visual.compare', {
+        tabId: refTabId,
+        comparisonTabId: cloneTabId,
+        fullPage: true,
+        tolerance: 2,
+        normalizeScroll: true,
+        allowHeightDrift: allow,
+        useDefaultWidgetMasks: false,
+        trackedSelectors: TRACKED,
+        ...LEASE_PARAM,
+      }, COMPARE_TIMEOUT_MS);
+      const er = experiment?.result || experiment || {};
+      record.allowHeightDrift[String(allow)] = {
+        status: er.status ?? null,
+        verdict: er.verdict ?? null,
+        match: er.match ?? null,
+        mismatchPercentage: er.mismatchPercentage ?? null,
+        dimensionsMatch: er.dimensionsMatch ?? null,
+        heightTolerance: er.heightTolerance ?? null,
+        heightRatio: er.heightRatio ?? er.dimensions?.heightRatio ?? null,
+        geometryDelta: er.geometryDelta ?? er.dimensions?.delta ?? null,
+        reason: er.reason ?? null,
+      };
+      log(`  height drift allowHeightDrift=${allow}: mismatch=${er.mismatchPercentage}% verdict=${er.verdict} dimsMatch=${er.dimensionsMatch} reason=${String(er.reason ?? '').slice(0, 120)}`);
+    } catch (e) {
+      record.allowHeightDrift[String(allow)] = { status: 'COMPARE_ERROR', error: String(e.message || e).slice(0, 300) };
+      log(`  height drift allowHeightDrift=${allow} FAILED: ${e.message}`);
+    }
+  }
+  evidence.heightDriftExperiment = record;
+  persist();
+}
 const refMetrics = evidence.stages.reference.metrics;
 const cloneMetrics = evidence.stages.clone.metrics;
 const bands = [];

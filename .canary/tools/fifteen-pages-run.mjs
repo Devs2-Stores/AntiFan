@@ -898,6 +898,9 @@ async function runCampaignLocked(options, { runId, lock, pagesFilter, viewportSe
                   CANARY_EVIDENCE_RUN_ID: runId,
                   CANARY_CLONE_DIR: cloneDir,
                   CANARY_REFERENCE_DUMP: isMobileTier ? path.join(evDir, 'reference-dump-mobile.json') : path.join(evDir, 'reference-dump.json'),
+                  // Opt-in diagnostic: off unless the operator asks for it, because it adds
+                  // two full-page comparisons to every leg it runs on.
+                  CANARY_HEIGHT_DRIFT_EXPERIMENT: process.env.CANARY_HEIGHT_DRIFT_EXPERIMENT === '1' ? '1' : '',
                 },
               }
             );
@@ -1289,6 +1292,35 @@ function writeVerdictIndexFiles(runSummary, baseRunDir, index) {
 }
 
 // ── Report Builder (Strict 17 Sections) ───────────────────────────────────────
+/**
+ * The mask sensitivity result belongs in the report, not only in a machine-readable file.
+ * Phase 4 asks whether the default widget masks would have hidden a difference that the
+ * binding masks-off policy reports, and that answer is only useful to a reader of the
+ * aggregate; it is rendered from the same evidence the verdicts come from.
+ */
+function renderMaskSensitivity(summary) {
+  const legs = [];
+  for (const page of Object.values(summary.pageResults || {})) {
+    for (const [label, vp] of Object.entries(page.viewports || {})) {
+      if (vp.visualMasksOn) legs.push({ label, binding: vp.visual, masked: vp.visualMasksOn });
+    }
+  }
+  const total = Object.values(summary.pageResults || {}).reduce((n, p) => n + Object.keys(p.viewports || {}).length, 0);
+  if (legs.length === 0) return '- **Widget-mask sensitivity (non-binding)**: not recorded in this batch.';
+  const flips = legs.filter((l) => (l.binding?.verdict ?? null) !== (l.masked?.verdict ?? null));
+  const reductions = legs.map((l) => (l.binding?.mismatchPercentage ?? 0) - (l.masked?.mismatchPercentage ?? 0));
+  const maskedAreaRatio = legs.reduce((max, l) => Math.max(max, l.masked?.maskResolution?.maskedAreaRatio ?? 0), 0);
+  const fmt = (n) => `${n >= 0 ? '+' : ''}${Number(n).toFixed(2)}pp`;
+  const drift = [];
+  for (const page of Object.values(summary.pageResults || {})) {
+    for (const [label, vp] of Object.entries(page.viewports || {})) {
+      if (vp.heightDriftExperiment) drift.push({ label, ...vp.heightDriftExperiment });
+    }
+  }
+  const driftLine = drift.length === 0 ? '' : `\n- **Height-drift experiment**: ${drift.map((d) => `${d.label} natural difference ${d.naturalDifferencePx}px — allowHeightDrift=false: ${d.allowHeightDrift?.false?.verdict ?? d.allowHeightDrift?.false?.status} (${d.allowHeightDrift?.false?.mismatchPercentage ?? 'null'}%, dimsMatch=${d.allowHeightDrift?.false?.dimensionsMatch}), allowHeightDrift=true: ${d.allowHeightDrift?.true?.verdict ?? d.allowHeightDrift?.true?.status} (${d.allowHeightDrift?.true?.mismatchPercentage ?? 'null'}%, dimsMatch=${d.allowHeightDrift?.true?.dimensionsMatch})`).join('; ')}.`;
+  return `- **Widget-mask sensitivity (non-binding)**: ${legs.length} of ${total} legs re-compared with the default widget masks on, under the same lease. The verdict moved on ${flips.length} of them${flips.length > 0 ? ` (${flips.map((l) => `${l.label}: ${l.binding?.verdict} → ${l.masked?.verdict}`).join(', ')})` : ''}. Mismatch change ranged ${fmt(Math.min(...reductions))} to ${fmt(Math.max(...reductions))}, with the masks covering at most ${(maskedAreaRatio * 100).toFixed(4)}% of the canvas. The binding policy remains masks-off, so a mask cannot pass a leg that the masks-off comparison fails.${driftLine}`;
+}
+
 export function generateReport(summary) {
   const pages = Object.values(summary.pageResults);
   const totalTested = pages.length;
@@ -1383,7 +1415,7 @@ SCOPE             : ${scopedViewportLabels.join('/')} measured${excludedViewport
 FINAL DECISION    : ${finalDecisionEnum}
 PAGES EXECUTED    : ${totalTested} / 15 (${unexecutedPages.length > 0 ? `${unexecutedPages.length} pages UNTESTED in this batch` : 'ALL 15 PAGES TESTED'})
 RENDER CASES RUN  : ${totalRenderCasesRun} / ${totalScopedCases} (PASS: ${totalPass} | FAIL: ${totalFail} | INCONCLUSIVE: ${totalInconclusive})${unverifiedLine}
-COMPLETION DATE   : ${new Date().toISOString()}
+COMPLETION DATE   : ${summary.completedAt || new Date().toISOString()}
 \`\`\`
 
 ---
@@ -1582,6 +1614,7 @@ ${validatedArtifacts.map(a => `| P${a.pageId}. ${a.name} | ${a.vp} | ${a.kind} |
 - **Pass Cases**: ${totalPass}.
 - **Fail Cases**: ${totalFail}.
 - **Inconclusive Cases**: ${totalInconclusive}.
+${renderMaskSensitivity(summary)}
 
 ${executedPages.map(p => {
   const pr = summary.pageResults[p.id];
@@ -1653,6 +1686,133 @@ FINAL DECISION: ${finalDecisionEnum}
   return md;
 }
 
+/**
+ * Rebuild the campaign aggregate from what each page published.
+ *
+ * A per-batch report only knows the pages that batch measured, and that is not a
+ * hypothetical: a second batch of seven pages wrote `PAGES EXECUTED 7 / 15 (8 pages
+ * UNTESTED in this batch)` while all fifteen had evidence on disk. This reads each page's
+ * own attempt pointer, takes the attempt that pointer names as that page's result, and
+ * assembles one report over all of them, so a page with evidence is never reported as
+ * untested. Nothing is re-derived: every number comes from the published summary.
+ */
+function collectCampaignPageResults() {
+  const baseRunDir = path.resolve(REPO, '.canary/15-pages');
+  const pageResults = {};
+  const absent = [];
+  // Empty string, not null: an ISO timestamp compared against null goes through numeric
+  // coercion, where the date is NaN, so the comparison is false for every page and the
+  // newest publication is silently discarded.
+  let newestPublication = '';
+  for (const slug of fs.readdirSync(baseRunDir).sort()) {
+    const pageDir = path.join(baseRunDir, slug);
+    if (!slug.startsWith('page-') || !fs.statSync(pageDir).isDirectory()) continue;
+    const pointer = readPagePointer(pageDir);
+    if (!pointer) {
+      absent.push({ slug, reason: 'no attempt pointer' });
+      continue;
+    }
+    const summaryPath = path.join(pointer.evidenceRoot, 'summary.json');
+    if (!fs.existsSync(summaryPath)) {
+      absent.push({ slug, reason: `no summary.json under ${pointer.evidenceRoot}` });
+      continue;
+    }
+    const pageResult = JSON.parse(fs.readFileSync(summaryPath, 'utf8'));
+    enrichWithChildEvidence(pageDir, pageResult);
+    pageResults[pageResult.id] = pageResult;
+    if (pointer.publishedAt && pointer.publishedAt > newestPublication) newestPublication = pointer.publishedAt;
+  }
+  return { baseRunDir, pageResults, absent, newestPublication };
+}
+
+/**
+ * Fold the child's own measurements back into the page result the report renders.
+ *
+ * The per-page summary carries the binding comparison only. The widget-mask sensitivity
+ * pass and the height-drift experiment are written by the child into the attempt's
+ * evidence directory beside that summary, so they are read from there: the report then
+ * shows what was measured instead of reporting the two passes as absent.
+ */
+function enrichWithChildEvidence(pageDir, pageResult) {
+  const pointer = readPagePointer(pageDir);
+  if (!pointer?.evidenceRoot) return;
+  for (const [label, vp] of Object.entries(pageResult.viewports || {})) {
+    const evidencePath = path.join(pointer.evidenceRoot, `${label}.json`);
+    if (!fs.existsSync(evidencePath)) continue;
+    let child;
+    try {
+      child = JSON.parse(fs.readFileSync(evidencePath, 'utf8'));
+    } catch {
+      continue;
+    }
+    if (child.visualMasksOn) vp.visualMasksOn = child.visualMasksOn;
+    if (child.heightDriftExperiment) vp.heightDriftExperiment = child.heightDriftExperiment;
+  }
+}
+
+/**
+ * A run id derived from the verdicts themselves, so regenerating the aggregate twice over
+ * unchanged evidence writes the same bytes. A timestamp would make the report differ
+ * between two identical reads, and determinism is the property under test.
+ */
+function aggregateRunId(pageResults) {
+  const parts = [];
+  for (const id of Object.keys(pageResults).map(Number).sort((a, b) => a - b)) {
+    const page = pageResults[id];
+    for (const label of Object.keys(page.viewports || {}).sort()) {
+      const vp = page.viewports[label];
+      parts.push(`page-${id}:${label}:${vp?.overall ?? 'none'}:${vp?.causeCode ?? 'none'}:${vp?.visual?.mismatchPercentage ?? 'null'}`);
+    }
+  }
+  return `aggregate-${crypto.createHash('sha256').update(parts.join('\n')).digest('hex').slice(0, 16)}`;
+}
+
+async function runAggregateOnly() {
+  const { baseRunDir, pageResults, absent, newestPublication } = collectCampaignPageResults();
+  const pageCount = Object.keys(pageResults).length;
+  if (pageCount === 0) {
+    console.error(`[campaign] no page under ${baseRunDir} has a published attempt; nothing to aggregate`);
+    return { code: 1, reason: 'AGGREGATE_EMPTY' };
+  }
+  const runId = aggregateRunId(pageResults);
+  const runSummary = {
+    pageResults,
+    refusals: [],
+    pagesRun: pageCount,
+    scope: { pages: 'all', viewports: VIEWPORTS.map((v) => v.label), excluded: [] },
+    runId,
+    absent,
+    // The campaign's own completion is the newest publication among the pages it holds:
+    // a regeneration timestamp would make two identical reads of unchanged evidence
+    // write different bytes, which is the property the determinism check tests.
+    completedAt: newestPublication,
+    sessionRenewals: [],
+  };
+  const indexPlan = planVerdictIndex(runSummary, baseRunDir);
+  const reportDir = path.join(baseRunDir, 'reports', runId);
+  fs.mkdirSync(reportDir, { recursive: true });
+  const reportMarkdown = generateReport(runSummary);
+  const retainedReportPath = path.join(reportDir, '15-PAGE-HOPLONGTECH-CLONE-CANARY.md');
+  writeRecordAtomic(retainedReportPath, reportMarkdown);
+  const reportPath = path.resolve(REPO, '15-PAGE-HOPLONGTECH-CLONE-CANARY.md');
+  writeRecordAtomic(reportPath, reportMarkdown);
+  writeVerdictIndexFiles(runSummary, baseRunDir, indexPlan.index);
+  writeRecordAtomic(path.join(reportDir, '_verdicts.json'), runSummary.index);
+  writeRunPointer(baseRunDir, {
+    runId,
+    reportDir,
+    reportPath: retainedReportPath,
+    rootCopyPath: reportPath,
+    pages: pageCount,
+    cases: runSummary.index?.cases?.length ?? null,
+    verdict: runSummary.index?.executiveVerdict ?? null,
+  });
+  console.log(`[campaign] aggregate ${runId}: ${pageCount} of ${TARGET_PAGES.length} pages, ${runSummary.index?.cases?.length ?? 0} cases, verdict ${runSummary.index?.executiveVerdict ?? 'none'}${absent.length ? `, absent: ${absent.map((a) => a.slug).join(', ')}` : ''}`);
+  console.log(`[campaign] aggregate completion ${newestPublication ?? 'UNKNOWN'}`);
+  console.log(`Report written to ${retainedReportPath} and published to ${reportPath}`);
+  return { code: indexPlan.gaps.length ? 1 : 0, reason: indexPlan.gaps.length ? 'PROVENANCE_INCOMPLETE' : 'AGGREGATE_COMPLETE' };
+}
+
 // ── CLI Execution Entrypoint ──────────────────────────────────────────────────
 // The campaign runs only when this file is the entrypoint. Importing the module
 // (the report renderer's test does) must not start a live run.
@@ -1660,6 +1820,13 @@ const isEntrypoint = Boolean(process.argv[1]) && path.resolve(process.argv[1]) =
 
 if (isEntrypoint) {
   const args = process.argv.slice(2);
+  if (args.includes('--aggregate-only')) {
+    const result = await runAggregateOnly().catch((err) => {
+      console.error('Fatal aggregate error:', err);
+      process.exit(1);
+    });
+    process.exit(result.code);
+  }
   const pageArgIdx = args.indexOf('--pages');
   const pages = pageArgIdx !== -1 ? args[pageArgIdx + 1] : null;
   const viewportArgIdx = args.indexOf('--viewports');

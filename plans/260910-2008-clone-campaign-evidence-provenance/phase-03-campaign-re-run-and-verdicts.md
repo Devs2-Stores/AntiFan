@@ -1,7 +1,7 @@
 ---
 phase: 3
 title: "Campaign Re-Run & Verdicts"
-status: pending
+status: complete
 priority: P0
 effort: "3h"
 dependencies: ["phase-01-evidence-provenance-and-freshness-gate", "phase-02-capture-side-blockers"]
@@ -74,3 +74,22 @@ Re-produce every render case against the bundle that invocation builds, with the
 ## Rollback
 
 Per-page artifacts are preserved by construction: each page's bundle, evidence and index entry live inside that attempt directory, they are never rewritten, and the page keeps the current plus the previous attempt — so the previous measurement of a page remains restorable, and because the published view is a manifest pointer (`<page>/current-attempt.json`) rewritten by temp-file → `rename`, an attempt that crashes mid-write leaves the previous pointer, and therefore the previous published evidence, intact. The run-scoped aggregate is written under `.canary/15-pages/reports/<runId>/` and published through `.canary/15-pages/current-report.json`, so an earlier run's report is re-published by pointing at it again rather than regenerating it. Two artifacts predate this guarantee and were overwritten by the bounded probe of 2026-09-10: the root aggregate `15-PAGE-HOPLONGTECH-CLONE-CANARY.md`, restored byte-identically from `.canary/state/report-backup-before-probe.md` (the probe's own report remains at `.canary/state/report-after-probe-20260910.md`), and `page-02-brands/evidence/summary.json`, replaced by the blocked result with **no backup** — no rerun can reproduce the superseded summary deterministically, and its prior per-viewport verdicts survive only in the untouched `run-*.json` files (mtime 11:57).
+
+## Outcome (2026-09-11)
+
+15 of 15 pages and 45 of 45 render cases are published, assembled from each page's own attempt pointer
+by `fifteen-pages-run.mjs --aggregate-only`. Aggregate report
+`.canary/15-pages/reports/aggregate-2ff9410db21aa06d/15-PAGE-HOPLONGTECH-CLONE-CANARY.md`, verdict
+`FAIL`, `PASS: 8 | FAIL: 17 | INCONCLUSIVE: 20`; regeneration over unchanged evidence is byte-identical.
+Journal: `plans/journals/2026-09-11-campaign-phase-4-aggregate-and-drift.md`.
+
+The two blockers this phase inherited were resolved before the dataset was produced: the clone's
+1425px page area at 1440 (`LAYOUT_WIDTH_ASYMMETRY` is now a typed refusal, and both tabs get the same
+scrollbar regime before measurement) and the carousel phase manipulation that was a mask in disguise
+(phase is detected, disagreement withholds as `WIDGET_PHASE_MISMATCH`). Measured after that: page 3 at
+1440 went from 4.59% to 0.08%, page 1 at 1024 from 8.65% to 0.04%.
+
+Open mechanism this phase cannot close: at 390 the reference declares a web layout while the clone
+serves a mobile one, and the clone's own mobile document truncates (4543–4545px against the 9843px dump
+it was built from, `news` section absent, five `block-category` sections at h=341 against the
+reference's h=1401). The strict reference-identity verdict for those legs stands.
