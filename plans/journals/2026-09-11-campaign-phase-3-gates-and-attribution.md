@@ -107,3 +107,39 @@ Two conclusions came out of this table.
 - The scrollbar regime is a symmetric harness normalization, not a page property. If a
   future leg still measures asymmetric content boxes after the normalization, the refusal
   fires and its two numbers are the finding.
+
+## Clone-bundle determinism, measured (2026-09-11, closes the attribution item)
+
+Page 3 has three retained clone bundles on disk. All three are 330,236 bytes / 1,772 lines, and every
+pairwise diff is the same 26 lines, categorised: 25 `wire:id`, 25 `wire:snapshot`, 2 epoch-like numbers
+(they sit inside those ids), 1 `<style>` rule carrying the same runtime id. No nonce, no asset version
+token, no markup difference. So the bundle is nondeterministic only in the site's own Livewire instance
+identities — it is not reproducible byte-for-byte, and it cannot be, but nothing material varies.
+
+The material invariants are stable, which is what the harness records per attempt:
+
+| attempt | bundle sha256 | clone@1440 | clone@1024 | clone@390 |
+|---|---|---|---|---|
+| a013dc6b (batch 1b, pre-pin) | 3aeb43dc744861e4 | docH 2389, 3 sections, 20 cards | docH 2766 | docH 3487 |
+| 3337af09 (batch 2) | d27aa9eba406415a | docH 2389, 3 sections, 20 cards | docH 2781 | docH 3497 |
+| e77dfc2d (batch 3) | a46bf21779c0fcf0 | docH 2389, 3 sections, 20 cards | docH 2781 | docH 3497 |
+
+Two conclusions, both from that table rather than from the byte hashes:
+
+1. **The geometry flip is not the bundle.** b1b → b2 moves 1024 by +15px and 390 by +10px while the
+   bundle difference is only runtime ids, and b2 → b3 changes the bundle (different ids) with *identical*
+   geometry. Those deltas are the scrollbar quantum: the 15px at 1024 matches the pinned pair where the
+   reference measured 2780 and the clone 2766 — one side consuming a gutter, the other not. That is the
+   per-side asymmetry `LAYOUT_WIDTH_ASYMMETRY` now refuses and the symmetric regime now removes.
+2. **The page-3 verdict sequence is fully explained** without invoking run noise: b1b PASS 0.08% is the
+   pre-pin state with a favourable gutter split; b2/b3 FAIL 2.3–4.59% is the pin era on an asymmetric
+   gutter; the authoritative run, after the pin was reverted and the regime made symmetric, returns PASS
+   0.08% — reproducing b1b exactly.
+
+What the harness does and does not assert: the reference's own stability is gated (`referenceIdentity`
+against the same-run same-viewport readiness floor), and the clone's *material* invariants are recorded
+per attempt (`bundle.entrySha256`, docHeight, section and card counts, plus the compare's own
+percentage). A byte-equality assertion on the clone entry would fail every run by construction, because
+the site mints new Livewire ids on every render; the invariants that can move a verdict are the recorded
+ones. Gate state and per-side identity live in `attempts/<id>/evidence/<viewport>.json`, never in the
+page-level `evidence/` mirror, which can be a stale rollup of an older attempt.
