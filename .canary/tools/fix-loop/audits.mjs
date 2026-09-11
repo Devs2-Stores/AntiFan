@@ -431,17 +431,19 @@ export function auditScopeExpansion(touchedPaths, requestedTargets = [], maxScop
 }
 
 /**
- * Audits the tool surface the fixer **declares** in its FixResult against forbidden and
- * permitted tools.
+ * Audits the tool surface declared in a FixResult or specified in a FixRequest against
+ * forbidden and permitted tools.
  *
- * This is a declaration audit: it inspects the returned list, so it can never establish that a
- * tool was actually called. Observed enforcement is the session capability name filter's and
- * the `tool_call` guard's job; a refusal here means the returned artifact declared a surface the
- * request did not permit, and must not be reported as an intercepted call.
+ * Accepts:
+ * - null / undefined: documented no-op (decision OK)
+ * - string[]: list of tool names (FixResult array form or FixRequest array form)
+ * - { usedTools: string[] }: FixResult v2 object form
+ * - { allowedTools?: string[], forbiddenToolPatterns?: string[] }: FixRequest v2 object form
  *
- * @param {string[] | { usedTools?: string[] } | null} [toolSurface] the fixer's declared surface;
- *   `null`/`undefined` means nothing was declared (no claim to audit), while any other shape is
- *   refused as malformed
+ * Refuses genuinely malformed declarations (bare strings, numbers, objects without recognized
+ * keys, or lists with non-string elements) with REFUSED_TOOL_SURFACE and a descriptive reason.
+ *
+ * @param {string[] | { usedTools?: string[] } | { allowedTools?: string[], forbiddenToolPatterns?: string[] } | null} [toolSurface]
  * @param {string[]} [forbiddenTools]
  * @param {string[]} [permittedTools]
  * @returns {{
@@ -455,32 +457,97 @@ export function auditToolSurface(
   forbiddenTools = DEFAULT_FORBIDDEN_TOOLS,
   permittedTools = DEFAULT_PERMITTED_TOOLS
 ) {
-  // Nothing declared is not a pass and not a refusal: this audits a declaration, and a caller that
-  // declared no tool surface has made no claim to check. A declaration that IS present but not a
-  // list of tool names is refused — reading it as "nothing to audit" is what lets a malformed
-  // surface sail through the gate.
+  // 1. Absent (null / undefined) is the documented no-op
   if (toolSurface == null) {
     return { decision: DECISIONS.OK, offendingTools: [] };
   }
-  const declared = Array.isArray(toolSurface)
-    ? toolSurface
-    : (toolSurface && Array.isArray(toolSurface.usedTools) ? toolSurface.usedTools : null);
-  if (declared === null || declared.some((tool) => typeof tool !== 'string')) {
+
+  // 2. Bare primitive (string, number, boolean, etc.) is malformed
+  if (typeof toolSurface !== 'object') {
     return {
       decision: DECISIONS.REFUSED_TOOL_SURFACE,
       offendingTools: [],
-      reason: 'Malformed tool surface declaration: expected an array of tool names or { usedTools: string[] }',
+      reason: `Malformed tool surface declaration: expected an array of tool names or object, got ${typeof toolSurface}`,
     };
   }
-  if (declared.length === 0) {
+
+  let toolsToCheck = null;
+  let effectiveForbidden = forbiddenTools;
+  let effectivePermitted = permittedTools;
+
+  // 3. Array form (result array or request array of tool names)
+  if (Array.isArray(toolSurface)) {
+    if (toolSurface.some((tool) => typeof tool !== 'string')) {
+      return {
+        decision: DECISIONS.REFUSED_TOOL_SURFACE,
+        offendingTools: [],
+        reason: 'Malformed tool surface declaration: list contains non-string elements',
+      };
+    }
+    toolsToCheck = toolSurface;
+  } else {
+    // 4. Object form: recognize usedTools (result form) or allowedTools/forbiddenToolPatterns (request form)
+    const hasUsedTools = 'usedTools' in toolSurface;
+    const hasAllowedTools = 'allowedTools' in toolSurface;
+    const hasForbiddenPatterns = 'forbiddenToolPatterns' in toolSurface;
+
+    if (!hasUsedTools && !hasAllowedTools && !hasForbiddenPatterns) {
+      return {
+        decision: DECISIONS.REFUSED_TOOL_SURFACE,
+        offendingTools: [],
+        reason: `Malformed tool surface declaration: object must contain at least one recognized key (allowedTools, forbiddenToolPatterns, usedTools), got [${Object.keys(toolSurface).join(', ')}]`,
+      };
+    }
+
+    if (hasUsedTools) {
+      if (!Array.isArray(toolSurface.usedTools) || toolSurface.usedTools.some((t) => typeof t !== 'string')) {
+        return {
+          decision: DECISIONS.REFUSED_TOOL_SURFACE,
+          offendingTools: [],
+          reason: 'Malformed tool surface declaration: usedTools must be an array of strings',
+        };
+      }
+      toolsToCheck = toolSurface.usedTools;
+    }
+
+    if (hasAllowedTools || hasForbiddenPatterns) {
+      if (hasAllowedTools) {
+        if (!Array.isArray(toolSurface.allowedTools) || toolSurface.allowedTools.some((t) => typeof t !== 'string')) {
+          return {
+            decision: DECISIONS.REFUSED_TOOL_SURFACE,
+            offendingTools: [],
+            reason: 'Malformed tool surface declaration: allowedTools must be an array of strings',
+          };
+        }
+      }
+      if (hasForbiddenPatterns) {
+        if (!Array.isArray(toolSurface.forbiddenToolPatterns) || toolSurface.forbiddenToolPatterns.some((t) => typeof t !== 'string')) {
+          return {
+            decision: DECISIONS.REFUSED_TOOL_SURFACE,
+            offendingTools: [],
+            reason: 'Malformed tool surface declaration: forbiddenToolPatterns must be an array of strings',
+          };
+        }
+        effectiveForbidden = [...forbiddenTools, ...toolSurface.forbiddenToolPatterns];
+      }
+
+      if (!hasUsedTools) {
+        // Request object form: audit allowedTools against DEFAULT_PERMITTED_TOOLS and treat forbiddenToolPatterns as declared forbiddens
+        toolsToCheck = toolSurface.allowedTools || [];
+        effectivePermitted = permittedTools || DEFAULT_PERMITTED_TOOLS;
+      }
+    }
+  }
+
+  if (toolsToCheck.length === 0) {
     return { decision: DECISIONS.OK, offendingTools: [] };
   }
 
   const offending = new Set();
-  const normForbidden = forbiddenTools.map(normalizePath);
-  const normPermitted = permittedTools.map(normalizePath);
+  const normForbidden = effectiveForbidden.map(normalizePath);
+  const normPermitted = effectivePermitted.map(normalizePath);
 
-  for (const t of declared) {
+  for (const t of toolsToCheck) {
     const normT = normalizePath(t);
 
     // Check against forbidden tools pattern
@@ -654,11 +721,25 @@ export function runAllAudits({
   const expansionAudit = auditScopeExpansion(touchedPaths, requestedTargets, maxScopeExpansion);
 
   // 5. Audit Tool Surface
-  const toolAudit = auditToolSurface(
-    declaredToolSurface,
-    Array.isArray(toolPolicy?.forbiddenToolPatterns) ? toolPolicy.forbiddenToolPatterns : DEFAULT_FORBIDDEN_TOOLS,
-    Array.isArray(toolPolicy?.allowedTools) ? toolPolicy.allowedTools : DEFAULT_PERMITTED_TOOLS
-  );
+  // Audit request tool surface policy first if provided (refuse malformed or forbidden policy)
+  let toolAudit = request.toolSurface != null
+    ? auditToolSurface(request.toolSurface)
+    : { decision: DECISIONS.OK, offendingTools: [] };
+
+  if (toolAudit.decision === DECISIONS.OK) {
+    const effectiveForbidden = Array.isArray(toolPolicy?.forbiddenToolPatterns)
+      ? toolPolicy.forbiddenToolPatterns
+      : DEFAULT_FORBIDDEN_TOOLS;
+    const effectivePermitted = Array.isArray(toolPolicy?.allowedTools)
+      ? toolPolicy.allowedTools
+      : (Array.isArray(request.toolSurface) ? request.toolSurface : DEFAULT_PERMITTED_TOOLS);
+
+    toolAudit = auditToolSurface(
+      declaredToolSurface,
+      effectiveForbidden,
+      effectivePermitted
+    );
+  }
 
   // 6. Audit Self Verification
   const verifyAudit = auditSelfVerification(selfVerifyReported);

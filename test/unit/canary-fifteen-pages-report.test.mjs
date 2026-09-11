@@ -33,6 +33,20 @@ const reducedRun = {
   scope: { viewports: ['1440', '1024'], excluded: [{ label: '390', mobile: true, reason: 'not selected' }], mobileUnverified: true },
   pageResults: { 1: page(['1440', '1024']) },
 };
+const refusedPage = (code = 'URL_PATH_MISMATCH') => ({
+  id: 1,
+  name: 'HOME',
+  url: 'https://hoplongtech.com/',
+  finalUrl: 'https://hoplongtech.com/refused',
+  status: 'REFUSED',
+  overall: 'INCONCLUSIVE',
+  causeCode: code,
+  refusal: { code, reason: `route refused with ${code}`, detail: { requestedPath: '/', observedPath: '/refused' } },
+  phases: {},
+  errors: [],
+  viewports: {},
+});
+const refusedOnlyRun = { ...base, pageResults: { 1: refusedPage() } };
 
 test('a full run reports every viewport as measured', () => {
   const md = generateReport(fullRun);
@@ -107,4 +121,30 @@ test('any excluded label keeps the matrix aligned and marks its own column', () 
     assert.ok(!report.includes('[object Object]'), `${excluded}: scope entries are never stringified raw`);
     assert.ok(report.includes(`RENDER CASES RUN  : 2 / ${TARGET_PAGES.length * full.filter((l) => l !== excluded).length}`), `${excluded}: the denominator follows the measured set`);
   }
+});
+
+test('a refused-only run renders rows A, C, and D as NOT_RUN and claims no PASS or FAIL', () => {
+  const md = generateReport(refusedOnlyRun);
+  const lines = md.split('\n');
+  const rowA = lines.find((l) => l.startsWith('| A. Discovery '));
+  const rowC = lines.find((l) => l.startsWith('| C. Asset Family '));
+  const rowD = lines.find((l) => l.startsWith('| D. Typography '));
+
+  assert.ok(rowA, 'row A exists in section 15 table');
+  assert.ok(rowC, 'row C exists in section 15 table');
+  assert.ok(rowD, 'row D exists in section 15 table');
+
+  const cell = (row, index) => row.split('|').map((c) => c.trim())[index];
+  assert.equal(cell(rowA, 2), 'NOT_RUN', 'row A status must be NOT_RUN');
+  assert.equal(cell(rowC, 2), 'NOT_RUN', 'row C status must be NOT_RUN');
+  assert.equal(cell(rowD, 2), 'NOT_RUN', 'row D status must be NOT_RUN');
+
+  for (const [name, row] of [['Row A', rowA], ['Row C', rowC], ['Row D', rowD]]) {
+    const status = cell(row, 2);
+    assert.notEqual(status, 'PASS', `${name} must not claim PASS`);
+    assert.notEqual(status, 'FAIL', `${name} must not claim FAIL`);
+  }
+
+  assert.ok(!rowA.includes('0/1 pages passed'), 'row A must not claim 0/1 pages passed');
+  assert.match(rowA, /route-refused before build; pipeline never ran/);
 });

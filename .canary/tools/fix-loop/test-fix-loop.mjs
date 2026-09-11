@@ -182,16 +182,109 @@ test('auditToolSurface reads the declared result shape and refuses a malformed o
   const wrappedClean = auditToolSurface({ usedTools: ['file.read', 'file.write'] });
   assert.equal(wrappedClean.decision, DECISIONS.OK);
 
-  // A declaration that is neither an array nor { usedTools } must NOT read as "nothing to audit".
-  for (const malformed of [{ allowedTools: ['file.read'] }, 'file.read', 42, { usedTools: 'file.read' }, [7]]) {
-    const refused = auditToolSurface(malformed);
-    assert.equal(refused.decision, DECISIONS.REFUSED_TOOL_SURFACE, `expected refusal for ${JSON.stringify(malformed)}`);
+  // Malformed declarations must NOT read as "nothing to audit".
+  // Exact malformed case added: { unrecognizedKey: ['file.read'] } (object with neither recognized key)
+  const malformedCases = [
+    { val: { unrecognizedKey: ['file.read'] }, re: /recognized key/ },
+    { val: 'file.read', re: /string/ },
+    { val: 42, re: /number/ },
+    { val: { usedTools: 'file.read' }, re: /usedTools/ },
+    { val: [7], re: /non-string/ },
+  ];
+  for (const { val, re } of malformedCases) {
+    const refused = auditToolSurface(val);
+    assert.equal(refused.decision, DECISIONS.REFUSED_TOOL_SURFACE, `expected refusal for ${JSON.stringify(val)}`);
     assert.match(refused.reason, /Malformed tool surface/);
+    assert.match(refused.reason, re, `expected reason to name shape in ${refused.reason}`);
   }
 
   // No declaration at all is a documented no-op, not a refusal.
   assert.equal(auditToolSurface(null).decision, DECISIONS.OK);
   assert.equal(auditToolSurface(undefined).decision, DECISIONS.OK);
+});
+
+test('auditToolSurface accepts request object, request array, and result usedTools shapes', () => {
+  // 1. Request object form (valid -> OK)
+  const reqObj = auditToolSurface({
+    allowedTools: ['file.read', 'file.write'],
+    forbiddenToolPatterns: ['anti.theme.*'],
+  });
+  assert.equal(reqObj.decision, DECISIONS.OK);
+  assert.deepEqual(reqObj.offendingTools, []);
+
+  const reqObjSimple = auditToolSurface({ allowedTools: ['file.read'] });
+  assert.equal(reqObjSimple.decision, DECISIONS.OK);
+
+  // Request object with unpermitted tool
+  const reqObjUnpermitted = auditToolSurface({ allowedTools: ['anti.browser.evaluate'] });
+  assert.equal(reqObjUnpermitted.decision, DECISIONS.REFUSED_TOOL_SURFACE);
+  assert.deepEqual(reqObjUnpermitted.offendingTools, ['anti.browser.evaluate']);
+
+  // Request object where declared allowed tool is matched by declared forbidden pattern
+  const reqObjForbidden = auditToolSurface({
+    allowedTools: ['file.read', 'file.write'],
+    forbiddenToolPatterns: ['file.write'],
+  });
+  assert.equal(reqObjForbidden.decision, DECISIONS.REFUSED_TOOL_SURFACE);
+  assert.deepEqual(reqObjForbidden.offendingTools, ['file.write']);
+
+  // 2. Request array (valid -> OK)
+  const reqArr = auditToolSurface(['file.read', 'file.write']);
+  assert.equal(reqArr.decision, DECISIONS.OK);
+
+  // 3. Result {usedTools} (valid -> OK)
+  const resUsed = auditToolSurface({ usedTools: ['file.read'] });
+  assert.equal(resUsed.decision, DECISIONS.OK);
+
+  // 4. One malformed value -> REFUSED_TOOL_SURFACE with reason naming the shape
+  const malformedObj = auditToolSurface({ unrecognizedKey: ['file.read'] });
+  assert.equal(malformedObj.decision, DECISIONS.REFUSED_TOOL_SURFACE);
+  assert.match(malformedObj.reason, /recognized key/);
+
+  // 5. Integration: Confirm by measurement that runAllAudits does NOT refuse schema-valid request object
+  const baseManifest = [{ path: 'assets/theme.css', sha256: 'a1', bytes: 10 }];
+  const postManifest = [{ path: 'assets/theme.css', sha256: 'a2', bytes: 12 }];
+  const auditRes = runAllAudits({
+    baseManifest,
+    postManifest,
+    request: {
+      allowedFiles: ['assets/theme.css'],
+      requestedTargets: ['assets/theme.css'],
+      diffBudget: { maxFiles: 2, maxBytes: 1000 },
+      toolSurface: {
+        allowedTools: ['file.read', 'file.write'],
+        forbiddenToolPatterns: ['anti.theme.*'],
+      },
+    },
+    fixerResult: {
+      toolSurface: ['file.read'],
+      selfVerificationClaimed: false,
+      notes: 'Clean fix',
+    },
+  });
+  assert.equal(auditRes.decision, DECISIONS.OK);
+  assert.equal(auditRes.ok, true);
+  assert.deepEqual(auditRes.toolSurface, ['file.read']);
+
+  // Fix-result receipt must never carry bare null: defaults to [] when omitted
+  const auditResNoFixer = runAllAudits({
+    baseManifest,
+    postManifest,
+    request: {
+      allowedFiles: ['assets/theme.css'],
+      requestedTargets: ['assets/theme.css'],
+      diffBudget: { maxFiles: 2, maxBytes: 1000 },
+      toolSurface: {
+        allowedTools: ['file.read'],
+      },
+    },
+    fixerResult: {
+      notes: 'No fixer tool surface',
+    },
+  });
+  assert.equal(auditResNoFixer.decision, DECISIONS.OK);
+  assert.equal(auditResNoFixer.ok, true);
+  assert.deepEqual(auditResNoFixer.toolSurface, []);
 });
 
 test('auditSelfVerification rejects claimed verdicts', () => {
