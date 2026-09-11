@@ -257,14 +257,10 @@
       "group": "hygiene",
       "title": "Plan `status:` frontmatter is read by nothing, so completed plans and dead findings are indistinguishable",
       "severity": "P1",
-      "status": "open",
+      "status": "closed",
       "evidence": "57 plan.md files carrying 9 distinct status spellings (pending, in-progress, completed, active, complete, done, superseded, \"superseded\", and none) — no script parses the field",
-      "predicate": {
-        "kind": "manual",
-        "lastVerifiedAt": "2026-09-10T00:00:00.000Z",
-        "lastVerifiedBy": "plan census",
-        "reVerifyWith": "re-run the plan census; closure is proven when a script consumes the field and this registry replaces it"
-      }
+      "closedBy": "scripts/check-plans.mjs consumes status: across all 58 plan.md files (48 classified into done/pending/active/superseded/blocked, 10 without frontmatter), fails the gate on any unrecognized spelling, and is wired into verify as plans:check; covered by test/unit/check-plans.test.mjs",
+      "predicate": { "kind": "file-absent-regex", "file": "package.json", "pattern": "plans:check" }
     },
     {
       "id": "B23",
