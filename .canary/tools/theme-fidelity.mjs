@@ -72,6 +72,9 @@ import { loadInstanceIdentity } from '../../scripts/lib/evidence-provenance.mjs'
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 export const DUMP_REF_TOOL = '.canary/tools/dump-ref.mjs';
+/** The mint the campaign renews with, and the session file it rewrites. */
+export const SESSION_TOOL = '.canary/tools/canary-session.mjs';
+export const SESSION_FILE = '.canary/state/canary-session.json';
 export const SERVE_STATIC_TOOL = '.canary/tools/serve-static.mjs';
 
 /** Exit status contract. Nothing else may be returned from main(). */
@@ -895,10 +898,12 @@ async function runCapture(options) {
 
   const entries = [];
   let refusal = null;
+  let mintTabId = rpc.bootstrap.tabId ?? null;
   try {
     for (const target of inventory.targets) {
       for (const viewport of viewports) {
         const slug = `${target.slug}__${viewport.label}`;
+        mintTabId = await renewSession(rpc, mintTabId);
         const doc = {
           kind: 'theme-fidelity-capture',
           mode: 'capture',
@@ -925,7 +930,8 @@ async function runCapture(options) {
           if (!tabId) throw new NotMeasurable('TAB_CREATE_FAILED', `anti.browser.tabs.create returned no tabId for ${target.url}`);
           doc.tab = { tabId, openedAt: nowIso(), closed: null, closeError: null };
           await rpc.call('browser.switch-tab', { tabId }, 30_000).catch((e) => log(`  switch-tab warning: ${String(e && e.message).slice(0, 160)}`));
-          await rpc.call('browser.set-viewport', { tabId, width: viewport.width, height: viewport.height, mobile: viewport.mobile, deviceScaleFactor: viewport.dpr, reload: true }, 60_000);
+          const sized = await setViewportAndConfirm(rpc, tabId, viewport);
+          if (!sized.ok) throw new NotMeasurable('VIEWPORT_NOT_APPLIED', sized.reason, sized.detail);
           const ready = await waitForReadyState(rpc.call, rpc.evalOn, tabId);
           if (!ready.ok) throw new NotMeasurable('READY_STATE_TIMEOUT', `document.readyState never reached complete on ${tabId}`, ready.probe);
           await rpc.evalOn(tabId, IMAGE_HYDRATION_EXPR, 15_000).catch(() => null);
@@ -1061,6 +1067,10 @@ async function runCapture(options) {
     if (!isRefusal(e)) console.error(`[theme-fidelity] capture failed: ${(e && e.stack) || e}`);
   }
 
+  // The session the run ends with is rotated away too, so the capture stage leaves the
+  // instance's tab plane exactly as it found it.
+  if (mintTabId) await closeTab(rpc.call, mintTabId, null);
+
   const notMeasurable = entries.filter((e) => e.status !== 'CAPTURED');
   const index = {
     kind: 'theme-fidelity-capture-index',
@@ -1120,7 +1130,72 @@ async function closeTab(call, tabId, tabRecord) {
   return error;
 }
 
+/** The requested viewport, confirmed by what the tab measures once it has settled. */
+const VIEWPORT_CONFIRM_TIMEOUT_MS = 90_000;
+const VIEWPORT_CONFIRM_INTERVAL_MS = 1_000;
+const VIEWPORT_CONFIRM_TOLERANCE_PX = 1;
+
+/**
+ * Apply a viewport and report what the tab actually measures.
+ *
+ * The host returns false when its own reload wait window elapses, not when the resize
+ * failed: on a heavy mobile page the reload is still in flight, and re-issuing the resize
+ * would race an operation that is already running. Polling the tab the host already asked
+ * for is the only safe way to tell those apart, and it is also what decides the outcome —
+ * the measurement, not the call's own report.
+ */
+async function setViewportAndConfirm(rpc, tabId, viewport) {
+  const requested = { width: viewport.width, height: viewport.height, mobile: viewport.mobile, deviceScaleFactor: viewport.dpr, reload: true };
+  let reportedError = null;
+  let reported = null;
+  try {
+    reported = await rpc.call('browser.set-viewport', { tabId, ...requested }, 120_000);
+  } catch (e) {
+    reportedError = String((e && e.message) || e).slice(0, 200);
+  }
+  const deadline = Date.now() + VIEWPORT_CONFIRM_TIMEOUT_MS;
+  let last = null;
+  while (Date.now() < deadline) {
+    const probe = await rpc.evalOn(tabId, '({ w: window.innerWidth, h: window.innerHeight, rs: document.readyState })', 15_000).catch(() => null);
+    if (probe) last = probe;
+    if (probe && probe.rs === 'complete' && Math.abs((probe.w ?? 0) - viewport.width) <= VIEWPORT_CONFIRM_TOLERANCE_PX) {
+      return { ok: true, observed: probe, reportedError, reportedSuccess: reported?.success ?? null };
+    }
+    await new Promise((resolve) => setTimeout(resolve, VIEWPORT_CONFIRM_INTERVAL_MS));
+  }
+  return {
+    ok: false,
+    reason: reportedError ? `browser.set-viewport failed and the tab never measured the request: ${reportedError}` : 'the tab never measured the requested viewport',
+    detail: { requested, last, reportedError, reportedSuccess: reported?.success ?? null },
+  };
+}
+
 // ── compare ───────────────────────────────────────────────────────────────────
+
+/**
+ * Rotate the session between targets, closing the old mint tab first.
+ *
+ * A session's attachment is bound to the tab it was minted with, and the bridge counts a
+ * session's tab bindings for its whole life rather than its live set, so captures stop
+ * being adoptable long before any tab is left open: measured on a freshly restarted
+ * instance, the third target of the first role was refused `POLICY_DENIED (session tab
+ * quota reached)` while nothing was still running. Re-minting is the remedy the 15-page
+ * campaign already uses, one page at a time. The mint tab is closed while its own session
+ * still owns it — a later session cannot close it, and leaving it open would trade a quota
+ * refusal for an orphan tab in the instance.
+ */
+async function renewSession(rpc, previousMintTabId) {
+  if (previousMintTabId) await closeTab(rpc.call, previousMintTabId, null);
+  const minted = await runChild(process.execPath, [SESSION_TOOL, String(rpc.bootstrap.port), SESSION_FILE], {
+    timeoutMs: 120_000,
+    env: process.env.ANTIFAN_MCP_BOOTSTRAP_FILE ? { ANTIFAN_MCP_BOOTSTRAP_FILE: process.env.ANTIFAN_MCP_BOOTSTRAP_FILE } : {},
+  });
+  if (minted.code !== 0) {
+    throw new NotMeasurable('SESSION_RENEWAL_FAILED', `canary-session.mjs exited ${minted.code ?? 'null'}${minted.timedOut ? ' (timeout)' : ''}: ${minted.stderr.trim().slice(0, 300)}`);
+  }
+  rpc.reloadBootstrap();
+  return rpc.bootstrap.tabId ?? null;
+}
 
 function readCaptureIndex(dir, side) {
   const resolved = path.resolve(dir);
@@ -1379,6 +1454,10 @@ async function comparePair({ pair, reference, subject, servers, rpc, settle, run
   let referenceTabId = null;
   let subjectTabId = null;
   try {
+    // Two tabs per pair against a session pool of ten bindings, and the pool is never
+    // pruned, so each pair is opened on a freshly minted session; the mint tab it replaces
+    // is closed while its own session still owns it.
+    await renewSession(rpc, rpc.bootstrap.tabId ?? null);
     const materialize = async (side, url, tabRecord) => {
       const created = await rpc.call('anti.browser.tabs.create', { url, activate: true }, 60_000);
       const tabId = created?.tabId || created?.result?.tabId || null;
@@ -1386,7 +1465,8 @@ async function comparePair({ pair, reference, subject, servers, rpc, settle, run
       tabRecord.tabId = tabId;
       tabRecord.openedAt = nowIso();
       await rpc.call('browser.switch-tab', { tabId }, 30_000).catch((e) => log(`  ${side} switch-tab warning: ${String(e && e.message).slice(0, 160)}`));
-      await rpc.call('browser.set-viewport', { tabId, width: viewport.width, height: viewport.height, mobile: Boolean(viewport.mobile), deviceScaleFactor: viewport.dpr ?? 1, reload: true }, 60_000);
+      const sized = await setViewportAndConfirm(rpc, tabId, { ...viewport, width: viewport.width, height: viewport.height, mobile: Boolean(viewport.mobile), dpr: viewport.dpr ?? 1 });
+      if (!sized.ok) throw new NotMeasurable('VIEWPORT_NOT_APPLIED', sized.reason, sized.detail);
       const ready = await waitForReadyState(rpc.call, rpc.evalOn, tabId);
       if (!ready.ok) throw new NotMeasurable('READY_STATE_TIMEOUT', `${side} replay never reached readyState complete`, ready.probe);
       await rpc.evalOn(tabId, IMAGE_HYDRATION_EXPR, 15_000).catch(() => null);
