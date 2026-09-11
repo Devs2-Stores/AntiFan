@@ -248,20 +248,21 @@ A settle-only fix cannot reach exit 0: the renewal class alone keeps both sets `
    6 of 21 in the post-anchor full run. Two independent post-retry runs needed the retry on two legs each —
    `sessionRenewal.attempts` recorded article 1, cart 3, home 1, product 2 — so those two legs refuse without
    it: the retry is what stands between them and `SESSION_RENEWAL_FAILED`. Campaign scale is 21 legs, so the
-   class is closed at fixture scale only. The first-attempt failure rate is high enough that the residual matters:
-   across the twelve fixture leg-runs measured here (`pairfix-out2`, `loader-out`, `panel-out`) five needed more
-   than one attempt — `p = 0.417`, with attempts article 2/1/1, cart 2/3/1, home 1/1/2, product 1/2/1. At
-   `MINT_ATTEMPTS = 3`, and if attempts are independent, `p^3 = 0.072` leaves about **1.5 of 21 legs** expected to
-   refuse `SESSION_RENEWAL_FAILED` on a campaign re-run; four and five attempts give 0.63 and 0.26 legs. Raising
-   the bound before that run is the cheap move — a transport-only retry of the mint, no measurement replayed, the
-   refusal still typed — and it belongs to whoever holds `theme-fidelity.mjs`, which another session was editing
-   and running at handover.
+   class is closed at fixture scale only. The residual is an extrapolation, not a rate, and it is stated with its
+   caveats: those twelve leg-runs are four fixture legs repeated three times rather than twenty-one independent
+   campaign legs, and the hazard is not constant — first attempts failed 5/12 (`p = 0.417`), of the five that
+   reached attempt 2 exactly one failed, and the single attempt 3 succeeded. A constant-hazard row is therefore an
+   **upper bound**, about 1.5 of 21 legs, with the conditional rates (0.2, then 0) putting any point estimate
+   below it on a sample far too small to carry one. `MINT_ATTEMPTS` stays at 3: raising it would rest on a
+   memoryless model the data refutes and would silently mix a second variable into the next campaign run, and a
+   bound change needs its own measurement — the re-run measures the residual first, the bound follows that
+   measurement.
    The reorder is kept for its failure handling — a failed mint no longer strands the run's tab — and not as a
    demonstrated remedy; `git revert 874060e` is the cheap exit if it proves inert beyond that. One lever remains
    untried: a settle gap between mint completion and the tab close. **Publication is now gated by the other two
    classes rather than by renewal**: the same run refused `article__1024x900` and `home__1440x900` on
    `content-changed-between-passes` and `cart__1440x900` on `REFERENCE_IDENTITY_DRIFT+SUBJECT_IDENTITY_DRIFT`.
-2. **Image identity churn — measured, and not a loader-state artifact.** After hydration, `article__1024x900`
+2. **Image identity churn — two mechanisms, hash mover still unnamed.** After hydration, `article__1024x900`
    and `home__1440x900` hold every other recorded field constant across passes — `imageCount` 37/115,
    `imageSetSize`, `sectionCount`, `productCardCount`, `docHeight` 4821/5426, `scrollWidth` 1024/1425,
    `textHash`, `textLength`, `pendingImages` 0, `brokenImages` 0, `chromeProbe` region hashes — while
@@ -279,8 +280,9 @@ A settle-only fix cannot reach exit 0: the renewal class alone keeps both sets `
    `panel` and `identityCounts` both key on `split('/').pop()` while `imageSetHash` uses the full `currentSrc`
    plus natural size, so a URL-level change on a positionally stable image is invisible to that diff. **The hash
    mover is therefore still unnamed**, and the next evidence field is each image's full `currentSrc` (or a hash
-   of it) — not another mover class. The loader-state hypothesis was
-   tested and rejected as the mover. `IMAGE_HYDRATION_EXPR` gained `lazyloaded` on promotion (keeping the drop
+   of it) — not another mover class. The one-shot loader-state *normalisation* was
+   tested and rejected as the mover; the loader's own later pass remains the leading candidate for the repeat
+   mechanism, as the paragraph below locates. `IMAGE_HYDRATION_EXPR` gained `lazyloaded` on promotion (keeping the drop
    of `lazyload`/`lazyloading`, so no stale loader class survives), the 4-pair fixture reproduced the same four
    verdicts and the same mechanisms — `article__1024x900` and `home__1440x900` `content-changed-between-passes`,
    `cart__1440x900` `REFERENCE_IDENTITY_DRIFT+SUBJECT_IDENTITY_DRIFT`, `product__1440x900` `PASS/MATCH` — and
@@ -293,8 +295,18 @@ A settle-only fix cannot reach exit 0: the renewal class alone keeps both sets `
    `lazySizes`/`lazysizes`, 7 `class="lazyload"` beside 7 `lazyloaded` — the mixed state, in one page — 13
    `data-src=`, 8 base64 `src="data:image` placeholders and 10 inline scripts, while `data-srcset=` is absent
    there. That absence narrows the unnamed hash mover as well: on this page it is a `src`-level change, so
-   recording each image's full `currentSrc` is the field that names it. The lever that follows is to re-apply the
-   promotion immediately before the measurement read from one shared page function, not another class tweak.
+   recording each image's full `currentSrc` is the field that names it. The advisory's other candidate — a loader
+   selector the promotion never covers — is ruled out on the corpus that exists: across all eight served dumps of
+   this fixture (`panel-out/replay/{reference,subject}/*.html`) there are **0** `data-srcset=`, **0** `data-bg=`,
+   **0** `<source>` and **0** `img[srcset]`, while `img[data-src]` (56) and `img.lazyload` (38) are exactly what
+   the promotion covers and the 104 `data-original` hits sit on non-`img` elements. With no `srcset` anywhere,
+   `currentSrc` equals the resolved `src` — so the repeating move is a **`src` assignment** by some writer, and
+   the loader re-writing the declared value would be a no-op. The next evidence step is per-pass, for each image,
+   a hash of the full URL plus a count of elements still matching the loader's selectors
+   (`img.lazyload, img.lazyloading, img[data-src], [data-bg]`) after hydration and scroll: the first names the
+   writer, the second proves the live page matches the served input, which the dump alone does not. The lever that
+   follows the evidence is to re-apply the promotion immediately before each measurement read from one shared page
+   function, not another class tweak — and only if that count is nonzero does the promotion need wider selectors.
    What remains on these two legs is a typed refusal that is currently the correct verdict: a surface that changes
    between two passes of one URL cannot be published as a comparison until the mechanism is either covered by the
    freeze or accepted as a permanent refusal — the owner decision recorded in the plan.
