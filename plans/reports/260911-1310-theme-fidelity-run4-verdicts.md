@@ -239,14 +239,18 @@ A settle-only fix cannot reach exit 0: the renewal class alone keeps both sets `
    (`readSupersededSession` does forward `secret`, the field the bridge names as required, and diag pair 2
    recorded `released: true`). Primary experiment, from the source's own adjacency: `renewSession` closed the
    previous mint tab (`theme-fidelity.mjs:1231`) immediately before spawning the mint child (`:1233`).
-   **That reorder is implemented** — the mint now runs first and the tab is closed once the new session has
-   bound (`:1240-1253`). Partial evidence from a fixture run cancelled on the operator's instruction after 2 of
-   4 verdicts: `cart__1440x900` measured (`INCONCLUSIVE`, `REFERENCE_IDENTITY_DRIFT+SUBJECT_IDENTITY_DRIFT`) with
-   `sessionRelease.released: true`, while `article__1024x900` still refused `SESSION_RENEWAL_FAILED` — so the
-   adjacency alone does not clear the class, and that fixture inherited its base session from a previously
-   aborted compare, so it is not a clean trial of the reorder. Still open, in order: a settle gap between mint
-   completion and the tab close, a bounded transport-only mint retry (a retry is not a verdict relaxation), and
-   per-pair lifecycle isolation so one reset cannot cost the pairs that follow.
+   **That reorder is implemented** (`:1240-1253`) and is kept for its failure handling, not as a demonstrated
+   remedy — a failed mint no longer strands the run's tab and session. The class is **not eliminated**: the
+   failure moved rather than shrank. Before the reorder the fixture refused `cart__1440x900` and
+   `home__1440x900` (2 of 4) while `article__1024x900` measured; after it, in a run cancelled on the operator's
+   instruction that wrote 2 of 4 verdicts, `cart__1440x900` measured (`INCONCLUSIVE`,
+   `REFERENCE_IDENTITY_DRIFT+SUBJECT_IDENTITY_DRIFT`, `sessionRelease.released: true`) while
+   `article__1024x900` refused `SESSION_RENEWAL_FAILED` — same count on the legs observed, different legs, no
+   reduction demonstrated, and that fixture inherited its base session from a previously aborted compare, so it
+   is not a clean trial either. Still open, in order: a settle gap between mint completion and the tab close, a
+   bounded transport-only mint retry (a retry is not a verdict relaxation), and per-pair lifecycle isolation so
+   one reset cannot cost the pairs that follow. If the next session finds the reorder inert beyond its failure
+   handling, `git revert 874060e` is the cheap exit.
 2. **Image identity churn, and the loader state.** After hydration, `article__1024x900` holds its geometry but
    still moves `imageSetHash` between passes; the `imagePanel`/`imageChanges` evidence added here exists to name
    the entry that moved. The replay runs the storefront's own lazysizes
@@ -291,6 +295,9 @@ A settle-only fix cannot reach exit 0: the renewal class alone keeps both sets `
 - Costly constraints: never put a backtick inside a page-side template literal (`IMAGE_HYDRATION_EXPR`,
   `SETTLE_*_EXPR`); one variable per run, so never edit `.canary/tools/**` while a run is in flight;
   `git add -f` for every `.canary/**` path; never signal-kill the Electron plane — `hub restart antifan-canary`
-  is the lifecycle lever.
+  is the lifecycle lever. The plane is now shared with the session that took over `260911-0652`, so confirm it
+  is idle before any run: `hub ps` lists hub-managed processes only, and a peer session's in-flight compare
+  would not appear there — check `hub list` for peers in this project too, because two concurrent
+  browser-plane runs corrupt both sets of verdicts.
 - The ultra wave's five candidates were scored, all five refuted on their named cause, and the applied shape
   confirmed best: `C:/Users/Admin/.omp/agent/sessions/--E--Work-apps-AntiFan--/2026-09-09T11-31-20-180Z_01a085ef-cbf4-765d-9a4f-ecf6ff8f7c77/local/ultra-verifier-verdict-round2.json`.
