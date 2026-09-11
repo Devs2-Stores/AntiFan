@@ -11,22 +11,55 @@
 const { app, BrowserWindow, ipcMain } = require('electron');
 const path = require('node:path');
 const fs = require('node:fs');
+const os = require('node:os');
 
 app.disableHardwareAcceleration();
 app.commandLine.appendSwitch('no-sandbox');
 app.commandLine.appendSwitch('disable-gpu');
 
+// Run against a throwaway profile: the default userData directory belongs to the developer's
+// installed AntiFan, and sharing it would contend with a live instance and pollute its state.
+// Electron can recreate profile files while tearing down, so the exit sweep below is best effort;
+// this startup sweep keeps the footprint bounded at one directory per host.
+const tempPrefix = 'antifan-terminal-rename-';
+for (const entry of fs.readdirSync(os.tmpdir())) {
+  if (entry.startsWith(tempPrefix)) {
+    try {
+      fs.rmSync(path.join(os.tmpdir(), entry), { recursive: true, force: true });
+    } catch {}
+  }
+}
+const tempUserData = fs.mkdtempSync(path.join(os.tmpdir(), tempPrefix));
+app.setPath('userData', tempUserData);
+const removeTempUserData = () => {
+  try {
+    fs.rmSync(tempUserData, { recursive: true, force: true });
+  } catch {}
+};
+process.on('exit', removeTempUserData);
+// app.exit() tears the process down without running the exit hooks, and Electron keeps profile
+// files open while a window is alive, so close the windows and sweep the profile before exiting.
+const finish = (code) => {
+  for (const window of BrowserWindow.getAllWindows()) {
+    window.destroy();
+  }
+  removeTempUserData();
+  app.exit(code);
+};
+
+const mockWorkspace = path.join(os.tmpdir(), 'antifan-terminal-rename-workspace');
+
 const mockSessions = [
-  { id: 'session-1', name: 'Terminal 1', cwd: 'E:/Work/project', active: true, buffer: '' },
-  { id: 'session-2', name: 'Terminal 2', cwd: 'E:/Work/project', active: false, buffer: '' },
+  { id: 'session-1', name: 'Terminal 1', cwd: mockWorkspace, active: true, buffer: '' },
+  { id: 'session-2', name: 'Terminal 2', cwd: mockWorkspace, active: false, buffer: '' },
 ];
 
 let renamedData = null;
 
 app.whenReady().then(async () => {
   ipcMain.handle('antifan:sidebar:get-initial-state', () => ({
-    workspacePath: 'E:/Work/project',
-    activeWorkspace: 'E:/Work/project',
+    workspacePath: mockWorkspace,
+    activeWorkspace: mockWorkspace,
   }));
 
   ipcMain.handle('antifan:terminal:start', () => {
@@ -87,7 +120,7 @@ app.whenReady().then(async () => {
 
   if (!startedRename) {
     console.error('FAIL: Could not start inline rename');
-    app.exit(1);
+    finish(1);
     return;
   }
   console.log('SUCCESS: Inline rename started.');
@@ -128,7 +161,7 @@ app.whenReady().then(async () => {
   console.log('Intermediate state:', intermediate);
   if (!intermediate.inputFound || intermediate.inputValue !== 'Dev Server 1') {
     console.error('FAIL: Input lost or value mismatch before Enter!');
-    app.exit(1);
+    finish(1);
     return;
   }
   console.log('SUCCESS: Intermediate value with spaces preserved:', intermediate.inputValue);
@@ -163,9 +196,9 @@ app.whenReady().then(async () => {
     renamedData.name === 'Dev Server 1'
   ) {
     console.log('ALL VERIFICATION CHECKS PASSED: Terminal tab renaming with spaces verified successfully!');
-    app.exit(0);
+    finish(0);
   } else {
     console.error('FAIL: Final check did not match expected values!');
-    app.exit(1);
+    finish(1);
   }
 });
