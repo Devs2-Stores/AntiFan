@@ -184,11 +184,11 @@
     {
       "id": "B16",
       "group": "devloop",
-      "title": "The `scripts/cdp` hot-swap branch can never fire — the directory is only ever created empty",
+      "title": "REFUTED: the `scripts/cdp` hot-swap branch can never fire",
       "severity": "P2",
-      "status": "open",
-      "evidence": "scripts/dev-watcher-helpers.mjs:39-45 isHotSwappable matches ^scripts/cdp/([^/]+)\\.source\\.js$; scripts/dev.mjs:33-36 mkdirs the directory and nothing writes into it",
-      "predicate": { "kind": "file-regex", "file": "scripts/dev-watcher-helpers.mjs", "pattern": "scripts/cdp" }
+      "status": "refuted",
+      "evidence": "False at HEAD: scripts/cdp is an external override hook, so an empty in-tree directory is its normal state, like .env. src/main/browser/scripts/injected-script-store.ts:57-62 resolves it from ANTIFAN_CDP_SCRIPTS_DIR, cwd()/scripts/cdp or __dirname/../../../../scripts/cdp, and :399-403 serves <id>.source.js disk overrides from it with token substitution. scripts/dev.mjs:33-36 creates it and :226-228 watches it, relaunching on exactly those files; test/unit/injected-script-store.test.ts covers override loading, cache invalidation after clearOverrides, an explicit-null overrideDir and a directory created after construction. Deleting the branch would remove a live capability.",
+      "predicate": { "kind": "file-regex", "file": "src/main/browser/scripts/injected-script-store.ts", "pattern": "ANTIFAN_CDP_SCRIPTS_DIR", "negate": true }
     },
     {
       "id": "B17",
