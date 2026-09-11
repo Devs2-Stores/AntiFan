@@ -237,20 +237,20 @@ A settle-only fix cannot reach exit 0: the renewal class alone keeps both sets `
    correlated with session teardown; do not build a pool fix against it. Judge the release by its own record,
    never by a later mint succeeding: `doc.sessionRelease.released === true` is the only evidence it took effect
    (`readSupersededSession` does forward `secret`, the field the bridge names as required, and diag pair 2
-   recorded `released: true`). Primary experiment, from the source's own adjacency: `renewSession` closed the
-   previous mint tab (`theme-fidelity.mjs:1231`) immediately before spawning the mint child (`:1233`).
-   **That reorder is implemented** (`:1240-1253`) and is kept for its failure handling, not as a demonstrated
-   remedy — a failed mint no longer strands the run's tab and session. The class is **not eliminated**: the
-   failure moved rather than shrank. Before the reorder the fixture refused `cart__1440x900` and
-   `home__1440x900` (2 of 4) while `article__1024x900` measured; after it, in a run cancelled on the operator's
-   instruction that wrote 2 of 4 verdicts, `cart__1440x900` measured (`INCONCLUSIVE`,
-   `REFERENCE_IDENTITY_DRIFT+SUBJECT_IDENTITY_DRIFT`, `sessionRelease.released: true`) while
-   `article__1024x900` refused `SESSION_RENEWAL_FAILED` — same count on the legs observed, different legs, no
-   reduction demonstrated, and that fixture inherited its base session from a previously aborted compare, so it
-   is not a clean trial either. Still open, in order: a settle gap between mint completion and the tab close, a
-   bounded transport-only mint retry (a retry is not a verdict relaxation), and per-pair lifecycle isolation so
-   one reset cannot cost the pairs that follow. If the next session finds the reorder inert beyond its failure
-   handling, `git revert 874060e` is the cheap exit.
+   recorded `released: true`). Two levers were tried in order. **The reorder alone did not clear the class** — the
+   failure moved legs: before it `cart__1440x900` and `home__1440x900` refused while `article__1024x900` measured;
+   after it `cart__1440x900` measured with `released: true` while `article__1024x900` refused. **The bounded
+   transport-only mint retry does clear it at fixture scale.** `renewSession` now re-runs the mint up to 3 times
+   with a 3 s gap — the interval the ordering probe measured as sufficient for a teardown to settle — re-running
+   the mint and never a measurement, recording every attempt as `sessionRenewal` and keeping the typed refusal
+   unchanged when all attempts fail. Measured on the 4-pair fixture: **0 of 4 legs refused
+   `SESSION_RENEWAL_FAILED`**, with `released: true` on all four, against 2 of 4 in every earlier fixture run and
+   6 of 21 in the post-anchor full run. Campaign scale is 21 legs, so the class is closed at fixture scale only.
+   The reorder is kept for its failure handling — a failed mint no longer strands the run's tab — and not as a
+   demonstrated remedy; `git revert 874060e` is the cheap exit if it proves inert beyond that. One lever remains
+   untried: a settle gap between mint completion and the tab close. **Publication is now gated by the other two
+   classes rather than by renewal**: the same run refused `article__1024x900` and `home__1440x900` on
+   `content-changed-between-passes` and `cart__1440x900` on `REFERENCE_IDENTITY_DRIFT+SUBJECT_IDENTITY_DRIFT`.
 2. **Image identity churn, and the loader state.** After hydration, `article__1024x900` holds its geometry but
    still moves `imageSetHash` between passes; the `imagePanel`/`imageChanges` evidence added here exists to name
    the entry that moved. The replay runs the storefront's own lazysizes

@@ -1153,6 +1153,8 @@ async function closeTab(call, tabId, tabRecord) {
 const VIEWPORT_CONFIRM_TIMEOUT_MS = 90_000;
 const VIEWPORT_CONFIRM_INTERVAL_MS = 1_000;
 const VIEWPORT_CONFIRM_TOLERANCE_PX = 1;
+const MINT_ATTEMPTS = 3;
+const MINT_RETRY_GAP_MS = 3_000;
 
 /**
  * Apply a viewport and report what the tab actually measures.
@@ -1239,12 +1241,26 @@ function readSupersededSession(file = SESSION_FILE) {
  */
 async function renewSession(rpc, previousMintTabId, record = null) {
   const superseded = readSupersededSession();
-  const minted = await runChild(process.execPath, [SESSION_TOOL, String(rpc.bootstrap.port), SESSION_FILE], {
-    timeoutMs: 120_000,
-    env: process.env.ANTIFAN_MCP_BOOTSTRAP_FILE ? { ANTIFAN_MCP_BOOTSTRAP_FILE: process.env.ANTIFAN_MCP_BOOTSTRAP_FILE } : {},
-  });
+  // A mint that dies in its own pairing calls is transient: in one fixture run the same call was
+  // refused for one leg and succeeded for the next. The retry is bounded and transport-only — it
+  // re-runs the mint, never a measurement, so no verdict is relaxed — and the gap between attempts
+  // is the one the ordering probe measured as sufficient for a teardown to settle. A mint that
+  // fails every attempt still refuses with the same typed class, and the attempts are recorded.
+  const attempts = [];
+  let minted = null;
+  for (let attempt = 1; attempt <= MINT_ATTEMPTS; attempt++) {
+    const result = await runChild(process.execPath, [SESSION_TOOL, String(rpc.bootstrap.port), SESSION_FILE], {
+      timeoutMs: 120_000,
+      env: process.env.ANTIFAN_MCP_BOOTSTRAP_FILE ? { ANTIFAN_MCP_BOOTSTRAP_FILE: process.env.ANTIFAN_MCP_BOOTSTRAP_FILE } : {},
+    });
+    minted = result;
+    attempts.push({ attempt, code: result.code ?? null, timedOut: result.timedOut === true, stderr: result.stderr.trim().slice(0, 200) });
+    if (result.code === 0) break;
+    if (attempt < MINT_ATTEMPTS) await new Promise((resolve) => setTimeout(resolve, MINT_RETRY_GAP_MS));
+  }
+  if (record) record.sessionRenewal = { attempts };
   if (minted.code !== 0) {
-    throw new NotMeasurable('SESSION_RENEWAL_FAILED', `canary-session.mjs exited ${minted.code ?? 'null'}${minted.timedOut ? ' (timeout)' : ''}: ${minted.stderr.trim().slice(0, 300)}`);
+    throw new NotMeasurable('SESSION_RENEWAL_FAILED', `canary-session.mjs exited ${minted.code ?? 'null'}${minted.timedOut ? ' (timeout)' : ''} after ${attempts.length} attempt(s): ${minted.stderr.trim().slice(0, 300)}`);
   }
   // Closed after the mint, never immediately before it. The tab still belongs to the superseded
   // session at this point — the release below has not run — so the socket bound to that
