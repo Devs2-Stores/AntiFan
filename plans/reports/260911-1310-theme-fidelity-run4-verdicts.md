@@ -290,11 +290,14 @@ A settle-only fix cannot reach exit 0: the renewal class alone keeps both sets `
    now located: `IMAGE_HYDRATION_EXPR` runs once per tab (`theme-fidelity.mjs:1583`), right after
    `waitForReadyState` and **before** `settle.hydrateToCapturedState`, while the replay serves the dump as
    written (`replayFile`, `:1544-1550`) and so executes the page's own inline lazysizes — a promotion applied
-   before that loader's later, scroll-driven pass is re-swapped by it. The served file confirms the loader is
-   really in the page: `panel-out/replay/reference/article__1024x900.html` (952,976 bytes) carries
-   `lazySizes`/`lazysizes`, 7 `class="lazyload"` beside 7 `lazyloaded` — the mixed state, in one page — 13
-   `data-src=`, 8 base64 `src="data:image` placeholders and 10 inline scripts, while `data-srcset=` is absent
-   there. That absence is not evidence about the hash mover, though — `imageSetHash` is not a source hash:
+   before that loader's later, scroll-driven pass is re-swapped by it. The served input for `article__1024x900`
+   confirms the loader is really in the page: it carries `lazySizes`/`lazysizes`, 7
+   `class="lazyload"` beside 7 `lazyloaded` — the mixed state, in one page — 13 `data-src=`, 8 base64
+   `src="data:image` placeholders and 10 inline scripts, while `data-srcset=` is absent there. The HTML is scratch
+   and stays untracked; the committed verdict pins it as
+   `replay.reference = { sha256: d16cc256ade5b438c294553fc4a5b13e1980c4c5230fa9704ed37dbd82477293, bytes: 958467 }`,
+   so those counts are reproducible from a tracked artifact rather than from a kept dump. The absence of
+   `data-srcset` there is not evidence about the hash mover, though — `imageSetHash` is not a source hash:
    `SETTLE_STATE_EXPR` builds it per image, in DOM order, as `currentSrc|naturalWxH|rect(x, y+scrollY, w, h)|complete`
    and hashes the joined parts (`canary-settle.mjs:155-162`, hash at `:173`), so the rendered rect, the `complete`
    flag and the image order all move it with no source change at all. Measured against that: an index-aligned diff
