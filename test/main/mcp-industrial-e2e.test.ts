@@ -181,7 +181,7 @@ describe('Phase 04: E2E Industrial Overhaul & Storefront Latency Benchmarks', ()
 
     bridgeServer = new BridgeServer(mockTabHost, 0, false, capabilityTransport, undefined, attachmentRegistry, '127.0.0.1', controlPlaneRuntime);
     port = await bridgeServer.start();
-    const env = {
+    const env: Record<string, string | undefined> = {
       ...process.env,
       ANTIFAN_MCP_BOOTSTRAP: JSON.stringify({
         port,
@@ -196,24 +196,26 @@ describe('Phase 04: E2E Industrial Overhaul & Storefront Latency Benchmarks', ()
       ANTIFAN_HEARTBEAT_MS: '2000',
     };
 
-    // This suite owns exactly one bridge: the fake one above. The proxy also consults the
-    // launching environment for a pinned attachment, so a harness running inside a real
-    // AntiFan session would replay a dropped call onto the developer's live instance and
-    // answer it successfully. Scrub that context so an unreachable socket stays an
-    // observable transport fault.
-    for (const key of [
-      'ANTIFAN_TERMINAL_AFFINITY_SESSION_ID',
-      'ANTIFAN_TERMINAL_PARENT_SESSION_ID',
-      'ANTIFAN_TERMINAL_SESSION_ID',
-      'ANTIFAN_BRIDGE_PID',
-      'ANTIFAN_ATTACHMENT_SECRET',
-      'ANTIFAN_ATTACHMENT_ID',
-      'ANTIFAN_MCP_PORT',
-      'ANTIFAN_OWNER_PID',
-      'ANTIFAN_AUTHORITY_REVISION',
-      'ANTIFAN_BOUND_TAB_ID',
-    ]) {
-      delete (env as Record<string, unknown>)[key];
+    // launchAntiFanOmpMcp alone refuses ambient discovery, but the child still passes terminal
+    // affinity through startSession, so an ambient generation would label this suite's session
+    // with someone else's. Windows resolves environment names case-insensitively, so this table
+    // holds the normalized names and the loop compares normalized keys.
+    const pinnedContextKeys: Record<string, true> = {
+      antifan_terminal_affinity_session_id: true,
+      antifan_terminal_parent_session_id: true,
+      antifan_terminal_session_id: true,
+      antifan_terminal_affinity_generation: true,
+      antifan_terminal_generation: true,
+      antifan_bridge_pid: true,
+      antifan_attachment_secret: true,
+      antifan_attachment_id: true,
+      antifan_mcp_port: true,
+      antifan_owner_pid: true,
+      antifan_authority_revision: true,
+      antifan_bound_tab_id: true,
+    };
+    for (const key of Object.keys(env)) {
+      if (pinnedContextKeys[key.toLowerCase()] === true) delete env[key];
     }
 
     mcpChild = spawn(process.execPath, [scriptPath], {
