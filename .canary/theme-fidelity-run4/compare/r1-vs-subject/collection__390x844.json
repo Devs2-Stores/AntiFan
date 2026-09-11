@@ -1,0 +1,509 @@
+{
+  "kind": "theme-fidelity-verdict",
+  "mode": "compare",
+  "status": "NOT_MEASURABLE",
+  "verdict": "INCONCLUSIVE",
+  "mechanism": "content-changed-between-passes",
+  "reason": "Target tab 7375f3a7-1447-456a-969d-5e738d7c1c81 failed to achieve two consecutive matching settled passes at reference:collection@390x844: content-changed-between-passes (passes: #1{mediaFrozen=true,fontsSettled=true,imagesSettled=true,visualStable=true,renderStateStable=true,settled=true,churn=0,sections=5,cards=0,docHeight=2604,fp=ad649db6} #2{mediaFrozen=true,fontsSettled=true,imagesSettled=true,visualStable=true,renderStateStable=true,settled=true,churn=0,sections=5,cards=0,docHeight=2544,fp=902a3930} #3{mediaFrozen=true,fontsSettled=true,imagesSettled=true,visualStable=true,renderStateSta",
+  "store": "https://phukienmaymoc.com/",
+  "surface": {
+    "name": "collection",
+    "kind": "surface"
+  },
+  "viewport": {
+    "label": "390x844",
+    "width": 390,
+    "height": 844,
+    "mobile": true,
+    "dpr": 1
+  },
+  "strictParams": {
+    "fullPage": true,
+    "tolerance": 2,
+    "normalizeScroll": true,
+    "allowHeightDrift": false,
+    "useDefaultWidgetMasks": false,
+    "userMasks": [],
+    "trackedSelectors": [
+      "body",
+      "header.site-header",
+      "main",
+      ".site-footer",
+      "section",
+      ".product-list__item",
+      ".slide",
+      ".news-item"
+    ]
+  },
+  "provenance": {
+    "reference": {
+      "role": "reference",
+      "label": "r1-copy",
+      "store": "https://phukienmaymoc.com/",
+      "surface": "collection",
+      "surfaceKind": "surface",
+      "viewport": "390x844",
+      "url": "https://phukienmaymoc.com/collections/phu-kien-han?themeid=1001512581",
+      "themeId": 1001512581,
+      "themeIdParameter": "1001512581",
+      "png": {
+        "file": "collection__390x844.png",
+        "sha256": "bc391c907132ec70f01cda1607fb24ecbf70fc3e480413d71464545f50060ec4",
+        "bytes": 401121,
+        "artifactRef": "artifact-3b374f33-a809-409c-b4fc-a71a36bb7073"
+      },
+      "dom": {
+        "file": "dom/collection__390x844.html",
+        "sha256": "ffdcc445ba533c1488f9e6a199fe975e7e22f19d62dee98826f2c68a41d802a2",
+        "bytes": 888007,
+        "observedUrl": "https://phukienmaymoc.com/collections/phu-kien-han?themeid=1001512581"
+      },
+      "domDigest": "ffdcc445ba533c1488f9e6a199fe975e7e22f19d62dee98826f2c68a41d802a2",
+      "geometry": {
+        "url": "https://phukienmaymoc.com/collections/phu-kien-han?themeid=1001512581",
+        "docHeight": 2604,
+        "clientWidth": 390,
+        "scrollWidth": 390,
+        "overflowX": 0,
+        "sectionCount": 5,
+        "productCardCount": 0,
+        "articleCardCount": 0,
+        "navItemCount": 0,
+        "linkCount": 81,
+        "imageCount": 30,
+        "brokenImageCount": 6,
+        "textNodes": 49,
+        "hasMenuMobile": false,
+        "hasBottomNav": false,
+        "headerRect": {
+          "x": 0,
+          "y": 31,
+          "w": 390,
+          "h": 60
+        },
+        "navRect": {
+          "x": 0,
+          "y": 0,
+          "w": 0,
+          "h": 0
+        },
+        "heroRect": {
+          "x": 0,
+          "y": 0,
+          "w": 0,
+          "h": 0
+        },
+        "mainRect": {
+          "x": 0,
+          "y": 91,
+          "w": 390,
+          "h": 1347
+        },
+        "footerRect": {
+          "x": 0,
+          "y": 2099.22,
+          "w": 390,
+          "h": 505.17
+        },
+        "sections": [
+          {
+            "tag": "header",
+            "cls": "loomline-mainHeader",
+            "rect": {
+              "x": 0,
+              "y": 31,
+              "w": 390,
+              "h": 60
+            }
+          },
+          {
+            "tag": "main",
+            "cls": "wrapperMain_content",
+            "rect": {
+              "x": 0,
+              "y": 91,
+              "w": 390,
+              "h": 1347
+            }
+          },
+          {
+            "tag": "section",
+            "cls": "section-breadcrumb",
+            "rect": {
+              "x": 0,
+              "y": 91,
+              "w": 390,
+              "h": 195
+            }
+          },
+          {
+            "tag": "section",
+            "cls": "loomline-index-tiktok",
+            "rect": {
+              "x": 0,
+              "y": 1438,
+              "w": 390,
+              "h": 661.22
+            }
+          },
+          {
+            "tag": "footer",
+            "cls": "loomline-mainFooter.has-toolbar",
+            "rect": {
+              "x": 0,
+              "y": 2099.22,
+              "w": 390,
+              "h": 505.17
+            }
+          }
+        ],
+        "fonts": {
+          "body": {
+            "family": "Lexend, sans-serif",
+            "size": "14px",
+            "weight": "400",
+            "lineHeight": "21px",
+            "color": "rgb(0, 0, 0)",
+            "letterSpacing": "normal"
+          },
+          "h1": {
+            "family": "Lexend, sans-serif",
+            "size": "28px",
+            "weight": "600",
+            "lineHeight": "36.4px",
+            "color": "rgb(255, 255, 255)",
+            "letterSpacing": "normal"
+          },
+          "h2": {
+            "family": "Lexend, sans-serif",
+            "size": "18px",
+            "weight": "400",
+            "lineHeight": "23.4px",
+            "color": "rgb(99, 115, 129)",
+            "letterSpacing": "normal"
+          },
+          "h3": {
+            "family": "Lexend, sans-serif",
+            "size": "14px",
+            "weight": "700",
+            "lineHeight": "18.2px",
+            "color": "rgb(51, 51, 51)",
+            "letterSpacing": "normal"
+          },
+          "a": {
+            "family": "arial",
+            "size": "12px",
+            "weight": "700",
+            "lineHeight": "18px",
+            "color": "rgb(68, 68, 68)",
+            "letterSpacing": "normal"
+          }
+        }
+      },
+      "geometrySha256": "c823fd233ba83bf393231d28861926d5c918d975966c81588a788984eb05470b",
+      "tabIdentity": {
+        "href": "https://phukienmaymoc.com/collections/phu-kien-han?themeid=1001512581",
+        "device": null,
+        "ua": "Mozilla/5.0 (Linux; Android 14; Mobile; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.6613.114 Mobile Safari/537.36",
+        "innerWidth": 390,
+        "innerHeight": 844,
+        "dpr": 1,
+        "docHeight": 2604,
+        "bodyClass": "mainBody-theme  template-collection",
+        "sections": 2,
+        "widgetNodes": 44,
+        "images": 30,
+        "completeImages": 24
+      },
+      "instance": {
+        "attachmentId": "attachment-217e2441-ce89-4f66-b217-d1ba6774b72c",
+        "bridgePort": 20131,
+        "pid": 21236,
+        "primaryTabId": "c1544a69-a1a4-4ab6-b418-bc0999fcee72",
+        "startedAt": "2026-09-11T00:18:43.203Z",
+        "runId": "run-80f7f33d-d3a5-4267-af5e-007cbfe48f59",
+        "attemptId": "attempt-faa2529b-4ba5-4c6b-be39-ab3a008a4a3e"
+      },
+      "run": {
+        "runId": "run-80f7f33d-d3a5-4267-af5e-007cbfe48f59",
+        "attachmentId": "attachment-217e2441-ce89-4f66-b217-d1ba6774b72c",
+        "authorityRevision": "rev_c2fa341ddca18c689a044b1d5194d2bd",
+        "mintedAt": "2026-09-11T00:27:32.437Z",
+        "label": "r1-copy",
+        "role": "reference"
+      },
+      "capturedAt": "2026-09-11T00:31:34.940Z"
+    },
+    "subject": {
+      "role": "subject",
+      "label": "s1-subject",
+      "store": "https://phukienmaymoc.com/",
+      "surface": "collection",
+      "surfaceKind": "surface",
+      "viewport": "390x844",
+      "url": "https://phukienmaymoc.com/collections/phu-kien-han?themeid=1001512581",
+      "themeId": 1001512581,
+      "themeIdParameter": "1001512581",
+      "png": {
+        "file": "collection__390x844.png",
+        "sha256": "c8405ddd53b25459a7bb44aa4773265299f7a60e7042c418f36f2b7a05495c47",
+        "bytes": 145082,
+        "artifactRef": "artifact-29bf84a7-0138-4435-a862-d15c3566e08f"
+      },
+      "dom": {
+        "file": "dom/collection__390x844.html",
+        "sha256": "e52554959f200f641ecd380a673e53b609a3f814617c5f60b8ae1debf32d72e6",
+        "bytes": 930390,
+        "observedUrl": "https://phukienmaymoc.com/collections/phu-kien-han?themeid=1001512581"
+      },
+      "domDigest": "e52554959f200f641ecd380a673e53b609a3f814617c5f60b8ae1debf32d72e6",
+      "geometry": {
+        "url": "https://phukienmaymoc.com/collections/phu-kien-han?themeid=1001512581",
+        "docHeight": 1899,
+        "clientWidth": 390,
+        "scrollWidth": 390,
+        "overflowX": 0,
+        "sectionCount": 4,
+        "productCardCount": 10,
+        "articleCardCount": 0,
+        "navItemCount": 91,
+        "linkCount": 199,
+        "imageCount": 30,
+        "brokenImageCount": 0,
+        "textNodes": 50,
+        "hasMenuMobile": true,
+        "hasBottomNav": true,
+        "headerRect": {
+          "x": 0,
+          "y": 0,
+          "w": 390,
+          "h": 190.98
+        },
+        "navRect": {
+          "x": 0,
+          "y": 0,
+          "w": 0,
+          "h": 0
+        },
+        "heroRect": null,
+        "mainRect": {
+          "x": 0,
+          "y": 190.98,
+          "w": 390,
+          "h": 464
+        },
+        "footerRect": {
+          "x": 0,
+          "y": 674.98,
+          "w": 390,
+          "h": 1164.33
+        },
+        "sections": [
+          {
+            "tag": "header",
+            "cls": "site-header",
+            "rect": {
+              "x": 0,
+              "y": 0,
+              "w": 390,
+              "h": 190.98
+            }
+          },
+          {
+            "tag": "main",
+            "cls": "wrapperMain_content",
+            "rect": {
+              "x": 0,
+              "y": 190.98,
+              "w": 390,
+              "h": 464
+            }
+          },
+          {
+            "tag": "main",
+            "cls": "",
+            "rect": {
+              "x": 0,
+              "y": 190.98,
+              "w": 390,
+              "h": 464
+            }
+          },
+          {
+            "tag": "div",
+            "cls": "site-footer.w-100",
+            "rect": {
+              "x": 0,
+              "y": 674.98,
+              "w": 390,
+              "h": 1164.33
+            }
+          }
+        ],
+        "fonts": {
+          "body": {
+            "family": "Roboto",
+            "size": "14px",
+            "weight": "400",
+            "lineHeight": "normal",
+            "color": "rgb(34, 52, 62)",
+            "letterSpacing": "normal"
+          },
+          "h1": {
+            "family": "Roboto",
+            "size": "20px",
+            "weight": "700",
+            "lineHeight": "26px",
+            "color": "rgb(34, 52, 62)",
+            "letterSpacing": "normal"
+          },
+          "h3": {
+            "family": "Roboto",
+            "size": "13px",
+            "weight": "600",
+            "lineHeight": "18px",
+            "color": "rgb(34, 52, 62)",
+            "letterSpacing": "normal"
+          },
+          ".product-list__item": {
+            "family": "Roboto",
+            "size": "14px",
+            "weight": "400",
+            "lineHeight": "normal",
+            "color": "rgb(34, 52, 62)",
+            "letterSpacing": "normal"
+          },
+          "a": {
+            "family": "Roboto",
+            "size": "14px",
+            "weight": "400",
+            "lineHeight": "normal",
+            "color": "rgb(34, 52, 62)",
+            "letterSpacing": "normal"
+          }
+        }
+      },
+      "geometrySha256": "09e9e92645fee00c50269c6095d928b44b91ef74110d039b476bccd10590d437",
+      "tabIdentity": {
+        "href": "https://phukienmaymoc.com/collections/phu-kien-han?themeid=1001512581",
+        "device": null,
+        "ua": "Mozilla/5.0 (Linux; Android 14; Mobile; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.6613.114 Mobile Safari/537.36",
+        "innerWidth": 390,
+        "innerHeight": 844,
+        "dpr": 1,
+        "docHeight": 1899,
+        "bodyClass": "mainBody-theme  template-collection",
+        "sections": 0,
+        "widgetNodes": 0,
+        "images": 30,
+        "completeImages": 30
+      },
+      "instance": {
+        "attachmentId": "attachment-c7a3504e-fe28-433f-9934-7128b230e3f9",
+        "bridgePort": 20131,
+        "pid": 21236,
+        "primaryTabId": "d202a7f6-1e83-45b5-a511-dd7edc81b299",
+        "startedAt": "2026-09-11T00:18:43.203Z",
+        "runId": "run-9e8a955a-0f78-45c2-8f3b-680a6dcacaf9",
+        "attemptId": "attempt-3e259bf2-4470-4927-b906-410bd15cc2e2"
+      },
+      "run": {
+        "runId": "run-9e8a955a-0f78-45c2-8f3b-680a6dcacaf9",
+        "attachmentId": "attachment-c7a3504e-fe28-433f-9934-7128b230e3f9",
+        "authorityRevision": "rev_486cbe74ff00e6e9c22687bd974a4847",
+        "mintedAt": "2026-09-11T01:36:17.908Z",
+        "label": "s1-subject",
+        "role": "subject"
+      },
+      "capturedAt": "2026-09-11T04:00:50.636Z"
+    }
+  },
+  "artifacts": {
+    "reference": {
+      "png": {
+        "file": "E:\\Work\\apps\\AntiFan\\.canary\\theme-fidelity-run4\\r1\\collection__390x844.png",
+        "bytes": 401121,
+        "sha256": "bc391c907132ec70f01cda1607fb24ecbf70fc3e480413d71464545f50060ec4"
+      },
+      "dom": {
+        "file": "E:\\Work\\apps\\AntiFan\\.canary\\theme-fidelity-run4\\r1\\dom\\collection__390x844.html",
+        "bytes": 888007,
+        "sha256": "ffdcc445ba533c1488f9e6a199fe975e7e22f19d62dee98826f2c68a41d802a2"
+      }
+    },
+    "subject": {
+      "png": {
+        "file": "E:\\Work\\apps\\AntiFan\\.canary\\theme-fidelity-run4\\subject\\collection__390x844.png",
+        "bytes": 145082,
+        "sha256": "c8405ddd53b25459a7bb44aa4773265299f7a60e7042c418f36f2b7a05495c47"
+      },
+      "dom": {
+        "file": "E:\\Work\\apps\\AntiFan\\.canary\\theme-fidelity-run4\\subject\\dom\\collection__390x844.html",
+        "bytes": 930390,
+        "sha256": "e52554959f200f641ecd380a673e53b609a3f814617c5f60b8ae1debf32d72e6"
+      }
+    }
+  },
+  "replay": {
+    "reference": {
+      "side": "reference",
+      "source": {
+        "file": "E:\\Work\\apps\\AntiFan\\.canary\\theme-fidelity-run4\\r1\\dom\\collection__390x844.html",
+        "sha256": "ffdcc445ba533c1488f9e6a199fe975e7e22f19d62dee98826f2c68a41d802a2",
+        "bytes": 888007
+      },
+      "file": "E:\\Work\\apps\\AntiFan\\.canary\\theme-fidelity-run4\\compare\\r1-vs-subject\\replay\\reference\\collection__390x844.html",
+      "url": "http://127.0.0.1:7861/collection__390x844.html",
+      "baseHref": "https://phukienmaymoc.com/collections/phu-kien-han?themeid=1001512581",
+      "baseMode": "inserted",
+      "sha256": "4627195974d515f18f048a5c9632076c7e14787e847aefc83dac73d6837aecfa",
+      "bytes": 888090
+    },
+    "subject": {
+      "side": "subject",
+      "source": {
+        "file": "E:\\Work\\apps\\AntiFan\\.canary\\theme-fidelity-run4\\subject\\dom\\collection__390x844.html",
+        "sha256": "e52554959f200f641ecd380a673e53b609a3f814617c5f60b8ae1debf32d72e6",
+        "bytes": 930390
+      },
+      "file": "E:\\Work\\apps\\AntiFan\\.canary\\theme-fidelity-run4\\compare\\r1-vs-subject\\replay\\subject\\collection__390x844.html",
+      "url": "http://127.0.0.1:7862/collection__390x844.html",
+      "baseHref": "https://phukienmaymoc.com/collections/phu-kien-han?themeid=1001512581",
+      "baseMode": "inserted",
+      "sha256": "31248c95b61ae058ed3b711d1693f9e1261c7cac177cf8c535bdba206005ab32",
+      "bytes": 930473
+    }
+  },
+  "identity": null,
+  "measurement": {
+    "reference": null,
+    "subject": null
+  },
+  "compare": null,
+  "instance": {
+    "attachmentId": "attachment-f63c6b56-ff68-4327-a0fe-541bc36e33ed",
+    "bridgePort": 20131,
+    "pid": 21236,
+    "primaryTabId": "1562b031-7db8-46b6-a539-0a9cfdd41392",
+    "startedAt": "2026-09-11T00:18:43.203Z",
+    "runId": "run-342f8f09-dc7d-4f6f-b790-14cab9b33006",
+    "attemptId": "attempt-551cfdb7-6325-4292-b790-de36eb1dc078"
+  },
+  "run": {
+    "runId": "run-342f8f09-dc7d-4f6f-b790-14cab9b33006",
+    "attachmentId": "attachment-f63c6b56-ff68-4327-a0fe-541bc36e33ed",
+    "authorityRevision": "rev_6cae4e02a8a5a7a6f1204d3ae674c6f1",
+    "mintedAt": "2026-09-11T04:33:06.985Z"
+  },
+  "tabs": {
+    "reference": {
+      "tabId": "7375f3a7-1447-456a-969d-5e738d7c1c81",
+      "openedAt": "2026-09-11T04:47:18.765Z"
+    },
+    "subject": null
+  },
+  "startedAt": "2026-09-11T04:47:10.786Z",
+  "finishedAt": "2026-09-11T04:48:12.318Z",
+  "printLine": "surface=collection viewport=390x844 verdict=INCONCLUSIVE mismatch=n/a referenceHeight=2604px subjectHeight=1899px",
+  "tabsClosed": {}
+}

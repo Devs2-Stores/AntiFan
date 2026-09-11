@@ -1,0 +1,865 @@
+{
+  "kind": "theme-fidelity-verdict",
+  "mode": "compare",
+  "status": "INCONCLUSIVE",
+  "verdict": "INCONCLUSIVE",
+  "mechanism": "REFERENCE_IDENTITY_DRIFT+SUBJECT_IDENTITY_DRIFT",
+  "reason": "reference identity drifted from its pin: docHeight 3690 -> 4498; subject identity drifted from its pin: docHeight 3690 -> 4498",
+  "store": "https://phukienmaymoc.com/",
+  "surface": {
+    "name": "search",
+    "kind": "surface"
+  },
+  "viewport": {
+    "label": "390x844",
+    "width": 390,
+    "height": 844,
+    "mobile": true,
+    "dpr": 1
+  },
+  "strictParams": {
+    "fullPage": true,
+    "tolerance": 2,
+    "normalizeScroll": true,
+    "allowHeightDrift": false,
+    "useDefaultWidgetMasks": false,
+    "userMasks": [],
+    "trackedSelectors": [
+      "body",
+      "header.site-header",
+      "main",
+      ".site-footer",
+      "section",
+      ".product-list__item",
+      ".slide",
+      ".news-item"
+    ]
+  },
+  "provenance": {
+    "reference": {
+      "role": "reference",
+      "label": "r2-live",
+      "store": "https://phukienmaymoc.com/",
+      "surface": "search",
+      "surfaceKind": "surface",
+      "viewport": "390x844",
+      "url": "https://phukienmaymoc.com/search?q=laser&themeid=-1",
+      "themeId": -1,
+      "themeIdParameter": "-1",
+      "png": {
+        "file": "search__390x844.png",
+        "sha256": "cf7bc3adae1b0cf35043f556ed2f95af43f9f8fe41bb6ece946ca9bb9218f699",
+        "bytes": 362142,
+        "artifactRef": "artifact-960b3927-a89f-494e-84fc-5cbd25968e18"
+      },
+      "dom": {
+        "file": "dom/search__390x844.html",
+        "sha256": "d33d0ec8bc0b00d6b31de6bc797664314d3eda9c6f8215e98f8cfcd7550f6626",
+        "bytes": 1026359,
+        "observedUrl": "https://phukienmaymoc.com/search?q=laser&themeid=-1"
+      },
+      "domDigest": "d33d0ec8bc0b00d6b31de6bc797664314d3eda9c6f8215e98f8cfcd7550f6626",
+      "geometry": {
+        "url": "https://phukienmaymoc.com/search?q=laser&themeid=-1",
+        "docHeight": 3690,
+        "clientWidth": 390,
+        "scrollWidth": 390,
+        "overflowX": 0,
+        "sectionCount": 3,
+        "productCardCount": 0,
+        "articleCardCount": 0,
+        "navItemCount": 91,
+        "linkCount": 257,
+        "imageCount": 53,
+        "brokenImageCount": 0,
+        "textNodes": 117,
+        "hasMenuMobile": true,
+        "hasBottomNav": true,
+        "headerRect": {
+          "x": 0,
+          "y": 0,
+          "w": 390,
+          "h": 190.98
+        },
+        "navRect": {
+          "x": 0,
+          "y": 0,
+          "w": 0,
+          "h": 0
+        },
+        "heroRect": null,
+        "mainRect": {
+          "x": 0,
+          "y": 190.98,
+          "w": 390,
+          "h": 2224.5
+        },
+        "footerRect": {
+          "x": 0,
+          "y": 2465.48,
+          "w": 390,
+          "h": 1164.33
+        },
+        "sections": [
+          {
+            "tag": "header",
+            "cls": "site-header",
+            "rect": {
+              "x": 0,
+              "y": 0,
+              "w": 390,
+              "h": 190.98
+            }
+          },
+          {
+            "tag": "main",
+            "cls": "wrapperMain_content",
+            "rect": {
+              "x": 0,
+              "y": 190.98,
+              "w": 390,
+              "h": 2224.5
+            }
+          },
+          {
+            "tag": "div",
+            "cls": "site-footer.w-100",
+            "rect": {
+              "x": 0,
+              "y": 2465.48,
+              "w": 390,
+              "h": 1164.33
+            }
+          }
+        ],
+        "fonts": {
+          "body": {
+            "family": "Roboto",
+            "size": "14px",
+            "weight": "400",
+            "lineHeight": "normal",
+            "color": "rgb(34, 52, 62)",
+            "letterSpacing": "normal"
+          },
+          "h1": {
+            "family": "Roboto",
+            "size": "30px",
+            "weight": "600",
+            "lineHeight": "39px",
+            "color": "rgb(34, 52, 62)",
+            "letterSpacing": "normal"
+          },
+          "h3": {
+            "family": "Roboto",
+            "size": "14px",
+            "weight": "600",
+            "lineHeight": "18.2px",
+            "color": "rgb(34, 52, 62)",
+            "letterSpacing": "normal"
+          },
+          "a": {
+            "family": "Roboto",
+            "size": "14px",
+            "weight": "400",
+            "lineHeight": "normal",
+            "color": "rgb(34, 52, 62)",
+            "letterSpacing": "normal"
+          }
+        }
+      },
+      "geometrySha256": "c701e75a5aa6ae02486d5e896c1c2ff6b67ce54580c6b88a2e18638203ce1362",
+      "tabIdentity": {
+        "href": "https://phukienmaymoc.com/search?q=laser&themeid=-1",
+        "device": null,
+        "ua": "Mozilla/5.0 (Linux; Android 14; Mobile; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.6613.114 Mobile Safari/537.36",
+        "innerWidth": 390,
+        "innerHeight": 844,
+        "dpr": 1,
+        "docHeight": 3690,
+        "bodyClass": "mainBody-theme  template-search",
+        "sections": 0,
+        "widgetNodes": 0,
+        "images": 53,
+        "completeImages": 53
+      },
+      "instance": {
+        "attachmentId": "attachment-cc5a49b7-f308-4645-ac70-063eb87b5702",
+        "bridgePort": 20131,
+        "pid": 21236,
+        "primaryTabId": "be12caca-cd0e-45a8-9723-b8b02979a190",
+        "startedAt": "2026-09-11T00:18:43.203Z",
+        "runId": "run-6eaaca64-6f9f-4904-9111-b1211796edec",
+        "attemptId": "attempt-8e8cb1e3-652a-4c36-88e4-3a9de655bd06"
+      },
+      "run": {
+        "runId": "run-6eaaca64-6f9f-4904-9111-b1211796edec",
+        "attachmentId": "attachment-cc5a49b7-f308-4645-ac70-063eb87b5702",
+        "authorityRevision": "rev_dc13e141c3b5bdcc5961e52af3c5f4ce",
+        "mintedAt": "2026-09-11T00:35:02.200Z",
+        "label": "r2-live",
+        "role": "reference"
+      },
+      "capturedAt": "2026-09-11T00:40:25.336Z"
+    },
+    "subject": {
+      "role": "subject",
+      "label": "s1-subject",
+      "store": "https://phukienmaymoc.com/",
+      "surface": "search",
+      "surfaceKind": "surface",
+      "viewport": "390x844",
+      "url": "https://phukienmaymoc.com/search?q=laser&themeid=1001512581",
+      "themeId": 1001512581,
+      "themeIdParameter": "1001512581",
+      "png": {
+        "file": "search__390x844.png",
+        "sha256": "bd16b949b505089596f2593491f472c66445486d2c9cc88416958af901369937",
+        "bytes": 361825,
+        "artifactRef": "artifact-afb938f5-2d45-47f0-98d9-4147aa68b9d8"
+      },
+      "dom": {
+        "file": "dom/search__390x844.html",
+        "sha256": "18a06c9c1d97ac94775a29d3c911e81f01ed29558cbe3e481478d6e4b6c36dc0",
+        "bytes": 1027027,
+        "observedUrl": "https://phukienmaymoc.com/search?q=laser&themeid=1001512581"
+      },
+      "domDigest": "18a06c9c1d97ac94775a29d3c911e81f01ed29558cbe3e481478d6e4b6c36dc0",
+      "geometry": {
+        "url": "https://phukienmaymoc.com/search?q=laser&themeid=1001512581",
+        "docHeight": 3690,
+        "clientWidth": 390,
+        "scrollWidth": 390,
+        "overflowX": 0,
+        "sectionCount": 3,
+        "productCardCount": 0,
+        "articleCardCount": 0,
+        "navItemCount": 91,
+        "linkCount": 259,
+        "imageCount": 53,
+        "brokenImageCount": 0,
+        "textNodes": 117,
+        "hasMenuMobile": true,
+        "hasBottomNav": true,
+        "headerRect": {
+          "x": 0,
+          "y": 0,
+          "w": 390,
+          "h": 190.98
+        },
+        "navRect": {
+          "x": 0,
+          "y": 0,
+          "w": 0,
+          "h": 0
+        },
+        "heroRect": null,
+        "mainRect": {
+          "x": 0,
+          "y": 190.98,
+          "w": 390,
+          "h": 2224.5
+        },
+        "footerRect": {
+          "x": 0,
+          "y": 2465.48,
+          "w": 390,
+          "h": 1164.33
+        },
+        "sections": [
+          {
+            "tag": "header",
+            "cls": "site-header",
+            "rect": {
+              "x": 0,
+              "y": 0,
+              "w": 390,
+              "h": 190.98
+            }
+          },
+          {
+            "tag": "main",
+            "cls": "wrapperMain_content",
+            "rect": {
+              "x": 0,
+              "y": 190.98,
+              "w": 390,
+              "h": 2224.5
+            }
+          },
+          {
+            "tag": "div",
+            "cls": "site-footer.w-100",
+            "rect": {
+              "x": 0,
+              "y": 2465.48,
+              "w": 390,
+              "h": 1164.33
+            }
+          }
+        ],
+        "fonts": {
+          "body": {
+            "family": "Roboto",
+            "size": "14px",
+            "weight": "400",
+            "lineHeight": "normal",
+            "color": "rgb(34, 52, 62)",
+            "letterSpacing": "normal"
+          },
+          "h1": {
+            "family": "Roboto",
+            "size": "30px",
+            "weight": "600",
+            "lineHeight": "39px",
+            "color": "rgb(34, 52, 62)",
+            "letterSpacing": "normal"
+          },
+          "h3": {
+            "family": "Roboto",
+            "size": "14px",
+            "weight": "600",
+            "lineHeight": "18.2px",
+            "color": "rgb(34, 52, 62)",
+            "letterSpacing": "normal"
+          },
+          "a": {
+            "family": "Roboto",
+            "size": "14px",
+            "weight": "400",
+            "lineHeight": "normal",
+            "color": "rgb(34, 52, 62)",
+            "letterSpacing": "normal"
+          }
+        }
+      },
+      "geometrySha256": "13050d85402e0af32163e491afef060e823eb3ded4e5987040721714934c2a06",
+      "tabIdentity": {
+        "href": "https://phukienmaymoc.com/search?q=laser&themeid=1001512581",
+        "device": null,
+        "ua": "Mozilla/5.0 (Linux; Android 14; Mobile; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.6613.114 Mobile Safari/537.36",
+        "innerWidth": 390,
+        "innerHeight": 844,
+        "dpr": 1,
+        "docHeight": 3690,
+        "bodyClass": "mainBody-theme  template-search",
+        "sections": 0,
+        "widgetNodes": 0,
+        "images": 53,
+        "completeImages": 53
+      },
+      "instance": {
+        "attachmentId": "attachment-c7a3504e-fe28-433f-9934-7128b230e3f9",
+        "bridgePort": 20131,
+        "pid": 21236,
+        "primaryTabId": "d202a7f6-1e83-45b5-a511-dd7edc81b299",
+        "startedAt": "2026-09-11T00:18:43.203Z",
+        "runId": "run-9e8a955a-0f78-45c2-8f3b-680a6dcacaf9",
+        "attemptId": "attempt-3e259bf2-4470-4927-b906-410bd15cc2e2"
+      },
+      "run": {
+        "runId": "run-9e8a955a-0f78-45c2-8f3b-680a6dcacaf9",
+        "attachmentId": "attachment-c7a3504e-fe28-433f-9934-7128b230e3f9",
+        "authorityRevision": "rev_486cbe74ff00e6e9c22687bd974a4847",
+        "mintedAt": "2026-09-11T01:36:17.908Z",
+        "label": "s1-subject",
+        "role": "subject"
+      },
+      "capturedAt": "2026-09-11T04:03:35.076Z"
+    }
+  },
+  "artifacts": {
+    "reference": {
+      "png": {
+        "file": "E:\\Work\\apps\\AntiFan\\.canary\\theme-fidelity-run4\\r2\\search__390x844.png",
+        "bytes": 362142,
+        "sha256": "cf7bc3adae1b0cf35043f556ed2f95af43f9f8fe41bb6ece946ca9bb9218f699"
+      },
+      "dom": {
+        "file": "E:\\Work\\apps\\AntiFan\\.canary\\theme-fidelity-run4\\r2\\dom\\search__390x844.html",
+        "bytes": 1026359,
+        "sha256": "d33d0ec8bc0b00d6b31de6bc797664314d3eda9c6f8215e98f8cfcd7550f6626"
+      }
+    },
+    "subject": {
+      "png": {
+        "file": "E:\\Work\\apps\\AntiFan\\.canary\\theme-fidelity-run4\\subject\\search__390x844.png",
+        "bytes": 361825,
+        "sha256": "bd16b949b505089596f2593491f472c66445486d2c9cc88416958af901369937"
+      },
+      "dom": {
+        "file": "E:\\Work\\apps\\AntiFan\\.canary\\theme-fidelity-run4\\subject\\dom\\search__390x844.html",
+        "bytes": 1027027,
+        "sha256": "18a06c9c1d97ac94775a29d3c911e81f01ed29558cbe3e481478d6e4b6c36dc0"
+      }
+    }
+  },
+  "replay": {
+    "reference": {
+      "side": "reference",
+      "source": {
+        "file": "E:\\Work\\apps\\AntiFan\\.canary\\theme-fidelity-run4\\r2\\dom\\search__390x844.html",
+        "sha256": "d33d0ec8bc0b00d6b31de6bc797664314d3eda9c6f8215e98f8cfcd7550f6626",
+        "bytes": 1026359
+      },
+      "file": "E:\\Work\\apps\\AntiFan\\.canary\\theme-fidelity-run4\\compare\\r2-vs-subject\\replay\\reference\\search__390x844.html",
+      "url": "http://127.0.0.1:7861/search__390x844.html",
+      "baseHref": "https://phukienmaymoc.com/search?q=laser&themeid=-1",
+      "baseMode": "inserted",
+      "sha256": "0a090d1ee82385b7dd08979a1e57a70ba41dd3bf8c6c0f1634e81db5205e3a34",
+      "bytes": 1026428
+    },
+    "subject": {
+      "side": "subject",
+      "source": {
+        "file": "E:\\Work\\apps\\AntiFan\\.canary\\theme-fidelity-run4\\subject\\dom\\search__390x844.html",
+        "sha256": "18a06c9c1d97ac94775a29d3c911e81f01ed29558cbe3e481478d6e4b6c36dc0",
+        "bytes": 1027027
+      },
+      "file": "E:\\Work\\apps\\AntiFan\\.canary\\theme-fidelity-run4\\compare\\r2-vs-subject\\replay\\subject\\search__390x844.html",
+      "url": "http://127.0.0.1:7862/search__390x844.html",
+      "baseHref": "https://phukienmaymoc.com/search?q=laser&themeid=1001512581",
+      "baseMode": "inserted",
+      "sha256": "e8a425a0fa8ae739d66144f2bf54a48393ef5a41447a3aeebda76e9639863c05",
+      "bytes": 1027104
+    }
+  },
+  "identity": {
+    "fields": [
+      "device",
+      "ua",
+      "innerWidth",
+      "innerHeight",
+      "dpr",
+      "docHeight",
+      "sections",
+      "widgetNodes"
+    ],
+    "tolerancePx": 2,
+    "reference": {
+      "pinned": {
+        "href": "https://phukienmaymoc.com/search?q=laser&themeid=-1",
+        "device": null,
+        "ua": "Mozilla/5.0 (Linux; Android 14; Mobile; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.6613.114 Mobile Safari/537.36",
+        "innerWidth": 390,
+        "innerHeight": 844,
+        "dpr": 1,
+        "docHeight": 3690,
+        "bodyClass": "mainBody-theme  template-search",
+        "sections": 0,
+        "widgetNodes": 0,
+        "images": 53,
+        "completeImages": 53
+      },
+      "measured": {
+        "href": "http://127.0.0.1:7861/search__390x844.html",
+        "device": null,
+        "ua": "Mozilla/5.0 (Linux; Android 14; Mobile; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.6613.114 Mobile Safari/537.36",
+        "innerWidth": 390,
+        "innerHeight": 844,
+        "dpr": 1,
+        "docHeight": 4498,
+        "bodyClass": "mainBody-theme  template-search",
+        "sections": 0,
+        "widgetNodes": 0,
+        "images": 53,
+        "completeImages": 53
+      },
+      "agree": false,
+      "unmeasurable": null,
+      "tolerancePx": 2,
+      "differences": [
+        {
+          "field": "docHeight",
+          "pinned": 3690,
+          "measured": 4498,
+          "driftPx": 808
+        }
+      ]
+    },
+    "subject": {
+      "pinned": {
+        "href": "https://phukienmaymoc.com/search?q=laser&themeid=1001512581",
+        "device": null,
+        "ua": "Mozilla/5.0 (Linux; Android 14; Mobile; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.6613.114 Mobile Safari/537.36",
+        "innerWidth": 390,
+        "innerHeight": 844,
+        "dpr": 1,
+        "docHeight": 3690,
+        "bodyClass": "mainBody-theme  template-search",
+        "sections": 0,
+        "widgetNodes": 0,
+        "images": 53,
+        "completeImages": 53
+      },
+      "measured": {
+        "href": "http://127.0.0.1:7862/search__390x844.html",
+        "device": null,
+        "ua": "Mozilla/5.0 (Linux; Android 14; Mobile; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.6613.114 Mobile Safari/537.36",
+        "innerWidth": 390,
+        "innerHeight": 844,
+        "dpr": 1,
+        "docHeight": 4498,
+        "bodyClass": "mainBody-theme  template-search",
+        "sections": 0,
+        "widgetNodes": 0,
+        "images": 53,
+        "completeImages": 53
+      },
+      "agree": false,
+      "unmeasurable": null,
+      "tolerancePx": 2,
+      "differences": [
+        {
+          "field": "docHeight",
+          "pinned": 3690,
+          "measured": 4498,
+          "driftPx": 808
+        }
+      ]
+    },
+    "deviceClass": {
+      "reference": null,
+      "subject": null,
+      "pinnedReference": null,
+      "pinnedSubject": null,
+      "agree": true
+    }
+  },
+  "measurement": {
+    "reference": {
+      "tabIdentity": {
+        "href": "http://127.0.0.1:7861/search__390x844.html",
+        "device": null,
+        "ua": "Mozilla/5.0 (Linux; Android 14; Mobile; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.6613.114 Mobile Safari/537.36",
+        "innerWidth": 390,
+        "innerHeight": 844,
+        "dpr": 1,
+        "docHeight": 4498,
+        "bodyClass": "mainBody-theme  template-search",
+        "sections": 0,
+        "widgetNodes": 0,
+        "images": 53,
+        "completeImages": 53
+      },
+      "geometry": {
+        "url": "http://127.0.0.1:7861/search__390x844.html",
+        "docHeight": 4498,
+        "clientWidth": 390,
+        "scrollWidth": 390,
+        "overflowX": 0,
+        "sectionCount": 3,
+        "productCardCount": 0,
+        "articleCardCount": 0,
+        "navItemCount": 91,
+        "linkCount": 257,
+        "imageCount": 53,
+        "brokenImageCount": 0,
+        "textNodes": 117,
+        "hasMenuMobile": true,
+        "hasBottomNav": true,
+        "headerRect": {
+          "x": 0,
+          "y": 0,
+          "w": 390,
+          "h": 180.98
+        },
+        "navRect": {
+          "x": 0,
+          "y": 0,
+          "w": 0,
+          "h": 0
+        },
+        "heroRect": null,
+        "mainRect": {
+          "x": 0,
+          "y": 180.98,
+          "w": 390,
+          "h": 3043.14
+        },
+        "footerRect": {
+          "x": 0,
+          "y": 3274.13,
+          "w": 390,
+          "h": 1164.33
+        },
+        "sections": [
+          {
+            "tag": "header",
+            "cls": "site-header",
+            "rect": {
+              "x": 0,
+              "y": 0,
+              "w": 390,
+              "h": 180.98
+            }
+          },
+          {
+            "tag": "main",
+            "cls": "wrapperMain_content",
+            "rect": {
+              "x": 0,
+              "y": 180.98,
+              "w": 390,
+              "h": 3043.14
+            }
+          },
+          {
+            "tag": "div",
+            "cls": "site-footer.w-100",
+            "rect": {
+              "x": 0,
+              "y": 3274.13,
+              "w": 390,
+              "h": 1164.33
+            }
+          }
+        ],
+        "fonts": {
+          "body": {
+            "family": "Roboto",
+            "size": "14px",
+            "weight": "400",
+            "lineHeight": "normal",
+            "color": "rgb(34, 52, 62)",
+            "letterSpacing": "normal"
+          },
+          "h1": {
+            "family": "Roboto",
+            "size": "30px",
+            "weight": "600",
+            "lineHeight": "39px",
+            "color": "rgb(34, 52, 62)",
+            "letterSpacing": "normal"
+          },
+          "h3": {
+            "family": "Roboto",
+            "size": "14px",
+            "weight": "600",
+            "lineHeight": "18.2px",
+            "color": "rgb(34, 52, 62)",
+            "letterSpacing": "normal"
+          },
+          "a": {
+            "family": "Roboto",
+            "size": "14px",
+            "weight": "400",
+            "lineHeight": "normal",
+            "color": "rgb(34, 52, 62)",
+            "letterSpacing": "normal"
+          }
+        }
+      },
+      "docHeight": 4498
+    },
+    "subject": {
+      "tabIdentity": {
+        "href": "http://127.0.0.1:7862/search__390x844.html",
+        "device": null,
+        "ua": "Mozilla/5.0 (Linux; Android 14; Mobile; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.6613.114 Mobile Safari/537.36",
+        "innerWidth": 390,
+        "innerHeight": 844,
+        "dpr": 1,
+        "docHeight": 4498,
+        "bodyClass": "mainBody-theme  template-search",
+        "sections": 0,
+        "widgetNodes": 0,
+        "images": 53,
+        "completeImages": 53
+      },
+      "geometry": {
+        "url": "http://127.0.0.1:7862/search__390x844.html",
+        "docHeight": 4498,
+        "clientWidth": 390,
+        "scrollWidth": 390,
+        "overflowX": 0,
+        "sectionCount": 3,
+        "productCardCount": 0,
+        "articleCardCount": 0,
+        "navItemCount": 91,
+        "linkCount": 261,
+        "imageCount": 53,
+        "brokenImageCount": 0,
+        "textNodes": 117,
+        "hasMenuMobile": true,
+        "hasBottomNav": true,
+        "headerRect": {
+          "x": 0,
+          "y": 0,
+          "w": 390,
+          "h": 180.98
+        },
+        "navRect": {
+          "x": 0,
+          "y": 0,
+          "w": 0,
+          "h": 0
+        },
+        "heroRect": null,
+        "mainRect": {
+          "x": 0,
+          "y": 180.98,
+          "w": 390,
+          "h": 3043.14
+        },
+        "footerRect": {
+          "x": 0,
+          "y": 3274.13,
+          "w": 390,
+          "h": 1164.33
+        },
+        "sections": [
+          {
+            "tag": "header",
+            "cls": "site-header",
+            "rect": {
+              "x": 0,
+              "y": 0,
+              "w": 390,
+              "h": 180.98
+            }
+          },
+          {
+            "tag": "main",
+            "cls": "wrapperMain_content",
+            "rect": {
+              "x": 0,
+              "y": 180.98,
+              "w": 390,
+              "h": 3043.14
+            }
+          },
+          {
+            "tag": "div",
+            "cls": "site-footer.w-100",
+            "rect": {
+              "x": 0,
+              "y": 3274.13,
+              "w": 390,
+              "h": 1164.33
+            }
+          }
+        ],
+        "fonts": {
+          "body": {
+            "family": "Roboto",
+            "size": "14px",
+            "weight": "400",
+            "lineHeight": "normal",
+            "color": "rgb(34, 52, 62)",
+            "letterSpacing": "normal"
+          },
+          "h1": {
+            "family": "Roboto",
+            "size": "30px",
+            "weight": "600",
+            "lineHeight": "39px",
+            "color": "rgb(34, 52, 62)",
+            "letterSpacing": "normal"
+          },
+          "h3": {
+            "family": "Roboto",
+            "size": "14px",
+            "weight": "600",
+            "lineHeight": "18.2px",
+            "color": "rgb(34, 52, 62)",
+            "letterSpacing": "normal"
+          },
+          "a": {
+            "family": "Roboto",
+            "size": "14px",
+            "weight": "400",
+            "lineHeight": "normal",
+            "color": "rgb(34, 52, 62)",
+            "letterSpacing": "normal"
+          }
+        }
+      },
+      "docHeight": 4498
+    }
+  },
+  "compare": null,
+  "instance": {
+    "attachmentId": "attachment-d88468ee-485e-494d-8605-ec1f46a50099",
+    "bridgePort": 20131,
+    "pid": 21236,
+    "primaryTabId": "5a3aff46-bf58-4f2d-8028-0d64fb74a3cd",
+    "startedAt": "2026-09-11T00:18:43.203Z",
+    "runId": "run-621fc4ed-800d-4321-99c6-e3ab5dcb022f",
+    "attemptId": "attempt-171bf8cc-3e3e-486b-ac6c-d76f4725a1ae"
+  },
+  "run": {
+    "runId": "run-621fc4ed-800d-4321-99c6-e3ab5dcb022f",
+    "attachmentId": "attachment-d88468ee-485e-494d-8605-ec1f46a50099",
+    "authorityRevision": "rev_7892eea7fe1dc2a87fe8e2fd8726bcac",
+    "mintedAt": "2026-09-11T05:00:55.534Z"
+  },
+  "tabs": {
+    "reference": {
+      "tabId": "075a1d79-3dfe-4463-870d-ef99699e6e64",
+      "openedAt": "2026-09-11T05:24:43.053Z",
+      "hydration": {
+        "captureBytes": 362015,
+        "docHeight": 4498
+      },
+      "closed": true,
+      "closedAt": "2026-09-11T05:25:54.330Z",
+      "closeError": null
+    },
+    "subject": {
+      "tabId": "f3b881bd-e813-4817-96fe-8fe965130e1e",
+      "openedAt": "2026-09-11T05:25:15.834Z",
+      "hydration": {
+        "captureBytes": 361730,
+        "docHeight": 4498
+      },
+      "closed": true,
+      "closedAt": "2026-09-11T05:25:54.367Z",
+      "closeError": null
+    }
+  },
+  "startedAt": "2026-09-11T05:24:34.859Z",
+  "finishedAt": "2026-09-11T05:25:54.367Z",
+  "printLine": "surface=search viewport=390x844 verdict=INCONCLUSIVE mismatch=n/a referenceHeight=4498px subjectHeight=4498px",
+  "release": {
+    "reference": {
+      "widgets": {
+        "slickPaused": 0,
+        "swiperPaused": 0
+      },
+      "freezeReleased": true,
+      "timerSweep": {
+        "clearedIntervalIdsTo": 200000,
+        "clearedTimeoutIdsTo": 200000
+      },
+      "motion": {
+        "widgetsSampled": 0,
+        "windowMs": 2500,
+        "sampleBefore": "01fabd14",
+        "sampleAfter": "01fabd14",
+        "stable": true
+      }
+    },
+    "subject": {
+      "widgets": {
+        "slickPaused": 0,
+        "swiperPaused": 0
+      },
+      "freezeReleased": true,
+      "timerSweep": {
+        "clearedIntervalIdsTo": 200000,
+        "clearedTimeoutIdsTo": 200000
+      },
+      "motion": {
+        "widgetsSampled": 0,
+        "windowMs": 2500,
+        "sampleBefore": "01fabd14",
+        "sampleAfter": "01fabd14",
+        "stable": true
+      }
+    }
+  },
+  "tabsClosed": {
+    "reference": true,
+    "subject": true
+  }
+}

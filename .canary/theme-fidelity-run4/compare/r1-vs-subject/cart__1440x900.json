@@ -1,0 +1,494 @@
+{
+  "kind": "theme-fidelity-verdict",
+  "mode": "compare",
+  "status": "NOT_MEASURABLE",
+  "verdict": "INCONCLUSIVE",
+  "mechanism": "content-changed-between-passes",
+  "reason": "Target tab 45e853da-3320-41a0-9723-f514074268ce failed to achieve two consecutive matching settled passes at reference:cart@1440x900: content-changed-between-passes (passes: #1{mediaFrozen=true,fontsSettled=true,imagesSettled=true,visualStable=true,renderStateStable=true,settled=true,churn=0,sections=4,cards=0,docHeight=2301,fp=fb971c87} #2{mediaFrozen=true,fontsSettled=true,imagesSettled=true,visualStable=true,renderStateStable=true,settled=true,churn=0,sections=4,cards=0,docHeight=2234,fp=00094a28} #3{mediaFrozen=true,fontsSettled=true,imagesSettled=true,visualStable=true,renderStateStable=t",
+  "store": "https://phukienmaymoc.com/",
+  "surface": {
+    "name": "cart",
+    "kind": "surface"
+  },
+  "viewport": {
+    "label": "1440x900",
+    "width": 1440,
+    "height": 900,
+    "mobile": false,
+    "dpr": 1
+  },
+  "strictParams": {
+    "fullPage": true,
+    "tolerance": 2,
+    "normalizeScroll": true,
+    "allowHeightDrift": false,
+    "useDefaultWidgetMasks": false,
+    "userMasks": [],
+    "trackedSelectors": [
+      "body",
+      "header.site-header",
+      "main",
+      ".site-footer",
+      "section",
+      ".product-list__item",
+      ".slide",
+      ".news-item"
+    ]
+  },
+  "provenance": {
+    "reference": {
+      "role": "reference",
+      "label": "r1-copy",
+      "store": "https://phukienmaymoc.com/",
+      "surface": "cart",
+      "surfaceKind": "surface",
+      "viewport": "1440x900",
+      "url": "https://phukienmaymoc.com/cart?themeid=1001512581",
+      "themeId": 1001512581,
+      "themeIdParameter": "1001512581",
+      "png": {
+        "file": "cart__1440x900.png",
+        "sha256": "d371ec028b7da34c7c7abddfa25ab29bb8f56e5f4b4a07ea35edfbdfba6da587",
+        "bytes": 933061,
+        "artifactRef": "artifact-2eb98c88-3ee7-4c39-99c5-2f7c9e078cb4"
+      },
+      "dom": {
+        "file": "dom/cart__1440x900.html",
+        "sha256": "91b43531827c1743fe5d4ec3588ad5df2cb7316b0e150e1a7bc6e9d774963e1c",
+        "bytes": 821498,
+        "observedUrl": "https://phukienmaymoc.com/cart?themeid=1001512581"
+      },
+      "domDigest": "91b43531827c1743fe5d4ec3588ad5df2cb7316b0e150e1a7bc6e9d774963e1c",
+      "geometry": {
+        "url": "https://phukienmaymoc.com/cart?themeid=1001512581",
+        "docHeight": 2301,
+        "clientWidth": 1425,
+        "scrollWidth": 1425,
+        "overflowX": 0,
+        "sectionCount": 4,
+        "productCardCount": 0,
+        "articleCardCount": 0,
+        "navItemCount": 0,
+        "linkCount": 56,
+        "imageCount": 19,
+        "brokenImageCount": 5,
+        "textNodes": 85,
+        "hasMenuMobile": false,
+        "hasBottomNav": false,
+        "headerRect": {
+          "x": 0,
+          "y": 40,
+          "w": 1425,
+          "h": 66.5
+        },
+        "navRect": {
+          "x": 224.25,
+          "y": 40,
+          "w": 976.5,
+          "h": 66.5
+        },
+        "heroRect": {
+          "x": 0,
+          "y": 0,
+          "w": 0,
+          "h": 0
+        },
+        "mainRect": {
+          "x": 0,
+          "y": 106.5,
+          "w": 1425,
+          "h": 1022.88
+        },
+        "footerRect": {
+          "x": 0,
+          "y": 1873.98,
+          "w": 1425,
+          "h": 426.78
+        },
+        "sections": [
+          {
+            "tag": "header",
+            "cls": "loomline-mainHeader",
+            "rect": {
+              "x": 0,
+              "y": 40,
+              "w": 1425,
+              "h": 66.5
+            }
+          },
+          {
+            "tag": "main",
+            "cls": "wrapperMain_content",
+            "rect": {
+              "x": 0,
+              "y": 106.5,
+              "w": 1425,
+              "h": 1022.88
+            }
+          },
+          {
+            "tag": "section",
+            "cls": "loomline-index-tiktok",
+            "rect": {
+              "x": 0,
+              "y": 1169.38,
+              "w": 1425,
+              "h": 704.61
+            }
+          },
+          {
+            "tag": "footer",
+            "cls": "loomline-mainFooter.has-toolbar",
+            "rect": {
+              "x": 0,
+              "y": 1873.98,
+              "w": 1425,
+              "h": 426.78
+            }
+          }
+        ],
+        "fonts": {
+          "body": {
+            "family": "Lexend, sans-serif",
+            "size": "16px",
+            "weight": "400",
+            "lineHeight": "24px",
+            "color": "rgb(0, 0, 0)",
+            "letterSpacing": "normal"
+          },
+          "h1": {
+            "family": "Lexend, sans-serif",
+            "size": "24px",
+            "weight": "600",
+            "lineHeight": "31.2px",
+            "color": "rgb(0, 0, 0)",
+            "letterSpacing": "normal"
+          },
+          "h2": {
+            "family": "Lexend, sans-serif",
+            "size": "18px",
+            "weight": "400",
+            "lineHeight": "23.4px",
+            "color": "rgb(99, 115, 129)",
+            "letterSpacing": "normal"
+          },
+          "h3": {
+            "family": "Lexend, sans-serif",
+            "size": "14px",
+            "weight": "700",
+            "lineHeight": "18.2px",
+            "color": "rgb(51, 51, 51)",
+            "letterSpacing": "normal"
+          },
+          "a": {
+            "family": "arial",
+            "size": "12px",
+            "weight": "700",
+            "lineHeight": "18px",
+            "color": "rgb(68, 68, 68)",
+            "letterSpacing": "normal"
+          }
+        }
+      },
+      "geometrySha256": "f10b4cdf4bdd635b43c1f19dca67f0255c6dc75668d238bc44b48bdf1153e7ef",
+      "tabIdentity": {
+        "href": "https://phukienmaymoc.com/cart?themeid=1001512581",
+        "device": null,
+        "ua": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.7871.224 Safari/537.36",
+        "innerWidth": 1440,
+        "innerHeight": 900,
+        "dpr": 1,
+        "docHeight": 2301,
+        "bodyClass": "mainBody-theme  template-cart",
+        "sections": 1,
+        "widgetNodes": 43,
+        "images": 19,
+        "completeImages": 14
+      },
+      "instance": {
+        "attachmentId": "attachment-217e2441-ce89-4f66-b217-d1ba6774b72c",
+        "bridgePort": 20131,
+        "pid": 21236,
+        "primaryTabId": "c1544a69-a1a4-4ab6-b418-bc0999fcee72",
+        "startedAt": "2026-09-11T00:18:43.203Z",
+        "runId": "run-80f7f33d-d3a5-4267-af5e-007cbfe48f59",
+        "attemptId": "attempt-faa2529b-4ba5-4c6b-be39-ab3a008a4a3e"
+      },
+      "run": {
+        "runId": "run-80f7f33d-d3a5-4267-af5e-007cbfe48f59",
+        "attachmentId": "attachment-217e2441-ce89-4f66-b217-d1ba6774b72c",
+        "authorityRevision": "rev_c2fa341ddca18c689a044b1d5194d2bd",
+        "mintedAt": "2026-09-11T00:27:32.437Z",
+        "label": "r1-copy",
+        "role": "reference"
+      },
+      "capturedAt": "2026-09-11T00:32:47.188Z"
+    },
+    "subject": {
+      "role": "subject",
+      "label": "s1-subject",
+      "store": "https://phukienmaymoc.com/",
+      "surface": "cart",
+      "surfaceKind": "surface",
+      "viewport": "1440x900",
+      "url": "https://phukienmaymoc.com/cart?themeid=1001512581",
+      "themeId": 1001512581,
+      "themeIdParameter": "1001512581",
+      "png": {
+        "file": "cart__1440x900.png",
+        "sha256": "96caa2d172ee2cdaf39ee9c404f04eedc0b6198b90bb83c7978544c377d73088",
+        "bytes": 307935,
+        "artifactRef": "artifact-c2fb66b2-f32a-4a68-9f8b-fe7f9f8b3741"
+      },
+      "dom": {
+        "file": "dom/cart__1440x900.html",
+        "sha256": "af909ef6c1acc41da0a4a37736515f67f077cbf7b347764737ac364f4665da24",
+        "bytes": 951796,
+        "observedUrl": "https://phukienmaymoc.com/cart?themeid=1001512581"
+      },
+      "domDigest": "af909ef6c1acc41da0a4a37736515f67f077cbf7b347764737ac364f4665da24",
+      "geometry": {
+        "url": "https://phukienmaymoc.com/cart?themeid=1001512581",
+        "docHeight": 1811,
+        "clientWidth": 1425,
+        "scrollWidth": 1425,
+        "overflowX": 0,
+        "sectionCount": 3,
+        "productCardCount": 0,
+        "articleCardCount": 0,
+        "navItemCount": 91,
+        "linkCount": 191,
+        "imageCount": 30,
+        "brokenImageCount": 0,
+        "textNodes": 85,
+        "hasMenuMobile": true,
+        "hasBottomNav": true,
+        "headerRect": {
+          "x": 0,
+          "y": 0,
+          "w": 1425,
+          "h": 166
+        },
+        "navRect": {
+          "x": 107.5,
+          "y": 110,
+          "w": 1210,
+          "h": 56
+        },
+        "heroRect": {
+          "x": 87.5,
+          "y": 805.19,
+          "w": 823.33,
+          "h": 60
+        },
+        "mainRect": {
+          "x": 0,
+          "y": 166,
+          "w": 1425,
+          "h": 997.97
+        },
+        "footerRect": {
+          "x": 0,
+          "y": 1203.97,
+          "w": 1425,
+          "h": 607
+        },
+        "sections": [
+          {
+            "tag": "header",
+            "cls": "site-header",
+            "rect": {
+              "x": 0,
+              "y": 0,
+              "w": 1425,
+              "h": 166
+            }
+          },
+          {
+            "tag": "main",
+            "cls": "wrapperMain_content",
+            "rect": {
+              "x": 0,
+              "y": 166,
+              "w": 1425,
+              "h": 997.97
+            }
+          },
+          {
+            "tag": "div",
+            "cls": "site-footer.w-100",
+            "rect": {
+              "x": 0,
+              "y": 1203.97,
+              "w": 1425,
+              "h": 607
+            }
+          }
+        ],
+        "fonts": {
+          "body": {
+            "family": "Roboto",
+            "size": "14px",
+            "weight": "400",
+            "lineHeight": "normal",
+            "color": "rgb(34, 52, 62)",
+            "letterSpacing": "normal"
+          },
+          "h1": {
+            "family": "Roboto",
+            "size": "24px",
+            "weight": "600",
+            "lineHeight": "31.2px",
+            "color": "rgb(34, 52, 62)",
+            "letterSpacing": "normal"
+          },
+          "h2": {
+            "family": "Roboto",
+            "size": "20px",
+            "weight": "700",
+            "lineHeight": "26px",
+            "color": "rgb(34, 52, 62)",
+            "letterSpacing": "normal"
+          },
+          "h3": {
+            "family": "Roboto",
+            "size": "14px",
+            "weight": "700",
+            "lineHeight": "18.2px",
+            "color": "rgb(51, 51, 51)",
+            "letterSpacing": "normal"
+          },
+          "a": {
+            "family": "Roboto",
+            "size": "14px",
+            "weight": "400",
+            "lineHeight": "normal",
+            "color": "rgb(34, 52, 62)",
+            "letterSpacing": "normal"
+          }
+        }
+      },
+      "geometrySha256": "73d9c52e45969394604c4b6c261a0049763abab34c089bbe1869be3ba5b7e85b",
+      "tabIdentity": {
+        "href": "https://phukienmaymoc.com/cart?themeid=1001512581",
+        "device": null,
+        "ua": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.7871.224 Safari/537.36",
+        "innerWidth": 1440,
+        "innerHeight": 900,
+        "dpr": 1,
+        "docHeight": 1811,
+        "bodyClass": "mainBody-theme  template-cart",
+        "sections": 0,
+        "widgetNodes": 16,
+        "images": 30,
+        "completeImages": 30
+      },
+      "instance": {
+        "attachmentId": "attachment-c7a3504e-fe28-433f-9934-7128b230e3f9",
+        "bridgePort": 20131,
+        "pid": 21236,
+        "primaryTabId": "d202a7f6-1e83-45b5-a511-dd7edc81b299",
+        "startedAt": "2026-09-11T00:18:43.203Z",
+        "runId": "run-9e8a955a-0f78-45c2-8f3b-680a6dcacaf9",
+        "attemptId": "attempt-3e259bf2-4470-4927-b906-410bd15cc2e2"
+      },
+      "run": {
+        "runId": "run-9e8a955a-0f78-45c2-8f3b-680a6dcacaf9",
+        "attachmentId": "attachment-c7a3504e-fe28-433f-9934-7128b230e3f9",
+        "authorityRevision": "rev_486cbe74ff00e6e9c22687bd974a4847",
+        "mintedAt": "2026-09-11T01:36:17.908Z",
+        "label": "s1-subject",
+        "role": "subject"
+      },
+      "capturedAt": "2026-09-11T04:02:07.387Z"
+    }
+  },
+  "artifacts": {
+    "reference": {
+      "png": {
+        "file": "E:\\Work\\apps\\AntiFan\\.canary\\theme-fidelity-run4\\r1\\cart__1440x900.png",
+        "bytes": 933061,
+        "sha256": "d371ec028b7da34c7c7abddfa25ab29bb8f56e5f4b4a07ea35edfbdfba6da587"
+      },
+      "dom": {
+        "file": "E:\\Work\\apps\\AntiFan\\.canary\\theme-fidelity-run4\\r1\\dom\\cart__1440x900.html",
+        "bytes": 821498,
+        "sha256": "91b43531827c1743fe5d4ec3588ad5df2cb7316b0e150e1a7bc6e9d774963e1c"
+      }
+    },
+    "subject": {
+      "png": {
+        "file": "E:\\Work\\apps\\AntiFan\\.canary\\theme-fidelity-run4\\subject\\cart__1440x900.png",
+        "bytes": 307935,
+        "sha256": "96caa2d172ee2cdaf39ee9c404f04eedc0b6198b90bb83c7978544c377d73088"
+      },
+      "dom": {
+        "file": "E:\\Work\\apps\\AntiFan\\.canary\\theme-fidelity-run4\\subject\\dom\\cart__1440x900.html",
+        "bytes": 951796,
+        "sha256": "af909ef6c1acc41da0a4a37736515f67f077cbf7b347764737ac364f4665da24"
+      }
+    }
+  },
+  "replay": {
+    "reference": {
+      "side": "reference",
+      "source": {
+        "file": "E:\\Work\\apps\\AntiFan\\.canary\\theme-fidelity-run4\\r1\\dom\\cart__1440x900.html",
+        "sha256": "91b43531827c1743fe5d4ec3588ad5df2cb7316b0e150e1a7bc6e9d774963e1c",
+        "bytes": 821498
+      },
+      "file": "E:\\Work\\apps\\AntiFan\\.canary\\theme-fidelity-run4\\compare\\r1-vs-subject\\replay\\reference\\cart__1440x900.html",
+      "url": "http://127.0.0.1:7861/cart__1440x900.html",
+      "baseHref": "https://phukienmaymoc.com/cart?themeid=1001512581",
+      "baseMode": "inserted",
+      "sha256": "e92e1156901e6d9f29ee81353a940ad36e93ec8ebb68ceaff61d3fc9a4740dca",
+      "bytes": 821561
+    },
+    "subject": {
+      "side": "subject",
+      "source": {
+        "file": "E:\\Work\\apps\\AntiFan\\.canary\\theme-fidelity-run4\\subject\\dom\\cart__1440x900.html",
+        "sha256": "af909ef6c1acc41da0a4a37736515f67f077cbf7b347764737ac364f4665da24",
+        "bytes": 951796
+      },
+      "file": "E:\\Work\\apps\\AntiFan\\.canary\\theme-fidelity-run4\\compare\\r1-vs-subject\\replay\\subject\\cart__1440x900.html",
+      "url": "http://127.0.0.1:7862/cart__1440x900.html",
+      "baseHref": "https://phukienmaymoc.com/cart?themeid=1001512581",
+      "baseMode": "inserted",
+      "sha256": "e3c8600f8ef0712b2d8d2e478bad922af605e122b4a5455f960c60a193dd5990",
+      "bytes": 951859
+    }
+  },
+  "identity": null,
+  "measurement": {
+    "reference": null,
+    "subject": null
+  },
+  "compare": null,
+  "instance": {
+    "attachmentId": "attachment-f63c6b56-ff68-4327-a0fe-541bc36e33ed",
+    "bridgePort": 20131,
+    "pid": 21236,
+    "primaryTabId": "1562b031-7db8-46b6-a539-0a9cfdd41392",
+    "startedAt": "2026-09-11T00:18:43.203Z",
+    "runId": "run-342f8f09-dc7d-4f6f-b790-14cab9b33006",
+    "attemptId": "attempt-551cfdb7-6325-4292-b790-de36eb1dc078"
+  },
+  "run": {
+    "runId": "run-342f8f09-dc7d-4f6f-b790-14cab9b33006",
+    "attachmentId": "attachment-f63c6b56-ff68-4327-a0fe-541bc36e33ed",
+    "authorityRevision": "rev_6cae4e02a8a5a7a6f1204d3ae674c6f1",
+    "mintedAt": "2026-09-11T04:33:06.985Z"
+  },
+  "tabs": {
+    "reference": {
+      "tabId": "45e853da-3320-41a0-9723-f514074268ce",
+      "openedAt": "2026-09-11T04:41:39.941Z"
+    },
+    "subject": null
+  },
+  "startedAt": "2026-09-11T04:41:33.298Z",
+  "finishedAt": "2026-09-11T04:42:30.643Z",
+  "printLine": "surface=cart viewport=1440x900 verdict=INCONCLUSIVE mismatch=n/a referenceHeight=2301px subjectHeight=1811px",
+  "tabsClosed": {}
+}

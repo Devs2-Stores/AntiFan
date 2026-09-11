@@ -1,0 +1,458 @@
+{
+  "kind": "theme-fidelity-verdict",
+  "mode": "compare",
+  "status": "NOT_MEASURABLE",
+  "verdict": "INCONCLUSIVE",
+  "mechanism": "content-changed-between-passes",
+  "reason": "Target tab 328af0ca-1fce-462d-a4c9-13d89dc70f4c failed to achieve two consecutive matching settled passes at reference:search@1024x900: content-changed-between-passes (passes: #1{mediaFrozen=true,fontsSettled=true,imagesSettled=true,visualStable=true,renderStateStable=true,settled=true,churn=0,sections=3,cards=0,docHeight=2298,fp=d0ebdb93} #2{mediaFrozen=true,fontsSettled=true,imagesSettled=true,visualStable=true,renderStateStable=true,settled=true,churn=0,sections=3,cards=0,docHeight=2298,fp=0b0c87f1} #3{mediaFrozen=true,fontsSettled=true,imagesSettled=true,visualStable=true,renderStateStable",
+  "store": "https://phukienmaymoc.com/",
+  "surface": {
+    "name": "search",
+    "kind": "surface"
+  },
+  "viewport": {
+    "label": "1024x900",
+    "width": 1024,
+    "height": 900,
+    "mobile": false,
+    "dpr": 1
+  },
+  "strictParams": {
+    "fullPage": true,
+    "tolerance": 2,
+    "normalizeScroll": true,
+    "allowHeightDrift": false,
+    "useDefaultWidgetMasks": false,
+    "userMasks": [],
+    "trackedSelectors": [
+      "body",
+      "header.site-header",
+      "main",
+      ".site-footer",
+      "section",
+      ".product-list__item",
+      ".slide",
+      ".news-item"
+    ]
+  },
+  "provenance": {
+    "reference": {
+      "role": "reference",
+      "label": "r2-live",
+      "store": "https://phukienmaymoc.com/",
+      "surface": "search",
+      "surfaceKind": "surface",
+      "viewport": "1024x900",
+      "url": "https://phukienmaymoc.com/search?q=laser&themeid=-1",
+      "themeId": -1,
+      "themeIdParameter": "-1",
+      "png": {
+        "file": "search__1024x900.png",
+        "sha256": "1119fc0d031cf7880095373c977c1681ad3dac929ec24caf023388d56790ddf6",
+        "bytes": 515336,
+        "artifactRef": "artifact-7f45c307-7876-4445-84af-3666b83c8bd6"
+      },
+      "dom": {
+        "file": "dom/search__1024x900.html",
+        "sha256": "cf951748d4ad7d149f7660f2f3828fff3302e9bb005efe575ed6c123e514aada",
+        "bytes": 1025074,
+        "observedUrl": "https://phukienmaymoc.com/search?q=laser&themeid=-1"
+      },
+      "domDigest": "cf951748d4ad7d149f7660f2f3828fff3302e9bb005efe575ed6c123e514aada",
+      "geometry": {
+        "url": "https://phukienmaymoc.com/search?q=laser&themeid=-1",
+        "docHeight": 2300,
+        "clientWidth": 1009,
+        "scrollWidth": 1009,
+        "overflowX": 0,
+        "sectionCount": 3,
+        "productCardCount": 0,
+        "articleCardCount": 0,
+        "navItemCount": 91,
+        "linkCount": 257,
+        "imageCount": 53,
+        "brokenImageCount": 0,
+        "textNodes": 126,
+        "hasMenuMobile": true,
+        "hasBottomNav": true,
+        "headerRect": {
+          "x": 0,
+          "y": 0,
+          "w": 1009,
+          "h": 175.8
+        },
+        "navRect": {
+          "x": 39.5,
+          "y": 105,
+          "w": 930,
+          "h": 70.8
+        },
+        "heroRect": null,
+        "mainRect": {
+          "x": 0,
+          "y": 175.8,
+          "w": 1009,
+          "h": 1427
+        },
+        "footerRect": {
+          "x": 0,
+          "y": 1652.8,
+          "w": 1009,
+          "h": 607
+        },
+        "sections": [
+          {
+            "tag": "header",
+            "cls": "site-header",
+            "rect": {
+              "x": 0,
+              "y": 0,
+              "w": 1009,
+              "h": 175.8
+            }
+          },
+          {
+            "tag": "main",
+            "cls": "wrapperMain_content",
+            "rect": {
+              "x": 0,
+              "y": 175.8,
+              "w": 1009,
+              "h": 1427
+            }
+          },
+          {
+            "tag": "div",
+            "cls": "site-footer.w-100",
+            "rect": {
+              "x": 0,
+              "y": 1652.8,
+              "w": 1009,
+              "h": 607
+            }
+          }
+        ],
+        "fonts": {
+          "body": {
+            "family": "Roboto",
+            "size": "14px",
+            "weight": "400",
+            "lineHeight": "normal",
+            "color": "rgb(34, 52, 62)",
+            "letterSpacing": "normal"
+          },
+          "h1": {
+            "family": "Roboto",
+            "size": "30px",
+            "weight": "600",
+            "lineHeight": "39px",
+            "color": "rgb(34, 52, 62)",
+            "letterSpacing": "normal"
+          },
+          "h3": {
+            "family": "Roboto",
+            "size": "16px",
+            "weight": "600",
+            "lineHeight": "20.8px",
+            "color": "rgb(34, 52, 62)",
+            "letterSpacing": "normal"
+          },
+          "a": {
+            "family": "Roboto",
+            "size": "14px",
+            "weight": "400",
+            "lineHeight": "normal",
+            "color": "rgb(34, 52, 62)",
+            "letterSpacing": "normal"
+          }
+        }
+      },
+      "geometrySha256": "4be5643b9726216703ea29d323c8ca2261e538e2090972dea3a795a76ffa86cc",
+      "tabIdentity": {
+        "href": "https://phukienmaymoc.com/search?q=laser&themeid=-1",
+        "device": null,
+        "ua": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.7871.224 Safari/537.36",
+        "innerWidth": 1024,
+        "innerHeight": 900,
+        "dpr": 1,
+        "docHeight": 2300,
+        "bodyClass": "mainBody-theme  template-search",
+        "sections": 0,
+        "widgetNodes": 0,
+        "images": 53,
+        "completeImages": 53
+      },
+      "instance": {
+        "attachmentId": "attachment-cc5a49b7-f308-4645-ac70-063eb87b5702",
+        "bridgePort": 20131,
+        "pid": 21236,
+        "primaryTabId": "be12caca-cd0e-45a8-9723-b8b02979a190",
+        "startedAt": "2026-09-11T00:18:43.203Z",
+        "runId": "run-6eaaca64-6f9f-4904-9111-b1211796edec",
+        "attemptId": "attempt-8e8cb1e3-652a-4c36-88e4-3a9de655bd06"
+      },
+      "run": {
+        "runId": "run-6eaaca64-6f9f-4904-9111-b1211796edec",
+        "attachmentId": "attachment-cc5a49b7-f308-4645-ac70-063eb87b5702",
+        "authorityRevision": "rev_dc13e141c3b5bdcc5961e52af3c5f4ce",
+        "mintedAt": "2026-09-11T00:35:02.200Z",
+        "label": "r2-live",
+        "role": "reference"
+      },
+      "capturedAt": "2026-09-11T00:40:04.479Z"
+    },
+    "subject": {
+      "role": "subject",
+      "label": "s1-subject",
+      "store": "https://phukienmaymoc.com/",
+      "surface": "search",
+      "surfaceKind": "surface",
+      "viewport": "1024x900",
+      "url": "https://phukienmaymoc.com/search?q=laser&themeid=1001512581",
+      "themeId": 1001512581,
+      "themeIdParameter": "1001512581",
+      "png": {
+        "file": "search__1024x900.png",
+        "sha256": "3d834403868a89120e1280fab7a4134721c39bb73c69556d48afa2e428f7f0a4",
+        "bytes": 477440,
+        "artifactRef": "artifact-f5f1e0c8-66e6-48f6-85e0-f8cea4914694"
+      },
+      "dom": {
+        "file": "dom/search__1024x900.html",
+        "sha256": "7661aa7fd70736bdc4ec00489d547efd200bed13f1f0f9d04bb326397773488e",
+        "bytes": 1025695,
+        "observedUrl": "https://phukienmaymoc.com/search?q=laser&themeid=1001512581"
+      },
+      "domDigest": "7661aa7fd70736bdc4ec00489d547efd200bed13f1f0f9d04bb326397773488e",
+      "geometry": {
+        "url": "https://phukienmaymoc.com/search?q=laser&themeid=1001512581",
+        "docHeight": 2300,
+        "clientWidth": 1009,
+        "scrollWidth": 1009,
+        "overflowX": 0,
+        "sectionCount": 3,
+        "productCardCount": 0,
+        "articleCardCount": 0,
+        "navItemCount": 91,
+        "linkCount": 259,
+        "imageCount": 53,
+        "brokenImageCount": 0,
+        "textNodes": 128,
+        "hasMenuMobile": true,
+        "hasBottomNav": true,
+        "headerRect": {
+          "x": 0,
+          "y": 0,
+          "w": 1009,
+          "h": 175.8
+        },
+        "navRect": {
+          "x": 39.5,
+          "y": 105,
+          "w": 930,
+          "h": 70.8
+        },
+        "heroRect": null,
+        "mainRect": {
+          "x": 0,
+          "y": 175.8,
+          "w": 1009,
+          "h": 1427
+        },
+        "footerRect": {
+          "x": 0,
+          "y": 1652.8,
+          "w": 1009,
+          "h": 607
+        },
+        "sections": [
+          {
+            "tag": "header",
+            "cls": "site-header",
+            "rect": {
+              "x": 0,
+              "y": 0,
+              "w": 1009,
+              "h": 175.8
+            }
+          },
+          {
+            "tag": "main",
+            "cls": "wrapperMain_content",
+            "rect": {
+              "x": 0,
+              "y": 175.8,
+              "w": 1009,
+              "h": 1427
+            }
+          },
+          {
+            "tag": "div",
+            "cls": "site-footer.w-100",
+            "rect": {
+              "x": 0,
+              "y": 1652.8,
+              "w": 1009,
+              "h": 607
+            }
+          }
+        ],
+        "fonts": {
+          "body": {
+            "family": "Roboto",
+            "size": "14px",
+            "weight": "400",
+            "lineHeight": "normal",
+            "color": "rgb(34, 52, 62)",
+            "letterSpacing": "normal"
+          },
+          "h1": {
+            "family": "Roboto",
+            "size": "30px",
+            "weight": "600",
+            "lineHeight": "39px",
+            "color": "rgb(34, 52, 62)",
+            "letterSpacing": "normal"
+          },
+          "h3": {
+            "family": "Roboto",
+            "size": "16px",
+            "weight": "600",
+            "lineHeight": "20.8px",
+            "color": "rgb(34, 52, 62)",
+            "letterSpacing": "normal"
+          },
+          "a": {
+            "family": "Roboto",
+            "size": "14px",
+            "weight": "400",
+            "lineHeight": "normal",
+            "color": "rgb(34, 52, 62)",
+            "letterSpacing": "normal"
+          }
+        }
+      },
+      "geometrySha256": "4300832359581e4611f03624870e1329700f452f35eb227a37b6bc5427a206d5",
+      "tabIdentity": {
+        "href": "https://phukienmaymoc.com/search?q=laser&themeid=1001512581",
+        "device": null,
+        "ua": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.7871.224 Safari/537.36",
+        "innerWidth": 1024,
+        "innerHeight": 900,
+        "dpr": 1,
+        "docHeight": 2300,
+        "bodyClass": "mainBody-theme  template-search",
+        "sections": 0,
+        "widgetNodes": 0,
+        "images": 53,
+        "completeImages": 53
+      },
+      "instance": {
+        "attachmentId": "attachment-c7a3504e-fe28-433f-9934-7128b230e3f9",
+        "bridgePort": 20131,
+        "pid": 21236,
+        "primaryTabId": "d202a7f6-1e83-45b5-a511-dd7edc81b299",
+        "startedAt": "2026-09-11T00:18:43.203Z",
+        "runId": "run-9e8a955a-0f78-45c2-8f3b-680a6dcacaf9",
+        "attemptId": "attempt-3e259bf2-4470-4927-b906-410bd15cc2e2"
+      },
+      "run": {
+        "runId": "run-9e8a955a-0f78-45c2-8f3b-680a6dcacaf9",
+        "attachmentId": "attachment-c7a3504e-fe28-433f-9934-7128b230e3f9",
+        "authorityRevision": "rev_486cbe74ff00e6e9c22687bd974a4847",
+        "mintedAt": "2026-09-11T01:36:17.908Z",
+        "label": "s1-subject",
+        "role": "subject"
+      },
+      "capturedAt": "2026-09-11T04:03:13.412Z"
+    }
+  },
+  "artifacts": {
+    "reference": {
+      "png": {
+        "file": "E:\\Work\\apps\\AntiFan\\.canary\\theme-fidelity-run4\\r2\\search__1024x900.png",
+        "bytes": 515336,
+        "sha256": "1119fc0d031cf7880095373c977c1681ad3dac929ec24caf023388d56790ddf6"
+      },
+      "dom": {
+        "file": "E:\\Work\\apps\\AntiFan\\.canary\\theme-fidelity-run4\\r2\\dom\\search__1024x900.html",
+        "bytes": 1025074,
+        "sha256": "cf951748d4ad7d149f7660f2f3828fff3302e9bb005efe575ed6c123e514aada"
+      }
+    },
+    "subject": {
+      "png": {
+        "file": "E:\\Work\\apps\\AntiFan\\.canary\\theme-fidelity-run4\\subject\\search__1024x900.png",
+        "bytes": 477440,
+        "sha256": "3d834403868a89120e1280fab7a4134721c39bb73c69556d48afa2e428f7f0a4"
+      },
+      "dom": {
+        "file": "E:\\Work\\apps\\AntiFan\\.canary\\theme-fidelity-run4\\subject\\dom\\search__1024x900.html",
+        "bytes": 1025695,
+        "sha256": "7661aa7fd70736bdc4ec00489d547efd200bed13f1f0f9d04bb326397773488e"
+      }
+    }
+  },
+  "replay": {
+    "reference": {
+      "side": "reference",
+      "source": {
+        "file": "E:\\Work\\apps\\AntiFan\\.canary\\theme-fidelity-run4\\r2\\dom\\search__1024x900.html",
+        "sha256": "cf951748d4ad7d149f7660f2f3828fff3302e9bb005efe575ed6c123e514aada",
+        "bytes": 1025074
+      },
+      "file": "E:\\Work\\apps\\AntiFan\\.canary\\theme-fidelity-run4\\compare\\r2-vs-subject\\replay\\reference\\search__1024x900.html",
+      "url": "http://127.0.0.1:7861/search__1024x900.html",
+      "baseHref": "https://phukienmaymoc.com/search?q=laser&themeid=-1",
+      "baseMode": "inserted",
+      "sha256": "440234f590ce123cc781e4501683ef846cde7a6c5698e8c0b794a43cc06fe013",
+      "bytes": 1025143
+    },
+    "subject": {
+      "side": "subject",
+      "source": {
+        "file": "E:\\Work\\apps\\AntiFan\\.canary\\theme-fidelity-run4\\subject\\dom\\search__1024x900.html",
+        "sha256": "7661aa7fd70736bdc4ec00489d547efd200bed13f1f0f9d04bb326397773488e",
+        "bytes": 1025695
+      },
+      "file": "E:\\Work\\apps\\AntiFan\\.canary\\theme-fidelity-run4\\compare\\r2-vs-subject\\replay\\subject\\search__1024x900.html",
+      "url": "http://127.0.0.1:7862/search__1024x900.html",
+      "baseHref": "https://phukienmaymoc.com/search?q=laser&themeid=1001512581",
+      "baseMode": "inserted",
+      "sha256": "388e3b77d5705742d522ebff22db961c48a4b5c0cb8275cba3b954dd52974afc",
+      "bytes": 1025772
+    }
+  },
+  "identity": null,
+  "measurement": {
+    "reference": null,
+    "subject": null
+  },
+  "compare": null,
+  "instance": {
+    "attachmentId": "attachment-d88468ee-485e-494d-8605-ec1f46a50099",
+    "bridgePort": 20131,
+    "pid": 21236,
+    "primaryTabId": "5a3aff46-bf58-4f2d-8028-0d64fb74a3cd",
+    "startedAt": "2026-09-11T00:18:43.203Z",
+    "runId": "run-621fc4ed-800d-4321-99c6-e3ab5dcb022f",
+    "attemptId": "attempt-171bf8cc-3e3e-486b-ac6c-d76f4725a1ae"
+  },
+  "run": {
+    "runId": "run-621fc4ed-800d-4321-99c6-e3ab5dcb022f",
+    "attachmentId": "attachment-d88468ee-485e-494d-8605-ec1f46a50099",
+    "authorityRevision": "rev_7892eea7fe1dc2a87fe8e2fd8726bcac",
+    "mintedAt": "2026-09-11T05:00:55.534Z"
+  },
+  "tabs": {
+    "reference": {
+      "tabId": "328af0ca-1fce-462d-a4c9-13d89dc70f4c",
+      "openedAt": "2026-09-11T05:22:57.290Z"
+    },
+    "subject": null
+  },
+  "startedAt": "2026-09-11T05:22:50.854Z",
+  "finishedAt": "2026-09-11T05:23:42.584Z",
+  "printLine": "surface=search viewport=1024x900 verdict=INCONCLUSIVE mismatch=n/a referenceHeight=2300px subjectHeight=2300px",
+  "tabsClosed": {}
+}
