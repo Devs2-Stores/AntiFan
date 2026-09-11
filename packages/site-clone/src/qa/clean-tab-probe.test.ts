@@ -7,11 +7,9 @@ import { StateSynthesizer } from '../models/state-synthesizer.js';
 describe('CleanTabProbe - Behavioral Interactive Verification', () => {
   it('1. Executes behavioral probes for tabs, navigation, branch dropdown, and modal', async () => {
     // Mock evaluator simulating successful DOM behavioral responses
+    const assembledExpressions: string[] = [];
     const mockEvaluator = async (expr: string): Promise<unknown> => {
-      // vm.Script throws SyntaxError on any malformed source, so every assembled probe must parse standalone.
-      assert.doesNotThrow(() => {
-        new vm.Script(expr);
-      }, 'Assembled probe expression must be syntactically valid JavaScript');
+      assembledExpressions.push(expr);
       if (expr.includes('brand_tabs') || expr.includes('tab-item') || expr.includes('data-antifan-toggle')) {
         return { passed: true, details: { tab2After: true, tab1After: false } };
       }
@@ -27,6 +25,13 @@ describe('CleanTabProbe - Behavioral Interactive Verification', () => {
       return { passed: true };
     };
     const results = await CleanTabProbe.verifyInteractiveChecks(mockEvaluator);
+    // Parsed out here, not inside the evaluator: the probe turns an evaluator rejection into a
+    // generic failed check, which would bury a SyntaxError as an opaque boolean.
+    for (const expr of assembledExpressions) {
+      assert.doesNotThrow(() => {
+        new vm.Script(expr);
+      }, 'Assembled probe expression must be syntactically valid JavaScript');
+    }
     assert.strictEqual(results.length, 4);
 
     const tabsCheck = results.find(r => r.name === 'brand_tabs_switching');
@@ -54,11 +59,9 @@ describe('CleanTabProbe - Behavioral Interactive Verification', () => {
   });
 
   it('3. verifyCriticalBreaks validates overflow, commercial forms, and zero liquid leak', async () => {
+    const assembledExpressions: string[] = [];
     const mockBreakEvaluator = async (expr: string): Promise<unknown> => {
-      // vm.Script throws SyntaxError on any malformed source, so every assembled probe must parse standalone.
-      assert.doesNotThrow(() => {
-        new vm.Script(expr);
-      }, 'Assembled probe expression must be syntactically valid JavaScript');
+      assembledExpressions.push(expr);
       if (expr.includes('scrollWidth') && expr.includes('innerWidth')) {
         return { passed: true, details: 'scrollWidth: 1200px, innerWidth: 1200px, deltaX: 0px' };
       }
@@ -72,6 +75,11 @@ describe('CleanTabProbe - Behavioral Interactive Verification', () => {
     };
 
     const check = await CleanTabProbe.verifyCriticalBreaks(mockBreakEvaluator);
+    for (const expr of assembledExpressions) {
+      assert.doesNotThrow(() => {
+        new vm.Script(expr);
+      }, 'Assembled probe expression must be syntactically valid JavaScript');
+    }
     assert.strictEqual(check.passed, true);
     assert.strictEqual(check.breaks.length, 3);
     assert.ok(check.breaks.every(b => b.passed));
