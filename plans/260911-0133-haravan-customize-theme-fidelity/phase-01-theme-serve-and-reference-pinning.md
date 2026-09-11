@@ -1,7 +1,7 @@
 ---
 phase: 1
 title: "Theme Serve, Page Inventory & Reference Pinning"
-status: pending
+status: complete
 priority: P0
 effort: "4h"
 dependencies: []
@@ -114,3 +114,18 @@ Stop the dev process, and restore the copy with the CLI's own backup if the owne
 copy's pre-run state back (`.haravan-cli_backup/` is written by the CLI, not by this plan).
 Nothing in this phase writes to the live theme, so there is nothing to roll back there, and
 that property is what the Phase 3 audit re-checks rather than trusts.
+
+## Outcome (2026-09-11)
+
+Preflight proved the workspace declares the authorised copy (`themeId 1001512581`, `orgId 200001207485`)
+and derived a 7-surface × 3-tier manifest; the 32 fragment views are `{% layout none %}` partials and are
+carried as a declared not-measured set. R1 (`?themeid=1001512581`) and R2 (`?themeid=-1`) were captured
+read-only, 21 documents each, `status COMPLETE`, `notMeasurable 0`, 743 s, into
+`.canary/theme-fidelity-run4/{r1,r2}` — before anything wrote. `hrv info` corroborates the identity
+independently and reports the copy unpublished.
+
+Two harness defects were fixed on the live path: the session tab pool is a never-pruned `Set` capped at
+10 per session, so captures stop being adoptable long before a tab is left open (rotation per target,
+`renewSession`), and `browser.set-viewport` reports false when its own reload wait window elapses
+(confirmation by measurement, `setViewportAndConfirm`). Journal:
+`plans/journals/2026-09-11-haravan-theme-fidelity-phase-5.md`.

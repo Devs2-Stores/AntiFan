@@ -1,0 +1,187 @@
+{
+  "kind": "theme-fidelity-run-compare-index",
+  "stage": "compare",
+  "status": "INCOMPLETE",
+  "generatedAt": "2026-09-11T01:08:05.174Z",
+  "viewportSet": [
+    "1440x900",
+    "1024x900",
+    "390x844"
+  ],
+  "pairCount": 21,
+  "sets": {
+    "r1-vs-subject": {
+      "name": "r1-vs-subject",
+      "label": "R1 deployed copy vs subject",
+      "referenceDir": "r1",
+      "subjectDir": "subject",
+      "out": "compare/r1-vs-subject",
+      "exitCode": 4,
+      "timedOut": false,
+      "status": "REFUSED",
+      "indexFile": "compare/r1-vs-subject/index.json",
+      "indexSha256": "ca7058afa6c8f138ae45e1630dbffbe916e2b8bcee3ea169ec22b74ecc605599",
+      "totals": {
+        "pairs": 0,
+        "pass": 0,
+        "fail": 0,
+        "inconclusive": 0,
+        "notMeasurable": 0
+      },
+      "reference": {
+        "dir": "E:\\Work\\apps\\AntiFan\\.canary\\theme-fidelity-run4\\r1",
+        "index": "E:\\Work\\apps\\AntiFan\\.canary\\theme-fidelity-run4\\r1\\index.json",
+        "indexSha256": "630b1c04e46e51bc001d08a5d5d48409e80fef59b5dafeff4e28bf57606436d6",
+        "role": "reference",
+        "label": "r1-copy"
+      },
+      "subject": {
+        "dir": "E:\\Work\\apps\\AntiFan\\.canary\\theme-fidelity-run4\\subject",
+        "index": "E:\\Work\\apps\\AntiFan\\.canary\\theme-fidelity-run4\\subject\\index.json",
+        "indexSha256": "dc81f21dc7f937092acb7afe10702f6acf84e7aa17a4e40b6906c338cc60e906",
+        "role": "subject",
+        "label": "s1-subject"
+      },
+      "strictParams": {
+        "fullPage": true,
+        "tolerance": 2,
+        "normalizeScroll": true,
+        "allowHeightDrift": false,
+        "useDefaultWidgetMasks": false,
+        "userMasks": [],
+        "trackedSelectors": [
+          "body",
+          "header.site-header",
+          "main",
+          ".site-footer",
+          "section",
+          ".product-list__item",
+          ".slide",
+          ".news-item"
+        ]
+      },
+      "verdicts": [],
+      "childRefusal": {
+        "code": "PROVENANCE_UNRESOLVED",
+        "exitCode": 4,
+        "message": "subject evidence E:\\Work\\apps\\AntiFan\\.canary\\theme-fidelity-run4\\subject\\article__1024x900.json cannot be judged: status=NOT_MEASURABLE, provenance"
+      },
+      "refusal": {
+        "code": "PROVENANCE_UNRESOLVED",
+        "exitCode": 4,
+        "message": "subject evidence E:\\Work\\apps\\AntiFan\\.canary\\theme-fidelity-run4\\subject\\article__1024x900.json cannot be judged: status=NOT_MEASURABLE, provenance",
+        "detail": {
+          "side": "subject",
+          "file": "E:\\Work\\apps\\AntiFan\\.canary\\theme-fidelity-run4\\subject\\article__1024x900.json",
+          "missing": [
+            "status=NOT_MEASURABLE",
+            "provenance"
+          ],
+          "surface": "article",
+          "viewport": "1024x900"
+        }
+      },
+      "stderrTail": [
+        "(node:4196) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.",
+        "(Use `node --trace-warnings ...` to show where the warning was created)"
+      ]
+    },
+    "r2-vs-subject": {
+      "name": "r2-vs-subject",
+      "label": "R2 live production vs subject",
+      "referenceDir": "r2",
+      "subjectDir": "subject",
+      "out": "compare/r2-vs-subject",
+      "exitCode": 4,
+      "timedOut": false,
+      "status": "REFUSED",
+      "indexFile": "compare/r2-vs-subject/index.json",
+      "indexSha256": "978996915282e31c4b18f986b37d6856fd4886c49c4e9b685bd7bbe184dd9c17",
+      "totals": {
+        "pairs": 0,
+        "pass": 0,
+        "fail": 0,
+        "inconclusive": 0,
+        "notMeasurable": 0
+      },
+      "reference": {
+        "dir": "E:\\Work\\apps\\AntiFan\\.canary\\theme-fidelity-run4\\r2",
+        "index": "E:\\Work\\apps\\AntiFan\\.canary\\theme-fidelity-run4\\r2\\index.json",
+        "indexSha256": "a969312cd971448e36703a1405f35daac64b262d539e09faf1c02ca7cb1138cb",
+        "role": "reference",
+        "label": "r2-live"
+      },
+      "subject": {
+        "dir": "E:\\Work\\apps\\AntiFan\\.canary\\theme-fidelity-run4\\subject",
+        "index": "E:\\Work\\apps\\AntiFan\\.canary\\theme-fidelity-run4\\subject\\index.json",
+        "indexSha256": "dc81f21dc7f937092acb7afe10702f6acf84e7aa17a4e40b6906c338cc60e906",
+        "role": "subject",
+        "label": "s1-subject"
+      },
+      "strictParams": {
+        "fullPage": true,
+        "tolerance": 2,
+        "normalizeScroll": true,
+        "allowHeightDrift": false,
+        "useDefaultWidgetMasks": false,
+        "userMasks": [],
+        "trackedSelectors": [
+          "body",
+          "header.site-header",
+          "main",
+          ".site-footer",
+          "section",
+          ".product-list__item",
+          ".slide",
+          ".news-item"
+        ]
+      },
+      "verdicts": [],
+      "childRefusal": {
+        "code": "PROVENANCE_UNRESOLVED",
+        "exitCode": 4,
+        "message": "subject evidence E:\\Work\\apps\\AntiFan\\.canary\\theme-fidelity-run4\\subject\\article__1024x900.json cannot be judged: status=NOT_MEASURABLE, provenance"
+      },
+      "refusal": {
+        "code": "PROVENANCE_UNRESOLVED",
+        "exitCode": 4,
+        "message": "subject evidence E:\\Work\\apps\\AntiFan\\.canary\\theme-fidelity-run4\\subject\\article__1024x900.json cannot be judged: status=NOT_MEASURABLE, provenance",
+        "detail": {
+          "side": "subject",
+          "file": "E:\\Work\\apps\\AntiFan\\.canary\\theme-fidelity-run4\\subject\\article__1024x900.json",
+          "missing": [
+            "status=NOT_MEASURABLE",
+            "provenance"
+          ],
+          "surface": "article",
+          "viewport": "1024x900"
+        }
+      },
+      "stderrTail": [
+        "(node:18628) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.",
+        "(Use `node --trace-warnings ...` to show where the warning was created)"
+      ]
+    }
+  },
+  "referenceIndexes": {
+    "r1": {
+      "file": "r1/index.json",
+      "sha256": "630b1c04e46e51bc001d08a5d5d48409e80fef59b5dafeff4e28bf57606436d6",
+      "label": "r1-copy",
+      "status": "COMPLETE"
+    },
+    "r2": {
+      "file": "r2/index.json",
+      "sha256": "a969312cd971448e36703a1405f35daac64b262d539e09faf1c02ca7cb1138cb",
+      "label": "r2-live",
+      "status": "COMPLETE"
+    }
+  },
+  "subjectIndex": {
+    "file": "subject/index.json",
+    "sha256": "dc81f21dc7f937092acb7afe10702f6acf84e7aa17a4e40b6906c338cc60e906",
+    "label": "s1-subject",
+    "status": "INCOMPLETE"
+  },
+  "refusal": null
+}

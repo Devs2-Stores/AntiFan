@@ -1,0 +1,489 @@
+{
+  "kind": "theme-fidelity-capture",
+  "mode": "capture",
+  "status": "CAPTURED",
+  "role": "reference",
+  "label": "r1-copy",
+  "store": "https://phukienmaymoc.com/",
+  "surface": {
+    "name": "search",
+    "kind": "surface",
+    "url": "https://phukienmaymoc.com/search?q=laser&themeid=1001512581",
+    "source": "storefront-html (search form) plus robots.txt route",
+    "notes": "Requested with q=laser; returns a populated result list (e.g. /products/ong-han-laser).",
+    "template": null
+  },
+  "url": "https://phukienmaymoc.com/search?q=laser&themeid=1001512581",
+  "viewport": {
+    "label": "390x844",
+    "width": 390,
+    "height": 844,
+    "mobile": true,
+    "dpr": 1
+  },
+  "safety": {
+    "surface": "search",
+    "url": "https://phukienmaymoc.com/search?q=laser&themeid=1001512581",
+    "themeId": 1001512581,
+    "parameter": "1001512581",
+    "values": [
+      "1001512581"
+    ],
+    "allowed": true,
+    "reason": "themeid=1001512581 is -1 or an allowed theme"
+  },
+  "release": {
+    "label": "r1-copy:search__390x844",
+    "at": "2026-09-11T00:34:19.189Z",
+    "widgets": {
+      "slickPaused": 0,
+      "swiperPaused": 2
+    },
+    "release": {
+      "label": "r1-copy:search__390x844-full",
+      "at": "2026-09-11T00:34:19.226Z",
+      "dom": {
+        "restored": 0,
+        "markedLeft": 0,
+        "timersRestored": true,
+        "inlineImportant": 0,
+        "guardAbsent": true,
+        "timers": true
+      },
+      "unfreeze": {
+        "frozen": false,
+        "mediaCount": 9,
+        "tabId": "49793e28-3e27-4940-805c-f82ebbc182c4"
+      }
+    },
+    "freezeReleased": true,
+    "timerSweep": {
+      "clearedIntervalIdsTo": 200000,
+      "clearedTimeoutIdsTo": 200000
+    },
+    "timerSweepMotion": {
+      "widgetsSampled": 41,
+      "windowMs": 2500,
+      "sampleBefore": "1eb3fed6",
+      "sampleAfter": "1eb3fed6",
+      "stable": true
+    }
+  },
+  "tab": {
+    "tabId": "49793e28-3e27-4940-805c-f82ebbc182c4",
+    "openedAt": "2026-09-11T00:34:08.734Z",
+    "closed": true,
+    "closeError": null,
+    "closedAt": "2026-09-11T00:34:23.076Z"
+  },
+  "failure": null,
+  "provenance": {
+    "role": "reference",
+    "label": "r1-copy",
+    "store": "https://phukienmaymoc.com/",
+    "surface": "search",
+    "surfaceKind": "surface",
+    "viewport": "390x844",
+    "url": "https://phukienmaymoc.com/search?q=laser&themeid=1001512581",
+    "themeId": 1001512581,
+    "themeIdParameter": "1001512581",
+    "png": {
+      "file": "search__390x844.png",
+      "sha256": "15ed5d430395c4a5168eb9983294a9dc411a9a1013dedd3d44c0aab444465305",
+      "bytes": 677426,
+      "artifactRef": "artifact-a41a1aeb-7452-434e-93c7-5e065971507d"
+    },
+    "dom": {
+      "file": "dom/search__390x844.html",
+      "sha256": "f20a2abddf9b3cc52543125f5e12ceb98fa3f79f6ced01f5c7bad53e407cf6c0",
+      "bytes": 914146,
+      "observedUrl": "https://phukienmaymoc.com/search?q=laser&themeid=1001512581"
+    },
+    "domDigest": "f20a2abddf9b3cc52543125f5e12ceb98fa3f79f6ced01f5c7bad53e407cf6c0",
+    "geometry": {
+      "url": "https://phukienmaymoc.com/search?q=laser&themeid=1001512581",
+      "docHeight": 4906,
+      "clientWidth": 390,
+      "scrollWidth": 390,
+      "overflowX": 0,
+      "sectionCount": 4,
+      "productCardCount": 0,
+      "articleCardCount": 0,
+      "navItemCount": 0,
+      "linkCount": 134,
+      "imageCount": 47,
+      "brokenImageCount": 6,
+      "textNodes": 118,
+      "hasMenuMobile": false,
+      "hasBottomNav": false,
+      "headerRect": {
+        "x": 0,
+        "y": 31,
+        "w": 390,
+        "h": 60
+      },
+      "navRect": {
+        "x": 0,
+        "y": 0,
+        "w": 0,
+        "h": 0
+      },
+      "heroRect": {
+        "x": 0,
+        "y": 0,
+        "w": 0,
+        "h": 0
+      },
+      "mainRect": {
+        "x": 0,
+        "y": 91,
+        "w": 390,
+        "h": 3598.5
+      },
+      "footerRect": {
+        "x": 0,
+        "y": 4400.72,
+        "w": 390,
+        "h": 505.17
+      },
+      "sections": [
+        {
+          "tag": "header",
+          "cls": "loomline-mainHeader",
+          "rect": {
+            "x": 0,
+            "y": 31,
+            "w": 390,
+            "h": 60
+          }
+        },
+        {
+          "tag": "main",
+          "cls": "wrapperMain_content",
+          "rect": {
+            "x": 0,
+            "y": 91,
+            "w": 390,
+            "h": 3598.5
+          }
+        },
+        {
+          "tag": "section",
+          "cls": "loomline-index-tiktok",
+          "rect": {
+            "x": 0,
+            "y": 3739.5,
+            "w": 390,
+            "h": 661.22
+          }
+        },
+        {
+          "tag": "footer",
+          "cls": "loomline-mainFooter.has-toolbar",
+          "rect": {
+            "x": 0,
+            "y": 4400.72,
+            "w": 390,
+            "h": 505.17
+          }
+        }
+      ],
+      "fonts": {
+        "body": {
+          "family": "Lexend, sans-serif",
+          "size": "14px",
+          "weight": "400",
+          "lineHeight": "21px",
+          "color": "rgb(0, 0, 0)",
+          "letterSpacing": "normal"
+        },
+        "h1": {
+          "family": "Lexend, sans-serif",
+          "size": "30px",
+          "weight": "600",
+          "lineHeight": "39px",
+          "color": "rgb(0, 0, 0)",
+          "letterSpacing": "normal"
+        },
+        "h2": {
+          "family": "Lexend, sans-serif",
+          "size": "18px",
+          "weight": "400",
+          "lineHeight": "23.4px",
+          "color": "rgb(99, 115, 129)",
+          "letterSpacing": "normal"
+        },
+        "h3": {
+          "family": "Lexend, sans-serif",
+          "size": "14px",
+          "weight": "700",
+          "lineHeight": "18.2px",
+          "color": "rgb(51, 51, 51)",
+          "letterSpacing": "normal"
+        },
+        "a": {
+          "family": "arial",
+          "size": "12px",
+          "weight": "700",
+          "lineHeight": "18px",
+          "color": "rgb(68, 68, 68)",
+          "letterSpacing": "normal"
+        }
+      }
+    },
+    "geometrySha256": "ee3d6160231efbc469837f4f7f84a03a6821ce1b3e5d431a02598e980a89db22",
+    "tabIdentity": {
+      "href": "https://phukienmaymoc.com/search?q=laser&themeid=1001512581",
+      "device": null,
+      "ua": "Mozilla/5.0 (Linux; Android 14; Mobile; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.6613.114 Mobile Safari/537.36",
+      "innerWidth": 390,
+      "innerHeight": 844,
+      "dpr": 1,
+      "docHeight": 4906,
+      "bodyClass": "mainBody-theme  template-search",
+      "sections": 1,
+      "widgetNodes": 43,
+      "images": 47,
+      "completeImages": 41
+    },
+    "instance": {
+      "attachmentId": "attachment-217e2441-ce89-4f66-b217-d1ba6774b72c",
+      "bridgePort": 20131,
+      "pid": 21236,
+      "primaryTabId": "c1544a69-a1a4-4ab6-b418-bc0999fcee72",
+      "startedAt": "2026-09-11T00:18:43.203Z",
+      "runId": "run-80f7f33d-d3a5-4267-af5e-007cbfe48f59",
+      "attemptId": "attempt-faa2529b-4ba5-4c6b-be39-ab3a008a4a3e"
+    },
+    "run": {
+      "runId": "run-80f7f33d-d3a5-4267-af5e-007cbfe48f59",
+      "attachmentId": "attachment-217e2441-ce89-4f66-b217-d1ba6774b72c",
+      "authorityRevision": "rev_c2fa341ddca18c689a044b1d5194d2bd",
+      "mintedAt": "2026-09-11T00:27:32.437Z",
+      "label": "r1-copy",
+      "role": "reference"
+    },
+    "capturedAt": "2026-09-11T00:34:23.031Z"
+  },
+  "startedAt": "2026-09-11T00:34:08.698Z",
+  "finishedAt": "2026-09-11T00:34:23.076Z",
+  "png": {
+    "file": "search__390x844.png",
+    "artifactRef": "artifact-a41a1aeb-7452-434e-93c7-5e065971507d",
+    "sha256": "15ed5d430395c4a5168eb9983294a9dc411a9a1013dedd3d44c0aab444465305",
+    "bytes": 677426,
+    "integrity": {
+      "isPng": true,
+      "hasIend": true,
+      "bytes": 677426
+    },
+    "declaredByteLength": 677426,
+    "receipt": {
+      "backend": "cdp",
+      "dpr": 1,
+      "zoom": 1,
+      "cssViewport": {
+        "width": 390,
+        "height": 844
+      },
+      "cssCaptureSize": {
+        "width": 390,
+        "height": 4906
+      },
+      "rasterSize": {
+        "width": 390,
+        "height": 4906
+      },
+      "captureMode": "full-page",
+      "timestamp": 1789086862466,
+      "viewportTransaction": {
+        "before": {
+          "width": 390,
+          "height": 844,
+          "scrollX": 0,
+          "scrollY": 0
+        },
+        "after": {
+          "width": 390,
+          "height": 844,
+          "scrollX": 0,
+          "scrollY": 0
+        },
+        "restored": true,
+        "attempts": 1
+      }
+    }
+  },
+  "dom": {
+    "file": "dom/search__390x844.html",
+    "sha256": "f20a2abddf9b3cc52543125f5e12ceb98fa3f79f6ced01f5c7bad53e407cf6c0",
+    "bytes": 914146,
+    "observedUrl": "https://phukienmaymoc.com/search?q=laser&themeid=1001512581",
+    "clientWidth": 390,
+    "docHeight": 4906,
+    "sectionCount": 4,
+    "cardCount": 0,
+    "productItems": 0,
+    "images": 47,
+    "sanitized": true,
+    "removedCount": 4,
+    "declaredSha256": "f20a2abddf9b3cc52543125f5e12ceb98fa3f79f6ced01f5c7bad53e407cf6c0",
+    "servedThemeIds": [
+      {
+        "org": "200001207485",
+        "themeId": 1001512581,
+        "occurrences": 62
+      },
+      {
+        "org": "200001170195",
+        "themeId": 1001480974,
+        "occurrences": 11
+      }
+    ]
+  },
+  "geometry": {
+    "url": "https://phukienmaymoc.com/search?q=laser&themeid=1001512581",
+    "docHeight": 4906,
+    "clientWidth": 390,
+    "scrollWidth": 390,
+    "overflowX": 0,
+    "sectionCount": 4,
+    "productCardCount": 0,
+    "articleCardCount": 0,
+    "navItemCount": 0,
+    "linkCount": 134,
+    "imageCount": 47,
+    "brokenImageCount": 6,
+    "textNodes": 118,
+    "hasMenuMobile": false,
+    "hasBottomNav": false,
+    "headerRect": {
+      "x": 0,
+      "y": 31,
+      "w": 390,
+      "h": 60
+    },
+    "navRect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    },
+    "heroRect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    },
+    "mainRect": {
+      "x": 0,
+      "y": 91,
+      "w": 390,
+      "h": 3598.5
+    },
+    "footerRect": {
+      "x": 0,
+      "y": 4400.72,
+      "w": 390,
+      "h": 505.17
+    },
+    "sections": [
+      {
+        "tag": "header",
+        "cls": "loomline-mainHeader",
+        "rect": {
+          "x": 0,
+          "y": 31,
+          "w": 390,
+          "h": 60
+        }
+      },
+      {
+        "tag": "main",
+        "cls": "wrapperMain_content",
+        "rect": {
+          "x": 0,
+          "y": 91,
+          "w": 390,
+          "h": 3598.5
+        }
+      },
+      {
+        "tag": "section",
+        "cls": "loomline-index-tiktok",
+        "rect": {
+          "x": 0,
+          "y": 3739.5,
+          "w": 390,
+          "h": 661.22
+        }
+      },
+      {
+        "tag": "footer",
+        "cls": "loomline-mainFooter.has-toolbar",
+        "rect": {
+          "x": 0,
+          "y": 4400.72,
+          "w": 390,
+          "h": 505.17
+        }
+      }
+    ],
+    "fonts": {
+      "body": {
+        "family": "Lexend, sans-serif",
+        "size": "14px",
+        "weight": "400",
+        "lineHeight": "21px",
+        "color": "rgb(0, 0, 0)",
+        "letterSpacing": "normal"
+      },
+      "h1": {
+        "family": "Lexend, sans-serif",
+        "size": "30px",
+        "weight": "600",
+        "lineHeight": "39px",
+        "color": "rgb(0, 0, 0)",
+        "letterSpacing": "normal"
+      },
+      "h2": {
+        "family": "Lexend, sans-serif",
+        "size": "18px",
+        "weight": "400",
+        "lineHeight": "23.4px",
+        "color": "rgb(99, 115, 129)",
+        "letterSpacing": "normal"
+      },
+      "h3": {
+        "family": "Lexend, sans-serif",
+        "size": "14px",
+        "weight": "700",
+        "lineHeight": "18.2px",
+        "color": "rgb(51, 51, 51)",
+        "letterSpacing": "normal"
+      },
+      "a": {
+        "family": "arial",
+        "size": "12px",
+        "weight": "700",
+        "lineHeight": "18px",
+        "color": "rgb(68, 68, 68)",
+        "letterSpacing": "normal"
+      }
+    }
+  },
+  "tabIdentity": {
+    "href": "https://phukienmaymoc.com/search?q=laser&themeid=1001512581",
+    "device": null,
+    "ua": "Mozilla/5.0 (Linux; Android 14; Mobile; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.6613.114 Mobile Safari/537.36",
+    "innerWidth": 390,
+    "innerHeight": 844,
+    "dpr": 1,
+    "docHeight": 4906,
+    "bodyClass": "mainBody-theme  template-search",
+    "sections": 1,
+    "widgetNodes": 43,
+    "images": 47,
+    "completeImages": 41
+  }
+}

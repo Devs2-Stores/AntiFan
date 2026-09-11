@@ -1,0 +1,6 @@
+(node:1816) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+[theme-fidelity-run] subject: s1-subject capture over 1440x900,1024x900,390x844
+[theme-fidelity-run] subject exit 3 (CAPTURE_REFUSED) in 358682ms
+[theme-fidelity-run] REFUSED CAPTURE_REFUSED (exit 3): subject capture exited 3: no typed refusal text; stderr tail: (node:12792) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set. | (Use `node --trace-warnings ...` to show where the warning was created)
+[theme-fidelity-run] detail: {"childExitCode":3,"childRefusal":null,"safetyRefusal":false,"indexFile":"E:\\Work\\apps\\AntiFan\\.canary\\theme-fidelity-run4\\subject\\index.json","stderrTail":["(node:12792) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.","(Use `node --trace-warnings ...` to show where the warning was created)"]}

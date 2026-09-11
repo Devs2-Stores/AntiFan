@@ -1,7 +1,7 @@
 ---
 phase: 3
 title: "Verdicts, Provenance & Safety Audit"
-status: pending
+status: blocked
 priority: P0
 effort: "3h"
 dependencies: ["phase-02-liquid-and-structural-checks"]
@@ -101,3 +101,21 @@ views change only through pointer files rewritten temp-file → fsync → rename
 Stop the dev process; nothing in this phase writes to the theme. Report and verdict documents
 are additive and pointer-published, so a bad publication is corrected by re-running the
 report stage from the same persisted evidence.
+
+## Outcome (2026-09-11) — blocked on a measured rendering divergence
+
+Subject capture: 14 of 21 documents captured, 7 refused `FULLPAGE_CAPTURE_UNSUPPORTED_GEOMETRY` for
+desktop documents 16,229–27,360 CSS px tall against a 1..16384 raster range. Full-page evidence never
+falls back to a viewport-only capture, so those legs are unmeasurable, and the comparison stage refused
+the verdict set (`PROVENANCE_UNRESOLVED`) because a set is complete or refused — a missing artifact is
+never a PASS. No pair verdict exists to publish. The report assembled and named all 49 gaps and did not
+publish `current.json`.
+
+The blocking measurement: the pushed copy renders 3–10× taller than the pinned copy on desktop
+(home 7532 → refused at 27360; product 4749 → refused at 17229; collection 4117 → 15961; 404 1570 →
+15811) while the phone tier stays within 0.75–1.19×. The 182-file push contains no `assets/` file, so
+the subject is the local markup and config against the copy's server-compiled stylesheets; that confound
+is recorded, not worked around. Safety audit (`report.json.safetyAudit`): theme ids exactly
+`["-1","1001512581"]`, `foreignThemeIds.count 0`, no publish/deploy/push issued by the driver — with the
+explicit `hrv theme backup` + `hrv theme push` pair recorded separately in `push.log` and
+`push-force.log`. Restore point: `backups/phase5-pre-dev.zip`.

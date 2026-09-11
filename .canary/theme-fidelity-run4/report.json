@@ -1,0 +1,4055 @@
+{
+  "kind": "theme-fidelity-run-report",
+  "stage": "report",
+  "status": "INCOMPLETE",
+  "generatedAt": "2026-09-11T01:08:18.996Z",
+  "outDir": "E:\\Work\\apps\\AntiFan\\.canary\\theme-fidelity-run4",
+  "exitPolicy": {
+    "complete": "exit 0 and publish current.json",
+    "incomplete": "exit 3, report written, current.json not published",
+    "refused": "exit 4 on a safety failure, current.json not published"
+  },
+  "provenance": {
+    "store": "https://phukienmaymoc.com/",
+    "copyThemeId": "1001512581",
+    "livePreviewThemeId": "-1",
+    "liveThemeIdNeverAddressed": "1001510509",
+    "theme": {
+      "dir": "E:\\Work\\customizes\\Phukienmaymoc",
+      "file": "E:\\Work\\customizes\\Phukienmaymoc\\.haravan-cli_local.json",
+      "sha256": "aee56dfcbf4e029dbe2b129bc109b5fdf65d1f008ad829ee2ad33989fc9f7fdf",
+      "themeId": "1001512581",
+      "orgId": "200001207485",
+      "themeOrgId": "200001207485",
+      "themeName": "Bản sao chép của clothing"
+    },
+    "inventory": {
+      "file": "E:\\Work\\apps\\AntiFan\\.canary\\theme-fidelity\\inventory-surfaces.json",
+      "sha256": "aaba3e2243fa1fe1908232a03036ee5f73410bb830e4a794cb3399999f3aa645",
+      "surfaces": 7,
+      "views": 0,
+      "unresolved": 7,
+      "themeIdsObserved": [
+        "-1",
+        "1001512581"
+      ]
+    },
+    "derivedInventories": {
+      "copy": {
+        "file": "inventories/copy.json",
+        "absolute": "E:\\Work\\apps\\AntiFan\\.canary\\theme-fidelity-run4\\inventories\\copy.json",
+        "sha256": "85acbf8b9e1faa9219bc1cad49d3b9dfb6be52d67bedb33565dffefd9d344d4b"
+      },
+      "live": {
+        "file": "inventories/live.json",
+        "absolute": "E:\\Work\\apps\\AntiFan\\.canary\\theme-fidelity-run4\\inventories\\live.json",
+        "sha256": "373786d29057df62a89e0b7eacc06954097b796a749019c571380592e758b9e3"
+      },
+      "subject": {
+        "file": "inventories/subject.json",
+        "absolute": "E:\\Work\\apps\\AntiFan\\.canary\\theme-fidelity-run4\\inventories\\subject.json",
+        "sha256": "050fb4fc89e775b8cc40fb993394e7f1104684720494b0ca456b1192ece988f2"
+      }
+    },
+    "previewBases": {
+      "copy": "https://phukienmaymoc.com/?themeid=1001512581&view=",
+      "live": "https://phukienmaymoc.com/?themeid=-1&view=",
+      "subject": "https://phukienmaymoc.com/?themeid=1001512581&view="
+    },
+    "probe": {
+      "url": "https://phukienmaymoc.com/?themeid=1001512581",
+      "surface": "home",
+      "themeId": "1001512581"
+    },
+    "references": {
+      "file": "references.json",
+      "sha256": "c6ed87bf8443e085352e379bf9a7dde27a0885baeec1ac3dbd165a6d505c1039",
+      "viewportSpec": "1440x900,1024x900,390x844",
+      "r1": {
+        "label": "r1-copy",
+        "role": "reference",
+        "status": "COMPLETE",
+        "reused": false,
+        "indexFile": "r1/index.json",
+        "indexSha256": "630b1c04e46e51bc001d08a5d5d48409e80fef59b5dafeff4e28bf57606436d6",
+        "captured": 21,
+        "requested": 21,
+        "viewports": "1440x900,1024x900,390x844"
+      },
+      "r2": {
+        "label": "r2-live",
+        "role": "reference",
+        "status": "COMPLETE",
+        "reused": false,
+        "indexFile": "r2/index.json",
+        "indexSha256": "a969312cd971448e36703a1405f35daac64b262d539e09faf1c02ca7cb1138cb",
+        "captured": 21,
+        "requested": 21,
+        "viewports": "1440x900,1024x900,390x844"
+      }
+    },
+    "captureSources": {
+      "r1": {
+        "dir": "r1",
+        "indexFile": "r1/index.json",
+        "indexSha256": "630b1c04e46e51bc001d08a5d5d48409e80fef59b5dafeff4e28bf57606436d6",
+        "label": "r1-copy",
+        "role": "reference",
+        "status": "COMPLETE",
+        "viewports": [
+          "1440x900",
+          "1024x900",
+          "390x844"
+        ]
+      },
+      "r2": {
+        "dir": "r2",
+        "indexFile": "r2/index.json",
+        "indexSha256": "a969312cd971448e36703a1405f35daac64b262d539e09faf1c02ca7cb1138cb",
+        "label": "r2-live",
+        "role": "reference",
+        "status": "COMPLETE",
+        "viewports": [
+          "1440x900",
+          "1024x900",
+          "390x844"
+        ]
+      },
+      "subject": {
+        "dir": "subject",
+        "indexFile": "subject/index.json",
+        "indexSha256": "dc81f21dc7f937092acb7afe10702f6acf84e7aa17a4e40b6906c338cc60e906",
+        "label": "s1-subject",
+        "role": "subject",
+        "status": "INCOMPLETE",
+        "viewports": [
+          "1440x900",
+          "1024x900",
+          "390x844"
+        ]
+      }
+    },
+    "instances": [
+      {
+        "source": "r1 capture index",
+        "attachmentId": "attachment-217e2441-ce89-4f66-b217-d1ba6774b72c",
+        "bridgePort": 20131,
+        "pid": 21236,
+        "primaryTabId": "c1544a69-a1a4-4ab6-b418-bc0999fcee72",
+        "startedAt": "2026-09-11T00:18:43.203Z",
+        "runId": "run-80f7f33d-d3a5-4267-af5e-007cbfe48f59",
+        "attemptId": "attempt-faa2529b-4ba5-4c6b-be39-ab3a008a4a3e"
+      },
+      {
+        "source": "r2 capture index",
+        "attachmentId": "attachment-cc5a49b7-f308-4645-ac70-063eb87b5702",
+        "bridgePort": 20131,
+        "pid": 21236,
+        "primaryTabId": "be12caca-cd0e-45a8-9723-b8b02979a190",
+        "startedAt": "2026-09-11T00:18:43.203Z",
+        "runId": "run-6eaaca64-6f9f-4904-9111-b1211796edec",
+        "attemptId": "attempt-8e8cb1e3-652a-4c36-88e4-3a9de655bd06"
+      },
+      {
+        "source": "subject capture index",
+        "attachmentId": "attachment-38b02838-40ce-457e-bfc0-991a6057b6d8",
+        "bridgePort": 20131,
+        "pid": 21236,
+        "primaryTabId": "e8c4391a-4397-4cb8-80ed-abd77b51025d",
+        "startedAt": "2026-09-11T00:18:43.203Z",
+        "runId": "run-ba23a030-9f66-40ac-a3c8-c3e77b4bfb50",
+        "attemptId": "attempt-ac2638ce-3f4d-48ce-ac28-9dd7734f64fa"
+      }
+    ],
+    "devSession": {
+      "file": "serve.json",
+      "status": "SERVED",
+      "pid": 14020,
+      "readyAt": "2026-09-11T00:41:45.626Z",
+      "readyMs": 1565,
+      "stopMethod": "taskkill-unconfirmed:ERROR: The process \"14020\" not found.",
+      "stoppedAt": "2026-09-11T00:42:03.804Z",
+      "command": [
+        "hrv",
+        "theme",
+        "dev"
+      ],
+      "probe": {
+        "ok": true,
+        "url": "https://phukienmaymoc.com/?themeid=1001512581",
+        "status": 200,
+        "bodyBytes": 836012,
+        "bodyCarriesCopyThemeId": true,
+        "elapsedMs": 532,
+        "attempts": 1
+      },
+      "logFile": "hrv-theme-dev.log",
+      "logSha256": "8758be8102b4b357de8da11940e816933c40c22405aadc35ebe79441031c0d08"
+    },
+    "subjectDrift": null,
+    "checks": {
+      "kind": "theme-fidelity-run-checks",
+      "stage": "checks",
+      "status": "REFUSED",
+      "themeDir": "E:\\Work\\customizes\\Phukienmaymoc",
+      "generatedAt": "2026-09-11T01:08:14.479Z",
+      "childExitCode": 3,
+      "childTimedOut": false,
+      "childSpawnError": null,
+      "childRefusal": {
+        "code": null,
+        "exitCode": null,
+        "message": "[theme-checks] REFUSED (exit 3): settings-binding, assets"
+      },
+      "htmlInputs": [
+        "subject/dom/404__1024x900.html",
+        "subject/dom/404__1440x900.html",
+        "subject/dom/404__390x844.html",
+        "subject/dom/article__390x844.html",
+        "subject/dom/cart__1024x900.html",
+        "subject/dom/cart__390x844.html",
+        "subject/dom/collection__1024x900.html",
+        "subject/dom/collection__1440x900.html",
+        "subject/dom/collection__390x844.html",
+        "subject/dom/home__390x844.html",
+        "subject/dom/product__1024x900.html",
+        "subject/dom/product__390x844.html",
+        "subject/dom/search__1024x900.html",
+        "subject/dom/search__390x844.html"
+      ],
+      "structural": {
+        "file": "structural.json",
+        "sha256": "2cd1143f16e7f97decd1729b7b7f432c5b694dcacf1aec1d828e38b1f1d655e0",
+        "ok": false,
+        "generatedAt": "2026-09-11T01:08:14.461Z",
+        "refusalCount": 2,
+        "refusals": [
+          {
+            "check": "settings-binding",
+            "failures": [
+              {
+                "rule": "SETTING_UNDECLARED",
+                "id": "add_to_cart_show",
+                "detail": "settings.add_to_cart_show is read in snippets/product-loop-horizontal.liquid but is not declared in config/settings_schema.json"
+              },
+              {
+                "rule": "SETTING_UNDECLARED",
+                "id": "addthis_iconList_show",
+                "detail": "settings.addthis_iconList_show is read in layout/theme.liquid but is not declared in config/settings_schema.json"
+              },
+              {
+                "rule": "SETTING_UNDECLARED",
+                "id": "appbuyxgety_icon",
+                "detail": "settings.appbuyxgety_icon is read in snippets/product-loop-horizontal.liquid but is not declared in config/settings_schema.json"
+              },
+              {
+                "rule": "SETTING_UNDECLARED",
+                "id": "cart_deliverytime_end",
+                "detail": "settings.cart_deliverytime_end is read in templates/cart.liquid but is not declared in config/settings_schema.json"
+              },
+              {
+                "rule": "SETTING_UNDECLARED",
+                "id": "cart_deliverytime_start",
+                "detail": "settings.cart_deliverytime_start is read in templates/cart.liquid but is not declared in config/settings_schema.json"
+              },
+              {
+                "rule": "SETTING_UNDECLARED",
+                "id": "code_messenger_mb",
+                "detail": "settings.code_messenger_mb is read in snippets/template-product-01.liquid, snippets/template-product-02.liquid, snippets/template-product-03.liquid, snippets/template-product-04.liquid, templates/product.quickview.liquid but is not declared in config/settings_schema.json"
+              },
+              {
+                "rule": "SETTING_UNDECLARED",
+                "id": "collection_preorder",
+                "detail": "settings.collection_preorder is read in snippets/sidebar-action-product.liquid, templates/product.ll-viewed.liquid, templates/product.quickview.liquid but is not declared in config/settings_schema.json"
+              },
+              {
+                "rule": "SETTING_UNDECLARED",
+                "id": "dh_form_booking",
+                "detail": "settings.dh_form_booking is read in snippets/index-form.liquid but is not declared in config/settings_schema.json"
+              },
+              {
+                "rule": "SETTING_UNDECLARED",
+                "id": "dh_form_date",
+                "detail": "settings.dh_form_date is read in snippets/index-form.liquid but is not declared in config/settings_schema.json"
+              },
+              {
+                "rule": "SETTING_UNDECLARED",
+                "id": "dh_form_email",
+                "detail": "settings.dh_form_email is read in snippets/index-form.liquid but is not declared in config/settings_schema.json"
+              },
+              {
+                "rule": "SETTING_UNDECLARED",
+                "id": "dh_form_full_name",
+                "detail": "settings.dh_form_full_name is read in snippets/index-form.liquid but is not declared in config/settings_schema.json"
+              },
+              {
+                "rule": "SETTING_UNDECLARED",
+                "id": "dh_form_phone",
+                "detail": "settings.dh_form_phone is read in snippets/index-form.liquid but is not declared in config/settings_schema.json"
+              },
+              {
+                "rule": "SETTING_UNDECLARED",
+                "id": "dh_form_pro_booking",
+                "detail": "settings.dh_form_pro_booking is read in snippets/ll-index-form.liquid but is not declared in config/settings_schema.json"
+              },
+              {
+                "rule": "SETTING_UNDECLARED",
+                "id": "dh_form_service",
+                "detail": "settings.dh_form_service is read in snippets/index-form.liquid but is not declared in config/settings_schema.json"
+              },
+              {
+                "rule": "SETTING_UNDECLARED",
+                "id": "dh_form_success",
+                "detail": "settings.dh_form_success is read in snippets/modal-success.liquid but is not declared in config/settings_schema.json"
+              },
+              {
+                "rule": "SETTING_UNDECLARED",
+                "id": "dh_form_time",
+                "detail": "settings.dh_form_time is read in snippets/index-form.liquid but is not declared in config/settings_schema.json"
+              },
+              {
+                "rule": "SETTING_UNDECLARED",
+                "id": "dh_gg_date",
+                "detail": "settings.dh_gg_date is read in snippets/index-form.liquid but is not declared in config/settings_schema.json"
+              },
+              {
+                "rule": "SETTING_UNDECLARED",
+                "id": "dh_gg_email",
+                "detail": "settings.dh_gg_email is read in snippets/index-form.liquid but is not declared in config/settings_schema.json"
+              },
+              {
+                "rule": "SETTING_UNDECLARED",
+                "id": "dh_gg_full_name",
+                "detail": "settings.dh_gg_full_name is read in snippets/index-form.liquid but is not declared in config/settings_schema.json"
+              },
+              {
+                "rule": "SETTING_UNDECLARED",
+                "id": "dh_gg_link_form",
+                "detail": "settings.dh_gg_link_form is read in snippets/ll-index-form.liquid but is not declared in config/settings_schema.json"
+              },
+              {
+                "rule": "SETTING_UNDECLARED",
+                "id": "dh_gg_phone",
+                "detail": "settings.dh_gg_phone is read in snippets/index-form.liquid but is not declared in config/settings_schema.json"
+              },
+              {
+                "rule": "SETTING_UNDECLARED",
+                "id": "dh_gg_service",
+                "detail": "settings.dh_gg_service is read in snippets/index-form.liquid but is not declared in config/settings_schema.json"
+              },
+              {
+                "rule": "SETTING_UNDECLARED",
+                "id": "dh_gg_time",
+                "detail": "settings.dh_gg_time is read in snippets/index-form.liquid but is not declared in config/settings_schema.json"
+              },
+              {
+                "rule": "SETTING_UNDECLARED",
+                "id": "fanpage_faceook",
+                "detail": "settings.fanpage_faceook is read in snippets/facebook-widget.liquid but is not declared in config/settings_schema.json"
+              },
+              {
+                "rule": "SETTING_UNDECLARED",
+                "id": "fb_chat",
+                "detail": "settings.fb_chat is read in snippets/haravan-fb-messages.liquid but is not declared in config/settings_schema.json"
+              },
+              {
+                "rule": "SETTING_UNDECLARED",
+                "id": "fb_chat_title",
+                "detail": "settings.fb_chat_title is read in snippets/haravan-fb-messages.liquid but is not declared in config/settings_schema.json"
+              },
+              {
+                "rule": "SETTING_UNDECLARED",
+                "id": "header_account_show",
+                "detail": "settings.header_account_show is read in snippets/mini-location.liquid but is not declared in config/settings_schema.json"
+              },
+              {
+                "rule": "SETTING_UNDECLARED",
+                "id": "header_info_mail",
+                "detail": "settings.header_info_mail is read in snippets/sidebar-main.liquid but is not declared in config/settings_schema.json"
+              },
+              {
+                "rule": "SETTING_UNDECLARED",
+                "id": "header_info_phone",
+                "detail": "settings.header_info_phone is read in snippets/sidebar-main.liquid but is not declared in config/settings_schema.json"
+              },
+              {
+                "rule": "SETTING_UNDECLARED",
+                "id": "header_info_social_show",
+                "detail": "settings.header_info_social_show is read in snippets/sidebar-main.liquid but is not declared in config/settings_schema.json"
+              },
+              {
+                "rule": "SETTING_UNDECLARED",
+                "id": "header_inventory_province",
+                "detail": "settings.header_inventory_province is read in snippets/mini-location.liquid but is not declared in config/settings_schema.json"
+              },
+              {
+                "rule": "SETTING_UNDECLARED",
+                "id": "header_inventory_show",
+                "detail": "settings.header_inventory_show is read in snippets/footer-scripts.liquid but is not declared in config/settings_schema.json"
+              },
+              {
+                "rule": "SETTING_UNDECLARED",
+                "id": "header_live_code",
+                "detail": "settings.header_live_code is read in snippets/modal-live.liquid but is not declared in config/settings_schema.json"
+              },
+              {
+                "rule": "SETTING_UNDECLARED",
+                "id": "header_social_link_facebook",
+                "detail": "settings.header_social_link_facebook is read in snippets/sidebar-main.liquid but is not declared in config/settings_schema.json"
+              },
+              {
+                "rule": "SETTING_UNDECLARED",
+                "id": "header_social_link_instagram",
+                "detail": "settings.header_social_link_instagram is read in snippets/sidebar-main.liquid but is not declared in config/settings_schema.json"
+              },
+              {
+                "rule": "SETTING_UNDECLARED",
+                "id": "header_social_link_lazada",
+                "detail": "settings.header_social_link_lazada is read in snippets/sidebar-main.liquid but is not declared in config/settings_schema.json"
+              },
+              {
+                "rule": "SETTING_UNDECLARED",
+                "id": "header_social_link_shopee",
+                "detail": "settings.header_social_link_shopee is read in snippets/sidebar-main.liquid but is not declared in config/settings_schema.json"
+              },
+              {
+                "rule": "SETTING_UNDECLARED",
+                "id": "header_social_link_tiktok",
+                "detail": "settings.header_social_link_tiktok is read in snippets/sidebar-main.liquid but is not declared in config/settings_schema.json"
+              },
+              {
+                "rule": "SETTING_UNDECLARED",
+                "id": "header_social_link_youtube",
+                "detail": "settings.header_social_link_youtube is read in snippets/sidebar-main.liquid but is not declared in config/settings_schema.json"
+              },
+              {
+                "rule": "SETTING_UNDECLARED",
+                "id": "home_coll_1_banner_btn",
+                "detail": "settings.home_coll_1_banner_btn is read in snippets/home-collection-tabs.liquid but is not declared in config/settings_schema.json"
+              },
+              {
+                "rule": "SETTING_UNDECLARED",
+                "id": "home_coll_1_banner_desc",
+                "detail": "settings.home_coll_1_banner_desc is read in snippets/home-collection-tabs.liquid but is not declared in config/settings_schema.json"
+              },
+              {
+                "rule": "SETTING_UNDECLARED",
+                "id": "home_coll_1_banner_link",
+                "detail": "settings.home_coll_1_banner_link is read in snippets/home-collection-tabs.liquid but is not declared in config/settings_schema.json"
+              },
+              {
+                "rule": "SETTING_UNDECLARED",
+                "id": "home_coll_1_banner_show",
+                "detail": "settings.home_coll_1_banner_show is read in snippets/home-collection-tabs.liquid but is not declared in config/settings_schema.json"
+              },
+              {
+                "rule": "SETTING_UNDECLARED",
+                "id": "home_coll_1_banner_title",
+                "detail": "settings.home_coll_1_banner_title is read in snippets/home-collection-tabs.liquid but is not declared in config/settings_schema.json"
+              },
+              {
+                "rule": "SETTING_UNDECLARED",
+                "id": "home_coll_1_navtabs_limit",
+                "detail": "settings.home_coll_1_navtabs_limit is read in snippets/home-collection-tabs.liquid but is not declared in config/settings_schema.json"
+              },
+              {
+                "rule": "SETTING_UNDECLARED",
+                "id": "home_coll_1_navtabs_show",
+                "detail": "settings.home_coll_1_navtabs_show is read in snippets/home-collection-tabs.liquid but is not declared in config/settings_schema.json"
+              },
+              {
+                "rule": "SETTING_UNDECLARED",
+                "id": "home_coll_1_navtabs_title",
+                "detail": "settings.home_coll_1_navtabs_title is read in snippets/home-collection-tabs.liquid but is not declared in config/settings_schema.json"
+              },
+              {
+                "rule": "SETTING_UNDECLARED",
+                "id": "home_collection_4_btn",
+                "detail": "settings.home_collection_4_btn is read in snippets/homepage-collection.liquid but is not declared in config/settings_schema.json"
+              },
+              {
+                "rule": "SETTING_UNDECLARED",
+                "id": "home_collection_4_handle",
+                "detail": "settings.home_collection_4_handle is read in snippets/homepage-collection.liquid but is not declared in config/settings_schema.json"
+              },
+              {
+                "rule": "SETTING_UNDECLARED",
+                "id": "home_collection_4_show",
+                "detail": "settings.home_collection_4_show is read in snippets/homepage-collection.liquid but is not declared in config/settings_schema.json"
+              },
+              {
+                "rule": "SETTING_UNDECLARED",
+                "id": "home_collection_4_title",
+                "detail": "settings.home_collection_4_title is read in snippets/homepage-collection.liquid but is not declared in config/settings_schema.json"
+              },
+              {
+                "rule": "SETTING_UNDECLARED",
+                "id": "home_collection_4_titlelink",
+                "detail": "settings.home_collection_4_titlelink is read in snippets/homepage-collection.liquid but is not declared in config/settings_schema.json"
+              },
+              {
+                "rule": "SETTING_UNDECLARED",
+                "id": "home_collection_4_txt1",
+                "detail": "settings.home_collection_4_txt1 is read in snippets/homepage-collection.liquid but is not declared in config/settings_schema.json"
+              },
+              {
+                "rule": "SETTING_UNDECLARED",
+                "id": "home_collection_4_txt2",
+                "detail": "settings.home_collection_4_txt2 is read in snippets/homepage-collection.liquid but is not declared in config/settings_schema.json"
+              },
+              {
+                "rule": "SETTING_UNDECLARED",
+                "id": "home_collection_4_txt3",
+                "detail": "settings.home_collection_4_txt3 is read in snippets/homepage-collection.liquid but is not declared in config/settings_schema.json"
+              },
+              {
+                "rule": "SETTING_UNDECLARED",
+                "id": "home_collection_banner_link",
+                "detail": "settings.home_collection_banner_link is read in snippets/home-collection-tabs.liquid but is not declared in config/settings_schema.json"
+              },
+              {
+                "rule": "SETTING_UNDECLARED",
+                "id": "home_collection_tabs_1_handle",
+                "detail": "settings.home_collection_tabs_1_handle is read in snippets/home-collection-tabs.liquid but is not declared in config/settings_schema.json"
+              },
+              {
+                "rule": "SETTING_UNDECLARED",
+                "id": "home_collection_tabs_1_title",
+                "detail": "settings.home_collection_tabs_1_title is read in snippets/home-collection-tabs.liquid but is not declared in config/settings_schema.json"
+              },
+              {
+                "rule": "SETTING_UNDECLARED",
+                "id": "home_navtabs_limit_desk",
+                "detail": "settings.home_navtabs_limit_desk is read in snippets/home-collection-tabs.liquid but is not declared in config/settings_schema.json"
+              },
+              {
+                "rule": "SETTING_UNDECLARED",
+                "id": "home_navtabs_limit_mb",
+                "detail": "settings.home_navtabs_limit_mb is read in snippets/home-collection-tabs.liquid but is not declared in config/settings_schema.json"
+              },
+              {
+                "rule": "SETTING_UNDECLARED",
+                "id": "hrloyalty_icon_used",
+                "detail": "settings.hrloyalty_icon_used is read in snippets/footer-scripts.liquid, snippets/mini-account.liquid, snippets/sidebar-account.liquid, templates/customers[account].liquid, templates/customers[account].member.liquid, templates/customers[addresses].liquid, templates/customers[order].liquid but is not declared in config/settings_schema.json"
+              },
+              {
+                "rule": "SETTING_UNDECLARED",
+                "id": "lbl_address1",
+                "detail": "settings.lbl_address1 is read in templates/customers[addresses].liquid but is not declared in config/settings_schema.json"
+              },
+              {
+                "rule": "SETTING_UNDECLARED",
+                "id": "lbl_address2",
+                "detail": "settings.lbl_address2 is read in templates/customers[addresses].liquid but is not declared in config/settings_schema.json"
+              },
+              {
+                "rule": "SETTING_UNDECLARED",
+                "id": "lbl_company",
+                "detail": "settings.lbl_company is read in templates/customers[addresses].liquid but is not declared in config/settings_schema.json"
+              },
+              {
+                "rule": "SETTING_UNDECLARED",
+                "id": "lbl_first_name",
+                "detail": "settings.lbl_first_name is read in templates/customers[addresses].liquid but is not declared in config/settings_schema.json"
+              },
+              {
+                "rule": "SETTING_UNDECLARED",
+                "id": "lbl_last_name",
+                "detail": "settings.lbl_last_name is read in templates/customers[addresses].liquid but is not declared in config/settings_schema.json"
+              },
+              {
+                "rule": "SETTING_UNDECLARED",
+                "id": "lbl_phone",
+                "detail": "settings.lbl_phone is read in templates/customers[addresses].liquid but is not declared in config/settings_schema.json"
+              },
+              {
+                "rule": "SETTING_UNDECLARED",
+                "id": "loomline_index_form_title",
+                "detail": "settings.loomline_index_form_title is read in snippets/ll-index-form.liquid but is not declared in config/settings_schema.json"
+              },
+              {
+                "rule": "SETTING_UNDECLARED",
+                "id": "loomline_index_slider_1_alt",
+                "detail": "settings.loomline_index_slider_1_alt is read in snippets/ll-index-slider.liquid but is not declared in config/settings_schema.json"
+              },
+              {
+                "rule": "SETTING_UNDECLARED",
+                "id": "membercard_offer_link",
+                "detail": "settings.membercard_offer_link is read in templates/customers[account].member.liquid but is not declared in config/settings_schema.json"
+              },
+              {
+                "rule": "SETTING_UNDECLARED",
+                "id": "membercard_offer_show",
+                "detail": "settings.membercard_offer_show is read in templates/customers[account].member.liquid but is not declared in config/settings_schema.json"
+              },
+              {
+                "rule": "SETTING_UNDECLARED",
+                "id": "membercard_offer_title",
+                "detail": "settings.membercard_offer_title is read in templates/customers[account].member.liquid but is not declared in config/settings_schema.json"
+              },
+              {
+                "rule": "SETTING_UNDECLARED",
+                "id": "membercard_offer_txtlink",
+                "detail": "settings.membercard_offer_txtlink is read in templates/customers[account].member.liquid but is not declared in config/settings_schema.json"
+              },
+              {
+                "rule": "SETTING_UNDECLARED",
+                "id": "mini_cart_linkreturn",
+                "detail": "settings.mini_cart_linkreturn is read in snippets/mini-cart.liquid but is not declared in config/settings_schema.json"
+              },
+              {
+                "rule": "SETTING_UNDECLARED",
+                "id": "mini_cart_name",
+                "detail": "settings.mini_cart_name is read in snippets/mini-cart.liquid but is not declared in config/settings_schema.json"
+              },
+              {
+                "rule": "SETTING_UNDECLARED",
+                "id": "popup_promotion_title",
+                "detail": "settings.popup_promotion_title is read in snippets/popup-contact.liquid but is not declared in config/settings_schema.json"
+              },
+              {
+                "rule": "SETTING_UNDECLARED",
+                "id": "preorder_text_btn",
+                "detail": "settings.preorder_text_btn is read in snippets/modal-preorder.liquid, snippets/template-product-01.liquid, snippets/template-product-02.liquid, snippets/template-product-03.liquid, snippets/template-product-04.liquid, templates/product.quickview.liquid but is not declared in config/settings_schema.json"
+              },
+              {
+                "rule": "SETTING_UNDECLARED",
+                "id": "preorder_text_btn_popup",
+                "detail": "settings.preorder_text_btn_popup is read in snippets/modal-preorder.liquid, templates/product.quickview.liquid but is not declared in config/settings_schema.json"
+              },
+              {
+                "rule": "SETTING_UNDECLARED",
+                "id": "preorder_text_btn_prodloop",
+                "detail": "settings.preorder_text_btn_prodloop is read in snippets/product-loop--ctas.liquid, snippets/sidebar-action-product.liquid but is not declared in config/settings_schema.json"
+              },
+              {
+                "rule": "SETTING_UNDECLARED",
+                "id": "prod_resize_img",
+                "detail": "settings.prod_resize_img is read in snippets/product-loadding.liquid but is not declared in config/settings_schema.json"
+              },
+              {
+                "rule": "SETTING_UNDECLARED",
+                "id": "prod_vendor_show",
+                "detail": "settings.prod_vendor_show is read in snippets/template-product-01.liquid, snippets/template-product-02.liquid, snippets/template-product-03.liquid, snippets/template-product-04.liquid, templates/product.ll-quickview.liquid, templates/product.quickview.liquid but is not declared in config/settings_schema.json"
+              },
+              {
+                "rule": "SETTING_UNDECLARED",
+                "id": "product_banner_link",
+                "detail": "settings.product_banner_link is read in snippets/template-product-01.liquid but is not declared in config/settings_schema.json"
+              },
+              {
+                "rule": "SETTING_UNDECLARED",
+                "id": "product_banner_show",
+                "detail": "settings.product_banner_show is read in snippets/template-product-01.liquid but is not declared in config/settings_schema.json"
+              },
+              {
+                "rule": "SETTING_UNDECLARED",
+                "id": "product_contact_title",
+                "detail": "settings.product_contact_title is read in templates/product.ll-quickview.liquid, templates/product.quickview.liquid but is not declared in config/settings_schema.json"
+              },
+              {
+                "rule": "SETTING_UNDECLARED",
+                "id": "product_contact_url",
+                "detail": "settings.product_contact_url is read in templates/product.ll-quickview.liquid, templates/product.quickview.liquid but is not declared in config/settings_schema.json"
+              },
+              {
+                "rule": "SETTING_UNDECLARED",
+                "id": "product_grid_mobile",
+                "detail": "settings.product_grid_mobile is read in snippets/product-loop--ctas.liquid but is not declared in config/settings_schema.json"
+              },
+              {
+                "rule": "SETTING_UNDECLARED",
+                "id": "product_layout_style",
+                "detail": "settings.product_layout_style is read in snippets/footer-scripts.liquid, snippets/plugins-css.liquid but is not declared in config/settings_schema.json"
+              },
+              {
+                "rule": "SETTING_UNDECLARED",
+                "id": "shop_buying",
+                "detail": "settings.shop_buying is read in snippets/product-loop-horizontal.liquid, snippets/template-product-01.liquid, snippets/template-product-02.liquid, snippets/template-product-03.liquid, snippets/template-product-04.liquid, templates/product.quickview.liquid but is not declared in config/settings_schema.json"
+              },
+              {
+                "rule": "SETTING_UNDECLARED",
+                "id": "shop_main_color",
+                "detail": "settings.shop_main_color is read in snippets/mini-location.liquid but is not declared in config/settings_schema.json"
+              },
+              {
+                "rule": "SETTING_UNDECLARED",
+                "id": "show_fanpage_faceook",
+                "detail": "settings.show_fanpage_faceook is read in snippets/facebook-widget.liquid but is not declared in config/settings_schema.json"
+              },
+              {
+                "rule": "SETTING_UNDECLARED",
+                "id": "slide_1_btn",
+                "detail": "settings.slide_1_btn is read in snippets/homepage-slider.liquid but is not declared in config/settings_schema.json"
+              },
+              {
+                "rule": "SETTING_UNDECLARED",
+                "id": "slide_1_desc",
+                "detail": "settings.slide_1_desc is read in snippets/homepage-slider.liquid but is not declared in config/settings_schema.json"
+              },
+              {
+                "rule": "SETTING_UNDECLARED",
+                "id": "slide_1_link",
+                "detail": "settings.slide_1_link is read in snippets/homepage-slider.liquid but is not declared in config/settings_schema.json"
+              },
+              {
+                "rule": "SETTING_UNDECLARED",
+                "id": "slide_1_title",
+                "detail": "settings.slide_1_title is read in snippets/homepage-slider.liquid but is not declared in config/settings_schema.json"
+              },
+              {
+                "rule": "SETTING_UNDECLARED",
+                "id": "tagsize_title",
+                "detail": "settings.tagsize_title is read in snippets/modal-sizeguide.liquid but is not declared in config/settings_schema.json"
+              }
+            ]
+          },
+          {
+            "check": "assets",
+            "failures": [
+              {
+                "rule": "ASSET_MISSING_LOCAL",
+                "ref": "blogs_banner_paralax.jpg",
+                "files": [
+                  "templates/article.liquid"
+                ]
+              },
+              {
+                "rule": "ASSET_MISSING_LOCAL",
+                "ref": "home_coll_1_banner.jpg",
+                "files": [
+                  "snippets/home-collection-tabs.liquid"
+                ]
+              },
+              {
+                "rule": "ASSET_MISSING_LOCAL",
+                "ref": "home_collection_banner.jpg",
+                "files": [
+                  "snippets/homepage-collection.liquid"
+                ]
+              },
+              {
+                "rule": "ASSET_MISSING_LOCAL",
+                "ref": "loomline_index_form_img.jpg",
+                "files": [
+                  "snippets/ll-index-form.liquid"
+                ]
+              },
+              {
+                "rule": "ASSET_MISSING_LOCAL",
+                "ref": "slide_1_img.jpg",
+                "files": [
+                  "snippets/homepage-slider.liquid"
+                ]
+              },
+              {
+                "rule": "ASSET_MISSING_LOCAL",
+                "ref": "slide_1_img_mb.jpg",
+                "files": [
+                  "snippets/homepage-slider.liquid"
+                ]
+              }
+            ]
+          }
+        ],
+        "counts": {
+          "schemas": 0,
+          "settingsBinding": 95,
+          "assets": 6,
+          "renders": 14
+        }
+      },
+      "stdoutTail": [
+        "[theme-checks] theme=E:\\Work\\customizes\\Phukienmaymoc",
+        "[theme-checks] schema: schemaFiles=1 sections=0 failures=0",
+        "[theme-checks] settings: undeclared=95 dead=1267 failures=95",
+        "[theme-checks] assets: localPresent=78 localMissing=6 remote=0",
+        "[theme-checks] render 404__1024x900.html: ok=true failures=0",
+        "[theme-checks] render 404__1440x900.html: ok=true failures=0",
+        "[theme-checks] render 404__390x844.html: ok=true failures=0",
+        "[theme-checks] render article__390x844.html: ok=true failures=0",
+        "[theme-checks] render cart__1024x900.html: ok=true failures=0",
+        "[theme-checks] render cart__390x844.html: ok=true failures=0",
+        "[theme-checks] render collection__1024x900.html: ok=true failures=0",
+        "[theme-checks] render collection__1440x900.html: ok=true failures=0",
+        "[theme-checks] render collection__390x844.html: ok=true failures=0",
+        "[theme-checks] render home__390x844.html: ok=true failures=0",
+        "[theme-checks] render product__1024x900.html: ok=true failures=0",
+        "[theme-checks] render product__390x844.html: ok=true failures=0",
+        "[theme-checks] render search__1024x900.html: ok=true failures=0",
+        "[theme-checks] render search__390x844.html: ok=true failures=0",
+        "[theme-checks] report -> E:\\Work\\apps\\AntiFan\\.canary\\theme-fidelity-run4\\structural.json"
+      ],
+      "stderrTail": [
+        "[theme-checks] REFUSED (exit 3): settings-binding, assets"
+      ]
+    },
+    "structural": {
+      "file": "structural.json",
+      "sha256": "2cd1143f16e7f97decd1729b7b7f432c5b694dcacf1aec1d828e38b1f1d655e0",
+      "ok": false,
+      "generatedAt": "2026-09-11T01:08:14.461Z"
+    }
+  },
+  "viewports": [
+    "1440x900",
+    "1024x900",
+    "390x844"
+  ],
+  "targets": [
+    {
+      "name": "home",
+      "kind": "surface",
+      "slug": "home",
+      "template": null,
+      "sourceUrl": "https://phukienmaymoc.com/",
+      "urls": {
+        "copy": "https://phukienmaymoc.com/?themeid=1001512581",
+        "live": "https://phukienmaymoc.com/?themeid=-1",
+        "subject": "https://phukienmaymoc.com/?themeid=1001512581"
+      }
+    },
+    {
+      "name": "product",
+      "kind": "surface",
+      "slug": "product",
+      "template": null,
+      "sourceUrl": "https://phukienmaymoc.com/products/ong-han-laser",
+      "urls": {
+        "copy": "https://phukienmaymoc.com/products/ong-han-laser?themeid=1001512581",
+        "live": "https://phukienmaymoc.com/products/ong-han-laser?themeid=-1",
+        "subject": "https://phukienmaymoc.com/products/ong-han-laser?themeid=1001512581"
+      }
+    },
+    {
+      "name": "collection",
+      "kind": "surface",
+      "slug": "collection",
+      "template": null,
+      "sourceUrl": "https://phukienmaymoc.com/collections/phu-kien-han",
+      "urls": {
+        "copy": "https://phukienmaymoc.com/collections/phu-kien-han?themeid=1001512581",
+        "live": "https://phukienmaymoc.com/collections/phu-kien-han?themeid=-1",
+        "subject": "https://phukienmaymoc.com/collections/phu-kien-han?themeid=1001512581"
+      }
+    },
+    {
+      "name": "article",
+      "kind": "surface",
+      "slug": "article",
+      "template": null,
+      "sourceUrl": "https://phukienmaymoc.com/blogs/news/plc-la-gi-cau-tao-nguyen-ly-hoat-dong",
+      "urls": {
+        "copy": "https://phukienmaymoc.com/blogs/news/plc-la-gi-cau-tao-nguyen-ly-hoat-dong?themeid=1001512581",
+        "live": "https://phukienmaymoc.com/blogs/news/plc-la-gi-cau-tao-nguyen-ly-hoat-dong?themeid=-1",
+        "subject": "https://phukienmaymoc.com/blogs/news/plc-la-gi-cau-tao-nguyen-ly-hoat-dong?themeid=1001512581"
+      }
+    },
+    {
+      "name": "cart",
+      "kind": "surface",
+      "slug": "cart",
+      "template": null,
+      "sourceUrl": "https://phukienmaymoc.com/cart",
+      "urls": {
+        "copy": "https://phukienmaymoc.com/cart?themeid=1001512581",
+        "live": "https://phukienmaymoc.com/cart?themeid=-1",
+        "subject": "https://phukienmaymoc.com/cart?themeid=1001512581"
+      }
+    },
+    {
+      "name": "search",
+      "kind": "surface",
+      "slug": "search",
+      "template": null,
+      "sourceUrl": "https://phukienmaymoc.com/search?q=laser",
+      "urls": {
+        "copy": "https://phukienmaymoc.com/search?q=laser&themeid=1001512581",
+        "live": "https://phukienmaymoc.com/search?q=laser&themeid=-1",
+        "subject": "https://phukienmaymoc.com/search?q=laser&themeid=1001512581"
+      }
+    },
+    {
+      "name": "404",
+      "kind": "surface",
+      "slug": "404",
+      "template": null,
+      "sourceUrl": "https://phukienmaymoc.com/khong-ton-tai-404-probe-xyz",
+      "urls": {
+        "copy": "https://phukienmaymoc.com/khong-ton-tai-404-probe-xyz?themeid=1001512581",
+        "live": "https://phukienmaymoc.com/khong-ton-tai-404-probe-xyz?themeid=-1",
+        "subject": "https://phukienmaymoc.com/khong-ton-tai-404-probe-xyz?themeid=1001512581"
+      }
+    }
+  ],
+  "expectedPairCount": 21,
+  "surfaceMatrix": [
+    {
+      "name": "home",
+      "kind": "surface",
+      "template": null,
+      "sourceUrl": "https://phukienmaymoc.com/",
+      "urls": {
+        "copy": "https://phukienmaymoc.com/?themeid=1001512581",
+        "live": "https://phukienmaymoc.com/?themeid=-1",
+        "subject": "https://phukienmaymoc.com/?themeid=1001512581"
+      },
+      "viewports": [
+        {
+          "viewport": "1440x900",
+          "verdicts": {
+            "r1-vs-subject": {
+              "verdict": null,
+              "status": "NOT_MEASURED",
+              "mechanism": null,
+              "mismatchPercentage": null,
+              "file": null,
+              "reason": "the verdict set refused (PROVENANCE_UNRESOLVED)"
+            },
+            "r2-vs-subject": {
+              "verdict": null,
+              "status": "NOT_MEASURED",
+              "mechanism": null,
+              "mismatchPercentage": null,
+              "file": null,
+              "reason": "the verdict set refused (PROVENANCE_UNRESOLVED)"
+            }
+          },
+          "referenceIdentity": {
+            "r1": {
+              "status": "CAPTURED",
+              "method": "pinned capture",
+              "capturedAt": "2026-09-11T00:29:05.824Z",
+              "url": "https://phukienmaymoc.com/?themeid=1001512581",
+              "themeId": 1001512581,
+              "domDigest": "1a6d9a562b919eda6ee3deda746fe73237e10133432eae2cc077db699cfc1fbc",
+              "pinnedDocHeight": 7532,
+              "measuredDocHeight": null,
+              "driftPx": null,
+              "pngSha256": "14b8d7e29944d9f1c4f28330e1c345eefa60e5b483b0dda7ad7b6062472adc76",
+              "file": "r1/home__1440x900.json"
+            },
+            "r2": {
+              "status": "CAPTURED",
+              "method": "pinned capture",
+              "capturedAt": "2026-09-11T00:35:32.527Z",
+              "url": "https://phukienmaymoc.com/?themeid=-1",
+              "themeId": -1,
+              "domDigest": "aa2508becc9aff880bdf1db9a44ba97f1ca6fa24c7cabf3f52fc8a212c477474",
+              "pinnedDocHeight": 5426,
+              "measuredDocHeight": null,
+              "driftPx": null,
+              "pngSha256": "03c7e32f1b6a925f54021842cb682645b4c4b63c1a545e883d1fa0303d0a3f81",
+              "file": "r2/home__1440x900.json"
+            }
+          },
+          "structural": null,
+          "captureProvenance": {
+            "r1": {
+              "status": "CAPTURED",
+              "capturedAt": "2026-09-11T00:29:05.824Z",
+              "instancePid": 21236,
+              "runId": "run-80f7f33d-d3a5-4267-af5e-007cbfe48f59",
+              "url": "https://phukienmaymoc.com/?themeid=1001512581",
+              "themeId": 1001512581
+            },
+            "r2": {
+              "status": "CAPTURED",
+              "capturedAt": "2026-09-11T00:35:32.527Z",
+              "instancePid": 21236,
+              "runId": "run-6eaaca64-6f9f-4904-9111-b1211796edec",
+              "url": "https://phukienmaymoc.com/?themeid=-1",
+              "themeId": -1
+            },
+            "subject": {
+              "status": "NOT_MEASURABLE",
+              "capturedAt": null,
+              "instancePid": null,
+              "runId": null,
+              "url": "https://phukienmaymoc.com/?themeid=1001512581",
+              "themeId": null
+            }
+          }
+        },
+        {
+          "viewport": "1024x900",
+          "verdicts": {
+            "r1-vs-subject": {
+              "verdict": null,
+              "status": "NOT_MEASURED",
+              "mechanism": null,
+              "mismatchPercentage": null,
+              "file": null,
+              "reason": "the verdict set refused (PROVENANCE_UNRESOLVED)"
+            },
+            "r2-vs-subject": {
+              "verdict": null,
+              "status": "NOT_MEASURED",
+              "mechanism": null,
+              "mismatchPercentage": null,
+              "file": null,
+              "reason": "the verdict set refused (PROVENANCE_UNRESOLVED)"
+            }
+          },
+          "referenceIdentity": {
+            "r1": {
+              "status": "CAPTURED",
+              "method": "pinned capture",
+              "capturedAt": "2026-09-11T00:29:22.107Z",
+              "url": "https://phukienmaymoc.com/?themeid=1001512581",
+              "themeId": 1001512581,
+              "domDigest": "e9c5dbc10666757f3c41e00d27975d3c3ca2666e23c04b03d15b61557792aa0b",
+              "pinnedDocHeight": 7547,
+              "measuredDocHeight": null,
+              "driftPx": null,
+              "pngSha256": "cda96e92d1cc33bfbad0c7a7296a00cb94feaeb89be39c0cc05de94424d93f3c",
+              "file": "r1/home__1024x900.json"
+            },
+            "r2": {
+              "status": "CAPTURED",
+              "method": "pinned capture",
+              "capturedAt": "2026-09-11T00:35:47.777Z",
+              "url": "https://phukienmaymoc.com/?themeid=-1",
+              "themeId": -1,
+              "domDigest": "7e14dbd82b81f1c829b2ab7f23ed161fe20b34ecd5b9c6bdcfa9c30c13dcc594",
+              "pinnedDocHeight": 5591,
+              "measuredDocHeight": null,
+              "driftPx": null,
+              "pngSha256": "fa990216934214504df304a499dc9afd9c2f44a066952d6e0ce329e065b012d4",
+              "file": "r2/home__1024x900.json"
+            }
+          },
+          "structural": null,
+          "captureProvenance": {
+            "r1": {
+              "status": "CAPTURED",
+              "capturedAt": "2026-09-11T00:29:22.107Z",
+              "instancePid": 21236,
+              "runId": "run-80f7f33d-d3a5-4267-af5e-007cbfe48f59",
+              "url": "https://phukienmaymoc.com/?themeid=1001512581",
+              "themeId": 1001512581
+            },
+            "r2": {
+              "status": "CAPTURED",
+              "capturedAt": "2026-09-11T00:35:47.777Z",
+              "instancePid": 21236,
+              "runId": "run-6eaaca64-6f9f-4904-9111-b1211796edec",
+              "url": "https://phukienmaymoc.com/?themeid=-1",
+              "themeId": -1
+            },
+            "subject": {
+              "status": "NOT_MEASURABLE",
+              "capturedAt": null,
+              "instancePid": null,
+              "runId": null,
+              "url": "https://phukienmaymoc.com/?themeid=1001512581",
+              "themeId": null
+            }
+          }
+        },
+        {
+          "viewport": "390x844",
+          "verdicts": {
+            "r1-vs-subject": {
+              "verdict": null,
+              "status": "NOT_MEASURED",
+              "mechanism": null,
+              "mismatchPercentage": null,
+              "file": null,
+              "reason": "the verdict set refused (PROVENANCE_UNRESOLVED)"
+            },
+            "r2-vs-subject": {
+              "verdict": null,
+              "status": "NOT_MEASURED",
+              "mechanism": null,
+              "mismatchPercentage": null,
+              "file": null,
+              "reason": "the verdict set refused (PROVENANCE_UNRESOLVED)"
+            }
+          },
+          "referenceIdentity": {
+            "r1": {
+              "status": "CAPTURED",
+              "method": "pinned capture",
+              "capturedAt": "2026-09-11T00:29:44.037Z",
+              "url": "https://phukienmaymoc.com/?themeid=1001512581",
+              "themeId": 1001512581,
+              "domDigest": "7f4ab687bd7cc647eab50483265a01572c315a11b69b512d140823d70c0d0925",
+              "pinnedDocHeight": 9059,
+              "measuredDocHeight": null,
+              "driftPx": null,
+              "pngSha256": "6afc5f0532f3e1f9ddef7dbb851bdef1eab7fd18f732c0ca54fda8b813b8550d",
+              "file": "r1/home__390x844.json"
+            },
+            "r2": {
+              "status": "CAPTURED",
+              "method": "pinned capture",
+              "capturedAt": "2026-09-11T00:36:22.295Z",
+              "url": "https://phukienmaymoc.com/?themeid=-1",
+              "themeId": -1,
+              "domDigest": "ee85055217f6beaf9ff5e997d2e0b9cdbddb2bdac9c914174f602ffb653e0827",
+              "pinnedDocHeight": 8790,
+              "measuredDocHeight": null,
+              "driftPx": null,
+              "pngSha256": "8a4b277a2083aead4fb227135729286dc2742860380c29a0efaa69e97d24a5ca",
+              "file": "r2/home__390x844.json"
+            }
+          },
+          "structural": {
+            "file": "home__390x844.html",
+            "ok": true,
+            "failures": []
+          },
+          "captureProvenance": {
+            "r1": {
+              "status": "CAPTURED",
+              "capturedAt": "2026-09-11T00:29:44.037Z",
+              "instancePid": 21236,
+              "runId": "run-80f7f33d-d3a5-4267-af5e-007cbfe48f59",
+              "url": "https://phukienmaymoc.com/?themeid=1001512581",
+              "themeId": 1001512581
+            },
+            "r2": {
+              "status": "CAPTURED",
+              "capturedAt": "2026-09-11T00:36:22.295Z",
+              "instancePid": 21236,
+              "runId": "run-6eaaca64-6f9f-4904-9111-b1211796edec",
+              "url": "https://phukienmaymoc.com/?themeid=-1",
+              "themeId": -1
+            },
+            "subject": {
+              "status": "CAPTURED",
+              "capturedAt": "2026-09-11T01:02:07.367Z",
+              "instancePid": 21236,
+              "runId": "run-ba23a030-9f66-40ac-a3c8-c3e77b4bfb50",
+              "url": "https://phukienmaymoc.com/?themeid=1001512581",
+              "themeId": 1001512581
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "product",
+      "kind": "surface",
+      "template": null,
+      "sourceUrl": "https://phukienmaymoc.com/products/ong-han-laser",
+      "urls": {
+        "copy": "https://phukienmaymoc.com/products/ong-han-laser?themeid=1001512581",
+        "live": "https://phukienmaymoc.com/products/ong-han-laser?themeid=-1",
+        "subject": "https://phukienmaymoc.com/products/ong-han-laser?themeid=1001512581"
+      },
+      "viewports": [
+        {
+          "viewport": "1440x900",
+          "verdicts": {
+            "r1-vs-subject": {
+              "verdict": null,
+              "status": "NOT_MEASURED",
+              "mechanism": null,
+              "mismatchPercentage": null,
+              "file": null,
+              "reason": "the verdict set refused (PROVENANCE_UNRESOLVED)"
+            },
+            "r2-vs-subject": {
+              "verdict": null,
+              "status": "NOT_MEASURED",
+              "mechanism": null,
+              "mismatchPercentage": null,
+              "file": null,
+              "reason": "the verdict set refused (PROVENANCE_UNRESOLVED)"
+            }
+          },
+          "referenceIdentity": {
+            "r1": {
+              "status": "CAPTURED",
+              "method": "pinned capture",
+              "capturedAt": "2026-09-11T00:30:00.678Z",
+              "url": "https://phukienmaymoc.com/products/ong-han-laser?themeid=1001512581",
+              "themeId": 1001512581,
+              "domDigest": "e8451e778af19fa19e655e2c75c4fb8a660d28c80a5eada37fce3f98ee2c7838",
+              "pinnedDocHeight": 4749,
+              "measuredDocHeight": null,
+              "driftPx": null,
+              "pngSha256": "4ae5d3b5f1419113fd1c6fb07530508c8e8135eed79d5d1bb361cf4c20a2d107",
+              "file": "r1/product__1440x900.json"
+            },
+            "r2": {
+              "status": "CAPTURED",
+              "method": "pinned capture",
+              "capturedAt": "2026-09-11T00:36:36.483Z",
+              "url": "https://phukienmaymoc.com/products/ong-han-laser?themeid=-1",
+              "themeId": -1,
+              "domDigest": "7bc6aff7b1e7769411baa1d97ef9821361c7664f71e5e77d34c944e40604513a",
+              "pinnedDocHeight": 2586,
+              "measuredDocHeight": null,
+              "driftPx": null,
+              "pngSha256": "58ed896aa25ed03091b29f429b0c8832100fc752729ae07797132937176405a4",
+              "file": "r2/product__1440x900.json"
+            }
+          },
+          "structural": null,
+          "captureProvenance": {
+            "r1": {
+              "status": "CAPTURED",
+              "capturedAt": "2026-09-11T00:30:00.678Z",
+              "instancePid": 21236,
+              "runId": "run-80f7f33d-d3a5-4267-af5e-007cbfe48f59",
+              "url": "https://phukienmaymoc.com/products/ong-han-laser?themeid=1001512581",
+              "themeId": 1001512581
+            },
+            "r2": {
+              "status": "CAPTURED",
+              "capturedAt": "2026-09-11T00:36:36.483Z",
+              "instancePid": 21236,
+              "runId": "run-6eaaca64-6f9f-4904-9111-b1211796edec",
+              "url": "https://phukienmaymoc.com/products/ong-han-laser?themeid=-1",
+              "themeId": -1
+            },
+            "subject": {
+              "status": "NOT_MEASURABLE",
+              "capturedAt": null,
+              "instancePid": null,
+              "runId": null,
+              "url": "https://phukienmaymoc.com/products/ong-han-laser?themeid=1001512581",
+              "themeId": null
+            }
+          }
+        },
+        {
+          "viewport": "1024x900",
+          "verdicts": {
+            "r1-vs-subject": {
+              "verdict": null,
+              "status": "NOT_MEASURED",
+              "mechanism": null,
+              "mismatchPercentage": null,
+              "file": null,
+              "reason": "the verdict set refused (PROVENANCE_UNRESOLVED)"
+            },
+            "r2-vs-subject": {
+              "verdict": null,
+              "status": "NOT_MEASURED",
+              "mechanism": null,
+              "mismatchPercentage": null,
+              "file": null,
+              "reason": "the verdict set refused (PROVENANCE_UNRESOLVED)"
+            }
+          },
+          "referenceIdentity": {
+            "r1": {
+              "status": "CAPTURED",
+              "method": "pinned capture",
+              "capturedAt": "2026-09-11T00:30:17.651Z",
+              "url": "https://phukienmaymoc.com/products/ong-han-laser?themeid=1001512581",
+              "themeId": 1001512581,
+              "domDigest": "1de2397ab865e995725fcdb22027ff1471b48c3964b44412663d221d380cfec4",
+              "pinnedDocHeight": 5371,
+              "measuredDocHeight": null,
+              "driftPx": null,
+              "pngSha256": "49fef3cbb2212011194babd824d53d08b8f59a9b20d6b223187ccc306c8867ee",
+              "file": "r1/product__1024x900.json"
+            },
+            "r2": {
+              "status": "CAPTURED",
+              "method": "pinned capture",
+              "capturedAt": "2026-09-11T00:36:49.410Z",
+              "url": "https://phukienmaymoc.com/products/ong-han-laser?themeid=-1",
+              "themeId": -1,
+              "domDigest": "7bc6aff7b1e7769411baa1d97ef9821361c7664f71e5e77d34c944e40604513a",
+              "pinnedDocHeight": 2855,
+              "measuredDocHeight": null,
+              "driftPx": null,
+              "pngSha256": "98f2e9cce38dff63a04ab8262943ab77c4e8c9c51a4e9d1d1e5359a3ff41cdd9",
+              "file": "r2/product__1024x900.json"
+            }
+          },
+          "structural": {
+            "file": "product__1024x900.html",
+            "ok": true,
+            "failures": []
+          },
+          "captureProvenance": {
+            "r1": {
+              "status": "CAPTURED",
+              "capturedAt": "2026-09-11T00:30:17.651Z",
+              "instancePid": 21236,
+              "runId": "run-80f7f33d-d3a5-4267-af5e-007cbfe48f59",
+              "url": "https://phukienmaymoc.com/products/ong-han-laser?themeid=1001512581",
+              "themeId": 1001512581
+            },
+            "r2": {
+              "status": "CAPTURED",
+              "capturedAt": "2026-09-11T00:36:49.410Z",
+              "instancePid": 21236,
+              "runId": "run-6eaaca64-6f9f-4904-9111-b1211796edec",
+              "url": "https://phukienmaymoc.com/products/ong-han-laser?themeid=-1",
+              "themeId": -1
+            },
+            "subject": {
+              "status": "CAPTURED",
+              "capturedAt": "2026-09-11T01:02:34.216Z",
+              "instancePid": 21236,
+              "runId": "run-ba23a030-9f66-40ac-a3c8-c3e77b4bfb50",
+              "url": "https://phukienmaymoc.com/products/ong-han-laser?themeid=1001512581",
+              "themeId": 1001512581
+            }
+          }
+        },
+        {
+          "viewport": "390x844",
+          "verdicts": {
+            "r1-vs-subject": {
+              "verdict": null,
+              "status": "NOT_MEASURED",
+              "mechanism": null,
+              "mismatchPercentage": null,
+              "file": null,
+              "reason": "the verdict set refused (PROVENANCE_UNRESOLVED)"
+            },
+            "r2-vs-subject": {
+              "verdict": null,
+              "status": "NOT_MEASURED",
+              "mechanism": null,
+              "mismatchPercentage": null,
+              "file": null,
+              "reason": "the verdict set refused (PROVENANCE_UNRESOLVED)"
+            }
+          },
+          "referenceIdentity": {
+            "r1": {
+              "status": "CAPTURED",
+              "method": "pinned capture",
+              "capturedAt": "2026-09-11T00:30:39.803Z",
+              "url": "https://phukienmaymoc.com/products/ong-han-laser?themeid=1001512581",
+              "themeId": 1001512581,
+              "domDigest": "c48f3e281859b5b8e37cfcbe440a45780366f9de99cc75af0d7ba28b1d9e9a05",
+              "pinnedDocHeight": 4235,
+              "measuredDocHeight": null,
+              "driftPx": null,
+              "pngSha256": "e2a188d73e7a0c770da9b85b0ff7c67bb443298f132082bdc92dd1599b3a55de",
+              "file": "r1/product__390x844.json"
+            },
+            "r2": {
+              "status": "CAPTURED",
+              "method": "pinned capture",
+              "capturedAt": "2026-09-11T00:37:10.067Z",
+              "url": "https://phukienmaymoc.com/products/ong-han-laser?themeid=-1",
+              "themeId": -1,
+              "domDigest": "b039a136237e0491c7cc2f76824b58c7ceb329ab5cb64d24f5382ba34c39505d",
+              "pinnedDocHeight": 5023,
+              "measuredDocHeight": null,
+              "driftPx": null,
+              "pngSha256": "eafed72f29ffbe4b7d5606e0e847a0858f64d82dcf6cbde0d519d4a4bd6436ec",
+              "file": "r2/product__390x844.json"
+            }
+          },
+          "structural": {
+            "file": "product__390x844.html",
+            "ok": true,
+            "failures": []
+          },
+          "captureProvenance": {
+            "r1": {
+              "status": "CAPTURED",
+              "capturedAt": "2026-09-11T00:30:39.803Z",
+              "instancePid": 21236,
+              "runId": "run-80f7f33d-d3a5-4267-af5e-007cbfe48f59",
+              "url": "https://phukienmaymoc.com/products/ong-han-laser?themeid=1001512581",
+              "themeId": 1001512581
+            },
+            "r2": {
+              "status": "CAPTURED",
+              "capturedAt": "2026-09-11T00:37:10.067Z",
+              "instancePid": 21236,
+              "runId": "run-6eaaca64-6f9f-4904-9111-b1211796edec",
+              "url": "https://phukienmaymoc.com/products/ong-han-laser?themeid=-1",
+              "themeId": -1
+            },
+            "subject": {
+              "status": "CAPTURED",
+              "capturedAt": "2026-09-11T01:02:54.594Z",
+              "instancePid": 21236,
+              "runId": "run-ba23a030-9f66-40ac-a3c8-c3e77b4bfb50",
+              "url": "https://phukienmaymoc.com/products/ong-han-laser?themeid=1001512581",
+              "themeId": 1001512581
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "collection",
+      "kind": "surface",
+      "template": null,
+      "sourceUrl": "https://phukienmaymoc.com/collections/phu-kien-han",
+      "urls": {
+        "copy": "https://phukienmaymoc.com/collections/phu-kien-han?themeid=1001512581",
+        "live": "https://phukienmaymoc.com/collections/phu-kien-han?themeid=-1",
+        "subject": "https://phukienmaymoc.com/collections/phu-kien-han?themeid=1001512581"
+      },
+      "viewports": [
+        {
+          "viewport": "1440x900",
+          "verdicts": {
+            "r1-vs-subject": {
+              "verdict": null,
+              "status": "NOT_MEASURED",
+              "mechanism": null,
+              "mismatchPercentage": null,
+              "file": null,
+              "reason": "the verdict set refused (PROVENANCE_UNRESOLVED)"
+            },
+            "r2-vs-subject": {
+              "verdict": null,
+              "status": "NOT_MEASURED",
+              "mechanism": null,
+              "mismatchPercentage": null,
+              "file": null,
+              "reason": "the verdict set refused (PROVENANCE_UNRESOLVED)"
+            }
+          },
+          "referenceIdentity": {
+            "r1": {
+              "status": "CAPTURED",
+              "method": "pinned capture",
+              "capturedAt": "2026-09-11T00:30:56.683Z",
+              "url": "https://phukienmaymoc.com/collections/phu-kien-han?themeid=1001512581",
+              "themeId": 1001512581,
+              "domDigest": "e8b46f983e6db901781f8af330bb92d09672f97ed0205777c13348bcb04f4a95",
+              "pinnedDocHeight": 4117,
+              "measuredDocHeight": null,
+              "driftPx": null,
+              "pngSha256": "0649ff00220298fe1f365aa5386d08d27f02794500a096b438228e7b5bedf5b4",
+              "file": "r1/collection__1440x900.json"
+            },
+            "r2": {
+              "status": "CAPTURED",
+              "method": "pinned capture",
+              "capturedAt": "2026-09-11T00:37:23.094Z",
+              "url": "https://phukienmaymoc.com/collections/phu-kien-han?themeid=-1",
+              "themeId": -1,
+              "domDigest": "893e0e4618dd6c898bc5ce0e45b2baa621d8d58a9817be403dcf69611740020e",
+              "pinnedDocHeight": 1257,
+              "measuredDocHeight": null,
+              "driftPx": null,
+              "pngSha256": "4eb5fa410c80cb0e5cc6480960784249af96cf824851f6dab7ffec6bb37621e0",
+              "file": "r2/collection__1440x900.json"
+            }
+          },
+          "structural": {
+            "file": "collection__1440x900.html",
+            "ok": true,
+            "failures": []
+          },
+          "captureProvenance": {
+            "r1": {
+              "status": "CAPTURED",
+              "capturedAt": "2026-09-11T00:30:56.683Z",
+              "instancePid": 21236,
+              "runId": "run-80f7f33d-d3a5-4267-af5e-007cbfe48f59",
+              "url": "https://phukienmaymoc.com/collections/phu-kien-han?themeid=1001512581",
+              "themeId": 1001512581
+            },
+            "r2": {
+              "status": "CAPTURED",
+              "capturedAt": "2026-09-11T00:37:23.094Z",
+              "instancePid": 21236,
+              "runId": "run-6eaaca64-6f9f-4904-9111-b1211796edec",
+              "url": "https://phukienmaymoc.com/collections/phu-kien-han?themeid=-1",
+              "themeId": -1
+            },
+            "subject": {
+              "status": "CAPTURED",
+              "capturedAt": "2026-09-11T01:03:09.257Z",
+              "instancePid": 21236,
+              "runId": "run-ba23a030-9f66-40ac-a3c8-c3e77b4bfb50",
+              "url": "https://phukienmaymoc.com/collections/phu-kien-han?themeid=1001512581",
+              "themeId": 1001512581
+            }
+          }
+        },
+        {
+          "viewport": "1024x900",
+          "verdicts": {
+            "r1-vs-subject": {
+              "verdict": null,
+              "status": "NOT_MEASURED",
+              "mechanism": null,
+              "mismatchPercentage": null,
+              "file": null,
+              "reason": "the verdict set refused (PROVENANCE_UNRESOLVED)"
+            },
+            "r2-vs-subject": {
+              "verdict": null,
+              "status": "NOT_MEASURED",
+              "mechanism": null,
+              "mismatchPercentage": null,
+              "file": null,
+              "reason": "the verdict set refused (PROVENANCE_UNRESOLVED)"
+            }
+          },
+          "referenceIdentity": {
+            "r1": {
+              "status": "CAPTURED",
+              "method": "pinned capture",
+              "capturedAt": "2026-09-11T00:31:13.002Z",
+              "url": "https://phukienmaymoc.com/collections/phu-kien-han?themeid=1001512581",
+              "themeId": 1001512581,
+              "domDigest": "9a45588a83a115ba12e76b9ddb2f9edd9dc49f7e0397c8febc4b440f1bb92489",
+              "pinnedDocHeight": 3798,
+              "measuredDocHeight": null,
+              "driftPx": null,
+              "pngSha256": "d686d45ebd26aeebeed4f36ce595b078cde5c4de2a653e7980df2fa73a6eba4c",
+              "file": "r1/collection__1024x900.json"
+            },
+            "r2": {
+              "status": "CAPTURED",
+              "method": "pinned capture",
+              "capturedAt": "2026-09-11T00:37:35.939Z",
+              "url": "https://phukienmaymoc.com/collections/phu-kien-han?themeid=-1",
+              "themeId": -1,
+              "domDigest": "927b653c25e5c92f6cba9a020da753cfc5190468a565eb1931e4d6650e428c90",
+              "pinnedDocHeight": 1307,
+              "measuredDocHeight": null,
+              "driftPx": null,
+              "pngSha256": "f1b1b8ad35f250114d6aa27a5d38440f43c09c29b3b83de3a4433ffed6b9506e",
+              "file": "r2/collection__1024x900.json"
+            }
+          },
+          "structural": {
+            "file": "collection__1024x900.html",
+            "ok": true,
+            "failures": []
+          },
+          "captureProvenance": {
+            "r1": {
+              "status": "CAPTURED",
+              "capturedAt": "2026-09-11T00:31:13.002Z",
+              "instancePid": 21236,
+              "runId": "run-80f7f33d-d3a5-4267-af5e-007cbfe48f59",
+              "url": "https://phukienmaymoc.com/collections/phu-kien-han?themeid=1001512581",
+              "themeId": 1001512581
+            },
+            "r2": {
+              "status": "CAPTURED",
+              "capturedAt": "2026-09-11T00:37:35.939Z",
+              "instancePid": 21236,
+              "runId": "run-6eaaca64-6f9f-4904-9111-b1211796edec",
+              "url": "https://phukienmaymoc.com/collections/phu-kien-han?themeid=-1",
+              "themeId": -1
+            },
+            "subject": {
+              "status": "CAPTURED",
+              "capturedAt": "2026-09-11T01:03:25.418Z",
+              "instancePid": 21236,
+              "runId": "run-ba23a030-9f66-40ac-a3c8-c3e77b4bfb50",
+              "url": "https://phukienmaymoc.com/collections/phu-kien-han?themeid=1001512581",
+              "themeId": 1001512581
+            }
+          }
+        },
+        {
+          "viewport": "390x844",
+          "verdicts": {
+            "r1-vs-subject": {
+              "verdict": null,
+              "status": "NOT_MEASURED",
+              "mechanism": null,
+              "mismatchPercentage": null,
+              "file": null,
+              "reason": "the verdict set refused (PROVENANCE_UNRESOLVED)"
+            },
+            "r2-vs-subject": {
+              "verdict": null,
+              "status": "NOT_MEASURED",
+              "mechanism": null,
+              "mismatchPercentage": null,
+              "file": null,
+              "reason": "the verdict set refused (PROVENANCE_UNRESOLVED)"
+            }
+          },
+          "referenceIdentity": {
+            "r1": {
+              "status": "CAPTURED",
+              "method": "pinned capture",
+              "capturedAt": "2026-09-11T00:31:34.940Z",
+              "url": "https://phukienmaymoc.com/collections/phu-kien-han?themeid=1001512581",
+              "themeId": 1001512581,
+              "domDigest": "ffdcc445ba533c1488f9e6a199fe975e7e22f19d62dee98826f2c68a41d802a2",
+              "pinnedDocHeight": 2604,
+              "measuredDocHeight": null,
+              "driftPx": null,
+              "pngSha256": "bc391c907132ec70f01cda1607fb24ecbf70fc3e480413d71464545f50060ec4",
+              "file": "r1/collection__390x844.json"
+            },
+            "r2": {
+              "status": "CAPTURED",
+              "method": "pinned capture",
+              "capturedAt": "2026-09-11T00:37:56.573Z",
+              "url": "https://phukienmaymoc.com/collections/phu-kien-han?themeid=-1",
+              "themeId": -1,
+              "domDigest": "db8507e1a43d7c3b601e975a13b7debc75a040a767f2b845326e328ede11a754",
+              "pinnedDocHeight": 1899,
+              "measuredDocHeight": null,
+              "driftPx": null,
+              "pngSha256": "9cc5fd75e00a153c942cf30379b8b3a527c5837747297fdca495e606eb4fbf09",
+              "file": "r2/collection__390x844.json"
+            }
+          },
+          "structural": {
+            "file": "collection__390x844.html",
+            "ok": true,
+            "failures": []
+          },
+          "captureProvenance": {
+            "r1": {
+              "status": "CAPTURED",
+              "capturedAt": "2026-09-11T00:31:34.940Z",
+              "instancePid": 21236,
+              "runId": "run-80f7f33d-d3a5-4267-af5e-007cbfe48f59",
+              "url": "https://phukienmaymoc.com/collections/phu-kien-han?themeid=1001512581",
+              "themeId": 1001512581
+            },
+            "r2": {
+              "status": "CAPTURED",
+              "capturedAt": "2026-09-11T00:37:56.573Z",
+              "instancePid": 21236,
+              "runId": "run-6eaaca64-6f9f-4904-9111-b1211796edec",
+              "url": "https://phukienmaymoc.com/collections/phu-kien-han?themeid=-1",
+              "themeId": -1
+            },
+            "subject": {
+              "status": "CAPTURED",
+              "capturedAt": "2026-09-11T01:03:47.176Z",
+              "instancePid": 21236,
+              "runId": "run-ba23a030-9f66-40ac-a3c8-c3e77b4bfb50",
+              "url": "https://phukienmaymoc.com/collections/phu-kien-han?themeid=1001512581",
+              "themeId": 1001512581
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "article",
+      "kind": "surface",
+      "template": null,
+      "sourceUrl": "https://phukienmaymoc.com/blogs/news/plc-la-gi-cau-tao-nguyen-ly-hoat-dong",
+      "urls": {
+        "copy": "https://phukienmaymoc.com/blogs/news/plc-la-gi-cau-tao-nguyen-ly-hoat-dong?themeid=1001512581",
+        "live": "https://phukienmaymoc.com/blogs/news/plc-la-gi-cau-tao-nguyen-ly-hoat-dong?themeid=-1",
+        "subject": "https://phukienmaymoc.com/blogs/news/plc-la-gi-cau-tao-nguyen-ly-hoat-dong?themeid=1001512581"
+      },
+      "viewports": [
+        {
+          "viewport": "1440x900",
+          "verdicts": {
+            "r1-vs-subject": {
+              "verdict": null,
+              "status": "NOT_MEASURED",
+              "mechanism": null,
+              "mismatchPercentage": null,
+              "file": null,
+              "reason": "the verdict set refused (PROVENANCE_UNRESOLVED)"
+            },
+            "r2-vs-subject": {
+              "verdict": null,
+              "status": "NOT_MEASURED",
+              "mechanism": null,
+              "mismatchPercentage": null,
+              "file": null,
+              "reason": "the verdict set refused (PROVENANCE_UNRESOLVED)"
+            }
+          },
+          "referenceIdentity": {
+            "r1": {
+              "status": "CAPTURED",
+              "method": "pinned capture",
+              "capturedAt": "2026-09-11T00:31:51.934Z",
+              "url": "https://phukienmaymoc.com/blogs/news/plc-la-gi-cau-tao-nguyen-ly-hoat-dong?themeid=1001512581",
+              "themeId": 1001512581,
+              "domDigest": "4beb49cd5b45f2b16e26ff39f044723b2d3ea69607e1c90e6610593a8931f2a8",
+              "pinnedDocHeight": 4954,
+              "measuredDocHeight": null,
+              "driftPx": null,
+              "pngSha256": "cfe7b364a41339fce3a392078951bb356257c651e97796602711cd0a5012414c",
+              "file": "r1/article__1440x900.json"
+            },
+            "r2": {
+              "status": "CAPTURED",
+              "method": "pinned capture",
+              "capturedAt": "2026-09-11T00:38:10.923Z",
+              "url": "https://phukienmaymoc.com/blogs/news/plc-la-gi-cau-tao-nguyen-ly-hoat-dong?themeid=-1",
+              "themeId": -1,
+              "domDigest": "202e27f3d4a693b38402a9d221ddcb737e48c2bb813ed69071a03d89cf53812a",
+              "pinnedDocHeight": 4118,
+              "measuredDocHeight": null,
+              "driftPx": null,
+              "pngSha256": "429604ead8486b0108afbb4877f983a01054fd16cc0364aa2c6e28de28a3b605",
+              "file": "r2/article__1440x900.json"
+            }
+          },
+          "structural": null,
+          "captureProvenance": {
+            "r1": {
+              "status": "CAPTURED",
+              "capturedAt": "2026-09-11T00:31:51.934Z",
+              "instancePid": 21236,
+              "runId": "run-80f7f33d-d3a5-4267-af5e-007cbfe48f59",
+              "url": "https://phukienmaymoc.com/blogs/news/plc-la-gi-cau-tao-nguyen-ly-hoat-dong?themeid=1001512581",
+              "themeId": 1001512581
+            },
+            "r2": {
+              "status": "CAPTURED",
+              "capturedAt": "2026-09-11T00:38:10.923Z",
+              "instancePid": 21236,
+              "runId": "run-6eaaca64-6f9f-4904-9111-b1211796edec",
+              "url": "https://phukienmaymoc.com/blogs/news/plc-la-gi-cau-tao-nguyen-ly-hoat-dong?themeid=-1",
+              "themeId": -1
+            },
+            "subject": {
+              "status": "NOT_MEASURABLE",
+              "capturedAt": null,
+              "instancePid": null,
+              "runId": null,
+              "url": "https://phukienmaymoc.com/blogs/news/plc-la-gi-cau-tao-nguyen-ly-hoat-dong?themeid=1001512581",
+              "themeId": null
+            }
+          }
+        },
+        {
+          "viewport": "1024x900",
+          "verdicts": {
+            "r1-vs-subject": {
+              "verdict": null,
+              "status": "NOT_MEASURED",
+              "mechanism": null,
+              "mismatchPercentage": null,
+              "file": null,
+              "reason": "the verdict set refused (PROVENANCE_UNRESOLVED)"
+            },
+            "r2-vs-subject": {
+              "verdict": null,
+              "status": "NOT_MEASURED",
+              "mechanism": null,
+              "mismatchPercentage": null,
+              "file": null,
+              "reason": "the verdict set refused (PROVENANCE_UNRESOLVED)"
+            }
+          },
+          "referenceIdentity": {
+            "r1": {
+              "status": "CAPTURED",
+              "method": "pinned capture",
+              "capturedAt": "2026-09-11T00:32:08.349Z",
+              "url": "https://phukienmaymoc.com/blogs/news/plc-la-gi-cau-tao-nguyen-ly-hoat-dong?themeid=1001512581",
+              "themeId": 1001512581,
+              "domDigest": "3a27c1abb13023cc5f5b64d1b40555edca94067f34a6c202b5e4e92f8234480d",
+              "pinnedDocHeight": 5942,
+              "measuredDocHeight": null,
+              "driftPx": null,
+              "pngSha256": "a860bd7f616099065d132630668b9b564d4a705f0feec99bd0dd79ac64249329",
+              "file": "r1/article__1024x900.json"
+            },
+            "r2": {
+              "status": "CAPTURED",
+              "method": "pinned capture",
+              "capturedAt": "2026-09-11T00:38:25.152Z",
+              "url": "https://phukienmaymoc.com/blogs/news/plc-la-gi-cau-tao-nguyen-ly-hoat-dong?themeid=-1",
+              "themeId": -1,
+              "domDigest": "b3f75a1d0e7663c30261e27c1c948e37d8ea139eac7b419a694540e3247630ac",
+              "pinnedDocHeight": 4332,
+              "measuredDocHeight": null,
+              "driftPx": null,
+              "pngSha256": "67dfc827d7eb08efc54a6a80a081c50f5fc929cb9ad45179fc138dba24e9cb74",
+              "file": "r2/article__1024x900.json"
+            }
+          },
+          "structural": null,
+          "captureProvenance": {
+            "r1": {
+              "status": "CAPTURED",
+              "capturedAt": "2026-09-11T00:32:08.349Z",
+              "instancePid": 21236,
+              "runId": "run-80f7f33d-d3a5-4267-af5e-007cbfe48f59",
+              "url": "https://phukienmaymoc.com/blogs/news/plc-la-gi-cau-tao-nguyen-ly-hoat-dong?themeid=1001512581",
+              "themeId": 1001512581
+            },
+            "r2": {
+              "status": "CAPTURED",
+              "capturedAt": "2026-09-11T00:38:25.152Z",
+              "instancePid": 21236,
+              "runId": "run-6eaaca64-6f9f-4904-9111-b1211796edec",
+              "url": "https://phukienmaymoc.com/blogs/news/plc-la-gi-cau-tao-nguyen-ly-hoat-dong?themeid=-1",
+              "themeId": -1
+            },
+            "subject": {
+              "status": "NOT_MEASURABLE",
+              "capturedAt": null,
+              "instancePid": null,
+              "runId": null,
+              "url": "https://phukienmaymoc.com/blogs/news/plc-la-gi-cau-tao-nguyen-ly-hoat-dong?themeid=1001512581",
+              "themeId": null
+            }
+          }
+        },
+        {
+          "viewport": "390x844",
+          "verdicts": {
+            "r1-vs-subject": {
+              "verdict": null,
+              "status": "NOT_MEASURED",
+              "mechanism": null,
+              "mismatchPercentage": null,
+              "file": null,
+              "reason": "the verdict set refused (PROVENANCE_UNRESOLVED)"
+            },
+            "r2-vs-subject": {
+              "verdict": null,
+              "status": "NOT_MEASURED",
+              "mechanism": null,
+              "mismatchPercentage": null,
+              "file": null,
+              "reason": "the verdict set refused (PROVENANCE_UNRESOLVED)"
+            }
+          },
+          "referenceIdentity": {
+            "r1": {
+              "status": "CAPTURED",
+              "method": "pinned capture",
+              "capturedAt": "2026-09-11T00:32:31.000Z",
+              "url": "https://phukienmaymoc.com/blogs/news/plc-la-gi-cau-tao-nguyen-ly-hoat-dong?themeid=1001512581",
+              "themeId": 1001512581,
+              "domDigest": "831bfd59aba8e2a7f3816807960f8d72aba28e001525781ccbb19850dacfa69c",
+              "pinnedDocHeight": 6226,
+              "measuredDocHeight": null,
+              "driftPx": null,
+              "pngSha256": "0f4b1a080ac712a0f3ab8e537059e905e3d9e56101b75d79dab87979a507afa6",
+              "file": "r1/article__390x844.json"
+            },
+            "r2": {
+              "status": "CAPTURED",
+              "method": "pinned capture",
+              "capturedAt": "2026-09-11T00:38:46.807Z",
+              "url": "https://phukienmaymoc.com/blogs/news/plc-la-gi-cau-tao-nguyen-ly-hoat-dong?themeid=-1",
+              "themeId": -1,
+              "domDigest": "2058756e1c17a39d0e07db74564be53d3d2fec227a879046160389c23e839a72",
+              "pinnedDocHeight": 6287,
+              "measuredDocHeight": null,
+              "driftPx": null,
+              "pngSha256": "5b9ce110f88664816b521209ca0e7339a0285c73e495b63ce72358e52583acbf",
+              "file": "r2/article__390x844.json"
+            }
+          },
+          "structural": {
+            "file": "article__390x844.html",
+            "ok": true,
+            "failures": []
+          },
+          "captureProvenance": {
+            "r1": {
+              "status": "CAPTURED",
+              "capturedAt": "2026-09-11T00:32:31.000Z",
+              "instancePid": 21236,
+              "runId": "run-80f7f33d-d3a5-4267-af5e-007cbfe48f59",
+              "url": "https://phukienmaymoc.com/blogs/news/plc-la-gi-cau-tao-nguyen-ly-hoat-dong?themeid=1001512581",
+              "themeId": 1001512581
+            },
+            "r2": {
+              "status": "CAPTURED",
+              "capturedAt": "2026-09-11T00:38:46.807Z",
+              "instancePid": 21236,
+              "runId": "run-6eaaca64-6f9f-4904-9111-b1211796edec",
+              "url": "https://phukienmaymoc.com/blogs/news/plc-la-gi-cau-tao-nguyen-ly-hoat-dong?themeid=-1",
+              "themeId": -1
+            },
+            "subject": {
+              "status": "CAPTURED",
+              "capturedAt": "2026-09-11T01:04:33.898Z",
+              "instancePid": 21236,
+              "runId": "run-ba23a030-9f66-40ac-a3c8-c3e77b4bfb50",
+              "url": "https://phukienmaymoc.com/blogs/news/plc-la-gi-cau-tao-nguyen-ly-hoat-dong?themeid=1001512581",
+              "themeId": 1001512581
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "cart",
+      "kind": "surface",
+      "template": null,
+      "sourceUrl": "https://phukienmaymoc.com/cart",
+      "urls": {
+        "copy": "https://phukienmaymoc.com/cart?themeid=1001512581",
+        "live": "https://phukienmaymoc.com/cart?themeid=-1",
+        "subject": "https://phukienmaymoc.com/cart?themeid=1001512581"
+      },
+      "viewports": [
+        {
+          "viewport": "1440x900",
+          "verdicts": {
+            "r1-vs-subject": {
+              "verdict": null,
+              "status": "NOT_MEASURED",
+              "mechanism": null,
+              "mismatchPercentage": null,
+              "file": null,
+              "reason": "the verdict set refused (PROVENANCE_UNRESOLVED)"
+            },
+            "r2-vs-subject": {
+              "verdict": null,
+              "status": "NOT_MEASURED",
+              "mechanism": null,
+              "mismatchPercentage": null,
+              "file": null,
+              "reason": "the verdict set refused (PROVENANCE_UNRESOLVED)"
+            }
+          },
+          "referenceIdentity": {
+            "r1": {
+              "status": "CAPTURED",
+              "method": "pinned capture",
+              "capturedAt": "2026-09-11T00:32:47.188Z",
+              "url": "https://phukienmaymoc.com/cart?themeid=1001512581",
+              "themeId": 1001512581,
+              "domDigest": "91b43531827c1743fe5d4ec3588ad5df2cb7316b0e150e1a7bc6e9d774963e1c",
+              "pinnedDocHeight": 2301,
+              "measuredDocHeight": null,
+              "driftPx": null,
+              "pngSha256": "d371ec028b7da34c7c7abddfa25ab29bb8f56e5f4b4a07ea35edfbdfba6da587",
+              "file": "r1/cart__1440x900.json"
+            },
+            "r2": {
+              "status": "CAPTURED",
+              "method": "pinned capture",
+              "capturedAt": "2026-09-11T00:39:00.661Z",
+              "url": "https://phukienmaymoc.com/cart?themeid=-1",
+              "themeId": -1,
+              "domDigest": "e3e9465d80ac1ede94791f9c260bb9adf1d6e7a0d322eb377420d97ca5c0a9e4",
+              "pinnedDocHeight": 1811,
+              "measuredDocHeight": null,
+              "driftPx": null,
+              "pngSha256": "0f5cb63c3bc26fab3bc83946dfd28629fd701e8727771d3a96434575169e9ddd",
+              "file": "r2/cart__1440x900.json"
+            }
+          },
+          "structural": null,
+          "captureProvenance": {
+            "r1": {
+              "status": "CAPTURED",
+              "capturedAt": "2026-09-11T00:32:47.188Z",
+              "instancePid": 21236,
+              "runId": "run-80f7f33d-d3a5-4267-af5e-007cbfe48f59",
+              "url": "https://phukienmaymoc.com/cart?themeid=1001512581",
+              "themeId": 1001512581
+            },
+            "r2": {
+              "status": "CAPTURED",
+              "capturedAt": "2026-09-11T00:39:00.661Z",
+              "instancePid": 21236,
+              "runId": "run-6eaaca64-6f9f-4904-9111-b1211796edec",
+              "url": "https://phukienmaymoc.com/cart?themeid=-1",
+              "themeId": -1
+            },
+            "subject": {
+              "status": "NOT_MEASURABLE",
+              "capturedAt": null,
+              "instancePid": null,
+              "runId": null,
+              "url": "https://phukienmaymoc.com/cart?themeid=1001512581",
+              "themeId": null
+            }
+          }
+        },
+        {
+          "viewport": "1024x900",
+          "verdicts": {
+            "r1-vs-subject": {
+              "verdict": null,
+              "status": "NOT_MEASURED",
+              "mechanism": null,
+              "mismatchPercentage": null,
+              "file": null,
+              "reason": "the verdict set refused (PROVENANCE_UNRESOLVED)"
+            },
+            "r2-vs-subject": {
+              "verdict": null,
+              "status": "NOT_MEASURED",
+              "mechanism": null,
+              "mismatchPercentage": null,
+              "file": null,
+              "reason": "the verdict set refused (PROVENANCE_UNRESOLVED)"
+            }
+          },
+          "referenceIdentity": {
+            "r1": {
+              "status": "CAPTURED",
+              "method": "pinned capture",
+              "capturedAt": "2026-09-11T00:33:02.966Z",
+              "url": "https://phukienmaymoc.com/cart?themeid=1001512581",
+              "themeId": 1001512581,
+              "domDigest": "cf7ba3c998ce279677d71b1c7c677b8647a1e2760ac8a833803aad39c3a6655e",
+              "pinnedDocHeight": 3226,
+              "measuredDocHeight": null,
+              "driftPx": null,
+              "pngSha256": "db68777f42dd76ae1cf898b4e9b918b47a77b909e177b04532188566816832ee",
+              "file": "r1/cart__1024x900.json"
+            },
+            "r2": {
+              "status": "CAPTURED",
+              "method": "pinned capture",
+              "capturedAt": "2026-09-11T00:39:14.549Z",
+              "url": "https://phukienmaymoc.com/cart?themeid=-1",
+              "themeId": -1,
+              "domDigest": "36566ffc950097352e229be349b2bb8c46c598873681b8f64c396afb68cc7133",
+              "pinnedDocHeight": 2077,
+              "measuredDocHeight": null,
+              "driftPx": null,
+              "pngSha256": "07327096085502b47a91b1f211990e006439b6f9a4635c18f7dcdaf2ad232211",
+              "file": "r2/cart__1024x900.json"
+            }
+          },
+          "structural": {
+            "file": "cart__1024x900.html",
+            "ok": true,
+            "failures": []
+          },
+          "captureProvenance": {
+            "r1": {
+              "status": "CAPTURED",
+              "capturedAt": "2026-09-11T00:33:02.966Z",
+              "instancePid": 21236,
+              "runId": "run-80f7f33d-d3a5-4267-af5e-007cbfe48f59",
+              "url": "https://phukienmaymoc.com/cart?themeid=1001512581",
+              "themeId": 1001512581
+            },
+            "r2": {
+              "status": "CAPTURED",
+              "capturedAt": "2026-09-11T00:39:14.549Z",
+              "instancePid": 21236,
+              "runId": "run-6eaaca64-6f9f-4904-9111-b1211796edec",
+              "url": "https://phukienmaymoc.com/cart?themeid=-1",
+              "themeId": -1
+            },
+            "subject": {
+              "status": "CAPTURED",
+              "capturedAt": "2026-09-11T01:05:01.341Z",
+              "instancePid": 21236,
+              "runId": "run-ba23a030-9f66-40ac-a3c8-c3e77b4bfb50",
+              "url": "https://phukienmaymoc.com/cart?themeid=1001512581",
+              "themeId": 1001512581
+            }
+          }
+        },
+        {
+          "viewport": "390x844",
+          "verdicts": {
+            "r1-vs-subject": {
+              "verdict": null,
+              "status": "NOT_MEASURED",
+              "mechanism": null,
+              "mismatchPercentage": null,
+              "file": null,
+              "reason": "the verdict set refused (PROVENANCE_UNRESOLVED)"
+            },
+            "r2-vs-subject": {
+              "verdict": null,
+              "status": "NOT_MEASURED",
+              "mechanism": null,
+              "mismatchPercentage": null,
+              "file": null,
+              "reason": "the verdict set refused (PROVENANCE_UNRESOLVED)"
+            }
+          },
+          "referenceIdentity": {
+            "r1": {
+              "status": "CAPTURED",
+              "method": "pinned capture",
+              "capturedAt": "2026-09-11T00:33:25.249Z",
+              "url": "https://phukienmaymoc.com/cart?themeid=1001512581",
+              "themeId": 1001512581,
+              "domDigest": "33ca6f852457aa13a1863f1398c9f9796aa647afe706209e8973c9d7234a97f2",
+              "pinnedDocHeight": 2046,
+              "measuredDocHeight": null,
+              "driftPx": null,
+              "pngSha256": "ae51d7200e9ee671aa0edb1e5622a588f98dfae95c775700d62efb19da416cf1",
+              "file": "r1/cart__390x844.json"
+            },
+            "r2": {
+              "status": "CAPTURED",
+              "method": "pinned capture",
+              "capturedAt": "2026-09-11T00:39:34.920Z",
+              "url": "https://phukienmaymoc.com/cart?themeid=-1",
+              "themeId": -1,
+              "domDigest": "41b196682d87fea9243a4c34fd9e94ee1aa866525f993bd80778d0c2184758a4",
+              "pinnedDocHeight": 2071,
+              "measuredDocHeight": null,
+              "driftPx": null,
+              "pngSha256": "d199ff5a06c76d406d922926e28173e7fbe53e3e461531e18d883e64f6cfc5c0",
+              "file": "r2/cart__390x844.json"
+            }
+          },
+          "structural": {
+            "file": "cart__390x844.html",
+            "ok": true,
+            "failures": []
+          },
+          "captureProvenance": {
+            "r1": {
+              "status": "CAPTURED",
+              "capturedAt": "2026-09-11T00:33:25.249Z",
+              "instancePid": 21236,
+              "runId": "run-80f7f33d-d3a5-4267-af5e-007cbfe48f59",
+              "url": "https://phukienmaymoc.com/cart?themeid=1001512581",
+              "themeId": 1001512581
+            },
+            "r2": {
+              "status": "CAPTURED",
+              "capturedAt": "2026-09-11T00:39:34.920Z",
+              "instancePid": 21236,
+              "runId": "run-6eaaca64-6f9f-4904-9111-b1211796edec",
+              "url": "https://phukienmaymoc.com/cart?themeid=-1",
+              "themeId": -1
+            },
+            "subject": {
+              "status": "CAPTURED",
+              "capturedAt": "2026-09-11T01:05:21.734Z",
+              "instancePid": 21236,
+              "runId": "run-ba23a030-9f66-40ac-a3c8-c3e77b4bfb50",
+              "url": "https://phukienmaymoc.com/cart?themeid=1001512581",
+              "themeId": 1001512581
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "search",
+      "kind": "surface",
+      "template": null,
+      "sourceUrl": "https://phukienmaymoc.com/search?q=laser",
+      "urls": {
+        "copy": "https://phukienmaymoc.com/search?q=laser&themeid=1001512581",
+        "live": "https://phukienmaymoc.com/search?q=laser&themeid=-1",
+        "subject": "https://phukienmaymoc.com/search?q=laser&themeid=1001512581"
+      },
+      "viewports": [
+        {
+          "viewport": "1440x900",
+          "verdicts": {
+            "r1-vs-subject": {
+              "verdict": null,
+              "status": "NOT_MEASURED",
+              "mechanism": null,
+              "mismatchPercentage": null,
+              "file": null,
+              "reason": "the verdict set refused (PROVENANCE_UNRESOLVED)"
+            },
+            "r2-vs-subject": {
+              "verdict": null,
+              "status": "NOT_MEASURED",
+              "mechanism": null,
+              "mismatchPercentage": null,
+              "file": null,
+              "reason": "the verdict set refused (PROVENANCE_UNRESOLVED)"
+            }
+          },
+          "referenceIdentity": {
+            "r1": {
+              "status": "CAPTURED",
+              "method": "pinned capture",
+              "capturedAt": "2026-09-11T00:33:42.526Z",
+              "url": "https://phukienmaymoc.com/search?q=laser&themeid=1001512581",
+              "themeId": 1001512581,
+              "domDigest": "9cc42c8392be4780155a4937049f411e3c1790bcfd96d75a2cd47031d3a8f7c8",
+              "pinnedDocHeight": 7721,
+              "measuredDocHeight": null,
+              "driftPx": null,
+              "pngSha256": "3f4182f773f1dd245ad6275f57317eee5fcfa5b51fabc5c813922794ff910bdb",
+              "file": "r1/search__1440x900.json"
+            },
+            "r2": {
+              "status": "CAPTURED",
+              "method": "pinned capture",
+              "capturedAt": "2026-09-11T00:39:49.820Z",
+              "url": "https://phukienmaymoc.com/search?q=laser&themeid=-1",
+              "themeId": -1,
+              "domDigest": "0256ab60eb36b18bd6611bfb5680bd7e3461b09ea13dd7472ef51328f84f4bb2",
+              "pinnedDocHeight": 2421,
+              "measuredDocHeight": null,
+              "driftPx": null,
+              "pngSha256": "967b5dac130fc9a6765ea71ed7bac44c95ecdd96ba4779931ff9551cf50b80b1",
+              "file": "r2/search__1440x900.json"
+            }
+          },
+          "structural": null,
+          "captureProvenance": {
+            "r1": {
+              "status": "CAPTURED",
+              "capturedAt": "2026-09-11T00:33:42.526Z",
+              "instancePid": 21236,
+              "runId": "run-80f7f33d-d3a5-4267-af5e-007cbfe48f59",
+              "url": "https://phukienmaymoc.com/search?q=laser&themeid=1001512581",
+              "themeId": 1001512581
+            },
+            "r2": {
+              "status": "CAPTURED",
+              "capturedAt": "2026-09-11T00:39:49.820Z",
+              "instancePid": 21236,
+              "runId": "run-6eaaca64-6f9f-4904-9111-b1211796edec",
+              "url": "https://phukienmaymoc.com/search?q=laser&themeid=-1",
+              "themeId": -1
+            },
+            "subject": {
+              "status": "NOT_MEASURABLE",
+              "capturedAt": null,
+              "instancePid": null,
+              "runId": null,
+              "url": "https://phukienmaymoc.com/search?q=laser&themeid=1001512581",
+              "themeId": null
+            }
+          }
+        },
+        {
+          "viewport": "1024x900",
+          "verdicts": {
+            "r1-vs-subject": {
+              "verdict": null,
+              "status": "NOT_MEASURED",
+              "mechanism": null,
+              "mismatchPercentage": null,
+              "file": null,
+              "reason": "the verdict set refused (PROVENANCE_UNRESOLVED)"
+            },
+            "r2-vs-subject": {
+              "verdict": null,
+              "status": "NOT_MEASURED",
+              "mechanism": null,
+              "mismatchPercentage": null,
+              "file": null,
+              "reason": "the verdict set refused (PROVENANCE_UNRESOLVED)"
+            }
+          },
+          "referenceIdentity": {
+            "r1": {
+              "status": "CAPTURED",
+              "method": "pinned capture",
+              "capturedAt": "2026-09-11T00:34:00.128Z",
+              "url": "https://phukienmaymoc.com/search?q=laser&themeid=1001512581",
+              "themeId": 1001512581,
+              "domDigest": "271b69978d4c945268017b37c549581ccba51ad899a45dc6f17a6b33ff17bbd6",
+              "pinnedDocHeight": 4480,
+              "measuredDocHeight": null,
+              "driftPx": null,
+              "pngSha256": "2ca01da737cba9868894fc5902c7a8ad9ac72a23feecaf42051e52ede5a2efa6",
+              "file": "r1/search__1024x900.json"
+            },
+            "r2": {
+              "status": "CAPTURED",
+              "method": "pinned capture",
+              "capturedAt": "2026-09-11T00:40:04.479Z",
+              "url": "https://phukienmaymoc.com/search?q=laser&themeid=-1",
+              "themeId": -1,
+              "domDigest": "cf951748d4ad7d149f7660f2f3828fff3302e9bb005efe575ed6c123e514aada",
+              "pinnedDocHeight": 2300,
+              "measuredDocHeight": null,
+              "driftPx": null,
+              "pngSha256": "1119fc0d031cf7880095373c977c1681ad3dac929ec24caf023388d56790ddf6",
+              "file": "r2/search__1024x900.json"
+            }
+          },
+          "structural": {
+            "file": "search__1024x900.html",
+            "ok": true,
+            "failures": []
+          },
+          "captureProvenance": {
+            "r1": {
+              "status": "CAPTURED",
+              "capturedAt": "2026-09-11T00:34:00.128Z",
+              "instancePid": 21236,
+              "runId": "run-80f7f33d-d3a5-4267-af5e-007cbfe48f59",
+              "url": "https://phukienmaymoc.com/search?q=laser&themeid=1001512581",
+              "themeId": 1001512581
+            },
+            "r2": {
+              "status": "CAPTURED",
+              "capturedAt": "2026-09-11T00:40:04.479Z",
+              "instancePid": 21236,
+              "runId": "run-6eaaca64-6f9f-4904-9111-b1211796edec",
+              "url": "https://phukienmaymoc.com/search?q=laser&themeid=-1",
+              "themeId": -1
+            },
+            "subject": {
+              "status": "CAPTURED",
+              "capturedAt": "2026-09-11T01:05:49.905Z",
+              "instancePid": 21236,
+              "runId": "run-ba23a030-9f66-40ac-a3c8-c3e77b4bfb50",
+              "url": "https://phukienmaymoc.com/search?q=laser&themeid=1001512581",
+              "themeId": 1001512581
+            }
+          }
+        },
+        {
+          "viewport": "390x844",
+          "verdicts": {
+            "r1-vs-subject": {
+              "verdict": null,
+              "status": "NOT_MEASURED",
+              "mechanism": null,
+              "mismatchPercentage": null,
+              "file": null,
+              "reason": "the verdict set refused (PROVENANCE_UNRESOLVED)"
+            },
+            "r2-vs-subject": {
+              "verdict": null,
+              "status": "NOT_MEASURED",
+              "mechanism": null,
+              "mismatchPercentage": null,
+              "file": null,
+              "reason": "the verdict set refused (PROVENANCE_UNRESOLVED)"
+            }
+          },
+          "referenceIdentity": {
+            "r1": {
+              "status": "CAPTURED",
+              "method": "pinned capture",
+              "capturedAt": "2026-09-11T00:34:23.031Z",
+              "url": "https://phukienmaymoc.com/search?q=laser&themeid=1001512581",
+              "themeId": 1001512581,
+              "domDigest": "f20a2abddf9b3cc52543125f5e12ceb98fa3f79f6ced01f5c7bad53e407cf6c0",
+              "pinnedDocHeight": 4906,
+              "measuredDocHeight": null,
+              "driftPx": null,
+              "pngSha256": "15ed5d430395c4a5168eb9983294a9dc411a9a1013dedd3d44c0aab444465305",
+              "file": "r1/search__390x844.json"
+            },
+            "r2": {
+              "status": "CAPTURED",
+              "method": "pinned capture",
+              "capturedAt": "2026-09-11T00:40:25.336Z",
+              "url": "https://phukienmaymoc.com/search?q=laser&themeid=-1",
+              "themeId": -1,
+              "domDigest": "d33d0ec8bc0b00d6b31de6bc797664314d3eda9c6f8215e98f8cfcd7550f6626",
+              "pinnedDocHeight": 3690,
+              "measuredDocHeight": null,
+              "driftPx": null,
+              "pngSha256": "cf7bc3adae1b0cf35043f556ed2f95af43f9f8fe41bb6ece946ca9bb9218f699",
+              "file": "r2/search__390x844.json"
+            }
+          },
+          "structural": {
+            "file": "search__390x844.html",
+            "ok": true,
+            "failures": []
+          },
+          "captureProvenance": {
+            "r1": {
+              "status": "CAPTURED",
+              "capturedAt": "2026-09-11T00:34:23.031Z",
+              "instancePid": 21236,
+              "runId": "run-80f7f33d-d3a5-4267-af5e-007cbfe48f59",
+              "url": "https://phukienmaymoc.com/search?q=laser&themeid=1001512581",
+              "themeId": 1001512581
+            },
+            "r2": {
+              "status": "CAPTURED",
+              "capturedAt": "2026-09-11T00:40:25.336Z",
+              "instancePid": 21236,
+              "runId": "run-6eaaca64-6f9f-4904-9111-b1211796edec",
+              "url": "https://phukienmaymoc.com/search?q=laser&themeid=-1",
+              "themeId": -1
+            },
+            "subject": {
+              "status": "CAPTURED",
+              "capturedAt": "2026-09-11T01:06:11.935Z",
+              "instancePid": 21236,
+              "runId": "run-ba23a030-9f66-40ac-a3c8-c3e77b4bfb50",
+              "url": "https://phukienmaymoc.com/search?q=laser&themeid=1001512581",
+              "themeId": 1001512581
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "404",
+      "kind": "surface",
+      "template": null,
+      "sourceUrl": "https://phukienmaymoc.com/khong-ton-tai-404-probe-xyz",
+      "urls": {
+        "copy": "https://phukienmaymoc.com/khong-ton-tai-404-probe-xyz?themeid=1001512581",
+        "live": "https://phukienmaymoc.com/khong-ton-tai-404-probe-xyz?themeid=-1",
+        "subject": "https://phukienmaymoc.com/khong-ton-tai-404-probe-xyz?themeid=1001512581"
+      },
+      "viewports": [
+        {
+          "viewport": "1440x900",
+          "verdicts": {
+            "r1-vs-subject": {
+              "verdict": null,
+              "status": "NOT_MEASURED",
+              "mechanism": null,
+              "mismatchPercentage": null,
+              "file": null,
+              "reason": "the verdict set refused (PROVENANCE_UNRESOLVED)"
+            },
+            "r2-vs-subject": {
+              "verdict": null,
+              "status": "NOT_MEASURED",
+              "mechanism": null,
+              "mismatchPercentage": null,
+              "file": null,
+              "reason": "the verdict set refused (PROVENANCE_UNRESOLVED)"
+            }
+          },
+          "referenceIdentity": {
+            "r1": {
+              "status": "CAPTURED",
+              "method": "pinned capture",
+              "capturedAt": "2026-09-11T00:34:38.536Z",
+              "url": "https://phukienmaymoc.com/khong-ton-tai-404-probe-xyz?themeid=1001512581",
+              "themeId": 1001512581,
+              "domDigest": "330e15c697b460b8da328118910c0f8754838fe0cfb5a6d8ab1ba7550f9e8542",
+              "pinnedDocHeight": 1570,
+              "measuredDocHeight": null,
+              "driftPx": null,
+              "pngSha256": "90b6c795fb86dfe5587c694ff903162bee48dd140acbbf4e29e8d081b5b41f95",
+              "file": "r1/404__1440x900.json"
+            },
+            "r2": {
+              "status": "CAPTURED",
+              "method": "pinned capture",
+              "capturedAt": "2026-09-11T00:40:38.518Z",
+              "url": "https://phukienmaymoc.com/khong-ton-tai-404-probe-xyz?themeid=-1",
+              "themeId": -1,
+              "domDigest": "bbb9442d37e251ed3a0fef89cb887a4c4785f4e88fcbdb5a79fc51fbe2cf5018",
+              "pinnedDocHeight": 1078,
+              "measuredDocHeight": null,
+              "driftPx": null,
+              "pngSha256": "44c504004b5dd21c747b966616c1097a01b8e882bd34bfb0ef5e1836dd3da840",
+              "file": "r2/404__1440x900.json"
+            }
+          },
+          "structural": {
+            "file": "404__1440x900.html",
+            "ok": true,
+            "failures": []
+          },
+          "captureProvenance": {
+            "r1": {
+              "status": "CAPTURED",
+              "capturedAt": "2026-09-11T00:34:38.536Z",
+              "instancePid": 21236,
+              "runId": "run-80f7f33d-d3a5-4267-af5e-007cbfe48f59",
+              "url": "https://phukienmaymoc.com/khong-ton-tai-404-probe-xyz?themeid=1001512581",
+              "themeId": 1001512581
+            },
+            "r2": {
+              "status": "CAPTURED",
+              "capturedAt": "2026-09-11T00:40:38.518Z",
+              "instancePid": 21236,
+              "runId": "run-6eaaca64-6f9f-4904-9111-b1211796edec",
+              "url": "https://phukienmaymoc.com/khong-ton-tai-404-probe-xyz?themeid=-1",
+              "themeId": -1
+            },
+            "subject": {
+              "status": "CAPTURED",
+              "capturedAt": "2026-09-11T01:06:26.103Z",
+              "instancePid": 21236,
+              "runId": "run-ba23a030-9f66-40ac-a3c8-c3e77b4bfb50",
+              "url": "https://phukienmaymoc.com/khong-ton-tai-404-probe-xyz?themeid=1001512581",
+              "themeId": 1001512581
+            }
+          }
+        },
+        {
+          "viewport": "1024x900",
+          "verdicts": {
+            "r1-vs-subject": {
+              "verdict": null,
+              "status": "NOT_MEASURED",
+              "mechanism": null,
+              "mismatchPercentage": null,
+              "file": null,
+              "reason": "the verdict set refused (PROVENANCE_UNRESOLVED)"
+            },
+            "r2-vs-subject": {
+              "verdict": null,
+              "status": "NOT_MEASURED",
+              "mechanism": null,
+              "mismatchPercentage": null,
+              "file": null,
+              "reason": "the verdict set refused (PROVENANCE_UNRESOLVED)"
+            }
+          },
+          "referenceIdentity": {
+            "r1": {
+              "status": "CAPTURED",
+              "method": "pinned capture",
+              "capturedAt": "2026-09-11T00:34:54.133Z",
+              "url": "https://phukienmaymoc.com/khong-ton-tai-404-probe-xyz?themeid=1001512581",
+              "themeId": 1001512581,
+              "domDigest": "100c280846b13f3d27e4e0c4a9444d981dd46cfb9f9ef9e69cfb9a07768910d8",
+              "pinnedDocHeight": 2304,
+              "measuredDocHeight": null,
+              "driftPx": null,
+              "pngSha256": "eee78e5275c0e24da1e5ee1de26eef25a80a8cbfe56668c9e88c7aa0fa63e8ea",
+              "file": "r1/404__1024x900.json"
+            },
+            "r2": {
+              "status": "CAPTURED",
+              "method": "pinned capture",
+              "capturedAt": "2026-09-11T00:40:51.621Z",
+              "url": "https://phukienmaymoc.com/khong-ton-tai-404-probe-xyz?themeid=-1",
+              "themeId": -1,
+              "domDigest": "e59f501b34e267716357173ad67c5cacffc7db4836692a42d53fade722043e8a",
+              "pinnedDocHeight": 1128,
+              "measuredDocHeight": null,
+              "driftPx": null,
+              "pngSha256": "35e15ee0009e6dae43daa140e0ada25833535d5de375638d00d9f5e9f2651f59",
+              "file": "r2/404__1024x900.json"
+            }
+          },
+          "structural": {
+            "file": "404__1024x900.html",
+            "ok": true,
+            "failures": []
+          },
+          "captureProvenance": {
+            "r1": {
+              "status": "CAPTURED",
+              "capturedAt": "2026-09-11T00:34:54.133Z",
+              "instancePid": 21236,
+              "runId": "run-80f7f33d-d3a5-4267-af5e-007cbfe48f59",
+              "url": "https://phukienmaymoc.com/khong-ton-tai-404-probe-xyz?themeid=1001512581",
+              "themeId": 1001512581
+            },
+            "r2": {
+              "status": "CAPTURED",
+              "capturedAt": "2026-09-11T00:40:51.621Z",
+              "instancePid": 21236,
+              "runId": "run-6eaaca64-6f9f-4904-9111-b1211796edec",
+              "url": "https://phukienmaymoc.com/khong-ton-tai-404-probe-xyz?themeid=-1",
+              "themeId": -1
+            },
+            "subject": {
+              "status": "CAPTURED",
+              "capturedAt": "2026-09-11T01:06:41.950Z",
+              "instancePid": 21236,
+              "runId": "run-ba23a030-9f66-40ac-a3c8-c3e77b4bfb50",
+              "url": "https://phukienmaymoc.com/khong-ton-tai-404-probe-xyz?themeid=1001512581",
+              "themeId": 1001512581
+            }
+          }
+        },
+        {
+          "viewport": "390x844",
+          "verdicts": {
+            "r1-vs-subject": {
+              "verdict": null,
+              "status": "NOT_MEASURED",
+              "mechanism": null,
+              "mismatchPercentage": null,
+              "file": null,
+              "reason": "the verdict set refused (PROVENANCE_UNRESOLVED)"
+            },
+            "r2-vs-subject": {
+              "verdict": null,
+              "status": "NOT_MEASURED",
+              "mechanism": null,
+              "mismatchPercentage": null,
+              "file": null,
+              "reason": "the verdict set refused (PROVENANCE_UNRESOLVED)"
+            }
+          },
+          "referenceIdentity": {
+            "r1": {
+              "status": "CAPTURED",
+              "method": "pinned capture",
+              "capturedAt": "2026-09-11T00:35:16.003Z",
+              "url": "https://phukienmaymoc.com/khong-ton-tai-404-probe-xyz?themeid=1001512581",
+              "themeId": 1001512581,
+              "domDigest": "3e81c7a06f8b54a66dfc750b659f8973e72b25fdde278098d0593d8dbed4a234",
+              "pinnedDocHeight": 1629,
+              "measuredDocHeight": null,
+              "driftPx": null,
+              "pngSha256": "c156205679fbf86ee131f6d296b365ef7050bc1a81da75b601d1345cb861de43",
+              "file": "r1/404__390x844.json"
+            },
+            "r2": {
+              "status": "CAPTURED",
+              "method": "pinned capture",
+              "capturedAt": "2026-09-11T00:41:11.946Z",
+              "url": "https://phukienmaymoc.com/khong-ton-tai-404-probe-xyz?themeid=-1",
+              "themeId": -1,
+              "domDigest": "64819b0a424a2d2e8f79b033cb06d0e7c63a5d6083dd14f78975f35b76d773bb",
+              "pinnedDocHeight": 1731,
+              "measuredDocHeight": null,
+              "driftPx": null,
+              "pngSha256": "46e2baed3f5005798580c6799275bca1ff144b1f597e9f5b0b9a1f0cbde84225",
+              "file": "r2/404__390x844.json"
+            }
+          },
+          "structural": {
+            "file": "404__390x844.html",
+            "ok": true,
+            "failures": []
+          },
+          "captureProvenance": {
+            "r1": {
+              "status": "CAPTURED",
+              "capturedAt": "2026-09-11T00:35:16.003Z",
+              "instancePid": 21236,
+              "runId": "run-80f7f33d-d3a5-4267-af5e-007cbfe48f59",
+              "url": "https://phukienmaymoc.com/khong-ton-tai-404-probe-xyz?themeid=1001512581",
+              "themeId": 1001512581
+            },
+            "r2": {
+              "status": "CAPTURED",
+              "capturedAt": "2026-09-11T00:41:11.946Z",
+              "instancePid": 21236,
+              "runId": "run-6eaaca64-6f9f-4904-9111-b1211796edec",
+              "url": "https://phukienmaymoc.com/khong-ton-tai-404-probe-xyz?themeid=-1",
+              "themeId": -1
+            },
+            "subject": {
+              "status": "CAPTURED",
+              "capturedAt": "2026-09-11T01:07:02.102Z",
+              "instancePid": 21236,
+              "runId": "run-ba23a030-9f66-40ac-a3c8-c3e77b4bfb50",
+              "url": "https://phukienmaymoc.com/khong-ton-tai-404-probe-xyz?themeid=1001512581",
+              "themeId": 1001512581
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "verdictCounts": {
+    "r1-vs-subject": {
+      "documents": 0,
+      "pass": 0,
+      "fail": 0,
+      "inconclusive": 0,
+      "notMeasured": 0,
+      "missing": 21,
+      "setStatus": "REFUSED",
+      "indexFile": "compare/r1-vs-subject/index.json",
+      "indexSha256": "ca7058afa6c8f138ae45e1630dbffbe916e2b8bcee3ea169ec22b74ecc605599"
+    },
+    "r2-vs-subject": {
+      "documents": 0,
+      "pass": 0,
+      "fail": 0,
+      "inconclusive": 0,
+      "notMeasured": 0,
+      "missing": 21,
+      "setStatus": "REFUSED",
+      "indexFile": "compare/r2-vs-subject/index.json",
+      "indexSha256": "978996915282e31c4b18f986b37d6856fd4886c49c4e9b685bd7bbe184dd9c17"
+    }
+  },
+  "structuralFindings": {
+    "checksStatus": "REFUSED",
+    "structuralFile": "structural.json",
+    "structuralSha256": "2cd1143f16e7f97decd1729b7b7f432c5b694dcacf1aec1d828e38b1f1d655e0",
+    "refused": true,
+    "refusals": [
+      {
+        "check": "settings-binding",
+        "failures": [
+          {
+            "rule": "SETTING_UNDECLARED",
+            "id": "add_to_cart_show",
+            "detail": "settings.add_to_cart_show is read in snippets/product-loop-horizontal.liquid but is not declared in config/settings_schema.json"
+          },
+          {
+            "rule": "SETTING_UNDECLARED",
+            "id": "addthis_iconList_show",
+            "detail": "settings.addthis_iconList_show is read in layout/theme.liquid but is not declared in config/settings_schema.json"
+          },
+          {
+            "rule": "SETTING_UNDECLARED",
+            "id": "appbuyxgety_icon",
+            "detail": "settings.appbuyxgety_icon is read in snippets/product-loop-horizontal.liquid but is not declared in config/settings_schema.json"
+          },
+          {
+            "rule": "SETTING_UNDECLARED",
+            "id": "cart_deliverytime_end",
+            "detail": "settings.cart_deliverytime_end is read in templates/cart.liquid but is not declared in config/settings_schema.json"
+          },
+          {
+            "rule": "SETTING_UNDECLARED",
+            "id": "cart_deliverytime_start",
+            "detail": "settings.cart_deliverytime_start is read in templates/cart.liquid but is not declared in config/settings_schema.json"
+          },
+          {
+            "rule": "SETTING_UNDECLARED",
+            "id": "code_messenger_mb",
+            "detail": "settings.code_messenger_mb is read in snippets/template-product-01.liquid, snippets/template-product-02.liquid, snippets/template-product-03.liquid, snippets/template-product-04.liquid, templates/product.quickview.liquid but is not declared in config/settings_schema.json"
+          },
+          {
+            "rule": "SETTING_UNDECLARED",
+            "id": "collection_preorder",
+            "detail": "settings.collection_preorder is read in snippets/sidebar-action-product.liquid, templates/product.ll-viewed.liquid, templates/product.quickview.liquid but is not declared in config/settings_schema.json"
+          },
+          {
+            "rule": "SETTING_UNDECLARED",
+            "id": "dh_form_booking",
+            "detail": "settings.dh_form_booking is read in snippets/index-form.liquid but is not declared in config/settings_schema.json"
+          },
+          {
+            "rule": "SETTING_UNDECLARED",
+            "id": "dh_form_date",
+            "detail": "settings.dh_form_date is read in snippets/index-form.liquid but is not declared in config/settings_schema.json"
+          },
+          {
+            "rule": "SETTING_UNDECLARED",
+            "id": "dh_form_email",
+            "detail": "settings.dh_form_email is read in snippets/index-form.liquid but is not declared in config/settings_schema.json"
+          },
+          {
+            "rule": "SETTING_UNDECLARED",
+            "id": "dh_form_full_name",
+            "detail": "settings.dh_form_full_name is read in snippets/index-form.liquid but is not declared in config/settings_schema.json"
+          },
+          {
+            "rule": "SETTING_UNDECLARED",
+            "id": "dh_form_phone",
+            "detail": "settings.dh_form_phone is read in snippets/index-form.liquid but is not declared in config/settings_schema.json"
+          },
+          {
+            "rule": "SETTING_UNDECLARED",
+            "id": "dh_form_pro_booking",
+            "detail": "settings.dh_form_pro_booking is read in snippets/ll-index-form.liquid but is not declared in config/settings_schema.json"
+          },
+          {
+            "rule": "SETTING_UNDECLARED",
+            "id": "dh_form_service",
+            "detail": "settings.dh_form_service is read in snippets/index-form.liquid but is not declared in config/settings_schema.json"
+          },
+          {
+            "rule": "SETTING_UNDECLARED",
+            "id": "dh_form_success",
+            "detail": "settings.dh_form_success is read in snippets/modal-success.liquid but is not declared in config/settings_schema.json"
+          },
+          {
+            "rule": "SETTING_UNDECLARED",
+            "id": "dh_form_time",
+            "detail": "settings.dh_form_time is read in snippets/index-form.liquid but is not declared in config/settings_schema.json"
+          },
+          {
+            "rule": "SETTING_UNDECLARED",
+            "id": "dh_gg_date",
+            "detail": "settings.dh_gg_date is read in snippets/index-form.liquid but is not declared in config/settings_schema.json"
+          },
+          {
+            "rule": "SETTING_UNDECLARED",
+            "id": "dh_gg_email",
+            "detail": "settings.dh_gg_email is read in snippets/index-form.liquid but is not declared in config/settings_schema.json"
+          },
+          {
+            "rule": "SETTING_UNDECLARED",
+            "id": "dh_gg_full_name",
+            "detail": "settings.dh_gg_full_name is read in snippets/index-form.liquid but is not declared in config/settings_schema.json"
+          },
+          {
+            "rule": "SETTING_UNDECLARED",
+            "id": "dh_gg_link_form",
+            "detail": "settings.dh_gg_link_form is read in snippets/ll-index-form.liquid but is not declared in config/settings_schema.json"
+          },
+          {
+            "rule": "SETTING_UNDECLARED",
+            "id": "dh_gg_phone",
+            "detail": "settings.dh_gg_phone is read in snippets/index-form.liquid but is not declared in config/settings_schema.json"
+          },
+          {
+            "rule": "SETTING_UNDECLARED",
+            "id": "dh_gg_service",
+            "detail": "settings.dh_gg_service is read in snippets/index-form.liquid but is not declared in config/settings_schema.json"
+          },
+          {
+            "rule": "SETTING_UNDECLARED",
+            "id": "dh_gg_time",
+            "detail": "settings.dh_gg_time is read in snippets/index-form.liquid but is not declared in config/settings_schema.json"
+          },
+          {
+            "rule": "SETTING_UNDECLARED",
+            "id": "fanpage_faceook",
+            "detail": "settings.fanpage_faceook is read in snippets/facebook-widget.liquid but is not declared in config/settings_schema.json"
+          },
+          {
+            "rule": "SETTING_UNDECLARED",
+            "id": "fb_chat",
+            "detail": "settings.fb_chat is read in snippets/haravan-fb-messages.liquid but is not declared in config/settings_schema.json"
+          },
+          {
+            "rule": "SETTING_UNDECLARED",
+            "id": "fb_chat_title",
+            "detail": "settings.fb_chat_title is read in snippets/haravan-fb-messages.liquid but is not declared in config/settings_schema.json"
+          },
+          {
+            "rule": "SETTING_UNDECLARED",
+            "id": "header_account_show",
+            "detail": "settings.header_account_show is read in snippets/mini-location.liquid but is not declared in config/settings_schema.json"
+          },
+          {
+            "rule": "SETTING_UNDECLARED",
+            "id": "header_info_mail",
+            "detail": "settings.header_info_mail is read in snippets/sidebar-main.liquid but is not declared in config/settings_schema.json"
+          },
+          {
+            "rule": "SETTING_UNDECLARED",
+            "id": "header_info_phone",
+            "detail": "settings.header_info_phone is read in snippets/sidebar-main.liquid but is not declared in config/settings_schema.json"
+          },
+          {
+            "rule": "SETTING_UNDECLARED",
+            "id": "header_info_social_show",
+            "detail": "settings.header_info_social_show is read in snippets/sidebar-main.liquid but is not declared in config/settings_schema.json"
+          },
+          {
+            "rule": "SETTING_UNDECLARED",
+            "id": "header_inventory_province",
+            "detail": "settings.header_inventory_province is read in snippets/mini-location.liquid but is not declared in config/settings_schema.json"
+          },
+          {
+            "rule": "SETTING_UNDECLARED",
+            "id": "header_inventory_show",
+            "detail": "settings.header_inventory_show is read in snippets/footer-scripts.liquid but is not declared in config/settings_schema.json"
+          },
+          {
+            "rule": "SETTING_UNDECLARED",
+            "id": "header_live_code",
+            "detail": "settings.header_live_code is read in snippets/modal-live.liquid but is not declared in config/settings_schema.json"
+          },
+          {
+            "rule": "SETTING_UNDECLARED",
+            "id": "header_social_link_facebook",
+            "detail": "settings.header_social_link_facebook is read in snippets/sidebar-main.liquid but is not declared in config/settings_schema.json"
+          },
+          {
+            "rule": "SETTING_UNDECLARED",
+            "id": "header_social_link_instagram",
+            "detail": "settings.header_social_link_instagram is read in snippets/sidebar-main.liquid but is not declared in config/settings_schema.json"
+          },
+          {
+            "rule": "SETTING_UNDECLARED",
+            "id": "header_social_link_lazada",
+            "detail": "settings.header_social_link_lazada is read in snippets/sidebar-main.liquid but is not declared in config/settings_schema.json"
+          },
+          {
+            "rule": "SETTING_UNDECLARED",
+            "id": "header_social_link_shopee",
+            "detail": "settings.header_social_link_shopee is read in snippets/sidebar-main.liquid but is not declared in config/settings_schema.json"
+          },
+          {
+            "rule": "SETTING_UNDECLARED",
+            "id": "header_social_link_tiktok",
+            "detail": "settings.header_social_link_tiktok is read in snippets/sidebar-main.liquid but is not declared in config/settings_schema.json"
+          },
+          {
+            "rule": "SETTING_UNDECLARED",
+            "id": "header_social_link_youtube",
+            "detail": "settings.header_social_link_youtube is read in snippets/sidebar-main.liquid but is not declared in config/settings_schema.json"
+          },
+          {
+            "rule": "SETTING_UNDECLARED",
+            "id": "home_coll_1_banner_btn",
+            "detail": "settings.home_coll_1_banner_btn is read in snippets/home-collection-tabs.liquid but is not declared in config/settings_schema.json"
+          },
+          {
+            "rule": "SETTING_UNDECLARED",
+            "id": "home_coll_1_banner_desc",
+            "detail": "settings.home_coll_1_banner_desc is read in snippets/home-collection-tabs.liquid but is not declared in config/settings_schema.json"
+          },
+          {
+            "rule": "SETTING_UNDECLARED",
+            "id": "home_coll_1_banner_link",
+            "detail": "settings.home_coll_1_banner_link is read in snippets/home-collection-tabs.liquid but is not declared in config/settings_schema.json"
+          },
+          {
+            "rule": "SETTING_UNDECLARED",
+            "id": "home_coll_1_banner_show",
+            "detail": "settings.home_coll_1_banner_show is read in snippets/home-collection-tabs.liquid but is not declared in config/settings_schema.json"
+          },
+          {
+            "rule": "SETTING_UNDECLARED",
+            "id": "home_coll_1_banner_title",
+            "detail": "settings.home_coll_1_banner_title is read in snippets/home-collection-tabs.liquid but is not declared in config/settings_schema.json"
+          },
+          {
+            "rule": "SETTING_UNDECLARED",
+            "id": "home_coll_1_navtabs_limit",
+            "detail": "settings.home_coll_1_navtabs_limit is read in snippets/home-collection-tabs.liquid but is not declared in config/settings_schema.json"
+          },
+          {
+            "rule": "SETTING_UNDECLARED",
+            "id": "home_coll_1_navtabs_show",
+            "detail": "settings.home_coll_1_navtabs_show is read in snippets/home-collection-tabs.liquid but is not declared in config/settings_schema.json"
+          },
+          {
+            "rule": "SETTING_UNDECLARED",
+            "id": "home_coll_1_navtabs_title",
+            "detail": "settings.home_coll_1_navtabs_title is read in snippets/home-collection-tabs.liquid but is not declared in config/settings_schema.json"
+          },
+          {
+            "rule": "SETTING_UNDECLARED",
+            "id": "home_collection_4_btn",
+            "detail": "settings.home_collection_4_btn is read in snippets/homepage-collection.liquid but is not declared in config/settings_schema.json"
+          },
+          {
+            "rule": "SETTING_UNDECLARED",
+            "id": "home_collection_4_handle",
+            "detail": "settings.home_collection_4_handle is read in snippets/homepage-collection.liquid but is not declared in config/settings_schema.json"
+          },
+          {
+            "rule": "SETTING_UNDECLARED",
+            "id": "home_collection_4_show",
+            "detail": "settings.home_collection_4_show is read in snippets/homepage-collection.liquid but is not declared in config/settings_schema.json"
+          },
+          {
+            "rule": "SETTING_UNDECLARED",
+            "id": "home_collection_4_title",
+            "detail": "settings.home_collection_4_title is read in snippets/homepage-collection.liquid but is not declared in config/settings_schema.json"
+          },
+          {
+            "rule": "SETTING_UNDECLARED",
+            "id": "home_collection_4_titlelink",
+            "detail": "settings.home_collection_4_titlelink is read in snippets/homepage-collection.liquid but is not declared in config/settings_schema.json"
+          },
+          {
+            "rule": "SETTING_UNDECLARED",
+            "id": "home_collection_4_txt1",
+            "detail": "settings.home_collection_4_txt1 is read in snippets/homepage-collection.liquid but is not declared in config/settings_schema.json"
+          },
+          {
+            "rule": "SETTING_UNDECLARED",
+            "id": "home_collection_4_txt2",
+            "detail": "settings.home_collection_4_txt2 is read in snippets/homepage-collection.liquid but is not declared in config/settings_schema.json"
+          },
+          {
+            "rule": "SETTING_UNDECLARED",
+            "id": "home_collection_4_txt3",
+            "detail": "settings.home_collection_4_txt3 is read in snippets/homepage-collection.liquid but is not declared in config/settings_schema.json"
+          },
+          {
+            "rule": "SETTING_UNDECLARED",
+            "id": "home_collection_banner_link",
+            "detail": "settings.home_collection_banner_link is read in snippets/home-collection-tabs.liquid but is not declared in config/settings_schema.json"
+          },
+          {
+            "rule": "SETTING_UNDECLARED",
+            "id": "home_collection_tabs_1_handle",
+            "detail": "settings.home_collection_tabs_1_handle is read in snippets/home-collection-tabs.liquid but is not declared in config/settings_schema.json"
+          },
+          {
+            "rule": "SETTING_UNDECLARED",
+            "id": "home_collection_tabs_1_title",
+            "detail": "settings.home_collection_tabs_1_title is read in snippets/home-collection-tabs.liquid but is not declared in config/settings_schema.json"
+          },
+          {
+            "rule": "SETTING_UNDECLARED",
+            "id": "home_navtabs_limit_desk",
+            "detail": "settings.home_navtabs_limit_desk is read in snippets/home-collection-tabs.liquid but is not declared in config/settings_schema.json"
+          },
+          {
+            "rule": "SETTING_UNDECLARED",
+            "id": "home_navtabs_limit_mb",
+            "detail": "settings.home_navtabs_limit_mb is read in snippets/home-collection-tabs.liquid but is not declared in config/settings_schema.json"
+          },
+          {
+            "rule": "SETTING_UNDECLARED",
+            "id": "hrloyalty_icon_used",
+            "detail": "settings.hrloyalty_icon_used is read in snippets/footer-scripts.liquid, snippets/mini-account.liquid, snippets/sidebar-account.liquid, templates/customers[account].liquid, templates/customers[account].member.liquid, templates/customers[addresses].liquid, templates/customers[order].liquid but is not declared in config/settings_schema.json"
+          },
+          {
+            "rule": "SETTING_UNDECLARED",
+            "id": "lbl_address1",
+            "detail": "settings.lbl_address1 is read in templates/customers[addresses].liquid but is not declared in config/settings_schema.json"
+          },
+          {
+            "rule": "SETTING_UNDECLARED",
+            "id": "lbl_address2",
+            "detail": "settings.lbl_address2 is read in templates/customers[addresses].liquid but is not declared in config/settings_schema.json"
+          },
+          {
+            "rule": "SETTING_UNDECLARED",
+            "id": "lbl_company",
+            "detail": "settings.lbl_company is read in templates/customers[addresses].liquid but is not declared in config/settings_schema.json"
+          },
+          {
+            "rule": "SETTING_UNDECLARED",
+            "id": "lbl_first_name",
+            "detail": "settings.lbl_first_name is read in templates/customers[addresses].liquid but is not declared in config/settings_schema.json"
+          },
+          {
+            "rule": "SETTING_UNDECLARED",
+            "id": "lbl_last_name",
+            "detail": "settings.lbl_last_name is read in templates/customers[addresses].liquid but is not declared in config/settings_schema.json"
+          },
+          {
+            "rule": "SETTING_UNDECLARED",
+            "id": "lbl_phone",
+            "detail": "settings.lbl_phone is read in templates/customers[addresses].liquid but is not declared in config/settings_schema.json"
+          },
+          {
+            "rule": "SETTING_UNDECLARED",
+            "id": "loomline_index_form_title",
+            "detail": "settings.loomline_index_form_title is read in snippets/ll-index-form.liquid but is not declared in config/settings_schema.json"
+          },
+          {
+            "rule": "SETTING_UNDECLARED",
+            "id": "loomline_index_slider_1_alt",
+            "detail": "settings.loomline_index_slider_1_alt is read in snippets/ll-index-slider.liquid but is not declared in config/settings_schema.json"
+          },
+          {
+            "rule": "SETTING_UNDECLARED",
+            "id": "membercard_offer_link",
+            "detail": "settings.membercard_offer_link is read in templates/customers[account].member.liquid but is not declared in config/settings_schema.json"
+          },
+          {
+            "rule": "SETTING_UNDECLARED",
+            "id": "membercard_offer_show",
+            "detail": "settings.membercard_offer_show is read in templates/customers[account].member.liquid but is not declared in config/settings_schema.json"
+          },
+          {
+            "rule": "SETTING_UNDECLARED",
+            "id": "membercard_offer_title",
+            "detail": "settings.membercard_offer_title is read in templates/customers[account].member.liquid but is not declared in config/settings_schema.json"
+          },
+          {
+            "rule": "SETTING_UNDECLARED",
+            "id": "membercard_offer_txtlink",
+            "detail": "settings.membercard_offer_txtlink is read in templates/customers[account].member.liquid but is not declared in config/settings_schema.json"
+          },
+          {
+            "rule": "SETTING_UNDECLARED",
+            "id": "mini_cart_linkreturn",
+            "detail": "settings.mini_cart_linkreturn is read in snippets/mini-cart.liquid but is not declared in config/settings_schema.json"
+          },
+          {
+            "rule": "SETTING_UNDECLARED",
+            "id": "mini_cart_name",
+            "detail": "settings.mini_cart_name is read in snippets/mini-cart.liquid but is not declared in config/settings_schema.json"
+          },
+          {
+            "rule": "SETTING_UNDECLARED",
+            "id": "popup_promotion_title",
+            "detail": "settings.popup_promotion_title is read in snippets/popup-contact.liquid but is not declared in config/settings_schema.json"
+          },
+          {
+            "rule": "SETTING_UNDECLARED",
+            "id": "preorder_text_btn",
+            "detail": "settings.preorder_text_btn is read in snippets/modal-preorder.liquid, snippets/template-product-01.liquid, snippets/template-product-02.liquid, snippets/template-product-03.liquid, snippets/template-product-04.liquid, templates/product.quickview.liquid but is not declared in config/settings_schema.json"
+          },
+          {
+            "rule": "SETTING_UNDECLARED",
+            "id": "preorder_text_btn_popup",
+            "detail": "settings.preorder_text_btn_popup is read in snippets/modal-preorder.liquid, templates/product.quickview.liquid but is not declared in config/settings_schema.json"
+          },
+          {
+            "rule": "SETTING_UNDECLARED",
+            "id": "preorder_text_btn_prodloop",
+            "detail": "settings.preorder_text_btn_prodloop is read in snippets/product-loop--ctas.liquid, snippets/sidebar-action-product.liquid but is not declared in config/settings_schema.json"
+          },
+          {
+            "rule": "SETTING_UNDECLARED",
+            "id": "prod_resize_img",
+            "detail": "settings.prod_resize_img is read in snippets/product-loadding.liquid but is not declared in config/settings_schema.json"
+          },
+          {
+            "rule": "SETTING_UNDECLARED",
+            "id": "prod_vendor_show",
+            "detail": "settings.prod_vendor_show is read in snippets/template-product-01.liquid, snippets/template-product-02.liquid, snippets/template-product-03.liquid, snippets/template-product-04.liquid, templates/product.ll-quickview.liquid, templates/product.quickview.liquid but is not declared in config/settings_schema.json"
+          },
+          {
+            "rule": "SETTING_UNDECLARED",
+            "id": "product_banner_link",
+            "detail": "settings.product_banner_link is read in snippets/template-product-01.liquid but is not declared in config/settings_schema.json"
+          },
+          {
+            "rule": "SETTING_UNDECLARED",
+            "id": "product_banner_show",
+            "detail": "settings.product_banner_show is read in snippets/template-product-01.liquid but is not declared in config/settings_schema.json"
+          },
+          {
+            "rule": "SETTING_UNDECLARED",
+            "id": "product_contact_title",
+            "detail": "settings.product_contact_title is read in templates/product.ll-quickview.liquid, templates/product.quickview.liquid but is not declared in config/settings_schema.json"
+          },
+          {
+            "rule": "SETTING_UNDECLARED",
+            "id": "product_contact_url",
+            "detail": "settings.product_contact_url is read in templates/product.ll-quickview.liquid, templates/product.quickview.liquid but is not declared in config/settings_schema.json"
+          },
+          {
+            "rule": "SETTING_UNDECLARED",
+            "id": "product_grid_mobile",
+            "detail": "settings.product_grid_mobile is read in snippets/product-loop--ctas.liquid but is not declared in config/settings_schema.json"
+          },
+          {
+            "rule": "SETTING_UNDECLARED",
+            "id": "product_layout_style",
+            "detail": "settings.product_layout_style is read in snippets/footer-scripts.liquid, snippets/plugins-css.liquid but is not declared in config/settings_schema.json"
+          },
+          {
+            "rule": "SETTING_UNDECLARED",
+            "id": "shop_buying",
+            "detail": "settings.shop_buying is read in snippets/product-loop-horizontal.liquid, snippets/template-product-01.liquid, snippets/template-product-02.liquid, snippets/template-product-03.liquid, snippets/template-product-04.liquid, templates/product.quickview.liquid but is not declared in config/settings_schema.json"
+          },
+          {
+            "rule": "SETTING_UNDECLARED",
+            "id": "shop_main_color",
+            "detail": "settings.shop_main_color is read in snippets/mini-location.liquid but is not declared in config/settings_schema.json"
+          },
+          {
+            "rule": "SETTING_UNDECLARED",
+            "id": "show_fanpage_faceook",
+            "detail": "settings.show_fanpage_faceook is read in snippets/facebook-widget.liquid but is not declared in config/settings_schema.json"
+          },
+          {
+            "rule": "SETTING_UNDECLARED",
+            "id": "slide_1_btn",
+            "detail": "settings.slide_1_btn is read in snippets/homepage-slider.liquid but is not declared in config/settings_schema.json"
+          },
+          {
+            "rule": "SETTING_UNDECLARED",
+            "id": "slide_1_desc",
+            "detail": "settings.slide_1_desc is read in snippets/homepage-slider.liquid but is not declared in config/settings_schema.json"
+          },
+          {
+            "rule": "SETTING_UNDECLARED",
+            "id": "slide_1_link",
+            "detail": "settings.slide_1_link is read in snippets/homepage-slider.liquid but is not declared in config/settings_schema.json"
+          },
+          {
+            "rule": "SETTING_UNDECLARED",
+            "id": "slide_1_title",
+            "detail": "settings.slide_1_title is read in snippets/homepage-slider.liquid but is not declared in config/settings_schema.json"
+          },
+          {
+            "rule": "SETTING_UNDECLARED",
+            "id": "tagsize_title",
+            "detail": "settings.tagsize_title is read in snippets/modal-sizeguide.liquid but is not declared in config/settings_schema.json"
+          }
+        ]
+      },
+      {
+        "check": "assets",
+        "failures": [
+          {
+            "rule": "ASSET_MISSING_LOCAL",
+            "ref": "blogs_banner_paralax.jpg",
+            "files": [
+              "templates/article.liquid"
+            ]
+          },
+          {
+            "rule": "ASSET_MISSING_LOCAL",
+            "ref": "home_coll_1_banner.jpg",
+            "files": [
+              "snippets/home-collection-tabs.liquid"
+            ]
+          },
+          {
+            "rule": "ASSET_MISSING_LOCAL",
+            "ref": "home_collection_banner.jpg",
+            "files": [
+              "snippets/homepage-collection.liquid"
+            ]
+          },
+          {
+            "rule": "ASSET_MISSING_LOCAL",
+            "ref": "loomline_index_form_img.jpg",
+            "files": [
+              "snippets/ll-index-form.liquid"
+            ]
+          },
+          {
+            "rule": "ASSET_MISSING_LOCAL",
+            "ref": "slide_1_img.jpg",
+            "files": [
+              "snippets/homepage-slider.liquid"
+            ]
+          },
+          {
+            "rule": "ASSET_MISSING_LOCAL",
+            "ref": "slide_1_img_mb.jpg",
+            "files": [
+              "snippets/homepage-slider.liquid"
+            ]
+          }
+        ]
+      }
+    ],
+    "htmlInputs": [
+      "subject/dom/404__1024x900.html",
+      "subject/dom/404__1440x900.html",
+      "subject/dom/404__390x844.html",
+      "subject/dom/article__390x844.html",
+      "subject/dom/cart__1024x900.html",
+      "subject/dom/cart__390x844.html",
+      "subject/dom/collection__1024x900.html",
+      "subject/dom/collection__1440x900.html",
+      "subject/dom/collection__390x844.html",
+      "subject/dom/home__390x844.html",
+      "subject/dom/product__1024x900.html",
+      "subject/dom/product__390x844.html",
+      "subject/dom/search__1024x900.html",
+      "subject/dom/search__390x844.html"
+    ],
+    "counts": {
+      "schemas": 0,
+      "settingsBinding": 95,
+      "assets": 6,
+      "renders": 14
+    },
+    "childExitCode": 3
+  },
+  "safetyAudit": {
+    "kind": "theme-fidelity-run-safety-audit",
+    "commands": 6,
+    "allowedThemeIds": [
+      "-1",
+      "1001512581"
+    ],
+    "themeIds": [
+      "-1",
+      "1001512581"
+    ],
+    "foreignThemeIds": {
+      "count": 0,
+      "entries": []
+    },
+    "publishDeployPush": {
+      "absent": true,
+      "matches": []
+    },
+    "livePreviewReads": [
+      "https://phukienmaymoc.com/?themeid=-1",
+      "https://phukienmaymoc.com/blogs/news/plc-la-gi-cau-tao-nguyen-ly-hoat-dong?themeid=-1",
+      "https://phukienmaymoc.com/cart?themeid=-1",
+      "https://phukienmaymoc.com/collections/phu-kien-han?themeid=-1",
+      "https://phukienmaymoc.com/khong-ton-tai-404-probe-xyz?themeid=-1",
+      "https://phukienmaymoc.com/products/ong-han-laser?themeid=-1",
+      "https://phukienmaymoc.com/search?q=laser&themeid=-1"
+    ],
+    "copyPreviewReads": [
+      "https://phukienmaymoc.com/?themeid=1001512581"
+    ],
+    "remoteWrites": [
+      {
+        "stage": "serve",
+        "writeTargets": [
+          "1001512581"
+        ],
+        "command": [
+          "hrv",
+          "theme",
+          "dev"
+        ],
+        "stopMethod": "taskkill-unconfirmed:ERROR: The process \"14020\" not found."
+      }
+    ],
+    "perCommand": [
+      {
+        "index": 0,
+        "stage": "preflight",
+        "exitCode": 0,
+        "durationMs": 12,
+        "command": null,
+        "commands": [],
+        "themeIds": [
+          "-1",
+          "1001512581"
+        ],
+        "themeIdsSource": "inventories/copy.json + inventories/live.json (derived URL parameters; no command spawned)",
+        "foreignThemeIds": [],
+        "writeTargets": [],
+        "readOnlyLivePreviews": [],
+        "readOnlyCopyPreviews": [],
+        "stopMethod": null,
+        "spawned": false
+      },
+      {
+        "index": 1,
+        "stage": "references",
+        "exitCode": 0,
+        "durationMs": 742735,
+        "command": [
+          "C:\\Program Files\\nodejs\\node.exe",
+          "E:\\Work\\apps\\AntiFan\\.canary\\tools\\theme-fidelity.mjs",
+          "capture",
+          "--role",
+          "reference",
+          "--label",
+          "r1-copy",
+          "--inventory",
+          "E:\\Work\\apps\\AntiFan\\.canary\\theme-fidelity-run4\\inventories\\copy.json",
+          "--out",
+          "E:\\Work\\apps\\AntiFan\\.canary\\theme-fidelity-run4\\r1",
+          "--viewports",
+          "1440x900,1024x900,390x844",
+          "--allow-theme",
+          "1001512581"
+        ],
+        "commands": [
+          [
+            "C:\\Program Files\\nodejs\\node.exe",
+            "E:\\Work\\apps\\AntiFan\\.canary\\tools\\theme-fidelity.mjs",
+            "capture",
+            "--role",
+            "reference",
+            "--label",
+            "r1-copy",
+            "--inventory",
+            "E:\\Work\\apps\\AntiFan\\.canary\\theme-fidelity-run4\\inventories\\copy.json",
+            "--out",
+            "E:\\Work\\apps\\AntiFan\\.canary\\theme-fidelity-run4\\r1",
+            "--viewports",
+            "1440x900,1024x900,390x844",
+            "--allow-theme",
+            "1001512581"
+          ],
+          [
+            "C:\\Program Files\\nodejs\\node.exe",
+            "E:\\Work\\apps\\AntiFan\\.canary\\tools\\theme-fidelity.mjs",
+            "capture",
+            "--role",
+            "reference",
+            "--label",
+            "r2-live",
+            "--inventory",
+            "E:\\Work\\apps\\AntiFan\\.canary\\theme-fidelity-run4\\inventories\\live.json",
+            "--out",
+            "E:\\Work\\apps\\AntiFan\\.canary\\theme-fidelity-run4\\r2",
+            "--viewports",
+            "1440x900,1024x900,390x844",
+            "--allow-theme",
+            "1001512581"
+          ]
+        ],
+        "themeIds": [
+          "-1",
+          "1001512581"
+        ],
+        "themeIdsSource": "inventories/copy.json (themeid=1001512581) + inventories/live.json (themeid=-1)",
+        "foreignThemeIds": [],
+        "writeTargets": [],
+        "readOnlyLivePreviews": [
+          "https://phukienmaymoc.com/?themeid=-1",
+          "https://phukienmaymoc.com/blogs/news/plc-la-gi-cau-tao-nguyen-ly-hoat-dong?themeid=-1",
+          "https://phukienmaymoc.com/cart?themeid=-1",
+          "https://phukienmaymoc.com/collections/phu-kien-han?themeid=-1",
+          "https://phukienmaymoc.com/khong-ton-tai-404-probe-xyz?themeid=-1",
+          "https://phukienmaymoc.com/products/ong-han-laser?themeid=-1",
+          "https://phukienmaymoc.com/search?q=laser&themeid=-1"
+        ],
+        "readOnlyCopyPreviews": [],
+        "stopMethod": null,
+        "spawned": true
+      },
+      {
+        "index": 2,
+        "stage": "serve",
+        "exitCode": 0,
+        "durationMs": 19749,
+        "command": [
+          "hrv",
+          "theme",
+          "dev"
+        ],
+        "commands": [
+          [
+            "hrv",
+            "theme",
+            "dev"
+          ]
+        ],
+        "themeIds": [
+          "1001512581"
+        ],
+        "themeIdsSource": ".haravan-cli_local.json theme_id=1001512581 (the dev session's write target)",
+        "foreignThemeIds": [],
+        "writeTargets": [
+          "1001512581"
+        ],
+        "readOnlyLivePreviews": [],
+        "readOnlyCopyPreviews": [
+          "https://phukienmaymoc.com/?themeid=1001512581"
+        ],
+        "stopMethod": "taskkill-unconfirmed:ERROR: The process \"14020\" not found.",
+        "spawned": true
+      },
+      {
+        "index": 3,
+        "stage": "subject",
+        "exitCode": 3,
+        "durationMs": 358682,
+        "command": [
+          "C:\\Program Files\\nodejs\\node.exe",
+          "E:\\Work\\apps\\AntiFan\\.canary\\tools\\theme-fidelity.mjs",
+          "capture",
+          "--role",
+          "subject",
+          "--label",
+          "s1-subject",
+          "--inventory",
+          "E:\\Work\\apps\\AntiFan\\.canary\\theme-fidelity-run4\\inventories\\subject.json",
+          "--out",
+          "E:\\Work\\apps\\AntiFan\\.canary\\theme-fidelity-run4\\subject",
+          "--viewports",
+          "1440x900,1024x900,390x844",
+          "--allow-theme",
+          "1001512581"
+        ],
+        "commands": [
+          [
+            "C:\\Program Files\\nodejs\\node.exe",
+            "E:\\Work\\apps\\AntiFan\\.canary\\tools\\theme-fidelity.mjs",
+            "capture",
+            "--role",
+            "subject",
+            "--label",
+            "s1-subject",
+            "--inventory",
+            "E:\\Work\\apps\\AntiFan\\.canary\\theme-fidelity-run4\\inventories\\subject.json",
+            "--out",
+            "E:\\Work\\apps\\AntiFan\\.canary\\theme-fidelity-run4\\subject",
+            "--viewports",
+            "1440x900,1024x900,390x844",
+            "--allow-theme",
+            "1001512581"
+          ]
+        ],
+        "themeIds": [],
+        "themeIdsSource": null,
+        "foreignThemeIds": [],
+        "writeTargets": [],
+        "readOnlyLivePreviews": [],
+        "readOnlyCopyPreviews": [],
+        "stopMethod": null,
+        "spawned": false
+      },
+      {
+        "index": 4,
+        "stage": "compare",
+        "exitCode": 3,
+        "durationMs": 367,
+        "command": [
+          "C:\\Program Files\\nodejs\\node.exe",
+          "E:\\Work\\apps\\AntiFan\\.canary\\tools\\theme-fidelity.mjs",
+          "compare",
+          "--reference",
+          "E:\\Work\\apps\\AntiFan\\.canary\\theme-fidelity-run4\\r1",
+          "--subject",
+          "E:\\Work\\apps\\AntiFan\\.canary\\theme-fidelity-run4\\subject",
+          "--out",
+          "E:\\Work\\apps\\AntiFan\\.canary\\theme-fidelity-run4\\compare\\r1-vs-subject"
+        ],
+        "commands": [
+          [
+            "C:\\Program Files\\nodejs\\node.exe",
+            "E:\\Work\\apps\\AntiFan\\.canary\\tools\\theme-fidelity.mjs",
+            "compare",
+            "--reference",
+            "E:\\Work\\apps\\AntiFan\\.canary\\theme-fidelity-run4\\r1",
+            "--subject",
+            "E:\\Work\\apps\\AntiFan\\.canary\\theme-fidelity-run4\\subject",
+            "--out",
+            "E:\\Work\\apps\\AntiFan\\.canary\\theme-fidelity-run4\\compare\\r1-vs-subject"
+          ],
+          [
+            "C:\\Program Files\\nodejs\\node.exe",
+            "E:\\Work\\apps\\AntiFan\\.canary\\tools\\theme-fidelity.mjs",
+            "compare",
+            "--reference",
+            "E:\\Work\\apps\\AntiFan\\.canary\\theme-fidelity-run4\\r2",
+            "--subject",
+            "E:\\Work\\apps\\AntiFan\\.canary\\theme-fidelity-run4\\subject",
+            "--out",
+            "E:\\Work\\apps\\AntiFan\\.canary\\theme-fidelity-run4\\compare\\r2-vs-subject"
+          ]
+        ],
+        "themeIds": [
+          "-1",
+          "1001512581"
+        ],
+        "themeIdsSource": "r1/index.json/index (themeid=1001512581), r2/index.json/index (themeid=-1), subject/index.json (themeid=1001512581)",
+        "foreignThemeIds": [],
+        "writeTargets": [],
+        "readOnlyLivePreviews": [],
+        "readOnlyCopyPreviews": [],
+        "stopMethod": null,
+        "spawned": true
+      },
+      {
+        "index": 5,
+        "stage": "checks",
+        "exitCode": 0,
+        "durationMs": 350,
+        "command": [
+          "C:\\Program Files\\nodejs\\node.exe",
+          "E:\\Work\\apps\\AntiFan\\scripts\\theme-checks.mjs",
+          "--theme",
+          "E:\\Work\\customizes\\Phukienmaymoc",
+          "--html",
+          "E:\\Work\\apps\\AntiFan\\.canary\\theme-fidelity-run4\\subject\\dom\\404__1024x900.html",
+          "--html",
+          "E:\\Work\\apps\\AntiFan\\.canary\\theme-fidelity-run4\\subject\\dom\\404__1440x900.html",
+          "--html",
+          "E:\\Work\\apps\\AntiFan\\.canary\\theme-fidelity-run4\\subject\\dom\\404__390x844.html",
+          "--html",
+          "E:\\Work\\apps\\AntiFan\\.canary\\theme-fidelity-run4\\subject\\dom\\article__390x844.html",
+          "--html",
+          "E:\\Work\\apps\\AntiFan\\.canary\\theme-fidelity-run4\\subject\\dom\\cart__1024x900.html",
+          "--html",
+          "E:\\Work\\apps\\AntiFan\\.canary\\theme-fidelity-run4\\subject\\dom\\cart__390x844.html",
+          "--html",
+          "E:\\Work\\apps\\AntiFan\\.canary\\theme-fidelity-run4\\subject\\dom\\collection__1024x900.html",
+          "--html",
+          "E:\\Work\\apps\\AntiFan\\.canary\\theme-fidelity-run4\\subject\\dom\\collection__1440x900.html",
+          "--html",
+          "E:\\Work\\apps\\AntiFan\\.canary\\theme-fidelity-run4\\subject\\dom\\collection__390x844.html",
+          "--html",
+          "E:\\Work\\apps\\AntiFan\\.canary\\theme-fidelity-run4\\subject\\dom\\home__390x844.html",
+          "--html",
+          "E:\\Work\\apps\\AntiFan\\.canary\\theme-fidelity-run4\\subject\\dom\\product__1024x900.html",
+          "--html",
+          "E:\\Work\\apps\\AntiFan\\.canary\\theme-fidelity-run4\\subject\\dom\\product__390x844.html",
+          "--html",
+          "E:\\Work\\apps\\AntiFan\\.canary\\theme-fidelity-run4\\subject\\dom\\search__1024x900.html",
+          "--html",
+          "E:\\Work\\apps\\AntiFan\\.canary\\theme-fidelity-run4\\subject\\dom\\search__390x844.html",
+          "--out",
+          "E:\\Work\\apps\\AntiFan\\.canary\\theme-fidelity-run4\\structural.json"
+        ],
+        "commands": [
+          [
+            "C:\\Program Files\\nodejs\\node.exe",
+            "E:\\Work\\apps\\AntiFan\\scripts\\theme-checks.mjs",
+            "--theme",
+            "E:\\Work\\customizes\\Phukienmaymoc",
+            "--html",
+            "E:\\Work\\apps\\AntiFan\\.canary\\theme-fidelity-run4\\subject\\dom\\404__1024x900.html",
+            "--html",
+            "E:\\Work\\apps\\AntiFan\\.canary\\theme-fidelity-run4\\subject\\dom\\404__1440x900.html",
+            "--html",
+            "E:\\Work\\apps\\AntiFan\\.canary\\theme-fidelity-run4\\subject\\dom\\404__390x844.html",
+            "--html",
+            "E:\\Work\\apps\\AntiFan\\.canary\\theme-fidelity-run4\\subject\\dom\\article__390x844.html",
+            "--html",
+            "E:\\Work\\apps\\AntiFan\\.canary\\theme-fidelity-run4\\subject\\dom\\cart__1024x900.html",
+            "--html",
+            "E:\\Work\\apps\\AntiFan\\.canary\\theme-fidelity-run4\\subject\\dom\\cart__390x844.html",
+            "--html",
+            "E:\\Work\\apps\\AntiFan\\.canary\\theme-fidelity-run4\\subject\\dom\\collection__1024x900.html",
+            "--html",
+            "E:\\Work\\apps\\AntiFan\\.canary\\theme-fidelity-run4\\subject\\dom\\collection__1440x900.html",
+            "--html",
+            "E:\\Work\\apps\\AntiFan\\.canary\\theme-fidelity-run4\\subject\\dom\\collection__390x844.html",
+            "--html",
+            "E:\\Work\\apps\\AntiFan\\.canary\\theme-fidelity-run4\\subject\\dom\\home__390x844.html",
+            "--html",
+            "E:\\Work\\apps\\AntiFan\\.canary\\theme-fidelity-run4\\subject\\dom\\product__1024x900.html",
+            "--html",
+            "E:\\Work\\apps\\AntiFan\\.canary\\theme-fidelity-run4\\subject\\dom\\product__390x844.html",
+            "--html",
+            "E:\\Work\\apps\\AntiFan\\.canary\\theme-fidelity-run4\\subject\\dom\\search__1024x900.html",
+            "--html",
+            "E:\\Work\\apps\\AntiFan\\.canary\\theme-fidelity-run4\\subject\\dom\\search__390x844.html",
+            "--out",
+            "E:\\Work\\apps\\AntiFan\\.canary\\theme-fidelity-run4\\structural.json"
+          ]
+        ],
+        "themeIds": [],
+        "themeIdsSource": "scripts/theme-checks.mjs reads the local theme source; it addresses no theme id",
+        "foreignThemeIds": [],
+        "writeTargets": [],
+        "readOnlyLivePreviews": [],
+        "readOnlyCopyPreviews": [],
+        "stopMethod": null,
+        "spawned": true
+      }
+    ],
+    "pass": true,
+    "commandLog": {
+      "file": "commands.jsonl",
+      "sha256": "d7a820ff706c4ae94df0e46a3b0c50dedb8028ea9b5f75314c1ab904eef110f3",
+      "bytes": 9845,
+      "lines": 6
+    },
+    "targetsOutsideAllowed": {
+      "mustBeZero": 0,
+      "count": 0
+    }
+  },
+  "notMeasured": [
+    {
+      "source": "inventory",
+      "surface": "contact",
+      "viewport": null,
+      "code": "UNRESOLVED_SURFACE",
+      "reason": "templates/page.contact.liquid has no owning page record: sitemap_pages_1.xml lists only chinh-sach-bao-mat, about-us, dieu-khoan-dich-vu, frontpage, chinh-sach-doi-tra and lien-he, and /pages/contact returns HTTP 404. The copy theme 1001512581 does not contain the template: https://phukienmaymoc.com/pages/lien-he?themeid=1001512581&view=contact silently falls back to page.liquid (identical body to /pages/lien-he, none of the template's markers such as 'Always Ready To Be Different' appear). The live theme does render it: https://phukienmaymoc.com/pages/lien-he?themeid=-1&view=contact was requested and the marker is present. Capturable only after the copy is synced."
+    },
+    {
+      "source": "inventory",
+      "surface": "quote",
+      "viewport": null,
+      "code": "UNRESOLVED_SURFACE",
+      "reason": "templates/page.quote.liquid has no owning page record (/pages/quote returns HTTP 404 and sitemap_pages_1.xml has no 'quote' entry). The copy theme silently falls back to page.liquid for https://phukienmaymoc.com/pages/lien-he?themeid=1001512581&view=quote (the 'Yêu cầu Báo giá Thiết bị' marker is absent). The live theme renders it: https://phukienmaymoc.com/pages/lien-he?themeid=-1&view=quote was requested and returned '# Yêu cầu Báo giá Thiết bị'. Capturable only after the copy is synced."
+    },
+    {
+      "source": "inventory",
+      "surface": "documents",
+      "viewport": null,
+      "code": "UNRESOLVED_SURFACE",
+      "reason": "templates/page.documents.liquid has no owning page record (no 'documents' entry in sitemap_pages_1.xml; /pages/documents is not routable). Verified renderable on the live theme only: https://phukienmaymoc.com/pages/lien-he?themeid=-1&view=documents was requested and returned the template marker 'Tài liệu Kỹ thuật & Catalogue'. Not tested against the copy because the page.* alternates are absent there (proved for contact and quote); capture requires a theme sync."
+    },
+    {
+      "source": "inventory",
+      "surface": "brands",
+      "viewport": null,
+      "code": "UNRESOLVED_SURFACE",
+      "reason": "templates/page.brands.liquid has no owning page record (no 'brands' entry in sitemap_pages_1.xml). Verified renderable on the live theme only: https://phukienmaymoc.com/pages/lien-he?themeid=-1&view=brands was requested and returned the template markers 'Tìm theo bảng chữ cái' and 'Danh mục thương hiệu'. The host route is arbitrary because the template owns no page; the copy needs a theme sync."
+    },
+    {
+      "source": "inventory",
+      "surface": "stores",
+      "viewport": null,
+      "code": "UNRESOLVED_SURFACE",
+      "reason": "templates/page.stores.liquid has no owning page record (no 'stores' entry in sitemap_pages_1.xml). Verified renderable on the live theme only: https://phukienmaymoc.com/pages/lien-he?themeid=-1&view=stores was requested and returned the template marker 'Tìm cửa hàng'. Its shop list is injected client-side from a store list, so a static capture will show an empty selector. Host route is arbitrary; the copy needs a theme sync."
+    },
+    {
+      "source": "inventory",
+      "surface": "wishlist",
+      "viewport": null,
+      "code": "UNRESOLVED_SURFACE",
+      "reason": "templates/page.wishlist.liquid has no owning page record (/pages/wishlist returns HTTP 404 and sitemap_pages_1.xml has no 'wishlist' entry). https://phukienmaymoc.com/pages/lien-he?themeid=-1&view=wishlist was requested and returned a full-page render carrying the theme layout, but take-effect is not text-verifiable: the template contains no static visible text (every string is injected by its own script), so it cannot be distinguished from a page.liquid fallback by content. Reachability therefore stays unverified."
+    },
+    {
+      "source": "inventory",
+      "surface": "member",
+      "viewport": null,
+      "code": "UNRESOLVED_SURFACE",
+      "reason": "templates/customers[account].member.liquid is auth-gated. Both https://phukienmaymoc.com/account?themeid=1001512581 and https://phukienmaymoc.com/account?themeid=1001512581&view=member resolve to https://phukienmaymoc.com/auth/200001207485/sign-in?urlredirect=... (Haravan hosted sign-in, title 'Haravan - Checkouts'), so the account view cannot be captured anonymously. The sibling customers[*] templates belong to the /account/login, /account/register, /account/addresses and /account/orders routes and are gated the same way."
+    },
+    {
+      "source": "capture:subject",
+      "surface": "home",
+      "viewport": "1440x900",
+      "code": "FULLPAGE_CAPTURE_UNSUPPORTED_GEOMETRY",
+      "reason": "FULLPAGE_CAPTURE_UNSUPPORTED_GEOMETRY: Requested full-page capture region 1440x27360 CSS px is outside the supported 1..16384 range on tab 'ef0421f7-e280-4b84-a327-409f16f3f149'"
+    },
+    {
+      "source": "capture:subject",
+      "surface": "home",
+      "viewport": "1024x900",
+      "code": "FULLPAGE_CAPTURE_UNSUPPORTED_GEOMETRY",
+      "reason": "FULLPAGE_CAPTURE_UNSUPPORTED_GEOMETRY: Requested full-page capture region 1024x25100 CSS px is outside the supported 1..16384 range on tab 'f0fbb81a-c851-4277-923c-f964871dfc5e'"
+    },
+    {
+      "source": "capture:subject",
+      "surface": "product",
+      "viewport": "1440x900",
+      "code": "FULLPAGE_CAPTURE_UNSUPPORTED_GEOMETRY",
+      "reason": "FULLPAGE_CAPTURE_UNSUPPORTED_GEOMETRY: Requested full-page capture region 1440x17229 CSS px is outside the supported 1..16384 range on tab '6dddcff8-8a6a-4a29-bda7-a935e73c19c1'"
+    },
+    {
+      "source": "capture:subject",
+      "surface": "article",
+      "viewport": "1440x900",
+      "code": "FULLPAGE_CAPTURE_UNSUPPORTED_GEOMETRY",
+      "reason": "FULLPAGE_CAPTURE_UNSUPPORTED_GEOMETRY: Requested full-page capture region 1440x18853 CSS px is outside the supported 1..16384 range on tab 'f3dab16b-cf61-4dff-b8d6-689a21e916b9'"
+    },
+    {
+      "source": "capture:subject",
+      "surface": "article",
+      "viewport": "1024x900",
+      "code": "FULLPAGE_CAPTURE_UNSUPPORTED_GEOMETRY",
+      "reason": "FULLPAGE_CAPTURE_UNSUPPORTED_GEOMETRY: Requested full-page capture region 1024x16759 CSS px is outside the supported 1..16384 range on tab 'e352a5ac-46a9-4b0e-bb3b-053005ee196e'"
+    },
+    {
+      "source": "capture:subject",
+      "surface": "cart",
+      "viewport": "1440x900",
+      "code": "FULLPAGE_CAPTURE_UNSUPPORTED_GEOMETRY",
+      "reason": "FULLPAGE_CAPTURE_UNSUPPORTED_GEOMETRY: Requested full-page capture region 1440x16477 CSS px is outside the supported 1..16384 range on tab '0f6b65bb-1179-4bdd-8e37-b90b537a309f'"
+    },
+    {
+      "source": "capture:subject",
+      "surface": "search",
+      "viewport": "1440x900",
+      "code": "FULLPAGE_CAPTURE_UNSUPPORTED_GEOMETRY",
+      "reason": "FULLPAGE_CAPTURE_UNSUPPORTED_GEOMETRY: Requested full-page capture region 1440x16465 CSS px is outside the supported 1..16384 range on tab '52ee0b67-ca44-453a-bf81-659b3cc6d0fd'"
+    },
+    {
+      "source": "compare:r1-vs-subject",
+      "surface": null,
+      "viewport": null,
+      "code": "PROVENANCE_UNRESOLVED",
+      "reason": "the r1-vs-subject comparison refused: subject evidence E:\\Work\\apps\\AntiFan\\.canary\\theme-fidelity-run4\\subject\\article__1024x900.json cannot be judged: status=NOT_MEASURABLE, provenance"
+    },
+    {
+      "source": "compare:r2-vs-subject",
+      "surface": null,
+      "viewport": null,
+      "code": "PROVENANCE_UNRESOLVED",
+      "reason": "the r2-vs-subject comparison refused: subject evidence E:\\Work\\apps\\AntiFan\\.canary\\theme-fidelity-run4\\subject\\article__1024x900.json cannot be judged: status=NOT_MEASURABLE, provenance"
+    }
+  ],
+  "gaps": [
+    {
+      "surface": "home",
+      "viewport": "1440x900",
+      "set": "r1-vs-subject",
+      "side": null,
+      "reason": "the verdict set refused (PROVENANCE_UNRESOLVED)"
+    },
+    {
+      "surface": "home",
+      "viewport": "1440x900",
+      "set": "r2-vs-subject",
+      "side": null,
+      "reason": "the verdict set refused (PROVENANCE_UNRESOLVED)"
+    },
+    {
+      "surface": "home",
+      "viewport": "1440x900",
+      "set": null,
+      "side": "checks",
+      "reason": "no captured HTML input for home__1440x900.html appears in the structural report"
+    },
+    {
+      "surface": "home",
+      "viewport": "1024x900",
+      "set": "r1-vs-subject",
+      "side": null,
+      "reason": "the verdict set refused (PROVENANCE_UNRESOLVED)"
+    },
+    {
+      "surface": "home",
+      "viewport": "1024x900",
+      "set": "r2-vs-subject",
+      "side": null,
+      "reason": "the verdict set refused (PROVENANCE_UNRESOLVED)"
+    },
+    {
+      "surface": "home",
+      "viewport": "1024x900",
+      "set": null,
+      "side": "checks",
+      "reason": "no captured HTML input for home__1024x900.html appears in the structural report"
+    },
+    {
+      "surface": "home",
+      "viewport": "390x844",
+      "set": "r1-vs-subject",
+      "side": null,
+      "reason": "the verdict set refused (PROVENANCE_UNRESOLVED)"
+    },
+    {
+      "surface": "home",
+      "viewport": "390x844",
+      "set": "r2-vs-subject",
+      "side": null,
+      "reason": "the verdict set refused (PROVENANCE_UNRESOLVED)"
+    },
+    {
+      "surface": "product",
+      "viewport": "1440x900",
+      "set": "r1-vs-subject",
+      "side": null,
+      "reason": "the verdict set refused (PROVENANCE_UNRESOLVED)"
+    },
+    {
+      "surface": "product",
+      "viewport": "1440x900",
+      "set": "r2-vs-subject",
+      "side": null,
+      "reason": "the verdict set refused (PROVENANCE_UNRESOLVED)"
+    },
+    {
+      "surface": "product",
+      "viewport": "1440x900",
+      "set": null,
+      "side": "checks",
+      "reason": "no captured HTML input for product__1440x900.html appears in the structural report"
+    },
+    {
+      "surface": "product",
+      "viewport": "1024x900",
+      "set": "r1-vs-subject",
+      "side": null,
+      "reason": "the verdict set refused (PROVENANCE_UNRESOLVED)"
+    },
+    {
+      "surface": "product",
+      "viewport": "1024x900",
+      "set": "r2-vs-subject",
+      "side": null,
+      "reason": "the verdict set refused (PROVENANCE_UNRESOLVED)"
+    },
+    {
+      "surface": "product",
+      "viewport": "390x844",
+      "set": "r1-vs-subject",
+      "side": null,
+      "reason": "the verdict set refused (PROVENANCE_UNRESOLVED)"
+    },
+    {
+      "surface": "product",
+      "viewport": "390x844",
+      "set": "r2-vs-subject",
+      "side": null,
+      "reason": "the verdict set refused (PROVENANCE_UNRESOLVED)"
+    },
+    {
+      "surface": "collection",
+      "viewport": "1440x900",
+      "set": "r1-vs-subject",
+      "side": null,
+      "reason": "the verdict set refused (PROVENANCE_UNRESOLVED)"
+    },
+    {
+      "surface": "collection",
+      "viewport": "1440x900",
+      "set": "r2-vs-subject",
+      "side": null,
+      "reason": "the verdict set refused (PROVENANCE_UNRESOLVED)"
+    },
+    {
+      "surface": "collection",
+      "viewport": "1024x900",
+      "set": "r1-vs-subject",
+      "side": null,
+      "reason": "the verdict set refused (PROVENANCE_UNRESOLVED)"
+    },
+    {
+      "surface": "collection",
+      "viewport": "1024x900",
+      "set": "r2-vs-subject",
+      "side": null,
+      "reason": "the verdict set refused (PROVENANCE_UNRESOLVED)"
+    },
+    {
+      "surface": "collection",
+      "viewport": "390x844",
+      "set": "r1-vs-subject",
+      "side": null,
+      "reason": "the verdict set refused (PROVENANCE_UNRESOLVED)"
+    },
+    {
+      "surface": "collection",
+      "viewport": "390x844",
+      "set": "r2-vs-subject",
+      "side": null,
+      "reason": "the verdict set refused (PROVENANCE_UNRESOLVED)"
+    },
+    {
+      "surface": "article",
+      "viewport": "1440x900",
+      "set": "r1-vs-subject",
+      "side": null,
+      "reason": "the verdict set refused (PROVENANCE_UNRESOLVED)"
+    },
+    {
+      "surface": "article",
+      "viewport": "1440x900",
+      "set": "r2-vs-subject",
+      "side": null,
+      "reason": "the verdict set refused (PROVENANCE_UNRESOLVED)"
+    },
+    {
+      "surface": "article",
+      "viewport": "1440x900",
+      "set": null,
+      "side": "checks",
+      "reason": "no captured HTML input for article__1440x900.html appears in the structural report"
+    },
+    {
+      "surface": "article",
+      "viewport": "1024x900",
+      "set": "r1-vs-subject",
+      "side": null,
+      "reason": "the verdict set refused (PROVENANCE_UNRESOLVED)"
+    },
+    {
+      "surface": "article",
+      "viewport": "1024x900",
+      "set": "r2-vs-subject",
+      "side": null,
+      "reason": "the verdict set refused (PROVENANCE_UNRESOLVED)"
+    },
+    {
+      "surface": "article",
+      "viewport": "1024x900",
+      "set": null,
+      "side": "checks",
+      "reason": "no captured HTML input for article__1024x900.html appears in the structural report"
+    },
+    {
+      "surface": "article",
+      "viewport": "390x844",
+      "set": "r1-vs-subject",
+      "side": null,
+      "reason": "the verdict set refused (PROVENANCE_UNRESOLVED)"
+    },
+    {
+      "surface": "article",
+      "viewport": "390x844",
+      "set": "r2-vs-subject",
+      "side": null,
+      "reason": "the verdict set refused (PROVENANCE_UNRESOLVED)"
+    },
+    {
+      "surface": "cart",
+      "viewport": "1440x900",
+      "set": "r1-vs-subject",
+      "side": null,
+      "reason": "the verdict set refused (PROVENANCE_UNRESOLVED)"
+    },
+    {
+      "surface": "cart",
+      "viewport": "1440x900",
+      "set": "r2-vs-subject",
+      "side": null,
+      "reason": "the verdict set refused (PROVENANCE_UNRESOLVED)"
+    },
+    {
+      "surface": "cart",
+      "viewport": "1440x900",
+      "set": null,
+      "side": "checks",
+      "reason": "no captured HTML input for cart__1440x900.html appears in the structural report"
+    },
+    {
+      "surface": "cart",
+      "viewport": "1024x900",
+      "set": "r1-vs-subject",
+      "side": null,
+      "reason": "the verdict set refused (PROVENANCE_UNRESOLVED)"
+    },
+    {
+      "surface": "cart",
+      "viewport": "1024x900",
+      "set": "r2-vs-subject",
+      "side": null,
+      "reason": "the verdict set refused (PROVENANCE_UNRESOLVED)"
+    },
+    {
+      "surface": "cart",
+      "viewport": "390x844",
+      "set": "r1-vs-subject",
+      "side": null,
+      "reason": "the verdict set refused (PROVENANCE_UNRESOLVED)"
+    },
+    {
+      "surface": "cart",
+      "viewport": "390x844",
+      "set": "r2-vs-subject",
+      "side": null,
+      "reason": "the verdict set refused (PROVENANCE_UNRESOLVED)"
+    },
+    {
+      "surface": "search",
+      "viewport": "1440x900",
+      "set": "r1-vs-subject",
+      "side": null,
+      "reason": "the verdict set refused (PROVENANCE_UNRESOLVED)"
+    },
+    {
+      "surface": "search",
+      "viewport": "1440x900",
+      "set": "r2-vs-subject",
+      "side": null,
+      "reason": "the verdict set refused (PROVENANCE_UNRESOLVED)"
+    },
+    {
+      "surface": "search",
+      "viewport": "1440x900",
+      "set": null,
+      "side": "checks",
+      "reason": "no captured HTML input for search__1440x900.html appears in the structural report"
+    },
+    {
+      "surface": "search",
+      "viewport": "1024x900",
+      "set": "r1-vs-subject",
+      "side": null,
+      "reason": "the verdict set refused (PROVENANCE_UNRESOLVED)"
+    },
+    {
+      "surface": "search",
+      "viewport": "1024x900",
+      "set": "r2-vs-subject",
+      "side": null,
+      "reason": "the verdict set refused (PROVENANCE_UNRESOLVED)"
+    },
+    {
+      "surface": "search",
+      "viewport": "390x844",
+      "set": "r1-vs-subject",
+      "side": null,
+      "reason": "the verdict set refused (PROVENANCE_UNRESOLVED)"
+    },
+    {
+      "surface": "search",
+      "viewport": "390x844",
+      "set": "r2-vs-subject",
+      "side": null,
+      "reason": "the verdict set refused (PROVENANCE_UNRESOLVED)"
+    },
+    {
+      "surface": "404",
+      "viewport": "1440x900",
+      "set": "r1-vs-subject",
+      "side": null,
+      "reason": "the verdict set refused (PROVENANCE_UNRESOLVED)"
+    },
+    {
+      "surface": "404",
+      "viewport": "1440x900",
+      "set": "r2-vs-subject",
+      "side": null,
+      "reason": "the verdict set refused (PROVENANCE_UNRESOLVED)"
+    },
+    {
+      "surface": "404",
+      "viewport": "1024x900",
+      "set": "r1-vs-subject",
+      "side": null,
+      "reason": "the verdict set refused (PROVENANCE_UNRESOLVED)"
+    },
+    {
+      "surface": "404",
+      "viewport": "1024x900",
+      "set": "r2-vs-subject",
+      "side": null,
+      "reason": "the verdict set refused (PROVENANCE_UNRESOLVED)"
+    },
+    {
+      "surface": "404",
+      "viewport": "390x844",
+      "set": "r1-vs-subject",
+      "side": null,
+      "reason": "the verdict set refused (PROVENANCE_UNRESOLVED)"
+    },
+    {
+      "surface": "404",
+      "viewport": "390x844",
+      "set": "r2-vs-subject",
+      "side": null,
+      "reason": "the verdict set refused (PROVENANCE_UNRESOLVED)"
+    }
+  ],
+  "publication": {
+    "published": false,
+    "reason": null,
+    "current": null
+  }
+}

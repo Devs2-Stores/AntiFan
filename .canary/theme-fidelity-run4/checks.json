@@ -1,0 +1,597 @@
+{
+  "kind": "theme-fidelity-run-checks",
+  "stage": "checks",
+  "status": "REFUSED",
+  "themeDir": "E:\\Work\\customizes\\Phukienmaymoc",
+  "generatedAt": "2026-09-11T01:08:14.479Z",
+  "childExitCode": 3,
+  "childTimedOut": false,
+  "childSpawnError": null,
+  "childRefusal": {
+    "code": null,
+    "exitCode": null,
+    "message": "[theme-checks] REFUSED (exit 3): settings-binding, assets"
+  },
+  "htmlInputs": [
+    "subject/dom/404__1024x900.html",
+    "subject/dom/404__1440x900.html",
+    "subject/dom/404__390x844.html",
+    "subject/dom/article__390x844.html",
+    "subject/dom/cart__1024x900.html",
+    "subject/dom/cart__390x844.html",
+    "subject/dom/collection__1024x900.html",
+    "subject/dom/collection__1440x900.html",
+    "subject/dom/collection__390x844.html",
+    "subject/dom/home__390x844.html",
+    "subject/dom/product__1024x900.html",
+    "subject/dom/product__390x844.html",
+    "subject/dom/search__1024x900.html",
+    "subject/dom/search__390x844.html"
+  ],
+  "structural": {
+    "file": "structural.json",
+    "sha256": "2cd1143f16e7f97decd1729b7b7f432c5b694dcacf1aec1d828e38b1f1d655e0",
+    "ok": false,
+    "generatedAt": "2026-09-11T01:08:14.461Z",
+    "refusalCount": 2,
+    "refusals": [
+      {
+        "check": "settings-binding",
+        "failures": [
+          {
+            "rule": "SETTING_UNDECLARED",
+            "id": "add_to_cart_show",
+            "detail": "settings.add_to_cart_show is read in snippets/product-loop-horizontal.liquid but is not declared in config/settings_schema.json"
+          },
+          {
+            "rule": "SETTING_UNDECLARED",
+            "id": "addthis_iconList_show",
+            "detail": "settings.addthis_iconList_show is read in layout/theme.liquid but is not declared in config/settings_schema.json"
+          },
+          {
+            "rule": "SETTING_UNDECLARED",
+            "id": "appbuyxgety_icon",
+            "detail": "settings.appbuyxgety_icon is read in snippets/product-loop-horizontal.liquid but is not declared in config/settings_schema.json"
+          },
+          {
+            "rule": "SETTING_UNDECLARED",
+            "id": "cart_deliverytime_end",
+            "detail": "settings.cart_deliverytime_end is read in templates/cart.liquid but is not declared in config/settings_schema.json"
+          },
+          {
+            "rule": "SETTING_UNDECLARED",
+            "id": "cart_deliverytime_start",
+            "detail": "settings.cart_deliverytime_start is read in templates/cart.liquid but is not declared in config/settings_schema.json"
+          },
+          {
+            "rule": "SETTING_UNDECLARED",
+            "id": "code_messenger_mb",
+            "detail": "settings.code_messenger_mb is read in snippets/template-product-01.liquid, snippets/template-product-02.liquid, snippets/template-product-03.liquid, snippets/template-product-04.liquid, templates/product.quickview.liquid but is not declared in config/settings_schema.json"
+          },
+          {
+            "rule": "SETTING_UNDECLARED",
+            "id": "collection_preorder",
+            "detail": "settings.collection_preorder is read in snippets/sidebar-action-product.liquid, templates/product.ll-viewed.liquid, templates/product.quickview.liquid but is not declared in config/settings_schema.json"
+          },
+          {
+            "rule": "SETTING_UNDECLARED",
+            "id": "dh_form_booking",
+            "detail": "settings.dh_form_booking is read in snippets/index-form.liquid but is not declared in config/settings_schema.json"
+          },
+          {
+            "rule": "SETTING_UNDECLARED",
+            "id": "dh_form_date",
+            "detail": "settings.dh_form_date is read in snippets/index-form.liquid but is not declared in config/settings_schema.json"
+          },
+          {
+            "rule": "SETTING_UNDECLARED",
+            "id": "dh_form_email",
+            "detail": "settings.dh_form_email is read in snippets/index-form.liquid but is not declared in config/settings_schema.json"
+          },
+          {
+            "rule": "SETTING_UNDECLARED",
+            "id": "dh_form_full_name",
+            "detail": "settings.dh_form_full_name is read in snippets/index-form.liquid but is not declared in config/settings_schema.json"
+          },
+          {
+            "rule": "SETTING_UNDECLARED",
+            "id": "dh_form_phone",
+            "detail": "settings.dh_form_phone is read in snippets/index-form.liquid but is not declared in config/settings_schema.json"
+          },
+          {
+            "rule": "SETTING_UNDECLARED",
+            "id": "dh_form_pro_booking",
+            "detail": "settings.dh_form_pro_booking is read in snippets/ll-index-form.liquid but is not declared in config/settings_schema.json"
+          },
+          {
+            "rule": "SETTING_UNDECLARED",
+            "id": "dh_form_service",
+            "detail": "settings.dh_form_service is read in snippets/index-form.liquid but is not declared in config/settings_schema.json"
+          },
+          {
+            "rule": "SETTING_UNDECLARED",
+            "id": "dh_form_success",
+            "detail": "settings.dh_form_success is read in snippets/modal-success.liquid but is not declared in config/settings_schema.json"
+          },
+          {
+            "rule": "SETTING_UNDECLARED",
+            "id": "dh_form_time",
+            "detail": "settings.dh_form_time is read in snippets/index-form.liquid but is not declared in config/settings_schema.json"
+          },
+          {
+            "rule": "SETTING_UNDECLARED",
+            "id": "dh_gg_date",
+            "detail": "settings.dh_gg_date is read in snippets/index-form.liquid but is not declared in config/settings_schema.json"
+          },
+          {
+            "rule": "SETTING_UNDECLARED",
+            "id": "dh_gg_email",
+            "detail": "settings.dh_gg_email is read in snippets/index-form.liquid but is not declared in config/settings_schema.json"
+          },
+          {
+            "rule": "SETTING_UNDECLARED",
+            "id": "dh_gg_full_name",
+            "detail": "settings.dh_gg_full_name is read in snippets/index-form.liquid but is not declared in config/settings_schema.json"
+          },
+          {
+            "rule": "SETTING_UNDECLARED",
+            "id": "dh_gg_link_form",
+            "detail": "settings.dh_gg_link_form is read in snippets/ll-index-form.liquid but is not declared in config/settings_schema.json"
+          },
+          {
+            "rule": "SETTING_UNDECLARED",
+            "id": "dh_gg_phone",
+            "detail": "settings.dh_gg_phone is read in snippets/index-form.liquid but is not declared in config/settings_schema.json"
+          },
+          {
+            "rule": "SETTING_UNDECLARED",
+            "id": "dh_gg_service",
+            "detail": "settings.dh_gg_service is read in snippets/index-form.liquid but is not declared in config/settings_schema.json"
+          },
+          {
+            "rule": "SETTING_UNDECLARED",
+            "id": "dh_gg_time",
+            "detail": "settings.dh_gg_time is read in snippets/index-form.liquid but is not declared in config/settings_schema.json"
+          },
+          {
+            "rule": "SETTING_UNDECLARED",
+            "id": "fanpage_faceook",
+            "detail": "settings.fanpage_faceook is read in snippets/facebook-widget.liquid but is not declared in config/settings_schema.json"
+          },
+          {
+            "rule": "SETTING_UNDECLARED",
+            "id": "fb_chat",
+            "detail": "settings.fb_chat is read in snippets/haravan-fb-messages.liquid but is not declared in config/settings_schema.json"
+          },
+          {
+            "rule": "SETTING_UNDECLARED",
+            "id": "fb_chat_title",
+            "detail": "settings.fb_chat_title is read in snippets/haravan-fb-messages.liquid but is not declared in config/settings_schema.json"
+          },
+          {
+            "rule": "SETTING_UNDECLARED",
+            "id": "header_account_show",
+            "detail": "settings.header_account_show is read in snippets/mini-location.liquid but is not declared in config/settings_schema.json"
+          },
+          {
+            "rule": "SETTING_UNDECLARED",
+            "id": "header_info_mail",
+            "detail": "settings.header_info_mail is read in snippets/sidebar-main.liquid but is not declared in config/settings_schema.json"
+          },
+          {
+            "rule": "SETTING_UNDECLARED",
+            "id": "header_info_phone",
+            "detail": "settings.header_info_phone is read in snippets/sidebar-main.liquid but is not declared in config/settings_schema.json"
+          },
+          {
+            "rule": "SETTING_UNDECLARED",
+            "id": "header_info_social_show",
+            "detail": "settings.header_info_social_show is read in snippets/sidebar-main.liquid but is not declared in config/settings_schema.json"
+          },
+          {
+            "rule": "SETTING_UNDECLARED",
+            "id": "header_inventory_province",
+            "detail": "settings.header_inventory_province is read in snippets/mini-location.liquid but is not declared in config/settings_schema.json"
+          },
+          {
+            "rule": "SETTING_UNDECLARED",
+            "id": "header_inventory_show",
+            "detail": "settings.header_inventory_show is read in snippets/footer-scripts.liquid but is not declared in config/settings_schema.json"
+          },
+          {
+            "rule": "SETTING_UNDECLARED",
+            "id": "header_live_code",
+            "detail": "settings.header_live_code is read in snippets/modal-live.liquid but is not declared in config/settings_schema.json"
+          },
+          {
+            "rule": "SETTING_UNDECLARED",
+            "id": "header_social_link_facebook",
+            "detail": "settings.header_social_link_facebook is read in snippets/sidebar-main.liquid but is not declared in config/settings_schema.json"
+          },
+          {
+            "rule": "SETTING_UNDECLARED",
+            "id": "header_social_link_instagram",
+            "detail": "settings.header_social_link_instagram is read in snippets/sidebar-main.liquid but is not declared in config/settings_schema.json"
+          },
+          {
+            "rule": "SETTING_UNDECLARED",
+            "id": "header_social_link_lazada",
+            "detail": "settings.header_social_link_lazada is read in snippets/sidebar-main.liquid but is not declared in config/settings_schema.json"
+          },
+          {
+            "rule": "SETTING_UNDECLARED",
+            "id": "header_social_link_shopee",
+            "detail": "settings.header_social_link_shopee is read in snippets/sidebar-main.liquid but is not declared in config/settings_schema.json"
+          },
+          {
+            "rule": "SETTING_UNDECLARED",
+            "id": "header_social_link_tiktok",
+            "detail": "settings.header_social_link_tiktok is read in snippets/sidebar-main.liquid but is not declared in config/settings_schema.json"
+          },
+          {
+            "rule": "SETTING_UNDECLARED",
+            "id": "header_social_link_youtube",
+            "detail": "settings.header_social_link_youtube is read in snippets/sidebar-main.liquid but is not declared in config/settings_schema.json"
+          },
+          {
+            "rule": "SETTING_UNDECLARED",
+            "id": "home_coll_1_banner_btn",
+            "detail": "settings.home_coll_1_banner_btn is read in snippets/home-collection-tabs.liquid but is not declared in config/settings_schema.json"
+          },
+          {
+            "rule": "SETTING_UNDECLARED",
+            "id": "home_coll_1_banner_desc",
+            "detail": "settings.home_coll_1_banner_desc is read in snippets/home-collection-tabs.liquid but is not declared in config/settings_schema.json"
+          },
+          {
+            "rule": "SETTING_UNDECLARED",
+            "id": "home_coll_1_banner_link",
+            "detail": "settings.home_coll_1_banner_link is read in snippets/home-collection-tabs.liquid but is not declared in config/settings_schema.json"
+          },
+          {
+            "rule": "SETTING_UNDECLARED",
+            "id": "home_coll_1_banner_show",
+            "detail": "settings.home_coll_1_banner_show is read in snippets/home-collection-tabs.liquid but is not declared in config/settings_schema.json"
+          },
+          {
+            "rule": "SETTING_UNDECLARED",
+            "id": "home_coll_1_banner_title",
+            "detail": "settings.home_coll_1_banner_title is read in snippets/home-collection-tabs.liquid but is not declared in config/settings_schema.json"
+          },
+          {
+            "rule": "SETTING_UNDECLARED",
+            "id": "home_coll_1_navtabs_limit",
+            "detail": "settings.home_coll_1_navtabs_limit is read in snippets/home-collection-tabs.liquid but is not declared in config/settings_schema.json"
+          },
+          {
+            "rule": "SETTING_UNDECLARED",
+            "id": "home_coll_1_navtabs_show",
+            "detail": "settings.home_coll_1_navtabs_show is read in snippets/home-collection-tabs.liquid but is not declared in config/settings_schema.json"
+          },
+          {
+            "rule": "SETTING_UNDECLARED",
+            "id": "home_coll_1_navtabs_title",
+            "detail": "settings.home_coll_1_navtabs_title is read in snippets/home-collection-tabs.liquid but is not declared in config/settings_schema.json"
+          },
+          {
+            "rule": "SETTING_UNDECLARED",
+            "id": "home_collection_4_btn",
+            "detail": "settings.home_collection_4_btn is read in snippets/homepage-collection.liquid but is not declared in config/settings_schema.json"
+          },
+          {
+            "rule": "SETTING_UNDECLARED",
+            "id": "home_collection_4_handle",
+            "detail": "settings.home_collection_4_handle is read in snippets/homepage-collection.liquid but is not declared in config/settings_schema.json"
+          },
+          {
+            "rule": "SETTING_UNDECLARED",
+            "id": "home_collection_4_show",
+            "detail": "settings.home_collection_4_show is read in snippets/homepage-collection.liquid but is not declared in config/settings_schema.json"
+          },
+          {
+            "rule": "SETTING_UNDECLARED",
+            "id": "home_collection_4_title",
+            "detail": "settings.home_collection_4_title is read in snippets/homepage-collection.liquid but is not declared in config/settings_schema.json"
+          },
+          {
+            "rule": "SETTING_UNDECLARED",
+            "id": "home_collection_4_titlelink",
+            "detail": "settings.home_collection_4_titlelink is read in snippets/homepage-collection.liquid but is not declared in config/settings_schema.json"
+          },
+          {
+            "rule": "SETTING_UNDECLARED",
+            "id": "home_collection_4_txt1",
+            "detail": "settings.home_collection_4_txt1 is read in snippets/homepage-collection.liquid but is not declared in config/settings_schema.json"
+          },
+          {
+            "rule": "SETTING_UNDECLARED",
+            "id": "home_collection_4_txt2",
+            "detail": "settings.home_collection_4_txt2 is read in snippets/homepage-collection.liquid but is not declared in config/settings_schema.json"
+          },
+          {
+            "rule": "SETTING_UNDECLARED",
+            "id": "home_collection_4_txt3",
+            "detail": "settings.home_collection_4_txt3 is read in snippets/homepage-collection.liquid but is not declared in config/settings_schema.json"
+          },
+          {
+            "rule": "SETTING_UNDECLARED",
+            "id": "home_collection_banner_link",
+            "detail": "settings.home_collection_banner_link is read in snippets/home-collection-tabs.liquid but is not declared in config/settings_schema.json"
+          },
+          {
+            "rule": "SETTING_UNDECLARED",
+            "id": "home_collection_tabs_1_handle",
+            "detail": "settings.home_collection_tabs_1_handle is read in snippets/home-collection-tabs.liquid but is not declared in config/settings_schema.json"
+          },
+          {
+            "rule": "SETTING_UNDECLARED",
+            "id": "home_collection_tabs_1_title",
+            "detail": "settings.home_collection_tabs_1_title is read in snippets/home-collection-tabs.liquid but is not declared in config/settings_schema.json"
+          },
+          {
+            "rule": "SETTING_UNDECLARED",
+            "id": "home_navtabs_limit_desk",
+            "detail": "settings.home_navtabs_limit_desk is read in snippets/home-collection-tabs.liquid but is not declared in config/settings_schema.json"
+          },
+          {
+            "rule": "SETTING_UNDECLARED",
+            "id": "home_navtabs_limit_mb",
+            "detail": "settings.home_navtabs_limit_mb is read in snippets/home-collection-tabs.liquid but is not declared in config/settings_schema.json"
+          },
+          {
+            "rule": "SETTING_UNDECLARED",
+            "id": "hrloyalty_icon_used",
+            "detail": "settings.hrloyalty_icon_used is read in snippets/footer-scripts.liquid, snippets/mini-account.liquid, snippets/sidebar-account.liquid, templates/customers[account].liquid, templates/customers[account].member.liquid, templates/customers[addresses].liquid, templates/customers[order].liquid but is not declared in config/settings_schema.json"
+          },
+          {
+            "rule": "SETTING_UNDECLARED",
+            "id": "lbl_address1",
+            "detail": "settings.lbl_address1 is read in templates/customers[addresses].liquid but is not declared in config/settings_schema.json"
+          },
+          {
+            "rule": "SETTING_UNDECLARED",
+            "id": "lbl_address2",
+            "detail": "settings.lbl_address2 is read in templates/customers[addresses].liquid but is not declared in config/settings_schema.json"
+          },
+          {
+            "rule": "SETTING_UNDECLARED",
+            "id": "lbl_company",
+            "detail": "settings.lbl_company is read in templates/customers[addresses].liquid but is not declared in config/settings_schema.json"
+          },
+          {
+            "rule": "SETTING_UNDECLARED",
+            "id": "lbl_first_name",
+            "detail": "settings.lbl_first_name is read in templates/customers[addresses].liquid but is not declared in config/settings_schema.json"
+          },
+          {
+            "rule": "SETTING_UNDECLARED",
+            "id": "lbl_last_name",
+            "detail": "settings.lbl_last_name is read in templates/customers[addresses].liquid but is not declared in config/settings_schema.json"
+          },
+          {
+            "rule": "SETTING_UNDECLARED",
+            "id": "lbl_phone",
+            "detail": "settings.lbl_phone is read in templates/customers[addresses].liquid but is not declared in config/settings_schema.json"
+          },
+          {
+            "rule": "SETTING_UNDECLARED",
+            "id": "loomline_index_form_title",
+            "detail": "settings.loomline_index_form_title is read in snippets/ll-index-form.liquid but is not declared in config/settings_schema.json"
+          },
+          {
+            "rule": "SETTING_UNDECLARED",
+            "id": "loomline_index_slider_1_alt",
+            "detail": "settings.loomline_index_slider_1_alt is read in snippets/ll-index-slider.liquid but is not declared in config/settings_schema.json"
+          },
+          {
+            "rule": "SETTING_UNDECLARED",
+            "id": "membercard_offer_link",
+            "detail": "settings.membercard_offer_link is read in templates/customers[account].member.liquid but is not declared in config/settings_schema.json"
+          },
+          {
+            "rule": "SETTING_UNDECLARED",
+            "id": "membercard_offer_show",
+            "detail": "settings.membercard_offer_show is read in templates/customers[account].member.liquid but is not declared in config/settings_schema.json"
+          },
+          {
+            "rule": "SETTING_UNDECLARED",
+            "id": "membercard_offer_title",
+            "detail": "settings.membercard_offer_title is read in templates/customers[account].member.liquid but is not declared in config/settings_schema.json"
+          },
+          {
+            "rule": "SETTING_UNDECLARED",
+            "id": "membercard_offer_txtlink",
+            "detail": "settings.membercard_offer_txtlink is read in templates/customers[account].member.liquid but is not declared in config/settings_schema.json"
+          },
+          {
+            "rule": "SETTING_UNDECLARED",
+            "id": "mini_cart_linkreturn",
+            "detail": "settings.mini_cart_linkreturn is read in snippets/mini-cart.liquid but is not declared in config/settings_schema.json"
+          },
+          {
+            "rule": "SETTING_UNDECLARED",
+            "id": "mini_cart_name",
+            "detail": "settings.mini_cart_name is read in snippets/mini-cart.liquid but is not declared in config/settings_schema.json"
+          },
+          {
+            "rule": "SETTING_UNDECLARED",
+            "id": "popup_promotion_title",
+            "detail": "settings.popup_promotion_title is read in snippets/popup-contact.liquid but is not declared in config/settings_schema.json"
+          },
+          {
+            "rule": "SETTING_UNDECLARED",
+            "id": "preorder_text_btn",
+            "detail": "settings.preorder_text_btn is read in snippets/modal-preorder.liquid, snippets/template-product-01.liquid, snippets/template-product-02.liquid, snippets/template-product-03.liquid, snippets/template-product-04.liquid, templates/product.quickview.liquid but is not declared in config/settings_schema.json"
+          },
+          {
+            "rule": "SETTING_UNDECLARED",
+            "id": "preorder_text_btn_popup",
+            "detail": "settings.preorder_text_btn_popup is read in snippets/modal-preorder.liquid, templates/product.quickview.liquid but is not declared in config/settings_schema.json"
+          },
+          {
+            "rule": "SETTING_UNDECLARED",
+            "id": "preorder_text_btn_prodloop",
+            "detail": "settings.preorder_text_btn_prodloop is read in snippets/product-loop--ctas.liquid, snippets/sidebar-action-product.liquid but is not declared in config/settings_schema.json"
+          },
+          {
+            "rule": "SETTING_UNDECLARED",
+            "id": "prod_resize_img",
+            "detail": "settings.prod_resize_img is read in snippets/product-loadding.liquid but is not declared in config/settings_schema.json"
+          },
+          {
+            "rule": "SETTING_UNDECLARED",
+            "id": "prod_vendor_show",
+            "detail": "settings.prod_vendor_show is read in snippets/template-product-01.liquid, snippets/template-product-02.liquid, snippets/template-product-03.liquid, snippets/template-product-04.liquid, templates/product.ll-quickview.liquid, templates/product.quickview.liquid but is not declared in config/settings_schema.json"
+          },
+          {
+            "rule": "SETTING_UNDECLARED",
+            "id": "product_banner_link",
+            "detail": "settings.product_banner_link is read in snippets/template-product-01.liquid but is not declared in config/settings_schema.json"
+          },
+          {
+            "rule": "SETTING_UNDECLARED",
+            "id": "product_banner_show",
+            "detail": "settings.product_banner_show is read in snippets/template-product-01.liquid but is not declared in config/settings_schema.json"
+          },
+          {
+            "rule": "SETTING_UNDECLARED",
+            "id": "product_contact_title",
+            "detail": "settings.product_contact_title is read in templates/product.ll-quickview.liquid, templates/product.quickview.liquid but is not declared in config/settings_schema.json"
+          },
+          {
+            "rule": "SETTING_UNDECLARED",
+            "id": "product_contact_url",
+            "detail": "settings.product_contact_url is read in templates/product.ll-quickview.liquid, templates/product.quickview.liquid but is not declared in config/settings_schema.json"
+          },
+          {
+            "rule": "SETTING_UNDECLARED",
+            "id": "product_grid_mobile",
+            "detail": "settings.product_grid_mobile is read in snippets/product-loop--ctas.liquid but is not declared in config/settings_schema.json"
+          },
+          {
+            "rule": "SETTING_UNDECLARED",
+            "id": "product_layout_style",
+            "detail": "settings.product_layout_style is read in snippets/footer-scripts.liquid, snippets/plugins-css.liquid but is not declared in config/settings_schema.json"
+          },
+          {
+            "rule": "SETTING_UNDECLARED",
+            "id": "shop_buying",
+            "detail": "settings.shop_buying is read in snippets/product-loop-horizontal.liquid, snippets/template-product-01.liquid, snippets/template-product-02.liquid, snippets/template-product-03.liquid, snippets/template-product-04.liquid, templates/product.quickview.liquid but is not declared in config/settings_schema.json"
+          },
+          {
+            "rule": "SETTING_UNDECLARED",
+            "id": "shop_main_color",
+            "detail": "settings.shop_main_color is read in snippets/mini-location.liquid but is not declared in config/settings_schema.json"
+          },
+          {
+            "rule": "SETTING_UNDECLARED",
+            "id": "show_fanpage_faceook",
+            "detail": "settings.show_fanpage_faceook is read in snippets/facebook-widget.liquid but is not declared in config/settings_schema.json"
+          },
+          {
+            "rule": "SETTING_UNDECLARED",
+            "id": "slide_1_btn",
+            "detail": "settings.slide_1_btn is read in snippets/homepage-slider.liquid but is not declared in config/settings_schema.json"
+          },
+          {
+            "rule": "SETTING_UNDECLARED",
+            "id": "slide_1_desc",
+            "detail": "settings.slide_1_desc is read in snippets/homepage-slider.liquid but is not declared in config/settings_schema.json"
+          },
+          {
+            "rule": "SETTING_UNDECLARED",
+            "id": "slide_1_link",
+            "detail": "settings.slide_1_link is read in snippets/homepage-slider.liquid but is not declared in config/settings_schema.json"
+          },
+          {
+            "rule": "SETTING_UNDECLARED",
+            "id": "slide_1_title",
+            "detail": "settings.slide_1_title is read in snippets/homepage-slider.liquid but is not declared in config/settings_schema.json"
+          },
+          {
+            "rule": "SETTING_UNDECLARED",
+            "id": "tagsize_title",
+            "detail": "settings.tagsize_title is read in snippets/modal-sizeguide.liquid but is not declared in config/settings_schema.json"
+          }
+        ]
+      },
+      {
+        "check": "assets",
+        "failures": [
+          {
+            "rule": "ASSET_MISSING_LOCAL",
+            "ref": "blogs_banner_paralax.jpg",
+            "files": [
+              "templates/article.liquid"
+            ]
+          },
+          {
+            "rule": "ASSET_MISSING_LOCAL",
+            "ref": "home_coll_1_banner.jpg",
+            "files": [
+              "snippets/home-collection-tabs.liquid"
+            ]
+          },
+          {
+            "rule": "ASSET_MISSING_LOCAL",
+            "ref": "home_collection_banner.jpg",
+            "files": [
+              "snippets/homepage-collection.liquid"
+            ]
+          },
+          {
+            "rule": "ASSET_MISSING_LOCAL",
+            "ref": "loomline_index_form_img.jpg",
+            "files": [
+              "snippets/ll-index-form.liquid"
+            ]
+          },
+          {
+            "rule": "ASSET_MISSING_LOCAL",
+            "ref": "slide_1_img.jpg",
+            "files": [
+              "snippets/homepage-slider.liquid"
+            ]
+          },
+          {
+            "rule": "ASSET_MISSING_LOCAL",
+            "ref": "slide_1_img_mb.jpg",
+            "files": [
+              "snippets/homepage-slider.liquid"
+            ]
+          }
+        ]
+      }
+    ],
+    "counts": {
+      "schemas": 0,
+      "settingsBinding": 95,
+      "assets": 6,
+      "renders": 14
+    }
+  },
+  "stdoutTail": [
+    "[theme-checks] theme=E:\\Work\\customizes\\Phukienmaymoc",
+    "[theme-checks] schema: schemaFiles=1 sections=0 failures=0",
+    "[theme-checks] settings: undeclared=95 dead=1267 failures=95",
+    "[theme-checks] assets: localPresent=78 localMissing=6 remote=0",
+    "[theme-checks] render 404__1024x900.html: ok=true failures=0",
+    "[theme-checks] render 404__1440x900.html: ok=true failures=0",
+    "[theme-checks] render 404__390x844.html: ok=true failures=0",
+    "[theme-checks] render article__390x844.html: ok=true failures=0",
+    "[theme-checks] render cart__1024x900.html: ok=true failures=0",
+    "[theme-checks] render cart__390x844.html: ok=true failures=0",
+    "[theme-checks] render collection__1024x900.html: ok=true failures=0",
+    "[theme-checks] render collection__1440x900.html: ok=true failures=0",
+    "[theme-checks] render collection__390x844.html: ok=true failures=0",
+    "[theme-checks] render home__390x844.html: ok=true failures=0",
+    "[theme-checks] render product__1024x900.html: ok=true failures=0",
+    "[theme-checks] render product__390x844.html: ok=true failures=0",
+    "[theme-checks] render search__1024x900.html: ok=true failures=0",
+    "[theme-checks] render search__390x844.html: ok=true failures=0",
+    "[theme-checks] report -> E:\\Work\\apps\\AntiFan\\.canary\\theme-fidelity-run4\\structural.json"
+  ],
+  "stderrTail": [
+    "[theme-checks] REFUSED (exit 3): settings-binding, assets"
+  ]
+}

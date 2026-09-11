@@ -1,0 +1,467 @@
+(node:16664) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+[31m╭── warning ────────────────────────────────────╮[0m
+[31m│[0m Saves overwrite the remote theme —            [31m│[0m
+[31m│[0m back up (git / copy / duplicate theme) first. [31m│[0m
+[31m╰───────────────────────────────────────────────╯[0m
+
+- Đang đẩy files…
+[32m File đã push thành công: config/settings.html (2052ms)[0m
+[32m File đã push thành công: config/settings_data.json (122871ms)[0m
+[32m File đã push thành công: config/settings_schema.json (53987ms)[0m
+[31m╭── conflict ─────────────────────────────────────────╮[0m
+[31m│[0m Remote đã thay đổi: "layout/theme.liquid"           [31m│[0m
+[31m│[0m Người khác đã sửa file này kể từ lần fetch của bạn. [31m│[0m
+[31m│[0m                                                     [31m│[0m
+[31m│[0m Chạy 'hrv theme fetch' để lấy bản mới, hoặc         [31m│[0m
+[31m│[0m push lại với cờ --force để cố tình ghi đè.          [31m│[0m
+[31m╰─────────────────────────────────────────────────────╯[0m
+[32m File đã push thành công: snippets/article-image.liquid (54ms)[0m
+[32m File đã push thành công: snippets/article-loop.liquid (5060ms)[0m
+[32m File đã push thành công: snippets/box-live-stream.liquid (67ms)[0m
+[32m File đã push thành công: snippets/breadcrumb.liquid (60ms)[0m
+[32m File đã push thành công: snippets/button.wishlist.liquid (62ms)[0m
+[32m File đã push thành công: snippets/button.wishlist.page.liquid (5059ms)[0m
+[32m File đã push thành công: snippets/collection-filter.liquid (65ms)[0m
+[32m File đã push thành công: snippets/collection-loop.liquid (66ms)[0m
+[32m File đã push thành công: snippets/facebook-widget.liquid (5068ms)[0m
+[32m File đã push thành công: snippets/fb-open-graph-tags.liquid (75ms)[0m
+[32m File đã push thành công: snippets/footer-scripts.liquid (60ms)[0m
+[31m╭── conflict ─────────────────────────────────────────╮[0m
+[31m│[0m Remote đã thay đổi: "snippets/footer.liquid"        [31m│[0m
+[31m│[0m Người khác đã sửa file này kể từ lần fetch của bạn. [31m│[0m
+[31m│[0m                                                     [31m│[0m
+[31m│[0m Chạy 'hrv theme fetch' để lấy bản mới, hoặc         [31m│[0m
+[31m│[0m push lại với cờ --force để cố tình ghi đè.          [31m│[0m
+[31m╰─────────────────────────────────────────────────────╯[0m
+[32m File đã push thành công: snippets/haravan-fb-messages.liquid (60ms)[0m
+[31m╭── conflict ────────────────────────────────────────────────╮[0m
+[31m│[0m Remote đã thay đổi: "snippets/header-category-menu.liquid" [31m│[0m
+[31m│[0m Người khác đã sửa file này kể từ lần fetch của bạn.        [31m│[0m
+[31m│[0m                                                            [31m│[0m
+[31m│[0m Chạy 'hrv theme fetch' để lấy bản mới, hoặc                [31m│[0m
+[31m│[0m push lại với cờ --force để cố tình ghi đè.                 [31m│[0m
+[31m╰────────────────────────────────────────────────────────────╯[0m
+[32m File đã push thành công: snippets/header-menu-mobile.liquid (59ms)[0m
+[32m File đã push thành công: snippets/header-menu.liquid (5073ms)[0m
+[31m╭── conflict ────────────────────────────────────────────╮[0m
+[31m│[0m Remote đã thay đổi: "snippets/header-mini-cart.liquid" [31m│[0m
+[31m│[0m Người khác đã sửa file này kể từ lần fetch của bạn.    [31m│[0m
+[31m│[0m                                                        [31m│[0m
+[31m│[0m Chạy 'hrv theme fetch' để lấy bản mới, hoặc            [31m│[0m
+[31m│[0m push lại với cờ --force để cố tình ghi đè.             [31m│[0m
+[31m╰────────────────────────────────────────────────────────╯[0m
+[32m File đã push thành công: snippets/header-quickview.liquid (65ms)[0m
+[32m File đã push thành công: snippets/header-search.liquid (71ms)[0m
+[32m File đã push thành công: snippets/header-sidebar-main.liquid (61ms)[0m
+[31m╭── conflict ─────────────────────────────────────────╮[0m
+[31m│[0m Remote đã thay đổi: "snippets/header.liquid"        [31m│[0m
+[31m│[0m Người khác đã sửa file này kể từ lần fetch của bạn. [31m│[0m
+[31m│[0m                                                     [31m│[0m
+[31m│[0m Chạy 'hrv theme fetch' để lấy bản mới, hoặc         [31m│[0m
+[31m│[0m push lại với cờ --force để cố tình ghi đè.          [31m│[0m
+[31m╰─────────────────────────────────────────────────────╯[0m
+[31m╭── conflict ─────────────────────────────────────────────╮[0m
+[31m│[0m Remote đã thay đổi: "snippets/hl-home-accessory.liquid" [31m│[0m
+[31m│[0m Người khác đã sửa file này kể từ lần fetch của bạn.     [31m│[0m
+[31m│[0m                                                         [31m│[0m
+[31m│[0m Chạy 'hrv theme fetch' để lấy bản mới, hoặc             [31m│[0m
+[31m│[0m push lại với cờ --force để cố tình ghi đè.              [31m│[0m
+[31m╰─────────────────────────────────────────────────────────╯[0m
+[31m╭── conflict ───────────────────────────────────────────╮[0m
+[31m│[0m Remote đã thay đổi: "snippets/hl-home-banners.liquid" [31m│[0m
+[31m│[0m Người khác đã sửa file này kể từ lần fetch của bạn.   [31m│[0m
+[31m│[0m                                                       [31m│[0m
+[31m│[0m Chạy 'hrv theme fetch' để lấy bản mới, hoặc           [31m│[0m
+[31m│[0m push lại với cờ --force để cố tình ghi đè.            [31m│[0m
+[31m╰───────────────────────────────────────────────────────╯[0m
+[31m╭── conflict ──────────────────────────────────────────────────╮[0m
+[31m│[0m Remote đã thay đổi: "snippets/hl-home-block-category.liquid" [31m│[0m
+[31m│[0m Người khác đã sửa file này kể từ lần fetch của bạn.          [31m│[0m
+[31m│[0m                                                              [31m│[0m
+[31m│[0m Chạy 'hrv theme fetch' để lấy bản mới, hoặc                  [31m│[0m
+[31m│[0m push lại với cờ --force để cố tình ghi đè.                   [31m│[0m
+[31m╰──────────────────────────────────────────────────────────────╯[0m
+[31m╭── conflict ──────────────────────────────────────────────╮[0m
+[31m│[0m Remote đã thay đổi: "snippets/hl-home-categories.liquid" [31m│[0m
+[31m│[0m Người khác đã sửa file này kể từ lần fetch của bạn.      [31m│[0m
+[31m│[0m                                                          [31m│[0m
+[31m│[0m Chạy 'hrv theme fetch' để lấy bản mới, hoặc              [31m│[0m
+[31m│[0m push lại với cờ --force để cố tình ghi đè.               [31m│[0m
+[31m╰──────────────────────────────────────────────────────────╯[0m
+[31m╭── conflict ─────────────────────────────────────────╮[0m
+[31m│[0m Remote đã thay đổi: "snippets/hl-home-hero.liquid"  [31m│[0m
+[31m│[0m Người khác đã sửa file này kể từ lần fetch của bạn. [31m│[0m
+[31m│[0m                                                     [31m│[0m
+[31m│[0m Chạy 'hrv theme fetch' để lấy bản mới, hoặc         [31m│[0m
+[31m│[0m push lại với cờ --force để cố tình ghi đè.          [31m│[0m
+[31m╰─────────────────────────────────────────────────────╯[0m
+[31m╭── conflict ─────────────────────────────────────────╮[0m
+[31m│[0m Remote đã thay đổi: "snippets/hl-home-news.liquid"  [31m│[0m
+[31m│[0m Người khác đã sửa file này kể từ lần fetch của bạn. [31m│[0m
+[31m│[0m                                                     [31m│[0m
+[31m│[0m Chạy 'hrv theme fetch' để lấy bản mới, hoặc         [31m│[0m
+[31m│[0m push lại với cờ --force để cố tình ghi đè.          [31m│[0m
+[31m╰─────────────────────────────────────────────────────╯[0m
+[31m╭── conflict ───────────────────────────────────────────╮[0m
+[31m│[0m Remote đã thay đổi: "snippets/hl-home-partner.liquid" [31m│[0m
+[31m│[0m Người khác đã sửa file này kể từ lần fetch của bạn.   [31m│[0m
+[31m│[0m                                                       [31m│[0m
+[31m│[0m Chạy 'hrv theme fetch' để lấy bản mới, hoặc           [31m│[0m
+[31m│[0m push lại với cờ --force để cố tình ghi đè.            [31m│[0m
+[31m╰───────────────────────────────────────────────────────╯[0m
+[31m╭── conflict ─────────────────────────────────────────╮[0m
+[31m│[0m Remote đã thay đổi: "snippets/hl-home-quote.liquid" [31m│[0m
+[31m│[0m Người khác đã sửa file này kể từ lần fetch của bạn. [31m│[0m
+[31m│[0m                                                     [31m│[0m
+[31m│[0m Chạy 'hrv theme fetch' để lấy bản mới, hoặc         [31m│[0m
+[31m│[0m push lại với cờ --force để cố tình ghi đè.          [31m│[0m
+[31m╰─────────────────────────────────────────────────────╯[0m
+[31m╭── conflict ──────────────────────────────────────────╮[0m
+[31m│[0m Remote đã thay đổi: "snippets/hl-page-brands.liquid" [31m│[0m
+[31m│[0m Người khác đã sửa file này kể từ lần fetch của bạn.  [31m│[0m
+[31m│[0m                                                      [31m│[0m
+[31m│[0m Chạy 'hrv theme fetch' để lấy bản mới, hoặc          [31m│[0m
+[31m│[0m push lại với cờ --force để cố tình ghi đè.           [31m│[0m
+[31m╰──────────────────────────────────────────────────────╯[0m
+[32m File đã push thành công: snippets/home-collection-tabs.liquid (62ms)[0m
+[32m File đã push thành công: snippets/homepage-collection.liquid (58ms)[0m
+[32m File đã push thành công: snippets/homepage-slider.liquid (5056ms)[0m
+[32m File đã push thành công: snippets/hrv.wishlist.liquid (5080ms)[0m
+[32m File đã push thành công: snippets/hrvproducttabs.liquid (5065ms)[0m
+[32m File đã push thành công: snippets/index-form.liquid (61ms)[0m
+[32m File đã push thành công: snippets/list-coupon-slide-header.liquid (68ms)[0m
+[32m File đã push thành công: snippets/list-coupon-slide.liquid (59ms)[0m
+[32m File đã push thành công: snippets/listproduct-related.liquid (66ms)[0m
+[32m File đã push thành công: snippets/ll-addthis-sharing.liquid (81ms)[0m
+[31m╭── conflict ──────────────────────────────────────────╮[0m
+[31m│[0m Remote đã thay đổi: "snippets/ll-index-about.liquid" [31m│[0m
+[31m│[0m Người khác đã sửa file này kể từ lần fetch của bạn.  [31m│[0m
+[31m│[0m                                                      [31m│[0m
+[31m│[0m Chạy 'hrv theme fetch' để lấy bản mới, hoặc          [31m│[0m
+[31m│[0m push lại với cờ --force để cố tình ghi đè.           [31m│[0m
+[31m╰──────────────────────────────────────────────────────╯[0m
+[31m╭── conflict ─────────────────────────────────────────────╮[0m
+[31m│[0m Remote đã thay đổi: "snippets/ll-index-banner-1.liquid" [31m│[0m
+[31m│[0m Người khác đã sửa file này kể từ lần fetch của bạn.     [31m│[0m
+[31m│[0m                                                         [31m│[0m
+[31m│[0m Chạy 'hrv theme fetch' để lấy bản mới, hoặc             [31m│[0m
+[31m│[0m push lại với cờ --force để cố tình ghi đè.              [31m│[0m
+[31m╰─────────────────────────────────────────────────────────╯[0m
+[31m╭── conflict ─────────────────────────────────────────────╮[0m
+[31m│[0m Remote đã thay đổi: "snippets/ll-index-banner-2.liquid" [31m│[0m
+[31m│[0m Người khác đã sửa file này kể từ lần fetch của bạn.     [31m│[0m
+[31m│[0m                                                         [31m│[0m
+[31m│[0m Chạy 'hrv theme fetch' để lấy bản mới, hoặc             [31m│[0m
+[31m│[0m push lại với cờ --force để cố tình ghi đè.              [31m│[0m
+[31m╰─────────────────────────────────────────────────────────╯[0m
+[32m File đã push thành công: snippets/ll-index-col-slide1-1.liquid (1519ms)[0m
+[31m╭── conflict ───────────────────────────────────────────────╮[0m
+[31m│[0m Remote đã thay đổi: "snippets/ll-index-col-slide1.liquid" [31m│[0m
+[31m│[0m Người khác đã sửa file này kể từ lần fetch của bạn.       [31m│[0m
+[31m│[0m                                                           [31m│[0m
+[31m│[0m Chạy 'hrv theme fetch' để lấy bản mới, hoặc               [31m│[0m
+[31m│[0m push lại với cờ --force để cố tình ghi đè.                [31m│[0m
+[31m╰───────────────────────────────────────────────────────────╯[0m
+[32m File đã push thành công: snippets/ll-index-col-slide2-1.liquid (56ms)[0m
+[32m File đã push thành công: snippets/ll-index-col-slide2.liquid (5081ms)[0m
+[32m File đã push thành công: snippets/ll-index-col-tab-2.liquid (72ms)[0m
+[32m File đã push thành công: snippets/ll-index-col-tab.liquid (54ms)[0m
+[31m╭── conflict ─────────────────────────────────────────╮[0m
+[31m│[0m Remote đã thay đổi: "snippets/ll-index-faqs.liquid" [31m│[0m
+[31m│[0m Người khác đã sửa file này kể từ lần fetch của bạn. [31m│[0m
+[31m│[0m                                                     [31m│[0m
+[31m│[0m Chạy 'hrv theme fetch' để lấy bản mới, hoặc         [31m│[0m
+[31m│[0m push lại với cờ --force để cố tình ghi đè.          [31m│[0m
+[31m╰─────────────────────────────────────────────────────╯[0m
+[31m╭── conflict ─────────────────────────────────────────╮[0m
+[31m│[0m Remote đã thay đổi: "snippets/ll-index-form.liquid" [31m│[0m
+[31m│[0m Người khác đã sửa file này kể từ lần fetch của bạn. [31m│[0m
+[31m│[0m                                                     [31m│[0m
+[31m│[0m Chạy 'hrv theme fetch' để lấy bản mới, hoặc         [31m│[0m
+[31m│[0m push lại với cờ --force để cố tình ghi đè.          [31m│[0m
+[31m╰─────────────────────────────────────────────────────╯[0m
+[32m File đã push thành công: snippets/ll-index-marquee.liquid (135ms)[0m
+[32m File đã push thành công: snippets/ll-index-policy.liquid (59ms)[0m
+[31m╭── conflict ───────────────────────────────────────────╮[0m
+[31m│[0m Remote đã thay đổi: "snippets/ll-index-review.liquid" [31m│[0m
+[31m│[0m Người khác đã sửa file này kể từ lần fetch của bạn.   [31m│[0m
+[31m│[0m                                                       [31m│[0m
+[31m│[0m Chạy 'hrv theme fetch' để lấy bản mới, hoặc           [31m│[0m
+[31m│[0m push lại với cờ --force để cố tình ghi đè.            [31m│[0m
+[31m╰───────────────────────────────────────────────────────╯[0m
+[31m╭── conflict ───────────────────────────────────────────╮[0m
+[31m│[0m Remote đã thay đổi: "snippets/ll-index-slider.liquid" [31m│[0m
+[31m│[0m Người khác đã sửa file này kể từ lần fetch của bạn.   [31m│[0m
+[31m│[0m                                                       [31m│[0m
+[31m│[0m Chạy 'hrv theme fetch' để lấy bản mới, hoặc           [31m│[0m
+[31m│[0m push lại với cờ --force để cố tình ghi đè.            [31m│[0m
+[31m╰───────────────────────────────────────────────────────╯[0m
+[31m╭── conflict ───────────────────────────────────────────╮[0m
+[31m│[0m Remote đã thay đổi: "snippets/ll-index-tiktok.liquid" [31m│[0m
+[31m│[0m Người khác đã sửa file này kể từ lần fetch của bạn.   [31m│[0m
+[31m│[0m                                                       [31m│[0m
+[31m│[0m Chạy 'hrv theme fetch' để lấy bản mới, hoặc           [31m│[0m
+[31m│[0m push lại với cờ --force để cố tình ghi đè.            [31m│[0m
+[31m╰───────────────────────────────────────────────────────╯[0m
+[31m╭── conflict ──────────────────────────────────────────╮[0m
+[31m│[0m Remote đã thay đổi: "snippets/ll-index-video.liquid" [31m│[0m
+[31m│[0m Người khác đã sửa file này kể từ lần fetch của bạn.  [31m│[0m
+[31m│[0m                                                      [31m│[0m
+[31m│[0m Chạy 'hrv theme fetch' để lấy bản mới, hoặc          [31m│[0m
+[31m│[0m push lại với cờ --force để cố tình ghi đè.           [31m│[0m
+[31m╰──────────────────────────────────────────────────────╯[0m
+[32m File đã push thành công: snippets/ll-product-loop.liquid (74ms)[0m
+[32m File đã push thành công: snippets/ll-quickview.liquid (62ms)[0m
+[32m File đã push thành công: snippets/ll-swatch-quickview.liquid (65ms)[0m
+[32m File đã push thành công: snippets/ll-topbar.liquid (73ms)[0m
+[31m╭── conflict ────────────────────────────────────────────╮[0m
+[31m│[0m Remote đã thay đổi: "snippets/loomline-scripts.liquid" [31m│[0m
+[31m│[0m Người khác đã sửa file này kể từ lần fetch của bạn.    [31m│[0m
+[31m│[0m                                                        [31m│[0m
+[31m│[0m Chạy 'hrv theme fetch' để lấy bản mới, hoặc            [31m│[0m
+[31m│[0m push lại với cờ --force để cố tình ghi đè.             [31m│[0m
+[31m╰────────────────────────────────────────────────────────╯[0m
+[32m File đã push thành công: snippets/master-include.liquid (70ms)[0m
+[32m File đã push thành công: snippets/mini-account.liquid (58ms)[0m
+[32m File đã push thành công: snippets/mini-cart.liquid (87ms)[0m
+[32m File đã push thành công: snippets/mini-location.liquid (77ms)[0m
+[32m File đã push thành công: snippets/modal-appbuyxgety.liquid (66ms)[0m
+[32m File đã push thành công: snippets/modal-appcombo.liquid (57ms)[0m
+[32m File đã push thành công: snippets/modal-buyxgety-qv.liquid (55ms)[0m
+[32m File đã push thành công: snippets/modal-buyxgety.liquid (59ms)[0m
+[32m File đã push thành công: snippets/modal-coupon-header.liquid (5076ms)[0m
+[32m File đã push thành công: snippets/modal-coupon.liquid (10067ms)[0m
+[32m File đã push thành công: snippets/modal-live-header.liquid (56ms)[0m
+[32m File đã push thành công: snippets/modal-live.liquid (11478ms)[0m
+[32m File đã push thành công: snippets/modal-preorder.liquid (62ms)[0m
+[32m File đã push thành công: snippets/modal-pricezero.liquid (5066ms)[0m
+[32m File đã push thành công: snippets/modal-sizeguide.liquid (56ms)[0m
+[32m File đã push thành công: snippets/modal-success.liquid (84ms)[0m
+[32m File đã push thành công: snippets/no-ll-product-loop.liquid (13009ms)[0m
+[32m File đã push thành công: snippets/no-product-loop-ldpage.liquid (58ms)[0m
+[32m File đã push thành công: snippets/option_selection_js.liquid (6855ms)[0m
+[32m File đã push thành công: snippets/pagination-default.liquid (66ms)[0m
+[32m File đã push thành công: snippets/plugins-css.liquid (10195ms)[0m
+[32m File đã push thành công: snippets/plugins-js.liquid (421ms)[0m
+[32m File đã push thành công: snippets/plugins-script-head.liquid (67ms)[0m
+[32m File đã push thành công: snippets/popup-contact.liquid (67ms)[0m
+[32m File đã push thành công: snippets/product-infortabs.liquid (58ms)[0m
+[32m File đã push thành công: snippets/product-loadding.liquid (59ms)[0m
+[32m File đã push thành công: snippets/product-loop--ctas.liquid (10074ms)[0m
+[32m File đã push thành công: snippets/product-loop--options.liquid (10064ms)[0m
+[32m File đã push thành công: snippets/product-loop-horizontal.liquid (66ms)[0m
+[32m File đã push thành công: snippets/product-slidermobile.liquid (57ms)[0m
+[32m File đã push thành công: snippets/product-viewed.liquid (5063ms)[0m
+[32m File đã push thành công: snippets/quickview.liquid (59ms)[0m
+[31m╭── conflict ─────────────────────────────────────────╮[0m
+[31m│[0m Remote đã thay đổi: "snippets/sale-popup.liquid"    [31m│[0m
+[31m│[0m Người khác đã sửa file này kể từ lần fetch của bạn. [31m│[0m
+[31m│[0m                                                     [31m│[0m
+[31m│[0m Chạy 'hrv theme fetch' để lấy bản mới, hoặc         [31m│[0m
+[31m│[0m push lại với cờ --force để cố tình ghi đè.          [31m│[0m
+[31m╰─────────────────────────────────────────────────────╯[0m
+[32m File đã push thành công: snippets/seo-config.liquid (5124ms)[0m
+[32m File đã push thành công: snippets/seo-faq-parser.liquid (66ms)[0m
+[32m File đã push thành công: snippets/seo-meta-head.liquid (67ms)[0m
+[32m File đã push thành công: snippets/seo-noindex.liquid (5065ms)[0m
+[32m File đã push thành công: snippets/seo-pagination.liquid (57ms)[0m
+[32m File đã push thành công: snippets/seo-pro-master.liquid (66ms)[0m
+[32m File đã push thành công: snippets/seo-schema-engine.liquid (10073ms)[0m
+[32m File đã push thành công: snippets/seo_head.liquid (6423ms)[0m
+[32m File đã push thành công: snippets/sidebar-account.liquid (56ms)[0m
+[32m File đã push thành công: snippets/sidebar-action-product.liquid (60ms)[0m
+[32m File đã push thành công: snippets/sidebar-blog.liquid (63ms)[0m
+[32m File đã push thành công: snippets/sidebar-main.liquid (60ms)[0m
+[32m File đã push thành công: snippets/sidebar-page.liquid (55ms)[0m
+[32m File đã push thành công: snippets/swatch-quickview.liquid (60ms)[0m
+[32m File đã push thành công: snippets/swatch-sb.liquid (5063ms)[0m
+[32m File đã push thành công: snippets/swatch.liquid (11029ms)[0m
+[32m File đã push thành công: snippets/template-product-01.liquid (5104ms)[0m
+[32m File đã push thành công: snippets/template-product-02.liquid (85ms)[0m
+[32m File đã push thành công: snippets/template-product-03.liquid (92ms)[0m
+[32m File đã push thành công: snippets/template-product-04.liquid (5085ms)[0m
+[32m File đã push thành công: snippets/template-product-script.liquid (84ms)[0m
+[32m File đã push thành công: snippets/theme_google_translate.liquid (5056ms)[0m
+[32m File đã push thành công: snippets/theme_google_translate_js.liquid (61ms)[0m
+[32m File đã push thành công: snippets/variant_color.liquid (68ms)[0m
+[32m File đã push thành công: snippets/view.button.wishlist.liquid (5070ms)[0m
+[32m File đã push thành công: snippets/view.button.wishlist.page.liquid (5066ms)[0m
+[31m╭── conflict ─────────────────────────────────────────╮[0m
+[31m│[0m Remote đã thay đổi: "templates/404.liquid"          [31m│[0m
+[31m│[0m Người khác đã sửa file này kể từ lần fetch của bạn. [31m│[0m
+[31m│[0m                                                     [31m│[0m
+[31m│[0m Chạy 'hrv theme fetch' để lấy bản mới, hoặc         [31m│[0m
+[31m│[0m push lại với cờ --force để cố tình ghi đè.          [31m│[0m
+[31m╰─────────────────────────────────────────────────────╯[0m
+[32m File đã push thành công: templates/article.liquid (64ms)[0m
+[32m File đã push thành công: templates/blog.index-data.liquid (50ms)[0m
+[31m╭── conflict ─────────────────────────────────────────╮[0m
+[31m│[0m Remote đã thay đổi: "templates/blog.liquid"         [31m│[0m
+[31m│[0m Người khác đã sửa file này kể từ lần fetch của bạn. [31m│[0m
+[31m│[0m                                                     [31m│[0m
+[31m│[0m Chạy 'hrv theme fetch' để lấy bản mới, hoặc         [31m│[0m
+[31m│[0m push lại với cờ --force để cố tình ghi đè.          [31m│[0m
+[31m╰─────────────────────────────────────────────────────╯[0m
+[32m File đã push thành công: templates/cart.json.liquid (56ms)[0m
+[32m File đã push thành công: templates/cart.liquid (5102ms)[0m
+[32m File đã push thành công: templates/cart.reload.liquid (5065ms)[0m
+[31m╭── conflict ─────────────────────────────────────────────╮[0m
+[31m│[0m Remote đã thay đổi: "templates/collection.brand.liquid" [31m│[0m
+[31m│[0m Người khác đã sửa file này kể từ lần fetch của bạn.     [31m│[0m
+[31m│[0m                                                         [31m│[0m
+[31m│[0m Chạy 'hrv theme fetch' để lấy bản mới, hoặc             [31m│[0m
+[31m│[0m push lại với cờ --force để cố tình ghi đè.              [31m│[0m
+[31m╰─────────────────────────────────────────────────────────╯[0m
+[32m File đã push thành công: templates/collection.col-data.liquid (55ms)[0m
+[32m File đã push thành công: templates/collection.data.liquid (53ms)[0m
+[32m File đã push thành công: templates/collection.index-tab-2.liquid (2595ms)[0m
+[32m File đã push thành công: templates/collection.index-tab.liquid (54ms)[0m
+[31m╭── conflict ─────────────────────────────────────────╮[0m
+[31m│[0m Remote đã thay đổi: "templates/collection.liquid"   [31m│[0m
+[31m│[0m Người khác đã sửa file này kể từ lần fetch của bạn. [31m│[0m
+[31m│[0m                                                     [31m│[0m
+[31m│[0m Chạy 'hrv theme fetch' để lấy bản mới, hoặc         [31m│[0m
+[31m│[0m push lại với cờ --force để cố tình ghi đè.          [31m│[0m
+[31m╰─────────────────────────────────────────────────────╯[0m
+[32m File đã push thành công: templates/collection.pagesize.liquid (5059ms)[0m
+[32m File đã push thành công: templates/collection.slide-data.liquid (67ms)[0m
+[32m File đã push thành công: templates/customers[account].liquid (5063ms)[0m
+[32m File đã push thành công: templates/customers[account].member.liquid (66ms)[0m
+[32m File đã push thành công: templates/customers[activate_account].liquid (59ms)[0m
+[32m File đã push thành công: templates/customers[addresses].liquid (60ms)[0m
+[32m File đã push thành công: templates/customers[login].liquid (57ms)[0m
+[32m File đã push thành công: templates/customers[order].liquid (98ms)[0m
+[32m File đã push thành công: templates/customers[register].liquid (62ms)[0m
+[32m File đã push thành công: templates/customers[reset_password].liquid (57ms)[0m
+[32m File đã push thành công: templates/index.header-load-menu.liquid (81ms)[0m
+[31m╭── conflict ─────────────────────────────────────────╮[0m
+[31m│[0m Remote đã thay đổi: "templates/index.liquid"        [31m│[0m
+[31m│[0m Người khác đã sửa file này kể từ lần fetch của bạn. [31m│[0m
+[31m│[0m                                                     [31m│[0m
+[31m│[0m Chạy 'hrv theme fetch' để lấy bản mới, hoặc         [31m│[0m
+[31m│[0m push lại với cờ --force để cố tình ghi đè.          [31m│[0m
+[31m╰─────────────────────────────────────────────────────╯[0m
+[31m╭── conflict ─────────────────────────────────────────────────╮[0m
+[31m│[0m Remote đã thay đổi: "templates/index.ll-index-about.liquid" [31m│[0m
+[31m│[0m Người khác đã sửa file này kể từ lần fetch của bạn.         [31m│[0m
+[31m│[0m                                                             [31m│[0m
+[31m│[0m Chạy 'hrv theme fetch' để lấy bản mới, hoặc                 [31m│[0m
+[31m│[0m push lại với cờ --force để cố tình ghi đè.                  [31m│[0m
+[31m╰─────────────────────────────────────────────────────────────╯[0m
+[31m╭── conflict ────────────────────────────────────────────────────╮[0m
+[31m│[0m Remote đã thay đổi: "templates/index.ll-index-banner-1.liquid" [31m│[0m
+[31m│[0m Người khác đã sửa file này kể từ lần fetch của bạn.            [31m│[0m
+[31m│[0m                                                                [31m│[0m
+[31m│[0m Chạy 'hrv theme fetch' để lấy bản mới, hoặc                    [31m│[0m
+[31m│[0m push lại với cờ --force để cố tình ghi đè.                     [31m│[0m
+[31m╰────────────────────────────────────────────────────────────────╯[0m
+[31m╭── conflict ────────────────────────────────────────────────────╮[0m
+[31m│[0m Remote đã thay đổi: "templates/index.ll-index-banner-2.liquid" [31m│[0m
+[31m│[0m Người khác đã sửa file này kể từ lần fetch của bạn.            [31m│[0m
+[31m│[0m                                                                [31m│[0m
+[31m│[0m Chạy 'hrv theme fetch' để lấy bản mới, hoặc                    [31m│[0m
+[31m│[0m push lại với cờ --force để cố tình ghi đè.                     [31m│[0m
+[31m╰────────────────────────────────────────────────────────────────╯[0m
+[31m╭── conflict ────────────────────────────────────────────────╮[0m
+[31m│[0m Remote đã thay đổi: "templates/index.ll-index-faqs.liquid" [31m│[0m
+[31m│[0m Người khác đã sửa file này kể từ lần fetch của bạn.        [31m│[0m
+[31m│[0m                                                            [31m│[0m
+[31m│[0m Chạy 'hrv theme fetch' để lấy bản mới, hoặc                [31m│[0m
+[31m│[0m push lại với cờ --force để cố tình ghi đè.                 [31m│[0m
+[31m╰────────────────────────────────────────────────────────────╯[0m
+[32m File đã push thành công: templates/index.ll-index-marquee.liquid (65ms)[0m
+[31m╭── conflict ──────────────────────────────────────────────────╮[0m
+[31m│[0m Remote đã thay đổi: "templates/index.ll-index-review.liquid" [31m│[0m
+[31m│[0m Người khác đã sửa file này kể từ lần fetch của bạn.          [31m│[0m
+[31m│[0m                                                              [31m│[0m
+[31m│[0m Chạy 'hrv theme fetch' để lấy bản mới, hoặc                  [31m│[0m
+[31m│[0m push lại với cờ --force để cố tình ghi đè.                   [31m│[0m
+[31m╰──────────────────────────────────────────────────────────────╯[0m
+[31m╭── conflict ─────────────────────────────────────────────────╮[0m
+[31m│[0m Remote đã thay đổi: "templates/index.ll-index-video.liquid" [31m│[0m
+[31m│[0m Người khác đã sửa file này kể từ lần fetch của bạn.         [31m│[0m
+[31m│[0m                                                             [31m│[0m
+[31m│[0m Chạy 'hrv theme fetch' để lấy bản mới, hoặc                 [31m│[0m
+[31m│[0m push lại với cờ --force để cố tình ghi đè.                  [31m│[0m
+[31m╰─────────────────────────────────────────────────────────────╯[0m
+[31m╭── conflict ─────────────────────────────────────────────╮[0m
+[31m│[0m Remote đã thay đổi: "templates/list-collections.liquid" [31m│[0m
+[31m│[0m Người khác đã sửa file này kể từ lần fetch của bạn.     [31m│[0m
+[31m│[0m                                                         [31m│[0m
+[31m│[0m Chạy 'hrv theme fetch' để lấy bản mới, hoặc             [31m│[0m
+[31m│[0m push lại với cờ --force để cố tình ghi đè.              [31m│[0m
+[31m╰─────────────────────────────────────────────────────────╯[0m
+[31m╭── conflict ──────────────────────────────────────────╮[0m
+[31m│[0m Remote đã thay đổi: "templates/page.about-us.liquid" [31m│[0m
+[31m│[0m Người khác đã sửa file này kể từ lần fetch của bạn.  [31m│[0m
+[31m│[0m                                                      [31m│[0m
+[31m│[0m Chạy 'hrv theme fetch' để lấy bản mới, hoặc          [31m│[0m
+[31m│[0m push lại với cờ --force để cố tình ghi đè.           [31m│[0m
+[31m╰──────────────────────────────────────────────────────╯[0m
+[31m╭── conflict ─────────────────────────────────────────╮[0m
+[31m│[0m Remote đã thay đổi: "templates/page.brands.liquid"  [31m│[0m
+[31m│[0m Người khác đã sửa file này kể từ lần fetch của bạn. [31m│[0m
+[31m│[0m                                                     [31m│[0m
+[31m│[0m Chạy 'hrv theme fetch' để lấy bản mới, hoặc         [31m│[0m
+[31m│[0m push lại với cờ --force để cố tình ghi đè.          [31m│[0m
+[31m╰─────────────────────────────────────────────────────╯[0m
+[31m╭── conflict ─────────────────────────────────────────╮[0m
+[31m│[0m Remote đã thay đổi: "templates/page.contact.liquid" [31m│[0m
+[31m│[0m Người khác đã sửa file này kể từ lần fetch của bạn. [31m│[0m
+[31m│[0m                                                     [31m│[0m
+[31m│[0m Chạy 'hrv theme fetch' để lấy bản mới, hoặc         [31m│[0m
+[31m│[0m push lại với cờ --force để cố tình ghi đè.          [31m│[0m
+[31m╰─────────────────────────────────────────────────────╯[0m
+[31m╭── conflict ───────────────────────────────────────────╮[0m
+[31m│[0m Remote đã thay đổi: "templates/page.documents.liquid" [31m│[0m
+[31m│[0m Người khác đã sửa file này kể từ lần fetch của bạn.   [31m│[0m
+[31m│[0m                                                       [31m│[0m
+[31m│[0m Chạy 'hrv theme fetch' để lấy bản mới, hoặc           [31m│[0m
+[31m│[0m push lại với cờ --force để cố tình ghi đè.            [31m│[0m
+[31m╰───────────────────────────────────────────────────────╯[0m
+[32m File đã push thành công: templates/page.liquid (11062ms)[0m
+[31m╭── conflict ─────────────────────────────────────────╮[0m
+[31m│[0m Remote đã thay đổi: "templates/page.quote.liquid"   [31m│[0m
+[31m│[0m Người khác đã sửa file này kể từ lần fetch của bạn. [31m│[0m
+[31m│[0m                                                     [31m│[0m
+[31m│[0m Chạy 'hrv theme fetch' để lấy bản mới, hoặc         [31m│[0m
+[31m│[0m push lại với cờ --force để cố tình ghi đè.          [31m│[0m
+[31m╰─────────────────────────────────────────────────────╯[0m
+[32m File đã push thành công: templates/page.stores.liquid (65ms)[0m
+[32m File đã push thành công: templates/page.wishlist.liquid (58ms)[0m
+[31m╭── conflict ─────────────────────────────────────────╮[0m
+[31m│[0m Remote đã thay đổi: "templates/product.liquid"      [31m│[0m
+[31m│[0m Người khác đã sửa file này kể từ lần fetch của bạn. [31m│[0m
+[31m│[0m                                                     [31m│[0m
+[31m│[0m Chạy 'hrv theme fetch' để lấy bản mới, hoặc         [31m│[0m
+[31m│[0m push lại với cờ --force để cố tình ghi đè.          [31m│[0m
+[31m╰─────────────────────────────────────────────────────╯[0m
+[32m File đã push thành công: templates/product.ll-quickview.liquid (118ms)[0m
+[31m╭── conflict ──────────────────────────────────────────────╮[0m
+[31m│[0m Remote đã thay đổi: "templates/product.ll-viewed.liquid" [31m│[0m
+[31m│[0m Người khác đã sửa file này kể từ lần fetch của bạn.      [31m│[0m
+[31m│[0m                                                          [31m│[0m
+[31m│[0m Chạy 'hrv theme fetch' để lấy bản mới, hoặc              [31m│[0m
+[31m│[0m push lại với cờ --force để cố tình ghi đè.               [31m│[0m
+[31m╰──────────────────────────────────────────────────────────╯[0m
+[32m File đã push thành công: templates/product.modal-pricezero.liquid (66ms)[0m
+[32m File đã push thành công: templates/product.pro-video.liquid (71ms)[0m
+[32m File đã push thành công: templates/product.quickview-cart.liquid (72ms)[0m
+[32m File đã push thành công: templates/product.quickview.liquid (82ms)[0m
+[32m File đã push thành công: templates/product.wishlist.liquid (55ms)[0m
+[31m╭── conflict ──────────────────────────────────────────────────╮[0m
+[31m│[0m Remote đã thay đổi: "templates/product.wishlist.view.liquid" [31m│[0m
+[31m│[0m Người khác đã sửa file này kể từ lần fetch của bạn.          [31m│[0m
+[31m│[0m                                                              [31m│[0m
+[31m│[0m Chạy 'hrv theme fetch' để lấy bản mới, hoặc                  [31m│[0m
+[31m│[0m push lại với cờ --force để cố tình ghi đè.                   [31m│[0m
+[31m╰──────────────────────────────────────────────────────────────╯[0m
+[32m File đã push thành công: templates/search.datacombo.liquid (84ms)[0m
+[32m File đã push thành công: templates/search.filter.liquid (55ms)[0m
+[32m File đã push thành công: templates/search.header-ultimate-product.liquid (16059ms)[0m
+[32m File đã push thành công: templates/search.liquid (70ms)[0m
+[32m File đã push thành công: templates/search.pagesize.liquid (80ms)[0m
+[32m File đã push thành công: templates/search.paginate.liquid (60ms)[0m
+[32m File đã push thành công: templates/search.ultimate-product.liquid (84ms)[0m
+[0mPush all: [32m136[0m đã push, [31m46[0m lỗi, 0 bỏ qua.[0m

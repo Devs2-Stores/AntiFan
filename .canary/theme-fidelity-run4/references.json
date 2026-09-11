@@ -1,0 +1,88 @@
+{
+  "kind": "theme-fidelity-run-references",
+  "stage": "references",
+  "status": "OK",
+  "generatedAt": "2026-09-11T00:41:12.055Z",
+  "viewportSpec": "1440x900,1024x900,390x844",
+  "viewports": [
+    {
+      "label": "1440x900",
+      "width": 1440,
+      "height": 900,
+      "mobile": false,
+      "dpr": 1
+    },
+    {
+      "label": "1024x900",
+      "width": 1024,
+      "height": 900,
+      "mobile": false,
+      "dpr": 1
+    },
+    {
+      "label": "390x844",
+      "width": 390,
+      "height": 844,
+      "mobile": true,
+      "dpr": 1
+    }
+  ],
+  "reusePolicy": "a complete pin is reused verbatim; an existing pin that does not match the requested label/role/viewports is exit 4, never replaced",
+  "copy": {
+    "label": "r1-copy",
+    "role": "reference",
+    "status": "COMPLETE",
+    "reused": false,
+    "indexFile": "r1/index.json",
+    "indexSha256": "630b1c04e46e51bc001d08a5d5d48409e80fef59b5dafeff4e28bf57606436d6",
+    "captured": 21,
+    "requested": 21,
+    "viewports": "1440x900,1024x900,390x844"
+  },
+  "live": {
+    "label": "r2-live",
+    "role": "reference",
+    "status": "COMPLETE",
+    "reused": false,
+    "indexFile": "r2/index.json",
+    "indexSha256": "a969312cd971448e36703a1405f35daac64b262d539e09faf1c02ca7cb1138cb",
+    "captured": 21,
+    "requested": 21,
+    "viewports": "1440x900,1024x900,390x844"
+  },
+  "r1": {
+    "label": "r1-copy",
+    "role": "reference",
+    "status": "COMPLETE",
+    "reused": false,
+    "indexFile": "r1/index.json",
+    "indexSha256": "630b1c04e46e51bc001d08a5d5d48409e80fef59b5dafeff4e28bf57606436d6",
+    "captured": 21,
+    "requested": 21,
+    "viewports": "1440x900,1024x900,390x844"
+  },
+  "r2": {
+    "label": "r2-live",
+    "role": "reference",
+    "status": "COMPLETE",
+    "reused": false,
+    "indexFile": "r2/index.json",
+    "indexSha256": "a969312cd971448e36703a1405f35daac64b262d539e09faf1c02ca7cb1138cb",
+    "captured": 21,
+    "requested": 21,
+    "viewports": "1440x900,1024x900,390x844"
+  },
+  "livePreviewReads": [
+    "https://phukienmaymoc.com/?themeid=-1",
+    "https://phukienmaymoc.com/products/ong-han-laser?themeid=-1",
+    "https://phukienmaymoc.com/collections/phu-kien-han?themeid=-1",
+    "https://phukienmaymoc.com/blogs/news/plc-la-gi-cau-tao-nguyen-ly-hoat-dong?themeid=-1",
+    "https://phukienmaymoc.com/cart?themeid=-1",
+    "https://phukienmaymoc.com/search?q=laser&themeid=-1",
+    "https://phukienmaymoc.com/khong-ton-tai-404-probe-xyz?themeid=-1"
+  ],
+  "inventories": {
+    "copy": "inventories/copy.json",
+    "live": "inventories/live.json"
+  }
+}

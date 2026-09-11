@@ -1,7 +1,7 @@
 ---
 phase: 2
 title: "Liquid & Structural Checks"
-status: pending
+status: complete
 priority: P0
 effort: "3h"
 dependencies: ["phase-01-theme-serve-and-reference-pinning"]
@@ -101,3 +101,18 @@ settle, geometry, motion and reference-identity gates the campaign already enfor
 All changes are additive checks behind a refusal path; removing the wiring restores the
 previous behaviour without invalidating persisted evidence, because the added records are
 diagnostic.
+
+## Outcome (2026-09-11)
+
+`checks` ran over the real theme directory and every captured document: `config/settings_schema.json`
+parses, the theme declares 0 sections, 95 settings reads are undeclared by that schema
+(`add_to_cart_show`, `cart_deliverytime_start/end`, `code_messenger_mb`, …), 78 local assets present with
+6 referenced but absent from the source. Reports: `.canary/theme-fidelity-run4/structural.json`
+(sha256 `2cd1143f16e7f97decd1729b7b7f432c5b694dcacf1aec1d828e38b1f1d655e0`). The false-positive probe
+holds: sampled ids occur zero times in the theme's 1463-id `settings_schema.json`.
+
+The write was explicit and bounded: `hrv backup --name phase5-pre-dev` (13.42 MB, 518 files), then
+`hrv theme push --nodelete` (136 pushed, 46 remote-changed conflicts), then
+`hrv theme push --force --nodelete` to complete it (182 pushed, 0 errors, 0 skipped). No `assets/` file
+is in that set; `--only` on the two files the CLI itself reported as remote-divergent answered
+"No files matched --only pattern(s)". The copy is unpublished and production was read-only.

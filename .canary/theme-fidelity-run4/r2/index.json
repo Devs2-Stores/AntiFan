@@ -1,0 +1,572 @@
+{
+  "kind": "theme-fidelity-capture-index",
+  "mode": "capture",
+  "status": "COMPLETE",
+  "role": "reference",
+  "label": "r2-live",
+  "store": "https://phukienmaymoc.com/",
+  "inventory": {
+    "file": "E:\\Work\\apps\\AntiFan\\.canary\\theme-fidelity-run4\\inventories\\live.json",
+    "sha256": "373786d29057df62a89e0b7eacc06954097b796a749019c571380592e758b9e3",
+    "surfaces": 7,
+    "views": 0,
+    "livePreviewBase": null,
+    "copyPreviewBase": null
+  },
+  "viewports": [
+    {
+      "label": "1440x900",
+      "width": 1440,
+      "height": 900,
+      "mobile": false,
+      "dpr": 1
+    },
+    {
+      "label": "1024x900",
+      "width": 1024,
+      "height": 900,
+      "mobile": false,
+      "dpr": 1
+    },
+    {
+      "label": "390x844",
+      "width": 390,
+      "height": 844,
+      "mobile": true,
+      "dpr": 1
+    }
+  ],
+  "safety": {
+    "allowedThemes": [
+      "-1",
+      "1001512581"
+    ],
+    "gates": [
+      {
+        "surface": "home",
+        "url": "https://phukienmaymoc.com/?themeid=-1",
+        "themeId": -1,
+        "parameter": "-1",
+        "values": [
+          "-1"
+        ],
+        "allowed": true,
+        "reason": "themeid=-1 is -1 or an allowed theme"
+      },
+      {
+        "surface": "product",
+        "url": "https://phukienmaymoc.com/products/ong-han-laser?themeid=-1",
+        "themeId": -1,
+        "parameter": "-1",
+        "values": [
+          "-1"
+        ],
+        "allowed": true,
+        "reason": "themeid=-1 is -1 or an allowed theme"
+      },
+      {
+        "surface": "collection",
+        "url": "https://phukienmaymoc.com/collections/phu-kien-han?themeid=-1",
+        "themeId": -1,
+        "parameter": "-1",
+        "values": [
+          "-1"
+        ],
+        "allowed": true,
+        "reason": "themeid=-1 is -1 or an allowed theme"
+      },
+      {
+        "surface": "article",
+        "url": "https://phukienmaymoc.com/blogs/news/plc-la-gi-cau-tao-nguyen-ly-hoat-dong?themeid=-1",
+        "themeId": -1,
+        "parameter": "-1",
+        "values": [
+          "-1"
+        ],
+        "allowed": true,
+        "reason": "themeid=-1 is -1 or an allowed theme"
+      },
+      {
+        "surface": "cart",
+        "url": "https://phukienmaymoc.com/cart?themeid=-1",
+        "themeId": -1,
+        "parameter": "-1",
+        "values": [
+          "-1"
+        ],
+        "allowed": true,
+        "reason": "themeid=-1 is -1 or an allowed theme"
+      },
+      {
+        "surface": "search",
+        "url": "https://phukienmaymoc.com/search?q=laser&themeid=-1",
+        "themeId": -1,
+        "parameter": "-1",
+        "values": [
+          "-1"
+        ],
+        "allowed": true,
+        "reason": "themeid=-1 is -1 or an allowed theme"
+      },
+      {
+        "surface": "404",
+        "url": "https://phukienmaymoc.com/khong-ton-tai-404-probe-xyz?themeid=-1",
+        "themeId": -1,
+        "parameter": "-1",
+        "values": [
+          "-1"
+        ],
+        "allowed": true,
+        "reason": "themeid=-1 is -1 or an allowed theme"
+      }
+    ]
+  },
+  "targets": [
+    {
+      "surface": "home",
+      "kind": "surface",
+      "viewport": "1440x900",
+      "status": "CAPTURED",
+      "file": "home__1440x900.json",
+      "failure": null,
+      "png": {
+        "file": "home__1440x900.png",
+        "sha256": "03c7e32f1b6a925f54021842cb682645b4c4b63c1a545e883d1fa0303d0a3f81",
+        "bytes": 2388688,
+        "artifactRef": "artifact-43bcd83c-283d-4a2f-b743-a1d09d121129"
+      },
+      "dom": {
+        "file": "dom/home__1440x900.html",
+        "sha256": "aa2508becc9aff880bdf1db9a44ba97f1ca6fa24c7cabf3f52fc8a212c477474",
+        "bytes": 1421576,
+        "observedUrl": "https://phukienmaymoc.com/?themeid=-1"
+      }
+    },
+    {
+      "surface": "home",
+      "kind": "surface",
+      "viewport": "1024x900",
+      "status": "CAPTURED",
+      "file": "home__1024x900.json",
+      "failure": null,
+      "png": {
+        "file": "home__1024x900.png",
+        "sha256": "fa990216934214504df304a499dc9afd9c2f44a066952d6e0ce329e065b012d4",
+        "bytes": 1694026,
+        "artifactRef": "artifact-e6435594-ec93-417a-be19-67c8635b61b9"
+      },
+      "dom": {
+        "file": "dom/home__1024x900.html",
+        "sha256": "7e14dbd82b81f1c829b2ab7f23ed161fe20b34ecd5b9c6bdcfa9c30c13dcc594",
+        "bytes": 1421576,
+        "observedUrl": "https://phukienmaymoc.com/?themeid=-1"
+      }
+    },
+    {
+      "surface": "home",
+      "kind": "surface",
+      "viewport": "390x844",
+      "status": "CAPTURED",
+      "file": "home__390x844.json",
+      "failure": null,
+      "png": {
+        "file": "home__390x844.png",
+        "sha256": "8a4b277a2083aead4fb227135729286dc2742860380c29a0efaa69e97d24a5ca",
+        "bytes": 896789,
+        "artifactRef": "artifact-d7dbe65b-cf57-4fab-b992-82d41241ab39"
+      },
+      "dom": {
+        "file": "dom/home__390x844.html",
+        "sha256": "ee85055217f6beaf9ff5e997d2e0b9cdbddb2bdac9c914174f602ffb653e0827",
+        "bytes": 1422799,
+        "observedUrl": "https://phukienmaymoc.com/?themeid=-1"
+      }
+    },
+    {
+      "surface": "product",
+      "kind": "surface",
+      "viewport": "1440x900",
+      "status": "CAPTURED",
+      "file": "product__1440x900.json",
+      "failure": null,
+      "png": {
+        "file": "product__1440x900.png",
+        "sha256": "58ed896aa25ed03091b29f429b0c8832100fc752729ae07797132937176405a4",
+        "bytes": 408722,
+        "artifactRef": "artifact-35646f30-346e-4743-9252-3f5e42a3de54"
+      },
+      "dom": {
+        "file": "dom/product__1440x900.html",
+        "sha256": "7bc6aff7b1e7769411baa1d97ef9821361c7664f71e5e77d34c944e40604513a",
+        "bytes": 943045,
+        "observedUrl": "https://phukienmaymoc.com/products/ong-han-laser?themeid=-1"
+      }
+    },
+    {
+      "surface": "product",
+      "kind": "surface",
+      "viewport": "1024x900",
+      "status": "CAPTURED",
+      "file": "product__1024x900.json",
+      "failure": null,
+      "png": {
+        "file": "product__1024x900.png",
+        "sha256": "98f2e9cce38dff63a04ab8262943ab77c4e8c9c51a4e9d1d1e5359a3ff41cdd9",
+        "bytes": 393985,
+        "artifactRef": "artifact-c8e60113-f842-4e7f-aaba-f94879303864"
+      },
+      "dom": {
+        "file": "dom/product__1024x900.html",
+        "sha256": "7bc6aff7b1e7769411baa1d97ef9821361c7664f71e5e77d34c944e40604513a",
+        "bytes": 943045,
+        "observedUrl": "https://phukienmaymoc.com/products/ong-han-laser?themeid=-1"
+      }
+    },
+    {
+      "surface": "product",
+      "kind": "surface",
+      "viewport": "390x844",
+      "status": "CAPTURED",
+      "file": "product__390x844.json",
+      "failure": null,
+      "png": {
+        "file": "product__390x844.png",
+        "sha256": "eafed72f29ffbe4b7d5606e0e847a0858f64d82dcf6cbde0d519d4a4bd6436ec",
+        "bytes": 359595,
+        "artifactRef": "artifact-6bfa8cfa-8b1f-46cf-9f77-e99a1bcc3581"
+      },
+      "dom": {
+        "file": "dom/product__390x844.html",
+        "sha256": "b039a136237e0491c7cc2f76824b58c7ceb329ab5cb64d24f5382ba34c39505d",
+        "bytes": 944264,
+        "observedUrl": "https://phukienmaymoc.com/products/ong-han-laser?themeid=-1"
+      }
+    },
+    {
+      "surface": "collection",
+      "kind": "surface",
+      "viewport": "1440x900",
+      "status": "CAPTURED",
+      "file": "collection__1440x900.json",
+      "failure": null,
+      "png": {
+        "file": "collection__1440x900.png",
+        "sha256": "4eb5fa410c80cb0e5cc6480960784249af96cf824851f6dab7ffec6bb37621e0",
+        "bytes": 171735,
+        "artifactRef": "artifact-4119cb33-4c8f-4f22-80f6-b8f7347674df"
+      },
+      "dom": {
+        "file": "dom/collection__1440x900.html",
+        "sha256": "893e0e4618dd6c898bc5ce0e45b2baa621d8d58a9817be403dcf69611740020e",
+        "bytes": 928590,
+        "observedUrl": "https://phukienmaymoc.com/collections/phu-kien-han?themeid=-1"
+      }
+    },
+    {
+      "surface": "collection",
+      "kind": "surface",
+      "viewport": "1024x900",
+      "status": "CAPTURED",
+      "file": "collection__1024x900.json",
+      "failure": null,
+      "png": {
+        "file": "collection__1024x900.png",
+        "sha256": "f1b1b8ad35f250114d6aa27a5d38440f43c09c29b3b83de3a4433ffed6b9506e",
+        "bytes": 161259,
+        "artifactRef": "artifact-bfd9e84e-027b-4c0d-ad49-9e17807f61e8"
+      },
+      "dom": {
+        "file": "dom/collection__1024x900.html",
+        "sha256": "927b653c25e5c92f6cba9a020da753cfc5190468a565eb1931e4d6650e428c90",
+        "bytes": 928465,
+        "observedUrl": "https://phukienmaymoc.com/collections/phu-kien-han?themeid=-1"
+      }
+    },
+    {
+      "surface": "collection",
+      "kind": "surface",
+      "viewport": "390x844",
+      "status": "CAPTURED",
+      "file": "collection__390x844.json",
+      "failure": null,
+      "png": {
+        "file": "collection__390x844.png",
+        "sha256": "9cc5fd75e00a153c942cf30379b8b3a527c5837747297fdca495e606eb4fbf09",
+        "bytes": 145286,
+        "artifactRef": "artifact-e6ab9897-f053-4009-afb8-508d80a82241"
+      },
+      "dom": {
+        "file": "dom/collection__390x844.html",
+        "sha256": "db8507e1a43d7c3b601e975a13b7debc75a040a767f2b845326e328ede11a754",
+        "bytes": 929684,
+        "observedUrl": "https://phukienmaymoc.com/collections/phu-kien-han?themeid=-1"
+      }
+    },
+    {
+      "surface": "article",
+      "kind": "surface",
+      "viewport": "1440x900",
+      "status": "CAPTURED",
+      "file": "article__1440x900.json",
+      "failure": null,
+      "png": {
+        "file": "article__1440x900.png",
+        "sha256": "429604ead8486b0108afbb4877f983a01054fd16cc0364aa2c6e28de28a3b605",
+        "bytes": 1245895,
+        "artifactRef": "artifact-0b3fcb40-1dac-4f95-8a0d-14f3696294f2"
+      },
+      "dom": {
+        "file": "dom/article__1440x900.html",
+        "sha256": "202e27f3d4a693b38402a9d221ddcb737e48c2bb813ed69071a03d89cf53812a",
+        "bytes": 958338,
+        "observedUrl": "https://phukienmaymoc.com/blogs/news/plc-la-gi-cau-tao-nguyen-ly-hoat-dong?themeid=-1"
+      }
+    },
+    {
+      "surface": "article",
+      "kind": "surface",
+      "viewport": "1024x900",
+      "status": "CAPTURED",
+      "file": "article__1024x900.json",
+      "failure": null,
+      "png": {
+        "file": "article__1024x900.png",
+        "sha256": "67dfc827d7eb08efc54a6a80a081c50f5fc929cb9ad45179fc138dba24e9cb74",
+        "bytes": 1110892,
+        "artifactRef": "artifact-42c9da9e-d3be-4b3e-9ed0-3079d53bb404"
+      },
+      "dom": {
+        "file": "dom/article__1024x900.html",
+        "sha256": "b3f75a1d0e7663c30261e27c1c948e37d8ea139eac7b419a694540e3247630ac",
+        "bytes": 958368,
+        "observedUrl": "https://phukienmaymoc.com/blogs/news/plc-la-gi-cau-tao-nguyen-ly-hoat-dong?themeid=-1"
+      }
+    },
+    {
+      "surface": "article",
+      "kind": "surface",
+      "viewport": "390x844",
+      "status": "CAPTURED",
+      "file": "article__390x844.json",
+      "failure": null,
+      "png": {
+        "file": "article__390x844.png",
+        "sha256": "5b9ce110f88664816b521209ca0e7339a0285c73e495b63ce72358e52583acbf",
+        "bytes": 578159,
+        "artifactRef": "artifact-e45d94e9-b420-4fe5-89ce-eb994e879f87"
+      },
+      "dom": {
+        "file": "dom/article__390x844.html",
+        "sha256": "2058756e1c17a39d0e07db74564be53d3d2fec227a879046160389c23e839a72",
+        "bytes": 959304,
+        "observedUrl": "https://phukienmaymoc.com/blogs/news/plc-la-gi-cau-tao-nguyen-ly-hoat-dong?themeid=-1"
+      }
+    },
+    {
+      "surface": "cart",
+      "kind": "surface",
+      "viewport": "1440x900",
+      "status": "CAPTURED",
+      "file": "cart__1440x900.json",
+      "failure": null,
+      "png": {
+        "file": "cart__1440x900.png",
+        "sha256": "0f5cb63c3bc26fab3bc83946dfd28629fd701e8727771d3a96434575169e9ddd",
+        "bytes": 305025,
+        "artifactRef": "artifact-19036f7c-818d-4886-975f-b12b858edd94"
+      },
+      "dom": {
+        "file": "dom/cart__1440x900.html",
+        "sha256": "e3e9465d80ac1ede94791f9c260bb9adf1d6e7a0d322eb377420d97ca5c0a9e4",
+        "bytes": 951181,
+        "observedUrl": "https://phukienmaymoc.com/cart?themeid=-1"
+      }
+    },
+    {
+      "surface": "cart",
+      "kind": "surface",
+      "viewport": "1024x900",
+      "status": "CAPTURED",
+      "file": "cart__1024x900.json",
+      "failure": null,
+      "png": {
+        "file": "cart__1024x900.png",
+        "sha256": "07327096085502b47a91b1f211990e006439b6f9a4635c18f7dcdaf2ad232211",
+        "bytes": 290460,
+        "artifactRef": "artifact-b86b175b-d071-4ce4-a172-13f943df1d0a"
+      },
+      "dom": {
+        "file": "dom/cart__1024x900.html",
+        "sha256": "36566ffc950097352e229be349b2bb8c46c598873681b8f64c396afb68cc7133",
+        "bytes": 951163,
+        "observedUrl": "https://phukienmaymoc.com/cart?themeid=-1"
+      }
+    },
+    {
+      "surface": "cart",
+      "kind": "surface",
+      "viewport": "390x844",
+      "status": "CAPTURED",
+      "file": "cart__390x844.json",
+      "failure": null,
+      "png": {
+        "file": "cart__390x844.png",
+        "sha256": "d199ff5a06c76d406d922926e28173e7fbe53e3e461531e18d883e64f6cfc5c0",
+        "bytes": 187267,
+        "artifactRef": "artifact-8576dc20-1b22-4365-b8fd-1840686aaf8e"
+      },
+      "dom": {
+        "file": "dom/cart__390x844.html",
+        "sha256": "41b196682d87fea9243a4c34fd9e94ee1aa866525f993bd80778d0c2184758a4",
+        "bytes": 951707,
+        "observedUrl": "https://phukienmaymoc.com/cart?themeid=-1"
+      }
+    },
+    {
+      "surface": "search",
+      "kind": "surface",
+      "viewport": "1440x900",
+      "status": "CAPTURED",
+      "file": "search__1440x900.json",
+      "failure": null,
+      "png": {
+        "file": "search__1440x900.png",
+        "sha256": "967b5dac130fc9a6765ea71ed7bac44c95ecdd96ba4779931ff9551cf50b80b1",
+        "bytes": 714185,
+        "artifactRef": "artifact-535ca3f1-8dec-47a1-a9ab-b27cfb7ebb1d"
+      },
+      "dom": {
+        "file": "dom/search__1440x900.html",
+        "sha256": "0256ab60eb36b18bd6611bfb5680bd7e3461b09ea13dd7472ef51328f84f4bb2",
+        "bytes": 1025178,
+        "observedUrl": "https://phukienmaymoc.com/search?q=laser&themeid=-1"
+      }
+    },
+    {
+      "surface": "search",
+      "kind": "surface",
+      "viewport": "1024x900",
+      "status": "CAPTURED",
+      "file": "search__1024x900.json",
+      "failure": null,
+      "png": {
+        "file": "search__1024x900.png",
+        "sha256": "1119fc0d031cf7880095373c977c1681ad3dac929ec24caf023388d56790ddf6",
+        "bytes": 515336,
+        "artifactRef": "artifact-7f45c307-7876-4445-84af-3666b83c8bd6"
+      },
+      "dom": {
+        "file": "dom/search__1024x900.html",
+        "sha256": "cf951748d4ad7d149f7660f2f3828fff3302e9bb005efe575ed6c123e514aada",
+        "bytes": 1025074,
+        "observedUrl": "https://phukienmaymoc.com/search?q=laser&themeid=-1"
+      }
+    },
+    {
+      "surface": "search",
+      "kind": "surface",
+      "viewport": "390x844",
+      "status": "CAPTURED",
+      "file": "search__390x844.json",
+      "failure": null,
+      "png": {
+        "file": "search__390x844.png",
+        "sha256": "cf7bc3adae1b0cf35043f556ed2f95af43f9f8fe41bb6ece946ca9bb9218f699",
+        "bytes": 362142,
+        "artifactRef": "artifact-960b3927-a89f-494e-84fc-5cbd25968e18"
+      },
+      "dom": {
+        "file": "dom/search__390x844.html",
+        "sha256": "d33d0ec8bc0b00d6b31de6bc797664314d3eda9c6f8215e98f8cfcd7550f6626",
+        "bytes": 1026359,
+        "observedUrl": "https://phukienmaymoc.com/search?q=laser&themeid=-1"
+      }
+    },
+    {
+      "surface": "404",
+      "kind": "surface",
+      "viewport": "1440x900",
+      "status": "CAPTURED",
+      "file": "404__1440x900.json",
+      "failure": null,
+      "png": {
+        "file": "404__1440x900.png",
+        "sha256": "44c504004b5dd21c747b966616c1097a01b8e882bd34bfb0ef5e1836dd3da840",
+        "bytes": 177041,
+        "artifactRef": "artifact-4f489ced-5a2f-43a3-8781-68fee0f853b8"
+      },
+      "dom": {
+        "file": "dom/404__1440x900.html",
+        "sha256": "bbb9442d37e251ed3a0fef89cb887a4c4785f4e88fcbdb5a79fc51fbe2cf5018",
+        "bytes": 1015558,
+        "observedUrl": "https://phukienmaymoc.com/khong-ton-tai-404-probe-xyz?themeid=-1"
+      }
+    },
+    {
+      "surface": "404",
+      "kind": "surface",
+      "viewport": "1024x900",
+      "status": "CAPTURED",
+      "file": "404__1024x900.json",
+      "failure": null,
+      "png": {
+        "file": "404__1024x900.png",
+        "sha256": "35e15ee0009e6dae43daa140e0ada25833535d5de375638d00d9f5e9f2651f59",
+        "bytes": 166734,
+        "artifactRef": "artifact-53cfd56b-5cf5-40fe-9f01-e682e7f0ffce"
+      },
+      "dom": {
+        "file": "dom/404__1024x900.html",
+        "sha256": "e59f501b34e267716357173ad67c5cacffc7db4836692a42d53fade722043e8a",
+        "bytes": 1015558,
+        "observedUrl": "https://phukienmaymoc.com/khong-ton-tai-404-probe-xyz?themeid=-1"
+      }
+    },
+    {
+      "surface": "404",
+      "kind": "surface",
+      "viewport": "390x844",
+      "status": "CAPTURED",
+      "file": "404__390x844.json",
+      "failure": null,
+      "png": {
+        "file": "404__390x844.png",
+        "sha256": "46e2baed3f5005798580c6799275bca1ff144b1f597e9f5b0b9a1f0cbde84225",
+        "bytes": 150706,
+        "artifactRef": "artifact-a4029f7e-de75-45a6-89b3-9a5ef799b297"
+      },
+      "dom": {
+        "file": "dom/404__390x844.html",
+        "sha256": "64819b0a424a2d2e8f79b033cb06d0e7c63a5d6083dd14f78975f35b76d773bb",
+        "bytes": 1016777,
+        "observedUrl": "https://phukienmaymoc.com/khong-ton-tai-404-probe-xyz?themeid=-1"
+      }
+    }
+  ],
+  "totals": {
+    "requested": 21,
+    "documents": 21,
+    "captured": 21,
+    "notMeasurable": 0
+  },
+  "refusal": null,
+  "instance": {
+    "attachmentId": "attachment-cc5a49b7-f308-4645-ac70-063eb87b5702",
+    "bridgePort": 20131,
+    "pid": 21236,
+    "primaryTabId": "be12caca-cd0e-45a8-9723-b8b02979a190",
+    "startedAt": "2026-09-11T00:18:43.203Z",
+    "runId": "run-6eaaca64-6f9f-4904-9111-b1211796edec",
+    "attemptId": "attempt-8e8cb1e3-652a-4c36-88e4-3a9de655bd06"
+  },
+  "run": {
+    "runId": "run-6eaaca64-6f9f-4904-9111-b1211796edec",
+    "attachmentId": "attachment-cc5a49b7-f308-4645-ac70-063eb87b5702",
+    "authorityRevision": "rev_dc13e141c3b5bdcc5961e52af3c5f4ce",
+    "mintedAt": "2026-09-11T00:35:02.200Z",
+    "label": "r2-live",
+    "role": "reference"
+  },
+  "startedAt": "2026-09-11T00:35:16.385Z",
+  "finishedAt": "2026-09-11T00:41:11.994Z"
+}

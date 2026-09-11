@@ -1,0 +1,101 @@
+{
+  "kind": "theme-fidelity-capture",
+  "mode": "capture",
+  "status": "NOT_MEASURABLE",
+  "role": "subject",
+  "label": "s1-subject",
+  "store": "https://phukienmaymoc.com/",
+  "surface": {
+    "name": "home",
+    "kind": "surface",
+    "url": "https://phukienmaymoc.com/?themeid=1001512581",
+    "source": "storefront-html (canonical link)",
+    "notes": "Requested; renders production theme 1001510509, canonical https://phukienmaymoc.com/. The copy-proxied variant https://phukienmaymoc.com/?themeid=1001512581 was also requested and renders the workspace loomline index sections.",
+    "template": null
+  },
+  "url": "https://phukienmaymoc.com/?themeid=1001512581",
+  "viewport": {
+    "label": "1024x900",
+    "width": 1024,
+    "height": 900,
+    "mobile": false,
+    "dpr": 1
+  },
+  "safety": {
+    "surface": "home",
+    "url": "https://phukienmaymoc.com/?themeid=1001512581",
+    "themeId": 1001512581,
+    "parameter": "1001512581",
+    "values": [
+      "1001512581"
+    ],
+    "allowed": true,
+    "reason": "themeid=1001512581 is -1 or an allowed theme"
+  },
+  "release": {
+    "label": "s1-subject:home__1024x900",
+    "at": "2026-09-11T01:01:31.964Z",
+    "widgets": {
+      "slickPaused": 0,
+      "swiperPaused": 0
+    },
+    "release": {
+      "label": "s1-subject:home__1024x900-full",
+      "at": "2026-09-11T01:01:31.981Z",
+      "dom": {
+        "restored": 0,
+        "markedLeft": 0,
+        "timersRestored": true,
+        "inlineImportant": 1,
+        "guardAbsent": true,
+        "timers": true
+      },
+      "unfreeze": {
+        "frozen": false,
+        "mediaCount": 0,
+        "tabId": "f0fbb81a-c851-4277-923c-f964871dfc5e"
+      }
+    },
+    "freezeReleased": true,
+    "timerSweep": {
+      "clearedIntervalIdsTo": 200000,
+      "clearedTimeoutIdsTo": 200000
+    },
+    "timerSweepMotion": {
+      "widgetsSampled": 8,
+      "windowMs": 2500,
+      "sampleBefore": "870c6f1e",
+      "sampleAfter": "870c6f1e",
+      "stable": true
+    }
+  },
+  "tab": {
+    "tabId": "f0fbb81a-c851-4277-923c-f964871dfc5e",
+    "openedAt": "2026-09-11T01:01:28.805Z",
+    "closed": true,
+    "closeError": null,
+    "closedAt": "2026-09-11T01:01:34.669Z"
+  },
+  "failure": {
+    "code": "FULLPAGE_CAPTURE_UNSUPPORTED_GEOMETRY",
+    "reason": "FULLPAGE_CAPTURE_UNSUPPORTED_GEOMETRY: Requested full-page capture region 1024x25100 CSS px is outside the supported 1..16384 range on tab 'f0fbb81a-c851-4277-923c-f964871dfc5e'",
+    "detail": null
+  },
+  "provenance": null,
+  "startedAt": "2026-09-11T01:01:28.776Z",
+  "finishedAt": "2026-09-11T01:01:34.669Z",
+  "tabIdentityObserved": {
+    "href": "https://phukienmaymoc.com/?themeid=1001512581",
+    "device": null,
+    "ua": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.7871.224 Safari/537.36",
+    "innerWidth": 1024,
+    "innerHeight": 900,
+    "dpr": 1,
+    "docHeight": 25100,
+    "bodyClass": "mainBody-theme  template-index",
+    "sections": 12,
+    "widgetNodes": 8,
+    "images": 115,
+    "completeImages": 115
+  }
+}

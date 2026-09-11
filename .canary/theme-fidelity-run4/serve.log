@@ -1,0 +1,7 @@
+(node:19900) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+[theme-fidelity-run] serve: hrv theme dev (cwd E:\Work\customizes\Phukienmaymoc) pid=14020 probe=https://phukienmaymoc.com/?themeid=1001512581 budget=180000ms
+(node:19900) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
+[theme-fidelity-run] serve ready in 1565ms: probe 200 (copy assets: seen), settled 5000ms
+[theme-fidelity-run] serve: child stop method taskkill-unconfirmed:ERROR: The process "14020" not found.
+[theme-fidelity-run] serve exit 0 in 19749ms

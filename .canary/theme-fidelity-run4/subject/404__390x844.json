@@ -1,0 +1,443 @@
+{
+  "kind": "theme-fidelity-capture",
+  "mode": "capture",
+  "status": "CAPTURED",
+  "role": "subject",
+  "label": "s1-subject",
+  "store": "https://phukienmaymoc.com/",
+  "surface": {
+    "name": "404",
+    "kind": "surface",
+    "url": "https://phukienmaymoc.com/khong-ton-tai-404-probe-xyz?themeid=1001512581",
+    "source": "constructed 404 probe",
+    "notes": "Requested; HTTP 404 is the only observable result because the fetch layer returns no body for non-2xx, so the themed 404 body is unverified. The copy-pinned variant https://phukienmaymoc.com/khong-ton-tai-404-probe-xyz?themeid=1001512581 also returned HTTP 404.",
+    "template": null
+  },
+  "url": "https://phukienmaymoc.com/khong-ton-tai-404-probe-xyz?themeid=1001512581",
+  "viewport": {
+    "label": "390x844",
+    "width": 390,
+    "height": 844,
+    "mobile": true,
+    "dpr": 1
+  },
+  "safety": {
+    "surface": "404",
+    "url": "https://phukienmaymoc.com/khong-ton-tai-404-probe-xyz?themeid=1001512581",
+    "themeId": 1001512581,
+    "parameter": "1001512581",
+    "values": [
+      "1001512581"
+    ],
+    "allowed": true,
+    "reason": "themeid=1001512581 is -1 or an allowed theme"
+  },
+  "release": {
+    "label": "s1-subject:404__390x844",
+    "at": "2026-09-11T01:06:58.820Z",
+    "widgets": {
+      "slickPaused": 0,
+      "swiperPaused": 0
+    },
+    "release": {
+      "label": "s1-subject:404__390x844-full",
+      "at": "2026-09-11T01:06:58.833Z",
+      "dom": {
+        "restored": 0,
+        "markedLeft": 0,
+        "timersRestored": true,
+        "inlineImportant": 3,
+        "guardAbsent": true,
+        "timers": true
+      },
+      "unfreeze": {
+        "frozen": false,
+        "mediaCount": 0,
+        "tabId": "4ac4ce9f-747a-4e2b-b770-5c5ed9cfb351"
+      }
+    },
+    "freezeReleased": true,
+    "timerSweep": {
+      "clearedIntervalIdsTo": 200000,
+      "clearedTimeoutIdsTo": 200000
+    },
+    "timerSweepMotion": {
+      "widgetsSampled": 0,
+      "windowMs": 2500,
+      "sampleBefore": "b3d493fd",
+      "sampleAfter": "b3d493fd",
+      "stable": true
+    }
+  },
+  "tab": {
+    "tabId": "4ac4ce9f-747a-4e2b-b770-5c5ed9cfb351",
+    "openedAt": "2026-09-11T01:06:49.439Z",
+    "closed": true,
+    "closeError": null,
+    "closedAt": "2026-09-11T01:07:02.137Z"
+  },
+  "failure": null,
+  "provenance": {
+    "role": "subject",
+    "label": "s1-subject",
+    "store": "https://phukienmaymoc.com/",
+    "surface": "404",
+    "surfaceKind": "surface",
+    "viewport": "390x844",
+    "url": "https://phukienmaymoc.com/khong-ton-tai-404-probe-xyz?themeid=1001512581",
+    "themeId": 1001512581,
+    "themeIdParameter": "1001512581",
+    "png": {
+      "file": "404__390x844.png",
+      "sha256": "8eaef7b87ba7028490b62c38a36b7956e412329c51a5744dc954b9d28ce9c89d",
+      "bytes": 170491,
+      "artifactRef": "artifact-9e7724ea-8443-43ff-ac39-fae2e7ef62ee"
+    },
+    "dom": {
+      "file": "dom/404__390x844.html",
+      "sha256": "7fa32be6248ccede1c4eced179cebda33dbfd4ab4d6df8399addd9c1158edf5e",
+      "bytes": 1017358,
+      "observedUrl": "https://phukienmaymoc.com/khong-ton-tai-404-probe-xyz?themeid=1001512581"
+    },
+    "domDigest": "7fa32be6248ccede1c4eced179cebda33dbfd4ab4d6df8399addd9c1158edf5e",
+    "geometry": {
+      "url": "https://phukienmaymoc.com/khong-ton-tai-404-probe-xyz?themeid=1001512581",
+      "docHeight": 1797,
+      "clientWidth": 390,
+      "scrollWidth": 390,
+      "overflowX": 0,
+      "sectionCount": 3,
+      "productCardCount": 0,
+      "articleCardCount": 0,
+      "navItemCount": 91,
+      "linkCount": 258,
+      "imageCount": 25,
+      "brokenImageCount": 0,
+      "textNodes": 38,
+      "hasMenuMobile": true,
+      "hasBottomNav": true,
+      "headerRect": {
+        "x": 0,
+        "y": 0,
+        "w": 390,
+        "h": 135
+      },
+      "navRect": {
+        "x": 0,
+        "y": 0,
+        "w": 0,
+        "h": 0
+      },
+      "heroRect": null,
+      "mainRect": {
+        "x": 0,
+        "y": 135,
+        "w": 390,
+        "h": 295
+      },
+      "footerRect": {
+        "x": 0,
+        "y": 430,
+        "w": 390,
+        "h": 1307.17
+      },
+      "sections": [
+        {
+          "tag": "header",
+          "cls": "site-header",
+          "rect": {
+            "x": 0,
+            "y": 0,
+            "w": 390,
+            "h": 135
+          }
+        },
+        {
+          "tag": "main",
+          "cls": "wrapperMain_content",
+          "rect": {
+            "x": 0,
+            "y": 135,
+            "w": 390,
+            "h": 295
+          }
+        },
+        {
+          "tag": "div",
+          "cls": "site-footer.w-100",
+          "rect": {
+            "x": 0,
+            "y": 430,
+            "w": 390,
+            "h": 1307.17
+          }
+        }
+      ],
+      "fonts": {
+        "body": {
+          "family": "Roboto, sans-serif",
+          "size": "14px",
+          "weight": "400",
+          "lineHeight": "normal",
+          "color": "rgb(0, 0, 0)",
+          "letterSpacing": "normal"
+        },
+        "h1": {
+          "family": "Roboto, sans-serif",
+          "size": "30px",
+          "weight": "600",
+          "lineHeight": "39px",
+          "color": "rgb(0, 0, 0)",
+          "letterSpacing": "normal"
+        },
+        "h2": {
+          "family": "Roboto, sans-serif",
+          "size": "22px",
+          "weight": "700",
+          "lineHeight": "28.6px",
+          "color": "rgb(34, 52, 62)",
+          "letterSpacing": "normal"
+        },
+        "a": {
+          "family": "Roboto, sans-serif",
+          "size": "14px",
+          "weight": "400",
+          "lineHeight": "normal",
+          "color": "rgb(0, 0, 0)",
+          "letterSpacing": "normal"
+        }
+      }
+    },
+    "geometrySha256": "553883eb116d3fa7a1e2b251bab4a25776463b9cc519b3509092234f744418a7",
+    "tabIdentity": {
+      "href": "https://phukienmaymoc.com/khong-ton-tai-404-probe-xyz?themeid=1001512581",
+      "device": null,
+      "ua": "Mozilla/5.0 (Linux; Android 14; Mobile; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.6613.114 Mobile Safari/537.36",
+      "innerWidth": 390,
+      "innerHeight": 844,
+      "dpr": 1,
+      "docHeight": 1797,
+      "bodyClass": "mainBody-theme  template-404",
+      "sections": 0,
+      "widgetNodes": 0,
+      "images": 25,
+      "completeImages": 25
+    },
+    "instance": {
+      "attachmentId": "attachment-38b02838-40ce-457e-bfc0-991a6057b6d8",
+      "bridgePort": 20131,
+      "pid": 21236,
+      "primaryTabId": "e8c4391a-4397-4cb8-80ed-abd77b51025d",
+      "startedAt": "2026-09-11T00:18:43.203Z",
+      "runId": "run-ba23a030-9f66-40ac-a3c8-c3e77b4bfb50",
+      "attemptId": "attempt-ac2638ce-3f4d-48ce-ac28-9dd7734f64fa"
+    },
+    "run": {
+      "runId": "run-ba23a030-9f66-40ac-a3c8-c3e77b4bfb50",
+      "attachmentId": "attachment-38b02838-40ce-457e-bfc0-991a6057b6d8",
+      "authorityRevision": "rev_1d0922924f9bb057f2ef1f372e766814",
+      "mintedAt": "2026-09-11T00:40:59.400Z",
+      "label": "s1-subject",
+      "role": "subject"
+    },
+    "capturedAt": "2026-09-11T01:07:02.102Z"
+  },
+  "startedAt": "2026-09-11T01:06:49.408Z",
+  "finishedAt": "2026-09-11T01:07:02.137Z",
+  "png": {
+    "file": "404__390x844.png",
+    "artifactRef": "artifact-9e7724ea-8443-43ff-ac39-fae2e7ef62ee",
+    "sha256": "8eaef7b87ba7028490b62c38a36b7956e412329c51a5744dc954b9d28ce9c89d",
+    "bytes": 170491,
+    "integrity": {
+      "isPng": true,
+      "hasIend": true,
+      "bytes": 170491
+    },
+    "declaredByteLength": 170491,
+    "receipt": {
+      "backend": "cdp",
+      "dpr": 1,
+      "zoom": 1,
+      "cssViewport": {
+        "width": 390,
+        "height": 844
+      },
+      "cssCaptureSize": {
+        "width": 390,
+        "height": 1797
+      },
+      "rasterSize": {
+        "width": 390,
+        "height": 1797
+      },
+      "captureMode": "full-page",
+      "timestamp": 1789088821686,
+      "viewportTransaction": {
+        "before": {
+          "width": 390,
+          "height": 844,
+          "scrollX": 0,
+          "scrollY": 0
+        },
+        "after": {
+          "width": 390,
+          "height": 844,
+          "scrollX": 0,
+          "scrollY": 0
+        },
+        "restored": true,
+        "attempts": 1
+      }
+    }
+  },
+  "dom": {
+    "file": "dom/404__390x844.html",
+    "sha256": "7fa32be6248ccede1c4eced179cebda33dbfd4ab4d6df8399addd9c1158edf5e",
+    "bytes": 1017358,
+    "observedUrl": "https://phukienmaymoc.com/khong-ton-tai-404-probe-xyz?themeid=1001512581",
+    "clientWidth": 390,
+    "docHeight": 1797,
+    "sectionCount": 3,
+    "cardCount": 0,
+    "productItems": 0,
+    "images": 25,
+    "sanitized": true,
+    "removedCount": 7,
+    "declaredSha256": "7fa32be6248ccede1c4eced179cebda33dbfd4ab4d6df8399addd9c1158edf5e",
+    "servedThemeIds": [
+      {
+        "org": "200001207485",
+        "themeId": 1001512581,
+        "occurrences": 28
+      },
+      {
+        "org": "200001170195",
+        "themeId": 1001480974,
+        "occurrences": 1
+      }
+    ]
+  },
+  "geometry": {
+    "url": "https://phukienmaymoc.com/khong-ton-tai-404-probe-xyz?themeid=1001512581",
+    "docHeight": 1797,
+    "clientWidth": 390,
+    "scrollWidth": 390,
+    "overflowX": 0,
+    "sectionCount": 3,
+    "productCardCount": 0,
+    "articleCardCount": 0,
+    "navItemCount": 91,
+    "linkCount": 258,
+    "imageCount": 25,
+    "brokenImageCount": 0,
+    "textNodes": 38,
+    "hasMenuMobile": true,
+    "hasBottomNav": true,
+    "headerRect": {
+      "x": 0,
+      "y": 0,
+      "w": 390,
+      "h": 135
+    },
+    "navRect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    },
+    "heroRect": null,
+    "mainRect": {
+      "x": 0,
+      "y": 135,
+      "w": 390,
+      "h": 295
+    },
+    "footerRect": {
+      "x": 0,
+      "y": 430,
+      "w": 390,
+      "h": 1307.17
+    },
+    "sections": [
+      {
+        "tag": "header",
+        "cls": "site-header",
+        "rect": {
+          "x": 0,
+          "y": 0,
+          "w": 390,
+          "h": 135
+        }
+      },
+      {
+        "tag": "main",
+        "cls": "wrapperMain_content",
+        "rect": {
+          "x": 0,
+          "y": 135,
+          "w": 390,
+          "h": 295
+        }
+      },
+      {
+        "tag": "div",
+        "cls": "site-footer.w-100",
+        "rect": {
+          "x": 0,
+          "y": 430,
+          "w": 390,
+          "h": 1307.17
+        }
+      }
+    ],
+    "fonts": {
+      "body": {
+        "family": "Roboto, sans-serif",
+        "size": "14px",
+        "weight": "400",
+        "lineHeight": "normal",
+        "color": "rgb(0, 0, 0)",
+        "letterSpacing": "normal"
+      },
+      "h1": {
+        "family": "Roboto, sans-serif",
+        "size": "30px",
+        "weight": "600",
+        "lineHeight": "39px",
+        "color": "rgb(0, 0, 0)",
+        "letterSpacing": "normal"
+      },
+      "h2": {
+        "family": "Roboto, sans-serif",
+        "size": "22px",
+        "weight": "700",
+        "lineHeight": "28.6px",
+        "color": "rgb(34, 52, 62)",
+        "letterSpacing": "normal"
+      },
+      "a": {
+        "family": "Roboto, sans-serif",
+        "size": "14px",
+        "weight": "400",
+        "lineHeight": "normal",
+        "color": "rgb(0, 0, 0)",
+        "letterSpacing": "normal"
+      }
+    }
+  },
+  "tabIdentity": {
+    "href": "https://phukienmaymoc.com/khong-ton-tai-404-probe-xyz?themeid=1001512581",
+    "device": null,
+    "ua": "Mozilla/5.0 (Linux; Android 14; Mobile; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.6613.114 Mobile Safari/537.36",
+    "innerWidth": 390,
+    "innerHeight": 844,
+    "dpr": 1,
+    "docHeight": 1797,
+    "bodyClass": "mainBody-theme  template-404",
+    "sections": 0,
+    "widgetNodes": 0,
+    "images": 25,
+    "completeImages": 25
+  }
+}

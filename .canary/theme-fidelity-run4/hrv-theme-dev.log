@@ -1,0 +1,16 @@
+(node:5768) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+[32m🌐 Links:[0m
+   [32mTheme:[0m      Bản sao chép của clothing (ID: 1001512581)
+   [32mAdmin:[0m      https://phukienmaymoc.com/admin
+   [32mThiết lập:[0m  https://phukienmaymoc.com/admin/sale_channels/online_store/themes/1001512581/setting
+   [32mPreview:[0m    https://phukienmaymoc.com?themeid=1001512581
+
+[0mWatching [32mE:\Work\customizes\Phukienmaymoc[0m — pushing when content changes. Press Ctrl+C to stop.
+
+[33m⚠ Remote đã thay đổi (2 file / 93 text files checked):[0m
+  ⚡ assets/ll-style-all.scss.liquid
+[33m⚠ Remote theme đã thay đổi so với local (2 file): assets/ll-style-all.scss.liquid, assets/style-product.scss.liquid. Hãy Fetch hoặc Push khi được hỏi để tránh mất thay đổi.[0m
+  ⚡ assets/style-product.scss.liquid
+[33m⚠ Không có terminal tương tác — tự động bỏ qua, tiếp tục watch.[0m
+

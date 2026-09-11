@@ -1,0 +1,192 @@
+{
+  "kind": "theme-fidelity-run-preflight",
+  "stage": "preflight",
+  "status": "OK",
+  "generatedAt": "2026-09-11T00:28:49.227Z",
+  "outDir": "E:\\Work\\apps\\AntiFan\\.canary\\theme-fidelity-run4",
+  "store": "https://phukienmaymoc.com/",
+  "copyThemeId": "1001512581",
+  "livePreviewThemeId": "-1",
+  "liveThemeIdNeverAddressed": "1001510509",
+  "allowedThemeIds": [
+    "-1",
+    "1001512581"
+  ],
+  "theme": {
+    "dir": "E:\\Work\\customizes\\Phukienmaymoc",
+    "settingsFile": "E:\\Work\\customizes\\Phukienmaymoc\\.haravan-cli_local.json",
+    "settingsSha256": "aee56dfcbf4e029dbe2b129bc109b5fdf65d1f008ad829ee2ad33989fc9f7fdf",
+    "settingsBytes": 126,
+    "themeId": "1001512581",
+    "orgId": "200001207485",
+    "themeOrgId": "200001207485",
+    "themeName": "Bản sao chép của clothing"
+  },
+  "inventory": {
+    "file": "E:\\Work\\apps\\AntiFan\\.canary\\theme-fidelity\\inventory-surfaces.json",
+    "sha256": "aaba3e2243fa1fe1908232a03036ee5f73410bb830e4a794cb3399999f3aa645",
+    "bytes": 8349,
+    "surfaces": 7,
+    "views": 0,
+    "unresolved": [
+      {
+        "name": "contact",
+        "reason": "templates/page.contact.liquid has no owning page record: sitemap_pages_1.xml lists only chinh-sach-bao-mat, about-us, dieu-khoan-dich-vu, frontpage, chinh-sach-doi-tra and lien-he, and /pages/contact returns HTTP 404. The copy theme 1001512581 does not contain the template: https://phukienmaymoc.com/pages/lien-he?themeid=1001512581&view=contact silently falls back to page.liquid (identical body to /pages/lien-he, none of the template's markers such as 'Always Ready To Be Different' appear). The live theme does render it: https://phukienmaymoc.com/pages/lien-he?themeid=-1&view=contact was requested and the marker is present. Capturable only after the copy is synced."
+      },
+      {
+        "name": "quote",
+        "reason": "templates/page.quote.liquid has no owning page record (/pages/quote returns HTTP 404 and sitemap_pages_1.xml has no 'quote' entry). The copy theme silently falls back to page.liquid for https://phukienmaymoc.com/pages/lien-he?themeid=1001512581&view=quote (the 'Yêu cầu Báo giá Thiết bị' marker is absent). The live theme renders it: https://phukienmaymoc.com/pages/lien-he?themeid=-1&view=quote was requested and returned '# Yêu cầu Báo giá Thiết bị'. Capturable only after the copy is synced."
+      },
+      {
+        "name": "documents",
+        "reason": "templates/page.documents.liquid has no owning page record (no 'documents' entry in sitemap_pages_1.xml; /pages/documents is not routable). Verified renderable on the live theme only: https://phukienmaymoc.com/pages/lien-he?themeid=-1&view=documents was requested and returned the template marker 'Tài liệu Kỹ thuật & Catalogue'. Not tested against the copy because the page.* alternates are absent there (proved for contact and quote); capture requires a theme sync."
+      },
+      {
+        "name": "brands",
+        "reason": "templates/page.brands.liquid has no owning page record (no 'brands' entry in sitemap_pages_1.xml). Verified renderable on the live theme only: https://phukienmaymoc.com/pages/lien-he?themeid=-1&view=brands was requested and returned the template markers 'Tìm theo bảng chữ cái' and 'Danh mục thương hiệu'. The host route is arbitrary because the template owns no page; the copy needs a theme sync."
+      },
+      {
+        "name": "stores",
+        "reason": "templates/page.stores.liquid has no owning page record (no 'stores' entry in sitemap_pages_1.xml). Verified renderable on the live theme only: https://phukienmaymoc.com/pages/lien-he?themeid=-1&view=stores was requested and returned the template marker 'Tìm cửa hàng'. Its shop list is injected client-side from a store list, so a static capture will show an empty selector. Host route is arbitrary; the copy needs a theme sync."
+      },
+      {
+        "name": "wishlist",
+        "reason": "templates/page.wishlist.liquid has no owning page record (/pages/wishlist returns HTTP 404 and sitemap_pages_1.xml has no 'wishlist' entry). https://phukienmaymoc.com/pages/lien-he?themeid=-1&view=wishlist was requested and returned a full-page render carrying the theme layout, but take-effect is not text-verifiable: the template contains no static visible text (every string is injected by its own script), so it cannot be distinguished from a page.liquid fallback by content. Reachability therefore stays unverified."
+      },
+      {
+        "name": "member",
+        "reason": "templates/customers[account].member.liquid is auth-gated. Both https://phukienmaymoc.com/account?themeid=1001512581 and https://phukienmaymoc.com/account?themeid=1001512581&view=member resolve to https://phukienmaymoc.com/auth/200001207485/sign-in?urlredirect=... (Haravan hosted sign-in, title 'Haravan - Checkouts'), so the account view cannot be captured anonymously. The sibling customers[*] templates belong to the /account/login, /account/register, /account/addresses and /account/orders routes and are gated the same way."
+      }
+    ],
+    "livePreviewBase": "https://phukienmaymoc.com/?themeid=-1&view=",
+    "copyPreviewBase": "https://phukienmaymoc.com/?themeid=1001512581&view=",
+    "themeIdsObserved": [
+      "-1",
+      "1001512581"
+    ]
+  },
+  "previewBases": {
+    "copy": "https://phukienmaymoc.com/?themeid=1001512581&view=",
+    "live": "https://phukienmaymoc.com/?themeid=-1&view=",
+    "subject": "https://phukienmaymoc.com/?themeid=1001512581&view="
+  },
+  "probe": {
+    "url": "https://phukienmaymoc.com/?themeid=1001512581",
+    "surface": "home",
+    "themeId": "1001512581"
+  },
+  "targets": [
+    {
+      "name": "home",
+      "kind": "surface",
+      "slug": "home",
+      "template": null,
+      "source": "storefront-html (canonical link)",
+      "sourceUrl": "https://phukienmaymoc.com/",
+      "urls": {
+        "copy": "https://phukienmaymoc.com/?themeid=1001512581",
+        "live": "https://phukienmaymoc.com/?themeid=-1",
+        "subject": "https://phukienmaymoc.com/?themeid=1001512581"
+      }
+    },
+    {
+      "name": "product",
+      "kind": "surface",
+      "slug": "product",
+      "template": null,
+      "source": "sitemap_products_1.xml",
+      "sourceUrl": "https://phukienmaymoc.com/products/ong-han-laser",
+      "urls": {
+        "copy": "https://phukienmaymoc.com/products/ong-han-laser?themeid=1001512581",
+        "live": "https://phukienmaymoc.com/products/ong-han-laser?themeid=-1",
+        "subject": "https://phukienmaymoc.com/products/ong-han-laser?themeid=1001512581"
+      }
+    },
+    {
+      "name": "collection",
+      "kind": "surface",
+      "slug": "collection",
+      "template": null,
+      "source": "sitemap_collections_1.xml",
+      "sourceUrl": "https://phukienmaymoc.com/collections/phu-kien-han",
+      "urls": {
+        "copy": "https://phukienmaymoc.com/collections/phu-kien-han?themeid=1001512581",
+        "live": "https://phukienmaymoc.com/collections/phu-kien-han?themeid=-1",
+        "subject": "https://phukienmaymoc.com/collections/phu-kien-han?themeid=1001512581"
+      }
+    },
+    {
+      "name": "article",
+      "kind": "surface",
+      "slug": "article",
+      "template": null,
+      "source": "sitemap_blogs_1.xml (blog handle 'news')",
+      "sourceUrl": "https://phukienmaymoc.com/blogs/news/plc-la-gi-cau-tao-nguyen-ly-hoat-dong",
+      "urls": {
+        "copy": "https://phukienmaymoc.com/blogs/news/plc-la-gi-cau-tao-nguyen-ly-hoat-dong?themeid=1001512581",
+        "live": "https://phukienmaymoc.com/blogs/news/plc-la-gi-cau-tao-nguyen-ly-hoat-dong?themeid=-1",
+        "subject": "https://phukienmaymoc.com/blogs/news/plc-la-gi-cau-tao-nguyen-ly-hoat-dong?themeid=1001512581"
+      }
+    },
+    {
+      "name": "cart",
+      "kind": "surface",
+      "slug": "cart",
+      "template": null,
+      "source": "robots.txt route plus storefront-html cart link",
+      "sourceUrl": "https://phukienmaymoc.com/cart",
+      "urls": {
+        "copy": "https://phukienmaymoc.com/cart?themeid=1001512581",
+        "live": "https://phukienmaymoc.com/cart?themeid=-1",
+        "subject": "https://phukienmaymoc.com/cart?themeid=1001512581"
+      }
+    },
+    {
+      "name": "search",
+      "kind": "surface",
+      "slug": "search",
+      "template": null,
+      "source": "storefront-html (search form) plus robots.txt route",
+      "sourceUrl": "https://phukienmaymoc.com/search?q=laser",
+      "urls": {
+        "copy": "https://phukienmaymoc.com/search?q=laser&themeid=1001512581",
+        "live": "https://phukienmaymoc.com/search?q=laser&themeid=-1",
+        "subject": "https://phukienmaymoc.com/search?q=laser&themeid=1001512581"
+      }
+    },
+    {
+      "name": "404",
+      "kind": "surface",
+      "slug": "404",
+      "template": null,
+      "source": "constructed 404 probe",
+      "sourceUrl": "https://phukienmaymoc.com/khong-ton-tai-404-probe-xyz",
+      "urls": {
+        "copy": "https://phukienmaymoc.com/khong-ton-tai-404-probe-xyz?themeid=1001512581",
+        "live": "https://phukienmaymoc.com/khong-ton-tai-404-probe-xyz?themeid=-1",
+        "subject": "https://phukienmaymoc.com/khong-ton-tai-404-probe-xyz?themeid=1001512581"
+      }
+    }
+  ],
+  "inventories": {
+    "copy": {
+      "file": "inventories/copy.json",
+      "absolute": "E:\\Work\\apps\\AntiFan\\.canary\\theme-fidelity-run4\\inventories\\copy.json",
+      "sha256": "85acbf8b9e1faa9219bc1cad49d3b9dfb6be52d67bedb33565dffefd9d344d4b"
+    },
+    "live": {
+      "file": "inventories/live.json",
+      "absolute": "E:\\Work\\apps\\AntiFan\\.canary\\theme-fidelity-run4\\inventories\\live.json",
+      "sha256": "373786d29057df62a89e0b7eacc06954097b796a749019c571380592e758b9e3"
+    },
+    "subject": {
+      "file": "inventories/subject.json",
+      "absolute": "E:\\Work\\apps\\AntiFan\\.canary\\theme-fidelity-run4\\inventories\\subject.json",
+      "sha256": "050fb4fc89e775b8cc40fb993394e7f1104684720494b0ca456b1192ece988f2"
+    }
+  },
+  "generatedBy": {
+    "script": ".canary/tools/theme-fidelity-run.mjs",
+    "node": "v24.13.0"
+  }
+}

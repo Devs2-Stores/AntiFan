@@ -1,0 +1,5 @@
+(node:10920) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+[theme-fidelity-run] checks: 14 captured page(s) over E:\Work\customizes\Phukienmaymoc
+[theme-fidelity-run] checks REFUSED: 2 refusal(s) carried into the report
+[theme-fidelity-run] checks exit 0 in 350ms

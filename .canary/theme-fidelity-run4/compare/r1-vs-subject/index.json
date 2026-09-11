@@ -1,0 +1,69 @@
+{
+  "kind": "theme-fidelity-verdict-index",
+  "mode": "compare",
+  "status": "REFUSED",
+  "store": "https://phukienmaymoc.com/",
+  "reference": {
+    "dir": "E:\\Work\\apps\\AntiFan\\.canary\\theme-fidelity-run4\\r1",
+    "index": "E:\\Work\\apps\\AntiFan\\.canary\\theme-fidelity-run4\\r1\\index.json",
+    "indexSha256": "630b1c04e46e51bc001d08a5d5d48409e80fef59b5dafeff4e28bf57606436d6",
+    "role": "reference",
+    "label": "r1-copy"
+  },
+  "subject": {
+    "dir": "E:\\Work\\apps\\AntiFan\\.canary\\theme-fidelity-run4\\subject",
+    "index": "E:\\Work\\apps\\AntiFan\\.canary\\theme-fidelity-run4\\subject\\index.json",
+    "indexSha256": "dc81f21dc7f937092acb7afe10702f6acf84e7aa17a4e40b6906c338cc60e906",
+    "role": "subject",
+    "label": "s1-subject"
+  },
+  "strictParams": {
+    "fullPage": true,
+    "tolerance": 2,
+    "normalizeScroll": true,
+    "allowHeightDrift": false,
+    "useDefaultWidgetMasks": false,
+    "userMasks": [],
+    "trackedSelectors": [
+      "body",
+      "header.site-header",
+      "main",
+      ".site-footer",
+      "section",
+      ".product-list__item",
+      ".slide",
+      ".news-item"
+    ]
+  },
+  "pairs": [],
+  "totals": {
+    "pairs": 0,
+    "pass": 0,
+    "fail": 0,
+    "inconclusive": 0,
+    "notMeasurable": 0
+  },
+  "refusal": {
+    "code": "PROVENANCE_UNRESOLVED",
+    "exitCode": 4,
+    "message": "subject evidence E:\\Work\\apps\\AntiFan\\.canary\\theme-fidelity-run4\\subject\\article__1024x900.json cannot be judged: status=NOT_MEASURABLE, provenance",
+    "detail": {
+      "side": "subject",
+      "file": "E:\\Work\\apps\\AntiFan\\.canary\\theme-fidelity-run4\\subject\\article__1024x900.json",
+      "missing": [
+        "status=NOT_MEASURABLE",
+        "provenance"
+      ],
+      "surface": "article",
+      "viewport": "1024x900"
+    }
+  },
+  "replayServers": {
+    "reference": null,
+    "subject": null
+  },
+  "instance": null,
+  "run": null,
+  "startedAt": "2026-09-11T01:08:04.966Z",
+  "finishedAt": "2026-09-11T01:08:04.979Z"
+}

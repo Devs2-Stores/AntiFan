@@ -1,0 +1,68 @@
+{
+  "kind": "theme-fidelity-run-inventory",
+  "role": "subject",
+  "themeId": "1001512581",
+  "store": "https://phukienmaymoc.com/",
+  "derivedFrom": {
+    "file": "E:\\Work\\apps\\AntiFan\\.canary\\theme-fidelity\\inventory-surfaces.json",
+    "sha256": "aaba3e2243fa1fe1908232a03036ee5f73410bb830e4a794cb3399999f3aa645",
+    "store": "https://phukienmaymoc.com/",
+    "surfaces": 7,
+    "views": 0,
+    "unresolved": 7,
+    "livePreviewBase": "https://phukienmaymoc.com/?themeid=-1&view=",
+    "copyPreviewBase": "https://phukienmaymoc.com/?themeid=1001512581&view="
+  },
+  "surfaces": [
+    {
+      "name": "home",
+      "url": "https://phukienmaymoc.com/?themeid=1001512581",
+      "sourceUrl": "https://phukienmaymoc.com/",
+      "source": "storefront-html (canonical link)",
+      "notes": "Requested; renders production theme 1001510509, canonical https://phukienmaymoc.com/. The copy-proxied variant https://phukienmaymoc.com/?themeid=1001512581 was also requested and renders the workspace loomline index sections."
+    },
+    {
+      "name": "product",
+      "url": "https://phukienmaymoc.com/products/ong-han-laser?themeid=1001512581",
+      "sourceUrl": "https://phukienmaymoc.com/products/ong-han-laser",
+      "source": "sitemap_products_1.xml",
+      "notes": "Requested; canonical https://phukienmaymoc.com/products/ong-han-laser verified. The copy-proxied variant https://phukienmaymoc.com/products/ong-han-laser?themeid=1001512581 was requested and serves the copy theme."
+    },
+    {
+      "name": "collection",
+      "url": "https://phukienmaymoc.com/collections/phu-kien-han?themeid=1001512581",
+      "sourceUrl": "https://phukienmaymoc.com/collections/phu-kien-han",
+      "source": "sitemap_collections_1.xml",
+      "notes": "Requested; renders the count line '5 sản phẩm', so the collection is non-empty and is a usable capture target. The copy-proxied variant was requested and serves the copy theme."
+    },
+    {
+      "name": "article",
+      "url": "https://phukienmaymoc.com/blogs/news/plc-la-gi-cau-tao-nguyen-ly-hoat-dong?themeid=1001512581",
+      "sourceUrl": "https://phukienmaymoc.com/blogs/news/plc-la-gi-cau-tao-nguyen-ly-hoat-dong",
+      "source": "sitemap_blogs_1.xml (blog handle 'news')",
+      "notes": "Requested; canonical https://phukienmaymoc.com/blogs/news/plc-la-gi-cau-tao-nguyen-ly-hoat-dong verified."
+    },
+    {
+      "name": "cart",
+      "url": "https://phukienmaymoc.com/cart?themeid=1001512581",
+      "sourceUrl": "https://phukienmaymoc.com/cart",
+      "source": "robots.txt route plus storefront-html cart link",
+      "notes": "Requested; renders with an empty cart ('Chưa có sản phẩm trong giỏ hàng...'). robots.txt disallows /cart for crawlers but it is a real, anonymously reachable route."
+    },
+    {
+      "name": "search",
+      "url": "https://phukienmaymoc.com/search?q=laser&themeid=1001512581",
+      "sourceUrl": "https://phukienmaymoc.com/search?q=laser",
+      "source": "storefront-html (search form) plus robots.txt route",
+      "notes": "Requested with q=laser; returns a populated result list (e.g. /products/ong-han-laser)."
+    },
+    {
+      "name": "404",
+      "url": "https://phukienmaymoc.com/khong-ton-tai-404-probe-xyz?themeid=1001512581",
+      "sourceUrl": "https://phukienmaymoc.com/khong-ton-tai-404-probe-xyz",
+      "source": "constructed 404 probe",
+      "notes": "Requested; HTTP 404 is the only observable result because the fetch layer returns no body for non-2xx, so the themed 404 body is unverified. The copy-pinned variant https://phukienmaymoc.com/khong-ton-tai-404-probe-xyz?themeid=1001512581 also returned HTTP 404."
+    }
+  ],
+  "views": []
+}

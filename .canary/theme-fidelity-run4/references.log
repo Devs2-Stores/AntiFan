@@ -1,0 +1,6 @@
+(node:13832) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+[theme-fidelity-run] references r1: r1-copy capture over 1440x900,1024x900,390x844
+[theme-fidelity-run] references r2: r2-live capture over 1440x900,1024x900,390x844
+[theme-fidelity-run] references OK: r1=COMPLETE/21 r2=COMPLETE/21 viewports=1440x900,1024x900,390x844
+[theme-fidelity-run] references exit 0 in 742735ms

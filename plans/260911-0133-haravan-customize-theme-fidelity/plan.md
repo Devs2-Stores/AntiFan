@@ -1,7 +1,7 @@
 ---
 title: "Haravan Customize Theme Fidelity Gate"
 description: "Verify the customize workflow on the real Haravan theme copy: serve the local source through `hrv theme dev`, render the real storefront pages, and adjudicate each surface against a reference that is pinned before the dev session mutates anything — with strict compare, mandatory reference identity, Liquid/structural checks and a safety audit that proves nothing touched the live theme."
-status: pending
+status: blocked
 priority: P0
 effort: "10h"
 tags: [haravan, liquid, theme, visual-fidelity, customize-workflow, evidence-integrity]

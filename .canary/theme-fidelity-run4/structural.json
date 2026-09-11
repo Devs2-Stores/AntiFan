@@ -1,0 +1,5552 @@
+{
+  "themeDir": "E:\\Work\\customizes\\Phukienmaymoc",
+  "generatedAt": "2026-09-11T01:08:14.461Z",
+  "ok": false,
+  "schemas": {
+    "ok": true,
+    "schemaFiles": [
+      {
+        "path": "config/settings_schema.json",
+        "ok": true,
+        "error": null
+      }
+    ],
+    "sectionCount": 0,
+    "failures": []
+  },
+  "settingsBinding": {
+    "ok": false,
+    "undeclared": [
+      {
+        "id": "add_to_cart_show",
+        "files": [
+          "snippets/product-loop-horizontal.liquid"
+        ]
+      },
+      {
+        "id": "addthis_iconList_show",
+        "files": [
+          "layout/theme.liquid"
+        ]
+      },
+      {
+        "id": "appbuyxgety_icon",
+        "files": [
+          "snippets/product-loop-horizontal.liquid"
+        ]
+      },
+      {
+        "id": "cart_deliverytime_end",
+        "files": [
+          "templates/cart.liquid"
+        ]
+      },
+      {
+        "id": "cart_deliverytime_start",
+        "files": [
+          "templates/cart.liquid"
+        ]
+      },
+      {
+        "id": "code_messenger_mb",
+        "files": [
+          "snippets/template-product-01.liquid",
+          "snippets/template-product-02.liquid",
+          "snippets/template-product-03.liquid",
+          "snippets/template-product-04.liquid",
+          "templates/product.quickview.liquid"
+        ]
+      },
+      {
+        "id": "collection_preorder",
+        "files": [
+          "snippets/sidebar-action-product.liquid",
+          "templates/product.ll-viewed.liquid",
+          "templates/product.quickview.liquid"
+        ]
+      },
+      {
+        "id": "dh_form_booking",
+        "files": [
+          "snippets/index-form.liquid"
+        ]
+      },
+      {
+        "id": "dh_form_date",
+        "files": [
+          "snippets/index-form.liquid"
+        ]
+      },
+      {
+        "id": "dh_form_email",
+        "files": [
+          "snippets/index-form.liquid"
+        ]
+      },
+      {
+        "id": "dh_form_full_name",
+        "files": [
+          "snippets/index-form.liquid"
+        ]
+      },
+      {
+        "id": "dh_form_phone",
+        "files": [
+          "snippets/index-form.liquid"
+        ]
+      },
+      {
+        "id": "dh_form_pro_booking",
+        "files": [
+          "snippets/ll-index-form.liquid"
+        ]
+      },
+      {
+        "id": "dh_form_service",
+        "files": [
+          "snippets/index-form.liquid"
+        ]
+      },
+      {
+        "id": "dh_form_success",
+        "files": [
+          "snippets/modal-success.liquid"
+        ]
+      },
+      {
+        "id": "dh_form_time",
+        "files": [
+          "snippets/index-form.liquid"
+        ]
+      },
+      {
+        "id": "dh_gg_date",
+        "files": [
+          "snippets/index-form.liquid"
+        ]
+      },
+      {
+        "id": "dh_gg_email",
+        "files": [
+          "snippets/index-form.liquid"
+        ]
+      },
+      {
+        "id": "dh_gg_full_name",
+        "files": [
+          "snippets/index-form.liquid"
+        ]
+      },
+      {
+        "id": "dh_gg_link_form",
+        "files": [
+          "snippets/ll-index-form.liquid"
+        ]
+      },
+      {
+        "id": "dh_gg_phone",
+        "files": [
+          "snippets/index-form.liquid"
+        ]
+      },
+      {
+        "id": "dh_gg_service",
+        "files": [
+          "snippets/index-form.liquid"
+        ]
+      },
+      {
+        "id": "dh_gg_time",
+        "files": [
+          "snippets/index-form.liquid"
+        ]
+      },
+      {
+        "id": "fanpage_faceook",
+        "files": [
+          "snippets/facebook-widget.liquid"
+        ]
+      },
+      {
+        "id": "fb_chat",
+        "files": [
+          "snippets/haravan-fb-messages.liquid"
+        ]
+      },
+      {
+        "id": "fb_chat_title",
+        "files": [
+          "snippets/haravan-fb-messages.liquid"
+        ]
+      },
+      {
+        "id": "header_account_show",
+        "files": [
+          "snippets/mini-location.liquid"
+        ]
+      },
+      {
+        "id": "header_info_mail",
+        "files": [
+          "snippets/sidebar-main.liquid"
+        ]
+      },
+      {
+        "id": "header_info_phone",
+        "files": [
+          "snippets/sidebar-main.liquid"
+        ]
+      },
+      {
+        "id": "header_info_social_show",
+        "files": [
+          "snippets/sidebar-main.liquid"
+        ]
+      },
+      {
+        "id": "header_inventory_province",
+        "files": [
+          "snippets/mini-location.liquid"
+        ]
+      },
+      {
+        "id": "header_inventory_show",
+        "files": [
+          "snippets/footer-scripts.liquid"
+        ]
+      },
+      {
+        "id": "header_live_code",
+        "files": [
+          "snippets/modal-live.liquid"
+        ]
+      },
+      {
+        "id": "header_social_link_facebook",
+        "files": [
+          "snippets/sidebar-main.liquid"
+        ]
+      },
+      {
+        "id": "header_social_link_instagram",
+        "files": [
+          "snippets/sidebar-main.liquid"
+        ]
+      },
+      {
+        "id": "header_social_link_lazada",
+        "files": [
+          "snippets/sidebar-main.liquid"
+        ]
+      },
+      {
+        "id": "header_social_link_shopee",
+        "files": [
+          "snippets/sidebar-main.liquid"
+        ]
+      },
+      {
+        "id": "header_social_link_tiktok",
+        "files": [
+          "snippets/sidebar-main.liquid"
+        ]
+      },
+      {
+        "id": "header_social_link_youtube",
+        "files": [
+          "snippets/sidebar-main.liquid"
+        ]
+      },
+      {
+        "id": "home_coll_1_banner_btn",
+        "files": [
+          "snippets/home-collection-tabs.liquid"
+        ]
+      },
+      {
+        "id": "home_coll_1_banner_desc",
+        "files": [
+          "snippets/home-collection-tabs.liquid"
+        ]
+      },
+      {
+        "id": "home_coll_1_banner_link",
+        "files": [
+          "snippets/home-collection-tabs.liquid"
+        ]
+      },
+      {
+        "id": "home_coll_1_banner_show",
+        "files": [
+          "snippets/home-collection-tabs.liquid"
+        ]
+      },
+      {
+        "id": "home_coll_1_banner_title",
+        "files": [
+          "snippets/home-collection-tabs.liquid"
+        ]
+      },
+      {
+        "id": "home_coll_1_navtabs_limit",
+        "files": [
+          "snippets/home-collection-tabs.liquid"
+        ]
+      },
+      {
+        "id": "home_coll_1_navtabs_show",
+        "files": [
+          "snippets/home-collection-tabs.liquid"
+        ]
+      },
+      {
+        "id": "home_coll_1_navtabs_title",
+        "files": [
+          "snippets/home-collection-tabs.liquid"
+        ]
+      },
+      {
+        "id": "home_collection_4_btn",
+        "files": [
+          "snippets/homepage-collection.liquid"
+        ]
+      },
+      {
+        "id": "home_collection_4_handle",
+        "files": [
+          "snippets/homepage-collection.liquid"
+        ]
+      },
+      {
+        "id": "home_collection_4_show",
+        "files": [
+          "snippets/homepage-collection.liquid"
+        ]
+      },
+      {
+        "id": "home_collection_4_title",
+        "files": [
+          "snippets/homepage-collection.liquid"
+        ]
+      },
+      {
+        "id": "home_collection_4_titlelink",
+        "files": [
+          "snippets/homepage-collection.liquid"
+        ]
+      },
+      {
+        "id": "home_collection_4_txt1",
+        "files": [
+          "snippets/homepage-collection.liquid"
+        ]
+      },
+      {
+        "id": "home_collection_4_txt2",
+        "files": [
+          "snippets/homepage-collection.liquid"
+        ]
+      },
+      {
+        "id": "home_collection_4_txt3",
+        "files": [
+          "snippets/homepage-collection.liquid"
+        ]
+      },
+      {
+        "id": "home_collection_banner_link",
+        "files": [
+          "snippets/home-collection-tabs.liquid"
+        ]
+      },
+      {
+        "id": "home_collection_tabs_1_handle",
+        "files": [
+          "snippets/home-collection-tabs.liquid"
+        ]
+      },
+      {
+        "id": "home_collection_tabs_1_title",
+        "files": [
+          "snippets/home-collection-tabs.liquid"
+        ]
+      },
+      {
+        "id": "home_navtabs_limit_desk",
+        "files": [
+          "snippets/home-collection-tabs.liquid"
+        ]
+      },
+      {
+        "id": "home_navtabs_limit_mb",
+        "files": [
+          "snippets/home-collection-tabs.liquid"
+        ]
+      },
+      {
+        "id": "hrloyalty_icon_used",
+        "files": [
+          "snippets/footer-scripts.liquid",
+          "snippets/mini-account.liquid",
+          "snippets/sidebar-account.liquid",
+          "templates/customers[account].liquid",
+          "templates/customers[account].member.liquid",
+          "templates/customers[addresses].liquid",
+          "templates/customers[order].liquid"
+        ]
+      },
+      {
+        "id": "lbl_address1",
+        "files": [
+          "templates/customers[addresses].liquid"
+        ]
+      },
+      {
+        "id": "lbl_address2",
+        "files": [
+          "templates/customers[addresses].liquid"
+        ]
+      },
+      {
+        "id": "lbl_company",
+        "files": [
+          "templates/customers[addresses].liquid"
+        ]
+      },
+      {
+        "id": "lbl_first_name",
+        "files": [
+          "templates/customers[addresses].liquid"
+        ]
+      },
+      {
+        "id": "lbl_last_name",
+        "files": [
+          "templates/customers[addresses].liquid"
+        ]
+      },
+      {
+        "id": "lbl_phone",
+        "files": [
+          "templates/customers[addresses].liquid"
+        ]
+      },
+      {
+        "id": "loomline_index_form_title",
+        "files": [
+          "snippets/ll-index-form.liquid"
+        ]
+      },
+      {
+        "id": "loomline_index_slider_1_alt",
+        "files": [
+          "snippets/ll-index-slider.liquid"
+        ]
+      },
+      {
+        "id": "membercard_offer_link",
+        "files": [
+          "templates/customers[account].member.liquid"
+        ]
+      },
+      {
+        "id": "membercard_offer_show",
+        "files": [
+          "templates/customers[account].member.liquid"
+        ]
+      },
+      {
+        "id": "membercard_offer_title",
+        "files": [
+          "templates/customers[account].member.liquid"
+        ]
+      },
+      {
+        "id": "membercard_offer_txtlink",
+        "files": [
+          "templates/customers[account].member.liquid"
+        ]
+      },
+      {
+        "id": "mini_cart_linkreturn",
+        "files": [
+          "snippets/mini-cart.liquid"
+        ]
+      },
+      {
+        "id": "mini_cart_name",
+        "files": [
+          "snippets/mini-cart.liquid"
+        ]
+      },
+      {
+        "id": "popup_promotion_title",
+        "files": [
+          "snippets/popup-contact.liquid"
+        ]
+      },
+      {
+        "id": "preorder_text_btn",
+        "files": [
+          "snippets/modal-preorder.liquid",
+          "snippets/template-product-01.liquid",
+          "snippets/template-product-02.liquid",
+          "snippets/template-product-03.liquid",
+          "snippets/template-product-04.liquid",
+          "templates/product.quickview.liquid"
+        ]
+      },
+      {
+        "id": "preorder_text_btn_popup",
+        "files": [
+          "snippets/modal-preorder.liquid",
+          "templates/product.quickview.liquid"
+        ]
+      },
+      {
+        "id": "preorder_text_btn_prodloop",
+        "files": [
+          "snippets/product-loop--ctas.liquid",
+          "snippets/sidebar-action-product.liquid"
+        ]
+      },
+      {
+        "id": "prod_resize_img",
+        "files": [
+          "snippets/product-loadding.liquid"
+        ]
+      },
+      {
+        "id": "prod_vendor_show",
+        "files": [
+          "snippets/template-product-01.liquid",
+          "snippets/template-product-02.liquid",
+          "snippets/template-product-03.liquid",
+          "snippets/template-product-04.liquid",
+          "templates/product.ll-quickview.liquid",
+          "templates/product.quickview.liquid"
+        ]
+      },
+      {
+        "id": "product_banner_link",
+        "files": [
+          "snippets/template-product-01.liquid"
+        ]
+      },
+      {
+        "id": "product_banner_show",
+        "files": [
+          "snippets/template-product-01.liquid"
+        ]
+      },
+      {
+        "id": "product_contact_title",
+        "files": [
+          "templates/product.ll-quickview.liquid",
+          "templates/product.quickview.liquid"
+        ]
+      },
+      {
+        "id": "product_contact_url",
+        "files": [
+          "templates/product.ll-quickview.liquid",
+          "templates/product.quickview.liquid"
+        ]
+      },
+      {
+        "id": "product_grid_mobile",
+        "files": [
+          "snippets/product-loop--ctas.liquid"
+        ]
+      },
+      {
+        "id": "product_layout_style",
+        "files": [
+          "snippets/footer-scripts.liquid",
+          "snippets/plugins-css.liquid"
+        ]
+      },
+      {
+        "id": "shop_buying",
+        "files": [
+          "snippets/product-loop-horizontal.liquid",
+          "snippets/template-product-01.liquid",
+          "snippets/template-product-02.liquid",
+          "snippets/template-product-03.liquid",
+          "snippets/template-product-04.liquid",
+          "templates/product.quickview.liquid"
+        ]
+      },
+      {
+        "id": "shop_main_color",
+        "files": [
+          "snippets/mini-location.liquid"
+        ]
+      },
+      {
+        "id": "show_fanpage_faceook",
+        "files": [
+          "snippets/facebook-widget.liquid"
+        ]
+      },
+      {
+        "id": "slide_1_btn",
+        "files": [
+          "snippets/homepage-slider.liquid"
+        ]
+      },
+      {
+        "id": "slide_1_desc",
+        "files": [
+          "snippets/homepage-slider.liquid"
+        ]
+      },
+      {
+        "id": "slide_1_link",
+        "files": [
+          "snippets/homepage-slider.liquid"
+        ]
+      },
+      {
+        "id": "slide_1_title",
+        "files": [
+          "snippets/homepage-slider.liquid"
+        ]
+      },
+      {
+        "id": "tagsize_title",
+        "files": [
+          "snippets/modal-sizeguide.liquid"
+        ]
+      }
+    ],
+    "dead": [
+      {
+        "id": "1_price_to"
+      },
+      {
+        "id": "2_price_from"
+      },
+      {
+        "id": "2_price_to"
+      },
+      {
+        "id": "3_price_from"
+      },
+      {
+        "id": "3_price_to"
+      },
+      {
+        "id": "4_price_from"
+      },
+      {
+        "id": "4_price_to"
+      },
+      {
+        "id": "5_price_from"
+      },
+      {
+        "id": "blogs_item_color_desc"
+      },
+      {
+        "id": "blogs_item_color_title"
+      },
+      {
+        "id": "blogs_item_font_desc_font_size"
+      },
+      {
+        "id": "blogs_item_font_desc_font_style"
+      },
+      {
+        "id": "blogs_item_font_title_font_size"
+      },
+      {
+        "id": "blogs_item_font_title_font_style"
+      },
+      {
+        "id": "blogs_menu_color_title"
+      },
+      {
+        "id": "blogs_menu_font_title_font_size"
+      },
+      {
+        "id": "blogs_menu_font_title_font_style"
+      },
+      {
+        "id": "blogs_news_color_title"
+      },
+      {
+        "id": "blogs_news_font_title_font_size"
+      },
+      {
+        "id": "blogs_news_font_title_font_style"
+      },
+      {
+        "id": "blogs_pagination_limit"
+      },
+      {
+        "id": "blogs_related_color_title"
+      },
+      {
+        "id": "blogs_related_font_title_font_size"
+      },
+      {
+        "id": "blogs_related_font_title_font_style"
+      },
+      {
+        "id": "cart_collection_color_title"
+      },
+      {
+        "id": "cart_collection_font_title_font_size"
+      },
+      {
+        "id": "cart_collection_font_title_font_style"
+      },
+      {
+        "id": "cart_deliverytime_1"
+      },
+      {
+        "id": "cart_deliverytime_10"
+      },
+      {
+        "id": "cart_deliverytime_11"
+      },
+      {
+        "id": "cart_deliverytime_12"
+      },
+      {
+        "id": "cart_deliverytime_13"
+      },
+      {
+        "id": "cart_deliverytime_14"
+      },
+      {
+        "id": "cart_deliverytime_2"
+      },
+      {
+        "id": "cart_deliverytime_3"
+      },
+      {
+        "id": "cart_deliverytime_4"
+      },
+      {
+        "id": "cart_deliverytime_5"
+      },
+      {
+        "id": "cart_deliverytime_6"
+      },
+      {
+        "id": "cart_deliverytime_7"
+      },
+      {
+        "id": "cart_deliverytime_8"
+      },
+      {
+        "id": "cart_deliverytime_9"
+      },
+      {
+        "id": "cart_deliverytime_color_now"
+      },
+      {
+        "id": "cart_deliverytime_font_now_font_size"
+      },
+      {
+        "id": "cart_deliverytime_font_now_font_style"
+      },
+      {
+        "id": "cart_total_color_min"
+      },
+      {
+        "id": "collection_breadcrumb_bg_dk"
+      },
+      {
+        "id": "collection_breadcrumb_bg_mb"
+      },
+      {
+        "id": "collection_filter_color_title"
+      },
+      {
+        "id": "collection_filter_font_title_font_size"
+      },
+      {
+        "id": "collection_filter_font_title_font_style"
+      },
+      {
+        "id": "collection_pro_item_limit_dk"
+      },
+      {
+        "id": "color_code_new_1"
+      },
+      {
+        "id": "color_code_new_10"
+      },
+      {
+        "id": "color_code_new_11"
+      },
+      {
+        "id": "color_code_new_12"
+      },
+      {
+        "id": "color_code_new_13"
+      },
+      {
+        "id": "color_code_new_14"
+      },
+      {
+        "id": "color_code_new_15"
+      },
+      {
+        "id": "color_code_new_16"
+      },
+      {
+        "id": "color_code_new_17"
+      },
+      {
+        "id": "color_code_new_18"
+      },
+      {
+        "id": "color_code_new_19"
+      },
+      {
+        "id": "color_code_new_2"
+      },
+      {
+        "id": "color_code_new_20"
+      },
+      {
+        "id": "color_code_new_21"
+      },
+      {
+        "id": "color_code_new_22"
+      },
+      {
+        "id": "color_code_new_23"
+      },
+      {
+        "id": "color_code_new_24"
+      },
+      {
+        "id": "color_code_new_25"
+      },
+      {
+        "id": "color_code_new_26"
+      },
+      {
+        "id": "color_code_new_27"
+      },
+      {
+        "id": "color_code_new_28"
+      },
+      {
+        "id": "color_code_new_29"
+      },
+      {
+        "id": "color_code_new_3"
+      },
+      {
+        "id": "color_code_new_30"
+      },
+      {
+        "id": "color_code_new_4"
+      },
+      {
+        "id": "color_code_new_5"
+      },
+      {
+        "id": "color_code_new_6"
+      },
+      {
+        "id": "color_code_new_7"
+      },
+      {
+        "id": "color_code_new_8"
+      },
+      {
+        "id": "color_code_new_9"
+      },
+      {
+        "id": "color_color_title"
+      },
+      {
+        "id": "color_font_title_font_size"
+      },
+      {
+        "id": "color_font_title_font_style"
+      },
+      {
+        "id": "color_name_new_1"
+      },
+      {
+        "id": "color_name_new_10"
+      },
+      {
+        "id": "color_name_new_11"
+      },
+      {
+        "id": "color_name_new_12"
+      },
+      {
+        "id": "color_name_new_13"
+      },
+      {
+        "id": "color_name_new_14"
+      },
+      {
+        "id": "color_name_new_15"
+      },
+      {
+        "id": "color_name_new_16"
+      },
+      {
+        "id": "color_name_new_17"
+      },
+      {
+        "id": "color_name_new_18"
+      },
+      {
+        "id": "color_name_new_19"
+      },
+      {
+        "id": "color_name_new_2"
+      },
+      {
+        "id": "color_name_new_20"
+      },
+      {
+        "id": "color_name_new_21"
+      },
+      {
+        "id": "color_name_new_22"
+      },
+      {
+        "id": "color_name_new_23"
+      },
+      {
+        "id": "color_name_new_24"
+      },
+      {
+        "id": "color_name_new_25"
+      },
+      {
+        "id": "color_name_new_26"
+      },
+      {
+        "id": "color_name_new_27"
+      },
+      {
+        "id": "color_name_new_28"
+      },
+      {
+        "id": "color_name_new_29"
+      },
+      {
+        "id": "color_name_new_3"
+      },
+      {
+        "id": "color_name_new_30"
+      },
+      {
+        "id": "color_name_new_4"
+      },
+      {
+        "id": "color_name_new_5"
+      },
+      {
+        "id": "color_name_new_6"
+      },
+      {
+        "id": "color_name_new_7"
+      },
+      {
+        "id": "color_name_new_8"
+      },
+      {
+        "id": "color_name_new_9"
+      },
+      {
+        "id": "coupon_color_title"
+      },
+      {
+        "id": "coupon_font_title_font_size"
+      },
+      {
+        "id": "coupon_font_title_font_style"
+      },
+      {
+        "id": "faqs_10_desc"
+      },
+      {
+        "id": "faqs_10_title"
+      },
+      {
+        "id": "faqs_1_desc"
+      },
+      {
+        "id": "faqs_1_title"
+      },
+      {
+        "id": "faqs_2_desc"
+      },
+      {
+        "id": "faqs_2_title"
+      },
+      {
+        "id": "faqs_3_desc"
+      },
+      {
+        "id": "faqs_3_title"
+      },
+      {
+        "id": "faqs_4_desc"
+      },
+      {
+        "id": "faqs_4_title"
+      },
+      {
+        "id": "faqs_5_desc"
+      },
+      {
+        "id": "faqs_5_title"
+      },
+      {
+        "id": "faqs_6_desc"
+      },
+      {
+        "id": "faqs_6_title"
+      },
+      {
+        "id": "faqs_7_desc"
+      },
+      {
+        "id": "faqs_7_title"
+      },
+      {
+        "id": "faqs_8_desc"
+      },
+      {
+        "id": "faqs_8_title"
+      },
+      {
+        "id": "faqs_9_desc"
+      },
+      {
+        "id": "faqs_9_title"
+      },
+      {
+        "id": "home-coupon-bg_color"
+      },
+      {
+        "id": "home-coupon-border_color"
+      },
+      {
+        "id": "home-coupon-highlight_color"
+      },
+      {
+        "id": "home-coupon-text_color"
+      },
+      {
+        "id": "home_coupon_1_code"
+      },
+      {
+        "id": "home_coupon_1_date"
+      },
+      {
+        "id": "home_coupon_1_img"
+      },
+      {
+        "id": "home_coupon_1_note1"
+      },
+      {
+        "id": "home_coupon_1_note2"
+      },
+      {
+        "id": "home_coupon_1_note3"
+      },
+      {
+        "id": "home_coupon_1_show"
+      },
+      {
+        "id": "home_coupon_1_text"
+      },
+      {
+        "id": "home_coupon_1_title"
+      },
+      {
+        "id": "home_coupon_2_code"
+      },
+      {
+        "id": "home_coupon_2_date"
+      },
+      {
+        "id": "home_coupon_2_img"
+      },
+      {
+        "id": "home_coupon_2_note1"
+      },
+      {
+        "id": "home_coupon_2_note2"
+      },
+      {
+        "id": "home_coupon_2_note3"
+      },
+      {
+        "id": "home_coupon_2_show"
+      },
+      {
+        "id": "home_coupon_2_text"
+      },
+      {
+        "id": "home_coupon_2_title"
+      },
+      {
+        "id": "home_coupon_3_code"
+      },
+      {
+        "id": "home_coupon_3_date"
+      },
+      {
+        "id": "home_coupon_3_img"
+      },
+      {
+        "id": "home_coupon_3_note1"
+      },
+      {
+        "id": "home_coupon_3_note2"
+      },
+      {
+        "id": "home_coupon_3_note3"
+      },
+      {
+        "id": "home_coupon_3_show"
+      },
+      {
+        "id": "home_coupon_3_text"
+      },
+      {
+        "id": "home_coupon_3_title"
+      },
+      {
+        "id": "home_coupon_4_code"
+      },
+      {
+        "id": "home_coupon_4_date"
+      },
+      {
+        "id": "home_coupon_4_img"
+      },
+      {
+        "id": "home_coupon_4_note1"
+      },
+      {
+        "id": "home_coupon_4_note2"
+      },
+      {
+        "id": "home_coupon_4_note3"
+      },
+      {
+        "id": "home_coupon_4_show"
+      },
+      {
+        "id": "home_coupon_4_text"
+      },
+      {
+        "id": "home_coupon_4_title"
+      },
+      {
+        "id": "loomline_about_us_about_1_color_desc"
+      },
+      {
+        "id": "loomline_about_us_about_1_color_title"
+      },
+      {
+        "id": "loomline_about_us_about_1_desc"
+      },
+      {
+        "id": "loomline_about_us_about_1_font_desc_font_size"
+      },
+      {
+        "id": "loomline_about_us_about_1_font_desc_font_style"
+      },
+      {
+        "id": "loomline_about_us_about_1_font_title_font_size"
+      },
+      {
+        "id": "loomline_about_us_about_1_font_title_font_style"
+      },
+      {
+        "id": "loomline_about_us_about_1_img"
+      },
+      {
+        "id": "loomline_about_us_about_1_title"
+      },
+      {
+        "id": "loomline_about_us_about_2_color_desc"
+      },
+      {
+        "id": "loomline_about_us_about_2_desc"
+      },
+      {
+        "id": "loomline_about_us_about_2_font_desc_font_size"
+      },
+      {
+        "id": "loomline_about_us_about_2_font_desc_font_style"
+      },
+      {
+        "id": "loomline_about_us_about_2_title_1"
+      },
+      {
+        "id": "loomline_about_us_about_2_title_2"
+      },
+      {
+        "id": "loomline_about_us_about_2_title_color_1"
+      },
+      {
+        "id": "loomline_about_us_about_2_title_color_2"
+      },
+      {
+        "id": "loomline_about_us_about_2_title_font_1_font_size"
+      },
+      {
+        "id": "loomline_about_us_about_2_title_font_1_font_style"
+      },
+      {
+        "id": "loomline_about_us_about_2_title_font_2_font_size"
+      },
+      {
+        "id": "loomline_about_us_about_2_title_font_2_font_style"
+      },
+      {
+        "id": "loomline_about_us_about_3_color_desc"
+      },
+      {
+        "id": "loomline_about_us_about_3_desc"
+      },
+      {
+        "id": "loomline_about_us_about_3_font_desc_font_size"
+      },
+      {
+        "id": "loomline_about_us_about_3_font_desc_font_style"
+      },
+      {
+        "id": "loomline_about_us_about_3_img"
+      },
+      {
+        "id": "loomline_about_us_about_3_title_1"
+      },
+      {
+        "id": "loomline_about_us_about_3_title_2"
+      },
+      {
+        "id": "loomline_about_us_about_3_title_color_1"
+      },
+      {
+        "id": "loomline_about_us_about_3_title_color_2"
+      },
+      {
+        "id": "loomline_about_us_about_3_title_font_1_font_size"
+      },
+      {
+        "id": "loomline_about_us_about_3_title_font_1_font_style"
+      },
+      {
+        "id": "loomline_about_us_about_3_title_font_2_font_size"
+      },
+      {
+        "id": "loomline_about_us_about_3_title_font_2_font_style"
+      },
+      {
+        "id": "loomline_about_us_about_4_color_desc"
+      },
+      {
+        "id": "loomline_about_us_about_4_desc"
+      },
+      {
+        "id": "loomline_about_us_about_4_font_desc_font_size"
+      },
+      {
+        "id": "loomline_about_us_about_4_font_desc_font_style"
+      },
+      {
+        "id": "loomline_about_us_about_4_img"
+      },
+      {
+        "id": "loomline_about_us_about_4_title_1"
+      },
+      {
+        "id": "loomline_about_us_about_4_title_2"
+      },
+      {
+        "id": "loomline_about_us_about_4_title_color_1"
+      },
+      {
+        "id": "loomline_about_us_about_4_title_color_2"
+      },
+      {
+        "id": "loomline_about_us_about_4_title_font_1_font_size"
+      },
+      {
+        "id": "loomline_about_us_about_4_title_font_1_font_style"
+      },
+      {
+        "id": "loomline_about_us_about_4_title_font_2_font_size"
+      },
+      {
+        "id": "loomline_about_us_about_4_title_font_2_font_style"
+      },
+      {
+        "id": "loomline_about_us_faqs_1_color_desc"
+      },
+      {
+        "id": "loomline_about_us_faqs_1_color_title"
+      },
+      {
+        "id": "loomline_about_us_faqs_1_desc"
+      },
+      {
+        "id": "loomline_about_us_faqs_1_font_desc_font_size"
+      },
+      {
+        "id": "loomline_about_us_faqs_1_font_desc_font_style"
+      },
+      {
+        "id": "loomline_about_us_faqs_1_font_title_font_size"
+      },
+      {
+        "id": "loomline_about_us_faqs_1_font_title_font_style"
+      },
+      {
+        "id": "loomline_about_us_faqs_1_title"
+      },
+      {
+        "id": "loomline_about_us_faqs_2_color_desc"
+      },
+      {
+        "id": "loomline_about_us_faqs_2_color_title"
+      },
+      {
+        "id": "loomline_about_us_faqs_2_desc"
+      },
+      {
+        "id": "loomline_about_us_faqs_2_font_desc_font_size"
+      },
+      {
+        "id": "loomline_about_us_faqs_2_font_desc_font_style"
+      },
+      {
+        "id": "loomline_about_us_faqs_2_font_title_font_size"
+      },
+      {
+        "id": "loomline_about_us_faqs_2_font_title_font_style"
+      },
+      {
+        "id": "loomline_about_us_faqs_2_title"
+      },
+      {
+        "id": "loomline_about_us_faqs_3_color_desc"
+      },
+      {
+        "id": "loomline_about_us_faqs_3_color_title"
+      },
+      {
+        "id": "loomline_about_us_faqs_3_desc"
+      },
+      {
+        "id": "loomline_about_us_faqs_3_font_desc_font_size"
+      },
+      {
+        "id": "loomline_about_us_faqs_3_font_desc_font_style"
+      },
+      {
+        "id": "loomline_about_us_faqs_3_font_title_font_size"
+      },
+      {
+        "id": "loomline_about_us_faqs_3_font_title_font_style"
+      },
+      {
+        "id": "loomline_about_us_faqs_3_title"
+      },
+      {
+        "id": "loomline_about_us_faqs_4_color_desc"
+      },
+      {
+        "id": "loomline_about_us_faqs_4_color_title"
+      },
+      {
+        "id": "loomline_about_us_faqs_4_desc"
+      },
+      {
+        "id": "loomline_about_us_faqs_4_font_desc_font_size"
+      },
+      {
+        "id": "loomline_about_us_faqs_4_font_desc_font_style"
+      },
+      {
+        "id": "loomline_about_us_faqs_4_font_title_font_size"
+      },
+      {
+        "id": "loomline_about_us_faqs_4_font_title_font_style"
+      },
+      {
+        "id": "loomline_about_us_faqs_4_title"
+      },
+      {
+        "id": "loomline_about_us_faqs_5_color_desc"
+      },
+      {
+        "id": "loomline_about_us_faqs_5_color_title"
+      },
+      {
+        "id": "loomline_about_us_faqs_5_desc"
+      },
+      {
+        "id": "loomline_about_us_faqs_5_font_desc_font_size"
+      },
+      {
+        "id": "loomline_about_us_faqs_5_font_desc_font_style"
+      },
+      {
+        "id": "loomline_about_us_faqs_5_font_title_font_size"
+      },
+      {
+        "id": "loomline_about_us_faqs_5_font_title_font_style"
+      },
+      {
+        "id": "loomline_about_us_faqs_5_title"
+      },
+      {
+        "id": "loomline_about_us_faqs_6_color_desc"
+      },
+      {
+        "id": "loomline_about_us_faqs_6_color_title"
+      },
+      {
+        "id": "loomline_about_us_faqs_6_desc"
+      },
+      {
+        "id": "loomline_about_us_faqs_6_font_desc_font_size"
+      },
+      {
+        "id": "loomline_about_us_faqs_6_font_desc_font_style"
+      },
+      {
+        "id": "loomline_about_us_faqs_6_font_title_font_size"
+      },
+      {
+        "id": "loomline_about_us_faqs_6_font_title_font_style"
+      },
+      {
+        "id": "loomline_about_us_faqs_6_title"
+      },
+      {
+        "id": "loomline_about_us_faqs_bg_color"
+      },
+      {
+        "id": "loomline_about_us_faqs_img"
+      },
+      {
+        "id": "loomline_about_us_faqs_title_1"
+      },
+      {
+        "id": "loomline_about_us_faqs_title_2"
+      },
+      {
+        "id": "loomline_about_us_faqs_title_color_1"
+      },
+      {
+        "id": "loomline_about_us_faqs_title_color_2"
+      },
+      {
+        "id": "loomline_about_us_faqs_title_font_1_font_size"
+      },
+      {
+        "id": "loomline_about_us_faqs_title_font_1_font_style"
+      },
+      {
+        "id": "loomline_about_us_faqs_title_font_2_font_size"
+      },
+      {
+        "id": "loomline_about_us_faqs_title_font_2_font_style"
+      },
+      {
+        "id": "loomline_about_us_marquee_color"
+      },
+      {
+        "id": "loomline_about_us_marquee_desc"
+      },
+      {
+        "id": "loomline_about_us_marquee_time"
+      },
+      {
+        "id": "loomline_addthis_btn_bg_color"
+      },
+      {
+        "id": "loomline_addthis_btn_color"
+      },
+      {
+        "id": "loomline_addthis_icon3_color_title"
+      },
+      {
+        "id": "loomline_addthis_icon3_content"
+      },
+      {
+        "id": "loomline_addthis_icon3_font_title_font_size"
+      },
+      {
+        "id": "loomline_addthis_icon3_font_title_font_style"
+      },
+      {
+        "id": "loomline_addthis_icon3_title2"
+      },
+      {
+        "id": "loomline_addthis_iconList_bg_color"
+      },
+      {
+        "id": "loomline_addthis_iconList_color"
+      },
+      {
+        "id": "loomline_addthis_live_color"
+      },
+      {
+        "id": "loomline_collection_bg_color"
+      },
+      {
+        "id": "loomline_collection_color"
+      },
+      {
+        "id": "loomline_contact_form_bg_color"
+      },
+      {
+        "id": "loomline_contact_form_btn"
+      },
+      {
+        "id": "loomline_contact_form_color"
+      },
+      {
+        "id": "loomline_contact_form_color_btn"
+      },
+      {
+        "id": "loomline_contact_form_color_btn_bg"
+      },
+      {
+        "id": "loomline_contact_form_color_title"
+      },
+      {
+        "id": "loomline_contact_form_font_btn_font_size"
+      },
+      {
+        "id": "loomline_contact_form_font_title_font_size"
+      },
+      {
+        "id": "loomline_contact_form_font_title_font_style"
+      },
+      {
+        "id": "loomline_contact_form_title"
+      },
+      {
+        "id": "loomline_contact_info_address"
+      },
+      {
+        "id": "loomline_contact_info_btn"
+      },
+      {
+        "id": "loomline_contact_info_color"
+      },
+      {
+        "id": "loomline_contact_info_color_address"
+      },
+      {
+        "id": "loomline_contact_info_color_btn"
+      },
+      {
+        "id": "loomline_contact_info_color_btn_bg"
+      },
+      {
+        "id": "loomline_contact_info_color_phone"
+      },
+      {
+        "id": "loomline_contact_info_color_time"
+      },
+      {
+        "id": "loomline_contact_info_color_title"
+      },
+      {
+        "id": "loomline_contact_info_font_btn_font_size"
+      },
+      {
+        "id": "loomline_contact_info_font_btn_font_style"
+      },
+      {
+        "id": "loomline_contact_info_font_title_font_size"
+      },
+      {
+        "id": "loomline_contact_info_font_title_font_style"
+      },
+      {
+        "id": "loomline_contact_info_img"
+      },
+      {
+        "id": "loomline_contact_info_link"
+      },
+      {
+        "id": "loomline_contact_info_phone"
+      },
+      {
+        "id": "loomline_contact_info_time"
+      },
+      {
+        "id": "loomline_contact_info_title"
+      },
+      {
+        "id": "loomline_footer_about_color_title"
+      },
+      {
+        "id": "loomline_footer_about_desc"
+      },
+      {
+        "id": "loomline_footer_about_font_title_font_size"
+      },
+      {
+        "id": "loomline_footer_about_font_title_font_style"
+      },
+      {
+        "id": "loomline_footer_about_show"
+      },
+      {
+        "id": "loomline_footer_about_title"
+      },
+      {
+        "id": "loomline_footer_address1"
+      },
+      {
+        "id": "loomline_footer_address2"
+      },
+      {
+        "id": "loomline_footer_address3"
+      },
+      {
+        "id": "loomline_footer_bg_color"
+      },
+      {
+        "id": "loomline_footer_color"
+      },
+      {
+        "id": "loomline_footer_color_address1"
+      },
+      {
+        "id": "loomline_footer_color_address2"
+      },
+      {
+        "id": "loomline_footer_color_address3"
+      },
+      {
+        "id": "loomline_footer_color_email"
+      },
+      {
+        "id": "loomline_footer_color_tell1"
+      },
+      {
+        "id": "loomline_footer_color_tell2"
+      },
+      {
+        "id": "loomline_footer_color_tell3"
+      },
+      {
+        "id": "loomline_footer_copyright"
+      },
+      {
+        "id": "loomline_footer_email"
+      },
+      {
+        "id": "loomline_footer_linklist1_color_title"
+      },
+      {
+        "id": "loomline_footer_linklist1_font_title_font_size"
+      },
+      {
+        "id": "loomline_footer_linklist1_font_title_font_style"
+      },
+      {
+        "id": "loomline_footer_linklist1_menu"
+      },
+      {
+        "id": "loomline_footer_linklist1_show"
+      },
+      {
+        "id": "loomline_footer_linklist1_title"
+      },
+      {
+        "id": "loomline_footer_linklist2_color_title"
+      },
+      {
+        "id": "loomline_footer_linklist2_font_title_font_size"
+      },
+      {
+        "id": "loomline_footer_linklist2_font_title_font_style"
+      },
+      {
+        "id": "loomline_footer_linklist2_menu"
+      },
+      {
+        "id": "loomline_footer_linklist2_show"
+      },
+      {
+        "id": "loomline_footer_linklist2_title"
+      },
+      {
+        "id": "loomline_footer_logobct_alt"
+      },
+      {
+        "id": "loomline_footer_logobct_img"
+      },
+      {
+        "id": "loomline_footer_logobct_link"
+      },
+      {
+        "id": "loomline_footer_logobct_show"
+      },
+      {
+        "id": "loomline_footer_newsletter_color_desc"
+      },
+      {
+        "id": "loomline_footer_newsletter_color_title"
+      },
+      {
+        "id": "loomline_footer_newsletter_desc"
+      },
+      {
+        "id": "loomline_footer_newsletter_font_desc_font_size"
+      },
+      {
+        "id": "loomline_footer_newsletter_font_desc_font_style"
+      },
+      {
+        "id": "loomline_footer_newsletter_font_title_font_size"
+      },
+      {
+        "id": "loomline_footer_newsletter_font_title_font_style"
+      },
+      {
+        "id": "loomline_footer_newsletter_show"
+      },
+      {
+        "id": "loomline_footer_newsletter_title"
+      },
+      {
+        "id": "loomline_footer_payment_1_alt"
+      },
+      {
+        "id": "loomline_footer_payment_1_img"
+      },
+      {
+        "id": "loomline_footer_payment_2_alt"
+      },
+      {
+        "id": "loomline_footer_payment_2_img"
+      },
+      {
+        "id": "loomline_footer_payment_3_alt"
+      },
+      {
+        "id": "loomline_footer_payment_3_img"
+      },
+      {
+        "id": "loomline_footer_payment_4_alt"
+      },
+      {
+        "id": "loomline_footer_payment_4_img"
+      },
+      {
+        "id": "loomline_footer_payment_5_alt"
+      },
+      {
+        "id": "loomline_footer_payment_5_img"
+      },
+      {
+        "id": "loomline_footer_payment_6_alt"
+      },
+      {
+        "id": "loomline_footer_payment_6_img"
+      },
+      {
+        "id": "loomline_footer_social_link_facebook"
+      },
+      {
+        "id": "loomline_footer_social_link_instagram"
+      },
+      {
+        "id": "loomline_footer_social_link_lazada"
+      },
+      {
+        "id": "loomline_footer_social_link_shopee"
+      },
+      {
+        "id": "loomline_footer_social_link_tiktok"
+      },
+      {
+        "id": "loomline_footer_social_link_youtube"
+      },
+      {
+        "id": "loomline_footer_social_show"
+      },
+      {
+        "id": "loomline_footer_tell1"
+      },
+      {
+        "id": "loomline_footer_tell2"
+      },
+      {
+        "id": "loomline_footer_tell3"
+      },
+      {
+        "id": "loomline_header_color_bkg"
+      },
+      {
+        "id": "loomline_header_color_bkg_sb"
+      },
+      {
+        "id": "loomline_header_color_border"
+      },
+      {
+        "id": "loomline_header_color_text"
+      },
+      {
+        "id": "loomline_header_color_text_sb"
+      },
+      {
+        "id": "loomline_header_coupon_1_code"
+      },
+      {
+        "id": "loomline_header_coupon_1_date"
+      },
+      {
+        "id": "loomline_header_coupon_1_img"
+      },
+      {
+        "id": "loomline_header_coupon_1_show"
+      },
+      {
+        "id": "loomline_header_coupon_1_text"
+      },
+      {
+        "id": "loomline_header_coupon_1_title"
+      },
+      {
+        "id": "loomline_header_coupon_2_code"
+      },
+      {
+        "id": "loomline_header_coupon_2_date"
+      },
+      {
+        "id": "loomline_header_coupon_2_img"
+      },
+      {
+        "id": "loomline_header_coupon_2_show"
+      },
+      {
+        "id": "loomline_header_coupon_2_text"
+      },
+      {
+        "id": "loomline_header_coupon_2_title"
+      },
+      {
+        "id": "loomline_header_coupon_3_code"
+      },
+      {
+        "id": "loomline_header_coupon_3_date"
+      },
+      {
+        "id": "loomline_header_coupon_3_img"
+      },
+      {
+        "id": "loomline_header_coupon_3_show"
+      },
+      {
+        "id": "loomline_header_coupon_3_text"
+      },
+      {
+        "id": "loomline_header_coupon_3_title"
+      },
+      {
+        "id": "loomline_header_coupon_4_code"
+      },
+      {
+        "id": "loomline_header_coupon_4_date"
+      },
+      {
+        "id": "loomline_header_coupon_4_img"
+      },
+      {
+        "id": "loomline_header_coupon_4_show"
+      },
+      {
+        "id": "loomline_header_coupon_4_text"
+      },
+      {
+        "id": "loomline_header_coupon_4_title"
+      },
+      {
+        "id": "loomline_header_coupon_bg_color"
+      },
+      {
+        "id": "loomline_header_coupon_border_color"
+      },
+      {
+        "id": "loomline_header_coupon_btn_bg_color"
+      },
+      {
+        "id": "loomline_header_coupon_btn_color"
+      },
+      {
+        "id": "loomline_header_coupon_color_title"
+      },
+      {
+        "id": "loomline_header_coupon_font_title_font_size"
+      },
+      {
+        "id": "loomline_header_coupon_font_title_font_style"
+      },
+      {
+        "id": "loomline_header_coupon_highlight_color"
+      },
+      {
+        "id": "loomline_header_coupon_text_color"
+      },
+      {
+        "id": "loomline_header_live_color"
+      },
+      {
+        "id": "loomline_header_live_color_txt"
+      },
+      {
+        "id": "loomline_header_live_font_txt_font_size"
+      },
+      {
+        "id": "loomline_header_wishlist_show"
+      },
+      {
+        "id": "loomline_header_wishlist_url"
+      },
+      {
+        "id": "loomline_index_about_bg_color"
+      },
+      {
+        "id": "loomline_index_about_color_btn"
+      },
+      {
+        "id": "loomline_index_about_color_btn_bg"
+      },
+      {
+        "id": "loomline_index_about_color_desc"
+      },
+      {
+        "id": "loomline_index_about_font_btn_font_size"
+      },
+      {
+        "id": "loomline_index_about_font_btn_font_style"
+      },
+      {
+        "id": "loomline_index_about_font_desc_font_size"
+      },
+      {
+        "id": "loomline_index_about_font_desc_font_style"
+      },
+      {
+        "id": "loomline_index_about_title_color_1"
+      },
+      {
+        "id": "loomline_index_about_title_color_2"
+      },
+      {
+        "id": "loomline_index_about_title_font_1_font_size"
+      },
+      {
+        "id": "loomline_index_about_title_font_1_font_style"
+      },
+      {
+        "id": "loomline_index_about_title_font_2_font_size"
+      },
+      {
+        "id": "loomline_index_about_title_font_2_font_style"
+      },
+      {
+        "id": "loomline_index_banner_1_1_bg_color"
+      },
+      {
+        "id": "loomline_index_banner_1_1_btn"
+      },
+      {
+        "id": "loomline_index_banner_1_1_color"
+      },
+      {
+        "id": "loomline_index_banner_1_1_color_btn"
+      },
+      {
+        "id": "loomline_index_banner_1_1_color_btn_bg"
+      },
+      {
+        "id": "loomline_index_banner_1_1_color_desc"
+      },
+      {
+        "id": "loomline_index_banner_1_1_desc"
+      },
+      {
+        "id": "loomline_index_banner_1_1_font_btn_font_size"
+      },
+      {
+        "id": "loomline_index_banner_1_1_font_btn_font_style"
+      },
+      {
+        "id": "loomline_index_banner_1_1_font_desc_font_size"
+      },
+      {
+        "id": "loomline_index_banner_1_1_font_desc_font_style"
+      },
+      {
+        "id": "loomline_index_banner_1_1_img"
+      },
+      {
+        "id": "loomline_index_banner_1_1_link"
+      },
+      {
+        "id": "loomline_index_banner_1_1_title_1"
+      },
+      {
+        "id": "loomline_index_banner_1_1_title_2"
+      },
+      {
+        "id": "loomline_index_banner_1_1_title_color_1"
+      },
+      {
+        "id": "loomline_index_banner_1_1_title_color_2"
+      },
+      {
+        "id": "loomline_index_banner_1_1_title_font_1_font_size"
+      },
+      {
+        "id": "loomline_index_banner_1_1_title_font_1_font_style"
+      },
+      {
+        "id": "loomline_index_banner_1_1_title_font_2_font_size"
+      },
+      {
+        "id": "loomline_index_banner_1_1_title_font_2_font_style"
+      },
+      {
+        "id": "loomline_index_banner_1_1_video_link"
+      },
+      {
+        "id": "loomline_index_banner_1_2_bg_color"
+      },
+      {
+        "id": "loomline_index_banner_1_2_btn"
+      },
+      {
+        "id": "loomline_index_banner_1_2_color"
+      },
+      {
+        "id": "loomline_index_banner_1_2_color_btn"
+      },
+      {
+        "id": "loomline_index_banner_1_2_color_btn_bg"
+      },
+      {
+        "id": "loomline_index_banner_1_2_color_desc"
+      },
+      {
+        "id": "loomline_index_banner_1_2_desc"
+      },
+      {
+        "id": "loomline_index_banner_1_2_font_btn_font_size"
+      },
+      {
+        "id": "loomline_index_banner_1_2_font_btn_font_style"
+      },
+      {
+        "id": "loomline_index_banner_1_2_font_desc_font_size"
+      },
+      {
+        "id": "loomline_index_banner_1_2_font_desc_font_style"
+      },
+      {
+        "id": "loomline_index_banner_1_2_img"
+      },
+      {
+        "id": "loomline_index_banner_1_2_link"
+      },
+      {
+        "id": "loomline_index_banner_1_2_title_1"
+      },
+      {
+        "id": "loomline_index_banner_1_2_title_2"
+      },
+      {
+        "id": "loomline_index_banner_1_2_title_color_1"
+      },
+      {
+        "id": "loomline_index_banner_1_2_title_color_2"
+      },
+      {
+        "id": "loomline_index_banner_1_2_title_font_1_font_size"
+      },
+      {
+        "id": "loomline_index_banner_1_2_title_font_1_font_style"
+      },
+      {
+        "id": "loomline_index_banner_1_2_title_font_2_font_size"
+      },
+      {
+        "id": "loomline_index_banner_1_2_title_font_2_font_style"
+      },
+      {
+        "id": "loomline_index_banner_1_2_video_link"
+      },
+      {
+        "id": "loomline_index_banner_1_3_bg_color"
+      },
+      {
+        "id": "loomline_index_banner_1_3_btn"
+      },
+      {
+        "id": "loomline_index_banner_1_3_color"
+      },
+      {
+        "id": "loomline_index_banner_1_3_color_btn"
+      },
+      {
+        "id": "loomline_index_banner_1_3_color_btn_bg"
+      },
+      {
+        "id": "loomline_index_banner_1_3_color_desc"
+      },
+      {
+        "id": "loomline_index_banner_1_3_desc"
+      },
+      {
+        "id": "loomline_index_banner_1_3_font_btn_font_size"
+      },
+      {
+        "id": "loomline_index_banner_1_3_font_btn_font_style"
+      },
+      {
+        "id": "loomline_index_banner_1_3_font_desc_font_size"
+      },
+      {
+        "id": "loomline_index_banner_1_3_font_desc_font_style"
+      },
+      {
+        "id": "loomline_index_banner_1_3_img"
+      },
+      {
+        "id": "loomline_index_banner_1_3_link"
+      },
+      {
+        "id": "loomline_index_banner_1_3_title_1"
+      },
+      {
+        "id": "loomline_index_banner_1_3_title_2"
+      },
+      {
+        "id": "loomline_index_banner_1_3_title_color_1"
+      },
+      {
+        "id": "loomline_index_banner_1_3_title_color_2"
+      },
+      {
+        "id": "loomline_index_banner_1_3_title_font_1_font_size"
+      },
+      {
+        "id": "loomline_index_banner_1_3_title_font_1_font_style"
+      },
+      {
+        "id": "loomline_index_banner_1_3_title_font_2_font_size"
+      },
+      {
+        "id": "loomline_index_banner_1_3_title_font_2_font_style"
+      },
+      {
+        "id": "loomline_index_banner_1_3_video_link"
+      },
+      {
+        "id": "loomline_index_banner_1_4_bg_color"
+      },
+      {
+        "id": "loomline_index_banner_1_4_btn"
+      },
+      {
+        "id": "loomline_index_banner_1_4_color"
+      },
+      {
+        "id": "loomline_index_banner_1_4_color_btn"
+      },
+      {
+        "id": "loomline_index_banner_1_4_color_btn_bg"
+      },
+      {
+        "id": "loomline_index_banner_1_4_color_desc"
+      },
+      {
+        "id": "loomline_index_banner_1_4_desc"
+      },
+      {
+        "id": "loomline_index_banner_1_4_font_btn_font_size"
+      },
+      {
+        "id": "loomline_index_banner_1_4_font_btn_font_style"
+      },
+      {
+        "id": "loomline_index_banner_1_4_font_desc_font_size"
+      },
+      {
+        "id": "loomline_index_banner_1_4_font_desc_font_style"
+      },
+      {
+        "id": "loomline_index_banner_1_4_img"
+      },
+      {
+        "id": "loomline_index_banner_1_4_link"
+      },
+      {
+        "id": "loomline_index_banner_1_4_title_1"
+      },
+      {
+        "id": "loomline_index_banner_1_4_title_2"
+      },
+      {
+        "id": "loomline_index_banner_1_4_title_color_1"
+      },
+      {
+        "id": "loomline_index_banner_1_4_title_color_2"
+      },
+      {
+        "id": "loomline_index_banner_1_4_title_font_1_font_size"
+      },
+      {
+        "id": "loomline_index_banner_1_4_title_font_1_font_style"
+      },
+      {
+        "id": "loomline_index_banner_1_4_title_font_2_font_size"
+      },
+      {
+        "id": "loomline_index_banner_1_4_title_font_2_font_style"
+      },
+      {
+        "id": "loomline_index_banner_1_4_video_link"
+      },
+      {
+        "id": "loomline_index_banner_1_5_bg_color"
+      },
+      {
+        "id": "loomline_index_banner_1_5_btn"
+      },
+      {
+        "id": "loomline_index_banner_1_5_color"
+      },
+      {
+        "id": "loomline_index_banner_1_5_color_btn"
+      },
+      {
+        "id": "loomline_index_banner_1_5_color_btn_bg"
+      },
+      {
+        "id": "loomline_index_banner_1_5_color_desc"
+      },
+      {
+        "id": "loomline_index_banner_1_5_desc"
+      },
+      {
+        "id": "loomline_index_banner_1_5_font_btn_font_size"
+      },
+      {
+        "id": "loomline_index_banner_1_5_font_btn_font_style"
+      },
+      {
+        "id": "loomline_index_banner_1_5_font_desc_font_size"
+      },
+      {
+        "id": "loomline_index_banner_1_5_font_desc_font_style"
+      },
+      {
+        "id": "loomline_index_banner_1_5_img"
+      },
+      {
+        "id": "loomline_index_banner_1_5_link"
+      },
+      {
+        "id": "loomline_index_banner_1_5_title_1"
+      },
+      {
+        "id": "loomline_index_banner_1_5_title_2"
+      },
+      {
+        "id": "loomline_index_banner_1_5_title_color_1"
+      },
+      {
+        "id": "loomline_index_banner_1_5_title_color_2"
+      },
+      {
+        "id": "loomline_index_banner_1_5_title_font_1_font_size"
+      },
+      {
+        "id": "loomline_index_banner_1_5_title_font_1_font_style"
+      },
+      {
+        "id": "loomline_index_banner_1_5_title_font_2_font_size"
+      },
+      {
+        "id": "loomline_index_banner_1_5_title_font_2_font_style"
+      },
+      {
+        "id": "loomline_index_banner_1_5_video_link"
+      },
+      {
+        "id": "loomline_index_banner_1_color_title"
+      },
+      {
+        "id": "loomline_index_banner_1_font_title_font_size"
+      },
+      {
+        "id": "loomline_index_banner_1_font_title_font_style"
+      },
+      {
+        "id": "loomline_index_banner_2_1_btn"
+      },
+      {
+        "id": "loomline_index_banner_2_1_color_btn"
+      },
+      {
+        "id": "loomline_index_banner_2_1_color_btn_bg"
+      },
+      {
+        "id": "loomline_index_banner_2_1_color_title"
+      },
+      {
+        "id": "loomline_index_banner_2_1_font_btn_font_size"
+      },
+      {
+        "id": "loomline_index_banner_2_1_font_btn_font_style"
+      },
+      {
+        "id": "loomline_index_banner_2_1_font_title_font_size"
+      },
+      {
+        "id": "loomline_index_banner_2_1_font_title_font_style"
+      },
+      {
+        "id": "loomline_index_banner_2_1_img"
+      },
+      {
+        "id": "loomline_index_banner_2_1_link"
+      },
+      {
+        "id": "loomline_index_banner_2_1_title"
+      },
+      {
+        "id": "loomline_index_banner_2_1_video_link"
+      },
+      {
+        "id": "loomline_index_banner_2_2_btn"
+      },
+      {
+        "id": "loomline_index_banner_2_2_color_btn"
+      },
+      {
+        "id": "loomline_index_banner_2_2_color_btn_bg"
+      },
+      {
+        "id": "loomline_index_banner_2_2_color_title"
+      },
+      {
+        "id": "loomline_index_banner_2_2_font_btn_font_size"
+      },
+      {
+        "id": "loomline_index_banner_2_2_font_btn_font_style"
+      },
+      {
+        "id": "loomline_index_banner_2_2_font_title_font_size"
+      },
+      {
+        "id": "loomline_index_banner_2_2_font_title_font_style"
+      },
+      {
+        "id": "loomline_index_banner_2_2_img"
+      },
+      {
+        "id": "loomline_index_banner_2_2_link"
+      },
+      {
+        "id": "loomline_index_banner_2_2_title"
+      },
+      {
+        "id": "loomline_index_banner_2_2_video_link"
+      },
+      {
+        "id": "loomline_index_banner_2_3_btn"
+      },
+      {
+        "id": "loomline_index_banner_2_3_color_btn"
+      },
+      {
+        "id": "loomline_index_banner_2_3_color_btn_bg"
+      },
+      {
+        "id": "loomline_index_banner_2_3_color_title"
+      },
+      {
+        "id": "loomline_index_banner_2_3_font_btn_font_size"
+      },
+      {
+        "id": "loomline_index_banner_2_3_font_btn_font_style"
+      },
+      {
+        "id": "loomline_index_banner_2_3_font_title_font_size"
+      },
+      {
+        "id": "loomline_index_banner_2_3_font_title_font_style"
+      },
+      {
+        "id": "loomline_index_banner_2_3_img"
+      },
+      {
+        "id": "loomline_index_banner_2_3_link"
+      },
+      {
+        "id": "loomline_index_banner_2_3_title"
+      },
+      {
+        "id": "loomline_index_banner_2_3_video_link"
+      },
+      {
+        "id": "loomline_index_banner_2_color"
+      },
+      {
+        "id": "loomline_index_banner_2_color_btn"
+      },
+      {
+        "id": "loomline_index_banner_2_color_btn_bg"
+      },
+      {
+        "id": "loomline_index_banner_2_color_title"
+      },
+      {
+        "id": "loomline_index_banner_2_font_btn_font_size"
+      },
+      {
+        "id": "loomline_index_banner_2_font_btn_font_style"
+      },
+      {
+        "id": "loomline_index_banner_2_font_title_font_size"
+      },
+      {
+        "id": "loomline_index_banner_2_font_title_font_style"
+      },
+      {
+        "id": "loomline_index_col_slide1_1_banner_btn"
+      },
+      {
+        "id": "loomline_index_col_slide1_1_banner_color"
+      },
+      {
+        "id": "loomline_index_col_slide1_1_banner_color_btn"
+      },
+      {
+        "id": "loomline_index_col_slide1_1_banner_color_btn_bg"
+      },
+      {
+        "id": "loomline_index_col_slide1_1_banner_font_btn_font_size"
+      },
+      {
+        "id": "loomline_index_col_slide1_1_banner_font_btn_font_style"
+      },
+      {
+        "id": "loomline_index_col_slide1_1_banner_img"
+      },
+      {
+        "id": "loomline_index_col_slide1_1_banner_link"
+      },
+      {
+        "id": "loomline_index_col_slide1_1_banner_title_1"
+      },
+      {
+        "id": "loomline_index_col_slide1_1_banner_title_2"
+      },
+      {
+        "id": "loomline_index_col_slide1_1_banner_title_color_1"
+      },
+      {
+        "id": "loomline_index_col_slide1_1_banner_title_color_2"
+      },
+      {
+        "id": "loomline_index_col_slide1_1_banner_title_font_1_font_size"
+      },
+      {
+        "id": "loomline_index_col_slide1_1_banner_title_font_1_font_style"
+      },
+      {
+        "id": "loomline_index_col_slide1_1_banner_title_font_2_font_size"
+      },
+      {
+        "id": "loomline_index_col_slide1_1_banner_title_font_2_font_style"
+      },
+      {
+        "id": "loomline_index_col_slide1_1_banner_video_link"
+      },
+      {
+        "id": "loomline_index_col_slide1_1_btn"
+      },
+      {
+        "id": "loomline_index_col_slide1_1_col1_color_title"
+      },
+      {
+        "id": "loomline_index_col_slide1_1_col1_font_title_font_size"
+      },
+      {
+        "id": "loomline_index_col_slide1_1_col1_font_title_font_style"
+      },
+      {
+        "id": "loomline_index_col_slide1_1_col1_handle"
+      },
+      {
+        "id": "loomline_index_col_slide1_1_col1_title"
+      },
+      {
+        "id": "loomline_index_col_slide1_1_col2_color_title"
+      },
+      {
+        "id": "loomline_index_col_slide1_1_col2_font_title_font_size"
+      },
+      {
+        "id": "loomline_index_col_slide1_1_col2_font_title_font_style"
+      },
+      {
+        "id": "loomline_index_col_slide1_1_col2_handle"
+      },
+      {
+        "id": "loomline_index_col_slide1_1_col2_title"
+      },
+      {
+        "id": "loomline_index_col_slide1_1_col3_color_title"
+      },
+      {
+        "id": "loomline_index_col_slide1_1_col3_font_title_font_size"
+      },
+      {
+        "id": "loomline_index_col_slide1_1_col3_font_title_font_style"
+      },
+      {
+        "id": "loomline_index_col_slide1_1_col3_handle"
+      },
+      {
+        "id": "loomline_index_col_slide1_1_col3_title"
+      },
+      {
+        "id": "loomline_index_col_slide1_1_color_btn"
+      },
+      {
+        "id": "loomline_index_col_slide1_1_color_btn_bg"
+      },
+      {
+        "id": "loomline_index_col_slide1_1_color_title"
+      },
+      {
+        "id": "loomline_index_col_slide1_1_font_btn_font_size"
+      },
+      {
+        "id": "loomline_index_col_slide1_1_font_btn_font_style"
+      },
+      {
+        "id": "loomline_index_col_slide1_1_font_title_font_size"
+      },
+      {
+        "id": "loomline_index_col_slide1_1_font_title_font_style"
+      },
+      {
+        "id": "loomline_index_col_slide1_1_limit"
+      },
+      {
+        "id": "loomline_index_col_slide1_1_link"
+      },
+      {
+        "id": "loomline_index_col_slide1_1_policy_1"
+      },
+      {
+        "id": "loomline_index_col_slide1_1_policy_2"
+      },
+      {
+        "id": "loomline_index_col_slide1_1_policy_3"
+      },
+      {
+        "id": "loomline_index_col_slide1_1_policy_4"
+      },
+      {
+        "id": "loomline_index_col_slide1_1_policy_5"
+      },
+      {
+        "id": "loomline_index_col_slide1_1_policy_bg_color"
+      },
+      {
+        "id": "loomline_index_col_slide1_1_policy_color"
+      },
+      {
+        "id": "loomline_index_col_slide1_1_title"
+      },
+      {
+        "id": "loomline_index_col_slide2_1_color_title"
+      },
+      {
+        "id": "loomline_index_col_slide2_1_font_title_font_size"
+      },
+      {
+        "id": "loomline_index_col_slide2_1_font_title_font_style"
+      },
+      {
+        "id": "loomline_index_col_slide2_1_handle"
+      },
+      {
+        "id": "loomline_index_col_slide2_1_limit"
+      },
+      {
+        "id": "loomline_index_col_slide2_1_title"
+      },
+      {
+        "id": "loomline_index_collection_tab2_1_color_title"
+      },
+      {
+        "id": "loomline_index_collection_tab2_1_font_title_font_size"
+      },
+      {
+        "id": "loomline_index_collection_tab2_1_font_title_font_style"
+      },
+      {
+        "id": "loomline_index_collection_tab2_1_handle"
+      },
+      {
+        "id": "loomline_index_collection_tab2_1_title"
+      },
+      {
+        "id": "loomline_index_collection_tab2_2_color_title"
+      },
+      {
+        "id": "loomline_index_collection_tab2_2_font_title_font_size"
+      },
+      {
+        "id": "loomline_index_collection_tab2_2_font_title_font_style"
+      },
+      {
+        "id": "loomline_index_collection_tab2_2_handle"
+      },
+      {
+        "id": "loomline_index_collection_tab2_2_title"
+      },
+      {
+        "id": "loomline_index_collection_tab2_3_color_title"
+      },
+      {
+        "id": "loomline_index_collection_tab2_3_font_title_font_size"
+      },
+      {
+        "id": "loomline_index_collection_tab2_3_font_title_font_style"
+      },
+      {
+        "id": "loomline_index_collection_tab2_3_handle"
+      },
+      {
+        "id": "loomline_index_collection_tab2_3_title"
+      },
+      {
+        "id": "loomline_index_collection_tab2_color_btn"
+      },
+      {
+        "id": "loomline_index_collection_tab2_color_btn_bg"
+      },
+      {
+        "id": "loomline_index_collection_tab2_font_btn_font_size"
+      },
+      {
+        "id": "loomline_index_collection_tab2_font_btn_font_style"
+      },
+      {
+        "id": "loomline_index_collection_tab_1_color_title"
+      },
+      {
+        "id": "loomline_index_collection_tab_1_font_title_font_size"
+      },
+      {
+        "id": "loomline_index_collection_tab_1_font_title_font_style"
+      },
+      {
+        "id": "loomline_index_collection_tab_1_handle"
+      },
+      {
+        "id": "loomline_index_collection_tab_1_title"
+      },
+      {
+        "id": "loomline_index_collection_tab_2_color_title"
+      },
+      {
+        "id": "loomline_index_collection_tab_2_font_title_font_size"
+      },
+      {
+        "id": "loomline_index_collection_tab_2_font_title_font_style"
+      },
+      {
+        "id": "loomline_index_collection_tab_2_handle"
+      },
+      {
+        "id": "loomline_index_collection_tab_2_title"
+      },
+      {
+        "id": "loomline_index_collection_tab_3_color_title"
+      },
+      {
+        "id": "loomline_index_collection_tab_3_font_title_font_size"
+      },
+      {
+        "id": "loomline_index_collection_tab_3_font_title_font_style"
+      },
+      {
+        "id": "loomline_index_collection_tab_3_handle"
+      },
+      {
+        "id": "loomline_index_collection_tab_3_title"
+      },
+      {
+        "id": "loomline_index_collection_tab_color_btn"
+      },
+      {
+        "id": "loomline_index_collection_tab_color_btn_bg"
+      },
+      {
+        "id": "loomline_index_collection_tab_font_btn_font_size"
+      },
+      {
+        "id": "loomline_index_collection_tab_font_btn_font_style"
+      },
+      {
+        "id": "loomline_index_faqs_1_desc"
+      },
+      {
+        "id": "loomline_index_faqs_1_title"
+      },
+      {
+        "id": "loomline_index_faqs_2_desc"
+      },
+      {
+        "id": "loomline_index_faqs_2_title"
+      },
+      {
+        "id": "loomline_index_faqs_3_desc"
+      },
+      {
+        "id": "loomline_index_faqs_3_title"
+      },
+      {
+        "id": "loomline_index_faqs_4_desc"
+      },
+      {
+        "id": "loomline_index_faqs_4_title"
+      },
+      {
+        "id": "loomline_index_faqs_5_desc"
+      },
+      {
+        "id": "loomline_index_faqs_5_title"
+      },
+      {
+        "id": "loomline_index_faqs_6_desc"
+      },
+      {
+        "id": "loomline_index_faqs_6_title"
+      },
+      {
+        "id": "loomline_index_faqs_bg_color"
+      },
+      {
+        "id": "loomline_index_faqs_color_btn"
+      },
+      {
+        "id": "loomline_index_faqs_color_btn_bg"
+      },
+      {
+        "id": "loomline_index_faqs_color_desc"
+      },
+      {
+        "id": "loomline_index_faqs_color_title"
+      },
+      {
+        "id": "loomline_index_faqs_font_btn_font_size"
+      },
+      {
+        "id": "loomline_index_faqs_font_btn_font_style"
+      },
+      {
+        "id": "loomline_index_faqs_font_desc_font_size"
+      },
+      {
+        "id": "loomline_index_faqs_font_desc_font_style"
+      },
+      {
+        "id": "loomline_index_faqs_font_title_font_size"
+      },
+      {
+        "id": "loomline_index_faqs_font_title_font_style"
+      },
+      {
+        "id": "loomline_index_faqs_item_color_title"
+      },
+      {
+        "id": "loomline_index_faqs_item_desc_color_title"
+      },
+      {
+        "id": "loomline_index_faqs_item_desc_font_title_font_size"
+      },
+      {
+        "id": "loomline_index_faqs_item_desc_font_title_font_style"
+      },
+      {
+        "id": "loomline_index_faqs_item_font_title_font_size"
+      },
+      {
+        "id": "loomline_index_faqs_item_font_title_font_style"
+      },
+      {
+        "id": "loomline_index_marquee_img_1"
+      },
+      {
+        "id": "loomline_index_marquee_img_2"
+      },
+      {
+        "id": "loomline_index_marquee_img_3"
+      },
+      {
+        "id": "loomline_index_marquee_img_4"
+      },
+      {
+        "id": "loomline_index_marquee_img_5"
+      },
+      {
+        "id": "loomline_index_marquee_img_6"
+      },
+      {
+        "id": "loomline_index_marquee_link_1"
+      },
+      {
+        "id": "loomline_index_marquee_link_2"
+      },
+      {
+        "id": "loomline_index_marquee_link_3"
+      },
+      {
+        "id": "loomline_index_marquee_link_4"
+      },
+      {
+        "id": "loomline_index_marquee_link_5"
+      },
+      {
+        "id": "loomline_index_marquee_link_6"
+      },
+      {
+        "id": "loomline_index_marquee_show_1"
+      },
+      {
+        "id": "loomline_index_marquee_show_2"
+      },
+      {
+        "id": "loomline_index_marquee_show_3"
+      },
+      {
+        "id": "loomline_index_marquee_show_4"
+      },
+      {
+        "id": "loomline_index_marquee_show_5"
+      },
+      {
+        "id": "loomline_index_marquee_show_6"
+      },
+      {
+        "id": "loomline_index_marquee_time"
+      },
+      {
+        "id": "loomline_index_marquee_title_1"
+      },
+      {
+        "id": "loomline_index_marquee_title_2"
+      },
+      {
+        "id": "loomline_index_marquee_title_3"
+      },
+      {
+        "id": "loomline_index_marquee_title_4"
+      },
+      {
+        "id": "loomline_index_marquee_title_5"
+      },
+      {
+        "id": "loomline_index_marquee_title_6"
+      },
+      {
+        "id": "loomline_index_review_10_banner"
+      },
+      {
+        "id": "loomline_index_review_10_desc"
+      },
+      {
+        "id": "loomline_index_review_10_name"
+      },
+      {
+        "id": "loomline_index_review_10_position"
+      },
+      {
+        "id": "loomline_index_review_1_banner"
+      },
+      {
+        "id": "loomline_index_review_1_desc"
+      },
+      {
+        "id": "loomline_index_review_1_name"
+      },
+      {
+        "id": "loomline_index_review_1_position"
+      },
+      {
+        "id": "loomline_index_review_2_banner"
+      },
+      {
+        "id": "loomline_index_review_2_desc"
+      },
+      {
+        "id": "loomline_index_review_2_name"
+      },
+      {
+        "id": "loomline_index_review_2_position"
+      },
+      {
+        "id": "loomline_index_review_3_banner"
+      },
+      {
+        "id": "loomline_index_review_3_desc"
+      },
+      {
+        "id": "loomline_index_review_3_name"
+      },
+      {
+        "id": "loomline_index_review_3_position"
+      },
+      {
+        "id": "loomline_index_review_4_banner"
+      },
+      {
+        "id": "loomline_index_review_4_desc"
+      },
+      {
+        "id": "loomline_index_review_4_name"
+      },
+      {
+        "id": "loomline_index_review_4_position"
+      },
+      {
+        "id": "loomline_index_review_5_banner"
+      },
+      {
+        "id": "loomline_index_review_5_desc"
+      },
+      {
+        "id": "loomline_index_review_5_name"
+      },
+      {
+        "id": "loomline_index_review_5_position"
+      },
+      {
+        "id": "loomline_index_review_6_banner"
+      },
+      {
+        "id": "loomline_index_review_6_desc"
+      },
+      {
+        "id": "loomline_index_review_6_name"
+      },
+      {
+        "id": "loomline_index_review_6_position"
+      },
+      {
+        "id": "loomline_index_review_7_banner"
+      },
+      {
+        "id": "loomline_index_review_7_desc"
+      },
+      {
+        "id": "loomline_index_review_7_name"
+      },
+      {
+        "id": "loomline_index_review_7_position"
+      },
+      {
+        "id": "loomline_index_review_8_banner"
+      },
+      {
+        "id": "loomline_index_review_8_desc"
+      },
+      {
+        "id": "loomline_index_review_8_name"
+      },
+      {
+        "id": "loomline_index_review_8_position"
+      },
+      {
+        "id": "loomline_index_review_9_banner"
+      },
+      {
+        "id": "loomline_index_review_9_desc"
+      },
+      {
+        "id": "loomline_index_review_9_name"
+      },
+      {
+        "id": "loomline_index_review_9_position"
+      },
+      {
+        "id": "loomline_index_review_bg_color"
+      },
+      {
+        "id": "loomline_index_review_color_title"
+      },
+      {
+        "id": "loomline_index_review_font_title_font_size"
+      },
+      {
+        "id": "loomline_index_review_font_title_font_style"
+      },
+      {
+        "id": "loomline_index_review_item_bg_color"
+      },
+      {
+        "id": "loomline_index_review_item_desc_color"
+      },
+      {
+        "id": "loomline_index_review_item_desc_font_title_font_size"
+      },
+      {
+        "id": "loomline_index_review_item_desc_font_title_font_style"
+      },
+      {
+        "id": "loomline_index_review_item_name_color"
+      },
+      {
+        "id": "loomline_index_review_item_name_font_title_font_size"
+      },
+      {
+        "id": "loomline_index_review_item_name_font_title_font_style"
+      },
+      {
+        "id": "loomline_index_review_item_position_color"
+      },
+      {
+        "id": "loomline_index_review_item_position_font_title_font_size"
+      },
+      {
+        "id": "loomline_index_review_item_position_font_title_font_style"
+      },
+      {
+        "id": "loomline_index_slider_1_color_btn"
+      },
+      {
+        "id": "loomline_index_slider_1_color_btn_bg"
+      },
+      {
+        "id": "loomline_index_slider_1_font_btn_font_size"
+      },
+      {
+        "id": "loomline_index_slider_1_font_btn_font_style"
+      },
+      {
+        "id": "loomline_index_slider_1_title_color_1"
+      },
+      {
+        "id": "loomline_index_slider_1_title_color_2"
+      },
+      {
+        "id": "loomline_index_slider_1_title_font_1_font_size"
+      },
+      {
+        "id": "loomline_index_slider_1_title_font_1_font_style"
+      },
+      {
+        "id": "loomline_index_slider_1_title_font_2_font_size"
+      },
+      {
+        "id": "loomline_index_slider_1_title_font_2_font_style"
+      },
+      {
+        "id": "loomline_index_slider_2_btn"
+      },
+      {
+        "id": "loomline_index_slider_2_color_btn"
+      },
+      {
+        "id": "loomline_index_slider_2_color_btn_bg"
+      },
+      {
+        "id": "loomline_index_slider_2_font_btn_font_size"
+      },
+      {
+        "id": "loomline_index_slider_2_font_btn_font_style"
+      },
+      {
+        "id": "loomline_index_slider_2_img"
+      },
+      {
+        "id": "loomline_index_slider_2_link"
+      },
+      {
+        "id": "loomline_index_slider_2_position"
+      },
+      {
+        "id": "loomline_index_slider_2_show"
+      },
+      {
+        "id": "loomline_index_slider_2_title_1"
+      },
+      {
+        "id": "loomline_index_slider_2_title_2"
+      },
+      {
+        "id": "loomline_index_slider_2_title_color_1"
+      },
+      {
+        "id": "loomline_index_slider_2_title_color_2"
+      },
+      {
+        "id": "loomline_index_slider_2_title_font_1_font_size"
+      },
+      {
+        "id": "loomline_index_slider_2_title_font_1_font_style"
+      },
+      {
+        "id": "loomline_index_slider_2_title_font_2_font_size"
+      },
+      {
+        "id": "loomline_index_slider_2_title_font_2_font_style"
+      },
+      {
+        "id": "loomline_index_slider_3_btn"
+      },
+      {
+        "id": "loomline_index_slider_3_color_btn"
+      },
+      {
+        "id": "loomline_index_slider_3_color_btn_bg"
+      },
+      {
+        "id": "loomline_index_slider_3_font_btn_font_size"
+      },
+      {
+        "id": "loomline_index_slider_3_font_btn_font_style"
+      },
+      {
+        "id": "loomline_index_slider_3_img"
+      },
+      {
+        "id": "loomline_index_slider_3_link"
+      },
+      {
+        "id": "loomline_index_slider_3_position"
+      },
+      {
+        "id": "loomline_index_slider_3_show"
+      },
+      {
+        "id": "loomline_index_slider_3_title_1"
+      },
+      {
+        "id": "loomline_index_slider_3_title_2"
+      },
+      {
+        "id": "loomline_index_slider_3_title_color_1"
+      },
+      {
+        "id": "loomline_index_slider_3_title_color_2"
+      },
+      {
+        "id": "loomline_index_slider_3_title_font_1_font_size"
+      },
+      {
+        "id": "loomline_index_slider_3_title_font_1_font_style"
+      },
+      {
+        "id": "loomline_index_slider_3_title_font_2_font_size"
+      },
+      {
+        "id": "loomline_index_slider_3_title_font_2_font_style"
+      },
+      {
+        "id": "loomline_index_slider_4_btn"
+      },
+      {
+        "id": "loomline_index_slider_4_color_btn"
+      },
+      {
+        "id": "loomline_index_slider_4_color_btn_bg"
+      },
+      {
+        "id": "loomline_index_slider_4_font_btn_font_size"
+      },
+      {
+        "id": "loomline_index_slider_4_font_btn_font_style"
+      },
+      {
+        "id": "loomline_index_slider_4_img"
+      },
+      {
+        "id": "loomline_index_slider_4_link"
+      },
+      {
+        "id": "loomline_index_slider_4_position"
+      },
+      {
+        "id": "loomline_index_slider_4_show"
+      },
+      {
+        "id": "loomline_index_slider_4_title_1"
+      },
+      {
+        "id": "loomline_index_slider_4_title_2"
+      },
+      {
+        "id": "loomline_index_slider_4_title_color_1"
+      },
+      {
+        "id": "loomline_index_slider_4_title_color_2"
+      },
+      {
+        "id": "loomline_index_slider_4_title_font_1_font_size"
+      },
+      {
+        "id": "loomline_index_slider_4_title_font_1_font_style"
+      },
+      {
+        "id": "loomline_index_slider_4_title_font_2_font_size"
+      },
+      {
+        "id": "loomline_index_slider_4_title_font_2_font_style"
+      },
+      {
+        "id": "loomline_index_slider_color"
+      },
+      {
+        "id": "loomline_index_tiktok_1_img"
+      },
+      {
+        "id": "loomline_index_tiktok_1_video_link"
+      },
+      {
+        "id": "loomline_index_tiktok_2_img"
+      },
+      {
+        "id": "loomline_index_tiktok_2_video_link"
+      },
+      {
+        "id": "loomline_index_tiktok_3_img"
+      },
+      {
+        "id": "loomline_index_tiktok_3_video_link"
+      },
+      {
+        "id": "loomline_index_tiktok_4_img"
+      },
+      {
+        "id": "loomline_index_tiktok_4_video_link"
+      },
+      {
+        "id": "loomline_index_tiktok_5_img"
+      },
+      {
+        "id": "loomline_index_tiktok_5_video_link"
+      },
+      {
+        "id": "loomline_index_tiktok_color_btn"
+      },
+      {
+        "id": "loomline_index_tiktok_color_btn_bg"
+      },
+      {
+        "id": "loomline_index_tiktok_color_title"
+      },
+      {
+        "id": "loomline_index_tiktok_font_btn_font_size"
+      },
+      {
+        "id": "loomline_index_tiktok_font_btn_font_style"
+      },
+      {
+        "id": "loomline_index_tiktok_font_title_font_size"
+      },
+      {
+        "id": "loomline_index_tiktok_font_title_font_style"
+      },
+      {
+        "id": "loomline_index_video_color_title1"
+      },
+      {
+        "id": "loomline_index_video_color_title2"
+      },
+      {
+        "id": "loomline_index_video_font_title1_font_size"
+      },
+      {
+        "id": "loomline_index_video_font_title1_font_style"
+      },
+      {
+        "id": "loomline_index_video_font_title2_font_size"
+      },
+      {
+        "id": "loomline_index_video_font_title2_font_style"
+      },
+      {
+        "id": "loomline_index_video_tab_1_color_desc"
+      },
+      {
+        "id": "loomline_index_video_tab_1_color_title"
+      },
+      {
+        "id": "loomline_index_video_tab_1_desc"
+      },
+      {
+        "id": "loomline_index_video_tab_1_font_desc_font_size"
+      },
+      {
+        "id": "loomline_index_video_tab_1_font_desc_font_style"
+      },
+      {
+        "id": "loomline_index_video_tab_1_font_title_font_size"
+      },
+      {
+        "id": "loomline_index_video_tab_1_font_title_font_style"
+      },
+      {
+        "id": "loomline_index_video_tab_1_item_1_handle"
+      },
+      {
+        "id": "loomline_index_video_tab_1_item_1_img"
+      },
+      {
+        "id": "loomline_index_video_tab_1_item_1_video_link"
+      },
+      {
+        "id": "loomline_index_video_tab_1_item_2_handle"
+      },
+      {
+        "id": "loomline_index_video_tab_1_item_2_img"
+      },
+      {
+        "id": "loomline_index_video_tab_1_item_2_video_link"
+      },
+      {
+        "id": "loomline_index_video_tab_1_item_3_handle"
+      },
+      {
+        "id": "loomline_index_video_tab_1_item_3_img"
+      },
+      {
+        "id": "loomline_index_video_tab_1_item_3_video_link"
+      },
+      {
+        "id": "loomline_index_video_tab_1_item_4_handle"
+      },
+      {
+        "id": "loomline_index_video_tab_1_item_4_img"
+      },
+      {
+        "id": "loomline_index_video_tab_1_item_4_video_link"
+      },
+      {
+        "id": "loomline_index_video_tab_1_title"
+      },
+      {
+        "id": "loomline_index_video_tab_2_color_desc"
+      },
+      {
+        "id": "loomline_index_video_tab_2_color_title"
+      },
+      {
+        "id": "loomline_index_video_tab_2_desc"
+      },
+      {
+        "id": "loomline_index_video_tab_2_font_desc_font_size"
+      },
+      {
+        "id": "loomline_index_video_tab_2_font_desc_font_style"
+      },
+      {
+        "id": "loomline_index_video_tab_2_font_title_font_size"
+      },
+      {
+        "id": "loomline_index_video_tab_2_font_title_font_style"
+      },
+      {
+        "id": "loomline_index_video_tab_2_item_1_handle"
+      },
+      {
+        "id": "loomline_index_video_tab_2_item_1_img"
+      },
+      {
+        "id": "loomline_index_video_tab_2_item_1_video_link"
+      },
+      {
+        "id": "loomline_index_video_tab_2_item_2_handle"
+      },
+      {
+        "id": "loomline_index_video_tab_2_item_2_img"
+      },
+      {
+        "id": "loomline_index_video_tab_2_item_2_video_link"
+      },
+      {
+        "id": "loomline_index_video_tab_2_item_3_handle"
+      },
+      {
+        "id": "loomline_index_video_tab_2_item_3_img"
+      },
+      {
+        "id": "loomline_index_video_tab_2_item_3_video_link"
+      },
+      {
+        "id": "loomline_index_video_tab_2_item_4_handle"
+      },
+      {
+        "id": "loomline_index_video_tab_2_item_4_img"
+      },
+      {
+        "id": "loomline_index_video_tab_2_item_4_video_link"
+      },
+      {
+        "id": "loomline_index_video_tab_2_title"
+      },
+      {
+        "id": "loomline_index_video_tab_3_color_desc"
+      },
+      {
+        "id": "loomline_index_video_tab_3_color_title"
+      },
+      {
+        "id": "loomline_index_video_tab_3_desc"
+      },
+      {
+        "id": "loomline_index_video_tab_3_font_desc_font_size"
+      },
+      {
+        "id": "loomline_index_video_tab_3_font_desc_font_style"
+      },
+      {
+        "id": "loomline_index_video_tab_3_font_title_font_size"
+      },
+      {
+        "id": "loomline_index_video_tab_3_font_title_font_style"
+      },
+      {
+        "id": "loomline_index_video_tab_3_item_1_handle"
+      },
+      {
+        "id": "loomline_index_video_tab_3_item_1_img"
+      },
+      {
+        "id": "loomline_index_video_tab_3_item_1_video_link"
+      },
+      {
+        "id": "loomline_index_video_tab_3_item_2_handle"
+      },
+      {
+        "id": "loomline_index_video_tab_3_item_2_img"
+      },
+      {
+        "id": "loomline_index_video_tab_3_item_2_video_link"
+      },
+      {
+        "id": "loomline_index_video_tab_3_item_3_handle"
+      },
+      {
+        "id": "loomline_index_video_tab_3_item_3_img"
+      },
+      {
+        "id": "loomline_index_video_tab_3_item_3_video_link"
+      },
+      {
+        "id": "loomline_index_video_tab_3_item_4_handle"
+      },
+      {
+        "id": "loomline_index_video_tab_3_item_4_img"
+      },
+      {
+        "id": "loomline_index_video_tab_3_item_4_video_link"
+      },
+      {
+        "id": "loomline_index_video_tab_3_title"
+      },
+      {
+        "id": "loomline_index_video_tab_4_color_desc"
+      },
+      {
+        "id": "loomline_index_video_tab_4_color_title"
+      },
+      {
+        "id": "loomline_index_video_tab_4_desc"
+      },
+      {
+        "id": "loomline_index_video_tab_4_font_desc_font_size"
+      },
+      {
+        "id": "loomline_index_video_tab_4_font_desc_font_style"
+      },
+      {
+        "id": "loomline_index_video_tab_4_font_title_font_size"
+      },
+      {
+        "id": "loomline_index_video_tab_4_font_title_font_style"
+      },
+      {
+        "id": "loomline_index_video_tab_4_item_1_handle"
+      },
+      {
+        "id": "loomline_index_video_tab_4_item_1_img"
+      },
+      {
+        "id": "loomline_index_video_tab_4_item_1_video_link"
+      },
+      {
+        "id": "loomline_index_video_tab_4_item_2_handle"
+      },
+      {
+        "id": "loomline_index_video_tab_4_item_2_img"
+      },
+      {
+        "id": "loomline_index_video_tab_4_item_2_video_link"
+      },
+      {
+        "id": "loomline_index_video_tab_4_item_3_handle"
+      },
+      {
+        "id": "loomline_index_video_tab_4_item_3_img"
+      },
+      {
+        "id": "loomline_index_video_tab_4_item_3_video_link"
+      },
+      {
+        "id": "loomline_index_video_tab_4_item_4_handle"
+      },
+      {
+        "id": "loomline_index_video_tab_4_item_4_img"
+      },
+      {
+        "id": "loomline_index_video_tab_4_item_4_video_link"
+      },
+      {
+        "id": "loomline_index_video_tab_4_title"
+      },
+      {
+        "id": "loomline_mainmenu_link_font_size"
+      },
+      {
+        "id": "loomline_mainmenu_link_font_style"
+      },
+      {
+        "id": "loomline_mini_cart_item_1_color_title"
+      },
+      {
+        "id": "loomline_mini_cart_item_1_font_title_font_size"
+      },
+      {
+        "id": "loomline_mini_cart_item_1_font_title_font_style"
+      },
+      {
+        "id": "loomline_mini_cart_item_1_img"
+      },
+      {
+        "id": "loomline_mini_cart_item_1_link"
+      },
+      {
+        "id": "loomline_mini_cart_item_1_title"
+      },
+      {
+        "id": "loomline_mini_cart_item_2_color_title"
+      },
+      {
+        "id": "loomline_mini_cart_item_2_font_title_font_size"
+      },
+      {
+        "id": "loomline_mini_cart_item_2_font_title_font_style"
+      },
+      {
+        "id": "loomline_mini_cart_item_2_img"
+      },
+      {
+        "id": "loomline_mini_cart_item_2_link"
+      },
+      {
+        "id": "loomline_mini_cart_item_2_title"
+      },
+      {
+        "id": "loomline_mini_cart_item_3_color_title"
+      },
+      {
+        "id": "loomline_mini_cart_item_3_font_title_font_size"
+      },
+      {
+        "id": "loomline_mini_cart_item_3_font_title_font_style"
+      },
+      {
+        "id": "loomline_mini_cart_item_3_img"
+      },
+      {
+        "id": "loomline_mini_cart_item_3_link"
+      },
+      {
+        "id": "loomline_mini_cart_item_3_title"
+      },
+      {
+        "id": "loomline_mini_cart_item_4_color_title"
+      },
+      {
+        "id": "loomline_mini_cart_item_4_font_title_font_size"
+      },
+      {
+        "id": "loomline_mini_cart_item_4_font_title_font_style"
+      },
+      {
+        "id": "loomline_mini_cart_item_4_img"
+      },
+      {
+        "id": "loomline_mini_cart_item_4_link"
+      },
+      {
+        "id": "loomline_mini_cart_item_4_title"
+      },
+      {
+        "id": "loomline_product_add_cart_title"
+      },
+      {
+        "id": "loomline_product_bg_color"
+      },
+      {
+        "id": "loomline_product_buy_now_title"
+      },
+      {
+        "id": "loomline_product_color"
+      },
+      {
+        "id": "loomline_product_faqs_item_color_title"
+      },
+      {
+        "id": "loomline_product_faqs_item_desc_color_title"
+      },
+      {
+        "id": "loomline_product_faqs_item_desc_font_title_font_size"
+      },
+      {
+        "id": "loomline_product_faqs_item_desc_font_title_font_style"
+      },
+      {
+        "id": "loomline_product_faqs_item_font_title_font_size"
+      },
+      {
+        "id": "loomline_product_faqs_item_font_title_font_style"
+      },
+      {
+        "id": "loomline_section_index_1"
+      },
+      {
+        "id": "loomline_section_index_10"
+      },
+      {
+        "id": "loomline_section_index_11"
+      },
+      {
+        "id": "loomline_section_index_12"
+      },
+      {
+        "id": "loomline_section_index_13"
+      },
+      {
+        "id": "loomline_section_index_2"
+      },
+      {
+        "id": "loomline_section_index_3"
+      },
+      {
+        "id": "loomline_section_index_4"
+      },
+      {
+        "id": "loomline_section_index_5"
+      },
+      {
+        "id": "loomline_section_index_6"
+      },
+      {
+        "id": "loomline_section_index_7"
+      },
+      {
+        "id": "loomline_section_index_8"
+      },
+      {
+        "id": "loomline_section_index_9"
+      },
+      {
+        "id": "loomline_toolbar_icon_msg_bg_color"
+      },
+      {
+        "id": "loomline_toolbar_icon_phone_bg_color"
+      },
+      {
+        "id": "loomline_toolbar_icon_stores_bg_color"
+      },
+      {
+        "id": "loomline_toolbar_icon_zalo_bg_color"
+      },
+      {
+        "id": "loomline_topbar_marquee_bg_color"
+      },
+      {
+        "id": "loomline_topbar_marquee_color"
+      },
+      {
+        "id": "loomline_topbar_marquee_time"
+      },
+      {
+        "id": "page_menu_color_title"
+      },
+      {
+        "id": "page_menu_font_title_font_size"
+      },
+      {
+        "id": "page_menu_font_title_font_style"
+      },
+      {
+        "id": "popup_contact_bkg"
+      },
+      {
+        "id": "popup_contact_color_title"
+      },
+      {
+        "id": "popup_contact_description_1"
+      },
+      {
+        "id": "popup_contact_description_2"
+      },
+      {
+        "id": "popup_contact_description_3"
+      },
+      {
+        "id": "popup_contact_font_title_font_size"
+      },
+      {
+        "id": "popup_contact_font_title_font_style"
+      },
+      {
+        "id": "popup_discount_color_title"
+      },
+      {
+        "id": "popup_discount_font_title_font_size"
+      },
+      {
+        "id": "popup_discount_font_title_font_style"
+      },
+      {
+        "id": "prod_pricezero_color_title"
+      },
+      {
+        "id": "prod_pricezero_color_title_bg"
+      },
+      {
+        "id": "prod_pricezero_font_title_font_size"
+      },
+      {
+        "id": "product_breadcrumb_bg_dk"
+      },
+      {
+        "id": "product_breadcrumb_bg_mb"
+      },
+      {
+        "id": "product_content_title"
+      },
+      {
+        "id": "product_deliverly_1_ico"
+      },
+      {
+        "id": "product_deliverly_1_show"
+      },
+      {
+        "id": "product_deliverly_1_text"
+      },
+      {
+        "id": "product_deliverly_2_ico"
+      },
+      {
+        "id": "product_deliverly_2_show"
+      },
+      {
+        "id": "product_deliverly_2_text"
+      },
+      {
+        "id": "product_deliverly_3_ico"
+      },
+      {
+        "id": "product_deliverly_3_show"
+      },
+      {
+        "id": "product_deliverly_3_text"
+      },
+      {
+        "id": "product_deliverly_4_ico"
+      },
+      {
+        "id": "product_deliverly_4_show"
+      },
+      {
+        "id": "product_deliverly_4_text"
+      },
+      {
+        "id": "product_deliverly_5_ico"
+      },
+      {
+        "id": "product_deliverly_5_show"
+      },
+      {
+        "id": "product_deliverly_5_text"
+      },
+      {
+        "id": "product_deliverly_6_ico"
+      },
+      {
+        "id": "product_deliverly_6_show"
+      },
+      {
+        "id": "product_deliverly_6_text"
+      },
+      {
+        "id": "product_deliverly_color_txt1"
+      },
+      {
+        "id": "product_deliverly_color_txt2"
+      },
+      {
+        "id": "product_deliverly_font_txt1_font_size"
+      },
+      {
+        "id": "product_deliverly_font_txt1_font_style"
+      },
+      {
+        "id": "product_deliverly_font_txt2_font_size"
+      },
+      {
+        "id": "product_deliverly_font_txt2_font_style"
+      },
+      {
+        "id": "product_faq_color_title"
+      },
+      {
+        "id": "product_faq_font_title_font_size"
+      },
+      {
+        "id": "product_faq_font_title_font_style"
+      },
+      {
+        "id": "product_loop_price_color_text"
+      },
+      {
+        "id": "product_loop_price_del_color_text"
+      },
+      {
+        "id": "product_loop_price_del_font_size"
+      },
+      {
+        "id": "product_loop_price_del_font_style"
+      },
+      {
+        "id": "product_loop_price_font_size"
+      },
+      {
+        "id": "product_loop_price_font_style"
+      },
+      {
+        "id": "product_loop_title_color_text"
+      },
+      {
+        "id": "product_loop_title_font_size"
+      },
+      {
+        "id": "product_loop_title_font_style"
+      },
+      {
+        "id": "product_related_color_title"
+      },
+      {
+        "id": "product_related_font_title_font_size"
+      },
+      {
+        "id": "product_related_font_title_font_style"
+      },
+      {
+        "id": "product_related_show"
+      },
+      {
+        "id": "product_viewed_color_title"
+      },
+      {
+        "id": "product_viewed_font_title_font_size"
+      },
+      {
+        "id": "product_viewed_font_title_font_style"
+      },
+      {
+        "id": "product_viewed_show"
+      },
+      {
+        "id": "sale_popup_count_show"
+      },
+      {
+        "id": "sale_popup_customers"
+      },
+      {
+        "id": "sale_popup_time_ago"
+      },
+      {
+        "id": "sale_popup_time_delay_between"
+      },
+      {
+        "id": "sale_popup_time_delay_popup"
+      },
+      {
+        "id": "share_fb_home"
+      },
+      {
+        "id": "shop_article_bg_color"
+      },
+      {
+        "id": "shop_article_border_color"
+      },
+      {
+        "id": "shop_article_link_color"
+      },
+      {
+        "id": "shop_color_bg"
+      },
+      {
+        "id": "shop_main_button_color"
+      },
+      {
+        "id": "shop_main_button_text_color"
+      },
+      {
+        "id": "shop_text_color"
+      },
+      {
+        "id": "shop_text_hover_color"
+      },
+      {
+        "id": "show_collection_breadcrumb"
+      },
+      {
+        "id": "show_collection_breadcrumb_bg"
+      },
+      {
+        "id": "show_loomline_about_us_about_1"
+      },
+      {
+        "id": "show_loomline_about_us_about_2"
+      },
+      {
+        "id": "show_loomline_about_us_about_3"
+      },
+      {
+        "id": "show_loomline_about_us_about_4"
+      },
+      {
+        "id": "show_loomline_about_us_faqs"
+      },
+      {
+        "id": "show_loomline_about_us_marquee"
+      },
+      {
+        "id": "show_loomline_contact_form"
+      },
+      {
+        "id": "show_loomline_contact_info"
+      },
+      {
+        "id": "show_loomline_footer_payment"
+      },
+      {
+        "id": "show_loomline_footer_payment_1"
+      },
+      {
+        "id": "show_loomline_footer_payment_2"
+      },
+      {
+        "id": "show_loomline_footer_payment_3"
+      },
+      {
+        "id": "show_loomline_footer_payment_4"
+      },
+      {
+        "id": "show_loomline_footer_payment_5"
+      },
+      {
+        "id": "show_loomline_footer_payment_6"
+      },
+      {
+        "id": "show_loomline_header_account"
+      },
+      {
+        "id": "show_loomline_header_search"
+      },
+      {
+        "id": "show_loomline_index_banner_1_1"
+      },
+      {
+        "id": "show_loomline_index_banner_1_1_video"
+      },
+      {
+        "id": "show_loomline_index_banner_1_2"
+      },
+      {
+        "id": "show_loomline_index_banner_1_2_video"
+      },
+      {
+        "id": "show_loomline_index_banner_1_3"
+      },
+      {
+        "id": "show_loomline_index_banner_1_3_video"
+      },
+      {
+        "id": "show_loomline_index_banner_1_4"
+      },
+      {
+        "id": "show_loomline_index_banner_1_4_video"
+      },
+      {
+        "id": "show_loomline_index_banner_1_5"
+      },
+      {
+        "id": "show_loomline_index_banner_1_5_video"
+      },
+      {
+        "id": "show_loomline_index_banner_2_1"
+      },
+      {
+        "id": "show_loomline_index_banner_2_1_video"
+      },
+      {
+        "id": "show_loomline_index_banner_2_2"
+      },
+      {
+        "id": "show_loomline_index_banner_2_2_video"
+      },
+      {
+        "id": "show_loomline_index_banner_2_3"
+      },
+      {
+        "id": "show_loomline_index_banner_2_3_video"
+      },
+      {
+        "id": "show_loomline_index_col_slide1_1_banner_video"
+      },
+      {
+        "id": "show_loomline_index_col_slide1_1_col1"
+      },
+      {
+        "id": "show_loomline_index_col_slide1_1_col2"
+      },
+      {
+        "id": "show_loomline_index_col_slide1_1_col3"
+      },
+      {
+        "id": "show_loomline_index_collection_tab2_1"
+      },
+      {
+        "id": "show_loomline_index_collection_tab2_2"
+      },
+      {
+        "id": "show_loomline_index_collection_tab2_3"
+      },
+      {
+        "id": "show_loomline_index_collection_tab_1"
+      },
+      {
+        "id": "show_loomline_index_collection_tab_2"
+      },
+      {
+        "id": "show_loomline_index_collection_tab_3"
+      },
+      {
+        "id": "show_loomline_index_review_1"
+      },
+      {
+        "id": "show_loomline_index_review_10"
+      },
+      {
+        "id": "show_loomline_index_review_2"
+      },
+      {
+        "id": "show_loomline_index_review_3"
+      },
+      {
+        "id": "show_loomline_index_review_4"
+      },
+      {
+        "id": "show_loomline_index_review_5"
+      },
+      {
+        "id": "show_loomline_index_review_6"
+      },
+      {
+        "id": "show_loomline_index_review_7"
+      },
+      {
+        "id": "show_loomline_index_review_8"
+      },
+      {
+        "id": "show_loomline_index_review_9"
+      },
+      {
+        "id": "show_loomline_index_tiktok_1"
+      },
+      {
+        "id": "show_loomline_index_tiktok_1_video"
+      },
+      {
+        "id": "show_loomline_index_tiktok_2"
+      },
+      {
+        "id": "show_loomline_index_tiktok_2_video"
+      },
+      {
+        "id": "show_loomline_index_tiktok_3"
+      },
+      {
+        "id": "show_loomline_index_tiktok_3_video"
+      },
+      {
+        "id": "show_loomline_index_tiktok_4"
+      },
+      {
+        "id": "show_loomline_index_tiktok_4_video"
+      },
+      {
+        "id": "show_loomline_index_tiktok_5"
+      },
+      {
+        "id": "show_loomline_index_tiktok_5_video"
+      },
+      {
+        "id": "show_loomline_index_video_tab_1"
+      },
+      {
+        "id": "show_loomline_index_video_tab_1_item_1"
+      },
+      {
+        "id": "show_loomline_index_video_tab_1_item_1_video"
+      },
+      {
+        "id": "show_loomline_index_video_tab_1_item_2"
+      },
+      {
+        "id": "show_loomline_index_video_tab_1_item_2_video"
+      },
+      {
+        "id": "show_loomline_index_video_tab_1_item_3"
+      },
+      {
+        "id": "show_loomline_index_video_tab_1_item_3_video"
+      },
+      {
+        "id": "show_loomline_index_video_tab_1_item_4"
+      },
+      {
+        "id": "show_loomline_index_video_tab_1_item_4_video"
+      },
+      {
+        "id": "show_loomline_index_video_tab_2"
+      },
+      {
+        "id": "show_loomline_index_video_tab_2_item_1"
+      },
+      {
+        "id": "show_loomline_index_video_tab_2_item_1_video"
+      },
+      {
+        "id": "show_loomline_index_video_tab_2_item_2"
+      },
+      {
+        "id": "show_loomline_index_video_tab_2_item_2_video"
+      },
+      {
+        "id": "show_loomline_index_video_tab_2_item_3"
+      },
+      {
+        "id": "show_loomline_index_video_tab_2_item_3_video"
+      },
+      {
+        "id": "show_loomline_index_video_tab_2_item_4"
+      },
+      {
+        "id": "show_loomline_index_video_tab_2_item_4_video"
+      },
+      {
+        "id": "show_loomline_index_video_tab_3"
+      },
+      {
+        "id": "show_loomline_index_video_tab_3_item_1"
+      },
+      {
+        "id": "show_loomline_index_video_tab_3_item_1_video"
+      },
+      {
+        "id": "show_loomline_index_video_tab_3_item_2"
+      },
+      {
+        "id": "show_loomline_index_video_tab_3_item_2_video"
+      },
+      {
+        "id": "show_loomline_index_video_tab_3_item_3"
+      },
+      {
+        "id": "show_loomline_index_video_tab_3_item_3_video"
+      },
+      {
+        "id": "show_loomline_index_video_tab_3_item_4"
+      },
+      {
+        "id": "show_loomline_index_video_tab_3_item_4_video"
+      },
+      {
+        "id": "show_loomline_index_video_tab_4"
+      },
+      {
+        "id": "show_loomline_index_video_tab_4_item_1"
+      },
+      {
+        "id": "show_loomline_index_video_tab_4_item_1_video"
+      },
+      {
+        "id": "show_loomline_index_video_tab_4_item_2"
+      },
+      {
+        "id": "show_loomline_index_video_tab_4_item_2_video"
+      },
+      {
+        "id": "show_loomline_index_video_tab_4_item_3"
+      },
+      {
+        "id": "show_loomline_index_video_tab_4_item_3_video"
+      },
+      {
+        "id": "show_loomline_index_video_tab_4_item_4"
+      },
+      {
+        "id": "show_loomline_index_video_tab_4_item_4_video"
+      },
+      {
+        "id": "show_loomline_mini_cart_item_1"
+      },
+      {
+        "id": "show_loomline_mini_cart_item_2"
+      },
+      {
+        "id": "show_loomline_mini_cart_item_3"
+      },
+      {
+        "id": "show_loomline_mini_cart_item_4"
+      },
+      {
+        "id": "show_product_breadcrumb"
+      },
+      {
+        "id": "show_product_breadcrumb_bg"
+      },
+      {
+        "id": "tag_title_custom_color_2"
+      },
+      {
+        "id": "tag_title_custom_color_3"
+      },
+      {
+        "id": "tag_title_custom_font_2_font_size"
+      },
+      {
+        "id": "tag_title_custom_font_2_font_style"
+      },
+      {
+        "id": "tag_title_custom_font_3_font_size"
+      },
+      {
+        "id": "tag_title_custom_font_3_font_style"
+      },
+      {
+        "id": "title_color_review"
+      },
+      {
+        "id": "title_font_review_font_size"
+      },
+      {
+        "id": "title_font_review_font_style"
+      },
+      {
+        "id": "title_list_color_col"
+      },
+      {
+        "id": "title_list_font_col_font_size"
+      },
+      {
+        "id": "title_list_font_col_font_style"
+      },
+      {
+        "id": "title_product_btn_color_bottom"
+      },
+      {
+        "id": "title_product_btn_color_bottom_bg"
+      },
+      {
+        "id": "title_product_btn_font_bottom_font_size"
+      },
+      {
+        "id": "title_tag_color_3"
+      },
+      {
+        "id": "title_tag_font_3_font_size"
+      },
+      {
+        "id": "title_tag_font_3_font_style"
+      },
+      {
+        "id": "type_color_title"
+      },
+      {
+        "id": "type_font_title_font_size"
+      },
+      {
+        "id": "type_font_title_font_style"
+      },
+      {
+        "id": "use_color_filter_1"
+      },
+      {
+        "id": "use_color_filter_10"
+      },
+      {
+        "id": "use_color_filter_11"
+      },
+      {
+        "id": "use_color_filter_12"
+      },
+      {
+        "id": "use_color_filter_13"
+      },
+      {
+        "id": "use_color_filter_14"
+      },
+      {
+        "id": "use_color_filter_15"
+      },
+      {
+        "id": "use_color_filter_16"
+      },
+      {
+        "id": "use_color_filter_17"
+      },
+      {
+        "id": "use_color_filter_18"
+      },
+      {
+        "id": "use_color_filter_19"
+      },
+      {
+        "id": "use_color_filter_2"
+      },
+      {
+        "id": "use_color_filter_20"
+      },
+      {
+        "id": "use_color_filter_21"
+      },
+      {
+        "id": "use_color_filter_22"
+      },
+      {
+        "id": "use_color_filter_23"
+      },
+      {
+        "id": "use_color_filter_24"
+      },
+      {
+        "id": "use_color_filter_25"
+      },
+      {
+        "id": "use_color_filter_26"
+      },
+      {
+        "id": "use_color_filter_27"
+      },
+      {
+        "id": "use_color_filter_28"
+      },
+      {
+        "id": "use_color_filter_29"
+      },
+      {
+        "id": "use_color_filter_3"
+      },
+      {
+        "id": "use_color_filter_30"
+      },
+      {
+        "id": "use_color_filter_4"
+      },
+      {
+        "id": "use_color_filter_5"
+      },
+      {
+        "id": "use_color_filter_6"
+      },
+      {
+        "id": "use_color_filter_7"
+      },
+      {
+        "id": "use_color_filter_8"
+      },
+      {
+        "id": "use_color_filter_9"
+      },
+      {
+        "id": "vendor_color_title"
+      },
+      {
+        "id": "vendor_font_title_font_size"
+      },
+      {
+        "id": "vendor_font_title_font_style"
+      }
+    ],
+    "failures": [
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "add_to_cart_show",
+        "detail": "settings.add_to_cart_show is read in snippets/product-loop-horizontal.liquid but is not declared in config/settings_schema.json"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "addthis_iconList_show",
+        "detail": "settings.addthis_iconList_show is read in layout/theme.liquid but is not declared in config/settings_schema.json"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "appbuyxgety_icon",
+        "detail": "settings.appbuyxgety_icon is read in snippets/product-loop-horizontal.liquid but is not declared in config/settings_schema.json"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "cart_deliverytime_end",
+        "detail": "settings.cart_deliverytime_end is read in templates/cart.liquid but is not declared in config/settings_schema.json"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "cart_deliverytime_start",
+        "detail": "settings.cart_deliverytime_start is read in templates/cart.liquid but is not declared in config/settings_schema.json"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "code_messenger_mb",
+        "detail": "settings.code_messenger_mb is read in snippets/template-product-01.liquid, snippets/template-product-02.liquid, snippets/template-product-03.liquid, snippets/template-product-04.liquid, templates/product.quickview.liquid but is not declared in config/settings_schema.json"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "collection_preorder",
+        "detail": "settings.collection_preorder is read in snippets/sidebar-action-product.liquid, templates/product.ll-viewed.liquid, templates/product.quickview.liquid but is not declared in config/settings_schema.json"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "dh_form_booking",
+        "detail": "settings.dh_form_booking is read in snippets/index-form.liquid but is not declared in config/settings_schema.json"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "dh_form_date",
+        "detail": "settings.dh_form_date is read in snippets/index-form.liquid but is not declared in config/settings_schema.json"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "dh_form_email",
+        "detail": "settings.dh_form_email is read in snippets/index-form.liquid but is not declared in config/settings_schema.json"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "dh_form_full_name",
+        "detail": "settings.dh_form_full_name is read in snippets/index-form.liquid but is not declared in config/settings_schema.json"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "dh_form_phone",
+        "detail": "settings.dh_form_phone is read in snippets/index-form.liquid but is not declared in config/settings_schema.json"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "dh_form_pro_booking",
+        "detail": "settings.dh_form_pro_booking is read in snippets/ll-index-form.liquid but is not declared in config/settings_schema.json"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "dh_form_service",
+        "detail": "settings.dh_form_service is read in snippets/index-form.liquid but is not declared in config/settings_schema.json"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "dh_form_success",
+        "detail": "settings.dh_form_success is read in snippets/modal-success.liquid but is not declared in config/settings_schema.json"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "dh_form_time",
+        "detail": "settings.dh_form_time is read in snippets/index-form.liquid but is not declared in config/settings_schema.json"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "dh_gg_date",
+        "detail": "settings.dh_gg_date is read in snippets/index-form.liquid but is not declared in config/settings_schema.json"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "dh_gg_email",
+        "detail": "settings.dh_gg_email is read in snippets/index-form.liquid but is not declared in config/settings_schema.json"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "dh_gg_full_name",
+        "detail": "settings.dh_gg_full_name is read in snippets/index-form.liquid but is not declared in config/settings_schema.json"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "dh_gg_link_form",
+        "detail": "settings.dh_gg_link_form is read in snippets/ll-index-form.liquid but is not declared in config/settings_schema.json"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "dh_gg_phone",
+        "detail": "settings.dh_gg_phone is read in snippets/index-form.liquid but is not declared in config/settings_schema.json"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "dh_gg_service",
+        "detail": "settings.dh_gg_service is read in snippets/index-form.liquid but is not declared in config/settings_schema.json"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "dh_gg_time",
+        "detail": "settings.dh_gg_time is read in snippets/index-form.liquid but is not declared in config/settings_schema.json"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "fanpage_faceook",
+        "detail": "settings.fanpage_faceook is read in snippets/facebook-widget.liquid but is not declared in config/settings_schema.json"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "fb_chat",
+        "detail": "settings.fb_chat is read in snippets/haravan-fb-messages.liquid but is not declared in config/settings_schema.json"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "fb_chat_title",
+        "detail": "settings.fb_chat_title is read in snippets/haravan-fb-messages.liquid but is not declared in config/settings_schema.json"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "header_account_show",
+        "detail": "settings.header_account_show is read in snippets/mini-location.liquid but is not declared in config/settings_schema.json"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "header_info_mail",
+        "detail": "settings.header_info_mail is read in snippets/sidebar-main.liquid but is not declared in config/settings_schema.json"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "header_info_phone",
+        "detail": "settings.header_info_phone is read in snippets/sidebar-main.liquid but is not declared in config/settings_schema.json"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "header_info_social_show",
+        "detail": "settings.header_info_social_show is read in snippets/sidebar-main.liquid but is not declared in config/settings_schema.json"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "header_inventory_province",
+        "detail": "settings.header_inventory_province is read in snippets/mini-location.liquid but is not declared in config/settings_schema.json"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "header_inventory_show",
+        "detail": "settings.header_inventory_show is read in snippets/footer-scripts.liquid but is not declared in config/settings_schema.json"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "header_live_code",
+        "detail": "settings.header_live_code is read in snippets/modal-live.liquid but is not declared in config/settings_schema.json"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "header_social_link_facebook",
+        "detail": "settings.header_social_link_facebook is read in snippets/sidebar-main.liquid but is not declared in config/settings_schema.json"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "header_social_link_instagram",
+        "detail": "settings.header_social_link_instagram is read in snippets/sidebar-main.liquid but is not declared in config/settings_schema.json"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "header_social_link_lazada",
+        "detail": "settings.header_social_link_lazada is read in snippets/sidebar-main.liquid but is not declared in config/settings_schema.json"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "header_social_link_shopee",
+        "detail": "settings.header_social_link_shopee is read in snippets/sidebar-main.liquid but is not declared in config/settings_schema.json"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "header_social_link_tiktok",
+        "detail": "settings.header_social_link_tiktok is read in snippets/sidebar-main.liquid but is not declared in config/settings_schema.json"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "header_social_link_youtube",
+        "detail": "settings.header_social_link_youtube is read in snippets/sidebar-main.liquid but is not declared in config/settings_schema.json"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "home_coll_1_banner_btn",
+        "detail": "settings.home_coll_1_banner_btn is read in snippets/home-collection-tabs.liquid but is not declared in config/settings_schema.json"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "home_coll_1_banner_desc",
+        "detail": "settings.home_coll_1_banner_desc is read in snippets/home-collection-tabs.liquid but is not declared in config/settings_schema.json"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "home_coll_1_banner_link",
+        "detail": "settings.home_coll_1_banner_link is read in snippets/home-collection-tabs.liquid but is not declared in config/settings_schema.json"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "home_coll_1_banner_show",
+        "detail": "settings.home_coll_1_banner_show is read in snippets/home-collection-tabs.liquid but is not declared in config/settings_schema.json"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "home_coll_1_banner_title",
+        "detail": "settings.home_coll_1_banner_title is read in snippets/home-collection-tabs.liquid but is not declared in config/settings_schema.json"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "home_coll_1_navtabs_limit",
+        "detail": "settings.home_coll_1_navtabs_limit is read in snippets/home-collection-tabs.liquid but is not declared in config/settings_schema.json"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "home_coll_1_navtabs_show",
+        "detail": "settings.home_coll_1_navtabs_show is read in snippets/home-collection-tabs.liquid but is not declared in config/settings_schema.json"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "home_coll_1_navtabs_title",
+        "detail": "settings.home_coll_1_navtabs_title is read in snippets/home-collection-tabs.liquid but is not declared in config/settings_schema.json"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "home_collection_4_btn",
+        "detail": "settings.home_collection_4_btn is read in snippets/homepage-collection.liquid but is not declared in config/settings_schema.json"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "home_collection_4_handle",
+        "detail": "settings.home_collection_4_handle is read in snippets/homepage-collection.liquid but is not declared in config/settings_schema.json"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "home_collection_4_show",
+        "detail": "settings.home_collection_4_show is read in snippets/homepage-collection.liquid but is not declared in config/settings_schema.json"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "home_collection_4_title",
+        "detail": "settings.home_collection_4_title is read in snippets/homepage-collection.liquid but is not declared in config/settings_schema.json"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "home_collection_4_titlelink",
+        "detail": "settings.home_collection_4_titlelink is read in snippets/homepage-collection.liquid but is not declared in config/settings_schema.json"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "home_collection_4_txt1",
+        "detail": "settings.home_collection_4_txt1 is read in snippets/homepage-collection.liquid but is not declared in config/settings_schema.json"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "home_collection_4_txt2",
+        "detail": "settings.home_collection_4_txt2 is read in snippets/homepage-collection.liquid but is not declared in config/settings_schema.json"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "home_collection_4_txt3",
+        "detail": "settings.home_collection_4_txt3 is read in snippets/homepage-collection.liquid but is not declared in config/settings_schema.json"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "home_collection_banner_link",
+        "detail": "settings.home_collection_banner_link is read in snippets/home-collection-tabs.liquid but is not declared in config/settings_schema.json"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "home_collection_tabs_1_handle",
+        "detail": "settings.home_collection_tabs_1_handle is read in snippets/home-collection-tabs.liquid but is not declared in config/settings_schema.json"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "home_collection_tabs_1_title",
+        "detail": "settings.home_collection_tabs_1_title is read in snippets/home-collection-tabs.liquid but is not declared in config/settings_schema.json"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "home_navtabs_limit_desk",
+        "detail": "settings.home_navtabs_limit_desk is read in snippets/home-collection-tabs.liquid but is not declared in config/settings_schema.json"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "home_navtabs_limit_mb",
+        "detail": "settings.home_navtabs_limit_mb is read in snippets/home-collection-tabs.liquid but is not declared in config/settings_schema.json"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "hrloyalty_icon_used",
+        "detail": "settings.hrloyalty_icon_used is read in snippets/footer-scripts.liquid, snippets/mini-account.liquid, snippets/sidebar-account.liquid, templates/customers[account].liquid, templates/customers[account].member.liquid, templates/customers[addresses].liquid, templates/customers[order].liquid but is not declared in config/settings_schema.json"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "lbl_address1",
+        "detail": "settings.lbl_address1 is read in templates/customers[addresses].liquid but is not declared in config/settings_schema.json"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "lbl_address2",
+        "detail": "settings.lbl_address2 is read in templates/customers[addresses].liquid but is not declared in config/settings_schema.json"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "lbl_company",
+        "detail": "settings.lbl_company is read in templates/customers[addresses].liquid but is not declared in config/settings_schema.json"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "lbl_first_name",
+        "detail": "settings.lbl_first_name is read in templates/customers[addresses].liquid but is not declared in config/settings_schema.json"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "lbl_last_name",
+        "detail": "settings.lbl_last_name is read in templates/customers[addresses].liquid but is not declared in config/settings_schema.json"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "lbl_phone",
+        "detail": "settings.lbl_phone is read in templates/customers[addresses].liquid but is not declared in config/settings_schema.json"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "loomline_index_form_title",
+        "detail": "settings.loomline_index_form_title is read in snippets/ll-index-form.liquid but is not declared in config/settings_schema.json"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "loomline_index_slider_1_alt",
+        "detail": "settings.loomline_index_slider_1_alt is read in snippets/ll-index-slider.liquid but is not declared in config/settings_schema.json"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "membercard_offer_link",
+        "detail": "settings.membercard_offer_link is read in templates/customers[account].member.liquid but is not declared in config/settings_schema.json"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "membercard_offer_show",
+        "detail": "settings.membercard_offer_show is read in templates/customers[account].member.liquid but is not declared in config/settings_schema.json"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "membercard_offer_title",
+        "detail": "settings.membercard_offer_title is read in templates/customers[account].member.liquid but is not declared in config/settings_schema.json"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "membercard_offer_txtlink",
+        "detail": "settings.membercard_offer_txtlink is read in templates/customers[account].member.liquid but is not declared in config/settings_schema.json"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "mini_cart_linkreturn",
+        "detail": "settings.mini_cart_linkreturn is read in snippets/mini-cart.liquid but is not declared in config/settings_schema.json"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "mini_cart_name",
+        "detail": "settings.mini_cart_name is read in snippets/mini-cart.liquid but is not declared in config/settings_schema.json"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "popup_promotion_title",
+        "detail": "settings.popup_promotion_title is read in snippets/popup-contact.liquid but is not declared in config/settings_schema.json"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "preorder_text_btn",
+        "detail": "settings.preorder_text_btn is read in snippets/modal-preorder.liquid, snippets/template-product-01.liquid, snippets/template-product-02.liquid, snippets/template-product-03.liquid, snippets/template-product-04.liquid, templates/product.quickview.liquid but is not declared in config/settings_schema.json"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "preorder_text_btn_popup",
+        "detail": "settings.preorder_text_btn_popup is read in snippets/modal-preorder.liquid, templates/product.quickview.liquid but is not declared in config/settings_schema.json"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "preorder_text_btn_prodloop",
+        "detail": "settings.preorder_text_btn_prodloop is read in snippets/product-loop--ctas.liquid, snippets/sidebar-action-product.liquid but is not declared in config/settings_schema.json"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "prod_resize_img",
+        "detail": "settings.prod_resize_img is read in snippets/product-loadding.liquid but is not declared in config/settings_schema.json"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "prod_vendor_show",
+        "detail": "settings.prod_vendor_show is read in snippets/template-product-01.liquid, snippets/template-product-02.liquid, snippets/template-product-03.liquid, snippets/template-product-04.liquid, templates/product.ll-quickview.liquid, templates/product.quickview.liquid but is not declared in config/settings_schema.json"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "product_banner_link",
+        "detail": "settings.product_banner_link is read in snippets/template-product-01.liquid but is not declared in config/settings_schema.json"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "product_banner_show",
+        "detail": "settings.product_banner_show is read in snippets/template-product-01.liquid but is not declared in config/settings_schema.json"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "product_contact_title",
+        "detail": "settings.product_contact_title is read in templates/product.ll-quickview.liquid, templates/product.quickview.liquid but is not declared in config/settings_schema.json"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "product_contact_url",
+        "detail": "settings.product_contact_url is read in templates/product.ll-quickview.liquid, templates/product.quickview.liquid but is not declared in config/settings_schema.json"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "product_grid_mobile",
+        "detail": "settings.product_grid_mobile is read in snippets/product-loop--ctas.liquid but is not declared in config/settings_schema.json"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "product_layout_style",
+        "detail": "settings.product_layout_style is read in snippets/footer-scripts.liquid, snippets/plugins-css.liquid but is not declared in config/settings_schema.json"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "shop_buying",
+        "detail": "settings.shop_buying is read in snippets/product-loop-horizontal.liquid, snippets/template-product-01.liquid, snippets/template-product-02.liquid, snippets/template-product-03.liquid, snippets/template-product-04.liquid, templates/product.quickview.liquid but is not declared in config/settings_schema.json"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "shop_main_color",
+        "detail": "settings.shop_main_color is read in snippets/mini-location.liquid but is not declared in config/settings_schema.json"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "show_fanpage_faceook",
+        "detail": "settings.show_fanpage_faceook is read in snippets/facebook-widget.liquid but is not declared in config/settings_schema.json"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "slide_1_btn",
+        "detail": "settings.slide_1_btn is read in snippets/homepage-slider.liquid but is not declared in config/settings_schema.json"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "slide_1_desc",
+        "detail": "settings.slide_1_desc is read in snippets/homepage-slider.liquid but is not declared in config/settings_schema.json"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "slide_1_link",
+        "detail": "settings.slide_1_link is read in snippets/homepage-slider.liquid but is not declared in config/settings_schema.json"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "slide_1_title",
+        "detail": "settings.slide_1_title is read in snippets/homepage-slider.liquid but is not declared in config/settings_schema.json"
+      },
+      {
+        "rule": "SETTING_UNDECLARED",
+        "id": "tagsize_title",
+        "detail": "settings.tagsize_title is read in snippets/modal-sizeguide.liquid but is not declared in config/settings_schema.json"
+      }
+    ]
+  },
+  "assets": {
+    "ok": false,
+    "counts": {
+      "localPresent": 78,
+      "localMissing": 6,
+      "remote": 0
+    },
+    "localMissing": [
+      {
+        "ref": "blogs_banner_paralax.jpg",
+        "files": [
+          "templates/article.liquid"
+        ]
+      },
+      {
+        "ref": "home_coll_1_banner.jpg",
+        "files": [
+          "snippets/home-collection-tabs.liquid"
+        ]
+      },
+      {
+        "ref": "home_collection_banner.jpg",
+        "files": [
+          "snippets/homepage-collection.liquid"
+        ]
+      },
+      {
+        "ref": "loomline_index_form_img.jpg",
+        "files": [
+          "snippets/ll-index-form.liquid"
+        ]
+      },
+      {
+        "ref": "slide_1_img.jpg",
+        "files": [
+          "snippets/homepage-slider.liquid"
+        ]
+      },
+      {
+        "ref": "slide_1_img_mb.jpg",
+        "files": [
+          "snippets/homepage-slider.liquid"
+        ]
+      }
+    ],
+    "remote": []
+  },
+  "renders": [
+    {
+      "file": "404__1024x900.html",
+      "ok": true,
+      "failures": []
+    },
+    {
+      "file": "404__1440x900.html",
+      "ok": true,
+      "failures": []
+    },
+    {
+      "file": "404__390x844.html",
+      "ok": true,
+      "failures": []
+    },
+    {
+      "file": "article__390x844.html",
+      "ok": true,
+      "failures": []
+    },
+    {
+      "file": "cart__1024x900.html",
+      "ok": true,
+      "failures": []
+    },
+    {
+      "file": "cart__390x844.html",
+      "ok": true,
+      "failures": []
+    },
+    {
+      "file": "collection__1024x900.html",
+      "ok": true,
+      "failures": []
+    },
+    {
+      "file": "collection__1440x900.html",
+      "ok": true,
+      "failures": []
+    },
+    {
+      "file": "collection__390x844.html",
+      "ok": true,
+      "failures": []
+    },
+    {
+      "file": "home__390x844.html",
+      "ok": true,
+      "failures": []
+    },
+    {
+      "file": "product__1024x900.html",
+      "ok": true,
+      "failures": []
+    },
+    {
+      "file": "product__390x844.html",
+      "ok": true,
+      "failures": []
+    },
+    {
+      "file": "search__1024x900.html",
+      "ok": true,
+      "failures": []
+    },
+    {
+      "file": "search__390x844.html",
+      "ok": true,
+      "failures": []
+    }
+  ],
+  "refusals": [
+    {
+      "check": "settings-binding",
+      "failures": [
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "add_to_cart_show",
+          "detail": "settings.add_to_cart_show is read in snippets/product-loop-horizontal.liquid but is not declared in config/settings_schema.json"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "addthis_iconList_show",
+          "detail": "settings.addthis_iconList_show is read in layout/theme.liquid but is not declared in config/settings_schema.json"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "appbuyxgety_icon",
+          "detail": "settings.appbuyxgety_icon is read in snippets/product-loop-horizontal.liquid but is not declared in config/settings_schema.json"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "cart_deliverytime_end",
+          "detail": "settings.cart_deliverytime_end is read in templates/cart.liquid but is not declared in config/settings_schema.json"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "cart_deliverytime_start",
+          "detail": "settings.cart_deliverytime_start is read in templates/cart.liquid but is not declared in config/settings_schema.json"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "code_messenger_mb",
+          "detail": "settings.code_messenger_mb is read in snippets/template-product-01.liquid, snippets/template-product-02.liquid, snippets/template-product-03.liquid, snippets/template-product-04.liquid, templates/product.quickview.liquid but is not declared in config/settings_schema.json"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "collection_preorder",
+          "detail": "settings.collection_preorder is read in snippets/sidebar-action-product.liquid, templates/product.ll-viewed.liquid, templates/product.quickview.liquid but is not declared in config/settings_schema.json"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "dh_form_booking",
+          "detail": "settings.dh_form_booking is read in snippets/index-form.liquid but is not declared in config/settings_schema.json"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "dh_form_date",
+          "detail": "settings.dh_form_date is read in snippets/index-form.liquid but is not declared in config/settings_schema.json"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "dh_form_email",
+          "detail": "settings.dh_form_email is read in snippets/index-form.liquid but is not declared in config/settings_schema.json"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "dh_form_full_name",
+          "detail": "settings.dh_form_full_name is read in snippets/index-form.liquid but is not declared in config/settings_schema.json"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "dh_form_phone",
+          "detail": "settings.dh_form_phone is read in snippets/index-form.liquid but is not declared in config/settings_schema.json"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "dh_form_pro_booking",
+          "detail": "settings.dh_form_pro_booking is read in snippets/ll-index-form.liquid but is not declared in config/settings_schema.json"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "dh_form_service",
+          "detail": "settings.dh_form_service is read in snippets/index-form.liquid but is not declared in config/settings_schema.json"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "dh_form_success",
+          "detail": "settings.dh_form_success is read in snippets/modal-success.liquid but is not declared in config/settings_schema.json"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "dh_form_time",
+          "detail": "settings.dh_form_time is read in snippets/index-form.liquid but is not declared in config/settings_schema.json"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "dh_gg_date",
+          "detail": "settings.dh_gg_date is read in snippets/index-form.liquid but is not declared in config/settings_schema.json"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "dh_gg_email",
+          "detail": "settings.dh_gg_email is read in snippets/index-form.liquid but is not declared in config/settings_schema.json"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "dh_gg_full_name",
+          "detail": "settings.dh_gg_full_name is read in snippets/index-form.liquid but is not declared in config/settings_schema.json"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "dh_gg_link_form",
+          "detail": "settings.dh_gg_link_form is read in snippets/ll-index-form.liquid but is not declared in config/settings_schema.json"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "dh_gg_phone",
+          "detail": "settings.dh_gg_phone is read in snippets/index-form.liquid but is not declared in config/settings_schema.json"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "dh_gg_service",
+          "detail": "settings.dh_gg_service is read in snippets/index-form.liquid but is not declared in config/settings_schema.json"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "dh_gg_time",
+          "detail": "settings.dh_gg_time is read in snippets/index-form.liquid but is not declared in config/settings_schema.json"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "fanpage_faceook",
+          "detail": "settings.fanpage_faceook is read in snippets/facebook-widget.liquid but is not declared in config/settings_schema.json"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "fb_chat",
+          "detail": "settings.fb_chat is read in snippets/haravan-fb-messages.liquid but is not declared in config/settings_schema.json"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "fb_chat_title",
+          "detail": "settings.fb_chat_title is read in snippets/haravan-fb-messages.liquid but is not declared in config/settings_schema.json"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "header_account_show",
+          "detail": "settings.header_account_show is read in snippets/mini-location.liquid but is not declared in config/settings_schema.json"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "header_info_mail",
+          "detail": "settings.header_info_mail is read in snippets/sidebar-main.liquid but is not declared in config/settings_schema.json"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "header_info_phone",
+          "detail": "settings.header_info_phone is read in snippets/sidebar-main.liquid but is not declared in config/settings_schema.json"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "header_info_social_show",
+          "detail": "settings.header_info_social_show is read in snippets/sidebar-main.liquid but is not declared in config/settings_schema.json"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "header_inventory_province",
+          "detail": "settings.header_inventory_province is read in snippets/mini-location.liquid but is not declared in config/settings_schema.json"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "header_inventory_show",
+          "detail": "settings.header_inventory_show is read in snippets/footer-scripts.liquid but is not declared in config/settings_schema.json"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "header_live_code",
+          "detail": "settings.header_live_code is read in snippets/modal-live.liquid but is not declared in config/settings_schema.json"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "header_social_link_facebook",
+          "detail": "settings.header_social_link_facebook is read in snippets/sidebar-main.liquid but is not declared in config/settings_schema.json"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "header_social_link_instagram",
+          "detail": "settings.header_social_link_instagram is read in snippets/sidebar-main.liquid but is not declared in config/settings_schema.json"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "header_social_link_lazada",
+          "detail": "settings.header_social_link_lazada is read in snippets/sidebar-main.liquid but is not declared in config/settings_schema.json"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "header_social_link_shopee",
+          "detail": "settings.header_social_link_shopee is read in snippets/sidebar-main.liquid but is not declared in config/settings_schema.json"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "header_social_link_tiktok",
+          "detail": "settings.header_social_link_tiktok is read in snippets/sidebar-main.liquid but is not declared in config/settings_schema.json"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "header_social_link_youtube",
+          "detail": "settings.header_social_link_youtube is read in snippets/sidebar-main.liquid but is not declared in config/settings_schema.json"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "home_coll_1_banner_btn",
+          "detail": "settings.home_coll_1_banner_btn is read in snippets/home-collection-tabs.liquid but is not declared in config/settings_schema.json"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "home_coll_1_banner_desc",
+          "detail": "settings.home_coll_1_banner_desc is read in snippets/home-collection-tabs.liquid but is not declared in config/settings_schema.json"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "home_coll_1_banner_link",
+          "detail": "settings.home_coll_1_banner_link is read in snippets/home-collection-tabs.liquid but is not declared in config/settings_schema.json"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "home_coll_1_banner_show",
+          "detail": "settings.home_coll_1_banner_show is read in snippets/home-collection-tabs.liquid but is not declared in config/settings_schema.json"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "home_coll_1_banner_title",
+          "detail": "settings.home_coll_1_banner_title is read in snippets/home-collection-tabs.liquid but is not declared in config/settings_schema.json"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "home_coll_1_navtabs_limit",
+          "detail": "settings.home_coll_1_navtabs_limit is read in snippets/home-collection-tabs.liquid but is not declared in config/settings_schema.json"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "home_coll_1_navtabs_show",
+          "detail": "settings.home_coll_1_navtabs_show is read in snippets/home-collection-tabs.liquid but is not declared in config/settings_schema.json"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "home_coll_1_navtabs_title",
+          "detail": "settings.home_coll_1_navtabs_title is read in snippets/home-collection-tabs.liquid but is not declared in config/settings_schema.json"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "home_collection_4_btn",
+          "detail": "settings.home_collection_4_btn is read in snippets/homepage-collection.liquid but is not declared in config/settings_schema.json"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "home_collection_4_handle",
+          "detail": "settings.home_collection_4_handle is read in snippets/homepage-collection.liquid but is not declared in config/settings_schema.json"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "home_collection_4_show",
+          "detail": "settings.home_collection_4_show is read in snippets/homepage-collection.liquid but is not declared in config/settings_schema.json"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "home_collection_4_title",
+          "detail": "settings.home_collection_4_title is read in snippets/homepage-collection.liquid but is not declared in config/settings_schema.json"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "home_collection_4_titlelink",
+          "detail": "settings.home_collection_4_titlelink is read in snippets/homepage-collection.liquid but is not declared in config/settings_schema.json"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "home_collection_4_txt1",
+          "detail": "settings.home_collection_4_txt1 is read in snippets/homepage-collection.liquid but is not declared in config/settings_schema.json"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "home_collection_4_txt2",
+          "detail": "settings.home_collection_4_txt2 is read in snippets/homepage-collection.liquid but is not declared in config/settings_schema.json"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "home_collection_4_txt3",
+          "detail": "settings.home_collection_4_txt3 is read in snippets/homepage-collection.liquid but is not declared in config/settings_schema.json"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "home_collection_banner_link",
+          "detail": "settings.home_collection_banner_link is read in snippets/home-collection-tabs.liquid but is not declared in config/settings_schema.json"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "home_collection_tabs_1_handle",
+          "detail": "settings.home_collection_tabs_1_handle is read in snippets/home-collection-tabs.liquid but is not declared in config/settings_schema.json"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "home_collection_tabs_1_title",
+          "detail": "settings.home_collection_tabs_1_title is read in snippets/home-collection-tabs.liquid but is not declared in config/settings_schema.json"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "home_navtabs_limit_desk",
+          "detail": "settings.home_navtabs_limit_desk is read in snippets/home-collection-tabs.liquid but is not declared in config/settings_schema.json"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "home_navtabs_limit_mb",
+          "detail": "settings.home_navtabs_limit_mb is read in snippets/home-collection-tabs.liquid but is not declared in config/settings_schema.json"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "hrloyalty_icon_used",
+          "detail": "settings.hrloyalty_icon_used is read in snippets/footer-scripts.liquid, snippets/mini-account.liquid, snippets/sidebar-account.liquid, templates/customers[account].liquid, templates/customers[account].member.liquid, templates/customers[addresses].liquid, templates/customers[order].liquid but is not declared in config/settings_schema.json"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "lbl_address1",
+          "detail": "settings.lbl_address1 is read in templates/customers[addresses].liquid but is not declared in config/settings_schema.json"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "lbl_address2",
+          "detail": "settings.lbl_address2 is read in templates/customers[addresses].liquid but is not declared in config/settings_schema.json"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "lbl_company",
+          "detail": "settings.lbl_company is read in templates/customers[addresses].liquid but is not declared in config/settings_schema.json"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "lbl_first_name",
+          "detail": "settings.lbl_first_name is read in templates/customers[addresses].liquid but is not declared in config/settings_schema.json"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "lbl_last_name",
+          "detail": "settings.lbl_last_name is read in templates/customers[addresses].liquid but is not declared in config/settings_schema.json"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "lbl_phone",
+          "detail": "settings.lbl_phone is read in templates/customers[addresses].liquid but is not declared in config/settings_schema.json"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "loomline_index_form_title",
+          "detail": "settings.loomline_index_form_title is read in snippets/ll-index-form.liquid but is not declared in config/settings_schema.json"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "loomline_index_slider_1_alt",
+          "detail": "settings.loomline_index_slider_1_alt is read in snippets/ll-index-slider.liquid but is not declared in config/settings_schema.json"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "membercard_offer_link",
+          "detail": "settings.membercard_offer_link is read in templates/customers[account].member.liquid but is not declared in config/settings_schema.json"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "membercard_offer_show",
+          "detail": "settings.membercard_offer_show is read in templates/customers[account].member.liquid but is not declared in config/settings_schema.json"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "membercard_offer_title",
+          "detail": "settings.membercard_offer_title is read in templates/customers[account].member.liquid but is not declared in config/settings_schema.json"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "membercard_offer_txtlink",
+          "detail": "settings.membercard_offer_txtlink is read in templates/customers[account].member.liquid but is not declared in config/settings_schema.json"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "mini_cart_linkreturn",
+          "detail": "settings.mini_cart_linkreturn is read in snippets/mini-cart.liquid but is not declared in config/settings_schema.json"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "mini_cart_name",
+          "detail": "settings.mini_cart_name is read in snippets/mini-cart.liquid but is not declared in config/settings_schema.json"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "popup_promotion_title",
+          "detail": "settings.popup_promotion_title is read in snippets/popup-contact.liquid but is not declared in config/settings_schema.json"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "preorder_text_btn",
+          "detail": "settings.preorder_text_btn is read in snippets/modal-preorder.liquid, snippets/template-product-01.liquid, snippets/template-product-02.liquid, snippets/template-product-03.liquid, snippets/template-product-04.liquid, templates/product.quickview.liquid but is not declared in config/settings_schema.json"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "preorder_text_btn_popup",
+          "detail": "settings.preorder_text_btn_popup is read in snippets/modal-preorder.liquid, templates/product.quickview.liquid but is not declared in config/settings_schema.json"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "preorder_text_btn_prodloop",
+          "detail": "settings.preorder_text_btn_prodloop is read in snippets/product-loop--ctas.liquid, snippets/sidebar-action-product.liquid but is not declared in config/settings_schema.json"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "prod_resize_img",
+          "detail": "settings.prod_resize_img is read in snippets/product-loadding.liquid but is not declared in config/settings_schema.json"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "prod_vendor_show",
+          "detail": "settings.prod_vendor_show is read in snippets/template-product-01.liquid, snippets/template-product-02.liquid, snippets/template-product-03.liquid, snippets/template-product-04.liquid, templates/product.ll-quickview.liquid, templates/product.quickview.liquid but is not declared in config/settings_schema.json"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "product_banner_link",
+          "detail": "settings.product_banner_link is read in snippets/template-product-01.liquid but is not declared in config/settings_schema.json"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "product_banner_show",
+          "detail": "settings.product_banner_show is read in snippets/template-product-01.liquid but is not declared in config/settings_schema.json"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "product_contact_title",
+          "detail": "settings.product_contact_title is read in templates/product.ll-quickview.liquid, templates/product.quickview.liquid but is not declared in config/settings_schema.json"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "product_contact_url",
+          "detail": "settings.product_contact_url is read in templates/product.ll-quickview.liquid, templates/product.quickview.liquid but is not declared in config/settings_schema.json"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "product_grid_mobile",
+          "detail": "settings.product_grid_mobile is read in snippets/product-loop--ctas.liquid but is not declared in config/settings_schema.json"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "product_layout_style",
+          "detail": "settings.product_layout_style is read in snippets/footer-scripts.liquid, snippets/plugins-css.liquid but is not declared in config/settings_schema.json"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "shop_buying",
+          "detail": "settings.shop_buying is read in snippets/product-loop-horizontal.liquid, snippets/template-product-01.liquid, snippets/template-product-02.liquid, snippets/template-product-03.liquid, snippets/template-product-04.liquid, templates/product.quickview.liquid but is not declared in config/settings_schema.json"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "shop_main_color",
+          "detail": "settings.shop_main_color is read in snippets/mini-location.liquid but is not declared in config/settings_schema.json"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "show_fanpage_faceook",
+          "detail": "settings.show_fanpage_faceook is read in snippets/facebook-widget.liquid but is not declared in config/settings_schema.json"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "slide_1_btn",
+          "detail": "settings.slide_1_btn is read in snippets/homepage-slider.liquid but is not declared in config/settings_schema.json"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "slide_1_desc",
+          "detail": "settings.slide_1_desc is read in snippets/homepage-slider.liquid but is not declared in config/settings_schema.json"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "slide_1_link",
+          "detail": "settings.slide_1_link is read in snippets/homepage-slider.liquid but is not declared in config/settings_schema.json"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "slide_1_title",
+          "detail": "settings.slide_1_title is read in snippets/homepage-slider.liquid but is not declared in config/settings_schema.json"
+        },
+        {
+          "rule": "SETTING_UNDECLARED",
+          "id": "tagsize_title",
+          "detail": "settings.tagsize_title is read in snippets/modal-sizeguide.liquid but is not declared in config/settings_schema.json"
+        }
+      ]
+    },
+    {
+      "check": "assets",
+      "failures": [
+        {
+          "rule": "ASSET_MISSING_LOCAL",
+          "ref": "blogs_banner_paralax.jpg",
+          "files": [
+            "templates/article.liquid"
+          ]
+        },
+        {
+          "rule": "ASSET_MISSING_LOCAL",
+          "ref": "home_coll_1_banner.jpg",
+          "files": [
+            "snippets/home-collection-tabs.liquid"
+          ]
+        },
+        {
+          "rule": "ASSET_MISSING_LOCAL",
+          "ref": "home_collection_banner.jpg",
+          "files": [
+            "snippets/homepage-collection.liquid"
+          ]
+        },
+        {
+          "rule": "ASSET_MISSING_LOCAL",
+          "ref": "loomline_index_form_img.jpg",
+          "files": [
+            "snippets/ll-index-form.liquid"
+          ]
+        },
+        {
+          "rule": "ASSET_MISSING_LOCAL",
+          "ref": "slide_1_img.jpg",
+          "files": [
+            "snippets/homepage-slider.liquid"
+          ]
+        },
+        {
+          "rule": "ASSET_MISSING_LOCAL",
+          "ref": "slide_1_img_mb.jpg",
+          "files": [
+            "snippets/homepage-slider.liquid"
+          ]
+        }
+      ]
+    }
+  ]
+}
