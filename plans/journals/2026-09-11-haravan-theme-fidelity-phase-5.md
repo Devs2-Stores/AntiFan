@@ -82,12 +82,14 @@ leg, because a verdict set is complete or it is refused — a missing artifact i
 21 legs structurally uncapturable, no set can be complete, so no pair verdict exists to publish. The
 report assembled anyway and named all 49 gaps; it did not publish `current.json`.
 
-Structural checks (``checks``): the child **refused** — `checks.json` records `status: REFUSED`,
-`childExitCode: 3`, `childRefusal: "[theme-checks] REFUSED (exit 3): settings-binding, assets"`, and
-`report.json.provenance.checks` carries the same `REFUSED` with `structural.ok false` and 2 refusals. A
-readable structural artifact makes a checks refusal a carried finding rather than pipeline death
-(`theme-fidelity-run.mjs:1496,1521-1526`). An earlier note here recorded "exit 0 with findings"; that was
-a shell reading taken through a pipe and is withdrawn — the child exited 3. The findings: `config/settings_schema.json` parses; the theme
+Structural checks (``checks``): two exit codes describe this stage. The child `scripts/theme-checks.mjs`
+**refused** — `checks.json` records `status: REFUSED`, `childExitCode: 3`,
+`childRefusal: "[theme-checks] REFUSED (exit 3): settings-binding, assets"`, and
+`report.json.provenance.checks` carries the same `REFUSED` with `structural.ok false` and 2 refusals,
+reproduced by a bare re-run of the child. The driver **stage** returned `EXIT.OK` (0) by design, because a
+readable structural artifact makes a refusal a carried finding rather than pipeline death
+(`theme-fidelity-run.mjs:1494,1529`; `EXIT` at `:90`). An earlier note here named only the stage's 0; both
+codes are now recorded. The findings: `config/settings_schema.json` parses; the theme
 declares 0 sections; 95 settings reads are undeclared by that schema (`add_to_cart_show`,
 `cart_deliverytime_start/end`, `code_messenger_mb`, …); 78 local assets present, 6 referenced but missing
 from the source. Reproduced on the real theme directory twice, and the false-positive probe holds: sampled

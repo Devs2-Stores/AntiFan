@@ -107,9 +107,11 @@ diagnostic.
 `checks` ran over the real theme directory and every captured document and **refused** it: the stage
 record in `.canary/theme-fidelity-run4/checks.json` is `status: REFUSED` with `childExitCode: 3` and the
 child's own text `[theme-checks] REFUSED (exit 3): settings-binding, assets`, and
-`report.json.provenance.checks` carries the same refusal (`structural.ok false`, 2 refusals). A readable
-structural artifact makes that a carried finding rather than pipeline death, so the driver completed and
-named it in the report rather than exiting. The findings: `config/settings_schema.json`
+`report.json.provenance.checks` carries the same refusal (`structural.ok false`, 2 refusals). The child
+`scripts/theme-checks.mjs` exits 3 whenever its refusal list is non-empty (`:85-88`); the driver stage
+returned `EXIT.OK` (0) by design, because a readable structural artifact makes that a carried finding
+rather than pipeline death (`.canary/tools/theme-fidelity-run.mjs:1494,1529`). So the report names the
+refusal and the driver still completed. The findings: `config/settings_schema.json`
 parses, the theme declares 0 sections, 95 settings reads are undeclared by that schema
 (`add_to_cart_show`, `cart_deliverytime_start/end`, `code_messenger_mb`, …), 78 local assets present with
 6 referenced but absent from the source. Reports: `.canary/theme-fidelity-run4/structural.json`

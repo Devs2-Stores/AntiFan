@@ -8,7 +8,9 @@
 - Mode: best-of-N read-only detection (5 candidates) → verifier union → advice checkpoints →
   repair of the validated union → full re-run.
 - Change surface: 14 test/script files modified, 1 test file deleted, `package.json` gained one lane.
-  Zero production files (`src/**`, `packages/*/src/**` non-test, `.canary/tools/**`) touched.
+  Zero production files (`src/**`, `packages/*/src/**` non-test, `.canary/tools/**`) touched. Two further
+  artifacts in the working tree are not part of this change set: the suite itself rewrites them on every
+  run (§6.1).
 
 ## 1. Method and its limits
 
@@ -69,7 +71,7 @@ Each entry: what was deceptive → what changed → why the repair is load-beari
 | # | Site | Defect | Repair |
 |---|---|---|---|
 | 1 | `scripts/run-certify-soak.cjs:30-33` | `process.exit(code \|\| 0)` — a child killed by a signal reports `code === null`, so a torn-down soak published exit 0 and the wrapper reported success for a run that never finished. | `process.exit(code ?? (signal ? 1 : 0))` — a signal death is now a non-zero exit. |
-| 2 | `scripts/copy-static.mjs:12-27` | Nested empty `catch` swallowed a failed copy; a static asset that never landed left `npm run compile` green while the app ran without it. | Both attempts rethrow with source, destination and both error messages. Plus `:60-65` (silent give-up after three attempts to prepend the exports fallback) and `:82-86` (swallowed write of the shared terminal-write-dispatcher into `src/renderer`) now fail the compile with the path that could not be written. |
+| 2 | `scripts/copy-static.mjs:12-27` | Nested empty `catch` swallowed a failed copy; a static asset that never landed left `npm run compile` green while the app ran without it. | Both attempts rethrow with source, destination and both error messages. Plus `:60-65` (silent give-up after three attempts to prepend the exports fallback) and `:82-86` (swallowed write of the shared terminal-write-dispatcher into `src/renderer`) now fail the compile with the path that could not be written. The second attempt is deliberately retained and the rethrow carries the target path plus both error codes, because the destinations live under `.compiled/` and a live Electron plane holds those files: verified by running `node scripts/copy-static.mjs` once with the plane up — exit 0, assets copied (`.canary/state/audit-copy-static-probe.log`). |
 
 ### 3.2 Tests that could not fail
 
@@ -95,7 +97,7 @@ Each entry: what was deceptive → what changed → why the repair is load-beari
 |---|---|---|---|
 | 13 | `test/e2e/terminal-rename-space.test.cjs:1-171` | A real 171-line Electron harness reached by no runner: `test:e2e` globs `.compiled/test/e2e/**/*.test.js`, which cannot match a `.cjs`. | Ran standalone first (exit 0, all checks passed: the intermediate value with spaces survived, the rename input was removed, and main received `{ id: 'session-1', name: 'Dev Server 1' }`), then wired into a dedicated lane `test:terminal-rename` following the existing `test:terminal-transport` pattern (`package.json:62`). Deliberately not added to the default chain. |
 | 14 | `test/main/windows-acl.test.ts:164-166` and `:33` | The committed test carried this machine's real account SID (`S-1-5-21-1032163931-1416832417-2285110504-1001`) and real developer paths (`C:\Users\Admin\...`, `D:\Work\...`). | Replaced with a synthetic SID and generic paths; the assertions assert the strings are embedded in the generated ACL spec, so they remain green. |
-| 15 | `test/unit/dump-ref-slider-sanitization.test.mjs:1-70` | The file asserted the opposite of shipped behaviour: it tested a test-local `sanitizeSlidersInDom` that exists nowhere in production, while `.canary/tools/dump-ref.mjs:100-108` documents that slider geometry is deliberately preserved so the evidence can carry real layout. Satisfying it would have meant shipping the evidence-degrading behaviour. | Deleted, with the repo-wide absence of the subject re-verified before deletion (only the verifier's own union file, git's index and one historical journal mention the name). |
+| 15 | `test/unit/dump-ref-slider-sanitization.test.mjs:1-70` | The file asserted the opposite of shipped behaviour: it tested a test-local `sanitizeSlidersInDom` — a function defined inside the test's own body, with hand-built mock DOM nodes — that exists nowhere in production, while `.canary/tools/dump-ref.mjs:100-108` documents that slider geometry is deliberately preserved so the evidence can carry real layout. Satisfying it would have meant shipping the evidence-degrading behaviour. | Deleted, with the repo-wide absence of the subject re-verified before deletion (only the verifier's own union file, git's index and one historical journal mention the name). Its class is **outdated**, not **redundant**: the skill's coverage-diff precondition governs redundancy deletions, and this file's subject has no production counterpart, so by inspection it exercised no production path and no coverage could be lost. The audit's one redundancy-class candidate (`test/main/multitasking-decoupled-tab.test.ts:244-271`) was deferred, not applied, because the phase-02 suite's equivalence could not be proven. |
 
 ## 4. Report-only findings — real defects whose test repair would diverge from production
 
@@ -107,10 +109,16 @@ are reported, not edited.
    for viewports the workflow never measured. Production awards the pass in
    `src/main/qa/theme-qa-workflow.ts:715-745` (`{ mismatchPercent: null, passed: true, measured: false }`,
    `visualScore = 100`). The gate is fail-open for unmeasured viewports by construction.
-2. `test/main/phase-02-agent-plane-authority.test.ts:616-639` asserts the inverse of the plan's
-   authority invariant, and the plan term `USER_VISIBLE_OPERATION_FORBIDDEN` now has no live
-   counterpart. The suite's own deliberate `t.skip()` at `:578` sits in the same block. Choosing
-   which side is authoritative is a product decision, not a test edit.
+2. **Plan-vs-code drift, not a deceptive test.** `test/main/phase-02-agent-plane-authority.test.ts:616`
+   is titled "(owner decision: no activation gate)" and asserts `switched === true`, matching an explicit
+   owner decision recorded in the production source at `src/main/tools/browser-control-port.ts:2269-2273`
+   and `src/main/tools/capability-catalogue.ts:303-306` ("local single-user app … no approval gate").
+   What is stale is the plan:
+   `plans/260909-0032-explicit-authority-dual-plane-cutover/phase-02-session-target-authority.md:57`
+   still requires `USER_VISIBLE_OPERATION_FORBIDDEN` for `anti.browser.tabs.activate`, and its acceptance
+   box at `:74` is unchecked. The test must not be reverted and the gate must not be restored; the open
+   question is whether the owner decision supersedes that plan requirement (§8.2). The describe block's
+   heading at `:585` still names the retired term.
 3. `test/renderer/terminal-gap-state-machine.test.ts:38-60` validates a local re-implementation
    (`processChunkSim`) rather than the shipped gap machine in `src/renderer/standalone.js:676-793`,
    so it can stay green while the shipped logic drifts. Repairing it requires the production
@@ -137,8 +145,10 @@ Six candidate findings did not survive verification and are recorded so they are
 - `test/unit/local-credential-vault.test.ts` — the quoted line did not match the file.
 - `src/extension/background.ts` — outside the test scope.
 - `scripts/smoke-ephemeral-isolation.cjs` — the claim did not match the file.
-- Two `.canary/state/**` artifacts — gitignored runtime state, not suite files (their being on
-  disk with tokens is a local hygiene matter for the user, not a suite finding).
+- Two `.canary/state/**` artifacts — gitignored runtime state, not suite fixtures. They are **not** to be
+  deleted or rotated as a "remove the real secrets" fix: the running harness mints live sessions from them
+  (`.canary/tools/fifteen-pages-run.mjs` renews through `canary-session.mjs … .canary/state/canary-session.json`),
+  so removing them would break the live session. Recorded as local-state hygiene only.
 
 ## 6. Defects and record corrections found by this audit's own verification
 
@@ -153,49 +163,61 @@ unchanged, so any future gate that requires a clean tree after tests will fail f
 has nothing to do with the change under test. Reported only; redirecting a proof artifact's
 destination is a behaviour decision, not a test repair. Both files were left uncommitted.
 
-### 6.2 A gate's exit code had been read through a pipe and published wrong
+### 6.2 The checks gate's two exit codes had been collapsed into one
 
 The Phase 5 record stated the theme checks stage ran "exit 0 with findings" (journal
-`plans/journals/2026-09-11-haravan-theme-fidelity-phase-5.md:85`). Re-running the gate bare, with no
-pipe, gives **exit 3** — and the stage's own artifact already said so: `.canary/theme-fidelity-run4/checks.json`
-records `status: REFUSED`, `childExitCode: 3`, and the child's text
-`[theme-checks] REFUSED (exit 3): settings-binding, assets`, with `report.json.provenance.checks`
-carrying `REFUSED`, `structural.ok false`, 2 refusals. The tool is not at fault: `scripts/theme-checks.mjs:85-88`
-exits 3 whenever its refusal list is non-empty, and the stage deliberately treats a refusal with a
-readable structural artifact as a carried finding rather than pipeline death
-(`.canary/tools/theme-fidelity-run.mjs:1496,1521-1526`). The journal and the phase-02 outcome were
-corrected. The substantive consequence stands: the pushed copy has 6 assets referenced but absent from
+`plans/journals/2026-09-11-haravan-theme-fidelity-phase-5.md:85`). Two exit codes describe that stage and
+the prose named only one:
+
+- the **child** `scripts/theme-checks.mjs` refused — **exit 3**. Its own artifact already said so:
+  `.canary/theme-fidelity-run4/checks.json` records `status: REFUSED`, `childExitCode: 3`, and the child
+  text `[theme-checks] REFUSED (exit 3): settings-binding, assets`, with `report.json.provenance.checks`
+  carrying `REFUSED`, `structural.ok false`, 2 refusals. `scripts/theme-checks.mjs:85-88` exits 3 whenever
+  its refusal list is non-empty, and a bare re-run reproduced exactly that.
+- the **driver stage** returned `EXIT.OK` (**0**) by design, because a readable structural artifact makes
+  a refusal a carried finding rather than pipeline death (`.canary/tools/theme-fidelity-run.mjs:1494,1529`;
+  `EXIT` at `:90`).
+
+Both facts hold, so the earlier line was ambiguous rather than false; the journal and the phase-02 outcome
+now name both codes. The substantive consequence stands: the pushed copy references 6 assets absent from
 the source and 95 settings reads undeclared by `settings_schema.json`, and the gate refused it.
 
 This is the same measurement class the audit found in the suite's own scripts (§3.1): a verdict read
-through a pipe belongs to the last command in the pipe, not to the gate. Every exit code recorded in
-this report was taken from a bare invocation.
+through a pipe belongs to the last command in the pipe, not to the gate, and a stage-level 0 is not the
+same signal as its child's 3. Every exit code recorded in this report was taken from a bare invocation.
 
 ## 7. Prioritised recommendations
 
 1. Treat the QA matrix fail-open pass (§4.1) as a product defect: an unmeasured viewport must not
    report a pass. Fix production, then flip the pin in `qa-matrix-viewports.test.ts`.
-2. Resolve the authority inversion (§4.2) by deciding whether `USER_VISIBLE_OPERATION_FORBIDDEN`
-   is still the contract; the suite cannot be correct while the plan and the code disagree.
-3. Make the gap-machine test load the shipped module (§4.3) — the current simulator cannot detect
-   drift in the code it claims to cover.
+2. Settle the plan drift (§4.2): the source carries an explicit owner decision retiring the activation
+   gate while the plan still requires it. Update whichever side is stale; the test is correct as written.
+3. Make the gap-machine test load the shipped module (§4.3). Until then the finding stays as it was
+   filed — not repairable within a test audit, because `src/renderer/standalone.js` is a plain browser
+   script that needs a DOM/global to run, so binding the test to it is a production change plus a DOM
+   harness. Repair it only if that file exposes a seam drivable as-is.
 4. Close the vault-sender and profile-path gaps (§4.4, §4.5) in production, then add the negatives.
-5. Add the artifact-writing paths to a temp-directory contract (§6) so the suite stops mutating
+5. Add the artifact-writing paths to a temp-directory contract (§6.1) so the suite stops mutating
    tracked files.
 6. Add CI. Nothing in this repository gates a merge: there is no workflow file, so the script-level
    masks repaired here (§3.1) had no downstream signal to falsify them either.
+7. Give the newly wired Electron harness its own temporary `userData` (the other smoke harnesses do),
+   so a test run leaves no profile state behind and cannot contend with another Electron plane.
 
 ## 8. Unresolved questions
 
 1. Is the QA matrix's fail-open pass a deliberate "not measurable ⇒ not blocking" policy? If yes,
    the test pin is right and the report should say so; if no, §4.1 is a shipping defect.
-2. Which side of the agent-plane authority inversion is authoritative — the plan text or the
-   current implementation?
+2. Does the owner decision recorded at `src/main/tools/browser-control-port.ts:2269-2273` supersede the
+   plan requirement at `plans/260909-0032-explicit-authority-dual-plane-cutover/phase-02-session-target-authority.md:57`?
+   The plan's acceptance box is still unchecked, so as it stands the plan and the code disagree.
 3. Should the benchmark and golden-live proof artifacts be committed at all, or be run outputs?
 4. The canary lane measured 133 and 138 tests for identical code across runs. This audit measured
-   137 after deleting a 1-test file, which implies the phantom file had 5 tests and the lane's
-   earlier 133 figure was itself a partial result. The lane's own instability was never isolated;
-   it is recorded here rather than closed.
+   137 after deleting a 5-test file, which implies the earlier 133 figure was itself a partial result.
+   The lane's own instability was never isolated; it is recorded here rather than closed.
+5. The audit's candidate ranking is not published: the rubric passes were inconclusive (§1) and the
+   controller's digest had already desynced path/line pairs for two candidates, so publishing a
+   ranking would have recorded citations that were not verified. The verifier's union governs.
 
 ## 9. Evidence index
 
@@ -207,3 +229,7 @@ this report was taken from a bare invocation.
   `audit-orphan-rename-2.log` — exit 0, all checks passed.
 - Verifier union as captured: `.canary/state/verifier-union.json`.
 - Detection packet: `local://audit-evidence-packet.md`.
+- `copy-static` hardening probe under a live Electron plane: `.canary/state/audit-copy-static-probe.log` — exit 0.
+- Checks gate re-run, bare: `.canary/state/audit-theme-checks.log` and `.canary/state/audit-theme-checks.json`
+  — exit 3, `ok false`, refusals `settings-binding, assets`; the stage's own record is
+  `.canary/theme-fidelity-run4/checks.json` (`REFUSED`, `childExitCode 3`).
