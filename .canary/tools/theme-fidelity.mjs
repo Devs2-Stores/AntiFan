@@ -956,7 +956,7 @@ async function runCapture(options) {
           await rpc.evalOn(tabId, IMAGE_HYDRATION_EXPR, 15_000).catch(() => null);
           doc.release = await settle.releaseCompareBlockers(tabId, `${options.label}:${slug}`);
 
-          const capture = await rpc.call('anti.screenshot.full_page', { tabId, ...leaseParams() }, CAPTURE_TIMEOUT_MS);
+          const capture = await rpc.call('anti.screenshot.full_page', { tabId, expectedUrl: target.url, ...leaseParams() }, CAPTURE_TIMEOUT_MS);
           const artifactId = capture?.artifactRef?.id || capture?.artifactId || capture?.artifactRef;
           if (!artifactId) throw new NotMeasurable('CAPTURE_NO_ARTIFACT', 'anti.screenshot.full_page returned no artifact reference');
           const pngFile = path.join(outDir, `${slug}.png`);
@@ -1117,24 +1117,40 @@ async function runCapture(options) {
   return notMeasurable.length ? EXIT.NOT_MEASURABLE : EXIT.OK;
 }
 
-/** A redirect that leaves the requested theme is a provenance failure, not a measurement. */
-function checkObservedUrl(target, observedUrl) {
+/** Normalize a route pathname for identity comparison (trailing slash handling, '/' fallback). */
+export function normalizeRoutePath(pathname) {
+  if (!pathname) return '/';
+  const stripped = pathname.replace(/\/+$/, '');
+  return stripped === '' ? '/' : stripped;
+}
+
+/** A redirect that leaves the requested route or theme is a provenance failure, not a measurement. */
+export function checkObservedUrl(target, observedUrl) {
   if (!observedUrl) return null;
+  const targetObj = typeof target === 'string' ? { url: target, name: target } : (target || {});
+  const targetUrl = targetObj.url || (typeof target === 'string' ? target : null);
+  if (!targetUrl) return null;
   let requested;
   let observed;
   try {
-    requested = new URL(target.url);
+    requested = new URL(targetUrl);
     observed = new URL(observedUrl);
   } catch {
     return null;
   }
+  const targetName = targetObj.name || targetUrl;
   if (requested.host !== observed.host) {
-    return refuse('URL_HOST_MISMATCH', EXIT.REFUSAL, `${target.name} was requested at ${requested.host} but the tab reports ${observed.host}`, { target: target.name, requested: target.url, observed: observedUrl });
+    return refuse('URL_HOST_MISMATCH', EXIT.REFUSAL, `${targetName} was requested at ${requested.host} but the tab reports ${observed.host}`, { target: targetName, requested: targetUrl, observed: observedUrl });
+  }
+  const reqPath = normalizeRoutePath(requested.pathname);
+  const obsPath = normalizeRoutePath(observed.pathname);
+  if (reqPath !== obsPath) {
+    return refuse('URL_PATH_MISMATCH', EXIT.REFUSAL, `${targetName} was requested at path ${requested.pathname} but the tab reports ${observed.pathname}`, { target: targetName, requested: targetUrl, observed: observedUrl, requestedPath: requested.pathname, observedPath: observed.pathname });
   }
   const requestedTheme = requested.searchParams.get('themeid');
   const observedTheme = observed.searchParams.get('themeid');
   if (requestedTheme !== observedTheme) {
-    return refuse('URL_THEME_MISMATCH', EXIT.REFUSAL, `${target.name} was requested with themeid=${requestedTheme ?? '<none>'} but the tab reports themeid=${observedTheme ?? '<none>'}`, { target: target.name, requested: target.url, observed: observedUrl });
+    return refuse('URL_THEME_MISMATCH', EXIT.REFUSAL, `${targetName} was requested with themeid=${requestedTheme ?? '<none>'} but the tab reports themeid=${observedTheme ?? '<none>'}`, { target: targetName, requested: targetUrl, observed: observedUrl });
   }
   return null;
 }
@@ -1559,7 +1575,7 @@ async function comparePair({ pair, reference, subject, servers, rpc, settle, run
       const ready = await waitForReadyState(rpc.call, rpc.evalOn, tabId);
       if (!ready.ok) throw new NotMeasurable('READY_STATE_TIMEOUT', `${side} replay never reached readyState complete`, ready.probe);
       await rpc.evalOn(tabId, IMAGE_HYDRATION_EXPR, 15_000).catch(() => null);
-      const hydrated = await settle.hydrateToCapturedState(tabId, `${side}:${pair.surface}@${pair.viewport}`, leaseParams(), COMPARE_TIMEOUT_MS);
+      const hydrated = await settle.hydrateToCapturedState(tabId, `${side}:${pair.surface}@${pair.viewport}`, { ...leaseParams(), expectedUrl: url }, COMPARE_TIMEOUT_MS);
       tabRecord.hydration = { captureBytes: hydrated.capture?.byteLength ?? hydrated.capture?.bytes ?? null, docHeight: hydrated.settled?.metrics?.docHeight ?? null };
       return { tabId, hydrated };
     };
@@ -1632,6 +1648,11 @@ async function comparePair({ pair, reference, subject, servers, rpc, settle, run
         compare = await rpc.call('anti.visual.compare', {
           tabId: referenceTabId,
           comparisonTabId: subjectTabId,
+          // Only these two are read: expectedUrl (target/reference side) and expectedBaselineUrl
+          // (comparison/clone side). The per-side map and the expectedComparisonUrl alias sent
+          // beside them were read nowhere.
+          expectedUrl: doc.replay.reference.url,
+          expectedBaselineUrl: doc.replay.subject.url,
           fullPage: compareParams.fullPage,
           tolerance: compareParams.tolerance,
           normalizeScroll: compareParams.normalizeScroll,

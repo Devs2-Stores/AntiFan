@@ -24,6 +24,7 @@ import { hydrateToCapturedState, requireDoubleSettledMetrics, releaseCompareBloc
 import { sha256Buffer, sha256File } from '../../scripts/lib/atomic-record.mjs';
 import { detectBundleDrift, loadInstanceIdentity, PROVENANCE_CODES } from '../../scripts/lib/evidence-provenance.mjs';
 import { describeViewport, sameViewport } from '../../scripts/lib/viewport-geometry.mjs';
+import { checkObservedUrl } from './theme-fidelity.mjs';
 
 
 const [, , label, widthArg, heightArg, refTabId, cloneTabId, runDirArg, minSectionsArg, minCardsArg] = process.argv;
@@ -33,6 +34,9 @@ if (!label || !widthArg || !heightArg || !refTabId || !cloneTabId) {
 }
 const width = Number(widthArg);
 const height = Number(heightArg);
+const requestedUrl = process.env.CANARY_REQUESTED_URL || null;
+const pageName = process.env.CANARY_PAGE_NAME || null;
+let resolvedCloneUrl = null;
 // Readiness floors are derived from the captured reference artifact (never invented
 // per-run): the reference must still expose at least this structure before any
 // pixel verdict is meaningful.
@@ -421,6 +425,10 @@ function refuseProvenance({ code = PROVENANCE_CODES.IDENTITY_MISMATCH, reason, o
 }
 
 async function assertServedEntryMatchesMinted() {
+  if (!resolvedCloneUrl) {
+    const r = await resolveServedUrl();
+    resolvedCloneUrl = r?.url ?? null;
+  }
   if (!servedEntryPath) return;
   const resolved = await resolveServedUrl();
   if (!resolved) {
@@ -527,14 +535,43 @@ log(`set viewport ${width}x${height} (mobile=${isMobile}, dpr=${dpr}) on both ta
 // layout once backgrounded).
 if (REFERENCE_PREHYDRATED) {
   log('reference tab is prehydrated by the orchestrator: measuring in place');
+  const refHref = await evalOn(refTabId, 'location.href', 5000).catch(() => null);
+  if (requestedUrl && refHref) {
+    const routeMismatch = checkObservedUrl({ name: pageName || label, url: requestedUrl }, refHref);
+    if (routeMismatch) {
+      // A plain object, like refuseProvenance: an Error serializes its own enumerable fields
+      // only, so the reason text would be missing from the persisted evidence doc.
+      const refusal = { code: routeMismatch.code, reason: routeMismatch.message, detail: routeMismatch.detail ?? null };
+      evidence.status = 'REFUSED';
+      evidence.refusal = refusal;
+      evidence.visual = { verdict: 'INCONCLUSIVE', reason: routeMismatch.message, refusal };
+      persist();
+      log(`REFUSAL: ${routeMismatch.code} — ${routeMismatch.message}`);
+      process.exit(4);
+    }
+  }
 } else {
   await call('browser.switch-tab', { tabId: refTabId }, 30_000).catch((e) => log(`reference activate warning: ${e.message}`));
   await call('browser.set-viewport', { tabId: refTabId, width, height, mobile: isMobile, deviceScaleFactor: dpr, reload: true });
   for (let i = 0; i < 40; i++) {
     await new Promise(r => setTimeout(r, 400));
     try {
-      const r = await evalOn(refTabId, '({ rs: document.readyState, h: document.documentElement.scrollHeight })', 5000);
-      if (r && r.rs === 'complete') break;
+      const r = await evalOn(refTabId, '({ rs: document.readyState, h: document.documentElement.scrollHeight, href: location.href })', 5000);
+      if (r && r.rs === 'complete') {
+        if (requestedUrl && r.href) {
+          const routeMismatch = checkObservedUrl({ name: pageName || label, url: requestedUrl }, r.href);
+          if (routeMismatch) {
+            const refusal = { code: routeMismatch.code, reason: routeMismatch.message, detail: routeMismatch.detail ?? null };
+            evidence.status = 'REFUSED';
+            evidence.refusal = refusal;
+            evidence.visual = { verdict: 'INCONCLUSIVE', reason: routeMismatch.message, refusal };
+            persist();
+            log(`REFUSAL: ${routeMismatch.code} — ${routeMismatch.message}`);
+            process.exit(4);
+          }
+        }
+        break;
+      }
     } catch {}
   }
   await evalOn(refTabId, `(async () => {
@@ -565,7 +602,7 @@ if (REFERENCE_PREHYDRATED) {
   evidence.hydration = { reference: { source: 'orchestrator reference tab (already captured into the mounted state)', byteLength: null } };
 } else {
   log('materializing reference (full-page rasterize) then settling + measuring');
-  const refHydration = await hydrateToCapturedState(refTabId, 'reference', LEASE_PARAM);
+  const refHydration = await hydrateToCapturedState(refTabId, 'reference', { ...LEASE_PARAM, expectedUrl: requestedUrl || undefined });
   evidence.stages.reference = refHydration.settled;
   evidence.hydration = { reference: { byteLength: refHydration.capture?.byteLength ?? refHydration.capture?.bytes ?? null } };
 }
@@ -742,7 +779,7 @@ async function applyScrollbarRegime(tabId, role) {
 const geometryBeforeHydration = await enforceViewportGeometry('pre-hydration', 'clone');
 if (!geometryBeforeHydration.symmetric) refuseViewportAsymmetry('pre-hydration', geometryBeforeHydration);
 log('materializing clone (full-page rasterize) then settling + measuring');
-const cloneHydration = await hydrateToCapturedState(cloneTabId, 'clone', LEASE_PARAM);
+const cloneHydration = await hydrateToCapturedState(cloneTabId, 'clone', { ...LEASE_PARAM, expectedUrl: resolvedCloneUrl || undefined });
 evidence.stages.clone = cloneHydration.settled;
 evidence.hydration.clone = { byteLength: cloneHydration.capture?.byteLength ?? cloneHydration.capture?.bytes ?? null };
 const cloneReadiness = evaluateReadiness(evidence.stages.clone, 'clone');
@@ -904,7 +941,8 @@ log('standalone full-page captures (independent lineage)');
 evidence.standalone = {};
 for (const [role, tabId] of [['reference', refTabId], ['clone', cloneTabId]]) {
   try {
-    const res = await call('anti.screenshot.full_page', { tabId, ...LEASE_PARAM }, STANDALONE_TIMEOUT_MS);
+    const sideExpectedUrl = role === 'reference' ? (requestedUrl || undefined) : (resolvedCloneUrl || undefined);
+    const res = await call('anti.screenshot.full_page', { tabId, expectedUrl: sideExpectedUrl, ...LEASE_PARAM }, STANDALONE_TIMEOUT_MS);
     const artifactId = res?.artifactRef?.id || res?.artifactId || res?.artifactRef;
     const receipt = res?.receipt || res?.captureReceipt || null;
     const entry = {
@@ -1014,6 +1052,12 @@ if (SKIP_COMPARE) {
   compare = await call('anti.visual.compare', {
     tabId: refTabId,
     comparisonTabId: cloneTabId,
+    // Two parameters are read on the other side and nothing else: expectedUrl (target/reference
+    // side) and expectedBaselineUrl (comparison/clone side). Per-side maps and an
+    // expectedComparisonUrl alias were sent here and read nowhere, which invited wiring them
+    // backwards; the effective pair is the two below.
+    expectedUrl: requestedUrl || undefined,
+    expectedBaselineUrl: resolvedCloneUrl || undefined,
     fullPage: true,
     tolerance: 2,
     normalizeScroll: true,

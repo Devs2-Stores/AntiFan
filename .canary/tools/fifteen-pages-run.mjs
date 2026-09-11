@@ -43,7 +43,8 @@ const {
   PROVENANCE_CODES,
 } = await import('../../scripts/lib/evidence-provenance.mjs');
 const { readRecord, writeRecordAtomic } = await import('../../scripts/lib/atomic-record.mjs');
-const { validatePagesFilter, selectViewports, buildVerdictIndex, renderHubHtml, computeRunExit, casesWithoutProvenance } = await import('../../scripts/lib/campaign-verdicts.mjs');
+const { validatePagesFilter, selectViewports, buildVerdictIndex, renderHubHtml, computeRunExit, casesWithoutProvenance, pageRouteRefusal, renderPageStatus } = await import('../../scripts/lib/campaign-verdicts.mjs');
+const { checkObservedUrl, normalizeRoutePath } = await import('./theme-fidelity.mjs');
 
 
 
@@ -634,13 +635,25 @@ async function runCampaignLocked(options, { runId, lock, pagesFilter, viewportSe
       if (!readyComplete) {
         throw new Error(`Reference tab failed to reach readyState===complete within timeout for ${p.url}`);
       }
+      const routeMismatch = checkObservedUrl({ name: p.name, url: p.url }, pageResult.finalUrl);
+      const navTiming = await evalOn(refTabId, '(() => { const n = performance.getEntriesByType("navigation")[0]; return { redirectCount: n?.redirectCount ?? 0, type: n?.type ?? null }; })()').catch(() => null);
+      pageResult.routeIdentity = {
+        requestedUrl: p.url,
+        observedUrl: pageResult.finalUrl,
+        valid: !routeMismatch,
+        redirectCount: navTiming?.redirectCount ?? 0,
+        mismatch: routeMismatch ? { code: routeMismatch.code, message: routeMismatch.message, detail: routeMismatch.detail } : null,
+      };
+      if (routeMismatch) {
+        throw routeMismatch;
+      }
 
       // Rasterizing is what mounts the storefront's remaining sections: a
       // settle-only measurement here describes a pre-mount page (measured
       // 4107px/8 sections before the capture versus 5422px/15 sections after it),
       // so the dump must follow the capture that hydrates it.
       console.log(`[P${p.id}] Deep settling + hydrating reference tab (full-page capture first)...`);
-      const preDump = await hydrateToCapturedState(refTabId, `P${p.id}-pre-dump`, {}, 240_000, 4);
+      const preDump = await hydrateToCapturedState(refTabId, `P${p.id}-pre-dump`, { expectedUrl: p.url }, 240_000, 4);
       const settledRef = preDump.settled;
       pageResult.phases.referenceHydration = { byteLength: preDump.capture?.byteLength ?? preDump.capture?.bytes ?? null };
       console.log(`[P${p.id}] Reference settled: docH=${settledRef.metrics.docHeight}, sections=${settledRef.metrics.sectionCount}, cards=${settledRef.metrics.productCardCount}`);
@@ -694,12 +707,14 @@ async function runCampaignLocked(options, { runId, lock, pagesFilter, viewportSe
         });
 
         let readyStateComplete = false;
+        let vpFinalUrl = null;
         for (let i = 0; i < 40; i++) {
           await sleep(400);
           try {
-            const r = await evalOn(refTabId, '({ rs: document.readyState })', 5000);
+            const r = await evalOn(refTabId, '({ rs: document.readyState, href: location.href })', 5000);
             if (r && r.rs === 'complete') {
               readyStateComplete = true;
+              vpFinalUrl = r.href;
               break;
             }
           } catch {}
@@ -707,8 +722,12 @@ async function runCampaignLocked(options, { runId, lock, pagesFilter, viewportSe
         if (!readyStateComplete) {
           throw new Error(`Reference tab failed to reach readyState===complete at ${vp.width}x${vp.height}`);
         }
+        const vpRouteMismatch = checkObservedUrl({ name: `${p.name}@${vp.label}`, url: p.url }, vpFinalUrl);
+        if (vpRouteMismatch) {
+          throw vpRouteMismatch;
+        }
         console.log(`[P${p.id}][${vp.label}] Settle & measure reference tab (hydrating capture pass)...`);
-        const vpHydration = await hydrateToCapturedState(refTabId, `P${p.id}-${vp.label}`, {}, 240_000, 4);
+        const vpHydration = await hydrateToCapturedState(refTabId, `P${p.id}-${vp.label}`, { expectedUrl: p.url }, 240_000, 4);
         const vpSettled = vpHydration.settled;
         readinessFloors[vp.label] = validateProbedFloor(vpSettled.metrics, vp);
         console.log(`[P${p.id}][${vp.label}] Empirical floor: minSections=${readinessFloors[vp.label].minSections}, minCards=${readinessFloors[vp.label].minCards} (docH=${vpSettled.metrics.docHeight})`);
@@ -898,9 +917,9 @@ async function runCampaignLocked(options, { runId, lock, pagesFilter, viewportSe
                   CANARY_EVIDENCE_RUN_ID: runId,
                   CANARY_CLONE_DIR: cloneDir,
                   CANARY_REFERENCE_DUMP: isMobileTier ? path.join(evDir, 'reference-dump-mobile.json') : path.join(evDir, 'reference-dump.json'),
-                  // Opt-in diagnostic: off unless the operator asks for it, because it adds
-                  // two full-page comparisons to every leg it runs on.
                   CANARY_HEIGHT_DRIFT_EXPERIMENT: process.env.CANARY_HEIGHT_DRIFT_EXPERIMENT === '1' ? '1' : '',
+                  CANARY_REQUESTED_URL: p.url,
+                  CANARY_PAGE_NAME: p.name,
                 },
               }
             );
@@ -1079,11 +1098,22 @@ async function runCampaignLocked(options, { runId, lock, pagesFilter, viewportSe
       }
       pageResult.status = 'COMPLETED';
     } catch (pageErr) {
-      pageResult.status = 'FAILED';
-      pageResult.error = pageErr.message;
-      pageResult.overall = 'FAIL';
-      pageResult.errors.push({ phase: 'topLevel', message: pageErr.message });
-      console.log(`[P${p.id}] PAGE FAILURE: ${pageErr.message}`);
+      const isRouteRefusal = pageErr?.code && ['URL_PATH_MISMATCH', 'URL_HOST_MISMATCH', 'URL_THEME_MISMATCH', 'URL_EXPECTATION_MISSING'].includes(pageErr.code);
+      if (isRouteRefusal) {
+        pageResult.status = 'REFUSED';
+        pageResult.error = pageErr.message;
+        pageResult.overall = 'INCONCLUSIVE';
+        pageResult.causeCode = pageErr.code;
+        pageResult.refusal = { code: pageErr.code, reason: pageErr.message, detail: pageErr.detail || null };
+        runSummary.refusals.push({ pageId: p.id, viewport: null, code: pageErr.code, detail: pageResult.refusal });
+        console.log(`[P${p.id}] PAGE ROUTE REFUSAL: ${pageErr.code} — ${pageErr.message}`);
+      } else {
+        pageResult.status = 'FAILED';
+        pageResult.error = pageErr.message;
+        pageResult.overall = 'FAIL';
+        pageResult.errors.push({ phase: 'topLevel', message: pageErr.message });
+        console.log(`[P${p.id}] PAGE FAILURE: ${pageErr.message}`);
+      }
     } finally {
       // Clean up tabs. The mint tab is this session's own bound tab, so closing it is
       // allowed here; it must happen only after every tab this page needs has been
@@ -1326,6 +1356,11 @@ export function generateReport(summary) {
   const totalTested = pages.length;
   const executedPages = TARGET_PAGES.filter(p => summary.pageResults[p.id]);
   const unexecutedPages = TARGET_PAGES.filter(p => !summary.pageResults[p.id]);
+  // A page refused on route identity never reached clone generation, so its absent bundle is
+  // NOT a pipeline failure: it is a typed refusal with a known cause. Keeping the two apart is
+  // what stops the report from reading "clone pipeline broken" for a page that was never built.
+  const pipelinePages = executedPages.filter(p => !pageRouteRefusal(summary.pageResults[p.id]));
+  const routeRefusedPages = executedPages.filter(p => pageRouteRefusal(summary.pageResults[p.id]));
 
   let totalPass = 0;
   let totalFail = 0;
@@ -1371,7 +1406,7 @@ export function generateReport(summary) {
     finalDecisionEnum = 'READY_FOR_NEXT_PHASE';
   } else if (totalFail > 0 && pages.some(p => p.phases.cloneGeneration?.ok)) {
     finalDecisionEnum = 'NEEDS_TARGETED_FIXES';
-  } else if (pages.length > 0 && pages.every(p => !p.phases.cloneGeneration?.ok)) {
+  } else if (pipelinePages.length > 0 && pipelinePages.every(p => !p.phases.cloneGeneration?.ok)) {
     finalDecisionEnum = 'CLONE_PIPELINE_BLOCKED';
   }
 
@@ -1426,7 +1461,7 @@ COMPLETION DATE   : ${summary.completedAt || new Date().toISOString()}
 |---|------|-----|--------|--------|
 ${TARGET_PAGES.map(p => {
   const pr = summary.pageResults[p.id];
-  const stat = pr ? pr.overall : 'NOT_TESTED';
+  const stat = pr ? renderPageStatus(pr) : 'NOT_TESTED';
   return `| ${p.id} | ${p.name} | [${p.url}](${p.url}) | \`${p.domain}\` | **${stat}** |`;
 }).join('\n')}
 
@@ -1471,7 +1506,7 @@ ${TARGET_PAGES.map(p => {
   const net = vps.length === 0 ? 'NOT_TESTED' : (vps.every(v => v.network?.verdict === 'PASS') ? 'PASS' : (vps.some(v => v.network?.verdict?.startsWith('FAIL')) ? 'FAIL' : 'INCONCLUSIVE'));
   const cap = vps.length === 0 ? 'NOT_TESTED' : (vps.every(v => v.capture?.valid) ? 'PASS' : 'FAIL');
   const vis = vps.length === 0 ? 'NOT_TESTED' : (vps.every(v => v.visual?.verdict === 'PASS') ? 'PASS' : (vps.some(v => v.visual?.verdict === 'FAIL') ? 'FAIL' : 'INCONCLUSIVE'));
-  return `| ${p.id}. ${p.name} | \`${p.url.slice(0, 32)}...\` | ${VIEWPORTS.map((v) => vpCell(v.label)).join(' | ')} | ${struct} | ${assets} | ${typo} | ${net} | ${cap} | ${vis} | **${pr.overall}** |`;
+  return `| ${p.id}. ${p.name} | \`${p.url.slice(0, 32)}...\` | ${VIEWPORTS.map((v) => vpCell(v.label)).join(' | ')} | ${struct} | ${assets} | ${typo} | ${net} | ${cap} | ${vis} | **${renderPageStatus(pr)}** |`;
 }).join('\n')}
 
 ---
@@ -1494,7 +1529,7 @@ ${TARGET_PAGES.map(p => {
     return `#### ${v.label}px (${vpName(v)})
 - **Navigation**: ${pr.finalUrl ? 'OK' : 'FAIL'}
 - **Structure**: ${vp.structure ? `Ref: ${vp.structure.refSections} sec, ${vp.structure.refCards} cards | Clone: ${vp.structure.cloneSections} sec, ${vp.structure.cloneCards} cards` : 'N/A'}
-- **Assets**: ${pr.phases.cloneGeneration?.ok ? 'PASS (Local)' : 'FAIL (Audit)'}
+- **Assets**: ${pageRouteRefusal(pr) ? 'NOT_RUN (route refused before clone generation)' : (pr.phases.cloneGeneration?.ok ? 'PASS (Local)' : 'FAIL (Audit)')}
 - **Typography**: ${d.ok ? 'Verified' : 'N/A'}
 - **Network**: ${vp.network?.verdict || 'N/A'} (Ref visual requests: ${vp.network?.referenceRequests ?? 'N/A'})
 - **Capture**: ${vp.capture ? (vp.capture.valid ? `PASS (Ref: ${vp.capture.reference.bytes}B, Clone: ${vp.capture.clone.bytes}B)` : 'FAIL') : 'N/A'}
@@ -1519,14 +1554,18 @@ ${pr.errors.length > 0 ? `**Failures**: ${pr.errors.map(e => `\`[${e.phase}] ${e
 ## 6. Asset Pipeline Results
 
 ${executedPages.length === 0 ? '*No asset pipeline execution in this run.*' : `
-- **Pages Tested in Pipeline**: ${executedPages.length} pages.
-- **Successful Clone Bundles**: ${executedPages.filter(p => summary.pageResults[p.id]?.phases.cloneGeneration?.ok).length} / ${executedPages.length}.
-- **Failed Clone Bundles**: ${executedPages.filter(p => !summary.pageResults[p.id]?.phases.cloneGeneration?.ok).length} / ${executedPages.length}.
+- **Pages Tested in Pipeline**: ${pipelinePages.length} pages.
+- **Successful Clone Bundles**: ${pipelinePages.filter(p => summary.pageResults[p.id]?.phases.cloneGeneration?.ok).length} / ${pipelinePages.length}.
+- **Failed Clone Bundles**: ${pipelinePages.filter(p => !summary.pageResults[p.id]?.phases.cloneGeneration?.ok).length} / ${pipelinePages.length}.
 - **Asset Families Discovered**: Discovered across \`src\`, \`srcset\`, \`<picture>\`, and inline style \`background-image\`.
-${executedPages.some(p => !summary.pageResults[p.id]?.phases.cloneGeneration?.ok) ? `
+${pipelinePages.some(p => !summary.pageResults[p.id]?.phases.cloneGeneration?.ok) ? `
 ### Pipeline Failures Encountered
-${executedPages.filter(p => !summary.pageResults[p.id]?.phases.cloneGeneration?.ok).map(p => `- **Page ${p.id} (${p.name})**: \`${summary.pageResults[p.id]?.phases.cloneGeneration?.error || 'Unknown error'}\``).join('\n')}
+${pipelinePages.filter(p => !summary.pageResults[p.id]?.phases.cloneGeneration?.ok).map(p => `- **Page ${p.id} (${p.name})**: \`${summary.pageResults[p.id]?.phases.cloneGeneration?.error || 'Unknown error'}\``).join('\n')}
 ` : '- All executed clone bundles generated without pipeline halt.'}
+${routeRefusedPages.length > 0 ? `
+### Not Reached — route refused before clone generation
+${routeRefusedPages.map(p => `- **Page ${p.id} (${p.name})**: \`${renderPageStatus(summary.pageResults[p.id])}\``).join('\n')}
+` : ''}
 `}
 
 ---
@@ -1578,7 +1617,10 @@ ${executedPages.length === 0 ? '*No responsive data collected in this run.*' : e
   const overflowKnown = measuredViewports.every((v) => (pr.viewports[v.label]?.structure || {}).cloneOverflowX != null);
   const noOverflow = measuredViewports.every((v) => isCleanOverflow((pr.viewports[v.label]?.structure || {}).cloneOverflowX));
   const vpPass = measuredViewports.every((v) => pr.viewports[v.label]?.overall === 'PASS');
-  const respVerdict = measuredViewports.length === 0
+  const routeRefusal = pageRouteRefusal(pr);
+  const respVerdict = routeRefusal
+    ? renderPageStatus(pr)
+    : measuredViewports.length === 0
     ? 'NO MEASURED VIEWPORT'
     : (!heightsKnown || !overflowKnown)
       ? 'INCONCLUSIVE (Missing complete structural metrics)'
@@ -1652,11 +1694,11 @@ ${failurePatterns.size === 0 ? '*No cross-page failure patterns detected in exec
 | Category | Status | Notes |
 |----------|--------|-------|
 | A. Discovery | ${executedPages.length === 0 ? 'NOT_TESTED' : (executedPages.every(p => summary.pageResults[p.id]?.phases.discovery?.ok) ? 'PASS' : 'FAIL')} | ${executedPages.length > 0 ? `${executedPages.filter(p => summary.pageResults[p.id]?.phases.discovery?.ok).length}/${executedPages.length} pages passed` : 'No pages run'} |
-| B. Asset Localization | ${executedPages.length === 0 ? 'NOT_TESTED' : (executedPages.some(p => summary.pageResults[p.id]?.phases.cloneGeneration?.ok) ? (executedPages.every(p => summary.pageResults[p.id]?.phases.cloneGeneration?.ok) ? 'PASS' : 'PARTIAL_FAIL') : 'FAIL')} | ${executedPages.length > 0 ? `${executedPages.filter(p => summary.pageResults[p.id]?.phases.cloneGeneration?.ok).length}/${executedPages.length} bundles built` : 'No bundles attempted'} |
+| B. Asset Localization | ${pipelinePages.length === 0 ? 'NOT_TESTED' : (pipelinePages.some(p => summary.pageResults[p.id]?.phases.cloneGeneration?.ok) ? (pipelinePages.every(p => summary.pageResults[p.id]?.phases.cloneGeneration?.ok) ? 'PASS' : 'PARTIAL_FAIL') : 'FAIL')} | ${pipelinePages.length > 0 ? `${pipelinePages.filter(p => summary.pageResults[p.id]?.phases.cloneGeneration?.ok).length}/${pipelinePages.length} bundles built${routeRefusedPages.length > 0 ? `; ${routeRefusedPages.length} page(s) route-refused before build (not a pipeline failure)` : ''}` : (routeRefusedPages.length > 0 ? `${routeRefusedPages.length} page(s) route-refused before build; pipeline never ran` : 'No bundles attempted')} |
 | C. Asset Family | ${executedPages.length > 0 ? 'PASS' : 'NOT_TESTED'} | Discovered across src/srcset/picture/bg |
 | D. Typography | ${Object.keys(domainFonts).length > 0 ? 'PASS' : 'NOT_TESTED'} | ${Object.keys(domainFonts).length > 0 ? `Extracted across ${Object.keys(domainFonts).length} domains` : 'No data'} |
-| E. HTML Extraction | ${executedPages.length === 0 ? 'NOT_TESTED' : (executedPages.some(p => summary.pageResults[p.id]?.phases.cloneGeneration?.ok) ? 'PASS' : 'BLOCKED')} | BlueprintExtractor extraction |
-| F. HTML Generation | ${executedPages.length === 0 ? 'NOT_TESTED' : (executedPages.some(p => summary.pageResults[p.id]?.phases.cloneGeneration?.ok) ? 'PASS' : 'BLOCKED')} | Independent bundle synthesis |
+| E. HTML Extraction | ${pipelinePages.length === 0 ? 'NOT_TESTED' : (pipelinePages.some(p => summary.pageResults[p.id]?.phases.cloneGeneration?.ok) ? 'PASS' : 'BLOCKED')} | BlueprintExtractor extraction |
+| F. HTML Generation | ${pipelinePages.length === 0 ? 'NOT_TESTED' : (pipelinePages.some(p => summary.pageResults[p.id]?.phases.cloneGeneration?.ok) ? 'PASS' : 'BLOCKED')} | Independent bundle synthesis |
 | G. CSS/Layout | ${totalRenderCasesRun === 0 ? 'NOT_TESTED' : (totalPass === totalRenderCasesRun ? 'PASS' : (totalFail > 0 ? 'FAIL' : 'INCONCLUSIVE'))} | Layout comparison across viewports |
 | H. Responsive | ${totalRenderCasesRun === 0 ? 'NOT_TESTED' : (totalPass === totalRenderCasesRun ? 'PASS' : (totalFail > 0 ? 'FAIL' : 'INCONCLUSIVE'))} | Multi-viewport responsiveness (${scopedViewportLabels.join('/')})${excludedViewports.length > 0 ? ` — ${excludedViewports.join('/')} excluded and unverified` : ''} |
 | I. Chromium Runtime | ${executedPages.length > 0 ? 'PASS' : 'NOT_TESTED'} | Real Chromium rendering |

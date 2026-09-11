@@ -7,6 +7,95 @@
  * them directly, so a decision bug surfaces before a 45-case run.
  */
 import { PROVENANCE_CODES } from './evidence-provenance.mjs';
+export const EXIT = {
+  OK: 0,
+  USAGE: 2,
+  NOT_MEASURABLE: 3,
+  REFUSAL: 4,
+};
+
+export const ROUTE_REFUSAL_CODES = {
+  HOST_MISMATCH: 'URL_HOST_MISMATCH',
+  THEME_MISMATCH: 'URL_THEME_MISMATCH',
+  PATH_MISMATCH: 'URL_PATH_MISMATCH',
+  EXPECTATION_MISSING: 'URL_EXPECTATION_MISSING',
+};
+
+const ROUTE_REFUSAL_CODE_SET = new Set(Object.values(ROUTE_REFUSAL_CODES));
+
+/**
+ * A route refusal is a typed absence of a verdict, not a fidelity outcome. A page-level
+ * refusal (the reference tab never reached the requested route) is recorded on the page
+ * result while `overall` stays `INCONCLUSIVE`, and it mints no case — so the index's
+ * `tally`/`routeRefusals` are empty and every renderer must ask this instead of printing
+ * `overall`, or the refused page reads as a metrics shortfall.
+ */
+export function pageRouteRefusal(pageResult) {
+  const code = pageResult?.refusal?.code ?? pageResult?.causeCode ?? null;
+  if (!code || !ROUTE_REFUSAL_CODE_SET.has(code)) return null;
+  return {
+    code,
+    reason: pageResult.refusal?.reason ?? pageResult.error ?? null,
+    detail: pageResult.refusal?.detail ?? null,
+  };
+}
+
+/** Display status for a page: the route refusal first, then the fidelity outcome. */
+export function renderPageStatus(pageResult) {
+  if (!pageResult) return 'NOT_TESTED';
+  const refusal = pageRouteRefusal(pageResult);
+  if (!refusal) return pageResult.overall ?? 'NOT_TESTED';
+  const detail = refusal.detail ?? {};
+  const requested = detail.requestedPath ?? detail.requested ?? '?';
+  const observed = detail.observedPath ?? detail.observed ?? '?';
+  return `REFUSED (${refusal.code}: requested ${requested}, tab reported ${observed})`;
+}
+
+export class VerdictRefusal extends Error {
+  constructor({ code, message, exitCode = EXIT.REFUSAL, detail = null }) {
+    super(message);
+    this.name = 'VerdictRefusal';
+    this.code = code;
+    this.exitCode = exitCode;
+    this.detail = detail;
+  }
+}
+
+export function refuseVerdict(code, exitCode = EXIT.REFUSAL, message, detail = null) {
+  return new VerdictRefusal({ code, message, exitCode, detail });
+}
+
+export function hasMissingExpectation(vpOrCapture) {
+  if (!vpOrCapture) return false;
+  if (vpOrCapture.causeCode === 'URL_EXPECTATION_MISSING') return true;
+  if (vpOrCapture.code === 'URL_EXPECTATION_MISSING') return true;
+  if (vpOrCapture.refusal?.code === 'URL_EXPECTATION_MISSING') return true;
+  if (vpOrCapture.capture?.code === 'URL_EXPECTATION_MISSING') return true;
+  if (vpOrCapture.capture?.missingExpectation === true) return true;
+  if (vpOrCapture.capture?.expectedUrlMissing === true) return true;
+  if (vpOrCapture.capture?.expectedUrl === null && (vpOrCapture.capture?.marker === 'URL_EXPECTATION_MISSING' || vpOrCapture.capture?.valid === false)) return true;
+  if (vpOrCapture.capture?.reference?.missingExpectation || vpOrCapture.capture?.clone?.missingExpectation) return true;
+  if (vpOrCapture.capture?.reference?.code === 'URL_EXPECTATION_MISSING' || vpOrCapture.capture?.clone?.code === 'URL_EXPECTATION_MISSING') return true;
+  return false;
+}
+
+export function mintVerdict(caseData) {
+  if (!caseData || typeof caseData !== 'object') {
+    throw refuseVerdict('INVALID_ARGUMENT', EXIT.REFUSAL, 'caseData is required to mint a verdict');
+  }
+  if (hasMissingExpectation(caseData)) {
+    throw refuseVerdict('URL_EXPECTATION_MISSING', EXIT.REFUSAL, 'cannot mint a verdict whose capture carries URL_EXPECTATION_MISSING', { caseData });
+  }
+  return {
+    verdict: caseData.overall ?? caseData.verdict ?? 'INCONCLUSIVE',
+    causeCode: caseData.causeCode ?? 'UNCLASSIFIED',
+    status: caseData.status ?? 'COMPLETED',
+    refusal: caseData.refusal ?? null,
+    expectedUrl: caseData.expectedUrl ?? caseData.capture?.expectedUrl ?? null,
+    routeIdentity: caseData.routeIdentity ?? null,
+  };
+}
+
 
 /**
  * A filter is refused unless every comma-separated part resolves and every id it
@@ -105,6 +194,14 @@ export function buildVerdictIndex(runSummary, { supersededSlugs = [] } = {}) {
   const cases = [];
   for (const [pageId, page] of Object.entries(runSummary.pageResults || {})) {
     for (const [vpLabel, vp] of Object.entries(page.viewports || {})) {
+      if (hasMissingExpectation(vp)) {
+        throw refuseVerdict(
+          'URL_EXPECTATION_MISSING',
+          EXIT.REFUSAL,
+          `cannot mint a verdict whose capture carries URL_EXPECTATION_MISSING (page ${pageId}:${vpLabel})`,
+          { pageId: Number(pageId), viewport: vpLabel, capture: vp.capture }
+        );
+      }
       cases.push({
         pageId: Number(pageId),
         slug: page.slug,
@@ -132,12 +229,19 @@ export function buildVerdictIndex(runSummary, { supersededSlugs = [] } = {}) {
         instance: vp.instance ?? runSummary.instance ?? null,
         attemptId: page.attemptId ?? null,
         evidenceRoot: page.evidenceRoot ?? null,
+        routeIdentity: vp.routeIdentity ?? page.routeIdentity ?? null,
+        expectedUrl: vp.capture?.expectedUrl ?? vp.expectedUrl ?? null,
       });
     }
   }
 
-  const tally = { PASS: 0, FAIL: 0, INCONCLUSIVE: 0 };
-  for (const c of cases) tally[c.verdict] = (tally[c.verdict] || 0) + 1;
+  const tally = { PASS: 0, FAIL: 0, INCONCLUSIVE: 0, ROUTE_REFUSED: 0 };
+  for (const c of cases) {
+    if (c.refusal && ROUTE_REFUSAL_CODE_SET.has(c.refusal.code)) {
+      tally.ROUTE_REFUSED = (tally.ROUTE_REFUSED || 0) + 1;
+    }
+    tally[c.verdict] = (tally[c.verdict] || 0) + 1;
+  }
 
   return {
     runId: runSummary.runId,
@@ -156,6 +260,7 @@ export function buildVerdictIndex(runSummary, { supersededSlugs = [] } = {}) {
     executiveVerdict: cases.length === 0 ? 'INCONCLUSIVE' : (tally.PASS === cases.length ? 'PASS' : (tally.FAIL > 0 ? 'FAIL' : 'INCONCLUSIVE')),
     cases,
     superseded: supersededSlugs.map((slug) => ({ slug, reason: 'evidence predates any attempt pointer' })),
+    routeRefusals: cases.filter((c) => c.refusal && ROUTE_REFUSAL_CODE_SET.has(c.refusal.code)),
     exit: runSummary.exit ?? null,
   };
 }
@@ -183,10 +288,13 @@ function scanRequestedCases(runSummary, requestedPages, viewportLabels) {
       incomplete.push({ pageId: p.id, viewport: null, code: 'PAGE_NOT_RUN' });
       continue;
     }
+    const pageRefusal = pageRouteRefusal(pageResult);
     for (const label of viewportLabels) {
       const vp = pageResult.viewports?.[label];
       if (!vp) {
-        incomplete.push({ pageId: p.id, viewport: label, code: 'CASE_NOT_RUN' });
+        // A page-level route refusal is why these legs do not exist; naming
+        // CASE_NOT_RUN would drop the reason the run refused.
+        incomplete.push({ pageId: p.id, viewport: label, code: pageRefusal ? pageRefusal.code : 'CASE_NOT_RUN' });
         continue;
       }
       const code = vp.causeCode ?? null;
@@ -223,6 +331,14 @@ export function computeRunExit(runSummary, pagesFilter, { targetPages, viewportL
   );
   const { incomplete, runnerErrors } = scanRequestedCases(runSummary, requested, labels);
 
+  const routeRefusals = (runSummary.refusals || []).filter((r) => ROUTE_REFUSAL_CODE_SET.has(r.code));
+  if (routeRefusals.length > 0) {
+    return {
+      code: EXIT.REFUSAL,
+      reason: 'ROUTE_REFUSAL',
+      detail: routeRefusals.map((r) => `${r.code}@page-${r.pageId}${r.viewport ? `:${r.viewport}` : ''}`),
+    };
+  }
   if (runSummary.lockLost) return { code: 1, reason: 'LOCK_LOST', detail: runSummary.lockLost };
   if (provenanceRefusals.length > 0) {
     return {
@@ -362,6 +478,21 @@ export function renderHubHtml(index, { viewportLabels }) {
         .map((e) => esc(e.label))
         .join(', ')}${index.scope.mobileUnverified ? ' (mobile)' : ''} — an excluded viewport is unverified, not passing</p>`
     : '';
+  // A refused page mints no case, so the table cannot show why it is absent: a route
+  // refusal would render as a missing row. The refusal class is printed explicitly.
+  const refusals = (index.refusals ?? []).length
+    ? `<p class="refused">REFUSED: ${index.refusals
+        .map((r) => {
+          const detail = r.detail?.detail ?? r.detail ?? {};
+          const where = `${r.pageId}${r.viewport ? `@${r.viewport}` : ''}`;
+          const urls =
+            detail.requested || detail.observed
+              ? ` (requested ${detail.requestedPath ?? detail.requested} → tab reported ${detail.observedPath ?? detail.observed})`
+              : '';
+          return `${esc(where)} ${esc(r.code)}${esc(urls)}`;
+        })
+        .join('; ')}</p>`
+    : '';
 
   return `<!doctype html>
 <meta charset="utf-8">
@@ -375,6 +506,7 @@ td.v-PASS{background:#e6f5e6}td.v-FAIL{background:#fbe6e6}td.v-INCONCLUSIVE{back
 .slug,.attempt{display:block;font-weight:400;font-size:11px;color:#666}
 .superseded{background:#fdf5e0;padding:8px}
 .scope{background:#eef2ff;padding:8px}
+.refused{background:#fbe6e6;padding:8px}
 .scope-inline{color:#444;font-weight:400}
 </style>
 <h1>15-page campaign</h1>
@@ -384,6 +516,7 @@ td.v-PASS{background:#e6f5e6}td.v-FAIL{background:#fbe6e6}td.v-INCONCLUSIVE{back
 (${index.tally.PASS} PASS / ${index.tally.FAIL} FAIL / ${index.tally.INCONCLUSIVE} INCONCLUSIVE)</p>
 ${adjudication}
 ${scope}
+${refusals}
 ${superseded}
 <table><thead><tr><th>Page</th>${viewportLabels.map((v) => `<th>${esc(v)}</th>`).join('')}</tr></thead>
 <tbody>
