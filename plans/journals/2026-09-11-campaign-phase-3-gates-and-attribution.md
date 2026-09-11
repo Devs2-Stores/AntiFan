@@ -155,3 +155,23 @@ reference-side artifact without fabricating a FAIL, but it also removes the regi
 blinds `LAYOUT_WIDTH_ASYMMETRY`. `overflow-y:scroll;scrollbar-gutter:stable` on both, applied before
 either side materializes and with the floor re-measured, is the faithful version — a child change, so a
 full 15-page re-run, not a patch to the published set. Per-side width readings stay in every case file.
+
+### The snapshots carry no state churn (exhaustive, not sampled)
+
+Byte-differing lines are only half the question: a `wire:snapshot` carries the component's serialized
+`data`, so the payload had to be compared past identity. All 25 snapshots parse in each bundle, and the
+top-level component `id` sets are equal. Enumerating every leaf path and diffing all three pairs gives a
+closed inventory of what differs:
+
+| differing path | count per pair | what it is |
+|---|---|---|
+| `.memo.id` | 25 | Livewire component instance id |
+| `.checksum` | 25 | derived from the id above |
+| `.memo.children.<child>[1]` | 19 | nested child component identity tokens |
+
+Nothing else. In particular **no `.data.*` path differs** — component 0 alone exposes 185 `data.*` leaves
+and they are identical across b1b, b2 and b3, as are the section and card counts (3 sections, 20 cards at
+every tier). So the clone's variation across three independent builds is runtime identity and its derived
+checksum only: there is no session, cart, filter, slide or branch state churn, which is why the geometry
+was able to match b2 against b3 exactly. This is the step that separates runtime identity churn from site
+state churn; it closes the question rather than inferring it from geometry.
