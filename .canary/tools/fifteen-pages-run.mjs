@@ -1404,9 +1404,9 @@ export function generateReport(summary) {
   let finalDecisionEnum = 'INCONCLUSIVE';
   if (totalRenderCasesRun > 0 && totalPass === totalRenderCasesRun && totalTested === 15) {
     finalDecisionEnum = 'READY_FOR_NEXT_PHASE';
-  } else if (totalFail > 0 && pages.some(p => p.phases.cloneGeneration?.ok)) {
+  } else if (totalFail > 0 && pages.some(p => p.phases?.cloneGeneration?.ok)) {
     finalDecisionEnum = 'NEEDS_TARGETED_FIXES';
-  } else if (pipelinePages.length > 0 && pipelinePages.every(p => !p.phases.cloneGeneration?.ok)) {
+  } else if (pipelinePages.length > 0 && pipelinePages.every(p => !p.phases?.cloneGeneration?.ok)) {
     finalDecisionEnum = 'CLONE_PIPELINE_BLOCKED';
   }
 
