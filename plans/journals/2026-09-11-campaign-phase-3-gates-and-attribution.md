@@ -139,9 +139,11 @@ Two conclusions, both from that table rather than from the byte hashes:
    clone-side content differences at those tiers, with the mechanism **not** attributed; the pre-regime
    15-asymmetric-pair finding stays a measurement, but it does not explain the heights.
 2. **The page-3 verdict sequence is fully explained** without invoking run noise: b1b PASS 0.08% is the
-   symmetric pre-pin state (1024 docHeight 2766 on both sides); b2/b3 FAIL 2.3–4.59% is the pin era on the
-   asymmetric gutter; the authoritative run, after the pin was reverted and the regime made symmetric,
-   returns PASS 0.08% — reproducing b1b exactly.
+   symmetric pre-pin state (1024 docHeight 2766 on both sides); b2/b3 FAIL 2.3–4.59% is the pin era, where
+   the reference was deliberately pinned to a state the clone did not match; the authoritative run, after
+   the pin was reverted, returns PASS 0.08% — reproducing b1b exactly. The scrollbar regime is not part of
+   this explanation: it was made symmetric before the authoritative run, and the heights it would have had
+   to move are unchanged by it.
 
 What the harness does and does not assert: the reference's own stability is gated (`referenceIdentity`
 against the same-run same-viewport readiness floor), and the clone's *material* invariants are recorded
