@@ -140,7 +140,9 @@ Six candidate findings did not survive verification and are recorded so they are
 - Two `.canary/state/**` artifacts — gitignored runtime state, not suite files (their being on
   disk with tokens is a local hygiene matter for the user, not a suite finding).
 
-## 6. Defect found by this audit's own verification
+## 6. Defects and record corrections found by this audit's own verification
+
+### 6.1 The suite rewrites tracked artifacts
 
 Running the full sweep dirtied two tracked artifacts:
 `plans/reports/mcp-overhaul-benchmark.json` (26 lines: timestamp and benchmark metrics) and
@@ -150,6 +152,24 @@ Running the full sweep dirtied two tracked artifacts:
 unchanged, so any future gate that requires a clean tree after tests will fail for a reason that
 has nothing to do with the change under test. Reported only; redirecting a proof artifact's
 destination is a behaviour decision, not a test repair. Both files were left uncommitted.
+
+### 6.2 A gate's exit code had been read through a pipe and published wrong
+
+The Phase 5 record stated the theme checks stage ran "exit 0 with findings" (journal
+`plans/journals/2026-09-11-haravan-theme-fidelity-phase-5.md:85`). Re-running the gate bare, with no
+pipe, gives **exit 3** — and the stage's own artifact already said so: `.canary/theme-fidelity-run4/checks.json`
+records `status: REFUSED`, `childExitCode: 3`, and the child's text
+`[theme-checks] REFUSED (exit 3): settings-binding, assets`, with `report.json.provenance.checks`
+carrying `REFUSED`, `structural.ok false`, 2 refusals. The tool is not at fault: `scripts/theme-checks.mjs:85-88`
+exits 3 whenever its refusal list is non-empty, and the stage deliberately treats a refusal with a
+readable structural artifact as a carried finding rather than pipeline death
+(`.canary/tools/theme-fidelity-run.mjs:1496,1521-1526`). The journal and the phase-02 outcome were
+corrected. The substantive consequence stands: the pushed copy has 6 assets referenced but absent from
+the source and 95 settings reads undeclared by `settings_schema.json`, and the gate refused it.
+
+This is the same measurement class the audit found in the suite's own scripts (§3.1): a verdict read
+through a pipe belongs to the last command in the pipe, not to the gate. Every exit code recorded in
+this report was taken from a bare invocation.
 
 ## 7. Prioritised recommendations
 

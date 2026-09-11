@@ -104,7 +104,12 @@ diagnostic.
 
 ## Outcome (2026-09-11)
 
-`checks` ran over the real theme directory and every captured document: `config/settings_schema.json`
+`checks` ran over the real theme directory and every captured document and **refused** it: the stage
+record in `.canary/theme-fidelity-run4/checks.json` is `status: REFUSED` with `childExitCode: 3` and the
+child's own text `[theme-checks] REFUSED (exit 3): settings-binding, assets`, and
+`report.json.provenance.checks` carries the same refusal (`structural.ok false`, 2 refusals). A readable
+structural artifact makes that a carried finding rather than pipeline death, so the driver completed and
+named it in the report rather than exiting. The findings: `config/settings_schema.json`
 parses, the theme declares 0 sections, 95 settings reads are undeclared by that schema
 (`add_to_cart_show`, `cart_deliverytime_start/end`, `code_messenger_mb`, …), 78 local assets present with
 6 referenced but absent from the source. Reports: `.canary/theme-fidelity-run4/structural.json`
