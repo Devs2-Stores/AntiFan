@@ -30,4 +30,6 @@ clone/hoplongtech/build/
 **/__pycache__/
 .canary/
 tmp/
+exports/
+.haravan-cli_local.json
 

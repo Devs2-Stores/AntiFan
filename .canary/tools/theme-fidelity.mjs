@@ -37,7 +37,9 @@
  * cannot be seen by the replay at all. That substitution is caught whenever it
  * changes the layout: the compare-time tab identity (docHeight, sections,
  * widgetNodes, device) is gated against the pinned capture identity and the verdict
- * is withheld as INCONCLUSIVE on any disagreement.
+ * is withheld as INCONCLUSIVE when the disagreement is one-sided. A drift both sides
+ * share is the replay environment moving, not the page: it is recorded under
+ * `provenanceDrift` and the pixel compare still decides the fidelity question.
  *
  * ── Safety rule ──────────────────────────────────────────────────────────────
  * Before any navigation, every URL is parsed. A URL carrying a `themeid` query
@@ -59,7 +61,6 @@
  * and canary-settle.mjs are imported dynamically inside the mode runners: `--help`
  * and every usage refusal must work without a session and without a connection.
  */
-import crypto from 'node:crypto';
 import fs from 'node:fs';
 import http from 'node:http';
 import net from 'node:net';
@@ -67,7 +68,7 @@ import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
-import { sha256File } from '../../scripts/lib/atomic-record.mjs';
+import { HASH_CONTRACT, sha256Buffer, sha256File, sha256Text, textDigest } from '../../scripts/lib/atomic-record.mjs';
 import { loadInstanceIdentity } from '../../scripts/lib/evidence-provenance.mjs';
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
@@ -252,7 +253,6 @@ export class NotMeasurable extends Error {
 }
 
 const isRefusal = (e) => e instanceof Refusal;
-const sha256 = (buf) => crypto.createHash('sha256').update(buf).digest('hex');
 const nowIso = () => new Date().toISOString();
 const trimmed = (v) => (typeof v === 'string' && v.trim() ? v.trim() : null);
 /**
@@ -502,18 +502,73 @@ export function isMeasurableIdentity(identity) {
 }
 
 /**
+ * Signed drift of one identity field between a pin and its measurement, rounded the
+ * way document-height drift is reported. Fields that are not numeric measurements
+ * (device class, user agent) have no magnitude: their change is the value pair.
+ */
+function identityDriftMagnitude(pinned, measured) {
+  return typeof pinned === 'number' && typeof measured === 'number'
+    ? Math.round((measured - pinned) * 100) / 100
+    : null;
+}
+
+/**
+ * Every identity field whose measurement left its pin, with the signed magnitude of
+ * that move. Document height keeps the measured-rounding tolerance; every other field
+ * must match exactly.
+ */
+function collectIdentityDrift(pinned, measured, tolerancePx) {
+  const records = [];
+  for (const field of IDENTITY_FIELDS) {
+    const a = pinned[field] === undefined ? null : pinned[field];
+    const b = measured[field] === undefined ? null : measured[field];
+    const magnitude = identityDriftMagnitude(a, b);
+    if (field === 'docHeight' && magnitude !== null) {
+      if (Math.abs(magnitude) > tolerancePx) records.push({ field, pinned: a, measured: b, driftPx: Math.abs(magnitude), magnitude });
+      continue;
+    }
+    if (a !== b) records.push({ field, pinned: a, measured: b, driftPx: null, magnitude });
+  }
+  return records;
+}
+
+/**
+ * Whether one side's drift on a field matches its peer's drift on the same field:
+ * same sign and same magnitude for numeric measurements (document height within the
+ * measured-rounding tolerance, every other field exact), the same value pair for the
+ * rest. A field that moved on one side only never matches.
+ */
+function driftsTogether(field, own, peer, tolerancePx) {
+  if (!peer) return false;
+  if (own.magnitude === null || peer.magnitude === null) {
+    return own.pinned === peer.pinned && own.measured === peer.measured;
+  }
+  if (field === 'docHeight') return Math.abs(own.magnitude - peer.magnitude) <= tolerancePx;
+  return own.magnitude === peer.magnitude;
+}
+
+/**
  * Compare a pinned identity against a compare-time measurement over the identity
  * field set. Document height is allowed the measured-rounding tolerance; every
  * other field is exact. An unreadable side is never treated as agreeing.
+ *
+ * Passing the peer side's `{ pinned, measured }` as the fourth argument also answers
+ * the identity axis's own question: did the two sides drift together, or did only one
+ * side move? Every difference then carries its signed `magnitude` plus whether the
+ * peer drifted the same way (`symmetric`), and the result carries the symmetric and
+ * asymmetric field lists. With no peer the drift is compared against nothing, so
+ * `symmetric` is false rather than a claim.
  */
-export function compareIdentityFields(pinned, measured, tolerancePx = DOC_HEIGHT_TOLERANCE_PX) {
-  const differences = [];
+export function compareIdentityFields(pinned, measured, tolerancePx = DOC_HEIGHT_TOLERANCE_PX, peer = null) {
   if (!isMeasurableIdentity(measured)) {
     return {
       agree: false,
       unmeasurable: 'measured',
       tolerancePx,
-      differences: [{ field: '*', pinned: null, measured: null, reason: 'the compare-time measurement reported no viewport' }],
+      differences: [{ field: '*', pinned: null, measured: null, magnitude: null, symmetric: false, reason: 'the compare-time measurement reported no viewport' }],
+      symmetric: false,
+      symmetricFields: [],
+      asymmetricFields: [],
     };
   }
   if (!isMeasurableIdentity(pinned)) {
@@ -521,24 +576,64 @@ export function compareIdentityFields(pinned, measured, tolerancePx = DOC_HEIGHT
       agree: false,
       unmeasurable: 'pinned',
       tolerancePx,
-      differences: [{ field: '*', pinned: null, measured: null, reason: 'the pinned identity reported no viewport' }],
+      differences: [{ field: '*', pinned: null, measured: null, magnitude: null, symmetric: false, reason: 'the pinned identity reported no viewport' }],
+      symmetric: false,
+      symmetricFields: [],
+      asymmetricFields: [],
     };
   }
+  const peerDrift = new Map();
+  if (peer && isMeasurableIdentity(peer.pinned) && isMeasurableIdentity(peer.measured)) {
+    for (const record of collectIdentityDrift(peer.pinned, peer.measured, tolerancePx)) peerDrift.set(record.field, record);
+  }
+  const differences = collectIdentityDrift(pinned, measured, tolerancePx).map((record) => ({
+    ...record,
+    symmetric: driftsTogether(record.field, record, peerDrift.get(record.field), tolerancePx),
+  }));
+  const symmetricFields = differences.filter((d) => d.symmetric).map((d) => d.field);
+  const asymmetricFields = differences.filter((d) => !d.symmetric).map((d) => d.field);
+  return {
+    agree: differences.length === 0,
+    unmeasurable: null,
+    tolerancePx,
+    differences,
+    // Symmetry describes a drift that exists: a pair that did not move has no drift to
+    // be symmetric about, and a call made without a peer cannot establish symmetry at
+    // all, so both answer false rather than claiming agreement.
+    symmetric: peer ? differences.length > 0 && asymmetricFields.length === 0 : false,
+    symmetricFields,
+    asymmetricFields,
+  };
+}
+
+/**
+ * The identity axis's own verdict: a pair drifted symmetrically only when both sides
+ * say so. Reading one side alone misses a field that moved on the other side only, and
+ * that one-sided move is what makes a drifted pair incomparable.
+ */
+export function isSymmetricIdentityDrift(reference, subject) {
+  return reference?.symmetric === true && subject?.symmetric === true;
+}
+
+/**
+ * Cross-side identity evidence: do the two compare-time measurements agree with each
+ * other over the identity field set, under the same measured-height tolerance? This is
+ * recorded, never decisive: two sides that drifted together agree here while both
+ * disagree with their pins, so it cannot stand in for the pin comparison.
+ */
+export function compareCrossSideIdentity(reference, subject, tolerancePx = DOC_HEIGHT_TOLERANCE_PX) {
+  const differences = [];
   for (const field of IDENTITY_FIELDS) {
-    const a = pinned[field] === undefined ? null : pinned[field];
-    const b = measured[field] === undefined ? null : measured[field];
-    if (field === 'docHeight') {
-      if (typeof a !== 'number' || typeof b !== 'number') {
-        if (a !== b) differences.push({ field, pinned: a, measured: b, driftPx: null });
-        continue;
-      }
-      const driftPx = Math.round(Math.abs(b - a) * 100) / 100;
-      if (driftPx > tolerancePx) differences.push({ field, pinned: a, measured: b, driftPx });
+    const a = reference?.[field] === undefined ? null : reference[field];
+    const b = subject?.[field] === undefined ? null : subject[field];
+    if (field === 'docHeight' && typeof a === 'number' && typeof b === 'number') {
+      const delta = Math.round((b - a) * 100) / 100;
+      if (Math.abs(delta) > tolerancePx) differences.push({ field, reference: a, subject: b, delta, tolerance: tolerancePx });
       continue;
     }
-    if (a !== b) differences.push({ field, pinned: a, measured: b, driftPx: null });
+    if (a !== b) differences.push({ field, reference: a, subject: b, delta: null, tolerance: field === 'docHeight' ? tolerancePx : 0 });
   }
-  return { agree: differences.length === 0, unmeasurable: null, tolerancePx, differences };
+  return { matched: differences.length === 0, tolerancePx, differences };
 }
 
 /** The pair key an evidence document and a verdict document share. */
@@ -639,6 +734,21 @@ export function projectGeometry(metrics) {
 }
 
 /**
+ * The instrument revision the parent run handed down to this stage, or null.
+ *
+ * The parent hashes the tool set once and passes the revision through the environment,
+ * so every document a child mints can name the instrument that produced it. A stage run
+ * outside that chain records null: an absent variable must stay visible as unknown, never
+ * thrown over and never filled with a value this process invented for itself. A value
+ * that is only whitespace names no revision either.
+ */
+export function readInstrumentRevision(env = process.env) {
+  const raw = env?.CANARY_INSTRUMENT_REVISION;
+  if (typeof raw !== 'string') return null;
+  return raw.trim() === '' ? null : raw;
+}
+
+/**
  * Resolve the run's provenance from the bootstrap. A document that cannot name the
  * instance it was produced by is refused, never filled with a placeholder.
  */
@@ -716,7 +826,7 @@ function readJsonFile(file, code, exitCode, what) {
     throw refuse(code, exitCode, `${what} ${resolved} is unreadable: ${String(e && e.message).slice(0, 200)}`, { file: resolved });
   }
   try {
-    return { value: JSON.parse(raw), file: resolved, sha256: sha256(raw) };
+    return { value: JSON.parse(raw), file: resolved, ...textDigest(raw) };
   } catch (e) {
     throw refuse(code, exitCode, `${what} ${resolved} is not valid JSON: ${String(e && e.message).slice(0, 200)}`, { file: resolved });
   }
@@ -866,7 +976,7 @@ async function fetchArtifact(bootstrap, artifactId, outFile) {
   }
   fs.mkdirSync(path.dirname(path.resolve(outFile)), { recursive: true });
   fs.writeFileSync(path.resolve(outFile), buf);
-  return { integrity, sha256: sha256(buf), bytes: buf.length };
+  return { integrity, sha256: sha256Buffer(buf), hashContract: HASH_CONTRACT.BYTE_EXACT, bytes: buf.length };
 }
 
 async function waitForReadyState(call, evalOn, tabId, attempts = 40) {
@@ -965,6 +1075,7 @@ async function runCapture(options) {
             file: path.basename(pngFile),
             artifactRef: typeof artifactId === 'string' ? artifactId : JSON.stringify(artifactId),
             sha256: saved.sha256,
+            hashContract: HASH_CONTRACT.BYTE_EXACT,
             bytes: saved.bytes,
             integrity: saved.integrity,
             declaredByteLength: capture?.byteLength ?? capture?.bytes ?? null,
@@ -983,9 +1094,15 @@ async function runCapture(options) {
             throw new NotMeasurable('DOM_DUMP_UNREADABLE', `dump-ref did not report a JSON payload: ${String(e && e.message).slice(0, 200)}`, { stdout: dump.stdout.slice(0, 400) });
           }
           const domBytes = fs.readFileSync(domPath);
+          const domText = domBytes.toString('utf8');
+          // dump-ref declares a digest of the bytes it persisted, so the cross-check below stays
+          // byte-exact; the pinned artifact digest is taken over normalised text so a CRLF
+          // checkout and an LF checkout pin the same document.
+          const domByteSha256 = sha256Buffer(domBytes);
           const dom = {
             file: path.relative(outDir, domPath).split(path.sep).join('/'),
-            sha256: sha256(domBytes),
+            sha256: sha256Text(domText),
+            hashContract: HASH_CONTRACT.LF_NORMALIZED,
             bytes: domBytes.length,
             observedUrl: dumpPayload.url ?? null,
             clientWidth: dumpPayload.clientWidth ?? null,
@@ -998,13 +1115,13 @@ async function runCapture(options) {
             removedCount: Array.isArray(dumpPayload.removed) ? dumpPayload.removed.length : null,
             declaredSha256: dumpPayload.sha256 ?? null,
           };
-          if (dom.declaredSha256 && dom.declaredSha256 !== dom.sha256) {
-            throw new NotMeasurable('DOM_DIGEST_MISMATCH', `dump-ref declared sha256 ${dom.declaredSha256} but the persisted file hashes to ${dom.sha256}`);
+          if (dom.declaredSha256 && dom.declaredSha256 !== domByteSha256) {
+            throw new NotMeasurable('DOM_DIGEST_MISMATCH', `dump-ref declared sha256 ${dom.declaredSha256} but the persisted file hashes to ${domByteSha256}`);
           }
           // The URL parameter is what was asked for; the assets inside the document are what
           // was served. A silent substitution is refused before anything is compared.
           const requestedThemeId = URL.canParse(target.url) ? themeIdFromParameter(new URL(target.url).searchParams.get('themeid') ?? '') : null;
-          const servedTheme = checkServedTheme(domBytes.toString('utf8'), requestedThemeId);
+          const servedTheme = checkServedTheme(domText, requestedThemeId);
           dom.servedThemeIds = servedTheme.ids;
           if (servedTheme.refusal) throw servedTheme.refusal;
           const themeIdMismatch = checkObservedUrl(target, dom.observedUrl);
@@ -1031,11 +1148,13 @@ async function runCapture(options) {
             url: target.url,
             themeId: gateBySurface.get(target.name)?.themeId ?? null,
             themeIdParameter: gateBySurface.get(target.name)?.parameter ?? null,
-            png: { file: png.file, sha256: png.sha256, bytes: png.bytes, artifactRef: png.artifactRef },
-            dom: { file: dom.file, sha256: dom.sha256, bytes: dom.bytes, observedUrl: dom.observedUrl },
+            png: { file: png.file, sha256: png.sha256, hashContract: HASH_CONTRACT.BYTE_EXACT, bytes: png.bytes, artifactRef: png.artifactRef },
+            dom: { file: dom.file, sha256: dom.sha256, hashContract: HASH_CONTRACT.LF_NORMALIZED, bytes: dom.bytes, observedUrl: dom.observedUrl },
             domDigest: dom.sha256,
+            domDigestHashContract: HASH_CONTRACT.LF_NORMALIZED,
             geometry,
-            geometrySha256: geometry ? sha256(JSON.stringify(geometry)) : null,
+            geometrySha256: geometry ? sha256Text(JSON.stringify(geometry)) : null,
+            geometrySha256HashContract: geometry ? HASH_CONTRACT.LF_NORMALIZED : null,
             tabIdentity,
             instance: { attachmentId: run.attachmentId, bridgePort: run.bridgePort, pid: run.instancePid, primaryTabId: run.primaryTabId, startedAt: run.instanceStartedAt, runId: run.instanceRunId, attemptId: run.instanceAttemptId },
             run: { runId: run.runId, attachmentId: run.attachmentId, authorityRevision: run.authorityRevision, mintedAt: run.mintedAt, label: options.label, role: options.role },
@@ -1098,7 +1217,7 @@ async function runCapture(options) {
     role: options.role,
     label: options.label,
     store: inventory.store,
-    inventory: { file: loaded.file, sha256: loaded.sha256, surfaces: inventory.targets.filter((t) => t.kind === 'surface').length, views: inventory.targets.filter((t) => t.kind === 'view').length, livePreviewBase: inventory.livePreviewBase, copyPreviewBase: inventory.copyPreviewBase },
+    inventory: { file: loaded.file, sha256: loaded.sha256, hashContract: loaded.hashContract, surfaces: inventory.targets.filter((t) => t.kind === 'surface').length, views: inventory.targets.filter((t) => t.kind === 'view').length, livePreviewBase: inventory.livePreviewBase, copyPreviewBase: inventory.copyPreviewBase },
     viewports,
     safety: { allowedThemes: safety.allowedThemes, gates: safety.gates },
     targets: entries,
@@ -1308,7 +1427,7 @@ function readCaptureIndex(dir, side) {
   if (!index || typeof index !== 'object' || index.kind !== 'theme-fidelity-capture-index' || !Array.isArray(index.targets)) {
     throw refuse('SIDE_INDEX_UNREADABLE', EXIT.USAGE, `${side} side index ${loaded.file} is not a theme-fidelity capture index`, { side, file: loaded.file, kind: index?.kind ?? null });
   }
-  return { dir: resolved, file: loaded.file, sha256: loaded.sha256, index };
+  return { dir: resolved, file: loaded.file, sha256: loaded.sha256, hashContract: loaded.hashContract, index };
 }
 
 function readSideEvidence(sideDir, entry, side) {
@@ -1321,7 +1440,7 @@ function readSideEvidence(sideDir, entry, side) {
   if (!doc || typeof doc !== 'object' || doc.kind !== 'theme-fidelity-capture') {
     throw refuse('ARTIFACT_UNREADABLE', EXIT.USAGE, `${side} evidence ${file} is not a theme-fidelity capture document`, { side, file, kind: doc?.kind ?? null });
   }
-  return { doc, file, sha256: loaded.sha256 };
+  return { doc, file, sha256: loaded.sha256, hashContract: loaded.hashContract };
 }
 
 /** Every field a verdict must be able to name, per side. Missing ones refuse. */
@@ -1364,7 +1483,10 @@ function verifyArtifact(side, sideDir, provenance, kind) {
   if (!fs.existsSync(file)) {
     throw refuse('ARTIFACT_MISSING', EXIT.REFUSAL, `${side} ${kind} artifact ${file} is absent, so the pin cannot be verified`, { side, kind, file });
   }
-  const observed = sha256File(file);
+  // A PNG is verified byte-exact; a DOM dump is text and is re-hashed under the same
+  // normalised contract it was pinned with, so a CRLF checkout is not read as tampering.
+  const hashContract = kind === 'png' ? HASH_CONTRACT.BYTE_EXACT : HASH_CONTRACT.LF_NORMALIZED;
+  const observed = kind === 'png' ? sha256File(file) : sha256Text(fs.readFileSync(file, 'utf8'));
   const expected = kind === 'png' ? provenance.png.sha256 : provenance.dom.sha256;
   if (observed !== expected) {
     throw refuse('ARTIFACT_DIGEST_MISMATCH', EXIT.REFUSAL, `${side} ${kind} artifact ${file} hashes to ${observed}, not the pinned ${expected}`, { side, kind, file, expected, observed });
@@ -1373,7 +1495,7 @@ function verifyArtifact(side, sideDir, provenance, kind) {
   if (kind === 'png' && Number.isFinite(provenance.png.bytes) && provenance.png.bytes !== bytes) {
     throw refuse('ARTIFACT_DIGEST_MISMATCH', EXIT.REFUSAL, `${side} png artifact ${file} is ${bytes} bytes, not the pinned ${provenance.png.bytes}`, { side, kind, file, expected: provenance.png.bytes, observed: bytes });
   }
-  return { file, bytes, sha256: observed };
+  return { file, bytes, sha256: observed, hashContract };
 }
 
 async function runCompare(options) {
@@ -1467,8 +1589,8 @@ async function runCompare(options) {
     mode: 'compare',
     status: refusal ? 'REFUSED' : (totals.notMeasurable ? 'INCOMPLETE' : 'COMPLETE'),
     store: reference?.index?.store ?? null,
-    reference: reference ? { dir: reference.dir, index: reference.file, indexSha256: reference.sha256, role: reference.index.role ?? null, label: reference.index.label ?? null } : { dir: path.resolve(options.reference), index: null, indexSha256: null, role: null, label: null },
-    subject: subject ? { dir: subject.dir, index: subject.file, indexSha256: subject.sha256, role: subject.index.role ?? null, label: subject.index.label ?? null } : { dir: path.resolve(options.subject), index: null, indexSha256: null, role: null, label: null },
+    reference: reference ? { dir: reference.dir, index: reference.file, indexSha256: reference.sha256, hashContract: reference.hashContract, role: reference.index.role ?? null, label: reference.index.label ?? null } : { dir: path.resolve(options.reference), index: null, indexSha256: null, hashContract: null, role: null, label: null },
+    subject: subject ? { dir: subject.dir, index: subject.file, indexSha256: subject.sha256, hashContract: subject.hashContract, role: subject.index.role ?? null, label: subject.index.label ?? null } : { dir: path.resolve(options.subject), index: null, indexSha256: null, hashContract: null, role: null, label: null },
     strictParams: { ...STRICT_COMPARE_PARAMS, trackedSelectors: TRACKED },
     pairs: results,
     totals,
@@ -1532,6 +1654,10 @@ async function comparePair({ pair, reference, subject, servers, rpc, settle, run
     tabs: { reference: null, subject: null },
     startedAt: nowIso(),
     finishedAt: null,
+    // The revision of the instrument that produced this leg, handed down by the parent
+    // run: a leg read beside a compare index minted by a different revision must be
+    // visible as a mixed generation, which leg granularity otherwise cannot show.
+    instrumentRevision: readInstrumentRevision(),
     printLine: null,
   };
 
@@ -1543,12 +1669,13 @@ async function comparePair({ pair, reference, subject, servers, rpc, settle, run
     fs.writeFileSync(file, injected.html);
     return {
       side,
-      source: { file: domArtifact.file, sha256: domArtifact.sha256, bytes: domArtifact.bytes },
+      source: { file: domArtifact.file, sha256: domArtifact.sha256, hashContract: domArtifact.hashContract, bytes: domArtifact.bytes },
       file,
       url: `http://127.0.0.1:${server.port}/${path.basename(file)}`,
       baseHref: injected.baseHref,
       baseMode: injected.mode,
-      sha256: sha256(injected.html),
+      sha256: sha256Text(injected.html),
+      hashContract: HASH_CONTRACT.LF_NORMALIZED,
       bytes: Buffer.byteLength(injected.html),
     };
   };
@@ -1613,8 +1740,8 @@ async function comparePair({ pair, reference, subject, servers, rpc, settle, run
     const identity = {
       fields: IDENTITY_FIELDS,
       tolerancePx: DOC_HEIGHT_TOLERANCE_PX,
-      reference: { pinned: referenceProvenance.tabIdentity, measured: measured.reference.tabIdentity, ...compareIdentityFields(referenceProvenance.tabIdentity, measured.reference.tabIdentity) },
-      subject: { pinned: subjectProvenance.tabIdentity, measured: measured.subject.tabIdentity, ...compareIdentityFields(subjectProvenance.tabIdentity, measured.subject.tabIdentity) },
+      reference: { pinned: referenceProvenance.tabIdentity, measured: measured.reference.tabIdentity, ...compareIdentityFields(referenceProvenance.tabIdentity, measured.reference.tabIdentity, DOC_HEIGHT_TOLERANCE_PX, { pinned: subjectProvenance.tabIdentity, measured: measured.subject.tabIdentity }) },
+      subject: { pinned: subjectProvenance.tabIdentity, measured: measured.subject.tabIdentity, ...compareIdentityFields(subjectProvenance.tabIdentity, measured.subject.tabIdentity, DOC_HEIGHT_TOLERANCE_PX, { pinned: referenceProvenance.tabIdentity, measured: measured.reference.tabIdentity }) },
       deviceClass: {
         reference: measured.reference.tabIdentity.device ?? null,
         subject: measured.subject.tabIdentity.device ?? null,
@@ -1625,12 +1752,36 @@ async function comparePair({ pair, reference, subject, servers, rpc, settle, run
     };
     doc.identity = identity;
 
+    // Cross-side evidence, recorded beside the pin comparison and never decisive: two
+    // sides that drifted together agree with each other while both disagree with their
+    // pins, which is the case this axis exists to tell apart from a real layout change.
+    doc.crossSideIdentity = compareCrossSideIdentity(measured.reference.tabIdentity, measured.subject.tabIdentity);
+
     // Withhold before spending a compare when the two sides are different layouts:
     // comparing a mobile-layout page against a web-layout one is not a fidelity
     // measurement, which is what viewport-run.mjs's DEVICE_CLASS_ASYMMETRY refuses.
     const drifted = ['reference', 'subject'].filter((side) => identity[side].agree !== true);
     const deviceAsymmetry = identity.deviceClass.agree !== true;
-    if (drifted.length || deviceAsymmetry) {
+    // A drift both sides share is the instrument moving, not the page: both pins replayed
+    // into the same environment drift together. With the drift recorded the pair is still
+    // measurable, and the pixel compare still decides the fidelity question. One side
+    // moving alone — or moving by a different amount — leaves the sides incomparable and
+    // is withheld exactly as before. Both sides must answer symmetric, so a field that
+    // moved on one side only is seen even when another field drifted together.
+    const symmetricDrift = drifted.length > 0 && !deviceAsymmetry
+      && isSymmetricIdentityDrift(identity.reference, identity.subject);
+    if (symmetricDrift) {
+      doc.provenanceDrift = {
+        symmetric: true,
+        fields: identity.reference.symmetricFields,
+        reference: { pinned: identity.reference.pinned, measured: identity.reference.measured, differences: identity.reference.differences },
+        subject: { pinned: identity.subject.pinned, measured: identity.subject.measured, differences: identity.subject.differences },
+      };
+      // The compare below overwrites `mechanism` with its own verdict mechanism;
+      // `provenanceDrift` is the durable record that this leg was adjudicated despite it.
+      doc.mechanism = 'SYMMETRIC_IDENTITY_DRIFT_RECORDED';
+    }
+    if ((drifted.length || deviceAsymmetry) && !symmetricDrift) {
       const mechanisms = [];
       for (const side of drifted) mechanisms.push(`${side.toUpperCase()}_IDENTITY_DRIFT`);
       if (deviceAsymmetry) mechanisms.push('DEVICE_CLASS_ASYMMETRY');
@@ -1721,9 +1872,11 @@ async function comparePair({ pair, reference, subject, servers, rpc, settle, run
     doc.status = 'NOT_MEASURABLE';
     doc.verdict = 'INCONCLUSIVE';
     doc.mechanism = e?.code || 'REPLAY_NOT_MEASURABLE';
-    doc.reason = String((e && e.message) || e).slice(0, 600);
+    // Three settle passes are ~190 characters each, so a 600-char bound cut pass #3
+    // mid-sentence; 2048 keeps the whole pass history plus the message head.
+    doc.reason = String((e && e.message) || e).slice(0, 2048);
     // The per-pass components are the only evidence that names which predicate
-    // disagreed; the 600-char reason truncates them, so persist them verbatim.
+    // disagreed; persist them verbatim beside the reason.
     doc.settlePasses = Array.isArray(e?.passes) ? e.passes : null;
   } finally {
     const closed = {};
@@ -1749,6 +1902,7 @@ async function comparePair({ pair, reference, subject, servers, rpc, settle, run
     subjectHeight: doc.measurement?.subject?.docHeight ?? subjectProvenance.geometry?.docHeight ?? null,
     referencePngSha256: referenceProvenance.png.sha256,
     subjectPngSha256: subjectProvenance.png.sha256,
+    pngHashContract: HASH_CONTRACT.BYTE_EXACT,
   };
   doc.printLine = formatPairLine(summary);
   return { doc, summary };

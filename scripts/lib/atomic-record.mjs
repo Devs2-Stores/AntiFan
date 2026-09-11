@@ -20,9 +20,35 @@ import path from 'node:path';
 
 export const sha256Buffer = (buf) => crypto.createHash('sha256').update(buf).digest('hex');
 
+/**
+ * Hash text with CRLF (and a lone CR) normalised to LF. An artifact's bytes differ
+ * between a checkout that carries CRLF and one that carries LF while its meaning is
+ * identical — `.canary/tools/theme-fidelity.mjs` is CRLF in the working tree and the
+ * other tools are LF — so a digest that must hold across machines and legs is taken
+ * over normalised text. `sha256Buffer` stays byte-exact for binary artifacts.
+ */
+export const sha256Text = (text) => sha256Buffer(String(text).replace(/\r\n?/g, '\n'));
+
 export function sha256File(filePath) {
   return sha256Buffer(fs.readFileSync(filePath));
 }
+
+/**
+ * The contract a digest was taken under, named beside the digest in every artifact that
+ * pins one. A text digest normalises CRLF to LF, so the same artifact hashes the same in a
+ * CRLF and an LF checkout; a byte digest is exact, so a mismatch is tampering and not a
+ * line-ending translation. Without the name a reader cannot tell the two apart.
+ */
+export const HASH_CONTRACT = Object.freeze({
+  LF_NORMALIZED: 'lf-normalized',
+  BYTE_EXACT: 'byte-exact',
+});
+
+/**
+ * A digest of text with the contract it was taken under, for an artifact that pins a text
+ * document. Spread it into the pin object so the recorded digest names its own contract.
+ */
+export const textDigest = (text) => ({ sha256: sha256Text(text), hashContract: HASH_CONTRACT.LF_NORMALIZED });
 
 /** Write `value` (object, or string written verbatim) atomically. */
 export function writeRecordAtomic(filePath, value) {

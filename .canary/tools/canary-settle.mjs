@@ -430,9 +430,9 @@ export async function settleAndMeasure(tabId, name) {
       } catch {}
     };
     const pauseAnimations = () => { try { for (const a of document.getAnimations()) { try { a.pause(); } catch {} } } catch {} };
-    window.__antifanGuardRestore = () => {
+    const restoreGuardState = (state) => {
       let restored = 0;
-      for (const [el, snap] of snapshots) {
+      for (const [el, snap] of state.snapshots) {
         for (const prop of Object.keys(snap)) {
           try {
             if (snap[prop].value) el.style.setProperty(prop, snap[prop].value, snap[prop].priority);
@@ -442,13 +442,32 @@ export async function settleAndMeasure(tabId, name) {
         try { el.removeAttribute('data-antifan-pinned'); } catch {}
         restored++;
       }
-      snapshots.clear();
+      state.snapshots.clear();
       try { delete window.__antifanGuardSnapshots; } catch {}
-      try { if (window.__antifanGuardObserver) { window.__antifanGuardObserver.disconnect(); delete window.__antifanGuardObserver; } } catch {}
+      try {
+        if (state.observer) {
+          state.observer.disconnect();
+          if (window.__antifanGuardObserver === state.observer) delete window.__antifanGuardObserver;
+          state.observer = null;
+        }
+      } catch {}
+      try { if (window.__antifanPinnedGuard === state) delete window.__antifanPinnedGuard; } catch {}
       return { restored, markedLeft: document.querySelectorAll('[data-antifan-pinned]').length };
+    };
+    // The restore follows the live guard handle rather than this pass's closure: a reused
+    // handle owns the snapshots, the observer and the pin set, and the release runs after
+    // the pass that built it has already returned.
+    window.__antifanGuardRestore = () => {
+      const state = window.__antifanPinnedGuard;
+      if (!state) return { restored: 0, markedLeft: document.querySelectorAll('[data-antifan-pinned]').length, absent: true };
+      return restoreGuardState(state);
     };
     const candidates = Array.from(document.querySelectorAll('img, [class*="marquee"], [class*="slide"], [class*="swiper"], [class*="slick"], [class*="track"], [class*="carousel"], [class*="baner"], [class*="banner"]'));
     const snap = () => candidates.map(el => { const r = el.getBoundingClientRect(); return { x: r.x, y: r.y }; });
+    // The same rects as snap(), keyed by element. Movement between passes is compared
+    // per element, never per index: the candidate list can gain or lose nodes between
+    // passes, and the same index would then address two different elements.
+    const snapKeyed = () => { const map = new Map(); for (const el of candidates) { const r = el.getBoundingClientRect(); map.set(el, { x: r.x, y: r.y }); } return map; };
     // Rects for every candidate and its ancestry, so the element that actually
     // translates is identified regardless of whether it moves via transform, left,
     // margin-left or a scroll offset.
@@ -463,13 +482,42 @@ export async function settleAndMeasure(tabId, name) {
       }
       return map;
     };
+    // One pin set per document, reused by every later pass.
+    //
+    // Re-detecting movers per pass does not merely cost 5.6s: the detection window is
+    // phase-dependent, so each pass froze a different node set and the widget came to
+    // rest on a geometry the pass before it never saw. The gate then read its own
+    // instrument's movement as page movement — measured on article__1024x900.html, the
+    // only fingerprint field that moved between two canonical passes was imageSetHash,
+    // and it moved again on the third pass. Reusing the first pass's
+    // pin set keeps the frozen state identical across passes, which is what two
+    // "matching" passes are supposed to observe.
+    const prior = window.__antifanPinnedGuard;
+    if (prior && prior.key === location.href && typeof prior.applyAll === 'function') {
+      window.__antifanGuardRestore = () => restoreGuardState(prior);
+      prior.applyAll();
+      await sleep(1200);
+      const reuseAfter = snap();
+      const priorRects = prior.beforeGuardRects instanceof Map ? prior.beforeGuardRects : null;
+      let reuseMoving = 0;
+      for (let i = 0; i < candidates.length; i++) {
+        // Only an element the guard pass actually snapshotted has a pre-pin rect.
+        // A node that appeared after the guard was built (or a handle from an older
+        // pass without the keyed store) has none, so it cannot be counted as moved.
+        const before = priorRects && priorRects.get(candidates[i]);
+        if (!before) continue;
+        if (Math.abs(reuseAfter[i].x - before.x) > 0.5 || Math.abs(reuseAfter[i].y - before.y) > 0.5) reuseMoving++;
+      }
+      return { ...prior.guard, reused: true, stillMovingAfterGuard: reuseMoving };
+    }
     // The marquee advances in discrete ~545px steps on a multi-second cadence, so a
     // single sub-second window can see nothing move at all; sample until something
     // moves, up to ~5s, and pin every node that was ever observed moving.
     const movers = [];
     const guardNodes = new Set();
     let prevRects = chainRects();
-    let beforeGuard = snap();
+    let beforeGuardRects = snapKeyed();
+    let beforeGuard = candidates.map(el => beforeGuardRects.get(el));
     for (let round = 0; round < 7; round++) {
       await sleep(800);
       const curRects = chainRects();
@@ -482,7 +530,11 @@ export async function settleAndMeasure(tabId, name) {
         movers.push({ tag: el.tagName.toLowerCase(), cls: label(el), dx: Math.round(dx), dy: Math.round(dy) });
       }
       prevRects = curRects;
-      if (movers.length) { beforeGuard = snap(); break; }
+      if (movers.length) {
+        beforeGuardRects = snapKeyed();
+        beforeGuard = candidates.map(el => beforeGuardRects.get(el));
+        break;
+      }
     }
     for (const el of document.querySelectorAll(TRACKS)) guardNodes.add(el);
     if (window.__antifanGuardObserver) { try { window.__antifanGuardObserver.disconnect(); } catch {} }
@@ -513,6 +565,10 @@ export async function settleAndMeasure(tabId, name) {
     const observer = new MutationObserver(onMutation);
     observer.observe(document.documentElement, { subtree: true, attributes: true, childList: true, attributeFilter: ['style', 'class'] });
     window.__antifanGuardObserver = observer;
+    const state = { key: location.href, guard, guardNodes, layoutNodes, snapshots, observer, applyAll, beforeGuard, beforeGuardRects, restore: null };
+    state.restore = () => restoreGuardState(state);
+    window.__antifanPinnedGuard = state;
+    window.__antifanGuardRestore = state.restore;
     applyAll();
     await sleep(1200);
     const settledAfter = snap();

@@ -73,7 +73,7 @@ import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
-import { sha256Buffer, writeRecordAtomic } from '../../scripts/lib/atomic-record.mjs';
+import { HASH_CONTRACT, writeRecordAtomic, sha256Text, textDigest } from '../../scripts/lib/atomic-record.mjs';
 import {
   DEFAULT_VIEWPORTS,
   Refusal,
@@ -104,6 +104,13 @@ export const TOOLS = Object.freeze({
   checks: 'scripts/theme-checks.mjs',
 });
 
+/**
+ * The statuses the checks stage mints. The publish predicate allowlists `CLEAN` from this
+ * set, so a status added here later refuses to publish until it is deliberately made
+ * publishable — an unknown status can never fall through to a publish.
+ */
+export const CHECKS_STATUS = Object.freeze({ CLEAN: 'CLEAN', REFUSED: 'REFUSED', FAILED: 'FAILED' });
+
 /** The one remote-writing command this pipeline may spawn. `hrv` resolves the theme from cwd. */
 export const DEV_COMMAND = Object.freeze({ command: 'hrv', args: ['theme', 'dev'] });
 
@@ -133,6 +140,72 @@ export const COMPARE_SETS = Object.freeze([
   { name: 'r1-vs-subject', reference: 'r1', subject: 'subject', label: 'R1 deployed copy vs subject' },
   { name: 'r2-vs-subject', reference: 'r2', subject: 'subject', label: 'R2 live production vs subject' },
 ]);
+
+/**
+ * The tool set whose source decides what a verdict means: the harness that captures and
+ * adjudicates, the settle contract it obeys, the copy-writer it supervises, this driver,
+ * and the digest library that defines `sha256Text`/`HASH_CONTRACT`/`textDigest`. A change
+ * to the digest semantics changes what every recorded digest means, so it must mint a new
+ * revision just like a change to an adjudicating file. Two verdict generations produced by
+ * different revisions of these files must not be readable as one campaign, so every JSON
+ * artifact this driver mints carries the revision they hashed to.
+ */
+export const INSTRUMENT_FILES = Object.freeze([
+  '.canary/tools/theme-fidelity.mjs',
+  '.canary/tools/canary-settle.mjs',
+  '.canary/tools/theme-fidelity-run.mjs',
+  'scripts/lib/settle-contract.mjs',
+  'scripts/lib/atomic-record.mjs',
+]);
+
+/**
+ * The instrument identity of a document: the revision of the tool set that produced it,
+ * plus the per-file digests that revision was computed from.
+ *
+ * Each file is hashed as text with CRLF normalised to LF, so the same tool source hashes
+ * the same in a CRLF and an LF checkout; each entry names that contract, so a reader knows
+ * a digest difference is a source change and not a line-ending translation. A file that
+ * cannot be read is recorded as `sha256: null` with no contract and the revision is still
+ * minted — a partially unknown instrument must be visible in the artifact, never thrown
+ * over. The revision is the hash of the `path sha256` lines, so any change to any
+ * instrument file mints a new revision.
+ */
+export function readInstrument({ repo = REPO, files = INSTRUMENT_FILES } = {}) {
+  const entries = files.map((rel) => {
+    try {
+      return { path: rel, ...textDigest(fs.readFileSync(path.join(repo, rel), 'utf8')) };
+    } catch {
+      return { path: rel, sha256: null, hashContract: null };
+    }
+  });
+  const revision = sha256Text(entries.map((entry) => `${entry.path} ${entry.sha256 ?? '<missing>'}`).join('\n'));
+  return { revision, files: entries };
+}
+
+/** The `instrument` block for one artifact: its tool revision and the epoch it was minted at. */
+function instrumentBlock(generatedAt) {
+  return { ...readInstrument(), epoch: generatedAt ?? null };
+}
+
+let childInstrumentRevision = null;
+
+/**
+ * The environment every repo tool this driver spawns runs with: the ambient environment
+ * plus the instrument revision, so a child that stamps its own artifacts names the tool
+ * set that produced them. Minted once per process — the instrument cannot change mid-run.
+ */
+function childInstrumentEnv() {
+  childInstrumentRevision ??= readInstrument().revision;
+  return { ...process.env, CANARY_INSTRUMENT_REVISION: childInstrumentRevision };
+}
+
+/**
+ * The pin of a JSON or text artifact this run wrote: its text digest with the contract it
+ * was taken under, so a reader knows a mismatch here cannot be a line-ending translation.
+ */
+function artifactDigest(file) {
+  return textDigest(fs.readFileSync(file, 'utf8'));
+}
 
 /**
  * Readiness log signals. They are the first signal only: the copy-preview HTTP probe
@@ -356,6 +429,7 @@ export function deriveInventories(raw, { copyThemeId = COPY_THEME_ID, liveThemeI
       derivedFrom: {
         file: source?.file ?? null,
         sha256: source?.sha256 ?? null,
+        hashContract: source?.hashContract ?? null,
         store: String(raw.store).trim(),
         surfaces: (raw.surfaces ?? []).length,
         views: (raw.views ?? []).length,
@@ -552,7 +626,7 @@ function readJsonArtifact(file, code, exitCode, what) {
     throw refuse(code, exitCode, `${what} ${resolved} is unreadable: ${String((e && e.message) || e).slice(0, 200)}`, { file: resolved });
   }
   try {
-    return { value: JSON.parse(raw), file: resolved, sha256: sha256Buffer(raw), bytes: Buffer.byteLength(raw) };
+    return { value: JSON.parse(raw), file: resolved, ...textDigest(raw), bytes: Buffer.byteLength(raw) };
   } catch (e) {
     throw refuse(code, exitCode, `${what} ${resolved} is not valid JSON: ${String((e && e.message) || e).slice(0, 200)}`, { file: resolved });
   }
@@ -587,7 +661,17 @@ function appendCommandRecord(outDir, record) {
   return file;
 }
 
-function readCommandRecords(file) {
+/**
+ * Read the append-only command log. The returned pin names both the contract and the
+ * coverage: a text digest with CRLF normalised to LF, so the same bytes hash the same in a
+ * CRLF and an LF checkout, over the whole log as it existed at read time — blank lines
+ * included. `rawLines` is the number of raw lines that text contains and the argument a
+ * verifier passes to `commandLogPrefix`; `lines` is the parser's record count and differs
+ * when the log has blank lines. Every stage's own record is appended after this pin is
+ * taken (see `commandLogPrefix`), so the file on disk is longer than the pin — `appendOnly`
+ * says the growth is by design.
+ */
+export function readCommandRecords(file) {
   let raw;
   try {
     raw = fs.readFileSync(path.resolve(file), 'utf8');
@@ -595,7 +679,11 @@ function readCommandRecords(file) {
     throw refuse('COMMAND_LOG_UNREADABLE', EXIT.REFUSAL, `${file} is unreadable: ${String((e && e.message) || e).slice(0, 200)}`, { file });
   }
   const records = parseCommandRecords(raw, path.resolve(file));
-  return { records, sha256: sha256Buffer(raw), bytes: Buffer.byteLength(raw), lines: records.length };
+  // The pin digests the log as it existed at read time, blank lines included. `rawLines` is
+  // the exact number of raw lines `commandLogPrefix(raw, rawLines)` must slice to reproduce
+  // that text; `lines` is the parser's record count and is a different number on a log with
+  // blank lines, so it must never be used as the slicing argument.
+  return { records, ...textDigest(raw), bytes: Buffer.byteLength(raw), lines: records.length, rawLines: commandLogLines(raw).length, appendOnly: true };
 }
 
 /** The theme workspace settings, and the copy-theme gate every stage re-checks at use time. */
@@ -618,6 +706,7 @@ function readThemeSettings(themeDir) {
   return {
     file,
     sha256: loaded.sha256,
+    hashContract: loaded.hashContract,
     bytes: loaded.bytes,
     themeId,
     orgId: trimmed(declared.org_id) ?? null,
@@ -686,7 +775,7 @@ function execTool({ argv, timeoutMs, cwd = REPO }) {
     let stderr = '';
     let settled = false;
     let timedOut = false;
-    const child = spawn(command, args, { cwd, env: process.env, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true });
+    const child = spawn(command, args, { cwd, env: childInstrumentEnv(), stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true });
     const timer = setTimeout(() => {
       timedOut = true;
       try { child.kill('SIGKILL'); } catch {}
@@ -833,7 +922,7 @@ async function preflightWork(options, record) {
     });
   }
 
-  const derived = deriveInventories(loaded.value, { source: { file: loaded.file, sha256: loaded.sha256 } });
+  const derived = deriveInventories(loaded.value, { source: { file: loaded.file, sha256: loaded.sha256, hashContract: loaded.hashContract } });
   const inventoryDir = path.join(outDir, ARTIFACTS.inventories);
   const inventoryFiles = {};
   for (const role of ['copy', 'live', 'subject']) {
@@ -857,6 +946,7 @@ async function preflightWork(options, record) {
       dir: themeDir,
       settingsFile: settings.file,
       settingsSha256: settings.sha256,
+      hashContract: settings.hashContract,
       settingsBytes: settings.bytes,
       themeId: settings.themeId,
       orgId: settings.orgId,
@@ -866,6 +956,7 @@ async function preflightWork(options, record) {
     inventory: {
       file: loaded.file,
       sha256: loaded.sha256,
+      hashContract: loaded.hashContract,
       bytes: loaded.bytes,
       surfaces: derived.targets.filter((t) => t.kind === 'surface').length,
       views: derived.targets.filter((t) => t.kind === 'view').length,
@@ -877,9 +968,10 @@ async function preflightWork(options, record) {
     previewBases: { copy: inventory.copyPreviewBase, live: inventory.livePreviewBase, subject: inventory.copyPreviewBase },
     probe: { url: probe.urls.copy, surface: probe.name, themeId: COPY_THEME_ID },
     targets: derived.targets,
-    inventories: Object.fromEntries(Object.entries(inventoryFiles).map(([role, file]) => [role, { file: relTo(outDir, file), absolute: file, sha256: sha256Buffer(fs.readFileSync(file)) }])),
+    inventories: Object.fromEntries(Object.entries(inventoryFiles).map(([role, file]) => [role, { file: relTo(outDir, file), absolute: file, ...artifactDigest(file) }])),
     generatedBy: { script: relTo(REPO, fileURLToPath(import.meta.url)), node: process.version },
   };
+  preflight.instrument = instrumentBlock(preflight.generatedAt);
   writeJsonFile(path.join(outDir, ARTIFACTS.preflight), preflight);
 
   record.themeIds = Array.from(new Set([COPY_THEME_ID, LIVE_PREVIEW_THEME_ID, ...observed]));
@@ -931,6 +1023,7 @@ function inspectPin(outDir, side, label, spec) {
       reused: true,
       indexFile: relTo(outDir, indexFile),
       indexSha256: loaded.sha256,
+      hashContract: loaded.hashContract,
       captured: index.totals?.captured ?? null,
       requested: index.totals?.requested ?? null,
       viewports: spec,
@@ -948,6 +1041,7 @@ function summarizeCaptureIndex(side, loaded) {
     status: index.status ?? null,
     indexFile: loaded.file,
     indexSha256: loaded.sha256,
+    hashContract: loaded.hashContract,
     captured: index.totals?.captured ?? null,
     requested: index.totals?.requested ?? null,
     viewports: Array.isArray(index.viewports) ? index.viewports.map((v) => v.label).join(',') : null,
@@ -1027,7 +1121,7 @@ async function referencesWork(options, record) {
     if (summary.store !== null && String(summary.store) !== String(preflight.value?.store)) {
       throw refuse('STORE_MISMATCH', EXIT.REFUSAL, `${side.label} measured store ${summary.store}, not the preflight store ${preflight.value?.store}`, { side: side.side, measured: summary.store, expected: preflight.value?.store ?? null });
     }
-    summaries[side.side] = { label: side.label, role: side.role, status: summary.status, reused: false, indexFile: relTo(outDir, indexFile), indexSha256: summary.indexSha256, captured: summary.captured, requested: summary.requested, viewports: summary.viewports ?? spec };
+    summaries[side.side] = { label: side.label, role: side.role, status: summary.status, reused: false, indexFile: relTo(outDir, indexFile), indexSha256: summary.indexSha256, hashContract: summary.hashContract, captured: summary.captured, requested: summary.requested, viewports: summary.viewports ?? spec };
   }
 
   const liveInventory = readJsonArtifact(liveFile, 'INVENTORY_UNREADABLE', EXIT.NOT_MEASURABLE, 'live inventory');
@@ -1050,6 +1144,7 @@ async function referencesWork(options, record) {
     livePreviewReads: livePreviews,
     inventories: { copy: relTo(outDir, copyFile), live: relTo(outDir, liveFile) },
   };
+  references.instrument = instrumentBlock(references.generatedAt);
   writeJsonFile(path.join(outDir, ARTIFACTS.references), references);
 
   record.themeIds = [COPY_THEME_ID, LIVE_PREVIEW_THEME_ID];
@@ -1207,9 +1302,9 @@ async function serveWork(options, record) {
       readOnlyCopyPreviewProbe: { url: probeUrl, themeId: COPY_THEME_ID },
       readiness: { budgetMs: SERVE_READY_BUDGET_MS, logSignal: facts.logSignal, probe: facts.probe, patterns: READY_LOG_PATTERNS.map(String) },
       child: { pid: facts.pid, exitCode: facts.exitCode, signal: facts.signal, exitedBeforeReady: facts.exitedBeforeReady },
-      theme: { settingsFile: settings.file, settingsSha256: settings.sha256, themeId: settings.themeId, orgId: settings.orgId, themeName: settings.themeName },
-      preflight: { file: relTo(outDir, preflightFile), sha256: preflight.sha256 },
-      log: { file: relTo(outDir, logFile), bytes: state.fileBytes, truncated: state.truncated, writeError: state.writeError, sha256: sha256Buffer(fs.readFileSync(logFile)), tail: state.lines.slice(-40) },
+      theme: { settingsFile: settings.file, settingsSha256: settings.sha256, hashContract: settings.hashContract, themeId: settings.themeId, orgId: settings.orgId, themeName: settings.themeName },
+      preflight: { file: relTo(outDir, preflightFile), sha256: preflight.sha256, hashContract: preflight.hashContract },
+      log: { file: relTo(outDir, logFile), bytes: state.fileBytes, truncated: state.truncated, writeError: state.writeError, ...textDigest(fs.readFileSync(logFile, 'utf8')), tail: state.lines.slice(-40) },
       refusal: facts.refusal ? { code: facts.refusal.code, exitCode: facts.refusal.exitCode, message: facts.refusal.message, detail: facts.refusal.detail } : null,
       finishedAt: nowIso(),
     };
@@ -1328,10 +1423,11 @@ async function subjectWork(options, record) {
     changedViewports: driftViewports.filter((v) => v.changed).map((v) => v.viewport),
     note: 'the dev session uploads the local source onto the theme copy; a subject DOM digest equal to the pinned reference digest means the served copy did not change, so the dev target is not proven to be the copy',
     devSession: { file: relTo(outDir, serveFile), pid: serveRecord.value?.pid ?? null, readyAt: serveRecord.value?.readyAt ?? null, stopMethod: serveRecord.value?.stopMethod ?? null },
-    reference: { indexFile: relTo(outDir, r1Index), indexSha256: pinned.sha256 },
+    reference: { indexFile: relTo(outDir, r1Index), indexSha256: pinned.sha256, hashContract: pinned.hashContract },
     viewports: driftViewports,
     generatedAt: nowIso(),
   };
+  drift.instrument = instrumentBlock(drift.generatedAt);
   writeJsonFile(path.join(outDir, ARTIFACTS.drift), drift);
 
   record.themeIds = [COPY_THEME_ID];
@@ -1343,6 +1439,21 @@ async function subjectWork(options, record) {
 }
 
 // ── compare ───────────────────────────────────────────────────────────────────
+
+/**
+ * Stamp the instrument identity into a child-produced verdict set index, returning the
+ * instrument block written. The parent owns aggregation and pins the set index digest into
+ * compare-index.json, so the stamp must land here — before that digest is taken — or a set
+ * produced by a different tool revision would still read as a homogeneous campaign. The
+ * epoch is the index's own finish time, so the block describes when that set was minted.
+ */
+export function stampVerdictSetIndex(file, what = 'verdict index') {
+  const staged = readJsonArtifact(file, 'VERDICT_INDEX_UNREADABLE', EXIT.NOT_MEASURABLE, what);
+  if (!staged.value || typeof staged.value !== 'object') return null;
+  staged.value.instrument = instrumentBlock(staged.value.finishedAt ?? staged.value.startedAt ?? null);
+  writeJsonFile(file, staged.value);
+  return staged.value.instrument;
+}
 
 async function compareWork(options, record) {
   const outDir = path.resolve(options.out);
@@ -1388,6 +1499,11 @@ async function compareWork(options, record) {
     const run = await execTool({ argv, timeoutMs: HARNESS_TIMEOUT_MS });
     record.commands.push(run.command);
     const indexFile = path.join(setDir, 'index.json');
+    // The parent owns aggregation, so the instrument identity of this set's generation is
+    // stamped here — before the set index digest is pinned into compare-index.json — so a
+    // set index minted by a different tool revision than its sibling is visible in the bytes
+    // the compare index records, not only inside the child's own document.
+    if (isFile(indexFile)) stampVerdictSetIndex(indexFile, `${set.name} verdict index`);
     const indexLoaded = isFile(indexFile) ? readJsonArtifact(indexFile, 'VERDICT_INDEX_UNREADABLE', EXIT.NOT_MEASURABLE, `${set.name} verdict index`) : null;
     const childRefusal = parseChildRefusal(run.stderr, indexLoaded?.value?.refusal ?? null);
     const verdicts = (indexLoaded?.value?.pairs ?? []).map((pair) => ({
@@ -1413,6 +1529,7 @@ async function compareWork(options, record) {
       status: indexLoaded?.value?.status ?? null,
       indexFile: indexLoaded ? relTo(outDir, indexFile) : null,
       indexSha256: indexLoaded?.sha256 ?? null,
+      hashContract: indexLoaded?.hashContract ?? null,
       totals: indexLoaded?.value?.totals ?? null,
       reference: indexLoaded?.value?.reference ?? null,
       subject: indexLoaded?.value?.subject ?? null,
@@ -1437,10 +1554,11 @@ async function compareWork(options, record) {
     viewportSet: indexes.r1.value.viewports?.map((v) => v.label) ?? null,
     pairCount: subjectKeys.size,
     sets,
-    referenceIndexes: Object.fromEntries(['r1', 'r2'].map((side) => [side, { file: relTo(outDir, indexes[side].file), sha256: indexes[side].sha256, label: indexes[side].value.label ?? null, status: indexes[side].value.status ?? null }])),
-    subjectIndex: { file: relTo(outDir, indexes.subject.file), sha256: indexes.subject.sha256, label: indexes.subject.value.label ?? null, status: indexes.subject.value.status ?? null },
+    referenceIndexes: Object.fromEntries(['r1', 'r2'].map((side) => [side, { file: relTo(outDir, indexes[side].file), sha256: indexes[side].sha256, hashContract: indexes[side].hashContract, label: indexes[side].value.label ?? null, status: indexes[side].value.status ?? null }])),
+    subjectIndex: { file: relTo(outDir, indexes.subject.file), sha256: indexes.subject.sha256, hashContract: indexes.subject.hashContract, label: indexes.subject.value.label ?? null, status: indexes.subject.value.status ?? null },
     refusal: null,
   };
+  compareIndex.instrument = instrumentBlock(compareIndex.generatedAt);
   writeJsonFile(path.join(outDir, ARTIFACTS.compareIndex), compareIndex);
 
   record.themeIds = Array.from(new Set([COPY_THEME_ID, LIVE_PREVIEW_THEME_ID]));
@@ -1488,7 +1606,7 @@ async function checksWork(options, record) {
     }
   }
   const childRefusal = parseChildRefusal(run.stderr, null);
-  const status = run.exitCode === 0 ? 'CLEAN' : (run.exitCode === 3 && structural ? 'REFUSED' : 'FAILED');
+  const status = run.exitCode === 0 ? CHECKS_STATUS.CLEAN : (run.exitCode === 3 && structural ? CHECKS_STATUS.REFUSED : CHECKS_STATUS.FAILED);
   const checks = {
     kind: 'theme-fidelity-run-checks',
     stage: 'checks',
@@ -1503,6 +1621,7 @@ async function checksWork(options, record) {
     structural: structuralLoaded ? {
       file: relTo(outDir, structuralFile),
       sha256: structuralLoaded.sha256,
+      hashContract: structuralLoaded.hashContract,
       ok: structural.ok ?? null,
       generatedAt: structural.generatedAt ?? null,
       refusalCount: Array.isArray(structural.refusals) ? structural.refusals.length : null,
@@ -1512,6 +1631,7 @@ async function checksWork(options, record) {
     stdoutTail: tailOf(run.stdout, 20),
     stderrTail: tailOf(run.stderr, 20),
   };
+  checks.instrument = instrumentBlock(checks.generatedAt);
   writeJsonFile(path.join(outDir, ARTIFACTS.checks), checks);
 
   record.themeIds = [];
@@ -1519,7 +1639,7 @@ async function checksWork(options, record) {
   record.spawned = true;
   record.artifacts = [ARTIFACTS.checks, isFile(structuralFile) ? ARTIFACTS.structural : null].filter(Boolean);
 
-  if (status === 'FAILED') {
+  if (status === CHECKS_STATUS.FAILED) {
     throw refuse('CHECKS_FAILED', EXIT.NOT_MEASURABLE, `${TOOLS.checks} exited ${run.exitCode}${run.timedOut ? ' (timeout)' : ''} without a readable ${ARTIFACTS.structural}`, { childExitCode: run.exitCode, childRefusal, stderrTail: tailOf(run.stderr, 20) });
   }
   const refusalCount = checks.structural?.refusalCount ?? 0;
@@ -1529,7 +1649,31 @@ async function checksWork(options, record) {
 
 // ── report ────────────────────────────────────────────────────────────────────
 
-function projectCaptureDoc(loaded, side) {
+/**
+ * The pinned digest of a DOM dump. HTML is text, so the harness digests it with CRLF
+ * normalised to LF; this projection must carry that contract rather than relabel it
+ * byte-exact, or the same dump reads as tampered on a CRLF checkout. The child's declared
+ * contract wins; the fallback only covers a document that predates the field.
+ */
+function domPin(dom) {
+  if (!dom) return null;
+  return {
+    file: dom.file ?? null,
+    sha256: dom.sha256 ?? null,
+    hashContract: dom.hashContract ?? HASH_CONTRACT.LF_NORMALIZED,
+    bytes: dom.bytes ?? null,
+    observedUrl: dom.observedUrl ?? null,
+  };
+}
+
+/** The pinned digest of a PNG. PNG is binary, so it is byte-exact; the child's declared contract wins. */
+function pngPin(png) {
+  if (!png) return null;
+  return { file: png.file ?? null, sha256: png.sha256 ?? null, hashContract: png.hashContract ?? HASH_CONTRACT.BYTE_EXACT, bytes: png.bytes ?? null };
+}
+
+/** Project one capture document into the report shape, naming each recorded digest contract. */
+export function projectCaptureDoc(loaded, side) {
   const doc = loaded.value;
   if (!doc || typeof doc !== 'object' || doc.kind !== 'theme-fidelity-capture') {
     throw refuse('CAPTURE_DOC_UNREADABLE', EXIT.NOT_MEASURABLE, `${loaded.file} is not a capture document (kind=${doc?.kind ?? null})`, { side, file: loaded.file });
@@ -1539,14 +1683,15 @@ function projectCaptureDoc(loaded, side) {
     side,
     file: loaded.file,
     sha256: loaded.sha256,
+    hashContract: loaded.hashContract,
     status: doc.status ?? null,
     capturedAt: provenance?.capturedAt ?? null,
     url: doc.url ?? provenance?.url ?? null,
     themeId: provenance?.themeId ?? null,
     themeIdParameter: provenance?.themeIdParameter ?? null,
     domDigest: provenance?.domDigest ?? doc.dom?.sha256 ?? null,
-    dom: doc.dom ? { file: doc.dom.file ?? null, sha256: doc.dom.sha256 ?? null, bytes: doc.dom.bytes ?? null, observedUrl: doc.dom.observedUrl ?? null } : null,
-    png: doc.png ? { file: doc.png.file ?? null, sha256: doc.png.sha256 ?? null, bytes: doc.png.bytes ?? null } : null,
+    dom: domPin(doc.dom),
+    png: pngPin(doc.png),
     geometry: provenance?.geometry ? { docHeight: provenance.geometry.docHeight ?? null, sectionCount: provenance.geometry.sectionCount ?? null } : null,
     tabIdentity: provenance?.tabIdentity ? { device: provenance.tabIdentity.device ?? null, innerWidth: provenance.tabIdentity.innerWidth ?? null, innerHeight: provenance.tabIdentity.innerHeight ?? null } : null,
     instance: provenance?.instance ?? null,
@@ -1555,7 +1700,7 @@ function projectCaptureDoc(loaded, side) {
   };
 }
 
-function projectVerdictDoc(loaded, setDir, outDir) {
+export function projectVerdictDoc(loaded, setDir, outDir) {
   const doc = loaded.value;
   if (!doc || typeof doc !== 'object' || doc.kind !== 'theme-fidelity-verdict') {
     throw refuse('VERDICT_DOC_UNREADABLE', EXIT.NOT_MEASURABLE, `${loaded.file} is not a verdict document (kind=${doc?.kind ?? null})`, { file: loaded.file });
@@ -1567,13 +1712,14 @@ function projectVerdictDoc(loaded, setDir, outDir) {
     role: p.role ?? null,
     capturedAt: p.capturedAt ?? null,
     domDigest: p.domDigest ?? p.dom?.sha256 ?? null,
-    dom: p.dom ? { file: p.dom.file ?? null, sha256: p.dom.sha256 ?? null, bytes: p.dom.bytes ?? null, observedUrl: p.dom.observedUrl ?? null } : null,
-    png: p.png ? { file: p.png.file ?? null, sha256: p.png.sha256 ?? null, bytes: p.png.bytes ?? null } : null,
+    dom: domPin(p.dom),
+    png: pngPin(p.png),
     geometry: p.geometry ? { docHeight: p.geometry.docHeight ?? null, sectionCount: p.geometry.sectionCount ?? null } : null,
   } : null);
   return {
     file: relTo(outDir, loaded.file),
     sha256: loaded.sha256,
+    hashContract: loaded.hashContract,
     status: doc.status ?? null,
     verdict: doc.verdict ?? null,
     mechanism: doc.mechanism ?? null,
@@ -1589,6 +1735,13 @@ function projectVerdictDoc(loaded, setDir, outDir) {
     subject: side(doc.provenance?.subject),
     finishedAt: doc.finishedAt ?? null,
     printLine: doc.printLine ?? null,
+    // Leg-generation evidence the child minted: a leg produced by a different instrument
+    // revision than its set index, or one adjudicated despite a recorded provenance drift or
+    // a withheld cross-side identity, must survive into the report rather than be projected away.
+    instrumentRevision: doc.instrumentRevision ?? null,
+    provenanceDrift: doc.provenanceDrift ?? null,
+    crossSideIdentity: doc.crossSideIdentity ?? null,
+    settlePasses: doc.settlePasses ?? null,
     setDir: relTo(outDir, setDir),
   };
 }
@@ -1602,7 +1755,7 @@ function readSideCapture(outDir, side, exitCode) {
   if (loaded.value?.kind !== 'theme-fidelity-capture-index') {
     throw refuse('SIDE_INDEX_UNREADABLE', exitCode, `${indexFile} is not a theme-fidelity capture index (kind=${loaded.value?.kind ?? null})`, { side, file: indexFile });
   }
-  return { side, dir, file: indexFile, sha256: loaded.sha256, index: loaded.value, targets: Array.isArray(loaded.value.targets) ? loaded.value.targets : [] };
+  return { side, dir, file: indexFile, sha256: loaded.sha256, hashContract: loaded.hashContract, index: loaded.value, targets: Array.isArray(loaded.value.targets) ? loaded.value.targets : [] };
 }
 
 function readVerdictSet(outDir, name, exitCode) {
@@ -1613,7 +1766,7 @@ function readVerdictSet(outDir, name, exitCode) {
   if (loaded.value?.kind !== 'theme-fidelity-verdict-index') {
     throw refuse('VERDICT_INDEX_UNREADABLE', exitCode, `${indexFile} is not a theme-fidelity verdict index (kind=${loaded.value?.kind ?? null})`, { name, file: indexFile });
   }
-  return { name, dir, file: indexFile, sha256: loaded.sha256, index: loaded.value, pairs: Array.isArray(loaded.value.pairs) ? loaded.value.pairs : [] };
+  return { name, dir, file: indexFile, sha256: loaded.sha256, hashContract: loaded.hashContract, index: loaded.value, pairs: Array.isArray(loaded.value.pairs) ? loaded.value.pairs : [] };
 }
 
 function renderReportMarkdown(report) {
@@ -1708,6 +1861,77 @@ function renderReportMarkdown(report) {
   lines.push(`- published: ${report.publication.published ? 'yes' : 'no'}${report.publication.reason ? ` (${mdCell(report.publication.reason)})` : ''}`);
   lines.push('');
   return `${lines.join('\n')}\n`;
+}
+
+/**
+ * The publish predicate: a verdict may only be published when every leg of the campaign
+ * completed, the structural checks came back clean, and no gap was recorded against the
+ * captured evidence.
+ *
+ * The checks status is an allowlist, not a denylist: publish requires exactly `CLEAN`, the
+ * one status the checks stage mints for a clean run. A `REFUSED`, `FAILED`, or any status a
+ * future producer adds (`TIMEOUT`, `ABORTED`, …) refuses — an unrecognised status must fail
+ * closed rather than fall through to a publish.
+ *
+ * Pure by construction — every input is a value and nothing is read from disk — so the
+ * gate can be exercised without running a campaign. The defaults are fail-closed: an
+ * omitted input must not publish.
+ */
+export function isPublishComplete({
+  capturesComplete = false,
+  compareSetsComplete = false,
+  missingVerdicts = 0,
+  checksPresent = false,
+  checksStatus = null,
+  structuralPresent = false,
+  structuralRefused = false,
+  structuralRefusalCount = 0,
+  checksGaps = 0,
+  driftPresent = false,
+} = {}) {
+  if (structuralRefused === true || structuralRefusalCount > 0) return false;
+  if (!checksPresent || checksStatus !== CHECKS_STATUS.CLEAN) return false;
+  if (!capturesComplete || !compareSetsComplete || missingVerdicts > 0) return false;
+  if (!structuralPresent || checksGaps > 0 || !driftPresent) return false;
+  return true;
+}
+
+/**
+ * The final status of a campaign report.
+ *
+ * A structural refusal is not only a non-empty refusal list: the checks stage mints status
+ * `REFUSED` precisely when it refused, so a refused checks document whose structural report
+ * is missing or whose refusal list is empty must still refuse the run — never fall through
+ * to a bare `INCOMPLETE`, which does not name the refusal the V6 requirement is about.
+ */
+export function runStatus({ auditPass = true, complete = false, checksStatus = null, structuralRefused = false } = {}) {
+  if (auditPass === false) return 'REFUSED';
+  if (complete) return 'COMPLETE';
+  return structuralRefused || checksStatus === CHECKS_STATUS.REFUSED ? 'REFUSED_STRUCTURAL' : 'INCOMPLETE';
+}
+
+/**
+ * The raw lines of a command log, each keeping its terminator, split exactly the way the
+ * pinned prefix is sliced. `readCommandRecords` and `commandLogPrefix` both derive their
+ * numbers from this one function, so the recorded raw-line count and the slice cannot
+ * disagree.
+ */
+function commandLogLines(text) {
+  const raw = String(text);
+  return raw === '' ? [] : raw.split(/(?<=\n)/);
+}
+
+/**
+ * The command log is append-only and is read before this stage appends its own record, so
+ * the digest a report pins can never equal the final file. This returns the exact prefix
+ * that pin covers — the first `lines` raw lines with their terminators. The argument is the
+ * raw-line count (`rawLines` in the pin), not the parser's record count: blank lines are
+ * part of the text the digest covers even though the parser ignores them, so slicing by
+ * records makes an unchanged file read as tampered.
+ */
+export function commandLogPrefix(text, lines) {
+  if (!Number.isFinite(lines) || lines <= 0) return '';
+  return commandLogLines(text).slice(0, lines).join('');
 }
 
 async function reportWork(options, record) {
@@ -1828,10 +2052,12 @@ async function reportWork(options, record) {
           url: projection.url,
           themeId: projection.themeId,
           domDigest: projection.domDigest,
+          domDigestHashContract: projection.dom?.hashContract ?? HASH_CONTRACT.LF_NORMALIZED,
           pinnedDocHeight: projection.geometry?.docHeight ?? null,
           measuredDocHeight: null,
           driftPx: null,
           pngSha256: projection.png?.sha256 ?? null,
+          pngHashContract: projection.png?.hashContract ?? HASH_CONTRACT.BYTE_EXACT,
           file: relTo(outDir, file),
         };
       }
@@ -1857,12 +2083,17 @@ async function reportWork(options, record) {
           mismatchPercentage: projected.mismatchPercentage,
           file: projected.file,
           sha256: projected.sha256,
+          hashContract: projected.hashContract,
           printLine: projected.printLine,
           identity: projected.identity,
           reference: projected.reference,
           subject: projected.subject,
           measurement: projected.measurement,
           strictParams: projected.strictParams,
+          instrumentRevision: projected.instrumentRevision,
+          provenanceDrift: projected.provenanceDrift,
+          crossSideIdentity: projected.crossSideIdentity,
+          settlePasses: projected.settlePasses,
         };
         const isReferenceSide = set.reference === 'r1' ? 'r1' : 'r2';
         const identity = cell.referenceIdentity[isReferenceSide];
@@ -1898,6 +2129,7 @@ async function reportWork(options, record) {
       setStatus: sets[set.name]?.index?.status ?? null,
       indexFile: sets[set.name] ? relTo(outDir, sets[set.name].file) : null,
       indexSha256: sets[set.name]?.sha256 ?? null,
+      hashContract: sets[set.name]?.hashContract ?? null,
     };
   }
 
@@ -1906,12 +2138,26 @@ async function reportWork(options, record) {
     checksStatus: checks?.value?.status ?? null,
     structuralFile: structural ? relTo(outDir, structural.file) : null,
     structuralSha256: structural?.sha256 ?? null,
+    hashContract: structural?.hashContract ?? null,
     refused: refusals.length > 0,
     refusals,
     htmlInputs: checks?.value?.htmlInputs ?? [],
     counts: checks?.value?.structural?.counts ?? null,
     childExitCode: checks?.value?.childExitCode ?? null,
   };
+
+  // A structural refusal is a gap in its own right: the report must name it even when no
+  // capture failed and every verdict document exists, so a refusal never reads as a gap-free run.
+  for (const refusal of refusals) {
+    const failureCount = Array.isArray(refusal?.failures) ? refusal.failures.length : null;
+    gaps.push({
+      surface: null,
+      viewport: null,
+      set: null,
+      side: 'checks',
+      reason: `the structural checks refused (${refusal?.check ?? 'unknown check'}${failureCount === null ? '' : `, ${failureCount} failure(s)`})${refusal?.file ? ` in ${refusal.file}` : ''}`,
+    });
+  }
 
   const instances = [];
   const seenInstances = new Set();
@@ -1931,17 +2177,24 @@ async function reportWork(options, record) {
     instances.push({ source: `${set.name} verdict index`, ...instance });
   }
 
-  const complete = Boolean(
-    sides.r1?.index?.status === 'COMPLETE'
-    && sides.r2?.index?.status === 'COMPLETE'
-    && sides.subject?.index?.status === 'COMPLETE'
-    && COMPARE_SETS.every((set) => sets[set.name]?.index?.status === 'COMPLETE' && verdictCounts[set.name].missing === 0)
-    && checks?.value?.status && checks.value.status !== 'FAILED'
-    && structural
-    && !gaps.some((gap) => gap.side === 'checks')
-    && drift
-  );
-  const status = audit.pass === false ? 'REFUSED' : (complete ? 'COMPLETE' : 'INCOMPLETE');
+  const complete = isPublishComplete({
+    capturesComplete: sides.r1?.index?.status === 'COMPLETE' && sides.r2?.index?.status === 'COMPLETE' && sides.subject?.index?.status === 'COMPLETE',
+    compareSetsComplete: COMPARE_SETS.every((set) => sets[set.name]?.index?.status === 'COMPLETE'),
+    missingVerdicts: COMPARE_SETS.reduce((sum, set) => sum + (verdictCounts[set.name]?.missing ?? 0), 0),
+    checksPresent: Boolean(checks),
+    checksStatus: structuralFindings.checksStatus,
+    structuralPresent: Boolean(structural),
+    structuralRefused: structuralFindings.refused,
+    structuralRefusalCount: refusals.length,
+    checksGaps: gaps.filter((gap) => gap.side === 'checks').length,
+    driftPresent: Boolean(drift),
+  });
+  const status = runStatus({
+    auditPass: audit.pass,
+    complete,
+    checksStatus: structuralFindings.checksStatus,
+    structuralRefused: structuralFindings.refused,
+  });
 
   const report = {
     kind: 'theme-fidelity-run-report',
@@ -1949,7 +2202,12 @@ async function reportWork(options, record) {
     status,
     generatedAt: nowIso(),
     outDir,
-    exitPolicy: { complete: 'exit 0 and publish current.json', incomplete: 'exit 3, report written, current.json not published', refused: 'exit 4 on a safety failure, current.json not published' },
+    exitPolicy: {
+      complete: 'exit 0 and publish current.json',
+      incomplete: 'exit 3, report written, current.json not published',
+      structuralRefused: 'exit 3 on a structural refusal (checks status REFUSED or a structural refusal list), report written, current.json not published',
+      refused: 'exit 4 on a safety failure, current.json not published',
+    },
     provenance: {
       store: preflight.store ?? null,
       copyThemeId: preflight.copyThemeId ?? COPY_THEME_ID,
@@ -1959,6 +2217,7 @@ async function reportWork(options, record) {
         dir: preflight.theme?.dir ?? null,
         file: preflight.theme?.settingsFile ?? null,
         sha256: preflight.theme?.settingsSha256 ?? null,
+        hashContract: preflight.theme?.hashContract ?? null,
         themeId: preflight.theme?.themeId ?? null,
         orgId: preflight.theme?.orgId ?? null,
         themeOrgId: preflight.theme?.themeOrgId ?? null,
@@ -1967,6 +2226,7 @@ async function reportWork(options, record) {
       inventory: {
         file: preflight.inventory?.file ?? null,
         sha256: preflight.inventory?.sha256 ?? null,
+        hashContract: preflight.inventory?.hashContract ?? null,
         surfaces: preflight.inventory?.surfaces ?? null,
         views: preflight.inventory?.views ?? null,
         unresolved: Array.isArray(preflight.inventory?.unresolved) ? preflight.inventory.unresolved.length : 0,
@@ -1978,11 +2238,12 @@ async function reportWork(options, record) {
       references: {
         file: references ? relTo(outDir, references.file) : null,
         sha256: references?.sha256 ?? null,
+        hashContract: references?.hashContract ?? null,
         viewportSpec: references?.value?.viewportSpec ?? null,
         r1: references?.value?.r1 ?? null,
         r2: references?.value?.r2 ?? null,
       },
-      captureSources: Object.fromEntries(Object.entries(sides).map(([side, capture]) => [side, capture ? { dir: relTo(outDir, capture.dir), indexFile: relTo(outDir, capture.file), indexSha256: capture.sha256, label: capture.index.label ?? null, role: capture.index.role ?? null, status: capture.index.status ?? null, viewports: capture.index.viewports?.map((v) => v.label) ?? null } : null])),
+      captureSources: Object.fromEntries(Object.entries(sides).map(([side, capture]) => [side, capture ? { dir: relTo(outDir, capture.dir), indexFile: relTo(outDir, capture.file), indexSha256: capture.sha256, hashContract: capture.hashContract, label: capture.index.label ?? null, role: capture.index.role ?? null, status: capture.index.status ?? null, viewports: capture.index.viewports?.map((v) => v.label) ?? null } : null])),
       instances,
       devSession: serve ? {
         file: relTo(outDir, serve.file),
@@ -1996,10 +2257,11 @@ async function reportWork(options, record) {
         probe: serve.value?.readiness?.probe ?? null,
         logFile: serve.value?.log?.file ?? null,
         logSha256: serve.value?.log?.sha256 ?? null,
+        hashContract: serve.value?.log?.hashContract ?? null,
       } : null,
       subjectDrift: drift?.value ?? null,
       checks: checks?.value ?? null,
-      structural: structural ? { file: relTo(outDir, structural.file), sha256: structural.sha256, ok: structural.value?.ok ?? null, generatedAt: structural.value?.generatedAt ?? null } : null,
+      structural: structural ? { file: relTo(outDir, structural.file), sha256: structural.sha256, hashContract: structural.hashContract, ok: structural.value?.ok ?? null, generatedAt: structural.value?.generatedAt ?? null } : null,
     },
     viewports: viewportLabels,
     targets: targets.map((t) => ({ name: t.name, kind: t.kind, slug: t.slug, template: t.template ?? null, sourceUrl: t.sourceUrl ?? null, urls: t.urls ?? null })),
@@ -2009,13 +2271,23 @@ async function reportWork(options, record) {
     structuralFindings,
     safetyAudit: {
       ...audit,
-      commandLog: { file: relTo(outDir, commandsFile), sha256: commandLog.sha256, bytes: commandLog.bytes, lines: commandLog.lines },
+      commandLog: {
+        file: relTo(outDir, commandsFile),
+        sha256: commandLog.sha256,
+        hashContract: commandLog.hashContract,
+        bytes: commandLog.bytes,
+        lines: commandLog.lines,
+        rawLines: commandLog.rawLines,
+        appendOnly: commandLog.appendOnly,
+        pinnedPrefix: 'the digest covers the whole command log as it existed when the report was built, blank lines included; every stage appends its own record after its artifact is written, so re-hash commandLogPrefix(file, rawLines) — the raw-line count, never `lines` (the parser\'s record count, which ignores blank lines) and never the whole grown file',
+      },
       targetsOutsideAllowed: { mustBeZero: 0, count: audit.foreignThemeIds.count },
     },
     notMeasured,
     gaps,
     publication: { published: false, reason: null, current: null },
   };
+  report.instrument = instrumentBlock(report.generatedAt);
 
   const reportFile = path.join(outDir, ARTIFACTS.report);
   writeRecordAtomic(reportFile, report);
@@ -2043,14 +2315,34 @@ async function reportWork(options, record) {
     });
   }
 
+  if (status === 'REFUSED_STRUCTURAL') {
+    log(`report REFUSED_STRUCTURAL: checks status ${structuralFindings.checksStatus} with ${refusals.length} structural refusal(s)`);
+    throw refuse('RUN_STRUCTURALLY_REFUSED', EXIT.NOT_MEASURABLE, `the structural checks refused (checks status ${structuralFindings.checksStatus}, ${refusals.length} refusal(s) in ${structuralFindings.structuralFile ?? ARTIFACTS.structural}): ${refusals.map((r) => `${r?.check ?? 'unknown check'}${r?.file ? `:${r.file}` : ''}`).join(', ')}; the report names every refusal and ${ARTIFACTS.current} was not published`, {
+      report: relTo(outDir, reportFile),
+      checksStatus: structuralFindings.checksStatus,
+      refusals: refusals.slice(0, 40),
+      gaps: gaps.slice(0, 40),
+    });
+  }
+
+  // The report and its markdown are written in their final form before the published pointer
+  // pins them. The pointer carries their digests; the report names the pointer without a
+  // digest of it, because a digest of current.json can only exist once current.json is
+  // written and rewriting the report to embed it would invalidate the digest the pointer just
+  // pinned. Pinning stays one-directional so every recorded digest is true of the bytes on disk.
+  const currentFile = path.join(outDir, ARTIFACTS.current);
+  report.publication = { published: true, reason: null, current: { file: relTo(outDir, currentFile) } };
+  writeRecordAtomic(reportFile, report);
+  writeRecordAtomic(markdownFile, renderReportMarkdown(report));
+
   const current = {
     kind: 'theme-fidelity-run-current',
     generatedAt: nowIso(),
     status: 'PUBLISHED',
     store: report.provenance.store,
     copyThemeId: report.provenance.copyThemeId,
-    report: { file: relTo(outDir, reportFile), sha256: sha256Buffer(fs.readFileSync(reportFile)), bytes: fs.statSync(reportFile).size },
-    reportMarkdown: { file: relTo(outDir, markdownFile), sha256: sha256Buffer(fs.readFileSync(markdownFile)), bytes: fs.statSync(markdownFile).size },
+    report: { file: relTo(outDir, reportFile), ...artifactDigest(reportFile), bytes: fs.statSync(reportFile).size },
+    reportMarkdown: { file: relTo(outDir, markdownFile), ...artifactDigest(markdownFile), bytes: fs.statSync(markdownFile).size },
     viewports: viewportLabels,
     expectedPairCount,
     verdictCounts,
@@ -2058,10 +2350,8 @@ async function reportWork(options, record) {
     safetyAudit: { commands: audit.commands, foreignThemeIds: audit.foreignThemeIds.count, publishDeployPushAbsent: audit.publishDeployPush.absent, livePreviewReads: audit.livePreviewReads.length, remoteWrites: audit.remoteWrites },
     notMeasuredCount: notMeasured.length,
   };
-  const publishedFile = writeRecordAtomic(path.join(outDir, ARTIFACTS.current), current);
-  report.publication = { published: true, reason: null, current: { file: relTo(outDir, publishedFile), sha256: sha256Buffer(fs.readFileSync(publishedFile)) } };
-  writeRecordAtomic(reportFile, report);
-  writeRecordAtomic(markdownFile, renderReportMarkdown(report));
+  current.instrument = instrumentBlock(current.generatedAt);
+  const publishedFile = writeRecordAtomic(currentFile, current);
   log(`report COMPLETE -> ${publishedFile}`);
   return { exitCode: EXIT.OK };
 }
