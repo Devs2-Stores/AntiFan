@@ -646,7 +646,10 @@ async function main() {
     child.on('exit', async (code, signal) => {
       const outcome = (code === 0 && !signal) ? 'completed' : (signal ? 'cancelled' : 'failed');
       await cleanup(outcome, signal ? `Signal: ${signal}` : (code !== 0 ? `Exit code: ${code}` : undefined));
-      process.exit(code ?? 0);
+      // A child killed by a signal reports code === null. Exiting 0 there would tell the
+      // caller the delegated run succeeded, so a signalled exit is a failure (1) unless
+      // the child produced a code of its own.
+      process.exit(typeof code === 'number' ? code : (signal ? 1 : 0));
     });
   } catch (err) {
     await cleanup('failed', err?.message || String(err));
