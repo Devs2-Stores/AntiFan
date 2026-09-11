@@ -1,0 +1,54 @@
+{
+  "description": "Base manifest hash drifted between stage time and merge time",
+  "expectedDecision": "REFUSED_DRIFT",
+  "context": {
+    "currentBaseManifestHash": "sha256-ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+  },
+  "request": {
+    "runId": "run-20260911-005",
+    "fixId": "fix-005",
+    "surfaceId": "header-navigation",
+    "stagedRoot": ".canary/staging/run-20260911-005/theme",
+    "baseManifestHash": "sha256-a1b2c3d4e5f67890123456789abcdef0123456789abcdef0123456789abcdef0",
+    "allowedFiles": [
+      "sections/header.liquid",
+      "snippets/header-search.liquid"
+    ],
+    "forbiddenPaths": [
+      ".antifan-data/**",
+      "src/**",
+      "package.json"
+    ],
+    "diffBudget": {
+      "maxFiles": 3,
+      "maxBytes": 2048
+    },
+    "maxScopeExpansion": 1,
+    "requestedTargets": [
+      "sections/header.liquid"
+    ],
+    "evidenceRefs": [
+      ".canary/evidence/run-20260911-005/viewport-1024-diff.png"
+    ],
+    "targetCauseCode": "GEOMETRY_OVERFLOW_X",
+    "returnShape": "FixResult.v2"
+  },
+  "result": {
+    "decision": "OK",
+    "touchedPaths": [
+      "sections/header.liquid"
+    ],
+    "budgets": {
+      "files": 1,
+      "bytes": 180
+    },
+    "expandedPaths": [],
+    "missingPaths": [],
+    "toolSurface": [
+      "file.read",
+      "file.write"
+    ],
+    "selfVerificationClaimed": false,
+    "notes": "Fix applied but base manifest changed while fixer was running."
+  }
+}

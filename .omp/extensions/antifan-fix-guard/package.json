@@ -1,0 +1,10 @@
+{
+  "name": "antifan-fix-guard",
+  "version": "2.0.0",
+  "description": "AntiFan B-Lite v2 Fix-Guard extension: contract enforcement, merge gate audits, and tool-surface boundaries",
+  "type": "module",
+  "main": "./index.ts",
+  "omp": {
+    "extensions": ["./index.ts"]
+  }
+}

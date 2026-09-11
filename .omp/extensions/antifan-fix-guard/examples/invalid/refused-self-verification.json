@@ -1,0 +1,51 @@
+{
+  "description": "Fixer claimed self-verification, violating the negative invariant",
+  "expectedDecision": "REFUSED_SELF_VERIFICATION",
+  "request": {
+    "runId": "run-20260911-007",
+    "fixId": "fix-007",
+    "surfaceId": "header-navigation",
+    "stagedRoot": ".canary/staging/run-20260911-007/theme",
+    "baseManifestHash": "sha256-a1b2c3d4e5f67890123456789abcdef0123456789abcdef0123456789abcdef0",
+    "allowedFiles": [
+      "sections/header.liquid",
+      "snippets/header-search.liquid"
+    ],
+    "forbiddenPaths": [
+      ".antifan-data/**",
+      "src/**",
+      "package.json"
+    ],
+    "diffBudget": {
+      "maxFiles": 3,
+      "maxBytes": 2048
+    },
+    "maxScopeExpansion": 1,
+    "requestedTargets": [
+      "sections/header.liquid"
+    ],
+    "evidenceRefs": [
+      ".canary/evidence/run-20260911-007/viewport-1024-diff.png"
+    ],
+    "targetCauseCode": "GEOMETRY_OVERFLOW_X",
+    "returnShape": "FixResult.v2"
+  },
+  "result": {
+    "decision": "OK",
+    "touchedPaths": [
+      "sections/header.liquid"
+    ],
+    "budgets": {
+      "files": 1,
+      "bytes": 140
+    },
+    "expandedPaths": [],
+    "missingPaths": [],
+    "toolSurface": [
+      "file.read",
+      "file.write"
+    ],
+    "selfVerificationClaimed": true,
+    "notes": "Fixer ran headless Chromium verification and declared the fix visually confirmed."
+  }
+}

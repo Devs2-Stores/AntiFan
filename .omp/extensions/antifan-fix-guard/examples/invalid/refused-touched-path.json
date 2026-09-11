@@ -1,0 +1,54 @@
+{
+  "description": "Fixer touched a file outside allowedFiles and matching forbiddenPaths",
+  "expectedDecision": "REFUSED_TOUCHED_PATH",
+  "request": {
+    "runId": "run-20260911-002",
+    "fixId": "fix-002",
+    "surfaceId": "header-navigation",
+    "stagedRoot": ".canary/staging/run-20260911-002/theme",
+    "baseManifestHash": "sha256-a1b2c3d4e5f67890123456789abcdef0123456789abcdef0123456789abcdef0",
+    "allowedFiles": [
+      "sections/header.liquid",
+      "snippets/header-search.liquid"
+    ],
+    "forbiddenPaths": [
+      ".antifan-data/**",
+      "src/**",
+      "package.json"
+    ],
+    "diffBudget": {
+      "maxFiles": 3,
+      "maxBytes": 2048
+    },
+    "maxScopeExpansion": 1,
+    "requestedTargets": [
+      "sections/header.liquid"
+    ],
+    "evidenceRefs": [
+      ".canary/evidence/run-20260911-002/viewport-1024-diff.png"
+    ],
+    "targetCauseCode": "GEOMETRY_OVERFLOW_X",
+    "returnShape": "FixResult.v2"
+  },
+  "result": {
+    "decision": "OK",
+    "touchedPaths": [
+      "sections/header.liquid",
+      "src/main/tools/file-capabilities.ts"
+    ],
+    "budgets": {
+      "files": 2,
+      "bytes": 512
+    },
+    "expandedPaths": [
+      "src/main/tools/file-capabilities.ts"
+    ],
+    "missingPaths": [],
+    "toolSurface": [
+      "file.read",
+      "file.write"
+    ],
+    "selfVerificationClaimed": false,
+    "notes": "Attempted to modify engine source file outside allowedFiles."
+  }
+}

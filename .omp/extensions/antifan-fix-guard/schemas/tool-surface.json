@@ -1,0 +1,27 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://antifan.local/schemas/tool-surface.json",
+  "title": "AntiFan Fixer Tool Surface Data",
+  "description": "Shape of the fixer tool surface: the names a request permits and the patterns it forbids. This file declares the shape only. The pattern lists themselves are executable policy and live in exactly one place, .canary/tools/fix-loop/audits.mjs (DEFAULT_PERMITTED_TOOLS and DEFAULT_FORBIDDEN_TOOLS), which the merge gate, the contract validator, and the pre-tool hook all import. A second copy here would be a list that nobody enforces.",
+  "type": "object",
+  "required": [
+    "allowedTools",
+    "forbiddenToolPatterns"
+  ],
+  "properties": {
+    "allowedTools": {
+      "type": "array",
+      "description": "Exhaustive allowlist of tool names permitted for the fixer worker. Policy value: DEFAULT_PERMITTED_TOOLS in audits.mjs.",
+      "items": {
+        "type": "string"
+      }
+    },
+    "forbiddenToolPatterns": {
+      "type": "array",
+      "description": "Pattern matcher forms (with wildcards) of tools forbidden for the fixer worker. Policy value: DEFAULT_FORBIDDEN_TOOLS in audits.mjs. Enforcement levers: the session capability name filter, the pre-tool hook guard, and the merge gate's declared-surface audit.",
+      "items": {
+        "type": "string"
+      }
+    }
+  }
+}

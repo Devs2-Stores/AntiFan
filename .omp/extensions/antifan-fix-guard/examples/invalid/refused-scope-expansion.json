@@ -1,0 +1,57 @@
+{
+  "description": "Fixer exceeded maxScopeExpansion: expanded paths count |T \\ R| exceeds maxScopeExpansion, despite staying within diffBudget",
+  "expectedDecision": "REFUSED_SCOPE_EXPANSION",
+  "request": {
+    "runId": "run-20260911-004",
+    "fixId": "fix-004",
+    "surfaceId": "header-navigation",
+    "stagedRoot": ".canary/staging/run-20260911-004/theme",
+    "baseManifestHash": "sha256-a1b2c3d4e5f67890123456789abcdef0123456789abcdef0123456789abcdef0",
+    "allowedFiles": [
+      "sections/header.liquid",
+      "snippets/header-search.liquid",
+      "assets/theme.css"
+    ],
+    "forbiddenPaths": [
+      ".antifan-data/**",
+      "src/**",
+      "package.json"
+    ],
+    "diffBudget": {
+      "maxFiles": 5,
+      "maxBytes": 8192
+    },
+    "maxScopeExpansion": 1,
+    "requestedTargets": [
+      "sections/header.liquid"
+    ],
+    "evidenceRefs": [
+      ".canary/evidence/run-20260911-004/viewport-1024-diff.png"
+    ],
+    "targetCauseCode": "GEOMETRY_OVERFLOW_X",
+    "returnShape": "FixResult.v2"
+  },
+  "result": {
+    "decision": "OK",
+    "touchedPaths": [
+      "sections/header.liquid",
+      "snippets/header-search.liquid",
+      "assets/theme.css"
+    ],
+    "budgets": {
+      "files": 3,
+      "bytes": 750
+    },
+    "expandedPaths": [
+      "snippets/header-search.liquid",
+      "assets/theme.css"
+    ],
+    "missingPaths": [],
+    "toolSurface": [
+      "file.read",
+      "file.write"
+    ],
+    "selfVerificationClaimed": false,
+    "notes": "Touched 2 files outside requestedTargets (snippets/header-search.liquid, assets/theme.css), exceeding maxScopeExpansion of 1."
+  }
+}

@@ -1,0 +1,58 @@
+{
+  "description": "Fixer exceeded diff budget: touched file count and byte limit exceeded",
+  "expectedDecision": "REFUSED_DIFF_BUDGET",
+  "request": {
+    "runId": "run-20260911-003",
+    "fixId": "fix-003",
+    "surfaceId": "header-navigation",
+    "stagedRoot": ".canary/staging/run-20260911-003/theme",
+    "baseManifestHash": "sha256-a1b2c3d4e5f67890123456789abcdef0123456789abcdef0123456789abcdef0",
+    "allowedFiles": [
+      "sections/header.liquid",
+      "snippets/header-search.liquid",
+      "snippets/header-cart.liquid",
+      "assets/theme.css"
+    ],
+    "forbiddenPaths": [
+      ".antifan-data/**",
+      "src/**",
+      "package.json"
+    ],
+    "diffBudget": {
+      "maxFiles": 2,
+      "maxBytes": 1024
+    },
+    "maxScopeExpansion": 2,
+    "requestedTargets": [
+      "sections/header.liquid"
+    ],
+    "evidenceRefs": [
+      ".canary/evidence/run-20260911-003/viewport-1024-diff.png"
+    ],
+    "targetCauseCode": "GEOMETRY_OVERFLOW_X",
+    "returnShape": "FixResult.v2"
+  },
+  "result": {
+    "decision": "OK",
+    "touchedPaths": [
+      "sections/header.liquid",
+      "snippets/header-search.liquid",
+      "snippets/header-cart.liquid"
+    ],
+    "budgets": {
+      "files": 3,
+      "bytes": 3200
+    },
+    "expandedPaths": [
+      "snippets/header-search.liquid",
+      "snippets/header-cart.liquid"
+    ],
+    "missingPaths": [],
+    "toolSurface": [
+      "file.read",
+      "file.write"
+    ],
+    "selfVerificationClaimed": false,
+    "notes": "Touched 3 files (budget max 2) with 3200 bytes changed (budget max 1024)."
+  }
+}

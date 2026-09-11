@@ -1,0 +1,105 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://antifan.local/schemas/fix-result.v2.schema.json",
+  "title": "AntiFan FixResult v2",
+  "description": "Schema for machine-readable fix results returned by the builder-fixer worker or emitted by the merge-gate audit in AntiFan B-Lite v2",
+  "type": "object",
+  "required": [
+    "decision",
+    "touchedPaths",
+    "budgets",
+    "expandedPaths",
+    "missingPaths",
+    "toolSurface",
+    "selfVerificationClaimed",
+    "notes"
+  ],
+  "additionalProperties": true,
+  "properties": {
+    "decision": {
+      "type": "string",
+      "description": "Typed audit or worker decision code",
+      "enum": [
+        "OK",
+        "REFUSED_TOUCHED_PATH",
+        "REFUSED_DIFF_BUDGET",
+        "REFUSED_SCOPE_EXPANSION",
+        "REFUSED_DRIFT",
+        "REFUSED_TOOL_SURFACE",
+        "REFUSED_SELF_VERIFICATION"
+      ]
+    },
+    "touchedPaths": {
+      "type": "array",
+      "description": "List of relative file paths within stagedRoot that were created, modified, or deleted (|T|)",
+      "items": {
+        "type": "string"
+      }
+    },
+    "budgets": {
+      "type": "object",
+      "description": "Actual budget usage measured across touched files",
+      "required": [
+        "files",
+        "bytes"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "files": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Count of distinct touched files (|T|)"
+        },
+        "bytes": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Total bytes of net change across touched files"
+        }
+      }
+    },
+    "expandedPaths": {
+      "type": "array",
+      "description": "List of files touched that were not in requestedTargets (T \\ R). Count must not exceed maxScopeExpansion.",
+      "items": {
+        "type": "string"
+      }
+    },
+    "missingPaths": {
+      "type": "array",
+      "description": "Files needed for the repair that were absent from allowedFiles, populated during SCOPE_DISCOVERY",
+      "items": {
+        "type": "string"
+      }
+    },
+    "toolSurface": {
+      "description": "Tools invoked by the fixer worker during the attempt. Permitted: file.read, file.write.",
+      "oneOf": [
+        {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        {
+          "type": "object",
+          "properties": {
+            "usedTools": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "selfVerificationClaimed": {
+      "type": "boolean",
+      "description": "Must be false. Any fixer claim of self-verification triggers an immediate REFUSED_SELF_VERIFICATION failure."
+    },
+    "notes": {
+      "type": "string",
+      "description": "Explanation of changes made, or rationale for refusal / scope discovery"
+    }
+  }
+}

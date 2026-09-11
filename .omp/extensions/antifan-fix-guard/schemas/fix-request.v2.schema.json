@@ -1,0 +1,128 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://antifan.local/schemas/fix-request.v2.schema.json",
+  "title": "AntiFan FixRequest v2",
+  "description": "Schema for machine-readable fix requests issued to the builder-fixer worker in AntiFan B-Lite v2. Pinned staged workspace, no HTML/CSS snapshot.",
+  "type": "object",
+  "required": [
+    "runId",
+    "fixId",
+    "surfaceId",
+    "stagedRoot",
+    "baseManifestHash",
+    "allowedFiles",
+    "forbiddenPaths",
+    "diffBudget",
+    "maxScopeExpansion",
+    "requestedTargets",
+    "evidenceRefs",
+    "targetCauseCode",
+    "returnShape"
+  ],
+  "additionalProperties": true,
+  "properties": {
+    "runId": {
+      "type": "string",
+      "description": "Unique identifier for the repair run"
+    },
+    "fixId": {
+      "type": "string",
+      "description": "Unique identifier for this fix attempt within the run"
+    },
+    "surfaceId": {
+      "type": "string",
+      "description": "Identifier of the theme surface under repair"
+    },
+    "stagedRoot": {
+      "type": "string",
+      "description": "Filesystem path to the isolated staged workspace directory. Effective workspace root is pinned here; paths containing .antifan-data are strictly rejected."
+    },
+    "baseManifestHash": {
+      "type": "string",
+      "description": "Cryptographic hash (e.g. sha256-...) of the base manifest computed at staging time, used for drift detection before merge"
+    },
+    "allowedFiles": {
+      "type": "array",
+      "description": "Exhaustive list of relative file paths within stagedRoot that the fixer is permitted to touch",
+      "items": {
+        "type": "string"
+      },
+      "minItems": 1
+    },
+    "forbiddenPaths": {
+      "type": "array",
+      "description": "Glob patterns or relative paths that must NEVER be modified (e.g. .antifan-data/**, src/**, package.json)",
+      "items": {
+        "type": "string"
+      }
+    },
+    "diffBudget": {
+      "type": "object",
+      "description": "Bounds total touched file count (|T|) and total changed bytes across all touched files",
+      "required": [
+        "maxFiles",
+        "maxBytes"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "maxFiles": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Maximum number of distinct files permitted to be touched (|T| <= maxFiles)"
+        },
+        "maxBytes": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Maximum total bytes of net change permitted across touched files"
+        }
+      }
+    },
+    "maxScopeExpansion": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Bounds the number of additional files touched outside requestedTargets (|T \\ R| <= maxScopeExpansion). Refused independently from diffBudget."
+    },
+    "requestedTargets": {
+      "type": "array",
+      "description": "The primary target file(s) R identified as needing the fix. Subset of allowedFiles.",
+      "items": {
+        "type": "string"
+      },
+      "minItems": 1
+    },
+    "evidenceRefs": {
+      "type": "array",
+      "description": "Paths to diagnostic evidence artifacts (e.g. diff heatmaps, DOM inspection reports) produced by the AntiFan engine",
+      "items": {
+        "type": "string"
+      }
+    },
+    "targetCauseCode": {
+      "type": "string",
+      "description": "Specific failure cause code from the AntiFan verification engine targeted for repair (e.g. GEOMETRY_OVERFLOW_X, LAYOUT_SHIFT)"
+    },
+    "returnShape": {
+      "type": "string",
+      "description": "Expected return contract identifier",
+      "default": "FixResult.v2"
+    },
+    "toolSurface": {
+      "type": "object",
+      "description": "Optional specification of permitted tools and forbidden tool patterns",
+      "properties": {
+        "allowedTools": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "forbiddenToolPatterns": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  }
+}

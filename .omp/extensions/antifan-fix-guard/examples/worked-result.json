@@ -1,0 +1,21 @@
+{
+  "decision": "OK",
+  "touchedPaths": [
+    "sections/header.liquid",
+    "snippets/header-search.liquid"
+  ],
+  "budgets": {
+    "files": 2,
+    "bytes": 340
+  },
+  "expandedPaths": [
+    "snippets/header-search.liquid"
+  ],
+  "missingPaths": [],
+  "toolSurface": [
+    "file.read",
+    "file.write"
+  ],
+  "selfVerificationClaimed": false,
+  "notes": "Adjusted header search container width to prevent horizontal overflow on 1024px viewport. Verified no self-verification attempted."
+}

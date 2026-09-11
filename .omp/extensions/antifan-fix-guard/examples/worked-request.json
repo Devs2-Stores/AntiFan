@@ -1,0 +1,30 @@
+{
+  "runId": "run-20260911-001",
+  "fixId": "fix-001",
+  "surfaceId": "header-navigation",
+  "stagedRoot": ".canary/staging/run-20260911-001/theme",
+  "baseManifestHash": "sha256-a1b2c3d4e5f67890123456789abcdef0123456789abcdef0123456789abcdef0",
+  "allowedFiles": [
+    "sections/header.liquid",
+    "snippets/header-search.liquid",
+    "assets/theme.css"
+  ],
+  "forbiddenPaths": [
+    ".antifan-data/**",
+    "src/**",
+    "package.json"
+  ],
+  "diffBudget": {
+    "maxFiles": 3,
+    "maxBytes": 2048
+  },
+  "maxScopeExpansion": 1,
+  "requestedTargets": [
+    "sections/header.liquid"
+  ],
+  "evidenceRefs": [
+    ".canary/evidence/run-20260911-001/viewport-1024-diff.png"
+  ],
+  "targetCauseCode": "GEOMETRY_OVERFLOW_X",
+  "returnShape": "FixResult.v2"
+}

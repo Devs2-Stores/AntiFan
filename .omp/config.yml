@@ -1,0 +1,5 @@
+# AntiFan Project OMP Configuration
+# Registers extension packages and project-level harness capabilities.
+
+extensions:
+  - "./.omp/extensions/antifan-fix-guard"

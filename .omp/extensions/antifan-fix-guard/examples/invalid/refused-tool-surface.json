@@ -1,0 +1,51 @@
+{
+  "description": "Fixer invoked a forbidden tool surface (anti.theme.style_override)",
+  "expectedDecision": "REFUSED_TOOL_SURFACE",
+  "request": {
+    "runId": "run-20260911-006",
+    "fixId": "fix-006",
+    "surfaceId": "header-navigation",
+    "stagedRoot": ".canary/staging/run-20260911-006/theme",
+    "baseManifestHash": "sha256-a1b2c3d4e5f67890123456789abcdef0123456789abcdef0123456789abcdef0",
+    "allowedFiles": [
+      "sections/header.liquid",
+      "snippets/header-search.liquid"
+    ],
+    "forbiddenPaths": [
+      ".antifan-data/**",
+      "src/**",
+      "package.json"
+    ],
+    "diffBudget": {
+      "maxFiles": 3,
+      "maxBytes": 2048
+    },
+    "maxScopeExpansion": 1,
+    "requestedTargets": [
+      "sections/header.liquid"
+    ],
+    "evidenceRefs": [
+      ".canary/evidence/run-20260911-006/viewport-1024-diff.png"
+    ],
+    "targetCauseCode": "GEOMETRY_OVERFLOW_X",
+    "returnShape": "FixResult.v2"
+  },
+  "result": {
+    "decision": "OK",
+    "touchedPaths": [
+      "sections/header.liquid"
+    ],
+    "budgets": {
+      "files": 1,
+      "bytes": 120
+    },
+    "expandedPaths": [],
+    "missingPaths": [],
+    "toolSurface": [
+      "file.read",
+      "anti.theme.style_override"
+    ],
+    "selfVerificationClaimed": false,
+    "notes": "Attempted to inject runtime CSS override via anti.theme.style_override."
+  }
+}
