@@ -39,10 +39,7 @@ COMPLETION DATE   : 2026-09-11T00:18:04.503Z
 
 ```text
 Runtime Platform   : Windows_NT x64 (Electron 28.3.3 / Chromium 120.0.6099.291)
-AntiFan Port       : 20131
-Attachment ID      : attachment-4ad0e094-ed3d-41e5-83a6-ef0d8bb355f0
-Run ID             : run-cffcaf84-4de4-4e1f-b70e-ecdf4e6a0b3a
-Primary Tab ID     : 0eeddfbe-8a83-49ac-aff4-ba7b4136b0fd
+Evidence Source    : aggregated from 15 published page attempts; each page's own session identity is in its attempt evidence
 Required Viewports : 1440x900 (1440), 1024x900 (1024), 390x844 (390)
 Target Scope       : 15 pages x 3 viewports = 45 cases
 Executed in Batch  : 15 pages (45 cases)

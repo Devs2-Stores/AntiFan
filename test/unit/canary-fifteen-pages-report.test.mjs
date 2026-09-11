@@ -57,6 +57,23 @@ test('an excluded viewport is rendered as EXCLUDED, never as NOT_TESTED and neve
   assert.match(md, /\* 390px DocHeight: EXCLUDED/);
 });
 
+test('an aggregate names its evidence instead of one live session', () => {
+  // The aggregate is read back from what many runs published, so rendering the session that
+  // happened to regenerate it as "the test environment" asserts provenance the report does not
+  // have, and makes its bytes depend on that session rather than on the evidence.
+  const aggregate = { ...fullRun, aggregate: true, completedAt: '2026-09-11T00:18:04.503Z' };
+  const md = generateReport(aggregate);
+  assert.match(md, /Evidence Source {4}: aggregated from 1 published page attempts/);
+  for (const field of ['AntiFan Port', 'Attachment ID', 'Run ID ', 'Primary Tab ID']) {
+    assert.ok(!md.includes(field), `an aggregate must not print ${field} as the environment`);
+  }
+  assert.ok(md.includes('COMPLETION DATE   : 2026-09-11T00:18:04.503Z'), 'the completion date still comes from the evidence');
+  assert.match(md, /Required Viewports : 1440x900 \(1440\), 1024x900 \(1024\), 390x844 \(390\)/, 'the pinned viewport set survives aggregation');
+
+  const live = generateReport(fullRun);
+  assert.match(live, /AntiFan Port {7}: \d+/, 'a live run still reports the session that produced it');
+});
+
 test('any excluded label keeps the matrix aligned and marks its own column', () => {
   // The operator can exclude any viewport, not only mobile, and pages 2..15 never ran:
   // the header, an executed row and an unexecuted row must keep the same column count,

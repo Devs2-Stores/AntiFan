@@ -1436,10 +1436,12 @@ ${TARGET_PAGES.map(p => {
 
 \`\`\`text
 Runtime Platform   : Windows_NT x64 (Electron 28.3.3 / Chromium 120.0.6099.291)
-AntiFan Port       : ${boot.port}
+${summary.aggregate
+  ? `Evidence Source    : aggregated from ${Object.keys(summary.pageResults ?? {}).length} published page attempts; each page's own session identity is in its attempt evidence`
+  : `AntiFan Port       : ${boot.port}
 Attachment ID      : ${boot.attachmentId}
 Run ID             : ${boot.runId}
-Primary Tab ID     : ${boot.tabId}
+Primary Tab ID     : ${boot.tabId}`}
 Required Viewports : ${viewportLine}
 Target Scope       : ${TARGET_PAGES.length} pages x ${scopedViewportLabels.length} viewports = ${totalScopedCases} cases
 Executed in Batch  : ${totalTested} pages (${totalRenderCasesRun} cases)
@@ -1787,6 +1789,10 @@ async function runAggregateOnly() {
     // write different bytes, which is the property the determinism check tests.
     completedAt: newestPublication,
     sessionRenewals: [],
+    // This summary is read back from what many runs published, so it cannot carry one
+    // run's live session identity and must not pretend to: the report says where its
+    // evidence came from instead.
+    aggregate: true,
   };
   const indexPlan = planVerdictIndex(runSummary, baseRunDir);
   const reportDir = path.join(baseRunDir, 'reports', runId);
