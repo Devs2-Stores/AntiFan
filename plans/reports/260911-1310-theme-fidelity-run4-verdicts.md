@@ -279,8 +279,8 @@ A settle-only fix cannot reach exit 0: the renewal class alone keeps both sets `
    apart, so neither is asserted here. The repeating mechanism is the hash, and the panel does not see it:
    `panel` and `identityCounts` both key on `split('/').pop()` while `imageSetHash` uses the full `currentSrc`
    plus natural size, so a URL-level change on a positionally stable image is invisible to that diff. **The hash
-   mover is therefore still unnamed**, and the next evidence field is each image's full `currentSrc` (or a hash
-   of it) — not another mover class. The one-shot loader-state *normalisation* was
+   mover is therefore still unnamed**, and the next evidence field is the full rendered rect plus `complete` and
+   the DOM index — not another mover class. The one-shot loader-state *normalisation* was
    tested and rejected as the mover; the loader's own later pass remains the leading candidate for the repeat
    mechanism, as the paragraph below locates. `IMAGE_HYDRATION_EXPR` gained `lazyloaded` on promotion (keeping the drop
    of `lazyload`/`lazyloading`, so no stale loader class survives), the 4-pair fixture reproduced the same four
@@ -294,19 +294,23 @@ A settle-only fix cannot reach exit 0: the renewal class alone keeps both sets `
    really in the page: `panel-out/replay/reference/article__1024x900.html` (952,976 bytes) carries
    `lazySizes`/`lazysizes`, 7 `class="lazyload"` beside 7 `lazyloaded` — the mixed state, in one page — 13
    `data-src=`, 8 base64 `src="data:image` placeholders and 10 inline scripts, while `data-srcset=` is absent
-   there. That absence narrows the unnamed hash mover as well: on this page it is a `src`-level change, so
-   recording each image's full `currentSrc` is the field that names it. The advisory's other candidate — a loader
-   selector the promotion never covers — is ruled out on the corpus that exists: across all eight served dumps of
-   this fixture (`panel-out/replay/{reference,subject}/*.html`) there are **0** `data-srcset=`, **0** `data-bg=`,
-   **0** `<source>` and **0** `img[srcset]`, while `img[data-src]` (56) and `img.lazyload` (38) are exactly what
-   the promotion covers and the 104 `data-original` hits sit on non-`img` elements. With no `srcset` anywhere,
-   `currentSrc` equals the resolved `src` — so the repeating move is a **`src` assignment** by some writer, and
-   the loader re-writing the declared value would be a no-op. The next evidence step is per-pass, for each image,
-   a hash of the full URL plus a count of elements still matching the loader's selectors
-   (`img.lazyload, img.lazyloading, img[data-src], [data-bg]`) after hydration and scroll: the first names the
-   writer, the second proves the live page matches the served input, which the dump alone does not. The lever that
-   follows the evidence is to re-apply the promotion immediately before each measurement read from one shared page
-   function, not another class tweak — and only if that count is nonzero does the promotion need wider selectors.
+   there. That absence is not evidence about the hash mover, though — `imageSetHash` is not a source hash:
+   `SETTLE_STATE_EXPR` builds it per image, in DOM order, as `currentSrc|naturalWxH|rect(x, y+scrollY, w, h)|complete`
+   and hashes the joined parts (`canary-settle.mjs:155-162`, hash at `:173`), so the rendered rect, the `complete`
+   flag and the image order all move it with no source change at all. Measured against that: an index-aligned diff
+   of the panel between **pass 2 and pass 3** — the interval where `y` holds — finds **0** differences in `src`,
+   natural size and `y`, with the DOM order identical, so the repeating move is in `x`, the **rendered** `w`/`h`
+   (the panel records natural size, not the rect) or `complete`. The earlier reading of it as a `src` assignment is
+   withdrawn, and so is any ordering claim: the same diff rules node re-ordering out on both intervals. The
+   loader's own attribute set is separately ruled out as the leak — across all eight served dumps there are **0**
+   `data-srcset=`, **0** `data-bg=`, **0** `<source>` and **0** `img[srcset]`, while `img[data-src]` (56) and
+   `img.lazyload` (38) are exactly what the promotion covers and the 104 `data-original` hits sit on non-`img`
+   elements — which says the promotion's coverage is complete for what the served page declares, not that the
+   promotion is the mover. The next evidence step is therefore, per pass and per image, the full rendered rect
+   plus `complete` and the DOM index (or the hashed `parts` exposed for diffing), and a count of elements still
+   matching the loader's selectors after hydration and scroll. The lever that follows is to re-apply the promotion
+   immediately before each measurement read from one shared page function — and only a nonzero selector count
+   needs wider selectors.
    What remains on these two legs is a typed refusal that is currently the correct verdict: a surface that changes
    between two passes of one URL cannot be published as a comparison until the mechanism is either covered by the
    freeze or accepted as a permanent refusal — the owner decision recorded in the plan.
