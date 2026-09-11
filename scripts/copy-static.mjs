@@ -15,6 +15,9 @@ function safeCopyFile(from, to) {
     fs.copyFileSync(from, to);
   } catch (firstErr) {
     try {
+      // The first attempt can fail before creating the parent directory; retrying the copy
+      // alone would then fail with ENOENT instead of recovering.
+      fs.mkdirSync(path.dirname(to), { recursive: true });
       fs.copyFileSync(from, to);
     } catch (retryErr) {
       // A static asset that never lands leaves the build looking green while the app runs
@@ -77,12 +80,24 @@ if (fs.existsSync(dispatcherSrc)) {
     'var exports = exports || {};\nvar module = { exports: exports };\n' +
     dispatcherRaw +
     '\nwindow.TerminalWriteDispatcher = exports.TerminalWriteDispatcher;\nwindow.globalTerminalWriteDispatcher = exports.globalTerminalWriteDispatcher;\n';
-  fs.writeFileSync(dispatcherDst, dispatcherWrapped, 'utf8');
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      fs.writeFileSync(dispatcherDst, dispatcherWrapped, 'utf8');
+      break;
+    } catch (err) {
+      // A running Electron window holds files under .compiled/ open, so a lock here is transient.
+      if (attempt === 2) {
+        throw new Error(`copy-static: could not write the shared dispatcher to ${dispatcherDst}: ${err.message}`);
+      }
+    }
+  }
+  // The source-tree copy is a developer convenience: the runtime loads the .compiled asset
+  // written above, so a read-only src/ (container mount, locked checkout) must not fail the build.
   const srcDst = path.join(rendererSrcDir, 'terminal-write-dispatcher.js');
   try {
     fs.writeFileSync(srcDst, dispatcherWrapped, 'utf8');
   } catch (err) {
-    throw new Error(`copy-static: could not write the shared dispatcher to ${srcDst}: ${err.message}`);
+    console.warn(`[antifan] copy-static: skipped the source-tree dispatcher copy (${srcDst}): ${err.message}`);
   }
 }
 // Copy scripts to .compiled/scripts for standalone deployment
