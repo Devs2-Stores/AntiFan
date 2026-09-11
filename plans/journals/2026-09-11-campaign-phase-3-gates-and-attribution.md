@@ -126,15 +126,20 @@ The material invariants are stable, which is what the harness records per attemp
 
 Two conclusions, both from that table rather than from the byte hashes:
 
-1. **The geometry flip is not the bundle.** b1b → b2 moves 1024 by +15px and 390 by +10px while the
-   bundle difference is only runtime ids, and b2 → b3 changes the bundle (different ids) with *identical*
-   geometry. Those deltas are the scrollbar quantum: the 15px at 1024 matches the pinned pair where the
-   reference measured 2780 and the clone 2766 — one side consuming a gutter, the other not. That is the
-   per-side asymmetry `LAYOUT_WIDTH_ASYMMETRY` now refuses and the symmetric regime now removes.
+1. **The geometry flip is not the bundle, and only one of the two deltas is a gutter.** b1b → b2 moves
+   1024 by +15px and 390 by +10px while the bundle difference is only runtime ids, and b2 → b3 changes the
+   bundle (different ids) with *identical* geometry. The 1024 delta is gutter-shaped and is proven as such
+   by `attempt-d206677e` (pre-regime, widths recorded): reference `clientWidth` 1024 against the clone's
+   1009 — the clone 15px narrower *and* 15px taller, docHeight 2766 → 2781 — one side consuming a gutter
+   and the other not. The 390 delta is **not** a gutter and must not be called one: there both sides
+   record `clientWidth` 390 == `innerWidth` 390, and the clone's difference is a second `widgetNodes`
+   entry (15 against the reference's 14) with a byte-identical payload, so the +10px is a clone-side
+   rendering difference whose mechanism is **not** attributed. The 1024 gutter is the asymmetry
+   `LAYOUT_WIDTH_ASYMMETRY` refuses and the symmetric regime removes.
 2. **The page-3 verdict sequence is fully explained** without invoking run noise: b1b PASS 0.08% is the
-   pre-pin state with a favourable gutter split; b2/b3 FAIL 2.3–4.59% is the pin era on an asymmetric
-   gutter; the authoritative run, after the pin was reverted and the regime made symmetric, returns PASS
-   0.08% — reproducing b1b exactly.
+   symmetric pre-pin state (1024 docHeight 2766 on both sides); b2/b3 FAIL 2.3–4.59% is the pin era on the
+   asymmetric gutter; the authoritative run, after the pin was reverted and the regime made symmetric,
+   returns PASS 0.08% — reproducing b1b exactly.
 
 What the harness does and does not assert: the reference's own stability is gated (`referenceIdentity`
 against the same-run same-viewport readiness floor), and the clone's *material* invariants are recorded

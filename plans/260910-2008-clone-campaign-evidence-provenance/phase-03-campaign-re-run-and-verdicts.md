@@ -96,10 +96,12 @@ reference's h=1401). The strict reference-identity verdict for those legs stands
 
 Attribution closed the same day: the three retained page-3 clone bundles are byte-different only in the
 site's own Livewire instance ids (26 lines of 1,772), while b2 and b3 have *identical* geometry and b1b
-differs by +15px at 1024 and +10px at 390 — the scrollbar quantum, matching the pinned pair where the
-reference measured 2780 and the clone 2766. So the PASS/FAIL flips tracked the per-side gutter and the
-pin era, not run noise or the bundle; after the regime was made symmetric and the pin reverted, page 3
-returns PASS 0.08%, reproducing batch 1b. Table and categories in
+differs by +15px at 1024 and +10px at 390. Only the 1024 delta is a gutter: `attempt-d206677e` records
+the reference at `clientWidth` 1024 and the clone at 1009 — 15px narrower and 15px taller (2766 → 2781).
+At 390 the widths are symmetric (390 on both sides) and the clone differs by a second `widgetNodes`
+entry, so that delta is a clone-side rendering difference, not attributed. So the PASS/FAIL flips tracked
+the per-side gutter and the pin era, not run noise or the bundle; after the regime was made symmetric and
+the pin reverted, page 3 returns PASS 0.08%, reproducing batch 1b. Table and categories in
 `plans/journals/2026-09-11-campaign-phase-3-gates-and-attribution.md`.
 
 ## Disclosed methodology limit: the symmetric scrollbar regime is `none` on both sides
