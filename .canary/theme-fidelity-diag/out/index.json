@@ -54,7 +54,7 @@
       "viewport": "1440x900",
       "status": "NOT_MEASURABLE",
       "verdict": "INCONCLUSIVE",
-      "mechanism": "content-changed-between-passes",
+      "mechanism": "SESSION_RENEWAL_FAILED",
       "file": "search__1440x900.json",
       "mismatchPercentage": null,
       "referenceHeight": 2421,
@@ -77,7 +77,7 @@
       "root": "E:\\Work\\apps\\AntiFan\\.canary\\theme-fidelity-diag\\out\\replay\\reference",
       "stopped": {
         "label": "reference-static-server",
-        "pid": 8184,
+        "pid": 18540,
         "stopped": true,
         "forced": false
       }
@@ -87,27 +87,27 @@
       "root": "E:\\Work\\apps\\AntiFan\\.canary\\theme-fidelity-diag\\out\\replay\\subject",
       "stopped": {
         "label": "subject-static-server",
-        "pid": 14636,
+        "pid": 21852,
         "stopped": true,
         "forced": false
       }
     }
   },
   "instance": {
-    "attachmentId": "attachment-52251d67-61ee-45c5-b43d-6a4b4b53ccfe",
+    "attachmentId": "attachment-64404f41-cc8a-487a-a9cd-d414f3a0aef9",
     "bridgePort": 20131,
     "pid": 21236,
-    "primaryTabId": "01104b67-c4d8-4073-afb8-0222e299bea8",
+    "primaryTabId": "06f0d8f2-82da-4c63-b42e-b3908ceeea64",
     "startedAt": "2026-09-11T00:18:43.203Z",
-    "runId": "run-aae2587b-74fb-48af-acaf-8d8fde8c6bcf",
-    "attemptId": "attempt-b3076c83-f740-4cd0-a7c3-d2a9b9876af0"
+    "runId": "run-a66a9a1f-cf02-44e0-a129-aa2013de223a",
+    "attemptId": "attempt-9a6585df-719b-43da-98ae-d3d1b04ad636"
   },
   "run": {
-    "runId": "run-aae2587b-74fb-48af-acaf-8d8fde8c6bcf",
-    "attachmentId": "attachment-52251d67-61ee-45c5-b43d-6a4b4b53ccfe",
-    "authorityRevision": "rev_e18a9f38e17fc9b467c29fb9ddf42b00",
-    "mintedAt": "2026-09-11T05:24:43.006Z"
+    "runId": "run-a66a9a1f-cf02-44e0-a129-aa2013de223a",
+    "attachmentId": "attachment-64404f41-cc8a-487a-a9cd-d414f3a0aef9",
+    "authorityRevision": "rev_01490b38a603390e506a1c4e8c3372db",
+    "mintedAt": "2026-09-11T05:28:29.076Z"
   },
-  "startedAt": "2026-09-11T05:27:26.525Z",
-  "finishedAt": "2026-09-11T05:29:14.719Z"
+  "startedAt": "2026-09-11T05:33:59.655Z",
+  "finishedAt": "2026-09-11T05:36:02.147Z"
 }

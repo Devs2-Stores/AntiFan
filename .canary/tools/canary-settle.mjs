@@ -716,7 +716,7 @@ export async function requireDoubleSettledMetrics(tabId, label, maxAttempts = 3)
     });
     const decision = decideSettle(passes);
     if (decision.settled) {
-      cur.settle.passes = passes.map((p, i) => ({ pass: i + 1, ...p.components, settled: p.settled, fingerprint: p.fingerprint, counts: p.counts }));
+      cur.settle.passes = passes.map((p, i) => ({ pass: i + 1, ...p.components, settled: p.settled, fingerprint: p.fingerprint, fingerprintFields: (p.settle && p.settle.fingerprintFields) || null, counts: p.counts }));
       return cur;
     }
     // A page that cannot be frozen is refused as such on the first pass: waiting
@@ -724,7 +724,7 @@ export async function requireDoubleSettledMetrics(tabId, label, maxAttempts = 3)
     if (decision.refusal) {
       const err = new Error(`Target tab ${tabId} refused at ${label}: ${decision.refusal.code} — ${decision.refusal.reason} (passes: ${passes.map((p, i) => describeSettlePass(i + 1, p)).join(' ')})`);
       err.code = decision.refusal.code;
-      err.passes = passes.map((p, i) => ({ pass: i + 1, ...p.components, settled: p.settled, fingerprint: p.fingerprint, counts: p.counts }));
+      err.passes = passes.map((p, i) => ({ pass: i + 1, ...p.components, settled: p.settled, fingerprint: p.fingerprint, fingerprintFields: (p.settle && p.settle.fingerprintFields) || null, counts: p.counts }));
       throw err;
     }
     if (attempt < maxAttempts) await new Promise(r => setTimeout(r, 1000));
@@ -732,6 +732,6 @@ export async function requireDoubleSettledMetrics(tabId, label, maxAttempts = 3)
   const decision = decideSettle(passes);
   const err = new Error(`Target tab ${tabId} failed to achieve two consecutive matching settled passes at ${label}: ${decision.reason}${decision.failed.length ? ` (unsatisfied: ${decision.failed.join(',')})` : ''} (passes: ${passes.map((p, i) => describeSettlePass(i + 1, p)).join(' ')})`);
   err.code = decision.reason;
-  err.passes = passes.map((p, i) => ({ pass: i + 1, ...p.components, settled: p.settled, fingerprint: p.fingerprint, counts: p.counts }));
+  err.passes = passes.map((p, i) => ({ pass: i + 1, ...p.components, settled: p.settled, fingerprint: p.fingerprint, fingerprintFields: (p.settle && p.settle.fingerprintFields) || null, counts: p.counts }));
   throw err;
 }

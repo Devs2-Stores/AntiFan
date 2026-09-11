@@ -69,6 +69,14 @@ No synthetic substitute, no screenshot editing, no image construction of any kin
   platform answers HTTP 200 while silently serving a *different* theme, every capture also
   asserts the theme it was actually served (`cdn.hstatic.net/themes/<org>/<themeid>/`) and
   refuses when that id does not match the one it requested.
+- **`hrv theme push` onto `1001512581` — explicitly granted, recorded out-of-band.** The batch
+  pushes of 2026-09-11 (`push.log`, `push-force.log`) and the asset repair push (`push-assets.log`,
+  `hrv theme push --only "assets/**" --force -n`, 336 files, 0 errors) ran against the copy only,
+  under the owner's explicit grant in that session rather than the `hrv theme dev` write this plan
+  first authorised. The upload is repair work for the copy's missing asset store, not a fidelity
+  step: it never appears in the run's `commands.jsonl`, the driver's safety audit still reports
+  `publishDeployPush.absent: true` and `foreignThemeIds.count 0`, and the guards refuse on any theme
+  id other than `1001512581`.
 - Writes outside this repository are confined to `E:\Work\customizes\Phukienmaymoc` and the
   CLI's own cache/backup (`.haravan-cli_backup/`). The owner granted exactly this scope for
   this work; nothing else outside the repo is written.
@@ -178,8 +186,8 @@ outcome contract allows. Full evidence: `plans/reports/260911-1310-theme-fidelit
 |---|---|
 | Copy serves the local `assets/**` | fixed — the CLI's `collectThemePushAssetKeys` excluded `assets/` by construction; repaired to opt in through `--only`, rebuilt (51/51 tests), and 336 assets uploaded out-of-band (`push-assets.log`: `336 đã push, 0 lỗi, 0 bỏ qua`); `hl-global.css` went 404 → 200 carrying the layout utilities |
 | Subject capture | `COMPLETE` 21/21 (was 14/21); heights, header and nav identical to the live reference on all 21 legs |
-| Compare | 42 verdict documents: 1 PASS, 40 INCONCLUSIVE, 1 `EXECUTION_TIMEOUT`; both sets `INCOMPLETE` because 28 pairs are `content-changed-between-passes`, a rotating widget carriage the campaign forbids masking |
-| Report | `INCOMPLETE`, `current.json` withheld; 7 `UNRESOLVED_SURFACE` inventory gaps, all outside this plan's seven surfaces |
+| Compare | 42 verdict documents: 1 PASS, 40 INCONCLUSIVE, 1 `EXECUTION_TIMEOUT`; both sets `INCOMPLETE` because 28 pairs are `content-changed-between-passes` — an in-place visible-text swap (only `textHash`/`textLength` move; geometry, image set and counts identical) that the campaign's doctrine refuses to mask |
+| Report | `INCOMPLETE`, `current.json` withheld; the predicate (`theme-fidelity-run.mjs:1933-1944`) fails only on the two compare sets, so compare measurability is the single publication gate. The 7 inventory `UNRESOLVED_SURFACE` entries appear in `notMeasured` but do not gate publication |
 | Safety audit | 12 commands, `foreignThemeIds 0`, `publishDeployPush absent`; the out-of-band push is outside the pipeline's command record by design |
 
 `status` stays `blocked`: nothing publishes until the widget-carriage class and the inventory scope

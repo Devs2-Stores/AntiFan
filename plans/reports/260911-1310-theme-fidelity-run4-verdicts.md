@@ -103,11 +103,19 @@ search__1440x900 pass1 fp=a7bff1edea45d178  pass2 fp=e202421da5339261  pass3 fp=
                  sections=3 cards=0 docHeight=2421 images=53 (all three passes), all predicates true
 ```
 
-An A→B→A fingerprint with stable rectangles, stable structure and `churn=0` is a rotating widget
-carriage: the image set or visible text changes while geometry does not. The campaign forbids
-masking that (`readWidgetPhase`: pinning the phase was tried and reverted because the two sides do
-not agree on whether a carousel is initialized, and pinning it is a mask in disguise), so the pair
-is refused rather than measured across two phases. That is the designed behaviour, not a defect.
+The raw per-pass sample names the volatile component. Only `textHash` and `textLength` move;
+`sectionCount`, `productCardCount`, `docHeight`, `scrollWidth`, `imageCount`, `pendingImages`,
+`brokenImages`, `imageSetHash` and `imageSetSize` are identical. For `cart__1440x900`: pass1
+`textHash 955db9da / textLength 1978`, pass2 `textHash 1643a1e2 / textLength 1889`, pass3
+`textHash 0fe33812 / textLength 1978`. Visible text swaps in place — an 89-character block appears
+and disappears — with no layout or image change, which is why every predicate is true and `churn` is
+0 while the fingerprint never repeats consecutively. Page scripts do execute in the replay, so this
+is page-side, not a replay artefact. The campaign forbids masking that (`readWidgetPhase`: pinning
+the phase was tried and reverted because the two sides do not agree on whether a carousel is
+initialized, and pinning it is a mask in disguise), so the pair is refused rather than measured
+across two phases. That is the designed behaviour, not a defect. The diagnostic run surfaced one
+further mechanism: `SESSION_RENEWAL_FAILED` on `search__1440x900`, an instance-plane failure rather
+than a page-state one.
 
 `IDENTITY_DRIFT` pairs replayed 400–808 px taller than their pin (`r2 article@1024` 4332 → 4821,
 `search@390` 3690 → 4498), so the verdict is withheld rather than promoted.
@@ -120,11 +128,15 @@ and their verdicts.
 
 ## Why report refuses
 
-`report.json` `notMeasured` holds 7 entries, all `source: inventory`, `code: UNRESOLVED_SURFACE`:
-`contact`, `quote`, `documents`, `brands`, `stores`, `wishlist` (their `templates/page.*.liquid` have
-no owning page record on the store and fall back to `page.liquid` on the copy while rendering on the
-live theme) and `member` (auth-gated). These surfaces are outside the plan's seven (home, product,
-collection, article, cart, search, 404) and none of them is a compare pair. `gaps` is 0.
+The publication predicate (`theme-fidelity-run.mjs:1933-1944`) requires both compare set indexes
+`COMPLETE` with `missing === 0`, all three capture indexes `COMPLETE`, `checks` not `FAILED`,
+`structural` present, and no checks-side gaps. Capture is `COMPLETE`, so the compare measurability
+class is the single gate on publication.
+
+`report.json` also records 7 `notMeasured` entries, all `source: inventory`, `code: UNRESOLVED_SURFACE`
+(`contact`, `quote`, `documents`, `brands`, `stores`, `wishlist`, `member`). They are informational:
+they do not enter the `complete` predicate, `gaps` is 0, and none of them is a compare pair. The
+inventory is not to be pruned to change the outcome.
 
 `checks` exits 0 with two advisory refusals carried into the report: `settings-binding`
 (95 `SETTING_UNDECLARED`) and `assets` (6 dangling `.jpg` references, 5 of them in snippets no
