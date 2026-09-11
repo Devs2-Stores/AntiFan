@@ -70,9 +70,14 @@ export function hasMissingExpectation(vpOrCapture) {
   if (vpOrCapture.causeCode === 'URL_EXPECTATION_MISSING') return true;
   if (vpOrCapture.code === 'URL_EXPECTATION_MISSING') return true;
   if (vpOrCapture.refusal?.code === 'URL_EXPECTATION_MISSING') return true;
+  if (vpOrCapture.missingExpectation === true) return true;
+  if (vpOrCapture.expectationMarker === 'URL_EXPECTATION_MISSING') return true;
+  if (vpOrCapture.routeAssertion?.status === 'URL_EXPECTATION_MISSING') return true;
   if (vpOrCapture.capture?.code === 'URL_EXPECTATION_MISSING') return true;
   if (vpOrCapture.capture?.missingExpectation === true) return true;
   if (vpOrCapture.capture?.expectedUrlMissing === true) return true;
+  if (vpOrCapture.capture?.expectationMarker === 'URL_EXPECTATION_MISSING') return true;
+  if (vpOrCapture.capture?.routeAssertion?.status === 'URL_EXPECTATION_MISSING') return true;
   if (vpOrCapture.capture?.expectedUrl === null && (vpOrCapture.capture?.marker === 'URL_EXPECTATION_MISSING' || vpOrCapture.capture?.valid === false)) return true;
   if (vpOrCapture.capture?.reference?.missingExpectation || vpOrCapture.capture?.clone?.missingExpectation) return true;
   if (vpOrCapture.capture?.reference?.code === 'URL_EXPECTATION_MISSING' || vpOrCapture.capture?.clone?.code === 'URL_EXPECTATION_MISSING') return true;

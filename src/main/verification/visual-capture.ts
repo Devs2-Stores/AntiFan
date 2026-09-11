@@ -849,6 +849,7 @@ export interface VerificationCaptureEnvelope {
   viewportTransaction?: CaptureViewportTransaction;
   expectedUrl?: string | null;
   expectationMarker?: 'URL_EXPECTATION_MISSING';
+  missingExpectation?: boolean;
   routeAssertion?: RouteAssertionResult;
 }
 
@@ -867,6 +868,7 @@ export interface VerificationCaptureReceipt {
   viewportTransaction?: CaptureViewportTransaction;
   expectedUrl?: string | null;
   expectationMarker?: 'URL_EXPECTATION_MISSING';
+  missingExpectation?: boolean;
   routeAssertion?: RouteAssertionResult;
 }
 
@@ -883,6 +885,7 @@ export function verificationCaptureReceipt(env: VerificationCaptureEnvelope): Ve
     ...(env.viewportTransaction ? { viewportTransaction: env.viewportTransaction } : {}),
     expectedUrl: env.expectedUrl ?? null,
     ...(env.expectationMarker ? { expectationMarker: env.expectationMarker } : {}),
+    ...(env.missingExpectation ? { missingExpectation: env.missingExpectation } : {}),
     ...(env.routeAssertion ? { routeAssertion: env.routeAssertion } : {}),
   };
 }
@@ -1437,9 +1440,11 @@ export function createVisualEvidenceReceipt(params: {
   metricSamples: MetricSample[];
   notes?: string;
   expectationMarker?: 'URL_EXPECTATION_MISSING';
+  missingExpectation?: boolean;
   routeAssertion?: RouteAssertionResult;
 }): VisualEvidenceReceipt {
   const isMissingExpectation = params.expectationMarker === 'URL_EXPECTATION_MISSING'
+    || params.missingExpectation === true
     || params.routeAssertion?.status === 'URL_EXPECTATION_MISSING';
   const notes = isMissingExpectation
     ? `${params.notes ? `${params.notes}; ` : ''}URL_EXPECTATION_MISSING: capture identity was not asserted against an expected route`

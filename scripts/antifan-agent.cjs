@@ -496,6 +496,7 @@ function parseLauncherArgs(argv) {
   }
   return { tabId: explicitTabId, commandArgs };
 }
+let activeCleanup = null;
 
 async function main() {
   const rawArgs = process.argv.slice(2);
@@ -535,75 +536,14 @@ async function main() {
     process.exit(1);
   }
   const { ws, bridgeInfo, session } = bridgeAcquisition;
-  // The grant and the allowed/forbidden name sets are pure functions of env and argv, so resolving
-  // them here yields what acquireBridgeSession started the session with — the child declares the
-  // same surface the attachment was opened under, including the fixer's consolidated policy.
-  const targetGrant = resolveSessionGrant();
-  const allowedCaps = resolveAllowedCapabilities();
-  const forbiddenCaps = resolveForbiddenCapabilities();
-  const sanitizedParentEnv = { ...process.env };
-  delete sanitizedParentEnv.ANTIFAN_BRIDGE_TOKEN;
-  delete sanitizedParentEnv.ANTIFAN_BRIDGE_PORT;
-  delete sanitizedParentEnv.ANTIFAN_BRIDGE_HOST;
-
-  const childEnv = {
-    ...sanitizedParentEnv,
-    ANTIFAN_MCP_PORT: String(session.port || bridgeInfo.port),
-    ANTIFAN_ATTACHMENT_SECRET: session.secret,
-    ANTIFAN_ATTACHMENT_ID: session.attachmentId,
-    ANTIFAN_AUTHORITY_REVISION: session.authorityRevision,
-    ANTIFAN_RUN_ID: session.runId,
-    ANTIFAN_ATTEMPT_ID: session.attemptId,
-    ANTIFAN_PROJECT_ID: session.projectId,
-    ANTIFAN_WORKSPACE_ID: session.workspaceId,
-    ANTIFAN_OWNER_PID: String(boundPid),
-    ANTIFAN_BOUND_TAB_ID: session.tabId || explicitTabId || '',
-    ANTIFAN_MCP_BOOTSTRAP: JSON.stringify({
-      port: session.port || bridgeInfo.port,
-      secret: session.secret,
-      attachmentId: session.attachmentId,
-      authorityRevision: session.authorityRevision,
-      runId: session.runId,
-      attemptId: session.attemptId,
-      projectId: session.projectId,
-      workspaceId: session.workspaceId,
-      tabId: session.tabId || explicitTabId,
-      token: session.bridgeToken,
-      ownerPid: boundPid,
-      grant: targetGrant,
-      allowedCapabilityNames: allowedCaps,
-      forbiddenCapabilityNames: forbiddenCaps,
-    }),
-    ANTIFAN_FIXER_SESSION: isFixerSession ? 'true' : undefined,
-    ANTIFAN_SESSION_GRANT: targetGrant,
-    ANTIFAN_ALLOWED_CAPABILITY_NAMES: allowedCaps ? allowedCaps.join(',') : undefined,
-    ANTIFAN_FORBIDDEN_CAPABILITY_NAMES: forbiddenCaps ? forbiddenCaps.join(',') : undefined,
-  };
-  const { command, commandArgs } = resolveAgentCommand(args, __dirname);
-
-  console.error(`\x1b[36m[antifan-agent] Attached session ${session.attachmentId.slice(0, 16)}... to ${args[0]}\x1b[0m`);
-
-  const child = spawnAgentChild(command, commandArgs, childEnv);
 
   let cleanedUp = false;
-  const heartbeatInterval = setInterval(async () => {
-    if (cleanedUp) return;
-    try {
-      if (ws.readyState === WebSocket.OPEN) {
-        await rpcCall(ws, 'antifan.cli.renewSession', {
-          attachmentId: session.attachmentId,
-          secret: session.secret,
-          ownerPid: boundPid,
-          extensionMs: 7200000,
-        }, 3000);
-      }
-    } catch {}
-  }, 30_000);
-  heartbeatInterval.unref?.();
+  let heartbeatInterval = null;
 
   async function cleanup(outcome = 'completed', error = undefined) {
     if (cleanedUp) return;
     cleanedUp = true;
+    activeCleanup = null;
     clearInterval(heartbeatInterval);
     try {
       if (ws.readyState === WebSocket.OPEN) {
@@ -619,12 +559,7 @@ async function main() {
     } catch {}
     try { ws.close(); } catch {}
   }
-
-  child.on('error', async (err) => {
-    console.error(`\x1b[31m[antifan-agent] Failed to spawn ${command}: ${err.message}\x1b[0m`);
-    await cleanup('failed', err.message);
-    process.exit(1);
-  });
+  activeCleanup = cleanup;
 
   process.on('SIGINT', async () => {
     await cleanup('cancelled', 'User interrupted via SIGINT');
@@ -636,11 +571,87 @@ async function main() {
     process.exit(143);
   });
 
-  child.on('exit', async (code, signal) => {
-    const outcome = (code === 0 && !signal) ? 'completed' : (signal ? 'cancelled' : 'failed');
-    await cleanup(outcome, signal ? `Signal: ${signal}` : (code !== 0 ? `Exit code: ${code}` : undefined));
-    process.exit(code ?? 0);
-  });
+  try {
+    // The grant and the allowed/forbidden name sets are pure functions of env and argv, so resolving
+    // them here yields what acquireBridgeSession started the session with — the child declares the
+    // same surface the attachment was opened under, including the fixer's consolidated policy.
+    const targetGrant = resolveSessionGrant();
+    const allowedCaps = resolveAllowedCapabilities();
+    const forbiddenCaps = resolveForbiddenCapabilities();
+    const sanitizedParentEnv = { ...process.env };
+    delete sanitizedParentEnv.ANTIFAN_BRIDGE_TOKEN;
+    delete sanitizedParentEnv.ANTIFAN_BRIDGE_PORT;
+    delete sanitizedParentEnv.ANTIFAN_BRIDGE_HOST;
+
+    const childEnv = {
+      ...sanitizedParentEnv,
+      ANTIFAN_MCP_PORT: String(session.port || bridgeInfo.port),
+      ANTIFAN_ATTACHMENT_SECRET: session.secret,
+      ANTIFAN_ATTACHMENT_ID: session.attachmentId,
+      ANTIFAN_AUTHORITY_REVISION: session.authorityRevision,
+      ANTIFAN_RUN_ID: session.runId,
+      ANTIFAN_ATTEMPT_ID: session.attemptId,
+      ANTIFAN_PROJECT_ID: session.projectId,
+      ANTIFAN_WORKSPACE_ID: session.workspaceId,
+      ANTIFAN_OWNER_PID: String(boundPid),
+      ANTIFAN_BOUND_TAB_ID: session.tabId || explicitTabId || '',
+      ANTIFAN_MCP_BOOTSTRAP: JSON.stringify({
+        port: session.port || bridgeInfo.port,
+        secret: session.secret,
+        attachmentId: session.attachmentId,
+        authorityRevision: session.authorityRevision,
+        runId: session.runId,
+        attemptId: session.attemptId,
+        projectId: session.projectId,
+        workspaceId: session.workspaceId,
+        tabId: session.tabId || explicitTabId,
+        token: session.bridgeToken,
+        ownerPid: boundPid,
+        grant: targetGrant,
+        allowedCapabilityNames: allowedCaps,
+        forbiddenCapabilityNames: forbiddenCaps,
+      }),
+      ANTIFAN_FIXER_SESSION: isFixerSession ? 'true' : undefined,
+      ANTIFAN_SESSION_GRANT: targetGrant,
+      ANTIFAN_ALLOWED_CAPABILITY_NAMES: allowedCaps ? allowedCaps.join(',') : undefined,
+      ANTIFAN_FORBIDDEN_CAPABILITY_NAMES: forbiddenCaps ? forbiddenCaps.join(',') : undefined,
+    };
+    const { command, commandArgs } = resolveAgentCommand(args, __dirname);
+
+    console.error(`\x1b[36m[antifan-agent] Attached session ${session.attachmentId.slice(0, 16)}... to ${args[0]}\x1b[0m`);
+
+    const child = spawnAgentChild(command, commandArgs, childEnv);
+
+    heartbeatInterval = setInterval(async () => {
+      if (cleanedUp) return;
+      try {
+        if (ws.readyState === WebSocket.OPEN) {
+          await rpcCall(ws, 'antifan.cli.renewSession', {
+            attachmentId: session.attachmentId,
+            secret: session.secret,
+            ownerPid: boundPid,
+            extensionMs: 7200000,
+          }, 3000);
+        }
+      } catch {}
+    }, 30_000);
+    heartbeatInterval.unref?.();
+
+    child.on('error', async (err) => {
+      console.error(`\x1b[31m[antifan-agent] Failed to spawn ${command}: ${err.message}\x1b[0m`);
+      await cleanup('failed', err.message);
+      process.exit(1);
+    });
+
+    child.on('exit', async (code, signal) => {
+      const outcome = (code === 0 && !signal) ? 'completed' : (signal ? 'cancelled' : 'failed');
+      await cleanup(outcome, signal ? `Signal: ${signal}` : (code !== 0 ? `Exit code: ${code}` : undefined));
+      process.exit(code ?? 0);
+    });
+  } catch (err) {
+    await cleanup('failed', err?.message || String(err));
+    throw err;
+  }
 }
 
 function resolveAgentCommand(args, scriptsDir = __dirname) {
@@ -666,8 +677,13 @@ function resolveAgentCommand(args, scriptsDir = __dirname) {
 }
 
 if (require.main === module) {
-  main().catch((err) => {
+  main().catch(async (err) => {
     console.error('[antifan-agent] Unexpected error:', err);
+    if (activeCleanup) {
+      try {
+        await activeCleanup('failed', err?.message || String(err));
+      } catch {}
+    }
     process.exit(1);
   });
 } else {

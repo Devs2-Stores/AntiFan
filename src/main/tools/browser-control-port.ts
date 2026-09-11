@@ -1864,6 +1864,7 @@ export class BrowserControlPort {
     if (envelope) {
       envelope.expectedUrl = expectedUrl ?? null;
       envelope.expectationMarker = routeCheck.status === 'URL_EXPECTATION_MISSING' ? 'URL_EXPECTATION_MISSING' : undefined;
+      envelope.missingExpectation = routeCheck.status === 'URL_EXPECTATION_MISSING' ? true : undefined;
       envelope.routeAssertion = routeCheck;
     }
     // The capture moves the layout viewport and must put it back. An envelope
@@ -1927,7 +1928,7 @@ export class BrowserControlPort {
       byteLength: bytes.length,
       routeAssertion: routeCheck,
       ...(expectedUrl !== undefined ? { expectedUrl } : {}),
-      ...(routeCheck.status === 'URL_EXPECTATION_MISSING' ? { expectationMarker: 'URL_EXPECTATION_MISSING' } : {}),
+      ...(routeCheck.status === 'URL_EXPECTATION_MISSING' ? { expectationMarker: 'URL_EXPECTATION_MISSING', missingExpectation: true } : {}),
       ...(leaseToken ? { leaseToken } : {}),
     };
   }
@@ -4519,6 +4520,7 @@ export class BrowserControlPort {
     }
     envelope.expectedUrl = expectedUrl ?? null;
     envelope.expectationMarker = routeCheck.status === 'URL_EXPECTATION_MISSING' ? 'URL_EXPECTATION_MISSING' : undefined;
+    envelope.missingExpectation = routeCheck.status === 'URL_EXPECTATION_MISSING' ? true : undefined;
     envelope.routeAssertion = routeCheck;
     const buffer = Buffer.from(envelope.data, 'base64');
     if (buffer.length === 0) {
@@ -5349,6 +5351,7 @@ export class BrowserControlPort {
             settleComplete: Boolean(targetSettle?.settleComplete && (!compSettle || compSettle.settleComplete)),
             metricSamples,
             expectationMarker: 'URL_EXPECTATION_MISSING',
+            missingExpectation: true,
             notes: 'URL_EXPECTATION_MISSING: capture identity was not asserted against an expected route',
           }),
           metricSamples,

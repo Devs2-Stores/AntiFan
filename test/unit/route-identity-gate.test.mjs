@@ -19,6 +19,7 @@ import {
   buildVerdictIndex,
   computeRunExit,
   hasMissingExpectation,
+  mintVerdict,
   pageRouteRefusal,
   renderHubHtml,
   renderPageStatus,
@@ -93,6 +94,154 @@ test('a capture that carries no expectation is detectable and refuses at verdict
       }),
     (err) => err.code === 'URL_EXPECTATION_MISSING' && err.exitCode === 4
   );
+});
+
+test('producer-emitted envelope with expectationMarker is detected and well-formed envelope is not refused', () => {
+  // Shape emitted by browser-control-port.ts:1864-1868, :1922-1932 and visual-capture.ts:873-888
+  // when expectedUrl is null/missing (routeCheck.status === 'URL_EXPECTATION_MISSING'):
+  // 1. Canonicalized shape emitted by updated port (browser-control-port.ts:1866-1867, :1930-1931, :4521-4523)
+  // when expectedUrl is null/missing:
+  const canonicalMissingEnvelope = {
+    ok: true,
+    artifactRef: 'artifact://screenshot-cart-missing',
+    receipt: {
+      backend: 'cdp',
+      dpr: 1,
+      zoom: 1,
+      cssViewport: { width: 1440, height: 900 },
+      cssCaptureSize: { width: 1440, height: 2400 },
+      rasterSize: { width: 1440, height: 2400 },
+      captureMode: 'full-page',
+      timestamp: 1710000000000,
+      expectedUrl: null,
+      expectationMarker: 'URL_EXPECTATION_MISSING',
+      missingExpectation: true,
+      routeAssertion: {
+        ok: true,
+        status: 'URL_EXPECTATION_MISSING',
+        requestedUrl: null,
+        expectedUrl: null,
+        observedUrl: 'https://hoplongtech.com/cart',
+        redirectChain: [],
+        code: 'URL_EXPECTATION_MISSING',
+        reason: 'No expected URL was supplied for route identity assertion',
+      },
+    },
+    sha256: '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef',
+    byteLength: 4096,
+    routeAssertion: {
+      ok: true,
+      status: 'URL_EXPECTATION_MISSING',
+      requestedUrl: null,
+      expectedUrl: null,
+      observedUrl: 'https://hoplongtech.com/cart',
+      redirectChain: [],
+      code: 'URL_EXPECTATION_MISSING',
+      reason: 'No expected URL was supplied for route identity assertion',
+    },
+    expectedUrl: null,
+    expectationMarker: 'URL_EXPECTATION_MISSING',
+    missingExpectation: true,
+  };
+
+  // 2. Uncanonicalized/persisted shape carrying only expectationMarker and routeAssertion:
+  const markerOnlyMissingEnvelope = {
+    ok: true,
+    artifactRef: 'artifact://screenshot-cart-missing-legacy',
+    expectedUrl: null,
+    expectationMarker: 'URL_EXPECTATION_MISSING',
+    routeAssertion: {
+      ok: true,
+      status: 'URL_EXPECTATION_MISSING',
+      requestedUrl: null,
+      expectedUrl: null,
+      observedUrl: 'https://hoplongtech.com/cart',
+      redirectChain: [],
+      code: 'URL_EXPECTATION_MISSING',
+      reason: 'No expected URL was supplied for route identity assertion',
+    },
+  };
+
+  // Shape emitted when expectedUrl is provided and matches (checkRouteIdentity returns MATCH):
+  const wellFormedEnvelope = {
+    ok: true,
+    artifactRef: 'artifact://screenshot-cart-ok',
+    receipt: {
+      backend: 'cdp',
+      dpr: 1,
+      zoom: 1,
+      cssViewport: { width: 1440, height: 900 },
+      cssCaptureSize: { width: 1440, height: 2400 },
+      rasterSize: { width: 1440, height: 2400 },
+      captureMode: 'full-page',
+      timestamp: 1710000000000,
+      expectedUrl: 'https://hoplongtech.com/cart',
+      routeAssertion: {
+        ok: true,
+        status: 'MATCH',
+        requestedUrl: 'https://hoplongtech.com/cart',
+        expectedUrl: 'https://hoplongtech.com/cart',
+        observedUrl: 'https://hoplongtech.com/cart',
+        redirectChain: [],
+      },
+    },
+    sha256: 'fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210',
+    byteLength: 4096,
+    routeAssertion: {
+      ok: true,
+      status: 'MATCH',
+      requestedUrl: 'https://hoplongtech.com/cart',
+      expectedUrl: 'https://hoplongtech.com/cart',
+      observedUrl: 'https://hoplongtech.com/cart',
+      redirectChain: [],
+    },
+    expectedUrl: 'https://hoplongtech.com/cart',
+  };
+
+  // 1. Detection via hasMissingExpectation
+  assert.equal(hasMissingExpectation(canonicalMissingEnvelope), true);
+  assert.equal(hasMissingExpectation({ capture: canonicalMissingEnvelope }), true);
+  assert.equal(hasMissingExpectation(markerOnlyMissingEnvelope), true);
+  assert.equal(hasMissingExpectation({ capture: markerOnlyMissingEnvelope }), true);
+  assert.equal(hasMissingExpectation(wellFormedEnvelope), false);
+  assert.equal(hasMissingExpectation({ capture: wellFormedEnvelope }), false);
+
+  // 2. Refusal at verdict minting
+  assert.throws(
+    () => mintVerdict({ overall: 'PASS', capture: canonicalMissingEnvelope }),
+    (err) => err.code === 'URL_EXPECTATION_MISSING' && err.exitCode === 4
+  );
+  const minted = mintVerdict({ overall: 'PASS', capture: wellFormedEnvelope });
+  assert.equal(minted.verdict, 'PASS');
+  assert.equal(minted.expectedUrl, 'https://hoplongtech.com/cart');
+
+  // 3. Refusal at verdict indexing
+  assert.throws(
+    () =>
+      buildVerdictIndex({
+        runId: 'run-producer-missing-expectation',
+        pageResults: {
+          6: {
+            slug: 'page-06-cart',
+            viewports: { '1440x900': { verdict: 'PASS', capture: canonicalMissingEnvelope } },
+          },
+        },
+      }),
+    (err) => err.code === 'URL_EXPECTATION_MISSING' && err.exitCode === 4
+  );
+
+  const index = buildVerdictIndex({
+    runId: 'run-producer-well-formed',
+    pageResults: {
+      6: {
+        slug: 'page-06-cart',
+        viewports: { '1440x900': { overall: 'PASS', capture: wellFormedEnvelope } },
+      },
+    },
+  });
+  assert.equal(index.cases.length, 1);
+  assert.equal(index.cases[0].verdict, 'PASS');
+  assert.equal(index.cases[0].expectedUrl, 'https://hoplongtech.com/cart');
 });
 
 test('a page-level refusal renders as REFUSED, not as a metrics shortfall', () => {
