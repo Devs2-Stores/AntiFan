@@ -288,7 +288,12 @@ A settle-only fix cannot reach exit 0: the renewal class alone keeps both sets `
    now located: `IMAGE_HYDRATION_EXPR` runs once per tab (`theme-fidelity.mjs:1583`), right after
    `waitForReadyState` and **before** `settle.hydrateToCapturedState`, while the replay serves the dump as
    written (`replayFile`, `:1544-1550`) and so executes the page's own inline lazysizes — a promotion applied
-   before that loader's later, scroll-driven pass is re-swapped by it. The lever that follows is to re-apply the
+   before that loader's later, scroll-driven pass is re-swapped by it. The served file confirms the loader is
+   really in the page: `panel-out/replay/reference/article__1024x900.html` (952,976 bytes) carries
+   `lazySizes`/`lazysizes`, 7 `class="lazyload"` beside 7 `lazyloaded` — the mixed state, in one page — 13
+   `data-src=`, 8 base64 `src="data:image` placeholders and 10 inline scripts, while `data-srcset=` is absent
+   there. That absence narrows the unnamed hash mover as well: on this page it is a `src`-level change, so
+   recording each image's full `currentSrc` is the field that names it. The lever that follows is to re-apply the
    promotion immediately before the measurement read from one shared page function, not another class tweak.
    What remains on these two legs is a typed refusal that is currently the correct verdict: a surface that changes
    between two passes of one URL cannot be published as a comparison until the mechanism is either covered by the
