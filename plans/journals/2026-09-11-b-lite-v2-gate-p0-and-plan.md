@@ -458,3 +458,18 @@ running both concurrently would corrupt both verdict sets. It must be serialized
 started it. Phase 7 is untouched. Two throwaway proof scripts from earlier rounds are gone from
 `.canary/staging/` (the harness cleans its staging root); their measured results are what the phase
 files and this journal record.
+
+**J. Post-commit sweep: one real regression of my own, and five failures that are not mine.** Running the
+whole `test:canary` suite (not just the two files I had been running) caught a defect I had introduced:
+the clone-pipeline decision reads `p.phases.cloneGeneration`, and a page record that carries no `phases`
+made the branch throw instead of deciding, which broke four cases in
+`test/unit/canary-fifteen-pages-report.test.mjs`. Both decision branches now read through optional
+chaining — no assertion weakened, and the four cases are green (`80037e6`). The suite then reports
+**152 pass / 5 fail**, and all five are the owner's known fresh-clone fixture gap, reproduced here as
+machine-local evidence rather than a code defect: `build-report-bundle-ordering`,
+`build-report-embedded-drift` and `build-report-next-action` fail with *"referenced artifact missing"*
+against a store that lives outside the repository (`E:/Work/.antifan-canary/control-plane-v2/artifacts/…`
+and the gitignored `.antifan-data/control-plane-v2/artifacts/…`), and the bundle-ordering pair also
+depends on `.canary/run3/evidence/**`, which HEAD does not track. Fixing those tests (materialising each
+fixture into a temp artifact root, or a guarded skip naming the missing prerequisite) is the owner's
+declared work and I did not touch it.
