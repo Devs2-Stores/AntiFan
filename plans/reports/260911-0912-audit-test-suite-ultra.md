@@ -213,8 +213,9 @@ same signal as its child's 3. Every exit code recorded in this report was taken 
    The plan's acceptance box is still unchecked, so as it stands the plan and the code disagree.
 3. Should the benchmark and golden-live proof artifacts be committed at all, or be run outputs?
 4. The canary lane measured 133 and 138 tests for identical code across runs. This audit measured
-   137 after deleting a 5-test file, which implies the earlier 133 figure was itself a partial result.
-   The lane's own instability was never isolated; it is recorded here rather than closed.
+   137 after deleting a 1-test file (verified: the deleted file held exactly one `it()`), which is
+   consistent with the 138 figure and implies the earlier 133 was a partial result. The lane's own
+   instability was never isolated; it is recorded here rather than closed.
 5. The audit's candidate ranking is not published: the rubric passes were inconclusive (§1) and the
    controller's digest had already desynced path/line pairs for two candidates, so publishing a
    ranking would have recorded citations that were not verified. The verifier's union governs.
