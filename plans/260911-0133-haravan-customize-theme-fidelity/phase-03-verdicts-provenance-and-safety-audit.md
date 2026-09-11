@@ -119,3 +119,11 @@ is recorded, not worked around. Safety audit (`report.json.safetyAudit`): theme 
 `["-1","1001512581"]`, `foreignThemeIds.count 0`, no publish/deploy/push issued by the driver — with the
 explicit `hrv theme backup` + `hrv theme push` pair recorded separately in `push.log` and
 `push-force.log`. Restore point: `backups/phase5-pre-dev.zip`.
+
+**Writer-stop re-check (performed after the fact, 2026-09-11).** `serve.json` records
+`stopMethod: "taskkill-unconfirmed: … The process \"14020\" not found"`, so the run documents the stop
+*attempt*, not an observed exit — the one-writer rule needs the exit confirmed separately. Re-checked live:
+pid 14020 is not running, and no process command line matches `haravan|hrv|theme-fidelity|theme dev`
+except an unrelated long-lived user service (`E:\Work\tools\haravan-upload-toolkit\packages\gateway\dist\index.js serve`,
+pid 12008), which is not a theme writer and was not started by this run. At rest, therefore, no
+`hrv theme dev` watcher from run4 survives to push the local source onto `theme_id 1001512581`.
