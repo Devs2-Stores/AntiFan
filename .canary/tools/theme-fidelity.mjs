@@ -1208,7 +1208,7 @@ function readSupersededSession(file = SESSION_FILE) {
 }
 
 /**
- * Rotate the session between targets, closing the old mint tab first.
+ * Rotate the session between targets: mint the new session first, then close the previous mint tab.
  *
  * A session's attachment is bound to the tab it was minted with, and the bridge counts a
  * session's tab bindings for its whole life rather than its live set, so captures stop
@@ -1223,10 +1223,11 @@ function readSupersededSession(file = SESSION_FILE) {
  * bound session, so bindings held by a session this run has finished with cannot block a
  * fresh session's own binding; a failed mint reports `read ECONNRESET` from inside
  * `canary-session.mjs`'s pairing and lifecycle calls, not a quota refusal, and it failed the
- * same way before this release existed. What remains untested is the adjacency below: the
- * previous mint tab is closed immediately before the mint child starts, so a teardown still
- * in flight is the prime suspect for that reset. Closing the previous tab only after the new
- * session has bound, or inserting a settle gap between the two, is the experiment to run next.
+ * same way before this release existed. The adjacency is the prime suspect for that reset: closing
+ * the previous mint tab immediately before the mint child started left a tab teardown in flight
+ * while the child opened its lifecycle socket. The mint therefore runs first and the previous
+ * tab is closed only once the new session has bound — the order below — and the fast fixture is
+ * what measures whether the reset class survives it.
  *
  * The release runs after the mint, never before it. The bridge tears a session down
  * asynchronously, and a mint issued during that teardown has its lifecycle socket reset
@@ -1237,7 +1238,6 @@ function readSupersededSession(file = SESSION_FILE) {
  * not own.
  */
 async function renewSession(rpc, previousMintTabId, record = null) {
-  if (previousMintTabId) await closeTab(rpc.call, previousMintTabId, null);
   const superseded = readSupersededSession();
   const minted = await runChild(process.execPath, [SESSION_TOOL, String(rpc.bootstrap.port), SESSION_FILE], {
     timeoutMs: 120_000,
@@ -1246,6 +1246,11 @@ async function renewSession(rpc, previousMintTabId, record = null) {
   if (minted.code !== 0) {
     throw new NotMeasurable('SESSION_RENEWAL_FAILED', `canary-session.mjs exited ${minted.code ?? 'null'}${minted.timedOut ? ' (timeout)' : ''}: ${minted.stderr.trim().slice(0, 300)}`);
   }
+  // Closed after the mint, never immediately before it. The tab still belongs to the superseded
+  // session at this point — the release below has not run — so the socket bound to that
+  // attachment is the one that may close it, and a failed mint now leaves both the session and
+  // its tab intact for the next attempt instead of stranding the run.
+  if (previousMintTabId) await closeTab(rpc.call, previousMintTabId, null);
   // The release runs after the mint, never before it. The bridge tears a session down
   // asynchronously, and a mint issued while that teardown is still in flight has its
   // lifecycle socket reset (`read ECONNRESET`); measured with a probe, the same mint

@@ -237,13 +237,16 @@ A settle-only fix cannot reach exit 0: the renewal class alone keeps both sets `
    correlated with session teardown; do not build a pool fix against it. Judge the release by its own record,
    never by a later mint succeeding: `doc.sessionRelease.released === true` is the only evidence it took effect
    (`readSupersededSession` does forward `secret`, the field the bridge names as required, and diag pair 2
-   recorded `released: true`). Primary experiment, from the source's own adjacency: `renewSession` closes the
-   previous mint tab (`closeTab(previousMintTabId)`, `theme-fidelity.mjs:1231`) immediately before spawning the
-   mint child (`:1233`), so close the previous tab only after the new session has bound, or insert a settle gap
-   between the two — the same shape as the ordering probe already measured (`gap-0ms` exit 4 vs `gap-3000ms`
-   exit 0). A bounded transport-only retry on the mint is the fallback (a mint retry is not a verdict
-   relaxation), and per-pair lifecycle isolation is the escape hatch so one reset cannot cost the pairs that
-   follow.
+   recorded `released: true`). Primary experiment, from the source's own adjacency: `renewSession` closed the
+   previous mint tab (`theme-fidelity.mjs:1231`) immediately before spawning the mint child (`:1233`).
+   **That reorder is implemented** — the mint now runs first and the tab is closed once the new session has
+   bound (`:1240-1253`). Partial evidence from a fixture run cancelled on the operator's instruction after 2 of
+   4 verdicts: `cart__1440x900` measured (`INCONCLUSIVE`, `REFERENCE_IDENTITY_DRIFT+SUBJECT_IDENTITY_DRIFT`) with
+   `sessionRelease.released: true`, while `article__1024x900` still refused `SESSION_RENEWAL_FAILED` — so the
+   adjacency alone does not clear the class, and that fixture inherited its base session from a previously
+   aborted compare, so it is not a clean trial of the reorder. Still open, in order: a settle gap between mint
+   completion and the tab close, a bounded transport-only mint retry (a retry is not a verdict relaxation), and
+   per-pair lifecycle isolation so one reset cannot cost the pairs that follow.
 2. **Image identity churn, and the loader state.** After hydration, `article__1024x900` holds its geometry but
    still moves `imageSetHash` between passes; the `imagePanel`/`imageChanges` evidence added here exists to name
    the entry that moved. The replay runs the storefront's own lazysizes
