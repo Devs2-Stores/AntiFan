@@ -248,7 +248,14 @@ A settle-only fix cannot reach exit 0: the renewal class alone keeps both sets `
    6 of 21 in the post-anchor full run. Two independent post-retry runs needed the retry on two legs each —
    `sessionRenewal.attempts` recorded article 1, cart 3, home 1, product 2 — so those two legs refuse without
    it: the retry is what stands between them and `SESSION_RENEWAL_FAILED`. Campaign scale is 21 legs, so the
-   class is closed at fixture scale only.
+   class is closed at fixture scale only. The first-attempt failure rate is high enough that the residual matters:
+   across the twelve fixture leg-runs measured here (`pairfix-out2`, `loader-out`, `panel-out`) five needed more
+   than one attempt — `p = 0.417`, with attempts article 2/1/1, cart 2/3/1, home 1/1/2, product 1/2/1. At
+   `MINT_ATTEMPTS = 3`, and if attempts are independent, `p^3 = 0.072` leaves about **1.5 of 21 legs** expected to
+   refuse `SESSION_RENEWAL_FAILED` on a campaign re-run; four and five attempts give 0.63 and 0.26 legs. Raising
+   the bound before that run is the cheap move — a transport-only retry of the mint, no measurement replayed, the
+   refusal still typed — and it belongs to whoever holds `theme-fidelity.mjs`, which another session was editing
+   and running at handover.
    The reorder is kept for its failure handling — a failed mint no longer strands the run's tab — and not as a
    demonstrated remedy; `git revert 874060e` is the cheap exit if it proves inert beyond that. One lever remains
    untried: a settle gap between mint completion and the tab close. **Publication is now gated by the other two
@@ -259,19 +266,33 @@ A settle-only fix cannot reach exit 0: the renewal class alone keeps both sets `
    `imageSetSize`, `sectionCount`, `productCardCount`, `docHeight` 4821/5426, `scrollWidth` 1024/1425,
    `textHash`, `textLength`, `pendingImages` 0, `brokenImages` 0, `chromeProbe` region hashes — while
    `imageSetHash` takes three distinct values. Widening `imagePanel` from its first 12 images to all of them,
-   and recording the within-pass identity diff, named the movers against that constant document: the second
-   `logo-hlt-2024.png` instance shifts `y` 30 to 52 (article) and 30 to 55 (home), and an image whose truncated
-   basename is `%3E` (300x150) moves `y` 795 to 4675 (article) and 795 to 5321 (home). Same basenames, same
-   natural sizes, same counts, constant document height — a between-pass re-render that re-orders nodes, not an
-   image still loading: the within-pass identity diff is empty on both legs. The loader-state hypothesis was
+   and recording the within-pass identity diff, named two positional movers against that constant document: the
+   second `logo-hlt-2024.png` instance shifts `y` 30 to 52 (article) and 30 to 55 (home), and an image whose
+   truncated basename is `%3E` (300x150) moves `y` 795 to 4675 (article) and 795 to 5321 (home). The move is not
+   scroll — `chromeProbe.scrollY` is 0 and `SETTLE_SCROLL_ANCHOR_EXPR` asserts it, so every pass is `anchored:
+   true` with the page at the top — and it is not image loading either: `pendingImages` 0, `brokenImages` 0 and
+   every count and the document itself are constant. It is also **two mechanisms, not one**. The positional move
+   happens once, between pass 1 and pass 2, and `y` then holds through pass 3 while `imageSetHash` keeps
+   changing; a one-off layout or paint change after the read block — an ancestor transform or a carousel that
+   resumed when `releaseCompareBlockers` ran — fits it as well as a re-render, and a rect alone cannot tell them
+   apart, so neither is asserted here. The repeating mechanism is the hash, and the panel does not see it:
+   `panel` and `identityCounts` both key on `split('/').pop()` while `imageSetHash` uses the full `currentSrc`
+   plus natural size, so a URL-level change on a positionally stable image is invisible to that diff. **The hash
+   mover is therefore still unnamed**, and the next evidence field is each image's full `currentSrc` (or a hash
+   of it) — not another mover class. The loader-state hypothesis was
    tested and rejected as the mover. `IMAGE_HYDRATION_EXPR` gained `lazyloaded` on promotion (keeping the drop
    of `lazyload`/`lazyloading`, so no stale loader class survives), the 4-pair fixture reproduced the same four
    verdicts and the same mechanisms — `article__1024x900` and `home__1440x900` `content-changed-between-passes`,
    `cart__1440x900` `REFERENCE_IDENTITY_DRIFT+SUBJECT_IDENTITY_DRIFT`, `product__1440x900` `PASS/MATCH` — and
-   the edit was **reverted**: the promotion itself is the measured-good part and stays. What remains on these
-   two legs is the widget-carriage class this plan refuses to mask — a surface that re-orders its own nodes
-   between two passes of one URL refuses, unchanged in kind, until either the freeze covers the widget or the
-   owner accepts permanent refusal for that surface.
+   the edit was **reverted**: the promotion itself is the measured-good part and stays. Why it changed nothing is
+   now located: `IMAGE_HYDRATION_EXPR` runs once per tab (`theme-fidelity.mjs:1583`), right after
+   `waitForReadyState` and **before** `settle.hydrateToCapturedState`, while the replay serves the dump as
+   written (`replayFile`, `:1544-1550`) and so executes the page's own inline lazysizes — a promotion applied
+   before that loader's later, scroll-driven pass is re-swapped by it. The lever that follows is to re-apply the
+   promotion immediately before the measurement read from one shared page function, not another class tweak.
+   What remains on these two legs is a typed refusal that is currently the correct verdict: a surface that changes
+   between two passes of one URL cannot be published as a comparison until the mechanism is either covered by the
+   freeze or accepted as a permanent refusal — the owner decision recorded in the plan.
    The evidence additions stay: a full `imagePanel` and an `imageIdentityChanges` list are recorded, never gate
    inputs, so the next session can name a mover without re-deriving it.
 3. **Settlement honesty floor.** The strict path requires four consecutive samples with an unchanged image +
@@ -281,8 +302,8 @@ A settle-only fix cannot reach exit 0: the renewal class alone keeps both sets `
 4. **Geometry growth — closed on the two churn legs, open on mobile.** `pendingImages: 0` with
    `imageCount`/`sections`/`cards`/`text` constant while `docHeight`/`scrollWidth` grew did not fit plain image
    loading, and the post-promotion fixture resolved it for `article__1024x900` and `home__1440x900`: all three
-   passes hold `docHeight` 4821 and `scrollWidth` 1024, with the residual move being node re-ordering (item 2),
-   not the document. The pin-layer lever is therefore not indicated for those legs; it remains untested where
+   passes hold `docHeight` 4821 and `scrollWidth` 1024, with the residual move being the positional-and-hash
+   pair of item 2 rather than the document. The pin-layer lever is therefore not indicated for those legs; it remains untested where
    growth still appears, which after promotion is the `390x844` legs (the clone mobile defect, 4543–4545 px
    against a 9843 px dump). If the pin count rises with the document there, the fix is an idempotent or
    restored pin layer, not another wait.
